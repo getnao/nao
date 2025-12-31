@@ -13,9 +13,11 @@ function SignInForm() {
 		email: '',
 		password: '',
 	});
+	const [error, setError] = useState('');
 
 	const handleSubmit = async (e: React.FormEvent) => {
 		e.preventDefault();
+		setError('');
 		await signIn.email(
 			{
 				email: formData.email,
@@ -26,7 +28,7 @@ function SignInForm() {
 					navigate({ to: '/' });
 				},
 				onError: (error) => {
-					alert(`Error: ${error.error.message}`);
+					setError(error.error.message);
 				},
 			},
 		);
@@ -67,6 +69,7 @@ function SignInForm() {
 			footerText="Don't have an account?"
 			footerLinkText='Sign up'
 			footerLinkTo='/signup'
+			error={error}
 		/>
 	);
 }

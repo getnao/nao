@@ -21,6 +21,7 @@ interface SignFormProps {
 	footerText: string;
 	footerLinkText: string;
 	footerLinkTo: string;
+	error?: string;
 }
 
 export function SignForm({
@@ -33,10 +34,12 @@ export function SignForm({
 	footerText,
 	footerLinkText,
 	footerLinkTo,
+	error,
 }: SignFormProps) {
 	return (
 		<div className='container mx-auto w-full max-w-2xl p-12'>
 			<h1 className='text-4xl font-bold mb-8 text-center'>{title}</h1>
+			{error && <p className='text-red-500 text-center mb-4 text-2xl'>{error}</p>}
 			<form onSubmit={onSubmit} className='space-y-6'>
 				{fields.map((field) => (
 					<div key={field.id} className='space-y-3'>

@@ -14,9 +14,11 @@ function SignUpForm() {
 		email: '',
 		password: '',
 	});
+	const [error, setError] = useState('');
 
 	const handleSignUp = async (e: React.FormEvent) => {
 		e.preventDefault();
+		setError('');
 		await signUp.email(
 			{
 				name: formData.name,
@@ -28,7 +30,7 @@ function SignUpForm() {
 					navigate({ to: '/' });
 				},
 				onError: (error) => {
-					alert(`Error: ${error.error.message}`);
+					setError(error.error.message);
 				},
 			},
 		);
@@ -74,6 +76,7 @@ function SignUpForm() {
 			footerText='Already have an account?'
 			footerLinkText='Sign in'
 			footerLinkTo='/signin'
+			error={error}
 		/>
 	);
 }
