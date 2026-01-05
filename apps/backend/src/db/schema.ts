@@ -3,6 +3,12 @@ import { index, int, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
 export type NewUser = typeof user.$inferInsert;
 export type User = typeof user.$inferSelect;
+export type Conversation = typeof conversation.$inferSelect;
+export type NewConversation = typeof conversation.$inferInsert;
+export type ChatMessage = typeof chat_message.$inferSelect;
+export type NewChatMessage = typeof chat_message.$inferInsert;
+export type ToolCall = typeof tool_calls.$inferSelect;
+export type NewToolCall = typeof tool_calls.$inferInsert;
 
 export const user = sqliteTable('user', {
 	id: text('id').primaryKey(),
@@ -88,9 +94,63 @@ export const verification = sqliteTable(
 	(table) => [index('verification_identifier_idx').on(table.identifier)],
 );
 
+export const conversation = sqliteTable(
+	'conversation',
+	{
+		id: text('id').primaryKey(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		title: text('title').notNull().default('New Conversation'),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+		updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(table) => [index('conversation_userId_idx').on(table.userId)],
+);
+
+export const chat_message = sqliteTable(
+	'chat_message',
+	{
+		id: text('id').primaryKey(),
+		conversationId: text('conversation_id')
+			.notNull()
+			.references(() => conversation.id, { onDelete: 'cascade' }),
+		role: text('role', { enum: ['user', 'assistant', 'system'] }).notNull(),
+		content: text('content').notNull(),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+	},
+	(table) => [index('chat_message_conversationId_idx').on(table.conversationId)],
+);
+
+export const tool_calls = sqliteTable(
+	'tool_calls',
+	{
+		id: text('id').primaryKey(),
+		messageId: text('message_id')
+			.notNull()
+			.references(() => chat_message.id, { onDelete: 'cascade' }),
+		toolCallId: text('tool_call_id').notNull(),
+		toolName: text('tool_name').notNull(),
+		input: text('input', { mode: 'json' }).$type<unknown>().notNull(),
+		output: text('output', { mode: 'json' }).$type<unknown>(),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+	},
+	(table) => [index('tool_calls_messageId_idx').on(table.messageId)],
+);
+
 export const userRelations = relations(user, ({ many }) => ({
 	sessions: many(session),
 	accounts: many(account),
+	conversations: many(conversation),
 }));
 
 export const sessionRelations = relations(session, ({ one }) => ({
@@ -104,5 +164,28 @@ export const accountRelations = relations(account, ({ one }) => ({
 	user: one(user, {
 		fields: [account.userId],
 		references: [user.id],
+	}),
+}));
+
+export const conversationRelations = relations(conversation, ({ one, many }) => ({
+	user: one(user, {
+		fields: [conversation.userId],
+		references: [user.id],
+	}),
+	messages: many(chat_message),
+}));
+
+export const chatMessageRelations = relations(chat_message, ({ one, many }) => ({
+	conversation: one(conversation, {
+		fields: [chat_message.conversationId],
+		references: [conversation.id],
+	}),
+	toolCalls: many(tool_calls),
+}));
+
+export const toolCallsRelations = relations(tool_calls, ({ one }) => ({
+	message: one(chat_message, {
+		fields: [tool_calls.messageId],
+		references: [chat_message.id],
 	}),
 }));
