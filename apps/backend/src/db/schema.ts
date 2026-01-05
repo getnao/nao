@@ -1,15 +1,8 @@
 import { relations, sql } from 'drizzle-orm';
 import { index, int, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 
-export const usersTable = sqliteTable('test_users', {
-	id: int().primaryKey({ autoIncrement: true }),
-	name: text().notNull(),
-	age: int().notNull(),
-	email: text().notNull().unique(),
-});
-
-export type NewUser = typeof usersTable.$inferInsert;
-export type User = typeof usersTable.$inferSelect;
+export type NewUser = typeof user.$inferInsert;
+export type User = typeof user.$inferSelect;
 
 export const user = sqliteTable('user', {
 	id: text('id').primaryKey(),
