@@ -2,7 +2,7 @@ import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 
 import { db } from './db/db';
-import * as postgresSchema from './db/postgres-schema';
+import * as postgresSchema from './db/pg-schema';
 import * as sqliteSchema from './db/sqlite-schema';
 import { isPostgres } from './utils';
 

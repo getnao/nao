@@ -5,8 +5,8 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import * as postgresSchema from '../src/db/postgres-schema';
-import { NewUser, user } from '../src/db/postgres-schema';
+import * as postgresSchema from '../src/db/pg-schema';
+import { NewUser, user } from '../src/db/pg-schema';
 
 const db = drizzle(new Pool({ connectionString: process.env.DB_URL! }), {
 	schema: postgresSchema,

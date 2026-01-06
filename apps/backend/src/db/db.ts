@@ -5,7 +5,7 @@ import { drizzle as drizzlePostgres } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
 
 import { isPostgres } from '../utils';
-import * as postgresSchema from './postgres-schema';
+import * as postgresSchema from './pg-schema';
 import * as sqliteSchema from './sqlite-schema';
 
 export const db = isPostgres
