@@ -9,6 +9,3 @@ count.txt
 .tanstack
 .wrangler
 *.sqlite
-
-# Metadata db
-**/migrations-*/meta/
