@@ -1,12 +1,15 @@
 import 'dotenv/config';
 
 import { eq } from 'drizzle-orm';
+import { drizzle } from 'drizzle-orm/libsql';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { db } from '../src/db/db';
-import { NewUser, user } from '../src/db/schema';
+import { NewUser, user } from '../src/db/sqlite-schema';
+import * as sqliteSchema from '../src/db/sqlite-schema';
 
-describe('usersTable', () => {
+const db = drizzle(process.env.DB_FILE_NAME!, { schema: sqliteSchema });
+
+describe('userTable', () => {
 	const testUser: NewUser = {
 		id: 'test-user-id',
 		name: 'John',

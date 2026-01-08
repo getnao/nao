@@ -2,11 +2,13 @@ import 'dotenv/config';
 
 import { defineConfig } from 'drizzle-kit';
 
+import { dbUrl, dialect, migrationsFolder, schemaPath } from './src/utils';
+
 export default defineConfig({
-	out: './migrations',
-	schema: './src/db/schema.ts',
-	dialect: 'sqlite',
+	out: migrationsFolder,
+	schema: schemaPath,
+	dialect: dialect,
 	dbCredentials: {
-		url: process.env.DB_FILE_NAME!,
+		url: dbUrl,
 	},
 });

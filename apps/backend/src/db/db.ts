@@ -1,6 +1,13 @@
 import 'dotenv/config';
 
-import { drizzle } from 'drizzle-orm/libsql';
-import * as schema from './schema';
+import { drizzle as drizzleSqlite } from 'drizzle-orm/libsql';
+import { drizzle as drizzlePostgres } from 'drizzle-orm/node-postgres';
+import { Pool } from 'pg';
 
-export const db = drizzle(process.env.DB_FILE_NAME!, { schema });
+import { isPostgres } from '../utils';
+import * as postgresSchema from './pg-schema';
+import * as sqliteSchema from './sqlite-schema';
+
+export const db = isPostgres
+	? drizzlePostgres(new Pool({ connectionString: process.env.DB_URL! }), { schema: postgresSchema })
+	: drizzleSqlite(process.env.DB_FILE_NAME!, { schema: sqliteSchema });
