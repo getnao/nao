@@ -58,4 +58,15 @@ function Button({
 	);
 }
 
-export { Button, buttonVariants };
+function ButtonConnection({ children }: React.ComponentProps<'button'>) {
+	return (
+		<button
+			type='submit'
+			className='flex items-center gap-2 px-4 py-2 rounded-lg border border-border bg-background hover:bg-accent hover:text-accent-foreground transition-colors duration-200 shadow-sm hover:shadow-md'
+		>
+			{children}
+		</button>
+	);
+}
+
+export { Button, buttonVariants, ButtonConnection };

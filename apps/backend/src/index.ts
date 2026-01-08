@@ -1,6 +1,6 @@
 import app from './app';
 
-app.listen({ host: '0.0.0.0', port: 5000 })
+app.listen({ host: '0.0.0.0', port: 5005 })
 	.then((address) => {
 		console.log(`Server is running on ${address}`);
 	})

@@ -1,11 +1,20 @@
 import 'dotenv/config';
 
+import fastifyStatic from '@fastify/static';
 import { fastifyTRPCPlugin, FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import fastify from 'fastify';
+import { existsSync } from 'fs';
+import { dirname, join } from 'path';
+import { fileURLToPath } from 'url';
 import { serializerCompiler, validatorCompiler, ZodTypeProvider } from 'fastify-type-provider-zod';
 
 import { TrpcRouter, trpcRouter } from './router';
+import { authPlugin } from './routes/auth';
 import { chatPlugin } from './routes/chat';
+
+// Get the directory of the current module (works in both dev and compiled)
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 const app = fastify({ logger: true }).withTypeProvider<ZodTypeProvider>();
 export type App = typeof app;
@@ -30,11 +39,44 @@ app.register(chatPlugin, {
 	prefix: '/api/chat',
 });
 
+app.register(authPlugin, {
+	prefix: '/api',
+});
+
 /**
  * Tests the API connection
  */
 app.get('/api', async () => {
 	return 'Welcome to the API!';
 });
+
+// Serve frontend static files in production
+// Look for frontend dist in multiple possible locations
+const execDir = dirname(process.execPath); // Directory containing the compiled binary
+const possibleStaticPaths = [
+	join(execDir, 'public'),                // Bun compiled: public folder next to binary
+	join(__dirname, 'public'),              // When bundled: public folder next to compiled code
+	join(__dirname, '../public'),           // Alternative bundled location
+	join(__dirname, '../../frontend/dist'), // Development: relative to backend src
+];
+
+const staticRoot = possibleStaticPaths.find((p) => existsSync(p));
+console.log('Static root:', staticRoot || 'Not found (API-only mode)');
+
+if (staticRoot) {
+	app.register(fastifyStatic, {
+		root: staticRoot,
+		prefix: '/',
+	});
+
+	// SPA fallback: serve index.html for all non-API routes
+	app.setNotFoundHandler((request, reply) => {
+		if (request.url.startsWith('/api')) {
+			reply.status(404).send({ error: 'Not found' });
+		} else {
+			reply.sendFile('index.html');
+		}
+	});
+}
 
 export default app;
