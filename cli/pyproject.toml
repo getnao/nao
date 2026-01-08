@@ -1,0 +1,60 @@
+[project]
+name = "nao-core"
+version = "0.0.12"
+description = "nao Core is your analytics context builder with the best chat interface."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [{ name = "nao Labs" }]
+keywords = ["analytics", "chat", "ai"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+dependencies = [
+    "cyclopts>=4.4.4",
+    "pydantic>=2.10.0",
+    "pyyaml>=6.0.0",
+    "rich>=14.0.0",
+    "ibis-framework[bigquery]>=9.0.0",
+    "openai>=1.0.0",
+]
+
+[project.scripts]
+nao = "nao_core.main:app"
+
+[project.urls]
+Homepage = "https://getnao.io"
+Repository = "https://github.com/naolabs/chat"
+
+[dependency-groups]
+dev = ["ruff>=0.8.0", "ty>=0.0.9"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build]
+# Include the bin directory with server binary and public assets
+artifacts = ["nao_core/bin/**"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["nao_core"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "nao_core/**",
+    "README.md",
+    "LICENSE",
+]
+
+[tool.ruff]
+line-length = 120
