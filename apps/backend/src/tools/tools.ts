@@ -22,4 +22,9 @@ export const AgentTools = {
 		arguments: ToolZodSchemas.grep_codebase.in,
 		execute: toolAgentHandler.grepCodebase,
 	},
+	execute_sql: {
+		description: 'Execute a SQL query against the connected database and return the results.',
+		arguments: ToolZodSchemas.execute_sql.in,
+		execute: toolAgentHandler.executeSql,
+	},
 };

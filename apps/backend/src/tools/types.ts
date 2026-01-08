@@ -21,6 +21,13 @@ const GrepCodebaseInputSchema = z.object({
 	case_sensitive: z.boolean(),
 });
 
+const ExecuteSqlInputSchema = z.object({
+	sql_query: z.string(),
+	connection_type: z
+		.enum(['bigquery', 'snowflake', 'postgres', 'redshift', 'databricks', 'duckdb', 'athena', 'clickhouse'])
+		.optional(),
+});
+
 // Output Schemas
 
 const ReadFileOutputSchema = z.object({
@@ -56,6 +63,11 @@ const GrepCodebaseOutputSchema = z.array(
 	}),
 );
 
+const ExecuteSqlOutputSchema = z.object({
+	columns: z.array(z.string()),
+	rows: z.array(z.any()).optional(),
+});
+
 /**
  * Defines the built-in tools that are available to the agent.
  */
@@ -79,6 +91,11 @@ export type ToolTypes = {
 		in: z.infer<typeof GrepCodebaseInputSchema>;
 		out: z.infer<typeof GrepCodebaseOutputSchema>;
 	};
+
+	execute_sql: {
+		in: z.infer<typeof ExecuteSqlInputSchema>;
+		out: z.infer<typeof ExecuteSqlOutputSchema>;
+	};
 };
 
 export type ToolName = keyof ToolTypes;
@@ -93,4 +110,5 @@ export const ToolZodSchemas: {
 	search_files: { in: SearchFilesInputSchema, out: SearchFilesOutputSchema },
 	list_directory: { in: PathInputSchema, out: ListDirectoryOutputSchema },
 	grep_codebase: { in: GrepCodebaseInputSchema, out: GrepCodebaseOutputSchema },
+	execute_sql: { in: ExecuteSqlInputSchema, out: ExecuteSqlOutputSchema },
 };

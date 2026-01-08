@@ -26,6 +26,8 @@ dependencies = [
     "rich>=14.0.0",
     "ibis-framework[bigquery]>=9.0.0",
     "openai>=1.0.0",
+    "fastapi>=0.128.0",
+    "uvicorn>=0.40.0",
 ]
 
 [project.scripts]

@@ -2,6 +2,7 @@ import fs from 'fs/promises';
 import { glob } from 'glob';
 import path from 'path';
 
+import { PythonBridge } from '../python-bridge';
 import { ToolTypes } from './types';
 
 export const toolAgentHandler = {
@@ -125,5 +126,39 @@ export const toolAgentHandler = {
 		} catch (error) {
 			throw new Error(`Error grepping codebase with pattern ${pattern}: ${error}`);
 		}
+	},
+
+	executeSql: async (input: ToolTypes['execute_sql']['in']): Promise<ToolTypes['execute_sql']['out']> => {
+		const { sql_query: query } = input;
+
+		const response = await fetch(`${process.env.FASTAPI_URL}/execute_sql`, {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+			},
+			body: JSON.stringify({
+				sql: query,
+				project_id: 'nao-corp',
+				credentials_path: '/Users/mateolebrassancho/Downloads/nao-corp-1693265c8499.json',
+			}),
+		});
+
+		if (!response.ok) {
+			throw new Error(`Error executing SQL query: ${response.statusText}`);
+		}
+
+		return response.json();
+
+		// const bq = new PythonBridge();
+		// try {
+		// 	const result = await bq.executeSql({
+		// 		sql: query,
+		// 		project_id: 'nao-corp',
+		// 		credentials_path: '/Users/mateolebrassancho/Downloads/nao-corp-1693265c8499.json',
+		// 	});
+		// 	return result;
+		// } finally {
+		// 	await bq.close();
+		// }
 	},
 };
