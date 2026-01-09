@@ -39,6 +39,7 @@ nao chat
 This will start the nao chat UI. It will open the chat interface in your browser at `http://localhost:5005`.
 
 ## Development
+
 ### Running the project
 
 At the root of the project, run:

@@ -134,3 +134,67 @@ code {
 		@apply bg-background text-foreground;
 	}
 }
+
+@utility text-shimmer {
+	color: transparent;
+	background-clip: text !important;
+	animation: shimmer 1.5s linear infinite;
+	background:
+		radial-gradient(circle at center, rgba(255, 255, 255, 0.85), transparent) -200% 50% / 200% 100% no-repeat,
+		#000;
+
+	&:is(.dark *) {
+		background:
+			radial-gradient(circle at center, rgb(24 24 27 / 85%), transparent) -200% 50% / 200% 100% no-repeat,
+			#f4f4f5;
+	}
+}
+
+/* HTML: <div class="loader"></div> */
+@utility chat-response-loading {
+	width: 20px;
+	aspect-ratio: 2;
+	--_g: no-repeat radial-gradient(circle closest-side, #000 90%, #0000);
+	background:
+		var(--_g) 0% 50%,
+		var(--_g) 50% 50%,
+		var(--_g) 100% 50%;
+	background-size: calc(100% / 3) 50%;
+	animation: l3 1.2s infinite linear;
+}
+
+@keyframes l3 {
+	20% {
+		background-position:
+			0% 0%,
+			50% 50%,
+			100% 50%;
+	}
+	40% {
+		background-position:
+			0% 100%,
+			50% 0%,
+			100% 50%;
+	}
+	60% {
+		background-position:
+			0% 50%,
+			50% 100%,
+			100% 0%;
+	}
+	80% {
+		background-position:
+			0% 50%,
+			50% 50%,
+			100% 100%;
+	}
+}
+
+@keyframes shimmer {
+	0% {
+		background-position: 200% 0%;
+	}
+	100% {
+		background-position: -200% 0%;
+	}
+}

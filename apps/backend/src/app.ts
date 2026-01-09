@@ -3,10 +3,10 @@ import 'dotenv/config';
 import fastifyStatic from '@fastify/static';
 import { fastifyTRPCPlugin, FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import fastify from 'fastify';
+import { serializerCompiler, validatorCompiler, ZodTypeProvider } from 'fastify-type-provider-zod';
 import { existsSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
-import { serializerCompiler, validatorCompiler, ZodTypeProvider } from 'fastify-type-provider-zod';
 
 import { TrpcRouter, trpcRouter } from './router';
 import { authPlugin } from './routes/auth';
@@ -36,7 +36,7 @@ app.register(fastifyTRPCPlugin, {
 });
 
 app.register(chatPlugin, {
-	prefix: '/api',
+	prefix: '/api/chat',
 });
 
 app.register(authPlugin, {
@@ -54,9 +54,9 @@ app.get('/api', async () => {
 // Look for frontend dist in multiple possible locations
 const execDir = dirname(process.execPath); // Directory containing the compiled binary
 const possibleStaticPaths = [
-	join(execDir, 'public'),                // Bun compiled: public folder next to binary
-	join(__dirname, 'public'),              // When bundled: public folder next to compiled code
-	join(__dirname, '../public'),           // Alternative bundled location
+	join(execDir, 'public'), // Bun compiled: public folder next to binary
+	join(__dirname, 'public'), // When bundled: public folder next to compiled code
+	join(__dirname, '../public'), // Alternative bundled location
 	join(__dirname, '../../frontend/dist'), // Development: relative to backend src
 ];
 

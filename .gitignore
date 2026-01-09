@@ -9,3 +9,5 @@ count.txt
 .tanstack
 .wrangler
 *.sqlite
+.husky/_
+chats

@@ -7,19 +7,14 @@ interface CustomLinkProps extends LinkProps {
 	className?: string;
 }
 
-export const Link = forwardRef<HTMLAnchorElement, CustomLinkProps>(
-	({ className, ...props }, ref) => {
-		return (
-			<RouterLink
-				ref={ref}
-				{...props}
-				className={cn(
-					'text-foreground hover:text-foreground/80 transition-colors',
-					className,
-				)}
-			/>
-		);
-	},
-);
+export const Link = forwardRef<HTMLAnchorElement, CustomLinkProps>(({ className, ...props }, ref) => {
+	return (
+		<RouterLink
+			ref={ref}
+			{...props}
+			className={cn('text-foreground hover:text-foreground/80 transition-colors', className)}
+		/>
+	);
+});
 
 Link.displayName = 'Link';

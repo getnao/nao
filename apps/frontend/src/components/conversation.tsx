@@ -11,9 +11,9 @@ export type ConversationProps = ComponentProps<typeof StickToBottom>;
 export const Conversation = ({ className, ...props }: ConversationProps) => (
 	<StickToBottom
 		className={cn('relative flex-1 overflow-y-hidden', className)}
-		initial='smooth'
+		initial='instant'
 		resize='smooth'
-		role='log'
+		role=''
 		{...props}
 	/>
 );
@@ -76,5 +76,13 @@ export const ConversationScrollButton = ({ className, ...props }: ConversationSc
 				<ArrowDownIcon className='size-4' />
 			</Button>
 		)
+	);
+};
+
+export const AssistantMessageLoader = () => {
+	return (
+		<div className='px-4 py-2 h-[40px] flex items-center'>
+			<div className='chat-response-loading' />
+		</div>
 	);
 };

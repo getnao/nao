@@ -1,22 +1,21 @@
-import { createRootRoute, Outlet } from '@tanstack/react-router';
-import { Header } from '../components/header';
+import { createRootRoute } from '@tanstack/react-router';
+// import { Header } from '../components/header';
+import { Sidebar } from '@/components/sidebar';
+import { ChatView } from '@/components/chat-view';
+import { useDisposeInactiveAgents } from '@/hooks/useAgent';
 
 export const Route = createRootRoute({
-	component: () => (
-		<>
-			<Header />
-			<Outlet />
-			{/* <TanStackDevtools
-				config={{
-					position: 'bottom-right',
-				}}
-				plugins={[
-					{
-						name: 'Tanstack Router',
-						render: <TanStackRouterDevtoolsPanel />,
-					},
-				]}
-			/> */}
-		</>
-	),
+	component: RootComponent,
 });
+
+function RootComponent() {
+	useDisposeInactiveAgents();
+
+	return (
+		<div className='flex h-screen'>
+			{/* <Header /> */}
+			<Sidebar />
+			<ChatView />
+		</div>
+	);
+}

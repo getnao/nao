@@ -2,7 +2,8 @@
 	"name": "backend",
 	"type": "module",
 	"exports": {
-		"./router": "./src/router.ts"
+		"./router": "./src/router.ts",
+		"./chat": "./src/types/chat.ts"
 	},
 	"scripts": {
 		"dev": "bun --watch src/index.ts",

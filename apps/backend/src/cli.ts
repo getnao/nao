@@ -11,7 +11,7 @@
 import path from 'path';
 
 import { runMigrations } from './db/migrate';
-import { parseDbUri, type DatabaseType } from './utils';
+import { type DatabaseType, parseDbUri } from './utils';
 
 function getExecutableDir(): string {
 	// When running as a compiled binary, process.execPath is the path to the binary itself
