@@ -1,8 +1,11 @@
 import { tool } from 'ai';
-import fs from 'fs/promises';
-import { glob } from 'glob';
-import path from 'path';
 import z from 'zod/v3';
+
+import { execute_sql } from './tools/execute_sql';
+import { grep_codebase } from './tools/grep_codebase';
+import { list_directory } from './tools/list_directory';
+import { read_file } from './tools/read_file';
+import { search_files } from './tools/search_files';
 
 export const tools = {
 	getWeather: tool({
@@ -36,17 +39,7 @@ export const tools = {
 			numberOfTotalLines: z.number(),
 		}),
 		execute: async ({ file_path }) => {
-			try {
-				const content = await fs.readFile(file_path, 'utf-8');
-				const numberOfTotalLines = content.split('\n').length;
-
-				return {
-					content,
-					numberOfTotalLines,
-				};
-			} catch (error) {
-				throw new Error(`Error reading file at ${file_path}: ${error}`);
-			}
+			return await read_file(file_path);
 		},
 	}),
 	search_files: tool({
@@ -63,69 +56,24 @@ export const tools = {
 			}),
 		),
 		execute: async ({ file_pattern }) => {
-			try {
-				const files = await glob(file_pattern, { absolute: true });
-
-				return await Promise.all(
-					files.map(async (absoluteFilePath) => {
-						const stats = await fs.stat(absoluteFilePath);
-						const relativeFilePath = path.relative(process.cwd(), absoluteFilePath);
-						const relativeDirPath = path.dirname(relativeFilePath);
-
-						return {
-							absoluteFilePath,
-							relativeFilePath,
-							relativeDirPath,
-							size: stats.size.toString(),
-						};
-					}),
-				);
-			} catch (error) {
-				throw new Error(`Error searching files with pattern ${file_pattern}: ${error}`);
-			}
+			return await search_files(file_pattern);
 		},
 	}),
 	list_directory: tool({
 		description: 'List the contents of a directory at a given path.',
 		inputSchema: z.object({
-			path: z.string(),
+			dir_path: z.string(),
 		}),
 		outputSchema: z.array(
 			z.object({
 				path: z.string(),
 				name: z.string(),
-				type: z.enum(['file', 'directory', 'symbolic_link']).or(z.undefined()),
-				size: z.string().or(z.undefined()),
+				type: z.enum(['file', 'directory', 'symbolic_link']).optional(),
+				size: z.string().optional(),
 			}),
 		),
-		execute: async ({ path: dirPath }) => {
-			try {
-				const entries = await fs.readdir(dirPath, { withFileTypes: true });
-
-				return await Promise.all(
-					entries.map(async (entry) => {
-						const fullPath = path.join(dirPath, entry.name);
-
-						const type = entry.isDirectory()
-							? 'directory'
-							: entry.isFile()
-								? 'file'
-								: entry.isSymbolicLink()
-									? 'symbolic_link'
-									: undefined;
-						const size = type === 'directory' ? undefined : (await fs.stat(fullPath)).size.toString();
-
-						return {
-							path: fullPath,
-							name: entry.name,
-							type,
-							size,
-						};
-					}),
-				);
-			} catch (error) {
-				throw new Error(`Error listing directory at ${dirPath}: ${error}`);
-			}
+		execute: async ({ dir_path }) => {
+			return await list_directory(dir_path);
 		},
 	}),
 	grep_codebase: tool({
@@ -145,56 +93,8 @@ export const tools = {
 				relativePath: z.string(),
 			}),
 		),
-		execute: async ({ pattern, include, exclude, case_sensitive }) => {
-			try {
-				const flags = case_sensitive ? 'g' : 'gi';
-				const regex = new RegExp(pattern, flags);
-
-				// Get all files matching include patterns and not matching exclude patterns
-				const includeFiles = await Promise.all(include.map((p) => glob(p, { absolute: true })));
-				const allIncludeFiles = includeFiles.flat();
-
-				const excludeFiles =
-					exclude.length > 0 ? await Promise.all(exclude.map((p) => glob(p, { absolute: true }))) : [];
-				const allExcludeFiles = new Set(excludeFiles.flat());
-
-				const filesToSearch = allIncludeFiles.filter((file) => !allExcludeFiles.has(file));
-
-				const results: Array<{
-					line: number;
-					text: string;
-					matchCount: number;
-					absolutePath: string;
-					relativePath: string;
-				}> = [];
-
-				for (const absolutePath of filesToSearch) {
-					try {
-						const content = await fs.readFile(absolutePath, 'utf-8');
-						const lines = content.split('\n');
-						const relativePath = path.relative(process.cwd(), absolutePath);
-
-						lines.forEach((lineText, index) => {
-							const matches = lineText.match(regex);
-							if (matches) {
-								results.push({
-									line: index + 1,
-									text: lineText,
-									matchCount: matches.length,
-									absolutePath,
-									relativePath,
-								});
-							}
-						});
-					} catch {
-						continue;
-					}
-				}
-
-				return results;
-			} catch (error) {
-				throw new Error(`Error grepping codebase with pattern ${pattern}: ${error}`);
-			}
+		execute: async ({ ...config }) => {
+			return await grep_codebase(config);
 		},
 	}),
 	execute_sql: tool({
@@ -210,24 +110,7 @@ export const tools = {
 			rows: z.array(z.any()).optional(),
 		}),
 		execute: async ({ sql_query: query }) => {
-			const response = await fetch(`${process.env.FASTAPI_URL}/execute_sql`, {
-				method: 'POST',
-				headers: {
-					'Content-Type': 'application/json',
-				},
-				// TO DO : replace with only the query and get the project_id and credentials_path from cli config
-				body: JSON.stringify({
-					sql: query,
-					project_id: 'nao-corp',
-					credentials_path: '/Users/mateolebrassancho/Downloads/nao-corp-1693265c8499.json',
-				}),
-			});
-
-			if (!response.ok) {
-				throw new Error(`Error executing SQL query: ${response.statusText}`);
-			}
-
-			return response.json();
+			return await execute_sql(query);
 		},
 	}),
 };
