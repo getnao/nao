@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Form, BackgroundTasks
+from fastapi import FastAPI, Form, BackgroundTasks, Request, HTTPException
 from pydantic import BaseModel
 import httpx
 import asyncio
@@ -9,6 +9,11 @@ import os
 import sys
 from pathlib import Path
 import requests
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+import json
+import re
 
 cli_path = Path(__file__).parent.parent.parent / "cli"
 sys.path.insert(0, str(cli_path))
@@ -40,7 +45,7 @@ class ExecuteSQLResponse(BaseModel):
     columns: list[str]
 
 
-async def process_sql_query(sql_query: str, response_url: str, user_name:  str):
+async def process_sql_query(sql_query: str, response_url: str = None):
     try:    
         bq_config = BigQueryConfig(
             name="bigquery_connection",
@@ -60,7 +65,10 @@ async def process_sql_query(sql_query: str, response_url: str, user_name:  str):
             "response_type": "in_channel",
             "text":  f"✅ Requête exécutée avec succès !\n\n*Résultats : * {row_count} ligne(s)\n\n```\n{preview}\n```"
         }
-        requests.post(response_url, json=final_response)
+        
+        if response_url is not None:
+            requests.post(response_url, json=final_response)
+        return final_response
             
     except Exception as e:
         error_response = {
@@ -103,11 +111,41 @@ async def slack_command(
     response_url: str = Form(...),
     background_tasks: BackgroundTasks = None
 ):
-    background_tasks.add_task(process_sql_query, text, response_url, user_name)
+    background_tasks.add_task(process_sql_query, text, response_url)
     
     return {
         "text": "Analyzing your request... This may take a moment."
     }
+
+
+@app.post("/slack/app_mention")
+async def slack_mention(
+    request: Request
+):
+    body = await request.body()
+    data = json.loads(body)
+    print("Received Slack mention:", data)
+
+    if data.get("type") == "url_verification":
+        challenge = data.get("challenge")
+        return {"challenge": challenge}
+
+    text = data.get("event", {}).get("text", "")
+    text = re.sub(r'<@[A-Z0-9]+>', '', text).strip()
+
+    result = await process_sql_query(text)
+
+    requests.post(
+        "https://slack.com/api/chat.postMessage",
+        headers={
+            "Content-Type": "application/json",
+        },
+        json=dict(
+            token=data["token"],
+            channel=data["event"]["channel"],
+            text=result["text"]
+        )
+    )
 
 
 @app.post("/")

@@ -1,6 +1,7 @@
 import fastifyStatic from '@fastify/static';
 import { fastifyTRPCPlugin, FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import fastify from 'fastify';
+import fastifyRawBody from 'fastify-raw-body';
 import { serializerCompiler, validatorCompiler, ZodTypeProvider } from 'fastify-type-provider-zod';
 import { existsSync } from 'fs';
 import { dirname, join } from 'path';
@@ -8,6 +9,7 @@ import { fileURLToPath } from 'url';
 
 import { authRoutes } from './routes/auth';
 import { chatRoutes } from './routes/chat';
+import { slackRoutes } from './routes/slack';
 import { TrpcRouter, trpcRouter } from './trpc/router';
 import { createContext } from './trpc/trpc';
 
@@ -21,6 +23,13 @@ export type App = typeof app;
 // Set the validator and serializer compilers for the Zod type provider
 app.setValidatorCompiler(validatorCompiler);
 app.setSerializerCompiler(serializerCompiler);
+
+// Register raw body plugin for Slack signature verification
+app.register(fastifyRawBody, {
+	field: 'rawBody',
+	global: false,
+	runFirst: true,
+});
 
 // Register tRPC plugin
 app.register(fastifyTRPCPlugin, {
@@ -40,6 +49,10 @@ app.register(chatRoutes, {
 
 app.register(authRoutes, {
 	prefix: '/api',
+});
+
+app.register(slackRoutes, {
+	prefix: '/api/slack',
 });
 
 /**
