@@ -1,8 +1,8 @@
 import type { Chat } from '@ai-sdk/react';
-import type { Message } from 'backend/chat';
+import type { UIMessage } from 'backend/chat';
 
 /** An agent is a chat instance with tools */
-export type Agent = Chat<Message>;
+export type Agent = Chat<UIMessage>;
 
 /** A map of agent instances, to allow running agents in parallel across tabs */
 const agents = new Map<string, Agent>();

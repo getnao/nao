@@ -7,7 +7,7 @@ import type { ComponentProps } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { useChatListQuery } from '@/hooks/queries/useChatListQuery';
+import { useChatListQuery } from '@/queries/useChatListQuery';
 import { trpc } from '@/main';
 
 export function Sidebar({ className, ...props }: ComponentProps<'div'>) {
@@ -16,7 +16,7 @@ export function Sidebar({ className, ...props }: ComponentProps<'div'>) {
 	const { chatId } = useParams({ strict: false });
 	const [isCollapsed, setIsCollapsed] = useState(false);
 	const deleteChat = useMutation(
-		trpc.deleteChat.mutationOptions({
+		trpc.chat.delete.mutationOptions({
 			onSuccess: (_data, _vars, _res, ctx) => {
 				navigate({ to: '/' });
 				ctx.client.invalidateQueries();
@@ -74,7 +74,7 @@ export function Sidebar({ className, ...props }: ComponentProps<'div'>) {
 			{/* Chat List */}
 			{!isCollapsed && (
 				<ChatList
-					chats={chats.data || []}
+					chats={chats.data?.chats || []}
 					activeChatId={chatId}
 					onChatSelect={handleSelectChat}
 					onChatDelete={handleDeleteChat}

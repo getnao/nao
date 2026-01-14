@@ -43,32 +43,25 @@ function SignUp() {
 		});
 	};
 
-	const fields = [
-		{
-			id: 'name',
-			name: 'name',
-			type: 'text',
-			label: 'Name',
-		},
-		{
-			id: 'email',
-			name: 'email',
-			type: 'email',
-			label: 'Email',
-			placeholder: 'test@gmail.com',
-		},
-		{
-			id: 'password',
-			name: 'password',
-			type: 'password',
-			label: 'Password',
-		},
-	];
-
 	return (
 		<SignInForm
 			title='Sign Up'
-			fields={fields}
+			fields={[
+				{
+					name: 'name',
+					placeholder: 'Name',
+				},
+				{
+					name: 'email',
+					type: 'email',
+					placeholder: 'Email',
+				},
+				{
+					name: 'password',
+					type: 'password',
+					placeholder: 'Password',
+				},
+			]}
 			formData={formData}
 			onSubmit={handleSignUp}
 			onChange={handleChange}

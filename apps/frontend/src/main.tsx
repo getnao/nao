@@ -8,7 +8,7 @@ import ReactDOM from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { routeTree } from './routeTree.gen';
 import reportWebVitals from './reportWebVitals';
-import type { TrpcRouter } from 'backend/router';
+import type { TrpcRouter } from 'backend/trpc';
 
 // Register the router instance for type safety
 declare module '@tanstack/react-router' {

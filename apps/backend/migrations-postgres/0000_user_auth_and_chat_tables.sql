@@ -14,20 +14,41 @@ CREATE TABLE "account" (
 	"updated_at" timestamp NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "chat_message" (
-	"id" text PRIMARY KEY NOT NULL,
-	"conversation_id" text NOT NULL,
-	"role" text NOT NULL,
-	"content" text NOT NULL,
-	"created_at" timestamp DEFAULT now() NOT NULL
-);
---> statement-breakpoint
-CREATE TABLE "conversation" (
+CREATE TABLE "chat" (
 	"id" text PRIMARY KEY NOT NULL,
 	"user_id" text NOT NULL,
 	"title" text DEFAULT 'New Conversation' NOT NULL,
 	"created_at" timestamp DEFAULT now() NOT NULL,
 	"updated_at" timestamp DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "chat_message" (
+	"id" text PRIMARY KEY NOT NULL,
+	"chat_id" text NOT NULL,
+	"role" text NOT NULL,
+	"created_at" timestamp DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "message_part" (
+	"id" text PRIMARY KEY NOT NULL,
+	"message_id" text NOT NULL,
+	"order" integer NOT NULL,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	"type" text NOT NULL,
+	"text" text,
+	"reasoning_text" text,
+	"tool_call_id" text,
+	"tool_name" text,
+	"tool_state" text,
+	"tool_error_text" text,
+	"tool_input" jsonb,
+	"tool_output" jsonb,
+	"tool_approval_id" text,
+	"tool_approval_approved" boolean,
+	"tool_approval_reason" text,
+	CONSTRAINT "text_required_if_type_is_text" CHECK (CASE WHEN "message_part"."type" = 'text' THEN "message_part"."text" IS NOT NULL ELSE TRUE END),
+	CONSTRAINT "reasoning_text_required_if_type_is_reasoning" CHECK (CASE WHEN "message_part"."type" = 'reasoning' THEN "message_part"."reasoning_text" IS NOT NULL ELSE TRUE END),
+	CONSTRAINT "tool_call_fields_required" CHECK (CASE WHEN "message_part"."type" LIKE 'tool-%' THEN "message_part"."tool_call_id" IS NOT NULL AND "message_part"."tool_state" IS NOT NULL ELSE TRUE END)
 );
 --> statement-breakpoint
 CREATE TABLE "session" (
@@ -40,16 +61,6 @@ CREATE TABLE "session" (
 	"user_agent" text,
 	"user_id" text NOT NULL,
 	CONSTRAINT "session_token_unique" UNIQUE("token")
-);
---> statement-breakpoint
-CREATE TABLE "tool_call" (
-	"id" text PRIMARY KEY NOT NULL,
-	"message_id" text NOT NULL,
-	"tool_call_id" text NOT NULL,
-	"tool_name" text NOT NULL,
-	"input" jsonb NOT NULL,
-	"output" jsonb,
-	"created_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE "user" (
@@ -73,13 +84,15 @@ CREATE TABLE "verification" (
 );
 --> statement-breakpoint
 ALTER TABLE "account" ADD CONSTRAINT "account_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "chat_message" ADD CONSTRAINT "chat_message_conversation_id_conversation_id_fk" FOREIGN KEY ("conversation_id") REFERENCES "public"."conversation"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "conversation" ADD CONSTRAINT "conversation_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "chat" ADD CONSTRAINT "chat_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "chat_message" ADD CONSTRAINT "chat_message_chat_id_chat_id_fk" FOREIGN KEY ("chat_id") REFERENCES "public"."chat"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "message_part" ADD CONSTRAINT "message_part_message_id_chat_message_id_fk" FOREIGN KEY ("message_id") REFERENCES "public"."chat_message"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "session" ADD CONSTRAINT "session_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "tool_call" ADD CONSTRAINT "tool_call_message_id_chat_message_id_fk" FOREIGN KEY ("message_id") REFERENCES "public"."chat_message"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "account_userId_idx" ON "account" USING btree ("user_id");--> statement-breakpoint
-CREATE INDEX "chat_message_conversationId_idx" ON "chat_message" USING btree ("conversation_id");--> statement-breakpoint
-CREATE INDEX "conversation_userId_idx" ON "conversation" USING btree ("user_id");--> statement-breakpoint
+CREATE INDEX "chat_userId_idx" ON "chat" USING btree ("user_id");--> statement-breakpoint
+CREATE INDEX "chat_message_chatId_idx" ON "chat_message" USING btree ("chat_id");--> statement-breakpoint
+CREATE INDEX "chat_message_createdAt_idx" ON "chat_message" USING btree ("created_at");--> statement-breakpoint
+CREATE INDEX "parts_message_id_idx" ON "message_part" USING btree ("message_id");--> statement-breakpoint
+CREATE INDEX "parts_message_id_order_idx" ON "message_part" USING btree ("message_id","order");--> statement-breakpoint
 CREATE INDEX "session_userId_idx" ON "session" USING btree ("user_id");--> statement-breakpoint
-CREATE INDEX "tool_call_messageId_idx" ON "tool_call" USING btree ("message_id");--> statement-breakpoint
 CREATE INDEX "verification_identifier_idx" ON "verification" USING btree ("identifier");

@@ -5,13 +5,13 @@ import { Chat as Agent, useChat } from '@ai-sdk/react';
 import { DefaultChatTransport, lastAssistantMessageIsCompleteWithToolCalls } from 'ai';
 import { useCurrent } from './useCurrent';
 import type { UseChatHelpers } from '@ai-sdk/react';
-import type { Message } from 'backend/chat';
-import { useChatQuery } from '@/hooks/queries/useChatQuery';
+import type { UIMessage } from 'backend/chat';
+import { useChatQuery } from '@/queries/useChatQuery';
 import { trpc } from '@/main';
 import { agentService } from '@/lib/agents';
 import { checkIsRunning } from '@/lib/ai';
 
-export type AgentHelpers = UseChatHelpers<Message> & {
+export type AgentHelpers = UseChatHelpers<UIMessage> & {
 	isRunning: boolean;
 	isReadyForNewMessages: boolean;
 };
@@ -30,7 +30,7 @@ export const useAgent = (): AgentHelpers => {
 			return existingAgent;
 		}
 
-		const newAgent = new Agent<Message>({
+		const newAgent = new Agent<UIMessage>({
 			id: originalChatId,
 			transport: new DefaultChatTransport({
 				api: '/api/chat/agent',
@@ -44,20 +44,22 @@ export const useAgent = (): AgentHelpers => {
 				},
 			}),
 			onData: (chunk) => {
-				const newChatId = chunk.data.id;
+				const newChat = chunk.data;
 
 				// Move the chat instance to the new chat id
-				agentService.moveAgent(originalChatId, newChatId);
+				agentService.moveAgent(originalChatId, newChat.id);
 
 				// Update the query data
-				queryClient.setQueryData(trpc.getChat.queryKey({ chatId: newChatId }), {
+				queryClient.setQueryData(trpc.chat.get.queryKey({ chatId: newChat.id }), {
 					...chunk.data,
 					messages: agentInstance.messages,
 				});
-				queryClient.setQueryData(trpc.listChats.queryKey(), (old) => [chunk.data, ...(old || [])]);
+				queryClient.setQueryData(trpc.chat.list.queryKey(), (old) => ({
+					chats: [newChat, ...(old?.chats || [])],
+				}));
 
 				// Navigate to the new chat id
-				navigate({ to: '/$chatId', params: { chatId: newChatId } });
+				navigate({ to: '/$chatId', params: { chatId: newChat.id } });
 			},
 			sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
 			onFinish: () => {
@@ -79,14 +81,14 @@ export const useAgent = (): AgentHelpers => {
 	// Sync the agent's messages with the fetched ones
 	useEffect(() => {
 		if (chat.data?.messages && !isRunning) {
-			setMessages(chat.data.messages as Message[]);
+			setMessages(chat.data.messages as UIMessage[]);
 		}
 	}, [chat.data?.messages, isRunning, setMessages]);
 
 	// Sync the fetched messages with the agent's
 	useEffect(() => {
 		if (isRunning) {
-			queryClient.setQueryData(trpc.getChat.queryKey({ chatId }), (prev) =>
+			queryClient.setQueryData(trpc.chat.get.queryKey({ chatId }), (prev) =>
 				!prev ? prev : { ...prev, messages },
 			);
 		}

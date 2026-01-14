@@ -1,5 +1,3 @@
-import 'dotenv/config';
-
 import fastifyStatic from '@fastify/static';
 import { fastifyTRPCPlugin, FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import fastify from 'fastify';
@@ -8,9 +6,10 @@ import { existsSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 
-import { TrpcRouter, trpcRouter } from './router';
-import { authPlugin } from './routes/auth';
-import { chatPlugin } from './routes/chat';
+import { authRoutes } from './routes/auth';
+import { chatRoutes } from './routes/chat';
+import { TrpcRouter, trpcRouter } from './trpc/router';
+import { createContext } from './trpc/trpc';
 
 // Get the directory of the current module (works in both dev and compiled)
 const __filename = fileURLToPath(import.meta.url);
@@ -28,18 +27,18 @@ app.register(fastifyTRPCPlugin, {
 	prefix: '/api/trpc',
 	trpcOptions: {
 		router: trpcRouter,
-		// createContext,
+		createContext,
 		onError({ path, error }) {
-			console.error(`Error in tRPC handler on path '${path}':`, error);
+			console.error(`Error in tRPC handler on path '${path}':\n`, error);
 		},
 	} satisfies FastifyTRPCPluginOptions<TrpcRouter>['trpcOptions'],
 });
 
-app.register(chatPlugin, {
+app.register(chatRoutes, {
 	prefix: '/api/chat',
 });
 
-app.register(authPlugin, {
+app.register(authRoutes, {
 	prefix: '/api',
 });
 

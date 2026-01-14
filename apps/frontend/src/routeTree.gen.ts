@@ -11,8 +11,9 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as SignupRouteImport } from './routes/signup'
 import { Route as LoginRouteImport } from './routes/login'
-import { Route as ChatIdRouteImport } from './routes/$chatId'
-import { Route as IndexRouteImport } from './routes/index'
+import { Route as ChatLayoutRouteImport } from './routes/_chat-layout'
+import { Route as ChatLayoutIndexRouteImport } from './routes/_chat-layout.index'
+import { Route as ChatLayoutChatIdRouteImport } from './routes/_chat-layout.$chatId'
 
 const SignupRoute = SignupRouteImport.update({
   id: '/signup',
@@ -24,47 +25,57 @@ const LoginRoute = LoginRouteImport.update({
   path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ChatIdRoute = ChatIdRouteImport.update({
-  id: '/$chatId',
-  path: '/$chatId',
+const ChatLayoutRoute = ChatLayoutRouteImport.update({
+  id: '/_chat-layout',
   getParentRoute: () => rootRouteImport,
 } as any)
-const IndexRoute = IndexRouteImport.update({
+const ChatLayoutIndexRoute = ChatLayoutIndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => ChatLayoutRoute,
+} as any)
+const ChatLayoutChatIdRoute = ChatLayoutChatIdRouteImport.update({
+  id: '/$chatId',
+  path: '/$chatId',
+  getParentRoute: () => ChatLayoutRoute,
 } as any)
 
 export interface FileRoutesByFullPath {
-  '/': typeof IndexRoute
-  '/$chatId': typeof ChatIdRoute
   '/login': typeof LoginRoute
   '/signup': typeof SignupRoute
+  '/$chatId': typeof ChatLayoutChatIdRoute
+  '/': typeof ChatLayoutIndexRoute
 }
 export interface FileRoutesByTo {
-  '/': typeof IndexRoute
-  '/$chatId': typeof ChatIdRoute
   '/login': typeof LoginRoute
   '/signup': typeof SignupRoute
+  '/$chatId': typeof ChatLayoutChatIdRoute
+  '/': typeof ChatLayoutIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
-  '/': typeof IndexRoute
-  '/$chatId': typeof ChatIdRoute
+  '/_chat-layout': typeof ChatLayoutRouteWithChildren
   '/login': typeof LoginRoute
   '/signup': typeof SignupRoute
+  '/_chat-layout/$chatId': typeof ChatLayoutChatIdRoute
+  '/_chat-layout/': typeof ChatLayoutIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/$chatId' | '/login' | '/signup'
+  fullPaths: '/login' | '/signup' | '/$chatId' | '/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/$chatId' | '/login' | '/signup'
-  id: '__root__' | '/' | '/$chatId' | '/login' | '/signup'
+  to: '/login' | '/signup' | '/$chatId' | '/'
+  id:
+    | '__root__'
+    | '/_chat-layout'
+    | '/login'
+    | '/signup'
+    | '/_chat-layout/$chatId'
+    | '/_chat-layout/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
-  IndexRoute: typeof IndexRoute
-  ChatIdRoute: typeof ChatIdRoute
+  ChatLayoutRoute: typeof ChatLayoutRouteWithChildren
   LoginRoute: typeof LoginRoute
   SignupRoute: typeof SignupRoute
 }
@@ -85,26 +96,46 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/$chatId': {
-      id: '/$chatId'
-      path: '/$chatId'
-      fullPath: '/$chatId'
-      preLoaderRoute: typeof ChatIdRouteImport
+    '/_chat-layout': {
+      id: '/_chat-layout'
+      path: ''
+      fullPath: ''
+      preLoaderRoute: typeof ChatLayoutRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/': {
-      id: '/'
+    '/_chat-layout/': {
+      id: '/_chat-layout/'
       path: '/'
       fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof ChatLayoutIndexRouteImport
+      parentRoute: typeof ChatLayoutRoute
+    }
+    '/_chat-layout/$chatId': {
+      id: '/_chat-layout/$chatId'
+      path: '/$chatId'
+      fullPath: '/$chatId'
+      preLoaderRoute: typeof ChatLayoutChatIdRouteImport
+      parentRoute: typeof ChatLayoutRoute
     }
   }
 }
 
+interface ChatLayoutRouteChildren {
+  ChatLayoutChatIdRoute: typeof ChatLayoutChatIdRoute
+  ChatLayoutIndexRoute: typeof ChatLayoutIndexRoute
+}
+
+const ChatLayoutRouteChildren: ChatLayoutRouteChildren = {
+  ChatLayoutChatIdRoute: ChatLayoutChatIdRoute,
+  ChatLayoutIndexRoute: ChatLayoutIndexRoute,
+}
+
+const ChatLayoutRouteWithChildren = ChatLayoutRoute._addFileChildren(
+  ChatLayoutRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
-  IndexRoute: IndexRoute,
-  ChatIdRoute: ChatIdRoute,
+  ChatLayoutRoute: ChatLayoutRouteWithChildren,
   LoginRoute: LoginRoute,
   SignupRoute: SignupRoute,
 }

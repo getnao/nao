@@ -1,14 +1,7 @@
-import { relations } from 'drizzle-orm';
-import { boolean, index, jsonb, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
+import { boolean, check, index, integer, jsonb, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
 
-export type NewUser = typeof user.$inferInsert;
-export type User = typeof user.$inferSelect;
-export type Conversation = typeof conversation.$inferSelect;
-export type NewConversation = typeof conversation.$inferInsert;
-export type ChatMessage = typeof chat_message.$inferSelect;
-export type NewChatMessage = typeof chat_message.$inferInsert;
-export type ToolCall = typeof tool_call.$inferSelect;
-export type NewToolCall = typeof tool_call.$inferInsert;
+import { ToolState, UIMessagePartType } from '../types/chat';
 
 export const user = pgTable('user', {
 	id: text('id').primaryKey(),
@@ -82,10 +75,12 @@ export const verification = pgTable(
 	(table) => [index('verification_identifier_idx').on(table.identifier)],
 );
 
-export const conversation = pgTable(
-	'conversation',
+export const chat = pgTable(
+	'chat',
 	{
-		id: text('id').primaryKey(),
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
 		userId: text('user_id')
 			.notNull()
 			.references(() => user.id, { onDelete: 'cascade' }),
@@ -96,78 +91,71 @@ export const conversation = pgTable(
 			.$onUpdate(() => new Date())
 			.notNull(),
 	},
-	(table) => [index('conversation_userId_idx').on(table.userId)],
+	(table) => [index('chat_userId_idx').on(table.userId)],
 );
 
-export const chat_message = pgTable(
+export const chatMessage = pgTable(
 	'chat_message',
 	{
-		id: text('id').primaryKey(),
-		conversationId: text('conversation_id')
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		chatId: text('chat_id')
 			.notNull()
-			.references(() => conversation.id, { onDelete: 'cascade' }),
+			.references(() => chat.id, { onDelete: 'cascade' }),
 		role: text('role', { enum: ['user', 'assistant', 'system'] }).notNull(),
-		content: text('content').notNull(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 	},
-	(table) => [index('chat_message_conversationId_idx').on(table.conversationId)],
+	(table) => [
+		index('chat_message_chatId_idx').on(table.chatId),
+		index('chat_message_createdAt_idx').on(table.createdAt),
+	],
 );
 
-export const tool_call = pgTable(
-	'tool_call',
+export const messagePart = pgTable(
+	'message_part',
 	{
-		id: text('id').primaryKey(),
+		id: text('id')
+			.primaryKey()
+			.$defaultFn(() => crypto.randomUUID()),
 		messageId: text('message_id')
-			.notNull()
-			.references(() => chat_message.id, { onDelete: 'cascade' }),
-		toolCallId: text('tool_call_id').notNull(),
-		toolName: text('tool_name').notNull(),
-		input: jsonb('input').$type<unknown>().notNull(),
-		output: jsonb('output').$type<unknown>(),
+			.references(() => chatMessage.id, { onDelete: 'cascade' })
+			.notNull(),
+		order: integer('order').notNull(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
+		type: text('type').$type<UIMessagePartType>().notNull(),
+
+		// text columns
+		text: text('text'),
+		reasoningText: text('reasoning_text'),
+
+		// tool call columns
+		toolCallId: text('tool_call_id'),
+		toolName: text('tool_name'),
+		toolState: text('tool_state').$type<ToolState>(),
+		toolErrorText: text('tool_error_text'),
+		toolInput: jsonb('tool_input').$type<unknown>(),
+		toolOutput: jsonb('tool_output').$type<unknown>(),
+
+		// tool approval columns
+		toolApprovalId: text('tool_approval_id'),
+		toolApprovalApproved: boolean('tool_approval_approved'),
+		toolApprovalReason: text('tool_approval_reason'),
 	},
-	(table) => [index('tool_call_messageId_idx').on(table.messageId)],
+	(t) => [
+		index('parts_message_id_idx').on(t.messageId),
+		index('parts_message_id_order_idx').on(t.messageId, t.order),
+		check(
+			'text_required_if_type_is_text',
+			sql`CASE WHEN ${t.type} = 'text' THEN ${t.text} IS NOT NULL ELSE TRUE END`,
+		),
+		check(
+			'reasoning_text_required_if_type_is_reasoning',
+			sql`CASE WHEN ${t.type} = 'reasoning' THEN ${t.reasoningText} IS NOT NULL ELSE TRUE END`,
+		),
+		check(
+			'tool_call_fields_required',
+			sql`CASE WHEN ${t.type} LIKE 'tool-%' THEN ${t.toolCallId} IS NOT NULL AND ${t.toolState} IS NOT NULL ELSE TRUE END`,
+		),
+	],
 );
-
-export const userRelations = relations(user, ({ many }) => ({
-	sessions: many(session),
-	accounts: many(account),
-	conversations: many(conversation),
-}));
-
-export const sessionRelations = relations(session, ({ one }) => ({
-	user: one(user, {
-		fields: [session.userId],
-		references: [user.id],
-	}),
-}));
-
-export const accountRelations = relations(account, ({ one }) => ({
-	user: one(user, {
-		fields: [account.userId],
-		references: [user.id],
-	}),
-}));
-
-export const conversationRelations = relations(conversation, ({ one, many }) => ({
-	user: one(user, {
-		fields: [conversation.userId],
-		references: [user.id],
-	}),
-	messages: many(chat_message),
-}));
-
-export const chatMessageRelations = relations(chat_message, ({ one, many }) => ({
-	conversation: one(conversation, {
-		fields: [chat_message.conversationId],
-		references: [conversation.id],
-	}),
-	toolCalls: many(tool_call),
-}));
-
-export const toolCallsRelations = relations(tool_call, ({ one }) => ({
-	message: one(chat_message, {
-		fields: [tool_call.messageId],
-		references: [chat_message.id],
-	}),
-}));

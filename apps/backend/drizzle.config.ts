@@ -1,14 +1,12 @@
-import 'dotenv/config';
-
 import { defineConfig } from 'drizzle-kit';
 
-import { dbUrl, dialect, migrationsFolder, schemaPath } from './src/utils';
+import dbConfig, { Dialect } from './src/db/dbConfig';
 
 export default defineConfig({
-	out: migrationsFolder,
-	schema: schemaPath,
-	dialect: dialect,
+	out: dbConfig.migrationsFolder,
+	schema: dbConfig.schemaPath,
+	dialect: dbConfig.dialect === Dialect.Postgres ? 'postgresql' : 'sqlite',
 	dbCredentials: {
-		url: dbUrl,
+		url: dbConfig.dbUrl,
 	},
 });

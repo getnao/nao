@@ -1,5 +1,5 @@
 import { ToolCall } from './tool-call';
-import type { Message } from 'backend/chat';
+import type { UIMessage } from 'backend/chat';
 import {
 	AssistantMessageLoader,
 	Conversation,
@@ -35,7 +35,7 @@ export function ChatMessages() {
 	);
 }
 
-function MessageBlock({ message }: { message: Message }) {
+function MessageBlock({ message }: { message: UIMessage }) {
 	const isUser = message.role === 'user';
 
 	if (DEBUG_MESSAGES) {
@@ -62,7 +62,7 @@ function MessageBlock({ message }: { message: Message }) {
 	return <AssistantMessageBlock message={message} />;
 }
 
-const UserMessageBlock = ({ message }: { message: Message }) => {
+const UserMessageBlock = ({ message }: { message: UIMessage }) => {
 	return (
 		<div className={cn('rounded-3xl px-4 py-2 bg-primary text-primary-foreground ml-auto')}>
 			{message.parts.map((p, i) => {
@@ -81,7 +81,7 @@ const UserMessageBlock = ({ message }: { message: Message }) => {
 	);
 };
 
-const AssistantMessageBlock = ({ message }: { message: Message }) => {
+const AssistantMessageBlock = ({ message }: { message: UIMessage }) => {
 	return (
 		<div className={cn('rounded-2xl px-4 py-2 bg-muted flex flex-col gap-2')}>
 			{message.parts.map((p, i) => {

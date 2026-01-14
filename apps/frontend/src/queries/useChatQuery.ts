@@ -3,7 +3,7 @@ import { trpc } from '@/main';
 
 export const useChatQuery = ({ chatId }: { chatId?: string }) => {
 	return useQuery(
-		trpc.getChat.queryOptions(
+		trpc.chat.get.queryOptions(
 			{ chatId: chatId ?? '' },
 			{
 				enabled: !!chatId,

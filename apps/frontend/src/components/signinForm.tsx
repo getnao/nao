@@ -5,18 +5,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { handleGoogleSignIn } from '@/lib/auth-client';
 
-interface FormField {
-	id: string;
-	name: string;
-	type: string;
-	label: string;
-	placeholder?: string;
-}
-
-interface SignFormProps {
+interface SignFormProps<T extends string> {
 	title: string;
-	fields: Array<FormField>;
-	formData: Record<string, string>;
+	fields: Array<FormField<T>>;
+	formData: Record<T, string>;
 	onSubmit: (e: React.FormEvent) => Promise<void>;
 	onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
 	submitButtonText: string;
@@ -26,7 +18,15 @@ interface SignFormProps {
 	error?: string;
 }
 
-export function SignInForm({
+interface FormField<T extends string = string> {
+	name: T;
+	type?: string;
+	placeholder?: string;
+}
+
+export type Fields<T extends string = string> = FormField<T>[];
+
+export function SignInForm<T extends string>({
 	title,
 	fields,
 	formData,
@@ -37,33 +37,34 @@ export function SignInForm({
 	footerLinkText,
 	footerLinkTo,
 	error,
-}: SignFormProps) {
+}: SignFormProps<T>) {
 	const isGoogleSetup = useQuery(trpc.hasGoogleSetup.queryOptions());
 
 	return (
-		<div className='container mx-auto w-full max-w-2xl p-12'>
-			<h1 className='text-4xl font-bold mb-8 text-center'>{title}</h1>
-			{error && <p className='text-red-500 text-center mb-4 text-2xl'>{error}</p>}
+		<div className='container mx-auto w-full max-w-2xl p-12 my-auto'>
+			<div className='text-3xl font-bold mb-8 text-center'>{title}</div>
+
 			<form onSubmit={onSubmit} className='space-y-6'>
 				{fields.map((field) => (
-					<div key={field.id} className='space-y-3'>
-						<label htmlFor={field.id} className='text-base font-medium'>
-							{field.label}
-						</label>
-						<Input
-							id={field.id}
-							name={field.name}
-							type={field.type}
-							placeholder={field.placeholder}
-							value={formData[field.name]}
-							onChange={onChange}
-							required
-							className='h-12 text-base'
-						/>
-					</div>
+					<Input
+						key={field.name}
+						name={field.name}
+						type={field.type}
+						placeholder={field.placeholder}
+						value={formData[field.name]}
+						onChange={onChange}
+						required
+						className='h-12 text-base'
+					/>
 				))}
 
-				<Button type='submit' className='w-full h-12 text-base'>
+				{error && <p className='text-red-500 text-center text-base'>{error}</p>}
+
+				<Button
+					type='submit'
+					className='w-full h-12 text-base'
+					disabled={Object.values(formData).some((value) => !value)}
+				>
 					{submitButtonText}
 				</Button>
 			</form>

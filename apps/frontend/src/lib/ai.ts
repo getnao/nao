@@ -5,10 +5,10 @@ import {
 	getToolName as getToolNameAi,
 } from 'ai';
 import type { UseChatHelpers } from '@ai-sdk/react';
-import type { UITools, ToolUIPart, Message } from 'backend/chat';
+import type { UITools, UIToolPart, UIMessage } from 'backend/chat';
 
 /** Check if a tool has reached its final state (no more actions needed). */
-export const isToolSettled = ({ state }: ToolUIPart) => {
+export const isToolSettled = ({ state }: UIToolPart) => {
 	return state === 'output-available' || state === 'output-denied' || state === 'output-error';
 };
 
@@ -25,8 +25,8 @@ export const getStaticToolName = getStaticToolNameAi<UITools>;
 export const getToolName = getToolNameAi;
 
 export const checkIsGenerating = (
-	status: UseChatHelpers<Message>['status'],
-	messages: UseChatHelpers<Message>['messages'],
+	status: UseChatHelpers<UIMessage>['status'],
+	messages: UseChatHelpers<UIMessage>['messages'],
 ) => {
 	const isRunning = checkIsRunning(status);
 	if (!isRunning) {
@@ -41,6 +41,6 @@ export const checkIsGenerating = (
 	return lastMessage.parts.some((part) => part.type === 'step-start');
 };
 
-export const checkIsRunning = (status: UseChatHelpers<Message>['status']) => {
+export const checkIsRunning = (status: UseChatHelpers<UIMessage>['status']) => {
 	return status === 'streaming' || status === 'submitted';
 };

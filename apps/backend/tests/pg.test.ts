@@ -1,16 +1,14 @@
-import 'dotenv/config';
+import '../src/utils/loadEnv';
 
 import { eq } from 'drizzle-orm';
-import { drizzle } from 'drizzle-orm/node-postgres';
-import { Pool } from 'pg';
-import { afterEach, describe, expect, it } from 'vitest';
+import { drizzle } from 'drizzle-orm/postgres-js';
+import { afterAll, afterEach, describe, expect, it } from 'vitest';
 
-import * as postgresSchema from '../src/db/pg-schema';
-import { NewUser, user } from '../src/db/pg-schema';
+import { NewUser } from '../src/db/abstractSchema';
+import { user } from '../src/db/pgSchema';
+import * as pgSchema from '../src/db/pgSchema';
 
-const db = drizzle(new Pool({ connectionString: process.env.DB_URL! }), {
-	schema: postgresSchema,
-});
+const db = drizzle(process.env.DB_URI!, { schema: pgSchema });
 
 describe('userTable', () => {
 	const testUser: NewUser = {
@@ -21,6 +19,10 @@ describe('userTable', () => {
 
 	afterEach(async () => {
 		await db.delete(user).where(eq(user.email, testUser.email));
+	});
+
+	afterAll(async () => {
+		await db.$client.end();
 	});
 
 	it('should insert a new user', async () => {

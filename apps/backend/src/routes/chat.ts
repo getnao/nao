@@ -4,56 +4,73 @@ import { z } from 'zod/v4';
 
 import { tools } from '../agents/tools';
 import type { App } from '../app';
-import { Chat, Message } from '../types/chat';
-import { chatStorage } from '../utils/chatStorage';
+import { authMiddleware } from '../middleware/auth';
+import * as chatQueries from '../queries/chatQueries';
+import { UIMessage } from '../types/chat';
 
 const DEBUG_CHUNKS = false;
 
-export const chatPlugin = async (app: App) => {
+export const chatRoutes = async (app: App) => {
+	app.addHook('preHandler', authMiddleware);
+
 	app.post(
 		'/agent',
-		{ schema: { body: z.object({ message: z.custom<Message>(), chatId: z.string().optional() }) } },
+		{ schema: { body: z.object({ message: z.custom<UIMessage>(), chatId: z.string().optional() }) } },
 		async (request) => {
-			const newMessage = request.body.message;
+			const userId = request.user.id;
+			const message = request.body.message;
 			let chatId = request.body.chatId;
-			let chat: Chat | undefined;
 			const isNewChat = !chatId;
 
 			if (!chatId) {
-				const title = newMessage.parts.find((part) => part.type === 'text')?.text.slice(0, 64);
-				chat = await chatStorage.createChat({ title, messages: [request.body.message] });
-				chatId = chat.id;
+				// If no id, we create a new chat and insert the first message
+				const title = message.parts.find((part) => part.type === 'text')?.text.slice(0, 64);
+				const createdChat = await chatQueries.createChat({ title, userId }, message);
+				chatId = createdChat.id;
 			} else {
-				chat = await chatStorage.addMessages(chatId, [request.body.message]);
+				// update the existing chat with the new message
+				await chatQueries.upsertMessage(chatId, message);
 			}
+
+			const chat = await chatQueries.loadChat(chatId);
 
 			const agent = new ToolLoopAgent({
 				model: openai.chat('gpt-5.1'),
 				tools,
 			});
 
-			let stream = createUIMessageStream<Message>({
+			let stream = createUIMessageStream<UIMessage>({
 				execute: async ({ writer }) => {
 					if (isNewChat) {
 						writer.write({
 							type: 'data-newChat',
 							data: {
-								...chat,
-								createdAt: Date.now(),
-								updatedAt: Date.now(),
+								id: chatId,
+								title: chat.title,
+								createdAt: chat.createdAt,
+								updatedAt: chat.updatedAt,
 							},
 						});
 					}
 
-					const result = await agent.stream({
-						messages: await convertToModelMessages(chat.messages as Message[]),
+					writer.write({
+						type: 'start',
+						messageId: crypto.randomUUID(),
+					});
+					writer.write({
+						type: 'start-step',
 					});
 
-					writer.merge(result.toUIMessageStream({}));
+					const result = await agent.stream({
+						messages: await convertToModelMessages(chat.messages as UIMessage[]),
+					});
+
+					writer.merge(result.toUIMessageStream({ sendStart: false }));
 				},
+				originalMessages: chat.messages as UIMessage[],
 				onFinish: async (e) => {
-					console.log(e.messages);
-					await chatStorage.addMessages(chatId, e.messages);
+					console.log('onFinish');
+					await chatQueries.upsertMessage(chatId, e.responseMessage);
 				},
 			});
 

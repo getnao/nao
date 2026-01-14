@@ -1,6 +1,6 @@
 import { createContext, useContext, useState } from 'react';
 import { ChevronRight } from 'lucide-react';
-import type { ToolUIPart } from 'backend/chat';
+import type { UIToolPart } from 'backend/chat';
 import { getToolName, isToolSettled } from '@/lib/ai';
 import { cn } from '@/lib/utils';
 import { Spinner } from '@/components/ui/spinner';
@@ -21,7 +21,7 @@ export const useSimpleToolCallContext = () => {
 };
 
 interface Props {
-	toolPart: ToolUIPart;
+	toolPart: UIToolPart;
 	onClick?: () => void;
 }
 

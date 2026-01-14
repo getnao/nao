@@ -10,17 +10,18 @@
 
 import path from 'path';
 
+import { Dialect } from './db/dbConfig';
+import dbConfig from './db/dbConfig';
 import { runMigrations } from './db/migrate';
-import { type DatabaseType, parseDbUri } from './utils';
 
 function getExecutableDir(): string {
 	// When running as a compiled binary, process.execPath is the path to the binary itself
 	return path.dirname(process.execPath);
 }
 
-function getMigrationsPath(dbType: DatabaseType): string {
+function getMigrationsPath(dbType: Dialect): string {
 	const execDir = getExecutableDir();
-	const migrationsFolder = dbType === 'postgres' ? 'migrations-postgres' : 'migrations-sqlite';
+	const migrationsFolder = dbType === Dialect.Postgres ? 'migrations-postgres' : 'migrations-sqlite';
 	return path.join(execDir, migrationsFolder);
 }
 
@@ -97,7 +98,7 @@ function parseArgs(args: string[]): { command: string; options: Record<string, s
 async function runServe(options: Record<string, string>): Promise<void> {
 	const port = parseInt(options['port'] || '5005', 10);
 	const host = options['host'] || '0.0.0.0';
-	const { type: dbType, connectionString } = parseDbUri();
+	const { dialect, dbUrl } = dbConfig;
 
 	// Run migrations before starting the server
 	try {
@@ -108,7 +109,7 @@ async function runServe(options: Record<string, string>): Promise<void> {
 	}
 
 	console.log(`\n🚀 Starting nao chat server...`);
-	console.log(`   Database: ${dbType}${dbType === 'sqlite' ? ` (${connectionString})` : ''}`);
+	console.log(`   Database: ${dialect}${dialect === Dialect.Sqlite ? ` (${dbUrl})` : ''}`);
 	console.log(`   Listening on: ${host}:${port}`);
 
 	// Dynamic import to ensure env vars are set first
@@ -124,13 +125,12 @@ async function runServe(options: Record<string, string>): Promise<void> {
 }
 
 async function runMigrateCommand(): Promise<void> {
-	const { type: dbType, connectionString } = parseDbUri();
-	const migrationsPath = getMigrationsPath(dbType);
+	const migrationsPath = getMigrationsPath(dbConfig.dialect);
 
 	try {
 		await runMigrations({
-			dbType,
-			connectionString,
+			dbType: dbConfig.dialect,
+			connectionString: dbConfig.dbUrl,
 			migrationsPath,
 		});
 	} catch {

@@ -2,7 +2,7 @@
 	"name": "backend",
 	"type": "module",
 	"exports": {
-		"./router": "./src/router.ts",
+		"./trpc": "./src/trpc/router.ts",
 		"./chat": "./src/types/chat.ts"
 	},
 	"scripts": {
@@ -13,11 +13,13 @@
 		"test": "vitest run",
 		"lint": "eslint .",
 		"lint:fix": "eslint --fix",
-		"db:generate": "drizzle-kit generate",
+		"db:generate": "bash scripts/db.generate.sh",
 		"db:migrate": "drizzle-kit migrate",
 		"db:push": "drizzle-kit push",
 		"db:pull": "drizzle-kit pull",
 		"db:studio": "drizzle-kit studio",
+		"db:drop": "drizzle-kit drop",
+		"db:reset": "rm db.sqlite",
 		"format": "prettier --write ."
 	},
 	"dependencies": {

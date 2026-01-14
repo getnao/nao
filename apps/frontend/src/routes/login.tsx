@@ -27,8 +27,8 @@ function Login() {
 				onSuccess: () => {
 					navigate({ to: '/' });
 				},
-				onError: (error) => {
-					setError(error.error.message);
+				onError: (err) => {
+					setError(err.error.message);
 				},
 			},
 		);
@@ -41,27 +41,21 @@ function Login() {
 		});
 	};
 
-	const fields = [
-		{
-			id: 'email',
-			name: 'email',
-			type: 'email',
-			label: 'Email',
-			placeholder: 'Enter your email',
-		},
-		{
-			id: 'password',
-			name: 'password',
-			type: 'password',
-			label: 'Password',
-			placeholder: 'Enter your password',
-		},
-	];
-
 	return (
 		<SignInForm
 			title='Sign In'
-			fields={fields}
+			fields={[
+				{
+					name: 'email',
+					type: 'email',
+					placeholder: 'Email',
+				},
+				{
+					name: 'password',
+					type: 'password',
+					placeholder: 'Password',
+				},
+			]}
 			formData={formData}
 			onSubmit={handleSubmit}
 			onChange={handleChange}

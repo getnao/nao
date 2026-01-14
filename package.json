@@ -13,7 +13,10 @@
 		"format": "prettier --write .",
 		"format:check": "prettier --check .",
 		"publish": "f() { cd cli && python build.py --bump ${1:-patch} -f && uv publish dist/*; }; f",
-		"prepare": "husky"
+		"prepare": "husky",
+		"pg:start": "docker compose up -d",
+		"pg:stop": "docker compose stop",
+		"pg:reset": "docker compose down -v"
 	},
 	"devDependencies": {
 		"@eslint/js": "^9.39.2",

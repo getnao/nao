@@ -1,22 +1,22 @@
-import 'dotenv/config';
-
-import { Database } from 'bun:sqlite';
-import { drizzle as drizzleBunSqlite } from 'drizzle-orm/bun-sqlite';
+import { Database as Sqlite } from 'bun:sqlite';
+import { BunSQLiteDatabase, drizzle as drizzleBunSqlite } from 'drizzle-orm/bun-sqlite';
 import { drizzle as drizzlePostgres } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 
-import { connectionString, isPostgres } from '../utils';
-import * as postgresSchema from './pg-schema';
-import * as sqliteSchema from './sqlite-schema';
+import dbConfig, { Dialect } from './dbConfig';
+import * as pgSchema from './pgSchema';
+import * as sqliteSchema from './sqliteSchema';
 
 function createDb() {
-	if (isPostgres) {
-		const sql = postgres(connectionString);
-		return drizzlePostgres(sql, { schema: postgresSchema });
+	if (dbConfig.dialect === Dialect.Postgres) {
+		const sql = postgres(dbConfig.dbUrl);
+		return drizzlePostgres(sql, { schema: pgSchema });
 	} else {
-		const sqlite = new Database(connectionString);
+		const sqlite = new Sqlite(dbConfig.dbUrl);
 		return drizzleBunSqlite(sqlite, { schema: sqliteSchema });
 	}
 }
 
-export const db = createDb();
+export const db = createDb() as BunSQLiteDatabase<typeof sqliteSchema> & {
+	$client: Sqlite;
+};

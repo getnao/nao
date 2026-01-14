@@ -1,7 +1,8 @@
 import { App } from '../app';
 import { auth } from '../auth';
+import { convertHeaders } from '../utils/utils';
 
-export const authPlugin = async (app: App) => {
+export const authRoutes = async (app: App) => {
 	app.route({
 		method: ['GET', 'POST'],
 		url: '/auth/*',
@@ -10,11 +11,7 @@ export const authPlugin = async (app: App) => {
 				// Construct request URL
 				const url = new URL(request.url, `http://${request.headers.host}`);
 
-				// Convert Fastify headers to standard Headers object
-				const headers = new Headers();
-				Object.entries(request.headers).forEach(([key, value]) => {
-					if (value) headers.append(key, value.toString());
-				});
+				const headers = convertHeaders(request.headers);
 				// Create Fetch API-compatible request
 				const req = new Request(url.toString(), {
 					method: request.method,

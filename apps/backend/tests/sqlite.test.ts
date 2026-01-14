@@ -1,13 +1,14 @@
-import 'dotenv/config';
+import '../src/utils/loadEnv';
 
 import { eq } from 'drizzle-orm';
-import { drizzle } from 'drizzle-orm/libsql';
-import { afterEach, describe, expect, it } from 'vitest';
+import { drizzle } from 'drizzle-orm/better-sqlite3';
+import { afterAll, afterEach, describe, expect, it } from 'vitest';
 
-import { NewUser, user } from '../src/db/sqlite-schema';
-import * as sqliteSchema from '../src/db/sqlite-schema';
+import { NewUser } from '../src/db/abstractSchema';
+import { user } from '../src/db/sqliteSchema';
+import * as sqliteSchema from '../src/db/sqliteSchema';
 
-const db = drizzle(process.env.DB_FILE_NAME!, { schema: sqliteSchema });
+const db = drizzle('./db.sqlite', { schema: sqliteSchema });
 
 describe('userTable', () => {
 	const testUser: NewUser = {
@@ -18,6 +19,10 @@ describe('userTable', () => {
 
 	afterEach(async () => {
 		await db.delete(user).where(eq(user.email, testUser.email));
+	});
+
+	afterAll(() => {
+		db.$client.close();
 	});
 
 	it('should insert a new user', async () => {
