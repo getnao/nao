@@ -19,8 +19,8 @@ export function ChatMessages() {
 	const isGenerating = checkIsGenerating(status, messages);
 
 	return (
-		<Conversation className='w-full'>
-			<ConversationContent>
+		<Conversation>
+			<ConversationContent className='w-full md:w-full lg:w-full xl:w-full 2xl:w-1/2 mx-auto'>
 				{messages.length === 0 ? (
 					<ConversationEmptyState />
 				) : (
