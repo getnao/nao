@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { ChevronRight } from 'lucide-react';
-import { useToolCallContext } from '../context';
+import { useToolCallContext } from './context';
 import type { ReactNode } from 'react';
 import { isToolSettled } from '@/lib/ai';
 import { cn } from '@/lib/utils';

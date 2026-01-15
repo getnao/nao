@@ -2,7 +2,7 @@ import { openai } from '@ai-sdk/openai';
 import { convertToModelMessages, createUIMessageStream, createUIMessageStreamResponse, ToolLoopAgent } from 'ai';
 import { z } from 'zod/v4';
 
-import { getInstructions } from '../agents/context/prompt';
+import { getInstructions } from '../agents/prompt';
 import { tools } from '../agents/tools';
 import type { App } from '../app';
 import { authMiddleware } from '../middleware/auth';

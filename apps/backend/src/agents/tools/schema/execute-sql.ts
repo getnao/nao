@@ -1,5 +1,8 @@
 import z from 'zod/v3';
 
+export const description =
+	'Execute a SQL query against the connected database and return the results. If multiple databases are configured, specify the database_id.';
+
 export const inputSchema = z.object({
 	sql_query: z.string().describe('The SQL query to execute'),
 	database_id: z

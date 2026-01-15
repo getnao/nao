@@ -2,7 +2,7 @@ import fs from 'fs/promises';
 import path from 'path';
 
 import { getProjectFolder, toRealPath, toVirtualPath } from '../../../utils/tools';
-import type { Input, Output } from './schema';
+import type { Input, Output } from '../schema/list';
 
 export const execute = async ({ path: filePath }: Input): Promise<Output> => {
 	const projectFolder = getProjectFolder();

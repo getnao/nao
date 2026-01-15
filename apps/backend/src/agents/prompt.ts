@@ -1,4 +1,4 @@
-import { getUserRules } from './userRules';
+import { getUserRules } from './user-rules';
 
 export const getInstructions = (): string => {
 	const userRules = getUserRules();
@@ -16,7 +16,9 @@ You have access to user context defined as files and directories in the project 
 - Describe tool actions in natural language (e.g., "I'm searching for X") rather than function names.
 - Be efficient with tool calls and prefer calling multiple tools in parallel, especially when researching.
 - If you can execute a SQL query, use the execute_sql tool for it.
-- When there is a SQL query execute loop until you fix the error, search for the correct name using the list or search tools.
+
+## SQL Query Rules
+- If you get an error, loop until you fix the error, search for the correct name using the list or search tools.
 ${userRules ? `\n## User Rules\n${userRules}` : ''}
 			`;
 };

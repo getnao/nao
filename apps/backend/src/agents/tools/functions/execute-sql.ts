@@ -1,5 +1,5 @@
 import { getProjectFolder } from '../../../utils/tools';
-import type { Input, Output } from './schema';
+import type { Input, Output } from '../schema/execute-sql';
 
 export const execute = async ({ sql_query, database_id }: Input): Promise<Output> => {
 	const naoProjectFolder = getProjectFolder();

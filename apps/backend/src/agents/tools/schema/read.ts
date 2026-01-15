@@ -1,5 +1,7 @@
 import z from 'zod/v3';
 
+export const description = 'Read the contents of a file at the specified path.';
+
 export const inputSchema = z.object({
 	file_path: z.string(),
 });

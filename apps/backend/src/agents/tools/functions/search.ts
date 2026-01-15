@@ -3,7 +3,7 @@ import { glob } from 'glob';
 import path from 'path';
 
 import { getProjectFolder, isWithinProjectFolder, toVirtualPath } from '../../../utils/tools';
-import type { Input, Output } from './schema';
+import type { Input, Output } from '../schema/search';
 
 export const execute = async ({ pattern }: Input): Promise<Output> => {
 	const projectFolder = getProjectFolder();

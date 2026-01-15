@@ -1,5 +1,7 @@
 import z from 'zod/v3';
 
+export const description = 'List files and directories at the specified path.';
+
 export const inputSchema = z.object({
 	path: z.string().describe('The path to list.'),
 });

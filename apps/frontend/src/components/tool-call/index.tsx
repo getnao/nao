@@ -1,9 +1,9 @@
-import { DefaultToolCall } from './ui/default';
+import { DefaultToolCall } from './default';
 
-import { ExecuteSqlToolCall } from './ui/execute-sql';
-import { ListToolCall } from './ui/list';
-import { ReadToolCall } from './ui/read';
-import { SearchToolCall } from './ui/search';
+import { ExecuteSqlToolCall } from './execute-sql';
+import { ListToolCall } from './list';
+import { ReadToolCall } from './read';
+import { SearchToolCall } from './search';
 import type { UIToolPart } from 'backend/chat';
 import type { ToolCallProps } from './context';
 import { getToolName } from '@/lib/ai';
@@ -21,9 +21,9 @@ export const ToolCall = ({ toolPart }: { toolPart: UIToolPart }) => {
 	return <Component toolPart={toolPart} />;
 };
 
-export { DefaultToolCall } from './ui/default';
-export { ExecuteSqlToolCall } from './ui/execute-sql';
-export { ListToolCall } from './ui/list';
-export { ReadToolCall } from './ui/read';
-export { SearchToolCall } from './ui/search';
+export { DefaultToolCall } from './default';
+export { ExecuteSqlToolCall } from './execute-sql';
+export { ListToolCall } from './list';
+export { ReadToolCall } from './read';
+export { SearchToolCall } from './search';
 export { useToolCallContext, ToolCallProvider, type ToolCallProps } from './context';

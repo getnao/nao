@@ -1,7 +1,7 @@
 import { File } from 'lucide-react';
-import { ToolCallProvider, useToolCallContext } from '../context';
+import { ToolCallProvider, useToolCallContext } from './context';
 import { ToolCallWrapper } from './tool-call-wrapper';
-import type { ToolCallProps } from '../context';
+import type { ToolCallProps } from './context';
 import type { searchFilesSchemas } from 'backend/tools';
 import { formatBytes } from '@/lib/utils';
 import { isToolSettled } from '@/lib/ai';

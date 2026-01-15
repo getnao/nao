@@ -1,6 +1,6 @@
-import { ToolCallProvider, useToolCallContext } from '../context';
+import { ToolCallProvider, useToolCallContext } from './context';
 import { ToolCallWrapper } from './tool-call-wrapper';
-import type { ToolCallProps } from '../context';
+import type { ToolCallProps } from './context';
 import type { readFileSchemas } from 'backend/tools';
 import { isToolSettled } from '@/lib/ai';
 

@@ -1,5 +1,5 @@
 import { Streamdown } from 'streamdown';
-import { ToolCall } from './toolCall';
+import { ToolCall } from './tool-call';
 import { AgentMessageLoader } from './ui/agent-message-loader';
 import type { UIMessage } from 'backend/chat';
 import {
