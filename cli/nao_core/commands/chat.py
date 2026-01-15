@@ -1,4 +1,5 @@
 import os
+import secrets
 import subprocess
 import sys
 import webbrowser
@@ -14,6 +15,7 @@ console = Console()
 # Default port for the nao chat server
 SERVER_PORT = 5005
 FASTAPI_PORT = 8005
+SECRET_FILE_NAME = ".nao-secret"
 
 
 def get_server_binary_path() -> Path:
@@ -61,6 +63,42 @@ def wait_for_server(port: int, timeout: int = 30) -> bool:
     return False
 
 
+def ensure_auth_secret(bin_dir: Path) -> str | None:
+    """Ensure auth secret exists, generating one if needed.
+
+    Returns the secret value if one was loaded/generated, or None if
+    BETTER_AUTH_SECRET is already set in the environment.
+    """
+    # If already set via environment, nothing to do
+    if os.environ.get("BETTER_AUTH_SECRET"):
+        return None
+
+    secret_path = bin_dir / SECRET_FILE_NAME
+
+    # Try to load existing secret from file
+    if secret_path.exists():
+        try:
+            secret = secret_path.read_text().strip()
+            if secret:
+                console.print(f"[bold green]✓[/bold green] Loaded auth secret from {secret_path}")
+                return secret
+        except Exception:
+            pass  # Fall through to generate new secret
+
+    # Generate and save new secret
+    new_secret = secrets.token_urlsafe(32)
+    try:
+        secret_path.write_text(new_secret)
+        # Set restrictive permissions (owner read/write only)
+        secret_path.chmod(0o600)
+        console.print(f"[bold green]✓[/bold green] Generated new auth secret and saved to {secret_path}")
+        return new_secret
+    except Exception as e:
+        console.print(f"[bold yellow]⚠[/bold yellow] Could not save auth secret to {secret_path}: {e}")
+        console.print("[dim]Sessions will not persist across restarts[/dim]")
+        return new_secret
+
+
 def chat():
     """Start the nao chat UI.
 
@@ -100,6 +138,11 @@ def chat():
         # Set up environment - inherit from parent but ensure we're in the bin dir
         # so the server can find the public folder
         env = os.environ.copy()
+
+        # Ensure auth secret is available
+        auth_secret = ensure_auth_secret(bin_dir)
+        if auth_secret:
+            env["BETTER_AUTH_SECRET"] = auth_secret
 
         # Set LLM API key from config if available
         if config and config.llm:
