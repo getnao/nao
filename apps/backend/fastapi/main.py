@@ -1,3 +1,4 @@
+from nao_core.config import NaoConfig
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -9,8 +10,6 @@ from pathlib import Path
 
 cli_path = Path(__file__).parent.parent.parent / "cli"
 sys.path.insert(0, str(cli_path))
-
-from nao_core.config import NaoConfig
 
 port = int(os.environ.get("PORT", 8005))
 
@@ -86,12 +85,9 @@ async def execute_sql(request: ExecuteSQLRequest):
 
         connection = db_config.connect()
         
-        # Use raw_sql for CTEs and complex queries, fall back to sql() if needed
-        # raw_sql executes directly on the backend without Ibis parsing
-        cursor = connection.raw_sql(request.sql)
+        cursor = connection.raw_sql(request.sql)  # type: ignore[attr-defined]
         df = cursor.to_dataframe()
         
-        # Convert numpy types to native Python types for JSON serialization
         def convert_value(v):
             if isinstance(v, (np.integer,)):
                 return int(v)

@@ -29,7 +29,7 @@ def sync_bigquery(
             Tuple of (datasets_synced, tables_synced)
     """
     conn = db_config.connect()
-    db_path = base_path / "bigquery" / f"database={db_config.name}"
+    db_path = base_path / "type=bigquery" / f"database={db_config.project_id}"
 
     datasets_synced = 0
     tables_synced = 0
