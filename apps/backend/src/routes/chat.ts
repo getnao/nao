@@ -1,12 +1,10 @@
-import { openai } from '@ai-sdk/openai';
-import { convertToModelMessages, createUIMessageStream, createUIMessageStreamResponse, ToolLoopAgent } from 'ai';
+import { convertToModelMessages, createUIMessageStream, createUIMessageStreamResponse } from 'ai';
 import { z } from 'zod/v4';
 
-import { getInstructions } from '../agents/prompt';
-import { tools } from '../agents/tools';
 import type { App } from '../app';
 import { authMiddleware } from '../middleware/auth';
 import * as chatQueries from '../queries/chatQueries';
+import { agentStreamResponse } from '../services/agentService';
 import { UIMessage } from '../types/chat';
 
 const DEBUG_CHUNKS = false;
@@ -34,13 +32,6 @@ export const chatRoutes = async (app: App) => {
 			}
 
 			const chat = await chatQueries.loadChat(chatId);
-			const instructions = getInstructions();
-
-			const agent = new ToolLoopAgent({
-				model: openai.chat('gpt-5.1'),
-				instructions,
-				tools,
-			});
 
 			let stream = createUIMessageStream<UIMessage>({
 				execute: async ({ writer }) => {
@@ -64,9 +55,9 @@ export const chatRoutes = async (app: App) => {
 						type: 'start-step',
 					});
 
-					const result = await agent.stream({
-						messages: await convertToModelMessages(chat.messages as UIMessage[]),
-					});
+					const result = await agentStreamResponse(
+						await convertToModelMessages(chat.messages as UIMessage[]),
+					);
 
 					writer.merge(result.toUIMessageStream({ sendStart: false }));
 				},

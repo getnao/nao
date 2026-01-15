@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 
 import s, { NewChat } from '../db/abstractSchema';
 import { db } from '../db/db';

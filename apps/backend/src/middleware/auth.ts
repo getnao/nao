@@ -26,7 +26,6 @@ export async function authMiddleware(request: FastifyRequest, reply: FastifyRepl
 function verifySlackSignature(signingSecret: string, requestSignature: string, timestamp: string, rawBody: string) {
 	const currentTime = Math.floor(Date.now() / 1000);
 	if (Math.abs(currentTime - parseInt(timestamp)) > 300) {
-		console.log('❌ Timestamp is too old');
 		return false;
 	}
 
@@ -42,7 +41,6 @@ export async function slackAuthMiddleware(request: FastifyRequest, reply: Fastif
 	const signature = request.headers['x-slack-signature'] as string;
 
 	if (!verifySlackSignature(process.env.SLACK_SIGNING_SECRET!, signature, timestamp, rawBody)) {
-		console.log('❌ Invalid Slack signature');
 		return reply.status(403).send('Invalid signature');
 	}
 }

@@ -1,14 +1,14 @@
 import type { App } from '../app';
 import { slackAuthMiddleware } from '../middleware/auth';
-import { getSlackUser, handleSlackWorkFlow, sendSlackRequestAcknowledgement } from '../utils/slack';
+import { SlackService } from '../services/slackService';
+import { SlackRequest } from '../types/slack';
 
 export const slackRoutes = async (app: App) => {
 	app.addHook('preHandler', slackAuthMiddleware);
 
 	app.post('/app_mention', { config: { rawBody: true } }, async (request, reply) => {
 		try {
-			/* eslint-disable @typescript-eslint/no-explicit-any */
-			const body = request.body as any;
+			const body = request.body as SlackRequest;
 
 			if (body.type === 'url_verification') {
 				return reply.send({ challenge: body.challenge });
@@ -18,17 +18,17 @@ export const slackRoutes = async (app: App) => {
 			const channel = body.event?.channel;
 			const threadTs = body.event?.thread_ts || body.event?.ts;
 
-			if (!text || !channel) {
-				throw new Error('Invalid request: missing text or channel');
+			if (!text || !channel || !threadTs) {
+				throw new Error('Invalid request: missing text, channel, or thread timestamp');
 			}
 
-			const user = await getSlackUser(body, channel, threadTs, reply);
+			const slackService = new SlackService(body, channel, threadTs);
 
-			// Acknowledge the event within 3 seconds limit and respond with a waiting message
-			await sendSlackRequestAcknowledgement(channel, threadTs, reply);
+			const user = await slackService.getUser(reply);
 
-			// Handle the main workflow
-			await handleSlackWorkFlow(user, text, threadTs, channel);
+			await slackService.sendRequestAcknowledgement(reply);
+
+			await slackService.handleWorkFlow(user, text);
 		} catch (error) {
 			return reply.status(500).send({ error });
 		}
