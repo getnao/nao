@@ -1,19 +1,8 @@
-import sys
+"""Data accessor classes for generating markdown documentation from database tables."""
+
 from abc import ABC, abstractmethod
-from pathlib import Path
 
 from ibis import BaseBackend
-from rich.console import Console
-from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn
-
-from nao_core.config import AccessorType, NaoConfig
-
-console = Console()
-
-
-# =============================================================================
-# Data Accessors
-# =============================================================================
 
 
 class DataAccessor(ABC):
@@ -30,12 +19,12 @@ class DataAccessor(ABC):
         """Generate the markdown content for a table.
 
         Args:
-            conn: The Ibis database connection
-            dataset: The dataset/schema name
-            table: The table name
+                conn: The Ibis database connection
+                dataset: The dataset/schema name
+                table: The table name
 
         Returns:
-            Markdown string content
+                Markdown string content
         """
         ...
 
@@ -218,163 +207,3 @@ class ProfilingAccessor(DataAccessor):
             return "\n".join(lines)
         except Exception as e:
             return f"# {table} - Profiling\n\nError fetching profiling: {e}"
-
-
-# =============================================================================
-# Accessor Registry
-# =============================================================================
-
-ACCESSOR_REGISTRY: dict[AccessorType, DataAccessor] = {
-    AccessorType.COLUMNS: ColumnsAccessor(),
-    AccessorType.PREVIEW: PreviewAccessor(num_rows=10),
-    AccessorType.DESCRIPTION: DescriptionAccessor(),
-    AccessorType.PROFILING: ProfilingAccessor(),
-}
-
-
-def get_accessors(accessor_types: list[AccessorType]) -> list[DataAccessor]:
-    """Get accessor instances for the given types."""
-    return [ACCESSOR_REGISTRY[t] for t in accessor_types if t in ACCESSOR_REGISTRY]
-
-
-# =============================================================================
-# Sync Functions
-# =============================================================================
-
-
-def sync_bigquery(
-    db_config,
-    base_path: Path,
-    progress: Progress,
-    accessors: list[DataAccessor],
-) -> tuple[int, int]:
-    """Sync BigQuery database schema to markdown files.
-
-    Args:
-        db_config: The database configuration
-        base_path: Base output path
-        progress: Rich progress instance
-        accessors: List of data accessors to run
-
-    Returns:
-            Tuple of (datasets_synced, tables_synced)
-    """
-    conn = db_config.connect()
-    db_path = base_path / "bigquery" / db_config.name
-
-    datasets_synced = 0
-    tables_synced = 0
-
-    if db_config.dataset_id:
-        datasets = [db_config.dataset_id]
-    else:
-        datasets = conn.list_databases()
-
-    dataset_task = progress.add_task(
-        f"[dim]{db_config.name}[/dim]",
-        total=len(datasets),
-    )
-
-    for dataset in datasets:
-        try:
-            all_tables = conn.list_tables(database=dataset)
-        except Exception:
-            progress.update(dataset_task, advance=1)
-            continue
-
-        # Filter tables based on include/exclude patterns
-        tables = [t for t in all_tables if db_config.matches_pattern(dataset, t)]
-
-        # Skip dataset if no tables match
-        if not tables:
-            progress.update(dataset_task, advance=1)
-            continue
-
-        dataset_path = db_path / dataset
-        dataset_path.mkdir(parents=True, exist_ok=True)
-        datasets_synced += 1
-
-        table_task = progress.add_task(
-            f"  [cyan]{dataset}[/cyan]",
-            total=len(tables),
-        )
-
-        for table in tables:
-            table_path = dataset_path / table
-            table_path.mkdir(parents=True, exist_ok=True)
-
-            for accessor in accessors:
-                content = accessor.generate(conn, dataset, table)
-                output_file = table_path / accessor.filename
-                output_file.write_text(content)
-
-            tables_synced += 1
-            progress.update(table_task, advance=1)
-
-        progress.update(dataset_task, advance=1)
-
-    return datasets_synced, tables_synced
-
-
-def sync(output_dir: str = "databases"):
-    """Sync database schemas to local markdown files.
-
-    Creates a folder structure with table metadata:
-      databases/bigquery/<connection>/<dataset>/<table>/columns.md
-      databases/bigquery/<connection>/<dataset>/<table>/preview.md
-      databases/bigquery/<connection>/<dataset>/<table>/description.md
-      databases/bigquery/<connection>/<dataset>/<table>/profiling.md
-
-    Args:
-        output_dir: Output directory for the database schemas (default: "databases")
-    """
-    console.print("\n[bold cyan]🔄 nao sync[/bold cyan]\n")
-
-    config = NaoConfig.try_load()
-    if not config:
-        console.print("[bold red]✗[/bold red] No nao_config.yaml found in current directory")
-        console.print("[dim]Run 'nao init' to create a configuration file[/dim]")
-        sys.exit(1)
-
-    console.print(f"[dim]Project:[/dim] {config.project_name}")
-
-    if not config.databases:
-        console.print("[dim]No databases configured[/dim]")
-        return
-
-    base_path = Path(output_dir)
-    total_datasets = 0
-    total_tables = 0
-
-    console.print()
-
-    with Progress(
-        SpinnerColumn(style="dim"),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(bar_width=30, style="dim", complete_style="cyan", finished_style="green"),
-        TaskProgressColumn(),
-        console=console,
-        transient=False,
-    ) as progress:
-        for db in config.databases:
-            # Get accessors from database config
-            db_accessors = get_accessors(db.accessors)
-            accessor_names = [a.filename.replace(".md", "") for a in db_accessors]
-
-            try:
-                if db.type == "bigquery":
-                    console.print(f"[dim]{db.name} accessors:[/dim] {', '.join(accessor_names)}")
-                    datasets, tables = sync_bigquery(db, base_path, progress, db_accessors)
-                    total_datasets += datasets
-                    total_tables += tables
-                else:
-                    console.print(f"[yellow]⚠ Unsupported database type: {db.type}[/yellow]")
-            except Exception as e:
-                console.print(f"[bold red]✗[/bold red] Failed to sync {db.name}: {e}")
-
-    console.print()
-    console.print(
-        f"[green]✓[/green] Synced [bold]{total_tables}[/bold] tables across [bold]{total_datasets}[/bold] datasets"
-    )
-    console.print(f"[dim]  → {base_path.absolute()}[/dim]")
-    console.print()

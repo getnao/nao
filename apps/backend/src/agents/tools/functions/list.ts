@@ -1,11 +1,12 @@
 import fs from 'fs/promises';
 import path from 'path';
 
-import { getProjectFolder, toRealPath, toVirtualPath } from '../../utils/tools';
+import { getProjectFolder, toRealPath, toVirtualPath } from '../../../utils/tools';
+import type { Input, Output } from '../schema/list';
 
-export const list = async (dir_path: string) => {
+export const execute = async ({ path: filePath }: Input): Promise<Output> => {
 	const projectFolder = getProjectFolder();
-	const realPath = toRealPath(dir_path, projectFolder);
+	const realPath = toRealPath(filePath, projectFolder);
 
 	const entries = await fs.readdir(realPath, { withFileTypes: true });
 
@@ -22,11 +23,22 @@ export const list = async (dir_path: string) => {
 						: undefined;
 			const size = type === 'directory' ? undefined : (await fs.stat(fullRealPath)).size.toString();
 
+			let itemCount: number | undefined;
+			if (type === 'directory') {
+				try {
+					const dirEntries = await fs.readdir(fullRealPath);
+					itemCount = dirEntries.length;
+				} catch {
+					// If we can't read the directory, leave itemCount undefined
+				}
+			}
+
 			return {
 				path: toVirtualPath(fullRealPath, projectFolder),
 				name: entry.name,
 				type,
 				size,
+				itemCount,
 			};
 		}),
 	);

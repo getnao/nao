@@ -1,6 +1,7 @@
-import { getProjectFolder } from '../../utils/tools';
+import { getProjectFolder } from '../../../utils/tools';
+import type { Input, Output } from '../schema/execute-sql';
 
-export const execute_sql = async (query: string, databaseId?: string) => {
+export const execute = async ({ sql_query, database_id }: Input): Promise<Output> => {
 	const naoProjectFolder = getProjectFolder();
 
 	const response = await fetch(`${process.env.FASTAPI_URL}/execute_sql`, {
@@ -9,9 +10,9 @@ export const execute_sql = async (query: string, databaseId?: string) => {
 			'Content-Type': 'application/json',
 		},
 		body: JSON.stringify({
-			sql: query,
+			sql: sql_query,
 			nao_project_folder: naoProjectFolder,
-			...(databaseId && { database_id: databaseId }),
+			...(database_id && { database_id }),
 		}),
 	});
 

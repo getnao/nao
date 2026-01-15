@@ -5,6 +5,7 @@ from pydantic import BaseModel
 import uvicorn
 import os
 import sys
+import numpy as np
 from pathlib import Path
 
 cli_path = Path(__file__).parent.parent.parent / "cli"
@@ -88,12 +89,28 @@ async def execute_sql(request: ExecuteSQLRequest):
         result = connection.sql(request.sql)
 
         df = result.to_pandas()
-        data = df.to_dict(orient="records")
+        
+        # Convert numpy types to native Python types for JSON serialization
+        def convert_value(v):
+            if isinstance(v, (np.integer,)):
+                return int(v)
+            if isinstance(v, (np.floating,)):
+                return float(v)
+            if isinstance(v, np.ndarray):
+                return v.tolist()
+            if hasattr(v, 'item'):  # numpy scalar
+                return v.item()
+            return v
+        
+        data = [
+            {k: convert_value(v) for k, v in row.items()}
+            for row in df.to_dict(orient="records")
+        ]
 
         return ExecuteSQLResponse(
             data=data,
             row_count=len(data),
-            columns=df.columns.tolist(),
+            columns=[str(c) for c in df.columns.tolist()],
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

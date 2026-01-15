@@ -2,23 +2,24 @@ import fs from 'fs/promises';
 import { glob } from 'glob';
 import path from 'path';
 
-import { getProjectFolder, isWithinProjectFolder, toVirtualPath } from '../../utils/tools';
+import { getProjectFolder, isWithinProjectFolder, toVirtualPath } from '../../../utils/tools';
+import type { Input, Output } from '../schema/search';
 
-export const search = async (file_pattern: string) => {
+export const execute = async ({ pattern }: Input): Promise<Output> => {
 	const projectFolder = getProjectFolder();
 
 	// Sanitize pattern to prevent escaping project folder
-	if (path.isAbsolute(file_pattern)) {
+	if (path.isAbsolute(pattern)) {
 		throw new Error(`Access denied: absolute paths are not allowed in file patterns`);
 	}
-	if (file_pattern.includes('..')) {
+	if (pattern.includes('..')) {
 		throw new Error(`Access denied: '..' is not allowed in file patterns`);
 	}
 
 	// Make pattern recursive if not already
-	const pattern = file_pattern.startsWith('**/') ? file_pattern : `**/${file_pattern}`;
+	const sanitizedPattern = pattern.startsWith('**/') ? pattern : `**/${pattern}`;
 
-	const files = await glob(pattern, { absolute: true, cwd: projectFolder });
+	const files = await glob(sanitizedPattern, { absolute: true, cwd: projectFolder });
 
 	// Filter to only files within the project folder (safety net)
 	const safeFiles = files.filter((f) => isWithinProjectFolder(f, projectFolder));

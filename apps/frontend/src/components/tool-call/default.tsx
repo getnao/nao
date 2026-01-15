@@ -1,28 +1,19 @@
-import { useState } from 'react';
 import { ChevronRight } from 'lucide-react';
-import type { UIToolPart } from 'backend/chat';
+import { ToolCallProvider, useToolCallContext } from './context';
+import type { ToolCallProps } from './context';
 import { getToolName, isToolSettled } from '@/lib/ai';
 import { cn } from '@/lib/utils';
 import { Spinner } from '@/components/ui/spinner';
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '@/components/ui/accordion';
 
-interface Props {
-	toolPart: UIToolPart;
-	onClick?: () => void;
-}
-
-export const ToolCall = ({ toolPart, onClick }: Props) => {
-	const [isExpanded, setIsExpanded] = useState(false);
+const DefaultToolCallContent = () => {
+	const { toolPart, isExpanded, setIsExpanded } = useToolCallContext();
 	const canExpand = !!toolPart.errorText || !!toolPart.output;
 	const isSettled = isToolSettled(toolPart);
 	const toolName = getToolName(toolPart);
 
 	const handleValueChange = (value: string) => {
-		const nowExpanded = value === 'tool-content';
-		setIsExpanded(nowExpanded);
-		if (!nowExpanded && onClick && !canExpand) {
-			onClick();
-		}
+		setIsExpanded(value === 'tool-content');
 	};
 
 	return (
@@ -66,5 +57,13 @@ export const ToolCall = ({ toolPart, onClick }: Props) => {
 				</AccordionContent>
 			</AccordionItem>
 		</Accordion>
+	);
+};
+
+export const DefaultToolCall = ({ toolPart }: ToolCallProps) => {
+	return (
+		<ToolCallProvider toolPart={toolPart}>
+			<DefaultToolCallContent />
+		</ToolCallProvider>
 	);
 };

@@ -1,11 +1,14 @@
+import os
 from pathlib import Path
 from typing import Annotated
 
 from cyclopts import Parameter
 from rich.console import Console
+from rich.panel import Panel
 from rich.prompt import Confirm, Prompt
 
 from nao_core.config import AnyDatabaseConfig, BigQueryConfig, DatabaseType, LLMConfig, LLMProvider, NaoConfig
+from nao_core.config.repos import RepoConfig
 
 console = Console()
 
@@ -40,6 +43,23 @@ class EmptyApiKeyError(InitError):
 
 def setup_project_name(force: bool = False) -> tuple[str, Path]:
     """Setup the project name."""
+    # Check if we're in a directory with an existing nao_config.yaml
+    current_dir = Path.cwd()
+    config_file = current_dir / "nao_config.yaml"
+
+    if config_file.exists():
+        # Load existing config to get project name
+        existing_config = NaoConfig.try_load(current_dir)
+        if existing_config:
+            console.print("\n[bold yellow]Found existing nao_config.yaml[/bold yellow]")
+            console.print(f"[dim]Project: {existing_config.project_name}[/dim]\n")
+
+            if force or Confirm.ask("[bold]Re-initialize this project?[/bold]", default=True):
+                return existing_config.project_name, current_dir
+            else:
+                raise InitError("Initialization cancelled.")
+
+    # Normal flow: prompt for project name
     project_name = Prompt.ask("[bold]Enter your project name[/bold]")
 
     if not project_name:
@@ -111,6 +131,29 @@ def setup_databases() -> list[AnyDatabaseConfig]:
     return databases
 
 
+def setup_repos() -> list[RepoConfig]:
+    """Setup repository configurations."""
+    repos: list[RepoConfig] = []
+    should_setup = Confirm.ask("\n[bold]Set up git repositories?[/bold]", default=True)
+
+    if not should_setup:
+        return repos
+
+    while True:
+        console.print("\n[bold cyan]Git Repository Configuration[/bold cyan]\n")
+        name = Prompt.ask("[bold]Repository name[/bold]")
+        url = Prompt.ask("[bold]Repository URL[/bold]")
+
+        repos.append(RepoConfig(name=name, url=url))
+        console.print(f"\n[bold green]✓[/bold green] Added repository [cyan]{name}[/cyan]")
+
+        add_another = Confirm.ask("\n[bold]Add another repository?[/bold]", default=False)
+        if not add_another:
+            break
+
+    return repos
+
+
 def setup_llm() -> LLMConfig | None:
     """Setup the LLM configuration."""
     llm_config = None
@@ -142,6 +185,39 @@ def setup_llm() -> LLMConfig | None:
     return llm_config
 
 
+def create_empty_structure(project_path: Path) -> tuple[list[str], list[str]]:
+    """Create project folder structure to guide users.
+
+    To add new folders, simply append them to the FOLDERS list below.
+    Each folder will be created automatically (can be empty).
+    """
+    FOLDERS = [
+        "databases",
+        "queries",
+        "docs",
+        "semantics",
+        "repos",
+        "agent/tools",
+        "agent/mcps",
+    ]
+
+    FILES = ["RULES.md"]
+
+    created_folders = []
+    for folder in FOLDERS:
+        folder_path = project_path / folder
+        folder_path.mkdir(parents=True, exist_ok=True)
+        created_folders.append(folder)
+
+    created_files = []
+    for file in FILES:
+        file_path = project_path / file
+        file_path.touch()
+        created_files.append(file)
+
+    return created_folders, created_files
+
+
 def init(
     *,
     force: Annotated[bool, Parameter(name=["-f", "--force"])] = False,
@@ -162,14 +238,49 @@ def init(
         config = NaoConfig(
             project_name=project_name,
             databases=setup_databases(),
+            repos=setup_repos(),
             llm=setup_llm(),
         )
         config.save(project_path)
+
+        # Create project folder structure
+        created_folders, created_files = create_empty_structure(project_path)
 
         console.print()
         console.print(f"[bold green]✓[/bold green] Created project [cyan]{project_name}[/cyan]")
         console.print(f"[bold green]✓[/bold green] Created [dim]{project_path / 'nao_config.yaml'}[/dim]")
         console.print()
         console.print("[bold green]Done![/bold green] Your nao project is ready. 🎉")
+
+        is_subfolder = project_path.resolve() != Path.cwd().resolve()
+
+        has_connections = config.databases or config.llm
+        if has_connections:
+            # Change directory for the debug command to run in the right context
+            os.chdir(project_path)
+            from nao_core.commands.debug import debug
+
+            debug()
+
+        console.print()
+
+        cd_instruction = ""
+        if is_subfolder:
+            cd_instruction = f"\n[bold]First, navigate to your project:[/bold]\n[cyan]cd {project_path}[/cyan]\n\n"
+
+        help_content = f"""{cd_instruction}[bold]Available Commands:[/bold]
+
+[cyan]nao debug[/cyan]   - Test connectivity to your configured databases and LLM
+              Verifies that all connections are working properly
+
+[cyan]nao sync[/cyan]    - Sync database schemas to local markdown files
+              Creates documentation for your tables and columns
+
+[cyan]nao chat[/cyan]    - Start the nao chat interface
+              Launch the web UI to chat with your data
+"""
+        console.print(Panel(help_content, border_style="cyan", title="🚀 Get Started", title_align="left"))
+        console.print()
+
     except InitError as e:
         console.print(f"[bold red]✗[/bold red] {e}")

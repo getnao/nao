@@ -19,8 +19,8 @@ export function ChatMessages() {
 	const isGenerating = checkIsGenerating(status, messages);
 
 	return (
-		<Conversation className='w-full'>
-			<ConversationContent>
+		<Conversation>
+			<ConversationContent className='w-full md:w-full lg:w-full xl:w-full 2xl:w-1/2 mx-auto'>
 				{messages.length === 0 ? (
 					<ConversationEmptyState />
 				) : (
@@ -97,14 +97,15 @@ const AssistantMessageBlock = ({ message }: { message: UIMessage }) => {
 				switch (p.type) {
 					case 'text':
 						return (
-							<Streamdown
-								key={i}
-								isAnimating={isPartStreaming}
-								mode={isPartStreaming ? 'streaming' : 'static'} // Turn static mode if not generating for better performance.
-								cdnUrl={null} // Streamdown makes requests to their CDN for code block languages that are not built-in.
-							>
-								{p.text}
-							</Streamdown>
+							<div key={i} className='px-3'>
+								<Streamdown
+									isAnimating={isPartStreaming}
+									mode={isPartStreaming ? 'streaming' : 'static'} // Turn static mode if not generating for better performance.
+									cdnUrl={null} // Streamdown makes requests to their CDN for code block languages that are not built-in.
+								>
+									{p.text}
+								</Streamdown>
+							</div>
 						);
 					default:
 						return null;

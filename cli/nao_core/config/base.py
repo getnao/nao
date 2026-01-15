@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from .databases import AnyDatabaseConfig, parse_database_config
 from .llm import LLMConfig
+from .repos import RepoConfig
 
 
 class NaoConfig(BaseModel):
@@ -13,6 +14,7 @@ class NaoConfig(BaseModel):
 
     project_name: str = Field(description="The name of the nao project")
     databases: list[AnyDatabaseConfig] = Field(default_factory=list, description="The databases to use")
+    repos: list[RepoConfig] = Field(default_factory=list, description="The repositories to use")
     llm: LLMConfig | None = Field(default=None, description="The LLM configuration")
 
     @model_validator(mode="before")

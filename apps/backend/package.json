@@ -3,7 +3,8 @@
 	"type": "module",
 	"exports": {
 		"./trpc": "./src/trpc/router.ts",
-		"./chat": "./src/types/chat.ts"
+		"./chat": "./src/types/chat.ts",
+		"./tools": "./src/agents/tools/index.ts"
 	},
 	"scripts": {
 		"dev": "bun --watch src/index.ts",

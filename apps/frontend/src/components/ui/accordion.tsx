@@ -19,11 +19,11 @@ function AccordionItem({ className, ...props }: React.ComponentProps<typeof Acco
 
 function AccordionTrigger({ className, children, ...props }: React.ComponentProps<typeof AccordionPrimitive.Trigger>) {
 	return (
-		<AccordionPrimitive.Header className='flex'>
+		<AccordionPrimitive.Header className='flex min-w-0 overflow-hidden'>
 			<AccordionPrimitive.Trigger
 				data-slot='accordion-trigger'
 				className={cn(
-					'focus-visible:border-ring focus-visible:ring-ring/50 flex flex-1 items-start gap-4 rounded-md py-4 text-left text-sm font-medium transition-all outline-none hover:underline focus-visible:ring-[3px] disabled:pointer-events-none disabled:opacity-50',
+					'focus-visible:border-ring focus-visible:ring-ring/50 flex flex-1 min-w-0 overflow-hidden items-start gap-4 rounded-md py-4 text-left text-sm font-medium transition-all outline-none hover:underline focus-visible:ring-[3px] disabled:pointer-events-none disabled:opacity-50',
 					className,
 				)}
 				{...props}
