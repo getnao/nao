@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Streamdown } from 'streamdown';
-import { Code, Table } from 'lucide-react';
+import { Code, Copy, Table } from 'lucide-react';
 import { ToolCallProvider, useToolCallContext } from './context';
 import { ToolCallWrapper } from './tool-call-wrapper';
 import type { ToolCallProps } from './context';
@@ -29,6 +29,13 @@ const ExecuteSqlContent = () => {
 			isActive: viewMode === 'query',
 			onClick: () => setViewMode('query'),
 		},
+		{
+			id: 'copy',
+			label: <Copy size={12} />,
+			onClick: () => {
+				navigator.clipboard.writeText(input?.sql_query ?? '');
+			},
+		},
 	];
 
 	return (
@@ -42,7 +49,7 @@ const ExecuteSqlContent = () => {
 				</span>
 			}
 			badge={output?.row_count && `${output.row_count} rows`}
-			actions={isSettled ? actions : undefined}
+			actions={isSettled ? actions : []}
 		>
 			{viewMode === 'query' && input?.sql_query ? (
 				<div className='overflow-auto max-h-80 hide-code-header'>

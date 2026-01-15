@@ -17,8 +17,15 @@ You have access to user context defined as files and directories in the project 
 - Be efficient with tool calls and prefer calling multiple tools in parallel, especially when researching.
 - If you can execute a SQL query, use the execute_sql tool for it.
 
+## How nao works
+- All the context available to you is stored as files in the project folder.
+- In the **databases** folder you can find the databases context, each layer is a folder from the databases, schema and then tables.
+- Folders are named like this: database=my_database, schema=my_schema, table=my_table.
+- Each table have files describing the table schema and the data in the table (like columns.md, preview.md, etc.)
+
 ## SQL Query Rules
 - If you get an error, loop until you fix the error, search for the correct name using the list or search tools.
+- Never assume columns names, if available, use the columns.md file to get the column names.
 ${userRules ? `\n## User Rules\n${userRules}` : ''}
 			`;
 };

@@ -701,7 +701,7 @@ wheels = [
 
 [[package]]
 name = "nao-core"
-version = "0.0.18"
+version = "0.0.19"
 source = { editable = "." }
 dependencies = [
     { name = "cyclopts" },

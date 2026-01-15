@@ -85,9 +85,11 @@ async def execute_sql(request: ExecuteSQLRequest):
             )
 
         connection = db_config.connect()
-        result = connection.sql(request.sql)
-
-        df = result.to_pandas()
+        
+        # Use raw_sql for CTEs and complex queries, fall back to sql() if needed
+        # raw_sql executes directly on the backend without Ibis parsing
+        cursor = connection.raw_sql(request.sql)
+        df = cursor.to_dataframe()
         
         # Convert numpy types to native Python types for JSON serialization
         def convert_value(v):
