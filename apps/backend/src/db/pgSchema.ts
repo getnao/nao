@@ -85,14 +85,14 @@ export const chat = pgTable(
 			.notNull()
 			.references(() => user.id, { onDelete: 'cascade' }),
 		title: text('title').notNull().default('New Conversation'),
-		slackThreadTs: text('slack_thread_ts'),
+		slackThreadId: text('slack_thread_id'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()
 			.$onUpdate(() => new Date())
 			.notNull(),
 	},
-	(table) => [index('chat_userId_idx').on(table.userId), index('chat_slack_thread_idx').on(table.slackThreadTs)],
+	(table) => [index('chat_userId_idx').on(table.userId), index('chat_slack_thread_idx').on(table.slackThreadId)],
 );
 
 export const chatMessage = pgTable(

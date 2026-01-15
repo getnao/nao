@@ -127,7 +127,7 @@ export const getChatBySlackThread = async (threadTs: string): Promise<{ id: stri
 	const result = await db
 		.select({ id: s.chat.id, title: s.chat.title })
 		.from(s.chat)
-		.where(eq(s.chat.slackThreadTs, threadTs))
+		.where(eq(s.chat.slackThreadId, threadTs))
 		.limit(1)
 		.execute();
 	return result.at(0) || null;

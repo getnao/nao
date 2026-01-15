@@ -52,7 +52,7 @@ app.register(authRoutes, {
 });
 
 app.register(slackRoutes, {
-	prefix: '/api/slack',
+	prefix: '/api/slack/events',
 });
 
 /**

@@ -1,5 +1,5 @@
 {
-  "id": "79cacd54-9cee-43b7-8b60-bb123087849a",
+  "id": "ec5de634-3474-482a-a0ca-e4a3edce930c",
   "prevId": "d5afdaf9-2b7c-49ac-a06e-09ce0e992e96",
   "version": "7",
   "dialect": "postgresql",
@@ -149,8 +149,8 @@
           "notNull": true,
           "default": "'New Conversation'"
         },
-        "slack_thread_ts": {
-          "name": "slack_thread_ts",
+        "slack_thread_id": {
+          "name": "slack_thread_id",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -190,7 +190,7 @@
           "name": "chat_slack_thread_idx",
           "columns": [
             {
-              "expression": "slack_thread_ts",
+              "expression": "slack_thread_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"

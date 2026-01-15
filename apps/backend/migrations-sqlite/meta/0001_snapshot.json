@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "d3d68251-fb82-4b36-ac5b-1637f638cf36",
+  "id": "b7468e85-25eb-4d5d-b57b-e05bc78c8fc9",
   "prevId": "a929d7d8-a1ad-4cfe-ba25-452885ebbfdc",
   "tables": {
     "account": {
@@ -153,8 +153,8 @@
           "autoincrement": false,
           "default": "'New Conversation'"
         },
-        "slack_thread_ts": {
-          "name": "slack_thread_ts",
+        "slack_thread_id": {
+          "name": "slack_thread_id",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -188,7 +188,7 @@
         "chat_slack_thread_idx": {
           "name": "chat_slack_thread_idx",
           "columns": [
-            "slack_thread_ts"
+            "slack_thread_id"
           ],
           "isUnique": false
         }

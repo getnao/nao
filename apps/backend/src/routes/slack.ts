@@ -4,6 +4,8 @@ import { SlackService } from '../services/slackService';
 import { SlackRequest } from '../types/slack';
 
 export const slackRoutes = async (app: App) => {
+	// Verifying requests from Slack : verify whether requests from Slack are authentic
+	// https://docs.slack.dev/authentication/verifying-requests-from-slack/#signing_secrets_admin_page
 	app.addHook('preHandler', slackAuthMiddleware);
 
 	app.post('/app_mention', { config: { rawBody: true } }, async (request, reply) => {
@@ -16,13 +18,13 @@ export const slackRoutes = async (app: App) => {
 
 			const text = (body.event?.text ?? '').replace(/<@[A-Z0-9]+>/gi, '').trim();
 			const channel = body.event?.channel;
-			const threadTs = body.event?.thread_ts || body.event?.ts;
+			const threadId = body.event?.thread_ts || body.event?.ts;
 
-			if (!text || !channel || !threadTs) {
+			if (!text || !channel || !threadId) {
 				throw new Error('Invalid request: missing text, channel, or thread timestamp');
 			}
 
-			const slackService = new SlackService(body, channel, threadTs);
+			const slackService = new SlackService(body, channel, threadId);
 
 			const user = await slackService.getUser(reply);
 

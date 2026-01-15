@@ -18,12 +18,12 @@ const redirectUrl = process.env.REDIRECT_URL;
 export class SlackService {
 	private body: SlackRequest;
 	private channel: string;
-	private threadTs: string;
+	private threadId: string;
 
-	constructor(body: SlackRequest, channel: string, threadTs: string) {
+	constructor(body: SlackRequest, channel: string, threadId: string) {
 		this.body = body;
 		this.channel = channel;
-		this.threadTs = threadTs;
+		this.threadId = threadId;
 	}
 
 	async getUser(reply: FastifyReply): Promise<User> {
@@ -44,7 +44,7 @@ export class SlackService {
 			await slackClient.chat.postMessage({
 				channel: this.channel,
 				text: fullMessage,
-				thread_ts: this.threadTs,
+				thread_ts: this.threadId,
 			});
 			throw new Error('User not found');
 		}
@@ -56,7 +56,7 @@ export class SlackService {
 		await slackClient.chat.postMessage({
 			channel: this.channel,
 			text: '🔄 nao is answering... please wait a few seconds.',
-			thread_ts: this.threadTs,
+			thread_ts: this.threadId,
 		});
 	}
 
@@ -73,19 +73,19 @@ export class SlackService {
 		await slackClient.chat.postMessage({
 			channel: this.channel,
 			text: fullMessage,
-			thread_ts: this.threadTs,
+			thread_ts: this.threadId,
 		});
 	}
 
 	private async saveOrUpdateUserMessage(text: string, user: User): Promise<string> {
-		const existingChat = await chatQueries.getChatBySlackThread(this.threadTs);
+		const existingChat = await chatQueries.getChatBySlackThread(this.threadId);
 
 		let chatId: string;
 		if (existingChat) {
 			await updateSlackUserMessage(text, existingChat);
 			chatId = existingChat.id;
 		} else {
-			const createdChat = await saveSlackUserMessage(text, user.id, this.threadTs);
+			const createdChat = await saveSlackUserMessage(text, user.id, this.threadId);
 			chatId = createdChat.id;
 		}
 		return chatId;

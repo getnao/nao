@@ -10,10 +10,10 @@ const updateSlackUserMessage = async (text: string, existingChat: { id: string; 
 	await chatQueries.upsertMessage(existingChat.id, userMessage);
 };
 
-const saveSlackUserMessage = async (text: string, userId: string, slackThreadTs?: string) => {
+const saveSlackUserMessage = async (text: string, userId: string, slackThreadId?: string) => {
 	const userMessage = createTextMessage(text, 'user');
 
-	const createdChat = await chatQueries.createChat({ title: text.slice(0, 64), userId, slackThreadTs }, userMessage);
+	const createdChat = await chatQueries.createChat({ title: text.slice(0, 64), userId, slackThreadId }, userMessage);
 	return createdChat;
 };
 
