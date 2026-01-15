@@ -8,6 +8,13 @@
       "when": 1768388391105,
       "tag": "0000_user_auth_and_chat_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1768514596591,
+      "tag": "0001_message_stop_reason",
+      "breakpoints": true
     }
   ]
 }

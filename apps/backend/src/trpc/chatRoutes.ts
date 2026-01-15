@@ -2,6 +2,7 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
 import * as chatQueries from '../queries/chatQueries';
+import { agentService } from '../services/agentService';
 import { type ListChatResponse, type UIChat } from '../types/chat';
 import { protectedProcedure } from './trpc';
 
@@ -20,5 +21,16 @@ export const chatRoutes = {
 
 	delete: protectedProcedure.input(z.object({ chatId: z.string() })).mutation(async ({ input }): Promise<void> => {
 		await chatQueries.deleteChat(input.chatId);
+	}),
+
+	stop: protectedProcedure.input(z.object({ chatId: z.string() })).mutation(async ({ input, ctx }): Promise<void> => {
+		const agent = agentService.get(input.chatId);
+		if (!agent) {
+			throw new TRPCError({ code: 'NOT_FOUND', message: `Agent with id ${input.chatId} not found.` });
+		}
+		if (!agent.checkIsUserOwner(ctx.user.id)) {
+			throw new TRPCError({ code: 'FORBIDDEN', message: 'You are not allowed to stop this agent.' });
+		}
+		agent.stop();
 	}),
 };

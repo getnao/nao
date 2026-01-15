@@ -10,3 +10,17 @@ export const convertHeaders = (headers: IncomingHttpHeaders) => {
 	}
 	return convertedHeaders;
 };
+
+export const isAbortError = (error: unknown): error is Error & { name: 'AbortError' } => {
+	return error instanceof Error && error.name === 'AbortError';
+};
+
+export const getErrorMessage = (error: unknown): string | null => {
+	if (!error) {
+		return null;
+	}
+	if (error instanceof Error) {
+		return error.message;
+	}
+	return String(error);
+};

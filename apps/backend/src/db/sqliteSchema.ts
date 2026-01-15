@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { check, index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 
-import { ToolState, UIMessagePartType } from '../types/chat';
+import { StopReason, ToolState, UIMessagePartType } from '../types/chat';
 
 export const user = sqliteTable('user', {
 	id: text('id').primaryKey(),
@@ -118,6 +118,8 @@ export const chatMessage = sqliteTable(
 			.notNull()
 			.references(() => chat.id, { onDelete: 'cascade' }),
 		role: text('role', { enum: ['user', 'assistant', 'system'] }).notNull(),
+		stopReason: text('stop_reason').$type<StopReason>(),
+		errorMessage: text('error_message'),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull(),

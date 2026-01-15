@@ -9,12 +9,12 @@ import {
 } from '@/components/conversation';
 import { checkIsGenerating, isToolUIPart } from '@/lib/ai';
 import { cn } from '@/lib/utils';
-import { useChatContext } from '@/contexts/agentProvider';
+import { useAgentContext } from '@/contexts/agentProvider';
 
 const DEBUG_MESSAGES = false;
 
 export function ChatMessages() {
-	const { messages, status } = useChatContext();
+	const { messages, status } = useAgentContext();
 	const isGenerating = checkIsGenerating(status, messages);
 	const isRunning = status === 'streaming' || status === 'submitted';
 

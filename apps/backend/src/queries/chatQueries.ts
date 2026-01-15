@@ -2,8 +2,9 @@ import { eq } from 'drizzle-orm';
 
 import s, { NewChat } from '../db/abstractSchema';
 import { db } from '../db/db';
-import { ListChatResponse, UIChat, UIMessage } from '../types/chat';
+import { ListChatResponse, StopReason, UIChat, UIMessage } from '../types/chat';
 import { convertDBPartToUIPart, mapDBPartsToUIParts, mapUIPartsToDBParts } from '../utils/chatMessagePartMappings';
+import { getErrorMessage } from '../utils/utils';
 
 export const listUserChats = async (userId: string): Promise<ListChatResponse> => {
 	const chats = await db.select().from(s.chat).where(eq(s.chat.userId, userId)).execute();
@@ -96,18 +97,21 @@ export const createChat = async (newChat: NewChat, message: UIMessage): Promise<
 	});
 };
 
-export const upsertMessage = async (chatId: string, message: UIMessage): Promise<void> => {
+export const upsertMessage = async (
+	message: UIMessage,
+	opts: { chatId: string; stopReason?: StopReason; error?: unknown },
+): Promise<void> => {
 	await db.transaction(async (t) => {
 		const [savedMessage] = await t
 			.insert(s.chatMessage)
 			.values({
-				chatId,
+				chatId: opts.chatId,
+				id: message.id,
 				role: message.role,
+				stopReason: opts.stopReason,
+				errorMessage: getErrorMessage(opts.error),
 			})
-			.onConflictDoUpdate({
-				target: s.chatMessage.id,
-				set: { chatId }, // `set` requires at least one column
-			})
+			.onConflictDoNothing({ target: s.chatMessage.id })
 			.returning()
 			.execute();
 

@@ -1,5 +1,6 @@
 import {
 	DynamicToolUIPart,
+	FinishReason,
 	type InferUITools,
 	ToolUIPart as ToolUIPartType,
 	type UIMessage as UIGenericMessage,
@@ -49,3 +50,5 @@ export type UIToolPart = UIStaticToolPart | DynamicToolUIPart;
 export type ToolState = UIToolPart['state'];
 
 export type UIMessagePartType = UIMessagePart['type'];
+
+export type StopReason = FinishReason | 'interrupted';
