@@ -8,6 +8,13 @@
       "when": 1768388561542,
       "tag": "0000_user_auth_and_chat_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1768496717318,
+      "tag": "0001_message_feedback",
+      "breakpoints": true
     }
   ]
 }

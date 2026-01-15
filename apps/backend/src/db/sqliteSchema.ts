@@ -178,3 +178,18 @@ export const messagePart = sqliteTable(
 		),
 	],
 );
+
+export const messageFeedback = sqliteTable('message_feedback', {
+	messageId: text('message_id')
+		.primaryKey()
+		.references(() => chatMessage.id, { onDelete: 'cascade' }),
+	vote: text('vote', { enum: ['up', 'down'] }).notNull(),
+	explanation: text('explanation'),
+	createdAt: integer('created_at', { mode: 'timestamp_ms' })
+		.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+		.notNull(),
+	updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+		.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+		.$onUpdate(() => new Date())
+		.notNull(),
+});

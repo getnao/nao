@@ -6,7 +6,7 @@ import { getInstructions } from '../agents/prompt';
 import { tools } from '../agents/tools';
 import type { App } from '../app';
 import { authMiddleware } from '../middleware/auth';
-import * as chatQueries from '../queries/chatQueries';
+import * as chatQueries from '../queries/chat.queries';
 import { UIMessage } from '../types/chat';
 
 const DEBUG_CHUNKS = false;
@@ -17,7 +17,7 @@ export const chatRoutes = async (app: App) => {
 	app.post(
 		'/agent',
 		{ schema: { body: z.object({ message: z.custom<UIMessage>(), chatId: z.string().optional() }) } },
-		async (request) => {
+		async (request, reply) => {
 			const userId = request.user.id;
 			const message = request.body.message;
 			let chatId = request.body.chatId;
@@ -33,8 +33,16 @@ export const chatRoutes = async (app: App) => {
 				await chatQueries.upsertMessage(chatId, message);
 			}
 
-			const chat = await chatQueries.loadChat(chatId);
 			const instructions = getInstructions();
+			const [chat, chatUserId] = await chatQueries.loadChat(chatId);
+			if (!chat) {
+				return reply.status(404).send({ error: `Chat with id ${chatId} not found.` });
+			}
+
+			const isAuthorized = chatUserId === userId;
+			if (!isAuthorized) {
+				return reply.status(403).send({ error: `You are not authorized to access this chat.` });
+			}
 
 			const agent = new ToolLoopAgent({
 				model: openai.chat('gpt-5.1'),
@@ -70,6 +78,7 @@ export const chatRoutes = async (app: App) => {
 
 					writer.merge(result.toUIMessageStream({ sendStart: false }));
 				},
+				generateId: () => crypto.randomUUID(),
 				originalMessages: chat.messages as UIMessage[],
 				onFinish: async (e) => {
 					console.log('onFinish');

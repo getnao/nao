@@ -159,3 +159,16 @@ export const messagePart = pgTable(
 		),
 	],
 );
+
+export const messageFeedback = pgTable('message_feedback', {
+	messageId: text('message_id')
+		.primaryKey()
+		.references(() => chatMessage.id, { onDelete: 'cascade' }),
+	vote: text('vote', { enum: ['up', 'down'] }).notNull(),
+	explanation: text('explanation'),
+	createdAt: timestamp('created_at').defaultNow().notNull(),
+	updatedAt: timestamp('updated_at')
+		.defaultNow()
+		.$onUpdate(() => new Date())
+		.notNull(),
+});
