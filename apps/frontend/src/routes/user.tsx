@@ -1,10 +1,12 @@
+import { useState } from 'react';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
-import { Folder, Key, LogOut } from 'lucide-react';
+import { Folder, Key, LogOut, Pen } from 'lucide-react';
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Sidebar } from '@/components/sidebar';
 import { signOut, useSession } from '@/lib/auth-client';
 import { Input } from '@/components/ui/input';
+import { ModifyUserInfo } from '@/components/modify-user-info';
 
 export const Route = createFileRoute('/user')({
 	component: UserPage,
@@ -14,6 +16,7 @@ function UserPage() {
 	const navigate = useNavigate();
 	const { data: session } = useSession();
 	const user = session?.user;
+	const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
 
 	const handleSignOut = async () => {
 		await signOut({
@@ -39,9 +42,14 @@ function UserPage() {
 								<p className='text-sm text-slate-500'>{user?.email}</p>
 							</div>
 						</span>
-						<Button variant='secondary' size='icon-sm' onClick={handleSignOut}>
-							<LogOut className='size-4' />
-						</Button>
+						<span className='flex flex-row gap-2'>
+							<Button variant='secondary' size='icon-sm' onClick={() => setIsEditDialogOpen(true)}>
+								<Pen className='size-4' />
+							</Button>
+							<Button variant='secondary' size='icon-sm' onClick={handleSignOut}>
+								<LogOut className='size-4' />
+							</Button>
+						</span>
 					</div>
 
 					<div className='flex flex-col gap-4 p-6 rounded-lg border border-slate-200 bg-white mb-6'>
@@ -68,6 +76,8 @@ function UserPage() {
 					</div>
 				</div>
 			</div>
+
+			<ModifyUserInfo open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen} />
 		</>
 	);
 }

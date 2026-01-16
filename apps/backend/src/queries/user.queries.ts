@@ -10,3 +10,7 @@ export const getUser = async (identifier: { id: string } | { email: string }): P
 
 	return user ?? null;
 };
+
+export const modifyUser = async (id: string, data: { name?: string }): Promise<void> => {
+	await db.update(s.user).set(data).where(eq(s.user.id, id)).execute();
+};
