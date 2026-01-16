@@ -2,7 +2,7 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
 import * as chatQueries from '../queries/chat.queries';
-import { agentService } from '../services/agentService';
+import { agentService } from '../services/agent.service';
 import { type ListChatResponse, type UIChat } from '../types/chat';
 import { protectedProcedure } from './trpc';
 

@@ -22,6 +22,13 @@
       "when": 1768552721702,
       "tag": "0002_chat_message_stop_reason_and_error_message",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1768561598427,
+      "tag": "0003_handle_slack_with_thread",
+      "breakpoints": true
     }
   ]
 }

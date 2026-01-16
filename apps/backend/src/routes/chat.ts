@@ -4,7 +4,7 @@ import { z } from 'zod/v4';
 import type { App } from '../app';
 import { authMiddleware } from '../middleware/auth';
 import * as chatQueries from '../queries/chat.queries';
-import { agentService } from '../services/agentService';
+import { agentService } from '../services/agent.service';
 import { UIMessage } from '../types/chat';
 
 const DEBUG_CHUNKS = false;

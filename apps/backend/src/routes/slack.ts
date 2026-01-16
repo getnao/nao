@@ -1,6 +1,6 @@
 import type { App } from '../app';
 import { slackAuthMiddleware } from '../middleware/auth';
-import { SlackService } from '../services/slackService';
+import { SlackService } from '../services/slack.service';
 import { SlackRequest } from '../types/slack';
 
 export const slackRoutes = async (app: App) => {
@@ -16,21 +16,10 @@ export const slackRoutes = async (app: App) => {
 				return reply.send({ challenge: body.challenge });
 			}
 
-			const text = (body.event?.text ?? '').replace(/<@[A-Z0-9]+>/gi, '').trim();
-			const channel = body.event?.channel;
-			const threadId = body.event?.thread_ts || body.event?.ts;
-
-			if (!text || !channel || !threadId) {
-				throw new Error('Invalid request: missing text, channel, or thread timestamp');
-			}
-
-			const slackService = new SlackService(body, channel, threadId);
-
-			const user = await slackService.getUser(reply);
-
+			const slackService = new SlackService(body);
 			await slackService.sendRequestAcknowledgement(reply);
 
-			await slackService.handleWorkFlow(user, text);
+			await slackService.handleWorkFlow(reply);
 		} catch (error) {
 			return reply.status(500).send({ error });
 		}

@@ -1,13 +1,9 @@
-import { WebClient } from '@slack/web-api';
-
-import * as chatQueries from '../queries/chatQueries';
+import * as chatQueries from '../queries/chat.queries';
 import { UIMessage } from '../types/chat';
-
-const slackClient = new WebClient(process.env.SLACK_BOT_TOKEN);
 
 const updateSlackUserMessage = async (text: string, existingChat: { id: string; title: string }) => {
 	const userMessage = createTextMessage(text, 'user');
-	await chatQueries.upsertMessage(existingChat.id, userMessage);
+	await chatQueries.upsertMessage(userMessage, { chatId: existingChat.id });
 };
 
 const saveSlackUserMessage = async (text: string, userId: string, slackThreadId?: string) => {
@@ -26,14 +22,9 @@ const createTextMessage = (text: string, role: 'system' | 'user' | 'assistant'):
 	return message;
 };
 
-const getSlackUserEmail = async (userId: string): Promise<string | null> => {
-	const userProfile = await slackClient.users.profile.get({ user: userId });
-	return userProfile.profile?.email || null;
-};
-
 const saveSlackAgentResponse = async (chatId: string, responseText: string) => {
 	const assistantMessage = createTextMessage(responseText, 'assistant');
-	await chatQueries.upsertMessage(chatId, assistantMessage);
+	await chatQueries.upsertMessage(assistantMessage, { chatId });
 };
 
-export { getSlackUserEmail, saveSlackAgentResponse, saveSlackUserMessage, slackClient, updateSlackUserMessage };
+export { saveSlackAgentResponse, saveSlackUserMessage, updateSlackUserMessage };

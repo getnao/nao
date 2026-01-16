@@ -170,3 +170,13 @@ export const getOwnerOfChatAndMessage = async (chatId: string, messageId: string
 
 	return result?.userId;
 };
+
+export const getChatBySlackThread = async (threadId: string): Promise<{ id: string; title: string } | null> => {
+	const result = await db
+		.select({ id: s.chat.id, title: s.chat.title })
+		.from(s.chat)
+		.where(eq(s.chat.slackThreadId, threadId))
+		.limit(1)
+		.execute();
+	return result.at(0) || null;
+};
