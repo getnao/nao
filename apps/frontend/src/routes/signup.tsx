@@ -29,8 +29,8 @@ function SignUp() {
 				onSuccess: () => {
 					navigate({ to: '/' });
 				},
-				onError: (error) => {
-					setError(error.error.message);
+				onError: (ctx) => {
+					setError(ctx.error.message);
 				},
 			},
 		);

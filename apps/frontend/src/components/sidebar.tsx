@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams } from '@tanstack/react-router';
 import { useMutation } from '@tanstack/react-query';
 import { ChatList } from './chat-list';
+import { SidebarUserMenu } from './sidebar-user-menu';
 import type { ComponentProps } from 'react';
 
 import { Button } from '@/components/ui/button';
@@ -60,7 +61,12 @@ export function Sidebar({ className, ...props }: ComponentProps<'div'>) {
 		>
 			{/* Header */}
 			<div className='flex items-center justify-between p-3 border-b border-sidebar-border'>
-				{!isCollapsed && <h2 className='font-semibold text-sm'>Chats</h2>}
+				{!isCollapsed && (
+					<div className='flex items-center gap-2'>
+						<img src='/nao-square-logo.png' alt='nao logo' className='size-5 rounded' />
+						<h2 className='font-semibold text-sm'>nao Chat</h2>
+					</div>
+				)}
 				<Button
 					variant='ghost'
 					size='icon-sm'
@@ -100,6 +106,10 @@ export function Sidebar({ className, ...props }: ComponentProps<'div'>) {
 					onChatDelete={handleDeleteChat}
 				/>
 			)}
+
+			<div className='mt-auto'>
+				<SidebarUserMenu isCollapsed={isCollapsed} />
+			</div>
 		</div>
 	);
 }

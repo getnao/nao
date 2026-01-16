@@ -9,12 +9,18 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as UserRouteImport } from './routes/user'
 import { Route as SignupRouteImport } from './routes/signup'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as ChatLayoutRouteImport } from './routes/_chat-layout'
 import { Route as ChatLayoutIndexRouteImport } from './routes/_chat-layout.index'
 import { Route as ChatLayoutChatIdRouteImport } from './routes/_chat-layout.$chatId'
 
+const UserRoute = UserRouteImport.update({
+  id: '/user',
+  path: '/user',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SignupRoute = SignupRouteImport.update({
   id: '/signup',
   path: '/signup',
@@ -43,12 +49,14 @@ const ChatLayoutChatIdRoute = ChatLayoutChatIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/signup': typeof SignupRoute
+  '/user': typeof UserRoute
   '/$chatId': typeof ChatLayoutChatIdRoute
   '/': typeof ChatLayoutIndexRoute
 }
 export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/signup': typeof SignupRoute
+  '/user': typeof UserRoute
   '/$chatId': typeof ChatLayoutChatIdRoute
   '/': typeof ChatLayoutIndexRoute
 }
@@ -57,19 +65,21 @@ export interface FileRoutesById {
   '/_chat-layout': typeof ChatLayoutRouteWithChildren
   '/login': typeof LoginRoute
   '/signup': typeof SignupRoute
+  '/user': typeof UserRoute
   '/_chat-layout/$chatId': typeof ChatLayoutChatIdRoute
   '/_chat-layout/': typeof ChatLayoutIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/login' | '/signup' | '/$chatId' | '/'
+  fullPaths: '/login' | '/signup' | '/user' | '/$chatId' | '/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/login' | '/signup' | '/$chatId' | '/'
+  to: '/login' | '/signup' | '/user' | '/$chatId' | '/'
   id:
     | '__root__'
     | '/_chat-layout'
     | '/login'
     | '/signup'
+    | '/user'
     | '/_chat-layout/$chatId'
     | '/_chat-layout/'
   fileRoutesById: FileRoutesById
@@ -78,10 +88,18 @@ export interface RootRouteChildren {
   ChatLayoutRoute: typeof ChatLayoutRouteWithChildren
   LoginRoute: typeof LoginRoute
   SignupRoute: typeof SignupRoute
+  UserRoute: typeof UserRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/user': {
+      id: '/user'
+      path: '/user'
+      fullPath: '/user'
+      preLoaderRoute: typeof UserRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/signup': {
       id: '/signup'
       path: '/signup'
@@ -138,6 +156,7 @@ const rootRouteChildren: RootRouteChildren = {
   ChatLayoutRoute: ChatLayoutRouteWithChildren,
   LoginRoute: LoginRoute,
   SignupRoute: SignupRoute,
+  UserRoute: UserRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
