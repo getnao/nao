@@ -1,6 +1,6 @@
 import { z } from 'zod/v4';
 
-export const ZSlackEvent = z.object({
+export const SlackEventSchema = z.object({
 	type: z.string(),
 	user: z.string(),
 	ts: z.string(),
@@ -10,19 +10,12 @@ export const ZSlackEvent = z.object({
 	event_ts: z.string(),
 });
 
-export const ZSlackRequest = z.object({
+export const SlackRequestSchema = z.object({
 	type: z.string().optional(),
 	challenge: z.string().optional(),
 	token: z.string().optional(),
-	event: ZSlackEvent.optional(),
+	event: SlackEventSchema.optional(),
 });
 
-export type SlackRequest = z.infer<typeof ZSlackRequest>;
-export type SlackEvent = z.infer<typeof ZSlackEvent>;
-
-export interface ValidatedSlackRequest {
-	type?: string;
-	challenge?: string;
-	token?: string;
-	event: SlackEvent;
-}
+export type SlackRequest = z.infer<typeof SlackRequestSchema>;
+export type SlackEvent = z.infer<typeof SlackEventSchema>;

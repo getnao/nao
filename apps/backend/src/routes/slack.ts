@@ -1,7 +1,7 @@
 import type { App } from '../app';
 import { slackAuthMiddleware } from '../middleware/slack.middleware';
 import { SlackService } from '../services/slack.service';
-import { ValidatedSlackRequest, ZSlackRequest } from '../types/slack';
+import { SlackRequestSchema } from '../types/slack';
 
 export const slackRoutes = async (app: App) => {
 	// Verifying requests from Slack : verify whether requests from Slack are authentic
@@ -12,7 +12,7 @@ export const slackRoutes = async (app: App) => {
 		'/app_mention',
 		{
 			config: { rawBody: true },
-			schema: { body: ZSlackRequest },
+			schema: { body: SlackRequestSchema },
 		},
 		async (request, reply) => {
 			const body = request.body;
@@ -21,8 +21,10 @@ export const slackRoutes = async (app: App) => {
 				return reply.send({ challenge: body.challenge });
 			}
 
-			if (!process.env.SLACK_BOT_TOKEN) {
-				return reply.status(400).send({ error: 'SLACK_BOT_TOKEN is not defined in environment variables' });
+			if (!process.env.SLACK_BOT_TOKEN || !process.env.SLACK_SIGNING_SECRET) {
+				return reply
+					.status(400)
+					.send({ error: 'SLACK_BOT_TOKEN or SLACK_SIGNING_SECRET is not defined in environment variables' });
 			}
 
 			if (!body.event) {
@@ -35,7 +37,7 @@ export const slackRoutes = async (app: App) => {
 					.send({ error: 'Invalid request: missing text, channel, thread timestamp, or user ID' });
 			}
 
-			const slackService = new SlackService(body as ValidatedSlackRequest);
+			const slackService = new SlackService(body.event);
 			await slackService.sendRequestAcknowledgement(reply);
 
 			await slackService.handleWorkFlow(reply);

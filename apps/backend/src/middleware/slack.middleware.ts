@@ -14,9 +14,17 @@ function verifySlackSignature(signingSecret: string, requestSignature: string, t
 }
 
 export async function slackAuthMiddleware(request: FastifyRequest, reply: FastifyReply) {
-	const rawBody = request.rawBody as string;
-	const timestamp = request.headers['x-slack-request-timestamp'] as string;
-	const signature = request.headers['x-slack-signature'] as string;
+	const rawBody = request.rawBody;
+	const timestamp = request.headers['x-slack-request-timestamp'];
+	const signature = request.headers['x-slack-signature'];
+
+	if (!rawBody || !timestamp || !signature) {
+		return reply.status(400).send('Missing required headers or body');
+	}
+
+	if (typeof rawBody !== 'string' || typeof timestamp !== 'string' || typeof signature !== 'string') {
+		return reply.status(400).send('Invalid types for headers or body');
+	}
 
 	if (!verifySlackSignature(process.env.SLACK_SIGNING_SECRET!, signature, timestamp, rawBody)) {
 		return reply.status(403).send('Invalid signature');

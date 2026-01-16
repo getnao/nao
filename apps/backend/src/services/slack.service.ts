@@ -4,7 +4,7 @@ import { FastifyReply } from 'fastify';
 import { User } from '../db/abstractSchema';
 import * as chatQueries from '../queries/chat.queries';
 import { getUser } from '../queries/user.queries';
-import { ValidatedSlackRequest } from '../types/slack';
+import { SlackEvent } from '../types/slack';
 import { saveSlackAgentResponse, saveSlackUserMessage, updateSlackUserMessage } from '../utils/slack';
 import { agentService } from './agent.service';
 
@@ -19,11 +19,11 @@ export class SlackService {
 	private _redirectUrl = process.env.REDIRECT_URL || '';
 	private _slackClient: WebClient;
 
-	constructor(body: ValidatedSlackRequest) {
-		this._text = (body.event?.text ?? '').replace(/<@[A-Z0-9]+>/gi, '').trim();
-		this._channel = body.event.channel;
-		this._threadTs = body.event.thread_ts || body.event.ts;
-		this._slackUserId = body.event.user;
+	constructor(event: SlackEvent) {
+		this._text = (event.text ?? '').replace(/<@[A-Z0-9]+>/gi, '').trim();
+		this._channel = event.channel;
+		this._threadTs = event.thread_ts || event.ts;
+		this._slackUserId = event.user;
 		this._threadId = [this._channel, this._threadTs.replace('.', '')].join('/p');
 		this._slackClient = new WebClient(process.env.SLACK_BOT_TOKEN);
 	}
