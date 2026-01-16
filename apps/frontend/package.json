@@ -9,8 +9,7 @@
 		"test": "vitest run",
 		"lint": "eslint",
 		"lint:fix": "eslint --fix",
-		"format": "prettier --write .",
-		"check": "prettier --write . && eslint --fix"
+		"format": "prettier --write ."
 	},
 	"dependencies": {
 		"@ai-sdk/react": "^3.0.3",

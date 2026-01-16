@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { boolean, check, index, integer, jsonb, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
 
-import { ToolState, UIMessagePartType } from '../types/chat';
+import { StopReason, ToolState, UIMessagePartType } from '../types/chat';
 
 export const user = pgTable('user', {
 	id: text('id').primaryKey(),
@@ -105,6 +105,8 @@ export const chatMessage = pgTable(
 			.notNull()
 			.references(() => chat.id, { onDelete: 'cascade' }),
 		role: text('role', { enum: ['user', 'assistant', 'system'] }).notNull(),
+		stopReason: text('stop_reason').$type<StopReason>(),
+		errorMessage: text('error_message'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 	},
 	(table) => [

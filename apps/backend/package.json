@@ -22,6 +22,7 @@
 		"db:studio": "drizzle-kit studio",
 		"db:drop": "drizzle-kit drop",
 		"db:reset": "rm db.sqlite",
+		"db:check-migration-files": "bun scripts/db.check-migration-files.ts",
 		"format": "prettier --write ."
 	},
 	"dependencies": {
