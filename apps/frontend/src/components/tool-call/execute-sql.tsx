@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Code, Table } from 'lucide-react';
+import { Streamdown } from 'streamdown';
+import { Code, Copy, Table } from 'lucide-react';
 import { ToolCallProvider, useToolCallContext } from './context';
 import { ToolCallWrapper } from './tool-call-wrapper';
 import type { ToolCallProps } from './context';
@@ -28,12 +29,19 @@ const ExecuteSqlContent = () => {
 			isActive: viewMode === 'query',
 			onClick: () => setViewMode('query'),
 		},
+		{
+			id: 'copy',
+			label: <Copy size={12} />,
+			onClick: () => {
+				navigator.clipboard.writeText(input?.sql_query ?? '');
+			},
+		},
 	];
 
 	return (
 		<ToolCallWrapper
-			bordered
 			defaultExpanded
+			overrideError={viewMode === 'query'}
 			title={
 				<span>
 					{isSettled ? 'Executed' : 'Executing'}{' '}
@@ -41,11 +49,13 @@ const ExecuteSqlContent = () => {
 				</span>
 			}
 			badge={output?.row_count && `${output.row_count} rows`}
-			actions={isSettled ? actions : undefined}
+			actions={isSettled ? actions : []}
 		>
 			{viewMode === 'query' && input?.sql_query ? (
-				<div className='overflow-auto max-h-80'>
-					<pre className='p-3 m-0 text-sm font-mono bg-background/30'>{input.sql_query}</pre>
+				<div className='overflow-auto max-h-80 hide-code-header'>
+					<Streamdown mode='static' cdnUrl={null} controls={{ code: false }}>
+						{`\`\`\`sql\n${input.sql_query}\n\`\`\``}
+					</Streamdown>
 				</div>
 			) : output ? (
 				<div className='overflow-auto max-h-80'>

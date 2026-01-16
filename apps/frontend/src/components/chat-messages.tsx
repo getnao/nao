@@ -1,6 +1,7 @@
 import { Streamdown } from 'streamdown';
 import { ToolCall } from './tool-call';
 import { AgentMessageLoader } from './ui/agent-message-loader';
+import { MessageActions } from './message-actions';
 import type { UIMessage } from 'backend/chat';
 import {
 	Conversation,
@@ -85,7 +86,7 @@ const AssistantMessageBlock = ({ message }: { message: UIMessage }) => {
 	const { isRunning } = useChatContext();
 
 	return (
-		<div className={cn('rounded-2xl px-4 py-2 bg-muted flex flex-col gap-2')}>
+		<div className={cn('group rounded-2xl px-4 py-2 bg-muted flex flex-col gap-2')}>
 			{message.parts.map((p, i) => {
 				const isLastPart = i === message.parts.length - 1;
 				const isPartStreaming = isRunning && isLastPart;
@@ -111,6 +112,13 @@ const AssistantMessageBlock = ({ message }: { message: UIMessage }) => {
 						return null;
 				}
 			})}
+
+			{!isRunning && (
+				<MessageActions
+					message={message}
+					className='opacity-0 group-last:opacity-100 group-hover:opacity-100 transition-opacity duration-200'
+				/>
+			)}
 		</div>
 	);
 };

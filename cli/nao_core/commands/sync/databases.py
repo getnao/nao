@@ -29,7 +29,7 @@ def sync_bigquery(
             Tuple of (datasets_synced, tables_synced)
     """
     conn = db_config.connect()
-    db_path = base_path / "bigquery" / db_config.name
+    db_path = base_path / "type=bigquery" / f"database={db_config.project_id}"
 
     datasets_synced = 0
     tables_synced = 0
@@ -59,7 +59,7 @@ def sync_bigquery(
             progress.update(dataset_task, advance=1)
             continue
 
-        dataset_path = db_path / dataset
+        dataset_path = db_path / f"schema={dataset}"
         dataset_path.mkdir(parents=True, exist_ok=True)
         datasets_synced += 1
 
@@ -69,7 +69,7 @@ def sync_bigquery(
         )
 
         for table in tables:
-            table_path = dataset_path / table
+            table_path = dataset_path / f"table={table}"
             table_path.mkdir(parents=True, exist_ok=True)
 
             for accessor in accessors:

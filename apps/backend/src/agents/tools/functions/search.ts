@@ -21,7 +21,7 @@ export const execute = async ({ pattern }: Input): Promise<Output> => {
 
 	const files = await glob(sanitizedPattern, { absolute: true, cwd: projectFolder });
 
-	// Filter to only files within the project folder (safety net)
+	// Filter to only files within the project folder and not in excluded dirs
 	const safeFiles = files.filter((f) => isWithinProjectFolder(f, projectFolder));
 
 	return await Promise.all(

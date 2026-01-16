@@ -11,6 +11,8 @@ export interface ToolDefinition<TInput extends ZodSchema, TOutput extends ZodSch
 	execute: (input: z.infer<TInput>) => Promise<z.infer<TOutput>>;
 }
 
+export type AnyToolDefinition = ToolDefinition<ZodSchema, ZodSchema>;
+
 /**
  * Creates a tool with consistent structure.
  * Schemas are exported separately from each tool's schema.ts file.

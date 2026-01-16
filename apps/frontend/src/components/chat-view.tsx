@@ -15,7 +15,7 @@ export function ChatView() {
 
 	return (
 		<AgentProvider agent={agent}>
-			<div className='flex flex-1 flex-col bg-slate-100 min-w-0'>
+			<div className='flex flex-1 flex-col bg-slate-100 min-w-0 overflow-hidden'>
 				<Outlet />
 
 				<ChatInput

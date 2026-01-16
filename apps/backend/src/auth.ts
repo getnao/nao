@@ -5,6 +5,7 @@ import { db } from './db/db';
 import dbConfig, { Dialect } from './db/dbConfig';
 
 export const auth = betterAuth({
+	secret: process.env.BETTER_AUTH_SECRET,
 	database: drizzleAdapter(db, {
 		provider: dbConfig.dialect === Dialect.Postgres ? 'pg' : 'sqlite',
 		schema: dbConfig.schema,

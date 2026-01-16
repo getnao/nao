@@ -1,3 +1,4 @@
+from nao_core.config import NaoConfig
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,8 +10,6 @@ from pathlib import Path
 
 cli_path = Path(__file__).parent.parent.parent / "cli"
 sys.path.insert(0, str(cli_path))
-
-from nao_core.config import NaoConfig
 
 port = int(os.environ.get("PORT", 8005))
 
@@ -85,11 +84,10 @@ async def execute_sql(request: ExecuteSQLRequest):
             )
 
         connection = db_config.connect()
-        result = connection.sql(request.sql)
-
-        df = result.to_pandas()
         
-        # Convert numpy types to native Python types for JSON serialization
+        cursor = connection.raw_sql(request.sql)  # type: ignore[attr-defined]
+        df = cursor.to_dataframe()
+        
         def convert_value(v):
             if isinstance(v, (np.integer,)):
                 return int(v)

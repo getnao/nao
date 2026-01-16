@@ -1,7 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 
-import { getProjectFolder, toRealPath, toVirtualPath } from '../../../utils/tools';
+import { getProjectFolder, isExcludedEntry, toRealPath, toVirtualPath } from '../../../utils/tools';
 import type { Input, Output } from '../schema/list';
 
 export const execute = async ({ path: filePath }: Input): Promise<Output> => {
@@ -10,8 +10,11 @@ export const execute = async ({ path: filePath }: Input): Promise<Output> => {
 
 	const entries = await fs.readdir(realPath, { withFileTypes: true });
 
+	// Filter out excluded entries
+	const filteredEntries = entries.filter((entry) => !isExcludedEntry(entry.name));
+
 	return await Promise.all(
-		entries.map(async (entry) => {
+		filteredEntries.map(async (entry) => {
 			const fullRealPath = path.join(realPath, entry.name);
 
 			const type: 'file' | 'directory' | 'symbolic_link' | undefined = entry.isDirectory()

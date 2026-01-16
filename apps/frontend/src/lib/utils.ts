@@ -20,3 +20,7 @@ export function formatBytes(bytes: number): string {
 	const value = bytes / Math.pow(k, i);
 	return `${value % 1 === 0 ? value : value.toFixed(1)} ${sizes[i]}`;
 }
+
+export function capitalize(str: string): string {
+	return str.charAt(0).toUpperCase() + str.slice(1);
+}

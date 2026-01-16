@@ -1,5 +1,6 @@
 """Data accessor classes for generating markdown documentation from database tables."""
 
+import json
 from abc import ABC, abstractmethod
 
 from ibis import BaseBackend
@@ -34,8 +35,19 @@ class DataAccessor(ABC):
         return conn.table(full_table_name)
 
 
+def truncate_middle(text: str, max_length: int) -> str:
+    """Truncate text in the middle if it exceeds max_length."""
+    if len(text) <= max_length:
+        return text
+    half = (max_length - 3) // 2
+    return text[:half] + "..." + text[-half:]
+
+
 class ColumnsAccessor(DataAccessor):
     """Generates columns.md with column names, types, and nullable info."""
+
+    def __init__(self, max_description_length: int = 256):
+        self.max_description_length = max_description_length
 
     @property
     def filename(self) -> str:
@@ -46,21 +58,24 @@ class ColumnsAccessor(DataAccessor):
             t = self.get_table(conn, dataset, table)
             schema = t.schema()
 
+            columns = list(schema.items())
+
             lines = [
                 f"# {table}",
                 "",
                 f"**Dataset:** `{dataset}`",
                 "",
-                "## Columns",
+                f"## Columns ({len(columns)})",
                 "",
-                "| Column | Type | Nullable | Description |",
-                "|--------|------|----------|-------------|",
             ]
 
-            for name, dtype in schema.items():
-                nullable = "Yes" if dtype.nullable else "No"
-                description = ""
-                lines.append(f"| `{name}` | `{dtype}` | {nullable} | {description} |")
+            for name, dtype in columns:
+                description = None
+                parts = [str(dtype)]
+                if description:
+                    truncated = truncate_middle(description, self.max_description_length)
+                    parts.append(f'"{truncated}"')
+                lines.append(f"- {name} ({', '.join(parts)})")
 
             return "\n".join(lines)
         except Exception as e:
@@ -68,7 +83,7 @@ class ColumnsAccessor(DataAccessor):
 
 
 class PreviewAccessor(DataAccessor):
-    """Generates preview.md with the first N rows of data."""
+    """Generates preview.md with the first N rows of data as JSONL."""
 
     def __init__(self, num_rows: int = 10):
         self.num_rows = num_rows
@@ -80,36 +95,24 @@ class PreviewAccessor(DataAccessor):
     def generate(self, conn: BaseBackend, dataset: str, table: str) -> str:
         try:
             t = self.get_table(conn, dataset, table)
-            schema = t.schema()
-
             preview_df = t.limit(self.num_rows).execute()
 
             lines = [
                 f"# {table} - Preview",
                 "",
                 f"**Dataset:** `{dataset}`",
-                f"**Showing:** First {len(preview_df)} rows",
                 "",
-                "## Data Preview",
+                f"## Rows ({len(preview_df)})",
                 "",
             ]
 
-            columns = list(schema.keys())
-            header = "| " + " | ".join(f"`{col}`" for col in columns) + " |"
-            separator = "| " + " | ".join("---" for _ in columns) + " |"
-            lines.append(header)
-            lines.append(separator)
-
             for _, row in preview_df.iterrows():
-                row_values = []
-                for col in columns:
-                    val = row[col]
-                    val_str = str(val) if val is not None else ""
-                    if len(val_str) > 50:
-                        val_str = val_str[:47] + "..."
-                    val_str = val_str.replace("|", "\\|").replace("\n", " ")
-                    row_values.append(val_str)
-                lines.append("| " + " | ".join(row_values) + " |")
+                row_dict = row.to_dict()
+                # Convert non-serializable types to strings
+                for key, val in row_dict.items():
+                    if val is not None and not isinstance(val, (str, int, float, bool, list, dict)):
+                        row_dict[key] = str(val)
+                lines.append(f"- {json.dumps(row_dict)}")
 
             return "\n".join(lines)
         except Exception as e:

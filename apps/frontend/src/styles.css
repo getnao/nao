@@ -5,8 +5,12 @@
 
 @custom-variant dark (&:is(.dark *));
 
+html,
 body {
-	@apply m-0;
+	@apply m-0 h-full overflow-hidden;
+}
+
+body {
 	font-family:
 		-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans',
 		'Droid Sans', 'Helvetica Neue', sans-serif;
@@ -156,4 +160,14 @@ code {
 [data-streamdown='table-header'],
 [data-streamdown='table-body'] {
 	background-color: var(--background);
+}
+
+.hide-code-header [data-streamdown='code-block-header'] {
+	display: none;
+}
+
+.hide-code-header [data-streamdown='code-block'],
+.hide-code-header pre {
+	border: none;
+	border-radius: 0;
 }

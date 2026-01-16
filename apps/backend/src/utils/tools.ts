@@ -1,6 +1,26 @@
 import path from 'path';
 
 /**
+ * Directory names that should be excluded from tool operations (list, search, read).
+ */
+export const EXCLUDED_DIRS = ['.meta'];
+
+/**
+ * Checks if a path contains any excluded directory.
+ */
+export const isInExcludedDir = (filePath: string): boolean => {
+	const parts = filePath.split(path.sep);
+	return parts.some((part) => EXCLUDED_DIRS.includes(part));
+};
+
+/**
+ * Checks if an entry name is an excluded directory.
+ */
+export const isExcludedEntry = (name: string): boolean => {
+	return EXCLUDED_DIRS.includes(name);
+};
+
+/**
  * Gets the resolved project folder path from the NAO_PROJECT_FOLDER environment variable.
  * @throws Error if NAO_PROJECT_FOLDER is not set
  */
@@ -13,11 +33,12 @@ export const getProjectFolder = (): string => {
 };
 
 /**
- * Checks if a given path is within the project folder.
+ * Checks if a given path is within the project folder and not in an excluded directory.
  */
 export const isWithinProjectFolder = (filePath: string, projectFolder: string): boolean => {
 	const resolved = path.resolve(filePath);
-	return resolved === projectFolder || resolved.startsWith(projectFolder + path.sep);
+	const withinFolder = resolved === projectFolder || resolved.startsWith(projectFolder + path.sep);
+	return withinFolder && !isInExcludedDir(resolved);
 };
 
 /**

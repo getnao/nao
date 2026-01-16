@@ -32,7 +32,7 @@ export function ChatInput({ onSubmit, isLoading, disabled = false }: Props) {
 	};
 
 	return (
-		<div className='p-4 pt-0 backdrop-blur-sm dark:bg-slate-900/50 mt-auto'>
+		<div className='p-4 pt-0 backdrop-blur-sm dark:bg-slate-900/50'>
 			<form onSubmit={handleSubmit} className='mx-auto max-w-3xl'>
 				<InputGroup htmlFor='chat-input'>
 					<InputGroupTextarea

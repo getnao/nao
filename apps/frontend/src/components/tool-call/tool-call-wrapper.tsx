@@ -20,7 +20,7 @@ interface ToolCallWrapperProps {
 	children: ReactNode;
 	actions?: ActionButton[];
 	defaultExpanded?: boolean;
-	bordered?: boolean;
+	overrideError?: boolean;
 }
 
 export const ToolCallWrapper = ({
@@ -29,14 +29,16 @@ export const ToolCallWrapper = ({
 	children,
 	actions,
 	defaultExpanded = false,
-	bordered = false,
+	overrideError = false,
 }: ToolCallWrapperProps) => {
 	const { toolPart, isExpanded, setIsExpanded, isHovering } = useToolCallContext();
 	const canExpand = !!toolPart.errorText || !!toolPart.output;
 	const isSettled = isToolSettled(toolPart);
 	const hasInitialized = useRef(false);
 
-	const isBordered = bordered || !!actions;
+	console.log('overrideError', overrideError);
+
+	const isBordered = !!actions;
 
 	useEffect(() => {
 		if (isBordered && !hasInitialized.current && canExpand && defaultExpanded) {
@@ -152,7 +154,7 @@ export const ToolCallWrapper = ({
 				<AccordionContent className={cn('pb-0', !isBordered && 'pt-1.5')}>
 					{isBordered ? (
 						<div className='border-t border-border'>
-							{toolPart.errorText ? (
+							{toolPart.errorText && !overrideError ? (
 								<pre className='p-3 overflow-auto max-h-80 m-0 text-red-400 whitespace-pre-wrap break-words'>
 									{toolPart.errorText}
 								</pre>
@@ -164,7 +166,7 @@ export const ToolCallWrapper = ({
 						<div className='pl-5 bg-backgroundSecondary relative'>
 							<div className='h-full border-l border-l-border absolute top-0 left-[6px]' />
 							<div>
-								{toolPart.errorText ? (
+								{toolPart.errorText && !overrideError ? (
 									<pre className='p-2 overflow-auto max-h-80 m-0'>{toolPart.errorText}</pre>
 								) : (
 									children
