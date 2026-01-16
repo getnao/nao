@@ -16,4 +16,7 @@ export type NewChatMessage = typeof sqliteSchema.chatMessage.$inferInsert;
 export type DBMessagePart = typeof sqliteSchema.messagePart.$inferSelect;
 export type NewMessagePart = typeof sqliteSchema.messagePart.$inferInsert;
 
+export type MessageFeedback = typeof sqliteSchema.messageFeedback.$inferSelect;
+export type NewMessageFeedback = typeof sqliteSchema.messageFeedback.$inferInsert;
+
 export default allSchema as typeof sqliteSchema;

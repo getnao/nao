@@ -1,10 +1,16 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
+@import './style.animations.css';
+@source "../../../node_modules/streamdown/dist/*.js";
 
 @custom-variant dark (&:is(.dark *));
 
+html,
 body {
-	@apply m-0;
+	@apply m-0 h-full overflow-hidden;
+}
+
+body {
 	font-family:
 		-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans',
 		'Droid Sans', 'Helvetica Neue', sans-serif;
@@ -135,66 +141,33 @@ code {
 	}
 }
 
-@utility text-shimmer {
-	color: transparent;
-	background-clip: text !important;
-	animation: shimmer 1.5s linear infinite;
-	background:
-		radial-gradient(circle at center, rgba(255, 255, 255, 0.85), transparent) -200% 50% / 200% 100% no-repeat,
-		#000;
+/* Streamdown styles */
 
-	&:is(.dark *) {
-		background:
-			radial-gradient(circle at center, rgb(24 24 27 / 85%), transparent) -200% 50% / 200% 100% no-repeat,
-			#f4f4f5;
-	}
+[data-streamdown='heading-1'],
+[data-streamdown='heading-2'] {
+	font-size: 20px;
 }
 
-/* HTML: <div class="loader"></div> */
-@utility chat-response-loading {
-	width: 20px;
-	aspect-ratio: 2;
-	--_g: no-repeat radial-gradient(circle closest-side, #000 90%, #0000);
-	background:
-		var(--_g) 0% 50%,
-		var(--_g) 50% 50%,
-		var(--_g) 100% 50%;
-	background-size: calc(100% / 3) 50%;
-	animation: l3 1.2s infinite linear;
+[data-streamdown='heading-3'],
+[data-streamdown='heading-4'],
+[data-streamdown='heading-5'],
+[data-streamdown='heading-6'] {
+	font-size: 18px;
 }
 
-@keyframes l3 {
-	20% {
-		background-position:
-			0% 0%,
-			50% 50%,
-			100% 50%;
-	}
-	40% {
-		background-position:
-			0% 100%,
-			50% 0%,
-			100% 50%;
-	}
-	60% {
-		background-position:
-			0% 50%,
-			50% 100%,
-			100% 0%;
-	}
-	80% {
-		background-position:
-			0% 50%,
-			50% 50%,
-			100% 100%;
-	}
+[data-streamdown='code-block'],
+[data-streamdown='code-block-header'],
+[data-streamdown='table-header'],
+[data-streamdown='table-body'] {
+	background-color: var(--background);
 }
 
-@keyframes shimmer {
-	0% {
-		background-position: 200% 0%;
-	}
-	100% {
-		background-position: -200% 0%;
-	}
+.hide-code-header [data-streamdown='code-block-header'] {
+	display: none;
+}
+
+.hide-code-header [data-streamdown='code-block'],
+.hide-code-header pre {
+	border: none;
+	border-radius: 0;
 }

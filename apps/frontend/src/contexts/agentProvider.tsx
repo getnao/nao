@@ -5,11 +5,11 @@ import { useMemoObject } from '@/hooks/useMemoObject';
 const AgentContext = createContext<AgentHelpers | null>(null);
 
 export const useAgentContext = () => {
-	const messages = useContext(AgentContext);
-	if (!messages) {
+	const agent = useContext(AgentContext);
+	if (!agent) {
 		throw new Error('useChatContext must be used within a ChatContextProvider');
 	}
-	return messages;
+	return agent;
 };
 
 export interface Props {

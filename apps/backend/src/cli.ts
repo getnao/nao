@@ -8,11 +8,15 @@
  *   nao-chat-server (defaults to serve)
  */
 
+import crypto from 'crypto';
+import fs from 'fs';
 import path from 'path';
 
-import { Dialect } from './db/dbConfig';
-import dbConfig from './db/dbConfig';
+import app from './app';
+import dbConfig, { Dialect } from './db/dbConfig';
 import { runMigrations } from './db/migrate';
+
+const SECRET_FILE_NAME = '.nao-secret';
 
 function getExecutableDir(): string {
 	// When running as a compiled binary, process.execPath is the path to the binary itself
@@ -23,6 +27,51 @@ function getMigrationsPath(dbType: Dialect): string {
 	const execDir = getExecutableDir();
 	const migrationsFolder = dbType === Dialect.Postgres ? 'migrations-postgres' : 'migrations-sqlite';
 	return path.join(execDir, migrationsFolder);
+}
+
+function getSecretFilePath(): string {
+	return path.join(getExecutableDir(), SECRET_FILE_NAME);
+}
+
+function generateSecret(): string {
+	return crypto.randomBytes(32).toString('base64');
+}
+
+function ensureAuthSecret(): void {
+	// If already set via environment, nothing to do
+	if (process.env.BETTER_AUTH_SECRET) {
+		return;
+	}
+
+	const secretPath = getSecretFilePath();
+
+	// Try to load existing secret from file
+	if (fs.existsSync(secretPath)) {
+		try {
+			const secret = fs.readFileSync(secretPath, 'utf-8').trim();
+			if (secret) {
+				process.env.BETTER_AUTH_SECRET = secret;
+				console.log(`✓ Loaded auth secret from ${secretPath}`);
+				return;
+			}
+		} catch {
+			// Fall through to generate new secret
+		}
+	}
+
+	// Generate and save new secret
+	const newSecret = generateSecret();
+	try {
+		fs.writeFileSync(secretPath, newSecret, { mode: 0o600 }); // Restrictive permissions
+		process.env.BETTER_AUTH_SECRET = newSecret;
+		console.log(`✓ Generated new auth secret and saved to ${secretPath}`);
+	} catch (err) {
+		// If we can't write the file, still set the env var for this session
+		// but warn the user that sessions won't persist
+		process.env.BETTER_AUTH_SECRET = newSecret;
+		console.warn(`⚠ Could not save auth secret to ${secretPath}: ${err}`);
+		console.warn('  Sessions will not persist across restarts');
+	}
 }
 
 function printHelp(): void {
@@ -44,9 +93,10 @@ SERVE OPTIONS:
     --host <host>   Host to bind to (default: 0.0.0.0)
 
 ENVIRONMENT VARIABLES:
-    DB_URI    Database connection URI
-              SQLite:     sqlite:./path/to/db.sqlite
-              PostgreSQL: postgres://user:pass@host:port/database
+    DB_URI              Database connection URI
+                        SQLite:     sqlite:./path/to/db.sqlite
+                        PostgreSQL: postgres://user:pass@host:port/database
+    BETTER_AUTH_SECRET  Secret key for signing auth sessions (auto-generated if not set)
 
 EXAMPLES:
     # SQLite (default: sqlite:./db.sqlite)
@@ -112,9 +162,6 @@ async function runServe(options: Record<string, string>): Promise<void> {
 	console.log(`   Database: ${dialect}${dialect === Dialect.Sqlite ? ` (${dbUrl})` : ''}`);
 	console.log(`   Listening on: ${host}:${port}`);
 
-	// Dynamic import to ensure env vars are set first
-	const { default: app } = await import('./app');
-
 	try {
 		const address = await app.listen({ host, port });
 		console.log(`✅ Server is running on ${address}`);
@@ -146,6 +193,9 @@ async function main(): Promise<void> {
 		printHelp();
 		process.exit(0);
 	}
+
+	// Ensure auth secret is available before any command that needs the database
+	ensureAuthSecret();
 
 	switch (command) {
 		case 'migrate':

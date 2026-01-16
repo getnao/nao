@@ -1,5 +1,5 @@
 import { PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams } from '@tanstack/react-router';
 import { useMutation } from '@tanstack/react-query';
 import { ChatList } from './chat-list';
@@ -24,9 +24,22 @@ export function Sidebar({ className, ...props }: ComponentProps<'div'>) {
 		}),
 	);
 
-	const handleStartNewChat = () => {
+	const handleStartNewChat = useCallback(() => {
 		navigate({ to: '/' });
-	};
+	}, [navigate]);
+
+	// Keyboard shortcut: Shift+Cmd+O for new chat
+	useEffect(() => {
+		const handleKeyDown = (e: KeyboardEvent) => {
+			if (e.shiftKey && e.metaKey && e.key.toLowerCase() === 'o') {
+				e.preventDefault();
+				handleStartNewChat();
+			}
+		};
+
+		window.addEventListener('keydown', handleKeyDown);
+		return () => window.removeEventListener('keydown', handleKeyDown);
+	}, [handleStartNewChat]);
 
 	const handleSelectChat = (id: string) => {
 		navigate({ to: '/$chatId', params: { chatId: id } });
@@ -67,7 +80,14 @@ export function Sidebar({ className, ...props }: ComponentProps<'div'>) {
 					onClick={handleStartNewChat}
 				>
 					<PlusIcon className='size-4' />
-					{!isCollapsed && <span>New Chat</span>}
+					{!isCollapsed && (
+						<>
+							<span>New Chat</span>
+							<kbd className='ml-auto text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded font-sans'>
+								⇧⌘O
+							</kbd>
+						</>
+					)}
 				</Button>
 			</div>
 

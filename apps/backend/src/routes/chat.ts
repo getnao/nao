@@ -3,7 +3,7 @@ import { z } from 'zod/v4';
 
 import type { App } from '../app';
 import { authMiddleware } from '../middleware/auth';
-import * as chatQueries from '../queries/chatQueries';
+import * as chatQueries from '../queries/chat.queries';
 import { agentService } from '../services/agentService';
 import { UIMessage } from '../types/chat';
 
@@ -15,7 +15,7 @@ export const chatRoutes = async (app: App) => {
 	app.post(
 		'/agent',
 		{ schema: { body: z.object({ message: z.custom<UIMessage>(), chatId: z.string().optional() }) } },
-		async (request) => {
+		async (request, reply) => {
 			const abortController = new AbortController();
 			const userId = request.user.id;
 			const message = request.body.message;
@@ -32,7 +32,15 @@ export const chatRoutes = async (app: App) => {
 				await chatQueries.upsertMessage(message, { chatId });
 			}
 
-			const chat = await chatQueries.loadChat(chatId);
+			const [chat, chatUserId] = await chatQueries.loadChat(chatId);
+			if (!chat) {
+				return reply.status(404).send({ error: `Chat with id ${chatId} not found.` });
+			}
+
+			const isAuthorized = chatUserId === userId;
+			if (!isAuthorized) {
+				return reply.status(403).send({ error: `You are not authorized to access this chat.` });
+			}
 
 			const agent = agentService.create({ ...chat, userId }, abortController);
 

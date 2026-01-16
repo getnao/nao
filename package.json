@@ -5,9 +5,10 @@
 		"apps/*"
 	],
 	"scripts": {
-		"dev": "npm-run-all -lp dev:backend dev:frontend",
+		"dev": "npm-run-all -lp dev:backend dev:frontend dev:fastapi",
 		"dev:backend": "npm run dev -w backend",
 		"dev:frontend": "npm run dev -w frontend",
+		"dev:fastapi": "npm run fastapi -w backend",
 		"lint": "npm run lint -w backend && npm run lint -w frontend",
 		"lint:fix": "npm run lint:fix -w backend && npm run lint:fix -w frontend",
 		"format": "prettier --write .",

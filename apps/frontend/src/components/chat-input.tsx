@@ -33,13 +33,13 @@ export function ChatInput({ onSubmit, onStop, isLoading, disabled = false }: Pro
 	};
 
 	return (
-		<div className='p-4 pt-0 backdrop-blur-sm dark:bg-slate-900/50 mt-auto'>
+		<div className='p-4 pt-0 backdrop-blur-sm dark:bg-slate-900/50'>
 			<form onSubmit={handleSubmit} className='mx-auto max-w-3xl'>
 				<InputGroup htmlFor='chat-input'>
 					<InputGroupTextarea
 						key={chatId}
 						autoFocus
-						placeholder='Ask about the weather...'
+						placeholder='Ask anything about your data...'
 						value={input}
 						onChange={(e) => setInput(e.target.value)}
 						onKeyDown={handleKeyDown}

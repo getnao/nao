@@ -1,12 +1,14 @@
+import { Streamdown } from 'streamdown';
 import { ToolCall } from './tool-call';
+import { AgentMessageLoader } from './ui/agent-message-loader';
+import { MessageActions } from './message-actions';
 import type { UIMessage } from 'backend/chat';
 import {
-	AssistantMessageLoader,
 	Conversation,
 	ConversationContent,
 	ConversationEmptyState,
 	ConversationScrollButton,
-} from '@/components/conversation';
+} from '@/components/ui/conversation';
 import { checkIsGenerating, isToolUIPart } from '@/lib/ai';
 import { cn } from '@/lib/utils';
 import { useAgentContext } from '@/contexts/agentProvider';
@@ -14,20 +16,19 @@ import { useAgentContext } from '@/contexts/agentProvider';
 const DEBUG_MESSAGES = false;
 
 export function ChatMessages() {
-	const { messages, status } = useAgentContext();
+	const { messages, status, isRunning } = useAgentContext();
 	const isGenerating = checkIsGenerating(status, messages);
-	const isRunning = status === 'streaming' || status === 'submitted';
 
 	return (
-		<Conversation className='w-full'>
-			<ConversationContent>
+		<Conversation>
+			<ConversationContent className='w-full md:w-full lg:w-full xl:w-full 2xl:w-1/2 mx-auto'>
 				{messages.length === 0 ? (
 					<ConversationEmptyState />
 				) : (
 					messages.map((message) => <MessageBlock key={message.id} message={message} />)
 				)}
 
-				{!isGenerating && isRunning && <AssistantMessageLoader />}
+				{!isGenerating && isRunning && <AgentMessageLoader />}
 			</ConversationContent>
 
 			<ConversationScrollButton />
@@ -82,9 +83,14 @@ const UserMessageBlock = ({ message }: { message: UIMessage }) => {
 };
 
 const AssistantMessageBlock = ({ message }: { message: UIMessage }) => {
+	const { isRunning } = useAgentContext();
+
 	return (
-		<div className={cn('rounded-2xl px-4 py-2 bg-muted flex flex-col gap-2')}>
+		<div className={cn('group rounded-2xl px-4 py-2 bg-muted flex flex-col gap-2')}>
 			{message.parts.map((p, i) => {
+				const isLastPart = i === message.parts.length - 1;
+				const isPartStreaming = isRunning && isLastPart;
+
 				if (isToolUIPart(p)) {
 					return <ToolCall key={i} toolPart={p} />;
 				}
@@ -92,14 +98,27 @@ const AssistantMessageBlock = ({ message }: { message: UIMessage }) => {
 				switch (p.type) {
 					case 'text':
 						return (
-							<span key={i} className='whitespace-pre-wrap'>
-								{p.text}
-							</span>
+							<div key={i} className='px-3'>
+								<Streamdown
+									isAnimating={isPartStreaming}
+									mode={isPartStreaming ? 'streaming' : 'static'} // Turn static mode if not generating for better performance.
+									cdnUrl={null} // Streamdown makes requests to their CDN for code block languages that are not built-in.
+								>
+									{p.text}
+								</Streamdown>
+							</div>
 						);
 					default:
 						return null;
 				}
 			})}
+
+			{!isRunning && (
+				<MessageActions
+					message={message}
+					className='opacity-0 group-last:opacity-100 group-hover:opacity-100 transition-opacity duration-200'
+				/>
+			)}
 		</div>
 	);
 };

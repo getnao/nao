@@ -1,0 +1,141 @@
+@theme {
+	--animation-curve: cubic-bezier(0.5, 0, 0, 0.5);
+	--translate-size: 10px;
+	--animation-duration: 0.2s;
+
+	--animate-fade-in: fade-in var(--animation-duration) var(--animation-curve);
+	--animate-fade-out: fade-out var(--animation-duration) var(--animation-curve);
+	--animate-fade-in-up: fade-in-up var(--animation-duration) var(--animation-curve);
+	--animate-fade-out-down: fade-out-down var(--animation-duration) var(--animation-curve);
+	--animate-fade-in-down: fade-in-down var(--animation-duration) var(--animation-curve);
+	--animate-fade-out-up: fade-out-up var(--animation-duration) var(--animation-curve);
+}
+
+@keyframes fade-in {
+	0% {
+		opacity: 0;
+	}
+	100% {
+		opacity: 1;
+	}
+}
+
+@keyframes fade-out {
+	0% {
+		opacity: 1;
+	}
+	100% {
+		opacity: 0;
+	}
+}
+
+@keyframes fade-in-up {
+	0% {
+		opacity: 0;
+		transform: translateY(var(--translate-size));
+	}
+	100% {
+		opacity: 1;
+		transform: translateY(0px);
+	}
+}
+
+@keyframes fade-out-down {
+	0% {
+		opacity: 1;
+		transform: translateY(0px);
+	}
+	100% {
+		opacity: 0;
+		transform: translateY(var(--translate-size));
+	}
+}
+
+@keyframes fade-in-down {
+	0% {
+		opacity: 0;
+		transform: translateY(calc(-1 * var(--translate-size)));
+	}
+	100% {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+@keyframes fade-out-up {
+	0% {
+		opacity: 1;
+		transform: translateY(0px);
+	}
+	100% {
+		opacity: 0;
+		transform: translateY(calc(-1 * var(--translate-size)));
+	}
+}
+
+/* Text shimmer animation */
+
+@utility text-shimmer {
+	color: transparent;
+	background-clip: text !important;
+	animation: shimmer 1.5s linear infinite;
+	background:
+		radial-gradient(circle at center, rgba(255, 255, 255, 0.85), transparent) -200% 50% / 200% 100% no-repeat,
+		#000;
+
+	&:is(.dark *) {
+		background:
+			radial-gradient(circle at center, rgb(24 24 27 / 85%), transparent) -200% 50% / 200% 100% no-repeat,
+			#f4f4f5;
+	}
+}
+
+@keyframes shimmer {
+	0% {
+		background-position: 200% 0%;
+	}
+	100% {
+		background-position: -200% 0%;
+	}
+}
+
+/* Chat response loading animation */
+
+@utility chat-response-loading {
+	width: 20px;
+	aspect-ratio: 2;
+	--_g: no-repeat radial-gradient(circle closest-side, #000 90%, #0000);
+	background:
+		var(--_g) 0% 50%,
+		var(--_g) 50% 50%,
+		var(--_g) 100% 50%;
+	background-size: calc(100% / 3) 50%;
+	animation: l3 1.2s infinite linear;
+}
+
+@keyframes l3 {
+	20% {
+		background-position:
+			0% 0%,
+			50% 50%,
+			100% 50%;
+	}
+	40% {
+		background-position:
+			0% 100%,
+			50% 0%,
+			100% 50%;
+	}
+	60% {
+		background-position:
+			0% 50%,
+			50% 100%,
+			100% 0%;
+	}
+	80% {
+		background-position:
+			0% 50%,
+			50% 50%,
+			100% 100%;
+	}
+}

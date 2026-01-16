@@ -14,7 +14,6 @@ def test_database_connection(db_config) -> tuple[bool, str]:
     Returns:
             Tuple of (success, message)
     """
-    conn = None
     try:
         conn = db_config.connect()
         # Run a simple query to verify the connection works
@@ -30,9 +29,6 @@ def test_database_connection(db_config) -> tuple[bool, str]:
             return True, f"Connected successfully ({dataset_count} datasets found)"
     except Exception as e:
         return False, str(e)
-    finally:
-        if conn:
-            conn.close()
 
 
 def test_llm_connection(llm_config) -> tuple[bool, str]:

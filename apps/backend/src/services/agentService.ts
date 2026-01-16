@@ -1,8 +1,9 @@
 import { openai } from '@ai-sdk/openai';
 import { convertToModelMessages, createUIMessageStream, ToolLoopAgent } from 'ai';
 
+import { getInstructions } from '../agents/prompt';
 import { tools } from '../agents/tools';
-import * as chatQueries from '../queries/chatQueries';
+import * as chatQueries from '../queries/chat.queries';
 import { UIChat, UIMessage } from '../types/chat';
 
 type AgentChat = UIChat & {
@@ -44,6 +45,7 @@ class AgentManager {
 		this._agent = new ToolLoopAgent({
 			model: openai.chat('gpt-5.1'),
 			tools,
+			instructions: getInstructions(),
 		});
 	}
 
@@ -81,7 +83,6 @@ class AgentManager {
 				return String(err);
 			},
 			onFinish: async (e) => {
-				console.log('[ON FINISH]', e.isAborted, e.finishReason);
 				const stopReason = e.isAborted ? 'interrupted' : e.finishReason;
 				await chatQueries.upsertMessage(e.responseMessage, {
 					chatId: this.chat.id,

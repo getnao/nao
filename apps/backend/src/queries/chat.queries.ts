@@ -1,13 +1,18 @@
-import { eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 
-import s, { NewChat } from '../db/abstractSchema';
+import s, { DBChat, DBChatMessage, DBMessagePart, MessageFeedback, NewChat } from '../db/abstractSchema';
 import { db } from '../db/db';
 import { ListChatResponse, StopReason, UIChat, UIMessage } from '../types/chat';
 import { convertDBPartToUIPart, mapDBPartsToUIParts, mapUIPartsToDBParts } from '../utils/chatMessagePartMappings';
 import { getErrorMessage } from '../utils/utils';
 
 export const listUserChats = async (userId: string): Promise<ListChatResponse> => {
-	const chats = await db.select().from(s.chat).where(eq(s.chat.userId, userId)).execute();
+	const chats = await db
+		.select()
+		.from(s.chat)
+		.where(eq(s.chat.userId, userId))
+		.orderBy(desc(s.chat.createdAt))
+		.execute();
 	return {
 		chats: chats.map((chat) => ({
 			id: chat.id,
@@ -18,51 +23,77 @@ export const listUserChats = async (userId: string): Promise<ListChatResponse> =
 	};
 };
 
-export const loadChat = async (chatId: string): Promise<UIChat> => {
-	return db.transaction(async (t) => {
-		const result = await t
-			.select()
-			.from(s.chat)
-			.innerJoin(s.chatMessage, eq(s.chatMessage.chatId, s.chat.id))
-			.where(eq(s.chatMessage.chatId, chatId))
-			.innerJoin(s.messagePart, eq(s.messagePart.messageId, s.chatMessage.id))
-			.execute();
+/** Return the chat with its messages as well as the user id for ownership check. */
+export const loadChat = async (
+	chatId: string,
+	opts: {
+		includeFeedback?: boolean;
+	} = {
+		includeFeedback: false,
+	},
+): Promise<[UIChat, userId: string] | []> => {
+	const query = db
+		.select()
+		.from(s.chat)
+		.innerJoin(s.chatMessage, eq(s.chatMessage.chatId, s.chat.id))
+		.where(eq(s.chatMessage.chatId, chatId))
+		.innerJoin(s.messagePart, eq(s.messagePart.messageId, s.chatMessage.id))
+		.$dynamic();
 
-		const chat = result.at(0)?.chat;
-		if (!chat) {
-			throw new Error(`Chat with id ${chatId} not found.`);
-		}
+	const result = opts.includeFeedback
+		? await query.leftJoin(s.messageFeedback, eq(s.messageFeedback.messageId, s.chatMessage.id)).execute()
+		: await query.execute();
 
-		const messagesMap = result.reduce(
-			(acc, row) => {
-				const uiPart = convertDBPartToUIPart(row.message_part);
-				if (!uiPart) {
-					return acc;
-				}
+	const chat = result.at(0)?.chat;
+	if (!chat) {
+		return [];
+	}
 
-				if (acc[row.chat_message.id]) {
-					acc[row.chat_message.id].parts.push(uiPart);
-				} else {
-					acc[row.chat_message.id] = {
-						id: row.chat_message.id,
-						role: row.chat_message.role,
-						parts: [uiPart],
-					};
-				}
-				return acc;
-			},
-			{} as Record<string, UIMessage>,
-		);
-
-		const uiMessages: UIMessage[] = Object.values(messagesMap);
-		return {
+	const messages = aggregateChatMessagParts(result);
+	return [
+		{
 			id: chatId,
 			title: chat.title,
 			createdAt: chat.createdAt.getTime(),
 			updatedAt: chat.updatedAt.getTime(),
-			messages: uiMessages,
-		};
-	});
+			messages,
+		},
+		chat.userId,
+	];
+};
+
+/** Aggregate the message parts into a list of UI messages. */
+const aggregateChatMessagParts = (
+	result: {
+		chat: DBChat;
+		chat_message: DBChatMessage;
+		message_part: DBMessagePart;
+		message_feedback?: MessageFeedback | null;
+	}[],
+) => {
+	const messagesMap = result.reduce(
+		(acc, row) => {
+			const uiPart = convertDBPartToUIPart(row.message_part);
+			if (!uiPart) {
+				return acc;
+			}
+
+			if (acc[row.chat_message.id]) {
+				acc[row.chat_message.id].parts.push(uiPart);
+			} else {
+				acc[row.chat_message.id] = {
+					id: row.chat_message.id,
+					role: row.chat_message.role,
+					parts: [uiPart],
+					feedback: row.message_feedback ?? undefined,
+				};
+			}
+			return acc;
+		},
+		{} as Record<string, UIMessage>,
+	);
+
+	return Object.values(messagesMap);
 };
 
 export const createChat = async (newChat: NewChat, message: UIMessage): Promise<UIChat> => {
@@ -125,4 +156,17 @@ export const upsertMessage = async (
 
 export const deleteChat = async (chatId: string): Promise<void> => {
 	await db.delete(s.chat).where(eq(s.chat.id, chatId)).execute();
+};
+
+export const getOwnerOfChatAndMessage = async (chatId: string, messageId: string): Promise<string | undefined> => {
+	const [result] = await db
+		.select({
+			userId: s.chat.userId,
+		})
+		.from(s.chat)
+		.where(eq(s.chat.id, chatId))
+		.innerJoin(s.chatMessage, and(eq(s.chat.id, s.chatMessage.chatId), eq(s.chatMessage.id, messageId)))
+		.execute();
+
+	return result?.userId;
 };

@@ -12,3 +12,5 @@ count.txt
 .husky/_
 chats
 nao-chat-server
+
+*.pyc

@@ -8,6 +8,7 @@ import {
 } from 'ai';
 
 import { tools } from '../agents/tools';
+import { MessageFeedback } from '../db/abstractSchema';
 
 export interface UIChat {
 	id: string;
@@ -28,7 +29,9 @@ export interface ChatListItem {
 	updatedAt: number;
 }
 
-export type UIMessage = UIGenericMessage<unknown, MessageCustomDataParts, UITools>;
+export type UIMessage = UIGenericMessage<unknown, MessageCustomDataParts, UITools> & {
+	feedback?: MessageFeedback;
+};
 export type UITools = InferUITools<typeof tools>;
 
 /** Additional data parts that are not part of the ai sdk data parts */

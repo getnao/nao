@@ -78,11 +78,3 @@ export const ConversationScrollButton = ({ className, ...props }: ConversationSc
 		)
 	);
 };
-
-export const AssistantMessageLoader = () => {
-	return (
-		<div className='px-4 py-2 h-[40px] flex items-center'>
-			<div className='chat-response-loading' />
-		</div>
-	);
-};

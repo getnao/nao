@@ -103,6 +103,20 @@ def build_server(project_root: Path, output_dir: Path) -> None:
     # Create output directory
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    # Clean up data files that shouldn't be bundled
+    print("\n🧹 Cleaning up data files...")
+    data_files_to_remove = [
+        output_dir / "db.sqlite",
+        output_dir / "chats",
+    ]
+    for data_path in data_files_to_remove:
+        if data_path.exists():
+            if data_path.is_dir():
+                shutil.rmtree(data_path)
+            else:
+                data_path.unlink()
+            print(f"   Removed: {data_path}")
+
     # Step 1: Build frontend
     print("\n🎨 Building frontend...")
     run(["npm", "run", "build"], cwd=frontend_dir)
@@ -118,14 +132,21 @@ def build_server(project_root: Path, output_dir: Path) -> None:
     print("\n⚡ Compiling backend CLI with Bun...")
     run(["npm", "run", "build:standalone"], cwd=backend_dir)
 
-    # Step 4: Copy frontend assets next to the binary
+    # Step 4: Copy the compiled binary to output directory
+    print("\n📦 Copying binary to output directory...")
+    binary_src = backend_dir / "nao-chat-server"
+    binary_dst = output_dir / "nao-chat-server"
+    shutil.copy2(binary_src, binary_dst)
+    print(f"   Binary: {binary_dst}")
+
+    # Step 5: Copy frontend assets next to the binary
     print("\n📦 Bundling assets with binary...")
     output_public = output_dir / "public"
     if output_public.exists():
         shutil.rmtree(output_public)
     shutil.copytree(backend_public, output_public)
 
-    # Step 5: Copy migrations next to the binary (both SQLite and PostgreSQL)
+    # Step 6: Copy migrations next to the binary (both SQLite and PostgreSQL)
     print("\n📦 Bundling migrations with binary...")
 
     # Copy SQLite migrations
@@ -150,12 +171,51 @@ def build_server(project_root: Path, output_dir: Path) -> None:
     else:
         print("   ⚠️  No PostgreSQL migrations folder found")
 
+    # Step 7: Copy FastAPI server
+    print("\n📦 Bundling FastAPI server...")
+    fastapi_src = backend_dir / "fastapi"
+    fastapi_dst = output_dir / "fastapi"
+    if fastapi_dst.exists():
+        shutil.rmtree(fastapi_dst)
+    if fastapi_src.exists():
+        shutil.copytree(fastapi_src, fastapi_dst)
+        print(f"   FastAPI server: {fastapi_dst}")
+    else:
+        print("   ⚠️  No FastAPI folder found")
+
+    # Step 8: Copy ripgrep binary
+    print("\n📦 Bundling ripgrep binary...")
+    rg_binary_name = "rg.exe" if sys.platform == "win32" else "rg"
+    # Look in both monorepo root and backend node_modules
+    rg_src_paths = [
+        project_root / "node_modules" / "@vscode" / "ripgrep" / "bin" / rg_binary_name,
+        backend_dir / "node_modules" / "@vscode" / "ripgrep" / "bin" / rg_binary_name,
+    ]
+    rg_src = None
+    for path in rg_src_paths:
+        if path.exists():
+            rg_src = path
+            break
+
+    if rg_src:
+        rg_dst = output_dir / rg_binary_name
+        shutil.copy2(rg_src, rg_dst)
+        # Ensure the binary is executable
+        rg_dst.chmod(rg_dst.stat().st_mode | 0o755)
+        print(f"   Ripgrep: {rg_dst}")
+    else:
+        print("   ⚠️  No ripgrep binary found (grep tool will not work in standalone mode)")
+        print("   Run 'npm install @vscode/ripgrep' in the backend or root directory")
+
     # Cleanup temporary public folder in backend
     shutil.rmtree(backend_public)
 
     print("\n✓ Server build complete!")
     print(f"   Binary: {output_dir / 'nao-chat-server'}")
     print(f"   Assets: {output_public}")
+    print(f"   FastAPI: {fastapi_dst}")
+    if rg_src:
+        print(f"   Ripgrep: {output_dir / rg_binary_name}")
 
 
 def build_package(cli_dir: Path) -> None:
@@ -200,6 +260,9 @@ def build(
     public_dir = output_dir / "public"
     sqlite_migrations_dir = output_dir / "migrations-sqlite"
     postgres_migrations_dir = output_dir / "migrations-postgres"
+    fastapi_dir = output_dir / "fastapi"
+    rg_binary_name = "rg.exe" if sys.platform == "win32" else "rg"
+    rg_path = output_dir / rg_binary_name
 
     # Bump version if requested
     if bump:
@@ -215,11 +278,13 @@ def build(
         or not public_dir.exists()
         or not sqlite_migrations_dir.exists()
         or not postgres_migrations_dir.exists()
+        or not fastapi_dir.exists()
+        or not rg_path.exists()
     )
 
     if skip_server:
-        if not binary_path.exists() or not public_dir.exists():
-            print("❌ Server binary not found. Run without --skip-server first.")
+        if not binary_path.exists() or not public_dir.exists() or not fastapi_dir.exists():
+            print("❌ Server binary or assets not found. Run without --skip-server first.")
             sys.exit(1)
         print("✓ Skipping server build (--skip-server)")
     elif needs_build:
@@ -243,6 +308,10 @@ def build(
         print(f"   SQLite migrations: {sqlite_migrations_dir}")
     if postgres_migrations_dir.exists():
         print(f"   PostgreSQL migrations: {postgres_migrations_dir}")
+    if fastapi_dir.exists():
+        print(f"   FastAPI server: {fastapi_dir}")
+    if rg_path.exists():
+        print(f"   Ripgrep: {rg_path}")
 
     # Build the Python package
     build_package(cli_dir)
