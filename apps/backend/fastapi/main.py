@@ -85,8 +85,21 @@ async def execute_sql(request: ExecuteSQLRequest):
 
         connection = db_config.connect()
         
-        cursor = connection.raw_sql(request.sql)  # type: ignore[attr-defined]
-        df = cursor.to_dataframe()
+        # Use raw_sql to execute arbitrary SQL (including CTEs)
+        cursor = connection.raw_sql(request.sql)
+        
+        # Handle different cursor types from different backends
+        if hasattr(cursor, 'fetchdf'):
+            # DuckDB returns a cursor with fetchdf()
+            df = cursor.fetchdf()
+        elif hasattr(cursor, 'to_dataframe'):
+            # Some backends return cursors with to_dataframe()
+            df = cursor.to_dataframe()
+        else:
+            # Fallback: try to use pandas read_sql or fetchall
+            import pandas as pd
+            columns = [desc[0] for desc in cursor.description]
+            df = pd.DataFrame(cursor.fetchall(), columns=columns)
         
         def convert_value(v):
             if isinstance(v, (np.integer,)):

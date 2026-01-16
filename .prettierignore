@@ -4,6 +4,8 @@ pnpm-lock.yaml
 yarn.lock
 bun.lock
 cli/
+example/
+.pytest_cache/
 
 # Backend
 migrations-sqlite/

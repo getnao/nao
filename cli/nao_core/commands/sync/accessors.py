@@ -31,8 +31,7 @@ class DataAccessor(ABC):
 
     def get_table(self, conn: BaseBackend, dataset: str, table: str):
         """Helper to get an Ibis table reference."""
-        full_table_name = f"{dataset}.{table}"
-        return conn.table(full_table_name)
+        return conn.table(table, database=dataset)
 
 
 def truncate_middle(text: str, max_length: int) -> str:
@@ -57,7 +56,6 @@ class ColumnsAccessor(DataAccessor):
         try:
             t = self.get_table(conn, dataset, table)
             schema = t.schema()
-
             columns = list(schema.items())
 
             lines = [
@@ -79,6 +77,7 @@ class ColumnsAccessor(DataAccessor):
 
             return "\n".join(lines)
         except Exception as e:
+            print(e)
             return f"# {table}\n\nError fetching schema: {e}"
 
 

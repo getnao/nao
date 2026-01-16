@@ -12,5 +12,6 @@ count.txt
 .husky/_
 chats
 nao-chat-server
+.pytest_cache/
 
 *.pyc

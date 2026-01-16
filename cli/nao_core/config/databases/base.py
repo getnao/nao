@@ -10,6 +10,7 @@ class DatabaseType(str, Enum):
     """Supported database types."""
 
     BIGQUERY = "bigquery"
+    DUCKDB = "duckdb"
 
 
 class AccessorType(str, Enum):

@@ -1,5 +1,7 @@
+from typing import Union
 from .base import AccessorType, DatabaseConfig, DatabaseType
 from .bigquery import BigQueryConfig
+from .duckdb import DuckDBConfig
 
 # =============================================================================
 # Database Config Registry
@@ -14,7 +16,7 @@ from .bigquery import BigQueryConfig
 #     Discriminator(lambda x: x.get("type", "bigquery")),
 # ]
 
-AnyDatabaseConfig = BigQueryConfig
+AnyDatabaseConfig = Union[BigQueryConfig, DuckDBConfig]
 
 
 def parse_database_config(data: dict) -> DatabaseConfig:
@@ -22,8 +24,10 @@ def parse_database_config(data: dict) -> DatabaseConfig:
     db_type = data.get("type")
     if db_type == "bigquery":
         return BigQueryConfig.model_validate(data)
+    elif db_type == "duckdb":
+        return DuckDBConfig.model_validate(data)
     else:
         raise ValueError(f"Unknown database type: {db_type}")
 
 
-__all__ = ["AccessorType", "DatabaseConfig", "DatabaseType", "BigQueryConfig", "AnyDatabaseConfig"]
+__all__ = ["AccessorType", "DatabaseConfig", "DatabaseType", "BigQueryConfig", "DuckDBConfig", "AnyDatabaseConfig"]
