@@ -1,5 +1,7 @@
+import { z } from 'zod/v4';
+
 import type { App } from '../app';
-import { slackAuthMiddleware } from '../middleware/auth';
+import { slackAuthMiddleware } from '../middleware/slack.middleware';
 import { SlackService } from '../services/slack.service';
 import { SlackRequest } from '../types/slack';
 
@@ -8,9 +10,14 @@ export const slackRoutes = async (app: App) => {
 	// https://docs.slack.dev/authentication/verifying-requests-from-slack/#signing_secrets_admin_page
 	app.addHook('preHandler', slackAuthMiddleware);
 
-	app.post('/app_mention', { config: { rawBody: true } }, async (request, reply) => {
-		try {
-			const body = request.body as SlackRequest;
+	app.post(
+		'/app_mention',
+		{
+			config: { rawBody: true },
+			schema: { body: z.custom<SlackRequest>() },
+		},
+		async (request, reply) => {
+			const body = request.body;
 
 			if (body.type === 'url_verification') {
 				return reply.send({ challenge: body.challenge });
@@ -20,8 +27,6 @@ export const slackRoutes = async (app: App) => {
 			await slackService.sendRequestAcknowledgement(reply);
 
 			await slackService.handleWorkFlow(reply);
-		} catch (error) {
-			return reply.status(500).send({ error });
-		}
-	});
+		},
+	);
 };
