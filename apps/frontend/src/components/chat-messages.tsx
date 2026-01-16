@@ -11,12 +11,12 @@ import {
 } from '@/components/ui/conversation';
 import { checkIsGenerating, isToolUIPart } from '@/lib/ai';
 import { cn } from '@/lib/utils';
-import { useChatContext } from '@/contexts/agentProvider';
+import { useAgentContext } from '@/contexts/agentProvider';
 
 const DEBUG_MESSAGES = false;
 
 export function ChatMessages() {
-	const { messages, isRunning, status } = useChatContext();
+	const { messages, status, isRunning } = useAgentContext();
 	const isGenerating = checkIsGenerating(status, messages);
 
 	return (
@@ -83,7 +83,7 @@ const UserMessageBlock = ({ message }: { message: UIMessage }) => {
 };
 
 const AssistantMessageBlock = ({ message }: { message: UIMessage }) => {
-	const { isRunning } = useChatContext();
+	const { isRunning } = useAgentContext();
 
 	return (
 		<div className={cn('group rounded-2xl px-4 py-2 bg-muted flex flex-col gap-2')}>

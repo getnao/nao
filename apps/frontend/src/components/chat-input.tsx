@@ -1,4 +1,4 @@
-import { ArrowUpIcon, Loader2Icon } from 'lucide-react';
+import { ArrowUpIcon, SquareIcon } from 'lucide-react';
 import { useState } from 'react';
 import { useParams } from '@tanstack/react-router';
 import type { FormEvent, KeyboardEvent } from 'react';
@@ -7,11 +7,12 @@ import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupTextarea } fro
 
 export interface Props {
 	onSubmit: (message: string) => void;
+	onStop: () => void;
 	isLoading: boolean;
 	disabled?: boolean;
 }
 
-export function ChatInput({ onSubmit, isLoading, disabled = false }: Props) {
+export function ChatInput({ onSubmit, onStop, isLoading, disabled = false }: Props) {
 	const chatId = useParams({ strict: false, select: (p) => p.chatId });
 	const [input, setInput] = useState('');
 
@@ -45,16 +46,29 @@ export function ChatInput({ onSubmit, isLoading, disabled = false }: Props) {
 						id='chat-input'
 					/>
 					<InputGroupAddon align='block-end'>
-						<InputGroupButton
-							type='submit'
-							variant='default'
-							className='rounded-full ml-auto'
-							size='icon-xs'
-							disabled={disabled || !input || isLoading}
-						>
-							{isLoading ? <Loader2Icon className='animate-spin' /> : <ArrowUpIcon />}
-							<span className='sr-only'>Send</span>
-						</InputGroupButton>
+						{isLoading ? (
+							<InputGroupButton
+								type='button'
+								variant='destructive'
+								className='rounded-full ml-auto'
+								size='icon-xs'
+								onClick={onStop}
+							>
+								<SquareIcon />
+								<span className='sr-only'>Stop</span>
+							</InputGroupButton>
+						) : (
+							<InputGroupButton
+								type='submit'
+								variant='default'
+								className='rounded-full ml-auto'
+								size='icon-xs'
+								disabled={disabled || !input}
+							>
+								<ArrowUpIcon />
+								<span className='sr-only'>Send</span>
+							</InputGroupButton>
+						)}
 					</InputGroupAddon>
 				</InputGroup>
 			</form>

@@ -1,12 +1,10 @@
-import { openai } from '@ai-sdk/openai';
-import { convertToModelMessages, createUIMessageStream, createUIMessageStreamResponse, ToolLoopAgent } from 'ai';
+import { createUIMessageStreamResponse } from 'ai';
 import { z } from 'zod/v4';
 
-import { getInstructions } from '../agents/prompt';
-import { tools } from '../agents/tools';
 import type { App } from '../app';
 import { authMiddleware } from '../middleware/auth';
 import * as chatQueries from '../queries/chat.queries';
+import { agentService } from '../services/agentService';
 import { UIMessage } from '../types/chat';
 
 const DEBUG_CHUNKS = false;
@@ -18,6 +16,7 @@ export const chatRoutes = async (app: App) => {
 		'/agent',
 		{ schema: { body: z.object({ message: z.custom<UIMessage>(), chatId: z.string().optional() }) } },
 		async (request, reply) => {
+			const abortController = new AbortController();
 			const userId = request.user.id;
 			const message = request.body.message;
 			let chatId = request.body.chatId;
@@ -30,10 +29,9 @@ export const chatRoutes = async (app: App) => {
 				chatId = createdChat.id;
 			} else {
 				// update the existing chat with the new message
-				await chatQueries.upsertMessage(chatId, message);
+				await chatQueries.upsertMessage(message, { chatId });
 			}
 
-			const instructions = getInstructions();
 			const [chat, chatUserId] = await chatQueries.loadChat(chatId);
 			if (!chat) {
 				return reply.status(404).send({ error: `Chat with id ${chatId} not found.` });
@@ -44,46 +42,10 @@ export const chatRoutes = async (app: App) => {
 				return reply.status(403).send({ error: `You are not authorized to access this chat.` });
 			}
 
-			const agent = new ToolLoopAgent({
-				model: openai.chat('gpt-5.1'),
-				instructions,
-				tools,
-			});
+			const agent = agentService.create({ ...chat, userId }, abortController);
 
-			let stream = createUIMessageStream<UIMessage>({
-				execute: async ({ writer }) => {
-					if (isNewChat) {
-						writer.write({
-							type: 'data-newChat',
-							data: {
-								id: chatId,
-								title: chat.title,
-								createdAt: chat.createdAt,
-								updatedAt: chat.updatedAt,
-							},
-						});
-					}
-
-					writer.write({
-						type: 'start',
-						messageId: crypto.randomUUID(),
-					});
-					writer.write({
-						type: 'start-step',
-					});
-
-					const result = await agent.stream({
-						messages: await convertToModelMessages(chat.messages as UIMessage[]),
-					});
-
-					writer.merge(result.toUIMessageStream({ sendStart: false }));
-				},
-				generateId: () => crypto.randomUUID(),
-				originalMessages: chat.messages as UIMessage[],
-				onFinish: async (e) => {
-					console.log('onFinish');
-					await chatQueries.upsertMessage(chatId, e.responseMessage);
-				},
+			let stream = agent.stream(chat.messages as UIMessage[], {
+				sendNewChatData: !!isNewChat,
 			});
 
 			if (DEBUG_CHUNKS) {

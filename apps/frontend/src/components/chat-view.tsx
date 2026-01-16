@@ -1,10 +1,12 @@
 import { Outlet } from '@tanstack/react-router';
 import { ChatInput } from './chat-input';
-import { useAgent } from '@/hooks/useAgent';
+import { useAgent, useSyncMessages } from '@/hooks/useAgent';
 import { AgentProvider } from '@/contexts/agentProvider';
 
 export function ChatView() {
 	const agent = useAgent();
+
+	useSyncMessages({ agent });
 
 	const handleSubmit = (text: string) => {
 		if (agent.isRunning) {
@@ -20,6 +22,7 @@ export function ChatView() {
 
 				<ChatInput
 					onSubmit={handleSubmit}
+					onStop={agent.stopAgent}
 					isLoading={agent.isRunning}
 					disabled={!agent.isReadyForNewMessages}
 				/>
