@@ -84,6 +84,79 @@ def sync_bigquery(
 
     return datasets_synced, tables_synced
 
+def sync_snowflake(
+    db_config,
+    base_path: Path,
+    progress: Progress,
+    accessors: list[DataAccessor],
+) -> tuple[int, int]:
+    """Sync Snowflake database schema to markdown files.
+
+    Args:
+            db_config: The database configuration
+            base_path: Base output path
+            progress: Rich progress instance
+            accessors: List of data accessors to run
+
+    Returns:
+            Tuple of (schemas_synced, tables_synced)
+    """
+    conn = db_config.connect()
+    db_path = base_path / "type=snowflake" / f"database={db_config.database}"
+
+    schemas_synced = 0
+    tables_synced = 0
+
+    if db_config.schema:
+        schemas = [db_config.schema]
+    else:
+        schemas = conn.list_databases()
+
+    schema_task = progress.add_task(
+        f"[dim]{db_config.name}[/dim]",
+        total=len(schemas),
+    )
+
+    for schema in schemas:
+        try:
+            all_tables = conn.list_tables(database=schema)
+        except Exception:
+            progress.update(schema_task, advance=1)
+            continue
+
+        # Filter tables based on include/exclude patterns
+        tables = [t for t in all_tables if db_config.matches_pattern(schema, t)]
+
+        # Skip schema if no tables match
+        if not tables:
+            progress.update(schema_task, advance=1)
+            continue
+
+        schema_path = db_path / f"schema={schema}"
+        schema_path.mkdir(parents=True, exist_ok=True)
+        schemas_synced += 1
+
+        table_task = progress.add_task(
+            f"  [cyan]{schema}[/cyan]",
+            total=len(tables),
+        )
+
+        for table in tables:
+            table_path = schema_path / f"table={table}"
+            table_path.mkdir(parents=True, exist_ok=True)
+
+            for accessor in accessors:
+                content = accessor.generate(conn, schema, table)
+                output_file = table_path / accessor.filename
+                output_file.write_text(content)
+
+            tables_synced += 1
+            progress.update(table_task, advance=1)
+
+        progress.update(schema_task, advance=1)
+
+    return schemas_synced, tables_synced
+
 
 def sync_databases(databases: list, base_path: Path) -> tuple[int, int]:
     """Sync all configured databases.
@@ -123,6 +196,11 @@ def sync_databases(databases: list, base_path: Path) -> tuple[int, int]:
                     console.print(f"[dim]{db.name} accessors:[/dim] {', '.join(accessor_names)}")
                     datasets, tables = sync_bigquery(db, base_path, progress, db_accessors)
                     total_datasets += datasets
+                    total_tables += tables
+                elif db.type == "snowflake":
+                    console.print(f"[dim]{db.name} accessors:[/dim] {', '.join(accessor_names)}")
+                    schemas, tables = sync_snowflake(db, base_path, progress, db_accessors)
+                    total_datasets += schemas
                     total_tables += tables
                 else:
                     console.print(f"[yellow]⚠ Unsupported database type: {db.type}[/yellow]")

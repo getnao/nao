@@ -10,6 +10,7 @@ from rich.prompt import Confirm, Prompt
 from nao_core.config import (
     AnyDatabaseConfig,
     BigQueryConfig,
+    SnowflakeConfig,
     DatabaseType,
     LLMConfig,
     LLMProvider,
