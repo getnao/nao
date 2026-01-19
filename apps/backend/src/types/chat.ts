@@ -55,3 +55,14 @@ export type ToolState = UIToolPart['state'];
 export type UIMessagePartType = UIMessagePart['type'];
 
 export type StopReason = FinishReason | 'interrupted';
+
+export type TokenUsage = {
+	inputTotalTokens?: number;
+	inputNoCacheTokens?: number;
+	inputCacheReadTokens?: number;
+	inputCacheWriteTokens?: number;
+	outputTotalTokens?: number;
+	outputTextTokens?: number;
+	outputReasoningTokens?: number;
+	totalTokens?: number;
+};

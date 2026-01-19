@@ -2,14 +2,18 @@
 import { getToolName, isToolUIPart } from 'ai';
 
 import { DBMessagePart, NewMessagePart } from '../db/abstractSchema';
-import { UIMessagePart, UIToolPart } from '../types/chat';
+import { TokenUsage, UIMessagePart, UIToolPart } from '../types/chat';
 
 /**
  * Converts a list of UI message parts to a list of database message parts.
  */
-export const mapUIPartsToDBParts = (parts: UIMessagePart[], messageId: string): NewMessagePart[] => {
+export const mapUIPartsToDBParts = (
+	parts: UIMessagePart[],
+	messageId: string,
+	tokenUsage?: TokenUsage,
+): NewMessagePart[] => {
 	return parts
-		.map((part, index) => convertUIPartToDBPart(part, messageId, index))
+		.map((part, index) => convertUIPartToDBPart(part, messageId, index, tokenUsage))
 		.filter((part) => part !== undefined);
 };
 
@@ -17,6 +21,7 @@ export const convertUIPartToDBPart = (
 	part: UIMessagePart,
 	messageId: string,
 	order: number,
+	tokenUsage?: TokenUsage,
 ): NewMessagePart | undefined => {
 	if (isToolUIPart(part)) {
 		return {
@@ -42,6 +47,7 @@ export const convertUIPartToDBPart = (
 				order,
 				type: 'text',
 				text: part.text,
+				...tokenUsage,
 			};
 		case 'reasoning':
 			return {
@@ -49,6 +55,7 @@ export const convertUIPartToDBPart = (
 				order,
 				type: 'reasoning',
 				reasoningText: part.text,
+				...tokenUsage,
 			};
 		default:
 	}

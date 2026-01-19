@@ -150,6 +150,20 @@ export const messagePart = sqliteTable(
 		text: text('text'),
 		reasoningText: text('reasoning_text'),
 
+		// Input tokens columns
+		inputTotalTokens: integer('input_total_tokens'),
+		inputNoCacheTokens: integer('input_no_cache_tokens'),
+		inputCacheReadTokens: integer('input_cache_read_tokens'),
+		inputCacheWriteTokens: integer('input_cache_write_tokens'),
+
+		// Output tokens columns
+		outputTotalTokens: integer('output_total_tokens'),
+		outputTextTokens: integer('output_text_tokens'),
+		outputReasoningTokens: integer('output_reasoning_tokens'),
+
+		// Total tokens column
+		totalTokens: integer('total_tokens'),
+
 		// tool call columns
 		toolCallId: text('tool_call_id'),
 		toolName: text('tool_name'),

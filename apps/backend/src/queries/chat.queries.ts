@@ -2,7 +2,7 @@ import { and, desc, eq } from 'drizzle-orm';
 
 import s, { DBChat, DBChatMessage, DBMessagePart, MessageFeedback, NewChat } from '../db/abstractSchema';
 import { db } from '../db/db';
-import { ListChatResponse, StopReason, UIChat, UIMessage } from '../types/chat';
+import { ListChatResponse, StopReason, TokenUsage, UIChat, UIMessage } from '../types/chat';
 import { convertDBPartToUIPart, mapDBPartsToUIParts, mapUIPartsToDBParts } from '../utils/chatMessagePartMappings';
 import { getErrorMessage } from '../utils/utils';
 
@@ -130,7 +130,7 @@ export const createChat = async (newChat: NewChat, message: UIMessage): Promise<
 
 export const upsertMessage = async (
 	message: UIMessage,
-	opts: { chatId: string; stopReason?: StopReason; error?: unknown },
+	opts: { chatId: string; stopReason?: StopReason; error?: unknown; tokenUsage?: TokenUsage },
 ): Promise<void> => {
 	await db.transaction(async (t) => {
 		const [savedMessage] = await t
@@ -148,7 +148,7 @@ export const upsertMessage = async (
 
 		await t.delete(s.messagePart).where(eq(s.messagePart.messageId, savedMessage.id)).execute();
 		if (message.parts.length) {
-			const dbParts = mapUIPartsToDBParts(message.parts, savedMessage.id);
+			const dbParts = mapUIPartsToDBParts(message.parts, savedMessage.id, opts.tokenUsage);
 			await t.insert(s.messagePart).values(dbParts).execute();
 		}
 	});

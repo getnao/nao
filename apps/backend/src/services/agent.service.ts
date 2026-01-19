@@ -1,11 +1,18 @@
 import { anthropic, AnthropicProviderOptions } from '@ai-sdk/anthropic';
 import { openai, OpenAIResponsesProviderOptions } from '@ai-sdk/openai';
-import { convertToModelMessages, createUIMessageStream, ToolLoopAgent, ToolLoopAgentSettings } from 'ai';
+import {
+	convertToModelMessages,
+	createUIMessageStream,
+	StreamTextResult,
+	ToolLoopAgent,
+	ToolLoopAgentSettings,
+} from 'ai';
 
 import { getInstructions } from '../agents/prompt';
 import { tools } from '../agents/tools';
 import * as chatQueries from '../queries/chat.queries';
 import { UIChat, UIMessage } from '../types/chat';
+import { spreadTokenUsage } from '../utils/chat';
 
 type AgentChat = UIChat & {
 	userId: string;
@@ -37,6 +44,7 @@ class AgentService {
 
 class AgentManager {
 	private readonly _agent: ToolLoopAgent<never, typeof tools, never>;
+	private _result: StreamTextResult<typeof tools, never>;
 
 	constructor(
 		readonly chat: AgentChat,
@@ -48,6 +56,7 @@ class AgentManager {
 			tools,
 			instructions: getInstructions(),
 		});
+		this._result = {} as StreamTextResult<typeof tools, never>;
 	}
 
 	private _chooseModelConfigBasedOnEnv(): Pick<ToolLoopAgentSettings, 'model' | 'providerOptions'> {
@@ -104,12 +113,12 @@ class AgentManager {
 					});
 				}
 
-				const result = await this._agent.stream({
+				this._result = await this._agent.stream({
 					messages: await convertToModelMessages(messages),
 					abortSignal: this._abortController.signal,
 				});
 
-				writer.merge(result.toUIMessageStream({}));
+				writer.merge(this._result.toUIMessageStream({}));
 			},
 			onError: (err) => {
 				error = err;
@@ -117,10 +126,12 @@ class AgentManager {
 			},
 			onFinish: async (e) => {
 				const stopReason = e.isAborted ? 'interrupted' : e.finishReason;
+				const tokenUsage = spreadTokenUsage(await this._result.totalUsage);
 				await chatQueries.upsertMessage(e.responseMessage, {
 					chatId: this.chat.id,
 					stopReason,
 					error,
+					tokenUsage,
 				});
 				this._onDispose();
 			},
