@@ -1,11 +1,13 @@
 import { WebClient } from '@slack/web-api';
+import { readUIMessageStream } from 'ai';
 import { FastifyReply } from 'fastify';
 
 import { User } from '../db/abstractSchema';
 import * as chatQueries from '../queries/chat.queries';
 import { getUser } from '../queries/user.queries';
+import { UIChat, UIMessage } from '../types/chat';
 import { SlackEvent } from '../types/slack';
-import { saveSlackAgentResponse, saveSlackUserMessage, updateSlackUserMessage } from '../utils/slack';
+import { extractLastTextFromMessage, saveSlackUserMessage, updateSlackUserMessage } from '../utils/slack';
 import { agentService } from './agent.service';
 
 export class SlackService {
@@ -16,7 +18,7 @@ export class SlackService {
 	private _slackUserId: string;
 	private _user: User = {} as User;
 	private _abortController = new AbortController();
-	private _redirectUrl = process.env.REDIRECT_URL || 'http://localhost:5005/';
+	private _redirectUrl = process.env.REDIRECT_URL || 'http://localhost:3000/';
 	private _slackClient: WebClient;
 
 	constructor(event: SlackEvent) {
@@ -28,15 +30,16 @@ export class SlackService {
 		this._slackClient = new WebClient(process.env.SLACK_BOT_TOKEN);
 	}
 
-	public async sendRequestAcknowledgement(reply: FastifyReply): Promise<void> {
+	public async sendRequestAcknowledgement(reply: FastifyReply): Promise<string | undefined> {
 		await this._checkUserExists(reply);
 
 		reply.send({ ok: true });
-		await this._slackClient.chat.postMessage({
+		const initialMessage = await this._slackClient.chat.postMessage({
 			channel: this._channel,
-			text: '🔄 nao is answering... please wait a few seconds.',
+			text: '🔄 nao is answering...',
 			thread_ts: this._threadTs,
 		});
+		return initialMessage.ts;
 	}
 
 	private async _checkUserExists(reply: FastifyReply): Promise<void> {
@@ -65,7 +68,8 @@ export class SlackService {
 	}
 
 	public async handleWorkFlow(reply: FastifyReply): Promise<void> {
-		const chatId = await this._saveOrUpdateUserMessage();
+		const initialMessageTs = await this.sendRequestAcknowledgement(reply);
+		const { chatId, isNew } = await this._saveOrUpdateUserMessage();
 
 		const [chat, chatUserId] = await chatQueries.loadChat(chatId);
 		if (!chat) {
@@ -77,17 +81,37 @@ export class SlackService {
 			return reply.status(403).send({ error: `You are not authorized to access this chat.` });
 		}
 
-		const agent = agentService.create({ ...chat, userId: this._user.id }, this._abortController);
-		const agentResponse = await agent.generate(this._text);
+		await this._handleStreamAgent(chat, isNew, chatId, initialMessageTs);
+	}
 
-		await saveSlackAgentResponse(chatId, agentResponse);
+	private async _handleStreamAgent(
+		chat: UIChat,
+		isNew: boolean,
+		chatId: string,
+		initialMessageTs: string | undefined,
+	): Promise<void> {
+		const agent = agentService.create({ ...chat, userId: this._user.id }, this._abortController);
+
+		const stream = agent.stream(chat.messages as UIMessage[], {
+			sendNewChatData: !!isNew,
+		});
+
+		for await (const uiMessage of readUIMessageStream({ stream })) {
+			const text = extractLastTextFromMessage(uiMessage);
+
+			if (!text) continue;
+
+			await this._slackClient.chat.update({
+				channel: this._channel,
+				text: text,
+				ts: initialMessageTs || this._threadTs,
+			});
+		}
 
 		const chatUrl = `${this._redirectUrl}${chatId}`;
-		const fullMessage = `${agentResponse}\n\nIf you want to see more, go to ${chatUrl}`;
-
 		await this._slackClient.chat.postMessage({
 			channel: this._channel,
-			text: fullMessage,
+			text: `<${chatUrl}|View full conversation>`,
 			thread_ts: this._threadTs,
 		});
 	}
@@ -97,17 +121,18 @@ export class SlackService {
 		return userProfile.profile?.email || null;
 	}
 
-	private async _saveOrUpdateUserMessage(): Promise<string> {
+	private async _saveOrUpdateUserMessage(): Promise<{ chatId: string; isNew: boolean }> {
 		const existingChat = await chatQueries.getChatBySlackThread(this._threadId);
 
 		let chatId: string;
 		if (existingChat) {
 			await updateSlackUserMessage(this._text, existingChat);
 			chatId = existingChat.id;
+			return { chatId, isNew: false };
 		} else {
 			const createdChat = await saveSlackUserMessage(this._text, this._user.id, this._threadId);
 			chatId = createdChat.id;
+			return { chatId, isNew: true };
 		}
-		return chatId;
 	}
 }

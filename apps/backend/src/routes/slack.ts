@@ -1,12 +1,12 @@
 import type { App } from '../app';
-// import { slackAuthMiddleware } from '../middleware/slack.middleware';
+import { slackAuthMiddleware } from '../middleware/slack.middleware';
 import { SlackService } from '../services/slack.service';
 import { SlackRequestSchema } from '../types/slack';
 
 export const slackRoutes = async (app: App) => {
 	// Verifying requests from Slack : verify whether requests from Slack are authentic
 	// https://docs.slack.dev/authentication/verifying-requests-from-slack/#signing_secrets_admin_page
-	// app.addHook('preHandler', slackAuthMiddleware);
+	app.addHook('preHandler', slackAuthMiddleware);
 
 	app.post(
 		'/app_mention',
@@ -38,8 +38,6 @@ export const slackRoutes = async (app: App) => {
 			}
 
 			const slackService = new SlackService(body.event);
-			await slackService.sendRequestAcknowledgement(reply);
-
 			await slackService.handleWorkFlow(reply);
 		},
 	);

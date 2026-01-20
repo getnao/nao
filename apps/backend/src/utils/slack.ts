@@ -22,9 +22,14 @@ const createTextMessage = (text: string, role: 'system' | 'user' | 'assistant'):
 	return message;
 };
 
-const saveSlackAgentResponse = async (chatId: string, responseText: string) => {
-	const assistantMessage = createTextMessage(responseText, 'assistant');
-	await chatQueries.upsertMessage(assistantMessage, { chatId });
+const extractLastTextFromMessage = (message: { parts: { type: string; text?: string }[] }): string => {
+	for (let i = message.parts.length - 1; i >= 0; i--) {
+		const part = message.parts[i];
+		if (part.type === 'text' && part.text) {
+			return part.text;
+		}
+	}
+	return '';
 };
 
-export { saveSlackAgentResponse, saveSlackUserMessage, updateSlackUserMessage };
+export { extractLastTextFromMessage, saveSlackUserMessage, updateSlackUserMessage };
