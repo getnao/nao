@@ -19,15 +19,10 @@ from nao_core.config import (
     SlackConfig,
     SnowflakeConfig,
 )
+from nao_core.config.exceptions import InitError
 from nao_core.config.repos import RepoConfig
 
 console = Console()
-
-
-class InitError(Exception):
-    """Base exception for init command errors."""
-
-    pass
 
 
 class EmptyProjectNameError(InitError):

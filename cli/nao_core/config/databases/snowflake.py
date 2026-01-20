@@ -7,6 +7,8 @@ from ibis import BaseBackend
 from pydantic import Field
 from rich.prompt import Confirm, Prompt
 
+from nao_core.config.exceptions import InitError
+
 from .base import DatabaseConfig, console
 
 
@@ -38,15 +40,15 @@ class SnowflakeConfig(DatabaseConfig):
 
         username = Prompt.ask("[bold]Snowflake username[/bold]")
         if not username:
-            raise ValueError("Snowflake username cannot be empty.")
+            raise InitError("Snowflake username cannot be empty.")
 
         account_id = Prompt.ask("[bold]Snowflake account identifier[/bold]")
         if not account_id:
-            raise ValueError("Snowflake account identifier cannot be empty.")
+            raise InitError("Snowflake account identifier cannot be empty.")
 
         database = Prompt.ask("[bold]Snowflake database[/bold]")
         if not database:
-            raise ValueError("Snowflake database cannot be empty.")
+            raise InitError("Snowflake database cannot be empty.")
 
         warehouse = Prompt.ask(
             "[bold]Snowflake warehouse[/bold] [dim](optional, press Enter to skip)[/dim]", default=None
@@ -59,7 +61,7 @@ class SnowflakeConfig(DatabaseConfig):
         if key_pair_auth:
             private_key_path = Prompt.ask("[bold]Path to private key file[/bold]")
             if not private_key_path:
-                raise ValueError("Path to private key file cannot be empty.")
+                raise InitError("Path to private key file cannot be empty.")
             passphrase = Prompt.ask(
                 "[bold]Passphrase for the private key[/bold] [dim](optional, press Enter to skip)[/dim]",
                 default=None,
@@ -68,7 +70,7 @@ class SnowflakeConfig(DatabaseConfig):
         else:
             password = Prompt.ask("[bold]Snowflake password[/bold]", password=True)
             if not password:
-                raise ValueError("Snowflake password cannot be empty.")
+                raise InitError("Snowflake password cannot be empty.")
 
         return SnowflakeConfig(
             name=name,

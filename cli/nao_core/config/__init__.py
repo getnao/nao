@@ -8,6 +8,7 @@ from .databases import (
     DuckDBConfig,
     SnowflakeConfig,
 )
+from .exceptions import InitError
 from .llm import LLMConfig, LLMProvider
 from .slack import SlackConfig
 
@@ -23,4 +24,5 @@ __all__ = [
     "LLMConfig",
     "LLMProvider",
     "SlackConfig",
+    "InitError",
 ]

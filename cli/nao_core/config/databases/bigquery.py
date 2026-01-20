@@ -5,6 +5,8 @@ from ibis import BaseBackend
 from pydantic import Field
 from rich.prompt import Prompt
 
+from nao_core.config.exceptions import InitError
+
 from .base import DatabaseConfig, console
 
 
@@ -30,7 +32,7 @@ class BigQueryConfig(DatabaseConfig):
 
         project_id = Prompt.ask("[bold]GCP Project ID[/bold]")
         if not project_id:
-            raise ValueError("GCP Project ID cannot be empty.")
+            raise InitError("GCP Project ID cannot be empty.")
 
         dataset_id = Prompt.ask("[bold]Default dataset[/bold] [dim](optional, press Enter to skip)[/dim]", default="")
 

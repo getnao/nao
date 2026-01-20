@@ -5,6 +5,8 @@ from ibis import BaseBackend
 from pydantic import Field
 from rich.prompt import Prompt
 
+from nao_core.config.exceptions import InitError
+
 from .base import DatabaseConfig, console
 
 
@@ -27,15 +29,15 @@ class DatabricksConfig(DatabaseConfig):
 
         server_hostname = Prompt.ask("[bold]Server hostname[/bold] [dim](e.g., adb-xxxx.azuredatabricks.net)[/dim]")
         if not server_hostname:
-            raise ValueError("Server hostname cannot be empty.")
+            raise InitError("Server hostname cannot be empty.")
 
         http_path = Prompt.ask("[bold]HTTP path[/bold] [dim](e.g., /sql/1.0/warehouses/xxxx)[/dim]")
         if not http_path:
-            raise ValueError("HTTP path cannot be empty.")
+            raise InitError("HTTP path cannot be empty.")
 
         access_token = Prompt.ask("[bold]Access token[/bold]", password=True)
         if not access_token:
-            raise ValueError("Access token cannot be empty.")
+            raise InitError("Access token cannot be empty.")
 
         catalog = Prompt.ask("[bold]Catalog[/bold] [dim](optional, press Enter to skip)[/dim]", default=None)
 
