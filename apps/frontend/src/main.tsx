@@ -6,6 +6,7 @@ import { createTRPCOptionsProxy } from '@trpc/tanstack-react-query';
 import { RouterProvider, createRouter } from '@tanstack/react-router';
 import ReactDOM from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import superjson from 'superjson';
 import { routeTree } from './routeTree.gen';
 import reportWebVitals from './reportWebVitals';
 import type { TrpcRouter } from 'backend/trpc';
@@ -43,6 +44,7 @@ export const trpcClient = createTRPCClient<TrpcRouter>({
 		loggerLink(),
 		httpBatchLink({
 			url: '/api/trpc',
+			transformer: superjson,
 		}),
 	],
 });

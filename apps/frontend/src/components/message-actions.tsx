@@ -26,7 +26,7 @@ export function MessageActions({ message, className }: MessageActionsProps) {
 					prev
 						? {
 								...prev,
-								messages: (prev.messages as UIMessage[]).map((m) =>
+								messages: prev.messages.map((m) =>
 									m.id === message.id ? { ...m, feedback: data } : m,
 								),
 							}

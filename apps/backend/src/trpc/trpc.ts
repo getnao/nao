@@ -1,5 +1,6 @@
 import { initTRPC, TRPCError } from '@trpc/server';
 import type { CreateFastifyContextOptions } from '@trpc/server/adapters/fastify';
+import superjson from 'superjson';
 
 import { auth } from '../auth';
 import { convertHeaders } from '../utils/utils';
@@ -19,7 +20,9 @@ export const createContext = async (opts: CreateFastifyContextOptions) => {
  * Initialization of tRPC backend
  * Should be done only once per backend!
  */
-const t = initTRPC.context<Context>().create();
+const t = initTRPC.context<Context>().create({
+	transformer: superjson,
+});
 
 export const router = t.router;
 

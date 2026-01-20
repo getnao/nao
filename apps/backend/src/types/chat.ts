@@ -15,7 +15,7 @@ export interface UIChat {
 	title: string;
 	createdAt: number;
 	updatedAt: number;
-	messages: unknown[];
+	messages: UIMessage[];
 }
 
 export interface ListChatResponse {
@@ -32,6 +32,7 @@ export interface ChatListItem {
 export type UIMessage = UIGenericMessage<unknown, MessageCustomDataParts, UITools> & {
 	feedback?: MessageFeedback;
 };
+
 export type UITools = InferUITools<typeof tools>;
 
 /** Additional data parts that are not part of the ai sdk data parts */

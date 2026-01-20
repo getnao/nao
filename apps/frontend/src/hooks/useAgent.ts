@@ -13,7 +13,7 @@ import { agentService } from '@/lib/agents.service';
 import { checkIsRunning } from '@/lib/ai';
 
 export type AgentHelpers = {
-	messages: UseChatHelpers<UIMessage>['messages'];
+	messages: UIMessage[];
 	setMessages: UseChatHelpers<UIMessage>['setMessages'];
 	sendMessage: UseChatHelpers<UIMessage>['sendMessage'];
 	status: UseChatHelpers<UIMessage>['status'];
@@ -56,10 +56,16 @@ export const useAgent = (): AgentHelpers => {
 				agentId = newChat.id;
 
 				// Update the query data
-				queryClient.setQueryData(trpc.chat.get.queryKey({ chatId: newChat.id }), {
-					...newChat,
-					messages: newAgent.messages,
+				queryClient.setQueryData(trpc.chat.get.queryKey({ chatId: newChat.id }), (prev) => {
+					return !prev
+						? prev
+						: {
+								...prev,
+								...newChat,
+							};
 				});
+
+				// Update the chat list
 				queryClient.setQueryData(trpc.chat.list.queryKey(), (old) => ({
 					chats: [newChat, ...(old?.chats || [])],
 				}));
@@ -115,7 +121,7 @@ export const useSyncMessages = ({ agent }: { agent: AgentHelpers }) => {
 	// Sync the agent's messages with the fetched ones
 	useEffect(() => {
 		if (chat.data?.messages && !agent.isRunning) {
-			agent.setMessages(chat.data.messages as UIMessage[]);
+			agent.setMessages(chat.data.messages);
 		}
 	}, [chat.data?.messages, agent.isRunning, agent.setMessages]); // eslint-disable-line
 
