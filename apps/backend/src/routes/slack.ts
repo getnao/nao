@@ -1,7 +1,8 @@
 import type { App } from '../app';
 import { slackAuthMiddleware } from '../middleware/slack.middleware';
 import { SlackService } from '../services/slack.service';
-import { SlackRequestSchema } from '../types/slack';
+import { SlackInteractionPayload, SlackRequestSchema } from '../types/slack';
+import { activeSlackStreams } from '../utils/slack';
 
 export const slackRoutes = async (app: App) => {
 	// Verifying requests from Slack : verify whether requests from Slack are authentic
@@ -39,6 +40,41 @@ export const slackRoutes = async (app: App) => {
 
 			const slackService = new SlackService(body.event);
 			await slackService.handleWorkFlow(reply);
+		},
+	);
+
+	app.post(
+		'/interactions',
+		{
+			config: { rawBody: true },
+		},
+		async (request, reply) => {
+			const body = request.body as { payload: string };
+
+			if (!body.payload) {
+				return reply.status(400).send({ error: 'Missing payload' });
+			}
+
+			const payload = JSON.parse(body.payload) as SlackInteractionPayload;
+
+			if (payload.type === 'block_actions' && payload.actions) {
+				for (const action of payload.actions) {
+					if (action.action_id === 'stop_generation') {
+						const channel = payload.channel?.id;
+						const threadTs = payload.message?.thread_ts || payload.message?.ts;
+
+						if (channel && threadTs) {
+							const threadId = [channel, threadTs.replace('.', '')].join('/p');
+							const abortController = activeSlackStreams.get(threadId);
+
+							if (abortController) {
+								abortController.abort();
+								activeSlackStreams.delete(threadId);
+							}
+						}
+					}
+				}
+			}
 		},
 	);
 };
