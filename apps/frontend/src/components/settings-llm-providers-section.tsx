@@ -34,7 +34,7 @@ export function LlmProvidersSection({ isAdmin }: LlmProvidersSectionProps) {
 		}
 		await upsertLlmConfig.mutateAsync({ provider: newProvider, apiKey: newApiKey });
 		queryClient.invalidateQueries(trpc.project.getLlmConfigs.queryOptions());
-		queryClient.invalidateQueries(trpc.getModelProvider.queryOptions());
+		queryClient.invalidateQueries(trpc.project.getModelProvider.queryOptions());
 		setNewProvider('');
 		setNewApiKey('');
 	};
@@ -42,7 +42,7 @@ export function LlmProvidersSection({ isAdmin }: LlmProvidersSectionProps) {
 	const handleDeleteConfig = async (provider: LlmProvider) => {
 		await deleteLlmConfig.mutateAsync({ provider });
 		queryClient.invalidateQueries(trpc.project.getLlmConfigs.queryOptions());
-		queryClient.invalidateQueries(trpc.getModelProvider.queryOptions());
+		queryClient.invalidateQueries(trpc.project.getModelProvider.queryOptions());
 	};
 
 	return (

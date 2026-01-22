@@ -3,7 +3,7 @@ import type { CreateFastifyContextOptions } from '@trpc/server/adapters/fastify'
 import superjson from 'superjson';
 
 import { auth } from '../auth';
-import { ensureDefaultProjectMembership, getUserRoleInProject } from '../queries/project.queries';
+import * as projectQueries from '../queries/project.queries';
 import type { UserRole } from '../types/project';
 import { convertHeaders } from '../utils/utils';
 
@@ -39,8 +39,10 @@ export const protectedProcedure = t.procedure.use(async ({ ctx, next }) => {
 });
 
 export const projectProtectedProcedure = protectedProcedure.use(async ({ ctx, next }) => {
-	const project = await ensureDefaultProjectMembership(ctx.user.id);
-	const userRole: UserRole | null = project ? await getUserRoleInProject(project.id, ctx.user.id) : null;
+	const project = await projectQueries.checkUserHasProject(ctx.user.id);
+	const userRole: UserRole | null = project
+		? await projectQueries.getUserRoleInProject(project.id, ctx.user.id)
+		: null;
 
 	return next({ ctx: { project, userRole } });
 });

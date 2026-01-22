@@ -1,5 +1,16 @@
 import { sql } from 'drizzle-orm';
-import { boolean, check, index, integer, jsonb, pgTable, primaryKey, text, timestamp } from 'drizzle-orm/pg-core';
+import {
+	boolean,
+	check,
+	index,
+	integer,
+	jsonb,
+	pgTable,
+	primaryKey,
+	text,
+	timestamp,
+	unique,
+} from 'drizzle-orm/pg-core';
 
 import { StopReason, ToolState, UIMessagePartType } from '../types/chat';
 import { USER_ROLES } from '../types/project';
@@ -253,7 +264,10 @@ export const projectLlmConfig = pgTable(
 			.$onUpdate(() => new Date())
 			.notNull(),
 	},
-	(t) => [index('project_llm_config_projectId_idx').on(t.projectId)],
+	(t) => [
+		index('project_llm_config_projectId_idx').on(t.projectId),
+		unique('project_llm_config_unique').on(t.id, t.projectId, t.provider),
+	],
 );
 
 export const projectSlackConfig = pgTable(

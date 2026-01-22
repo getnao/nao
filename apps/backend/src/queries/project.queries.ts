@@ -1,16 +1,9 @@
 import { and, eq } from 'drizzle-orm';
 
-import s, {
-	DBProject,
-	DBProjectLlmConfig,
-	DBProjectMember,
-	DBProjectSlackConfig,
-	NewProject,
-	NewProjectLlmConfig,
-	NewProjectMember,
-	NewProjectSlackConfig,
-} from '../db/abstractSchema';
+import s, { DBProject, DBProjectMember, NewProject, NewProjectMember } from '../db/abstractSchema';
 import { db } from '../db/db';
+import * as llmConfigQueries from './project-llm-config.queries';
+import * as userQueries from './user.queries';
 
 export const getProjectByPath = async (path: string): Promise<DBProject | null> => {
 	const [project] = await db.select().from(s.project).where(eq(s.project.path, path)).execute();
@@ -59,7 +52,7 @@ export const getUserRoleInProject = async (
 	return member?.role ?? null;
 };
 
-export const ensureDefaultProjectMembership = async (userId: string): Promise<DBProject | null> => {
+export const checkUserHasProject = async (userId: string): Promise<DBProject | null> => {
 	const projectPath = process.env.NAO_DEFAULT_PROJECT_PATH;
 	if (!projectPath) {
 		return null;
@@ -73,95 +66,53 @@ export const ensureDefaultProjectMembership = async (userId: string): Promise<DB
 	const userProject = await getProjectMember(project.id, userId);
 
 	if (!userProject) {
-		// Add user as a regular user (first admin is set during signup in auth.ts)
-		// Might be moved elsewhere after we worked on signup flow in another PR (cc. @mateo)
-		await addProjectMember({
-			projectId: project.id,
-			userId,
-			role: 'user',
-		});
+		return null;
 	}
 
 	return project;
 };
 
-// LLM Config queries
-
-export const getProjectLlmConfigs = async (projectId: string): Promise<DBProjectLlmConfig[]> => {
-	return db.select().from(s.projectLlmConfig).where(eq(s.projectLlmConfig.projectId, projectId)).execute();
-};
-
-export const getProjectLlmConfigByProvider = async (
-	projectId: string,
-	provider: 'openai' | 'anthropic',
-): Promise<DBProjectLlmConfig | null> => {
-	const [config] = await db
-		.select()
-		.from(s.projectLlmConfig)
-		.where(and(eq(s.projectLlmConfig.projectId, projectId), eq(s.projectLlmConfig.provider, provider)))
-		.execute();
-	return config ?? null;
-};
-
-export const upsertProjectLlmConfig = async (
-	config: Omit<NewProjectLlmConfig, 'id' | 'createdAt' | 'updatedAt'>,
-): Promise<DBProjectLlmConfig> => {
-	const existing = await getProjectLlmConfigByProvider(config.projectId, config.provider);
-
-	if (existing) {
-		const [updated] = await db
-			.update(s.projectLlmConfig)
-			.set({ apiKey: config.apiKey })
-			.where(eq(s.projectLlmConfig.id, existing.id))
-			.returning()
-			.execute();
-		return updated;
+export const initializeDefaultProjectForFirstUser = async (userId: string): Promise<void> => {
+	const projectPath = process.env.NAO_DEFAULT_PROJECT_PATH;
+	if (!projectPath) {
+		return;
 	}
 
-	const [created] = await db.insert(s.projectLlmConfig).values(config).returning().execute();
-	return created;
-};
-
-export const deleteProjectLlmConfig = async (projectId: string, provider: 'openai' | 'anthropic'): Promise<void> => {
-	await db
-		.delete(s.projectLlmConfig)
-		.where(and(eq(s.projectLlmConfig.projectId, projectId), eq(s.projectLlmConfig.provider, provider)))
-		.execute();
-};
-
-// Slack Config queries
-
-export const getProjectSlackConfig = async (projectId: string): Promise<DBProjectSlackConfig | null> => {
-	const [config] = await db
-		.select()
-		.from(s.projectSlackConfig)
-		.where(eq(s.projectSlackConfig.projectId, projectId))
-		.execute();
-	return config ?? null;
-};
-
-export const upsertProjectSlackConfig = async (
-	config: Omit<NewProjectSlackConfig, 'id' | 'createdAt' | 'updatedAt' | 'postMessageUrl'>,
-): Promise<DBProjectSlackConfig> => {
-	const existing = await getProjectSlackConfig(config.projectId);
-
-	if (existing) {
-		const [updated] = await db
-			.update(s.projectSlackConfig)
-			.set({
-				botToken: config.botToken,
-				signingSecret: config.signingSecret,
-			})
-			.where(eq(s.projectSlackConfig.id, existing.id))
-			.returning()
-			.execute();
-		return updated;
+	const userCount = await userQueries.countUsers();
+	if (userCount !== 1) {
+		return;
 	}
 
-	const [created] = await db.insert(s.projectSlackConfig).values(config).returning().execute();
-	return created;
-};
+	const existingProject = await getProjectByPath(projectPath);
+	if (existingProject) {
+		return;
+	}
 
-export const deleteProjectSlackConfig = async (projectId: string): Promise<void> => {
-	await db.delete(s.projectSlackConfig).where(eq(s.projectSlackConfig.projectId, projectId)).execute();
+	const projectName = projectPath.split('/').pop() || 'Default Project';
+	const project = await createProject({
+		name: projectName,
+		type: 'local',
+		path: projectPath,
+	});
+
+	const openaiKey = process.env.OPENAI_API_KEY;
+	const anthropicKey = process.env.ANTHROPIC_API_KEY;
+
+	if (openaiKey) {
+		await llmConfigQueries.upsertProjectLlmConfig({ projectId: project.id, provider: 'openai', apiKey: openaiKey });
+	}
+
+	if (anthropicKey) {
+		await llmConfigQueries.upsertProjectLlmConfig({
+			projectId: project.id,
+			provider: 'anthropic',
+			apiKey: anthropicKey,
+		});
+	}
+
+	await addProjectMember({
+		projectId: project.id,
+		userId,
+		role: 'admin',
+	});
 };

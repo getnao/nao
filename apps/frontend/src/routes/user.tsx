@@ -7,7 +7,7 @@ import { signOut, useSession } from '@/lib/auth-client';
 import { ModifyUserInfo } from '@/components/settings-modify-user-info';
 import { ThemeSelector } from '@/components/theme-selector';
 import { UserProfileCard } from '@/components/settings-profile-card';
-import { SettingsCard } from '@/components/settings-card';
+import { SettingsCard } from '@/components/ui/settings-card';
 import { LlmProvidersSection } from '@/components/settings-llm-providers-section';
 import { SlackConfigSection } from '@/components/settings-slack-config-section';
 import { trpc } from '@/main';

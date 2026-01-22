@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { check, index, integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { check, index, integer, primaryKey, sqliteTable, text, unique } from 'drizzle-orm/sqlite-core';
 
 import { StopReason, ToolState, UIMessagePartType } from '../types/chat';
 import { USER_ROLES } from '../types/project';
@@ -280,7 +280,10 @@ export const projectLlmConfig = sqliteTable(
 			.$onUpdate(() => new Date())
 			.notNull(),
 	},
-	(t) => [index('project_llm_config_projectId_idx').on(t.projectId)],
+	(t) => [
+		index('project_llm_config_projectId_idx').on(t.projectId),
+		unique('project_llm_config_unique').on(t.id, t.projectId, t.provider),
+	],
 );
 
 export const projectSlackConfig = sqliteTable(

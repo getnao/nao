@@ -3,9 +3,9 @@ import { readUIMessageStream, UIDataTypes, UIMessageChunk } from 'ai';
 import { FastifyReply } from 'fastify';
 
 import { User } from '../db/abstractSchema';
-import { SlackConfig } from '../middleware/slack.middleware';
 import * as chatQueries from '../queries/chat.queries';
-import { getUserRoleInProject } from '../queries/project.queries';
+import * as projectQueries from '../queries/project.queries';
+import { SlackConfig } from '../queries/project-slack-config.queries';
 import { getUser } from '../queries/user.queries';
 import { UIChat } from '../types/chat';
 import { UIMessage } from '../types/chat';
@@ -75,7 +75,7 @@ export class SlackService {
 	}
 
 	private async _checkUserBelongsToProject(): Promise<void> {
-		const role = await getUserRoleInProject(this._projectId, this._user.id);
+		const role = await projectQueries.getUserRoleInProject(this._projectId, this._user.id);
 		if (role !== 'admin' && role !== 'user') {
 			const fullMessage = `❌ You don't have permission to use nao in this project. Please contact an administrator.`;
 			await this._slackClient.chat.postMessage({

@@ -1,40 +1,13 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, Copy, ExternalLink, Pencil, Plus, Trash2 } from 'lucide-react';
+import { ExternalLink, Pencil, Plus, Trash2 } from 'lucide-react';
+import { CopyableUrl } from '@/components/ui/copyable-url';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { trpc } from '@/main';
 
 interface SlackConfigSectionProps {
 	isAdmin: boolean;
-}
-
-function CopyableUrl({ label, url }: { label: string; url: string }) {
-	const [copied, setCopied] = useState(false);
-
-	const handleCopy = async () => {
-		await navigator.clipboard.writeText(url);
-		setCopied(true);
-		setTimeout(() => setCopied(false), 2000);
-	};
-
-	return (
-		<div className='grid gap-1 min-w-0'>
-			<span className='text-xs text-muted-foreground'>{label}</span>
-			<div className='flex items-center gap-2 min-w-0'>
-				<code className='flex-1 min-w-0 text-xs font-mono bg-muted/50 px-2 py-1.5 rounded border border-border truncate'>
-					{url}
-				</code>
-				<Button variant='ghost' size='icon-sm' onClick={handleCopy} className='shrink-0'>
-					{copied ? (
-						<Check className='size-3.5 text-green-500' />
-					) : (
-						<Copy className='size-3.5 text-muted-foreground' />
-					)}
-				</Button>
-			</div>
-		</div>
-	);
 }
 
 function SlackAppConfigUrls({
@@ -137,7 +110,7 @@ export function SlackConfigSection({ isAdmin }: SlackConfigSectionProps) {
 
 	const handleDeleteConfig = async () => {
 		await deleteSlackConfig.mutateAsync();
-		queryClient.invalidateQueries(trpc.project.getSlackConfig.queryOptions());
+		queryClient.removeQueries(trpc.project.getSlackConfig.queryOptions());
 	};
 
 	const handleCancel = () => {

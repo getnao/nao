@@ -1,6 +1,7 @@
 import type { App } from '../app';
-import { getSlackConfig, slackAuthMiddleware } from '../middleware/slack.middleware';
+import { slackAuthMiddleware } from '../middleware/slack.middleware';
 import * as chatQueries from '../queries/chat.queries';
+import * as slackConfigQueries from '../queries/project-slack-config.queries';
 import { agentService } from '../services/agent.service';
 import { SlackService } from '../services/slack.service';
 import { SlackInteractionBodySchema, SlackInteractionPayloadSchema, SlackRequestSchema } from '../types/slack';
@@ -23,7 +24,7 @@ export const slackRoutes = async (app: App) => {
 				return reply.send({ challenge: body.challenge });
 			}
 
-			const slackConfig = await getSlackConfig();
+			const slackConfig = await slackConfigQueries.getSlackConfig();
 
 			if (!slackConfig) {
 				return reply.status(400).send({ error: 'Slack is not configured' });

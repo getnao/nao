@@ -3,7 +3,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 
 import { auth } from '../auth';
 import { DBProject } from '../db/abstractSchema';
-import { ensureDefaultProjectMembership } from '../queries/project.queries';
+import * as projectQueries from '../queries/project.queries';
 import { convertHeaders } from '../utils/utils';
 
 declare module 'fastify' {
@@ -23,5 +23,5 @@ export async function authMiddleware(request: FastifyRequest, reply: FastifyRepl
 
 	request.user = session.user;
 	request.session = session.session;
-	request.project = await ensureDefaultProjectMembership(session.user.id);
+	request.project = await projectQueries.checkUserHasProject(session.user.id);
 }

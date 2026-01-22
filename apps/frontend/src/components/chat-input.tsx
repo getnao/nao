@@ -18,7 +18,7 @@ export interface Props {
 export function ChatInput() {
 	const { sendMessage, isRunning, stopAgent, isReadyForNewMessages } = useAgentContext();
 	const chatId = useParams({ strict: false, select: (p) => p.chatId });
-	const modelProvider = useQuery(trpc.getModelProvider.queryOptions());
+	const modelProvider = useQuery(trpc.project.getModelProvider.queryOptions());
 	const [input, setInput] = useState('');
 
 	const handleSubmit = (e: FormEvent) => {

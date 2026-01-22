@@ -11,7 +11,7 @@ import {
 import { getInstructions } from '../agents/prompt';
 import { tools } from '../agents/tools';
 import * as chatQueries from '../queries/chat.queries';
-import * as projectQueries from '../queries/project.queries';
+import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import { UIChat, UIMessage } from '../types/chat';
 import { convertToTokenUsage } from '../utils/chat';
 
@@ -48,7 +48,7 @@ class AgentService {
 		projectId: string,
 	): Promise<Pick<ToolLoopAgentSettings, 'model' | 'providerOptions'>> {
 		// Try to get project-specific LLM config first
-		const anthropicConfig = await projectQueries.getProjectLlmConfigByProvider(projectId, 'anthropic');
+		const anthropicConfig = await llmConfigQueries.getProjectLlmConfigByProvider(projectId, 'anthropic');
 		if (anthropicConfig) {
 			const provider = createAnthropic({ apiKey: anthropicConfig.apiKey });
 			return {
@@ -65,7 +65,7 @@ class AgentService {
 			};
 		}
 
-		const openaiConfig = await projectQueries.getProjectLlmConfigByProvider(projectId, 'openai');
+		const openaiConfig = await llmConfigQueries.getProjectLlmConfigByProvider(projectId, 'openai');
 		if (openaiConfig) {
 			const provider = createOpenAI({ apiKey: openaiConfig.apiKey });
 			return {

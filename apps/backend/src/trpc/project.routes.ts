@@ -1,6 +1,7 @@
 import { z } from 'zod/v4';
 
-import * as projectQueries from '../queries/project.queries';
+import * as llmConfigQueries from '../queries/project-llm-config.queries';
+import * as slackConfigQueries from '../queries/project-slack-config.queries';
 import { adminProtectedProcedure, projectProtectedProcedure } from './trpc';
 
 const llmProviderSchema = z.enum(['openai', 'anthropic']);
@@ -16,12 +17,22 @@ export const projectRoutes = {
 		};
 	}),
 
+	getModelProvider: projectProtectedProcedure.query(async ({ ctx }) => {
+		const { project } = ctx;
+		const projectConfigs = project ? await llmConfigQueries.getProjectLlmConfigs(project.id) : [];
+		const hasAnthropic = projectConfigs.some((c) => c.provider === 'anthropic') || !!process.env.ANTHROPIC_API_KEY;
+		const hasOpenai = projectConfigs.some((c) => c.provider === 'openai') || !!process.env.OPENAI_API_KEY;
+		if (hasAnthropic) return 'anthropic';
+		if (hasOpenai) return 'openai';
+		return undefined;
+	}),
+
 	getLlmConfigs: projectProtectedProcedure.query(async ({ ctx }) => {
 		if (!ctx.project) {
 			return { projectConfigs: [], envProviders: [] };
 		}
 
-		const configs = await projectQueries.getProjectLlmConfigs(ctx.project.id);
+		const configs = await llmConfigQueries.getProjectLlmConfigs(ctx.project.id);
 
 		const projectConfigs = configs.map((c) => ({
 			id: c.id,
@@ -46,7 +57,7 @@ export const projectRoutes = {
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
-			const config = await projectQueries.upsertProjectLlmConfig({
+			const config = await llmConfigQueries.upsertProjectLlmConfig({
 				projectId: ctx.project.id,
 				provider: input.provider,
 				apiKey: input.apiKey,
@@ -61,7 +72,7 @@ export const projectRoutes = {
 	deleteLlmConfig: adminProtectedProcedure
 		.input(z.object({ provider: llmProviderSchema }))
 		.mutation(async ({ ctx, input }) => {
-			await projectQueries.deleteProjectLlmConfig(ctx.project.id, input.provider);
+			await llmConfigQueries.deleteProjectLlmConfig(ctx.project.id, input.provider);
 			return { success: true };
 		}),
 
@@ -70,7 +81,7 @@ export const projectRoutes = {
 			return { projectConfig: null, hasEnvConfig: false };
 		}
 
-		const config = await projectQueries.getProjectSlackConfig(ctx.project.id);
+		const config = await slackConfigQueries.getProjectSlackConfig(ctx.project.id);
 
 		const hasEnvConfig = !!(process.env.SLACK_BOT_TOKEN && process.env.SLACK_SIGNING_SECRET);
 
@@ -101,7 +112,7 @@ export const projectRoutes = {
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
-			const config = await projectQueries.upsertProjectSlackConfig({
+			const config = await slackConfigQueries.upsertProjectSlackConfig({
 				projectId: ctx.project.id,
 				botToken: input.botToken,
 				signingSecret: input.signingSecret,
@@ -114,7 +125,7 @@ export const projectRoutes = {
 		}),
 
 	deleteSlackConfig: adminProtectedProcedure.mutation(async ({ ctx }) => {
-		await projectQueries.deleteProjectSlackConfig(ctx.project.id);
+		await slackConfigQueries.deleteProjectSlackConfig(ctx.project.id);
 		return { success: true };
 	}),
 };
