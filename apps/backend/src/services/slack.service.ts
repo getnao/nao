@@ -5,15 +5,11 @@ import { FastifyReply } from 'fastify';
 import { User } from '../db/abstractSchema';
 import * as chatQueries from '../queries/chat.queries';
 import { getUser } from '../queries/user.queries';
-import { UIChat, UIMessage } from '../types/chat';
+import { UIChat } from '../types/chat';
+import { UIMessage } from '../types/chat';
 import { SlackEvent } from '../types/slack';
-import {
-	activeSlackStreams,
-	addButtonStopBlock,
-	extractLastTextFromMessage,
-	saveSlackUserMessage,
-	updateSlackUserMessage,
-} from '../utils/slack';
+import { extractLastTextFromMessage } from '../utils/chat';
+import { addButtonStopBlock } from '../utils/slack';
 import { agentService } from './agent.service';
 
 export class SlackService {
@@ -77,7 +73,7 @@ export class SlackService {
 
 	public async handleWorkFlow(reply: FastifyReply): Promise<void> {
 		await this.sendRequestAcknowledgement(reply);
-		const { chatId, isNew } = await this._saveOrUpdateUserMessage();
+		const chatId = await this._saveOrUpdateUserMessage();
 
 		const [chat, chatUserId] = await chatQueries.loadChat(chatId);
 		if (!chat) {
@@ -89,23 +85,20 @@ export class SlackService {
 			return reply.status(403).send({ error: `You are not authorized to access this chat.` });
 		}
 
-		await this._handleStreamAgent(chat, isNew, chatId);
+		await this._handleStreamAgent(chat, chatId);
 	}
 
-	private async _handleStreamAgent(chat: UIChat, isNew: boolean, chatId: string): Promise<void> {
-		activeSlackStreams.set(this._threadId, this._abortController);
-
-		const stream = this._createAgentStream(chat, isNew);
+	private async _handleStreamAgent(chat: UIChat, chatId: string): Promise<void> {
+		const stream = this._createAgentStream(chat);
 		await this._postStopButton();
 
-		await this._processStream(stream);
+		await this._readStreamAndUpdateSlackMessage(stream);
 		await this._replaceStopButtonWithLink(chatId);
-		activeSlackStreams.delete(this._threadId);
 	}
 
-	private _createAgentStream(chat: UIChat, isNew: boolean) {
+	private _createAgentStream(chat: UIChat) {
 		const agent = agentService.create({ ...chat, userId: this._user.id }, this._abortController);
-		return agent.stream(chat.messages as UIMessage[], { sendNewChatData: !!isNew });
+		return agent.stream(chat.messages, { sendNewChatData: false });
 	}
 
 	private async _postStopButton(): Promise<void> {
@@ -118,7 +111,9 @@ export class SlackService {
 		this._buttonTs = buttonMessage.ts;
 	}
 
-	private async _processStream(stream: ReadableStream<UIMessageChunk<unknown, UIDataTypes>>): Promise<void> {
+	private async _readStreamAndUpdateSlackMessage(
+		stream: ReadableStream<UIMessageChunk<unknown, UIDataTypes>>,
+	): Promise<void> {
 		let lastSentText = '';
 		let currentText = '';
 		const messageTs = this._initialMessageTs || this._threadTs;
@@ -163,18 +158,23 @@ export class SlackService {
 		return userProfile.profile?.email || null;
 	}
 
-	private async _saveOrUpdateUserMessage(): Promise<{ chatId: string; isNew: boolean }> {
+	private async _saveOrUpdateUserMessage(): Promise<string> {
 		const existingChat = await chatQueries.getChatBySlackThread(this._threadId);
 
-		let chatId: string;
+		const userMessage: UIMessage = {
+			id: crypto.randomUUID(),
+			role: 'user',
+			parts: [{ type: 'text', text: this._text }],
+		};
 		if (existingChat) {
-			await updateSlackUserMessage(this._text, existingChat);
-			chatId = existingChat.id;
-			return { chatId, isNew: false };
+			await chatQueries.upsertMessage(userMessage, { chatId: existingChat.id });
+			return existingChat.id;
 		} else {
-			const createdChat = await saveSlackUserMessage(this._text, this._user.id, this._threadId);
-			chatId = createdChat.id;
-			return { chatId, isNew: true };
+			const createdChat = await chatQueries.createChat(
+				{ title: this._text.slice(0, 64), userId: this._user.id, slackThreadId: this._threadId },
+				userMessage,
+			);
+			return createdChat.id;
 		}
 	}
 }

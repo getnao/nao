@@ -13,3 +13,13 @@ export const convertToTokenUsage = (usage: LanguageModelUsage): TokenUsage => ({
 	outputReasoningTokens: usage.outputTokenDetails.reasoningTokens,
 	totalTokens: usage.totalTokens,
 });
+
+export const extractLastTextFromMessage = (message: { parts: { type: string; text?: string }[] }): string => {
+	for (let i = message.parts.length - 1; i >= 0; i--) {
+		const part = message.parts[i];
+		if (part.type === 'text' && part.text) {
+			return part.text;
+		}
+	}
+	return '';
+};

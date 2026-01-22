@@ -18,6 +18,10 @@ export async function slackAuthMiddleware(request: FastifyRequest, reply: Fastif
 	const timestamp = request.headers['x-slack-request-timestamp'];
 	const signature = request.headers['x-slack-signature'];
 
+	if (!process.env.SLACK_SIGNING_SECRET) {
+		return reply.status(400).send('SLACK_SIGNING_SECRET is not defined in environment variables');
+	}
+
 	if (!rawBody || !timestamp || !signature) {
 		return reply.status(400).send('Missing required headers or body');
 	}

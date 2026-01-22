@@ -1,8 +1,9 @@
 import type { App } from '../app';
 import { slackAuthMiddleware } from '../middleware/slack.middleware';
+import * as chatQueries from '../queries/chat.queries';
+import { agentService } from '../services/agent.service';
 import { SlackService } from '../services/slack.service';
-import { SlackInteractionPayload, SlackRequestSchema } from '../types/slack';
-import { activeSlackStreams } from '../utils/slack';
+import { SlackInteractionBodySchema, SlackInteractionPayloadSchema, SlackRequestSchema } from '../types/slack';
 
 export const slackRoutes = async (app: App) => {
 	// Verifying requests from Slack : verify whether requests from Slack are authentic
@@ -22,10 +23,8 @@ export const slackRoutes = async (app: App) => {
 				return reply.send({ challenge: body.challenge });
 			}
 
-			if (!process.env.SLACK_BOT_TOKEN || !process.env.SLACK_SIGNING_SECRET) {
-				return reply
-					.status(400)
-					.send({ error: 'SLACK_BOT_TOKEN or SLACK_SIGNING_SECRET is not defined in environment variables' });
+			if (!process.env.SLACK_BOT_TOKEN) {
+				return reply.status(400).send({ error: 'SLACK_BOT_TOKEN is not defined in environment variables' });
 			}
 
 			if (!body.event) {
@@ -47,33 +46,40 @@ export const slackRoutes = async (app: App) => {
 		'/interactions',
 		{
 			config: { rawBody: true },
+			schema: { body: SlackInteractionBodySchema },
 		},
 		async (request, reply) => {
-			const body = request.body as { payload: string };
+			const body = request.body;
 
 			if (!body.payload) {
 				return reply.status(400).send({ error: 'Missing payload' });
 			}
 
-			const payload = JSON.parse(body.payload) as SlackInteractionPayload;
+			const payload = SlackInteractionPayloadSchema.safeParse(JSON.parse(body.payload));
+			if (!payload.success) {
+				return reply.status(400).send({ error: 'Invalid payload structure' });
+			}
 
-			if (payload.type === 'block_actions' && payload.actions) {
-				for (const action of payload.actions) {
-					if (action.action_id === 'stop_generation') {
-						const channel = payload.channel?.id;
-						const threadTs = payload.message?.thread_ts || payload.message?.ts;
+			const { data } = payload;
 
-						if (channel && threadTs) {
-							const threadId = [channel, threadTs.replace('.', '')].join('/p');
-							const abortController = activeSlackStreams.get(threadId);
+			if (data.type !== 'block_actions' || !data.actions) {
+				return reply.status(400).send({ error: 'Unsupported interaction type' });
+			}
 
-							if (abortController) {
-								abortController.abort();
-								activeSlackStreams.delete(threadId);
-							}
-						}
-					}
+			for (const action of data.actions) {
+				const channel = data.channel?.id;
+				const threadTs = data.message?.thread_ts || data.message?.ts;
+
+				if (action.action_id !== 'stop_generation' || !channel || !threadTs) {
+					continue;
 				}
+
+				const threadId = [channel, threadTs.replace('.', '')].join('/p');
+				const existingChat = await chatQueries.getChatBySlackThread(threadId);
+				if (!existingChat) {
+					return reply.status(500).send({ error: `Chat with thread ID ${threadId} not found.` });
+				}
+				agentService.get(existingChat.id)?.stop();
 			}
 		},
 	);

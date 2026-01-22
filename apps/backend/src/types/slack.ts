@@ -34,6 +34,10 @@ export const SlackInteractionPayloadSchema = z.object({
 	),
 });
 
+export const SlackInteractionBodySchema = z.object({
+	payload: z.string(),
+});
+
 export type SlackRequest = z.infer<typeof SlackRequestSchema>;
 export type SlackEvent = z.infer<typeof SlackEventSchema>;
 export type SlackInteractionPayload = z.infer<typeof SlackInteractionPayloadSchema>;
