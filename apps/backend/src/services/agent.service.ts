@@ -137,14 +137,6 @@ class AgentManager {
 		});
 	}
 
-	async generate(prompt: string): Promise<string> {
-		const result = await this._agent.generate({
-			prompt,
-			abortSignal: this._abortController.signal,
-		});
-		return result.text;
-	}
-
 	checkIsUserOwner(userId: string): boolean {
 		return this.chat.userId === userId;
 	}

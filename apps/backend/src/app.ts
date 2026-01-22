@@ -1,3 +1,4 @@
+import formbody from '@fastify/formbody';
 import fastifyStatic from '@fastify/static';
 import { fastifyTRPCPlugin, FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import fastify from 'fastify';
@@ -30,6 +31,9 @@ app.register(fastifyRawBody, {
 	global: false,
 	runFirst: true,
 });
+
+// Register formbody plugin for Slack interaction payloads (application/x-www-form-urlencoded)
+app.register(formbody);
 
 // Register tRPC plugin
 app.register(fastifyTRPCPlugin, {

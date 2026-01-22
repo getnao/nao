@@ -1,11 +1,15 @@
 import { WebClient } from '@slack/web-api';
+import { readUIMessageStream, UIDataTypes, UIMessageChunk } from 'ai';
 import { FastifyReply } from 'fastify';
 
 import { User } from '../db/abstractSchema';
 import * as chatQueries from '../queries/chat.queries';
 import { getUser } from '../queries/user.queries';
+import { UIChat } from '../types/chat';
+import { UIMessage } from '../types/chat';
 import { SlackEvent } from '../types/slack';
-import { saveSlackAgentResponse, saveSlackUserMessage, updateSlackUserMessage } from '../utils/slack';
+import { extractLastTextFromMessage } from '../utils/chat';
+import { addButtonStopBlock } from '../utils/slack';
 import { agentService } from './agent.service';
 
 export class SlackService {
@@ -16,8 +20,10 @@ export class SlackService {
 	private _slackUserId: string;
 	private _user: User = {} as User;
 	private _abortController = new AbortController();
-	private _redirectUrl = process.env.REDIRECT_URL || 'http://localhost:5005/';
+	private _redirectUrl = process.env.REDIRECT_URL || 'http://localhost:3000/';
 	private _slackClient: WebClient;
+	private _buttonTs: string | undefined;
+	private _initialMessageTs: string | undefined;
 
 	constructor(event: SlackEvent) {
 		this._text = (event.text ?? '').replace(/<@[A-Z0-9]+>/gi, '').trim();
@@ -32,11 +38,12 @@ export class SlackService {
 		await this._checkUserExists(reply);
 
 		reply.send({ ok: true });
-		await this._slackClient.chat.postMessage({
+		const initialMessage = await this._slackClient.chat.postMessage({
 			channel: this._channel,
-			text: '🔄 nao is answering... please wait a few seconds.',
+			text: '🔄 nao is answering...',
 			thread_ts: this._threadTs,
 		});
+		this._initialMessageTs = initialMessage.ts;
 	}
 
 	private async _checkUserExists(reply: FastifyReply): Promise<void> {
@@ -65,6 +72,7 @@ export class SlackService {
 	}
 
 	public async handleWorkFlow(reply: FastifyReply): Promise<void> {
+		await this.sendRequestAcknowledgement(reply);
 		const chatId = await this._saveOrUpdateUserMessage();
 
 		const [chat, chatUserId] = await chatQueries.loadChat(chatId);
@@ -77,18 +85,71 @@ export class SlackService {
 			return reply.status(403).send({ error: `You are not authorized to access this chat.` });
 		}
 
+		await this._handleStreamAgent(chat, chatId);
+	}
+
+	private async _handleStreamAgent(chat: UIChat, chatId: string): Promise<void> {
+		const stream = this._createAgentStream(chat);
+		await this._postStopButton();
+
+		await this._readStreamAndUpdateSlackMessage(stream);
+		await this._replaceStopButtonWithLink(chatId);
+	}
+
+	private _createAgentStream(chat: UIChat) {
 		const agent = agentService.create({ ...chat, userId: this._user.id }, this._abortController);
-		const agentResponse = await agent.generate(this._text);
+		return agent.stream(chat.messages, { sendNewChatData: false });
+	}
 
-		await saveSlackAgentResponse(chatId, agentResponse);
-
-		const chatUrl = `${this._redirectUrl}${chatId}`;
-		const fullMessage = `${agentResponse}\n\nIf you want to see more, go to ${chatUrl}`;
-
-		await this._slackClient.chat.postMessage({
+	private async _postStopButton(): Promise<void> {
+		const buttonMessage = await this._slackClient.chat.postMessage({
 			channel: this._channel,
-			text: fullMessage,
+			text: 'Generating response... ',
+			blocks: [addButtonStopBlock()],
 			thread_ts: this._threadTs,
+		});
+		this._buttonTs = buttonMessage.ts;
+	}
+
+	private async _readStreamAndUpdateSlackMessage(
+		stream: ReadableStream<UIMessageChunk<unknown, UIDataTypes>>,
+	): Promise<void> {
+		let lastSentText = '';
+		let currentText = '';
+		const messageTs = this._initialMessageTs || this._threadTs;
+
+		for await (const uiMessage of readUIMessageStream({ stream })) {
+			const text = extractLastTextFromMessage(uiMessage);
+			if (!text) continue;
+
+			currentText = text;
+			const newContent = text.slice(lastSentText.length);
+			if (newContent.includes('\n')) {
+				await this._slackClient.chat.update({
+					channel: this._channel,
+					text: text,
+					ts: messageTs,
+				});
+				lastSentText = text;
+			}
+		}
+
+		// Send final update if there's remaining content
+		if (currentText && currentText !== lastSentText) {
+			await this._slackClient.chat.update({
+				channel: this._channel,
+				text: currentText,
+				ts: messageTs,
+			});
+		}
+	}
+
+	private async _replaceStopButtonWithLink(chatId: string): Promise<void> {
+		const chatUrl = `${this._redirectUrl}${chatId}`;
+		await this._slackClient.chat.update({
+			channel: this._channel,
+			text: `<${chatUrl}|View full conversation>`,
+			ts: this._buttonTs || this._threadTs,
 		});
 	}
 
@@ -100,14 +161,20 @@ export class SlackService {
 	private async _saveOrUpdateUserMessage(): Promise<string> {
 		const existingChat = await chatQueries.getChatBySlackThread(this._threadId);
 
-		let chatId: string;
+		const userMessage: UIMessage = {
+			id: crypto.randomUUID(),
+			role: 'user',
+			parts: [{ type: 'text', text: this._text }],
+		};
 		if (existingChat) {
-			await updateSlackUserMessage(this._text, existingChat);
-			chatId = existingChat.id;
+			await chatQueries.upsertMessage(userMessage, { chatId: existingChat.id });
+			return existingChat.id;
 		} else {
-			const createdChat = await saveSlackUserMessage(this._text, this._user.id, this._threadId);
-			chatId = createdChat.id;
+			const createdChat = await chatQueries.createChat(
+				{ title: this._text.slice(0, 64), userId: this._user.id, slackThreadId: this._threadId },
+				userMessage,
+			);
+			return createdChat.id;
 		}
-		return chatId;
 	}
 }
