@@ -19,4 +19,16 @@ export type NewMessagePart = typeof sqliteSchema.messagePart.$inferInsert;
 export type MessageFeedback = typeof sqliteSchema.messageFeedback.$inferSelect;
 export type NewMessageFeedback = typeof sqliteSchema.messageFeedback.$inferInsert;
 
+export type DBProject = typeof sqliteSchema.project.$inferSelect;
+export type NewProject = typeof sqliteSchema.project.$inferInsert;
+
+export type DBProjectMember = typeof sqliteSchema.projectMember.$inferSelect;
+export type NewProjectMember = typeof sqliteSchema.projectMember.$inferInsert;
+
+export type DBProjectLlmConfig = typeof sqliteSchema.projectLlmConfig.$inferSelect;
+export type NewProjectLlmConfig = typeof sqliteSchema.projectLlmConfig.$inferInsert;
+
+export type DBProjectSlackConfig = typeof sqliteSchema.projectSlackConfig.$inferSelect;
+export type NewProjectSlackConfig = typeof sqliteSchema.projectSlackConfig.$inferInsert;
+
 export default allSchema as typeof sqliteSchema;

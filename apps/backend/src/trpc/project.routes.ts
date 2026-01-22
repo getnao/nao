@@ -1,0 +1,145 @@
+import { TRPCError } from '@trpc/server';
+import { z } from 'zod/v4';
+
+import * as projectQueries from '../queries/project.queries';
+import { protectedProcedure } from './trpc';
+
+const llmProviderSchema = z.enum(['openai', 'anthropic']);
+
+export const projectRoutes = {
+	getCurrent: protectedProcedure.query(({ ctx }) => {
+		if (!ctx.project) {
+			return null;
+		}
+		return {
+			...ctx.project,
+			userRole: ctx.userRole,
+		};
+	}),
+
+	getLlmConfigs: protectedProcedure.query(async ({ ctx }) => {
+		if (!ctx.project) {
+			return { projectConfigs: [], envProviders: [] };
+		}
+
+		const configs = await projectQueries.getProjectLlmConfigs(ctx.project.id);
+
+		const projectConfigs = configs.map((c) => ({
+			id: c.id,
+			provider: c.provider,
+			apiKeyPreview: c.apiKey.slice(0, 8) + '...' + c.apiKey.slice(-4),
+			createdAt: c.createdAt,
+			updatedAt: c.updatedAt,
+		}));
+
+		const envProviders: ('anthropic' | 'openai')[] = [];
+		if (process.env.ANTHROPIC_API_KEY) envProviders.push('anthropic');
+		if (process.env.OPENAI_API_KEY) envProviders.push('openai');
+
+		return { projectConfigs, envProviders };
+	}),
+
+	upsertLlmConfig: protectedProcedure
+		.input(
+			z.object({
+				provider: llmProviderSchema,
+				apiKey: z.string().min(1),
+			}),
+		)
+		.mutation(async ({ ctx, input }) => {
+			if (!ctx.project) {
+				throw new TRPCError({ code: 'BAD_REQUEST', message: 'No project configured' });
+			}
+			if (ctx.userRole !== 'admin') {
+				throw new TRPCError({ code: 'FORBIDDEN', message: 'Only admins can manage LLM configurations' });
+			}
+			const config = await projectQueries.upsertProjectLlmConfig({
+				projectId: ctx.project.id,
+				provider: input.provider,
+				apiKey: input.apiKey,
+			});
+			return {
+				id: config.id,
+				provider: config.provider,
+				apiKeyPreview: config.apiKey.slice(0, 8) + '...' + config.apiKey.slice(-4),
+			};
+		}),
+
+	deleteLlmConfig: protectedProcedure
+		.input(z.object({ provider: llmProviderSchema }))
+		.mutation(async ({ ctx, input }) => {
+			if (!ctx.project) {
+				throw new TRPCError({ code: 'BAD_REQUEST', message: 'No project configured' });
+			}
+			if (ctx.userRole !== 'admin') {
+				throw new TRPCError({ code: 'FORBIDDEN', message: 'Only admins can manage LLM configurations' });
+			}
+			await projectQueries.deleteProjectLlmConfig(ctx.project.id, input.provider);
+			return { success: true };
+		}),
+
+	getSlackConfig: protectedProcedure.query(async ({ ctx }) => {
+		if (!ctx.project) {
+			return { projectConfig: null, hasEnvConfig: false };
+		}
+
+		const config = await projectQueries.getProjectSlackConfig(ctx.project.id);
+
+		const hasEnvConfig = !!(process.env.SLACK_BOT_TOKEN && process.env.SLACK_SIGNING_SECRET);
+
+		const projectConfig = config
+			? {
+					id: config.id,
+					botTokenPreview: config.botToken.slice(0, 4) + '...' + config.botToken.slice(-4),
+					signingSecretPreview: config.signingSecret.slice(0, 4) + '...' + config.signingSecret.slice(-4),
+					createdAt: config.createdAt,
+					updatedAt: config.updatedAt,
+				}
+			: null;
+
+		const baseUrl = process.env.REDIRECT_URL || '';
+		return {
+			projectConfig,
+			hasEnvConfig,
+			redirectUrl: baseUrl,
+			projectId: ctx.project.id,
+		};
+	}),
+
+	upsertSlackConfig: protectedProcedure
+		.input(
+			z.object({
+				botToken: z.string().min(1),
+				signingSecret: z.string().min(1),
+			}),
+		)
+		.mutation(async ({ ctx, input }) => {
+			if (!ctx.project) {
+				throw new TRPCError({ code: 'BAD_REQUEST', message: 'No project configured' });
+			}
+			if (ctx.userRole !== 'admin') {
+				throw new TRPCError({ code: 'FORBIDDEN', message: 'Only admins can manage Slack configuration' });
+			}
+			const config = await projectQueries.upsertProjectSlackConfig({
+				projectId: ctx.project.id,
+				botToken: input.botToken,
+				signingSecret: input.signingSecret,
+			});
+			return {
+				id: config.id,
+				botTokenPreview: config.botToken.slice(0, 4) + '...' + config.botToken.slice(-4),
+				signingSecretPreview: config.signingSecret.slice(0, 4) + '...' + config.signingSecret.slice(-4),
+			};
+		}),
+
+	deleteSlackConfig: protectedProcedure.mutation(async ({ ctx }) => {
+		if (!ctx.project) {
+			throw new TRPCError({ code: 'BAD_REQUEST', message: 'No project configured' });
+		}
+		if (ctx.userRole !== 'admin') {
+			throw new TRPCError({ code: 'FORBIDDEN', message: 'Only admins can manage Slack configuration' });
+		}
+		await projectQueries.deleteProjectSlackConfig(ctx.project.id);
+		return { success: true };
+	}),
+};

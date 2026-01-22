@@ -23,14 +23,15 @@ export function SidebarUserMenu({ isCollapsed, className, ...props }: SidebarUse
 
 	return (
 		<div
-			className={cn('flex items-center justify-between p-3 border-t border-sidebar-border', className)}
+			className={cn(
+				'flex items-center justify-between p-3 border-t border-sidebar-border cursor-pointer',
+				'hover:bg-sidebar-accent transition-colors',
+				className,
+			)}
+			onClick={handleNavigateToUser}
 			{...props}
 		>
-			<button
-				type='button'
-				className='flex items-center gap-2 hover:opacity-80 transition-opacity'
-				onClick={handleNavigateToUser}
-			>
+			<div className='flex items-center gap-2'>
 				{username && <Avatar username={username} />}
 				{!isCollapsed && (
 					<span className='flex flex-col text-left'>
@@ -38,7 +39,7 @@ export function SidebarUserMenu({ isCollapsed, className, ...props }: SidebarUse
 						<span className='text-xs text-muted-foreground'>{email}</span>
 					</span>
 				)}
-			</button>
+			</div>
 			{!isCollapsed && (
 				<div className='flex items-center gap-2'>
 					<Button variant='ghost' size='icon-sm' onClick={handleNavigateToUser}>

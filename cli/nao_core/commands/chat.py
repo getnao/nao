@@ -154,10 +154,9 @@ def chat():
         if config and config.slack:
             env["SLACK_BOT_TOKEN"] = config.slack.bot_token
             env["SLACK_SIGNING_SECRET"] = config.slack.signing_secret
-            env["SLACK_POST_MESSAGE_URL"] = config.slack.post_message_url
             console.print("[bold green]✓[/bold green] Set Slack environment variables from config")
 
-        env["NAO_PROJECT_FOLDER"] = str(Path.cwd())
+        env["NAO_DEFAULT_PROJECT_PATH"] = str(Path.cwd())
         env["FASTAPI_URL"] = f"http://localhost:{FASTAPI_PORT}"
 
         # Start the FastAPI server first

@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { boolean, check, index, integer, jsonb, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
+import { boolean, check, index, integer, jsonb, pgTable, primaryKey, text, timestamp } from 'drizzle-orm/pg-core';
 
 import { StopReason, ToolState, UIMessagePartType } from '../types/chat';
 
@@ -75,6 +75,29 @@ export const verification = pgTable(
 	(table) => [index('verification_identifier_idx').on(table.identifier)],
 );
 
+export const project = pgTable(
+	'project',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		name: text('name').notNull(),
+		type: text('type', { enum: ['local'] }).notNull(),
+		path: text('path'),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [
+		check(
+			'local_project_path_required',
+			sql`CASE WHEN ${t.type} = 'local' THEN ${t.path} IS NOT NULL ELSE TRUE END`,
+		),
+	],
+);
+
 export const chat = pgTable(
 	'chat',
 	{
@@ -84,6 +107,9 @@ export const chat = pgTable(
 		userId: text('user_id')
 			.notNull()
 			.references(() => user.id, { onDelete: 'cascade' }),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
 		title: text('title').notNull().default('New Conversation'),
 		slackThreadId: text('slack_thread_id'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -92,7 +118,11 @@ export const chat = pgTable(
 			.$onUpdate(() => new Date())
 			.notNull(),
 	},
-	(table) => [index('chat_userId_idx').on(table.userId), index('chat_slack_thread_idx').on(table.slackThreadId)],
+	(table) => [
+		index('chat_userId_idx').on(table.userId),
+		index('chat_projectId_idx').on(table.projectId),
+		index('chat_slack_thread_idx').on(table.slackThreadId),
+	],
 );
 
 export const chatMessage = pgTable(
@@ -189,3 +219,60 @@ export const messageFeedback = pgTable('message_feedback', {
 		.$onUpdate(() => new Date())
 		.notNull(),
 });
+
+export const projectMember = pgTable(
+	'project_member',
+	{
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		role: text('role', { enum: ['admin', 'user', 'viewer'] }).notNull(),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+	},
+	(t) => [primaryKey({ columns: [t.projectId, t.userId] }), index('project_member_userId_idx').on(t.userId)],
+);
+
+export const projectLlmConfig = pgTable(
+	'project_llm_config',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		provider: text('provider', { enum: ['openai', 'anthropic'] }).notNull(),
+		apiKey: text('api_key').notNull(),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [index('project_llm_config_projectId_idx').on(t.projectId)],
+);
+
+export const projectSlackConfig = pgTable(
+	'project_slack_config',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.unique()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		botToken: text('bot_token').notNull(),
+		signingSecret: text('signing_secret').notNull(),
+		postMessageUrl: text('post_message_url').default('https://slack.com/api/chat.postMessage').notNull(),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [index('project_slack_config_projectId_idx').on(t.projectId)],
+);

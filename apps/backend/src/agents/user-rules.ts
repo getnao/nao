@@ -5,7 +5,7 @@ import { join } from 'path';
  * Reads user-defined rules from RULES.md in the project folder if it exists
  */
 export function getUserRules(): string | null {
-	const projectFolder = process.env.NAO_PROJECT_FOLDER;
+	const projectFolder = process.env.NAO_DEFAULT_PROJECT_PATH;
 
 	if (!projectFolder) {
 		return null;
@@ -32,7 +32,7 @@ type Connection = {
 };
 
 export function getConnections(): Connection[] | null {
-	const projectFolder = process.env.NAO_PROJECT_FOLDER;
+	const projectFolder = process.env.NAO_DEFAULT_PROJECT_PATH;
 
 	if (!projectFolder) {
 		return null;

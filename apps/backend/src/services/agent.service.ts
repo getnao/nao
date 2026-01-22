@@ -1,5 +1,5 @@
-import { anthropic, AnthropicProviderOptions } from '@ai-sdk/anthropic';
-import { openai, OpenAIResponsesProviderOptions } from '@ai-sdk/openai';
+import { AnthropicProviderOptions, createAnthropic } from '@ai-sdk/anthropic';
+import { createOpenAI, OpenAIResponsesProviderOptions } from '@ai-sdk/openai';
 import {
 	convertToModelMessages,
 	createUIMessageStream,
@@ -11,19 +11,22 @@ import {
 import { getInstructions } from '../agents/prompt';
 import { tools } from '../agents/tools';
 import * as chatQueries from '../queries/chat.queries';
+import * as projectQueries from '../queries/project.queries';
 import { UIChat, UIMessage } from '../types/chat';
 import { convertToTokenUsage } from '../utils/chat';
 
 type AgentChat = UIChat & {
 	userId: string;
+	projectId: string;
 };
 
 class AgentService {
 	private _agents = new Map<string, AgentManager>();
 
-	create(chat: AgentChat, abortController: AbortController): AgentManager {
+	async create(chat: AgentChat, abortController: AbortController): Promise<AgentManager> {
 		this._disposeAgent(chat.id);
-		const agent = new AgentManager(chat, () => this._agents.delete(chat.id), abortController);
+		const modelConfig = await this._getModelConfig(chat.projectId);
+		const agent = new AgentManager(chat, modelConfig, () => this._agents.delete(chat.id), abortController);
 		this._agents.set(chat.id, agent);
 		return agent;
 	}
@@ -40,27 +43,46 @@ class AgentService {
 	get(chatId: string): AgentManager | undefined {
 		return this._agents.get(chatId);
 	}
-}
 
-class AgentManager {
-	private readonly _agent: ToolLoopAgent<never, typeof tools, never>;
-
-	constructor(
-		readonly chat: AgentChat,
-		private readonly _onDispose: () => void,
-		private readonly _abortController: AbortController,
-	) {
-		this._agent = new ToolLoopAgent({
-			...this._chooseModelConfigBasedOnEnv(),
-			tools,
-			instructions: getInstructions(),
-		});
-	}
-
-	private _chooseModelConfigBasedOnEnv(): Pick<ToolLoopAgentSettings, 'model' | 'providerOptions'> {
-		if (process.env.ANTHROPIC_API_KEY) {
+	private async _getModelConfig(
+		projectId: string,
+	): Promise<Pick<ToolLoopAgentSettings, 'model' | 'providerOptions'>> {
+		// Try to get project-specific LLM config first
+		const anthropicConfig = await projectQueries.getProjectLlmConfigByProvider(projectId, 'anthropic');
+		if (anthropicConfig) {
+			const provider = createAnthropic({ apiKey: anthropicConfig.apiKey });
 			return {
-				model: anthropic.chat('claude-opus-4-5'),
+				model: provider.chat('claude-opus-4-5'),
+				providerOptions: {
+					anthropic: {
+						disableParallelToolUse: false,
+						thinking: {
+							type: 'enabled',
+							budgetTokens: 12_000,
+						},
+					} satisfies AnthropicProviderOptions,
+				},
+			};
+		}
+
+		const openaiConfig = await projectQueries.getProjectLlmConfigByProvider(projectId, 'openai');
+		if (openaiConfig) {
+			const provider = createOpenAI({ apiKey: openaiConfig.apiKey });
+			return {
+				model: provider.chat('gpt-5.1'),
+				providerOptions: {
+					openai: {
+						// TODO: Add config for openai
+					} satisfies OpenAIResponsesProviderOptions,
+				},
+			};
+		}
+
+		// Fall back to environment variables
+		if (process.env.ANTHROPIC_API_KEY) {
+			const provider = createAnthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+			return {
+				model: provider.chat('claude-opus-4-5'),
 				providerOptions: {
 					anthropic: {
 						disableParallelToolUse: false,
@@ -74,8 +96,9 @@ class AgentManager {
 		}
 
 		if (process.env.OPENAI_API_KEY) {
+			const provider = createOpenAI({ apiKey: process.env.OPENAI_API_KEY });
 			return {
-				model: openai.chat('gpt-5.1'),
+				model: provider.chat('gpt-5.1'),
 				providerOptions: {
 					openai: {
 						// TODO: Add config for openai
@@ -85,8 +108,25 @@ class AgentManager {
 		}
 
 		throw new Error(
-			'No LLM API key found. You must set the ANTHROPIC_API_KEY or OPENAI_API_KEY environment variable to use the agent.',
+			'No LLM API key found. Configure API keys in project settings or set ANTHROPIC_API_KEY/OPENAI_API_KEY environment variables.',
 		);
+	}
+}
+
+class AgentManager {
+	private readonly _agent: ToolLoopAgent<never, typeof tools, never>;
+
+	constructor(
+		readonly chat: AgentChat,
+		modelConfig: Pick<ToolLoopAgentSettings, 'model' | 'providerOptions'>,
+		private readonly _onDispose: () => void,
+		private readonly _abortController: AbortController,
+	) {
+		this._agent = new ToolLoopAgent({
+			...modelConfig,
+			tools,
+			instructions: getInstructions(),
+		});
 	}
 
 	stream(

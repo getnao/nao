@@ -36,6 +36,13 @@
       "when": 1768817988521,
       "tag": "0004_input_and_output_tokens",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1769093775590,
+      "tag": "0005_add_project_tables",
+      "breakpoints": true
     }
   ]
 }

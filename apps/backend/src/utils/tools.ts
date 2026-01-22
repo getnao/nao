@@ -21,13 +21,13 @@ export const isExcludedEntry = (name: string): boolean => {
 };
 
 /**
- * Gets the resolved project folder path from the NAO_PROJECT_FOLDER environment variable.
- * @throws Error if NAO_PROJECT_FOLDER is not set
+ * Gets the resolved project folder path from the NAO_DEFAULT_PROJECT_PATH environment variable.
+ * @throws Error if NAO_DEFAULT_PROJECT_PATH is not set
  */
 export const getProjectFolder = (): string => {
-	const projectFolder = process.env.NAO_PROJECT_FOLDER;
+	const projectFolder = process.env.NAO_DEFAULT_PROJECT_PATH;
 	if (!projectFolder) {
-		throw new Error('NAO_PROJECT_FOLDER environment variable is not set');
+		throw new Error('NAO_DEFAULT_PROJECT_PATH environment variable is not set');
 	}
 	return path.resolve(projectFolder);
 };

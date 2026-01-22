@@ -18,14 +18,21 @@ export const chatRoutes = async (app: App) => {
 		async (request, reply) => {
 			const abortController = new AbortController();
 			const userId = request.user.id;
+			const projectId = request.project?.id;
 			const message = request.body.message;
 			let chatId = request.body.chatId;
 			const isNewChat = !chatId;
 
+			if (!projectId) {
+				return reply
+					.status(400)
+					.send({ error: 'No project configured. Set NAO_DEFAULT_PROJECT_PATH environment variable.' });
+			}
+
 			if (!chatId) {
 				// If no id, we create a new chat and insert the first message
 				const title = message.parts.find((part) => part.type === 'text')?.text.slice(0, 64);
-				const createdChat = await chatQueries.createChat({ title, userId }, message);
+				const createdChat = await chatQueries.createChat({ title, userId, projectId }, message);
 				chatId = createdChat.id;
 			} else {
 				// update the existing chat with the new message
@@ -42,7 +49,7 @@ export const chatRoutes = async (app: App) => {
 				return reply.status(403).send({ error: `You are not authorized to access this chat.` });
 			}
 
-			const agent = agentService.create({ ...chat, userId }, abortController);
+			const agent = await agentService.create({ ...chat, userId, projectId }, abortController);
 
 			let stream = agent.stream(chat.messages as UIMessage[], {
 				sendNewChatData: !!isNewChat,

@@ -3,7 +3,9 @@ import { readUIMessageStream, UIDataTypes, UIMessageChunk } from 'ai';
 import { FastifyReply } from 'fastify';
 
 import { User } from '../db/abstractSchema';
+import { SlackConfig } from '../middleware/slack.middleware';
 import * as chatQueries from '../queries/chat.queries';
+import { getUserRoleInProject } from '../queries/project.queries';
 import { getUser } from '../queries/user.queries';
 import { UIChat } from '../types/chat';
 import { UIMessage } from '../types/chat';
@@ -20,24 +22,26 @@ export class SlackService {
 	private _slackUserId: string;
 	private _user: User = {} as User;
 	private _abortController = new AbortController();
-	private _redirectUrl = process.env.REDIRECT_URL || 'http://localhost:3000/';
+	private _redirectUrl: string;
 	private _slackClient: WebClient;
 	private _buttonTs: string | undefined;
 	private _initialMessageTs: string | undefined;
+	private _projectId: string;
 
-	constructor(event: SlackEvent) {
+	constructor(event: SlackEvent, slackConfig: SlackConfig) {
 		this._text = (event.text ?? '').replace(/<@[A-Z0-9]+>/gi, '').trim();
 		this._channel = event.channel;
 		this._threadTs = event.thread_ts || event.ts;
 		this._slackUserId = event.user;
 		this._threadId = [this._channel, this._threadTs.replace('.', '')].join('/p');
-		this._slackClient = new WebClient(process.env.SLACK_BOT_TOKEN);
+		this._projectId = slackConfig.projectId;
+		this._redirectUrl = slackConfig.redirectUrl;
+		this._slackClient = new WebClient(slackConfig.botToken);
 	}
 
-	public async sendRequestAcknowledgement(reply: FastifyReply): Promise<void> {
-		await this._checkUserExists(reply);
+	public async sendInitialMessage(): Promise<void> {
+		await this._validateUserAccess();
 
-		reply.send({ ok: true });
 		const initialMessage = await this._slackClient.chat.postMessage({
 			channel: this._channel,
 			text: '🔄 nao is answering...',
@@ -46,13 +50,12 @@ export class SlackService {
 		this._initialMessageTs = initialMessage.ts;
 	}
 
-	private async _checkUserExists(reply: FastifyReply): Promise<void> {
-		this._user = await this._getUser(reply);
+	private async _validateUserAccess(): Promise<void> {
+		this._user = await this._getUser();
+		await this._checkUserBelongsToProject();
 	}
 
-	private async _getUser(reply: FastifyReply): Promise<User> {
-		reply.send({ ok: true });
-
+	private async _getUser(): Promise<User> {
 		const userEmail = await this._getSlackUserEmail(this._slackUserId);
 		if (!userEmail) {
 			throw new Error('Could not retrieve user email from Slack');
@@ -60,7 +63,7 @@ export class SlackService {
 
 		const user = await getUser({ email: userEmail });
 		if (!user) {
-			const fullMessage = `❌ No user found. Create an user account with ${userEmail} on ${this._redirectUrl} to sign up.`;
+			const fullMessage = `❌ No user found. Create an account with ${userEmail} on ${this._redirectUrl} to sign up.`;
 			await this._slackClient.chat.postMessage({
 				channel: this._channel,
 				text: fullMessage,
@@ -71,8 +74,21 @@ export class SlackService {
 		return user;
 	}
 
+	private async _checkUserBelongsToProject(): Promise<void> {
+		const role = await getUserRoleInProject(this._projectId, this._user.id);
+		if (role !== 'admin' && role !== 'user') {
+			const fullMessage = `❌ You don't have permission to use nao in this project. Please contact an administrator.`;
+			await this._slackClient.chat.postMessage({
+				channel: this._channel,
+				text: fullMessage,
+				thread_ts: this._threadTs,
+			});
+			throw new Error('User does not have permission to access this project');
+		}
+	}
+
 	public async handleWorkFlow(reply: FastifyReply): Promise<void> {
-		await this.sendRequestAcknowledgement(reply);
+		await this.sendInitialMessage();
 		const chatId = await this._saveOrUpdateUserMessage();
 
 		const [chat, chatUserId] = await chatQueries.loadChat(chatId);
@@ -89,15 +105,18 @@ export class SlackService {
 	}
 
 	private async _handleStreamAgent(chat: UIChat, chatId: string): Promise<void> {
-		const stream = this._createAgentStream(chat);
+		const stream = await this._createAgentStream(chat);
 		await this._postStopButton();
 
 		await this._readStreamAndUpdateSlackMessage(stream);
 		await this._replaceStopButtonWithLink(chatId);
 	}
 
-	private _createAgentStream(chat: UIChat) {
-		const agent = agentService.create({ ...chat, userId: this._user.id }, this._abortController);
+	private async _createAgentStream(chat: UIChat) {
+		const agent = await agentService.create(
+			{ ...chat, userId: this._user.id, projectId: this._projectId },
+			this._abortController,
+		);
 		return agent.stream(chat.messages, { sendNewChatData: false });
 	}
 
@@ -171,7 +190,12 @@ export class SlackService {
 			return existingChat.id;
 		} else {
 			const createdChat = await chatQueries.createChat(
-				{ title: this._text.slice(0, 64), userId: this._user.id, slackThreadId: this._threadId },
+				{
+					title: this._text.slice(0, 64),
+					userId: this._user.id,
+					projectId: this._projectId,
+					slackThreadId: this._threadId,
+				},
 				userMessage,
 			);
 			return createdChat.id;

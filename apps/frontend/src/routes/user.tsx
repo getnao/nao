@@ -1,14 +1,16 @@
 import { useState } from 'react';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
-import { useQueryClient } from '@tanstack/react-query';
-import { Folder, Key, LogOut, Pen } from 'lucide-react';
-import { Avatar } from '@/components/ui/avatar';
-import { Button } from '@/components/ui/button';
+import { useQueryClient, useQuery  } from '@tanstack/react-query';
+import { Input } from '@/components/ui/input';
 import { Sidebar } from '@/components/sidebar';
 import { signOut, useSession } from '@/lib/auth-client';
-import { Input } from '@/components/ui/input';
 import { ModifyUserInfo } from '@/components/modify-user-info';
 import { ThemeSelector } from '@/components/theme-selector';
+import { UserProfileCard } from '@/components/user-profile-card';
+import { SettingsCard } from '@/components/settings-card';
+import { LlmProvidersSection } from '@/components/llm-providers-section';
+import { SlackConfigSection } from '@/components/slack-config-section';
+import { trpc } from '@/main';
 
 export const Route = createFileRoute('/user')({
 	component: UserPage,
@@ -20,6 +22,9 @@ function UserPage() {
 	const user = session?.user;
 	const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
 	const queryClient = useQueryClient();
+	const project = useQuery(trpc.project.getCurrent.queryOptions());
+
+	const isAdmin = project.data?.userRole === 'admin';
 
 	const handleSignOut = async () => {
 		queryClient.clear();
@@ -36,54 +41,70 @@ function UserPage() {
 		<>
 			<Sidebar />
 			<div className='flex flex-1 flex-col bg-background min-w-0 overflow-auto'>
-				<div className='flex flex-col w-full max-w-2xl mx-auto p-8'>
+				<div className='flex flex-col w-full max-w-5xl mx-auto p-8 gap-6'>
 					{/* Profile Section */}
-					<div className='flex flex-row items-center justify-between gap-4 p-6 rounded-lg border border-border bg-card mb-6'>
-						<span className='flex flex-row gap-4'>
-							{user?.name && <Avatar username={user.name} size='xl' />}
-							<div className='text-left'>
-								<h2 className='text-xl font-medium text-foreground'>{user?.name}</h2>
-								<p className='text-sm text-muted-foreground'>{user?.email}</p>
-							</div>
-						</span>
-						<span className='flex flex-row gap-2'>
-							<Button variant='secondary' size='icon-sm' onClick={() => setIsEditDialogOpen(true)}>
-								<Pen className='size-4' />
-							</Button>
-							<Button variant='secondary' size='icon-sm' onClick={handleSignOut}>
-								<LogOut className='size-4' />
-							</Button>
-						</span>
-					</div>
+					<UserProfileCard
+						name={user?.name}
+						email={user?.email}
+						onEdit={() => setIsEditDialogOpen(true)}
+						onSignOut={handleSignOut}
+					/>
 
-					<div className='flex flex-col gap-4 p-6 rounded-lg border border-border bg-card mb-6'>
-						<h3 className='text-lg font-medium text-foreground'>Settings</h3>
-						<div className='flex gap-3 py-2'>
-							<Folder className='size-5 text-slate-400' />
-							<div className='flex flex-col'>
-								<span className='text-sm text-slate-300'>nao folder path</span>
-								<Input type='text' className='font-medium text-slate-700' value='/Users/nao/nao' />
-							</div>
-						</div>
+					{/* Project Section */}
+					<SettingsCard
+						title='Project'
+						badge={
+							project.data?.userRole && (
+								<span className='px-2.5 py-0.5 text-xs font-medium rounded-full bg-primary/10 text-primary capitalize'>
+									{project.data.userRole}
+								</span>
+							)
+						}
+					>
+						{project.data ? (
+							<div className='grid gap-6'>
+								<div className='grid gap-4'>
+									<div className='grid gap-2'>
+										<label htmlFor='project-name' className='text-sm font-medium text-foreground'>
+											Name
+										</label>
+										<Input
+											id='project-name'
+											value={project.data.name}
+											readOnly
+											className='bg-muted/50'
+										/>
+									</div>
+									<div className='grid gap-2'>
+										<label htmlFor='project-path' className='text-sm font-medium text-foreground'>
+											Path
+										</label>
+										<Input
+											id='project-path'
+											value={project.data.path ?? ''}
+											readOnly
+											className='bg-muted/50 font-mono text-sm'
+										/>
+									</div>
+								</div>
 
-						<div className='flex gap-3 py-2'>
-							<Key className='size-5 text-slate-400' />
-							<div className='flex flex-col'>
-								<span className='text-sm text-slate-300'>Slack API key</span>
-								<Input
-									type='text'
-									className='font-medium text-slate-700'
-									value='xoxb-1234567890-1234567890-1234567890'
-								/>
+								<LlmProvidersSection isAdmin={isAdmin} />
+
+								<SlackConfigSection isAdmin={isAdmin} />
 							</div>
+						) : (
+							<p className='text-sm text-muted-foreground'>
+								No project configured. Set NAO_DEFAULT_PROJECT_PATH environment variable.
+							</p>
+						)}
+					</SettingsCard>
+
+					{/* Appearance Section */}
+					<SettingsCard title='Appearance'>
+						<div className='flex justify-start'>
+							<ThemeSelector />
 						</div>
-						<div className='flex flex-col gap-3 py-2 pt-4 mt-2'>
-							<h3 className='text-lg font-medium text-foreground'>Appearance</h3>
-							<div className='flex justify-start'>
-								<ThemeSelector />
-							</div>
-						</div>
-					</div>
+					</SettingsCard>
 				</div>
 			</div>
 
