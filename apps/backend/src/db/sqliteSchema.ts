@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm';
 import { check, index, integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 
 import { StopReason, ToolState, UIMessagePartType } from '../types/chat';
+import { USER_ROLES } from '../types/project';
 
 export const user = sqliteTable('user', {
 	id: text('id').primaryKey(),
@@ -252,7 +253,7 @@ export const projectMember = sqliteTable(
 		userId: text('user_id')
 			.notNull()
 			.references(() => user.id, { onDelete: 'cascade' }),
-		role: text('role', { enum: ['admin', 'user', 'viewer'] }).notNull(),
+		role: text('role', { enum: USER_ROLES }).notNull(),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull(),

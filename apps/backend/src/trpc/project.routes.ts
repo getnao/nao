@@ -1,13 +1,12 @@
-import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
 import * as projectQueries from '../queries/project.queries';
-import { protectedProcedure } from './trpc';
+import { adminProtectedProcedure, projectProtectedProcedure } from './trpc';
 
 const llmProviderSchema = z.enum(['openai', 'anthropic']);
 
 export const projectRoutes = {
-	getCurrent: protectedProcedure.query(({ ctx }) => {
+	getCurrent: projectProtectedProcedure.query(({ ctx }) => {
 		if (!ctx.project) {
 			return null;
 		}
@@ -17,7 +16,7 @@ export const projectRoutes = {
 		};
 	}),
 
-	getLlmConfigs: protectedProcedure.query(async ({ ctx }) => {
+	getLlmConfigs: projectProtectedProcedure.query(async ({ ctx }) => {
 		if (!ctx.project) {
 			return { projectConfigs: [], envProviders: [] };
 		}
@@ -39,7 +38,7 @@ export const projectRoutes = {
 		return { projectConfigs, envProviders };
 	}),
 
-	upsertLlmConfig: protectedProcedure
+	upsertLlmConfig: adminProtectedProcedure
 		.input(
 			z.object({
 				provider: llmProviderSchema,
@@ -47,12 +46,6 @@ export const projectRoutes = {
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
-			if (!ctx.project) {
-				throw new TRPCError({ code: 'BAD_REQUEST', message: 'No project configured' });
-			}
-			if (ctx.userRole !== 'admin') {
-				throw new TRPCError({ code: 'FORBIDDEN', message: 'Only admins can manage LLM configurations' });
-			}
 			const config = await projectQueries.upsertProjectLlmConfig({
 				projectId: ctx.project.id,
 				provider: input.provider,
@@ -65,20 +58,14 @@ export const projectRoutes = {
 			};
 		}),
 
-	deleteLlmConfig: protectedProcedure
+	deleteLlmConfig: adminProtectedProcedure
 		.input(z.object({ provider: llmProviderSchema }))
 		.mutation(async ({ ctx, input }) => {
-			if (!ctx.project) {
-				throw new TRPCError({ code: 'BAD_REQUEST', message: 'No project configured' });
-			}
-			if (ctx.userRole !== 'admin') {
-				throw new TRPCError({ code: 'FORBIDDEN', message: 'Only admins can manage LLM configurations' });
-			}
 			await projectQueries.deleteProjectLlmConfig(ctx.project.id, input.provider);
 			return { success: true };
 		}),
 
-	getSlackConfig: protectedProcedure.query(async ({ ctx }) => {
+	getSlackConfig: projectProtectedProcedure.query(async ({ ctx }) => {
 		if (!ctx.project) {
 			return { projectConfig: null, hasEnvConfig: false };
 		}
@@ -106,7 +93,7 @@ export const projectRoutes = {
 		};
 	}),
 
-	upsertSlackConfig: protectedProcedure
+	upsertSlackConfig: adminProtectedProcedure
 		.input(
 			z.object({
 				botToken: z.string().min(1),
@@ -114,12 +101,6 @@ export const projectRoutes = {
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
-			if (!ctx.project) {
-				throw new TRPCError({ code: 'BAD_REQUEST', message: 'No project configured' });
-			}
-			if (ctx.userRole !== 'admin') {
-				throw new TRPCError({ code: 'FORBIDDEN', message: 'Only admins can manage Slack configuration' });
-			}
 			const config = await projectQueries.upsertProjectSlackConfig({
 				projectId: ctx.project.id,
 				botToken: input.botToken,
@@ -132,13 +113,7 @@ export const projectRoutes = {
 			};
 		}),
 
-	deleteSlackConfig: protectedProcedure.mutation(async ({ ctx }) => {
-		if (!ctx.project) {
-			throw new TRPCError({ code: 'BAD_REQUEST', message: 'No project configured' });
-		}
-		if (ctx.userRole !== 'admin') {
-			throw new TRPCError({ code: 'FORBIDDEN', message: 'Only admins can manage Slack configuration' });
-		}
+	deleteSlackConfig: adminProtectedProcedure.mutation(async ({ ctx }) => {
 		await projectQueries.deleteProjectSlackConfig(ctx.project.id);
 		return { success: true };
 	}),

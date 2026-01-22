@@ -36,16 +36,6 @@ export const getProjectMember = async (projectId: string, userId: string): Promi
 	return member ?? null;
 };
 
-export const hasAnyMembers = async (projectId: string): Promise<boolean> => {
-	const [member] = await db
-		.select()
-		.from(s.projectMember)
-		.where(eq(s.projectMember.projectId, projectId))
-		.limit(1)
-		.execute();
-	return !!member;
-};
-
 export const addProjectMember = async (member: NewProjectMember): Promise<DBProjectMember> => {
 	const [created] = await db.insert(s.projectMember).values(member).returning().execute();
 	return created;
@@ -69,73 +59,26 @@ export const getUserRoleInProject = async (
 	return member?.role ?? null;
 };
 
-/**
- * Initialize LLM configs from environment variables if they exist and aren't already configured.
- */
-const initializeLlmConfigsFromEnv = async (projectId: string): Promise<void> => {
-	const openaiKey = process.env.OPENAI_API_KEY;
-	const anthropicKey = process.env.ANTHROPIC_API_KEY;
-
-	if (openaiKey) {
-		const existing = await getProjectLlmConfigByProvider(projectId, 'openai');
-		if (!existing) {
-			await db.insert(s.projectLlmConfig).values({ projectId, provider: 'openai', apiKey: openaiKey }).execute();
-		}
-	}
-
-	if (anthropicKey) {
-		const existing = await getProjectLlmConfigByProvider(projectId, 'anthropic');
-		if (!existing) {
-			await db
-				.insert(s.projectLlmConfig)
-				.values({ projectId, provider: 'anthropic', apiKey: anthropicKey })
-				.execute();
-		}
-	}
-};
-
-/**
- * Get or create the default project from NAO_DEFAULT_PROJECT_PATH env.
- * Assigns the user to the project:
- * - First user becomes admin
- * - Subsequent users become regular users
- * Also initializes LLM configs from OPENAI_API_KEY and ANTHROPIC_API_KEY env vars.
- */
 export const ensureDefaultProjectMembership = async (userId: string): Promise<DBProject | null> => {
 	const projectPath = process.env.NAO_DEFAULT_PROJECT_PATH;
 	if (!projectPath) {
 		return null;
 	}
 
-	// Find or create project by path
-	let project = await getProjectByPath(projectPath);
-	const isNewProject = !project;
-
+	const project = await getProjectByPath(projectPath);
 	if (!project) {
-		const projectName = projectPath.split('/').pop() || 'Default Project';
-		project = await createProject({
-			name: projectName,
-			type: 'local',
-			path: projectPath,
-		});
+		return null;
 	}
 
-	// Initialize LLM configs from env vars (only adds if not already configured)
-	if (isNewProject) {
-		await initializeLlmConfigsFromEnv(project.id);
-	}
+	const userProject = await getProjectMember(project.id, userId);
 
-	// Check if this specific user is already a member
-	const userMembership = await getProjectMember(project.id, userId);
-
-	if (!userMembership) {
-		// Determine role based on whether project has any members
-		const isFirstMember = !(await hasAnyMembers(project.id));
-
+	if (!userProject) {
+		// Add user as a regular user (first admin is set during signup in auth.ts)
+		// Might be moved elsewhere after we worked on signup flow in another PR (cc. @mateo)
 		await addProjectMember({
 			projectId: project.id,
 			userId,
-			role: isFirstMember ? 'admin' : 'user',
+			role: 'user',
 		});
 	}
 

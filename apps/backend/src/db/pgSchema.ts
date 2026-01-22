@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm';
 import { boolean, check, index, integer, jsonb, pgTable, primaryKey, text, timestamp } from 'drizzle-orm/pg-core';
 
 import { StopReason, ToolState, UIMessagePartType } from '../types/chat';
+import { USER_ROLES } from '../types/project';
 
 export const user = pgTable('user', {
 	id: text('id').primaryKey(),
@@ -229,7 +230,7 @@ export const projectMember = pgTable(
 		userId: text('user_id')
 			.notNull()
 			.references(() => user.id, { onDelete: 'cascade' }),
-		role: text('role', { enum: ['admin', 'user', 'viewer'] }).notNull(),
+		role: text('role', { enum: USER_ROLES }).notNull(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 	},
 	(t) => [primaryKey({ columns: [t.projectId, t.userId] }), index('project_member_userId_idx').on(t.userId)],

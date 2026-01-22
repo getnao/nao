@@ -43,6 +43,6 @@ CREATE TABLE `project_slack_config` (
 --> statement-breakpoint
 CREATE UNIQUE INDEX `project_slack_config_project_id_unique` ON `project_slack_config` (`project_id`);--> statement-breakpoint
 CREATE INDEX `project_slack_config_projectId_idx` ON `project_slack_config` (`project_id`);--> statement-breakpoint
-DELETE FROM `chat` WHERE `project_id` IS NULL;--> statement-breakpoint
+DELETE FROM `chat`;--> statement-breakpoint
 ALTER TABLE `chat` ADD `project_id` text NOT NULL REFERENCES project(id);--> statement-breakpoint
 CREATE INDEX `chat_projectId_idx` ON `chat` (`project_id`);

@@ -87,7 +87,7 @@ function UserPage() {
 										/>
 									</div>
 								</div>
-
+								{/* TODO: move the components to a settings- settings-user- */}
 								<LlmProvidersSection isAdmin={isAdmin} />
 
 								<SlackConfigSection isAdmin={isAdmin} />

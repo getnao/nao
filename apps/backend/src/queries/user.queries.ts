@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { count, eq } from 'drizzle-orm';
 
 import s, { User } from '../db/abstractSchema';
 import { db } from '../db/db';
@@ -13,4 +13,9 @@ export const getUser = async (identifier: { id: string } | { email: string }): P
 
 export const modifyUser = async (id: string, data: { name?: string }): Promise<void> => {
 	await db.update(s.user).set(data).where(eq(s.user.id, id)).execute();
+};
+
+export const countUsers = async (): Promise<number> => {
+	const [result] = await db.select({ count: count() }).from(s.user).execute();
+	return result?.count ?? 0;
 };
