@@ -19,12 +19,7 @@ export const projectRoutes = {
 
 	getModelProvider: projectProtectedProcedure.query(async ({ ctx }) => {
 		const { project } = ctx;
-		const projectConfigs = project ? await llmConfigQueries.getProjectLlmConfigs(project.id) : [];
-		const hasAnthropic = projectConfigs.some((c) => c.provider === 'anthropic') || !!process.env.ANTHROPIC_API_KEY;
-		const hasOpenai = projectConfigs.some((c) => c.provider === 'openai') || !!process.env.OPENAI_API_KEY;
-		if (hasAnthropic) return 'anthropic';
-		if (hasOpenai) return 'openai';
-		return undefined;
+		return project ? await llmConfigQueries.getProjectModelProvider(project.id) : undefined;
 	}),
 
 	getLlmConfigs: projectProtectedProcedure.query(async ({ ctx }) => {
