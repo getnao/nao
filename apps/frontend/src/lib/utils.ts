@@ -1,6 +1,8 @@
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { useQuery } from '@tanstack/react-query';
 import type { ClassValue } from 'clsx';
+import { trpc } from '@/main';
 
 export function cn(...inputs: Array<ClassValue>) {
 	return twMerge(clsx(inputs));
@@ -19,6 +21,12 @@ export function formatBytes(bytes: number): string {
 
 export function capitalize(str: string): string {
 	return str.charAt(0).toUpperCase() + str.slice(1);
+}
+
+export function getAuthentificationNavigation(): string {
+	const userCount = useQuery(trpc.user.countUsers.queryOptions());
+	const navigation = userCount.data ? '/login' : '/signup';
+	return navigation;
 }
 
 export function isLast<T>(item: T, array: T[]): boolean {

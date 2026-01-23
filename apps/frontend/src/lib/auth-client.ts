@@ -7,6 +7,7 @@ export const { useSession, signIn, signUp, signOut } = authClient;
 const handleGoogleSignIn = async () => {
 	await authClient.signIn.social({
 		provider: 'google',
+		errorCallbackURL: '/signup',
 	});
 };
 

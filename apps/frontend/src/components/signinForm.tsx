@@ -1,4 +1,3 @@
-import { Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { trpc } from '../main';
 import { Button } from '@/components/ui/button';
@@ -33,12 +32,9 @@ export function SignInForm<T extends string>({
 	onSubmit,
 	onChange,
 	submitButtonText,
-	footerText,
-	footerLinkText,
-	footerLinkTo,
 	error,
 }: SignFormProps<T>) {
-	const isGoogleSetup = useQuery(trpc.hasGoogleSetup.queryOptions());
+	const isGoogleSetup = useQuery(trpc.google.hasGoogleSetup.queryOptions());
 
 	return (
 		<div className='container mx-auto w-full max-w-2xl p-12 my-auto'>
@@ -87,13 +83,6 @@ export function SignInForm<T extends string>({
 					</div>
 				</div>
 			)}
-
-			<p className='text-center text-sm text-muted-foreground mt-8'>
-				{footerText}{' '}
-				<Link to={footerLinkTo} className='text-primary hover:underline font-medium'>
-					{footerLinkText}
-				</Link>
-			</p>
 		</div>
 	);
 }

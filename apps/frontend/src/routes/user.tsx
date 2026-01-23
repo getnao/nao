@@ -5,12 +5,14 @@ import { Input } from '@/components/ui/input';
 import { Sidebar } from '@/components/sidebar';
 import { signOut, useSession } from '@/lib/auth-client';
 import { ModifyUserInfo } from '@/components/settings-modify-user-info';
+import { GoogleConfigSection } from '@/components/settings-google-credentials';
 import { ThemeSelector } from '@/components/theme-selector';
+import { getAuthentificationNavigation } from '@/lib/utils';
+import { trpc } from '@/main';
 import { UserProfileCard } from '@/components/settings-profile-card';
 import { SettingsCard } from '@/components/ui/settings-card';
 import { LlmProvidersSection } from '@/components/settings-llm-providers-section';
 import { SlackConfigSection } from '@/components/settings-slack-config-section';
-import { trpc } from '@/main';
 
 export const Route = createFileRoute('/user')({
 	component: UserPage,
@@ -22,6 +24,7 @@ function UserPage() {
 	const user = session?.user;
 	const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
 	const queryClient = useQueryClient();
+	const navigation = getAuthentificationNavigation();
 	const project = useQuery(trpc.project.getCurrent.queryOptions());
 
 	const isAdmin = project.data?.userRole === 'admin';
@@ -31,7 +34,7 @@ function UserPage() {
 		await signOut({
 			fetchOptions: {
 				onSuccess: () => {
-					navigate({ to: '/login' });
+					navigate({ to: navigation });
 				},
 			},
 		});
@@ -89,6 +92,7 @@ function UserPage() {
 								</div>
 								<LlmProvidersSection isAdmin={isAdmin} />
 								<SlackConfigSection isAdmin={isAdmin} />
+								<GoogleConfigSection isAdmin={isAdmin} />
 							</div>
 						) : (
 							<p className='text-sm text-muted-foreground'>
