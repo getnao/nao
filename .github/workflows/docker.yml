@@ -76,9 +76,9 @@ jobs:
                       docker pull getnao/nao:${{ needs.build-and-push.outputs.image-tag }}
                       docker rm -f nao-chat 2>/dev/null || true
                       docker run -p 5005:5005 \
-                        -e DB_URI=postgres://${{ secrets.POSTGRES_USER }}:${{ secrets.POSTGRES_PASSWORD }}@${{ secrets.POSTGRES_HOST }}:${{ secrets.POSTGRES_PORT }}/${{ secrets.POSTGRES_DB }} \
-                        -e OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }} \
-                        -e BETTER_AUTH_SECRET=${{ secrets.BETTER_AUTH_SECRET }} \
-                        -e NAO_DEFAULT_PROJECT_PATH=/app/example \
+                        -e "DB_URI=postgres://${{ secrets.POSTGRES_USER }}:${{ secrets.POSTGRES_PASSWORD }}@${{ secrets.POSTGRES_HOST }}:${{ secrets.POSTGRES_PORT }}/${{ secrets.POSTGRES_DB }}" \
+                        -e "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" \
+                        -e "BETTER_AUTH_SECRET=${{ secrets.BETTER_AUTH_SECRET }}" \
+                        -e "NAO_DEFAULT_PROJECT_PATH=/app/example" \
                         --name nao-chat \
                         -d getnao/nao:${{ needs.build-and-push.outputs.image-tag }}
