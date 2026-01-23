@@ -5,7 +5,6 @@ from nao_core.config.base import NaoConfig
 
 def test_returns_none_when_nao_config_file_does_not_exist(tmp_path: Path):
     missing_file = tmp_path / "missing.yaml"
-
     cfg = NaoConfig.try_load(missing_file)
 
     assert cfg is None
@@ -18,7 +17,6 @@ def test_returns_config_when_nao_config_file_is_valid(tmp_path: Path):
         project_name: nao
         """
     )
-
     cfg = NaoConfig.try_load(tmp_path)
 
     assert cfg is not None
