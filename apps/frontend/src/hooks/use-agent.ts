@@ -11,7 +11,7 @@ import type { UIMessage } from 'backend/chat';
 import { useChatQuery } from '@/queries/useChatQuery';
 import { trpc } from '@/main';
 import { agentService } from '@/lib/agents.service';
-import { checkIsRunning } from '@/lib/ai';
+import { checkIsAgentRunning } from '@/lib/ai';
 
 export type AgentHelpers = {
 	messages: UIMessage[];
@@ -169,7 +169,7 @@ export const useDisposeInactiveAgents = () => {
 				return;
 			}
 
-			const isRunning = checkIsRunning(agent.status);
+			const isRunning = checkIsAgentRunning(agent.status);
 			if (!isRunning) {
 				agentService.disposeAgent(agentIdToDispose);
 			}

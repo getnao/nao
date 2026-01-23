@@ -24,11 +24,15 @@ export const getStaticToolName = getStaticToolNameAi<UITools>;
 /** Get the name of any tool part (static or dynamic). Returns a string. */
 export const getToolName = getToolNameAi;
 
-export const checkIsGenerating = (
+/**
+ * Check if the agent is actively generating content (streaming text or executing tools).
+ * Returns true if any part is streaming or any tool is not yet settled.
+ */
+export const checkIsAgentGenerating = (
 	status: UseChatHelpers<UIMessage>['status'],
 	messages: UseChatHelpers<UIMessage>['messages'],
 ) => {
-	const isRunning = checkIsRunning(status);
+	const isRunning = checkIsAgentRunning(status);
 	if (!isRunning) {
 		return false;
 	}
@@ -38,9 +42,19 @@ export const checkIsGenerating = (
 		return false;
 	}
 
-	return lastMessage.parts.some((part) => part.type === 'step-start');
+	return lastMessage.parts.some((part) => {
+		// Check for streaming text/reasoning
+		if ('state' in part && part.state === 'streaming') {
+			return true;
+		}
+		// Check for tools that are pending or executing (not settled)
+		if (isToolUIPart(part)) {
+			return !isToolSettled(part);
+		}
+		return false;
+	});
 };
 
-export const checkIsRunning = (status: UseChatHelpers<UIMessage>['status']) => {
+export const checkIsAgentRunning = (status: UseChatHelpers<UIMessage>['status']) => {
 	return status === 'streaming' || status === 'submitted';
 };

@@ -6,10 +6,6 @@ export function cn(...inputs: Array<ClassValue>) {
 	return twMerge(clsx(inputs));
 }
 
-export function delay(ms: number) {
-	return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 export function formatBytes(bytes: number): string {
 	if (bytes === 0) {
 		return '0 B';
@@ -23,4 +19,8 @@ export function formatBytes(bytes: number): string {
 
 export function capitalize(str: string): string {
 	return str.charAt(0).toUpperCase() + str.slice(1);
+}
+
+export function isLast<T>(item: T, array: T[]): boolean {
+	return item === array.at(-1);
 }

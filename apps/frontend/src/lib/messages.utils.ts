@@ -21,9 +21,9 @@ export const groupMessages = (messages: UIMessage[]): MessageGroup[] => {
 		if (user.role !== 'user') {
 			continue;
 		}
-		const group: MessageGroup = { user, response: [] };
+		const group: MessageGroup = { user, responses: [] };
 		while (i < messages.length && messages[i].role === 'assistant') {
-			group.response.push(messages[i]);
+			group.responses.push(messages[i]);
 			i++;
 		}
 		groups.push(group);

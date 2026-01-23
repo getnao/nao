@@ -14,8 +14,8 @@ import {
 	ConversationEmptyState,
 	ConversationScrollButton,
 } from '@/components/ui/conversation';
-import { checkIsGenerating, isToolUIPart } from '@/lib/ai';
-import { cn } from '@/lib/utils';
+import { checkIsAgentGenerating, isToolUIPart } from '@/lib/ai';
+import { cn, isLast } from '@/lib/utils';
 import { useAgentContext } from '@/contexts/agent.provider';
 import { useHeight } from '@/hooks/use-height';
 import { groupMessages } from '@/lib/messages.utils';
@@ -48,7 +48,7 @@ export function ChatMessages() {
 const ChatMessagesContent = () => {
 	const { messages, status, isRunning, registerScrollDown } = useAgentContext();
 	const { scrollToBottom } = useStickToBottomContext();
-	const isGenerating = checkIsGenerating(status, messages);
+	const isGenerating = checkIsAgentGenerating(status, messages);
 
 	useEffect(() => {
 		// Register the scroll down fn so the agent context has access to it.
@@ -65,16 +65,13 @@ const ChatMessagesContent = () => {
 			{messageGroups.length === 0 ? (
 				<ConversationEmptyState />
 			) : (
-				messageGroups.map((group, idx) => {
-					const isLast = idx === messageGroups.length - 1;
-					return (
-						<MessageGroup
-							key={group.user.id}
-							group={group}
-							showResponseLoader={isLast && isRunning && !isGenerating}
-						/>
-					);
-				})
+				messageGroups.map((group) => (
+					<MessageGroup
+						key={group.user.id}
+						group={group}
+						showResponseLoader={isLast(group, messageGroups) && isRunning && !isGenerating}
+					/>
+				))
 			)}
 		</>
 	);
@@ -83,18 +80,20 @@ const ChatMessagesContent = () => {
 function MessageGroup({ group, showResponseLoader }: { group: MessageGroup; showResponseLoader: boolean }) {
 	return (
 		<div className='flex flex-col gap-8 last:min-h-[calc(var(--container-height)-48px)] group/message'>
-			<MessageBlock message={group.user} />
+			{[group.user, ...group.responses].map((message) => (
+				<MessageBlock
+					key={message.id}
+					message={message}
+					showResponseLoader={showResponseLoader && isLast(message, group.responses)}
+				/>
+			))}
 
-			{showResponseLoader ? (
-				<AgentMessageLoader />
-			) : (
-				group.response.map((message) => <MessageBlock key={message.id} message={message} />)
-			)}
+			{showResponseLoader && !group.responses.length && <AgentMessageLoader className='p-0' />}
 		</div>
 	);
 }
 
-function MessageBlock({ message }: { message: UIMessage }) {
+function MessageBlock({ message, showResponseLoader }: { message: UIMessage; showResponseLoader: boolean }) {
 	const isUser = message.role === 'user';
 
 	if (DEBUG_MESSAGES) {
@@ -110,15 +109,11 @@ function MessageBlock({ message }: { message: UIMessage }) {
 		);
 	}
 
-	if (message.parts.length === 0) {
-		return null;
-	}
-
 	if (isUser) {
 		return <UserMessageBlock message={message} />;
 	}
 
-	return <AssistantMessageBlock message={message} />;
+	return <AssistantMessageBlock message={message} showResponseLoader={showResponseLoader} />;
 }
 
 const UserMessageBlock = ({ message }: { message: UIMessage }) => {
@@ -140,8 +135,18 @@ const UserMessageBlock = ({ message }: { message: UIMessage }) => {
 	);
 };
 
-const AssistantMessageBlock = ({ message }: { message: UIMessage }) => {
+const AssistantMessageBlock = ({
+	message,
+	showResponseLoader,
+}: {
+	message: UIMessage;
+	showResponseLoader: boolean;
+}) => {
 	const { isRunning } = useAgentContext();
+
+	if (!message.parts.length && !showResponseLoader) {
+		return null;
+	}
 
 	return (
 		<div className={cn('group px-3 flex flex-col gap-2 bg-transparent')}>
@@ -169,6 +174,8 @@ const AssistantMessageBlock = ({ message }: { message: UIMessage }) => {
 						return null;
 				}
 			})}
+
+			{showResponseLoader && <AgentMessageLoader className='p-0' />}
 
 			{!isRunning && (
 				<MessageActions
