@@ -1,12 +1,10 @@
-name: Docker Build & Push
+name: Docker Build & Deploy
 
 on:
     push:
         branches:
             - main
             - '**docker'
-        tags:
-            - 'v*'
     pull_request:
         branches:
             - main
@@ -20,8 +18,15 @@ jobs:
         name: Build and Push Docker Image
         runs-on: ubuntu-latest
 
+        outputs:
+            image-tag: ${{ steps.sha.outputs.short_sha }}
+
         steps:
             - uses: actions/checkout@v4
+
+            - name: Get short SHA
+              id: sha
+              run: echo "short_sha=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
 
             - name: Set up Docker Buildx
               uses: docker/setup-buildx-action@v3
@@ -53,3 +58,27 @@ jobs:
                   labels: ${{ steps.meta.outputs.labels }}
                   cache-from: type=gha
                   cache-to: type=gha,mode=max
+
+    deploy:
+        name: Deploy to GCP instance
+        runs-on: ubuntu-latest
+        needs: build-and-push
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || endsWith(github.ref, 'docker'))
+
+        steps:
+            - name: Deploy with remote ssh commands using ssh key
+              uses: appleboy/ssh-action@master
+              with:
+                  host: ${{ secrets.VM_HOST }}
+                  username: github-actions-demo
+                  key: ${{ secrets.PRIVATE_KEY }}
+                  script: |
+                      docker pull getnao/nao:${{ needs.build-and-push.outputs.image-tag }}
+                      docker rm -f nao-chat 2>/dev/null || true
+                      docker run -p 5005:5005 \
+                        -e DB_URI=postgres://${{ secrets.POSTGRES_USER }}:${{ secrets.POSTGRES_PASSWORD }}@${{ secrets.POSTGRES_HOST }}:${{ secrets.POSTGRES_PORT }}/${{ secrets.POSTGRES_DB }} \
+                        -e OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }} \
+                        -e BETTER_AUTH_SECRET=${{ secrets.BETTER_AUTH_SECRET }} \
+                        -e NAO_DEFAULT_PROJECT_PATH=/app/example \
+                        --name nao-chat \
+                        -d getnao/nao:${{ needs.build-and-push.outputs.image-tag }}
