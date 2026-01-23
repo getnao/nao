@@ -96,6 +96,8 @@ export const project = pgTable(
 		name: text('name').notNull(),
 		type: text('type', { enum: ['local'] }).notNull(),
 		path: text('path'),
+		slackBotToken: text('slack_bot_token'),
+		slackSigningSecret: text('slack_signing_secret'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()
@@ -268,26 +270,4 @@ export const projectLlmConfig = pgTable(
 		index('project_llm_config_projectId_idx').on(t.projectId),
 		unique('project_llm_config_unique').on(t.id, t.projectId, t.provider),
 	],
-);
-
-export const projectSlackConfig = pgTable(
-	'project_slack_config',
-	{
-		id: text('id')
-			.$defaultFn(() => crypto.randomUUID())
-			.primaryKey(),
-		projectId: text('project_id')
-			.notNull()
-			.unique()
-			.references(() => project.id, { onDelete: 'cascade' }),
-		botToken: text('bot_token').notNull(),
-		signingSecret: text('signing_secret').notNull(),
-		postMessageUrl: text('post_message_url').default('https://slack.com/api/chat.postMessage').notNull(),
-		createdAt: timestamp('created_at').defaultNow().notNull(),
-		updatedAt: timestamp('updated_at')
-			.defaultNow()
-			.$onUpdate(() => new Date())
-			.notNull(),
-	},
-	(t) => [index('project_slack_config_projectId_idx').on(t.projectId)],
 );

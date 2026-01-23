@@ -28,7 +28,4 @@ export type NewProjectMember = typeof sqliteSchema.projectMember.$inferInsert;
 export type DBProjectLlmConfig = typeof sqliteSchema.projectLlmConfig.$inferSelect;
 export type NewProjectLlmConfig = typeof sqliteSchema.projectLlmConfig.$inferInsert;
 
-export type DBProjectSlackConfig = typeof sqliteSchema.projectSlackConfig.$inferSelect;
-export type NewProjectSlackConfig = typeof sqliteSchema.projectSlackConfig.$inferInsert;
-
 export default allSchema as typeof sqliteSchema;

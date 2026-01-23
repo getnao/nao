@@ -97,6 +97,8 @@ export const project = sqliteTable(
 		name: text('name').notNull(),
 		type: text('type', { enum: ['local'] }).notNull(),
 		path: text('path'),
+		slackBotToken: text('slack_bot_token'),
+		slackSigningSecret: text('slack_signing_secret'),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull(),
@@ -284,28 +286,4 @@ export const projectLlmConfig = sqliteTable(
 		index('project_llm_config_projectId_idx').on(t.projectId),
 		unique('project_llm_config_unique').on(t.id, t.projectId, t.provider),
 	],
-);
-
-export const projectSlackConfig = sqliteTable(
-	'project_slack_config',
-	{
-		id: text('id')
-			.$defaultFn(() => crypto.randomUUID())
-			.primaryKey(),
-		projectId: text('project_id')
-			.notNull()
-			.unique()
-			.references(() => project.id, { onDelete: 'cascade' }),
-		botToken: text('bot_token').notNull(),
-		signingSecret: text('signing_secret').notNull(),
-		postMessageUrl: text('post_message_url').default('https://slack.com/api/chat.postMessage').notNull(),
-		createdAt: integer('created_at', { mode: 'timestamp_ms' })
-			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
-			.notNull(),
-		updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
-			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
-			.$onUpdate(() => new Date())
-			.notNull(),
-	},
-	(t) => [index('project_slack_config_projectId_idx').on(t.projectId)],
 );

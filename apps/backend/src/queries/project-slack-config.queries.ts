@@ -1,68 +1,53 @@
 import { eq } from 'drizzle-orm';
 
-import s, { DBProject, DBProjectSlackConfig, NewProjectSlackConfig } from '../db/abstractSchema';
+import s, { DBProject } from '../db/abstractSchema';
 import { db } from '../db/db';
 
-export interface ProjectWithSlackConfig {
-	project: DBProject;
-	slackConfig: DBProjectSlackConfig | null;
-}
+export const getProjectSlackConfig = async (
+	projectId: string,
+): Promise<{ botToken: string; signingSecret: string } | null> => {
+	const [project] = await db.select().from(s.project).where(eq(s.project.id, projectId)).execute();
 
-export const getProjectSlackConfigByPath = async (projectPath: string): Promise<ProjectWithSlackConfig | null> => {
-	const results = await db
-		.select({
-			project: s.project,
-			slackConfig: s.projectSlackConfig,
-		})
-		.from(s.project)
-		.leftJoin(s.projectSlackConfig, eq(s.project.id, s.projectSlackConfig.projectId))
-		.where(eq(s.project.path, projectPath))
-		.execute();
-
-	const row = results[0];
-	if (!row) {
+	if (!project?.slackBotToken || !project?.slackSigningSecret) {
 		return null;
 	}
 
 	return {
-		project: row.project,
-		slackConfig: row.slackConfig,
+		botToken: project.slackBotToken,
+		signingSecret: project.slackSigningSecret,
 	};
 };
 
-export const getProjectSlackConfig = async (projectId: string): Promise<DBProjectSlackConfig | null> => {
-	const [config] = await db
-		.select()
-		.from(s.projectSlackConfig)
-		.where(eq(s.projectSlackConfig.projectId, projectId))
+export const upsertProjectSlackConfig = async (data: {
+	projectId: string;
+	botToken: string;
+	signingSecret: string;
+}): Promise<{ botToken: string; signingSecret: string }> => {
+	const [updated] = await db
+		.update(s.project)
+		.set({
+			slackBotToken: data.botToken,
+			slackSigningSecret: data.signingSecret,
+		})
+		.where(eq(s.project.id, data.projectId))
+		.returning()
 		.execute();
-	return config ?? null;
-};
 
-export const upsertProjectSlackConfig = async (
-	config: Omit<NewProjectSlackConfig, 'id' | 'createdAt' | 'updatedAt' | 'postMessageUrl'>,
-): Promise<DBProjectSlackConfig> => {
-	const existing = await getProjectSlackConfig(config.projectId);
-
-	if (existing) {
-		const [updated] = await db
-			.update(s.projectSlackConfig)
-			.set({
-				botToken: config.botToken,
-				signingSecret: config.signingSecret,
-			})
-			.where(eq(s.projectSlackConfig.id, existing.id))
-			.returning()
-			.execute();
-		return updated;
-	}
-
-	const [created] = await db.insert(s.projectSlackConfig).values(config).returning().execute();
-	return created;
+	return {
+		botToken: updated.slackBotToken!,
+		signingSecret: updated.slackSigningSecret!,
+	};
 };
 
 export const deleteProjectSlackConfig = async (projectId: string): Promise<void> => {
-	await db.delete(s.projectSlackConfig).where(eq(s.projectSlackConfig.projectId, projectId)).execute();
+	await db
+		.update(s.project)
+		.set({
+			slackBotToken: null,
+			slackSigningSecret: null,
+		})
+		.where(eq(s.project.id, projectId))
+		.execute();
 };
 
 export interface SlackConfig {
@@ -82,15 +67,14 @@ export async function getSlackConfig(): Promise<SlackConfig | null> {
 		return null;
 	}
 
-	const result = await getProjectSlackConfigByPath(projectPath);
-	if (!result) {
+	const [project] = await db.select().from(s.project).where(eq(s.project.path, projectPath)).execute();
+
+	if (!project) {
 		return null;
 	}
 
-	const { project, slackConfig } = result;
-
-	const botToken = slackConfig?.botToken || process.env.SLACK_BOT_TOKEN;
-	const signingSecret = slackConfig?.signingSecret || process.env.SLACK_SIGNING_SECRET;
+	const botToken = project.slackBotToken || process.env.SLACK_BOT_TOKEN;
+	const signingSecret = project.slackSigningSecret || process.env.SLACK_SIGNING_SECRET;
 	const redirectUrl = process.env.REDIRECT_URL || 'http://localhost:3000/';
 
 	if (!botToken || !signingSecret) {
@@ -106,3 +90,6 @@ export async function getSlackConfig(): Promise<SlackConfig | null> {
 		redirectUrl: `${baseUrl}/p/${project.id}/`,
 	};
 }
+
+// Re-export DBProject for backward compatibility where needed
+export type { DBProject };

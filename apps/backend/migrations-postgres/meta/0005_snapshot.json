@@ -1,5 +1,5 @@
 {
-  "id": "b3e7b08b-2c19-4cff-ae57-b2498d9eb445",
+  "id": "00555437-2213-4363-91e0-bd40e45920a5",
   "prevId": "faa290a2-3429-4127-9914-c8329464e6bb",
   "version": "7",
   "dialect": "postgresql",
@@ -661,6 +661,18 @@
           "primaryKey": false,
           "notNull": false
         },
+        "slack_bot_token": {
+          "name": "slack_bot_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "slack_signing_secret": {
+          "name": "slack_signing_secret",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp",
@@ -765,7 +777,17 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "project_llm_config_unique": {
+          "name": "project_llm_config_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id",
+            "project_id",
+            "provider"
+          ]
+        }
+      },
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -855,102 +877,6 @@
         }
       },
       "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.project_slack_config": {
-      "name": "project_slack_config",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "project_id": {
-          "name": "project_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "bot_token": {
-          "name": "bot_token",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "signing_secret": {
-          "name": "signing_secret",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "post_message_url": {
-          "name": "post_message_url",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'https://slack.com/api/chat.postMessage'"
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "project_slack_config_projectId_idx": {
-          "name": "project_slack_config_projectId_idx",
-          "columns": [
-            {
-              "expression": "project_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "project_slack_config_project_id_project_id_fk": {
-          "name": "project_slack_config_project_id_project_id_fk",
-          "tableFrom": "project_slack_config",
-          "tableTo": "project",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "project_slack_config_project_id_unique": {
-          "name": "project_slack_config_project_id_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "project_id"
-          ]
-        }
-      },
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false

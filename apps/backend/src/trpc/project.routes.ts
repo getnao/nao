@@ -87,11 +87,8 @@ export const projectRoutes = {
 
 		const projectConfig = config
 			? {
-					id: config.id,
 					botTokenPreview: config.botToken.slice(0, 4) + '...' + config.botToken.slice(-4),
 					signingSecretPreview: config.signingSecret.slice(0, 4) + '...' + config.signingSecret.slice(-4),
-					createdAt: config.createdAt,
-					updatedAt: config.updatedAt,
 				}
 			: null;
 
@@ -118,7 +115,6 @@ export const projectRoutes = {
 				signingSecret: input.signingSecret,
 			});
 			return {
-				id: config.id,
 				botTokenPreview: config.botToken.slice(0, 4) + '...' + config.botToken.slice(-4),
 				signingSecretPreview: config.signingSecret.slice(0, 4) + '...' + config.signingSecret.slice(-4),
 			};
