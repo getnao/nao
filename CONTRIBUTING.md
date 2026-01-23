@@ -14,12 +14,6 @@ npm run dev
 
 This will start the project in development mode. It will start the frontend and backend in development mode.
 
-Go to `apps/backend` and run the following to set up the database:
-
-```bash
-npm run db:migrate
-```
-
 ### Publishing to PyPI
 
 ```bash
