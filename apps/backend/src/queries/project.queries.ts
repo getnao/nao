@@ -100,3 +100,21 @@ export const initializeDefaultProjectForFirstUser = async (userId: string): Prom
 		role: 'admin',
 	});
 };
+
+/**
+ * Startup check: If NAO_DEFAULT_PROJECT_PATH is defined, there's a project with that path
+ * but no admin, auto-assign that the first user as admin.
+ */
+export const assignAdminToOrphanedProject = async (): Promise<void> => {
+	const projectPath = process.env.NAO_DEFAULT_PROJECT_PATH;
+	if (!projectPath) {
+		throw new Error('[Startup] NAO_DEFAULT_PROJECT_PATH environment variable is not defined.');
+	}
+
+	const firstUser = await userQueries.getFirstUser();
+	if (!firstUser) {
+		return;
+	}
+
+	await initializeDefaultProjectForFirstUser(firstUser.id);
+};

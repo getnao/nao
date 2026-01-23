@@ -124,19 +124,23 @@ export function SlackConfigSection({ isAdmin }: SlackConfigSectionProps) {
 			<h4 className='text-sm font-medium text-foreground'>Slack Integration</h4>
 
 			{/* Environment-configured Slack (read-only) */}
-			{hasEnvConfig && !projectConfig && (
+			{hasEnvConfig && !projectConfig && !isEditing && (
 				<div className='flex items-center gap-4 p-4 rounded-lg border border-border bg-muted/30'>
 					<div className='flex-1 grid gap-1'>
 						<span className='text-sm font-medium text-foreground'>Slack</span>
 						<span className='text-xs text-muted-foreground'>Configured from environment</span>
 					</div>
-					<span className='px-2 py-0.5 text-xs font-medium rounded bg-muted text-muted-foreground'>ENV</span>
+					<div className='flex items-center gap-2 text-xs'>
+						{isAdmin && (
+							<Button variant='ghost' size='icon-sm' onClick={() => setIsEditing(true)}>
+								<Pencil className='size-3 text-muted-foreground' />
+							</Button>
+						)}
+						<span className='px-2 py-0.5 text-xs font-medium rounded bg-muted text-muted-foreground'>
+							ENV
+						</span>
+					</div>
 				</div>
-			)}
-
-			{/* Slack App Setup URLs - shown when Slack is configured */}
-			{(hasEnvConfig || projectConfig) && !isEditing && eventSubscriptionUrl && (
-				<SlackAppConfigUrls eventSubscriptionUrl={eventSubscriptionUrl} interactivityUrl={interactivityUrl} />
 			)}
 
 			{/* Project-specific config (editable) */}
@@ -178,6 +182,11 @@ export function SlackConfigSection({ isAdmin }: SlackConfigSectionProps) {
 				</div>
 			)}
 
+			{/* Slack App Setup URLs - shown when Slack is configured */}
+			{(hasEnvConfig || projectConfig) && !isEditing && eventSubscriptionUrl && (
+				<SlackAppConfigUrls eventSubscriptionUrl={eventSubscriptionUrl} interactivityUrl={interactivityUrl} />
+			)}
+
 			{/* Add/Edit config form (admin only) */}
 			{isAdmin && (isEditing || (!projectConfig && !hasEnvConfig)) && (
 				<div className='flex flex-col gap-3 p-4 rounded-lg border border-dashed border-border'>
@@ -208,7 +217,7 @@ export function SlackConfigSection({ isAdmin }: SlackConfigSectionProps) {
 						</div>
 					</div>
 					<div className='flex justify-end gap-2'>
-						{(isEditing || projectConfig) && (
+						{(isEditing || projectConfig || hasEnvConfig) && (
 							<Button variant='ghost' size='sm' onClick={handleCancel}>
 								Cancel
 							</Button>
@@ -219,7 +228,7 @@ export function SlackConfigSection({ isAdmin }: SlackConfigSectionProps) {
 							disabled={!botToken || !signingSecret || upsertSlackConfig.isPending}
 						>
 							<Plus className='size-4 mr-1' />
-							{isEditing ? 'Update' : 'Add'}
+							{projectConfig ? 'Update' : hasEnvConfig ? 'Add Override' : 'Add'}
 						</Button>
 					</div>
 				</div>

@@ -4,6 +4,7 @@ import { Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { trpc } from '@/main';
+import { capitalize } from '@/lib/utils';
 
 type LlmProvider = 'openai' | 'anthropic';
 
@@ -119,7 +120,9 @@ export function LlmProvidersSection({ isAdmin }: LlmProvidersSectionProps) {
 								>
 									{provider}
 									{envProviders.includes(provider) && (
-										<span className='ml-1.5 text-[10px] opacity-70'>(override env)</span>
+										<span className='ml-1.5 text-[10px] opacity-70 normal-case'>
+											(override env)
+										</span>
 									)}
 								</button>
 							))}
@@ -136,7 +139,7 @@ export function LlmProvidersSection({ isAdmin }: LlmProvidersSectionProps) {
 									type='password'
 									value={newApiKey}
 									onChange={(e) => setNewApiKey(e.target.value)}
-									placeholder={`Enter your ${newProvider} API key`}
+									placeholder={`Enter your ${capitalize(newProvider)} API key`}
 								/>
 							</div>
 							<div className='flex justify-end gap-2'>

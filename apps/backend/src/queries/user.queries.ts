@@ -19,3 +19,8 @@ export const countUsers = async (): Promise<number> => {
 	const [result] = await db.select({ count: count() }).from(s.user).execute();
 	return result?.count ?? 0;
 };
+
+export const getFirstUser = async (): Promise<User | null> => {
+	const [user] = await db.select().from(s.user).limit(1).execute();
+	return user ?? null;
+};
