@@ -43,6 +43,7 @@ async def execute_sql(request: ExecuteSQLRequest):
     try:
         # Load the nao config from the project folder
         project_path = Path(request.nao_project_folder)
+        os.chdir(project_path)
         config = NaoConfig.try_load(project_path)
         
         if config is None:

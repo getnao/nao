@@ -19,8 +19,18 @@ import { runMigrations } from './db/migrate';
 const SECRET_FILE_NAME = '.nao-secret';
 
 function getExecutableDir(): string {
-	// When running as a compiled binary, process.execPath is the path to the binary itself
-	return path.dirname(process.execPath);
+	// Check if running as compiled binary or as script
+	// When compiled, process.execPath === Bun.main (both point to the binary)
+	// When running as script, process.execPath is bun, Bun.main is the script
+	const isCompiled = process.execPath === Bun.main;
+
+	if (isCompiled) {
+		return path.dirname(process.execPath);
+	}
+
+	// Running as script from src/cli.ts - migrations are in parent directory
+	const scriptDir = path.dirname(Bun.main);
+	return path.dirname(scriptDir); // Go up from src/ to apps/backend/
 }
 
 function getMigrationsPath(dbType: Dialect): string {

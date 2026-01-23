@@ -18,5 +18,23 @@ services:
             timeout: 5s
             retries: 5
 
+    nao:
+        build:
+            context: .
+            dockerfile: Dockerfile
+        ports:
+            - '5005:5005'
+        environment:
+            BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+            OPENAI_API_KEY: ${OPENAI_API_KEY}
+            ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+            SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN}
+            SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET}
+            DB_URI: postgres://${POSTGRES_USER:-nao}:${POSTGRES_PASSWORD:-nao}@postgres:5432/${POSTGRES_DB:-nao}
+            FASTAPI_URL: http://127.0.0.1:8005
+            NAO_DEFAULT_PROJECT_PATH: /app/example
+        depends_on:
+            - postgres
+
 volumes:
     nao_postgres_data:
