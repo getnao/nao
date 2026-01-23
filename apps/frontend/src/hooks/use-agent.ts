@@ -111,7 +111,14 @@ export const useAgent = (): AgentHelpers => {
 			if (isRunning) {
 				return;
 			}
-			scrollDownService.scrollDown({ animation: 'smooth' }); // TODO: 'smooth' doesn't work
+			scrollDownService.scrollDown({
+				animation: {
+					damping: 0.85,
+					stiffness: 0.045,
+					mass: 1.4,
+				},
+				wait: true,
+			});
 			return agent.sendMessage(args);
 		},
 		[isRunning, agent.sendMessage, scrollDownService.scrollDown], // eslint-disable-line
