@@ -1,6 +1,6 @@
 import { useNavigate, useParams } from '@tanstack/react-router';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useMemo, useEffect, useRef, useCallback, useState } from 'react';
+import { useMemo, useEffect, useRef, useCallback } from 'react';
 import { Chat as Agent, useChat } from '@ai-sdk/react';
 import { DefaultChatTransport } from 'ai';
 import { useCurrent } from './useCurrent';
@@ -22,8 +22,8 @@ export type AgentHelpers = {
 	isReadyForNewMessages: boolean;
 	stopAgent: () => Promise<void>;
 	registerScrollDown: (fn: ScrollToBottom) => { dispose: () => void };
-	error: Error | null;
-	clearError: () => void;
+	error: Error | undefined;
+	clearError: UseChatHelpers<UIMessage>['clearError'];
 };
 
 export const useAgent = (): AgentHelpers => {
@@ -33,7 +33,6 @@ export const useAgent = (): AgentHelpers => {
 	const queryClient = useQueryClient();
 	const chatIdRef = useCurrent(chatId);
 	const scrollDownService = useScrollDownCallbackService();
-	const [error, setError] = useState<Error | null>(null);
 
 	const agentInstance = useMemo(() => {
 		let agentId = chatId ?? 'new-chat';
@@ -86,13 +85,14 @@ export const useAgent = (): AgentHelpers => {
 					agentService.disposeAgent(agentId);
 				}
 			},
-			onError: (messageError: Error) => {
-				setError(messageError);
+			onError: (_error) => {
+				// Keep this to remember that we can handle errors here
+				// console.error(error);
 			},
 		});
 
 		return agentService.registerAgent(agentId, newAgent);
-	}, [chatId, navigate, queryClient, chatIdRef, setError]);
+	}, [chatId, navigate, queryClient, chatIdRef]);
 
 	const agent = useChat({ chat: agentInstance });
 
@@ -114,11 +114,11 @@ export const useAgent = (): AgentHelpers => {
 			if (isRunning) {
 				return;
 			}
-			setError(null);
+			agent.clearError();
 			scrollDownService.scrollDown({ animation: 'smooth' }); // TODO: 'smooth' doesn't work
 			return agent.sendMessage(args);
 		},
-		[isRunning, agent.sendMessage, scrollDownService.scrollDown], // eslint-disable-line
+		[isRunning, agent.sendMessage, agent.clearError, scrollDownService.scrollDown], // eslint-disable-line
 	);
 
 	return useMemoObject({
@@ -130,8 +130,8 @@ export const useAgent = (): AgentHelpers => {
 		isReadyForNewMessages: chatId ? !!chat.data && !isRunning : true,
 		stopAgent,
 		registerScrollDown: scrollDownService.register,
-		error,
-		clearError: () => setError(null),
+		error: agent.error,
+		clearError: agent.clearError,
 	});
 };
 
