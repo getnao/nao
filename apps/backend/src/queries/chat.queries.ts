@@ -113,7 +113,7 @@ export const createChat = async (newChat: NewChat, message: UIMessage): Promise<
 		const dbParts = mapUIPartsToDBParts(message.parts, savedMessage.id);
 		const savedParts = await t.insert(s.messagePart).values(dbParts).returning().execute();
 		const provider = await llmConfigQueries.getProjectModelProvider(newChat.projectId);
-		
+
 		return {
 			id: savedChat.id,
 			title: savedChat.title,

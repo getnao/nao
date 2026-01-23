@@ -46,7 +46,6 @@ export const deleteProjectLlmConfig = async (projectId: string, provider: 'opena
 		.execute();
 };
 
-
 export const getProjectModelProvider = async (projectId: string): Promise<LlmProvider | undefined> => {
 	const configs = await getProjectLlmConfigs(projectId);
 	const hasAnthropic = configs.some((c) => c.provider === 'anthropic') || !!process.env.ANTHROPIC_API_KEY;
