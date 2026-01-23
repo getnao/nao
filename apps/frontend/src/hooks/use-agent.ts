@@ -107,7 +107,7 @@ export const useAgent = (): AgentHelpers => {
 		await stopAgentMutation.mutateAsync({ chatId });
 	}, [chatId, agentInstance, stopAgentMutation.mutateAsync]); // eslint-disable-line
 
-	const isRunning = agent.status === 'streaming' || agent.status === 'submitted';
+	const isRunning = checkIsAgentRunning(agent);
 
 	const sendMessage = useCallback(
 		async (args: Parameters<UseChatHelpers<UIMessage>['sendMessage']>[0]) => {
@@ -175,7 +175,7 @@ export const useDisposeInactiveAgents = () => {
 				return;
 			}
 
-			const isRunning = checkIsAgentRunning(agent.status);
+			const isRunning = checkIsAgentRunning(agent);
 			if (!isRunning) {
 				agentService.disposeAgent(agentIdToDispose);
 			}
