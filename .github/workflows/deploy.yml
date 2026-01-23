@@ -3,14 +3,14 @@ name: Deploy to GCP instance
 on:
     push:
         branches:
-            - '*docker'
+            - '**docker'
     workflow_run:
         workflows: ['Docker Build & Push']
         types:
             - completed
         branches:
             - main
-            - '*docker'
+            - '**docker'
 
 jobs:
     deploy:
