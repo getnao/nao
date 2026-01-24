@@ -7,8 +7,8 @@ from rich.console import Console
 
 from nao_core.config import NaoConfig
 
-from .databases import sync_databases
-from .repositories import sync_repositories
+from .providers.databases import sync_databases
+from .providers.repositories import sync_repositories
 
 console = Console()
 
