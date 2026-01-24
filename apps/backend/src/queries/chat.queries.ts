@@ -5,6 +5,7 @@ import { db } from '../db/db';
 import { ListChatResponse, StopReason, TokenUsage, UIChat, UIMessage } from '../types/chat';
 import { convertDBPartToUIPart, mapDBPartsToUIParts, mapUIPartsToDBParts } from '../utils/chatMessagePartMappings';
 import { getErrorMessage } from '../utils/utils';
+import * as llmConfigQueries from './project-llm-config.queries';
 
 export const listUserChats = async (userId: string): Promise<ListChatResponse> => {
 	const chats = await db
@@ -111,6 +112,7 @@ export const createChat = async (newChat: NewChat, message: UIMessage): Promise<
 
 		const dbParts = mapUIPartsToDBParts(message.parts, savedMessage.id);
 		const savedParts = await t.insert(s.messagePart).values(dbParts).returning().execute();
+		const provider = await llmConfigQueries.getProjectModelProvider(newChat.projectId);
 
 		return {
 			id: savedChat.id,
@@ -121,7 +123,7 @@ export const createChat = async (newChat: NewChat, message: UIMessage): Promise<
 				{
 					id: savedMessage.id,
 					role: savedMessage.role,
-					parts: mapDBPartsToUIParts(savedParts),
+					parts: mapDBPartsToUIParts(savedParts, provider),
 				},
 			],
 		};

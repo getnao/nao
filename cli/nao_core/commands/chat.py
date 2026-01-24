@@ -106,18 +106,21 @@ def chat():
     """
     console.print("\n[bold cyan]💬 Starting nao chat...[/bold cyan]\n")
 
-    binary_path = get_server_binary_path()
-    bin_dir = binary_path.parent
-
-    console.print(f"[dim]Server binary: {binary_path}[/dim]")
-    console.print(f"[dim]Working directory: {bin_dir}[/dim]")
-
     # Try to load nao config from current directory
     config = NaoConfig.try_load()
     if config:
         console.print(f"[bold green]✓[/bold green] Loaded config from {Path.cwd() / 'nao_config.yaml'}")
     else:
-        console.print("[dim]No nao_config.yaml found in current directory[/dim]")
+        console.print(
+            "[bold red]✗No nao_config.yaml found in current directory. Please move to a nao project directory.[/bold red]"
+        )
+        sys.exit(1)
+
+    binary_path = get_server_binary_path()
+    bin_dir = binary_path.parent
+
+    console.print(f"[dim]Server binary: {binary_path}[/dim]")
+    console.print(f"[dim]Working directory: {bin_dir}[/dim]")
 
     # Start the server processes
     chat_process = None

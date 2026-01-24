@@ -2,7 +2,7 @@
 import { getToolName, isToolUIPart } from 'ai';
 
 import { DBMessagePart, NewMessagePart } from '../db/abstractSchema';
-import { TokenUsage, UIMessagePart, UIToolPart } from '../types/chat';
+import { LlmProvider, TokenUsage, UIMessagePart, UIToolPart } from '../types/chat';
 
 /**
  * Converts a list of UI message parts to a list of database message parts.
@@ -64,11 +64,11 @@ export const convertUIPartToDBPart = (
 /**
  * Converts a list of database message parts to a list of UI message parts.
  */
-export const mapDBPartsToUIParts = (parts: DBMessagePart[]): UIMessagePart[] => {
-	return parts.map((part) => convertDBPartToUIPart(part)).filter((part) => part !== undefined);
+export const mapDBPartsToUIParts = (parts: DBMessagePart[], provider?: LlmProvider): UIMessagePart[] => {
+	return parts.map((part) => convertDBPartToUIPart(part, provider)).filter((part) => part !== undefined);
 };
 
-export const convertDBPartToUIPart = (part: DBMessagePart): UIMessagePart | undefined => {
+export const convertDBPartToUIPart = (part: DBMessagePart, provider?: LlmProvider): UIMessagePart | undefined => {
 	if (isToolDBPart(part)) {
 		return {
 			type: part.type,
@@ -78,7 +78,7 @@ export const convertDBPartToUIPart = (part: DBMessagePart): UIMessagePart | unde
 			input: part.toolInput as any,
 			output: part.toolOutput as any,
 			errorText: part.toolErrorText as any,
-			providerExecuted: true,
+			providerExecuted: provider === 'anthropic',
 			approval: part.toolApprovalId
 				? {
 						id: part.toolApprovalId!,
