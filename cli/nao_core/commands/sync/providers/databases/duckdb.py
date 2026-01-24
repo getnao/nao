@@ -3,6 +3,7 @@ from pathlib import Path
 from rich.progress import Progress
 
 from nao_core.commands.sync.accessors import DataAccessor
+from nao_core.commands.sync.cleanup import DatabaseSyncState
 
 
 def sync_duckdb(
@@ -10,7 +11,7 @@ def sync_duckdb(
     base_path: Path,
     progress: Progress,
     accessors: list[DataAccessor],
-) -> tuple[int, int]:
+) -> DatabaseSyncState:
     """Sync DuckDB database schema to markdown files.
 
     Args:
@@ -20,7 +21,7 @@ def sync_duckdb(
             accessors: List of data accessors to run
 
     Returns:
-            Tuple of (schemas_synced, tables_synced)
+            DatabaseSyncState with sync results and tracked paths
     """
     conn = db_config.connect()
 
@@ -31,9 +32,7 @@ def sync_duckdb(
         db_name = Path(db_config.path).stem
 
     db_path = base_path / "type=duckdb" / f"database={db_name}"
-
-    schemas_synced = 0
-    tables_synced = 0
+    state = DatabaseSyncState(db_path=db_path)
 
     # List all schemas in DuckDB
     schemas = conn.list_databases()
@@ -60,7 +59,7 @@ def sync_duckdb(
 
         schema_path = db_path / f"schema={schema}"
         schema_path.mkdir(parents=True, exist_ok=True)
-        schemas_synced += 1
+        state.add_schema(schema)
 
         table_task = progress.add_task(
             f"  [cyan]{schema}[/cyan]",
@@ -76,9 +75,9 @@ def sync_duckdb(
                 output_file = table_path / accessor.filename
                 output_file.write_text(content)
 
-            tables_synced += 1
+            state.add_table(schema, table)
             progress.update(table_task, advance=1)
 
         progress.update(schema_task, advance=1)
 
-    return schemas_synced, tables_synced
+    return state

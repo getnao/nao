@@ -1,4 +1,5 @@
 import os
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated
 
@@ -46,6 +47,12 @@ class EmptyApiKeyError(InitError):
 
     def __init__(self):
         super().__init__("API key cannot be empty.")
+
+
+@dataclass
+class CreatedFile:
+    path: Path
+    content: str | None
 
 
 def setup_project_name(force: bool = False) -> tuple[str, Path]:
@@ -243,7 +250,7 @@ def setup_slack() -> SlackConfig | None:
     return slack_config
 
 
-def create_empty_structure(project_path: Path) -> tuple[list[str], list[str]]:
+def create_empty_structure(project_path: Path) -> tuple[list[str], list[CreatedFile]]:
     """Create project folder structure to guide users.
 
     To add new folders, simply append them to the FOLDERS list below.
@@ -259,7 +266,10 @@ def create_empty_structure(project_path: Path) -> tuple[list[str], list[str]]:
         "agent/mcps",
     ]
 
-    FILES = ["RULES.md"]
+    FILES = [
+        CreatedFile(path=Path("RULES.md"), content=None),
+        CreatedFile(path=Path(".naoignore"), content="templates/\n"),
+    ]
 
     created_folders = []
     for folder in FOLDERS:
@@ -269,8 +279,11 @@ def create_empty_structure(project_path: Path) -> tuple[list[str], list[str]]:
 
     created_files = []
     for file in FILES:
-        file_path = project_path / file
-        file_path.touch()
+        file_path = project_path / file.path
+        if file.content:
+            file_path.write_text(file.content)
+        else:
+            file_path.touch()
         created_files.append(file)
 
     return created_folders, created_files

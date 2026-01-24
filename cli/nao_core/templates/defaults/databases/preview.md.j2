@@ -1,0 +1,22 @@
+{#
+  Template: preview.md.j2
+  Description: Generates a preview of table rows in JSONL format
+  
+  Available variables:
+    - table_name (str): Name of the table
+    - dataset (str): Schema/dataset name
+    - rows (list): List of row dictionaries (first N rows of the table)
+    - row_count (int): Number of preview rows shown
+    - columns (list): List of column dictionaries with:
+        - name (str): Column name
+        - type (str): Data type
+#}
+# {{ table_name }} - Preview
+
+**Dataset:** `{{ dataset }}`
+
+## Rows ({{ row_count }})
+
+{% for row in rows %}
+- {{ row | to_json }}
+{% endfor %}

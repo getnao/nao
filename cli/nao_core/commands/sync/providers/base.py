@@ -62,12 +62,13 @@ class SyncProvider(ABC):
         ...
 
     @abstractmethod
-    def sync(self, items: list[Any], output_path: Path) -> SyncResult:
+    def sync(self, items: list[Any], output_path: Path, project_path: Path | None = None) -> SyncResult:
         """Sync the items to the output path.
 
         Args:
                 items: List of items to sync
                 output_path: Path where synced data should be written
+                project_path: Path to the nao project root (for template resolution)
 
         Returns:
                 SyncResult with statistics about what was synced

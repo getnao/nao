@@ -29,6 +29,7 @@ def test_returns_config_when_nao_config_file_is_valid(tmp_path: Path):
 
 def test_chat_exits_when_no_config_found(tmp_path: Path, monkeypatch):
     monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("NAO_DEFAULT_PROJECT_PATH", raising=False)
 
     with patch("nao_core.commands.chat.console") as mock_console:
         with pytest.raises(SystemExit) as exc_info:

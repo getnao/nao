@@ -98,12 +98,13 @@ class RepositorySyncProvider(SyncProvider):
     def get_items(self, config: NaoConfig) -> list[RepoConfig]:
         return config.repos
 
-    def sync(self, items: list[Any], output_path: Path) -> SyncResult:
+    def sync(self, items: list[Any], output_path: Path, project_path: Path | None = None) -> SyncResult:
         """Sync all configured repositories.
 
         Args:
                 items: List of repository configurations
                 output_path: Base path where repositories are stored
+                project_path: Path to the nao project root (unused for repos)
 
         Returns:
                 SyncResult with number of successfully synced repositories

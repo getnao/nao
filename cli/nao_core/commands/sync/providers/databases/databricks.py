@@ -3,6 +3,7 @@ from pathlib import Path
 from rich.progress import Progress
 
 from nao_core.commands.sync.accessors import DataAccessor
+from nao_core.commands.sync.cleanup import DatabaseSyncState
 
 
 def sync_databricks(
@@ -10,7 +11,7 @@ def sync_databricks(
     base_path: Path,
     progress: Progress,
     accessors: list[DataAccessor],
-) -> tuple[int, int]:
+) -> DatabaseSyncState:
     """Sync Databricks database schema to markdown files.
 
     Args:
@@ -20,14 +21,12 @@ def sync_databricks(
             accessors: List of data accessors to run
 
     Returns:
-            Tuple of (schemas_synced, tables_synced)
+            DatabaseSyncState with sync results and tracked paths
     """
     conn = db_config.connect()
     catalog = db_config.catalog or "main"
     db_path = base_path / "type=databricks" / f"database={catalog}"
-
-    schemas_synced = 0
-    tables_synced = 0
+    state = DatabaseSyncState(db_path=db_path)
 
     if db_config.schema:
         schemas = [db_config.schema]
@@ -56,7 +55,7 @@ def sync_databricks(
 
         schema_path = db_path / f"schema={schema}"
         schema_path.mkdir(parents=True, exist_ok=True)
-        schemas_synced += 1
+        state.add_schema(schema)
 
         table_task = progress.add_task(
             f"  [cyan]{schema}[/cyan]",
@@ -72,9 +71,9 @@ def sync_databricks(
                 output_file = table_path / accessor.filename
                 output_file.write_text(content)
 
-            tables_synced += 1
+            state.add_table(schema, table)
             progress.update(table_task, advance=1)
 
         progress.update(schema_task, advance=1)
 
-    return schemas_synced, tables_synced
+    return state

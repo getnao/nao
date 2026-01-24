@@ -1,0 +1,32 @@
+{#
+  Template: description.md.j2
+  Description: Generates table metadata and description documentation
+  
+  Available variables:
+    - table_name (str): Name of the table
+    - dataset (str): Schema/dataset name
+    - row_count (int): Total number of rows in the table
+    - column_count (int): Number of columns in the table
+    - description (str|None): Table description if available
+    - columns (list): List of column dictionaries with:
+        - name (str): Column name
+        - type (str): Data type
+#}
+# {{ table_name }}
+
+**Dataset:** `{{ dataset }}`
+
+## Table Metadata
+
+| Property | Value |
+|----------|-------|
+| **Row Count** | {{ "{:,}".format(row_count) }} |
+| **Column Count** | {{ column_count }} |
+
+## Description
+
+{% if description %}
+{{ description }}
+{% else %}
+_No description available._
+{% endif %}

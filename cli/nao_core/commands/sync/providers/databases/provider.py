@@ -6,6 +6,8 @@ from typing import Any
 from rich.console import Console
 from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn
 
+from nao_core.commands.sync.accessors import DataAccessor
+from nao_core.commands.sync.cleanup import DatabaseSyncState, cleanup_stale_paths
 from nao_core.commands.sync.registry import get_accessors
 from nao_core.config import AnyDatabaseConfig, NaoConfig
 
@@ -46,12 +48,13 @@ class DatabaseSyncProvider(SyncProvider):
     def get_items(self, config: NaoConfig) -> list[AnyDatabaseConfig]:
         return config.databases
 
-    def sync(self, items: list[Any], output_path: Path) -> SyncResult:
+    def sync(self, items: list[Any], output_path: Path, project_path: Path | None = None) -> SyncResult:
         """Sync all configured databases.
 
         Args:
                 items: List of database configurations
                 output_path: Base path where database schemas are stored
+                project_path: Path to the nao project root (for template resolution)
 
         Returns:
                 SyncResult with datasets and tables synced
@@ -60,8 +63,13 @@ class DatabaseSyncProvider(SyncProvider):
             console.print("\n[dim]No databases configured[/dim]")
             return SyncResult(provider_name=self.name, items_synced=0)
 
+        # Set project path for template resolution
+        DataAccessor.set_project_path(project_path)
+
         total_datasets = 0
         total_tables = 0
+        total_removed = 0
+        sync_states: list[DatabaseSyncState] = []
 
         console.print(f"\n[bold cyan]{self.emoji}  Syncing {self.name}[/bold cyan]")
         console.print(f"[dim]Location:[/dim] {output_path.absolute()}\n")
@@ -84,17 +92,32 @@ class DatabaseSyncProvider(SyncProvider):
 
                     sync_fn = DATABASE_SYNC_FUNCTIONS.get(db.type)
                     if sync_fn:
-                        datasets, tables = sync_fn(db, output_path, progress, db_accessors)
-                        total_datasets += datasets
-                        total_tables += tables
+                        state = sync_fn(db, output_path, progress, db_accessors)
+                        sync_states.append(state)
+                        total_datasets += state.schemas_synced
+                        total_tables += state.tables_synced
                     else:
                         console.print(f"[yellow]⚠ Unsupported database type: {db.type}[/yellow]")
                 except Exception as e:
                     console.print(f"[bold red]✗[/bold red] Failed to sync {db.name}: {e}")
 
+        # Clean up stale files after all syncs complete
+        for state in sync_states:
+            removed = cleanup_stale_paths(state, verbose=True)
+            total_removed += removed
+
+        # Build summary
+        summary = f"{total_tables} tables across {total_datasets} datasets"
+        if total_removed > 0:
+            summary += f", {total_removed} stale removed"
+
         return SyncResult(
             provider_name=self.name,
             items_synced=total_tables,
-            details={"datasets": total_datasets, "tables": total_tables},
-            summary=f"{total_tables} tables across {total_datasets} datasets",
+            details={
+                "datasets": total_datasets,
+                "tables": total_tables,
+                "removed": total_removed,
+            },
+            summary=summary,
         )

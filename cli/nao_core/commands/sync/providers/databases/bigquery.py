@@ -3,6 +3,7 @@ from pathlib import Path
 from rich.progress import Progress
 
 from nao_core.commands.sync.accessors import DataAccessor
+from nao_core.commands.sync.cleanup import DatabaseSyncState
 
 
 def sync_bigquery(
@@ -10,7 +11,7 @@ def sync_bigquery(
     base_path: Path,
     progress: Progress,
     accessors: list[DataAccessor],
-) -> tuple[int, int]:
+) -> DatabaseSyncState:
     """Sync BigQuery database schema to markdown files.
 
     Args:
@@ -20,13 +21,11 @@ def sync_bigquery(
             accessors: List of data accessors to run
 
     Returns:
-            Tuple of (datasets_synced, tables_synced)
+            DatabaseSyncState with sync results and tracked paths
     """
     conn = db_config.connect()
     db_path = base_path / "type=bigquery" / f"database={db_config.project_id}"
-
-    datasets_synced = 0
-    tables_synced = 0
+    state = DatabaseSyncState(db_path=db_path)
 
     if db_config.dataset_id:
         datasets = [db_config.dataset_id]
@@ -55,7 +54,7 @@ def sync_bigquery(
 
         dataset_path = db_path / f"schema={dataset}"
         dataset_path.mkdir(parents=True, exist_ok=True)
-        datasets_synced += 1
+        state.add_schema(dataset)
 
         table_task = progress.add_task(
             f"  [cyan]{dataset}[/cyan]",
@@ -71,9 +70,9 @@ def sync_bigquery(
                 output_file = table_path / accessor.filename
                 output_file.write_text(content)
 
-            tables_synced += 1
+            state.add_table(dataset, table)
             progress.update(table_task, advance=1)
 
         progress.update(dataset_task, advance=1)
 
-    return datasets_synced, tables_synced
+    return state

@@ -1,0 +1,34 @@
+{#
+  Template: profiling.md.j2
+  Description: Generates column-level statistics and profiling data
+  
+  Available variables:
+    - table_name (str): Name of the table
+    - dataset (str): Schema/dataset name
+    - column_stats (list): List of column statistics dictionaries with:
+        - name (str): Column name
+        - type (str): Data type
+        - null_count (int): Number of null values
+        - unique_count (int): Number of unique values
+        - min_value (str|None): Minimum value (for numeric/temporal columns)
+        - max_value (str|None): Maximum value (for numeric/temporal columns)
+        - error (str|None): Error message if stats couldn't be computed
+    - columns (list): List of column dictionaries with:
+        - name (str): Column name
+        - type (str): Data type
+#}
+# {{ table_name }} - Profiling
+
+**Dataset:** `{{ dataset }}`
+
+## Column Statistics
+
+| Column | Type | Nulls | Unique | Min | Max |
+|--------|------|-------|--------|-----|-----|
+{% for stat in column_stats %}
+{% if stat.error %}
+| `{{ stat.name }}` | `{{ stat.type }}` | Error: {{ stat.error }} | | | |
+{% else %}
+| `{{ stat.name }}` | `{{ stat.type }}` | {{ "{:,}".format(stat.null_count) }} | {{ "{:,}".format(stat.unique_count) }} | {{ stat.min_value or "" }} | {{ stat.max_value or "" }} |
+{% endif %}
+{% endfor %}

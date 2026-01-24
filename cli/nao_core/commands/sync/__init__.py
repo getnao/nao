@@ -36,6 +36,9 @@ def sync(
         console.print("[dim]Run 'nao init' to create a configuration file[/dim]")
         sys.exit(1)
 
+    # Get project path (current working directory after NaoConfig.try_load)
+    project_path = Path.cwd()
+
     console.print(f"[dim]Project:[/dim] {config.project_name}")
 
     # Use provided providers or default to all registered providers
@@ -54,7 +57,7 @@ def sync(
 
         # Get items and sync
         items = provider.get_items(config)
-        result = provider.sync(items, output_path)
+        result = provider.sync(items, output_path, project_path=project_path)
         results.append(result)
 
     # Print summary
