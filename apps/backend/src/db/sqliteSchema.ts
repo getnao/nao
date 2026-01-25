@@ -274,6 +274,8 @@ export const projectLlmConfig = sqliteTable(
 			.references(() => project.id, { onDelete: 'cascade' }),
 		provider: text('provider', { enum: ['openai', 'anthropic'] }).notNull(),
 		apiKey: text('api_key').notNull(),
+		enabledModels: text('enabled_models', { mode: 'json' }).$type<string[]>().default([]).notNull(),
+		baseUrl: text('base_url'),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull(),
@@ -284,6 +286,6 @@ export const projectLlmConfig = sqliteTable(
 	},
 	(t) => [
 		index('project_llm_config_projectId_idx').on(t.projectId),
-		unique('project_llm_config_unique').on(t.id, t.projectId, t.provider),
+		unique('project_llm_config_project_provider').on(t.projectId, t.provider),
 	],
 );

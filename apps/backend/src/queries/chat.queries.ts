@@ -2,7 +2,8 @@ import { and, desc, eq } from 'drizzle-orm';
 
 import s, { DBChat, DBChatMessage, DBMessagePart, MessageFeedback, NewChat } from '../db/abstractSchema';
 import { db } from '../db/db';
-import { ListChatResponse, LlmProvider, StopReason, TokenUsage, UIChat, UIMessage } from '../types/chat';
+import { ListChatResponse, StopReason, TokenUsage, UIChat, UIMessage } from '../types/chat';
+import { LlmProvider } from '../types/llm';
 import { convertDBPartToUIPart, mapDBPartsToUIParts, mapUIPartsToDBParts } from '../utils/chatMessagePartMappings';
 import { getErrorMessage } from '../utils/utils';
 import * as llmConfigQueries from './project-llm-config.queries';

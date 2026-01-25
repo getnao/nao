@@ -260,6 +260,8 @@ export const projectLlmConfig = pgTable(
 			.references(() => project.id, { onDelete: 'cascade' }),
 		provider: text('provider', { enum: ['openai', 'anthropic'] }).notNull(),
 		apiKey: text('api_key').notNull(),
+		enabledModels: jsonb('enabled_models').$type<string[]>().default([]).notNull(),
+		baseUrl: text('base_url'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()
@@ -268,6 +270,6 @@ export const projectLlmConfig = pgTable(
 	},
 	(t) => [
 		index('project_llm_config_projectId_idx').on(t.projectId),
-		unique('project_llm_config_unique').on(t.id, t.projectId, t.provider),
+		unique('project_llm_config_project_provider').on(t.projectId, t.provider),
 	],
 );

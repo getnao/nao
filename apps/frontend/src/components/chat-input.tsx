@@ -1,5 +1,5 @@
-import { ArrowUpIcon, SquareIcon } from 'lucide-react';
-import { useState } from 'react';
+import { ArrowUpIcon, ChevronDown, SquareIcon } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
 import { useParams } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import type { FormEvent, KeyboardEvent } from 'react';
@@ -8,18 +8,44 @@ import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupTextarea } fro
 import { trpc } from '@/main';
 import { useAgentContext } from '@/contexts/agent.provider';
 
-export interface Props {
-	onSubmit: (message: string) => void;
-	onStop: () => void;
-	isLoading: boolean;
-	disabled?: boolean;
-}
-
 export function ChatInput() {
-	const { sendMessage, isRunning, stopAgent, isReadyForNewMessages } = useAgentContext();
+	const { sendMessage, isRunning, stopAgent, isReadyForNewMessages, selectedModel, setSelectedModel } = useAgentContext();
 	const chatId = useParams({ strict: false, select: (p) => p.chatId });
-	const modelProvider = useQuery(trpc.project.getModelProvider.queryOptions());
+	const availableModels = useQuery(trpc.project.getAvailableModels.queryOptions());
+	const knownModels = useQuery(trpc.project.getKnownModels.queryOptions());
 	const [input, setInput] = useState('');
+	const [showModelMenu, setShowModelMenu] = useState(false);
+	const menuRef = useRef<HTMLDivElement>(null);
+
+	// Close menu when clicking outside
+	useEffect(() => {
+		const handleClickOutside = (e: MouseEvent) => {
+			if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+				setShowModelMenu(false);
+			}
+		};
+		document.addEventListener('mousedown', handleClickOutside);
+		return () => document.removeEventListener('mousedown', handleClickOutside);
+	}, []);
+
+	// Set default model when available models load, or reset if current selection is no longer available
+	useEffect(() => {
+		if (!availableModels.data || availableModels.data.length === 0) {
+			return;
+		}
+
+		// Check if current selection is still valid
+		const isCurrentSelectionValid =
+			selectedModel &&
+			availableModels.data.some(
+				(m) => m.provider === selectedModel.provider && m.modelId === selectedModel.modelId,
+			);
+
+		if (!isCurrentSelectionValid) {
+			// Set to first available model
+			setSelectedModel(availableModels.data[0]);
+		}
+	}, [availableModels.data, selectedModel, setSelectedModel]);
 
 	const handleSubmit = (e: FormEvent) => {
 		e.preventDefault();
@@ -37,6 +63,15 @@ export function ChatInput() {
 		}
 	};
 
+	const getModelDisplayName = (provider: string, modelId: string) => {
+		const models = knownModels.data?.[provider as 'openai' | 'anthropic'] ?? [];
+		const model = models.find((m) => m.id === modelId);
+		return model?.name ?? modelId;
+	};
+
+	const models = availableModels.data ?? [];
+	const hasMultipleModels = models.length > 1;
+
 	return (
 		<div className='p-4 pt-0 max-w-3xl w-full mx-auto'>
 			<form onSubmit={handleSubmit} className='mx-auto'>
@@ -52,9 +87,51 @@ export function ChatInput() {
 					/>
 
 					<InputGroupAddon align='block-end'>
-						{modelProvider.data && (
-							<div className='text-sm font-normal text-muted-foreground'>
-								{modelProvider.data === 'anthropic' ? 'Opus 4.5' : 'GPT-5.1'}
+						{/* Model selector */}
+						{models.length > 0 && (
+							<div className='relative' ref={menuRef}>
+								<button
+									type='button'
+									onClick={() => hasMultipleModels && setShowModelMenu(!showModelMenu)}
+									className={`
+										flex items-center gap-1 text-sm font-normal text-muted-foreground
+										${hasMultipleModels ? 'hover:text-foreground cursor-pointer' : 'cursor-default'}
+									`}
+								>
+									{selectedModel
+										? getModelDisplayName(selectedModel.provider, selectedModel.modelId)
+										: 'Select model'}
+									{hasMultipleModels && <ChevronDown className='size-3' />}
+								</button>
+
+								{showModelMenu && hasMultipleModels && (
+									<div className='absolute bottom-full left-0 mb-2 py-1 min-w-[180px] rounded-md border border-border bg-popover shadow-lg z-50'>
+										{models.map((model) => {
+											const isSelected =
+												selectedModel?.provider === model.provider &&
+												selectedModel?.modelId === model.modelId;
+											return (
+												<button
+													key={`${model.provider}-${model.modelId}`}
+													type='button'
+													onClick={() => {
+														setSelectedModel(model);
+														setShowModelMenu(false);
+													}}
+													className={`
+														w-full px-3 py-1.5 text-left text-sm transition-colors
+														${isSelected ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/50'}
+													`}
+												>
+													<span className='block'>{getModelDisplayName(model.provider, model.modelId)}</span>
+													<span className='block text-xs text-muted-foreground capitalize'>
+														{model.provider}
+													</span>
+												</button>
+											);
+										})}
+									</div>
+								)}
 							</div>
 						)}
 

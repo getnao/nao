@@ -1,6 +1,6 @@
 import { useNavigate, useParams } from '@tanstack/react-router';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useMemo, useEffect, useRef, useCallback } from 'react';
+import { useMemo, useEffect, useRef, useCallback, useState } from 'react';
 import { Chat as Agent, useChat } from '@ai-sdk/react';
 import { DefaultChatTransport } from 'ai';
 import { useCurrent } from './useCurrent';
@@ -13,6 +13,11 @@ import { trpc } from '@/main';
 import { agentService } from '@/lib/agents.service';
 import { checkIsAgentRunning } from '@/lib/ai';
 
+export type ModelSelection = {
+	provider: 'openai' | 'anthropic';
+	modelId: string;
+} | null;
+
 export type AgentHelpers = {
 	messages: UIMessage[];
 	setMessages: UseChatHelpers<UIMessage>['setMessages'];
@@ -24,6 +29,8 @@ export type AgentHelpers = {
 	registerScrollDown: (fn: ScrollToBottom) => { dispose: () => void };
 	error: Error | undefined;
 	clearError: UseChatHelpers<UIMessage>['clearError'];
+	selectedModel: ModelSelection;
+	setSelectedModel: (model: ModelSelection) => void;
 };
 
 export const useAgent = (): AgentHelpers => {
@@ -33,6 +40,8 @@ export const useAgent = (): AgentHelpers => {
 	const queryClient = useQueryClient();
 	const chatIdRef = useCurrent(chatId);
 	const scrollDownService = useScrollDownCallbackService();
+	const [selectedModel, setSelectedModel] = useState<ModelSelection>(null);
+	const selectedModelRef = useCurrent(selectedModel);
 
 	const agentInstance = useMemo(() => {
 		let agentId = chatId ?? 'new-chat';
@@ -49,6 +58,7 @@ export const useAgent = (): AgentHelpers => {
 						body: {
 							chatId: chatIdRef.current, // Using the ref to send new id when chat was created
 							message: options.messages.at(-1),
+							model: selectedModelRef.current ?? undefined,
 						},
 					};
 				},
@@ -132,6 +142,8 @@ export const useAgent = (): AgentHelpers => {
 		registerScrollDown: scrollDownService.register,
 		error: agent.error,
 		clearError: agent.clearError,
+		selectedModel,
+		setSelectedModel,
 	});
 };
 

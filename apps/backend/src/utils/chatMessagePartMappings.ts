@@ -2,7 +2,8 @@
 import { getToolName, isToolUIPart } from 'ai';
 
 import { DBMessagePart, NewMessagePart } from '../db/abstractSchema';
-import { LlmProvider, TokenUsage, UIMessagePart, UIToolPart } from '../types/chat';
+import { TokenUsage, UIMessagePart, UIToolPart } from '../types/chat';
+import { LlmProvider } from '../types/llm';
 
 /**
  * Converts a list of UI message parts to a list of database message parts.

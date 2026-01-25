@@ -4,23 +4,39 @@ import { z } from 'zod/v4';
 import type { App } from '../app';
 import { authMiddleware } from '../middleware/auth';
 import * as chatQueries from '../queries/chat.queries';
-import { agentService } from '../services/agent.service';
+import { agentService, ModelSelection } from '../services/agent.service';
 import { UIMessage } from '../types/chat';
 
 const DEBUG_CHUNKS = false;
+
+const modelSelectionSchema = z
+	.object({
+		provider: z.enum(['openai', 'anthropic']),
+		modelId: z.string(),
+	})
+	.optional();
 
 export const chatRoutes = async (app: App) => {
 	app.addHook('preHandler', authMiddleware);
 
 	app.post(
 		'/agent',
-		{ schema: { body: z.object({ message: z.custom<UIMessage>(), chatId: z.string().optional() }) } },
+		{
+			schema: {
+				body: z.object({
+					message: z.custom<UIMessage>(),
+					chatId: z.string().optional(),
+					model: modelSelectionSchema,
+				}),
+			},
+		},
 		async (request, reply) => {
 			const abortController = new AbortController();
 			const userId = request.user.id;
 			const projectId = request.project?.id;
 			const message = request.body.message;
 			let chatId = request.body.chatId;
+			const modelSelection = request.body.model as ModelSelection | undefined;
 			const isNewChat = !chatId;
 
 			if (!projectId) {
@@ -49,7 +65,7 @@ export const chatRoutes = async (app: App) => {
 				return reply.status(403).send({ error: `You are not authorized to access this chat.` });
 			}
 
-			const agent = await agentService.create({ ...chat, userId, projectId }, abortController);
+			const agent = await agentService.create({ ...chat, userId, projectId }, abortController, modelSelection);
 
 			let stream = agent.stream(chat.messages as UIMessage[], {
 				sendNewChatData: !!isNewChat,

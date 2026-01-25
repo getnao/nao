@@ -13,6 +13,7 @@ import { tools } from '../agents/tools';
 import * as chatQueries from '../queries/chat.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import { UIChat, UIMessage } from '../types/chat';
+import { getDefaultModelId, LlmProvider } from '../types/llm';
 import { convertToTokenUsage } from '../utils/chat';
 
 type AgentChat = UIChat & {
@@ -20,12 +21,21 @@ type AgentChat = UIChat & {
 	projectId: string;
 };
 
+export type ModelSelection = {
+	provider: LlmProvider;
+	modelId: string;
+};
+
 class AgentService {
 	private _agents = new Map<string, AgentManager>();
 
-	async create(chat: AgentChat, abortController: AbortController): Promise<AgentManager> {
+	async create(
+		chat: AgentChat,
+		abortController: AbortController,
+		modelSelection?: ModelSelection,
+	): Promise<AgentManager> {
 		this._disposeAgent(chat.id);
-		const modelConfig = await this._getModelConfig(chat.projectId);
+		const modelConfig = await this._getModelConfig(chat.projectId, modelSelection);
 		const agent = new AgentManager(chat, modelConfig, () => this._agents.delete(chat.id), abortController);
 		this._agents.set(chat.id, agent);
 		return agent;
@@ -46,70 +56,98 @@ class AgentService {
 
 	private async _getModelConfig(
 		projectId: string,
+		modelSelection?: ModelSelection,
 	): Promise<Pick<ToolLoopAgentSettings, 'model' | 'providerOptions'>> {
-		// Try to get project-specific LLM config first
-		const anthropicConfig = await llmConfigQueries.getProjectLlmConfigByProvider(projectId, 'anthropic');
+		// If a specific model is selected, use it
+		if (modelSelection) {
+			const config = await llmConfigQueries.getProjectLlmConfigByProvider(projectId, modelSelection.provider);
+
+			if (config) {
+				return this._createProviderConfig(
+					modelSelection.provider,
+					config.apiKey,
+					modelSelection.modelId,
+					config.baseUrl,
+				);
+			}
+
+			// No config but env var might exist - check and use default model
+			if (modelSelection.provider === 'anthropic' && process.env.ANTHROPIC_API_KEY) {
+				return this._createProviderConfig('anthropic', process.env.ANTHROPIC_API_KEY, modelSelection.modelId);
+			}
+			if (modelSelection.provider === 'openai' && process.env.OPENAI_API_KEY) {
+				return this._createProviderConfig('openai', process.env.OPENAI_API_KEY, modelSelection.modelId);
+			}
+		}
+
+		// No model selection - use first available config or env
+		const configs = await llmConfigQueries.getProjectLlmConfigs(projectId);
+
+		// Prefer anthropic, then openai
+		const anthropicConfig = configs.find((c) => c.provider === 'anthropic');
 		if (anthropicConfig) {
-			const provider = createAnthropic({ apiKey: anthropicConfig.apiKey });
-			return {
-				model: provider.chat('claude-opus-4-5'),
-				providerOptions: {
-					anthropic: {
-						disableParallelToolUse: false,
-						thinking: {
-							type: 'enabled',
-							budgetTokens: 12_000,
-						},
-					} satisfies AnthropicProviderOptions,
-				},
-			};
+			const modelId = anthropicConfig.enabledModels?.[0] ?? getDefaultModelId('anthropic');
+			return this._createProviderConfig('anthropic', anthropicConfig.apiKey, modelId, anthropicConfig.baseUrl);
 		}
 
-		const openaiConfig = await llmConfigQueries.getProjectLlmConfigByProvider(projectId, 'openai');
+		const openaiConfig = configs.find((c) => c.provider === 'openai');
 		if (openaiConfig) {
-			const provider = createOpenAI({ apiKey: openaiConfig.apiKey });
-			return {
-				model: provider.chat('gpt-5.1'),
-				providerOptions: {
-					openai: {
-						// TODO: Add config for openai
-					} satisfies OpenAIResponsesProviderOptions,
-				},
-			};
+			const modelId = openaiConfig.enabledModels?.[0] ?? getDefaultModelId('openai');
+			return this._createProviderConfig('openai', openaiConfig.apiKey, modelId, openaiConfig.baseUrl);
 		}
 
-		// Fall back to environment variables
+		// Fall back to environment variables (no config at all)
 		if (process.env.ANTHROPIC_API_KEY) {
-			const provider = createAnthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-			return {
-				model: provider.chat('claude-opus-4-5'),
-				providerOptions: {
-					anthropic: {
-						disableParallelToolUse: false,
-						thinking: {
-							type: 'enabled',
-							budgetTokens: 12_000,
-						},
-					} satisfies AnthropicProviderOptions,
-				},
-			};
+			return this._createProviderConfig('anthropic', process.env.ANTHROPIC_API_KEY, getDefaultModelId('anthropic'));
 		}
 
 		if (process.env.OPENAI_API_KEY) {
-			const provider = createOpenAI({ apiKey: process.env.OPENAI_API_KEY });
-			return {
-				model: provider.chat('gpt-5.1'),
-				providerOptions: {
-					openai: {
-						// TODO: Add config for openai
-					} satisfies OpenAIResponsesProviderOptions,
-				},
-			};
+			return this._createProviderConfig('openai', process.env.OPENAI_API_KEY, getDefaultModelId('openai'));
 		}
 
 		throw new Error(
 			'No LLM API key found. Configure API keys in project settings or set ANTHROPIC_API_KEY/OPENAI_API_KEY environment variables.',
 		);
+	}
+
+	private _createProviderConfig(
+		provider: LlmProvider,
+		apiKey: string,
+		modelId: string,
+		baseUrl?: string | null,
+	): Pick<ToolLoopAgentSettings, 'model' | 'providerOptions'> {
+		if (provider === 'anthropic') {
+			const anthropic = createAnthropic({
+				apiKey,
+				...(baseUrl && { baseURL: baseUrl }),
+			});
+			return {
+				model: anthropic.chat(modelId),
+				providerOptions: {
+					anthropic: {
+						disableParallelToolUse: false,
+						thinking: {
+							type: 'enabled',
+							budgetTokens: 12_000,
+						},
+					} satisfies AnthropicProviderOptions,
+				},
+			};
+		}
+
+		// OpenAI
+		const openai = createOpenAI({
+			apiKey,
+			...(baseUrl && { baseURL: baseUrl }),
+		});
+		return {
+			model: openai.chat(modelId),
+			providerOptions: {
+				openai: {
+					// TODO: Add config for openai
+				} satisfies OpenAIResponsesProviderOptions,
+			},
+		};
 	}
 }
 

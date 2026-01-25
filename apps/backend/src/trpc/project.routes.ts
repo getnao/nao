@@ -3,9 +3,16 @@ import { z } from 'zod/v4';
 import * as projectQueries from '../queries/project.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import * as slackConfigQueries from '../queries/project-slack-config.queries';
-import { adminProtectedProcedure, projectProtectedProcedure } from './trpc';
+import { KNOWN_MODELS, LlmProvider } from '../types/llm';
+import { adminProtectedProcedure, projectProtectedProcedure, publicProcedure } from './trpc';
 
 const llmProviderSchema = z.enum(['openai', 'anthropic']);
+
+const getEnvApiKey = (provider: LlmProvider): string | undefined => {
+	if (provider === 'anthropic') return process.env.ANTHROPIC_API_KEY;
+	if (provider === 'openai') return process.env.OPENAI_API_KEY;
+	return undefined;
+};
 
 export const projectRoutes = {
 	getCurrent: projectProtectedProcedure.query(({ ctx }) => {
@@ -18,11 +25,6 @@ export const projectRoutes = {
 		};
 	}),
 
-	getModelProvider: projectProtectedProcedure.query(async ({ ctx }) => {
-		const { project } = ctx;
-		return project ? await llmConfigQueries.getProjectModelProvider(project.id) : undefined;
-	}),
-
 	getLlmConfigs: projectProtectedProcedure.query(async ({ ctx }) => {
 		if (!ctx.project) {
 			return { projectConfigs: [], envProviders: [] };
@@ -32,36 +34,77 @@ export const projectRoutes = {
 
 		const projectConfigs = configs.map((c) => ({
 			id: c.id,
-			provider: c.provider,
+			provider: c.provider as LlmProvider,
 			apiKeyPreview: c.apiKey.slice(0, 8) + '...' + c.apiKey.slice(-4),
+			enabledModels: c.enabledModels ?? [],
+			baseUrl: c.baseUrl ?? null,
 			createdAt: c.createdAt,
 			updatedAt: c.updatedAt,
 		}));
 
-		const envProviders: ('anthropic' | 'openai')[] = [];
+		const envProviders: LlmProvider[] = [];
 		if (process.env.ANTHROPIC_API_KEY) envProviders.push('anthropic');
 		if (process.env.OPENAI_API_KEY) envProviders.push('openai');
 
 		return { projectConfigs, envProviders };
 	}),
 
+	/** Get all available models for the current project (for user model selection) */
+	getAvailableModels: projectProtectedProcedure.query(async ({ ctx }) => {
+		if (!ctx.project) {
+			return [];
+		}
+		return llmConfigQueries.getProjectAvailableModels(ctx.project.id);
+	}),
+
 	upsertLlmConfig: adminProtectedProcedure
 		.input(
 			z.object({
 				provider: llmProviderSchema,
-				apiKey: z.string().min(1),
+				apiKey: z.string().min(1).optional(), // Optional - if not provided, uses env var or keeps existing
+				enabledModels: z.array(z.string()).optional(),
+				baseUrl: z.string().url().optional().or(z.literal('')),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
+			const existingConfig = await llmConfigQueries.getProjectLlmConfigByProvider(ctx.project.id, input.provider);
+			const envApiKey = getEnvApiKey(input.provider);
+
+			// Determine the API key to use:
+			// 1. If apiKey provided in input, use it
+			// 2. If editing existing config and no new key, keep existing (pass null to skip update)
+			// 3. If new config and no key, use env var
+			let apiKey: string | null;
+
+			if (input.apiKey) {
+				// New key provided
+				apiKey = input.apiKey;
+			} else if (existingConfig) {
+				// Editing - keep existing key (null signals "don't update")
+				apiKey = null;
+			} else if (envApiKey) {
+				// New config - use env var
+				apiKey = envApiKey;
+			} else {
+				throw new Error(
+					`API key is required for ${input.provider}. Either provide one or set the environment variable.`,
+				);
+			}
+
 			const config = await llmConfigQueries.upsertProjectLlmConfig({
 				projectId: ctx.project.id,
 				provider: input.provider,
-				apiKey: input.apiKey,
-			});
+				apiKey,
+				enabledModels: input.enabledModels ?? [],
+				baseUrl: input.baseUrl || null,
+			} as Parameters<typeof llmConfigQueries.upsertProjectLlmConfig>[0]);
+
 			return {
 				id: config.id,
-				provider: config.provider,
+				provider: config.provider as LlmProvider,
 				apiKeyPreview: config.apiKey.slice(0, 8) + '...' + config.apiKey.slice(-4),
+				enabledModels: config.enabledModels ?? [],
+				baseUrl: config.baseUrl ?? null,
 			};
 		}),
 
@@ -126,5 +169,9 @@ export const projectRoutes = {
 			return [];
 		}
 		return projectQueries.getAllUsersWithRoles(ctx.project.id);
+	}),
+
+	getKnownModels: publicProcedure.query(() => {
+		return KNOWN_MODELS;
 	}),
 };

@@ -43,6 +43,13 @@
       "when": 1769164031408,
       "tag": "0005_add_project_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1769301411587,
+      "tag": "0006_llm_model_ids",
+      "breakpoints": true
     }
   ]
 }

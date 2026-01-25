@@ -59,8 +59,6 @@ export type UIMessagePartType = UIMessagePart['type'];
 
 export type StopReason = FinishReason | 'interrupted';
 
-export type LlmProvider = 'anthropic' | 'openai';
-
 export type TokenUsage = {
 	inputTotalTokens?: number;
 	inputNoCacheTokens?: number;
