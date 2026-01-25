@@ -78,8 +78,7 @@ class NaoConfig(BaseModel):
         try:
             os.chdir(path)
             return cls.load(path)
-        except (FileNotFoundError, ValueError, yaml.YAMLError) as e:
-            raise e
+        except (FileNotFoundError, ValueError, yaml.YAMLError):
             return None
 
     @classmethod
