@@ -96,6 +96,7 @@ jobs:
                         -e "NAO_DEFAULT_PROJECT_PATH=/app/chat-analytics" \
                         -e GOOGLE_APPLICATION_CREDENTIALS_JSON='${{ secrets.GOOGLE_APPLICATION_CREDENTIALS_JSON }}' \
                         -e "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" \
+                        -e "ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}" \
                         -e "BETTER_AUTH_SECRET=${{ secrets.BETTER_AUTH_SECRET }}" \
                         -e "FASTAPI_URL=http://127.0.0.1:8005" \
                         --name nao-chat \
