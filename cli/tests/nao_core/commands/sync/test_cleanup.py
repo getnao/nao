@@ -1,12 +1,22 @@
 """Unit tests for the sync cleanup functionality."""
 
+from dataclasses import dataclass
 from pathlib import Path
+from typing import List
 
 from nao_core.commands.sync.cleanup import (
     DatabaseSyncState,
-    cleanup_stale_database_types,
+    cleanup_stale_databases,
     cleanup_stale_paths,
 )
+
+
+@dataclass
+class DBConfig:
+    type: str
+    project_id: str | None = None
+    path: str | None = None
+    database: str | None = None
 
 
 class TestDatabaseSyncState:
@@ -195,59 +205,51 @@ class TestCleanupStalePaths:
         assert not table_path.exists()
 
 
-class TestCleanupStaleDatabaseTypes:
-    """Tests for cleanup_stale_database_types function."""
-
-    def test_no_cleanup_when_base_path_does_not_exist(self, tmp_path: Path):
-        """Returns 0 when base path doesn't exist."""
-        removed = cleanup_stale_database_types(
-            tmp_path / "nonexistent",
-            active_db_types={"type=duckdb"},
-        )
-
-        assert removed == 0
+class TestCleanupStaleDatabases:
+    """Tests for cleanup_stale_databases function."""
 
     def test_removes_stale_database_type(self, tmp_path: Path):
         """Removes database type directories not in active set."""
-        # Create directory structure
         (tmp_path / "type=duckdb" / "database=test").mkdir(parents=True)
         (tmp_path / "type=postgres" / "database=old").mkdir(parents=True)
 
-        removed = cleanup_stale_database_types(
-            tmp_path,
-            active_db_types={"type=duckdb"},
-        )
+        active_dbs = [
+            DBConfig(type="duckdb", path="/tmp/test.duckdb"),
+        ]
 
-        assert removed == 1
+        cleanup_stale_databases(active_dbs, tmp_path)
+
         assert (tmp_path / "type=duckdb").exists()
         assert not (tmp_path / "type=postgres").exists()
 
-    def test_ignores_non_type_directories(self, tmp_path: Path):
-        """Ignores directories that don't start with 'type='."""
-        # Create directory structure
-        (tmp_path / "type=duckdb").mkdir(parents=True)
-        (tmp_path / "some_other_dir").mkdir(parents=True)
-
-        removed = cleanup_stale_database_types(
-            tmp_path,
-            active_db_types={"type=duckdb"},
-        )
-
-        assert removed == 0
-        assert (tmp_path / "some_other_dir").exists()
-
     def test_removes_multiple_stale_types(self, tmp_path: Path):
         """Removes multiple stale database type directories."""
-        # Create directory structure
-        (tmp_path / "type=duckdb").mkdir(parents=True)
-        (tmp_path / "type=postgres").mkdir(parents=True)
-        (tmp_path / "type=bigquery").mkdir(parents=True)
-        (tmp_path / "type=snowflake").mkdir(parents=True)
+        (tmp_path / "type=duckdb").mkdir()
+        (tmp_path / "type=postgres").mkdir()
+        (tmp_path / "type=bigquery").mkdir()
+        (tmp_path / "type=snowflake").mkdir()
 
-        removed = cleanup_stale_database_types(
-            tmp_path,
-            active_db_types={"type=duckdb"},
-        )
+        active_dbs = [
+            DBConfig(type="duckdb", path="/tmp/test.duckdb"),
+        ]
 
-        assert removed == 3
+        cleanup_stale_databases(active_dbs, tmp_path)
+
         assert (tmp_path / "type=duckdb").exists()
+        assert not (tmp_path / "type=postgres").exists()
+        assert not (tmp_path / "type=bigquery").exists()
+        assert not (tmp_path / "type=snowflake").exists()
+
+    def test_removes_stale_database_folders_within_type(self, tmp_path: Path):
+        """Removes stale database folders inside a valid type."""
+        (tmp_path / "type=duckdb" / "database=valid").mkdir(parents=True)
+        (tmp_path / "type=duckdb" / "database=old").mkdir(parents=True)
+
+        active_dbs: List[DBConfig] = [
+            DBConfig(type="duckdb", path="/tmp/valid.duckdb"),
+        ]
+
+        cleanup_stale_databases(active_dbs, tmp_path)
+
+        assert (tmp_path / "type=duckdb" / "database=valid").exists()
+        assert not (tmp_path / "type=duckdb" / "database=old").exists()

@@ -1,8 +1,10 @@
 """Cleanup utilities for removing stale sync files."""
 
 import shutil
+from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Dict, List
 
 from rich.console import Console
 
@@ -105,29 +107,69 @@ def cleanup_stale_paths(state: DatabaseSyncState, verbose: bool = False) -> int:
     return removed_count
 
 
-def cleanup_stale_database_types(base_path: Path, active_db_types: set[str], verbose: bool = False) -> int:
-    """Remove database type directories that are no longer configured.
+def cleanup_stale_databases(active_databases: List, base_path: Path, verbose: bool = False):
+    """Remove databases that are not present in the config file."""
 
-    Args:
-        base_path: The base databases output path
-        active_db_types: Set of database type directory names that should exist
-                         (e.g., {'type=duckdb', 'type=postgres'})
-        verbose: Whether to print cleanup messages
+    valid_db_folders_by_type: Dict[str, set] = defaultdict(set)
 
-    Returns:
-        Number of stale database type directories removed
-    """
-    removed_count = 0
+    for db in active_databases:
+        type_folder = f"type={db.type}"
+        db_identifier = get_database_identifier(db)
+        db_folder = f"database={db_identifier}"
 
-    if not base_path.exists():
-        return 0
+        valid_db_folders_by_type[type_folder].add(db_folder)
 
-    for db_type_dir in base_path.iterdir():
-        if db_type_dir.is_dir() and db_type_dir.name.startswith("type="):
-            if db_type_dir.name not in active_db_types:
+    for type_dir in base_path.iterdir():
+        if not type_dir.is_dir():
+            continue
+
+        type_folder_name = type_dir.name
+
+        # Remove entire type directory if it doesn't exist in nao_config
+        if type_folder_name not in valid_db_folders_by_type:
+            shutil.rmtree(type_dir)
+            if verbose:
+                console.print(f"\n[yellow] Removed unused database type:[/yellow] {type_dir}")
+            continue
+
+        valid_db_folders = valid_db_folders_by_type[type_folder_name]
+
+        # Remove unused database folders if it doesn't exist in nao_config
+        for db_dir in type_dir.iterdir():
+            if not db_dir.is_dir():
+                continue
+
+            if db_dir.name not in valid_db_folders:
+                shutil.rmtree(db_dir)
                 if verbose:
-                    console.print(f"  [dim red]removing stale database type:[/dim red] {db_type_dir.name}")
-                shutil.rmtree(db_type_dir)
-                removed_count += 1
+                    console.print(f"\n[yellow] Removed unused database:[/yellow] {type_folder_name}/{db_dir.name}")
 
-    return removed_count
+
+def get_database_identifier(db):
+    if db.type == "bigquery":
+        return db.project_id
+
+    elif db.type == "duckdb":
+        if db.path == ":memory:":
+            return "memory"
+        return Path(db.path).stem
+
+    elif db.type == "databricks":
+        return db.catalog or "main"
+
+    elif db.type == "snowflake":
+        return db.database
+
+    elif db.type == "postgres":
+        return db.database
+
+
+def cleanup_stale_repos(config_repos: list, base_path: Path, verbose: bool = False) -> None:
+    """Remove repositories that are not present in the config file."""
+
+    repo_names = {repo.name for repo in config_repos}
+    for repo_dir in base_path.iterdir():
+        if repo_dir.is_dir() and repo_dir.name not in repo_names:
+            shutil.rmtree(repo_dir)
+            if verbose:
+                console.print(f"\n[yellow] Removed unused repo:[/yellow] {repo_dir.name}")
