@@ -7,6 +7,9 @@ const allSchema = dbConfig.dialect === Dialect.Postgres ? pgSchema : sqliteSchem
 export type NewUser = typeof sqliteSchema.user.$inferInsert;
 export type User = typeof sqliteSchema.user.$inferSelect;
 
+export type NewAccount = typeof sqliteSchema.account.$inferInsert;
+export type Account = typeof sqliteSchema.account.$inferSelect;
+
 export type NewChat = typeof sqliteSchema.chat.$inferInsert;
 export type DBChat = typeof sqliteSchema.chat.$inferSelect;
 

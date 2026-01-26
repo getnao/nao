@@ -25,7 +25,7 @@ export const getErrorMessage = (error: unknown): string | null => {
 	return String(error);
 };
 
-export const verifyUserDomainForSSO = (userEmail: string) => {
+export const verifyUserDomainForGoogleOAuth = (userEmail: string) => {
 	const googleAuthDomains = process.env.GOOGLE_AUTH_DOMAINS;
 	if (googleAuthDomains) {
 		const allowedDomains = googleAuthDomains.split(',').map((domain) => domain.trim().toLowerCase());

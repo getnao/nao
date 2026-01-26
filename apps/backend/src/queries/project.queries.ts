@@ -51,6 +51,24 @@ export const getUserRoleInProject = async (
 	return member?.role ?? null;
 };
 
+export const getAllUsersWithRoles = async (
+	projectId: string,
+): Promise<{ id: string; name: string; email: string; role: 'admin' | 'user' | 'viewer' | null }[]> => {
+	const users = await userQueries.getAllUsers();
+	const usersWithRoles = await Promise.all(
+		users.map(async (user) => {
+			const role = await getUserRoleInProject(projectId, user.id);
+			return {
+				id: user.id,
+				name: user.name,
+				email: user.email,
+				role,
+			};
+		}),
+	);
+	return usersWithRoles;
+};
+
 export const checkUserHasProject = async (userId: string): Promise<DBProject | null> => {
 	const projectPath = process.env.NAO_DEFAULT_PROJECT_PATH;
 	if (!projectPath) {

@@ -61,10 +61,8 @@ export function GoogleConfigSection({ isAdmin }: GoogleConfigSectionProps) {
 	};
 
 	return (
-		<div className='grid gap-4 pt-4 border-t border-border'>
-			<h4 className='text-sm font-medium text-foreground'>Google Authentication</h4>
-
-			{isAdmin && !isEditing && (
+		<div className='grid gap-4'>
+			{hasEnvConfig && !isEditing && (
 				<button
 					type='button'
 					className='w-full text-left cursor-pointer'
@@ -94,7 +92,6 @@ export function GoogleConfigSection({ isAdmin }: GoogleConfigSectionProps) {
 				</button>
 			)}
 
-			{/* Add/Edit config form (admin only) */}
 			{isAdmin && isEditing && (
 				<div className='flex flex-col gap-3 p-4 rounded-lg border border-dashed border-border'>
 					<div className='grid gap-4'>

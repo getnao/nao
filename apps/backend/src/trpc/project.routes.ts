@@ -1,5 +1,6 @@
 import { z } from 'zod/v4';
 
+import * as projectQueries from '../queries/project.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import * as slackConfigQueries from '../queries/project-slack-config.queries';
 import { adminProtectedProcedure, projectProtectedProcedure } from './trpc';
@@ -118,5 +119,29 @@ export const projectRoutes = {
 	deleteSlackConfig: adminProtectedProcedure.mutation(async ({ ctx }) => {
 		await slackConfigQueries.deleteProjectSlackConfig(ctx.project.id);
 		return { success: true };
+	}),
+
+	addMemberToProject: adminProtectedProcedure
+		.input(
+			z.object({
+				userId: z.string().min(1),
+				projectId: z.string().min(1),
+				role: z.enum(['admin', 'user', 'viewer']),
+			}),
+		)
+		.mutation(async ({ ctx, input }) => {
+			await projectQueries.addProjectMember({
+				userId: input.userId,
+				projectId: ctx.project.id,
+				role: input.role,
+			});
+			return { success: true };
+		}),
+
+	getAllUsersWithRoles: projectProtectedProcedure.query(async ({ ctx }) => {
+		if (!ctx.project) {
+			return [];
+		}
+		return projectQueries.getAllUsersWithRoles(ctx.project.id);
 	}),
 };

@@ -4,8 +4,8 @@ import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { Input } from '@/components/ui/input';
 import { Sidebar } from '@/components/sidebar';
 import { signOut, useSession } from '@/lib/auth-client';
-import { ModifyUserInfo } from '@/components/settings-modify-user-info';
-import { GoogleConfigSection } from '@/components/settings-google-credentials';
+import { ModifyUserForm } from '@/components/settings-modify-user-form';
+import { GoogleConfigSection } from '@/components/settings-google-credentials-section';
 import { ThemeSelector } from '@/components/theme-selector';
 import { getAuthentificationNavigation } from '@/lib/utils';
 import { trpc } from '@/main';
@@ -13,6 +13,7 @@ import { UserProfileCard } from '@/components/settings-profile-card';
 import { SettingsCard } from '@/components/ui/settings-card';
 import { LlmProvidersSection } from '@/components/settings-llm-providers-section';
 import { SlackConfigSection } from '@/components/settings-slack-config-section';
+import { DisplayUsersSection } from '@/components/settings-display-users';
 
 export const Route = createFileRoute('/user')({
 	component: UserPage,
@@ -22,7 +23,7 @@ function UserPage() {
 	const navigate = useNavigate();
 	const { data: session } = useSession();
 	const user = session?.user;
-	const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+	const [isModifyUserOpen, setIsModifyUserOpen] = useState(false);
 	const queryClient = useQueryClient();
 	const navigation = getAuthentificationNavigation();
 	const project = useQuery(trpc.project.getCurrent.queryOptions());
@@ -49,7 +50,7 @@ function UserPage() {
 					<UserProfileCard
 						name={user?.name}
 						email={user?.email}
-						onEdit={() => setIsEditDialogOpen(true)}
+						onEdit={() => setIsModifyUserOpen(true)}
 						onSignOut={handleSignOut}
 					/>
 
@@ -92,13 +93,17 @@ function UserPage() {
 								</div>
 								<LlmProvidersSection isAdmin={isAdmin} />
 								<SlackConfigSection isAdmin={isAdmin} />
-								<GoogleConfigSection isAdmin={isAdmin} />
+								<DisplayUsersSection isAdmin={isAdmin} />
 							</div>
 						) : (
 							<p className='text-sm text-muted-foreground'>
 								No project configured. Set NAO_DEFAULT_PROJECT_PATH environment variable.
 							</p>
 						)}
+					</SettingsCard>
+
+					<SettingsCard title='Google Credentials'>
+						<GoogleConfigSection isAdmin={isAdmin} />
 					</SettingsCard>
 
 					{/* Appearance Section */}
@@ -110,7 +115,7 @@ function UserPage() {
 				</div>
 			</div>
 
-			<ModifyUserInfo open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen} />
+			<ModifyUserForm open={isModifyUserOpen} onOpenChange={setIsModifyUserOpen} />
 		</>
 	);
 }

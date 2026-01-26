@@ -14,11 +14,12 @@ interface ModifyUserInfoProps {
 	initialPicture?: string;
 }
 
-export function ModifyUserInfo({ open, onOpenChange }: ModifyUserInfoProps) {
+export function ModifyUserForm({ open, onOpenChange }: ModifyUserInfoProps) {
 	const { data: session, refetch } = useSession();
 	const user = session?.user;
 
 	const [name, setName] = useState(user?.name || '');
+	const [error, setError] = useState('');
 
 	useEffect(() => {
 		setName(user?.name || '');
@@ -30,13 +31,17 @@ export function ModifyUserInfo({ open, onOpenChange }: ModifyUserInfoProps) {
 				await refetch();
 				onOpenChange(false);
 			},
+			onError: () => {
+				setError('An error occurred while updating the profile.');
+			},
 		}),
 	);
 
 	const handleValidate = async () => {
+		setError('');
 		if (user) {
 			await modifyUser.mutateAsync({
-				userID: user.id,
+				userId: user.id,
 				name: name,
 			});
 		}
@@ -62,6 +67,7 @@ export function ModifyUserInfo({ open, onOpenChange }: ModifyUserInfoProps) {
 						/>
 					</div>
 				</div>
+				{error && <p className='text-red-500 text-center text-base'>{error}</p>}
 				<div className='flex justify-end'>
 					<Button onClick={handleValidate}>Validate changes</Button>
 				</div>
