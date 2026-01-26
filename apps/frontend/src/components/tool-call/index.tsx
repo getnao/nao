@@ -1,4 +1,4 @@
-import { ToolCallProvider } from '../../contexts/tool-call.context';
+import { ToolCallProvider } from '../../contexts/tool-call.provider';
 import { DefaultToolCall } from './default';
 
 import { DisplayChartToolCall } from './display-chart';

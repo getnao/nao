@@ -30,6 +30,9 @@ jobs:
             - name: Install dependencies
               run: uv sync --dev
 
+            - name: Run pytest
+              run: uv run pytest
+
             - name: Ruff check
               run: uv run ruff check
 

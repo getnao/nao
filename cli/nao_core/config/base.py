@@ -69,11 +69,14 @@ class NaoConfig(BaseModel):
         """Try to load config from path, returns None if not found or invalid.
 
         Args:
-            path: Directory containing nao_config.yaml. Defaults to current directory.
+            path: Directory containing nao_config.yaml. Defaults to NAO_DEFAULT_PROJECT_PATH
+                  environment variable if set, otherwise current directory.
         """
         if path is None:
-            path = Path.cwd()
+            default_path = os.environ.get("NAO_DEFAULT_PROJECT_PATH")
+            path = Path(default_path) if default_path else Path.cwd()
         try:
+            os.chdir(path)
             return cls.load(path)
         except (FileNotFoundError, ValueError, yaml.YAMLError):
             return None
@@ -85,7 +88,8 @@ class NaoConfig(BaseModel):
 
     @staticmethod
     def _process_env_vars(content: str) -> str:
-        regex = re.compile(r"\$\{\{\s*env\(['\"]([^'\"]+)['\"]\)\s*\}\}")
+        # Support both ${{ env('VAR') }} and {{ env('VAR') }} formats
+        regex = re.compile(r"\$?\{\{\s*env\(['\"]([^'\"]+)['\"]\)\s*\}\}")
 
         def replacer(match: re.Match[str]) -> str:
             env_var = match.group(1)

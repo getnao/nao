@@ -1,0 +1,23 @@
+{#
+  Template: columns.md.j2
+  Description: Generates column documentation for a database table
+  
+  Available variables:
+    - table_name (str): Name of the table
+    - dataset (str): Schema/dataset name
+    - columns (list): List of column dictionaries with:
+        - name (str): Column name
+        - type (str): Data type
+        - nullable (bool): Whether the column allows nulls
+        - description (str|None): Column description if available
+    - column_count (int): Total number of columns
+#}
+# {{ table_name }}
+
+**Dataset:** `{{ dataset }}`
+
+## Columns ({{ column_count }})
+
+{% for col in columns %}
+- {{ col.name }} ({{ col.type }}{% if col.description %}, "{{ col.description | truncate_middle(256) }}"{% endif %})
+{% endfor %}

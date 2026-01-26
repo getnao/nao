@@ -1,8 +1,7 @@
 import { useState } from 'react';
 import { ThumbsUp, ThumbsDown, Copy, Check } from 'lucide-react';
 import { useMutation } from '@tanstack/react-query';
-import { useParams } from '@tanstack/react-router';
-import { NegativeFeedbackDialog } from './negative-feedback-dialog';
+import { NegativeFeedbackDialog } from './chat-negative-feedback-dialog';
 import type { UIMessage } from 'backend/chat';
 import { Button } from '@/components/ui/button';
 import { serializeMessageForCopy } from '@/lib/messages.utils';
@@ -12,10 +11,10 @@ import { cn } from '@/lib/utils';
 interface MessageActionsProps {
 	message: UIMessage;
 	className?: string;
+	chatId: string;
 }
 
-export function MessageActions({ message, className }: MessageActionsProps) {
-	const chatId = useParams({ from: '/_chat-layout/$chatId' }).chatId;
+export function MessageActions({ message, className, chatId }: MessageActionsProps) {
 	const [showFeedbackDialog, setShowFeedbackDialog] = useState(false);
 	const [copied, setCopied] = useState(false);
 

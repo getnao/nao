@@ -9,18 +9,14 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as UserRouteImport } from './routes/user'
 import { Route as SignupRouteImport } from './routes/signup'
 import { Route as LoginRouteImport } from './routes/login'
-import { Route as ChatLayoutRouteImport } from './routes/_chat-layout'
-import { Route as ChatLayoutIndexRouteImport } from './routes/_chat-layout.index'
-import { Route as ChatLayoutChatIdRouteImport } from './routes/_chat-layout.$chatId'
+import { Route as SidebarLayoutRouteImport } from './routes/_sidebar-layout'
+import { Route as SidebarLayoutUserRouteImport } from './routes/_sidebar-layout.user'
+import { Route as SidebarLayoutChatLayoutRouteImport } from './routes/_sidebar-layout._chat-layout'
+import { Route as SidebarLayoutChatLayoutIndexRouteImport } from './routes/_sidebar-layout._chat-layout.index'
+import { Route as SidebarLayoutChatLayoutChatIdRouteImport } from './routes/_sidebar-layout._chat-layout.$chatId'
 
-const UserRoute = UserRouteImport.update({
-  id: '/user',
-  path: '/user',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const SignupRoute = SignupRouteImport.update({
   id: '/signup',
   path: '/signup',
@@ -31,43 +27,55 @@ const LoginRoute = LoginRouteImport.update({
   path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ChatLayoutRoute = ChatLayoutRouteImport.update({
-  id: '/_chat-layout',
+const SidebarLayoutRoute = SidebarLayoutRouteImport.update({
+  id: '/_sidebar-layout',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ChatLayoutIndexRoute = ChatLayoutIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => ChatLayoutRoute,
+const SidebarLayoutUserRoute = SidebarLayoutUserRouteImport.update({
+  id: '/user',
+  path: '/user',
+  getParentRoute: () => SidebarLayoutRoute,
 } as any)
-const ChatLayoutChatIdRoute = ChatLayoutChatIdRouteImport.update({
-  id: '/$chatId',
-  path: '/$chatId',
-  getParentRoute: () => ChatLayoutRoute,
+const SidebarLayoutChatLayoutRoute = SidebarLayoutChatLayoutRouteImport.update({
+  id: '/_chat-layout',
+  getParentRoute: () => SidebarLayoutRoute,
 } as any)
+const SidebarLayoutChatLayoutIndexRoute =
+  SidebarLayoutChatLayoutIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => SidebarLayoutChatLayoutRoute,
+  } as any)
+const SidebarLayoutChatLayoutChatIdRoute =
+  SidebarLayoutChatLayoutChatIdRouteImport.update({
+    id: '/$chatId',
+    path: '/$chatId',
+    getParentRoute: () => SidebarLayoutChatLayoutRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/signup': typeof SignupRoute
-  '/user': typeof UserRoute
-  '/$chatId': typeof ChatLayoutChatIdRoute
-  '/': typeof ChatLayoutIndexRoute
+  '/user': typeof SidebarLayoutUserRoute
+  '/$chatId': typeof SidebarLayoutChatLayoutChatIdRoute
+  '/': typeof SidebarLayoutChatLayoutIndexRoute
 }
 export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/signup': typeof SignupRoute
-  '/user': typeof UserRoute
-  '/$chatId': typeof ChatLayoutChatIdRoute
-  '/': typeof ChatLayoutIndexRoute
+  '/user': typeof SidebarLayoutUserRoute
+  '/$chatId': typeof SidebarLayoutChatLayoutChatIdRoute
+  '/': typeof SidebarLayoutChatLayoutIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
-  '/_chat-layout': typeof ChatLayoutRouteWithChildren
+  '/_sidebar-layout': typeof SidebarLayoutRouteWithChildren
   '/login': typeof LoginRoute
   '/signup': typeof SignupRoute
-  '/user': typeof UserRoute
-  '/_chat-layout/$chatId': typeof ChatLayoutChatIdRoute
-  '/_chat-layout/': typeof ChatLayoutIndexRoute
+  '/_sidebar-layout/_chat-layout': typeof SidebarLayoutChatLayoutRouteWithChildren
+  '/_sidebar-layout/user': typeof SidebarLayoutUserRoute
+  '/_sidebar-layout/_chat-layout/$chatId': typeof SidebarLayoutChatLayoutChatIdRoute
+  '/_sidebar-layout/_chat-layout/': typeof SidebarLayoutChatLayoutIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -76,30 +84,23 @@ export interface FileRouteTypes {
   to: '/login' | '/signup' | '/user' | '/$chatId' | '/'
   id:
     | '__root__'
-    | '/_chat-layout'
+    | '/_sidebar-layout'
     | '/login'
     | '/signup'
-    | '/user'
-    | '/_chat-layout/$chatId'
-    | '/_chat-layout/'
+    | '/_sidebar-layout/_chat-layout'
+    | '/_sidebar-layout/user'
+    | '/_sidebar-layout/_chat-layout/$chatId'
+    | '/_sidebar-layout/_chat-layout/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
-  ChatLayoutRoute: typeof ChatLayoutRouteWithChildren
+  SidebarLayoutRoute: typeof SidebarLayoutRouteWithChildren
   LoginRoute: typeof LoginRoute
   SignupRoute: typeof SignupRoute
-  UserRoute: typeof UserRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/user': {
-      id: '/user'
-      path: '/user'
-      fullPath: '/user'
-      preLoaderRoute: typeof UserRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/signup': {
       id: '/signup'
       path: '/signup'
@@ -114,49 +115,78 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/_chat-layout': {
-      id: '/_chat-layout'
+    '/_sidebar-layout': {
+      id: '/_sidebar-layout'
       path: ''
       fullPath: ''
-      preLoaderRoute: typeof ChatLayoutRouteImport
+      preLoaderRoute: typeof SidebarLayoutRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/_chat-layout/': {
-      id: '/_chat-layout/'
+    '/_sidebar-layout/user': {
+      id: '/_sidebar-layout/user'
+      path: '/user'
+      fullPath: '/user'
+      preLoaderRoute: typeof SidebarLayoutUserRouteImport
+      parentRoute: typeof SidebarLayoutRoute
+    }
+    '/_sidebar-layout/_chat-layout': {
+      id: '/_sidebar-layout/_chat-layout'
+      path: ''
+      fullPath: ''
+      preLoaderRoute: typeof SidebarLayoutChatLayoutRouteImport
+      parentRoute: typeof SidebarLayoutRoute
+    }
+    '/_sidebar-layout/_chat-layout/': {
+      id: '/_sidebar-layout/_chat-layout/'
       path: '/'
       fullPath: '/'
-      preLoaderRoute: typeof ChatLayoutIndexRouteImport
-      parentRoute: typeof ChatLayoutRoute
+      preLoaderRoute: typeof SidebarLayoutChatLayoutIndexRouteImport
+      parentRoute: typeof SidebarLayoutChatLayoutRoute
     }
-    '/_chat-layout/$chatId': {
-      id: '/_chat-layout/$chatId'
+    '/_sidebar-layout/_chat-layout/$chatId': {
+      id: '/_sidebar-layout/_chat-layout/$chatId'
       path: '/$chatId'
       fullPath: '/$chatId'
-      preLoaderRoute: typeof ChatLayoutChatIdRouteImport
-      parentRoute: typeof ChatLayoutRoute
+      preLoaderRoute: typeof SidebarLayoutChatLayoutChatIdRouteImport
+      parentRoute: typeof SidebarLayoutChatLayoutRoute
     }
   }
 }
 
-interface ChatLayoutRouteChildren {
-  ChatLayoutChatIdRoute: typeof ChatLayoutChatIdRoute
-  ChatLayoutIndexRoute: typeof ChatLayoutIndexRoute
+interface SidebarLayoutChatLayoutRouteChildren {
+  SidebarLayoutChatLayoutChatIdRoute: typeof SidebarLayoutChatLayoutChatIdRoute
+  SidebarLayoutChatLayoutIndexRoute: typeof SidebarLayoutChatLayoutIndexRoute
 }
 
-const ChatLayoutRouteChildren: ChatLayoutRouteChildren = {
-  ChatLayoutChatIdRoute: ChatLayoutChatIdRoute,
-  ChatLayoutIndexRoute: ChatLayoutIndexRoute,
+const SidebarLayoutChatLayoutRouteChildren: SidebarLayoutChatLayoutRouteChildren =
+  {
+    SidebarLayoutChatLayoutChatIdRoute: SidebarLayoutChatLayoutChatIdRoute,
+    SidebarLayoutChatLayoutIndexRoute: SidebarLayoutChatLayoutIndexRoute,
+  }
+
+const SidebarLayoutChatLayoutRouteWithChildren =
+  SidebarLayoutChatLayoutRoute._addFileChildren(
+    SidebarLayoutChatLayoutRouteChildren,
+  )
+
+interface SidebarLayoutRouteChildren {
+  SidebarLayoutChatLayoutRoute: typeof SidebarLayoutChatLayoutRouteWithChildren
+  SidebarLayoutUserRoute: typeof SidebarLayoutUserRoute
 }
 
-const ChatLayoutRouteWithChildren = ChatLayoutRoute._addFileChildren(
-  ChatLayoutRouteChildren,
+const SidebarLayoutRouteChildren: SidebarLayoutRouteChildren = {
+  SidebarLayoutChatLayoutRoute: SidebarLayoutChatLayoutRouteWithChildren,
+  SidebarLayoutUserRoute: SidebarLayoutUserRoute,
+}
+
+const SidebarLayoutRouteWithChildren = SidebarLayoutRoute._addFileChildren(
+  SidebarLayoutRouteChildren,
 )
 
 const rootRouteChildren: RootRouteChildren = {
-  ChatLayoutRoute: ChatLayoutRouteWithChildren,
+  SidebarLayoutRoute: SidebarLayoutRouteWithChildren,
   LoginRoute: LoginRoute,
   SignupRoute: SignupRoute,
-  UserRoute: UserRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

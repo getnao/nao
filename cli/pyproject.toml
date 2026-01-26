@@ -1,6 +1,6 @@
 [project]
 name = "nao-core"
-version = "0.0.30"
+version = "0.0.34"
 description = "nao Core is your analytics context builder with the best chat interface."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -32,6 +32,8 @@ dependencies = [
     "dotenv>=0.9.9",
     "pytest>=9.0.2",
     "python-dotenv>=1.2.1",
+    "jinja2>=3.1.0",
+    "apscheduler>=3.10.0",
 ]
 
 [project.scripts]

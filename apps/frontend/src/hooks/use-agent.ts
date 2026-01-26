@@ -22,6 +22,8 @@ export type AgentHelpers = {
 	isReadyForNewMessages: boolean;
 	stopAgent: () => Promise<void>;
 	registerScrollDown: (fn: ScrollToBottom) => { dispose: () => void };
+	error: Error | undefined;
+	clearError: UseChatHelpers<UIMessage>['clearError'];
 };
 
 export const useAgent = (): AgentHelpers => {
@@ -76,15 +78,16 @@ export const useAgent = (): AgentHelpers => {
 				}));
 
 				// Navigate to the new chat id
-				navigate({ to: '/$chatId', params: { chatId: newChat.id } });
+				navigate({ to: '/$chatId', params: { chatId: newChat.id }, state: { fromMessageSend: true } });
 			},
 			onFinish: () => {
 				if (chatIdRef.current !== agentId) {
 					agentService.disposeAgent(agentId);
 				}
 			},
-			onError: (error) => {
-				console.error(error);
+			onError: (_error) => {
+				// Keep this to remember that we can handle errors here
+				// console.error(error);
 			},
 		});
 
@@ -104,24 +107,18 @@ export const useAgent = (): AgentHelpers => {
 		await stopAgentMutation.mutateAsync({ chatId });
 	}, [chatId, agentInstance, stopAgentMutation.mutateAsync]); // eslint-disable-line
 
-	const isRunning = agent.status === 'streaming' || agent.status === 'submitted';
+	const isRunning = checkIsAgentRunning(agent);
 
 	const sendMessage = useCallback(
 		async (args: Parameters<UseChatHelpers<UIMessage>['sendMessage']>[0]) => {
 			if (isRunning) {
 				return;
 			}
-			scrollDownService.scrollDown({
-				animation: {
-					damping: 0.85,
-					stiffness: 0.045,
-					mass: 1.4,
-				},
-				wait: true,
-			});
+			agent.clearError();
+			scrollDownService.scrollDown({ animation: 'smooth' }); // TODO: 'smooth' doesn't work
 			return agent.sendMessage(args);
 		},
-		[isRunning, agent.sendMessage, scrollDownService.scrollDown], // eslint-disable-line
+		[isRunning, agent.sendMessage, agent.clearError, scrollDownService.scrollDown], // eslint-disable-line
 	);
 
 	return useMemoObject({
@@ -133,6 +130,8 @@ export const useAgent = (): AgentHelpers => {
 		isReadyForNewMessages: chatId ? !!chat.data && !isRunning : true,
 		stopAgent,
 		registerScrollDown: scrollDownService.register,
+		error: agent.error,
+		clearError: agent.clearError,
 	});
 };
 
@@ -176,7 +175,7 @@ export const useDisposeInactiveAgents = () => {
 				return;
 			}
 
-			const isRunning = checkIsAgentRunning(agent.status);
+			const isRunning = checkIsAgentRunning(agent);
 			if (!isRunning) {
 				agentService.disposeAgent(agentIdToDispose);
 			}

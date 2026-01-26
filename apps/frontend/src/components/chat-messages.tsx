@@ -1,11 +1,13 @@
 import { Streamdown } from 'streamdown';
 import { useEffect, useMemo, useRef } from 'react';
-import { useParams } from '@tanstack/react-router';
+import { useParams, useRouterState } from '@tanstack/react-router';
 import { useStickToBottomContext } from 'use-stick-to-bottom';
 import { ToolCall } from './tool-call';
+import { ToolCallsGroup } from './tool-call/tool-calls-group';
 import { ReasoningAccordion } from './chat-message-reasoning-accordion';
 import { AgentMessageLoader } from './ui/agent-message-loader';
 import { MessageActions } from './chat-message-actions';
+import { ChatError } from './chat-error';
 import type { UIMessage } from 'backend/chat';
 import type { MessageGroup } from '@/types/messages';
 import {
@@ -15,11 +17,12 @@ import {
 	ConversationScrollButton,
 	ConversationHistoryIndicator,
 } from '@/components/ui/conversation';
-import { checkIsAgentGenerating, isToolUIPart } from '@/lib/ai';
+import { isToolUIPart, checkIsAgentGenerating, groupToolCalls, isToolGroupPart } from '@/lib/ai';
 import { cn, isLast } from '@/lib/utils';
 import { useAgentContext } from '@/contexts/agent.provider';
 import { useHeight } from '@/hooks/use-height';
 import { groupMessages } from '@/lib/messages.utils';
+import { useDebounce } from '@/hooks/use-debounce';
 
 const DEBUG_MESSAGES = false;
 
@@ -29,9 +32,12 @@ export function ChatMessages() {
 	const containerHeight = useHeight(contentRef, [chatId]);
 	const { messages } = useAgentContext();
 
+	// Skip fade-in animation when navigating from home after sending a message
+	const fromMessageSend = useRouterState({ select: (state) => state.location.state.fromMessageSend });
+
 	return (
 		<div
-			className='h-full min-h-0 flex animate-fade-in'
+			className={cn('h-full min-h-0 flex', !fromMessageSend && 'animate-fade-in')}
 			ref={contentRef}
 			style={{ '--container-height': `${containerHeight}px` } as React.CSSProperties}
 			key={chatId}
@@ -51,7 +57,7 @@ export function ChatMessages() {
 const ChatMessagesContent = () => {
 	const { messages, status, isRunning, registerScrollDown } = useAgentContext();
 	const { scrollToBottom } = useStickToBottomContext();
-	const isGenerating = checkIsAgentGenerating(status, messages);
+	const isAgentGenerating = checkIsAgentGenerating({ status, messages });
 
 	useEffect(() => {
 		// Register the scroll down fn so the agent context has access to it.
@@ -63,6 +69,16 @@ const ChatMessagesContent = () => {
 
 	const messageGroups = useMemo(() => groupMessages(messages), [messages]);
 
+	/** `true` when the agent is running but it's not yet streaming content (text, reasoning or tool calls) */
+	const isWaitingForAgentContentGeneration = isRunning && !isAgentGenerating;
+
+	// Debounce the value to prevent flickering
+	const debouncedIsWaitingForAgentContentGeneration = useDebounce({
+		value: isWaitingForAgentContentGeneration,
+		delay: 50,
+		skipDebounce: (value) => !value, // Skip debounce if the value equals `false` to immediately remove the loader
+	});
+
 	return (
 		<>
 			{messageGroups.length === 0 ? (
@@ -72,7 +88,7 @@ const ChatMessagesContent = () => {
 					<MessageGroup
 						key={group.user.id}
 						group={group}
-						showResponseLoader={isLast(group, messageGroups) && isRunning && !isGenerating}
+						showResponseLoader={isLast(group, messageGroups) && debouncedIsWaitingForAgentContentGeneration}
 					/>
 				))
 			)}
@@ -91,7 +107,9 @@ function MessageGroup({ group, showResponseLoader }: { group: MessageGroup; show
 				/>
 			))}
 
-			{showResponseLoader && !group.responses.length && <AgentMessageLoader className='p-0' />}
+			{showResponseLoader && !group.responses.length && <AgentMessageLoader />}
+
+			<ChatError />
 		</div>
 	);
 }
@@ -103,7 +121,7 @@ function MessageBlock({ message, showResponseLoader }: { message: UIMessage; sho
 		return (
 			<div
 				className={cn(
-					'flex gap-3',
+					'flex gap-3 text-xs',
 					isUser ? 'justify-end bg-primary text-primary-foreground w-min ml-auto' : 'justify-start',
 				)}
 			>
@@ -145,7 +163,10 @@ const AssistantMessageBlock = ({
 	message: UIMessage;
 	showResponseLoader: boolean;
 }) => {
-	const { isRunning } = useAgentContext();
+	const chatId = useParams({ strict: false }).chatId;
+	const { isRunning, messages } = useAgentContext();
+	const isLastMessage = isLast(message, messages);
+	const groupedParts = useMemo(() => groupToolCalls(message.parts), [message.parts]);
 
 	if (!message.parts.length && !showResponseLoader) {
 		return null;
@@ -153,11 +174,22 @@ const AssistantMessageBlock = ({
 
 	return (
 		<div className={cn('group px-3 flex flex-col gap-2 bg-transparent')}>
-			{message.parts.map((p, i) => {
-				const isPartStreaming = 'state' in p && p.state === 'streaming';
+			{groupedParts.map((p, i) => {
+				if (isToolGroupPart(p)) {
+					return (
+						<ToolCallsGroup
+							key={i}
+							parts={p.parts}
+							expand={isLastMessage && isLast(p, groupedParts) && isRunning}
+						/>
+					);
+				}
+
 				if (isToolUIPart(p)) {
 					return <ToolCall key={i} toolPart={p} />;
 				}
+
+				const isPartStreaming = 'state' in p && p.state === 'streaming';
 
 				switch (p.type) {
 					case 'text':
@@ -180,10 +212,14 @@ const AssistantMessageBlock = ({
 
 			{showResponseLoader && <AgentMessageLoader className='p-0' />}
 
-			{!isRunning && (
+			{chatId && (
 				<MessageActions
 					message={message}
-					className='opacity-0 group-last/message:opacity-100 group-hover:opacity-100 transition-opacity duration-200'
+					chatId={chatId}
+					className={cn(
+						'opacity-0 group-last/message:opacity-100 group-hover:opacity-100 transition-opacity duration-200',
+						isRunning ? 'group-last/message:hidden' : '',
+					)}
 				/>
 			)}
 		</div>

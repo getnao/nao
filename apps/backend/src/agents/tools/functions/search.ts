@@ -2,7 +2,7 @@ import fs from 'fs/promises';
 import { glob } from 'glob';
 import path from 'path';
 
-import { getProjectFolder, isWithinProjectFolder, toVirtualPath } from '../../../utils/tools';
+import { getProjectFolder, isWithinProjectFolder, loadNaoignorePatterns, toVirtualPath } from '../../../utils/tools';
 import type { Input, Output } from '../schema/search';
 
 export const execute = async ({ pattern }: Input): Promise<Output> => {
@@ -19,9 +19,20 @@ export const execute = async ({ pattern }: Input): Promise<Output> => {
 	// Make pattern recursive if not already
 	const sanitizedPattern = pattern.startsWith('**/') ? pattern : `**/${pattern}`;
 
-	const files = await glob(sanitizedPattern, { absolute: true, cwd: projectFolder });
+	// Build ignore patterns from .naoignore
+	const naoignorePatterns = loadNaoignorePatterns(projectFolder);
+	const ignorePatterns = naoignorePatterns.flatMap((ignorePattern) => {
+		const cleanPattern = ignorePattern.endsWith('/') ? ignorePattern.slice(0, -1) : ignorePattern;
+		return [`**/${cleanPattern}`, `**/${cleanPattern}/**`];
+	});
 
-	// Filter to only files within the project folder and not in excluded dirs
+	const files = await glob(sanitizedPattern, {
+		absolute: true,
+		cwd: projectFolder,
+		ignore: ignorePatterns,
+	});
+
+	// Filter to only files within the project folder and not in excluded dirs (double-check)
 	const safeFiles = files.filter((f) => isWithinProjectFolder(f, projectFolder));
 
 	return await Promise.all(

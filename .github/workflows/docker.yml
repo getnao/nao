@@ -1,0 +1,103 @@
+name: Docker Build & Deploy
+
+on:
+    push:
+        branches:
+            - main
+            - '**docker'
+    pull_request:
+        branches:
+            - main
+
+env:
+    REGISTRY: docker.io
+    IMAGE_NAME: getnao/nao
+
+jobs:
+    build-and-push:
+        name: Build and Push Docker Image
+        runs-on: ubuntu-latest
+
+        outputs:
+            image-tag: ${{ steps.sha.outputs.short_sha }}
+
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Get short SHA
+              id: sha
+              run: echo "short_sha=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+
+            - name: Set up Docker Buildx
+              uses: docker/setup-buildx-action@v3
+
+            - name: Log in to Docker Hub
+              if: github.event_name != 'pull_request'
+              uses: docker/login-action@v3
+              with:
+                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+            - name: Extract metadata (tags, labels)
+              id: meta
+              uses: docker/metadata-action@v5
+              with:
+                  images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+                  tags: |
+                      type=raw,value=latest,enable={{is_default_branch}}
+                      type=ref,event=branch
+                      type=semver,pattern={{version}}
+                      type=semver,pattern={{major}}.{{minor}}
+                      type=sha,prefix=
+
+            - name: Build and push Docker image
+              uses: docker/build-push-action@v6
+              with:
+                  context: .
+                  platforms: linux/amd64,linux/arm64
+                  push: ${{ github.event_name != 'pull_request' }}
+                  tags: ${{ steps.meta.outputs.tags }}
+                  labels: ${{ steps.meta.outputs.labels }}
+                  cache-from: type=gha
+                  cache-to: type=gha,mode=max
+
+            - name: Update Docker Hub description
+              if: github.event_name != 'pull_request'
+              uses: peter-evans/dockerhub-description@v4
+              with:
+                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+                  repository: ${{ env.IMAGE_NAME }}
+                  readme-filepath: ./README-dockerhub.md
+
+    deploy:
+        name: Deploy to GCP instance
+        runs-on: ubuntu-latest
+        needs: build-and-push
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || endsWith(github.ref, 'docker'))
+
+        steps:
+            - name: Deploy with remote ssh commands using ssh key
+              uses: appleboy/ssh-action@master
+              with:
+                  host: ${{ secrets.VM_HOST }}
+                  username: github-actions-demo
+                  key: ${{ secrets.PRIVATE_KEY }}
+                  script: |
+                      docker pull getnao/nao:${{ needs.build-and-push.outputs.image-tag }}
+                      docker rm -f nao-chat 2>/dev/null || true
+                      docker run -p 5005:5005 \
+                        -e "TRUSTED_ORIGINS=https://moon.getnao.io" \
+                        -e "DB_SSL=true" \
+                        -e "DB_URI=postgres://${{ secrets.POSTGRES_USER }}:${{ secrets.POSTGRES_PASSWORD }}@${{ secrets.POSTGRES_HOST }}:${{ secrets.POSTGRES_PORT }}/${{ secrets.POSTGRES_DB }}" \
+                        -e "NAO_CONTEXT_SOURCE=git" \
+                        -e "NAO_CONTEXT_GIT_URL=${{ secrets.NAO_CONTEXT_GIT_URL }}" \
+                        -e "NAO_CONTEXT_GIT_TOKEN=${{ secrets.NAO_CONTEXT_GIT_TOKEN }}" \
+                        -e "NAO_DEFAULT_PROJECT_PATH=/app/chat-analytics" \
+                        -e GOOGLE_APPLICATION_CREDENTIALS_JSON='${{ secrets.GOOGLE_APPLICATION_CREDENTIALS_JSON }}' \
+                        -e "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" \
+                        -e "ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}" \
+                        -e "BETTER_AUTH_SECRET=${{ secrets.BETTER_AUTH_SECRET }}" \
+                        -e "FASTAPI_URL=http://127.0.0.1:8005" \
+                        --name nao-chat \
+                        -d getnao/nao:${{ needs.build-and-push.outputs.image-tag }}

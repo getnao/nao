@@ -127,6 +127,29 @@ Usage: nao COMMAND
 ╰───────────────────────────────────────────────────────────────────────────╯
 ```
 
+## 🐳 Docker
+
+Pull the image from DockerHub:
+
+```bash
+docker pull getnao/nao:latest
+```
+
+Run with Docker:
+
+```bash
+docker run -d \
+  --name nao \
+  -p 5005:5005 \
+  -e NAO_DEFAULT_PROJECT_PATH=/app/example \
+  -e OPENAI_API_KEY=sk-... \
+  getnao/nao:latest
+```
+
+Access the UI at http://localhost:5005
+
+See the [DockerHub page](https://hub.docker.com/r/getnao/nao) for more details.
+
 ## 👩🏻‍💻 Development
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, commands, and guidelines.

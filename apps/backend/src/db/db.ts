@@ -9,7 +9,8 @@ import * as sqliteSchema from './sqliteSchema';
 
 function createDb() {
 	if (dbConfig.dialect === Dialect.Postgres) {
-		const sql = postgres(dbConfig.dbUrl);
+		const ssl = process.env.DB_SSL === 'true' ? 'require' : undefined;
+		const sql = postgres(dbConfig.dbUrl, { ssl });
 		return drizzlePostgres(sql, { schema: pgSchema });
 	} else {
 		const sqlite = new Sqlite(dbConfig.dbUrl);

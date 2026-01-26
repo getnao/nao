@@ -8,10 +8,12 @@ This script:
 4. Bundles everything into a Python wheel
 """
 
+import json
 import re
 import shutil
 import subprocess
 import sys
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Annotated
@@ -33,6 +35,38 @@ def run(cmd: list[str], cwd: Path | None = None, env: dict | None = None) -> Non
     if result.returncode != 0:
         print(f"❌ Command failed: {' '.join(cmd)}")
         sys.exit(1)
+
+
+def get_git_commit(project_root: Path) -> str:
+    """Get the current git commit hash."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=project_root,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except Exception:
+        pass
+    return "unknown"
+
+
+def get_git_commit_short(project_root: Path) -> str:
+    """Get the short git commit hash."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=project_root,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except Exception:
+        pass
+    return "unknown"
 
 
 def parse_version(version: str) -> tuple[int, int, int]:
@@ -210,6 +244,19 @@ def build_server(project_root: Path, output_dir: Path) -> None:
     # Cleanup temporary public folder in backend
     shutil.rmtree(backend_public)
 
+    # Step 9: Write git commit info
+    print("\n📦 Writing build info...")
+    commit_hash = get_git_commit(project_root)
+    commit_short = get_git_commit_short(project_root)
+    build_info_path = output_dir / "build-info.json"
+    build_info = {
+        "commit": commit_hash,
+        "commitShort": commit_short,
+        "buildTime": datetime.now(timezone.utc).isoformat(),
+    }
+    build_info_path.write_text(json.dumps(build_info, indent=2))
+    print(f"   Build info: {build_info_path} (commit: {commit_short})")
+
     print("\n✓ Server build complete!")
     print(f"   Binary: {output_dir / 'nao-chat-server'}")
     print(f"   Assets: {output_public}")
@@ -271,6 +318,8 @@ def build(
         print(f"\n🔖 Bumping version: {current} → {new_version}")
         update_version(cli_dir, new_version)
 
+    build_info_path = output_dir / "build-info.json"
+
     # Check if we need to build the server
     needs_build = (
         force
@@ -280,6 +329,7 @@ def build(
         or not postgres_migrations_dir.exists()
         or not fastapi_dir.exists()
         or not rg_path.exists()
+        or not build_info_path.exists()
     )
 
     if skip_server:
@@ -312,6 +362,9 @@ def build(
         print(f"   FastAPI server: {fastapi_dir}")
     if rg_path.exists():
         print(f"   Ripgrep: {rg_path}")
+    if build_info_path.exists():
+        build_info = json.loads(build_info_path.read_text())
+        print(f"   Build commit: {build_info.get('commitShort', 'unknown')}")
 
     # Build the Python package
     build_package(cli_dir)

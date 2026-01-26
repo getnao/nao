@@ -1,5 +1,5 @@
 import { Sun, Moon, Monitor } from 'lucide-react';
-import { useTheme } from '@/contexts/themeProvider';
+import { useTheme } from '@/contexts/theme.provider';
 
 export const ThemeSelector = () => {
 	const { theme, setTheme } = useTheme();

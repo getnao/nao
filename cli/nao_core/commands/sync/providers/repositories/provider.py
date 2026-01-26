@@ -1,11 +1,15 @@
-"""Repository syncing functionality for cloning and pulling git repositories."""
+"""Repository sync provider implementation."""
 
 import subprocess
 from pathlib import Path
+from typing import Any
 
 from rich.console import Console
 
+from nao_core.config import NaoConfig
 from nao_core.config.repos import RepoConfig
+
+from ..base import SyncProvider, SyncResult
 
 console = Console()
 
@@ -76,28 +80,47 @@ def clone_or_pull_repo(repo: RepoConfig, base_path: Path) -> bool:
         return False
 
 
-def sync_repositories(repos: list[RepoConfig], base_path: Path) -> int:
-    """Sync all configured repositories.
+class RepositorySyncProvider(SyncProvider):
+    """Provider for syncing git repositories."""
 
-    Args:
-            repos: List of repository configurations
-            base_path: Base path where repositories are stored
+    @property
+    def name(self) -> str:
+        return "Repositories"
 
-    Returns:
-            Number of successfully synced repositories
-    """
-    if not repos:
-        return 0
+    @property
+    def emoji(self) -> str:
+        return "📦"
 
-    base_path.mkdir(parents=True, exist_ok=True)
-    success_count = 0
+    @property
+    def default_output_dir(self) -> str:
+        return "repos"
 
-    console.print("\n[bold cyan]📦 Syncing Repositories[/bold cyan]")
-    console.print(f"[dim]Location:[/dim] {base_path.absolute()}\n")
+    def get_items(self, config: NaoConfig) -> list[RepoConfig]:
+        return config.repos
 
-    for repo in repos:
-        if clone_or_pull_repo(repo, base_path):
-            success_count += 1
-            console.print(f"  [green]✓[/green] {repo.name}")
+    def sync(self, items: list[Any], output_path: Path, project_path: Path | None = None) -> SyncResult:
+        """Sync all configured repositories.
 
-    return success_count
+        Args:
+                items: List of repository configurations
+                output_path: Base path where repositories are stored
+                project_path: Path to the nao project root (unused for repos)
+
+        Returns:
+                SyncResult with number of successfully synced repositories
+        """
+        if not items:
+            return SyncResult(provider_name=self.name, items_synced=0)
+
+        output_path.mkdir(parents=True, exist_ok=True)
+        success_count = 0
+
+        console.print(f"\n[bold cyan]{self.emoji} Syncing {self.name}[/bold cyan]")
+        console.print(f"[dim]Location:[/dim] {output_path.absolute()}\n")
+
+        for repo in items:
+            if clone_or_pull_repo(repo, output_path):
+                success_count += 1
+                console.print(f"  [green]✓[/green] {repo.name}")
+
+        return SyncResult(provider_name=self.name, items_synced=success_count)

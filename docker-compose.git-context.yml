@@ -1,0 +1,71 @@
+# =============================================================================
+# Docker Compose for Git-based Context
+# =============================================================================
+# This example shows how to deploy nao with context loaded from a git repository.
+# No volume mount is required - the container clones the context on startup.
+#
+# Usage:
+#   docker-compose -f docker-compose.git-context.yml up -d
+#
+# Prerequisites:
+#   1. Create a git repo with your nao context (nao_config.yaml, databases/, etc.)
+#   2. Set up CI/CD to run `nao sync` and commit results
+#   3. Create a .env file with your secrets
+#
+# =============================================================================
+
+services:
+    postgres:
+        image: postgres:16-alpine
+        container_name: nao_chat_postgres
+        environment:
+            POSTGRES_USER: ${POSTGRES_USER:-nao}
+            POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nao}
+            POSTGRES_DB: ${POSTGRES_DB:-nao}
+        ports:
+            - '8888:5432'
+        volumes:
+            - nao_postgres_data:/var/lib/postgresql/data
+        healthcheck:
+            test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-nao} -d ${POSTGRES_DB:-nao}']
+            interval: 5s
+            timeout: 5s
+            retries: 5
+
+    nao:
+        build:
+            context: .
+            dockerfile: Dockerfile
+        ports:
+            - '5005:5005'
+        environment:
+            # =================================================================
+            # Authentication & API Keys
+            # =================================================================
+            BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+            OPENAI_API_KEY: ${OPENAI_API_KEY}
+            ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+            GOOGLE_APPLICATION_CREDENTIALS_JSON: ${GOOGLE_APPLICATION_CREDENTIALS_JSON}
+
+            # =================================================================
+            # Database for nao chat history
+            # =================================================================
+            DB_URI: postgres://${POSTGRES_USER:-nao}:${POSTGRES_PASSWORD:-nao}@postgres:5432/${POSTGRES_DB:-nao}
+            FASTAPI_URL: http://127.0.0.1:8005
+
+            # =================================================================
+            # Git-based Context Configuration
+            # =================================================================
+            NAO_CONTEXT_SOURCE: git
+            NAO_CONTEXT_GIT_URL: ${NAO_CONTEXT_GIT_URL}
+            NAO_CONTEXT_GIT_BRANCH: ${NAO_CONTEXT_GIT_BRANCH:-main}
+            NAO_CONTEXT_GIT_TOKEN: ${NAO_CONTEXT_GIT_TOKEN}
+            NAO_DEFAULT_PROJECT_PATH: /app/context
+
+            # Refresh context every hour (git pull)
+            NAO_REFRESH_SCHEDULE: '0 * * * *'
+        depends_on:
+            - postgres
+
+volumes:
+    nao_postgres_data:

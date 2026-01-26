@@ -67,7 +67,15 @@ export const chatRoutes = async (app: App) => {
 				);
 			}
 
-			return createUIMessageStreamResponse({ stream });
+			return createUIMessageStreamResponse({
+				stream,
+				headers: {
+					// Disable nginx buffering for streaming responses
+					// This is critical for proper stream termination behind reverse proxies
+					'X-Accel-Buffering': 'no',
+					'Cache-Control': 'no-cache, no-transform',
+				},
+			});
 		},
 	);
 };

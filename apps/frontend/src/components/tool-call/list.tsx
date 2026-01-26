@@ -1,5 +1,5 @@
 import { File, Folder, Link } from 'lucide-react';
-import { useToolCallContext } from '../../contexts/tool-call.context';
+import { useToolCallContext } from '../../contexts/tool-call.provider';
 import { ToolCallWrapper } from './tool-call-wrapper';
 import type { listSchemas } from 'backend/tools';
 import { formatBytes } from '@/lib/utils';

@@ -1,0 +1,38 @@
+# Dependencies
+node_modules
+cli/.venv
+cli/__pycache__
+**/__pycache__
+
+# Build outputs (we build in Docker)
+apps/frontend/dist
+apps/backend/dist
+apps/backend/nao-chat-server
+cli/dist
+
+# Development files
+.git
+.gitignore
+.env
+.env.*
+*.md
+!cli/README.md
+
+# IDE
+.vscode
+.idea
+.cursor
+
+# Testing
+coverage
+*.test.ts
+*.test.tsx
+tests
+
+# Local databases
+*.sqlite
+*.duckdb
+
+# Misc
+.DS_Store
+*.log

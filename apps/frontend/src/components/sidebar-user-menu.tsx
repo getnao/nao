@@ -1,52 +1,46 @@
-import { Settings } from 'lucide-react';
-import { useNavigate } from '@tanstack/react-router';
-import { Button } from './ui/button';
+import { Link } from '@tanstack/react-router';
 import { Avatar } from './ui/avatar';
-import type { ComponentProps } from 'react';
 
-import { cn } from '@/lib/utils';
+import { cn, hideIf } from '@/lib/utils';
 import { useSession } from '@/lib/auth-client';
 
-interface SidebarUserMenuProps extends ComponentProps<'div'> {
+interface SidebarUserMenuProps {
 	isCollapsed: boolean;
 }
 
-export function SidebarUserMenu({ isCollapsed, className, ...props }: SidebarUserMenuProps) {
-	const navigate = useNavigate();
+export function SidebarUserMenu({ isCollapsed }: SidebarUserMenuProps) {
 	const { data: session } = useSession();
 	const username = session?.user?.name;
 	const email = session?.user?.email;
 
-	const handleNavigateToUser = () => {
-		navigate({ to: '/user' });
-	};
-
 	return (
-		<div
+		<Link
+			to='/user'
+			inactiveProps={{
+				className: cn('text-foreground hover:bg-sidebar-accent'),
+			}}
+			activeProps={{
+				className: cn('text-foreground bg-sidebar-accent'),
+			}}
 			className={cn(
-				'flex items-center justify-between p-3 border-t border-sidebar-border cursor-pointer',
-				'hover:bg-sidebar-accent transition-colors',
-				className,
+				'flex items-center justify-between border-sidebar-border cursor-pointer rounded-lg',
+				'hover:bg-sidebar-accent transition-[background-color,padding]',
+				isCollapsed ? 'p-1.5' : 'p-3 py-2',
 			)}
-			onClick={handleNavigateToUser}
-			{...props}
 		>
 			<div className='flex items-center gap-2'>
 				{username && <Avatar username={username} />}
-				{!isCollapsed && (
-					<span className='flex flex-col text-left'>
-						<span className='text-sm font-medium'>{username}</span>
-						<span className='text-xs text-muted-foreground'>{email}</span>
-					</span>
-				)}
+
+				<span
+					className={cn(
+						'flex flex-col justify-center text-left transition-[opacity,visibility] h-8',
+						hideIf(isCollapsed),
+					)}
+				>
+					<span className='text-sm font-medium'>{username}</span>
+					<span className='text-xs text-muted-foreground'>{email}</span>
+				</span>
 			</div>
-			{!isCollapsed && (
-				<div className='flex items-center gap-2'>
-					<Button variant='ghost' size='icon-sm' onClick={handleNavigateToUser}>
-						<Settings className='size-4' />
-					</Button>
-				</div>
-			)}
-		</div>
+		</Link>
 	);
 }

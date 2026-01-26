@@ -49,7 +49,8 @@ async function runPostgresMigrations(connectionString: string, migrationsPath: s
 	console.log(`🗃️  Connecting to PostgreSQL...`);
 
 	// Use postgres.js for Bun compatibility
-	const sql = postgres(connectionString, { max: 1 });
+	const ssl = process.env.DB_SSL === 'true' ? 'require' : undefined;
+	const sql = postgres(connectionString, { max: 1, ssl });
 	const db = drizzlePostgres(sql);
 
 	console.log('🚀 Running PostgreSQL migrations...');

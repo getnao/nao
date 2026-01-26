@@ -18,5 +18,52 @@ services:
             timeout: 5s
             retries: 5
 
+    nao:
+        build:
+            context: .
+            dockerfile: Dockerfile
+        ports:
+            - '5005:5005'
+        environment:
+            # =================================================================
+            # Authentication & API Keys
+            # =================================================================
+            BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+            OPENAI_API_KEY: ${OPENAI_API_KEY}
+            ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+
+            # =================================================================
+            # Slack Integration (optional)
+            # =================================================================
+            SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN}
+            SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET}
+
+            # =================================================================
+            # Database for nao chat history
+            # =================================================================
+            DB_URI: postgres://${POSTGRES_USER:-nao}:${POSTGRES_PASSWORD:-nao}@postgres:5432/${POSTGRES_DB:-nao}
+            FASTAPI_URL: http://127.0.0.1:8005
+
+            # =================================================================
+            # Context Configuration
+            # =================================================================
+            # Option A: Local mode (default) - uses bundled example or volume mount
+            NAO_CONTEXT_SOURCE: local
+            NAO_DEFAULT_PROJECT_PATH: /app/example
+
+            # Option B: Git mode - uncomment and configure these instead:
+            # NAO_CONTEXT_SOURCE: git
+            # NAO_CONTEXT_GIT_URL: https://github.com/your-org/your-nao-context.git
+            # NAO_CONTEXT_GIT_BRANCH: main
+            # NAO_CONTEXT_GIT_TOKEN: ${GITHUB_TOKEN}
+            # NAO_DEFAULT_PROJECT_PATH: /app/context
+
+            # Optional: Schedule periodic git pull (cron expression)
+            # NAO_REFRESH_SCHEDULE: "0 * * * *"  # Every hour
+        volumes:
+            - /Users/blef/Work/naolabs/chat-analytics:/app/example
+        depends_on:
+            - postgres
+
 volumes:
     nao_postgres_data:

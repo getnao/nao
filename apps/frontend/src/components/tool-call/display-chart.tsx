@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { BarChart, Bar, AreaChart, Area, PieChart, Pie, XAxis, YAxis } from 'recharts';
-import { useToolCallContext } from '../../contexts/tool-call.context';
+import { useToolCallContext } from '../../contexts/tool-call.provider';
 import { useAgentContext } from '../../contexts/agent.provider';
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from '../ui/chart';
 import { ToolCallWrapper } from './tool-call-wrapper';

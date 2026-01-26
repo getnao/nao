@@ -23,7 +23,7 @@ export const ReasoningAccordion = ({ text, isStreaming }: ReasoningAccordionProp
 
 	return (
 		<Expandable
-			title={isStreaming ? 'Thinking...' : 'Thought'}
+			title={isStreaming ? 'Thinking' : 'Thought'}
 			expanded={isExpanded}
 			onExpandedChange={setIsExpanded}
 			isLoading={isStreaming}

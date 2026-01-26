@@ -1,17 +1,22 @@
 import fs from 'fs/promises';
 import path from 'path';
 
-import { getProjectFolder, isExcludedEntry, toRealPath, toVirtualPath } from '../../../utils/tools';
+import { getProjectFolder, shouldExcludeEntry, toRealPath, toVirtualPath } from '../../../utils/tools';
 import type { Input, Output } from '../schema/list';
 
 export const execute = async ({ path: filePath }: Input): Promise<Output> => {
 	const projectFolder = getProjectFolder();
 	const realPath = toRealPath(filePath, projectFolder);
 
+	// Get the relative path of the parent directory for naoignore matching
+	const parentRelativePath = path.relative(projectFolder, realPath);
+
 	const entries = await fs.readdir(realPath, { withFileTypes: true });
 
-	// Filter out excluded entries
-	const filteredEntries = entries.filter((entry) => !isExcludedEntry(entry.name));
+	// Filter out excluded entries (including .naoignore patterns)
+	const filteredEntries = entries.filter(
+		(entry) => !shouldExcludeEntry(entry.name, parentRelativePath, projectFolder),
+	);
 
 	return await Promise.all(
 		filteredEntries.map(async (entry) => {

@@ -2,7 +2,13 @@ import { spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 
-import { getProjectFolder, isWithinProjectFolder, toRealPath, toVirtualPath } from '../../../utils/tools';
+import {
+	getProjectFolder,
+	isWithinProjectFolder,
+	loadNaoignorePatterns,
+	toRealPath,
+	toVirtualPath,
+} from '../../../utils/tools';
 import type { Input, Output } from '../schema/grep';
 
 /**
@@ -79,6 +85,15 @@ export const execute = async ({
 
 	if (glob) {
 		args.push('--glob', glob);
+	}
+
+	// Add .naoignore patterns as exclusions
+	const naoignorePatterns = loadNaoignorePatterns(projectFolder);
+	for (const ignorePattern of naoignorePatterns) {
+		// Convert naoignore patterns to ripgrep glob exclusions
+		const cleanPattern = ignorePattern.endsWith('/') ? ignorePattern.slice(0, -1) : ignorePattern;
+		args.push('--glob', `!${cleanPattern}`);
+		args.push('--glob', `!${cleanPattern}/**`);
 	}
 
 	// Add the pattern and path

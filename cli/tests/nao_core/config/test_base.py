@@ -34,3 +34,19 @@ def test_same_env_var_multiple_times():
         content = "${{ env('REPEATED') }} and ${{ env('REPEATED') }} again"
         result = NaoConfig._process_env_vars(content)
         assert result == "repeated_value and repeated_value again"
+
+
+def test_env_var_without_dollar_prefix():
+    """Test replacement without $ prefix (Jinja2-style syntax)."""
+    with patch.dict(os.environ, {"API_KEY": "secret123"}):
+        content = "api_key: {{ env('API_KEY') }}"
+        result = NaoConfig._process_env_vars(content)
+        assert result == "api_key: secret123"
+
+
+def test_mixed_dollar_and_no_dollar_syntax():
+    """Test that both ${{ }} and {{ }} formats work together."""
+    with patch.dict(os.environ, {"VAR1": "value1", "VAR2": "value2"}):
+        content = "a: ${{ env('VAR1') }}, b: {{ env('VAR2') }}"
+        result = NaoConfig._process_env_vars(content)
+        assert result == "a: value1, b: value2"

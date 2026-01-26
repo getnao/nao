@@ -15,12 +15,42 @@ import path from 'path';
 import app from './app';
 import dbConfig, { Dialect } from './db/dbConfig';
 import { runMigrations } from './db/migrate';
+import { assignAdminToOrphanedProject } from './queries/project.queries';
 
 const SECRET_FILE_NAME = '.nao-secret';
 
+interface BuildInfo {
+	commit: string;
+	commitShort: string;
+	buildTime: string;
+}
+
 function getExecutableDir(): string {
-	// When running as a compiled binary, process.execPath is the path to the binary itself
-	return path.dirname(process.execPath);
+	// Check if running as compiled binary or as script
+	// When compiled, process.execPath === Bun.main (both point to the binary)
+	// When running as script, process.execPath is bun, Bun.main is the script
+	const isCompiled = process.execPath === Bun.main;
+
+	if (isCompiled) {
+		return path.dirname(process.execPath);
+	}
+
+	// Running as script from src/cli.ts - migrations are in parent directory
+	const scriptDir = path.dirname(Bun.main);
+	return path.dirname(scriptDir); // Go up from src/ to apps/backend/
+}
+
+function getBuildInfo(): BuildInfo | null {
+	try {
+		const buildInfoPath = path.join(getExecutableDir(), 'build-info.json');
+		if (fs.existsSync(buildInfoPath)) {
+			const content = fs.readFileSync(buildInfoPath, 'utf-8');
+			return JSON.parse(content) as BuildInfo;
+		}
+	} catch {
+		// Ignore errors reading build info
+	}
+	return null;
 }
 
 function getMigrationsPath(dbType: Dialect): string {
@@ -149,6 +179,17 @@ async function runServe(options: Record<string, string>): Promise<void> {
 	const port = parseInt(options['port'] || '5005', 10);
 	const host = options['host'] || '0.0.0.0';
 	const { dialect, dbUrl } = dbConfig;
+	const buildInfo = getBuildInfo();
+
+	// Set up global error handlers to prevent server crashes
+	process.on('uncaughtException', (err) => {
+		console.error('❌ Uncaught exception (server continuing):', err);
+	});
+
+	process.on('unhandledRejection', (reason, promise) => {
+		console.error('❌ Unhandled rejection (server continuing):', reason);
+		console.error('   Promise:', promise);
+	});
 
 	// Run migrations before starting the server
 	try {
@@ -159,10 +200,14 @@ async function runServe(options: Record<string, string>): Promise<void> {
 	}
 
 	console.log(`\n🚀 Starting nao chat server...`);
+	if (buildInfo) {
+		console.log(`   Build: ${buildInfo.commitShort} (${buildInfo.buildTime})`);
+	}
 	console.log(`   Database: ${dialect}${dialect === Dialect.Sqlite ? ` (${dbUrl})` : ''}`);
 	console.log(`   Listening on: ${host}:${port}`);
 
 	try {
+		await assignAdminToOrphanedProject();
 		const address = await app.listen({ host, port });
 		console.log(`✅ Server is running on ${address}`);
 	} catch (err) {

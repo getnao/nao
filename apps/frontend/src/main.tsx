@@ -6,7 +6,8 @@ import { RouterProvider, createRouter } from '@tanstack/react-router';
 import ReactDOM from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import superjson from 'superjson';
-import { ThemeProvider } from './contexts/themeProvider';
+import { ThemeProvider } from './contexts/theme.provider';
+import { SidebarProvider } from './contexts/sidebar.provider';
 import { routeTree } from './routeTree.gen';
 import reportWebVitals from './reportWebVitals';
 import type { TrpcRouter } from 'backend/trpc';
@@ -15,6 +16,9 @@ import type { TrpcRouter } from 'backend/trpc';
 declare module '@tanstack/react-router' {
 	interface Register {
 		router: typeof router;
+	}
+	interface HistoryState {
+		fromMessageSend?: boolean;
 	}
 }
 
@@ -62,9 +66,11 @@ if (!rootElement.innerHTML) {
 	root.render(
 		<StrictMode>
 			<ThemeProvider>
-				<QueryClientProvider client={queryClient}>
-					<RouterProvider router={router} />
-				</QueryClientProvider>
+				<SidebarProvider>
+					<QueryClientProvider client={queryClient}>
+						<RouterProvider router={router} />
+					</QueryClientProvider>
+				</SidebarProvider>
 			</ThemeProvider>
 		</StrictMode>,
 	);

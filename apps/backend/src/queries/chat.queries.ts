@@ -2,7 +2,7 @@ import { and, desc, eq } from 'drizzle-orm';
 
 import s, { DBChat, DBChatMessage, DBMessagePart, MessageFeedback, NewChat } from '../db/abstractSchema';
 import { db } from '../db/db';
-import { ListChatResponse, StopReason, TokenUsage, UIChat, UIMessage } from '../types/chat';
+import { ListChatResponse, LlmProvider, StopReason, TokenUsage, UIChat, UIMessage } from '../types/chat';
 import { convertDBPartToUIPart, mapDBPartsToUIParts, mapUIPartsToDBParts } from '../utils/chatMessagePartMappings';
 import { getErrorMessage } from '../utils/utils';
 import * as llmConfigQueries from './project-llm-config.queries';
@@ -50,7 +50,8 @@ export const loadChat = async (
 		return [];
 	}
 
-	const messages = aggregateChatMessagParts(result);
+	const provider = await llmConfigQueries.getProjectModelProvider(chat.projectId);
+	const messages = aggregateChatMessagParts(result, provider);
 	return [
 		{
 			id: chatId,
@@ -71,10 +72,11 @@ const aggregateChatMessagParts = (
 		message_part: DBMessagePart;
 		message_feedback?: MessageFeedback | null;
 	}[],
+	provider?: LlmProvider,
 ) => {
 	const messagesMap = result.reduce(
 		(acc, row) => {
-			const uiPart = convertDBPartToUIPart(row.message_part);
+			const uiPart = convertDBPartToUIPart(row.message_part, provider);
 			if (!uiPart) {
 				return acc;
 			}
@@ -95,6 +97,17 @@ const aggregateChatMessagParts = (
 	);
 
 	return Object.values(messagesMap);
+};
+
+export const getChatOwnerId = async (chatId: string): Promise<string | undefined> => {
+	const [result] = await db
+		.select({
+			userId: s.chat.userId,
+		})
+		.from(s.chat)
+		.where(eq(s.chat.id, chatId))
+		.execute();
+	return result?.userId;
 };
 
 export const createChat = async (newChat: NewChat, message: UIMessage): Promise<UIChat> => {
@@ -158,6 +171,10 @@ export const upsertMessage = async (
 
 export const deleteChat = async (chatId: string): Promise<void> => {
 	await db.delete(s.chat).where(eq(s.chat.id, chatId)).execute();
+};
+
+export const renameChat = async (chatId: string, title: string): Promise<void> => {
+	await db.update(s.chat).set({ title }).where(eq(s.chat.id, chatId)).execute();
 };
 
 export const getOwnerOfChatAndMessage = async (chatId: string, messageId: string): Promise<string | undefined> => {
