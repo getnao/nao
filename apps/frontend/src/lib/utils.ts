@@ -32,3 +32,5 @@ export function getAuthentificationNavigation(): string {
 export function isLast<T>(item: T, array: T[]): boolean {
 	return item === array.at(-1);
 }
+
+export const regexPassword = /^(?=.*?[A-Z])(?=.*?[a-z])(?=.*?[0-9])(?=.*?[#?!@$%^&*-]).{8,}$/;

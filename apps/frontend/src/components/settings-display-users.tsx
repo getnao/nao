@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Plus } from 'lucide-react';
+import { Plus, EllipsisVertical } from 'lucide-react';
 import { DisplayNewUserInfo } from './settings-display-newUser-info';
 import { trpc } from '@/main';
 import { Button } from '@/components/ui/button';
@@ -9,9 +9,10 @@ import { CreateUserForm } from '@/components/settings-create-user-form';
 
 interface DisplayUsersSectionProps {
 	isAdmin: boolean;
+	onModifyUser: (userId: string) => void;
 }
 
-export function DisplayUsersSection({ isAdmin }: DisplayUsersSectionProps) {
+export function DisplayUsersSection({ isAdmin, onModifyUser }: DisplayUsersSectionProps) {
 	const [isCreateUserOpen, setIsCreateUserOpen] = useState(false);
 	const [newUser, setNewUser] = useState<{ email: string; password: string } | null>(null);
 
@@ -68,6 +69,13 @@ export function DisplayUsersSection({ isAdmin }: DisplayUsersSectionProps) {
 										</span>
 									)}
 								</TableCell>
+								{user.role !== 'admin' && isAdmin && (
+									<TableCell className='w-0'>
+										<Button variant='ghost' size='icon-sm' onClick={() => onModifyUser(user.id)}>
+											<EllipsisVertical className='size-4' />
+										</Button>
+									</TableCell>
+								)}
 							</TableRow>
 						))}
 					</TableBody>

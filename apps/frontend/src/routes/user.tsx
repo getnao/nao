@@ -24,11 +24,12 @@ function UserPage() {
 	const { data: session } = useSession();
 	const user = session?.user;
 	const [isModifyUserOpen, setIsModifyUserOpen] = useState(false);
+	const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
 	const queryClient = useQueryClient();
-	const navigation = getAuthentificationNavigation();
 	const project = useQuery(trpc.project.getCurrent.queryOptions());
 
 	const isAdmin = project.data?.userRole === 'admin';
+	const navigation = getAuthentificationNavigation();
 
 	const handleSignOut = async () => {
 		queryClient.clear();
@@ -50,7 +51,10 @@ function UserPage() {
 					<UserProfileCard
 						name={user?.name}
 						email={user?.email}
-						onEdit={() => setIsModifyUserOpen(true)}
+						onEdit={() => {
+							setSelectedUserId(user?.id || null);
+							setIsModifyUserOpen(true);
+						}}
 						onSignOut={handleSignOut}
 					/>
 
@@ -93,7 +97,13 @@ function UserPage() {
 								</div>
 								<LlmProvidersSection isAdmin={isAdmin} />
 								<SlackConfigSection isAdmin={isAdmin} />
-								<DisplayUsersSection isAdmin={isAdmin} />
+								<DisplayUsersSection
+									isAdmin={isAdmin}
+									onModifyUser={(userId) => {
+										setSelectedUserId(userId);
+										setIsModifyUserOpen(true);
+									}}
+								/>
 							</div>
 						) : (
 							<p className='text-sm text-muted-foreground'>
@@ -115,7 +125,7 @@ function UserPage() {
 				</div>
 			</div>
 
-			<ModifyUserForm open={isModifyUserOpen} onOpenChange={setIsModifyUserOpen} />
+			<ModifyUserForm open={isModifyUserOpen} onOpenChange={setIsModifyUserOpen} userId={selectedUserId} />
 		</>
 	);
 }

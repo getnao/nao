@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { GeneratePassword } from 'js-generate-password';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -18,6 +18,8 @@ interface ModifyUserInfoProps {
 
 export function CreateUserForm({ open, onOpenChange, onUserCreated }: ModifyUserInfoProps) {
 	const { refetch } = useSession();
+	const queryClient = useQueryClient();
+
 	const [formData, setFormData] = useState({
 		name: '',
 		email: '',
@@ -48,6 +50,9 @@ export function CreateUserForm({ open, onOpenChange, onUserCreated }: ModifyUser
 		trpc.project.addMemberToProject.mutationOptions({
 			onSuccess: async () => {
 				await refetch();
+				await queryClient.invalidateQueries({
+					queryKey: trpc.project.getAllUsersWithRoles.queryKey(),
+				});
 				onOpenChange(false);
 			},
 			onError: () => {
