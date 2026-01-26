@@ -1,4 +1,4 @@
-import { ArrowDownIcon, ArrowUpIcon } from 'lucide-react';
+import { ArrowDownIcon } from 'lucide-react';
 import { StickToBottom, useStickToBottomContext } from 'use-stick-to-bottom';
 import type { ComponentProps } from 'react';
 
@@ -61,43 +61,17 @@ export const ConversationScrollButton = ({ className, ...props }: ConversationSc
 		!isAtBottom && (
 			<Button
 				className={cn(
-					'absolute bottom-4 left-[50%] translate-x-[-50%] rounded-full animate-fade-in-up px-3 gap-2',
+					'absolute bottom-4 left-[50%] translate-x-[-50%] rounded-full animate-fade-in-up',
 					className,
 				)}
 				onClick={() => scrollToBottom()}
-				size='sm'
+				size='icon'
 				type='button'
 				variant='outline'
 				{...props}
 			>
 				<ArrowDownIcon className='size-4' />
 			</Button>
-		)
-	);
-};
-
-export type ConversationHistoryIndicatorProps = ComponentProps<'div'> & {
-	hasHistory?: boolean;
-};
-
-export const ConversationHistoryIndicator = ({ className, hasHistory = false }: ConversationHistoryIndicatorProps) => {
-	const { isAtBottom } = useStickToBottomContext();
-
-	return (
-		// hasHistory is true when there are more than 2 messages in the chat -> history to scroll up to
-		isAtBottom &&
-		hasHistory && (
-			<div
-				className={cn(
-					'absolute top-4 left-[50%] translate-x-[-50%] animate-fade-in-down pointer-events-none',
-					className,
-				)}
-			>
-				<div className='flex items-center gap-2 px-3 py-1.5 rounded-full bg-background/95 backdrop-blur-sm border shadow-sm text-xs text-muted-foreground'>
-					<ArrowUpIcon className='size-3' />
-					<span>Scroll up for chat history</span>
-				</div>
-			</div>
 		)
 	);
 };

@@ -15,7 +15,6 @@ import {
 	ConversationContent,
 	ConversationEmptyState,
 	ConversationScrollButton,
-	ConversationHistoryIndicator,
 } from '@/components/ui/conversation';
 import { isToolUIPart, checkIsAgentGenerating, groupToolCalls, isToolGroupPart } from '@/lib/ai';
 import { cn, isLast } from '@/lib/utils';
@@ -30,7 +29,10 @@ export function ChatMessages() {
 	const chatId = useParams({ strict: false }).chatId;
 	const contentRef = useRef<HTMLDivElement>(null);
 	const containerHeight = useHeight(contentRef, [chatId]);
-	const { messages } = useAgentContext();
+	const { messages, status } = useAgentContext();
+	const isAgentGenerating = checkIsAgentGenerating({ status, messages });
+	const lastMessageRole = messages.at(-1)?.role;
+	const shouldSmoothResize = !isAgentGenerating && lastMessageRole === 'user';
 
 	// Skip fade-in animation when navigating from home after sending a message
 	const fromMessageSend = useRouterState({ select: (state) => state.location.state.fromMessageSend });
@@ -42,12 +44,11 @@ export function ChatMessages() {
 			style={{ '--container-height': `${containerHeight}px` } as React.CSSProperties}
 			key={chatId}
 		>
-			<Conversation>
+			<Conversation resize={shouldSmoothResize ? 'smooth' : 'instant'}>
 				<ConversationContent className='max-w-3xl mx-auto'>
 					<ChatMessagesContent />
 				</ConversationContent>
 
-				<ConversationHistoryIndicator hasHistory={messages.length > 2} />
 				<ConversationScrollButton />
 			</Conversation>
 		</div>
