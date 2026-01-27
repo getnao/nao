@@ -3,21 +3,15 @@ export type LlmProvider = 'anthropic' | 'openai';
 /** Known models for each provider with their display names */
 export const KNOWN_MODELS = {
 	anthropic: [
-		{ id: 'claude-opus-4-5', name: 'Claude Opus 4.5', default: true },
-		{ id: 'claude-sonnet-4-5', name: 'Claude Sonnet 4.5' },
-		{ id: 'claude-3-5-sonnet-latest', name: 'Claude 3.5 Sonnet' },
-		{ id: 'claude-3-5-haiku-latest', name: 'Claude 3.5 Haiku' },
-		{ id: 'claude-3-opus-latest', name: 'Claude 3 Opus' },
+		{ id: 'claude-sonnet-4-5', name: 'Claude Sonnet 4.5', default: true },
+		{ id: 'claude-opus-4-5', name: 'Claude Opus 4.5' },
+		{ id: 'claude-haiku-4-5', name: 'Claude Haiku 4.5' },
 	],
 	openai: [
-		{ id: 'gpt-5.1', name: 'GPT 5.1', default: true },
-		{ id: 'gpt-5', name: 'GPT 5' },
+		{ id: 'gpt-5.2', name: 'GPT 5.2', default: true },
+		{ id: 'gpt-5.2-pro', name: 'GPT 5.2 pro' },
+		{ id: 'gpt-5-mini', name: 'GPT 5 mini' },
 		{ id: 'gpt-4.1', name: 'GPT 4.1' },
-		{ id: 'gpt-4.1-mini', name: 'GPT 4.1 Mini' },
-		{ id: 'o3', name: 'o3' },
-		{ id: 'o3-mini', name: 'o3 Mini' },
-		{ id: 'gpt-4o', name: 'GPT 4o' },
-		{ id: 'gpt-4o-mini', name: 'GPT 4o Mini' },
 	],
 } as const;
 

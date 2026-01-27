@@ -37,6 +37,7 @@ export function LlmProvidersSection({ isAdmin }: LlmProvidersSectionProps) {
 
 	const [formState, setFormState] = useState<ConfigFormState>(initialFormState);
 	const [showAdvanced, setShowAdvanced] = useState(false);
+	const [customModelInput, setCustomModelInput] = useState('');
 
 	const upsertLlmConfig = useMutation(trpc.project.upsertLlmConfig.mutationOptions());
 	const deleteLlmConfig = useMutation(trpc.project.deleteLlmConfig.mutationOptions());
@@ -58,6 +59,7 @@ export function LlmProvidersSection({ isAdmin }: LlmProvidersSectionProps) {
 	const resetForm = () => {
 		setFormState(initialFormState);
 		setShowAdvanced(false);
+		setCustomModelInput('');
 	};
 
 	const handleSaveConfig = async () => {
@@ -133,10 +135,32 @@ export function LlmProvidersSection({ isAdmin }: LlmProvidersSectionProps) {
 		});
 	};
 
+	const handleAddCustomModel = () => {
+		const trimmed = customModelInput.trim();
+		if (!trimmed || formState.enabledModels.includes(trimmed)) {
+			return;
+		}
+		setFormState((prev) => ({
+			...prev,
+			enabledModels: [...prev.enabledModels, trimmed],
+		}));
+		setCustomModelInput('');
+	};
+
+	const isCustomModel = (modelId: string) => {
+		return !currentModels.some((m) => m.id === modelId);
+	};
+
 	const getModelDisplayName = (provider: LlmProvider, modelId: string) => {
 		const models = knownModels.data?.[provider] ?? [];
 		const model = models.find((m) => m.id === modelId);
 		return model?.name ?? modelId;
+	};
+
+	const getDefaultModelId = (provider: LlmProvider) => {
+		const models = knownModels.data?.[provider] ?? [];
+		const defaultModel = models.find((m) => 'default' in m && m.default);
+		return defaultModel?.id ?? models[0]?.id ?? '';
 	};
 
 	// Determine if save button should be disabled
@@ -183,22 +207,19 @@ export function LlmProvidersSection({ isAdmin }: LlmProvidersSectionProps) {
 							Configure Models
 						</Button>
 					)}
-					<span className='px-2 py-0.5 text-xs font-medium rounded bg-muted text-muted-foreground'>
-						ENV
-					</span>
+					<span className='px-2 py-0.5 text-xs font-medium rounded bg-muted text-muted-foreground'>ENV</span>
 				</div>
 			))}
 
 			{/* Project-specific configs */}
 			{projectConfigs.map((config) => (
-				<div
-					key={config.id}
-					className='p-4 rounded-lg border border-border bg-muted/30'
-				>
+				<div key={config.id} className='p-4 rounded-lg border border-border bg-muted/30'>
 					<div className='flex items-center gap-4'>
 						<div className='flex-1 grid gap-1'>
 							<div className='flex items-center gap-2'>
-								<span className='text-sm font-medium text-foreground capitalize'>{config.provider}</span>
+								<span className='text-sm font-medium text-foreground capitalize'>
+									{config.provider}
+								</span>
 								{envProviders.includes(config.provider) && (
 									<span className='px-1.5 py-0.5 text-[10px] font-medium rounded bg-muted text-muted-foreground'>
 										ENV
@@ -256,7 +277,9 @@ export function LlmProvidersSection({ isAdmin }: LlmProvidersSectionProps) {
 					)}
 					{config.enabledModels.length === 0 && (
 						<div className='mt-3 pt-3 border-t border-border/50'>
-							<span className='text-xs text-muted-foreground'>All models available (no restrictions)</span>
+							<span className='text-xs text-muted-foreground'>
+								Default model: {getDefaultModelId(config.provider)}
+							</span>
 						</div>
 					)}
 				</div>
@@ -266,29 +289,33 @@ export function LlmProvidersSection({ isAdmin }: LlmProvidersSectionProps) {
 			{isAdmin && (availableProvidersToAdd.length > 0 || formState.provider) && (
 				<div className='flex flex-col gap-3 p-4 rounded-lg border border-dashed border-border'>
 					{/* Provider selection - only for adding new (non-env) providers */}
-					{!formState.isEditing && !formState.usesEnvKey && !formState.provider && availableProvidersToAdd.length > 0 && (
-						<div className='grid gap-2'>
-							<label className='text-sm font-medium text-foreground'>Add Provider</label>
-							<div className='flex gap-2'>
-								{availableProvidersToAdd.map((provider) => (
-									<button
-										key={provider}
-										type='button'
-										onClick={() => handleSelectProvider(provider)}
-										className='px-4 py-2 rounded-md text-sm font-medium transition-all capitalize cursor-pointer bg-secondary text-muted-foreground hover:text-foreground'
-									>
-										{provider}
-									</button>
-								))}
+					{!formState.isEditing &&
+						!formState.usesEnvKey &&
+						!formState.provider &&
+						availableProvidersToAdd.length > 0 && (
+							<div className='grid gap-2'>
+								<label className='text-sm font-medium text-foreground'>Add Provider</label>
+								<div className='flex gap-2'>
+									{availableProvidersToAdd.map((provider) => (
+										<button
+											key={provider}
+											type='button'
+											onClick={() => handleSelectProvider(provider)}
+											className='px-4 py-2 rounded-md text-sm font-medium transition-all capitalize cursor-pointer bg-secondary text-muted-foreground hover:text-foreground'
+										>
+											{provider}
+										</button>
+									))}
+								</div>
 							</div>
-						</div>
-					)}
+						)}
 
 					{/* Form header when provider is selected */}
 					{formState.provider && (
 						<div className='flex items-center justify-between'>
 							<span className='text-sm font-medium text-foreground capitalize'>
-								{formState.isEditing ? 'Edit' : formState.usesEnvKey ? 'Configure' : 'Add'} {formState.provider}
+								{formState.isEditing ? 'Edit' : formState.usesEnvKey ? 'Configure' : 'Add'}{' '}
+								{formState.provider}
 								{formState.usesEnvKey && (
 									<span className='text-muted-foreground font-normal ml-1'>(using env API key)</span>
 								)}
@@ -299,48 +326,50 @@ export function LlmProvidersSection({ isAdmin }: LlmProvidersSectionProps) {
 						</div>
 					)}
 
-				{formState.provider && (
-					<>
-						{/* API Key field - always show, with appropriate hint text */}
-						<div className='grid gap-2'>
-							<label htmlFor='new-api-key' className='text-sm font-medium text-foreground'>
-								API Key
-								{formState.usesEnvKey && !formState.isEditing && (
-									<span className='text-muted-foreground font-normal ml-1'>
-										(optional - leave empty to use env)
-									</span>
-								)}
-								{formState.isEditing && !formState.usesEnvKey && (
-									<span className='text-muted-foreground font-normal ml-1'>
-										(leave empty to keep current)
-									</span>
-								)}
-								{formState.isEditing && formState.usesEnvKey && (
-									<span className='text-muted-foreground font-normal ml-1'>
-										(leave empty to keep current or use env)
-									</span>
-								)}
-							</label>
-							<Input
-								id='new-api-key'
-								type='password'
-								value={formState.apiKey}
-								onChange={(e) => setFormState((prev) => ({ ...prev, apiKey: e.target.value }))}
-								placeholder={
-									formState.usesEnvKey && !formState.isEditing
-										? 'Enter API key to override env variable'
-										: formState.isEditing
-											? 'Enter new API key to update'
-											: `Enter your ${capitalize(formState.provider)} API key`
-								}
-							/>
-						</div>
+					{formState.provider && (
+						<>
+							{/* API Key field - always show, with appropriate hint text */}
+							<div className='grid gap-2'>
+								<label htmlFor='new-api-key' className='text-sm font-medium text-foreground'>
+									API Key
+									{formState.usesEnvKey && !formState.isEditing && (
+										<span className='text-muted-foreground font-normal ml-1'>
+											(optional - leave empty to use env)
+										</span>
+									)}
+									{formState.isEditing && !formState.usesEnvKey && (
+										<span className='text-muted-foreground font-normal ml-1'>
+											(leave empty to keep current)
+										</span>
+									)}
+									{formState.isEditing && formState.usesEnvKey && (
+										<span className='text-muted-foreground font-normal ml-1'>
+											(leave empty to keep current or use env)
+										</span>
+									)}
+								</label>
+								<Input
+									id='new-api-key'
+									type='password'
+									value={formState.apiKey}
+									onChange={(e) => setFormState((prev) => ({ ...prev, apiKey: e.target.value }))}
+									placeholder={
+										formState.usesEnvKey && !formState.isEditing
+											? 'Enter API key to override env variable'
+											: formState.isEditing
+												? 'Enter new API key to update'
+												: `Enter your ${capitalize(formState.provider)} API key`
+									}
+								/>
+							</div>
 
-						{/* Model selection */}
+							{/* Model selection */}
 							<div className='grid gap-2'>
 								<label className='text-sm font-medium text-foreground'>
 									Enabled Models
-									<span className='text-muted-foreground font-normal ml-1'>(leave empty for all)</span>
+									<span className='text-muted-foreground font-normal ml-1'>
+										(leave empty for default {getDefaultModelId(formState.provider)})
+									</span>
 								</label>
 								<div className='flex flex-wrap gap-2'>
 									{currentModels.map((model) => {
@@ -352,11 +381,7 @@ export function LlmProvidersSection({ isAdmin }: LlmProvidersSectionProps) {
 												onClick={() => toggleModel(model.id)}
 												className={`
 													flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm transition-all cursor-pointer
-													${
-														isEnabled
-															? 'bg-primary text-primary-foreground'
-															: 'bg-secondary text-muted-foreground hover:text-foreground'
-													}
+													${isEnabled ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground hover:text-foreground'}
 												`}
 											>
 												{isEnabled && <Check className='size-3' />}
@@ -364,6 +389,43 @@ export function LlmProvidersSection({ isAdmin }: LlmProvidersSectionProps) {
 											</button>
 										);
 									})}
+									{/* Custom models (not in known models list) */}
+									{formState.enabledModels.filter(isCustomModel).map((modelId) => (
+										<button
+											key={modelId}
+											type='button'
+											onClick={() => toggleModel(modelId)}
+											className='flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm transition-all cursor-pointer bg-primary text-primary-foreground'
+										>
+											<X className='size-2.5' />
+											{modelId}
+										</button>
+									))}
+								</div>
+								{/* Custom model input */}
+								<div className='flex gap-2 mt-1'>
+									<Input
+										type='text'
+										value={customModelInput}
+										onChange={(e) => setCustomModelInput(e.target.value)}
+										onKeyDown={(e) => {
+											if (e.key === 'Enter') {
+												e.preventDefault();
+												handleAddCustomModel();
+											}
+										}}
+										placeholder='Add custom model ID...'
+										className='flex-1'
+									/>
+									<Button
+										type='button'
+										variant='outline'
+										size='sm'
+										onClick={handleAddCustomModel}
+										disabled={!customModelInput.trim()}
+									>
+										<Plus className='size-4' />
+									</Button>
 								</div>
 							</div>
 
@@ -383,7 +445,8 @@ export function LlmProvidersSection({ isAdmin }: LlmProvidersSectionProps) {
 							{showAdvanced && (
 								<div className='grid gap-2 pl-4 border-l-2 border-border'>
 									<label htmlFor='base-url' className='text-sm font-medium text-foreground'>
-										Custom Base URL <span className='text-muted-foreground font-normal'>(optional)</span>
+										Custom Base URL{' '}
+										<span className='text-muted-foreground font-normal'>(optional)</span>
 									</label>
 									<Input
 										id='base-url'
@@ -403,11 +466,7 @@ export function LlmProvidersSection({ isAdmin }: LlmProvidersSectionProps) {
 								<Button variant='ghost' size='sm' onClick={resetForm}>
 									Cancel
 								</Button>
-								<Button
-									size='sm'
-									onClick={handleSaveConfig}
-									disabled={isSaveDisabled}
-								>
+								<Button size='sm' onClick={handleSaveConfig} disabled={isSaveDisabled}>
 									{formState.isEditing ? (
 										'Save Changes'
 									) : (
@@ -423,13 +482,15 @@ export function LlmProvidersSection({ isAdmin }: LlmProvidersSectionProps) {
 				</div>
 			)}
 
-			{projectConfigs.length === 0 && unconfiguredEnvProviders.length === 0 && availableProvidersToAdd.length === 0 && (
-				<p className='text-sm text-muted-foreground'>
-					{isAdmin
-						? 'No providers configured. Add an API key above.'
-						: 'No providers configured. Contact an admin to set up LLM providers.'}
-				</p>
-			)}
+			{projectConfigs.length === 0 &&
+				unconfiguredEnvProviders.length === 0 &&
+				availableProvidersToAdd.length === 0 && (
+					<p className='text-sm text-muted-foreground'>
+						{isAdmin
+							? 'No providers configured. Add an API key above.'
+							: 'No providers configured. Contact an admin to set up LLM providers.'}
+					</p>
+				)}
 		</div>
 	);
 }

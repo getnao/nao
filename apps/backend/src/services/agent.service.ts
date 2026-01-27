@@ -98,7 +98,11 @@ class AgentService {
 
 		// Fall back to environment variables (no config at all)
 		if (process.env.ANTHROPIC_API_KEY) {
-			return this._createProviderConfig('anthropic', process.env.ANTHROPIC_API_KEY, getDefaultModelId('anthropic'));
+			return this._createProviderConfig(
+				'anthropic',
+				process.env.ANTHROPIC_API_KEY,
+				getDefaultModelId('anthropic'),
+			);
 		}
 
 		if (process.env.OPENAI_API_KEY) {

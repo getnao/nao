@@ -18,6 +18,32 @@ export type ModelSelection = {
 	modelId: string;
 } | null;
 
+const MODEL_STORAGE_KEY = 'nao-selected-model';
+
+function getStoredModel(): ModelSelection {
+	try {
+		const stored = localStorage.getItem(MODEL_STORAGE_KEY);
+		if (stored) {
+			return JSON.parse(stored);
+		}
+	} catch {
+		// Ignore parse errors
+	}
+	return null;
+}
+
+function storeModel(model: ModelSelection) {
+	try {
+		if (model) {
+			localStorage.setItem(MODEL_STORAGE_KEY, JSON.stringify(model));
+		} else {
+			localStorage.removeItem(MODEL_STORAGE_KEY);
+		}
+	} catch {
+		// Ignore storage errors
+	}
+}
+
 export type AgentHelpers = {
 	messages: UIMessage[];
 	setMessages: UseChatHelpers<UIMessage>['setMessages'];
@@ -40,8 +66,13 @@ export const useAgent = (): AgentHelpers => {
 	const queryClient = useQueryClient();
 	const chatIdRef = useCurrent(chatId);
 	const scrollDownService = useScrollDownCallbackService();
-	const [selectedModel, setSelectedModel] = useState<ModelSelection>(null);
+	const [selectedModel, setSelectedModelState] = useState<ModelSelection>(getStoredModel);
 	const selectedModelRef = useCurrent(selectedModel);
+
+	const setSelectedModel = useCallback((model: ModelSelection) => {
+		setSelectedModelState(model);
+		storeModel(model);
+	}, []);
 
 	const agentInstance = useMemo(() => {
 		let agentId = chatId ?? 'new-chat';
@@ -102,7 +133,7 @@ export const useAgent = (): AgentHelpers => {
 		});
 
 		return agentService.registerAgent(agentId, newAgent);
-	}, [chatId, navigate, queryClient, chatIdRef]);
+	}, [chatId, navigate, queryClient, chatIdRef, selectedModelRef]);
 
 	const agent = useChat({ chat: agentInstance });
 
