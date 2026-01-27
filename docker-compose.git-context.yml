@@ -1,9 +1,23 @@
+# =============================================================================
+# Docker Compose for Git-based Context
+# =============================================================================
+# This example shows how to deploy nao with context loaded from a git repository.
+# No volume mount is required - the container clones the context on startup.
+#
+# Usage:
+#   docker-compose -f docker-compose.git-context.yml up -d
+#
+# Prerequisites:
+#   1. Create a git repo with your nao context (nao_config.yaml, databases/, etc.)
+#   2. Set up CI/CD to run `nao sync` and commit results
+#   3. Create a .env file with your secrets
+#
+# =============================================================================
+
 services:
     postgres:
         image: postgres:16-alpine
         container_name: nao_chat_postgres
-        env_file:
-            - .env
         environment:
             POSTGRES_USER: ${POSTGRES_USER:-nao}
             POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nao}
@@ -31,12 +45,7 @@ services:
             BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
             OPENAI_API_KEY: ${OPENAI_API_KEY}
             ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
-
-            # =================================================================
-            # Slack Integration (optional)
-            # =================================================================
-            SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN}
-            SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET}
+            GOOGLE_APPLICATION_CREDENTIALS_JSON: ${GOOGLE_APPLICATION_CREDENTIALS_JSON}
 
             # =================================================================
             # Database for nao chat history
@@ -45,23 +54,16 @@ services:
             FASTAPI_URL: http://127.0.0.1:8005
 
             # =================================================================
-            # Context Configuration
+            # Git-based Context Configuration
             # =================================================================
-            # Option A: Local mode (default) - uses bundled example or volume mount
-            NAO_CONTEXT_SOURCE: local
-            NAO_DEFAULT_PROJECT_PATH: /app/example
+            NAO_CONTEXT_SOURCE: git
+            NAO_CONTEXT_GIT_URL: ${NAO_CONTEXT_GIT_URL}
+            NAO_CONTEXT_GIT_BRANCH: ${NAO_CONTEXT_GIT_BRANCH:-main}
+            NAO_CONTEXT_GIT_TOKEN: ${NAO_CONTEXT_GIT_TOKEN}
+            NAO_DEFAULT_PROJECT_PATH: /app/context
 
-            # Option B: Git mode - uncomment and configure these instead:
-            # NAO_CONTEXT_SOURCE: git
-            # NAO_CONTEXT_GIT_URL: https://github.com/your-org/your-nao-context.git
-            # NAO_CONTEXT_GIT_BRANCH: main
-            # NAO_CONTEXT_GIT_TOKEN: ${GITHUB_TOKEN}
-            # NAO_DEFAULT_PROJECT_PATH: /app/context
-
-            # Optional: Schedule periodic git pull (cron expression)
-            # NAO_REFRESH_SCHEDULE: "0 * * * *"  # Every hour
-        volumes:
-            - /Users/blef/Work/naolabs/chat-analytics:/app/example
+            # Refresh context every hour (git pull)
+            NAO_REFRESH_SCHEDULE: '0 * * * *'
         depends_on:
             - postgres
 

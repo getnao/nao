@@ -90,9 +90,14 @@ jobs:
                         -e "TRUSTED_ORIGINS=https://moon.getnao.io" \
                         -e "DB_SSL=true" \
                         -e "DB_URI=postgres://${{ secrets.POSTGRES_USER }}:${{ secrets.POSTGRES_PASSWORD }}@${{ secrets.POSTGRES_HOST }}:${{ secrets.POSTGRES_PORT }}/${{ secrets.POSTGRES_DB }}" \
+                        -e "NAO_CONTEXT_SOURCE=git" \
+                        -e "NAO_CONTEXT_GIT_URL=${{ secrets.NAO_CONTEXT_GIT_URL }}" \
+                        -e "NAO_CONTEXT_GIT_TOKEN=${{ secrets.NAO_CONTEXT_GIT_TOKEN }}" \
+                        -e "NAO_DEFAULT_PROJECT_PATH=/app/chat-analytics" \
+                        -e GOOGLE_APPLICATION_CREDENTIALS_JSON='${{ secrets.GOOGLE_APPLICATION_CREDENTIALS_JSON }}' \
                         -e "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" \
+                        -e "ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}" \
                         -e "BETTER_AUTH_SECRET=${{ secrets.BETTER_AUTH_SECRET }}" \
-                        -e "NAO_DEFAULT_PROJECT_PATH=/app/example" \
                         -e "FASTAPI_URL=http://127.0.0.1:8005" \
                         --name nao-chat \
                         -d getnao/nao:${{ needs.build-and-push.outputs.image-tag }}

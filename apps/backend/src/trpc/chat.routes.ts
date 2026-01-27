@@ -37,4 +37,17 @@ export const chatRoutes = {
 		}
 		agent.stop();
 	}),
+
+	rename: protectedProcedure
+		.input(z.object({ chatId: z.string(), title: z.string().min(1).max(255) }))
+		.mutation(async ({ input, ctx }): Promise<void> => {
+			const userId = await chatQueries.getChatOwnerId(input.chatId);
+			if (!userId) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: `Chat with id ${input.chatId} not found.` });
+			}
+			if (userId !== ctx.user.id) {
+				throw new TRPCError({ code: 'FORBIDDEN', message: `You are not authorized to rename this chat.` });
+			}
+			await chatQueries.renameChat(input.chatId, input.title);
+		}),
 };

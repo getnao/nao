@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useState } from 'react';
 import { signUp } from '@/lib/auth-client';
-import { SignInForm } from '@/components/signinForm';
+import { SignInForm } from '@/components/signin-form';
 
 export const Route = createFileRoute('/signup')({
 	component: SignUp,

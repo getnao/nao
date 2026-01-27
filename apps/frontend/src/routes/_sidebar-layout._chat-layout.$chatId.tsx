@@ -3,12 +3,12 @@ import { ChatMessages } from '@/components/chat-messages';
 import { useChatQuery } from '@/queries/useChatQuery';
 import { Spinner } from '@/components/ui/spinner';
 
-export const Route = createFileRoute('/_chat-layout/$chatId')({
+export const Route = createFileRoute('/_sidebar-layout/_chat-layout/$chatId')({
 	component: RouteComponent,
 });
 
 function RouteComponent() {
-	const { chatId } = useParams({ from: '/_chat-layout/$chatId' });
+	const { chatId } = useParams({ strict: false });
 	const chat = useChatQuery({ chatId });
 
 	if (chat.isFetching) {

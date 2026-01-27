@@ -1,5 +1,5 @@
 import { ChevronRight } from 'lucide-react';
-import { useToolCallContext } from '../../contexts/tool-call.context';
+import { useToolCallContext } from '../../contexts/tool-call.provider';
 import { getToolName, isToolSettled } from '@/lib/ai';
 import { cn } from '@/lib/utils';
 import { Spinner } from '@/components/ui/spinner';

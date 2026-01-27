@@ -6,6 +6,11 @@ export function cn(...inputs: Array<ClassValue>) {
 	return twMerge(clsx(inputs));
 }
 
+/** Add tailwind classes to hide/show an element based on a condition by changing the opacity and visibility */
+export function hideIf(condition: boolean): string {
+	return condition ? 'opacity-0 invisible' : 'opacity-100 visible';
+}
+
 export function formatBytes(bytes: number): string {
 	if (bytes === 0) {
 		return '0 B';

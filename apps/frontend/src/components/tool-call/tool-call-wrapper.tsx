@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { useToolCallContext } from '../../contexts/tool-call.context';
+import { useToolCallContext } from '../../contexts/tool-call.provider';
 import type { ReactNode } from 'react';
 import { isToolSettled } from '@/lib/ai';
 import { cn } from '@/lib/utils';

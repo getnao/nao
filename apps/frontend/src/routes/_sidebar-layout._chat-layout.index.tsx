@@ -4,7 +4,7 @@ import { capitalize } from '@/lib/utils';
 import { ChatMessages } from '@/components/chat-messages';
 import { useAgentContext } from '@/contexts/agent.provider';
 
-export const Route = createFileRoute('/_chat-layout/')({
+export const Route = createFileRoute('/_sidebar-layout/_chat-layout/')({
 	component: RouteComponent,
 });
 

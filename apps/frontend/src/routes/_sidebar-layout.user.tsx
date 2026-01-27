@@ -2,11 +2,10 @@ import { useState } from 'react';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { Input } from '@/components/ui/input';
-import { Sidebar } from '@/components/sidebar';
 import { signOut, useSession } from '@/lib/auth-client';
 import { ModifyUserForm } from '@/components/settings-modify-user-form';
 import { GoogleConfigSection } from '@/components/settings-google-credentials-section';
-import { ThemeSelector } from '@/components/theme-selector';
+import { ThemeSelector } from '@/components/settings-theme-selector';
 import { getAuthentificationNavigation } from '@/hooks/useSessionOrNavigateToLoginPage';
 import { trpc } from '@/main';
 import { UserProfileCard } from '@/components/settings-profile-card';
@@ -15,7 +14,7 @@ import { LlmProvidersSection } from '@/components/settings-llm-providers-section
 import { SlackConfigSection } from '@/components/settings-slack-config-section';
 import { DisplayUsersSection } from '@/components/settings-display-users';
 
-export const Route = createFileRoute('/user')({
+export const Route = createFileRoute('/_sidebar-layout/user')({
 	component: UserPage,
 });
 
@@ -44,8 +43,7 @@ function UserPage() {
 
 	return (
 		<>
-			<Sidebar />
-			<div className='flex flex-1 flex-col bg-background min-w-0 overflow-auto'>
+			<div className='flex flex-1 flex-col bg-panel min-w-0 overflow-auto'>
 				<div className='flex flex-col w-full max-w-5xl mx-auto p-8 gap-6'>
 					{/* Profile Section */}
 					<UserProfileCard

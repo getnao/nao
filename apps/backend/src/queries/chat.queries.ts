@@ -99,6 +99,17 @@ const aggregateChatMessagParts = (
 	return Object.values(messagesMap);
 };
 
+export const getChatOwnerId = async (chatId: string): Promise<string | undefined> => {
+	const [result] = await db
+		.select({
+			userId: s.chat.userId,
+		})
+		.from(s.chat)
+		.where(eq(s.chat.id, chatId))
+		.execute();
+	return result?.userId;
+};
+
 export const createChat = async (newChat: NewChat, message: UIMessage): Promise<UIChat> => {
 	return db.transaction(async (t): Promise<UIChat> => {
 		const [savedChat] = await t.insert(s.chat).values(newChat).returning().execute();
@@ -160,6 +171,10 @@ export const upsertMessage = async (
 
 export const deleteChat = async (chatId: string): Promise<void> => {
 	await db.delete(s.chat).where(eq(s.chat.id, chatId)).execute();
+};
+
+export const renameChat = async (chatId: string, title: string): Promise<void> => {
+	await db.update(s.chat).set({ title }).where(eq(s.chat.id, chatId)).execute();
 };
 
 export const getOwnerOfChatAndMessage = async (chatId: string, messageId: string): Promise<string | undefined> => {

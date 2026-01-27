@@ -62,10 +62,11 @@ RUN uv pip install --system .
 # =============================================================================
 FROM python:3.12-slim AS runtime
 
-# Install Node.js, Bun, and supervisor
+# Install Node.js, Bun, git, and supervisor
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
+    git \
     supervisor \
     && curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
     && apt-get install -y nodejs \
@@ -93,12 +94,19 @@ COPY --from=frontend-builder /app/apps/frontend/dist ./apps/frontend/dist
 COPY apps/backend/migrations-postgres ./apps/backend/migrations-postgres
 COPY apps/backend/migrations-sqlite ./apps/backend/migrations-sqlite
 
-# Copy example project
+# Copy example project (fallback for local mode)
 COPY example /app/example
 
 # Copy supervisor configuration
 RUN mkdir -p /var/log/supervisor
 COPY docker/supervisord.conf /etc/supervisor/conf.d/nao.conf
+
+# Copy entrypoint script
+COPY docker/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+# Create context directory for git mode
+RUN mkdir -p /app/context && chown -R nao:nao /app/context
 
 # Set ownership
 RUN chown -R nao:nao /app /var/log/supervisor
@@ -106,7 +114,10 @@ RUN chown -R nao:nao /app /var/log/supervisor
 # Environment variables
 ENV NODE_ENV=production
 ENV FASTAPI_PORT=8005
+ENV NAO_DEFAULT_PROJECT_PATH=/app/example
+ENV NAO_CONTEXT_SOURCE=local
 
 EXPOSE 5005
 
-CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/nao.conf"]
+# Use entrypoint script to initialize context before starting services
+ENTRYPOINT ["/entrypoint.sh"]
