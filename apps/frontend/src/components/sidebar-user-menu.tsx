@@ -24,7 +24,7 @@ export function SidebarUserMenu({ isCollapsed }: SidebarUserMenuProps) {
 			}}
 			className={cn(
 				'flex items-center justify-between border-sidebar-border cursor-pointer rounded-lg',
-				'hover:bg-sidebar-accent transition-[background-color,padding]',
+				'hover:bg-sidebar-accent transition-[background-color,padding] duration-300',
 				isCollapsed ? 'p-1.5' : 'p-3 py-2',
 			)}
 		>
@@ -33,7 +33,7 @@ export function SidebarUserMenu({ isCollapsed }: SidebarUserMenuProps) {
 
 				<span
 					className={cn(
-						'flex flex-col justify-center text-left transition-[opacity,visibility] h-8',
+						'flex flex-col justify-center text-left transition-[opacity,visibility] h-8 duration-300',
 						hideIf(isCollapsed),
 					)}
 				>

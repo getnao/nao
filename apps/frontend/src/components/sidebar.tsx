@@ -34,49 +34,50 @@ export function Sidebar() {
 	return (
 		<div
 			className={cn(
-				'flex flex-col border-r border-sidebar-border transition-all duration-300 overflow-hidden',
+				'flex flex-col border-r border-sidebar-border transition-[width,background-color] duration-300 overflow-hidden',
 				isCollapsed ? 'w-13 bg-panel' : 'w-72 bg-sidebar',
 			)}
 		>
 			<div className='p-2 flex flex-col gap-2'>
-				<div className='flex items-center'>
-					{isCollapsed ? (
-						<Button
-							variant='ghost'
-							size='icon-md'
-							onClick={toggleSidebar}
-							className={cn('text-muted-foreground')}
-						>
-							<ArrowRightToLine className='size-4' />
-						</Button>
-					) : (
-						<>
-							<div className={cn('flex items-center justify-center p-2 mr-auto')}>
-								<img src='/nao-logo-greyscale.svg' alt='nao logo' className='size-5 rounded' />
-							</div>
+				<div className='flex items-center relative'>
+					<div
+						className={cn(
+							'flex items-center justify-center p-2 mr-auto absolute left-0 z-0 transition-[opacity,visibility] duration-300',
+							hideIf(isCollapsed),
+						)}
+					>
+						<img src='/nao-logo-greyscale.svg' alt='nao logo' className='size-5 rounded' />
+					</div>
 
-							<Button
-								variant='ghost'
-								size='icon-md'
-								onClick={toggleSidebar}
-								className={cn('text-muted-foreground')}
-							>
-								<ArrowLeftFromLine className='size-4' />
-							</Button>
-						</>
-					)}
+					<Button
+						variant='ghost'
+						size='icon-md'
+						onClick={toggleSidebar}
+						className={cn('text-muted-foreground ml-auto z-10')}
+					>
+						{isCollapsed ? (
+							<ArrowRightToLine className='size-4' />
+						) : (
+							<ArrowLeftFromLine className='size-4' />
+						)}
+					</Button>
 				</div>
 
 				<Button
 					variant='outline'
 					className={cn(
-						'w-full justify-start relative group shadow-none transition-[padding,height,width,background-color] p-[9px_!important]',
+						'w-full justify-start relative group shadow-none transition-[padding,height,width,background-color] duration-300 p-[9px_!important]',
 						isCollapsed ? 'h-9 w-9' : '',
 					)}
 					onClick={handleStartNewChat}
 				>
 					<PlusIcon className='size-4' />
-					<div className={cn('flex items-center transition-[opacity,visibility]', hideIf(isCollapsed))}>
+					<div
+						className={cn(
+							'flex items-center transition-[opacity,visibility] duration-300',
+							hideIf(isCollapsed),
+						)}
+					>
 						<span>New Chat</span>
 						<kbd className='group-hover:opacity-100 opacity-0 absolute right-3 text-[10px] text-muted-foreground font-sans transition-opacity'>
 							⇧⌘O
@@ -87,10 +88,10 @@ export function Sidebar() {
 
 			<ChatList
 				chats={chats.data?.chats || []}
-				className={cn('w-72 transition-[opacity,visibility]', hideIf(isCollapsed))}
+				className={cn('w-72 transition-[opacity,visibility] duration-300', hideIf(isCollapsed))}
 			/>
 
-			<div className={cn('mt-auto transition-[padding]', isCollapsed ? 'p-1' : 'p-2')}>
+			<div className={cn('mt-auto transition-[padding] duration-300', isCollapsed ? 'p-1' : 'p-2')}>
 				<SidebarUserMenu isCollapsed={isCollapsed} />
 			</div>
 		</div>
