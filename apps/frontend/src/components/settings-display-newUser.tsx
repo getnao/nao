@@ -3,14 +3,14 @@ import { Check, Copy, AlertTriangle } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 
-interface DisplayNewUserInfoProps {
+interface NewlyCreatedUserDialogProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	email: string;
 	password: string;
 }
 
-export function DisplayNewUserInfo({ open, onOpenChange, email, password }: DisplayNewUserInfoProps) {
+export function NewlyCreatedUserDialog({ open, onOpenChange, email, password }: NewlyCreatedUserDialogProps) {
 	const [copied, setCopied] = useState(false);
 
 	const handleCopy = async () => {

@@ -121,23 +121,6 @@ export const projectRoutes = {
 		return { success: true };
 	}),
 
-	addMemberToProject: adminProtectedProcedure
-		.input(
-			z.object({
-				userId: z.string().min(1),
-				projectId: z.string().min(1),
-				role: z.enum(['admin', 'user', 'viewer']),
-			}),
-		)
-		.mutation(async ({ ctx, input }) => {
-			await projectQueries.addProjectMember({
-				userId: input.userId,
-				projectId: ctx.project.id,
-				role: input.role,
-			});
-			return { success: true };
-		}),
-
 	getAllUsersWithRoles: projectProtectedProcedure.query(async ({ ctx }) => {
 		if (!ctx.project) {
 			return [];

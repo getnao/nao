@@ -1,19 +1,19 @@
 import { z } from 'zod/v4';
 
-import { adminProtectedProcedure, protectedProcedure, publicProcedure } from './trpc';
+import { adminProtectedProcedure, publicProcedure } from './trpc';
 
 export const googleRoutes = {
-	hasGoogleSetup: publicProcedure.query(() => {
+	isSetup: publicProcedure.query(() => {
 		return !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
 	}),
-	getGoogleSettings: protectedProcedure.query(() => {
+	getSettings: adminProtectedProcedure.query(() => {
 		return {
 			clientId: process.env.GOOGLE_CLIENT_ID || '',
 			clientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
 			authDomains: process.env.GOOGLE_AUTH_DOMAINS || '',
 		};
 	}),
-	updateGoogleSettings: adminProtectedProcedure
+	updateSettings: adminProtectedProcedure
 		.input(
 			z.object({
 				clientId: z.string(),

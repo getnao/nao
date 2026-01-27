@@ -6,7 +6,7 @@ import { User } from '../db/abstractSchema';
 import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
 import { SlackConfig } from '../queries/project-slack-config.queries';
-import { getUser } from '../queries/user.queries';
+import { get } from '../queries/user.queries';
 import { UIChat } from '../types/chat';
 import { UIMessage } from '../types/chat';
 import { SlackEvent } from '../types/slack';
@@ -61,7 +61,7 @@ export class SlackService {
 			throw new Error('Could not retrieve user email from Slack');
 		}
 
-		const user = await getUser({ email: userEmail });
+		const user = await get({ email: userEmail });
 		if (!user) {
 			const fullMessage = `❌ No user found. Create an account with ${userEmail} on ${this._redirectUrl} to sign up.`;
 			await this._slackClient.chat.postMessage({

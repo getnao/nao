@@ -7,7 +7,7 @@ import { signOut, useSession } from '@/lib/auth-client';
 import { ModifyUserForm } from '@/components/settings-modify-user-form';
 import { GoogleConfigSection } from '@/components/settings-google-credentials-section';
 import { ThemeSelector } from '@/components/theme-selector';
-import { getAuthentificationNavigation } from '@/lib/utils';
+import { getAuthentificationNavigation } from '@/hooks/useSessionOrNavigateToLoginPage';
 import { trpc } from '@/main';
 import { UserProfileCard } from '@/components/settings-profile-card';
 import { SettingsCard } from '@/components/ui/settings-card';
@@ -125,7 +125,12 @@ function UserPage() {
 				</div>
 			</div>
 
-			<ModifyUserForm open={isModifyUserOpen} onOpenChange={setIsModifyUserOpen} userId={selectedUserId} />
+			<ModifyUserForm
+				open={isModifyUserOpen}
+				onOpenChange={setIsModifyUserOpen}
+				userId={selectedUserId}
+				isAdmin={isAdmin}
+			/>
 		</>
 	);
 }

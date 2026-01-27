@@ -34,7 +34,7 @@ export function SignInForm<T extends string>({
 	submitButtonText,
 	error,
 }: SignFormProps<T>) {
-	const isGoogleSetup = useQuery(trpc.google.hasGoogleSetup.queryOptions());
+	const isGoogleSetup = useQuery(trpc.google.isSetup.queryOptions());
 
 	return (
 		<div className='container mx-auto w-full max-w-2xl p-12 my-auto'>

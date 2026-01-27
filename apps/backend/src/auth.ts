@@ -4,7 +4,7 @@ import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { db } from './db/db';
 import dbConfig, { Dialect } from './db/dbConfig';
 import * as projectQueries from './queries/project.queries';
-import { verifyUserDomainForGoogleOAuth } from './utils/utils';
+import { isEmailDomainAllowed } from './utils/utils';
 
 export const auth = betterAuth({
 	secret: process.env.BETTER_AUTH_SECRET,
@@ -27,7 +27,8 @@ export const auth = betterAuth({
 		user: {
 			create: {
 				before: async (user, ctx) => {
-					if (ctx?.params?.id && ctx?.params.id == 'google' && !verifyUserDomainForGoogleOAuth(user.email)) {
+					const provider = ctx?.params?.id;
+					if (provider && provider == 'google' && !isEmailDomainAllowed(user.email)) {
 						return false;
 					}
 					return true;

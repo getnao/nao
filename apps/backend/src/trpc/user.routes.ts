@@ -3,51 +3,55 @@ import { hashPassword, verifyPassword } from 'better-auth/crypto';
 import { z } from 'zod/v4';
 
 import * as accountQueries from '../queries/account.queries';
+import * as projectQueries from '../queries/project.queries';
 import * as userQueries from '../queries/user.queries';
+import { regexPassword } from '../utils/utils';
 import { adminProtectedProcedure, protectedProcedure, publicProcedure } from './trpc';
 
 export const userRoutes = {
-	countUsers: publicProcedure.query(() => {
-		return userQueries.countUsers();
+	countAll: publicProcedure.query(() => {
+		return userQueries.countAll();
 	}),
-	getAllUsers: protectedProcedure.query(() => {
-		return userQueries.getAllUsers();
-	}),
-	getUser: protectedProcedure.input(z.object({ userId: z.string() })).query(async ({ input }) => {
-		const user = await userQueries.getUser({ id: input.userId });
+	get: protectedProcedure.input(z.object({ userId: z.string() })).query(async ({ input, ctx }) => {
+		const project = await projectQueries.checkUserHasProject(ctx.user.id);
+		if (!project) {
+			throw new TRPCError({ code: 'FORBIDDEN', message: 'Access denied' });
+		}
+		const userRole = await projectQueries.getUserRoleInProject(project.id, ctx.user.id);
+		if (userRole !== 'admin' && input.userId !== ctx.user.id) {
+			throw new TRPCError({ code: 'FORBIDDEN', message: 'Only admins can access other users information' });
+		}
+
+		const user = await userQueries.get({ id: input.userId });
 		if (!user) {
 			return null;
 		}
 		return user;
 	}),
-	modifyUser: protectedProcedure
+	modify: protectedProcedure
 		.input(
 			z.object({
 				userId: z.string(),
 				name: z.string().optional(),
 				previousPassword: z.string().optional(),
-				newPassword: z.string().min(8).optional(),
+				newPassword: z.string().optional(),
 			}),
 		)
 		.mutation(async ({ input }) => {
-			if (input.name) {
-				await userQueries.modifyUser(input.userId, { name: input.name });
-			}
-
 			if (input.previousPassword && input.newPassword) {
-				const account = await accountQueries.getAccountById(input.userId);
-
-				if (!account) {
+				if (!regexPassword.test(input.newPassword)) {
 					throw new TRPCError({
-						code: 'NOT_FOUND',
-						message: 'User account not found or user does not use password authentication.',
+						code: 'BAD_REQUEST',
+						message:
+							'New password must be at least 8 characters long and include uppercase, lowercase, number, and special character.',
 					});
 				}
 
-				if (!account.password) {
+				const account = await accountQueries.getAccountById(input.userId);
+				if (!account || !account.password) {
 					throw new TRPCError({
-						code: 'BAD_REQUEST',
-						message: 'This account does not use password authentication.',
+						code: 'NOT_FOUND',
+						message: 'User account not found or user does not use password authentication.',
 					});
 				}
 
@@ -55,7 +59,6 @@ export const userRoutes = {
 					hash: account.password,
 					password: input.previousPassword,
 				});
-
 				if (!isPasswordValid) {
 					throw new TRPCError({
 						code: 'UNAUTHORIZED',
@@ -64,39 +67,48 @@ export const userRoutes = {
 				}
 
 				const hashedPassword = await hashPassword(input.newPassword);
-				await accountQueries.updateAccountPassword(account.id, hashedPassword);
+				await accountQueries.updateAccountAndUser(account.id, hashedPassword, input.userId, input.name);
+			} else if (input.name) {
+				await userQueries.modify(input.userId, { name: input.name });
 			}
-
-			return { success: true };
 		}),
-	createUser: adminProtectedProcedure
+	createUserAndAddToProject: adminProtectedProcedure
 		.input(
 			z.object({
 				name: z.string().min(1),
 				email: z.string().min(1),
-				password: z.string().min(8),
 			}),
 		)
-		.mutation(async ({ input }) => {
+		.mutation(async ({ input, ctx }) => {
 			const userId = crypto.randomUUID();
 			const accountId = crypto.randomUUID();
 
-			const hashedPassword = await hashPassword(input.password);
+			const password = crypto.randomUUID().slice(0, 8);
+			const hashedPassword = await hashPassword(password);
 
-			const user = await userQueries.createUser({
-				id: userId,
-				name: input.name,
-				email: input.email,
+			const newUser = await userQueries.create(
+				{
+					id: userId,
+					name: input.name,
+					email: input.email,
+				},
+				{
+					id: accountId,
+					userId: userId,
+					accountId: userId,
+					providerId: 'credential',
+					password: hashedPassword,
+				},
+			);
+
+			const project = await projectQueries.getProjectById(ctx.project.id);
+
+			await projectQueries.addProjectMember({
+				userId: newUser.id,
+				projectId: project?.id || '',
+				role: 'user',
 			});
 
-			await accountQueries.createAccount({
-				id: accountId,
-				userId: userId,
-				accountId: userId,
-				providerId: 'credential',
-				password: hashedPassword,
-			});
-
-			return user;
+			return { newUser, password };
 		}),
 };

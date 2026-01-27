@@ -25,12 +25,17 @@ export const getErrorMessage = (error: unknown): string | null => {
 	return String(error);
 };
 
-export const verifyUserDomainForGoogleOAuth = (userEmail: string) => {
+export const isEmailDomainAllowed = (userEmail: string) => {
 	const googleAuthDomains = process.env.GOOGLE_AUTH_DOMAINS;
 	if (googleAuthDomains) {
 		const allowedDomains = googleAuthDomains.split(',').map((domain) => domain.trim().toLowerCase());
-		const userEmailDomain = userEmail.split('@')[1].toLowerCase();
+		const userEmailDomain = userEmail.split('@').at(1)?.toLowerCase();
+		if (!userEmailDomain) {
+			return false;
+		}
 		return allowedDomains.includes(userEmailDomain);
 	}
 	return true;
 };
+
+export const regexPassword = /^(?=.*?[A-Z])(?=.*?[a-z])(?=.*?[0-9])(?=.*?[#?!@$%^&*-]).{8,}$/;

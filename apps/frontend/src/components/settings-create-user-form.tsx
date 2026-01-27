@@ -1,6 +1,5 @@
 import { useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { GeneratePassword } from 'js-generate-password';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -11,9 +10,6 @@ interface ModifyUserInfoProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	onUserCreated: (email: string, password: string) => void;
-	initialName?: string;
-	initialEmail?: string;
-	initialPicture?: string;
 }
 
 export function CreateUserForm({ open, onOpenChange, onUserCreated }: ModifyUserInfoProps) {
@@ -23,10 +19,8 @@ export function CreateUserForm({ open, onOpenChange, onUserCreated }: ModifyUser
 	const [formData, setFormData] = useState({
 		name: '',
 		email: '',
-		password: '',
 	});
 	const [error, setError] = useState('');
-	const project = useQuery(trpc.project.getCurrent.queryOptions());
 
 	const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
 		setFormData({
@@ -35,19 +29,8 @@ export function CreateUserForm({ open, onOpenChange, onUserCreated }: ModifyUser
 		});
 	};
 
-	const createUser = useMutation(
-		trpc.user.createUser.mutationOptions({
-			onSuccess: async () => {
-				await refetch();
-			},
-			onError: () => {
-				setError('An error occurred while updating the profile.');
-			},
-		}),
-	);
-
-	const addMemberToProject = useMutation(
-		trpc.project.addMemberToProject.mutationOptions({
+	const createUserAndAddToProject = useMutation(
+		trpc.user.createUserAndAddToProject.mutationOptions({
 			onSuccess: async () => {
 				await refetch();
 				await queryClient.invalidateQueries({
@@ -55,8 +38,8 @@ export function CreateUserForm({ open, onOpenChange, onUserCreated }: ModifyUser
 				});
 				onOpenChange(false);
 			},
-			onError: () => {
-				setError('An error occurred while updating the profile.');
+			onError: (err) => {
+				setError(err.message);
 			},
 		}),
 	);
@@ -64,23 +47,13 @@ export function CreateUserForm({ open, onOpenChange, onUserCreated }: ModifyUser
 	const handleSubmit = async (e: React.FormEvent) => {
 		e.preventDefault();
 		setError('');
-		formData.password = GeneratePassword({
-			length: 14,
-			symbols: true,
-		});
 
-		const newUser = await createUser.mutateAsync({
+		const { password } = await createUserAndAddToProject.mutateAsync({
 			email: formData.email,
-			password: formData.password,
 			name: formData.name,
 		});
 
-		await addMemberToProject.mutateAsync({
-			userId: newUser.id,
-			projectId: project.data?.id || '',
-			role: 'user',
-		});
-		onUserCreated(formData.email, formData.password);
+		onUserCreated(formData.email, password);
 	};
 
 	return (
@@ -98,7 +71,7 @@ export function CreateUserForm({ open, onOpenChange, onUserCreated }: ModifyUser
 							id='name'
 							name='name'
 							type='text'
-							placeholder='newuser'
+							placeholder="Enter the new user's name"
 							value={formData.name}
 							onChange={handleChange}
 						/>
@@ -113,7 +86,7 @@ export function CreateUserForm({ open, onOpenChange, onUserCreated }: ModifyUser
 							id='email'
 							name='email'
 							type='text'
-							placeholder='newuser@gmail.com'
+							placeholder="Enter the new user's email"
 							value={formData.email}
 							onChange={handleChange}
 						/>

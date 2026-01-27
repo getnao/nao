@@ -54,19 +54,24 @@ export const getUserRoleInProject = async (
 export const getAllUsersWithRoles = async (
 	projectId: string,
 ): Promise<{ id: string; name: string; email: string; role: 'admin' | 'user' | 'viewer' | null }[]> => {
-	const users = await userQueries.getAllUsers();
-	const usersWithRoles = await Promise.all(
-		users.map(async (user) => {
-			const role = await getUserRoleInProject(projectId, user.id);
-			return {
-				id: user.id,
-				name: user.name,
-				email: user.email,
-				role,
-			};
-		}),
-	);
-	return usersWithRoles;
+	const results = await db
+		.select({
+			id: s.user.id,
+			name: s.user.name,
+			email: s.user.email,
+			role: s.projectMember.role,
+		})
+		.from(s.user)
+		.innerJoin(s.projectMember, eq(s.projectMember.userId, s.user.id))
+		.where(eq(s.projectMember.projectId, projectId))
+		.execute();
+
+	return results.map((result) => ({
+		id: result.id,
+		name: result.name,
+		email: result.email,
+		role: result.role,
+	}));
 };
 
 export const checkUserHasProject = async (userId: string): Promise<DBProject | null> => {
@@ -95,7 +100,7 @@ export const initializeDefaultProjectForFirstUser = async (userId: string): Prom
 		return;
 	}
 
-	const userCount = await userQueries.countUsers();
+	const userCount = await userQueries.countAll();
 	if (userCount !== 1) {
 		return;
 	}
@@ -129,7 +134,7 @@ export const assignAdminToOrphanedProject = async (): Promise<void> => {
 		throw new Error('[Startup] NAO_DEFAULT_PROJECT_PATH environment variable is not defined.');
 	}
 
-	const firstUser = await userQueries.getFirstUser();
+	const firstUser = await userQueries.getFirst();
 	if (!firstUser) {
 		return;
 	}

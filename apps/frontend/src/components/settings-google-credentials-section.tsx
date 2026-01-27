@@ -10,21 +10,19 @@ interface GoogleConfigSectionProps {
 }
 
 export function GoogleConfigSection({ isAdmin }: GoogleConfigSectionProps) {
-	const queryClient = useQueryClient();
-	const googleSettings = useQuery(trpc.google.getGoogleSettings.queryOptions());
-
 	const [isEditing, setIsEditing] = useState(false);
 	const [clientId, setClientId] = useState('');
 	const [clientSecret, setClientSecret] = useState('');
-	const [authDomains, setAuthDomains] = useState('');
+	const [authDomains, setAuthDomains] = useState('ç');
 	const [testResult, setTestResult] = useState<{ success: boolean; message?: string; error?: string } | null>(null);
 
-	const hasEnvConfig = !!(googleSettings.data?.clientId || googleSettings.data?.clientSecret);
+	const queryClient = useQueryClient();
+	const googleSettings = useQuery(trpc.google.getSettings.queryOptions());
 
 	const updateGoogleSettings = useMutation(
-		trpc.google.updateGoogleSettings.mutationOptions({
+		trpc.google.updateSettings.mutationOptions({
 			onSuccess: async () => {
-				await queryClient.invalidateQueries(trpc.google.getGoogleSettings.queryOptions());
+				await queryClient.invalidateQueries(trpc.google.getSettings.queryOptions());
 				setIsEditing(false);
 				setClientId('');
 				setClientSecret('');
@@ -62,7 +60,7 @@ export function GoogleConfigSection({ isAdmin }: GoogleConfigSectionProps) {
 
 	return (
 		<div className='grid gap-4'>
-			{hasEnvConfig && !isEditing && (
+			{isAdmin && !isEditing && (
 				<button
 					type='button'
 					className='w-full text-left cursor-pointer'
@@ -158,10 +156,8 @@ export function GoogleConfigSection({ isAdmin }: GoogleConfigSectionProps) {
 				</div>
 			)}
 
-			{!hasEnvConfig && !isAdmin && (
-				<p className='text-sm text-muted-foreground'>
-					No Google OAuth configured. Contact an admin to set it up.
-				</p>
+			{!isAdmin && (
+				<p className='text-sm text-muted-foreground'>Contact your admin to update Google OAuth settings.</p>
 			)}
 		</div>
 	);

@@ -1,17 +1,14 @@
-import { and, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 
-import s, { NewAccount } from '../db/abstractSchema';
+import s from '../db/abstractSchema';
 import { db } from '../db/db';
-
-export const createAccount = async (account: NewAccount): Promise<void> => {
-	await db.insert(s.account).values(account).returning().execute();
-};
+import * as userQueries from './user.queries';
 
 export const getAccountById = async (userId: string): Promise<{ id: string; password: string | null } | null> => {
 	const [account] = await db
 		.select({ id: s.account.id, password: s.account.password })
 		.from(s.account)
-		.where(and(eq(s.account.userId, userId), eq(s.account.providerId, 'credential')))
+		.where(eq(s.account.userId, userId))
 		.execute();
 
 	return account ?? null;
@@ -19,4 +16,16 @@ export const getAccountById = async (userId: string): Promise<{ id: string; pass
 
 export const updateAccountPassword = async (accountId: string, hashedPassword: string): Promise<void> => {
 	await db.update(s.account).set({ password: hashedPassword }).where(eq(s.account.id, accountId)).execute();
+};
+
+export const updateAccountAndUser = async (
+	accountId: string,
+	hashedPassword: string,
+	userId: string,
+	name?: string,
+): Promise<void> => {
+	await updateAccountPassword(accountId, hashedPassword);
+	if (name) {
+		await userQueries.modify(userId, { name });
+	}
 };
