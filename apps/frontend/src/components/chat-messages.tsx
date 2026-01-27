@@ -93,6 +93,7 @@ const ChatMessagesContent = ({ isAgentGenerating }: { isAgentGenerating: boolean
 					/>
 				))
 			)}
+			<ChatError className='mt-4' />
 		</>
 	);
 };
@@ -107,10 +108,7 @@ function MessageGroup({ group, showResponseLoader }: { group: MessageGroup; show
 					showResponseLoader={showResponseLoader && isLast(message, group.responses)}
 				/>
 			))}
-
 			{showResponseLoader && !group.responses.length && <AgentMessageLoader />}
-
-			<ChatError />
 		</div>
 	);
 }
