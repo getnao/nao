@@ -1,4 +1,6 @@
 import { AnthropicProviderOptions, createAnthropic } from '@ai-sdk/anthropic';
+import { createGoogleGenerativeAI, GoogleGenerativeAIProviderOptions } from '@ai-sdk/google';
+import { createMistral } from '@ai-sdk/mistral';
 import { createOpenAI, OpenAIResponsesProviderOptions } from '@ai-sdk/openai';
 import {
 	convertToModelMessages,
@@ -13,18 +15,15 @@ import { tools } from '../agents/tools';
 import * as chatQueries from '../queries/chat.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import { UIChat, UIMessage } from '../types/chat';
-import { LlmProvider } from '../types/llm';
+import { getProviderModelConfig, LlmProvider } from '../types/llm';
 import { convertToTokenUsage } from '../utils/chat';
-import { getDefaultModelId, getEnvApiKey, hasEnvApiKey } from '../utils/llm';
+import { getDefaultModelId, getEnvApiKey, getEnvModelSelections, ModelSelection } from '../utils/llm';
+
+export type { ModelSelection };
 
 type AgentChat = UIChat & {
 	userId: string;
 	projectId: string;
-};
-
-export type ModelSelection = {
-	provider: LlmProvider;
-	modelId: string;
 };
 
 class AgentService {
@@ -68,11 +67,9 @@ class AgentService {
 		}
 
 		// Fallback to env-based provider
-		const providers: LlmProvider[] = ['anthropic', 'openai'];
-		for (const provider of providers) {
-			if (hasEnvApiKey(provider)) {
-				return { provider, modelId: getDefaultModelId(provider) };
-			}
+		const envSelection = getEnvModelSelections().at(0);
+		if (envSelection) {
+			return envSelection;
 		}
 
 		throw Error('No model config found');
@@ -137,6 +134,31 @@ class AgentService {
 						},
 					} satisfies AnthropicProviderOptions,
 				},
+			};
+		}
+
+		if (provider === 'google') {
+			const google = createGoogleGenerativeAI({
+				apiKey,
+				...(baseUrl && { baseURL: baseUrl }),
+			});
+			return {
+				model: google.chat(modelId),
+				providerOptions: {
+					google: {
+						...getProviderModelConfig(provider, modelId),
+					} satisfies GoogleGenerativeAIProviderOptions,
+				},
+			};
+		}
+
+		if (provider === 'mistral') {
+			const mistral = createMistral({
+				apiKey,
+				...(baseUrl && { baseURL: baseUrl }),
+			});
+			return {
+				model: mistral.chat(modelId),
 			};
 		}
 

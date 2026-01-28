@@ -3,7 +3,7 @@ import { and, eq } from 'drizzle-orm';
 import s, { DBProjectLlmConfig, NewProjectLlmConfig } from '../db/abstractSchema';
 import { db } from '../db/db';
 import { LlmProvider } from '../types/llm';
-import { getDefaultEnvProvider, getDefaultModelId, hasEnvApiKey } from '../utils/llm';
+import { getDefaultEnvProvider, getDefaultModelId, getEnvModelSelections } from '../utils/llm';
 
 export const getProjectLlmConfigs = async (projectId: string): Promise<DBProjectLlmConfig[]> => {
 	return db.select().from(s.projectLlmConfig).where(eq(s.projectLlmConfig.projectId, projectId)).execute();
@@ -115,12 +115,8 @@ export const getProjectAvailableModels = async (
 	}
 
 	// Also add env-configured providers with their defaults
-	const envProviders: LlmProvider[] = ['anthropic', 'openai'];
-	for (const provider of envProviders) {
-		if (hasEnvApiKey(provider) && !configs.some((c) => c.provider === provider)) {
-			models.push({ provider, modelId: getDefaultModelId(provider) });
-		}
-	}
+	const envSelections = getEnvModelSelections().filter((s) => !configs.some((c) => c.provider === s.provider));
+	models.push(...envSelections);
 
 	return models;
 };

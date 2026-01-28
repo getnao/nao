@@ -1,5 +1,6 @@
-import { getDefaultModelId, LLM_PROVIDERS, LlmProvider } from '../types/llm';
+import { getDefaultModelId, LLM_PROVIDERS, LlmProvider, ModelSelection } from '../types/llm';
 export { getDefaultModelId };
+export type { ModelSelection };
 
 /** Get the API key from environment for a provider */
 export function getEnvApiKey(provider: LlmProvider): string | undefined {
@@ -31,4 +32,12 @@ export function isKnownModel(provider: LlmProvider, modelId: string): boolean {
 /** Get all known model IDs for a provider */
 export function getKnownModelIds(provider: LlmProvider): string[] {
 	return LLM_PROVIDERS[provider].models.map((m) => m.id);
+}
+
+/** Get model selections for all env-configured providers */
+export function getEnvModelSelections(): ModelSelection[] {
+	return getEnvProviders().map((provider) => ({
+		provider,
+		modelId: getDefaultModelId(provider),
+	}));
 }
