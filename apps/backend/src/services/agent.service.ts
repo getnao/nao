@@ -145,7 +145,7 @@ class AgentService {
 			...(baseUrl && { baseURL: baseUrl }),
 		});
 		return {
-			model: openai.chat(modelId),
+			model: openai.responses(modelId),
 			providerOptions: {
 				openai: {
 					// TODO: Add config for openai

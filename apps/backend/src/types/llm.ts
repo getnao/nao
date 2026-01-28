@@ -33,7 +33,6 @@ export const LLM_PROVIDERS: Record<
 		envVar: 'OPENAI_API_KEY',
 		models: [
 			{ id: 'gpt-5.2', name: 'GPT 5.2', default: true },
-			{ id: 'gpt-5.2-pro', name: 'GPT 5.2 pro' },
 			{ id: 'gpt-5-mini', name: 'GPT 5 mini' },
 			{ id: 'gpt-4.1', name: 'GPT 4.1' },
 		],

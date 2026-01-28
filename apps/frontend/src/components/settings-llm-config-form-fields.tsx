@@ -66,12 +66,30 @@ export function ConfigFormFields({
 	const isCustomModel = (modelId: string) => !currentModels.some((m) => m.id === modelId);
 
 	const toggleModel = (modelId: string) => {
-		setFormState((prev) => ({
-			...prev,
-			enabledModels: prev.enabledModels.includes(modelId)
-				? prev.enabledModels.filter((m) => m !== modelId)
-				: [...prev.enabledModels, modelId],
-		}));
+		setFormState((prev) => {
+			if (prev.enabledModels.includes(modelId)) {
+				return {
+					...prev,
+					enabledModels: prev.enabledModels.filter((m) => m !== modelId),
+				};
+			}
+
+			// First selection while default is implicitly selected - keep the default too
+			if (prev.enabledModels.length === 0) {
+				const defaultModel = currentModels.find((m) => m.default);
+				if (defaultModel && defaultModel.id !== modelId) {
+					return {
+						...prev,
+						enabledModels: [defaultModel.id, modelId],
+					};
+				}
+			}
+
+			return {
+				...prev,
+				enabledModels: [...prev.enabledModels, modelId],
+			};
+		});
 	};
 
 	const handleAddCustomModel = () => {
