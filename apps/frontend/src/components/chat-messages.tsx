@@ -5,7 +5,7 @@ import { useStickToBottomContext } from 'use-stick-to-bottom';
 import { ToolCall } from './tool-call';
 import { ToolCallsGroup } from './tool-call/tool-calls-group';
 import { ReasoningAccordion } from './chat-message-reasoning-accordion';
-import { AgentMessageLoader } from './ui/agent-message-loader';
+import { TextShimmer } from './ui/text-shimmer';
 import { MessageActions } from './chat-message-actions';
 import { ChatError } from './chat-error';
 import type { UIMessage } from 'backend/chat';
@@ -108,7 +108,10 @@ function MessageGroup({ group, showResponseLoader }: { group: MessageGroup; show
 					showResponseLoader={showResponseLoader && isLast(message, group.responses)}
 				/>
 			))}
-			{showResponseLoader && !group.responses.length && <AgentMessageLoader />}
+
+			{showResponseLoader && !group.responses.length && <TextShimmer className='px-3' />}
+
+			<ChatError />
 		</div>
 	);
 }
@@ -209,7 +212,7 @@ const AssistantMessageBlock = ({
 				}
 			})}
 
-			{showResponseLoader && <AgentMessageLoader className='p-0' />}
+			{showResponseLoader && <TextShimmer />}
 
 			{chatId && (
 				<MessageActions

@@ -1,6 +1,7 @@
 import * as React from 'react';
 import * as RechartsPrimitive from 'recharts';
 
+import type { Payload } from 'recharts/types/component/DefaultLegendContent';
 import { cn } from '@/lib/utils';
 
 // Format: { THEME_NAME: CSS_SELECTOR }
@@ -230,10 +231,13 @@ function ChartLegendContent({
 	payload,
 	verticalAlign = 'bottom',
 	nameKey,
+	onItemClick,
 }: React.ComponentProps<'div'> &
-	Pick<RechartsPrimitive.LegendProps, 'payload' | 'verticalAlign'> & {
+	Pick<RechartsPrimitive.LegendProps, 'verticalAlign'> & {
 		hideIcon?: boolean;
 		nameKey?: string;
+		onItemClick?: (dataKey: string) => void;
+		payload?: (Payload & { isHidden: boolean })[];
 	}) {
 	const { config } = useChart();
 
@@ -254,13 +258,17 @@ function ChartLegendContent({
 				.map((item) => {
 					const key = `${nameKey || item.dataKey || 'value'}`;
 					const itemConfig = getPayloadConfigFromPayload(config, item, key);
+					const dataKey = String(item.dataKey);
 
 					return (
 						<div
 							key={item.value}
 							className={cn(
-								'[&>svg]:text-muted-foreground flex items-center gap-1.5 [&>svg]:h-3 [&>svg]:w-3 text-muted-foreground',
+								'[&>svg]:text-muted-foreground flex items-center gap-1.5 [&>svg]:h-3 [&>svg]:w-3 text-muted-foreground select-none',
+								onItemClick && 'cursor-pointer hover:text-foreground',
+								item.isHidden && 'opacity-40',
 							)}
+							onClick={() => onItemClick?.(dataKey)}
 						>
 							{itemConfig?.icon && !hideIcon ? (
 								<itemConfig.icon />

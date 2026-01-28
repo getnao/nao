@@ -2,6 +2,7 @@ import { cva } from 'class-variance-authority';
 import type { VariantProps } from 'class-variance-authority';
 
 import { cn } from '@/lib/utils';
+import { hashValue } from '@/lib/hash';
 
 const avatarColors = [
 	'bg-red-500',
@@ -23,16 +24,6 @@ const avatarColors = [
 	'bg-rose-500',
 ];
 
-function hashUsername(username: string): number {
-	let hash = 0;
-	for (let i = 0; i < username.length; i++) {
-		const char = username.charCodeAt(i);
-		hash = (hash << 5) - hash + char;
-		hash = hash & hash;
-	}
-	return Math.abs(hash);
-}
-
 function getInitials(username: string): string {
 	const parts = username.trim().split(/\s+/);
 	if (parts.length === 1) {
@@ -42,7 +33,7 @@ function getInitials(username: string): string {
 }
 
 function getColorClass(username: string): string {
-	const hash = hashUsername(username);
+	const hash = hashValue(username);
 	return avatarColors[hash % avatarColors.length];
 }
 
