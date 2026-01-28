@@ -15,10 +15,6 @@ export const KNOWN_MODELS = {
 	],
 } as const;
 
-export type AnthropicModel = (typeof KNOWN_MODELS.anthropic)[number]['id'];
-export type OpenAIModel = (typeof KNOWN_MODELS.openai)[number]['id'];
-export type KnownModelId = AnthropicModel | OpenAIModel;
-
 /** Get the default model for a provider */
 export function getDefaultModelId(provider: LlmProvider): string {
 	const models = KNOWN_MODELS[provider];

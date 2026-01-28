@@ -156,6 +156,8 @@ export const chatMessage = sqliteTable(
 		role: text('role', { enum: ['user', 'assistant', 'system'] }).notNull(),
 		stopReason: text('stop_reason').$type<StopReason>(),
 		errorMessage: text('error_message'),
+		llmProvider: text('llm_provider', { enum: ['openai', 'anthropic'] }),
+		llmModelId: text('llm_model_id'),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull(),

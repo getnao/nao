@@ -35,10 +35,46 @@ class AgentService {
 		modelSelection?: ModelSelection,
 	): Promise<AgentManager> {
 		this._disposeAgent(chat.id);
-		const modelConfig = await this._getModelConfig(chat.projectId, modelSelection);
-		const agent = new AgentManager(chat, modelConfig, () => this._agents.delete(chat.id), abortController);
+		const resolvedModelSelection = await this._getResolvedModelSelection(chat.projectId, modelSelection);
+		const modelConfig = await this._getModelConfig(chat.projectId, resolvedModelSelection);
+		const agent = new AgentManager(
+			chat,
+			modelConfig,
+			resolvedModelSelection,
+			() => this._agents.delete(chat.id),
+			abortController,
+		);
 		this._agents.set(chat.id, agent);
 		return agent;
+	}
+
+	private async _getResolvedModelSelection(
+		projectId: string,
+		modelSelection?: ModelSelection,
+	): Promise<ModelSelection> {
+		if (modelSelection) {
+			return modelSelection;
+		}
+
+		// Get the first available provider config
+		const configs = await llmConfigQueries.getProjectLlmConfigs(projectId);
+		const config = configs.at(0);
+		if (config) {
+			return {
+				provider: config.provider,
+				modelId: getDefaultModelId(config.provider),
+			};
+		}
+
+		// Fallback to env-based provider
+		if (process.env.ANTHROPIC_API_KEY) {
+			return { provider: 'anthropic', modelId: getDefaultModelId('anthropic') };
+		}
+		if (process.env.OPENAI_API_KEY) {
+			return { provider: 'openai', modelId: getDefaultModelId('openai') };
+		}
+
+		throw Error('No model config found');
 	}
 
 	private _disposeAgent(chatId: string): void {
@@ -56,62 +92,28 @@ class AgentService {
 
 	private async _getModelConfig(
 		projectId: string,
-		modelSelection?: ModelSelection,
+		modelSelection: ModelSelection,
 	): Promise<Pick<ToolLoopAgentSettings, 'model' | 'providerOptions'>> {
-		// If a specific model is selected, use it
-		if (modelSelection) {
-			const config = await llmConfigQueries.getProjectLlmConfigByProvider(projectId, modelSelection.provider);
+		const config = await llmConfigQueries.getProjectLlmConfigByProvider(projectId, modelSelection.provider);
 
-			if (config) {
-				return this._createProviderConfig(
-					modelSelection.provider,
-					config.apiKey,
-					modelSelection.modelId,
-					config.baseUrl,
-				);
-			}
-
-			// No config but env var might exist - check and use default model
-			if (modelSelection.provider === 'anthropic' && process.env.ANTHROPIC_API_KEY) {
-				return this._createProviderConfig('anthropic', process.env.ANTHROPIC_API_KEY, modelSelection.modelId);
-			}
-			if (modelSelection.provider === 'openai' && process.env.OPENAI_API_KEY) {
-				return this._createProviderConfig('openai', process.env.OPENAI_API_KEY, modelSelection.modelId);
-			}
-		}
-
-		// No model selection - use first available config or env
-		const configs = await llmConfigQueries.getProjectLlmConfigs(projectId);
-
-		// Prefer anthropic, then openai
-		const anthropicConfig = configs.find((c) => c.provider === 'anthropic');
-		if (anthropicConfig) {
-			const modelId = anthropicConfig.enabledModels?.[0] ?? getDefaultModelId('anthropic');
-			return this._createProviderConfig('anthropic', anthropicConfig.apiKey, modelId, anthropicConfig.baseUrl);
-		}
-
-		const openaiConfig = configs.find((c) => c.provider === 'openai');
-		if (openaiConfig) {
-			const modelId = openaiConfig.enabledModels?.[0] ?? getDefaultModelId('openai');
-			return this._createProviderConfig('openai', openaiConfig.apiKey, modelId, openaiConfig.baseUrl);
-		}
-
-		// Fall back to environment variables (no config at all)
-		if (process.env.ANTHROPIC_API_KEY) {
+		if (config) {
 			return this._createProviderConfig(
-				'anthropic',
-				process.env.ANTHROPIC_API_KEY,
-				getDefaultModelId('anthropic'),
+				modelSelection.provider,
+				config.apiKey,
+				modelSelection.modelId,
+				config.baseUrl,
 			);
 		}
 
-		if (process.env.OPENAI_API_KEY) {
-			return this._createProviderConfig('openai', process.env.OPENAI_API_KEY, getDefaultModelId('openai'));
+		// No config but env var might exist - use it
+		if (modelSelection.provider === 'anthropic' && process.env.ANTHROPIC_API_KEY) {
+			return this._createProviderConfig('anthropic', process.env.ANTHROPIC_API_KEY, modelSelection.modelId);
+		}
+		if (modelSelection.provider === 'openai' && process.env.OPENAI_API_KEY) {
+			return this._createProviderConfig('openai', process.env.OPENAI_API_KEY, modelSelection.modelId);
 		}
 
-		throw new Error(
-			'No LLM API key found. Configure API keys in project settings or set ANTHROPIC_API_KEY/OPENAI_API_KEY environment variables.',
-		);
+		throw Error('No model config found');
 	}
 
 	private _createProviderConfig(
@@ -161,6 +163,7 @@ class AgentManager {
 	constructor(
 		readonly chat: AgentChat,
 		modelConfig: Pick<ToolLoopAgentSettings, 'model' | 'providerOptions'>,
+		private readonly _modelSelection: ModelSelection,
 		private readonly _onDispose: () => void,
 		private readonly _abortController: AbortController,
 	) {
@@ -213,6 +216,8 @@ class AgentManager {
 					stopReason,
 					error,
 					tokenUsage,
+					llmProvider: this._modelSelection.provider,
+					llmModelId: this._modelSelection.modelId,
 				});
 				this._onDispose();
 			},

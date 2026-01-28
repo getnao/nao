@@ -4,6 +4,7 @@
 	"exports": {
 		"./trpc": "./src/trpc/router.ts",
 		"./chat": "./src/types/chat.ts",
+		"./llm": "./src/types/llm.ts",
 		"./tools": "./src/agents/tools/index.ts"
 	},
 	"scripts": {

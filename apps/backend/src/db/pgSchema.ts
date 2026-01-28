@@ -151,6 +151,8 @@ export const chatMessage = pgTable(
 		role: text('role', { enum: ['user', 'assistant', 'system'] }).notNull(),
 		stopReason: text('stop_reason').$type<StopReason>(),
 		errorMessage: text('error_message'),
+		llmProvider: text('llm_provider', { enum: ['openai', 'anthropic'] }),
+		llmModelId: text('llm_model_id'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 	},
 	(table) => [
