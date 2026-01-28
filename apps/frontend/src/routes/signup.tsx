@@ -45,7 +45,8 @@ function SignUp() {
 
 	return (
 		<SignInForm
-			title='Sign Up'
+			title='Create an account'
+			description='Welcome ! Create an account to get started with Nao.'
 			fields={[
 				{
 					name: 'name',

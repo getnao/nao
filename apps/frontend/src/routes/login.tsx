@@ -43,7 +43,8 @@ function Login() {
 
 	return (
 		<SignInForm
-			title='Sign In'
+			title='Welcome back !'
+			description='Sign in to access Nao.'
 			fields={[
 				{
 					name: 'email',
