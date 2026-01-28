@@ -219,7 +219,7 @@ async function runServe(options: Record<string, string>): Promise<void> {
 
 async function runMigrateCommand(): Promise<void> {
 	const migrationsPath = getMigrationsPath(dbConfig.dialect);
-	console.log(`GOT MIGRATION PATH: ${migrationsPath}`);
+
 	try {
 		await runMigrations({
 			dbType: dbConfig.dialect,
