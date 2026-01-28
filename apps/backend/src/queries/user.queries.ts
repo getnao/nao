@@ -1,6 +1,6 @@
 import { count, eq } from 'drizzle-orm';
 
-import s, { NewAccount, NewUser, User } from '../db/abstractSchema';
+import s, { NewAccount, NewProjectMember, NewUser, User } from '../db/abstractSchema';
 import { db } from '../db/db';
 
 export const get = async (identifier: { id: string } | { email: string }): Promise<User | null> => {
@@ -25,10 +25,12 @@ export const getFirst = async (): Promise<User | null> => {
 	return user ?? null;
 };
 
-export const create = async (user: NewUser, account: NewAccount): Promise<User> => {
+export const create = async (user: NewUser, account: NewAccount, member: NewProjectMember): Promise<User> => {
 	return await db.transaction(async (tx) => {
 		const [created] = await tx.insert(s.user).values(user).returning().execute();
 		await tx.insert(s.account).values(account).execute();
+		member.userId = created.id;
+		await tx.insert(s.projectMember).values(member).execute();
 		return created;
 	});
 };

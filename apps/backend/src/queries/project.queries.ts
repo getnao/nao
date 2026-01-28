@@ -2,6 +2,7 @@ import { and, eq } from 'drizzle-orm';
 
 import s, { DBProject, DBProjectMember, NewProject, NewProjectMember } from '../db/abstractSchema';
 import { db } from '../db/db';
+import { UserWithRole } from '../types/project';
 import * as userQueries from './user.queries';
 
 export const getProjectByPath = async (path: string): Promise<DBProject | null> => {
@@ -51,9 +52,7 @@ export const getUserRoleInProject = async (
 	return member?.role ?? null;
 };
 
-export const getAllUsersWithRoles = async (
-	projectId: string,
-): Promise<{ id: string; name: string; email: string; role: 'admin' | 'user' | 'viewer' | null }[]> => {
+export const getAllUsersWithRoles = async (projectId: string): Promise<UserWithRole[]> => {
 	const results = await db
 		.select({
 			id: s.user.id,
@@ -66,12 +65,7 @@ export const getAllUsersWithRoles = async (
 		.where(eq(s.projectMember.projectId, projectId))
 		.execute();
 
-	return results.map((result) => ({
-		id: result.id,
-		name: result.name,
-		email: result.email,
-		role: result.role,
-	}));
+	return results;
 };
 
 export const checkUserHasProject = async (userId: string): Promise<DBProject | null> => {

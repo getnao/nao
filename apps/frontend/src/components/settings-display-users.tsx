@@ -8,12 +8,12 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { CreateUserForm } from '@/components/settings-create-user-form';
 import { Badge } from '@/components/ui/badge';
 
-interface DisplayUsersSectionProps {
+interface UsersListProps {
 	isAdmin: boolean;
 	onModifyUser: (userId: string) => void;
 }
 
-export function DisplayUsersSection({ isAdmin, onModifyUser }: DisplayUsersSectionProps) {
+export function UsersList({ isAdmin, onModifyUser }: UsersListProps) {
 	const [isCreateUserOpen, setIsCreateUserOpen] = useState(false);
 	const [newUser, setNewUser] = useState<{ email: string; password: string } | null>(null);
 

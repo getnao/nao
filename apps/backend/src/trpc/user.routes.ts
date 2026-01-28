@@ -6,19 +6,14 @@ import * as accountQueries from '../queries/account.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as userQueries from '../queries/user.queries';
 import { regexPassword } from '../utils/utils';
-import { adminProtectedProcedure, protectedProcedure, publicProcedure } from './trpc';
+import { adminProtectedProcedure, projectProtectedProcedure, protectedProcedure, publicProcedure } from './trpc';
 
 export const userRoutes = {
 	countAll: publicProcedure.query(() => {
 		return userQueries.countAll();
 	}),
-	get: protectedProcedure.input(z.object({ userId: z.string() })).query(async ({ input, ctx }) => {
-		const project = await projectQueries.checkUserHasProject(ctx.user.id);
-		if (!project) {
-			throw new TRPCError({ code: 'FORBIDDEN', message: 'Access denied' });
-		}
-		const userRole = await projectQueries.getUserRoleInProject(project.id, ctx.user.id);
-		if (userRole !== 'admin' && input.userId !== ctx.user.id) {
+	get: projectProtectedProcedure.input(z.object({ userId: z.string() })).query(async ({ input, ctx }) => {
+		if (ctx.userRole !== 'admin' && input.userId !== ctx.user.id) {
 			throw new TRPCError({ code: 'FORBIDDEN', message: 'Only admins can access other users information' });
 		}
 
@@ -86,6 +81,8 @@ export const userRoutes = {
 			const password = crypto.randomUUID().slice(0, 8);
 			const hashedPassword = await hashPassword(password);
 
+			const project = await projectQueries.getProjectById(ctx.project.id);
+
 			const newUser = await userQueries.create(
 				{
 					id: userId,
@@ -99,15 +96,12 @@ export const userRoutes = {
 					providerId: 'credential',
 					password: hashedPassword,
 				},
+				{
+					userId: '',
+					projectId: project?.id || '',
+					role: 'user',
+				},
 			);
-
-			const project = await projectQueries.getProjectById(ctx.project.id);
-
-			await projectQueries.addProjectMember({
-				userId: newUser.id,
-				projectId: project?.id || '',
-				role: 'user',
-			});
 
 			return { newUser, password };
 		}),

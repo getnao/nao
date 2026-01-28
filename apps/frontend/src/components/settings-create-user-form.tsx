@@ -31,12 +31,13 @@ export function CreateUserForm({ open, onOpenChange, onUserCreated }: ModifyUser
 
 	const createUserAndAddToProject = useMutation(
 		trpc.user.createUserAndAddToProject.mutationOptions({
-			onSuccess: async () => {
+			onSuccess: async (ctx) => {
 				await refetch();
 				await queryClient.invalidateQueries({
 					queryKey: trpc.project.getAllUsersWithRoles.queryKey(),
 				});
 				onOpenChange(false);
+				onUserCreated(formData.email, ctx.password);
 			},
 			onError: (err) => {
 				setError(err.message);
@@ -48,12 +49,10 @@ export function CreateUserForm({ open, onOpenChange, onUserCreated }: ModifyUser
 		e.preventDefault();
 		setError('');
 
-		const { password } = await createUserAndAddToProject.mutateAsync({
+		await createUserAndAddToProject.mutateAsync({
 			email: formData.email,
 			name: formData.name,
 		});
-
-		onUserCreated(formData.email, password);
 	};
 
 	return (

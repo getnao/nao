@@ -4,15 +4,15 @@ import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { Input } from '@/components/ui/input';
 import { signOut, useSession } from '@/lib/auth-client';
 import { ModifyUserForm } from '@/components/settings-modify-user-form';
-import { GoogleConfigSection } from '@/components/settings-google-credentials-section';
+// import { GoogleConfigSection } from '@/components/settings-google-credentials-section';
 import { ThemeSelector } from '@/components/settings-theme-selector';
-import { getAuthentificationNavigation } from '@/hooks/useSessionOrNavigateToLoginPage';
+import { useGetSigninLocation } from '@/hooks/useGetSigninLocation';
 import { trpc } from '@/main';
 import { UserProfileCard } from '@/components/settings-profile-card';
 import { SettingsCard } from '@/components/ui/settings-card';
 import { LlmProvidersSection } from '@/components/settings-llm-providers-section';
 import { SlackConfigSection } from '@/components/settings-slack-config-section';
-import { DisplayUsersSection } from '@/components/settings-display-users';
+import { UsersList } from '@/components/settings-display-users';
 
 export const Route = createFileRoute('/_sidebar-layout/user')({
 	component: UserPage,
@@ -28,7 +28,7 @@ function UserPage() {
 	const project = useQuery(trpc.project.getCurrent.queryOptions());
 
 	const isAdmin = project.data?.userRole === 'admin';
-	const navigation = getAuthentificationNavigation();
+	const navigation = useGetSigninLocation();
 
 	const handleSignOut = async () => {
 		queryClient.clear();
@@ -95,7 +95,7 @@ function UserPage() {
 								</div>
 								<LlmProvidersSection isAdmin={isAdmin} />
 								<SlackConfigSection isAdmin={isAdmin} />
-								<DisplayUsersSection
+								<UsersList
 									isAdmin={isAdmin}
 									onModifyUser={(userId) => {
 										setSelectedUserId(userId);
