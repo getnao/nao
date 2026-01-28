@@ -13,6 +13,7 @@ import {
 } from 'drizzle-orm/pg-core';
 
 import { StopReason, ToolState, UIMessagePartType } from '../types/chat';
+import { LlmProvider } from '../types/llm';
 import { USER_ROLES } from '../types/project';
 
 export const user = pgTable('user', {
@@ -151,7 +152,7 @@ export const chatMessage = pgTable(
 		role: text('role', { enum: ['user', 'assistant', 'system'] }).notNull(),
 		stopReason: text('stop_reason').$type<StopReason>(),
 		errorMessage: text('error_message'),
-		llmProvider: text('llm_provider', { enum: ['openai', 'anthropic'] }),
+		llmProvider: text('llm_provider').$type<LlmProvider>(),
 		llmModelId: text('llm_model_id'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 	},
@@ -260,7 +261,7 @@ export const projectLlmConfig = pgTable(
 		projectId: text('project_id')
 			.notNull()
 			.references(() => project.id, { onDelete: 'cascade' }),
-		provider: text('provider', { enum: ['openai', 'anthropic'] }).notNull(),
+		provider: text('provider').$type<LlmProvider>().notNull(),
 		apiKey: text('api_key').notNull(),
 		enabledModels: jsonb('enabled_models').$type<string[]>().default([]).notNull(),
 		baseUrl: text('base_url'),

@@ -2,7 +2,8 @@ import { and, eq } from 'drizzle-orm';
 
 import s, { DBProjectLlmConfig, NewProjectLlmConfig } from '../db/abstractSchema';
 import { db } from '../db/db';
-import { getDefaultModelId, LlmProvider } from '../types/llm';
+import { LlmProvider } from '../types/llm';
+import { getDefaultEnvProvider, getDefaultModelId, hasEnvApiKey } from '../utils/llm';
 
 export const getProjectLlmConfigs = async (projectId: string): Promise<DBProjectLlmConfig[]> => {
 	return db.select().from(s.projectLlmConfig).where(eq(s.projectLlmConfig.projectId, projectId)).execute();
@@ -40,11 +41,6 @@ export const upsertProjectLlmConfig = async (
 		return updated;
 	}
 
-	// For new configs, apiKey must be provided
-	if (!config.apiKey) {
-		throw new Error('API key is required for new configurations');
-	}
-
 	const [created] = await db
 		.insert(s.projectLlmConfig)
 		.values({ ...config, apiKey: config.apiKey })
@@ -60,7 +56,7 @@ export const deleteProjectLlmConfig = async (projectId: string, provider: LlmPro
 		.execute();
 };
 
-/** Get the default provider for a project (for display purposes) */
+/** Get the provider for a project (for display purposes) */
 export const getProjectModelProvider = async (projectId: string): Promise<LlmProvider | undefined> => {
 	const configs = await getProjectLlmConfigs(projectId);
 
@@ -72,10 +68,7 @@ export const getProjectModelProvider = async (projectId: string): Promise<LlmPro
 	if (openaiConfig) return 'openai';
 
 	// Fall back to env providers
-	if (process.env.ANTHROPIC_API_KEY) return 'anthropic';
-	if (process.env.OPENAI_API_KEY) return 'openai';
-
-	return undefined;
+	return getDefaultEnvProvider();
 };
 
 /** Get the config to use for a specific model selection */
@@ -122,11 +115,11 @@ export const getProjectAvailableModels = async (
 	}
 
 	// Also add env-configured providers with their defaults
-	if (process.env.ANTHROPIC_API_KEY && !configs.some((c) => c.provider === 'anthropic')) {
-		models.push({ provider: 'anthropic', modelId: getDefaultModelId('anthropic') });
-	}
-	if (process.env.OPENAI_API_KEY && !configs.some((c) => c.provider === 'openai')) {
-		models.push({ provider: 'openai', modelId: getDefaultModelId('openai') });
+	const envProviders: LlmProvider[] = ['anthropic', 'openai'];
+	for (const provider of envProviders) {
+		if (hasEnvApiKey(provider) && !configs.some((c) => c.provider === provider)) {
+			models.push({ provider, modelId: getDefaultModelId(provider) });
+		}
 	}
 
 	return models;

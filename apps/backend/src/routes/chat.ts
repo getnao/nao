@@ -6,12 +6,13 @@ import { authMiddleware } from '../middleware/auth';
 import * as chatQueries from '../queries/chat.queries';
 import { agentService, ModelSelection } from '../services/agent.service';
 import { UIMessage } from '../types/chat';
+import { llmProviderSchema } from '../types/llm';
 
 const DEBUG_CHUNKS = false;
 
 const modelSelectionSchema = z
 	.object({
-		provider: z.enum(['openai', 'anthropic']),
+		provider: llmProviderSchema,
 		modelId: z.string(),
 	})
 	.optional();

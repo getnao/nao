@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm';
 import { check, index, integer, primaryKey, sqliteTable, text, unique } from 'drizzle-orm/sqlite-core';
 
 import { StopReason, ToolState, UIMessagePartType } from '../types/chat';
+import { LlmProvider } from '../types/llm';
 import { USER_ROLES } from '../types/project';
 
 export const user = sqliteTable('user', {
@@ -156,7 +157,7 @@ export const chatMessage = sqliteTable(
 		role: text('role', { enum: ['user', 'assistant', 'system'] }).notNull(),
 		stopReason: text('stop_reason').$type<StopReason>(),
 		errorMessage: text('error_message'),
-		llmProvider: text('llm_provider', { enum: ['openai', 'anthropic'] }),
+		llmProvider: text('llm_provider').$type<LlmProvider>(),
 		llmModelId: text('llm_model_id'),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
@@ -274,7 +275,7 @@ export const projectLlmConfig = sqliteTable(
 		projectId: text('project_id')
 			.notNull()
 			.references(() => project.id, { onDelete: 'cascade' }),
-		provider: text('provider', { enum: ['openai', 'anthropic'] }).notNull(),
+		provider: text('provider').$type<LlmProvider>().notNull(),
 		apiKey: text('api_key').notNull(),
 		enabledModels: text('enabled_models', { mode: 'json' }).$type<string[]>().default([]).notNull(),
 		baseUrl: text('base_url'),

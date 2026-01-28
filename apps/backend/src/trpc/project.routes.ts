@@ -3,16 +3,9 @@ import { z } from 'zod/v4';
 import * as projectQueries from '../queries/project.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import * as slackConfigQueries from '../queries/project-slack-config.queries';
-import { KNOWN_MODELS, LlmProvider } from '../types/llm';
+import { KNOWN_MODELS, llmConfigSchema, LlmProvider, llmProviderSchema } from '../types/llm';
+import { getEnvApiKey, getEnvProviders } from '../utils/llm';
 import { adminProtectedProcedure, projectProtectedProcedure, publicProcedure } from './trpc';
-
-const llmProviderSchema = z.enum(['openai', 'anthropic']);
-
-const getEnvApiKey = (provider: LlmProvider): string | undefined => {
-	if (provider === 'anthropic') return process.env.ANTHROPIC_API_KEY;
-	if (provider === 'openai') return process.env.OPENAI_API_KEY;
-	return undefined;
-};
 
 export const projectRoutes = {
 	getCurrent: projectProtectedProcedure.query(({ ctx }) => {
@@ -25,37 +18,49 @@ export const projectRoutes = {
 		};
 	}),
 
-	getLlmConfigs: projectProtectedProcedure.query(async ({ ctx }) => {
-		if (!ctx.project) {
-			return { projectConfigs: [], envProviders: [] };
-		}
+	getLlmConfigs: projectProtectedProcedure
+		.output(
+			z.object({
+				projectConfigs: z.array(llmConfigSchema),
+				envProviders: z.array(llmProviderSchema),
+			}),
+		)
+		.query(async ({ ctx }) => {
+			if (!ctx.project) {
+				return { projectConfigs: [], envProviders: [] };
+			}
 
-		const configs = await llmConfigQueries.getProjectLlmConfigs(ctx.project.id);
+			const configs = await llmConfigQueries.getProjectLlmConfigs(ctx.project.id);
 
-		const projectConfigs = configs.map((c) => ({
-			id: c.id,
-			provider: c.provider as LlmProvider,
-			apiKeyPreview: c.apiKey.slice(0, 8) + '...' + c.apiKey.slice(-4),
-			enabledModels: c.enabledModels ?? [],
-			baseUrl: c.baseUrl ?? null,
-			createdAt: c.createdAt,
-			updatedAt: c.updatedAt,
-		}));
+			const projectConfigs = configs.map((c) => ({
+				id: c.id,
+				provider: c.provider as LlmProvider,
+				apiKeyPreview: c.apiKey.slice(0, 8) + '...' + c.apiKey.slice(-4),
+				enabledModels: c.enabledModels ?? [],
+				baseUrl: c.baseUrl ?? null,
+				createdAt: c.createdAt,
+				updatedAt: c.updatedAt,
+			}));
 
-		const envProviders: LlmProvider[] = [];
-		if (process.env.ANTHROPIC_API_KEY) envProviders.push('anthropic');
-		if (process.env.OPENAI_API_KEY) envProviders.push('openai');
-
-		return { projectConfigs, envProviders };
-	}),
+			return { projectConfigs, envProviders: getEnvProviders() };
+		}),
 
 	/** Get all available models for the current project (for user model selection) */
-	getAvailableModels: projectProtectedProcedure.query(async ({ ctx }) => {
-		if (!ctx.project) {
-			return [];
-		}
-		return llmConfigQueries.getProjectAvailableModels(ctx.project.id);
-	}),
+	getAvailableModels: projectProtectedProcedure
+		.output(
+			z.array(
+				z.object({
+					provider: llmProviderSchema,
+					modelId: z.string(),
+				}),
+			),
+		)
+		.query(async ({ ctx }) => {
+			if (!ctx.project) {
+				return [];
+			}
+			return llmConfigQueries.getProjectAvailableModels(ctx.project.id);
+		}),
 
 	upsertLlmConfig: adminProtectedProcedure
 		.input(
@@ -66,6 +71,7 @@ export const projectRoutes = {
 				baseUrl: z.string().url().optional().or(z.literal('')),
 			}),
 		)
+		.output(llmConfigSchema.omit({ createdAt: true, updatedAt: true }))
 		.mutation(async ({ ctx, input }) => {
 			const existingConfig = await llmConfigQueries.getProjectLlmConfigByProvider(ctx.project.id, input.provider);
 			const envApiKey = getEnvApiKey(input.provider);
@@ -82,13 +88,10 @@ export const projectRoutes = {
 			} else if (existingConfig) {
 				// Editing - keep existing key (null signals "don't update")
 				apiKey = null;
-			} else if (envApiKey) {
-				// New config - use env var
+			} else if (envApiKey && input.enabledModels && input.enabledModels.length > 0) {
 				apiKey = envApiKey;
 			} else {
-				throw new Error(
-					`API key is required for ${input.provider}. Either provide one or set the environment variable.`,
-				);
+				throw new Error(`API Key is required for ${input.provider} or select at least one model.`);
 			}
 
 			const config = await llmConfigQueries.upsertProjectLlmConfig({
@@ -110,6 +113,7 @@ export const projectRoutes = {
 
 	deleteLlmConfig: adminProtectedProcedure
 		.input(z.object({ provider: llmProviderSchema }))
+		.output(z.object({ success: z.boolean() }))
 		.mutation(async ({ ctx, input }) => {
 			await llmConfigQueries.deleteProjectLlmConfig(ctx.project.id, input.provider);
 			return { success: true };

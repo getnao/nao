@@ -13,8 +13,9 @@ import { tools } from '../agents/tools';
 import * as chatQueries from '../queries/chat.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import { UIChat, UIMessage } from '../types/chat';
-import { getDefaultModelId, LlmProvider } from '../types/llm';
+import { LlmProvider } from '../types/llm';
 import { convertToTokenUsage } from '../utils/chat';
+import { getDefaultModelId, getEnvApiKey, hasEnvApiKey } from '../utils/llm';
 
 type AgentChat = UIChat & {
 	userId: string;
@@ -67,11 +68,11 @@ class AgentService {
 		}
 
 		// Fallback to env-based provider
-		if (process.env.ANTHROPIC_API_KEY) {
-			return { provider: 'anthropic', modelId: getDefaultModelId('anthropic') };
-		}
-		if (process.env.OPENAI_API_KEY) {
-			return { provider: 'openai', modelId: getDefaultModelId('openai') };
+		const providers: LlmProvider[] = ['anthropic', 'openai'];
+		for (const provider of providers) {
+			if (hasEnvApiKey(provider)) {
+				return { provider, modelId: getDefaultModelId(provider) };
+			}
 		}
 
 		throw Error('No model config found');
@@ -106,11 +107,9 @@ class AgentService {
 		}
 
 		// No config but env var might exist - use it
-		if (modelSelection.provider === 'anthropic' && process.env.ANTHROPIC_API_KEY) {
-			return this._createProviderConfig('anthropic', process.env.ANTHROPIC_API_KEY, modelSelection.modelId);
-		}
-		if (modelSelection.provider === 'openai' && process.env.OPENAI_API_KEY) {
-			return this._createProviderConfig('openai', process.env.OPENAI_API_KEY, modelSelection.modelId);
+		const envApiKey = getEnvApiKey(modelSelection.provider);
+		if (envApiKey) {
+			return this._createProviderConfig(modelSelection.provider, envApiKey, modelSelection.modelId);
 		}
 
 		throw Error('No model config found');
@@ -141,7 +140,6 @@ class AgentService {
 			};
 		}
 
-		// OpenAI
 		const openai = createOpenAI({
 			apiKey,
 			...(baseUrl && { baseURL: baseUrl }),
