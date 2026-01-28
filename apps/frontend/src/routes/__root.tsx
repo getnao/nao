@@ -10,7 +10,7 @@ function RootComponent() {
 	const session = useSessionOrNavigateToLoginPage();
 	useDisposeInactiveAgents();
 
-	if (session.isPending) {
+	if (session.isPending || !session.data) {
 		return null;
 	}
 

@@ -27,7 +27,7 @@ def get_server_binary_path() -> Path:
 
     if not binary_path.exists():
         console.print(f"[bold red]✗[/bold red] Server binary not found at {binary_path}")
-        console.print("[dim]Make sure you've built the server with ./scripts/build-server.sh[/dim]")
+        console.print("[dim]Make sure you've built the server by running python file build.py[/dim]")
         sys.exit(1)
 
     return binary_path

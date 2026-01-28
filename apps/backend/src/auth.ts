@@ -6,6 +6,19 @@ import dbConfig, { Dialect } from './db/dbConfig';
 import * as projectQueries from './queries/project.queries';
 import { isEmailDomainAllowed } from './utils/utils';
 
+// Validate BETTER_AUTH_URL if provided to throw error when starting nao chat
+const betterAuthUrl = process.env.BETTER_AUTH_URL;
+if (betterAuthUrl) {
+	try {
+		new URL(betterAuthUrl);
+	} catch {
+		throw new Error(
+			`Invalid BETTER_AUTH_URL environment variable: "${betterAuthUrl}"\n` +
+				`BETTER_AUTH_URL must be a valid URL (e.g., http://localhost:5005).\n`,
+		);
+	}
+}
+
 export const auth = betterAuth({
 	secret: process.env.BETTER_AUTH_SECRET,
 	database: drizzleAdapter(db, {
