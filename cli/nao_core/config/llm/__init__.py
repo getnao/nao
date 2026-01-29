@@ -8,6 +8,8 @@ class LLMProvider(str, Enum):
 
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
+    MISTRAL = "mistral"
+    GEMINI = "gemini"
 
 
 class LLMConfig(BaseModel):
