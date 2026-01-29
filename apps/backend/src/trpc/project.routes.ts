@@ -1,10 +1,11 @@
 import { z } from 'zod/v4';
 
+import { KNOWN_MODELS } from '../agents/providers';
 import * as projectQueries from '../queries/project.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import * as slackConfigQueries from '../queries/project-slack-config.queries';
-import { KNOWN_MODELS, llmConfigSchema, LlmProvider, llmProviderSchema } from '../types/llm';
-import { getEnvApiKey, getEnvProviders } from '../utils/llm';
+import { llmConfigSchema, LlmProvider, llmProviderSchema } from '../types/llm';
+import { getEnvApiKey, getEnvProviders, getProjectAvailableModels } from '../utils/llm';
 import { adminProtectedProcedure, projectProtectedProcedure, publicProcedure } from './trpc';
 
 export const projectRoutes = {
@@ -59,7 +60,7 @@ export const projectRoutes = {
 			if (!ctx.project) {
 				return [];
 			}
-			return llmConfigQueries.getProjectAvailableModels(ctx.project.id);
+			return getProjectAvailableModels(ctx.project.id);
 		}),
 
 	upsertLlmConfig: adminProtectedProcedure

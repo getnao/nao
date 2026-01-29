@@ -3,6 +3,7 @@ import { trpc } from '../main';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { handleGoogleSignIn } from '@/lib/auth-client';
+import GoogleIcon from '@/components/icons/google.svg';
 
 interface SignFormProps<T extends string> {
 	title: string;
@@ -78,7 +79,7 @@ export function SignInForm<T extends string>({
 
 					<div className='flex justify-center items-center gap-4 p-4'>
 						<Button type='button' variant='outline' onClick={handleGoogleSignIn}>
-							<img src='/google-icon.svg' alt='Google' className='w-5 h-5' />
+							<GoogleIcon className='w-5 h-5' />
 						</Button>
 					</div>
 				</div>

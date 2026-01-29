@@ -1,5 +1,6 @@
 import { Pencil, Trash2 } from 'lucide-react';
-import { getDefaultModelId } from 'backend/llm';
+import { getDefaultModelId } from 'backend/providers';
+import { LlmProviderIcon } from './ui/llm-provider-icon';
 import type { LlmProvider } from 'backend/llm';
 import { Button } from '@/components/ui/button';
 
@@ -35,6 +36,7 @@ export function ProviderCard({
 			<div className='flex items-center gap-4'>
 				<div className='flex-1 grid gap-1'>
 					<div className='flex items-center gap-2'>
+						<LlmProviderIcon provider={provider} className='size-3.5' />
 						<span className='text-sm font-medium text-foreground capitalize'>{provider}</span>
 						{isEnvProvider && (
 							<span className='px-1.5 py-0.5 text-[10px] font-medium rounded bg-muted text-muted-foreground'>

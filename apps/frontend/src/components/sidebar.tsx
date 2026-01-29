@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { cn, hideIf } from '@/lib/utils';
 import { useChatListQuery } from '@/queries/useChatListQuery';
 import { useSidebar } from '@/contexts/sidebar.provider';
+import NaoLogoGreyscale from '@/components/icons/nao-logo-greyscale.svg';
 
 export function Sidebar() {
 	const chats = useChatListQuery();
@@ -46,7 +47,7 @@ export function Sidebar() {
 							hideIf(isCollapsed),
 						)}
 					>
-						<img src='/nao-logo-greyscale.svg' alt='nao logo' className='size-5 rounded' />
+						<NaoLogoGreyscale className='size-5' />
 					</div>
 
 					<Button

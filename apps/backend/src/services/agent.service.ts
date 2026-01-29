@@ -1,5 +1,3 @@
-import { AnthropicProviderOptions, createAnthropic } from '@ai-sdk/anthropic';
-import { createOpenAI, OpenAIResponsesProviderOptions } from '@ai-sdk/openai';
 import {
 	convertToModelMessages,
 	createUIMessageStream,
@@ -9,22 +7,19 @@ import {
 } from 'ai';
 
 import { getInstructions } from '../agents/prompt';
+import { createProviderModel } from '../agents/providers';
 import { tools } from '../agents/tools';
 import * as chatQueries from '../queries/chat.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import { UIChat, UIMessage } from '../types/chat';
-import { LlmProvider } from '../types/llm';
 import { convertToTokenUsage } from '../utils/chat';
-import { getDefaultModelId, getEnvApiKey, hasEnvApiKey } from '../utils/llm';
+import { getDefaultModelId, getEnvApiKey, getEnvModelSelections, ModelSelection } from '../utils/llm';
+
+export type { ModelSelection };
 
 type AgentChat = UIChat & {
 	userId: string;
 	projectId: string;
-};
-
-export type ModelSelection = {
-	provider: LlmProvider;
-	modelId: string;
 };
 
 class AgentService {
@@ -68,11 +63,9 @@ class AgentService {
 		}
 
 		// Fallback to env-based provider
-		const providers: LlmProvider[] = ['anthropic', 'openai'];
-		for (const provider of providers) {
-			if (hasEnvApiKey(provider)) {
-				return { provider, modelId: getDefaultModelId(provider) };
-			}
+		const envSelection = getEnvModelSelections().at(0);
+		if (envSelection) {
+			return envSelection;
 		}
 
 		throw Error('No model config found');
@@ -98,58 +91,21 @@ class AgentService {
 		const config = await llmConfigQueries.getProjectLlmConfigByProvider(projectId, modelSelection.provider);
 
 		if (config) {
-			return this._createProviderConfig(
-				modelSelection.provider,
-				config.apiKey,
-				modelSelection.modelId,
-				config.baseUrl,
-			);
+			const settings = {
+				apiKey: config.apiKey,
+				...(config.baseUrl && { baseURL: config.baseUrl }),
+			};
+
+			return createProviderModel(modelSelection.provider, settings, modelSelection.modelId);
 		}
 
 		// No config but env var might exist - use it
 		const envApiKey = getEnvApiKey(modelSelection.provider);
 		if (envApiKey) {
-			return this._createProviderConfig(modelSelection.provider, envApiKey, modelSelection.modelId);
+			return createProviderModel(modelSelection.provider, { apiKey: envApiKey }, modelSelection.modelId);
 		}
 
 		throw Error('No model config found');
-	}
-
-	private _createProviderConfig(
-		provider: LlmProvider,
-		apiKey: string,
-		modelId: string,
-		baseUrl?: string | null,
-	): Pick<ToolLoopAgentSettings, 'model' | 'providerOptions'> {
-		if (provider === 'anthropic') {
-			const anthropic = createAnthropic({
-				apiKey,
-				...(baseUrl && { baseURL: baseUrl }),
-			});
-			return {
-				model: anthropic.chat(modelId),
-				providerOptions: {
-					anthropic: {
-						disableParallelToolUse: false,
-						thinking: {
-							type: 'enabled',
-							budgetTokens: 12_000,
-						},
-					} satisfies AnthropicProviderOptions,
-				},
-			};
-		}
-
-		const openai = createOpenAI({
-			apiKey,
-			...(baseUrl && { baseURL: baseUrl }),
-		});
-		return {
-			model: openai.responses(modelId),
-			providerOptions: {
-				openai: {} satisfies OpenAIResponsesProviderOptions,
-			},
-		};
 	}
 }
 

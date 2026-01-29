@@ -1,0 +1,126 @@
+name: Publish to PyPI
+
+on:
+    push:
+        tags:
+            - 'v*'
+
+jobs:
+    build:
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - os: macos-15
+                      platform: darwin
+                      arch: arm64
+                      wheel-tag: macosx_15_0_arm64
+                    - os: macos-15-intel
+                      platform: darwin
+                      arch: x64
+                      wheel-tag: macosx_15_0_x86_64
+                    - os: ubuntu-latest
+                      platform: linux
+                      arch: x64
+                      wheel-tag: manylinux2014_x86_64
+
+        runs-on: ${{ matrix.os }}
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Get version from tag
+              id: version
+              run: |
+                  # Extract version from tag (v0.0.35 -> 0.0.35)
+                  VERSION=${GITHUB_REF#refs/tags/v}
+                  echo "version=$VERSION" >> $GITHUB_OUTPUT
+                  echo "Building version: $VERSION"
+
+            - name: Setup Bun
+              uses: oven-sh/setup-bun@v2
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version-file: '.nvmrc'
+                  cache: 'npm'
+
+            - name: Setup Python
+              uses: actions/setup-python@v5
+              with:
+                  python-version: '3.12'
+
+            - name: Setup uv
+              uses: astral-sh/setup-uv@v5
+
+            - name: Install Python build dependencies
+              run: uv pip install --system cyclopts
+
+            - name: Install npm dependencies
+              run: npm ci
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Update version in package files
+              run: |
+                  VERSION=${{ steps.version.outputs.version }}
+
+                  # Update pyproject.toml
+                  sed -i.bak "s/^version = \".*\"/version = \"$VERSION\"/" cli/pyproject.toml
+
+                  # Update __init__.py
+                  sed -i.bak "s/^__version__ = \".*\"/__version__ = \"$VERSION\"/" cli/nao_core/__init__.py
+
+                  echo "Updated version to $VERSION"
+                  grep "^version" cli/pyproject.toml
+                  grep "__version__" cli/nao_core/__init__.py
+
+            - name: Build server and package
+              working-directory: cli
+              run: python build.py --force
+
+            - name: Rename wheel with platform tag
+              working-directory: cli/dist
+              run: |
+                  for f in *.whl; do
+                    # Replace -any.whl with platform-specific tag
+                    newname="${f%-py3-none-any.whl}-py3-none-${{ matrix.wheel-tag }}.whl"
+                    echo "Renaming $f -> $newname"
+                    mv "$f" "$newname"
+                  done
+                  ls -la
+
+            - name: Upload wheel artifact
+              uses: actions/upload-artifact@v4
+              with:
+                  name: wheel-${{ matrix.platform }}-${{ matrix.arch }}
+                  path: cli/dist/*.whl
+                  retention-days: 7
+
+    publish:
+        needs: build
+        runs-on: ubuntu-latest
+        environment: pypi
+        permissions:
+            id-token: write # For trusted publishing
+
+        steps:
+            - name: Download all wheel artifacts
+              uses: actions/download-artifact@v4
+              with:
+                  pattern: wheel-*
+                  merge-multiple: true
+                  path: dist/
+
+            - name: List wheels
+              run: ls -la dist/
+
+            - name: Setup uv
+              uses: astral-sh/setup-uv@v5
+
+            - name: Publish to PyPI
+              run: uv publish dist/*
+              env:
+                  UV_PUBLISH_TOKEN: ${{ secrets.PYPI_TOKEN }}

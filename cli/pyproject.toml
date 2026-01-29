@@ -1,6 +1,6 @@
 [project]
 name = "nao-core"
-version = "0.0.34"
+version = "0.0.36"
 description = "nao Core is your analytics context builder with the best chat interface."
 readme = "README.md"
 requires-python = ">=3.10"

@@ -12,6 +12,9 @@ RUN npm install -g bun
 FROM base AS frontend-builder
 WORKDIR /app
 
+# GitHub token for downloading @vscode/ripgrep binaries (avoids rate limits)
+ARG GITHUB_TOKEN
+
 COPY package.json package-lock.json bun.lock ./
 COPY apps/frontend/package.json ./apps/frontend/
 COPY apps/backend/package.json ./apps/backend/
@@ -30,13 +33,18 @@ RUN npm run build
 FROM base AS backend-builder
 WORKDIR /app
 
+# GitHub token for downloading @vscode/ripgrep binaries (avoids rate limits)
+ARG GITHUB_TOKEN
+
 # Copy workspace config and all package files
 COPY package.json package-lock.json bun.lock ./
 COPY apps/backend/package.json ./apps/backend/
 COPY apps/frontend/package.json ./apps/frontend/
 
-# Install production dependencies only (ignore-scripts skips husky)
-RUN npm ci --omit=dev --ignore-scripts
+# Install production dependencies only
+# --ignore-scripts skips prepare (husky) but we need to manually run @vscode/ripgrep postinstall
+RUN npm ci --omit=dev --ignore-scripts && \
+    cd node_modules/@vscode/ripgrep && npm run postinstall
 
 # Copy backend source
 COPY apps/backend ./apps/backend

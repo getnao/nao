@@ -3,7 +3,7 @@ import { and, eq } from 'drizzle-orm';
 import s, { DBProjectLlmConfig, NewProjectLlmConfig } from '../db/abstractSchema';
 import { db } from '../db/db';
 import { LlmProvider } from '../types/llm';
-import { getDefaultEnvProvider, getDefaultModelId, hasEnvApiKey } from '../utils/llm';
+import { getDefaultEnvProvider, getDefaultModelId } from '../utils/llm';
 
 export const getProjectLlmConfigs = async (projectId: string): Promise<DBProjectLlmConfig[]> => {
 	return db.select().from(s.projectLlmConfig).where(eq(s.projectLlmConfig.projectId, projectId)).execute();
@@ -91,36 +91,4 @@ export const getProjectLlmConfigForModel = async (
 	}
 
 	return { config, modelId };
-};
-
-/** Get all available models for a project (from all configured providers) */
-export const getProjectAvailableModels = async (
-	projectId: string,
-): Promise<Array<{ provider: LlmProvider; modelId: string }>> => {
-	const configs = await getProjectLlmConfigs(projectId);
-	const models: Array<{ provider: LlmProvider; modelId: string }> = [];
-
-	for (const config of configs) {
-		const provider = config.provider as LlmProvider;
-		const enabledModels = config.enabledModels ?? [];
-
-		if (enabledModels.length === 0) {
-			// If no models explicitly enabled, add the default
-			models.push({ provider, modelId: getDefaultModelId(provider) });
-		} else {
-			for (const modelId of enabledModels) {
-				models.push({ provider, modelId });
-			}
-		}
-	}
-
-	// Also add env-configured providers with their defaults
-	const envProviders: LlmProvider[] = ['anthropic', 'openai'];
-	for (const provider of envProviders) {
-		if (hasEnvApiKey(provider) && !configs.some((c) => c.provider === provider)) {
-			models.push({ provider, modelId: getDefaultModelId(provider) });
-		}
-	}
-
-	return models;
 };

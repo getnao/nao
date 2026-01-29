@@ -8,13 +8,14 @@ import { useMemoObject } from './useMemoObject';
 import type { ScrollToBottom, ScrollToBottomOptions } from 'use-stick-to-bottom';
 import type { UseChatHelpers } from '@ai-sdk/react';
 import type { UIMessage } from 'backend/chat';
+import type { LlmProvider } from 'backend/llm';
 import { useChatQuery } from '@/queries/useChatQuery';
 import { trpc } from '@/main';
 import { agentService } from '@/lib/agents.service';
 import { checkIsAgentRunning } from '@/lib/ai';
 
 export type ModelSelection = {
-	provider: 'openai' | 'anthropic';
+	provider: LlmProvider;
 	modelId: string;
 } | null;
 

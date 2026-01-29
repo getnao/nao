@@ -27,11 +27,16 @@ interface BuildInfo {
 
 function getExecutableDir(): string {
 	// Check if running as compiled binary or as script
-	// When compiled, process.execPath === Bun.main (both point to the binary)
-	// When running as script, process.execPath is bun, Bun.main is the script
-	const isCompiled = process.execPath === Bun.main;
+	// When compiled with bun build --compile:
+	//   - Bun.main points to /$bunfs/... (embedded filesystem)
+	//   - process.execPath points to the actual binary on disk
+	// When running as script:
+	//   - Bun.main points to the .ts file being executed
+	//   - process.execPath points to the bun executable
+	const isCompiled = Bun.main.startsWith('/$bunfs/');
 
 	if (isCompiled) {
+		// Use the actual binary location on disk
 		return path.dirname(process.execPath);
 	}
 

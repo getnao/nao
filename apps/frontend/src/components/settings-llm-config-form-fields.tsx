@@ -1,5 +1,5 @@
 import { Check, ChevronDown, Plus, X } from 'lucide-react';
-import { getDefaultModelId } from 'backend/llm';
+import { getDefaultModelId } from 'backend/providers';
 import type { LlmProvider } from 'backend/llm';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
