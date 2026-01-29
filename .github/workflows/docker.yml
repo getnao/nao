@@ -5,9 +5,9 @@ on:
         branches:
             - main
             - '**docker'
-    pull_request:
-        branches:
-            - main
+    # pull_request:
+    #    branches:
+    #        - main
 
 env:
     REGISTRY: docker.io
