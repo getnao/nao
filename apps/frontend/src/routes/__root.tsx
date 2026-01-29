@@ -16,7 +16,6 @@ function RootComponent() {
 
 	return (
 		<div className='flex h-screen'>
-			{/* <Header /> */}
 			<Outlet />
 		</div>
 	);

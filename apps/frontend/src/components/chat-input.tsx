@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { trpc } from '@/main';
 import { useAgentContext } from '@/contexts/agent.provider';
-import { ProviderIcon } from '@/components/ui/provider-icon';
+import { LlmProviderIcon } from '@/components/ui/llm-provider-icon';
 
 export function ChatInput() {
 	const { sendMessage, isRunning, stopAgent, isReadyForNewMessages, selectedModel, setSelectedModel } =
@@ -95,7 +95,7 @@ export function ChatInput() {
 										`}
 									>
 										{selectedModel && (
-											<ProviderIcon provider={selectedModel.provider} className='size-3.5' />
+											<LlmProviderIcon provider={selectedModel.provider} className='size-3.5' />
 										)}
 										{selectedModel
 											? getModelDisplayName(selectedModel.provider, selectedModel.modelId)
@@ -117,7 +117,7 @@ export function ChatInput() {
 														onSelect={() => setSelectedModel(model)}
 														className={isSelected ? 'bg-accent' : ''}
 													>
-														<ProviderIcon provider={model.provider} className='size-4' />
+														<LlmProviderIcon provider={model.provider} className='size-4' />
 														{getModelDisplayName(model.provider, model.modelId)}
 													</DropdownMenuItem>
 												);
