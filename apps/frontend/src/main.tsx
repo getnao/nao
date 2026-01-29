@@ -4,8 +4,9 @@ import { createTRPCClient, httpBatchLink, loggerLink } from '@trpc/client';
 import { createTRPCOptionsProxy } from '@trpc/tanstack-react-query';
 import { RouterProvider, createRouter } from '@tanstack/react-router';
 import ReactDOM from 'react-dom/client';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClientProvider } from '@tanstack/react-query';
 import superjson from 'superjson';
+import { queryClient } from './utils/query-client';
 import { ThemeProvider } from './contexts/theme.provider';
 import { SidebarProvider } from './contexts/sidebar.provider';
 import { routeTree } from './routeTree.gen';
@@ -30,16 +31,6 @@ const router = createRouter({
 	scrollRestoration: true,
 	defaultStructuralSharing: true,
 	defaultPreloadStaleTime: 0,
-});
-
-/** Query client for state management */
-const queryClient = new QueryClient({
-	defaultOptions: {
-		queries: {
-			retry: false,
-			staleTime: 5 * 60 * 1000, // 5 minutes
-		},
-	},
 });
 
 /** TRPC client for typed requests to the backend */
