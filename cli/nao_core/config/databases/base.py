@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import fnmatch
 from abc import ABC, abstractmethod
 from enum import Enum
@@ -46,6 +48,12 @@ class DatabaseConfig(BaseModel, ABC):
         default_factory=list,
         description="Glob patterns for schemas/tables to exclude (e.g., 'temp_*.*', '*.backup_*')",
     )
+
+    @classmethod
+    @abstractmethod
+    def promptConfig(cls) -> DatabaseConfig:
+        """Interactively prompt the user for database configuration."""
+        ...
 
     @abstractmethod
     def connect(self) -> BaseBackend:

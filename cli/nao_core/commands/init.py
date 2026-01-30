@@ -8,21 +8,8 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Confirm, Prompt
 
-from nao_core.config import (
-    AnyDatabaseConfig,
-    BigQueryConfig,
-    DatabaseType,
-    DatabricksConfig,
-    DuckDBConfig,
-    LLMConfig,
-    LLMProvider,
-    NaoConfig,
-    PostgresConfig,
-    SlackConfig,
-    SnowflakeConfig,
-)
+from nao_core.config import NaoConfig
 from nao_core.config.exceptions import InitError
-from nao_core.config.repos import RepoConfig
 
 console = Console()
 
@@ -40,13 +27,6 @@ class ProjectExistsError(InitError):
     def __init__(self, project_name: str):
         self.project_name = project_name
         super().__init__(f"Folder '{project_name}' already exists.")
-
-
-class EmptyApiKeyError(InitError):
-    """Raised when API key is empty."""
-
-    def __init__(self):
-        super().__init__("API key cannot be empty.")
 
 
 @dataclass
@@ -87,167 +67,6 @@ def setup_project_name(force: bool = False) -> tuple[str, Path]:
     project_path.mkdir(parents=True, exist_ok=True)
 
     return project_name, project_path
-
-
-def setup_bigquery() -> BigQueryConfig:
-    """Setup a BigQuery database configuration."""
-    return BigQueryConfig.promptConfig()
-
-
-def setup_duckdb() -> DuckDBConfig:
-    """Setup a DuckDB database configuration."""
-    return DuckDBConfig.promptConfig()
-
-
-def setup_databricks() -> DatabricksConfig:
-    """Setup a Databricks database configuration."""
-    return DatabricksConfig.promptConfig()
-
-
-def setup_snowflake() -> SnowflakeConfig:
-    """Setup a Snowflake database configuration."""
-    return SnowflakeConfig.promptConfig()
-
-
-def setup_postgres() -> PostgresConfig:
-    """Setup a PostgreSQL database configuration."""
-    return PostgresConfig.promptConfig()
-
-
-def setup_databases() -> list[AnyDatabaseConfig]:
-    """Setup database configurations."""
-    databases: list[AnyDatabaseConfig] = []
-
-    should_setup = Confirm.ask("\n[bold]Set up database connections?[/bold]", default=True)
-
-    if not should_setup:
-        return databases
-
-    while True:
-        console.print("\n[bold cyan]Database Configuration[/bold cyan]\n")
-
-        db_type_choices = [t.value for t in DatabaseType]
-        db_type = Prompt.ask(
-            "[bold]Select database type[/bold]",
-            choices=db_type_choices,
-            default=db_type_choices[0],
-        )
-
-        if db_type == DatabaseType.BIGQUERY.value:
-            db_config = setup_bigquery()
-            databases.append(db_config)
-            console.print(f"\n[bold green]✓[/bold green] Added database [cyan]{db_config.name}[/cyan]")
-        elif db_type == DatabaseType.POSTGRES.value:
-            db_config = setup_postgres()
-            databases.append(db_config)
-            console.print(f"\n[bold green]✓[/bold green] Added database [cyan]{db_config.name}[/cyan]")
-
-        elif db_type == DatabaseType.DUCKDB.value:
-            db_config = setup_duckdb()
-            databases.append(db_config)
-            console.print(f"\n[bold green]✓[/bold green] Added database [cyan]{db_config.name}[/cyan]")
-
-        elif db_type == DatabaseType.DATABRICKS.value:
-            db_config = setup_databricks()
-            databases.append(db_config)
-            console.print(f"\n[bold green]✓[/bold green] Added database [cyan]{db_config.name}[/cyan]")
-
-        elif db_type == DatabaseType.SNOWFLAKE.value:
-            db_config = setup_snowflake()
-            databases.append(db_config)
-            console.print(f"\n[bold green]✓[/bold green] Added database [cyan]{db_config.name}[/cyan]")
-
-        add_another = Confirm.ask("\n[bold]Add another database?[/bold]", default=False)
-        if not add_another:
-            break
-
-    return databases
-
-
-def setup_repos() -> list[RepoConfig]:
-    """Setup repository configurations."""
-    repos: list[RepoConfig] = []
-    should_setup = Confirm.ask("\n[bold]Set up git repositories?[/bold]", default=True)
-
-    if not should_setup:
-        return repos
-
-    while True:
-        console.print("\n[bold cyan]Git Repository Configuration[/bold cyan]\n")
-        name = Prompt.ask("[bold]Repository name[/bold]")
-        url = Prompt.ask("[bold]Repository URL[/bold]")
-
-        repos.append(RepoConfig(name=name, url=url))
-        console.print(f"\n[bold green]✓[/bold green] Added repository [cyan]{name}[/cyan]")
-
-        add_another = Confirm.ask("\n[bold]Add another repository?[/bold]", default=False)
-        if not add_another:
-            break
-
-    return repos
-
-
-def setup_llm() -> LLMConfig | None:
-    """Setup the LLM configuration."""
-    llm_config = None
-    should_setup = Confirm.ask("\n[bold]Set up LLM configuration?[/bold]", default=True)
-
-    if should_setup:
-        console.print("\n[bold cyan]LLM Configuration[/bold cyan]\n")
-
-        provider_choices = [p.value for p in LLMProvider]
-        llm_provider = Prompt.ask(
-            "[bold]Select LLM provider[/bold]",
-            choices=provider_choices,
-            default=provider_choices[0],
-        )
-
-        api_key = Prompt.ask(
-            f"[bold]Enter your {llm_provider.upper()} API key[/bold]",
-            password=True,
-        )
-
-        if not api_key:
-            raise EmptyApiKeyError()
-
-        llm_config = LLMConfig(
-            provider=LLMProvider(llm_provider),
-            api_key=api_key,
-        )
-
-    return llm_config
-
-
-def setup_slack() -> SlackConfig | None:
-    """Setup the Slack configuration."""
-    slack_config = None
-    should_setup = Confirm.ask("\n[bold]Set up Slack integration?[/bold]", default=False)
-
-    if should_setup:
-        console.print("\n[bold cyan]Slack Configuration[/bold cyan]\n")
-
-        bot_token = Prompt.ask(
-            "[bold]Enter your Slack bot token[/bold]",
-            password=True,
-        )
-
-        if not bot_token:
-            raise InitError("Slack bot token cannot be empty.")
-
-        signing_secret = Prompt.ask(
-            "[bold]Enter your Slack signing secret[/bold]",
-            password=True,
-        )
-
-        if not signing_secret:
-            raise InitError("Slack signing secret cannot be empty.")
-
-        slack_config = SlackConfig(
-            bot_token=bot_token,
-            signing_secret=signing_secret,
-        )
-
-    return slack_config
 
 
 def create_empty_structure(project_path: Path) -> tuple[list[str], list[CreatedFile]]:
@@ -306,13 +125,7 @@ def init(
 
     try:
         project_name, project_path = setup_project_name(force=force)
-        config = NaoConfig(
-            project_name=project_name,
-            databases=setup_databases(),
-            repos=setup_repos(),
-            llm=setup_llm(),
-            slack=setup_slack(),
-        )
+        config = NaoConfig.promptConfig(project_name)
         config.save(project_path)
 
         # Create project folder structure

@@ -25,6 +25,16 @@ AnyDatabaseConfig = Annotated[
 ]
 
 
+# Mapping of database type to config class
+DATABASE_CONFIG_CLASSES: dict[DatabaseType, type[DatabaseConfig]] = {
+    DatabaseType.BIGQUERY: BigQueryConfig,
+    DatabaseType.DUCKDB: DuckDBConfig,
+    DatabaseType.DATABRICKS: DatabricksConfig,
+    DatabaseType.SNOWFLAKE: SnowflakeConfig,
+    DatabaseType.POSTGRES: PostgresConfig,
+}
+
+
 def parse_database_config(data: dict) -> DatabaseConfig:
     """Parse a database config dict into the appropriate type."""
     db_type = data.get("type")
@@ -46,6 +56,7 @@ __all__ = [
     "AccessorType",
     "AnyDatabaseConfig",
     "BigQueryConfig",
+    "DATABASE_CONFIG_CLASSES",
     "DuckDBConfig",
     "DatabaseConfig",
     "DatabaseType",
