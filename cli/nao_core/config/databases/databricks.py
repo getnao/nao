@@ -18,7 +18,12 @@ class DatabricksConfig(DatabaseConfig):
     http_path: str = Field(description="HTTP path to the SQL warehouse or cluster")
     access_token: str = Field(description="Databricks personal access token")
     catalog: str | None = Field(default=None, description="Unity Catalog name (optional)")
-    schema: str | None = Field(default=None, description="Default schema (optional)")
+    schema_name: str | None = Field(
+        default=None,
+        validation_alias="schema",
+        serialization_alias="schema",
+        description="Default schema (optional)",
+    )
 
     @classmethod
     def promptConfig(cls) -> "DatabricksConfig":
@@ -49,7 +54,7 @@ class DatabricksConfig(DatabaseConfig):
             http_path=http_path,
             access_token=access_token,
             catalog=catalog,
-            schema=schema,
+            schema_name=schema,
         )
 
     def connect(self) -> BaseBackend:
@@ -63,8 +68,8 @@ class DatabricksConfig(DatabaseConfig):
         if self.catalog:
             kwargs["catalog"] = self.catalog
 
-        if self.schema:
-            kwargs["schema"] = self.schema
+        if self.schema_name:
+            kwargs["schema"] = self.schema_name
 
         return ibis.databricks.connect(**kwargs)
 

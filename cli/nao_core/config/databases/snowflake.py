@@ -20,7 +20,12 @@ class SnowflakeConfig(DatabaseConfig):
     account_id: str = Field(description="Snowflake account identifier (e.g., 'xy12345.us-east-1')")
     password: str | None = Field(default=None, description="Snowflake password")
     database: str = Field(description="Snowflake database")
-    schema: str | None = Field(default=None, description="Snowflake schema (optional)")
+    schema_name: str | None = Field(
+        default=None,
+        validation_alias="schema",
+        serialization_alias="schema",
+        description="Snowflake schema (optional)",
+    )
     warehouse: str | None = Field(default=None, description="Snowflake warehouse to use (optional)")
     private_key_path: str | None = Field(
         default=None,
@@ -79,7 +84,7 @@ class SnowflakeConfig(DatabaseConfig):
             account_id=account_id,
             database=database,
             warehouse=warehouse,
-            schema=schema,
+            schema_name=schema,
             private_key_path=private_key_path if key_pair_auth else None,
             passphrase=passphrase if key_pair_auth else None,
         )
@@ -89,8 +94,8 @@ class SnowflakeConfig(DatabaseConfig):
         kwargs: dict = {"user": self.username}
         kwargs["account"] = self.account_id
 
-        if self.database and self.schema:
-            kwargs["database"] = f"{self.database}/{self.schema}"
+        if self.database and self.schema_name:
+            kwargs["database"] = f"{self.database}/{self.schema_name}"
         elif self.database:
             kwargs["database"] = self.database
 
