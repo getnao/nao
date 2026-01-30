@@ -70,32 +70,49 @@ export const getOrCreateDefaultOrganization = async (): Promise<DBOrganization> 
 };
 
 /**
- * Initialize default organization for the first user.
- * Creates the organization and adds the user as org_admin.
- * Returns the organization, or null if not the first user.
+ * Initialize default organization and project for the first user.
+ * Creates the organization, adds the user as admin, and creates the default project.
+ * All operations are wrapped in a transaction.
  */
-export const initializeDefaultOrganizationForFirstUser = async (userId: string): Promise<DBOrganization | null> => {
+export const initializeDefaultOrganizationForFirstUser = async (userId: string): Promise<void> => {
 	const userCount = await userQueries.countAll();
 	if (userCount !== 1) {
-		return null;
+		return;
 	}
 
 	const existingOrg = await getFirstOrganization();
 	if (existingOrg) {
-		return null;
+		return;
 	}
 
-	const org = await createOrganization({
-		name: 'Default Organization',
-	});
+	await db.transaction(async (tx) => {
+		// Create organization
+		const [org] = await tx.insert(s.organization).values({ name: 'Default Organization' }).returning().execute();
 
-	await addOrgMember({
-		orgId: org.id,
-		userId,
-		role: 'org_admin',
-	});
+		// Add user as org admin
+		await tx.insert(s.orgMember).values({ orgId: org.id, userId, role: 'admin' }).execute();
 
-	return org;
+		// Create default project if path is configured
+		const projectPath = process.env.NAO_DEFAULT_PROJECT_PATH;
+		if (projectPath) {
+			const [existingProject] = await tx
+				.select()
+				.from(s.project)
+				.where(eq(s.project.path, projectPath))
+				.execute();
+
+			if (!existingProject) {
+				const projectName = projectPath.split('/').pop() || 'Default Project';
+				const [project] = await tx
+					.insert(s.project)
+					.values({ name: projectName, type: 'local', path: projectPath, orgId: org.id })
+					.returning()
+					.execute();
+
+				await tx.insert(s.projectMember).values({ projectId: project.id, userId, role: 'admin' }).execute();
+			}
+		}
+	});
 };
 
 /**
@@ -122,7 +139,7 @@ export const ensureOrganizationSetup = async (): Promise<void> => {
 		await addOrgMember({
 			orgId: org.id,
 			userId: firstUser.id,
-			role: 'org_admin',
+			role: 'admin',
 		});
 	}
 
@@ -132,7 +149,7 @@ export const ensureOrganizationSetup = async (): Promise<void> => {
 		await addOrgMember({
 			orgId: org.id,
 			userId: firstUser.id,
-			role: 'org_admin',
+			role: 'admin',
 		});
 	}
 

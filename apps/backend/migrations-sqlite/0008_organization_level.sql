@@ -23,5 +23,7 @@ CREATE TABLE `organization` (
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `organization_slug_unique` ON `organization` (`slug`);--> statement-breakpoint
+ALTER TABLE `chat_message` ADD `llm_provider` text;--> statement-breakpoint
+ALTER TABLE `chat_message` ADD `llm_model_id` text;--> statement-breakpoint
 ALTER TABLE `project` ADD `org_id` text REFERENCES organization(id);--> statement-breakpoint
 CREATE INDEX `project_orgId_idx` ON `project` (`org_id`);
