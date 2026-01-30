@@ -37,6 +37,7 @@ dependencies = [
     "anthropic>=0.76.0",
     "notion-client>=2.7.0",
     "notion2md>=2.9.0",
+    "questionary>=2.1.0",
 ]
 
 [project.optional-dependencies]

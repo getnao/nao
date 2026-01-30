@@ -4,14 +4,10 @@ from pathlib import Path
 from typing import Annotated
 
 from cyclopts import Parameter
-from rich.console import Console
-from rich.panel import Panel
-from rich.prompt import Confirm, Prompt
 
 from nao_core.config import NaoConfig
 from nao_core.config.exceptions import InitError
-
-console = Console()
+from nao_core.ui import UI, ask_confirm, ask_text
 
 
 class EmptyProjectNameError(InitError):
@@ -35,8 +31,8 @@ class CreatedFile:
     content: str | None
 
 
-def setup_project_name(force: bool = False) -> tuple[str, Path]:
-    """Setup the project name."""
+def setup_project_name(force: bool = False) -> tuple[str, Path, NaoConfig | None]:
+    """Setup the project name. Returns existing config if found and user wants to extend."""
     # Check if we're in a directory with an existing nao_config.yaml
     current_dir = Path.cwd()
     config_file = current_dir / "nao_config.yaml"
@@ -45,16 +41,16 @@ def setup_project_name(force: bool = False) -> tuple[str, Path]:
         # Load existing config to get project name
         existing_config = NaoConfig.try_load(current_dir)
         if existing_config:
-            console.print("\n[bold yellow]Found existing nao_config.yaml[/bold yellow]")
-            console.print(f"[dim]Project: {existing_config.project_name}[/dim]\n")
+            UI.title("Found existing nao_config.yaml")
+            UI.print(f"[dim]Project: {existing_config.project_name}[/dim]\n")
 
-            if force or Confirm.ask("[bold]Re-initialize this project?[/bold]", default=True):
-                return existing_config.project_name, current_dir
+            if force or ask_confirm("Update this project configuration?", default=True):
+                return existing_config.project_name, current_dir, existing_config
             else:
                 raise InitError("Initialization cancelled.")
 
     # Normal flow: prompt for project name
-    project_name = Prompt.ask("[bold]Enter your project name[/bold]")
+    project_name = ask_text("Enter your project name:", required_field=True)
 
     if not project_name:
         raise EmptyProjectNameError()
@@ -66,7 +62,7 @@ def setup_project_name(force: bool = False) -> tuple[str, Path]:
 
     project_path.mkdir(parents=True, exist_ok=True)
 
-    return project_name, project_path
+    return project_name, project_path, None
 
 
 def create_empty_structure(project_path: Path) -> tuple[list[str], list[CreatedFile]]:
@@ -121,21 +117,24 @@ def init(
     force : bool
         Force re-initialization even if the folder already exists.
     """
-    console.print("\n[bold cyan]🚀 nao project initialization[/bold cyan]\n")
+    UI.info("\n🚀 nao project initialization\n")
 
     try:
-        project_name, project_path = setup_project_name(force=force)
-        config = NaoConfig.promptConfig(project_name)
+        project_name, project_path, existing_config = setup_project_name(force=force)
+        config = NaoConfig.promptConfig(project_name, existing=existing_config)
         config.save(project_path)
 
         # Create project folder structure
         created_folders, created_files = create_empty_structure(project_path)
 
-        console.print()
-        console.print(f"[bold green]✓[/bold green] Created project [cyan]{project_name}[/cyan]")
-        console.print(f"[bold green]✓[/bold green] Created [dim]{project_path / 'nao_config.yaml'}[/dim]")
-        console.print()
-        console.print("[bold green]Done![/bold green] Your nao project is ready. 🎉")
+        UI.print()
+        if existing_config:
+            UI.success(f"Updated project [cyan]{project_name}[/cyan]")
+        else:
+            UI.success(f"Created project [cyan]{project_name}[/cyan]")
+        UI.success(f"Saved [dim]{project_path / 'nao_config.yaml'}[/dim]")
+        UI.print()
+        UI.print("[bold green]Done![/bold green] Your nao project is ready. 🎉")
 
         is_subfolder = project_path.resolve() != Path.cwd().resolve()
 
@@ -147,7 +146,7 @@ def init(
 
             debug()
 
-        console.print()
+        UI.print()
 
         cd_instruction = ""
         if is_subfolder:
@@ -164,8 +163,8 @@ def init(
 [cyan]nao chat[/cyan]    - Start the nao chat interface
               Launch the web UI to chat with your data
 """
-        console.print(Panel(help_content, border_style="cyan", title="🚀 Get Started", title_align="left"))
-        console.print()
+        UI.panel(help_content, title="🚀 Get Started")
+        UI.print()
 
     except InitError as e:
-        console.print(f"[bold red]✗[/bold red] {e}")
+        UI.error(str(e))

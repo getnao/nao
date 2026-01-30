@@ -1,17 +1,20 @@
 project_name: example
 databases:
-    - name: duckdb-jaffle-shop
-      type: duckdb
-      path: './jaffle_shop.duckdb'
-      accessors:
-          - columns
-          - preview
+- name: duckdb-jaffle-shop
+  accessors:
+  - columns
+  - preview
+  include: []
+  exclude: []
+  type: duckdb
+  path: ./jaffle_shop.duckdb
 repos:
-    - name: dbt
-      url: https://github.com/dbt-labs/jaffle_shop_duckdb.git
+- name: dbt
+  url: https://github.com/dbt-labs/jaffle_shop_duckdb.git
+  branch: null
 notion:
   api_key: {{ env('NOTION_API_KEY') }}
   pages:
-    - https://naolabs.notion.site/Jaffle-shop-information-2f8c7a70bc0680a4b7d0caf99f055360
+  - https://naolabs.notion.site/Jaffle-shop-information-2f8c7a70bc0680a4b7d0caf99f055360
 llm: null
 slack: null

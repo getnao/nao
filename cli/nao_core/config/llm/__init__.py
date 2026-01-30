@@ -1,12 +1,9 @@
 from enum import Enum
 
+import questionary
 from pydantic import BaseModel, Field
-from rich.console import Console
-from rich.prompt import Prompt
 
-from nao_core.config.exceptions import InitError
-
-console = Console()
+from nao_core.ui import ask_select, ask_text
 
 
 class LLMProvider(str, Enum):
@@ -27,24 +24,17 @@ class LLMConfig(BaseModel):
     @classmethod
     def promptConfig(cls) -> "LLMConfig":
         """Interactively prompt the user for LLM configuration."""
-        console.print("\n[bold cyan]LLM Configuration[/bold cyan]\n")
+        provider_choices = [
+            questionary.Choice("OpenAI (GPT-4, GPT-3.5)", value="openai"),
+            questionary.Choice("Anthropic (Claude)", value="anthropic"),
+            questionary.Choice("Mistral", value="mistral"),
+            questionary.Choice("Google Gemini", value="gemini"),
+        ]
 
-        provider_choices = [p.value for p in LLMProvider]
-        llm_provider = Prompt.ask(
-            "[bold]Select LLM provider[/bold]",
-            choices=provider_choices,
-            default=provider_choices[0],
-        )
-
-        api_key = Prompt.ask(
-            f"[bold]Enter your {llm_provider.upper()} API key[/bold]",
-            password=True,
-        )
-
-        if not api_key:
-            raise InitError("API key cannot be empty.")
+        llm_provider = ask_select("Select LLM provider:", choices=provider_choices)
+        api_key = ask_text(f"Enter your {llm_provider.upper()} API key:", password=True, required_field=True)
 
         return LLMConfig(
             provider=LLMProvider(llm_provider),
-            api_key=api_key,
+            api_key=api_key,  # type: ignore
         )

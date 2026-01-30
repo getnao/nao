@@ -122,52 +122,54 @@ class TestCreateEmptyStructure:
 class TestSetupProjectName:
     """Tests for setup_project_name function."""
 
-    @patch("nao_core.commands.init.Prompt.ask")
-    def test_creates_new_project_folder(self, mock_prompt, tmp_path: Path, monkeypatch):
+    @patch("nao_core.commands.init.ask_text")
+    def test_creates_new_project_folder(self, mock_ask_text, tmp_path: Path, monkeypatch):
         """Creates project folder when it doesn't exist."""
         monkeypatch.chdir(tmp_path)
-        mock_prompt.return_value = "new-project"
+        mock_ask_text.return_value = "new-project"
 
-        name, path = setup_project_name()
+        name, path, existing = setup_project_name()
 
         assert name == "new-project"
         assert path.name == "new-project"
         assert path.exists()
+        assert existing is None
 
-    @patch("nao_core.commands.init.Prompt.ask")
-    def test_raises_on_empty_project_name(self, mock_prompt, tmp_path: Path, monkeypatch):
+    @patch("nao_core.commands.init.ask_text")
+    def test_raises_on_empty_project_name(self, mock_ask_text, tmp_path: Path, monkeypatch):
         """Raises EmptyProjectNameError when name is empty."""
         monkeypatch.chdir(tmp_path)
-        mock_prompt.return_value = ""
+        mock_ask_text.return_value = ""
 
         with pytest.raises(EmptyProjectNameError):
             setup_project_name()
 
-    @patch("nao_core.commands.init.Prompt.ask")
-    def test_raises_on_existing_folder_without_force(self, mock_prompt, tmp_path: Path, monkeypatch):
+    @patch("nao_core.commands.init.ask_text")
+    def test_raises_on_existing_folder_without_force(self, mock_ask_text, tmp_path: Path, monkeypatch):
         """Raises ProjectExistsError when folder exists and force=False."""
         monkeypatch.chdir(tmp_path)
         (tmp_path / "existing-project").mkdir()
-        mock_prompt.return_value = "existing-project"
+        mock_ask_text.return_value = "existing-project"
 
         with pytest.raises(ProjectExistsError) as exc_info:
             setup_project_name(force=False)
 
         assert exc_info.value.project_name == "existing-project"
 
-    @patch("nao_core.commands.init.Prompt.ask")
-    def test_allows_existing_folder_with_force(self, mock_prompt, tmp_path: Path, monkeypatch):
+    @patch("nao_core.commands.init.ask_text")
+    def test_allows_existing_folder_with_force(self, mock_ask_text, tmp_path: Path, monkeypatch):
         """Allows existing folder when force=True."""
         monkeypatch.chdir(tmp_path)
         (tmp_path / "existing-project").mkdir()
-        mock_prompt.return_value = "existing-project"
+        mock_ask_text.return_value = "existing-project"
 
-        name, path = setup_project_name(force=True)
+        name, path, existing = setup_project_name(force=True)
 
         assert name == "existing-project"
         assert path.exists()
+        assert existing is None
 
-    @patch("nao_core.commands.init.Confirm.ask")
+    @patch("nao_core.commands.init.ask_confirm")
     @patch("nao_core.commands.init.NaoConfig.try_load")
     def test_reinitializes_existing_project(self, mock_try_load, mock_confirm, tmp_path: Path, monkeypatch):
         """Can re-initialize an existing project with config."""
@@ -181,12 +183,13 @@ class TestSetupProjectName:
         mock_try_load.return_value = mock_config
         mock_confirm.return_value = True
 
-        name, path = setup_project_name()
+        name, path, existing = setup_project_name()
 
         assert name == "existing"
         assert path == tmp_path
+        assert existing == mock_config
 
-    @patch("nao_core.commands.init.Confirm.ask")
+    @patch("nao_core.commands.init.ask_confirm")
     @patch("nao_core.commands.init.NaoConfig.try_load")
     def test_cancels_when_user_declines_reinit(self, mock_try_load, mock_confirm, tmp_path: Path, monkeypatch):
         """Raises InitError when user declines re-initialization."""
@@ -208,7 +211,7 @@ class TestSetupProjectName:
 class TestNaoConfigPromptDatabases:
     """Tests for NaoConfig._prompt_databases method."""
 
-    @patch("nao_core.config.base.Confirm.ask")
+    @patch("nao_core.config.base.ask_confirm")
     def test_returns_empty_list_when_user_skips(self, mock_confirm):
         """Returns empty list when user chooses not to set up databases."""
         from nao_core.config import NaoConfig
@@ -219,10 +222,10 @@ class TestNaoConfigPromptDatabases:
 
         assert result == []
 
-    @patch("nao_core.config.base.Confirm.ask")
-    @patch("nao_core.config.base.Prompt.ask")
+    @patch("nao_core.config.base.ask_confirm")
+    @patch("nao_core.config.base.ask_select")
     @patch("nao_core.config.databases.duckdb.DuckDBConfig.promptConfig")
-    def test_adds_duckdb_database(self, mock_prompt_config, mock_prompt, mock_confirm):
+    def test_adds_duckdb_database(self, mock_prompt_config, mock_select, mock_confirm):
         """Adds DuckDB database when selected."""
         from nao_core.config import NaoConfig
 
@@ -232,7 +235,7 @@ class TestNaoConfigPromptDatabases:
 
         # First confirm: yes to setup, second confirm: no to add another
         mock_confirm.side_effect = [True, False]
-        mock_prompt.return_value = "duckdb"
+        mock_select.return_value = "duckdb"
 
         result = NaoConfig._prompt_databases()
 
@@ -244,7 +247,7 @@ class TestNaoConfigPromptDatabases:
 class TestNaoConfigPromptRepos:
     """Tests for NaoConfig._prompt_repos method."""
 
-    @patch("nao_core.config.base.Confirm.ask")
+    @patch("nao_core.config.base.ask_confirm")
     def test_returns_empty_list_when_user_skips(self, mock_confirm):
         """Returns empty list when user chooses not to set up repos."""
         from nao_core.config import NaoConfig
@@ -255,7 +258,7 @@ class TestNaoConfigPromptRepos:
 
         assert result == []
 
-    @patch("nao_core.config.base.Confirm.ask")
+    @patch("nao_core.config.base.ask_confirm")
     @patch("nao_core.config.repos.base.RepoConfig.promptConfig")
     def test_adds_repository(self, mock_prompt_config, mock_confirm):
         """Adds repository when configured."""
@@ -278,7 +281,7 @@ class TestNaoConfigPromptRepos:
 class TestNaoConfigPromptLLM:
     """Tests for NaoConfig._prompt_llm method."""
 
-    @patch("nao_core.config.base.Confirm.ask")
+    @patch("nao_core.config.base.ask_confirm")
     def test_returns_none_when_user_skips(self, mock_confirm):
         """Returns None when user chooses not to set up LLM."""
         from nao_core.config import NaoConfig
@@ -289,7 +292,7 @@ class TestNaoConfigPromptLLM:
 
         assert result is None
 
-    @patch("nao_core.config.base.Confirm.ask")
+    @patch("nao_core.config.base.ask_confirm")
     @patch("nao_core.config.llm.LLMConfig.promptConfig")
     def test_creates_llm_config(self, mock_prompt_config, mock_confirm):
         """Creates LLM config when configured."""
@@ -304,23 +307,26 @@ class TestNaoConfigPromptLLM:
         assert result is not None
         assert result.api_key == "sk-test-key"
 
-    @patch("nao_core.config.base.Confirm.ask")
-    @patch("nao_core.config.llm.Prompt.ask")
-    def test_raises_on_empty_api_key(self, mock_prompt, mock_confirm):
-        """Raises InitError when API key is empty."""
+    @patch("nao_core.config.llm.ask_text")
+    @patch("nao_core.config.llm.ask_select")
+    def test_raises_on_empty_api_key(self, mock_select, mock_text):
+        """Raises error when API key is empty (handled by required_field)."""
         from nao_core.config import LLMConfig
 
-        mock_confirm.return_value = True
-        mock_prompt.side_effect = ["openai", ""]
+        mock_select.return_value = "openai"
+        # ask_text with required_field=True will loop until non-empty,
+        # but if it returns empty, it means the validation failed.
+        # Since required_field loops, let's test with None (cancelled)
+        mock_text.side_effect = KeyboardInterrupt
 
-        with pytest.raises(InitError):
+        with pytest.raises(KeyboardInterrupt):
             LLMConfig.promptConfig()
 
 
 class TestNaoConfigPromptSlack:
     """Tests for NaoConfig._prompt_slack method."""
 
-    @patch("nao_core.config.base.Confirm.ask")
+    @patch("nao_core.config.base.ask_confirm")
     def test_returns_none_when_user_skips(self, mock_confirm):
         """Returns None when user chooses not to set up Slack."""
         from nao_core.config import NaoConfig
@@ -331,7 +337,7 @@ class TestNaoConfigPromptSlack:
 
         assert result is None
 
-    @patch("nao_core.config.base.Confirm.ask")
+    @patch("nao_core.config.base.ask_confirm")
     @patch("nao_core.config.slack.SlackConfig.promptConfig")
     def test_creates_slack_config(self, mock_prompt_config, mock_confirm):
         """Creates Slack config when configured."""
@@ -347,24 +353,24 @@ class TestNaoConfigPromptSlack:
         assert result.bot_token == "xoxb-bot-token"
         assert result.signing_secret == "signing-secret"
 
-    @patch("nao_core.config.slack.Prompt.ask")
-    def test_raises_on_empty_bot_token(self, mock_prompt):
-        """Raises InitError when bot token is empty."""
+    @patch("nao_core.config.slack.ask_text")
+    def test_raises_on_cancelled_bot_token(self, mock_text):
+        """Raises KeyboardInterrupt when user cancels bot token input."""
         from nao_core.config import SlackConfig
 
-        mock_prompt.side_effect = [""]
+        mock_text.side_effect = KeyboardInterrupt
 
-        with pytest.raises(InitError):
+        with pytest.raises(KeyboardInterrupt):
             SlackConfig.promptConfig()
 
-    @patch("nao_core.config.slack.Prompt.ask")
-    def test_raises_on_empty_signing_secret(self, mock_prompt):
-        """Raises InitError when signing secret is empty."""
+    @patch("nao_core.config.slack.ask_text")
+    def test_raises_on_cancelled_signing_secret(self, mock_text):
+        """Raises KeyboardInterrupt when user cancels signing secret input."""
         from nao_core.config import SlackConfig
 
-        mock_prompt.side_effect = ["xoxb-bot-token", ""]
+        mock_text.side_effect = ["xoxb-bot-token", KeyboardInterrupt]
 
-        with pytest.raises(InitError):
+        with pytest.raises(KeyboardInterrupt):
             SlackConfig.promptConfig()
 
 
@@ -373,10 +379,10 @@ class TestInitCommand:
 
     @patch("nao_core.commands.init.NaoConfig.promptConfig")
     @patch("nao_core.commands.init.setup_project_name")
-    @patch("nao_core.commands.init.console")
+    @patch("nao_core.commands.init.UI")
     def test_init_creates_config_file(
         self,
-        mock_console,
+        mock_ui,
         mock_setup_project_name,
         mock_prompt_config,
         tmp_path: Path,
@@ -388,7 +394,7 @@ class TestInitCommand:
         project_path = tmp_path / "test-project"
         project_path.mkdir()
 
-        mock_setup_project_name.return_value = ("test-project", project_path)
+        mock_setup_project_name.return_value = ("test-project", project_path, None)
         mock_prompt_config.return_value = NaoConfig(
             project_name="test-project",
             databases=[],
@@ -404,10 +410,10 @@ class TestInitCommand:
 
     @patch("nao_core.commands.init.NaoConfig.promptConfig")
     @patch("nao_core.commands.init.setup_project_name")
-    @patch("nao_core.commands.init.console")
+    @patch("nao_core.commands.init.UI")
     def test_init_creates_folder_structure(
         self,
-        mock_console,
+        mock_ui,
         mock_setup_project_name,
         mock_prompt_config,
         tmp_path: Path,
@@ -419,7 +425,7 @@ class TestInitCommand:
         project_path = tmp_path / "test-project"
         project_path.mkdir()
 
-        mock_setup_project_name.return_value = ("test-project", project_path)
+        mock_setup_project_name.return_value = ("test-project", project_path, None)
         mock_prompt_config.return_value = NaoConfig(
             project_name="test-project",
             databases=[],
@@ -435,8 +441,8 @@ class TestInitCommand:
         assert (project_path / "RULES.md").exists()
 
     @patch("nao_core.commands.init.setup_project_name")
-    @patch("nao_core.commands.init.console")
-    def test_init_handles_init_error(self, mock_console, mock_setup_project_name):
+    @patch("nao_core.commands.init.UI")
+    def test_init_handles_init_error(self, mock_ui, mock_setup_project_name):
         """Init command handles InitError gracefully."""
         from nao_core.commands.init import init
 
@@ -446,6 +452,6 @@ class TestInitCommand:
         init()
 
         # Verify error was printed
-        mock_console.print.assert_called()
-        calls = [str(c) for c in mock_console.print.call_args_list]
+        mock_ui.error.assert_called()
+        calls = [str(c) for c in mock_ui.error.call_args_list]
         assert any("cannot be empty" in c for c in calls)

@@ -1,10 +1,8 @@
 from typing import Optional
 
 from pydantic import BaseModel, Field
-from rich.console import Console
-from rich.prompt import Prompt
 
-console = Console()
+from nao_core.ui import ask_text
 
 
 class RepoConfig(BaseModel):
@@ -17,9 +15,12 @@ class RepoConfig(BaseModel):
     @classmethod
     def promptConfig(cls) -> "RepoConfig":
         """Interactively prompt the user for repository configuration."""
-        console.print("\n[bold cyan]Git Repository Configuration[/bold cyan]\n")
+        name = ask_text("Repository name:", required_field=True)
+        url = ask_text("Repository URL:", required_field=True)
+        branch = ask_text("Branch (optional):")
 
-        name = Prompt.ask("[bold]Repository name[/bold]")
-        url = Prompt.ask("[bold]Repository URL[/bold]")
-
-        return RepoConfig(name=name, url=url)
+        return RepoConfig(
+            name=name,  # type: ignore
+            url=url,  # type: ignore
+            branch=branch,
+        )

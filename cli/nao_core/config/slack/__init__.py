@@ -1,10 +1,6 @@
 from pydantic import BaseModel, Field
-from rich.console import Console
-from rich.prompt import Prompt
 
-from nao_core.config.exceptions import InitError
-
-console = Console()
+from nao_core.ui import ask_text
 
 
 class SlackConfig(BaseModel):
@@ -20,25 +16,10 @@ class SlackConfig(BaseModel):
     @classmethod
     def promptConfig(cls) -> "SlackConfig":
         """Interactively prompt the user for Slack configuration."""
-        console.print("\n[bold cyan]Slack Configuration[/bold cyan]\n")
-
-        bot_token = Prompt.ask(
-            "[bold]Enter your Slack bot token[/bold]",
-            password=True,
-        )
-
-        if not bot_token:
-            raise InitError("Slack bot token cannot be empty.")
-
-        signing_secret = Prompt.ask(
-            "[bold]Enter your Slack signing secret[/bold]",
-            password=True,
-        )
-
-        if not signing_secret:
-            raise InitError("Slack signing secret cannot be empty.")
+        bot_token = ask_text("Slack bot token:", password=True, required_field=True)
+        signing_secret = ask_text("Slack signing secret:", password=True, required_field=True)
 
         return SlackConfig(
-            bot_token=bot_token,
-            signing_secret=signing_secret,
+            bot_token=bot_token,  # type: ignore
+            signing_secret=signing_secret,  # type: ignore
         )

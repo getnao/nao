@@ -4,11 +4,9 @@ import fnmatch
 from abc import ABC, abstractmethod
 from enum import Enum
 
+import questionary
 from ibis import BaseBackend
 from pydantic import BaseModel, Field
-from rich.console import Console
-
-console = Console()
 
 
 class DatabaseType(str, Enum):
@@ -19,6 +17,11 @@ class DatabaseType(str, Enum):
     DATABRICKS = "databricks"
     SNOWFLAKE = "snowflake"
     POSTGRES = "postgres"
+
+    @classmethod
+    def choices(cls) -> list[questionary.Choice]:
+        """Get questionary choices for all database types."""
+        return [questionary.Choice(db.value.capitalize(), value=db.value) for db in cls]
 
 
 class AccessorType(str, Enum):
