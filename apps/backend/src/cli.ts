@@ -17,7 +17,7 @@ import path from 'path';
 import app from './app';
 import dbConfig, { Dialect } from './db/dbConfig';
 import { runMigrations } from './db/migrate';
-import { assignAdminToOrphanedProject } from './queries/project.queries';
+import { ensureOrganizationSetup } from './queries/organization.queries';
 
 const SECRET_FILE_NAME = '.nao-secret';
 
@@ -214,7 +214,7 @@ async function runServe(options: Record<string, string>): Promise<void> {
 	console.log(`   Listening on: ${host}:${port}`);
 
 	try {
-		await assignAdminToOrphanedProject();
+		await ensureOrganizationSetup();
 		const address = await app.listen({ host, port });
 		console.log(`✅ Server is running on ${address}`);
 	} catch (err) {

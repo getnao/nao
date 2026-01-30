@@ -3,6 +3,7 @@ import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 
 import { db } from './db/db';
 import dbConfig, { Dialect } from './db/dbConfig';
+import * as orgQueries from './queries/organization.queries';
 import * as projectQueries from './queries/project.queries';
 import { isEmailDomainAllowed } from './utils/utils';
 
@@ -36,8 +37,11 @@ export const auth = betterAuth({
 					return true;
 				},
 				async after(user) {
-					// Handle first user signup: create default project and add user as admin
-					await projectQueries.initializeDefaultProjectForFirstUser(user.id);
+					// Handle first user signup: create default org, then default project
+					const org = await orgQueries.initializeDefaultOrganizationForFirstUser(user.id);
+					if (org) {
+						await projectQueries.createDefaultProjectForOrganization(org.id, user.id);
+					}
 				},
 			},
 		},
