@@ -80,6 +80,7 @@ def debug():
         console.print("[bold red]✗[/bold red] No nao_config.yaml found in current directory")
         console.print("[dim]Run 'nao init' to create a configuration file[/dim]")
         sys.exit(1)
+    assert config is not None  # Help type checker after sys.exit
 
     console.print(f"[bold green]✓[/bold green] Loaded config: [cyan]{config.project_name}[/cyan]\n")
 

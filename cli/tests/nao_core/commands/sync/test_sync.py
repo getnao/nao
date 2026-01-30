@@ -105,3 +105,90 @@ class TestSyncCommand:
         # Check that "Nothing to sync" was printed
         calls = [str(call) for call in mock_console.print.call_args_list]
         assert any("Nothing to sync" in call for call in calls)
+
+    def test_sync_continues_when_provider_fails(self, tmp_path: Path, monkeypatch):
+        """Test that sync continues with other providers when one fails."""
+        config_file = tmp_path / "nao_config.yaml"
+        config_file.write_text("project_name: test-project\n")
+        monkeypatch.chdir(tmp_path)
+
+        # First provider will fail
+        failing_provider = MagicMock(spec=SyncProvider)
+        failing_provider.should_sync.return_value = True
+        failing_provider.name = "FailingProvider"
+        failing_provider.emoji = "❌"
+        failing_provider.default_output_dir = "failing-output"
+        failing_provider.sync.side_effect = Exception("Connection failed")
+
+        # Second provider should still run
+        working_provider = MagicMock(spec=SyncProvider)
+        working_provider.should_sync.return_value = True
+        working_provider.name = "WorkingProvider"
+        working_provider.emoji = "✅"
+        working_provider.default_output_dir = "working-output"
+        working_provider.get_items.return_value = ["item1"]
+        working_provider.sync.return_value = SyncResult(
+            provider_name="WorkingProvider",
+            items_synced=1,
+        )
+
+        with patch("nao_core.commands.sync.console"):
+            # Should not raise, even though first provider fails
+            sync(providers=[failing_provider, working_provider])
+
+        # Verify both providers were attempted
+        failing_provider.sync.assert_called_once()
+        working_provider.sync.assert_called_once()
+
+    def test_sync_shows_partial_success_when_some_providers_fail(self, tmp_path: Path, monkeypatch):
+        """Test that sync shows partial success status when some providers fail."""
+        config_file = tmp_path / "nao_config.yaml"
+        config_file.write_text("project_name: test-project\n")
+        monkeypatch.chdir(tmp_path)
+
+        failing_provider = MagicMock(spec=SyncProvider)
+        failing_provider.should_sync.return_value = True
+        failing_provider.name = "FailingProvider"
+        failing_provider.emoji = "❌"
+        failing_provider.default_output_dir = "failing-output"
+        failing_provider.sync.side_effect = Exception("API error")
+
+        working_provider = MagicMock(spec=SyncProvider)
+        working_provider.should_sync.return_value = True
+        working_provider.name = "WorkingProvider"
+        working_provider.emoji = "✅"
+        working_provider.default_output_dir = "working-output"
+        working_provider.get_items.return_value = ["item1"]
+        working_provider.sync.return_value = SyncResult(
+            provider_name="WorkingProvider",
+            items_synced=1,
+        )
+
+        with patch("nao_core.commands.sync.console") as mock_console:
+            sync(providers=[failing_provider, working_provider])
+
+        calls = [str(call) for call in mock_console.print.call_args_list]
+        # Should show "Completed with Errors" status
+        assert any("Sync Completed with Errors" in call for call in calls)
+        # Should show error details
+        assert any("API error" in call for call in calls)
+
+    def test_sync_shows_failure_when_all_providers_fail(self, tmp_path: Path, monkeypatch):
+        """Test that sync shows failure status when all providers fail."""
+        config_file = tmp_path / "nao_config.yaml"
+        config_file.write_text("project_name: test-project\n")
+        monkeypatch.chdir(tmp_path)
+
+        failing_provider = MagicMock(spec=SyncProvider)
+        failing_provider.should_sync.return_value = True
+        failing_provider.name = "FailingProvider"
+        failing_provider.emoji = "❌"
+        failing_provider.default_output_dir = "failing-output"
+        failing_provider.sync.side_effect = Exception("Connection timeout")
+
+        with patch("nao_core.commands.sync.console") as mock_console:
+            sync(providers=[failing_provider])
+
+        calls = [str(call) for call in mock_console.print.call_args_list]
+        # Should show "Sync Failed" status
+        assert any("Sync Failed" in call for call in calls)

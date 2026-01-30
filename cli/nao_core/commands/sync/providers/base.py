@@ -16,12 +16,29 @@ class SyncResult:
     items_synced: int
     details: dict[str, Any] | None = None
     summary: str | None = None
+    error: str | None = None
+
+    @property
+    def success(self) -> bool:
+        """Check if the sync was successful."""
+        return self.error is None
 
     def get_summary(self) -> str:
         """Get a human-readable summary of the sync result."""
+        if self.error:
+            return f"failed: {self.error}"
         if self.summary:
             return self.summary
         return f"{self.items_synced} synced"
+
+    @classmethod
+    def from_error(cls, provider_name: str, error: Exception) -> "SyncResult":
+        """Create a SyncResult from an exception."""
+        return cls(
+            provider_name=provider_name,
+            items_synced=0,
+            error=str(error),
+        )
 
 
 class SyncProvider(ABC):

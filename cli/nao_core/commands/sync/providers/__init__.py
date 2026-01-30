@@ -2,10 +2,12 @@
 
 from .base import SyncProvider, SyncResult
 from .databases.provider import DatabaseSyncProvider
+from .notion.provider import NotionSyncProvider
 from .repositories.provider import RepositorySyncProvider
 
 # Default providers in order of execution
 DEFAULT_PROVIDERS: list[SyncProvider] = [
+    NotionSyncProvider(),
     RepositorySyncProvider(),
     DatabaseSyncProvider(),
 ]

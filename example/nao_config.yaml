@@ -9,5 +9,9 @@ databases:
 repos:
     - name: dbt
       url: https://github.com/dbt-labs/jaffle_shop_duckdb.git
+notion:
+  api_key: {{ env('NOTION_API_KEY') }}
+  pages:
+    - https://naolabs.notion.site/Jaffle-shop-information-2f8c7a70bc0680a4b7d0caf99f055360
 llm: null
 slack: null

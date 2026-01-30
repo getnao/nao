@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from .databases import AnyDatabaseConfig, parse_database_config
 from .llm import LLMConfig
+from .notion import NotionConfig
 from .repos import RepoConfig
 from .slack import SlackConfig
 
@@ -21,6 +22,7 @@ class NaoConfig(BaseModel):
     project_name: str = Field(description="The name of the nao project")
     databases: list[AnyDatabaseConfig] = Field(default_factory=list, description="The databases to use")
     repos: list[RepoConfig] = Field(default_factory=list, description="The repositories to use")
+    notion: NotionConfig | None = Field(default=None, description="The Notion configurations")
     llm: LLMConfig | None = Field(default=None, description="The LLM configuration")
     slack: SlackConfig | None = Field(default=None, description="The Slack configuration")
 
