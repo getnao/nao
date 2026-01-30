@@ -215,9 +215,9 @@ async function runServe(options: Record<string, string>): Promise<void> {
 
 	try {
 		await ensureOrganizationSetup();
+		await startServer({ port, host });
 		const address = await app.listen({ host, port });
 		console.log(`✅ Server is running on ${address}`);
-		await startServer({ port, host });
 	} catch (err) {
 		console.error('❌ Failed to start server:', err);
 		process.exit(1);
