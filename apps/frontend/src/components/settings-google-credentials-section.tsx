@@ -46,8 +46,12 @@ export function GoogleConfigSection({ isAdmin }: GoogleConfigSectionProps) {
 	};
 
 	const maskCredential = (value: string) => {
-		if (!value) return '';
-		if (value.length <= 8) return '••••••••';
+		if (!value) {
+			return '';
+		}
+		if (value.length <= 8) {
+			return '••••••••';
+		}
 		return `${value.slice(0, 4)}••••${value.slice(-4)}`;
 	};
 
