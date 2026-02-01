@@ -42,7 +42,7 @@ export function CommandMenu() {
 				id: 'open-settings',
 				label: 'Open Settings',
 				icon: SettingsIcon,
-				action: () => navigate({ to: '/user' }),
+				action: () => navigate({ to: '/settings' }),
 				group: 'Actions',
 			},
 			{

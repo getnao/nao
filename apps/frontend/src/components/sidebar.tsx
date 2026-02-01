@@ -1,8 +1,9 @@
-import { ArrowLeftFromLine, ArrowRightToLine, PlusIcon } from 'lucide-react';
+import { ArrowLeftFromLine, ArrowRightToLine, PlusIcon, ArrowLeft } from 'lucide-react';
 import { useEffect, useCallback } from 'react';
-import { useNavigate } from '@tanstack/react-router';
+import { Link, useNavigate, useMatchRoute } from '@tanstack/react-router';
 import { ChatList } from './sidebar-chat-list';
 import { SidebarUserMenu } from './sidebar-user-menu';
+import { SidebarSettingsNav } from './sidebar-settings-nav';
 
 import { Button } from '@/components/ui/button';
 import { cn, hideIf } from '@/lib/utils';
@@ -13,7 +14,10 @@ import NaoLogoGreyscale from '@/components/icons/nao-logo-greyscale.svg';
 export function Sidebar() {
 	const chats = useChatListQuery();
 	const navigate = useNavigate();
+	const matchRoute = useMatchRoute();
 	const { isCollapsed, toggleSidebar } = useSidebar();
+
+	const isInSettings = matchRoute({ to: '/settings', fuzzy: true });
 
 	const handleStartNewChat = useCallback(() => {
 		navigate({ to: '/' });
@@ -64,33 +68,53 @@ export function Sidebar() {
 					</Button>
 				</div>
 
-				<Button
-					variant='outline'
-					className={cn(
-						'w-full justify-start relative group shadow-none transition-[padding,height,width,background-color] duration-300 p-[9px_!important]',
-						isCollapsed ? 'h-9 w-9' : '',
-					)}
-					onClick={handleStartNewChat}
-				>
-					<PlusIcon className='size-4' />
-					<div
+				{isInSettings ? (
+					<Link
+						to='/'
 						className={cn(
-							'flex items-center transition-[opacity,visibility] duration-300',
-							hideIf(isCollapsed),
+							'flex items-center gap-2 px-3 py-2 text-sm rounded-md transition-colors',
+							'text-muted-foreground hover:bg-sidebar-accent hover:text-foreground',
+							isCollapsed ? 'px-2.5' : '',
 						)}
 					>
-						<span>New Chat</span>
-						<kbd className='group-hover:opacity-100 opacity-0 absolute right-3 text-[10px] text-muted-foreground font-sans transition-opacity'>
-							⇧⌘O
-						</kbd>
-					</div>
-				</Button>
+						<ArrowLeft className='size-4' />
+						<span className={cn('transition-[opacity,visibility] duration-300', hideIf(isCollapsed))}>
+							Back to app
+						</span>
+					</Link>
+				) : (
+					<Button
+						variant='outline'
+						className={cn(
+							'w-full justify-start relative group shadow-none transition-[padding,height,width,background-color] duration-300 p-[9px_!important]',
+							isCollapsed ? 'h-9 w-9' : '',
+						)}
+						onClick={handleStartNewChat}
+					>
+						<PlusIcon className='size-4' />
+						<div
+							className={cn(
+								'flex items-center transition-[opacity,visibility] duration-300',
+								hideIf(isCollapsed),
+							)}
+						>
+							<span>New Chat</span>
+							<kbd className='group-hover:opacity-100 opacity-0 absolute right-3 text-[10px] text-muted-foreground font-sans transition-opacity'>
+								⇧⌘O
+							</kbd>
+						</div>
+					</Button>
+				)}
 			</div>
 
-			<ChatList
-				chats={chats.data?.chats || []}
-				className={cn('w-72 transition-[opacity,visibility] duration-300', hideIf(isCollapsed))}
-			/>
+			{isInSettings ? (
+				<SidebarSettingsNav isCollapsed={isCollapsed} />
+			) : (
+				<ChatList
+					chats={chats.data?.chats || []}
+					className={cn('w-72 transition-[opacity,visibility] duration-300', hideIf(isCollapsed))}
+				/>
+			)}
 
 			<div className={cn('mt-auto transition-[padding] duration-300', isCollapsed ? 'p-1' : 'p-2')}>
 				<SidebarUserMenu isCollapsed={isCollapsed} />
