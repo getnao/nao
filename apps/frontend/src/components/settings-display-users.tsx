@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Plus, EllipsisVertical } from 'lucide-react';
 import { NewlyCreatedUserDialog } from './settings-display-newUser';
+import { ModifyUserForm } from './settings-modify-user-form';
 import { trpc } from '@/main';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -10,11 +11,12 @@ import { Badge } from '@/components/ui/badge';
 
 interface UsersListProps {
 	isAdmin: boolean;
-	onModifyUser: (userId: string) => void;
 }
 
-export function UsersList({ isAdmin, onModifyUser }: UsersListProps) {
+export function UsersList({ isAdmin }: UsersListProps) {
 	const [isCreateUserOpen, setIsCreateUserOpen] = useState(false);
+	const [isModifyUserOpen, setIsModifyUserOpen] = useState(false);
+	const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
 	const [newUser, setNewUser] = useState<{ email: string; password: string } | null>(null);
 
 	const usersWithRoles = useQuery(trpc.project.getAllUsersWithRoles.queryOptions());
@@ -51,7 +53,14 @@ export function UsersList({ isAdmin, onModifyUser }: UsersListProps) {
 								<TableCell>{user.role && <Badge variant={user.role}>{user.role}</Badge>}</TableCell>
 								{isAdmin && (
 									<TableCell className='w-0'>
-										<Button variant='ghost' size='icon-sm' onClick={() => onModifyUser(user.id)}>
+										<Button
+											variant='ghost'
+											size='icon-sm'
+											onClick={() => {
+												setSelectedUserId(user.id);
+												setIsModifyUserOpen(true);
+											}}
+										>
 											<EllipsisVertical className='size-4' />
 										</Button>
 									</TableCell>
@@ -74,6 +83,12 @@ export function UsersList({ isAdmin, onModifyUser }: UsersListProps) {
 				onOpenChange={(open) => !open && setNewUser(null)}
 				email={newUser?.email || ''}
 				password={newUser?.password || ''}
+			/>
+			<ModifyUserForm
+				open={isModifyUserOpen}
+				onOpenChange={setIsModifyUserOpen}
+				userId={selectedUserId}
+				isAdmin={isAdmin}
 			/>
 		</div>
 	);

@@ -1,8 +1,6 @@
-import { useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { Input } from '@/components/ui/input';
-import { ModifyUserForm } from '@/components/settings-modify-user-form';
 import { trpc } from '@/main';
 import { SettingsCard } from '@/components/ui/settings-card';
 import { LlmProvidersSection } from '@/components/settings-llm-providers-section';
@@ -14,8 +12,6 @@ export const Route = createFileRoute('/_sidebar-layout/settings/project')({
 });
 
 function ProjectPage() {
-	const [isModifyUserOpen, setIsModifyUserOpen] = useState(false);
-	const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
 	const project = useQuery(trpc.project.getCurrent.queryOptions());
 
 	const isAdmin = project.data?.userRole === 'admin';
@@ -64,13 +60,7 @@ function ProjectPage() {
 					</SettingsCard>
 
 					<SettingsCard title='Team'>
-						<UsersList
-							isAdmin={isAdmin}
-							onModifyUser={(userId) => {
-								setSelectedUserId(userId);
-								setIsModifyUserOpen(true);
-							}}
-						/>
+						<UsersList isAdmin={isAdmin} />
 					</SettingsCard>
 				</>
 			) : (
@@ -80,13 +70,6 @@ function ProjectPage() {
 					</p>
 				</SettingsCard>
 			)}
-
-			<ModifyUserForm
-				open={isModifyUserOpen}
-				onOpenChange={setIsModifyUserOpen}
-				userId={selectedUserId}
-				isAdmin={isAdmin}
-			/>
 		</>
 	);
 }
