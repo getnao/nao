@@ -1,7 +1,8 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
+import { useForm } from '@tanstack/react-form';
 import { useState } from 'react';
 import { signUp } from '@/lib/auth-client';
-import { SignInForm } from '@/components/signin-form';
+import { AuthForm, FormTextField } from '@/components/auth-form';
 
 export const Route = createFileRoute('/signup')({
 	component: SignUp,
@@ -9,67 +10,24 @@ export const Route = createFileRoute('/signup')({
 
 function SignUp() {
 	const navigate = useNavigate();
-	const [formData, setFormData] = useState({
-		name: '',
-		email: '',
-		password: '',
+	const [serverError, setServerError] = useState<string>();
+
+	const form = useForm({
+		defaultValues: { name: '', email: '', password: '' },
+		onSubmit: async ({ value }) => {
+			setServerError(undefined);
+			await signUp.email(value, {
+				onSuccess: () => navigate({ to: '/' }),
+				onError: (err) => setServerError(err.error.message),
+			});
+		},
 	});
-	const [error, setError] = useState('');
-
-	const handleSignUp = async (e: React.FormEvent) => {
-		e.preventDefault();
-		setError('');
-		await signUp.email(
-			{
-				name: formData.name,
-				email: formData.email,
-				password: formData.password,
-			},
-			{
-				onSuccess: () => {
-					navigate({ to: '/' });
-				},
-				onError: (ctx) => {
-					setError(ctx.error.message);
-				},
-			},
-		);
-	};
-
-	const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-		setFormData({
-			...formData,
-			[e.target.name]: e.target.value,
-		});
-	};
 
 	return (
-		<SignInForm
-			title='Sign Up'
-			fields={[
-				{
-					name: 'name',
-					placeholder: 'Name',
-				},
-				{
-					name: 'email',
-					type: 'email',
-					placeholder: 'Email',
-				},
-				{
-					name: 'password',
-					type: 'password',
-					placeholder: 'Password',
-				},
-			]}
-			formData={formData}
-			onSubmit={handleSignUp}
-			onChange={handleChange}
-			submitButtonText='Sign Up'
-			footerText='Already have an account?'
-			footerLinkText='Sign in'
-			footerLinkTo='/login'
-			error={error}
-		/>
+		<AuthForm form={form} title='Sign Up' submitText='Sign Up' serverError={serverError}>
+			<FormTextField form={form} name='name' placeholder='Name' />
+			<FormTextField form={form} name='email' type='email' placeholder='Email' />
+			<FormTextField form={form} name='password' type='password' placeholder='Password' />
+		</AuthForm>
 	);
 }
