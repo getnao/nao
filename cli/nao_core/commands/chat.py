@@ -9,6 +9,7 @@ from time import sleep
 from rich.console import Console
 
 from nao_core.config import NaoConfig
+from nao_core.tracking import track_command
 
 console = Console()
 
@@ -99,6 +100,7 @@ def ensure_auth_secret(bin_dir: Path) -> str | None:
         return new_secret
 
 
+@track_command("chat")
 def chat():
     """Start the nao chat UI.
 
@@ -123,7 +125,10 @@ def chat():
 
     def shutdown_servers():
         """Gracefully shut down both server processes."""
-        for name, proc in [("Chat server", chat_process), ("FastAPI server", fastapi_process)]:
+        for name, proc in [
+            ("Chat server", chat_process),
+            ("FastAPI server", fastapi_process),
+        ]:
             if proc:
                 proc.terminate()
                 try:

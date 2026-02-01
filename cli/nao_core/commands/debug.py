@@ -3,6 +3,7 @@ from rich.table import Table
 
 from nao_core.config import NaoConfig
 from nao_core.config.databases import AnyDatabaseConfig
+from nao_core.tracking import track_command
 
 console = Console()
 
@@ -64,6 +65,7 @@ def check_llm_connection(llm_config) -> tuple[bool, str]:
         return False, str(e)
 
 
+@track_command("debug")
 def debug():
     """Test connectivity to configured databases and LLMs.
 

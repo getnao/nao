@@ -6,12 +6,13 @@ import { RouterProvider, createRouter } from '@tanstack/react-router';
 import ReactDOM from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import superjson from 'superjson';
+import { PostHogProvider } from './contexts/posthog.provider';
 import { ThemeProvider } from './contexts/theme.provider';
 import { SidebarProvider } from './contexts/sidebar.provider';
 import { routeTree } from './routeTree.gen';
 import reportWebVitals from './reportWebVitals';
 import { UserPageProvider } from './contexts/user.provider';
-import type { TrpcRouter } from 'backend/trpc';
+import type { TrpcRouter } from '@nao/backend/trpc';
 
 // Register the router instance for type safety
 declare module '@tanstack/react-router' {
@@ -69,9 +70,11 @@ if (!rootElement.innerHTML) {
 			<ThemeProvider>
 				<SidebarProvider>
 					<QueryClientProvider client={queryClient}>
-						<UserPageProvider>
-							<RouterProvider router={router} />
-						</UserPageProvider>
+						<PostHogProvider>
+							<UserPageProvider>
+								<RouterProvider router={router} />
+							</UserPageProvider>
+						</PostHogProvider>
 					</QueryClientProvider>
 				</SidebarProvider>
 			</ThemeProvider>
