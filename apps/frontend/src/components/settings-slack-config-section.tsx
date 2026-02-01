@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useForm } from '@tanstack/react-form';
 import { ExternalLink, Pencil, Plus, Trash2 } from 'lucide-react';
 import { CopyableUrl } from '@/components/ui/copyable-url';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { trpc } from '@/main';
+import { PasswordField } from '@/components/form-fields';
 
 interface SlackConfigSectionProps {
 	isAdmin: boolean;
@@ -27,7 +29,6 @@ function SlackAppConfigUrls({
 			<h5 className='text-xs font-medium text-foreground mb-3'>Slack App Configuration URLs</h5>
 			<p className='text-xs text-muted-foreground mb-3'>Add these URLs to your Slack App settings:</p>
 
-			{/* App ID input for quick links */}
 			<div className='mb-4 p-3 rounded border border-border bg-background/50'>
 				<label htmlFor='slack-app-id' className='text-xs font-medium text-foreground block mb-2'>
 					Slack App ID (optional, for quick links)
@@ -83,8 +84,6 @@ export function SlackConfigSection({ isAdmin }: SlackConfigSectionProps) {
 	const slackConfig = useQuery(trpc.project.getSlackConfig.queryOptions());
 
 	const [isEditing, setIsEditing] = useState(false);
-	const [botToken, setBotToken] = useState('');
-	const [signingSecret, setSigningSecret] = useState('');
 
 	const upsertSlackConfig = useMutation(trpc.project.upsertSlackConfig.mutationOptions());
 	const deleteSlackConfig = useMutation(trpc.project.deleteSlackConfig.mutationOptions());
@@ -97,16 +96,21 @@ export function SlackConfigSection({ isAdmin }: SlackConfigSectionProps) {
 	const projectConfig = slackConfig.data?.projectConfig;
 	const hasEnvConfig = slackConfig.data?.hasEnvConfig ?? false;
 
-	const handleSaveConfig = async () => {
-		if (!botToken || !signingSecret) {
-			return;
-		}
-		await upsertSlackConfig.mutateAsync({ botToken, signingSecret });
-		queryClient.invalidateQueries(trpc.project.getSlackConfig.queryOptions());
-		setIsEditing(false);
-		setBotToken('');
-		setSigningSecret('');
-	};
+	const form = useForm({
+		defaultValues: {
+			botToken: '',
+			signingSecret: '',
+		},
+		onSubmit: async ({ value }) => {
+			if (!value.botToken || !value.signingSecret) {
+				return;
+			}
+			await upsertSlackConfig.mutateAsync(value);
+			queryClient.invalidateQueries(trpc.project.getSlackConfig.queryOptions());
+			setIsEditing(false);
+			form.reset();
+		},
+	});
 
 	const handleDeleteConfig = async () => {
 		await deleteSlackConfig.mutateAsync();
@@ -115,8 +119,7 @@ export function SlackConfigSection({ isAdmin }: SlackConfigSectionProps) {
 
 	const handleCancel = () => {
 		setIsEditing(false);
-		setBotToken('');
-		setSigningSecret('');
+		form.reset();
 	};
 
 	return (
@@ -189,49 +192,39 @@ export function SlackConfigSection({ isAdmin }: SlackConfigSectionProps) {
 
 			{/* Add/Edit config form (admin only) */}
 			{isAdmin && (isEditing || (!projectConfig && !hasEnvConfig)) && (
-				<div className='flex flex-col gap-3 p-4 rounded-lg border border-dashed border-border'>
+				<form
+					onSubmit={(e) => {
+						e.preventDefault();
+						form.handleSubmit();
+					}}
+					className='flex flex-col gap-3 p-4 rounded-lg border border-dashed border-border'
+				>
 					<div className='grid gap-4'>
-						<div className='grid gap-2'>
-							<label htmlFor='slack-bot-token' className='text-sm font-medium text-foreground'>
-								Bot Token
-							</label>
-							<Input
-								id='slack-bot-token'
-								type='password'
-								value={botToken}
-								onChange={(e) => setBotToken(e.target.value)}
-								placeholder='xoxb-...'
-							/>
-						</div>
-						<div className='grid gap-2'>
-							<label htmlFor='slack-signing-secret' className='text-sm font-medium text-foreground'>
-								Signing Secret
-							</label>
-							<Input
-								id='slack-signing-secret'
-								type='password'
-								value={signingSecret}
-								onChange={(e) => setSigningSecret(e.target.value)}
-								placeholder='Enter your Slack signing secret'
-							/>
-						</div>
+						<PasswordField form={form} name='botToken' label='Bot Token' placeholder='xoxb-...' required />
+						<PasswordField
+							form={form}
+							name='signingSecret'
+							label='Signing Secret'
+							placeholder='Enter your Slack signing secret'
+							required
+						/>
 					</div>
 					<div className='flex justify-end gap-2'>
 						{(isEditing || projectConfig || hasEnvConfig) && (
-							<Button variant='ghost' size='sm' onClick={handleCancel}>
+							<Button variant='ghost' size='sm' onClick={handleCancel} type='button'>
 								Cancel
 							</Button>
 						)}
-						<Button
-							size='sm'
-							onClick={handleSaveConfig}
-							disabled={!botToken || !signingSecret || upsertSlackConfig.isPending}
-						>
-							<Plus className='size-4 mr-1' />
-							{projectConfig ? 'Update' : hasEnvConfig ? 'Add Override' : 'Add'}
-						</Button>
+						<form.Subscribe selector={(state: { canSubmit: boolean }) => state.canSubmit}>
+							{(canSubmit: boolean) => (
+								<Button size='sm' type='submit' disabled={!canSubmit || upsertSlackConfig.isPending}>
+									<Plus className='size-4 mr-1' />
+									{projectConfig ? 'Update' : hasEnvConfig ? 'Add Override' : 'Add'}
+								</Button>
+							)}
+						</form.Subscribe>
 					</div>
-				</div>
+				</form>
 			)}
 
 			{!projectConfig && !hasEnvConfig && !isAdmin && (

@@ -1,42 +1,28 @@
 import { useState, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useForm } from '@tanstack/react-form';
 import { trpc } from '@/main';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { useSession } from '@/lib/auth-client';
+import { TextField, PasswordField, FormError } from '@/components/form-fields';
 
-interface ModifyUserInfoProps {
+interface ModifyUserFormProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	userId: string | null;
 	isAdmin: boolean;
 }
 
-export function ModifyUserForm({ open, onOpenChange, userId, isAdmin }: ModifyUserInfoProps) {
+export function ModifyUserForm({ open, onOpenChange, userId, isAdmin }: ModifyUserFormProps) {
 	const { refetch } = useSession();
-	const [error, setError] = useState('');
+	const queryClient = useQueryClient();
+	const [serverError, setServerError] = useState<string>();
+
 	const userQuery = useQuery(trpc.user.get.queryOptions({ userId: userId || '' }, { enabled: !!userId && open }));
 	const user = userQuery.data;
-	const queryClient = useQueryClient();
 
-	useEffect(() => {
-		if (user) {
-			setUserData({
-				name: user.name || '',
-				previousPassword: '',
-				newPassword: '',
-			});
-		}
-	}, [user]);
-
-	const [userData, setUserData] = useState({
-		name: user?.name || '',
-		previousPassword: '',
-		newPassword: '',
-	});
-
-	const modifyUser = useMutation(
+	const modifyUserMutation = useMutation(
 		trpc.user.modify.mutationOptions({
 			onSuccess: async () => {
 				await refetch();
@@ -45,22 +31,34 @@ export function ModifyUserForm({ open, onOpenChange, userId, isAdmin }: ModifyUs
 				});
 				onOpenChange(false);
 			},
-			onError: (err) => {
-				setError(err.message || 'An error occurred while updating the profile.');
-			},
+			onError: (err) => setServerError(err.message || 'An error occurred while updating the profile.'),
 		}),
 	);
 
-	const handleValidate = async () => {
-		setError('');
+	const form = useForm({
+		defaultValues: {
+			name: '',
+			previousPassword: '',
+			newPassword: '',
+		},
+		onSubmit: async ({ value }) => {
+			setServerError(undefined);
+			await modifyUserMutation.mutateAsync({
+				userId: userId || '',
+				name: value.name,
+				previousPassword: value.previousPassword || undefined,
+				newPassword: value.newPassword || undefined,
+			});
+		},
+	});
 
-		await modifyUser.mutateAsync({
-			userId: userId || '',
-			name: userData.name,
-			previousPassword: userData.previousPassword || undefined,
-			newPassword: userData.newPassword || undefined,
-		});
-	};
+	useEffect(() => {
+		if (user) {
+			form.setFieldValue('name', user.name || '');
+			form.setFieldValue('previousPassword', '');
+			form.setFieldValue('newPassword', '');
+		}
+	}, [user, form]);
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
@@ -68,56 +66,44 @@ export function ModifyUserForm({ open, onOpenChange, userId, isAdmin }: ModifyUs
 				<DialogHeader>
 					<DialogTitle>Edit Profile</DialogTitle>
 				</DialogHeader>
-				<div className='flex flex-col gap-4'>
-					<div className='flex flex-col gap-2'>
-						<label htmlFor='name' className='text-sm font-medium text-slate-700'>
-							Name
-						</label>
-						<Input
-							id='name'
-							type='text'
-							placeholder='Your name'
-							value={userData.name}
-							onChange={(e) => setUserData({ ...userData, name: e.target.value })}
-						/>
+				<form
+					onSubmit={(e) => {
+						e.preventDefault();
+						form.handleSubmit();
+					}}
+					className='flex flex-col gap-4'
+				>
+					<TextField form={form} name='name' label='Name' placeholder='Your name' required />
+
+					{isAdmin && (
+						<>
+							<PasswordField
+								form={form}
+								name='previousPassword'
+								label='Previous Password'
+								placeholder='Your previous password'
+							/>
+							<PasswordField
+								form={form}
+								name='newPassword'
+								label='New Password'
+								placeholder='Your new password'
+							/>
+						</>
+					)}
+
+					<FormError error={serverError} />
+
+					<div className='flex justify-end'>
+						<form.Subscribe selector={(state: { canSubmit: boolean }) => state.canSubmit}>
+							{(canSubmit: boolean) => (
+								<Button type='submit' disabled={!canSubmit || modifyUserMutation.isPending}>
+									Validate changes
+								</Button>
+							)}
+						</form.Subscribe>
 					</div>
-				</div>
-				{isAdmin && (
-					<>
-						<div className='flex flex-col gap-4'>
-							<div className='flex flex-col gap-2'>
-								<label htmlFor='previousPassword' className='text-sm font-medium text-slate-700'>
-									Previous Password
-								</label>
-								<Input
-									id='previousPassword'
-									type='password'
-									placeholder='Your previous password'
-									value={userData.previousPassword}
-									onChange={(e) => setUserData({ ...userData, previousPassword: e.target.value })}
-								/>
-							</div>
-						</div>
-						<div className='flex flex-col gap-4'>
-							<div className='flex flex-col gap-2'>
-								<label htmlFor='newPassword' className='text-sm font-medium text-slate-700'>
-									New Password
-								</label>
-								<Input
-									id='newPassword'
-									type='password'
-									placeholder='Your new password'
-									value={userData.newPassword}
-									onChange={(e) => setUserData({ ...userData, newPassword: e.target.value })}
-								/>
-							</div>
-						</div>
-					</>
-				)}
-				{error && <p className='text-red-500 text-center text-base'>{error}</p>}
-				<div className='flex justify-end'>
-					<Button onClick={handleValidate}>Validate changes</Button>
-				</div>
+				</form>
 			</DialogContent>
 		</Dialog>
 	);
