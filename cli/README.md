@@ -47,6 +47,14 @@ When you connect BigQuery during `nao init`, the service account used by `creden
 
 The combination above mirrors the typical "BigQuery User" setup and is sufficient for nao's metadata and preview pulls.
 
+### Snowflake authentication
+
+Snowflake supports three authentication methods during `nao init`:
+
+- **SSO**: Browser-based authentication (recommended for organizations with SSO policies)
+- **Password**: Traditional username/password
+- **Key-pair**: Private key file with optional passphrase
+
 ## Development
 
 ### Building the package
