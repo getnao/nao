@@ -7,8 +7,8 @@ from cyclopts import Parameter
 
 from nao_core.config import NaoConfig
 from nao_core.config.exceptions import InitError
-from nao_core.ui import UI, ask_confirm, ask_text
 from nao_core.tracking import track_command
+from nao_core.ui import UI, ask_confirm, ask_text
 
 
 class EmptyProjectNameError(InitError):
