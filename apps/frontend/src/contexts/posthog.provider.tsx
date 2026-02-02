@@ -39,7 +39,7 @@ export function PostHogProvider({ children }: { children: ReactNode }) {
 					capture_dead_clicks: false,
 					capture_exceptions: false,
 					disable_scroll_properties: true,
-					disable_session_recording: false,
+					disable_session_recording: true,
 				}}
 			>
 				{children}
