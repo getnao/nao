@@ -33,13 +33,13 @@ export function PostHogProvider({ children }: { children: ReactNode }) {
 					defaults: '2025-05-24',
 					debug: import.meta.env.MODE === 'development',
 					autocapture: false,
-					capture_pageview: false,
+					capture_pageview: true,
 					capture_heatmaps: false,
 					capture_performance: false,
 					capture_dead_clicks: false,
 					capture_exceptions: false,
 					disable_scroll_properties: true,
-					disable_session_recording: true,
+					disable_session_recording: false,
 				}}
 			>
 				{children}
