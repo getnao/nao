@@ -1,11 +1,10 @@
-import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from '@tanstack/react-form';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { useSession } from '@/lib/auth-client';
 import { trpc } from '@/main';
-import { TextField, FormError } from '@/components/form-fields';
+import { TextField, FormError } from '@/components/ui/form-fields';
 
 interface CreateUserFormProps {
 	open: boolean;
@@ -16,7 +15,13 @@ interface CreateUserFormProps {
 export function CreateUserForm({ open, onOpenChange, onUserCreated }: CreateUserFormProps) {
 	const { refetch } = useSession();
 	const queryClient = useQueryClient();
-	const [serverError, setServerError] = useState<string>();
+
+	const form = useForm({
+		defaultValues: { name: '', email: '' },
+		onSubmit: async ({ value }) => {
+			await createUserMutation.mutateAsync(value);
+		},
+	});
 
 	const createUserMutation = useMutation(
 		trpc.user.createUserAndAddToProject.mutationOptions({
@@ -29,17 +34,11 @@ export function CreateUserForm({ open, onOpenChange, onUserCreated }: CreateUser
 				onUserCreated(form.state.values.email, ctx.password);
 				form.reset();
 			},
-			onError: (err) => setServerError(err.message),
+			onError: (err) => {
+				form.setErrorMap({ onSubmit: { form: err.message, fields: {} } });
+			},
 		}),
 	);
-
-	const form = useForm({
-		defaultValues: { name: '', email: '' },
-		onSubmit: async ({ value }) => {
-			setServerError(undefined);
-			await createUserMutation.mutateAsync(value);
-		},
-	});
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
@@ -63,11 +62,16 @@ export function CreateUserForm({ open, onOpenChange, onUserCreated }: CreateUser
 						placeholder="Enter the new user's email"
 						required
 					/>
-					<FormError error={serverError} />
+					<FormError form={form} />
 					<div className='flex justify-end'>
-						<form.Subscribe selector={(state: { canSubmit: boolean }) => state.canSubmit}>
-							{(canSubmit: boolean) => (
-								<Button type='submit' disabled={!canSubmit || createUserMutation.isPending}>
+						<form.Subscribe
+							selector={(state: { canSubmit: boolean; isSubmitting: boolean }) => ({
+								canSubmit: state.canSubmit,
+								isSubmitting: state.isSubmitting,
+							})}
+						>
+							{({ canSubmit, isSubmitting }: { canSubmit: boolean; isSubmitting: boolean }) => (
+								<Button type='submit' disabled={!canSubmit || isSubmitting}>
 									Create user
 								</Button>
 							)}

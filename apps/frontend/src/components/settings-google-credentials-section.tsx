@@ -4,7 +4,7 @@ import { useForm } from '@tanstack/react-form';
 import { CheckCircle, Plus, XCircle } from 'lucide-react';
 import { trpc } from '@/main';
 import { Button } from '@/components/ui/button';
-import { TextField, PasswordField } from '@/components/form-fields';
+import { TextField, PasswordField } from '@/components/ui/form-fields';
 
 interface GoogleConfigSectionProps {
 	isAdmin: boolean;

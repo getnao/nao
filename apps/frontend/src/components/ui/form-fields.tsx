@@ -53,10 +53,11 @@ interface PasswordFieldProps {
 	name: string;
 	label: string;
 	placeholder?: string;
+	hint?: string;
 	required?: boolean;
 }
 
-export function PasswordField({ form, name, label, placeholder, required = false }: PasswordFieldProps) {
+export function PasswordField({ form, name, label, placeholder, hint, required = false }: PasswordFieldProps) {
 	return (
 		<TextField
 			form={form}
@@ -64,6 +65,7 @@ export function PasswordField({ form, name, label, placeholder, required = false
 			label={label}
 			type='password'
 			placeholder={placeholder}
+			hint={hint}
 			required={required}
 		/>
 	);
@@ -71,9 +73,30 @@ export function PasswordField({ form, name, label, placeholder, required = false
 
 interface FormErrorProps {
 	error?: string;
+	form?: AnyForm;
 }
 
-export function FormError({ error }: FormErrorProps) {
+type FormLevelError = string | { form?: string; fields?: Record<string, string> } | undefined;
+
+export function FormError({ error, form }: FormErrorProps) {
+	// If form is provided, subscribe to form-level errors
+	if (form) {
+		return (
+			<form.Subscribe selector={(state: { errorMap: { onSubmit?: FormLevelError } }) => state.errorMap.onSubmit}>
+				{(formError: FormLevelError) => {
+					// Extract error message from either string or object format
+					const formErrorMessage = typeof formError === 'string' ? formError : formError?.form;
+					const displayError = error || formErrorMessage;
+					if (!displayError) {
+						return null;
+					}
+					return <p className='text-red-500 text-center text-base'>{displayError}</p>;
+				}}
+			</form.Subscribe>
+		);
+	}
+
+	// Fallback for standalone error prop
 	if (!error) {
 		return null;
 	}

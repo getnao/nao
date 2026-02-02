@@ -5,7 +5,7 @@ import { trpc } from '@/main';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { useSession } from '@/lib/auth-client';
-import { TextField, PasswordField, FormError } from '@/components/form-fields';
+import { TextField, PasswordField, FormError } from '@/components/ui/form-fields';
 
 interface ModifyUserFormProps {
 	open: boolean;

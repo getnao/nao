@@ -6,7 +6,7 @@ import { CopyableUrl } from '@/components/ui/copyable-url';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { trpc } from '@/main';
-import { PasswordField } from '@/components/form-fields';
+import { PasswordField } from '@/components/ui/form-fields';
 
 interface SlackConfigSectionProps {
 	isAdmin: boolean;
