@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 import pytest
 
-from nao_core.commands.chat import chat
+from nao_core.commands.chat import chat, get_fastapi_main_path, get_server_binary_path
 from nao_core.config.base import NaoConfig
 
 # Tests for try_load with exit_on_error=False (default, silent mode)
@@ -92,3 +92,41 @@ def test_chat_exits_when_no_config_found(tmp_path: Path, monkeypatch):
             chat()
 
         assert exc_info.value.code == 1
+
+
+def test_get_server_binary_path():
+    """Test that get_server_binary_path returns the expected path structure."""
+    with patch.object(Path, "exists", return_value=True):
+        result_path = get_server_binary_path()
+
+    assert result_path.name == "nao-chat-server"
+    assert result_path.parent.name == "bin"
+
+
+def test_get_server_binary_path_does_not_exists():
+    """Exit when the server binary does not exist."""
+    with patch("nao_core.commands.chat.Path.exists", return_value=False):
+        with pytest.raises(SystemExit) as exc_info:
+            get_server_binary_path()
+
+    assert exc_info.value.code == 1
+    assert exc_info.type is SystemExit
+
+
+def test_get_fastapi_main_path():
+    """Test that get_fastapi_main_path returns the expected path structure."""
+    with patch.object(Path, "exists", return_value=True):
+        result_path = get_fastapi_main_path()
+
+    assert result_path.name == "main.py"
+    assert result_path.parent.name == "fastapi"
+
+
+def test_get_fastapi_main_path_does_not_exists():
+    """Exit when the FastAPI main.py does not exist."""
+    with patch("nao_core.commands.chat.Path.exists", return_value=False):
+        with pytest.raises(SystemExit) as exc_info:
+            get_fastapi_main_path()
+
+    assert exc_info.value.code == 1
+    assert exc_info.type is SystemExit
