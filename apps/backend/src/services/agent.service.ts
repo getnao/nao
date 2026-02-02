@@ -1,21 +1,42 @@
 import {
 	convertToModelMessages,
 	createUIMessageStream,
+	ModelMessage,
 	StreamTextResult,
 	ToolLoopAgent,
 	ToolLoopAgentSettings,
 } from 'ai';
 
 import { getInstructions } from '../agents/prompt';
-import { createProviderModel } from '../agents/providers';
+import { createProviderModel, withAnthropicCache } from '../agents/providers';
 import { tools } from '../agents/tools';
 import * as chatQueries from '../queries/chat.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import { UIChat, UIMessage } from '../types/chat';
+import type { LlmProvider } from '../types/llm';
 import { convertToTokenUsage } from '../utils/chat';
 import { getDefaultModelId, getEnvApiKey, getEnvModelSelections, ModelSelection } from '../utils/llm';
 
 export type { ModelSelection };
+
+/**
+ * Build the initial messages array with system instructions and cached user message.
+ * Returns the messages and the index of the user message for use in prepareStep.
+ */
+async function buildInitialMessages(
+	uiMessages: UIMessage[],
+	provider: LlmProvider,
+): Promise<{ messages: ModelMessage[]; userMessageIndex: number }> {
+	const modelMessages = await convertToModelMessages(uiMessages);
+	const systemMessage: ModelMessage = { role: 'system', content: getInstructions() };
+	const messages = [systemMessage, ...modelMessages];
+	const userMessageIndex = messages.length - 1; // Last message is the user's new message
+
+	return {
+		messages: withAnthropicCache(messages, provider),
+		userMessageIndex,
+	};
+}
 
 type AgentChat = UIChat & {
 	userId: string;
@@ -111,6 +132,7 @@ class AgentService {
 
 class AgentManager {
 	private readonly _agent: ToolLoopAgent<never, typeof tools, never>;
+	private _userMessageIndex = 0;
 
 	constructor(
 		readonly chat: AgentChat,
@@ -119,15 +141,21 @@ class AgentManager {
 		private readonly _onDispose: () => void,
 		private readonly _abortController: AbortController,
 	) {
+		const provider = _modelSelection.provider;
+
 		this._agent = new ToolLoopAgent({
 			...modelConfig,
 			tools,
-			instructions: getInstructions(),
+			// On step 1+: cache user message (stable) + current step's last message (loop leaf)
+			prepareStep: ({ messages, stepNumber }) =>
+				stepNumber === 0
+					? undefined
+					: { messages: withAnthropicCache(messages, provider, [this._userMessageIndex]) },
 		});
 	}
 
 	stream(
-		messages: UIMessage[],
+		uiMessages: UIMessage[],
 		opts: {
 			sendNewChatData: boolean;
 		},
@@ -149,8 +177,15 @@ class AgentManager {
 					});
 				}
 
+				// Build messages with caching: system (1h) + user message (5m)
+				const { messages, userMessageIndex } = await buildInitialMessages(
+					uiMessages,
+					this._modelSelection.provider,
+				);
+				this._userMessageIndex = userMessageIndex;
+
 				result = await this._agent.stream({
-					messages: await convertToModelMessages(messages),
+					messages,
 					abortSignal: this._abortController.signal,
 				});
 
