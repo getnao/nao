@@ -14,10 +14,9 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 
-import app from './app';
+import { startServer } from './app';
 import dbConfig, { Dialect } from './db/dbConfig';
 import { runMigrations } from './db/migrate';
-import { assignAdminToOrphanedProject } from './queries/project.queries';
 
 const SECRET_FILE_NAME = '.nao-secret';
 
@@ -214,11 +213,9 @@ async function runServe(options: Record<string, string>): Promise<void> {
 	console.log(`   Listening on: ${host}:${port}`);
 
 	try {
-		await assignAdminToOrphanedProject();
-		const address = await app.listen({ host, port });
-		console.log(`✅ Server is running on ${address}`);
+		await startServer({ port, host });
 	} catch (err) {
-		app.log.error(err);
+		console.error('❌ Failed to start server:', err);
 		process.exit(1);
 	}
 }

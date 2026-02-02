@@ -8,9 +8,11 @@ import { existsSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 
+import { assignAdminToOrphanedProject } from './queries/project.queries';
 import { authRoutes } from './routes/auth';
 import { chatRoutes } from './routes/chat';
 import { slackRoutes } from './routes/slack';
+import { posthog, PostHogEvent } from './services/posthog.service';
 import { TrpcRouter, trpcRouter } from './trpc/router';
 import { createContext } from './trpc/trpc';
 
@@ -97,5 +99,22 @@ if (staticRoot) {
 		}
 	});
 }
+
+export const startServer = async (opts: { port: number; host: string }) => {
+	await assignAdminToOrphanedProject();
+
+	const address = await app.listen({ host: opts.host, port: opts.port });
+	app.log.info(`Server is running on ${address}`);
+
+	posthog.capture(undefined, PostHogEvent.ServerStarted, { ...opts, address });
+
+	const handleShutdown = async () => {
+		await posthog.shutdown();
+		process.exit(0);
+	};
+
+	process.on('SIGINT', handleShutdown);
+	process.on('SIGTERM', handleShutdown);
+};
 
 export default app;
