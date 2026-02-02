@@ -125,10 +125,7 @@ def chat():
 
     def shutdown_servers():
         """Gracefully shut down both server processes."""
-        for name, proc in [
-            ("Chat server", chat_process),
-            ("FastAPI server", fastapi_process),
-        ]:
+        for name, proc in (("Chat server", chat_process), ("FastAPI server", fastapi_process)):
             if proc:
                 proc.terminate()
                 try:
