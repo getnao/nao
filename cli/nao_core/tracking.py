@@ -6,13 +6,11 @@ Tracking is enabled when POSTHOG_DISABLED is not 'true' AND both POSTHOG_KEY and
 
 import atexit
 import os
-import platform
 import uuid
 from functools import wraps
 from pathlib import Path
 from typing import Any, Callable, TypeVar
 
-import posthog
 from posthog import Posthog
 
 # PostHog configuration from environment
@@ -27,7 +25,7 @@ _client: Posthog | None = None
 DISTINCT_ID_FILE = Path.home() / ".nao" / "distinct_id"
 
 
-def _get_or_create_distinct_id() -> str:
+def get_or_create_distinct_id() -> str:
     """Get or create a persistent anonymous distinct ID for this user."""
     try:
         # Try to read existing ID
@@ -44,15 +42,6 @@ def _get_or_create_distinct_id() -> str:
     except Exception:
         # If we can't persist, generate a new ID each time
         return str(uuid.uuid4())
-
-
-def _get_system_properties() -> dict[str, Any]:
-    """Get system properties for event context."""
-    return {
-        "os": platform.system(),
-        "os_version": platform.release(),
-        "python_version": platform.python_version(),
-    }
 
 
 def get_or_create_posthog_client() -> Posthog | None:
@@ -89,7 +78,6 @@ def shutdown_tracking() -> None:
         return
 
     try:
-        _client.flush()
         _client.shutdown()
     except Exception:
         pass
@@ -100,12 +88,13 @@ F = TypeVar("F", bound=Callable[..., Any])
 
 
 def track_command(command_name: str) -> Callable[[F], F]:
-    """Decorator to track command execution using PostHog's context API.
+    """Decorator to track command execution.
 
-    Creates a context for the command execution that automatically:
-    - Sets the distinct_id for all events
-    - Sets a session ID to group events from this invocation
-    - Tags all events with system properties and command name
+    Captures cli_command_started and cli_command_completed events with:
+    - Persistent distinct_id (stored in ~/.nao/distinct_id)
+    - Session ID to group events from this invocation
+    - System properties (os, os_version, python_version)
+    - Command name and completion status
 
     Args:
         command_name: The name of the command being tracked
@@ -119,49 +108,48 @@ def track_command(command_name: str) -> Callable[[F], F]:
     def decorator(func: F) -> F:
         @wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
+            import time
+
             client = get_or_create_posthog_client()
             if client is None:
                 # Tracking disabled, just run the function
                 return func(*args, **kwargs)
 
+            # Build properties with system info and command name
+            distinct_id = get_or_create_distinct_id()
+            session_id = str(uuid.uuid4())
+            base_properties = {
+                "command": command_name,
+                "$session_id": session_id,
+            }
+
+            # Helper to safely capture events (never raises)
+            def safe_capture(event: str, extra_properties: dict[str, Any] = {}) -> None:
+                try:
+                    props = {**base_properties, **extra_properties}
+                    client.capture(distinct_id=distinct_id, event=event, properties=props)
+                except Exception:
+                    pass  # Tracking should never break the CLI
+
+            safe_capture("cli_command_started")
+            start_time = time.time()
+
             try:
-                with posthog.new_context(client=client, capture_exceptions=False):
-                    # Set distinct ID for all events in this context
-                    posthog.identify_context(_get_or_create_distinct_id())
-
-                    # Set a session ID to group events from this CLI invocation
-                    session_id = str(uuid.uuid4())
-                    posthog.set_context_session(session_id)
-
-                    # Tag all events with system properties and command name
-                    for key, value in _get_system_properties().items():
-                        posthog.tag(key, value)
-                    posthog.tag("command", command_name)
-
-                    # Capture command start
-                    posthog.capture("cli_command_started")
-
-                    try:
-                        result = func(*args, **kwargs)
-
-                        # Capture command success
-                        posthog.capture("cli_command_completed", properties={"status": "success"})
-
-                        return result
-                    except KeyboardInterrupt:
-                        # User cancelled - don't track as error
-                        posthog.capture("cli_command_completed", properties={"status": "cancelled"})
-                        raise
-                    except Exception as e:
-                        # Capture command failure
-                        posthog.capture(
-                            "cli_command_completed",
-                            properties={"status": "error", "error_type": type(e).__name__},
-                        )
-                        raise
-            except Exception:
-                # If tracking itself fails, just run the function
-                return func(*args, **kwargs)
+                result = func(*args, **kwargs)
+                duration_seconds = time.time() - start_time
+                safe_capture("cli_command_completed", {"status": "success", "duration_seconds": duration_seconds})
+                return result
+            except KeyboardInterrupt:
+                duration_seconds = time.time() - start_time
+                safe_capture("cli_command_completed", {"status": "cancelled", "duration_seconds": duration_seconds})
+                raise
+            except Exception as e:
+                duration_seconds = time.time() - start_time
+                safe_capture(
+                    "cli_command_completed",
+                    {"status": "error", "error_type": type(e).__name__, "duration_seconds": duration_seconds},
+                )
+                raise
 
         return wrapper  # type: ignore
 
