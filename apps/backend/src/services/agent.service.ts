@@ -19,10 +19,6 @@ import { getDefaultModelId, getEnvApiKey, getEnvModelSelections, ModelSelection 
 
 export type { ModelSelection };
 
-/**
- * Build the initial messages array with system instructions and cached user message.
- * Returns the messages and the index of the user message for use in prepareStep.
- */
 async function buildInitialMessages(
 	uiMessages: UIMessage[],
 	provider: LlmProvider,
