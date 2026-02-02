@@ -36,7 +36,7 @@ class SnowflakeConfig(DatabaseConfig):
         default=None,
         description="Passphrase for the private key if it is encrypted",
     )
-    authenticator: str | None = Field(
+    authenticator: Literal["externalbrowser", "username_password_mfa", "jwt_token", "oauth"] | None = Field(
         default=None,
         description="Authentication method (e.g., 'externalbrowser' for SSO)",
     )
@@ -119,8 +119,7 @@ class SnowflakeConfig(DatabaseConfig):
         # Add authenticator if specified (e.g., 'externalbrowser' for SSO)
         if self.authenticator:
             kwargs["authenticator"] = self.authenticator
-            if self.authenticator == "externalbrowser":
-                console.print("[yellow]Opening browser for SSO authentication...[/yellow]")
+            console.print("[yellow]Opening browser for SSO authentication...[/yellow]")
 
         if self.private_key_path:
             with open(self.private_key_path, "rb") as key_file:
