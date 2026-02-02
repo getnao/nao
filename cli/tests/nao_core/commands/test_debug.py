@@ -76,6 +76,62 @@ class TestLLMConnection:
             assert success is False
             assert "Authentication failed" in message
 
+    def test_gemini_connection_success(self):
+        config = LLMConfig(provider=LLMProvider.GEMINI, api_key="test-gemini-key")
+
+        with patch("google.genai.Client") as mock_client_class:
+            mock_client = MagicMock()
+            mock_client.models.list.return_value = [MagicMock(), MagicMock(), MagicMock()]
+            mock_client_class.return_value = mock_client
+
+            success, message = check_llm_connection(config)
+
+            assert success is True
+            assert "Connected successfully" in message
+            assert "3 models available" in message
+            mock_client_class.assert_called_once_with(api_key="test-gemini-key")
+
+    def test_gemini_exception_returns_failure(self):
+        """API exception should return False with error message."""
+        config = LLMConfig(provider=LLMProvider.GEMINI, api_key="invalid")
+
+        with patch("google.genai.Client") as mock_client_class:
+            mock_client_class.return_value.models.list.side_effect = Exception("Invalid API key")
+
+            success, message = check_llm_connection(config)
+
+            assert success is False
+            assert "Invalid API key" in message
+
+    def test_mistral_connection_success(self):
+        config = LLMConfig(provider=LLMProvider.MISTRAL, api_key="test-mistral-key")
+
+        with patch("mistralai.Mistral") as mock_mistral_class:
+            mock_client = MagicMock()
+            mock_models_response = MagicMock()
+            mock_models_response.data = [MagicMock(), MagicMock(), MagicMock()]
+            mock_client.models.list.return_value = mock_models_response
+            mock_mistral_class.return_value = mock_client
+
+            success, message = check_llm_connection(config)
+
+            assert success is True
+            assert "Connected successfully" in message
+            assert "3 models available" in message
+            mock_mistral_class.assert_called_once_with(api_key="test-mistral-key")
+
+    def test_mistral_exception_returns_failure(self):
+        """API exception should return False with error message."""
+        config = LLMConfig(provider=LLMProvider.MISTRAL, api_key="invalid")
+
+        with patch("mistralai.Mistral") as mock_class:
+            mock_class.return_value.models.list.side_effect = Exception("Unauthorized")
+
+            success, message = check_llm_connection(config)
+
+            assert success is False
+            assert "Unauthorized" in message
+
 
 class TestDatabaseConnection:
     """Tests for check_database_connection."""
