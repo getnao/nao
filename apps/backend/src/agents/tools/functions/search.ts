@@ -2,11 +2,12 @@ import fs from 'fs/promises';
 import { glob } from 'glob';
 import path from 'path';
 
+import type { ToolContext } from '../../../types/tools';
 import { getProjectFolder, isWithinProjectFolder, loadNaoignorePatterns, toVirtualPath } from '../../../utils/tools';
 import type { Input, Output } from '../schema/search';
 
-export const execute = async ({ pattern }: Input): Promise<Output> => {
-	const projectFolder = getProjectFolder();
+export const execute = async ({ pattern }: Input, context?: ToolContext): Promise<Output> => {
+	const projectFolder = context?.projectPath ?? getProjectFolder();
 
 	// Sanitize pattern to prevent escaping project folder
 	if (path.isAbsolute(pattern)) {

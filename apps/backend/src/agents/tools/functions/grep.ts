@@ -2,6 +2,7 @@ import { spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 
+import type { ToolContext } from '../../../types/tools';
 import {
 	getProjectFolder,
 	isWithinProjectFolder,
@@ -51,15 +52,11 @@ interface RipgrepMatch {
 	context_after?: string[];
 }
 
-export const execute = async ({
-	pattern,
-	path: searchPath,
-	glob,
-	case_insensitive,
-	context_lines,
-	max_results = 100,
-}: Input): Promise<Output> => {
-	const projectFolder = getProjectFolder();
+export const execute = async (
+	{ pattern, path: searchPath, glob, case_insensitive, context_lines, max_results = 100 }: Input,
+	context?: ToolContext,
+): Promise<Output> => {
+	const projectFolder = context?.projectPath ?? getProjectFolder();
 	const rgPath = getRipgrepPath();
 
 	// Determine the search path

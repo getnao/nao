@@ -1,11 +1,12 @@
 import fs from 'fs/promises';
 import path from 'path';
 
+import type { ToolContext } from '../../../types/tools';
 import { getProjectFolder, shouldExcludeEntry, toRealPath, toVirtualPath } from '../../../utils/tools';
 import type { Input, Output } from '../schema/list';
 
-export const execute = async ({ path: filePath }: Input): Promise<Output> => {
-	const projectFolder = getProjectFolder();
+export const execute = async ({ path: filePath }: Input, context?: ToolContext): Promise<Output> => {
+	const projectFolder = context?.projectPath ?? getProjectFolder();
 	const realPath = toRealPath(filePath, projectFolder);
 
 	// Get the relative path of the parent directory for naoignore matching
