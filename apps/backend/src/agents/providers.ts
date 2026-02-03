@@ -2,52 +2,13 @@ import { type AnthropicProviderOptions, createAnthropic } from '@ai-sdk/anthropi
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createMistral } from '@ai-sdk/mistral';
 import { createOpenAI } from '@ai-sdk/openai';
-import type { LanguageModel, ModelMessage } from 'ai';
+import type { LanguageModel } from 'ai';
 
 import type { LlmProvider, LlmProvidersType, ProviderConfigMap } from '../types/llm';
 
 // See: https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching
-const CACHE_1H = { type: 'ephemeral', ttl: '1h' } as const;
-const CACHE_5M = { type: 'ephemeral' } as const;
-
-/**
- * Add Anthropic cache breakpoints to messages.
- * No-op for non-Anthropic providers.
- *
- * Cache strategy:
- * - System message: 1h TTL (instructions rarely change)
- * - Additional breakpoints: 5m TTL (stable conversation prefix)
- * - Last message: 5m TTL (current step's leaf for agentic caching)
- *
- * @param messages - The messages array to add cache markers to
- * @param provider - The LLM provider
- * @param additionalBreakpoints - Extra indices to mark with 5m cache (e.g., user message as stable prefix)
- */
-export function withAnthropicCache(
-	messages: ModelMessage[],
-	provider: LlmProvider,
-	additionalBreakpoints: number[] = [],
-): ModelMessage[] {
-	if (provider !== 'anthropic' || messages.length === 0) {
-		return messages;
-	}
-
-	const breakpointSet = new Set([...additionalBreakpoints, messages.length - 1]);
-
-	return messages.map((message, index) => {
-		const cache = message.role === 'system' ? CACHE_1H : breakpointSet.has(index) ? CACHE_5M : null;
-
-		return cache
-			? {
-					...message,
-					providerOptions: {
-						...message.providerOptions,
-						anthropic: { ...(message.providerOptions?.anthropic as object), cacheControl: cache },
-					},
-				}
-			: message;
-	});
-}
+export const CACHE_1H = { type: 'ephemeral', ttl: '1h' } as const;
+export const CACHE_5M = { type: 'ephemeral' } as const;
 
 export type ProviderSettings = { apiKey: string; baseURL?: string };
 

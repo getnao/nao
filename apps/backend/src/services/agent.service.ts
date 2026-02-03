@@ -8,7 +8,7 @@ import {
 } from 'ai';
 
 import { getInstructions } from '../agents/prompt';
-import { createProviderModel, withAnthropicCache } from '../agents/providers';
+import { CACHE_1H, CACHE_5M, createProviderModel } from '../agents/providers';
 import { tools } from '../agents/tools';
 import * as chatQueries from '../queries/chat.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
@@ -18,21 +18,6 @@ import { convertToTokenUsage } from '../utils/chat';
 import { getDefaultModelId, getEnvApiKey, getEnvModelSelections, ModelSelection } from '../utils/llm';
 
 export type { ModelSelection };
-
-async function buildInitialMessages(
-	uiMessages: UIMessage[],
-	provider: LlmProvider,
-): Promise<{ messages: ModelMessage[]; userMessageIndex: number }> {
-	const modelMessages = await convertToModelMessages(uiMessages);
-	const systemMessage: ModelMessage = { role: 'system', content: getInstructions() };
-	const messages = [systemMessage, ...modelMessages];
-	const userMessageIndex = messages.length - 1; // Last message is the user's new message
-
-	return {
-		messages: withAnthropicCache(messages, provider),
-		userMessageIndex,
-	};
-}
 
 type AgentChat = UIChat & {
 	userId: string;
@@ -128,7 +113,6 @@ class AgentService {
 
 class AgentManager {
 	private readonly _agent: ToolLoopAgent<never, typeof tools, never>;
-	private _userMessageIndex = 0;
 
 	constructor(
 		readonly chat: AgentChat,
@@ -144,9 +128,7 @@ class AgentManager {
 			tools,
 			// On step 1+: cache user message (stable) + current step's last message (loop leaf)
 			prepareStep: ({ messages, stepNumber }) =>
-				stepNumber === 0
-					? undefined
-					: { messages: withAnthropicCache(messages, provider, [this._userMessageIndex]) },
+				stepNumber === 0 ? undefined : { messages: this._withAnthropicCache(messages, provider) },
 		});
 	}
 
@@ -173,12 +155,7 @@ class AgentManager {
 					});
 				}
 
-				// Build messages with caching: system (1h) + user message (5m)
-				const { messages, userMessageIndex } = await buildInitialMessages(
-					uiMessages,
-					this._modelSelection.provider,
-				);
-				this._userMessageIndex = userMessageIndex;
+				const messages = await this._buildInitialMessages(uiMessages, this._modelSelection.provider);
 
 				result = await this._agent.stream({
 					messages,
@@ -213,6 +190,43 @@ class AgentManager {
 
 	stop(): void {
 		this._abortController.abort();
+	}
+
+	private async _buildInitialMessages(uiMessages: UIMessage[], provider: LlmProvider): Promise<ModelMessage[]> {
+		const modelMessages = await convertToModelMessages(uiMessages);
+		const systemMessage: ModelMessage = { role: 'system', content: getInstructions() };
+		const messages = [systemMessage, ...modelMessages];
+
+		return this._withAnthropicCache(messages, provider);
+	}
+
+	/**
+	 * Add Anthropic cache breakpoints to messages.
+	 * No-op for non-Anthropic providers.
+	 *
+	 * Cache strategy:
+	 * - System message: 1h TTL (instructions rarely change)
+	 * - Last message: 5m TTL (current step's leaf for agentic caching)
+	 *
+	 * @param messages - The messages array to add cache markers to
+	 * @param provider - The LLM provider
+	 */
+	private _withAnthropicCache(messages: ModelMessage[], provider: LlmProvider): ModelMessage[] {
+		if (provider !== 'anthropic' || messages.length === 0) return messages;
+
+		const setCache = (msg: ModelMessage, cache: typeof CACHE_1H | typeof CACHE_5M) => {
+			msg.providerOptions = {
+				...msg.providerOptions,
+				anthropic: { ...msg.providerOptions?.anthropic, cacheControl: cache },
+			};
+		};
+
+		const first = messages[0];
+		const last = messages.at(-1)!;
+		if (first.role === 'system') setCache(first, CACHE_1H);
+		if (last !== first) setCache(last, CACHE_5M);
+
+		return messages;
 	}
 }
 
