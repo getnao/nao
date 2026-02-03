@@ -1,6 +1,10 @@
+import type { ToolContext } from '../../../types/tools';
 import type { Input, Output } from '../schema/display-chart';
 
-export const execute = async ({ chart_type: chartType, x_axis_key: xAxisKey, series }: Input): Promise<Output> => {
+export const execute = async (
+	{ chart_type: chartType, x_axis_key: xAxisKey, series }: Input,
+	_context?: ToolContext,
+): Promise<Output> => {
 	// Validate xAxisKey is provided for bar/area charts
 	if ((chartType === 'bar' || chartType === 'line') && !xAxisKey) {
 		return { error: `xAxisKey is required for ${chartType} charts.` };

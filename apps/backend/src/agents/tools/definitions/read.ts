@@ -7,5 +7,5 @@ export default {
 	description,
 	inputSchema,
 	outputSchema,
-	execute,
+	execute: (args, context) => execute(args, context),
 } satisfies ToolDefinition<typeof inputSchema, typeof outputSchema>;

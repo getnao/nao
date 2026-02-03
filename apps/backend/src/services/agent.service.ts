@@ -11,6 +11,7 @@ import { getInstructions } from '../agents/prompt';
 import { CACHE_1H, CACHE_5M, createProviderModel } from '../agents/providers';
 import { tools } from '../agents/tools';
 import * as chatQueries from '../queries/chat.queries';
+import * as projectQueries from '../queries/project.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import { UIChat, UIMessage } from '../types/chat';
 import type { LlmProvider } from '../types/llm';
@@ -155,11 +156,23 @@ class AgentManager {
 					});
 				}
 
+				// Fetch project path and run agent within project context
+				const project = await projectQueries.getProjectById(this.chat.projectId);
+				if (!project) {
+					throw new Error(`Project not found: ${this.chat.projectId}`);
+				}
+				if (!project.path) {
+					throw new Error(`Project path not configured: ${this.chat.projectId}`);
+				}
 				const messages = await this._buildInitialMessages(uiMessages, this._modelSelection.provider);
 
 				result = await this._agent.stream({
 					messages,
 					abortSignal: this._abortController.signal,
+					// @ts-expect-error - experimental_context is not yet in the types
+					experimental_context: {
+						projectPath: project.path,
+					},
 				});
 
 				writer.merge(result.toUIMessageStream({}));
