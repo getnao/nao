@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from '@tanstack/react-form';
+import { useEffect } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { DropdownMenu, DropdownMenuItem, DropdownMenuContent, DropdownMenuTrigger } from './ui/dropdown-menu';
 import { trpc } from '@/main';
@@ -17,6 +18,7 @@ export function ModifyUserForm({ isAdmin }: ModifyUserInfoProps) {
 	const { userInfo, isModifyUserFormOpen, setIsModifyUserFormOpen, error, setError } = useUserPageContext();
 	const { refetch } = useSession();
 	const queryClient = useQueryClient();
+
 	const modifyUser = useMutation(
 		trpc.user.modify.mutationOptions({
 			onSuccess: async () => {
@@ -34,7 +36,7 @@ export function ModifyUserForm({ isAdmin }: ModifyUserInfoProps) {
 
 	const form = useForm({
 		defaultValues: {
-			name: userInfo.name || '',
+			name: userInfo.name,
 			role: userInfo.role,
 		},
 		onSubmit: async ({ value }) => {
@@ -47,6 +49,14 @@ export function ModifyUserForm({ isAdmin }: ModifyUserInfoProps) {
 			});
 		},
 	});
+
+	useEffect(() => {
+		if (isModifyUserFormOpen) {
+			form.reset();
+			form.setFieldValue('name', userInfo.name);
+			form.setFieldValue('role', userInfo.role);
+		}
+	}, [isModifyUserFormOpen, userInfo, form]);
 
 	return (
 		<Dialog open={isModifyUserFormOpen} onOpenChange={setIsModifyUserFormOpen}>
