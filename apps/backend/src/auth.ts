@@ -1,4 +1,4 @@
-import { betterAuth } from 'better-auth';
+import { APIError, betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 
 import { db } from './db/db';
@@ -29,7 +29,9 @@ export const auth = betterAuth({
 				before: async (user, ctx) => {
 					const provider = ctx?.params?.id;
 					if (provider && provider == 'google' && !isEmailDomainAllowed(user.email)) {
-						return false;
+						throw new APIError('FORBIDDEN', {
+							message: 'This email domain is not authorized to access this application.',
+						});
 					}
 					return true;
 				},
@@ -38,6 +40,11 @@ export const auth = betterAuth({
 					await projectQueries.initializeDefaultProjectForFirstUser(user.id);
 				},
 			},
+		},
+	},
+	user: {
+		additionalFields: {
+			requiresPasswordReset: { type: 'boolean', default: false, input: false },
 		},
 	},
 });

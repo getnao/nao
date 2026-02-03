@@ -179,4 +179,19 @@ export const projectRoutes = {
 	getKnownModels: publicProcedure.query(() => {
 		return KNOWN_MODELS;
 	}),
+
+	removeProjectMember: adminProtectedProcedure
+		.input(
+			z.object({
+				userId: z.string(),
+			}),
+		)
+		.mutation(async ({ ctx, input }) => {
+			const role = await projectQueries.getUserRoleInProject(ctx.project!.id, input.userId);
+			if (role === 'admin') {
+				throw new Error('Cannot remove an admin from the project.');
+			}
+
+			await projectQueries.removeProjectMember(ctx.project.id, input.userId);
+		}),
 };

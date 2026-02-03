@@ -13,7 +13,7 @@ function SignUp() {
 	const [serverError, setServerError] = useState<string>();
 
 	const form = useForm({
-		defaultValues: { name: '', email: '', password: '' },
+		defaultValues: { name: '', email: '', password: '', requiresPasswordReset: false },
 		onSubmit: async ({ value }) => {
 			setServerError(undefined);
 			await signUp.email(value, {

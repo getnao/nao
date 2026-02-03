@@ -1,18 +1,20 @@
 import {
 	convertToModelMessages,
 	createUIMessageStream,
+	ModelMessage,
 	StreamTextResult,
 	ToolLoopAgent,
 	ToolLoopAgentSettings,
 } from 'ai';
 
 import { getInstructions } from '../agents/prompt';
-import { createProviderModel } from '../agents/providers';
+import { CACHE_1H, CACHE_5M, createProviderModel } from '../agents/providers';
 import { tools } from '../agents/tools';
 import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import { UIChat, UIMessage } from '../types/chat';
+import type { LlmProvider } from '../types/llm';
 import { convertToTokenUsage } from '../utils/chat';
 import { getDefaultModelId, getEnvApiKey, getEnvModelSelections, ModelSelection } from '../utils/llm';
 
@@ -120,15 +122,19 @@ class AgentManager {
 		private readonly _onDispose: () => void,
 		private readonly _abortController: AbortController,
 	) {
+		const provider = _modelSelection.provider;
+
 		this._agent = new ToolLoopAgent({
 			...modelConfig,
 			tools,
-			instructions: getInstructions(),
+			// On step 1+: cache user message (stable) + current step's last message (loop leaf)
+			prepareStep: ({ messages, stepNumber }) =>
+				stepNumber === 0 ? undefined : { messages: this._withAnthropicCache(messages, provider) },
 		});
 	}
 
 	stream(
-		messages: UIMessage[],
+		uiMessages: UIMessage[],
 		opts: {
 			sendNewChatData: boolean;
 		},
@@ -157,10 +163,11 @@ class AgentManager {
 				}
 				if (!project.path) {
 					throw new Error(`Project path not configured: ${this.chat.projectId}`);
-				}
+        }
+				const messages = await this._buildInitialMessages(uiMessages, this._modelSelection.provider);
 
 				result = await this._agent.stream({
-					messages: await convertToModelMessages(messages),
+					messages,
 					abortSignal: this._abortController.signal,
 					// @ts-expect-error - experimental_context is not yet in the types
 					experimental_context: {
@@ -196,6 +203,43 @@ class AgentManager {
 
 	stop(): void {
 		this._abortController.abort();
+	}
+
+	private async _buildInitialMessages(uiMessages: UIMessage[], provider: LlmProvider): Promise<ModelMessage[]> {
+		const modelMessages = await convertToModelMessages(uiMessages);
+		const systemMessage: ModelMessage = { role: 'system', content: getInstructions() };
+		const messages = [systemMessage, ...modelMessages];
+
+		return this._withAnthropicCache(messages, provider);
+	}
+
+	/**
+	 * Add Anthropic cache breakpoints to messages.
+	 * No-op for non-Anthropic providers.
+	 *
+	 * Cache strategy:
+	 * - System message: 1h TTL (instructions rarely change)
+	 * - Last message: 5m TTL (current step's leaf for agentic caching)
+	 *
+	 * @param messages - The messages array to add cache markers to
+	 * @param provider - The LLM provider
+	 */
+	private _withAnthropicCache(messages: ModelMessage[], provider: LlmProvider): ModelMessage[] {
+		if (provider !== 'anthropic' || messages.length === 0) return messages;
+
+		const setCache = (msg: ModelMessage, cache: typeof CACHE_1H | typeof CACHE_5M) => {
+			msg.providerOptions = {
+				...msg.providerOptions,
+				anthropic: { ...msg.providerOptions?.anthropic, cacheControl: cache },
+			};
+		};
+
+		const first = messages[0];
+		const last = messages.at(-1)!;
+		if (first.role === 'system') setCache(first, CACHE_1H);
+		if (last !== first) setCache(last, CACHE_5M);
+
+		return messages;
 	}
 }
 

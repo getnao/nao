@@ -3,7 +3,7 @@ import { trpc } from '../main';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { handleGoogleSignIn } from '@/lib/auth-client';
-import GoogleIcon from '@/components/icons/google.svg';
+import GoogleIcon from '@/components/icons/google-icon.svg';
 
 interface AuthFormProps {
 	form: any;

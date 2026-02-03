@@ -6,6 +6,10 @@ import type { LanguageModel } from 'ai';
 
 import type { LlmProvider, LlmProvidersType, ProviderConfigMap } from '../types/llm';
 
+// See: https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching
+export const CACHE_1H = { type: 'ephemeral', ttl: '1h' } as const;
+export const CACHE_5M = { type: 'ephemeral' } as const;
+
 export type ProviderSettings = { apiKey: string; baseURL?: string };
 
 /** Provider configuration with env var names and known models */
@@ -103,6 +107,8 @@ const DEFAULT_PROVIDER_OPTIONS: { [P in LlmProvider]?: ProviderConfigMap[P] } = 
 	anthropic: {
 		disableParallelToolUse: false,
 	} satisfies AnthropicProviderOptions,
+	// Avoid item references (fc_*, etc.) so agentic loops work with Zero Data Retention orgs.
+	openai: { store: false },
 };
 
 type ModelCreator = (settings: ProviderSettings, modelId: string) => LanguageModel;

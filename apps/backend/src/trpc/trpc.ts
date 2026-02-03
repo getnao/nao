@@ -40,17 +40,15 @@ export const protectedProcedure = t.procedure.use(async ({ ctx, next }) => {
 
 export const projectProtectedProcedure = protectedProcedure.use(async ({ ctx, next }) => {
 	const project = await projectQueries.checkUserHasProject(ctx.user.id);
-	const userRole: UserRole | null = project
-		? await projectQueries.getUserRoleInProject(project.id, ctx.user.id)
-		: null;
+	if (!project) {
+		throw new TRPCError({ code: 'BAD_REQUEST', message: 'No project configured' });
+	}
+	const userRole: UserRole | null = await projectQueries.getUserRoleInProject(project.id, ctx.user.id);
 
 	return next({ ctx: { project, userRole } });
 });
 
 export const adminProtectedProcedure = projectProtectedProcedure.use(async ({ ctx, next }) => {
-	if (!ctx.project) {
-		throw new TRPCError({ code: 'BAD_REQUEST', message: 'No project configured' });
-	}
 	if (ctx.userRole !== 'admin') {
 		throw new TRPCError({ code: 'FORBIDDEN', message: 'Only admins can perform this action' });
 	}
