@@ -108,9 +108,8 @@ class TestLLMConnection:
 
         with patch("mistralai.Mistral") as mock_mistral_class:
             mock_client = MagicMock()
-            mock_models_response = MagicMock()
-            mock_models_response.data = [MagicMock(), MagicMock(), MagicMock()]
-            mock_client.models.list.return_value = mock_models_response
+            mock_client = MagicMock()
+            mock_client.models.list.return_value = [MagicMock(), MagicMock(), MagicMock()]
             mock_mistral_class.return_value = mock_client
 
             success, message = check_llm_connection(config)
