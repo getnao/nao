@@ -18,7 +18,10 @@ import { createContext } from './trpc/trpc';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const app = fastify({ logger: true }).withTypeProvider<ZodTypeProvider>();
+const app = fastify({
+	logger: true,
+	routerOptions: { maxParamLength: 2048 },
+}).withTypeProvider<ZodTypeProvider>();
 export type App = typeof app;
 
 // Set the validator and serializer compilers for the Zod type provider

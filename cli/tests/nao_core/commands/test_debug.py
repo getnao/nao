@@ -135,3 +135,125 @@ class TestDebugCommand:
                 debug()
 
             assert exc_info.value.code == 1
+
+    def test_debug_with_databases(self, tmp_path, monkeypatch):
+        """Test debug() when databases are configured."""
+        config_file = tmp_path / "nao_config.yaml"
+        config_file.write_text("""\
+project_name: test-project
+databases:
+  - name: test_db
+    type: postgres
+    host: localhost
+    port: 5432
+    database: testdb
+    user: testuser
+    password: pass
+""")
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("NAO_DEFAULT_PROJECT_PATH", raising=False)
+
+        with patch(
+            "nao_core.commands.debug.check_database_connection", return_value=(True, "Connected (5 tables found)")
+        ):
+            with patch("nao_core.commands.debug.console") as mock_console:
+                debug()
+
+        # Convert each mock call to string representation, e.g.:
+        # call("[bold green]✓[/bold green] Loaded config: [cyan]test-project[/cyan]\n")
+        # Then check if expected substrings appear in any of the calls
+        calls = [str(call) for call in mock_console.print.call_args_list]
+        assert any("test_db" in call for call in calls)
+        assert any("test-project" in call for call in calls)
+
+    def test_debug_with_databases_error(self, tmp_path, monkeypatch):
+        """Test debug() when databases are configured but not working."""
+        config_file = tmp_path / "nao_config.yaml"
+        config_file.write_text("""\
+project_name: test-project
+databases:
+  - name: test_db
+    type: postgres
+    host: localhost
+    port: 0000
+    database: testdb
+    user: testuser
+    password: pass
+""")
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("NAO_DEFAULT_PROJECT_PATH", raising=False)
+
+        with patch(
+            "nao_core.commands.debug.check_database_connection", return_value=(False, "Failed DB connection")
+        ) as mock_check:
+            with patch("nao_core.commands.debug.console") as mock_console:
+                debug()
+
+        calls = [str(call) for call in mock_console.print.call_args_list]
+        assert any("[bold red]✗[/bold red]" in call for call in calls)
+
+        mock_check.assert_called_once()
+
+    def test_debug_with_databases_empty(self, tmp_path, monkeypatch):
+        """Test debug() when no databases."""
+        config_file = tmp_path / "nao_config.yaml"
+        config_file.write_text("project_name: test-project")
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("NAO_DEFAULT_PROJECT_PATH", raising=False)
+
+        with patch("nao_core.commands.debug.console") as mock_console:
+            debug()
+
+        calls = [str(call) for call in mock_console.print.call_args_list]
+        assert any("[dim]No databases configured[/dim]" in call for call in calls)
+
+    def test_debug_with_llm(self, tmp_path, monkeypatch):
+        """Test debug() when LLM is configured."""
+        config_file = tmp_path / "nao_config.yaml"
+        # Note: api_key is required per LLMConfig schema
+        config_file.write_text("""\
+project_name: test-project
+llm:
+  provider: anthropic
+  api_key: sk-test-key
+""")
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("NAO_DEFAULT_PROJECT_PATH", raising=False)
+
+        with patch(
+            "nao_core.commands.debug.check_llm_connection",
+            return_value=(True, "Connected successfully (42 models available"),
+        ) as mock_check:
+            with patch("nao_core.commands.debug.console") as mock_console:
+                debug()
+
+        calls = [str(call) for call in mock_console.print.call_args_list]
+        assert any("anthropic" in call for call in calls)
+        assert any("[bold green]✓[/bold green]" in call for call in calls)
+
+        mock_check.assert_called_once()
+
+    def test_debug_with_llm_error(self, tmp_path, monkeypatch):
+        """Test debug() when LLM is configured."""
+        config_file = tmp_path / "nao_config.yaml"
+        # Note: api_key is required per LLMConfig schema
+        config_file.write_text("""\
+project_name: test-project
+llm:
+  provider: anthropic
+  api_key: sk-test-key
+""")
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("NAO_DEFAULT_PROJECT_PATH", raising=False)
+
+        with patch(
+            "nao_core.commands.debug.check_llm_connection", return_value=(False, "API key is not working")
+        ) as mock_check:
+            with patch("nao_core.commands.debug.console") as mock_console:
+                debug()
+
+        calls = [str(call) for call in mock_console.print.call_args_list]
+        assert any("anthropic" in call for call in calls)
+        assert any("[bold red]✗[/bold red]" in call for call in calls)
+
+        mock_check.assert_called_once()
