@@ -107,6 +107,8 @@ const DEFAULT_PROVIDER_OPTIONS: { [P in LlmProvider]?: ProviderConfigMap[P] } = 
 	anthropic: {
 		disableParallelToolUse: false,
 	} satisfies AnthropicProviderOptions,
+	// Avoid item references (fc_*, etc.) so agentic loops work with Zero Data Retention orgs.
+	openai: { store: false },
 };
 
 type ModelCreator = (settings: ProviderSettings, modelId: string) => LanguageModel;
