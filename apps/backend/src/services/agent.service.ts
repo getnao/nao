@@ -163,7 +163,7 @@ class AgentManager {
 				}
 				if (!project.path) {
 					throw new Error(`Project path not configured: ${this.chat.projectId}`);
-        }
+				}
 				const messages = await this._buildInitialMessages(uiMessages, this._modelSelection.provider);
 
 				result = await this._agent.stream({
