@@ -71,7 +71,7 @@ def check_llm_connection(llm_config) -> tuple[bool, str]:
 
             client = Mistral(api_key=llm_config.api_key)
             models = client.models.list()
-            model_count = len(models.data)
+            model_count = sum(1 for _ in models)
             return True, f"Connected successfully ({model_count} models available)"
         else:
             return False, f"Unknown provider: {llm_config.provider.value}"
