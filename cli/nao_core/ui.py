@@ -1,8 +1,10 @@
 """CLI UI utilities using questionary and Rich."""
 
+import pandas as pd
 import questionary
 from rich.console import Console
 from rich.panel import Panel
+from rich.table import Table
 
 console = Console()
 
@@ -48,6 +50,45 @@ class UI:
     @classmethod
     def print(cls, msg: str = "") -> None:
         cls._console.print(msg)
+
+    @classmethod
+    def table(
+        cls,
+        df: pd.DataFrame,
+        title: str | None = None,
+        sum_columns: dict[str, str] | None = None,
+    ) -> None:
+        """Print a DataFrame as a table.
+
+        Args:
+            df: DataFrame to display.
+            title: Optional table title.
+            sum_columns: Dict of column names to sum with their unit (e.g. {"Cost": "$", "Tokens": ""}).
+        """
+        table = Table(title=title)
+
+        for col in df.columns:
+            table.add_column(str(col))
+
+        for _, row in df.iterrows():
+            table.add_row(*[str(v) for v in row])
+
+        # Add totals row if sum_columns specified
+        if sum_columns:
+            totals = []
+            for col in df.columns:
+                if col in sum_columns:
+                    unit = sum_columns[col]
+                    total = df[col].sum()
+                    if unit == "$":
+                        totals.append(f"${total:.4f}")
+                    else:
+                        totals.append(f"{int(total)}{unit}")
+                else:
+                    totals.append("")
+            table.add_row(*totals, style="bold")
+
+        cls._console.print(table)
 
 
 # =============================================================================

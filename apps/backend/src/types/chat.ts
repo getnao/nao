@@ -69,3 +69,11 @@ export type TokenUsage = {
 	outputReasoningTokens?: number;
 	totalTokens?: number;
 };
+
+export type TokenCost = {
+	inputNoCache?: number;
+	inputCacheRead?: number;
+	inputCacheWrite?: number;
+	output?: number;
+	totalCost?: number;
+};

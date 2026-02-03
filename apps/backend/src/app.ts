@@ -12,6 +12,7 @@ import { ensureOrganizationSetup } from './queries/organization.queries';
 import { authRoutes } from './routes/auth';
 import { chatRoutes } from './routes/chat';
 import { slackRoutes } from './routes/slack';
+import { testRoutes } from './routes/test';
 import { posthog, PostHogEvent } from './services/posthog.service';
 import { TrpcRouter, trpcRouter } from './trpc/router';
 import { createContext } from './trpc/trpc';
@@ -20,8 +21,21 @@ import { createContext } from './trpc/trpc';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+const isDev = process.env.NODE_ENV !== 'production';
+
 const app = fastify({
-	logger: true,
+	logger: isDev
+		? {
+				transport: {
+					target: 'pino-pretty',
+					options: {
+						colorize: true,
+						ignore: 'pid,hostname',
+						translateTime: 'HH:MM:ss',
+					},
+				},
+			}
+		: true,
 	routerOptions: { maxParamLength: 2048 },
 }).withTypeProvider<ZodTypeProvider>();
 export type App = typeof app;
@@ -54,6 +68,10 @@ app.register(fastifyTRPCPlugin, {
 
 app.register(chatRoutes, {
 	prefix: '/api/chat',
+});
+
+app.register(testRoutes, {
+	prefix: '/api/test',
 });
 
 app.register(authRoutes, {
