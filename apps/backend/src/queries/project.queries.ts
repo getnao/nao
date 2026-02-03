@@ -2,7 +2,7 @@ import { and, eq } from 'drizzle-orm';
 
 import s, { DBProject, DBProjectMember, NewProject, NewProjectMember } from '../db/abstractSchema';
 import { db } from '../db/db';
-import { UserWithRole } from '../types/project';
+import { UserRole, UserWithRole } from '../types/project';
 import * as userQueries from './user.queries';
 
 export const getProjectByPath = async (path: string): Promise<DBProject | null> => {
@@ -32,6 +32,21 @@ export const getProjectMember = async (projectId: string, userId: string): Promi
 export const addProjectMember = async (member: NewProjectMember): Promise<DBProjectMember> => {
 	const [created] = await db.insert(s.projectMember).values(member).returning().execute();
 	return created;
+};
+
+export const removeProjectMember = async (projectId: string, userId: string): Promise<void> => {
+	await db
+		.delete(s.projectMember)
+		.where(and(eq(s.projectMember.projectId, projectId), eq(s.projectMember.userId, userId)))
+		.execute();
+};
+
+export const updateProjectMemberRole = async (projectId: string, userId: string, newRole: UserRole): Promise<void> => {
+	await db
+		.update(s.projectMember)
+		.set({ role: newRole })
+		.where(and(eq(s.projectMember.projectId, projectId), eq(s.projectMember.userId, userId)))
+		.execute();
 };
 
 export const listUserProjects = async (userId: string): Promise<DBProject[]> => {
@@ -86,6 +101,12 @@ export const checkUserHasProject = async (userId: string): Promise<DBProject | n
 	}
 
 	return project;
+};
+
+export const checkProjectHasMoreThanOneAdmin = async (projectId: string): Promise<boolean> => {
+	const userWithRoles = await getAllUsersWithRoles(projectId);
+	const nbAdmin = userWithRoles.filter((u) => u.role === 'admin').length;
+	return nbAdmin > 1;
 };
 
 export const initializeDefaultProjectForFirstUser = async (userId: string): Promise<void> => {

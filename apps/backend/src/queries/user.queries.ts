@@ -11,8 +11,13 @@ export const get = async (identifier: { id: string } | { email: string }): Promi
 	return user ?? null;
 };
 
-export const modify = async (id: string, data: { name?: string }): Promise<void> => {
-	await db.update(s.user).set(data).where(eq(s.user.id, id)).execute();
+export const getName = async (userId: string): Promise<string | null> => {
+	const [user] = await db.select({ name: s.user.name }).from(s.user).where(eq(s.user.id, userId)).execute();
+	return user ? user.name : null;
+};
+
+export const modify = async (id: string, name: string): Promise<void> => {
+	await db.update(s.user).set({ name }).where(eq(s.user.id, id)).execute();
 };
 
 export const countAll = async (): Promise<number> => {

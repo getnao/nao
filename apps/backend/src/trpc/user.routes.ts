@@ -1,12 +1,11 @@
 import { TRPCError } from '@trpc/server';
-import { hashPassword, verifyPassword } from 'better-auth/crypto';
+import { hashPassword } from 'better-auth/crypto';
 import { z } from 'zod/v4';
 
-import * as accountQueries from '../queries/account.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as userQueries from '../queries/user.queries';
-import { regexPassword } from '../utils/utils';
-import { adminProtectedProcedure, projectProtectedProcedure, protectedProcedure, publicProcedure } from './trpc';
+import { emailService } from '../services/email.service';
+import { adminProtectedProcedure, projectProtectedProcedure, publicProcedure } from './trpc';
 
 export const userRoutes = {
 	countAll: publicProcedure.query(() => {
@@ -23,86 +22,117 @@ export const userRoutes = {
 		}
 		return user;
 	}),
-	modify: protectedProcedure
+	modify: projectProtectedProcedure
 		.input(
 			z.object({
 				userId: z.string(),
 				name: z.string().optional(),
-				previousPassword: z.string().optional(),
-				newPassword: z.string().optional(),
-			}),
-		)
-		.mutation(async ({ input }) => {
-			if (input.previousPassword && input.newPassword) {
-				if (!regexPassword.test(input.newPassword)) {
-					throw new TRPCError({
-						code: 'BAD_REQUEST',
-						message:
-							'New password must be at least 8 characters long and include uppercase, lowercase, number, and special character.',
-					});
-				}
-
-				const account = await accountQueries.getAccountById(input.userId);
-				if (!account || !account.password) {
-					throw new TRPCError({
-						code: 'NOT_FOUND',
-						message: 'User account not found or user does not use password authentication.',
-					});
-				}
-
-				const isPasswordValid = await verifyPassword({
-					hash: account.password,
-					password: input.previousPassword,
-				});
-				if (!isPasswordValid) {
-					throw new TRPCError({
-						code: 'UNAUTHORIZED',
-						message: 'Previous password is incorrect.',
-					});
-				}
-
-				const hashedPassword = await hashPassword(input.newPassword);
-				await accountQueries.updateAccountAndUser(account.id, hashedPassword, input.userId, input.name);
-			} else if (input.name) {
-				await userQueries.modify(input.userId, { name: input.name });
-			}
-		}),
-	createUserAndAddToProject: adminProtectedProcedure
-		.input(
-			z.object({
-				name: z.string().min(1),
-				email: z.string().min(1),
+				newRole: z.enum(['user', 'viewer', 'admin']).optional(),
 			}),
 		)
 		.mutation(async ({ input, ctx }) => {
-			const userId = crypto.randomUUID();
-			const accountId = crypto.randomUUID();
+			const previousRole = await projectQueries.getUserRoleInProject(ctx.project.id, input.userId);
 
-			const password = crypto.randomUUID().slice(0, 8);
-			const hashedPassword = await hashPassword(password);
+			if (previousRole === 'admin' && input.newRole && input.newRole !== 'admin') {
+				const moreThanOneAdmin = await projectQueries.checkProjectHasMoreThanOneAdmin(ctx.project.id);
+				if (!moreThanOneAdmin) {
+					throw new TRPCError({
+						code: 'BAD_REQUEST',
+						message: 'The project must have at least one admin user.',
+					});
+				}
+			}
+			const previousName = await userQueries.getName(input.userId);
 
-			const project = await projectQueries.getProjectById(ctx.project.id);
+			if (ctx.project && input.newRole && input.newRole !== previousRole) {
+				await projectQueries.updateProjectMemberRole(ctx.project.id, input.userId, input.newRole);
+			}
+			if (ctx.project && input.name && input.name !== previousName) {
+				await userQueries.modify(input.userId, input.name);
+			}
+		}),
+	addUserToProject: adminProtectedProcedure
+		.input(
+			z.object({
+				email: z.string().min(1),
+				name: z.string().min(1).optional(),
+			}),
+		)
+		.mutation(async ({ input, ctx }) => {
+			const user = await userQueries.get({ email: input.email });
 
-			const newUser = await userQueries.create(
-				{
-					id: userId,
-					name: input.name,
-					email: input.email,
-				},
-				{
-					id: accountId,
-					userId: userId,
-					accountId: userId,
-					providerId: 'credential',
-					password: hashedPassword,
-				},
-				{
-					userId: '',
-					projectId: project?.id || '',
+			if (!user) {
+				if (!input.name) {
+					throw new TRPCError({ code: 'NOT_FOUND', message: 'USER_DOES_NOT_EXIST' });
+				}
+				const userId = crypto.randomUUID();
+				const accountId = crypto.randomUUID();
+
+				const password = crypto.randomUUID().slice(0, 8);
+				const hashedPassword = await hashPassword(password);
+
+				const newUser = await userQueries.create(
+					{
+						id: userId,
+						name: input.name!,
+						email: input.email,
+						requiresPasswordReset: true,
+					},
+					{
+						id: accountId,
+						userId: userId,
+						accountId: userId,
+						providerId: 'credential',
+						password: hashedPassword,
+					},
+					{
+						userId: '',
+						projectId: ctx.project?.id || '',
+						role: 'user',
+					},
+				);
+
+				await emailService.safeSendEmail({
+					user: newUser,
+					type: 'createUser',
+					projectName: ctx.project?.name,
+					temporaryPassword: password,
+				});
+
+				const newUserWithRole = {
+					id: newUser.id,
+					name: newUser.name,
+					email: newUser.email,
 					role: 'user',
-				},
-			);
+				};
 
-			return { newUser, password };
+				return { newUser: newUserWithRole, password };
+			}
+
+			const existingMember = await projectQueries.getProjectMember(ctx.project!.id, user.id);
+			if (existingMember) {
+				throw new TRPCError({ code: 'BAD_REQUEST', message: 'User is already a member of the project' });
+			}
+
+			await projectQueries.addProjectMember({
+				userId: user.id,
+				projectId: ctx.project!.id,
+				role: 'user',
+			});
+
+			await emailService.safeSendEmail({
+				user,
+				type: 'createUser',
+				projectName: ctx.project?.name,
+			});
+
+			const newUserWithRole = {
+				id: user.id,
+				name: user.name,
+				email: user.email,
+				role: 'user',
+			};
+
+			return { success: true, newUser: newUserWithRole };
 		}),
 };

@@ -1,3 +1,4 @@
+import { accountRoutes } from './account.routes';
 import { chatRoutes } from './chat.routes';
 import { feedbackRoutes } from './feedback.routes';
 import { googleRoutes } from './google.routes';
@@ -11,6 +12,7 @@ export const trpcRouter = router({
 	project: projectRoutes,
 	user: userRoutes,
 	google: googleRoutes,
+	account: accountRoutes,
 });
 
 export type TrpcRouter = typeof trpcRouter;

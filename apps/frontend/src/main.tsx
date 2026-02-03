@@ -10,6 +10,7 @@ import { ThemeProvider } from './contexts/theme.provider';
 import { SidebarProvider } from './contexts/sidebar.provider';
 import { routeTree } from './routeTree.gen';
 import reportWebVitals from './reportWebVitals';
+import { UserPageProvider } from './contexts/user.provider';
 import type { TrpcRouter } from 'backend/trpc';
 
 // Register the router instance for type safety
@@ -68,7 +69,9 @@ if (!rootElement.innerHTML) {
 			<ThemeProvider>
 				<SidebarProvider>
 					<QueryClientProvider client={queryClient}>
-						<RouterProvider router={router} />
+						<UserPageProvider>
+							<RouterProvider router={router} />
+						</UserPageProvider>
 					</QueryClientProvider>
 				</SidebarProvider>
 			</ThemeProvider>

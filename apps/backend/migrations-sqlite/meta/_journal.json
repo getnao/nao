@@ -57,6 +57,13 @@
       "when": 1769686400000,
       "tag": "0007_chat_message_llm_info",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1770110389037,
+      "tag": "0008_added_requiresPasswordReset",
+      "breakpoints": true
     }
   ]
 }
