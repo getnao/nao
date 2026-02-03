@@ -15,6 +15,10 @@ from nao_core.config.base import NaoConfig
 # Tests for try_load with exit_on_error=False (default, silent mode)
 
 
+SERVER_PORT = 8080
+TIMEOUT = 1
+
+
 def test_try_load_returns_none_when_file_not_found(tmp_path: Path):
     cfg = NaoConfig.try_load(tmp_path)
     assert cfg is None
@@ -146,7 +150,7 @@ class TestWaitForServer:
 
         with patch("socket.socket") as mock_socket_cls:
             mock_socket_cls.return_value.__enter__.return_value = mock_socket
-            result = wait_for_server(8080, timeout=1)
+            result = wait_for_server(SERVER_PORT, timeout=TIMEOUT)
 
         assert result is True
 
@@ -158,7 +162,7 @@ class TestWaitForServer:
         with patch("socket.socket") as mock_socket_cls:
             mock_socket_cls.return_value.__enter__.return_value = mock_socket
             with patch("nao_core.commands.chat.sleep"):  # Skip actual sleeping
-                result = wait_for_server(8080, timeout=1)
+                result = wait_for_server(SERVER_PORT, timeout=TIMEOUT)
 
         assert result is False
 
@@ -171,7 +175,7 @@ class TestWaitForServer:
         with patch("socket.socket") as mock_socket_cls:
             mock_socket_cls.return_value.__enter__.return_value = mock_socket
             with patch("nao_core.commands.chat.sleep"):
-                result = wait_for_server(8080, timeout=1)
+                result = wait_for_server(SERVER_PORT, timeout=TIMEOUT)
 
         assert result is True
         assert mock_socket.connect_ex.call_count == 4
@@ -184,7 +188,7 @@ class TestWaitForServer:
         with patch("socket.socket") as mock_socket_cls:
             mock_socket_cls.return_value.__enter__.return_value = mock_socket
             with patch("nao_core.commands.chat.sleep"):
-                result = wait_for_server(8080, timeout=1)
+                result = wait_for_server(SERVER_PORT, timeout=TIMEOUT)
 
         assert result is False
 
