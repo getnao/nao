@@ -16,6 +16,7 @@ from .bigquery import sync_bigquery
 from .databricks import sync_databricks
 from .duckdb import sync_duckdb
 from .postgres import sync_postgres
+from .redshift import sync_redshift
 from .snowflake import sync_snowflake
 
 console = Console()
@@ -27,6 +28,7 @@ DATABASE_SYNC_FUNCTIONS = {
     "databricks": sync_databricks,
     "snowflake": sync_snowflake,
     "postgres": sync_postgres,
+    "redshift": sync_redshift,
 }
 
 

@@ -7,6 +7,7 @@ from .bigquery import BigQueryConfig
 from .databricks import DatabricksConfig
 from .duckdb import DuckDBConfig
 from .postgres import PostgresConfig
+from .redshift import RedshiftConfig
 from .snowflake import SnowflakeConfig
 
 # =============================================================================
@@ -20,6 +21,7 @@ AnyDatabaseConfig = Annotated[
         Annotated[SnowflakeConfig, Tag("snowflake")],
         Annotated[DuckDBConfig, Tag("duckdb")],
         Annotated[PostgresConfig, Tag("postgres")],
+        Annotated[RedshiftConfig, Tag("redshift")],
     ],
     Discriminator("type"),
 ]
@@ -32,6 +34,7 @@ DATABASE_CONFIG_CLASSES: dict[DatabaseType, type[DatabaseConfig]] = {
     DatabaseType.DATABRICKS: DatabricksConfig,
     DatabaseType.SNOWFLAKE: SnowflakeConfig,
     DatabaseType.POSTGRES: PostgresConfig,
+    DatabaseType.REDSHIFT: RedshiftConfig,
 }
 
 
@@ -48,6 +51,8 @@ def parse_database_config(data: dict) -> DatabaseConfig:
         return SnowflakeConfig.model_validate(data)
     elif db_type == "postgres":
         return PostgresConfig.model_validate(data)
+    elif db_type == "redshift":
+        return RedshiftConfig.model_validate(data)
     else:
         raise ValueError(f"Unknown database type: {db_type}")
 
@@ -63,4 +68,5 @@ __all__ = [
     "DatabricksConfig",
     "SnowflakeConfig",
     "PostgresConfig",
+    "RedshiftConfig",
 ]
