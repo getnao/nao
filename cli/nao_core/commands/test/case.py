@@ -5,7 +5,7 @@ import yaml
 
 from nao_core.ui import UI
 
-TESTS_FOLDER = "tests/outputs"
+TESTS_FOLDER = "tests/"
 
 
 @dataclass

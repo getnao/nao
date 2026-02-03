@@ -1,9 +1,11 @@
 import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated
 
+import numpy as np
 import pandas as pd
 from cyclopts import Parameter
 
@@ -51,8 +53,14 @@ class TestRunResult:
     error: str | None = None
 
 
-def check_dataframe(verification: VerificationResult) -> tuple[bool, str]:
-    """Check if actual data matches expected. Returns (passed, message)."""
+def check_dataframe(verification: VerificationResult, rtol: float = 1e-5, atol: float = 1e-8) -> tuple[bool, str]:
+    """Check if actual data matches expected. Returns (passed, message).
+
+    Args:
+        verification: The verification result containing actual and expected data.
+        rtol: Relative tolerance for float comparison.
+        atol: Absolute tolerance for float comparison.
+    """
     actual = pd.DataFrame(verification.data)
     expected = pd.DataFrame(verification.expectedData)
     cols = verification.expectedColumns
@@ -74,12 +82,48 @@ def check_dataframe(verification: VerificationResult) -> tuple[bool, str]:
     if len(actual) != len(expected):
         return False, f"row count: {len(actual)} vs {len(expected)}"
 
-    # Normalize and compare
+    # Normalize: reset index, infer types, and sort columns consistently
     actual = pd.DataFrame(actual.reset_index(drop=True).infer_objects(copy=False))
     expected = pd.DataFrame(expected.reset_index(drop=True).infer_objects(copy=False))
 
+    # Sort columns alphabetically for consistent comparison
+    sorted_cols = sorted(actual.columns)
+    actual = actual[sorted_cols]
+    expected = expected[sorted_cols]
+
+    # Check for exact match first
     if actual.equals(expected):
         return True, "match"
+
+    # Try approximate comparison for numeric columns
+    try:
+        is_close = True
+        for col in actual.columns:
+            actual_series: pd.Series = actual[col]
+            expected_series: pd.Series = expected[col]
+
+            # Check if both columns are numeric
+            if pd.api.types.is_numeric_dtype(actual_series) and pd.api.types.is_numeric_dtype(expected_series):
+                # Use numpy's isclose for float comparison
+                if not np.allclose(
+                    actual_series.to_numpy(),
+                    expected_series.to_numpy(),
+                    rtol=rtol,
+                    atol=atol,
+                    equal_nan=True,
+                ):
+                    is_close = False
+                    break
+            else:
+                # For non-numeric columns, require exact equality
+                if not actual_series.equals(expected_series):
+                    is_close = False
+                    break
+
+        if is_close:
+            return True, "match (approximate)"
+    except Exception:
+        pass  # Fall through to show diff
 
     # Show diff
     try:
@@ -190,6 +234,13 @@ def test(
             help="Models to test (format: provider:model_id). Can be specified multiple times.",
         ),
     ] = None,
+    threads: Annotated[
+        int,
+        Parameter(
+            name=["-t", "--threads"],
+            help="Number of parallel threads for running tests.",
+        ),
+    ] = 1,
 ):
     """Run tests from the tests/ folder.
 
@@ -197,6 +248,7 @@ def test(
         nao test
         nao test -m openai:gpt-4.1
         nao test -m openai:gpt-4.1 -m anthropic:claude-sonnet-4-20250514
+        nao test --threads 4
     """
     UI.info("\n🧪 Running nao tests...\n")
 
@@ -223,17 +275,32 @@ def test(
         return
 
     total_runs = len(test_cases) * len(model_configs)
-    UI.print(f"[bold]Found {len(test_cases)} test(s) × {len(model_configs)} model(s) = {total_runs} run(s)[/bold]\n")
+    UI.print(f"[bold]Found {len(test_cases)} test(s) × {len(model_configs)} model(s) = {total_runs} run(s)[/bold]")
+    if threads > 1:
+        UI.print(f"[dim]Running with {threads} threads (output may be interleaved)[/dim]")
+    UI.print("")
+
+    # Build list of (test_case, model) pairs
+    test_runs = [(test_case, model) for model in model_configs for test_case in test_cases]
 
     results: list[TestRunResult] = []
-    for model in model_configs:
-        for test_case in test_cases:
+    if threads == 1:
+        # Sequential execution
+        for test_case, model in test_runs:
             result = run_test(test_case, model)
             results.append(result)
             UI.print("")
+    else:
+        # Parallel execution
+        with ThreadPoolExecutor(max_workers=threads) as executor:
+            futures = {executor.submit(run_test, tc, m): (tc, m) for tc, m in test_runs}
+            for future in as_completed(futures):
+                result = future.result()
+                results.append(result)
+                UI.print("")
 
     # Save results to JSON
-    output_file = save_results(results, project_path / TESTS_FOLDER)
+    output_file = save_results(results, project_path / TESTS_FOLDER / "outputs")
     UI.print(f"[dim]Results saved to: {output_file}[/dim]\n")
 
     # Print summary table
