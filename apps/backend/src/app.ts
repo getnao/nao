@@ -8,7 +8,7 @@ import { existsSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 
-import { assignAdminToOrphanedProject } from './queries/project.queries';
+import { ensureOrganizationSetup } from './queries/organization.queries';
 import { authRoutes } from './routes/auth';
 import { chatRoutes } from './routes/chat';
 import { slackRoutes } from './routes/slack';
@@ -101,7 +101,7 @@ if (staticRoot) {
 }
 
 export const startServer = async (opts: { port: number; host: string }) => {
-	await assignAdminToOrphanedProject();
+	await ensureOrganizationSetup();
 
 	const address = await app.listen({ host: opts.host, port: opts.port });
 	app.log.info(`Server is running on ${address}`);
