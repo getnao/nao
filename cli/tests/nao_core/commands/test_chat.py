@@ -93,9 +93,8 @@ def test_try_load_exits_on_validation_error(tmp_path: Path):
 # Integration test for chat command
 
 
-def test_chat_exits_when_no_config_found(tmp_path: Path, monkeypatch):
+def test_chat_exits_when_no_config_found(tmp_path: Path, monkeypatch, clean_env):
     monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("NAO_DEFAULT_PROJECT_PATH", raising=False)
 
     with patch("nao_core.config.base.Console"):
         with pytest.raises(SystemExit) as exc_info:
@@ -143,54 +142,34 @@ def test_get_fastapi_main_path_does_not_exists():
 
 
 class TestWaitForServer:
-    def test_wait_for_server_returns_true_when_server_is_ready(self):
-        """Test that wait_for_server returns True when server is immediately available."""
-        mock_socket = MagicMock()
-        mock_socket.connect_ex.return_value = 0  # 0 means connection successful
-
+    @pytest.fixture
+    def mock_socket(self):
+        mock_sock = MagicMock()
         with patch("socket.socket") as mock_socket_cls:
-            mock_socket_cls.return_value.__enter__.return_value = mock_socket
-            result = wait_for_server(SERVER_PORT, timeout=TIMEOUT)
-
-        assert result is True
-
-    def test_wait_for_server_returns_false_on_timeout(self):
-        """Test that wait_for_server returns False when server never becomes available."""
-        mock_socket = MagicMock()
-        mock_socket.connect_ex.return_value = 111  # Connection refused
-
-        with patch("socket.socket") as mock_socket_cls:
-            mock_socket_cls.return_value.__enter__.return_value = mock_socket
-            with patch("nao_core.commands.chat.sleep"):  # Skip actual sleeping
-                result = wait_for_server(SERVER_PORT, timeout=TIMEOUT)
-
-        assert result is False
-
-    def test_wait_for_server_retries_until_success(self):
-        """Test that wait_for_server retries and succeeds eventually."""
-        mock_socket = MagicMock()
-        # Fail first 3 times, then succeed
-        mock_socket.connect_ex.side_effect = [111, 111, 111, 0]
-
-        with patch("socket.socket") as mock_socket_cls:
-            mock_socket_cls.return_value.__enter__.return_value = mock_socket
+            mock_socket_cls.return_value.__enter__.return_value = mock_sock
             with patch("nao_core.commands.chat.sleep"):
-                result = wait_for_server(SERVER_PORT, timeout=TIMEOUT)
+                yield mock_sock
 
-        assert result is True
+    def test_wait_for_server_returns_true_when_server_is_ready(self, mock_socket):
+        """Test that wait_for_server returns True when server is immediately available."""
+        mock_socket.connect_ex.return_value = 0
+        assert wait_for_server(SERVER_PORT, timeout=TIMEOUT) is True
+
+    def test_wait_for_server_returns_false_on_timeout(self, mock_socket):
+        """Test that wait_for_server returns False when server never becomes available."""
+        mock_socket.connect_ex.return_value = 111
+        assert wait_for_server(SERVER_PORT, timeout=TIMEOUT) is False
+
+    def test_wait_for_server_retries_until_success(self, mock_socket):
+        """Test that wait_for_server retries and succeeds eventually."""
+        mock_socket.connect_ex.side_effect = [111, 111, 111, 0]
+        assert wait_for_server(SERVER_PORT, timeout=TIMEOUT) is True
         assert mock_socket.connect_ex.call_count == 4
 
-    def test_wait_for_server_handles_os_error(self):
+    def test_wait_for_server_handles_os_error(self, mock_socket):
         """Test that wait_for_server handles OSError gracefully."""
-        mock_socket = MagicMock()
         mock_socket.connect_ex.side_effect = OSError("Network error")
-
-        with patch("socket.socket") as mock_socket_cls:
-            mock_socket_cls.return_value.__enter__.return_value = mock_socket
-            with patch("nao_core.commands.chat.sleep"):
-                result = wait_for_server(SERVER_PORT, timeout=TIMEOUT)
-
-        assert result is False
+        assert wait_for_server(SERVER_PORT, timeout=TIMEOUT) is False
 
 
 class TestEnsureAuthSecret:
@@ -203,9 +182,8 @@ class TestEnsureAuthSecret:
 
         assert result is None
 
-    def test_loads_existing_secret_from_file(self, tmp_path: Path, monkeypatch):
+    def test_loads_existing_secret_from_file(self, tmp_path: Path, clean_env):
         """Test that ensure_auth_secret loads secret from existing file."""
-        monkeypatch.delenv("BETTER_AUTH_SECRET", raising=False)
         secret_file = tmp_path / ".nao-secret"
         secret_file.write_text("my-saved-secret")
 
@@ -214,10 +192,8 @@ class TestEnsureAuthSecret:
 
         assert result == "my-saved-secret"
 
-    def test_generates_new_secret_when_file_missing(self, tmp_path: Path, monkeypatch):
+    def test_generates_new_secret_when_file_missing(self, tmp_path: Path, clean_env):
         """Test that ensure_auth_secret generates a new secret when file doesn't exist."""
-        monkeypatch.delenv("BETTER_AUTH_SECRET", raising=False)
-
         with patch("nao_core.commands.chat.console"):
             result = ensure_auth_secret(tmp_path)
 
@@ -228,9 +204,8 @@ class TestEnsureAuthSecret:
         assert secret_file.exists()
         assert secret_file.read_text() == result
 
-    def test_generates_new_secret_when_file_empty(self, tmp_path: Path, monkeypatch):
+    def test_generates_new_secret_when_file_empty(self, tmp_path: Path, clean_env):
         """Test that ensure_auth_secret generates a new secret when file is empty."""
-        monkeypatch.delenv("BETTER_AUTH_SECRET", raising=False)
         secret_file = tmp_path / ".nao-secret"
         secret_file.write_text("")
 
@@ -240,10 +215,8 @@ class TestEnsureAuthSecret:
         assert result is not None
         assert len(result) > 20
 
-    def test_handles_file_write_error(self, tmp_path: Path, monkeypatch):
+    def test_handles_file_write_error(self, tmp_path: Path, clean_env):
         """Test that ensure_auth_secret handles file write errors gracefully."""
-        monkeypatch.delenv("BETTER_AUTH_SECRET", raising=False)
-
         with patch("nao_core.commands.chat.console"):
             with patch.object(Path, "write_text", side_effect=PermissionError("Cannot write")):
                 result = ensure_auth_secret(tmp_path)
@@ -263,14 +236,9 @@ class TestChatCommand:
     """
 
     @pytest.fixture
-    def mock_chat_dependencies(self, tmp_path: Path, monkeypatch):
+    def mock_chat_dependencies(self, tmp_path: Path, create_config, clean_env):
         """Set up valid config and fake binary paths."""
-        config_file = tmp_path / "nao_config.yaml"
-        config_file.write_text("project_name: test-project\n")
-        monkeypatch.chdir(tmp_path)
-        monkeypatch.delenv("NAO_DEFAULT_PROJECT_PATH", raising=False)
-        monkeypatch.delenv("BETTER_AUTH_SECRET", raising=False)
-
+        create_config()
         # Create fake binaries that pass the exists() check
         bin_dir = tmp_path / "bin"
         bin_dir.mkdir()
@@ -494,20 +462,16 @@ class TestChatCommand:
         mock_wait_for_server,
         mock_webbrowser,
         tmp_path: Path,
-        monkeypatch,
+        create_config,
+        clean_env,
     ):
         """Verify LLM API key from config is passed to server env."""
-        config_content = """
+        create_config("""\
 project_name: test-project
 llm:
   provider: openai
   api_key: sk-test-key-12345
-"""
-        config_file = tmp_path / "nao_config.yaml"
-        config_file.write_text(config_content)
-        monkeypatch.chdir(tmp_path)
-        monkeypatch.delenv("NAO_DEFAULT_PROJECT_PATH", raising=False)
-        monkeypatch.delenv("BETTER_AUTH_SECRET", raising=False)
+""")
 
         bin_dir = tmp_path / "bin"
         bin_dir.mkdir()
@@ -546,20 +510,16 @@ llm:
         mock_wait_for_server,
         mock_webbrowser,
         tmp_path: Path,
-        monkeypatch,
+        create_config,
+        clean_env,
     ):
         """Verify Slack tokens from config are passed to server env."""
-        config_content = """
+        create_config("""\
 project_name: test-project
 slack:
   bot_token: xoxb-test-token
   signing_secret: test-signing-secret
-"""
-        config_file = tmp_path / "nao_config.yaml"
-        config_file.write_text(config_content)
-        monkeypatch.chdir(tmp_path)
-        monkeypatch.delenv("NAO_DEFAULT_PROJECT_PATH", raising=False)
-        monkeypatch.delenv("BETTER_AUTH_SECRET", raising=False)
+""")
 
         bin_dir = tmp_path / "bin"
         bin_dir.mkdir()

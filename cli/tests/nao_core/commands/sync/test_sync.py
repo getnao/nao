@@ -9,11 +9,7 @@ from nao_core.commands.sync import sync
 from nao_core.commands.sync.providers import SyncProvider, SyncResult
 
 
-@pytest.fixture(autouse=True)
-def clean_env(monkeypatch):
-    monkeypatch.delenv("NAO_DEFAULT_PROJECT_PATH", raising=False)
-
-
+@pytest.mark.usefixtures("clean_env")
 class TestSyncCommand:
     def test_sync_exits_when_no_config_found(self, tmp_path: Path, monkeypatch):
         monkeypatch.chdir(tmp_path)
@@ -26,12 +22,8 @@ class TestSyncCommand:
             assert exc_info.value.code == 1
             mock_console.print.assert_any_call("[bold red]✗[/bold red] No nao_config.yaml found in current directory")
 
-    def test_sync_runs_providers_when_config_exists(self, tmp_path: Path, monkeypatch):
-        # Create a valid config file
-        config_file = tmp_path / "nao_config.yaml"
-        config_file.write_text("project_name: test-project\n")
-        monkeypatch.chdir(tmp_path)
-
+    def test_sync_runs_providers_when_config_exists(self, create_config):
+        create_config()
         mock_provider = MagicMock(spec=SyncProvider)
         mock_provider.should_sync.return_value = True
         mock_provider.name = "TestProvider"
@@ -47,12 +39,8 @@ class TestSyncCommand:
 
         mock_provider.should_sync.assert_called_once()
 
-    def test_sync_uses_custom_output_dirs(self, tmp_path: Path, monkeypatch):
-        # Create a valid config file
-        config_file = tmp_path / "nao_config.yaml"
-        config_file.write_text("project_name: test-project\n")
-        monkeypatch.chdir(tmp_path)
-
+    def test_sync_uses_custom_output_dirs(self, tmp_path: Path, create_config):
+        create_config()
         mock_provider = MagicMock(spec=SyncProvider)
         mock_provider.should_sync.return_value = True
         mock_provider.name = "TestProvider"
@@ -72,12 +60,8 @@ class TestSyncCommand:
         call_args = mock_provider.sync.call_args
         assert str(call_args[0][1]) == custom_output
 
-    def test_sync_skips_provider_when_should_sync_false(self, tmp_path: Path, monkeypatch):
-        # Create a valid config file
-        config_file = tmp_path / "nao_config.yaml"
-        config_file.write_text("project_name: test-project\n")
-        monkeypatch.chdir(tmp_path)
-
+    def test_sync_skips_provider_when_should_sync_false(self, create_config):
+        create_config()
         mock_provider = MagicMock(spec=SyncProvider)
         mock_provider.should_sync.return_value = False
 
@@ -87,12 +71,8 @@ class TestSyncCommand:
         # sync should not be called when should_sync returns False
         mock_provider.sync.assert_not_called()
 
-    def test_sync_prints_nothing_to_sync_when_no_results(self, tmp_path: Path, monkeypatch):
-        # Create a valid config file
-        config_file = tmp_path / "nao_config.yaml"
-        config_file.write_text("project_name: test-project\n")
-        monkeypatch.chdir(tmp_path)
-
+    def test_sync_prints_nothing_to_sync_when_no_results(self, create_config):
+        create_config()
         mock_provider = MagicMock(spec=SyncProvider)
         mock_provider.should_sync.return_value = True
         mock_provider.name = "TestProvider"
@@ -110,12 +90,9 @@ class TestSyncCommand:
         calls = [str(call) for call in mock_console.print.call_args_list]
         assert any("Nothing to sync" in call for call in calls)
 
-    def test_sync_continues_when_provider_fails(self, tmp_path: Path, monkeypatch):
+    def test_sync_continues_when_provider_fails(self, create_config):
         """Test that sync continues with other providers when one fails."""
-        config_file = tmp_path / "nao_config.yaml"
-        config_file.write_text("project_name: test-project\n")
-        monkeypatch.chdir(tmp_path)
-
+        create_config()
         # First provider will fail
         failing_provider = MagicMock(spec=SyncProvider)
         failing_provider.should_sync.return_value = True
@@ -144,12 +121,9 @@ class TestSyncCommand:
         failing_provider.sync.assert_called_once()
         working_provider.sync.assert_called_once()
 
-    def test_sync_shows_partial_success_when_some_providers_fail(self, tmp_path: Path, monkeypatch):
+    def test_sync_shows_partial_success_when_some_providers_fail(self, create_config):
         """Test that sync shows partial success status when some providers fail."""
-        config_file = tmp_path / "nao_config.yaml"
-        config_file.write_text("project_name: test-project\n")
-        monkeypatch.chdir(tmp_path)
-
+        create_config()
         failing_provider = MagicMock(spec=SyncProvider)
         failing_provider.should_sync.return_value = True
         failing_provider.name = "FailingProvider"
@@ -177,12 +151,9 @@ class TestSyncCommand:
         # Should show error details
         assert any("API error" in call for call in calls)
 
-    def test_sync_shows_failure_when_all_providers_fail(self, tmp_path: Path, monkeypatch):
+    def test_sync_shows_failure_when_all_providers_fail(self, create_config):
         """Test that sync shows failure status when all providers fail."""
-        config_file = tmp_path / "nao_config.yaml"
-        config_file.write_text("project_name: test-project\n")
-        monkeypatch.chdir(tmp_path)
-
+        create_config()
         failing_provider = MagicMock(spec=SyncProvider)
         failing_provider.should_sync.return_value = True
         failing_provider.name = "FailingProvider"
