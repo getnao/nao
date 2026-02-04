@@ -87,8 +87,11 @@ export class PostHogService {
 		return this._client;
 	}
 
-	isEnabled(): boolean {
-		return this._isEnabled;
+	getConfig(): PosthogConfig & { isEnabled: boolean } {
+		return {
+			...this._config,
+			isEnabled: this._isEnabled,
+		};
 	}
 }
 

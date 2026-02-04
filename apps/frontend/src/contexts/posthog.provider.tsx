@@ -1,7 +1,6 @@
 import { PostHogProvider as PostHogProviderOriginal, usePostHog as usePostHogOriginal } from 'posthog-js/react';
 import { useQuery } from '@tanstack/react-query';
-import { createContext, useContext } from 'react';
-import { getPosthogConfig } from '@nao/shared/posthog';
+import { createContext, useContext, useEffect } from 'react';
 import type { PostHog } from 'posthog-js';
 import type { ReactNode } from 'react';
 import { trpc } from '@/main';
@@ -12,15 +11,19 @@ import { trpc } from '@/main';
  */
 const PostHogEnabledContext = createContext<boolean>(false);
 
-const posthogConfig = getPosthogConfig(import.meta.env);
-
 /**
  * Provides a PostHog client if configured via environment variables.
  */
 export function PostHogProvider({ children }: { children: ReactNode }) {
-	const { data: isEnabled, isLoading } = useQuery(trpc.posthog.isEnabled.queryOptions());
+	const { data: posthogConfig, isLoading } = useQuery(trpc.posthog.getConfig.queryOptions());
 
-	if (!isEnabled || isLoading) {
+	useEffect(() => {
+		if (!isLoading && !posthogConfig?.isEnabled) {
+			console.log('[Tracking] - Disabled');
+		}
+	}, [posthogConfig, isLoading]);
+
+	if (isLoading || !posthogConfig?.isEnabled) {
 		return <PostHogEnabledContext.Provider value={false}>{children}</PostHogEnabledContext.Provider>;
 	}
 
