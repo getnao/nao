@@ -12,7 +12,7 @@ import { trpc } from '@/main';
  */
 const PostHogEnabledContext = createContext<boolean>(false);
 
-const posthogConfig = getPosthogConfig();
+const posthogConfig = getPosthogConfig(import.meta.env);
 
 /**
  * Provides a PostHog client if configured via environment variables.

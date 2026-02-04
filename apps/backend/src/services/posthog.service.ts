@@ -23,7 +23,7 @@ export enum PostHogEvent {
  */
 export class PostHogService {
 	private _client: PostHog | undefined = undefined;
-	private _config: PosthogConfig = getPosthogConfig();
+	private _config: PosthogConfig = getPosthogConfig(env);
 	private _isEnabled: boolean = !env.POSTHOG_DISABLED && env.MODE === 'prod';
 
 	constructor() {}

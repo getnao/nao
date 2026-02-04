@@ -16,8 +16,8 @@ from posthog import Posthog
 from nao_core.mode import MODE
 
 POSTHOG_DISABLED = os.environ.get("POSTHOG_DISABLED", "false").lower() == "true"
-POSTHOG_KEY = "phc_TUN2TvdA5qjeDFU1XFVCmD3hoVk1dmWree4cWb0dNk4"
-POSTHOG_HOST = "https://eu.i.posthog.com"
+POSTHOG_KEY = os.environ.get("POSTHOG_KEY", "phc_TUN2TvdA5qjeDFU1XFVCmD3hoVk1dmWree4cWb0dNk4")
+POSTHOG_HOST = os.environ.get("POSTHOG_HOST", "https://eu.i.posthog.com")
 
 # PostHog client instance (initialized lazily)
 _client: Posthog | None = None
