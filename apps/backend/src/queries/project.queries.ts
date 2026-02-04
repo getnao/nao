@@ -4,7 +4,6 @@ import s, { DBProject, DBProjectMember, NewProject, NewProjectMember } from '../
 import { db } from '../db/db';
 import { env } from '../env';
 import { UserRole, UserWithRole } from '../types/project';
-import * as userQueries from './user.queries';
 
 export const getProjectByPath = async (path: string): Promise<DBProject | null> => {
 	const [project] = await db.select().from(s.project).where(eq(s.project.path, path)).execute();
@@ -108,37 +107,4 @@ export const checkProjectHasMoreThanOneAdmin = async (projectId: string): Promis
 	const userWithRoles = await getAllUsersWithRoles(projectId);
 	const nbAdmin = userWithRoles.filter((u) => u.role === 'admin').length;
 	return nbAdmin > 1;
-};
-
-/**
- * Create the default project for an organization.
- * Uses NAO_DEFAULT_PROJECT_PATH env var to determine project path.
- * Returns the project, or null if no path configured or project already exists.
- */
-export const createDefaultProjectForOrganization = async (orgId: string, userId: string): Promise<DBProject | null> => {
-	const projectPath = process.env.NAO_DEFAULT_PROJECT_PATH;
-	if (!projectPath) {
-		return null;
-	}
-
-	const existingProject = await getProjectByPath(projectPath);
-	if (existingProject) {
-		return null;
-	}
-
-	const projectName = projectPath.split('/').pop() || 'Default Project';
-	const project = await createProject({
-		name: projectName,
-		type: 'local',
-		path: projectPath,
-		orgId,
-	});
-
-	await addProjectMember({
-		projectId: project.id,
-		userId,
-		role: 'admin',
-	});
-
-	return project;
 };
