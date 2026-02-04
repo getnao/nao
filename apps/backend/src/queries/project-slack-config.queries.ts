@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm';
 
 import s, { DBProject } from '../db/abstractSchema';
 import { db } from '../db/db';
+import { env } from '../env';
 
 export const getProjectSlackConfig = async (
 	projectId: string,
@@ -62,7 +63,7 @@ export interface SlackConfig {
  * This is the single source of truth for all Slack config values.
  */
 export async function getSlackConfig(): Promise<SlackConfig | null> {
-	const projectPath = process.env.NAO_DEFAULT_PROJECT_PATH;
+	const projectPath = env.NAO_DEFAULT_PROJECT_PATH;
 	if (!projectPath) {
 		return null;
 	}
@@ -73,9 +74,9 @@ export async function getSlackConfig(): Promise<SlackConfig | null> {
 		return null;
 	}
 
-	const botToken = project.slackBotToken || process.env.SLACK_BOT_TOKEN;
-	const signingSecret = project.slackSigningSecret || process.env.SLACK_SIGNING_SECRET;
-	const redirectUrl = process.env.BETTER_AUTH_URL || 'http://localhost:3000/';
+	const botToken = project.slackBotToken || env.SLACK_BOT_TOKEN;
+	const signingSecret = project.slackSigningSecret || env.SLACK_SIGNING_SECRET;
+	const redirectUrl = env.BETTER_AUTH_URL || 'http://localhost:3000/';
 
 	if (!botToken || !signingSecret) {
 		return null;

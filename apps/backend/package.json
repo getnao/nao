@@ -1,5 +1,5 @@
 {
-	"name": "backend",
+	"name": "@nao/backend",
 	"type": "module",
 	"exports": {
 		"./trpc": "./src/trpc/router.ts",
@@ -28,6 +28,7 @@
 		"format": "prettier --write ."
 	},
 	"dependencies": {
+		"@nao/shared": "*",
 		"@ai-sdk/anthropic": "^3.0.15",
 		"@ai-sdk/google": "^3.0.16",
 		"@ai-sdk/mistral": "^3.0.13",

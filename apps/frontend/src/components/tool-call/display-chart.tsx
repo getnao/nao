@@ -9,7 +9,7 @@ import { ToolCallWrapper } from './tool-call-wrapper';
 import { ChartRangeSelector } from './display-chart-range-selector';
 import type { CategoricalChartProps } from 'recharts/types/chart/generateCategoricalChart';
 import type { ChartConfig } from '../ui/chart';
-import type { displayChartSchemas, executeSqlSchemas } from 'backend/tools';
+import type { displayChartSchemas, executeSqlSchemas } from '@nao/backend/tools';
 import type { DateRange } from '@/lib/charts.utils';
 import { labelize, filterByDateRange, DATE_RANGE_OPTIONS, toKey } from '@/lib/charts.utils';
 

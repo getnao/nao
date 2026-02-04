@@ -1,7 +1,7 @@
 import { File, Folder, Link } from 'lucide-react';
 import { useToolCallContext } from '../../contexts/tool-call.provider';
 import { ToolCallWrapper } from './tool-call-wrapper';
-import type { listSchemas } from 'backend/tools';
+import type { listSchemas } from '@nao/backend/tools';
 import { formatBytes } from '@/lib/utils';
 import { isToolSettled } from '@/lib/ai';
 

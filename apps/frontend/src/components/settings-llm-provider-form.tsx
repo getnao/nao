@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { useForm } from '@tanstack/react-form';
 import { Check, ChevronDown, Plus, X } from 'lucide-react';
-import { getDefaultModelId } from 'backend/providers';
-import type { LlmProvider } from 'backend/llm';
+import { getDefaultModelId } from '@nao/backend/providers';
+import type { LlmProvider } from '@nao/backend/llm';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { capitalize } from '@/lib/utils';

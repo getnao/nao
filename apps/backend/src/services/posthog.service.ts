@@ -1,10 +1,12 @@
 /**
  * PostHog analytics tracking for nao backend.
  *
- * Tracking is enabled when POSTHOG_DISABLED is not 'true' AND both POSTHOG_KEY and POSTHOG_HOST are configured.
+ * Tracking is enabled when POSTHOG_DISABLED is not 'true'.
  */
+import { getPosthogConfig, PosthogConfig } from '@nao/shared/posthog';
 import { PostHog } from 'posthog-node';
 
+import { env } from '../env';
 import { getPostHogDistinctId } from '../utils/posthog.utils';
 
 /**
@@ -21,16 +23,10 @@ export enum PostHogEvent {
  */
 export class PostHogService {
 	private _client: PostHog | undefined = undefined;
-	private readonly _enabled: boolean;
-	private readonly _key: string | undefined;
-	private readonly _host: string | undefined;
+	private _config: PosthogConfig = getPosthogConfig();
+	private _isEnabled: boolean = !env.POSTHOG_DISABLED && env.MODE === 'prod';
 
-	constructor() {
-		const disabled = process.env.POSTHOG_DISABLED?.toLowerCase() === 'true';
-		this._key = process.env.POSTHOG_KEY;
-		this._host = process.env.POSTHOG_HOST;
-		this._enabled = !disabled && !!this._key && !!this._host;
-	}
+	constructor() {}
 
 	/**
 	 * Safely capture an event.
@@ -76,19 +72,23 @@ export class PostHogService {
 			return this._client;
 		}
 
-		if (!this._enabled) {
+		if (!this._isEnabled) {
 			return undefined;
 		}
 
 		try {
-			this._client = new PostHog(this._key!, {
-				host: this._host,
+			this._client = new PostHog(this._config.key, {
+				host: this._config.host,
 			});
 		} catch {
 			// Silently fail - tracking should never break the backend
 		}
 
 		return this._client;
+	}
+
+	isEnabled(): boolean {
+		return this._isEnabled;
 	}
 }
 

@@ -1,10 +1,11 @@
+import { env } from '../../../env';
 import { getProjectFolder } from '../../../utils/tools';
 import type { Input, Output } from '../schema/execute-sql';
 
 export const execute = async ({ sql_query, database_id }: Input): Promise<Output> => {
 	const naoProjectFolder = getProjectFolder();
 
-	const response = await fetch(`${process.env.FASTAPI_URL}/execute_sql`, {
+	const response = await fetch(`${env.FASTAPI_URL}/execute_sql`, {
 		method: 'POST',
 		headers: {
 			'Content-Type': 'application/json',

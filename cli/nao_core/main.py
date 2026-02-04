@@ -1,6 +1,9 @@
+import dotenv
 from cyclopts import App
 
 from nao_core.commands import chat, debug, init, sync
+
+dotenv.load_dotenv()
 
 app = App()
 

@@ -1,14 +1,10 @@
 import { PostHogProvider as PostHogProviderOriginal, usePostHog as usePostHogOriginal } from 'posthog-js/react';
+import { useQuery } from '@tanstack/react-query';
 import { createContext, useContext } from 'react';
+import { getPosthogConfig } from '@nao/shared/posthog';
 import type { PostHog } from 'posthog-js';
 import type { ReactNode } from 'react';
-
-const POSTHOG_DISABLED = import.meta.env.POSTHOG_DISABLED === 'true';
-const POSTHOG_KEY = import.meta.env.POSTHOG_KEY;
-const POSTHOG_HOST = import.meta.env.POSTHOG_HOST;
-
-// PostHog is enabled only if not disabled AND both key and host are configured
-const POSTHOG_ENABLED = !POSTHOG_DISABLED && !!POSTHOG_KEY && !!POSTHOG_HOST;
+import { trpc } from '@/main';
 
 /**
  * Context to track whether PostHog is configured.
@@ -16,20 +12,24 @@ const POSTHOG_ENABLED = !POSTHOG_DISABLED && !!POSTHOG_KEY && !!POSTHOG_HOST;
  */
 const PostHogEnabledContext = createContext<boolean>(false);
 
+const posthogConfig = getPosthogConfig();
+
 /**
  * Provides a PostHog client if configured via environment variables.
  */
 export function PostHogProvider({ children }: { children: ReactNode }) {
-	if (!POSTHOG_ENABLED) {
+	const { data: isEnabled, isLoading } = useQuery(trpc.posthog.isEnabled.queryOptions());
+
+	if (!isEnabled || isLoading) {
 		return <PostHogEnabledContext.Provider value={false}>{children}</PostHogEnabledContext.Provider>;
 	}
 
 	return (
 		<PostHogEnabledContext.Provider value={true}>
 			<PostHogProviderOriginal
-				apiKey={POSTHOG_KEY}
+				apiKey={posthogConfig.key}
 				options={{
-					api_host: POSTHOG_HOST,
+					api_host: posthogConfig.host,
 					defaults: '2025-05-24',
 					debug: import.meta.env.MODE === 'development',
 					autocapture: false,

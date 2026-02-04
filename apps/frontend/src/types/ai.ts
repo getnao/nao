@@ -1,5 +1,5 @@
 import type { ReasoningUIPart } from 'ai';
-import type { UIToolPart, UIMessagePart } from 'backend/chat';
+import type { UIToolPart, UIMessagePart } from '@nao/backend/chat';
 
 /** A collapsible part can be either a tool or reasoning */
 export type CollapsiblePart = UIToolPart | ReasoningUIPart;

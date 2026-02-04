@@ -2,6 +2,7 @@ import { and, eq } from 'drizzle-orm';
 
 import s, { DBProject, DBProjectMember, NewProject, NewProjectMember } from '../db/abstractSchema';
 import { db } from '../db/db';
+import { env } from '../env';
 import { UserRole, UserWithRole } from '../types/project';
 import * as userQueries from './user.queries';
 
@@ -84,7 +85,7 @@ export const getAllUsersWithRoles = async (projectId: string): Promise<UserWithR
 };
 
 export const checkUserHasProject = async (userId: string): Promise<DBProject | null> => {
-	const projectPath = process.env.NAO_DEFAULT_PROJECT_PATH;
+	const projectPath = env.NAO_DEFAULT_PROJECT_PATH;
 	if (!projectPath) {
 		return null;
 	}
@@ -110,7 +111,7 @@ export const checkProjectHasMoreThanOneAdmin = async (projectId: string): Promis
 };
 
 export const initializeDefaultProjectForFirstUser = async (userId: string): Promise<void> => {
-	const projectPath = process.env.NAO_DEFAULT_PROJECT_PATH;
+	const projectPath = env.NAO_DEFAULT_PROJECT_PATH;
 	if (!projectPath) {
 		return;
 	}
@@ -144,7 +145,7 @@ export const initializeDefaultProjectForFirstUser = async (userId: string): Prom
  * but no admin, auto-assign that the first user as admin.
  */
 export const assignAdminToOrphanedProject = async (): Promise<void> => {
-	const projectPath = process.env.NAO_DEFAULT_PROJECT_PATH;
+	const projectPath = env.NAO_DEFAULT_PROJECT_PATH;
 	if (!projectPath) {
 		throw new Error('[Startup] NAO_DEFAULT_PROJECT_PATH environment variable is not defined.');
 	}

@@ -13,10 +13,11 @@ from typing import Any, Callable, TypeVar
 
 from posthog import Posthog
 
-# PostHog configuration from environment
+from nao_core.mode import MODE
+
 POSTHOG_DISABLED = os.environ.get("POSTHOG_DISABLED", "false").lower() == "true"
-POSTHOG_KEY = os.environ.get("POSTHOG_KEY", "")
-POSTHOG_HOST = os.environ.get("POSTHOG_HOST", "")
+POSTHOG_KEY = "phc_TUN2TvdA5qjeDFU1XFVCmD3hoVk1dmWree4cWb0dNk4"
+POSTHOG_HOST = "https://eu.i.posthog.com"
 
 # PostHog client instance (initialized lazily)
 _client: Posthog | None = None
@@ -51,8 +52,7 @@ def get_or_create_posthog_client() -> Posthog | None:
     if _client is not None:
         return _client
 
-    # Skip if disabled or missing configuration
-    if POSTHOG_DISABLED or not POSTHOG_KEY or not POSTHOG_HOST:
+    if POSTHOG_DISABLED or not POSTHOG_KEY or not POSTHOG_HOST or MODE == "dev":
         return None
 
     try:
@@ -121,6 +121,7 @@ def track_command(command_name: str) -> Callable[[F], F]:
             base_properties = {
                 "command": command_name,
                 "$session_id": session_id,
+                "mode": MODE,
             }
 
             # Helper to safely capture events (never raises)

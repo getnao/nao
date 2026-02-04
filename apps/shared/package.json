@@ -1,0 +1,13 @@
+{
+	"name": "@nao/shared",
+	"private": true,
+	"type": "module",
+	"exports": {
+		"./posthog": "./src/posthog.ts"
+	},
+	"scripts": {
+		"lint": "tsc --noEmit && eslint",
+		"lint:fix": "eslint --fix",
+		"format": "prettier --write ."
+	}
+}

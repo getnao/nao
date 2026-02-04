@@ -6,7 +6,7 @@ import {
 } from 'ai';
 import type { ReasoningUIPart } from 'ai';
 import type { UseChatHelpers } from '@ai-sdk/react';
-import type { UITools, UIToolPart, UIMessage, UIMessagePart, StaticToolName } from 'backend/chat';
+import type { UITools, UIToolPart, UIMessage, UIMessagePart, StaticToolName } from '@nao/backend/chat';
 import type { CollapsiblePart, ToolGroupPart, GroupedMessagePart } from '@/types/ai';
 
 /** Check if a tool has reached its final state (no more actions needed). */

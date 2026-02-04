@@ -9,6 +9,7 @@ from time import sleep
 from rich.console import Console
 
 from nao_core.config import NaoConfig
+from nao_core.mode import MODE
 from nao_core.tracking import track_command
 
 console = Console()
@@ -158,6 +159,7 @@ def chat():
 
         env["NAO_DEFAULT_PROJECT_PATH"] = str(Path.cwd())
         env["FASTAPI_URL"] = f"http://localhost:{FASTAPI_PORT}"
+        env["MODE"] = MODE
 
         # Start the FastAPI server first
         fastapi_path = get_fastapi_main_path()

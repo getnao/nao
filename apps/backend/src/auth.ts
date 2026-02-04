@@ -3,24 +3,25 @@ import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 
 import { db } from './db/db';
 import dbConfig, { Dialect } from './db/dbConfig';
+import { env } from './env';
 import * as projectQueries from './queries/project.queries';
 import { isEmailDomainAllowed } from './utils/utils';
 
 export const auth = betterAuth({
-	secret: process.env.BETTER_AUTH_SECRET,
+	secret: env.BETTER_AUTH_SECRET,
 	database: drizzleAdapter(db, {
 		provider: dbConfig.dialect === Dialect.Postgres ? 'pg' : 'sqlite',
 		schema: dbConfig.schema,
 	}),
-	trustedOrigins: process.env.BETTER_AUTH_URL ? [process.env.BETTER_AUTH_URL] : undefined,
+	trustedOrigins: env.BETTER_AUTH_URL ? [env.BETTER_AUTH_URL] : undefined,
 	emailAndPassword: {
 		enabled: true,
 	},
 	socialProviders: {
 		google: {
 			prompt: 'select_account',
-			clientId: process.env.GOOGLE_CLIENT_ID as string,
-			clientSecret: process.env.GOOGLE_CLIENT_SECRET as string,
+			clientId: env.GOOGLE_CLIENT_ID as string,
+			clientSecret: env.GOOGLE_CLIENT_SECRET as string,
 		},
 	},
 	databaseHooks: {

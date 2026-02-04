@@ -1,6 +1,6 @@
 import { createContext, useContext, useState } from 'react';
 import type { ReactNode } from 'react';
-import type { UIToolPart } from 'backend/chat';
+import type { UIToolPart } from '@nao/backend/chat';
 
 interface ToolCallContextValue {
 	toolPart: UIToolPart;

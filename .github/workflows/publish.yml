@@ -81,6 +81,9 @@ jobs:
                   grep "^version" cli/pyproject.toml
                   grep "__version__" cli/nao_core/__init__.py
 
+            - name: Mark as production build
+              run: echo 'BUILD_MODE = "prod"' > cli/nao_core/_build_info.py
+
             - name: Build server and package
               working-directory: cli
               run: python build.py --force
