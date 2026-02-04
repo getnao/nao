@@ -1,7 +1,7 @@
 import { FileSearch, AlertCircle } from 'lucide-react';
 import { useToolCallContext } from '../../contexts/tool-call.provider';
 import { ToolCallWrapper } from './tool-call-wrapper';
-import type { grepSchemas } from 'backend/tools';
+import type { grepSchemas } from '@nao/backend/tools';
 import { isToolSettled } from '@/lib/ai';
 
 export const GrepToolCall = () => {

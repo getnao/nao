@@ -7,7 +7,7 @@ import { GrepToolCall } from './grep';
 import { ListToolCall } from './list';
 import { ReadToolCall } from './read';
 import { SearchToolCall } from './search';
-import type { StaticToolName, UIToolPart } from 'backend/chat';
+import type { StaticToolName, UIToolPart } from '@nao/backend/chat';
 import { getToolName } from '@/lib/ai';
 
 const toolComponents: Record<StaticToolName, React.ComponentType> = {

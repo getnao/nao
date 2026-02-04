@@ -228,6 +228,10 @@ class AgentManager {
 
 		return messages;
 	}
+
+	getModelId(): string {
+		return this._modelSelection.modelId;
+	}
 }
 
 // Singleton instance of the agent service

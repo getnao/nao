@@ -1,4 +1,4 @@
-import type { UIMessage } from 'backend/chat';
+import type { UIMessage } from '@nao/backend/chat';
 
 /** A group of user and response (agent) messages */
 export interface MessageGroup {

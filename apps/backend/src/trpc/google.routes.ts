@@ -1,16 +1,17 @@
 import { z } from 'zod/v4';
 
+import { env } from '../env';
 import { adminProtectedProcedure, publicProcedure } from './trpc';
 
 export const googleRoutes = {
 	isSetup: publicProcedure.query(() => {
-		return !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
+		return !!(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET);
 	}),
 	getSettings: adminProtectedProcedure.query(() => {
 		return {
-			clientId: process.env.GOOGLE_CLIENT_ID || '',
-			clientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
-			authDomains: process.env.GOOGLE_AUTH_DOMAINS || '',
+			clientId: env.GOOGLE_CLIENT_ID || '',
+			clientSecret: env.GOOGLE_CLIENT_SECRET || '',
+			authDomains: env.GOOGLE_AUTH_DOMAINS || '',
 		};
 	}),
 	updateSettings: adminProtectedProcedure

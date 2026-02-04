@@ -6,12 +6,14 @@ from rich.console import Console
 
 from nao_core.config import NaoConfig
 from nao_core.templates.render import render_all_templates
+from nao_core.tracking import track_command
 
 from .providers import SyncProvider, SyncResult, get_all_providers
 
 console = Console()
 
 
+@track_command("sync")
 def sync(
     output_dirs: dict[str, str] | None = None,
     providers: list[SyncProvider] | None = None,

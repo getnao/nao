@@ -1,6 +1,6 @@
 import { useToolCallContext } from '../../contexts/tool-call.provider';
 import { ToolCallWrapper } from './tool-call-wrapper';
-import type { readFileSchemas } from 'backend/tools';
+import type { readFileSchemas } from '@nao/backend/tools';
 import { isToolSettled } from '@/lib/ai';
 
 export const ReadToolCall = () => {

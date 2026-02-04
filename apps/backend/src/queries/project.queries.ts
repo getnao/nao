@@ -2,6 +2,7 @@ import { and, eq } from 'drizzle-orm';
 
 import s, { DBProject, DBProjectMember, NewProject, NewProjectMember } from '../db/abstractSchema';
 import { db } from '../db/db';
+import { env } from '../env';
 import { UserRole, UserWithRole } from '../types/project';
 import * as userQueries from './user.queries';
 
@@ -84,7 +85,7 @@ export const getAllUsersWithRoles = async (projectId: string): Promise<UserWithR
 };
 
 export const checkUserHasProject = async (userId: string): Promise<DBProject | null> => {
-	const projectPath = process.env.NAO_DEFAULT_PROJECT_PATH;
+	const projectPath = env.NAO_DEFAULT_PROJECT_PATH;
 	if (!projectPath) {
 		return null;
 	}

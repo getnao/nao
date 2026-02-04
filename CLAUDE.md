@@ -34,16 +34,16 @@ npm run format:check          # Check formatting
 ```bash
 npm run pg:start              # Start PostgreSQL via docker-compose
 npm run pg:stop               # Stop PostgreSQL
-npm run -w backend db:generate  # Generate migrations
-npm run -w backend db:migrate   # Apply migrations
-npm run -w backend db:studio    # Open Drizzle Studio GUI
+npm run -w @nao/backend db:generate  # Generate migrations
+npm run -w @nao/backend db:migrate   # Apply migrations
+npm run -w @nao/backend db:studio    # Open Drizzle Studio GUI
 ```
 
 ### Testing
 
 ```bash
-npm run -w backend test       # Backend tests (Vitest)
-npm run -w frontend test      # Frontend tests (Vitest)
+npm run -w @nao/backend test       # Backend tests (Vitest)
+npm run -w @nao/frontend test      # Frontend tests (Vitest)
 ```
 
 ### Building & Publishing

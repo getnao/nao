@@ -115,6 +115,15 @@ wheels = [
 ]
 
 [[package]]
+name = "backoff"
+version = "2.2.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/47/d7/5bbeb12c44d7c4f2fb5b56abce497eb5ed9f34d85701de869acedd602619/backoff-2.2.1.tar.gz", hash = "sha256:03f829f5bb1923180821643f8753b0502c3b682293992485b0eef2807afa5cba", size = 17001, upload-time = "2022-10-05T19:19:32.061Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/df/73/b6e24bd22e6720ca8ee9a85a0c4a2971af8497d8f3193fa05390cbd46e09/backoff-2.2.1-py3-none-any.whl", hash = "sha256:63579f9a0628e06278f7e47b7d7d5b6ce20dc65c5e96a6f3ca99a6adca0396e8", size = 15148, upload-time = "2022-10-05T19:19:30.546Z" },
+]
+
+[[package]]
 name = "boto3"
 version = "1.42.30"
 source = { registry = "https://pypi.org/simple" }
@@ -1422,6 +1431,7 @@ dependencies = [
     { name = "notion-client" },
     { name = "notion2md" },
     { name = "openai" },
+    { name = "posthog" },
     { name = "pydantic" },
     { name = "pytest" },
     { name = "python-dotenv" },
@@ -1455,6 +1465,7 @@ requires-dist = [
     { name = "notion-client", specifier = ">=2.7.0" },
     { name = "notion2md", specifier = ">=2.9.0" },
     { name = "openai", specifier = ">=1.0.0" },
+    { name = "posthog", specifier = ">=7.8.0" },
     { name = "pydantic", specifier = ">=2.10.0" },
     { name = "pytest", specifier = ">=9.0.2" },
     { name = "pytest-cov", marker = "extra == 'dev'" },
@@ -1715,6 +1726,23 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/a1/96/06e01a7b38dce6fe1db213e061a4602dd6032a8a97ef6c1a862537732421/prompt_toolkit-3.0.52.tar.gz", hash = "sha256:28cde192929c8e7321de85de1ddbe736f1375148b02f2e17edd840042b1be855", size = 434198, upload-time = "2025-08-27T15:24:02.057Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/84/03/0d3ce49e2505ae70cf43bc5bb3033955d2fc9f932163e84dc0779cc47f48/prompt_toolkit-3.0.52-py3-none-any.whl", hash = "sha256:9aac639a3bbd33284347de5ad8d68ecc044b91a762dc39b7c21095fcd6a19955", size = 391431, upload-time = "2025-08-27T15:23:59.498Z" },
+]
+
+[[package]]
+name = "posthog"
+version = "7.8.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "backoff" },
+    { name = "distro" },
+    { name = "python-dateutil" },
+    { name = "requests" },
+    { name = "six" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/67/39/613f56a5d469e4c4f4e9616f533bd0451ae1b7b70d033201227b9229bf17/posthog-7.8.0.tar.gz", hash = "sha256:5f46730090be503a9d4357905d3260178ed6be4c1f6c666e8d7b44189e11fbb8", size = 167014, upload-time = "2026-01-30T13:43:29.829Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/2c/f6/c3118de9b52fd442c0de92e4ad68326f5ecb327c1d354e0b9a8d0213ce45/posthog-7.8.0-py3-none-any.whl", hash = "sha256:fefa48c560c51ca0acc6261c92a8f61a067a8aa977c8820d0f149eaa4500e4da", size = 192427, upload-time = "2026-01-30T13:43:28.774Z" },
 ]
 
 [[package]]
