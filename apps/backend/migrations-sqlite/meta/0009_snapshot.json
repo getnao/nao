@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "6e710d0b-9a63-4744-8209-7056842c39d9",
+  "id": "9a78a2a9-bdaf-423a-8894-2c365cb19c7f",
   "prevId": "d0f6f51c-be11-4538-8ad2-a0b43aae5cef",
   "tables": {
     "account": {
@@ -717,22 +717,8 @@
           "notNull": true,
           "autoincrement": false
         },
-        "slug": {
-          "name": "slug",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "logo": {
           "name": "logo",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "app_name": {
-          "name": "app_name",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -776,15 +762,7 @@
           "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
         }
       },
-      "indexes": {
-        "organization_slug_unique": {
-          "name": "organization_slug_unique",
-          "columns": [
-            "slug"
-          ],
-          "isUnique": true
-        }
-      },
+      "indexes": {},
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},

@@ -17,7 +17,6 @@ import path from 'path';
 import { startServer } from './app';
 import dbConfig, { Dialect } from './db/dbConfig';
 import { runMigrations } from './db/migrate';
-import { ensureOrganizationSetup } from './queries/organization.queries';
 
 const SECRET_FILE_NAME = '.nao-secret';
 
@@ -214,10 +213,7 @@ async function runServe(options: Record<string, string>): Promise<void> {
 	console.log(`   Listening on: ${host}:${port}`);
 
 	try {
-		await ensureOrganizationSetup();
 		await startServer({ port, host });
-		const address = await app.listen({ host, port });
-		console.log(`✅ Server is running on ${address}`);
 	} catch (err) {
 		console.error('❌ Failed to start server:', err);
 		process.exit(1);

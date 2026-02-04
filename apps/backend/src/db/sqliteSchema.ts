@@ -96,9 +96,7 @@ export const organization = sqliteTable('organization', {
 		.$defaultFn(() => crypto.randomUUID())
 		.primaryKey(),
 	name: text('name').notNull(),
-	slug: text('slug').unique(), // for future multi-org URL routing
 	logo: text('logo'),
-	appName: text('app_name'),
 	// SSO config
 	googleClientId: text('google_client_id'),
 	googleClientSecret: text('google_client_secret'),
