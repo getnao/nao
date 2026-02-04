@@ -142,14 +142,6 @@ def test_get_fastapi_main_path_does_not_exists():
 
 
 class TestWaitForServer:
-    @pytest.fixture
-    def mock_socket(self):
-        mock_sock = MagicMock()
-        with patch("socket.socket") as mock_socket_cls:
-            mock_socket_cls.return_value.__enter__.return_value = mock_sock
-            with patch("nao_core.commands.chat.sleep"):
-                yield mock_sock
-
     def test_wait_for_server_returns_true_when_server_is_ready(self, mock_socket):
         """Test that wait_for_server returns True when server is immediately available."""
         mock_socket.connect_ex.return_value = 0
@@ -172,6 +164,7 @@ class TestWaitForServer:
         assert wait_for_server(SERVER_PORT, timeout=TIMEOUT) is False
 
 
+@pytest.mark.usefixtures("clean_env")
 class TestEnsureAuthSecret:
     def test_returns_none_when_env_var_already_set(self, tmp_path: Path, monkeypatch):
         """Test that ensure_auth_secret returns None when BETTER_AUTH_SECRET is set."""
@@ -182,7 +175,7 @@ class TestEnsureAuthSecret:
 
         assert result is None
 
-    def test_loads_existing_secret_from_file(self, tmp_path: Path, clean_env):
+    def test_loads_existing_secret_from_file(self, tmp_path: Path):
         """Test that ensure_auth_secret loads secret from existing file."""
         secret_file = tmp_path / ".nao-secret"
         secret_file.write_text("my-saved-secret")
@@ -192,7 +185,7 @@ class TestEnsureAuthSecret:
 
         assert result == "my-saved-secret"
 
-    def test_generates_new_secret_when_file_missing(self, tmp_path: Path, clean_env):
+    def test_generates_new_secret_when_file_missing(self, tmp_path: Path):
         """Test that ensure_auth_secret generates a new secret when file doesn't exist."""
         with patch("nao_core.commands.chat.console"):
             result = ensure_auth_secret(tmp_path)
@@ -204,7 +197,7 @@ class TestEnsureAuthSecret:
         assert secret_file.exists()
         assert secret_file.read_text() == result
 
-    def test_generates_new_secret_when_file_empty(self, tmp_path: Path, clean_env):
+    def test_generates_new_secret_when_file_empty(self, tmp_path: Path):
         """Test that ensure_auth_secret generates a new secret when file is empty."""
         secret_file = tmp_path / ".nao-secret"
         secret_file.write_text("")
@@ -215,7 +208,7 @@ class TestEnsureAuthSecret:
         assert result is not None
         assert len(result) > 20
 
-    def test_handles_file_write_error(self, tmp_path: Path, clean_env):
+    def test_handles_file_write_error(self, tmp_path: Path):
         """Test that ensure_auth_secret handles file write errors gracefully."""
         with patch("nao_core.commands.chat.console"):
             with patch.object(Path, "write_text", side_effect=PermissionError("Cannot write")):
@@ -234,20 +227,6 @@ class TestChatCommand:
     This lets us test the orchestration logic (env vars, error handling, etc.)
     without needing the built server binary.
     """
-
-    @pytest.fixture
-    def mock_chat_dependencies(self, tmp_path: Path, create_config, clean_env):
-        """Set up valid config and fake binary paths."""
-        create_config()
-        # Create fake binaries that pass the exists() check
-        bin_dir = tmp_path / "bin"
-        bin_dir.mkdir()
-        (bin_dir / "nao-chat-server").touch()
-        fastapi_dir = bin_dir / "fastapi"
-        fastapi_dir.mkdir()
-        (fastapi_dir / "main.py").touch()
-
-        return tmp_path, bin_dir
 
     @patch("nao_core.commands.chat.webbrowser.open")
     @patch("nao_core.commands.chat.wait_for_server")
