@@ -9,7 +9,6 @@ import superjson from 'superjson';
 import { PostHogProvider } from './contexts/posthog.provider';
 import { ThemeProvider } from './contexts/theme.provider';
 import { SidebarProvider } from './contexts/sidebar.provider';
-import { AuthProvider } from './contexts/auth.provider';
 import { routeTree } from './routeTree.gen';
 import reportWebVitals from './reportWebVitals';
 import { UserPageProvider } from './contexts/user.provider';
@@ -71,13 +70,11 @@ if (!rootElement.innerHTML) {
 			<ThemeProvider>
 				<SidebarProvider>
 					<QueryClientProvider client={queryClient}>
-						<AuthProvider>
-							<PostHogProvider>
-								<UserPageProvider>
-									<RouterProvider router={router} />
-								</UserPageProvider>
-							</PostHogProvider>
-						</AuthProvider>
+						<PostHogProvider>
+							<UserPageProvider>
+								<RouterProvider router={router} />
+							</UserPageProvider>
+						</PostHogProvider>
 					</QueryClientProvider>
 				</SidebarProvider>
 			</ThemeProvider>

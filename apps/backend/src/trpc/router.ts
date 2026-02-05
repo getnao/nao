@@ -16,7 +16,7 @@ export const trpcRouter = router({
 	user: userRoutes,
 	google: googleRoutes,
 	account: accountRoutes,
-	organizationRoutes: organizationRoutes,
+	organization: organizationRoutes,
 });
 
 export type TrpcRouter = typeof trpcRouter;
