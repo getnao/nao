@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { MessageSquarePlusIcon, MoonIcon, SettingsIcon, SunIcon } from 'lucide-react';
+import { CreditCardIcon, MessageSquarePlusIcon, MoonIcon, SettingsIcon, SunIcon } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
 import type { LucideIcon } from 'lucide-react';
 
 import {
@@ -13,6 +14,7 @@ import {
 	CommandShortcut,
 } from '@/components/ui/command';
 import { useTheme } from '@/contexts/theme.provider';
+import { trpc } from '@/main';
 
 type CommandConfig = {
 	id: string;
@@ -21,12 +23,14 @@ type CommandConfig = {
 	action: () => void;
 	shortcut?: string;
 	group: string;
+	visible?: boolean;
 };
 
 export function CommandMenu() {
 	const [open, setOpen] = useState(false);
 	const navigate = useNavigate();
 	const { theme, setTheme } = useTheme();
+	const project = useQuery(trpc.project.getCurrent.queryOptions());
 
 	const commands: CommandConfig[] = useMemo(
 		() => [
@@ -36,14 +40,22 @@ export function CommandMenu() {
 				icon: MessageSquarePlusIcon,
 				action: () => navigate({ to: '/' }),
 				shortcut: '⇧⌘O',
-				group: 'Actions',
+				group: 'Jump to',
 			},
 			{
 				id: 'open-settings',
 				label: 'Open Settings',
 				icon: SettingsIcon,
 				action: () => navigate({ to: '/settings' }),
-				group: 'Actions',
+				group: 'Jump to',
+			},
+			{
+				id: 'open-project-settings',
+				label: 'Usage & Costs',
+				icon: CreditCardIcon,
+				action: () => navigate({ to: '/settings/usage' }),
+				group: 'Jump to',
+				visible: project.data?.userRole === 'admin',
 			},
 			{
 				id: 'switch-mode',
@@ -55,7 +67,7 @@ export function CommandMenu() {
 				group: 'Actions',
 			},
 		],
-		[navigate, theme, setTheme],
+		[navigate, theme, setTheme, project.data?.userRole],
 	);
 
 	const groupedCommands = useMemo(() => {
@@ -92,13 +104,15 @@ export function CommandMenu() {
 				<CommandEmpty>No results found.</CommandEmpty>
 				{Array.from(groupedCommands.entries()).map(([group, items]) => (
 					<CommandGroup key={group} heading={group}>
-						{items.map((command) => (
-							<CommandItem key={command.id} onSelect={() => runCommand(command.action)}>
-								<command.icon />
-								<span>{command.label}</span>
-								{command.shortcut && <CommandShortcut>{command.shortcut}</CommandShortcut>}
-							</CommandItem>
-						))}
+						{items
+							.filter((command) => command.visible ?? true)
+							.map((command) => (
+								<CommandItem key={command.id} onSelect={() => runCommand(command.action)}>
+									<command.icon />
+									<span>{command.label}</span>
+									{command.shortcut && <CommandShortcut>{command.shortcut}</CommandShortcut>}
+								</CommandItem>
+							))}
 					</CommandGroup>
 				))}
 			</CommandList>
