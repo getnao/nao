@@ -1,10 +1,11 @@
-import { and, count, eq, isNotNull,SQL, sql, SQLWrapper, sum } from 'drizzle-orm';
+import { and, count, eq, isNotNull, SQL, sql, SQLWrapper, sum } from 'drizzle-orm';
 
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
 import type { LlmProvider } from '../types/llm';
 import type { Granularity, UsageFilter, UsageRecord } from '../types/usage';
+import { fillMissingDates, getLookbackTimestamp } from '../utils/date';
 
 const sqliteFormats = {
 	hour: '%Y-%m-%d %H:00',
@@ -17,88 +18,6 @@ const pgFormats = {
 	day: 'YYYY-MM-DD',
 	month: 'YYYY-MM',
 };
-
-const lookbackPeriods = {
-	hour: 24,
-	day: 30,
-	month: 12,
-};
-
-function getLookbackTimestamp(granularity: Granularity): number {
-	const now = Date.now();
-	const periods = lookbackPeriods[granularity];
-
-	switch (granularity) {
-		case 'hour':
-			return now - periods * 60 * 60 * 1000;
-		case 'day':
-			return now - periods * 24 * 60 * 60 * 1000;
-		case 'month':
-			return now - periods * 30 * 24 * 60 * 60 * 1000;
-	}
-}
-
-function formatDate(date: Date, granularity: Granularity): string {
-	const year = date.getUTCFullYear();
-	const month = String(date.getUTCMonth() + 1).padStart(2, '0');
-	const day = String(date.getUTCDate()).padStart(2, '0');
-	const hour = String(date.getUTCHours()).padStart(2, '0');
-
-	switch (granularity) {
-		case 'hour':
-			return `${year}-${month}-${day} ${hour}:00`;
-		case 'day':
-			return `${year}-${month}-${day}`;
-		case 'month':
-			return `${year}-${month}`;
-	}
-}
-
-function generateDateSeries(granularity: Granularity): string[] {
-	const dates: string[] = [];
-	const periods = lookbackPeriods[granularity];
-	const now = new Date();
-
-	for (let i = periods - 1; i >= 0; i--) {
-		const date = new Date(now);
-
-		switch (granularity) {
-			case 'hour':
-				date.setUTCHours(date.getUTCHours() - i, 0, 0, 0);
-				break;
-			case 'day':
-				date.setUTCDate(date.getUTCDate() - i);
-				date.setUTCHours(0, 0, 0, 0);
-				break;
-			case 'month':
-				date.setUTCMonth(date.getUTCMonth() - i, 1);
-				date.setUTCHours(0, 0, 0, 0);
-				break;
-		}
-
-		dates.push(formatDate(date, granularity));
-	}
-
-	return dates;
-}
-
-function fillMissingDates(records: UsageRecord[], granularity: Granularity): UsageRecord[] {
-	const dateSet = new Map(records.map((r) => [r.date, r]));
-	const allDates = generateDateSeries(granularity);
-
-	return allDates.map(
-		(date) =>
-			dateSet.get(date) ?? {
-				date,
-				nbMessages: 0,
-				inputNoCacheTokens: 0,
-				inputCacheReadTokens: 0,
-				inputCacheWriteTokens: 0,
-				outputTotalTokens: 0,
-				totalTokens: 0,
-			},
-	);
-}
 
 function getDateExpr(field: SQLWrapper, granularity: Granularity): SQL<string> {
 	if (dbConfig.dialect === Dialect.Postgres) {
@@ -115,10 +34,7 @@ export const getMessagesUsage = async (projectId: string, filter: UsageFilter): 
 	const dateExpr = getDateExpr(s.chatMessage.createdAt, granularity);
 	const lookbackTs = getLookbackTimestamp(granularity);
 
-	const whereConditions = [
-		eq(s.chat.projectId, projectId),
-		sql`${s.chatMessage.createdAt} >= ${lookbackTs}`,
-	];
+	const whereConditions = [eq(s.chat.projectId, projectId), sql`${s.chatMessage.createdAt} >= ${lookbackTs}`];
 
 	if (provider) {
 		whereConditions.push(eq(s.chatMessage.llmProvider, provider));
