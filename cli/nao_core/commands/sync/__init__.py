@@ -1,5 +1,6 @@
 """Sync command for synchronizing repositories and database schemas."""
 
+import sys
 from pathlib import Path
 
 from rich.console import Console
@@ -116,6 +117,11 @@ def sync(
         console.print("  [dim]Nothing to sync[/dim]")
 
     console.print()
+
+    # Exit with error code if any provider or template failed
+    has_failures = bool(failed_results) or (template_result and template_result.templates_failed > 0)
+    if has_failures:
+        sys.exit(1)
 
 
 __all__ = ["sync"]

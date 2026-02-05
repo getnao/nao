@@ -102,9 +102,10 @@ class TestSyncCommand:
         )
 
         with patch("nao_core.commands.sync.console"):
-            # Should not raise, even though first provider fails
-            sync(providers=[failing, working])
+            with pytest.raises(SystemExit) as exc_info:
+                sync(providers=[failing, working])
 
+        assert exc_info.value.code == 1
         # Verify both providers were attempted
         failing.sync.assert_called_once()
         working.sync.assert_called_once()
@@ -120,8 +121,10 @@ class TestSyncCommand:
         )
 
         with patch("nao_core.commands.sync.console") as mock_console:
-            sync(providers=[failing, working])
+            with pytest.raises(SystemExit) as exc_info:
+                sync(providers=[failing, working])
 
+        assert exc_info.value.code == 1
         calls = [str(call) for call in mock_console.print.call_args_list]
         # Should show "Completed with Errors" status
         assert any("Sync Completed with Errors" in call for call in calls)
@@ -136,8 +139,10 @@ class TestSyncCommand:
         )
 
         with patch("nao_core.commands.sync.console") as mock_console:
-            sync(providers=[failing])
+            with pytest.raises(SystemExit) as exc_info:
+                sync(providers=[failing])
 
+        assert exc_info.value.code == 1
         calls = [str(call) for call in mock_console.print.call_args_list]
         # Should show "Sync Failed" status
         assert any("Sync Failed" in call for call in calls)
