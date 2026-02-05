@@ -5,6 +5,7 @@ import { googleRoutes } from './google.routes';
 import { posthogRoutes } from './posthog.routes';
 import { projectRoutes } from './project.routes';
 import { router } from './trpc';
+import { usageRoutes } from './usage.routes';
 import { userRoutes } from './user.routes';
 
 export const trpcRouter = router({
@@ -12,6 +13,7 @@ export const trpcRouter = router({
 	feedback: feedbackRoutes,
 	posthog: posthogRoutes,
 	project: projectRoutes,
+	usage: usageRoutes,
 	user: userRoutes,
 	google: googleRoutes,
 	account: accountRoutes,

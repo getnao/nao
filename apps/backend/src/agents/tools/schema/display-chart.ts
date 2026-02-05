@@ -1,12 +1,13 @@
 import z from 'zod/v3';
 
-export const chartTypeEnum = z.enum(['bar', 'line', 'pie']);
+export const chartTypeEnum = z.enum(['bar', 'stacked_bar', 'line', 'pie']);
 
 export const xAxisTypeEnum = z.enum(['date', 'number', 'category']);
 
 export const seriesConfigSchema = z.object({
 	data_key: z.string().describe('Column name from SQL result to plot.'),
 	color: z.string().describe('CSS color (defaults to theme colors).'),
+	label: z.string().describe('Label to display in the legend.').optional(),
 });
 
 export const description = 'Display a chart visualization of the data from a previous `execute_sql` tool call.';
