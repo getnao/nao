@@ -7,6 +7,10 @@ const settingsNavItems = [
 		to: '/settings/profile',
 	},
 	{
+		label: 'Organization',
+		to: '/settings/organization',
+	},
+	{
 		label: 'Project',
 		to: '/settings/project',
 	},
