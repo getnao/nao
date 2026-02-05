@@ -1,12 +1,15 @@
 import { useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { format } from 'date-fns';
+import { format, formatDistanceToNow } from 'date-fns';
+import { ThumbsDown, ThumbsUp } from 'lucide-react';
 import type { Granularity } from 'backend/usage';
 import type { LlmProvider } from 'backend/llm';
 import type { ChartView } from '@/components/usage-filters';
 import { UsageChartCard } from '@/components/usage-chart-card';
 import { UsageFilters, dateFormats } from '@/components/usage-filters';
+import { SettingsCard } from '@/components/ui/settings-card';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { trpc } from '@/main';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/usage')({
@@ -26,6 +29,7 @@ function UsagePage() {
 		}),
 		placeholderData: keepPreviousData,
 	});
+	const recentFeedbacks = useQuery(trpc.feedback.getRecent.queryOptions({ limit: 10 }));
 
 	const chartData = messagesUsage.data ?? [];
 
@@ -76,6 +80,67 @@ function UsagePage() {
 					]}
 				/>
 			)}
+
+			<SettingsCard title='Feedbacks'>
+				{recentFeedbacks.isLoading ? (
+					<p className='text-muted-foreground text-sm'>Loading feedbacks...</p>
+				) : recentFeedbacks.isError ? (
+					<p className='text-destructive text-sm'>Failed to load feedbacks</p>
+				) : !recentFeedbacks.data?.length ? (
+					<p className='text-muted-foreground text-sm'>No feedbacks yet</p>
+				) : (
+					<Table>
+						<TableHeader>
+							<TableRow>
+								<TableHead>Vote</TableHead>
+								<TableHead>User</TableHead>
+								<TableHead className='w-[40%]'>Message</TableHead>
+								<TableHead>Reason</TableHead>
+								<TableHead>Date</TableHead>
+							</TableRow>
+						</TableHeader>
+						<TableBody>
+							{recentFeedbacks.data.map((feedback) => (
+								<TableRow key={feedback.messageId}>
+									<TableCell>
+										{feedback.vote === 'up' ? (
+											<ThumbsUp className='h-4 w-4 text-green-500' />
+										) : (
+											<ThumbsDown className='h-4 w-4 text-red-500' />
+										)}
+									</TableCell>
+									<TableCell className='font-medium'>{feedback.userName}</TableCell>
+									<TableCell className='max-w-xs truncate text-muted-foreground'>
+										{feedback.messageText ? (
+											<span title={feedback.messageText}>
+												{feedback.messageText.length > 60
+													? `${feedback.messageText.slice(0, 60)}...`
+													: feedback.messageText}
+											</span>
+										) : (
+											<span className='italic'>No text</span>
+										)}
+									</TableCell>
+									<TableCell className='max-w-xs truncate text-muted-foreground'>
+										{feedback.explanation ? (
+											<span title={feedback.explanation}>
+												{feedback.explanation.length > 40
+													? `${feedback.explanation.slice(0, 40)}...`
+													: feedback.explanation}
+											</span>
+										) : (
+											<span className='italic'>-</span>
+										)}
+									</TableCell>
+									<TableCell className='text-muted-foreground'>
+										{formatDistanceToNow(new Date(feedback.createdAt), { addSuffix: true })}
+									</TableCell>
+								</TableRow>
+							))}
+						</TableBody>
+					</Table>
+				)}
+			</SettingsCard>
 		</>
 	);
 }

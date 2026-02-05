@@ -5,7 +5,7 @@ import { MessageFeedback } from '../db/abstractSchema';
 import * as chatQueries from '../queries/chat.queries';
 import * as feedbackQueries from '../queries/feedback.queries';
 import { posthog, PostHogEvent } from '../services/posthog.service';
-import { protectedProcedure } from './trpc';
+import { adminProtectedProcedure, protectedProcedure } from './trpc';
 
 export const feedbackRoutes = {
 	submit: protectedProcedure
@@ -44,5 +44,11 @@ export const feedbackRoutes = {
 				explanation: input.explanation,
 			});
 			return feedback;
+		}),
+
+	getRecent: adminProtectedProcedure
+		.input(z.object({ limit: z.number().min(1).max(50).optional() }).optional())
+		.query(async ({ ctx, input }) => {
+			return feedbackQueries.getRecentFeedbacks(ctx.project.id, input?.limit ?? 10);
 		}),
 };
