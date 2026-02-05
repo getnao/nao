@@ -73,7 +73,10 @@ export function FormTextField({ form, name, type = 'text', placeholder }: FormTe
 	return (
 		<form.Field
 			name={name}
-			validators={{ onChange: ({ value }: { value: string }) => (!value ? 'Required' : undefined) }}
+			validators={{
+				onMount: ({ value }: { value: string }) => (!value ? 'Required' : undefined),
+				onChange: ({ value }: { value: string }) => (!value ? 'Required' : undefined),
+			}}
 		>
 			{(field: { state: { value: string }; handleChange: (v: string) => void; handleBlur: () => void }) => (
 				<Input
