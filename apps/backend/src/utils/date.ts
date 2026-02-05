@@ -78,6 +78,11 @@ export function fillMissingDates(records: UsageRecord[], granularity: Granularit
 				inputCacheWriteTokens: 0,
 				outputTotalTokens: 0,
 				totalTokens: 0,
+				inputNoCacheCost: 0,
+				inputCacheReadCost: 0,
+				inputCacheWriteCost: 0,
+				outputCost: 0,
+				totalCost: 0,
 			},
 	);
 }

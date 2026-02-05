@@ -1,11 +1,50 @@
 import { and, count, eq, isNotNull, SQL, sql, SQLWrapper, sum } from 'drizzle-orm';
 
+import { LLM_PROVIDERS } from '../agents/providers';
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
 import type { LlmProvider } from '../types/llm';
 import type { Granularity, UsageFilter, UsageRecord } from '../types/usage';
 import { fillMissingDates, getLookbackTimestamp } from '../utils/date';
+
+const COST_COLS = [
+	'provider',
+	'model_id',
+	'input_no_cache',
+	'input_cache_read',
+	'input_cache_write',
+	'output',
+] as const;
+
+/** Build a SQL VALUES table with cost-per-million for each (provider, modelId) */
+function buildCostValuesTable(): SQL {
+	const tuples = Object.entries(LLM_PROVIDERS).flatMap(([provider, config]) =>
+		config.models.map((m) => {
+			const c = m.costPerM ?? {};
+			return [
+				provider,
+				m.id,
+				c.inputNoCache ?? 0,
+				c.inputCacheRead ?? 0,
+				c.inputCacheWrite ?? 0,
+				c.output ?? 0,
+			] as const;
+		}),
+	);
+
+	const toRow = (t: (typeof tuples)[0]) => `'${t[0]}', '${t[1]}', ${t[2]}, ${t[3]}, ${t[4]}, ${t[5]}`;
+
+	if (dbConfig.dialect === Dialect.Postgres) {
+		const rows = tuples.map((t) => `(${toRow(t)})`).join(', ');
+		return sql.raw(`(VALUES ${rows}) AS cost_lookup(${COST_COLS.join(', ')})`);
+	} else {
+		const [first, ...rest] = tuples;
+		const firstRow = `SELECT ${first.map((v, i) => `${typeof v === 'string' ? `'${v}'` : v} AS ${COST_COLS[i]}`).join(', ')}`;
+		const restRows = rest.map((t) => `SELECT ${toRow(t)}`);
+		return sql.raw(`(${[firstRow, ...restRows].join(' UNION ALL ')}) AS cost_lookup`);
+	}
+}
 
 const sqliteFormats = {
 	hour: '%Y-%m-%d %H:00',
@@ -35,10 +74,9 @@ export const getMessagesUsage = async (projectId: string, filter: UsageFilter): 
 	const lookbackTs = getLookbackTimestamp(granularity);
 
 	const whereConditions = [eq(s.chat.projectId, projectId), sql`${s.chatMessage.createdAt} >= ${lookbackTs}`];
+	if (provider) whereConditions.push(eq(s.chatMessage.llmProvider, provider));
 
-	if (provider) {
-		whereConditions.push(eq(s.chatMessage.llmProvider, provider));
-	}
+	const costLookup = buildCostValuesTable();
 
 	const rows = await db
 		.select({
@@ -49,24 +87,42 @@ export const getMessagesUsage = async (projectId: string, filter: UsageFilter): 
 			inputCacheWriteTokens: sum(s.messagePart.inputCacheWriteTokens),
 			outputTotalTokens: sum(s.messagePart.outputTotalTokens),
 			totalTokens: sum(s.messagePart.totalTokens),
+			inputNoCacheCost: sql<number>`sum(coalesce(${s.messagePart.inputNoCacheTokens}, 0) * coalesce(cost_lookup.input_no_cache, 0) / 1000000.0)`,
+			inputCacheReadCost: sql<number>`sum(coalesce(${s.messagePart.inputCacheReadTokens}, 0) * coalesce(cost_lookup.input_cache_read, 0) / 1000000.0)`,
+			inputCacheWriteCost: sql<number>`sum(coalesce(${s.messagePart.inputCacheWriteTokens}, 0) * coalesce(cost_lookup.input_cache_write, 0) / 1000000.0)`,
+			outputCost: sql<number>`sum(coalesce(${s.messagePart.outputTotalTokens}, 0) * coalesce(cost_lookup.output, 0) / 1000000.0)`,
 		})
 		.from(s.chatMessage)
 		.innerJoin(s.chat, eq(s.chatMessage.chatId, s.chat.id))
 		.innerJoin(s.messagePart, eq(s.messagePart.messageId, s.chatMessage.id))
+		.leftJoin(
+			costLookup,
+			sql`cost_lookup.provider = ${s.chatMessage.llmProvider} AND cost_lookup.model_id = ${s.chatMessage.llmModelId}`,
+		)
 		.where(and(...whereConditions))
-		.groupBy(dateExpr)
-		.execute();
+		.groupBy(dateExpr);
 
-	const mappedRows = rows.map((row) => ({
-		...row,
-		inputNoCacheTokens: Number(row.inputNoCacheTokens ?? 0),
-		inputCacheReadTokens: Number(row.inputCacheReadTokens ?? 0),
-		inputCacheWriteTokens: Number(row.inputCacheWriteTokens ?? 0),
-		outputTotalTokens: Number(row.outputTotalTokens ?? 0),
-		totalTokens: Number(row.totalTokens ?? 0),
-	}));
-
-	return fillMissingDates(mappedRows, granularity);
+	return fillMissingDates(
+		rows.map((row) => ({
+			date: row.date,
+			nbMessages: row.nbMessages,
+			inputNoCacheTokens: Number(row.inputNoCacheTokens ?? 0),
+			inputCacheReadTokens: Number(row.inputCacheReadTokens ?? 0),
+			inputCacheWriteTokens: Number(row.inputCacheWriteTokens ?? 0),
+			outputTotalTokens: Number(row.outputTotalTokens ?? 0),
+			totalTokens: Number(row.totalTokens ?? 0),
+			inputNoCacheCost: Number(row.inputNoCacheCost ?? 0),
+			inputCacheReadCost: Number(row.inputCacheReadCost ?? 0),
+			inputCacheWriteCost: Number(row.inputCacheWriteCost ?? 0),
+			outputCost: Number(row.outputCost ?? 0),
+			totalCost:
+				Number(row.inputNoCacheCost ?? 0) +
+				Number(row.inputCacheReadCost ?? 0) +
+				Number(row.inputCacheWriteCost ?? 0) +
+				Number(row.outputCost ?? 0),
+		})),
+		granularity,
+	);
 };
 
 export const getUsedProviders = async (projectId: string): Promise<LlmProvider[]> => {

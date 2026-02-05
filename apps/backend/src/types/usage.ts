@@ -19,4 +19,10 @@ export interface UsageRecord {
 	inputCacheWriteTokens: number;
 	outputTotalTokens: number;
 	totalTokens: number;
+	// Cost in USD (calculated from token usage and model pricing)
+	inputNoCacheCost: number;
+	inputCacheReadCost: number;
+	inputCacheWriteCost: number;
+	outputCost: number;
+	totalCost: number;
 }

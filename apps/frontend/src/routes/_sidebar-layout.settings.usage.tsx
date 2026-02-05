@@ -81,6 +81,25 @@ function UsagePage() {
 				/>
 			)}
 
+			{chartView === 'cost' && (
+				<UsageChartCard
+					title='Cost'
+					description='Estimated cost in USD based on token usage and model pricing.'
+					isLoading={messagesUsage.isLoading}
+					isFetching={messagesUsage.isFetching}
+					isError={messagesUsage.isError}
+					data={chartData}
+					chartType='stacked_bar'
+					xAxisLabelFormatter={(value) => format(new Date(value), dateFormats[granularity])}
+					series={[
+						{ data_key: 'inputNoCacheCost', color: 'var(--chart-1)', label: 'Input' },
+						{ data_key: 'inputCacheReadCost', color: 'var(--chart-2)', label: 'Input (cache read)' },
+						{ data_key: 'inputCacheWriteCost', color: 'var(--chart-3)', label: 'Input (cache write)' },
+						{ data_key: 'outputCost', color: 'var(--chart-4)', label: 'Output' },
+					]}
+				/>
+			)}
+
 			<SettingsCard title='Feedbacks'>
 				{recentFeedbacks.isLoading ? (
 					<p className='text-muted-foreground text-sm'>Loading feedbacks...</p>
