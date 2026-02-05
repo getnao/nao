@@ -1,5 +1,5 @@
-import type { Granularity } from 'backend/usage';
-import type { LlmProvider } from 'backend/llm';
+import type { Granularity } from '@nao/backend/usage';
+import type { LlmProvider } from '@nao/backend/llm';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 export type ChartView = 'messages' | 'tokens';
