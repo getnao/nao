@@ -25,8 +25,8 @@ export const testRoutes = async (app: App) => {
 			schema: {
 				body: z.object({
 					prompt: z.string(),
-					model: modelSelectionSchema.optional(),
-					sql: z.string().optional(),
+					model: modelSelectionSchema,
+					sql: z.string(),
 				}),
 			},
 		},
@@ -49,7 +49,6 @@ export const testRoutes = async (app: App) => {
 					const { data: expectedData, columns: expectedColumns } = await execute({ sql_query: sql });
 					const { data } = await testAgentService.runVerification(
 						projectId,
-						prompt,
 						result,
 						expectedColumns,
 						modelSelection,

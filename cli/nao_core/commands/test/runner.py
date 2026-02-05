@@ -39,6 +39,17 @@ class ModelConfig:
 
 
 @dataclass
+class TestRunDetails:
+    """Detailed information about a test run for debugging."""
+
+    response_text: str | None = None
+    actual_data: list[dict] | None = None
+    expected_data: list[dict] | None = None
+    comparison: str | None = None
+    tool_calls: list[dict] | None = None
+
+
+@dataclass
 class TestRunResult:
     """Result of a single test run."""
 
@@ -51,10 +62,13 @@ class TestRunResult:
     duration_ms: int | None = None
     tool_call_count: int | None = None
     error: str | None = None
+    details: TestRunDetails | None = None
 
 
-def check_dataframe(verification: VerificationResult, rtol: float = 1e-5, atol: float = 1e-8) -> tuple[bool, str]:
-    """Check if actual data matches expected. Returns (passed, message).
+def check_dataframe(
+    verification: VerificationResult, rtol: float = 1e-5, atol: float = 1e-8
+) -> tuple[bool, str, str | None]:
+    """Check if actual data matches expected. Returns (passed, message, comparison).
 
     Args:
         verification: The verification result containing actual and expected data.
@@ -66,21 +80,21 @@ def check_dataframe(verification: VerificationResult, rtol: float = 1e-5, atol: 
     cols = verification.expectedColumns
 
     if actual.empty and expected.empty:
-        return True, "both empty"
+        return True, "both empty", None
     if actual.empty:
-        return False, "actual is empty"
+        return False, "actual is empty", None
     if expected.empty:
-        return False, "expected is empty"
+        return False, "expected is empty", None
 
     # Filter to expected columns
     if cols:
         missing = set(cols) - set(actual.columns)
         if missing:
-            return False, f"missing columns: {missing}"
+            return False, f"missing columns: {missing}", None
         actual, expected = actual[cols], expected[cols]
 
     if len(actual) != len(expected):
-        return False, f"row count: {len(actual)} vs {len(expected)}"
+        return False, f"row count: {len(actual)} vs {len(expected)}", None
 
     # Normalize: reset index, infer types, and sort columns consistently
     actual = pd.DataFrame(actual.reset_index(drop=True).infer_objects(copy=False))
@@ -93,7 +107,7 @@ def check_dataframe(verification: VerificationResult, rtol: float = 1e-5, atol: 
 
     # Check for exact match first
     if actual.equals(expected):
-        return True, "match"
+        return True, "match", None
 
     # Try approximate comparison for numeric columns
     try:
@@ -121,19 +135,22 @@ def check_dataframe(verification: VerificationResult, rtol: float = 1e-5, atol: 
                     break
 
         if is_close:
-            return True, "match (approximate)"
+            return True, "match (approximate)", None
     except Exception:
         pass  # Fall through to show diff
 
-    # Show diff
+    # Build comparison string
+    comparison: str | None = None
     try:
         diff = actual.compare(expected, result_names=("actual", "expected"))
-        UI.print(f"[dim]{diff.to_string()}[/dim]")
+        comparison = diff.to_string()
+        UI.print(f"[dim]{comparison}[/dim]")
     except Exception:
+        comparison = f"Actual:\n{actual.to_string()}\n\nExpected:\n{expected.to_string()}"
         UI.print(f"[dim]  Actual:\n{actual.to_string()}[/dim]")
         UI.print(f"[dim]  Expected:\n{expected.to_string()}[/dim]")
 
-    return False, "values differ"
+    return False, "values differ", comparison
 
 
 def run_test(test_case: TestCase, model: ModelConfig) -> TestRunResult:
@@ -159,7 +176,7 @@ def run_test(test_case: TestCase, model: ModelConfig) -> TestRunResult:
         UI.print(f"[dim]  Time: {result.duration_ms}ms[/dim]")
 
         if result.verification:
-            passed, msg = check_dataframe(result.verification)
+            passed, msg, comparison = check_dataframe(result.verification)
             status = "[green]✓[/green]" if passed else "[red]✗[/red]"
             UI.print(f"  {status} {msg}")
             return TestRunResult(
@@ -171,6 +188,13 @@ def run_test(test_case: TestCase, model: ModelConfig) -> TestRunResult:
                 cost=result.cost.totalCost,
                 duration_ms=result.duration_ms,
                 tool_call_count=tool_call_count,
+                details=TestRunDetails(
+                    response_text=result.text,
+                    actual_data=result.verification.data,
+                    expected_data=result.verification.expectedData,
+                    comparison=comparison,
+                    tool_calls=result.tool_calls,
+                ),
             )
 
         UI.print("[yellow]  ⚠ no verification data[/yellow]")
@@ -183,6 +207,10 @@ def run_test(test_case: TestCase, model: ModelConfig) -> TestRunResult:
             cost=result.cost.totalCost,
             duration_ms=result.duration_ms,
             tool_call_count=tool_call_count,
+            details=TestRunDetails(
+                response_text=result.text,
+                tool_calls=result.tool_calls,
+            ),
         )
 
     except AgentClientError as e:
@@ -193,6 +221,7 @@ def run_test(test_case: TestCase, model: ModelConfig) -> TestRunResult:
             passed=False,
             message="error",
             error=str(e),
+            details=None,
         )
 
 

@@ -15,7 +15,7 @@ class TestCase:
     name: str
     prompt: str
     file_path: Path
-    sql: str | None = None
+    sql: str
 
     @classmethod
     def from_yaml(cls, file_path: Path) -> "TestCase":

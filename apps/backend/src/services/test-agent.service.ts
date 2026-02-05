@@ -41,7 +41,6 @@ export class TestAgentService extends AgentService {
 	 */
 	async runVerification(
 		projectId: string,
-		prompt: string,
 		agentResult: AgentRunResult,
 		expectedColumns: string[],
 		modelSelection?: ModelSelection,
