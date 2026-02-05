@@ -9,12 +9,13 @@ CREATE TABLE "org_member" (
 CREATE TABLE "organization" (
 	"id" text PRIMARY KEY NOT NULL,
 	"name" text NOT NULL,
-	"logo" text,
+	"slug" text NOT NULL,
 	"google_client_id" text,
 	"google_client_secret" text,
 	"google_auth_domains" text,
 	"created_at" timestamp DEFAULT now() NOT NULL,
-	"updated_at" timestamp DEFAULT now() NOT NULL
+	"updated_at" timestamp DEFAULT now() NOT NULL,
+	CONSTRAINT "organization_slug_unique" UNIQUE("slug")
 );
 --> statement-breakpoint
 ALTER TABLE "project" ADD COLUMN "org_id" text;--> statement-breakpoint

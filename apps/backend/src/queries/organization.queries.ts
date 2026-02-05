@@ -66,6 +66,7 @@ export const getOrCreateDefaultOrganization = async (): Promise<DBOrganization> 
 
 	return createOrganization({
 		name: 'Default Organization',
+		slug: 'default',
 	});
 };
 
@@ -87,7 +88,11 @@ export const initializeDefaultOrganizationForFirstUser = async (userId: string):
 
 	await db.transaction(async (tx) => {
 		// Create organization
-		const [org] = await tx.insert(s.organization).values({ name: 'Default Organization' }).returning().execute();
+		const [org] = await tx
+			.insert(s.organization)
+			.values({ name: 'Default Organization', slug: 'default' })
+			.returning()
+			.execute();
 
 		// Add user as org admin
 		await tx.insert(s.orgMember).values({ orgId: org.id, userId, role: 'admin' }).execute();
@@ -133,6 +138,7 @@ export const ensureOrganizationSetup = async (): Promise<void> => {
 		// Create default organization
 		org = await createOrganization({
 			name: 'Default Organization',
+			slug: 'default',
 		});
 
 		// Add first user as org_admin

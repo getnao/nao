@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "9a78a2a9-bdaf-423a-8894-2c365cb19c7f",
+  "id": "6824f5dc-9ff7-47dd-a2b7-5a1bdb72d1c0",
   "prevId": "d0f6f51c-be11-4538-8ad2-a0b43aae5cef",
   "tables": {
     "account": {
@@ -717,11 +717,11 @@
           "notNull": true,
           "autoincrement": false
         },
-        "logo": {
-          "name": "logo",
+        "slug": {
+          "name": "slug",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "google_client_id": {
@@ -762,7 +762,15 @@
           "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
         }
       },
-      "indexes": {},
+      "indexes": {
+        "organization_slug_unique": {
+          "name": "organization_slug_unique",
+          "columns": [
+            "slug"
+          ],
+          "isUnique": true
+        }
+      },
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},

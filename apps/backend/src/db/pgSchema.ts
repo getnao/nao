@@ -95,7 +95,7 @@ export const organization = pgTable('organization', {
 		.$defaultFn(() => crypto.randomUUID())
 		.primaryKey(),
 	name: text('name').notNull(),
-	logo: text('logo'),
+	slug: text('slug').notNull().unique(),
 	// SSO config
 	googleClientId: text('google_client_id'),
 	googleClientSecret: text('google_client_secret'),
