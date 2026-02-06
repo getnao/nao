@@ -2,6 +2,7 @@ import { ToolCallProvider } from '../../contexts/tool-call.provider';
 import { DefaultToolCall } from './default';
 
 import { DisplayChartToolCall } from './display-chart';
+import { ExecutePythonToolCall } from './execute-python';
 import { ExecuteSqlToolCall } from './execute-sql';
 import { GrepToolCall } from './grep';
 import { ListToolCall } from './list';
@@ -10,8 +11,9 @@ import { SearchToolCall } from './search';
 import type { StaticToolName, UIToolPart } from '@nao/backend/chat';
 import { getToolName } from '@/lib/ai';
 
-const toolComponents: Record<StaticToolName, React.ComponentType> = {
+const toolComponents: Partial<Record<StaticToolName, React.ComponentType>> = {
 	display_chart: DisplayChartToolCall,
+	execute_python: ExecutePythonToolCall,
 	execute_sql: ExecuteSqlToolCall,
 	grep: GrepToolCall,
 	list: ListToolCall,

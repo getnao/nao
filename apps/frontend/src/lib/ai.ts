@@ -63,7 +63,7 @@ export const checkIsAgentRunning = (agent: Pick<UseChatHelpers<UIMessage>, 'stat
 };
 
 /** Tools that should NOT be collapsed (important UI elements) */
-export const NON_COLLAPSIBLE_TOOLS: StaticToolName[] = ['execute_sql', 'display_chart'];
+export const NON_COLLAPSIBLE_TOOLS: StaticToolName[] = ['execute_sql', 'display_chart', 'execute_python'];
 
 /** Check if a part is a reasoning part */
 export const isReasoningPart = (part: UIMessagePart): part is ReasoningUIPart => {
