@@ -5,8 +5,11 @@ from pathlib import Path
 from typing import Any
 
 from ibis import BaseBackend
+from rich.console import Console
 
 from nao_core.templates import get_template_engine
+
+console = Console()
 
 
 class DataAccessor(ABC):
@@ -66,6 +69,8 @@ class DataAccessor(ABC):
             engine = get_template_engine(self._project_path)
             return engine.render(self.template_name, **context)
         except Exception as e:
+            error_msg = f"Error generating {self.filename} for table {dataset}.{table}: {e}"
+            console.print(f"[bold red]✗[/bold red] {error_msg}")
             return f"# {table}\n\nError generating content: {e}"
 
     def get_table(self, conn: BaseBackend, dataset: str, table: str):
