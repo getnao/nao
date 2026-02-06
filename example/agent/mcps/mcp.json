@@ -1,0 +1,45 @@
+{
+  "mcpServers": {
+    "metabase": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@getnao/metabase-mcp-server@latest"
+      ],
+      "env": {
+        "METABASE_URL": "${METABASE_URL}",
+        "METABASE_API_KEY": "${METABASE_API_KEY}"
+      }
+    },
+    "obsidian": {
+			"command": "uvx",
+			"args": [
+				"mcp-obsidian"
+			],
+			"env": {
+				"OBSIDIAN_API_KEY": "6473334c2ae8d8fcfd5d233c92af8cf8db51b16d4b9591c2544b045ae7404b34"
+			}
+		},
+    "notion": {
+			"command": "npx",
+			"args": [
+				"-y",
+				"mcp-remote",
+				"https://mcp.notion.com/mcp"
+			],
+			"env": {}
+		},
+    "tableau": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@tableau/mcp-server@latest"
+      ],
+      "env": {
+        "TABLEAU_SERVER_URL": "fb",
+        "TABLEAU_API_KEY_NAME": "fgb",
+        "TABLEAU_API_KEY_VALUE": "db"
+      }
+    }
+  }
+}

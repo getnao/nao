@@ -7,7 +7,7 @@ export interface ToolDefinition<TInput extends ZodSchema, TOutput extends ZodSch
 	name: string;
 	description: string;
 	inputSchema: TInput;
-	outputSchema: TOutput;
+	outputSchema?: TOutput;
 	execute: (input: z.infer<TInput>) => Promise<z.infer<TOutput>>;
 }
 
@@ -24,7 +24,7 @@ export function createTool<TInput extends ZodSchema, TOutput extends ZodSchema>(
 		tool: tool({
 			description: definition.description,
 			inputSchema: definition.inputSchema,
-			outputSchema: definition.outputSchema,
+			outputSchema: definition.outputSchema || undefined,
 			execute: definition.execute,
 		}),
 	};
