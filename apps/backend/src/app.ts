@@ -8,6 +8,7 @@ import { existsSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 
+import { env } from './env';
 import { ensureOrganizationSetup } from './queries/organization.queries';
 import { authRoutes } from './routes/auth';
 import { chatRoutes } from './routes/chat';
@@ -21,7 +22,7 @@ import { createContext } from './trpc/trpc';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const isDev = process.env.NODE_ENV !== 'production';
+const isDev = env.MODE !== 'prod';
 // pino-pretty transport uses worker threads and can't be resolved inside a Bun-compiled binary
 const isCompiled = typeof Bun !== 'undefined' && Bun.main.startsWith('/$bunfs/');
 
