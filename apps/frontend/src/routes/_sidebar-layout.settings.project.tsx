@@ -1,5 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
+import SlackIcon from '@/components/icons/slack.svg';
 import { Input } from '@/components/ui/input';
 import { trpc } from '@/main';
 import { SettingsCard } from '@/components/ui/settings-card';
@@ -8,6 +9,7 @@ import { SlackConfigSection } from '@/components/settings-slack-config-section';
 import { UsersList } from '@/components/settings-display-users';
 import { ModifyUserForm } from '@/components/settings-modify-user-form';
 import { GoogleConfigSection } from '@/components/settings-google-credentials-section';
+import { SavedPrompts } from '@/components/settings-saved-prompts';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/project')({
 	component: RouteComponent,
@@ -61,7 +63,9 @@ function ProjectPage() {
 						<LlmProvidersSection isAdmin={isAdmin} />
 					</SettingsCard>
 
-					<SettingsCard title='Integrations'>
+					<SavedPrompts isAdmin={isAdmin} />
+
+					<SettingsCard icon={<SlackIcon />} title='Slack Integration'>
 						<SlackConfigSection isAdmin={isAdmin} />
 					</SettingsCard>
 

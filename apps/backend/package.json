@@ -6,6 +6,8 @@
 		"./chat": "./src/types/chat.ts",
 		"./usage": "./src/types/usage.ts",
 		"./llm": "./src/types/llm.ts",
+		"./saved-prompts": "./src/types/saved-prompt.ts",
+		"./tools": "./src/agents/tools/index.ts",
 		"./providers": "./src/agents/providers.ts"
 	},
 	"scripts": {

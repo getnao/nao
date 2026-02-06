@@ -1,10 +1,18 @@
 import type { ReactElement, ReactNode } from 'react';
 
 export function renderToMarkdown(node: ReactNode): string {
-	if (node == null || typeof node === 'boolean') return '';
-	if (typeof node === 'string') return node;
-	if (typeof node === 'number') return String(node);
-	if (Array.isArray(node)) return node.map(renderToMarkdown).join('');
+	if (node == null || typeof node === 'boolean') {
+		return '';
+	}
+	if (typeof node === 'string') {
+		return node;
+	}
+	if (typeof node === 'number') {
+		return String(node);
+	}
+	if (Array.isArray(node)) {
+		return node.map(renderToMarkdown).join('');
+	}
 
 	const el = node as ReactElement<Record<string, unknown>>;
 

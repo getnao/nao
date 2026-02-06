@@ -41,6 +41,7 @@
 		"lucide-react": "^0.562.0",
 		"posthog-js": "^1.336.4",
 		"proxy-from-env": "^1.1.0",
+		"radix-ui": "^1.4.3",
 		"react": "^19.2.0",
 		"react-dom": "^19.2.0",
 		"recharts": "2.15.4",

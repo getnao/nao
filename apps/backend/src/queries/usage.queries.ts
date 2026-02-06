@@ -35,7 +35,9 @@ export const getMessagesUsage = async (projectId: string, filter: UsageFilter): 
 	const lookbackTs = getLookbackTimestamp(granularity);
 
 	const whereConditions = [eq(s.chat.projectId, projectId), sql`${s.chatMessage.createdAt} >= ${lookbackTs}`];
-	if (provider) whereConditions.push(eq(s.chatMessage.llmProvider, provider));
+	if (provider) {
+		whereConditions.push(eq(s.chatMessage.llmProvider, provider));
+	}
 
 	const costLookup = buildCostValuesTable();
 

@@ -1,6 +1,5 @@
 import { ToolCallProvider } from '../../contexts/tool-call.provider';
 import { DefaultToolCall } from './default';
-
 import { DisplayChartToolCall } from './display-chart';
 import { ExecuteSqlToolCall } from './execute-sql';
 import { GrepToolCall } from './grep';
@@ -10,7 +9,7 @@ import { SearchToolCall } from './search';
 import type { StaticToolName, UIToolPart } from '@nao/backend/chat';
 import { getToolName } from '@/lib/ai';
 
-const toolComponents: Record<StaticToolName, React.ComponentType> = {
+const toolComponents: Partial<Record<StaticToolName, React.ComponentType>> = {
 	display_chart: DisplayChartToolCall,
 	execute_sql: ExecuteSqlToolCall,
 	grep: GrepToolCall,
@@ -20,8 +19,7 @@ const toolComponents: Record<StaticToolName, React.ComponentType> = {
 };
 
 export const ToolCall = ({ toolPart }: { toolPart: UIToolPart }) => {
-	const toolName = getToolName(toolPart) as StaticToolName;
-	const Component = toolComponents[toolName] ?? DefaultToolCall;
+	const Component = toolComponents[getToolName(toolPart) as keyof typeof toolComponents] ?? DefaultToolCall;
 	return (
 		<ToolCallProvider toolPart={toolPart}>
 			<Component />

@@ -8,6 +8,7 @@ import { ReasoningAccordion } from './chat-message-reasoning-accordion';
 import { TextShimmer } from './ui/text-shimmer';
 import { MessageActions } from './chat-message-actions';
 import { ChatError } from './chat-error';
+import { FollowUpSuggestions } from './chat-follow-up-suggestions';
 import type { UIMessage } from '@nao/backend/chat';
 import type { MessageGroup } from '@/types/messages';
 import {
@@ -16,7 +17,13 @@ import {
 	ConversationEmptyState,
 	ConversationScrollButton,
 } from '@/components/ui/conversation';
-import { isToolUIPart, checkIsAgentGenerating, groupToolCalls, isToolGroupPart } from '@/lib/ai';
+import {
+	isToolUIPart,
+	checkIsAgentGenerating,
+	groupToolCalls,
+	isToolGroupPart,
+	getLastFollowUpSuggestions,
+} from '@/lib/ai';
 import { cn, isLast } from '@/lib/utils';
 import { useAgentContext } from '@/contexts/agent.provider';
 import { useHeight } from '@/hooks/use-height';
@@ -45,7 +52,7 @@ export function ChatMessages() {
 			key={chatId}
 		>
 			<Conversation resize={shouldResizeSmoothly ? 'smooth' : 'instant'}>
-				<ConversationContent className='max-w-3xl mx-auto'>
+				<ConversationContent className='max-w-3xl mx-auto gap-0'>
 					<ChatMessagesContent isAgentGenerating={isAgentGenerating} />
 				</ConversationContent>
 
@@ -58,6 +65,9 @@ export function ChatMessages() {
 const ChatMessagesContent = ({ isAgentGenerating }: { isAgentGenerating: boolean }) => {
 	const { messages, isRunning, registerScrollDown } = useAgentContext();
 	const { scrollToBottom } = useStickToBottomContext();
+	const followUpSuggestions = useMemo(() => getLastFollowUpSuggestions(messages), [messages]);
+	const extraComponentsRef = useRef<HTMLDivElement>(null);
+	const extraComponentsHeight = useHeight(extraComponentsRef);
 
 	useEffect(() => {
 		// Register the scroll down fn so the agent context has access to it.
@@ -82,25 +92,40 @@ const ChatMessagesContent = ({ isAgentGenerating }: { isAgentGenerating: boolean
 
 	return (
 		<>
-			{messageGroups.length === 0 ? (
-				<ConversationEmptyState />
-			) : (
-				messageGroups.map((group) => (
-					<MessageGroup
-						key={group.user.id}
-						group={group}
-						showResponseLoader={isLast(group, messageGroups) && debouncedIsWaitingForAgentContentGeneration}
-					/>
-				))
-			)}
-			<ChatError className='mt-4' />
+			<div
+				className='flex flex-col gap-8'
+				style={{ '--extra-components-height': `${extraComponentsHeight}px` } as React.CSSProperties}
+			>
+				{messageGroups.length === 0 ? (
+					<ConversationEmptyState />
+				) : (
+					messageGroups.map((group) => (
+						<MessageGroup
+							key={group.user.id}
+							group={group}
+							showResponseLoader={
+								isLast(group, messageGroups) && debouncedIsWaitingForAgentContentGeneration
+							}
+						/>
+					))
+				)}
+			</div>
+
+			<div className='flex flex-col gap-4' ref={extraComponentsRef}>
+				<FollowUpSuggestions
+					suggestions={followUpSuggestions.suggestions}
+					isLoading={followUpSuggestions.isLoading}
+				/>
+
+				<ChatError className='mt-4' />
+			</div>
 		</>
 	);
 };
 
 function MessageGroup({ group, showResponseLoader }: { group: MessageGroup; showResponseLoader: boolean }) {
 	return (
-		<div className='flex flex-col gap-8 last:min-h-[calc(var(--container-height)-48px)] group/message'>
+		<div className='flex flex-col gap-8 last:min-h-[calc(var(--container-height)-var(--extra-components-height)-calc(2*24px+16px))] group/message last:mb-4'>
 			{[group.user, ...group.responses].map((message) => (
 				<MessageBlock
 					key={message.id}
@@ -110,8 +135,6 @@ function MessageGroup({ group, showResponseLoader }: { group: MessageGroup; show
 			))}
 
 			{showResponseLoader && !group.responses.length && <TextShimmer className='px-3' />}
-
-			<ChatError />
 		</div>
 	);
 }
@@ -169,6 +192,8 @@ const AssistantMessageBlock = ({
 	const { isRunning, messages } = useAgentContext();
 	const isLastMessage = isLast(message, messages);
 	const groupedParts = useMemo(() => groupToolCalls(message.parts), [message.parts]);
+	const isSettled = !isRunning || !isLastMessage;
+	const hasText = useMemo(() => message.parts.some((p) => p.type === 'text'), [message.parts]);
 
 	if (!message.parts.length && !showResponseLoader) {
 		return null;
@@ -187,7 +212,7 @@ const AssistantMessageBlock = ({
 					);
 				}
 
-				if (isToolUIPart(p)) {
+				if (isToolUIPart(p) && p.type !== 'tool-suggest_follow_ups') {
 					return <ToolCall key={i} toolPart={p} />;
 				}
 
@@ -210,6 +235,8 @@ const AssistantMessageBlock = ({
 						return null;
 				}
 			})}
+
+			{isSettled && !hasText && <div className='text-muted-foreground italic text-sm'>No response</div>}
 
 			{showResponseLoader && <TextShimmer />}
 

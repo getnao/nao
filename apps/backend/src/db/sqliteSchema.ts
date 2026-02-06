@@ -333,3 +333,25 @@ export const projectLlmConfig = sqliteTable(
 		unique('project_llm_config_project_provider').on(t.projectId, t.provider),
 	],
 );
+
+export const projectSavedPrompt = sqliteTable(
+	'project_saved_prompt',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		title: text('title').notNull(),
+		prompt: text('prompt').notNull(),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+		updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [index('project_saved_prompt_projectId_idx').on(t.projectId)],
+);

@@ -139,7 +139,9 @@ export class SlackService {
 
 		for await (const uiMessage of readUIMessageStream({ stream })) {
 			const text = extractLastTextFromMessage(uiMessage);
-			if (!text) continue;
+			if (!text) {
+				continue;
+			}
 
 			currentText = text;
 			const newContent = text.slice(lastSentText.length);

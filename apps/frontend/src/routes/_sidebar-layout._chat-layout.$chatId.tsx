@@ -1,6 +1,6 @@
 import { createFileRoute, useParams } from '@tanstack/react-router';
 import { ChatMessages } from '@/components/chat-messages';
-import { useChatQuery } from '@/queries/useChatQuery';
+import { useChatQuery } from '@/queries/use-chat-query';
 import { Spinner } from '@/components/ui/spinner';
 
 export const Route = createFileRoute('/_sidebar-layout/_chat-layout/$chatId')({
@@ -11,7 +11,7 @@ function RouteComponent() {
 	const { chatId } = useParams({ strict: false });
 	const chat = useChatQuery({ chatId });
 
-	if (chat.isFetching) {
+	if (chat.isPending) {
 		return (
 			<div className='flex flex-1 items-center justify-center'>
 				<Spinner />
