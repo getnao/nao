@@ -5,8 +5,9 @@ import grep from './definitions/grep';
 import list from './definitions/list';
 import read from './definitions/read';
 import search from './definitions/search';
+import suggestFollowUps from './definitions/suggest-follow-ups';
 
-const allTools: AnyToolDefinition[] = [displayChart, executeSql, grep, list, read, search];
+const allTools: AnyToolDefinition[] = [displayChart, executeSql, grep, list, read, search, suggestFollowUps];
 
 export const tools = Object.fromEntries(allTools.map((def) => [def.name, createTool(def).tool]));
 
@@ -17,3 +18,4 @@ export * as grepSchemas from './schema/grep';
 export * as listSchemas from './schema/list';
 export * as readFileSchemas from './schema/read';
 export * as searchFilesSchemas from './schema/search';
+export * as suggestFollowUpsSchemas from './schema/suggest-follow-ups';

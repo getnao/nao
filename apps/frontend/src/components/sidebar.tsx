@@ -7,7 +7,7 @@ import { SidebarSettingsNav } from './sidebar-settings-nav';
 
 import { Button } from '@/components/ui/button';
 import { cn, hideIf } from '@/lib/utils';
-import { useChatListQuery } from '@/queries/useChatListQuery';
+import { useChatListQuery } from '@/queries/use-chat-list-query';
 import { useSidebar } from '@/contexts/sidebar.provider';
 import NaoLogoGreyscale from '@/components/icons/nao-logo-greyscale.svg';
 

@@ -20,7 +20,6 @@ export default [
 			'@typescript-eslint/array-type': 'off',
 			'@typescript-eslint/no-unnecessary-condition': 'off',
 			'react-hooks/exhaustive-deps': 'error',
-			curly: 'warn',
 		},
 	},
 	{

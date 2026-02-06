@@ -62,10 +62,14 @@ export const getProjectModelProvider = async (projectId: string): Promise<LlmPro
 
 	// Return first configured provider, preferring anthropic
 	const anthropicConfig = configs.find((c) => c.provider === 'anthropic');
-	if (anthropicConfig) return 'anthropic';
+	if (anthropicConfig) {
+		return 'anthropic';
+	}
 
 	const openaiConfig = configs.find((c) => c.provider === 'openai');
-	if (openaiConfig) return 'openai';
+	if (openaiConfig) {
+		return 'openai';
+	}
 
 	// Fall back to env providers
 	return getDefaultEnvProvider();
@@ -78,7 +82,9 @@ export const getProjectLlmConfigForModel = async (
 	modelId: string,
 ): Promise<{ config: DBProjectLlmConfig; modelId: string } | null> => {
 	const config = await getProjectLlmConfigByProvider(projectId, provider);
-	if (!config) return null;
+	if (!config) {
+		return null;
+	}
 
 	// Check if the model is enabled, or use default if no models enabled
 	const enabledModels = config.enabledModels ?? [];
