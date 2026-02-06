@@ -88,7 +88,7 @@ export async function getSlackConfig(): Promise<SlackConfig | null> {
 		projectId: project.id,
 		botToken,
 		signingSecret,
-		redirectUrl: `${baseUrl}/p/${project.id}/`,
+		redirectUrl: `${baseUrl}`,
 	};
 }
 
