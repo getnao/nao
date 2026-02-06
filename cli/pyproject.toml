@@ -47,7 +47,7 @@ dependencies = [
 dev = ["pytest-cov"]
 
 [project.scripts]
-nao = "nao_core.main:app"
+nao = "nao_core.main:main"
 
 [project.urls]
 Homepage = "https://getnao.io"

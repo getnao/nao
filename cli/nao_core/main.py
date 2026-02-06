@@ -1,9 +1,10 @@
-import dotenv
 from cyclopts import App
+from dotenv import load_dotenv
 
 from nao_core.commands import chat, debug, init, sync, test
+from nao_core.version import check_for_updates
 
-dotenv.load_dotenv()
+load_dotenv()
 
 app = App()
 
@@ -13,5 +14,11 @@ app.command(init)
 app.command(sync)
 app.command(test)
 
-if __name__ == "__main__":
+
+def main():
+    check_for_updates()
     app()
+
+
+if __name__ == "__main__":
+    main()
