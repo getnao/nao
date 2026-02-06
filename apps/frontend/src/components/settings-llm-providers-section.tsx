@@ -27,9 +27,7 @@ export function LlmProvidersSection({ isAdmin }: LlmProvidersSectionProps) {
 	} = useLlmProviders();
 
 	return (
-		<div className='grid gap-4 pt-4 border-t border-border'>
-			<h4 className='text-sm font-medium text-foreground'>LLM Providers</h4>
-
+		<div className='grid gap-4'>
 			{/* Unconfigured env providers */}
 			{unconfiguredEnvProviders.map((provider) => {
 				if (editingState?.isEditing && editingState.provider === provider) {

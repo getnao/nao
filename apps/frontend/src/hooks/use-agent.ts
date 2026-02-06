@@ -1,5 +1,5 @@
 import { useNavigate, useParams } from '@tanstack/react-router';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
 import { useMemo, useEffect, useRef, useCallback, useState } from 'react';
 import { Chat as Agent, useChat } from '@ai-sdk/react';
 import { DefaultChatTransport } from 'ai';
@@ -9,10 +9,11 @@ import type { ScrollToBottom, ScrollToBottomOptions } from 'use-stick-to-bottom'
 import type { UseChatHelpers } from '@ai-sdk/react';
 import type { UIMessage } from '@nao/backend/chat';
 import type { LlmProvider } from '@nao/backend/llm';
-import { useChatQuery } from '@/queries/useChatQuery';
+import { useChatQuery, useSetChat } from '@/queries/use-chat-query';
 import { trpc } from '@/main';
-import { agentService } from '@/lib/agents.service';
+import { agentService } from '@/services/agents';
 import { checkIsAgentRunning } from '@/lib/ai';
+import { useSetChatList } from '@/queries/use-chat-list-query';
 
 export type ModelSelection = {
 	provider: LlmProvider;
@@ -64,11 +65,12 @@ export const useAgent = (): AgentHelpers => {
 	const navigate = useNavigate();
 	const { chatId } = useParams({ strict: false });
 	const chat = useChatQuery({ chatId });
-	const queryClient = useQueryClient();
 	const chatIdRef = useCurrent(chatId);
 	const scrollDownService = useScrollDownCallbackService();
 	const [selectedModel, setSelectedModelState] = useState<ModelSelection>(getStoredModel);
 	const selectedModelRef = useCurrent(selectedModel);
+	const setChat = useSetChat();
+	const setChatList = useSetChatList();
 
 	const setSelectedModel = useCallback((model: ModelSelection) => {
 		setSelectedModelState(model);
@@ -96,26 +98,14 @@ export const useAgent = (): AgentHelpers => {
 				},
 			}),
 			onData: ({ data: newChat }) => {
-				chatIdRef.current = newChat.id;
-
 				// Move the chat instance to the new chat id
 				agentService.moveAgent(agentId, newChat.id);
 
 				// Update the agent id after moving the instance
 				agentId = newChat.id;
 
-				// Update the query data
-				queryClient.setQueryData(trpc.chat.get.queryKey({ chatId: newChat.id }), (prev) => {
-					return !prev
-						? prev
-						: {
-								...prev,
-								...newChat,
-							};
-				});
-
-				// Update the chat list
-				queryClient.setQueryData(trpc.chat.list.queryKey(), (old) => ({
+				setChat({ chatId: newChat.id }, { ...newChat, messages: [] });
+				setChatList((old) => ({
 					chats: [newChat, ...(old?.chats || [])],
 				}));
 
@@ -134,7 +124,7 @@ export const useAgent = (): AgentHelpers => {
 		});
 
 		return agentService.registerAgent(agentId, newAgent);
-	}, [chatId, navigate, queryClient, chatIdRef, selectedModelRef]);
+	}, [chatId, navigate, setChat, setChatList, chatIdRef, selectedModelRef]);
 
 	const agent = useChat({ chat: agentInstance });
 
@@ -182,8 +172,8 @@ export const useAgent = (): AgentHelpers => {
 /** Sync the messages between the useChat hook and the query client. */
 export const useSyncMessages = ({ agent }: { agent: AgentHelpers }) => {
 	const { chatId } = useParams({ strict: false });
-	const queryClient = useQueryClient();
 	const chat = useChatQuery({ chatId });
+	const setChat = useSetChat();
 
 	// Sync the agent's messages with the fetched ones
 	useEffect(() => {
@@ -195,11 +185,9 @@ export const useSyncMessages = ({ agent }: { agent: AgentHelpers }) => {
 	// Sync the fetched messages with the agent's
 	useEffect(() => {
 		if (agent.isRunning) {
-			queryClient.setQueryData(trpc.chat.get.queryKey({ chatId }), (prev) =>
-				!prev ? prev : { ...prev, messages: agent.messages },
-			);
+			setChat({ chatId }, (prev) => (!prev ? prev : { ...prev, messages: agent.messages }));
 		}
-	}, [queryClient, agent.messages, chatId, agent.isRunning]);
+	}, [setChat, agent.messages, chatId, agent.isRunning]);
 };
 
 /** Dispose inactive agents to free up memory */
