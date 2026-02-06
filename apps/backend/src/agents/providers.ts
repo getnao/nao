@@ -51,6 +51,22 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 				},
 			},
 			{
+				id: 'claude-opus-4-6',
+				name: 'Claude Opus 4.6',
+				config: {
+					thinking: {
+						type: 'enabled' as const,
+						budgetTokens: 12_000,
+					},
+				},
+				costPerM: {
+					inputNoCache: 5,
+					inputCacheRead: 0.5,
+					inputCacheWrite: 6.25,
+					output: 25,
+				},
+			},
+			{
 				id: 'claude-haiku-4-5',
 				name: 'Claude Haiku 4.5',
 				costPerM: {
