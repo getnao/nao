@@ -1,9 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
+import type { OrgRole } from '../../../backend/src/types/organization';
+import type { UserRole } from '../../../backend/src/types/project';
 import { useSession } from '@/lib/auth-client';
 import { trpc } from '@/main';
-
-type OrgRole = 'admin' | 'user';
-type ProjectRole = 'admin' | 'user' | 'viewer';
 
 interface User {
 	id: string;
@@ -13,7 +12,7 @@ interface User {
 
 interface AuthData {
 	user: User | null;
-	projectRole: ProjectRole | null;
+	projectRole: UserRole | null;
 	orgRole: OrgRole | null;
 	isProjectAdmin: boolean;
 	isOrgAdmin: boolean;
@@ -33,8 +32,8 @@ export function useAuth(): AuthData {
 
 	return {
 		user: session?.user ?? null,
-		projectRole: (project.data?.userRole as ProjectRole) ?? null,
-		orgRole: (org.data?.userRole as OrgRole) ?? null,
+		projectRole: project.data?.userRole ?? null,
+		orgRole: org.data?.userRole ?? null,
 		isProjectAdmin: project.data?.userRole === 'admin',
 		isOrgAdmin: org.data?.userRole === 'admin',
 		isLoading: sessionPending || project.isLoading || org.isLoading,
