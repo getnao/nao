@@ -2,7 +2,7 @@ import { CornerDownRight } from 'lucide-react';
 import { useToolCallContext } from '../../contexts/tool-call.provider';
 import { Button } from '../ui/button';
 import { Skeleton } from '../ui/skeleton';
-import type { suggestFollowUpsSchemas } from 'backend/tools';
+import type { suggestFollowUpsSchemas } from '@nao/backend/tools';
 import { useSetChatInputCallback } from '@/contexts/set-chat-input-callback';
 import { isToolSettled } from '@/lib/ai';
 

@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
-import type { SavedPrompt } from 'backend/saved-prompts';
+import type { SavedPrompt } from '@nao/backend/saved-prompts';
 import { trpc } from '@/main';
 
 export function useSavedPromptsQuery() {

@@ -17,7 +17,7 @@ import { NakedInput } from './ui/input';
 import { SavedPromptItem, SavedPromptSkeleton } from './settings-saved-prompt';
 import { ErrorMessage } from './ui/error-message';
 import { SettingsCard } from './ui/settings-card';
-import type { SavedPrompt } from 'backend/saved-prompts';
+import type { SavedPrompt } from '@nao/backend/saved-prompts';
 import { useSavedPromptsQuery, useSavedPromptMutations } from '@/hooks/use-saved-prompts';
 import { Button } from '@/components/ui/button';
 
