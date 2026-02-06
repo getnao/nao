@@ -69,7 +69,7 @@ export const chatRoutes = async (app: App) => {
 
 			const agent = await agentService.create({ ...chat, userId, projectId }, abortController, modelSelection);
 
-			posthog.capture(undefined, PostHogEvent.MessageSent, {
+			posthog.capture(userId, PostHogEvent.MessageSent, {
 				chat_id: chatId,
 				model_id: agent.getModelId(),
 				is_new_chat: isNewChat,
