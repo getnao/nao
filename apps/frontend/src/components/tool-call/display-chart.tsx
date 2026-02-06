@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { BarChart, Bar, AreaChart, Area, PieChart, Pie, XAxis, YAxis } from 'recharts';
+import { BarChart, Bar, AreaChart, Area, PieChart, Pie, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { useToolCallContext } from '../../contexts/tool-call.provider';
 import { useAgentContext } from '../../contexts/agent.provider';
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from '../ui/chart';
@@ -116,12 +116,23 @@ export interface ChartDisplayProps {
 	chartType: displayChartSchemas.ChartType;
 	xAxisKey: string;
 	xAxisType: 'number' | 'category';
+	xAxisLabelFormatter?: (value: string) => string;
 	/** Minimum one series is required */
 	series: displayChartSchemas.SeriesConfig[];
 	title?: string;
+	showGrid?: boolean;
 }
 
-export const ChartDisplay = ({ data, chartType, xAxisKey, xAxisType, series, title }: ChartDisplayProps) => {
+export const ChartDisplay = ({
+	data,
+	chartType,
+	xAxisKey,
+	xAxisType,
+	xAxisLabelFormatter,
+	series,
+	title,
+	showGrid = true,
+}: ChartDisplayProps) => {
 	const { visibleSeries, hiddenSeriesKeys, handleToggleSeriesVisibility } = useSeriesVisibility(series);
 
 	/** Recharts config for series labels and colors */
@@ -146,7 +157,7 @@ export const ChartDisplay = ({ data, chartType, xAxisKey, xAxisType, series, tit
 
 		return series.reduce((acc, s, idx) => {
 			acc[s.data_key] = {
-				label: labelize(s.data_key),
+				label: s.label || labelize(s.data_key),
 				color: s.color || Colors[idx % Colors.length],
 			};
 			return acc;
@@ -157,10 +168,10 @@ export const ChartDisplay = ({ data, chartType, xAxisKey, xAxisType, series, tit
 		chart: CategoricalChartProps;
 		tooltip: React.ComponentProps<typeof ChartTooltip>;
 	}) => {
-		if (chartType === 'bar' || chartType === 'line') {
-			const Chart = chartType === 'bar' ? BarChart : AreaChart;
+		if (chartType === 'bar' || chartType === 'stacked_bar' || chartType === 'line') {
+			const Chart = chartType === 'bar' || chartType === 'stacked_bar' ? BarChart : AreaChart;
 			const legendPayload = series.map((s, idx) => ({
-				value: labelize(s.data_key),
+				value: s.label || labelize(s.data_key),
 				dataKey: s.data_key,
 				color: s.color || Colors[idx % Colors.length],
 				isHidden: hiddenSeriesKeys.has(s.data_key),
@@ -177,6 +188,8 @@ export const ChartDisplay = ({ data, chartType, xAxisKey, xAxisType, series, tit
 						))}
 					</defs>
 
+					{showGrid && <CartesianGrid horizontal={true} vertical={false} strokeDasharray='3 3' />}
+
 					<ChartTooltip
 						{...opts.tooltip}
 						content={<ChartTooltipContent labelFormatter={(value) => labelize(value)} />}
@@ -191,7 +204,7 @@ export const ChartDisplay = ({ data, chartType, xAxisKey, xAxisType, series, tit
 						tickMargin={10}
 						axisLine={false}
 						minTickGap={12}
-						tickFormatter={(value) => labelize(value)}
+						tickFormatter={(value) => xAxisLabelFormatter?.(value) || labelize(value)}
 					/>
 
 					{chartType === 'bar'
@@ -204,16 +217,27 @@ export const ChartDisplay = ({ data, chartType, xAxisKey, xAxisType, series, tit
 									isAnimationActive={false}
 								/>
 							))
-						: visibleSeries.map((s) => (
-								<Area
-									key={s.data_key}
-									dataKey={s.data_key}
-									type='monotone'
-									stroke={`var(--color-${s.data_key})`}
-									fill={`url(#${s.data_key})`}
-									isAnimationActive={false}
-								/>
-							))}
+						: chartType === 'stacked_bar'
+							? visibleSeries.map((s, idx) => (
+									<Bar
+										key={s.data_key}
+										dataKey={s.data_key}
+										stackId='stack'
+										fill={`var(--color-${s.data_key})`}
+										radius={idx === visibleSeries.length - 1 ? [4, 4, 0, 0] : 0}
+										isAnimationActive={false}
+									/>
+								))
+							: visibleSeries.map((s) => (
+									<Area
+										key={s.data_key}
+										dataKey={s.data_key}
+										type='monotone'
+										stroke={`var(--color-${s.data_key})`}
+										fill={`url(#${s.data_key})`}
+										isAnimationActive={false}
+									/>
+								))}
 
 					<ChartLegend
 						payload={legendPayload}
