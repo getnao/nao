@@ -1,9 +1,6 @@
 import z from 'zod/v3';
 
-export const description =
-	'Search for text patterns in files using ripgrep. Supports regex patterns and respects .gitignore.';
-
-export const inputSchema = z.object({
+export const InputSchema = z.object({
 	pattern: z.string().describe('The regex pattern to search for in file contents.'),
 	path: z
 		.string()
@@ -18,7 +15,7 @@ export const inputSchema = z.object({
 	max_results: z.number().optional().describe('Maximum number of matches to return. Defaults to 100.'),
 });
 
-export const outputSchema = z.object({
+export const OutputSchema = z.object({
 	matches: z.array(
 		z.object({
 			path: z.string().describe('Virtual path of the file containing the match.'),
@@ -32,5 +29,5 @@ export const outputSchema = z.object({
 	truncated: z.boolean().describe('Whether results were truncated due to max_results limit.'),
 });
 
-export type Input = z.infer<typeof inputSchema>;
-export type Output = z.infer<typeof outputSchema>;
+export type Input = z.infer<typeof InputSchema>;
+export type Output = z.infer<typeof OutputSchema>;

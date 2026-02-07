@@ -1,12 +1,12 @@
 import { useToolCallContext } from '../../contexts/tool-call.provider';
 import { ToolCallWrapper } from './tool-call-wrapper';
-import type { readFileSchemas } from '@nao/backend/tools';
+import type { readFile } from '@nao/shared/tools';
 import { isToolSettled } from '@/lib/ai';
 
 export const ReadToolCall = () => {
 	const { toolPart } = useToolCallContext();
-	const output = toolPart.output as readFileSchemas.Output | undefined;
-	const input = toolPart.input as readFileSchemas.Input | undefined;
+	const output = toolPart.output as readFile.Output | undefined;
+	const input = toolPart.input as readFile.Input | undefined;
 	const isSettled = isToolSettled(toolPart);
 
 	const fileName = input?.file_path?.split('/').pop() ?? input?.file_path;

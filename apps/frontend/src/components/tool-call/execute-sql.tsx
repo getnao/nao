@@ -3,7 +3,7 @@ import { Streamdown } from 'streamdown';
 import { Code, Copy, Table } from 'lucide-react';
 import { useToolCallContext } from '../../contexts/tool-call.provider';
 import { ToolCallWrapper } from './tool-call-wrapper';
-import type { executeSqlSchemas } from '@nao/backend/tools';
+import type { executeSql } from '@nao/shared/tools';
 import { isToolSettled } from '@/lib/ai';
 
 type ViewMode = 'results' | 'query';
@@ -11,8 +11,8 @@ type ViewMode = 'results' | 'query';
 export const ExecuteSqlToolCall = () => {
 	const { toolPart } = useToolCallContext();
 	const [viewMode, setViewMode] = useState<ViewMode>('results');
-	const input = toolPart.input as executeSqlSchemas.Input | undefined;
-	const output = toolPart.output as executeSqlSchemas.Output | undefined;
+	const input = toolPart.input as executeSql.Input | undefined;
+	const output = toolPart.output as executeSql.Output | undefined;
 	const isSettled = isToolSettled(toolPart);
 
 	const actions = [

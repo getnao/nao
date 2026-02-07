@@ -9,7 +9,7 @@ import { ToolCallWrapper } from './tool-call-wrapper';
 import { ChartRangeSelector } from './display-chart-range-selector';
 import type { CategoricalChartProps } from 'recharts/types/chart/generateCategoricalChart';
 import type { ChartConfig } from '../ui/chart';
-import type { displayChartSchemas, executeSqlSchemas } from '@nao/backend/tools';
+import type { displayChart } from '@nao/shared/tools';
 import type { DateRange } from '@/lib/charts.utils';
 import { labelize, filterByDateRange, DATE_RANGE_OPTIONS, toKey } from '@/lib/charts.utils';
 
@@ -18,8 +18,8 @@ const Colors = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--cha
 export const DisplayChartToolCall = () => {
 	const { toolPart } = useToolCallContext();
 	const { messages } = useAgentContext();
-	const config = toolPart.state !== 'input-streaming' ? (toolPart.input as displayChartSchemas.Input) : undefined;
-	const output = toolPart.state !== 'input-streaming' ? (toolPart.output as displayChartSchemas.Output) : undefined;
+	const config = toolPart.state !== 'input-streaming' ? (toolPart.input as displayChart.Input) : undefined;
+	const output = toolPart.state !== 'input-streaming' ? (toolPart.output as displayChart.Output) : undefined;
 	const [dataRange, setDataRange] = useState<DateRange>('all');
 
 	const sourceData = useMemo(() => {
@@ -30,7 +30,7 @@ export const DisplayChartToolCall = () => {
 		for (const message of messages) {
 			for (const part of message.parts) {
 				if (part.type === 'tool-execute_sql' && part.output && part.output.id === config.query_id) {
-					return part.output as executeSqlSchemas.Output;
+					return part.output;
 				}
 			}
 		}
@@ -113,11 +113,11 @@ export const DisplayChartToolCall = () => {
 
 export interface ChartDisplayProps {
 	data: Record<string, unknown>[];
-	chartType: displayChartSchemas.ChartType;
+	chartType: displayChart.ChartType;
 	xAxisKey: string;
 	xAxisType: 'number' | 'category';
 	/** Minimum one series is required */
-	series: displayChartSchemas.SeriesConfig[];
+	series: displayChart.SeriesConfig[];
 	title?: string;
 }
 
@@ -272,7 +272,7 @@ export const ChartDisplay = ({ data, chartType, xAxisKey, xAxisType, series, tit
 };
 
 /** Manages which series are visible and hidden */
-const useSeriesVisibility = (series: displayChartSchemas.SeriesConfig[]) => {
+const useSeriesVisibility = (series: displayChart.SeriesConfig[]) => {
 	const [hiddenSeriesKeys, setHiddenSeriesKeys] = useState<Set<string>>(new Set());
 
 	// Keep hidden series keys in sync with the series config
