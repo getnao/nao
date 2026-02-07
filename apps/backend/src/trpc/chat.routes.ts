@@ -2,6 +2,7 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
 import * as chatQueries from '../queries/chat.queries';
+import { type SearchChatResult } from '../queries/chat.queries';
 import { agentService } from '../services/agent.service';
 import { posthog, PostHogEvent } from '../services/posthog.service';
 import { type ListChatResponse, type UIChat } from '../types/chat';
@@ -25,6 +26,12 @@ export const chatRoutes = {
 	list: protectedProcedure.query(async ({ ctx }): Promise<ListChatResponse> => {
 		return chatQueries.listUserChats(ctx.user.id);
 	}),
+
+	search: protectedProcedure
+		.input(z.object({ query: z.string().min(1).max(255), limit: z.number().min(1).max(50).optional() }))
+		.query(async ({ input, ctx }): Promise<SearchChatResult[]> => {
+			return chatQueries.searchUserChats(ctx.user.id, input.query, input.limit);
+		}),
 
 	delete: chatOwnerProcedure
 		.input(z.object({ chatId: z.string() }))

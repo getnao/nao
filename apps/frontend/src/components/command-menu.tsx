@@ -1,6 +1,14 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { CreditCardIcon, MessageSquarePlusIcon, MoonIcon, SettingsIcon, SunIcon, UserIcon } from 'lucide-react';
+import {
+	CreditCardIcon,
+	MessageSquareIcon,
+	MessageSquarePlusIcon,
+	MoonIcon,
+	SettingsIcon,
+	SunIcon,
+	UserIcon,
+} from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import type { LucideIcon } from 'lucide-react';
 
@@ -15,6 +23,8 @@ import {
 } from '@/components/ui/command';
 import { useTheme } from '@/contexts/theme.provider';
 import { trpc } from '@/main';
+import { useSearchChatsQuery } from '@/queries/useSearchChatsQuery';
+import { useDebouncedValue } from '@/hooks/use-debounced-value';
 
 type CommandConfig = {
 	id: string;
@@ -28,9 +38,19 @@ type CommandConfig = {
 
 export function CommandMenu() {
 	const [open, setOpen] = useState(false);
+	const [searchValue, setSearchValue] = useState('');
+	const debouncedSearch = useDebouncedValue(searchValue, 300);
 	const navigate = useNavigate();
 	const { theme, setTheme } = useTheme();
 	const project = useQuery(trpc.project.getCurrent.queryOptions());
+
+	const { data: searchResults, isFetching: isSearching } = useSearchChatsQuery(debouncedSearch, {
+		enabled: open && debouncedSearch.length >= 2,
+	});
+
+	const isSearchMode = searchValue.length >= 2;
+	const hasConversationResults = isSearchMode && searchResults && searchResults.length > 0;
+	const isPendingSearch = isSearchMode && (searchValue !== debouncedSearch || isSearching);
 
 	const commands: CommandConfig[] = useMemo(
 		() => [
@@ -77,15 +97,23 @@ export function CommandMenu() {
 		[navigate, theme, setTheme, project.data?.userRole],
 	);
 
+	const filteredCommands = useMemo(() => {
+		if (!searchValue) {
+			return commands;
+		}
+		const lowerSearch = searchValue.toLowerCase();
+		return commands.filter((cmd) => cmd.label.toLowerCase().includes(lowerSearch));
+	}, [commands, searchValue]);
+
 	const groupedCommands = useMemo(() => {
 		const groups = new Map<string, CommandConfig[]>();
-		for (const command of commands) {
+		for (const command of filteredCommands) {
 			const group = groups.get(command.group) ?? [];
 			group.push(command);
 			groups.set(command.group, group);
 		}
 		return groups;
-	}, [commands]);
+	}, [filteredCommands]);
 
 	useEffect(() => {
 		const handleKeyDown = (e: KeyboardEvent) => {
@@ -99,22 +127,50 @@ export function CommandMenu() {
 		return () => document.removeEventListener('keydown', handleKeyDown);
 	}, []);
 
+	const handleOpenChange = useCallback((isOpen: boolean) => {
+		setOpen(isOpen);
+		if (!isOpen) {
+			setSearchValue('');
+		}
+	}, []);
+
 	const runCommand = useCallback((command: () => void) => {
 		setOpen(false);
+		setSearchValue('');
 		command();
 	}, []);
 
+	const openChat = useCallback(
+		(chatId: string) => {
+			navigate({ to: '/$chatId', params: { chatId } });
+		},
+		[navigate],
+	);
+
 	return (
-		<CommandDialog open={open} onOpenChange={setOpen}>
-			<CommandInput placeholder='Type a command or search...' />
+		<CommandDialog open={open} onOpenChange={handleOpenChange} shouldFilter={false}>
+			<CommandInput
+				placeholder='Type a command or search conversations...'
+				value={searchValue}
+				onValueChange={setSearchValue}
+			/>
 			<CommandList>
-				<CommandEmpty>No results found.</CommandEmpty>
+				{filteredCommands.length === 0 && !hasConversationResults && !isPendingSearch && (
+					<CommandEmpty>No results found.</CommandEmpty>
+				)}
+				{isPendingSearch && !hasConversationResults && (
+					<div className='py-6 text-center text-sm text-muted-foreground'>Searching...</div>
+				)}
 				{Array.from(groupedCommands.entries()).map(([group, items]) => (
 					<CommandGroup key={group} heading={group}>
 						{items
 							.filter((command) => command.visible ?? true)
 							.map((command) => (
-								<CommandItem key={command.id} onSelect={() => runCommand(command.action)}>
+								<CommandItem
+									key={command.id}
+									value={command.id}
+									onSelect={() => runCommand(command.action)}
+								>
 									<command.icon />
 									<span>{command.label}</span>
 									{command.shortcut && <CommandShortcut>{command.shortcut}</CommandShortcut>}
@@ -122,7 +178,43 @@ export function CommandMenu() {
 							))}
 					</CommandGroup>
 				))}
+				{hasConversationResults && (
+					<CommandGroup heading='Conversations'>
+						{searchResults.map((chat) => (
+							<CommandItem
+								key={chat.id}
+								value={`conversation-${chat.id}`}
+								onSelect={() => runCommand(() => openChat(chat.id))}
+							>
+								<MessageSquareIcon />
+								<div className='flex flex-col gap-0.5 overflow-hidden'>
+									<span className='truncate'>{chat.title}</span>
+									{chat.matchedText && (
+										<span className='text-muted-foreground truncate text-xs'>
+											...{truncateMatchedText(chat.matchedText, debouncedSearch)}...
+										</span>
+									)}
+								</div>
+							</CommandItem>
+						))}
+					</CommandGroup>
+				)}
 			</CommandList>
 		</CommandDialog>
 	);
+}
+
+function truncateMatchedText(text: string, query: string, contextLength = 30): string {
+	const lowerText = text.toLowerCase();
+	const lowerQuery = query.toLowerCase();
+	const index = lowerText.indexOf(lowerQuery);
+
+	if (index === -1) {
+		return text.slice(0, contextLength * 2);
+	}
+
+	const start = Math.max(0, index - contextLength);
+	const end = Math.min(text.length, index + query.length + contextLength);
+
+	return text.slice(start, end);
 }
