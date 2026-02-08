@@ -23,9 +23,18 @@ export const chatRoutes = {
 		return chatQueries.listUserChats(ctx.user.id);
 	}),
 
-	delete: protectedProcedure.input(z.object({ chatId: z.string() })).mutation(async ({ input }): Promise<void> => {
-		await chatQueries.deleteChat(input.chatId);
-	}),
+	delete: protectedProcedure
+		.input(z.object({ chatId: z.string() }))
+		.mutation(async ({ input, ctx }): Promise<void> => {
+			const userId = await chatQueries.getChatOwnerId(input.chatId);
+			if (!userId) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: `Chat with id ${input.chatId} not found.` });
+			}
+			if (userId !== ctx.user.id) {
+				throw new TRPCError({ code: 'FORBIDDEN', message: `You are not authorized to delete this chat.` });
+			}
+			await chatQueries.deleteChat(input.chatId);
+		}),
 
 	stop: protectedProcedure.input(z.object({ chatId: z.string() })).mutation(async ({ input, ctx }): Promise<void> => {
 		const agent = agentService.get(input.chatId);
