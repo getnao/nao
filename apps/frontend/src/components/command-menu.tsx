@@ -148,7 +148,7 @@ export function CommandMenu() {
 	);
 
 	return (
-		<CommandDialog open={open} onOpenChange={handleOpenChange} shouldFilter={false}>
+		<CommandDialog open={open} onOpenChange={handleOpenChange} shouldFilter={false} loop>
 			<CommandInput
 				placeholder='Type a command or search conversations...'
 				value={searchValue}
