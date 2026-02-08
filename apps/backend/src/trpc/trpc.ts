@@ -55,3 +55,29 @@ export const adminProtectedProcedure = projectProtectedProcedure.use(async ({ ct
 
 	return next({ ctx: { project: ctx.project, userRole: ctx.userRole } });
 });
+
+export function ownedResourceProcedure(
+	getOwnerId: (resourceId: string) => Promise<string | undefined>,
+	resourceName: string,
+) {
+	return protectedProcedure.use(async ({ ctx, getRawInput, next }) => {
+		const rawInput = (await getRawInput()) as Record<string, unknown>;
+		const resourceId = rawInput[`${resourceName}Id`];
+		if (typeof resourceId !== 'string') {
+			throw new TRPCError({ code: 'BAD_REQUEST', message: `${resourceName}Id is required.` });
+		}
+
+		const ownerId = await getOwnerId(resourceId);
+		if (!ownerId) {
+			throw new TRPCError({ code: 'NOT_FOUND', message: `${resourceName} not found.` });
+		}
+		if (ownerId !== ctx.user.id) {
+			throw new TRPCError({
+				code: 'FORBIDDEN',
+				message: `You are not authorized to modify this ${resourceName}.`,
+			});
+		}
+
+		return next({ ctx });
+	});
+}
