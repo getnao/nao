@@ -10,17 +10,13 @@ on:
 
 jobs:
     claude-review:
-        # Optional: Filter by PR author
-        # if: |
-        #   github.event.pull_request.user.login == 'external-contributor' ||
-        #   github.event.pull_request.user.login == 'new-developer' ||
-        #   github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR'
+        if: github.event.pull_request.head.repo.full_name == github.repository
 
         runs-on: ubuntu-latest
         permissions:
             contents: read
-            pull-requests: read
-            issues: read
+            pull-requests: write
+            issues: write
             id-token: write
 
         steps:
@@ -34,6 +30,7 @@ jobs:
               uses: anthropics/claude-code-action@v1
               with:
                   anthropic_api_key: ${{ secrets.CLAUDE_CI_API_KEY }}
+                  github_token: ${{ secrets.GITHUB_TOKEN }}
                   plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
                   plugins: 'code-review@claude-code-plugins'
                   prompt: '/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}'
