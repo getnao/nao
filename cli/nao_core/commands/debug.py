@@ -53,6 +53,11 @@ def check_database_connection(db_config: AnyDatabaseConfig) -> tuple[bool, str]:
             Tuple of (success, message)
     """
     try:
+        if db_config.type == "redshift":
+            schemas = db_config.list_schemas()
+            schema_count = len(schemas)
+            return True, f"Connected successfully ({schema_count} schemas found)"
+
         conn = db_config.connect()
         # Run a simple query to verify the connection works
         if hasattr(db_config, "dataset_id") and db_config.dataset_id:

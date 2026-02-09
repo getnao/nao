@@ -28,10 +28,7 @@ def sync_redshift(
     db_path = base_path / "type=redshift" / f"database={db_name}"
     state = DatabaseSyncState(db_path=db_path)
 
-    if db_config.schema_name:
-        schemas = [db_config.schema_name]
-    else:
-        schemas = conn.list_databases()
+    schemas = db_config.list_schemas()
 
     schema_task = progress.add_task(
         f"[dim]{db_config.name}[/dim]",
@@ -40,7 +37,7 @@ def sync_redshift(
 
     for schema in schemas:
         try:
-            all_tables = conn.list_tables(database=schema)
+            all_tables = db_config.list_tables(schema)
         except Exception:
             progress.update(schema_task, advance=1)
             continue

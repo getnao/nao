@@ -1,8 +1,7 @@
 from pathlib import Path
 from typing import Literal
 
-import ibis
-from ibis import BaseBackend
+import redshift_connector
 from pydantic import BaseModel, Field
 from sshtunnel import SSHTunnelForwarder
 
@@ -31,7 +30,6 @@ class RedshiftConfig(DatabaseConfig):
     database: str = Field(description="Database name")
     user: str = Field(description="Username")
     password: str = Field(description="Password")
-    schema_name: str | None = Field(default=None, description="Default schema (optional, uses 'public' if not set)")
     sslmode: str = Field(default="require", description="SSL mode for the connection")
     ssh_tunnel: RedshiftSSHTunnelConfig | None = Field(default=None, description="SSH tunnel configuration (optional)")
 
@@ -49,7 +47,6 @@ class RedshiftConfig(DatabaseConfig):
         user = ask_text("Username:", required_field=True)
         password = ask_text("Password:", password=True, required_field=True)
         sslmode = ask_text("SSL mode:", default="require") or "require"
-        schema_name = ask_text("Default schema (uses 'public' if empty):")
 
         use_ssh = ask_confirm("Use SSH tunnel?", default=False)
         ssh_tunnel = None
@@ -80,13 +77,12 @@ class RedshiftConfig(DatabaseConfig):
             database=database or "",
             user=user or "",
             password=password or "",
-            schema_name=schema_name,
             sslmode=sslmode,
             ssh_tunnel=ssh_tunnel,
         )
 
-    def connect(self) -> BaseBackend:
-        """Create an Ibis Redshift connection."""
+    def connect(self):
+        """Create a Redshift connection via redshift_connector."""
 
         # Determine connection host and port
         connect_host = self.host
@@ -116,16 +112,52 @@ class RedshiftConfig(DatabaseConfig):
             "database": self.database,
             "user": self.user,
             "password": self.password,
-            "client_encoding": "utf8",
             "sslmode": self.sslmode,
         }
 
-        if self.schema_name:
-            kwargs["schema"] = self.schema_name
-
-        return ibis.postgres.connect(
+        return redshift_connector.connect(
             **kwargs,
         )
+
+    def list_schemas(self) -> list[str]:
+        """List schemas in the Redshift database."""
+        conn = self.connect()
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT nspname
+            FROM pg_namespace
+            WHERE nspname NOT LIKE 'pg_%'
+            AND nspname != 'information_schema'
+            ORDER BY nspname;
+        """)
+
+        schemas = [row[0] for row in cursor.fetchall()]
+        cursor.close()
+        conn.close()
+
+        return schemas
+
+    def list_tables(self, schema: str) -> list[str]:
+        """List tables in a specific schema."""
+        conn = self.connect()
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            SELECT tablename
+            FROM pg_tables
+            WHERE schemaname = %s
+            ORDER BY tablename;
+        """,
+            (schema,),
+        )
+
+        tables = [row[0] for row in cursor.fetchall()]
+        cursor.close()
+        conn.close()
+
+        return tables
 
     def get_database_name(self) -> str:
         """Get the database name for Redshift."""

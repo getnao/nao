@@ -42,6 +42,7 @@ dependencies = [
     "mistralai>=1.11.1",
     "google-genai>=1.61.0",
     "sshtunnel>=0.4.0",
+    "redshift-connector>=2.1.11",
 ]
 
 [project.optional-dependencies]
