@@ -65,22 +65,21 @@ export const trpc = createTRPCOptionsProxy<TrpcRouter>({
 const rootElement = document.getElementById('app')!;
 if (!rootElement.innerHTML) {
 	const root = ReactDOM.createRoot(rootElement);
-	root
-		.render
-		// <StrictMode>
-		// 	<ThemeProvider>
-		// 		<SidebarProvider>
-		// 			<QueryClientProvider client={queryClient}>
-		// 				<PostHogProvider>
-		// 					<UserPageProvider>
-		// 						<RouterProvider router={router} />
-		// 					</UserPageProvider>
-		// 				</PostHogProvider>
-		// 			</QueryClientProvider>
-		// 		</SidebarProvider>
-		// 	</ThemeProvider>
-		// </StrictMode>,
-		();
+	root.render(
+		<StrictMode>
+			<ThemeProvider>
+				<SidebarProvider>
+					<QueryClientProvider client={queryClient}>
+						<PostHogProvider>
+							<UserPageProvider>
+								<RouterProvider router={router} />
+							</UserPageProvider>
+						</PostHogProvider>
+					</QueryClientProvider>
+				</SidebarProvider>
+			</ThemeProvider>
+		</StrictMode>,
+	);
 }
 
 // If you want to start measuring performance in your app, pass a function
