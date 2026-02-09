@@ -164,7 +164,7 @@ export class SlackService {
 	}
 
 	private async _replaceStopButtonWithLink(chatId: string): Promise<void> {
-		const chatUrl = `${this._redirectUrl}${chatId}`;
+		const chatUrl = new URL(`${chatId}`, `${this._redirectUrl}`).toString();
 		await this._slackClient.chat.update({
 			channel: this._channel,
 			text: `<${chatUrl}|View full conversation>`,

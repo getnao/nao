@@ -82,13 +82,11 @@ export async function getSlackConfig(): Promise<SlackConfig | null> {
 		return null;
 	}
 
-	const baseUrl = redirectUrl.endsWith('/') ? redirectUrl.slice(0, -1) : redirectUrl;
-
 	return {
 		projectId: project.id,
 		botToken,
 		signingSecret,
-		redirectUrl: `${baseUrl}/p/${project.id}/`,
+		redirectUrl,
 	};
 }
 
