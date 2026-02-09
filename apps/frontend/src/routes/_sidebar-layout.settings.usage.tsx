@@ -58,7 +58,7 @@ function UsagePage() {
 					data={chartData}
 					chartType='bar'
 					xAxisLabelFormatter={(value) => format(new Date(value), dateFormats[granularity])}
-					series={[{ data_key: 'nbMessages', color: 'var(--chart-1)', label: 'Number of messages' }]}
+					series={[{ data_key: 'messageCount', color: 'var(--chart-1)', label: 'Number of messages' }]}
 				/>
 			)}
 

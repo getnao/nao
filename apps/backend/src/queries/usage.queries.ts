@@ -1,4 +1,4 @@
-import { and, count, eq, isNotNull, SQL, sql, SQLWrapper, sum } from 'drizzle-orm';
+import { and, eq, isNotNull, SQL, sql, SQLWrapper, sum } from 'drizzle-orm';
 
 import { LLM_PROVIDERS } from '../agents/providers';
 import s from '../db/abstractSchema';
@@ -17,35 +17,6 @@ const COST_COLS = [
 	'output',
 ] as const;
 
-/** Build a SQL VALUES table with cost-per-million for each (provider, modelId) */
-function buildCostValuesTable(): SQL {
-	const tuples = Object.entries(LLM_PROVIDERS).flatMap(([provider, config]) =>
-		config.models.map((m) => {
-			const c = m.costPerM ?? {};
-			return [
-				provider,
-				m.id,
-				c.inputNoCache ?? 0,
-				c.inputCacheRead ?? 0,
-				c.inputCacheWrite ?? 0,
-				c.output ?? 0,
-			] as const;
-		}),
-	);
-
-	const toRow = (t: (typeof tuples)[0]) => `'${t[0]}', '${t[1]}', ${t[2]}, ${t[3]}, ${t[4]}, ${t[5]}`;
-
-	if (dbConfig.dialect === Dialect.Postgres) {
-		const rows = tuples.map((t) => `(${toRow(t)})`).join(', ');
-		return sql.raw(`(VALUES ${rows}) AS cost_lookup(${COST_COLS.join(', ')})`);
-	} else {
-		const [first, ...rest] = tuples;
-		const firstRow = `SELECT ${first.map((v, i) => `${typeof v === 'string' ? `'${v}'` : v} AS ${COST_COLS[i]}`).join(', ')}`;
-		const restRows = rest.map((t) => `SELECT ${toRow(t)}`);
-		return sql.raw(`(${[firstRow, ...restRows].join(' UNION ALL ')}) AS cost_lookup`);
-	}
-}
-
 const sqliteFormats = {
 	hour: '%Y-%m-%d %H:00',
 	day: '%Y-%m-%d',
@@ -57,16 +28,6 @@ const pgFormats = {
 	day: 'YYYY-MM-DD',
 	month: 'YYYY-MM',
 };
-
-function getDateExpr(field: SQLWrapper, granularity: Granularity): SQL<string> {
-	if (dbConfig.dialect === Dialect.Postgres) {
-		const format = sql.raw(`'${pgFormats[granularity]}'`);
-		return sql<string>`to_char(to_timestamp(${field} / 1000.0), ${format})`;
-	} else {
-		const format = sql.raw(`'${sqliteFormats[granularity]}'`);
-		return sql<string>`strftime(${format}, ${field} / 1000, 'unixepoch')`;
-	}
-}
 
 export const getMessagesUsage = async (projectId: string, filter: UsageFilter): Promise<UsageRecord[]> => {
 	const { granularity, provider } = filter;
@@ -81,7 +42,7 @@ export const getMessagesUsage = async (projectId: string, filter: UsageFilter): 
 	const rows = await db
 		.select({
 			date: dateExpr,
-			nbMessages: count(),
+			messageCount: sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' then ${s.chatMessage.id} end)`,
 			inputNoCacheTokens: sum(s.messagePart.inputNoCacheTokens),
 			inputCacheReadTokens: sum(s.messagePart.inputCacheReadTokens),
 			inputCacheWriteTokens: sum(s.messagePart.inputCacheWriteTokens),
@@ -105,7 +66,7 @@ export const getMessagesUsage = async (projectId: string, filter: UsageFilter): 
 	return fillMissingDates(
 		rows.map((row) => ({
 			date: row.date,
-			nbMessages: row.nbMessages,
+			messageCount: row.messageCount,
 			inputNoCacheTokens: Number(row.inputNoCacheTokens ?? 0),
 			inputCacheReadTokens: Number(row.inputCacheReadTokens ?? 0),
 			inputCacheWriteTokens: Number(row.inputCacheWriteTokens ?? 0),
@@ -135,3 +96,42 @@ export const getUsedProviders = async (projectId: string): Promise<LlmProvider[]
 
 	return rows.map((row) => row.provider).filter((p): p is LlmProvider => p !== null);
 };
+
+function getDateExpr(field: SQLWrapper, granularity: Granularity): SQL<string> {
+	if (dbConfig.dialect === Dialect.Postgres) {
+		const format = sql.raw(`'${pgFormats[granularity]}'`);
+		return sql<string>`to_char(to_timestamp(${field} / 1000.0), ${format})`;
+	} else {
+		const format = sql.raw(`'${sqliteFormats[granularity]}'`);
+		return sql<string>`strftime(${format}, ${field} / 1000, 'unixepoch')`;
+	}
+}
+
+/** Build a SQL VALUES table with cost-per-million for each (provider, modelId) */
+function buildCostValuesTable(): SQL {
+	const tuples = Object.entries(LLM_PROVIDERS).flatMap(([provider, config]) =>
+		config.models.map((model) => {
+			const cost = model.costPerM ?? {};
+			return [
+				provider,
+				model.id,
+				cost.inputNoCache ?? 0,
+				cost.inputCacheRead ?? 0,
+				cost.inputCacheWrite ?? 0,
+				cost.output ?? 0,
+			] as const;
+		}),
+	);
+
+	const toRow = (t: (typeof tuples)[0]) => `'${t[0]}', '${t[1]}', ${t[2]}, ${t[3]}, ${t[4]}, ${t[5]}`;
+
+	if (dbConfig.dialect === Dialect.Postgres) {
+		const rows = tuples.map((t) => `(${toRow(t)})`).join(', ');
+		return sql.raw(`(VALUES ${rows}) AS cost_lookup(${COST_COLS.join(', ')})`);
+	} else {
+		const [first, ...rest] = tuples;
+		const firstRow = `SELECT ${first.map((v, i) => `${typeof v === 'string' ? `'${v}'` : v} AS ${COST_COLS[i]}`).join(', ')}`;
+		const restRows = rest.map((t) => `SELECT ${toRow(t)}`);
+		return sql.raw(`(${[firstRow, ...restRows].join(' UNION ALL ')}) AS cost_lookup`);
+	}
+}

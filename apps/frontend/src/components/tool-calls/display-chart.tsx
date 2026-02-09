@@ -117,7 +117,6 @@ export interface ChartDisplayProps {
 	xAxisKey: string;
 	xAxisType: 'number' | 'category';
 	xAxisLabelFormatter?: (value: string) => string;
-	/** Minimum one series is required */
 	series: displayChart.SeriesConfig[];
 	title?: string;
 	showGrid?: boolean;

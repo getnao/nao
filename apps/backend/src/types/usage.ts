@@ -13,7 +13,7 @@ export type UsageFilter = z.infer<typeof usageFilterSchema>;
 
 export interface UsageRecord {
 	date: string;
-	nbMessages: number;
+	messageCount: number;
 	inputNoCacheTokens: number;
 	inputCacheReadTokens: number;
 	inputCacheWriteTokens: number;

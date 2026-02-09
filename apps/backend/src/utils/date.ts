@@ -72,7 +72,7 @@ export function fillMissingDates(records: UsageRecord[], granularity: Granularit
 		(date) =>
 			dateSet.get(date) ?? {
 				date,
-				nbMessages: 0,
+				messageCount: 0,
 				inputNoCacheTokens: 0,
 				inputCacheReadTokens: 0,
 				inputCacheWriteTokens: 0,
