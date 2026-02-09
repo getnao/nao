@@ -8,6 +8,7 @@ import { SlackConfigSection } from '@/components/settings-slack-config-section';
 import { UsersList } from '@/components/settings-display-users';
 import { ModifyUserForm } from '@/components/settings-modify-user-form';
 import { GoogleConfigSection } from '@/components/settings-google-credentials-section';
+import { McpList } from '@/components/settings-display-mcp';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/project')({
 	component: RouteComponent,
@@ -71,6 +72,10 @@ function ProjectPage() {
 
 					<SettingsCard title='Team'>
 						<UsersList isAdmin={isAdmin} />
+					</SettingsCard>
+
+					<SettingsCard title='MCP Servers'>
+						<McpList isAdmin={isAdmin} />
 					</SettingsCard>
 
 					<ModifyUserForm isAdmin={isAdmin} />

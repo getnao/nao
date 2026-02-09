@@ -1,0 +1,24 @@
+{
+  "mcpServers": {
+    "metabase": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@getnao/metabase-mcp-server@latest"
+      ],
+      "env": {
+        "METABASE_URL": "${METABASE_URL}",
+        "METABASE_API_KEY": "${METABASE_API_KEY}"
+      }
+    }, 
+    "obsidian": {
+      "command": "uvx",
+      "args": [
+        "mcp-obsidian"
+      ],
+      "env": {
+        "OBSIDIAN_API_KEY": "${OBSIDIAN_API_KEY}"
+      }
+    }
+  }
+}

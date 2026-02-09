@@ -228,3 +228,49 @@ export const toVirtualPath = (realPath: string, projectFolder: string): string =
 	const relativePath = path.relative(projectFolder, resolved);
 	return '/' + relativePath;
 };
+
+/**
+ * Sanitizes MCP tool schemas by:
+ * - Ensures all array types have an items property
+ * - Removes null from required arrays
+ * - Recursively processes nested objects
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function sanitizeTools(schema: any): any {
+	if (!schema || typeof schema !== 'object') {
+		return schema;
+	}
+
+	const sanitized = { ...schema };
+
+	// Convert required: null to undefined
+	if (sanitized.required === null) {
+		delete sanitized.required;
+	}
+
+	// Ensure array types have items
+	if (sanitized.type === 'array' && !sanitized.items) {
+		sanitized.items = {};
+	}
+
+	// Recursively process properties
+	if (sanitized.properties && typeof sanitized.properties === 'object') {
+		sanitized.properties = Object.fromEntries(
+			Object.entries(sanitized.properties).map(([key, value]) => {
+				return [key, sanitizeTools(value)];
+			}),
+		);
+	}
+
+	// Recursively process items
+	if (sanitized.items) {
+		sanitized.items = sanitizeTools(sanitized.items);
+	}
+
+	// Recursively process additionalProperties
+	if (sanitized.additionalProperties && typeof sanitized.additionalProperties === 'object') {
+		sanitized.additionalProperties = sanitizeTools(sanitized.additionalProperties);
+	}
+
+	return sanitized;
+}

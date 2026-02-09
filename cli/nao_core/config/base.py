@@ -13,6 +13,7 @@ from nao_core.ui import UI, ask_confirm, ask_select
 
 from .databases import DATABASE_CONFIG_CLASSES, AnyDatabaseConfig, DatabaseType, parse_database_config
 from .llm import LLMConfig
+from .mcp import McpConfig
 from .notion import NotionConfig
 from .repos import RepoConfig
 from .slack import SlackConfig
@@ -27,6 +28,7 @@ class NaoConfig(BaseModel):
     notion: NotionConfig | None = Field(default=None, description="The Notion configurations")
     llm: LLMConfig | None = Field(default=None, description="The LLM configuration")
     slack: SlackConfig | None = Field(default=None, description="The Slack configuration")
+    mcp: McpConfig | None = Field(default=None, description="The MCP configuration")
 
     @model_validator(mode="before")
     @classmethod
@@ -52,6 +54,7 @@ class NaoConfig(BaseModel):
             llm=cls._prompt_llm(),
             slack=cls._prompt_slack(),
             notion=cls._prompt_notion(),
+            mcp=cls._prompt_mcp(project_name),
         )
 
     @classmethod
@@ -62,6 +65,7 @@ class NaoConfig(BaseModel):
         llm = existing.llm
         slack = existing.slack
         notion = existing.notion
+        mcp = existing.mcp
 
         # Show current config summary
         UI.title("Current Configuration")
@@ -75,6 +79,8 @@ class NaoConfig(BaseModel):
             UI.print("  Slack: configured")
         if notion:
             UI.print("  Notion: configured")
+        if mcp:
+            UI.print("  MCP: configured")
         UI.print()
 
         # Prompt for additions
@@ -90,6 +96,9 @@ class NaoConfig(BaseModel):
         if not notion:
             notion = cls._prompt_notion()
 
+        if not mcp:
+            mcp = cls._prompt_mcp(existing.project_name)
+
         return cls(
             project_name=existing.project_name,
             databases=databases,
@@ -97,6 +106,7 @@ class NaoConfig(BaseModel):
             llm=llm,
             slack=slack,
             notion=notion,
+            mcp=mcp,
         )
 
     @staticmethod
@@ -162,6 +172,13 @@ class NaoConfig(BaseModel):
         """Prompt for Notion configuration using questionary."""
         if ask_confirm("Set up Notion integration?", default=False):
             return NotionConfig.promptConfig()
+        return None
+
+    @staticmethod
+    def _prompt_mcp(project_name: str) -> McpConfig | None:
+        """Prompt for MCP configuration using questionary."""
+        if ask_confirm("Set up MCP servers?", default=False):
+            return McpConfig.promptConfig(project_name)
         return None
 
     def save(self, path: Path) -> None:

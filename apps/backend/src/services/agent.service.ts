@@ -10,7 +10,7 @@ import {
 
 import { getInstructions } from '../agents/prompt';
 import { CACHE_1H, CACHE_5M, createProviderModel } from '../agents/providers';
-import { tools } from '../agents/tools';
+import { getTools } from '../agents/tools';
 import * as chatQueries from '../queries/chat.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import { TokenCost, TokenUsage, UIChat, UIMessage } from '../types/chat';
@@ -129,7 +129,7 @@ export class AgentService {
 }
 
 class AgentManager {
-	private readonly _agent: ToolLoopAgent<never, typeof tools, never>;
+	private readonly _agent: ToolLoopAgent<never, ReturnType<typeof getTools>, never>;
 
 	constructor(
 		readonly chat: AgentChat,
@@ -142,7 +142,7 @@ class AgentManager {
 
 		this._agent = new ToolLoopAgent({
 			...modelConfig,
-			tools,
+			tools: getTools(),
 			// On step 1+: cache user message (stable) + current step's last message (loop leaf)
 			prepareStep: ({ messages, stepNumber }) =>
 				stepNumber === 0 ? undefined : { messages: this._withAnthropicCache(messages, provider) },
@@ -156,7 +156,7 @@ class AgentManager {
 		},
 	): ReadableStream {
 		let error: unknown = undefined;
-		let result: StreamTextResult<typeof tools, never>;
+		let result: StreamTextResult<ReturnType<typeof getTools>, never>;
 		return createUIMessageStream<UIMessage>({
 			generateId: () => crypto.randomUUID(),
 			execute: async ({ writer }) => {

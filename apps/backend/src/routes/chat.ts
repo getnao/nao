@@ -5,6 +5,7 @@ import type { App } from '../app';
 import { authMiddleware } from '../middleware/auth';
 import * as chatQueries from '../queries/chat.queries';
 import { agentService } from '../services/agent.service';
+import { mcpService } from '../services/mcp.service';
 import { posthog, PostHogEvent } from '../services/posthog.service';
 import { UIMessage } from '../types/chat';
 import { llmProviderSchema } from '../types/llm';
@@ -65,6 +66,10 @@ export const chatRoutes = async (app: App) => {
 			const isAuthorized = chatUserId === userId;
 			if (!isAuthorized) {
 				return reply.status(403).send({ error: `You are not authorized to access this chat.` });
+			}
+
+			if (process.env.MCP_JSON_FILE_PATH) {
+				await mcpService.initializeMcpServerState();
 			}
 
 			const agent = await agentService.create({ ...chat, userId, projectId }, abortController, modelSelection);
