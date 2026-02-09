@@ -3,13 +3,14 @@ import { BunSQLiteDatabase, drizzle as drizzleBunSqlite } from 'drizzle-orm/bun-
 import { drizzle as drizzlePostgres } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 
+import { env } from '../env';
 import dbConfig, { Dialect } from './dbConfig';
 import * as pgSchema from './pgSchema';
 import * as sqliteSchema from './sqliteSchema';
 
 function createDb() {
 	if (dbConfig.dialect === Dialect.Postgres) {
-		const ssl = process.env.DB_SSL === 'true' ? 'require' : undefined;
+		const ssl = env.DB_SSL ? 'require' : undefined;
 		const sql = postgres(dbConfig.dbUrl, { ssl });
 		return drizzlePostgres(sql, { schema: pgSchema });
 	} else {

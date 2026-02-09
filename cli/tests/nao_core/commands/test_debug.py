@@ -76,6 +76,61 @@ class TestLLMConnection:
             assert success is False
             assert "Authentication failed" in message
 
+    def test_gemini_connection_success(self):
+        config = LLMConfig(provider=LLMProvider.GEMINI, api_key="test-gemini-key")
+
+        with patch("google.genai.Client") as mock_client_class:
+            mock_client = MagicMock()
+            mock_client.models.list.return_value = [MagicMock(), MagicMock(), MagicMock()]
+            mock_client_class.return_value = mock_client
+
+            success, message = check_llm_connection(config)
+
+            assert success is True
+            assert "Connected successfully" in message
+            assert "3 models available" in message
+            mock_client_class.assert_called_once_with(api_key="test-gemini-key")
+
+    def test_gemini_exception_returns_failure(self):
+        """API exception should return False with error message."""
+        config = LLMConfig(provider=LLMProvider.GEMINI, api_key="invalid")
+
+        with patch("google.genai.Client") as mock_client_class:
+            mock_client_class.return_value.models.list.side_effect = Exception("Invalid API key")
+
+            success, message = check_llm_connection(config)
+
+            assert success is False
+            assert "Invalid API key" in message
+
+    def test_mistral_connection_success(self):
+        config = LLMConfig(provider=LLMProvider.MISTRAL, api_key="test-mistral-key")
+
+        with patch("mistralai.Mistral") as mock_mistral_class:
+            mock_client = MagicMock()
+            mock_client = MagicMock()
+            mock_client.models.list.return_value = [MagicMock(), MagicMock(), MagicMock()]
+            mock_mistral_class.return_value = mock_client
+
+            success, message = check_llm_connection(config)
+
+            assert success is True
+            assert "Connected successfully" in message
+            assert "3 models available" in message
+            mock_mistral_class.assert_called_once_with(api_key="test-mistral-key")
+
+    def test_mistral_exception_returns_failure(self):
+        """API exception should return False with error message."""
+        config = LLMConfig(provider=LLMProvider.MISTRAL, api_key="invalid")
+
+        with patch("mistralai.Mistral") as mock_class:
+            mock_class.return_value.models.list.side_effect = Exception("Unauthorized")
+
+            success, message = check_llm_connection(config)
+
+            assert success is False
+            assert "Unauthorized" in message
+
 
 class TestDatabaseConnection:
     """Tests for check_database_connection."""
@@ -123,12 +178,12 @@ class TestDatabaseConnection:
         assert "Connection refused" in message
 
 
+@pytest.mark.usefixtures("clean_env")
 class TestDebugCommand:
     """Tests for the debug() command."""
 
     def test_exits_when_no_config_found(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
-        monkeypatch.delenv("NAO_DEFAULT_PROJECT_PATH", raising=False)
 
         with patch("nao_core.commands.debug.console"):
             with pytest.raises(SystemExit) as exc_info:
@@ -136,10 +191,9 @@ class TestDebugCommand:
 
             assert exc_info.value.code == 1
 
-    def test_debug_with_databases(self, tmp_path, monkeypatch):
+    def test_debug_with_databases(self, create_config):
         """Test debug() when databases are configured."""
-        config_file = tmp_path / "nao_config.yaml"
-        config_file.write_text("""\
+        create_config("""\
 project_name: test-project
 databases:
   - name: test_db
@@ -150,8 +204,6 @@ databases:
     user: testuser
     password: pass
 """)
-        monkeypatch.chdir(tmp_path)
-        monkeypatch.delenv("NAO_DEFAULT_PROJECT_PATH", raising=False)
 
         with patch(
             "nao_core.commands.debug.check_database_connection", return_value=(True, "Connected (5 tables found)")
@@ -166,10 +218,9 @@ databases:
         assert any("test_db" in call for call in calls)
         assert any("test-project" in call for call in calls)
 
-    def test_debug_with_databases_error(self, tmp_path, monkeypatch):
+    def test_debug_with_databases_error(self, create_config):
         """Test debug() when databases are configured but not working."""
-        config_file = tmp_path / "nao_config.yaml"
-        config_file.write_text("""\
+        create_config("""\
 project_name: test-project
 databases:
   - name: test_db
@@ -180,8 +231,6 @@ databases:
     user: testuser
     password: pass
 """)
-        monkeypatch.chdir(tmp_path)
-        monkeypatch.delenv("NAO_DEFAULT_PROJECT_PATH", raising=False)
 
         with patch(
             "nao_core.commands.debug.check_database_connection", return_value=(False, "Failed DB connection")
@@ -194,31 +243,23 @@ databases:
 
         mock_check.assert_called_once()
 
-    def test_debug_with_databases_empty(self, tmp_path, monkeypatch):
+    def test_debug_with_databases_empty(self, create_config):
         """Test debug() when no databases."""
-        config_file = tmp_path / "nao_config.yaml"
-        config_file.write_text("project_name: test-project")
-        monkeypatch.chdir(tmp_path)
-        monkeypatch.delenv("NAO_DEFAULT_PROJECT_PATH", raising=False)
-
+        create_config()
         with patch("nao_core.commands.debug.console") as mock_console:
             debug()
 
         calls = [str(call) for call in mock_console.print.call_args_list]
         assert any("[dim]No databases configured[/dim]" in call for call in calls)
 
-    def test_debug_with_llm(self, tmp_path, monkeypatch):
+    def test_debug_with_llm(self, create_config):
         """Test debug() when LLM is configured."""
-        config_file = tmp_path / "nao_config.yaml"
-        # Note: api_key is required per LLMConfig schema
-        config_file.write_text("""\
+        create_config("""\
 project_name: test-project
 llm:
   provider: anthropic
   api_key: sk-test-key
 """)
-        monkeypatch.chdir(tmp_path)
-        monkeypatch.delenv("NAO_DEFAULT_PROJECT_PATH", raising=False)
 
         with patch(
             "nao_core.commands.debug.check_llm_connection",
@@ -233,18 +274,14 @@ llm:
 
         mock_check.assert_called_once()
 
-    def test_debug_with_llm_error(self, tmp_path, monkeypatch):
+    def test_debug_with_llm_error(self, create_config):
         """Test debug() when LLM is configured."""
-        config_file = tmp_path / "nao_config.yaml"
-        # Note: api_key is required per LLMConfig schema
-        config_file.write_text("""\
+        create_config("""\
 project_name: test-project
 llm:
   provider: anthropic
   api_key: sk-test-key
 """)
-        monkeypatch.chdir(tmp_path)
-        monkeypatch.delenv("NAO_DEFAULT_PROJECT_PATH", raising=False)
 
         with patch(
             "nao_core.commands.debug.check_llm_connection", return_value=(False, "API key is not working")

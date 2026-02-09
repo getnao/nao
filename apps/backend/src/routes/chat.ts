@@ -4,7 +4,8 @@ import { z } from 'zod/v4';
 import type { App } from '../app';
 import { authMiddleware } from '../middleware/auth';
 import * as chatQueries from '../queries/chat.queries';
-import { agentService, ModelSelection } from '../services/agent.service';
+import { agentService } from '../services/agent.service';
+import { posthog, PostHogEvent } from '../services/posthog.service';
 import { UIMessage } from '../types/chat';
 import { llmProviderSchema } from '../types/llm';
 
@@ -37,7 +38,7 @@ export const chatRoutes = async (app: App) => {
 			const projectId = request.project?.id;
 			const message = request.body.message;
 			let chatId = request.body.chatId;
-			const modelSelection = request.body.model as ModelSelection | undefined;
+			const modelSelection = request.body.model;
 			const isNewChat = !chatId;
 
 			if (!projectId) {
@@ -68,7 +69,13 @@ export const chatRoutes = async (app: App) => {
 
 			const agent = await agentService.create({ ...chat, userId, projectId }, abortController, modelSelection);
 
-			let stream = agent.stream(chat.messages as UIMessage[], {
+			posthog.capture(undefined, PostHogEvent.MessageSent, {
+				chat_id: chatId,
+				model_id: agent.getModelId(),
+				is_new_chat: isNewChat,
+			});
+
+			let stream = agent.stream(chat.messages, {
 				sendNewChatData: !!isNewChat,
 			});
 

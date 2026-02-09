@@ -2,13 +2,13 @@ import { Streamdown } from 'streamdown';
 import { useEffect, useMemo, useRef } from 'react';
 import { useParams, useRouterState } from '@tanstack/react-router';
 import { useStickToBottomContext } from 'use-stick-to-bottom';
-import { ToolCall } from './tool-call';
-import { ToolCallsGroup } from './tool-call/tool-calls-group';
+import { ToolCall } from './tool-calls';
+import { ToolCallsGroup } from './tool-calls/tool-calls-group';
 import { ReasoningAccordion } from './chat-message-reasoning-accordion';
 import { TextShimmer } from './ui/text-shimmer';
 import { MessageActions } from './chat-message-actions';
 import { ChatError } from './chat-error';
-import type { UIMessage } from 'backend/chat';
+import type { UIMessage } from '@nao/backend/chat';
 import type { MessageGroup } from '@/types/messages';
 import {
 	Conversation,

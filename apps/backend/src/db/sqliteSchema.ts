@@ -3,6 +3,7 @@ import { check, index, integer, primaryKey, sqliteTable, text, unique } from 'dr
 
 import { StopReason, ToolState, UIMessagePartType } from '../types/chat';
 import { LlmProvider } from '../types/llm';
+import { ORG_ROLES } from '../types/organization';
 import { USER_ROLES } from '../types/project';
 
 export const user = sqliteTable('user', {
@@ -90,12 +91,50 @@ export const verification = sqliteTable(
 	(table) => [index('verification_identifier_idx').on(table.identifier)],
 );
 
+export const organization = sqliteTable('organization', {
+	id: text('id')
+		.$defaultFn(() => crypto.randomUUID())
+		.primaryKey(),
+	name: text('name').notNull(),
+	slug: text('slug').notNull().unique(),
+	// SSO config
+	googleClientId: text('google_client_id'),
+	googleClientSecret: text('google_client_secret'),
+	googleAuthDomains: text('google_auth_domains'), // comma-separated list
+
+	createdAt: integer('created_at', { mode: 'timestamp_ms' })
+		.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+		.notNull(),
+	updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+		.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+		.$onUpdate(() => new Date())
+		.notNull(),
+});
+
+export const orgMember = sqliteTable(
+	'org_member',
+	{
+		orgId: text('org_id')
+			.notNull()
+			.references(() => organization.id, { onDelete: 'cascade' }),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		role: text('role', { enum: ORG_ROLES }).notNull(),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+	},
+	(t) => [primaryKey({ columns: [t.orgId, t.userId] }), index('org_member_userId_idx').on(t.userId)],
+);
+
 export const project = sqliteTable(
 	'project',
 	{
 		id: text('id')
 			.$defaultFn(() => crypto.randomUUID())
 			.primaryKey(),
+		orgId: text('org_id').references(() => organization.id, { onDelete: 'cascade' }),
 		name: text('name').notNull(),
 		type: text('type', { enum: ['local'] }).notNull(),
 		path: text('path'),
@@ -114,6 +153,7 @@ export const project = sqliteTable(
 			'local_project_path_required',
 			sql`CASE WHEN ${t.type} = 'local' THEN ${t.path} IS NOT NULL ELSE TRUE END`,
 		),
+		index('project_orgId_idx').on(t.orgId),
 	],
 );
 

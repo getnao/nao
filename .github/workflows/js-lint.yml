@@ -10,7 +10,7 @@ on:
 
 jobs:
     lint:
-        name: ESLint & Prettier
+        name: ESLint, Prettier and Database Migration Checks
         runs-on: ubuntu-latest
 
         steps:
@@ -22,6 +22,9 @@ jobs:
                   node-version: '22'
                   cache: 'npm'
 
+            - name: Setup Bun
+              uses: oven-sh/setup-bun@v2
+
             - name: Install dependencies
               run: npm ci
               env:
@@ -32,3 +35,7 @@ jobs:
 
             - name: Prettier format check
               run: npm run format:check
+
+            - name: Check migrations (postgres/sqlite sync)
+              run: bun run scripts/db.check-migrations.ts
+              working-directory: apps/backend

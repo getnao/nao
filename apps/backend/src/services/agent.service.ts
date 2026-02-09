@@ -1,6 +1,7 @@
 import {
 	convertToModelMessages,
 	createUIMessageStream,
+	FinishReason,
 	ModelMessage,
 	StreamTextResult,
 	ToolLoopAgent,
@@ -12,19 +13,35 @@ import { CACHE_1H, CACHE_5M, createProviderModel } from '../agents/providers';
 import { tools } from '../agents/tools';
 import * as chatQueries from '../queries/chat.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
-import { UIChat, UIMessage } from '../types/chat';
+import { TokenCost, TokenUsage, UIChat, UIMessage } from '../types/chat';
 import type { LlmProvider } from '../types/llm';
-import { convertToTokenUsage } from '../utils/chat';
+import { convertToCost, convertToTokenUsage } from '../utils/chat';
 import { getDefaultModelId, getEnvApiKey, getEnvModelSelections, ModelSelection } from '../utils/llm';
 
 export type { ModelSelection };
+
+export interface AgentRunResult {
+	text: string;
+	usage: TokenUsage;
+	cost: TokenCost;
+	finishReason: FinishReason;
+	/** Duration of the agent run in milliseconds */
+	durationMs: number;
+	/** Response messages in ModelMessage format - can be used directly for follow-up calls */
+	responseMessages: ModelMessage[];
+	/** Raw steps from the agent - can be used to extract tool calls if needed */
+	steps: ReadonlyArray<{
+		toolCalls: ReadonlyArray<{ toolName: string; toolCallId: string; input: unknown }>;
+		toolResults: ReadonlyArray<{ toolCallId: string; output?: unknown }>;
+	}>;
+}
 
 type AgentChat = UIChat & {
 	userId: string;
 	projectId: string;
 };
 
-class AgentService {
+export class AgentService {
 	private _agents = new Map<string, AgentManager>();
 
 	async create(
@@ -46,7 +63,7 @@ class AgentService {
 		return agent;
 	}
 
-	private async _getResolvedModelSelection(
+	protected async _getResolvedModelSelection(
 		projectId: string,
 		modelSelection?: ModelSelection,
 	): Promise<ModelSelection> {
@@ -86,7 +103,7 @@ class AgentService {
 		return this._agents.get(chatId);
 	}
 
-	private async _getModelConfig(
+	protected async _getModelConfig(
 		projectId: string,
 		modelSelection: ModelSelection,
 	): Promise<Pick<ToolLoopAgentSettings, 'model' | 'providerOptions'>> {
@@ -184,6 +201,30 @@ class AgentManager {
 		});
 	}
 
+	async generate(messages: UIMessage[]): Promise<AgentRunResult> {
+		const startTime = performance.now();
+		const result = await this._agent.generate({
+			messages: await this._buildInitialMessages(messages, this._modelSelection.provider),
+			abortSignal: this._abortController.signal,
+		});
+		const durationMs = Math.round(performance.now() - startTime);
+
+		const usage = convertToTokenUsage(result.totalUsage);
+		const cost = convertToCost(usage, this._modelSelection.provider, this._modelSelection.modelId);
+		const finishReason = result.finishReason ?? 'stop';
+
+		this._onDispose();
+		return {
+			text: result.text,
+			usage,
+			cost,
+			finishReason,
+			durationMs,
+			responseMessages: result.response.messages,
+			steps: result.steps,
+		};
+	}
+
 	checkIsUserOwner(userId: string): boolean {
 		return this.chat.userId === userId;
 	}
@@ -208,25 +249,33 @@ class AgentManager {
 	 * - System message: 1h TTL (instructions rarely change)
 	 * - Last message: 5m TTL (current step's leaf for agentic caching)
 	 *
+	 * Returns a new array with only the first (system) and last messages having cache markers.
+	 * Does not mutate the original messages.
+	 *
 	 * @param messages - The messages array to add cache markers to
 	 * @param provider - The LLM provider
 	 */
 	private _withAnthropicCache(messages: ModelMessage[], provider: LlmProvider): ModelMessage[] {
 		if (provider !== 'anthropic' || messages.length === 0) return messages;
 
-		const setCache = (msg: ModelMessage, cache: typeof CACHE_1H | typeof CACHE_5M) => {
-			msg.providerOptions = {
+		const withCache = (msg: ModelMessage, cache: typeof CACHE_1H | typeof CACHE_5M): ModelMessage => ({
+			...msg,
+			providerOptions: {
 				...msg.providerOptions,
 				anthropic: { ...msg.providerOptions?.anthropic, cacheControl: cache },
-			};
-		};
+			},
+		});
 
-		const first = messages[0];
-		const last = messages.at(-1)!;
-		if (first.role === 'system') setCache(first, CACHE_1H);
-		if (last !== first) setCache(last, CACHE_5M);
+		const lastIdx = messages.length - 1;
+		return messages.map((msg, idx) => {
+			if (idx === 0 && msg.role === 'system') return withCache(msg, CACHE_1H);
+			if (idx === lastIdx && idx !== 0) return withCache(msg, CACHE_5M);
+			return msg;
+		});
+	}
 
-		return messages;
+	getModelId(): string {
+		return this._modelSelection.modelId;
 	}
 }
 

@@ -1,6 +1,7 @@
 import { z } from 'zod/v4';
 
 import { KNOWN_MODELS } from '../agents/providers';
+import { env } from '../env';
 import * as projectQueries from '../queries/project.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import * as slackConfigQueries from '../queries/project-slack-config.queries';
@@ -127,7 +128,7 @@ export const projectRoutes = {
 
 		const config = await slackConfigQueries.getProjectSlackConfig(ctx.project.id);
 
-		const hasEnvConfig = !!(process.env.SLACK_BOT_TOKEN && process.env.SLACK_SIGNING_SECRET);
+		const hasEnvConfig = !!(env.SLACK_BOT_TOKEN && env.SLACK_SIGNING_SECRET);
 
 		const projectConfig = config
 			? {
@@ -136,7 +137,7 @@ export const projectRoutes = {
 				}
 			: null;
 
-		const baseUrl = process.env.BETTER_AUTH_URL || '';
+		const baseUrl = env.BETTER_AUTH_URL || '';
 		return {
 			projectConfig,
 			hasEnvConfig,

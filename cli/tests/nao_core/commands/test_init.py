@@ -411,6 +411,104 @@ class TestInitCommand:
     @patch("nao_core.commands.init.NaoConfig.promptConfig")
     @patch("nao_core.commands.init.setup_project_name")
     @patch("nao_core.commands.init.UI")
+    def test_init_shows_updated_message_for_existing_config(
+        self,
+        mock_ui,
+        mock_setup_project_name,
+        mock_prompt_config,
+        tmp_path: Path,
+    ):
+        """Init command shows 'Updated project' when updating existing config."""
+        from nao_core.commands.init import init
+        from nao_core.config import NaoConfig
+
+        project_path = tmp_path / "existing-project"
+        project_path.mkdir()
+
+        existing_config = NaoConfig(project_name="existing-project")
+        mock_setup_project_name.return_value = ("existing-project", project_path, existing_config)
+        mock_prompt_config.return_value = NaoConfig(
+            project_name="existing-project",
+            databases=[],
+            repos=[],
+            llm=None,
+            slack=None,
+        )
+
+        init()
+
+        # Should print "Updated project" for existing config
+        calls = [str(c) for c in mock_ui.success.call_args_list]
+        assert any("Updated project" in c for c in calls)
+
+    @patch("nao_core.commands.debug.debug")
+    @patch("nao_core.commands.init.NaoConfig.promptConfig")
+    @patch("nao_core.commands.init.setup_project_name")
+    @patch("nao_core.commands.init.UI")
+    def test_init_runs_debug_when_config_has_databases(
+        self,
+        mock_ui,
+        mock_setup_project_name,
+        mock_prompt_config,
+        mock_debug,
+        tmp_path: Path,
+    ):
+        """Init command runs debug when config has databases."""
+        from nao_core.commands.init import init
+        from nao_core.config import NaoConfig
+        from nao_core.config.databases.duckdb import DuckDBConfig
+
+        project_path = tmp_path / "test-project"
+        project_path.mkdir()
+
+        mock_setup_project_name.return_value = ("test-project", project_path, None)
+        mock_prompt_config.return_value = NaoConfig(
+            project_name="test-project",
+            databases=[DuckDBConfig(name="test-db", path=":memory:")],
+            repos=[],
+            llm=None,
+            slack=None,
+        )
+
+        init()
+
+        mock_debug.assert_called_once()
+
+    @patch("nao_core.commands.debug.debug")
+    @patch("nao_core.commands.init.NaoConfig.promptConfig")
+    @patch("nao_core.commands.init.setup_project_name")
+    @patch("nao_core.commands.init.UI")
+    def test_init_runs_debug_when_config_has_llm(
+        self,
+        mock_ui,
+        mock_setup_project_name,
+        mock_prompt_config,
+        mock_debug,
+        tmp_path: Path,
+    ):
+        """Init command runs debug when config has LLM."""
+        from nao_core.commands.init import init
+        from nao_core.config import LLMConfig, LLMProvider, NaoConfig
+
+        project_path = tmp_path / "test-project"
+        project_path.mkdir()
+
+        mock_setup_project_name.return_value = ("test-project", project_path, None)
+        mock_prompt_config.return_value = NaoConfig(
+            project_name="test-project",
+            databases=[],
+            repos=[],
+            llm=LLMConfig(provider=LLMProvider.OPENAI, api_key="sk-test"),
+            slack=None,
+        )
+
+        init()
+
+        mock_debug.assert_called_once()
+
+    @patch("nao_core.commands.init.NaoConfig.promptConfig")
+    @patch("nao_core.commands.init.setup_project_name")
+    @patch("nao_core.commands.init.UI")
     def test_init_creates_folder_structure(
         self,
         mock_ui,
