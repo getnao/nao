@@ -158,6 +158,7 @@ def chat():
             console.print("[bold green]✓[/bold green] Set Slack environment variables from config")
 
         env["NAO_DEFAULT_PROJECT_PATH"] = str(Path.cwd())
+        env["BETTER_AUTH_URL"] = f"http://localhost:{SERVER_PORT}"
         env["FASTAPI_URL"] = f"http://localhost:{FASTAPI_PORT}"
         env["MODE"] = MODE
 

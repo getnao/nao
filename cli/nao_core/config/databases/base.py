@@ -17,6 +17,7 @@ class DatabaseType(str, Enum):
     DATABRICKS = "databricks"
     SNOWFLAKE = "snowflake"
     POSTGRES = "postgres"
+    REDSHIFT = "redshift"
 
     @classmethod
     def choices(cls) -> list[questionary.Choice]:

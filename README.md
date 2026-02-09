@@ -135,20 +135,35 @@ Pull the image from DockerHub:
 docker pull getnao/nao:latest
 ```
 
-Run with Docker:
+Run nao chat with Docker using the example project bundled in the image:
 
 ```bash
 docker run -d \
   --name nao \
   -p 5005:5005 \
-  -e NAO_DEFAULT_PROJECT_PATH=/app/example \
-  -e OPENAI_API_KEY=sk-... \
+  -e BETTER_AUTH_URL=http://localhost:5005 \
+  -e FASTAPI_URL=http://127.0.0.1:8005 \
+  getnao/nao:latest
+```
+
+Run nao chat with Docker using your local nao project:
+
+```bash
+docker run -d \
+  --name nao \
+  -p 5005:5005 \
+  -e BETTER_AUTH_URL=http://localhost:5005 \
+  -v /path/to/your/nao-project:/app/project \
+  -e NAO_DEFAULT_PROJECT_PATH=/app/project \
+  -e FASTAPI_URL=http://127.0.0.1:8005 \
   getnao/nao:latest
 ```
 
 Access the UI at http://localhost:5005
 
 See the [DockerHub page](https://hub.docker.com/r/getnao/nao) for more details.
+
+For end-to-end self-hosted deployment (for example on Cloud Run with PostgreSQL), see the [Deployment Guide](https://docs.getnao.io/nao-agent/self-hosting/deployment-guide).
 
 ## 👩🏻‍💻 Development
 

@@ -8,10 +8,11 @@ import { existsSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 
-import { assignAdminToOrphanedProject } from './queries/project.queries';
+import { ensureOrganizationSetup } from './queries/organization.queries';
 import { authRoutes } from './routes/auth';
 import { chatRoutes } from './routes/chat';
 import { slackRoutes } from './routes/slack';
+import { testRoutes } from './routes/test';
 import { posthog, PostHogEvent } from './services/posthog.service';
 import { TrpcRouter, trpcRouter } from './trpc/router';
 import { createContext } from './trpc/trpc';
@@ -20,8 +21,24 @@ import { createContext } from './trpc/trpc';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+const isDev = process.env.NODE_ENV !== 'production';
+// pino-pretty transport uses worker threads and can't be resolved inside a Bun-compiled binary
+const isCompiled = typeof Bun !== 'undefined' && Bun.main.startsWith('/$bunfs/');
+
 const app = fastify({
-	logger: true,
+	logger:
+		isDev && !isCompiled
+			? {
+					transport: {
+						target: 'pino-pretty',
+						options: {
+							colorize: true,
+							ignore: 'pid,hostname',
+							translateTime: 'HH:MM:ss',
+						},
+					},
+				}
+			: true,
 	routerOptions: { maxParamLength: 2048 },
 }).withTypeProvider<ZodTypeProvider>();
 export type App = typeof app;
@@ -54,6 +71,10 @@ app.register(fastifyTRPCPlugin, {
 
 app.register(chatRoutes, {
 	prefix: '/api/chat',
+});
+
+app.register(testRoutes, {
+	prefix: '/api/test',
 });
 
 app.register(authRoutes, {
@@ -101,7 +122,7 @@ if (staticRoot) {
 }
 
 export const startServer = async (opts: { port: number; host: string }) => {
-	await assignAdminToOrphanedProject();
+	await ensureOrganizationSetup();
 
 	const address = await app.listen({ host: opts.host, port: opts.port });
 	app.log.info(`Server is running on ${address}`);
@@ -118,3 +139,5 @@ export const startServer = async (opts: { port: number; host: string }) => {
 };
 
 export default app;
+
+new URL('http://localhost:5005/').toString();

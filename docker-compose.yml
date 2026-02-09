@@ -61,7 +61,7 @@ services:
             # Optional: Schedule periodic git pull (cron expression)
             # NAO_REFRESH_SCHEDULE: "0 * * * *"  # Every hour
         volumes:
-            - /Users/blef/Work/naolabs/chat-analytics:/app/example
+            - ${NAO_DEFAULT_PROJECT_PATH}:/app/example
         depends_on:
             - postgres
 

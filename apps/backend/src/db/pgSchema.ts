@@ -14,6 +14,7 @@ import {
 
 import { StopReason, ToolState, UIMessagePartType } from '../types/chat';
 import { LlmProvider } from '../types/llm';
+import { ORG_ROLES } from '../types/organization';
 import { USER_ROLES } from '../types/project';
 
 export const user = pgTable('user', {
@@ -89,12 +90,45 @@ export const verification = pgTable(
 	(table) => [index('verification_identifier_idx').on(table.identifier)],
 );
 
+export const organization = pgTable('organization', {
+	id: text('id')
+		.$defaultFn(() => crypto.randomUUID())
+		.primaryKey(),
+	name: text('name').notNull(),
+	slug: text('slug').notNull().unique(),
+	// SSO config
+	googleClientId: text('google_client_id'),
+	googleClientSecret: text('google_client_secret'),
+	googleAuthDomains: text('google_auth_domains'), // comma-separated list
+	createdAt: timestamp('created_at').defaultNow().notNull(),
+	updatedAt: timestamp('updated_at')
+		.defaultNow()
+		.$onUpdate(() => new Date())
+		.notNull(),
+});
+
+export const orgMember = pgTable(
+	'org_member',
+	{
+		orgId: text('org_id')
+			.notNull()
+			.references(() => organization.id, { onDelete: 'cascade' }),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		role: text('role', { enum: ORG_ROLES }).notNull(),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+	},
+	(t) => [primaryKey({ columns: [t.orgId, t.userId] }), index('org_member_userId_idx').on(t.userId)],
+);
+
 export const project = pgTable(
 	'project',
 	{
 		id: text('id')
 			.$defaultFn(() => crypto.randomUUID())
 			.primaryKey(),
+		orgId: text('org_id').references(() => organization.id, { onDelete: 'cascade' }),
 		name: text('name').notNull(),
 		type: text('type', { enum: ['local'] }).notNull(),
 		path: text('path'),
@@ -111,6 +145,7 @@ export const project = pgTable(
 			'local_project_path_required',
 			sql`CASE WHEN ${t.type} = 'local' THEN ${t.path} IS NOT NULL ELSE TRUE END`,
 		),
+		index('project_orgId_idx').on(t.orgId),
 	],
 );
 

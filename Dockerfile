@@ -126,6 +126,8 @@ RUN chown -R nao:nao /app /var/log/supervisor
 # Environment variables
 ENV MODE=prod
 ENV NODE_ENV=production
+ENV BETTER_AUTH_URL=http://localhost:5005
+ENV FASTAPI_URL=http://127.0.0.1:8005
 ENV FASTAPI_PORT=8005
 ENV NAO_DEFAULT_PROJECT_PATH=/app/example
 ENV NAO_CONTEXT_SOURCE=local

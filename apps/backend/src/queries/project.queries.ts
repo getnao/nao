@@ -4,7 +4,6 @@ import s, { DBProject, DBProjectMember, NewProject, NewProjectMember } from '../
 import { db } from '../db/db';
 import { env } from '../env';
 import { UserRole, UserWithRole } from '../types/project';
-import * as userQueries from './user.queries';
 
 export const getProjectByPath = async (path: string): Promise<DBProject | null> => {
 	const [project] = await db.select().from(s.project).where(eq(s.project.path, path)).execute();
@@ -108,52 +107,4 @@ export const checkProjectHasMoreThanOneAdmin = async (projectId: string): Promis
 	const userWithRoles = await getAllUsersWithRoles(projectId);
 	const nbAdmin = userWithRoles.filter((u) => u.role === 'admin').length;
 	return nbAdmin > 1;
-};
-
-export const initializeDefaultProjectForFirstUser = async (userId: string): Promise<void> => {
-	const projectPath = env.NAO_DEFAULT_PROJECT_PATH;
-	if (!projectPath) {
-		return;
-	}
-
-	const userCount = await userQueries.countAll();
-	if (userCount !== 1) {
-		return;
-	}
-
-	const existingProject = await getProjectByPath(projectPath);
-	if (existingProject) {
-		return;
-	}
-
-	const projectName = projectPath.split('/').pop() || 'Default Project';
-	const project = await createProject({
-		name: projectName,
-		type: 'local',
-		path: projectPath,
-	});
-
-	await addProjectMember({
-		projectId: project.id,
-		userId,
-		role: 'admin',
-	});
-};
-
-/**
- * Startup check: If NAO_DEFAULT_PROJECT_PATH is defined, there's a project with that path
- * but no admin, auto-assign that the first user as admin.
- */
-export const assignAdminToOrphanedProject = async (): Promise<void> => {
-	const projectPath = env.NAO_DEFAULT_PROJECT_PATH;
-	if (!projectPath) {
-		throw new Error('[Startup] NAO_DEFAULT_PROJECT_PATH environment variable is not defined.');
-	}
-
-	const firstUser = await userQueries.getFirst();
-	if (!firstUser) {
-		return;
-	}
-
-	await initializeDefaultProjectForFirstUser(firstUser.id);
 };
