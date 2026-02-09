@@ -200,7 +200,6 @@ const AssistantMessageBlock = ({
 								key={i}
 								isAnimating={isPartStreaming}
 								mode={isPartStreaming ? 'streaming' : 'static'}
-								cdnUrl={null}
 							>
 								{p.text}
 							</Streamdown>

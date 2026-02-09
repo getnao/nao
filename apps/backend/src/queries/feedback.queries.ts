@@ -3,6 +3,9 @@ import { desc, eq, sql } from 'drizzle-orm';
 import s, { MessageFeedback, NewMessageFeedback } from '../db/abstractSchema';
 import { db } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
+import type { FeedbackWithDetails } from '../types/message-feedback';
+
+export type { FeedbackWithDetails };
 
 export const upsertFeedback = async (feedback: NewMessageFeedback): Promise<MessageFeedback> => {
 	const [result] = await db
@@ -18,15 +21,6 @@ export const upsertFeedback = async (feedback: NewMessageFeedback): Promise<Mess
 		.returning()
 		.execute();
 	return result;
-};
-
-export type FeedbackWithDetails = {
-	messageId: string;
-	vote: 'up' | 'down';
-	explanation: string | null;
-	createdAt: Date;
-	userName: string;
-	messageText: string | null;
 };
 
 export const getRecentFeedbacks = async (projectId: string, limit = 10): Promise<FeedbackWithDetails[]> => {

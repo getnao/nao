@@ -16,6 +16,10 @@ const envSchema = z.object({
 		.enum(['true', 'false'])
 		.optional()
 		.transform((val) => val === 'true'),
+	DB_QUERY_LOGGING: z
+		.enum(['true', 'false'])
+		.optional()
+		.transform((val) => val === 'true'),
 
 	BETTER_AUTH_URL: z.url({ message: 'BETTER_AUTH_URL must be a valid URL' }),
 	BETTER_AUTH_SECRET: z.string().min(20).or(z.literal('').optional()), // try to make min 1 if set and optional otherwise

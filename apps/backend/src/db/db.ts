@@ -9,7 +9,7 @@ import dbConfig, { Dialect } from './dbConfig';
 import * as pgSchema from './pgSchema';
 import * as sqliteSchema from './sqliteSchema';
 
-const logger = process.env.DB_QUERY_LOGGING === 'true' ? new EnhancedQueryLogger() : undefined;
+const logger = env.DB_QUERY_LOGGING ? new EnhancedQueryLogger() : undefined;
 
 function createDb() {
 	if (dbConfig.dialect === Dialect.Postgres) {

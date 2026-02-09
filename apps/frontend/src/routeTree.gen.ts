@@ -89,6 +89,7 @@ const SidebarLayoutChatLayoutChatIdRoute =
   } as any)
 
 export interface FileRoutesByFullPath {
+  '/': typeof SidebarLayoutChatLayoutIndexRoute
   '/login': typeof LoginRoute
   '/signup': typeof SignupRoute
   '/settings': typeof SidebarLayoutSettingsRouteWithChildren
@@ -97,10 +98,10 @@ export interface FileRoutesByFullPath {
   '/settings/profile': typeof SidebarLayoutSettingsProfileRoute
   '/settings/project': typeof SidebarLayoutSettingsProjectRoute
   '/settings/usage': typeof SidebarLayoutSettingsUsageRoute
-  '/': typeof SidebarLayoutChatLayoutIndexRoute
   '/settings/': typeof SidebarLayoutSettingsIndexRoute
 }
 export interface FileRoutesByTo {
+  '/': typeof SidebarLayoutChatLayoutIndexRoute
   '/login': typeof LoginRoute
   '/signup': typeof SignupRoute
   '/$chatId': typeof SidebarLayoutChatLayoutChatIdRoute
@@ -108,7 +109,6 @@ export interface FileRoutesByTo {
   '/settings/profile': typeof SidebarLayoutSettingsProfileRoute
   '/settings/project': typeof SidebarLayoutSettingsProjectRoute
   '/settings/usage': typeof SidebarLayoutSettingsUsageRoute
-  '/': typeof SidebarLayoutChatLayoutIndexRoute
   '/settings': typeof SidebarLayoutSettingsIndexRoute
 }
 export interface FileRoutesById {
@@ -129,6 +129,7 @@ export interface FileRoutesById {
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
+    | '/'
     | '/login'
     | '/signup'
     | '/settings'
@@ -137,10 +138,10 @@ export interface FileRouteTypes {
     | '/settings/profile'
     | '/settings/project'
     | '/settings/usage'
-    | '/'
     | '/settings/'
   fileRoutesByTo: FileRoutesByTo
   to:
+    | '/'
     | '/login'
     | '/signup'
     | '/$chatId'
@@ -148,7 +149,6 @@ export interface FileRouteTypes {
     | '/settings/profile'
     | '/settings/project'
     | '/settings/usage'
-    | '/'
     | '/settings'
   id:
     | '__root__'
@@ -191,7 +191,7 @@ declare module '@tanstack/react-router' {
     '/_sidebar-layout': {
       id: '/_sidebar-layout'
       path: ''
-      fullPath: ''
+      fullPath: '/'
       preLoaderRoute: typeof SidebarLayoutRouteImport
       parentRoute: typeof rootRouteImport
     }
@@ -205,7 +205,7 @@ declare module '@tanstack/react-router' {
     '/_sidebar-layout/_chat-layout': {
       id: '/_sidebar-layout/_chat-layout'
       path: ''
-      fullPath: ''
+      fullPath: '/'
       preLoaderRoute: typeof SidebarLayoutChatLayoutRouteImport
       parentRoute: typeof SidebarLayoutRoute
     }
