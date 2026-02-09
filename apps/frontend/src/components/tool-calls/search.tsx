@@ -1,14 +1,14 @@
 import { File } from 'lucide-react';
 import { useToolCallContext } from '../../contexts/tool-call.provider';
 import { ToolCallWrapper } from './tool-call-wrapper';
-import type { searchFilesSchemas } from '@nao/backend/tools';
+import type { searchFiles } from '@nao/shared/tools';
 import { formatBytes } from '@/lib/utils';
 import { isToolSettled } from '@/lib/ai';
 
 export const SearchToolCall = () => {
 	const { toolPart } = useToolCallContext();
-	const output = toolPart.output as searchFilesSchemas.Output | undefined;
-	const input = toolPart.input as searchFilesSchemas.Input | undefined;
+	const output = toolPart.output as searchFiles.Output | undefined;
+	const input = toolPart.input as searchFiles.Input | undefined;
 	const isSettled = isToolSettled(toolPart);
 
 	if (!isSettled) {

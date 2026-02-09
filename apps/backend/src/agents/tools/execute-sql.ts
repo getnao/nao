@@ -1,8 +1,11 @@
-import { env } from '../../../env';
-import { getProjectFolder } from '../../../utils/tools';
-import type { Input, Output } from '../schema/execute-sql';
+import type { executeSql } from '@nao/shared/tools';
+import { executeSql as schemas } from '@nao/shared/tools';
+import { tool } from 'ai';
 
-export const execute = async ({ sql_query, database_id }: Input): Promise<Output> => {
+import { env } from '../../env';
+import { getProjectFolder } from '../../utils/tools';
+
+export async function executeQuery({ sql_query, database_id }: executeSql.Input): Promise<executeSql.Output> {
 	const naoProjectFolder = getProjectFolder();
 
 	const response = await fetch(`${env.FASTAPI_URL}/execute_sql`, {
@@ -27,4 +30,12 @@ export const execute = async ({ sql_query, database_id }: Input): Promise<Output
 		...data,
 		id: `query_${crypto.randomUUID().slice(0, 8)}`,
 	};
-};
+}
+
+export default tool({
+	description:
+		'Execute a SQL query against the connected database and return the results. If multiple databases are configured, specify the database_id.',
+	inputSchema: schemas.InputSchema,
+	outputSchema: schemas.OutputSchema,
+	execute: executeQuery,
+});

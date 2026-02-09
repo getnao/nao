@@ -20,7 +20,7 @@ const toolComponents: Record<StaticToolName, React.ComponentType> = {
 };
 
 export const ToolCall = ({ toolPart }: { toolPart: UIToolPart }) => {
-	const toolName = getToolName(toolPart);
+	const toolName = getToolName(toolPart) as StaticToolName;
 	const Component = toolComponents[toolName] ?? DefaultToolCall;
 	return (
 		<ToolCallProvider toolPart={toolPart}>

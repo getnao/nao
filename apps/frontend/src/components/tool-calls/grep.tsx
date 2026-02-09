@@ -1,13 +1,13 @@
 import { FileSearch, AlertCircle } from 'lucide-react';
 import { useToolCallContext } from '../../contexts/tool-call.provider';
 import { ToolCallWrapper } from './tool-call-wrapper';
-import type { grepSchemas } from '@nao/backend/tools';
+import type { grep } from '@nao/shared/tools';
 import { isToolSettled } from '@/lib/ai';
 
 export const GrepToolCall = () => {
 	const { toolPart } = useToolCallContext();
-	const output = toolPart.output as grepSchemas.Output | undefined;
-	const input = toolPart.input as grepSchemas.Input | undefined;
+	const output = toolPart.output as grep.Output | undefined;
+	const input = toolPart.input as grep.Input | undefined;
 	const isSettled = isToolSettled(toolPart);
 
 	if (!isSettled) {

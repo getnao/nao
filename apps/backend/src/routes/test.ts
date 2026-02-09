@@ -1,6 +1,6 @@
 import { z } from 'zod/v4';
 
-import { execute } from '../agents/tools/functions/execute-sql';
+import { executeQuery } from '../agents/tools/execute-sql';
 import type { App } from '../app';
 import { authMiddleware } from '../middleware/auth';
 import { ModelSelection } from '../services/agent.service';
@@ -46,7 +46,7 @@ export const testRoutes = async (app: App) => {
 
 				let verification;
 				if (sql) {
-					const { data: expectedData, columns: expectedColumns } = await execute({ sql_query: sql });
+					const { data: expectedData, columns: expectedColumns } = await executeQuery({ sql_query: sql });
 					const { data } = await testAgentService.runVerification(
 						projectId,
 						result,

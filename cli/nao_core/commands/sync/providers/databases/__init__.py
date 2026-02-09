@@ -5,6 +5,7 @@ from .databricks import sync_databricks
 from .duckdb import sync_duckdb
 from .postgres import sync_postgres
 from .provider import DatabaseSyncProvider
+from .redshift import sync_redshift
 from .snowflake import sync_snowflake
 
 __all__ = [
@@ -13,5 +14,6 @@ __all__ = [
     "sync_databricks",
     "sync_duckdb",
     "sync_postgres",
+    "sync_redshift",
     "sync_snowflake",
 ]

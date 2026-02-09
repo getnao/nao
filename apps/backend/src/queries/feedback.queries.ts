@@ -5,8 +5,6 @@ import { db } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
 import type { FeedbackWithDetails } from '../types/message-feedback';
 
-export type { FeedbackWithDetails };
-
 export const upsertFeedback = async (feedback: NewMessageFeedback): Promise<MessageFeedback> => {
 	const [result] = await db
 		.insert(s.messageFeedback)

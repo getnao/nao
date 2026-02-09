@@ -3,11 +3,15 @@
 	"private": true,
 	"type": "module",
 	"exports": {
-		"./posthog": "./src/posthog.ts"
+		"./posthog": "./src/posthog.ts",
+		"./tools": "./src/tools/index.ts"
 	},
 	"scripts": {
 		"lint": "tsc --noEmit && eslint",
 		"lint:fix": "eslint --fix",
 		"format": "prettier --write ."
+	},
+	"dependencies": {
+		"zod": "^4.2.1"
 	}
 }

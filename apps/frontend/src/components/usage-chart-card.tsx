@@ -1,5 +1,5 @@
 import type { UsageRecord } from '@nao/backend/usage';
-import { ChartDisplay } from '@/components/tool-call/display-chart';
+import { ChartDisplay } from '@/components/tool-calls/display-chart';
 import { SettingsCard } from '@/components/ui/settings-card';
 
 export interface UsageChartCardProps {

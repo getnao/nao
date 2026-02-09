@@ -1,7 +1,7 @@
 import { File, Folder, Link } from 'lucide-react';
 import { useToolCallContext } from '../../contexts/tool-call.provider';
 import { ToolCallWrapper } from './tool-call-wrapper';
-import type { listSchemas } from '@nao/backend/tools';
+import type { list } from '@nao/shared/tools';
 import { formatBytes } from '@/lib/utils';
 import { isToolSettled } from '@/lib/ai';
 
@@ -18,8 +18,8 @@ const getIcon = (type?: string) => {
 
 export const ListToolCall = () => {
 	const { toolPart } = useToolCallContext();
-	const output = toolPart.output as listSchemas.Output | undefined;
-	const input = toolPart.input as listSchemas.Input | undefined;
+	const output = toolPart.output as list.Output | undefined;
+	const input = toolPart.input as list.Input | undefined;
 	const isSettled = isToolSettled(toolPart);
 
 	if (!isSettled) {
