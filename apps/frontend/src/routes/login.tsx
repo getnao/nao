@@ -24,13 +24,7 @@ function Login() {
 	});
 
 	return (
-		<AuthForm
-			form={form}
-			title='Log In'
-			submitText='Log In'
-			serverError={serverError}
-			alternateAction={{ text: "Don't have an account?", linkText: 'Sign up', href: '/signup' }}
-		>
+		<AuthForm form={form} title='Log In' submitText='Log In' serverError={serverError}>
 			<FormTextField form={form} name='email' type='email' placeholder='Email' />
 			<FormTextField form={form} name='password' type='password' placeholder='Password' />
 		</AuthForm>

@@ -1,5 +1,4 @@
 import { useQuery } from '@tanstack/react-query';
-import { Link } from '@tanstack/react-router';
 import { trpc } from '../main';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,14 +12,9 @@ interface AuthFormProps {
 	submitText: string;
 	children: React.ReactNode;
 	serverError?: string;
-	alternateAction?: {
-		text: string;
-		linkText: string;
-		href: string;
-	};
 }
 
-export function AuthForm({ form, title, submitText, children, serverError, alternateAction }: AuthFormProps) {
+export function AuthForm({ form, title, submitText, children, serverError }: AuthFormProps) {
 	const isGoogleSetup = useQuery(trpc.google.isSetup.queryOptions());
 
 	return (
@@ -66,15 +60,6 @@ export function AuthForm({ form, title, submitText, children, serverError, alter
 						Continue with Google
 					</Button>
 				</div>
-			)}
-
-			{alternateAction && (
-				<p className='text-center text-sm text-muted-foreground mt-6'>
-					{alternateAction.text}{' '}
-					<Link to={alternateAction.href} className='text-primary hover:underline font-medium'>
-						{alternateAction.linkText}
-					</Link>
-				</p>
 			)}
 		</div>
 	);
