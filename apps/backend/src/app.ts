@@ -22,20 +22,23 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const isDev = process.env.NODE_ENV !== 'production';
+// pino-pretty transport uses worker threads and can't be resolved inside a Bun-compiled binary
+const isCompiled = typeof Bun !== 'undefined' && Bun.main.startsWith('/$bunfs/');
 
 const app = fastify({
-	logger: isDev
-		? {
-				transport: {
-					target: 'pino-pretty',
-					options: {
-						colorize: true,
-						ignore: 'pid,hostname',
-						translateTime: 'HH:MM:ss',
+	logger:
+		isDev && !isCompiled
+			? {
+					transport: {
+						target: 'pino-pretty',
+						options: {
+							colorize: true,
+							ignore: 'pid,hostname',
+							translateTime: 'HH:MM:ss',
+						},
 					},
-				},
-			}
-		: true,
+				}
+			: true,
 	routerOptions: { maxParamLength: 2048 },
 }).withTypeProvider<ZodTypeProvider>();
 export type App = typeof app;
