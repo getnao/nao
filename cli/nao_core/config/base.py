@@ -19,6 +19,12 @@ from .repos import RepoConfig
 from .slack import SlackConfig
 
 
+class NaoConfigError(Exception):
+    """Raised when nao config loading fails."""
+
+    pass
+
+
 class NaoConfig(BaseModel):
     """nao project configuration."""
 
@@ -219,6 +225,7 @@ class NaoConfig(BaseModel):
         path: Path | None = None,
         *,
         exit_on_error: bool = False,
+        raise_on_error: bool = False,
     ) -> "NaoConfig | None":
         """Try to load config from path.
 
@@ -226,10 +233,9 @@ class NaoConfig(BaseModel):
             path: Directory containing nao_config.yaml. Defaults to NAO_DEFAULT_PROJECT_PATH
                   environment variable if set, otherwise current directory.
             exit_on_error: If True, prints error message and calls sys.exit(1) on failure.
-                If False (default), returns None on failure.
+            raise_on_error: If True, raises NaoConfigError on failure.
         Returns:
-            NaoConfig if loaded successfully, None if failed and exit_on_error=False.
-            Never returns None when exit_on_error=True (exits instead).
+            NaoConfig if loaded successfully, None if failed and both flags are False.
         """
         if path is None:
             default_path = os.environ.get("NAO_DEFAULT_PROJECT_PATH")
@@ -237,41 +243,32 @@ class NaoConfig(BaseModel):
 
         config_file = path / "nao_config.yaml"
 
-        # Check if file exists first
-        if not config_file.exists():
+        def handle_error(message: str) -> None:
+            if raise_on_error:
+                raise NaoConfigError(message)
             if exit_on_error:
                 console = Console()
-                console.print("[bold red]✗[/bold red] No nao_config.yaml found in current directory")
+                console.print(f"[bold red]✗[/bold red] {message}")
                 sys.exit(1)
+
+        if not config_file.exists():
+            handle_error("No nao_config.yaml found in current directory")
             return None
 
         try:
             os.chdir(path)
             return cls.load(path)
         except yaml.YAMLError as e:
-            if exit_on_error:
-                console = Console()
-                console.print("[bold red]✗[/bold red] Failed to load nao_config.yaml:")
-                console.print(f"[red]Invalid YAML syntax: {e}[/red]")
-                sys.exit(1)
+            handle_error(f"Failed to load nao_config.yaml: Invalid YAML syntax: {e}")
             return None
         except ValidationError as e:
-            if exit_on_error:
-                console = Console()
-                console.print("[bold red]✗[/bold red] Failed to load nao_config.yaml:")
-                console.print()
-                for error in e.errors():
-                    loc = " → ".join(str(x) for x in error["loc"]) if error["loc"] else "config"
-                    console.print(f"  [red]•[/red] [bold]{loc}[/bold]: {error['msg']}")
-                console.print()
-                sys.exit(1)
+            errors = "; ".join(
+                f"{' → '.join(str(x) for x in err['loc']) or 'config'}: {err['msg']}" for err in e.errors()
+            )
+            handle_error(f"Failed to load nao_config.yaml: {errors}")
             return None
         except ValueError as e:
-            if exit_on_error:
-                console = Console()
-                console.print("[bold red]✗[/bold red] Failed to load nao_config.yaml:")
-                console.print(f"[red]{e}[/red]")
-                sys.exit(1)
+            handle_error(f"Failed to load nao_config.yaml: {e}")
             return None
 
     @classmethod

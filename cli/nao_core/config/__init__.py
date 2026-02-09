@@ -1,4 +1,4 @@
-from .base import NaoConfig
+from .base import NaoConfig, NaoConfigError
 from .databases import (
     AnyDatabaseConfig,
     BigQueryConfig,
@@ -14,6 +14,7 @@ from .slack import SlackConfig
 
 __all__ = [
     "NaoConfig",
+    "NaoConfigError",
     "AnyDatabaseConfig",
     "BigQueryConfig",
     "DuckDBConfig",
