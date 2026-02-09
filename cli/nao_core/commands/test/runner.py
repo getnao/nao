@@ -96,6 +96,16 @@ def check_dataframe(
     if len(actual) != len(expected):
         return False, f"row count: {len(actual)} vs {len(expected)}", None
 
+    def round_numeric(df: pd.DataFrame, decimals: int = 2) -> pd.DataFrame:
+        """Round float-like columns to the given number of decimals for stable comparisons."""
+        for col in df.columns:
+            series = df[col]
+            if pd.api.types.is_float_dtype(series) or (
+                pd.api.types.is_numeric_dtype(series) and not pd.api.types.is_integer_dtype(series)
+            ):
+                df[col] = series.round(decimals)
+        return df
+
     # Normalize: reset index, infer types, and sort columns consistently
     actual = pd.DataFrame(actual.reset_index(drop=True).infer_objects(copy=False))
     expected = pd.DataFrame(expected.reset_index(drop=True).infer_objects(copy=False))
@@ -104,6 +114,10 @@ def check_dataframe(
     sorted_cols = sorted(actual.columns)
     actual = actual[sorted_cols]
     expected = expected[sorted_cols]
+
+    # Round float-like values to 2 decimals to avoid noisy diffs
+    actual = round_numeric(actual, decimals=2)
+    expected = round_numeric(expected, decimals=2)
 
     # Check for exact match first
     if actual.equals(expected):
