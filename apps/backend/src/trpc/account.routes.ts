@@ -60,7 +60,14 @@ export const accountRoutes = {
 				confirmPassword: z.string(),
 			}),
 		)
-		.mutation(async ({ input }) => {
+		.mutation(async ({ input, ctx }) => {
+			if (input.userId !== ctx.user.id) {
+				throw new TRPCError({
+					code: 'FORBIDDEN',
+					message: 'You are not authorized to modify this password.',
+				});
+			}
+
 			const account = await accountQueries.getAccountById(input.userId);
 			if (!account || !account.password) {
 				throw new TRPCError({
