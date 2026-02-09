@@ -3,7 +3,7 @@ name: Docker Build & Deploy
 on:
     push:
         branches:
-            - prod
+            - main
             - '**docker'
 
 env:
