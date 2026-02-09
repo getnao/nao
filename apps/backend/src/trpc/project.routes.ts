@@ -7,6 +7,7 @@ import * as projectQueries from '../queries/project.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import * as savedPromptQueries from '../queries/project-saved-prompt.queries';
 import * as slackConfigQueries from '../queries/project-slack-config.queries';
+import { posthog, PostHogEvent } from '../services/posthog.service';
 import { llmConfigSchema, LlmProvider, llmProviderSchema } from '../types/llm';
 import { getEnvApiKey, getEnvProviders, getProjectAvailableModels } from '../utils/llm';
 import { adminProtectedProcedure, projectProtectedProcedure, publicProcedure } from './trpc';
@@ -210,11 +211,16 @@ export const projectRoutes = {
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
-			return savedPromptQueries.create({
+			const saved = await savedPromptQueries.create({
 				projectId: ctx.project.id,
 				title: input.title,
 				prompt: input.prompt,
 			});
+			posthog.capture(ctx.user.id, PostHogEvent.SavedPromptCreated, {
+				projectId: ctx.project.id,
+				savedPromptId: saved.id,
+			});
+			return saved;
 		}),
 
 	updateSavedPrompt: adminProtectedProcedure
@@ -231,6 +237,10 @@ export const projectRoutes = {
 			if (!updated) {
 				throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Failed to update saved prompt' });
 			}
+			posthog.capture(ctx.user.id, PostHogEvent.SavedPromptUpdated, {
+				projectId: ctx.project.id,
+				savedPromptId: promptId,
+			});
 			return updated;
 		}),
 
@@ -238,5 +248,9 @@ export const projectRoutes = {
 		.input(z.object({ promptId: z.string() }))
 		.mutation(async ({ ctx, input }) => {
 			await savedPromptQueries.remove(ctx.project.id, input.promptId);
+			posthog.capture(ctx.user.id, PostHogEvent.SavedPromptDeleted, {
+				projectId: ctx.project.id,
+				savedPromptId: input.promptId,
+			});
 		}),
 };

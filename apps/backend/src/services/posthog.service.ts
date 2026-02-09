@@ -16,6 +16,9 @@ export enum PostHogEvent {
 	ServerStarted = 'server_started',
 	MessageSent = 'message_sent',
 	MessageFeedbackSubmitted = 'message_feedback_submitted',
+	SavedPromptCreated = 'saved_prompt_created',
+	SavedPromptUpdated = 'saved_prompt_updated',
+	SavedPromptDeleted = 'saved_prompt_deleted',
 }
 
 /**

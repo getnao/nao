@@ -1,4 +1,4 @@
-import { and, asc, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 
 import s, { DBProjectSavedPrompt, NewProjectSavedPrompt } from '../db/abstractSchema';
 import { db } from '../db/db';
@@ -15,7 +15,7 @@ export const getAll = async (projectId: string): Promise<SavedPrompt[]> => {
 		})
 		.from(s.projectSavedPrompt)
 		.where(eq(s.projectSavedPrompt.projectId, projectId))
-		.orderBy(asc(s.projectSavedPrompt.createdAt))
+		.orderBy(desc(s.projectSavedPrompt.createdAt))
 		.execute();
 };
 
