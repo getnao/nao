@@ -1,6 +1,5 @@
 from pathlib import Path
 
-import ibis
 from rich.progress import Progress
 
 from nao_core.commands.sync.accessors import DataAccessor
@@ -99,7 +98,7 @@ def sync_snowflake(
                         # Format: database.schema.table
                         if parts[-2] == schema:
                             all_tables.append(parts[-1])
-        except Exception as e:
+        except Exception:
             progress.update(schema_task, advance=1)
             continue
 
