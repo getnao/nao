@@ -27,8 +27,6 @@ export class McpService {
 			await this.handleCacheMcpServerState();
 		}, 2000);
 		this._setupFileWatcher();
-
-		this._mcpClient.startCleanupTimer();
 	}
 
 	public static getInstance(): McpService {
@@ -49,19 +47,15 @@ export class McpService {
 
 	public async handleCacheMcpServerState(): Promise<void> {
 		try {
-			await this._mcpClient.closeAllRunningServers();
-
 			await this._loadMcpServerFromFile();
 
-			const failedConnections = await this._mcpClient.connectAllServers(this._mcpServers.mcpServers);
-
-			const { mcpTools, toolsToServer } = await this._mcpClient.listTools();
+			const { mcpTools, toolsToServer, failedConnections } = await this._mcpClient.connectAllServers(
+				this._mcpServers.mcpServers,
+			);
 
 			this._cacheTools(mcpTools);
 
 			await this._cacheMcpServerState(toolsToServer, failedConnections);
-
-			await this._mcpClient.closeConnections();
 		} catch (error) {
 			console.error('[mcp] Failed to cache MCP state:', error);
 			throw error;
@@ -83,16 +77,14 @@ export class McpService {
 		}
 	}
 
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	private _cacheTools(mcpTools: Record<string, any>): void {
+	private _cacheTools(mcpTools: Record<string, Tool>): void {
 		this.cachedTools = Object.fromEntries(
 			Object.entries(mcpTools).map(([toolName, tool]) => {
 				return [
 					toolName,
 					{
 						...tool,
-						// eslint-disable-next-line @typescript-eslint/no-explicit-any
-						execute: async (toolArgs: any) => {
+						execute: async (toolArgs: unknown) => {
 							return await this._mcpClient.callTool(toolName, toolArgs);
 						},
 					},
@@ -103,8 +95,7 @@ export class McpService {
 
 	private async _cacheMcpServerState(
 		toolsToServer: Map<string, string>,
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		failedConnections: Record<string, any>,
+		failedConnections: Record<string, string>,
 	): Promise<void> {
 		this.cachedMcpState = {};
 

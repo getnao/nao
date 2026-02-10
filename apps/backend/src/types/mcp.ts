@@ -3,8 +3,8 @@ import type { MCPClient } from '@ai-sdk/mcp';
 export interface McpServerConfig {
 	name: string;
 
-	type?: 'http' | 'sse';
-	url?: string;
+	type?: 'http';
+	url?: URL;
 
 	// For stdio transport
 	command?: string;
