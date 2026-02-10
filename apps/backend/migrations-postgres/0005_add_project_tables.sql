@@ -28,12 +28,12 @@ CREATE TABLE "project_member" (
 	CONSTRAINT "project_member_project_id_user_id_pk" PRIMARY KEY("project_id","user_id")
 );
 --> statement-breakpoint
+DELETE FROM "chat";--> statement-breakpoint
 ALTER TABLE "chat" ADD COLUMN "project_id" text NOT NULL;--> statement-breakpoint
 ALTER TABLE "project_llm_config" ADD CONSTRAINT "project_llm_config_project_id_project_id_fk" FOREIGN KEY ("project_id") REFERENCES "public"."project"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "project_member" ADD CONSTRAINT "project_member_project_id_project_id_fk" FOREIGN KEY ("project_id") REFERENCES "public"."project"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "project_member" ADD CONSTRAINT "project_member_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "project_llm_config_projectId_idx" ON "project_llm_config" USING btree ("project_id");--> statement-breakpoint
 CREATE INDEX "project_member_userId_idx" ON "project_member" USING btree ("user_id");--> statement-breakpoint
-DELETE FROM "chat";--> statement-breakpoint
 ALTER TABLE "chat" ADD CONSTRAINT "chat_project_id_project_id_fk" FOREIGN KEY ("project_id") REFERENCES "public"."project"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "chat_projectId_idx" ON "chat" USING btree ("project_id");

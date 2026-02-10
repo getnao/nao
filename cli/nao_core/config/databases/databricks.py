@@ -3,11 +3,10 @@ from typing import Literal
 import ibis
 from ibis import BaseBackend
 from pydantic import Field
-from rich.prompt import Prompt
 
-from nao_core.config.exceptions import InitError
+from nao_core.ui import ask_text
 
-from .base import DatabaseConfig, console
+from .base import DatabaseConfig
 
 
 class DatabricksConfig(DatabaseConfig):
@@ -28,31 +27,18 @@ class DatabricksConfig(DatabaseConfig):
     @classmethod
     def promptConfig(cls) -> "DatabricksConfig":
         """Interactively prompt the user for Databricks configuration."""
-        console.print("\n[bold cyan]Databricks Configuration[/bold cyan]\n")
-
-        name = Prompt.ask("[bold]Connection name[/bold]", default="databricks-prod")
-
-        server_hostname = Prompt.ask("[bold]Server hostname[/bold] [dim](e.g., adb-xxxx.azuredatabricks.net)[/dim]")
-        if not server_hostname:
-            raise InitError("Server hostname cannot be empty.")
-
-        http_path = Prompt.ask("[bold]HTTP path[/bold] [dim](e.g., /sql/1.0/warehouses/xxxx)[/dim]")
-        if not http_path:
-            raise InitError("HTTP path cannot be empty.")
-
-        access_token = Prompt.ask("[bold]Access token[/bold]", password=True)
-        if not access_token:
-            raise InitError("Access token cannot be empty.")
-
-        catalog = Prompt.ask("[bold]Catalog[/bold] [dim](optional, press Enter to skip)[/dim]", default=None)
-
-        schema = Prompt.ask("[bold]Default schema[/bold] [dim](optional, press Enter to skip)[/dim]", default=None)
+        name = ask_text("Connection name:", default="databricks-prod") or "databricks-prod"
+        server_hostname = ask_text("Server hostname (e.g., adb-xxxx.azuredatabricks.net):", required_field=True)
+        http_path = ask_text("HTTP path (e.g., /sql/1.0/warehouses/xxxx):", required_field=True)
+        access_token = ask_text("Access token:", password=True, required_field=True)
+        catalog = ask_text("Unity Catalog name (optional):")
+        schema = ask_text("Default schema (optional):")
 
         return DatabricksConfig(
             name=name,
-            server_hostname=server_hostname,
-            http_path=http_path,
-            access_token=access_token,
+            server_hostname=server_hostname,  # type: ignore
+            http_path=http_path,  # type: ignore
+            access_token=access_token,  # type: ignore
             catalog=catalog,
             schema_name=schema,
         )

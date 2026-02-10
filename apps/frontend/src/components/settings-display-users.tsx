@@ -1,30 +1,62 @@
-import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Plus, EllipsisVertical } from 'lucide-react';
-import { NewlyCreatedUserDialog } from './settings-display-newUser';
+import { NewUserDialog } from './settings-display-newUser';
+import { ResetPasswordDialog } from './settings-reset-user-password';
+import {
+	DropdownMenu,
+	DropdownMenuItem,
+	DropdownMenuContent,
+	DropdownMenuTrigger,
+	DropdownMenuGroup,
+} from './ui/dropdown-menu';
+import { RemoveUserDialog } from './settings-remove-user-from-project';
+import type { UserWithRole } from '../../../backend/src/types/project';
 import { trpc } from '@/main';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { CreateUserForm } from '@/components/settings-create-user-form';
+import { AddUserDialog } from '@/components/settings-add-user-form';
 import { Badge } from '@/components/ui/badge';
+import { useUserPageContext } from '@/contexts/user.provider';
 
 interface UsersListProps {
 	isAdmin: boolean;
-	onModifyUser: (userId: string) => void;
 }
 
-export function UsersList({ isAdmin, onModifyUser }: UsersListProps) {
-	const [isCreateUserOpen, setIsCreateUserOpen] = useState(false);
-	const [newUser, setNewUser] = useState<{ email: string; password: string } | null>(null);
+export function UsersList({ isAdmin }: UsersListProps) {
+	const {
+		setUserInfo,
+		setIsModifyUserFormOpen,
+		setIsAddUserFormOpen,
+		setIsResetUserPasswordOpen,
+		setError,
+		setIsRemoveUserFromProjectOpen,
+	} = useUserPageContext();
 
 	const usersWithRoles = useQuery(trpc.project.getAllUsersWithRoles.queryOptions());
+
+	const handleInteraction = (setState: (isOpen: boolean) => void, user?: UserWithRole) => {
+		setUserInfo({
+			id: user?.id || '',
+			role: user?.role || 'user',
+			name: user?.name || '',
+			email: user?.email || '',
+		});
+		setError('');
+		setState(true);
+	};
 
 	return (
 		<div className='grid gap-4'>
 			<div className='flex items-center justify-between'>
 				<span className='text-sm font-medium text-foreground'>Users</span>
 				{isAdmin && (
-					<Button variant='secondary' size='icon-sm' onClick={() => setIsCreateUserOpen(true)}>
+					<Button
+						variant='secondary'
+						size='icon-sm'
+						onClick={() => {
+							handleInteraction(setIsAddUserFormOpen);
+						}}
+					>
 						<Plus className='size-4' />
 					</Button>
 				)}
@@ -51,9 +83,38 @@ export function UsersList({ isAdmin, onModifyUser }: UsersListProps) {
 								<TableCell>{user.role && <Badge variant={user.role}>{user.role}</Badge>}</TableCell>
 								{isAdmin && (
 									<TableCell className='w-0'>
-										<Button variant='ghost' size='icon-sm' onClick={() => onModifyUser(user.id)}>
-											<EllipsisVertical className='size-4' />
-										</Button>
+										<DropdownMenu>
+											<DropdownMenuTrigger asChild>
+												<Button variant='ghost' size='icon-sm'>
+													<EllipsisVertical className='size-4' />
+												</Button>
+											</DropdownMenuTrigger>
+											<DropdownMenuContent onClick={(e) => e.stopPropagation()}>
+												<DropdownMenuGroup>
+													<DropdownMenuItem
+														onSelect={() => {
+															handleInteraction(setIsModifyUserFormOpen, user);
+														}}
+													>
+														Edit user
+													</DropdownMenuItem>
+													<DropdownMenuItem
+														onSelect={() => {
+															handleInteraction(setIsResetUserPasswordOpen, user);
+														}}
+													>
+														Reset password
+													</DropdownMenuItem>
+													<DropdownMenuItem
+														onSelect={() => {
+															handleInteraction(setIsRemoveUserFromProjectOpen, user);
+														}}
+													>
+														Remove from project
+													</DropdownMenuItem>
+												</DropdownMenuGroup>
+											</DropdownMenuContent>
+										</DropdownMenu>
 									</TableCell>
 								)}
 							</TableRow>
@@ -62,19 +123,10 @@ export function UsersList({ isAdmin, onModifyUser }: UsersListProps) {
 				</Table>
 			)}
 
-			<CreateUserForm
-				open={isCreateUserOpen}
-				onOpenChange={setIsCreateUserOpen}
-				onUserCreated={(email, password) => {
-					setNewUser({ email, password });
-				}}
-			/>
-			<NewlyCreatedUserDialog
-				open={!!newUser}
-				onOpenChange={(open) => !open && setNewUser(null)}
-				email={newUser?.email || ''}
-				password={newUser?.password || ''}
-			/>
+			<AddUserDialog />
+			<NewUserDialog />
+			<ResetPasswordDialog />
+			<RemoveUserDialog />
 		</div>
 	);
 }

@@ -5,6 +5,7 @@ import { drizzle as drizzlePostgres } from 'drizzle-orm/postgres-js';
 import { migrate as migratePostgres } from 'drizzle-orm/postgres-js/migrator';
 import postgres from 'postgres';
 
+import { env } from '../env';
 import { Dialect } from './dbConfig';
 
 interface MigrationOptions {
@@ -49,7 +50,7 @@ async function runPostgresMigrations(connectionString: string, migrationsPath: s
 	console.log(`🗃️  Connecting to PostgreSQL...`);
 
 	// Use postgres.js for Bun compatibility
-	const ssl = process.env.DB_SSL === 'true' ? 'require' : undefined;
+	const ssl = env.DB_SSL ? 'require' : undefined;
 	const sql = postgres(connectionString, { max: 1, ssl });
 	const db = drizzlePostgres(sql);
 

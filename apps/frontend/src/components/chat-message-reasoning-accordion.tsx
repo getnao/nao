@@ -31,7 +31,7 @@ export const ReasoningAccordion = ({ text, isStreaming }: ReasoningAccordionProp
 			<div className='text-muted-foreground text-sm'>
 				<Conversation className='p-0'>
 					<ConversationContent className='p-0 max-h-[200px]'>
-						<Streamdown isAnimating={isStreaming} mode={isStreaming ? 'streaming' : 'static'} cdnUrl={null}>
+						<Streamdown isAnimating={isStreaming} mode={isStreaming ? 'streaming' : 'static'}>
 							{text}
 						</Streamdown>
 					</ConversationContent>

@@ -1,5 +1,4 @@
-import '../utils/loadEnv';
-
+import { env } from '../env';
 import * as postgresSchema from './pgSchema';
 import * as sqliteSchema from './sqliteSchema';
 
@@ -26,7 +25,7 @@ const DEFAULT_DB_URI = 'sqlite:./db.sqlite';
  *   - postgres://user:pass@host:port/database
  */
 function parseDbUri(): { dialect: Dialect; connectionString: string } {
-	const dbUri = process.env.DB_URI || DEFAULT_DB_URI;
+	const dbUri = env.DB_URI || DEFAULT_DB_URI;
 
 	if (dbUri.startsWith('postgres://') || dbUri.startsWith('postgresql://')) {
 		return { dialect: Dialect.Postgres, connectionString: dbUri };

@@ -1,12 +1,12 @@
+from __future__ import annotations
+
 import fnmatch
 from abc import ABC, abstractmethod
 from enum import Enum
 
+import questionary
 from ibis import BaseBackend
 from pydantic import BaseModel, Field
-from rich.console import Console
-
-console = Console()
 
 
 class DatabaseType(str, Enum):
@@ -17,6 +17,12 @@ class DatabaseType(str, Enum):
     DATABRICKS = "databricks"
     SNOWFLAKE = "snowflake"
     POSTGRES = "postgres"
+    REDSHIFT = "redshift"
+
+    @classmethod
+    def choices(cls) -> list[questionary.Choice]:
+        """Get questionary choices for all database types."""
+        return [questionary.Choice(db.value.capitalize(), value=db.value) for db in cls]
 
 
 class AccessorType(str, Enum):
@@ -46,6 +52,12 @@ class DatabaseConfig(BaseModel, ABC):
         default_factory=list,
         description="Glob patterns for schemas/tables to exclude (e.g., 'temp_*.*', '*.backup_*')",
     )
+
+    @classmethod
+    @abstractmethod
+    def promptConfig(cls) -> DatabaseConfig:
+        """Interactively prompt the user for database configuration."""
+        ...
 
     @abstractmethod
     def connect(self) -> BaseBackend:

@@ -1,5 +1,5 @@
 {
-	"name": "frontend",
+	"name": "@nao/frontend",
 	"private": true,
 	"type": "module",
 	"scripts": {
@@ -12,6 +12,8 @@
 		"format": "prettier --write ."
 	},
 	"dependencies": {
+		"@nao/shared": "*",
+		"@nao/backend": "*",
 		"@ai-sdk/react": "^3.0.44",
 		"@radix-ui/react-accordion": "^1.2.12",
 		"@radix-ui/react-alert-dialog": "^1.1.15",
@@ -22,6 +24,7 @@
 		"@radix-ui/react-slot": "^1.2.4",
 		"@tailwindcss/vite": "^4.0.6",
 		"@tanstack/react-devtools": "^0.7.0",
+		"@tanstack/react-form": "^1.28.0",
 		"@tanstack/react-query": "^5.90.16",
 		"@tanstack/react-router": "^1.132.0",
 		"@tanstack/react-router-devtools": "^1.132.0",
@@ -30,13 +33,15 @@
 		"@trpc/client": "^11.8.1",
 		"@trpc/tanstack-react-query": "^11.8.1",
 		"ai": "^6.0.42",
-		"backend": "*",
 		"better-auth": "^1.4.10",
 		"class-variance-authority": "^0.7.1",
 		"clsx": "^2.1.1",
 		"cmdk": "^1.1.1",
+		"date-fns": "^4.1.0",
 		"lucide-react": "^0.562.0",
+		"posthog-js": "^1.336.4",
 		"proxy-from-env": "^1.1.0",
+		"radix-ui": "^1.4.3",
 		"react": "^19.2.0",
 		"react-dom": "^19.2.0",
 		"recharts": "2.15.4",

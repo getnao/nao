@@ -21,8 +21,12 @@ export function getEnvProviders(): LlmProvider[] {
 
 /** Get the first available provider from env (preferring anthropic) */
 export function getDefaultEnvProvider(): LlmProvider | undefined {
-	if (hasEnvApiKey('anthropic')) return 'anthropic';
-	if (hasEnvApiKey('openai')) return 'openai';
+	if (hasEnvApiKey('anthropic')) {
+		return 'anthropic';
+	}
+	if (hasEnvApiKey('openai')) {
+		return 'openai';
+	}
 	return undefined;
 }
 

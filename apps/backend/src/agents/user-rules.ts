@@ -1,11 +1,13 @@
 import { existsSync, readdirSync, readFileSync } from 'fs';
 import { join } from 'path';
 
+import { env } from '../env';
+
 /**
  * Reads user-defined rules from RULES.md in the project folder if it exists
  */
 export function getUserRules(): string | null {
-	const projectFolder = process.env.NAO_DEFAULT_PROJECT_PATH;
+	const projectFolder = env.NAO_DEFAULT_PROJECT_PATH;
 
 	if (!projectFolder) {
 		return null;
@@ -32,7 +34,7 @@ type Connection = {
 };
 
 export function getConnections(): Connection[] | null {
-	const projectFolder = process.env.NAO_DEFAULT_PROJECT_PATH;
+	const projectFolder = env.NAO_DEFAULT_PROJECT_PATH;
 
 	if (!projectFolder) {
 		return null;

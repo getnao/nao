@@ -3,11 +3,11 @@ from typing import Literal
 import ibis
 from ibis import BaseBackend
 from pydantic import Field
-from rich.prompt import Prompt
 
 from nao_core.config.exceptions import InitError
+from nao_core.ui import ask_text
 
-from .base import DatabaseConfig, console
+from .base import DatabaseConfig
 
 
 class PostgresConfig(DatabaseConfig):
@@ -24,39 +24,26 @@ class PostgresConfig(DatabaseConfig):
     @classmethod
     def promptConfig(cls) -> "PostgresConfig":
         """Interactively prompt the user for PostgreSQL configuration."""
-        console.print("\n[bold cyan]PostgreSQL Configuration[/bold cyan]\n")
+        name = ask_text("Connection name:", default="postgres-prod") or "postgres-prod"
+        host = ask_text("Host:", default="localhost") or "localhost"
+        port_str = ask_text("Port:", default="5432") or "5432"
 
-        name = Prompt.ask("[bold]Connection name[/bold]", default="postgres-prod")
-
-        host = Prompt.ask("[bold]Host[/bold]", default="localhost")
-
-        port = Prompt.ask("[bold]Port[/bold]", default="5432")
-        if not port.isdigit():
+        if not port_str.isdigit():
             raise InitError("Port must be a valid integer.")
 
-        database = Prompt.ask("[bold]Database name[/bold]")
-        if not database:
-            raise InitError("Database name cannot be empty.")
-
-        user = Prompt.ask("[bold]Username[/bold]")
-        if not user:
-            raise InitError("Username cannot be empty.")
-
-        password = Prompt.ask("[bold]Password[/bold]", password=True)
-
-        schema_name = Prompt.ask(
-            "[bold]Default schema[/bold] [dim](optional, uses 'public' if empty)[/dim]",
-            default="",
-        )
+        database = ask_text("Database name:", required_field=True)
+        user = ask_text("Username:", required_field=True)
+        password = ask_text("Password:", password=True) or ""
+        schema_name = ask_text("Default schema (uses 'public' if empty):")
 
         return PostgresConfig(
             name=name,
             host=host,
-            port=int(port),
-            database=database,
-            user=user,
+            port=int(port_str),
+            database=database,  # type: ignore
+            user=user,  # type: ignore
             password=password,
-            schema_name=schema_name or None,
+            schema_name=schema_name,
         )
 
     def connect(self) -> BaseBackend:

@@ -4,11 +4,10 @@ from typing import Literal
 import ibis
 from ibis import BaseBackend
 from pydantic import Field, field_validator
-from rich.prompt import Prompt
 
-from nao_core.config.exceptions import InitError
+from nao_core.ui import ask_select, ask_text
 
-from .base import DatabaseConfig, console
+from .base import DatabaseConfig
 
 
 class BigQueryConfig(DatabaseConfig):
@@ -42,26 +41,37 @@ class BigQueryConfig(DatabaseConfig):
     @classmethod
     def promptConfig(cls) -> "BigQueryConfig":
         """Interactively prompt the user for BigQuery configuration."""
-        console.print("\n[bold cyan]BigQuery Configuration[/bold cyan]\n")
+        name = ask_text("Connection name:", default="bigquery-prod") or "bigquery-prod"
+        project_id = ask_text("GCP Project ID:", required_field=True)
+        dataset_id = ask_text("Default dataset (optional):")
 
-        name = Prompt.ask("[bold]Connection name[/bold]", default="bigquery-prod")
-
-        project_id = Prompt.ask("[bold]GCP Project ID[/bold]")
-        if not project_id:
-            raise InitError("GCP Project ID cannot be empty.")
-
-        dataset_id = Prompt.ask("[bold]Default dataset[/bold] [dim](optional, press Enter to skip)[/dim]", default="")
-
-        credentials_path = Prompt.ask(
-            "[bold]Service account JSON path[/bold] [dim](optional, uses ADC if empty)[/dim]",
-            default="",
+        auth_type = ask_select(
+            "Authentication method:",
+            choices=[
+                "SSO / Application Default Credentials (ADC)",
+                "Service account JSON file path",
+                "Service account JSON string",
+            ],
         )
+
+        credentials_path: str | None = None
+        credentials_json: str | None = None
+        sso = False
+
+        if auth_type == "SSO / Application Default Credentials (ADC)":
+            sso = True
+        elif auth_type == "Service account JSON file path":
+            credentials_path = ask_text("Path to service account JSON file:", required_field=True)
+        elif auth_type == "Service account JSON string":
+            credentials_json = ask_text("Service account JSON:", required_field=True)
 
         return BigQueryConfig(
             name=name,
-            project_id=project_id,
-            dataset_id=dataset_id or None,
-            credentials_path=credentials_path or None,
+            project_id=project_id or "",
+            dataset_id=dataset_id,
+            credentials_path=credentials_path,
+            credentials_json=credentials_json,  # type: ignore[arg-type]
+            sso=sso,
         )
 
     def connect(self) -> BaseBackend:

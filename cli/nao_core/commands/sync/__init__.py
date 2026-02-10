@@ -7,12 +7,14 @@ from rich.console import Console
 
 from nao_core.config import NaoConfig
 from nao_core.templates.render import render_all_templates
+from nao_core.tracking import track_command
 
 from .providers import SyncProvider, SyncResult, get_all_providers
 
 console = Console()
 
 
+@track_command("sync")
 def sync(
     output_dirs: dict[str, str] | None = None,
     providers: list[SyncProvider] | None = None,
@@ -38,12 +40,8 @@ def sync(
     """
     console.print("\n[bold cyan]🔄 nao sync[/bold cyan]\n")
 
-    config = NaoConfig.try_load()
-    if config is None:
-        console.print("[bold red]✗[/bold red] No nao_config.yaml found in current directory")
-        console.print("[dim]Run 'nao init' to create a configuration file[/dim]")
-        sys.exit(1)
-    assert config is not None  # Help type checker after sys.exit
+    config = NaoConfig.try_load(exit_on_error=True)
+    assert config is not None  # Help type checker after exit_on_error=True
 
     # Get project path (current working directory after NaoConfig.try_load)
     project_path = Path.cwd()
@@ -119,6 +117,11 @@ def sync(
         console.print("  [dim]Nothing to sync[/dim]")
 
     console.print()
+
+    # Exit with error code if any provider or template failed
+    has_failures = bool(failed_results) or (template_result and template_result.templates_failed > 0)
+    if has_failures:
+        sys.exit(1)
 
 
 __all__ = ["sync"]

@@ -9,6 +9,8 @@ from time import sleep
 from rich.console import Console
 
 from nao_core.config import NaoConfig
+from nao_core.mode import MODE
+from nao_core.tracking import track_command
 
 console = Console()
 
@@ -27,7 +29,7 @@ def get_server_binary_path() -> Path:
 
     if not binary_path.exists():
         console.print(f"[bold red]✗[/bold red] Server binary not found at {binary_path}")
-        console.print("[dim]Make sure you've built the server with ./scripts/build-server.sh[/dim]")
+        console.print("[dim]Make sure you've built the server by running python file build.py[/dim]")
         sys.exit(1)
 
     return binary_path
@@ -99,6 +101,7 @@ def ensure_auth_secret(bin_dir: Path) -> str | None:
         return new_secret
 
 
+@track_command("chat")
 def chat():
     """Start the nao chat UI.
 
@@ -107,14 +110,9 @@ def chat():
     console.print("\n[bold cyan]💬 Starting nao chat...[/bold cyan]\n")
 
     # Try to load nao config from current directory
-    config = NaoConfig.try_load()
-    if config:
-        console.print(f"[bold green]✓[/bold green] Loaded config from {Path.cwd() / 'nao_config.yaml'}")
-    else:
-        console.print(
-            "[bold red]✗No nao_config.yaml found in current directory. Please move to a nao project directory.[/bold red]"
-        )
-        sys.exit(1)
+    config = NaoConfig.try_load(exit_on_error=True)
+    assert config is not None  # Help type checker after exit_on_error=True
+    console.print(f"[bold green]✓[/bold green] Loaded config from {Path.cwd() / 'nao_config.yaml'}")
 
     binary_path = get_server_binary_path()
     bin_dir = binary_path.parent
@@ -128,7 +126,7 @@ def chat():
 
     def shutdown_servers():
         """Gracefully shut down both server processes."""
-        for name, proc in [("Chat server", chat_process), ("FastAPI server", fastapi_process)]:
+        for name, proc in (("Chat server", chat_process), ("FastAPI server", fastapi_process)):
             if proc:
                 proc.terminate()
                 try:
@@ -160,7 +158,9 @@ def chat():
             console.print("[bold green]✓[/bold green] Set Slack environment variables from config")
 
         env["NAO_DEFAULT_PROJECT_PATH"] = str(Path.cwd())
+        env["BETTER_AUTH_URL"] = f"http://localhost:{SERVER_PORT}"
         env["FASTAPI_URL"] = f"http://localhost:{FASTAPI_PORT}"
+        env["MODE"] = MODE
 
         # Start the FastAPI server first
         fastapi_path = get_fastapi_main_path()
