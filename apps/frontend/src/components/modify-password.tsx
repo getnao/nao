@@ -7,7 +7,6 @@ import { Input } from '@/components/ui/input';
 
 export function ModifyPassword() {
 	const { refetch } = useSession();
-	const { data: sessionData } = useSession();
 	const [newPassword, setNewPassword] = useState('');
 	const [confirmPassword, setConfirmPassword] = useState('');
 	const [error, setError] = useState('');
@@ -27,18 +26,12 @@ export function ModifyPassword() {
 		e.preventDefault();
 		setError('');
 
-		if (!sessionData?.user?.id) {
-			setError('User not found');
-			return;
-		}
-
 		if (newPassword !== confirmPassword) {
 			setError('Passwords do not match');
 			return;
 		}
 
 		await modifyUserPassword.mutateAsync({
-			userId: sessionData.user.id,
 			newPassword: newPassword,
 			confirmPassword: confirmPassword,
 		});
