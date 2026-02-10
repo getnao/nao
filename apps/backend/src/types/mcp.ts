@@ -1,4 +1,3 @@
-import type { MCPClient } from '@ai-sdk/mcp';
 import { z } from 'zod';
 
 export interface McpServerConfig {
@@ -9,14 +8,6 @@ export interface McpServerConfig {
 	command?: string;
 	args?: string[];
 	env?: Record<string, string>;
-}
-
-export interface RunningMcpClient {
-	client: MCPClient;
-	serverId: string;
-	serverConfig: McpServerConfig;
-	createdAt: number;
-	lastUsedAt: number;
 }
 
 export interface McpServerState {
