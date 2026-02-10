@@ -34,6 +34,7 @@ const envSchema = z.object({
 	FASTAPI_URL: z.url({ message: 'FASTAPI_URL must be a valid URL' }).optional(),
 
 	NAO_DEFAULT_PROJECT_PATH: z.string().optional(),
+
 	MCP_JSON_FILE_PATH: z.string().optional(),
 
 	POSTHOG_KEY: z.string().optional(),

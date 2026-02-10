@@ -1,8 +1,7 @@
 import type { MCPClient } from '@ai-sdk/mcp';
+import { z } from 'zod';
 
 export interface McpServerConfig {
-	name: string;
-
 	type?: 'http';
 	url?: URL;
 
@@ -28,3 +27,20 @@ export interface McpServerState {
 	}>;
 	error?: string;
 }
+
+export const mcpJsonSchema = z.object({
+	mcpServers: z.record(
+		z.string(),
+		z.object({
+			type: z.enum(['http']).optional(),
+			url: z
+				.string()
+				.url()
+				.optional()
+				.transform((val) => (val ? new URL(val) : undefined)),
+			command: z.string().optional(),
+			args: z.array(z.string()).optional(),
+			env: z.record(z.string(), z.string()).optional(),
+		}),
+	),
+});

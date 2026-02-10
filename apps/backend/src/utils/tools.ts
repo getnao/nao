@@ -4,6 +4,8 @@ import path from 'path';
 
 import { env } from '../env';
 
+const MCP_TOOL_SEPARATOR = '__';
+
 /**
  * Directory names that should be excluded from tool operations (list, search, read).
  */
@@ -273,4 +275,24 @@ export function sanitizeTools(schema: any): any {
 	}
 
 	return sanitized;
+}
+
+/**
+ * Creates prefixed tool name: "servername__toolname"
+ */
+export function prefixToolName(serverName: string, toolName: string): string {
+	return `${serverName}${MCP_TOOL_SEPARATOR}${toolName}`;
+}
+
+/**
+ * Extracts server name and original tool name from prefixed name
+ * Returns: { serverName: "metabase", originalName: "list-dashboards" }
+ */
+export function removePrefixToolName(prefixedToolName: string): string {
+	const parts = prefixedToolName.split(MCP_TOOL_SEPARATOR);
+	if (parts.length >= 2) {
+		const toolName = parts.slice(1).join(MCP_TOOL_SEPARATOR);
+		return toolName;
+	}
+	return prefixedToolName;
 }

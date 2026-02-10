@@ -7,7 +7,7 @@ export const mcpRoutes = router({
 	}),
 
 	reconnect: adminProtectedProcedure.mutation(async () => {
-		await mcpService.handleCacheMcpServerState();
+		await mcpService.loadMcpState();
 		return mcpService.cachedMcpState;
 	}),
 });

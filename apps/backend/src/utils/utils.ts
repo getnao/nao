@@ -46,5 +46,5 @@ export const replaceEnvVars = (fileContent: string) => {
 	const replaced = fileContent.replace(/\$\{(\w+)\}/g, (match, varName) => {
 		return process.env[varName] || match;
 	});
-	return JSON.parse(replaced);
+	return replaced;
 };

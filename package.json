@@ -31,6 +31,7 @@
 		"typescript-eslint": "^8.51.0"
 	},
 	"dependencies": {
+		"better-auth": "^1.4.18",
 		"depd": "^2.0.0"
 	}
 }
