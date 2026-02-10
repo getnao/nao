@@ -18,11 +18,13 @@ ARG GITHUB_TOKEN
 COPY package.json package-lock.json bun.lock ./
 COPY apps/frontend/package.json ./apps/frontend/
 COPY apps/backend/package.json ./apps/backend/
+COPY apps/shared/package.json ./apps/shared/
 
 RUN npm ci
 
 COPY apps/frontend ./apps/frontend
 COPY apps/backend ./apps/backend
+COPY apps/shared ./apps/shared
 
 WORKDIR /app/apps/frontend
 RUN npm run build
@@ -40,14 +42,15 @@ ARG GITHUB_TOKEN
 COPY package.json package-lock.json bun.lock ./
 COPY apps/backend/package.json ./apps/backend/
 COPY apps/frontend/package.json ./apps/frontend/
+COPY apps/shared/package.json ./apps/shared/
 
 # Install production dependencies only
 # --ignore-scripts skips prepare (husky) but we need to manually run @vscode/ripgrep postinstall
-RUN npm ci --omit=dev --ignore-scripts && \
-    cd node_modules/@vscode/ripgrep && npm run postinstall
+RUN npm ci --omit=dev --ignore-scripts && cd node_modules/@vscode/ripgrep && npm run postinstall
 
 # Copy backend source
 COPY apps/backend ./apps/backend
+COPY apps/shared ./apps/shared
 
 # =============================================================================
 # STAGE 4: Python/FastAPI builder
@@ -94,6 +97,7 @@ COPY --from=backend-builder /app/node_modules ./node_modules
 
 # Copy backend source and dependencies
 COPY --from=backend-builder /app/apps/backend ./apps/backend
+COPY --from=backend-builder /app/apps/shared ./apps/shared
 
 # Copy frontend build artifacts (served as static files)
 COPY --from=frontend-builder /app/apps/frontend/dist ./apps/frontend/dist
@@ -120,7 +124,10 @@ RUN mkdir -p /app/context && chown -R nao:nao /app/context
 RUN chown -R nao:nao /app /var/log/supervisor
 
 # Environment variables
+ENV MODE=prod
 ENV NODE_ENV=production
+ENV BETTER_AUTH_URL=http://localhost:5005
+ENV FASTAPI_URL=http://127.0.0.1:8005
 ENV FASTAPI_PORT=8005
 ENV NAO_DEFAULT_PROJECT_PATH=/app/example
 ENV NAO_CONTEXT_SOURCE=local

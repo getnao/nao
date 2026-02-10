@@ -4,6 +4,8 @@ import type { MistralLanguageModelOptions } from '@ai-sdk/mistral';
 import type { OpenAIResponsesProviderOptions } from '@ai-sdk/openai';
 import { z } from 'zod';
 
+import { TokenCost } from './chat';
+
 export const llmProviderSchema = z.enum(['openai', 'anthropic', 'google', 'mistral']);
 export type LlmProvider = z.infer<typeof llmProviderSchema>;
 
@@ -31,6 +33,7 @@ type ProviderModel<P extends LlmProvider> = {
 	name: string;
 	default?: boolean;
 	config?: ProviderConfigMap[P];
+	costPerM?: TokenCost;
 };
 
 /** Provider configuration with typed models */

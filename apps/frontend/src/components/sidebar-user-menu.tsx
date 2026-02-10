@@ -15,7 +15,7 @@ export function SidebarUserMenu({ isCollapsed }: SidebarUserMenuProps) {
 
 	return (
 		<Link
-			to='/user'
+			to='/settings/profile'
 			inactiveProps={{
 				className: cn('text-foreground hover:bg-sidebar-accent'),
 			}}
@@ -29,7 +29,7 @@ export function SidebarUserMenu({ isCollapsed }: SidebarUserMenuProps) {
 			)}
 		>
 			<div className='flex items-center gap-2'>
-				{username && <Avatar username={username} />}
+				{username && <Avatar username={username} className='shrink-0' />}
 
 				<span
 					className={cn(

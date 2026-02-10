@@ -1,0 +1,5 @@
+name: total_revenue
+prompt: What is the total revenue from all orders?
+sql: |
+  SELECT SUM(amount) as total_revenue
+  FROM orders

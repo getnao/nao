@@ -1,52 +1,12 @@
-import { useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CheckCircle, Plus, XCircle } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
 import { trpc } from '@/main';
-import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
 
 interface GoogleConfigSectionProps {
 	isAdmin: boolean;
 }
 
 export function GoogleConfigSection({ isAdmin }: GoogleConfigSectionProps) {
-	const [isEditing, setIsEditing] = useState(false);
-	const [clientId, setClientId] = useState('');
-	const [clientSecret, setClientSecret] = useState('');
-	const [authDomains, setAuthDomains] = useState('');
-	const [testResult, setTestResult] = useState<{ success: boolean; message?: string; error?: string } | null>(null);
-
-	const queryClient = useQueryClient();
 	const googleSettings = useQuery(trpc.google.getSettings.queryOptions());
-
-	const updateGoogleSettings = useMutation(
-		trpc.google.updateSettings.mutationOptions({
-			onSuccess: async () => {
-				await queryClient.invalidateQueries(trpc.google.getSettings.queryOptions());
-				setIsEditing(false);
-				setClientId('');
-				setClientSecret('');
-				setAuthDomains('');
-				setTestResult(null);
-			},
-		}),
-	);
-
-	const handleSave = async () => {
-		await updateGoogleSettings.mutateAsync({
-			clientId,
-			clientSecret,
-			authDomains,
-		});
-	};
-
-	const handleCancel = () => {
-		setIsEditing(false);
-		setClientId('');
-		setClientSecret('');
-		setAuthDomains('');
-		setTestResult(null);
-	};
 
 	const maskCredential = (value: string) => {
 		if (!value) {
@@ -60,17 +20,13 @@ export function GoogleConfigSection({ isAdmin }: GoogleConfigSectionProps) {
 
 	return (
 		<div className='grid gap-4'>
-			{isAdmin && !isEditing && (
-				<button
-					type='button'
-					className='w-full text-left cursor-pointer'
-					onClick={() => isAdmin && setIsEditing(true)}
-				>
+			{isAdmin && (
+				<button type='button' className='w-full text-left'>
 					<div className='flex items-center gap-4 p-4 rounded-lg border border-border bg-muted/30 hover:bg-muted/50 transition-colors'>
 						<div className='flex-1 grid gap-1'>
 							<div className='flex items-center gap-2'>
 								<span className='text-sm font-medium text-foreground'>Google OAuth</span>
-								{isAdmin && <span className='text-xs text-muted-foreground'>(Override Env)</span>}
+								<span className='text-xs text-muted-foreground'>(Override Env)</span>
 							</div>
 							<div className='grid gap-0.5'>
 								<span className='text-xs font-mono text-muted-foreground'>
@@ -88,72 +44,6 @@ export function GoogleConfigSection({ isAdmin }: GoogleConfigSectionProps) {
 						</span>
 					</div>
 				</button>
-			)}
-
-			{isAdmin && isEditing && (
-				<div className='flex flex-col gap-3 p-4 rounded-lg border border-dashed border-border'>
-					<div className='grid gap-4'>
-						<div className='grid gap-2'>
-							<label htmlFor='google-client-id' className='text-sm font-medium text-foreground'>
-								Google Client ID
-							</label>
-							<Input
-								id='google-client-id'
-								type='text'
-								value={clientId}
-								onChange={(e) => setClientId(e.target.value)}
-								placeholder='Your Google Client ID'
-							/>
-						</div>
-						<div className='grid gap-2'>
-							<label htmlFor='google-client-secret' className='text-sm font-medium text-foreground'>
-								Google Client Secret
-							</label>
-							<Input
-								id='google-client-secret'
-								type='password'
-								value={clientSecret}
-								onChange={(e) => setClientSecret(e.target.value)}
-								placeholder='Your Google Client Secret'
-							/>
-						</div>
-						<div className='grid gap-2'>
-							<label htmlFor='google-auth-domains' className='text-sm font-medium text-foreground'>
-								Google Auth Domains
-							</label>
-							<Input
-								id='google-auth-domains'
-								type='text'
-								value={authDomains}
-								onChange={(e) => setAuthDomains(e.target.value)}
-								placeholder='Comma-separated domains (e.g., example.com, test.com)'
-							/>
-						</div>
-					</div>
-
-					{testResult && (
-						<div
-							className={`flex items-center gap-2 p-3 rounded-md ${testResult.success ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}
-						>
-							{testResult.success ? <CheckCircle className='size-4' /> : <XCircle className='size-4' />}
-							<span className='text-sm'>
-								{testResult.success ? testResult.message : testResult.error}
-							</span>
-						</div>
-					)}
-
-					<div className='flex justify-end gap-2'>
-						{isEditing && (
-							<Button variant='ghost' size='sm' onClick={handleCancel}>
-								Cancel
-							</Button>
-						)}
-						<Button size='sm' onClick={handleSave} disabled={updateGoogleSettings.isPending}>
-							<Plus className='size-4 mr-1' />
-							{isEditing ? 'Update' : 'Add'}
-						</Button>
-					</div>
-				</div>
 			)}
 
 			{!isAdmin && (

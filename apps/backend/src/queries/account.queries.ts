@@ -2,7 +2,6 @@ import { eq } from 'drizzle-orm';
 
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
-import * as userQueries from './user.queries';
 
 export const getAccountById = async (userId: string): Promise<{ id: string; password: string | null } | null> => {
 	const [account] = await db
@@ -14,18 +13,18 @@ export const getAccountById = async (userId: string): Promise<{ id: string; pass
 	return account ?? null;
 };
 
-export const updateAccountPassword = async (accountId: string, hashedPassword: string): Promise<void> => {
-	await db.update(s.account).set({ password: hashedPassword }).where(eq(s.account.id, accountId)).execute();
-};
-
-export const updateAccountAndUser = async (
+export const updateAccountPassword = async (
 	accountId: string,
 	hashedPassword: string,
 	userId: string,
-	name?: string,
+	needToResetPassword = true,
 ): Promise<void> => {
-	await updateAccountPassword(accountId, hashedPassword);
-	if (name) {
-		await userQueries.modify(userId, { name });
-	}
+	await db.transaction(async (tx) => {
+		await tx.update(s.account).set({ password: hashedPassword }).where(eq(s.account.id, accountId)).execute();
+		await tx
+			.update(s.user)
+			.set({ requiresPasswordReset: needToResetPassword })
+			.where(eq(s.user.id, userId))
+			.execute();
+	});
 };

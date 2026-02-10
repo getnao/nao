@@ -40,20 +40,44 @@ export const protectedProcedure = t.procedure.use(async ({ ctx, next }) => {
 
 export const projectProtectedProcedure = protectedProcedure.use(async ({ ctx, next }) => {
 	const project = await projectQueries.checkUserHasProject(ctx.user.id);
-	const userRole: UserRole | null = project
-		? await projectQueries.getUserRoleInProject(project.id, ctx.user.id)
-		: null;
+	if (!project) {
+		throw new TRPCError({ code: 'BAD_REQUEST', message: 'No project configured' });
+	}
+	const userRole: UserRole | null = await projectQueries.getUserRoleInProject(project.id, ctx.user.id);
 
 	return next({ ctx: { project, userRole } });
 });
 
 export const adminProtectedProcedure = projectProtectedProcedure.use(async ({ ctx, next }) => {
-	if (!ctx.project) {
-		throw new TRPCError({ code: 'BAD_REQUEST', message: 'No project configured' });
-	}
 	if (ctx.userRole !== 'admin') {
 		throw new TRPCError({ code: 'FORBIDDEN', message: 'Only admins can perform this action' });
 	}
 
 	return next({ ctx: { project: ctx.project, userRole: ctx.userRole } });
 });
+
+export function ownedResourceProcedure(
+	getOwnerId: (resourceId: string) => Promise<string | undefined>,
+	resourceName: string,
+) {
+	return protectedProcedure.use(async ({ ctx, getRawInput, next }) => {
+		const rawInput = (await getRawInput()) as Record<string, unknown>;
+		const resourceId = rawInput[`${resourceName}Id`];
+		if (typeof resourceId !== 'string') {
+			throw new TRPCError({ code: 'BAD_REQUEST', message: `${resourceName}Id is required.` });
+		}
+
+		const ownerId = await getOwnerId(resourceId);
+		if (!ownerId) {
+			throw new TRPCError({ code: 'NOT_FOUND', message: `${resourceName} not found.` });
+		}
+		if (ownerId !== ctx.user.id) {
+			throw new TRPCError({
+				code: 'FORBIDDEN',
+				message: `You are not authorized to modify this ${resourceName}.`,
+			});
+		}
+
+		return next({ ctx });
+	});
+}

@@ -4,7 +4,8 @@ import { z } from 'zod/v4';
 import { MessageFeedback } from '../db/abstractSchema';
 import * as chatQueries from '../queries/chat.queries';
 import * as feedbackQueries from '../queries/feedback.queries';
-import { protectedProcedure } from './trpc';
+import { posthog, PostHogEvent } from '../services/posthog.service';
+import { adminProtectedProcedure, protectedProcedure } from './trpc';
 
 export const feedbackRoutes = {
 	submit: protectedProcedure
@@ -32,10 +33,22 @@ export const feedbackRoutes = {
 				});
 			}
 
-			return feedbackQueries.upsertFeedback({
+			posthog.capture(ctx.user.id, PostHogEvent.MessageFeedbackSubmitted, {
+				vote: input.vote,
+				has_explanation: !!input.explanation,
+			});
+
+			const feedback = await feedbackQueries.upsertFeedback({
 				messageId: input.messageId,
 				vote: input.vote,
 				explanation: input.explanation,
 			});
+			return feedback;
+		}),
+
+	getRecent: adminProtectedProcedure
+		.input(z.object({ limit: z.number().min(1).max(50).optional() }).optional())
+		.query(async ({ ctx, input }) => {
+			return feedbackQueries.getRecentFeedbacks(ctx.project.id, input?.limit ?? 10);
 		}),
 };

@@ -4,9 +4,10 @@ from typing import Literal
 import ibis
 from ibis import BaseBackend
 from pydantic import Field
-from rich.prompt import Prompt
 
-from .base import DatabaseConfig, console
+from nao_core.ui import ask_text
+
+from .base import DatabaseConfig
 
 
 class DuckDBConfig(DatabaseConfig):
@@ -18,11 +19,8 @@ class DuckDBConfig(DatabaseConfig):
     @classmethod
     def promptConfig(cls) -> "DuckDBConfig":
         """Interactively prompt the user for DuckDB configuration."""
-        console.print("\n[bold cyan]DuckDB Configuration[/bold cyan]\n")
-
-        name = Prompt.ask("[bold]Connection name[/bold]", default="duckdb-memory")
-
-        path = Prompt.ask("[bold]Path to the DuckDB database file[/bold]", default=":memory:")
+        name = ask_text("Connection name:", default="duckdb-local") or "duckdb-local"
+        path = ask_text("Path to database file:", default=":memory:") or ":memory:"
 
         return DuckDBConfig(name=name, path=path)
 

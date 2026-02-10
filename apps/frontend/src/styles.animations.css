@@ -3,12 +3,12 @@
 	--translate-size: 5px;
 	--animation-duration: 0.2s;
 
-	--animate-fade-in: fade-in var(--animation-duration) var(--animation-curve);
-	--animate-fade-out: fade-out var(--animation-duration) var(--animation-curve);
-	--animate-fade-in-up: fade-in-up var(--animation-duration) var(--animation-curve);
-	--animate-fade-out-down: fade-out-down var(--animation-duration) var(--animation-curve);
-	--animate-fade-in-down: fade-in-down var(--animation-duration) var(--animation-curve);
-	--animate-fade-out-up: fade-out-up var(--animation-duration) var(--animation-curve);
+	--animate-fade-in: fade-in var(--animation-duration) var(--animation-curve) both;
+	--animate-fade-out: fade-out var(--animation-duration) var(--animation-curve) both;
+	--animate-fade-in-up: fade-in-up var(--animation-duration) var(--animation-curve) both;
+	--animate-fade-out-down: fade-out-down var(--animation-duration) var(--animation-curve) both;
+	--animate-fade-in-down: fade-in-down var(--animation-duration) var(--animation-curve) both;
+	--animate-fade-out-up: fade-out-up var(--animation-duration) var(--animation-curve) both;
 
 	--animate-jump-up-down: jump-up-down 1s infinite;
 }

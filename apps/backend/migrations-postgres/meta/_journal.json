@@ -57,6 +57,27 @@
       "when": 1769686400000,
       "tag": "0007_chat_message_llm_info",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1770129113295,
+      "tag": "0008_user_password_reset",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1770285870442,
+      "tag": "0009_organization_level",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1770381601080,
+      "tag": "0010_saved_prompts",
+      "breakpoints": true
     }
   ]
 }

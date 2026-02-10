@@ -37,10 +37,18 @@ dependencies = [
     "anthropic>=0.76.0",
     "notion-client>=2.7.0",
     "notion2md>=2.9.0",
+    "questionary>=2.1.0",
+    "posthog>=7.8.0",
+    "mistralai>=1.11.1",
+    "google-genai>=1.61.0",
+    "sshtunnel>=0.4.0",
 ]
 
+[project.optional-dependencies]
+dev = ["pytest-cov"]
+
 [project.scripts]
-nao = "nao_core.main:app"
+nao = "nao_core.main:main"
 
 [project.urls]
 Homepage = "https://getnao.io"

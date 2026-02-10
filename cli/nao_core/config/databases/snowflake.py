@@ -6,11 +6,10 @@ from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 from ibis import BaseBackend
 from pydantic import Field
-from rich.prompt import Confirm, Prompt
 
-from nao_core.config.exceptions import InitError
+from nao_core.ui import ask_confirm, ask_text
 
-from .base import DatabaseConfig, console
+from .base import DatabaseConfig
 
 
 class SnowflakeConfig(DatabaseConfig):
@@ -44,44 +43,31 @@ class SnowflakeConfig(DatabaseConfig):
     @classmethod
     def promptConfig(cls) -> "SnowflakeConfig":
         """Interactively prompt the user for Snowflake configuration."""
-        console.print("\n[bold cyan]Snowflake Configuration[/bold cyan]\n")
+        name = ask_text("Connection name:", default="snowflake-prod") or "snowflake-prod"
+        username = ask_text("Snowflake username:", required_field=True)
+        account_id = ask_text("Account identifier (e.g., xy12345.us-east-1):", required_field=True)
+        database = ask_text("Snowflake database:", required_field=True)
+        warehouse = ask_text("Warehouse (optional):")
+        schema = ask_text("Default schema (optional):")
 
-        name = Prompt.ask("[bold]Connection name[/bold]", default="snowflake-prod")
+        key_pair_auth = ask_confirm("Use key-pair authentication?", default=False)
 
-        username = Prompt.ask("[bold]Snowflake username[/bold]")
-        if not username:
-            raise InitError("Snowflake username cannot be empty.")
+        password = None
+        private_key_path = None
+        passphrase = None
 
-        account_id = Prompt.ask("[bold]Snowflake account identifier[/bold]")
-        if not account_id:
-            raise InitError("Snowflake account identifier cannot be empty.")
-
-        database = Prompt.ask("[bold]Snowflake database[/bold]")
-        if not database:
-            raise InitError("Snowflake database cannot be empty.")
-
-        warehouse = Prompt.ask(
-            "[bold]Snowflake warehouse[/bold] [dim](optional, press Enter to skip)[/dim]", default=None
-        )
-
-        schema = Prompt.ask("[bold]Default schema[/bold] [dim](optional, press Enter to skip)[/dim]", default=None)
+        use_sso = False if use_sso else Confirm.ask("[bold]Use key-pair authentication?[/bold]", default=False)
 
         use_sso = Confirm.ask("[bold]Use SSO (external browser) for authentication?[/bold]", default=False)
+        key_pair_auth = False if use_sso else Confirm.ask("[bold]Use key-pair authentication?[/bold]", default=False)
         authenticator = "externalbrowser" if use_sso else None
         
-        key_pair_auth = False if use_sso else Confirm.ask("[bold]Use key-pair authentication?[/bold]", default=False)
         
         if key_pair_auth:
-            private_key_path = Prompt.ask("[bold]Path to private key file[/bold]")
-            if not private_key_path:
-                raise InitError("Path to private key file cannot be empty.")
+            private_key_path = ask_text("Path to private key file:", required_field=True)
             if not os.path.isfile(private_key_path):
                 raise InitError(f"Private key file not found: {private_key_path}")
-            passphrase = Prompt.ask(
-                "[bold]Passphrase for the private key[/bold] [dim](optional, press Enter to skip)[/dim]",
-                default=None,
-                password=True,
-            )
+            passphrase = ask_text("Private key passphrase (optional):", password=True)
             password = None
         else:
             password = None if use_sso else Prompt.ask("[bold]Snowflake password[/bold]", password=True)
