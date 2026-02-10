@@ -113,7 +113,7 @@ For **business users**:
 
 ## Evaluation framework
 
-Unit test your agent performance before deploying it to users. First, create a folder `tests/` with questions and expected SQL in yaml. 
+Unit test your agent performance before deploying it to users. First, create a folder `tests/` with questions and expected SQL in yaml.
 Then, measure agent's performance on examples with nao test command:
 
 ```bash

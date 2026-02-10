@@ -123,8 +123,6 @@ if (staticRoot) {
 }
 
 export const startServer = async (opts: { port: number; host: string }) => {
-export async function startServer() {
-
 	await ensureOrganizationSetup();
 
 	const address = await app.listen({ host: opts.host, port: opts.port });
