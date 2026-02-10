@@ -2,7 +2,7 @@ CREATE TABLE {catalog}.public.users (
 id INTEGER NOT NULL,
 name STRING NOT NULL,
 email STRING,
-active BOOLEAN DEFAULT TRUE
+active BOOLEAN
 );
 
 INSERT INTO {catalog}.public.users VALUES

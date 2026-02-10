@@ -26,8 +26,6 @@ class DatabricksConfig(DatabaseConfig):
     catalog: str | None = Field(default=None, description="Unity Catalog name (optional)")
     schema_name: str | None = Field(
         default=None,
-        validation_alias="schema",
-        serialization_alias="schema",
         description="Default schema (optional)",
     )
 
