@@ -8,8 +8,7 @@ import { getProjectFolder } from '../../utils/tools';
 export async function executeQuery({ sql_query, database_id }: executeSql.Input): Promise<executeSql.Output> {
 	const naoProjectFolder = getProjectFolder();
 
-	const fastApiBaseUrl =
-		env.FASTAPI_URL || `http://127.0.0.1:${process.env.FASTAPI_PORT ?? '8005'}`;
+	const fastApiBaseUrl = `http://127.0.0.1:${env.FASTAPI_PORT}`;
 	const executeSqlUrl = new URL('/execute_sql', fastApiBaseUrl).toString();
 
 	const response = await fetch(executeSqlUrl, {
