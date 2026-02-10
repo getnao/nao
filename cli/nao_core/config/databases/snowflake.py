@@ -21,8 +21,6 @@ class SnowflakeConfig(DatabaseConfig):
     database: str = Field(description="Snowflake database")
     schema_name: str | None = Field(
         default=None,
-        validation_alias="schema",
-        serialization_alias="schema",
         description="Snowflake schema (optional)",
     )
     warehouse: str | None = Field(default=None, description="Snowflake warehouse to use (optional)")
@@ -74,9 +72,9 @@ class SnowflakeConfig(DatabaseConfig):
         kwargs: dict = {"user": self.username}
         kwargs["account"] = self.account_id
 
-        if self.database and self.schema_name:
-            kwargs["database"] = f"{self.database}/{self.schema_name}"
-        elif self.database:
+        # Always connect to just the database, not database/schema
+        # The sync provider will handle schema filtering via list_tables(database=schema)
+        if self.database:
             kwargs["database"] = self.database
 
         if self.warehouse:
@@ -103,11 +101,45 @@ class SnowflakeConfig(DatabaseConfig):
         """Get the database name for Snowflake."""
         return self.database
 
+    def matches_pattern(self, schema: str, table: str) -> bool:
+        """Check if a schema.table matches the include/exclude patterns.
+
+        Snowflake identifier matching is case-insensitive.
+
+        Args:
+            schema: The schema name (uppercase from Snowflake)
+            table: The table name (uppercase from Snowflake)
+
+        Returns:
+            True if the table should be included, False if excluded
+        """
+        from fnmatch import fnmatch
+
+        full_name = f"{schema}.{table}"
+        full_name_lower = full_name.lower()
+
+        # If include patterns exist, table must match at least one
+        if self.include:
+            included = any(fnmatch(full_name_lower, pattern.lower()) for pattern in self.include)
+            if not included:
+                return False
+
+        # If exclude patterns exist, table must not match any
+        if self.exclude:
+            excluded = any(fnmatch(full_name_lower, pattern.lower()) for pattern in self.exclude)
+            if excluded:
+                return False
+
+        return True
+
     def get_schemas(self, conn: BaseBackend) -> list[str]:
         if self.schema_name:
-            return [self.schema_name]
+            # Snowflake schema names are case-insensitive but stored as uppercase
+            return [self.schema_name.upper()]
         list_databases = getattr(conn, "list_databases", None)
-        return list_databases() if list_databases else []
+        schemas = list_databases() if list_databases else []
+        # Filter out INFORMATION_SCHEMA which contains system tables
+        return [s for s in schemas if s != "INFORMATION_SCHEMA"]
 
     def check_connection(self) -> tuple[bool, str]:
         """Test connectivity to Snowflake."""

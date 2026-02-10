@@ -10,7 +10,10 @@ The test suite is skipped entirely when REDSHIFT_HOST is not set.
 
 import json
 import os
+import uuid
+from pathlib import Path
 
+import ibis
 import pytest
 from rich.progress import Progress
 
@@ -28,13 +31,70 @@ KNOWN_ERROR = "pg_catalog.pg_enum"
 
 
 @pytest.fixture(scope="module")
-def redshift_config():
-    """Build a RedshiftConfig from environment variables."""
+def temp_database():
+    """Create a temporary database and populate it with test data, then clean up."""
+    db_name = f"nao_unit_tests_{uuid.uuid4().hex[:8]}"
+
+    # Connect to default database to create temp database
+    conn = ibis.postgres.connect(
+        host=os.environ["REDSHIFT_HOST"],
+        port=int(os.environ.get("REDSHIFT_PORT", "5439")),
+        database=os.environ.get("REDSHIFT_DATABASE", "dev"),
+        user=os.environ["REDSHIFT_USER"],
+        password=os.environ["REDSHIFT_PASSWORD"],
+        client_encoding="utf8",
+        sslmode=os.environ.get("REDSHIFT_SSLMODE", "require"),
+    )
+
+    try:
+        # Create temporary database
+        conn.raw_sql(f"CREATE DATABASE {db_name}")
+
+        # Connect to the new database and run setup script
+        test_conn = ibis.postgres.connect(
+            host=os.environ["REDSHIFT_HOST"],
+            port=int(os.environ.get("REDSHIFT_PORT", "5439")),
+            database=db_name,
+            user=os.environ["REDSHIFT_USER"],
+            password=os.environ["REDSHIFT_PASSWORD"],
+            client_encoding="utf8",
+            sslmode=os.environ.get("REDSHIFT_SSLMODE", "require"),
+        )
+
+        # Read and execute SQL script
+        sql_file = Path(__file__).parent / "dml" / "redshift.sql"
+        sql_template = sql_file.read_text()
+
+        # Inject database name into SQL
+        sql_content = sql_template.format(database=db_name)
+
+        # Execute SQL statements
+        for statement in sql_content.split(";"):
+            statement = statement.strip()
+            if statement:
+                test_conn.raw_sql(statement)
+
+        test_conn.disconnect()
+
+        yield db_name
+
+    finally:
+        # Clean up: drop the temporary database (Redshift doesn't support IF EXISTS)
+        try:
+            conn.raw_sql(f"DROP DATABASE {db_name}")
+        except Exception:
+            pass  # Database might not exist if setup failed
+        conn.disconnect()
+
+
+@pytest.fixture(scope="module")
+def redshift_config(temp_database):
+    """Build a RedshiftConfig from environment variables using the temporary database."""
     return RedshiftConfig(
         name="test-redshift",
         host=os.environ["REDSHIFT_HOST"],
         port=int(os.environ.get("REDSHIFT_PORT", "5439")),
-        database=os.environ["REDSHIFT_DATABASE"],
+        database=temp_database,
         user=os.environ["REDSHIFT_USER"],
         password=os.environ["REDSHIFT_PASSWORD"],
         schema_name=os.environ.get("REDSHIFT_SCHEMA", "public"),
@@ -59,7 +119,7 @@ class TestRedshiftSyncIntegration:
     def test_creates_expected_directory_tree(self, synced):
         state, output, config = synced
 
-        base = output / "type=redshift" / "database=nao_unit_tests" / "schema=public"
+        base = output / "type=redshift" / f"database={config.database}" / "schema=public"
 
         # Schema directory
         assert base.is_dir()
@@ -71,11 +131,15 @@ class TestRedshiftSyncIntegration:
             files = sorted(f.name for f in table_dir.iterdir())
             assert files == ["columns.md", "description.md", "preview.md"]
 
+        # Verify that the "another" schema was NOT synced
+        another_schema_dir = output / "type=redshift" / f"database={config.database}" / "schema=another"
+        assert not another_schema_dir.exists()
+
     def test_columns_md_users(self, synced):
         state, output, config = synced
 
         content = (
-            output / "type=redshift" / "database=nao_unit_tests" / "schema=public" / "table=users" / "columns.md"
+            output / "type=redshift" / f"database={config.database}" / "schema=public" / "table=users" / "columns.md"
         ).read_text()
 
         # NOT NULL columns are prefixed with ! by Ibis (e.g. !int32)
@@ -96,7 +160,7 @@ class TestRedshiftSyncIntegration:
         state, output, config = synced
 
         content = (
-            output / "type=redshift" / "database=nao_unit_tests" / "schema=public" / "table=orders" / "columns.md"
+            output / "type=redshift" / f"database={config.database}" / "schema=public" / "table=orders" / "columns.md"
         ).read_text()
 
         assert content == (
@@ -115,7 +179,12 @@ class TestRedshiftSyncIntegration:
         state, output, config = synced
 
         content = (
-            output / "type=redshift" / "database=nao_unit_tests" / "schema=public" / "table=users" / "description.md"
+            output
+            / "type=redshift"
+            / f"database={config.database}"
+            / "schema=public"
+            / "table=users"
+            / "description.md"
         ).read_text()
 
         assert content == (
@@ -139,7 +208,12 @@ class TestRedshiftSyncIntegration:
         state, output, config = synced
 
         content = (
-            output / "type=redshift" / "database=nao_unit_tests" / "schema=public" / "table=orders" / "description.md"
+            output
+            / "type=redshift"
+            / f"database={config.database}"
+            / "schema=public"
+            / "table=orders"
+            / "description.md"
         ).read_text()
 
         assert "| **Row Count** | 2 |" in content
@@ -149,7 +223,7 @@ class TestRedshiftSyncIntegration:
         state, output, config = synced
 
         content = (
-            output / "type=redshift" / "database=nao_unit_tests" / "schema=public" / "table=users" / "preview.md"
+            output / "type=redshift" / f"database={config.database}" / "schema=public" / "table=users" / "preview.md"
         ).read_text()
 
         assert "# users - Preview" in content
@@ -169,7 +243,7 @@ class TestRedshiftSyncIntegration:
         state, output, config = synced
 
         content = (
-            output / "type=redshift" / "database=nao_unit_tests" / "schema=public" / "table=orders" / "preview.md"
+            output / "type=redshift" / f"database={config.database}" / "schema=public" / "table=orders" / "preview.md"
         ).read_text()
 
         lines = [line for line in content.splitlines() if line.startswith("- {")]
@@ -206,7 +280,7 @@ class TestRedshiftSyncIntegration:
         with Progress(transient=True) as progress:
             state = sync_database(config, output, progress)
 
-        base = output / "type=redshift" / "database=nao_unit_tests" / "schema=public"
+        base = output / "type=redshift" / f"database={config.database}" / "schema=public"
         assert (base / "table=users").is_dir()
         assert not (base / "table=orders").exists()
         assert state.tables_synced == 1
@@ -229,7 +303,7 @@ class TestRedshiftSyncIntegration:
         with Progress(transient=True) as progress:
             state = sync_database(config, output, progress)
 
-        base = output / "type=redshift" / "database=nao_unit_tests" / "schema=public"
+        base = output / "type=redshift" / f"database={config.database}" / "schema=public"
         assert (base / "table=users").is_dir()
         assert not (base / "table=orders").exists()
         assert state.tables_synced == 1
@@ -252,33 +326,37 @@ class TestRedshiftSyncIntegration:
             state = sync_database(config, output, progress)
 
         # Verify public schema tables
-        assert (output / "type=redshift" / "database=nao_unit_tests" / "schema=public").is_dir()
-        assert (output / "type=redshift" / "database=nao_unit_tests" / "schema=public" / "table=users").is_dir()
-        assert (output / "type=redshift" / "database=nao_unit_tests" / "schema=public" / "table=orders").is_dir()
+        assert (output / "type=redshift" / f"database={config.database}" / "schema=public").is_dir()
+        assert (output / "type=redshift" / f"database={config.database}" / "schema=public" / "table=users").is_dir()
+        assert (output / "type=redshift" / f"database={config.database}" / "schema=public" / "table=orders").is_dir()
 
         # Verify public.users files
         files = sorted(
             f.name
-            for f in (output / "type=redshift" / "database=nao_unit_tests" / "schema=public" / "table=users").iterdir()
+            for f in (
+                output / "type=redshift" / f"database={config.database}" / "schema=public" / "table=users"
+            ).iterdir()
         )
         assert files == ["columns.md", "description.md", "preview.md"]
 
         # Verify public.orders files
         files = sorted(
             f.name
-            for f in (output / "type=redshift" / "database=nao_unit_tests" / "schema=public" / "table=orders").iterdir()
+            for f in (
+                output / "type=redshift" / f"database={config.database}" / "schema=public" / "table=orders"
+            ).iterdir()
         )
         assert files == ["columns.md", "description.md", "preview.md"]
 
         # Verify another schema table
-        assert (output / "type=redshift" / "database=nao_unit_tests" / "schema=another").is_dir()
-        assert (output / "type=redshift" / "database=nao_unit_tests" / "schema=another" / "table=whatever").is_dir()
+        assert (output / "type=redshift" / f"database={config.database}" / "schema=another").is_dir()
+        assert (output / "type=redshift" / f"database={config.database}" / "schema=another" / "table=whatever").is_dir()
 
         # Verify another.whatever files
         files = sorted(
             f.name
             for f in (
-                output / "type=redshift" / "database=nao_unit_tests" / "schema=another" / "table=whatever"
+                output / "type=redshift" / f"database={config.database}" / "schema=another" / "table=whatever"
             ).iterdir()
         )
         assert files == ["columns.md", "description.md", "preview.md"]

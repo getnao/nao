@@ -72,7 +72,11 @@ class PostgresConfig(DatabaseConfig):
         if self.schema_name:
             return [self.schema_name]
         list_databases = getattr(conn, "list_databases", None)
-        return list_databases() if list_databases else []
+        if list_databases:
+            schemas = list_databases()
+            # Filter out system schemas
+            return [s for s in schemas if s not in ("pg_catalog", "information_schema") and not s.startswith("pg_")]
+        return []
 
     def check_connection(self) -> tuple[bool, str]:
         """Test connectivity to PostgreSQL."""
