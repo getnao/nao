@@ -297,7 +297,7 @@ class TestChatCommand:
         env = chat_server_call.kwargs.get("env", {})
 
         assert "NAO_DEFAULT_PROJECT_PATH" in env
-        assert "FASTAPI_URL" in env
+        assert "FASTAPI_PORT" in env
         assert "BETTER_AUTH_SECRET" in env
 
     @patch("nao_core.commands.chat.webbrowser.open")

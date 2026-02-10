@@ -142,7 +142,7 @@ docker run -d \
   --name nao \
   -p 5005:5005 \
   -e BETTER_AUTH_URL=http://localhost:5005 \
-  -e FASTAPI_URL=http://127.0.0.1:8005 \
+  -e FASTAPI_PORT=8005 \
   getnao/nao:latest
 ```
 
@@ -155,7 +155,7 @@ docker run -d \
   -e BETTER_AUTH_URL=http://localhost:5005 \
   -v /path/to/your/nao-project:/app/project \
   -e NAO_DEFAULT_PROJECT_PATH=/app/project \
-  -e FASTAPI_URL=http://127.0.0.1:8005 \
+  -e FASTAPI_PORT=8005 \
   getnao/nao:latest
 ```
 
