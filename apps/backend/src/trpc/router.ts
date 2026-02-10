@@ -2,6 +2,7 @@ import { accountRoutes } from './account.routes';
 import { chatRoutes } from './chat.routes';
 import { feedbackRoutes } from './feedback.routes';
 import { googleRoutes } from './google.routes';
+import { organizationRoutes } from './organization.routes';
 import { posthogRoutes } from './posthog.routes';
 import { projectRoutes } from './project.routes';
 import { router } from './trpc';
@@ -17,6 +18,7 @@ export const trpcRouter = router({
 	user: userRoutes,
 	google: googleRoutes,
 	account: accountRoutes,
+	organization: organizationRoutes,
 });
 
 export type TrpcRouter = typeof trpcRouter;

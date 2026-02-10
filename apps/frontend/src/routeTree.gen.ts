@@ -19,6 +19,7 @@ import { Route as SidebarLayoutChatLayoutIndexRouteImport } from './routes/_side
 import { Route as SidebarLayoutSettingsUsageRouteImport } from './routes/_sidebar-layout.settings.usage'
 import { Route as SidebarLayoutSettingsProjectRouteImport } from './routes/_sidebar-layout.settings.project'
 import { Route as SidebarLayoutSettingsProfileRouteImport } from './routes/_sidebar-layout.settings.profile'
+import { Route as SidebarLayoutSettingsOrganizationRouteImport } from './routes/_sidebar-layout.settings.organization'
 import { Route as SidebarLayoutSettingsAppearanceRouteImport } from './routes/_sidebar-layout.settings.appearance'
 import { Route as SidebarLayoutChatLayoutChatIdRouteImport } from './routes/_sidebar-layout._chat-layout.$chatId'
 
@@ -75,6 +76,12 @@ const SidebarLayoutSettingsProfileRoute =
     path: '/profile',
     getParentRoute: () => SidebarLayoutSettingsRoute,
   } as any)
+const SidebarLayoutSettingsOrganizationRoute =
+  SidebarLayoutSettingsOrganizationRouteImport.update({
+    id: '/organization',
+    path: '/organization',
+    getParentRoute: () => SidebarLayoutSettingsRoute,
+  } as any)
 const SidebarLayoutSettingsAppearanceRoute =
   SidebarLayoutSettingsAppearanceRouteImport.update({
     id: '/appearance',
@@ -95,6 +102,7 @@ export interface FileRoutesByFullPath {
   '/settings': typeof SidebarLayoutSettingsRouteWithChildren
   '/$chatId': typeof SidebarLayoutChatLayoutChatIdRoute
   '/settings/appearance': typeof SidebarLayoutSettingsAppearanceRoute
+  '/settings/organization': typeof SidebarLayoutSettingsOrganizationRoute
   '/settings/profile': typeof SidebarLayoutSettingsProfileRoute
   '/settings/project': typeof SidebarLayoutSettingsProjectRoute
   '/settings/usage': typeof SidebarLayoutSettingsUsageRoute
@@ -106,6 +114,7 @@ export interface FileRoutesByTo {
   '/signup': typeof SignupRoute
   '/$chatId': typeof SidebarLayoutChatLayoutChatIdRoute
   '/settings/appearance': typeof SidebarLayoutSettingsAppearanceRoute
+  '/settings/organization': typeof SidebarLayoutSettingsOrganizationRoute
   '/settings/profile': typeof SidebarLayoutSettingsProfileRoute
   '/settings/project': typeof SidebarLayoutSettingsProjectRoute
   '/settings/usage': typeof SidebarLayoutSettingsUsageRoute
@@ -120,6 +129,7 @@ export interface FileRoutesById {
   '/_sidebar-layout/settings': typeof SidebarLayoutSettingsRouteWithChildren
   '/_sidebar-layout/_chat-layout/$chatId': typeof SidebarLayoutChatLayoutChatIdRoute
   '/_sidebar-layout/settings/appearance': typeof SidebarLayoutSettingsAppearanceRoute
+  '/_sidebar-layout/settings/organization': typeof SidebarLayoutSettingsOrganizationRoute
   '/_sidebar-layout/settings/profile': typeof SidebarLayoutSettingsProfileRoute
   '/_sidebar-layout/settings/project': typeof SidebarLayoutSettingsProjectRoute
   '/_sidebar-layout/settings/usage': typeof SidebarLayoutSettingsUsageRoute
@@ -135,6 +145,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/$chatId'
     | '/settings/appearance'
+    | '/settings/organization'
     | '/settings/profile'
     | '/settings/project'
     | '/settings/usage'
@@ -146,6 +157,7 @@ export interface FileRouteTypes {
     | '/signup'
     | '/$chatId'
     | '/settings/appearance'
+    | '/settings/organization'
     | '/settings/profile'
     | '/settings/project'
     | '/settings/usage'
@@ -159,6 +171,7 @@ export interface FileRouteTypes {
     | '/_sidebar-layout/settings'
     | '/_sidebar-layout/_chat-layout/$chatId'
     | '/_sidebar-layout/settings/appearance'
+    | '/_sidebar-layout/settings/organization'
     | '/_sidebar-layout/settings/profile'
     | '/_sidebar-layout/settings/project'
     | '/_sidebar-layout/settings/usage'
@@ -244,6 +257,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SidebarLayoutSettingsProfileRouteImport
       parentRoute: typeof SidebarLayoutSettingsRoute
     }
+    '/_sidebar-layout/settings/organization': {
+      id: '/_sidebar-layout/settings/organization'
+      path: '/organization'
+      fullPath: '/settings/organization'
+      preLoaderRoute: typeof SidebarLayoutSettingsOrganizationRouteImport
+      parentRoute: typeof SidebarLayoutSettingsRoute
+    }
     '/_sidebar-layout/settings/appearance': {
       id: '/_sidebar-layout/settings/appearance'
       path: '/appearance'
@@ -279,6 +299,7 @@ const SidebarLayoutChatLayoutRouteWithChildren =
 
 interface SidebarLayoutSettingsRouteChildren {
   SidebarLayoutSettingsAppearanceRoute: typeof SidebarLayoutSettingsAppearanceRoute
+  SidebarLayoutSettingsOrganizationRoute: typeof SidebarLayoutSettingsOrganizationRoute
   SidebarLayoutSettingsProfileRoute: typeof SidebarLayoutSettingsProfileRoute
   SidebarLayoutSettingsProjectRoute: typeof SidebarLayoutSettingsProjectRoute
   SidebarLayoutSettingsUsageRoute: typeof SidebarLayoutSettingsUsageRoute
@@ -287,6 +308,8 @@ interface SidebarLayoutSettingsRouteChildren {
 
 const SidebarLayoutSettingsRouteChildren: SidebarLayoutSettingsRouteChildren = {
   SidebarLayoutSettingsAppearanceRoute: SidebarLayoutSettingsAppearanceRoute,
+  SidebarLayoutSettingsOrganizationRoute:
+    SidebarLayoutSettingsOrganizationRoute,
   SidebarLayoutSettingsProfileRoute: SidebarLayoutSettingsProfileRoute,
   SidebarLayoutSettingsProjectRoute: SidebarLayoutSettingsProjectRoute,
   SidebarLayoutSettingsUsageRoute: SidebarLayoutSettingsUsageRoute,
