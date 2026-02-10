@@ -3,10 +3,12 @@ import { executeSql as schemas } from '@nao/shared/tools';
 import { tool } from 'ai';
 
 import { env } from '../../env';
+import { getRequestContext } from '../../utils/request-context';
 import { getProjectFolder } from '../../utils/tools';
 
 export async function executeQuery({ sql_query, database_id }: executeSql.Input): Promise<executeSql.Output> {
 	const naoProjectFolder = getProjectFolder();
+	const { userEmail } = getRequestContext();
 
 	const response = await fetch(`${env.FASTAPI_URL}/execute_sql`, {
 		method: 'POST',
@@ -17,6 +19,7 @@ export async function executeQuery({ sql_query, database_id }: executeSql.Input)
 			sql: sql_query,
 			nao_project_folder: naoProjectFolder,
 			...(database_id && { database_id }),
+			...(userEmail && { user_email: userEmail }),
 		}),
 	});
 

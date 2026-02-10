@@ -90,6 +90,13 @@ class DatabaseConfig(BaseModel, ABC):
 
         return True
 
+    def annotate_query(self, sql: str, *, project_name: str, user_email: str | None = None) -> str:
+        """Prepend metadata annotations to a query. No-op by default."""
+        return sql
+
+    def validate_query_cost(self, connection: BaseBackend, sql: str) -> None:
+        """Validate that a query won't exceed cost limits. No-op by default."""
+
     @abstractmethod
     def get_database_name(self) -> str:
         """Get the database name for this database type."""

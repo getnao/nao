@@ -9,6 +9,8 @@ from nao_core.ui import ask_select, ask_text
 
 from .base import DatabaseConfig
 
+BQ_COST_PER_TB = 6.25
+
 
 class BigQueryConfig(DatabaseConfig):
     """BigQuery-specific configuration."""
@@ -16,6 +18,7 @@ class BigQueryConfig(DatabaseConfig):
     type: Literal["bigquery"] = "bigquery"
     project_id: str = Field(description="GCP project ID")
     dataset_id: str | None = Field(default=None, description="Default BigQuery dataset")
+    max_query_cost: float = Field(default=1.0, description="Maximum allowed query cost in USD")
     credentials_path: str | None = Field(
         default=None,
         description="Path to service account JSON file. If not provided, uses Application Default Credentials (ADC)",
@@ -102,6 +105,33 @@ class BigQueryConfig(DatabaseConfig):
             kwargs["credentials"] = credentials
 
         return ibis.bigquery.connect(**kwargs)
+
+    def annotate_query(self, sql: str, *, project_name: str, user_email: str | None = None) -> str:
+        """Prepend a SQL comment with project and user metadata for BigQuery audit."""
+        lines = [f"-- project: {project_name}"]
+        if user_email:
+            lines.append(f"-- user: {user_email}")
+        lines.append(sql)
+        return "\n".join(lines)
+
+    def validate_query_cost(self, connection: BaseBackend, sql: str) -> None:
+        """Dry-run the query and reject it if the estimated cost exceeds the limit."""
+        from google.cloud import bigquery
+
+        job_config = bigquery.QueryJobConfig(dry_run=True, use_query_cache=False)
+        bq_client = getattr(connection, "client")
+        job = bq_client.query(sql, job_config=job_config)
+
+        bytes_processed = job.total_bytes_processed
+        estimated_cost = (bytes_processed / (1024**4)) * BQ_COST_PER_TB
+
+        if estimated_cost > self.max_query_cost:
+            gb_processed = bytes_processed / (1024**3)
+            raise ValueError(
+                f"Query would scan {gb_processed:.1f} GB (estimated ${estimated_cost:.2f}), "
+                f"which exceeds the ${self.max_query_cost:.2f} limit. "
+                f"Refine the query to scan less data (e.g. add filters, select fewer columns, use partitions)."
+            )
 
     def get_database_name(self) -> str:
         """Get the database name for BigQuery."""

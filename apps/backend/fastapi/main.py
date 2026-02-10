@@ -90,6 +90,7 @@ class ExecuteSQLRequest(BaseModel):
     sql: str
     nao_project_folder: str
     database_id: str | None = None
+    user_email: str | None = None
 
 
 class ExecuteSQLResponse(BaseModel):
@@ -220,8 +221,16 @@ async def execute_sql(request: ExecuteSQLRequest):
 
         connection = db_config.connect()
 
+        sql = db_config.annotate_query(
+            request.sql,
+            project_name=config.project_name,
+            user_email=request.user_email,
+        )
+
+        db_config.validate_query_cost(connection, sql)
+
         # Use raw_sql to execute arbitrary SQL (including CTEs)
-        cursor = connection.raw_sql(request.sql)
+        cursor = connection.raw_sql(sql)
 
         # Handle different cursor types from different backends
         if hasattr(cursor, "fetchdf"):
