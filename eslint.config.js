@@ -14,6 +14,7 @@ export default tseslint.config(
 			'simple-import-sort/exports': 'warn',
 			'@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
 			'@typescript-eslint/no-unused-expressions': 'warn',
+			curly: 'warn',
 		},
 	},
 	{ ignores: ['**/dist/', '**/node_modules/'] },

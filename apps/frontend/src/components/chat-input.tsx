@@ -1,5 +1,5 @@
 import { ArrowUpIcon, ChevronDown, SquareIcon } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import type { FormEvent, KeyboardEvent } from 'react';
@@ -15,14 +15,24 @@ import {
 import { trpc } from '@/main';
 import { useAgentContext } from '@/contexts/agent.provider';
 import { LlmProviderIcon } from '@/components/ui/llm-provider-icon';
+import { useRegisterSetChatInputCallback } from '@/contexts/set-chat-input-callback';
 
 export function ChatInput() {
+	const [input, setInput] = useState('');
+	const inputRef = useRef<HTMLTextAreaElement>(null);
 	const { sendMessage, isRunning, stopAgent, isReadyForNewMessages, selectedModel, setSelectedModel } =
 		useAgentContext();
 	const chatId = useParams({ strict: false, select: (p) => p.chatId });
 	const availableModels = useQuery(trpc.project.getAvailableModels.queryOptions());
 	const knownModels = useQuery(trpc.project.getKnownModels.queryOptions());
-	const [input, setInput] = useState('');
+
+	// Register the callback function for setting the input value
+	useRegisterSetChatInputCallback((text) => {
+		setInput(text);
+		inputRef.current?.focus();
+	});
+
+	useEffect(() => inputRef.current?.focus(), [chatId]);
 
 	// Set default model when available models load, or reset if current selection is no longer available
 	useEffect(() => {
@@ -73,13 +83,14 @@ export function ChatInput() {
 			<form onSubmit={handleSubmit} className='mx-auto'>
 				<InputGroup htmlFor='chat-input'>
 					<InputGroupTextarea
-						key={chatId}
+						ref={inputRef}
 						autoFocus
 						placeholder='Ask anything about your data...'
 						value={input}
 						onChange={(e) => setInput(e.target.value)}
 						onKeyDown={handleKeyDown}
 						id='chat-input'
+						className='max-h-64'
 					/>
 
 					<InputGroupAddon align='block-end'>

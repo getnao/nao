@@ -1,6 +1,8 @@
 import {
 	convertToModelMessages,
 	createUIMessageStream,
+	FinishReason,
+	hasToolCall,
 	ModelMessage,
 	StreamTextResult,
 	ToolLoopAgent,
@@ -13,19 +15,34 @@ import { tools } from '../agents/tools';
 import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
-import { UIChat, UIMessage } from '../types/chat';
-import type { LlmProvider } from '../types/llm';
-import { convertToTokenUsage } from '../utils/chat';
+import { TokenCost, TokenUsage, UIChat, UIMessage } from '../types/chat';
+import { convertToCost, convertToTokenUsage } from '../utils/chat';
 import { getDefaultModelId, getEnvApiKey, getEnvModelSelections, ModelSelection } from '../utils/llm';
 
 export type { ModelSelection };
+
+export interface AgentRunResult {
+	text: string;
+	usage: TokenUsage;
+	cost: TokenCost;
+	finishReason: FinishReason;
+	/** Duration of the agent run in milliseconds */
+	durationMs: number;
+	/** Response messages in ModelMessage format - can be used directly for follow-up calls */
+	responseMessages: ModelMessage[];
+	/** Raw steps from the agent - can be used to extract tool calls if needed */
+	steps: ReadonlyArray<{
+		toolCalls: ReadonlyArray<{ toolName: string; toolCallId: string; input: unknown }>;
+		toolResults: ReadonlyArray<{ toolCallId: string; output?: unknown }>;
+	}>;
+}
 
 type AgentChat = UIChat & {
 	userId: string;
 	projectId: string;
 };
 
-class AgentService {
+export class AgentService {
 	private _agents = new Map<string, AgentManager>();
 
 	async create(
@@ -47,7 +64,7 @@ class AgentService {
 		return agent;
 	}
 
-	private async _getResolvedModelSelection(
+	protected async _getResolvedModelSelection(
 		projectId: string,
 		modelSelection?: ModelSelection,
 	): Promise<ModelSelection> {
@@ -87,19 +104,21 @@ class AgentService {
 		return this._agents.get(chatId);
 	}
 
-	private async _getModelConfig(
+	protected async _getModelConfig(
 		projectId: string,
 		modelSelection: ModelSelection,
 	): Promise<Pick<ToolLoopAgentSettings, 'model' | 'providerOptions'>> {
 		const config = await llmConfigQueries.getProjectLlmConfigByProvider(projectId, modelSelection.provider);
 
 		if (config) {
-			const settings = {
-				apiKey: config.apiKey,
-				...(config.baseUrl && { baseURL: config.baseUrl }),
-			};
-
-			return createProviderModel(modelSelection.provider, settings, modelSelection.modelId);
+			return createProviderModel(
+				modelSelection.provider,
+				{
+					apiKey: config.apiKey,
+					...(config.baseUrl && { baseURL: config.baseUrl }),
+				},
+				modelSelection.modelId,
+			);
 		}
 
 		// No config but env var might exist - use it
@@ -122,14 +141,14 @@ class AgentManager {
 		private readonly _onDispose: () => void,
 		private readonly _abortController: AbortController,
 	) {
-		const provider = _modelSelection.provider;
-
 		this._agent = new ToolLoopAgent({
 			...modelConfig,
 			tools,
 			// On step 1+: cache user message (stable) + current step's last message (loop leaf)
-			prepareStep: ({ messages, stepNumber }) =>
-				stepNumber === 0 ? undefined : { messages: this._withAnthropicCache(messages, provider) },
+			prepareStep: ({ messages }) => {
+				return { messages: this._addCache(messages) };
+			},
+			stopWhen: [hasToolCall('suggest_follow_ups')],
 		});
 	}
 
@@ -141,6 +160,7 @@ class AgentManager {
 	): ReadableStream {
 		let error: unknown = undefined;
 		let result: StreamTextResult<typeof tools, never>;
+
 		return createUIMessageStream<UIMessage>({
 			generateId: () => crypto.randomUUID(),
 			execute: async ({ writer }) => {
@@ -164,7 +184,7 @@ class AgentManager {
 				if (!project.path) {
 					throw new Error(`Project path not configured: ${this.chat.projectId}`);
 				}
-				const messages = await this._buildInitialMessages(uiMessages, this._modelSelection.provider);
+				const messages = await this._buildModelMessages(uiMessages);
 
 				result = await this._agent.stream({
 					messages,
@@ -197,6 +217,30 @@ class AgentManager {
 		});
 	}
 
+	async generate(messages: UIMessage[]): Promise<AgentRunResult> {
+		const startTime = performance.now();
+		const result = await this._agent.generate({
+			messages: await this._buildModelMessages(messages),
+			abortSignal: this._abortController.signal,
+		});
+		const durationMs = Math.round(performance.now() - startTime);
+
+		const usage = convertToTokenUsage(result.totalUsage);
+		const cost = convertToCost(usage, this._modelSelection.provider, this._modelSelection.modelId);
+		const finishReason = result.finishReason ?? 'stop';
+
+		this._onDispose();
+		return {
+			text: result.text,
+			usage,
+			cost,
+			finishReason,
+			durationMs,
+			responseMessages: result.response.messages,
+			steps: result.steps,
+		};
+	}
+
 	checkIsUserOwner(userId: string): boolean {
 		return this.chat.userId === userId;
 	}
@@ -205,12 +249,33 @@ class AgentManager {
 		this._abortController.abort();
 	}
 
-	private async _buildInitialMessages(uiMessages: UIMessage[], provider: LlmProvider): Promise<ModelMessage[]> {
+	/** Builds and prepares the UI messages into model messages */
+	private async _buildModelMessages(uiMessages: UIMessage[]): Promise<ModelMessage[]> {
+		uiMessages = this._prepareUIMessages(uiMessages);
 		const modelMessages = await convertToModelMessages(uiMessages);
 		const systemMessage: ModelMessage = { role: 'system', content: getInstructions() };
-		const messages = [systemMessage, ...modelMessages];
+		modelMessages.unshift(systemMessage);
+		return modelMessages;
+	}
 
-		return this._withAnthropicCache(messages, provider);
+	private _prepareUIMessages(messages: UIMessage[]): UIMessage[] {
+		return messages.map((msg) => {
+			if (msg.role !== 'assistant') {
+				return msg;
+			}
+
+			const hasTextPart = msg.parts.some((part) => part.type === 'text');
+			if (!hasTextPart) {
+				msg.parts.push({ type: 'text', text: '[NO CONTENT]' });
+			}
+
+			const filteredParts = msg.parts.filter((part) => part.type !== 'tool-suggest_follow_ups');
+			if (filteredParts.length === msg.parts.length) {
+				return msg;
+			}
+
+			return { ...msg, parts: filteredParts };
+		});
 	}
 
 	/**
@@ -220,26 +285,33 @@ class AgentManager {
 	 * Cache strategy:
 	 * - System message: 1h TTL (instructions rarely change)
 	 * - Last message: 5m TTL (current step's leaf for agentic caching)
-	 *
-	 * @param messages - The messages array to add cache markers to
-	 * @param provider - The LLM provider
 	 */
-	private _withAnthropicCache(messages: ModelMessage[], provider: LlmProvider): ModelMessage[] {
-		if (provider !== 'anthropic' || messages.length === 0) return messages;
+	private _addCache(messages: ModelMessage[]): ModelMessage[] {
+		if (messages.length === 0 || this._modelSelection.provider !== 'anthropic') {
+			return messages;
+		}
 
-		const setCache = (msg: ModelMessage, cache: typeof CACHE_1H | typeof CACHE_5M) => {
-			msg.providerOptions = {
+		const withCache = (msg: ModelMessage, cache: typeof CACHE_1H | typeof CACHE_5M): ModelMessage => ({
+			...msg,
+			providerOptions: {
 				...msg.providerOptions,
 				anthropic: { ...msg.providerOptions?.anthropic, cacheControl: cache },
-			};
-		};
+			},
+		});
 
 		const first = messages[0];
 		const last = messages.at(-1)!;
-		if (first.role === 'system') setCache(first, CACHE_1H);
-		if (last !== first) setCache(last, CACHE_5M);
-
+		if (first.role === 'system') {
+			withCache(first, CACHE_1H);
+		}
+		if (last !== first) {
+			withCache(last, CACHE_5M);
+		}
 		return messages;
+	}
+
+	getModelId(): string {
+		return this._modelSelection.modelId;
 	}
 }
 

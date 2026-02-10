@@ -2,6 +2,8 @@ import fs from 'fs';
 import { minimatch } from 'minimatch';
 import path from 'path';
 
+import { env } from '../env';
+
 /**
  * Directory names that should be excluded from tool operations (list, search, read).
  */
@@ -147,7 +149,7 @@ export const shouldExcludeEntry = (entryName: string, parentPath: string, projec
  * @throws Error if NAO_DEFAULT_PROJECT_PATH is not set
  */
 export const getProjectFolder = (): string => {
-	const projectFolder = process.env.NAO_DEFAULT_PROJECT_PATH;
+	const projectFolder = env.NAO_DEFAULT_PROJECT_PATH;
 	if (!projectFolder) {
 		throw new Error('NAO_DEFAULT_PROJECT_PATH environment variable is not set');
 	}

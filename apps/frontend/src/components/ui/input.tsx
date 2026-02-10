@@ -50,4 +50,16 @@ function Input({ className, type, ...props }: React.ComponentProps<'input'>) {
 	);
 }
 
-export { Input };
+function NakedInput({ className, ...props }: React.ComponentProps<'input'>) {
+	return (
+		<input
+			className={cn(
+				'bg-transparent outline-none border-none text-inherit p-0 focus:outline-none placeholder:font-normal',
+				className,
+			)}
+			{...props}
+		/>
+	);
+}
+
+export { Input, NakedInput };

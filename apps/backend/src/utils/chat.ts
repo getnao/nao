@@ -1,6 +1,8 @@
 import { LanguageModelUsage } from 'ai';
 
-import { TokenUsage } from '../types/chat';
+import { LLM_PROVIDERS } from '../agents/providers';
+import { TokenCost, TokenUsage } from '../types/chat';
+import { LlmProvider } from '../types/llm';
 
 export const convertToTokenUsage = (usage: LanguageModelUsage): TokenUsage => ({
 	inputTotalTokens: usage.inputTokens,
@@ -13,6 +15,32 @@ export const convertToTokenUsage = (usage: LanguageModelUsage): TokenUsage => ({
 	outputReasoningTokens: usage.outputTokenDetails.reasoningTokens,
 	totalTokens: usage.totalTokens,
 });
+
+export const convertToCost = (usage: TokenUsage, provider: LlmProvider, modelId: string): TokenCost => {
+	const costPerM = LLM_PROVIDERS[provider].models.find((model) => model.id === modelId)?.costPerM;
+
+	if (!costPerM) {
+		return {
+			inputNoCache: undefined,
+			inputCacheRead: undefined,
+			inputCacheWrite: undefined,
+			output: undefined,
+			totalCost: undefined,
+		};
+	}
+
+	const cost = {
+		inputNoCache: ((usage.inputNoCacheTokens ?? 0) * (costPerM.inputNoCache ?? 0)) / 1_000_000,
+		inputCacheRead: ((usage.inputCacheReadTokens ?? 0) * (costPerM.inputCacheRead ?? 0)) / 1_000_000,
+		inputCacheWrite: ((usage.inputCacheWriteTokens ?? 0) * (costPerM.inputCacheWrite ?? 0)) / 1_000_000,
+		output: ((usage.outputTotalTokens ?? 0) * (costPerM.output ?? 0)) / 1_000_000,
+	};
+
+	return {
+		...cost,
+		totalCost: Object.values(cost).reduce((acc, curr) => acc + curr, 0),
+	};
+};
 
 export const extractLastTextFromMessage = (message: { parts: { type: string; text?: string }[] }): string => {
 	for (let i = message.parts.length - 1; i >= 0; i--) {

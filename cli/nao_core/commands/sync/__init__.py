@@ -1,17 +1,20 @@
 """Sync command for synchronizing repositories and database schemas."""
 
+import sys
 from pathlib import Path
 
 from rich.console import Console
 
 from nao_core.config import NaoConfig
 from nao_core.templates.render import render_all_templates
+from nao_core.tracking import track_command
 
 from .providers import SyncProvider, SyncResult, get_all_providers
 
 console = Console()
 
 
+@track_command("sync")
 def sync(
     output_dirs: dict[str, str] | None = None,
     providers: list[SyncProvider] | None = None,
@@ -114,6 +117,11 @@ def sync(
         console.print("  [dim]Nothing to sync[/dim]")
 
     console.print()
+
+    # Exit with error code if any provider or template failed
+    has_failures = bool(failed_results) or (template_result and template_result.templates_failed > 0)
+    if has_failures:
+        sys.exit(1)
 
 
 __all__ = ["sync"]

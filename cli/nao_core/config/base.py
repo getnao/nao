@@ -4,7 +4,6 @@ import sys
 from pathlib import Path
 from typing import cast
 
-import dotenv
 import yaml
 from ibis import BaseBackend
 from pydantic import BaseModel, Field, ValidationError, model_validator
@@ -17,8 +16,6 @@ from .llm import LLMConfig
 from .notion import NotionConfig
 from .repos import RepoConfig
 from .slack import SlackConfig
-
-dotenv.load_dotenv()
 
 
 class NaoConfig(BaseModel):

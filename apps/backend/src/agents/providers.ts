@@ -27,6 +27,12 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 						budgetTokens: 12_000,
 					},
 				},
+				costPerM: {
+					inputNoCache: 3,
+					inputCacheRead: 0.3,
+					inputCacheWrite: 3.75,
+					output: 15,
+				},
 			},
 			{
 				id: 'claude-opus-4-5',
@@ -37,16 +43,60 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 						budgetTokens: 12_000,
 					},
 				},
+				costPerM: {
+					inputNoCache: 5,
+					inputCacheRead: 0.5,
+					inputCacheWrite: 6.25,
+					output: 25,
+				},
 			},
-			{ id: 'claude-haiku-4-5', name: 'Claude Haiku 4.5' },
+			{
+				id: 'claude-opus-4-6',
+				name: 'Claude Opus 4.6',
+				config: {
+					thinking: {
+						type: 'enabled' as const,
+						budgetTokens: 12_000,
+					},
+				},
+				costPerM: {
+					inputNoCache: 5,
+					inputCacheRead: 0.5,
+					inputCacheWrite: 6.25,
+					output: 25,
+				},
+			},
+			{
+				id: 'claude-haiku-4-5',
+				name: 'Claude Haiku 4.5',
+				costPerM: {
+					inputNoCache: 1,
+					inputCacheRead: 0.1,
+					inputCacheWrite: 1.25,
+					output: 5,
+				},
+			},
 		],
 	},
 	openai: {
 		envVar: 'OPENAI_API_KEY',
 		models: [
-			{ id: 'gpt-5.2', name: 'GPT 5.2', default: true },
-			{ id: 'gpt-5-mini', name: 'GPT 5 mini' },
-			{ id: 'gpt-4.1', name: 'GPT 4.1' },
+			{
+				id: 'gpt-5.2',
+				name: 'GPT 5.2',
+				default: true,
+				costPerM: { inputNoCache: 1.75, inputCacheRead: 0.175, inputCacheWrite: 0, output: 14 },
+			},
+			{
+				id: 'gpt-5-mini',
+				name: 'GPT 5 mini',
+				costPerM: { inputNoCache: 0.25, inputCacheRead: 0.025, inputCacheWrite: 0, output: 2 },
+			},
+			{
+				id: 'gpt-4.1',
+				name: 'GPT 4.1',
+				costPerM: { inputNoCache: 3, inputCacheRead: 0.75, inputCacheWrite: 0, output: 12 },
+			},
 		],
 	},
 	google: {

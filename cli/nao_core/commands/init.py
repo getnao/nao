@@ -7,6 +7,7 @@ from cyclopts import Parameter
 
 from nao_core.config import NaoConfig
 from nao_core.config.exceptions import InitError
+from nao_core.tracking import track_command
 from nao_core.ui import UI, ask_confirm, ask_text
 
 
@@ -104,6 +105,7 @@ def create_empty_structure(project_path: Path) -> tuple[list[str], list[CreatedF
     return created_folders, created_files
 
 
+@track_command("init")
 def init(
     *,
     force: Annotated[bool, Parameter(name=["-f", "--force"])] = False,

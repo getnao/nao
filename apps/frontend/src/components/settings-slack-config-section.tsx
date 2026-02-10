@@ -123,9 +123,7 @@ export function SlackConfigSection({ isAdmin }: SlackConfigSectionProps) {
 	};
 
 	return (
-		<div className='grid gap-4 pt-4 border-t border-border'>
-			<h4 className='text-sm font-medium text-foreground'>Slack Integration</h4>
-
+		<div className='grid gap-4'>
 			{/* Environment-configured Slack (read-only) */}
 			{hasEnvConfig && !projectConfig && !isEditing && (
 				<div className='flex items-center gap-4 p-4 rounded-lg border border-border bg-muted/30'>
