@@ -111,6 +111,21 @@ For **business users**:
     This will start the nao chat UI. It will open the chat interface in your browser at `http://localhost:5005`.
     From there, you can start asking questions to your agent.
 
+## Evaluation framework
+
+Unit test your agent performance before deploying it to users. First, create a folder `tests/` with questions and expected SQL in yaml.
+Then, measure agent's performance on examples with nao test command:
+
+```bash
+nao test
+```
+
+View results in tests panel:
+
+```bash
+nao test server
+```
+
 ## Commands
 
 ```bash
@@ -121,6 +136,7 @@ Usage: nao COMMAND
 │ chat         Start the nao chat UI.                                       │
 │ init         Initialize a new nao project.                                │
 │ sync         Sync context from your context sources (databases, repos)    │
+│ test         Measure agent's performance on test examples.                │
 │ debug        Debug and troubleshoot your nao setup.                       │
 │ --help (-h)  Display this message and exit.                               │
 │ --version    Display application version.                                 │

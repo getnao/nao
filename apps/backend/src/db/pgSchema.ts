@@ -312,3 +312,23 @@ export const projectLlmConfig = pgTable(
 		unique('project_llm_config_project_provider').on(t.projectId, t.provider),
 	],
 );
+
+export const projectSavedPrompt = pgTable(
+	'project_saved_prompt',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		title: text('title').notNull(),
+		prompt: text('prompt').notNull(),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [index('project_saved_prompt_projectId_idx').on(t.projectId)],
+);

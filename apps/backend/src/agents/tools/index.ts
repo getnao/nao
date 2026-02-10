@@ -8,6 +8,7 @@ import grep from './grep';
 import list from './list';
 import read from './read';
 import search from './search';
+import suggestFollowUps from './suggest-follow-ups';
 
 export const tools = {
 	display_chart: displayChart,
@@ -16,6 +17,7 @@ export const tools = {
 	list,
 	read,
 	search,
+	suggest_follow_ups: suggestFollowUps,
 };
 
 export const getTools = () => {

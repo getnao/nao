@@ -1,10 +1,13 @@
+import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
 import { KNOWN_MODELS } from '../agents/providers';
 import { env } from '../env';
 import * as projectQueries from '../queries/project.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
+import * as savedPromptQueries from '../queries/project-saved-prompt.queries';
 import * as slackConfigQueries from '../queries/project-slack-config.queries';
+import { posthog, PostHogEvent } from '../services/posthog.service';
 import { llmConfigSchema, LlmProvider, llmProviderSchema } from '../types/llm';
 import { getEnvApiKey, getEnvProviders, getProjectAvailableModels } from '../utils/llm';
 import { adminProtectedProcedure, projectProtectedProcedure, publicProcedure } from './trpc';
@@ -194,5 +197,60 @@ export const projectRoutes = {
 			}
 
 			await projectQueries.removeProjectMember(ctx.project.id, input.userId);
+		}),
+
+	getSavedPrompts: projectProtectedProcedure.query(async ({ ctx }) => {
+		return savedPromptQueries.getAll(ctx.project.id);
+	}),
+
+	createSavedPrompt: adminProtectedProcedure
+		.input(
+			z.object({
+				title: z.string().trim().min(1).max(255),
+				prompt: z.string().trim().min(1).max(10_000),
+			}),
+		)
+		.mutation(async ({ ctx, input }) => {
+			const saved = await savedPromptQueries.create({
+				projectId: ctx.project.id,
+				title: input.title,
+				prompt: input.prompt,
+			});
+			posthog.capture(ctx.user.id, PostHogEvent.SavedPromptCreated, {
+				projectId: ctx.project.id,
+				savedPromptId: saved.id,
+			});
+			return saved;
+		}),
+
+	updateSavedPrompt: adminProtectedProcedure
+		.input(
+			z.object({
+				id: z.string(),
+				title: z.string().trim().min(1).max(255).optional(),
+				prompt: z.string().trim().min(1).max(10_000).optional(),
+			}),
+		)
+		.mutation(async ({ ctx, input }) => {
+			const { id: promptId, ...data } = input;
+			const updated = await savedPromptQueries.update(ctx.project.id, promptId, data);
+			if (!updated) {
+				throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Failed to update saved prompt' });
+			}
+			posthog.capture(ctx.user.id, PostHogEvent.SavedPromptUpdated, {
+				projectId: ctx.project.id,
+				savedPromptId: promptId,
+			});
+			return updated;
+		}),
+
+	deleteSavedPrompt: adminProtectedProcedure
+		.input(z.object({ promptId: z.string() }))
+		.mutation(async ({ ctx, input }) => {
+			await savedPromptQueries.remove(ctx.project.id, input.promptId);
+			posthog.capture(ctx.user.id, PostHogEvent.SavedPromptDeleted, {
+				projectId: ctx.project.id,
+				savedPromptId: input.promptId,
+			});
 		}),
 };

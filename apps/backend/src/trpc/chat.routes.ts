@@ -4,7 +4,9 @@ import { z } from 'zod/v4';
 import * as chatQueries from '../queries/chat.queries';
 import { agentService } from '../services/agent.service';
 import { type ListChatResponse, type UIChat } from '../types/chat';
-import { protectedProcedure } from './trpc';
+import { ownedResourceProcedure, protectedProcedure } from './trpc';
+
+const chatOwnerProcedure = ownedResourceProcedure(chatQueries.getChatOwnerId, 'chat');
 
 export const chatRoutes = {
 	get: protectedProcedure.input(z.object({ chatId: z.string() })).query(async ({ input, ctx }): Promise<UIChat> => {
@@ -23,7 +25,7 @@ export const chatRoutes = {
 		return chatQueries.listUserChats(ctx.user.id);
 	}),
 
-	delete: protectedProcedure.input(z.object({ chatId: z.string() })).mutation(async ({ input }): Promise<void> => {
+	delete: chatOwnerProcedure.input(z.object({ chatId: z.string() })).mutation(async ({ input }): Promise<void> => {
 		await chatQueries.deleteChat(input.chatId);
 	}),
 
@@ -38,16 +40,9 @@ export const chatRoutes = {
 		agent.stop();
 	}),
 
-	rename: protectedProcedure
+	rename: chatOwnerProcedure
 		.input(z.object({ chatId: z.string(), title: z.string().min(1).max(255) }))
-		.mutation(async ({ input, ctx }): Promise<void> => {
-			const userId = await chatQueries.getChatOwnerId(input.chatId);
-			if (!userId) {
-				throw new TRPCError({ code: 'NOT_FOUND', message: `Chat with id ${input.chatId} not found.` });
-			}
-			if (userId !== ctx.user.id) {
-				throw new TRPCError({ code: 'FORBIDDEN', message: `You are not authorized to rename this chat.` });
-			}
+		.mutation(async ({ input }): Promise<void> => {
 			await chatQueries.renameChat(input.chatId, input.title);
 		}),
 };

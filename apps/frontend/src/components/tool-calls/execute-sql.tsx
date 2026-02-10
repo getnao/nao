@@ -52,7 +52,7 @@ export const ExecuteSqlToolCall = () => {
 		>
 			{viewMode === 'query' && input?.sql_query ? (
 				<div className='overflow-auto max-h-80 hide-code-header'>
-					<Streamdown mode='static' cdnUrl={null} controls={{ code: false }}>
+					<Streamdown mode='static' controls={{ code: false }}>
 						{`\`\`\`sql\n${input.sql_query}\n\`\`\``}
 					</Streamdown>
 				</div>

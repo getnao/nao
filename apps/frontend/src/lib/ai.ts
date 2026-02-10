@@ -63,7 +63,7 @@ export const checkIsAgentRunning = (agent: Pick<UseChatHelpers<UIMessage>, 'stat
 };
 
 /** Tools that should NOT be collapsed (important UI elements) */
-export const NON_COLLAPSIBLE_TOOLS: StaticToolName[] = ['execute_sql', 'display_chart'];
+export const NON_COLLAPSIBLE_TOOLS: StaticToolName[] = ['execute_sql', 'display_chart', 'suggest_follow_ups'];
 
 /** Check if a part is a reasoning part */
 export const isReasoningPart = (part: UIMessagePart): part is ReasoningUIPart => {
@@ -117,4 +117,16 @@ export const isCollapsiblePart = (part: UIMessagePart): part is CollapsiblePart 
 		return !(NON_COLLAPSIBLE_TOOLS as readonly string[]).includes(toolName);
 	}
 	return false;
+};
+
+export const getLastFollowUpSuggestions = (messages: UIMessage[]): { suggestions: string[]; isLoading: boolean } => {
+	const followUpSuggestionsToolCallPart = messages.at(-1)?.parts.find((p) => p.type === 'tool-suggest_follow_ups');
+	if (!followUpSuggestionsToolCallPart || followUpSuggestionsToolCallPart.state === 'input-streaming') {
+		return { suggestions: [], isLoading: false };
+	}
+
+	return {
+		suggestions: followUpSuggestionsToolCallPart.input?.suggestions ?? [],
+		isLoading: !isToolSettled(followUpSuggestionsToolCallPart),
+	};
 };
