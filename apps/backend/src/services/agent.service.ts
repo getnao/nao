@@ -13,10 +13,9 @@ import { getInstructions } from '../agents/prompt';
 import { CACHE_1H, CACHE_5M, createProviderModel } from '../agents/providers';
 import { tools } from '../agents/tools';
 import * as chatQueries from '../queries/chat.queries';
-import * as projectQueries from '../queries/project.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import { TokenCost, TokenUsage, UIChat, UIMessage } from '../types/chat';
-import { convertToCost, convertToTokenUsage } from '../utils/chat';
+import { convertToCost, convertToTokenUsage, retrieveProjectById } from '../utils/chat';
 import { getDefaultModelId, getEnvApiKey, getEnvModelSelections, ModelSelection } from '../utils/llm';
 
 export type { ModelSelection };
@@ -177,13 +176,8 @@ class AgentManager {
 				}
 
 				// Fetch project path and run agent within project context
-				const project = await projectQueries.getProjectById(this.chat.projectId);
-				if (!project) {
-					throw new Error(`Project not found: ${this.chat.projectId}`);
-				}
-				if (!project.path) {
-					throw new Error(`Project path not configured: ${this.chat.projectId}`);
-				}
+				const project = await retrieveProjectById(this.chat.projectId);
+
 				const messages = await this._buildModelMessages(uiMessages);
 
 				result = await this._agent.stream({

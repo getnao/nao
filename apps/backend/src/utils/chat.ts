@@ -1,6 +1,8 @@
 import { LanguageModelUsage } from 'ai';
 
 import { LLM_PROVIDERS } from '../agents/providers';
+import * as projectQueries from '../queries/project.queries';
+import { DBProject } from '../queries/project-slack-config.queries';
 import { TokenCost, TokenUsage } from '../types/chat';
 import { LlmProvider } from '../types/llm';
 
@@ -50,4 +52,15 @@ export const extractLastTextFromMessage = (message: { parts: { type: string; tex
 		}
 	}
 	return '';
+};
+
+export const retrieveProjectById = async (projectId: string): Promise<DBProject> => {
+	const project = await projectQueries.getProjectById(projectId);
+	if (!project) {
+		throw new Error(`Project not found: ${projectId}`);
+	}
+	if (!project.path) {
+		throw new Error(`Project path not configured: ${projectId}`);
+	}
+	return project;
 };
