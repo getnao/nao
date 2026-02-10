@@ -1,5 +1,4 @@
 import { createFileRoute, Outlet } from '@tanstack/react-router';
-import { UserPageProvider } from '@/contexts/user.provider';
 
 export const Route = createFileRoute('/_sidebar-layout/settings')({
 	component: SettingsLayout,
