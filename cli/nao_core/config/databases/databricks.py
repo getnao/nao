@@ -1,5 +1,7 @@
+import os
 from typing import Literal
 
+import certifi
 import ibis
 from ibis import BaseBackend
 from pydantic import Field
@@ -7,6 +9,11 @@ from pydantic import Field
 from nao_core.ui import ask_text
 
 from .base import DatabaseConfig
+
+# Ensure Python uses certifi's CA bundle for SSL verification.
+# This fixes "certificate verify failed" errors when Python's default CA path is empty.
+os.environ.setdefault("SSL_CERT_FILE", certifi.where())
+os.environ.setdefault("REQUESTS_CA_BUNDLE", certifi.where())
 
 
 class DatabricksConfig(DatabaseConfig):
