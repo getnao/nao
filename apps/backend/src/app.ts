@@ -123,7 +123,7 @@ if (staticRoot) {
 }
 
 export const startServer = async (opts: { port: number; host: string }) => {
-	throw new Error('test');
+export async function startServer() {
 
 	await ensureOrganizationSetup();
 
