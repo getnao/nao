@@ -2,7 +2,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from nao_core.commands.debug import check_database_connection, check_llm_connection, debug
+from nao_core.commands.debug import check_llm_connection, debug
+from nao_core.config.databases import BigQueryConfig, DuckDBConfig, PostgresConfig
 from nao_core.config.llm import LLMConfig, LLMProvider
 
 
@@ -133,46 +134,58 @@ class TestLLMConnection:
 
 
 class TestDatabaseConnection:
-    """Tests for check_database_connection."""
+    """Tests for check_connection method on database configs."""
 
-    def test_connection_with_tables(self):
-        mock_db = MagicMock()
-        mock_db.dataset_id = "my_dataset"
+    def test_bigquery_connection_with_dataset(self):
+        config = BigQueryConfig(name="test", project_id="my-project", dataset_id="my_dataset")
         mock_conn = MagicMock()
         mock_conn.list_tables.return_value = ["table1", "table2"]
-        mock_db.connect.return_value = mock_conn
 
-        success, message = check_database_connection(mock_db)
+        with patch.object(BigQueryConfig, "connect", return_value=mock_conn):
+            success, message = config.check_connection()
 
         assert success is True
         assert "2 tables found" in message
 
-    def test_connection_with_schemas(self):
-        mock_db = MagicMock(spec=["connect", "name", "type"])  # no dataset_id
+    def test_bigquery_connection_with_schemas(self):
+        config = BigQueryConfig(name="test", project_id="my-project")
         mock_conn = MagicMock()
         mock_conn.list_databases.return_value = ["schema1", "schema2", "schema3"]
-        mock_db.connect.return_value = mock_conn
 
-        success, message = check_database_connection(mock_db)
-
-        assert success is True
-        assert "3 schemas found" in message
-
-    def test_connection_fallback(self):
-        mock_db = MagicMock(spec=["connect", "name", "type"])  # no dataset_id
-        mock_conn = MagicMock(spec=[])  # no list_tables or list_databases
-        mock_db.connect.return_value = mock_conn
-
-        success, message = check_database_connection(mock_db)
+        with patch.object(BigQueryConfig, "connect", return_value=mock_conn):
+            success, message = config.check_connection()
 
         assert success is True
-        assert "unable to list" in message
+        assert "3 datasets found" in message
+
+    def test_duckdb_connection_with_tables(self):
+        config = DuckDBConfig(name="test", path=":memory:")
+        mock_conn = MagicMock()
+        mock_conn.list_tables.return_value = ["table1", "table2"]
+
+        with patch.object(DuckDBConfig, "connect", return_value=mock_conn):
+            success, message = config.check_connection()
+
+        assert success is True
+        assert "2 tables found" in message
+
+    def test_postgres_connection_fallback(self):
+        config = PostgresConfig(
+            name="test", host="localhost", port=5432, database="testdb", user="user", password="pass"
+        )
+        mock_conn = MagicMock(spec=[])  # no list_databases
+
+        with patch.object(PostgresConfig, "connect", return_value=mock_conn):
+            success, message = config.check_connection()
+
+        assert success is True
+        assert "Connected successfully" in message
 
     def test_connection_failure(self):
-        mock_db = MagicMock()
-        mock_db.connect.side_effect = Exception("Connection refused")
+        config = DuckDBConfig(name="test", path=":memory:")
 
-        success, message = check_database_connection(mock_db)
+        with patch.object(DuckDBConfig, "connect", side_effect=Exception("Connection refused")):
+            success, message = config.check_connection()
 
         assert success is False
         assert "Connection refused" in message
@@ -206,7 +219,8 @@ databases:
 """)
 
         with patch(
-            "nao_core.commands.debug.check_database_connection", return_value=(True, "Connected (5 tables found)")
+            "nao_core.config.databases.postgres.PostgresConfig.check_connection",
+            return_value=(True, "Connected (5 tables found)"),
         ):
             with patch("nao_core.commands.debug.console") as mock_console:
                 debug()
@@ -233,7 +247,8 @@ databases:
 """)
 
         with patch(
-            "nao_core.commands.debug.check_database_connection", return_value=(False, "Failed DB connection")
+            "nao_core.config.databases.postgres.PostgresConfig.check_connection",
+            return_value=(False, "Failed DB connection"),
         ) as mock_check:
             with patch("nao_core.commands.debug.console") as mock_console:
                 debug()

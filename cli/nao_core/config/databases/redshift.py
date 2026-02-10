@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import ibis
 from ibis import BaseBackend
@@ -10,6 +10,130 @@ from nao_core.config.exceptions import InitError
 from nao_core.ui import ask_confirm, ask_text
 
 from .base import DatabaseConfig
+
+
+class RedshiftDatabaseContext:
+    """Redshift-specific context that bypasses Ibis's problematic pg_enum queries."""
+
+    def __init__(self, conn: BaseBackend, schema: str, table_name: str):
+        self._conn = conn
+        self._schema = schema
+        self._table_name = table_name
+        self._table_ref = None
+
+    @property
+    def table(self):
+        if self._table_ref is None:
+            self._table_ref = self._conn.table(self._table_name, database=self._schema)
+        return self._table_ref
+
+    def columns(self) -> list[dict[str, Any]]:
+        """Return column metadata by querying information_schema directly."""
+        query = f"""
+            SELECT 
+                column_name,
+                data_type,
+                is_nullable,
+                character_maximum_length,
+                numeric_precision,
+                numeric_scale
+            FROM information_schema.columns
+            WHERE table_schema = '{self._schema}'
+              AND table_name = '{self._table_name}'
+            ORDER BY ordinal_position
+        """
+        result = self._conn.raw_sql(query).fetchall()  # type: ignore[union-attr]
+
+        columns = []
+        for row in result:
+            col_name = row[0]
+            data_type = row[1]
+            is_nullable = row[2] == "YES"
+            char_length = row[3]
+            num_precision = row[4]
+            num_scale = row[5]
+
+            # Map SQL types to Ibis-like type strings
+            formatted_type = self._format_redshift_type(data_type, is_nullable, char_length, num_precision, num_scale)
+
+            columns.append(
+                {
+                    "name": col_name,
+                    "type": formatted_type,
+                    "nullable": is_nullable,
+                    "description": None,
+                }
+            )
+
+        return columns
+
+    @staticmethod
+    def _format_redshift_type(
+        data_type: str,
+        is_nullable: bool,
+        char_length: int | None,
+        num_precision: int | None,
+        num_scale: int | None,
+    ) -> str:
+        """Convert Redshift SQL type to Ibis-like format."""
+        # Map common Redshift types to Ibis types
+        type_map = {
+            "integer": "int32",
+            "bigint": "int64",
+            "smallint": "int16",
+            "boolean": "boolean",
+            "real": "float32",
+            "double precision": "float64",
+            "character varying": "string",
+            "character": "string",
+            "text": "string",
+            "date": "date",
+            "timestamp without time zone": "timestamp",
+            "timestamp with time zone": "timestamp",
+        }
+
+        ibis_type = type_map.get(data_type, "string")
+
+        if not is_nullable:
+            return f"{ibis_type} NOT NULL"
+        return ibis_type
+
+    def preview(self, limit: int = 10) -> list[dict[str, Any]]:
+        """Return the first N rows as a list of dictionaries."""
+        # Use raw SQL to avoid Ibis's pg_enum queries
+        query = f'SELECT * FROM "{self._schema}"."{self._table_name}" LIMIT {limit}'
+        result = self._conn.raw_sql(query).fetchall()  # type: ignore[union-attr]
+
+        # Get column names from the columns metadata
+        columns = self.columns()
+        col_names = [col["name"] for col in columns]
+
+        rows = []
+        for row in result:
+            row_dict = {}
+            for i, col_name in enumerate(col_names):
+                val = row[i] if i < len(row) else None
+                if val is not None and not isinstance(val, (str, int, float, bool, list, dict)):
+                    row_dict[col_name] = str(val)
+                else:
+                    row_dict[col_name] = val
+            rows.append(row_dict)
+        return rows
+
+    def row_count(self) -> int:
+        """Return the total number of rows in the table."""
+        # Use raw SQL to avoid Ibis's pg_enum queries
+        query = f'SELECT COUNT(*) FROM "{self._schema}"."{self._table_name}"'
+        result = self._conn.raw_sql(query).fetchone()  # type: ignore[union-attr]
+        return result[0] if result else 0
+
+    def column_count(self) -> int:
+        """Return the number of columns in the table."""
+        return len(self.columns())
+
+    def description(self) -> str | None:
+        """Return the table description if available."""
+        return None
 
 
 class RedshiftSSHTunnelConfig(BaseModel):
@@ -129,5 +253,39 @@ class RedshiftConfig(DatabaseConfig):
 
     def get_database_name(self) -> str:
         """Get the database name for Redshift."""
-
         return self.database
+
+    def get_schemas(self, conn: BaseBackend) -> list[str]:
+        if self.schema_name:
+            return [self.schema_name]
+        list_databases = getattr(conn, "list_databases", None)
+        schemas = list_databases() if list_databases else []
+        return schemas + ["public"]
+
+    def create_context(self, conn: BaseBackend, schema: str, table_name: str) -> RedshiftDatabaseContext:
+        """Create a Redshift-specific database context that avoids pg_enum queries."""
+        return RedshiftDatabaseContext(conn, schema, table_name)
+
+    def check_connection(self) -> tuple[bool, str]:
+        """Test connectivity to Redshift."""
+        try:
+            conn = self.connect()
+
+            if self.schema_name:
+                tables = conn.list_tables(database=self.schema_name)
+                return True, f"Connected successfully ({len(tables)} tables found)"
+
+            if self.database:
+                if list_databases := getattr(conn, "list_databases", None):
+                    schemas = list_databases() + ["public"]
+                else:
+                    schemas = ["public"]
+
+                tables = []
+                for schema in schemas:
+                    tables.extend(conn.list_tables(database=schema))
+                return True, f"Connected successfully ({len(tables)} tables found)"
+
+            return True, "Connected successfully"
+        except Exception as e:
+            return False, str(e)

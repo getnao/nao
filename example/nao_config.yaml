@@ -1,9 +1,6 @@
 project_name: example
 databases:
 - name: duckdb-jaffle-shop
-  accessors:
-  - columns
-  - preview
   include: []
   exclude: []
   type: duckdb
@@ -13,7 +10,7 @@ repos:
   url: https://github.com/dbt-labs/jaffle_shop_duckdb.git
   branch: null
 notion:
-  api_key: {{ env('NOTION_API_KEY') }}
+  api_key: yolo
   pages:
   - https://naolabs.notion.site/Jaffle-shop-information-2f8c7a70bc0680a4b7d0caf99f055360
 llm: null

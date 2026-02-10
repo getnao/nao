@@ -99,6 +99,28 @@ class TemplateEngine:
         except Exception:
             return False
 
+    def list_templates(self, prefix: str) -> list[str]:
+        """List all available templates under a given prefix.
+
+        Merges defaults and user overrides, returning unique template names.
+        """
+        templates: set[str] = set()
+
+        # Collect from default templates
+        default_dir = DEFAULT_TEMPLATES_DIR / prefix
+        if default_dir.exists():
+            for path in default_dir.rglob("*.j2"):
+                templates.add(f"{prefix}/{path.relative_to(default_dir)}")
+
+        # Collect from user templates (may add new ones or override defaults)
+        if self.user_templates_dir:
+            user_dir = self.user_templates_dir / prefix
+            if user_dir.exists():
+                for path in user_dir.rglob("*.j2"):
+                    templates.add(f"{prefix}/{path.relative_to(user_dir)}")
+
+        return sorted(templates)
+
     def is_user_override(self, template_name: str) -> bool:
         """Check if a template is a user override.
 
