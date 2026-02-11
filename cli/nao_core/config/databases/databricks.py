@@ -1,5 +1,7 @@
+import os
 from typing import Literal
 
+import certifi
 import ibis
 from ibis import BaseBackend
 from pydantic import Field
@@ -7,6 +9,11 @@ from pydantic import Field
 from nao_core.ui import ask_text
 
 from .base import DatabaseConfig
+
+# Ensure Python uses certifi's CA bundle for SSL verification.
+# This fixes "certificate verify failed" errors when Python's default CA path is empty.
+os.environ.setdefault("SSL_CERT_FILE", certifi.where())
+os.environ.setdefault("REQUESTS_CA_BUNDLE", certifi.where())
 
 
 class DatabricksConfig(DatabaseConfig):
@@ -19,8 +26,6 @@ class DatabricksConfig(DatabaseConfig):
     catalog: str | None = Field(default=None, description="Unity Catalog name (optional)")
     schema_name: str | None = Field(
         default=None,
-        validation_alias="schema",
-        serialization_alias="schema",
         description="Default schema (optional)",
     )
 
@@ -61,5 +66,24 @@ class DatabricksConfig(DatabaseConfig):
 
     def get_database_name(self) -> str:
         """Get the database name for Databricks."""
-
         return self.catalog or "main"
+
+    def get_schemas(self, conn: BaseBackend) -> list[str]:
+        if self.schema_name:
+            return [self.schema_name]
+        list_databases = getattr(conn, "list_databases", None)
+        return list_databases() if list_databases else []
+
+    def check_connection(self) -> tuple[bool, str]:
+        """Test connectivity to Databricks."""
+        try:
+            conn = self.connect()
+            if self.schema_name:
+                tables = conn.list_tables()
+                return True, f"Connected successfully ({len(tables)} tables found)"
+            if list_databases := getattr(conn, "list_databases", None):
+                schemas = list_databases()
+                return True, f"Connected successfully ({len(schemas)} schemas found)"
+            return True, "Connected successfully"
+        except Exception as e:
+            return False, str(e)

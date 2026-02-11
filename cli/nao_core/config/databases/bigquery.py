@@ -105,5 +105,24 @@ class BigQueryConfig(DatabaseConfig):
 
     def get_database_name(self) -> str:
         """Get the database name for BigQuery."""
-
         return self.project_id
+
+    def get_schemas(self, conn: BaseBackend) -> list[str]:
+        if self.dataset_id:
+            return [self.dataset_id]
+        list_databases = getattr(conn, "list_databases", None)
+        return list_databases() if list_databases else []
+
+    def check_connection(self) -> tuple[bool, str]:
+        """Test connectivity to BigQuery."""
+        try:
+            conn = self.connect()
+            if self.dataset_id:
+                tables = conn.list_tables()
+                return True, f"Connected successfully ({len(tables)} tables found)"
+            if list_databases := getattr(conn, "list_databases", None):
+                schemas = list_databases()
+                return True, f"Connected successfully ({len(schemas)} datasets found)"
+            return True, "Connected successfully"
+        except Exception as e:
+            return False, str(e)

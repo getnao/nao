@@ -6,30 +6,91 @@ from typing import Any
 from rich.console import Console
 from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn
 
-from nao_core.commands.sync.accessors import DataAccessor
 from nao_core.commands.sync.cleanup import DatabaseSyncState, cleanup_stale_databases, cleanup_stale_paths
-from nao_core.commands.sync.registry import get_accessors
 from nao_core.config import AnyDatabaseConfig, NaoConfig
+from nao_core.config.databases.base import DatabaseConfig
+from nao_core.templates.engine import get_template_engine
 
 from ..base import SyncProvider, SyncResult
-from .bigquery import sync_bigquery
-from .databricks import sync_databricks
-from .duckdb import sync_duckdb
-from .postgres import sync_postgres
-from .redshift import sync_redshift
-from .snowflake import sync_snowflake
+from .context import DatabaseContext
 
 console = Console()
 
-# Registry mapping database types to their sync functions
-DATABASE_SYNC_FUNCTIONS = {
-    "bigquery": sync_bigquery,
-    "duckdb": sync_duckdb,
-    "databricks": sync_databricks,
-    "snowflake": sync_snowflake,
-    "postgres": sync_postgres,
-    "redshift": sync_redshift,
-}
+TEMPLATE_PREFIX = "databases"
+
+
+def sync_database(
+    db_config: DatabaseConfig,
+    base_path: Path,
+    progress: Progress,
+    project_path: Path | None = None,
+) -> DatabaseSyncState:
+    """Sync a single database by rendering all database templates for each table."""
+    engine = get_template_engine(project_path)
+    templates = engine.list_templates(TEMPLATE_PREFIX)
+
+    conn = db_config.connect()
+    db_name = db_config.get_database_name()
+    db_path = base_path / f"type={db_config.type}" / f"database={db_name}"
+    state = DatabaseSyncState(db_path=db_path)
+
+    schemas = db_config.get_schemas(conn)
+
+    schema_task = progress.add_task(
+        f"[dim]{db_config.name}[/dim]",
+        total=len(schemas),
+    )
+
+    for schema in schemas:
+        try:
+            all_tables = conn.list_tables(database=schema)
+        except Exception:
+            progress.update(schema_task, advance=1)
+            continue
+
+        tables = [t for t in all_tables if db_config.matches_pattern(schema, t)]
+
+        if not tables:
+            progress.update(schema_task, advance=1)
+            continue
+
+        schema_path = db_path / f"schema={schema}"
+        schema_path.mkdir(parents=True, exist_ok=True)
+        state.add_schema(schema)
+
+        table_task = progress.add_task(
+            f"  [cyan]{schema}[/cyan]",
+            total=len(tables),
+        )
+
+        for table in tables:
+            table_path = schema_path / f"table={table}"
+            table_path.mkdir(parents=True, exist_ok=True)
+
+            # Use custom context if database config provides one (e.g., for Redshift)
+            create_context = getattr(db_config, "create_context", None)
+            if create_context and callable(create_context):
+                ctx = create_context(conn, schema, table)
+            else:
+                ctx = DatabaseContext(conn, schema, table)
+
+            for template_name in templates:
+                try:
+                    content = engine.render(template_name, db=ctx, table_name=table, dataset=schema)
+                except Exception as e:
+                    content = f"# {table}\n\nError generating content: {e}"
+
+                # Derive output filename: "databases/columns.md.j2" → "columns.md"
+                output_filename = Path(template_name).stem  # "columns.md" (stem strips .j2)
+                output_file = table_path / output_filename
+                output_file.write_text(content)
+
+            state.add_table(schema, table)
+            progress.update(table_task, advance=1)
+
+        progress.update(schema_task, advance=1)
+
+    return state
 
 
 class DatabaseSyncProvider(SyncProvider):
@@ -48,39 +109,29 @@ class DatabaseSyncProvider(SyncProvider):
         return "databases"
 
     def pre_sync(self, config: NaoConfig, output_path: Path) -> None:
-        """
-        Always run before syncing.
-        """
         cleanup_stale_databases(config.databases, output_path, verbose=True)
 
     def get_items(self, config: NaoConfig) -> list[AnyDatabaseConfig]:
         return config.databases
 
     def sync(self, items: list[Any], output_path: Path, project_path: Path | None = None) -> SyncResult:
-        """Sync all configured databases.
-
-        Args:
-                items: List of database configurations
-                output_path: Base path where database schemas are stored
-                project_path: Path to the nao project root (for template resolution)
-
-        Returns:
-                SyncResult with datasets and tables synced
-        """
         if not items:
             console.print("\n[dim]No databases configured[/dim]")
             return SyncResult(provider_name=self.name, items_synced=0)
-
-        # Set project path for template resolution
-        DataAccessor.set_project_path(project_path)
 
         total_datasets = 0
         total_tables = 0
         total_removed = 0
         sync_states: list[DatabaseSyncState] = []
 
+        # Show which templates will be used
+        engine = get_template_engine(project_path)
+        templates = engine.list_templates(TEMPLATE_PREFIX)
+        template_names = [Path(t).stem.replace(".md", "") for t in templates]
+
         console.print(f"\n[bold cyan]{self.emoji}  Syncing {self.name}[/bold cyan]")
-        console.print(f"[dim]Location:[/dim] {output_path.absolute()}\n")
+        console.print(f"[dim]Location:[/dim] {output_path.absolute()}")
+        console.print(f"[dim]Templates:[/dim] {', '.join(template_names)}\n")
 
         with Progress(
             SpinnerColumn(style="dim"),
@@ -91,30 +142,18 @@ class DatabaseSyncProvider(SyncProvider):
             transient=False,
         ) as progress:
             for db in items:
-                # Get accessors from database config
-                db_accessors = get_accessors(db.accessors)
-                accessor_names = [a.filename.replace(".md", "") for a in db_accessors]
-
                 try:
-                    console.print(f"[dim]{db.name} accessors:[/dim] {', '.join(accessor_names)}")
-
-                    sync_fn = DATABASE_SYNC_FUNCTIONS.get(db.type)
-                    if sync_fn:
-                        state = sync_fn(db, output_path, progress, db_accessors)
-                        sync_states.append(state)
-                        total_datasets += state.schemas_synced
-                        total_tables += state.tables_synced
-                    else:
-                        console.print(f"[yellow]⚠ Unsupported database type: {db.type}[/yellow]")
+                    state = sync_database(db, output_path, progress, project_path)
+                    sync_states.append(state)
+                    total_datasets += state.schemas_synced
+                    total_tables += state.tables_synced
                 except Exception as e:
                     console.print(f"[bold red]✗[/bold red] Failed to sync {db.name}: {e}")
 
-        # Clean up stale files after all syncs complete
         for state in sync_states:
             removed = cleanup_stale_paths(state, verbose=True)
             total_removed += removed
 
-        # Build summary
         summary = f"{total_tables} tables across {total_datasets} datasets"
         if total_removed > 0:
             summary += f", {total_removed} stale removed"

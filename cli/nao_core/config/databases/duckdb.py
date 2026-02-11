@@ -33,7 +33,15 @@ class DuckDBConfig(DatabaseConfig):
 
     def get_database_name(self) -> str:
         """Get the database name for DuckDB."""
-
         if self.path == ":memory:":
             return "memory"
         return Path(self.path).stem
+
+    def check_connection(self) -> tuple[bool, str]:
+        """Test connectivity to DuckDB."""
+        try:
+            conn = self.connect()
+            tables = conn.list_tables()
+            return True, f"Connected successfully ({len(tables)} tables found)"
+        except Exception as e:
+            return False, str(e)

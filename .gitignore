@@ -15,3 +15,5 @@ nao-chat-server
 .pytest_cache/
 
 *.pyc
+
+rsa_key.*
