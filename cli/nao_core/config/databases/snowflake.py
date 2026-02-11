@@ -105,13 +105,6 @@ class SnowflakeConfig(DatabaseConfig):
         """Check if a schema.table matches the include/exclude patterns.
 
         Snowflake identifier matching is case-insensitive.
-
-        Args:
-            schema: The schema name (uppercase from Snowflake)
-            table: The table name (uppercase from Snowflake)
-
-        Returns:
-            True if the table should be included, False if excluded
         """
         from fnmatch import fnmatch
 
