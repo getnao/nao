@@ -69,6 +69,7 @@ def temp_database():
             private_key=private_key_bytes,
             warehouse=os.environ.get("SNOWFLAKE_WAREHOUSE"),
             database=db_name,
+            create_object_udfs=False,
         )
 
         # Create schema
