@@ -10,7 +10,7 @@ interface Props extends React.ComponentProps<'input'> {
 }
 
 /** Input that takes width and style of parent element */
-export const InputEdit = ({ value, onChange, onSubmit, onEscape, className, autoFocus, ...rest }: Props) => {
+export const InputEdit = ({ value, onChange, onSubmit, onEscape, className, autoFocus = true, ...rest }: Props) => {
 	const inputRef = useRef<HTMLInputElement>(null);
 
 	useEffect(() => {
