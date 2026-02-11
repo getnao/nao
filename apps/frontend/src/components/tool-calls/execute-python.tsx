@@ -8,6 +8,19 @@ import { isToolSettled } from '@/lib/ai';
 
 type ViewMode = 'output' | 'code';
 
+const formatOutput = (value: unknown): string => {
+	if (value === null) {
+		return 'null';
+	}
+	if (value === undefined) {
+		return 'undefined';
+	}
+	if (typeof value === 'object') {
+		return `\`\`\`json\n${JSON.stringify(value, null, 2)}\n\`\`\``;
+	}
+	return `\`\`\`bash\n${String(value)}\n\`\`\``;
+};
+
 export const ExecutePythonToolCall = () => {
 	const { toolPart } = useToolCallContext();
 	const [viewMode, setViewMode] = useState<ViewMode>('output');
@@ -63,7 +76,7 @@ export const ExecutePythonToolCall = () => {
 					<div>
 						<pre className='font-mono text-sm rounded overflow-auto hide-code-header'>
 							<Streamdown mode='static' controls={{ code: false }}>
-								{`\`\`\`bash\n${output.output}\n\`\`\``}
+								{formatOutput(output.output)}
 							</Streamdown>
 						</pre>
 					</div>

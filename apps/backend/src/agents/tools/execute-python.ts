@@ -139,7 +139,7 @@ export const execute = async ({ code, inputs }: schemas.Input): Promise<schemas.
 };
 
 export default tool({
-	description: 'Execute Python code in a sandboxed interpreter and return the result.',
+	description: schemas.description,
 	inputSchema: schemas.inputSchema,
 	outputSchema: schemas.outputSchema,
 	execute: execute,
