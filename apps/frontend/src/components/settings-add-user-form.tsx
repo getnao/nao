@@ -14,7 +14,7 @@ export function AddUserDialog() {
 
 	const addUserToProject = useMutation(
 		trpc.user.addUserToProject.mutationOptions({
-			onSuccess: (data, _, __, ctx) => {
+			onSuccess: (data, variables, _, ctx) => {
 				ctx.client.setQueryData(trpc.project.getAllUsersWithRoles.queryKey(), (oldData: any) => {
 					if (!data.newUser) {
 						return oldData;
@@ -24,7 +24,7 @@ export function AddUserDialog() {
 				handleClose();
 
 				if (data.password) {
-					setNewUser({ email: form.state.values.email, password: data.password });
+					setNewUser({ email: variables.email, password: data.password });
 					setIsNewUserDialogOpen(true);
 				}
 			},

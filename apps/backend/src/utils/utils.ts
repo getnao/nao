@@ -41,3 +41,10 @@ export const isEmailDomainAllowed = (userEmail: string) => {
 };
 
 export const regexPassword = /^(?=.*?[A-Z])(?=.*?[a-z])(?=.*?[0-9])(?=.*?[#?!@$%^&*-]).{8,}$/;
+
+export const replaceEnvVars = (fileContent: string) => {
+	const replaced = fileContent.replace(/\$\{(\w+)\}/g, (match, varName) => {
+		return process.env[varName] || match;
+	});
+	return replaced;
+};

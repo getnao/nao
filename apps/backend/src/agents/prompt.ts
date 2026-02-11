@@ -20,7 +20,7 @@ You have access to user context defined as files and directories in the project 
 ## How nao works
 - All the context available to you is stored as files in the project folder.
 - In the **databases** folder you can find the databases context, each layer is a folder from the databases, schema and then tables.
-- Folders are named like this: database=my_database, schema=my_schema, table=my_table.
+- Databases folders are named following this pattern: type=<database_type>/database=<database_name>/schema=<schema_name>/table=<table_name>.
 - Each table have files describing the table schema and the data in the table (like columns.md, preview.md, etc.)
 
 ## SQL Query Rules

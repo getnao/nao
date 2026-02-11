@@ -55,13 +55,12 @@ export const accountRoutes = {
 	modifyPassword: projectProtectedProcedure
 		.input(
 			z.object({
-				userId: z.string(),
 				newPassword: z.string(),
 				confirmPassword: z.string(),
 			}),
 		)
-		.mutation(async ({ input }) => {
-			const account = await accountQueries.getAccountById(input.userId);
+		.mutation(async ({ input, ctx }) => {
+			const account = await accountQueries.getAccountById(ctx.user.id);
 			if (!account || !account.password) {
 				throw new TRPCError({
 					code: 'NOT_FOUND',
@@ -86,6 +85,6 @@ export const accountRoutes = {
 
 			const hashedPassword = await hashPassword(input.newPassword);
 
-			await accountQueries.updateAccountPassword(account.id, hashedPassword, input.userId, false);
+			await accountQueries.updateAccountPassword(account.id, hashedPassword, ctx.user.id, false);
 		}),
 };

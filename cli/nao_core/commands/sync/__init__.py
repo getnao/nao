@@ -2,22 +2,38 @@
 
 import sys
 from pathlib import Path
+from typing import Annotated
 
+from cyclopts import Parameter
 from rich.console import Console
 
 from nao_core.config import NaoConfig
 from nao_core.templates.render import render_all_templates
 from nao_core.tracking import track_command
 
-from .providers import SyncProvider, SyncResult, get_all_providers
+from .providers import (
+    PROVIDER_CHOICES,
+    ProviderSelection,
+    SyncResult,
+    get_all_providers,
+    get_providers_by_names,
+)
 
 console = Console()
 
 
 @track_command("sync")
 def sync(
-    output_dirs: dict[str, str] | None = None,
-    providers: list[SyncProvider] | None = None,
+    *,
+    provider: Annotated[
+        list[str] | None,
+        Parameter(
+            name=["-p", "--provider"],
+            help=f"Provider(s) to sync. Use `-p provider:name` to sync a specific connection (e.g. databases:my-db). Or just `-p databases` to sync all connections. Options: {', '.join(PROVIDER_CHOICES)}",
+        ),
+    ] = None,
+    output_dirs: Annotated[dict[str, str] | None, Parameter(show=False)] = None,
+    _providers: Annotated[list[ProviderSelection] | None, Parameter(show=False)] = None,
     render_templates: bool = True,
 ):
     """Sync resources using configured providers.
@@ -29,14 +45,6 @@ def sync(
     After syncing providers, renders any Jinja templates (*.j2 files) found in
     the project directory, making the `nao` context object available for
     accessing provider data.
-
-    Args:
-            output_dirs: Optional dict mapping provider names to custom output directories.
-                                     If not specified, uses each provider's default_output_dir.
-            providers: Optional list of providers to use. If not specified, uses all
-                               registered providers.
-            render_templates: Whether to render Jinja templates after syncing providers.
-                                              Defaults to True.
     """
     console.print("\n[bold cyan]🔄 nao sync[/bold cyan]\n")
 
@@ -48,31 +56,52 @@ def sync(
 
     console.print(f"[dim]Project:[/dim] {config.project_name}")
 
-    # Use provided providers or default to all registered providers
-    active_providers = providers if providers is not None else get_all_providers()
+    # Resolve providers: CLI names > programmatic providers > all providers
+    if provider:
+        try:
+            active_providers = get_providers_by_names(provider)
+        except ValueError as e:
+            console.print(f"[red]Error:[/red] {e}")
+            sys.exit(1)
+    elif _providers is not None:
+        active_providers = _providers
+    else:
+        active_providers = get_all_providers()
+
     output_dirs = output_dirs or {}
 
     # Run each provider
     results: list[SyncResult] = []
-    for provider in active_providers:
+    for selection in active_providers:
+        sync_provider = selection.provider
+        connection_filter = selection.connection_name
+
         # Get output directory (custom or default)
-        output_dir = output_dirs.get(provider.name, provider.default_output_dir)
+        output_dir = output_dirs.get(sync_provider.name, sync_provider.default_output_dir)
         output_path = Path(output_dir)
 
         try:
-            provider.pre_sync(config, output_path)
+            sync_provider.pre_sync(config, output_path)
 
-            if not provider.should_sync(config):
+            if not sync_provider.should_sync(config):
                 continue
 
-            # Get items and sync
-            items = provider.get_items(config)
-            result = provider.sync(items, output_path, project_path=project_path)
+            # Get items and filter by connection name if specified
+            items = sync_provider.get_items(config)
+            if connection_filter:
+                items = [item for item in items if getattr(item, "name", None) == connection_filter]
+                if not items:
+                    console.print(
+                        f"[yellow]Warning:[/yellow] No connection named '{connection_filter}' found for {sync_provider.name}"
+                    )
+                    continue
+
+            result = sync_provider.sync(items, output_path, project_path=project_path)
             results.append(result)
         except Exception as e:
             # Capture error but continue with other providers
-            results.append(SyncResult.from_error(provider.name, e))
-            console.print(f"  [yellow]⚠[/yellow] {provider.emoji} {provider.name}: [red]{e}[/red]")
+            results.append(SyncResult.from_error(sync_provider.name, e))
+            console.print(f"  [yellow]⚠[/yellow] {sync_provider.emoji} {sync_provider.name}: [red]{e}[/red]")
 
     # Render user Jinja templates
     template_result = None

@@ -4,7 +4,6 @@ from rich.console import Console
 from rich.table import Table
 
 from nao_core.config import NaoConfig
-from nao_core.config.databases import AnyDatabaseConfig
 from nao_core.tracking import track_command
 
 console = Console()
@@ -46,32 +45,6 @@ def _check_available_models(provider: str, api_key: str) -> Tuple[bool, str]:
     return True, f"Connected successfully ({model_count} models available)"
 
 
-def check_database_connection(db_config: AnyDatabaseConfig) -> tuple[bool, str]:
-    """Test connectivity to a database.
-
-    Returns:
-            Tuple of (success, message)
-    """
-    try:
-        conn = db_config.connect()
-        # Run a simple query to verify the connection works
-        if hasattr(db_config, "dataset_id") and db_config.dataset_id:
-            # If dataset is specified, list tables in that dataset
-            tables = conn.list_tables()
-            table_count = len(tables)
-            return True, f"Connected successfully ({table_count} tables found)"
-        elif list_databases := getattr(conn, "list_databases", None):
-            # If no dataset, list schemas in the database instead
-            schemas = list_databases()
-            schema_count = len(schemas)
-            return True, f"Connected successfully ({schema_count} schemas found)"
-        else:
-            # Fallback for backends that don't support list_tables and list_databases
-            return True, "Connected but unable to list neither datasets nor schemas"
-    except Exception as e:
-        return False, str(e)
-
-
 def check_llm_connection(llm_config) -> tuple[bool, str]:
     """Test connectivity to an LLM provider.
 
@@ -110,7 +83,7 @@ def debug():
 
         for db in config.databases:
             console.print(f"  Testing [cyan]{db.name}[/cyan]...", end=" ")
-            success, message = check_database_connection(db)
+            success, message = db.check_connection()
 
             if success:
                 console.print("[bold green]✓[/bold green]")

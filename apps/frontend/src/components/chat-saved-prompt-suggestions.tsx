@@ -13,7 +13,7 @@ const ANIMATION_DELAY = 50;
 
 export function SavedPromptSuggestions() {
 	const setPromptCallback = useSetChatInputCallback();
-	const { data: savedPrompts = [] } = useSavedPromptsQuery();
+	const { data: savedPrompts } = useSavedPromptsQuery();
 	const { displayedPrompts, animationKey, hidePrompts, pause, resume } = usePromptRotation(savedPrompts, 3);
 
 	return (
@@ -45,15 +45,15 @@ export function SavedPromptSuggestions() {
 	);
 }
 
-function usePromptRotation(savedPrompts: SavedPrompt[], n: number) {
+function usePromptRotation(savedPrompts: SavedPrompt[] | undefined, n: number) {
 	const [displayedPrompts, setDisplayedPrompts] = useState<SavedPrompt[]>([]);
 	const [animationKey, setAnimationKey] = useState(0);
 	const [paused, setPaused] = useState(false);
 	const [hidePrompts, setHidePrompts] = useState(false);
 
 	useEffect(() => {
-		if (savedPrompts.length < n) {
-			return setDisplayedPrompts(savedPrompts);
+		if (!savedPrompts || savedPrompts.length < n) {
+			return setDisplayedPrompts(savedPrompts ?? []);
 		}
 
 		setDisplayedPrompts((prev) => (prev.length === 0 ? pickUniqueFrom(savedPrompts, n) : prev));

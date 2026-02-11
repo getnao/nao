@@ -1,3 +1,4 @@
+import { mcpService } from '../../services/mcp.service';
 import displayChart from './display-chart';
 import executeSql from './execute-sql';
 import grep from './grep';
@@ -14,4 +15,10 @@ export const tools = {
 	read,
 	search,
 	suggest_follow_ups: suggestFollowUps,
+};
+
+export const getTools = () => {
+	const mcpTools = mcpService.getMcpTools();
+
+	return { ...tools, ...mcpTools };
 };

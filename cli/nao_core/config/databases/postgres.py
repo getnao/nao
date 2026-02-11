@@ -66,5 +66,28 @@ class PostgresConfig(DatabaseConfig):
 
     def get_database_name(self) -> str:
         """Get the database name for Postgres."""
-
         return self.database
+
+    def get_schemas(self, conn: BaseBackend) -> list[str]:
+        if self.schema_name:
+            return [self.schema_name]
+        list_databases = getattr(conn, "list_databases", None)
+        if list_databases:
+            schemas = list_databases()
+            # Filter out system schemas
+            return [s for s in schemas if s not in ("pg_catalog", "information_schema") and not s.startswith("pg_")]
+        return []
+
+    def check_connection(self) -> tuple[bool, str]:
+        """Test connectivity to PostgreSQL."""
+        try:
+            conn = self.connect()
+            if self.schema_name:
+                tables = conn.list_tables()
+                return True, f"Connected successfully ({len(tables)} tables found)"
+            if list_databases := getattr(conn, "list_databases", None):
+                schemas = list_databases()
+                return True, f"Connected successfully ({len(schemas)} schemas found)"
+            return True, "Connected successfully"
+        except Exception as e:
+            return False, str(e)

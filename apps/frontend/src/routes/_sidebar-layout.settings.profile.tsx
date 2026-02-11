@@ -1,4 +1,3 @@
-// import { useState } from 'react';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { signOut, useSession } from '@/lib/auth-client';

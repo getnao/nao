@@ -15,8 +15,8 @@ jobs:
         runs-on: ubuntu-latest
         permissions:
             contents: read
-            pull-requests: read
-            issues: read
+            pull-requests: write
+            issues: write
             id-token: write
             actions: read # Required for Claude to read CI results on PRs
 
@@ -36,7 +36,7 @@ jobs:
                   plugins: 'code-review@claude-code-plugins'
                   prompt: '/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}'
                   claude_args: |
-                      --allowedTools "Bash(npm install),Bash(npm run lint:*),Bash(npm run format),mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh api),Bash(gh extension list)"
+                      --allowedTools "Bash(npm install),Bash(npm run lint:*),mcp__github_inline_comment__create_inline_comment,Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh api),Bash(gh extension list)"
 
                   # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
                   # or https://code.claude.com/docs/en/cli-reference for available options

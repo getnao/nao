@@ -11,7 +11,6 @@ import { ThemeProvider } from './contexts/theme.provider';
 import { SidebarProvider } from './contexts/sidebar.provider';
 import { routeTree } from './routeTree.gen';
 import reportWebVitals from './reportWebVitals';
-import { UserPageProvider } from './contexts/user.provider';
 import type { TrpcRouter } from '@nao/backend/trpc';
 
 // Register the router instance for type safety
@@ -71,9 +70,7 @@ if (!rootElement.innerHTML) {
 				<SidebarProvider>
 					<QueryClientProvider client={queryClient}>
 						<PostHogProvider>
-							<UserPageProvider>
-								<RouterProvider router={router} />
-							</UserPageProvider>
+							<RouterProvider router={router} />
 						</PostHogProvider>
 					</QueryClientProvider>
 				</SidebarProvider>
