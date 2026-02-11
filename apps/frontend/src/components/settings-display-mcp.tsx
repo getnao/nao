@@ -68,6 +68,17 @@ export function McpList({ isAdmin }: McpListProps) {
 			</div>
 			{mcpState.isLoading ? (
 				<div className='text-sm text-muted-foreground'>Loading MCP servers...</div>
+			) : mcpEntries.length === 0 ? (
+				<div className='text-sm text-muted-foreground py-4 text-center'>
+					<p className='text-lg font-medium mb-2'>No MCP Servers Connected</p>
+					<p className='mb-3'>Click the Connect button above to load your configured servers.</p>
+					<p>
+						If you haven't set up MCP yet, add a{' '}
+						<code className='bg-muted px-1 py-0.5 rounded'>mcp.json</code> file in your project's context
+						folder and specify its path in{' '}
+						<code className='bg-muted px-1 py-0.5 rounded'>nao_config.yaml</code>, then click Connect.
+					</p>
+				</div>
 			) : (
 				<div className='flex flex-col gap-4'>
 					<Table>
