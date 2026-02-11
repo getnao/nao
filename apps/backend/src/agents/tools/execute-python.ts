@@ -20,60 +20,7 @@ const RESOURCE_LIMITS = {
 	maxRecursionDepth: 500,
 };
 
-function findAllFiles(dir: string, projectFolder: string): schemas.VirtualFile[] {
-	const files: schemas.VirtualFile[] = [];
-
-	try {
-		const entries = fs.readdirSync(dir, { withFileTypes: true });
-
-		for (const entry of entries) {
-			const fullPath = path.join(dir, entry.name);
-
-			if (!isWithinProjectFolder(fullPath, projectFolder)) {
-				continue;
-			}
-
-			if (entry.isDirectory()) {
-				// Recursively search subdirectories
-				files.push(...findAllFiles(fullPath, projectFolder));
-			} else if (entry.isFile()) {
-				try {
-					const content = fs.readFileSync(fullPath, 'utf-8');
-					const virtualPath = toVirtualPath(fullPath, projectFolder);
-					files.push({ path: virtualPath, content });
-				} catch {
-					// Skip files that can't be read (binary files, permission issues, etc.)
-				}
-			}
-		}
-	} catch {
-		// Skip directories that can't be read
-	}
-
-	return files;
-}
-
-function loadProjectFiles(): schemas.VirtualFile[] {
-	const projectFolder = getProjectFolder();
-	return findAllFiles(projectFolder, projectFolder);
-}
-
-function createVirtualFS(): Map<string, string> {
-	const vfs = new Map<string, string>();
-
-	// Load all files from the project folder
-	const projectFiles = loadProjectFiles();
-	for (const file of projectFiles) {
-		vfs.set(file.path, file.content);
-	}
-
-	return vfs;
-}
-
-const EXTERNAL_FUNCTION_MAP = new Map(schemas.EXTERNAL_FUNCTIONS.map((f) => [f.name, f]));
-const EXTERNAL_FUNCTION_NAMES = schemas.EXTERNAL_FUNCTIONS.map((f) => f.name);
-
-export const execute = async ({ code, inputs }: schemas.Input): Promise<schemas.Output> => {
+export async function executePython({ code, inputs }: schemas.Input): Promise<schemas.Output> {
 	const inputNames = inputs ? Object.keys(inputs) : [];
 	const virtualFS = createVirtualFS();
 
@@ -136,11 +83,62 @@ export const execute = async ({ code, inputs }: schemas.Input): Promise<schemas.
 	return {
 		output: state.output,
 	};
-};
+}
+
+function findAllFiles(dir: string, projectFolder: string): schemas.VirtualFile[] {
+	const files: schemas.VirtualFile[] = [];
+
+	try {
+		const entries = fs.readdirSync(dir, { withFileTypes: true });
+
+		for (const entry of entries) {
+			const fullPath = path.join(dir, entry.name);
+
+			if (!isWithinProjectFolder(fullPath, projectFolder)) {
+				continue;
+			}
+
+			if (entry.isDirectory()) {
+				files.push(...findAllFiles(fullPath, projectFolder));
+			} else if (entry.isFile()) {
+				try {
+					const content = fs.readFileSync(fullPath, 'utf-8');
+					const virtualPath = toVirtualPath(fullPath, projectFolder);
+					files.push({ path: virtualPath, content });
+				} catch {
+					// Skip files that can't be read (binary files, permission issues, etc.)
+				}
+			}
+		}
+	} catch {
+		// Skip directories that can't be read
+	}
+
+	return files;
+}
+
+function loadProjectFiles(): schemas.VirtualFile[] {
+	const projectFolder = getProjectFolder();
+	return findAllFiles(projectFolder, projectFolder);
+}
+
+function createVirtualFS(): Map<string, string> {
+	const vfs = new Map<string, string>();
+
+	const projectFiles = loadProjectFiles();
+	for (const file of projectFiles) {
+		vfs.set(file.path, file.content);
+	}
+
+	return vfs;
+}
+
+const EXTERNAL_FUNCTION_MAP = new Map(schemas.EXTERNAL_FUNCTIONS.map((f) => [f.name, f]));
+const EXTERNAL_FUNCTION_NAMES = schemas.EXTERNAL_FUNCTIONS.map((f) => f.name);
 
 export default tool({
 	description: schemas.description,
 	inputSchema: schemas.inputSchema,
 	outputSchema: schemas.outputSchema,
-	execute: execute,
+	execute: executePython,
 });
