@@ -4,6 +4,7 @@ import { spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 
+import { GrepOutput, renderToModelOutput } from '../../components/tool-outputs';
 import {
 	getProjectFolder,
 	isWithinProjectFolder,
@@ -52,10 +53,11 @@ interface RipgrepMatch {
 	context_after?: string[];
 }
 
-export default tool({
+export default tool<grep.Input, grep.Output>({
 	description: 'Search for text patterns in files using ripgrep. Supports regex patterns and respects .gitignore.',
 	inputSchema: grep.InputSchema,
 	outputSchema: grep.OutputSchema,
+
 	execute: async ({ pattern, path: searchPath, glob, case_insensitive, context_lines, max_results = 100 }) => {
 		const projectFolder = getProjectFolder();
 		const rgPath = getRipgrepPath();
@@ -180,6 +182,7 @@ export default tool({
 				}
 
 				resolve({
+					_version: '1',
 					matches,
 					total_matches: totalMatches,
 					truncated,
@@ -191,6 +194,8 @@ export default tool({
 			});
 		});
 	},
+
+	toModelOutput: ({ output }) => renderToModelOutput(GrepOutput({ output }), output),
 });
 
 /**

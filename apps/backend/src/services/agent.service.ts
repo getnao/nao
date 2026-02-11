@@ -9,9 +9,10 @@ import {
 	ToolLoopAgentSettings,
 } from 'ai';
 
-import { getInstructions } from '../agents/prompt';
 import { CACHE_1H, CACHE_5M, createProviderModel } from '../agents/providers';
 import { getTools } from '../agents/tools';
+import { SystemPrompt } from '../components/system-prompt';
+import { renderToMarkdown } from '../lib/markdown';
 import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
@@ -244,7 +245,8 @@ class AgentManager {
 	private async _buildModelMessages(uiMessages: UIMessage[]): Promise<ModelMessage[]> {
 		uiMessages = this._prepareUIMessages(uiMessages);
 		const modelMessages = await convertToModelMessages(uiMessages);
-		const systemMessage: ModelMessage = { role: 'system', content: getInstructions() };
+		const systemPrompt = renderToMarkdown(SystemPrompt());
+		const systemMessage: ModelMessage = { role: 'system', content: systemPrompt };
 		modelMessages.unshift(systemMessage);
 		return modelMessages;
 	}

@@ -28,15 +28,11 @@ export const InputSchema = z.object({
 		),
 });
 
-export const OutputSchema = z
-	.object({
-		error: z.string().optional().describe('Error message if validation failed'),
-	})
-	.or(
-		z.object({
-			success: z.literal(true),
-		}),
-	);
+export const OutputSchema = z.object({
+	_version: z.literal('1').optional(),
+	success: z.boolean(),
+	error: z.string().optional(),
+});
 
 export type ChartType = z.infer<typeof ChartTypeEnum>;
 export type XAxisType = z.infer<typeof XAxisTypeEnum>;

@@ -4,12 +4,14 @@ import fs from 'fs/promises';
 import { glob } from 'glob';
 import path from 'path';
 
+import { renderToModelOutput, SearchOutput } from '../../components/tool-outputs';
 import { getProjectFolder, isWithinProjectFolder, loadNaoignorePatterns, toVirtualPath } from '../../utils/tools';
 
-export default tool({
+export default tool<searchFiles.Input, searchFiles.Output>({
 	description: 'Search for files matching a glob pattern within the project.',
 	inputSchema: searchFiles.InputSchema,
 	outputSchema: searchFiles.OutputSchema,
+
 	execute: async ({ pattern }) => {
 		const projectFolder = getProjectFolder();
 
@@ -31,16 +33,16 @@ export default tool({
 			return [`**/${cleanPattern}`, `**/${cleanPattern}/**`];
 		});
 
-		const files = await glob(sanitizedPattern, {
+		const matchedPaths = await glob(sanitizedPattern, {
 			absolute: true,
 			cwd: projectFolder,
 			ignore: ignorePatterns,
 		});
 
 		// Filter to only files within the project folder and not in excluded dirs (double-check)
-		const safeFiles = files.filter((f) => isWithinProjectFolder(f, projectFolder));
+		const safeFiles = matchedPaths.filter((f) => isWithinProjectFolder(f, projectFolder));
 
-		return await Promise.all(
+		const files = await Promise.all(
 			safeFiles.map(async (realPath) => {
 				const stats = await fs.stat(realPath);
 				const virtualPath = toVirtualPath(realPath, projectFolder);
@@ -52,5 +54,9 @@ export default tool({
 				};
 			}),
 		);
+
+		return { _version: '1', files };
 	},
+
+	toModelOutput: ({ output }) => renderToModelOutput(SearchOutput({ output }), output),
 });

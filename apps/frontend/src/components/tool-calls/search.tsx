@@ -10,6 +10,7 @@ export const SearchToolCall = () => {
 	const output = toolPart.output as searchFiles.Output | undefined;
 	const input = toolPart.input as searchFiles.Input | undefined;
 	const isSettled = isToolSettled(toolPart);
+	const files = Array.isArray(output) ? output : output?.files || [];
 
 	if (!isSettled) {
 		return (
@@ -31,12 +32,12 @@ export const SearchToolCall = () => {
 					Searched <code className='text-xs bg-background/50 px-1 py-0.5 rounded'>{input?.pattern}</code>
 				</>
 			}
-			badge={output && `(${output.length} matches)`}
+			badge={files && `(${files.length} files)`}
 		>
 			{output && (
 				<div className='overflow-auto max-h-80'>
 					<div className='flex flex-col gap-0.5 py-1'>
-						{output.map((item, index) => (
+						{files.map((item, index) => (
 							<div
 								key={index}
 								className='flex items-center gap-2 px-2 py-1 hover:bg-background/50 rounded text-sm'
@@ -53,7 +54,7 @@ export const SearchToolCall = () => {
 							</div>
 						))}
 					</div>
-					{output.length === 0 && (
+					{files.length === 0 && (
 						<div className='p-4 text-center text-foreground/50 text-sm'>No files found</div>
 					)}
 				</div>

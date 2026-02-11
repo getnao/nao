@@ -140,5 +140,3 @@ export const startServer = async (opts: { port: number; host: string }) => {
 };
 
 export default app;
-
-new URL('http://localhost:5005/').toString();

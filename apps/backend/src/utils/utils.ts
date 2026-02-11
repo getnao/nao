@@ -48,3 +48,43 @@ export const replaceEnvVars = (fileContent: string) => {
 	});
 	return replaced;
 };
+
+/** Truncate a string to a maximum length and add an ellipsis in the middle. */
+export const truncateMiddle = (str: string, maxLength: number, ellipsis: string = '...'): string => {
+	if (str.length <= maxLength) {
+		return str;
+	}
+	if (maxLength <= ellipsis.length) {
+		return str.slice(0, maxLength);
+	}
+	const half = Math.floor((maxLength - ellipsis.length) / 2);
+	return str.slice(0, half) + ellipsis + str.slice(-half);
+};
+
+export const removeNewLine = (str: string): string => {
+	return str.replace(/[\r\n]/g, '');
+};
+
+export function groupBy<T>(items: T[], keyFn: (item: T) => string): Record<string, T[]> {
+	return items.reduce(
+		(acc, item) => {
+			const key = keyFn(item);
+			if (!acc[key]) {
+				acc[key] = [];
+			}
+			acc[key].push(item);
+			return acc;
+		},
+		{} as Record<string, T[]>,
+	);
+}
+
+export const formatSize = (bytes: number) => {
+	if (bytes < 1024) {
+		return `${bytes} B`;
+	}
+	if (bytes < 1024 * 1024) {
+		return `${(bytes / 1024).toFixed(1)} KB`;
+	}
+	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+};

@@ -20,6 +20,7 @@ export const ListToolCall = () => {
 	const { toolPart } = useToolCallContext();
 	const output = toolPart.output as list.Output | undefined;
 	const input = toolPart.input as list.Input | undefined;
+	const entries = Array.isArray(output) ? output : output?.entries || [];
 	const isSettled = isToolSettled(toolPart);
 
 	if (!isSettled) {
@@ -42,12 +43,12 @@ export const ListToolCall = () => {
 					Listed <code className='text-xs bg-background/50 px-1 py-0.5 rounded'>{input?.path}</code>
 				</>
 			}
-			badge={output && `(${output.length} items)`}
+			badge={entries && `(${entries.length} items)`}
 		>
 			{output && (
 				<div className='overflow-auto max-h-80'>
 					<div className='flex flex-col gap-0.5 py-1'>
-						{output.map((item, index) => (
+						{entries.map((item, index) => (
 							<div
 								key={index}
 								className='flex items-center gap-2 px-2 py-1 hover:bg-background/50 rounded text-sm'
@@ -65,7 +66,7 @@ export const ListToolCall = () => {
 							</div>
 						))}
 					</div>
-					{output.length === 0 && (
+					{entries.length === 0 && (
 						<div className='p-4 text-center text-foreground/50 text-sm'>Empty directory</div>
 					)}
 				</div>

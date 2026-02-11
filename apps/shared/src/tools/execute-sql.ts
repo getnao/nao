@@ -9,6 +9,7 @@ export const InputSchema = z.object({
 });
 
 export const OutputSchema = z.object({
+	_version: z.literal('1').optional(),
 	data: z.array(z.any()),
 	row_count: z.number(),
 	columns: z.array(z.string()),

@@ -2,7 +2,7 @@ node_modules
 .DS_Store
 dist
 dist-ssr
-*.local
+*.local*
 count.txt
 .env
 .nitro

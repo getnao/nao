@@ -3,12 +3,14 @@ import { tool } from 'ai';
 import fs from 'fs/promises';
 import path from 'path';
 
+import { ListOutput, renderToModelOutput } from '../../components/tool-outputs';
 import { getProjectFolder, shouldExcludeEntry, toRealPath, toVirtualPath } from '../../utils/tools';
 
-export default tool({
+export default tool<list.Input, list.Output>({
 	description: 'List files and directories at the specified path.',
 	inputSchema: list.InputSchema,
 	outputSchema: list.OutputSchema,
+
 	execute: async ({ path: filePath }) => {
 		const projectFolder = getProjectFolder();
 		const realPath = toRealPath(filePath, projectFolder);
@@ -16,14 +18,14 @@ export default tool({
 		// Get the relative path of the parent directory for naoignore matching
 		const parentRelativePath = path.relative(projectFolder, realPath);
 
-		const entries = await fs.readdir(realPath, { withFileTypes: true });
+		const dirEntries = await fs.readdir(realPath, { withFileTypes: true });
 
 		// Filter out excluded entries (including .naoignore patterns)
-		const filteredEntries = entries.filter(
+		const filteredEntries = dirEntries.filter(
 			(entry) => !shouldExcludeEntry(entry.name, parentRelativePath, projectFolder),
 		);
 
-		return await Promise.all(
+		const entries = await Promise.all(
 			filteredEntries.map(async (entry) => {
 				const fullRealPath = path.join(realPath, entry.name);
 
@@ -39,8 +41,8 @@ export default tool({
 				let itemCount: number | undefined;
 				if (type === 'directory') {
 					try {
-						const dirEntries = await fs.readdir(fullRealPath);
-						itemCount = dirEntries.length;
+						const subEntries = await fs.readdir(fullRealPath);
+						itemCount = subEntries.length;
 					} catch {
 						// If we can't read the directory, leave itemCount undefined
 					}
@@ -55,5 +57,9 @@ export default tool({
 				};
 			}),
 		);
+
+		return { _version: '1', entries };
 	},
+
+	toModelOutput: ({ output }) => renderToModelOutput(ListOutput({ output }), output),
 });

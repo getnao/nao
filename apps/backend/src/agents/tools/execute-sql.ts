@@ -2,8 +2,20 @@ import type { executeSql } from '@nao/shared/tools';
 import { executeSql as schemas } from '@nao/shared/tools';
 import { tool } from 'ai';
 
+import { ExecuteSqlOutput, renderToModelOutput } from '../../components/tool-outputs';
 import { env } from '../../env';
 import { getProjectFolder } from '../../utils/tools';
+
+export default tool<executeSql.Input, executeSql.Output>({
+	description:
+		'Execute a SQL query against the connected database and return the results. If multiple databases are configured, specify the database_id.',
+	inputSchema: schemas.InputSchema,
+	outputSchema: schemas.OutputSchema,
+
+	execute: executeQuery,
+
+	toModelOutput: ({ output }) => renderToModelOutput(ExecuteSqlOutput({ output }), output),
+});
 
 export async function executeQuery({ sql_query, database_id }: executeSql.Input): Promise<executeSql.Output> {
 	const naoProjectFolder = getProjectFolder();
@@ -27,15 +39,8 @@ export async function executeQuery({ sql_query, database_id }: executeSql.Input)
 
 	const data = await response.json();
 	return {
+		_version: '1',
 		...data,
 		id: `query_${crypto.randomUUID().slice(0, 8)}`,
 	};
 }
-
-export default tool({
-	description:
-		'Execute a SQL query against the connected database and return the results. If multiple databases are configured, specify the database_id.',
-	inputSchema: schemas.InputSchema,
-	outputSchema: schemas.OutputSchema,
-	execute: executeQuery,
-});
