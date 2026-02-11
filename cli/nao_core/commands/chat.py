@@ -163,7 +163,6 @@ def chat():
 
         env["NAO_DEFAULT_PROJECT_PATH"] = str(Path.cwd())
         env["BETTER_AUTH_URL"] = f"http://localhost:{SERVER_PORT}"
-        env["FASTAPI_URL"] = f"http://localhost:{FASTAPI_PORT}"
         env["MODE"] = MODE
 
         # Start the FastAPI server first

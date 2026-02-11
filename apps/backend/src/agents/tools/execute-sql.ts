@@ -8,7 +8,7 @@ import { getProjectFolder } from '../../utils/tools';
 export async function executeQuery({ sql_query, database_id }: executeSql.Input): Promise<executeSql.Output> {
 	const naoProjectFolder = getProjectFolder();
 
-	const response = await fetch(`${env.FASTAPI_URL}/execute_sql`, {
+	const response = await fetch(`http://localhost:${env.FASTAPI_PORT}/execute_sql`, {
 		method: 'POST',
 		headers: {
 			'Content-Type': 'application/json',
