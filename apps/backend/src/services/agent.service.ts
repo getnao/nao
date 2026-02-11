@@ -13,7 +13,9 @@ import { getInstructions } from '../agents/prompt';
 import { CACHE_1H, CACHE_5M, createProviderModel } from '../agents/providers';
 import { getTools } from '../agents/tools';
 import * as chatQueries from '../queries/chat.queries';
+import * as projectQueries from '../queries/project.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
+import { AgentSettings } from '../types/agent-settings';
 import { TokenCost, TokenUsage, UIChat, UIMessage } from '../types/chat';
 import { convertToCost, convertToTokenUsage } from '../utils/chat';
 import { getDefaultModelId, getEnvApiKey, getEnvModelSelections, ModelSelection } from '../utils/llm';
@@ -52,12 +54,14 @@ export class AgentService {
 		this._disposeAgent(chat.id);
 		const resolvedModelSelection = await this._getResolvedModelSelection(chat.projectId, modelSelection);
 		const modelConfig = await this._getModelConfig(chat.projectId, resolvedModelSelection);
+		const agentSettings = await projectQueries.getAgentSettings(chat.projectId);
 		const agent = new AgentManager(
 			chat,
 			modelConfig,
 			resolvedModelSelection,
 			() => this._agents.delete(chat.id),
 			abortController,
+			agentSettings,
 		);
 		this._agents.set(chat.id, agent);
 		return agent;
@@ -139,10 +143,11 @@ class AgentManager {
 		private readonly _modelSelection: ModelSelection,
 		private readonly _onDispose: () => void,
 		private readonly _abortController: AbortController,
+		agentSettings: AgentSettings | null,
 	) {
 		this._agent = new ToolLoopAgent({
 			...modelConfig,
-			tools: getTools(),
+			tools: getTools(agentSettings),
 			// On step 1+: cache user message (stable) + current step's last message (loop leaf)
 			prepareStep: ({ messages }) => {
 				return { messages: this._addCache(messages) };
@@ -223,7 +228,7 @@ class AgentManager {
 			finishReason,
 			durationMs,
 			responseMessages: result.response.messages,
-			steps: result.steps,
+			steps: result.steps as AgentRunResult['steps'],
 		};
 	}
 

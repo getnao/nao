@@ -253,4 +253,25 @@ export const projectRoutes = {
 				savedPromptId: input.promptId,
 			});
 		}),
+
+	getAgentSettings: projectProtectedProcedure.query(async ({ ctx }) => {
+		if (!ctx.project) {
+			return null;
+		}
+		return projectQueries.getAgentSettings(ctx.project.id);
+	}),
+
+	updateAgentSettings: adminProtectedProcedure
+		.input(
+			z.object({
+				experimental: z
+					.object({
+						pythonSandboxing: z.boolean().optional(),
+					})
+					.optional(),
+			}),
+		)
+		.mutation(async ({ ctx, input }) => {
+			return projectQueries.updateAgentSettings(ctx.project.id, input);
+		}),
 };

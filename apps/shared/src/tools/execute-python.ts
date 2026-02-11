@@ -26,7 +26,9 @@ const fn = <P extends Record<string, PyType>, R extends PyType>(
 		try {
 			return { value: exec(args as Args<P>, ctx) };
 		} catch (e) {
-			if (e instanceof PyError) return { exception: { type: e.type, message: e.message } };
+			if (e instanceof PyError) {
+				return { exception: { type: e.type, message: e.message } };
+			}
 			throw e;
 		}
 	},
@@ -35,7 +37,9 @@ const fn = <P extends Record<string, PyType>, R extends PyType>(
 export const EXTERNAL_FUNCTIONS = [
 	fn('read_file', { path: 'str' }, 'str', 'Read entire file content as string', ({ path }, { virtualFS }) => {
 		const content = virtualFS.get(path);
-		if (content === undefined) throw new PyError('FileNotFoundError', `No such file: '${path}'`);
+		if (content === undefined) {
+			throw new PyError('FileNotFoundError', `No such file: '${path}'`);
+		}
 		return content;
 	}),
 

@@ -12,6 +12,7 @@ import {
 	unique,
 } from 'drizzle-orm/pg-core';
 
+import { AgentSettings } from '../types/agent-settings';
 import { StopReason, ToolState, UIMessagePartType } from '../types/chat';
 import { LlmProvider } from '../types/llm';
 import { ORG_ROLES } from '../types/organization';
@@ -134,6 +135,7 @@ export const project = pgTable(
 		path: text('path'),
 		slackBotToken: text('slack_bot_token'),
 		slackSigningSecret: text('slack_signing_secret'),
+		agentSettings: jsonb('agent_settings').$type<AgentSettings>(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()

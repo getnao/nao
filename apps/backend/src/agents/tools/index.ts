@@ -1,4 +1,5 @@
 import { mcpService } from '../../services/mcp.service';
+import { AgentSettings } from '../../types/agent-settings';
 import displayChart from './display-chart';
 import executePython from './execute-python';
 import executeSql from './execute-sql';
@@ -10,8 +11,8 @@ import suggestFollowUps from './suggest-follow-ups';
 
 export const tools = {
 	display_chart: displayChart,
-	execute_sql: executeSql,
 	execute_python: executePython,
+	execute_sql: executeSql,
 	grep,
 	list,
 	read,
@@ -19,8 +20,14 @@ export const tools = {
 	suggest_follow_ups: suggestFollowUps,
 };
 
-export const getTools = () => {
+export const getTools = (agentSettings: AgentSettings | null) => {
 	const mcpTools = mcpService.getMcpTools();
 
-	return { ...tools, ...mcpTools };
+	const { execute_python, ...baseTools } = tools;
+
+	return {
+		...baseTools,
+		...mcpTools,
+		...(agentSettings?.experimental?.pythonSandboxing && { execute_python }),
+	};
 };

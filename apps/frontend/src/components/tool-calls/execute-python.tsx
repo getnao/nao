@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Streamdown } from 'streamdown';
-import { Code, Copy, Play, Terminal } from 'lucide-react';
+import { Code, Copy, Terminal } from 'lucide-react';
 import { useToolCallContext } from '../../contexts/tool-call.provider';
 import { ToolCallWrapper } from './tool-call-wrapper';
 import type { executePython } from '@nao/shared/tools';

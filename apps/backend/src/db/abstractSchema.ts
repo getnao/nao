@@ -2,6 +2,8 @@ import dbConfig, { Dialect } from './dbConfig';
 import * as pgSchema from './pgSchema';
 import * as sqliteSchema from './sqliteSchema';
 
+export type { AgentSettings } from '../types/agent-settings';
+
 const allSchema = dbConfig.dialect === Dialect.Postgres ? pgSchema : sqliteSchema;
 
 export type NewUser = typeof sqliteSchema.user.$inferInsert;

@@ -78,6 +78,13 @@
       "when": 1770381601080,
       "tag": "0010_saved_prompts",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1770819262591,
+      "tag": "0011_add-experimental-agent",
+      "breakpoints": true
     }
   ]
 }
