@@ -31,7 +31,7 @@ const envSchema = z.object({
 	SLACK_BOT_TOKEN: z.string().optional(),
 	SLACK_SIGNING_SECRET: z.string().optional(),
 
-  FASTAPI_PORT: z.coerce.number().default(8005),
+	FASTAPI_PORT: z.coerce.number().default(8005),
 
 	NAO_DEFAULT_PROJECT_PATH: z.string().optional(),
 
