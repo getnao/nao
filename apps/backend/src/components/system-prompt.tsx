@@ -15,7 +15,7 @@ export function SystemPrompt() {
 				<Br />
 				You have access to user context defined as files and directories in the project folder.
 				<Br />
-				Databases content is defined as files in the project folder so you can eaily search for information
+				Databases content is defined as files in the project folder so you can easily search for information
 				about the database instead of querying the database directly (it's faster and avoid leaking sensitive
 				information).
 			</Span>
