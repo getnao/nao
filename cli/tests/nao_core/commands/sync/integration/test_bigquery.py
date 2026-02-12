@@ -121,7 +121,7 @@ def spec(db_config, temp_datasets):
             "## Columns (4)",
             "- id (int64 NOT NULL)",
             "- name (string NOT NULL)",
-            "- email (string)",
+            '- email (string, "User email address")',
             "- active (boolean)",
         ),
         orders_column_assertions=(
@@ -132,6 +132,7 @@ def spec(db_config, temp_datasets):
             "- user_id (int64 NOT NULL)",
             "- amount (float64 NOT NULL)",
         ),
+        users_table_description="Registered user accounts",
         users_preview_rows=[
             {"id": 1, "name": "Alice", "email": "alice@example.com", "active": True},
             {"id": 2, "name": "Bob", "email": None, "active": False},

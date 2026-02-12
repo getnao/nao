@@ -10,6 +10,8 @@ INSERT INTO {database}.public.users VALUES
 (2, 'Bob', NULL, false),
 (3, 'Charlie', 'charlie@example.com', true);
 
+COMMENT ON TABLE public.users IS 'Registered user accounts';
+COMMENT ON COLUMN public.users.email IS 'User email address';
 
 CREATE TABLE {database}.public.orders (
 id INTEGER NOT NULL,

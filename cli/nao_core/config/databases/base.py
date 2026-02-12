@@ -4,6 +4,7 @@ import fnmatch
 from abc import ABC, abstractmethod
 from enum import Enum
 
+import pandas as pd
 import questionary
 from ibis import BaseBackend
 from pydantic import BaseModel, Field
@@ -51,6 +52,19 @@ class DatabaseConfig(BaseModel, ABC):
         """Create an Ibis connection for this database."""
         ...
 
+    def execute_sql(self, sql: str) -> pd.DataFrame:
+        """Execute arbitrary SQL and return results as a DataFrame."""
+        conn = self.connect()
+        cursor = conn.raw_sql(sql)  # type: ignore[union-attr]
+
+        if hasattr(cursor, "fetchdf"):
+            return cursor.fetchdf()
+        if hasattr(cursor, "to_dataframe"):
+            return cursor.to_dataframe()
+
+        columns: list[str] = [desc[0] for desc in cursor.description]
+        return pd.DataFrame(cursor.fetchall(), columns=columns)  # type: ignore[arg-type]
+
     def matches_pattern(self, schema: str, table: str) -> bool:
         """Check if a schema.table matches the include/exclude patterns.
 
@@ -88,6 +102,14 @@ class DatabaseConfig(BaseModel, ABC):
         if list_databases:
             return list_databases()
         return []
+
+    def fetch_table_description(self, conn: BaseBackend, schema: str, table_name: str) -> str | None:
+        """Fetch the table description/comment from the warehouse metadata."""
+        return None
+
+    def fetch_column_descriptions(self, conn: BaseBackend, schema: str, table_name: str) -> dict[str, str]:
+        """Fetch column descriptions/comments from the warehouse metadata."""
+        return {}
 
     def check_connection(self) -> tuple[bool, str]:
         """Test connectivity to the database. Override in subclasses for custom behavior."""

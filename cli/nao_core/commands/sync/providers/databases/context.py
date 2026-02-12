@@ -12,11 +12,20 @@ class DatabaseContext:
     column metadata, row previews, table descriptions, etc.
     """
 
-    def __init__(self, conn: BaseBackend, schema: str, table_name: str):
+    def __init__(
+        self,
+        conn: BaseBackend,
+        schema: str,
+        table_name: str,
+        table_description: str | None = None,
+        column_descriptions: dict[str, str] | None = None,
+    ):
         self._conn = conn
         self._schema = schema
         self._table_name = table_name
         self._table_ref = None
+        self._table_description = table_description
+        self._column_descriptions = column_descriptions or {}
 
     @property
     def table(self):
@@ -32,7 +41,7 @@ class DatabaseContext:
                 "name": name,
                 "type": self._format_type(dtype),
                 "nullable": dtype.nullable if hasattr(dtype, "nullable") else True,
-                "description": None,
+                "description": self._column_descriptions.get(name),
             }
             for name, dtype in schema.items()
         ]
@@ -67,4 +76,4 @@ class DatabaseContext:
 
     def description(self) -> str | None:
         """Return the table description if available."""
-        return None
+        return self._table_description

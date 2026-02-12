@@ -31,6 +31,10 @@ class SyncTestSpec:
     users_column_assertions: tuple[str, ...] = ()
     orders_column_assertions: tuple[str, ...] = ()
 
+    # Expected table descriptions (None means "no description" path is tested)
+    users_table_description: str | None = None
+    orders_table_description: str | None = None
+
     # Expected preview rows (sorted by row_id_key when sort_rows is True)
     users_preview_rows: list[dict] = field(default_factory=list)
     orders_preview_rows: list[dict] = field(default_factory=list)
@@ -121,12 +125,22 @@ class BaseSyncIntegrationTests:
         assert "| **Row Count** | 3 |" in content
         assert "| **Column Count** | 4 |" in content
 
+        if spec.users_table_description:
+            assert spec.users_table_description in content
+        else:
+            assert "_No description available._" in content
+
     def test_description_md_orders(self, synced, spec):
         _, output, config = synced
         content = self._read_table_file(output, config, spec, spec.orders_table, "description.md")
 
         assert "| **Row Count** | 2 |" in content
         assert "| **Column Count** | 3 |" in content
+
+        if spec.orders_table_description:
+            assert spec.orders_table_description in content
+        else:
+            assert "_No description available._" in content
 
     # ── preview.md ───────────────────────────────────────────────────
 
@@ -166,6 +180,31 @@ class BaseSyncIntegrationTests:
         assert spec.primary_schema in state.synced_schemas
         assert spec.users_table in state.synced_tables[spec.primary_schema]
         assert spec.orders_table in state.synced_tables[spec.primary_schema]
+
+    # ── execute_sql ────────────────────────────────────────────────────
+
+    def test_execute_sql_returns_dataframe(self, db_config, spec):
+        """execute_sql should return a pandas DataFrame with correct data."""
+        schema = spec.primary_schema
+        table = spec.users_table
+        df = db_config.execute_sql(f"SELECT * FROM {schema}.{table} ORDER BY 1")
+        assert len(df) == 3
+        assert len(df.columns) == 4
+
+    def test_execute_sql_with_filter(self, db_config, spec):
+        """execute_sql should honour a WHERE clause."""
+        schema = spec.primary_schema
+        table = spec.orders_table
+        df = db_config.execute_sql(f"SELECT * FROM {schema}.{table} WHERE 1=1")
+        assert len(df) == 2
+
+    def test_execute_sql_with_aggregation(self, db_config, spec):
+        """execute_sql should handle aggregate queries."""
+        schema = spec.primary_schema
+        table = spec.users_table
+        df = db_config.execute_sql(f"SELECT COUNT(*) AS cnt FROM {schema}.{table}")
+        assert len(df) == 1
+        assert int(df.iloc[0, 0]) == 3
 
     # ── include / exclude filters ────────────────────────────────────
 

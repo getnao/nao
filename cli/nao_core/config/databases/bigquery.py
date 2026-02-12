@@ -113,6 +113,32 @@ class BigQueryConfig(DatabaseConfig):
         list_databases = getattr(conn, "list_databases", None)
         return list_databases() if list_databases else []
 
+    def fetch_table_description(self, conn: BaseBackend, schema: str, table_name: str) -> str | None:
+        try:
+            query = f"""
+                SELECT option_value
+                FROM `{self.project_id}.{schema}.INFORMATION_SCHEMA.TABLE_OPTIONS`
+                WHERE table_name = '{table_name}' AND option_name = 'description'
+            """
+            for row in conn.raw_sql(query):  # type: ignore[union-attr]
+                if row[0]:
+                    # BigQuery stores option_value as a SQL literal with surrounding quotes
+                    return str(row[0]).strip().strip('"') or None
+        except Exception:
+            pass
+        return None
+
+    def fetch_column_descriptions(self, conn: BaseBackend, schema: str, table_name: str) -> dict[str, str]:
+        try:
+            query = f"""
+                SELECT column_name, description
+                FROM `{self.project_id}.{schema}.INFORMATION_SCHEMA.COLUMN_FIELD_PATHS`
+                WHERE table_name = '{table_name}' AND description IS NOT NULL AND description != ''
+            """
+            return {row[0]: str(row[1]) for row in conn.raw_sql(query) if row[1]}  # type: ignore[union-attr]
+        except Exception:
+            return {}
+
     def check_connection(self) -> tuple[bool, str]:
         """Test connectivity to BigQuery."""
         try:

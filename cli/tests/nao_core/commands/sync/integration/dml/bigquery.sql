@@ -10,6 +10,8 @@ INSERT INTO {public_dataset}.users VALUES
 (2, 'Bob', NULL, false),
 (3, 'Charlie', 'charlie@example.com', true);
 
+ALTER TABLE {public_dataset}.users SET OPTIONS (description = 'Registered user accounts');
+ALTER TABLE {public_dataset}.users ALTER COLUMN email SET OPTIONS (description = 'User email address');
 
 CREATE TABLE {public_dataset}.orders (
 id INT64 NOT NULL,
