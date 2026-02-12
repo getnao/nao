@@ -3,10 +3,6 @@ name: Claude Code Review
 on:
     pull_request:
         types: [opened, ready_for_review, reopened]
-        paths:
-            - 'cli/**/*.py'
-            - 'apps/**/*.ts'
-            - 'apps/**/*.tsx'
 
 jobs:
     claude-review:
