@@ -2,6 +2,7 @@ import { type AnthropicProviderOptions, createAnthropic } from '@ai-sdk/anthropi
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createMistral } from '@ai-sdk/mistral';
 import { createOpenAI } from '@ai-sdk/openai';
+import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import type { LanguageModel } from 'ai';
 
 import type { LlmProvider, LlmProvidersType, ProviderConfigMap } from '../types/llm';
@@ -130,8 +131,43 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 	mistral: {
 		envVar: 'MISTRAL_API_KEY',
 		models: [
-			{ id: 'mistral-medium-latest', name: 'Mistral Medium 3.1', default: true },
-			{ id: 'mistral-large-latest', name: 'Mistral Large 3' },
+			{
+				id: 'mistral-medium-latest',
+				name: 'Mistral Medium 3.1',
+				default: true,
+				costPerM: { inputNoCache: 0.4, inputCacheRead: 0.4, inputCacheWrite: 0, output: 2 },
+			},
+			{
+				id: 'mistral-large-latest',
+				name: 'Mistral Large 3',
+				costPerM: { inputNoCache: 0.5, inputCacheRead: 0.5, inputCacheWrite: 0, output: 1.5 },
+			},
+		],
+	},
+	openrouter: {
+		envVar: 'OPENROUTER_API_KEY',
+		models: [
+			{
+				id: 'moonshotai/kimi-k2.5',
+				name: 'Kimi K2.5',
+				default: true,
+				costPerM: { inputNoCache: 0.5, inputCacheRead: 0.8, inputCacheWrite: 0, output: 2.25 },
+			},
+			{
+				id: 'deepseek/deepseek-v3.2',
+				name: 'DeepSeek V3.2',
+				costPerM: { inputNoCache: 0.26, inputCacheRead: 0.15, inputCacheWrite: 0, output: 0.4 },
+			},
+			{
+				id: 'anthropic/claude-sonnet-4.5',
+				name: 'Claude Sonnet 4.5 (OpenRouter)',
+				costPerM: { inputNoCache: 3, inputCacheRead: 0.3, inputCacheWrite: 3.75, output: 15 },
+			},
+			{
+				id: 'openai/gpt-5.2',
+				name: 'GPT 5.2 (OpenRouter)',
+				costPerM: { inputNoCache: 1.75, inputCacheRead: 0.175, inputCacheWrite: 0, output: 14 },
+			},
 		],
 	},
 };
@@ -168,6 +204,7 @@ const MODEL_CREATORS: Record<LlmProvider, ModelCreator> = {
 	google: (settings, modelId) => createGoogleGenerativeAI(settings).chat(modelId),
 	mistral: (settings, modelId) => createMistral(settings).chat(modelId),
 	openai: (settings, modelId) => createOpenAI(settings).responses(modelId),
+	openrouter: (settings, modelId) => createOpenRouter(settings).chat(modelId),
 };
 
 type ProviderModelResult = {

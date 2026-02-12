@@ -21,6 +21,7 @@ const providerLabels: Record<LlmProvider, string> = {
 	anthropic: 'Anthropic',
 	google: 'Google',
 	mistral: 'Mistral',
+	openrouter: 'OpenRouter',
 };
 
 export const dateFormats: Record<Granularity, string> = {
