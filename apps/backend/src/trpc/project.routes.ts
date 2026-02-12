@@ -258,7 +258,16 @@ export const projectRoutes = {
 		if (!ctx.project) {
 			return null;
 		}
-		return projectQueries.getAgentSettings(ctx.project.id);
+
+		const { isPythonAvailable } = await import('../agents/tools');
+		const settings = await projectQueries.getAgentSettings(ctx.project.id);
+
+		return {
+			...settings,
+			capabilities: {
+				pythonSandbox: isPythonAvailable,
+			},
+		};
 	}),
 
 	updateAgentSettings: adminProtectedProcedure

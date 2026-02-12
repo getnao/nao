@@ -1,17 +1,18 @@
 import { executePython as schemas } from '@nao/shared/tools';
-import {
-	Monty,
-	MontyComplete,
-	MontyRuntimeError,
-	MontySnapshot,
-	MontySyntaxError,
-	MontyTypingError,
-} from '@pydantic/monty';
 import { tool } from 'ai';
 import fs from 'fs';
 import path from 'path';
 
 import { getProjectFolder, isWithinProjectFolder, toVirtualPath } from '../../utils/tools';
+
+// @pydantic/monty uses native bindings that aren't available on all platforms
+// (e.g. no Linux ARM64 binary). Load lazily so the server can still start.
+let montyModule: typeof import('@pydantic/monty') | null = null;
+try {
+	montyModule = await import('@pydantic/monty');
+} catch {
+	console.warn('⚠ @pydantic/monty native binding not available — execute_python tool disabled');
+}
 
 const RESOURCE_LIMITS = {
 	maxDurationSecs: 30,
@@ -21,10 +22,15 @@ const RESOURCE_LIMITS = {
 };
 
 export async function executePython({ code, inputs }: schemas.Input): Promise<schemas.Output> {
+	if (!montyModule) {
+		throw new Error('Python execution is not available on this platform');
+	}
+
+	const { Monty, MontyRuntimeError, MontySnapshot, MontySyntaxError, MontyTypingError } = montyModule;
 	const inputNames = inputs ? Object.keys(inputs) : [];
 	const virtualFS = createVirtualFS();
 
-	let monty: Monty;
+	let monty: InstanceType<typeof Monty>;
 	try {
 		monty = new Monty(code, {
 			scriptName: 'agent.py',
@@ -41,7 +47,7 @@ export async function executePython({ code, inputs }: schemas.Input): Promise<sc
 		throw err;
 	}
 
-	let state: MontySnapshot | MontyComplete;
+	let state: InstanceType<typeof MontySnapshot> | InstanceType<(typeof montyModule)['MontyComplete']>;
 	const ctx: schemas.Ctx = { virtualFS };
 
 	try {
@@ -136,9 +142,13 @@ function createVirtualFS(): Map<string, string> {
 const EXTERNAL_FUNCTION_MAP = new Map(schemas.EXTERNAL_FUNCTIONS.map((f) => [f.name, f]));
 const EXTERNAL_FUNCTION_NAMES = schemas.EXTERNAL_FUNCTIONS.map((f) => f.name);
 
-export default tool({
-	description: schemas.description,
-	inputSchema: schemas.inputSchema,
-	outputSchema: schemas.outputSchema,
-	execute: executePython,
-});
+export const isPythonAvailable = montyModule !== null;
+
+export default montyModule
+	? tool({
+			description: schemas.description,
+			inputSchema: schemas.inputSchema,
+			outputSchema: schemas.outputSchema,
+			execute: executePython,
+		})
+	: null;
