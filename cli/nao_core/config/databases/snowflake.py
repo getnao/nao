@@ -1,5 +1,7 @@
+import logging
 import os
-from typing import Literal
+import re
+from typing import TYPE_CHECKING, Literal
 
 import ibis
 from cryptography.hazmat.backends import default_backend
@@ -11,6 +13,31 @@ from nao_core.config.exceptions import InitError
 from nao_core.ui import UI, ask_confirm, ask_text
 
 from .base import DatabaseConfig
+
+if TYPE_CHECKING:
+    from nao_core.commands.sync.providers.databases.context import DatabaseContext
+
+logger = logging.getLogger(__name__)
+
+
+def _get_snowflake_clustering_columns(conn: BaseBackend, schema: str, table: str) -> list[str]:
+    query = f"""
+        SELECT clustering_key
+        FROM information_schema.tables
+        WHERE table_schema = '{schema}' AND table_name = '{table}'
+    """
+    result = conn.raw_sql(query).fetchone()  # type: ignore[union-attr]
+    if not result or not result[0]:
+        return []
+    return _parse_clustering_key(result[0])
+
+
+def _parse_clustering_key(clustering_key: str) -> list[str]:
+    """Parse Snowflake clustering key string like 'LINEAR(col1, col2)' into column names."""
+    match = re.search(r"\((.+)\)", clustering_key)
+    if not match:
+        return []
+    return [col.strip().strip('"') for col in match.group(1).split(",")]
 
 
 class SnowflakeConfig(DatabaseConfig):
@@ -176,6 +203,23 @@ class SnowflakeConfig(DatabaseConfig):
             return {row[0]: str(row[1]) for row in rows if row[1]}
         except Exception:
             return {}
+
+    def create_context(self, conn: BaseBackend, schema: str, table_name: str) -> "DatabaseContext":
+        from nao_core.commands.sync.providers.databases.context import DatabaseContext
+
+        table_desc = self.fetch_table_description(conn, schema, table_name)
+        col_descs = self.fetch_column_descriptions(conn, schema, table_name)
+        ctx = DatabaseContext(conn, schema, table_name, table_description=table_desc, column_descriptions=col_descs)
+
+        def partition_columns() -> list[str]:
+            try:
+                return _get_snowflake_clustering_columns(conn, schema, table_name)
+            except Exception:
+                logger.debug("Failed to fetch clustering keys for %s.%s", schema, table_name)
+                return []
+
+        ctx.partition_columns = partition_columns  # type: ignore[assignment]
+        return ctx
 
     def check_connection(self) -> tuple[bool, str]:
         """Test connectivity to Snowflake."""
