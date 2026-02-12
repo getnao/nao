@@ -10,7 +10,7 @@ export default createTool({
 	inputSchema: readFile.InputSchema,
 	outputSchema: readFile.OutputSchema,
 	execute: async ({ file_path }, context) => {
-		const projectFolder = context.projectPath;
+		const projectFolder = context.projectFolder;
 		const realPath = toRealPath(file_path, projectFolder);
 
 		const content = await fs.readFile(realPath, 'utf-8');

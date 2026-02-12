@@ -55,7 +55,7 @@ export default createTool({
 		{ pattern, path: searchPath, glob, case_insensitive, context_lines, max_results = 100 },
 		context,
 	) => {
-		const projectFolder = context.projectPath;
+		const projectFolder = context.projectFolder;
 		const rgPath = getRipgrepPath();
 
 		// Determine the search path

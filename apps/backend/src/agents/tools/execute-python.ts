@@ -136,6 +136,6 @@ export default createTool({
 	inputSchema: schemas.inputSchema,
 	outputSchema: schemas.outputSchema,
 	execute: async (input, context) => {
-		return executePython(input, context.projectPath);
+		return executePython(input, context.projectFolder);
 	},
 });

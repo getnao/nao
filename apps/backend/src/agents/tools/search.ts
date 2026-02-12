@@ -12,7 +12,7 @@ export default createTool({
 	inputSchema: searchFiles.InputSchema,
 	outputSchema: searchFiles.OutputSchema,
 	execute: async ({ pattern }, context) => {
-		const projectFolder = context.projectPath;
+		const projectFolder = context.projectFolder;
 
 		// Sanitize pattern to prevent escaping project folder
 		if (path.isAbsolute(pattern)) {

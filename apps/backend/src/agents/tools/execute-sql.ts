@@ -9,7 +9,7 @@ export async function executeQuery(
 	{ sql_query, database_id }: executeSql.Input,
 	context: ToolContext,
 ): Promise<executeSql.Output> {
-	const naoProjectFolder = context.projectPath;
+	const naoProjectFolder = context.projectFolder;
 
 	const response = await fetch(`http://localhost:${env.FASTAPI_PORT}/execute_sql`, {
 		method: 'POST',

@@ -5,7 +5,7 @@ import type { z } from 'zod/v3';
 type ZodSchema = z.ZodTypeAny;
 
 export interface ToolContext {
-	projectPath: string;
+	projectFolder: string;
 }
 
 export interface ToolDefinition<TInput extends ZodSchema, TOutput extends ZodSchema> {

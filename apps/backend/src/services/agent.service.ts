@@ -190,7 +190,7 @@ class AgentManager {
 					abortSignal: this._abortController.signal,
 					// @ts-expect-error - experimental_context is not yet in the types
 					experimental_context: {
-						projectPath: project.path,
+						projectFolder: project.path,
 					},
 				});
 
