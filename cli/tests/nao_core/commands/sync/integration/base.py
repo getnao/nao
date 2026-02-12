@@ -197,6 +197,39 @@ class BaseSyncIntegrationTests:
         assert not (base / f"table={spec.orders_table}").exists()
         assert state.tables_synced == 1
 
+    # ── check_connection ──────────────────────────────────────────────
+
+    def test_check_connection_succeeds(self, db_config):
+        """check_connection should report success against a live database."""
+        ok, message = db_config.check_connection()
+
+        assert ok is True
+        assert "Connected successfully" in message
+
+    # ── get_schemas ───────────────────────────────────────────────────
+
+    def test_get_schemas_with_explicit_schema(self, db_config, spec):
+        """When the config specifies a schema, get_schemas returns only that schema."""
+        if spec.schema_field is None:
+            pytest.skip("Provider does not support explicit schema configuration")
+
+        conn = db_config.connect()
+        schemas = db_config.get_schemas(conn)
+
+        assert schemas == [spec.primary_schema]
+
+    def test_get_schemas_without_explicit_schema(self, db_config, spec):
+        """When no schema is specified, get_schemas returns all user schemas."""
+        if spec.schema_field is None:
+            pytest.skip("Provider does not support multi-schema test")
+
+        config = db_config.model_copy(update={spec.schema_field: None})
+        conn = config.connect()
+        schemas = config.get_schemas(conn)
+
+        assert spec.primary_schema in schemas
+        assert spec.another_schema in schemas
+
     # ── multi-schema sync ────────────────────────────────────────────
 
     def test_sync_all_schemas(self, tmp_path_factory, db_config, spec):
