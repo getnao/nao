@@ -21,7 +21,10 @@ const RESOURCE_LIMITS = {
 	maxRecursionDepth: 500,
 };
 
-async function executePython({ code, inputs }: schemas.Input, projectFolder: string): Promise<schemas.Output> {
+async function executePython(
+	{ code, inputs }: schemas.Input,
+	{ projectFolder }: { projectFolder: string },
+): Promise<schemas.Output> {
 	if (!montyModule) {
 		throw new Error('Python execution is not available on this platform');
 	}
@@ -145,7 +148,7 @@ export default montyModule
 			inputSchema: schemas.inputSchema,
 			outputSchema: schemas.outputSchema,
 			execute: async (input, context) => {
-				return executePython(input, context.projectFolder);
+				return executePython(input, { projectFolder: context.projectFolder });
 			},
 		})
 	: null;
