@@ -10,6 +10,7 @@ describe('ReadOutput', () => {
 		const result = renderToMarkdown(
 			<ReadOutput
 				output={{
+					_version: '2',
 					content: [
 						'import { useState } from "react";',
 						'',
@@ -22,6 +23,7 @@ describe('ReadOutput', () => {
 						'  );',
 						'}',
 					].join('\n'),
+					startLine: 1,
 					numberOfTotalLines: 10,
 				}}
 			/>,
@@ -46,7 +48,9 @@ describe('ReadOutput', () => {
 		const result = renderToMarkdown(
 			<ReadOutput
 				output={{
+					_version: '2',
 					content: '',
+					startLine: 1,
 					numberOfTotalLines: 0,
 				}}
 			/>,
@@ -57,7 +61,9 @@ describe('ReadOutput', () => {
 	});
 
 	it('renders single-line file', () => {
-		const result = renderToMarkdown(<ReadOutput output={{ content: 'hello world', numberOfTotalLines: 1 }} />);
+		const result = renderToMarkdown(
+			<ReadOutput output={{ _version: '2', content: 'hello world', startLine: 1, numberOfTotalLines: 1 }} />,
+		);
 		printOutput('read', 'single line', result);
 
 		expect(result).toBe('1:hello world');
@@ -68,7 +74,9 @@ describe('ReadOutput', () => {
 			<ReadOutput
 				maxChars={10}
 				output={{
+					_version: '2',
 					content: 'abcdefghijklmnop',
+					startLine: 1,
 					numberOfTotalLines: 1,
 				}}
 			/>,
@@ -76,5 +84,36 @@ describe('ReadOutput', () => {
 		printOutput('read', 'maxChars=10', result);
 
 		expect(result).toBe('1:abcdefghij...(6 B left)');
+	});
+
+	it('renders v1 output without startLine', () => {
+		const result = renderToMarkdown(
+			<ReadOutput
+				output={{
+					_version: '1',
+					content: 'hello world',
+					numberOfTotalLines: 1,
+				}}
+			/>,
+		);
+		printOutput('read', 'v1 output', result);
+
+		expect(result).toBe('1:hello world');
+	});
+
+	it('renders with startLine offset', () => {
+		const result = renderToMarkdown(
+			<ReadOutput
+				output={{
+					_version: '2',
+					content: ['line five', 'line six', 'line seven'].join('\n'),
+					startLine: 5,
+					numberOfTotalLines: 10,
+				}}
+			/>,
+		);
+		printOutput('read', 'with startLine offset', result);
+
+		expect(result).toBe('5:line five\n6:line six\n7:line seven');
 	});
 });

@@ -13,12 +13,13 @@ export function ReadOutput({ output, maxChars = MAX_CHARS }: { output: readFile.
 	const isTruncated = output.content.length > maxChars;
 	const visibleContent = isTruncated ? output.content.slice(0, maxChars) : output.content;
 	const lines = visibleContent.split('\n');
-	const withLineNumbers = addLineNumbers(lines);
+	const startLine = output._version === '2' ? output.startLine : 1;
+	const withLineNumbers = addLineNumbers(lines, startLine);
 	const bytesLeft = output.content.length - visibleContent.length;
 
 	return <Block>{withLineNumbers + (isTruncated ? `...(${formatSize(bytesLeft)} left)` : '')}</Block>;
 }
 
-const addLineNumbers = (lines: string[]) => {
-	return lines.map((line, i) => `${i + 1}:${line}`).join('\n');
+const addLineNumbers = (lines: string[], startLine = 1) => {
+	return lines.map((line, i) => `${startLine + i}:${line}`).join('\n');
 };

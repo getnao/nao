@@ -7,6 +7,8 @@ export const ReadToolCall = () => {
 	const { toolPart } = useToolCallContext();
 	const output = toolPart.output as readFile.Output | undefined;
 	const input = toolPart.input as readFile.Input | undefined;
+	const startLine = input && 'start_line' in input ? input.start_line : undefined;
+	const limit = input && 'limit' in input ? (input.limit ?? 0) : 0;
 	const isSettled = isToolSettled(toolPart);
 
 	const fileName = input?.file_path?.split('/').pop() ?? input?.file_path;
@@ -28,7 +30,8 @@ export const ReadToolCall = () => {
 		<ToolCallWrapper
 			title={
 				<>
-					Read <code className='text-xs bg-background/50 px-1 py-0.5 rounded'>{fileName}</code>
+					Read <code className='text-xs bg-background/50 px-1 py-0.5 rounded'>{fileName}</code>{' '}
+					{startLine ? `(${startLine} - ${startLine + limit})` : ''}
 				</>
 			}
 			badge={output && `(${output.numberOfTotalLines} lines)`}
