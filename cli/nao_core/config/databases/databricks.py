@@ -1,5 +1,6 @@
+import logging
 import os
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import certifi
 import ibis
@@ -9,6 +10,22 @@ from pydantic import Field
 from nao_core.ui import ask_text
 
 from .base import DatabaseConfig
+
+if TYPE_CHECKING:
+    from nao_core.commands.sync.providers.databases.context import DatabaseContext
+
+logger = logging.getLogger(__name__)
+
+
+def _get_databricks_partition_columns(conn: BaseBackend, schema: str, table: str) -> list[str]:
+    query = f"""
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = '{schema}' AND table_name = '{table}' AND is_partition_column = 'YES'
+    """
+    result = conn.raw_sql(query).fetchall()  # type: ignore[union-attr]
+    return [row[0] for row in result]
+
 
 # Ensure Python uses certifi's CA bundle for SSL verification.
 # This fixes "certificate verify failed" errors when Python's default CA path is empty.
@@ -98,6 +115,23 @@ class DatabricksConfig(DatabaseConfig):
             return {row[0]: str(row[1]) for row in rows if row[1]}
         except Exception:
             return {}
+
+    def create_context(self, conn: BaseBackend, schema: str, table_name: str) -> "DatabaseContext":
+        from nao_core.commands.sync.providers.databases.context import DatabaseContext
+
+        table_desc = self.fetch_table_description(conn, schema, table_name)
+        col_descs = self.fetch_column_descriptions(conn, schema, table_name)
+        ctx = DatabaseContext(conn, schema, table_name, table_description=table_desc, column_descriptions=col_descs)
+
+        def partition_columns() -> list[str]:
+            try:
+                return _get_databricks_partition_columns(conn, schema, table_name)
+            except Exception:
+                logger.debug("Failed to fetch partition columns for %s.%s", schema, table_name)
+                return []
+
+        ctx.partition_columns = partition_columns  # type: ignore[assignment]
+        return ctx
 
     def check_connection(self) -> tuple[bool, str]:
         """Test connectivity to Databricks."""

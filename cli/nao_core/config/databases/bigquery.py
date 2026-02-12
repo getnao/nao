@@ -1,5 +1,6 @@
 import json
-from typing import Literal
+import logging
+from typing import TYPE_CHECKING, Literal
 
 import ibis
 from ibis import BaseBackend
@@ -8,6 +9,34 @@ from pydantic import Field, field_validator
 from nao_core.ui import ask_select, ask_text
 
 from .base import DatabaseConfig
+
+if TYPE_CHECKING:
+    from nao_core.commands.sync.providers.databases.context import DatabaseContext
+
+logger = logging.getLogger(__name__)
+
+
+def _get_bq_partition_columns(conn: BaseBackend, schema: str, table: str) -> list[str]:
+    partition_query = f"""
+        SELECT column_name
+        FROM `{schema}.INFORMATION_SCHEMA.COLUMNS`
+        WHERE table_name = '{table}' AND is_partitioning_column = 'YES'
+    """
+    clustering_query = f"""
+        SELECT column_name
+        FROM `{schema}.INFORMATION_SCHEMA.COLUMNS`
+        WHERE table_name = '{table}' AND clustering_ordinal_position IS NOT NULL
+        ORDER BY clustering_ordinal_position
+    """
+    columns: list[str] = []
+
+    result = conn.raw_sql(partition_query).fetchall()  # type: ignore[union-attr]
+    columns.extend(row[0] for row in result)
+
+    result = conn.raw_sql(clustering_query).fetchall()  # type: ignore[union-attr]
+    columns.extend(row[0] for row in result if row[0] not in columns)
+
+    return columns
 
 
 class BigQueryConfig(DatabaseConfig):
@@ -138,6 +167,23 @@ class BigQueryConfig(DatabaseConfig):
             return {row[0]: str(row[1]) for row in conn.raw_sql(query) if row[1]}  # type: ignore[union-attr]
         except Exception:
             return {}
+
+    def create_context(self, conn: BaseBackend, schema: str, table_name: str) -> "DatabaseContext":
+        from nao_core.commands.sync.providers.databases.context import DatabaseContext
+
+        table_desc = self.fetch_table_description(conn, schema, table_name)
+        col_descs = self.fetch_column_descriptions(conn, schema, table_name)
+        ctx = DatabaseContext(conn, schema, table_name, table_description=table_desc, column_descriptions=col_descs)
+
+        def partition_columns() -> list[str]:
+            try:
+                return _get_bq_partition_columns(conn, schema, table_name)
+            except Exception:
+                logger.debug("Failed to fetch partition columns for %s.%s", schema, table_name)
+                return []
+
+        ctx.partition_columns = partition_columns  # type: ignore[assignment]
+        return ctx
 
     def check_connection(self) -> tuple[bool, str]:
         """Test connectivity to BigQuery."""
