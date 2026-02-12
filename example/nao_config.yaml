@@ -16,4 +16,4 @@ notion:
 llm: null
 slack: null
 mcp:
-  json_file_path: {{ env('MCP_JSON_FILE_PATH') }}
+  json_file_path: ./agent/mcps/mcp.json
