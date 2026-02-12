@@ -29,6 +29,8 @@ class RedshiftDatabaseContext:
 
     def columns(self) -> list[dict[str, Any]]:
         """Return column metadata by querying information_schema directly."""
+        col_descs = self._fetch_column_descriptions()
+
         query = f"""
             SELECT 
                 column_name,
@@ -61,7 +63,7 @@ class RedshiftDatabaseContext:
                     "name": col_name,
                     "type": formatted_type,
                     "nullable": is_nullable,
-                    "description": None,
+                    "description": col_descs.get(col_name),
                 }
             )
 
@@ -131,8 +133,37 @@ class RedshiftDatabaseContext:
         """Return the number of columns in the table."""
         return len(self.columns())
 
+    def _fetch_column_descriptions(self) -> dict[str, str]:
+        """Fetch column descriptions from pg_catalog."""
+        try:
+            query = f"""
+                SELECT a.attname, d.description
+                FROM pg_catalog.pg_description d
+                JOIN pg_catalog.pg_class c ON c.oid = d.objoid
+                JOIN pg_catalog.pg_attribute a ON a.attrelid = c.oid AND a.attnum = d.objsubid
+                JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+                WHERE n.nspname = '{self._schema}' AND c.relname = '{self._table_name}' AND d.objsubid > 0
+            """
+            rows = self._conn.raw_sql(query).fetchall()  # type: ignore[union-attr]
+            return {row[0]: str(row[1]) for row in rows if row[1]}
+        except Exception:
+            return {}
+
     def description(self) -> str | None:
-        """Return the table description if available."""
+        """Return the table description from pg_catalog."""
+        try:
+            query = f"""
+                SELECT d.description
+                FROM pg_catalog.pg_description d
+                JOIN pg_catalog.pg_class c ON c.oid = d.objoid
+                JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+                WHERE n.nspname = '{self._schema}' AND c.relname = '{self._table_name}' AND d.objsubid = 0
+            """
+            row = self._conn.raw_sql(query).fetchone()  # type: ignore[union-attr]
+            if row and row[0]:
+                return str(row[0]).strip() or None
+        except Exception:
+            pass
         return None
 
 

@@ -74,6 +74,31 @@ class DatabricksConfig(DatabaseConfig):
         list_databases = getattr(conn, "list_databases", None)
         return list_databases() if list_databases else []
 
+    def fetch_table_description(self, conn: BaseBackend, schema: str, table_name: str) -> str | None:
+        try:
+            query = f"""
+                SELECT COMMENT FROM INFORMATION_SCHEMA.TABLES
+                WHERE TABLE_SCHEMA = '{schema}' AND TABLE_NAME = '{table_name}'
+            """
+            row = conn.raw_sql(query).fetchone()  # type: ignore[union-attr]
+            if row and row[0]:
+                return str(row[0]).strip() or None
+        except Exception:
+            pass
+        return None
+
+    def fetch_column_descriptions(self, conn: BaseBackend, schema: str, table_name: str) -> dict[str, str]:
+        try:
+            query = f"""
+                SELECT COLUMN_NAME, COMMENT FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE TABLE_SCHEMA = '{schema}' AND TABLE_NAME = '{table_name}'
+                  AND COMMENT IS NOT NULL AND COMMENT != ''
+            """
+            rows = conn.raw_sql(query).fetchall()  # type: ignore[union-attr]
+            return {row[0]: str(row[1]) for row in rows if row[1]}
+        except Exception:
+            return {}
+
     def check_connection(self) -> tuple[bool, str]:
         """Test connectivity to Databricks."""
         try:

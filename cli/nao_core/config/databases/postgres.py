@@ -78,6 +78,37 @@ class PostgresConfig(DatabaseConfig):
             return [s for s in schemas if s not in ("pg_catalog", "information_schema") and not s.startswith("pg_")]
         return []
 
+    def fetch_table_description(self, conn: BaseBackend, schema: str, table_name: str) -> str | None:
+        try:
+            query = f"""
+                SELECT d.description
+                FROM pg_catalog.pg_description d
+                JOIN pg_catalog.pg_class c ON c.oid = d.objoid
+                JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+                WHERE n.nspname = '{schema}' AND c.relname = '{table_name}' AND d.objsubid = 0
+            """
+            row = conn.raw_sql(query).fetchone()  # type: ignore[union-attr]
+            if row and row[0]:
+                return str(row[0]).strip() or None
+        except Exception:
+            pass
+        return None
+
+    def fetch_column_descriptions(self, conn: BaseBackend, schema: str, table_name: str) -> dict[str, str]:
+        try:
+            query = f"""
+                SELECT a.attname, d.description
+                FROM pg_catalog.pg_description d
+                JOIN pg_catalog.pg_class c ON c.oid = d.objoid
+                JOIN pg_catalog.pg_attribute a ON a.attrelid = c.oid AND a.attnum = d.objsubid
+                JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+                WHERE n.nspname = '{schema}' AND c.relname = '{table_name}' AND d.objsubid > 0
+            """
+            rows = conn.raw_sql(query).fetchall()  # type: ignore[union-attr]
+            return {row[0]: str(row[1]) for row in rows if row[1]}
+        except Exception:
+            return {}
+
     def check_connection(self) -> tuple[bool, str]:
         """Test connectivity to PostgreSQL."""
         try:

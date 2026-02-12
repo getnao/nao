@@ -15,3 +15,5 @@ notion:
   - https://naolabs.notion.site/Jaffle-shop-information-2f8c7a70bc0680a4b7d0caf99f055360
 llm: null
 slack: null
+mcp:
+  json_file_path: ./agent/mcps/mcp.json

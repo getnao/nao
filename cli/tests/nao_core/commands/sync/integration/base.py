@@ -31,6 +31,10 @@ class SyncTestSpec:
     users_column_assertions: tuple[str, ...] = ()
     orders_column_assertions: tuple[str, ...] = ()
 
+    # Expected table descriptions (None means "no description" path is tested)
+    users_table_description: str | None = None
+    orders_table_description: str | None = None
+
     # Expected preview rows (sorted by row_id_key when sort_rows is True)
     users_preview_rows: list[dict] = field(default_factory=list)
     orders_preview_rows: list[dict] = field(default_factory=list)
@@ -121,12 +125,22 @@ class BaseSyncIntegrationTests:
         assert "| **Row Count** | 3 |" in content
         assert "| **Column Count** | 4 |" in content
 
+        if spec.users_table_description:
+            assert spec.users_table_description in content
+        else:
+            assert "_No description available._" in content
+
     def test_description_md_orders(self, synced, spec):
         _, output, config = synced
         content = self._read_table_file(output, config, spec, spec.orders_table, "description.md")
 
         assert "| **Row Count** | 2 |" in content
         assert "| **Column Count** | 3 |" in content
+
+        if spec.orders_table_description:
+            assert spec.orders_table_description in content
+        else:
+            assert "_No description available._" in content
 
     # ── preview.md ───────────────────────────────────────────────────
 
@@ -167,6 +181,31 @@ class BaseSyncIntegrationTests:
         assert spec.users_table in state.synced_tables[spec.primary_schema]
         assert spec.orders_table in state.synced_tables[spec.primary_schema]
 
+    # ── execute_sql ────────────────────────────────────────────────────
+
+    def test_execute_sql_returns_dataframe(self, db_config, spec):
+        """execute_sql should return a pandas DataFrame with correct data."""
+        schema = spec.primary_schema
+        table = spec.users_table
+        df = db_config.execute_sql(f"SELECT * FROM {schema}.{table} ORDER BY 1")
+        assert len(df) == 3
+        assert len(df.columns) == 4
+
+    def test_execute_sql_with_filter(self, db_config, spec):
+        """execute_sql should honour a WHERE clause."""
+        schema = spec.primary_schema
+        table = spec.orders_table
+        df = db_config.execute_sql(f"SELECT * FROM {schema}.{table} WHERE 1=1")
+        assert len(df) == 2
+
+    def test_execute_sql_with_aggregation(self, db_config, spec):
+        """execute_sql should handle aggregate queries."""
+        schema = spec.primary_schema
+        table = spec.users_table
+        df = db_config.execute_sql(f"SELECT COUNT(*) AS cnt FROM {schema}.{table}")
+        assert len(df) == 1
+        assert int(df.iloc[0, 0]) == 3
+
     # ── include / exclude filters ────────────────────────────────────
 
     def test_include_filter(self, tmp_path_factory, db_config, spec):
@@ -196,6 +235,39 @@ class BaseSyncIntegrationTests:
         assert (base / f"table={spec.users_table}").is_dir()
         assert not (base / f"table={spec.orders_table}").exists()
         assert state.tables_synced == 1
+
+    # ── check_connection ──────────────────────────────────────────────
+
+    def test_check_connection_succeeds(self, db_config):
+        """check_connection should report success against a live database."""
+        ok, message = db_config.check_connection()
+
+        assert ok is True
+        assert "Connected successfully" in message
+
+    # ── get_schemas ───────────────────────────────────────────────────
+
+    def test_get_schemas_with_explicit_schema(self, db_config, spec):
+        """When the config specifies a schema, get_schemas returns only that schema."""
+        if spec.schema_field is None:
+            pytest.skip("Provider does not support explicit schema configuration")
+
+        conn = db_config.connect()
+        schemas = db_config.get_schemas(conn)
+
+        assert schemas == [spec.primary_schema]
+
+    def test_get_schemas_without_explicit_schema(self, db_config, spec):
+        """When no schema is specified, get_schemas returns all user schemas."""
+        if spec.schema_field is None:
+            pytest.skip("Provider does not support multi-schema test")
+
+        config = db_config.model_copy(update={spec.schema_field: None})
+        conn = config.connect()
+        schemas = config.get_schemas(conn)
+
+        assert spec.primary_schema in schemas
+        assert spec.another_schema in schemas
 
     # ── multi-schema sync ────────────────────────────────────────────
 

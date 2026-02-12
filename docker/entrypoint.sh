@@ -87,6 +87,13 @@ fi
 echo ""
 echo "=== Starting Services ==="
 
+# Generate BETTER_AUTH_SECRET if not provided
+if [ -z "$BETTER_AUTH_SECRET" ]; then
+    export BETTER_AUTH_SECRET=$(openssl rand -hex 32)
+    echo "⚠ BETTER_AUTH_SECRET not set — generated a random one."
+    echo "  Sessions will not persist across restarts. Set BETTER_AUTH_SECRET for persistence."
+fi
+
 # Export the path for child processes
 export NAO_DEFAULT_PROJECT_PATH
 

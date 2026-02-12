@@ -22,6 +22,7 @@ export function SettingsExperimental({ isAdmin }: SettingsExperimentalProps) {
 	);
 
 	const pythonSandboxingEnabled = agentSettings.data?.experimental?.pythonSandboxing ?? false;
+	const pythonAvailable = agentSettings.data?.capabilities?.pythonSandbox ?? true;
 
 	const handlePythonSandboxingChange = (enabled: boolean) => {
 		updateAgentSettings.mutate({
@@ -49,13 +50,14 @@ export function SettingsExperimental({ isAdmin }: SettingsExperimentalProps) {
 						</label>
 						<p className='text-xs text-muted-foreground'>
 							Allow the agent to execute Python code in a secure sandboxed environment.
+							{!pythonAvailable && ' Not available on this platform.'}
 						</p>
 					</div>
 					<Switch
 						id='python-sandboxing'
 						checked={pythonSandboxingEnabled}
 						onCheckedChange={handlePythonSandboxingChange}
-						disabled={!isAdmin || updateAgentSettings.isPending}
+						disabled={!isAdmin || !pythonAvailable || updateAgentSettings.isPending}
 					/>
 				</div>
 			</div>

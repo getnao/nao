@@ -10,6 +10,8 @@ INSERT INTO {catalog}.public.users VALUES
 (2, 'Bob', NULL, false),
 (3, 'Charlie', 'charlie@example.com', true);
 
+COMMENT ON TABLE {catalog}.public.users IS 'Registered user accounts';
+ALTER TABLE {catalog}.public.users ALTER COLUMN email COMMENT 'User email address';
 
 CREATE TABLE {catalog}.public.orders (
 id INTEGER NOT NULL,

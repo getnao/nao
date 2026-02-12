@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import path from 'node:path';
 
 import dotenv from 'dotenv';
@@ -22,7 +23,7 @@ const envSchema = z.object({
 		.transform((val) => val === 'true'),
 
 	BETTER_AUTH_URL: z.url({ message: 'BETTER_AUTH_URL must be a valid URL' }).default('http://localhost:5005/'),
-	BETTER_AUTH_SECRET: z.string().min(20).or(z.literal('').optional()), // try to make min 1 if set and optional otherwise
+	BETTER_AUTH_SECRET: z.string().min(20).default(crypto.randomBytes(32).toString('hex')),
 
 	GOOGLE_CLIENT_ID: z.string().optional(),
 	GOOGLE_CLIENT_SECRET: z.string().optional(),

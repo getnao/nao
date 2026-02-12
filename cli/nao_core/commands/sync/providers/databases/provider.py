@@ -72,7 +72,9 @@ def sync_database(
             if create_context and callable(create_context):
                 ctx = create_context(conn, schema, table)
             else:
-                ctx = DatabaseContext(conn, schema, table)
+                table_desc = db_config.fetch_table_description(conn, schema, table)
+                col_descs = db_config.fetch_column_descriptions(conn, schema, table)
+                ctx = DatabaseContext(conn, schema, table, table_description=table_desc, column_descriptions=col_descs)
 
             for template_name in templates:
                 # Derive output filename: "databases/columns.md.j2" → "columns.md"

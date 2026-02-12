@@ -121,7 +121,7 @@ def spec():
             "## Columns (4)",
             "- id",
             "- name",
-            "- email",
+            '"User email address"',
             "- active",
         ),
         orders_column_assertions=(
@@ -132,6 +132,7 @@ def spec():
             "- user_id",
             "- amount",
         ),
+        users_table_description="Registered user accounts",
         users_preview_rows=[
             {"id": 1, "name": "Alice", "email": "alice@example.com", "active": True},
             {"id": 2, "name": "Bob", "email": None, "active": False},

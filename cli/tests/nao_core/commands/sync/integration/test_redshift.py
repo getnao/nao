@@ -109,7 +109,7 @@ def spec():
             "## Columns (4)",
             "- id (int32 NOT NULL)",
             "- name (string NOT NULL)",
-            "- email (string)",
+            '- email (string, "User email address")',
             "- active (boolean)",
         ),
         orders_column_assertions=(
@@ -120,6 +120,7 @@ def spec():
             "- user_id (int32 NOT NULL)",
             "- amount (float32 NOT NULL)",
         ),
+        users_table_description="Registered user accounts",
         users_preview_rows=[
             {"id": 1, "name": "Alice", "email": "alice@example.com", "active": True},
             {"id": 2, "name": "Bob", "email": None, "active": False},

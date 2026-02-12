@@ -1,17 +1,18 @@
 import { executePython as schemas } from '@nao/shared/tools';
-import {
-	Monty,
-	MontyComplete,
-	MontyRuntimeError,
-	MontySnapshot,
-	MontySyntaxError,
-	MontyTypingError,
-} from '@pydantic/monty';
 import fs from 'fs';
 import path from 'path';
 
 import { createTool } from '../../types/tools';
 import { isWithinProjectFolder, toVirtualPath } from '../../utils/tools';
+
+// @pydantic/monty uses native bindings that aren't available on all platforms
+// (e.g. no Linux ARM64 binary). Load lazily so the server can still start.
+let montyModule: typeof import('@pydantic/monty') | null = null;
+try {
+	montyModule = await import('@pydantic/monty');
+} catch {
+	console.warn('⚠ @pydantic/monty native binding not available — execute_python tool disabled');
+}
 
 const RESOURCE_LIMITS = {
 	maxDurationSecs: 30,
@@ -21,10 +22,15 @@ const RESOURCE_LIMITS = {
 };
 
 async function executePython({ code, inputs }: schemas.Input, projectFolder: string): Promise<schemas.Output> {
+	if (!montyModule) {
+		throw new Error('Python execution is not available on this platform');
+	}
+
+	const { Monty, MontyRuntimeError, MontySnapshot, MontySyntaxError, MontyTypingError } = montyModule;
 	const inputNames = inputs ? Object.keys(inputs) : [];
 	const virtualFS = createVirtualFS(projectFolder);
 
-	let monty: Monty;
+	let monty: InstanceType<typeof Monty>;
 	try {
 		monty = new Monty(code, {
 			scriptName: 'agent.py',
@@ -41,7 +47,7 @@ async function executePython({ code, inputs }: schemas.Input, projectFolder: str
 		throw err;
 	}
 
-	let state: MontySnapshot | MontyComplete;
+	let state: InstanceType<typeof MontySnapshot> | InstanceType<(typeof montyModule)['MontyComplete']>;
 	const ctx: schemas.Ctx = { virtualFS };
 
 	try {
@@ -131,11 +137,15 @@ function createVirtualFS(projectFolder: string): Map<string, string> {
 const EXTERNAL_FUNCTION_MAP = new Map(schemas.EXTERNAL_FUNCTIONS.map((f) => [f.name, f]));
 const EXTERNAL_FUNCTION_NAMES = schemas.EXTERNAL_FUNCTIONS.map((f) => f.name);
 
-export default createTool({
-	description: schemas.description,
-	inputSchema: schemas.inputSchema,
-	outputSchema: schemas.outputSchema,
-	execute: async (input, context) => {
-		return executePython(input, context.projectFolder);
-	},
-});
+export const isPythonAvailable = montyModule !== null;
+
+export default montyModule
+	? createTool({
+			description: schemas.description,
+			inputSchema: schemas.inputSchema,
+			outputSchema: schemas.outputSchema,
+			execute: async (input, context) => {
+				return executePython(input, context.projectFolder);
+			},
+		})
+	: null;
