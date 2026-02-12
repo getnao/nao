@@ -1,12 +1,14 @@
 import type { executeSql } from '@nao/shared/tools';
 import { executeSql as schemas } from '@nao/shared/tools';
-import { tool } from 'ai';
 
 import { env } from '../../env';
-import { getProjectFolder } from '../../utils/tools';
+import { createTool, type ToolContext } from '../../types/tools';
 
-export async function executeQuery({ sql_query, database_id }: executeSql.Input): Promise<executeSql.Output> {
-	const naoProjectFolder = getProjectFolder();
+export async function executeQuery(
+	{ sql_query, database_id }: executeSql.Input,
+	context?: ToolContext,
+): Promise<executeSql.Output> {
+	const naoProjectFolder = context?.projectPath;
 
 	const response = await fetch(`${env.FASTAPI_URL}/execute_sql`, {
 		method: 'POST',
@@ -32,7 +34,7 @@ export async function executeQuery({ sql_query, database_id }: executeSql.Input)
 	};
 }
 
-export default tool({
+export default createTool({
 	description:
 		'Execute a SQL query against the connected database and return the results. If multiple databases are configured, specify the database_id.',
 	inputSchema: schemas.InputSchema,

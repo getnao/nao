@@ -147,18 +147,6 @@ export const shouldExcludeEntry = (entryName: string, parentPath: string, projec
 };
 
 /**
- * Gets the resolved project folder path from the NAO_DEFAULT_PROJECT_PATH environment variable.
- * @throws Error if NAO_DEFAULT_PROJECT_PATH is not set
- */
-export const getProjectFolder = (): string => {
-	const projectFolder = env.NAO_DEFAULT_PROJECT_PATH;
-	if (!projectFolder) {
-		throw new Error('NAO_DEFAULT_PROJECT_PATH environment variable is not set');
-	}
-	return path.resolve(projectFolder);
-};
-
-/**
  * Checks if a given path is within the project folder, not in an excluded directory,
  * and not ignored by .naoignore.
  */

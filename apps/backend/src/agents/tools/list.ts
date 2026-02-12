@@ -1,16 +1,16 @@
 import { list } from '@nao/shared/tools';
-import { tool } from 'ai';
 import fs from 'fs/promises';
 import path from 'path';
 
-import { getProjectFolder, shouldExcludeEntry, toRealPath, toVirtualPath } from '../../utils/tools';
+import { createTool } from '../../types/tools';
+import { shouldExcludeEntry, toRealPath, toVirtualPath } from '../../utils/tools';
 
-export default tool({
+export default createTool({
 	description: 'List files and directories at the specified path.',
 	inputSchema: list.InputSchema,
 	outputSchema: list.OutputSchema,
-	execute: async ({ path: filePath }) => {
-		const projectFolder = getProjectFolder();
+	execute: async ({ path: filePath }, context) => {
+		const projectFolder = context.projectPath || '';
 		const realPath = toRealPath(filePath, projectFolder);
 
 		// Get the relative path of the parent directory for naoignore matching
