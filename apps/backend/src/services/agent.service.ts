@@ -11,7 +11,7 @@ import {
 
 import { getInstructions } from '../agents/prompt';
 import { CACHE_1H, CACHE_5M, createProviderModel } from '../agents/providers';
-import { tools } from '../agents/tools';
+import { getTools } from '../agents/tools';
 import * as chatQueries from '../queries/chat.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import { TokenCost, TokenUsage, UIChat, UIMessage } from '../types/chat';
@@ -131,7 +131,7 @@ export class AgentService {
 }
 
 class AgentManager {
-	private readonly _agent: ToolLoopAgent<never, typeof tools, never>;
+	private readonly _agent: ToolLoopAgent<never, ReturnType<typeof getTools>, never>;
 
 	constructor(
 		readonly chat: AgentChat,
@@ -142,7 +142,7 @@ class AgentManager {
 	) {
 		this._agent = new ToolLoopAgent({
 			...modelConfig,
-			tools,
+			tools: getTools(),
 			// On step 1+: cache user message (stable) + current step's last message (loop leaf)
 			prepareStep: ({ messages }) => {
 				return { messages: this._addCache(messages) };
@@ -158,8 +158,7 @@ class AgentManager {
 		},
 	): ReadableStream {
 		let error: unknown = undefined;
-		let result: StreamTextResult<typeof tools, never>;
-
+		let result: StreamTextResult<ReturnType<typeof getTools>, never>;
 		return createUIMessageStream<UIMessage>({
 			generateId: () => crypto.randomUUID(),
 			execute: async ({ writer }) => {
@@ -286,13 +285,12 @@ class AgentManager {
 			},
 		});
 
-		const first = messages[0];
-		const last = messages.at(-1)!;
-		if (first.role === 'system') {
-			withCache(first, CACHE_1H);
+		const lastIndex = messages.length - 1;
+		if (messages[0].role === 'system') {
+			messages[0] = withCache(messages[0], CACHE_1H);
 		}
-		if (last !== first) {
-			withCache(last, CACHE_5M);
+		if (messages.length > 1) {
+			messages[lastIndex] = withCache(messages[lastIndex], CACHE_5M);
 		}
 		return messages;
 	}

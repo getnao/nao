@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from nao_core.commands.sync import sync
-from nao_core.commands.sync.providers import SyncProvider, SyncResult
+from nao_core.commands.sync.providers import ProviderSelection, SyncProvider, SyncResult
 
 
 def _make_provider(
@@ -32,7 +32,7 @@ def _make_provider(
             provider_name=name,
             items_synced=items_synced,
         )
-    return provider
+    return ProviderSelection(provider)
 
 
 @pytest.mark.usefixtures("clean_env")
@@ -50,42 +50,42 @@ class TestSyncCommand:
 
     def test_sync_runs_providers_when_config_exists(self, create_config):
         create_config()
-        mock_provider = _make_provider()
+        selection = _make_provider()
 
         with patch("nao_core.commands.sync.console"):
-            sync(providers=[mock_provider])
+            sync(_providers=[selection])
 
-        mock_provider.should_sync.assert_called_once()
+        selection.provider.should_sync.assert_called_once()
 
     def test_sync_uses_custom_output_dirs(self, tmp_path: Path, create_config):
         create_config()
-        mock_provider = _make_provider(output_dir="default-output", items=["item1"], items_synced=1)
+        selection = _make_provider(output_dir="default-output", items=["item1"], items_synced=1)
 
         custom_output = str(tmp_path / "custom-output")
 
         with patch("nao_core.commands.sync.console"):
-            sync(output_dirs={"TestProvider": custom_output}, providers=[mock_provider])
+            sync(output_dirs={"TestProvider": custom_output}, _providers=[selection])
 
         # Verify sync was called with the custom output path
-        call_args = mock_provider.sync.call_args
+        call_args = selection.provider.sync.call_args
         assert str(call_args[0][1]) == custom_output
 
     def test_sync_skips_provider_when_should_sync_false(self, create_config):
         create_config()
-        mock_provider = _make_provider(should_sync=False)
+        selection = _make_provider(should_sync=False)
 
         with patch("nao_core.commands.sync.console"):
-            sync(providers=[mock_provider])
+            sync(_providers=[selection])
 
         # sync should not be called when should_sync returns False
-        mock_provider.sync.assert_not_called()
+        selection.provider.sync.assert_not_called()
 
     def test_sync_prints_nothing_to_sync_when_no_results(self, create_config):
         create_config()
-        mock_provider = _make_provider()
+        selection = _make_provider()
 
         with patch("nao_core.commands.sync.console") as mock_console:
-            sync(providers=[mock_provider])
+            sync(_providers=[selection])
 
         # Check that "Nothing to sync" was printed
         calls = [str(call) for call in mock_console.print.call_args_list]
@@ -103,12 +103,12 @@ class TestSyncCommand:
 
         with patch("nao_core.commands.sync.console"):
             with pytest.raises(SystemExit) as exc_info:
-                sync(providers=[failing, working])
+                sync(_providers=[failing, working])
 
         assert exc_info.value.code == 1
         # Verify both providers were attempted
-        failing.sync.assert_called_once()
-        working.sync.assert_called_once()
+        failing.provider.sync.assert_called_once()
+        working.provider.sync.assert_called_once()
 
     def test_sync_shows_partial_success_when_some_providers_fail(self, create_config):
         """Test that sync shows partial success status when some providers fail."""
@@ -122,7 +122,7 @@ class TestSyncCommand:
 
         with patch("nao_core.commands.sync.console") as mock_console:
             with pytest.raises(SystemExit) as exc_info:
-                sync(providers=[failing, working])
+                sync(_providers=[failing, working])
 
         assert exc_info.value.code == 1
         calls = [str(call) for call in mock_console.print.call_args_list]
@@ -140,7 +140,7 @@ class TestSyncCommand:
 
         with patch("nao_core.commands.sync.console") as mock_console:
             with pytest.raises(SystemExit) as exc_info:
-                sync(providers=[failing])
+                sync(_providers=[failing])
 
         assert exc_info.value.code == 1
         calls = [str(call) for call in mock_console.print.call_args_list]

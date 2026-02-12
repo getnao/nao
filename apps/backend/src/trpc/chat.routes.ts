@@ -3,6 +3,7 @@ import { z } from 'zod/v4';
 
 import * as chatQueries from '../queries/chat.queries';
 import { agentService } from '../services/agent.service';
+import { posthog, PostHogEvent } from '../services/posthog.service';
 import { type ListChatResponse, type UIChat } from '../types/chat';
 import { ownedResourceProcedure, protectedProcedure } from './trpc';
 
@@ -25,9 +26,12 @@ export const chatRoutes = {
 		return chatQueries.listUserChats(ctx.user.id);
 	}),
 
-	delete: chatOwnerProcedure.input(z.object({ chatId: z.string() })).mutation(async ({ input }): Promise<void> => {
-		await chatQueries.deleteChat(input.chatId);
-	}),
+	delete: chatOwnerProcedure
+		.input(z.object({ chatId: z.string() }))
+		.mutation(async ({ input, ctx }): Promise<void> => {
+			await chatQueries.deleteChat(input.chatId);
+			posthog.capture(ctx.user.id, PostHogEvent.ChatDeleted, { chat_id: input.chatId });
+		}),
 
 	stop: protectedProcedure.input(z.object({ chatId: z.string() })).mutation(async ({ input, ctx }): Promise<void> => {
 		const agent = agentService.get(input.chatId);
@@ -42,7 +46,8 @@ export const chatRoutes = {
 
 	rename: chatOwnerProcedure
 		.input(z.object({ chatId: z.string(), title: z.string().min(1).max(255) }))
-		.mutation(async ({ input }): Promise<void> => {
+		.mutation(async ({ input, ctx }): Promise<void> => {
 			await chatQueries.renameChat(input.chatId, input.title);
+			posthog.capture(ctx.user.id, PostHogEvent.ChatRenamed, { chat_id: input.chatId });
 		}),
 };

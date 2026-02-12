@@ -2,8 +2,8 @@ import type { Transporter } from 'nodemailer';
 import nodemailer from 'nodemailer';
 import { renderToString } from 'react-dom/server';
 
-import { ResetPasswordEmail } from '../components/email/resetPasswordEmail';
-import { UserAddedToProjectEmail } from '../components/email/userAddedToProjectEmail';
+import { ResetPasswordEmail } from '../components/email/reset-password-email';
+import { UserAddedToProjectEmail } from '../components/email/user-added-to-project-email';
 import type { CreatedEmailData, EmailData, SendEmailParams } from '../types/email';
 
 class EmailService {

@@ -25,25 +25,12 @@ class DatabaseType(str, Enum):
         return [questionary.Choice(db.value.capitalize(), value=db.value) for db in cls]
 
 
-class AccessorType(str, Enum):
-    """Available data accessors for sync."""
-
-    COLUMNS = "columns"
-    PREVIEW = "preview"
-    DESCRIPTION = "description"
-    PROFILING = "profiling"
-
-
 class DatabaseConfig(BaseModel, ABC):
     """Base configuration for all database backends."""
 
+    type: str  # Narrowed to Literal in each subclass for discriminated union
     name: str = Field(description="A friendly name for this connection")
 
-    # Sync settings
-    accessors: list[AccessorType] = Field(
-        default=[AccessorType.COLUMNS, AccessorType.PREVIEW, AccessorType.DESCRIPTION],
-        description="List of accessors to run during sync (columns, preview, description, profiling)",
-    )
     include: list[str] = Field(
         default_factory=list,
         description="Glob patterns for schemas/tables to include (e.g., 'prod_*.*', 'analytics.dim_*'). Empty means include all.",
@@ -93,5 +80,22 @@ class DatabaseConfig(BaseModel, ABC):
     @abstractmethod
     def get_database_name(self) -> str:
         """Get the database name for this database type."""
-
         ...
+
+    def get_schemas(self, conn: BaseBackend) -> list[str]:
+        """Return the list of schemas to sync. Override in subclasses for custom behavior."""
+        list_databases = getattr(conn, "list_databases", None)
+        if list_databases:
+            return list_databases()
+        return []
+
+    def check_connection(self) -> tuple[bool, str]:
+        """Test connectivity to the database. Override in subclasses for custom behavior."""
+        try:
+            conn = self.connect()
+            if list_databases := getattr(conn, "list_databases", None):
+                schemas = list_databases()
+                return True, f"Connected successfully ({len(schemas)} schemas found)"
+            return True, "Connected successfully"
+        except Exception as e:
+            return False, str(e)

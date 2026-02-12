@@ -17,3 +17,6 @@ build/
 .venv/
 venv/
 
+# Integration test secrets
+tests/**/.env
+

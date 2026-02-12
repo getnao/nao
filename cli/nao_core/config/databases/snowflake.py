@@ -1,3 +1,4 @@
+import os
 from typing import Literal
 
 import ibis
@@ -6,7 +7,8 @@ from cryptography.hazmat.primitives import serialization
 from ibis import BaseBackend
 from pydantic import Field
 
-from nao_core.ui import ask_confirm, ask_text
+from nao_core.config.exceptions import InitError
+from nao_core.ui import UI, ask_confirm, ask_text
 
 from .base import DatabaseConfig
 
@@ -21,8 +23,6 @@ class SnowflakeConfig(DatabaseConfig):
     database: str = Field(description="Snowflake database")
     schema_name: str | None = Field(
         default=None,
-        validation_alias="schema",
-        serialization_alias="schema",
         description="Snowflake schema (optional)",
     )
     warehouse: str | None = Field(default=None, description="Snowflake warehouse to use (optional)")
@@ -33,6 +33,10 @@ class SnowflakeConfig(DatabaseConfig):
     passphrase: str | None = Field(
         default=None,
         description="Passphrase for the private key if it is encrypted",
+    )
+    authenticator: Literal["externalbrowser", "username_password_mfa", "jwt_token", "oauth"] | None = Field(
+        default=None,
+        description="Authentication method (e.g., 'externalbrowser' for SSO)",
     )
 
     @classmethod
@@ -45,28 +49,34 @@ class SnowflakeConfig(DatabaseConfig):
         warehouse = ask_text("Warehouse (optional):")
         schema = ask_text("Default schema (optional):")
 
-        key_pair_auth = ask_confirm("Use key-pair authentication?", default=False)
-
-        password = None
-        private_key_path = None
-        passphrase = None
+        use_sso = ask_confirm("Use SSO (external browser) for authentication?", default=False)
+        key_pair_auth = False if use_sso else ask_confirm("Use key-pair authentication?", default=False)
+        authenticator = "externalbrowser" if use_sso else None
 
         if key_pair_auth:
             private_key_path = ask_text("Path to private key file:", required_field=True)
+            if not private_key_path or not os.path.isfile(private_key_path):
+                raise InitError(f"Private key file not found: {private_key_path}")
             passphrase = ask_text("Private key passphrase (optional):", password=True)
+            password = None
         else:
-            password = ask_text("Snowflake password:", password=True, required_field=True)
+            password = None if use_sso else ask_text("Snowflake password:", password=True, required_field=True)
+            if not use_sso and not password:
+                raise InitError("Snowflake password cannot be empty.")
+            private_key_path = None
+            passphrase = None
 
         return SnowflakeConfig(
             name=name,
-            username=username,  # type: ignore
+            username=username or "",
             password=password,
-            account_id=account_id,  # type: ignore
-            database=database,  # type: ignore
+            account_id=account_id or "",
+            database=database or "",
             warehouse=warehouse,
             schema_name=schema,
             private_key_path=private_key_path,
             passphrase=passphrase,
+            authenticator=authenticator,
         )
 
     def connect(self) -> BaseBackend:
@@ -74,13 +84,18 @@ class SnowflakeConfig(DatabaseConfig):
         kwargs: dict = {"user": self.username}
         kwargs["account"] = self.account_id
 
-        if self.database and self.schema_name:
-            kwargs["database"] = f"{self.database}/{self.schema_name}"
-        elif self.database:
+        # Always connect to just the database, not database/schema
+        # The sync provider will handle schema filtering via list_tables(database=schema)
+        if self.database:
             kwargs["database"] = self.database
 
         if self.warehouse:
             kwargs["warehouse"] = self.warehouse
+
+        # Add authenticator if using SSO (external browser)
+        if self.authenticator:
+            kwargs["authenticator"] = self.authenticator
+            UI.info(f"[yellow]Using authenticator: {self.authenticator}[/yellow]")
 
         if self.private_key_path:
             with open(self.private_key_path, "rb") as key_file:
@@ -95,11 +110,58 @@ class SnowflakeConfig(DatabaseConfig):
                     format=serialization.PrivateFormat.PKCS8,
                     encryption_algorithm=serialization.NoEncryption(),
                 )
-        kwargs["password"] = self.password
+        elif self.password:
+            kwargs["password"] = self.password
 
-        return ibis.snowflake.connect(**kwargs)
+        return ibis.snowflake.connect(**kwargs, create_object_udfs=False)
 
     def get_database_name(self) -> str:
         """Get the database name for Snowflake."""
-
         return self.database
+
+    def matches_pattern(self, schema: str, table: str) -> bool:
+        """Check if a schema.table matches the include/exclude patterns.
+
+        Snowflake identifier matching is case-insensitive.
+        """
+        from fnmatch import fnmatch
+
+        full_name = f"{schema}.{table}"
+        full_name_lower = full_name.lower()
+
+        # If include patterns exist, table must match at least one
+        if self.include:
+            included = any(fnmatch(full_name_lower, pattern.lower()) for pattern in self.include)
+            if not included:
+                return False
+
+        # If exclude patterns exist, table must not match any
+        if self.exclude:
+            excluded = any(fnmatch(full_name_lower, pattern.lower()) for pattern in self.exclude)
+            if excluded:
+                return False
+
+        return True
+
+    def get_schemas(self, conn: BaseBackend) -> list[str]:
+        if self.schema_name:
+            # Snowflake schema names are case-insensitive but stored as uppercase
+            return [self.schema_name.upper()]
+        list_databases = getattr(conn, "list_databases", None)
+        schemas = list_databases() if list_databases else []
+        # Filter out INFORMATION_SCHEMA which contains system tables
+        return [s for s in schemas if s != "INFORMATION_SCHEMA"]
+
+    def check_connection(self) -> tuple[bool, str]:
+        """Test connectivity to Snowflake."""
+        try:
+            conn = self.connect()
+            if self.schema_name:
+                tables = conn.list_tables()
+                return True, f"Connected successfully ({len(tables)} tables found)"
+            if list_databases := getattr(conn, "list_databases", None):
+                schemas = list_databases()
+                return True, f"Connected successfully ({len(schemas)} schemas found)"
+            return True, "Connected successfully"
+        except Exception as e:
+            return False, str(e)

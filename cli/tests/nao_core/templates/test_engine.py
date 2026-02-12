@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+from unittest.mock import MagicMock
 
 from nao_core.templates.engine import (
     DEFAULT_TEMPLATES_DIR,
@@ -48,7 +49,6 @@ class TestTemplateEngine:
             "databases/columns.md.j2",
             "databases/preview.md.j2",
             "databases/description.md.j2",
-            "databases/profiling.md.j2",
         ]
 
         for template in expected_templates:
@@ -75,18 +75,20 @@ class TestTemplateEngine:
         assert result == "Hello, World!"
 
     def test_render_with_default_template(self):
-        """Engine renders default database templates correctly."""
+        """Engine renders default database templates correctly via db context."""
         engine = TemplateEngine()
+
+        mock_db = MagicMock()
+        mock_db.columns.return_value = [
+            {"name": "id", "type": "int64", "nullable": False, "description": None},
+            {"name": "email", "type": "string", "nullable": True, "description": "User email"},
+        ]
 
         result = engine.render(
             "databases/columns.md.j2",
             table_name="users",
             dataset="main",
-            columns=[
-                {"name": "id", "type": "int64", "nullable": False, "description": None},
-                {"name": "email", "type": "string", "nullable": True, "description": "User email"},
-            ],
-            column_count=2,
+            db=mock_db,
         )
 
         assert "# users" in result
@@ -96,28 +98,25 @@ class TestTemplateEngine:
         assert "- email (string" in result
 
     def test_render_preview_template(self):
-        """Engine renders preview template with rows correctly."""
+        """Engine renders preview template with rows correctly via db context."""
         engine = TemplateEngine()
+
+        mock_db = MagicMock()
+        mock_db.preview.return_value = [
+            {"id": 1, "amount": 100.50},
+            {"id": 2, "amount": 200.75},
+        ]
 
         result = engine.render(
             "databases/preview.md.j2",
             table_name="orders",
             dataset="sales",
-            rows=[
-                {"id": 1, "amount": 100.50},
-                {"id": 2, "amount": 200.75},
-            ],
-            row_count=2,
-            columns=[
-                {"name": "id", "type": "int64"},
-                {"name": "amount", "type": "float64"},
-            ],
+            db=mock_db,
         )
 
         assert "# orders - Preview" in result
         assert "**Dataset:** `sales`" in result
         assert "## Rows (2)" in result
-        # Check JSON rows are present
         assert '"id": 1' in result
         assert '"amount": 100.5' in result
 
@@ -306,7 +305,6 @@ class TestDefaultTemplatesDir:
             "columns.md.j2",
             "preview.md.j2",
             "description.md.j2",
-            "profiling.md.j2",
         ]
 
         for filename in expected_files:

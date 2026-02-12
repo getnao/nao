@@ -1,4 +1,5 @@
 import { createFileRoute, Outlet } from '@tanstack/react-router';
+import { UserPageProvider } from '@/contexts/user.provider';
 
 export const Route = createFileRoute('/_sidebar-layout/settings')({
 	component: SettingsLayout,
@@ -6,10 +7,12 @@ export const Route = createFileRoute('/_sidebar-layout/settings')({
 
 function SettingsLayout() {
 	return (
-		<div className='flex flex-1 flex-col bg-panel min-w-0 overflow-auto'>
-			<div className='flex flex-col w-full max-w-4xl mx-auto p-8 gap-8'>
-				<Outlet />
+		<UserPageProvider>
+			<div className='flex flex-1 flex-col bg-panel min-w-0 overflow-auto'>
+				<div className='flex flex-col w-full max-w-4xl mx-auto p-8 gap-6'>
+					<Outlet />
+				</div>
 			</div>
-		</div>
+		</UserPageProvider>
 	);
 }
