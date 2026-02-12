@@ -6,14 +6,14 @@ import { truncateMiddle } from '../../utils/utils';
 
 const MAX_ROWS = 20;
 
-export const ExecuteSqlOutput = ({ output }: { output: executeSql.Output }) => {
+export const ExecuteSqlOutput = ({ output, maxRows = MAX_ROWS }: { output: executeSql.Output; maxRows?: number }) => {
 	if (output.data.length === 0) {
 		return <Block>The query was successfully executed and returned no rows.</Block>;
 	}
 
-	const isTruncated = output.data.length > MAX_ROWS;
-	const visibleRows = isTruncated ? output.data.slice(0, MAX_ROWS) : output.data;
-	const remainingRows = isTruncated ? output.data.length - MAX_ROWS : 0;
+	const isTruncated = output.data.length > maxRows;
+	const visibleRows = isTruncated ? output.data.slice(0, maxRows) : output.data;
+	const remainingRows = isTruncated ? output.data.length - maxRows : 0;
 
 	return (
 		<Block>

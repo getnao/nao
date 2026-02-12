@@ -28,7 +28,7 @@
 		"db:reset": "rm db.sqlite",
 		"db:check-migrations": "bun scripts/db.check-migrations.ts",
 		"format": "prettier --write .",
-		"test:markdown": "bun scripts/test-markdown-rendering.tsx"
+		"test:tool-outputs": "PRINT_OUTPUT=true vitest run tests/tool-outputs/"
 	},
 	"dependencies": {
 		"@ai-sdk/anthropic": "^3.0.15",

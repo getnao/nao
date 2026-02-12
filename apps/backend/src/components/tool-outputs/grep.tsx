@@ -7,15 +7,23 @@ import { groupBy, removeNewLine, truncateMiddle } from '../../utils/utils';
 const MAX_LINES = 50;
 const MAX_MORE_FILES = 10;
 
-export const GrepOutput = ({ output }: { output: grep.Output }) => {
+export const GrepOutput = ({
+	output,
+	maxLines = MAX_LINES,
+	maxMoreFiles = MAX_MORE_FILES,
+}: {
+	output: grep.Output;
+	maxLines?: number;
+	maxMoreFiles?: number;
+}) => {
 	const { matches, total_matches } = output;
 
 	if (total_matches === 0) {
 		return 'No matches found.';
 	}
 
-	const displayed = matches.slice(0, MAX_LINES);
-	const remaining = matches.slice(MAX_LINES);
+	const displayed = matches.slice(0, maxLines);
+	const remaining = matches.slice(maxLines);
 	const byFile = groupBy(displayed, (m) => m.path);
 	const remainingPaths = [...new Set(remaining.map((m) => m.path))];
 
@@ -32,7 +40,7 @@ export const GrepOutput = ({ output }: { output: grep.Output }) => {
 				))}
 			</Block>
 			{remainingPaths.length > 0 && (
-				<TitledList title='More matches in' maxItems={MAX_MORE_FILES}>
+				<TitledList title='More matches in' maxItems={maxMoreFiles}>
 					{remainingPaths.map((p) => (
 						<ListItem>{p}</ListItem>
 					))}

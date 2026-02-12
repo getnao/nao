@@ -7,24 +7,32 @@ import { formatSize } from '../../utils/utils';
 const MAX_FILES = 100;
 const MAX_DIRECTORIES = 10;
 
-export const SearchOutput = ({ output }: { output: searchFiles.Output }) => {
+export const SearchOutput = ({
+	output,
+	maxFiles = MAX_FILES,
+	maxDirectories = MAX_DIRECTORIES,
+}: {
+	output: searchFiles.Output;
+	maxFiles?: number;
+	maxDirectories?: number;
+}) => {
 	const files = Array.isArray(output) ? output : output.files;
 	if (files.length === 0) {
 		return <Block>No matches.</Block>;
 	}
 
-	const remainingFiles = files.slice(MAX_FILES);
+	const remainingFiles = files.slice(maxFiles);
 	const uniqueDirs = getUniqueDirs(remainingFiles);
 
 	return (
 		<Block>
-			<TitledList title={`${pluralize('Match', files.length)} (${files.length})`} maxItems={MAX_FILES}>
+			<TitledList title={`${pluralize('Match', files.length)} (${files.length})`} maxItems={maxFiles}>
 				{files.map((file) => (
 					<ListItem>{formatFile(file)}</ListItem>
 				))}
 			</TitledList>
 			{uniqueDirs.length > 0 && (
-				<TitledList title='More matches in' maxItems={MAX_DIRECTORIES}>
+				<TitledList title='More matches in' maxItems={maxDirectories}>
 					{uniqueDirs.map((dir) => (
 						<ListItem>{dir}</ListItem>
 					))}
@@ -35,7 +43,7 @@ export const SearchOutput = ({ output }: { output: searchFiles.Output }) => {
 };
 
 const formatFile = (file: searchFiles.File) => {
-	return file.size ? `${file.path} (${formatSize(Number(file.size))})` : file.path;
+	return `${file.path} (${formatSize(Number(file.size))})`;
 };
 
 const getUniqueDirs = (files: searchFiles.File[]) => {

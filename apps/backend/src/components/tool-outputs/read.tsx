@@ -5,13 +5,13 @@ import { formatSize } from '../../utils/utils';
 
 const MAX_CHARS = 32_000;
 
-export function ReadOutput({ output }: { output: readFile.Output }) {
+export function ReadOutput({ output, maxChars = MAX_CHARS }: { output: readFile.Output; maxChars?: number }) {
 	if (output.numberOfTotalLines === 0 || output.content === '') {
 		return <Block>File is empty.</Block>;
 	}
 
-	const isTruncated = output.content.length > MAX_CHARS;
-	const visibleContent = isTruncated ? output.content.slice(0, MAX_CHARS) : output.content;
+	const isTruncated = output.content.length > maxChars;
+	const visibleContent = isTruncated ? output.content.slice(0, maxChars) : output.content;
 	const lines = visibleContent.split('\n');
 	const withLineNumbers = addLineNumbers(lines);
 	const bytesLeft = output.content.length - visibleContent.length;
