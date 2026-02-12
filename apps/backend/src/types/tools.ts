@@ -1,3 +1,4 @@
+import type { ToolResultOutput } from '@ai-sdk/provider-utils';
 import { tool } from 'ai';
 import type { z } from 'zod/v3';
 
@@ -12,6 +13,7 @@ export interface ToolDefinition<TInput extends ZodSchema, TOutput extends ZodSch
 	inputSchema: TInput;
 	outputSchema: TOutput;
 	execute: (input: z.infer<TInput>, context: ToolContext) => Promise<z.infer<TOutput>>;
+	toModelOutput?: (params: { output: z.infer<TOutput> }) => ToolResultOutput;
 }
 
 export function createTool<TInput extends ZodSchema, TOutput extends ZodSchema>(
@@ -25,5 +27,6 @@ export function createTool<TInput extends ZodSchema, TOutput extends ZodSchema>(
 			const context = experimental_context as ToolContext;
 			return definition.execute(input, context);
 		},
+		...(definition.toModelOutput && { toModelOutput: definition.toModelOutput }),
 	});
 }

@@ -57,7 +57,7 @@ export default createTool({
 			}),
 		);
 
-		return { _version: '1', entries };
+		return { _version: '1' as const, entries };
 	},
 
 	toModelOutput: ({ output }) => renderToModelOutput(ListOutput({ output }), output),

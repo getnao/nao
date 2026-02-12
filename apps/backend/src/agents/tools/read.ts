@@ -17,7 +17,7 @@ export default createTool({
 		const numberOfTotalLines = content.split('\n').length;
 
 		return {
-			_version: '1',
+			_version: '1' as const,
 			content,
 			numberOfTotalLines,
 		};

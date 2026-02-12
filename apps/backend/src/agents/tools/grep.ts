@@ -3,6 +3,7 @@ import { spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 
+import { GrepOutput, renderToModelOutput } from '../../components/tool-outputs';
 import { createTool } from '../../types/tools';
 import { isWithinProjectFolder, loadNaoignorePatterns, toRealPath, toVirtualPath } from '../../utils/tools';
 

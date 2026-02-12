@@ -7,11 +7,11 @@ import {
 	MontySyntaxError,
 	MontyTypingError,
 } from '@pydantic/monty';
-import { tool } from 'ai';
 import fs from 'fs';
 import path from 'path';
 
-import { getProjectFolder, isWithinProjectFolder, toVirtualPath } from '../../utils/tools';
+import { createTool } from '../../types/tools';
+import { isWithinProjectFolder, toVirtualPath } from '../../utils/tools';
 
 const RESOURCE_LIMITS = {
 	maxDurationSecs: 30,
@@ -20,9 +20,9 @@ const RESOURCE_LIMITS = {
 	maxRecursionDepth: 500,
 };
 
-export async function executePython({ code, inputs }: schemas.Input): Promise<schemas.Output> {
+async function executePython({ code, inputs }: schemas.Input, projectFolder: string): Promise<schemas.Output> {
 	const inputNames = inputs ? Object.keys(inputs) : [];
-	const virtualFS = createVirtualFS();
+	const virtualFS = createVirtualFS(projectFolder);
 
 	let monty: Monty;
 	try {
@@ -117,15 +117,10 @@ function findAllFiles(dir: string, projectFolder: string): schemas.VirtualFile[]
 	return files;
 }
 
-function loadProjectFiles(): schemas.VirtualFile[] {
-	const projectFolder = getProjectFolder();
-	return findAllFiles(projectFolder, projectFolder);
-}
-
-function createVirtualFS(): Map<string, string> {
+function createVirtualFS(projectFolder: string): Map<string, string> {
 	const vfs = new Map<string, string>();
 
-	const projectFiles = loadProjectFiles();
+	const projectFiles = findAllFiles(projectFolder, projectFolder);
 	for (const file of projectFiles) {
 		vfs.set(file.path, file.content);
 	}
@@ -136,9 +131,11 @@ function createVirtualFS(): Map<string, string> {
 const EXTERNAL_FUNCTION_MAP = new Map(schemas.EXTERNAL_FUNCTIONS.map((f) => [f.name, f]));
 const EXTERNAL_FUNCTION_NAMES = schemas.EXTERNAL_FUNCTIONS.map((f) => f.name);
 
-export default tool({
+export default createTool({
 	description: schemas.description,
 	inputSchema: schemas.inputSchema,
 	outputSchema: schemas.outputSchema,
-	execute: executePython,
+	execute: async (input, context) => {
+		return executePython(input, context.projectPath);
+	},
 });
