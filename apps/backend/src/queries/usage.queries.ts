@@ -33,8 +33,12 @@ export const getMessagesUsage = async (projectId: string, filter: UsageFilter): 
 	const { granularity, provider } = filter;
 	const dateExpr = getDateExpr(s.chatMessage.createdAt, granularity);
 	const lookbackTs = getLookbackTimestamp(granularity);
+	const lookbackFilter =
+		dbConfig.dialect === Dialect.Postgres
+			? sql`${s.chatMessage.createdAt} >= ${new Date(lookbackTs).toISOString()}`
+			: sql`${s.chatMessage.createdAt} >= ${lookbackTs}`;
 
-	const whereConditions = [eq(s.chat.projectId, projectId), sql`${s.chatMessage.createdAt} >= ${lookbackTs}`];
+	const whereConditions = [eq(s.chat.projectId, projectId), lookbackFilter];
 	if (provider) {
 		whereConditions.push(eq(s.chatMessage.llmProvider, provider));
 	}
@@ -102,7 +106,7 @@ export const getUsedProviders = async (projectId: string): Promise<LlmProvider[]
 function getDateExpr(field: SQLWrapper, granularity: Granularity): SQL<string> {
 	if (dbConfig.dialect === Dialect.Postgres) {
 		const format = sql.raw(`'${pgFormats[granularity]}'`);
-		return sql<string>`to_char(to_timestamp(${field} / 1000.0), ${format})`;
+		return sql<string>`to_char(${field}, ${format})`;
 	} else {
 		const format = sql.raw(`'${sqliteFormats[granularity]}'`);
 		return sql<string>`strftime(${format}, ${field} / 1000, 'unixepoch')`;
