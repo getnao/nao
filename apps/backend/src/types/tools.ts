@@ -4,7 +4,7 @@ import type { z } from 'zod/v3';
 type ZodSchema = z.ZodTypeAny;
 
 export interface ToolContext {
-	projectPath?: string;
+	projectPath: string;
 }
 
 export interface ToolDefinition<TInput extends ZodSchema, TOutput extends ZodSchema> {
@@ -22,7 +22,7 @@ export function createTool<TInput extends ZodSchema, TOutput extends ZodSchema>(
 		inputSchema: definition.inputSchema,
 		outputSchema: definition.outputSchema,
 		execute: async (input, { experimental_context }) => {
-			const context = (experimental_context as ToolContext) ?? {};
+			const context = experimental_context as ToolContext;
 			return definition.execute(input, context);
 		},
 	});

@@ -2,8 +2,6 @@ import fs from 'fs';
 import { minimatch } from 'minimatch';
 import path from 'path';
 
-import { env } from '../env';
-
 const MCP_TOOL_SEPARATOR = '__';
 
 /**

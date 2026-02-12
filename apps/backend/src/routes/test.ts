@@ -6,6 +6,7 @@ import { authMiddleware } from '../middleware/auth';
 import { ModelSelection } from '../services/agent.service';
 import { TestAgentService, testAgentService } from '../services/test-agent.service';
 import { llmProviderSchema } from '../types/llm';
+import { retrieveProjectById } from '../utils/chat';
 
 const modelSelectionSchema = z.object({
 	provider: llmProviderSchema,
@@ -43,10 +44,14 @@ export const testRoutes = async (app: App) => {
 			try {
 				const modelSelection = model as ModelSelection | undefined;
 				const result = await testAgentService.runTest(projectId, prompt, modelSelection);
+				const project = await retrieveProjectById(projectId);
 
 				let verification;
 				if (sql) {
-					const { data: expectedData, columns: expectedColumns } = await executeQuery({ sql_query: sql });
+					const { data: expectedData, columns: expectedColumns } = await executeQuery(
+						{ sql_query: sql },
+						{ projectPath: project.path! },
+					);
 					const { data } = await testAgentService.runVerification(
 						projectId,
 						result,

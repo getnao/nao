@@ -10,7 +10,7 @@ export default createTool({
 	inputSchema: list.InputSchema,
 	outputSchema: list.OutputSchema,
 	execute: async ({ path: filePath }, context) => {
-		const projectFolder = context.projectPath || '';
+		const projectFolder = context.projectPath;
 		const realPath = toRealPath(filePath, projectFolder);
 
 		// Get the relative path of the parent directory for naoignore matching

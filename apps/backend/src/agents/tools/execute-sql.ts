@@ -6,9 +6,9 @@ import { createTool, type ToolContext } from '../../types/tools';
 
 export async function executeQuery(
 	{ sql_query, database_id }: executeSql.Input,
-	context?: ToolContext,
+	context: ToolContext,
 ): Promise<executeSql.Output> {
-	const naoProjectFolder = context?.projectPath;
+	const naoProjectFolder = context.projectPath;
 
 	const response = await fetch(`${env.FASTAPI_URL}/execute_sql`, {
 		method: 'POST',
