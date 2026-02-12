@@ -2,6 +2,7 @@ import { list } from '@nao/shared/tools';
 import fs from 'fs/promises';
 import path from 'path';
 
+import { ListOutput, renderToModelOutput } from '../../components/tool-outputs';
 import { createTool } from '../../types/tools';
 import { shouldExcludeEntry, toRealPath, toVirtualPath } from '../../utils/tools';
 
@@ -16,14 +17,14 @@ export default createTool({
 		// Get the relative path of the parent directory for naoignore matching
 		const parentRelativePath = path.relative(projectFolder, realPath);
 
-		const entries = await fs.readdir(realPath, { withFileTypes: true });
+		const dirEntries = await fs.readdir(realPath, { withFileTypes: true });
 
 		// Filter out excluded entries (including .naoignore patterns)
-		const filteredEntries = entries.filter(
+		const filteredEntries = dirEntries.filter(
 			(entry) => !shouldExcludeEntry(entry.name, parentRelativePath, projectFolder),
 		);
 
-		return await Promise.all(
+		const entries = await Promise.all(
 			filteredEntries.map(async (entry) => {
 				const fullRealPath = path.join(realPath, entry.name);
 
@@ -39,8 +40,8 @@ export default createTool({
 				let itemCount: number | undefined;
 				if (type === 'directory') {
 					try {
-						const dirEntries = await fs.readdir(fullRealPath);
-						itemCount = dirEntries.length;
+						const subEntries = await fs.readdir(fullRealPath);
+						itemCount = subEntries.length;
 					} catch {
 						// If we can't read the directory, leave itemCount undefined
 					}
@@ -55,5 +56,9 @@ export default createTool({
 				};
 			}),
 		);
+
+		return { _version: '1', entries };
 	},
+
+	toModelOutput: ({ output }) => renderToModelOutput(ListOutput({ output }), output),
 });

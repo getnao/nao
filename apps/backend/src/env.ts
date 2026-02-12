@@ -9,7 +9,7 @@ dotenv.config({
 });
 
 const envSchema = z.object({
-	MODE: z.enum(['dev', 'prod']).default('dev'),
+	MODE: z.enum(['dev', 'prod', 'test']).default('dev'),
 
 	DB_URI: z.string().default('sqlite:./db.sqlite'),
 	DB_SSL: z
@@ -31,7 +31,7 @@ const envSchema = z.object({
 	SLACK_BOT_TOKEN: z.string().optional(),
 	SLACK_SIGNING_SECRET: z.string().optional(),
 
-	FASTAPI_URL: z.url({ message: 'FASTAPI_URL must be a valid URL' }).optional(),
+	FASTAPI_PORT: z.coerce.number().default(8005),
 
 	NAO_DEFAULT_PROJECT_PATH: z.string().optional(),
 
@@ -50,7 +50,7 @@ const result = envSchema.safeParse(process.env);
 if (!result.success) {
 	for (const issue of result.error.issues) {
 		const path = issue.path.join('.');
-		console.log(`${path}: ${issue.message}`);
+		console.error(`${path}: ${issue.message}`);
 	}
 	process.exit(1);
 }

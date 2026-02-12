@@ -1,6 +1,7 @@
 import { readFile } from '@nao/shared/tools';
 import fs from 'fs/promises';
 
+import { ReadOutput, renderToModelOutput } from '../../components/tool-outputs';
 import { createTool } from '../../types/tools';
 import { toRealPath } from '../../utils/tools';
 
@@ -16,8 +17,11 @@ export default createTool({
 		const numberOfTotalLines = content.split('\n').length;
 
 		return {
+			_version: '1',
 			content,
 			numberOfTotalLines,
 		};
 	},
+
+	toModelOutput: ({ output }) => renderToModelOutput(ReadOutput({ output }), output),
 });

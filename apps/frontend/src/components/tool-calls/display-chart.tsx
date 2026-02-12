@@ -44,7 +44,7 @@ export const DisplayChartToolCall = () => {
 		return filterByDateRange(sourceData.data, config.x_axis_key, dataRange);
 	}, [sourceData?.data, config, dataRange]);
 
-	if (output && 'error' in output) {
+	if (output && output.error) {
 		return (
 			<ToolCallWrapper defaultExpanded title='Could not display the chart'>
 				<div className='p-4 text-red-400 text-sm'>{output.error}</div>

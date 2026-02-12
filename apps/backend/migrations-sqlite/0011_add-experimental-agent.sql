@@ -1,0 +1,1 @@
+ALTER TABLE `project` ADD `agent_settings` text;

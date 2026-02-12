@@ -42,7 +42,6 @@ services:
             # Database for nao chat history
             # =================================================================
             DB_URI: postgres://${POSTGRES_USER:-nao}:${POSTGRES_PASSWORD:-nao}@postgres:5432/${POSTGRES_DB:-nao}
-            FASTAPI_URL: http://127.0.0.1:8005
 
             # =================================================================
             # Context Configuration

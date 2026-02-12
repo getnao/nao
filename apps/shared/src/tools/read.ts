@@ -5,6 +5,7 @@ export const InputSchema = z.object({
 });
 
 export const OutputSchema = z.object({
+	_version: z.literal('1').optional(),
 	content: z.string(),
 	numberOfTotalLines: z.number(),
 });

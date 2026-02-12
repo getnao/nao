@@ -1,6 +1,7 @@
 import type { executeSql } from '@nao/shared/tools';
 import { executeSql as schemas } from '@nao/shared/tools';
 
+import { ExecuteSqlOutput, renderToModelOutput } from '../../components/tool-outputs';
 import { env } from '../../env';
 import { createTool, type ToolContext } from '../../types/tools';
 
@@ -10,7 +11,7 @@ export async function executeQuery(
 ): Promise<executeSql.Output> {
 	const naoProjectFolder = context.projectPath;
 
-	const response = await fetch(`${env.FASTAPI_URL}/execute_sql`, {
+	const response = await fetch(`http://localhost:${env.FASTAPI_PORT}/execute_sql`, {
 		method: 'POST',
 		headers: {
 			'Content-Type': 'application/json',
@@ -29,6 +30,7 @@ export async function executeQuery(
 
 	const data = await response.json();
 	return {
+		_version: '1',
 		...data,
 		id: `query_${crypto.randomUUID().slice(0, 8)}`,
 	};
@@ -40,4 +42,5 @@ export default createTool({
 	inputSchema: schemas.InputSchema,
 	outputSchema: schemas.OutputSchema,
 	execute: executeQuery,
+	toModelOutput: ({ output }) => renderToModelOutput(ExecuteSqlOutput({ output }), output),
 });

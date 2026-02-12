@@ -177,6 +177,7 @@ export default createTool({
 				}
 
 				resolve({
+					_version: '1',
 					matches,
 					total_matches: totalMatches,
 					truncated,
@@ -188,6 +189,8 @@ export default createTool({
 			});
 		});
 	},
+
+	toModelOutput: ({ output }) => renderToModelOutput(GrepOutput({ output }), output),
 });
 
 /**

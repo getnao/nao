@@ -9,6 +9,7 @@ export const InputSchema = z.object({
 });
 
 export const OutputSchema = z.object({
+	_version: z.literal('1').optional(),
 	success: z.literal(true),
 });
 

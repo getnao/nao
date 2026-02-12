@@ -1,5 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
+import type { ProjectSettingsTab } from '@/components/settings-project-nav';
+import { projectSettingsTabs, SettingsProjectNav } from '@/components/settings-project-nav';
 import SlackIcon from '@/components/icons/slack.svg';
 import { Input } from '@/components/ui/input';
 import { trpc } from '@/main';
@@ -11,9 +13,23 @@ import { ModifyUserForm } from '@/components/settings-modify-user-form';
 import { GoogleConfigSection } from '@/components/settings-google-credentials-section';
 import { SavedPrompts } from '@/components/settings-saved-prompts';
 import { McpList } from '@/components/settings-display-mcp';
+import { SettingsExperimental } from '@/components/settings-experimental';
+
+type SearchParams = {
+	tab?: ProjectSettingsTab;
+};
 
 export const Route = createFileRoute('/_sidebar-layout/settings/project')({
 	component: RouteComponent,
+	validateSearch: (search: Record<string, unknown>): SearchParams => {
+		const tab = search.tab as string | undefined;
+		return {
+			tab:
+				tab && projectSettingsTabs.includes(tab as ProjectSettingsTab)
+					? (tab as ProjectSettingsTab)
+					: undefined,
+		};
+	},
 });
 
 function RouteComponent() {
@@ -21,76 +37,106 @@ function RouteComponent() {
 }
 
 function ProjectPage() {
+	const { tab } = Route.useSearch();
+	const activeTab = tab ?? 'project';
 	const project = useQuery(trpc.project.getCurrent.queryOptions());
 
 	const isAdmin = project.data?.userRole === 'admin';
 
 	return (
-		<>
-			<div className='flex items-center justify-between'>
-				<h1 className='text-2xl font-semibold text-foreground'>Project</h1>
-				{project.data?.userRole && (
-					<span className='px-2.5 py-0.5 text-xs font-medium rounded-full bg-primary/10 text-primary capitalize'>
-						{project.data.userRole}
-					</span>
-				)}
+		<div className='flex flex-row gap-6'>
+			<div className='flex flex-col items-start gap-2'>
+				{project.data && <SettingsProjectNav activeTab={activeTab} />}
 			</div>
 
-			{project.data ? (
-				<>
+			<div className='flex flex-col gap-6 flex-1 min-w-0'>
+				{project.data ? (
+					<>
+						{activeTab === 'project' && (
+							<div className='flex flex-col gap-4'>
+								<SettingsCard>
+									<div className='grid gap-4'>
+										<div className='grid gap-2'>
+											<label
+												htmlFor='project-name'
+												className='text-sm font-medium text-foreground'
+											>
+												Name
+											</label>
+											<Input
+												id='project-name'
+												value={project.data.name}
+												readOnly
+												className='bg-muted/50'
+											/>
+										</div>
+										<div className='grid gap-2'>
+											<label
+												htmlFor='project-path'
+												className='text-sm font-medium text-foreground'
+											>
+												Path
+											</label>
+											<Input
+												id='project-path'
+												value={project.data.path ?? ''}
+												readOnly
+												className='bg-muted/50 font-mono text-sm'
+											/>
+										</div>
+									</div>
+								</SettingsCard>
+
+								<SettingsCard title='Google Credentials'>
+									<GoogleConfigSection isAdmin={isAdmin} />
+								</SettingsCard>
+							</div>
+						)}
+
+						{activeTab === 'models' && (
+							<SettingsCard title='LLM Configuration'>
+								<LlmProvidersSection isAdmin={isAdmin} />
+							</SettingsCard>
+						)}
+
+						{activeTab === 'agent' && (
+							<div className='flex flex-col gap-4'>
+								<SavedPrompts isAdmin={isAdmin} />
+
+								<SettingsExperimental isAdmin={isAdmin} />
+							</div>
+						)}
+
+						{activeTab === 'mcp-servers' && (
+							<SettingsCard title='MCP Servers'>
+								<McpList isAdmin={isAdmin} />
+							</SettingsCard>
+						)}
+
+						{activeTab === 'slack' && (
+							<SettingsCard icon={<SlackIcon />} title='Slack Integration'>
+								<SlackConfigSection isAdmin={isAdmin} />
+							</SettingsCard>
+						)}
+
+						{activeTab === 'team' && (
+							<div className='flex flex-col gap-4'>
+								<SettingsCard title=''>
+									<UsersList isAdmin={isAdmin} />
+								</SettingsCard>
+
+								<ModifyUserForm isAdmin={isAdmin} />
+							</div>
+						)}
+					</>
+				) : (
 					<SettingsCard>
-						<div className='grid gap-4'>
-							<div className='grid gap-2'>
-								<label htmlFor='project-name' className='text-sm font-medium text-foreground'>
-									Name
-								</label>
-								<Input id='project-name' value={project.data.name} readOnly className='bg-muted/50' />
-							</div>
-							<div className='grid gap-2'>
-								<label htmlFor='project-path' className='text-sm font-medium text-foreground'>
-									Path
-								</label>
-								<Input
-									id='project-path'
-									value={project.data.path ?? ''}
-									readOnly
-									className='bg-muted/50 font-mono text-sm'
-								/>
-							</div>
-						</div>
+						<p className='text-sm text-muted-foreground'>
+							No project configured. Set NAO_DEFAULT_PROJECT_PATH environment variable.
+						</p>
 					</SettingsCard>
-
-					<SettingsCard title='LLM Configuration'>
-						<LlmProvidersSection isAdmin={isAdmin} />
-					</SettingsCard>
-
-					<SavedPrompts isAdmin={isAdmin} />
-
-					<SettingsCard icon={<SlackIcon />} title='Slack Integration'>
-						<SlackConfigSection isAdmin={isAdmin} />
-					</SettingsCard>
-
-					<SettingsCard title='Google Credentials'>
-						<GoogleConfigSection isAdmin={isAdmin} />
-					</SettingsCard>
-
-					<SettingsCard title='Team'>
-						<UsersList isAdmin={isAdmin} />
-					</SettingsCard>
-
-					<SettingsCard title='MCP Servers'>
-						<McpList isAdmin={isAdmin} />
-					</SettingsCard>
-
-					<ModifyUserForm isAdmin={isAdmin} />
-				</>
-			) : (
-				<SettingsCard>
-					<p className='text-sm text-muted-foreground'>
-						No project configured. Set NAO_DEFAULT_PROJECT_PATH environment variable.
-					</p>
-				</SettingsCard>
-			)}
-		</>
+				)}
+			</div>
+		</div>
 	);
 }

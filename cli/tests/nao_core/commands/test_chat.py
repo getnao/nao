@@ -10,7 +10,7 @@ from nao_core.commands.chat import (
     get_server_binary_path,
     wait_for_server,
 )
-from nao_core.config.base import NaoConfig
+from nao_core.config.base import NaoConfig, NaoConfigError
 
 # Tests for try_load with exit_on_error=False (default, silent mode)
 
@@ -74,7 +74,10 @@ def test_try_load_exits_on_invalid_yaml(tmp_path: Path):
             NaoConfig.try_load(tmp_path, exit_on_error=True)
 
         assert exc_info.value.code == 1
-        mock_console.print.assert_any_call("[bold red]✗[/bold red] Failed to load nao_config.yaml:")
+        assert mock_console.print.call_count == 1
+        call_args = str(mock_console.print.call_args)
+        assert "Failed to load nao_config.yaml" in call_args
+        assert "Invalid YAML syntax" in call_args
 
 
 def test_try_load_exits_on_validation_error(tmp_path: Path):
@@ -87,7 +90,39 @@ def test_try_load_exits_on_validation_error(tmp_path: Path):
             NaoConfig.try_load(tmp_path, exit_on_error=True)
 
         assert exc_info.value.code == 1
-        mock_console.print.assert_any_call("[bold red]✗[/bold red] Failed to load nao_config.yaml:")
+        assert mock_console.print.call_count == 1
+        call_args = str(mock_console.print.call_args)
+        assert "Failed to load nao_config.yaml" in call_args
+
+
+# Tests for try_load with raise_on_error=True
+
+
+def test_try_load_raises_on_file_not_found(tmp_path: Path):
+    with pytest.raises(NaoConfigError) as exc_info:
+        NaoConfig.try_load(tmp_path, raise_on_error=True)
+
+    assert "No nao_config.yaml found" in str(exc_info.value)
+
+
+def test_try_load_raises_on_invalid_yaml(tmp_path: Path):
+    invalid_yaml = tmp_path / "nao_config.yaml"
+    invalid_yaml.write_text("project_name: [invalid yaml")
+
+    with pytest.raises(NaoConfigError) as exc_info:
+        NaoConfig.try_load(tmp_path, raise_on_error=True)
+
+    assert "Invalid YAML syntax" in str(exc_info.value)
+
+
+def test_try_load_raises_on_validation_error(tmp_path: Path):
+    invalid_config = tmp_path / "nao_config.yaml"
+    invalid_config.write_text("databases: []")  # Missing required project_name
+
+    with pytest.raises(NaoConfigError) as exc_info:
+        NaoConfig.try_load(tmp_path, raise_on_error=True)
+
+    assert "Failed to load nao_config.yaml" in str(exc_info.value)
 
 
 # Integration test for chat command
@@ -297,7 +332,6 @@ class TestChatCommand:
         env = chat_server_call.kwargs.get("env", {})
 
         assert "NAO_DEFAULT_PROJECT_PATH" in env
-        assert "FASTAPI_URL" in env
         assert "BETTER_AUTH_SECRET" in env
 
     @patch("nao_core.commands.chat.webbrowser.open")

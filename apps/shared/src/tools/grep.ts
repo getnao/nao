@@ -16,18 +16,20 @@ export const InputSchema = z.object({
 });
 
 export const OutputSchema = z.object({
+	_version: z.literal('1').optional(),
 	matches: z.array(
 		z.object({
-			path: z.string().describe('Virtual path of the file containing the match.'),
-			line_number: z.number().describe('Line number of the match (1-indexed).'),
-			line_content: z.string().describe('Content of the matching line.'),
-			context_before: z.array(z.string()).optional().describe('Lines before the match.'),
-			context_after: z.array(z.string()).optional().describe('Lines after the match.'),
+			path: z.string(),
+			line_number: z.number(),
+			line_content: z.string(),
+			context_before: z.array(z.string()).optional(),
+			context_after: z.array(z.string()).optional(),
 		}),
 	),
-	total_matches: z.number().describe('Total number of matches found.'),
-	truncated: z.boolean().describe('Whether results were truncated due to max_results limit.'),
+	total_matches: z.number(),
+	truncated: z.boolean(),
 });
 
 export type Input = z.infer<typeof InputSchema>;
 export type Output = z.infer<typeof OutputSchema>;
+export type Match = Output['matches'][number];

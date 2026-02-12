@@ -1,4 +1,4 @@
-import '../src/utils/loadEnv';
+import '../src/env';
 
 import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/better-sqlite3';

@@ -75,13 +75,16 @@ def sync_database(
                 ctx = DatabaseContext(conn, schema, table)
 
             for template_name in templates:
+                # Derive output filename: "databases/columns.md.j2" → "columns.md"
+                output_filename = Path(template_name).stem  # "columns.md" (stem strips .j2)
+
                 try:
                     content = engine.render(template_name, db=ctx, table_name=table, dataset=schema)
                 except Exception as e:
+                    error_msg = f"Error generating {output_filename} for {schema}.{table}: {e}"
+                    console.print(f"[bold red]✗[/bold red] {error_msg}")
                     content = f"# {table}\n\nError generating content: {e}"
 
-                # Derive output filename: "databases/columns.md.j2" → "columns.md"
-                output_filename = Path(template_name).stem  # "columns.md" (stem strips .j2)
                 output_file = table_path / output_filename
                 output_file.write_text(content)
 

@@ -16,7 +16,7 @@ load_dotenv()
 cli_path = Path(__file__).parent.parent.parent / "cli"
 sys.path.insert(0, str(cli_path))
 
-from nao_core.config import NaoConfig
+from nao_core.config import NaoConfig, NaoConfigError
 from nao_core.context import get_context_provider
 
 port = int(os.environ.get("PORT", 8005))
@@ -66,7 +66,9 @@ async def _refresh_context_task():
         if updated:
             print(f"[Scheduler] Context refreshed at {datetime.now().isoformat()}")
         else:
-            print(f"[Scheduler] Context already up-to-date at {datetime.now().isoformat()}")
+            print(
+                f"[Scheduler] Context already up-to-date at {datetime.now().isoformat()}"
+            )
     except Exception as e:
         print(f"[Scheduler] Failed to refresh context: {e}")
 
@@ -175,13 +177,8 @@ async def execute_sql(request: ExecuteSQLRequest):
         # Load the nao config from the project folder
         project_path = Path(request.nao_project_folder)
         os.chdir(project_path)
-        config = NaoConfig.try_load(project_path)
-
-        if config is None:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Could not load nao_config.yaml from {request.nao_project_folder}",
-            )
+        config = NaoConfig.try_load(project_path, raise_on_error=True)
+        assert config is not None
 
         if len(config.databases) == 0:
             raise HTTPException(
@@ -248,7 +245,10 @@ async def execute_sql(request: ExecuteSQLRequest):
                 return v.item()
             return v
 
-        data = [{k: convert_value(v) for k, v in row.items()} for row in df.to_dict(orient="records")]
+        data = [
+            {k: convert_value(v) for k, v in row.items()}
+            for row in df.to_dict(orient="records")
+        ]
 
         return ExecuteSQLResponse(
             data=data,
@@ -257,6 +257,8 @@ async def execute_sql(request: ExecuteSQLRequest):
         )
     except HTTPException:
         raise
+    except NaoConfigError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

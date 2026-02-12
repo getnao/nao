@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { CreditCardIcon, MessageSquarePlusIcon, MoonIcon, SettingsIcon, SunIcon } from 'lucide-react';
+import { CreditCardIcon, MessageSquarePlusIcon, MoonIcon, SettingsIcon, SunIcon, UserIcon } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import type { LucideIcon } from 'lucide-react';
 
@@ -44,9 +44,16 @@ export function CommandMenu() {
 			},
 			{
 				id: 'open-settings',
-				label: 'Open Settings',
+				label: 'Open Profile',
+				icon: UserIcon,
+				action: () => navigate({ to: '/settings/profile' }),
+				group: 'Jump to',
+			},
+			{
+				id: 'open-project-settings',
+				label: 'Open Project Settings',
 				icon: SettingsIcon,
-				action: () => navigate({ to: '/settings' }),
+				action: () => navigate({ to: '/settings/project' }),
 				group: 'Jump to',
 			},
 			{

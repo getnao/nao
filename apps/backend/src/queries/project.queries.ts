@@ -1,6 +1,6 @@
 import { and, eq } from 'drizzle-orm';
 
-import s, { DBProject, DBProjectMember, NewProject, NewProjectMember } from '../db/abstractSchema';
+import s, { AgentSettings, DBProject, DBProjectMember, NewProject, NewProjectMember } from '../db/abstractSchema';
 import { db } from '../db/db';
 import { env } from '../env';
 import { UserRole, UserWithRole } from '../types/project';
@@ -107,4 +107,14 @@ export const checkProjectHasMoreThanOneAdmin = async (projectId: string): Promis
 	const userWithRoles = await getAllUsersWithRoles(projectId);
 	const nbAdmin = userWithRoles.filter((u) => u.role === 'admin').length;
 	return nbAdmin > 1;
+};
+
+export const getAgentSettings = async (projectId: string): Promise<AgentSettings | null> => {
+	const project = await getProjectById(projectId);
+	return project?.agentSettings ?? null;
+};
+
+export const updateAgentSettings = async (projectId: string, settings: AgentSettings): Promise<AgentSettings> => {
+	await db.update(s.project).set({ agentSettings: settings }).where(eq(s.project.id, projectId)).execute();
+	return settings;
 };

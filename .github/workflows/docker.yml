@@ -97,6 +97,5 @@ jobs:
                         -e "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" \
                         -e "ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}" \
                         -e "BETTER_AUTH_SECRET=${{ secrets.BETTER_AUTH_SECRET }}" \
-                        -e "FASTAPI_URL=http://127.0.0.1:8005" \
                         --name nao-chat \
                         -d getnao/nao:${{ needs.build-and-push.outputs.image-tag }}
