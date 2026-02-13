@@ -42,6 +42,10 @@ function ProjectPage() {
 	const project = useQuery(trpc.project.getCurrent.queryOptions());
 
 	const isAdmin = project.data?.userRole === 'admin';
+	const appVersion = useQuery({
+		...trpc.system.version.queryOptions(),
+		enabled: isAdmin,
+	});
 
 	return (
 		<div className='flex flex-row gap-6'>
@@ -90,6 +94,31 @@ function ProjectPage() {
 								<SettingsCard title='Google Credentials'>
 									<GoogleConfigSection isAdmin={isAdmin} />
 								</SettingsCard>
+
+								{isAdmin && (
+									<SettingsCard title='Application'>
+										<div className='space-y-3 text-sm'>
+											<div className='flex items-center justify-between gap-4 border-b border-border/60 pb-2'>
+												<span className='text-muted-foreground'>Version</span>
+												<span className='font-mono text-foreground'>
+													{appVersion.data?.version ?? 'unknown'}
+												</span>
+											</div>
+											<div className='flex items-center justify-between gap-4 border-b border-border/60 pb-2'>
+												<span className='text-muted-foreground'>Commit</span>
+												<span className='font-mono text-foreground'>
+													{appVersion.data?.commit ?? 'unknown'}
+												</span>
+											</div>
+											<div className='flex items-center justify-between gap-4'>
+												<span className='text-muted-foreground'>Build date</span>
+												<span className='font-mono text-foreground'>
+													{appVersion.data?.buildDate || 'unknown'}
+												</span>
+											</div>
+										</div>
+									</SettingsCard>
+								)}
 							</div>
 						)}
 

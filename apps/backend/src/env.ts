@@ -33,6 +33,9 @@ const envSchema = z.object({
 	SLACK_SIGNING_SECRET: z.string().optional(),
 
 	FASTAPI_PORT: z.coerce.number().default(8005),
+	APP_VERSION: z.string().default('dev'),
+	APP_COMMIT: z.string().default('unknown'),
+	APP_BUILD_DATE: z.string().default(''),
 
 	NAO_DEFAULT_PROJECT_PATH: z.string().optional(),
 
