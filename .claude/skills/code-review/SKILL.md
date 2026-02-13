@@ -1,5 +1,5 @@
 ---
-allowed-tools: Bash(gh issue view *), Bash(gh search *), Bash(gh issue list *), Bash(gh pr comment *), Bash(gh pr diff *), Bash(gh pr view *), Bash(gh pr list *), Bash(npm install), Bash(npm run lint*), Bash(gh api *), Bash(gh extension list *)
+allowed-tools: Bash(gh issue view:*), Bash(gh search:*), Bash(gh issue list:*), Bash(gh pr comment:*), Bash(gh pr diff:*), Bash(gh pr view:*), Bash(gh pr list:*), Bash(npm install), Bash(npm run lint*), Bash(gh api *), Bash(gh extension list *)
 description: Review a pull request
 ---
 
