@@ -1,10 +1,13 @@
-import { ArrowUpIcon, ChevronDown, SquareIcon, SparklesIcon } from 'lucide-react';
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { ArrowUpIcon, ChevronDown, SquareIcon } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import type { FormEvent, KeyboardEvent } from 'react';
+import { Prompt } from 'prompt-mentions';
+import type { PromptTheme, PromptHandle, SelectedMention } from 'prompt-mentions';
+import 'prompt-mentions/style.css';
+import type { FormEvent } from 'react';
 
-import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupTextarea } from '@/components/ui/input-group';
+import { InputGroup, InputGroupAddon, InputGroupButton } from '@/components/ui/input-group';
 import {
 	DropdownMenu,
 	DropdownMenuItem,
@@ -16,52 +19,25 @@ import { trpc } from '@/main';
 import { useAgentContext } from '@/contexts/agent.provider';
 import { LlmProviderIcon } from '@/components/ui/llm-provider-icon';
 import { useRegisterSetChatInputCallback } from '@/contexts/set-chat-input-callback';
+import { capitalize } from '@/lib/utils';
 
 export function ChatInput() {
-	const [input, setInput] = useState('');
-	const [showSkillsMenu, setShowSkillsMenu] = useState(false);
-	const [selectedSkillIndex, setSelectedSkillIndex] = useState(0);
-	const inputRef = useRef<HTMLTextAreaElement>(null);
-	const { sendMessage, isRunning, stopAgent, isReadyForNewMessages, selectedModel, setSelectedModel } =
+	const [hasInput, setHasInput] = useState(false);
+	const promptRef = useRef<PromptHandle>(null);
+	const { sendMessage, isRunning, stopAgent, isReadyForNewMessages, selectedModel, setSelectedModel, setMentions } =
 		useAgentContext();
 	const chatId = useParams({ strict: false, select: (p) => p.chatId });
 	const availableModels = useQuery(trpc.project.getAvailableModels.queryOptions());
 	const knownModels = useQuery(trpc.project.getKnownModels.queryOptions());
 	const skills = useQuery(trpc.skill.list.queryOptions());
 
-	// Register the callback function for setting the input value
 	useRegisterSetChatInputCallback((text) => {
-		setInput(text);
-		inputRef.current?.focus();
+		promptRef.current?.clear();
+		promptRef.current?.insertText(text);
+		promptRef.current?.focus();
 	});
 
-	useEffect(() => inputRef.current?.focus(), [chatId]);
-
-	// Detect slash command and filter skills
-	const filteredSkills = useMemo(() => {
-		if (!input.startsWith('/') || !skills.data) {
-			return [];
-		}
-
-		const searchTerm = input.slice(1).toLowerCase();
-		if (!searchTerm) {
-			return skills.data;
-		}
-
-		return skills.data.filter(
-			(skill) =>
-				skill.name.toLowerCase().includes(searchTerm) || skill.description.toLowerCase().includes(searchTerm),
-		);
-	}, [input, skills.data]);
-
-	// Show/hide skills menu based on input
-	useEffect(() => {
-		const shouldShow = input.startsWith('/') && filteredSkills.length > 0;
-		setShowSkillsMenu(shouldShow);
-		if (shouldShow) {
-			setSelectedSkillIndex(0);
-		}
-	}, [input, filteredSkills.length]);
+	useEffect(() => promptRef.current?.focus(), [chatId]);
 
 	// Set default model when available models load, or reset if current selection is no longer available
 	useEffect(() => {
@@ -69,7 +45,6 @@ export function ChatInput() {
 			return;
 		}
 
-		// Check if current selection is still valid
 		const isCurrentSelectionValid =
 			selectedModel &&
 			availableModels.data.some(
@@ -77,52 +52,24 @@ export function ChatInput() {
 			);
 
 		if (!isCurrentSelectionValid) {
-			// Set to first available model
 			setSelectedModel(availableModels.data[0]);
 		}
 	}, [availableModels.data, selectedModel, setSelectedModel]);
 
-	const handleSubmit = (e: FormEvent) => {
-		e.preventDefault();
-		if (!input.trim() || isRunning) {
+	const submit = (text: string, currentMentions: SelectedMention[]) => {
+		if (!text.trim() || isRunning) {
 			return;
 		}
-		sendMessage({ text: input });
-		setInput('');
+		setMentions(currentMentions.map((m) => ({ id: m.id, label: m.label, trigger: m.trigger })));
+		sendMessage({ text });
+		promptRef.current?.clear();
 	};
 
-	const handleSkillSelect = (skillName: string) => {
-		try {
-			setInput('');
-			setShowSkillsMenu(false);
-			sendMessage({ text: `/${skillName}` });
-		} catch (error) {
-			console.error('Failed to load skill content:', error);
-		}
-	};
-
-	const handleKeyDown = (e: KeyboardEvent) => {
-		if (showSkillsMenu) {
-			if (e.key === 'ArrowDown') {
-				e.preventDefault();
-				setSelectedSkillIndex((prev) => Math.min(prev + 1, filteredSkills.length - 1));
-			} else if (e.key === 'ArrowUp') {
-				e.preventDefault();
-				setSelectedSkillIndex((prev) => Math.max(prev - 1, 0));
-			} else if (e.key === 'Escape') {
-				e.preventDefault();
-				setShowSkillsMenu(false);
-			} else if (e.key === 'Enter' && !e.shiftKey) {
-				e.preventDefault();
-				const selectedSkill = filteredSkills[selectedSkillIndex];
-				if (selectedSkill) {
-					handleSkillSelect(selectedSkill.name);
-				}
-			}
-		} else if (e.key === 'Enter' && !e.shiftKey) {
-			e.preventDefault();
-			handleSubmit(e);
-		}
+	const handleSubmit = (e: FormEvent) => {
+		e.preventDefault();
+		const value = promptRef.current?.getValue() ?? '';
+		const mentions = promptRef.current?.getMentions() ?? [];
+		submit(value, mentions);
 	};
 
 	const getModelDisplayName = (provider: string, modelId: string) => {
@@ -134,47 +81,55 @@ export function ChatInput() {
 	const models = availableModels.data ?? [];
 	const hasMultipleModels = models.length > 1;
 
+	const theme: PromptTheme = {
+		backgroundColor: 'transparent',
+		placeholderColor: 'var(--color-muted-foreground)',
+		borderColor: 'transparent',
+		focusBorderColor: 'transparent',
+		focusBoxShadow: 'none',
+		minHeight: '60px',
+		color: 'var(--color-foreground)',
+		menu: {
+			minWidth: '400px',
+			backgroundColor: 'var(--popover)',
+			borderColor: 'var(--border)',
+			color: 'var(--popover-foreground)',
+			itemHoverColor: 'var(--accent)',
+		},
+		pill: {
+			backgroundColor: 'var(--accent)',
+			color: 'var(--accent-foreground)',
+			padding: 'calc(var(--spacing) * 0.4) calc(var(--spacing) * 1.2)',
+			borderRadius: 'var(--radius-sm)',
+		},
+	};
+
 	return (
 		<div className='p-4 pt-0 max-w-3xl w-full mx-auto'>
 			<form onSubmit={handleSubmit} className='mx-auto relative'>
-				{showSkillsMenu && (
-					<div className='absolute bottom-full left-0 right-0 mb-2 bg-popover border rounded-lg shadow-lg max-h-64 overflow-y-auto z-50'>
-						<div className='p-1'>
-							{filteredSkills.map((skill, index) => (
-								<button
-									key={skill.name}
-									type='button'
-									onClick={() => handleSkillSelect(skill.name)}
-									className={`
-										w-full text-left px-3 py-2 rounded-md flex items-start gap-2 cursor-pointer
-										${index === selectedSkillIndex ? 'bg-accent' : 'hover:bg-accent/50'}
-									`}
-								>
-									<SparklesIcon className='size-4 mt-0.5 shrink-0 text-muted-foreground' />
-									<div className='flex-1 min-w-0'>
-										<div className='text-sm font-medium'>{skill.name}</div>
-										<div className='text-xs text-muted-foreground truncate'>
-											{skill.description}
-										</div>
-									</div>
-								</button>
-							))}
-						</div>
-					</div>
-				)}
-
 				<InputGroup htmlFor='chat-input'>
-					<InputGroupTextarea
-						ref={inputRef}
-						autoFocus
+					<Prompt
+						ref={promptRef}
 						placeholder='Ask anything about your data...'
-						value={input}
-						onChange={(e) => setInput(e.target.value)}
-						onKeyDown={handleKeyDown}
-						id='chat-input'
-						className='max-h-64'
+						mentionConfigs={[
+							{
+								trigger: '/',
+								menuPosition: 'above',
+								options:
+									(skills.data &&
+										skills.data.map((s) => ({
+											id: s.name,
+											label: capitalize(s.name.replace(/-/g, ' ')),
+											labelRight: s.description,
+										}))) ||
+									[],
+							},
+						]}
+						onChange={(value) => setHasInput(!!value.trim())}
+						onEnter={(value, mentions) => submit(value, mentions)}
+						className='w-full nao-input'
+						theme={theme}
 					/>
-
 					<InputGroupAddon align='block-end'>
 						{/* Model selector */}
 						{models.length > 0 && (
@@ -238,7 +193,7 @@ export function ChatInput() {
 								variant='default'
 								className='rounded-full ml-auto'
 								size='icon-xs'
-								disabled={!isReadyForNewMessages || !input}
+								disabled={!isReadyForNewMessages || !hasInput}
 							>
 								<ArrowUpIcon />
 								<span className='sr-only'>Send</span>

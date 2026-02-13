@@ -20,6 +20,12 @@ const modelSelectionSchema = z
 	})
 	.optional();
 
+const mentionSchema = z.object({
+	id: z.string(),
+	trigger: z.string(),
+	label: z.string(),
+});
+
 export const chatRoutes = async (app: App) => {
 	app.addHook('preHandler', authMiddleware);
 
@@ -31,6 +37,7 @@ export const chatRoutes = async (app: App) => {
 					message: z.custom<UIMessage>(),
 					chatId: z.string().optional(),
 					model: modelSelectionSchema,
+					mentions: z.array(mentionSchema).optional(),
 				}),
 			},
 		},
@@ -41,6 +48,7 @@ export const chatRoutes = async (app: App) => {
 			const message = request.body.message;
 			let chatId = request.body.chatId;
 			const modelSelection = request.body.model;
+			const mentions = request.body.mentions;
 			const isNewChat = !chatId;
 
 			if (!projectId) {
@@ -82,6 +90,7 @@ export const chatRoutes = async (app: App) => {
 
 			let stream = agent.stream(chat.messages, {
 				sendNewChatData: !!isNewChat,
+				mentions,
 			});
 
 			if (DEBUG_CHUNKS) {

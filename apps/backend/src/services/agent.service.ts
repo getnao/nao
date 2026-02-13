@@ -17,8 +17,8 @@ import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import { AgentSettings } from '../types/agent-settings';
-import { TokenCost, TokenUsage, UIChat, UIMessage } from '../types/chat';
-import { convertToCost, convertToTokenUsage, expandSkillCommand, retrieveProjectById } from '../utils/chat';
+import { Mention, TokenCost, TokenUsage, UIChat, UIMessage } from '../types/chat';
+import { convertToCost, convertToTokenUsage, findLastUserMessage, retrieveProjectById } from '../utils/chat';
 import { getDefaultModelId, getEnvApiKey, getEnvModelSelections, ModelSelection } from '../utils/llm';
 import { skillService } from './skill.service';
 
@@ -162,6 +162,7 @@ class AgentManager {
 		uiMessages: UIMessage[],
 		opts: {
 			sendNewChatData: boolean;
+			mentions?: Mention[];
 		},
 	): ReadableStream {
 		let error: unknown = undefined;
@@ -184,7 +185,7 @@ class AgentManager {
 				// Fetch project path and run agent within project context
 				const project = await retrieveProjectById(this.chat.projectId);
 
-				const messages = await this._buildModelMessages(uiMessages);
+				const messages = await this._buildModelMessages(uiMessages, opts.mentions);
 
 				result = await this._agent.stream({
 					messages,
@@ -250,8 +251,8 @@ class AgentManager {
 	}
 
 	/** Builds and prepares the UI messages into model messages */
-	private async _buildModelMessages(uiMessages: UIMessage[]): Promise<ModelMessage[]> {
-		uiMessages = this._prepareUIMessages(uiMessages);
+	private async _buildModelMessages(uiMessages: UIMessage[], mentions?: Mention[]): Promise<ModelMessage[]> {
+		uiMessages = this._prepareUIMessages(uiMessages, mentions);
 		const modelMessages = await convertToModelMessages(uiMessages);
 		const systemPrompt = renderToMarkdown(SystemPrompt());
 		const systemMessage: ModelMessage = { role: 'system', content: systemPrompt };
@@ -259,9 +260,8 @@ class AgentManager {
 		return modelMessages;
 	}
 
-	private _prepareUIMessages(messages: UIMessage[]): UIMessage[] {
-		// Expand skill commands in the last user message
-		messages = expandSkillCommand(messages, (skillName) => skillService.getSkillContent(skillName));
+	private _prepareUIMessages(messages: UIMessage[], mentions?: Mention[]): UIMessage[] {
+		messages = this._addSkills(messages, mentions);
 
 		return messages.map((msg) => {
 			if (msg.role !== 'assistant') {
@@ -280,6 +280,31 @@ class AgentManager {
 
 			return { ...msg, parts: filteredParts };
 		});
+	}
+
+	private _addSkills(messages: UIMessage[], mentions?: Mention[]): UIMessage[] {
+		const skillMention = mentions?.find((m) => m.trigger === '/');
+		if (!skillMention) {
+			return messages;
+		}
+
+		const skillContent = skillService.getSkillContent(skillMention.id);
+		if (!skillContent) {
+			return messages;
+		}
+
+		const { message: lastUserMessage, index: lastUserMessageIndex } = findLastUserMessage(messages);
+		if (lastUserMessageIndex === -1) {
+			return messages;
+		}
+
+		const updatedMessages = [...messages];
+		const textPartIndex = lastUserMessage.parts.findIndex((part) => part.type === 'text');
+		const newParts = [...lastUserMessage.parts];
+		newParts[textPartIndex] = { type: 'text', text: skillContent };
+		updatedMessages[lastUserMessageIndex] = { ...lastUserMessage, parts: newParts };
+
+		return updatedMessages;
 	}
 
 	/**
