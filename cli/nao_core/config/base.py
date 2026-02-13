@@ -16,6 +16,7 @@ from .llm import LLMConfig
 from .mcp import McpConfig
 from .notion import NotionConfig
 from .repos import RepoConfig
+from .skills import SkillsConfig
 from .slack import SlackConfig
 
 
@@ -35,6 +36,7 @@ class NaoConfig(BaseModel):
     llm: LLMConfig | None = Field(default=None, description="The LLM configuration")
     slack: SlackConfig | None = Field(default=None, description="The Slack configuration")
     mcp: McpConfig | None = Field(default=None, description="The MCP configuration")
+    skills: SkillsConfig | None = Field(default=None, description="The Skills configuration")
 
     @model_validator(mode="before")
     @classmethod
@@ -61,6 +63,7 @@ class NaoConfig(BaseModel):
             slack=cls._prompt_slack(),
             notion=cls._prompt_notion(),
             mcp=cls._prompt_mcp(project_name),
+            skills=cls._prompt_skills(project_name),
         )
 
     @classmethod
@@ -72,6 +75,7 @@ class NaoConfig(BaseModel):
         slack = existing.slack
         notion = existing.notion
         mcp = existing.mcp
+        skills = existing.skills
 
         # Show current config summary
         UI.title("Current Configuration")
@@ -87,6 +91,8 @@ class NaoConfig(BaseModel):
             UI.print("  Notion: configured")
         if mcp:
             UI.print("  MCP: configured")
+        if skills:
+            UI.print("  Skills: configured")
         UI.print()
 
         # Prompt for additions
@@ -105,6 +111,9 @@ class NaoConfig(BaseModel):
         if not mcp:
             mcp = cls._prompt_mcp(existing.project_name)
 
+        if not skills:
+            skills = cls._prompt_skills(existing.project_name)
+
         return cls(
             project_name=existing.project_name,
             databases=databases,
@@ -113,6 +122,7 @@ class NaoConfig(BaseModel):
             slack=slack,
             notion=notion,
             mcp=mcp,
+            skills=skills,
         )
 
     @staticmethod
@@ -184,7 +194,14 @@ class NaoConfig(BaseModel):
     def _prompt_mcp(project_name: str) -> McpConfig | None:
         """Prompt for MCP configuration using questionary."""
         if ask_confirm("Set up MCP servers?", default=False):
-            return McpConfig.promptConfig(project_name)
+            McpConfig.promptConfig(project_name)
+        return None
+
+    @staticmethod
+    def _prompt_skills(project_name: str) -> SkillsConfig | None:
+        """Prompt for Skills configuration using questionary."""
+        if ask_confirm("Set up Skills folder?", default=False):
+            SkillsConfig.promptConfig(project_name)
         return None
 
     def save(self, path: Path) -> None:
@@ -192,7 +209,7 @@ class NaoConfig(BaseModel):
         config_file = path / "nao_config.yaml"
         with config_file.open("w") as f:
             yaml.dump(
-                self.model_dump(mode="json", by_alias=True),
+                self.model_dump(mode="json", by_alias=True, exclude_none=True),
                 f,
                 default_flow_style=False,
                 sort_keys=False,

@@ -157,10 +157,6 @@ def chat():
             env["SLACK_SIGNING_SECRET"] = config.slack.signing_secret
             console.print("[bold green]✓[/bold green] Set Slack environment variables from config")
 
-        if config and config.mcp:
-            env["MCP_JSON_FILE_PATH"] = config.mcp.json_file_path
-            console.print("[bold green]✓[/bold green] Set MCP_JSON_FILE_PATH from config")
-
         env["NAO_DEFAULT_PROJECT_PATH"] = str(Path.cwd())
         env["BETTER_AUTH_URL"] = f"http://localhost:{SERVER_PORT}"
         env["MODE"] = MODE

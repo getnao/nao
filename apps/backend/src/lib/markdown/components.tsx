@@ -97,6 +97,10 @@ export function TitledList({ title, children, maxItems }: { title: string; child
 	);
 }
 
+export function Location({ children }: { children: ReactNode }) {
+	return <>**Location:** `{children}`</>;
+}
+
 export const isRenderable = (node: ReactNode): boolean => {
 	return !(node == null || typeof node === 'boolean');
 };

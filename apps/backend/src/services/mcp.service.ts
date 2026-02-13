@@ -3,9 +3,10 @@ import { debounce } from '@nao/shared/utils';
 import { jsonSchema, type JSONSchema7 } from 'ai';
 import { readFileSync, watch } from 'fs';
 import { callOnce, createRuntime, type Runtime, ServerDefinition, ServerToolInfo } from 'mcporter';
+import { join } from 'path';
 
-import { env } from '../env';
 import { mcpJsonSchema, McpServerConfig, McpServerState } from '../types/mcp';
+import { retrieveProjectById } from '../utils/chat';
 import { prefixToolName, removePrefixToolName, sanitizeTools } from '../utils/tools';
 import { replaceEnvVars } from '../utils/utils';
 
@@ -22,21 +23,24 @@ export class McpService {
 	public cachedMcpState: Record<string, McpServerState> = {};
 
 	constructor() {
-		this._mcpJsonFilePath = env.MCP_JSON_FILE_PATH || '';
+		this._mcpJsonFilePath = '';
 		this._mcpServers = {};
 
 		this._debouncedReconnect = debounce(async () => {
 			await this.loadMcpState();
 		}, 2000);
-		this._setupFileWatcher();
 	}
 
-	public async initializeMcpState(): Promise<void> {
+	public async initializeMcpState(projectId: string): Promise<void> {
 		if (this._initialized) {
 			return;
 		}
 
+		const project = await retrieveProjectById(projectId);
+		this._mcpJsonFilePath = join(project.path!, 'agent', 'mcps', 'mcp.json');
+
 		await this.loadMcpState();
+		this._setupFileWatcher();
 		this._initialized = true;
 	}
 

@@ -2,12 +2,12 @@ import { createUIMessageStreamResponse } from 'ai';
 import { z } from 'zod/v4';
 
 import type { App } from '../app';
-import { env } from '../env';
 import { authMiddleware } from '../middleware/auth';
 import * as chatQueries from '../queries/chat.queries';
 import { agentService } from '../services/agent.service';
 import { mcpService } from '../services/mcp.service';
 import { posthog, PostHogEvent } from '../services/posthog.service';
+import { skillService } from '../services/skill.service';
 import { UIMessage } from '../types/chat';
 import { llmProviderSchema } from '../types/llm';
 
@@ -69,9 +69,8 @@ export const chatRoutes = async (app: App) => {
 				return reply.status(403).send({ error: `You are not authorized to access this chat.` });
 			}
 
-			if (env.MCP_JSON_FILE_PATH) {
-				await mcpService.initializeMcpState();
-			}
+			await mcpService.initializeMcpState(projectId);
+			await skillService.initializeSkills(projectId);
 
 			const agent = await agentService.create({ ...chat, userId, projectId }, abortController, modelSelection);
 
