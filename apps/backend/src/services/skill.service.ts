@@ -29,13 +29,13 @@ class SkillService {
 		if (this._initialized) {
 			return;
 		}
+		this._initialized = true;
 
 		const project = await retrieveProjectById(projectId);
 		this._skillsFolderPath = join(project.path!, 'agent', 'skills');
 
 		this.loadSkills();
 		this._setupFileWatcher();
-		this._initialized = true;
 	}
 
 	public loadSkills(): void {

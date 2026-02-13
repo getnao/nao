@@ -35,13 +35,13 @@ export class McpService {
 		if (this._initialized) {
 			return;
 		}
+		this._initialized = true;
 
 		const project = await retrieveProjectById(projectId);
 		this._mcpJsonFilePath = join(project.path!, 'agent', 'mcps', 'mcp.json');
 
 		await this.loadMcpState();
 		this._setupFileWatcher();
-		this._initialized = true;
 	}
 
 	public async loadMcpState(): Promise<void> {
