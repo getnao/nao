@@ -19,6 +19,12 @@ console = Console()
 TEMPLATE_PREFIX = "databases"
 
 
+def _filter_templates_by_accessor(templates: list[str], db_config: DatabaseConfig) -> list[str]:
+    """Keep only templates whose stem matches the configured accessors."""
+    allowed = {a.value for a in db_config.accessors}
+    return [t for t in templates if Path(t).stem.replace(".md", "") in allowed]
+
+
 def sync_database(
     db_config: DatabaseConfig,
     base_path: Path,
@@ -27,7 +33,7 @@ def sync_database(
 ) -> DatabaseSyncState:
     """Sync a single database by rendering all database templates for each table."""
     engine = get_template_engine(project_path)
-    templates = engine.list_templates(TEMPLATE_PREFIX)
+    templates = _filter_templates_by_accessor(engine.list_templates(TEMPLATE_PREFIX), db_config)
 
     conn = db_config.connect()
     db_name = db_config.get_database_name()
@@ -129,14 +135,13 @@ class DatabaseSyncProvider(SyncProvider):
         total_removed = 0
         sync_states: list[DatabaseSyncState] = []
 
-        # Show which templates will be used
-        engine = get_template_engine(project_path)
-        templates = engine.list_templates(TEMPLATE_PREFIX)
-        template_names = [Path(t).stem.replace(".md", "") for t in templates]
-
         console.print(f"\n[bold cyan]{self.emoji}  Syncing {self.name}[/bold cyan]")
         console.print(f"[dim]Location:[/dim] {output_path.absolute()}")
-        console.print(f"[dim]Templates:[/dim] {', '.join(template_names)}\n")
+
+        for db in items:
+            accessor_names = [a.value for a in db.accessors]
+            console.print(f"[dim]{db.name}:[/dim] {', '.join(accessor_names)}")
+        console.print()
 
         with Progress(
             SpinnerColumn(style="dim"),

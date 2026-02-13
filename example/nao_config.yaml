@@ -1,6 +1,9 @@
 project_name: example
 databases:
 - name: duckdb-jaffle-shop
+  accessors:
+  - columns
+  - preview
   include: []
   exclude: []
   type: duckdb

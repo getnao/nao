@@ -2,7 +2,7 @@ from typing import Annotated, Union
 
 from pydantic import Discriminator, Tag
 
-from .base import DatabaseConfig, DatabaseType
+from .base import DatabaseAccessor, DatabaseConfig, DatabaseType
 from .bigquery import BigQueryConfig
 from .databricks import DatabricksConfig
 from .duckdb import DuckDBConfig
@@ -66,9 +66,10 @@ __all__ = [
     "AnyDatabaseConfig",
     "BigQueryConfig",
     "DATABASE_CONFIG_CLASSES",
-    "DuckDBConfig",
+    "DatabaseAccessor",
     "DatabaseConfig",
     "DatabaseType",
+    "DuckDBConfig",
     "DatabricksConfig",
     "MssqlConfig",
     "SnowflakeConfig",
