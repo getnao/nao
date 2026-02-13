@@ -5,6 +5,7 @@ import { googleRoutes } from './google.routes';
 import { mcpRoutes } from './mcp.routes';
 import { posthogRoutes } from './posthog.routes';
 import { projectRoutes } from './project.routes';
+import { systemRoutes } from './system.routes';
 import { skillRoutes } from './skill.routes';
 import { router } from './trpc';
 import { usageRoutes } from './usage.routes';
@@ -20,6 +21,7 @@ export const trpcRouter = router({
 	google: googleRoutes,
 	account: accountRoutes,
 	mcp: mcpRoutes,
+	system: systemRoutes,
 	skill: skillRoutes,
 });
 

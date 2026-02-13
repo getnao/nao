@@ -73,6 +73,10 @@ RUN uv pip install --system .
 # =============================================================================
 FROM python:3.12-slim AS runtime
 
+ARG APP_VERSION=dev
+ARG APP_COMMIT=unknown
+ARG APP_BUILD_DATE=
+
 # Install Node.js, Bun, git, and supervisor
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
@@ -128,6 +132,9 @@ ENV MODE=prod
 ENV NODE_ENV=production
 ENV BETTER_AUTH_URL=http://localhost:5005
 ENV FASTAPI_PORT=8005
+ENV APP_VERSION=$APP_VERSION
+ENV APP_COMMIT=$APP_COMMIT
+ENV APP_BUILD_DATE=$APP_BUILD_DATE
 ENV NAO_DEFAULT_PROJECT_PATH=/app/example
 ENV NAO_CONTEXT_SOURCE=local
 

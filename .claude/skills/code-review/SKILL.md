@@ -1,5 +1,5 @@
 ---
-allowed-tools: Bash(gh issue view:*), Bash(gh search:*), Bash(gh issue list:*), Bash(gh pr comment:*), Bash(gh pr diff:*), Bash(gh pr view:*), Bash(gh pr list:*), mcp__github_inline_comment__create_inline_comment, Bash(npm install), Bash(npm run lint:*), Bash(gh api), Bash(gh extension list)
+allowed-tools: Bash(gh issue view *), Bash(gh search *), Bash(gh issue list *), Bash(gh pr comment *), Bash(gh pr diff *), Bash(gh pr view *), Bash(gh pr list *), Bash(npm install), Bash(npm run lint*), Bash(gh api *), Bash(gh extension list *)
 description: Review a pull request
 ---
 
@@ -88,6 +88,7 @@ Notes:
 - Use gh CLI to interact with GitHub (e.g., fetch pull requests, create comments). Do not use web fetch.
 - Create a todo list before starting.
 - You must cite and link each issue in inline comments (e.g., if referring to a CLAUDE.md, include a link to it).
+- If you found bugs and can't post inline comments because of tool errors (e.g. "This command requires approval"), use `gh pr comment` to post a PR comment with your report.
 - If no issues are found and `--comment` argument is provided, post a comment with the following format:
 
 ---

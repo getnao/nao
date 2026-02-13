@@ -27,6 +27,14 @@ class DatabaseType(str, Enum):
         return [questionary.Choice(db.value.capitalize(), value=db.value) for db in cls]
 
 
+class DatabaseAccessor(str, Enum):
+    """Available default template accessors for database sync."""
+
+    COLUMNS = "columns"
+    DESCRIPTION = "description"
+    PREVIEW = "preview"
+
+
 class DatabaseConfig(BaseModel, ABC):
     """Base configuration for all database backends."""
 
@@ -40,6 +48,10 @@ class DatabaseConfig(BaseModel, ABC):
     exclude: list[str] = Field(
         default_factory=list,
         description="Glob patterns for schemas/tables to exclude (e.g., 'temp_*.*', '*.backup_*')",
+    )
+    accessors: list[DatabaseAccessor] = Field(
+        default_factory=lambda: list(DatabaseAccessor),
+        description="Which default templates to render per table (e.g., ['columns', 'description']). Defaults to all.",
     )
 
     @classmethod
