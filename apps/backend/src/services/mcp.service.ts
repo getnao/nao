@@ -2,7 +2,7 @@ import type { Tool } from '@ai-sdk/provider-utils';
 import { debounce } from '@nao/shared/utils';
 import { jsonSchema, type JSONSchema7 } from 'ai';
 import { readFileSync, watch } from 'fs';
-import { callOnce, createRuntime, type Runtime, ServerDefinition, ServerToolInfo } from 'mcporter';
+import { createRuntime, type Runtime, ServerDefinition, ServerToolInfo } from 'mcporter';
 
 import { env } from '../env';
 import { mcpJsonSchema, McpServerConfig, McpServerState } from '../types/mcp';
@@ -183,9 +183,11 @@ export class McpService {
 			throw new Error(`Tool ${toolName} not found in any server`);
 		}
 
-		const result = await callOnce({
-			server: serverName,
-			toolName: removePrefixToolName(toolName),
+		if (!this._runtime) {
+			throw new Error('Runtime not initialized');
+		}
+
+		const result = await this._runtime.callTool(serverName, removePrefixToolName(toolName), {
 			args: toolArgs,
 		});
 
