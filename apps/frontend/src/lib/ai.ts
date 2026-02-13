@@ -4,7 +4,7 @@ import {
 	getStaticToolName as getStaticToolNameAi,
 	getToolName as getToolNameAi,
 } from 'ai';
-import type { ReasoningUIPart } from 'ai';
+import type { ReasoningUIPart, ToolUIPart } from 'ai';
 import type { UseChatHelpers } from '@ai-sdk/react';
 import type { UITools, UIToolPart, UIMessage, UIMessagePart, StaticToolName } from '@nao/backend/chat';
 import type { CollapsiblePart, ToolGroupPart, GroupedMessagePart } from '@/types/ai';
@@ -25,6 +25,10 @@ export const getStaticToolName = getStaticToolNameAi<UITools>;
 
 /** Get the name of any tool part (static or dynamic). Returns a string. */
 export const getToolName = getToolNameAi;
+
+export const isToolInputStreaming = (part: ToolUIPart) => {
+	return part.state === 'input-streaming';
+};
 
 /**
  * Check if the agent is actively generating content (streaming text or executing tools).
@@ -119,19 +123,22 @@ export const isCollapsiblePart = (part: UIMessagePart): part is CollapsiblePart 
 	}
 	if (isToolUIPart(part)) {
 		const toolName = getToolName(part);
-		return !(NON_COLLAPSIBLE_TOOLS as readonly string[]).includes(toolName);
+		return !NON_COLLAPSIBLE_TOOLS.includes(toolName as StaticToolName);
 	}
 	return false;
 };
 
 export const getLastFollowUpSuggestions = (messages: UIMessage[]): { suggestions: string[]; isLoading: boolean } => {
 	const followUpSuggestionsToolCallPart = messages.at(-1)?.parts.find((p) => p.type === 'tool-suggest_follow_ups');
-	if (!followUpSuggestionsToolCallPart || followUpSuggestionsToolCallPart.state === 'input-streaming') {
+	if (!followUpSuggestionsToolCallPart) {
 		return { suggestions: [], isLoading: false };
 	}
 
+	const isInputStreaming = isToolInputStreaming(followUpSuggestionsToolCallPart);
+	const suggestions = isInputStreaming ? [] : (followUpSuggestionsToolCallPart.input?.suggestions ?? []);
+
 	return {
-		suggestions: followUpSuggestionsToolCallPart.input?.suggestions ?? [],
-		isLoading: !isToolSettled(followUpSuggestionsToolCallPart),
+		suggestions,
+		isLoading: isInputStreaming,
 	};
 };

@@ -5,6 +5,7 @@ import { Chat as Agent, useChat } from '@ai-sdk/react';
 import { DefaultChatTransport } from 'ai';
 import { useCurrent } from './useCurrent';
 import { useMemoObject } from './useMemoObject';
+import { usePrevRef } from './use-prev';
 import type { ScrollToBottom, ScrollToBottomOptions } from 'use-stick-to-bottom';
 import type { UseChatHelpers } from '@ai-sdk/react';
 import type { UIMessage } from '@nao/backend/chat';
@@ -193,28 +194,24 @@ export const useSyncMessages = ({ agent }: { agent: AgentHelpers }) => {
 /** Dispose inactive agents to free up memory */
 export const useDisposeInactiveAgents = () => {
 	const chatId = useParams({ strict: false }).chatId;
-	const prevChatIdRef = useRef(chatId);
+	const prevChatIdRef = usePrevRef(chatId);
 
 	useEffect(() => {
-		try {
-			if (!prevChatIdRef.current || chatId === prevChatIdRef.current) {
-				return;
-			}
-
-			const agentIdToDispose = prevChatIdRef.current;
-			const agent = agentService.getAgent(agentIdToDispose);
-			if (!agent) {
-				return;
-			}
-
-			const isRunning = checkIsAgentRunning(agent);
-			if (!isRunning) {
-				agentService.disposeAgent(agentIdToDispose);
-			}
-		} finally {
-			prevChatIdRef.current = chatId;
+		if (!prevChatIdRef.current || chatId === prevChatIdRef.current) {
+			return;
 		}
-	}, [chatId]);
+
+		const agentIdToDispose = prevChatIdRef.current;
+		const agent = agentService.getAgent(agentIdToDispose);
+		if (!agent) {
+			return;
+		}
+
+		const isRunning = checkIsAgentRunning(agent);
+		if (!isRunning) {
+			agentService.disposeAgent(agentIdToDispose);
+		}
+	}, [chatId, prevChatIdRef]);
 };
 
 const useScrollDownCallbackService = () => {
