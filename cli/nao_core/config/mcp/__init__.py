@@ -14,7 +14,7 @@ class McpConfig(BaseModel):
     json_file_path: str = Field(description="Path to the MCP JSON configuration file")
 
     @classmethod
-    def promptConfig(cls, project_name: str) -> "McpConfig":
+    def promptConfig(cls, project_name: str) -> None:
         """Interactively prompt the user for MCP configuration."""
         json_file_path = "./agent/mcps/mcp.json"
 
@@ -58,5 +58,3 @@ class McpConfig(BaseModel):
 
         elif not absolute_path.is_file():
             raise ValueError(f"MCP JSON path exists but is not a file: {absolute_path}")
-
-        return cls(json_file_path=json_file_path)

@@ -15,7 +15,7 @@ class SkillsConfig(BaseModel):
     folder_path: str = Field(description="Path to the skills folder")
 
     @classmethod
-    def promptConfig(cls, project_name: str) -> "SkillsConfig":
+    def promptConfig(cls, project_name: str) -> None:
         """Prompt for skills configuration."""
         folder_path = "./agent/skills/"
 
@@ -44,5 +44,3 @@ class SkillsConfig(BaseModel):
 
         elif not absolute_path.is_dir():
             raise ValueError(f"Skills path exists but is not a directory: {absolute_path}")
-
-        return cls(folder_path=folder_path)

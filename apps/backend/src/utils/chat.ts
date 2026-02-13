@@ -3,8 +3,10 @@ import { LanguageModelUsage } from 'ai';
 import { LLM_PROVIDERS } from '../agents/providers';
 import * as projectQueries from '../queries/project.queries';
 import { DBProject } from '../queries/project-slack-config.queries';
-import { TokenCost, TokenUsage } from '../types/chat';
+import { TokenCost, TokenUsage, UIMessage } from '../types/chat';
 import { LlmProvider } from '../types/llm';
+
+const SKILL_COMMAND_PATTERN = /^\/([a-zA-Z0-9_-]+)(?:\s|$)/;
 
 export const convertToTokenUsage = (usage: LanguageModelUsage): TokenUsage => ({
 	inputTotalTokens: usage.inputTokens,
@@ -63,4 +65,54 @@ export const retrieveProjectById = async (projectId: string): Promise<DBProject>
 		throw new Error(`Project path not configured: ${projectId}`);
 	}
 	return project;
+};
+
+export const findLastUserMessage = (messages: UIMessage[]): { message: UIMessage; index: number } => {
+	let lastUserMessageIndex = -1;
+	for (let i = messages.length - 1; i >= 0; i--) {
+		if (messages[i].role === 'user') {
+			lastUserMessageIndex = i;
+			break;
+		}
+	}
+	return { message: messages[lastUserMessageIndex], index: lastUserMessageIndex };
+};
+
+export const expandSkillCommand = (
+	messages: UIMessage[],
+	getSkillContent: (skillName: string) => string | null,
+): UIMessage[] => {
+	const { message: lastUserMessage, index: lastUserMessageIndex } = findLastUserMessage(messages);
+
+	if (lastUserMessageIndex === -1) {
+		return messages;
+	}
+
+	const textPart = lastUserMessage.parts.find((part) => part.type === 'text') as { text?: string } | undefined;
+
+	// Early return if no text or doesn't start with '/'
+	if (!textPart?.text?.startsWith('/')) {
+		return messages;
+	}
+
+	const match = textPart.text.match(SKILL_COMMAND_PATTERN);
+	if (!match) {
+		return messages;
+	}
+
+	const skillName = match[1];
+	const skillContent = getSkillContent(skillName);
+
+	if (!skillContent) {
+		return messages;
+	}
+
+	// Replace the message with expanded skill content
+	const updatedMessages = [...messages];
+	const textPartIndex = lastUserMessage.parts.findIndex((part) => part.type === 'text');
+	const newParts = [...lastUserMessage.parts];
+	newParts[textPartIndex] = { type: 'text', text: skillContent };
+	updatedMessages[lastUserMessageIndex] = { ...lastUserMessage, parts: newParts };
+
+	return updatedMessages;
 };

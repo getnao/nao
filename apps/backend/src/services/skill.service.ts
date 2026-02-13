@@ -29,13 +29,13 @@ class SkillService {
 		if (this._initialized) {
 			return;
 		}
-		this._initialized = true;
 
 		const project = await retrieveProjectById(projectId);
 		this._skillsFolderPath = join(project.path!, 'agent', 'skills');
 
 		this.loadSkills();
 		this._setupFileWatcher();
+		this._initialized = true;
 	}
 
 	public loadSkills(): void {
@@ -49,6 +49,20 @@ class SkillService {
 
 	public getSkills(): Skill[] {
 		return this._skills;
+	}
+
+	public getSkillContent(skillName: string): string | null {
+		const skill = this._skills.find((s) => s.name === skillName);
+		if (!skill) {
+			return null;
+		}
+
+		try {
+			return readFileSync(skill.location, 'utf8');
+		} catch (error) {
+			console.error(`[skills] Failed to read skill content for ${skillName}:`, error);
+			return null;
+		}
 	}
 
 	private _loadSkillsFromFolder(): void {

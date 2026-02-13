@@ -18,8 +18,9 @@ import * as projectQueries from '../queries/project.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import { AgentSettings } from '../types/agent-settings';
 import { TokenCost, TokenUsage, UIChat, UIMessage } from '../types/chat';
-import { convertToCost, convertToTokenUsage, retrieveProjectById } from '../utils/chat';
+import { convertToCost, convertToTokenUsage, expandSkillCommand, retrieveProjectById } from '../utils/chat';
 import { getDefaultModelId, getEnvApiKey, getEnvModelSelections, ModelSelection } from '../utils/llm';
+import { skillService } from './skill.service';
 
 export type { ModelSelection };
 
@@ -259,6 +260,9 @@ class AgentManager {
 	}
 
 	private _prepareUIMessages(messages: UIMessage[]): UIMessage[] {
+		// Expand skill commands in the last user message
+		messages = expandSkillCommand(messages, (skillName) => skillService.getSkillContent(skillName));
+
 		return messages.map((msg) => {
 			if (msg.role !== 'assistant') {
 				return msg;
