@@ -1,12 +1,13 @@
 import { mcpService } from '../services/mcp.service';
-import { adminProtectedProcedure, protectedProcedure, router } from './trpc';
+import { adminProtectedProcedure, projectProtectedProcedure, router } from './trpc';
 
 export const mcpRoutes = router({
-	getState: protectedProcedure.query(() => {
+	getState: projectProtectedProcedure.query(() => {
 		return mcpService.cachedMcpState;
 	}),
 
-	reconnect: adminProtectedProcedure.mutation(async () => {
+	reconnect: adminProtectedProcedure.mutation(async ({ ctx }) => {
+		await mcpService.initializeMcpState(ctx.project.id);
 		await mcpService.loadMcpState();
 		return mcpService.cachedMcpState;
 	}),

@@ -3,7 +3,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from nao_core.ui import UI, ask_confirm, ask_text
+from nao_core.ui import UI, ask_confirm
 
 from .template import generate_default_template, generate_metabase_template
 
@@ -14,24 +14,15 @@ class McpConfig(BaseModel):
     json_file_path: str = Field(description="Path to the MCP JSON configuration file")
 
     @classmethod
-    def promptConfig(cls, project_name: str) -> "McpConfig":
+    def promptConfig(cls, project_name: str) -> None:
         """Interactively prompt the user for MCP configuration."""
-        UI.info("Enter the path to your MCP JSON configuration file:")
-
-        json_file_path = ask_text(
-            "MCP JSON file path:",
-            required_field=True,
-            default="./agent/mcps/mcp.json",
-        )
-        if not json_file_path:
-            raise ValueError("MCP JSON file path is required")
+        json_file_path = "./agent/mcps/mcp.json"
 
         # Expand user home directory if present
         file_path = Path(json_file_path).expanduser()
 
         # Resolve to absolute path for validation and file operations
         if not file_path.is_absolute():
-            # Use project_name as base path if provided
             base_path = Path(project_name) if project_name else Path.cwd()
             absolute_path = (base_path / file_path).resolve()
         else:
@@ -67,7 +58,3 @@ class McpConfig(BaseModel):
 
         elif not absolute_path.is_file():
             raise ValueError(f"MCP JSON path exists but is not a file: {absolute_path}")
-
-        return McpConfig(
-            json_file_path=json_file_path,
-        )

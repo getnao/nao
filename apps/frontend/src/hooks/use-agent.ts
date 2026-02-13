@@ -10,6 +10,7 @@ import type { ScrollToBottom, ScrollToBottomOptions } from 'use-stick-to-bottom'
 import type { UseChatHelpers } from '@ai-sdk/react';
 import type { UIMessage } from '@nao/backend/chat';
 import type { LlmProvider } from '@nao/backend/llm';
+import type { MentionOption } from 'prompt-mentions';
 import { useChatQuery, useSetChat } from '@/queries/use-chat-query';
 import { trpc } from '@/main';
 import { agentService } from '@/services/agents';
@@ -60,6 +61,7 @@ export type AgentHelpers = {
 	clearError: UseChatHelpers<UIMessage>['clearError'];
 	selectedModel: ModelSelection;
 	setSelectedModel: (model: ModelSelection) => void;
+	setMentions: (mentions: MentionOption[]) => void;
 };
 
 export const useAgent = (): AgentHelpers => {
@@ -70,12 +72,17 @@ export const useAgent = (): AgentHelpers => {
 	const scrollDownService = useScrollDownCallbackService();
 	const [selectedModel, setSelectedModelState] = useState<ModelSelection>(getStoredModel);
 	const selectedModelRef = useCurrent(selectedModel);
+	const mentionsRef = useRef<MentionOption[]>([]);
 	const setChat = useSetChat();
 	const setChatList = useSetChatList();
 
 	const setSelectedModel = useCallback((model: ModelSelection) => {
 		setSelectedModelState(model);
 		storeModel(model);
+	}, []);
+
+	const setMentions = useCallback((mentions: MentionOption[]) => {
+		mentionsRef.current = mentions;
 	}, []);
 
 	const agentInstance = useMemo(() => {
@@ -89,11 +96,14 @@ export const useAgent = (): AgentHelpers => {
 			transport: new DefaultChatTransport({
 				api: '/api/chat/agent',
 				prepareSendMessagesRequest: (options) => {
+					const mentions = mentionsRef.current;
+					mentionsRef.current = [];
 					return {
 						body: {
 							chatId: chatIdRef.current, // Using the ref to send new id when chat was created
 							message: options.messages.at(-1),
 							model: selectedModelRef.current ?? undefined,
+							mentions: mentions.length > 0 ? mentions : undefined,
 						},
 					};
 				},
@@ -167,6 +177,7 @@ export const useAgent = (): AgentHelpers => {
 		clearError: agent.clearError,
 		selectedModel,
 		setSelectedModel,
+		setMentions,
 	});
 };
 

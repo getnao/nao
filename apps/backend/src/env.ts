@@ -39,8 +39,6 @@ const envSchema = z.object({
 
 	NAO_DEFAULT_PROJECT_PATH: z.string().optional(),
 
-	MCP_JSON_FILE_PATH: z.string().optional(),
-
 	POSTHOG_KEY: z.string().optional(),
 	POSTHOG_HOST: z.url({ message: 'POSTHOG_HOST must be a valid URL' }).optional(),
 	POSTHOG_DISABLED: z

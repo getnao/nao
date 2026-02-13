@@ -77,3 +77,9 @@ export type TokenCost = {
 	output?: number;
 	totalCost?: number;
 };
+
+export type Mention = {
+	id: string;
+	label: string;
+	trigger: string;
+};

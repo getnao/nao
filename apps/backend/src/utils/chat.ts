@@ -3,7 +3,7 @@ import { LanguageModelUsage } from 'ai';
 import { LLM_PROVIDERS } from '../agents/providers';
 import * as projectQueries from '../queries/project.queries';
 import { DBProject } from '../queries/project-slack-config.queries';
-import { TokenCost, TokenUsage } from '../types/chat';
+import { TokenCost, TokenUsage, UIMessage } from '../types/chat';
 import { LlmProvider } from '../types/llm';
 
 export const convertToTokenUsage = (usage: LanguageModelUsage): TokenUsage => ({
@@ -63,4 +63,15 @@ export const retrieveProjectById = async (projectId: string): Promise<DBProject>
 		throw new Error(`Project path not configured: ${projectId}`);
 	}
 	return project;
+};
+
+export const findLastUserMessage = (messages: UIMessage[]): { message: UIMessage; index: number } => {
+	let lastUserMessageIndex = -1;
+	for (let i = messages.length - 1; i >= 0; i--) {
+		if (messages[i].role === 'user') {
+			lastUserMessageIndex = i;
+			break;
+		}
+	}
+	return { message: messages[lastUserMessageIndex], index: lastUserMessageIndex };
 };

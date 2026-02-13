@@ -6,6 +6,7 @@ import { mcpRoutes } from './mcp.routes';
 import { posthogRoutes } from './posthog.routes';
 import { projectRoutes } from './project.routes';
 import { systemRoutes } from './system.routes';
+import { skillRoutes } from './skill.routes';
 import { router } from './trpc';
 import { usageRoutes } from './usage.routes';
 import { userRoutes } from './user.routes';
@@ -21,6 +22,7 @@ export const trpcRouter = router({
 	account: accountRoutes,
 	mcp: mcpRoutes,
 	system: systemRoutes,
+	skill: skillRoutes,
 });
 
 export type TrpcRouter = typeof trpcRouter;
