@@ -7,6 +7,7 @@ from typing import Any
 from rich.console import Console
 from rich.progress import (
     BarColumn,
+    MofNCompleteColumn,
     Progress,
     SpinnerColumn,
     TaskProgressColumn,
@@ -228,6 +229,7 @@ class DatabaseSyncProvider(SyncProvider):
             SpinnerColumn(style="dim"),
             TextColumn("[progress.description]{task.description}"),
             BarColumn(bar_width=30, style="dim", complete_style="cyan", finished_style="green"),
+            MofNCompleteColumn(),
             TaskProgressColumn(),
             TimeElapsedColumn(),
             console=console,
