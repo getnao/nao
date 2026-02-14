@@ -75,9 +75,14 @@ class TestSyncDatabaseErrorLogging:
 
         # Verify console was called with error
         mock_console.print.assert_called()
-        error_msg = mock_console.print.call_args[0][0]
-        assert "[bold red]✗[/bold red]" in error_msg
-        assert "preview.md" in error_msg
+        # console.print is called multiple times (connection, schemas, progress, error, summary).
+        # The error line with [bold red]✗[/bold red] is not the last call,
+        # so we search call_args_list instead of call_args (which only returns the last call).
+        all_output = [call.args[0] for call in mock_console.print.call_args_list if call.args]
+        error_lines = [line for line in all_output if "[bold red]✗[/bold red]" in line]
+        assert len(error_lines) == 1, f"Expected exactly 1 error line, got {len(error_lines)}"
+        error_msg = error_lines[0]
+        assert "preview" in error_msg
         assert "test_schema.test_table" in error_msg
         assert "Database connection failed!" in error_msg
 
@@ -112,9 +117,11 @@ class TestSyncDatabaseErrorLogging:
 
         # Verify console was called with error
         mock_console.print.assert_called()
-        error_msg = mock_console.print.call_args[0][0]
-        assert "[bold red]✗[/bold red]" in error_msg
-        assert "columns.md" in error_msg
+        all_output = [call.args[0] for call in mock_console.print.call_args_list if call.args]
+        error_lines = [line for line in all_output if "[bold red]✗[/bold red]" in line]
+        assert len(error_lines) == 1, f"Expected exactly 1 error line, got {len(error_lines)}"
+        error_msg = error_lines[0]
+        assert "columns" in error_msg
         assert "public.users" in error_msg
         assert "Column metadata not available" in error_msg
 
@@ -143,13 +150,14 @@ class TestSyncDatabaseErrorLogging:
         _, mock_console = run_sync_with_mocks(db_config, engine, tmp_path, mock_progress)
 
         # Verify error message contains all expected parts
-        mock_console.print.assert_called_once()
-        error_msg = mock_console.print.call_args[0][0]
+        mock_console.print.assert_called()
+        all_output = [call.args[0] for call in mock_console.print.call_args_list if call.args]
+        error_lines = [line for line in all_output if "[bold red]✗[/bold red]" in line]
+        assert len(error_lines) == 1, f"Expected exactly 1 error line, got {len(error_lines)}"
+        error_msg = error_lines[0]
 
-        # Should have bold red X marker
-        assert "[bold red]✗[/bold red]" in error_msg
-        # Should have template name
-        assert "description.md" in error_msg
+        # Should have accessor name
+        assert "description" in error_msg
         # Should have schema.table identifier
         assert "ANALYTICS.CUSTOMERS" in error_msg
         # Should have the actual error message
