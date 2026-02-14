@@ -23,7 +23,7 @@ import {
 } from '@/components/ui/command';
 import { useTheme } from '@/contexts/theme.provider';
 import { trpc } from '@/main';
-import { useSearchChatsQuery } from '@/queries/useSearchChatsQuery';
+import { useSearchChatsQuery } from '@/queries/use-search-chats-query';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 
 type CommandConfig = {

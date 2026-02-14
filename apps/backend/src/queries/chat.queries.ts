@@ -219,15 +219,6 @@ export type SearchChatResult = {
 	matchedText?: string;
 };
 
-/** Case-insensitive LIKE that works with both PostgreSQL and SQLite. */
-const caseInsensitiveLike = (column: Parameters<typeof like>[0], pattern: string) => {
-	if (dbConfig.dialect === Dialect.Postgres) {
-		return sql`${column} ILIKE ${pattern}`;
-	}
-	// SQLite LIKE is case-insensitive by default for ASCII
-	return like(column, pattern);
-};
-
 export const searchUserChats = async (userId: string, query: string, limit = 10): Promise<SearchChatResult[]> => {
 	const searchPattern = `%${query}%`;
 
@@ -287,4 +278,12 @@ export const searchUserChats = async (userId: string, query: string, limit = 10)
 	}
 
 	return results.slice(0, limit);
+};
+
+const caseInsensitiveLike = (column: Parameters<typeof like>[0], pattern: string) => {
+	if (dbConfig.dialect === Dialect.Postgres) {
+		return sql`${column} ILIKE ${pattern}`;
+	}
+	// SQLite LIKE is case-insensitive by default for ASCII
+	return like(column, pattern);
 };
