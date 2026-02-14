@@ -74,6 +74,10 @@ class DatabaseContext:
         """Return the number of columns in the table."""
         return len(self.table.schema())
 
+    def partition_columns(self) -> list[str]:
+        """Return partition/clustering column names if available."""
+        return []
+
     def description(self) -> str | None:
         """Return the table description if available."""
         return self._table_description
