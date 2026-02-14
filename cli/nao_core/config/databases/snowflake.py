@@ -143,14 +143,31 @@ class SnowflakeConfig(DatabaseConfig):
 
         return True
 
+    def _schema_matches(self, schema: str) -> bool:
+        """Check if a schema could have any matching tables based on include/exclude patterns."""
+        from fnmatch import fnmatch
+
+        schema_lower = schema.lower()
+
+        if self.include:
+            included = any(fnmatch(schema_lower, p.split(".")[0].lower()) for p in self.include)
+            if not included:
+                return False
+
+        if self.exclude:
+            excluded = any(fnmatch(schema_lower, p.split(".")[0].lower()) for p in self.exclude if p.endswith(".*"))
+            if excluded:
+                return False
+
+        return True
+
     def get_schemas(self, conn: BaseBackend) -> list[str]:
         if self.schema_name:
-            # Snowflake schema names are case-insensitive but stored as uppercase
             return [self.schema_name.upper()]
         list_databases = getattr(conn, "list_databases", None)
         schemas = list_databases() if list_databases else []
-        # Filter out INFORMATION_SCHEMA which contains system tables
-        return [s for s in schemas if s != "INFORMATION_SCHEMA"]
+        schemas = [s for s in schemas if s != "INFORMATION_SCHEMA"]
+        return [s for s in schemas if self._schema_matches(s)]
 
     def fetch_table_description(self, conn: BaseBackend, schema: str, table_name: str) -> str | None:
         try:
