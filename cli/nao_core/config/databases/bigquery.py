@@ -1,19 +1,65 @@
 import json
 import logging
-from typing import TYPE_CHECKING, Literal
+from typing import Any, Literal
 
 import ibis
 from ibis import BaseBackend
 from pydantic import Field, field_validator
 
+from nao_core.database_context import DatabaseContext
 from nao_core.ui import ask_select, ask_text
 
 from .base import DatabaseConfig
 
-if TYPE_CHECKING:
-    from nao_core.commands.sync.providers.databases.context import DatabaseContext
-
 logger = logging.getLogger(__name__)
+
+
+class BigQueryDatabaseContext(DatabaseContext):
+    """BigQuery context with partition, clustering, and description discovery."""
+
+    def __init__(self, conn: BaseBackend, schema: str, table_name: str, project_id: str):
+        super().__init__(conn, schema, table_name)
+        self._project_id = project_id
+
+    def partition_columns(self) -> list[str]:
+        try:
+            return _get_bq_partition_columns(self._conn, self._schema, self._table_name)
+        except Exception:
+            logger.debug("Failed to fetch partition columns for %s.%s", self._schema, self._table_name)
+            return []
+
+    def description(self) -> str | None:
+        try:
+            query = f"""
+                SELECT option_value
+                FROM `{self._project_id}.{self._schema}.INFORMATION_SCHEMA.TABLE_OPTIONS`
+                WHERE table_name = '{self._table_name}' AND option_name = 'description'
+            """
+            for row in self._conn.raw_sql(query):  # type: ignore[union-attr]
+                if row[0]:
+                    return str(row[0]).strip().strip('"') or None
+        except Exception:
+            pass
+        return None
+
+    def columns(self) -> list[dict[str, Any]]:
+        cols = super().columns()
+        try:
+            col_descs = self._fetch_column_descriptions()
+            for col in cols:
+                if desc := col_descs.get(col["name"]):
+                    col["description"] = desc
+        except Exception:
+            pass
+        return cols
+
+    def _fetch_column_descriptions(self) -> dict[str, str]:
+        query = f"""
+            SELECT column_name, description
+            FROM `{self._project_id}.{self._schema}.INFORMATION_SCHEMA.COLUMN_FIELD_PATHS`
+            WHERE table_name = '{self._table_name}' AND description IS NOT NULL AND description != ''
+        """
+        return {row[0]: str(row[1]) for row in self._conn.raw_sql(query) if row[1]}  # type: ignore[union-attr]
 
 
 def _get_bq_partition_columns(conn: BaseBackend, schema: str, table: str) -> list[str]:
@@ -142,48 +188,8 @@ class BigQueryConfig(DatabaseConfig):
         list_databases = getattr(conn, "list_databases", None)
         return list_databases() if list_databases else []
 
-    def fetch_table_description(self, conn: BaseBackend, schema: str, table_name: str) -> str | None:
-        try:
-            query = f"""
-                SELECT option_value
-                FROM `{self.project_id}.{schema}.INFORMATION_SCHEMA.TABLE_OPTIONS`
-                WHERE table_name = '{table_name}' AND option_name = 'description'
-            """
-            for row in conn.raw_sql(query):  # type: ignore[union-attr]
-                if row[0]:
-                    # BigQuery stores option_value as a SQL literal with surrounding quotes
-                    return str(row[0]).strip().strip('"') or None
-        except Exception:
-            pass
-        return None
-
-    def fetch_column_descriptions(self, conn: BaseBackend, schema: str, table_name: str) -> dict[str, str]:
-        try:
-            query = f"""
-                SELECT column_name, description
-                FROM `{self.project_id}.{schema}.INFORMATION_SCHEMA.COLUMN_FIELD_PATHS`
-                WHERE table_name = '{table_name}' AND description IS NOT NULL AND description != ''
-            """
-            return {row[0]: str(row[1]) for row in conn.raw_sql(query) if row[1]}  # type: ignore[union-attr]
-        except Exception:
-            return {}
-
-    def create_context(self, conn: BaseBackend, schema: str, table_name: str) -> "DatabaseContext":
-        from nao_core.commands.sync.providers.databases.context import DatabaseContext
-
-        table_desc = self.fetch_table_description(conn, schema, table_name)
-        col_descs = self.fetch_column_descriptions(conn, schema, table_name)
-        ctx = DatabaseContext(conn, schema, table_name, table_description=table_desc, column_descriptions=col_descs)
-
-        def partition_columns() -> list[str]:
-            try:
-                return _get_bq_partition_columns(conn, schema, table_name)
-            except Exception:
-                logger.debug("Failed to fetch partition columns for %s.%s", schema, table_name)
-                return []
-
-        ctx.partition_columns = partition_columns  # type: ignore[assignment]
-        return ctx
+    def create_context(self, conn: BaseBackend, schema: str, table_name: str) -> BigQueryDatabaseContext:
+        return BigQueryDatabaseContext(conn, schema, table_name, project_id=self.project_id)
 
     def check_connection(self) -> tuple[bool, str]:
         """Test connectivity to BigQuery."""

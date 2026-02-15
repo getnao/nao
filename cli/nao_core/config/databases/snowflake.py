@@ -1,7 +1,7 @@
 import logging
 import os
 import re
-from typing import TYPE_CHECKING, Literal
+from typing import Any, Literal
 
 import ibis
 from cryptography.hazmat.backends import default_backend
@@ -10,14 +10,56 @@ from ibis import BaseBackend
 from pydantic import Field
 
 from nao_core.config.exceptions import InitError
+from nao_core.database_context import DatabaseContext
 from nao_core.ui import UI, ask_confirm, ask_text
 
 from .base import DatabaseConfig
 
-if TYPE_CHECKING:
-    from nao_core.commands.sync.providers.databases.context import DatabaseContext
-
 logger = logging.getLogger(__name__)
+
+
+class SnowflakeDatabaseContext(DatabaseContext):
+    """Snowflake context with clustering key and description discovery."""
+
+    def partition_columns(self) -> list[str]:
+        try:
+            return _get_snowflake_clustering_columns(self._conn, self._schema, self._table_name)
+        except Exception:
+            logger.debug("Failed to fetch clustering keys for %s.%s", self._schema, self._table_name)
+            return []
+
+    def description(self) -> str | None:
+        try:
+            query = f"""
+                SELECT COMMENT FROM INFORMATION_SCHEMA.TABLES
+                WHERE TABLE_SCHEMA = '{self._schema}' AND TABLE_NAME = '{self._table_name}'
+            """
+            row = self._conn.raw_sql(query).fetchone()  # type: ignore[union-attr]
+            if row and row[0]:
+                return str(row[0]).strip() or None
+        except Exception:
+            pass
+        return None
+
+    def columns(self) -> list[dict[str, Any]]:
+        cols = super().columns()
+        try:
+            col_descs = self._fetch_column_descriptions()
+            for col in cols:
+                if desc := col_descs.get(col["name"]):
+                    col["description"] = desc
+        except Exception:
+            pass
+        return cols
+
+    def _fetch_column_descriptions(self) -> dict[str, str]:
+        query = f"""
+            SELECT COLUMN_NAME, COMMENT FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_SCHEMA = '{self._schema}' AND TABLE_NAME = '{self._table_name}'
+              AND COMMENT IS NOT NULL AND COMMENT != ''
+        """
+        rows = self._conn.raw_sql(query).fetchall()  # type: ignore[union-attr]
+        return {row[0]: str(row[1]) for row in rows if row[1]}
 
 
 def _get_snowflake_clustering_columns(conn: BaseBackend, schema: str, table: str) -> list[str]:
@@ -196,47 +238,8 @@ class SnowflakeConfig(DatabaseConfig):
         schemas = [s for s in schemas if s != "INFORMATION_SCHEMA"]
         return [s for s in schemas if self._schema_matches(s)]
 
-    def fetch_table_description(self, conn: BaseBackend, schema: str, table_name: str) -> str | None:
-        try:
-            query = f"""
-                SELECT COMMENT FROM INFORMATION_SCHEMA.TABLES
-                WHERE TABLE_SCHEMA = '{schema}' AND TABLE_NAME = '{table_name}'
-            """
-            row = conn.raw_sql(query).fetchone()  # type: ignore[union-attr]
-            if row and row[0]:
-                return str(row[0]).strip() or None
-        except Exception:
-            pass
-        return None
-
-    def fetch_column_descriptions(self, conn: BaseBackend, schema: str, table_name: str) -> dict[str, str]:
-        try:
-            query = f"""
-                SELECT COLUMN_NAME, COMMENT FROM INFORMATION_SCHEMA.COLUMNS
-                WHERE TABLE_SCHEMA = '{schema}' AND TABLE_NAME = '{table_name}'
-                  AND COMMENT IS NOT NULL AND COMMENT != ''
-            """
-            rows = conn.raw_sql(query).fetchall()  # type: ignore[union-attr]
-            return {row[0]: str(row[1]) for row in rows if row[1]}
-        except Exception:
-            return {}
-
-    def create_context(self, conn: BaseBackend, schema: str, table_name: str) -> "DatabaseContext":
-        from nao_core.commands.sync.providers.databases.context import DatabaseContext
-
-        table_desc = self.fetch_table_description(conn, schema, table_name)
-        col_descs = self.fetch_column_descriptions(conn, schema, table_name)
-        ctx = DatabaseContext(conn, schema, table_name, table_description=table_desc, column_descriptions=col_descs)
-
-        def partition_columns() -> list[str]:
-            try:
-                return _get_snowflake_clustering_columns(conn, schema, table_name)
-            except Exception:
-                logger.debug("Failed to fetch clustering keys for %s.%s", schema, table_name)
-                return []
-
-        ctx.partition_columns = partition_columns  # type: ignore[assignment]
-        return ctx
+    def create_context(self, conn: BaseBackend, schema: str, table_name: str) -> SnowflakeDatabaseContext:
+        return SnowflakeDatabaseContext(conn, schema, table_name)
 
     def check_connection(self) -> tuple[bool, str]:
         """Test connectivity to Snowflake."""
