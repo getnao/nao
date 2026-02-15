@@ -1,0 +1,38 @@
+{
+  "team_name": "nao Agent Team",
+  "rotation_order": ["engineering", "qa", "docs", "ops"],
+  "roles": {
+    "engineering": {
+      "id": "engineering",
+      "name": "The Builder",
+      "emoji": "⚙️",
+      "mission": "Implement features, fix bugs, and maintain code quality across backend, frontend, and CLI",
+      "playbook": "agents/playbooks/engineering.md",
+      "domains": ["apps/backend", "apps/frontend", "apps/shared", "cli"]
+    },
+    "qa": {
+      "id": "qa",
+      "name": "The Inspector",
+      "emoji": "🔍",
+      "mission": "Write tests, verify functionality, and ensure code quality through linting and type checking",
+      "playbook": "agents/playbooks/qa.md",
+      "domains": ["tests", "quality", "ci"]
+    },
+    "docs": {
+      "id": "docs",
+      "name": "The Librarian",
+      "emoji": "📚",
+      "mission": "Maintain documentation, README, guides, and ensure code is well-documented",
+      "playbook": "agents/playbooks/docs.md",
+      "domains": ["README.md", "docs", "CLAUDE.md", "CONTRIBUTING.md"]
+    },
+    "ops": {
+      "id": "ops",
+      "name": "The Guardian",
+      "emoji": "🛡️",
+      "mission": "Manage CI/CD, Docker, infrastructure, and maintain development workflows",
+      "playbook": "agents/playbooks/ops.md",
+      "domains": [".github", "Dockerfile", "docker-compose*.yml"]
+    }
+  }
+}
