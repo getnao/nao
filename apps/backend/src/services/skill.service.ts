@@ -32,7 +32,7 @@ class SkillService {
 		this._initialized = true;
 
 		const project = await retrieveProjectById(projectId);
-		this._skillsFolderPath = join(project.path!, 'agent', 'skills');
+		this._skillsFolderPath = join(project.path || '', 'agent', 'skills');
 
 		this.loadSkills();
 		this._setupFileWatcher();
@@ -40,7 +40,20 @@ class SkillService {
 
 	public loadSkills(): void {
 		try {
-			this._loadSkillsFromFolder();
+			if (!existsSync(this._skillsFolderPath)) {
+				console.warn(`[skills] Folder not found: ${this._skillsFolderPath}`);
+				this._skills = [];
+				return;
+			}
+
+			if (!statSync(this._skillsFolderPath).isDirectory()) {
+				console.error(`[skills] Path is not a directory: ${this._skillsFolderPath}`);
+				this._skills = [];
+				return;
+			}
+
+			const files = readdirSync(this._skillsFolderPath).filter((f) => f.endsWith('.md'));
+			this._readSkills(files);
 		} catch (error) {
 			console.error('[skills] Failed to load skills:', error);
 			this._skills = [];
@@ -63,23 +76,6 @@ class SkillService {
 			console.error(`[skills] Failed to read skill content for ${skillName}:`, error);
 			return null;
 		}
-	}
-
-	private _loadSkillsFromFolder(): void {
-		if (!existsSync(this._skillsFolderPath)) {
-			console.warn(`[skills] Folder not found: ${this._skillsFolderPath}`);
-			this._skills = [];
-			return;
-		}
-
-		if (!statSync(this._skillsFolderPath).isDirectory()) {
-			console.error(`[skills] Path is not a directory: ${this._skillsFolderPath}`);
-			this._skills = [];
-			return;
-		}
-
-		const files = readdirSync(this._skillsFolderPath).filter((f) => f.endsWith('.md'));
-		this._readSkills(files);
 	}
 
 	private _readSkills(files: string[]): void {

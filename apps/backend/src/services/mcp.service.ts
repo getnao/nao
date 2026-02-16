@@ -38,7 +38,7 @@ export class McpService {
 		this._initialized = true;
 
 		const project = await retrieveProjectById(projectId);
-		this._mcpJsonFilePath = join(project.path!, 'agent', 'mcps', 'mcp.json');
+		this._mcpJsonFilePath = join(project.path || '', 'agent', 'mcps', 'mcp.json');
 
 		await this.loadMcpState();
 		this._setupFileWatcher();
