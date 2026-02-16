@@ -28,7 +28,7 @@ import { cn, isLast } from '@/lib/utils';
 import { useAgentContext } from '@/contexts/agent.provider';
 import { useHeight } from '@/hooks/use-height';
 import { groupMessages } from '@/lib/messages.utils';
-import { useDebounce } from '@/hooks/use-debounce';
+import { useDebounceValue } from '@/hooks/use-debounce-value';
 
 const DEBUG_MESSAGES = false;
 
@@ -84,8 +84,7 @@ const ChatMessagesContent = ({ isAgentGenerating }: { isAgentGenerating: boolean
 	const isWaitingForAgentContentGeneration = isRunning && !isAgentGenerating;
 
 	// Debounce the value to prevent flickering
-	const debouncedIsWaitingForAgentContentGeneration = useDebounce({
-		value: isWaitingForAgentContentGeneration,
+	const debouncedIsWaitingForAgentContentGeneration = useDebounceValue(isWaitingForAgentContentGeneration, {
 		delay: 50,
 		skipDebounce: (value) => !value, // Skip debounce if the value equals `false` to immediately remove the loader
 	});

@@ -1,38 +1,49 @@
 import { useState } from 'react';
 import { Streamdown } from 'streamdown';
-import { Code, Copy, Table } from 'lucide-react';
-import { useToolCallContext } from '../../contexts/tool-call.provider';
+import { ArrowUpRight, Code, Copy, Table as TableIcon } from 'lucide-react';
 import { ToolCallWrapper } from './tool-call-wrapper';
-import type { executeSql } from '@nao/shared/tools';
+import type { ToolCallComponentProps } from '.';
 import { isToolSettled } from '@/lib/ai';
+import { useSidePanel } from '@/contexts/side-panel';
+import { SidePanelContent } from '@/components/side-panel/sql-editor';
 
 type ViewMode = 'results' | 'query';
 
-export const ExecuteSqlToolCall = () => {
-	const { toolPart } = useToolCallContext();
+export const ExecuteSqlToolCall = ({ toolPart }: ToolCallComponentProps<'execute_sql'>) => {
 	const [viewMode, setViewMode] = useState<ViewMode>('results');
-	const input = toolPart.input as executeSql.Input | undefined;
-	const output = toolPart.output as executeSql.Output | undefined;
 	const isSettled = isToolSettled(toolPart);
+	const { open: openSidePanel } = useSidePanel();
 
 	const actions = [
 		{
 			id: 'results',
-			label: <Table size={12} />,
+			label: <TableIcon className='size-3' />,
+			expandOnClick: true,
 			isActive: viewMode === 'results',
 			onClick: () => setViewMode('results'),
 		},
 		{
 			id: 'query',
-			label: <Code size={12} />,
+			label: <Code className='size-3' />,
+			expandOnClick: true,
 			isActive: viewMode === 'query',
 			onClick: () => setViewMode('query'),
 		},
 		{
 			id: 'copy',
-			label: <Copy size={12} />,
+			label: <Copy className='size-3' />,
 			onClick: () => {
-				navigator.clipboard.writeText(input?.sql_query ?? '');
+				navigator.clipboard.writeText(toolPart.input?.sql_query ?? '');
+			},
+		},
+		{
+			id: 'expand',
+			label: <ArrowUpRight className='size-3' />,
+			onClick: () => {
+				if (toolPart.state === 'input-streaming' || !toolPart.output || !toolPart.input) {
+					return;
+				}
+				openSidePanel(<SidePanelContent input={toolPart.input} output={toolPart.output} />);
 			},
 		},
 	];
@@ -44,24 +55,24 @@ export const ExecuteSqlToolCall = () => {
 			title={
 				<span>
 					{isSettled ? 'Executed' : 'Executing'}{' '}
-					<span className='text-xs font-normal truncate'>{input?.sql_query}</span>
+					<span className='text-xs font-normal truncate'>{toolPart.input?.sql_query}</span>
 				</span>
 			}
-			badge={output?.row_count && `${output.row_count} rows`}
+			badge={toolPart.output?.row_count && `${toolPart.output.row_count} rows`}
 			actions={isSettled ? actions : []}
 		>
-			{viewMode === 'query' && input?.sql_query ? (
+			{viewMode === 'query' && toolPart.input?.sql_query ? (
 				<div className='overflow-auto max-h-80 hide-code-header'>
 					<Streamdown mode='static' controls={{ code: false }}>
-						{`\`\`\`sql\n${input.sql_query}\n\`\`\``}
+						{`\`\`\`sql\n${toolPart.input.sql_query}\n\`\`\``}
 					</Streamdown>
 				</div>
-			) : output ? (
+			) : toolPart.output ? (
 				<div className='overflow-auto max-h-80'>
 					<table className='text-sm border-collapse w-full'>
 						<thead>
 							<tr className='border-b border-border'>
-								{output.columns.map((column, i) => (
+								{toolPart.output.columns.map((column, i) => (
 									<th
 										key={i}
 										className='text-left p-2.5 font-medium text-foreground/70 bg-background sticky top-0'
@@ -72,7 +83,7 @@ export const ExecuteSqlToolCall = () => {
 							</tr>
 						</thead>
 						<tbody>
-							{output.data?.map((row, rowIndex) => (
+							{toolPart.output.data?.map((row, rowIndex) => (
 								<tr key={rowIndex} className='border-b border-border/50 hover:bg-background/30'>
 									{Object.values(row).map((value, cellIndex) => (
 										<td key={cellIndex} className='p-2.5 font-mono text-xs'>
@@ -87,7 +98,7 @@ export const ExecuteSqlToolCall = () => {
 							))}
 						</tbody>
 					</table>
-					{output.row_count === 0 && (
+					{toolPart.output.row_count === 0 && (
 						<div className='p-4 text-center text-foreground/50 text-sm'>No rows returned</div>
 					)}
 				</div>

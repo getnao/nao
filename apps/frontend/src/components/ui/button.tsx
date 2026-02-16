@@ -1,7 +1,7 @@
 import { Slot } from '@radix-ui/react-slot';
 import { cva } from 'class-variance-authority';
 import * as React from 'react';
-import { Loader2 } from 'lucide-react';
+import { ArrowUpIcon, Loader2, SquareIcon } from 'lucide-react';
 import type { VariantProps } from 'class-variance-authority';
 
 import { cn } from '@/lib/utils';
@@ -87,4 +87,24 @@ function ButtonConnection({ children }: React.ComponentProps<'button'>) {
 	);
 }
 
-export { Button, buttonVariants, ButtonConnection };
+function ChatSendButton({ isRunning, disabled, ...props }: React.ComponentProps<'button'> & { isRunning: boolean }) {
+	disabled = !isRunning && disabled;
+
+	return (
+		<Button
+			{...props}
+			disabled={disabled}
+			className={cn(
+				'rounded-full ml-auto disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100 size-7',
+			)}
+		>
+			{isRunning ? (
+				<SquareIcon fill='currentColor' stroke='currentColor' className='size-3' />
+			) : (
+				<ArrowUpIcon className='size-4' />
+			)}
+		</Button>
+	);
+}
+
+export { Button, ButtonConnection, ChatSendButton as ChatButton };

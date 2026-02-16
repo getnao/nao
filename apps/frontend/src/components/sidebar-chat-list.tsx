@@ -22,7 +22,7 @@ export function ChatList({ chats, className, ...props }: Props) {
 	}
 
 	return (
-		<div className={cn('flex-1 overflow-y-auto p-2 pt-0 space-y-1', className)} {...props}>
+		<div className={cn('flex-1 overflow-y-auto px-2 space-y-1', className)} {...props}>
 			{chats.map((chat) => (
 				<ChatListItem key={chat.id} chat={chat} />
 			))}

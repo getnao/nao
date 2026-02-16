@@ -1,15 +1,13 @@
 import { CornerDownRight } from 'lucide-react';
-import { useToolCallContext } from '../../contexts/tool-call.provider';
 import { Button } from '../ui/button';
 import { Skeleton } from '../ui/skeleton';
-import type { suggestFollowUps } from '@nao/shared/tools';
+import type { ToolCallComponentProps } from '.';
 import { useSetChatInputCallback } from '@/contexts/set-chat-input-callback';
 import { isToolSettled } from '@/lib/ai';
 
-export const SuggestFollowUpsToolCall = () => {
-	const { toolPart } = useToolCallContext();
+export const SuggestFollowUpsToolCall = ({ toolPart }: ToolCallComponentProps<'suggest_follow_ups'>) => {
 	const setPromptCallback = useSetChatInputCallback();
-	const input = toolPart.input as suggestFollowUps.Input | undefined;
+	const input = toolPart.input;
 	const isSettled = isToolSettled(toolPart);
 
 	if (!isSettled) {
@@ -32,7 +30,7 @@ export const SuggestFollowUpsToolCall = () => {
 				<Button
 					key={index}
 					variant='ghost'
-					onClick={() => setPromptCallback.fire(suggestion)}
+					onClick={() => setPromptCallback.fire(suggestion ?? '')}
 					className='justify-start gap-2 px-3 py-2 text-left rounded-lg'
 				>
 					<CornerDownRight size={14} className='text-muted-foreground opacity-50' />

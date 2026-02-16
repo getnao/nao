@@ -10,6 +10,11 @@ body {
 	@apply m-0 h-full overflow-hidden;
 }
 
+* {
+	scrollbar-width: thin;
+	scrollbar-color: var(--border) transparent;
+}
+
 body {
 	font-family:
 		-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans',
@@ -19,7 +24,7 @@ body {
 }
 
 code {
-	font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New', monospace;
+	font-family: var(--font-mono);
 }
 
 @theme inline {
@@ -62,12 +67,14 @@ code {
 	--color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
 	--color-sidebar-border: var(--sidebar-border);
 	--color-sidebar-ring: var(--sidebar-ring);
+
+	--font-mono: source-code-pro, Menlo, Monaco, Consolas, 'Courier New', monospace;
 }
 
 :root {
 	--radius: 0.625rem;
 	--background: oklch(1 0 0);
-	--panel: oklch(0.97 0 0);
+	--panel: oklch(0.98 0 0);
 	--foreground: oklch(0 0 0 / 0.85);
 	--card: oklch(1 0 0);
 	--card-foreground: oklch(0 0 0 / 0.85);

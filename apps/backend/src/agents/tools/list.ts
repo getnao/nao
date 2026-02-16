@@ -3,10 +3,10 @@ import fs from 'fs/promises';
 import path from 'path';
 
 import { ListOutput, renderToModelOutput } from '../../components/tool-outputs';
-import { createTool } from '../../types/tools';
 import { shouldExcludeEntry, toRealPath, toVirtualPath } from '../../utils/tools';
+import { createTool } from '../../utils/tools';
 
-export default createTool({
+export default createTool<list.Input, list.Output>({
 	description: 'List files and directories at the specified path.',
 	inputSchema: list.InputSchema,
 	outputSchema: list.OutputSchema,

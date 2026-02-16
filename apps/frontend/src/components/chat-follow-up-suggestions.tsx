@@ -34,7 +34,7 @@ export const FollowUpSuggestions = ({ suggestions, isLoading }: { suggestions: s
 					className='justify-start gap-2 px-3 py-2 text-left rounded-lg'
 				>
 					<CornerDownRight className='text-muted-foreground opacity-50' />
-					<span className='line-clamp-2'>{suggestion}</span>
+					<span className='line-clamp-2 truncate'>{suggestion}</span>
 				</Button>
 			))}
 		</div>

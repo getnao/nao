@@ -5,7 +5,6 @@
 	"exports": {
 		".": "./src/index.ts",
 		"./posthog": "./src/posthog.ts",
-		"./utils": "./src/utils.ts",
 		"./tools": "./src/tools/index.ts"
 	},
 	"scripts": {

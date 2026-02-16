@@ -63,6 +63,10 @@ export const chatRoutes = async (app: App) => {
 				const createdChat = await chatQueries.createChat({ title, userId, projectId }, message);
 				chatId = createdChat.id;
 			} else {
+				const doesChatExist = await chatQueries.checkChatExists(chatId);
+				if (!doesChatExist) {
+					return reply.status(404).send({ error: `Chat with id ${chatId} not found.` });
+				}
 				// update the existing chat with the new message
 				await chatQueries.upsertMessage(message, { chatId });
 			}

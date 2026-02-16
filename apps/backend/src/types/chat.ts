@@ -48,10 +48,10 @@ export type UIStaticToolPart = ToolUIPartType<UITools>;
 
 export type StaticToolName = keyof UITools;
 
-export type UIStaticToolCallPartType = `tool-${StaticToolName}`;
-
 /** Either a static or dynamic tool part (e.g. MCP tools) */
-export type UIToolPart = UIStaticToolPart | DynamicToolUIPart;
+export type UIToolPart<TToolName extends StaticToolName | undefined = undefined> = TToolName extends StaticToolName
+	? UIStaticToolPart & { type: `tool-${TToolName}` }
+	: UIStaticToolPart | DynamicToolUIPart;
 
 export type ToolState = UIToolPart['state'];
 

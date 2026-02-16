@@ -1,5 +1,5 @@
 import { FileSearch, AlertCircle } from 'lucide-react';
-import { useToolCallContext } from '../../contexts/tool-call.provider';
+import { useToolCallContext } from '../../contexts/tool-call';
 import { ToolCallWrapper } from './tool-call-wrapper';
 import type { grep } from '@nao/shared/tools';
 import { isToolSettled } from '@/lib/ai';

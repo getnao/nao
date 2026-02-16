@@ -9,6 +9,11 @@ import { convertDBPartToUIPart, mapDBPartsToUIParts, mapUIPartsToDBParts } from 
 import { getErrorMessage } from '../utils/utils';
 import * as llmConfigQueries from './project-llm-config.queries';
 
+export const checkChatExists = async (chatId: string): Promise<boolean> => {
+	const result = await db.select().from(s.chat).where(eq(s.chat.id, chatId)).execute();
+	return result.length > 0;
+};
+
 export const listUserChats = async (userId: string): Promise<ListChatResponse> => {
 	const chats = await db
 		.select()

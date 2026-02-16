@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
+import type { TimeAgo } from '@/lib/time-ago';
 import { getTimeAgo } from '@/lib/time-ago';
 
 /** Calculate how long ago a timestamp is and update it with a dynamic interval */
-export const useTimeAgo = (timestamp: number): ReturnType<typeof getTimeAgo> => {
+export const useTimeAgo = (timestamp: number): TimeAgo => {
 	const [timeAgo, setTimeAgo] = useState(getTimeAgo(timestamp));
 
 	useEffect(() => {

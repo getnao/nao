@@ -1,8 +1,25 @@
+import { Tool, tool } from 'ai';
 import fs from 'fs';
 import { minimatch } from 'minimatch';
 import path from 'path';
 
+import { ToolContext } from '../types/tools';
+
 const MCP_TOOL_SEPARATOR = '__';
+
+/** Creates a tool with a typed execution `context` */
+export const createTool = <TInput, TOutput>(
+	opts: Omit<Tool<TInput, TOutput>, 'execute'> & {
+		execute: (input: TInput, context: ToolContext) => Promise<TOutput>;
+	},
+): Tool<TInput, TOutput> => {
+	return tool<TInput, TOutput>({
+		...opts,
+		execute: (input, { experimental_context }) => {
+			return opts.execute(input, experimental_context as ToolContext);
+		},
+	} as Tool<TInput, TOutput>);
+};
 
 /**
  * Directory names that should be excluded from tool operations (list, search, read).
