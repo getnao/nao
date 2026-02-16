@@ -12,6 +12,7 @@ repos:
 - name: dbt
   url: https://github.com/dbt-labs/jaffle_shop_duckdb.git
   branch: null
+  compile_dbt_docs: true
 notion:
   api_key: {{ env('NOTION_API_KEY') }}
   pages:

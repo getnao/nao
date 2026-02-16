@@ -11,6 +11,17 @@ class RepoConfig(BaseModel):
     name: str = Field(description="The name of the repository")
     url: str = Field(description="The URL of the repository")
     branch: Optional[str] = Field(default=None, description="The branch of the repository")
+    compile_dbt_docs: bool = Field(
+        default=False,
+        description=(
+            "If true and the repository is a dbt project (contains dbt_project.yml), "
+            "run `dbt docs generate` after sync to produce compiled docs artifacts."
+        ),
+    )
+    dbt_profiles_dir: Optional[str] = Field(
+        default=None,
+        description="Optional path to pass to `dbt docs generate --profiles-dir`.",
+    )
 
     @classmethod
     def promptConfig(cls) -> "RepoConfig":

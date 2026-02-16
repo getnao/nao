@@ -91,6 +91,29 @@ Syncs configured resources to local files:
 
 After syncing, any Jinja templates (`*.j2` files) in the project directory are rendered with the nao context.
 
+#### dbt compiled docs (optional)
+
+If your dbt project uses centralized docs referenced from YAML (for example `{{ doc('...') }}`), raw source files can
+be harder for the agent to interpret than compiled artifacts.
+
+To pre-compile docs during sync, enable this on a repository in `nao_config.yaml`:
+
+```yaml
+repos:
+  - name: my-dbt
+    url: https://github.com/your-org/your-dbt-repo.git
+    compile_dbt_docs: true
+    # Optional:
+    # dbt_profiles_dir: /path/to/profiles
+```
+
+When enabled, `nao sync` runs `dbt docs generate` and keeps `target/catalog.json` and `target/manifest.json` in the
+repository.
+
+Behavior:
+- Best-effort: sync does not fail if dbt is missing or docs generation fails.
+- Backward compatible: existing configs are unchanged unless `compile_dbt_docs: true` is set.
+
 ### Run tests
 
 ```bash

@@ -183,6 +183,11 @@ For end-to-end self-hosted deployment (for example on Cloud Run with PostgreSQL)
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, commands, and guidelines.
 
+## Recent Updates
+
+- `nao sync` now supports optional dbt docs pre-compilation for repository sources (`compile_dbt_docs: true`), which
+  generates compiled artifacts such as `target/catalog.json` and `target/manifest.json` for richer agent context.
+
 ## 📒 Stack
 
 ### Backend
