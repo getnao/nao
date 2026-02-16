@@ -2,13 +2,14 @@ import { CornerDownRight } from 'lucide-react';
 import { Button } from './ui/button';
 import { Skeleton } from './ui/skeleton';
 import { useSetChatInputCallback } from '@/contexts/set-chat-input-callback';
+import { cn } from '@/lib/utils';
 
 export const FollowUpSuggestions = ({ suggestions, isLoading }: { suggestions: string[]; isLoading: boolean }) => {
 	const setPromptCallback = useSetChatInputCallback();
 
 	if (isLoading) {
 		return (
-			<div className='flex flex-col gap-1'>
+			<div key={'skeleton'} className='flex flex-col gap-1 animate-fade-in-up'>
 				{Array.from({ length: 3 }).map((_, idx) => (
 					<div className='flex justify-start items-center gap-2 px-3 py-2 text-left rounded-lg h-9' key={idx}>
 						<CornerDownRight size={16} className='text-muted-foreground opacity-50 shrink-0' />
@@ -24,7 +25,7 @@ export const FollowUpSuggestions = ({ suggestions, isLoading }: { suggestions: s
 	}
 
 	return (
-		<div className='flex flex-col gap-1'>
+		<div key={'suggestions'} className={cn('flex flex-col gap-1', 'animate-fade-in-up delay-100')}>
 			{suggestions.map((suggestion, index) => (
 				<Button
 					key={index}

@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
 
-export const useDebounce = <T>(opts: { value: T; delay: number; skipDebounce: (v: T) => boolean }) => {
+export const useDebounce = <T>(opts: { value: T; delay: number; skipDebounce?: (v: T) => boolean }) => {
 	const { value, delay, skipDebounce } = opts;
 	const [debouncedValue, setDebouncedValue] = useState(value);
 
 	useEffect(() => {
-		if (skipDebounce(value)) {
+		if (skipDebounce && skipDebounce(value)) {
 			setDebouncedValue(value);
 			return;
 		}

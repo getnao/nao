@@ -1,7 +1,8 @@
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, like, sql } from 'drizzle-orm';
 
 import s, { DBChat, DBChatMessage, DBMessagePart, MessageFeedback, NewChat } from '../db/abstractSchema';
 import { db } from '../db/db';
+import dbConfig, { Dialect } from '../db/dbConfig';
 import { ListChatResponse, StopReason, TokenUsage, UIChat, UIMessage } from '../types/chat';
 import { LlmProvider } from '../types/llm';
 import { convertDBPartToUIPart, mapDBPartsToUIParts, mapUIPartsToDBParts } from '../utils/chatMessagePartMappings';
@@ -208,4 +209,81 @@ export const getChatBySlackThread = async (threadId: string): Promise<{ id: stri
 		.limit(1)
 		.execute();
 	return result.at(0) || null;
+};
+
+export type SearchChatResult = {
+	id: string;
+	title: string;
+	createdAt: number;
+	updatedAt: number;
+	matchedText?: string;
+};
+
+export const searchUserChats = async (userId: string, query: string, limit = 10): Promise<SearchChatResult[]> => {
+	const searchPattern = `%${query}%`;
+
+	// Search in chat titles
+	const titleMatches = await db
+		.select({
+			id: s.chat.id,
+			title: s.chat.title,
+			createdAt: s.chat.createdAt,
+			updatedAt: s.chat.updatedAt,
+		})
+		.from(s.chat)
+		.where(and(eq(s.chat.userId, userId), caseInsensitiveLike(s.chat.title, searchPattern)))
+		.orderBy(desc(s.chat.updatedAt))
+		.limit(limit)
+		.execute();
+
+	const titleMatchIds = new Set(titleMatches.map((m) => m.id));
+
+	// Search in message content
+	const contentMatches = await db
+		.select({
+			id: s.chat.id,
+			title: s.chat.title,
+			createdAt: s.chat.createdAt,
+			updatedAt: s.chat.updatedAt,
+			matchedText: s.messagePart.text,
+		})
+		.from(s.chat)
+		.innerJoin(s.chatMessage, eq(s.chatMessage.chatId, s.chat.id))
+		.innerJoin(s.messagePart, eq(s.messagePart.messageId, s.chatMessage.id))
+		.where(and(eq(s.chat.userId, userId), caseInsensitiveLike(s.messagePart.text, searchPattern)))
+		.orderBy(desc(s.chat.updatedAt))
+		.limit(limit * 2) // Fetch more to account for duplicates
+		.execute();
+
+	// Combine results: title matches first, then content matches (deduplicated)
+	const results: SearchChatResult[] = titleMatches.map((m) => ({
+		id: m.id,
+		title: m.title,
+		createdAt: m.createdAt.getTime(),
+		updatedAt: m.updatedAt.getTime(),
+	}));
+
+	const seenIds = new Set(titleMatchIds);
+	for (const m of contentMatches) {
+		if (!seenIds.has(m.id)) {
+			seenIds.add(m.id);
+			results.push({
+				id: m.id,
+				title: m.title,
+				createdAt: m.createdAt.getTime(),
+				updatedAt: m.updatedAt.getTime(),
+				matchedText: m.matchedText ?? undefined,
+			});
+		}
+	}
+
+	return results.slice(0, limit);
+};
+
+const caseInsensitiveLike = (column: Parameters<typeof like>[0], pattern: string) => {
+	if (dbConfig.dialect === Dialect.Postgres) {
+		return sql`${column} ILIKE ${pattern}`;
+	}
+	// SQLite LIKE is case-insensitive by default for ASCII
+	return like(column, pattern);
 };

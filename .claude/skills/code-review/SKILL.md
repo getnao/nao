@@ -1,5 +1,5 @@
 ---
-allowed-tools: Bash(gh issue view *), Bash(gh search *), Bash(gh issue list *), Bash(gh pr comment *), Bash(gh pr diff *), Bash(gh pr view *), Bash(gh pr list *), Bash(npm install), Bash(npm run lint*), Bash(gh api *), Bash(gh extension list *)
+allowed-tools: Bash(gh issue view:*), Bash(gh search:*), Bash(gh issue list:*), Bash(gh pr comment:*), Bash(gh pr diff:*), Bash(gh pr view:*), Bash(gh pr list:*), Bash(npm install), Bash(npm run lint*), Bash(gh api *), Bash(gh extension list *)
 description: Review a pull request
 ---
 
@@ -66,7 +66,7 @@ To do this, follow these steps precisely:
 
 8. Create a list of all comments that you plan on leaving. This is only for you to make sure you are comfortable with the comments. Do not post this list anywhere.
 
-9. Post inline comments for each issue using `mcp__github_inline_comment__create_inline_comment`. For each comment:
+9. Post inline comments for each issue using the `mcp__github_inline_comment__create_inline_comment` tool. For each comment:
    - Provide a brief description of the issue
    - For small, self-contained fixes, include a committable suggestion block
    - For larger fixes (6+ lines, structural changes, or changes spanning multiple locations), describe the issue and suggested fix without a suggestion block

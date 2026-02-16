@@ -13,24 +13,36 @@ PYPI_URL = "https://pypi.org/pypi/nao-core/json"
 CHECK_INTERVAL = 24 * 60 * 60
 
 
-def _parse_version(v: str) -> tuple[int, ...]:
+def parse_version(v: str) -> tuple[int, ...]:
     """Parse a version string like '0.0.37' into a comparable tuple."""
     return tuple(int(x) for x in v.split("."))
+
+
+def get_latest_version() -> str | None:
+    """Get latest version from PyPI."""
+    latest = _read_cache()
+    if latest is None:
+        latest = _fetch_and_cache()
+    return latest
 
 
 def check_for_updates() -> None:
     """Check PyPI for a newer version of nao-core, using a 24h local cache."""
     try:
-        latest = _read_cache()
-        if latest is None:
-            latest = _fetch_and_cache()
+        latest = get_latest_version()
         if latest is None:
             return
 
-        if _parse_version(latest) > _parse_version(__version__):
-            UI.warn(f"Update available: {__version__} → {latest}. Run: pip install -U nao-core")
+        if parse_version(latest) > parse_version(__version__):
+            UI.warn(f"Update available: {__version__} → {latest}. Run: nao upgrade")
     except Exception:
         pass  # do nothing
+
+
+def clear_version_cache() -> None:
+    """Clear the version check cache file."""
+    if CACHE_FILE.exists():
+        CACHE_FILE.unlink()
 
 
 def _read_cache() -> str | None:

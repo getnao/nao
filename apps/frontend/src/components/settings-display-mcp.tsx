@@ -73,10 +73,9 @@ export function McpList({ isAdmin }: McpListProps) {
 					<p className='text-lg font-medium mb-2'>No MCP Servers Connected</p>
 					<p className='mb-3'>Click the Connect button above to load your configured servers.</p>
 					<p>
-						If you haven't set up MCP yet, add a{' '}
-						<code className='bg-muted px-1 py-0.5 rounded'>mcp.json</code> file in your project's context
-						folder and specify its path in{' '}
-						<code className='bg-muted px-1 py-0.5 rounded'>nao_config.yaml</code>, then click Connect.
+						Set up MCP yet, add a <code className='bg-muted px-1 py-0.5 rounded'>mcp.json</code> file in
+						your project's context folder at
+						<code className='bg-muted px-1 py-0.5 rounded'>/agent/mcps/</code>.
 					</p>
 				</div>
 			) : (

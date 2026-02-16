@@ -88,6 +88,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && npm install -g bun \
     && rm -rf /var/lib/apt/lists/*
 
+RUN pip install uv
+
 # Create non-root user
 RUN useradd -m -s /bin/bash nao
 WORKDIR /app
