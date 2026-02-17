@@ -18,6 +18,7 @@ export enum PostHogEvent {
 	MessageFeedbackSubmitted = 'message_feedback_submitted',
 	ChatRenamed = 'chat_renamed',
 	ChatDeleted = 'chat_deleted',
+	AgentStopped = 'agent_stopped',
 	SavedPromptCreated = 'saved_prompt_created',
 	SavedPromptUpdated = 'saved_prompt_updated',
 	SavedPromptDeleted = 'saved_prompt_deleted',
@@ -38,20 +39,38 @@ export class PostHogService {
 	 * If distinctId is not provided, a persistent anonymous distinct ID is generated and used.
 	 */
 	capture(distinctId: string | undefined, event: PostHogEvent, properties?: Record<string, unknown>): void {
-		const posthog = this._getOrCreateClient();
-		if (!posthog) {
+		const client = this._getOrCreateClient();
+		if (!client) {
 			return;
 		}
 
 		try {
-			posthog.capture({
+			client.capture({
 				distinctId: distinctId ?? getPostHogDistinctId(),
 				event,
-				properties,
+				properties: {
+					...this._personProperties(),
+					...properties,
+				},
 			});
 		} catch {
 			// Tracking should never break the backend
 		}
+	}
+
+	/** Add properties that will be shown on the PostHog person's profile. */
+	private _personProperties(): Record<string, unknown> {
+		return {
+			nao_core_version: env.NAO_CORE_VERSION, // Set `nao_core_version` in event and person properties for convenience
+			// `$set` replaces any property value that may have been set on a person profile
+			$set: {
+				nao_core_version: env.NAO_CORE_VERSION,
+			},
+			// `$set_once` only sets the property if it has not been set before
+			$set_once: {
+				first_nao_core_version: env.NAO_CORE_VERSION,
+			},
+		};
 	}
 
 	/**

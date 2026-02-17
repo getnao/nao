@@ -48,7 +48,10 @@ export const chatRoutes = {
 		if (!agent.checkIsUserOwner(ctx.user.id)) {
 			throw new TRPCError({ code: 'FORBIDDEN', message: 'You are not allowed to stop this agent.' });
 		}
+
 		agent.stop();
+
+		posthog.capture(ctx.user.id, PostHogEvent.AgentStopped, { chat_id: input.chatId });
 	}),
 
 	rename: chatOwnerProcedure
