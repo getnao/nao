@@ -62,14 +62,13 @@ class AthenaConfig(DatabaseConfig):
             "work_group": self.work_group,
         }
         
-        if self.aws_access_key_id and self.aws_secret_access_key:
+        if self.profile_name:
+            kwargs["profile_name"] = self.profile_name
+        elif self.aws_access_key_id and self.aws_secret_access_key:
             kwargs["aws_access_key_id"] = self.aws_access_key_id
             kwargs["aws_secret_access_key"] = self.aws_secret_access_key
             if self.aws_session_token:
                 kwargs["aws_session_token"] = self.aws_session_token
-
-        if self.profile_name:
-            kwargs["profile_name"] = self.profile_name
 
         return ibis.athena.connect(**kwargs)
 
