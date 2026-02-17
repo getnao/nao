@@ -7,7 +7,9 @@ export const getProjectMcpToolSettings = async (projectId: string, serverName: s
 	return db
 		.select()
 		.from(s.projectMcpToolSetting)
-		.where(and(eq(s.projectMcpToolSetting.projectId, projectId), eq(s.projectMcpToolSetting.serverName, serverName)))
+		.where(
+			and(eq(s.projectMcpToolSetting.projectId, projectId), eq(s.projectMcpToolSetting.serverName, serverName)),
+		)
 		.execute();
 };
 

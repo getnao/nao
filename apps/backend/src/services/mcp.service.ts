@@ -85,11 +85,27 @@ export class McpService {
 			Object.entries(this._mcpTools)
 				.filter(([name]) => enabledToolNames.has(name))
 				.map(([name, tool]) => {
-				const inputSchema = tool.inputSchema;
+					const inputSchema = tool.inputSchema;
 
-				// If it's an AI SDK schema wrapper with jsonSchema getter
-				if (inputSchema && typeof inputSchema === 'object' && 'jsonSchema' in inputSchema) {
-					const originalJsonSchema = inputSchema.jsonSchema;
+					// If it's an AI SDK schema wrapper with jsonSchema getter
+					if (inputSchema && typeof inputSchema === 'object' && 'jsonSchema' in inputSchema) {
+						const originalJsonSchema = inputSchema.jsonSchema;
+						return [
+							name,
+							{
+								...tool,
+								execute: async (toolArgs: Record<string, unknown>) => {
+									return await this._callTool(name, toolArgs, projectId);
+								},
+								inputSchema: {
+									...inputSchema,
+									jsonSchema: sanitizeTools(originalJsonSchema),
+								},
+							} as Tool,
+						];
+					}
+
+					// Otherwise, sanitize the schema directly
 					return [
 						name,
 						{
@@ -97,25 +113,9 @@ export class McpService {
 							execute: async (toolArgs: Record<string, unknown>) => {
 								return await this._callTool(name, toolArgs, projectId);
 							},
-							inputSchema: {
-								...inputSchema,
-								jsonSchema: sanitizeTools(originalJsonSchema),
-							},
+							inputSchema: sanitizeTools(inputSchema),
 						} as Tool,
 					];
-				}
-
-				// Otherwise, sanitize the schema directly
-				return [
-					name,
-					{
-						...tool,
-						execute: async (toolArgs: Record<string, unknown>) => {
-							return await this._callTool(name, toolArgs, projectId);
-						},
-						inputSchema: sanitizeTools(inputSchema),
-					} as Tool,
-				];
 				}),
 		);
 		return sanitizedMcpTools;

@@ -113,8 +113,8 @@ export function McpList({ isAdmin }: McpListProps) {
 					<p className='text-lg font-medium mb-2'>No MCP Servers Connected</p>
 					<p className='mb-3'>Click the Connect button above to load your configured servers.</p>
 					<p>
-						Set up MCP yet, add a <code className='bg-muted px-1 py-0.5 rounded'>mcp.json</code> file in your
-						project&apos;s context folder at
+						Set up MCP yet, add a <code className='bg-muted px-1 py-0.5 rounded'>mcp.json</code> file in
+						your project&apos;s context folder at
 						<code className='bg-muted px-1 py-0.5 rounded'>/agent/mcps/</code>.
 					</p>
 				</div>
@@ -151,7 +151,11 @@ export function McpList({ isAdmin }: McpListProps) {
 									</TableCell>
 									<TableCell className='w-0'>
 										<Button variant='ghost' size='icon-sm' onClick={() => handleExpand(name)}>
-											{isExpanded ? <ChevronUp className='size-4' /> : <ChevronDown className='size-4' />}
+											{isExpanded ? (
+												<ChevronUp className='size-4' />
+											) : (
+												<ChevronDown className='size-4' />
+											)}
 										</Button>
 									</TableCell>
 								</TableRow>
@@ -173,7 +177,9 @@ export function McpList({ isAdmin }: McpListProps) {
 											) : (
 												<>
 													<div className='flex items-center justify-between'>
-														<div className='text-sm font-medium'>Tools ({state.tools.length})</div>
+														<div className='text-sm font-medium'>
+															Tools ({state.tools.length})
+														</div>
 														{isAdmin && (
 															<Button
 																variant='outline'
@@ -192,7 +198,9 @@ export function McpList({ isAdmin }: McpListProps) {
 																className='flex items-center justify-between rounded-md border px-3 py-2 bg-background'
 															>
 																<div className='min-w-0'>
-																	<div className='text-sm font-medium truncate'>{tool.name}</div>
+																	<div className='text-sm font-medium truncate'>
+																		{tool.name}
+																	</div>
 																	{tool.description ? (
 																		<div className='text-xs text-muted-foreground line-clamp-2'>
 																			{tool.description}
@@ -201,7 +209,9 @@ export function McpList({ isAdmin }: McpListProps) {
 																</div>
 																<Switch
 																	checked={tool.enabled}
-																	onCheckedChange={(checked) => handleToggleTool(name, tool.name, checked)}
+																	onCheckedChange={(checked) =>
+																		handleToggleTool(name, tool.name, checked)
+																	}
 																	disabled={!isAdmin || toggleToolMutation.isPending}
 																/>
 															</div>
