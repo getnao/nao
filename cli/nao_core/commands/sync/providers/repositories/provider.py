@@ -87,48 +87,54 @@ def pre_compile_dbt_docs(repo: RepoConfig, base_path: Path) -> bool:
 
     This is best-effort and does not block repository sync completion.
     """
-    if not repo.compile_dbt_docs:
+    try:
+        if not repo.compile_dbt_docs:
+            return True
+
+        repo_path = base_path / repo.name
+        dbt_project_file = repo_path / "dbt_project.yml"
+
+        if not dbt_project_file.exists():
+            console.print(
+                f"  [yellow]⚠[/yellow] {repo.name}: `compile_dbt_docs=true` but no dbt_project.yml found, skipping"
+            )
+            return True
+
+        dbt_binary = shutil.which("dbt")
+        if not dbt_binary:
+            console.print(
+                f"  [yellow]⚠[/yellow] {repo.name}: dbt not found in PATH, cannot pre-compile docs (install dbt-core)"
+            )
+            return True
+
+        cmd = [dbt_binary, "docs", "generate", "--project-dir", str(repo_path)]
+        if repo.dbt_profiles_dir:
+            cmd.extend(["--profiles-dir", repo.dbt_profiles_dir])
+
+        console.print(f"  [dim]Pre-compiling dbt docs for[/dim] {repo.name}")
+        result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+
+        if result.returncode != 0:
+            console.print(
+                f"  [yellow]⚠[/yellow] {repo.name}: `dbt docs generate` failed: {result.stderr.strip() or result.stdout.strip()}"
+            )
+            return True
+
+        catalog_path = repo_path / "target" / "catalog.json"
+        manifest_path = repo_path / "target" / "manifest.json"
+        if catalog_path.exists() and manifest_path.exists():
+            console.print(
+                f"  [green]✓[/green] {repo.name} dbt docs compiled (target/catalog.json, target/manifest.json)"
+            )
+        else:
+            console.print(
+                f"  [yellow]⚠[/yellow] {repo.name}: dbt docs command succeeded but target/catalog.json or target/manifest.json was not found"
+            )
+
         return True
-
-    repo_path = base_path / repo.name
-    dbt_project_file = repo_path / "dbt_project.yml"
-
-    if not dbt_project_file.exists():
-        console.print(
-            f"  [yellow]⚠[/yellow] {repo.name}: `compile_dbt_docs=true` but no dbt_project.yml found, skipping"
-        )
+    except Exception as e:
+        console.print(f"  [yellow]⚠[/yellow] {repo.name}: error pre-compiling dbt docs: {e}")
         return True
-
-    dbt_binary = shutil.which("dbt")
-    if not dbt_binary:
-        console.print(
-            f"  [yellow]⚠[/yellow] {repo.name}: dbt not found in PATH, cannot pre-compile docs (install dbt-core)"
-        )
-        return True
-
-    cmd = [dbt_binary, "docs", "generate", "--project-dir", str(repo_path)]
-    if repo.dbt_profiles_dir:
-        cmd.extend(["--profiles-dir", repo.dbt_profiles_dir])
-
-    console.print(f"  [dim]Pre-compiling dbt docs for[/dim] {repo.name}")
-    result = subprocess.run(cmd, capture_output=True, text=True, check=False)
-
-    if result.returncode != 0:
-        console.print(
-            f"  [yellow]⚠[/yellow] {repo.name}: `dbt docs generate` failed: {result.stderr.strip() or result.stdout.strip()}"
-        )
-        return True
-
-    catalog_path = repo_path / "target" / "catalog.json"
-    manifest_path = repo_path / "target" / "manifest.json"
-    if catalog_path.exists() and manifest_path.exists():
-        console.print(f"  [green]✓[/green] {repo.name} dbt docs compiled (target/catalog.json, target/manifest.json)")
-    else:
-        console.print(
-            f"  [yellow]⚠[/yellow] {repo.name}: dbt docs command succeeded but target/catalog.json or target/manifest.json was not found"
-        )
-
-    return True
 
 
 class RepositorySyncProvider(SyncProvider):
