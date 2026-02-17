@@ -21,6 +21,7 @@ class DatabaseType(str, Enum):
     MSSQL = "mssql"
     POSTGRES = "postgres"
     REDSHIFT = "redshift"
+    TRINO = "trino"
 
     @classmethod
     def choices(cls) -> list[questionary.Choice]:

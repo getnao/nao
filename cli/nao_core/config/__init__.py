@@ -5,8 +5,11 @@ from .databases import (
     DatabaseType,
     DatabricksConfig,
     DuckDBConfig,
+    MssqlConfig,
     PostgresConfig,
+    RedshiftConfig,
     SnowflakeConfig,
+    TrinoConfig,
 )
 from .exceptions import InitError
 from .llm import LLMConfig, LLMProvider
@@ -21,6 +24,9 @@ __all__ = [
     "DatabricksConfig",
     "SnowflakeConfig",
     "PostgresConfig",
+    "MssqlConfig",
+    "RedshiftConfig",
+    "TrinoConfig",
     "DatabaseType",
     "LLMConfig",
     "LLMProvider",
