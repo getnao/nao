@@ -30,7 +30,7 @@ class AthenaConfig(DatabaseConfig):
         s3_staging_dir = ask_text("S3 Staging Directory (s3://...):", required_field=True) or ""
         schema_name = ask_text("Schema Name:", default="default")
         work_group = ask_text("Workgroup:", default="primary")
-        
+
         profile_name = ask_text("AWS Profile Name (optional):")
         aws_access_key_id = None
         aws_secret_access_key = None
@@ -61,7 +61,7 @@ class AthenaConfig(DatabaseConfig):
             "schema_name": self.schema_name,
             "work_group": self.work_group,
         }
-        
+
         if self.profile_name:
             kwargs["profile_name"] = self.profile_name
         elif self.aws_access_key_id and self.aws_secret_access_key:
@@ -83,4 +83,3 @@ class AthenaConfig(DatabaseConfig):
             return True, f"Connected successfully ({len(tables)} tables found in {self.schema_name})"
         except Exception as e:
             return False, f"Connection failed: {str(e)}"
-
