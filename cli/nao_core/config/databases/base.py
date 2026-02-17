@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 class DatabaseType(str, Enum):
     """Supported database types."""
 
+    ATHENA = "athena"
     BIGQUERY = "bigquery"
     DUCKDB = "duckdb"
     DATABRICKS = "databricks"
