@@ -6,6 +6,7 @@ import { createRuntime, type Runtime, ServerDefinition, ServerToolInfo } from 'm
 import { join } from 'path';
 
 import {
+	isProjectMcpToolEnabled,
 	resolveProjectMcpToolEnabledStates,
 } from '../queries/project-mcp-tool-setting.queries';
 import { mcpJsonSchema, McpServerConfig, McpServerState } from '../types/mcp';
@@ -93,6 +94,9 @@ export class McpService {
 						name,
 						{
 							...tool,
+							execute: async (toolArgs: Record<string, unknown>) => {
+								return await this._callTool(name, toolArgs, projectId);
+							},
 							inputSchema: {
 								...inputSchema,
 								jsonSchema: sanitizeTools(originalJsonSchema),
@@ -106,6 +110,9 @@ export class McpService {
 					name,
 					{
 						...tool,
+						execute: async (toolArgs: Record<string, unknown>) => {
+							return await this._callTool(name, toolArgs, projectId);
+						},
 						inputSchema: sanitizeTools(inputSchema),
 					} as Tool,
 				];
@@ -200,21 +207,32 @@ export class McpService {
 				description: tool.description,
 				inputSchema: jsonSchema(tool.inputSchema as JSONSchema7),
 				execute: async (toolArgs: Record<string, unknown>) => {
-					return await this._callTool(toolName, toolArgs);
+					if (!this._projectId) {
+						throw new Error('MCP project context is not initialized');
+					}
+					return await this._callTool(toolName, toolArgs, this._projectId);
 				},
 			};
 			this._toolsToServer.set(toolName, serverName);
 		}
 	}
 
-	private async _callTool(toolName: string, toolArgs: Record<string, unknown>): Promise<unknown> {
+	private async _callTool(toolName: string, toolArgs: Record<string, unknown>, projectId: string): Promise<unknown> {
+		if (this._projectId !== projectId) {
+			await this.initializeMcpState(projectId);
+		}
+
 		const serverName = this._toolsToServer.get(toolName);
 		if (!serverName) {
 			throw new Error(`Tool ${toolName} not found in any server`);
 		}
 
-		const cachedToolState = this.cachedMcpState[serverName]?.tools.find((tool) => tool.name === toolName);
-		if (cachedToolState && !cachedToolState.enabled) {
+		const enabled = await isProjectMcpToolEnabled({
+			projectId,
+			serverName,
+			toolName,
+		});
+		if (!enabled) {
 			throw new Error(`Tool ${toolName} is disabled by project admin`);
 		}
 
