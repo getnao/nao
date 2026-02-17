@@ -150,6 +150,7 @@ class AgentManager {
 		this._agent = new ToolLoopAgent({
 			...modelConfig,
 			tools: getTools(agentSettings),
+			maxOutputTokens: 16_000,
 			// On step 1+: cache user message (stable) + current step's last message (loop leaf)
 			prepareStep: ({ messages }) => {
 				return { messages: this._addCache(messages) };
