@@ -22,8 +22,8 @@ export const tools = {
 
 export { isPythonAvailable };
 
-export const getTools = (agentSettings: AgentSettings | null) => {
-	const mcpTools = mcpService.getMcpTools();
+export const getTools = async (agentSettings: AgentSettings | null, projectId: string) => {
+	const mcpTools = await mcpService.getMcpTools(projectId);
 
 	const { execute_python, ...baseTools } = tools;
 

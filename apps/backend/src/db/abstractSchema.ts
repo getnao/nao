@@ -42,4 +42,7 @@ export type NewOrgMember = typeof sqliteSchema.orgMember.$inferInsert;
 export type DBProjectSavedPrompt = typeof sqliteSchema.projectSavedPrompt.$inferSelect;
 export type NewProjectSavedPrompt = typeof sqliteSchema.projectSavedPrompt.$inferInsert;
 
+export type DBProjectMcpToolSetting = typeof sqliteSchema.projectMcpToolSetting.$inferSelect;
+export type NewProjectMcpToolSetting = typeof sqliteSchema.projectMcpToolSetting.$inferInsert;
+
 export default allSchema as typeof sqliteSchema;

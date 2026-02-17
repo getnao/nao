@@ -5,6 +5,9 @@ import { readFileSync, watch } from 'fs';
 import { createRuntime, type Runtime, ServerDefinition, ServerToolInfo } from 'mcporter';
 import { join } from 'path';
 
+import {
+	resolveProjectMcpToolEnabledStates,
+} from '../queries/project-mcp-tool-setting.queries';
 import { mcpJsonSchema, McpServerConfig, McpServerState } from '../types/mcp';
 import { retrieveProjectById } from '../utils/chat';
 import { prefixToolName, removePrefixToolName, sanitizeTools } from '../utils/tools';
@@ -20,6 +23,7 @@ export class McpService {
 	private _runtime: Runtime | null = null;
 	private _failedConnections: Record<string, string> = {};
 	private _toolsToServer: Map<string, string> = new Map();
+	private _projectId: string | null = null;
 	public cachedMcpState: Record<string, McpServerState> = {};
 
 	constructor() {
@@ -32,10 +36,17 @@ export class McpService {
 	}
 
 	public async initializeMcpState(projectId: string): Promise<void> {
-		if (this._initialized) {
+		if (this._initialized && this._projectId === projectId) {
 			return;
 		}
+
+		if (this._fileWatcher) {
+			this._fileWatcher.close();
+			this._fileWatcher = null;
+		}
+
 		this._initialized = true;
+		this._projectId = projectId;
 
 		const project = await retrieveProjectById(projectId);
 		this._mcpJsonFilePath = join(project.path || '', 'agent', 'mcps', 'mcp.json');
@@ -57,9 +68,22 @@ export class McpService {
 		}
 	}
 
-	public getMcpTools(): Record<string, Tool> {
+	public async getMcpTools(projectId: string): Promise<Record<string, Tool>> {
+		if (!this._initialized || this._projectId !== projectId) {
+			await this.initializeMcpState(projectId);
+		}
+
+		const enabledToolNames = new Set(
+			Object.values(this.cachedMcpState)
+				.flatMap((server) => server.tools)
+				.filter((tool) => tool.enabled)
+				.map((tool) => tool.name),
+		);
+
 		const sanitizedMcpTools = Object.fromEntries(
-			Object.entries(this._mcpTools).map(([name, tool]) => {
+			Object.entries(this._mcpTools)
+				.filter(([name]) => enabledToolNames.has(name))
+				.map(([name, tool]) => {
 				const inputSchema = tool.inputSchema;
 
 				// If it's an AI SDK schema wrapper with jsonSchema getter
@@ -85,7 +109,7 @@ export class McpService {
 						inputSchema: sanitizeTools(inputSchema),
 					} as Tool,
 				];
-			}),
+				}),
 		);
 		return sanitizedMcpTools;
 	}
@@ -111,6 +135,8 @@ export class McpService {
 
 	private async _connectAllServers(): Promise<void> {
 		this._mcpTools = {};
+		this._toolsToServer.clear();
+		this._failedConnections = {};
 		this._runtime = await createRuntime();
 
 		const connectionPromises = Object.entries(this._mcpServers).map(async ([serverName, serverConfig]) => {
@@ -187,6 +213,11 @@ export class McpService {
 			throw new Error(`Tool ${toolName} not found in any server`);
 		}
 
+		const cachedToolState = this.cachedMcpState[serverName]?.tools.find((tool) => tool.name === toolName);
+		if (cachedToolState && !cachedToolState.enabled) {
+			throw new Error(`Tool ${toolName} is disabled by project admin`);
+		}
+
 		if (!this._runtime) {
 			throw new Error('Runtime not initialized');
 		}
@@ -202,19 +233,33 @@ export class McpService {
 		this.cachedMcpState = {};
 
 		for (const serverName of Object.keys(this._mcpServers)) {
-			const serverTools = Object.entries(this._mcpTools)
-				.filter(([toolName]) => this._toolsToServer.get(toolName) === serverName)
-				.map(([toolName, tool]) => ({
-					name: toolName,
-					description: tool.description,
-					input_schema: tool.inputSchema,
-				}));
+			const serverToolEntries = Object.entries(this._mcpTools).filter(
+				([toolName]) => this._toolsToServer.get(toolName) === serverName,
+			);
+			const serverToolNames = serverToolEntries.map(([toolName]) => toolName);
+			const enabledByTool =
+				this._projectId && serverToolNames.length > 0
+					? await resolveProjectMcpToolEnabledStates(this._projectId, serverName, serverToolNames)
+					: Object.fromEntries(serverToolNames.map((toolName) => [toolName, true]));
+			const serverTools = serverToolEntries.map(([toolName, tool]) => ({
+				name: toolName,
+				description: tool.description,
+				input_schema: tool.inputSchema,
+				enabled: enabledByTool[toolName] ?? false,
+			}));
 
 			this.cachedMcpState[serverName] = {
 				tools: serverTools,
 				error: this._failedConnections[serverName],
 			};
 		}
+	}
+
+	public async refreshToolAvailabilityForProject(projectId: string): Promise<void> {
+		if (!this._initialized || this._projectId !== projectId) {
+			await this.initializeMcpState(projectId);
+		}
+		await this._cacheMcpState();
 	}
 
 	private _setupFileWatcher(): void {
