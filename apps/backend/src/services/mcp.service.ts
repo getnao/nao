@@ -1,7 +1,7 @@
 import type { Tool } from '@ai-sdk/provider-utils';
 import { debounce } from '@nao/shared/utils';
 import { jsonSchema, type JSONSchema7 } from 'ai';
-import { readFileSync, watch } from 'fs';
+import { existsSync, readFileSync, watch } from 'fs';
 import { createRuntime, type Runtime, ServerDefinition, ServerToolInfo } from 'mcporter';
 import { join } from 'path';
 
@@ -15,7 +15,7 @@ export class McpService {
 	private _mcpServers: Record<string, McpServerConfig>;
 	private _fileWatcher: ReturnType<typeof watch> | null = null;
 	private _debouncedReconnect: () => void;
-	private _initialized = false;
+	private _initPromise: Promise<void> | null = null;
 	private _mcpTools: Record<string, Tool> = {};
 	private _runtime: Runtime | null = null;
 	private _failedConnections: Record<string, string> = {};
@@ -32,11 +32,17 @@ export class McpService {
 	}
 
 	public async initializeMcpState(projectId: string): Promise<void> {
-		if (this._initialized) {
-			return;
+		if (this._initPromise) {
+			return this._initPromise;
 		}
-		this._initialized = true;
+		this._initPromise = this._initialize(projectId).catch((err) => {
+			this._initPromise = null;
+			throw err;
+		});
+		return this._initPromise;
+	}
 
+	private async _initialize(projectId: string): Promise<void> {
 		const project = await retrieveProjectById(projectId);
 		this._mcpJsonFilePath = join(project.path || '', 'agent', 'mcps', 'mcp.json');
 
@@ -96,21 +102,26 @@ export class McpService {
 			return;
 		}
 
+		if (!existsSync(this._mcpJsonFilePath)) {
+			this._mcpServers = {};
+			return;
+		}
+
 		try {
 			const fileContent = readFileSync(this._mcpJsonFilePath, 'utf8');
 			const resolvedContent = replaceEnvVars(fileContent);
 			const content = mcpJsonSchema.parse(JSON.parse(resolvedContent));
 			this._mcpServers = content.mcpServers;
-		} catch {
-			console.error(
-				`[mcp] Failed to read or parse MCP config file at ${this._mcpJsonFilePath}. Using empty configuration.`,
-			);
+		} catch (error) {
+			console.error(`[mcp] Failed to parse MCP config file at ${this._mcpJsonFilePath}:`, error);
 			this._mcpServers = {};
 		}
 	}
 
 	private async _connectAllServers(): Promise<void> {
 		this._mcpTools = {};
+		this._failedConnections = {};
+		this._toolsToServer = new Map();
 		this._runtime = await createRuntime();
 
 		const connectionPromises = Object.entries(this._mcpServers).map(async ([serverName, serverConfig]) => {
