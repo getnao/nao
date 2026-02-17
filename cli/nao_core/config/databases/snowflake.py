@@ -10,10 +10,10 @@ from ibis import BaseBackend
 from pydantic import Field
 
 from nao_core.config.exceptions import InitError
-from nao_core.database_context import DatabaseContext
 from nao_core.ui import UI, ask_confirm, ask_text
 
 from .base import DatabaseConfig
+from .context import DatabaseContext
 
 logger = logging.getLogger(__name__)
 

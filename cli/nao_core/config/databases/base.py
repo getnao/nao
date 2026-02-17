@@ -118,7 +118,7 @@ class DatabaseConfig(BaseModel, ABC):
 
     def create_context(self, conn: BaseBackend, schema: str, table_name: str):
         """Create a DatabaseContext for this table. Override in subclasses for custom metadata."""
-        from nao_core.database_context import DatabaseContext
+        from nao_core.config.databases.context import DatabaseContext
 
         return DatabaseContext(conn, schema, table_name)
 
