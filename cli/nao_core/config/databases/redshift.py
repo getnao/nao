@@ -299,6 +299,7 @@ class RedshiftConfig(DatabaseConfig):
 
     def check_connection(self) -> tuple[bool, str]:
         """Test connectivity to Redshift."""
+        conn = None
         try:
             conn = self.connect()
 
@@ -320,3 +321,6 @@ class RedshiftConfig(DatabaseConfig):
             return True, "Connected successfully"
         except Exception as e:
             return False, str(e)
+        finally:
+            if conn is not None:
+                conn.disconnect()

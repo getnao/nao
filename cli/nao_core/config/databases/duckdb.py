@@ -39,9 +39,13 @@ class DuckDBConfig(DatabaseConfig):
 
     def check_connection(self) -> tuple[bool, str]:
         """Test connectivity to DuckDB."""
+        conn = None
         try:
             conn = self.connect()
             tables = conn.list_tables()
             return True, f"Connected successfully ({len(tables)} tables found)"
         except Exception as e:
             return False, str(e)
+        finally:
+            if conn is not None:
+                conn.disconnect()

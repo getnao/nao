@@ -141,6 +141,7 @@ class BigQueryConfig(DatabaseConfig):
 
     def check_connection(self) -> tuple[bool, str]:
         """Test connectivity to BigQuery."""
+        conn = None
         try:
             conn = self.connect()
             if self.dataset_id:
@@ -152,3 +153,6 @@ class BigQueryConfig(DatabaseConfig):
             return True, "Connected successfully"
         except Exception as e:
             return False, str(e)
+        finally:
+            if conn is not None:
+                conn.disconnect()
