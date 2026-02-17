@@ -1,3 +1,4 @@
+import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
 import {
@@ -49,7 +50,13 @@ export const mcpRoutes = router({
 		.mutation(async ({ ctx, input }) => {
 			await mcpService.initializeMcpState(ctx.project.id);
 			const server = mcpService.cachedMcpState[input.serverName];
-			const toolNames = server?.tools.map((tool) => tool.name) ?? [];
+			if (!server) {
+				throw new TRPCError({
+					code: 'NOT_FOUND',
+					message: `MCP server '${input.serverName}' not found`,
+				});
+			}
+			const toolNames = server.tools.map((tool) => tool.name);
 
 			await setAllProjectMcpToolsEnabledState({
 				projectId: ctx.project.id,

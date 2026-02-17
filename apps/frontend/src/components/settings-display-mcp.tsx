@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { ChevronDown, ChevronUp } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -135,93 +135,94 @@ export function McpList({ isAdmin }: McpListProps) {
 							const stats = serverStats[name] ?? { activeCount: 0, totalCount: 0, tokenEstimate: 0 };
 
 							return (
-								<TableRow key={name}>
-									<TableCell className='font-medium'>{name}</TableCell>
-									<TableCell>{isConnected ? 'Running' : 'Error'}</TableCell>
-									<TableCell>
-										<div className='flex items-center gap-2'>
-											<Badge variant='outline'>
-												{stats.activeCount}/{stats.totalCount} active
-											</Badge>
-											<Badge variant='secondary'>~{stats.tokenEstimate} tokens</Badge>
-											{stats.totalCount > 0 && stats.activeCount === stats.totalCount ? (
-												<span className='text-xs text-muted-foreground'>All active</span>
-											) : null}
-										</div>
-									</TableCell>
-									<TableCell className='w-0'>
-										<Button variant='ghost' size='icon-sm' onClick={() => handleExpand(name)}>
-											{isExpanded ? (
-												<ChevronUp className='size-4' />
-											) : (
-												<ChevronDown className='size-4' />
-											)}
-										</Button>
-									</TableCell>
-								</TableRow>
-							);
-						})}
+								<Fragment key={name}>
+									<TableRow>
+										<TableCell className='font-medium'>{name}</TableCell>
+										<TableCell>{isConnected ? 'Running' : 'Error'}</TableCell>
+										<TableCell>
+											<div className='flex items-center gap-2'>
+												<Badge variant='outline'>
+													{stats.activeCount}/{stats.totalCount} active
+												</Badge>
+												<Badge variant='secondary'>~{stats.tokenEstimate} tokens</Badge>
+												{stats.totalCount > 0 && stats.activeCount === stats.totalCount ? (
+													<span className='text-xs text-muted-foreground'>All active</span>
+												) : null}
+											</div>
+										</TableCell>
+										<TableCell className='w-0'>
+											<Button variant='ghost' size='icon-sm' onClick={() => handleExpand(name)}>
+												{isExpanded ? (
+													<ChevronUp className='size-4' />
+												) : (
+													<ChevronDown className='size-4' />
+												)}
+											</Button>
+										</TableCell>
+									</TableRow>
 
-						{mcpEntries.map(([name, state]) => {
-							const isExpanded = expandedServers.includes(name);
-							if (!isExpanded) {
-								return null;
-							}
-
-							return (
-								<TableRow key={`${name}-tools`}>
-									<TableCell colSpan={4} className='bg-muted/50'>
-										<div className='py-2 space-y-3'>
-											{state.error ? (
-												<div className='text-sm text-red-500'>{state.error}</div>
-											) : (
-												<>
-													<div className='flex items-center justify-between'>
-														<div className='text-sm font-medium'>
-															Tools ({state.tools.length})
-														</div>
-														{isAdmin && (
-															<Button
-																variant='outline'
-																size='sm'
-																onClick={() => handleSetAllTools(name, false)}
-																disabled={setAllToolsMutation.isPending}
-															>
-																Disable all
-															</Button>
-														)}
-													</div>
-													<div className='grid gap-2'>
-														{state.tools.map((tool) => (
-															<div
-																key={tool.name}
-																className='flex items-center justify-between rounded-md border px-3 py-2 bg-background'
-															>
-																<div className='min-w-0'>
-																	<div className='text-sm font-medium truncate'>
-																		{tool.name}
-																	</div>
-																	{tool.description ? (
-																		<div className='text-xs text-muted-foreground line-clamp-2'>
-																			{tool.description}
-																		</div>
-																	) : null}
+									{isExpanded ? (
+										<TableRow>
+											<TableCell colSpan={4} className='bg-muted/50'>
+												<div className='py-2 space-y-3'>
+													{state.error ? (
+														<div className='text-sm text-red-500'>{state.error}</div>
+													) : (
+														<>
+															<div className='flex items-center justify-between'>
+																<div className='text-sm font-medium'>
+																	Tools ({state.tools.length})
 																</div>
-																<Switch
-																	checked={tool.enabled}
-																	onCheckedChange={(checked) =>
-																		handleToggleTool(name, tool.name, checked)
-																	}
-																	disabled={!isAdmin || toggleToolMutation.isPending}
-																/>
+																{isAdmin && (
+																	<Button
+																		variant='outline'
+																		size='sm'
+																		onClick={() => handleSetAllTools(name, false)}
+																		disabled={setAllToolsMutation.isPending}
+																	>
+																		Disable all
+																	</Button>
+																)}
 															</div>
-														))}
-													</div>
-												</>
-											)}
-										</div>
-									</TableCell>
-								</TableRow>
+															<div className='grid gap-2'>
+																{state.tools.map((tool) => (
+																	<div
+																		key={tool.name}
+																		className='flex items-center justify-between rounded-md border px-3 py-2 bg-background'
+																	>
+																		<div className='min-w-0'>
+																			<div className='text-sm font-medium truncate'>
+																				{tool.name}
+																			</div>
+																			{tool.description ? (
+																				<div className='text-xs text-muted-foreground line-clamp-2'>
+																					{tool.description}
+																				</div>
+																			) : null}
+																		</div>
+																		<Switch
+																			checked={tool.enabled}
+																			onCheckedChange={(checked) =>
+																				handleToggleTool(
+																					name,
+																					tool.name,
+																					checked,
+																				)
+																			}
+																			disabled={
+																				!isAdmin || toggleToolMutation.isPending
+																			}
+																		/>
+																	</div>
+																))}
+															</div>
+														</>
+													)}
+												</div>
+											</TableCell>
+										</TableRow>
+									) : null}
+								</Fragment>
 							);
 						})}
 					</TableBody>

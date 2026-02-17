@@ -125,7 +125,25 @@ export const isProjectMcpToolEnabled = async (params: {
 		)
 		.execute();
 
-	return setting?.enabled ?? true;
+	if (setting) {
+		return setting.enabled;
+	}
+
+	const [serverSetting] = await db
+		.select({ toolName: s.projectMcpToolSetting.toolName })
+		.from(s.projectMcpToolSetting)
+		.where(
+			and(
+				eq(s.projectMcpToolSetting.projectId, params.projectId),
+				eq(s.projectMcpToolSetting.serverName, params.serverName),
+			),
+		)
+		.limit(1)
+		.execute();
+
+	// For first-seen servers (no rows yet), default enabled for backward compatibility.
+	// For already-configured servers, unknown tools default disabled.
+	return serverSetting ? false : true;
 };
 
 export const getProjectMcpToolSettingsForServerTools = async (params: {
