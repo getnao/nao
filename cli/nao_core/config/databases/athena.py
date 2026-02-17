@@ -19,7 +19,7 @@ class AthenaConfig(DatabaseConfig):
     aws_secret_access_key: str | None = Field(default=None, description="AWS secret access key")
     aws_session_token: str | None = Field(default=None, description="AWS session token")
     profile_name: str | None = Field(default=None, description="AWS profile name")
-    schema_name: str | None = Field(default="default", description="Athena schema name")
+    schema_name: str | None = Field(default=None, description="Athena schema name")
     work_group: str | None = Field(default="primary", description="Athena workgroup")
 
     @classmethod
@@ -28,8 +28,8 @@ class AthenaConfig(DatabaseConfig):
         name = ask_text("Connection name:", default="athena-prod") or "athena-prod"
         region_name = ask_text("AWS Region:", default="us-east-1") or "us-east-1"
         s3_staging_dir = ask_text("S3 Staging Directory (s3://...):", required_field=True) or ""
-        schema_name = ask_text("Schema Name:", default="default")
-        work_group = ask_text("Workgroup:", default="primary")
+        schema_name = ask_text("Default schema (optional):") or None
+        work_group = ask_text("Workgroup (optional):", default="primary")
 
         profile_name = ask_text("AWS Profile Name (optional):")
         aws_access_key_id = None
@@ -38,8 +38,8 @@ class AthenaConfig(DatabaseConfig):
 
         if not profile_name:
             aws_access_key_id = ask_text("AWS Access Key ID (optional):")
-            aws_secret_access_key = ask_text("AWS Secret Access Key (optional):")
-            aws_session_token = ask_text("AWS Session Token (optional):")
+            aws_secret_access_key = ask_text("AWS Secret Access Key (optional):", password=True)
+            aws_session_token = ask_text("AWS Session Token (optional):", password=True)
 
         return AthenaConfig(
             name=name,
@@ -58,7 +58,7 @@ class AthenaConfig(DatabaseConfig):
         kwargs = {
             "s3_staging_dir": self.s3_staging_dir,
             "region_name": self.region_name,
-            "schema_name": self.schema_name,
+            "schema_name": self.schema_name or "default",
             "work_group": self.work_group,
         }
 
@@ -76,10 +76,18 @@ class AthenaConfig(DatabaseConfig):
         return self.schema_name or "default"
 
     def check_connection(self) -> tuple[bool, str]:
-        """Test connectivity to Athena."""
+        """Test connectivity to Athena"""
         try:
             conn = self.connect()
-            tables = conn.list_tables()
-            return True, f"Connected successfully ({len(tables)} tables found in {self.schema_name})"
+
+            if self.schema_name:
+                tables = conn.list_tables(database=self.schema_name)
+                return True, f"Connected successfully ({len(tables)} tables found in {self.schema_name})"
+
+            if list_databases := getattr(conn, "list_databases", None):
+                schemas = list_databases()
+                return True, f"Connected successfully ({len(schemas)} schemas found)"
+
+            return True, "Connected successfully"
         except Exception as e:
             return False, f"Connection failed: {str(e)}"
