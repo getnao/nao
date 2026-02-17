@@ -112,7 +112,7 @@ def pre_compile_dbt_docs(repo: RepoConfig, base_path: Path) -> bool:
             cmd.extend(["--profiles-dir", repo.dbt_profiles_dir])
 
         console.print(f"  [dim]Pre-compiling dbt docs for[/dim] {repo.name}")
-        result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        result = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=300)
 
         if result.returncode != 0:
             console.print(
@@ -131,6 +131,9 @@ def pre_compile_dbt_docs(repo: RepoConfig, base_path: Path) -> bool:
                 f"  [yellow]⚠[/yellow] {repo.name}: dbt docs command succeeded but target/catalog.json or target/manifest.json was not found"
             )
 
+        return True
+    except subprocess.TimeoutExpired:
+        console.print(f"  [yellow]⚠[/yellow] {repo.name}: `dbt docs generate` timed out after 300 seconds")
         return True
     except Exception as e:
         console.print(f"  [yellow]⚠[/yellow] {repo.name}: error pre-compiling dbt docs: {e}")
