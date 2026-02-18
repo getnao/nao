@@ -4,7 +4,7 @@ import ibis
 from ibis import BaseBackend
 from pydantic import Field
 
-from nao_core.ui import ask_text
+from nao_core.ui import ask_select, ask_text
 
 from .base import DatabaseConfig
 
@@ -31,12 +31,19 @@ class AthenaConfig(DatabaseConfig):
         schema_name = ask_text("Default schema (optional):") or None
         work_group = ask_text("Workgroup (optional):", default="primary")
 
-        profile_name = ask_text("AWS Profile Name (optional):")
+        auth_method = ask_select(
+            "Authentication method:",
+            options=["AWS Profile", "Access Keys"],
+        )
+
+        profile_name = None
         aws_access_key_id = None
         aws_secret_access_key = None
         aws_session_token = None
 
-        if not profile_name:
+        if auth_method == "AWS Profile":
+            profile_name = ask_text("AWS Profile Name:", default="default")
+        elif auth_method == "Access Keys":
             aws_access_key_id = ask_text("AWS Access Key ID:", required_field=True)
             aws_secret_access_key = ask_text("AWS Secret Access Key:", password=True, required_field=True)
             aws_session_token = ask_text("AWS Session Token (optional):", password=True) or None
@@ -74,6 +81,16 @@ class AthenaConfig(DatabaseConfig):
 
     def get_database_name(self) -> str:
         return self.schema_name or "default"
+
+    def get_schemas(self, conn: BaseBackend) -> list[str]:
+        """Return the list of schemas to sync."""
+        if self.schema_name:
+            return [self.schema_name]
+
+        list_databases = getattr(conn, "list_databases", None)
+        if list_databases:
+            return list_databases()
+        return []
 
     def check_connection(self) -> tuple[bool, str]:
         """Test connectivity to Athena"""
