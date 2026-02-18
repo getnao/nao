@@ -30,8 +30,8 @@ export const useSidePanel = ({
 
 	const chatId = useParams({ strict: false, select: (params) => params.chatId });
 
-	const animateWidth = useCallback(
-		({ targetWidth, onComplete }: { targetWidth: number; onComplete?: () => void }) => {
+	const animateSidePanel = useCallback(
+		({ onComplete, ...style }: { onComplete?: () => void } & React.CSSProperties) => {
 			const sidePanel = sidePanelRef.current;
 			if (!sidePanel) {
 				return;
@@ -43,11 +43,12 @@ export const useSidePanel = ({
 			setIsAnimating(true);
 
 			sidePanel.style.minWidth = '0px';
-			sidePanel.style.transitionProperty = 'width';
+			sidePanel.style.transitionProperty = 'width, opacity';
+			sidePanel.style.transitionTimingFunction = 'cubic-bezier(0.5, 0.5, 0, 1)';
 			sidePanel.style.transitionDuration = `${SIDE_PANEL_ANIMATION_DURATION}ms`;
 
 			const handleTransitionEnd = (e: TransitionEvent) => {
-				if (e.target !== sidePanel || e.propertyName !== 'width') {
+				if (e.target !== sidePanel) {
 					return;
 				}
 				setIsAnimating(false);
@@ -62,7 +63,7 @@ export const useSidePanel = ({
 			};
 
 			requestAnimationFrame(() => {
-				sidePanel.style.width = `${targetWidth}px`;
+				Object.assign(sidePanel.style, style);
 			});
 		},
 		[sidePanelRef],
@@ -81,18 +82,20 @@ export const useSidePanel = ({
 		}
 
 		sidePanel.style.width = '0px';
+		sidePanel.style.opacity = '0';
 
 		const containerWidth =
 			container.getBoundingClientRect().width + (didCollapseSidebarRef.current ? SIDEBAR_DELTA : 0);
 		const targetWidth = Math.floor(SIDE_PANEL_DEFAULT_WIDTH_RATIO * containerWidth);
 
-		animateWidth({
-			targetWidth,
+		animateSidePanel({
+			width: `${targetWidth}px`,
+			opacity: '1',
 			onComplete: () => {
 				sidePanel.style.minWidth = `${SIDE_PANEL_MIN_WIDTH}px`;
 			},
 		});
-	}, [isVisible, animateWidth, containerRef, sidePanelRef]);
+	}, [isVisible, animateSidePanel, containerRef, sidePanelRef]);
 
 	const open = useCallback(
 		(newContent: React.ReactNode) => {
@@ -107,14 +110,15 @@ export const useSidePanel = ({
 	const close = useCallback(() => {
 		didCollapseSidebarRef.current = false;
 		expandSidebar({ persist: false });
-		animateWidth({
-			targetWidth: 0,
+		animateSidePanel({
+			width: '0px',
+			opacity: '0',
 			onComplete: () => {
 				setIsVisible(false);
 				setContent(null);
 			},
 		});
-	}, [expandSidebar, animateWidth]);
+	}, [expandSidebar, animateSidePanel]);
 
 	useEffect(() => {
 		setIsVisible(false);
