@@ -2,6 +2,7 @@ export { isPythonAvailable } from './execute-python';
 
 import { mcpService } from '../../services/mcp.service';
 import { AgentSettings } from '../../types/agent-settings';
+import artifact from './artifact';
 import displayChart from './display-chart';
 import executePython from './execute-python';
 import executeSql from './execute-sql';
@@ -12,6 +13,7 @@ import search from './search';
 import suggestFollowUps from './suggest-follow-ups';
 
 export const tools = {
+	artifact,
 	display_chart: displayChart,
 	...(executePython && { execute_python: executePython }),
 	execute_sql: executeSql,

@@ -1,3 +1,4 @@
+export * as artifact from './artifact';
 export * as displayChart from './display-chart';
 export * as executePython from './execute-python';
 export * as executeSql from './execute-sql';

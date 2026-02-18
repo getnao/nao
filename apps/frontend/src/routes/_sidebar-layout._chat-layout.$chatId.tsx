@@ -1,5 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useRef } from 'react';
+import { ArtifactOpenButton } from '@/components/artifact-open-button';
 import { ChatInput } from '@/components/chat-input';
 import { ChatMessages } from '@/components/chat-messages';
 import { SidePanel } from '@/components/side-panel/side-panel';
@@ -23,7 +24,11 @@ export function RouteComponent() {
 	return (
 		<SidePanelProvider value={sidePanel}>
 			<div className='flex-1 flex min-w-0 bg-panel' ref={containerRef}>
-				<div className='flex flex-col h-full flex-1 min-w-72 overflow-hidden justify-center'>
+				<div className='flex flex-col h-full flex-1 min-w-72 overflow-hidden justify-center relative'>
+					<div className='absolute top-3 right-3 z-10'>
+						<ArtifactOpenButton />
+					</div>
+
 					{isLoadingMessages ? (
 						<div className='flex flex-1 items-center justify-center'>
 							<Spinner />

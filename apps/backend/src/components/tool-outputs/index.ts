@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 
 import { renderToMarkdown } from '../../lib/markdown/render-to-markdown';
 
+export { ArtifactOutput } from './artifact';
 export { DisplayChartOutput } from './display-chart';
 export { ExecuteSqlOutput } from './execute-sql';
 export { GrepOutput } from './grep';
