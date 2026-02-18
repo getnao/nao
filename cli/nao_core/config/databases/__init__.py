@@ -2,8 +2,8 @@ from typing import Annotated, Union
 
 from pydantic import Discriminator, Tag
 
-from .base import DatabaseAccessor, DatabaseConfig, DatabaseType
 from .athena import AthenaConfig
+from .base import DatabaseAccessor, DatabaseConfig, DatabaseType
 from .bigquery import BigQueryConfig
 from .databricks import DatabricksConfig
 from .duckdb import DuckDBConfig
