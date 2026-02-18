@@ -5,8 +5,8 @@ export const useCopyToClipboard = (timeout = 2000) => {
 	const timeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
 	const copy = useCallback(
-		(text: string) => {
-			navigator.clipboard.writeText(text);
+		async (text: string) => {
+			await navigator.clipboard.writeText(text);
 			setIsCopied(true);
 			clearTimeout(timeoutRef.current);
 			timeoutRef.current = setTimeout(() => setIsCopied(false), timeout);

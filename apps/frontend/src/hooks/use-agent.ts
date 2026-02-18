@@ -35,6 +35,8 @@ export interface AgentHelpers {
 	setMentions: (mentions: MentionOption[]) => void;
 }
 
+const selectedModelStorage = createLocalStorage<ChatSelectedModel>('nao-selected-model');
+
 export const useAgent = (): AgentHelpers => {
 	const navigate = useNavigate();
 	const { chatId } = useParams({ strict: false });
@@ -42,9 +44,7 @@ export const useAgent = (): AgentHelpers => {
 	const chatIdRef = useCurrent(chatId);
 	const scrollDownService = useScrollDownCallbackService();
 
-	const [selectedModel, setSelectedModel] = useLocalStorage(
-		createLocalStorage<ChatSelectedModel>('nao-selected-model'),
-	);
+	const [selectedModel, setSelectedModel] = useLocalStorage(selectedModelStorage);
 	const selectedModelRef = useCurrent(selectedModel);
 	const mentionsRef = useRef<MentionOption[]>([]);
 	const setChat = useSetChat();

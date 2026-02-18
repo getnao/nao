@@ -16,6 +16,7 @@ export const useResizeObserver = (
 		const observer = new ResizeObserver((entries) => {
 			const entry = entries.at(0);
 			if (entry) {
+				cleanup?.();
 				cleanup = callback(entry.target);
 			}
 		});

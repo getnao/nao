@@ -184,6 +184,7 @@ export function ChatInput() {
 							isRunning={isRunning}
 							disabled={isLoadingMessages || !hasInput}
 							onClick={isRunning ? stopAgent : handleSubmit}
+							type='button'
 						/>
 					</InputGroupAddon>
 				</InputGroup>

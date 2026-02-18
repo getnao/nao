@@ -32,7 +32,7 @@ export function getTimeAgo(timestamp: number): TimeAgo {
 		return { value: hours, unit: 'hour', humanReadable: `${hours}h ago` };
 	}
 	if (minutes > 0) {
-		return { value: minutes, unit: 'minute', humanReadable: `${minutes}m ago` };
+		return { value: minutes, unit: 'minute', humanReadable: `${minutes}mo ago` };
 	}
 	return { value: seconds, unit: 'second', humanReadable: `${seconds}s ago` };
 }

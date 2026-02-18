@@ -35,7 +35,7 @@ export const ToolCallWrapper = ({
 	const { toolPart } = useToolCallContext();
 	const [isExpanded, setIsExpanded] = useState(false);
 	const [isHovering, setIsHovering] = useState(false);
-	const canExpand = children || toolPart.errorText || toolPart.output;
+	const canExpand = Boolean(children || toolPart.errorText || toolPart.output);
 	const isSettled = isToolSettled(toolPart);
 	const hasInitialized = useRef(false);
 

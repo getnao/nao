@@ -107,9 +107,15 @@ export const useSidePanel = ({
 		[collapseSidebar, isSidebarCollapsed],
 	);
 
+	const expandSidebarIfWasCollapsed = useCallback(() => {
+		if (didCollapseSidebarRef.current) {
+			expandSidebar({ persist: false });
+			didCollapseSidebarRef.current = false;
+		}
+	}, [expandSidebar]);
+
 	const close = useCallback(() => {
-		didCollapseSidebarRef.current = false;
-		expandSidebar({ persist: false });
+		expandSidebarIfWasCollapsed();
 		animateSidePanel({
 			width: '0px',
 			opacity: '0',
@@ -118,12 +124,13 @@ export const useSidePanel = ({
 				setContent(null);
 			},
 		});
-	}, [expandSidebar, animateSidePanel]);
+	}, [expandSidebarIfWasCollapsed, animateSidePanel]);
 
 	useEffect(() => {
+		expandSidebarIfWasCollapsed();
 		setIsVisible(false);
 		setContent(null);
-	}, [chatId]);
+	}, [chatId, expandSidebarIfWasCollapsed]);
 
 	return {
 		resizeHandleRef,

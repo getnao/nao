@@ -4,7 +4,8 @@ import { useMemo } from 'react';
 export const useDebounce = <T extends (...args: any[]) => any>(
 	func: T,
 	delay: number,
+	deps: React.DependencyList = [],
 ): ((...args: Parameters<T>) => void) => {
-	const debounced = useMemo(() => debounce(func, delay), []); // eslint-disable-line react-hooks/exhaustive-deps
+	const debounced = useMemo(() => debounce(func, delay), deps); // eslint-disable-line react-hooks/exhaustive-deps
 	return debounced;
 };

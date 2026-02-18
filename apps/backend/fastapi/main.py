@@ -126,11 +126,8 @@ def _convert_value(v: object):
         return None
 
     # Handle pandas NA / NaT sentinels
-    try:
-        if pd.isna(v):
-            return None
-    except (ValueError, TypeError):
-        pass
+    if v is pd.NA or v is pd.NaT:
+        return None
 
     # Numpy scalar types
     if isinstance(v, np.bool_):
@@ -145,6 +142,8 @@ def _convert_value(v: object):
 
     # Python / DB types that aren't JSON-serializable by default
     if isinstance(v, Decimal):
+        if v.is_nan() or v.is_infinite():
+            return None
         return float(v)
     if isinstance(v, (datetime, date)):
         return v.isoformat()
@@ -152,8 +151,9 @@ def _convert_value(v: object):
         return v.decode("utf-8", errors="replace")
 
     # Catch-all for remaining numpy scalars (e.g. np.str_, np.bytes_)
-    if hasattr(v, "item"):
-        return v.item()
+    item_method = getattr(v, "item", None)
+    if callable(item_method):
+        return item_method()
 
     return v
 

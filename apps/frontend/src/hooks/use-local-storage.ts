@@ -13,7 +13,7 @@ export const useLocalStorage = <T>(storage: LocalStorage<T>) => {
 		) => {
 			setValue((prev) => {
 				const newValue = v instanceof Function ? v(prev) : v;
-				if (opts.persist) {
+				if (opts.persist !== false) {
 					storage.set(newValue);
 				}
 				return newValue;

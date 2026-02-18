@@ -78,15 +78,18 @@ export const SidePanelContent = ({ input, output }: { input: executeSql.Input; o
 						<TableBody>
 							{output.data?.map((row, rowIndex) => (
 								<TableRow key={rowIndex}>
-									{Object.values(row).map((value, cellIndex) => (
-										<TableCell key={cellIndex} className='font-mono text-xs'>
-											{value === null ? (
-												<span className='text-muted-foreground/50 italic'>NULL</span>
-											) : (
-												String(value)
-											)}
-										</TableCell>
-									))}
+									{output.columns.map((column, cellIndex) => {
+										const value = row[column];
+										return (
+											<TableCell key={cellIndex} className='font-mono text-xs'>
+												{value == null ? (
+													<span className='text-muted-foreground/50 italic'>NULL</span>
+												) : (
+													String(value)
+												)}
+											</TableCell>
+										);
+									})}
 								</TableRow>
 							))}
 						</TableBody>
