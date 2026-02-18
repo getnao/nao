@@ -71,8 +71,14 @@ def temp_databases():
         yield {"main": db_name, "another": another_db_name}
 
     finally:
-        conn.raw_sql(f"DROP DATABASE IF EXISTS {db_name} CASCADE").fetchall()
-        conn.raw_sql(f"DROP DATABASE IF EXISTS {another_db_name} CASCADE").fetchall()
+        try:
+            conn.raw_sql(f"DROP DATABASE IF EXISTS {db_name} CASCADE").fetchall()
+        except Exception:
+            pass
+        try:
+            conn.raw_sql(f"DROP DATABASE IF EXISTS {another_db_name} CASCADE").fetchall()
+        except Exception:
+            pass
         conn.disconnect()
 
 
