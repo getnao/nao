@@ -1,10 +1,13 @@
+import math
 import os
 import sys
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import date, datetime
+from decimal import Decimal
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import uvicorn
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
@@ -113,6 +116,48 @@ class HealthResponse(BaseModel):
     refresh_schedule: str | None
 
 
+def _convert_value(v: object):
+    """Convert a DataFrame cell to a JSON-serializable Python type."""
+    if v is None:
+        return None
+
+    # Handle float NaN / Infinity early (common in pandas output)
+    if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
+        return None
+
+    # Handle pandas NA / NaT sentinels
+    if v is pd.NA or v is pd.NaT:
+        return None
+
+    # Numpy scalar types
+    if isinstance(v, np.bool_):
+        return bool(v)
+    if isinstance(v, np.integer):
+        return int(v)
+    if isinstance(v, np.floating):
+        val = float(v)
+        return None if math.isnan(val) or math.isinf(val) else val
+    if isinstance(v, np.ndarray):
+        return v.tolist()
+
+    # Python / DB types that aren't JSON-serializable by default
+    if isinstance(v, Decimal):
+        if v.is_nan() or v.is_infinite():
+            return None
+        return float(v)
+    if isinstance(v, (datetime, date)):
+        return v.isoformat()
+    if isinstance(v, bytes):
+        return v.decode("utf-8", errors="replace")
+
+    # Catch-all for remaining numpy scalars (e.g. np.str_, np.bytes_)
+    item_method = getattr(v, "item", None)
+    if callable(item_method):
+        return item_method()
+
+    return v
+
+
 # =============================================================================
 # API Endpoints
 # =============================================================================
@@ -217,19 +262,8 @@ async def execute_sql(request: ExecuteSQLRequest):
 
         df = db_config.execute_sql(request.sql)
 
-        def convert_value(v):
-            if isinstance(v, (np.integer,)):
-                return int(v)
-            if isinstance(v, (np.floating,)):
-                return float(v)
-            if isinstance(v, np.ndarray):
-                return v.tolist()
-            if hasattr(v, "item"):  # numpy scalar
-                return v.item()
-            return v
-
         data = [
-            {k: convert_value(v) for k, v in row.items()}
+            {k: _convert_value(v) for k, v in row.items()}
             for row in df.to_dict(orient="records")
         ]
 

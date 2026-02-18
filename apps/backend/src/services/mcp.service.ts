@@ -1,7 +1,7 @@
 import type { Tool } from '@ai-sdk/provider-utils';
-import { debounce } from '@nao/shared/utils';
+import { debounce } from '@nao/shared';
 import { jsonSchema, type JSONSchema7 } from 'ai';
-import { readFileSync, watch } from 'fs';
+import { existsSync, readFileSync, watch } from 'fs';
 import { createRuntime, type Runtime, ServerDefinition, ServerToolInfo } from 'mcporter';
 import { join } from 'path';
 
@@ -19,7 +19,7 @@ export class McpService {
 	private _mcpServers: Record<string, McpServerConfig>;
 	private _fileWatcher: ReturnType<typeof watch> | null = null;
 	private _debouncedReconnect: () => void;
-	private _initialized = false;
+	private _initPromise: Promise<void> | null = null;
 	private _mcpTools: Record<string, Tool> = {};
 	private _runtime: Runtime | null = null;
 	private _failedConnections: Record<string, string> = {};
@@ -37,18 +37,27 @@ export class McpService {
 	}
 
 	public async initializeMcpState(projectId: string): Promise<void> {
-		if (this._initialized && this._projectId === projectId) {
-			return;
+		if (this._projectId !== projectId) {
+			if (this._fileWatcher) {
+				this._fileWatcher.close();
+				this._fileWatcher = null;
+			}
+			this._initPromise = null;
 		}
 
-		if (this._fileWatcher) {
-			this._fileWatcher.close();
-			this._fileWatcher = null;
-		}
-
-		this._initialized = true;
 		this._projectId = projectId;
 
+		if (!this._initPromise) {
+			this._initPromise = this._initialize(projectId).catch((err) => {
+				this._initPromise = null;
+				throw err;
+			});
+		}
+
+		return this._initPromise;
+	}
+
+	private async _initialize(projectId: string): Promise<void> {
 		const project = await retrieveProjectById(projectId);
 		this._mcpJsonFilePath = join(project.path || '', 'agent', 'mcps', 'mcp.json');
 
@@ -70,7 +79,7 @@ export class McpService {
 	}
 
 	public async getMcpTools(projectId: string): Promise<Record<string, Tool>> {
-		if (!this._initialized || this._projectId !== projectId) {
+		if (!this._initPromise || this._projectId !== projectId) {
 			await this.initializeMcpState(projectId);
 		}
 
@@ -87,7 +96,6 @@ export class McpService {
 				.map(([name, tool]) => {
 					const inputSchema = tool.inputSchema;
 
-					// If it's an AI SDK schema wrapper with jsonSchema getter
 					if (inputSchema && typeof inputSchema === 'object' && 'jsonSchema' in inputSchema) {
 						const originalJsonSchema = inputSchema.jsonSchema;
 						return [
@@ -105,7 +113,6 @@ export class McpService {
 						];
 					}
 
-					// Otherwise, sanitize the schema directly
 					return [
 						name,
 						{
@@ -127,23 +134,26 @@ export class McpService {
 			return;
 		}
 
+		if (!existsSync(this._mcpJsonFilePath)) {
+			this._mcpServers = {};
+			return;
+		}
+
 		try {
 			const fileContent = readFileSync(this._mcpJsonFilePath, 'utf8');
 			const resolvedContent = replaceEnvVars(fileContent);
 			const content = mcpJsonSchema.parse(JSON.parse(resolvedContent));
 			this._mcpServers = content.mcpServers;
-		} catch {
-			console.error(
-				`[mcp] Failed to read or parse MCP config file at ${this._mcpJsonFilePath}. Using empty configuration.`,
-			);
+		} catch (error) {
+			console.error(`[mcp] Failed to parse MCP config file at ${this._mcpJsonFilePath}:`, error);
 			this._mcpServers = {};
 		}
 	}
 
 	private async _connectAllServers(): Promise<void> {
 		this._mcpTools = {};
-		this._toolsToServer.clear();
 		this._failedConnections = {};
+		this._toolsToServer = new Map();
 		this._runtime = await createRuntime();
 
 		const connectionPromises = Object.entries(this._mcpServers).map(async ([serverName, serverConfig]) => {
@@ -164,7 +174,6 @@ export class McpService {
 		await Promise.all(connectionPromises);
 	}
 
-	// Convert MCP server config to MCPorter server definition
 	private _convertToServerDefinition(name: string, config: McpServerConfig): ServerDefinition {
 		if (config.type === 'http') {
 			return {
@@ -274,7 +283,7 @@ export class McpService {
 	}
 
 	public async refreshToolAvailabilityForProject(projectId: string): Promise<void> {
-		if (!this._initialized || this._projectId !== projectId) {
+		if (!this._initPromise || this._projectId !== projectId) {
 			await this.initializeMcpState(projectId);
 		}
 		await this._cacheMcpState();
@@ -283,6 +292,10 @@ export class McpService {
 	private _setupFileWatcher(): void {
 		if (!this._mcpJsonFilePath) {
 			return;
+		}
+
+		if (this._fileWatcher) {
+			this._fileWatcher.close();
 		}
 
 		try {

@@ -8,14 +8,14 @@ import { SidebarSettingsNav } from './sidebar-settings-nav';
 import { Button } from '@/components/ui/button';
 import { cn, hideIf } from '@/lib/utils';
 import { useChatListQuery } from '@/queries/use-chat-list-query';
-import { useSidebar } from '@/contexts/sidebar.provider';
+import { useSidebar } from '@/contexts/sidebar';
 import NaoLogoGreyscale from '@/components/icons/nao-logo-greyscale.svg';
 
 export function Sidebar() {
 	const chats = useChatListQuery();
 	const navigate = useNavigate();
 	const matchRoute = useMatchRoute();
-	const { isCollapsed, toggleSidebar } = useSidebar();
+	const { isCollapsed, toggle: toggleSidebar } = useSidebar();
 
 	const isInSettings = matchRoute({ to: '/settings', fuzzy: true });
 
@@ -57,7 +57,7 @@ export function Sidebar() {
 					<Button
 						variant='ghost'
 						size='icon-md'
-						onClick={toggleSidebar}
+						onClick={() => toggleSidebar()}
 						className={cn('text-muted-foreground ml-auto z-10')}
 					>
 						{isCollapsed ? (
@@ -86,8 +86,8 @@ export function Sidebar() {
 					<Button
 						variant='outline'
 						className={cn(
-							'w-full justify-start relative group shadow-none transition-[padding,height,width,background-color] duration-300 p-[9px_!important]',
-							isCollapsed ? 'h-9 w-9' : '',
+							'w-full justify-start relative group shadow-none transition-[padding,height,background-color] duration-300 p-[9px_!important]',
+							isCollapsed ? 'h-9' : '',
 						)}
 						onClick={handleStartNewChat}
 					>

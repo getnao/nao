@@ -1,13 +1,10 @@
-import { createContext, useContext, useState } from 'react';
+import { createContext, useContext } from 'react';
 import type { ReactNode } from 'react';
 import type { UIToolPart } from '@nao/backend/chat';
 
-interface ToolCallContextValue {
+type ToolCallContextValue = {
 	toolPart: UIToolPart;
-	isHovering: boolean;
-	isExpanded: boolean;
-	setIsExpanded: (expanded: boolean) => void;
-}
+};
 
 export const ToolCallContext = createContext<ToolCallContextValue | null>(null);
 
@@ -29,14 +26,5 @@ interface ToolCallProviderProps {
 }
 
 export const ToolCallProvider = ({ toolPart, children }: ToolCallProviderProps) => {
-	const [isExpanded, setIsExpanded] = useState(false);
-	const [isHovering, setIsHovering] = useState(false);
-
-	return (
-		<ToolCallContext.Provider value={{ toolPart, isHovering, isExpanded, setIsExpanded }}>
-			<div onMouseEnter={() => setIsHovering(true)} onMouseLeave={() => setIsHovering(false)}>
-				{children}
-			</div>
-		</ToolCallContext.Provider>
-	);
+	return <ToolCallContext.Provider value={{ toolPart }}>{children}</ToolCallContext.Provider>;
 };

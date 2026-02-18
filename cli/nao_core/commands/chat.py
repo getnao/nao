@@ -8,6 +8,7 @@ from time import sleep
 
 from rich.console import Console
 
+from nao_core import __version__
 from nao_core.config import NaoConfig
 from nao_core.mode import MODE
 from nao_core.tracking import track_command
@@ -160,6 +161,7 @@ def chat():
         env["NAO_DEFAULT_PROJECT_PATH"] = str(Path.cwd())
         env["BETTER_AUTH_URL"] = f"http://localhost:{SERVER_PORT}"
         env["MODE"] = MODE
+        env["NAO_CORE_VERSION"] = __version__
 
         # Start the FastAPI server first
         fastapi_path = get_fastapi_main_path()

@@ -1,7 +1,7 @@
-@theme {
-	--animation-curve: cubic-bezier(0.5, 0, 0, 0.5);
+@theme inline {
 	--translate-size: 2px;
 	--animation-duration: 0.2s;
+	--animation-curve: cubic-bezier(0.7, 0, 0, 0.7);
 
 	--animate-fade-in: fade-in var(--animation-duration) var(--animation-curve) both;
 	--animate-fade-out: fade-out var(--animation-duration) var(--animation-curve) both;

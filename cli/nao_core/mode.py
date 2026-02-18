@@ -3,6 +3,7 @@
 MODE is 'prod' for published packages, 'dev' for local development.
 """
 
+import os
 from typing import Literal
 
 MODE: Literal["dev", "prod"]
@@ -13,4 +14,9 @@ try:
     MODE = BUILD_MODE
 except ImportError:
     # _build_info.py doesn't exist (e.g., editable install without running build)
-    MODE = "dev"
+    env_mode = os.environ.get("MODE")
+
+    if env_mode == "prod":
+        MODE = "prod"
+    else:
+        MODE = "dev"

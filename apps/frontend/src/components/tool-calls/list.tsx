@@ -1,7 +1,6 @@
 import { File, Folder, Link } from 'lucide-react';
-import { useToolCallContext } from '../../contexts/tool-call.provider';
 import { ToolCallWrapper } from './tool-call-wrapper';
-import type { list } from '@nao/shared/tools';
+import type { ToolCallComponentProps } from '.';
 import { formatBytes } from '@/lib/utils';
 import { isToolSettled } from '@/lib/ai';
 
@@ -16,10 +15,9 @@ const getIcon = (type?: string) => {
 	}
 };
 
-export const ListToolCall = () => {
-	const { toolPart } = useToolCallContext();
-	const output = toolPart.output as list.Output | undefined;
-	const input = toolPart.input as list.Input | undefined;
+export const ListToolCall = ({ toolPart }: ToolCallComponentProps<'list'>) => {
+	const output = toolPart.output;
+	const input = toolPart.input;
 	const entries = Array.isArray(output) ? output : output?.entries || [];
 	const isSettled = isToolSettled(toolPart);
 

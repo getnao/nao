@@ -14,8 +14,8 @@ import { getTools } from '../agents/tools';
 import { SystemPrompt } from '../components/system-prompt';
 import { renderToMarkdown } from '../lib/markdown';
 import * as chatQueries from '../queries/chat.queries';
-import * as projectQueries from '../queries/project.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
+import * as projectQueries from '../queries/project.queries';
 import { Mention, TokenCost, TokenUsage, UIChat, UIMessage } from '../types/chat';
 import { convertToCost, convertToTokenUsage, findLastUserMessage, retrieveProjectById } from '../utils/chat';
 import { getDefaultModelId, getEnvApiKey, getEnvModelSelections, ModelSelection } from '../utils/llm';
@@ -151,6 +151,7 @@ class AgentManager {
 		this._agent = new ToolLoopAgent({
 			...modelConfig,
 			tools: agentTools,
+			maxOutputTokens: 16_000,
 			// On step 1+: cache user message (stable) + current step's last message (loop leaf)
 			prepareStep: ({ messages }) => {
 				return { messages: this._addCache(messages) };
@@ -205,7 +206,7 @@ class AgentManager {
 			},
 			onFinish: async (e) => {
 				const stopReason = e.isAborted ? 'interrupted' : e.finishReason;
-				const tokenUsage = convertToTokenUsage(await result.totalUsage);
+				const tokenUsage = await this._getTotalUsage(result);
 				await chatQueries.upsertMessage(e.responseMessage, {
 					chatId: this.chat.id,
 					stopReason,
@@ -217,6 +218,16 @@ class AgentManager {
 				this._onDispose();
 			},
 		});
+	}
+
+	private async _getTotalUsage(result: StreamTextResult<AgentTools, never>): Promise<TokenUsage | undefined> {
+		try {
+			// totalUsage promise will throw if an error occured during the streaming
+			return convertToTokenUsage(await result.totalUsage);
+		} catch (error) {
+			void error;
+			return undefined;
+		}
 	}
 
 	async generate(messages: UIMessage[]): Promise<AgentRunResult> {

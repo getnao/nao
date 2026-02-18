@@ -1,13 +1,18 @@
 import { CornerDownRight } from 'lucide-react';
 import { Button } from './ui/button';
 import { Skeleton } from './ui/skeleton';
+import type { UIToolPart } from '@nao/backend/chat';
 import { useSetChatInputCallback } from '@/contexts/set-chat-input-callback';
 import { cn } from '@/lib/utils';
 
-export const FollowUpSuggestions = ({ suggestions, isLoading }: { suggestions: string[]; isLoading: boolean }) => {
+export const FollowUpSuggestions = ({ toolPart }: { toolPart: UIToolPart<'suggest_follow_ups'> }) => {
 	const setPromptCallback = useSetChatInputCallback();
 
-	if (isLoading) {
+	if (!toolPart.input) {
+		return null;
+	}
+
+	if (toolPart.state === 'input-streaming') {
 		return (
 			<div key={'skeleton'} className='flex flex-col gap-1 animate-fade-in-up'>
 				{Array.from({ length: 3 }).map((_, idx) => (
@@ -20,13 +25,13 @@ export const FollowUpSuggestions = ({ suggestions, isLoading }: { suggestions: s
 		);
 	}
 
-	if (suggestions.length === 0) {
+	if (toolPart.input.suggestions.length === 0) {
 		return null;
 	}
 
 	return (
 		<div key={'suggestions'} className={cn('flex flex-col gap-1', 'animate-fade-in-up delay-100')}>
-			{suggestions.map((suggestion, index) => (
+			{toolPart.input.suggestions.map((suggestion, index) => (
 				<Button
 					key={index}
 					variant='ghost'
@@ -34,7 +39,7 @@ export const FollowUpSuggestions = ({ suggestions, isLoading }: { suggestions: s
 					className='justify-start gap-2 px-3 py-2 text-left rounded-lg'
 				>
 					<CornerDownRight className='text-muted-foreground opacity-50' />
-					<span className='line-clamp-2'>{suggestion}</span>
+					<span className='truncate'>{suggestion}</span>
 				</Button>
 			))}
 		</div>

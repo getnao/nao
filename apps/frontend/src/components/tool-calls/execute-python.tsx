@@ -1,9 +1,8 @@
 import { useState } from 'react';
 import { Streamdown } from 'streamdown';
 import { Code, Copy, Terminal } from 'lucide-react';
-import { useToolCallContext } from '../../contexts/tool-call.provider';
 import { ToolCallWrapper } from './tool-call-wrapper';
-import type { executePython } from '@nao/shared/tools';
+import type { ToolCallComponentProps } from '.';
 import { isToolSettled } from '@/lib/ai';
 
 type ViewMode = 'output' | 'code';
@@ -21,11 +20,10 @@ const formatOutput = (value: unknown): string => {
 	return `\`\`\`bash\n${String(value)}\n\`\`\``;
 };
 
-export const ExecutePythonToolCall = () => {
-	const { toolPart } = useToolCallContext();
+export const ExecutePythonToolCall = ({ toolPart }: ToolCallComponentProps<'execute_python'>) => {
 	const [viewMode, setViewMode] = useState<ViewMode>('output');
-	const input = toolPart.input as executePython.Input | undefined;
-	const output = toolPart.output as executePython.Output | undefined;
+	const input = toolPart.input;
+	const output = toolPart.output;
 	const isSettled = isToolSettled(toolPart);
 
 	const actions = [

@@ -1,17 +1,10 @@
-export interface TimeAgoResult {
+export interface TimeAgo {
 	value: number;
 	unit: 'second' | 'minute' | 'hour' | 'day' | 'week' | 'month' | 'year';
+	humanReadable: string;
 }
 
-export function getTimeAgo(timestamp: number): TimeAgoResult & { humanReadable: string } {
-	const timeAgo = calculateTimeAgo(timestamp);
-	return {
-		...timeAgo,
-		humanReadable: formatTimeAgo(timeAgo),
-	};
-}
-
-export function calculateTimeAgo(timestamp: number): TimeAgoResult {
+export function getTimeAgo(timestamp: number): TimeAgo {
 	const now = Date.now();
 	const diff = now - timestamp;
 
@@ -24,41 +17,22 @@ export function calculateTimeAgo(timestamp: number): TimeAgoResult {
 	const years = Math.floor(days / 365);
 
 	if (years > 0) {
-		return { value: years, unit: 'year' };
+		return { value: years, unit: 'year', humanReadable: `${years}y ago` };
 	}
 	if (months > 0) {
-		return { value: months, unit: 'month' };
+		return { value: months, unit: 'month', humanReadable: `${months}mo ago` };
 	}
 	if (weeks > 0) {
-		return { value: weeks, unit: 'week' };
+		return { value: weeks, unit: 'week', humanReadable: `${weeks}w ago` };
 	}
 	if (days > 0) {
-		return { value: days, unit: 'day' };
+		return { value: days, unit: 'day', humanReadable: `${days}d ago` };
 	}
 	if (hours > 0) {
-		return { value: hours, unit: 'hour' };
+		return { value: hours, unit: 'hour', humanReadable: `${hours}h ago` };
 	}
 	if (minutes > 0) {
-		return { value: minutes, unit: 'minute' };
+		return { value: minutes, unit: 'minute', humanReadable: `${minutes}m ago` };
 	}
-	return { value: seconds, unit: 'second' };
-}
-
-export function formatTimeAgo(result: TimeAgoResult): string {
-	switch (result.unit) {
-		case 'second':
-			return `Just now`;
-		case 'minute':
-			return `${result.value}m ago`;
-		case 'hour':
-			return `${result.value}h ago`;
-		case 'day':
-			return `${result.value}d ago`;
-		case 'week':
-			return `${result.value}w ago`;
-		case 'month':
-			return `${result.value}m ago`;
-		case 'year':
-			return `${result.value}y ago`;
-	}
+	return { value: seconds, unit: 'second', humanReadable: `${seconds}s ago` };
 }

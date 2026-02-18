@@ -5,10 +5,10 @@ import { MessageFeedback } from '../db/abstractSchema';
 import * as chatQueries from '../queries/chat.queries';
 import * as feedbackQueries from '../queries/feedback.queries';
 import { posthog, PostHogEvent } from '../services/posthog.service';
-import { adminProtectedProcedure, protectedProcedure } from './trpc';
+import { adminProtectedProcedure, projectProtectedProcedure } from './trpc';
 
 export const feedbackRoutes = {
-	submit: protectedProcedure
+	submit: projectProtectedProcedure
 		.input(
 			z.object({
 				chatId: z.string(),
@@ -33,15 +33,16 @@ export const feedbackRoutes = {
 				});
 			}
 
-			posthog.capture(ctx.user.id, PostHogEvent.MessageFeedbackSubmitted, {
-				vote: input.vote,
-				has_explanation: !!input.explanation,
-			});
-
 			const feedback = await feedbackQueries.upsertFeedback({
 				messageId: input.messageId,
 				vote: input.vote,
 				explanation: input.explanation,
+			});
+
+			posthog.capture(ctx.user.id, PostHogEvent.MessageFeedbackSubmitted, {
+				project_id: ctx.project.id,
+				vote: input.vote,
+				has_explanation: !!input.explanation,
 			});
 			return feedback;
 		}),

@@ -217,8 +217,8 @@ export const projectRoutes = {
 				prompt: input.prompt,
 			});
 			posthog.capture(ctx.user.id, PostHogEvent.SavedPromptCreated, {
-				projectId: ctx.project.id,
-				savedPromptId: saved.id,
+				project_id: ctx.project.id,
+				saved_prompt_id: saved.id,
 			});
 			return saved;
 		}),
@@ -238,8 +238,8 @@ export const projectRoutes = {
 				throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Failed to update saved prompt' });
 			}
 			posthog.capture(ctx.user.id, PostHogEvent.SavedPromptUpdated, {
-				projectId: ctx.project.id,
-				savedPromptId: promptId,
+				project_id: ctx.project.id,
+				saved_prompt_id: promptId,
 			});
 			return updated;
 		}),
@@ -249,8 +249,8 @@ export const projectRoutes = {
 		.mutation(async ({ ctx, input }) => {
 			await savedPromptQueries.remove(ctx.project.id, input.promptId);
 			posthog.capture(ctx.user.id, PostHogEvent.SavedPromptDeleted, {
-				projectId: ctx.project.id,
-				savedPromptId: input.promptId,
+				project_id: ctx.project.id,
+				saved_prompt_id: input.promptId,
 			});
 		}),
 

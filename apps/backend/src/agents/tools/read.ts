@@ -2,10 +2,10 @@ import { readFile } from '@nao/shared/tools';
 import fs from 'fs/promises';
 
 import { ReadOutput, renderToModelOutput } from '../../components/tool-outputs';
-import { createTool } from '../../types/tools';
 import { toRealPath } from '../../utils/tools';
+import { createTool } from '../../utils/tools';
 
-export default createTool({
+export default createTool<readFile.Input, readFile.Output>({
 	description: 'Read the contents of a file at the specified path.',
 	inputSchema: readFile.InputSchema,
 	outputSchema: readFile.OutputSchema,

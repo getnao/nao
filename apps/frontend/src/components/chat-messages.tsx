@@ -22,13 +22,13 @@ import {
 	checkIsAgentGenerating,
 	groupToolCalls,
 	isToolGroupPart,
-	getLastFollowUpSuggestions,
+	getLastFollowUpSuggestionsToolCall,
 } from '@/lib/ai';
 import { cn, isLast } from '@/lib/utils';
 import { useAgentContext } from '@/contexts/agent.provider';
 import { useHeight } from '@/hooks/use-height';
 import { groupMessages } from '@/lib/messages.utils';
-import { useDebounce } from '@/hooks/use-debounce';
+import { useDebounceValue } from '@/hooks/use-debounce-value';
 
 const DEBUG_MESSAGES = false;
 
@@ -65,7 +65,7 @@ export function ChatMessages() {
 const ChatMessagesContent = ({ isAgentGenerating }: { isAgentGenerating: boolean }) => {
 	const { messages, isRunning, registerScrollDown } = useAgentContext();
 	const { scrollToBottom } = useStickToBottomContext();
-	const followUpSuggestions = useMemo(() => getLastFollowUpSuggestions(messages), [messages]);
+	const followUpSuggestionsToolCall = useMemo(() => getLastFollowUpSuggestionsToolCall(messages), [messages]);
 	const extraComponentsRef = useRef<HTMLDivElement>(null);
 	const extraComponentsHeight = useHeight(extraComponentsRef);
 
@@ -84,8 +84,7 @@ const ChatMessagesContent = ({ isAgentGenerating }: { isAgentGenerating: boolean
 	const isWaitingForAgentContentGeneration = isRunning && !isAgentGenerating;
 
 	// Debounce the value to prevent flickering
-	const debouncedIsWaitingForAgentContentGeneration = useDebounce({
-		value: isWaitingForAgentContentGeneration,
+	const debouncedIsWaitingForAgentContentGeneration = useDebounceValue(isWaitingForAgentContentGeneration, {
 		delay: 50,
 		skipDebounce: (value) => !value, // Skip debounce if the value equals `false` to immediately remove the loader
 	});
@@ -112,10 +111,7 @@ const ChatMessagesContent = ({ isAgentGenerating }: { isAgentGenerating: boolean
 			</div>
 
 			<div className='flex flex-col gap-4' ref={extraComponentsRef}>
-				<FollowUpSuggestions
-					suggestions={followUpSuggestions.suggestions}
-					isLoading={followUpSuggestions.isLoading}
-				/>
+				{followUpSuggestionsToolCall && <FollowUpSuggestions toolPart={followUpSuggestionsToolCall} />}
 
 				<ChatError className='mt-4' />
 			</div>

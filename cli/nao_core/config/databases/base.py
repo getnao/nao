@@ -116,13 +116,11 @@ class DatabaseConfig(BaseModel, ABC):
             return list_databases()
         return []
 
-    def fetch_table_description(self, conn: BaseBackend, schema: str, table_name: str) -> str | None:
-        """Fetch the table description/comment from the warehouse metadata."""
-        return None
+    def create_context(self, conn: BaseBackend, schema: str, table_name: str):
+        """Create a DatabaseContext for this table. Override in subclasses for custom metadata."""
+        from nao_core.config.databases.context import DatabaseContext
 
-    def fetch_column_descriptions(self, conn: BaseBackend, schema: str, table_name: str) -> dict[str, str]:
-        """Fetch column descriptions/comments from the warehouse metadata."""
-        return {}
+        return DatabaseContext(conn, schema, table_name)
 
     def check_connection(self) -> tuple[bool, str]:
         """Test connectivity to the database. Override in subclasses for custom behavior."""

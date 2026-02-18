@@ -13,6 +13,7 @@ from typing import Any, Callable, TypeVar
 
 from posthog import Posthog
 
+from nao_core import __version__
 from nao_core.mode import MODE
 
 POSTHOG_DISABLED = os.environ.get("POSTHOG_DISABLED", "false").lower() == "true"
@@ -52,7 +53,7 @@ def get_or_create_posthog_client() -> Posthog | None:
     if _client is not None:
         return _client
 
-    if POSTHOG_DISABLED or not POSTHOG_KEY or not POSTHOG_HOST or MODE == "dev":
+    if POSTHOG_DISABLED or not POSTHOG_KEY or not POSTHOG_HOST or MODE != "prod":
         return None
 
     try:
@@ -118,10 +119,17 @@ def track_command(command_name: str) -> Callable[[F], F]:
             # Build properties with system info and command name
             distinct_id = get_or_create_distinct_id()
             session_id = str(uuid.uuid4())
-            base_properties = {
+            base_properties: dict[str, Any] = {
                 "command": command_name,
                 "$session_id": session_id,
                 "mode": MODE,
+                "nao_core_version": __version__,  # Set `nao_core_version` in event and person properties for convenience
+                "$set": {
+                    "nao_core_version": __version__,
+                },
+                "$set_once": {
+                    "first_nao_core_version": __version__,
+                },
             }
 
             # Helper to safely capture events (never raises)

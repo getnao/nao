@@ -2,8 +2,8 @@ import { executePython as schemas } from '@nao/shared/tools';
 import fs from 'fs';
 import path from 'path';
 
-import { createTool } from '../../types/tools';
 import { isWithinProjectFolder, toVirtualPath } from '../../utils/tools';
+import { createTool } from '../../utils/tools';
 
 // @pydantic/monty uses native bindings that aren't available on all platforms
 // (e.g. no Linux ARM64 binary). Load lazily so the server can still start.
@@ -143,7 +143,7 @@ const EXTERNAL_FUNCTION_NAMES = schemas.EXTERNAL_FUNCTIONS.map((f) => f.name);
 export const isPythonAvailable = montyModule !== null;
 
 export default montyModule
-	? createTool({
+	? createTool<schemas.Input, schemas.Output>({
 			description: schemas.description,
 			inputSchema: schemas.inputSchema,
 			outputSchema: schemas.outputSchema,

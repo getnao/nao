@@ -1,18 +1,11 @@
-import { useEffect, useState } from 'react';
+import { debounce } from '@nao/shared';
+import { useMemo } from 'react';
 
-export const useDebounce = <T>(opts: { value: T; delay: number; skipDebounce?: (v: T) => boolean }) => {
-	const { value, delay, skipDebounce } = opts;
-	const [debouncedValue, setDebouncedValue] = useState(value);
-
-	useEffect(() => {
-		if (skipDebounce && skipDebounce(value)) {
-			setDebouncedValue(value);
-			return;
-		}
-
-		const timeout = setTimeout(() => setDebouncedValue(value), delay);
-		return () => clearTimeout(timeout);
-	}, [value, delay]); // eslint-disable-line react-hooks/exhaustive-deps
-
-	return debouncedValue;
+export const useDebounce = <T extends (...args: any[]) => any>(
+	func: T,
+	delay: number,
+	deps: React.DependencyList = [],
+): ((...args: Parameters<T>) => void) => {
+	const debounced = useMemo(() => debounce(func, delay), deps); // eslint-disable-line react-hooks/exhaustive-deps
+	return debounced;
 };
