@@ -314,9 +314,7 @@ class AgentManager {
 	}
 
 	private _messagesToSummarize(messages: UIMessage[]): UIMessage[] {
-		const lastUserIndex = [...messages]
-			.reverse()
-			.findIndex((m) => m.role === 'user');
+		const lastUserIndex = [...messages].reverse().findIndex((m) => m.role === 'user');
 		if (lastUserIndex === -1) {
 			return messages;
 		}
