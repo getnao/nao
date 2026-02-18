@@ -63,7 +63,7 @@ export function ChatMessages() {
 }
 
 const ChatMessagesContent = ({ isAgentGenerating }: { isAgentGenerating: boolean }) => {
-	const { messages, isRunning, registerScrollDown } = useAgentContext();
+	const { messages, isRunning, registerScrollDown, summaryNotice } = useAgentContext();
 	const { scrollToBottom } = useStickToBottomContext();
 	const followUpSuggestionsToolCall = useMemo(() => getLastFollowUpSuggestionsToolCall(messages), [messages]);
 	const extraComponentsRef = useRef<HTMLDivElement>(null);
@@ -91,6 +91,12 @@ const ChatMessagesContent = ({ isAgentGenerating }: { isAgentGenerating: boolean
 
 	return (
 		<>
+			{summaryNotice ? (
+				<div className='mx-3 mb-2 rounded-md border border-border/60 bg-muted/40 px-3 py-2 text-sm text-muted-foreground'>
+					{summaryNotice}
+				</div>
+			) : null}
+
 			<div
 				className='flex flex-col gap-8'
 				style={{ '--extra-components-height': `${extraComponentsHeight}px` } as React.CSSProperties}

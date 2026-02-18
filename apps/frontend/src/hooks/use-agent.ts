@@ -1,6 +1,6 @@
 import { useNavigate, useParams } from '@tanstack/react-router';
 import { useMutation } from '@tanstack/react-query';
-import { useMemo, useEffect, useRef, useCallback } from 'react';
+import { useMemo, useEffect, useRef, useCallback, useState } from 'react';
 import { Chat as Agent, useChat } from '@ai-sdk/react';
 import { DefaultChatTransport } from 'ai';
 import { useCurrent } from './useCurrent';
@@ -33,6 +33,7 @@ export interface AgentHelpers {
 	selectedModel: ChatSelectedModel | null;
 	setSelectedModel: React.Dispatch<React.SetStateAction<ChatSelectedModel | null>>;
 	setMentions: (mentions: MentionOption[]) => void;
+	summaryNotice: string | null;
 }
 
 const selectedModelStorage = createLocalStorage<ChatSelectedModel>('nao-selected-model');
@@ -45,6 +46,7 @@ export const useAgent = (): AgentHelpers => {
 	const scrollDownService = useScrollDownCallbackService();
 
 	const [selectedModel, setSelectedModel] = useLocalStorage(selectedModelStorage);
+	const [summaryNotice, setSummaryNotice] = useState<string | null>(null);
 	const selectedModelRef = useCurrent(selectedModel);
 	const mentionsRef = useRef<MentionOption[]>([]);
 	const setChat = useSetChat();
@@ -78,7 +80,13 @@ export const useAgent = (): AgentHelpers => {
 					};
 				},
 			}),
-			onData: ({ data: newChat }) => {
+			onData: ({ data }) => {
+				if (data && typeof data === 'object' && 'message' in data) {
+					setSummaryNotice(String((data as { message: string }).message));
+					return;
+				}
+
+				const newChat = data as { id: string; title: string; createdAt: number; updatedAt: number };
 				agentService.moveAgent(agentId, newChat.id);
 
 				agentId = newChat.id;
@@ -125,6 +133,7 @@ export const useAgent = (): AgentHelpers => {
 				return;
 			}
 			agent.clearError();
+			setSummaryNotice(null);
 			scrollDownService.scrollDown({ animation: 'smooth' }); // TODO: 'smooth' doesn't work
 			return agent.sendMessage(args);
 		},
@@ -145,6 +154,7 @@ export const useAgent = (): AgentHelpers => {
 		selectedModel,
 		setSelectedModel,
 		setMentions,
+		summaryNotice,
 	});
 };
 

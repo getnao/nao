@@ -39,6 +39,10 @@ export type UITools = InferUITools<typeof tools>;
 export type MessageCustomDataParts = {
 	/** Sent when a new chat is created */
 	newChat: ChatListItem;
+	/** Sent when the backend compacts conversation due to context limits */
+	summaryGenerated: {
+		message: string;
+	};
 };
 
 export type UIMessagePart = UIGenericMessagePart<MessageCustomDataParts, UITools>;

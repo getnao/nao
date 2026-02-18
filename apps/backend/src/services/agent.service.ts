@@ -2,11 +2,13 @@ import {
 	convertToModelMessages,
 	createUIMessageStream,
 	FinishReason,
+	generateText,
 	hasToolCall,
 	ModelMessage,
 	StreamTextResult,
 	ToolLoopAgent,
 	ToolLoopAgentSettings,
+	UIMessageStreamWriter,
 } from 'ai';
 
 import { CACHE_1H, CACHE_5M, createProviderModel } from '../agents/providers';
@@ -44,6 +46,16 @@ type AgentChat = UIChat & {
 	userId: string;
 	projectId: string;
 };
+
+const SUMMARY_NOTICE_TEXT = 'Conversation has been summarized.';
+const SUMMARY_STREAM_MESSAGE = 'Conversation was summarized to continue despite context limits.';
+const SUMMARY_PROMPT = `Summarize the prior conversation for continuation.
+Include:
+- user goals and intent
+- key facts, entities, and decisions
+- important constraints and unresolved questions
+Keep it concise and factual.
+Output plain text only.`;
 
 export class AgentService {
 	private _agents = new Map<string, AgentManager>();
@@ -138,6 +150,7 @@ export class AgentService {
 
 class AgentManager {
 	private readonly _agent: ToolLoopAgent<never, ReturnType<typeof getTools>, never>;
+	private readonly _modelConfig: Pick<ToolLoopAgentSettings, 'model' | 'providerOptions'>;
 
 	constructor(
 		readonly chat: AgentChat,
@@ -147,6 +160,7 @@ class AgentManager {
 		private readonly _abortController: AbortController,
 		agentSettings: AgentSettings | null,
 	) {
+		this._modelConfig = modelConfig;
 		this._agent = new ToolLoopAgent({
 			...modelConfig,
 			tools: getTools(agentSettings),
@@ -186,17 +200,13 @@ class AgentManager {
 
 				// Fetch project path and run agent within project context
 				const project = await retrieveProjectById(this.chat.projectId);
+				const projectPath = project.path;
+				if (!projectPath) {
+					throw new Error(`Project path not configured: ${this.chat.projectId}`);
+				}
 
 				const messages = await this._buildModelMessages(uiMessages, opts.mentions);
-
-				result = await this._agent.stream({
-					messages,
-					abortSignal: this._abortController.signal,
-					// @ts-expect-error - experimental_context is not yet in the types
-					experimental_context: {
-						projectFolder: project.path,
-					},
-				});
+				result = await this._streamWithCompaction(messages, uiMessages, opts.mentions, writer, projectPath);
 
 				writer.merge(result.toUIMessageStream({}));
 			},
@@ -218,6 +228,140 @@ class AgentManager {
 				this._onDispose();
 			},
 		});
+	}
+
+	private async _streamWithCompaction(
+		modelMessages: ModelMessage[],
+		uiMessages: UIMessage[],
+		mentions: Mention[] | undefined,
+		writer: UIMessageStreamWriter<UIMessage>,
+		projectFolder: string,
+	): Promise<StreamTextResult<ReturnType<typeof getTools>, never>> {
+		try {
+			return await this._agent.stream({
+				messages: modelMessages,
+				abortSignal: this._abortController.signal,
+				// @ts-expect-error - experimental_context is not yet in the types
+				experimental_context: { projectFolder },
+			});
+		} catch (error) {
+			if (!this._isContextLimitError(error)) {
+				throw error;
+			}
+
+			const summary = await this._summarizeWithRetry(uiMessages, mentions);
+			if (!summary) {
+				const fallbackMessages = this._truncateForFallback(modelMessages);
+				return await this._agent.stream({
+					messages: fallbackMessages,
+					abortSignal: this._abortController.signal,
+					// @ts-expect-error - experimental_context is not yet in the types
+					experimental_context: { projectFolder },
+				});
+			}
+
+			const summaryMessage = this._createSummaryMessage(summary);
+			await chatQueries.upsertMessage(summaryMessage, {
+				chatId: this.chat.id,
+				llmProvider: this._modelSelection.provider,
+				llmModelId: this._modelSelection.modelId,
+			});
+
+			writer.write({
+				type: 'data-summaryGenerated',
+				data: { message: SUMMARY_STREAM_MESSAGE },
+			});
+
+			const compactedMessages = this._buildCompactedMessages(uiMessages, summaryMessage);
+			const compactedModelMessages = await this._buildModelMessages(compactedMessages, mentions);
+			return await this._agent.stream({
+				messages: compactedModelMessages,
+				abortSignal: this._abortController.signal,
+				// @ts-expect-error - experimental_context is not yet in the types
+				experimental_context: { projectFolder },
+			});
+		}
+	}
+
+	private async _summarizeWithRetry(uiMessages: UIMessage[], mentions?: Mention[]): Promise<string | null> {
+		const prepared = this._prepareUIMessages(uiMessages, mentions);
+		const toSummarize = this._messagesToSummarize(prepared);
+		if (toSummarize.length === 0) {
+			return null;
+		}
+
+		const attempts: UIMessage[][] = [toSummarize, toSummarize.slice(Math.max(0, toSummarize.length - 16))];
+		for (const attempt of attempts) {
+			try {
+				const modelMessages = await convertToModelMessages(attempt);
+				const { text } = await generateText({
+					model: this._modelConfig.model,
+					providerOptions: this._modelConfig.providerOptions,
+					system: SUMMARY_PROMPT,
+					messages: modelMessages,
+					abortSignal: this._abortController.signal,
+				});
+				const summary = text.trim();
+				if (summary) {
+					return summary;
+				}
+			} catch {
+				// retry once with a smaller window
+			}
+		}
+
+		return null;
+	}
+
+	private _messagesToSummarize(messages: UIMessage[]): UIMessage[] {
+		const lastUserIndex = [...messages]
+			.reverse()
+			.findIndex((m) => m.role === 'user');
+		if (lastUserIndex === -1) {
+			return messages;
+		}
+		const absoluteLastUserIndex = messages.length - 1 - lastUserIndex;
+		return messages.slice(0, absoluteLastUserIndex);
+	}
+
+	private _createSummaryMessage(summary: string): UIMessage {
+		return {
+			id: crypto.randomUUID(),
+			role: 'assistant',
+			parts: [
+				{ type: 'text', text: SUMMARY_NOTICE_TEXT },
+				{ type: 'reasoning', text: summary },
+			],
+		};
+	}
+
+	private _buildCompactedMessages(uiMessages: UIMessage[], summaryMessage: UIMessage): UIMessage[] {
+		const lastUser = findLastUserMessage(uiMessages);
+		if (lastUser.index === -1) {
+			return [summaryMessage];
+		}
+		return [summaryMessage, lastUser.message];
+	}
+
+	private _truncateForFallback(messages: ModelMessage[]): ModelMessage[] {
+		if (messages.length <= 18) {
+			return messages;
+		}
+		const system = messages[0]?.role === 'system' ? [messages[0]] : [];
+		const tail = messages.slice(-16);
+		return [...system, ...tail];
+	}
+
+	private _isContextLimitError(error: unknown): boolean {
+		const message = String(error ?? '').toLowerCase();
+		return (
+			message.includes('context_length_exceeded') ||
+			message.includes('context length') ||
+			message.includes('context window') ||
+			message.includes('maximum context') ||
+			message.includes('prompt is too long') ||
+			message.includes('input is too long')
+		);
 	}
 
 	private async _getTotalUsage(
@@ -267,11 +411,27 @@ class AgentManager {
 	/** Builds and prepares the UI messages into model messages */
 	private async _buildModelMessages(uiMessages: UIMessage[], mentions?: Mention[]): Promise<ModelMessage[]> {
 		uiMessages = this._prepareUIMessages(uiMessages, mentions);
+		uiMessages = this._trimToLastSummary(uiMessages);
 		const modelMessages = await convertToModelMessages(uiMessages);
 		const systemPrompt = renderToMarkdown(SystemPrompt());
 		const systemMessage: ModelMessage = { role: 'system', content: systemPrompt };
 		modelMessages.unshift(systemMessage);
 		return modelMessages;
+	}
+
+	private _trimToLastSummary(messages: UIMessage[]): UIMessage[] {
+		const lastSummaryIndex = [...messages]
+			.reverse()
+			.findIndex(
+				(m) =>
+					m.role === 'assistant' &&
+					m.parts.some((p) => p.type === 'text' && p.text.trim() === SUMMARY_NOTICE_TEXT),
+			);
+		if (lastSummaryIndex === -1) {
+			return messages;
+		}
+		const absoluteIndex = messages.length - 1 - lastSummaryIndex;
+		return messages.slice(absoluteIndex);
 	}
 
 	private _prepareUIMessages(messages: UIMessage[], mentions?: Mention[]): UIMessage[] {
