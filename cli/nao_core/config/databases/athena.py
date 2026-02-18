@@ -33,7 +33,7 @@ class AthenaConfig(DatabaseConfig):
 
         auth_method = ask_select(
             "Authentication method:",
-            options=["AWS Profile", "Access Keys"],
+            choices=["AWS Profile", "Access Keys"],
         )
 
         profile_name = None
