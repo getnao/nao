@@ -108,9 +108,7 @@ def pre_compile_dbt_docs(repo: RepoConfig, base_path: Path) -> bool:
         result = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=300)
 
         if result.returncode != 0:
-            UI.warn(
-                f"{repo.name}: dbt docs generate failed: {result.stderr.strip() or result.stdout.strip()}"
-            )
+            UI.warn(f"{repo.name}: dbt docs generate failed: {result.stderr.strip() or result.stdout.strip()}")
             return True
 
         catalog_path = repo_path / "target" / "catalog.json"
@@ -140,7 +138,7 @@ class RepositorySyncProvider(SyncProvider):
 
     @property
     def emoji(self) -> str:
-        return "\U0001F4E6"
+        return "\U0001f4e6"
 
     @property
     def default_output_dir(self) -> str:
