@@ -20,7 +20,7 @@ export function getTimeAgo(timestamp: number): TimeAgo {
 		return { value: years, unit: 'year', humanReadable: `${years}y ago` };
 	}
 	if (months > 0) {
-		return { value: months, unit: 'month', humanReadable: `${months}m ago` };
+		return { value: months, unit: 'month', humanReadable: `${months}mo ago` };
 	}
 	if (weeks > 0) {
 		return { value: weeks, unit: 'week', humanReadable: `${weeks}w ago` };
@@ -32,7 +32,7 @@ export function getTimeAgo(timestamp: number): TimeAgo {
 		return { value: hours, unit: 'hour', humanReadable: `${hours}h ago` };
 	}
 	if (minutes > 0) {
-		return { value: minutes, unit: 'minute', humanReadable: `${minutes}mo ago` };
+		return { value: minutes, unit: 'minute', humanReadable: `${minutes}m ago` };
 	}
 	return { value: seconds, unit: 'second', humanReadable: `${seconds}s ago` };
 }
