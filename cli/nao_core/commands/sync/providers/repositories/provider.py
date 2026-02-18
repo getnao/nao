@@ -5,15 +5,15 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from rich.console import Console
-
 from nao_core.commands.sync.cleanup import cleanup_stale_repos
 from nao_core.config import NaoConfig
 from nao_core.config.repos import RepoConfig
+from nao_core.ui import UI
 
 from ..base import SyncProvider, SyncResult
 
-console = Console()
+# Kept for backwards-compatible tests that patch provider.console.
+console = UI._console
 
 
 def clone_or_pull_repo(repo: RepoConfig, base_path: Path) -> bool:
@@ -30,8 +30,7 @@ def clone_or_pull_repo(repo: RepoConfig, base_path: Path) -> bool:
 
     try:
         if repo_path.exists():
-            # Repository exists - pull latest changes
-            console.print(f"  [dim]Pulling latest changes for[/dim] {repo.name}")
+            UI.print(f"  [dim]Pulling latest changes for[/dim] {repo.name}")
 
             result = subprocess.run(
                 ["git", "pull"],
@@ -42,10 +41,9 @@ def clone_or_pull_repo(repo: RepoConfig, base_path: Path) -> bool:
             )
 
             if result.returncode != 0:
-                console.print(f"  [yellow]⚠[/yellow] Failed to pull {repo.name}: {result.stderr.strip()}")
+                UI.warn(f"Failed to pull {repo.name}: {result.stderr.strip()}")
                 return False
 
-            # If branch is specified, checkout that branch
             if repo.branch:
                 subprocess.run(
                     ["git", "checkout", repo.branch],
@@ -56,8 +54,7 @@ def clone_or_pull_repo(repo: RepoConfig, base_path: Path) -> bool:
                 )
 
         else:
-            # Repository doesn't exist - clone it
-            console.print(f"  [dim]Cloning[/dim] {repo.name}")
+            UI.print(f"  [dim]Cloning[/dim] {repo.name}")
 
             cmd = ["git", "clone"]
             if repo.branch:
@@ -72,13 +69,13 @@ def clone_or_pull_repo(repo: RepoConfig, base_path: Path) -> bool:
             )
 
             if result.returncode != 0:
-                console.print(f"  [yellow]⚠[/yellow] Failed to clone {repo.name}: {result.stderr.strip()}")
+                UI.warn(f"Failed to clone {repo.name}: {result.stderr.strip()}")
                 return False
 
         return True
 
     except Exception as e:
-        console.print(f"  [yellow]⚠[/yellow] Error syncing {repo.name}: {e}")
+        UI.warn(f"Error syncing {repo.name}: {e}")
         return False
 
 
@@ -95,48 +92,42 @@ def pre_compile_dbt_docs(repo: RepoConfig, base_path: Path) -> bool:
         dbt_project_file = repo_path / "dbt_project.yml"
 
         if not dbt_project_file.exists():
-            console.print(
-                f"  [yellow]⚠[/yellow] {repo.name}: `compile_dbt_docs=true` but no dbt_project.yml found, skipping"
-            )
+            UI.warn(f"{repo.name}: compile_dbt_docs=true but no dbt_project.yml found, skipping")
             return True
 
         dbt_binary = shutil.which("dbt")
         if not dbt_binary:
-            console.print(
-                f"  [yellow]⚠[/yellow] {repo.name}: dbt not found in PATH, cannot pre-compile docs (install dbt-core)"
-            )
+            UI.warn(f"{repo.name}: dbt not found in PATH, cannot pre-compile docs (install dbt-core)")
             return True
 
         cmd = [dbt_binary, "docs", "generate", "--project-dir", str(repo_path)]
         if repo.dbt_profiles_dir:
             cmd.extend(["--profiles-dir", repo.dbt_profiles_dir])
 
-        console.print(f"  [dim]Pre-compiling dbt docs for[/dim] {repo.name}")
+        UI.print(f"  [dim]Pre-compiling dbt docs for[/dim] {repo.name}")
         result = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=300)
 
         if result.returncode != 0:
-            console.print(
-                f"  [yellow]⚠[/yellow] {repo.name}: `dbt docs generate` failed: {result.stderr.strip() or result.stdout.strip()}"
+            UI.warn(
+                f"{repo.name}: dbt docs generate failed: {result.stderr.strip() or result.stdout.strip()}"
             )
             return True
 
         catalog_path = repo_path / "target" / "catalog.json"
         manifest_path = repo_path / "target" / "manifest.json"
         if catalog_path.exists() and manifest_path.exists():
-            console.print(
-                f"  [green]✓[/green] {repo.name} dbt docs compiled (target/catalog.json, target/manifest.json)"
-            )
+            UI.success(f"{repo.name} dbt docs compiled (target/catalog.json, target/manifest.json)")
         else:
-            console.print(
-                f"  [yellow]⚠[/yellow] {repo.name}: dbt docs command succeeded but target/catalog.json or target/manifest.json was not found"
+            UI.warn(
+                f"{repo.name}: dbt docs command succeeded but target/catalog.json or target/manifest.json was not found"
             )
 
         return True
     except subprocess.TimeoutExpired:
-        console.print(f"  [yellow]⚠[/yellow] {repo.name}: `dbt docs generate` timed out after 300 seconds")
+        UI.warn(f"{repo.name}: dbt docs generate timed out after 300 seconds")
         return True
     except Exception as e:
-        console.print(f"  [yellow]⚠[/yellow] {repo.name}: error pre-compiling dbt docs: {e}")
+        UI.warn(f"{repo.name}: error pre-compiling dbt docs: {e}")
         return True
 
 
@@ -149,7 +140,7 @@ class RepositorySyncProvider(SyncProvider):
 
     @property
     def emoji(self) -> str:
-        return "📦"
+        return "\U0001F4E6"
 
     @property
     def default_output_dir(self) -> str:
@@ -182,13 +173,13 @@ class RepositorySyncProvider(SyncProvider):
         output_path.mkdir(parents=True, exist_ok=True)
         success_count = 0
 
-        console.print(f"\n[bold cyan]{self.emoji} Syncing {self.name}[/bold cyan]")
-        console.print(f"[dim]Location:[/dim] {output_path.absolute()}\n")
+        UI.print(f"\n[bold cyan]{self.emoji} Syncing {self.name}[/bold cyan]")
+        UI.print(f"[dim]Location:[/dim] {output_path.absolute()}\n")
 
         for repo in items:
             if clone_or_pull_repo(repo, output_path):
                 pre_compile_dbt_docs(repo, output_path)
                 success_count += 1
-                console.print(f"  [green]✓[/green] {repo.name}")
+                UI.success(repo.name)
 
         return SyncResult(provider_name=self.name, items_synced=success_count)
