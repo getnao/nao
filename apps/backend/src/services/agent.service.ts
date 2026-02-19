@@ -22,6 +22,11 @@ import { AgentSettings } from '../types/agent-settings';
 import { Mention, TokenCost, TokenUsage, UIChat, UIMessage } from '../types/chat';
 import { convertToCost, convertToTokenUsage, findLastUserMessage, retrieveProjectById } from '../utils/chat';
 import { getDefaultModelId, getEnvApiKey, getEnvModelSelections, ModelSelection } from '../utils/llm';
+import {
+	conversationCompactionService,
+	SUMMARY_PROMPT,
+	SUMMARY_STREAM_MESSAGE,
+} from './conversation-compaction.service';
 import { skillService } from './skill.service';
 
 export type { ModelSelection };
@@ -47,15 +52,9 @@ type AgentChat = UIChat & {
 	projectId: string;
 };
 
-const SUMMARY_NOTICE_TEXT = 'Conversation has been summarized.';
-const SUMMARY_STREAM_MESSAGE = 'Conversation was summarized to continue despite context limits.';
-const SUMMARY_PROMPT = `Summarize the prior conversation for continuation.
-Include:
-- user goals and intent
-- key facts, entities, and decisions
-- important constraints and unresolved questions
-Keep it concise and factual.
-Output plain text only.`;
+type StreamCompactionState = {
+	pendingSummaryNotices: number;
+};
 
 export class AgentService {
 	private _agents = new Map<string, AgentManager>();
@@ -151,6 +150,8 @@ export class AgentService {
 class AgentManager {
 	private readonly _agent: ToolLoopAgent<never, ReturnType<typeof getTools>, never>;
 	private readonly _modelConfig: Pick<ToolLoopAgentSettings, 'model' | 'providerOptions'>;
+	private readonly _compactionTokenThreshold: number;
+	private _streamCompactionState: StreamCompactionState | null = null;
 
 	constructor(
 		readonly chat: AgentChat,
@@ -161,18 +162,27 @@ class AgentManager {
 		agentSettings: AgentSettings | null,
 	) {
 		this._modelConfig = modelConfig;
+		this._compactionTokenThreshold = conversationCompactionService.getCompactionTokenThreshold(agentSettings);
 		this._agent = new ToolLoopAgent({
 			...modelConfig,
 			tools: getTools(agentSettings),
 			maxOutputTokens: 16_000,
-			// On step 1+: cache user message (stable) + current step's last message (loop leaf)
-			prepareStep: ({ messages }) => {
-				return { messages: this._addCache(messages) };
+			prepareStep: async ({ messages }) => {
+				const withCache = this._addCache(messages);
+				return { messages: await this._prepareMessagesForStep(withCache) };
 			},
 			stopWhen: [hasToolCall('suggest_follow_ups')],
 		});
 	}
 
+	/**
+	 * Streams an agent response while applying conversation compaction at each loop step.
+	 *
+	 * High-level strategy:
+	 * 1. Build model messages from persisted chat history (trimmed from latest summary marker).
+	 * 2. On every agent step, compact based on configured token threshold before the model call.
+	 * 3. Persist generated summaries and emit data events so the UI can display the notice immediately.
+	 */
 	stream(
 		uiMessages: UIMessage[],
 		opts: {
@@ -181,7 +191,7 @@ class AgentManager {
 		},
 	): ReadableStream {
 		let error: unknown = undefined;
-		let result: StreamTextResult<ReturnType<typeof getTools>, never>;
+		let result: StreamTextResult<ReturnType<typeof getTools>, never> | undefined;
 
 		return createUIMessageStream<UIMessage>({
 			generateId: () => crypto.randomUUID(),
@@ -205,16 +215,25 @@ class AgentManager {
 					throw new Error(`Project path not configured: ${this.chat.projectId}`);
 				}
 
-				const messages = await this._buildModelMessages(uiMessages, opts.mentions);
-				result = await this._streamWithCompaction(messages, uiMessages, opts.mentions, writer, projectPath);
-
-				writer.merge(result.toUIMessageStream({}));
+				this._streamCompactionState = { pendingSummaryNotices: 0 };
+				try {
+					const messages = await this._buildModelMessages(uiMessages, opts.mentions);
+					result = await this._streamWithContextFallback(messages, projectPath);
+					await this._pipeResultToWriter(result, writer);
+				} finally {
+					this._streamCompactionState = null;
+				}
 			},
 			onError: (err) => {
 				error = err;
 				return String(err);
 			},
 			onFinish: async (e) => {
+				if (!result) {
+					this._onDispose();
+					return;
+				}
+
 				const stopReason = e.isAborted ? 'interrupted' : e.finishReason;
 				const tokenUsage = await this._getTotalUsage(result);
 				await chatQueries.upsertMessage(e.responseMessage, {
@@ -230,124 +249,91 @@ class AgentManager {
 		});
 	}
 
-	private async _streamWithCompaction(
+	private async _streamWithContextFallback(
 		modelMessages: ModelMessage[],
-		uiMessages: UIMessage[],
-		mentions: Mention[] | undefined,
-		writer: UIMessageStreamWriter<UIMessage>,
 		projectFolder: string,
 	): Promise<StreamTextResult<ReturnType<typeof getTools>, never>> {
 		try {
-			return await this._agent.stream({
-				messages: modelMessages,
-				abortSignal: this._abortController.signal,
-				// @ts-expect-error - experimental_context is not yet in the types
-				experimental_context: { projectFolder },
-			});
+			return await this._createAgentStream(modelMessages, projectFolder);
 		} catch (error) {
 			if (!this._isContextLimitError(error)) {
 				throw error;
 			}
-
-			const summary = await this._summarizeWithRetry(uiMessages, mentions);
-			if (!summary) {
-				const fallbackMessages = this._truncateForFallback(modelMessages);
-				return await this._agent.stream({
-					messages: fallbackMessages,
-					abortSignal: this._abortController.signal,
-					// @ts-expect-error - experimental_context is not yet in the types
-					experimental_context: { projectFolder },
-				});
-			}
-
-			const summaryMessage = this._createSummaryMessage(summary);
-			await chatQueries.upsertMessage(summaryMessage, {
-				chatId: this.chat.id,
-				llmProvider: this._modelSelection.provider,
-				llmModelId: this._modelSelection.modelId,
-			});
-
-			writer.write({
-				type: 'data-summaryGenerated',
-				data: { message: SUMMARY_STREAM_MESSAGE },
-			});
-
-			const compactedMessages = this._buildCompactedMessages(uiMessages, summaryMessage);
-			const compactedModelMessages = await this._buildModelMessages(compactedMessages, mentions);
-			return await this._agent.stream({
-				messages: compactedModelMessages,
-				abortSignal: this._abortController.signal,
-				// @ts-expect-error - experimental_context is not yet in the types
-				experimental_context: { projectFolder },
-			});
+			return await this._createAgentStream(
+				conversationCompactionService.truncateForFallback(modelMessages),
+				projectFolder,
+			);
 		}
 	}
 
-	private async _summarizeWithRetry(uiMessages: UIMessage[], mentions?: Mention[]): Promise<string | null> {
-		const prepared = this._prepareUIMessages(uiMessages, mentions);
-		const toSummarize = this._messagesToSummarize(prepared);
-		if (toSummarize.length === 0) {
-			return null;
+	private async _createAgentStream(
+		messages: ModelMessage[],
+		projectFolder: string,
+	): Promise<StreamTextResult<ReturnType<typeof getTools>, never>> {
+		return await this._agent.stream({
+			messages,
+			abortSignal: this._abortController.signal,
+			// @ts-expect-error - experimental_context is not yet in the types
+			experimental_context: { projectFolder },
+		});
+	}
+
+	private async _pipeResultToWriter(
+		result: StreamTextResult<ReturnType<typeof getTools>, never>,
+		writer: UIMessageStreamWriter<UIMessage>,
+	): Promise<void> {
+		for await (const chunk of result.toUIMessageStream<UIMessage>({})) {
+			this._flushSummaryNotices(writer);
+			writer.write(chunk as Parameters<typeof writer.write>[0]);
+		}
+		this._flushSummaryNotices(writer);
+	}
+
+	private async _prepareMessagesForStep(messages: ModelMessage[]): Promise<ModelMessage[]> {
+		if (!this._streamCompactionState) {
+			return messages;
 		}
 
-		const attempts: UIMessage[][] = [toSummarize, toSummarize.slice(Math.max(0, toSummarize.length - 16))];
-		for (const attempt of attempts) {
-			try {
-				const modelMessages = await convertToModelMessages(attempt);
+		const compaction = await conversationCompactionService.compactModelMessagesIfNeeded({
+			messages,
+			tokenThreshold: this._compactionTokenThreshold,
+			generateSummary: async (messagesToSummarize) => {
 				const { text } = await generateText({
 					model: this._modelConfig.model,
 					providerOptions: this._modelConfig.providerOptions,
 					system: SUMMARY_PROMPT,
-					messages: modelMessages,
+					messages: messagesToSummarize,
 					abortSignal: this._abortController.signal,
 				});
-				const summary = text.trim();
-				if (summary) {
-					return summary;
-				}
-			} catch {
-				// retry once with a smaller window
-			}
+				return text;
+			},
+		});
+
+		if (compaction.summaryMessage) {
+			await chatQueries.upsertMessage(compaction.summaryMessage, {
+				chatId: this.chat.id,
+				llmProvider: this._modelSelection.provider,
+				llmModelId: this._modelSelection.modelId,
+			});
+			this._streamCompactionState.pendingSummaryNotices += 1;
 		}
 
-		return null;
+		return compaction.messages;
 	}
 
-	private _messagesToSummarize(messages: UIMessage[]): UIMessage[] {
-		const lastUserIndex = [...messages].reverse().findIndex((m) => m.role === 'user');
-		if (lastUserIndex === -1) {
-			return messages;
+	private _flushSummaryNotices(writer: UIMessageStreamWriter<UIMessage>): void {
+		if (!this._streamCompactionState?.pendingSummaryNotices) {
+			return;
 		}
-		const absoluteLastUserIndex = messages.length - 1 - lastUserIndex;
-		return messages.slice(0, absoluteLastUserIndex);
-	}
 
-	private _createSummaryMessage(summary: string): UIMessage {
-		return {
-			id: crypto.randomUUID(),
-			role: 'assistant',
-			parts: [
-				{ type: 'text', text: SUMMARY_NOTICE_TEXT },
-				{ type: 'reasoning', text: summary },
-			],
-		};
-	}
-
-	private _buildCompactedMessages(uiMessages: UIMessage[], summaryMessage: UIMessage): UIMessage[] {
-		const lastUser = findLastUserMessage(uiMessages);
-		if (lastUser.index === -1) {
-			return [summaryMessage];
+		const count = this._streamCompactionState.pendingSummaryNotices;
+		this._streamCompactionState.pendingSummaryNotices = 0;
+		for (let i = 0; i < count; i++) {
+			writer.write({
+				type: 'data-summaryGenerated',
+				data: { message: SUMMARY_STREAM_MESSAGE },
+			});
 		}
-		return [summaryMessage, lastUser.message];
-	}
-
-	private _truncateForFallback(messages: ModelMessage[]): ModelMessage[] {
-		if (messages.length <= 18) {
-			return messages;
-		}
-		const system = messages[0]?.role === 'system' ? [messages[0]] : [];
-		const tail = messages.slice(-16);
-		return [...system, ...tail];
 	}
 
 	private _isContextLimitError(error: unknown): boolean {
@@ -409,27 +395,12 @@ class AgentManager {
 	/** Builds and prepares the UI messages into model messages */
 	private async _buildModelMessages(uiMessages: UIMessage[], mentions?: Mention[]): Promise<ModelMessage[]> {
 		uiMessages = this._prepareUIMessages(uiMessages, mentions);
-		uiMessages = this._trimToLastSummary(uiMessages);
+		uiMessages = conversationCompactionService.trimToLastSummary(uiMessages);
 		const modelMessages = await convertToModelMessages(uiMessages);
 		const systemPrompt = renderToMarkdown(SystemPrompt());
 		const systemMessage: ModelMessage = { role: 'system', content: systemPrompt };
 		modelMessages.unshift(systemMessage);
 		return modelMessages;
-	}
-
-	private _trimToLastSummary(messages: UIMessage[]): UIMessage[] {
-		const lastSummaryIndex = [...messages]
-			.reverse()
-			.findIndex(
-				(m) =>
-					m.role === 'assistant' &&
-					m.parts.some((p) => p.type === 'text' && p.text.trim() === SUMMARY_NOTICE_TEXT),
-			);
-		if (lastSummaryIndex === -1) {
-			return messages;
-		}
-		const absoluteIndex = messages.length - 1 - lastSummaryIndex;
-		return messages.slice(absoluteIndex);
 	}
 
 	private _prepareUIMessages(messages: UIMessage[], mentions?: Mention[]): UIMessage[] {

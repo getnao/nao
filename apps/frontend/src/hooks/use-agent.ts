@@ -37,6 +37,8 @@ export interface AgentHelpers {
 }
 
 const selectedModelStorage = createLocalStorage<ChatSelectedModel>('nao-selected-model');
+const SUMMARY_MESSAGE_MARKER = '[NAO_CONVERSATION_SUMMARY]';
+const DEFAULT_SUMMARY_NOTICE = 'Conversation was summarized to continue despite context limits.';
 
 export const useAgent = (): AgentHelpers => {
 	const navigate = useNavigate();
@@ -46,7 +48,7 @@ export const useAgent = (): AgentHelpers => {
 	const scrollDownService = useScrollDownCallbackService();
 
 	const [selectedModel, setSelectedModel] = useLocalStorage(selectedModelStorage);
-	const [summaryNotice, setSummaryNotice] = useState<string | null>(null);
+	const [streamedSummaryNotice, setStreamedSummaryNotice] = useState<string | null>(null);
 	const selectedModelRef = useCurrent(selectedModel);
 	const mentionsRef = useRef<MentionOption[]>([]);
 	const setChat = useSetChat();
@@ -80,23 +82,29 @@ export const useAgent = (): AgentHelpers => {
 					};
 				},
 			}),
-			onData: ({ data }) => {
-				if (data && typeof data === 'object' && 'message' in data) {
-					setSummaryNotice(String((data as { message: string }).message));
-					return;
+			onData: (dataPart) => {
+				switch (dataPart.type) {
+					case 'data-summaryGenerated': {
+						setStreamedSummaryNotice(dataPart.data.message);
+						return;
+					}
+					case 'data-newChat': {
+						const newChat = dataPart.data;
+						agentService.moveAgent(agentId, newChat.id);
+
+						agentId = newChat.id;
+
+						setChat({ chatId: newChat.id }, { ...newChat, messages: [] });
+						setChatList((old) => ({
+							chats: [newChat, ...(old?.chats || [])],
+						}));
+
+						navigate({ to: '/$chatId', params: { chatId: newChat.id }, state: { fromMessageSend: true } });
+						return;
+					}
+					default:
+						return;
 				}
-
-				const newChat = data as { id: string; title: string; createdAt: number; updatedAt: number };
-				agentService.moveAgent(agentId, newChat.id);
-
-				agentId = newChat.id;
-
-				setChat({ chatId: newChat.id }, { ...newChat, messages: [] });
-				setChatList((old) => ({
-					chats: [newChat, ...(old?.chats || [])],
-				}));
-
-				navigate({ to: '/$chatId', params: { chatId: newChat.id }, state: { fromMessageSend: true } });
 			},
 			onFinish: () => {
 				if (chatIdRef.current !== agentId) {
@@ -113,6 +121,8 @@ export const useAgent = (): AgentHelpers => {
 	}, [chatId, navigate, setChat, setChatList, chatIdRef, selectedModelRef]);
 
 	const agent = useChat({ chat: agentInstance });
+	const persistedSummaryNotice = useMemo(() => getPersistedSummaryNotice(agent.messages), [agent.messages]);
+	const summaryNotice = streamedSummaryNotice ?? persistedSummaryNotice;
 
 	const stopAgentMutation = useMutation(trpc.chat.stop.mutationOptions());
 
@@ -133,7 +143,7 @@ export const useAgent = (): AgentHelpers => {
 				return;
 			}
 			agent.clearError();
-			setSummaryNotice(null);
+			setStreamedSummaryNotice(null);
 			scrollDownService.scrollDown({ animation: 'smooth' }); // TODO: 'smooth' doesn't work
 			return agent.sendMessage(args);
 		},
@@ -227,4 +237,21 @@ const useScrollDownCallbackService = () => {
 		scrollDown,
 		register,
 	};
+};
+
+const getPersistedSummaryNotice = (messages: UIMessage[]): string | null => {
+	const lastSummaryMessage = [...messages].reverse().find((message) => {
+		if (message.role !== 'system') {
+			return false;
+		}
+		return message.parts.some(
+			(part) => part.type === 'text' && part.text.trimStart().startsWith(SUMMARY_MESSAGE_MARKER),
+		);
+	});
+
+	if (!lastSummaryMessage) {
+		return null;
+	}
+
+	return DEFAULT_SUMMARY_NOTICE;
 };

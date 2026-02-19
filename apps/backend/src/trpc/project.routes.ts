@@ -276,11 +276,20 @@ export const projectRoutes = {
 				experimental: z
 					.object({
 						pythonSandboxing: z.boolean().optional(),
+						conversationCompactionThresholdTokens: z.number().int().positive().optional(),
 					})
 					.optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
-			return projectQueries.updateAgentSettings(ctx.project.id, input);
+			const existingSettings = await projectQueries.getAgentSettings(ctx.project.id);
+			return projectQueries.updateAgentSettings(ctx.project.id, {
+				...existingSettings,
+				...input,
+				experimental: {
+					...existingSettings?.experimental,
+					...input.experimental,
+				},
+			});
 		}),
 };
