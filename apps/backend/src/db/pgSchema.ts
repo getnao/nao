@@ -315,6 +315,26 @@ export const projectLlmConfig = pgTable(
 	],
 );
 
+export const sharedArtifact = pgTable(
+	'shared_artifact',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		title: text('title').notNull(),
+		code: text('code').notNull(),
+		queryData: jsonb('query_data').$type<Record<string, unknown[]>>(),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+	},
+	(t) => [index('shared_artifact_projectId_idx').on(t.projectId)],
+);
+
 export const projectSavedPrompt = pgTable(
 	'project_saved_prompt',
 	{

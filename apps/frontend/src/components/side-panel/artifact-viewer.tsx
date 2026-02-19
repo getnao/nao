@@ -1,9 +1,27 @@
-import { useState, useMemo, useCallback, useEffect, useSyncExternalStore } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
 import { Streamdown } from 'streamdown';
 import { Editor } from '@monaco-editor/react';
-import { ChevronDown, ChevronLeft, ChevronRight, Code, Eye, FileText } from 'lucide-react';
+import { useMutation } from '@tanstack/react-query';
+import {
+	ChevronDown,
+	ChevronLeft,
+	ChevronRight,
+	Code,
+	Eye,
+	Pencil,
+	FileText,
+	Save,
+	Share2,
+	Check,
+	Loader2,
+	RotateCcw,
+} from 'lucide-react';
 import { ArtifactChartEmbed } from './artifact-chart-embed';
+import { ArtifactEditor, getEditorMarkdown } from './artifact-editor';
 import type { ArtifactVersion } from '@/lib/artifact.utils';
+import type { UIMessage } from '@nao/backend/chat';
+import type { Editor as TiptapEditor } from '@tiptap/react';
+import type { Segment } from '@/lib/artifact-segments';
 import { Button } from '@/components/ui/button';
 import {
 	DropdownMenu,
@@ -14,9 +32,16 @@ import {
 import { useAgentContext } from '@/contexts/agent.provider';
 import { useSidePanel } from '@/contexts/side-panel';
 import { collectArtifactVersions, findArtifacts } from '@/lib/artifact.utils';
-import { getLocalArtifactVersions, subscribe as subscribeArtifactStore } from '@/lib/artifact.store';
+import {
+	addLocalArtifactVersion,
+	getLocalArtifactVersions,
+	subscribe as subscribeArtifactStore,
+} from '@/lib/artifact.store';
+import { splitCodeIntoSegments } from '@/lib/artifact-segments';
+import { collectQueryDataFromMessages } from '@/lib/artifact-share.utils';
+import { trpc } from '@/main';
 
-type ViewMode = 'preview' | 'code';
+type ViewMode = 'preview' | 'edit' | 'code';
 
 interface ArtifactViewerProps {
 	artifactId: string;
@@ -28,6 +53,7 @@ export function ArtifactViewer({ artifactId, initialVersions }: ArtifactViewerPr
 	const { open: openSidePanel } = useSidePanel();
 	const [viewMode, setViewMode] = useState<ViewMode>('preview');
 	const [selectedVersionIndex, setSelectedVersionIndex] = useState<number>(initialVersions.length - 1);
+	const tiptapEditorRef = useRef<TiptapEditor | null>(null);
 
 	const localVersionCount = useSyncExternalStore(
 		subscribeArtifactStore,
@@ -64,6 +90,46 @@ export function ArtifactViewer({ artifactId, initialVersions }: ArtifactViewerPr
 		[messages, openSidePanel],
 	);
 
+	const handleSave = useCallback(() => {
+		const editor = tiptapEditorRef.current;
+		if (!editor || !currentVersion) {
+			return;
+		}
+
+		const newCode = getEditorMarkdown(editor);
+		if (newCode === currentVersion.code) {
+			setViewMode('preview');
+
+			return;
+		}
+
+		addLocalArtifactVersion(artifactId, {
+			version: (versions.at(-1)?.version ?? 0) + 1,
+			code: newCode,
+			title: currentVersion.title,
+			action: 'replace',
+		});
+
+		setViewMode('preview');
+	}, [artifactId, currentVersion, versions]);
+
+	const isViewingLatest = selectedVersionIndex === versions.length - 1;
+
+	const handleRestore = useCallback(() => {
+		if (!currentVersion || isViewingLatest) {
+			return;
+		}
+
+		addLocalArtifactVersion(artifactId, {
+			version: (versions.at(-1)?.version ?? 0) + 1,
+			code: currentVersion.code,
+			title: currentVersion.title,
+			action: 'replace',
+		});
+	}, [artifactId, currentVersion, isViewingLatest, versions]);
+
+	const shareArtifact = useShareArtifact(messages);
+
 	if (!currentVersion) {
 		return (
 			<div className='flex h-full items-center justify-center text-muted-foreground text-sm'>
@@ -85,11 +151,18 @@ export function ArtifactViewer({ artifactId, initialVersions }: ArtifactViewerPr
 				totalVersions={versions.length}
 				onPreviousVersion={goToPreviousVersion}
 				onNextVersion={goToNextVersion}
+				isViewingLatest={isViewingLatest}
+				onRestore={handleRestore}
+				onSave={handleSave}
+				shareState={shareArtifact}
+				onShare={() => shareArtifact.share(currentVersion.title, currentVersion.code)}
 			/>
 
 			<div className='flex-1 min-h-0 overflow-auto'>
 				{viewMode === 'preview' ? (
 					<ArtifactPreview code={currentVersion.code} />
+				) : viewMode === 'edit' ? (
+					<ArtifactEditor code={currentVersion.code} editorRef={tiptapEditorRef} />
 				) : (
 					<ArtifactCodeView code={currentVersion.code} />
 				)}
@@ -109,6 +182,11 @@ function ArtifactHeader({
 	totalVersions,
 	onPreviousVersion,
 	onNextVersion,
+	isViewingLatest,
+	onRestore,
+	onSave,
+	shareState,
+	onShare,
 }: {
 	title: string;
 	artifactId: string;
@@ -120,6 +198,11 @@ function ArtifactHeader({
 	totalVersions: number;
 	onPreviousVersion: () => void;
 	onNextVersion: () => void;
+	isViewingLatest: boolean;
+	onRestore: () => void;
+	onSave: () => void;
+	shareState: ShareArtifactState;
+	onShare: () => void;
 }) {
 	const otherArtifacts = allArtifacts.filter((a) => a.id !== artifactId);
 	const hasMultiple = otherArtifacts.length > 0;
@@ -174,6 +257,36 @@ function ArtifactHeader({
 				</div>
 			)}
 
+			{!isViewingLatest && totalVersions > 1 && (
+				<Button variant='outline' size='sm' onClick={onRestore} className='gap-1.5'>
+					<RotateCcw className='size-3' />
+					<span>Restore</span>
+				</Button>
+			)}
+
+			{viewMode === 'edit' && (
+				<Button variant='default' size='sm' onClick={onSave} className='gap-1.5'>
+					<Save className='size-3' />
+					<span>Save</span>
+				</Button>
+			)}
+
+			<Button
+				variant='ghost-muted'
+				size='icon-xs'
+				onClick={onShare}
+				disabled={shareState.isPending}
+				aria-label='Share artifact'
+			>
+				{shareState.isPending ? (
+					<Loader2 className='size-3 animate-spin' />
+				) : shareState.isCopied ? (
+					<Check className='size-3 text-green-500' />
+				) : (
+					<Share2 className='size-3' />
+				)}
+			</Button>
+
 			<div className='flex items-center rounded-lg border p-0.5 gap-0.5'>
 				<Button
 					variant={viewMode === 'preview' ? 'secondary' : 'ghost'}
@@ -181,6 +294,13 @@ function ArtifactHeader({
 					onClick={() => onViewModeChange('preview')}
 				>
 					<Eye className='size-3' />
+				</Button>
+				<Button
+					variant={viewMode === 'edit' ? 'secondary' : 'ghost'}
+					size='icon-xs'
+					onClick={() => onViewModeChange('edit')}
+				>
+					<Pencil className='size-3' />
 				</Button>
 				<Button
 					variant={viewMode === 'code' ? 'secondary' : 'ghost'}
@@ -192,59 +312,6 @@ function ArtifactHeader({
 			</div>
 		</div>
 	);
-}
-
-interface ParsedChartBlock {
-	queryId: string;
-	chartType: string;
-	xAxisKey: string;
-	xAxisType: string | null;
-	series: Array<{ data_key: string; color: string; label?: string }>;
-	title: string;
-}
-
-function parseChartAttributes(attrString: string): Record<string, string> {
-	const attrs: Record<string, string> = {};
-	const attrRegex = /(\w+)=(?:"([^"]*)"|'([^']*)')/g;
-	let match;
-	while ((match = attrRegex.exec(attrString)) !== null) {
-		attrs[match[1]] = match[2] ?? match[3];
-	}
-	return attrs;
-}
-
-function parseChartBlock(attrString: string): ParsedChartBlock | null {
-	const attrs = parseChartAttributes(attrString);
-	if (!attrs.query_id || !attrs.chart_type || !attrs.x_axis_key) {
-		return null;
-	}
-
-	const series: ParsedChartBlock['series'] = [];
-	if (attrs.series) {
-		try {
-			const parsed = JSON.parse(attrs.series);
-			if (Array.isArray(parsed)) {
-				series.push(...parsed);
-			}
-		} catch {
-			/* ignore malformed series */
-		}
-	} else if (attrs.data_key) {
-		series.push({
-			data_key: attrs.data_key,
-			color: attrs.color || 'var(--chart-1)',
-			label: attrs.label,
-		});
-	}
-
-	return {
-		queryId: attrs.query_id,
-		chartType: attrs.chart_type,
-		xAxisKey: attrs.x_axis_key,
-		xAxisType: attrs.x_axis_type || null,
-		series,
-		title: attrs.title || '',
-	};
 }
 
 function ArtifactPreview({ code }: { code: string }) {
@@ -305,48 +372,37 @@ function ArtifactGrid({ cols, children }: { cols: number; children: Segment[] })
 	);
 }
 
-type Segment =
-	| { type: 'markdown'; content: string }
-	| { type: 'chart'; chart: ParsedChartBlock }
-	| { type: 'grid'; cols: number; children: Segment[] };
+interface ShareArtifactState {
+	isPending: boolean;
+	isCopied: boolean;
+	share: (title: string, code: string) => void;
+}
 
-function splitCodeIntoSegments(code: string): Segment[] {
-	const segments: Segment[] = [];
-	const blockRegex = /<grid\s+([^>]*)>([\s\S]*?)<\/grid>|<chart\s+([^/>]*)\/?>/g;
-	let match;
-	let lastIndex = 0;
+function useShareArtifact(messages: UIMessage[]): ShareArtifactState {
+	const [isCopied, setIsCopied] = useState(false);
+	const timeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
-	while ((match = blockRegex.exec(code)) !== null) {
-		if (match.index > lastIndex) {
-			const md = code.slice(lastIndex, match.index).trim();
-			if (md) {
-				segments.push({ type: 'markdown', content: md });
-			}
-		}
+	const mutation = useMutation(
+		trpc.sharedArtifact.create.mutationOptions({
+			onSuccess: (data) => {
+				const url = `${window.location.origin}/shared/${data.id}`;
+				navigator.clipboard.writeText(url);
+				setIsCopied(true);
+				clearTimeout(timeoutRef.current);
+				timeoutRef.current = setTimeout(() => setIsCopied(false), 2500);
+			},
+		}),
+	);
 
-		if (match[1] !== undefined && match[2] !== undefined) {
-			const gridAttrs = parseChartAttributes(match[1]);
-			const cols = parseInt(gridAttrs.cols || '2', 10);
-			const gridChildren = splitCodeIntoSegments(match[2]);
-			segments.push({ type: 'grid', cols, children: gridChildren });
-		} else if (match[3] !== undefined) {
-			const chart = parseChartBlock(match[3]);
-			if (chart) {
-				segments.push({ type: 'chart', chart });
-			}
-		}
+	const share = useCallback(
+		(title: string, code: string) => {
+			const queryData = collectQueryDataFromMessages(messages, code);
+			mutation.mutate({ title, code, queryData });
+		},
+		[messages, mutation],
+	);
 
-		lastIndex = match.index + match[0].length;
-	}
-
-	if (lastIndex < code.length) {
-		const md = code.slice(lastIndex).trim();
-		if (md) {
-			segments.push({ type: 'markdown', content: md });
-		}
-	}
-
-	return segments;
+	return { isPending: mutation.isPending, isCopied, share };
 }
 
 function ArtifactCodeView({ code }: { code: string }) {

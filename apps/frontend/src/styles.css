@@ -179,6 +179,81 @@ code {
 	border-radius: 0;
 }
 
+/* Tiptap artifact editor */
+
+.artifact-editor .tiptap {
+	outline: none;
+}
+
+.artifact-editor .tiptap > * + * {
+	margin-top: 0.75em;
+}
+
+.artifact-editor .tiptap h1 {
+	@apply text-xl font-bold;
+}
+
+.artifact-editor .tiptap h2 {
+	@apply text-lg font-semibold;
+}
+
+.artifact-editor .tiptap h3,
+.artifact-editor .tiptap h4,
+.artifact-editor .tiptap h5,
+.artifact-editor .tiptap h6 {
+	@apply text-base font-semibold;
+}
+
+.artifact-editor .tiptap p {
+	@apply text-sm leading-relaxed;
+}
+
+.artifact-editor .tiptap ul {
+	@apply list-disc pl-5 text-sm;
+}
+
+.artifact-editor .tiptap ol {
+	@apply list-decimal pl-5 text-sm;
+}
+
+.artifact-editor .tiptap li > p {
+	margin-top: 0;
+}
+
+.artifact-editor .tiptap blockquote {
+	@apply border-l-2 border-muted-foreground/30 pl-4 italic text-muted-foreground;
+}
+
+.artifact-editor .tiptap code {
+	@apply bg-muted px-1.5 py-0.5 rounded text-xs font-mono;
+}
+
+.artifact-editor .tiptap pre {
+	@apply bg-muted rounded-lg p-4 text-xs font-mono overflow-x-auto;
+}
+
+.artifact-editor .tiptap pre code {
+	@apply bg-transparent p-0 rounded-none;
+}
+
+.artifact-editor .tiptap hr {
+	@apply border-border my-4;
+}
+
+.artifact-editor .tiptap strong {
+	@apply font-semibold;
+}
+
+.artifact-editor .tiptap [data-type='chart-block'],
+.artifact-editor .tiptap [data-type='grid-block'] {
+	@apply my-3;
+}
+
+.artifact-editor .tiptap .ProseMirror-selectednode [data-type='chart-block'],
+.artifact-editor .tiptap .ProseMirror-selectednode [data-type='grid-block'] {
+	@apply outline-2 outline-primary/40 outline-offset-2 rounded-lg;
+}
+
 /* Mention menu: match select dropdown styling */
 .prompt-container .mention-menu {
 	border-radius: var(--radius-lg);

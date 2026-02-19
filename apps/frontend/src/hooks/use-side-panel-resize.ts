@@ -2,6 +2,31 @@ import { useEffect, useRef, useState } from 'react';
 import { useResizeObserver } from './use-resize-observer';
 import { SIDE_PANEL_DEFAULT_WIDTH_RATIO } from '@/lib/side-panel';
 
+const STORAGE_KEY = 'nao:side-panel-width-ratio';
+
+function loadPersistedRatio(): number {
+	try {
+		const stored = localStorage.getItem(STORAGE_KEY);
+		if (stored) {
+			const value = parseFloat(stored);
+			if (Number.isFinite(value) && value > 0 && value < 1) {
+				return value;
+			}
+		}
+	} catch {
+		/* localStorage unavailable */
+	}
+	return SIDE_PANEL_DEFAULT_WIDTH_RATIO;
+}
+
+function persistRatio(ratio: number) {
+	try {
+		localStorage.setItem(STORAGE_KEY, String(ratio));
+	} catch {
+		/* localStorage unavailable */
+	}
+}
+
 /** Handles the manual resize of the side panel */
 export const useSidePanelResize = (
 	sidePanelRef: React.RefObject<HTMLDivElement | null>,
@@ -9,7 +34,7 @@ export const useSidePanelResize = (
 	resizeHandleRef: React.RefObject<HTMLDivElement | null>,
 	enabled: boolean,
 ) => {
-	const ratioRef = useRef(SIDE_PANEL_DEFAULT_WIDTH_RATIO);
+	const ratioRef = useRef(loadPersistedRatio());
 	const [isResizing, setIsResizing] = useState(false);
 	const resizeStartXRef = useRef(0);
 	const resizeStartWidthRef = useRef(0);
@@ -69,6 +94,7 @@ export const useSidePanelResize = (
 				const sidePanelWidth = sidePanel.getBoundingClientRect().width;
 				const containerWidth = container.getBoundingClientRect().width;
 				ratioRef.current = sidePanelWidth / containerWidth;
+				persistRatio(ratioRef.current);
 			}
 		};
 

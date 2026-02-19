@@ -336,6 +336,28 @@ export const projectLlmConfig = sqliteTable(
 	],
 );
 
+export const sharedArtifact = sqliteTable(
+	'shared_artifact',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		title: text('title').notNull(),
+		code: text('code').notNull(),
+		queryData: text('query_data', { mode: 'json' }).$type<Record<string, unknown[]>>(),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+	},
+	(t) => [index('shared_artifact_projectId_idx').on(t.projectId)],
+);
+
 export const projectSavedPrompt = sqliteTable(
 	'project_saved_prompt',
 	{
