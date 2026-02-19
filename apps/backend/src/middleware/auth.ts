@@ -1,7 +1,7 @@
 import type { Session, User } from 'better-auth';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 
-import { authPromise } from '../auth';
+import { getAuth } from '../auth';
 import { DBProject } from '../db/abstractSchema';
 import * as projectQueries from '../queries/project.queries';
 import { convertHeaders } from '../utils/utils';
@@ -16,7 +16,7 @@ declare module 'fastify' {
 
 export async function authMiddleware(request: FastifyRequest, reply: FastifyReply) {
 	const headers = convertHeaders(request.headers);
-	const auth = await authPromise;
+	const auth = await getAuth();
 	const session = await auth.api.getSession({ headers });
 	if (!session?.user) {
 		return reply.status(401).send({ error: 'Unauthorized' });

@@ -2,7 +2,7 @@ import { initTRPC, TRPCError } from '@trpc/server';
 import type { CreateFastifyContextOptions } from '@trpc/server/adapters/fastify';
 import superjson from 'superjson';
 
-import { authPromise } from '../auth';
+import { getAuth } from '../auth';
 import * as projectQueries from '../queries/project.queries';
 import type { UserRole } from '../types/project';
 import { convertHeaders } from '../utils/utils';
@@ -12,7 +12,7 @@ export type MiddlewareFunction = Parameters<typeof t.procedure.use>[0];
 
 export const createContext = async (opts: CreateFastifyContextOptions) => {
 	const headers = convertHeaders(opts.req.headers);
-	const auth = await authPromise;
+	const auth = await getAuth();
 	const session = await auth?.api.getSession({ headers });
 	return {
 		session,
