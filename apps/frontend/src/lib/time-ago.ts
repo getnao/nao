@@ -34,5 +34,5 @@ export function getTimeAgo(timestamp: number): TimeAgo {
 	if (minutes > 0) {
 		return { value: minutes, unit: 'minute', humanReadable: `${minutes}m ago` };
 	}
-	return { value: seconds, unit: 'second', humanReadable: `${seconds}s ago` };
+	return { value: seconds, unit: 'second', humanReadable: 'Just now' };
 }
