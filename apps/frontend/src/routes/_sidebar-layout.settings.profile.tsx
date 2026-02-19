@@ -5,6 +5,10 @@ import { ModifyUserForm } from '@/components/settings-modify-user-form';
 import { useGetSigninLocation } from '@/hooks/useGetSigninLocation';
 import { UserProfileCard } from '@/components/settings-profile-card';
 import { useUserPageContext } from '@/contexts/user.provider';
+import { useLocalStorage } from '@/hooks/use-local-storage';
+import { soundNotificationStorage } from '@/hooks/use-stream-end-sound';
+import { SettingsCard } from '@/components/ui/settings-card';
+import { Switch } from '@/components/ui/switch';
 import { trpc } from '@/main';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/profile')({
@@ -17,6 +21,7 @@ function ProfilePage() {
 	const user = session?.user;
 	const queryClient = useQueryClient();
 	const project = useQuery(trpc.project.getCurrent.queryOptions());
+	const [soundEnabled, setSoundEnabled] = useLocalStorage(soundNotificationStorage);
 
 	const isAdmin = project.data?.userRole === 'admin';
 	const navigation = useGetSigninLocation();
@@ -55,6 +60,23 @@ function ProfilePage() {
 			/>
 
 			<ModifyUserForm isAdmin={isAdmin} />
+
+			<SettingsCard title='Notifications'>
+				<div className='flex items-center justify-between py-2'>
+					<div className='space-y-0.5'>
+						<label
+							htmlFor='sound-notification'
+							className='text-sm font-medium text-foreground cursor-pointer'
+						>
+							Sound notification
+						</label>
+						<p className='text-xs text-muted-foreground'>
+							Play a sound when the agent finishes responding.
+						</p>
+					</div>
+					<Switch id='sound-notification' checked={soundEnabled} onCheckedChange={setSoundEnabled} />
+				</div>
+			</SettingsCard>
 		</>
 	);
 }

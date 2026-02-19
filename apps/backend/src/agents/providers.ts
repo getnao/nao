@@ -19,9 +19,25 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 		envVar: 'ANTHROPIC_API_KEY',
 		models: [
 			{
+				id: 'claude-sonnet-4-6',
+				name: 'Claude Sonnet 4.6',
+				default: true,
+				config: {
+					thinking: {
+						type: 'enabled' as const,
+						budgetTokens: 12_000,
+					},
+				},
+				costPerM: {
+					inputNoCache: 3,
+					inputCacheRead: 0.3,
+					inputCacheWrite: 3.75,
+					output: 15,
+				},
+			},
+			{
 				id: 'claude-sonnet-4-5',
 				name: 'Claude Sonnet 4.5',
-				default: true,
 				config: {
 					thinking: {
 						type: 'enabled' as const,
