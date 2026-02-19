@@ -85,6 +85,13 @@
       "when": 1770819262591,
       "tag": "0011_add-experimental-agent",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1771512435851,
+      "tag": "0012_chat_message_metadata_and_tool_raw_input",
+      "breakpoints": true
     }
   ]
 }

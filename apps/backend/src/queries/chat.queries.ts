@@ -5,7 +5,7 @@ import { db } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
 import { ListChatResponse, StopReason, TokenUsage, UIChat, UIMessage } from '../types/chat';
 import { LlmProvider } from '../types/llm';
-import { convertDBPartToUIPart, mapDBPartsToUIParts, mapUIPartsToDBParts } from '../utils/chatMessagePartMappings';
+import { convertDBPartToUIPart, mapUIPartsToDBParts } from '../utils/chat-message-part-mappings';
 import { getErrorMessage } from '../utils/utils';
 import * as llmConfigQueries from './project-llm-config.queries';
 
@@ -131,8 +131,9 @@ export const createChat = async (newChat: NewChat, message: UIMessage): Promise<
 			.execute();
 
 		const dbParts = mapUIPartsToDBParts(message.parts, savedMessage.id);
-		const savedParts = await t.insert(s.messagePart).values(dbParts).returning().execute();
-		const provider = await llmConfigQueries.getProjectModelProvider(newChat.projectId);
+		if (dbParts.length) {
+			await t.insert(s.messagePart).values(dbParts).execute();
+		}
 
 		return {
 			id: savedChat.id,
@@ -143,7 +144,7 @@ export const createChat = async (newChat: NewChat, message: UIMessage): Promise<
 				{
 					id: savedMessage.id,
 					role: savedMessage.role,
-					parts: mapDBPartsToUIParts(savedParts, provider),
+					parts: message.parts,
 				},
 			],
 		};
@@ -172,6 +173,7 @@ export const upsertMessage = async (
 				errorMessage: getErrorMessage(opts.error),
 				llmProvider: opts.llmProvider,
 				llmModelId: opts.llmModelId,
+				...opts.tokenUsage,
 			})
 			.onConflictDoNothing({ target: s.chatMessage.id })
 			.returning()
@@ -179,7 +181,7 @@ export const upsertMessage = async (
 
 		await t.delete(s.messagePart).where(eq(s.messagePart.messageId, savedMessage.id)).execute();
 		if (message.parts.length) {
-			const dbParts = mapUIPartsToDBParts(message.parts, savedMessage.id, opts.tokenUsage);
+			const dbParts = mapUIPartsToDBParts(message.parts, savedMessage.id);
 			await t.insert(s.messagePart).values(dbParts).execute();
 		}
 	});

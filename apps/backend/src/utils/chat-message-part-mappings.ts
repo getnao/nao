@@ -2,19 +2,15 @@
 import { getToolName, isToolUIPart } from 'ai';
 
 import { DBMessagePart, NewMessagePart } from '../db/abstractSchema';
-import { TokenUsage, UIMessagePart, UIToolPart } from '../types/chat';
+import { UIMessagePart, UIToolPart } from '../types/chat';
 import { LlmProvider } from '../types/llm';
 
 /**
  * Converts a list of UI message parts to a list of database message parts.
  */
-export const mapUIPartsToDBParts = (
-	parts: UIMessagePart[],
-	messageId: string,
-	tokenUsage?: TokenUsage,
-): NewMessagePart[] => {
+export const mapUIPartsToDBParts = (parts: UIMessagePart[], messageId: string): NewMessagePart[] => {
 	return parts
-		.map((part, index) => convertUIPartToDBPart(part, messageId, index, tokenUsage))
+		.map((part, index) => convertUIPartToDBPart(part, messageId, index))
 		.filter((part) => part !== undefined);
 };
 
@@ -22,7 +18,6 @@ export const convertUIPartToDBPart = (
 	part: UIMessagePart,
 	messageId: string,
 	order: number,
-	tokenUsage?: TokenUsage,
 ): NewMessagePart | undefined => {
 	if (isToolUIPart(part)) {
 		return {
@@ -33,11 +28,13 @@ export const convertUIPartToDBPart = (
 			toolCallId: part.toolCallId,
 			toolState: part.state,
 			toolInput: part.input,
+			toolRawInput: (part as any).rawInput,
 			toolOutput: part.output,
 			toolErrorText: part.errorText,
 			toolApprovalApproved: part.approval?.approved,
 			toolApprovalReason: part.approval?.reason,
 			toolApprovalId: part.approval?.id,
+			toolProviderMetadata: part.callProviderMetadata,
 		};
 	}
 
@@ -48,7 +45,7 @@ export const convertUIPartToDBPart = (
 				order,
 				type: 'text',
 				text: part.text,
-				...tokenUsage,
+				providerMetadata: part.providerMetadata,
 			};
 		case 'reasoning':
 			return {
@@ -56,7 +53,7 @@ export const convertUIPartToDBPart = (
 				order,
 				type: 'reasoning',
 				reasoningText: part.text,
-				...tokenUsage,
+				providerMetadata: part.providerMetadata,
 			};
 		default:
 	}
@@ -77,6 +74,7 @@ export const convertDBPartToUIPart = (part: DBMessagePart, provider?: LlmProvide
 			toolCallId: part.toolCallId!,
 			state: part.toolState as any,
 			input: part.toolInput as any,
+			rawInput: part.toolRawInput as any,
 			output: part.toolOutput as any,
 			errorText: part.toolErrorText as any,
 			providerExecuted: provider === 'anthropic',
@@ -87,6 +85,7 @@ export const convertDBPartToUIPart = (part: DBMessagePart, provider?: LlmProvide
 						reason: part.toolApprovalReason!,
 					}
 				: undefined,
+			callProviderMetadata: part.toolProviderMetadata ?? undefined,
 		};
 	}
 
@@ -95,11 +94,13 @@ export const convertDBPartToUIPart = (part: DBMessagePart, provider?: LlmProvide
 			return {
 				type: 'text',
 				text: part.text!,
+				providerMetadata: part.providerMetadata ?? undefined,
 			};
 		case 'reasoning':
 			return {
 				type: 'reasoning',
 				text: part.reasoningText!,
+				providerMetadata: part.providerMetadata ?? undefined,
 			};
 		default:
 	}

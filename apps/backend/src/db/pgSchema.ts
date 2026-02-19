@@ -1,3 +1,4 @@
+import { type ProviderMetadata } from 'ai';
 import { sql } from 'drizzle-orm';
 import {
 	boolean,
@@ -193,6 +194,16 @@ export const chatMessage = pgTable(
 		llmProvider: text('llm_provider').$type<LlmProvider>(),
 		llmModelId: text('llm_model_id'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
+
+		// Token usage columns
+		inputTotalTokens: integer('input_total_tokens'),
+		inputNoCacheTokens: integer('input_no_cache_tokens'),
+		inputCacheReadTokens: integer('input_cache_read_tokens'),
+		inputCacheWriteTokens: integer('input_cache_write_tokens'),
+		outputTotalTokens: integer('output_total_tokens'),
+		outputTextTokens: integer('output_text_tokens'),
+		outputReasoningTokens: integer('output_reasoning_tokens'),
+		totalTokens: integer('total_tokens'),
 	},
 	(table) => [
 		index('chat_message_chatId_idx').on(table.chatId),
@@ -217,32 +228,23 @@ export const messagePart = pgTable(
 		text: text('text'),
 		reasoningText: text('reasoning_text'),
 
-		// Input tokens columns
-		inputTotalTokens: integer('input_total_tokens'),
-		inputNoCacheTokens: integer('input_no_cache_tokens'),
-		inputCacheReadTokens: integer('input_cache_read_tokens'),
-		inputCacheWriteTokens: integer('input_cache_write_tokens'),
-
-		// Output tokens columns
-		outputTotalTokens: integer('output_total_tokens'),
-		outputTextTokens: integer('output_text_tokens'),
-		outputReasoningTokens: integer('output_reasoning_tokens'),
-
-		// Total tokens column
-		totalTokens: integer('total_tokens'),
-
 		// tool call columns
 		toolCallId: text('tool_call_id'),
 		toolName: text('tool_name'),
 		toolState: text('tool_state').$type<ToolState>(),
 		toolErrorText: text('tool_error_text'),
 		toolInput: jsonb('tool_input').$type<unknown>(),
+		toolRawInput: jsonb('tool_raw_input').$type<unknown>(),
 		toolOutput: jsonb('tool_output').$type<unknown>(),
 
 		// tool approval columns
 		toolApprovalId: text('tool_approval_id'),
 		toolApprovalApproved: boolean('tool_approval_approved'),
 		toolApprovalReason: text('tool_approval_reason'),
+
+		// provider metadata columns
+		toolProviderMetadata: jsonb('tool_provider_metadata').$type<ProviderMetadata>(),
+		providerMetadata: jsonb('provider_metadata').$type<ProviderMetadata>(),
 	},
 	(t) => [
 		index('parts_message_id_idx').on(t.messageId),
