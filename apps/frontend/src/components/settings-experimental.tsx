@@ -89,7 +89,10 @@ export function SettingsExperimental({ isAdmin }: SettingsExperimentalProps) {
 
 				<div className='flex items-center justify-between gap-4 py-2'>
 					<div className='space-y-0.5'>
-						<label htmlFor='compaction-threshold' className='text-sm font-medium text-foreground cursor-pointer'>
+						<label
+							htmlFor='compaction-threshold'
+							className='text-sm font-medium text-foreground cursor-pointer'
+						>
 							Compaction token threshold
 						</label>
 						<p className='text-xs text-muted-foreground'>
