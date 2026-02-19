@@ -1,9 +1,10 @@
 import { ChevronDown } from 'lucide-react';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { Prompt } from 'prompt-mentions';
-import { ChatButton } from './ui/button';
+import { ChatButton, MicButton } from './ui/button';
+import { SlidingWaveform } from './sliding-waveform';
 
 import type { PromptTheme, PromptHandle, SelectedMention } from 'prompt-mentions';
 import 'prompt-mentions/style.css';
@@ -22,6 +23,7 @@ import { useAgentContext } from '@/contexts/agent.provider';
 import { LlmProviderIcon } from '@/components/ui/llm-provider-icon';
 import { useRegisterSetChatInputCallback } from '@/contexts/set-chat-input-callback';
 import { capitalize } from '@/lib/utils';
+import { useTranscribe } from '@/hooks/use-transcribe';
 
 export function ChatInput() {
 	const [hasInput, setHasInput] = useState(false);
@@ -32,6 +34,19 @@ export function ChatInput() {
 	const availableModels = useQuery(trpc.project.getAvailableModels.queryOptions());
 	const knownModels = useQuery(trpc.project.getKnownModels.queryOptions());
 	const skills = useQuery(trpc.skill.list.queryOptions());
+	const agentSettings = useQuery(trpc.project.getAgentSettings.queryOptions());
+	const isTranscribeEnabled = agentSettings.data?.transcribe?.enabled ?? false;
+
+	const onTranscribed = useCallback(
+		(text: string) => {
+			sendMessage({ text });
+		},
+		[sendMessage],
+	);
+
+	const { state: transcribeState, toggle: toggleRecording, analyserRef } = useTranscribe(onTranscribed);
+	const isRecording = transcribeState === 'recording';
+	const isTranscribing = transcribeState === 'transcribing';
 
 	useRegisterSetChatInputCallback((text) => {
 		promptRef.current?.clear();
@@ -93,6 +108,7 @@ export function ChatInput() {
 		minHeight: '60px',
 		color: 'var(--color-foreground)',
 		padding: '12px',
+		fontFamily: 'inherit',
 		menu: {
 			minWidth: '400px',
 			backgroundColor: 'var(--popover)',
@@ -135,8 +151,7 @@ export function ChatInput() {
 						theme={theme}
 					/>
 					<InputGroupAddon align='block-end'>
-						{/* Model selector */}
-						{models.length > 0 && (
+						{(!isTranscribeEnabled || (!isRecording && !isTranscribing)) && models.length > 0 && (
 							<DropdownMenu>
 								<DropdownMenuTrigger asChild disabled={!hasMultipleModels}>
 									<button
@@ -180,15 +195,42 @@ export function ChatInput() {
 							</DropdownMenu>
 						)}
 
-						<ChatButton
-							isRunning={isRunning}
-							disabled={isLoadingMessages || !hasInput}
-							onClick={isRunning ? stopAgent : handleSubmit}
-							type='button'
-						/>
+						{isTranscribeEnabled && isRecording && <SlidingWaveform analyserRef={analyserRef} />}
+
+						<div className='ml-auto flex items-center gap-1.5'>
+							{isTranscribeEnabled && isRecording && <RecordingTimer />}
+							{isTranscribeEnabled && (
+								<MicButton state={transcribeState} onClick={toggleRecording} disabled={isRunning} />
+							)}
+
+							<ChatButton
+								isRunning={isRunning}
+								disabled={isLoadingMessages || !hasInput}
+								onClick={isRunning ? stopAgent : handleSubmit}
+								type='button'
+							/>
+						</div>
 					</InputGroupAddon>
 				</InputGroup>
 			</form>
 		</div>
+	);
+}
+
+function RecordingTimer() {
+	const [elapsed, setElapsed] = useState(0);
+
+	useEffect(() => {
+		const id = setInterval(() => setElapsed((s) => s + 1), 1000);
+		return () => clearInterval(id);
+	}, []);
+
+	const mins = Math.floor(elapsed / 60);
+	const secs = elapsed % 60;
+
+	return (
+		<span className='text-xs tabular-nums text-muted-foreground'>
+			{mins}:{secs.toString().padStart(2, '0')}
+		</span>
 	);
 }

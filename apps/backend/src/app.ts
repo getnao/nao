@@ -14,6 +14,7 @@ import { authRoutes } from './routes/auth';
 import { chatRoutes } from './routes/chat';
 import { slackRoutes } from './routes/slack';
 import { testRoutes } from './routes/test';
+import { transcribeRoutes } from './routes/transcribe';
 import { posthog, PostHogEvent } from './services/posthog.service';
 import { TrpcRouter, trpcRouter } from './trpc/router';
 import { createContext } from './trpc/trpc';
@@ -80,6 +81,10 @@ app.register(testRoutes, {
 
 app.register(authRoutes, {
 	prefix: '/api',
+});
+
+app.register(transcribeRoutes, {
+	prefix: '/api/transcribe',
 });
 
 app.register(slackRoutes, {

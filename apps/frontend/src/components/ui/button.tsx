@@ -1,7 +1,7 @@
 import { Slot } from '@radix-ui/react-slot';
 import { cva } from 'class-variance-authority';
 import * as React from 'react';
-import { ArrowUpIcon, Loader2, SquareIcon } from 'lucide-react';
+import { ArrowUpIcon, Loader2, Mic, SquareIcon } from 'lucide-react';
 import type { VariantProps } from 'class-variance-authority';
 
 import { cn } from '@/lib/utils';
@@ -108,4 +108,33 @@ function ChatSendButton({ isRunning, disabled, ...props }: React.ComponentProps<
 	);
 }
 
-export { Button, ButtonConnection, ChatSendButton as ChatButton };
+function MicButton({
+	state,
+	onClick,
+	disabled,
+}: {
+	state: 'idle' | 'recording' | 'transcribing';
+	onClick: () => void;
+	disabled?: boolean;
+}) {
+	const isRecording = state === 'recording';
+	const isTranscribing = state === 'transcribing';
+
+	return (
+		<button
+			type='button'
+			onClick={onClick}
+			disabled={disabled || isTranscribing}
+			aria-label={isRecording ? 'Stop recording' : 'Start voice input'}
+			className={`
+				inline-flex items-center justify-center rounded-full size-7 transition-all cursor-pointer
+				disabled:pointer-events-none disabled:opacity-50
+				${isRecording ? 'bg-violet/30 animate-pulse' : 'text-muted-foreground hover:text-foreground hover:bg-accent'}
+			`}
+		>
+			{isTranscribing ? <Loader2 className='size-3.5 animate-spin' /> : <Mic className='size-3.5' />}
+		</button>
+	);
+}
+
+export { Button, ButtonConnection, ChatSendButton as ChatButton, MicButton };

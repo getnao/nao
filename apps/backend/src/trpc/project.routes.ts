@@ -2,6 +2,7 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
 import { KNOWN_MODELS } from '../agents/providers';
+import { KNOWN_TRANSCRIBE_MODELS } from '../agents/transcribe.providers';
 import { env } from '../env';
 import * as projectQueries from '../queries/project.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
@@ -184,6 +185,10 @@ export const projectRoutes = {
 		return KNOWN_MODELS;
 	}),
 
+	getKnownTranscribeModels: publicProcedure.query(() => {
+		return KNOWN_TRANSCRIBE_MODELS;
+	}),
+
 	removeProjectMember: adminProtectedProcedure
 		.input(
 			z.object({
@@ -278,10 +283,22 @@ export const projectRoutes = {
 						pythonSandboxing: z.boolean().optional(),
 					})
 					.optional(),
+				transcribe: z
+					.object({
+						enabled: z.boolean().optional(),
+						provider: z.string().optional(),
+						modelId: z.string().optional(),
+					})
+					.optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
-			return projectQueries.updateAgentSettings(ctx.project.id, input);
+			const existing = (await projectQueries.getAgentSettings(ctx.project.id)) ?? {};
+			const merged = {
+				experimental: { ...existing.experimental, ...input.experimental },
+				transcribe: { ...existing.transcribe, ...input.transcribe },
+			};
+			return projectQueries.updateAgentSettings(ctx.project.id, merged);
 		}),
 
 	getMemorySettings: projectProtectedProcedure.query(async ({ ctx }) => {

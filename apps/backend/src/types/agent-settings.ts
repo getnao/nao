@@ -3,4 +3,9 @@ export interface AgentSettings {
 	experimental?: {
 		pythonSandboxing?: boolean;
 	};
+	transcribe?: {
+		enabled?: boolean;
+		provider?: string;
+		modelId?: string;
+	};
 }
