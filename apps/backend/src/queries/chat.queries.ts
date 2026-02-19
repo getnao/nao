@@ -152,7 +152,7 @@ export const createChat = async (newChat: NewChat, message: UIMessage): Promise<
 };
 
 export const upsertMessage = async (
-	message: UIMessage,
+	message: UIMessage, // TODO: generate uuid instead of using the one from the client
 	opts: {
 		chatId: string;
 		stopReason?: StopReason;
@@ -163,7 +163,7 @@ export const upsertMessage = async (
 	},
 ): Promise<void> => {
 	await db.transaction(async (t) => {
-		const [savedMessage] = await t
+		await t
 			.insert(s.chatMessage)
 			.values({
 				chatId: opts.chatId,
@@ -176,12 +176,11 @@ export const upsertMessage = async (
 				...opts.tokenUsage,
 			})
 			.onConflictDoNothing({ target: s.chatMessage.id })
-			.returning()
 			.execute();
 
-		await t.delete(s.messagePart).where(eq(s.messagePart.messageId, savedMessage.id)).execute();
+		await t.delete(s.messagePart).where(eq(s.messagePart.messageId, message.id)).execute();
 		if (message.parts.length) {
-			const dbParts = mapUIPartsToDBParts(message.parts, savedMessage.id);
+			const dbParts = mapUIPartsToDBParts(message.parts, message.id);
 			await t.insert(s.messagePart).values(dbParts).execute();
 		}
 	});
