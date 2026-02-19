@@ -1,11 +1,16 @@
 import { getConnections, getUserRules } from '../agents/user-rules';
 import { Block, Bold, Br, Italic, Link, List, ListItem, Location, Span, Title } from '../lib/markdown';
+import type { UserMemory } from '../services/memory';
 import { skillService } from '../services/skill.service';
+import { estimateTokens } from '../utils/ai';
+import { MEMORY_CATEGORIES, MEMORY_TOKEN_LIMIT, MemoryCategory } from '../utils/memory';
+import { groupBy } from '../utils/utils';
 
-export function SystemPrompt() {
+export function SystemPrompt({ memories = [] }: { memories: UserMemory[] }) {
 	const userRules = getUserRules();
 	const connections = getConnections();
 	const skills = skillService.getSkills();
+	const visibleMemories = getMemoriesInTokenRange(memories, MEMORY_TOKEN_LIMIT);
 
 	return (
 		<Block>
@@ -21,6 +26,7 @@ export function SystemPrompt() {
 				about the database instead of querying the database directly (it's faster and avoid leaking sensitive
 				information).
 			</Span>
+
 			<Title level={2}>Persona</Title>
 			<List>
 				<ListItem>
@@ -36,6 +42,7 @@ export function SystemPrompt() {
 					conversation fillers. Jump straight to providing value.
 				</ListItem>
 			</List>
+
 			<Title level={2}>Tool Usage Rules</Title>
 			<List>
 				<ListItem>
@@ -51,6 +58,7 @@ export function SystemPrompt() {
 				</ListItem>
 				<ListItem>If you can execute a SQL query, use the execute_sql tool for it.</ListItem>
 			</List>
+
 			<Title level={2}>How nao Works</Title>
 			<List>
 				<ListItem>All the context available to you is stored as files in the project folder.</ListItem>
@@ -70,6 +78,7 @@ export function SystemPrompt() {
 					preview.md, etc.)
 				</ListItem>
 			</List>
+
 			<Title level={2}>SQL Query Rules</Title>
 			<List>
 				<ListItem>
@@ -80,12 +89,16 @@ export function SystemPrompt() {
 					Never assume columns names, if available, use the columns.md file to get the column names.
 				</ListItem>
 			</List>
+
+			{visibleMemories.length > 0 && <MemoryBlock memories={visibleMemories} />}
+
 			{userRules && (
 				<Block>
 					<Title level={2}>User Rules</Title>
 					{userRules}
 				</Block>
 			)}
+
 			{connections && (
 				<Block>
 					<Title level={2}>Current User Connections</Title>
@@ -98,12 +111,13 @@ export function SystemPrompt() {
 					</List>
 				</Block>
 			)}
+
 			{skills.length > 0 && (
 				<Block>
 					<Title level={2}>Available Skills</Title>
 					<Span>You have access to pre-defined skills. Use these as guidance for relevant questions.</Span>
 					{skills.map((skill) => (
-						<Block key={skill.name}>
+						<Block>
 							<Title level={3}>Skill: {skill.name}</Title>
 							<Span>
 								<Bold>Description:</Bold> {skill.description}
@@ -114,6 +128,60 @@ export function SystemPrompt() {
 					))}
 				</Block>
 			)}
+		</Block>
+	);
+}
+
+/** Returns the memories that fit in the given token limit, in priority order. */
+function getMemoriesInTokenRange(memories: UserMemory[], limit: number): UserMemory[] {
+	const inPriorityOrder = MEMORY_CATEGORIES.flatMap((category) => memories.filter((m) => m.category === category));
+	const visible: UserMemory[] = [];
+	let tokens = 0;
+
+	for (const memory of inPriorityOrder) {
+		const memoryTokens = estimateTokens(memory.content);
+		if (tokens + memoryTokens > limit) {
+			break;
+		}
+		visible.push(memory);
+		tokens += memoryTokens;
+	}
+
+	return visible;
+}
+
+const CATEGORY_LABEL: Record<MemoryCategory, string> = {
+	rule: 'Rules',
+	personal_fact: 'Personal Facts',
+};
+
+function MemoryBlock({ memories }: { memories: UserMemory[] }) {
+	const groups = groupBy(memories, (m) => m.category);
+	const categories = MEMORY_CATEGORIES.filter((category) => (groups[category] ?? []).length > 0);
+
+	return (
+		<Block>
+			<Title level={2}>User Memory</Title>
+			<Span>
+				The following facts and instructions about the user have been established in previous conversations.
+				Some facts and instructions may be overridden by the user during this conversation, in which case
+				invalidated memories should be discarded.
+			</Span>
+
+			{categories.map((category) => {
+				const label = CATEGORY_LABEL[category];
+				const items = groups[category] ?? [];
+				return (
+					<Block>
+						<Title level={3}>{label}</Title>
+						<List>
+							{items.map((item) => (
+								<ListItem>{item.content}</ListItem>
+							))}
+						</List>
+					</Block>
+				);
+			})}
 		</Block>
 	);
 }

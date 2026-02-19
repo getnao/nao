@@ -92,6 +92,13 @@
       "when": 1771512415648,
       "tag": "0012_chat_message_metadata_and_tool_raw_input",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1771538844910,
+      "tag": "0013_agent_memory",
+      "breakpoints": true
     }
   ]
 }

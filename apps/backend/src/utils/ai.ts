@@ -65,13 +65,24 @@ export const retrieveProjectById = async (projectId: string): Promise<DBProject>
 	return project;
 };
 
-export const findLastUserMessage = (messages: UIMessage[]): { message: UIMessage; index: number } => {
-	let lastUserMessageIndex = -1;
+export const findLastUserMessage = (messages: UIMessage[]): [UIMessage, number] | [undefined, undefined] => {
 	for (let i = messages.length - 1; i >= 0; i--) {
 		if (messages[i].role === 'user') {
-			lastUserMessageIndex = i;
-			break;
+			return [messages[i], i];
 		}
 	}
-	return { message: messages[lastUserMessageIndex], index: lastUserMessageIndex };
+	return [undefined, undefined];
 };
+
+export const getLastUserMessageText = (messages: UIMessage[]): string => {
+	const [lastUserMessage] = findLastUserMessage(messages);
+	if (!lastUserMessage) {
+		return '';
+	}
+	return extractLastTextFromMessage(lastUserMessage);
+};
+
+/** Estimates the number of tokens in a text. A token is an average of 4 characters. */
+export function estimateTokens(text: string): number {
+	return Math.ceil(text.length / 4);
+}

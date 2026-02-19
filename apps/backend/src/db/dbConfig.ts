@@ -1,6 +1,6 @@
 import { env } from '../env';
-import * as postgresSchema from './pgSchema';
-import * as sqliteSchema from './sqliteSchema';
+import * as postgresSchema from './pg-schema';
+import * as sqliteSchema from './sqlite-schema';
 
 export enum Dialect {
 	Postgres = 'postgres',
@@ -49,14 +49,14 @@ const dbConfig: DbConfig =
 				dialect: Dialect.Postgres,
 				schema: postgresSchema,
 				migrationsFolder: './migrations-postgres',
-				schemaPath: './src/db/pgSchema.ts',
+				schemaPath: './src/db/pg-schema.ts',
 				dbUrl: connectionString,
 			}
 		: {
 				dialect: Dialect.Sqlite,
 				schema: sqliteSchema,
 				migrationsFolder: './migrations-sqlite',
-				schemaPath: './src/db/sqliteSchema.ts',
+				schemaPath: './src/db/sqlite-schema.ts',
 				dbUrl: connectionString,
 			};
 

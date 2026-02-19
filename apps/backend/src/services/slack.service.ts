@@ -10,7 +10,7 @@ import { get } from '../queries/user.queries';
 import { UIChat } from '../types/chat';
 import { UIMessage } from '../types/chat';
 import { SlackEvent } from '../types/slack';
-import { extractLastTextFromMessage } from '../utils/chat';
+import { extractLastTextFromMessage } from '../utils/ai';
 import { addButtonStopBlock } from '../utils/slack';
 import { agentService } from './agent.service';
 

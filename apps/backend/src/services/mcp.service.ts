@@ -6,7 +6,7 @@ import { createRuntime, type Runtime, ServerDefinition, ServerToolInfo } from 'm
 import { join } from 'path';
 
 import { mcpJsonSchema, McpServerConfig, McpServerState } from '../types/mcp';
-import { retrieveProjectById } from '../utils/chat';
+import { retrieveProjectById } from '../utils/ai';
 import { prefixToolName, removePrefixToolName, sanitizeTools } from '../utils/tools';
 import { replaceEnvVars } from '../utils/utils';
 

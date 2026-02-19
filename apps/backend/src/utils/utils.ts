@@ -62,9 +62,16 @@ export const removeNewLine = (str: string): string => {
 	return str.replace(/[\r\n]/g, '');
 };
 
-export function groupBy<T>(items: T[], keyFn: (item: T) => string): Record<string, T[]> {
+export function groupBy<T, K extends string>(
+	items: T[],
+	keyFn: (item: T) => K,
+	filterFn?: (item: T) => boolean,
+): Record<K, T[]> {
 	return items.reduce(
 		(acc, item) => {
+			if (filterFn && !filterFn(item)) {
+				return acc;
+			}
 			const key = keyFn(item);
 			if (!acc[key]) {
 				acc[key] = [];
@@ -72,7 +79,7 @@ export function groupBy<T>(items: T[], keyFn: (item: T) => string): Record<strin
 			acc[key].push(item);
 			return acc;
 		},
-		{} as Record<string, T[]>,
+		{} as Record<K, T[]>,
 	);
 }
 

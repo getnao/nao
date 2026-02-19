@@ -6,8 +6,8 @@ import postgres from 'postgres';
 
 import { env } from '../env';
 import dbConfig, { Dialect } from './dbConfig';
-import * as pgSchema from './pgSchema';
-import * as sqliteSchema from './sqliteSchema';
+import * as pgSchema from './pg-schema';
+import * as sqliteSchema from './sqlite-schema';
 
 const logger = env.DB_QUERY_LOGGING ? new EnhancedQueryLogger() : undefined;
 

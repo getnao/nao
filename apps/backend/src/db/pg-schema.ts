@@ -1,39 +1,47 @@
 import { type ProviderMetadata } from 'ai';
 import { sql } from 'drizzle-orm';
-import { check, index, integer, primaryKey, sqliteTable, text, unique } from 'drizzle-orm/sqlite-core';
+import {
+	boolean,
+	check,
+	index,
+	integer,
+	jsonb,
+	pgTable,
+	primaryKey,
+	text,
+	timestamp,
+	unique,
+} from 'drizzle-orm/pg-core';
 
 import { AgentSettings } from '../types/agent-settings';
 import { StopReason, ToolState, UIMessagePartType } from '../types/chat';
 import { LlmProvider } from '../types/llm';
 import { ORG_ROLES } from '../types/organization';
 import { USER_ROLES } from '../types/project';
+import { MEMORY_CATEGORIES } from '../utils/memory';
 
-export const user = sqliteTable('user', {
+export const user = pgTable('user', {
 	id: text('id').primaryKey(),
 	name: text('name').notNull(),
 	email: text('email').notNull().unique(),
-	emailVerified: integer('email_verified', { mode: 'boolean' }).default(false).notNull(),
+	emailVerified: boolean('email_verified').default(false).notNull(),
 	image: text('image'),
-	requiresPasswordReset: integer('requires_password_reset', { mode: 'boolean' }).default(false).notNull(),
-	createdAt: integer('created_at', { mode: 'timestamp_ms' })
-		.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
-		.notNull(),
-	updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
-		.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+	requiresPasswordReset: boolean('requires_password_reset').default(false).notNull(),
+	createdAt: timestamp('created_at').defaultNow().notNull(),
+	updatedAt: timestamp('updated_at')
+		.defaultNow()
 		.$onUpdate(() => /* @__PURE__ */ new Date())
 		.notNull(),
 });
 
-export const session = sqliteTable(
+export const session = pgTable(
 	'session',
 	{
 		id: text('id').primaryKey(),
-		expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
+		expiresAt: timestamp('expires_at').notNull(),
 		token: text('token').notNull().unique(),
-		createdAt: integer('created_at', { mode: 'timestamp_ms' })
-			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
-			.notNull(),
-		updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
 			.$onUpdate(() => /* @__PURE__ */ new Date())
 			.notNull(),
 		ipAddress: text('ip_address'),
@@ -45,7 +53,7 @@ export const session = sqliteTable(
 	(table) => [index('session_userId_idx').on(table.userId)],
 );
 
-export const account = sqliteTable(
+export const account = pgTable(
 	'account',
 	{
 		id: text('id').primaryKey(),
@@ -57,43 +65,35 @@ export const account = sqliteTable(
 		accessToken: text('access_token'),
 		refreshToken: text('refresh_token'),
 		idToken: text('id_token'),
-		accessTokenExpiresAt: integer('access_token_expires_at', {
-			mode: 'timestamp_ms',
-		}),
-		refreshTokenExpiresAt: integer('refresh_token_expires_at', {
-			mode: 'timestamp_ms',
-		}),
+		accessTokenExpiresAt: timestamp('access_token_expires_at'),
+		refreshTokenExpiresAt: timestamp('refresh_token_expires_at'),
 		scope: text('scope'),
 		password: text('password'),
-		createdAt: integer('created_at', { mode: 'timestamp_ms' })
-			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
-			.notNull(),
-		updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
 			.$onUpdate(() => /* @__PURE__ */ new Date())
 			.notNull(),
 	},
 	(table) => [index('account_userId_idx').on(table.userId)],
 );
 
-export const verification = sqliteTable(
+export const verification = pgTable(
 	'verification',
 	{
 		id: text('id').primaryKey(),
 		identifier: text('identifier').notNull(),
 		value: text('value').notNull(),
-		expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
-		createdAt: integer('created_at', { mode: 'timestamp_ms' })
-			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
-			.notNull(),
-		updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
-			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+		expiresAt: timestamp('expires_at').notNull(),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
 			.$onUpdate(() => /* @__PURE__ */ new Date())
 			.notNull(),
 	},
 	(table) => [index('verification_identifier_idx').on(table.identifier)],
 );
 
-export const organization = sqliteTable('organization', {
+export const organization = pgTable('organization', {
 	id: text('id')
 		.$defaultFn(() => crypto.randomUUID())
 		.primaryKey(),
@@ -103,17 +103,14 @@ export const organization = sqliteTable('organization', {
 	googleClientId: text('google_client_id'),
 	googleClientSecret: text('google_client_secret'),
 	googleAuthDomains: text('google_auth_domains'), // comma-separated list
-
-	createdAt: integer('created_at', { mode: 'timestamp_ms' })
-		.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
-		.notNull(),
-	updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
-		.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+	createdAt: timestamp('created_at').defaultNow().notNull(),
+	updatedAt: timestamp('updated_at')
+		.defaultNow()
 		.$onUpdate(() => new Date())
 		.notNull(),
 });
 
-export const orgMember = sqliteTable(
+export const orgMember = pgTable(
 	'org_member',
 	{
 		orgId: text('org_id')
@@ -123,14 +120,12 @@ export const orgMember = sqliteTable(
 			.notNull()
 			.references(() => user.id, { onDelete: 'cascade' }),
 		role: text('role', { enum: ORG_ROLES }).notNull(),
-		createdAt: integer('created_at', { mode: 'timestamp_ms' })
-			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
-			.notNull(),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
 	},
 	(t) => [primaryKey({ columns: [t.orgId, t.userId] }), index('org_member_userId_idx').on(t.userId)],
 );
 
-export const project = sqliteTable(
+export const project = pgTable(
 	'project',
 	{
 		id: text('id')
@@ -142,12 +137,10 @@ export const project = sqliteTable(
 		path: text('path'),
 		slackBotToken: text('slack_bot_token'),
 		slackSigningSecret: text('slack_signing_secret'),
-		agentSettings: text('agent_settings', { mode: 'json' }).$type<AgentSettings>(),
-		createdAt: integer('created_at', { mode: 'timestamp_ms' })
-			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
-			.notNull(),
-		updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
-			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+		agentSettings: jsonb('agent_settings').$type<AgentSettings>(),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
 			.$onUpdate(() => new Date())
 			.notNull(),
 	},
@@ -160,7 +153,7 @@ export const project = sqliteTable(
 	],
 );
 
-export const chat = sqliteTable(
+export const chat = pgTable(
 	'chat',
 	{
 		id: text('id')
@@ -174,11 +167,9 @@ export const chat = sqliteTable(
 			.references(() => project.id, { onDelete: 'cascade' }),
 		title: text('title').notNull().default('New Conversation'),
 		slackThreadId: text('slack_thread_id'),
-		createdAt: integer('created_at', { mode: 'timestamp_ms' })
-			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
-			.notNull(),
-		updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
-			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
 			.$onUpdate(() => new Date())
 			.notNull(),
 	},
@@ -189,7 +180,7 @@ export const chat = sqliteTable(
 	],
 );
 
-export const chatMessage = sqliteTable(
+export const chatMessage = pgTable(
 	'chat_message',
 	{
 		id: text('id')
@@ -203,9 +194,7 @@ export const chatMessage = sqliteTable(
 		errorMessage: text('error_message'),
 		llmProvider: text('llm_provider').$type<LlmProvider>(),
 		llmModelId: text('llm_model_id'),
-		createdAt: integer('created_at', { mode: 'timestamp_ms' })
-			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
-			.notNull(),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
 
 		// Token usage columns
 		inputTotalTokens: integer('input_total_tokens'),
@@ -223,7 +212,7 @@ export const chatMessage = sqliteTable(
 	],
 );
 
-export const messagePart = sqliteTable(
+export const messagePart = pgTable(
 	'message_part',
 	{
 		id: text('id')
@@ -233,9 +222,7 @@ export const messagePart = sqliteTable(
 			.references(() => chatMessage.id, { onDelete: 'cascade' })
 			.notNull(),
 		order: integer('order').notNull(),
-		createdAt: integer('created_at', { mode: 'timestamp_ms' })
-			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
-			.notNull(),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
 		type: text('type').$type<UIMessagePartType>().notNull(),
 
 		// text columns
@@ -247,19 +234,18 @@ export const messagePart = sqliteTable(
 		toolName: text('tool_name'),
 		toolState: text('tool_state').$type<ToolState>(),
 		toolErrorText: text('tool_error_text'),
-		toolInput: text('tool_input', { mode: 'json' }).$type<unknown>(),
-		toolRawInput: text('tool_raw_input', { mode: 'json' }).$type<unknown>(),
-		toolOutput: text('tool_output', { mode: 'json' }).$type<unknown>(),
-		// tool_md_output: text('tool_md_output'),
+		toolInput: jsonb('tool_input').$type<unknown>(),
+		toolRawInput: jsonb('tool_raw_input').$type<unknown>(),
+		toolOutput: jsonb('tool_output').$type<unknown>(),
 
 		// tool approval columns
 		toolApprovalId: text('tool_approval_id'),
-		toolApprovalApproved: integer('tool_approval_approved', { mode: 'boolean' }),
+		toolApprovalApproved: boolean('tool_approval_approved'),
 		toolApprovalReason: text('tool_approval_reason'),
 
 		// provider metadata columns
-		toolProviderMetadata: text('tool_provider_metadata', { mode: 'json' }).$type<ProviderMetadata>(),
-		providerMetadata: text('provider_metadata', { mode: 'json' }).$type<ProviderMetadata>(),
+		toolProviderMetadata: jsonb('tool_provider_metadata').$type<ProviderMetadata>(),
+		providerMetadata: jsonb('provider_metadata').$type<ProviderMetadata>(),
 	},
 	(t) => [
 		index('parts_message_id_idx').on(t.messageId),
@@ -279,22 +265,20 @@ export const messagePart = sqliteTable(
 	],
 );
 
-export const messageFeedback = sqliteTable('message_feedback', {
+export const messageFeedback = pgTable('message_feedback', {
 	messageId: text('message_id')
 		.primaryKey()
 		.references(() => chatMessage.id, { onDelete: 'cascade' }),
 	vote: text('vote', { enum: ['up', 'down'] }).notNull(),
 	explanation: text('explanation'),
-	createdAt: integer('created_at', { mode: 'timestamp_ms' })
-		.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
-		.notNull(),
-	updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
-		.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+	createdAt: timestamp('created_at').defaultNow().notNull(),
+	updatedAt: timestamp('updated_at')
+		.defaultNow()
 		.$onUpdate(() => new Date())
 		.notNull(),
 });
 
-export const projectMember = sqliteTable(
+export const projectMember = pgTable(
 	'project_member',
 	{
 		projectId: text('project_id')
@@ -304,14 +288,12 @@ export const projectMember = sqliteTable(
 			.notNull()
 			.references(() => user.id, { onDelete: 'cascade' }),
 		role: text('role', { enum: USER_ROLES }).notNull(),
-		createdAt: integer('created_at', { mode: 'timestamp_ms' })
-			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
-			.notNull(),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
 	},
 	(t) => [primaryKey({ columns: [t.projectId, t.userId] }), index('project_member_userId_idx').on(t.userId)],
 );
 
-export const projectLlmConfig = sqliteTable(
+export const projectLlmConfig = pgTable(
 	'project_llm_config',
 	{
 		id: text('id')
@@ -322,13 +304,11 @@ export const projectLlmConfig = sqliteTable(
 			.references(() => project.id, { onDelete: 'cascade' }),
 		provider: text('provider').$type<LlmProvider>().notNull(),
 		apiKey: text('api_key').notNull(),
-		enabledModels: text('enabled_models', { mode: 'json' }).$type<string[]>().default([]).notNull(),
+		enabledModels: jsonb('enabled_models').$type<string[]>().default([]).notNull(),
 		baseUrl: text('base_url'),
-		createdAt: integer('created_at', { mode: 'timestamp_ms' })
-			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
-			.notNull(),
-		updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
-			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
 			.$onUpdate(() => new Date())
 			.notNull(),
 	},
@@ -338,7 +318,7 @@ export const projectLlmConfig = sqliteTable(
 	],
 );
 
-export const projectSavedPrompt = sqliteTable(
+export const projectSavedPrompt = pgTable(
 	'project_saved_prompt',
 	{
 		id: text('id')
@@ -349,13 +329,25 @@ export const projectSavedPrompt = sqliteTable(
 			.references(() => project.id, { onDelete: 'cascade' }),
 		title: text('title').notNull(),
 		prompt: text('prompt').notNull(),
-		createdAt: integer('created_at', { mode: 'timestamp_ms' })
-			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
-			.notNull(),
-		updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
-			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
 			.$onUpdate(() => new Date())
 			.notNull(),
 	},
 	(t) => [index('project_saved_prompt_projectId_idx').on(t.projectId)],
+);
+
+export const memories = pgTable(
+	'memories',
+	{
+		id: text('id').primaryKey(),
+		content: text('content').notNull(),
+		category: text('category', { enum: MEMORY_CATEGORIES }).notNull(),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		chatId: text('chat_id')
+			.notNull()
+			.references(() => chat.id, { onDelete: 'cascade' }),
+	},
+	(t) => [index('memories_chatId_idx').on(t.chatId)],
 );

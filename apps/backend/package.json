@@ -26,6 +26,7 @@
 		"db:studio": "drizzle-kit studio",
 		"db:drop": "drizzle-kit drop",
 		"db:reset": "rm db.sqlite",
+		"db:seed": "bun scripts/db.seed.ts",
 		"db:check-migrations": "bun scripts/db.check-migrations.ts",
 		"format": "prettier --write .",
 		"test:tool-outputs": "PRINT_OUTPUT=true vitest run tests/tool-outputs/"

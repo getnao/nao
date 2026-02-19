@@ -299,4 +299,22 @@ describe('renderToMarkdown', () => {
 	it('handles null input', () => {
 		expect(renderToMarkdown(null)).toBe('');
 	});
+
+	it('renders an XML tag with props and children', () => {
+		const result = renderToMarkdown(
+			<md.XML tag='memory' props={{ type: 'fact', source: 'user' }}>
+				<md.Span>The user prefers dark mode.</md.Span>
+			</md.XML>,
+		);
+		expect(result).toBe('<memory type="fact" source="user">\n\nThe user prefers dark mode.\n\n</memory>');
+	});
+
+	it('renders an XML tag with no props and children', () => {
+		const result = renderToMarkdown(
+			<md.XML tag='memory'>
+				<md.Span>The user prefers dark mode.</md.Span>
+			</md.XML>,
+		);
+		expect(result).toBe('<memory>\n\nThe user prefers dark mode.\n\n</memory>');
+	});
 });
