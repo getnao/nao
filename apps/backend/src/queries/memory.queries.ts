@@ -1,17 +1,24 @@
-import { and, eq, inArray, ne } from 'drizzle-orm';
+import { and, desc, eq, inArray, ne } from 'drizzle-orm';
 
 import s, { DBMemory, NewMemory } from '../db/abstractSchema';
 import { db } from '../db/db';
 
 export const getUserMemories = async (userId: string, excludeChatId?: string): Promise<DBMemory[]> => {
-	const rows = await db
-		.select({ memory: s.memories })
+	const memories = await db
+		.select({
+			id: s.memories.id,
+			content: s.memories.content,
+			category: s.memories.category,
+			createdAt: s.memories.createdAt,
+			chatId: s.memories.chatId,
+		})
 		.from(s.memories)
 		.innerJoin(s.chat, eq(s.chat.id, s.memories.chatId))
 		.where(and(eq(s.chat.userId, userId), excludeChatId ? ne(s.memories.chatId, excludeChatId) : undefined))
+		.orderBy(desc(s.memories.createdAt))
 		.execute();
 
-	return rows.map((r) => r.memory);
+	return memories;
 };
 
 export const upsertMemory = async (memory: NewMemory): Promise<void> => {

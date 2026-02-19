@@ -151,7 +151,7 @@ function getMemoriesInTokenRange(memories: UserMemory[], limit: number): UserMem
 }
 
 const CATEGORY_LABEL: Record<MemoryCategory, string> = {
-	rule: 'Rules',
+	global_rule: 'Global Rules',
 	personal_fact: 'Personal Facts',
 };
 

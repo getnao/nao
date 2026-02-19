@@ -159,9 +159,7 @@ type Memory = z.infer<typeof MemorySchema>;
 
 const EXTRACTOR_SYSTEM_PROMPT = `You are a memory extractor assistant. You will be given a list of memories and a user message, and you will need to extract the new memories from the user message.
 
-You will receive:
-1. The user's current memory list (may be empty), wrapped in a <memories> tag
-2. A recent conversation turn
+You will receive the user's current memory list (may be empty), wrapped in a <memories> tag and a recent conversation turn.
 
 Return the complete, updated memory list. For each memory you can:
 - Keep it unchanged — include it with its original id
@@ -184,6 +182,7 @@ Do NOT include:
 - Questions the user asked
 - Emotional reactions or pleasantries
 - Anything only relevant to this conversation
+- Instructions that are only relevant to a specific case
 
 Merge memories whenever they clearly overlap or are redundant — prefer fewer, broader directives over many narrow ones. For example, if two memories both concern response language, combine them into a single instruction.
 
