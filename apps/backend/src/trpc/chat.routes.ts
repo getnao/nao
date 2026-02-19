@@ -36,8 +36,8 @@ export const chatRoutes = {
 	delete: chatOwnerProcedure
 		.input(z.object({ chatId: z.string() }))
 		.mutation(async ({ input, ctx }): Promise<void> => {
-			await chatQueries.deleteChat(input.chatId);
-			posthog.capture(ctx.user.id, PostHogEvent.ChatDeleted, { chat_id: input.chatId });
+			const { projectId } = await chatQueries.deleteChat(input.chatId);
+			posthog.capture(ctx.user.id, PostHogEvent.ChatDeleted, { project_id: projectId, chat_id: input.chatId });
 		}),
 
 	stop: protectedProcedure.input(z.object({ chatId: z.string() })).mutation(async ({ input, ctx }): Promise<void> => {
@@ -48,13 +48,17 @@ export const chatRoutes = {
 		if (!agent.checkIsUserOwner(ctx.user.id)) {
 			throw new TRPCError({ code: 'FORBIDDEN', message: 'You are not allowed to stop this agent.' });
 		}
+
 		agent.stop();
+
+		const projectId = await chatQueries.getChatProjectId(input.chatId);
+		posthog.capture(ctx.user.id, PostHogEvent.AgentStopped, { project_id: projectId, chat_id: input.chatId });
 	}),
 
 	rename: chatOwnerProcedure
 		.input(z.object({ chatId: z.string(), title: z.string().min(1).max(255) }))
 		.mutation(async ({ input, ctx }): Promise<void> => {
-			await chatQueries.renameChat(input.chatId, input.title);
-			posthog.capture(ctx.user.id, PostHogEvent.ChatRenamed, { chat_id: input.chatId });
+			const { projectId } = await chatQueries.renameChat(input.chatId, input.title);
+			posthog.capture(ctx.user.id, PostHogEvent.ChatRenamed, { project_id: projectId, chat_id: input.chatId });
 		}),
 };

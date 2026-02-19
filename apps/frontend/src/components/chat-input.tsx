@@ -1,13 +1,15 @@
-import { ArrowUpIcon, ChevronDown, SquareIcon } from 'lucide-react';
+import { ChevronDown } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 import { useParams } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { Prompt } from 'prompt-mentions';
+import { ChatButton } from './ui/button';
+
 import type { PromptTheme, PromptHandle, SelectedMention } from 'prompt-mentions';
 import 'prompt-mentions/style.css';
 import type { FormEvent } from 'react';
 
-import { InputGroup, InputGroupAddon, InputGroupButton } from '@/components/ui/input-group';
+import { InputGroup, InputGroupAddon } from '@/components/ui/input-group';
 import {
 	DropdownMenu,
 	DropdownMenuItem,
@@ -24,7 +26,7 @@ import { capitalize } from '@/lib/utils';
 export function ChatInput() {
 	const [hasInput, setHasInput] = useState(false);
 	const promptRef = useRef<PromptHandle>(null);
-	const { sendMessage, isRunning, stopAgent, isReadyForNewMessages, selectedModel, setSelectedModel, setMentions } =
+	const { sendMessage, isRunning, stopAgent, isLoadingMessages, selectedModel, setSelectedModel, setMentions } =
 		useAgentContext();
 	const chatId = useParams({ strict: false, select: (p) => p.chatId });
 	const availableModels = useQuery(trpc.project.getAvailableModels.queryOptions());
@@ -57,11 +59,12 @@ export function ChatInput() {
 	}, [availableModels.data, selectedModel, setSelectedModel]);
 
 	const submit = (text: string, currentMentions: SelectedMention[]) => {
-		if (!text.trim() || isRunning) {
+		const trimmedInput = text.trim();
+		if (!trimmedInput || isRunning) {
 			return;
 		}
 		setMentions(currentMentions.map((m) => ({ id: m.id, label: m.label, trigger: m.trigger })));
-		sendMessage({ text });
+		sendMessage({ text: trimmedInput });
 		promptRef.current?.clear();
 	};
 
@@ -89,6 +92,7 @@ export function ChatInput() {
 		focusBoxShadow: 'none',
 		minHeight: '60px',
 		color: 'var(--color-foreground)',
+		padding: '12px',
 		menu: {
 			minWidth: '400px',
 			backgroundColor: 'var(--popover)',
@@ -176,29 +180,12 @@ export function ChatInput() {
 							</DropdownMenu>
 						)}
 
-						{isRunning ? (
-							<InputGroupButton
-								type='button'
-								variant='destructive'
-								className='rounded-full ml-auto'
-								size='icon-xs'
-								onClick={stopAgent}
-							>
-								<SquareIcon />
-								<span className='sr-only'>Stop</span>
-							</InputGroupButton>
-						) : (
-							<InputGroupButton
-								type='submit'
-								variant='default'
-								className='rounded-full ml-auto'
-								size='icon-xs'
-								disabled={!isReadyForNewMessages || !hasInput}
-							>
-								<ArrowUpIcon />
-								<span className='sr-only'>Send</span>
-							</InputGroupButton>
-						)}
+						<ChatButton
+							isRunning={isRunning}
+							disabled={isLoadingMessages || !hasInput}
+							onClick={isRunning ? stopAgent : handleSubmit}
+							type='button'
+						/>
 					</InputGroupAddon>
 				</InputGroup>
 			</form>

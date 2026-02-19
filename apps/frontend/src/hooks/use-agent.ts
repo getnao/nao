@@ -1,68 +1,41 @@
 import { useNavigate, useParams } from '@tanstack/react-router';
 import { useMutation } from '@tanstack/react-query';
-import { useMemo, useEffect, useRef, useCallback, useState } from 'react';
+import { useMemo, useEffect, useRef, useCallback } from 'react';
 import { Chat as Agent, useChat } from '@ai-sdk/react';
 import { DefaultChatTransport } from 'ai';
 import { useCurrent } from './useCurrent';
 import { useMemoObject } from './useMemoObject';
 import { usePrevRef } from './use-prev';
+import { useLocalStorage } from './use-local-storage';
 import type { ScrollToBottom, ScrollToBottomOptions } from 'use-stick-to-bottom';
 import type { UseChatHelpers } from '@ai-sdk/react';
 import type { UIMessage } from '@nao/backend/chat';
-import type { LlmProvider } from '@nao/backend/llm';
 import type { MentionOption } from 'prompt-mentions';
+import type { ChatSelectedModel } from '@/types/chat';
 import { useChatQuery, useSetChat } from '@/queries/use-chat-query';
 import { trpc } from '@/main';
 import { agentService } from '@/services/agents';
 import { checkIsAgentRunning } from '@/lib/ai';
 import { useSetChatList } from '@/queries/use-chat-list-query';
+import { createLocalStorage } from '@/lib/local-storage';
 
-export type ModelSelection = {
-	provider: LlmProvider;
-	modelId: string;
-} | null;
-
-const MODEL_STORAGE_KEY = 'nao-selected-model';
-
-function getStoredModel(): ModelSelection {
-	try {
-		const stored = localStorage.getItem(MODEL_STORAGE_KEY);
-		if (stored) {
-			return JSON.parse(stored);
-		}
-	} catch {
-		// Ignore parse errors
-	}
-	return null;
-}
-
-function storeModel(model: ModelSelection) {
-	try {
-		if (model) {
-			localStorage.setItem(MODEL_STORAGE_KEY, JSON.stringify(model));
-		} else {
-			localStorage.removeItem(MODEL_STORAGE_KEY);
-		}
-	} catch {
-		// Ignore storage errors
-	}
-}
-
-export type AgentHelpers = {
+export interface AgentHelpers {
 	messages: UIMessage[];
 	setMessages: UseChatHelpers<UIMessage>['setMessages'];
 	sendMessage: UseChatHelpers<UIMessage>['sendMessage'];
 	status: UseChatHelpers<UIMessage>['status'];
 	isRunning: boolean;
-	isReadyForNewMessages: boolean;
+	isLoadingMessages: boolean;
 	stopAgent: () => Promise<void>;
 	registerScrollDown: (fn: ScrollToBottom) => { dispose: () => void };
 	error: Error | undefined;
 	clearError: UseChatHelpers<UIMessage>['clearError'];
-	selectedModel: ModelSelection;
-	setSelectedModel: (model: ModelSelection) => void;
+	selectedModel: ChatSelectedModel | null;
+	setSelectedModel: React.Dispatch<React.SetStateAction<ChatSelectedModel | null>>;
 	setMentions: (mentions: MentionOption[]) => void;
-};
+}
+
+const selectedModelStorage = createLocalStorage<ChatSelectedModel>('nao-selected-model');
 
 export const useAgent = (): AgentHelpers => {
 	const navigate = useNavigate();
@@ -70,16 +43,12 @@ export const useAgent = (): AgentHelpers => {
 	const chat = useChatQuery({ chatId });
 	const chatIdRef = useCurrent(chatId);
 	const scrollDownService = useScrollDownCallbackService();
-	const [selectedModel, setSelectedModelState] = useState<ModelSelection>(getStoredModel);
+
+	const [selectedModel, setSelectedModel] = useLocalStorage(selectedModelStorage);
 	const selectedModelRef = useCurrent(selectedModel);
 	const mentionsRef = useRef<MentionOption[]>([]);
 	const setChat = useSetChat();
 	const setChatList = useSetChatList();
-
-	const setSelectedModel = useCallback((model: ModelSelection) => {
-		setSelectedModelState(model);
-		storeModel(model);
-	}, []);
 
 	const setMentions = useCallback((mentions: MentionOption[]) => {
 		mentionsRef.current = mentions;
@@ -87,6 +56,7 @@ export const useAgent = (): AgentHelpers => {
 
 	const agentInstance = useMemo(() => {
 		let agentId = chatId ?? 'new-chat';
+
 		const existingAgent = agentService.getAgent(agentId);
 		if (existingAgent) {
 			return existingAgent;
@@ -100,7 +70,7 @@ export const useAgent = (): AgentHelpers => {
 					mentionsRef.current = [];
 					return {
 						body: {
-							chatId: chatIdRef.current, // Using the ref to send new id when chat was created
+							chatId: agentId === 'new-chat' ? undefined : agentId,
 							message: options.messages.at(-1),
 							model: selectedModelRef.current ?? undefined,
 							mentions: mentions.length > 0 ? mentions : undefined,
@@ -109,10 +79,8 @@ export const useAgent = (): AgentHelpers => {
 				},
 			}),
 			onData: ({ data: newChat }) => {
-				// Move the chat instance to the new chat id
 				agentService.moveAgent(agentId, newChat.id);
 
-				// Update the agent id after moving the instance
 				agentId = newChat.id;
 
 				setChat({ chatId: newChat.id }, { ...newChat, messages: [] });
@@ -120,7 +88,6 @@ export const useAgent = (): AgentHelpers => {
 					chats: [newChat, ...(old?.chats || [])],
 				}));
 
-				// Navigate to the new chat id
 				navigate({ to: '/$chatId', params: { chatId: newChat.id }, state: { fromMessageSend: true } });
 			},
 			onFinish: () => {
@@ -170,7 +137,7 @@ export const useAgent = (): AgentHelpers => {
 		sendMessage,
 		status: agent.status,
 		isRunning,
-		isReadyForNewMessages: chatId ? !!chat.data && !isRunning : true,
+		isLoadingMessages: chat.isLoading,
 		stopAgent,
 		registerScrollDown: scrollDownService.register,
 		error: agent.error,

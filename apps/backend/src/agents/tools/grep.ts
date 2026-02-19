@@ -4,8 +4,8 @@ import fs from 'fs';
 import path from 'path';
 
 import { GrepOutput, renderToModelOutput } from '../../components/tool-outputs';
-import { createTool } from '../../types/tools';
 import { isWithinProjectFolder, loadNaoignorePatterns, toRealPath, toVirtualPath } from '../../utils/tools';
+import { createTool } from '../../utils/tools';
 
 /**
  * Gets the path to the ripgrep binary.
@@ -47,7 +47,7 @@ interface RipgrepMatch {
 	context_after?: string[];
 }
 
-export default createTool({
+export default createTool<grep.Input, grep.Output>({
 	description: 'Search for text patterns in files using ripgrep. Supports regex patterns and respects .gitignore.',
 	inputSchema: grep.InputSchema,
 	outputSchema: grep.OutputSchema,

@@ -173,7 +173,7 @@ class TestDatabaseConnection:
         config = PostgresConfig(
             name="test", host="localhost", port=5432, database="testdb", user="user", password="pass"
         )
-        mock_conn = MagicMock(spec=[])  # no list_databases
+        mock_conn = MagicMock(spec=["disconnect"])  # no list_databases
 
         with patch.object(PostgresConfig, "connect", return_value=mock_conn):
             success, message = config.check_connection()

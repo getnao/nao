@@ -10,13 +10,25 @@
         - db.preview(limit=10) -> list of row dicts
         - db.row_count() -> int
         - db.column_count() -> int
+        - db.partition_columns() -> list of partition/clustering column names
         - db.description() -> str or None
 #}
 {% set columns = db.columns() %}
+{% set partitions = db.partition_columns() %}
 # {{ table_name }}
 
 **Dataset:** `{{ dataset }}`
 
+{% if partitions %}
+## Partition / Clustering columns
+
+{% for col in partitions %}
+- {{ col }}
+{% endfor %}
+
+> When querying this table, always filter on {% for col in partitions %}{{ col }}{% if not loop.last %}, {% endif %}{% endfor %} for best performance.
+
+{% endif %}
 ## Columns ({{ columns | length }})
 
 {% for col in columns %}

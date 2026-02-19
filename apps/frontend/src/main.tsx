@@ -8,7 +8,6 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import superjson from 'superjson';
 import { PostHogProvider } from './contexts/posthog.provider';
 import { ThemeProvider } from './contexts/theme.provider';
-import { SidebarProvider } from './contexts/sidebar.provider';
 import { routeTree } from './routeTree.gen';
 import reportWebVitals from './reportWebVitals';
 import type { TrpcRouter } from '@nao/backend/trpc';
@@ -67,13 +66,11 @@ if (!rootElement.innerHTML) {
 	root.render(
 		<StrictMode>
 			<ThemeProvider>
-				<SidebarProvider>
-					<QueryClientProvider client={queryClient}>
-						<PostHogProvider>
-							<RouterProvider router={router} />
-						</PostHogProvider>
-					</QueryClientProvider>
-				</SidebarProvider>
+				<QueryClientProvider client={queryClient}>
+					<PostHogProvider>
+						<RouterProvider router={router} />
+					</PostHogProvider>
+				</QueryClientProvider>
 			</ThemeProvider>
 		</StrictMode>,
 	);

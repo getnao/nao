@@ -1,12 +1,10 @@
-import { useToolCallContext } from '../../contexts/tool-call.provider';
 import { ToolCallWrapper } from './tool-call-wrapper';
-import type { readFile } from '@nao/shared/tools';
+import type { ToolCallComponentProps } from '.';
 import { isToolSettled } from '@/lib/ai';
 
-export const ReadToolCall = () => {
-	const { toolPart } = useToolCallContext();
-	const output = toolPart.output as readFile.Output | undefined;
-	const input = toolPart.input as readFile.Input | undefined;
+export const ReadToolCall = ({ toolPart }: ToolCallComponentProps<'read'>) => {
+	const output = toolPart.output;
+	const input = toolPart.input;
 	const isSettled = isToolSettled(toolPart);
 
 	const fileName = input?.file_path?.split('/').pop() ?? input?.file_path;
@@ -19,7 +17,6 @@ export const ReadToolCall = () => {
 						Reading... <code className='text-xs bg-background/50 px-1 py-0.5 rounded'>{fileName}</code>
 					</>
 				}
-				children={<div className='p-4 text-center text-foreground/50 text-sm'>Reading file...</div>}
 			/>
 		);
 	}

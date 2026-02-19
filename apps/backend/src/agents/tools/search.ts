@@ -4,10 +4,10 @@ import { glob } from 'glob';
 import path from 'path';
 
 import { renderToModelOutput, SearchOutput } from '../../components/tool-outputs';
-import { createTool } from '../../types/tools';
 import { isWithinProjectFolder, loadNaoignorePatterns, toVirtualPath } from '../../utils/tools';
+import { createTool } from '../../utils/tools';
 
-export default createTool({
+export default createTool<searchFiles.Input, searchFiles.Output>({
 	description: 'Search for files matching a glob pattern within the project.',
 	inputSchema: searchFiles.InputSchema,
 	outputSchema: searchFiles.OutputSchema,

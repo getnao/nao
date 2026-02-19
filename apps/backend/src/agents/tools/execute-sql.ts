@@ -3,7 +3,8 @@ import { executeSql as schemas } from '@nao/shared/tools';
 
 import { ExecuteSqlOutput, renderToModelOutput } from '../../components/tool-outputs';
 import { env } from '../../env';
-import { createTool, type ToolContext } from '../../types/tools';
+import { ToolContext } from '../../types/tools';
+import { createTool } from '../../utils/tools';
 
 export async function executeQuery(
 	{ sql_query, database_id }: executeSql.Input,
@@ -36,7 +37,7 @@ export async function executeQuery(
 	};
 }
 
-export default createTool({
+export default createTool<executeSql.Input, executeSql.Output>({
 	description:
 		'Execute a SQL query against the connected database and return the results. If multiple databases are configured, specify the database_id.',
 	inputSchema: schemas.InputSchema,

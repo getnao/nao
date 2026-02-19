@@ -1,22 +1,24 @@
-import { useEffect, useRef } from 'react';
-import { useToolCallContext } from '../../contexts/tool-call.provider';
+import { useEffect, useRef, useState } from 'react';
+import { Button } from '../ui/button';
 import type { ReactNode } from 'react';
 import { isToolSettled } from '@/lib/ai';
 import { cn } from '@/lib/utils';
 import { Spinner } from '@/components/ui/spinner';
 import { Expandable } from '@/components/ui/expandable';
+import { useToolCallContext } from '@/contexts/tool-call';
 
 interface ActionButton {
 	id: string;
 	label: ReactNode;
 	isActive?: boolean;
 	onClick: () => void;
+	expandOnClick?: boolean;
 }
 
 interface ToolCallWrapperProps {
 	title: ReactNode;
 	badge?: ReactNode;
-	children: ReactNode;
+	children?: ReactNode;
 	actions?: ActionButton[];
 	defaultExpanded?: boolean;
 	overrideError?: boolean;
@@ -30,8 +32,10 @@ export const ToolCallWrapper = ({
 	defaultExpanded = false,
 	overrideError = false,
 }: ToolCallWrapperProps) => {
-	const { toolPart, isExpanded, setIsExpanded, isHovering } = useToolCallContext();
-	const canExpand = !!toolPart.errorText || !!toolPart.output;
+	const { toolPart } = useToolCallContext();
+	const [isExpanded, setIsExpanded] = useState(false);
+	const [isHovering, setIsHovering] = useState(false);
+	const canExpand = Boolean(children || toolPart.errorText || toolPart.output);
 	const isSettled = isToolSettled(toolPart);
 	const hasInitialized = useRef(false);
 
@@ -54,31 +58,24 @@ export const ToolCallWrapper = ({
 	);
 
 	const actionsContent =
-		actions && actions.length > 0 ? (
-			<div
-				className={cn(
-					'flex items-center gap-1 shrink-0',
-					isExpanded || isHovering ? 'opacity-100' : 'opacity-0',
-				)}
-			>
+		isHovering && actions && actions.length > 0 ? (
+			<div className={cn('flex items-center gap-1 shrink-0 -my-1')}>
 				{actions.map((action) => (
-					<button
+					<Button
+						variant='ghost-muted'
+						size='icon-xs'
 						key={action.id}
-						type='button'
 						onClick={(e) => {
 							e.stopPropagation();
-							if (!isExpanded) {
+							if (action.expandOnClick && !isExpanded) {
 								setIsExpanded(true);
 							}
 							action.onClick();
 						}}
-						className={cn(
-							'px-1 py-1 text-xs rounded transition-colors cursor-pointer',
-							action.isActive ? 'bg-primary text-primary-foreground' : '',
-						)}
+						className={cn(action.isActive ? 'bg-accent' : '')}
 					>
 						{action.label}
-					</button>
+					</Button>
 				))}
 			</div>
 		) : undefined;
@@ -94,19 +91,21 @@ export const ToolCallWrapper = ({
 	const contentToShow = toolPart.errorText && !overrideError ? errorContent : children;
 
 	return (
-		<Expandable
-			title={title}
-			badge={badge}
-			expanded={isExpanded}
-			onExpandedChange={setIsExpanded}
-			disabled={!canExpand}
-			isLoading={!isSettled}
-			leadingIcon={statusIcon}
-			variant={isBordered ? 'bordered' : 'inline'}
-			trailingContent={actionsContent}
-			className={cn(isBordered && '-mx-3')}
-		>
-			{contentToShow}
-		</Expandable>
+		<div onMouseEnter={() => setIsHovering(true)} onMouseLeave={() => setIsHovering(false)}>
+			<Expandable
+				title={title}
+				badge={badge}
+				expanded={isExpanded}
+				onExpandedChange={setIsExpanded}
+				disabled={!canExpand}
+				isLoading={!isSettled}
+				leadingIcon={statusIcon}
+				variant={isBordered ? 'bordered' : 'inline'}
+				trailingContent={actionsContent}
+				className={cn(isBordered && '-mx-3')}
+			>
+				{contentToShow}
+			</Expandable>
+		</div>
 	);
 };

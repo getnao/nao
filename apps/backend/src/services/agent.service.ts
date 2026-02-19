@@ -150,6 +150,7 @@ class AgentManager {
 		this._agent = new ToolLoopAgent({
 			...modelConfig,
 			tools: getTools(agentSettings),
+			maxOutputTokens: 16_000,
 			// On step 1+: cache user message (stable) + current step's last message (loop leaf)
 			prepareStep: ({ messages }) => {
 				return { messages: this._addCache(messages) };
@@ -167,6 +168,7 @@ class AgentManager {
 	): ReadableStream {
 		let error: unknown = undefined;
 		let result: StreamTextResult<ReturnType<typeof getTools>, never>;
+
 		return createUIMessageStream<UIMessage>({
 			generateId: () => crypto.randomUUID(),
 			execute: async ({ writer }) => {
@@ -204,7 +206,7 @@ class AgentManager {
 			},
 			onFinish: async (e) => {
 				const stopReason = e.isAborted ? 'interrupted' : e.finishReason;
-				const tokenUsage = convertToTokenUsage(await result.totalUsage);
+				const tokenUsage = await this._getTotalUsage(result);
 				await chatQueries.upsertMessage(e.responseMessage, {
 					chatId: this.chat.id,
 					stopReason,
@@ -216,6 +218,18 @@ class AgentManager {
 				this._onDispose();
 			},
 		});
+	}
+
+	private async _getTotalUsage(
+		result: StreamTextResult<ReturnType<typeof getTools>, never>,
+	): Promise<TokenUsage | undefined> {
+		try {
+			// totalUsage promise will throw if an error occured during the streaming
+			return convertToTokenUsage(await result.totalUsage);
+		} catch (error) {
+			void error;
+			return undefined;
+		}
 	}
 
 	async generate(messages: UIMessage[]): Promise<AgentRunResult> {

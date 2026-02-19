@@ -192,9 +192,26 @@ export function getProviderModelConfig<P extends LlmProvider>(provider: P, model
 const DEFAULT_PROVIDER_OPTIONS: { [P in LlmProvider]?: ProviderConfigMap[P] } = {
 	anthropic: {
 		disableParallelToolUse: false,
+		contextManagement: {
+			edits: [
+				{
+					type: 'clear_thinking_20251015',
+					keep: { type: 'thinking_turns', value: 2 },
+				},
+				{
+					type: 'clear_tool_uses_20250919',
+					trigger: {
+						type: 'input_tokens',
+						value: 180_000,
+					},
+					clearToolInputs: false,
+					excludeTools: ['display_chart', 'execute_python', 'execute_sql', 'grep', 'list', 'read', 'search'],
+				},
+			],
+		},
 	} satisfies AnthropicProviderOptions,
 	// Avoid item references (fc_*, etc.) so agentic loops work with Zero Data Retention orgs.
-	openai: { store: false },
+	openai: { store: false, truncation: 'auto' },
 };
 
 type ModelCreator = (settings: ProviderSettings, modelId: string) => LanguageModel;

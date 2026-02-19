@@ -21,7 +21,6 @@ from nao_core.config.databases.base import DatabaseConfig
 from nao_core.templates.engine import get_template_engine
 
 from ..base import SyncProvider, SyncResult
-from .context import DatabaseContext
 
 console = Console()
 
@@ -122,19 +121,7 @@ def sync_database(
                 description=f"    [cyan]{schema}[/cyan] [dim]→ {table}[/dim]",
             )
 
-            create_context = getattr(db_config, "create_context", None)
-            if create_context and callable(create_context):
-                ctx = create_context(conn, schema, table)
-            else:
-                table_desc = db_config.fetch_table_description(conn, schema, table)
-                col_descs = db_config.fetch_column_descriptions(conn, schema, table)
-                ctx = DatabaseContext(
-                    conn,
-                    schema,
-                    table,
-                    table_description=table_desc,
-                    column_descriptions=col_descs,
-                )
+            ctx = db_config.create_context(conn, schema, table)
 
             for template_name in templates:
                 output_filename = Path(template_name).stem

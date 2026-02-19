@@ -31,21 +31,20 @@ function createAuthInstance(googleConfig: GoogleConfig) {
 			user: {
 				create: {
 					before: async (user, ctx) => {
-						const provider = ctx?.params?.id;
-						if (
-							provider &&
-							provider == 'google' &&
-							!isEmailDomainAllowed(user.email, googleConfig.authDomains)
-						) {
+						const isGoogle = ctx?.params?.id === 'google';
+						if (isGoogle && !isEmailDomainAllowed(user.email, googleConfig.authDomains)) {
 							throw new APIError('FORBIDDEN', {
 								message: 'This email domain is not authorized to access this application.',
 							});
 						}
 						return true;
 					},
-					async after(user) {
-						// Handle first user signup: create default org and project in a single transaction
+					async after(user, ctx) {
+						const isGoogle = ctx?.params?.id === 'google';
 						await orgQueries.initializeDefaultOrganizationForFirstUser(user.id);
+						if (isGoogle) {
+							await orgQueries.addUserToDefaultProjectIfExists(user.id);
+						}
 					},
 				},
 			},

@@ -128,17 +128,12 @@ export const isCollapsiblePart = (part: UIMessagePart): part is CollapsiblePart 
 	return false;
 };
 
-export const getLastFollowUpSuggestions = (messages: UIMessage[]): { suggestions: string[]; isLoading: boolean } => {
+export const getLastFollowUpSuggestionsToolCall = (
+	messages: UIMessage[],
+): UIToolPart<'suggest_follow_ups'> | undefined => {
 	const followUpSuggestionsToolCallPart = messages.at(-1)?.parts.find((p) => p.type === 'tool-suggest_follow_ups');
 	if (!followUpSuggestionsToolCallPart) {
-		return { suggestions: [], isLoading: false };
+		return undefined;
 	}
-
-	const isInputStreaming = isToolInputStreaming(followUpSuggestionsToolCallPart);
-	const suggestions = isInputStreaming ? [] : (followUpSuggestionsToolCallPart.input?.suggestions ?? []);
-
-	return {
-		suggestions,
-		isLoading: isInputStreaming,
-	};
+	return followUpSuggestionsToolCallPart;
 };

@@ -9,6 +9,11 @@ import { convertDBPartToUIPart, mapDBPartsToUIParts, mapUIPartsToDBParts } from 
 import { getErrorMessage } from '../utils/utils';
 import * as llmConfigQueries from './project-llm-config.queries';
 
+export const checkChatExists = async (chatId: string): Promise<boolean> => {
+	const result = await db.select().from(s.chat).where(eq(s.chat.id, chatId)).execute();
+	return result.length > 0;
+};
+
 export const listUserChats = async (userId: string): Promise<ListChatResponse> => {
 	const chats = await db
 		.select()
@@ -180,12 +185,23 @@ export const upsertMessage = async (
 	});
 };
 
-export const deleteChat = async (chatId: string): Promise<void> => {
-	await db.delete(s.chat).where(eq(s.chat.id, chatId)).execute();
+export const deleteChat = async (chatId: string): Promise<{ projectId: string }> => {
+	const [result] = await db
+		.delete(s.chat)
+		.where(eq(s.chat.id, chatId))
+		.returning({ projectId: s.chat.projectId })
+		.execute();
+	return result;
 };
 
-export const renameChat = async (chatId: string, title: string): Promise<void> => {
-	await db.update(s.chat).set({ title }).where(eq(s.chat.id, chatId)).execute();
+export const renameChat = async (chatId: string, title: string): Promise<{ projectId: string }> => {
+	const [result] = await db
+		.update(s.chat)
+		.set({ title })
+		.where(eq(s.chat.id, chatId))
+		.returning({ projectId: s.chat.projectId })
+		.execute();
+	return result;
 };
 
 export const getOwnerOfChatAndMessage = async (chatId: string, messageId: string): Promise<string | undefined> => {
@@ -286,4 +302,13 @@ const caseInsensitiveLike = (column: Parameters<typeof like>[0], pattern: string
 	}
 	// SQLite LIKE is case-insensitive by default for ASCII
 	return like(column, pattern);
+};
+
+export const getChatProjectId = async (chatId: string): Promise<string | undefined> => {
+	const [result] = await db
+		.select({ projectId: s.chat.projectId })
+		.from(s.chat)
+		.where(eq(s.chat.id, chatId))
+		.execute();
+	return result?.projectId;
 };

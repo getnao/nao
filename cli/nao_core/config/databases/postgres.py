@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Any, Literal
 
 import ibis
 from ibis import BaseBackend
@@ -8,6 +8,50 @@ from nao_core.config.exceptions import InitError
 from nao_core.ui import ask_text
 
 from .base import DatabaseConfig
+from .context import DatabaseContext
+
+
+class PostgresDatabaseContext(DatabaseContext):
+    """Postgres context with pg_catalog description discovery."""
+
+    def description(self) -> str | None:
+        try:
+            query = f"""
+                SELECT d.description
+                FROM pg_catalog.pg_description d
+                JOIN pg_catalog.pg_class c ON c.oid = d.objoid
+                JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+                WHERE n.nspname = '{self._schema}' AND c.relname = '{self._table_name}' AND d.objsubid = 0
+            """
+            row = self._conn.raw_sql(query).fetchone()  # type: ignore[union-attr]
+            if row and row[0]:
+                return str(row[0]).strip() or None
+        except Exception:
+            pass
+        return None
+
+    def columns(self) -> list[dict[str, Any]]:
+        cols = super().columns()
+        try:
+            col_descs = self._fetch_column_descriptions()
+            for col in cols:
+                if desc := col_descs.get(col["name"]):
+                    col["description"] = desc
+        except Exception:
+            pass
+        return cols
+
+    def _fetch_column_descriptions(self) -> dict[str, str]:
+        query = f"""
+            SELECT a.attname, d.description
+            FROM pg_catalog.pg_description d
+            JOIN pg_catalog.pg_class c ON c.oid = d.objoid
+            JOIN pg_catalog.pg_attribute a ON a.attrelid = c.oid AND a.attnum = d.objsubid
+            JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = '{self._schema}' AND c.relname = '{self._table_name}' AND d.objsubid > 0
+        """
+        rows = self._conn.raw_sql(query).fetchall()  # type: ignore[union-attr]
+        return {row[0]: str(row[1]) for row in rows if row[1]}
 
 
 class PostgresConfig(DatabaseConfig):
@@ -78,39 +122,12 @@ class PostgresConfig(DatabaseConfig):
             return [s for s in schemas if s not in ("pg_catalog", "information_schema") and not s.startswith("pg_")]
         return []
 
-    def fetch_table_description(self, conn: BaseBackend, schema: str, table_name: str) -> str | None:
-        try:
-            query = f"""
-                SELECT d.description
-                FROM pg_catalog.pg_description d
-                JOIN pg_catalog.pg_class c ON c.oid = d.objoid
-                JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-                WHERE n.nspname = '{schema}' AND c.relname = '{table_name}' AND d.objsubid = 0
-            """
-            row = conn.raw_sql(query).fetchone()  # type: ignore[union-attr]
-            if row and row[0]:
-                return str(row[0]).strip() or None
-        except Exception:
-            pass
-        return None
-
-    def fetch_column_descriptions(self, conn: BaseBackend, schema: str, table_name: str) -> dict[str, str]:
-        try:
-            query = f"""
-                SELECT a.attname, d.description
-                FROM pg_catalog.pg_description d
-                JOIN pg_catalog.pg_class c ON c.oid = d.objoid
-                JOIN pg_catalog.pg_attribute a ON a.attrelid = c.oid AND a.attnum = d.objsubid
-                JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-                WHERE n.nspname = '{schema}' AND c.relname = '{table_name}' AND d.objsubid > 0
-            """
-            rows = conn.raw_sql(query).fetchall()  # type: ignore[union-attr]
-            return {row[0]: str(row[1]) for row in rows if row[1]}
-        except Exception:
-            return {}
+    def create_context(self, conn: BaseBackend, schema: str, table_name: str) -> PostgresDatabaseContext:
+        return PostgresDatabaseContext(conn, schema, table_name)
 
     def check_connection(self) -> tuple[bool, str]:
         """Test connectivity to PostgreSQL."""
+        conn = None
         try:
             conn = self.connect()
             if self.schema_name:
@@ -122,3 +139,6 @@ class PostgresConfig(DatabaseConfig):
             return True, "Connected successfully"
         except Exception as e:
             return False, str(e)
+        finally:
+            if conn is not None:
+                conn.disconnect()

@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { BarChart, Bar, AreaChart, Area, PieChart, Pie, XAxis, YAxis, CartesianGrid } from 'recharts';
-import { useToolCallContext } from '../../contexts/tool-call.provider';
 import { useAgentContext } from '../../contexts/agent.provider';
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from '../ui/chart';
 import { TextShimmer } from '../ui/text-shimmer';
 import { Skeleton } from '../ui/skeleton';
 import { ToolCallWrapper } from './tool-call-wrapper';
 import { ChartRangeSelector } from './display-chart-range-selector';
+import type { ToolCallComponentProps } from '.';
 import type { CategoricalChartProps } from 'recharts/types/chart/generateCategoricalChart';
 import type { ChartConfig } from '../ui/chart';
 import type { displayChart } from '@nao/shared/tools';
@@ -15,11 +15,10 @@ import { labelize, filterByDateRange, DATE_RANGE_OPTIONS, toKey } from '@/lib/ch
 
 const Colors = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)', 'var(--chart-5)'];
 
-export const DisplayChartToolCall = () => {
-	const { toolPart } = useToolCallContext();
+export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'display_chart'>) => {
 	const { messages } = useAgentContext();
-	const config = toolPart.state !== 'input-streaming' ? (toolPart.input as displayChart.Input) : undefined;
-	const output = toolPart.state !== 'input-streaming' ? (toolPart.output as displayChart.Output) : undefined;
+	const config = toolPart.state !== 'input-streaming' ? toolPart.input : undefined;
+	const output = toolPart.output;
 	const [dataRange, setDataRange] = useState<DateRange>('all');
 
 	const sourceData = useMemo(() => {
