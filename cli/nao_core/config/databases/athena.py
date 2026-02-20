@@ -66,8 +66,10 @@ class AthenaConfig(DatabaseConfig):
             "s3_staging_dir": self.s3_staging_dir,
             "region_name": self.region_name,
             "schema_name": self.schema_name or "default",
-            "work_group": self.work_group,
         }
+
+        if self.work_group:
+            kwargs["work_group"] = self.work_group
 
         if self.profile_name:
             kwargs["profile_name"] = self.profile_name

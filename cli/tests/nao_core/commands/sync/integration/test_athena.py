@@ -32,16 +32,22 @@ pytestmark = pytest.mark.skipif(
 def temp_databases():
     """Create temporary databases and populate them with test data, then clean up."""
     # Ensure S3 staging dir is available (fixture scope ensures env var is checked already via skipif)
-    db_name = f"nao_unit_tests_{uuid.uuid4().hex[:8]}"
-    another_db_name = f"nao_unit_tests_another_{uuid.uuid4().hex[:8]}"
+    db_name = f"nao_integration_tests_{uuid.uuid4().hex[:8]}"
+    another_db_name = f"nao_integration_tests_another_{uuid.uuid4().hex[:8]}"
     kwargs = {
         "s3_staging_dir": ATHENA_S3_STAGING_DIR,
         "region_name": ATHENA_REGION,
     }
-    if ATHENA_PROFILE:
-        kwargs["profile_name"] = ATHENA_PROFILE
     if ATHENA_WORKGROUP:
         kwargs["work_group"] = ATHENA_WORKGROUP
+
+    if ATHENA_PROFILE:
+        kwargs["profile_name"] = ATHENA_PROFILE
+    elif os.environ.get("ATHENA_ACCESS_KEY_ID") and os.environ.get("ATHENA_SECRET_ACCESS_KEY"):
+        kwargs["aws_access_key_id"] = os.environ.get("ATHENA_ACCESS_KEY_ID")
+        kwargs["aws_secret_access_key"] = os.environ.get("ATHENA_SECRET_ACCESS_KEY")
+        if os.environ.get("ATHENA_SESSION_TOKEN"):
+            kwargs["aws_session_token"] = os.environ.get("ATHENA_SESSION_TOKEN")
 
     conn = ibis.athena.connect(**kwargs)
 
@@ -87,7 +93,7 @@ def db_config(temp_databases):
     """Build an AthenaConfig from environment variables using the temporary database."""
     return AthenaConfig(
         name="test-athena",
-        s3_staging_dir=ATHENA_S3_STAGING_DIR,
+        s3_staging_dir=ATHENA_S3_STAGING_DIR or "",
         region_name=ATHENA_REGION,
         schema_name=temp_databases["main"],
         work_group=ATHENA_WORKGROUP or "primary",
