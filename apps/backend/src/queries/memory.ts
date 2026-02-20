@@ -40,7 +40,6 @@ export const upsertMemories = async (memories: DBNewMemory[]): Promise<void> => 
 			target: s.memories.id,
 			set: conflictUpdateSet(s.memories, ['content', 'category']),
 		})
-		.returning()
 		.execute();
 };
 
