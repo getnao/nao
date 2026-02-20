@@ -1,0 +1,28 @@
+name: Analyze Issue with Ollama
+
+on:
+    issues:
+        types: [opened]
+
+jobs:
+    analyze:
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Set up Python
+              uses: actions/setup-python@v5
+              with:
+                  python-version: '3.11'
+
+            - name: Install dependencies
+              run: pip install requests
+
+            - name: Analyze issue
+              env:
+                  OLLAMA_URL: ${{ secrets.OLLAMA_URL }}
+                  ISSUE_NUMBER: ${{ github.event.issue.number }}
+                  ISSUE_TITLE: ${{ github.event.issue.title }}
+              run: python scripts/analyse_issue.py
