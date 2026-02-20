@@ -3,6 +3,7 @@ import {
 	createUIMessageStream,
 	FinishReason,
 	hasToolCall,
+	InferUIMessageChunk,
 	ModelMessage,
 	StreamTextResult,
 	ToolLoopAgent,
@@ -22,7 +23,6 @@ import { ToolContext } from '../types/tools';
 import {
 	convertToCost,
 	convertToTokenUsage,
-	extractLastTextFromMessage,
 	findLastUserMessage,
 	getLastUserMessageText,
 	retrieveProjectById,
@@ -187,7 +187,7 @@ class AgentManager {
 			sendNewChatData: boolean;
 			mentions?: Mention[];
 		},
-	): ReadableStream {
+	): ReadableStream<InferUIMessageChunk<UIMessage>> {
 		let error: unknown = undefined;
 		let result: StreamTextResult<ReturnType<typeof getTools>, never>;
 
@@ -213,6 +213,9 @@ class AgentManager {
 					abortSignal: this._abortController.signal,
 				});
 
+				// Extract memory immediately after the request to the agent is sent
+				this._scheduleMemoryExtraction(uiMessages);
+
 				writer.merge(result.toUIMessageStream({}));
 			},
 			onError: (err) => {
@@ -231,18 +234,6 @@ class AgentManager {
 					llmModelId: this._modelSelection.modelId,
 				});
 
-				const lastUserText = getLastUserMessageText(uiMessages);
-				if (lastUserText) {
-					memoryService.safeScheduleMemoryExtraction({
-						userId: this.chat.userId,
-						projectId: this.chat.projectId,
-						chatId: this.chat.id,
-						userMessage: lastUserText,
-						assistantMessage: extractLastTextFromMessage(e.responseMessage),
-						provider: this._modelSelection.provider,
-					});
-				}
-
 				this._onDispose();
 			},
 		});
@@ -259,6 +250,19 @@ class AgentManager {
 		const systemMessage: ModelMessage = { role: 'system', content: systemPrompt };
 		modelMessages.unshift(systemMessage);
 		return modelMessages;
+	}
+
+	private _scheduleMemoryExtraction(uiMessages: UIMessage[]): void {
+		const lastUserText = getLastUserMessageText(uiMessages);
+		if (lastUserText) {
+			memoryService.safeScheduleMemoryExtraction({
+				userId: this.chat.userId,
+				projectId: this.chat.projectId,
+				chatId: this.chat.id,
+				userMessage: lastUserText,
+				provider: this._modelSelection.provider,
+			});
+		}
 	}
 
 	private async _getTotalUsage(

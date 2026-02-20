@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "35e5e038-0323-4526-8d8b-fc2a0421bb99",
+  "id": "52fc40ff-9fe7-425a-b191-50021ef92726",
   "prevId": "87114d2d-b71a-418e-b37a-5eaf7f0bb3e0",
   "tables": {
     "account": {
@@ -401,6 +401,13 @@
           "notNull": true,
           "autoincrement": false
         },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
         "content": {
           "name": "content",
           "type": "text",
@@ -423,15 +430,30 @@
           "autoincrement": false,
           "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
         },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
+        },
         "chat_id": {
           "name": "chat_id",
           "type": "text",
           "primaryKey": false,
-          "notNull": true,
+          "notNull": false,
           "autoincrement": false
         }
       },
       "indexes": {
+        "memories_userId_idx": {
+          "name": "memories_userId_idx",
+          "columns": [
+            "user_id"
+          ],
+          "isUnique": false
+        },
         "memories_chatId_idx": {
           "name": "memories_chatId_idx",
           "columns": [
@@ -441,6 +463,19 @@
         }
       },
       "foreignKeys": {
+        "memories_user_id_user_id_fk": {
+          "name": "memories_user_id_user_id_fk",
+          "tableFrom": "memories",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
         "memories_chat_id_chat_id_fk": {
           "name": "memories_chat_id_chat_id_fk",
           "tableFrom": "memories",
@@ -451,7 +486,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },

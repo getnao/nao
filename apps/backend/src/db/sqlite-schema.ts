@@ -364,15 +364,22 @@ export const projectSavedPrompt = sqliteTable(
 export const memories = sqliteTable(
 	'memories',
 	{
-		id: text('id').primaryKey(),
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
 		content: text('content').notNull(),
 		category: text('category', { enum: MEMORY_CATEGORIES }).notNull(),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull(),
-		chatId: text('chat_id')
-			.notNull()
-			.references(() => chat.id, { onDelete: 'cascade' }),
+		updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.$onUpdate(() => new Date())
+			.notNull(),
+		chatId: text('chat_id').references(() => chat.id, { onDelete: 'set null' }),
 	},
-	(t) => [index('memories_chatId_idx').on(t.chatId)],
+	(t) => [index('memories_userId_idx').on(t.userId), index('memories_chatId_idx').on(t.chatId)],
 );

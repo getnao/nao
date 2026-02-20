@@ -1,7 +1,7 @@
 import { getConnections, getUserRules } from '../agents/user-rules';
 import { Block, Bold, Br, Italic, Link, List, ListItem, Location, Span, Title } from '../lib/markdown';
-import type { UserMemory } from '../services/memory';
 import { skillService } from '../services/skill.service';
+import type { UserMemory } from '../types/memory';
 import { estimateTokens } from '../utils/ai';
 import { MEMORY_CATEGORIES, MEMORY_TOKEN_LIMIT, MemoryCategory } from '../utils/memory';
 import { groupBy } from '../utils/utils';
@@ -136,15 +136,15 @@ export function SystemPrompt({ memories = [] }: { memories: UserMemory[] }) {
 function getMemoriesInTokenRange(memories: UserMemory[], limit: number): UserMemory[] {
 	const inPriorityOrder = MEMORY_CATEGORIES.flatMap((category) => memories.filter((m) => m.category === category));
 	const visible: UserMemory[] = [];
-	let tokens = 0;
+	let totalTokens = 0;
 
 	for (const memory of inPriorityOrder) {
 		const memoryTokens = estimateTokens(memory.content);
-		if (tokens + memoryTokens > limit) {
-			break;
+		if (totalTokens + memoryTokens > limit) {
+			continue;
 		}
 		visible.push(memory);
-		tokens += memoryTokens;
+		totalTokens += memoryTokens;
 	}
 
 	return visible;

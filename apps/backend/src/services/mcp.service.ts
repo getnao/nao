@@ -134,7 +134,6 @@ export class McpService {
 				await this._listTools(serverName);
 				return { serverName, success: true };
 			} catch (error) {
-				console.error(`[mcp] Failed to connect to ${serverName}:`, error);
 				this._failedConnections[serverName] = (error as Error).message;
 			}
 		});

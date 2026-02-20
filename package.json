@@ -24,9 +24,9 @@
 		"build:cli": "cd cli && python build.py -f",
 		"release": "./scripts/release.sh",
 		"prepare": "husky",
-		"pg:start": "docker compose up -d",
-		"pg:stop": "docker compose stop",
-		"pg:reset": "docker compose down -v"
+		"pg:start": "docker compose -f docker-compose.postgres.yml up -d",
+		"pg:stop": "docker compose -f docker-compose.postgres.yml stop",
+		"pg:reset": "docker compose -f docker-compose.postgres.yml down -v"
 	},
 	"devDependencies": {
 		"@eslint/js": "^9.39.2",

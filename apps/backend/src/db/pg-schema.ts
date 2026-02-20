@@ -341,13 +341,20 @@ export const projectSavedPrompt = pgTable(
 export const memories = pgTable(
 	'memories',
 	{
-		id: text('id').primaryKey(),
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
 		content: text('content').notNull(),
 		category: text('category', { enum: MEMORY_CATEGORIES }).notNull(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
-		chatId: text('chat_id')
-			.notNull()
-			.references(() => chat.id, { onDelete: 'cascade' }),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull(),
+		chatId: text('chat_id').references(() => chat.id, { onDelete: 'set null' }),
 	},
-	(t) => [index('memories_chatId_idx').on(t.chatId)],
+	(t) => [index('memories_userId_idx').on(t.userId), index('memories_chatId_idx').on(t.chatId)],
 );

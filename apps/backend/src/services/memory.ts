@@ -2,25 +2,21 @@ import { generateText, ModelMessage, Output } from 'ai';
 import { z } from 'zod/v4';
 
 import { createProviderModel, LLM_PROVIDERS } from '../agents/providers';
-import { DBMemory } from '../db/abstractSchema';
+import { DBMemory, DBNewMemory } from '../db/abstractSchema';
 import { renderToMarkdown, XML } from '../lib/markdown';
-import * as memoryQueries from '../queries/memory.queries';
+import * as memoryQueries from '../queries/memory';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import { LlmProvider } from '../types/llm';
+import { MemoryExtractionOptions, UserMemory } from '../types/memory';
 import { getEnvApiKey } from '../utils/llm';
-import { MEMORY_CATEGORIES, MemoryCategory } from '../utils/memory';
-
-export interface UserMemory {
-	category: MemoryCategory;
-	content: string;
-}
+import { MEMORY_CATEGORIES } from '../utils/memory';
 
 /**
  * Manages persistent user memories: injecting them into agent context and
- * triggering background extraction after each conversation turn.
+ * triggering background extraction after each user message.
  */
 class MemoryService {
-	/** Returns active memories for a user to be injected into the system prompt. Never throws. */
+	/** Safely gets active memories for a user to be injected into the system prompt. */
 	public async safeGetUserMemories(userId: string, excludeChatId?: string): Promise<UserMemory[]> {
 		try {
 			const memories = await memoryQueries.getUserMemories(userId, excludeChatId);
@@ -34,30 +30,16 @@ class MemoryService {
 		}
 	}
 
-	/** Fires-and-forgets memory extraction for a completed conversation turn. Never throws. */
-	public safeScheduleMemoryExtraction(opts: {
-		userId: string;
-		projectId: string;
-		chatId: string;
-		userMessage: string;
-		assistantMessage?: string;
-		provider: LlmProvider;
-	}): void {
-		this._extractAndStoreFromTurn(opts).catch((err) => {
+	/** Safely schedules memory extraction for a user message. */
+	public safeScheduleMemoryExtraction(opts: MemoryExtractionOptions): void {
+		this._extractMemory(opts).catch((err) => {
 			console.error('[memory] extractor failed:', err);
 		});
 	}
 
-	private async _extractAndStoreFromTurn(opts: {
-		userId: string;
-		projectId: string;
-		chatId: string;
-		userMessage: string;
-		assistantMessage?: string;
-		provider: LlmProvider;
-	}): Promise<void> {
+	private async _extractMemory(opts: MemoryExtractionOptions): Promise<void> {
 		const userMessage = opts.userMessage.trim();
-		if (!userMessage) {
+		if (!userMessage || userMessage.length < 6) {
 			return;
 		}
 
@@ -109,35 +91,30 @@ class MemoryService {
 		return providerConfig.extractorModelId;
 	}
 
-	/** Deletes memories dropped by the LLM and upserts all returned ones. */
+	/** Processes new memories by deleting dropped ones and upserting the new ones. */
 	private async _processNewMemories(opts: {
 		userId: string;
 		chatId: string;
 		previousMemories: DBMemory[];
 		newMemories: Memory[];
 	}): Promise<void> {
-		const previousById = new Map(opts.previousMemories.map((m) => [m.id, m]));
+		const previousIds = new Set(opts.previousMemories.map((m) => m.id));
 		const newIds = new Set(opts.newMemories.filter((m) => m.id).map((m) => m.id!));
 
-		const toDeleteIds = Array.from(previousById.keys()).filter((id) => !newIds.has(id));
+		const toDeleteIds = Array.from(previousIds).filter((id) => !newIds.has(id));
 		await memoryQueries.deleteMemories(toDeleteIds);
 
-		const queryPromises = opts.newMemories.map((raw) => {
-			const content = this._normalizeMemoryContent(raw.content);
+		const memoriesToUpsert: DBNewMemory[] = opts.newMemories.flatMap((memory) => {
+			const content = this._normalizeMemoryContent(memory.content);
 			if (!content) {
-				return null;
+				return [];
 			}
 
-			const id = raw.id && previousById.has(raw.id) ? raw.id : crypto.randomUUID();
-			return memoryQueries.upsertMemory({
-				id,
-				content,
-				category: raw.category,
-				chatId: opts.chatId,
-			});
+			const id = memory.id && previousIds.has(memory.id) ? memory.id : undefined;
+			return [{ id, userId: opts.userId, content, category: memory.category, chatId: opts.chatId }];
 		});
 
-		await Promise.all(queryPromises);
+		await memoryQueries.upsertMemories(memoriesToUpsert);
 	}
 
 	private _normalizeMemoryContent(content: string): string {
