@@ -138,6 +138,8 @@ export const project = pgTable(
 		slackBotToken: text('slack_bot_token'),
 		slackSigningSecret: text('slack_signing_secret'),
 		agentSettings: jsonb('agent_settings').$type<AgentSettings>(),
+		enabledMcpTools: jsonb('enabled_tools').$type<string[]>().notNull().default([]),
+		knownMcpServers: jsonb('known_mcp_servers').$type<string[]>().notNull().default([]),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()

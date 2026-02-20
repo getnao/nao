@@ -5,6 +5,7 @@ import { existsSync, readFileSync, watch } from 'fs';
 import { createRuntime, type Runtime, ServerDefinition, ServerToolInfo } from 'mcporter';
 import { join } from 'path';
 
+import * as mcpConfigQueries from '../queries/project.queries';
 import { mcpJsonSchema, McpServerConfig, McpServerState } from '../types/mcp';
 import { retrieveProjectById } from '../utils/ai';
 import { prefixToolName, removePrefixToolName, sanitizeTools } from '../utils/tools';
@@ -20,6 +21,7 @@ export class McpService {
 	private _runtime: Runtime | null = null;
 	private _failedConnections: Record<string, string> = {};
 	private _toolsToServer: Map<string, string> = new Map();
+	private _projectId: string | null = null;
 	public cachedMcpState: Record<string, McpServerState> = {};
 
 	constructor() {
@@ -32,9 +34,16 @@ export class McpService {
 	}
 
 	public async initializeMcpState(projectId: string): Promise<void> {
-		if (this._initPromise) {
+		if (this._initPromise && this._projectId === projectId) {
 			return this._initPromise;
 		}
+
+		if (this._fileWatcher) {
+			this._fileWatcher.close();
+			this._fileWatcher = null;
+		}
+
+		this._projectId = projectId;
 		this._initPromise = this._initialize(projectId).catch((err) => {
 			this._initPromise = null;
 			throw err;
@@ -64,36 +73,37 @@ export class McpService {
 	}
 
 	public getMcpTools(): Record<string, Tool> {
-		const sanitizedMcpTools = Object.fromEntries(
-			Object.entries(this._mcpTools).map(([name, tool]) => {
-				const inputSchema = tool.inputSchema;
-
-				// If it's an AI SDK schema wrapper with jsonSchema getter
-				if (inputSchema && typeof inputSchema === 'object' && 'jsonSchema' in inputSchema) {
-					const originalJsonSchema = inputSchema.jsonSchema;
-					return [
-						name,
-						{
-							...tool,
-							inputSchema: {
-								...inputSchema,
-								jsonSchema: sanitizeTools(originalJsonSchema),
-							},
-						} as Tool,
-					];
-				}
-
-				// Otherwise, sanitize the schema directly
-				return [
-					name,
-					{
-						...tool,
-						inputSchema: sanitizeTools(inputSchema),
-					} as Tool,
-				];
-			}),
+		const enabledToolNames = new Set(
+			Object.values(this.cachedMcpState)
+				.flatMap((server) => server.tools)
+				.filter((tool) => tool.enabled)
+				.map((tool) => tool.name),
 		);
-		return sanitizedMcpTools;
+
+		return Object.fromEntries(
+			Object.entries(this._mcpTools)
+				.filter(([name]) => enabledToolNames.has(name))
+				.map(([name, tool]) => [name, this._sanitizeTool(tool)]),
+		);
+	}
+
+	public async refreshToolAvailability(projectId: string): Promise<void> {
+		this._projectId = projectId;
+		await this._cacheMcpState();
+	}
+
+	private _sanitizeTool(tool: Tool): Tool {
+		const inputSchema = tool.inputSchema;
+		if (inputSchema && typeof inputSchema === 'object' && 'jsonSchema' in inputSchema) {
+			return {
+				...tool,
+				inputSchema: {
+					...inputSchema,
+					jsonSchema: sanitizeTools(inputSchema.jsonSchema),
+				},
+			} as Tool;
+		}
+		return { ...tool, inputSchema: sanitizeTools(inputSchema) } as Tool;
 	}
 
 	private async _loadMcpServerFromFile(): Promise<void> {
@@ -174,10 +184,10 @@ export class McpService {
 			includeSchema: true,
 		});
 
-		await this.cacheMcpTools(tools, serverName);
+		await this._cacheMcpTools(tools, serverName);
 	}
 
-	private async cacheMcpTools(tools: ServerToolInfo[], serverName: string): Promise<void> {
+	private async _cacheMcpTools(tools: ServerToolInfo[], serverName: string): Promise<void> {
 		for (const tool of tools) {
 			const toolName = tool.name.startsWith(serverName) ? tool.name : prefixToolName(serverName, tool.name);
 			this._mcpTools[toolName] = {
@@ -197,6 +207,11 @@ export class McpService {
 			throw new Error(`Tool ${toolName} not found in any server`);
 		}
 
+		const tool = this.cachedMcpState[serverName]?.tools.find((t) => t.name === toolName);
+		if (!tool?.enabled) {
+			throw new Error(`Tool ${toolName} is disabled by project admin`);
+		}
+
 		if (!this._runtime) {
 			throw new Error('Runtime not initialized');
 		}
@@ -211,19 +226,52 @@ export class McpService {
 	private async _cacheMcpState(): Promise<void> {
 		this.cachedMcpState = {};
 
+		if (!this._projectId) {
+			return;
+		}
+
+		const { enabledTools, knownServers } = await mcpConfigQueries.getEnabledToolsAndKnownServers(this._projectId);
+		const enabledToolsSet = new Set(enabledTools);
+		const knownServersSet = new Set(knownServers);
+
+		const newlyKnownServers: string[] = [];
+		const newlyEnabledTools: string[] = [];
+
 		for (const serverName of Object.keys(this._mcpServers)) {
-			const serverTools = Object.entries(this._mcpTools)
+			const serverToolNames = Object.entries(this._mcpTools)
 				.filter(([toolName]) => this._toolsToServer.get(toolName) === serverName)
-				.map(([toolName, tool]) => ({
+				.map(([toolName]) => toolName);
+
+			if (!knownServersSet.has(serverName)) {
+				newlyKnownServers.push(serverName);
+				newlyEnabledTools.push(...serverToolNames);
+				serverToolNames.forEach((t) => enabledToolsSet.add(t));
+			}
+
+			const serverTools = serverToolNames.map((toolName) => {
+				const tool = this._mcpTools[toolName];
+				return {
 					name: toolName,
-					description: tool.description,
-					input_schema: tool.inputSchema,
-				}));
+					description: tool?.description,
+					input_schema: tool?.inputSchema,
+					enabled: enabledToolsSet.has(toolName),
+				};
+			});
 
 			this.cachedMcpState[serverName] = {
 				tools: serverTools,
 				error: this._failedConnections[serverName],
 			};
+		}
+
+		if (newlyKnownServers.length > 0) {
+			await mcpConfigQueries.updateEnabledToolsAndKnownServers(
+				this._projectId,
+				({ enabledTools: current, knownServers: currentServers }) => ({
+					enabledTools: [...new Set([...current, ...newlyEnabledTools])],
+					knownServers: [...new Set([...currentServers, ...newlyKnownServers])],
+				}),
+			);
 		}
 	}
 

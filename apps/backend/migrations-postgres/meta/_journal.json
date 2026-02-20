@@ -99,6 +99,13 @@
       "when": 1771580427546,
       "tag": "0013_agent_memory",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1771591518084,
+      "tag": "0014_add_enabledMcpTools_and_knownMcpServers_to_project",
+      "breakpoints": true
     }
   ]
 }

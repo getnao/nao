@@ -18,7 +18,6 @@ import { renderToMarkdown } from '../lib/markdown';
 import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
-import { AgentSettings } from '../types/agent-settings';
 import { Mention, TokenCost, TokenUsage, UIChat, UIMessage } from '../types/chat';
 import { ToolContext } from '../types/tools';
 import {
@@ -33,6 +32,7 @@ import { memoryService } from './memory';
 import { skillService } from './skill.service';
 
 export type { ModelSelection };
+type AgentTools = Awaited<ReturnType<typeof getTools>>;
 
 export interface AgentRunResult {
 	text: string;
@@ -68,14 +68,14 @@ export class AgentService {
 		const modelConfig = await this._getModelConfig(chat.projectId, resolvedModelSelection);
 		const agentSettings = await projectQueries.getAgentSettings(chat.projectId);
 		const toolContext = await this._getToolContext(chat.projectId);
-
+		const agentTools = getTools(agentSettings);
 		const agent = new AgentManager(
 			chat,
 			modelConfig,
 			resolvedModelSelection,
 			() => this._agents.delete(chat.id),
 			abortController,
-			agentSettings,
+			agentTools,
 			toolContext,
 		);
 		this._agents.set(chat.id, agent);
@@ -160,7 +160,7 @@ export class AgentService {
 }
 
 class AgentManager {
-	private readonly _agent: ToolLoopAgent<never, ReturnType<typeof getTools>, never>;
+	private readonly _agent: ToolLoopAgent<never, AgentTools, never>;
 
 	constructor(
 		readonly chat: AgentChat,
@@ -168,12 +168,12 @@ class AgentManager {
 		private readonly _modelSelection: ModelSelection,
 		private readonly _onDispose: () => void,
 		private readonly _abortController: AbortController,
-		private readonly _agentSettings: AgentSettings | null,
+		private readonly _agentTools: AgentTools,
 		private readonly _toolContext: ToolContext,
 	) {
 		this._agent = new ToolLoopAgent({
 			...this._modelConfig,
-			tools: getTools(this._agentSettings),
+			tools: this._agentTools,
 			maxOutputTokens: 16_000,
 			prepareStep: ({ messages }) => ({
 				messages: this._addCache(this._pruneMessages(messages)),
@@ -191,7 +191,7 @@ class AgentManager {
 		},
 	): ReadableStream<InferUIMessageChunk<UIMessage>> {
 		let error: unknown = undefined;
-		let result: StreamTextResult<ReturnType<typeof getTools>, never>;
+		let result: StreamTextResult<AgentTools, never>;
 
 		return createUIMessageStream<UIMessage>({
 			generateId: () => crypto.randomUUID(),
