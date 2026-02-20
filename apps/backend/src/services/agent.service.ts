@@ -5,6 +5,7 @@ import {
 	hasToolCall,
 	InferUIMessageChunk,
 	ModelMessage,
+	pruneMessages,
 	StreamTextResult,
 	ToolLoopAgent,
 	ToolLoopAgentSettings,
@@ -174,8 +175,9 @@ class AgentManager {
 			...this._modelConfig,
 			tools: getTools(this._agentSettings),
 			maxOutputTokens: 16_000,
-			// On step 1+: cache user message (stable) + current step's last message (loop leaf)
-			prepareStep: ({ messages }) => ({ messages: this._addCache(messages) }),
+			prepareStep: ({ messages }) => ({
+				messages: this._addCache(this._pruneMessages(messages)),
+			}),
 			stopWhen: [hasToolCall('suggest_follow_ups')],
 			experimental_context: this._toolContext,
 		});
@@ -243,7 +245,8 @@ class AgentManager {
 	 * Prepares the UI messages and builds them into model messages with memory.
 	 */
 	private async _buildModelMessages(uiMessages: UIMessage[], mentions?: Mention[]): Promise<ModelMessage[]> {
-		uiMessages = this._prepareUIMessages(uiMessages, mentions);
+		uiMessages = this._addSkills(uiMessages, mentions);
+		uiMessages = this._fillEmptyAssistantTurns(uiMessages, '[NO CONTENT]');
 		const modelMessages = await convertToModelMessages(uiMessages);
 		const memories = await memoryService.safeGetUserMemories(this.chat.userId, this.chat.id);
 		const systemPrompt = renderToMarkdown(SystemPrompt({ memories }));
@@ -309,25 +312,16 @@ class AgentManager {
 		this._abortController.abort();
 	}
 
-	private _prepareUIMessages(messages: UIMessage[], mentions?: Mention[]): UIMessage[] {
-		messages = this._addSkills(messages, mentions);
-
+	private _fillEmptyAssistantTurns(messages: UIMessage[], fillText: string): UIMessage[] {
 		return messages.map((msg) => {
 			if (msg.role !== 'assistant') {
 				return msg;
 			}
-
 			const hasTextPart = msg.parts.some((part) => part.type === 'text');
 			if (!hasTextPart) {
-				msg.parts.push({ type: 'text', text: '[NO CONTENT]' });
+				msg.parts.push({ type: 'text', text: fillText });
 			}
-
-			const filteredParts = msg.parts.filter((part) => part.type !== 'tool-suggest_follow_ups');
-			if (filteredParts.length === msg.parts.length) {
-				return msg;
-			}
-
-			return { ...msg, parts: filteredParts };
+			return msg;
 		});
 	}
 
@@ -385,6 +379,18 @@ class AgentManager {
 			messages[lastIndex] = withCache(messages[lastIndex], CACHE_5M);
 		}
 		return messages;
+	}
+
+	/**
+	 * Prunes certain messages parts like reasoning and tool calls from the conversation.
+	 */
+	private _pruneMessages(messages: ModelMessage[]): ModelMessage[] {
+		return pruneMessages({
+			messages,
+			reasoning: 'before-last-message',
+			toolCalls: [{ tools: ['suggest_follow_ups'], type: 'all' }],
+			emptyMessages: 'remove',
+		});
 	}
 
 	getModelId(): string {
