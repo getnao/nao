@@ -283,4 +283,16 @@ export const projectRoutes = {
 		.mutation(async ({ ctx, input }) => {
 			return projectQueries.updateAgentSettings(ctx.project.id, input);
 		}),
+
+	getMemorySettings: projectProtectedProcedure.query(async ({ ctx }) => {
+		const memoryEnabled = await projectQueries.getProjectMemoryEnabled(ctx.project.id);
+		return { memoryEnabled };
+	}),
+
+	updateMemorySettings: adminProtectedProcedure
+		.input(z.object({ memoryEnabled: z.boolean() }))
+		.mutation(async ({ ctx, input }) => {
+			await projectQueries.setProjectMemoryEnabled(ctx.project.id, input.memoryEnabled);
+			return { memoryEnabled: input.memoryEnabled };
+		}),
 };

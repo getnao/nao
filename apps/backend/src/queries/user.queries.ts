@@ -20,6 +20,19 @@ export const modify = async (id: string, name: string): Promise<void> => {
 	await db.update(s.user).set({ name }).where(eq(s.user.id, id)).execute();
 };
 
+export const getMemoryEnabled = async (userId: string): Promise<boolean> => {
+	const [user] = await db
+		.select({ memoryEnabled: s.user.memoryEnabled })
+		.from(s.user)
+		.where(eq(s.user.id, userId))
+		.execute();
+	return user?.memoryEnabled ?? true;
+};
+
+export const setMemoryEnabled = async (userId: string, memoryEnabled: boolean): Promise<void> => {
+	await db.update(s.user).set({ memoryEnabled }).where(eq(s.user.id, userId)).execute();
+};
+
 export const countAll = async (): Promise<number> => {
 	const [result] = await db.select({ count: count() }).from(s.user).execute();
 	return result?.count ?? 0;

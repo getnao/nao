@@ -10,13 +10,14 @@ import {
 	AlertDialogFooter,
 	AlertDialogCancel,
 	AlertDialogAction,
-} from './ui/alert-dialog';
-import { Dialog, DialogTitle, DialogHeader, DialogContent, DialogFooter } from './ui/dialog';
-import { Textarea } from './ui/textarea';
-import { NakedInput } from './ui/input';
-import { SavedPromptItem, SavedPromptSkeleton } from './settings-saved-prompt';
-import { ErrorMessage } from './ui/error-message';
-import { SettingsCard } from './ui/settings-card';
+} from '../ui/alert-dialog';
+import { Dialog, DialogTitle, DialogHeader, DialogContent, DialogFooter } from '../ui/dialog';
+import { Textarea } from '../ui/textarea';
+import { NakedInput } from '../ui/input';
+import { ErrorMessage } from '../ui/error-message';
+import { SettingsCard } from '../ui/settings-card';
+import { Empty } from '../ui/empty';
+import { SavedPromptItem, SavedPromptSkeleton } from './saved-prompt';
 import type { SavedPrompt } from '@nao/backend/saved-prompts';
 import { useSavedPromptsQuery, useSavedPromptMutations } from '@/hooks/use-saved-prompts';
 import { Button } from '@/components/ui/button';
@@ -88,19 +89,29 @@ export function SavedPrompts({ isAdmin }: SavedPromptsSectionProps) {
 
 	return (
 		<>
-			<SettingsCard title='Saved Prompts'>
+			<SettingsCard
+				title='Saved Prompts'
+				description='Save repeatable, customizable prompts for the agent to follow.'
+				action={
+					isAdmin && (
+						<Button variant='secondary' size='sm' className='ml-auto' onClick={handleNewPrompt}>
+							<Plus className='size-4' />
+							New Prompt
+						</Button>
+					)
+				}
+				divide
+			>
 				{isLoading ? (
-					<div className='flex flex-col divide-y'>
+					<>
 						<SavedPromptSkeleton className='pt-0' />
 						<SavedPromptSkeleton />
 						<SavedPromptSkeleton className='pb-0' />
-					</div>
+					</>
 				) : savedPrompts.length === 0 ? (
-					<div className='text-sm text-muted-foreground py-4 text-center'>
-						Save repeatable, customizable prompts for the agent to follow.
-					</div>
+					<Empty>No saved prompts yet.</Empty>
 				) : (
-					<div className='flex flex-col divide-y'>
+					<>
 						{savedPrompts.map((prompt) => (
 							<SavedPromptItem
 								key={prompt.id}
@@ -110,14 +121,7 @@ export function SavedPrompts({ isAdmin }: SavedPromptsSectionProps) {
 								onDelete={handleDeletePrompt}
 							/>
 						))}
-					</div>
-				)}
-
-				{isAdmin && (
-					<Button variant='outline' size='sm' className='ml-auto' onClick={handleNewPrompt}>
-						<Plus className='size-4' />
-						New Prompt
-					</Button>
+					</>
 				)}
 			</SettingsCard>
 
@@ -291,8 +295,10 @@ const DeletePromptDialog = ({
 				</AlertDialogHeader>
 
 				<AlertDialogFooter>
-					<AlertDialogCancel variant='outline'>Cancel</AlertDialogCancel>
-					<AlertDialogAction variant='destructive' onClick={onDelete} isLoading={isLoading}>
+					<AlertDialogCancel variant='outline' size='sm'>
+						Cancel
+					</AlertDialogCancel>
+					<AlertDialogAction variant='destructive' size='sm' onClick={onDelete} isLoading={isLoading}>
 						Delete
 					</AlertDialogAction>
 				</AlertDialogFooter>

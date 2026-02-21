@@ -1,3 +1,4 @@
+import { DBMemory } from '../db/abstractSchema';
 import { MemoryCategory } from '../utils/memory';
 import { LlmProvider } from './llm';
 
@@ -13,3 +14,5 @@ export interface MemoryExtractionOptions {
 	userMessage: string;
 	provider: LlmProvider;
 }
+
+export type UserMemoryRecord = Omit<DBMemory, 'userId' | 'chatId'>;

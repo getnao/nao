@@ -16,6 +16,7 @@ export const user = sqliteTable('user', {
 	emailVerified: integer('email_verified', { mode: 'boolean' }).default(false).notNull(),
 	image: text('image'),
 	requiresPasswordReset: integer('requires_password_reset', { mode: 'boolean' }).default(false).notNull(),
+	memoryEnabled: integer('memory_enabled', { mode: 'boolean' }).default(true).notNull(),
 	createdAt: integer('created_at', { mode: 'timestamp_ms' })
 		.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 		.notNull(),

@@ -27,6 +27,7 @@ export const user = pgTable('user', {
 	emailVerified: boolean('email_verified').default(false).notNull(),
 	image: text('image'),
 	requiresPasswordReset: boolean('requires_password_reset').default(false).notNull(),
+	memoryEnabled: boolean('memory_enabled').default(true).notNull(),
 	createdAt: timestamp('created_at').defaultNow().notNull(),
 	updatedAt: timestamp('updated_at')
 		.defaultNow()

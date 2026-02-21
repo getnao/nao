@@ -1,20 +1,20 @@
 import { useQuery } from '@tanstack/react-query';
-import { Plus, EllipsisVertical } from 'lucide-react';
-import { NewUserDialog } from './settings-display-newUser';
-import { ResetPasswordDialog } from './settings-reset-user-password';
+import { EllipsisVertical } from 'lucide-react';
 import {
 	DropdownMenu,
 	DropdownMenuItem,
 	DropdownMenuContent,
 	DropdownMenuTrigger,
 	DropdownMenuGroup,
-} from './ui/dropdown-menu';
-import { RemoveUserDialog } from './settings-remove-user-from-project';
-import type { UserWithRole } from '../../../backend/src/types/project';
+} from '../ui/dropdown-menu';
+import { NewUserDialog } from './display-newUser';
+import { ResetPasswordDialog } from './reset-user-password';
+import { RemoveUserDialog } from './remove-user-from-project';
+import type { UserWithRole } from '../../../../backend/src/types/project';
 import { trpc } from '@/main';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { AddUserDialog } from '@/components/settings-add-user-form';
+import { AddUserDialog } from '@/components/settings/add-user-form';
 import { Badge } from '@/components/ui/badge';
 import { useUserPageContext } from '@/contexts/user.provider';
 
@@ -26,7 +26,6 @@ export function UsersList({ isAdmin }: UsersListProps) {
 	const {
 		setUserInfo,
 		setIsModifyUserFormOpen,
-		setIsAddUserFormOpen,
 		setIsResetUserPasswordOpen,
 		setError,
 		setIsRemoveUserFromProjectOpen,
@@ -47,21 +46,6 @@ export function UsersList({ isAdmin }: UsersListProps) {
 
 	return (
 		<div className='grid gap-4'>
-			<div className='flex items-center justify-between'>
-				<span className='text-sm font-medium text-foreground'>Users</span>
-				{isAdmin && (
-					<Button
-						variant='secondary'
-						size='icon-sm'
-						onClick={() => {
-							handleInteraction(setIsAddUserFormOpen);
-						}}
-					>
-						<Plus className='size-4' />
-					</Button>
-				)}
-			</div>
-
 			{usersWithRoles.isLoading ? (
 				<div className='text-sm text-muted-foreground'>Loading users...</div>
 			) : usersWithRoles.data?.length === 0 ? (

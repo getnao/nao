@@ -1,14 +1,14 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { useState } from 'react';
+import { SettingsCard } from '../ui/settings-card';
 import { trpc } from '@/main';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Spinner } from '@/components/ui/spinner';
 import { cn } from '@/lib/utils';
 
-interface McpListProps {
+interface Props {
 	isAdmin: boolean;
 }
 
@@ -21,7 +21,7 @@ const estimateToolTokens = (tool: { name: string; description?: string; input_sc
 	return Math.ceil(serialized.length / 4);
 };
 
-export function McpList({ isAdmin }: McpListProps) {
+export function McpSettings({ isAdmin }: Props) {
 	const mcpState = useQuery({
 		...trpc.mcp.getState.queryOptions(),
 		refetchOnMount: 'always',
@@ -79,26 +79,23 @@ export function McpList({ isAdmin }: McpListProps) {
 	const mcpEntries = mcpState.data ? Object.entries(mcpState.data) : [];
 
 	return (
-		<div className='grid gap-4'>
-			<div className='flex items-center justify-between'>
-				{isAdmin && (
+		<SettingsCard
+			title='MCP Servers'
+			description='Integrate MCP servers to extend the capabilities of nao.'
+			action={
+				isAdmin && (
 					<Button
 						onClick={handleReconnect}
 						disabled={reconnectMutation.isPending}
+						isLoading={reconnectMutation.isPending}
 						variant='secondary'
 						size='sm'
 					>
-						{reconnectMutation.isPending ? (
-							<>
-								<Spinner />
-								{mcpEntries.length === 0 ? 'Connecting...' : 'Reconnecting...'}
-							</>
-						) : (
-							<>{mcpEntries.length === 0 ? 'Connect' : 'Reconnect'}</>
-						)}
+						{mcpEntries.length === 0 ? 'Connect' : 'Reconnect'}
 					</Button>
-				)}
-			</div>
+				)
+			}
+		>
 			{mcpState.isLoading ? (
 				<div className='text-sm text-muted-foreground'>Loading MCP servers...</div>
 			) : mcpEntries.length === 0 ? (
@@ -241,6 +238,6 @@ export function McpList({ isAdmin }: McpListProps) {
 					</Table>
 				</div>
 			)}
-		</div>
+		</SettingsCard>
 	);
 }

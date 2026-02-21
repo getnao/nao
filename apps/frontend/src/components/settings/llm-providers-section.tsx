@@ -1,5 +1,5 @@
-import { ProviderCard } from './settings-llm-provider-card';
-import { LlmProviderForm } from './settings-llm-provider-form';
+import { ProviderCard } from './llm-provider-card';
+import { LlmProviderForm } from './llm-provider-form';
 import { useLlmProviders } from '@/hooks/use-llm-providers';
 
 interface LlmProvidersSectionProps {

@@ -248,7 +248,7 @@ class AgentManager {
 		uiMessages = this._addSkills(uiMessages, mentions);
 		uiMessages = this._fillEmptyAssistantTurns(uiMessages, '[NO CONTENT]');
 		const modelMessages = await convertToModelMessages(uiMessages);
-		const memories = await memoryService.safeGetUserMemories(this.chat.userId, this.chat.id);
+		const memories = await memoryService.safeGetUserMemories(this.chat.userId, this.chat.projectId, this.chat.id);
 		const systemPrompt = renderToMarkdown(SystemPrompt({ memories }));
 		const systemMessage: ModelMessage = { role: 'system', content: systemPrompt };
 		modelMessages.unshift(systemMessage);

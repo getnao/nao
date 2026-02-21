@@ -28,6 +28,25 @@ export const getUserMemories = async (userId: string, excludeChatId?: string): P
 	return memories;
 };
 
+export const getIsMemoryEnabledForUserAndProject = async (userId: string, projectId: string): Promise<boolean> => {
+	const [settings] = await db
+		.select({
+			userEnabled: s.user.memoryEnabled,
+			projectAgentSettings: s.project.agentSettings,
+		})
+		.from(s.user)
+		.innerJoin(s.project, eq(s.project.id, projectId))
+		.where(eq(s.user.id, userId))
+		.execute();
+
+	if (!settings) {
+		return false;
+	}
+
+	const projectEnabled = settings.projectAgentSettings?.memoryEnabled ?? true;
+	return settings.userEnabled && projectEnabled;
+};
+
 export const upsertMemories = async (memories: DBNewMemory[]): Promise<void> => {
 	if (memories.length === 0) {
 		return;
@@ -49,4 +68,27 @@ export const deleteMemories = async (memoryIds: string[]): Promise<void> => {
 	}
 
 	await db.delete(s.memories).where(inArray(s.memories.id, memoryIds)).execute();
+};
+
+export const updateUserMemoryContent = async (
+	userId: string,
+	memoryId: string,
+	content: string,
+): Promise<DBMemory | null> => {
+	const [updated] = await db
+		.update(s.memories)
+		.set({ content })
+		.where(and(eq(s.memories.id, memoryId), eq(s.memories.userId, userId)))
+		.returning()
+		.execute();
+	return updated ?? null;
+};
+
+export const deleteUserMemory = async (userId: string, memoryId: string): Promise<boolean> => {
+	const deleted = await db
+		.delete(s.memories)
+		.where(and(eq(s.memories.id, memoryId), eq(s.memories.userId, userId)))
+		.returning({ id: s.memories.id })
+		.execute();
+	return deleted.length > 0;
 };

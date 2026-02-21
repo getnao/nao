@@ -15,7 +15,7 @@ export function SidebarUserMenu({ isCollapsed }: SidebarUserMenuProps) {
 
 	return (
 		<Link
-			to='/settings/profile'
+			to='/settings'
 			inactiveProps={{
 				className: cn('text-foreground hover:bg-sidebar-accent'),
 			}}

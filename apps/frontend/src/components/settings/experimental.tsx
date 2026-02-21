@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Switch } from '@/components/ui/switch';
 import { SettingsCard } from '@/components/ui/settings-card';
+import { SettingsControlRow } from '@/components/ui/settings-toggle-row';
+import { Switch } from '@/components/ui/switch';
 import { trpc } from '@/main';
 
 interface SettingsExperimentalProps {
@@ -33,34 +34,26 @@ export function SettingsExperimental({ isAdmin }: SettingsExperimentalProps) {
 	};
 
 	return (
-		<SettingsCard title='Experimental'>
-			<div className='space-y-4'>
-				<p className='text-sm text-muted-foreground'>
-					Enable experimental features that are still in development. These features may be unstable or change
-					without notice.
-				</p>
-
-				<div className='flex items-center justify-between py-2'>
-					<div className='space-y-0.5'>
-						<label
-							htmlFor='python-sandboxing'
-							className='text-sm font-medium text-foreground cursor-pointer'
-						>
-							Python sandboxing
-						</label>
-						<p className='text-xs text-muted-foreground'>
-							Allow the agent to execute Python code in a secure sandboxed environment.
-							{!pythonAvailable && ' Not available on this platform.'}
-						</p>
-					</div>
+		<SettingsCard
+			title='Experimental'
+			description='Enable experimental features that are still in development. These features may be unstable or change without notice.'
+			divide
+		>
+			<SettingsControlRow
+				id='python-sandboxing'
+				label='Python sandboxing'
+				description={`Allow the agent to execute Python code in a secure sandboxed environment.${
+					!pythonAvailable ? ' Not available on this platform.' : ''
+				}`}
+				control={
 					<Switch
 						id='python-sandboxing'
 						checked={pythonSandboxingEnabled}
 						onCheckedChange={handlePythonSandboxingChange}
 						disabled={!isAdmin || !pythonAvailable || updateAgentSettings.isPending}
 					/>
-				</div>
-			</div>
+				}
+			/>
 		</SettingsCard>
 	);
 }

@@ -1,5 +1,5 @@
 import { Pencil } from 'lucide-react';
-import { GoogleForm } from './settings-google-form';
+import { GoogleForm } from './google-form';
 import { Button } from '@/components/ui/button';
 import { useGoogleSettings } from '@/hooks/use-google-settings';
 
