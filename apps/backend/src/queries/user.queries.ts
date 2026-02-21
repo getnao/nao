@@ -2,6 +2,7 @@ import { count, eq } from 'drizzle-orm';
 
 import s, { NewAccount, NewProjectMember, NewUser, User } from '../db/abstractSchema';
 import { db } from '../db/db';
+import { takeFirstOrThrow } from '../utils/queries';
 
 export const get = async (identifier: { id: string } | { email: string }): Promise<User | null> => {
 	const condition = 'id' in identifier ? eq(s.user.id, identifier.id) : eq(s.user.email, identifier.email);
@@ -21,12 +22,11 @@ export const modify = async (id: string, name: string): Promise<void> => {
 };
 
 export const getMemoryEnabled = async (userId: string): Promise<boolean> => {
-	const [user] = await db
-		.select({ memoryEnabled: s.user.memoryEnabled })
-		.from(s.user)
-		.where(eq(s.user.id, userId))
-		.execute();
-	return user?.memoryEnabled ?? true;
+	const user = await takeFirstOrThrow(
+		db.select({ memoryEnabled: s.user.memoryEnabled }).from(s.user).where(eq(s.user.id, userId)).execute(),
+	);
+
+	return user.memoryEnabled;
 };
 
 export const setMemoryEnabled = async (userId: string, memoryEnabled: boolean): Promise<void> => {
