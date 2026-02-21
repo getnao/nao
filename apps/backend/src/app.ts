@@ -10,13 +10,14 @@ import { fileURLToPath } from 'url';
 
 import { env } from './env';
 import { ensureOrganizationSetup } from './queries/organization.queries';
+import { agentRoutes } from './routes/agent';
 import { authRoutes } from './routes/auth';
-import { chatRoutes } from './routes/chat';
 import { slackRoutes } from './routes/slack';
 import { testRoutes } from './routes/test';
 import { posthog, PostHogEvent } from './services/posthog.service';
 import { TrpcRouter, trpcRouter } from './trpc/router';
 import { createContext } from './trpc/trpc';
+import { HandlerError } from './utils/error';
 
 // Get the directory of the current module (works in both dev and compiled)
 const __filename = fileURLToPath(import.meta.url);
@@ -49,6 +50,14 @@ export type App = typeof app;
 app.setValidatorCompiler(validatorCompiler);
 app.setSerializerCompiler(serializerCompiler);
 
+// Map HandlerError to HTTP status code
+app.setErrorHandler((error, _request, reply) => {
+	if (error instanceof HandlerError) {
+		return reply.status(error.code).send({ error: error.message });
+	}
+	throw error;
+});
+
 // Register raw body plugin for Slack signature verification
 app.register(fastifyRawBody, {
 	field: 'rawBody',
@@ -71,8 +80,8 @@ app.register(fastifyTRPCPlugin, {
 	} satisfies FastifyTRPCPluginOptions<TrpcRouter>['trpcOptions'],
 });
 
-app.register(chatRoutes, {
-	prefix: '/api/chat',
+app.register(agentRoutes, {
+	prefix: '/api/agent',
 });
 
 app.register(testRoutes, {

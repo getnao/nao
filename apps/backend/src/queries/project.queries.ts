@@ -104,7 +104,7 @@ export const getDefaultProject = async (): Promise<DBProject | null> => {
 	return getProjectByPath(projectPath);
 };
 
-export const checkUserHasProject = async (userId: string): Promise<DBProject | null> => {
+export const getProjectByUserId = async (userId: string): Promise<DBProject | null> => {
 	const projectPath = env.NAO_DEFAULT_PROJECT_PATH;
 	if (!projectPath) {
 		return null;

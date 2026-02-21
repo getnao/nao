@@ -5,6 +5,7 @@ import superjson from 'superjson';
 import { getAuth } from '../auth';
 import * as projectQueries from '../queries/project.queries';
 import type { UserRole } from '../types/project';
+import { HandlerError } from '../utils/error';
 import { convertHeaders } from '../utils/utils';
 
 export type Context = Awaited<ReturnType<typeof createContext>>;
@@ -29,9 +30,21 @@ const t = initTRPC.context<Context>().create({
 
 export const router = t.router;
 
-export const publicProcedure = t.procedure;
+// Map HandlerError to tRPC error
+const withHandlerErrors = t.middleware(async ({ next }) => {
+	try {
+		return await next();
+	} catch (error) {
+		if (error instanceof HandlerError) {
+			throw new TRPCError({ code: error.codeMessage, message: error.message });
+		}
+		throw error;
+	}
+});
 
-export const protectedProcedure = t.procedure.use(async ({ ctx, next }) => {
+export const publicProcedure = t.procedure.use(withHandlerErrors);
+
+export const protectedProcedure = publicProcedure.use(async ({ ctx, next }) => {
 	if (!ctx.session?.user) {
 		throw new TRPCError({ code: 'UNAUTHORIZED' });
 	}
@@ -40,7 +53,7 @@ export const protectedProcedure = t.procedure.use(async ({ ctx, next }) => {
 });
 
 export const projectProtectedProcedure = protectedProcedure.use(async ({ ctx, next }) => {
-	const project = await projectQueries.checkUserHasProject(ctx.user.id);
+	const project = await projectQueries.getProjectByUserId(ctx.user.id);
 	if (!project) {
 		throw new TRPCError({ code: 'BAD_REQUEST', message: 'No project configured' });
 	}

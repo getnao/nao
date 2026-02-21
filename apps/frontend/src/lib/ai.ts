@@ -7,7 +7,7 @@ import {
 import type { ReasoningUIPart, ToolUIPart } from 'ai';
 import type { UseChatHelpers } from '@ai-sdk/react';
 import type { UITools, UIToolPart, UIMessage, UIMessagePart, StaticToolName } from '@nao/backend/chat';
-import type { CollapsiblePart, ToolGroupPart, GroupedMessagePart } from '@/types/ai';
+import type { CollapsiblePart, ToolGroupPart, GroupedMessagePart, MessageGroup } from '@/types/ai';
 
 /** Check if a tool has reached its final state (no more actions needed). */
 export const isToolSettled = ({ state }: UIToolPart) => {
@@ -136,4 +136,29 @@ export const getLastFollowUpSuggestionsToolCall = (
 		return undefined;
 	}
 	return followUpSuggestionsToolCallPart;
+};
+
+export const getMessageText = (message: UIMessage): string => {
+	return message.parts
+		.filter((part) => part.type === 'text')
+		.map((part) => part.text)
+		.join('\n');
+};
+
+/** Group messages into user and response (assistant) messages. */
+export const groupMessages = (messages: UIMessage[]): MessageGroup[] => {
+	const groups: MessageGroup[] = [];
+	for (let i = 0; i < messages.length; ) {
+		const user = messages[i++];
+		if (user.role !== 'user') {
+			continue;
+		}
+		const group: MessageGroup = { user, responses: [] };
+		while (i < messages.length && messages[i].role === 'assistant') {
+			group.responses.push(messages[i]);
+			i++;
+		}
+		groups.push(group);
+	}
+	return groups;
 };

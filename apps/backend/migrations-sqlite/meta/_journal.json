@@ -113,6 +113,13 @@
       "when": 1771614350511,
       "tag": "0015_user_memory_enabled",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "6",
+      "when": 1771694141518,
+      "tag": "0016_chat_message_superseded_at",
+      "breakpoints": true
     }
   ]
 }

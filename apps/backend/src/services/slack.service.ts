@@ -10,7 +10,7 @@ import { get } from '../queries/user.queries';
 import { UIChat } from '../types/chat';
 import { UIMessage } from '../types/chat';
 import { SlackEvent } from '../types/slack';
-import { extractLastTextFromMessage } from '../utils/ai';
+import { createChatTitle, extractLastTextFromMessage } from '../utils/ai';
 import { addButtonStopBlock } from '../utils/slack';
 import { agentService } from './agent.service';
 
@@ -21,7 +21,6 @@ export class SlackService {
 	private _threadId: string;
 	private _slackUserId: string;
 	private _user: User = {} as User;
-	private _abortController = new AbortController();
 	private _redirectUrl: string;
 	private _slackClient: WebClient;
 	private _buttonTs: string | undefined;
@@ -113,11 +112,8 @@ export class SlackService {
 	}
 
 	private async _createAgentStream(chat: UIChat) {
-		const agent = await agentService.create(
-			{ ...chat, userId: this._user.id, projectId: this._projectId },
-			this._abortController,
-		);
-		return agent.stream(chat.messages, { sendNewChatData: false });
+		const agent = await agentService.create({ ...chat, userId: this._user.id, projectId: this._projectId });
+		return agent.stream(chat.messages);
 	}
 
 	private async _postStopButton(): Promise<void> {
@@ -191,9 +187,10 @@ export class SlackService {
 			await chatQueries.upsertMessage(userMessage, { chatId: existingChat.id });
 			return existingChat.id;
 		} else {
-			const createdChat = await chatQueries.createChat(
+			const title = createChatTitle(userMessage);
+			const [createdChat] = await chatQueries.createChat(
 				{
-					title: this._text.slice(0, 64),
+					title,
 					userId: this._user.id,
 					projectId: this._projectId,
 					slackThreadId: this._threadId,

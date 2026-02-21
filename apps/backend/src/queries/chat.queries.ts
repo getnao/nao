@@ -1,4 +1,4 @@
-import { and, desc, eq, like, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, isNull, like, sql } from 'drizzle-orm';
 
 import s, { DBChat, DBChatMessage, DBMessagePart, MessageFeedback, NewChat } from '../db/abstractSchema';
 import { db } from '../db/db';
@@ -44,7 +44,7 @@ export const loadChat = async (
 		.select()
 		.from(s.chat)
 		.innerJoin(s.chatMessage, eq(s.chatMessage.chatId, s.chat.id))
-		.where(eq(s.chatMessage.chatId, chatId))
+		.where(and(eq(s.chatMessage.chatId, chatId), isNull(s.chatMessage.supersededAt)))
 		.innerJoin(s.messagePart, eq(s.messagePart.messageId, s.chatMessage.id))
 		.$dynamic();
 
@@ -117,42 +117,58 @@ export const getChatOwnerId = async (chatId: string): Promise<string | undefined
 	return result?.userId;
 };
 
-export const createChat = async (newChat: NewChat, message: UIMessage): Promise<UIChat> => {
-	return db.transaction(async (t): Promise<UIChat> => {
+/** Suppress all messages from a given message id onwards (won't be used in the conversation anymore). */
+export const supersedeMessagesFrom = async (chatId: string, fromMessageId: string): Promise<void> => {
+	const [fromMessage] = await db
+		.select({ createdAt: s.chatMessage.createdAt })
+		.from(s.chatMessage)
+		.where(and(eq(s.chatMessage.id, fromMessageId), eq(s.chatMessage.chatId, chatId)))
+		.execute();
+
+	if (!fromMessage) {
+		return;
+	}
+
+	await db
+		.update(s.chatMessage)
+		.set({ supersededAt: new Date() })
+		.where(
+			and(
+				eq(s.chatMessage.chatId, chatId),
+				gte(s.chatMessage.createdAt, fromMessage.createdAt),
+				isNull(s.chatMessage.supersededAt),
+			),
+		)
+		.execute();
+};
+
+export const createChat = async (
+	newChat: NewChat,
+	newMessage: Pick<UIMessage, 'role' | 'parts'>,
+): Promise<[DBChat, DBChatMessage]> => {
+	return db.transaction(async (t): Promise<[DBChat, DBChatMessage]> => {
 		const [savedChat] = await t.insert(s.chat).values(newChat).returning().execute();
 
 		const [savedMessage] = await t
 			.insert(s.chatMessage)
 			.values({
 				chatId: savedChat.id,
-				role: message.role,
+				role: newMessage.role,
 			})
 			.returning()
 			.execute();
 
-		const dbParts = mapUIPartsToDBParts(message.parts, savedMessage.id);
+		const dbParts = mapUIPartsToDBParts(newMessage.parts, savedMessage.id);
 		if (dbParts.length) {
 			await t.insert(s.messagePart).values(dbParts).execute();
 		}
 
-		return {
-			id: savedChat.id,
-			title: savedChat.title,
-			createdAt: savedChat.createdAt.getTime(),
-			updatedAt: savedChat.updatedAt.getTime(),
-			messages: [
-				{
-					id: savedMessage.id,
-					role: savedMessage.role,
-					parts: message.parts,
-				},
-			],
-		};
+		return [savedChat, savedMessage];
 	});
 };
 
 export const upsertMessage = async (
-	message: UIMessage, // TODO: generate uuid instead of using the one from the client
+	message: Omit<UIMessage, 'id'> & { id?: string },
 	opts: {
 		chatId: string;
 		stopReason?: StopReason;
@@ -161,13 +177,14 @@ export const upsertMessage = async (
 		llmProvider?: LlmProvider;
 		llmModelId?: string;
 	},
-): Promise<void> => {
-	await db.transaction(async (t) => {
+): Promise<{ messageId: string }> => {
+	return db.transaction(async (t) => {
+		const messageId = message.id ?? crypto.randomUUID();
 		await t
 			.insert(s.chatMessage)
 			.values({
+				id: messageId,
 				chatId: opts.chatId,
-				id: message.id,
 				role: message.role,
 				stopReason: opts.stopReason,
 				errorMessage: getErrorMessage(opts.error),
@@ -178,11 +195,13 @@ export const upsertMessage = async (
 			.onConflictDoNothing({ target: s.chatMessage.id })
 			.execute();
 
-		await t.delete(s.messagePart).where(eq(s.messagePart.messageId, message.id)).execute();
+		await t.delete(s.messagePart).where(eq(s.messagePart.messageId, messageId)).execute();
 		if (message.parts.length) {
-			const dbParts = mapUIPartsToDBParts(message.parts, message.id);
+			const dbParts = mapUIPartsToDBParts(message.parts, messageId);
 			await t.insert(s.messagePart).values(dbParts).execute();
 		}
+
+		return { messageId };
 	});
 };
 

@@ -1,12 +1,14 @@
 import { useState } from 'react';
 import { ThumbsUp, ThumbsDown, Copy, Check } from 'lucide-react';
 import { useMutation } from '@tanstack/react-query';
+
 import { NegativeFeedbackDialog } from './chat-negative-feedback-dialog';
 import type { UIMessage } from '@nao/backend/chat';
 import { Button } from '@/components/ui/button';
-import { serializeMessageForCopy } from '@/lib/messages.utils';
 import { trpc } from '@/main';
 import { cn } from '@/lib/utils';
+import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
+import { getMessageText } from '@/lib/ai';
 
 interface MessageActionsProps {
 	message: UIMessage;
@@ -16,7 +18,7 @@ interface MessageActionsProps {
 
 export function MessageActions({ message, className, chatId }: MessageActionsProps) {
 	const [showFeedbackDialog, setShowFeedbackDialog] = useState(false);
-	const [copied, setCopied] = useState(false);
+	const { isCopied, copy } = useCopyToClipboard();
 
 	const submitFeedback = useMutation(
 		trpc.feedback.submit.mutationOptions({
@@ -60,13 +62,6 @@ export function MessageActions({ message, className, chatId }: MessageActionsPro
 		setShowFeedbackDialog(false);
 	};
 
-	const handleCopy = async () => {
-		const text = serializeMessageForCopy(message);
-		await navigator.clipboard.writeText(text);
-		setCopied(true);
-		setTimeout(() => setCopied(false), 2000);
-	};
-
 	return (
 		<>
 			<div className={cn('flex items-center gap-1', className)}>
@@ -95,11 +90,11 @@ export function MessageActions({ message, className, chatId }: MessageActionsPro
 				<Button
 					variant='ghost'
 					size='icon-sm'
-					onClick={handleCopy}
+					onClick={() => copy(getMessageText(message))}
 					className='opacity-50 hover:opacity-100'
 					aria-label='Copy message'
 				>
-					{copied ? <Check className='size-4' /> : <Copy className='size-4' />}
+					{isCopied ? <Check className='size-4' /> : <Copy className='size-4' />}
 				</Button>
 			</div>
 
