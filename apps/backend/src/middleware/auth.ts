@@ -24,5 +24,5 @@ export async function authMiddleware(request: FastifyRequest, reply: FastifyRepl
 
 	request.user = session.user;
 	request.session = session.session;
-	request.project = await projectQueries.checkUserHasProject(session.user.id);
+	request.project = await projectQueries.getProjectByUserId(session.user.id);
 }

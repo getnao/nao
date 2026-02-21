@@ -18,7 +18,7 @@ import { renderToMarkdown } from '../lib/markdown';
 import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
-import { Mention, TokenCost, TokenUsage, UIChat, UIMessage } from '../types/chat';
+import { Mention, MessageCustomDataParts, TokenCost, TokenUsage, UIChat, UIMessage } from '../types/chat';
 import { ToolContext } from '../types/tools';
 import {
 	convertToCost,
@@ -27,6 +27,7 @@ import {
 	getLastUserMessageText,
 	retrieveProjectById,
 } from '../utils/ai';
+import { HandlerError } from '../utils/error';
 import { getDefaultModelId, getEnvApiKey, getEnvModelSelections, ModelSelection } from '../utils/llm';
 import { memoryService } from './memory';
 import { skillService } from './skill.service';
@@ -58,11 +59,7 @@ type AgentChat = UIChat & {
 export class AgentService {
 	private _agents = new Map<string, AgentManager>();
 
-	async create(
-		chat: AgentChat,
-		abortController: AbortController,
-		modelSelection?: ModelSelection,
-	): Promise<AgentManager> {
+	async create(chat: AgentChat, modelSelection?: ModelSelection): Promise<AgentManager> {
 		this._disposeAgent(chat.id);
 		const resolvedModelSelection = await this._getResolvedModelSelection(chat.projectId, modelSelection);
 		const modelConfig = await this._getModelConfig(chat.projectId, resolvedModelSelection);
@@ -74,7 +71,7 @@ export class AgentService {
 			modelConfig,
 			resolvedModelSelection,
 			() => this._agents.delete(chat.id),
-			abortController,
+			new AbortController(),
 			agentTools,
 			toolContext,
 		);
@@ -106,13 +103,13 @@ export class AgentService {
 			return envSelection;
 		}
 
-		throw Error('No model config found');
+		throw new HandlerError('BAD_REQUEST', 'No model config found');
 	}
 
 	private async _getToolContext(projectId: string): Promise<ToolContext> {
 		const project = await retrieveProjectById(projectId);
 		if (!project.path) {
-			throw Error('Project path does not exist.');
+			throw new HandlerError('BAD_REQUEST', 'Project path does not exist.');
 		}
 		return {
 			projectFolder: project.path ?? '',
@@ -155,7 +152,7 @@ export class AgentService {
 			return createProviderModel(modelSelection.provider, { apiKey: envApiKey }, modelSelection.modelId);
 		}
 
-		throw Error('No model config found');
+		throw new HandlerError('BAD_REQUEST', 'No model config found');
 	}
 }
 
@@ -186,9 +183,9 @@ class AgentManager {
 	stream(
 		uiMessages: UIMessage[],
 		opts: {
-			sendNewChatData: boolean;
+			events?: Partial<MessageCustomDataParts>;
 			mentions?: Mention[];
-		},
+		} = {},
 	): ReadableStream<InferUIMessageChunk<UIMessage>> {
 		let error: unknown = undefined;
 		let result: StreamTextResult<AgentTools, never>;
@@ -196,15 +193,18 @@ class AgentManager {
 		return createUIMessageStream<UIMessage>({
 			generateId: () => crypto.randomUUID(),
 			execute: async ({ writer }) => {
-				if (opts.sendNewChatData) {
+				if (opts.events?.newChat) {
 					writer.write({
 						type: 'data-newChat',
-						data: {
-							id: this.chat.id,
-							title: this.chat.title,
-							createdAt: this.chat.createdAt,
-							updatedAt: this.chat.updatedAt,
-						},
+						data: opts.events.newChat,
+					});
+				}
+
+				if (opts.events?.newUserMessage) {
+					writer.write({
+						type: 'data-newUserMessage',
+						data: opts.events.newUserMessage,
+						transient: true,
 					});
 				}
 

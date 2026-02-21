@@ -1,4 +1,5 @@
 import { Streamdown } from 'streamdown';
+import { Check, Copy, Pencil } from 'lucide-react';
 import { useEffect, useMemo, useRef } from 'react';
 import { useParams, useRouterState } from '@tanstack/react-router';
 import { useStickToBottomContext } from 'use-stick-to-bottom';
@@ -9,26 +10,32 @@ import { TextShimmer } from './ui/text-shimmer';
 import { MessageActions } from './chat-message-actions';
 import { ChatError } from './chat-error';
 import { FollowUpSuggestions } from './chat-follow-up-suggestions';
+import { ChatInputInline } from './chat-input';
 import type { UIMessage } from '@nao/backend/chat';
-import type { MessageGroup } from '@/types/messages';
+import type { MessageGroup } from '@/types/ai';
+import {
+	groupMessages,
+	isToolUIPart,
+	checkIsAgentGenerating,
+	groupToolCalls,
+	isToolGroupPart,
+	getLastFollowUpSuggestionsToolCall,
+	getMessageText,
+} from '@/lib/ai';
 import {
 	Conversation,
 	ConversationContent,
 	ConversationEmptyState,
 	ConversationScrollButton,
 } from '@/components/ui/conversation';
-import {
-	isToolUIPart,
-	checkIsAgentGenerating,
-	groupToolCalls,
-	isToolGroupPart,
-	getLastFollowUpSuggestionsToolCall,
-} from '@/lib/ai';
 import { cn, isLast } from '@/lib/utils';
 import { useAgentContext } from '@/contexts/agent.provider';
 import { useHeight } from '@/hooks/use-height';
-import { groupMessages } from '@/lib/messages.utils';
 import { useDebounceValue } from '@/hooks/use-debounce-value';
+import { Button } from '@/components/ui/button';
+import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
+import { messageEditStore, useIsEditingMessage } from '@/hooks/use-message-edit-store';
+import { useClickOutside } from '@/hooks/use-click-outside';
 
 const DEBUG_MESSAGES = false;
 
@@ -121,7 +128,7 @@ const ChatMessagesContent = ({ isAgentGenerating }: { isAgentGenerating: boolean
 
 function MessageGroup({ group, showResponseLoader }: { group: MessageGroup; showResponseLoader: boolean }) {
 	return (
-		<div className='flex flex-col gap-8 last:min-h-[calc(var(--container-height)-var(--extra-components-height)-calc(2*24px+16px))] group/message last:mb-4'>
+		<div className='flex flex-col gap-4 last:min-h-[calc(var(--container-height)-var(--extra-components-height)-calc(2*24px+16px))] group/message last:mb-4'>
 			{[group.user, ...group.responses].map((message) => (
 				<MessageBlock
 					key={message.id}
@@ -159,20 +166,56 @@ function MessageBlock({ message, showResponseLoader }: { message: UIMessage; sho
 }
 
 const UserMessageBlock = ({ message }: { message: UIMessage }) => {
+	const { isRunning, editMessage } = useAgentContext();
+	const { isCopied, copy } = useCopyToClipboard();
+	const isEditing = useIsEditingMessage(message.id);
+	const editContainerRef = useRef<HTMLDivElement>(null);
+	const text = useMemo(() => getMessageText(message), [message]);
+
+	useClickOutside(
+		{
+			ref: editContainerRef,
+			enabled: isEditing,
+			onClickOutside: () => messageEditStore.setEditing(null),
+		},
+		[isEditing],
+	);
+
+	if (isEditing) {
+		return (
+			<div ref={editContainerRef}>
+				<ChatInputInline
+					initialText={text}
+					className='p-0 **:data-[slot=input-group]:shadow-none!'
+					onCancel={() => messageEditStore.setEditing(null)}
+					onSubmitMessage={async ({ text: nextText }) => {
+						await editMessage({ messageId: message.id, text: nextText });
+						messageEditStore.setEditing(null);
+					}}
+				/>
+			</div>
+		);
+	}
+
 	return (
-		<div className={cn('rounded-2xl px-3 py-2 bg-card text-card-foreground ml-auto max-w-xl border')}>
-			{message.parts.map((p, i) => {
-				switch (p.type) {
-					case 'text':
-						return (
-							<span key={i} className='whitespace-pre-wrap wrap-break-word'>
-								{p.text}
-							</span>
-						);
-					default:
-						return null;
-				}
-			})}
+		<div className='group flex flex-col gap-2'>
+			<div className={cn('rounded-2xl px-3 py-2 bg-card text-card-foreground ml-auto max-w-xl border')}>
+				<span className='whitespace-pre-wrap wrap-break-word'>{text}</span>
+			</div>
+
+			<div
+				className={cn(
+					'ml-auto flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200',
+					isRunning && 'group-last:opacity-0',
+				)}
+			>
+				<Button variant='ghost-muted' size='icon-sm' onClick={() => messageEditStore.setEditing(message.id)}>
+					<Pencil />
+				</Button>
+				<Button variant='ghost-muted' size='icon-sm' onClick={() => copy(getMessageText(message))}>
+					{isCopied ? <Check className='size-4' /> : <Copy />}
+				</Button>
+			</div>
 		</div>
 	);
 };

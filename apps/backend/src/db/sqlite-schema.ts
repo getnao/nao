@@ -207,6 +207,7 @@ export const chatMessage = sqliteTable(
 		errorMessage: text('error_message'),
 		llmProvider: text('llm_provider').$type<LlmProvider>(),
 		llmModelId: text('llm_model_id'),
+		supersededAt: integer('superseded_at', { mode: 'timestamp_ms' }),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull(),

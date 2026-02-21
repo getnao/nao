@@ -197,6 +197,7 @@ export const chatMessage = pgTable(
 		errorMessage: text('error_message'),
 		llmProvider: text('llm_provider').$type<LlmProvider>(),
 		llmModelId: text('llm_model_id'),
+		supersededAt: timestamp('superseded_at'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 
 		// Token usage columns

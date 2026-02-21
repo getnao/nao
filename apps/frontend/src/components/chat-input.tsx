@@ -3,7 +3,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { Prompt } from 'prompt-mentions';
-import { ChatButton } from './ui/button';
+import { Button, ChatButton } from './ui/button';
 
 import type { PromptTheme, PromptHandle, SelectedMention } from 'prompt-mentions';
 import 'prompt-mentions/style.css';
@@ -21,17 +21,36 @@ import { trpc } from '@/main';
 import { useAgentContext } from '@/contexts/agent.provider';
 import { LlmProviderIcon } from '@/components/ui/llm-provider-icon';
 import { useRegisterSetChatInputCallback } from '@/contexts/set-chat-input-callback';
-import { capitalize } from '@/lib/utils';
+import { capitalize, cn } from '@/lib/utils';
 
-export function ChatInput() {
-	const [hasInput, setHasInput] = useState(false);
+type ChatInputSubmitArgs = {
+	text: string;
+	mentions: SelectedMention[];
+};
+
+type ChatInputBaseProps = {
+	promptRef: React.RefObject<PromptHandle | null>;
+	className?: string;
+	placeholder?: string;
+	initialText?: string;
+	onCancel?: () => void;
+	onSubmitMessage?: (args: ChatInputSubmitArgs) => Promise<void> | void;
+};
+
+type ChatInputProps = {
+	className?: string;
+	placeholder?: string;
+};
+
+type ChatInputInlineProps = {
+	className?: string;
+	initialText: string;
+	onCancel: () => void;
+	onSubmitMessage: (args: ChatInputSubmitArgs) => Promise<void> | void;
+};
+
+export function ChatInput({ className, placeholder }: ChatInputProps = {}) {
 	const promptRef = useRef<PromptHandle>(null);
-	const { sendMessage, isRunning, stopAgent, isLoadingMessages, selectedModel, setSelectedModel, setMentions } =
-		useAgentContext();
-	const chatId = useParams({ strict: false, select: (p) => p.chatId });
-	const availableModels = useQuery(trpc.project.getAvailableModels.queryOptions());
-	const knownModels = useQuery(trpc.project.getKnownModels.queryOptions());
-	const skills = useQuery(trpc.skill.list.queryOptions());
 
 	useRegisterSetChatInputCallback((text) => {
 		promptRef.current?.clear();
@@ -39,7 +58,50 @@ export function ChatInput() {
 		promptRef.current?.focus();
 	});
 
-	useEffect(() => promptRef.current?.focus(), [chatId]);
+	return <ChatInputBase promptRef={promptRef} className={className} placeholder={placeholder} />;
+}
+
+export function ChatInputInline({ className, initialText, onCancel, onSubmitMessage }: ChatInputInlineProps) {
+	const promptRef = useRef<PromptHandle>(null);
+
+	return (
+		<ChatInputBase
+			promptRef={promptRef}
+			className={className}
+			initialText={initialText}
+			onCancel={onCancel}
+			onSubmitMessage={onSubmitMessage}
+		/>
+	);
+}
+
+function ChatInputBase({
+	promptRef,
+	className,
+	placeholder = 'Ask anything about your data...',
+	initialText,
+	onCancel,
+	onSubmitMessage,
+}: ChatInputBaseProps) {
+	const [hasInput, setHasInput] = useState(false);
+	const { sendMessage, isRunning, stopAgent, isLoadingMessages, selectedModel, setSelectedModel, setMentions } =
+		useAgentContext();
+	const chatId = useParams({ strict: false, select: (p) => p.chatId });
+	const availableModels = useQuery(trpc.project.getAvailableModels.queryOptions());
+	const knownModels = useQuery(trpc.project.getKnownModels.queryOptions());
+	const skills = useQuery(trpc.skill.list.queryOptions());
+
+	useEffect(() => promptRef.current?.focus(), [chatId, promptRef]);
+
+	useEffect(() => {
+		if (typeof initialText !== 'string') {
+			return;
+		}
+		promptRef.current?.clear();
+		promptRef.current?.insertText(initialText);
+		setHasInput(!!initialText.trim());
+		promptRef.current?.focus();
+	}, [initialText, promptRef]);
 
 	// Set default model when available models load, or reset if current selection is no longer available
 	useEffect(() => {
@@ -58,21 +120,26 @@ export function ChatInput() {
 		}
 	}, [availableModels.data, selectedModel, setSelectedModel]);
 
-	const submit = (text: string, currentMentions: SelectedMention[]) => {
+	const submit = async (text: string, currentMentions: SelectedMention[]) => {
 		const trimmedInput = text.trim();
 		if (!trimmedInput || isRunning) {
 			return;
 		}
 		setMentions(currentMentions.map((m) => ({ id: m.id, label: m.label, trigger: m.trigger })));
-		sendMessage({ text: trimmedInput });
+		if (onSubmitMessage) {
+			await onSubmitMessage({ text: trimmedInput, mentions: currentMentions });
+		} else {
+			sendMessage({ text: trimmedInput });
+		}
 		promptRef.current?.clear();
+		setHasInput(false);
 	};
 
-	const handleSubmit = (e: FormEvent) => {
+	const handleSubmit = async (e: FormEvent) => {
 		e.preventDefault();
 		const value = promptRef.current?.getValue() ?? '';
 		const mentions = promptRef.current?.getMentions() ?? [];
-		submit(value, mentions);
+		await submit(value, mentions);
 	};
 
 	const getModelDisplayName = (provider: string, modelId: string) => {
@@ -93,6 +160,8 @@ export function ChatInput() {
 		minHeight: '60px',
 		color: 'var(--color-foreground)',
 		padding: '12px',
+		fontFamily: 'var(--font-sans)',
+		fontSize: '14px',
 		menu: {
 			minWidth: '400px',
 			backgroundColor: 'var(--popover)',
@@ -109,12 +178,12 @@ export function ChatInput() {
 	};
 
 	return (
-		<div className='p-4 pt-0 max-w-3xl w-full mx-auto'>
+		<div className={cn('p-4 pt-0 max-w-3xl w-full mx-auto', className)}>
 			<form onSubmit={handleSubmit} className='mx-auto relative'>
 				<InputGroup htmlFor='chat-input'>
 					<Prompt
 						ref={promptRef}
-						placeholder='Ask anything about your data...'
+						placeholder={placeholder}
 						mentionConfigs={[
 							{
 								trigger: '/',
@@ -134,26 +203,29 @@ export function ChatInput() {
 						className='w-full nao-input'
 						theme={theme}
 					/>
+
 					<InputGroupAddon align='block-end'>
 						{/* Model selector */}
 						{models.length > 0 && (
 							<DropdownMenu>
 								<DropdownMenuTrigger asChild disabled={!hasMultipleModels}>
-									<button
-										type='button'
-										className={`
-											flex items-center gap-1.5 text-sm font-normal text-muted-foreground outline-none
-											${hasMultipleModels ? 'hover:text-foreground cursor-pointer' : 'cursor-default'}
-										`}
+									<Button
+										variant='ghost-no-hover'
+										className={cn(
+											'flex items-center text-sm font-normal text-muted-foreground outline-none p-[0_!important] h-auto',
+											hasMultipleModels
+												? 'hover:text-foreground cursor-pointer'
+												: 'cursor-default',
+										)}
 									>
 										{selectedModel && (
-											<LlmProviderIcon provider={selectedModel.provider} className='size-3.5' />
+											<LlmProviderIcon provider={selectedModel.provider} className='size-4' />
 										)}
 										{selectedModel
 											? getModelDisplayName(selectedModel.provider, selectedModel.modelId)
 											: 'Select model'}
 										{hasMultipleModels && <ChevronDown className='size-3' />}
-									</button>
+									</Button>
 								</DropdownMenuTrigger>
 
 								{hasMultipleModels && (
@@ -180,12 +252,20 @@ export function ChatInput() {
 							</DropdownMenu>
 						)}
 
-						<ChatButton
-							isRunning={isRunning}
-							disabled={isLoadingMessages || !hasInput}
-							onClick={isRunning ? stopAgent : handleSubmit}
-							type='button'
-						/>
+						<div className='flex items-center gap-2 ml-auto'>
+							{onCancel && (
+								<Button variant='ghost' type='button' size='sm' onClick={onCancel}>
+									Cancel
+								</Button>
+							)}
+
+							<ChatButton
+								isRunning={isRunning}
+								disabled={isLoadingMessages || !hasInput}
+								onClick={isRunning ? stopAgent : handleSubmit}
+								type='button'
+							/>
+						</div>
 					</InputGroupAddon>
 				</InputGroup>
 			</form>

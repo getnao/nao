@@ -39,6 +39,8 @@ export type UITools = InferUITools<typeof tools>;
 export type MessageCustomDataParts = {
 	/** Sent when a new chat is created */
 	newChat: ChatListItem;
+	/** Maps the client-generated user message ID to the server-generated one */
+	newUserMessage: { clientId: string; newId: string };
 };
 
 export type UIMessagePart = UIGenericMessagePart<MessageCustomDataParts, UITools>;

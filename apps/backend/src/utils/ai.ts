@@ -86,3 +86,7 @@ export const getLastUserMessageText = (messages: UIMessage[]): string => {
 export function estimateTokens(text: string): number {
 	return Math.ceil(text.length / 4);
 }
+
+export const createChatTitle = (message: UIMessage) => {
+	return message.parts.find((part) => part.type === 'text')?.text.slice(0, 64);
+};
