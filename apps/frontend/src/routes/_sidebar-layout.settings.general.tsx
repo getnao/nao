@@ -10,8 +10,7 @@ import { useLocalStorage } from '@/hooks/use-local-storage';
 import { soundNotificationStorage } from '@/hooks/use-stream-end-sound';
 import { ThemeSelector } from '@/components/settings/theme-selector';
 import { SettingsCard } from '@/components/ui/settings-card';
-import { Switch } from '@/components/ui/switch';
-import { SettingsControlRow } from '@/components/ui/settings-toggle-row';
+import { SettingsControlRow, SettingsToggleRow } from '@/components/ui/settings-toggle-row';
 import { trpc } from '@/main';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/general')({
@@ -63,13 +62,12 @@ function GeneralPage() {
 			<ModifyUserForm isAdmin={isAdmin} />
 
 			<SettingsCard title='General Settings' divide>
-				<SettingsControlRow
+				<SettingsToggleRow
 					id='sound-notification'
 					label='Sound notification'
 					description='Play a sound when the agent finishes responding.'
-					control={
-						<Switch id='sound-notification' checked={soundEnabled} onCheckedChange={setSoundEnabled} />
-					}
+					checked={soundEnabled}
+					onCheckedChange={setSoundEnabled}
 				/>
 				<SettingsControlRow label='Theme' description='Choose how nao looks.' control={<ThemeSelector />} />
 			</SettingsCard>

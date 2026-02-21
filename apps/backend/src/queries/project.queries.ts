@@ -25,12 +25,7 @@ export const getProjectMemoryEnabled = async (projectId: string): Promise<boolea
 };
 
 export const setProjectMemoryEnabled = async (projectId: string, memoryEnabled: boolean): Promise<void> => {
-	const currentSettings = await getAgentSettings(projectId);
-	await db
-		.update(s.project)
-		.set({ agentSettings: { ...currentSettings, memoryEnabled } })
-		.where(eq(s.project.id, projectId))
-		.execute();
+	await updateAgentSettings(projectId, { memoryEnabled });
 };
 
 export const createProject = async (project: NewProject): Promise<DBProject> => {

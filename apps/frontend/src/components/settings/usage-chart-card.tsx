@@ -29,13 +29,11 @@ export function UsageChartCard({
 }: UsageChartCardProps) {
 	return (
 		<SettingsCard title={title} titleSize='lg' description={description} action={filters}>
-			{isError && (
+			{isError ? (
 				<div className='flex items-center justify-center py-12'>
 					<p className='text-muted-foreground'>Error loading usage data.</p>
 				</div>
-			)}
-
-			{isLoading && data.length === 0 ? (
+			) : isLoading && data.length === 0 ? (
 				<div className='flex items-center justify-center py-12'>
 					<p className='text-muted-foreground'>Loading usage data...</p>
 				</div>
