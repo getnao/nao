@@ -10,6 +10,7 @@ export function LlmProvidersSection({ isAdmin }: LlmProvidersSectionProps) {
 	const {
 		projectConfigs,
 		envProviders,
+		envBaseUrls,
 		availableProvidersToAdd,
 		unconfiguredEnvProviders,
 		currentModels,
@@ -51,6 +52,7 @@ export function LlmProvidersSection({ isAdmin }: LlmProvidersSectionProps) {
 						key={`env-${provider}`}
 						provider={provider}
 						isEnvProvider
+						envBaseUrl={envBaseUrls[provider]}
 						isAdmin={isAdmin}
 						isFormActive={!!editingState}
 						onEdit={() => handleConfigureEnvProvider(provider)}
@@ -84,6 +86,7 @@ export function LlmProvidersSection({ isAdmin }: LlmProvidersSectionProps) {
 						provider={config.provider}
 						apiKeyPreview={config.apiKeyPreview}
 						baseUrl={config.baseUrl}
+						envBaseUrl={envBaseUrls[config.provider]}
 						enabledModels={config.enabledModels}
 						isEnvProvider={envProviders.includes(config.provider)}
 						isAdmin={isAdmin}

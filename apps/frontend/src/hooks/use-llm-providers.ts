@@ -31,6 +31,7 @@ export function useLlmProviders() {
 	// Derived data
 	const projectConfigs = llmConfigs.data?.projectConfigs ?? [];
 	const envProviders = llmConfigs.data?.envProviders ?? [];
+	const envBaseUrls = llmConfigs.data?.envBaseUrls ?? {};
 	const projectConfiguredProviders = projectConfigs.map((c) => c.provider);
 
 	const availableProvidersToAdd: LlmProvider[] = llmProviderSchema.options.filter(
@@ -113,6 +114,7 @@ export function useLlmProviders() {
 		// Data
 		projectConfigs,
 		envProviders,
+		envBaseUrls,
 		availableProvidersToAdd,
 		unconfiguredEnvProviders,
 		currentModels,

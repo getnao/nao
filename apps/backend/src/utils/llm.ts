@@ -9,6 +9,11 @@ export function getEnvApiKey(provider: LlmProvider): string | undefined {
 	return process.env[LLM_PROVIDERS[provider].envVar];
 }
 
+/** Get the base URL from environment for a provider (e.g. OPENAI_BASE_URL) */
+export function getEnvBaseUrl(provider: LlmProvider): string | undefined {
+	return process.env[LLM_PROVIDERS[provider].envVar.replace('_API_KEY', '_BASE_URL')];
+}
+
 /** Check if a provider has an API key configured via environment */
 export function hasEnvApiKey(provider: LlmProvider): boolean {
 	return !!getEnvApiKey(provider);
@@ -17,6 +22,15 @@ export function hasEnvApiKey(provider: LlmProvider): boolean {
 /** Get all providers that have API keys configured via environment */
 export function getEnvProviders(): LlmProvider[] {
 	return (Object.keys(LLM_PROVIDERS) as LlmProvider[]).filter(hasEnvApiKey);
+}
+
+/** Get base URLs set via environment, keyed by provider */
+export function getEnvBaseUrls(): Record<string, string> {
+	return Object.fromEntries(
+		getEnvProviders()
+			.map((p) => [p, getEnvBaseUrl(p)] as const)
+			.filter((entry): entry is [LlmProvider, string] => !!entry[1]),
+	);
 }
 
 /** Get the first available provider from env (preferring anthropic) */

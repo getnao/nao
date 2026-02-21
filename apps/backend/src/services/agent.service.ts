@@ -27,7 +27,7 @@ import {
 	getLastUserMessageText,
 	retrieveProjectById,
 } from '../utils/ai';
-import { getDefaultModelId, getEnvApiKey, getEnvModelSelections, ModelSelection } from '../utils/llm';
+import { getDefaultModelId, getEnvApiKey, getEnvBaseUrl, getEnvModelSelections, ModelSelection } from '../utils/llm';
 import { memoryService } from './memory';
 import { skillService } from './skill.service';
 
@@ -152,7 +152,12 @@ export class AgentService {
 		// No config but env var might exist - use it
 		const envApiKey = getEnvApiKey(modelSelection.provider);
 		if (envApiKey) {
-			return createProviderModel(modelSelection.provider, { apiKey: envApiKey }, modelSelection.modelId);
+			const envBaseUrl = getEnvBaseUrl(modelSelection.provider);
+			return createProviderModel(
+				modelSelection.provider,
+				{ apiKey: envApiKey, ...(envBaseUrl && { baseURL: envBaseUrl }) },
+				modelSelection.modelId,
+			);
 		}
 
 		throw Error('No model config found');

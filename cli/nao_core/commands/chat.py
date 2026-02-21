@@ -180,6 +180,10 @@ def chat(port: Annotated[Optional[int], Parameter(name=["-p", "--port"])] = None
             env_var_name = f"{config.llm.provider.upper()}_API_KEY"
             env[env_var_name] = config.llm.api_key
             console.print(f"[bold green]✓[/bold green] Set {env_var_name} from config")
+            if config.llm.base_url:
+                base_url_var = f"{config.llm.provider.upper()}_BASE_URL"
+                env[base_url_var] = config.llm.base_url
+                console.print(f"[bold green]✓[/bold green] Set {base_url_var} from config")
 
         # Set Slack config if available
         if config and config.slack:

@@ -53,8 +53,8 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 				},
 			},
 			{
-				id: 'claude-opus-4-5',
-				name: 'Claude Opus 4.5',
+				id: 'claude-opus-4-6',
+				name: 'Claude Opus 4.6',
 				config: {
 					thinking: {
 						type: 'enabled' as const,
@@ -69,8 +69,8 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 				},
 			},
 			{
-				id: 'claude-opus-4-6',
-				name: 'Claude Opus 4.6',
+				id: 'claude-opus-4-5',
+				name: 'Claude Opus 4.5',
 				config: {
 					thinking: {
 						type: 'enabled' as const,

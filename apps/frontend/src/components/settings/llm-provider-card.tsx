@@ -8,6 +8,7 @@ interface ProviderCardProps {
 	provider: LlmProvider;
 	apiKeyPreview?: string | null;
 	baseUrl?: string | null;
+	envBaseUrl?: string;
 	enabledModels?: string[] | null;
 	isEnvProvider: boolean;
 	isAdmin: boolean;
@@ -22,6 +23,7 @@ export function ProviderCard({
 	provider,
 	apiKeyPreview,
 	baseUrl,
+	envBaseUrl,
 	enabledModels,
 	isEnvProvider,
 	isAdmin,
@@ -47,17 +49,27 @@ export function ProviderCard({
 					{apiKeyPreview ? (
 						<div className='flex items-center gap-2 text-xs text-muted-foreground'>
 							<span className='font-mono'>{apiKeyPreview}</span>
-							{baseUrl && (
+							{(baseUrl || envBaseUrl) && (
 								<>
 									<span className='text-border'>•</span>
-									<span className='truncate max-w-[150px]' title={baseUrl}>
-										Custom URL
+									<span className='truncate max-w-[200px]' title={baseUrl || envBaseUrl}>
+										{baseUrl || envBaseUrl}
 									</span>
 								</>
 							)}
 						</div>
 					) : (
-						<span className='text-xs text-muted-foreground'>API key from environment</span>
+						<div className='flex items-center gap-2 text-xs text-muted-foreground'>
+							<span>API key from environment</span>
+							{envBaseUrl && (
+								<>
+									<span className='text-border'>•</span>
+									<span className='truncate max-w-[200px]' title={envBaseUrl}>
+										{envBaseUrl}
+									</span>
+								</>
+							)}
+						</div>
 					)}
 				</div>
 				{isAdmin && (
