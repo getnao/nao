@@ -18,7 +18,7 @@ function ProjectPage() {
 			<div className='flex flex-row gap-6'>
 				<div className='flex flex-col items-start gap-2'>{project.data && <SettingsProjectNav />}</div>
 
-				<div className='flex flex-col gap-12 flex-1 min-w-0'>
+				<div className='flex flex-col gap-12 flex-1 min-w-0 mb-4'>
 					{project.data ? (
 						<Outlet />
 					) : (

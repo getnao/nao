@@ -1,6 +1,6 @@
 import { ChevronDown } from 'lucide-react';
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useParams } from '@tanstack/react-router';
+import { useParams, Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { Prompt } from 'prompt-mentions';
 import { ChatButton, MicButton } from './ui/button';
@@ -35,13 +35,28 @@ export function ChatInput() {
 	const knownModels = useQuery(trpc.project.getKnownModels.queryOptions());
 	const skills = useQuery(trpc.skill.list.queryOptions());
 	const agentSettings = useQuery(trpc.project.getAgentSettings.queryOptions());
+	const transcribeModels = useQuery(trpc.project.getKnownTranscribeModels.queryOptions());
 	const isTranscribeEnabled = agentSettings.data?.transcribe?.enabled ?? false;
+	const hasTranscribeProvider = Object.values(transcribeModels.data ?? {}).some((p) => p.hasKey);
+	const isTranscribeReady = isTranscribeEnabled && hasTranscribeProvider;
+
+	const [micWarning, setMicWarning] = useState(false);
+	const micWarningTimer = useRef(0);
+
+	const showMicWarning = useCallback(() => {
+		setMicWarning(true);
+		window.clearTimeout(micWarningTimer.current);
+		micWarningTimer.current = window.setTimeout(() => setMicWarning(false), 5000);
+	}, []);
 
 	const onTranscribed = useCallback(
 		(text: string) => {
+			if (isRunning) {
+				return;
+			}
 			sendMessage({ text });
 		},
-		[sendMessage],
+		[sendMessage, isRunning],
 	);
 
 	const { state: transcribeState, toggle: toggleRecording, analyserRef } = useTranscribe(onTranscribed);
@@ -151,7 +166,7 @@ export function ChatInput() {
 						theme={theme}
 					/>
 					<InputGroupAddon align='block-end'>
-						{(!isTranscribeEnabled || (!isRecording && !isTranscribing)) && models.length > 0 && (
+						{(!isTranscribeReady || (!isRecording && !isTranscribing)) && models.length > 0 && (
 							<DropdownMenu>
 								<DropdownMenuTrigger asChild disabled={!hasMultipleModels}>
 									<button
@@ -195,13 +210,16 @@ export function ChatInput() {
 							</DropdownMenu>
 						)}
 
-						{isTranscribeEnabled && isRecording && <SlidingWaveform analyserRef={analyserRef} />}
+						{isTranscribeReady && isRecording && <SlidingWaveform analyserRef={analyserRef} />}
 
-						<div className='ml-auto flex items-center gap-1.5'>
-							{isTranscribeEnabled && isRecording && <RecordingTimer />}
-							{isTranscribeEnabled && (
-								<MicButton state={transcribeState} onClick={toggleRecording} disabled={isRunning} />
-							)}
+						<div className='ml-auto flex items-center gap-1.5 relative'>
+							{isTranscribeReady && isRecording && <RecordingTimer />}
+							<MicButton
+								state={isTranscribeReady ? transcribeState : 'idle'}
+								onClick={isTranscribeReady ? toggleRecording : showMicWarning}
+								disabled={isRunning}
+							/>
+							{micWarning && <MicWarningBanner onDismiss={() => setMicWarning(false)} />}
 
 							<ChatButton
 								isRunning={isRunning}
@@ -232,5 +250,29 @@ function RecordingTimer() {
 		<span className='text-xs tabular-nums text-muted-foreground'>
 			{mins}:{secs.toString().padStart(2, '0')}
 		</span>
+	);
+}
+
+function MicWarningBanner({ onDismiss }: { onDismiss: () => void }) {
+	return (
+		<div className='absolute bottom-full right-0 mb-2 w-64 rounded-md border bg-popover p-3 text-popover-foreground shadow-md animate-in fade-in slide-in-from-bottom-2 duration-200'>
+			<button
+				type='button'
+				onClick={onDismiss}
+				className='absolute top-1 right-1.5 text-muted-foreground hover:text-foreground text-xs cursor-pointer'
+			>
+				&times;
+			</button>
+			<p className='text-sm'>
+				Voice input is not configured.{' '}
+				<Link
+					to='/settings/project/models'
+					className='font-medium text-primary underline underline-offset-2 hover:text-primary/80'
+				>
+					Go to Settings &rarr; Models
+				</Link>{' '}
+				to enable transcription and set up a provider. Ask your admin.
+			</p>
+		</div>
 	);
 }

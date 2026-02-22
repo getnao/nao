@@ -10,6 +10,10 @@ export function useTranscribe(onTranscribed: (text: string) => void) {
 	const chunksRef = useRef<Blob[]>([]);
 	const analyserRef = useRef<AnalyserNode | null>(null);
 	const audioCtxRef = useRef<AudioContext | null>(null);
+	const onTranscribedRef = useRef(onTranscribed);
+	useEffect(() => {
+		onTranscribedRef.current = onTranscribed;
+	});
 
 	const stop = useCallback(() => {
 		if (mediaRecorderRef.current?.state === 'recording') {
@@ -77,7 +81,7 @@ export function useTranscribe(onTranscribed: (text: string) => void) {
 				const base64 = await blobToBase64(blob);
 				const { text } = await trpcClient.transcribe.transcribe.mutate({ audio: base64 });
 				if (text?.trim()) {
-					onTranscribed(text.trim());
+					onTranscribedRef.current(text.trim());
 				}
 			} catch (err) {
 				console.error('Transcription error:', err);
@@ -88,7 +92,7 @@ export function useTranscribe(onTranscribed: (text: string) => void) {
 
 		mediaRecorder.start();
 		setState('recording');
-	}, [state, onTranscribed]);
+	}, [state]);
 
 	const toggle = useCallback(() => {
 		if (state === 'recording') {

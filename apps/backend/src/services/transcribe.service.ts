@@ -35,7 +35,13 @@ export async function transcribeAudio(
 }
 
 export async function getAvailableModels(projectId: string) {
-	const available: Record<string, { models: Array<{ id: string; name: string }>; hasKey: boolean }> = {};
+	const available: Record<
+		string,
+		{
+			models: Array<{ id: string; name: string; default?: boolean; pricePerMinute?: number }>;
+			hasKey: boolean;
+		}
+	> = {};
 
 	for (const [provider, config] of Object.entries(TRANSCRIBE_PROVIDERS)) {
 		const llmProvider = provider as 'openai';
@@ -44,12 +50,17 @@ export async function getAvailableModels(projectId: string) {
 		const hasKey = !!(dbConfig?.apiKey || envKey);
 
 		available[provider] = {
-			models: config.models.map((m) => ({ id: m.id, name: m.name })),
+			models: config.models.map((m) => ({
+				id: m.id,
+				name: m.name,
+				...(m.default && { default: m.default }),
+				...(m.pricePerMinute != null && { pricePerMinute: m.pricePerMinute }),
+			})),
 			hasKey,
 		};
 	}
 
-	return { providers: available };
+	return available;
 }
 
 async function resolveProviderSettings(

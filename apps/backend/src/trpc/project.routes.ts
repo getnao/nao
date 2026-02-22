@@ -2,13 +2,13 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
 import { KNOWN_MODELS } from '../agents/providers';
-import { KNOWN_TRANSCRIBE_MODELS } from '../agents/transcribe.providers';
 import { env } from '../env';
 import * as projectQueries from '../queries/project.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import * as savedPromptQueries from '../queries/project-saved-prompt.queries';
 import * as slackConfigQueries from '../queries/project-slack-config.queries';
 import { posthog, PostHogEvent } from '../services/posthog.service';
+import { getAvailableModels as getAvailableTranscribeModels } from '../services/transcribe.service';
 import { llmConfigSchema, LlmProvider, llmProviderSchema } from '../types/llm';
 import { getEnvApiKey, getEnvProviders, getProjectAvailableModels } from '../utils/llm';
 import { adminProtectedProcedure, projectProtectedProcedure, publicProcedure } from './trpc';
@@ -185,8 +185,8 @@ export const projectRoutes = {
 		return KNOWN_MODELS;
 	}),
 
-	getKnownTranscribeModels: publicProcedure.query(() => {
-		return KNOWN_TRANSCRIBE_MODELS;
+	getKnownTranscribeModels: projectProtectedProcedure.query(({ ctx }) => {
+		return getAvailableTranscribeModels(ctx.project.id);
 	}),
 
 	removeProjectMember: adminProtectedProcedure
