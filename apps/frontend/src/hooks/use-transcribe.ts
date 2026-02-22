@@ -1,5 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 
+import { trpcClient } from '@/main';
+
 type TranscribeState = 'idle' | 'recording' | 'transcribing';
 
 export function useTranscribe(onTranscribed: (text: string) => void) {
@@ -73,18 +75,7 @@ export function useTranscribe(onTranscribed: (text: string) => void) {
 
 			try {
 				const base64 = await blobToBase64(blob);
-				const res = await fetch('/api/transcribe/transcribe', {
-					method: 'POST',
-					headers: { 'Content-Type': 'application/json' },
-					body: JSON.stringify({ audio: base64 }),
-				});
-
-				if (!res.ok) {
-					const err = await res.json().catch(() => ({ error: 'Transcription failed' }));
-					throw new Error(err.error ?? 'Transcription failed');
-				}
-
-				const { text } = await res.json();
+				const { text } = await trpcClient.transcribe.transcribe.mutate({ audio: base64 });
 				if (text?.trim()) {
 					onTranscribed(text.trim());
 				}
