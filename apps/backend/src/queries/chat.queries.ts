@@ -119,32 +119,36 @@ export const getChatOwnerId = async (chatId: string): Promise<string | undefined
 
 /** Suppress all messages from a given message id onwards (won't be used in the conversation anymore). */
 export const supersedeMessagesFrom = async (chatId: string, fromMessageId: string): Promise<void> => {
-	const [fromMessage] = await db
-		.select({ createdAt: s.chatMessage.createdAt })
-		.from(s.chatMessage)
-		.where(and(eq(s.chatMessage.id, fromMessageId), eq(s.chatMessage.chatId, chatId)))
-		.execute();
+	await db.transaction(async (t) => {
+		const [fromMessage] = await t
+			.select({ createdAt: s.chatMessage.createdAt })
+			.from(s.chatMessage)
+			.where(and(eq(s.chatMessage.id, fromMessageId), eq(s.chatMessage.chatId, chatId)))
+			.execute();
 
-	if (!fromMessage) {
-		return;
-	}
+		if (!fromMessage) {
+			return;
+		}
 
-	await db
-		.update(s.chatMessage)
-		.set({ supersededAt: new Date() })
-		.where(
-			and(
-				eq(s.chatMessage.chatId, chatId),
-				gte(s.chatMessage.createdAt, fromMessage.createdAt),
-				isNull(s.chatMessage.supersededAt),
-			),
-		)
-		.execute();
+		await t
+			.update(s.chatMessage)
+			.set({ supersededAt: new Date() })
+			.where(
+				and(
+					eq(s.chatMessage.chatId, chatId),
+					gte(s.chatMessage.createdAt, fromMessage.createdAt),
+					isNull(s.chatMessage.supersededAt),
+				),
+			)
+			.execute();
+	});
 };
 
 export const createChat = async (
 	newChat: NewChat,
-	newMessage: Pick<UIMessage, 'role' | 'parts'>,
+	newUserMessage: {
+		text: string;
+	},
 ): Promise<[DBChat, DBChatMessage]> => {
 	return db.transaction(async (t): Promise<[DBChat, DBChatMessage]> => {
 		const [savedChat] = await t.insert(s.chat).values(newChat).returning().execute();
@@ -153,23 +157,21 @@ export const createChat = async (
 			.insert(s.chatMessage)
 			.values({
 				chatId: savedChat.id,
-				role: newMessage.role,
+				role: 'user',
 			})
 			.returning()
 			.execute();
 
-		const dbParts = mapUIPartsToDBParts(newMessage.parts, savedMessage.id);
-		if (dbParts.length) {
-			await t.insert(s.messagePart).values(dbParts).execute();
-		}
+		const dbParts = mapUIPartsToDBParts([{ type: 'text', text: newUserMessage.text }], savedMessage.id);
+		await t.insert(s.messagePart).values(dbParts).execute();
 
 		return [savedChat, savedMessage];
 	});
 };
 
 export const upsertMessage = async (
-	message: Omit<UIMessage, 'id'> & { id?: string },
-	opts: {
+	message: Omit<UIMessage, 'id'> & {
+		id?: string;
 		chatId: string;
 		stopReason?: StopReason;
 		error?: unknown;
@@ -184,13 +186,13 @@ export const upsertMessage = async (
 			.insert(s.chatMessage)
 			.values({
 				id: messageId,
-				chatId: opts.chatId,
+				chatId: message.chatId,
 				role: message.role,
-				stopReason: opts.stopReason,
-				errorMessage: getErrorMessage(opts.error),
-				llmProvider: opts.llmProvider,
-				llmModelId: opts.llmModelId,
-				...opts.tokenUsage,
+				stopReason: message.stopReason,
+				errorMessage: getErrorMessage(message.error),
+				llmProvider: message.llmProvider,
+				llmModelId: message.llmModelId,
+				...message.tokenUsage,
 			})
 			.onConflictDoNothing({ target: s.chatMessage.id })
 			.execute();

@@ -178,16 +178,15 @@ export class SlackService {
 	private async _saveOrUpdateUserMessage(): Promise<string> {
 		const existingChat = await chatQueries.getChatBySlackThread(this._threadId);
 
-		const userMessage: UIMessage = {
-			id: crypto.randomUUID(),
-			role: 'user',
-			parts: [{ type: 'text', text: this._text }],
-		};
 		if (existingChat) {
-			await chatQueries.upsertMessage(userMessage, { chatId: existingChat.id });
+			await chatQueries.upsertMessage({
+				role: 'user',
+				parts: [{ type: 'text', text: this._text }],
+				chatId: existingChat.id,
+			});
 			return existingChat.id;
 		} else {
-			const title = createChatTitle(userMessage);
+			const title = createChatTitle({ text: this._text });
 			const [createdChat] = await chatQueries.createChat(
 				{
 					title,
@@ -195,7 +194,9 @@ export class SlackService {
 					projectId: this._projectId,
 					slackThreadId: this._threadId,
 				},
-				userMessage,
+				{
+					text: this._text,
+				},
 			);
 			return createdChat.id;
 		}

@@ -213,7 +213,8 @@ class AgentManager {
 				try {
 					const stopReason = e.isAborted ? 'interrupted' : e.finishReason;
 					const tokenUsage = await this._getTotalUsage(result);
-					await chatQueries.upsertMessage(e.responseMessage, {
+					await chatQueries.upsertMessage({
+						...e.responseMessage,
 						chatId: this.chat.id,
 						stopReason,
 						error,

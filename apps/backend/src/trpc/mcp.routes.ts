@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'zod/v4';
 
 import * as mcpConfigQueries from '../queries/project.queries';
 import { mcpService } from '../services/mcp.service';

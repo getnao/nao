@@ -3,7 +3,7 @@ import type { GoogleGenerativeAIProviderOptions } from '@ai-sdk/google';
 import type { MistralLanguageModelOptions } from '@ai-sdk/mistral';
 import type { OpenAIResponsesProviderOptions } from '@ai-sdk/openai';
 import type { OpenRouterProviderOptions } from '@openrouter/ai-sdk-provider';
-import { z } from 'zod';
+import { z } from 'zod/v4';
 
 import { TokenCost } from './chat';
 

@@ -25,7 +25,14 @@ const createMessageEditStore = () => {
 			}
 			listeners.get(messageId)!.add(callback);
 			return () => {
-				listeners.get(messageId)!.delete(callback);
+				const messageListeners = listeners.get(messageId);
+				if (!messageListeners) {
+					return;
+				}
+				messageListeners.delete(callback);
+				if (messageListeners.size === 0) {
+					listeners.delete(messageId);
+				}
 			};
 		},
 		getSnapshot: (messageId: string): boolean => editingId === messageId,
@@ -35,7 +42,16 @@ const createMessageEditStore = () => {
 export const messageEditStore = createMessageEditStore();
 
 export const useIsEditingMessage = (messageId: string): boolean => {
-	const subscribe = useCallback((callback: Listener) => messageEditStore.subscribe(messageId, callback), [messageId]);
-	const getSnapshot = useCallback(() => messageEditStore.getSnapshot(messageId), [messageId]);
+	const subscribe = useCallback(
+		(callback: Listener) => {
+			return messageEditStore.subscribe(messageId, callback);
+		},
+		[messageId],
+	);
+
+	const getSnapshot = useCallback(() => {
+		return messageEditStore.getSnapshot(messageId);
+	}, [messageId]);
+
 	return useSyncExternalStore(subscribe, getSnapshot);
 };

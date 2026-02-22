@@ -16,7 +16,7 @@ import type ChatSelectedModel from '@/types/ai';
 import { useChatQuery, useSetChat } from '@/queries/use-chat-query';
 import { trpc } from '@/main';
 import { agentService } from '@/services/agents';
-import { checkIsAgentRunning } from '@/lib/ai';
+import { checkIsAgentRunning, getLastUserMessageIdx, getTextFromUserMessageOrThrow } from '@/lib/ai';
 import { useSetChatList } from '@/queries/use-chat-list-query';
 import { createLocalStorage } from '@/lib/local-storage';
 
@@ -76,9 +76,10 @@ export const useAgent = (): AgentHelpers => {
 			}
 
 			if (dataPart.type === 'data-newUserMessage') {
-				const { clientId, newId } = dataPart.data;
-				agent.messages = agent.messages.map((message) =>
-					message.id === clientId ? { ...message, id: newId } : message,
+				const { newId } = dataPart.data;
+				const lastUserMessageIndex = getLastUserMessageIdx(agent.messages);
+				agent.messages = agent.messages.map((message, idx) =>
+					idx === lastUserMessageIndex ? { ...message, id: newId } : message,
 				);
 			}
 		};
@@ -87,13 +88,20 @@ export const useAgent = (): AgentHelpers => {
 			transport: new DefaultChatTransport({
 				api: '/api/agent',
 				prepareSendMessagesRequest: ({ body, messages }) => {
+					const messageToSend = messages.at(-1);
+					if (!messageToSend) {
+						throw new Error('No message to send.');
+					}
+
 					const mentions = mentionsRef.current;
 					mentionsRef.current = [];
 					return {
 						body: {
 							...body,
 							chatId: agentId === 'new-chat' ? undefined : agentId,
-							message: messages.at(-1),
+							message: {
+								text: getTextFromUserMessageOrThrow(messageToSend),
+							},
 							model: selectedModelRef.current ?? undefined,
 							mentions: mentions.length > 0 ? mentions : undefined,
 						},

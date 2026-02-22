@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import path from 'node:path';
 
 import dotenv from 'dotenv';
-import { z } from 'zod';
+import { z } from 'zod/v4';
 
 // Loads .env file at the root of the repository
 dotenv.config({

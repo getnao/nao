@@ -162,3 +162,22 @@ export const groupMessages = (messages: UIMessage[]): MessageGroup[] => {
 	}
 	return groups;
 };
+
+export const getLastUserMessageIdx = (messages: UIMessage[]): number | undefined => {
+	for (let i = messages.length - 1; i >= 0; i--) {
+		if (messages[i].role === 'user') {
+			return i;
+		}
+	}
+	return undefined;
+};
+
+export const getTextFromUserMessageOrThrow = (message: UIMessage): string => {
+	if (message.role !== 'user') {
+		throw new Error('Message is not a user message.');
+	}
+	if (message.parts.length === 0 || message.parts[0].type !== 'text') {
+		throw new Error('User message has no text.');
+	}
+	return message.parts[0].text;
+};

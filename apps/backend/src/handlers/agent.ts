@@ -1,9 +1,8 @@
 import * as chatQueries from '../queries/chat.queries';
-import { AgentRequest } from '../routes/agent';
 import { agentService } from '../services/agent.service';
 import { mcpService } from '../services/mcp.service';
 import { skillService } from '../services/skill.service';
-import { UIMessage } from '../types/chat';
+import { AgentRequest, AgentRequestUserMessage } from '../types/chat';
 import { createChatTitle } from '../utils/ai';
 import { HandlerError } from '../utils/error';
 
@@ -19,8 +18,8 @@ interface HandleAgentMessageResult {
 	stream: ReadableStream;
 }
 
-export const handleAgentRoute = async (input: HandleAgentMessageInput): Promise<HandleAgentMessageResult> => {
-	const { userId, message, messageToEditId, model, mentions, projectId } = input;
+export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<HandleAgentMessageResult> => {
+	const { userId, message, messageToEditId, model, mentions, projectId } = opts;
 
 	if (!projectId) {
 		throw new HandlerError(
@@ -29,7 +28,7 @@ export const handleAgentRoute = async (input: HandleAgentMessageInput): Promise<
 		);
 	}
 
-	let chatId = input.chatId;
+	let chatId = opts.chatId;
 	const isNewChat = !chatId;
 	let newMessageId: string;
 
@@ -38,17 +37,13 @@ export const handleAgentRoute = async (input: HandleAgentMessageInput): Promise<
 		chatId = createdChat.id;
 		newMessageId = createdMessage.id;
 	} else {
-		const { messageId } = await insertOrSupersedeMessage(chatId, message, messageToEditId);
+		const { messageId } = await insertOrSupersedeMessage({ userId, chatId, message, messageToEditId });
 		newMessageId = messageId;
 	}
 
-	const [chat, chatUserId] = await chatQueries.loadChat(chatId);
+	const [chat] = await chatQueries.loadChat(chatId);
 	if (!chat) {
 		throw new HandlerError('NOT_FOUND', `Chat with id ${chatId} not found.`);
-	}
-
-	if (chatUserId !== userId) {
-		throw new HandlerError('FORBIDDEN', 'You are not authorized to access this chat.');
 	}
 
 	await mcpService.initializeMcpState(projectId);
@@ -67,7 +62,7 @@ export const handleAgentRoute = async (input: HandleAgentMessageInput): Promise<
 						updatedAt: chat.updatedAt,
 					}
 				: undefined,
-			newUserMessage: { clientId: message.id, newId: newMessageId },
+			newUserMessage: { newId: newMessageId },
 		},
 	});
 
@@ -79,19 +74,32 @@ export const handleAgentRoute = async (input: HandleAgentMessageInput): Promise<
 	};
 };
 
-const createChat = async (userId: string, projectId: string, message: UIMessage) => {
+const createChat = async (userId: string, projectId: string, message: AgentRequestUserMessage) => {
 	const title = createChatTitle(message);
 	return await chatQueries.createChat({ title, userId, projectId }, message);
 };
 
 /** Insert a message into a chat or supersede an existing message when it is edited. */
-const insertOrSupersedeMessage = async (chatId: string, message: UIMessage, messageToEditId?: string) => {
-	const doesChatExist = await chatQueries.checkChatExists(chatId);
-	if (!doesChatExist) {
+const insertOrSupersedeMessage = async (opts: {
+	userId: string;
+	chatId: string;
+	message: AgentRequestUserMessage;
+	messageToEditId?: string;
+}) => {
+	const { userId, chatId, message, messageToEditId } = opts;
+	const ownerId = await chatQueries.getChatOwnerId(chatId);
+	if (!ownerId) {
 		throw new HandlerError('NOT_FOUND', `Chat with id ${chatId} not found.`);
+	}
+	if (ownerId !== userId) {
+		throw new HandlerError('FORBIDDEN', 'You are not authorized to access this chat.');
 	}
 	if (messageToEditId) {
 		await chatQueries.supersedeMessagesFrom(chatId, messageToEditId);
 	}
-	return chatQueries.upsertMessage(message, { chatId });
+	return chatQueries.upsertMessage({
+		role: 'user',
+		parts: [{ type: 'text', text: message.text }],
+		chatId,
+	});
 };
