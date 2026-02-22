@@ -17,6 +17,7 @@ export type ProviderSettings = { apiKey: string; baseURL?: string };
 export const LLM_PROVIDERS: LlmProvidersType = {
 	anthropic: {
 		envVar: 'ANTHROPIC_API_KEY',
+		baseUrlEnvVar: 'ANTHROPIC_BASE_URL',
 		extractorModelId: 'claude-haiku-4-5',
 		models: [
 			{
@@ -98,6 +99,7 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 	},
 	openai: {
 		envVar: 'OPENAI_API_KEY',
+		baseUrlEnvVar: 'OPENAI_BASE_URL',
 		extractorModelId: 'gpt-5-mini',
 		models: [
 			{
@@ -120,6 +122,7 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 	},
 	google: {
 		envVar: 'GEMINI_API_KEY',
+		baseUrlEnvVar: 'GEMINI_BASE_URL',
 		extractorModelId: 'gemini-2.5-flash',
 		models: [
 			{
@@ -149,6 +152,7 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 	},
 	mistral: {
 		envVar: 'MISTRAL_API_KEY',
+		baseUrlEnvVar: 'MISTRAL_BASE_URL',
 		extractorModelId: 'mistral-medium-latest',
 		models: [
 			{
@@ -166,6 +170,7 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 	},
 	openrouter: {
 		envVar: 'OPENROUTER_API_KEY',
+		baseUrlEnvVar: 'OPENROUTER_BASE_URL',
 		extractorModelId: 'anthropic/claude-haiku-4.5',
 		models: [
 			{
@@ -241,7 +246,7 @@ const MODEL_CREATORS: Record<LlmProvider, ModelCreator> = {
 	openrouter: (settings, modelId) => createOpenRouter(settings).chat(modelId),
 };
 
-type ProviderModelResult = {
+export type ProviderModelResult = {
 	model: LanguageModel;
 	providerOptions: Partial<{ [P in LlmProvider]: ProviderConfigMap[P] }>;
 };

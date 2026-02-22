@@ -1,4 +1,4 @@
-import { getDefaultModelId, LLM_PROVIDERS } from '../agents/providers';
+import { createProviderModel, getDefaultModelId, LLM_PROVIDERS, type ProviderModelResult } from '../agents/providers';
 import * as projectLlmConfigQueries from '../queries/project-llm-config.queries';
 import { LlmProvider, ModelSelection } from '../types/llm';
 export { getDefaultModelId };
@@ -11,7 +11,8 @@ export function getEnvApiKey(provider: LlmProvider): string | undefined {
 
 /** Get the base URL from environment for a provider (e.g. OPENAI_BASE_URL) */
 export function getEnvBaseUrl(provider: LlmProvider): string | undefined {
-	return process.env[LLM_PROVIDERS[provider].envVar.replace('_API_KEY', '_BASE_URL')];
+	const { baseUrlEnvVar } = LLM_PROVIDERS[provider];
+	return baseUrlEnvVar ? process.env[baseUrlEnvVar] : undefined;
 }
 
 /** Check if a provider has an API key configured via environment */
@@ -60,6 +61,37 @@ export function getEnvModelSelections(): ModelSelection[] {
 		provider,
 		modelId: getDefaultModelId(provider),
 	}));
+}
+
+/**
+ * Resolve a provider model from DB config, falling back to env vars.
+ * Returns null when neither source has credentials for the provider.
+ */
+export async function resolveProviderModel(
+	projectId: string,
+	provider: LlmProvider,
+	modelId: string,
+): Promise<ProviderModelResult | null> {
+	const config = await projectLlmConfigQueries.getProjectLlmConfigByProvider(projectId, provider);
+	if (config) {
+		return createProviderModel(
+			provider,
+			{ apiKey: config.apiKey, ...(config.baseUrl && { baseURL: config.baseUrl }) },
+			modelId,
+		);
+	}
+
+	const envApiKey = getEnvApiKey(provider);
+	if (envApiKey) {
+		const envBaseUrl = getEnvBaseUrl(provider);
+		return createProviderModel(
+			provider,
+			{ apiKey: envApiKey, ...(envBaseUrl && { baseURL: envBaseUrl }) },
+			modelId,
+		);
+	}
+
+	return null;
 }
 
 export const getProjectAvailableModels = async (

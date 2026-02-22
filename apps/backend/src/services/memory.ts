@@ -1,14 +1,13 @@
 import { generateText, ModelMessage, Output } from 'ai';
 import { z } from 'zod/v4';
 
-import { createProviderModel, LLM_PROVIDERS } from '../agents/providers';
+import { LLM_PROVIDERS, type ProviderModelResult } from '../agents/providers';
 import { DBMemory, DBNewMemory } from '../db/abstractSchema';
 import { renderToMarkdown, XML } from '../lib/markdown';
 import * as memoryQueries from '../queries/memory';
-import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import { LlmProvider } from '../types/llm';
 import { MemoryExtractionOptions, UserMemory } from '../types/memory';
-import { getEnvApiKey } from '../utils/llm';
+import { resolveProviderModel } from '../utils/llm';
 import { MEMORY_CATEGORIES } from '../utils/memory';
 
 /**
@@ -79,25 +78,8 @@ class MemoryService {
 		projectId: string,
 		provider: LlmProvider,
 		modelId: string,
-	): Promise<ReturnType<typeof createProviderModel> | null> {
-		const config = await llmConfigQueries.getProjectLlmConfigByProvider(projectId, provider);
-		if (config) {
-			return createProviderModel(
-				provider,
-				{
-					apiKey: config.apiKey,
-					...(config.baseUrl && { baseURL: config.baseUrl }),
-				},
-				modelId,
-			);
-		}
-
-		const envApiKey = getEnvApiKey(provider);
-		if (envApiKey) {
-			return createProviderModel(provider, { apiKey: envApiKey }, modelId);
-		}
-
-		return null;
+	): Promise<ProviderModelResult | null> {
+		return resolveProviderModel(projectId, provider, modelId);
 	}
 
 	private _getExtractorModelId(provider: LlmProvider): string {
@@ -189,7 +171,7 @@ If nothing meaningful changed, return the existing memories unchanged.`;
  * the full reconciled memory list (additions, updates, deletions, merges).
  */
 class MemoryExtractorLLM {
-	constructor(private readonly model: ReturnType<typeof createProviderModel>) {}
+	constructor(private readonly model: ProviderModelResult) {}
 
 	async extract(memories: DBMemory[], userMessage: string): Promise<Memory[]> {
 		const { output } = await generateText({

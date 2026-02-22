@@ -11,7 +11,7 @@ import {
 	ToolLoopAgentSettings,
 } from 'ai';
 
-import { CACHE_1H, CACHE_5M, createProviderModel } from '../agents/providers';
+import { CACHE_1H, CACHE_5M } from '../agents/providers';
 import { getTools } from '../agents/tools';
 import { SystemPrompt } from '../components/system-prompt';
 import { renderToMarkdown } from '../lib/markdown';
@@ -27,7 +27,7 @@ import {
 	getLastUserMessageText,
 	retrieveProjectById,
 } from '../utils/ai';
-import { getDefaultModelId, getEnvApiKey, getEnvBaseUrl, getEnvModelSelections, ModelSelection } from '../utils/llm';
+import { getDefaultModelId, getEnvModelSelections, ModelSelection, resolveProviderModel } from '../utils/llm';
 import { memoryService } from './memory';
 import { skillService } from './skill.service';
 
@@ -136,31 +136,11 @@ export class AgentService {
 		projectId: string,
 		modelSelection: ModelSelection,
 	): Promise<Pick<ToolLoopAgentSettings, 'model' | 'providerOptions'>> {
-		const config = await llmConfigQueries.getProjectLlmConfigByProvider(projectId, modelSelection.provider);
-
-		if (config) {
-			return createProviderModel(
-				modelSelection.provider,
-				{
-					apiKey: config.apiKey,
-					...(config.baseUrl && { baseURL: config.baseUrl }),
-				},
-				modelSelection.modelId,
-			);
+		const result = await resolveProviderModel(projectId, modelSelection.provider, modelSelection.modelId);
+		if (!result) {
+			throw Error('No model config found');
 		}
-
-		// No config but env var might exist - use it
-		const envApiKey = getEnvApiKey(modelSelection.provider);
-		if (envApiKey) {
-			const envBaseUrl = getEnvBaseUrl(modelSelection.provider);
-			return createProviderModel(
-				modelSelection.provider,
-				{ apiKey: envApiKey, ...(envBaseUrl && { baseURL: envBaseUrl }) },
-				modelSelection.modelId,
-			);
-		}
-
-		throw Error('No model config found');
+		return result;
 	}
 }
 
@@ -196,7 +176,7 @@ class AgentManager {
 		},
 	): ReadableStream<InferUIMessageChunk<UIMessage>> {
 		let error: unknown = undefined;
-		let result: StreamTextResult<AgentTools, never>;
+		let result: StreamTextResult<AgentTools, never> | undefined;
 
 		return createUIMessageStream<UIMessage>({
 			generateId: () => crypto.randomUUID(),
@@ -230,18 +210,20 @@ class AgentManager {
 				return String(err);
 			},
 			onFinish: async (e) => {
-				const stopReason = e.isAborted ? 'interrupted' : e.finishReason;
-				const tokenUsage = await this._getTotalUsage(result);
-				await chatQueries.upsertMessage(e.responseMessage, {
-					chatId: this.chat.id,
-					stopReason,
-					error,
-					tokenUsage,
-					llmProvider: this._modelSelection.provider,
-					llmModelId: this._modelSelection.modelId,
-				});
-
-				this._onDispose();
+				try {
+					const stopReason = e.isAborted ? 'interrupted' : e.finishReason;
+					const tokenUsage = await this._getTotalUsage(result);
+					await chatQueries.upsertMessage(e.responseMessage, {
+						chatId: this.chat.id,
+						stopReason,
+						error,
+						tokenUsage,
+						llmProvider: this._modelSelection.provider,
+						llmModelId: this._modelSelection.modelId,
+					});
+				} finally {
+					this._onDispose();
+				}
 			},
 		});
 	}
@@ -274,8 +256,12 @@ class AgentManager {
 	}
 
 	private async _getTotalUsage(
-		result: StreamTextResult<ReturnType<typeof getTools>, never>,
+		result: StreamTextResult<ReturnType<typeof getTools>, never> | undefined,
 	): Promise<TokenUsage | undefined> {
+		if (!result) {
+			return undefined;
+		}
+
 		try {
 			// totalUsage promise will throw if an error occured during the streaming
 			return convertToTokenUsage(await result.totalUsage);

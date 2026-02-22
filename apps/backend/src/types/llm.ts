@@ -41,6 +41,7 @@ type ProviderModel<P extends LlmProvider> = {
 /** Provider configuration with typed models */
 type ProviderConfig<P extends LlmProvider> = {
 	envVar: string;
+	baseUrlEnvVar?: string;
 	models: readonly ProviderModel<P>[];
 	/** Preferred cheap model id for memory extraction. */
 	extractorModelId: string;
