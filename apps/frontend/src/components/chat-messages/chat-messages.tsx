@@ -63,9 +63,7 @@ const ChatMessagesContent = memo(({ isAgentGenerating }: { isAgentGenerating: bo
 	useEffect(() => {
 		// Register the scroll down fn so the agent context has access to it.
 		const scrollDownSubscription = registerScrollDown(scrollToBottom);
-		return () => {
-			scrollDownSubscription.dispose();
-		};
+		return () => scrollDownSubscription.dispose();
 	}, [registerScrollDown, scrollToBottom]);
 
 	const messageGroups = useMemo(() => groupMessages(messages), [messages]);
@@ -91,6 +89,8 @@ const ChatMessagesContent = memo(({ isAgentGenerating }: { isAgentGenerating: bo
 							userMessage={group.userMessage}
 							assistantMessages={group.assistantMessages}
 							showLoader={isRunningButNotGeneratingDebounced && isLast(group, messageGroups)}
+							isLastMessage={(messageId) => messageId === messages.at(-1)?.id}
+							isRunning={isRunning}
 						/>
 					))
 				)}
@@ -109,15 +109,25 @@ const MessageGroup = ({
 	userMessage,
 	assistantMessages,
 	showLoader,
+	isLastMessage,
+	isRunning,
 }: {
 	userMessage: UIMessage;
 	assistantMessages: UIMessage[];
 	showLoader: boolean;
+	isLastMessage: (messageId: string) => boolean;
+	isRunning: boolean;
 }) => {
 	return (
 		<div className='flex flex-col gap-4 last:min-h-[calc(var(--container-height)-var(--extra-components-height)-calc(2*24px+16px))] group/message last:mb-4'>
 			{[userMessage, ...assistantMessages].map((message) => (
-				<MessageBlock key={message.id} message={message} showLoader={showLoader} />
+				<MessageBlock
+					key={message.id}
+					message={message}
+					showLoader={showLoader}
+					isLastMessage={isLastMessage(message.id)}
+					isRunning={isRunning}
+				/>
 			))}
 
 			{showLoader && !assistantMessages.length && <TextShimmer className='px-3' />}
@@ -125,9 +135,18 @@ const MessageGroup = ({
 	);
 };
 
-const MessageBlock = memo(({ message, showLoader }: { message: UIMessage; showLoader: boolean }) => {
+const MessageBlock = ({
+	message,
+	showLoader,
+	isLastMessage,
+	isRunning,
+}: {
+	message: UIMessage;
+	showLoader: boolean;
+	isLastMessage: boolean;
+	isRunning: boolean;
+}) => {
 	const isUser = message.role === 'user';
-	const { messages, isRunning } = useAgentContext();
 
 	if (DEBUG_MESSAGES) {
 		return (
@@ -146,16 +165,13 @@ const MessageBlock = memo(({ message, showLoader }: { message: UIMessage; showLo
 		return <UserMessage message={message} />;
 	}
 
-	const isLastMessage = isLast(message, messages);
-	const isSettled = !isLastMessage || !isRunning;
-
 	return (
 		<AssistantMessage
 			message={message}
 			showLoader={showLoader && isLastMessage}
 			isCurrentGeneratedMessage={isLastMessage && isRunning}
-			isSettled={isSettled}
+			isSettled={!isLastMessage || !isRunning}
 			isRunning={isRunning}
 		/>
 	);
-});
+};

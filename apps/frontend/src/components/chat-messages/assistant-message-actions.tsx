@@ -130,8 +130,7 @@ function NegativeFeedbackDialog({ open, onOpenChange, onSubmit, isPending }: Neg
 	const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
 		if (e.key === 'Enter' && !e.shiftKey) {
 			e.preventDefault();
-			onSubmit(explanation.trim() || undefined);
-			setExplanation('');
+			e.currentTarget.form?.requestSubmit();
 		}
 	};
 
