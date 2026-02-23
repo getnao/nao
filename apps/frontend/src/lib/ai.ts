@@ -8,6 +8,7 @@ import type { ReasoningUIPart, ToolUIPart } from 'ai';
 import type { UseChatHelpers } from '@ai-sdk/react';
 import type { UITools, UIToolPart, UIMessage, UIMessagePart, StaticToolName } from '@nao/backend/chat';
 import type { CollapsiblePart, ToolGroupPart, GroupedMessagePart, MessageGroup } from '@/types/ai';
+import type { AgentHelpers } from '@/hooks/use-agent';
 
 /** Check if a tool has reached its final state (no more actions needed). */
 export const isToolSettled = ({ state }: UIToolPart) => {
@@ -34,31 +35,19 @@ export const isToolInputStreaming = (part: ToolUIPart) => {
  * Check if the agent is actively generating content (streaming text or executing tools).
  * Returns true if any part is streaming or any tool is not yet settled.
  */
-export const checkIsAgentGenerating = (agent: Pick<UseChatHelpers<UIMessage>, 'status' | 'messages'>) => {
-	const isRunning = checkIsAgentRunning(agent);
-	if (!isRunning) {
-		return false;
-	}
-
-	const lastMessage = agent.messages.at(-1);
+export const checkIsLastMessageStreaming = (messages: UIMessage[]) => {
+	const lastMessage = messages.at(-1);
 	if (!lastMessage) {
 		return false;
 	}
-
-	return isMessageSettled(lastMessage);
+	return isMessageStreaming(lastMessage);
 };
 
-export const isMessageSettled = (message: UIMessage) => {
+export const isMessageStreaming = (message: UIMessage) => {
 	return message.parts.some((part) => {
-		// Check for streaming text/reasoning
 		if ('state' in part && part.state === 'streaming') {
 			return true;
 		}
-		// Check for tools that are pending or executing (not settled)
-		if (isToolUIPart(part)) {
-			return !isToolSettled(part);
-		}
-		return false;
 	});
 };
 
@@ -153,9 +142,9 @@ export const groupMessages = (messages: UIMessage[]): MessageGroup[] => {
 		if (user.role !== 'user') {
 			continue;
 		}
-		const group: MessageGroup = { user, responses: [] };
+		const group: MessageGroup = { userMessage: user, assistantMessages: [] };
 		while (i < messages.length && messages[i].role === 'assistant') {
-			group.responses.push(messages[i]);
+			group.assistantMessages.push(messages[i]);
 			i++;
 		}
 		groups.push(group);
@@ -180,4 +169,8 @@ export const getTextFromUserMessageOrThrow = (message: UIMessage): string => {
 		throw new Error('User message has no text.');
 	}
 	return message.parts[0].text;
+};
+
+export const checkMessageHasText = (message: UIMessage): boolean => {
+	return message.parts.some((part) => part.type === 'text');
 };

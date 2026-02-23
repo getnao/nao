@@ -1,6 +1,6 @@
 import { CornerDownRight } from 'lucide-react';
-import { Button } from './ui/button';
-import { Skeleton } from './ui/skeleton';
+import { Button } from '../ui/button';
+import { Skeleton } from '../ui/skeleton';
 import type { UIToolPart } from '@nao/backend/chat';
 import { useSetChatInputCallback } from '@/contexts/set-chat-input-callback';
 import { cn } from '@/lib/utils';

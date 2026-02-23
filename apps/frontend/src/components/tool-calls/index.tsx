@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { DefaultToolCall } from './default';
 import { DisplayChartToolCall } from './display-chart';
 import { ExecutePythonToolCall } from './execute-python';
@@ -26,7 +27,11 @@ const toolComponents: Partial<{
 	search: SearchToolCall,
 };
 
-export const ToolCall = ({ toolPart }: { toolPart: UIToolPart }) => {
+export const ToolCall = memo(({ toolPart }: { toolPart: UIToolPart }) => {
+	if (toolPart.type === 'tool-suggest_follow_ups') {
+		return null;
+	}
+
 	const Component = toolComponents[getToolName(toolPart) as StaticToolName] as
 		| React.ComponentType<ToolCallComponentProps>
 		| undefined;
@@ -40,4 +45,4 @@ export const ToolCall = ({ toolPart }: { toolPart: UIToolPart }) => {
 			<Component toolPart={toolPart} />
 		</ToolCallProvider>
 	);
-};
+});

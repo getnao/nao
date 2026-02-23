@@ -1,14 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import { Streamdown } from 'streamdown';
-import { Conversation, ConversationContent } from './ui/conversation';
+import { Conversation, ConversationContent } from '../ui/conversation';
 import { Expandable } from '@/components/ui/expandable';
 
-interface ReasoningAccordionProps {
-	text: string;
-	isStreaming: boolean;
-}
-
-export const ReasoningAccordion = ({ text, isStreaming }: ReasoningAccordionProps) => {
+export const AssistantReasoning = memo(({ text, isStreaming }: { text: string; isStreaming: boolean }) => {
 	const [isExpanded, setIsExpanded] = useState(isStreaming);
 	const wasStreamingRef = useRef(isStreaming);
 
@@ -39,4 +34,4 @@ export const ReasoningAccordion = ({ text, isStreaming }: ReasoningAccordionProp
 			</div>
 		</Expandable>
 	);
-};
+});

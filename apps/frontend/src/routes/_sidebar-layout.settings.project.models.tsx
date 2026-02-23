@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { LlmProvidersSection } from '@/components/settings/llm-providers-section';
 import { SettingsCard } from '@/components/ui/settings-card';
 import { trpc } from '@/main';
-import { SettingsTranscribe } from '@/components/settings-transcribe';
+import { SettingsTranscribe } from '@/components/settings/settings-transcribe';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/project/models')({
 	component: ProjectModelsTabPage,

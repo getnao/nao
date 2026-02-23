@@ -4,7 +4,7 @@ import { useParams, Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { Prompt } from 'prompt-mentions';
 import { Button, ChatButton, MicButton } from './ui/button';
-import { SlidingWaveform } from './sliding-waveform';
+import { SlidingWaveform } from './chat-input-sliding-waveform';
 
 import type { PromptTheme, PromptHandle, SelectedMention } from 'prompt-mentions';
 import 'prompt-mentions/style.css';

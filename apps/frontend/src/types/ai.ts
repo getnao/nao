@@ -14,10 +14,10 @@ export type GroupedMessagePart = UIMessagePart | ToolGroupPart;
 export default interface ChatSelectedModel {
 	provider: LlmProvider;
 	modelId: string;
-} /** A group of user and response (agent) messages */
+}
 
+/** A group of user and assistant messages. */
 export interface MessageGroup {
-	user: UIMessage;
-	/** The response (agent) messages */
-	responses: UIMessage[];
+	userMessage: UIMessage;
+	assistantMessages: UIMessage[];
 }

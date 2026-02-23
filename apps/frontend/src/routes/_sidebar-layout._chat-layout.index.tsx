@@ -2,7 +2,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import NaoLogoGreyscale from '@/components/icons/nao-logo-greyscale.svg';
 import { useSession } from '@/lib/auth-client';
 import { capitalize } from '@/lib/utils';
-import { ChatMessages } from '@/components/chat-messages';
+import { ChatMessages } from '@/components/chat-messages/chat-messages';
 import { useAgentContext } from '@/contexts/agent.provider';
 import { SavedPromptSuggestions } from '@/components/chat-saved-prompt-suggestions';
 import { ChatInput } from '@/components/chat-input';

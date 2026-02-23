@@ -1,8 +1,8 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, memo } from 'react';
 import { ToolCall } from './index';
 import type { CollapsiblePart } from '@/types/ai';
 import { Expandable } from '@/components/ui/expandable';
-import { ReasoningAccordion } from '@/components/chat-message-reasoning-accordion';
+import { AssistantReasoning } from '@/components/chat-messages/assistant-reasoning';
 import { isToolSettled, isReasoningPart } from '@/lib/ai';
 
 interface Props {
@@ -10,7 +10,7 @@ interface Props {
 	expand: boolean;
 }
 
-export const ToolCallsGroup = ({ parts, expand }: Props) => {
+export const ToolCallsGroup = memo(({ parts, expand }: Props) => {
 	const allSettled = useMemo(() => {
 		return parts.every(isPartSettled);
 	}, [parts]);
@@ -42,7 +42,7 @@ export const ToolCallsGroup = ({ parts, expand }: Props) => {
 				{parts.map((part, index) => {
 					if (isReasoningPart(part)) {
 						return (
-							<ReasoningAccordion key={index} text={part.text} isStreaming={part.state === 'streaming'} />
+							<AssistantReasoning key={index} text={part.text} isStreaming={part.state === 'streaming'} />
 						);
 					}
 					return <ToolCall key={index} toolPart={part} />;
@@ -50,7 +50,7 @@ export const ToolCallsGroup = ({ parts, expand }: Props) => {
 			</div>
 		</Expandable>
 	);
-};
+});
 
 /** Check if a collapsible part is settled (finished running) */
 const isPartSettled = (part: CollapsiblePart): boolean => {

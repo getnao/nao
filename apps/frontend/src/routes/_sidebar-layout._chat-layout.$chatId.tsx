@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useRef } from 'react';
 import { ChatInput } from '@/components/chat-input';
-import { ChatMessages } from '@/components/chat-messages';
+import { ChatMessages } from '@/components/chat-messages/chat-messages';
 import { SidePanel } from '@/components/side-panel/side-panel';
 import { Spinner } from '@/components/ui/spinner';
 import { useAgentContext } from '@/contexts/agent.provider';
