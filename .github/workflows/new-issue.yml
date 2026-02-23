@@ -1,0 +1,15 @@
+name: Notify OpenClaw on new issue
+
+on:
+    issues:
+        types: [opened]
+
+jobs:
+    notify:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Send to OpenClaw via Slack
+              run: |
+                  curl -X POST -H 'Content-type: application/json' \
+                    --data "{\"text\":\"<@${{ secrets.SLACK_BOT_USER_ID }}> A new issue has been created. Please run the \`gh-issue-analyser\` skill.\n\n*#${{ github.event.issue.number }} — ${{ github.event.issue.title }}*\n${{ github.event.issue.body }}\"}" \
+                    ${{ secrets.SLACK_WEBHOOK_URL }}
