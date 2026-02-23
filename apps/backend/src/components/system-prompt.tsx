@@ -57,6 +57,11 @@ export function SystemPrompt({ memories = [] }: { memories: UserMemory[] }) {
 					researching.
 				</ListItem>
 				<ListItem>If you can execute a SQL query, use the execute_sql tool for it.</ListItem>
+				<ListItem>
+					For display_chart x_axis_type: use "date" only when x-axis values are parseable by JavaScript Date
+					(e.g. YYYY-MM-DD). Use "category" for quarter labels (quarter_ending), fiscal periods (FY25-Q1), or
+					any non-ISO-date strings.
+				</ListItem>
 			</List>
 
 			<Title level={2}>How nao Works</Title>

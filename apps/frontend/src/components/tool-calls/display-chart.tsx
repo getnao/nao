@@ -40,8 +40,22 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 		if (!sourceData?.data || !config) {
 			return [];
 		}
+		if (config.x_axis_type !== 'date') {
+			return sourceData.data;
+		}
 		return filterByDateRange(sourceData.data, config.x_axis_key, dataRange);
 	}, [sourceData?.data, config, dataRange]);
+
+	const chartData = useMemo(() => {
+		if (
+			config?.x_axis_type === 'date' &&
+			filteredData.length === 0 &&
+			(sourceData?.data?.length ?? 0) > 0
+		) {
+			return sourceData!.data;
+		}
+		return filteredData;
+	}, [filteredData, sourceData?.data, config?.x_axis_type]);
 
 	if (output && output.error) {
 		return (
@@ -100,7 +114,7 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 			)}
 
 			<ChartDisplay
-				data={filteredData}
+				data={chartData}
 				chartType={config.chart_type}
 				xAxisKey={config.x_axis_key}
 				series={config.series}
