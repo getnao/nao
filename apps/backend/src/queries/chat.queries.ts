@@ -7,7 +7,6 @@ import { ListChatResponse, StopReason, TokenUsage, UIChat, UIMessage } from '../
 import { LlmProvider } from '../types/llm';
 import { convertDBPartToUIPart, mapUIPartsToDBParts } from '../utils/chat-message-part-mappings';
 import { getErrorMessage } from '../utils/utils';
-import * as llmConfigQueries from './project-llm-config.queries';
 
 export const checkChatExists = async (chatId: string): Promise<boolean> => {
 	const result = await db.select().from(s.chat).where(eq(s.chat.id, chatId)).execute();
@@ -58,8 +57,7 @@ export const loadChat = async (
 		return [];
 	}
 
-	const provider = await llmConfigQueries.getProjectModelProvider(chat.projectId);
-	const messages = aggregateChatMessagParts(result, provider);
+	const messages = aggregateChatMessagParts(result);
 	return [
 		{
 			id: chatId,
@@ -80,11 +78,10 @@ const aggregateChatMessagParts = (
 		message_part: DBMessagePart;
 		message_feedback?: MessageFeedback | null;
 	}[],
-	provider?: LlmProvider,
 ) => {
 	const messagesMap = result.reduce(
 		(acc, row) => {
-			const uiPart = convertDBPartToUIPart(row.message_part, provider);
+			const uiPart = convertDBPartToUIPart(row.message_part);
 			if (!uiPart) {
 				return acc;
 			}

@@ -3,7 +3,6 @@ import { getToolName, isToolUIPart } from 'ai';
 
 import { DBMessagePart, NewMessagePart } from '../db/abstractSchema';
 import { UIMessagePart, UIToolPart } from '../types/chat';
-import { LlmProvider } from '../types/llm';
 
 /**
  * Converts a list of UI message parts to a list of database message parts.
@@ -55,18 +54,25 @@ export const convertUIPartToDBPart = (
 				reasoningText: part.text,
 				providerMetadata: part.providerMetadata,
 			};
+		case 'step-start':
+			return {
+				type: 'step-start',
+				messageId,
+				order,
+			};
 		default:
+			return undefined;
 	}
 };
 
 /**
  * Converts a list of database message parts to a list of UI message parts.
  */
-export const mapDBPartsToUIParts = (parts: DBMessagePart[], provider?: LlmProvider): UIMessagePart[] => {
-	return parts.map((part) => convertDBPartToUIPart(part, provider)).filter((part) => part !== undefined);
+export const mapDBPartsToUIParts = (parts: DBMessagePart[]): UIMessagePart[] => {
+	return parts.map((part) => convertDBPartToUIPart(part)).filter((part) => part !== undefined);
 };
 
-export const convertDBPartToUIPart = (part: DBMessagePart, provider?: LlmProvider): UIMessagePart | undefined => {
+export const convertDBPartToUIPart = (part: DBMessagePart): UIMessagePart | undefined => {
 	if (isToolDBPart(part)) {
 		return {
 			type: part.type,
@@ -77,7 +83,7 @@ export const convertDBPartToUIPart = (part: DBMessagePart, provider?: LlmProvide
 			rawInput: part.toolRawInput as any,
 			output: part.toolOutput as any,
 			errorText: part.toolErrorText as any,
-			providerExecuted: provider === 'anthropic',
+			providerExecuted: false,
 			approval: part.toolApprovalId
 				? {
 						id: part.toolApprovalId!,
@@ -102,7 +108,12 @@ export const convertDBPartToUIPart = (part: DBMessagePart, provider?: LlmProvide
 				text: part.reasoningText!,
 				providerMetadata: part.providerMetadata ?? undefined,
 			};
+		case 'step-start':
+			return {
+				type: 'step-start',
+			};
 		default:
+			return undefined;
 	}
 };
 
