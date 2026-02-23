@@ -46,17 +46,6 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 		return filterByDateRange(sourceData.data, config.x_axis_key, dataRange);
 	}, [sourceData?.data, config, dataRange]);
 
-	const chartData = useMemo(() => {
-		if (
-			config?.x_axis_type === 'date' &&
-			filteredData.length === 0 &&
-			(sourceData?.data?.length ?? 0) > 0
-		) {
-			return sourceData!.data;
-		}
-		return filteredData;
-	}, [filteredData, sourceData?.data, config?.x_axis_type]);
-
 	if (output && output.error) {
 		return (
 			<ToolCallWrapper defaultExpanded title='Could not display the chart'>
@@ -114,7 +103,7 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 			)}
 
 			<ChartDisplay
-				data={chartData}
+				data={filteredData}
 				chartType={config.chart_type}
 				xAxisKey={config.x_axis_key}
 				series={config.series}
