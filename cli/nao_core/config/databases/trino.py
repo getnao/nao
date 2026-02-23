@@ -9,6 +9,8 @@ from nao_core.ui import ask_text
 
 from .base import DatabaseConfig
 
+EXCLUDED_SCHEMAS = {"information_schema", "default"}
+
 
 class TrinoConfig(DatabaseConfig):
     """Trino-specific configuration."""
@@ -75,14 +77,18 @@ class TrinoConfig(DatabaseConfig):
         try:
             escaped_catalog = self.catalog.replace('"', '""')
             rows = conn.raw_sql(f'SHOW SCHEMAS FROM "{escaped_catalog}"').fetchall()  # type: ignore[union-attr]
-            return [str(row[0]) for row in rows if row and row[0] and row[0] != "information_schema"]
+            return [
+                str(row[0])
+                for row in rows
+                if row and row[0] and str(row[0]).lower() not in EXCLUDED_SCHEMAS
+            ]
         except Exception:
             pass
 
         list_databases = getattr(conn, "list_databases", None)
         if list_databases:
             try:
-                return [s for s in list_databases() if s != "information_schema"]
+                return [str(s) for s in list_databases() if str(s).lower() not in EXCLUDED_SCHEMAS]
             except Exception:
                 return []
 
