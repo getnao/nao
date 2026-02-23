@@ -3,6 +3,7 @@ import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createMistral } from '@ai-sdk/mistral';
 import { createOpenAI } from '@ai-sdk/openai';
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
+import { createOllama } from 'ai-sdk-ollama';
 import type { LanguageModel } from 'ai';
 
 import type { LlmProvider, LlmProvidersType, ProviderConfigMap } from '../types/llm';
@@ -196,6 +197,16 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 			},
 		],
 	},
+	ollama: {
+		envVar: 'OLLAMA_API_KEY',
+		baseUrlEnvVar: 'OLLAMA_BASE_URL',
+		extractorModelId: 'llama3.2:3b',
+		models: [
+			{ id: 'qwen3:8b', name: 'Qwen 3 8B', default: true },
+			{ id: 'llama3.2:3b', name: 'Llama 3.2 3B' },
+			{ id: 'mistral:7b', name: 'Mistral 7B' },
+		],
+	},
 };
 
 /** Known models for each provider (legacy format for API compatibility) */
@@ -244,6 +255,7 @@ const MODEL_CREATORS: Record<LlmProvider, ModelCreator> = {
 	mistral: (settings, modelId) => createMistral(settings).chat(modelId),
 	openai: (settings, modelId) => createOpenAI(settings).responses(modelId),
 	openrouter: (settings, modelId) => createOpenRouter(settings).chat(modelId),
+	ollama: (settings, modelId) => createOllama(settings).chat(modelId),
 };
 
 export type ProviderModelResult = {
