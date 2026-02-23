@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, isNull, like, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, isNull, like, sql } from 'drizzle-orm';
 
 import s, { DBChat, DBChatMessage, DBMessagePart, MessageFeedback, NewChat } from '../db/abstractSchema';
 import { db } from '../db/db';
@@ -46,6 +46,7 @@ export const loadChat = async (
 		.innerJoin(s.chatMessage, eq(s.chatMessage.chatId, s.chat.id))
 		.where(and(eq(s.chatMessage.chatId, chatId), isNull(s.chatMessage.supersededAt)))
 		.innerJoin(s.messagePart, eq(s.messagePart.messageId, s.chatMessage.id))
+		.orderBy(asc(s.chatMessage.createdAt), asc(s.messagePart.order))
 		.$dynamic();
 
 	const result = opts.includeFeedback
@@ -117,7 +118,7 @@ export const getChatOwnerId = async (chatId: string): Promise<string | undefined
 	return result?.userId;
 };
 
-/** Suppress all messages from a given message id onwards (won't be used in the conversation anymore). */
+/** Marks all messages from a given message id onwards as superseeded (won't be used in the conversation anymore). */
 export const supersedeMessagesFrom = async (chatId: string, fromMessageId: string): Promise<void> => {
 	await db.transaction(async (t) => {
 		const [fromMessage] = await t

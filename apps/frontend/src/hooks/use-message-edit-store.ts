@@ -42,16 +42,15 @@ const createMessageEditStore = () => {
 export const messageEditStore = createMessageEditStore();
 
 export const useIsEditingMessage = (messageId: string): boolean => {
-	const subscribe = useCallback(
-		(callback: Listener) => {
-			return messageEditStore.subscribe(messageId, callback);
-		},
-		[messageId],
+	return useSyncExternalStore(
+		useCallback(
+			(callback: Listener) => {
+				return messageEditStore.subscribe(messageId, callback);
+			},
+			[messageId],
+		),
+		useCallback(() => {
+			return messageEditStore.getSnapshot(messageId);
+		}, [messageId]),
 	);
-
-	const getSnapshot = useCallback(() => {
-		return messageEditStore.getSnapshot(messageId);
-	}, [messageId]);
-
-	return useSyncExternalStore(subscribe, getSnapshot);
 };

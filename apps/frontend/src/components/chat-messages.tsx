@@ -206,7 +206,7 @@ const UserMessageBlock = ({ message }: { message: UIMessage }) => {
 			<div
 				className={cn(
 					'ml-auto flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200',
-					isRunning && 'group-last:opacity-0',
+					isRunning && 'group-last:opacity-0 invisible',
 				)}
 			>
 				<Button variant='ghost-muted' size='icon-sm' onClick={() => messageEditStore.setEditing(message.id)}>
