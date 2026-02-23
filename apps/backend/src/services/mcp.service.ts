@@ -276,7 +276,7 @@ export class McpService {
 	}
 
 	private _setupFileWatcher(): void {
-		if (!this._mcpJsonFilePath) {
+		if (!this._mcpJsonFilePath || !existsSync(this._mcpJsonFilePath)) {
 			return;
 		}
 
