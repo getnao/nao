@@ -7,14 +7,12 @@ import { isToolSettled, isReasoningPart } from '@/lib/ai';
 
 interface Props {
 	parts: CollapsiblePart[];
-	expand: boolean;
+	isSettled: boolean;
 }
 
-export const ToolCallsGroup = memo(({ parts, expand }: Props) => {
-	const allSettled = useMemo(() => {
-		return parts.every(isPartSettled);
-	}, [parts]);
-	const isLoading = expand || !allSettled;
+export const ToolCallsGroup = memo(({ parts, isSettled }: Props) => {
+	const allSettled = useMemo(() => parts.every(isPartSettled), [parts]);
+	const isLoading = !isSettled || !allSettled;
 	const [isExpanded, setIsExpanded] = useState(isLoading);
 
 	useEffect(() => {
@@ -36,7 +34,6 @@ export const ToolCallsGroup = memo(({ parts, expand }: Props) => {
 			onExpandedChange={setIsExpanded}
 			isLoading={isLoading}
 			variant='inline'
-			disabled={false}
 		>
 			<div className='flex flex-col gap-2'>
 				{parts.map((part, index) => {

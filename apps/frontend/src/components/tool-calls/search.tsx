@@ -2,12 +2,10 @@ import { File } from 'lucide-react';
 import { ToolCallWrapper } from './tool-call-wrapper';
 import type { ToolCallComponentProps } from '.';
 import { formatBytes } from '@/lib/utils';
-import { isToolSettled } from '@/lib/ai';
+import { useToolCallContext } from '@/contexts/tool-call';
 
-export const SearchToolCall = ({ toolPart }: ToolCallComponentProps<'search'>) => {
-	const output = toolPart.output;
-	const input = toolPart.input;
-	const isSettled = isToolSettled(toolPart);
+export const SearchToolCall = ({ toolPart: { output, input } }: ToolCallComponentProps<'search'>) => {
+	const { isSettled } = useToolCallContext();
 	const files = Array.isArray(output) ? output : output?.files || [];
 
 	if (!isSettled) {

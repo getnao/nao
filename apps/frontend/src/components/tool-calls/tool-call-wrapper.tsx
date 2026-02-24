@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '../ui/button';
 import type { ReactNode } from 'react';
-import { isToolSettled } from '@/lib/ai';
 import { cn } from '@/lib/utils';
 import { Spinner } from '@/components/ui/spinner';
 import { Expandable } from '@/components/ui/expandable';
@@ -32,11 +31,10 @@ export const ToolCallWrapper = ({
 	defaultExpanded = false,
 	overrideError = false,
 }: ToolCallWrapperProps) => {
-	const { toolPart } = useToolCallContext();
+	const { toolPart, isSettled } = useToolCallContext();
 	const [isExpanded, setIsExpanded] = useState(false);
 	const [isHovering, setIsHovering] = useState(false);
 	const canExpand = Boolean(children || toolPart.errorText || toolPart.output);
-	const isSettled = isToolSettled(toolPart);
 	const hasInitialized = useRef(false);
 
 	const isBordered = !!actions;

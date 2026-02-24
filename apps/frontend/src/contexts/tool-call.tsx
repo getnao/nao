@@ -1,9 +1,11 @@
 import { createContext, useContext } from 'react';
 import type { ReactNode } from 'react';
 import type { UIToolPart } from '@nao/backend/chat';
+import { useMemoObject } from '@/hooks/useMemoObject';
 
 type ToolCallContextValue = {
 	toolPart: UIToolPart;
+	isSettled: boolean;
 };
 
 export const ToolCallContext = createContext<ToolCallContextValue | null>(null);
@@ -21,10 +23,10 @@ export interface ToolCallProps {
 }
 
 interface ToolCallProviderProps {
-	toolPart: UIToolPart;
+	value: ToolCallContextValue;
 	children: ReactNode;
 }
 
-export const ToolCallProvider = ({ toolPart, children }: ToolCallProviderProps) => {
-	return <ToolCallContext.Provider value={{ toolPart }}>{children}</ToolCallContext.Provider>;
+export const ToolCallProvider = ({ value, children }: ToolCallProviderProps) => {
+	return <ToolCallContext.Provider value={useMemoObject(value)}>{children}</ToolCallContext.Provider>;
 };

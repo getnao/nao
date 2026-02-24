@@ -169,7 +169,6 @@ const MessageBlock = ({
 		<AssistantMessage
 			message={message}
 			showLoader={showLoader && isLastMessage}
-			isCurrentGeneratedMessage={isLastMessage && isRunning}
 			isSettled={!isLastMessage || !isRunning}
 			isRunning={isRunning}
 		/>

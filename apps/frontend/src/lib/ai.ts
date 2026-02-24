@@ -45,7 +45,7 @@ export const checkIsLastMessageStreaming = (messages: UIMessage[]) => {
 
 export const isMessageStreaming = (message: UIMessage) => {
 	return message.parts.some((part) => {
-		if ('state' in part && part.state === 'streaming') {
+		if ('state' in part && (part.state === 'streaming' || part.state === 'input-streaming')) {
 			return true;
 		}
 	});
@@ -171,6 +171,13 @@ export const getTextFromUserMessageOrThrow = (message: UIMessage): string => {
 	return message.parts[0].text;
 };
 
-export const checkMessageHasText = (message: UIMessage): boolean => {
-	return message.parts.some((part) => part.type === 'text');
+export const checkAssistantMessageHasContent = (message: UIMessage): boolean => {
+	return message.parts.some(
+		(part) =>
+			part.type !== 'step-start' &&
+			part.type !== 'tool-suggest_follow_ups' &&
+			part.type !== 'reasoning' &&
+			part.type !== 'data-newChat' &&
+			part.type !== 'data-newUserMessage',
+	);
 };

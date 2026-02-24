@@ -15,10 +15,11 @@ import { labelize, filterByDateRange, DATE_RANGE_OPTIONS, toKey } from '@/lib/ch
 
 const Colors = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)', 'var(--chart-5)'];
 
-export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'display_chart'>) => {
+export const DisplayChartToolCall = ({
+	toolPart: { state, input, output },
+}: ToolCallComponentProps<'display_chart'>) => {
 	const { messages } = useAgentContext();
-	const config = toolPart.state !== 'input-streaming' ? toolPart.input : undefined;
-	const output = toolPart.output;
+	const config = state !== 'input-streaming' ? input : undefined;
 	const [dataRange, setDataRange] = useState<DateRange>('all');
 
 	const sourceData = useMemo(() => {
