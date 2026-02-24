@@ -31,7 +31,11 @@ class MessageQueueStore extends Store<Map<string, QueuedMessage[]>> {
 			return undefined;
 		}
 		const [first, ...rest] = agentQueue;
-		this.state.set(agentId, rest);
+		if (rest.length === 0) {
+			this.state.delete(agentId);
+		} else {
+			this.state.set(agentId, rest);
+		}
 		this.notify();
 		return first;
 	};
@@ -43,17 +47,18 @@ class MessageQueueStore extends Store<Map<string, QueuedMessage[]>> {
 			return;
 		}
 		const newQueue = agentQueue.filter((m) => m.id !== messageId);
-		this.state.set(agentId, newQueue);
+		if (newQueue.length === 0) {
+			this.state.delete(agentId);
+		} else {
+			this.state.set(agentId, newQueue);
+		}
 		this.notify();
 	};
 
 	clear = (agentId: string) => {
-		const agentQueue = this.state.get(agentId);
-		if (!agentQueue || agentQueue.length === 0) {
-			return;
+		if (this.state.delete(agentId)) {
+			this.notify();
 		}
-		this.state.delete(agentId);
-		this.notify();
 	};
 
 	moveQueue = (fromAgentId: string, toAgentId: string) => {

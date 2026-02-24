@@ -127,6 +127,7 @@ function ChatInputBase({
 		const mentions = promptRef.current?.getMentions() ?? [];
 		await submitMessage(inputText, mentions);
 	};
+	const isInputEmpty = !inputText.trim();
 
 	return (
 		<div className={cn('p-4 pt-0 max-w-3xl w-full mx-auto', className)}>
@@ -163,15 +164,15 @@ function ChatInputBase({
 
 							{allowQueueing && isRunning ? (
 								<ChatButton
-									showStop={!inputText}
+									showStop={isInputEmpty}
 									disabled={false}
-									onClick={!inputText ? stopAgent : handleSubmitMessage}
+									onClick={isInputEmpty ? stopAgent : handleSubmitMessage}
 									type='button'
 								/>
 							) : (
 								<ChatButton
 									showStop={isRunning}
-									disabled={isLoadingMessages || !inputText}
+									disabled={isLoadingMessages || isInputEmpty}
 									onClick={isRunning ? stopAgent : handleSubmitMessage}
 									type='button'
 								/>

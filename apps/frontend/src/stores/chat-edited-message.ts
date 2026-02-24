@@ -7,6 +7,9 @@ class EditedMessageIdStore extends SelectorStore<string | undefined> {
 
 	setEditingId = (id: string | undefined) => {
 		const prev = this.state;
+		if (prev === id) {
+			return;
+		}
 		this.state = id;
 		if (prev) {
 			this.notify(prev);
