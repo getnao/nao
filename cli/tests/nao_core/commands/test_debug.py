@@ -199,6 +199,29 @@ class TestDatabaseConnection:
         assert success is True
         assert "2 tables found" in message
 
+    def test_trino_get_schemas_filters_builtins_and_nullish_values(self):
+        config = TrinoConfig(name="test", host="localhost", port=8080, catalog="hive", user="nao")
+        mock_conn = MagicMock()
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = [
+            ("information_schema",),
+            ("default",),
+            ("sys",),
+            ("pg_catalog",),
+            (" pg_internal ",),
+            (" public ",),
+            ('"analytics"',),
+            ("'sales'",),
+            ("analytics",),
+            ("",),
+            (None,),
+        ]
+        mock_conn.raw_sql.return_value = mock_result
+
+        schemas = config.get_schemas(mock_conn)
+
+        assert schemas == ["analytics", "public", "sales"]
+
     def test_connection_failure(self):
         config = DuckDBConfig(name="test", path=":memory:")
 

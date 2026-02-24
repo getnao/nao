@@ -14,12 +14,14 @@ EXCLUDED_SCHEMAS = {"information_schema", "default", "sys", "pg_catalog"}
 
 def _normalize_schema_name(value: object) -> str:
     """Normalize schema names returned by different Trino drivers/connectors."""
+    if value is None:
+        return ""
     return str(value).strip().strip('"').strip("'")
 
 
 def _is_excluded_schema(value: object) -> bool:
     schema = _normalize_schema_name(value).lower()
-    return not schema or schema in EXCLUDED_SCHEMAS or schema.startswith("pg_")
+    return not schema or schema in {"none", "null"} or schema in EXCLUDED_SCHEMAS or schema.startswith("pg_")
 
 
 class TrinoConfig(DatabaseConfig):
