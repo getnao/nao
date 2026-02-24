@@ -9,9 +9,11 @@ import grep from './grep';
 import list from './list';
 import read from './read';
 import search from './search';
+import story from './story';
 import suggestFollowUps from './suggest-follow-ups';
 
 export const tools = {
+	story,
 	display_chart: displayChart,
 	...(executePython && { execute_python: executePython }),
 	execute_sql: executeSql,

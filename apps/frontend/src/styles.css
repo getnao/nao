@@ -181,6 +181,118 @@ code {
 	border-radius: 0;
 }
 
+/* Tiptap story editor */
+
+.story-editor .tiptap {
+	outline: none;
+	padding: 2rem 3rem 8rem 3rem;
+}
+
+.story-editor .tiptap > * + * {
+	margin-top: 0.75em;
+}
+
+.story-editor .tiptap h1 {
+	@apply text-xl font-bold;
+}
+
+.story-editor .tiptap h2 {
+	@apply text-lg font-semibold;
+}
+
+.story-editor .tiptap h3,
+.story-editor .tiptap h4,
+.story-editor .tiptap h5,
+.story-editor .tiptap h6 {
+	@apply text-base font-semibold;
+}
+
+.story-editor .tiptap p {
+	@apply text-sm leading-relaxed;
+}
+
+.story-editor .tiptap ul {
+	@apply list-disc pl-5 text-sm;
+}
+
+.story-editor .tiptap ol {
+	@apply list-decimal pl-5 text-sm;
+}
+
+.story-editor .tiptap li > p {
+	margin-top: 0;
+}
+
+.story-editor .tiptap blockquote {
+	@apply border-l-2 border-muted-foreground/30 pl-4 italic text-muted-foreground;
+}
+
+.story-editor .tiptap code {
+	@apply bg-muted px-1.5 py-0.5 rounded text-xs font-mono;
+}
+
+.story-editor .tiptap pre {
+	@apply bg-muted rounded-lg p-4 text-xs font-mono overflow-x-auto;
+}
+
+.story-editor .tiptap pre code {
+	@apply bg-transparent p-0 rounded-none;
+}
+
+.story-editor .tiptap hr {
+	@apply border-border my-4;
+}
+
+.story-editor .tiptap strong {
+	@apply font-semibold;
+}
+
+.story-editor .tiptap [data-type='chart-block'],
+.story-editor .tiptap [data-type='grid-block'] {
+	@apply my-3;
+}
+
+.story-editor .tiptap .ProseMirror-selectednode [data-type='chart-block'],
+.story-editor .tiptap .ProseMirror-selectednode [data-type='grid-block'] {
+	@apply outline-2 outline-primary/40 outline-offset-2 rounded-lg;
+}
+
+.story-editor .drag-handle {
+	position: fixed;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding-right: 0.5rem;
+	cursor: grab;
+}
+
+.story-editor .drag-handle:active {
+	cursor: grabbing;
+}
+
+.story-editor .drag-handle-button {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 1.5rem;
+	height: 1.5rem;
+	border-radius: 0.25rem;
+	@apply text-muted-foreground/40;
+	transition:
+		background-color 0.1s ease,
+		color 0.1s ease;
+}
+
+.story-editor .drag-handle:hover .drag-handle-button {
+	@apply bg-muted text-muted-foreground;
+}
+
+.story-editor .drop-cursor {
+	@apply bg-primary;
+	border-radius: 9999px;
+	transition: opacity 0.1s ease;
+}
+
 /* Mention menu: match select dropdown styling */
 .prompt-container .mention-menu {
 	border-radius: var(--radius-lg);

@@ -5,8 +5,8 @@ import { useSidebar } from '@/contexts/sidebar';
 import {
 	SIDEBAR_DELTA,
 	SIDE_PANEL_ANIMATION_DURATION,
-	SIDE_PANEL_DEFAULT_WIDTH_RATIO,
 	SIDE_PANEL_MIN_WIDTH,
+	loadPersistedWidthRatio,
 } from '@/lib/side-panel';
 
 export const useSidePanel = ({
@@ -20,6 +20,7 @@ export const useSidePanel = ({
 	const resizeHandleRef = useRef<HTMLDivElement>(null);
 
 	const [content, setContent] = useState<React.ReactNode>(null);
+	const [currentStoryId, setCurrentStoryId] = useState<string | null>(null);
 
 	const [isVisible, setIsVisible] = useState(false);
 	const [isAnimating, setIsAnimating] = useState(false);
@@ -86,7 +87,7 @@ export const useSidePanel = ({
 
 		const containerWidth =
 			container.getBoundingClientRect().width + (didCollapseSidebarRef.current ? SIDEBAR_DELTA : 0);
-		const targetWidth = Math.floor(SIDE_PANEL_DEFAULT_WIDTH_RATIO * containerWidth);
+		const targetWidth = Math.floor(loadPersistedWidthRatio() * containerWidth);
 
 		animateSidePanel({
 			width: `${targetWidth}px`,
@@ -98,9 +99,10 @@ export const useSidePanel = ({
 	}, [isVisible, animateSidePanel, containerRef, sidePanelRef]);
 
 	const open = useCallback(
-		(newContent: React.ReactNode) => {
+		(newContent: React.ReactNode, storyId?: string) => {
 			setIsVisible(true);
 			setContent(newContent);
+			setCurrentStoryId(storyId ?? null);
 			didCollapseSidebarRef.current = !isSidebarCollapsed;
 			collapseSidebar({ persist: false });
 		},
@@ -115,14 +117,12 @@ export const useSidePanel = ({
 	}, [expandSidebar]);
 
 	const close = useCallback(() => {
+		setIsVisible(false);
 		expandSidebarIfWasCollapsed();
 		animateSidePanel({
 			width: '0px',
 			opacity: '0',
-			onComplete: () => {
-				setIsVisible(false);
-				setContent(null);
-			},
+			onComplete: () => setContent(null),
 		});
 	}, [expandSidebarIfWasCollapsed, animateSidePanel]);
 
@@ -130,6 +130,7 @@ export const useSidePanel = ({
 		expandSidebarIfWasCollapsed();
 		setIsVisible(false);
 		setContent(null);
+		setCurrentStoryId(null);
 	}, [chatId, expandSidebarIfWasCollapsed]);
 
 	return {
@@ -137,6 +138,7 @@ export const useSidePanel = ({
 		isVisible,
 		isAnimating,
 		content,
+		currentStoryId,
 		open,
 		close,
 	};

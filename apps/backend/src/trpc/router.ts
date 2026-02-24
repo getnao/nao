@@ -5,7 +5,9 @@ import { googleRoutes } from './google.routes';
 import { mcpRoutes } from './mcp.routes';
 import { posthogRoutes } from './posthog.routes';
 import { projectRoutes } from './project.routes';
+import { sharedStoryRoutes } from './shared-story.routes';
 import { skillRoutes } from './skill.routes';
+import { storyRoutes } from './story.routes';
 import { systemRoutes } from './system.routes';
 import { transcribeRoutes } from './transcribe.routes';
 import { router } from './trpc';
@@ -17,6 +19,8 @@ export const trpcRouter = router({
 	feedback: feedbackRoutes,
 	posthog: posthogRoutes,
 	project: projectRoutes,
+	storyShare: sharedStoryRoutes,
+	story: storyRoutes,
 	usage: usageRoutes,
 	user: userRoutes,
 	google: googleRoutes,

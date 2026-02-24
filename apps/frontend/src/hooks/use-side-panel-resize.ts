@@ -1,6 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { useResizeObserver } from './use-resize-observer';
-import { SIDE_PANEL_DEFAULT_WIDTH_RATIO } from '@/lib/side-panel';
+import { loadPersistedWidthRatio, SIDE_PANEL_MIN_WIDTH, SIDE_PANEL_WIDTH_STORAGE_KEY } from '@/lib/side-panel';
+
+function persistRatio(ratio: number) {
+	try {
+		localStorage.setItem(SIDE_PANEL_WIDTH_STORAGE_KEY, String(ratio));
+	} catch {
+		/* localStorage unavailable */
+	}
+}
 
 /** Handles the manual resize of the side panel */
 export const useSidePanelResize = (
@@ -9,7 +17,7 @@ export const useSidePanelResize = (
 	resizeHandleRef: React.RefObject<HTMLDivElement | null>,
 	enabled: boolean,
 ) => {
-	const ratioRef = useRef(SIDE_PANEL_DEFAULT_WIDTH_RATIO);
+	const ratioRef = useRef(loadPersistedWidthRatio());
 	const [isResizing, setIsResizing] = useState(false);
 	const resizeStartXRef = useRef(0);
 	const resizeStartWidthRef = useRef(0);
@@ -69,6 +77,7 @@ export const useSidePanelResize = (
 				const sidePanelWidth = sidePanel.getBoundingClientRect().width;
 				const containerWidth = container.getBoundingClientRect().width;
 				ratioRef.current = sidePanelWidth / containerWidth;
+				persistRatio(ratioRef.current);
 			}
 		};
 
@@ -81,9 +90,11 @@ export const useSidePanelResize = (
 		};
 	}, [isResizing, sidePanelRef, containerRef]);
 
-	// Resize panels when the container changes size
+	const enabledRef = useRef(enabled);
+	enabledRef.current = enabled;
+
 	useResizeObserver(containerRef, () => {
-		if (!enabled) {
+		if (!enabledRef.current) {
 			return;
 		}
 
@@ -94,10 +105,10 @@ export const useSidePanelResize = (
 		}
 
 		const containerWidth = container.getBoundingClientRect().width;
-		const width = Math.floor(ratioRef.current * containerWidth);
+		const width = Math.max(SIDE_PANEL_MIN_WIDTH, Math.floor(ratioRef.current * containerWidth));
 		sidePanel.style.width = `${width}px`;
 		sidePanel.style.transitionDuration = '0ms';
-	}, [enabled]);
+	});
 
 	return { isResizing, ratioRef };
 };

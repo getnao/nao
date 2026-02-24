@@ -322,6 +322,26 @@ export const projectLlmConfig = pgTable(
 	],
 );
 
+export const sharedStory = pgTable(
+	'shared_story',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		title: text('title').notNull(),
+		code: text('code').notNull(),
+		queryData: jsonb('query_data').$type<Record<string, unknown[]>>(),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+	},
+	(t) => [index('shared_story_projectId_idx').on(t.projectId)],
+);
+
 export const projectSavedPrompt = pgTable(
 	'project_saved_prompt',
 	{
@@ -340,6 +360,29 @@ export const projectSavedPrompt = pgTable(
 			.notNull(),
 	},
 	(t) => [index('project_saved_prompt_projectId_idx').on(t.projectId)],
+);
+
+export const STORY_ACTIONS = ['create', 'update', 'replace'] as const;
+export const STORY_SOURCES = ['assistant', 'user'] as const;
+
+export const storyVersion = pgTable(
+	'story_version',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		chatId: text('chat_id')
+			.notNull()
+			.references(() => chat.id, { onDelete: 'cascade' }),
+		storyId: text('story_id').notNull(),
+		version: integer('version').notNull(),
+		title: text('title').notNull(),
+		code: text('code').notNull(),
+		action: text('action', { enum: STORY_ACTIONS }).notNull(),
+		source: text('source', { enum: STORY_SOURCES }).notNull(),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+	},
+	(t) => [index('story_version_chat_story_idx').on(t.chatId, t.storyId)],
 );
 
 export const memories = pgTable(

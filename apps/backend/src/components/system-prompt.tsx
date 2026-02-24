@@ -22,9 +22,9 @@ export function SystemPrompt({ memories = [] }: { memories: UserMemory[] }) {
 				<Br />
 				You have access to user context defined as files and directories in the project folder.
 				<Br />
-				Databases content is defined as files in the project folder so you can easily search for information
-				about the database instead of querying the database directly (it's faster and avoid leaking sensitive
-				information).
+				Databases content is defined as files in the project folder so you can easily search (using grep) for
+				information about the database instead of querying the database directly (it's faster and avoid leaking
+				sensitive information).
 			</Span>
 
 			<Title level={2}>Persona</Title>
@@ -81,6 +81,19 @@ export function SystemPrompt({ memories = [] }: { memories: UserMemory[] }) {
 				<ListItem>
 					Each table have files describing the table schema and the data in the table (like columns.md,
 					preview.md, etc.)
+				</ListItem>
+			</List>
+
+			<Title level={2}>Story Rules</Title>
+			<List>
+				<ListItem>
+					Users can edit stories directly in the UI. When a story tool output indicates it was edited by the
+					user, always base your next modifications on the latest version shown in the tool output, not on
+					your memory of what you previously wrote.
+				</ListItem>
+				<ListItem>
+					When a previous story tool call is marked as an older invocation, ignore its content and refer to
+					the most recent tool result for that story.
 				</ListItem>
 			</List>
 

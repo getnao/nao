@@ -31,6 +31,9 @@
 		"@tanstack/react-router-devtools": "^1.132.0",
 		"@tanstack/react-table": "^8.21.3",
 		"@tanstack/router-plugin": "^1.132.0",
+		"@tiptap/extension-drag-handle-react": "^3.20.0",
+		"@tiptap/react": "^3.20.0",
+		"@tiptap/starter-kit": "^3.20.0",
 		"@trpc/client": "^11.8.1",
 		"@trpc/tanstack-react-query": "^11.8.1",
 		"ai": "^6.0.42",
@@ -52,6 +55,7 @@
 		"superjson": "^2.2.6",
 		"tailwind-merge": "^3.4.0",
 		"tailwindcss": "^4.0.6",
+		"tiptap-markdown": "^0.9.0",
 		"use-stick-to-bottom": "^1.1.1"
 	},
 	"devDependencies": {

@@ -3,13 +3,12 @@ import { useMemoObject } from '@/hooks/useMemoObject';
 
 interface SidePanelContext {
 	content: React.ReactNode;
-	open: (content: React.ReactNode) => void;
+	isVisible: boolean;
+	currentStoryId: string | null;
+	open: (content: React.ReactNode, storyId?: string) => void;
 }
 
-const SidePanelContext = createContext<{
-	content: React.ReactNode;
-	open: (content: React.ReactNode) => void;
-} | null>(null);
+const SidePanelContext = createContext<SidePanelContext | null>(null);
 
 export const useSidePanel = () => {
 	const context = useContext(SidePanelContext);

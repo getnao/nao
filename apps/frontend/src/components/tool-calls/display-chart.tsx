@@ -1,9 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useParams } from '@tanstack/react-router';
 import { BarChart, Bar, AreaChart, Area, PieChart, Pie, XAxis, YAxis, CartesianGrid } from 'recharts';
+import { FilePlus } from 'lucide-react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAgentContext } from '../../contexts/agent.provider';
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from '../ui/chart';
 import { TextShimmer } from '../ui/text-shimmer';
 import { Skeleton } from '../ui/skeleton';
+import { Button } from '../ui/button';
 import { ToolCallWrapper } from './tool-call-wrapper';
 import { ChartRangeSelector } from './display-chart-range-selector';
 import type { ToolCallComponentProps } from '.';
@@ -12,6 +16,10 @@ import type { ChartConfig } from '../ui/chart';
 import type { displayChart } from '@nao/shared/tools';
 import type { DateRange } from '@/lib/charts.utils';
 import { labelize, filterByDateRange, DATE_RANGE_OPTIONS, toKey } from '@/lib/charts.utils';
+import { findStoryIds } from '@/lib/story.utils';
+import { useSidePanel } from '@/contexts/side-panel';
+import { StoryViewer } from '@/components/side-panel/story-viewer';
+import { trpc } from '@/main';
 
 const Colors = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)', 'var(--chart-5)'];
 
@@ -19,8 +27,12 @@ export const DisplayChartToolCall = ({
 	toolPart: { state, input, output },
 }: ToolCallComponentProps<'display_chart'>) => {
 	const { messages } = useAgentContext();
+	const { chatId } = useParams({ strict: false });
+	const queryClient = useQueryClient();
+	const { open: openSidePanel, currentStoryId, isVisible } = useSidePanel();
 	const config = state !== 'input-streaming' ? input : undefined;
 	const [dataRange, setDataRange] = useState<DateRange>('all');
+	const storyIds = useMemo(() => findStoryIds(messages), [messages]);
 
 	const sourceData = useMemo(() => {
 		if (!config?.query_id) {
@@ -90,9 +102,66 @@ export const DisplayChartToolCall = ({
 		);
 	}
 
+	const addToStoryMutation = useMutation(
+		trpc.story.createVersion.mutationOptions({
+			onSuccess: (_data, variables) => {
+				queryClient.invalidateQueries({
+					queryKey: trpc.story.listVersions.queryKey({
+						chatId: variables.chatId,
+						storyId: variables.storyId,
+					}),
+				});
+			},
+		}),
+	);
+
+	const handleAddToStory = async () => {
+		const targetId = isVisible && currentStoryId ? currentStoryId : storyIds[storyIds.length - 1];
+		if (!targetId || !config || !chatId) {
+			return;
+		}
+
+		const versions = await queryClient.fetchQuery(
+			trpc.story.listVersions.queryOptions({ chatId, storyId: targetId }),
+		);
+		const latest = versions.at(-1);
+		if (!latest) {
+			return;
+		}
+
+		const seriesJson = JSON.stringify(config.series);
+		const chartBlock = `<chart query_id="${config.query_id}" chart_type="${config.chart_type}" x_axis_key="${config.x_axis_key}" x_axis_type="${config.x_axis_type ?? ''}" series='${seriesJson}' title="${config.title}" />`;
+		const newCode = latest.code.trimEnd() + '\n\n' + chartBlock;
+
+		addToStoryMutation.mutate({
+			chatId,
+			storyId: targetId,
+			title: latest.title,
+			code: newCode,
+			action: 'update',
+		});
+
+		if (!isVisible) {
+			openSidePanel(<StoryViewer chatId={chatId} storyId={targetId} />, targetId);
+		}
+	};
+
 	return (
-		<div className='flex flex-col items-center my-4 gap-2 aspect-3/2'>
-			<span className='text-sm font-medium'>{config.title}</span>
+		<div className='flex flex-col items-center my-4 gap-2 aspect-3/2 group/chart relative'>
+			<div className='flex w-full items-center justify-between'>
+				<span className='text-sm font-medium flex-1'>{config.title}</span>
+				{storyIds.length > 0 && (
+					<Button
+						variant='ghost-muted'
+						size='sm'
+						onClick={handleAddToStory}
+						className='opacity-0 group-hover/chart:opacity-100 transition-opacity gap-1'
+					>
+						<FilePlus className='size-3' />
+						<span className='text-xs'>Add to story</span>
+					</Button>
+				)}
+			</div>
 			{config.chart_type !== 'pie' && config.x_axis_type === 'date' && (
 				<div className='flex w-full justify-end items-center'>
 					<ChartRangeSelector

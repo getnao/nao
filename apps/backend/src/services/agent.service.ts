@@ -64,7 +64,7 @@ export class AgentService {
 		const resolvedModelSelection = await this._getResolvedModelSelection(chat.projectId, modelSelection);
 		const modelConfig = await this._getModelConfig(chat.projectId, resolvedModelSelection);
 		const agentSettings = await projectQueries.getAgentSettings(chat.projectId);
-		const toolContext = await this._getToolContext(chat.projectId);
+		const toolContext = await this._getToolContext(chat.projectId, chat.id);
 		const agentTools = getTools(agentSettings);
 		const agent = new AgentManager(
 			chat,
@@ -106,13 +106,14 @@ export class AgentService {
 		throw new HandlerError('BAD_REQUEST', 'No model config found');
 	}
 
-	private async _getToolContext(projectId: string): Promise<ToolContext> {
+	private async _getToolContext(projectId: string, chatId: string): Promise<ToolContext> {
 		const project = await retrieveProjectById(projectId);
 		if (!project.path) {
 			throw new HandlerError('BAD_REQUEST', 'Project path does not exist.');
 		}
 		return {
 			projectFolder: project.path ?? '',
+			chatId,
 		};
 	}
 
