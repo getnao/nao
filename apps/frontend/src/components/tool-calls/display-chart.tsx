@@ -43,8 +43,9 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 		if (config.x_axis_type !== 'date') {
 			return sourceData.data;
 		}
-		return filterByDateRange(sourceData.data, config.x_axis_key, dataRange);
-	}, [sourceData?.data, config, dataRange]);
+		const filtered = filterByDateRange(sourceData.data, config.x_axis_key, dataRange);
+		return filtered.length > 0 ? filtered : sourceData.data;
+	}, [sourceData, config, dataRange]);
 
 	if (output && output.error) {
 		return (
