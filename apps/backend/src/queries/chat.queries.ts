@@ -89,6 +89,7 @@ const aggregateChatMessagParts = (
 			if (acc[row.chat_message.id]) {
 				acc[row.chat_message.id].parts.push(uiPart);
 			} else {
+				const { inputTotalTokens, outputTotalTokens } = row.chat_message;
 				acc[row.chat_message.id] = {
 					id: row.chat_message.id,
 					role: row.chat_message.role,
