@@ -6,9 +6,11 @@ import {
 	type UIMessage as UIGenericMessage,
 	UIMessagePart as UIGenericMessagePart,
 } from 'ai';
+import z from 'zod/v4';
 
 import { tools } from '../agents/tools';
 import { MessageFeedback } from '../db/abstractSchema';
+import { llmProviderSchema } from './llm';
 
 export interface UIChat {
 	id: string;
@@ -43,6 +45,8 @@ export type MessageCustomDataParts = {
 	summaryGenerated: {
 		message: string;
 	};
+	/** Maps the client-generated user message ID to the server-generated one */
+	newUserMessage: { newId: string };
 };
 
 export type UIMessagePart = UIGenericMessagePart<MessageCustomDataParts, UITools>;
@@ -82,8 +86,32 @@ export type TokenCost = {
 	totalCost?: number;
 };
 
-export type Mention = {
-	id: string;
-	label: string;
-	trigger: string;
-};
+/**
+ * Agent Request Types
+ */
+
+export type Mention = z.infer<typeof MentionSchema>;
+export const MentionSchema = z.object({
+	id: z.string(),
+	trigger: z.string(),
+	label: z.string(),
+});
+
+export type AgentRequestUserMessage = z.infer<typeof AgentRequestUserMessageSchema>;
+export const AgentRequestUserMessageSchema = z.object({
+	text: z.string(),
+});
+
+const ModelSelectionSchema = z.object({
+	provider: llmProviderSchema,
+	modelId: z.string(),
+});
+
+export type AgentRequest = z.infer<typeof AgentRequestSchema>;
+export const AgentRequestSchema = z.object({
+	message: AgentRequestUserMessageSchema,
+	chatId: z.string().optional(),
+	messageToEditId: z.string().optional(),
+	model: ModelSelectionSchema.optional(),
+	mentions: z.array(MentionSchema).optional(),
+});

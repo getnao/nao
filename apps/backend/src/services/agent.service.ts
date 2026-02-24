@@ -4,32 +4,43 @@ import {
 	FinishReason,
 	generateText,
 	hasToolCall,
+	InferUIMessageChunk,
 	ModelMessage,
+	pruneMessages,
 	StreamTextResult,
 	ToolLoopAgent,
 	ToolLoopAgentSettings,
 	UIMessageStreamWriter,
 } from 'ai';
 
-import { CACHE_1H, CACHE_5M, createProviderModel } from '../agents/providers';
+import { CACHE_1H, CACHE_5M } from '../agents/providers';
 import { getTools } from '../agents/tools';
 import { SystemPrompt } from '../components/system-prompt';
 import { renderToMarkdown } from '../lib/markdown';
 import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
-import { AgentSettings } from '../types/agent-settings';
-import { Mention, TokenCost, TokenUsage, UIChat, UIMessage } from '../types/chat';
-import { convertToCost, convertToTokenUsage, findLastUserMessage, retrieveProjectById } from '../utils/chat';
-import { getDefaultModelId, getEnvApiKey, getEnvModelSelections, ModelSelection } from '../utils/llm';
+import { Mention, MessageCustomDataParts, TokenCost, TokenUsage, UIChat, UIMessage } from '../types/chat';
+import { ToolContext } from '../types/tools';
+import {
+	convertToCost,
+	convertToTokenUsage,
+	findLastUserMessage,
+	getLastUserMessageText,
+	retrieveProjectById,
+} from '../utils/ai';
+import { HandlerError } from '../utils/error';
+import { getDefaultModelId, getEnvModelSelections, ModelSelection, resolveProviderModel } from '../utils/llm';
 import {
 	conversationCompactionService,
 	SUMMARY_PROMPT,
 	SUMMARY_STREAM_MESSAGE,
 } from './conversation-compaction.service';
+import { memoryService } from './memory';
 import { skillService } from './skill.service';
 
 export type { ModelSelection };
+type AgentTools = Awaited<ReturnType<typeof getTools>>;
 
 export interface AgentRunResult {
 	text: string;
@@ -59,22 +70,23 @@ type StreamCompactionState = {
 export class AgentService {
 	private _agents = new Map<string, AgentManager>();
 
-	async create(
-		chat: AgentChat,
-		abortController: AbortController,
-		modelSelection?: ModelSelection,
-	): Promise<AgentManager> {
+	async create(chat: AgentChat, modelSelection?: ModelSelection): Promise<AgentManager> {
 		this._disposeAgent(chat.id);
 		const resolvedModelSelection = await this._getResolvedModelSelection(chat.projectId, modelSelection);
 		const modelConfig = await this._getModelConfig(chat.projectId, resolvedModelSelection);
 		const agentSettings = await projectQueries.getAgentSettings(chat.projectId);
+		const compactionTokenThreshold = conversationCompactionService.getCompactionTokenThreshold(agentSettings);
+		const toolContext = await this._getToolContext(chat.projectId);
+		const agentTools = getTools(agentSettings);
 		const agent = new AgentManager(
 			chat,
 			modelConfig,
 			resolvedModelSelection,
 			() => this._agents.delete(chat.id),
-			abortController,
-			agentSettings,
+			new AbortController(),
+			agentTools,
+			toolContext,
+			compactionTokenThreshold,
 		);
 		this._agents.set(chat.id, agent);
 		return agent;
@@ -104,7 +116,17 @@ export class AgentService {
 			return envSelection;
 		}
 
-		throw Error('No model config found');
+		throw new HandlerError('BAD_REQUEST', 'No model config found');
+	}
+
+	private async _getToolContext(projectId: string): Promise<ToolContext> {
+		const project = await retrieveProjectById(projectId);
+		if (!project.path) {
+			throw new HandlerError('BAD_REQUEST', 'Project path does not exist.');
+		}
+		return {
+			projectFolder: project.path ?? '',
+		};
 	}
 
 	private _disposeAgent(chatId: string): void {
@@ -124,54 +146,38 @@ export class AgentService {
 		projectId: string,
 		modelSelection: ModelSelection,
 	): Promise<Pick<ToolLoopAgentSettings, 'model' | 'providerOptions'>> {
-		const config = await llmConfigQueries.getProjectLlmConfigByProvider(projectId, modelSelection.provider);
-
-		if (config) {
-			return createProviderModel(
-				modelSelection.provider,
-				{
-					apiKey: config.apiKey,
-					...(config.baseUrl && { baseURL: config.baseUrl }),
-				},
-				modelSelection.modelId,
-			);
+		const result = await resolveProviderModel(projectId, modelSelection.provider, modelSelection.modelId);
+		if (!result) {
+			throw new HandlerError('BAD_REQUEST', 'The selected model could not be resolved.');
 		}
-
-		// No config but env var might exist - use it
-		const envApiKey = getEnvApiKey(modelSelection.provider);
-		if (envApiKey) {
-			return createProviderModel(modelSelection.provider, { apiKey: envApiKey }, modelSelection.modelId);
-		}
-
-		throw Error('No model config found');
+		return result;
 	}
 }
 
 class AgentManager {
-	private readonly _agent: ToolLoopAgent<never, ReturnType<typeof getTools>, never>;
-	private readonly _modelConfig: Pick<ToolLoopAgentSettings, 'model' | 'providerOptions'>;
-	private readonly _compactionTokenThreshold: number;
+	private readonly _agent: ToolLoopAgent<never, AgentTools, never>;
 	private _streamCompactionState: StreamCompactionState | null = null;
 
 	constructor(
 		readonly chat: AgentChat,
-		modelConfig: Pick<ToolLoopAgentSettings, 'model' | 'providerOptions'>,
+		private readonly _modelConfig: Pick<ToolLoopAgentSettings, 'model' | 'providerOptions'>,
 		private readonly _modelSelection: ModelSelection,
 		private readonly _onDispose: () => void,
 		private readonly _abortController: AbortController,
-		agentSettings: AgentSettings | null,
+		private readonly _agentTools: AgentTools,
+		private readonly _toolContext: ToolContext,
+		private readonly _compactionTokenThreshold: number,
 	) {
-		this._modelConfig = modelConfig;
-		this._compactionTokenThreshold = conversationCompactionService.getCompactionTokenThreshold(agentSettings);
 		this._agent = new ToolLoopAgent({
-			...modelConfig,
-			tools: getTools(agentSettings),
+			...this._modelConfig,
+			tools: this._agentTools,
 			maxOutputTokens: 16_000,
 			prepareStep: async ({ messages }) => {
-				const withCache = this._addCache(messages);
-				return { messages: await this._prepareMessagesForStep(withCache) };
+				const prepared = this._addCache(this._pruneMessages(messages));
+				return { messages: await this._prepareMessagesForStep(prepared) };
 			},
 			stopWhen: [hasToolCall('suggest_follow_ups')],
+			experimental_context: this._toolContext,
 		});
 	}
 
@@ -186,39 +192,39 @@ class AgentManager {
 	stream(
 		uiMessages: UIMessage[],
 		opts: {
-			sendNewChatData: boolean;
+			events?: Partial<MessageCustomDataParts>;
 			mentions?: Mention[];
-		},
-	): ReadableStream {
+		} = {},
+	): ReadableStream<InferUIMessageChunk<UIMessage>> {
 		let error: unknown = undefined;
-		let result: StreamTextResult<ReturnType<typeof getTools>, never> | undefined;
+		let result: StreamTextResult<AgentTools, never> | undefined;
 
 		return createUIMessageStream<UIMessage>({
 			generateId: () => crypto.randomUUID(),
 			execute: async ({ writer }) => {
-				if (opts.sendNewChatData) {
+				if (opts.events?.newChat) {
 					writer.write({
 						type: 'data-newChat',
-						data: {
-							id: this.chat.id,
-							title: this.chat.title,
-							createdAt: this.chat.createdAt,
-							updatedAt: this.chat.updatedAt,
-						},
+						data: opts.events.newChat,
 					});
 				}
 
-				// Fetch project path and run agent within project context
-				const project = await retrieveProjectById(this.chat.projectId);
-				const projectPath = project.path;
-				if (!projectPath) {
-					throw new Error(`Project path not configured: ${this.chat.projectId}`);
+				if (opts.events?.newUserMessage) {
+					writer.write({
+						type: 'data-newUserMessage',
+						data: opts.events.newUserMessage,
+						transient: true,
+					});
 				}
 
 				this._streamCompactionState = { pendingSummaryNotices: 0 };
 				try {
 					const messages = await this._buildModelMessages(uiMessages, opts.mentions);
-					result = await this._streamWithContextFallback(messages, projectPath);
+					result = await this._streamWithContextFallback(messages);
+
+					// Extract memory immediately after the request to the agent is sent
+					this._scheduleMemoryExtraction(uiMessages);
+
 					await this._pipeResultToWriter(result, writer);
 				} finally {
 					this._streamCompactionState = null;
@@ -229,57 +235,47 @@ class AgentManager {
 				return String(err);
 			},
 			onFinish: async (e) => {
-				if (!result) {
+				try {
+					const stopReason = e.isAborted ? 'interrupted' : e.finishReason;
+					const tokenUsage = await this._getTotalUsage(result);
+					await chatQueries.upsertMessage({
+						...e.responseMessage,
+						chatId: this.chat.id,
+						stopReason,
+						error,
+						tokenUsage,
+						llmProvider: this._modelSelection.provider,
+						llmModelId: this._modelSelection.modelId,
+					});
+				} finally {
 					this._onDispose();
-					return;
 				}
-
-				const stopReason = e.isAborted ? 'interrupted' : e.finishReason;
-				const tokenUsage = await this._getTotalUsage(result);
-				await chatQueries.upsertMessage(e.responseMessage, {
-					chatId: this.chat.id,
-					stopReason,
-					error,
-					tokenUsage,
-					llmProvider: this._modelSelection.provider,
-					llmModelId: this._modelSelection.modelId,
-				});
-				this._onDispose();
 			},
 		});
 	}
 
 	private async _streamWithContextFallback(
 		modelMessages: ModelMessage[],
-		projectFolder: string,
-	): Promise<StreamTextResult<ReturnType<typeof getTools>, never>> {
+	): Promise<StreamTextResult<AgentTools, never>> {
 		try {
-			return await this._createAgentStream(modelMessages, projectFolder);
+			return await this._createAgentStream(modelMessages);
 		} catch (error) {
 			if (!this._isContextLimitError(error)) {
 				throw error;
 			}
-			return await this._createAgentStream(
-				conversationCompactionService.truncateForFallback(modelMessages),
-				projectFolder,
-			);
+			return await this._createAgentStream(conversationCompactionService.truncateForFallback(modelMessages));
 		}
 	}
 
-	private async _createAgentStream(
-		messages: ModelMessage[],
-		projectFolder: string,
-	): Promise<StreamTextResult<ReturnType<typeof getTools>, never>> {
+	private async _createAgentStream(messages: ModelMessage[]): Promise<StreamTextResult<AgentTools, never>> {
 		return await this._agent.stream({
 			messages,
 			abortSignal: this._abortController.signal,
-			// @ts-expect-error - experimental_context is not yet in the types
-			experimental_context: { projectFolder },
 		});
 	}
 
 	private async _pipeResultToWriter(
-		result: StreamTextResult<ReturnType<typeof getTools>, never>,
+		result: StreamTextResult<AgentTools, never>,
 		writer: UIMessageStreamWriter<UIMessage>,
 	): Promise<void> {
 		for await (const chunk of result.toUIMessageStream<UIMessage>({})) {
@@ -310,7 +306,8 @@ class AgentManager {
 		});
 
 		if (compaction.summaryMessage) {
-			await chatQueries.upsertMessage(compaction.summaryMessage, {
+			await chatQueries.upsertMessage({
+				...compaction.summaryMessage,
 				chatId: this.chat.id,
 				llmProvider: this._modelSelection.provider,
 				llmModelId: this._modelSelection.modelId,
@@ -348,9 +345,41 @@ class AgentManager {
 		);
 	}
 
+	/**
+	 * Prepares the UI messages and builds them into model messages with memory.
+	 */
+	private async _buildModelMessages(uiMessages: UIMessage[], mentions?: Mention[]): Promise<ModelMessage[]> {
+		uiMessages = this._addSkills(uiMessages, mentions);
+		uiMessages = this._fillEmptyAssistantTurns(uiMessages, '[NO CONTENT]');
+		uiMessages = conversationCompactionService.trimToLastSummary(uiMessages);
+		const modelMessages = await convertToModelMessages(uiMessages);
+		const memories = await memoryService.safeGetUserMemories(this.chat.userId, this.chat.projectId, this.chat.id);
+		const systemPrompt = renderToMarkdown(SystemPrompt({ memories }));
+		const systemMessage: ModelMessage = { role: 'system', content: systemPrompt };
+		modelMessages.unshift(systemMessage);
+		return modelMessages;
+	}
+
+	private _scheduleMemoryExtraction(uiMessages: UIMessage[]): void {
+		const lastUserText = getLastUserMessageText(uiMessages);
+		if (lastUserText) {
+			memoryService.safeScheduleMemoryExtraction({
+				userId: this.chat.userId,
+				projectId: this.chat.projectId,
+				chatId: this.chat.id,
+				userMessage: lastUserText,
+				provider: this._modelSelection.provider,
+			});
+		}
+	}
+
 	private async _getTotalUsage(
-		result: StreamTextResult<ReturnType<typeof getTools>, never>,
+		result: StreamTextResult<AgentTools, never> | undefined,
 	): Promise<TokenUsage | undefined> {
+		if (!result) {
+			return undefined;
+		}
+
 		try {
 			// totalUsage promise will throw if an error occured during the streaming
 			return convertToTokenUsage(await result.totalUsage);
@@ -392,36 +421,16 @@ class AgentManager {
 		this._abortController.abort();
 	}
 
-	/** Builds and prepares the UI messages into model messages */
-	private async _buildModelMessages(uiMessages: UIMessage[], mentions?: Mention[]): Promise<ModelMessage[]> {
-		uiMessages = this._prepareUIMessages(uiMessages, mentions);
-		uiMessages = conversationCompactionService.trimToLastSummary(uiMessages);
-		const modelMessages = await convertToModelMessages(uiMessages);
-		const systemPrompt = renderToMarkdown(SystemPrompt());
-		const systemMessage: ModelMessage = { role: 'system', content: systemPrompt };
-		modelMessages.unshift(systemMessage);
-		return modelMessages;
-	}
-
-	private _prepareUIMessages(messages: UIMessage[], mentions?: Mention[]): UIMessage[] {
-		messages = this._addSkills(messages, mentions);
-
+	private _fillEmptyAssistantTurns(messages: UIMessage[], fillText: string): UIMessage[] {
 		return messages.map((msg) => {
 			if (msg.role !== 'assistant') {
 				return msg;
 			}
-
 			const hasTextPart = msg.parts.some((part) => part.type === 'text');
 			if (!hasTextPart) {
-				msg.parts.push({ type: 'text', text: '[NO CONTENT]' });
+				msg.parts.push({ type: 'text', text: fillText });
 			}
-
-			const filteredParts = msg.parts.filter((part) => part.type !== 'tool-suggest_follow_ups');
-			if (filteredParts.length === msg.parts.length) {
-				return msg;
-			}
-
-			return { ...msg, parts: filteredParts };
+			return msg;
 		});
 	}
 
@@ -436,8 +445,8 @@ class AgentManager {
 			return messages;
 		}
 
-		const { message: lastUserMessage, index: lastUserMessageIndex } = findLastUserMessage(messages);
-		if (lastUserMessageIndex === -1) {
+		const [lastUserMessage, lastUserMessageIndex] = findLastUserMessage(messages);
+		if (!lastUserMessage) {
 			return messages;
 		}
 
@@ -479,6 +488,18 @@ class AgentManager {
 			messages[lastIndex] = withCache(messages[lastIndex], CACHE_5M);
 		}
 		return messages;
+	}
+
+	/**
+	 * Prunes certain messages parts like reasoning and tool calls from the conversation.
+	 */
+	private _pruneMessages(messages: ModelMessage[]): ModelMessage[] {
+		return pruneMessages({
+			messages,
+			reasoning: 'before-last-message',
+			toolCalls: [{ tools: ['suggest_follow_ups'], type: 'all' }],
+			emptyMessages: 'remove',
+		});
 	}
 
 	getModelId(): string {

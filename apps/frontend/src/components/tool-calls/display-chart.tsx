@@ -40,6 +40,9 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 		if (!sourceData?.data || !config) {
 			return [];
 		}
+		if (config.x_axis_type !== 'date') {
+			return sourceData.data;
+		}
 		return filterByDateRange(sourceData.data, config.x_axis_key, dataRange);
 	}, [sourceData?.data, config, dataRange]);
 

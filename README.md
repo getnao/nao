@@ -173,7 +173,7 @@ docker run -d \
   getnao/nao:latest
 ```
 
-Access the UI at http://localhost:5005
+Access the UI at http://localhost:5005 (or at any URL you configured).
 
 See the [DockerHub page](https://hub.docker.com/r/getnao/nao) for more details.
 

@@ -8,8 +8,9 @@ import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import * as savedPromptQueries from '../queries/project-saved-prompt.queries';
 import * as slackConfigQueries from '../queries/project-slack-config.queries';
 import { posthog, PostHogEvent } from '../services/posthog.service';
+import { getAvailableModels as getAvailableTranscribeModels } from '../services/transcribe.service';
 import { llmConfigSchema, LlmProvider, llmProviderSchema } from '../types/llm';
-import { getEnvApiKey, getEnvProviders, getProjectAvailableModels } from '../utils/llm';
+import { getEnvApiKey, getEnvBaseUrls, getEnvProviders, getProjectAvailableModels } from '../utils/llm';
 import { adminProtectedProcedure, projectProtectedProcedure, publicProcedure } from './trpc';
 
 export const projectRoutes = {
@@ -28,11 +29,12 @@ export const projectRoutes = {
 			z.object({
 				projectConfigs: z.array(llmConfigSchema),
 				envProviders: z.array(llmProviderSchema),
+				envBaseUrls: z.record(z.string(), z.string()),
 			}),
 		)
 		.query(async ({ ctx }) => {
 			if (!ctx.project) {
-				return { projectConfigs: [], envProviders: [] };
+				return { projectConfigs: [], envProviders: [], envBaseUrls: {} };
 			}
 
 			const configs = await llmConfigQueries.getProjectLlmConfigs(ctx.project.id);
@@ -47,7 +49,10 @@ export const projectRoutes = {
 				updatedAt: c.updatedAt,
 			}));
 
-			return { projectConfigs, envProviders: getEnvProviders() };
+			const envProviders = getEnvProviders();
+			const envBaseUrls = getEnvBaseUrls();
+
+			return { projectConfigs, envProviders, envBaseUrls };
 		}),
 
 	/** Get all available models for the current project (for user model selection) */
@@ -93,10 +98,12 @@ export const projectRoutes = {
 			} else if (existingConfig) {
 				// Editing - keep existing key (null signals "don't update")
 				apiKey = null;
-			} else if (envApiKey && input.enabledModels && input.enabledModels.length > 0) {
+			} else if (envApiKey) {
 				apiKey = envApiKey;
 			} else {
-				throw new Error(`API Key is required for ${input.provider} or select at least one model.`);
+				throw new Error(
+					`API key is required for ${input.provider}. Provide one or set it as an environment variable.`,
+				);
 			}
 
 			const config = await llmConfigQueries.upsertProjectLlmConfig({
@@ -182,6 +189,10 @@ export const projectRoutes = {
 
 	getKnownModels: publicProcedure.query(() => {
 		return KNOWN_MODELS;
+	}),
+
+	getKnownTranscribeModels: projectProtectedProcedure.query(({ ctx }) => {
+		return getAvailableTranscribeModels(ctx.project.id);
 	}),
 
 	removeProjectMember: adminProtectedProcedure
@@ -279,17 +290,35 @@ export const projectRoutes = {
 						conversationCompactionThresholdTokens: z.number().int().positive().optional(),
 					})
 					.optional(),
+				transcribe: z
+					.object({
+						enabled: z.boolean().optional(),
+						provider: z.string().optional(),
+						modelId: z.string().optional(),
+					})
+					.optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
-			const existingSettings = await projectQueries.getAgentSettings(ctx.project.id);
-			return projectQueries.updateAgentSettings(ctx.project.id, {
-				...existingSettings,
+			const existing = (await projectQueries.getAgentSettings(ctx.project.id)) ?? {};
+			const merged = {
+				...existing,
 				...input,
-				experimental: {
-					...existingSettings?.experimental,
-					...input.experimental,
-				},
-			});
+				experimental: { ...existing.experimental, ...input.experimental },
+				transcribe: { ...existing.transcribe, ...input.transcribe },
+			};
+			return projectQueries.updateAgentSettings(ctx.project.id, merged);
+		}),
+
+	getMemorySettings: projectProtectedProcedure.query(async ({ ctx }) => {
+		const memoryEnabled = await projectQueries.getProjectMemoryEnabled(ctx.project.id);
+		return { memoryEnabled };
+	}),
+
+	updateMemorySettings: adminProtectedProcedure
+		.input(z.object({ memoryEnabled: z.boolean() }))
+		.mutation(async ({ ctx, input }) => {
+			await projectQueries.setProjectMemoryEnabled(ctx.project.id, input.memoryEnabled);
+			return { memoryEnabled: input.memoryEnabled };
 		}),
 };

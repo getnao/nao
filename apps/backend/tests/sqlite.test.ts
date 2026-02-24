@@ -5,8 +5,8 @@ import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { afterAll, afterEach, describe, expect, it } from 'vitest';
 
 import { NewUser } from '../src/db/abstractSchema';
-import { user } from '../src/db/sqliteSchema';
-import * as sqliteSchema from '../src/db/sqliteSchema';
+import { user } from '../src/db/sqlite-schema';
+import * as sqliteSchema from '../src/db/sqlite-schema';
 
 const db = drizzle('./db.sqlite', { schema: sqliteSchema });
 

@@ -2,7 +2,9 @@ import { and, eq, isNull } from 'drizzle-orm';
 
 import s, { DBOrganization, DBOrgMember, NewOrganization, NewOrgMember } from '../db/abstractSchema';
 import { db } from '../db/db';
+import { env } from '../env';
 import { OrgRole } from '../types/organization';
+import * as projectQueries from './project.queries';
 import * as userQueries from './user.queries';
 
 export const getOrganizationById = async (id: string): Promise<DBOrganization | null> => {
@@ -56,6 +58,33 @@ export const getUserOrgMembership = async (
 export const getUserRoleInOrg = async (orgId: string, userId: string): Promise<OrgRole | null> => {
 	const member = await getOrgMember(orgId, userId);
 	return member?.role ?? null;
+};
+
+export const updateGoogleSettings = async (
+	orgId: string,
+	settings: {
+		googleClientId: string | null;
+		googleClientSecret: string | null;
+		googleAuthDomains: string | null;
+	},
+): Promise<DBOrganization> => {
+	const [updated] = await db
+		.update(s.organization)
+		.set(settings)
+		.where(eq(s.organization.id, orgId))
+		.returning()
+		.execute();
+	return updated;
+};
+
+export const getGoogleConfig = async () => {
+	const org = await getFirstOrganization();
+	return {
+		clientId: org?.googleClientId || env.GOOGLE_CLIENT_ID || '',
+		clientSecret: org?.googleClientSecret || env.GOOGLE_CLIENT_SECRET || '',
+		authDomains: org?.googleAuthDomains || env.GOOGLE_AUTH_DOMAINS || '',
+		usingDbOverride: !!(org?.googleClientId && org?.googleClientSecret),
+	};
 };
 
 export const getOrCreateDefaultOrganization = async (): Promise<DBOrganization> => {
@@ -116,6 +145,39 @@ export const initializeDefaultOrganizationForFirstUser = async (userId: string):
 
 				await tx.insert(s.projectMember).values({ projectId: project.id, userId, role: 'admin' }).execute();
 			}
+		}
+	});
+};
+
+/**
+ * Add a user to the default organization and project if they don't already exist.
+ * Called when a new user signs up via Google OAuth (or other social provider).
+ * Idempotent: safe to call multiple times for the same user.
+ */
+export const addUserToDefaultProjectIfExists = async (userId: string): Promise<void> => {
+	const org = await getFirstOrganization();
+	if (!org) {
+		return;
+	}
+
+	const project = await projectQueries.getDefaultProject();
+	if (!project) {
+		return;
+	}
+
+	await db.transaction(async (tx) => {
+		const existingOrgMember = await tx.query.orgMember.findFirst({
+			where: and(eq(s.orgMember.orgId, org.id), eq(s.orgMember.userId, userId)),
+		});
+		if (!existingOrgMember) {
+			await tx.insert(s.orgMember).values({ orgId: org.id, userId, role: 'user' }).execute();
+		}
+
+		const existingProjectMember = await tx.query.projectMember.findFirst({
+			where: and(eq(s.projectMember.projectId, project.id), eq(s.projectMember.userId, userId)),
+		});
+		if (!existingProjectMember) {
+			await tx.insert(s.projectMember).values({ projectId: project.id, userId, role: 'user' }).execute();
 		}
 	});
 };

@@ -49,19 +49,18 @@ export const getMessagesUsage = async (projectId: string, filter: UsageFilter): 
 		.select({
 			date: dateExpr,
 			messageCount: sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' then ${s.chatMessage.id} end)`,
-			inputNoCacheTokens: sum(s.messagePart.inputNoCacheTokens),
-			inputCacheReadTokens: sum(s.messagePart.inputCacheReadTokens),
-			inputCacheWriteTokens: sum(s.messagePart.inputCacheWriteTokens),
-			outputTotalTokens: sum(s.messagePart.outputTotalTokens),
-			totalTokens: sum(s.messagePart.totalTokens),
-			inputNoCacheCost: sql<number>`sum(coalesce(${s.messagePart.inputNoCacheTokens}, 0) * coalesce(cost_lookup.input_no_cache, 0) / 1000000.0)`,
-			inputCacheReadCost: sql<number>`sum(coalesce(${s.messagePart.inputCacheReadTokens}, 0) * coalesce(cost_lookup.input_cache_read, 0) / 1000000.0)`,
-			inputCacheWriteCost: sql<number>`sum(coalesce(${s.messagePart.inputCacheWriteTokens}, 0) * coalesce(cost_lookup.input_cache_write, 0) / 1000000.0)`,
-			outputCost: sql<number>`sum(coalesce(${s.messagePart.outputTotalTokens}, 0) * coalesce(cost_lookup.output, 0) / 1000000.0)`,
+			inputNoCacheTokens: sum(s.chatMessage.inputNoCacheTokens),
+			inputCacheReadTokens: sum(s.chatMessage.inputCacheReadTokens),
+			inputCacheWriteTokens: sum(s.chatMessage.inputCacheWriteTokens),
+			outputTotalTokens: sum(s.chatMessage.outputTotalTokens),
+			totalTokens: sum(s.chatMessage.totalTokens),
+			inputNoCacheCost: sql<number>`sum(coalesce(${s.chatMessage.inputNoCacheTokens}, 0) * coalesce(cost_lookup.input_no_cache, 0) / 1000000.0)`,
+			inputCacheReadCost: sql<number>`sum(coalesce(${s.chatMessage.inputCacheReadTokens}, 0) * coalesce(cost_lookup.input_cache_read, 0) / 1000000.0)`,
+			inputCacheWriteCost: sql<number>`sum(coalesce(${s.chatMessage.inputCacheWriteTokens}, 0) * coalesce(cost_lookup.input_cache_write, 0) / 1000000.0)`,
+			outputCost: sql<number>`sum(coalesce(${s.chatMessage.outputTotalTokens}, 0) * coalesce(cost_lookup.output, 0) / 1000000.0)`,
 		})
 		.from(s.chatMessage)
 		.innerJoin(s.chat, eq(s.chatMessage.chatId, s.chat.id))
-		.innerJoin(s.messagePart, eq(s.messagePart.messageId, s.chatMessage.id))
 		.leftJoin(
 			costLookup,
 			sql`cost_lookup.provider = ${s.chatMessage.llmProvider} AND cost_lookup.model_id = ${s.chatMessage.llmModelId}`,

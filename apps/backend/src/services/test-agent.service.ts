@@ -31,7 +31,7 @@ export class TestAgentService extends AgentService {
 			projectId,
 		};
 
-		const agent = await this.create(tempChat, new AbortController(), modelSelection);
+		const agent = await this.create(tempChat, modelSelection);
 		return agent.generate([userMessage]);
 	}
 

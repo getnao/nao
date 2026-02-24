@@ -2,10 +2,12 @@ import { TRPCError } from '@trpc/server';
 import { hashPassword } from 'better-auth/crypto';
 import { z } from 'zod/v4';
 
+import * as memoryQueries from '../queries/memory';
 import * as projectQueries from '../queries/project.queries';
 import * as userQueries from '../queries/user.queries';
 import { emailService } from '../services/email.service';
-import { adminProtectedProcedure, projectProtectedProcedure, publicProcedure } from './trpc';
+import { memoryService } from '../services/memory';
+import { adminProtectedProcedure, projectProtectedProcedure, protectedProcedure, publicProcedure } from './trpc';
 
 export const userRoutes = {
 	countAll: publicProcedure.query(() => {
@@ -135,4 +137,46 @@ export const userRoutes = {
 
 			return { success: true, newUser: newUserWithRole };
 		}),
+
+	getMemorySettings: protectedProcedure.query(async ({ ctx }) => {
+		const memoryEnabled = await userQueries.getMemoryEnabled(ctx.user.id);
+		return { memoryEnabled };
+	}),
+
+	updateMemorySettings: protectedProcedure
+		.input(z.object({ memoryEnabled: z.boolean() }))
+		.mutation(async ({ ctx, input }) => {
+			await userQueries.setMemoryEnabled(ctx.user.id, input.memoryEnabled);
+			return { memoryEnabled: input.memoryEnabled };
+		}),
+
+	getMemories: protectedProcedure.query(async ({ ctx }) => {
+		return memoryQueries.getUserMemories(ctx.user.id);
+	}),
+
+	updateMemory: protectedProcedure
+		.input(
+			z.object({
+				memoryId: z.string(),
+				content: z.string().trim().min(1).max(1000),
+			}),
+		)
+		.mutation(async ({ ctx, input }) => {
+			const content = memoryService.normalizeMemoryContent(input.content);
+			if (!content) {
+				throw new TRPCError({ code: 'BAD_REQUEST', message: 'Memory content cannot be empty.' });
+			}
+			const updated = await memoryQueries.updateUserMemoryContent(ctx.user.id, input.memoryId, content);
+			if (!updated) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: 'Memory not found.' });
+			}
+			return updated;
+		}),
+
+	deleteMemory: protectedProcedure.input(z.object({ memoryId: z.string() })).mutation(async ({ ctx, input }) => {
+		const deleted = await memoryQueries.deleteUserMemory(ctx.user.id, input.memoryId);
+		if (!deleted) {
+			throw new TRPCError({ code: 'NOT_FOUND', message: 'Memory not found.' });
+		}
+	}),
 };

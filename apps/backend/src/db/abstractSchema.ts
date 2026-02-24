@@ -1,6 +1,6 @@
 import dbConfig, { Dialect } from './dbConfig';
-import * as pgSchema from './pgSchema';
-import * as sqliteSchema from './sqliteSchema';
+import * as pgSchema from './pg-schema';
+import * as sqliteSchema from './sqlite-schema';
 
 export type { AgentSettings } from '../types/agent-settings';
 
@@ -41,5 +41,8 @@ export type NewOrgMember = typeof sqliteSchema.orgMember.$inferInsert;
 
 export type DBProjectSavedPrompt = typeof sqliteSchema.projectSavedPrompt.$inferSelect;
 export type NewProjectSavedPrompt = typeof sqliteSchema.projectSavedPrompt.$inferInsert;
+
+export type DBMemory = typeof sqliteSchema.memories.$inferSelect;
+export type DBNewMemory = typeof sqliteSchema.memories.$inferInsert;
 
 export default allSchema as typeof sqliteSchema;

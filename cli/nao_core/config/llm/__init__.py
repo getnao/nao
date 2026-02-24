@@ -20,6 +20,7 @@ class LLMConfig(BaseModel):
 
     provider: LLMProvider = Field(description="The LLM provider to use")
     api_key: str = Field(description="The API key to use")
+    base_url: str | None = Field(default=None, description="Optional custom base URL for the provider API")
 
     @classmethod
     def promptConfig(cls) -> "LLMConfig":

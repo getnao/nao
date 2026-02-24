@@ -3,7 +3,7 @@ import type { GoogleGenerativeAIProviderOptions } from '@ai-sdk/google';
 import type { MistralLanguageModelOptions } from '@ai-sdk/mistral';
 import type { OpenAIResponsesProviderOptions } from '@ai-sdk/openai';
 import type { OpenRouterProviderOptions } from '@openrouter/ai-sdk-provider';
-import { z } from 'zod';
+import { z } from 'zod/v4';
 
 import { TokenCost } from './chat';
 
@@ -41,7 +41,10 @@ type ProviderModel<P extends LlmProvider> = {
 /** Provider configuration with typed models */
 type ProviderConfig<P extends LlmProvider> = {
 	envVar: string;
+	baseUrlEnvVar?: string;
 	models: readonly ProviderModel<P>[];
+	/** Preferred cheap model id for memory extraction. */
+	extractorModelId: string;
 };
 
 /** Full providers type - each key gets its own config type */

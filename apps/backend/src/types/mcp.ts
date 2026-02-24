@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'zod/v4';
 
 export interface McpServerConfig {
 	type?: 'http';
@@ -15,6 +15,7 @@ export interface McpServerState {
 		name: string;
 		description?: string;
 		input_schema: unknown;
+		enabled: boolean;
 	}>;
 	error?: string;
 }

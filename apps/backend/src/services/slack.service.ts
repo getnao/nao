@@ -1,5 +1,5 @@
 import { WebClient } from '@slack/web-api';
-import { readUIMessageStream, UIDataTypes, UIMessageChunk } from 'ai';
+import { InferUIMessageChunk, readUIMessageStream } from 'ai';
 import { FastifyReply } from 'fastify';
 
 import { User } from '../db/abstractSchema';
@@ -10,7 +10,7 @@ import { get } from '../queries/user.queries';
 import { UIChat } from '../types/chat';
 import { UIMessage } from '../types/chat';
 import { SlackEvent } from '../types/slack';
-import { extractLastTextFromMessage } from '../utils/chat';
+import { createChatTitle, extractLastTextFromMessage } from '../utils/ai';
 import { addButtonStopBlock } from '../utils/slack';
 import { agentService } from './agent.service';
 
@@ -21,7 +21,6 @@ export class SlackService {
 	private _threadId: string;
 	private _slackUserId: string;
 	private _user: User = {} as User;
-	private _abortController = new AbortController();
 	private _redirectUrl: string;
 	private _slackClient: WebClient;
 	private _buttonTs: string | undefined;
@@ -113,11 +112,8 @@ export class SlackService {
 	}
 
 	private async _createAgentStream(chat: UIChat) {
-		const agent = await agentService.create(
-			{ ...chat, userId: this._user.id, projectId: this._projectId },
-			this._abortController,
-		);
-		return agent.stream(chat.messages, { sendNewChatData: false });
+		const agent = await agentService.create({ ...chat, userId: this._user.id, projectId: this._projectId });
+		return agent.stream(chat.messages);
 	}
 
 	private async _postStopButton(): Promise<void> {
@@ -131,13 +127,13 @@ export class SlackService {
 	}
 
 	private async _readStreamAndUpdateSlackMessage(
-		stream: ReadableStream<UIMessageChunk<unknown, UIDataTypes>>,
+		stream: ReadableStream<InferUIMessageChunk<UIMessage>>,
 	): Promise<void> {
 		let lastSentText = '';
 		let currentText = '';
 		const messageTs = this._initialMessageTs || this._threadTs;
 
-		for await (const uiMessage of readUIMessageStream({ stream })) {
+		for await (const uiMessage of readUIMessageStream<UIMessage>({ stream })) {
 			const text = extractLastTextFromMessage(uiMessage);
 			if (!text) {
 				continue;
@@ -182,23 +178,25 @@ export class SlackService {
 	private async _saveOrUpdateUserMessage(): Promise<string> {
 		const existingChat = await chatQueries.getChatBySlackThread(this._threadId);
 
-		const userMessage: UIMessage = {
-			id: crypto.randomUUID(),
-			role: 'user',
-			parts: [{ type: 'text', text: this._text }],
-		};
 		if (existingChat) {
-			await chatQueries.upsertMessage(userMessage, { chatId: existingChat.id });
+			await chatQueries.upsertMessage({
+				role: 'user',
+				parts: [{ type: 'text', text: this._text }],
+				chatId: existingChat.id,
+			});
 			return existingChat.id;
 		} else {
-			const createdChat = await chatQueries.createChat(
+			const title = createChatTitle({ text: this._text });
+			const [createdChat] = await chatQueries.createChat(
 				{
-					title: this._text.slice(0, 64),
+					title,
 					userId: this._user.id,
 					projectId: this._projectId,
 					slackThreadId: this._threadId,
 				},
-				userMessage,
+				{
+					text: this._text,
+				},
 			);
 			return createdChat.id;
 		}

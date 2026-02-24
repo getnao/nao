@@ -32,6 +32,15 @@ Write simple, clean, self-explanatory, easy to read and intelligent code.
 - **Minimize comments** — only comment complex or ambiguous logic with short JSDocs or python docstring; never describe function inputs/outputs
 - Avoid inline function declarations without braces
 
+### Backend Migrations (`apps/backend/`)
+
+The app supports both SQLite and PostgreSQL databases (`apps/backend/db/`). Migrations and schema changes must be handled for both.
+
+These are useful scripts to run after changing the database schemas:
+
+- `npm run db:generate <migration_name>` — generate a Drizzle migration file for schema changes. **This command may hang indefinitely when schema changes are ambiguous** (e.g. a column rename that Drizzle cannot resolve automatically). If it hangs, kill it and use `db:push` instead.
+- `npm run db:push` — push schema changes directly to the database without generating a migration file. Use this as a fallback when `db:generate` hangs, or during local development when migration history does not matter.
+
 ### Testing, Linting
 
 - Always end by verifying your work with `npm run lint` for the `apps/` or `make lint` for the `cli/`

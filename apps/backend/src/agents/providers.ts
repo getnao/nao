@@ -17,10 +17,12 @@ export type ProviderSettings = { apiKey: string; baseURL?: string };
 export const LLM_PROVIDERS: LlmProvidersType = {
 	anthropic: {
 		envVar: 'ANTHROPIC_API_KEY',
+		baseUrlEnvVar: 'ANTHROPIC_BASE_URL',
+		extractorModelId: 'claude-haiku-4-5',
 		models: [
 			{
-				id: 'claude-sonnet-4-5',
-				name: 'Claude Sonnet 4.5',
+				id: 'claude-sonnet-4-6',
+				name: 'Claude Sonnet 4.6',
 				default: true,
 				config: {
 					thinking: {
@@ -36,8 +38,24 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 				},
 			},
 			{
-				id: 'claude-opus-4-5',
-				name: 'Claude Opus 4.5',
+				id: 'claude-sonnet-4-5',
+				name: 'Claude Sonnet 4.5',
+				config: {
+					thinking: {
+						type: 'enabled' as const,
+						budgetTokens: 12_000,
+					},
+				},
+				costPerM: {
+					inputNoCache: 3,
+					inputCacheRead: 0.3,
+					inputCacheWrite: 3.75,
+					output: 15,
+				},
+			},
+			{
+				id: 'claude-opus-4-6',
+				name: 'Claude Opus 4.6',
 				config: {
 					thinking: {
 						type: 'enabled' as const,
@@ -52,8 +70,8 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 				},
 			},
 			{
-				id: 'claude-opus-4-6',
-				name: 'Claude Opus 4.6',
+				id: 'claude-opus-4-5',
+				name: 'Claude Opus 4.5',
 				config: {
 					thinking: {
 						type: 'enabled' as const,
@@ -81,6 +99,8 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 	},
 	openai: {
 		envVar: 'OPENAI_API_KEY',
+		baseUrlEnvVar: 'OPENAI_BASE_URL',
+		extractorModelId: 'gpt-5-mini',
 		models: [
 			{
 				id: 'gpt-5.2',
@@ -102,6 +122,8 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 	},
 	google: {
 		envVar: 'GEMINI_API_KEY',
+		baseUrlEnvVar: 'GEMINI_BASE_URL',
+		extractorModelId: 'gemini-2.5-flash',
 		models: [
 			{
 				id: 'gemini-3-pro-preview',
@@ -130,6 +152,8 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 	},
 	mistral: {
 		envVar: 'MISTRAL_API_KEY',
+		baseUrlEnvVar: 'MISTRAL_BASE_URL',
+		extractorModelId: 'mistral-medium-latest',
 		models: [
 			{
 				id: 'mistral-medium-latest',
@@ -146,6 +170,8 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 	},
 	openrouter: {
 		envVar: 'OPENROUTER_API_KEY',
+		baseUrlEnvVar: 'OPENROUTER_BASE_URL',
+		extractorModelId: 'anthropic/claude-haiku-4.5',
 		models: [
 			{
 				id: 'moonshotai/kimi-k2.5',
@@ -195,10 +221,6 @@ const DEFAULT_PROVIDER_OPTIONS: { [P in LlmProvider]?: ProviderConfigMap[P] } = 
 		contextManagement: {
 			edits: [
 				{
-					type: 'clear_thinking_20251015',
-					keep: { type: 'thinking_turns', value: 2 },
-				},
-				{
 					type: 'clear_tool_uses_20250919',
 					trigger: {
 						type: 'input_tokens',
@@ -224,7 +246,7 @@ const MODEL_CREATORS: Record<LlmProvider, ModelCreator> = {
 	openrouter: (settings, modelId) => createOpenRouter(settings).chat(modelId),
 };
 
-type ProviderModelResult = {
+export type ProviderModelResult = {
 	model: LanguageModel;
 	providerOptions: Partial<{ [P in LlmProvider]: ProviderConfigMap[P] }>;
 };

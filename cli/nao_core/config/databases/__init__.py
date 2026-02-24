@@ -2,6 +2,7 @@ from typing import Annotated, Union
 
 from pydantic import Discriminator, Tag
 
+from .athena import AthenaConfig
 from .base import DatabaseAccessor, DatabaseConfig, DatabaseType
 from .bigquery import BigQueryConfig
 from .databricks import DatabricksConfig
@@ -17,6 +18,7 @@ from .snowflake import SnowflakeConfig
 
 AnyDatabaseConfig = Annotated[
     Union[
+        Annotated[AthenaConfig, Tag("athena")],
         Annotated[BigQueryConfig, Tag("bigquery")],
         Annotated[DatabricksConfig, Tag("databricks")],
         Annotated[SnowflakeConfig, Tag("snowflake")],
@@ -31,6 +33,7 @@ AnyDatabaseConfig = Annotated[
 
 # Mapping of database type to config class
 DATABASE_CONFIG_CLASSES: dict[DatabaseType, type[DatabaseConfig]] = {
+    DatabaseType.ATHENA: AthenaConfig,
     DatabaseType.BIGQUERY: BigQueryConfig,
     DatabaseType.DUCKDB: DuckDBConfig,
     DatabaseType.DATABRICKS: DatabricksConfig,
@@ -58,12 +61,15 @@ def parse_database_config(data: dict) -> DatabaseConfig:
         return PostgresConfig.model_validate(data)
     elif db_type == "redshift":
         return RedshiftConfig.model_validate(data)
+    elif db_type == "athena":
+        return AthenaConfig.model_validate(data)
     else:
         raise ValueError(f"Unknown database type: {db_type}")
 
 
 __all__ = [
     "AnyDatabaseConfig",
+    "AthenaConfig",
     "BigQueryConfig",
     "DATABASE_CONFIG_CLASSES",
     "DatabaseAccessor",

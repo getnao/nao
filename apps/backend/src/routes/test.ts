@@ -6,7 +6,7 @@ import { authMiddleware } from '../middleware/auth';
 import { ModelSelection } from '../services/agent.service';
 import { TestAgentService, testAgentService } from '../services/test-agent.service';
 import { llmProviderSchema } from '../types/llm';
-import { retrieveProjectById } from '../utils/chat';
+import { retrieveProjectById } from '../utils/ai';
 
 const modelSelectionSchema = z.object({
 	provider: llmProviderSchema,

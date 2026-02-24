@@ -1,7 +1,5 @@
 import { IncomingHttpHeaders } from 'node:http';
 
-import { env } from '../env';
-
 /** Convert fastify headers to basic `Headers` for better-auth. */
 export const convertHeaders = (headers: IncomingHttpHeaders) => {
 	const convertedHeaders = new Headers();
@@ -27,10 +25,9 @@ export const getErrorMessage = (error: unknown): string | null => {
 	return String(error);
 };
 
-export const isEmailDomainAllowed = (userEmail: string) => {
-	const googleAuthDomains = env.GOOGLE_AUTH_DOMAINS;
-	if (googleAuthDomains) {
-		const allowedDomains = googleAuthDomains.split(',').map((domain) => domain.trim().toLowerCase());
+export const isEmailDomainAllowed = (userEmail: string, authDomains?: string) => {
+	if (authDomains) {
+		const allowedDomains = authDomains.split(',').map((domain) => domain.trim().toLowerCase());
 		const userEmailDomain = userEmail.split('@').at(1)?.toLowerCase();
 		if (!userEmailDomain) {
 			return false;
@@ -65,9 +62,16 @@ export const removeNewLine = (str: string): string => {
 	return str.replace(/[\r\n]/g, '');
 };
 
-export function groupBy<T>(items: T[], keyFn: (item: T) => string): Record<string, T[]> {
+export function groupBy<T, K extends string>(
+	items: T[],
+	keyFn: (item: T) => K,
+	filterFn?: (item: T) => boolean,
+): Record<K, T[]> {
 	return items.reduce(
 		(acc, item) => {
+			if (filterFn && !filterFn(item)) {
+				return acc;
+			}
 			const key = keyFn(item);
 			if (!acc[key]) {
 				acc[key] = [];
@@ -75,7 +79,7 @@ export function groupBy<T>(items: T[], keyFn: (item: T) => string): Record<strin
 			acc[key].push(item);
 			return acc;
 		},
-		{} as Record<string, T[]>,
+		{} as Record<K, T[]>,
 	);
 }
 

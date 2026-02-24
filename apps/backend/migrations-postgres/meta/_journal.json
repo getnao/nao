@@ -85,6 +85,41 @@
       "when": 1770819262591,
       "tag": "0011_add-experimental-agent",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1771512435851,
+      "tag": "0012_chat_message_metadata_and_tool_raw_input",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1771580427546,
+      "tag": "0013_agent_memory",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1771591518084,
+      "tag": "0014_add_enabledMcpTools_and_knownMcpServers_to_project",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1771638632252,
+      "tag": "0015_user_memory_enabled",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1771694145337,
+      "tag": "0016_chat_message_superseded_at",
+      "breakpoints": true
     }
   ]
 }

@@ -5,7 +5,9 @@ import sys
 import webbrowser
 from pathlib import Path
 from time import sleep
+from typing import Annotated, Optional
 
+from cyclopts import Parameter
 from rich.console import Console
 
 from nao_core import __version__
@@ -16,9 +18,27 @@ from nao_core.tracking import track_command
 console = Console()
 
 # Default port for the nao chat server
-SERVER_PORT = 5005
+DEFAULT_SERVER_PORT = 5005
 FASTAPI_PORT = 8005
 SECRET_FILE_NAME = ".nao-secret"
+
+
+def validate_port(port: int | None) -> int:
+    """Uses fallback values if port is not set and checks value for conflicts."""
+    try:
+        if port is None:
+            fallback = os.getenv("SERVER_PORT", DEFAULT_SERVER_PORT)
+            port = int(fallback)
+    except (ValueError, TypeError) as e:
+        raise ValueError(f"Port must be a valid integer. Got: {fallback}") from e
+
+    if not (1024 <= port <= 65535):
+        raise ValueError(f"Port must be between 1024 and 65535. Got: {port}")
+
+    if port == FASTAPI_PORT:
+        raise ValueError(f"Port must be different from FASTAPI_PORT ({FASTAPI_PORT})")
+
+    return port
 
 
 def get_server_binary_path() -> Path:
@@ -103,10 +123,16 @@ def ensure_auth_secret(bin_dir: Path) -> str | None:
 
 
 @track_command("chat")
-def chat():
+def chat(port: Annotated[Optional[int], Parameter(name=["-p", "--port"])] = None):
     """Start the nao chat UI.
 
     Launches the nao chat server and opens the web interface in your browser.
+
+    Parameters
+    ----------
+    port : int
+        Sets chat web app port. Defaults to `SERVER_PORT` env var and 5005 if not set.
+        Must be different from FASTAPI_PORT (8005).
     """
     console.print("\n[bold cyan]💬 Starting nao chat...[/bold cyan]\n")
 
@@ -141,6 +167,9 @@ def chat():
         # so the server can find the public folder
         env = os.environ.copy()
 
+        # Get chat app port
+        port = validate_port(port)
+
         # Ensure auth secret is available
         auth_secret = ensure_auth_secret(bin_dir)
         if auth_secret:
@@ -151,6 +180,10 @@ def chat():
             env_var_name = f"{config.llm.provider.upper()}_API_KEY"
             env[env_var_name] = config.llm.api_key
             console.print(f"[bold green]✓[/bold green] Set {env_var_name} from config")
+            if config.llm.base_url:
+                base_url_var = f"{config.llm.provider.upper()}_BASE_URL"
+                env[base_url_var] = config.llm.base_url
+                console.print(f"[bold green]✓[/bold green] Set {base_url_var} from config")
 
         # Set Slack config if available
         if config and config.slack:
@@ -159,7 +192,8 @@ def chat():
             console.print("[bold green]✓[/bold green] Set Slack environment variables from config")
 
         env["NAO_DEFAULT_PROJECT_PATH"] = str(Path.cwd())
-        env["BETTER_AUTH_URL"] = f"http://localhost:{SERVER_PORT}"
+        if "BETTER_AUTH_URL" not in os.environ:
+            env["BETTER_AUTH_URL"] = f"http://localhost:{port}"
         env["MODE"] = MODE
         env["NAO_CORE_VERSION"] = __version__
 
@@ -184,7 +218,7 @@ def chat():
 
         # Start the chat server
         chat_process = subprocess.Popen(
-            [str(binary_path)],
+            [str(binary_path), "--port", str(port)],
             cwd=str(bin_dir),
             env=env,
             stdout=subprocess.PIPE,
@@ -195,15 +229,15 @@ def chat():
         console.print("[bold green]✓[/bold green] Chat server starting...")
 
         # Wait for the chat server to be ready
-        if wait_for_server(SERVER_PORT):
-            url = f"http://localhost:{SERVER_PORT}"
+        if wait_for_server(port):
+            url = f"http://localhost:{port}"
             console.print(f"[bold green]✓[/bold green] Chat server ready at {url}")
             console.print("\n[bold]Opening browser...[/bold]")
             webbrowser.open(url)
             console.print("\n[dim]Press Ctrl+C to stop the servers[/dim]\n")
         else:
             console.print("[bold yellow]⚠[/bold yellow] Chat server is taking longer than expected to start...")
-            console.print(f"[dim]Check http://localhost:{SERVER_PORT} manually[/dim]")
+            console.print(f"[dim]Check http://localhost:{port} manually[/dim]")
 
         # Stream chat server output to console
         if chat_process.stdout:

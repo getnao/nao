@@ -31,6 +31,7 @@ export function useLlmProviders() {
 	// Derived data
 	const projectConfigs = llmConfigs.data?.projectConfigs ?? [];
 	const envProviders = llmConfigs.data?.envProviders ?? [];
+	const envBaseUrls = llmConfigs.data?.envBaseUrls ?? {};
 	const projectConfiguredProviders = projectConfigs.map((c) => c.provider);
 
 	const availableProvidersToAdd: LlmProvider[] = llmProviderSchema.options.filter(
@@ -43,8 +44,11 @@ export function useLlmProviders() {
 
 	// Handlers
 	const invalidateQueries = async () => {
-		await queryClient.invalidateQueries({ queryKey: trpc.project.getLlmConfigs.queryOptions().queryKey });
-		await queryClient.invalidateQueries({ queryKey: trpc.project.getAvailableModels.queryOptions().queryKey });
+		await Promise.all([
+			queryClient.invalidateQueries({ queryKey: trpc.project.getLlmConfigs.queryOptions().queryKey }),
+			queryClient.invalidateQueries({ queryKey: trpc.project.getAvailableModels.queryOptions().queryKey }),
+			queryClient.invalidateQueries({ queryKey: trpc.project.getKnownTranscribeModels.queryOptions().queryKey }),
+		]);
 	};
 
 	const handleSubmit = async (values: { apiKey?: string; enabledModels: string[]; baseUrl?: string }) => {
@@ -110,6 +114,7 @@ export function useLlmProviders() {
 		// Data
 		projectConfigs,
 		envProviders,
+		envBaseUrls,
 		availableProvidersToAdd,
 		unconfiguredEnvProviders,
 		currentModels,

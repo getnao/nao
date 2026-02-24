@@ -25,7 +25,7 @@ export const accountRoutes = {
 				});
 			}
 
-			const userProject = await projectQueries.checkUserHasProject(input.userId);
+			const userProject = await projectQueries.getProjectByUserId(input.userId);
 
 			if (ctx.project.id !== userProject?.id) {
 				throw new TRPCError({

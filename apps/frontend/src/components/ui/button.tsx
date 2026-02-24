@@ -1,34 +1,36 @@
 import { Slot } from '@radix-ui/react-slot';
 import { cva } from 'class-variance-authority';
 import * as React from 'react';
-import { ArrowUpIcon, Loader2, SquareIcon } from 'lucide-react';
+import { ArrowUpIcon, Loader2, Mic, SquareIcon } from 'lucide-react';
 import type { VariantProps } from 'class-variance-authority';
 
 import { cn } from '@/lib/utils';
 
 const buttonVariants = cva(
-	"inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive cursor-pointer disabled:cursor-default",
+	"inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive cursor-pointer disabled:cursor-default",
 	{
 		variants: {
 			variant: {
 				default: 'bg-primary text-primary-foreground hover:bg-primary/90',
-				destructive:
-					'bg-destructive/10 text-destructive hover:bg-destructive/20 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 dark:bg-destructive/60',
+				destructive: 'bg-destructive/10 text-destructive hover:bg-destructive/15 dark:bg-destructive/60',
+				'destructive-soft': 'bg-accent/50 text-destructive hover:bg-destructive/10 dark:bg-destructive/60',
 				outline:
-					'border shadow-xs bg-background hover:bg-accent hover:text-accent-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50',
+					'border bg-background hover:bg-accent hover:text-accent-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50',
 				secondary: 'bg-secondary text-secondary-foreground hover:bg-secondary/80',
 				'ghost-muted':
 					'hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50 text-muted-foreground',
+				'ghost-no-hover':
+					'text-muted-foreground hover:bg-transparent hover:text-foreground dark:hover:bg-transparent',
 				ghost: 'hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50',
 				link: 'text-primary underline-offset-4 hover:underline',
 			},
 			size: {
-				default: 'h-9 px-4 py-2 has-[>svg]:px-3',
-				sm: 'h-8 rounded-md gap-1.5 px-3 has-[>svg]:px-2.5',
-				lg: 'h-10 rounded-md px-6 has-[>svg]:px-4',
+				default: 'h-9 px-4 py-2',
+				sm: "h-7 rounded-md gap-2 px-3 [&_svg:not([class*='size-'])]:size-3.5",
+				lg: 'h-10 rounded-md px-6',
 				icon: 'size-9',
 				'icon-xs': 'size-6',
-				'icon-sm': 'size-8',
+				'icon-sm': "size-7 [&_svg:not([class*='size-'])]:size-3.5",
 				'icon-md': 'size-9',
 				'icon-lg': 'size-10',
 			},
@@ -94,6 +96,7 @@ function ChatSendButton({ isRunning, disabled, ...props }: React.ComponentProps<
 		<Button
 			{...props}
 			disabled={disabled}
+			size='icon-sm'
 			className={cn(
 				'rounded-full ml-auto disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100 size-7',
 			)}
@@ -107,4 +110,33 @@ function ChatSendButton({ isRunning, disabled, ...props }: React.ComponentProps<
 	);
 }
 
-export { Button, ButtonConnection, ChatSendButton as ChatButton };
+function MicButton({
+	state,
+	onClick,
+	disabled,
+}: {
+	state: 'idle' | 'recording' | 'transcribing';
+	onClick: () => void;
+	disabled?: boolean;
+}) {
+	const isRecording = state === 'recording';
+	const isTranscribing = state === 'transcribing';
+
+	return (
+		<button
+			type='button'
+			onClick={onClick}
+			disabled={disabled || isTranscribing}
+			aria-label={isRecording ? 'Stop recording' : 'Start voice input'}
+			className={`
+				inline-flex items-center justify-center rounded-full size-7 transition-all cursor-pointer
+				disabled:pointer-events-none disabled:opacity-50
+				${isRecording ? 'bg-violet/30 animate-pulse' : 'text-muted-foreground hover:text-foreground hover:bg-accent'}
+			`}
+		>
+			{isTranscribing ? <Loader2 className='size-3.5 animate-spin' /> : <Mic className='size-3.5' />}
+		</button>
+	);
+}
+
+export { Button, ButtonConnection, ChatSendButton as ChatButton, MicButton };

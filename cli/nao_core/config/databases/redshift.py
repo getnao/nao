@@ -276,11 +276,25 @@ class RedshiftConfig(DatabaseConfig):
         return self.database
 
     def get_schemas(self, conn: BaseBackend) -> list[str]:
+        """Get all schemas in the current database."""
         if self.schema_name:
             return [self.schema_name]
-        list_databases = getattr(conn, "list_databases", None)
-        schemas = list_databases() if list_databases else []
-        return schemas + ["public"]
+
+        # Query system catalog directly to get all schemas
+        query = """
+            SELECT nspname 
+            FROM pg_catalog.pg_namespace
+            WHERE nspname NOT LIKE 'pg_%' 
+              AND nspname != 'information_schema'
+            ORDER BY nspname
+        """
+        try:
+            result = conn.raw_sql(query).fetchall()  # type: ignore[union-attr]
+            schemas = [row[0] for row in result]
+            return schemas
+        except Exception:
+            list_databases = getattr(conn, "list_databases", None)
+            return list_databases() if list_databases else ["public"]
 
     def create_context(self, conn: BaseBackend, schema: str, table_name: str) -> RedshiftDatabaseContext:
         """Create a Redshift-specific database context that avoids pg_enum queries."""
@@ -297,10 +311,7 @@ class RedshiftConfig(DatabaseConfig):
                 return True, f"Connected successfully ({len(tables)} tables found)"
 
             if self.database:
-                if list_databases := getattr(conn, "list_databases", None):
-                    schemas = list_databases() + ["public"]
-                else:
-                    schemas = ["public"]
+                schemas = self.get_schemas(conn)
 
                 tables = []
                 for schema in schemas:

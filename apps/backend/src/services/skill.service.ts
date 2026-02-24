@@ -3,7 +3,7 @@ import { existsSync, readdirSync, readFileSync, statSync, watch } from 'fs';
 import matter from 'gray-matter';
 import { join } from 'path';
 
-import { retrieveProjectById } from '../utils/chat';
+import { retrieveProjectById } from '../utils/ai';
 
 export interface Skill {
 	name: string;

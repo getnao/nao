@@ -43,14 +43,15 @@ docker run -d \
 | `DB_URI`                   | No       | PostgreSQL connection string (uses SQLite if not set) |
 | `SLACK_BOT_TOKEN`          | No       | Slack bot token for Slack integration                 |
 | `SLACK_SIGNING_SECRET`     | No       | Slack signing secret                                  |
+| `SERVER_PORT`              | No       | Port to listen to                                     |
 
 \* At least one LLM API key is required to make AI queries.
 
 ## Ports
 
-| Port   | Description    |
-| ------ | -------------- |
-| `5005` | Web UI and API |
+| Port   | Description                                                        |
+| ------ | ------------------------------------------------------------------ |
+| `5005` | Web UI and API, can be set via `$SERVER_PORT` environment variable |
 
 ## Volumes
 

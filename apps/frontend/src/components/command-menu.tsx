@@ -64,9 +64,9 @@ export function CommandMenu() {
 			},
 			{
 				id: 'open-settings',
-				label: 'Open Profile',
+				label: 'Open General Settings',
 				icon: UserIcon,
-				action: () => navigate({ to: '/settings/profile' }),
+				action: () => navigate({ to: '/settings/general' }),
 				group: 'Jump to',
 			},
 			{

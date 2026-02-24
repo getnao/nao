@@ -101,6 +101,21 @@ export function Location({ children }: { children: ReactNode }) {
 	return <>**Location:** `{children}`</>;
 }
 
+export function XML({ tag, props, children }: { tag: string; props?: Record<string, string>; children: ReactNode }) {
+	const propsString = props
+		? Object.entries(props)
+				.map(([key, value]) => `${key}=${JSON.stringify(value)}`)
+				.join(' ')
+		: '';
+	return (
+		<Block>
+			<Span>{`<${tag}${propsString ? ` ${propsString}` : ''}>`}</Span>
+			{children}
+			<Span>{`</${tag}>`}</Span>
+		</Block>
+	);
+}
+
 export const isRenderable = (node: ReactNode): boolean => {
 	return !(node == null || typeof node === 'boolean');
 };

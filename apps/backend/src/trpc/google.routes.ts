@@ -1,17 +1,23 @@
+import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
+import { updateAuth } from '../auth';
 import { env } from '../env';
+import * as orgQueries from '../queries/organization.queries';
 import { adminProtectedProcedure, publicProcedure } from './trpc';
 
 export const googleRoutes = {
-	isSetup: publicProcedure.query(() => {
-		return !!(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET);
+	isSetup: publicProcedure.query(async () => {
+		if (env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET) {
+			return true;
+		}
+		const org = await orgQueries.getFirstOrganization();
+		return !!(org?.googleClientId && org?.googleClientSecret);
 	}),
-	getSettings: adminProtectedProcedure.query(() => {
+	getSettings: adminProtectedProcedure.query(async () => {
+		const config = await orgQueries.getGoogleConfig();
 		return {
-			clientId: env.GOOGLE_CLIENT_ID || '',
-			clientSecret: env.GOOGLE_CLIENT_SECRET || '',
-			authDomains: env.GOOGLE_AUTH_DOMAINS || '',
+			...config,
 		};
 	}),
 	updateSettings: adminProtectedProcedure
@@ -22,13 +28,17 @@ export const googleRoutes = {
 				authDomains: z.string(),
 			}),
 		)
-		.mutation(({ input }) => {
-			//TO DO : Save google settings in a secure store or database
-
-			// process.env.GOOGLE_CLIENT_ID = input.clientId;
-			// process.env.GOOGLE_CLIENT_SECRET = input.clientSecret;
-			// process.env.GOOGLE_AUTH_DOMAINS = input.authDomains;
-
+		.mutation(async ({ input }) => {
+			const org = await orgQueries.getFirstOrganization();
+			if (!org) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: 'No organization found' });
+			}
+			await orgQueries.updateGoogleSettings(org.id, {
+				googleClientId: input.clientId || null,
+				googleClientSecret: input.clientSecret || null,
+				googleAuthDomains: input.authDomains || null,
+			});
+			updateAuth();
 			return { success: true };
 		}),
 };

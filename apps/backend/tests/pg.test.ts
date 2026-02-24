@@ -5,12 +5,20 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import { afterAll, afterEach, describe, expect, it } from 'vitest';
 
 import { NewUser } from '../src/db/abstractSchema';
-import { user } from '../src/db/pgSchema';
-import * as pgSchema from '../src/db/pgSchema';
+import { user } from '../src/db/pg-schema';
+import * as pgSchema from '../src/db/pg-schema';
 
-const db = drizzle(process.env.DB_URI!, { schema: pgSchema });
+const dbUri = process.env.DB_URI;
+const isPostgresDbUri = Boolean(dbUri && (dbUri.startsWith('postgres://') || dbUri.startsWith('postgresql://')));
+const describePostgres = isPostgresDbUri ? describe : describe.skip;
 
-describe('userTable', () => {
+describePostgres('userTable', () => {
+	if (!isPostgresDbUri || !dbUri) {
+		return;
+	}
+
+	const db = drizzle(dbUri, { schema: pgSchema });
+
 	const testUser: NewUser = {
 		id: 'test-user-id',
 		name: 'John',

@@ -5,12 +5,13 @@ import { format, formatDistanceToNow } from 'date-fns';
 import { ThumbsDown, ThumbsUp } from 'lucide-react';
 import type { Granularity } from '@nao/backend/usage';
 import type { LlmProvider } from '@nao/backend/llm';
-import type { ChartView } from '@/components/usage-filters';
-import { UsageChartCard } from '@/components/usage-chart-card';
-import { UsageFilters, dateFormats } from '@/components/usage-filters';
+import type { ChartView } from '@/components/settings/usage-filters';
+import { UsageChartCard } from '@/components/settings/usage-chart-card';
+import { UsageFilters, dateFormats } from '@/components/settings/usage-filters';
 import { SettingsCard } from '@/components/ui/settings-card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { trpc } from '@/main';
+import { Empty } from '@/components/ui/empty';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/usage')({
 	component: UsagePage,
@@ -33,21 +34,20 @@ function UsagePage() {
 
 	const chartData = messagesUsage.data ?? [];
 
+	const filtersComponent = (
+		<UsageFilters
+			chartView={chartView}
+			onChartViewChange={setChartView}
+			provider={provider}
+			onProviderChange={setProvider}
+			granularity={granularity}
+			onGranularityChange={setGranularity}
+			availableProviders={usedProviders.data}
+		/>
+	);
+
 	return (
 		<>
-			<div className='flex items-start justify-between'>
-				<h1 className='text-2xl font-semibold text-foreground'>Usage & costs</h1>
-				<UsageFilters
-					chartView={chartView}
-					onChartViewChange={setChartView}
-					provider={provider}
-					onProviderChange={setProvider}
-					granularity={granularity}
-					onGranularityChange={setGranularity}
-					availableProviders={usedProviders.data}
-				/>
-			</div>
-
 			{chartView === 'messages' && (
 				<UsageChartCard
 					title='Messages'
@@ -59,6 +59,7 @@ function UsagePage() {
 					chartType='bar'
 					xAxisLabelFormatter={(value) => format(new Date(value), dateFormats[granularity])}
 					series={[{ data_key: 'messageCount', color: 'var(--chart-1)', label: 'Number of messages' }]}
+					filters={filtersComponent}
 				/>
 			)}
 
@@ -78,6 +79,7 @@ function UsagePage() {
 						{ data_key: 'inputCacheWriteTokens', color: 'var(--chart-3)', label: 'Input (cache write)' },
 						{ data_key: 'outputTotalTokens', color: 'var(--chart-4)', label: 'Output' },
 					]}
+					filters={filtersComponent}
 				/>
 			)}
 
@@ -97,16 +99,20 @@ function UsagePage() {
 						{ data_key: 'inputCacheWriteCost', color: 'var(--chart-3)', label: 'Input (cache write)' },
 						{ data_key: 'outputCost', color: 'var(--chart-4)', label: 'Output' },
 					]}
+					filters={filtersComponent}
 				/>
 			)}
 
-			<SettingsCard title='Feedbacks'>
+			<SettingsCard
+				title='Feedbacks'
+				description='Feedbacks users have given to the agent during their sessions.'
+			>
 				{recentFeedbacks.isLoading ? (
-					<p className='text-muted-foreground text-sm'>Loading feedbacks...</p>
+					<Empty>Loading feedbacks...</Empty>
 				) : recentFeedbacks.isError ? (
-					<p className='text-destructive text-sm'>Failed to load feedbacks</p>
+					<Empty>Failed to load feedbacks.</Empty>
 				) : !recentFeedbacks.data?.length ? (
-					<p className='text-muted-foreground text-sm'>No feedbacks yet</p>
+					<Empty>No feedbacks yet.</Empty>
 				) : (
 					<Table>
 						<TableHeader>
@@ -137,7 +143,7 @@ function UsagePage() {
 													: feedback.messageText}
 											</span>
 										) : (
-											<span className='italic'>No text</span>
+											<span className='italic'>No text.</span>
 										)}
 									</TableCell>
 									<TableCell className='max-w-xs truncate text-muted-foreground'>
