@@ -89,7 +89,9 @@ class TrinoConfig(DatabaseConfig):
         try:
             escaped_catalog = self.catalog.replace('"', '""')
             rows = conn.raw_sql(f'SHOW SCHEMAS FROM "{escaped_catalog}"').fetchall()  # type: ignore[union-attr]
-            schemas = [_normalize_schema_name(row[0]) for row in rows if row and not _is_excluded_schema(row[0])]
+            schemas = [
+                _normalize_schema_name(row[0]) for row in rows if row and row[0] and not _is_excluded_schema(row[0])
+            ]
             return sorted(set(schemas))
         except Exception:
             pass
