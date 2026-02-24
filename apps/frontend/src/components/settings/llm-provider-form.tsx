@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useForm } from '@tanstack/react-form';
 import { Check, ChevronDown, Plus, X } from 'lucide-react';
-import { getDefaultModelId } from '@nao/backend/providers';
+import { getDefaultModelId, getProviderApiKeyRequirement } from '@nao/backend/providers';
 import type { LlmProvider } from '@nao/backend/llm';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -99,15 +99,17 @@ export function LlmProviderForm({
 				</Button>
 			</div>
 
-			{/* API Key field */}
-			<PasswordField
-				form={form}
-				name='apiKey'
-				label='API Key'
-				hint={getApiKeyHint()}
-				placeholder={getApiKeyPlaceholder()}
-				required={!isEditing && !usesEnvKey}
-			/>
+			{/* API Key field — Ollama is a local provider and does not require one */}
+			{getProviderApiKeyRequirement(provider) && (
+				<PasswordField
+					form={form}
+					name='apiKey'
+					label='API Key'
+					hint={getApiKeyHint()}
+					placeholder={getApiKeyPlaceholder()}
+					required={!isEditing && !usesEnvKey}
+				/>
+			)}
 
 			{/* Model selection */}
 			<form.Field name='enabledModels'>

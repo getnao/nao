@@ -13,6 +13,7 @@ class LLMProvider(str, Enum):
     ANTHROPIC = "anthropic"
     MISTRAL = "mistral"
     GEMINI = "gemini"
+    OLLAMA = "ollama"
 
 
 class LLMConfig(BaseModel):
@@ -30,6 +31,7 @@ class LLMConfig(BaseModel):
             questionary.Choice("Anthropic (Claude)", value="anthropic"),
             questionary.Choice("Mistral", value="mistral"),
             questionary.Choice("Google Gemini", value="gemini"),
+            questionary.Choice("Ollama", value="ollama"),
         ]
 
         llm_provider = ask_select("Select LLM provider:", choices=provider_choices)

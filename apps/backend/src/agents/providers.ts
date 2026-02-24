@@ -3,8 +3,8 @@ import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createMistral } from '@ai-sdk/mistral';
 import { createOpenAI } from '@ai-sdk/openai';
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
-import { createOllama } from 'ai-sdk-ollama';
 import type { LanguageModel } from 'ai';
+import { createOllama } from 'ai-sdk-ollama';
 
 import type { LlmProvider, LlmProvidersType, ProviderConfigMap } from '../types/llm';
 
@@ -218,6 +218,15 @@ export function getDefaultModelId(provider: LlmProvider): string {
 	const models = LLM_PROVIDERS[provider].models;
 	const defaultModel = models.find((m) => m.default);
 	return defaultModel?.id ?? models[0].id;
+}
+
+export function getProviderApiKeyRequirement(provider: LlmProvider): boolean {
+	switch (provider) {
+		case 'ollama':
+			return false;
+		default:
+			return true;
+	}
 }
 
 export function getProviderModelConfig<P extends LlmProvider>(provider: P, modelId: string): ProviderConfigMap[P] {
