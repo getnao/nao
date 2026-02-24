@@ -75,7 +75,7 @@ const MessagePart = memo(({ part, isPartSettled }: { part: GroupedMessagePart; i
 		return <ToolCall toolPart={part} />;
 	}
 
-	const isPartStreaming = isPartSettled || ('state' in part && part.state === 'streaming');
+	const isPartStreaming = !isPartSettled && 'state' in part && part.state === 'streaming';
 
 	switch (part.type) {
 		case 'text':
