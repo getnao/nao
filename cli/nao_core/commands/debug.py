@@ -42,7 +42,10 @@ def _check_available_models(provider: str, api_key: str) -> Tuple[bool, str]:
         try:
             import ollama
         except ImportError:
-            return False, "Provider 'ollama' requires the optional dependency 'ollama'. Install it to use this provider."
+            return (
+                False,
+                "Provider 'ollama' requires the optional dependency 'ollama'. Install it to use this provider.",
+            )
 
         models = ollama.list()
     else:
