@@ -192,7 +192,8 @@ def chat(port: Annotated[Optional[int], Parameter(name=["-p", "--port"])] = None
             console.print("[bold green]✓[/bold green] Set Slack environment variables from config")
 
         env["NAO_DEFAULT_PROJECT_PATH"] = str(Path.cwd())
-        env["BETTER_AUTH_URL"] = f"http://localhost:{port}"
+        if "BETTER_AUTH_URL" not in os.environ:
+            env["BETTER_AUTH_URL"] = f"http://localhost:{port}"
         env["MODE"] = MODE
         env["NAO_CORE_VERSION"] = __version__
 
