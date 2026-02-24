@@ -10,7 +10,7 @@ import { useLocalStorage } from './use-local-storage';
 import type { InferUIMessageChunk } from 'ai';
 import type { ScrollToBottom, ScrollToBottomOptions } from 'use-stick-to-bottom';
 import type { UseChatHelpers } from '@ai-sdk/react';
-import type { ChatListItem, UIMessage } from '@nao/backend/chat';
+import type { UIMessage } from '@nao/backend/chat';
 import type { MentionOption } from 'prompt-mentions';
 import type ChatSelectedModel from '@/types/ai';
 import { useChatQuery, useSetChat } from '@/queries/use-chat-query';
@@ -66,7 +66,7 @@ export const useAgent = (): AgentHelpers => {
 
 		const handleAgentDataPart = (dataPart: InferUIMessageChunk<UIMessage>, agent: Agent<UIMessage>) => {
 			if (dataPart.type === 'data-newChat') {
-				const newChat = dataPart.data as ChatListItem;
+				const newChat = dataPart.data;
 				agentService.moveAgent(agentId, newChat.id);
 				agentId = newChat.id;
 				setChat({ chatId: newChat.id }, { ...newChat, messages: [] });
@@ -76,7 +76,7 @@ export const useAgent = (): AgentHelpers => {
 			}
 
 			if (dataPart.type === 'data-newUserMessage') {
-				const { newId } = dataPart.data as { newId: string };
+				const { newId } = dataPart.data;
 				const lastUserMessageIndex = getLastUserMessageIdx(agent.messages);
 				agent.messages = agent.messages.map((message, idx) =>
 					idx === lastUserMessageIndex ? { ...message, id: newId } : message,

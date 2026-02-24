@@ -2,9 +2,8 @@ import type { AnthropicProviderOptions } from '@ai-sdk/anthropic';
 import type { GoogleGenerativeAIProviderOptions } from '@ai-sdk/google';
 import type { MistralLanguageModelOptions } from '@ai-sdk/mistral';
 import type { OpenAIResponsesProviderOptions } from '@ai-sdk/openai';
-import type { JSONValue } from '@ai-sdk/provider';
 import type { OpenRouterProviderOptions } from '@openrouter/ai-sdk-provider';
-import type { OllamaProviderOptions } from 'ai-sdk-ollama';
+import type { OllamaChatProviderOptions } from 'ai-sdk-ollama';
 import { z } from 'zod/v4';
 
 import { TokenCost } from './chat';
@@ -22,6 +21,9 @@ export const llmConfigSchema = z.object({
 	updatedAt: z.date(),
 });
 
+/** Flatten an interface into a plain type so it gains an implicit index signature. */
+type Flatten<T> = { [K in keyof T]: T[K] };
+
 /** Map each provider to its specific config type */
 export type ProviderConfigMap = {
 	google: GoogleGenerativeAIProviderOptions;
@@ -29,7 +31,7 @@ export type ProviderConfigMap = {
 	anthropic: AnthropicProviderOptions;
 	mistral: MistralLanguageModelOptions;
 	openrouter: OpenRouterProviderOptions;
-	ollama: OllamaProviderOptions & Record<string, JSONValue | undefined>;
+	ollama: Flatten<OllamaChatProviderOptions>;
 };
 
 /** Model definition with provider-specific config type */
