@@ -29,7 +29,7 @@ const buttonVariants = cva(
 				sm: "h-7 rounded-md gap-2 px-3 [&_svg:not([class*='size-'])]:size-3.5",
 				lg: 'h-10 rounded-md px-6',
 				icon: 'size-9',
-				'icon-xs': 'size-6',
+				'icon-xs': "size-6 [&_svg:not([class*='size-'])]:size-3.5",
 				'icon-sm': "size-7 [&_svg:not([class*='size-'])]:size-3.5",
 				'icon-md': 'size-9',
 				'icon-lg': 'size-10',
@@ -89,8 +89,8 @@ function ButtonConnection({ children }: React.ComponentProps<'button'>) {
 	);
 }
 
-function ChatSendButton({ isRunning, disabled, ...props }: React.ComponentProps<'button'> & { isRunning: boolean }) {
-	disabled = !isRunning && disabled;
+function ChatSendButton({ showStop, disabled, ...props }: React.ComponentProps<'button'> & { showStop: boolean }) {
+	disabled = !showStop && disabled;
 
 	return (
 		<Button
@@ -101,7 +101,7 @@ function ChatSendButton({ isRunning, disabled, ...props }: React.ComponentProps<
 				'rounded-full ml-auto disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100 size-7',
 			)}
 		>
-			{isRunning ? (
+			{showStop ? (
 				<SquareIcon fill='currentColor' stroke='currentColor' className='size-3' />
 			) : (
 				<ArrowUpIcon className='size-4' />

@@ -1,6 +1,5 @@
-import { memo, useEffect, useMemo, useRef } from 'react';
+import { memo, useMemo, useRef } from 'react';
 import { useParams, useRouterState } from '@tanstack/react-router';
-import { useStickToBottomContext } from 'use-stick-to-bottom';
 import { TextShimmer } from '../ui/text-shimmer';
 import { ChatError } from './chat-error';
 import { FollowUpSuggestions } from './follow-up-suggestions';
@@ -19,6 +18,7 @@ import { cn, isLast } from '@/lib/utils';
 import { useAgentContext } from '@/contexts/agent.provider';
 import { useHeight } from '@/hooks/use-height';
 import { useDebounceValue } from '@/hooks/use-debounce-value';
+import { useScrollToBottomOnNewUserMessage } from '@/hooks/use-scroll-to-bottom-on-new-user-message';
 
 const DEBUG_MESSAGES = false;
 
@@ -28,9 +28,6 @@ export function ChatMessages() {
 	const containerHeight = useHeight(contentRef, [chatId]);
 	const { messages, isRunning } = useAgentContext();
 	const isAgentGenerating = isRunning && checkIsLastMessageStreaming(messages);
-
-	const lastMessageRole = messages.at(-1)?.role;
-	const shouldResizeSmoothly = !isAgentGenerating && lastMessageRole === 'user';
 
 	// Skip fade-in animation when navigating from home after sending a message
 	const fromMessageSend = useRouterState({ select: (state) => state.location.state.fromMessageSend });
@@ -42,7 +39,7 @@ export function ChatMessages() {
 			style={{ '--container-height': `${containerHeight}px` } as React.CSSProperties}
 			key={chatId}
 		>
-			<Conversation resize={shouldResizeSmoothly ? 'smooth' : 'instant'}>
+			<Conversation>
 				<ConversationContent className='max-w-3xl mx-auto gap-0'>
 					<ChatMessagesContent isAgentGenerating={isAgentGenerating} />
 				</ConversationContent>
@@ -54,19 +51,13 @@ export function ChatMessages() {
 }
 
 const ChatMessagesContent = memo(({ isAgentGenerating }: { isAgentGenerating: boolean }) => {
-	const { messages, isRunning, registerScrollDown } = useAgentContext();
-	const { scrollToBottom } = useStickToBottomContext();
+	const { messages, isRunning } = useAgentContext();
 	const followUpSuggestionsToolCall = useMemo(() => getLastFollowUpSuggestionsToolCall(messages), [messages]);
 	const extraComponentsRef = useRef<HTMLDivElement>(null);
 	const extraComponentsHeight = useHeight(extraComponentsRef);
-
-	useEffect(() => {
-		// Register the scroll down fn so the agent context has access to it.
-		const scrollDownSubscription = registerScrollDown(scrollToBottom);
-		return () => scrollDownSubscription.dispose();
-	}, [registerScrollDown, scrollToBottom]);
-
 	const messageGroups = useMemo(() => groupMessages(messages), [messages]);
+
+	useScrollToBottomOnNewUserMessage(messages);
 
 	// Debounce when the agent is running but not generating content yet to prevent flickering
 	const isRunningButNotGeneratingDebounced = useDebounceValue(isRunning && !isAgentGenerating, {

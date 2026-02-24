@@ -7,29 +7,29 @@ import { useCurrent } from './useCurrent';
 import { useMemoObject } from './useMemoObject';
 import { usePrevRef } from './use-prev';
 import { useLocalStorage } from './use-local-storage';
+import { useChatId } from './use-chat-id';
 import type { InferUIMessageChunk } from 'ai';
-import type { ScrollToBottom, ScrollToBottomOptions } from 'use-stick-to-bottom';
 import type { UseChatHelpers } from '@ai-sdk/react';
 import type { UIMessage } from '@nao/backend/chat';
 import type { MentionOption } from 'prompt-mentions';
 import type ChatSelectedModel from '@/types/ai';
+import { messageQueueStore } from '@/stores/chat-message-queue';
 import { useChatQuery, useSetChat } from '@/queries/use-chat-query';
 import { trpc } from '@/main';
 import { agentService } from '@/services/agents';
-import { checkIsAgentRunning, getLastUserMessageIdx, getTextFromUserMessageOrThrow } from '@/lib/ai';
+import { checkIsAgentRunning, getLastUserMessageIdx, getTextFromUserMessageOrThrow, NEW_CHAT_ID } from '@/lib/ai';
 import { useSetChatList } from '@/queries/use-chat-list-query';
 import { createLocalStorage } from '@/lib/local-storage';
 
 export interface AgentHelpers {
 	messages: UIMessage[];
 	setMessages: UseChatHelpers<UIMessage>['setMessages'];
-	sendMessage: UseChatHelpers<UIMessage>['sendMessage'];
+	queueOrSendMessage: (args: SendMessageArgs) => Promise<void>;
 	editMessage: (args: { messageId: string; text: string }) => Promise<void | UIMessage>;
 	status: UseChatHelpers<UIMessage>['status'];
 	isRunning: boolean;
 	isLoadingMessages: boolean;
 	stopAgent: () => Promise<void>;
-	registerScrollDown: (fn: ScrollToBottom) => { dispose: () => void };
 	error: Error | undefined;
 	clearError: UseChatHelpers<UIMessage>['clearError'];
 	selectedModel: ChatSelectedModel | null;
@@ -37,14 +37,17 @@ export interface AgentHelpers {
 	setMentions: (mentions: MentionOption[]) => void;
 }
 
+export interface SendMessageArgs {
+	text: string;
+}
+
 const selectedModelStorage = createLocalStorage<ChatSelectedModel>('nao-selected-model');
 
 export const useAgent = (): AgentHelpers => {
 	const navigate = useNavigate();
-	const { chatId } = useParams({ strict: false });
-	const chat = useChatQuery({ chatId });
+	const chatId = useChatId();
 	const chatIdRef = useCurrent(chatId);
-	const scrollDownService = useScrollDownCallbackService();
+	const chat = useChatQuery({ chatId });
 
 	const [selectedModel, setSelectedModel] = useLocalStorage(selectedModelStorage);
 	const selectedModelRef = useCurrent(selectedModel);
@@ -57,7 +60,7 @@ export const useAgent = (): AgentHelpers => {
 	}, []);
 
 	const agentInstance = useMemo(() => {
-		let agentId = chatId ?? 'new-chat';
+		let agentId = chatId ?? NEW_CHAT_ID;
 
 		const existingAgent = agentService.getAgent(agentId);
 		if (existingAgent) {
@@ -67,6 +70,7 @@ export const useAgent = (): AgentHelpers => {
 		const handleAgentDataPart = (dataPart: InferUIMessageChunk<UIMessage>, agent: Agent<UIMessage>) => {
 			if (dataPart.type === 'data-newChat') {
 				const newChat = dataPart.data;
+				messageQueueStore.moveQueue(agentId, newChat.id);
 				agentService.moveAgent(agentId, newChat.id);
 				agentId = newChat.id;
 				setChat({ chatId: newChat.id }, { ...newChat, messages: [] });
@@ -98,7 +102,7 @@ export const useAgent = (): AgentHelpers => {
 					return {
 						body: {
 							...body,
-							chatId: agentId === 'new-chat' ? undefined : agentId,
+							chatId: agentId === NEW_CHAT_ID ? undefined : agentId,
 							message: {
 								text: getTextFromUserMessageOrThrow(messageToSend),
 							},
@@ -109,10 +113,18 @@ export const useAgent = (): AgentHelpers => {
 				},
 			}),
 			onData: (dataPart) => handleAgentDataPart(dataPart, newAgent),
-			onFinish: () => {
-				if (chatIdRef.current !== agentId) {
+			onFinish: ({ isAbort, isError, isDisconnect }) => {
+				const canSendNextMessage = !isAbort && !isError && !isDisconnect;
+				const next = canSendNextMessage ? messageQueueStore.dequeue(agentId) : undefined;
+				if (next) {
+					mentionsRef.current = next.mentions;
+					newAgent.sendMessage({ text: next.text });
+				} else if (chatIdRef.current !== agentId) {
 					agentService.disposeAgent(agentId);
 				}
+			},
+			onError: () => {
+				messageQueueStore.clear(agentId);
 			},
 		});
 
@@ -122,6 +134,7 @@ export const useAgent = (): AgentHelpers => {
 	const { status, error, clearError, sendMessage, setMessages, messages } = useChat({ chat: agentInstance });
 
 	const stopAgentMutation = useMutation(trpc.chat.stop.mutationOptions());
+	const isRunning = checkIsAgentRunning({ status });
 
 	const stopAgent = useCallback(async () => {
 		if (!chatId) {
@@ -132,18 +145,33 @@ export const useAgent = (): AgentHelpers => {
 		await stopAgentMutation.mutateAsync({ chatId });
 	}, [chatId, agentInstance, stopAgentMutation.mutateAsync]); // eslint-disable-line
 
-	const isRunning = checkIsAgentRunning({ status });
-
-	const handleSendMessage = useCallback(
-		async (...args: Parameters<UseChatHelpers<UIMessage>['sendMessage']>) => {
-			if (isRunning) {
-				return;
-			}
+	const handleSendMessage = useCallback<UseChatHelpers<UIMessage>['sendMessage']>(
+		async (...args) => {
 			clearError();
-			scrollDownService.scrollDown({ animation: 'smooth' });
 			return sendMessage(...args);
 		},
-		[isRunning, sendMessage, clearError, scrollDownService.scrollDown], // eslint-disable-line
+		[sendMessage, clearError],
+	);
+
+	const queueOrSendMessage = useCallback(
+		async ({ text }: SendMessageArgs) => {
+			if (!text.trim()) {
+				return;
+			}
+
+			if (!isRunning) {
+				return handleSendMessage({ text });
+			}
+
+			const mentions = [...mentionsRef.current];
+			mentionsRef.current = [];
+
+			messageQueueStore.enqueue(chatIdRef.current, {
+				text,
+				mentions,
+			});
+		},
+		[isRunning, handleSendMessage, chatIdRef],
 	);
 
 	const editMessage = useCallback(
@@ -161,19 +189,18 @@ export const useAgent = (): AgentHelpers => {
 			setMessages(messages.slice(0, messageIndex));
 			return handleSendMessage({ text: trimmedText }, { body: { messageToEditId: messageId } });
 		},
-		[messages, setMessages, isRunning, handleSendMessage, scrollDownService.scrollDown, clearError], // eslint-disable-line
+		[messages, setMessages, isRunning, handleSendMessage],
 	);
 
 	return useMemoObject({
 		messages,
 		setMessages,
-		sendMessage: handleSendMessage,
+		queueOrSendMessage,
 		editMessage,
 		status,
 		isRunning,
 		isLoadingMessages: chat.isLoading,
 		stopAgent,
-		registerScrollDown: scrollDownService.register,
 		error,
 		clearError,
 		selectedModel,
@@ -224,31 +251,4 @@ export const useDisposeInactiveAgents = () => {
 			agentService.disposeAgent(agentIdToDispose);
 		}
 	}, [chatId, prevChatIdRef]);
-};
-
-const useScrollDownCallbackService = () => {
-	const scrollDownCallbackRef = useRef<ScrollToBottom | null>(null);
-
-	const scrollDown = useCallback(
-		(options?: ScrollToBottomOptions) => {
-			if (scrollDownCallbackRef.current) {
-				scrollDownCallbackRef.current(options);
-			}
-		},
-		[scrollDownCallbackRef],
-	);
-
-	const register = useCallback((callback: ScrollToBottom) => {
-		scrollDownCallbackRef.current = callback;
-		return {
-			dispose: () => {
-				scrollDownCallbackRef.current = null;
-			},
-		};
-	}, []);
-
-	return {
-		scrollDown,
-		register,
-	};
 };

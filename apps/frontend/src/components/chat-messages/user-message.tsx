@@ -4,11 +4,12 @@ import type { UIMessage } from '@nao/backend/chat';
 import { cn } from '@/lib/utils';
 import { useAgentContext } from '@/contexts/agent.provider';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
-import { messageEditStore, useIsEditingMessage } from '@/hooks/use-message-edit-store';
+import { useIsEditingMessage } from '@/hooks/use-is-editing-message-store';
 import { useClickOutside } from '@/hooks/use-click-outside';
 import { ChatInputInline } from '@/components/chat-input';
 import { getMessageText } from '@/lib/ai';
 import { Button } from '@/components/ui/button';
+import { editedMessageIdStore } from '@/stores/chat-edited-message';
 
 export const UserMessage = memo(({ message }: { message: UIMessage }) => {
 	const { isRunning, editMessage } = useAgentContext();
@@ -21,7 +22,7 @@ export const UserMessage = memo(({ message }: { message: UIMessage }) => {
 		{
 			ref: editContainerRef,
 			enabled: isEditing,
-			onClickOutside: () => messageEditStore.setEditing(null),
+			onClickOutside: () => editedMessageIdStore.setEditingId(undefined),
 		},
 		[isEditing],
 	);
@@ -32,9 +33,9 @@ export const UserMessage = memo(({ message }: { message: UIMessage }) => {
 				<ChatInputInline
 					initialText={text}
 					className='p-0 **:data-[slot=input-group]:shadow-none!'
-					onCancel={() => messageEditStore.setEditing(null)}
+					onCancel={() => editedMessageIdStore.setEditingId(undefined)}
 					onSubmitMessage={async ({ text: nextText }) => {
-						messageEditStore.setEditing(null);
+						editedMessageIdStore.setEditingId(undefined);
 						await editMessage({ messageId: message.id, text: nextText });
 					}}
 				/>
@@ -54,7 +55,11 @@ export const UserMessage = memo(({ message }: { message: UIMessage }) => {
 					isRunning && 'group-last:opacity-0 invisible',
 				)}
 			>
-				<Button variant='ghost-muted' size='icon-sm' onClick={() => messageEditStore.setEditing(message.id)}>
+				<Button
+					variant='ghost-muted'
+					size='icon-sm'
+					onClick={() => editedMessageIdStore.setEditingId(message.id)}
+				>
 					<Pencil />
 				</Button>
 				<Button variant='ghost-muted' size='icon-sm' onClick={() => copy(getMessageText(message))}>

@@ -19,15 +19,18 @@ function SelectValue({ ...props }: React.ComponentProps<typeof SelectPrimitive.V
 function SelectTrigger({
 	className,
 	size = 'default',
+	variant = 'default',
 	children,
 	...props
 }: React.ComponentProps<typeof SelectPrimitive.Trigger> & {
 	size?: 'sm' | 'default';
+	variant?: 'default' | 'ghost';
 }) {
 	return (
 		<SelectPrimitive.Trigger
 			data-slot='select-trigger'
 			data-size={size}
+			data-variant={variant}
 			className={cn(
 				// Layout
 				'flex w-fit items-center justify-between gap-1',
@@ -35,9 +38,11 @@ function SelectTrigger({
 				'px-2.5 py-1 data-[size=default]:h-8 data-[size=sm]:h-6',
 				// Typography
 				'text-sm whitespace-nowrap',
-				// Border & background
-				'rounded-lg border border-input bg-transparent',
-				'dark:bg-input/30 dark:hover:bg-input/50',
+				// Border & background variants
+				variant === 'default' &&
+					'rounded-lg border border-input bg-transparent dark:bg-input/30 dark:hover:bg-input/50',
+				variant === 'ghost' &&
+					'font-normal rounded-lg border-none bg-transparent shadow-none text-muted-foreground hover:text-foreground',
 				// Focus states
 				'outline-none transition-[color,box-shadow] cursor-pointer',
 				// Invalid states
