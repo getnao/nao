@@ -117,3 +117,14 @@ def spec(temp_schemas):
 
 class TestTrinoSyncIntegration(BaseSyncIntegrationTests):
     """Verify the sync pipeline produces correct output against a live Trino cluster."""
+
+    def test_get_schemas_excludes_builtins(self, db_config, spec):
+        """Trino built-in schemas must not be treated as user schemas."""
+        config = db_config.model_copy(update={spec.schema_field: None})
+        conn = config.connect()
+        schemas = config.get_schemas(conn)
+
+        normalized = {s.lower() for s in schemas}
+        assert "information_schema" not in normalized
+        assert "default" not in normalized
+        assert "sys" not in normalized

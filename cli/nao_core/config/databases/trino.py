@@ -9,7 +9,17 @@ from nao_core.ui import ask_text
 
 from .base import DatabaseConfig
 
-EXCLUDED_SCHEMAS = {"information_schema", "default"}
+EXCLUDED_SCHEMAS = {"information_schema", "default", "sys", "pg_catalog"}
+
+
+def _normalize_schema_name(value: object) -> str:
+    """Normalize schema names returned by different Trino drivers/connectors."""
+    return str(value).strip().strip('"').strip("'")
+
+
+def _is_excluded_schema(value: object) -> bool:
+    schema = _normalize_schema_name(value).lower()
+    return not schema or schema in EXCLUDED_SCHEMAS or schema.startswith("pg_")
 
 
 class TrinoConfig(DatabaseConfig):
@@ -77,14 +87,16 @@ class TrinoConfig(DatabaseConfig):
         try:
             escaped_catalog = self.catalog.replace('"', '""')
             rows = conn.raw_sql(f'SHOW SCHEMAS FROM "{escaped_catalog}"').fetchall()  # type: ignore[union-attr]
-            return [str(row[0]) for row in rows if row and row[0] and str(row[0]).lower() not in EXCLUDED_SCHEMAS]
+            schemas = [_normalize_schema_name(row[0]) for row in rows if row and not _is_excluded_schema(row[0])]
+            return sorted(set(schemas))
         except Exception:
             pass
 
         list_databases = getattr(conn, "list_databases", None)
         if list_databases:
             try:
-                return [str(s) for s in list_databases() if str(s).lower() not in EXCLUDED_SCHEMAS]
+                schemas = [_normalize_schema_name(s) for s in list_databases() if not _is_excluded_schema(s)]
+                return sorted(set(schemas))
             except Exception:
                 return []
 
