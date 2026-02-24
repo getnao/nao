@@ -39,6 +39,7 @@ type ProviderModel<P extends LlmProvider> = {
 	id: string;
 	name: string;
 	default?: boolean;
+	contextWindow?: number;
 	config?: ProviderConfigMap[P];
 	costPerM?: TokenCost;
 };

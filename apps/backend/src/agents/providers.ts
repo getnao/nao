@@ -25,6 +25,7 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 				id: 'claude-sonnet-4-6',
 				name: 'Claude Sonnet 4.6',
 				default: true,
+				contextWindow: 200_000,
 				config: {
 					thinking: {
 						type: 'enabled' as const,
@@ -41,6 +42,7 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 			{
 				id: 'claude-sonnet-4-5',
 				name: 'Claude Sonnet 4.5',
+				contextWindow: 200_000,
 				config: {
 					thinking: {
 						type: 'enabled' as const,
@@ -57,6 +59,7 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 			{
 				id: 'claude-opus-4-6',
 				name: 'Claude Opus 4.6',
+				contextWindow: 200_000,
 				config: {
 					thinking: {
 						type: 'enabled' as const,
@@ -73,6 +76,7 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 			{
 				id: 'claude-opus-4-5',
 				name: 'Claude Opus 4.5',
+				contextWindow: 200000,
 				config: {
 					thinking: {
 						type: 'enabled' as const,
@@ -89,6 +93,7 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 			{
 				id: 'claude-haiku-4-5',
 				name: 'Claude Haiku 4.5',
+				contextWindow: 200_000,
 				costPerM: {
 					inputNoCache: 1,
 					inputCacheRead: 0.1,
@@ -107,16 +112,19 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 				id: 'gpt-5.2',
 				name: 'GPT 5.2',
 				default: true,
+				contextWindow: 400_000,
 				costPerM: { inputNoCache: 1.75, inputCacheRead: 0.175, inputCacheWrite: 0, output: 14 },
 			},
 			{
 				id: 'gpt-5-mini',
 				name: 'GPT 5 mini',
+				contextWindow: 400_000,
 				costPerM: { inputNoCache: 0.25, inputCacheRead: 0.025, inputCacheWrite: 0, output: 2 },
 			},
 			{
 				id: 'gpt-4.1',
 				name: 'GPT 4.1',
+				contextWindow: 1_000_000,
 				costPerM: { inputNoCache: 3, inputCacheRead: 0.75, inputCacheWrite: 0, output: 12 },
 			},
 		],
@@ -130,6 +138,7 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 				id: 'gemini-3-pro-preview',
 				name: 'Gemini 3 Pro',
 				default: true,
+				contextWindow: 1_000_000,
 				config: {
 					thinkingConfig: {
 						thinkingLevel: 'high',
@@ -137,10 +146,11 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 					},
 				},
 			},
-			{ id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash' },
+			{ id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash', contextWindow: 1_000_000 },
 			{
 				id: 'gemini-2.5-pro',
 				name: 'Gemini 2.5 Pro',
+				contextWindow: 1_000_000,
 				config: {
 					thinkingConfig: {
 						thinkingBudget: 8192,
@@ -148,7 +158,7 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 					},
 				},
 			},
-			{ id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash' },
+			{ id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', contextWindow: 1_000_000 },
 		],
 	},
 	mistral: {
@@ -160,11 +170,13 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 				id: 'mistral-medium-latest',
 				name: 'Mistral Medium 3.1',
 				default: true,
+				contextWindow: 128_000,
 				costPerM: { inputNoCache: 0.4, inputCacheRead: 0.4, inputCacheWrite: 0, output: 2 },
 			},
 			{
 				id: 'mistral-large-latest',
 				name: 'Mistral Large 3',
+				contextWindow: 256_000,
 				costPerM: { inputNoCache: 0.5, inputCacheRead: 0.5, inputCacheWrite: 0, output: 1.5 },
 			},
 		],
@@ -178,21 +190,25 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 				id: 'moonshotai/kimi-k2.5',
 				name: 'Kimi K2.5',
 				default: true,
+				contextWindow: 262_144,
 				costPerM: { inputNoCache: 0.5, inputCacheRead: 0.8, inputCacheWrite: 0, output: 2.25 },
 			},
 			{
 				id: 'deepseek/deepseek-v3.2',
 				name: 'DeepSeek V3.2',
+				contextWindow: 163_800,
 				costPerM: { inputNoCache: 0.26, inputCacheRead: 0.15, inputCacheWrite: 0, output: 0.4 },
 			},
 			{
 				id: 'anthropic/claude-sonnet-4.5',
 				name: 'Claude Sonnet 4.5 (OpenRouter)',
+				contextWindow: 1_000_000,
 				costPerM: { inputNoCache: 3, inputCacheRead: 0.3, inputCacheWrite: 3.75, output: 15 },
 			},
 			{
 				id: 'openai/gpt-5.2',
 				name: 'GPT 5.2 (OpenRouter)',
+				contextWindow: 400_000,
 				costPerM: { inputNoCache: 1.75, inputCacheRead: 0.175, inputCacheWrite: 0, output: 14 },
 			},
 		],

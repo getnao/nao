@@ -9,6 +9,9 @@ import { ChatInputMessageQueue } from './chat-input-message-queue';
 import type { PromptHandle, SelectedMention } from 'prompt-mentions';
 import type { FormEvent } from 'react';
 import type { AgentHelpers } from '@/hooks/use-agent';
+import { ContextWindowRing } from '@/components/ui/context-window-ring';
+import { useContextWindow } from '@/hooks/use-context-window';
+
 import { InputGroup, InputGroupAddon } from '@/components/ui/input-group';
 import { trpc } from '@/main';
 import { useAgentContext } from '@/contexts/agent.provider';
@@ -71,7 +74,7 @@ function ChatInputBase({
 	allowQueueing,
 }: ChatInputBaseProps) {
 	const [inputText, setInputText] = useState('');
-	const { isRunning, stopAgent, isLoadingMessages, setMentions } = useAgentContext();
+	const { isRunning, stopAgent, isLoadingMessages, selectedModel, setMentions, messages } = useAgentContext();
 	const chatId = useChatId();
 
 	const agentSettings = useQuery(trpc.project.getAgentSettings.queryOptions());
@@ -79,6 +82,8 @@ function ChatInputBase({
 	const isTranscribeEnabled = agentSettings.data?.transcribe?.enabled ?? false;
 	const hasTranscribeProvider = Object.values(transcribeModels.data ?? {}).some((p) => p.hasKey);
 	const isTranscribeReady = isTranscribeEnabled && hasTranscribeProvider;
+
+	const { percent: contextWindowPercent } = useContextWindow(messages, selectedModel);
 	const [micWarning, setMicWarning] = useState(false);
 	const micWarningTimer = useRef(0);
 
@@ -153,6 +158,8 @@ function ChatInputBase({
 									Cancel
 								</Button>
 							)}
+
+							<ContextWindowRing value={contextWindowPercent} className='size-4' />
 
 							{isTranscribeReady && isRecording && <RecordingTimer />}
 							<MicButton

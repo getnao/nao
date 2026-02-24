@@ -89,11 +89,19 @@ const aggregateChatMessagParts = (
 			if (acc[row.chat_message.id]) {
 				acc[row.chat_message.id].parts.push(uiPart);
 			} else {
+				const { inputTotalTokens, outputTotalTokens } = row.chat_message;
 				acc[row.chat_message.id] = {
 					id: row.chat_message.id,
 					role: row.chat_message.role,
 					parts: [uiPart],
 					feedback: row.message_feedback ?? undefined,
+					tokenUsage:
+						inputTotalTokens || outputTotalTokens
+							? {
+									inputTotalTokens: inputTotalTokens ?? undefined,
+									outputTotalTokens: outputTotalTokens ?? undefined,
+								}
+							: undefined,
 				};
 			}
 			return acc;

@@ -33,6 +33,7 @@ export interface ChatListItem {
 
 export type UIMessage = UIGenericMessage<unknown, MessageCustomDataParts, UITools> & {
 	feedback?: MessageFeedback;
+	tokenUsage?: Pick<TokenUsage, 'inputTotalTokens' | 'outputTotalTokens'>;
 };
 
 export type UITools = InferUITools<typeof tools>;
