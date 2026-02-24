@@ -56,12 +56,12 @@ def sync_database(
 
     t_connect = time.monotonic()
     conn = db_config.connect()
-    console.print(
-        f"  [dim]Connected to[/dim] [bold]{db_config.name}[/bold] "
-        f"[dim]({_fmt_duration(time.monotonic() - t_connect)})[/dim]"
-    )
-
     try:
+        console.print(
+            f"  [dim]Connected to[/dim] [bold]{db_config.name}[/bold] "
+            f"[dim]({_fmt_duration(time.monotonic() - t_connect)})[/dim]"
+        )
+
         db_name = db_config.get_database_name()
         db_path = base_path / f"type={db_config.type}" / f"database={db_name}"
         state = DatabaseSyncState(db_path=db_path)
