@@ -39,7 +39,10 @@ def _check_available_models(provider: str, api_key: str) -> Tuple[bool, str]:
         client = Mistral(api_key=api_key)
         models = client.models.list()
     elif provider == "ollama":
-        import ollama
+        try:
+            import ollama
+        except ImportError:
+            return False, "Provider 'ollama' requires the optional dependency 'ollama'. Install it to use this provider."
 
         models = ollama.list()
     else:
