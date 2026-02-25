@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { BarChart, Bar, AreaChart, Area, PieChart, Pie, XAxis, YAxis, CartesianGrid } from 'recharts';
+import { useMemo, useState } from 'react';
+import { buildChart, labelize } from '@nao/shared/chart-builder';
 import { useAgentContext } from '../../contexts/agent.provider';
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from '../ui/chart';
 import { TextShimmer } from '../ui/text-shimmer';
@@ -7,11 +7,10 @@ import { Skeleton } from '../ui/skeleton';
 import { ToolCallWrapper } from './tool-call-wrapper';
 import { ChartRangeSelector } from './display-chart-range-selector';
 import type { ToolCallComponentProps } from '.';
-import type { CategoricalChartProps } from 'recharts/types/chart/generateCategoricalChart';
 import type { ChartConfig } from '../ui/chart';
 import type { displayChart } from '@nao/shared/tools';
 import type { DateRange } from '@/lib/charts.utils';
-import { labelize, filterByDateRange, DATE_RANGE_OPTIONS, toKey } from '@/lib/charts.utils';
+import { filterByDateRange, DATE_RANGE_OPTIONS, toKey } from '@/lib/charts.utils';
 
 const Colors = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)', 'var(--chart-5)'];
 
@@ -133,7 +132,6 @@ export const ChartDisplay = ({
 }: ChartDisplayProps) => {
 	const { visibleSeries, hiddenSeriesKeys, handleToggleSeriesVisibility } = useSeriesVisibility(series);
 
-	/** Recharts config for series labels and colors */
 	const chartConfig = useMemo((): ChartConfig => {
 		if (chartType === 'pie') {
 			const values = new Set(data.map((item) => String(item[xAxisKey])));
@@ -162,132 +160,51 @@ export const ChartDisplay = ({
 		}, {} as ChartConfig);
 	}, [series, xAxisKey, data, chartType]);
 
-	const renderChart = (opts: {
-		chart: CategoricalChartProps;
-		tooltip: React.ComponentProps<typeof ChartTooltip>;
-	}) => {
-		if (chartType === 'bar' || chartType === 'stacked_bar' || chartType === 'line') {
-			const Chart = chartType === 'bar' || chartType === 'stacked_bar' ? BarChart : AreaChart;
-			const legendPayload = series.map((s, idx) => ({
-				value: s.label || labelize(s.data_key),
-				dataKey: s.data_key,
-				color: s.color || Colors[idx % Colors.length],
-				isHidden: hiddenSeriesKeys.has(s.data_key),
-			}));
+	const colorFor =
+		chartType === 'pie'
+			? (value: string, _i: number) => `var(--color-${toKey(value)})`
+			: (dataKey: string, _i: number) => `var(--color-${dataKey})`;
 
-			return (
-				<Chart data={data} accessibilityLayer {...opts}>
-					<defs>
-						{visibleSeries.map((s) => (
-							<linearGradient key={s.data_key} id={s.data_key} x1='0' y1='0' x2='0' y2='1'>
-								<stop offset='0%' stopColor={`var(--color-${s.data_key})`} stopOpacity={0.25} />
-								<stop offset='100%' stopColor={`var(--color-${s.data_key})`} stopOpacity={0} />
-							</linearGradient>
-						))}
-					</defs>
+	const legendPayload = series.map((s, idx) => ({
+		value: s.label || labelize(s.data_key),
+		dataKey: s.data_key,
+		color: s.color || Colors[idx % Colors.length],
+		isHidden: hiddenSeriesKeys.has(s.data_key),
+	}));
 
-					{showGrid && <CartesianGrid horizontal={true} vertical={false} strokeDasharray='3 3' />}
-
-					<ChartTooltip
-						{...opts.tooltip}
-						content={<ChartTooltipContent labelFormatter={(value) => labelize(value)} />}
-					/>
-
-					<YAxis tickLine={false} axisLine={false} minTickGap={12} />
-					<XAxis
-						dataKey={xAxisKey}
-						type={xAxisType}
-						domain={['dataMin', 'dataMax']}
-						tickLine={true}
-						tickMargin={10}
-						axisLine={false}
-						minTickGap={12}
-						tickFormatter={(value) => xAxisLabelFormatter?.(value) || labelize(value)}
-					/>
-
-					{chartType === 'bar'
-						? visibleSeries.map((s) => (
-								<Bar
-									key={s.data_key}
-									dataKey={s.data_key}
-									fill={`var(--color-${s.data_key})`}
-									radius={4}
-									isAnimationActive={false}
-								/>
-							))
-						: chartType === 'stacked_bar'
-							? visibleSeries.map((s, idx) => (
-									<Bar
-										key={s.data_key}
-										dataKey={s.data_key}
-										stackId='stack'
-										fill={`var(--color-${s.data_key})`}
-										radius={idx === visibleSeries.length - 1 ? [4, 4, 0, 0] : 0}
-										isAnimationActive={false}
-									/>
-								))
-							: visibleSeries.map((s) => (
-									<Area
-										key={s.data_key}
-										dataKey={s.data_key}
-										type='monotone'
-										stroke={`var(--color-${s.data_key})`}
-										fill={`url(#${s.data_key})`}
-										isAnimationActive={false}
-									/>
-								))}
-
-					<ChartLegend
-						payload={legendPayload}
-						content={<ChartLegendContent onItemClick={handleToggleSeriesVisibility} />}
-					/>
-				</Chart>
-			);
-		}
-
-		const dataKey = series[0].data_key;
-		const dataWithColors = data.map((item) => ({
-			...item,
-			fill: `var(--color-${toKey(String(item[xAxisKey]))})`,
-		}));
-		return (
-			<PieChart accessibilityLayer>
-				<ChartTooltip {...opts.tooltip} content={<ChartTooltipContent />} />
-				<Pie
-					data={dataWithColors}
-					dataKey={dataKey}
-					nameKey={xAxisKey}
-					label={({ name, value }) => `${labelize(name)}: ${value}`}
-					labelLine={false}
+	const chartElement = buildChart({
+		data,
+		chartType,
+		xAxisKey,
+		xAxisType,
+		series: visibleSeries,
+		colorFor,
+		labelFormatter: xAxisLabelFormatter,
+		showGrid,
+		margin: { top: 0, right: 0, bottom: 0, left: -18 },
+		children: [
+			<ChartTooltip
+				key='tooltip'
+				animationDuration={150}
+				animationEasing='linear'
+				allowEscapeViewBox={{ y: true, x: false }}
+				content={<ChartTooltipContent labelFormatter={(value) => labelize(value)} />}
+			/>,
+			chartType !== 'pie' && (
+				<ChartLegend
+					key='legend'
+					payload={legendPayload}
+					content={<ChartLegendContent onItemClick={handleToggleSeriesVisibility} />}
 				/>
-			</PieChart>
-		);
-	};
-
-	const chartContent = renderChart({
-		chart: {
-			margin: {
-				top: 0,
-				right: 0,
-				bottom: 0,
-				left: -18,
-			},
-		},
-		tooltip: {
-			animationDuration: 150,
-			animationEasing: 'linear',
-			allowEscapeViewBox: {
-				y: true,
-				x: false,
-			},
-		},
+			),
+		],
 	});
 
 	return (
 		<div className='flex flex-col items-center gap-2 w-full'>
 			{title && <span className='text-sm font-medium'>{title}</span>}
 			<ChartContainer config={chartConfig} className='w-full'>
-				{chartContent}
+				{chartElement}
 			</ChartContainer>
 		</div>
 	);
@@ -296,16 +213,6 @@ export const ChartDisplay = ({
 /** Manages which series are visible and hidden */
 const useSeriesVisibility = (series: displayChart.SeriesConfig[]) => {
 	const [hiddenSeriesKeys, setHiddenSeriesKeys] = useState<Set<string>>(new Set());
-
-	// Keep hidden series keys in sync with the series config
-	useEffect(() => {
-		setHiddenSeriesKeys(
-			(prev) =>
-				new Set(
-					series.map((s) => (prev.has(s.data_key) ? s.data_key : undefined)).filter((i) => i !== undefined),
-				),
-		);
-	}, [series]);
 
 	const visibleSeries = useMemo(
 		() => series.filter((s) => !hiddenSeriesKeys.has(s.data_key)),

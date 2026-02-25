@@ -387,3 +387,11 @@ export const memories = sqliteTable(
 	},
 	(t) => [index('memories_userId_idx').on(t.userId), index('memories_chatId_idx').on(t.chatId)],
 );
+
+export const chartImage = sqliteTable('chart_image', {
+	toolCallId: text('tool_call_id').primaryKey(),
+	data: text('data').notNull(),
+	createdAt: integer('created_at', { mode: 'timestamp_ms' })
+		.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+		.notNull(),
+});

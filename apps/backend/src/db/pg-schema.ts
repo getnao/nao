@@ -362,3 +362,9 @@ export const memories = pgTable(
 	},
 	(t) => [index('memories_userId_idx').on(t.userId), index('memories_chatId_idx').on(t.chatId)],
 );
+
+export const chartImage = pgTable('chart_image', {
+	toolCallId: text('tool_call_id').primaryKey(),
+	data: text('data').notNull(),
+	createdAt: timestamp('created_at').defaultNow().notNull(),
+});

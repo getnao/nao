@@ -120,6 +120,13 @@
       "when": 1771694145337,
       "tag": "0016_chat_message_superseded_at",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1771940686684,
+      "tag": "0017_added_chartImage_table",
+      "breakpoints": true
     }
   ]
 }

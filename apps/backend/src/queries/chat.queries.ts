@@ -324,6 +324,23 @@ const caseInsensitiveLike = (column: Parameters<typeof like>[0], pattern: string
 	return like(column, pattern);
 };
 
+export const saveChart = async (toolCallId: string, data: string): Promise<void> => {
+	await db
+		.insert(s.chartImage)
+		.values({ toolCallId, data })
+		.onConflictDoUpdate({ target: s.chartImage.toolCallId, set: { data } })
+		.execute();
+};
+
+export const getChart = async (toolCallId: string): Promise<string | null> => {
+	const [result] = await db
+		.select({ data: s.chartImage.data })
+		.from(s.chartImage)
+		.where(eq(s.chartImage.toolCallId, toolCallId))
+		.execute();
+	return result?.data ?? null;
+};
+
 export const getChatProjectId = async (chatId: string): Promise<string | undefined> => {
 	const [result] = await db
 		.select({ projectId: s.chat.projectId })

@@ -12,6 +12,7 @@ import { env } from './env';
 import { ensureOrganizationSetup } from './queries/organization.queries';
 import { agentRoutes } from './routes/agent';
 import { authRoutes } from './routes/auth';
+import { chartRoutes } from './routes/chart';
 import { slackRoutes } from './routes/slack';
 import { testRoutes } from './routes/test';
 import { posthog, PostHogEvent } from './services/posthog.service';
@@ -86,6 +87,10 @@ app.register(agentRoutes, {
 
 app.register(testRoutes, {
 	prefix: '/api/test',
+});
+
+app.register(chartRoutes, {
+	prefix: '/api/chart',
 });
 
 app.register(authRoutes, {

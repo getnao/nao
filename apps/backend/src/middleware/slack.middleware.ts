@@ -1,7 +1,8 @@
 import crypto from 'crypto';
-import type { FastifyReply, FastifyRequest } from 'fastify';
+import type { FastifyRequest } from 'fastify';
 
 import * as slackConfigQueries from '../queries/project-slack-config.queries';
+import { HandlerError } from '../utils/error';
 
 function verifySlackSignature(signingSecret: string, requestSignature: string, timestamp: string, rawBody: string) {
 	const currentTime = Math.floor(Date.now() / 1000);
@@ -15,7 +16,7 @@ function verifySlackSignature(signingSecret: string, requestSignature: string, t
 	return crypto.timingSafeEqual(Buffer.from(mySignature), Buffer.from(requestSignature));
 }
 
-export async function slackAuthMiddleware(request: FastifyRequest, reply: FastifyReply) {
+export async function slackAuthMiddleware(request: FastifyRequest) {
 	const rawBody = request.rawBody;
 	const timestamp = request.headers['x-slack-request-timestamp'];
 	const signature = request.headers['x-slack-signature'];
@@ -23,18 +24,18 @@ export async function slackAuthMiddleware(request: FastifyRequest, reply: Fastif
 	const slackConfig = await slackConfigQueries.getSlackConfig();
 
 	if (!slackConfig) {
-		return reply.status(400).send('Slack is not configured');
+		throw new HandlerError('BAD_REQUEST', 'Slack is not configured');
 	}
 
 	if (!rawBody || !timestamp || !signature) {
-		return reply.status(400).send('Missing required headers or body');
+		throw new HandlerError('BAD_REQUEST', 'Missing required headers or body');
 	}
 
 	if (typeof rawBody !== 'string' || typeof timestamp !== 'string' || typeof signature !== 'string') {
-		return reply.status(400).send('Invalid types for headers or body');
+		throw new HandlerError('BAD_REQUEST', 'Invalid types for headers or body');
 	}
 
 	if (!verifySlackSignature(slackConfig.signingSecret, signature, timestamp, rawBody)) {
-		return reply.status(403).send('Invalid signature');
+		throw new HandlerError('FORBIDDEN', 'Invalid signature');
 	}
 }

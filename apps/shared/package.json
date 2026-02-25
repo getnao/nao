@@ -5,7 +5,8 @@
 	"exports": {
 		".": "./src/index.ts",
 		"./posthog": "./src/posthog.ts",
-		"./tools": "./src/tools/index.ts"
+		"./tools": "./src/tools/index.ts",
+		"./chart-builder": "./src/chart-builder.tsx"
 	},
 	"scripts": {
 		"test": "vitest run",
@@ -15,6 +16,18 @@
 	},
 	"dependencies": {
 		"zod": "^4.2.1"
+	},
+	"peerDependencies": {
+		"react": "^19.0.0",
+		"recharts": "^2.0.0"
+	},
+	"peerDependenciesMeta": {
+		"react": {
+			"optional": true
+		},
+		"recharts": {
+			"optional": true
+		}
 	},
 	"devDependencies": {
 		"vitest": "^4.0.18"
