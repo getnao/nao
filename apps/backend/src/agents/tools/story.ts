@@ -10,6 +10,7 @@ export default createTool<story.Input, story.Output>({
 		'Use "create" to initialize a new story, "update" to search-and-replace within it (producing a new version),',
 		'or "replace" to overwrite the entire content (producing a new version).',
 		'Charts are embedded via <chart query_id="..." chart_type="..." x_axis_key="..." series=\'[...]\' title="..." />.',
+		'SQL result tables are embedded via <table query_id="..." title="..." />.',
 		'Use <grid cols="2">...</grid> to display charts side by side in a responsive grid.',
 		'A story can also be refered as a "canva", an "artifact" or a "report".',
 		'Users may edit stories directly; the tool result always reflects the latest version, including user edits.',

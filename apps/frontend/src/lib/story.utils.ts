@@ -7,7 +7,7 @@ export interface StorySummary {
 
 /**
  * Scans messages for story tool calls to find distinct stories.
- * Used for real-time UI (e.g. open button) while streaming.
+ * Uses completed tool outputs only.
  */
 export function findStories(messages: UIMessage[]): StorySummary[] {
 	const seen = new Map<string, string>();

@@ -68,7 +68,7 @@ export function Sidebar() {
 					</Link>
 				) : (
 					<>
-						<div className='flex items-center relative mb-3'>
+						<div className='flex items-center relative'>
 							<div
 								className={cn(
 									'flex items-center justify-center p-2 mr-auto absolute left-0 z-0 transition-[opacity,visibility] duration-300',

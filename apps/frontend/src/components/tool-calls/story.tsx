@@ -39,13 +39,13 @@ export const StoryToolCall = ({ toolPart }: ToolCallComponentProps<'story'>) => 
 	}
 
 	const title = output?.title ?? input.title ?? input.id;
-	const storyId = output?.id ?? input.id;
+	const finalStoryId = output?.id ?? input.id;
 
 	const handleOpen = () => {
-		if (!chatId) {
+		if (!chatId || !finalStoryId) {
 			return;
 		}
-		openSidePanel(<StoryViewer chatId={chatId} storyId={storyId} />, storyId);
+		openSidePanel(<StoryViewer chatId={chatId} storyId={finalStoryId} />, finalStoryId);
 	};
 
 	return (

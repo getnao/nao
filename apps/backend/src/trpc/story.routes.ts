@@ -2,13 +2,31 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
 import * as chatQueries from '../queries/chat.queries';
+import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
+import { extractStorySummary } from '../utils/story-summary';
 import { protectedProcedure } from './trpc';
 
 export const storyRoutes = {
 	listAll: protectedProcedure.query(async ({ ctx }) => {
-		return storyQueries.listUserStories(ctx.user.id);
+		const stories = await storyQueries.listUserStories(ctx.user.id);
+		return stories.map(({ code, ...rest }) => ({
+			...rest,
+			summary: extractStorySummary(code),
+		}));
 	}),
+
+	getLatest: protectedProcedure
+		.input(z.object({ chatId: z.string(), storyId: z.string() }))
+		.query(async ({ input, ctx }) => {
+			await assertChatOwner(input.chatId, ctx.user.id);
+			const version = await storyQueries.getLatestVersion(input.chatId, input.storyId);
+			if (!version) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
+			}
+			const queryData = await sharedStoryQueries.collectQueryData(input.chatId, version.code);
+			return { ...version, queryData };
+		}),
 
 	listVersions: protectedProcedure
 		.input(z.object({ chatId: z.string(), storyId: z.string() }))

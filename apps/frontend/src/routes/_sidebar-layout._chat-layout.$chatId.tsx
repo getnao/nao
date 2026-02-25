@@ -26,13 +26,19 @@ export function RouteComponent() {
 
 	useEffect(() => {
 		const openStoryId = router.state.location.state.openStoryId;
-		if (openStoryId && !isLoadingMessages) {
-			sidePanel.open(<StoryViewer chatId={chatId} storyId={openStoryId} />, openStoryId);
+		if (!openStoryId || isLoadingMessages) {
+			return;
+		}
+
+		sidePanel.open(<StoryViewer chatId={chatId} storyId={openStoryId} />, openStoryId);
+
+		const timer = setTimeout(() => {
 			router.history.replace(router.state.location.href, {
 				...router.state.location.state,
 				openStoryId: undefined,
 			});
-		}
+		});
+		return () => clearTimeout(timer);
 	}, [isLoadingMessages]); // eslint-disable-line react-hooks/exhaustive-deps
 
 	return (

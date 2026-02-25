@@ -1,12 +1,12 @@
 import type { UIMessage } from '@nao/backend/chat';
 
 /**
- * Scans story code for <chart query_id="..."> references and collects
- * matching SQL query result data from chat messages so charts can render
+ * Scans story code for <chart|table query_id="..."> references and collects
+ * matching SQL query result data from chat messages so embeds can render
  * in the shared standalone view.
  */
 export function collectQueryDataFromMessages(messages: UIMessage[], code: string): Record<string, unknown[]> | null {
-	const chartRegex = /<chart\s+[^>]*query_id="([^"]*)"[^>]*\/?>/g;
+	const chartRegex = /<(?:chart|table)\s+[^>]*query_id="([^"]*)"[^>]*\/?>/g;
 	const queryIds = new Set<string>();
 	let match;
 	while ((match = chartRegex.exec(code)) !== null) {

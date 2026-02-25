@@ -1,14 +1,15 @@
 import { Fragment } from 'react';
 import { Streamdown } from 'streamdown';
-import type { Segment, ParsedChartBlock } from '@/lib/story-segments';
+import type { Segment, ParsedChartBlock, ParsedTableBlock } from '@/lib/story-segments';
 import { getGridClass } from '@/lib/story-segments';
 
 interface SegmentRendererProps {
 	segments: Segment[];
 	renderChart: (chart: ParsedChartBlock, key: number) => React.ReactNode;
+	renderTable: (table: ParsedTableBlock, key: number) => React.ReactNode;
 }
 
-export function SegmentList({ segments, renderChart }: SegmentRendererProps) {
+export function SegmentList({ segments, renderChart, renderTable }: SegmentRendererProps) {
 	return (
 		<>
 			{segments.map((segment, i) => {
@@ -21,6 +22,8 @@ export function SegmentList({ segments, renderChart }: SegmentRendererProps) {
 						);
 					case 'chart':
 						return <Fragment key={i}>{renderChart(segment.chart, i)}</Fragment>;
+					case 'table':
+						return <Fragment key={i}>{renderTable(segment.table, i)}</Fragment>;
 					case 'grid':
 						return (
 							<StoryGrid
@@ -28,6 +31,7 @@ export function SegmentList({ segments, renderChart }: SegmentRendererProps) {
 								cols={segment.cols}
 								children={segment.children}
 								renderChart={renderChart}
+								renderTable={renderTable}
 							/>
 						);
 				}
@@ -40,10 +44,12 @@ function StoryGrid({
 	cols,
 	children,
 	renderChart,
+	renderTable,
 }: {
 	cols: number;
 	children: Segment[];
 	renderChart: (chart: ParsedChartBlock, key: number) => React.ReactNode;
+	renderTable: (table: ParsedTableBlock, key: number) => React.ReactNode;
 }) {
 	const gridClass = getGridClass(cols);
 
@@ -56,8 +62,15 @@ function StoryGrid({
 							<Streamdown mode='static'>{segment.content}</Streamdown>
 						) : segment.type === 'chart' ? (
 							renderChart(segment.chart, i)
+						) : segment.type === 'table' ? (
+							renderTable(segment.table, i)
 						) : segment.type === 'grid' ? (
-							<StoryGrid cols={segment.cols} children={segment.children} renderChart={renderChart} />
+							<StoryGrid
+								cols={segment.cols}
+								children={segment.children}
+								renderChart={renderChart}
+								renderTable={renderTable}
+							/>
 						) : null}
 					</div>
 				))}

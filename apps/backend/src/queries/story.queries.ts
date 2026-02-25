@@ -74,7 +74,7 @@ export async function listStoriesInChat(
 
 export async function listUserStories(
 	userId: string,
-): Promise<{ storyId: string; chatId: string; title: string; createdAt: Date }[]> {
+): Promise<{ storyId: string; chatId: string; title: string; code: string; createdAt: Date }[]> {
 	const latestVersions = db
 		.select({
 			chatId: s.storyVersion.chatId,
@@ -92,6 +92,7 @@ export async function listUserStories(
 			storyId: s.storyVersion.storyId,
 			chatId: s.storyVersion.chatId,
 			title: s.storyVersion.title,
+			code: s.storyVersion.code,
 			createdAt: s.storyVersion.createdAt,
 		})
 		.from(s.storyVersion)

@@ -343,6 +343,8 @@ export const projectLlmConfig = sqliteTable(
 	],
 );
 
+export const STORY_VISIBILITY = ['project', 'specific'] as const;
+
 export const sharedStory = sqliteTable(
 	'shared_story',
 	{
@@ -355,14 +357,32 @@ export const sharedStory = sqliteTable(
 		userId: text('user_id')
 			.notNull()
 			.references(() => user.id, { onDelete: 'cascade' }),
-		title: text('title').notNull(),
-		code: text('code').notNull(),
-		queryData: text('query_data', { mode: 'json' }).$type<Record<string, unknown[]>>(),
+		chatId: text('chat_id')
+			.notNull()
+			.references(() => chat.id, { onDelete: 'cascade' }),
+		storyId: text('story_id').notNull(),
+		visibility: text('visibility', { enum: STORY_VISIBILITY }).default('project').notNull(),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull(),
 	},
-	(t) => [index('shared_story_projectId_idx').on(t.projectId)],
+	(t) => [
+		index('shared_story_projectId_idx').on(t.projectId),
+		index('shared_story_chat_story_idx').on(t.chatId, t.storyId),
+	],
+);
+
+export const sharedStoryAccess = sqliteTable(
+	'shared_story_access',
+	{
+		sharedStoryId: text('shared_story_id')
+			.notNull()
+			.references(() => sharedStory.id, { onDelete: 'cascade' }),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+	},
+	(t) => [primaryKey({ columns: [t.sharedStoryId, t.userId] })],
 );
 
 export const projectSavedPrompt = sqliteTable(

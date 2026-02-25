@@ -43,6 +43,7 @@ export const DisplayChartToolCall = ({
 						storyId: variables.storyId,
 					}),
 				});
+				queryClient.invalidateQueries({ queryKey: trpc.story.listAll.queryKey() });
 			},
 		}),
 	);

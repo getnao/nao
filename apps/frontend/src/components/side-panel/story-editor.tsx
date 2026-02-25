@@ -7,9 +7,16 @@ import { Markdown } from 'tiptap-markdown';
 import { Streamdown } from 'streamdown';
 import { GripVertical } from 'lucide-react';
 import { StoryChartEmbed } from './story-chart-embed';
+import { StoryTableEmbed } from './story-table-embed';
 import type { ReactNodeViewProps, Editor } from '@tiptap/react';
 import type { Segment } from '@/lib/story-segments';
-import { getGridClass, parseChartAttributes, parseChartBlock, splitCodeIntoSegments } from '@/lib/story-segments';
+import {
+	getGridClass,
+	parseChartAttributes,
+	parseChartBlock,
+	parseTableBlock,
+	splitCodeIntoSegments,
+} from '@/lib/story-segments';
 
 // ---------------------------------------------------------------------------
 // Encoding helpers for data-raw attributes
@@ -24,7 +31,7 @@ function decodeFromAttr(encoded: string): string {
 }
 
 /**
- * Replaces custom <chart /> and <grid> tags with HTML-safe elements that
+ * Replaces custom <chart />, <table /> and <grid> tags with HTML-safe elements that
  * Tiptap's DOMParser can match against custom node extensions.
  */
 export function preprocessForEditor(code: string): string {
@@ -34,6 +41,10 @@ export function preprocessForEditor(code: string): string {
 
 	result = result.replace(/<chart\s+[^/>]*\/?>/g, (match) => {
 		return `<chart-embed data-raw="${encodeForAttr(match)}"></chart-embed>`;
+	});
+
+	result = result.replace(/<table\s+[^/>]*\/?>/g, (match) => {
+		return `<table-embed data-raw="${encodeForAttr(match)}"></table-embed>`;
 	});
 
 	return result;
@@ -123,6 +134,89 @@ const ChartBlock = Node.create({
 });
 
 // ---------------------------------------------------------------------------
+// TableBlock extension – atom node rendered as a SQL table
+// ---------------------------------------------------------------------------
+
+function TableBlockView({ node }: ReactNodeViewProps) {
+	const rawTag = node.attrs.rawTag as string;
+
+	const table = useMemo(() => {
+		const attrMatch = rawTag.match(/<table\s+([^/>]*)\/?>/);
+		if (!attrMatch) {
+			return null;
+		}
+		return parseTableBlock(attrMatch[1]);
+	}, [rawTag]);
+
+	if (!table) {
+		return (
+			<NodeViewWrapper draggable data-type='table-block'>
+				<div className='my-2 rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground'>
+					Invalid table block
+				</div>
+			</NodeViewWrapper>
+		);
+	}
+
+	return (
+		<NodeViewWrapper draggable data-type='table-block'>
+			<div className='my-2'>
+				<StoryTableEmbed table={table} />
+			</div>
+		</NodeViewWrapper>
+	);
+}
+
+const TableBlock = Node.create({
+	name: 'tableBlock',
+	group: 'block',
+	atom: true,
+	selectable: true,
+	draggable: true,
+
+	addAttributes() {
+		return {
+			rawTag: { default: '' },
+		};
+	},
+
+	parseHTML() {
+		return [
+			{
+				tag: 'table-embed',
+				getAttrs(element) {
+					if (typeof element === 'string') {
+						return false;
+					}
+					const encoded = element.getAttribute('data-raw') || '';
+					return { rawTag: decodeFromAttr(encoded) };
+				},
+			},
+		];
+	},
+
+	renderHTML({ HTMLAttributes }) {
+		return ['table-embed', mergeAttributes(HTMLAttributes)];
+	},
+
+	addNodeView() {
+		return ReactNodeViewRenderer(TableBlockView);
+	},
+
+	addStorage() {
+		return {
+			markdown: {
+				serialize(state: any, node: any) {
+					state.write(node.attrs.rawTag);
+					state.closeBlock(node);
+				},
+				parse: {},
+			},
+		};
+	},
+});
+
+// ---------------------------------------------------------------------------
 // GridBlock extension – atom node rendered as a grid of charts/markdown
 // ---------------------------------------------------------------------------
 
@@ -153,6 +247,8 @@ function GridBlockView({ node }: ReactNodeViewProps) {
 								<Streamdown mode='static'>{segment.content}</Streamdown>
 							) : segment.type === 'chart' ? (
 								<StoryChartEmbed chart={segment.chart} />
+							) : segment.type === 'table' ? (
+								<StoryTableEmbed table={segment.table} />
 							) : null}
 						</div>
 					))}
@@ -234,6 +330,7 @@ export function StoryEditor({ code, editorRef }: StoryEditorProps) {
 				transformCopiedText: true,
 			}),
 			ChartBlock,
+			TableBlock,
 			GridBlock,
 		],
 		content: processedContent,

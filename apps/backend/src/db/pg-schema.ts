@@ -322,6 +322,8 @@ export const projectLlmConfig = pgTable(
 	],
 );
 
+export const STORY_VISIBILITY = ['project', 'specific'] as const;
+
 export const sharedStory = pgTable(
 	'shared_story',
 	{
@@ -334,12 +336,30 @@ export const sharedStory = pgTable(
 		userId: text('user_id')
 			.notNull()
 			.references(() => user.id, { onDelete: 'cascade' }),
-		title: text('title').notNull(),
-		code: text('code').notNull(),
-		queryData: jsonb('query_data').$type<Record<string, unknown[]>>(),
+		chatId: text('chat_id')
+			.notNull()
+			.references(() => chat.id, { onDelete: 'cascade' }),
+		storyId: text('story_id').notNull(),
+		visibility: text('visibility', { enum: STORY_VISIBILITY }).default('project').notNull(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 	},
-	(t) => [index('shared_story_projectId_idx').on(t.projectId)],
+	(t) => [
+		index('shared_story_projectId_idx').on(t.projectId),
+		index('shared_story_chat_story_idx').on(t.chatId, t.storyId),
+	],
+);
+
+export const sharedStoryAccess = pgTable(
+	'shared_story_access',
+	{
+		sharedStoryId: text('shared_story_id')
+			.notNull()
+			.references(() => sharedStory.id, { onDelete: 'cascade' }),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+	},
+	(t) => [primaryKey({ columns: [t.sharedStoryId, t.userId] })],
 );
 
 export const projectSavedPrompt = pgTable(

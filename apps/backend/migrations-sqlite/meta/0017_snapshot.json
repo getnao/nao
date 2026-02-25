@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "1c6a79b6-a8f2-4db8-a9b7-71fe7ece605c",
+  "id": "d07ee992-4c1b-44d9-9414-fcef01a04ecf",
   "prevId": "b0381e7d-0ad0-4b81-9b3c-b77e09c05631",
   "tables": {
     "account": {
@@ -1409,26 +1409,27 @@
           "notNull": true,
           "autoincrement": false
         },
-        "title": {
-          "name": "title",
+        "chat_id": {
+          "name": "chat_id",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "code": {
-          "name": "code",
+        "story_id": {
+          "name": "story_id",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "query_data": {
-          "name": "query_data",
+        "visibility": {
+          "name": "visibility",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'project'"
         },
         "created_at": {
           "name": "created_at",
@@ -1444,6 +1445,14 @@
           "name": "shared_story_projectId_idx",
           "columns": [
             "project_id"
+          ],
+          "isUnique": false
+        },
+        "shared_story_chat_story_idx": {
+          "name": "shared_story_chat_story_idx",
+          "columns": [
+            "chat_id",
+            "story_id"
           ],
           "isUnique": false
         }
@@ -1474,9 +1483,81 @@
           ],
           "onDelete": "cascade",
           "onUpdate": "no action"
+        },
+        "shared_story_chat_id_chat_id_fk": {
+          "name": "shared_story_chat_id_chat_id_fk",
+          "tableFrom": "shared_story",
+          "tableTo": "chat",
+          "columnsFrom": [
+            "chat_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "shared_story_access": {
+      "name": "shared_story_access",
+      "columns": {
+        "shared_story_id": {
+          "name": "shared_story_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "shared_story_access_shared_story_id_shared_story_id_fk": {
+          "name": "shared_story_access_shared_story_id_shared_story_id_fk",
+          "tableFrom": "shared_story_access",
+          "tableTo": "shared_story",
+          "columnsFrom": [
+            "shared_story_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "shared_story_access_user_id_user_id_fk": {
+          "name": "shared_story_access_user_id_user_id_fk",
+          "tableFrom": "shared_story_access",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "shared_story_access_shared_story_id_user_id_pk": {
+          "columns": [
+            "shared_story_id",
+            "user_id"
+          ],
+          "name": "shared_story_access_shared_story_id_user_id_pk"
+        }
+      },
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
