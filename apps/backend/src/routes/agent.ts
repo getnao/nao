@@ -35,7 +35,7 @@ export const agentRoutes = async (app: App) => {
 					transform: async (chunk, controller) => {
 						console.log(chunk);
 						controller.enqueue(chunk);
-						await new Promise((resolve) => setTimeout(resolve, 250));
+						await new Promise((resolve) => setTimeout(resolve, 100));
 					},
 				}),
 			);

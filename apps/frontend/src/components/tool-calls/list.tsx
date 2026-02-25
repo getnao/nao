@@ -2,7 +2,7 @@ import { File, Folder, Link } from 'lucide-react';
 import { ToolCallWrapper } from './tool-call-wrapper';
 import type { ToolCallComponentProps } from '.';
 import { formatBytes } from '@/lib/utils';
-import { isToolSettled } from '@/lib/ai';
+import { useToolCallContext } from '@/contexts/tool-call';
 
 const getIcon = (type?: string) => {
 	switch (type) {
@@ -16,10 +16,10 @@ const getIcon = (type?: string) => {
 };
 
 export const ListToolCall = ({ toolPart }: ToolCallComponentProps<'list'>) => {
+	const { isSettled } = useToolCallContext();
 	const output = toolPart.output;
 	const input = toolPart.input;
 	const entries = Array.isArray(output) ? output : output?.entries || [];
-	const isSettled = isToolSettled(toolPart);
 
 	if (!isSettled) {
 		return (

@@ -1,11 +1,9 @@
 import { ToolCallWrapper } from './tool-call-wrapper';
 import type { ToolCallComponentProps } from '.';
-import { isToolSettled } from '@/lib/ai';
+import { useToolCallContext } from '@/contexts/tool-call';
 
-export const ReadToolCall = ({ toolPart }: ToolCallComponentProps<'read'>) => {
-	const output = toolPart.output;
-	const input = toolPart.input;
-	const isSettled = isToolSettled(toolPart);
+export const ReadToolCall = ({ toolPart: { output, input } }: ToolCallComponentProps<'read'>) => {
+	const { isSettled } = useToolCallContext();
 
 	const fileName = input?.file_path?.split('/').pop() ?? input?.file_path;
 

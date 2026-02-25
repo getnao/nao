@@ -15,7 +15,7 @@ export const InputSchema = z.object({
 	chart_type: ChartTypeEnum.describe('Type of chart to display.'),
 	x_axis_key: z.string().describe('Column name for X-axis/category labels.'),
 	x_axis_type: XAxisTypeEnum.nullable().describe(
-		'Type of x-axis data for range controls. Use "date" only if values are parseable by JS Date(). Set to null for simple count filtering.',
+		'Use "date" only when x-axis values parse as JS Date (YYYY-MM-DD). Use "category" for quarter_ending, fiscal periods, or labels. Use "number" for numeric x-axis.',
 	),
 	series: z
 		.array(SeriesConfigSchema)

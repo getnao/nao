@@ -8,8 +8,9 @@ import { ListToolCall } from './list';
 import { ReadToolCall } from './read';
 import { SearchToolCall } from './search';
 import type { StaticToolName, UIToolPart } from '@nao/backend/chat';
-import { getToolName } from '@/lib/ai';
+import { getToolName, isToolSettled } from '@/lib/ai';
 import { ToolCallProvider } from '@/contexts/tool-call';
+import { useAssistantMessage } from '@/contexts/assistant-message';
 
 export type ToolCallComponentProps<TToolName extends StaticToolName | undefined = undefined> = {
 	toolPart: UIToolPart<TToolName>;
@@ -28,6 +29,7 @@ const toolComponents: Partial<{
 };
 
 export const ToolCall = memo(({ toolPart }: { toolPart: UIToolPart }) => {
+	const { isSettled: isMessageSettled } = useAssistantMessage();
 	if (toolPart.type === 'tool-suggest_follow_ups') {
 		return null;
 	}
@@ -41,7 +43,13 @@ export const ToolCall = memo(({ toolPart }: { toolPart: UIToolPart }) => {
 	}
 
 	return (
-		<ToolCallProvider toolPart={toolPart}>
+		<ToolCallProvider
+			value={{
+				toolPart,
+				// Check if the assistant message itself is settled in case tool execution was interrupted and persisted as not settled (e.g. input streaming).
+				isSettled: isMessageSettled || isToolSettled(toolPart),
+			}}
+		>
 			<Component toolPart={toolPart} />
 		</ToolCallProvider>
 	);

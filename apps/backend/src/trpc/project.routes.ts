@@ -42,7 +42,7 @@ export const projectRoutes = {
 			const projectConfigs = configs.map((c) => ({
 				id: c.id,
 				provider: c.provider as LlmProvider,
-				apiKeyPreview: c.apiKey.slice(0, 8) + '...' + c.apiKey.slice(-4),
+				apiKeyPreview: c.apiKey ? c.apiKey.slice(0, 8) + '...' + c.apiKey.slice(-4) : null,
 				enabledModels: c.enabledModels ?? [],
 				baseUrl: c.baseUrl ?? null,
 				createdAt: c.createdAt,
@@ -100,6 +100,9 @@ export const projectRoutes = {
 				apiKey = null;
 			} else if (envApiKey) {
 				apiKey = envApiKey;
+			} else if (input.provider === 'ollama') {
+				// Ollama is a local provider that doesn't require an API key
+				apiKey = '';
 			} else {
 				throw new Error(
 					`API key is required for ${input.provider}. Provide one or set it as an environment variable.`,
@@ -117,7 +120,7 @@ export const projectRoutes = {
 			return {
 				id: config.id,
 				provider: config.provider as LlmProvider,
-				apiKeyPreview: config.apiKey.slice(0, 8) + '...' + config.apiKey.slice(-4),
+				apiKeyPreview: config.apiKey ? config.apiKey.slice(0, 8) + '...' + config.apiKey.slice(-4) : null,
 				enabledModels: config.enabledModels ?? [],
 				baseUrl: config.baseUrl ?? null,
 			};

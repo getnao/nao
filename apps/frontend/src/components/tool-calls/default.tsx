@@ -1,13 +1,14 @@
 import { useState } from 'react';
 import type { ToolCallComponentProps } from '.';
-import { getToolName, isToolSettled } from '@/lib/ai';
+import { getToolName } from '@/lib/ai';
 import { Spinner } from '@/components/ui/spinner';
 import { Expandable } from '@/components/ui/expandable';
+import { useToolCallContext } from '@/contexts/tool-call';
 
 export const DefaultToolCall = ({ toolPart }: ToolCallComponentProps) => {
 	const [isExpanded, setIsExpanded] = useState(false);
 	const canExpand = !!toolPart.errorText || !!toolPart.output;
-	const isSettled = isToolSettled(toolPart);
+	const { isSettled } = useToolCallContext();
 	const toolName = getToolName(toolPart);
 
 	const statusIcon = isSettled ? undefined : <Spinner className='size-3 opacity-50' />;

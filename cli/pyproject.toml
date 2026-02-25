@@ -43,6 +43,7 @@ dependencies = [
     "google-genai>=1.61.0",
     "sshtunnel>=0.4.0",
     "snowflake-connector-python[secure-local-storage]>=4.2.0",
+    "ollama>=0.4.0",
 ]
 
 [project.optional-dependencies]

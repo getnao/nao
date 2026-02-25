@@ -4,7 +4,7 @@ import { trpcClient } from '@/main';
 
 type TranscribeState = 'idle' | 'recording' | 'transcribing';
 
-export function useTranscribe(onTranscribed: (text: string) => void) {
+export function useTranscribe({ onTranscribed }: { onTranscribed: (text: string) => void }) {
 	const [state, setState] = useState<TranscribeState>('idle');
 	const mediaRecorderRef = useRef<MediaRecorder | null>(null);
 	const chunksRef = useRef<Blob[]>([]);

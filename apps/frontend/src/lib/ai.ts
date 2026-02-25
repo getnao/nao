@@ -8,7 +8,9 @@ import type { ReasoningUIPart, ToolUIPart } from 'ai';
 import type { UseChatHelpers } from '@ai-sdk/react';
 import type { UITools, UIToolPart, UIMessage, UIMessagePart, StaticToolName } from '@nao/backend/chat';
 import type { CollapsiblePart, ToolGroupPart, GroupedMessagePart, MessageGroup } from '@/types/ai';
-import type { AgentHelpers } from '@/hooks/use-agent';
+
+/** The ID used for new chats not yet persisted to the db. */
+export const NEW_CHAT_ID = 'new-chat';
 
 /** Check if a tool has reached its final state (no more actions needed). */
 export const isToolSettled = ({ state }: UIToolPart) => {
@@ -45,7 +47,7 @@ export const checkIsLastMessageStreaming = (messages: UIMessage[]) => {
 
 export const isMessageStreaming = (message: UIMessage) => {
 	return message.parts.some((part) => {
-		if ('state' in part && part.state === 'streaming') {
+		if ('state' in part && (part.state === 'streaming' || part.state === 'input-streaming')) {
 			return true;
 		}
 	});
@@ -171,6 +173,13 @@ export const getTextFromUserMessageOrThrow = (message: UIMessage): string => {
 	return message.parts[0].text;
 };
 
-export const checkMessageHasText = (message: UIMessage): boolean => {
-	return message.parts.some((part) => part.type === 'text');
+export const checkAssistantMessageHasContent = (message: UIMessage): boolean => {
+	return message.parts.some(
+		(part) =>
+			part.type !== 'step-start' &&
+			part.type !== 'tool-suggest_follow_ups' &&
+			part.type !== 'reasoning' &&
+			part.type !== 'data-newChat' &&
+			part.type !== 'data-newUserMessage',
+	);
 };

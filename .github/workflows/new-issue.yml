@@ -9,7 +9,13 @@ jobs:
         runs-on: ubuntu-latest
         steps:
             - name: Send to OpenClaw via Slack
+              env:
+                  SLACK_BOT_USER_ID: ${{ secrets.SLACK_BOT_USER_ID }}
+                  SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+                  ISSUE_NUMBER: ${{ github.event.issue.number }}
+                  ISSUE_TITLE: ${{ github.event.issue.title }}
+                  ISSUE_BODY: ${{ github.event.issue.body }}
               run: |
-                  curl -X POST -H 'Content-type: application/json' \
-                    --data "{\"text\":\"<@${{ secrets.SLACK_BOT_USER_ID }}> A new issue has been created. Please run the \`gh-issue-analyser\` skill.\n\n*#${{ github.event.issue.number }} — ${{ github.event.issue.title }}*\n${{ github.event.issue.body }}\"}" \
-                    ${{ secrets.SLACK_WEBHOOK_URL }}
+                  TEXT="<@${SLACK_BOT_USER_ID}> A new issue has been created. Please run the \`gh-issue-analyser\` skill.\n\n*#${ISSUE_NUMBER} — ${ISSUE_TITLE}*\n${ISSUE_BODY}"
+                  PAYLOAD=$(jq -n --arg text "$TEXT" '{"text": $text}')
+                  curl -X POST -H 'Content-type: application/json' --data "$PAYLOAD" "$SLACK_WEBHOOK_URL"

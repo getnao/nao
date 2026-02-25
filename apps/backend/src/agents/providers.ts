@@ -4,6 +4,7 @@ import { createMistral } from '@ai-sdk/mistral';
 import { createOpenAI } from '@ai-sdk/openai';
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import type { LanguageModel } from 'ai';
+import { createOllama } from 'ai-sdk-ollama';
 
 import type { LlmProvider, LlmProvidersType, ProviderConfigMap } from '../types/llm';
 
@@ -196,6 +197,16 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 			},
 		],
 	},
+	ollama: {
+		envVar: 'OLLAMA_API_KEY',
+		baseUrlEnvVar: 'OLLAMA_BASE_URL',
+		extractorModelId: 'llama3.2:3b',
+		models: [
+			{ id: 'qwen3:8b', name: 'Qwen 3 8B', default: true },
+			{ id: 'llama3.2:3b', name: 'Llama 3.2 3B' },
+			{ id: 'mistral:7b', name: 'Mistral 7B' },
+		],
+	},
 };
 
 /** Known models for each provider (legacy format for API compatibility) */
@@ -207,6 +218,15 @@ export function getDefaultModelId(provider: LlmProvider): string {
 	const models = LLM_PROVIDERS[provider].models;
 	const defaultModel = models.find((m) => m.default);
 	return defaultModel?.id ?? models[0].id;
+}
+
+export function getProviderApiKeyRequirement(provider: LlmProvider): boolean {
+	switch (provider) {
+		case 'ollama':
+			return false;
+		default:
+			return true;
+	}
 }
 
 export function getProviderModelConfig<P extends LlmProvider>(provider: P, modelId: string): ProviderConfigMap[P] {
@@ -244,6 +264,7 @@ const MODEL_CREATORS: Record<LlmProvider, ModelCreator> = {
 	mistral: (settings, modelId) => createMistral(settings).chat(modelId),
 	openai: (settings, modelId) => createOpenAI(settings).responses(modelId),
 	openrouter: (settings, modelId) => createOpenRouter(settings).chat(modelId),
+	ollama: (settings, modelId) => createOllama(settings).chat(modelId),
 };
 
 export type ProviderModelResult = {
