@@ -271,7 +271,7 @@ export class SlackService {
 	}
 
 	private async _postChartImageBlock(toolCallId: string): Promise<void> {
-		const imageUrl = new URL(`api/chart/${toolCallId}`, 'https://0127-83-199-194-64.ngrok-free.app').toString();
+		const imageUrl = new URL(`api/chart/${toolCallId}`, this._redirectUrl).toString();
 		const messageTs = this._initialMessageTs || this._threadTs;
 		this._textBlockIndex = -1;
 		this._currentConv.blocks.push(addImageBlock(imageUrl));
