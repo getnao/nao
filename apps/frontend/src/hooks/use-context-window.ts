@@ -26,24 +26,60 @@ export function getAllContextWindows() {
 	return results;
 }
 
-export function estimateTokens(text: string): number {
-	return Math.ceil(text.length / 4);
+export function estimateTokensFromTextLength(length: number): number {
+    return Math.ceil(length / 4);
 }
 
-function getEstimatedTokens(messages: UIMessage[]): number {
-	return messages.reduce((total, message) => {
-		if (message.tokenUsage?.inputTotalTokens || message.tokenUsage?.outputTotalTokens) {
-			return total + (message.tokenUsage.inputTotalTokens ?? 0) + (message.tokenUsage.outputTotalTokens ?? 0);
-		}
-		const chars = message.parts.reduce((sum, part) => {
-			if (part.type === 'text') {
-				return sum + part.text.length;
-			}
-			return sum;
-		}, 0);
-		return total + estimateTokens(String(chars));
-	}, 0);
+function estimateFromChars(messages: UIMessage[]): number {
+    const totalChars = messages.reduce((sum, message) =>
+        sum + message.parts.reduce((s, part) =>
+            part.type === 'text' ? s + part.text.length : s, 0),
+    0);
+    return estimateTokensFromTextLength(totalChars);
 }
+
+// function getEstimatedTokens(messages: UIMessage[]): number {
+//     const last = messages.at(-1);
+//     if (!last) return 0;
+    
+//     if (last.tokenUsage?.inputTotalTokens != null) {
+//         return (last.tokenUsage.inputTotalTokens) + (last.tokenUsage.outputTotalTokens ?? 0);
+//     }
+    
+//     // Fallback : estimation sur tous les messages
+//     const totalChars = messages.reduce((sum, message) =>
+//         sum + message.parts.reduce((s, part) =>
+//             part.type === 'text' ? s + part.text.length : s, 0),
+//     0);
+//     return estimateTokensFromTextLength(totalChars);
+// }
+
+function getEstimatedTokens(messages: UIMessage[]): number {
+	const lastAssistantWithUsage = [...messages]
+	  .reverse()
+	  .find(m => m.tokenUsage?.inputTotalTokens != null);
+  
+	if (!lastAssistantWithUsage) {
+	  return estimateFromChars(messages);
+	}
+  
+	const baseContextTokens =
+	  lastAssistantWithUsage.tokenUsage!.inputTotalTokens!;
+  
+	// Estimer uniquement les nouveaux messages ajoutés après
+	const index = messages.indexOf(lastAssistantWithUsage);
+	const messagesAfter = messages.slice(index + 1);
+  
+	const newChars = messagesAfter.reduce((sum, message) =>
+	  sum + message.parts.reduce((s, part) =>
+		part.type === 'text' ? s + part.text.length : s,
+	  0),
+	0);
+  
+	const estimatedNewTokens = estimateTokensFromTextLength(newChars);
+  
+	return baseContextTokens + estimatedNewTokens;
+  }
 
 export function useContextWindow(messages: UIMessage[], selectedModel: ChatSelectedModel | null) {
 	const knownModels = useQuery(trpc.project.getKnownModels.queryOptions());
@@ -60,6 +96,6 @@ export function useContextWindow(messages: UIMessage[], selectedModel: ChatSelec
 		contextWindow && usedTokens > 0
 			? Math.min(100, Math.max(0.1, parseFloat(((usedTokens / contextWindow) * 100).toFixed(1))))
 			: 0;
-
+	console.log('percent used of context window', percent);
 	return { usedTokens, contextWindow, percent };
 }
