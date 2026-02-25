@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { ArrowUpRight } from 'lucide-react';
 import { useParams } from '@tanstack/react-router';
 import { TextShimmer } from '../ui/text-shimmer';
@@ -7,14 +8,33 @@ import StoryIcon from '../ui/story-icon';
 import type { ToolCallComponentProps } from '.';
 import { StoryViewer } from '@/components/side-panel/story-viewer';
 import { useSidePanel } from '@/contexts/side-panel';
-import { isToolSettled } from '@/lib/ai';
 
 export const StoryToolCall = ({ toolPart }: ToolCallComponentProps<'story'>) => {
-	const { open: openSidePanel } = useSidePanel();
+	const { open: openSidePanel, isVisible, currentStoryId } = useSidePanel();
 	const { chatId } = useParams({ strict: false });
-	const isSettled = isToolSettled(toolPart);
-	const input = toolPart.state !== 'input-streaming' ? toolPart.input : undefined;
+	const input = toolPart.input;
+	const isStreaming = toolPart.state === 'input-streaming';
 	const output = toolPart.output;
+	const hasAutoOpenedRef = useRef(false);
+
+	const finalStoryId = output?.id ?? input?.id;
+	const canOpen = Boolean(chatId && finalStoryId);
+	const isCreateAction = input?.action === 'create';
+
+	useEffect(() => {
+		if (hasAutoOpenedRef.current || !isCreateAction || !isStreaming || !canOpen || !chatId || !finalStoryId) {
+			return;
+		}
+
+		// Do not re-open if the same story is already visible.
+		if (isVisible && currentStoryId === finalStoryId) {
+			hasAutoOpenedRef.current = true;
+			return;
+		}
+
+		openSidePanel(<StoryViewer chatId={chatId} storyId={finalStoryId} />, finalStoryId);
+		hasAutoOpenedRef.current = true;
+	}, [isCreateAction, isStreaming, canOpen, chatId, finalStoryId, isVisible, currentStoryId, openSidePanel]);
 
 	if (!input) {
 		const partialAction = (toolPart as { input?: { action?: string } }).input?.action;
@@ -39,10 +59,17 @@ export const StoryToolCall = ({ toolPart }: ToolCallComponentProps<'story'>) => 
 	}
 
 	const title = output?.title ?? input.title ?? input.id;
-	const finalStoryId = output?.id ?? input.id;
+	const actionLabel = input.action === 'create' ? 'Created' : input.action === 'update' ? 'Updated' : 'Replaced';
+	const statusLabel = isStreaming
+		? input.action === 'create'
+			? 'Creating...'
+			: input.action === 'update'
+				? 'Updating...'
+				: 'Replacing...'
+		: `${actionLabel}${output?.version ? ` · v${output.version}` : ''}`;
 
 	const handleOpen = () => {
-		if (!chatId || !finalStoryId) {
+		if (!canOpen || !chatId || !finalStoryId) {
 			return;
 		}
 		openSidePanel(<StoryViewer chatId={chatId} storyId={finalStoryId} />, finalStoryId);
@@ -52,7 +79,7 @@ export const StoryToolCall = ({ toolPart }: ToolCallComponentProps<'story'>) => 
 		<button
 			type='button'
 			onClick={handleOpen}
-			disabled={!isSettled}
+			disabled={!canOpen}
 			className='group my-2 -mx-3 flex md:w-2/3 items-center gap-3 rounded-xl border bg-card py-4 pl-4 pr-3 text-left transition-colors hover:bg-accent/50 disabled:opacity-50 disabled:cursor-default cursor-pointer overflow-hidden'
 		>
 			<div className='relative -mt-4 -mb-12 mr-1 flex h-16 w-14 shrink-0 items-center justify-center rounded-lg border border-border bg-gradient-to-b from-muted/40 to-white/80 rotate-[-4deg] transition-transform duration-200 ease-out group-hover:-translate-y-0.5 group-hover:rotate-[-2.5deg]'>
@@ -61,13 +88,10 @@ export const StoryToolCall = ({ toolPart }: ToolCallComponentProps<'story'>) => 
 
 			<div className='flex flex-col gap-0.5 min-w-0 flex-1'>
 				<span className='text-sm font-medium truncate'>{title}</span>
-				<span className='text-xs text-muted-foreground'>
-					{input.action === 'create' ? 'Created' : input.action === 'update' ? 'Updated' : 'Replaced'}
-					{output?.version ? ` · v${output.version}` : ''}
-				</span>
+				<span className='text-xs text-muted-foreground'>{statusLabel}</span>
 			</div>
 
-			{isSettled && (
+			{canOpen && (
 				<Button variant='ghost-muted' size='icon-xs' asChild>
 					<span>
 						<ArrowUpRight className='size-3.5' />

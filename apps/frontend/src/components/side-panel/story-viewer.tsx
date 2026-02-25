@@ -45,35 +45,41 @@ interface StoryViewerProps {
 export function StoryViewer({ chatId, storyId }: StoryViewerProps) {
 	const tiptapEditorRef = useRef<TiptapEditor | null>(null);
 	const { viewMode, setViewMode } = useStoryViewerViewMode();
-	const { allStories, isAgentRunning } = useStoryViewerAgentState();
+	const { allStories, draftStory, isAgentRunning } = useStoryViewerAgentState(storyId);
+	const resolvedStoryId = draftStory?.id ?? storyId;
 	const { versions, currentVersion, currentVersionNumber, isViewingLatest, goToPreviousVersion, goToNextVersion } =
 		useStoryViewerVersions({
 			chatId,
-			storyId,
+			storyId: resolvedStoryId,
 			isAgentRunning,
 		});
 	const { handleSave, handleRestore } = useStoryViewerVersionActions({
 		chatId,
-		storyId,
+		storyId: resolvedStoryId,
 		currentVersionTitle: currentVersion?.title,
 		currentVersionCode: currentVersion?.code,
 		isViewingLatest,
 		tiptapEditorRef,
 		setViewMode,
 	});
-	const { isShareDialogOpen, setIsShareDialogOpen, isShared } = useStoryViewerSharing({ chatId, storyId });
-	const { handleEnlarge } = useStoryViewerEnlarge({ chatId, storyId });
+	const { isShareDialogOpen, setIsShareDialogOpen, isShared } = useStoryViewerSharing({
+		chatId,
+		storyId: resolvedStoryId,
+	});
+	const { handleEnlarge } = useStoryViewerEnlarge({ chatId, storyId: resolvedStoryId });
 
 	const renderStoryViewer = useCallback(
 		(nextStoryId: string) => <StoryViewer chatId={chatId} storyId={nextStoryId} />,
 		[chatId],
 	);
 	const { switchStory } = useStoryViewerSwitchStory({ renderStoryViewer });
+	const storyTitle = draftStory?.title ?? currentVersion?.title ?? storyId;
+	const storyCode = draftStory?.code ?? currentVersion?.code;
 
-	if (!currentVersion) {
+	if (!storyCode) {
 		return (
 			<div className='flex h-full items-center justify-center text-muted-foreground text-sm'>
-				No Story content available.
+				{isAgentRunning ? 'Waiting for story stream...' : 'No Story content available.'}
 			</div>
 		);
 	}
@@ -81,8 +87,8 @@ export function StoryViewer({ chatId, storyId }: StoryViewerProps) {
 	return (
 		<div className='flex h-full flex-col'>
 			<StoryHeader
-				title={currentVersion.title}
-				storyId={storyId}
+				title={storyTitle}
+				storyId={resolvedStoryId}
 				allStories={allStories}
 				onSwitchStory={switchStory}
 				viewMode={viewMode}
@@ -102,11 +108,11 @@ export function StoryViewer({ chatId, storyId }: StoryViewerProps) {
 
 			<div className='flex-1 min-h-0 overflow-auto'>
 				{viewMode === 'preview' ? (
-					<StoryPreview code={currentVersion.code} />
+					<StoryPreview code={storyCode} />
 				) : viewMode === 'edit' ? (
-					<StoryEditor code={currentVersion.code} editorRef={tiptapEditorRef} />
+					<StoryEditor code={storyCode} editorRef={tiptapEditorRef} />
 				) : (
-					<StoryCodeView code={currentVersion.code} />
+					<StoryCodeView code={storyCode} />
 				)}
 			</div>
 
@@ -114,7 +120,7 @@ export function StoryViewer({ chatId, storyId }: StoryViewerProps) {
 				open={isShareDialogOpen}
 				onOpenChange={setIsShareDialogOpen}
 				chatId={chatId}
-				storyId={storyId}
+				storyId={resolvedStoryId}
 			/>
 		</div>
 	);

@@ -343,6 +343,16 @@ export function StoryEditor({ code, editorRef }: StoryEditorProps) {
 		};
 	}, [editor, editorRef]);
 
+	useEffect(() => {
+		if (!editor) {
+			return;
+		}
+		if (getEditorMarkdown(editor) === code) {
+			return;
+		}
+		editor.commands.setContent(processedContent, { emitUpdate: false });
+	}, [editor, code, processedContent]);
+
 	return (
 		<div className='story-editor relative'>
 			{editor && (
