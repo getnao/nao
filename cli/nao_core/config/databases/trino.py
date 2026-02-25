@@ -9,7 +9,7 @@ from nao_core.ui import ask_text
 
 from .base import DatabaseConfig
 
-EXCLUDED_SCHEMAS = {"information_schema", "default", "sys", "pg_catalog"}
+EXCLUDED_SCHEMAS = {"information_schema", "default", "sys", "pg_catalog", "test"}
 
 
 def _normalize_schema_name(value: object) -> str:
