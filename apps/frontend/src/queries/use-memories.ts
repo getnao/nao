@@ -19,6 +19,7 @@ export function useMemoriesQuery(enabled: boolean) {
 	return useQuery({
 		...trpc.user.getMemories.queryOptions(),
 		enabled,
+		staleTime: 5 * 1000,
 	});
 }
 

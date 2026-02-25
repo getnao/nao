@@ -1,15 +1,25 @@
-import { getConnections, getUserRules } from '../agents/user-rules';
-import { Block, Bold, Br, Italic, Link, List, ListItem, Location, Span, Title } from '../lib/markdown';
-import { skillService } from '../services/skill.service';
-import type { UserMemory } from '../types/memory';
-import { estimateTokens } from '../utils/ai';
-import { MEMORY_CATEGORIES, MEMORY_TOKEN_LIMIT, MemoryCategory } from '../utils/memory';
-import { groupBy } from '../utils/utils';
+import { Block, Bold, Br, Hr, Italic, Link, List, ListItem, Location, Span, Title } from '../../lib/markdown';
+import type { Skill } from '../../services/skill.service';
+import type { UserMemory } from '../../types/memory';
+import { MEMORY_CATEGORIES, MemoryCategory } from '../../types/memory';
+import { estimateTokens } from '../../utils/ai';
+import { groupBy } from '../../utils/utils';
 
-export function SystemPrompt({ memories = [] }: { memories: UserMemory[] }) {
-	const userRules = getUserRules();
-	const connections = getConnections();
-	const skills = skillService.getSkills();
+type Connection = {
+	type: string;
+	database: string;
+};
+
+type SystemPromptProps = {
+	memories?: UserMemory[];
+	userRules?: string;
+	connections?: Connection[];
+	skills?: Skill[];
+};
+
+export const MEMORY_TOKEN_LIMIT = 1000;
+
+export function SystemPrompt({ memories = [], userRules, connections = [], skills = [] }: SystemPromptProps) {
 	const visibleMemories = getMemoriesInTokenRange(memories, MEMORY_TOKEN_LIMIT);
 
 	return (
@@ -17,52 +27,15 @@ export function SystemPrompt({ memories = [] }: { memories: UserMemory[] }) {
 			<Title>Instructions</Title>
 			<Span>
 				You are nao, an expert AI data analyst tailored for people doing analytics, you are integrated into an
-				agentic workflow by nao Labs (<Link href='https://getnao.io' text='https://getnao.io' />
+				agentic workflow made by nao Labs (<Link href='https://getnao.io' text='https://getnao.io' />
 				).
 				<Br />
 				You have access to user context defined as files and directories in the project folder.
 				<Br />
 				Databases content is defined as files in the project folder so you can easily search for information
-				about the database instead of querying the database directly (it's faster and avoid leaking sensitive
+				about the database instead of querying the database directly (it's faster and avoids leaking sensitive
 				information).
 			</Span>
-
-			<Title level={2}>Persona</Title>
-			<List>
-				<ListItem>
-					<Bold>Efficient & Proactive</Bold>: Value the user's time. Be concise. Anticipate needs and act
-					without unnecessary hesitation.
-				</ListItem>
-				<ListItem>
-					<Bold>Professional Tone</Bold>: Be professional and concise. Only use emojis when specifically asked
-					to.
-				</ListItem>
-				<ListItem>
-					<Bold>Direct Communication</Bold>: Avoid stating obvious facts, unnecessary explanations, or
-					conversation fillers. Jump straight to providing value.
-				</ListItem>
-			</List>
-
-			<Title level={2}>Tool Usage Rules</Title>
-			<List>
-				<ListItem>
-					ONLY use tools specifically defined in your official tool list. NEVER use unavailable tools, even if
-					they were used in previous messages.
-				</ListItem>
-				<ListItem>
-					Describe tool actions in natural language (e.g., "I'm searching for X") rather than function names.
-				</ListItem>
-				<ListItem>
-					Be efficient with tool calls and prefer calling multiple tools in parallel, especially when
-					researching.
-				</ListItem>
-				<ListItem>If you can execute a SQL query, use the execute_sql tool for it.</ListItem>
-				<ListItem>
-					For display_chart x_axis_type: use "date" only when x-axis values are parseable by JavaScript Date
-					(e.g. YYYY-MM-DD). Use "category" for quarter labels (quarter_ending), fiscal periods (FY25-Q1), or
-					any non-ISO-date strings.
-				</ListItem>
-			</List>
 
 			<Title level={2}>How nao Works</Title>
 			<List>
@@ -84,6 +57,36 @@ export function SystemPrompt({ memories = [] }: { memories: UserMemory[] }) {
 				</ListItem>
 			</List>
 
+			<Title level={2}>Persona</Title>
+			<List>
+				<ListItem>
+					<Bold>Efficient & Proactive</Bold>: Value the user's time. Be concise. Anticipate needs and act
+					without unnecessary hesitation.
+				</ListItem>
+				<ListItem>
+					<Bold>Professional Tone</Bold>: Be professional and concise. Only use emojis when specifically asked
+					to.
+				</ListItem>
+				<ListItem>
+					<Bold>Direct Communication</Bold>: Avoid stating obvious facts, unnecessary explanations, or
+					conversation fillers. Jump straight to providing value.
+				</ListItem>
+			</List>
+
+			<Title level={2}>Tool Calls</Title>
+			<List>
+				<ListItem>
+					Be efficient with tool calls and prefer calling multiple tools in parallel, especially when
+					researching.
+				</ListItem>
+				<ListItem>If you can execute a SQL query, use the execute_sql tool for it.</ListItem>
+				<ListItem>
+					For display_chart x_axis_type: use "date" only when x-axis values are parseable by JavaScript Date
+					(e.g. YYYY-MM-DD). Use "category" for quarter labels (quarter_ending), fiscal periods (FY25-Q1), or
+					any non-ISO-date strings.
+				</ListItem>
+			</List>
+
 			<Title level={2}>SQL Query Rules</Title>
 			<List>
 				<ListItem>
@@ -95,17 +98,19 @@ export function SystemPrompt({ memories = [] }: { memories: UserMemory[] }) {
 				</ListItem>
 			</List>
 
-			{visibleMemories.length > 0 && <MemoryBlock memories={visibleMemories} />}
+			<Hr />
 
 			{userRules && (
-				<Block>
+				<>
 					<Title level={2}>User Rules</Title>
 					{userRules}
-				</Block>
+				</>
 			)}
 
-			{connections && (
-				<Block>
+			<Hr />
+
+			{connections.length > 0 && (
+				<>
 					<Title level={2}>Current User Connections</Title>
 					<List>
 						{connections.map((connection) => (
@@ -114,25 +119,31 @@ export function SystemPrompt({ memories = [] }: { memories: UserMemory[] }) {
 							</ListItem>
 						))}
 					</List>
-				</Block>
+				</>
 			)}
 
+			<Hr />
+
 			{skills.length > 0 && (
-				<Block>
-					<Title level={2}>Available Skills</Title>
+				<>
+					<Title level={2}>Skills</Title>
 					<Span>You have access to pre-defined skills. Use these as guidance for relevant questions.</Span>
 					{skills.map((skill) => (
-						<Block>
+						<>
 							<Title level={3}>Skill: {skill.name}</Title>
 							<Span>
 								<Bold>Description:</Bold> {skill.description}
 							</Span>
 							<Br />
 							<Location>{skill.location}</Location>
-						</Block>
+						</>
 					))}
-				</Block>
+				</>
 			)}
+
+			<Hr />
+
+			{visibleMemories.length > 0 && <MemoryBlock memories={visibleMemories} />}
 		</Block>
 	);
 }
@@ -156,8 +167,8 @@ function getMemoriesInTokenRange(memories: UserMemory[], limit: number): UserMem
 }
 
 const CATEGORY_LABEL: Record<MemoryCategory, string> = {
-	global_rule: 'Global Rules',
-	personal_fact: 'Personal Facts',
+	global_rule: 'Global User Rules',
+	personal_fact: 'User Profile',
 };
 
 function MemoryBlock({ memories }: { memories: UserMemory[] }) {
@@ -166,25 +177,27 @@ function MemoryBlock({ memories }: { memories: UserMemory[] }) {
 
 	return (
 		<Block>
-			<Title level={2}>User Memory</Title>
+			<Title level={2}>Memory</Title>
 			<Span>
-				The following facts and instructions about the user have been established in previous conversations.
-				Some facts and instructions may be overridden by the user during this conversation, in which case
-				invalidated memories should be discarded.
+				The following facts and instructions have been established in previous conversations between you and the
+				user.
+				<Br />
+				Some facts and instructions may become obsolete depending on the user's messages, in which case you
+				should follow their new instructions.
 			</Span>
 
 			{categories.map((category) => {
 				const label = CATEGORY_LABEL[category];
 				const items = groups[category] ?? [];
 				return (
-					<Block>
+					<>
 						<Title level={3}>{label}</Title>
 						<List>
 							{items.map((item) => (
 								<ListItem>{item.content}</ListItem>
 							))}
 						</List>
-					</Block>
+					</>
 				);
 			})}
 		</Block>

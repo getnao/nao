@@ -306,7 +306,7 @@ describe('renderToMarkdown', () => {
 				<md.Span>The user prefers dark mode.</md.Span>
 			</md.XML>,
 		);
-		expect(result).toBe('<memory type="fact" source="user">\n\nThe user prefers dark mode.\n\n</memory>');
+		expect(result).toBe('<memory type="fact" source="user">\n\tThe user prefers dark mode.\n</memory>');
 	});
 
 	it('renders an XML tag with no props and children', () => {
@@ -315,6 +315,28 @@ describe('renderToMarkdown', () => {
 				<md.Span>The user prefers dark mode.</md.Span>
 			</md.XML>,
 		);
-		expect(result).toBe('<memory>\n\nThe user prefers dark mode.\n\n</memory>');
+		expect(result).toBe('<memory>\n\tThe user prefers dark mode.\n</memory>');
+	});
+
+	it('renders an XML tag with XML children', () => {
+		const result = renderToMarkdown(
+			<md.XML tag='container'>
+				<md.XML tag='child'>
+					<md.Span>Child content</md.Span>
+				</md.XML>
+				<md.XML tag='child'>
+					<md.Span>Child content</md.Span>
+				</md.XML>
+			</md.XML>,
+		);
+
+		expect(result).toBe(`<container>
+	<child>
+		Child content
+	</child>
+	<child>
+		Child content
+	</child>
+</container>`);
 	});
 });

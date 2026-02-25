@@ -45,4 +45,7 @@ export type NewProjectSavedPrompt = typeof sqliteSchema.projectSavedPrompt.$infe
 export type DBMemory = typeof sqliteSchema.memories.$inferSelect;
 export type DBNewMemory = typeof sqliteSchema.memories.$inferInsert;
 
+export type DBLlmInference = typeof sqliteSchema.llmInference.$inferSelect;
+export type NewLlmInference = typeof sqliteSchema.llmInference.$inferInsert;
+
 export default allSchema as typeof sqliteSchema;
