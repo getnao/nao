@@ -21,8 +21,6 @@ export function renderChartToSvg(input: RenderChartInput): string {
 	const { config, data } = input;
 	const width = input.width ?? 800;
 	const height = input.height ?? 500;
-	const titleHeight = config.title ? 30 : 0;
-	const chartHeight = height - titleHeight;
 
 	const colorFor = (key: string, index: number) => {
 		const series = config.series.find((s) => s.data_key === key);
@@ -38,9 +36,10 @@ export function renderChartToSvg(input: RenderChartInput): string {
 		colorFor,
 		showGrid: true,
 		margin: { top: 10, right: 20, bottom: 5, left: 0 },
+		title: config.title,
 	});
 
-	const html = renderToString(React.cloneElement(chart, { width, height: chartHeight }));
+	const html = renderToString(React.cloneElement(chart, { width, height }));
 
 	const legend: LegendEntry[] = config.series.map((s, i) => ({
 		label: s.label || labelize(s.data_key),
@@ -48,5 +47,5 @@ export function renderChartToSvg(input: RenderChartInput): string {
 		color: colorFor(s.data_key, i),
 	}));
 
-	return createSvg(html, config.title, width, height, titleHeight, legend);
+	return createSvg(html, width, height, legend);
 }

@@ -15,14 +15,7 @@ export interface LegendEntry {
 	color: string;
 }
 
-export function createSvg(
-	html: string,
-	title: string | undefined,
-	width: number,
-	height: number,
-	titleHeight: number,
-	legend: LegendEntry[],
-): string {
+export function createSvg(html: string, width: number, height: number, legend: LegendEntry[]): string {
 	const legendHeight = legend.length > 0 ? 24 : 0;
 	const totalHeight = height + legendHeight;
 
@@ -37,37 +30,11 @@ export function createSvg(
 	});
 	$svg.prepend(`<rect width="${width}" height="${totalHeight}" fill="white"/>`);
 
-	if (titleHeight > 0) {
-		const chartChildren = $svg.children().not('rect');
-		chartChildren.wrapAll(`<g transform="translate(0, ${titleHeight})"></g>`);
-	}
-
-	if (title) {
-		$svg.append(buildTitle(title, width, titleHeight));
-	}
-
 	if (legend.length > 0) {
 		$svg.append(buildLegend(legend, width, height + legendHeight / 2));
 	}
 
 	return $.xml($svg);
-}
-
-function buildTitle(title: string, width: number, height: number): string {
-	return cheerio
-		.load('<text/>', { xmlMode: true })('text')
-		.attr({
-			x: String(width / 2),
-			y: String(height / 2),
-			'text-anchor': 'middle',
-			'dominant-baseline': 'middle',
-			'font-size': '14',
-			'font-weight': 'bold',
-			'font-family': 'system-ui, sans-serif',
-			fill: '#111827',
-		})
-		.text(title)
-		.toString();
 }
 
 function buildLegend(entries: LegendEntry[], width: number, centerY: number): string {

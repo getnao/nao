@@ -1,5 +1,5 @@
 import React from 'react';
-import { Area, AreaChart, Bar, BarChart, CartesianGrid, Pie, PieChart, XAxis, YAxis } from 'recharts';
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, Customized, Pie, PieChart, XAxis, YAxis } from 'recharts';
 
 import type * as displayChart from './tools/display-chart';
 
@@ -31,6 +31,7 @@ export interface BuildChartProps {
 	showGrid?: boolean;
 	children?: React.ReactNode[];
 	margin?: { top?: number; right?: number; bottom?: number; left?: number };
+	title?: string;
 }
 
 /**
@@ -40,9 +41,7 @@ export interface BuildChartProps {
  * backend (rendered to SVG via renderToStaticMarkup for image generation).
  */
 export function buildChart(props: BuildChartProps) {
-	const colorFor = props.colorFor ?? defaultColorFor;
-	const labelFormatter = props.labelFormatter ?? ((v: string) => labelize(v));
-	const resolved = { ...props, colorFor, labelFormatter };
+	const resolved = buildResolved(props);
 
 	if (resolved.chartType === 'pie') {
 		return buildPieChart(resolved);
@@ -51,6 +50,40 @@ export function buildChart(props: BuildChartProps) {
 		return buildAreaChart(resolved);
 	}
 	return buildBarChart(resolved);
+}
+
+function buildResolved(props: BuildChartProps) {
+	const colorFor = props.colorFor ?? defaultColorFor;
+	const labelFormatter = props.labelFormatter ?? ((v: string) => labelize(v));
+
+	const titleChild = props.title ? (
+		<Customized
+			key='chart-title'
+			component={({ width = 0 }: { width?: number }) => (
+				<text
+					x={width / 2}
+					y={16}
+					textAnchor='middle'
+					dominantBaseline='middle'
+					fontSize={14}
+					fontWeight='600'
+					fontFamily='system-ui, sans-serif'
+					fill='#111827'
+				>
+					{props.title}
+				</text>
+			)}
+		/>
+	) : null;
+
+	const resolved: ResolvedProps = {
+		...props,
+		colorFor,
+		labelFormatter,
+		margin: props.title ? { ...props.margin, top: (props.margin?.top ?? 0) + 30 } : props.margin,
+		children: titleChild ? [titleChild, ...(props.children ?? [])] : props.children,
+	};
+	return resolved;
 }
 
 type ResolvedProps = BuildChartProps & Required<Pick<BuildChartProps, 'colorFor' | 'labelFormatter'>>;
