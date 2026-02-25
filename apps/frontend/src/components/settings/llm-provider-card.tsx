@@ -62,8 +62,8 @@ export function ProviderCard({
 						<div className='flex items-center gap-2 text-xs text-muted-foreground'>
 							<span>
 								{getProviderApiKeyRequirement(provider)
-									? 'No API key required'
-									: 'API key from environment'}
+									? 'API key from environment'
+									: 'No API key required'}
 							</span>
 							{envBaseUrl && (
 								<>

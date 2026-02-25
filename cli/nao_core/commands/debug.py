@@ -47,7 +47,7 @@ def _check_available_models(provider: str, api_key: str) -> Tuple[bool, str]:
                 "Provider 'ollama' requires the optional dependency 'ollama'. Install it to use this provider.",
             )
 
-        models = ollama.list()
+        models = ollama.list().models
     else:
         return False, f"Unknown provider: {provider}"
 

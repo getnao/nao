@@ -11,7 +11,7 @@ from cyclopts import Parameter
 from rich.console import Console
 
 from nao_core import __version__
-from nao_core.config import NaoConfig
+from nao_core.config import LLMProvider, NaoConfig
 from nao_core.mode import MODE
 from nao_core.tracking import track_command
 
@@ -178,8 +178,9 @@ def chat(port: Annotated[Optional[int], Parameter(name=["-p", "--port"])] = None
         # Set LLM API key from config if available
         if config and config.llm:
             env_var_name = f"{config.llm.provider.upper()}_API_KEY"
-            env[env_var_name] = config.llm.api_key
-            console.print(f"[bold green]✓[/bold green] Set {env_var_name} from config")
+            if config.llm.api_key is not None and config.llm.provider != LLMProvider.OLLAMA:
+                env[env_var_name] = config.llm.api_key
+                console.print(f"[bold green]✓[/bold green] Set {env_var_name} from config")
             if config.llm.base_url:
                 base_url_var = f"{config.llm.provider.upper()}_BASE_URL"
                 env[base_url_var] = config.llm.base_url
