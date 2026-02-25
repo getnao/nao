@@ -6,6 +6,10 @@ import * as storyQueries from '../queries/story.queries';
 import { protectedProcedure } from './trpc';
 
 export const storyRoutes = {
+	listAll: protectedProcedure.query(async ({ ctx }) => {
+		return storyQueries.listUserStories(ctx.user.id);
+	}),
+
 	listVersions: protectedProcedure
 		.input(z.object({ chatId: z.string(), storyId: z.string() }))
 		.query(async ({ input, ctx }) => {

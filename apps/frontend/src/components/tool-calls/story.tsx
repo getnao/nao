@@ -1,8 +1,9 @@
-import { ScrollText, ArrowUpRight } from 'lucide-react';
+import { ArrowUpRight } from 'lucide-react';
 import { useParams } from '@tanstack/react-router';
 import { TextShimmer } from '../ui/text-shimmer';
 import { Skeleton } from '../ui/skeleton';
 import { Button } from '../ui/button';
+import StoryIcon from '../ui/story-icon';
 import type { ToolCallComponentProps } from '.';
 import { StoryViewer } from '@/components/side-panel/story-viewer';
 import { useSidePanel } from '@/contexts/side-panel';
@@ -54,8 +55,8 @@ export const StoryToolCall = ({ toolPart }: ToolCallComponentProps<'story'>) => 
 			disabled={!isSettled}
 			className='group my-2 -mx-3 flex md:w-2/3 items-center gap-3 rounded-xl border bg-card py-4 pl-4 pr-3 text-left transition-colors hover:bg-accent/50 disabled:opacity-50 disabled:cursor-default cursor-pointer overflow-hidden'
 		>
-			<div className='relative -mt-4 -mb-10 mr-1 flex h-16 w-14 shrink-0 items-center justify-center rounded-lg border border-border bg-gradient-to-b from-muted/40 to-white/80 rotate-[-4deg] transition-transform duration-200 ease-out group-hover:-translate-y-0.5 group-hover:rotate-[-2.5deg]'>
-				<ScrollText className='size-5 text-muted-foreground' />
+			<div className='relative -mt-4 -mb-12 mr-1 flex h-16 w-14 shrink-0 items-center justify-center rounded-lg border border-border bg-gradient-to-b from-muted/40 to-white/80 rotate-[-4deg] transition-transform duration-200 ease-out group-hover:-translate-y-0.5 group-hover:rotate-[-2.5deg]'>
+				<StoryIcon className='size-5 text-muted-foreground' strokeWidth={1} />
 			</div>
 
 			<div className='flex flex-col gap-0.5 min-w-0 flex-1'>

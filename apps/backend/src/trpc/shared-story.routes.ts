@@ -6,6 +6,10 @@ import * as sharedStoryQueries from '../queries/shared-story.queries';
 import { projectProtectedProcedure, protectedProcedure } from './trpc';
 
 export const sharedStoryRoutes = {
+	list: projectProtectedProcedure.query(async ({ ctx }) => {
+		return sharedStoryQueries.listProjectSharedStories(ctx.project.id);
+	}),
+
 	create: projectProtectedProcedure
 		.input(
 			z.object({

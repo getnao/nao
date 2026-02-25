@@ -34,6 +34,19 @@ export const DisplayChartToolCall = ({
 	const [dataRange, setDataRange] = useState<DateRange>('all');
 	const storyIds = useMemo(() => findStoryIds(messages), [messages]);
 
+	const addToStoryMutation = useMutation(
+		trpc.story.createVersion.mutationOptions({
+			onSuccess: (_data, variables) => {
+				queryClient.invalidateQueries({
+					queryKey: trpc.story.listVersions.queryKey({
+						chatId: variables.chatId,
+						storyId: variables.storyId,
+					}),
+				});
+			},
+		}),
+	);
+
 	const sourceData = useMemo(() => {
 		if (!config?.query_id) {
 			return null;
@@ -101,19 +114,6 @@ export const DisplayChartToolCall = ({
 			</div>
 		);
 	}
-
-	const addToStoryMutation = useMutation(
-		trpc.story.createVersion.mutationOptions({
-			onSuccess: (_data, variables) => {
-				queryClient.invalidateQueries({
-					queryKey: trpc.story.listVersions.queryKey({
-						chatId: variables.chatId,
-						storyId: variables.storyId,
-					}),
-				});
-			},
-		}),
-	);
 
 	const handleAddToStory = async () => {
 		const targetId = isVisible && currentStoryId ? currentStoryId : storyIds[storyIds.length - 1];

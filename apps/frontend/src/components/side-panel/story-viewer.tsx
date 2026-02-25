@@ -8,13 +8,13 @@ import {
 	Code,
 	Eye,
 	Pencil,
-	FileText,
 	Save,
 	Check,
 	Loader2,
 	RotateCcw,
 	Share,
 } from 'lucide-react';
+import StoryIcon from '../ui/story-icon';
 import { StoryChartEmbed } from './story-chart-embed';
 import { StoryEditor, getEditorMarkdown } from './story-editor';
 import type { StorySummary } from '@/lib/story.utils';
@@ -230,7 +230,6 @@ function StoryHeader({
 						<DropdownMenuContent align='start'>
 							{otherStories.map((story) => (
 								<DropdownMenuItem key={story.id} onClick={() => onSwitchStory(story.id)}>
-									<FileText className='size-3.5' />
 									<span className='truncate'>{story.title}</span>
 								</DropdownMenuItem>
 							))}

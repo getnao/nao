@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as SignupRouteImport } from './routes/signup'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as SidebarLayoutRouteImport } from './routes/_sidebar-layout'
+import { Route as SidebarLayoutStoriesRouteImport } from './routes/_sidebar-layout.stories'
 import { Route as SidebarLayoutSettingsRouteImport } from './routes/_sidebar-layout.settings'
 import { Route as SidebarLayoutChatLayoutRouteImport } from './routes/_sidebar-layout._chat-layout'
 import { Route as SidebarLayoutSettingsIndexRouteImport } from './routes/_sidebar-layout.settings.index'
@@ -42,6 +43,11 @@ const LoginRoute = LoginRouteImport.update({
 const SidebarLayoutRoute = SidebarLayoutRouteImport.update({
   id: '/_sidebar-layout',
   getParentRoute: () => rootRouteImport,
+} as any)
+const SidebarLayoutStoriesRoute = SidebarLayoutStoriesRouteImport.update({
+  id: '/stories',
+  path: '/stories',
+  getParentRoute: () => SidebarLayoutRoute,
 } as any)
 const SidebarLayoutSettingsRoute = SidebarLayoutSettingsRouteImport.update({
   id: '/settings',
@@ -142,6 +148,7 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/signup': typeof SignupRoute
   '/settings': typeof SidebarLayoutSettingsRouteWithChildren
+  '/stories': typeof SidebarLayoutStoriesRoute
   '/$chatId': typeof SidebarLayoutChatLayoutChatIdRoute
   '/settings/general': typeof SidebarLayoutSettingsGeneralRoute
   '/settings/memory': typeof SidebarLayoutSettingsMemoryRoute
@@ -160,6 +167,7 @@ export interface FileRoutesByTo {
   '/': typeof SidebarLayoutChatLayoutIndexRoute
   '/login': typeof LoginRoute
   '/signup': typeof SignupRoute
+  '/stories': typeof SidebarLayoutStoriesRoute
   '/$chatId': typeof SidebarLayoutChatLayoutChatIdRoute
   '/settings/general': typeof SidebarLayoutSettingsGeneralRoute
   '/settings/memory': typeof SidebarLayoutSettingsMemoryRoute
@@ -180,6 +188,7 @@ export interface FileRoutesById {
   '/signup': typeof SignupRoute
   '/_sidebar-layout/_chat-layout': typeof SidebarLayoutChatLayoutRouteWithChildren
   '/_sidebar-layout/settings': typeof SidebarLayoutSettingsRouteWithChildren
+  '/_sidebar-layout/stories': typeof SidebarLayoutStoriesRoute
   '/_sidebar-layout/_chat-layout/$chatId': typeof SidebarLayoutChatLayoutChatIdRoute
   '/_sidebar-layout/settings/general': typeof SidebarLayoutSettingsGeneralRoute
   '/_sidebar-layout/settings/memory': typeof SidebarLayoutSettingsMemoryRoute
@@ -202,6 +211,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/signup'
     | '/settings'
+    | '/stories'
     | '/$chatId'
     | '/settings/general'
     | '/settings/memory'
@@ -220,6 +230,7 @@ export interface FileRouteTypes {
     | '/'
     | '/login'
     | '/signup'
+    | '/stories'
     | '/$chatId'
     | '/settings/general'
     | '/settings/memory'
@@ -239,6 +250,7 @@ export interface FileRouteTypes {
     | '/signup'
     | '/_sidebar-layout/_chat-layout'
     | '/_sidebar-layout/settings'
+    | '/_sidebar-layout/stories'
     | '/_sidebar-layout/_chat-layout/$chatId'
     | '/_sidebar-layout/settings/general'
     | '/_sidebar-layout/settings/memory'
@@ -283,6 +295,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/'
       preLoaderRoute: typeof SidebarLayoutRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/_sidebar-layout/stories': {
+      id: '/_sidebar-layout/stories'
+      path: '/stories'
+      fullPath: '/stories'
+      preLoaderRoute: typeof SidebarLayoutStoriesRouteImport
+      parentRoute: typeof SidebarLayoutRoute
     }
     '/_sidebar-layout/settings': {
       id: '/_sidebar-layout/settings'
@@ -470,12 +489,14 @@ const SidebarLayoutSettingsRouteWithChildren =
 interface SidebarLayoutRouteChildren {
   SidebarLayoutChatLayoutRoute: typeof SidebarLayoutChatLayoutRouteWithChildren
   SidebarLayoutSettingsRoute: typeof SidebarLayoutSettingsRouteWithChildren
+  SidebarLayoutStoriesRoute: typeof SidebarLayoutStoriesRoute
   SidebarLayoutSharedShareIdRoute: typeof SidebarLayoutSharedShareIdRoute
 }
 
 const SidebarLayoutRouteChildren: SidebarLayoutRouteChildren = {
   SidebarLayoutChatLayoutRoute: SidebarLayoutChatLayoutRouteWithChildren,
   SidebarLayoutSettingsRoute: SidebarLayoutSettingsRouteWithChildren,
+  SidebarLayoutStoriesRoute: SidebarLayoutStoriesRoute,
   SidebarLayoutSharedShareIdRoute: SidebarLayoutSharedShareIdRoute,
 }
 

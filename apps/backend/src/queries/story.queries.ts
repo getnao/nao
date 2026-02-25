@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, max, sql } from 'drizzle-orm';
 
 import s, { type DBStoryVersion } from '../db/abstractSchema';
 import { db } from '../db/db';
@@ -70,4 +70,39 @@ export async function listStoriesInChat(
 		title,
 		latestVersion: version,
 	}));
+}
+
+export async function listUserStories(
+	userId: string,
+): Promise<{ storyId: string; chatId: string; title: string; createdAt: Date }[]> {
+	const latestVersions = db
+		.select({
+			chatId: s.storyVersion.chatId,
+			storyId: s.storyVersion.storyId,
+			maxVersion: max(s.storyVersion.version).as('max_version'),
+		})
+		.from(s.storyVersion)
+		.innerJoin(s.chat, eq(s.storyVersion.chatId, s.chat.id))
+		.where(eq(s.chat.userId, userId))
+		.groupBy(s.storyVersion.chatId, s.storyVersion.storyId)
+		.as('latest');
+
+	return db
+		.select({
+			storyId: s.storyVersion.storyId,
+			chatId: s.storyVersion.chatId,
+			title: s.storyVersion.title,
+			createdAt: s.storyVersion.createdAt,
+		})
+		.from(s.storyVersion)
+		.innerJoin(
+			latestVersions,
+			and(
+				eq(s.storyVersion.chatId, latestVersions.chatId),
+				eq(s.storyVersion.storyId, latestVersions.storyId),
+				eq(s.storyVersion.version, latestVersions.maxVersion),
+			),
+		)
+		.orderBy(desc(s.storyVersion.createdAt))
+		.execute();
 }

@@ -13,6 +13,7 @@ export default createTool<story.Input, story.Output>({
 		'Use <grid cols="2">...</grid> to display charts side by side in a responsive grid.',
 		'A story can also be refered as a "canva", an "artifact" or a "report".',
 		'Users may edit stories directly; the tool result always reflects the latest version, including user edits.',
+		'Unless explicitly stated, dont use the stories to display a chart, but the display_chart tool.',
 	].join(' '),
 	inputSchema: story.InputSchema,
 	outputSchema: story.OutputSchema,

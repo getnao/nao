@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { useParams } from '@tanstack/react-router';
-import { ScrollText } from 'lucide-react';
 import { Button } from './ui/button';
+import StoryIcon from './ui/story-icon';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './ui/dropdown-menu';
 import { StoryViewer } from '@/components/side-panel/story-viewer';
 import { useSidePanel } from '@/contexts/side-panel';
@@ -25,7 +25,7 @@ export function StoryOpenButton() {
 	if (stories.length === 1) {
 		return (
 			<Button variant='outline' size='icon-md' onClick={() => openStory(stories[0].id)} title={stories[0].title}>
-				<ScrollText className='size-5' />
+				<StoryIcon className='size-5' strokeWidth={1.5} />
 			</Button>
 		);
 	}
@@ -34,14 +34,13 @@ export function StoryOpenButton() {
 		<DropdownMenu>
 			<DropdownMenuTrigger asChild>
 				<Button variant='outline' size='icon-md' title='Open stories'>
-					<ScrollText className='size-5' />
+					<StoryIcon className='size-5' strokeWidth={1.5} />
 				</Button>
 			</DropdownMenuTrigger>
 
 			<DropdownMenuContent align='end'>
 				{stories.map((story) => (
 					<DropdownMenuItem key={story.id} onClick={() => openStory(story.id)}>
-						<ScrollText className='size-3.5' />
 						<span className='truncate'>{story.title}</span>
 					</DropdownMenuItem>
 				))}
