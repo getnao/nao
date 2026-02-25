@@ -83,7 +83,7 @@ function ChatInputBase({
 	const hasTranscribeProvider = Object.values(transcribeModels.data ?? {}).some((p) => p.hasKey);
 	const isTranscribeReady = isTranscribeEnabled && hasTranscribeProvider;
 
-	const { percent: contextWindowPercent } = useContextWindow(messages, selectedModel);
+	const { percent: contextWindowPercent, usedTokens, contextWindow } = useContextWindow(messages, selectedModel);
 	const [micWarning, setMicWarning] = useState(false);
 	const micWarningTimer = useRef(0);
 
@@ -159,7 +159,12 @@ function ChatInputBase({
 								</Button>
 							)}
 
-							<ContextWindowRing value={contextWindowPercent} className='size-4' />
+							<ContextWindowRing
+								value={contextWindowPercent}
+								usedTokens={usedTokens}
+								contextWindow={contextWindow ?? undefined}
+								className='size-4'
+							/>
 
 							{isTranscribeReady && isRecording && <RecordingTimer />}
 							<MicButton
