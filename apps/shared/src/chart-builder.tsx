@@ -10,7 +10,7 @@ export function labelize(key: unknown): string {
 	if (/^\d{4}-\d{2}-\d{2}/.test(str)) {
 		const date = new Date(str);
 		if (!isNaN(date.getTime())) {
-			return date.toDateString();
+			return date.toLocaleDateString('en-US', { timeZone: 'UTC' });
 		}
 	}
 	return str.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
@@ -96,8 +96,9 @@ function buildAreaChart(props: ResolvedProps) {
 			<defs>
 				{series.map((s, i) => {
 					const color = colorFor(s.data_key, i);
+					const gradientId = `grad-${i}`;
 					return (
-						<linearGradient key={s.data_key} id={s.data_key} x1='0' y1='0' x2='0' y2='1'>
+						<linearGradient key={s.data_key} id={gradientId} x1='0' y1='0' x2='0' y2='1'>
 							<stop offset='0%' stopColor={color} stopOpacity={0.25} />
 							<stop offset='100%' stopColor={color} stopOpacity={0} />
 						</linearGradient>
@@ -123,7 +124,7 @@ function buildAreaChart(props: ResolvedProps) {
 					dataKey={s.data_key}
 					type='monotone'
 					stroke={colorFor(s.data_key, i)}
-					fill={`url(#${s.data_key})`}
+					fill={`url(#grad-${i})`}
 					isAnimationActive={false}
 				/>
 			))}

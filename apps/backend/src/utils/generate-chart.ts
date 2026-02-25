@@ -54,7 +54,20 @@ export function createSvg(
 }
 
 function buildTitle(title: string, width: number, height: number): string {
-	return `<text x="${width / 2}" y="${height / 2}" text-anchor="middle" dominant-baseline="middle" font-size="14" font-weight="bold" font-family="system-ui, sans-serif" fill="#111827">${title}</text>`;
+	return cheerio
+		.load('<text/>', { xmlMode: true })('text')
+		.attr({
+			x: String(width / 2),
+			y: String(height / 2),
+			'text-anchor': 'middle',
+			'dominant-baseline': 'middle',
+			'font-size': '14',
+			'font-weight': 'bold',
+			'font-family': 'system-ui, sans-serif',
+			fill: '#111827',
+		})
+		.text(title)
+		.toString();
 }
 
 function buildLegend(entries: LegendEntry[], width: number, centerY: number): string {
