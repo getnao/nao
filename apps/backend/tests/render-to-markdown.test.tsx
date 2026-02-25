@@ -351,7 +351,7 @@ describe('renderToMarkdown', () => {
 		expect(result).toBe('---Hello\nWorld');
 	});
 
-	it('renders a block without children and wihout a prefix', () => {
+	it('renders a block without children but with a prefix', () => {
 		const result = renderToMarkdown(<md.Block prefix={'---'}>{null}</md.Block>);
 		expect(result).toBe('');
 	});
