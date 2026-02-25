@@ -3,7 +3,7 @@ import type { displayChart } from '@nao/shared/tools';
 import React from 'react';
 import { renderToString } from 'react-dom/server';
 
-import { assembleSvg, type LegendEntry, svgToPng } from '../utils/generate-chart';
+import { createSvg, type LegendEntry, svgToPng } from '../utils/generate-chart';
 
 export interface RenderChartInput {
 	config: Pick<displayChart.Input, 'chart_type' | 'x_axis_key' | 'x_axis_type' | 'series' | 'title'>;
@@ -48,5 +48,5 @@ export function renderChartToSvg(input: RenderChartInput): string {
 		color: colorFor(s.data_key, i),
 	}));
 
-	return assembleSvg(html, config.title, width, height, titleHeight, legend);
+	return createSvg(html, config.title, width, height, titleHeight, legend);
 }

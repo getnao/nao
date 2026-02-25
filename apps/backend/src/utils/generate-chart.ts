@@ -1,7 +1,7 @@
 import { Resvg } from '@resvg/resvg-js';
 import * as cheerio from 'cheerio';
 
-function extractSvgContent(html: string): string {
+function extractSvgFromHTML(html: string): string {
 	const $ = cheerio.load(html, { xmlMode: true });
 	const svg = $.xml($('svg'));
 	if (!svg) {
@@ -15,7 +15,7 @@ export interface LegendEntry {
 	color: string;
 }
 
-export function assembleSvg(
+export function createSvg(
 	html: string,
 	title: string | undefined,
 	width: number,
@@ -26,7 +26,7 @@ export function assembleSvg(
 	const legendHeight = legend.length > 0 ? 24 : 0;
 	const totalHeight = height + legendHeight;
 
-	const $ = cheerio.load(extractSvgContent(html), { xmlMode: true });
+	const $ = cheerio.load(extractSvgFromHTML(html), { xmlMode: true });
 	const $svg = $('svg');
 
 	$svg.attr({
@@ -43,30 +43,21 @@ export function assembleSvg(
 	}
 
 	if (title) {
-		$svg.append(
-			$('<text/>')
-				.attr({
-					x: String(width / 2),
-					y: String(titleHeight / 2),
-					'text-anchor': 'middle',
-					'dominant-baseline': 'middle',
-					'font-size': '14',
-					'font-weight': 'bold',
-					'font-family': 'system-ui, sans-serif',
-					fill: '#111827',
-				})
-				.text(title),
-		);
+		$svg.append(buildTitle(title, width, titleHeight));
 	}
 
 	if (legend.length > 0) {
-		$svg.append(buildLegendGroup(legend, width, height + legendHeight / 2));
+		$svg.append(buildLegend(legend, width, height + legendHeight / 2));
 	}
 
 	return $.xml($svg);
 }
 
-function buildLegendGroup(entries: LegendEntry[], width: number, centerY: number): string {
+function buildTitle(title: string, width: number, height: number): string {
+	return `<text x="${width / 2}" y="${height / 2}" text-anchor="middle" dominant-baseline="middle" font-size="14" font-weight="bold" font-family="system-ui, sans-serif" fill="#111827">${title}</text>`;
+}
+
+function buildLegend(entries: LegendEntry[], width: number, centerY: number): string {
 	const swatchSize = 10;
 	const gap = 6;
 	const itemSpacing = 16;
