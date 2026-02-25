@@ -27,25 +27,25 @@ export function getAllContextWindows() {
 }
 
 export function estimateTokensFromTextLength(length: number): number {
-    return Math.ceil(length / 4);
+	return Math.ceil(length / 4);
 }
 
 function estimateFromChars(messages: UIMessage[]): number {
-    const totalChars = messages.reduce((sum, message) =>
-        sum + message.parts.reduce((s, part) =>
-            part.type === 'text' ? s + part.text.length : s, 0),
-    0);
-    return estimateTokensFromTextLength(totalChars);
+	const totalChars = messages.reduce(
+		(sum, message) => sum + message.parts.reduce((s, part) => (part.type === 'text' ? s + part.text.length : s), 0),
+		0,
+	);
+	return estimateTokensFromTextLength(totalChars);
 }
 
 // function getEstimatedTokens(messages: UIMessage[]): number {
 //     const last = messages.at(-1);
 //     if (!last) return 0;
-    
+
 //     if (last.tokenUsage?.inputTotalTokens != null) {
 //         return (last.tokenUsage.inputTotalTokens) + (last.tokenUsage.outputTotalTokens ?? 0);
 //     }
-    
+
 //     // Fallback : estimation sur tous les messages
 //     const totalChars = messages.reduce((sum, message) =>
 //         sum + message.parts.reduce((s, part) =>
@@ -55,31 +55,27 @@ function estimateFromChars(messages: UIMessage[]): number {
 // }
 
 function getEstimatedTokens(messages: UIMessage[]): number {
-	const lastAssistantWithUsage = [...messages]
-	  .reverse()
-	  .find(m => m.tokenUsage?.inputTotalTokens != null);
-  
+	const lastAssistantWithUsage = [...messages].reverse().find((m) => m.tokenUsage?.inputTotalTokens != null);
+
 	if (!lastAssistantWithUsage) {
-	  return estimateFromChars(messages);
+		return estimateFromChars(messages);
 	}
-  
-	const baseContextTokens =
-	  lastAssistantWithUsage.tokenUsage!.inputTotalTokens!;
-  
+
+	const baseContextTokens = lastAssistantWithUsage.tokenUsage!.inputTotalTokens!;
+
 	// Estimer uniquement les nouveaux messages ajoutés après
 	const index = messages.indexOf(lastAssistantWithUsage);
 	const messagesAfter = messages.slice(index + 1);
-  
-	const newChars = messagesAfter.reduce((sum, message) =>
-	  sum + message.parts.reduce((s, part) =>
-		part.type === 'text' ? s + part.text.length : s,
-	  0),
-	0);
-  
+
+	const newChars = messagesAfter.reduce(
+		(sum, message) => sum + message.parts.reduce((s, part) => (part.type === 'text' ? s + part.text.length : s), 0),
+		0,
+	);
+
 	const estimatedNewTokens = estimateTokensFromTextLength(newChars);
-  
+
 	return baseContextTokens + estimatedNewTokens;
-  }
+}
 
 export function useContextWindow(messages: UIMessage[], selectedModel: ChatSelectedModel | null) {
 	const knownModels = useQuery(trpc.project.getKnownModels.queryOptions());
