@@ -20,6 +20,7 @@ import { ShareStoryDialog } from './share-story-dialog';
 import { useStoryViewerAgentState } from './hooks/use-story-viewer-agent-state';
 import { useStoryViewerEnlarge } from './hooks/use-story-viewer-enlarge';
 import { useStoryViewerSharing } from './hooks/use-story-viewer-sharing';
+import { useStoryViewerStreamScroll } from './hooks/use-story-viewer-stream-scroll';
 import { useStoryViewerSwitchStory } from './hooks/use-story-viewer-switch-story';
 import { useStoryViewerVersionActions } from './hooks/use-story-viewer-version-actions';
 import { useStoryViewerVersions } from './hooks/use-story-viewer-versions';
@@ -44,6 +45,7 @@ interface StoryViewerProps {
 
 export function StoryViewer({ chatId, storyId }: StoryViewerProps) {
 	const tiptapEditorRef = useRef<TiptapEditor | null>(null);
+	const scrollContainerRef = useRef<HTMLDivElement | null>(null);
 	const { viewMode, setViewMode } = useStoryViewerViewMode();
 	const { allStories, draftStory, isAgentRunning } = useStoryViewerAgentState(storyId);
 	const resolvedStoryId = draftStory?.id ?? storyId;
@@ -73,8 +75,19 @@ export function StoryViewer({ chatId, storyId }: StoryViewerProps) {
 		[chatId],
 	);
 	const { switchStory } = useStoryViewerSwitchStory({ renderStoryViewer });
-	const storyTitle = draftStory?.title ?? currentVersion?.title ?? storyId;
-	const storyCode = draftStory?.code ?? currentVersion?.code;
+	const shouldUseDraftStory = Boolean(draftStory && (draftStory.isStreaming || !currentVersion));
+	const storyTitle = shouldUseDraftStory
+		? (draftStory?.title ?? currentVersion?.title ?? storyId)
+		: (currentVersion?.title ?? draftStory?.title ?? storyId);
+	const storyCode = shouldUseDraftStory
+		? (draftStory?.code ?? currentVersion?.code)
+		: (currentVersion?.code ?? draftStory?.code);
+	useStoryViewerStreamScroll({
+		scrollContainerRef,
+		isStreaming: Boolean(draftStory?.isStreaming),
+		code: storyCode,
+		viewMode,
+	});
 
 	if (!storyCode) {
 		return (
@@ -106,7 +119,7 @@ export function StoryViewer({ chatId, storyId }: StoryViewerProps) {
 				isAgentRunning={isAgentRunning}
 			/>
 
-			<div className='flex-1 min-h-0 overflow-auto'>
+			<div ref={scrollContainerRef} className='flex-1 min-h-0 overflow-auto'>
 				{viewMode === 'preview' ? (
 					<StoryPreview code={storyCode} />
 				) : viewMode === 'edit' ? (
