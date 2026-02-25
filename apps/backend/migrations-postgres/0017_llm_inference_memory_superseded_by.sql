@@ -24,5 +24,4 @@ ALTER TABLE "llm_inference" ADD CONSTRAINT "llm_inference_chat_id_chat_id_fk" FO
 CREATE INDEX "llm_inference_projectId_idx" ON "llm_inference" USING btree ("project_id");--> statement-breakpoint
 CREATE INDEX "llm_inference_userId_idx" ON "llm_inference" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "llm_inference_type_idx" ON "llm_inference" USING btree ("type");--> statement-breakpoint
-CREATE INDEX "llm_inference_createdAt_idx" ON "llm_inference" USING btree ("created_at");--> statement-breakpoint
 CREATE INDEX "memories_supersededBy_idx" ON "memories" USING btree ("superseded_by");

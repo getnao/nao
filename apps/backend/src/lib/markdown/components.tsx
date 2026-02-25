@@ -4,14 +4,16 @@ import { cloneElement, ReactElement, ReactNode } from 'react';
 export function Block({
 	children,
 	separator = '\n\n',
+	prefix = '',
 	indent,
 }: {
 	children: ReactNode;
 	separator?: string;
+	prefix?: string;
 	indent?: string;
 }) {
 	return (
-		<div data-separator={separator} data-indent={indent}>
+		<div data-separator={separator} data-indent={indent} data-prefix={prefix}>
 			{children}
 		</div>
 	);

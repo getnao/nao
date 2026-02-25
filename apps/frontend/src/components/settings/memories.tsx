@@ -149,11 +149,11 @@ export function SettingsMemories() {
 						<SettingsMemorySkeleton />
 						<SettingsMemorySkeleton className='pb-0' />
 					</div>
-				) : memories?.length === 0 ? (
+				) : !memories?.length ? (
 					<Empty>No memories saved yet.</Empty>
 				) : (
 					<div className='flex flex-col divide-y'>
-						{memories?.map((memory) => (
+						{memories.map((memory) => (
 							<SettingsMemoryItem
 								key={memory.id}
 								memory={memory}

@@ -40,16 +40,24 @@ export function renderToMarkdown(node: ReactNode, separator = ''): string {
 	}
 
 	separator = (el.props?.['data-separator'] ?? separator) as string;
-	const indent = el.props?.['data-indent'];
+	const prefix = el.props?.['data-prefix'] as string | undefined;
+	const indent = el.props?.['data-indent'] as string | undefined;
 
-	const rendered = renderToMarkdown(el.props?.children, separator);
-
-	if (typeof indent !== 'string' || indent.length === 0 || rendered.length === 0) {
-		return rendered;
+	let renderedChildren = renderToMarkdown(el.props?.children, separator);
+	if (!renderedChildren) {
+		return renderedChildren;
 	}
 
-	return rendered
-		.split('\n')
-		.map((line) => `${indent}${line}`)
-		.join('\n');
+	if (prefix) {
+		renderedChildren = prefix + renderedChildren;
+	}
+
+	if (indent) {
+		renderedChildren = renderedChildren
+			.split('\n')
+			.map((line) => `${indent}${line}`)
+			.join('\n');
+	}
+
+	return renderedChildren;
 }

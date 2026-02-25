@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "6c5d253b-a5e4-4678-afc6-4d02374017bc",
+  "id": "a9f880bb-e8f7-4d51-bbe7-a7e9b07eb416",
   "prevId": "b0381e7d-0ad0-4b81-9b3c-b77e09c05631",
   "tables": {
     "account": {
@@ -534,13 +534,6 @@
           "name": "llm_inference_type_idx",
           "columns": [
             "type"
-          ],
-          "isUnique": false
-        },
-        "llm_inference_createdAt_idx": {
-          "name": "llm_inference_createdAt_idx",
-          "columns": [
-            "created_at"
           ],
           "isUnique": false
         }

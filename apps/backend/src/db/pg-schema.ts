@@ -401,6 +401,5 @@ export const llmInference = pgTable(
 		index('llm_inference_projectId_idx').on(t.projectId),
 		index('llm_inference_userId_idx').on(t.userId),
 		index('llm_inference_type_idx').on(t.type),
-		index('llm_inference_createdAt_idx').on(t.createdAt),
 	],
 );

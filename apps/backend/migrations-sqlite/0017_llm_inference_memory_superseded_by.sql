@@ -23,6 +23,5 @@ CREATE TABLE `llm_inference` (
 CREATE INDEX `llm_inference_projectId_idx` ON `llm_inference` (`project_id`);--> statement-breakpoint
 CREATE INDEX `llm_inference_userId_idx` ON `llm_inference` (`user_id`);--> statement-breakpoint
 CREATE INDEX `llm_inference_type_idx` ON `llm_inference` (`type`);--> statement-breakpoint
-CREATE INDEX `llm_inference_createdAt_idx` ON `llm_inference` (`created_at`);--> statement-breakpoint
 ALTER TABLE `memories` ADD `superseded_by` text;--> statement-breakpoint
 CREATE INDEX `memories_supersededBy_idx` ON `memories` (`superseded_by`);

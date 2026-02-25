@@ -1,5 +1,5 @@
 {
-  "id": "2fc9f397-31ec-44e6-861c-5050c72f9cb8",
+  "id": "2efd7482-4f01-48b1-a00a-2c8127fd35f3",
   "prevId": "9ea4f8d4-651e-449f-9c59-6ca416f5690c",
   "version": "7",
   "dialect": "postgresql",
@@ -556,21 +556,6 @@
           "columns": [
             {
               "expression": "type",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "llm_inference_createdAt_idx": {
-          "name": "llm_inference_createdAt_idx",
-          "columns": [
-            {
-              "expression": "created_at",
               "isExpression": false,
               "asc": true,
               "nulls": "last"

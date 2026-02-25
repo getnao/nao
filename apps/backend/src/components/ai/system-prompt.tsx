@@ -1,4 +1,16 @@
-import { Block, Bold, Br, Hr, Italic, Link, List, ListItem, Location, Span, Title } from '../../lib/markdown';
+import {
+	Block,
+	Bold,
+	Br,
+	Italic,
+	Link,
+	List,
+	ListItem,
+	Location,
+	renderToMarkdown,
+	Span,
+	Title,
+} from '../../lib/markdown';
 import type { Skill } from '../../services/skill.service';
 import type { UserMemory } from '../../types/memory';
 import { MEMORY_CATEGORIES, MemoryCategory } from '../../types/memory';
@@ -52,7 +64,7 @@ export function SystemPrompt({ memories = [], userRules, connections = [], skill
 					{`<database_name>`}/schema={`<schema_name>`}/table={`<table_name>`}.
 				</ListItem>
 				<ListItem>
-					Each table have files describing the table schema and the data in the table (like columns.md,
+					Each table has files describing the table schema and the data in the table (like columns.md,
 					preview.md, etc.)
 				</ListItem>
 			</List>
@@ -98,52 +110,47 @@ export function SystemPrompt({ memories = [], userRules, connections = [], skill
 				</ListItem>
 			</List>
 
-			<Hr />
+			<Block separator={'\n\n---\n\n'}>
+				{userRules && (
+					<Block>
+						<Title level={2}>User Rules</Title>
+						{userRules}
+					</Block>
+				)}
 
-			{userRules && (
-				<>
-					<Title level={2}>User Rules</Title>
-					{userRules}
-				</>
-			)}
+				{connections.length > 0 && (
+					<Block>
+						<Title level={2}>Current User Connections</Title>
+						<List>
+							{connections.map((connection) => (
+								<ListItem>
+									{connection.type} database={connection.database}
+								</ListItem>
+							))}
+						</List>
+					</Block>
+				)}
 
-			<Hr />
-
-			{connections.length > 0 && (
-				<>
-					<Title level={2}>Current User Connections</Title>
-					<List>
-						{connections.map((connection) => (
-							<ListItem>
-								{connection.type} database={connection.database}
-							</ListItem>
+				{skills.length > 0 && (
+					<Block>
+						<Title level={2}>Skills</Title>
+						<Span>
+							You have access to pre-defined skills. Use these as guidance for relevant questions.
+						</Span>
+						{skills.map((skill) => (
+							<>
+								<Title level={3}>Skill: {skill.name.trim()}</Title>
+								<Span>
+									<Bold>Description:</Bold> {skill.description.trim()}
+								</Span>
+								<Location>{skill.location}</Location>
+							</>
 						))}
-					</List>
-				</>
-			)}
+					</Block>
+				)}
 
-			<Hr />
-
-			{skills.length > 0 && (
-				<>
-					<Title level={2}>Skills</Title>
-					<Span>You have access to pre-defined skills. Use these as guidance for relevant questions.</Span>
-					{skills.map((skill) => (
-						<>
-							<Title level={3}>Skill: {skill.name}</Title>
-							<Span>
-								<Bold>Description:</Bold> {skill.description}
-							</Span>
-							<Br />
-							<Location>{skill.location}</Location>
-						</>
-					))}
-				</>
-			)}
-
-			<Hr />
-
-			{visibleMemories.length > 0 && <MemoryBlock memories={visibleMemories} />}
+				{visibleMemories.length > 0 && <MemoryBlock memories={visibleMemories} />}
+			</Block>
 		</Block>
 	);
 }
@@ -203,3 +210,30 @@ function MemoryBlock({ memories }: { memories: UserMemory[] }) {
 		</Block>
 	);
 }
+
+console.log(
+	renderToMarkdown(
+		SystemPrompt({
+			memories: [
+				{
+					category: 'global_rule',
+					content: 'You are an expert data analyst.',
+				},
+			],
+			userRules: 'You are an expert data analyst.',
+			connections: [
+				{
+					type: 'database',
+					database: 'my_database',
+				},
+			],
+			skills: [
+				{
+					name: 'data_analysis',
+					description: 'You are an expert data analyst.',
+					location: 'data_analysis.md',
+				},
+			],
+		}),
+	),
+);

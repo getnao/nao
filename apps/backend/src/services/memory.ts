@@ -3,7 +3,7 @@ import { LanguageModelUsage } from 'ai';
 import { ExtractorLLMOutput, MemoryExtractorLLM, UserInstruction, UserProfile } from '../agents/memory';
 import { LLM_PROVIDERS, type ProviderModelResult } from '../agents/providers';
 import { DBMemory, DBNewMemory } from '../db/abstractSchema';
-import * as llmInferenceQueries from '../queries/llm-inference.queries';
+import * as llmInferenceQueries from '../queries/llm-inference';
 import * as memoryQueries from '../queries/memory';
 import { LlmProvider } from '../types/llm';
 import { MemoryExtractionOptions, UserMemory } from '../types/memory';

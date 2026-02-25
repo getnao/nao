@@ -339,4 +339,20 @@ describe('renderToMarkdown', () => {
 	</child>
 </container>`);
 	});
+
+	it('renders a block with a prefix', () => {
+		const result = renderToMarkdown(
+			<md.Block prefix='---' separator={'\n'}>
+				<md.Span>Hello</md.Span>
+				<md.Span>World</md.Span>
+			</md.Block>,
+		);
+		console.log(result);
+		expect(result).toBe('---Hello\nWorld');
+	});
+
+	it('renders a block without children and wihout a prefix', () => {
+		const result = renderToMarkdown(<md.Block prefix={'---'}>{null}</md.Block>);
+		expect(result).toBe('');
+	});
 });
