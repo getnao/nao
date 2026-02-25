@@ -296,6 +296,7 @@ export const projectRoutes = {
 						modelId: z.string().optional(),
 					})
 					.optional(),
+				sql: z.object({ dangerouslyWritePermEnabled: z.boolean().optional() }).optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
@@ -303,6 +304,7 @@ export const projectRoutes = {
 			const merged = {
 				experimental: { ...existing.experimental, ...input.experimental },
 				transcribe: { ...existing.transcribe, ...input.transcribe },
+				sql: { ...existing.sql, ...input.sql },
 			};
 			return projectQueries.updateAgentSettings(ctx.project.id, merged);
 		}),
