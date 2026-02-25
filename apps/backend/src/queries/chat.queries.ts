@@ -96,7 +96,7 @@ const aggregateChatMessagParts = (
 					parts: [uiPart],
 					feedback: row.message_feedback ?? undefined,
 					tokenUsage:
-						inputTotalTokens || outputTotalTokens
+						inputTotalTokens != null || outputTotalTokens != null
 							? {
 									inputTotalTokens: inputTotalTokens ?? undefined,
 									outputTotalTokens: outputTotalTokens ?? undefined,
