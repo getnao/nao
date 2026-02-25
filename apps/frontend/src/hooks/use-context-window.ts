@@ -68,10 +68,9 @@ function getEstimatedTokens(messages: UIMessage[]): number {
 }
 
 export function useContextWindow(messages: UIMessage[], selectedModel: ChatSelectedModel | null) {
-	const knownModels = useQuery(trpc.project.getKnownModels.queryOptions());
 	const allContextWindows = getAllContextWindows();
 	const contextWindow =
-		selectedModel && knownModels.data
+		selectedModel && KNOWN_MODELS[selectedModel.provider]
 			? (allContextWindows.find(
 					(cw) => cw.provider === selectedModel.provider && cw.modelId === selectedModel.modelId,
 				)?.contextWindow ?? null)
