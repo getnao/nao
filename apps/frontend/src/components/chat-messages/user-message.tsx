@@ -20,7 +20,7 @@ export const UserMessage = memo(({ message }: { message: UIMessage }) => {
 
 	useClickOutside(
 		{
-			ref: editContainerRef,
+			containerRef: editContainerRef,
 			enabled: isEditing,
 			onClickOutside: () => editedMessageIdStore.setEditingId(undefined),
 		},
