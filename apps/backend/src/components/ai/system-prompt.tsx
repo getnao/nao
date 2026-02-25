@@ -1,16 +1,4 @@
-import {
-	Block,
-	Bold,
-	Br,
-	Italic,
-	Link,
-	List,
-	ListItem,
-	Location,
-	renderToMarkdown,
-	Span,
-	Title,
-} from '../../lib/markdown';
+import { Block, Bold, Br, Italic, Link, List, ListItem, Location, Span, Title } from '../../lib/markdown';
 import type { Skill } from '../../services/skill.service';
 import type { UserMemory } from '../../types/memory';
 import { MEMORY_CATEGORIES, MemoryCategory } from '../../types/memory';
@@ -210,30 +198,3 @@ function MemoryBlock({ memories }: { memories: UserMemory[] }) {
 		</Block>
 	);
 }
-
-console.log(
-	renderToMarkdown(
-		SystemPrompt({
-			memories: [
-				{
-					category: 'global_rule',
-					content: 'You are an expert data analyst.',
-				},
-			],
-			userRules: 'You are an expert data analyst.',
-			connections: [
-				{
-					type: 'database',
-					database: 'my_database',
-				},
-			],
-			skills: [
-				{
-					name: 'data_analysis',
-					description: 'You are an expert data analyst.',
-					location: 'data_analysis.md',
-				},
-			],
-		}),
-	),
-);
