@@ -94,12 +94,10 @@ export const updateUserMemoryContent = async (
 };
 
 export const deleteUserMemory = async (userId: string, memoryId: string): Promise<DBMemory | null> => {
-	const deleted = await takeFirstOrThrow(
-		db
-			.delete(s.memories)
-			.where(and(eq(s.memories.id, memoryId), eq(s.memories.userId, userId)))
-			.returning()
-			.execute(),
-	);
-	return deleted;
+	const [deleted] = await db
+		.delete(s.memories)
+		.where(and(eq(s.memories.id, memoryId), eq(s.memories.userId, userId)))
+		.returning()
+		.execute();
+	return deleted ?? null;
 };
