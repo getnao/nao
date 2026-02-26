@@ -83,9 +83,8 @@ export type TokenCost = {
 };
 
 export type ContextUsage = {
+	tokensUsed: number;
 	contextWindow: number | null;
-	percent: number;
-	tooltipText: string;
 };
 
 /**

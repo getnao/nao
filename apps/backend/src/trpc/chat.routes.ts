@@ -7,7 +7,7 @@ import { agentService } from '../services/agent.service';
 import { posthog, PostHogEvent } from '../services/posthog.service';
 import { type ContextUsage, type ListChatResponse, type UIChat } from '../types/chat';
 import { llmProviderSchema } from '../types/llm';
-import { getChatContextUsage } from '../utils/context-usage';
+import { getChatContextUsage } from '../utils/chat-context-usage';
 import { ownedResourceProcedure, protectedProcedure } from './trpc';
 
 const chatOwnerProcedure = ownedResourceProcedure(chatQueries.getChatOwnerId, 'chat');
