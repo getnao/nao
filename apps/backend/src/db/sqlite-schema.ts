@@ -248,7 +248,7 @@ export const messagePart = sqliteTable(
 		reasoningText: text('reasoning_text'),
 
 		// tool call columns
-		toolCallId: text('tool_call_id'),
+		toolCallId: text('tool_call_id').unique(),
 		toolName: text('tool_name'),
 		toolState: text('tool_state').$type<ToolState>(),
 		toolErrorText: text('tool_error_text'),
@@ -431,8 +431,11 @@ export const llmInference = sqliteTable(
 	],
 );
 
-export const chartImage = sqliteTable('chart_image', {
-	toolCallId: text('tool_call_id').primaryKey(),
+export const message_part_chart_image = sqliteTable('chart_image', {
+	id: text('id')
+		.$defaultFn(() => crypto.randomUUID())
+		.primaryKey(),
+	toolCallId: text('tool_call_id').unique(),
 	data: text('data').notNull(),
 	createdAt: integer('created_at', { mode: 'timestamp_ms' })
 		.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)

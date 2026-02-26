@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
-import { buildChart, labelize } from '@nao/shared/chart-builder';
+import { buildChart, labelize } from '@nao/shared';
 import { Download } from 'lucide-react';
-import { useMutation } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAgentContext } from '../../contexts/agent.provider';
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from '../ui/chart';
 import { TextShimmer } from '../ui/text-shimmer';
@@ -19,29 +19,31 @@ import { filterByDateRange, DATE_RANGE_OPTIONS, toKey } from '@/lib/charts.utils
 const Colors = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)', 'var(--chart-5)'];
 
 export const DisplayChartToolCall = ({
-	toolPart: { state, input, output },
+	toolPart: { state, input, output, toolCallId },
 }: ToolCallComponentProps<'display_chart'>) => {
 	const { messages } = useAgentContext();
 	const config = state !== 'input-streaming' ? input : undefined;
 	const [dataRange, setDataRange] = useState<DateRange>('all');
 
-	const downloadImage = useMutation(
-		trpc.chart.download.mutationOptions({
-			onError: (err) => {
-				console.error('Error downloading chart image:', err);
-			},
-		}),
-	);
+	const queryClient = useQueryClient();
+	const [isDownloading, setIsDownloading] = useState(false);
 
 	const handleDownload = async () => {
 		if (!config) {
 			return;
 		}
-		const image = await downloadImage.mutateAsync({ config, data: filteredData });
-		const link = document.createElement('a');
-		link.download = `${config.title || 'chart'}.png`;
-		link.href = `data:image/png;base64,${image}`;
-		link.click();
+		setIsDownloading(true);
+		try {
+			const image = await queryClient.fetchQuery(trpc.chart.download.queryOptions({ toolCallId }));
+			const link = document.createElement('a');
+			link.download = `${config.title || 'chart'}.png`;
+			link.href = `data:image/png;base64,${image}`;
+			link.click();
+		} catch (err) {
+			console.error('Error downloading chart image:', err);
+		} finally {
+			setIsDownloading(false);
+		}
 	};
 
 	const sourceData = useMemo(() => {
@@ -127,7 +129,7 @@ export const DisplayChartToolCall = ({
 						variant='ghost-muted'
 						size='icon-xs'
 						onClick={handleDownload}
-						disabled={downloadImage.isPending}
+						disabled={isDownloading}
 						title='Download as PNG'
 					>
 						<Download className='size-3.5' />

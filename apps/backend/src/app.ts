@@ -90,7 +90,7 @@ app.register(testRoutes, {
 });
 
 app.register(chartRoutes, {
-	prefix: '/api/chart',
+	prefix: '/c',
 });
 
 app.register(authRoutes, {

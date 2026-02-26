@@ -1,12 +1,18 @@
+import { z } from 'zod/v4';
+
 import type { App } from '../app';
-import * as chatQueries from '../queries/chat.queries';
+import { getChartById } from '../queries/chart-image';
 import { HandlerError } from '../utils/error';
 
-export const chartRoutes = async (app: App) => {
-	app.get('/:toolCallId', async (request, reply) => {
-		const { toolCallId } = request.params as { toolCallId: string };
+const paramsSchema = z.object({
+	chartid: z.string(),
+});
 
-		const imageData = await chatQueries.getChart(toolCallId);
+export const chartRoutes = async (app: App) => {
+	app.get('/:chatId/:chartId.png', { schema: { params: paramsSchema } }, async (request, reply) => {
+		const { chartid } = request.params;
+
+		const imageData = await getChartById(chartid);
 		if (!imageData) {
 			throw new HandlerError('NOT_FOUND', 'Chart image not found');
 		}

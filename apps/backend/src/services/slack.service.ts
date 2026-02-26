@@ -5,6 +5,7 @@ import { FastifyReply } from 'fastify';
 
 import { generateChartImage } from '../components/generate-chart';
 import { User } from '../db/abstractSchema';
+import * as chartImageQueries from '../queries/chart-image';
 import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
 import { SlackConfig } from '../queries/project-slack-config.queries';
@@ -13,7 +14,7 @@ import { UIChat } from '../types/chat';
 import { UIMessage, UIMessagePart } from '../types/chat';
 import { SlackEvent } from '../types/slack';
 import { createChatTitle } from '../utils/ai';
-import { addButtonStopBlock, addImageBlock, createTextBlock } from '../utils/slack';
+import { addButtonStopBlock, createImageBlock, createTextBlock } from '../utils/slack';
 import { agentService } from './agent.service';
 
 type StreamState = {
@@ -34,6 +35,7 @@ export class SlackService {
 	private _slackClient: WebClient;
 	private _buttonTs: string | undefined;
 	private _initialMessageTs: string | undefined;
+	private _chatId: string = '';
 	private _projectId: string;
 	private _currentConv: { blocks: KnownBlock[] } = { blocks: [] };
 	private _textBlockIndex: number = -1;
@@ -64,11 +66,11 @@ export class SlackService {
 
 	public async handleWorkFlow(reply: FastifyReply): Promise<void> {
 		await this.sendInitialMessage();
-		const chatId = await this._saveOrUpdateUserMessage();
+		await this._saveOrUpdateUserMessage();
 
-		const [chat, chatUserId] = await chatQueries.loadChat(chatId);
+		const [chat, chatUserId] = await chatQueries.loadChat(this._chatId);
 		if (!chat) {
-			return reply.status(404).send({ error: `Chat with id ${chatId} not found.` });
+			return reply.status(404).send({ error: `Chat with id ${this._chatId} not found.` });
 		}
 
 		const isAuthorized = chatUserId === this._user.id;
@@ -76,7 +78,7 @@ export class SlackService {
 			return reply.status(403).send({ error: `You are not authorized to access this chat.` });
 		}
 
-		await this._handleStreamAgent(chat, chatId);
+		await this._handleStreamAgent(chat, this._chatId);
 	}
 
 	private async _validateUserAccess(): Promise<void> {
@@ -116,7 +118,7 @@ export class SlackService {
 		}
 	}
 
-	private async _saveOrUpdateUserMessage(): Promise<string> {
+	private async _saveOrUpdateUserMessage(): Promise<void> {
 		const existingChat = await chatQueries.getChatBySlackThread(this._threadId);
 
 		if (existingChat) {
@@ -125,7 +127,7 @@ export class SlackService {
 				parts: [{ type: 'text', text: this._text }],
 				chatId: existingChat.id,
 			});
-			return existingChat.id;
+			this._chatId = existingChat.id;
 		} else {
 			const title = createChatTitle({ text: this._text });
 			const [createdChat] = await chatQueries.createChat(
@@ -139,7 +141,7 @@ export class SlackService {
 					text: this._text,
 				},
 			);
-			return createdChat.id;
+			this._chatId = createdChat.id;
 		}
 	}
 
@@ -241,9 +243,9 @@ export class SlackService {
 		}
 		try {
 			const png = generateChartImage({ config: part.input, data });
-			await chatQueries.saveChart(part.toolCallId, png.toString('base64'));
+			const chartId = await chartImageQueries.saveChart(part.toolCallId, png.toString('base64'));
 			state.renderedChartIds.add(part.toolCallId);
-			await this._postChartImageBlock(part.toolCallId);
+			await this._postChartImageBlock(chartId);
 		} catch (error) {
 			console.error('Error generating chart image:', error);
 		}
@@ -270,11 +272,11 @@ export class SlackService {
 		}
 	}
 
-	private async _postChartImageBlock(toolCallId: string): Promise<void> {
-		const imageUrl = new URL(`api/chart/${toolCallId}`, this._redirectUrl).toString();
+	private async _postChartImageBlock(chartId: string): Promise<void> {
+		const imageUrl = new URL(`c/${this._chatId}/${chartId}.png`, this._redirectUrl).toString();
 		const messageTs = this._initialMessageTs || this._threadTs;
 		this._textBlockIndex = -1;
-		this._currentConv.blocks.push(addImageBlock(imageUrl));
+		this._currentConv.blocks.push(createImageBlock(imageUrl));
 		await this._slackClient.chat.update({
 			channel: this._channel,
 			blocks: this._currentConv.blocks,

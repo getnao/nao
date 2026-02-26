@@ -127,6 +127,13 @@
       "when": 1772031603242,
       "tag": "0017_llm_inference_memory_superseded_by",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1772122539765,
+      "tag": "0018_added_message_part_chart_image",
+      "breakpoints": true
     }
   ]
 }

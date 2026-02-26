@@ -234,7 +234,7 @@ export const messagePart = pgTable(
 		reasoningText: text('reasoning_text'),
 
 		// tool call columns
-		toolCallId: text('tool_call_id'),
+		toolCallId: text('tool_call_id').unique(),
 		toolName: text('tool_name'),
 		toolState: text('tool_state').$type<ToolState>(),
 		toolErrorText: text('tool_error_text'),
@@ -404,8 +404,11 @@ export const llmInference = pgTable(
 	],
 );
 
-export const chartImage = pgTable('chart_image', {
-	toolCallId: text('tool_call_id').primaryKey(),
+export const message_part_chart_image = pgTable('chart_image', {
+	id: text('id')
+		.$defaultFn(() => crypto.randomUUID())
+		.primaryKey(),
+	toolCallId: text('tool_call_id').unique(),
 	data: text('data').notNull(),
 	createdAt: timestamp('created_at').defaultNow().notNull(),
 });

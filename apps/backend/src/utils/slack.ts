@@ -18,7 +18,7 @@ export const addButtonStopBlock = () => {
 	};
 };
 
-export const addImageBlock = (imageUrl: string): ImageBlock => ({
+export const createImageBlock = (imageUrl: string): ImageBlock => ({
 	type: 'image',
 	image_url: imageUrl,
 	alt_text: 'chart',
