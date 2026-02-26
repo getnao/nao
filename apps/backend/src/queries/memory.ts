@@ -1,8 +1,8 @@
-import { and, desc, eq, inArray, isNull, ne, or } from 'drizzle-orm';
+import { and, desc, eq, isNull, ne, or } from 'drizzle-orm';
 
 import s, { DBMemory, DBNewMemory } from '../db/abstractSchema';
 import { db } from '../db/db';
-import { conflictUpdateSet } from '../utils/queries';
+import { conflictUpdateSet, takeFirstOrThrow } from '../utils/queries';
 
 export const getUserMemories = async (userId: string, excludeChatId?: string): Promise<DBMemory[]> => {
 	const memories = await db
@@ -12,6 +12,7 @@ export const getUserMemories = async (userId: string, excludeChatId?: string): P
 			chatId: s.memories.chatId,
 			content: s.memories.content,
 			category: s.memories.category,
+			supersededBy: s.memories.supersededBy,
 			createdAt: s.memories.createdAt,
 			updatedAt: s.memories.updatedAt,
 		})
@@ -19,6 +20,7 @@ export const getUserMemories = async (userId: string, excludeChatId?: string): P
 		.where(
 			and(
 				eq(s.memories.userId, userId),
+				isNull(s.memories.supersededBy),
 				excludeChatId ? or(ne(s.memories.chatId, excludeChatId), isNull(s.memories.chatId)) : undefined,
 			),
 		)
@@ -47,27 +49,34 @@ export const getIsMemoryEnabledForUserAndProject = async (userId: string, projec
 	return settings.userEnabled && projectEnabled;
 };
 
-export const upsertMemories = async (memories: DBNewMemory[]): Promise<void> => {
-	if (memories.length === 0) {
-		return;
-	}
+export const upsertAndSupersedeMemories = async (
+	memories: (DBNewMemory & { supersedesId?: string | null })[],
+): Promise<void> => {
+	await db.transaction(async (t) => {
+		const promises = memories.map(async (m) => {
+			const { id: newMemoryId } = await takeFirstOrThrow(
+				t
+					.insert(s.memories)
+					.values(m)
+					.onConflictDoUpdate({
+						target: s.memories.id,
+						set: conflictUpdateSet(s.memories, ['content', 'category']),
+					})
+					.returning({ id: s.memories.id })
+					.execute(),
+			);
 
-	await db
-		.insert(s.memories)
-		.values(memories)
-		.onConflictDoUpdate({
-			target: s.memories.id,
-			set: conflictUpdateSet(s.memories, ['content', 'category']),
-		})
-		.execute();
-};
+			if (m.supersedesId) {
+				await t
+					.update(s.memories)
+					.set({ supersededBy: newMemoryId })
+					.where(eq(s.memories.id, m.supersedesId))
+					.execute();
+			}
+		});
 
-export const deleteMemories = async (memoryIds: string[]): Promise<void> => {
-	if (memoryIds.length === 0) {
-		return;
-	}
-
-	await db.delete(s.memories).where(inArray(s.memories.id, memoryIds)).execute();
+		await Promise.all(promises);
+	});
 };
 
 export const updateUserMemoryContent = async (

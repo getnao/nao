@@ -11,6 +11,7 @@ from .mssql import MssqlConfig
 from .postgres import PostgresConfig
 from .redshift import RedshiftConfig
 from .snowflake import SnowflakeConfig
+from .trino import TrinoConfig
 
 # =============================================================================
 # Database Config Registry
@@ -26,6 +27,7 @@ AnyDatabaseConfig = Annotated[
         Annotated[MssqlConfig, Tag("mssql")],
         Annotated[PostgresConfig, Tag("postgres")],
         Annotated[RedshiftConfig, Tag("redshift")],
+        Annotated[TrinoConfig, Tag("trino")],
     ],
     Discriminator("type"),
 ]
@@ -41,6 +43,7 @@ DATABASE_CONFIG_CLASSES: dict[DatabaseType, type[DatabaseConfig]] = {
     DatabaseType.SNOWFLAKE: SnowflakeConfig,
     DatabaseType.POSTGRES: PostgresConfig,
     DatabaseType.REDSHIFT: RedshiftConfig,
+    DatabaseType.TRINO: TrinoConfig,
 }
 
 
@@ -63,6 +66,8 @@ def parse_database_config(data: dict) -> DatabaseConfig:
         return RedshiftConfig.model_validate(data)
     elif db_type == "athena":
         return AthenaConfig.model_validate(data)
+    elif db_type == "trino":
+        return TrinoConfig.model_validate(data)
     else:
         raise ValueError(f"Unknown database type: {db_type}")
 
@@ -81,4 +86,5 @@ __all__ = [
     "SnowflakeConfig",
     "PostgresConfig",
     "RedshiftConfig",
+    "TrinoConfig",
 ]

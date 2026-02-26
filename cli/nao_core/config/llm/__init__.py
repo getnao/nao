@@ -13,6 +13,7 @@ class LLMProvider(str, Enum):
     ANTHROPIC = "anthropic"
     MISTRAL = "mistral"
     GEMINI = "gemini"
+    OPENROUTER = "openrouter"
     OLLAMA = "ollama"
 
 
@@ -37,6 +38,7 @@ class LLMConfig(BaseModel):
             questionary.Choice("Anthropic (Claude)", value="anthropic"),
             questionary.Choice("Mistral", value="mistral"),
             questionary.Choice("Google Gemini", value="gemini"),
+            questionary.Choice("OpenRouter (Kimi, DeepSeek, etc.)", value="openrouter"),
             questionary.Choice("Ollama", value="ollama"),
         ]
 

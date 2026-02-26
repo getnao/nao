@@ -15,10 +15,10 @@ import {
 
 import { AgentSettings } from '../types/agent-settings';
 import { StopReason, ToolState, UIMessagePartType } from '../types/chat';
-import { LlmProvider } from '../types/llm';
+import { LLM_INFERENCE_TYPES, LlmProvider } from '../types/llm';
+import { MEMORY_CATEGORIES } from '../types/memory';
 import { ORG_ROLES } from '../types/organization';
 import { USER_ROLES } from '../types/project';
-import { MEMORY_CATEGORIES } from '../utils/memory';
 
 export const user = pgTable('user', {
 	id: text('id').primaryKey(),
@@ -359,8 +359,49 @@ export const memories = pgTable(
 			.$onUpdate(() => new Date())
 			.notNull(),
 		chatId: text('chat_id').references(() => chat.id, { onDelete: 'set null' }),
+		supersededBy: text('superseded_by'),
 	},
-	(t) => [index('memories_userId_idx').on(t.userId), index('memories_chatId_idx').on(t.chatId)],
+	(t) => [
+		index('memories_userId_idx').on(t.userId),
+		index('memories_chatId_idx').on(t.chatId),
+		index('memories_supersededBy_idx').on(t.supersededBy),
+	],
+);
+
+export const llmInference = pgTable(
+	'llm_inference',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		chatId: text('chat_id').references(() => chat.id, { onDelete: 'set null' }),
+		type: text('type', { enum: LLM_INFERENCE_TYPES }).notNull(),
+		llmProvider: text('llm_provider').$type<LlmProvider>().notNull(),
+		llmModelId: text('llm_model_id').notNull(),
+
+		// Token usage
+		inputTotalTokens: integer('input_total_tokens'),
+		inputNoCacheTokens: integer('input_no_cache_tokens'),
+		inputCacheReadTokens: integer('input_cache_read_tokens'),
+		inputCacheWriteTokens: integer('input_cache_write_tokens'),
+		outputTotalTokens: integer('output_total_tokens'),
+		outputTextTokens: integer('output_text_tokens'),
+		outputReasoningTokens: integer('output_reasoning_tokens'),
+		totalTokens: integer('total_tokens'),
+
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+	},
+	(t) => [
+		index('llm_inference_projectId_idx').on(t.projectId),
+		index('llm_inference_userId_idx').on(t.userId),
+		index('llm_inference_type_idx').on(t.type),
+	],
 );
 
 export const chartImage = pgTable('chart_image', {

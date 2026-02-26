@@ -24,7 +24,7 @@ export function renderToMarkdown(node: ReactNode, separator = ''): string {
 	if (Array.isArray(node)) {
 		return node
 			.filter(isRenderable)
-			.map((n) => renderToMarkdown(n))
+			.map((n) => renderToMarkdown(n, separator))
 			.join(separator);
 	}
 
@@ -39,6 +39,25 @@ export function renderToMarkdown(node: ReactNode, separator = ''): string {
 		return renderToMarkdown(result);
 	}
 
-	const sep = (el.props?.['data-separator'] ?? separator) as string;
-	return renderToMarkdown(el.props?.children, sep);
+	separator = (el.props?.['data-separator'] ?? separator) as string;
+	const prefix = el.props?.['data-prefix'] as string | undefined;
+	const indent = el.props?.['data-indent'] as string | undefined;
+
+	let renderedChildren = renderToMarkdown(el.props?.children, separator);
+	if (!renderedChildren) {
+		return renderedChildren;
+	}
+
+	if (prefix) {
+		renderedChildren = prefix + renderedChildren;
+	}
+
+	if (indent) {
+		renderedChildren = renderedChildren
+			.split('\n')
+			.map((line) => `${indent}${line}`)
+			.join('\n');
+	}
+
+	return renderedChildren;
 }

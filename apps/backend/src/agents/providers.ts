@@ -101,7 +101,7 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 	openai: {
 		envVar: 'OPENAI_API_KEY',
 		baseUrlEnvVar: 'OPENAI_BASE_URL',
-		extractorModelId: 'gpt-5-mini',
+		extractorModelId: 'gpt-4.1-mini',
 		models: [
 			{
 				id: 'gpt-5.2',

@@ -45,8 +45,7 @@ export function SettingsMemories() {
 	const isUserDisabled = !userMemoryEnabled;
 	const canShowMemories = !isProjectDisabled && !isUserDisabled;
 
-	const memoriesQuery = useMemoriesQuery(canShowMemories);
-	const memories = memoriesQuery.data ?? [];
+	const { data: memories, isLoading: isMemoriesLoading } = useMemoriesQuery(canShowMemories);
 
 	const [editMemory, setEditMemory] = useState<UserMemoryRecord | null>(null);
 	const [editContent, setEditContent] = useState('');
@@ -144,13 +143,13 @@ export function SettingsMemories() {
 					<div className='space-y-1'>
 						<Empty>{memoryStatusMessage}</Empty>
 					</div>
-				) : memoriesQuery.isLoading ? (
+				) : isMemoriesLoading ? (
 					<div className='flex flex-col divide-y'>
 						<SettingsMemorySkeleton className='pt-0' />
 						<SettingsMemorySkeleton />
 						<SettingsMemorySkeleton className='pb-0' />
 					</div>
-				) : memories.length === 0 ? (
+				) : !memories?.length ? (
 					<Empty>No memories saved yet.</Empty>
 				) : (
 					<div className='flex flex-col divide-y'>
