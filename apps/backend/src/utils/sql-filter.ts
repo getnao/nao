@@ -5,7 +5,10 @@ let initPromise: Promise<void> | null = null;
 async function ensureInitialized(): Promise<void> {
 	if (!isInitialized()) {
 		if (!initPromise) {
-			initPromise = init();
+			initPromise = init().catch((err) => {
+				initPromise = null;
+				throw err;
+			});
 		}
 		await initPromise;
 	}
