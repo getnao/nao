@@ -1,4 +1,4 @@
-import { posthog } from '../services/posthog.service';
+import { posthog } from '../services/posthog';
 import { publicProcedure } from './trpc';
 
 export const posthogRoutes = {

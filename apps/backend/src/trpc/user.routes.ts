@@ -7,6 +7,7 @@ import * as projectQueries from '../queries/project.queries';
 import * as userQueries from '../queries/user.queries';
 import { emailService } from '../services/email.service';
 import { memoryService } from '../services/memory';
+import { posthog, PostHogEvent } from '../services/posthog';
 import { adminProtectedProcedure, projectProtectedProcedure, protectedProcedure, publicProcedure } from './trpc';
 
 export const userRoutes = {
@@ -170,6 +171,10 @@ export const userRoutes = {
 			if (!updated) {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Memory not found.' });
 			}
+			posthog.capture(ctx.user.id, PostHogEvent.AgentMemoryUpdated, {
+				memory_id: input.memoryId,
+				memory_category: updated.category,
+			});
 			return updated;
 		}),
 
@@ -178,5 +183,9 @@ export const userRoutes = {
 		if (!deleted) {
 			throw new TRPCError({ code: 'NOT_FOUND', message: 'Memory not found.' });
 		}
+		posthog.capture(ctx.user.id, PostHogEvent.AgentMemoryDeleted, {
+			memory_id: input.memoryId,
+			memory_category: deleted.category,
+		});
 	}),
 };

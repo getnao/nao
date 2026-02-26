@@ -64,14 +64,14 @@ export type UIMessagePartType = UIMessagePart['type'];
 export type StopReason = FinishReason | 'interrupted';
 
 export type TokenUsage = {
-	inputTotalTokens?: number;
-	inputNoCacheTokens?: number;
-	inputCacheReadTokens?: number;
-	inputCacheWriteTokens?: number;
-	outputTotalTokens?: number;
-	outputTextTokens?: number;
-	outputReasoningTokens?: number;
-	totalTokens?: number;
+	inputTotalTokens: number | undefined;
+	inputNoCacheTokens: number | undefined;
+	inputCacheReadTokens: number | undefined;
+	inputCacheWriteTokens: number | undefined;
+	outputTotalTokens: number | undefined;
+	outputTextTokens: number | undefined;
+	outputReasoningTokens: number | undefined;
+	totalTokens: number | undefined;
 };
 
 export type TokenCost = {

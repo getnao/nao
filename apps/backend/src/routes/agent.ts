@@ -3,7 +3,7 @@ import { createUIMessageStreamResponse } from 'ai';
 import type { App } from '../app';
 import { handleAgentRoute } from '../handlers/agent';
 import { authMiddleware } from '../middleware/auth';
-import { posthog, PostHogEvent } from '../services/posthog.service';
+import { posthog, PostHogEvent } from '../services/posthog';
 import { AgentRequestSchema } from '../types/chat';
 
 const DEBUG_CHUNKS = false;

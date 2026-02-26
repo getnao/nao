@@ -4,7 +4,7 @@ import { z } from 'zod/v4';
 import * as chatQueries from '../queries/chat.queries';
 import { type SearchChatResult } from '../queries/chat.queries';
 import { agentService } from '../services/agent.service';
-import { posthog, PostHogEvent } from '../services/posthog.service';
+import { posthog, PostHogEvent } from '../services/posthog';
 import { type ListChatResponse, type UIChat } from '../types/chat';
 import { ownedResourceProcedure, protectedProcedure } from './trpc';
 
