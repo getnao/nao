@@ -1,4 +1,4 @@
-import { useMemo, useEffect } from 'react';
+import { memo, useMemo, useEffect } from 'react';
 import { Node, mergeAttributes } from '@tiptap/core';
 import { useEditor, EditorContent, ReactNodeViewRenderer, NodeViewWrapper } from '@tiptap/react';
 import { DragHandle } from '@tiptap/extension-drag-handle-react';
@@ -311,28 +311,30 @@ const GridBlock = Node.create({
 // Editor component
 // ---------------------------------------------------------------------------
 
+const EDITOR_EXTENSIONS = [
+	StarterKit.configure({
+		dropcursor: { width: 3, class: 'drop-cursor' },
+	}),
+	Markdown.configure({
+		html: true,
+		transformPastedText: true,
+		transformCopiedText: true,
+	}),
+	ChartBlock,
+	TableBlock,
+	GridBlock,
+];
+
 interface StoryEditorProps {
 	code: string;
 	editorRef: React.MutableRefObject<Editor | null>;
 }
 
-export function StoryEditor({ code, editorRef }: StoryEditorProps) {
+export const StoryEditor = memo(function StoryEditor({ code, editorRef }: StoryEditorProps) {
 	const processedContent = useMemo(() => preprocessForEditor(code), [code]);
 
 	const editor = useEditor({
-		extensions: [
-			StarterKit.configure({
-				dropcursor: { width: 3, class: 'drop-cursor' },
-			}),
-			Markdown.configure({
-				html: true,
-				transformPastedText: true,
-				transformCopiedText: true,
-			}),
-			ChartBlock,
-			TableBlock,
-			GridBlock,
-		],
+		extensions: EDITOR_EXTENSIONS,
 		content: processedContent,
 	});
 
@@ -365,7 +367,7 @@ export function StoryEditor({ code, editorRef }: StoryEditorProps) {
 			<EditorContent editor={editor} />
 		</div>
 	);
-}
+});
 
 export function getEditorMarkdown(editor: Editor): string {
 	const storage = editor.storage as Record<string, any>;

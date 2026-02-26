@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { memo, useCallback, useMemo, useState } from 'react';
 import { buildChart, labelize } from '@nao/shared';
 import { Download, FilePlus } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -224,7 +224,7 @@ export interface ChartDisplayProps {
 	showGrid?: boolean;
 }
 
-export const ChartDisplay = ({
+export const ChartDisplay = memo(function ChartDisplay({
 	data,
 	chartType,
 	xAxisKey,
@@ -233,7 +233,7 @@ export const ChartDisplay = ({
 	series,
 	title,
 	showGrid = true,
-}: ChartDisplayProps) => {
+}: ChartDisplayProps) {
 	const { visibleSeries, hiddenSeriesKeys, handleToggleSeriesVisibility } = useSeriesVisibility(series);
 
 	const chartConfig = useMemo((): ChartConfig => {
@@ -264,46 +264,69 @@ export const ChartDisplay = ({
 		}, {} as ChartConfig);
 	}, [series, xAxisKey, data, chartType]);
 
-	const colorFor =
-		chartType === 'pie'
-			? (value: string, _i: number) => `var(--color-${toKey(value)})`
-			: (dataKey: string, _i: number) => `var(--color-${dataKey})`;
+	const colorFor = useMemo(
+		() =>
+			chartType === 'pie'
+				? (value: string, _i: number) => `var(--color-${toKey(value)})`
+				: (dataKey: string, _i: number) => `var(--color-${dataKey})`,
+		[chartType],
+	);
 
-	const legendPayload = series.map((s, idx) => ({
-		value: s.label || labelize(s.data_key),
-		dataKey: s.data_key,
-		color: s.color || Colors[idx % Colors.length],
-		isHidden: hiddenSeriesKeys.has(s.data_key),
-	}));
+	const legendPayload = useMemo(
+		() =>
+			series.map((s, idx) => ({
+				value: s.label || labelize(s.data_key),
+				dataKey: s.data_key,
+				color: s.color || Colors[idx % Colors.length],
+				isHidden: hiddenSeriesKeys.has(s.data_key),
+			})),
+		[series, hiddenSeriesKeys],
+	);
 
-	const chartElement = buildChart({
-		data,
-		chartType,
-		xAxisKey,
-		xAxisType,
-		series: visibleSeries,
-		colorFor,
-		labelFormatter: xAxisLabelFormatter,
-		showGrid,
-		margin: { top: 0, right: 0, bottom: 0, left: -18 },
-		children: [
-			<ChartTooltip
-				key='tooltip'
-				animationDuration={150}
-				animationEasing='linear'
-				allowEscapeViewBox={{ y: true, x: false }}
-				content={<ChartTooltipContent labelFormatter={(value) => labelize(value)} />}
-			/>,
-			chartType !== 'pie' && (
-				<ChartLegend
-					key='legend'
-					payload={legendPayload}
-					content={<ChartLegendContent onItemClick={handleToggleSeriesVisibility} />}
-				/>
-			),
+	const chartElement = useMemo(
+		() =>
+			buildChart({
+				data,
+				chartType,
+				xAxisKey,
+				xAxisType,
+				series: visibleSeries,
+				colorFor,
+				labelFormatter: xAxisLabelFormatter,
+				showGrid,
+				margin: { top: 0, right: 0, bottom: 0, left: -18 },
+				children: [
+					<ChartTooltip
+						key='tooltip'
+						animationDuration={150}
+						animationEasing='linear'
+						allowEscapeViewBox={{ y: true, x: false }}
+						content={<ChartTooltipContent labelFormatter={(value) => labelize(value)} />}
+					/>,
+					chartType !== 'pie' && (
+						<ChartLegend
+							key='legend'
+							payload={legendPayload}
+							content={<ChartLegendContent onItemClick={handleToggleSeriesVisibility} />}
+						/>
+					),
+				],
+				title,
+			}),
+		[
+			data,
+			chartType,
+			xAxisKey,
+			xAxisType,
+			visibleSeries,
+			colorFor,
+			xAxisLabelFormatter,
+			showGrid,
+			legendPayload,
+			handleToggleSeriesVisibility,
+			title,
 		],
-		title,
-	});
+	);
 
 	return (
 		<div className='flex flex-col items-center gap-2 w-full'>
@@ -312,7 +335,7 @@ export const ChartDisplay = ({
 			</ChartContainer>
 		</div>
 	);
-};
+});
 
 /** Manages which series are visible and hidden */
 const useSeriesVisibility = (series: displayChart.SeriesConfig[]) => {
@@ -323,7 +346,7 @@ const useSeriesVisibility = (series: displayChart.SeriesConfig[]) => {
 		[series, hiddenSeriesKeys],
 	);
 
-	const handleToggleSeriesVisibility = (dataKey: string) => {
+	const handleToggleSeriesVisibility = useCallback((dataKey: string) => {
 		setHiddenSeriesKeys((prev) => {
 			const copy = new Set(prev);
 			if (copy.has(dataKey)) {
@@ -333,7 +356,7 @@ const useSeriesVisibility = (series: displayChart.SeriesConfig[]) => {
 			}
 			return copy;
 		});
-	};
+	}, []);
 
 	return {
 		visibleSeries,

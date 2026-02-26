@@ -1,9 +1,9 @@
-import { useMemo } from 'react';
+import { memo, useMemo } from 'react';
 import type { ParsedTableBlock } from '@/lib/story-segments';
 import { useAgentContext } from '@/contexts/agent.provider';
 import { TableDisplay } from '@/components/tool-calls/display-table';
 
-export function StoryTableEmbed({ table }: { table: ParsedTableBlock }) {
+export const StoryTableEmbed = memo(function StoryTableEmbed({ table }: { table: ParsedTableBlock }) {
 	const { messages } = useAgentContext();
 
 	const sourceData = useMemo(() => {
@@ -33,4 +33,4 @@ export function StoryTableEmbed({ table }: { table: ParsedTableBlock }) {
 			tableContainerClassName='max-h-[28rem]'
 		/>
 	);
-}
+});

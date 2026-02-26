@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef } from 'react';
+import { memo, useCallback, useMemo, useRef } from 'react';
 import { Editor } from '@monaco-editor/react';
 import {
 	ChevronDown,
@@ -27,6 +27,7 @@ import { useStoryViewerVersions } from './hooks/use-story-viewer-versions';
 import { useStoryViewerViewMode } from './hooks/use-story-viewer-view-mode';
 import type { StoryViewMode } from './story-viewer.types';
 import type { StorySummary } from '@/lib/story.utils';
+import type { ParsedChartBlock, ParsedTableBlock } from '@/lib/story-segments';
 import type { Editor as TiptapEditor } from '@tiptap/react';
 import { SegmentList } from '@/components/story-rendering';
 import { Button } from '@/components/ui/button';
@@ -69,19 +70,29 @@ export function StoryViewer({ chatId, storyId }: StoryViewerProps) {
 		storyId: resolvedStoryId,
 	});
 	const { handleEnlarge } = useStoryViewerEnlarge({ chatId, storyId: resolvedStoryId });
+	const handleOpenShare = useCallback(() => setIsShareDialogOpen(true), [setIsShareDialogOpen]);
 
 	const renderStoryViewer = useCallback(
 		(nextStoryId: string) => <StoryViewer chatId={chatId} storyId={nextStoryId} />,
 		[chatId],
 	);
 	const { switchStory } = useStoryViewerSwitchStory({ renderStoryViewer });
+
 	const shouldUseDraftStory = Boolean(draftStory && (draftStory.isStreaming || !currentVersion));
-	const storyTitle = shouldUseDraftStory
-		? (draftStory?.title ?? currentVersion?.title ?? storyId)
-		: (currentVersion?.title ?? draftStory?.title ?? storyId);
-	const storyCode = shouldUseDraftStory
-		? (draftStory?.code ?? currentVersion?.code)
-		: (currentVersion?.code ?? draftStory?.code);
+	const storyTitle = useMemo(
+		() =>
+			shouldUseDraftStory
+				? (draftStory?.title ?? currentVersion?.title ?? storyId)
+				: (currentVersion?.title ?? draftStory?.title ?? storyId),
+		[shouldUseDraftStory, draftStory?.title, currentVersion?.title, storyId],
+	);
+	const storyCode = useMemo(
+		() =>
+			shouldUseDraftStory
+				? (draftStory?.code ?? currentVersion?.code)
+				: (currentVersion?.code ?? draftStory?.code),
+		[shouldUseDraftStory, draftStory?.code, currentVersion?.code],
+	);
 	useStoryViewerStreamScroll({
 		scrollContainerRef,
 		isStreaming: Boolean(draftStory?.isStreaming),
@@ -113,7 +124,7 @@ export function StoryViewer({ chatId, storyId }: StoryViewerProps) {
 				isViewingLatest={isViewingLatest}
 				onRestore={handleRestore}
 				onSave={handleSave}
-				onShare={() => setIsShareDialogOpen(true)}
+				onShare={handleOpenShare}
 				onEnlarge={handleEnlarge}
 				isShared={isShared}
 				isAgentRunning={isAgentRunning}
@@ -139,7 +150,7 @@ export function StoryViewer({ chatId, storyId }: StoryViewerProps) {
 	);
 }
 
-function StoryHeader({
+const StoryHeader = memo(function StoryHeader({
 	title,
 	storyId,
 	allStories,
@@ -176,7 +187,7 @@ function StoryHeader({
 	isShared: boolean;
 	isAgentRunning: boolean;
 }) {
-	const otherStories = allStories.filter((s) => s.id !== storyId);
+	const otherStories = useMemo(() => allStories.filter((s) => s.id !== storyId), [allStories, storyId]);
 	const hasMultiple = otherStories.length > 0;
 
 	const showSubHeader = viewMode === 'edit' || !isViewingLatest;
@@ -301,40 +312,35 @@ function StoryHeader({
 			)}
 		</div>
 	);
-}
+});
 
-function StoryPreview({ code }: { code: string }) {
+const StoryPreview = memo(function StoryPreview({ code }: { code: string }) {
 	const segments = useMemo(() => splitCodeIntoSegments(code), [code]);
+	const renderChart = useCallback((chart: ParsedChartBlock) => <StoryChartEmbed chart={chart} />, []);
+	const renderTable = useCallback((table: ParsedTableBlock) => <StoryTableEmbed table={table} />, []);
 
 	return (
 		<div className='p-6 flex flex-col gap-4'>
-			<SegmentList
-				segments={segments}
-				renderChart={(chart) => <StoryChartEmbed chart={chart} />}
-				renderTable={(table) => <StoryTableEmbed table={table} />}
-			/>
+			<SegmentList segments={segments} renderChart={renderChart} renderTable={renderTable} />
 		</div>
 	);
-}
+});
 
-function StoryCodeView({ code }: { code: string }) {
+const MONACO_OPTIONS = {
+	minimap: { enabled: false },
+	folding: true,
+	lineNumbers: 'on' as const,
+	scrollbar: { horizontal: 'auto' as const, vertical: 'auto' as const },
+	scrollBeyondLastLine: false,
+	padding: { top: 16, bottom: 16 },
+	wordWrap: 'on' as const,
+	readOnly: true,
+};
+
+const StoryCodeView = memo(function StoryCodeView({ code }: { code: string }) {
 	return (
 		<div className='h-full'>
-			<Editor
-				value={code}
-				language='markdown'
-				theme='light'
-				options={{
-					minimap: { enabled: false },
-					folding: true,
-					lineNumbers: 'on',
-					scrollbar: { horizontal: 'auto', vertical: 'auto' },
-					scrollBeyondLastLine: false,
-					padding: { top: 16, bottom: 16 },
-					wordWrap: 'on',
-					readOnly: true,
-				}}
-			/>
+			<Editor value={code} language='markdown' theme='light' options={MONACO_OPTIONS} />
 		</div>
 	);
-}
+});

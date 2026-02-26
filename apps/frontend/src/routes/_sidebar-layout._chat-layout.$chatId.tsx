@@ -42,7 +42,11 @@ export function RouteComponent() {
 	}, [isLoadingMessages]); // eslint-disable-line react-hooks/exhaustive-deps
 
 	return (
-		<SidePanelProvider value={sidePanel}>
+		<SidePanelProvider
+			isVisible={sidePanel.isVisible}
+			currentStoryId={sidePanel.currentStoryId}
+			open={sidePanel.open}
+		>
 			<div className='flex-1 flex min-w-0 bg-panel' ref={containerRef}>
 				<div className='flex flex-col h-full flex-1 min-w-72 overflow-hidden justify-center relative'>
 					<div className='absolute top-3 right-3 z-10'>

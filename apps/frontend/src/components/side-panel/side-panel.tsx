@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { ArrowRightToLine } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -13,7 +14,7 @@ type SidePanelProps = {
 	isAnimating: boolean;
 };
 
-export function SidePanel({
+export const SidePanel = memo(function SidePanel({
 	containerRef,
 	sidePanelRef,
 	resizeHandleRef,
@@ -47,4 +48,4 @@ export function SidePanel({
 			</div>
 		</div>
 	);
-}
+});

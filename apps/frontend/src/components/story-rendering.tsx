@@ -1,4 +1,4 @@
-import { Fragment } from 'react';
+import { Fragment, memo, useMemo } from 'react';
 import { Streamdown } from 'streamdown';
 import type { Segment, ParsedChartBlock, ParsedTableBlock } from '@/lib/story-segments';
 import { getGridClass } from '@/lib/story-segments';
@@ -9,7 +9,7 @@ interface SegmentRendererProps {
 	renderTable: (table: ParsedTableBlock, key: number) => React.ReactNode;
 }
 
-export function SegmentList({ segments, renderChart, renderTable }: SegmentRendererProps) {
+export const SegmentList = memo(function SegmentList({ segments, renderChart, renderTable }: SegmentRendererProps) {
 	return (
 		<>
 			{segments.map((segment, i) => {
@@ -38,9 +38,9 @@ export function SegmentList({ segments, renderChart, renderTable }: SegmentRende
 			})}
 		</>
 	);
-}
+});
 
-function StoryGrid({
+const StoryGrid = memo(function StoryGrid({
 	cols,
 	children,
 	renderChart,
@@ -51,7 +51,7 @@ function StoryGrid({
 	renderChart: (chart: ParsedChartBlock, key: number) => React.ReactNode;
 	renderTable: (table: ParsedTableBlock, key: number) => React.ReactNode;
 }) {
-	const gridClass = getGridClass(cols);
+	const gridClass = useMemo(() => getGridClass(cols), [cols]);
 
 	return (
 		<div className='@container'>
@@ -77,4 +77,4 @@ function StoryGrid({
 			</div>
 		</div>
 	);
-}
+});

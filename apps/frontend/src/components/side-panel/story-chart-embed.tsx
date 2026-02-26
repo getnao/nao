@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { memo, useMemo } from 'react';
 import type { displayChart } from '@nao/shared/tools';
 import { useAgentContext } from '@/contexts/agent.provider';
 import { ChartDisplay } from '@/components/tool-calls/display-chart';
@@ -12,7 +12,7 @@ interface ChartBlock {
 	title: string;
 }
 
-export function StoryChartEmbed({ chart }: { chart: ChartBlock }) {
+export const StoryChartEmbed = memo(function StoryChartEmbed({ chart }: { chart: ChartBlock }) {
 	const { messages } = useAgentContext();
 
 	const sourceData = useMemo(() => {
@@ -42,16 +42,18 @@ export function StoryChartEmbed({ chart }: { chart: ChartBlock }) {
 		);
 	}
 
+	const xAxisType = chart.xAxisType === 'number' ? 'number' : ('category' as const);
+
 	return (
 		<div className='my-2 aspect-3/2'>
 			<ChartDisplay
 				data={sourceData.data}
 				chartType={chart.chartType as displayChart.ChartType}
 				xAxisKey={chart.xAxisKey}
-				xAxisType={chart.xAxisType === 'number' ? 'number' : 'category'}
+				xAxisType={xAxisType}
 				series={chart.series}
 				title={chart.title}
 			/>
 		</div>
 	);
-}
+});
