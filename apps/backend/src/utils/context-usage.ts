@@ -57,25 +57,30 @@ function isAiSdkSchemaLike(value: unknown): value is Parameters<typeof jsonSchem
 	return isRecord(value) && (typeof value.safeParse === 'function' || typeof value.parse === 'function');
 }
 
-function getSchemaText(schema: unknown): string {
-	if (!schema) {
+function safeStringify(value: unknown): string {
+	try {
+		return JSON.stringify(value) ?? '';
+	} catch {
 		return '';
 	}
-	try {
-		if (hasJsonSchemaField(schema)) {
-			return JSON.stringify(schema.jsonSchema);
-		}
-		if (isAiSdkSchemaLike(schema)) {
-			return JSON.stringify(jsonSchema(schema));
-		}
-		return JSON.stringify(schema);
-	} catch {
-		try {
-			return JSON.stringify(schema);
-		} catch {
-			return '';
-		}
-	}
+}
+
+function getSchemaText(schema: unknown): string {
+	if (!schema) return '';
+
+	const resolved = hasJsonSchemaField(schema)
+		? schema.jsonSchema
+		: isAiSdkSchemaLike(schema)
+			? (() => {
+					try {
+						return jsonSchema(schema);
+					} catch {
+						return schema;
+					}
+				})()
+			: schema;
+
+	return safeStringify(resolved);
 }
 
 function getToolPromptText(tools: Record<string, unknown>): string {

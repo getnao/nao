@@ -31,7 +31,7 @@ export function ContextWindowRing({ value, tooltipText, className }: ContextProp
 					<span
 						tabIndex={0}
 						aria-label={tooltipText}
-						className='size-4 inline-flex rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background'
+						className='size-5 inline-flex rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background'
 					>
 						<svg
 							width='20'
