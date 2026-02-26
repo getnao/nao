@@ -408,7 +408,7 @@ export const message_part_chart_image = pgTable('chart_image', {
 	id: text('id')
 		.$defaultFn(() => crypto.randomUUID())
 		.primaryKey(),
-	toolCallId: text('tool_call_id').unique(),
+	toolCallId: text('tool_call_id').notNull().unique(),
 	data: text('data').notNull(),
 	createdAt: timestamp('created_at').defaultNow().notNull(),
 });

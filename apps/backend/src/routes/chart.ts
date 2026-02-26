@@ -9,7 +9,7 @@ const paramsSchema = z.object({
 });
 
 export const chartRoutes = async (app: App) => {
-	app.get('/:chatId/:chartId.png', { schema: { params: paramsSchema } }, async (request, reply) => {
+	app.get('/:chatId/:chartid.png', { schema: { params: paramsSchema } }, async (request, reply) => {
 		const { chartid } = request.params;
 
 		const imageData = await getChartById(chartid);

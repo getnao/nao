@@ -1,5 +1,5 @@
 {
-  "id": "f352422f-a7e9-473d-8469-5d825693d28f",
+  "id": "7f6c4561-06ae-4a2b-bb30-0073a40f8ca7",
   "prevId": "2efd7482-4f01-48b1-a00a-2c8127fd35f3",
   "version": "7",
   "dialect": "postgresql",
@@ -1023,7 +1023,7 @@
           "name": "tool_call_id",
           "type": "text",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
         "data": {
           "name": "data",

@@ -1,6 +1,6 @@
 CREATE TABLE `chart_image` (
 	`id` text PRIMARY KEY NOT NULL,
-	`tool_call_id` text,
+	`tool_call_id` text NOT NULL,
 	`data` text NOT NULL,
 	`created_at` integer DEFAULT (cast(unixepoch('subsecond') * 1000 as integer)) NOT NULL
 );

@@ -41,11 +41,13 @@ export const getChartDataByQueryId = async (queryId: string): Promise<executeSql
 };
 
 export const saveChart = async (toolCallId: string, data: string): Promise<string> => {
-	const [row] = await db
-		.insert(s.message_part_chart_image)
-		.values({ toolCallId, data })
-		.onConflictDoUpdate({ target: s.message_part_chart_image.toolCallId, set: { data } })
-		.returning({ id: s.message_part_chart_image.id })
-		.execute();
+	const row = await takeFirstOrThrow(
+		db
+			.insert(s.message_part_chart_image)
+			.values({ toolCallId, data })
+			.onConflictDoUpdate({ target: s.message_part_chart_image.toolCallId, set: { data } })
+			.returning({ id: s.message_part_chart_image.id })
+			.execute(),
+	);
 	return row.id;
 };

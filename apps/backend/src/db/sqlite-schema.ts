@@ -435,7 +435,7 @@ export const message_part_chart_image = sqliteTable('chart_image', {
 	id: text('id')
 		.$defaultFn(() => crypto.randomUUID())
 		.primaryKey(),
-	toolCallId: text('tool_call_id').unique(),
+	toolCallId: text('tool_call_id').notNull().unique(),
 	data: text('data').notNull(),
 	createdAt: integer('created_at', { mode: 'timestamp_ms' })
 		.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)

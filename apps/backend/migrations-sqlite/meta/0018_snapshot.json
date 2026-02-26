@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "1d618180-5c4a-4d3f-86cc-afd420917c92",
+  "id": "fb9f3f6b-a5e8-4904-b816-9b1063a85fd3",
   "prevId": "a9f880bb-e8f7-4d51-bbe7-a7e9b07eb416",
   "tables": {
     "account": {
@@ -969,7 +969,7 @@
           "name": "tool_call_id",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "data": {
