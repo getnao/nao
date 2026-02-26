@@ -33,7 +33,6 @@ export interface ChatListItem {
 
 export type UIMessage = UIGenericMessage<unknown, MessageCustomDataParts, UITools> & {
 	feedback?: MessageFeedback;
-	tokenUsage?: Pick<TokenUsage, 'inputTotalTokens' | 'outputTotalTokens'>;
 };
 
 export type UITools = InferUITools<typeof tools>;
@@ -81,6 +80,12 @@ export type TokenCost = {
 	inputCacheWrite?: number;
 	output?: number;
 	totalCost?: number;
+};
+
+export type ContextUsage = {
+	contextWindow: number | null;
+	percent: number;
+	tooltipText: string;
 };
 
 /**

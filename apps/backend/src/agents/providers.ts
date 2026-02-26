@@ -100,7 +100,7 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 			{
 				id: 'claude-opus-4-5',
 				name: 'Claude Opus 4.5',
-				contextWindow: 200000,
+				contextWindow: 200_000,
 				config: {
 					thinking: {
 						type: 'enabled' as const,
