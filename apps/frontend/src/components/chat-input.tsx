@@ -73,7 +73,7 @@ function ChatInputBase({
 	allowQueueing,
 }: ChatInputBaseProps) {
 	const [inputText, setInputText] = useState('');
-	const { isRunning, stopAgent, isLoadingMessages, selectedModel, setMentions, messages, hasFinishedAssistantTurn } = useAgentContext();
+	const { isRunning, stopAgent, isLoadingMessages, setMentions } = useAgentContext();
 	const chatId = useChatId();
 
 	const agentSettings = useQuery(trpc.project.getAgentSettings.queryOptions());

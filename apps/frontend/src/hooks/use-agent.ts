@@ -1,6 +1,6 @@
 import { useNavigate, useParams } from '@tanstack/react-router';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useMemo, useEffect, useRef, useCallback, useState } from 'react';
+import { useMutation } from '@tanstack/react-query';
+import { useMemo, useEffect, useRef, useCallback } from 'react';
 import { Chat as Agent, useChat } from '@ai-sdk/react';
 import { DefaultChatTransport } from 'ai';
 import { useCurrent } from './useCurrent';
@@ -28,7 +28,6 @@ export interface AgentHelpers {
 	editMessage: (args: { messageId: string; text: string }) => Promise<void | UIMessage>;
 	status: UseChatHelpers<UIMessage>['status'];
 	isRunning: boolean;
-	hasFinishedAssistantTurn: boolean;
 	isLoadingMessages: boolean;
 	stopAgent: () => Promise<void>;
 	error: Error | undefined;
@@ -55,17 +54,10 @@ export const useAgent = (): AgentHelpers => {
 	const mentionsRef = useRef<MentionOption[]>([]);
 	const setChat = useSetChat();
 	const setChatList = useSetChatList();
-	const [hasFinishedAssistantTurn, setHasFinishedAssistantTurn] = useState(false);
 
 	const setMentions = useCallback((mentions: MentionOption[]) => {
 		mentionsRef.current = mentions;
 	}, []);
-
-	const queryClient = useQueryClient();
-
-	useEffect(() => {
-		setHasFinishedAssistantTurn(false);
-	}, [chatId]);
 
 	const agentInstance = useMemo(() => {
 		let agentId = chatId ?? NEW_CHAT_ID;
@@ -122,20 +114,6 @@ export const useAgent = (): AgentHelpers => {
 			}),
 			onData: (dataPart) => handleAgentDataPart(dataPart, newAgent),
 			onFinish: ({ isAbort, isError, isDisconnect }) => {
-				setHasFinishedAssistantTurn(true);
-				if (agentId !== 'new-chat') {
-					queryClient.invalidateQueries(
-						trpc.chat.getContextUsage.queryOptions({
-							chatId: agentId,
-							model: selectedModelRef.current
-								? {
-										provider: selectedModelRef.current.provider,
-										modelId: selectedModelRef.current.modelId,
-									}
-								: undefined,
-						}),
-					);
-				}
 				const canSendNextMessage = !isAbort && !isError && !isDisconnect;
 				const next = canSendNextMessage ? messageQueueStore.dequeue(agentId) : undefined;
 				if (next) {
@@ -151,7 +129,7 @@ export const useAgent = (): AgentHelpers => {
 		});
 
 		return agentService.registerAgent(agentId, newAgent);
-	}, [chatId, navigate, setChat, setChatList, chatIdRef, selectedModelRef, queryClient]);
+	}, [chatId, navigate, setChat, setChatList, chatIdRef, selectedModelRef]);
 
 	const { status, error, clearError, sendMessage, setMessages, messages } = useChat({ chat: agentInstance });
 
@@ -166,12 +144,6 @@ export const useAgent = (): AgentHelpers => {
 		agentInstance.stop(); // Stop the agent instance to instantly stop reading the stream
 		await stopAgentMutation.mutateAsync({ chatId });
 	}, [chatId, agentInstance, stopAgentMutation.mutateAsync]); // eslint-disable-line
-
-	useEffect(() => {
-		if (!isRunning && messages.some((m) => m.role === 'assistant')) {
-			setHasFinishedAssistantTurn(true);
-		}
-	}, [isRunning, messages]);
 
 	const handleSendMessage = useCallback<UseChatHelpers<UIMessage>['sendMessage']>(
 		async (...args) => {
@@ -227,7 +199,6 @@ export const useAgent = (): AgentHelpers => {
 		editMessage,
 		status,
 		isRunning,
-		hasFinishedAssistantTurn,
 		isLoadingMessages: chat.isLoading,
 		stopAgent,
 		error,
