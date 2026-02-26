@@ -66,8 +66,9 @@ function safeStringify(value: unknown): string {
 }
 
 function getSchemaText(schema: unknown): string {
-	if (!schema) return '';
-
+	if (!schema) {
+		return '';
+	}
 	const resolved = hasJsonSchemaField(schema)
 		? schema.jsonSchema
 		: isAiSdkSchemaLike(schema)
