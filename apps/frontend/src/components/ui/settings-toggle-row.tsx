@@ -3,7 +3,7 @@ import { cn } from '@/lib/utils';
 
 interface SettingsControlRowProps {
 	label: string;
-	description: string;
+	description: string | React.ReactNode;
 	control: React.ReactNode;
 	id?: string;
 	className?: string;
@@ -30,7 +30,7 @@ export function SettingsControlRow({ id, label, description, control, className 
 interface SettingsToggleRowProps {
 	id: string;
 	label: string;
-	description: string;
+	description: string | React.ReactNode;
 	checked: boolean;
 	onCheckedChange: (checked: boolean) => void;
 	disabled?: boolean;

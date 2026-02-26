@@ -277,13 +277,14 @@ export const projectRoutes = {
 			return null;
 		}
 
-		const { isPythonAvailable } = await import('../agents/tools');
+		const { isPythonAvailable, isSandboxAvailable } = await import('../agents/tools');
 		const settings = await projectQueries.getAgentSettings(ctx.project.id);
 
 		return {
 			...settings,
 			capabilities: {
 				pythonSandbox: isPythonAvailable,
+				sandbox: isSandboxAvailable,
 			},
 		};
 	}),
@@ -294,6 +295,7 @@ export const projectRoutes = {
 				experimental: z
 					.object({
 						pythonSandboxing: z.boolean().optional(),
+						sandboxes: z.boolean().optional(),
 					})
 					.optional(),
 				transcribe: z

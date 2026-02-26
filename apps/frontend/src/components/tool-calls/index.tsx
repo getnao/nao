@@ -3,6 +3,7 @@ import { StoryToolCall } from './story';
 import { DefaultToolCall } from './default';
 import { DisplayChartToolCall } from './display-chart';
 import { ExecutePythonToolCall } from './execute-python';
+import { ExecuteSandboxedCodeToolCall } from './execute-sandboxed-code';
 import { ExecuteSqlToolCall } from './execute-sql';
 import { GrepToolCall } from './grep';
 import { ListToolCall } from './list';
@@ -25,6 +26,7 @@ const toolComponents: Partial<{
 	story: StoryToolCall,
 	display_chart: DisplayChartToolCall,
 	execute_python: ExecutePythonToolCall,
+	execute_sandboxed_code: ExecuteSandboxedCodeToolCall,
 	execute_sql: ExecuteSqlToolCall,
 	grep: GrepToolCall,
 	list: ListToolCall,
