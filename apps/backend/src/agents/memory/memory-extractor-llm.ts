@@ -7,7 +7,7 @@ import { DBMemory } from '../../db/abstractSchema';
 import { UIMessage } from '../../types/chat';
 import type { ExtractorLLMOutput } from '../../types/memory';
 import { ExtractorOutputSchema } from '../../types/memory';
-import { getLastUserMessageText, joinAllTextParts } from '../../utils/ai';
+import { findLastUserMessage, getLastUserMessageText, joinAllTextParts } from '../../utils/ai';
 import { truncateMiddle } from '../../utils/utils';
 import { type ProviderModelResult } from '../providers';
 
@@ -62,13 +62,14 @@ export class MemoryExtractorLLM {
 	private _buildConversationMessages(uiMessages: UIMessage[]): ModelMessage[] {
 		const recent = uiMessages.slice(-CONVERSATION_MESSAGE_LIMIT);
 		const modelMessages: ModelMessage[] = [];
+		const [lastUserMessage] = findLastUserMessage(recent);
 
-		for (const [idx, message] of recent.entries()) {
+		for (const message of recent) {
 			if (message.role !== 'user' && message.role !== 'assistant') {
 				continue;
 			}
-			const isLast = idx === recent.length - 1;
-			const maxLength = isLast ? LAST_USER_MESSAGE_CHAR_LIMIT : MESSAGE_CHAR_LIMIT;
+			const isLastUserMessage = message === lastUserMessage;
+			const maxLength = isLastUserMessage ? LAST_USER_MESSAGE_CHAR_LIMIT : MESSAGE_CHAR_LIMIT;
 			const text = truncateMiddle(joinAllTextParts(message), maxLength);
 			if (!text) {
 				continue;
