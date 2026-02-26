@@ -8,7 +8,6 @@ export const chartRoutes = {
 		.input(
 			z.object({
 				config: z.object({
-					query_id: z.string(),
 					chart_type: z.enum(['bar', 'stacked_bar', 'line', 'pie']),
 					x_axis_key: z.string(),
 					x_axis_type: z.enum(['date', 'number', 'category']).nullable(),

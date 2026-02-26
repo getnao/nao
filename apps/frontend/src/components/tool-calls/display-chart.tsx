@@ -25,7 +25,13 @@ export const DisplayChartToolCall = ({
 	const config = state !== 'input-streaming' ? input : undefined;
 	const [dataRange, setDataRange] = useState<DateRange>('all');
 
-	const downloadImage = useMutation(trpc.chart.download.mutationOptions());
+	const downloadImage = useMutation(
+		trpc.chart.download.mutationOptions({
+			onError: (err) => {
+				console.error('Error downloading chart image:', err);
+			},
+		}),
+	);
 
 	const handleDownload = async () => {
 		if (!config) {
@@ -117,7 +123,13 @@ export const DisplayChartToolCall = ({
 							onRangeSelected={(range) => setDataRange(range)}
 						/>
 					)}
-					<Button variant='ghost-muted' size='icon-xs' onClick={handleDownload} title='Download as PNG'>
+					<Button
+						variant='ghost-muted'
+						size='icon-xs'
+						onClick={handleDownload}
+						disabled={downloadImage.isPending}
+						title='Download as PNG'
+					>
 						<Download className='size-3.5' />
 					</Button>
 				</div>
