@@ -49,28 +49,9 @@ export const getIsMemoryEnabledForUserAndProject = async (userId: string, projec
 	return settings.userEnabled && projectEnabled;
 };
 
-export const upsertMemories = async (memories: DBNewMemory[]): Promise<void> => {
-	if (memories.length === 0) {
-		return;
-	}
-
-	await db
-		.insert(s.memories)
-		.values(memories)
-		.onConflictDoUpdate({
-			target: s.memories.id,
-			set: conflictUpdateSet(s.memories, ['content', 'category']),
-		})
-		.execute();
-};
-
 export const upsertAndSupersedeMemories = async (
 	memories: (DBNewMemory & { supersedesId?: string | null })[],
 ): Promise<void> => {
-	if (memories.length === 0) {
-		return;
-	}
-
 	await db.transaction(async (t) => {
 		const promises = memories.map(async (m) => {
 			const { id: newMemoryId } = await takeFirstOrThrow(

@@ -93,10 +93,10 @@ export const createChatTitle = ({ text }: { text: string }) => {
 	return text.slice(0, 64);
 };
 
-export const extractAllTextParts = (message: UIMessage): string => {
+export const joinAllTextParts = (message: UIMessage, separator: string = '\n'): string => {
 	return message.parts
 		.filter((part) => part.type === 'text')
 		.map((part) => part.text)
-		.join('\n')
+		.join(separator)
 		.trim();
 };

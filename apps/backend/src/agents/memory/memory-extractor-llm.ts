@@ -5,10 +5,11 @@ import { renderMemoryExtractionUserMessage } from '../../components/ai';
 import { MEMORY_EXTRACTION_SYSTEM_PROMPT } from '../../components/ai/memory-system-prompt';
 import { DBMemory } from '../../db/abstractSchema';
 import { UIMessage } from '../../types/chat';
-import { extractAllTextParts, getLastUserMessageText } from '../../utils/ai';
+import type { ExtractorLLMOutput } from '../../types/memory';
+import { ExtractorOutputSchema } from '../../types/memory';
+import { getLastUserMessageText, joinAllTextParts } from '../../utils/ai';
+import { truncateMiddle } from '../../utils/utils';
 import { type ProviderModelResult } from '../providers';
-import type { ExtractorLLMOutput } from './output-schema';
-import { ExtractorOutputSchema } from './output-schema';
 
 interface MemoryExtractorResult {
 	output: ExtractorLLMOutput;
@@ -18,7 +19,8 @@ interface MemoryExtractorResult {
 const DEBUG = false;
 
 const CONVERSATION_MESSAGE_LIMIT = 17;
-const MESSAGE_CHAR_LIMIT = 1250;
+const MESSAGE_CHAR_LIMIT = 1_250;
+const LAST_USER_MESSAGE_CHAR_LIMIT = 2_000;
 const MIN_USER_TEXT_LENGTH = 3;
 
 /**
@@ -50,10 +52,9 @@ export class MemoryExtractorLLM {
 	}
 
 	private _buildModelMessages(memories: DBMemory[], uiMessages: UIMessage[]): ModelMessage[] {
-		const conversationMessages = this._buildConversationMessages(uiMessages);
 		return [
 			{ role: 'system', content: MEMORY_EXTRACTION_SYSTEM_PROMPT },
-			...conversationMessages,
+			...this._buildConversationMessages(uiMessages),
 			this._buildUserMemoryMessage(memories),
 		];
 	}
@@ -62,11 +63,13 @@ export class MemoryExtractorLLM {
 		const recent = uiMessages.slice(-CONVERSATION_MESSAGE_LIMIT);
 		const modelMessages: ModelMessage[] = [];
 
-		for (const message of recent) {
+		for (const [idx, message] of recent.entries()) {
 			if (message.role !== 'user' && message.role !== 'assistant') {
 				continue;
 			}
-			const text = extractAllTextParts(message).slice(0, MESSAGE_CHAR_LIMIT);
+			const isLast = idx === recent.length - 1;
+			const maxLength = isLast ? LAST_USER_MESSAGE_CHAR_LIMIT : MESSAGE_CHAR_LIMIT;
+			const text = truncateMiddle(joinAllTextParts(message), maxLength);
 			if (!text) {
 				continue;
 			}

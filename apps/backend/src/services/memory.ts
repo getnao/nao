@@ -1,13 +1,19 @@
 import { LanguageModelUsage } from 'ai';
 
-import { ExtractorLLMOutput, MemoryExtractorLLM, UserInstruction, UserProfile } from '../agents/memory';
+import { MemoryExtractorLLM } from '../agents/memory/memory-extractor-llm';
 import { LLM_PROVIDERS, type ProviderModelResult } from '../agents/providers';
 import { DBMemory, DBNewMemory } from '../db/abstractSchema';
 import * as llmInferenceQueries from '../queries/llm-inference';
 import * as memoryQueries from '../queries/memory';
 import { LlmProvider } from '../types/llm';
-import { MemoryExtractionOptions, UserMemory } from '../types/memory';
-import { MemoryCategory } from '../types/memory';
+import type {
+	ExtractorLLMOutput,
+	MemoryCategory,
+	MemoryExtractionOptions,
+	UserInstruction,
+	UserMemory,
+	UserProfile,
+} from '../types/memory';
 import { convertToTokenUsage } from '../utils/ai';
 import { resolveProviderModel } from '../utils/llm';
 
@@ -105,7 +111,9 @@ class MemoryService {
 			...this._toDbMemories(profile, 'personal_fact', opts.userId, opts.chatId),
 		].filter(({ supersedesId }) => (supersedesId ? existingIds.has(supersedesId) : true));
 
-		await memoryQueries.upsertAndSupersedeMemories(newDbMemories);
+		if (newDbMemories.length) {
+			await memoryQueries.upsertAndSupersedeMemories(newDbMemories);
+		}
 	}
 
 	private _toDbMemories(
