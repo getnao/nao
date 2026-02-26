@@ -105,28 +105,26 @@ const aggregateChatMessagParts = (
 };
 
 export const loadChatMessages = async (chatId: string): Promise<UIMessage[]> => {
-	const result = await db
-		.select()
-		.from(s.chatMessage)
-		.where(and(eq(s.chatMessage.chatId, chatId), isNull(s.chatMessage.supersededAt)))
-		.innerJoin(s.messagePart, eq(s.messagePart.messageId, s.chatMessage.id))
-		.orderBy(asc(s.chatMessage.createdAt), asc(s.messagePart.order))
-		.execute();
-
-	return aggregateChatMessagParts(result);
+	return loadChatMessagesInternal(chatId);
 };
 
 export const loadChatMessagesAfter = async (chatId: string, afterCreatedAt: Date): Promise<UIMessage[]> => {
+	return loadChatMessagesInternal(chatId, { afterCreatedAt });
+};
+
+const loadChatMessagesInternal = async (
+	chatId: string,
+	opts?: {
+		afterCreatedAt?: Date;
+	},
+): Promise<UIMessage[]> => {
+	const baseWhere = and(eq(s.chatMessage.chatId, chatId), isNull(s.chatMessage.supersededAt));
+	const where = opts?.afterCreatedAt ? and(baseWhere, gt(s.chatMessage.createdAt, opts.afterCreatedAt)) : baseWhere;
+
 	const result = await db
 		.select()
 		.from(s.chatMessage)
-		.where(
-			and(
-				eq(s.chatMessage.chatId, chatId),
-				isNull(s.chatMessage.supersededAt),
-				gt(s.chatMessage.createdAt, afterCreatedAt),
-			),
-		)
+		.where(where)
 		.innerJoin(s.messagePart, eq(s.messagePart.messageId, s.chatMessage.id))
 		.orderBy(asc(s.chatMessage.createdAt), asc(s.messagePart.order))
 		.execute();
