@@ -32,7 +32,6 @@ export default defineConfig({
 		},
 	},
 	server: {
-		allowedHosts: ['ruddiest-marlana-overplausibly.ngrok-free.dev'],
 		proxy: {
 			'/api': {
 				target: 'http://localhost:5005',

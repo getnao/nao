@@ -30,6 +30,22 @@ export function ShareStoryDialog({ open, onOpenChange, chatId, storyId }: ShareS
 	const shareData = shareQuery.data;
 	const isShared = !!shareData?.shareId;
 
+	if (shareQuery.isLoading && !shareData) {
+		return (
+			<Dialog open={open} onOpenChange={onOpenChange}>
+				<DialogContent className='sm:max-w-md'>
+					<DialogHeader>
+						<DialogTitle>Share Story</DialogTitle>
+						<DialogDescription>Loading sharing settings...</DialogDescription>
+					</DialogHeader>
+					<div className='flex items-center justify-center py-6'>
+						<Loader2 className='size-4 animate-spin text-muted-foreground' />
+					</div>
+				</DialogContent>
+			</Dialog>
+		);
+	}
+
 	if (!isShared) {
 		return <CreateShareDialog open={open} onOpenChange={onOpenChange} chatId={chatId} storyId={storyId} />;
 	}
@@ -55,6 +71,8 @@ function CreateShareDialog({ open, onOpenChange, chatId, storyId }: ShareStoryDi
 	const [search, setSearch] = useState('');
 	const [isCopied, setIsCopied] = useState(false);
 	const timeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+	useEffect(() => () => clearTimeout(timeoutRef.current), []);
 
 	const membersQuery = useQuery(trpc.project.getAllUsersWithRoles.queryOptions());
 	const currentUserId = session?.user?.id;
@@ -203,6 +221,8 @@ function ManageShareDialog({
 	const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(() => new Set(allowedUserIds));
 	const [search, setSearch] = useState('');
 	const timeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+	useEffect(() => () => clearTimeout(timeoutRef.current), []);
 
 	const currentUserId = session?.user?.id;
 	const membersQuery = useQuery(trpc.project.getAllUsersWithRoles.queryOptions());

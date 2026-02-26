@@ -88,6 +88,10 @@ export const sharedStoryRoutes = {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Shared story not found.' });
 			}
 
+			if (story.projectId !== ctx.project.id) {
+				throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this story.' });
+			}
+
 			if (story.userId !== ctx.user.id && ctx.userRole !== 'admin') {
 				throw new TRPCError({ code: 'FORBIDDEN', message: 'Only the creator or an admin can update this.' });
 			}

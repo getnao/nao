@@ -5,7 +5,9 @@ import * as chatQueries from '../queries/chat.queries';
 import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
 import { extractStorySummary } from '../utils/story-summary';
-import { protectedProcedure } from './trpc';
+import { ownedResourceProcedure, protectedProcedure } from './trpc';
+
+const chatOwnerProcedure = ownedResourceProcedure(chatQueries.getChatOwnerId, 'chat');
 
 export const storyRoutes = {
 	listAll: protectedProcedure.query(async ({ ctx }) => {
@@ -16,10 +18,9 @@ export const storyRoutes = {
 		}));
 	}),
 
-	getLatest: protectedProcedure
+	getLatest: chatOwnerProcedure
 		.input(z.object({ chatId: z.string(), storyId: z.string() }))
-		.query(async ({ input, ctx }) => {
-			await assertChatOwner(input.chatId, ctx.user.id);
+		.query(async ({ input }) => {
 			const version = await storyQueries.getLatestVersion(input.chatId, input.storyId);
 			if (!version) {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
@@ -28,19 +29,17 @@ export const storyRoutes = {
 			return { ...version, queryData };
 		}),
 
-	listVersions: protectedProcedure
+	listVersions: chatOwnerProcedure
 		.input(z.object({ chatId: z.string(), storyId: z.string() }))
-		.query(async ({ input, ctx }) => {
-			await assertChatOwner(input.chatId, ctx.user.id);
+		.query(async ({ input }) => {
 			return storyQueries.listVersions(input.chatId, input.storyId);
 		}),
 
-	listStories: protectedProcedure.input(z.object({ chatId: z.string() })).query(async ({ input, ctx }) => {
-		await assertChatOwner(input.chatId, ctx.user.id);
+	listStories: chatOwnerProcedure.input(z.object({ chatId: z.string() })).query(async ({ input }) => {
 		return storyQueries.listStoriesInChat(input.chatId);
 	}),
 
-	createVersion: protectedProcedure
+	createVersion: chatOwnerProcedure
 		.input(
 			z.object({
 				chatId: z.string(),
@@ -50,18 +49,10 @@ export const storyRoutes = {
 				action: z.enum(['create', 'update', 'replace']),
 			}),
 		)
-		.mutation(async ({ input, ctx }) => {
-			await assertChatOwner(input.chatId, ctx.user.id);
+		.mutation(async ({ input }) => {
 			return storyQueries.createVersion({
 				...input,
 				source: 'user',
 			});
 		}),
 };
-
-async function assertChatOwner(chatId: string, userId: string): Promise<void> {
-	const ownerId = await chatQueries.getChatOwnerId(chatId);
-	if (ownerId !== userId) {
-		throw new TRPCError({ code: 'NOT_FOUND', message: 'Chat not found.' });
-	}
-}

@@ -81,7 +81,9 @@ function StoriesPage() {
 
 				{isEmpty && <StoriesEmptyState />}
 
-				{!isEmpty && groups.length === 0 && searchQuery.trim() && <StoriesNoResults query={searchQuery} />}
+				{!isLoading && !isEmpty && groups.length === 0 && searchQuery.trim() && (
+					<StoriesNoResults query={searchQuery} />
+				)}
 				<StoriesGroups groups={groups} displayMode={displayMode} />
 			</div>
 		</div>

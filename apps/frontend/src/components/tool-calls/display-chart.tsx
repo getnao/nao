@@ -22,6 +22,9 @@ import { trpc } from '@/main';
 
 const Colors = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)', 'var(--chart-5)'];
 
+const escapeDoubleQuotedAttr = (value: string) => value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+const escapeSingleQuotedAttr = (value: string) => value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+
 export const DisplayChartToolCall = ({
 	toolPart: { state, input, output, toolCallId },
 }: ToolCallComponentProps<'display_chart'>) => {
@@ -150,7 +153,7 @@ export const DisplayChartToolCall = ({
 		}
 
 		const seriesJson = JSON.stringify(config.series);
-		const chartBlock = `<chart query_id="${config.query_id}" chart_type="${config.chart_type}" x_axis_key="${config.x_axis_key}" x_axis_type="${config.x_axis_type ?? ''}" series='${seriesJson}' title="${config.title}" />`;
+		const chartBlock = `<chart query_id="${escapeDoubleQuotedAttr(config.query_id)}" chart_type="${escapeDoubleQuotedAttr(config.chart_type)}" x_axis_key="${escapeDoubleQuotedAttr(config.x_axis_key)}" x_axis_type="${escapeDoubleQuotedAttr(config.x_axis_type ?? '')}" series='${escapeSingleQuotedAttr(seriesJson)}' title="${escapeDoubleQuotedAttr(config.title ?? '')}" />`;
 		const newCode = latest.code.trimEnd() + '\n\n' + chartBlock;
 
 		addToStoryMutation.mutate({

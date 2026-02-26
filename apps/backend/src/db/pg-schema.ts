@@ -402,7 +402,10 @@ export const storyVersion = pgTable(
 		source: text('source', { enum: STORY_SOURCES }).notNull(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 	},
-	(t) => [index('story_version_chat_story_idx').on(t.chatId, t.storyId)],
+	(t) => [
+		index('story_version_chat_story_idx').on(t.chatId, t.storyId),
+		unique('story_version_chat_story_version_unique').on(t.chatId, t.storyId, t.version),
+	],
 );
 
 export const memories = pgTable(

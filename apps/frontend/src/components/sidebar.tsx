@@ -181,7 +181,7 @@ function SidebarNav({ chats, isCollapsed }: { chats: ChatListItemType[]; isColla
 					<span>Chats</span>
 					<ChevronRight
 						className={cn(
-							'size-4 shrink-0 transition-[transform,opacity, rotate] duration-200 group-hover:opacity-100',
+							'size-4 shrink-0 transition-[transform,opacity,rotate] duration-200 group-hover:opacity-100',
 							chatsOpen ? 'opacity-100 rotate-90' : 'opacity-0 rotate-0',
 						)}
 					/>

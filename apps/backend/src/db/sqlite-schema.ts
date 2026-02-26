@@ -429,7 +429,10 @@ export const storyVersion = sqliteTable(
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull(),
 	},
-	(t) => [index('story_version_chat_story_idx').on(t.chatId, t.storyId)],
+	(t) => [
+		index('story_version_chat_story_idx').on(t.chatId, t.storyId),
+		unique('story_version_chat_story_version_unique').on(t.chatId, t.storyId, t.version),
+	],
 );
 
 export const memories = sqliteTable(

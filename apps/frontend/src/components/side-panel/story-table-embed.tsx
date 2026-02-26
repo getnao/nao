@@ -17,7 +17,7 @@ export function StoryTableEmbed({ table }: { table: ParsedTableBlock }) {
 		return null;
 	}, [messages, table.queryId]);
 
-	if (!sourceData) {
+	if (!sourceData?.data || !Array.isArray(sourceData.data)) {
 		return (
 			<div className='my-2 rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground'>
 				Table data unavailable (query: {table.queryId})

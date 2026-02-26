@@ -18,12 +18,16 @@ export type Segment =
 	| { type: 'table'; table: ParsedTableBlock }
 	| { type: 'grid'; cols: number; children: Segment[] };
 
+function unescapeAttributeValue(value: string): string {
+	return value.replace(/\\(["'\\])/g, '$1');
+}
+
 export function parseChartAttributes(attrString: string): Record<string, string> {
 	const attrs: Record<string, string> = {};
-	const attrRegex = /(\w+)=(?:"([^"]*)"|'([^']*)')/g;
+	const attrRegex = /(\w+)=(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)')/g;
 	let match;
 	while ((match = attrRegex.exec(attrString)) !== null) {
-		attrs[match[1]] = match[2] ?? match[3];
+		attrs[match[1]] = unescapeAttributeValue(match[2] ?? match[3] ?? '');
 	}
 	return attrs;
 }

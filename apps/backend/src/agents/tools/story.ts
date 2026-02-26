@@ -70,11 +70,14 @@ export default createTool<story.Input, story.Output>({
 			if (!input.search || input.replace === undefined) {
 				return fail('"search" and "replace" are required for the "update" action.', existing);
 			}
-			if (!existing.code.includes(input.search)) {
+			const searchIndex = existing.code.indexOf(input.search);
+			if (searchIndex === -1) {
 				return fail(`Search string not found in story "${input.id}".`, existing);
 			}
 
-			const newCode = existing.code.replace(input.search, input.replace);
+			const newCode = `${existing.code.slice(0, searchIndex)}${input.replace}${existing.code.slice(
+				searchIndex + input.search.length,
+			)}`;
 			const version = await storyQueries.createVersion({
 				chatId,
 				storyId: input.id,
