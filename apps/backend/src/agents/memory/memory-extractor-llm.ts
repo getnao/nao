@@ -1,5 +1,4 @@
 import { generateText, LanguageModelUsage, ModelMessage, Output } from 'ai';
-import { inspect } from 'util';
 
 import { renderMemoryExtractionUserMessage } from '../../components/ai';
 import { MEMORY_EXTRACTION_SYSTEM_PROMPT } from '../../components/ai/memory-system-prompt';
@@ -8,6 +7,7 @@ import { UIMessage } from '../../types/chat';
 import type { ExtractorLLMOutput } from '../../types/memory';
 import { ExtractorOutputSchema } from '../../types/memory';
 import { findLastUserMessage, getLastUserMessageText, joinAllTextParts } from '../../utils/ai';
+import { debugMemory } from '../../utils/debug';
 import { truncateMiddle } from '../../utils/utils';
 import { type ProviderModelResult } from '../providers';
 
@@ -15,8 +15,6 @@ interface MemoryExtractorResult {
 	output: ExtractorLLMOutput;
 	usage: LanguageModelUsage;
 }
-
-const DEBUG = false;
 
 const CONVERSATION_MESSAGE_LIMIT = 17;
 const MESSAGE_CHAR_LIMIT = 1_250;
@@ -37,7 +35,7 @@ export class MemoryExtractorLLM {
 
 		const modelMessages = this._buildModelMessages(memories, uiMessages);
 
-		this._printDebug('--- modelMessages ---', modelMessages);
+		debugMemory('modelMessages', modelMessages);
 
 		const { output, usage } = await generateText({
 			...this.model,
@@ -46,7 +44,7 @@ export class MemoryExtractorLLM {
 			maxOutputTokens: 4000,
 		});
 
-		this._printDebug('--- output ---', output);
+		debugMemory('output', output);
 
 		return { output, usage };
 	}
@@ -82,11 +80,5 @@ export class MemoryExtractorLLM {
 
 	private _buildUserMemoryMessage(memories: DBMemory[]): ModelMessage {
 		return { role: 'user', content: renderMemoryExtractionUserMessage(memories) };
-	}
-
-	private _printDebug(message: string, data: unknown): void {
-		if (DEBUG) {
-			console.log(message, inspect(data, { showHidden: false, depth: null, colors: true }), message);
-		}
 	}
 }
