@@ -40,7 +40,7 @@ class MemoryService {
 	}
 
 	/** Safely schedules memory extraction for a user message. */
-	public safeScheduleMemoryExtraction(opts: MemoryExtractionOptions): void {
+	public safeScheduleMemoryExtraction(opts: MemoryExtractionOptions) {
 		this._extractMemory(opts).catch((err) => {
 			console.error('[memory] extractor failed:', err);
 		});
@@ -161,7 +161,7 @@ class MemoryService {
 			newCount: number;
 			supersededCount: number;
 		},
-	): void {
+	) {
 		posthog.capture(opts.userId, PostHogEvent.AgentMemoryExtractionCompleted, {
 			project_id: opts.projectId,
 			chat_id: opts.chatId,

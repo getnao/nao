@@ -5,16 +5,6 @@ export function useMemorySettingsQuery() {
 	return useQuery(trpc.user.getMemorySettings.queryOptions());
 }
 
-export function useUpdateMemorySettingsMutation() {
-	return useMutation(
-		trpc.user.updateMemorySettings.mutationOptions({
-			onSuccess: (data, _, __, ctx) => {
-				ctx.client.setQueryData(trpc.user.getMemorySettings.queryKey(), data);
-			},
-		}),
-	);
-}
-
 export function useMemoriesQuery(enabled: boolean) {
 	return useQuery({
 		...trpc.user.getMemories.queryOptions(),
@@ -24,8 +14,16 @@ export function useMemoriesQuery(enabled: boolean) {
 }
 
 export function useMemoryMutations() {
+	const updateMemorySettingsMutation = useMutation(
+		trpc.memory.setEnabled.mutationOptions({
+			onSuccess: (data, _, __, ctx) => {
+				ctx.client.setQueryData(trpc.user.getMemorySettings.queryKey(), data);
+			},
+		}),
+	);
+
 	const updateMutation = useMutation(
-		trpc.user.updateMemory.mutationOptions({
+		trpc.memory.edit.mutationOptions({
 			onSuccess: (updated, _, __, ctx) => {
 				ctx.client.setQueryData(trpc.user.getMemories.queryKey(), (prev = []) =>
 					prev.map((memory) => (memory.id === updated.id ? updated : memory)),
@@ -35,7 +33,7 @@ export function useMemoryMutations() {
 	);
 
 	const deleteMutation = useMutation(
-		trpc.user.deleteMemory.mutationOptions({
+		trpc.memory.delete.mutationOptions({
 			onSuccess: (_, variables, __, ctx) => {
 				ctx.client.setQueryData(trpc.user.getMemories.queryKey(), (prev = []) =>
 					prev.filter((memory) => memory.id !== variables.memoryId),
@@ -44,5 +42,5 @@ export function useMemoryMutations() {
 		}),
 	);
 
-	return { updateMutation, deleteMutation };
+	return { updateMemorySettingsMutation, updateMutation, deleteMutation };
 }

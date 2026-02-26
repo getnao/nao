@@ -3,6 +3,7 @@ import { chatRoutes } from './chat.routes';
 import { feedbackRoutes } from './feedback.routes';
 import { googleRoutes } from './google.routes';
 import { mcpRoutes } from './mcp.routes';
+import { memoryRoutes } from './memory.routes';
 import { posthogRoutes } from './posthog.routes';
 import { projectRoutes } from './project.routes';
 import { skillRoutes } from './skill.routes';
@@ -19,6 +20,7 @@ export const trpcRouter = router({
 	project: projectRoutes,
 	usage: usageRoutes,
 	user: userRoutes,
+	memory: memoryRoutes,
 	google: googleRoutes,
 	account: accountRoutes,
 	mcp: mcpRoutes,

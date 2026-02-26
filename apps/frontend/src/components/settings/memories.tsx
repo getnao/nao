@@ -21,12 +21,7 @@ import { SettingsControlRow } from '@/components/ui/settings-toggle-row';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { SettingsMemoryItem, SettingsMemorySkeleton } from '@/components/settings/memory-item';
-import {
-	useMemoriesQuery,
-	useMemoryMutations,
-	useMemorySettingsQuery,
-	useUpdateMemorySettingsMutation,
-} from '@/queries/use-memories';
+import { useMemoriesQuery, useMemoryMutations, useMemorySettingsQuery } from '@/queries/use-memories';
 import { trpc } from '@/main';
 import { cn } from '@/lib/utils';
 
@@ -35,8 +30,7 @@ export function SettingsMemories() {
 	const project = useQuery(trpc.project.getCurrent.queryOptions());
 	const memorySettings = useMemorySettingsQuery();
 
-	const updateMemorySettings = useUpdateMemorySettingsMutation();
-	const { updateMutation, deleteMutation } = useMemoryMutations();
+	const { updateMemorySettingsMutation, updateMutation, deleteMutation } = useMemoryMutations();
 
 	const projectMemoryEnabled = projectMemorySettings.data?.memoryEnabled ?? true;
 	const isAdmin = project.data?.userRole === 'admin';
@@ -51,7 +45,7 @@ export function SettingsMemories() {
 	const [editContent, setEditContent] = useState('');
 	const [deleteMemory, setDeleteMemory] = useState<UserMemoryRecord | null>(null);
 
-	const isUserToggleDisabled = isProjectDisabled || updateMemorySettings.isPending;
+	const isUserToggleDisabled = isProjectDisabled || updateMemorySettingsMutation.isPending;
 
 	const memoryStatusMessage = useMemo((): React.ReactNode => {
 		if (isProjectDisabled) {
@@ -80,7 +74,7 @@ export function SettingsMemories() {
 	}, [isProjectDisabled, isUserDisabled, isAdmin]);
 
 	const handleUserToggle = (enabled: boolean) => {
-		updateMemorySettings.mutate({ memoryEnabled: enabled });
+		updateMemorySettingsMutation.mutate({ memoryEnabled: enabled });
 	};
 
 	const handleEditMemory = (memory: UserMemoryRecord) => {

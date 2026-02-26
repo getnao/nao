@@ -25,9 +25,12 @@ export enum PostHogEvent {
 	SavedPromptUpdated = 'saved_prompt_updated',
 	SavedPromptDeleted = 'saved_prompt_deleted',
 
+	ProjectAgentSettingsUpdated = 'project_agent_settings_updated',
+
 	AgentStopped = 'agent_stopped',
 	AgentMemoryUpdated = 'agent_memory_updated',
 	AgentMemoryDeleted = 'agent_memory_deleted',
+	AgentMemoryEnabledUpdated = 'agent_memory_enabled_updated',
 	AgentMemoryExtractionCompleted = 'agent_memory_extraction_completed',
 }
 

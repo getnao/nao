@@ -6,14 +6,13 @@ import * as memoryQueries from '../queries/memory';
 import * as projectQueries from '../queries/project.queries';
 import * as userQueries from '../queries/user.queries';
 import { emailService } from '../services/email.service';
-import { memoryService } from '../services/memory';
-import { posthog, PostHogEvent } from '../services/posthog';
 import { adminProtectedProcedure, projectProtectedProcedure, protectedProcedure, publicProcedure } from './trpc';
 
 export const userRoutes = {
 	countAll: publicProcedure.query(() => {
 		return userQueries.countAll();
 	}),
+
 	get: projectProtectedProcedure.input(z.object({ userId: z.string() })).query(async ({ input, ctx }) => {
 		if (ctx.userRole !== 'admin' && input.userId !== ctx.user.id) {
 			throw new TRPCError({ code: 'FORBIDDEN', message: 'Only admins can access other users information' });
@@ -25,6 +24,7 @@ export const userRoutes = {
 		}
 		return user;
 	}),
+
 	modify: projectProtectedProcedure
 		.input(
 			z.object({
@@ -54,6 +54,7 @@ export const userRoutes = {
 				await userQueries.modify(input.userId, input.name);
 			}
 		}),
+
 	addUserToProject: adminProtectedProcedure
 		.input(
 			z.object({
@@ -144,48 +145,7 @@ export const userRoutes = {
 		return { memoryEnabled };
 	}),
 
-	updateMemorySettings: protectedProcedure
-		.input(z.object({ memoryEnabled: z.boolean() }))
-		.mutation(async ({ ctx, input }) => {
-			await userQueries.setMemoryEnabled(ctx.user.id, input.memoryEnabled);
-			return { memoryEnabled: input.memoryEnabled };
-		}),
-
 	getMemories: protectedProcedure.query(async ({ ctx }) => {
 		return memoryQueries.getUserMemories(ctx.user.id);
-	}),
-
-	updateMemory: protectedProcedure
-		.input(
-			z.object({
-				memoryId: z.string(),
-				content: z.string().trim().min(1).max(1000),
-			}),
-		)
-		.mutation(async ({ ctx, input }) => {
-			const content = memoryService.normalizeMemoryContent(input.content);
-			if (!content) {
-				throw new TRPCError({ code: 'BAD_REQUEST', message: 'Memory content cannot be empty.' });
-			}
-			const updated = await memoryQueries.updateUserMemoryContent(ctx.user.id, input.memoryId, content);
-			if (!updated) {
-				throw new TRPCError({ code: 'NOT_FOUND', message: 'Memory not found.' });
-			}
-			posthog.capture(ctx.user.id, PostHogEvent.AgentMemoryUpdated, {
-				memory_id: input.memoryId,
-				memory_category: updated.category,
-			});
-			return updated;
-		}),
-
-	deleteMemory: protectedProcedure.input(z.object({ memoryId: z.string() })).mutation(async ({ ctx, input }) => {
-		const deleted = await memoryQueries.deleteUserMemory(ctx.user.id, input.memoryId);
-		if (!deleted) {
-			throw new TRPCError({ code: 'NOT_FOUND', message: 'Memory not found.' });
-		}
-		posthog.capture(ctx.user.id, PostHogEvent.AgentMemoryDeleted, {
-			memory_id: input.memoryId,
-			memory_category: deleted.category,
-		});
 	}),
 };
