@@ -13,20 +13,16 @@ import {
 
 import { CACHE_1H, CACHE_5M } from '../agents/providers';
 import { getTools } from '../agents/tools';
-import { SystemPrompt } from '../components/system-prompt';
+import { getConnections, getUserRules } from '../agents/user-rules';
+import { SystemPrompt } from '../components/ai';
 import { renderToMarkdown } from '../lib/markdown';
 import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
+import { AgentSettings } from '../types/agent-settings';
 import { Mention, MessageCustomDataParts, TokenCost, TokenUsage, UIChat, UIMessage } from '../types/chat';
 import { ToolContext } from '../types/tools';
-import {
-	convertToCost,
-	convertToTokenUsage,
-	findLastUserMessage,
-	getLastUserMessageText,
-	retrieveProjectById,
-} from '../utils/ai';
+import { convertToCost, convertToTokenUsage, findLastUserMessage, retrieveProjectById } from '../utils/ai';
 import { HandlerError } from '../utils/error';
 import { getDefaultModelId, getEnvModelSelections, ModelSelection, resolveProviderModel } from '../utils/llm';
 import { memoryService } from './memory';
@@ -64,7 +60,7 @@ export class AgentService {
 		const resolvedModelSelection = await this._getResolvedModelSelection(chat.projectId, modelSelection);
 		const modelConfig = await this._getModelConfig(chat.projectId, resolvedModelSelection);
 		const agentSettings = await projectQueries.getAgentSettings(chat.projectId);
-		const toolContext = await this._getToolContext(chat.projectId, chat.id);
+		const toolContext = await this._getToolContext(chat.projectId, chat.id, agentSettings);
 		const agentTools = getTools(agentSettings);
 		const agent = new AgentManager(
 			chat,
@@ -106,7 +102,11 @@ export class AgentService {
 		throw new HandlerError('BAD_REQUEST', 'No model config found');
 	}
 
-	private async _getToolContext(projectId: string, chatId: string): Promise<ToolContext> {
+	private async _getToolContext(
+		projectId: string,
+		chatId: string,
+		agentSettings: AgentSettings | null,
+	): Promise<ToolContext> {
 		const project = await retrieveProjectById(projectId);
 		if (!project.path) {
 			throw new HandlerError('BAD_REQUEST', 'Project path does not exist.');
@@ -114,6 +114,7 @@ export class AgentService {
 		return {
 			projectFolder: project.path ?? '',
 			chatId,
+			agentSettings,
 		};
 	}
 
@@ -235,26 +236,25 @@ class AgentManager {
 	 */
 	private async _buildModelMessages(uiMessages: UIMessage[], mentions?: Mention[]): Promise<ModelMessage[]> {
 		uiMessages = this._addSkills(uiMessages, mentions);
-		uiMessages = this._fillEmptyAssistantTurns(uiMessages, '[NO CONTENT]');
-		const modelMessages = await convertToModelMessages(uiMessages);
+		const modelMessages = await convertToModelMessages(uiMessages, { tools: this._agentTools });
 		const memories = await memoryService.safeGetUserMemories(this.chat.userId, this.chat.projectId, this.chat.id);
-		const systemPrompt = renderToMarkdown(SystemPrompt({ memories }));
+		const userRules = getUserRules();
+		const connections = getConnections();
+		const skills = skillService.getSkills();
+		const systemPrompt = renderToMarkdown(SystemPrompt({ memories, userRules, connections, skills }));
 		const systemMessage: ModelMessage = { role: 'system', content: systemPrompt };
 		modelMessages.unshift(systemMessage);
 		return modelMessages;
 	}
 
 	private _scheduleMemoryExtraction(uiMessages: UIMessage[]): void {
-		const lastUserText = getLastUserMessageText(uiMessages);
-		if (lastUserText) {
-			memoryService.safeScheduleMemoryExtraction({
-				userId: this.chat.userId,
-				projectId: this.chat.projectId,
-				chatId: this.chat.id,
-				userMessage: lastUserText,
-				provider: this._modelSelection.provider,
-			});
-		}
+		memoryService.safeScheduleMemoryExtraction({
+			userId: this.chat.userId,
+			projectId: this.chat.projectId,
+			chatId: this.chat.id,
+			messages: uiMessages,
+			provider: this._modelSelection.provider,
+		});
 	}
 
 	private async _getTotalUsage(
@@ -303,19 +303,6 @@ class AgentManager {
 
 	stop(): void {
 		this._abortController.abort();
-	}
-
-	private _fillEmptyAssistantTurns(messages: UIMessage[], fillText: string): UIMessage[] {
-		return messages.map((msg) => {
-			if (msg.role !== 'assistant') {
-				return msg;
-			}
-			const hasTextPart = msg.parts.some((part) => part.type === 'text');
-			if (!hasTextPart) {
-				msg.parts.push({ type: 'text', text: fillText });
-			}
-			return msg;
-		});
 	}
 
 	private _addSkills(messages: UIMessage[], mentions?: Mention[]): UIMessage[] {

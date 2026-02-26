@@ -84,11 +84,27 @@ export const getLastUserMessageText = (messages: UIMessage[]): string => {
 	return extractLastTextFromMessage(lastUserMessage);
 };
 
-/** Estimates the number of tokens in a text. A token is an average of 4 characters. */
-export function estimateTokens(text: string): number {
-	return Math.ceil(text.length / 4);
+export type EstimateTokensType = 'text' | 'json';
+
+const CHARS_PER_TOKEN = {
+	text: 4,
+	json: 3,
+} as const;
+
+/** Estimates the number of tokens in a text. */
+export function estimateTokens(text: string, type?: EstimateTokensType): number {
+	const charsPerToken = CHARS_PER_TOKEN[type ?? 'text'];
+	return Math.ceil(text.length / charsPerToken);
 }
 
 export const createChatTitle = ({ text }: { text: string }) => {
 	return text.slice(0, 64);
+};
+
+export const joinAllTextParts = (message: UIMessage, separator: string = '\n'): string => {
+	return message.parts
+		.filter((part) => part.type === 'text')
+		.map((part) => part.text)
+		.join(separator)
+		.trim();
 };

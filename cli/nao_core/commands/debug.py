@@ -38,6 +38,21 @@ def _check_available_models(provider: str, api_key: str) -> Tuple[bool, str]:
 
         client = Mistral(api_key=api_key)
         models = client.models.list()
+    elif provider == "openrouter":
+        from openai import OpenAI
+
+        client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=api_key)
+        models = client.models.list()
+    elif provider == "ollama":
+        try:
+            import ollama
+        except ImportError:
+            return (
+                False,
+                "Provider 'ollama' requires the optional dependency 'ollama'. Install it to use this provider.",
+            )
+
+        models = ollama.list().models
     else:
         return False, f"Unknown provider: {provider}"
 

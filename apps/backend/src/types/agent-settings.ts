@@ -8,4 +8,7 @@ export interface AgentSettings {
 		provider?: string;
 		modelId?: string;
 	};
+	sql?: {
+		dangerouslyWritePermEnabled?: boolean;
+	};
 }

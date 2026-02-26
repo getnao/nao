@@ -1,5 +1,5 @@
 import { Pencil, Trash2 } from 'lucide-react';
-import { getDefaultModelId } from '@nao/backend/providers';
+import { getDefaultModelId, getProviderApiKeyRequirement } from '@nao/backend/providers';
 import { LlmProviderIcon } from '../ui/llm-provider-icon';
 import type { LlmProvider } from '@nao/backend/llm';
 import { Button } from '@/components/ui/button';
@@ -60,7 +60,11 @@ export function ProviderCard({
 						</div>
 					) : (
 						<div className='flex items-center gap-2 text-xs text-muted-foreground'>
-							<span>API key from environment</span>
+							<span>
+								{getProviderApiKeyRequirement(provider)
+									? 'API key from environment'
+									: 'No API key required'}
+							</span>
 							{envBaseUrl && (
 								<>
 									<span className='text-border'>•</span>

@@ -12,7 +12,7 @@
 		"format": "prettier --write ."
 	},
 	"dependencies": {
-		"@ai-sdk/react": "^3.0.44",
+		"@ai-sdk/react": "^3.0.99",
 		"@monaco-editor/react": "^4.7.0",
 		"@nao/backend": "*",
 		"@nao/shared": "*",
@@ -23,6 +23,7 @@
 		"@radix-ui/react-menubar": "^1.1.16",
 		"@radix-ui/react-select": "^2.2.6",
 		"@radix-ui/react-slot": "^1.2.4",
+		"@radix-ui/react-tooltip": "^1.2.8",
 		"@tailwindcss/vite": "^4.0.6",
 		"@tanstack/react-devtools": "^0.7.0",
 		"@tanstack/react-form": "^1.28.0",
@@ -37,7 +38,7 @@
 		"@tiptap/starter-kit": "^3.20.0",
 		"@trpc/client": "^11.8.1",
 		"@trpc/tanstack-react-query": "^11.8.1",
-		"ai": "^6.0.42",
+		"ai": "^6.0.97",
 		"better-auth": "^1.4.10",
 		"class-variance-authority": "^0.7.1",
 		"clsx": "^2.1.1",

@@ -7,8 +7,9 @@ import * as projectQueries from '../queries/project.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import * as savedPromptQueries from '../queries/project-saved-prompt.queries';
 import * as slackConfigQueries from '../queries/project-slack-config.queries';
-import { posthog, PostHogEvent } from '../services/posthog.service';
+import { posthog, PostHogEvent } from '../services/posthog';
 import { getAvailableModels as getAvailableTranscribeModels } from '../services/transcribe.service';
+import { AgentSettings } from '../types/agent-settings';
 import { llmConfigSchema, LlmProvider, llmProviderSchema } from '../types/llm';
 import { getEnvApiKey, getEnvBaseUrls, getEnvProviders, getProjectAvailableModels } from '../utils/llm';
 import { adminProtectedProcedure, projectProtectedProcedure, publicProcedure } from './trpc';
@@ -42,7 +43,7 @@ export const projectRoutes = {
 			const projectConfigs = configs.map((c) => ({
 				id: c.id,
 				provider: c.provider as LlmProvider,
-				apiKeyPreview: c.apiKey.slice(0, 8) + '...' + c.apiKey.slice(-4),
+				apiKeyPreview: c.apiKey ? c.apiKey.slice(0, 8) + '...' + c.apiKey.slice(-4) : null,
 				enabledModels: c.enabledModels ?? [],
 				baseUrl: c.baseUrl ?? null,
 				createdAt: c.createdAt,
@@ -100,6 +101,9 @@ export const projectRoutes = {
 				apiKey = null;
 			} else if (envApiKey) {
 				apiKey = envApiKey;
+			} else if (input.provider === 'ollama') {
+				// Ollama is a local provider that doesn't require an API key
+				apiKey = '';
 			} else {
 				throw new Error(
 					`API key is required for ${input.provider}. Provide one or set it as an environment variable.`,
@@ -117,7 +121,7 @@ export const projectRoutes = {
 			return {
 				id: config.id,
 				provider: config.provider as LlmProvider,
-				apiKeyPreview: config.apiKey.slice(0, 8) + '...' + config.apiKey.slice(-4),
+				apiKeyPreview: config.apiKey ? config.apiKey.slice(0, 8) + '...' + config.apiKey.slice(-4) : null,
 				enabledModels: config.enabledModels ?? [],
 				baseUrl: config.baseUrl ?? null,
 			};
@@ -296,14 +300,27 @@ export const projectRoutes = {
 						modelId: z.string().optional(),
 					})
 					.optional(),
+				sql: z.object({ dangerouslyWritePermEnabled: z.boolean().optional() }).optional(),
+				memoryEnabled: z.boolean().optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
 			const existing = (await projectQueries.getAgentSettings(ctx.project.id)) ?? {};
-			const merged = {
+			const merged: AgentSettings = {
+				memoryEnabled: input.memoryEnabled ?? existing.memoryEnabled,
 				experimental: { ...existing.experimental, ...input.experimental },
 				transcribe: { ...existing.transcribe, ...input.transcribe },
+				sql: { ...existing.sql, ...input.sql },
 			};
+			posthog.capture(ctx.user.id, PostHogEvent.ProjectAgentSettingsUpdated, {
+				project_id: ctx.project.id,
+				transcribe_enabled: merged.transcribe?.enabled,
+				transcribe_provider: merged.transcribe?.provider,
+				transcribe_model_id: merged.transcribe?.modelId,
+				sql_dangerously_write_perm_enabled: merged.sql?.dangerouslyWritePermEnabled,
+				python_sandboxing_enabled: merged.experimental?.pythonSandboxing,
+				memory_enabled: merged.memoryEnabled,
+			});
 			return projectQueries.updateAgentSettings(ctx.project.id, merged);
 		}),
 
@@ -311,11 +328,4 @@ export const projectRoutes = {
 		const memoryEnabled = await projectQueries.getProjectMemoryEnabled(ctx.project.id);
 		return { memoryEnabled };
 	}),
-
-	updateMemorySettings: adminProtectedProcedure
-		.input(z.object({ memoryEnabled: z.boolean() }))
-		.mutation(async ({ ctx, input }) => {
-			await projectQueries.setProjectMemoryEnabled(ctx.project.id, input.memoryEnabled);
-			return { memoryEnabled: input.memoryEnabled };
-		}),
 };

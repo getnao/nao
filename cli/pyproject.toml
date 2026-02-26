@@ -24,7 +24,7 @@ dependencies = [
     "pydantic>=2.10.0",
     "pyyaml>=6.0.0",
     "rich>=14.0.0",
-    "ibis-framework[bigquery,duckdb,databricks,mssql,snowflake,postgres,athena]>=9.0.0",
+    "ibis-framework[bigquery,duckdb,databricks,mssql,snowflake,postgres,athena,trino]>=9.0.0",
     "openai>=1.0.0",
     "fastapi>=0.128.0",
     "uvicorn>=0.40.0",
@@ -43,6 +43,7 @@ dependencies = [
     "google-genai>=1.61.0",
     "sshtunnel>=0.4.0",
     "snowflake-connector-python[secure-local-storage]>=4.2.0",
+    "ollama>=0.4.0",
 ]
 
 [project.optional-dependencies]

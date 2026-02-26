@@ -13,7 +13,7 @@ export function SettingsProjectMemory({ isAdmin }: SettingsProjectMemoryProps) {
 	const projectMemorySettings = useQuery(trpc.project.getMemorySettings.queryOptions());
 
 	const updateProjectMemory = useMutation(
-		trpc.project.updateMemorySettings.mutationOptions({
+		trpc.project.updateAgentSettings.mutationOptions({
 			onSuccess: () => {
 				queryClient.invalidateQueries({
 					queryKey: trpc.project.getMemorySettings.queryOptions().queryKey,

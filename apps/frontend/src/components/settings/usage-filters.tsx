@@ -22,6 +22,7 @@ const providerLabels: Record<LlmProvider, string> = {
 	google: 'Google',
 	mistral: 'Mistral',
 	openrouter: 'OpenRouter',
+	ollama: 'Ollama',
 };
 
 export const dateFormats: Record<Granularity, string> = {

@@ -4,8 +4,10 @@ import { z } from 'zod/v4';
 import * as chatQueries from '../queries/chat.queries';
 import { type SearchChatResult } from '../queries/chat.queries';
 import { agentService } from '../services/agent.service';
-import { posthog, PostHogEvent } from '../services/posthog.service';
-import { type ListChatResponse, type UIChat } from '../types/chat';
+import { posthog, PostHogEvent } from '../services/posthog';
+import { type ContextUsage, type ListChatResponse, type UIChat } from '../types/chat';
+import { llmProviderSchema } from '../types/llm';
+import { getChatContextUsage } from '../utils/chat-context-usage';
 import { ownedResourceProcedure, protectedProcedure } from './trpc';
 
 const chatOwnerProcedure = ownedResourceProcedure(chatQueries.getChatOwnerId, 'chat');
@@ -60,5 +62,29 @@ export const chatRoutes = {
 		.mutation(async ({ input, ctx }): Promise<void> => {
 			const { projectId } = await chatQueries.renameChat(input.chatId, input.title);
 			posthog.capture(ctx.user.id, PostHogEvent.ChatRenamed, { project_id: projectId, chat_id: input.chatId });
+		}),
+
+	getContextUsage: chatOwnerProcedure
+		.input(
+			z.object({
+				chatId: z.string(),
+				model: z
+					.object({
+						provider: llmProviderSchema,
+						modelId: z.string(),
+					})
+					.optional(),
+			}),
+		)
+		.query(async ({ input, ctx }): Promise<ContextUsage> => {
+			const usage = await getChatContextUsage({
+				chatId: input.chatId,
+				userId: ctx.user.id,
+				model: input.model,
+			});
+			if (!usage) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: `Chat with id ${input.chatId} not found.` });
+			}
+			return usage;
 		}),
 };

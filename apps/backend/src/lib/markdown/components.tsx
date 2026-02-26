@@ -1,50 +1,66 @@
 import { cloneElement, ReactElement, ReactNode } from 'react';
 
-export function Block({ children, separator = '\n\n' }: { children: ReactNode; separator?: string }) {
-	return <div data-separator={separator}>{children}</div>;
+/** Render a block with each child separated with one line by default. */
+export function Block({
+	children,
+	separator = '\n\n',
+	prefix = '',
+	indent,
+}: {
+	children: ReactNode;
+	separator?: string;
+	prefix?: string;
+	indent?: string;
+}) {
+	return (
+		<div data-separator={separator} data-indent={indent} data-prefix={prefix}>
+			{children}
+		</div>
+	);
 }
 
 export function Title({ children, level = 2 }: { children: ReactNode; level?: 1 | 2 | 3 | 4 | 5 | 6 }) {
 	return (
-		<>
+		<Span>
 			{`#`.repeat(level) + ' '}
 			{children}
-		</>
+		</Span>
 	);
 }
 
+/** Render an inline block. */
 export function Span({ children }: { children: ReactNode }) {
-	return children;
+	return <Block separator=''>{children}</Block>;
 }
 
 export function CodeBlock({ children, header }: { children: ReactNode; header?: string | string[] }) {
 	return (
-		<>
-			{'```' + (Array.isArray(header) ? header.join(' ') : (header ?? '')) + '\n'}
+		<Block separator={'\n'}>
+			{'```' + (Array.isArray(header) ? header.join(' ') : (header ?? ''))}
 			{children}
-			{'\n```'}
-		</>
+			{'```'}
+		</Block>
 	);
 }
 
 export function Link({ href, text }: { href: string; text: ReactNode }) {
 	return (
-		<>
+		<Span>
 			[{text}]({href})
-		</>
+		</Span>
 	);
 }
 
 export function Bold({ children }: { children: ReactNode }) {
-	return <>**{children}**</>;
+	return <Span>**{children}**</Span>;
 }
 
 export function Italic({ children }: { children: ReactNode }) {
-	return <>*{children}*</>;
+	return <Span>*{children}*</Span>;
 }
 
 export function Code({ children }: { children: ReactNode }) {
-	return <>`{children}`</>;
+	return <Span>`{children}`</Span>;
 }
 
 export function Br() {
@@ -69,11 +85,11 @@ export function List({ children, ordered, indent = 0 }: { children: ReactNode; o
 					: child;
 
 				return (
-					<>
+					<Span>
 						{'\t'.repeat(indent)}
 						{isListItem ? (ordered ? `${i + 1}. ` : '- ') : null}
 						{rendered}
-					</>
+					</Span>
 				);
 			})}
 		</Block>
@@ -81,7 +97,7 @@ export function List({ children, ordered, indent = 0 }: { children: ReactNode; o
 }
 
 export function ListItem({ children }: { children: ReactNode }) {
-	return children;
+	return <Span>{children}</Span>;
 }
 
 export function TitledList({ title, children, maxItems }: { title: string; children: ReactNode; maxItems?: number }) {
@@ -98,7 +114,7 @@ export function TitledList({ title, children, maxItems }: { title: string; child
 }
 
 export function Location({ children }: { children: ReactNode }) {
-	return <>**Location:** `{children}`</>;
+	return <Span>**Location:** `{children}`</Span>;
 }
 
 export function XML({ tag, props, children }: { tag: string; props?: Record<string, string>; children: ReactNode }) {
@@ -107,10 +123,13 @@ export function XML({ tag, props, children }: { tag: string; props?: Record<stri
 				.map(([key, value]) => `${key}=${JSON.stringify(value)}`)
 				.join(' ')
 		: '';
+
 	return (
-		<Block>
+		<Block separator={'\n'}>
 			<Span>{`<${tag}${propsString ? ` ${propsString}` : ''}>`}</Span>
-			{children}
+			<Block separator={'\n'} indent={'\t'}>
+				{children}
+			</Block>
 			<Span>{`</${tag}>`}</Span>
 		</Block>
 	);

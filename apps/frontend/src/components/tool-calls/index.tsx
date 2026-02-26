@@ -40,9 +40,7 @@ export const ToolCall = memo(({ toolPart }: { toolPart: UIToolPart }) => {
 		| React.ComponentType<ToolCallComponentProps>
 		| undefined;
 
-	if (!Component) {
-		return <DefaultToolCall toolPart={toolPart} />;
-	}
+	const Rendered = Component ? <Component toolPart={toolPart} /> : <DefaultToolCall toolPart={toolPart} />;
 
 	return (
 		<ToolCallProvider
@@ -52,7 +50,7 @@ export const ToolCall = memo(({ toolPart }: { toolPart: UIToolPart }) => {
 				isSettled: isMessageSettled || isToolSettled(toolPart),
 			}}
 		>
-			<Component toolPart={toolPart} />
+			{Rendered}
 		</ToolCallProvider>
 	);
 });

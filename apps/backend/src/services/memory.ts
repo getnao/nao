@@ -1,14 +1,20 @@
-import { generateText, ModelMessage, Output } from 'ai';
-import { z } from 'zod/v4';
-
+import { MemoryExtractorLLM } from '../agents/memory/memory-extractor-llm';
 import { LLM_PROVIDERS, type ProviderModelResult } from '../agents/providers';
 import { DBMemory, DBNewMemory } from '../db/abstractSchema';
-import { renderToMarkdown, XML } from '../lib/markdown';
+import * as llmInferenceQueries from '../queries/llm-inference';
 import * as memoryQueries from '../queries/memory';
+import { TokenUsage } from '../types/chat';
 import { LlmProvider } from '../types/llm';
-import { MemoryExtractionOptions, UserMemory } from '../types/memory';
+import type {
+	ExtractorLLMOutput,
+	MemoryCategory,
+	MemoryExtractionOptions,
+	UserInstruction,
+	UserMemory,
+	UserProfile,
+} from '../types/memory';
 import { resolveProviderModel } from '../utils/llm';
-import { MEMORY_CATEGORIES } from '../utils/memory';
+import { posthog, PostHogEvent } from './posthog';
 
 /**
  * Manages persistent user memories: injecting them into agent context and
@@ -34,23 +40,13 @@ class MemoryService {
 	}
 
 	/** Safely schedules memory extraction for a user message. */
-	public safeScheduleMemoryExtraction(opts: MemoryExtractionOptions): void {
+	public safeScheduleMemoryExtraction(opts: MemoryExtractionOptions) {
 		this._extractMemory(opts).catch((err) => {
 			console.error('[memory] extractor failed:', err);
 		});
 	}
 
-	/** Normalizes memory content for persistence and user edits. */
-	public normalizeMemoryContent(content: string): string {
-		return this._normalizeMemoryContent(content);
-	}
-
 	private async _extractMemory(opts: MemoryExtractionOptions): Promise<void> {
-		const userMessage = opts.userMessage.trim();
-		if (!userMessage || userMessage.length < 6) {
-			return;
-		}
-
 		const isEnabled = await this._isMemoryEnabled(opts.userId, opts.projectId);
 		if (!isEnabled) {
 			return;
@@ -62,15 +58,32 @@ class MemoryService {
 			return;
 		}
 
-		const existingMemories = await memoryQueries.getUserMemories(opts.userId, opts.chatId);
+		const existingMemories = await memoryQueries.getUserMemories(opts.userId);
 		const extractor = new MemoryExtractorLLM(model);
-		const updated = await extractor.extract(existingMemories, userMessage);
+		const extractorResult = await extractor.extract(existingMemories, opts.messages);
+		if (!extractorResult) {
+			return;
+		}
 
-		await this._processNewMemories({
+		const { newCount, supersededCount } = await this._persistExtractedMemories({
 			userId: opts.userId,
 			chatId: opts.chatId,
-			previousMemories: existingMemories,
-			newMemories: updated,
+			existingMemories,
+			extractedMemories: extractorResult.output,
+		});
+
+		this._trackMemoryExtraction({
+			...opts,
+			modelId,
+			usage: extractorResult.usage,
+			newCount,
+			supersededCount,
+		});
+
+		await this._saveInferenceRecord({
+			...opts,
+			modelId,
+			usage: extractorResult.usage,
 		});
 	}
 
@@ -87,33 +100,53 @@ class MemoryService {
 		return providerConfig.extractorModelId;
 	}
 
-	/** Processes new memories by deleting dropped ones and upserting the new ones. */
-	private async _processNewMemories(opts: {
+	private async _persistExtractedMemories(opts: {
 		userId: string;
 		chatId: string;
-		previousMemories: DBMemory[];
-		newMemories: Memory[];
-	}): Promise<void> {
-		const previousIds = new Set(opts.previousMemories.map((m) => m.id));
-		const newIds = new Set(opts.newMemories.filter((m) => m.id).map((m) => m.id!));
+		existingMemories: DBMemory[];
+		extractedMemories: ExtractorLLMOutput;
+	}): Promise<{ newCount: number; supersededCount: number }> {
+		const existingIds = new Set(opts.existingMemories.map((m) => m.id));
+		const instructions = opts.extractedMemories.user_instructions ?? [];
+		const profile = opts.extractedMemories.user_profile ?? [];
 
-		const toDeleteIds = Array.from(previousIds).filter((id) => !newIds.has(id));
-		await memoryQueries.deleteMemories(toDeleteIds);
+		const newDbMemories = [
+			...this._toDbMemories(instructions, 'global_rule', opts.userId, opts.chatId),
+			...this._toDbMemories(profile, 'personal_fact', opts.userId, opts.chatId),
+		].filter(({ supersedesId }) => (supersedesId ? existingIds.has(supersedesId) : true));
 
-		const memoriesToUpsert: DBNewMemory[] = opts.newMemories.flatMap((memory) => {
-			const content = this._normalizeMemoryContent(memory.content);
-			if (!content) {
-				return [];
-			}
+		if (newDbMemories.length) {
+			await memoryQueries.upsertAndSupersedeMemories(newDbMemories);
+		}
 
-			const id = memory.id && previousIds.has(memory.id) ? memory.id : undefined;
-			return [{ id, userId: opts.userId, content, category: memory.category, chatId: opts.chatId }];
-		});
-
-		await memoryQueries.upsertMemories(memoriesToUpsert);
+		const supersededCount = newDbMemories.filter((m) => m.supersedesId).length;
+		return { newCount: newDbMemories.length - supersededCount, supersededCount };
 	}
 
-	private _normalizeMemoryContent(content: string): string {
+	private _toDbMemories(
+		items: (UserInstruction | UserProfile)[],
+		category: MemoryCategory,
+		userId: string,
+		chatId: string,
+	): (DBNewMemory & { supersedesId?: string | null })[] {
+		return items
+			.map((item) => {
+				const content = this.normalizeMemoryContent(item.content);
+				if (!content) {
+					return;
+				}
+				return {
+					userId,
+					content,
+					category,
+					chatId,
+					supersedesId: item.supersedes_id,
+				};
+			})
+			.filter((m) => m !== undefined);
+	}
+
+	public normalizeMemoryContent(content: string): string {
 		const normalized = content.trim().replace(/\s+/g, ' ');
 		if (normalized.length === 0) {
 			return normalized;
@@ -121,89 +154,45 @@ class MemoryService {
 		return /[.!?]$/.test(normalized) ? normalized : `${normalized}.`;
 	}
 
+	private _trackMemoryExtraction(
+		opts: MemoryExtractionOptions & {
+			modelId: string;
+			usage: TokenUsage;
+			newCount: number;
+			supersededCount: number;
+		},
+	) {
+		posthog.capture(opts.userId, PostHogEvent.AgentMemoryExtractionCompleted, {
+			project_id: opts.projectId,
+			chat_id: opts.chatId,
+			model_id: opts.modelId,
+			provider: opts.provider,
+			input_tokens: opts.usage.inputTotalTokens,
+			output_tokens: opts.usage.outputTotalTokens,
+			new_memories_count: opts.newCount,
+			superseded_memories_count: opts.supersededCount,
+		});
+	}
+
+	private async _saveInferenceRecord(
+		opts: MemoryExtractionOptions & {
+			modelId: string;
+			usage: TokenUsage;
+		},
+	): Promise<void> {
+		await llmInferenceQueries.insertLlmInference({
+			projectId: opts.projectId,
+			userId: opts.userId,
+			chatId: opts.chatId,
+			type: 'memory_extraction',
+			llmProvider: opts.provider,
+			llmModelId: opts.modelId,
+			...opts.usage,
+		});
+	}
+
 	private async _isMemoryEnabled(userId: string, projectId: string): Promise<boolean> {
 		return memoryQueries.getIsMemoryEnabledForUserAndProject(userId, projectId);
-	}
-}
-
-const MemorySchema = z.object({
-	id: z.string().nullable().describe('The id of the memory. Provide `null` for new memories.'),
-	content: z.string().min(1).describe('The content of the memory.'),
-	category: z.enum(MEMORY_CATEGORIES).describe('The category of the memory.'),
-});
-
-type Memory = z.infer<typeof MemorySchema>;
-
-const EXTRACTOR_SYSTEM_PROMPT = `You are a memory extractor assistant. You will be given a list of memories and a user message, and you will need to extract the new memories from the user message.
-
-You will receive the user's current memory list (may be empty), wrapped in a <memories> tag and a recent conversation turn.
-
-Return the complete, updated memory list. For each memory you can:
-- Keep it unchanged — include it with its original id
-- Update its content — include it with its original id and the new content
-- Delete it — omit it from the returned list
-- Add a new one — include it and provide \`null\` for the id field
-- Merge two related memories into one — keep one id, drop the other, combine their content
-
-Write each memory as a direct instruction to the agent, not as a fact about the user.
-Good: "Always respond in French."
-Bad: "The user wants responses in French."
-
-Only retain or add memories that:
-- The user stated explicitly (not inferred from behavior)
-- Apply globally across all future conversations
-- Would meaningfully change how the agent should behave
-
-Do NOT include:
-- Task-specific details (what they are working on right now)
-- Questions the user asked
-- Emotional reactions or pleasantries
-- Anything only relevant to this conversation
-- Instructions that are only relevant to a specific case
-- Facts about the user that are too specific or not important enough.
-
-Merge memories whenever they clearly overlap or are redundant — prefer fewer, broader directives over many narrow ones. For example, if two memories both concern response language, combine them into a single instruction.
-
-If nothing meaningful changed, return the existing memories unchanged.`;
-
-/**
- * Sends existing memories and a new conversation turn to an LLM and returns
- * the full reconciled memory list (additions, updates, deletions, merges).
- */
-class MemoryExtractorLLM {
-	constructor(private readonly model: ProviderModelResult) {}
-
-	async extract(memories: DBMemory[], userMessage: string): Promise<Memory[]> {
-		const { output } = await generateText({
-			...this.model,
-			output: Output.array({ element: MemorySchema }),
-			messages: this._buildMessages(memories, userMessage),
-			maxOutputTokens: 4000,
-		});
-		return output;
-	}
-
-	private _buildMessages(existingMemories: DBMemory[], userMessage: string): ModelMessage[] {
-		return [
-			{ role: 'system', content: EXTRACTOR_SYSTEM_PROMPT },
-			{
-				role: 'user',
-				content: [
-					{ type: 'text', text: this._formatMemoriesContext(existingMemories) },
-					{ type: 'text', text: userMessage },
-				],
-			},
-		];
-	}
-
-	private _formatMemoriesContext(memories: DBMemory[]): string {
-		return renderToMarkdown(
-			XML({
-				tag: 'memories',
-				props: undefined,
-				children: memories.map((m) => `[id: ${m.id}] [${m.category}] ${m.content}`).join('\n'),
-			}),
-		);
 	}
 }
 

@@ -1,5 +1,7 @@
 import { hashValue } from './hash';
 
+export { labelize } from '@nao/shared';
+
 export type RangeOptions = Record<string, { label: string }>;
 
 // TODO: make this dynamic based on the data
@@ -64,24 +66,6 @@ export function filterByDateRange<T extends Record<string, any>>(data: T[], xAxi
 function isValidDate(date: Date): boolean {
 	return !isNaN(date.getTime());
 }
-
-/** Checks if a string is in ISO 8601 date format (e.g., 2024-01-15 or 2024-01-15T12:30:00Z) */
-function isISODateString(value: string): boolean {
-	return /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2}(\.\d{3})?(Z|[+-]\d{2}:\d{2})?)?$/.test(value);
-}
-
-/** Converts a data key to a human readable label */
-export const labelize = (key: any) => {
-	if (typeof key === 'string' && isISODateString(key)) {
-		const date = new Date(key);
-		if (isValidDate(date)) {
-			return date.toDateString();
-		}
-	}
-	return String(key)
-		.replace(/_/g, ' ')
-		.replace(/\b\w/g, (char) => char.toUpperCase());
-};
 
 export const toKey = (value: string) => {
 	return hashValue(value);

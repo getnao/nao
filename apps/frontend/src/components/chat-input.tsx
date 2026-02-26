@@ -9,6 +9,8 @@ import { ChatInputMessageQueue } from './chat-input-message-queue';
 import type { PromptHandle, SelectedMention } from 'prompt-mentions';
 import type { FormEvent } from 'react';
 import type { AgentHelpers } from '@/hooks/use-agent';
+import { ContextWindowRing } from '@/components/ui/chat-input-context-window-ring';
+
 import { InputGroup, InputGroupAddon } from '@/components/ui/input-group';
 import { trpc } from '@/main';
 import { useAgentContext } from '@/contexts/agent.provider';
@@ -79,6 +81,7 @@ function ChatInputBase({
 	const isTranscribeEnabled = agentSettings.data?.transcribe?.enabled ?? false;
 	const hasTranscribeProvider = Object.values(transcribeModels.data ?? {}).some((p) => p.hasKey);
 	const isTranscribeReady = isTranscribeEnabled && hasTranscribeProvider;
+
 	const [micWarning, setMicWarning] = useState(false);
 	const micWarningTimer = useRef(0);
 
@@ -153,6 +156,8 @@ function ChatInputBase({
 									Cancel
 								</Button>
 							)}
+
+							<ContextWindowRing />
 
 							{isTranscribeReady && isRecording && <RecordingTimer />}
 							<MicButton

@@ -1,3 +1,5 @@
+import type { ImageBlock, MarkdownBlock } from '@slack/web-api';
+
 export const addButtonStopBlock = () => {
 	return {
 		type: 'actions',
@@ -15,3 +17,14 @@ export const addButtonStopBlock = () => {
 		],
 	};
 };
+
+export const createImageBlock = (imageUrl: string): ImageBlock => ({
+	type: 'image',
+	image_url: imageUrl,
+	alt_text: 'chart',
+});
+
+export const createTextBlock = (text: string): MarkdownBlock => ({
+	type: 'markdown',
+	text: text,
+});

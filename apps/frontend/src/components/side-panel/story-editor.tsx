@@ -324,11 +324,7 @@ export function StoryEditor({ code, editorRef }: StoryEditorProps) {
 			StarterKit.configure({
 				dropcursor: { width: 3, class: 'drop-cursor' },
 			}),
-			Markdown.configure({
-				html: true,
-				transformPastedText: true,
-				transformCopiedText: true,
-			}),
+			Markdown,
 			ChartBlock,
 			TableBlock,
 			GridBlock,

@@ -24,6 +24,7 @@ export function SettingsExperimental({ isAdmin }: SettingsExperimentalProps) {
 
 	const pythonSandboxingEnabled = agentSettings.data?.experimental?.pythonSandboxing ?? false;
 	const pythonAvailable = agentSettings.data?.capabilities?.pythonSandbox ?? true;
+	const dangerouslyWritePermEnabled = agentSettings.data?.sql?.dangerouslyWritePermEnabled ?? false;
 
 	const handlePythonSandboxingChange = (enabled: boolean) => {
 		updateAgentSettings.mutate({
@@ -31,6 +32,10 @@ export function SettingsExperimental({ isAdmin }: SettingsExperimentalProps) {
 				pythonSandboxing: enabled,
 			},
 		});
+	};
+
+	const handleDangerouslyWritePermChange = (enabled: boolean) => {
+		updateAgentSettings.mutate({ sql: { dangerouslyWritePermEnabled: enabled } });
 	};
 
 	return (
@@ -51,6 +56,19 @@ export function SettingsExperimental({ isAdmin }: SettingsExperimentalProps) {
 						checked={pythonSandboxingEnabled}
 						onCheckedChange={handlePythonSandboxingChange}
 						disabled={!isAdmin || !pythonAvailable || updateAgentSettings.isPending}
+					/>
+				}
+			/>
+			<SettingsControlRow
+				id='dangerously-write-perm'
+				label='Dangerous write permissions'
+				description='Allow the agent to execute INSERT, UPDATE, DELETE and DDL SQL queries. By default only SELECT queries are permitted.'
+				control={
+					<Switch
+						id='dangerously-write-perm'
+						checked={dangerouslyWritePermEnabled}
+						onCheckedChange={handleDangerouslyWritePermChange}
+						disabled={!isAdmin || updateAgentSettings.isPending}
 					/>
 				}
 			/>

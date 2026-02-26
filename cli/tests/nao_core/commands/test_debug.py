@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from nao_core.commands.debug import check_llm_connection, debug
-from nao_core.config.databases import BigQueryConfig, DuckDBConfig, PostgresConfig
+from nao_core.config.databases import BigQueryConfig, DuckDBConfig, PostgresConfig, TrinoConfig
 from nao_core.config.llm import LLMConfig, LLMProvider
 
 
@@ -132,6 +132,32 @@ class TestLLMConnection:
             assert success is False
             assert "Unauthorized" in message
 
+    def test_openrouter_connection_success(self):
+        config = LLMConfig(provider=LLMProvider.OPENROUTER, api_key="sk-test-api-key")
+        with patch("openai.OpenAI") as mock_openai_class:
+            mock_client = MagicMock()
+            mock_client.models.list.return_value = [MagicMock(), MagicMock(), MagicMock()]
+            mock_openai_class.return_value = mock_client
+            success, message = check_llm_connection(config)
+            assert success is True
+            assert "Connected successfully" in message
+            assert "3 models available" in message
+            # Verify OpenAI was called with OpenRouter base_url
+            mock_openai_class.assert_called_once_with(
+                base_url="https://openrouter.ai/api/v1", api_key="sk-test-api-key"
+            )
+
+    def test_openrouter_exception_returns_failure(self):
+        """API exception should return False with error message."""
+        config = LLMConfig(provider=LLMProvider.OPENROUTER, api_key="invalid")
+        with patch("openai.OpenAI") as mock_class:
+            mock_class.return_value.models.list.side_effect = Exception("Invalid API key")
+
+            success, message = check_llm_connection(config)
+
+            assert success is False
+            assert "Invalid API key" in message
+
 
 class TestDatabaseConnection:
     """Tests for check_connection method on database configs."""
@@ -180,6 +206,47 @@ class TestDatabaseConnection:
 
         assert success is True
         assert "Connected successfully" in message
+
+    def test_trino_connection_with_default_schema(self):
+        config = TrinoConfig(
+            name="test",
+            host="localhost",
+            port=8080,
+            catalog="hive",
+            user="nao",
+            schema_name="analytics",
+        )
+        mock_conn = MagicMock()
+        mock_conn.list_tables.return_value = ["table1", "table2"]
+
+        with patch.object(TrinoConfig, "connect", return_value=mock_conn):
+            success, message = config.check_connection()
+
+        assert success is True
+        assert "2 tables found" in message
+
+    def test_trino_get_schemas_filters_builtins_and_nullish_values(self):
+        config = TrinoConfig(name="test", host="localhost", port=8080, catalog="hive", user="nao")
+        mock_conn = MagicMock()
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = [
+            ("information_schema",),
+            ("default",),
+            ("sys",),
+            ("pg_catalog",),
+            (" pg_internal ",),
+            (" public ",),
+            ('"analytics"',),
+            ("'sales'",),
+            ("analytics",),
+            ("",),
+            (None,),
+        ]
+        mock_conn.raw_sql.return_value = mock_result
+
+        schemas = config.get_schemas(mock_conn)
+
+        assert schemas == ["analytics", "public", "sales"]
 
     def test_connection_failure(self):
         config = DuckDBConfig(name="test", path=":memory:")

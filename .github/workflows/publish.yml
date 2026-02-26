@@ -27,8 +27,15 @@ jobs:
                       platform: linux
                       arch: arm64
                       wheel-tag: manylinux2014_aarch64
+                    - os: windows-latest
+                      platform: win
+                      arch: x64
+                      wheel-tag: win_amd64
 
         runs-on: ${{ matrix.os }}
+        defaults:
+            run:
+                shell: bash
 
         steps:
             - name: Checkout
@@ -102,7 +109,7 @@ jobs:
             - name: Upload wheel artifact
               uses: actions/upload-artifact@v4
               with:
-                  name: wheel-${{ matrix.platform }}-${{ matrix.arch }}
+                  name: wheel-${{ matrix.wheel-tag }}
                   path: cli/dist/*.whl
                   retention-days: 7
 
