@@ -14,7 +14,7 @@ import { agentRoutes } from './routes/agent';
 import { authRoutes } from './routes/auth';
 import { slackRoutes } from './routes/slack';
 import { testRoutes } from './routes/test';
-import { posthog, PostHogEvent } from './services/posthog.service';
+import { posthog, PostHogEvent } from './services/posthog';
 import { TrpcRouter, trpcRouter } from './trpc/router';
 import { createContext } from './trpc/trpc';
 import { HandlerError } from './utils/error';

@@ -93,11 +93,11 @@ export const updateUserMemoryContent = async (
 	return updated ?? null;
 };
 
-export const deleteUserMemory = async (userId: string, memoryId: string): Promise<boolean> => {
-	const deleted = await db
+export const deleteUserMemory = async (userId: string, memoryId: string): Promise<DBMemory | null> => {
+	const [deleted] = await db
 		.delete(s.memories)
 		.where(and(eq(s.memories.id, memoryId), eq(s.memories.userId, userId)))
-		.returning({ id: s.memories.id })
+		.returning()
 		.execute();
-	return deleted.length > 0;
+	return deleted ?? null;
 };

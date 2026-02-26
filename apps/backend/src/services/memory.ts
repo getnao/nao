@@ -1,10 +1,9 @@
-import { LanguageModelUsage } from 'ai';
-
 import { MemoryExtractorLLM } from '../agents/memory/memory-extractor-llm';
 import { LLM_PROVIDERS, type ProviderModelResult } from '../agents/providers';
 import { DBMemory, DBNewMemory } from '../db/abstractSchema';
 import * as llmInferenceQueries from '../queries/llm-inference';
 import * as memoryQueries from '../queries/memory';
+import { TokenUsage } from '../types/chat';
 import { LlmProvider } from '../types/llm';
 import type {
 	ExtractorLLMOutput,
@@ -14,8 +13,8 @@ import type {
 	UserMemory,
 	UserProfile,
 } from '../types/memory';
-import { convertToTokenUsage } from '../utils/ai';
 import { resolveProviderModel } from '../utils/llm';
+import { posthog, PostHogEvent } from './posthog';
 
 /**
  * Manages persistent user memories: injecting them into agent context and
@@ -41,7 +40,7 @@ class MemoryService {
 	}
 
 	/** Safely schedules memory extraction for a user message. */
-	public safeScheduleMemoryExtraction(opts: MemoryExtractionOptions): void {
+	public safeScheduleMemoryExtraction(opts: MemoryExtractionOptions) {
 		this._extractMemory(opts).catch((err) => {
 			console.error('[memory] extractor failed:', err);
 		});
@@ -66,18 +65,23 @@ class MemoryService {
 			return;
 		}
 
-		await this._persistExtractedMemories({
+		const { newCount, supersededCount } = await this._persistExtractedMemories({
 			userId: opts.userId,
 			chatId: opts.chatId,
 			existingMemories,
 			extractedMemories: extractorResult.output,
 		});
 
+		this._trackMemoryExtraction({
+			...opts,
+			modelId,
+			usage: extractorResult.usage,
+			newCount,
+			supersededCount,
+		});
+
 		await this._saveInferenceRecord({
-			projectId: opts.projectId,
-			userId: opts.userId,
-			chatId: opts.chatId,
-			provider: opts.provider,
+			...opts,
 			modelId,
 			usage: extractorResult.usage,
 		});
@@ -101,7 +105,7 @@ class MemoryService {
 		chatId: string;
 		existingMemories: DBMemory[];
 		extractedMemories: ExtractorLLMOutput;
-	}): Promise<void> {
+	}): Promise<{ newCount: number; supersededCount: number }> {
 		const existingIds = new Set(opts.existingMemories.map((m) => m.id));
 		const instructions = opts.extractedMemories.user_instructions ?? [];
 		const profile = opts.extractedMemories.user_profile ?? [];
@@ -114,6 +118,9 @@ class MemoryService {
 		if (newDbMemories.length) {
 			await memoryQueries.upsertAndSupersedeMemories(newDbMemories);
 		}
+
+		const supersededCount = newDbMemories.filter((m) => m.supersedesId).length;
+		return { newCount: newDbMemories.length - supersededCount, supersededCount };
 	}
 
 	private _toDbMemories(
@@ -147,18 +154,32 @@ class MemoryService {
 		return /[.!?]$/.test(normalized) ? normalized : `${normalized}.`;
 	}
 
-	private async _saveInferenceRecord(opts: {
-		projectId: string;
-		userId: string;
-		chatId: string;
-		provider: LlmProvider;
-		modelId: string;
-		usage: LanguageModelUsage;
-	}): Promise<void> {
-		const tokenUsage = convertToTokenUsage(opts.usage);
-		if (!tokenUsage.totalTokens) {
-			return;
-		}
+	private _trackMemoryExtraction(
+		opts: MemoryExtractionOptions & {
+			modelId: string;
+			usage: TokenUsage;
+			newCount: number;
+			supersededCount: number;
+		},
+	) {
+		posthog.capture(opts.userId, PostHogEvent.AgentMemoryExtractionCompleted, {
+			project_id: opts.projectId,
+			chat_id: opts.chatId,
+			model_id: opts.modelId,
+			provider: opts.provider,
+			input_tokens: opts.usage.inputTotalTokens,
+			output_tokens: opts.usage.outputTotalTokens,
+			new_memories_count: opts.newCount,
+			superseded_memories_count: opts.supersededCount,
+		});
+	}
+
+	private async _saveInferenceRecord(
+		opts: MemoryExtractionOptions & {
+			modelId: string;
+			usage: TokenUsage;
+		},
+	): Promise<void> {
 		await llmInferenceQueries.insertLlmInference({
 			projectId: opts.projectId,
 			userId: opts.userId,
@@ -166,7 +187,7 @@ class MemoryService {
 			type: 'memory_extraction',
 			llmProvider: opts.provider,
 			llmModelId: opts.modelId,
-			...tokenUsage,
+			...opts.usage,
 		});
 	}
 

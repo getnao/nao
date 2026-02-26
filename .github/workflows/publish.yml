@@ -11,6 +11,10 @@ jobs:
             fail-fast: false
             matrix:
                 include:
+                    - os: macos-14
+                      platform: darwin
+                      arch: arm64
+                      wheel-tag: macosx_14_0_arm64
                     - os: macos-15
                       platform: darwin
                       arch: arm64

@@ -4,7 +4,7 @@ import { z } from 'zod/v4';
 import { MessageFeedback } from '../db/abstractSchema';
 import * as chatQueries from '../queries/chat.queries';
 import * as feedbackQueries from '../queries/feedback.queries';
-import { posthog, PostHogEvent } from '../services/posthog.service';
+import { posthog, PostHogEvent } from '../services/posthog';
 import { adminProtectedProcedure, projectProtectedProcedure } from './trpc';
 
 export const feedbackRoutes = {

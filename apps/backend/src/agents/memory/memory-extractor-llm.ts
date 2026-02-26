@@ -1,19 +1,19 @@
-import { generateText, LanguageModelUsage, ModelMessage, Output } from 'ai';
+import { generateText, ModelMessage, Output } from 'ai';
 
 import { renderMemoryExtractionUserMessage } from '../../components/ai';
 import { MEMORY_EXTRACTION_SYSTEM_PROMPT } from '../../components/ai/memory-system-prompt';
 import { DBMemory } from '../../db/abstractSchema';
-import { UIMessage } from '../../types/chat';
+import { TokenUsage, UIMessage } from '../../types/chat';
 import type { ExtractorLLMOutput } from '../../types/memory';
 import { ExtractorOutputSchema } from '../../types/memory';
-import { findLastUserMessage, getLastUserMessageText, joinAllTextParts } from '../../utils/ai';
+import { convertToTokenUsage, findLastUserMessage, getLastUserMessageText, joinAllTextParts } from '../../utils/ai';
 import { debugMemory } from '../../utils/debug';
 import { truncateMiddle } from '../../utils/utils';
 import { type ProviderModelResult } from '../providers';
 
 interface MemoryExtractorResult {
 	output: ExtractorLLMOutput;
-	usage: LanguageModelUsage;
+	usage: TokenUsage;
 }
 
 const CONVERSATION_MESSAGE_LIMIT = 17;
@@ -46,7 +46,7 @@ export class MemoryExtractorLLM {
 
 		debugMemory('output', output);
 
-		return { output, usage };
+		return { output, usage: convertToTokenUsage(usage) };
 	}
 
 	private _buildModelMessages(memories: DBMemory[], uiMessages: UIMessage[]): ModelMessage[] {

@@ -7,8 +7,9 @@ import * as projectQueries from '../queries/project.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import * as savedPromptQueries from '../queries/project-saved-prompt.queries';
 import * as slackConfigQueries from '../queries/project-slack-config.queries';
-import { posthog, PostHogEvent } from '../services/posthog.service';
+import { posthog, PostHogEvent } from '../services/posthog';
 import { getAvailableModels as getAvailableTranscribeModels } from '../services/transcribe.service';
+import { AgentSettings } from '../types/agent-settings';
 import { llmConfigSchema, LlmProvider, llmProviderSchema } from '../types/llm';
 import { getEnvApiKey, getEnvBaseUrls, getEnvProviders, getProjectAvailableModels } from '../utils/llm';
 import { adminProtectedProcedure, projectProtectedProcedure, publicProcedure } from './trpc';
@@ -300,15 +301,26 @@ export const projectRoutes = {
 					})
 					.optional(),
 				sql: z.object({ dangerouslyWritePermEnabled: z.boolean().optional() }).optional(),
+				memoryEnabled: z.boolean().optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
 			const existing = (await projectQueries.getAgentSettings(ctx.project.id)) ?? {};
-			const merged = {
+			const merged: AgentSettings = {
+				memoryEnabled: input.memoryEnabled ?? existing.memoryEnabled,
 				experimental: { ...existing.experimental, ...input.experimental },
 				transcribe: { ...existing.transcribe, ...input.transcribe },
 				sql: { ...existing.sql, ...input.sql },
 			};
+			posthog.capture(ctx.user.id, PostHogEvent.ProjectAgentSettingsUpdated, {
+				project_id: ctx.project.id,
+				transcribe_enabled: merged.transcribe?.enabled,
+				transcribe_provider: merged.transcribe?.provider,
+				transcribe_model_id: merged.transcribe?.modelId,
+				sql_dangerously_write_perm_enabled: merged.sql?.dangerouslyWritePermEnabled,
+				python_sandboxing_enabled: merged.experimental?.pythonSandboxing,
+				memory_enabled: merged.memoryEnabled,
+			});
 			return projectQueries.updateAgentSettings(ctx.project.id, merged);
 		}),
 
@@ -316,11 +328,4 @@ export const projectRoutes = {
 		const memoryEnabled = await projectQueries.getProjectMemoryEnabled(ctx.project.id);
 		return { memoryEnabled };
 	}),
-
-	updateMemorySettings: adminProtectedProcedure
-		.input(z.object({ memoryEnabled: z.boolean() }))
-		.mutation(async ({ ctx, input }) => {
-			await projectQueries.setProjectMemoryEnabled(ctx.project.id, input.memoryEnabled);
-			return { memoryEnabled: input.memoryEnabled };
-		}),
 };
