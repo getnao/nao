@@ -3,7 +3,7 @@ import { Node, mergeAttributes } from '@tiptap/core';
 import { useEditor, EditorContent, ReactNodeViewRenderer, NodeViewWrapper } from '@tiptap/react';
 import { DragHandle } from '@tiptap/extension-drag-handle-react';
 import StarterKit from '@tiptap/starter-kit';
-import { Markdown } from 'tiptap-markdown';
+import { Markdown } from '@tiptap/markdown';
 import { Streamdown } from 'streamdown';
 import { GripVertical } from 'lucide-react';
 import { StoryChartEmbed } from './story-chart-embed';
