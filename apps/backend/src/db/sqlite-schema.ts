@@ -3,7 +3,7 @@ import { sql } from 'drizzle-orm';
 import { check, index, integer, primaryKey, sqliteTable, text, unique } from 'drizzle-orm/sqlite-core';
 
 import { AgentSettings } from '../types/agent-settings';
-import { StopReason, ToolState, UIMessagePartType } from '../types/chat';
+import { CompactionSummaryType, StopReason, ToolState, UIMessagePartType } from '../types/chat';
 import { LLM_INFERENCE_TYPES, LlmProvider } from '../types/llm';
 import { MEMORY_CATEGORIES } from '../types/memory';
 import { ORG_ROLES } from '../types/organization';
@@ -208,6 +208,7 @@ export const chatMessage = sqliteTable(
 		llmProvider: text('llm_provider').$type<LlmProvider>(),
 		llmModelId: text('llm_model_id'),
 		supersededAt: integer('superseded_at', { mode: 'timestamp_ms' }),
+		isCompactionSummary: integer('is_compaction_summary', { mode: 'boolean' }).default(false).notNull(),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull(),
@@ -246,6 +247,7 @@ export const messagePart = sqliteTable(
 		// text columns
 		text: text('text'),
 		reasoningText: text('reasoning_text'),
+		summaryType: text('summary_type').$type<CompactionSummaryType>(),
 
 		// tool call columns
 		toolCallId: text('tool_call_id').unique(),

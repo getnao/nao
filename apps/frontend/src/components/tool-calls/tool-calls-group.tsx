@@ -1,13 +1,13 @@
 import { useState, useEffect, memo } from 'react';
 import { ToolCall } from './index';
-import type { CollapsiblePart } from '@/types/ai';
+import type { GroupablePart } from '@/types/ai';
 import { Expandable } from '@/components/ui/expandable';
 import { AssistantReasoning } from '@/components/chat-messages/assistant-reasoning';
 import { isReasoningPart } from '@/lib/ai';
 import { useToolGroupSummaryTitle } from '@/hooks/use-tool-group-summary-title';
 
 interface Props {
-	parts: CollapsiblePart[];
+	parts: GroupablePart[];
 	isSettled: boolean;
 }
 

@@ -10,6 +10,7 @@ import {
 	StreamTextResult,
 	ToolLoopAgent,
 	ToolLoopAgentSettings,
+	UIMessageStreamWriter,
 } from 'ai';
 
 import { CACHE_1H, CACHE_5M } from '../agents/providers';
@@ -22,16 +23,16 @@ import * as projectQueries from '../queries/project.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import * as storyQueries from '../queries/story.queries';
 import { AgentSettings } from '../types/agent-settings';
-import { Mention, MessageCustomDataParts, TokenCost, TokenUsage, UIChat, UIMessage } from '../types/chat';
+import { AgentTools, Mention, MessageCustomDataParts, TokenCost, TokenUsage, UIChat, UIMessage } from '../types/chat';
 import { ToolContext } from '../types/tools';
 import { convertToCost, convertToTokenUsage, findLastUserMessage, retrieveProjectById } from '../utils/ai';
 import { HandlerError } from '../utils/error';
 import { getDefaultModelId, getEnvModelSelections, ModelSelection, resolveProviderModel } from '../utils/llm';
+import { compactionService } from './compaction.service';
 import { memoryService } from './memory';
 import { skillService } from './skill.service';
 
 export type { ModelSelection };
-type AgentTools = Awaited<ReturnType<typeof getTools>>;
 
 export interface AgentRunResult {
 	text: string;
@@ -145,8 +146,11 @@ export class AgentService {
 	}
 }
 
+const MAX_OUTPUT_TOKENS = 16_000;
+
 class AgentManager {
 	private readonly _agent: ToolLoopAgent<never, AgentTools, never>;
+	private _streamWriter?: UIMessageStreamWriter<UIMessage>;
 
 	constructor(
 		readonly chat: AgentChat,
@@ -160,13 +164,38 @@ class AgentManager {
 		this._agent = new ToolLoopAgent({
 			...this._modelConfig,
 			tools: this._agentTools,
-			maxOutputTokens: 16_000,
-			prepareStep: ({ messages }) => ({
-				messages: this._addCache(this._pruneMessages(messages)),
-			}),
+			maxOutputTokens: MAX_OUTPUT_TOKENS,
+			prepareStep: async ({ messages }) => this._prepareStep(messages),
 			stopWhen: [hasToolCall('suggest_follow_ups')],
 			experimental_context: this._toolContext,
 		});
+	}
+
+	private async _prepareStep(messages: ModelMessage[]): Promise<{ messages: ModelMessage[] }> {
+		await compactionService.compactConversationIfNeeded({
+			chatId: this.chat.id,
+			projectId: this.chat.projectId,
+			userId: this.chat.userId,
+			provider: this._modelSelection.provider,
+			messages,
+			tools: this._agentTools,
+			maxOutputTokens: MAX_OUTPUT_TOKENS,
+			contextWindow: 29_000,
+			onCompactionStarted: () => {
+				this._streamWriter?.write({
+					type: 'data-compactionSummaryStarted',
+					data: undefined,
+				});
+			},
+			onCompactionFinished: (result) => {
+				this._streamWriter?.write({
+					type: 'data-compaction',
+					data: result,
+				});
+			},
+		});
+
+		return { messages: this._addCache(this._pruneMessages(messages)) };
 	}
 
 	stream(
@@ -193,10 +222,10 @@ class AgentManager {
 					writer.write({
 						type: 'data-newUserMessage',
 						data: opts.events.newUserMessage,
-						transient: true,
 					});
 				}
 
+				this._streamWriter = writer;
 				const messages = await this._buildModelMessages(uiMessages, opts.mentions);
 
 				result = await this._agent.stream({
@@ -207,7 +236,11 @@ class AgentManager {
 				// Extract memory immediately after the request to the agent is sent
 				this._scheduleMemoryExtraction(uiMessages);
 
-				writer.merge(result.toUIMessageStream({}));
+				writer.merge(
+					result.toUIMessageStream({
+						sendStart: false,
+					}),
+				);
 			},
 			onError: (err) => {
 				error = err;
@@ -234,19 +267,27 @@ class AgentManager {
 	}
 
 	/**
-	 * Prepares the UI messages and builds them into model messages with memory.
+	 * Prepares the UI messages and builds them into model messages with memory and compaction summary.
 	 */
 	private async _buildModelMessages(uiMessages: UIMessage[], mentions?: Mention[]): Promise<ModelMessage[]> {
-		uiMessages = this._addSkills(uiMessages, mentions);
-		uiMessages = await this._syncStoryToolOutputs(uiMessages);
-		const modelMessages = await convertToModelMessages(uiMessages, { tools: this._agentTools });
+		const uiMessagesWithSkills = this._addSkills(uiMessages, mentions);
+		const uiMessagesWithCompaction = compactionService.useLastCompaction(uiMessagesWithSkills);
+
 		const memories = await memoryService.safeGetUserMemories(this.chat.userId, this.chat.projectId, this.chat.id);
 		const userRules = getUserRules();
 		const connections = getConnections();
 		const skills = skillService.getSkills();
 		const systemPrompt = renderToMarkdown(SystemPrompt({ memories, userRules, connections, skills }));
-		const systemMessage: ModelMessage = { role: 'system', content: systemPrompt };
-		modelMessages.unshift(systemMessage);
+
+		const systemMessage: Omit<UIMessage, 'id'> = {
+			role: 'system',
+			parts: [{ type: 'text', text: systemPrompt }],
+		};
+
+		const modelMessages = await convertToModelMessages<UIMessage>([systemMessage, ...uiMessagesWithCompaction], {
+			tools: this._agentTools,
+		});
+
 		return modelMessages;
 	}
 
@@ -342,11 +383,15 @@ class AgentManager {
 		}
 	}
 
-	async generate(messages: UIMessage[]): Promise<AgentRunResult> {
+	async generate(uiMessages: UIMessage[]): Promise<AgentRunResult> {
 		const startTime = performance.now();
+		const messages = await this._buildModelMessages(uiMessages);
 		const result = await this._agent.generate({
-			messages: await this._buildModelMessages(messages),
+			messages,
 			abortSignal: this._abortController.signal,
+			onFinish: () => {
+				this._onDispose();
+			},
 		});
 		const durationMs = Math.round(performance.now() - startTime);
 
@@ -354,7 +399,6 @@ class AgentManager {
 		const cost = convertToCost(usage, this._modelSelection.provider, this._modelSelection.modelId);
 		const finishReason = result.finishReason ?? 'stop';
 
-		this._onDispose();
 		return {
 			text: result.text,
 			usage,

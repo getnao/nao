@@ -65,5 +65,5 @@ export type ModelSelection = {
 	modelId: string;
 };
 
-export const LLM_INFERENCE_TYPES = ['memory_extraction'] as const;
+export const LLM_INFERENCE_TYPES = ['memory_extraction', 'compaction'] as const;
 export type LlmInferenceType = (typeof LLM_INFERENCE_TYPES)[number];

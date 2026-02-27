@@ -7,7 +7,12 @@ import { AssistantMessage } from './assistant-message';
 import { UserMessage } from './user-message';
 import type { UIMessage } from '@nao/backend/chat';
 import type { MessageGroup } from '@/types/ai';
-import { groupMessages, checkIsLastMessageStreaming, getLastFollowUpSuggestionsToolCall } from '@/lib/ai';
+import {
+	groupMessages,
+	checkIsLastMessageStreaming,
+	getLastFollowUpSuggestionsToolCall,
+	checkIsSomeToolsExecuting,
+} from '@/lib/ai';
 import {
 	Conversation,
 	ConversationContent,
@@ -28,6 +33,13 @@ export function ChatMessages() {
 	const containerHeight = useHeight(contentRef, [chatId]);
 	const { messages, isRunning } = useAgentContext();
 	const isAgentGenerating = isRunning && checkIsLastMessageStreaming(messages);
+	const someToolsExectuting = isRunning && checkIsSomeToolsExecuting(messages);
+
+	// Debounce when the agent is running but not generating content yet to prevent flickering
+	const showThinkingLoader = useDebounceValue(isRunning && !isAgentGenerating && !someToolsExectuting, {
+		delay: 50,
+		skipDebounce: (value) => !value, // Skip debounce if the value equals `false` to immediately remove the loader
+	});
 
 	// Skip fade-in animation when navigating from home after sending a message
 	const fromMessageSend = useRouterState({ select: (state) => state.location.state.fromMessageSend });
@@ -41,7 +53,7 @@ export function ChatMessages() {
 		>
 			<Conversation>
 				<ConversationContent className='max-w-3xl mx-auto gap-0'>
-					<ChatMessagesContent isAgentGenerating={isAgentGenerating} />
+					<ChatMessagesContent showThinkingLoader={showThinkingLoader} />
 				</ConversationContent>
 
 				<ConversationScrollButton />
@@ -50,7 +62,7 @@ export function ChatMessages() {
 	);
 }
 
-const ChatMessagesContent = memo(({ isAgentGenerating }: { isAgentGenerating: boolean }) => {
+const ChatMessagesContent = memo(({ showThinkingLoader }: { showThinkingLoader: boolean }) => {
 	const { messages, isRunning } = useAgentContext();
 	const followUpSuggestionsToolCall = useMemo(() => getLastFollowUpSuggestionsToolCall(messages), [messages]);
 	const extraComponentsRef = useRef<HTMLDivElement>(null);
@@ -58,12 +70,6 @@ const ChatMessagesContent = memo(({ isAgentGenerating }: { isAgentGenerating: bo
 	const messageGroups = useMemo(() => groupMessages(messages), [messages]);
 
 	useScrollToBottomOnNewUserMessage(messages);
-
-	// Debounce when the agent is running but not generating content yet to prevent flickering
-	const isRunningButNotGeneratingDebounced = useDebounceValue(isRunning && !isAgentGenerating, {
-		delay: 50,
-		skipDebounce: (value) => !value, // Skip debounce if the value equals `false` to immediately remove the loader
-	});
 
 	return (
 		<>
@@ -79,7 +85,7 @@ const ChatMessagesContent = memo(({ isAgentGenerating }: { isAgentGenerating: bo
 							key={group.userMessage.id}
 							userMessage={group.userMessage}
 							assistantMessages={group.assistantMessages}
-							showLoader={isRunningButNotGeneratingDebounced && isLast(group, messageGroups)}
+							showLoader={showThinkingLoader && isLast(group, messageGroups)}
 							isLastMessage={(messageId) => messageId === messages.at(-1)?.id}
 							isRunning={isRunning}
 						/>

@@ -78,7 +78,7 @@ const aggregateChatMessagParts = (
 		message_part: DBMessagePart;
 		message_feedback?: MessageFeedback | null;
 	}[],
-) => {
+): UIMessage[] => {
 	const messagesMap = result.reduce(
 		(acc, row) => {
 			const uiPart = convertDBPartToUIPart(row.message_part);

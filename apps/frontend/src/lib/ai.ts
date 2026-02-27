@@ -7,7 +7,7 @@ import {
 import type { ReasoningUIPart, ToolUIPart } from 'ai';
 import type { UseChatHelpers } from '@ai-sdk/react';
 import type { UITools, UIToolPart, UIMessage, UIMessagePart, StaticToolName } from '@nao/backend/chat';
-import type { CollapsiblePart, ToolGroupPart, GroupedMessagePart, MessageGroup } from '@/types/ai';
+import type { GroupablePart, ToolGroupPart, GroupedMessagePart, MessageGroup } from '@/types/ai';
 
 /** The ID used for new chats not yet persisted to the db. */
 export const NEW_CHAT_ID = 'new-chat';
@@ -42,7 +42,15 @@ export const checkIsLastMessageStreaming = (messages: UIMessage[]) => {
 	if (!lastMessage) {
 		return false;
 	}
-	return isMessageStreaming(lastMessage);
+	return isMessageStreaming(lastMessage) || isSummarizing(lastMessage);
+};
+
+export const checkIsSomeToolsExecuting = (messages: UIMessage[]) => {
+	const lastMessage = messages.at(-1);
+	if (!lastMessage) {
+		return false;
+	}
+	return lastMessage.parts.some((part) => isToolUIPart(part) && part.state === 'input-available');
 };
 
 export const isMessageStreaming = (message: UIMessage) => {
@@ -51,6 +59,18 @@ export const isMessageStreaming = (message: UIMessage) => {
 			return true;
 		}
 	});
+};
+
+const isSummarizing = (message: UIMessage) => {
+	const hasSummaryStarted = message.parts.some((part) => part.type === 'data-compactionSummaryStarted');
+	if (!hasSummaryStarted) {
+		return false;
+	}
+	const hasSummaryFinished = message.parts.some((part) => part.type === 'data-compaction');
+	if (hasSummaryFinished) {
+		return false;
+	}
+	return true;
 };
 
 export const checkIsAgentRunning = (agent: Pick<UseChatHelpers<UIMessage>, 'status'>) => {
@@ -81,7 +101,7 @@ export const isToolGroupPart = (part: GroupedMessagePart): part is ToolGroupPart
  */
 export const groupToolCalls = (parts: UIMessagePart[]): GroupedMessagePart[] => {
 	const result: GroupedMessagePart[] = [];
-	let currentGroup: CollapsiblePart[] = [];
+	let currentGroup: GroupablePart[] = [];
 
 	const flushGroup = () => {
 		if (currentGroup.length > 0) {
@@ -96,9 +116,14 @@ export const groupToolCalls = (parts: UIMessagePart[]): GroupedMessagePart[] => 
 	};
 
 	for (const part of parts) {
-		if (isCollapsiblePart(part)) {
+		if (isPartGroupable(part)) {
 			currentGroup.push(part);
-		} else if (part.type === 'text' || isToolUIPart(part)) {
+		} else if (
+			part.type === 'text' ||
+			part.type === 'data-compaction' ||
+			part.type === 'data-compactionSummaryStarted' ||
+			isToolUIPart(part)
+		) {
 			flushGroup();
 			result.push(part);
 		}
@@ -109,7 +134,7 @@ export const groupToolCalls = (parts: UIMessagePart[]): GroupedMessagePart[] => 
 };
 
 /** Check if a message part should be collapsed (tool or reasoning) */
-export const isCollapsiblePart = (part: UIMessagePart): part is CollapsiblePart => {
+export const isPartGroupable = (part: UIMessagePart): part is GroupablePart => {
 	if (isReasoningPart(part)) {
 		return true;
 	}

@@ -1,10 +1,11 @@
-import { LanguageModelUsage } from 'ai';
+import { LanguageModelUsage, ModelMessage } from 'ai';
 
 import { LLM_PROVIDERS } from '../agents/providers';
 import * as projectQueries from '../queries/project.queries';
 import { DBProject } from '../queries/project-slack-config.queries';
-import { TokenCost, TokenUsage, UIMessage } from '../types/chat';
+import { AgentTools, TokenCost, TokenUsage, UIMessage } from '../types/chat';
 import { LlmProvider } from '../types/llm';
+import { getJsonSchema } from './tools';
 
 export const convertToTokenUsage = (usage: LanguageModelUsage): TokenUsage => ({
 	inputTotalTokens: usage.inputTokens,
@@ -67,8 +68,10 @@ export const retrieveProjectById = async (projectId: string): Promise<DBProject>
 
 export const findLastUserMessage = (
 	messages: UIMessage[],
+	beforeIdx: number = 0,
 ): [message: UIMessage, idx: number] | [undefined, undefined] => {
-	for (let i = messages.length - 1; i >= 0; i--) {
+	const lastIdx = Math.min(messages.length - 1, beforeIdx);
+	for (let i = lastIdx; i >= 0; i--) {
 		if (messages[i].role === 'user') {
 			return [messages[i], i];
 		}
@@ -108,3 +111,20 @@ export const joinAllTextParts = (message: UIMessage, separator: string = '\n'): 
 		.join(separator)
 		.trim();
 };
+
+export function estimateMessagesTokens(messages: ModelMessage[]): number {
+	return estimateTokens(JSON.stringify(messages));
+}
+
+export function estimateMessageTokens(message: ModelMessage): number {
+	return estimateTokens(JSON.stringify(message));
+}
+
+export async function estimateToolsTokens(tools: AgentTools): Promise<number> {
+	const toolSchemaSizePromise = Object.values(tools).map(async (tool) => {
+		const schema = await getJsonSchema(tool);
+		return estimateTokens(JSON.stringify(schema, null, 2));
+	});
+	const toolSchemaSizes = await Promise.all(toolSchemaSizePromise);
+	return toolSchemaSizes.reduce((acc, curr) => acc + curr, 0);
+}

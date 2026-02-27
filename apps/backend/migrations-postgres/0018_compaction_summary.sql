@@ -1,0 +1,1 @@
+ALTER TABLE "chat_message" ADD COLUMN "is_compaction_summary" boolean DEFAULT false NOT NULL;

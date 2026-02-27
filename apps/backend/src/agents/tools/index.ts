@@ -1,5 +1,7 @@
 export { isPythonAvailable } from './execute-python';
 
+import { asSchema, type FlexibleSchema, type JSONSchema7 } from 'ai';
+
 import { mcpService } from '../../services/mcp.service';
 import { AgentSettings } from '../../types/agent-settings';
 import displayChart from './display-chart';

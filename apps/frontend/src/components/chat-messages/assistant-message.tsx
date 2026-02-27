@@ -6,6 +6,7 @@ import { checkAssistantMessageHasContent, groupToolCalls, isToolGroupPart, isToo
 import { ToolCallsGroup } from '@/components/tool-calls/tool-calls-group';
 import { ToolCall } from '@/components/tool-calls';
 import { AssistantReasoning } from '@/components/chat-messages/assistant-reasoning';
+import { AssistantCompaction } from '@/components/chat-messages/assistant-compaction';
 import { TextShimmer } from '@/components/ui/text-shimmer';
 import { AssistantMessageActions } from '@/components/chat-messages/assistant-message-actions';
 import { cn, isLast } from '@/lib/utils';
@@ -61,32 +62,48 @@ export const AssistantMessage = memo(
 
 const MessageParts = memo(({ parts }: { parts: GroupedMessagePart[] }) => {
 	const { isSettled } = useAssistantMessage();
+	const hasSummary = useMemo(() => parts.some((part) => part.type === 'data-compaction'), [parts]);
 	return parts.map((part, i) => (
-		<MessagePart key={i} part={part} isPartSettled={isSettled || !isLast(part, parts)} />
+		<MessagePart key={i} part={part} isPartSettled={isSettled || !isLast(part, parts)} hasSummary={hasSummary} />
 	));
 });
 
-const MessagePart = memo(({ part, isPartSettled }: { part: GroupedMessagePart; isPartSettled: boolean }) => {
-	if (isToolGroupPart(part)) {
-		return <ToolCallsGroup parts={part.parts} isSettled={isPartSettled} />;
-	}
+const MessagePart = memo(
+	({
+		part,
+		isPartSettled,
+		hasSummary,
+	}: {
+		part: GroupedMessagePart;
+		isPartSettled: boolean;
+		hasSummary: boolean;
+	}) => {
+		if (isToolGroupPart(part)) {
+			return <ToolCallsGroup parts={part.parts} isSettled={isPartSettled} />;
+		}
 
-	if (isToolUIPart(part)) {
-		return <ToolCall toolPart={part} />;
-	}
+		if (isToolUIPart(part)) {
+			return <ToolCall toolPart={part} />;
+		}
 
-	const isPartStreaming = !isPartSettled && 'state' in part && part.state === 'streaming';
+		const isPartStreaming = !isPartSettled && 'state' in part && part.state === 'streaming';
 
-	switch (part.type) {
-		case 'text':
-			return (
-				<Streamdown isAnimating={isPartStreaming} mode={isPartStreaming ? 'streaming' : 'static'}>
-					{part.text}
-				</Streamdown>
-			);
-		case 'reasoning':
-			return <AssistantReasoning text={part.text} isStreaming={isPartStreaming} />;
-		default:
-			return null;
-	}
-});
+		switch (part.type) {
+			case 'text':
+				return (
+					<Streamdown isAnimating={isPartStreaming} mode={isPartStreaming ? 'streaming' : 'static'}>
+						{part.text}
+					</Streamdown>
+				);
+			case 'reasoning':
+				return <AssistantReasoning text={part.text} isStreaming={isPartStreaming} />;
+			case 'data-compactionSummaryStarted': {
+				return !hasSummary ? <AssistantCompaction summary={''} isSummarizing={true} /> : null;
+			}
+			case 'data-compaction':
+				return <AssistantCompaction summary={part.data.summary} isSummarizing={false} />;
+			default:
+				return null;
+		}
+	},
+);
