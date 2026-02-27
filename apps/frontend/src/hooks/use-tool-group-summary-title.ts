@@ -17,7 +17,7 @@ export const useToolGroupSummaryTitle = (opts: { parts: CollapsiblePart[]; isLoa
 			fullTitle += ` ${toolCallsSummary}`;
 		}
 
-		const errorCount = parts.filter((part) => !isReasoningPart(part) && !!part.errorText).length + 1;
+		const errorCount = parts.filter((part) => !isReasoningPart(part) && !!part.errorText).length;
 
 		if (errorCount) {
 			fullTitle += ` (${errorCount} ${pluralize('error', errorCount)})`;
