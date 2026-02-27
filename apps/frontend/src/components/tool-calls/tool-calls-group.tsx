@@ -1,9 +1,10 @@
-import { useState, useMemo, useEffect, memo } from 'react';
+import { useState, useEffect, memo } from 'react';
 import { ToolCall } from './index';
 import type { CollapsiblePart } from '@/types/ai';
 import { Expandable } from '@/components/ui/expandable';
 import { AssistantReasoning } from '@/components/chat-messages/assistant-reasoning';
-import { isToolSettled, isReasoningPart } from '@/lib/ai';
+import { isReasoningPart } from '@/lib/ai';
+import { useToolGroupSummaryTitle } from '@/hooks/use-tool-group-summary-title';
 
 interface Props {
 	parts: CollapsiblePart[];
@@ -11,21 +12,14 @@ interface Props {
 }
 
 export const ToolCallsGroup = memo(({ parts, isSettled }: Props) => {
-	const allSettled = useMemo(() => parts.every(isPartSettled), [parts]);
-	const isLoading = !isSettled || !allSettled;
+	const isLoading = !isSettled;
 	const [isExpanded, setIsExpanded] = useState(isLoading);
 
 	useEffect(() => {
 		setIsExpanded(isLoading);
 	}, [isLoading]);
 
-	const errorCount = useMemo(() => {
-		return parts.filter((part) => !isReasoningPart(part) && !!part.errorText).length;
-	}, [parts]);
-
-	const title = isLoading
-		? `Exploring${errorCount ? ` (${errorCount} error${errorCount > 1 ? 's' : ''})` : ''}`
-		: 'Explored';
+	const title = useToolGroupSummaryTitle({ parts, isLoading });
 
 	return (
 		<Expandable
@@ -48,11 +42,3 @@ export const ToolCallsGroup = memo(({ parts, isSettled }: Props) => {
 		</Expandable>
 	);
 });
-
-/** Check if a collapsible part is settled (finished running) */
-const isPartSettled = (part: CollapsiblePart): boolean => {
-	if (isReasoningPart(part)) {
-		return part.state !== 'streaming';
-	}
-	return isToolSettled(part);
-};
