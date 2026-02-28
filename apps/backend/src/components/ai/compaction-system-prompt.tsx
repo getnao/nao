@@ -12,8 +12,8 @@ export const COMPACTION_SYSTEM_PROMPT = renderToMarkdown(
 			This summary will replace older messages to keep the conversation within context limits while preserving all
 			important information to provide continuity for future context.
 			<Br />
-			The purpose of this summary is in a future context Write down anything that would be helpful, including the
-			state, next steps, learnings etc. Emphasize the most recent messages and assistant tool calls.
+			Write down anything that would be helpful, including the state, next steps, learnings etc. Emphasize the
+			most recent messages and assistant tool calls.
 		</Span>
 
 		<Title>What to Include in the Summary</Title>
