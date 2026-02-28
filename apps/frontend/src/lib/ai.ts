@@ -45,6 +45,10 @@ export const checkIsLastMessageStreaming = (messages: UIMessage[]) => {
 	return isMessageStreaming(lastMessage) || isSummarizing(lastMessage);
 };
 
+const isSummarizing = ({ parts }: UIMessage) => {
+	return parts.at(-1)?.type === 'data-compactionSummaryStarted';
+};
+
 export const checkIsSomeToolsExecuting = (messages: UIMessage[]) => {
 	const lastMessage = messages.at(-1);
 	if (!lastMessage) {
@@ -59,18 +63,6 @@ export const isMessageStreaming = (message: UIMessage) => {
 			return true;
 		}
 	});
-};
-
-const isSummarizing = (message: UIMessage) => {
-	const hasSummaryStarted = message.parts.some((part) => part.type === 'data-compactionSummaryStarted');
-	if (!hasSummaryStarted) {
-		return false;
-	}
-	const hasSummaryFinished = message.parts.some((part) => part.type === 'data-compaction');
-	if (hasSummaryFinished) {
-		return false;
-	}
-	return true;
 };
 
 export const checkIsAgentRunning = (agent: Pick<UseChatHelpers<UIMessage>, 'status'>) => {

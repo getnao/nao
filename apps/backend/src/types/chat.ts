@@ -52,6 +52,7 @@ export type MessageCustomDataParts = {
 export interface CompactionPart {
 	/** The summary of the compaction */
 	summary: string;
+	error?: string;
 }
 
 export type UIMessagePart = UIGenericMessagePart<MessageCustomDataParts, UITools>;

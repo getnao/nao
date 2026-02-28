@@ -11,7 +11,7 @@ export interface ITokenCounter {
 
 export class TokenCounter implements ITokenCounter {
 	estimateMessages(messages: ModelMessage[]): number {
-		return messages.reduce((acc, curr) => acc + this.estimate(JSON.stringify(curr)), 0);
+		return messages.reduce((acc, curr) => acc + this.estimateMessage(curr), 0);
 	}
 
 	async estimateTools(tools: AgentTools): Promise<number> {
@@ -24,7 +24,7 @@ export class TokenCounter implements ITokenCounter {
 	}
 
 	estimateMessage(message: ModelMessage): number {
-		return this.estimate(JSON.stringify(message));
+		return this.estimate(JSON.stringify(message, null, 2));
 	}
 
 	estimate(text: string) {

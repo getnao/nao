@@ -5,13 +5,11 @@ import { createOpenAI } from '@ai-sdk/openai';
 import { createOpenRouter, LanguageModelV3 } from '@openrouter/ai-sdk-provider';
 import { createOllama } from 'ai-sdk-ollama';
 
-import type { LlmProvider, LlmProvidersType, ProviderConfigMap } from '../types/llm';
+import type { LlmProvider, LlmProvidersType, ProviderConfigMap, ProviderSettings } from '../types/llm';
 
 // See: https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching
 export const CACHE_1H = { type: 'ephemeral', ttl: '1h' } as const;
 export const CACHE_5M = { type: 'ephemeral' } as const;
-
-export type ProviderSettings = { apiKey: string; baseURL?: string };
 
 /** Provider configuration with env var names and known models */
 export const LLM_PROVIDERS: LlmProvidersType = {

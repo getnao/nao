@@ -28,12 +28,7 @@ export const AssistantMessage = memo(
 		const chatId = useChatId();
 		const messageParts = useMemo(() => groupToolCalls(message.parts), [message.parts]);
 		const hasContent = useMemo(() => checkAssistantMessageHasContent(message), [message]);
-		const isCompacting = useMemo(
-			() =>
-				messageParts.filter((p) => p.type === 'data-compactionSummaryStarted').length >
-				messageParts.filter((p) => p.type === 'data-compaction').length,
-			[messageParts],
-		);
+		const isCompacting = message.parts.at(-1)?.type === 'data-compactionSummaryStarted';
 
 		if (!message.parts.length && isSettled) {
 			return null;
@@ -48,7 +43,7 @@ export const AssistantMessage = memo(
 						<div className='text-muted-foreground italic text-sm'>No response</div>
 					)}
 
-					{showLoader && !isCompacting && <TextShimmer />}
+					{isCompacting ? <AssistantCompaction /> : showLoader && <TextShimmer />}
 
 					{chatId && (
 						<AssistantMessageActions
@@ -69,57 +64,33 @@ export const AssistantMessage = memo(
 const MessageParts = memo(({ parts }: { parts: GroupedMessagePart[] }) => {
 	const { isSettled } = useAssistantMessage();
 	return parts.map((part, i) => {
-		const hasCompactionAfter =
-			part.type === 'data-compactionSummaryStarted'
-				? parts.slice(i + 1).some((p) => p.type === 'data-compaction')
-				: false;
-
-		return (
-			<MessagePart
-				key={i}
-				part={part}
-				hasCompactionAfter={hasCompactionAfter}
-				isPartSettled={isSettled || !isLast(part, parts)}
-			/>
-		);
+		return <MessagePart key={i} part={part} isPartSettled={isSettled || !isLast(part, parts)} />;
 	});
 });
 
-const MessagePart = memo(
-	({
-		part,
-		hasCompactionAfter,
-		isPartSettled,
-	}: {
-		part: GroupedMessagePart;
-		hasCompactionAfter: boolean;
-		isPartSettled: boolean;
-	}) => {
-		if (isToolGroupPart(part)) {
-			return <ToolCallsGroup parts={part.parts} isSettled={isPartSettled} />;
-		}
+const MessagePart = memo(({ part, isPartSettled }: { part: GroupedMessagePart; isPartSettled: boolean }) => {
+	if (isToolGroupPart(part)) {
+		return <ToolCallsGroup parts={part.parts} isSettled={isPartSettled} />;
+	}
 
-		if (isToolUIPart(part)) {
-			return <ToolCall toolPart={part} />;
-		}
+	if (isToolUIPart(part)) {
+		return <ToolCall toolPart={part} />;
+	}
 
-		const isPartStreaming = !isPartSettled && 'state' in part && part.state === 'streaming';
+	const isPartStreaming = !isPartSettled && 'state' in part && part.state === 'streaming';
 
-		switch (part.type) {
-			case 'text':
-				return (
-					<Streamdown isAnimating={isPartStreaming} mode={isPartStreaming ? 'streaming' : 'static'}>
-						{part.text}
-					</Streamdown>
-				);
-			case 'reasoning':
-				return <AssistantReasoning text={part.text} isStreaming={isPartStreaming} />;
-			case 'data-compactionSummaryStarted':
-				return hasCompactionAfter ? null : <AssistantCompaction summary={''} isSummarizing={true} />;
-			case 'data-compaction':
-				return <AssistantCompaction summary={part.data.summary} isSummarizing={false} />;
-			default:
-				return null;
-		}
-	},
-);
+	switch (part.type) {
+		case 'text':
+			return (
+				<Streamdown isAnimating={isPartStreaming} mode={isPartStreaming ? 'streaming' : 'static'}>
+					{part.text}
+				</Streamdown>
+			);
+		case 'reasoning':
+			return <AssistantReasoning text={part.text} isStreaming={isPartStreaming} />;
+		case 'data-compaction':
+			return <AssistantCompaction part={part.data} />;
+		default:
+			return null;
+	}
+});

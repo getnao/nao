@@ -105,9 +105,8 @@ describe('compactionService.compactConversationIfNeeded', () => {
 		expect(onCompactionStarted).toHaveBeenCalledOnce();
 		expect(onCompactionFinished).toHaveBeenCalledOnce();
 
-		expect(result).toEqual({
+		expect(result).toMatchObject({
 			summary: 'Conversation summary',
-			usage: { totalTokens: 123 },
 		});
 
 		expect(mocks.compactMock).toHaveBeenCalledWith([

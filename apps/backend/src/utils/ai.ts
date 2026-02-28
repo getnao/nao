@@ -1,7 +1,7 @@
 import { LanguageModelUsage, ModelMessage } from 'ai';
 
 import { LLM_PROVIDERS } from '../agents/providers';
-import { tokenCounter } from '../services/token-counter';
+import { type ITokenCounter, tokenCounter } from '../services/token-counter';
 import { CompactionPart, TokenCost, TokenUsage, UIMessage } from '../types/chat';
 import { LlmProvider } from '../types/llm';
 
@@ -56,13 +56,13 @@ export const extractLastTextFromMessage = (message: UIMessage): string => {
 export const findLastUserMessage = (
 	messages: UIMessage[],
 	{
-		beforeIdx = 0,
+		beforeIdx,
 	}: {
 		beforeIdx?: number;
 	} = {},
 ): [message: UIMessage, idx: number] | [undefined, undefined] => {
 	// Start at beforeIdx if provided, otherwise start at the end of the messages
-	const endIdx = Math.min(messages.length - 1, beforeIdx || Infinity);
+	const endIdx = Math.min(messages.length - 1, beforeIdx ?? Infinity);
 	for (let i = endIdx; i >= 0; i--) {
 		if (messages[i].role === 'user') {
 			return [messages[i], i];
@@ -139,20 +139,24 @@ export function findLastCompactionPart(
 /**
  * Selects as many messages from the end of the conversation that fit within the given budget.
  */
-export function selectMessagesInBudget(messages: ModelMessage[], budget: number): ModelMessage[] {
+export function selectMessagesInBudget(
+	messages: ModelMessage[],
+	budget: number,
+	tc: ITokenCounter = tokenCounter,
+): ModelMessage[] {
 	const selectedMessages: ModelMessage[] = [];
 	let tokenCount = 0;
 
 	for (let i = messages.length - 1; i >= 0; i--) {
 		const message = messages[i];
-		const messageTokens = tokenCounter.estimateMessage(message);
+		const messageTokens = tc.estimateMessages([message]);
 
 		if (message.role === 'tool') {
-			const assistantMessage = messages.at(i - 1);
+			const assistantMessage = messages[i - 1];
 			if (!assistantMessage || assistantMessage.role !== 'assistant') {
 				break;
 			}
-			const assistantMessageTokens = tokenCounter.estimateMessage(assistantMessage);
+			const assistantMessageTokens = tc.estimateMessages([assistantMessage]);
 			if (tokenCount + assistantMessageTokens + messageTokens > budget) {
 				break;
 			}

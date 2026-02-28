@@ -6,11 +6,12 @@ import type { LanguageModelV3, OpenRouterProviderOptions } from '@openrouter/ai-
 import type { OllamaChatProviderOptions } from 'ai-sdk-ollama';
 import { z } from 'zod/v4';
 
-import { ProviderSettings } from '../agents/providers';
 import { TokenCost } from './chat';
 
 export const llmProviderSchema = z.enum(['openai', 'anthropic', 'google', 'mistral', 'openrouter', 'ollama']);
 export type LlmProvider = z.infer<typeof llmProviderSchema>;
+
+export type ProviderSettings = { apiKey: string; baseURL?: string };
 
 export const llmConfigSchema = z.object({
 	id: z.string(),

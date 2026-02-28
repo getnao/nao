@@ -265,7 +265,8 @@ class AgentManager {
 	 * Prepares the UI messages and builds them into model messages with memory and compaction summary.
 	 */
 	private async _buildModelMessages(uiMessages: UIMessage[], mentions?: Mention[]): Promise<ModelMessage[]> {
-		const uiMessagesWithSkills = this._addSkills(uiMessages, mentions);
+		const uiMessagesWithStories = await this._syncStoryToolOutputs(uiMessages);
+		const uiMessagesWithSkills = this._addSkills(uiMessagesWithStories, mentions);
 		const uiMessagesWithCompaction = compactionService.useLastCompaction(uiMessagesWithSkills);
 
 		const memories = await memoryService.safeGetUserMemories(this.chat.userId, this.chat.projectId, this.chat.id);

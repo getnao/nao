@@ -36,7 +36,7 @@ export class CompactionLLM implements ICompactionLLM {
 
 	private _buildModelMessages(messages: ModelMessage[]): ModelMessage[] {
 		const budget = this._getTokenBudget();
-		const selectedMessages = selectMessagesInBudget(messages, budget);
+		const selectedMessages = selectMessagesInBudget(messages, budget, this._tc);
 		const modelMessages = this._composeMessages(selectedMessages);
 
 		debugCompaction('message selection', {

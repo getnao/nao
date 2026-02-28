@@ -22,10 +22,11 @@ const CONTEXT_WINDOW_COMPACTION_THRESHOLD = 0.75;
 
 interface CompactIfNeededOptions extends CompactConversationOptions {
 	onCompactionStarted: () => void;
-	onCompactionFinished: (result: CompactionResult) => void;
+	onCompactionFinished: (result: CompactionPart) => void;
 }
 
-interface CompactionResult extends CompactionPart {
+interface CompactionResult {
+	summary: string;
 	usage: TokenUsage;
 }
 
@@ -103,11 +104,15 @@ export class CompactionService {
 		}
 
 		onCompactionStarted();
-		const result = await this._compactConversation(opts);
-		if (result) {
+
+		try {
+			const result = await this._compactConversation(opts);
 			onCompactionFinished(result);
+			return result;
+		} catch (error) {
+			onCompactionFinished({ summary: '', error: String(error) });
+			return undefined;
 		}
-		return result;
 	}
 
 	private async _shouldCompact({
@@ -129,7 +134,7 @@ export class CompactionService {
 	 * Compacts the conversation by summarizing the messages up to the latest user message (last user/assistant turn).
 	 * All messages after the last user message are kept veribatim in the conversation.
 	 */
-	private async _compactConversation(opts: CompactConversationOptions): Promise<CompactionResult | undefined> {
+	private async _compactConversation(opts: CompactConversationOptions): Promise<CompactionResult> {
 		const lastUserIndex = this._findLastUserMessageIndex(opts.messages);
 		const firstNonSystemIndex = this._findFirstNonSystemMessageIndex(opts.messages);
 
