@@ -2,11 +2,11 @@ import { generateText, ModelMessage } from 'ai';
 
 import { COMPACTION_SYSTEM_PROMPT } from '../../components/ai/compaction-system-prompt';
 import { COMPACTION_USER_PROMPT } from '../../components/ai/compaction-user-prompt';
+import { ITokenCounter } from '../../services/token-counter';
+import { CompactionResult, ICompactionLLM } from '../../types/compaction';
 import { convertToTokenUsage, selectMessagesInBudget } from '../../utils/ai';
 import { debugCompaction } from '../../utils/debug';
 import { type ProviderModelResult } from '../providers';
-import { CompactionResult, ICompactionLLM } from '../../types/compaction';
-import { ITokenCounter } from '../../services/token-counter';
 
 const COMPACTION_CONTEXT_WINDOW = 200_000;
 const MAX_OUTPUT_TOKENS = 16_000;

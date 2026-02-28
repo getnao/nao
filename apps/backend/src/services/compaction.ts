@@ -3,8 +3,9 @@ import { ModelMessage, Tool } from 'ai';
 import { CompactionLLM } from '../agents/compaction';
 import { LLM_PROVIDERS } from '../agents/providers';
 import type { DBChat } from '../db/abstractSchema';
-import { ICompactionLLM } from '../types/compaction';
+import { renderToMarkdown, XML } from '../lib/markdown';
 import type { CompactionPart, TokenUsage, UIMessage } from '../types/chat';
+import { ICompactionLLM } from '../types/compaction';
 import type { LlmProvider } from '../types/llm';
 import {
 	findFirstNonSystemMessageIndex,
@@ -16,7 +17,6 @@ import { debugCompaction } from '../utils/debug';
 import { resolveProviderModel } from '../utils/llm';
 import { scheduleSaveLlmInferenceRecord } from '../utils/schedule-task';
 import { ITokenCounter, TokenCounter } from './token-counter';
-import { renderToMarkdown, XML } from '../lib/markdown';
 
 const CONTEXT_WINDOW_COMPACTION_THRESHOLD = 0.75;
 

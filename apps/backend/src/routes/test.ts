@@ -3,10 +3,10 @@ import { z } from 'zod/v4';
 import { executeQuery } from '../agents/tools/execute-sql';
 import type { App } from '../app';
 import { authMiddleware } from '../middleware/auth';
+import { retrieveProjectById } from '../queries/project.queries';
 import { ModelSelection } from '../services/agent';
 import { TestAgentService, testAgentService } from '../services/test-agent.service';
 import { llmProviderSchema } from '../types/llm';
-import { retrieveProjectById } from '../queries/project.queries';
 
 const modelSelectionSchema = z.object({
 	provider: llmProviderSchema,

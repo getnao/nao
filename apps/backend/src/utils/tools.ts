@@ -1,4 +1,4 @@
-import { asSchema, FlexibleSchema, JSONSchema7, Tool, tool } from 'ai';
+import { asSchema, type JSONSchema7, Tool, tool } from 'ai';
 import fs from 'fs';
 import { minimatch } from 'minimatch';
 import path from 'path';

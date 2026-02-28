@@ -1,4 +1,5 @@
 import { ModelMessage } from 'ai';
+
 import { TokenUsage } from './chat';
 
 export interface CompactionResult {
