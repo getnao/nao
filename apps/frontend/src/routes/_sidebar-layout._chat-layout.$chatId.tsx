@@ -5,6 +5,7 @@ import { StoryViewer } from '@/components/side-panel/story-viewer';
 import { ChatInput } from '@/components/chat-input';
 import { ChatMessages } from '@/components/chat-messages/chat-messages';
 import { SidePanel } from '@/components/side-panel/side-panel';
+import { MobileHeader } from '@/components/mobile-header';
 import { Spinner } from '@/components/ui/spinner';
 import { useAgentContext } from '@/contexts/agent.provider';
 import { useSidePanel } from '@/hooks/use-side-panel';
@@ -46,10 +47,13 @@ export function RouteComponent() {
 			isVisible={sidePanel.isVisible}
 			currentStoryId={sidePanel.currentStoryId}
 			open={sidePanel.open}
+			close={sidePanel.close}
 		>
 			<div className='flex-1 flex min-w-0 bg-panel' ref={containerRef}>
-				<div className='flex flex-col h-full flex-1 min-w-72 overflow-hidden justify-center relative'>
-					<div className='absolute top-3 right-3 z-10'>
+				<div className='flex flex-col h-full flex-1 min-w-0 overflow-hidden justify-center relative'>
+					<MobileHeader />
+
+					<div className='absolute top-3 right-3 z-10 max-md:hidden'>
 						<StoryOpenButton />
 					</div>
 

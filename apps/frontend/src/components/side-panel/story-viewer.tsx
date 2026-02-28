@@ -12,6 +12,7 @@ import {
 	Save,
 	RotateCcw,
 	Share,
+	X,
 } from 'lucide-react';
 import { StoryChartEmbed } from './story-chart-embed';
 import { StoryTableEmbed } from './story-table-embed';
@@ -30,6 +31,8 @@ import type { StorySummary } from '@/lib/story.utils';
 import type { ParsedChartBlock, ParsedTableBlock } from '@/lib/story-segments';
 import type { Editor as TiptapEditor } from '@tiptap/react';
 import { SegmentList } from '@/components/story-rendering';
+import { useIsMobile } from '@/hooks/use-is-mobile';
+import { useSidePanel } from '@/contexts/side-panel';
 import { Button } from '@/components/ui/button';
 import {
 	DropdownMenu,
@@ -47,6 +50,7 @@ interface StoryViewerProps {
 export function StoryViewer({ chatId, storyId }: StoryViewerProps) {
 	const tiptapEditorRef = useRef<TiptapEditor | null>(null);
 	const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+	const { close: closeSidePanel } = useSidePanel();
 	const { viewMode, setViewMode } = useStoryViewerViewMode();
 	const { allStories, draftStory, isAgentRunning } = useStoryViewerAgentState(storyId);
 	const resolvedStoryId = draftStory?.id ?? storyId;
@@ -128,6 +132,7 @@ export function StoryViewer({ chatId, storyId }: StoryViewerProps) {
 				onEnlarge={handleEnlarge}
 				isShared={isShared}
 				isAgentRunning={isAgentRunning}
+				onClose={closeSidePanel}
 			/>
 
 			<div ref={scrollContainerRef} className='flex-1 min-h-0 overflow-auto'>
@@ -168,6 +173,7 @@ const StoryHeader = memo(function StoryHeader({
 	onEnlarge,
 	isShared,
 	isAgentRunning,
+	onClose,
 }: {
 	title: string;
 	storyId: string;
@@ -186,101 +192,125 @@ const StoryHeader = memo(function StoryHeader({
 	onEnlarge: () => void;
 	isShared: boolean;
 	isAgentRunning: boolean;
+	onClose: () => void;
 }) {
+	const isMobile = useIsMobile();
 	const otherStories = useMemo(() => allStories.filter((s) => s.id !== storyId), [allStories, storyId]);
 	const hasMultiple = otherStories.length > 0;
 
 	const showSubHeader = viewMode === 'edit' || !isViewingLatest;
 
+	const titleElement = hasMultiple ? (
+		<DropdownMenu>
+			<DropdownMenuTrigger asChild>
+				<button
+					type='button'
+					className='flex items-center gap-1 min-w-0 flex-1 cursor-pointer hover:text-foreground/80 transition-colors focus:outline-none'
+				>
+					<h3 className='text-sm font-medium truncate'>{title}</h3>
+					<ChevronDown className='size-3 shrink-0 text-muted-foreground' />
+				</button>
+			</DropdownMenuTrigger>
+			<DropdownMenuContent align='start'>
+				{otherStories.map((story) => (
+					<DropdownMenuItem key={story.id} onClick={() => onSwitchStory(story.id)}>
+						<span className='truncate'>{story.title}</span>
+					</DropdownMenuItem>
+				))}
+			</DropdownMenuContent>
+		</DropdownMenu>
+	) : (
+		<h3 className='text-sm font-medium truncate flex-1'>{title}</h3>
+	);
+
+	const versionNav = totalVersions > 1 && (
+		<div className='flex items-center gap-1'>
+			<Button variant='ghost-muted' size='icon-xs' onClick={onPreviousVersion} disabled={currentVersion <= 1}>
+				<ChevronLeft className='size-3' />
+			</Button>
+			<span className='text-xs text-muted-foreground tabular-nums min-w-6 text-center'>
+				{currentVersion}/{totalVersions}
+			</span>
+			<Button
+				variant='ghost-muted'
+				size='icon-xs'
+				onClick={onNextVersion}
+				disabled={currentVersion >= totalVersions}
+			>
+				<ChevronRight className='size-3' />
+			</Button>
+		</div>
+	);
+
+	const viewModeToggle = (
+		<div className='flex items-center rounded-lg border p-0.5 gap-0.5'>
+			<Button
+				variant={viewMode === 'preview' ? 'secondary' : 'ghost'}
+				size='icon-xs'
+				onClick={() => onViewModeChange('preview')}
+			>
+				<Eye className='size-3' />
+			</Button>
+			<Button
+				variant={viewMode === 'edit' ? 'secondary' : 'ghost'}
+				size='icon-xs'
+				onClick={() => onViewModeChange('edit')}
+				disabled={isAgentRunning}
+			>
+				<Pencil className='size-3' />
+			</Button>
+			<Button
+				variant={viewMode === 'code' ? 'secondary' : 'ghost'}
+				size='icon-xs'
+				onClick={() => onViewModeChange('code')}
+			>
+				<Code className='size-3' />
+			</Button>
+		</div>
+	);
+
+	const actionButtons = (
+		<>
+			<Button variant='ghost-muted' size='icon-xs' onClick={onEnlarge} aria-label='Enlarge Story'>
+				<Maximize2 className='size-3' />
+			</Button>
+			<Button
+				variant='ghost-muted'
+				size='icon-xs'
+				onClick={onShare}
+				disabled={isAgentRunning}
+				aria-label='Share Story'
+			>
+				{isShared ? <Globe className='size-3 text-emerald-600' /> : <Share className='size-3' />}
+			</Button>
+		</>
+	);
+
 	return (
 		<div className='shrink-0'>
-			<div className='flex items-center gap-2 border-b px-4 py-3'>
-				{hasMultiple ? (
-					<DropdownMenu>
-						<DropdownMenuTrigger asChild>
-							<button
-								type='button'
-								className='flex items-center gap-1 min-w-0 flex-1 cursor-pointer hover:text-foreground/80 transition-colors focus:outline-none'
-							>
-								<h3 className='text-sm font-medium truncate'>{title}</h3>
-								<ChevronDown className='size-3 shrink-0 text-muted-foreground' />
-							</button>
-						</DropdownMenuTrigger>
-						<DropdownMenuContent align='start'>
-							{otherStories.map((story) => (
-								<DropdownMenuItem key={story.id} onClick={() => onSwitchStory(story.id)}>
-									<span className='truncate'>{story.title}</span>
-								</DropdownMenuItem>
-							))}
-						</DropdownMenuContent>
-					</DropdownMenu>
-				) : (
-					<h3 className='text-sm font-medium truncate flex-1'>{title}</h3>
-				)}
-
-				{totalVersions > 1 && (
-					<div className='flex items-center gap-1'>
-						<Button
-							variant='ghost-muted'
-							size='icon-xs'
-							onClick={onPreviousVersion}
-							disabled={currentVersion <= 1}
-						>
-							<ChevronLeft className='size-3' />
+			{isMobile ? (
+				<>
+					<div className='flex items-center gap-2 border-b px-3 py-2'>
+						<Button variant='ghost' size='icon-md' onClick={onClose} aria-label='Close'>
+							<X className='size-4' strokeWidth={1.5} />
 						</Button>
-						<span className='text-xs text-muted-foreground tabular-nums min-w-6 text-center'>
-							{currentVersion}/{totalVersions}
-						</span>
-						<Button
-							variant='ghost-muted'
-							size='icon-xs'
-							onClick={onNextVersion}
-							disabled={currentVersion >= totalVersions}
-						>
-							<ChevronRight className='size-3' />
-						</Button>
+						<div className='flex-1' />
+						{viewModeToggle}
+						{actionButtons}
 					</div>
-				)}
-
-				<div className='flex items-center rounded-lg border p-0.5 gap-0.5'>
-					<Button
-						variant={viewMode === 'preview' ? 'secondary' : 'ghost'}
-						size='icon-xs'
-						onClick={() => onViewModeChange('preview')}
-					>
-						<Eye className='size-3' />
-					</Button>
-					<Button
-						variant={viewMode === 'edit' ? 'secondary' : 'ghost'}
-						size='icon-xs'
-						onClick={() => onViewModeChange('edit')}
-						disabled={isAgentRunning}
-					>
-						<Pencil className='size-3' />
-					</Button>
-					<Button
-						variant={viewMode === 'code' ? 'secondary' : 'ghost'}
-						size='icon-xs'
-						onClick={() => onViewModeChange('code')}
-					>
-						<Code className='size-3' />
-					</Button>
+					<div className='flex items-center gap-2 border-b px-4 py-2'>
+						{titleElement}
+						{versionNav}
+					</div>
+				</>
+			) : (
+				<div className='flex items-center gap-2 border-b px-4 py-3'>
+					{titleElement}
+					{versionNav}
+					{viewModeToggle}
+					{actionButtons}
 				</div>
-
-				<Button variant='ghost-muted' size='icon-xs' onClick={onEnlarge} aria-label='Enlarge Story'>
-					<Maximize2 className='size-3' />
-				</Button>
-
-				<Button
-					variant='ghost-muted'
-					size='icon-xs'
-					onClick={onShare}
-					disabled={isAgentRunning}
-					aria-label='Share Story'
-				>
-					{isShared ? <Globe className='size-3 text-emerald-600' /> : <Share className='size-3' />}
-				</Button>
-			</div>
+			)}
 
 			{showSubHeader && (
 				<div className='flex items-center justify-between border-b bg-muted/40 px-4 py-2'>

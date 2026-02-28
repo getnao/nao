@@ -8,7 +8,7 @@ import { useSidePanel } from '@/contexts/side-panel';
 import { useAgentContext } from '@/contexts/agent.provider';
 import { findStories } from '@/lib/story.utils';
 
-export function StoryOpenButton() {
+export function StoryOpenButton({ variant = 'outline' }: { variant?: 'outline' | 'ghost' }) {
 	const { messages } = useAgentContext();
 	const { chatId } = useParams({ strict: false });
 	const { isVisible, open: openSidePanel } = useSidePanel();
@@ -24,7 +24,7 @@ export function StoryOpenButton() {
 
 	if (stories.length === 1) {
 		return (
-			<Button variant='outline' size='icon-md' onClick={() => openStory(stories[0].id)} title={stories[0].title}>
+			<Button variant={variant} size='icon-md' onClick={() => openStory(stories[0].id)} title={stories[0].title}>
 				<StoryIcon className='size-5' strokeWidth={1.5} />
 			</Button>
 		);
@@ -33,7 +33,7 @@ export function StoryOpenButton() {
 	return (
 		<DropdownMenu>
 			<DropdownMenuTrigger asChild>
-				<Button variant='outline' size='icon-md' title='Open stories'>
+				<Button variant={variant} size='icon-md' title='Open stories'>
 					<StoryIcon className='size-5' strokeWidth={1.5} />
 				</Button>
 			</DropdownMenuTrigger>

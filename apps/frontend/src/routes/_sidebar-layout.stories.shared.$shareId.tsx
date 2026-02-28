@@ -34,8 +34,8 @@ function SharedStoryPage() {
 	const isOwner = session?.user?.id === story.userId;
 
 	return (
-		<div className='flex flex-col flex-1 h-full overflow-hidden bg-panel'>
-			<header className='flex items-center gap-3 border-b px-6 py-4 shrink-0 bg-background'>
+		<div className='flex flex-col flex-1 h-full overflow-hidden bg-panel min-w-0'>
+			<header className='flex items-center gap-3 border-b px-4 py-3 md:px-6 md:py-4 shrink-0 bg-background'>
 				<h1 className='text-base font-medium truncate'>{story.title}</h1>
 				<span className='text-sm text-muted-foreground shrink-0'>by {story.authorName}</span>
 				{isOwner && (
@@ -77,7 +77,7 @@ function SharedStoryContent({
 
 	return (
 		<div className='flex-1 overflow-auto'>
-			<div className='max-w-5xl mx-auto p-8 flex flex-col gap-4'>
+			<div className='max-w-5xl mx-auto p-4 md:p-8 flex flex-col gap-4'>
 				<SegmentList segments={segments} renderChart={renderChart} renderTable={renderTable} />
 			</div>
 		</div>

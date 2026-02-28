@@ -1,6 +1,6 @@
-import { ArrowLeftFromLine, ArrowRightToLine, PlusIcon, ArrowLeft, ChevronRight, SearchIcon } from 'lucide-react';
+import { ArrowLeftFromLine, ArrowRightToLine, PlusIcon, ArrowLeft, ChevronRight, SearchIcon, X } from 'lucide-react';
 import { useEffect, useCallback, useState } from 'react';
-import { Link, useNavigate, useMatchRoute } from '@tanstack/react-router';
+import { Link, useNavigate, useMatchRoute, useRouterState } from '@tanstack/react-router';
 import { ChatList } from './sidebar-chat-list';
 import { SidebarUserMenu } from './sidebar-user-menu';
 import { SidebarSettingsNav } from './sidebar-settings-nav';
@@ -19,17 +19,40 @@ export function Sidebar() {
 	const chats = useChatListQuery();
 	const navigate = useNavigate();
 	const matchRoute = useMatchRoute();
-	const { isCollapsed, toggle: toggleSidebar } = useSidebar();
+	const { isCollapsed, isMobile, isMobileOpen, closeMobile, toggle: toggleSidebar } = useSidebar();
 	const { fire: openCommandMenu } = useCommandMenuCallback();
 
+	const locationPath = useRouterState({ select: (s) => s.location.pathname });
 	const isInSettings = matchRoute({ to: '/settings', fuzzy: true });
-	const effectiveIsCollapsed = isInSettings ? false : isCollapsed;
+	const effectiveIsCollapsed = isInSettings ? false : isMobile ? false : isCollapsed;
+
+	useEffect(() => {
+		if (isMobile && isMobileOpen) {
+			closeMobile();
+		}
+	}, [locationPath]); // eslint-disable-line react-hooks/exhaustive-deps
 
 	const handleStartNewChat = useCallback(() => {
 		navigate({ to: '/' });
-	}, [navigate]);
+		if (isMobile) {
+			closeMobile();
+		}
+	}, [navigate, isMobile, closeMobile]);
 
-	// Keyboard shortcut: Shift+Cmd+O for new chat
+	const handleNavigateStories = useCallback(() => {
+		navigate({ to: '/stories' });
+		if (isMobile) {
+			closeMobile();
+		}
+	}, [navigate, isMobile, closeMobile]);
+
+	const handleSearchChats = useCallback(() => {
+		openCommandMenu();
+		if (isMobile) {
+			closeMobile();
+		}
+	}, [openCommandMenu, isMobile, closeMobile]);
+
 	useEffect(() => {
 		const handleKeyDown = (e: KeyboardEvent) => {
 			if (e.shiftKey && e.metaKey && e.key.toLowerCase() === 'o') {
@@ -42,17 +65,23 @@ export function Sidebar() {
 		return () => window.removeEventListener('keydown', handleKeyDown);
 	}, [handleStartNewChat]);
 
-	return (
+	const sidebarContent = (
 		<div
 			className={cn(
-				'flex flex-col border-r border-sidebar-border transition-[width,background-color] duration-300 overflow-hidden',
-				effectiveIsCollapsed ? 'w-13 bg-panel' : 'w-72 bg-sidebar',
+				'flex flex-col h-full overflow-hidden',
+				isMobile
+					? 'w-72 bg-sidebar'
+					: cn(
+							'border-r border-sidebar-border transition-[width,background-color] duration-300',
+							effectiveIsCollapsed ? 'w-13 bg-panel' : 'w-72 bg-sidebar',
+						),
 			)}
 		>
 			<div className='p-2 flex flex-col gap-1'>
 				{isInSettings ? (
 					<Link
 						to='/'
+						onClick={() => isMobile && closeMobile()}
 						className={cn(
 							'flex items-center gap-2 px-3 py-2 text-sm rounded-md transition-colors',
 							'text-muted-foreground hover:bg-sidebar-accent hover:text-foreground whitespace-nowrap',
@@ -78,18 +107,29 @@ export function Sidebar() {
 								<NaoLogoGreyscale className='size-5' />
 							</div>
 
-							<Button
-								variant='ghost'
-								size='icon-md'
-								onClick={() => toggleSidebar()}
-								className={cn('text-muted-foreground ml-auto z-10')}
-							>
-								{effectiveIsCollapsed ? (
-									<ArrowRightToLine className='size-4' />
-								) : (
-									<ArrowLeftFromLine className='size-4' />
-								)}
-							</Button>
+							{isMobile ? (
+								<Button
+									variant='ghost'
+									size='icon-md'
+									onClick={closeMobile}
+									className='text-muted-foreground ml-auto z-10'
+								>
+									<X className='size-4' />
+								</Button>
+							) : (
+								<Button
+									variant='ghost'
+									size='icon-md'
+									onClick={() => toggleSidebar()}
+									className='text-muted-foreground ml-auto z-10'
+								>
+									{effectiveIsCollapsed ? (
+										<ArrowRightToLine className='size-4' />
+									) : (
+										<ArrowLeftFromLine className='size-4' />
+									)}
+								</Button>
+							)}
 						</div>
 
 						<SidebarMenuButton
@@ -104,14 +144,14 @@ export function Sidebar() {
 							label='Search chats'
 							shortcut='⌘K'
 							isCollapsed={effectiveIsCollapsed}
-							onClick={openCommandMenu}
+							onClick={handleSearchChats}
 						/>
 						<SidebarMenuButton
 							icon={StoryIcon as unknown as LucideIcon}
 							label='Stories'
 							shortcut=''
 							isCollapsed={effectiveIsCollapsed}
-							onClick={() => navigate({ to: '/stories' })}
+							onClick={handleNavigateStories}
 						/>
 					</>
 				)}
@@ -128,6 +168,24 @@ export function Sidebar() {
 			</div>
 		</div>
 	);
+
+	if (isMobile) {
+		return (
+			<>
+				{isMobileOpen && (
+					<div className='fixed inset-0 z-40 flex'>
+						<div
+							className='fixed inset-0 bg-black/50 animate-in fade-in duration-200'
+							onClick={closeMobile}
+						/>
+						<div className='relative z-50 animate-in slide-in-from-left duration-200'>{sidebarContent}</div>
+					</div>
+				)}
+			</>
+		);
+	}
+
+	return sidebarContent;
 }
 
 function SidebarMenuButton({
@@ -155,7 +213,7 @@ function SidebarMenuButton({
 			<Icon className='size-4' />
 			<div className={cn('flex items-center transition-[opacity,visibility] duration-300', hideIf(isCollapsed))}>
 				<span>{label}</span>
-				<kbd className='group-hover:opacity-100 opacity-0 absolute right-3 text-[10px] text-muted-foreground font-sans transition-opacity'>
+				<kbd className='group-hover:opacity-100 opacity-0 absolute right-3 text-[10px] text-muted-foreground font-sans transition-opacity hidden md:inline'>
 					{shortcut}
 				</kbd>
 			</div>

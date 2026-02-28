@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useParams } from '@tanstack/react-router';
+import { useIsMobile } from '@/hooks/use-is-mobile';
 import { useSidebar } from '@/contexts/sidebar';
 import {
 	SIDEBAR_DELTA,
@@ -27,6 +28,7 @@ export const useSidePanel = ({
 
 	const removeTransitionEndEventListener = useRef<(() => void) | null>(null);
 
+	const isMobile = useIsMobile();
 	const { collapse: collapseSidebar, expand: expandSidebar, isCollapsed: isSidebarCollapsed } = useSidebar();
 
 	const chatId = useParams({ strict: false, select: (params) => params.chatId });
@@ -82,6 +84,10 @@ export const useSidePanel = ({
 			return;
 		}
 
+		if (isMobile) {
+			return;
+		}
+
 		sidePanel.style.width = '0px';
 		sidePanel.style.opacity = '0';
 
@@ -96,17 +102,19 @@ export const useSidePanel = ({
 				sidePanel.style.minWidth = `${SIDE_PANEL_MIN_WIDTH}px`;
 			},
 		});
-	}, [isVisible, animateSidePanel, containerRef, sidePanelRef]);
+	}, [isVisible, isMobile, animateSidePanel, containerRef, sidePanelRef]);
 
 	const open = useCallback(
 		(newContent: React.ReactNode, storyId?: string) => {
 			setIsVisible(true);
 			setContent(newContent);
 			setCurrentStoryId(storyId ?? null);
-			didCollapseSidebarRef.current = !isSidebarCollapsed;
-			collapseSidebar({ persist: false });
+			if (!isMobile) {
+				didCollapseSidebarRef.current = !isSidebarCollapsed;
+				collapseSidebar({ persist: false });
+			}
 		},
-		[collapseSidebar, isSidebarCollapsed],
+		[isMobile, collapseSidebar, isSidebarCollapsed],
 	);
 
 	const expandSidebarIfWasCollapsed = useCallback(() => {
@@ -118,13 +126,17 @@ export const useSidePanel = ({
 
 	const close = useCallback(() => {
 		setIsVisible(false);
-		expandSidebarIfWasCollapsed();
-		animateSidePanel({
-			width: '0px',
-			opacity: '0',
-			onComplete: () => setContent(null),
-		});
-	}, [expandSidebarIfWasCollapsed, animateSidePanel]);
+		if (isMobile) {
+			setContent(null);
+		} else {
+			expandSidebarIfWasCollapsed();
+			animateSidePanel({
+				width: '0px',
+				opacity: '0',
+				onComplete: () => setContent(null),
+			});
+		}
+	}, [isMobile, expandSidebarIfWasCollapsed, animateSidePanel]);
 
 	useEffect(() => {
 		expandSidebarIfWasCollapsed();

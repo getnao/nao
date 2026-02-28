@@ -133,7 +133,7 @@ function ChatInputBase({
 	const isInputEmpty = !inputText.trim();
 
 	return (
-		<div className={cn('p-4 pt-0 max-w-3xl w-full mx-auto', className)}>
+		<div className={cn('px-3 pb-3 pt-0 md:px-4 md:pb-4 max-w-3xl w-full mx-auto', className)}>
 			<ChatInputMessageQueue />
 
 			<form onSubmit={handleSubmitMessage} className='mx-auto relative'>
@@ -150,7 +150,7 @@ function ChatInputBase({
 
 						{isTranscribeReady && isRecording && <SlidingWaveform analyserRef={analyserRef} />}
 
-						<div className='flex items-center gap-2 ml-auto relative'>
+						<div className='flex items-center gap-1.5 md:gap-2 ml-auto relative'>
 							{onCancel && (
 								<Button variant='ghost' type='button' size='sm' onClick={onCancel}>
 									Cancel

@@ -4,6 +4,7 @@ import { ArrowRightToLine } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ResizableHandle } from '@/components/ui/resizable';
 import { useSidePanelResize } from '@/hooks/use-side-panel-resize';
+import { useIsMobile } from '@/hooks/use-is-mobile';
 
 type SidePanelProps = {
 	containerRef: React.RefObject<HTMLDivElement | null>;
@@ -22,7 +23,16 @@ export const SidePanel = memo(function SidePanel({
 	onClose,
 	isAnimating,
 }: SidePanelProps) {
-	useSidePanelResize(sidePanelRef, containerRef, resizeHandleRef, !isAnimating);
+	const isMobile = useIsMobile();
+	useSidePanelResize(sidePanelRef, containerRef, resizeHandleRef, !isAnimating && !isMobile);
+
+	if (isMobile) {
+		return (
+			<div ref={sidePanelRef} className='fixed inset-0 z-40 bg-background flex flex-col'>
+				<div className='flex-1 min-h-0 overflow-hidden'>{children}</div>
+			</div>
+		);
+	}
 
 	return (
 		<div ref={sidePanelRef} className='h-full bg-panel'>

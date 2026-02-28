@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import type { DisplayMode, GroupBy } from '@/lib/stories-page';
 import { StoriesEmptyState, StoriesGroups, StoriesNoResults } from '@/components/stories-groups';
 import { StoriesToolbarControls } from '@/components/stories-toolbar-controls';
+import { MobileHeader } from '@/components/mobile-header';
 import { useSession } from '@/lib/auth-client';
 import {
 	STORIES_DISPLAY_KEY,
@@ -64,8 +65,9 @@ function StoriesPage() {
 
 	return (
 		<div className='flex flex-col flex-1 h-full overflow-auto bg-panel'>
-			<div className='w-full px-8 py-10'>
-				<div className='flex items-center justify-between mb-8'>
+			<MobileHeader />
+			<div className='w-full px-4 py-6 md:px-8 md:py-10'>
+				<div className='flex items-center justify-between mb-6 md:mb-8 gap-3 flex-wrap'>
 					<h1 className='text-xl font-semibold tracking-tight'>Stories</h1>
 					{!isEmpty && (
 						<StoriesToolbarControls
