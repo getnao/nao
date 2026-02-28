@@ -208,7 +208,6 @@ export const chatMessage = sqliteTable(
 		llmProvider: text('llm_provider').$type<LlmProvider>(),
 		llmModelId: text('llm_model_id'),
 		supersededAt: integer('superseded_at', { mode: 'timestamp_ms' }),
-		isCompactionSummary: integer('is_compaction_summary', { mode: 'boolean' }).default(false).notNull(),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull(),
