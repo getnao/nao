@@ -15,7 +15,7 @@ import { UIMessage, UIMessagePart } from '../types/chat';
 import { SlackEvent } from '../types/slack';
 import { createChatTitle } from '../utils/ai';
 import { addButtonStopBlock, createImageBlock, createTextBlock } from '../utils/slack';
-import { agentService } from './agent.service';
+import { agentService } from './agent';
 
 type StreamState = {
 	messageTs: string;

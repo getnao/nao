@@ -1,11 +1,9 @@
 import { LanguageModelUsage, ModelMessage } from 'ai';
 
 import { LLM_PROVIDERS } from '../agents/providers';
-import * as projectQueries from '../queries/project.queries';
-import { DBProject } from '../queries/project-slack-config.queries';
-import { AgentTools, TokenCost, TokenUsage, UIMessage } from '../types/chat';
+import { tokenCounter } from '../services/token-counter';
+import { CompactionPart, TokenCost, TokenUsage, UIMessage } from '../types/chat';
 import { LlmProvider } from '../types/llm';
-import { getJsonSchema } from './tools';
 
 export const convertToTokenUsage = (usage: LanguageModelUsage): TokenUsage => ({
 	inputTotalTokens: usage.inputTokens,
@@ -55,23 +53,17 @@ export const extractLastTextFromMessage = (message: UIMessage): string => {
 	return '';
 };
 
-export const retrieveProjectById = async (projectId: string): Promise<DBProject> => {
-	const project = await projectQueries.getProjectById(projectId);
-	if (!project) {
-		throw new Error(`Project not found: ${projectId}`);
-	}
-	if (!project.path) {
-		throw new Error(`Project path not configured: ${projectId}`);
-	}
-	return project;
-};
-
 export const findLastUserMessage = (
 	messages: UIMessage[],
-	beforeIdx: number = 0,
+	{
+		beforeIdx = 0,
+	}: {
+		beforeIdx?: number;
+	} = {},
 ): [message: UIMessage, idx: number] | [undefined, undefined] => {
-	const lastIdx = Math.min(messages.length - 1, beforeIdx);
-	for (let i = lastIdx; i >= 0; i--) {
+	// Start at beforeIdx if provided, otherwise start at the end of the messages
+	const endIdx = Math.min(messages.length - 1, beforeIdx || Infinity);
+	for (let i = endIdx; i >= 0; i--) {
 		if (messages[i].role === 'user') {
 			return [messages[i], i];
 		}
@@ -112,19 +104,70 @@ export const joinAllTextParts = (message: UIMessage, separator: string = '\n'): 
 		.trim();
 };
 
-export function estimateMessagesTokens(messages: ModelMessage[]): number {
-	return estimateTokens(JSON.stringify(messages));
+export function findFirstNonSystemMessageIndex(messages: ModelMessage[]): number {
+	for (let i = 0; i < messages.length; i++) {
+		if (messages[i].role !== 'system') {
+			return i;
+		}
+	}
+	return -1;
 }
 
-export function estimateMessageTokens(message: ModelMessage): number {
-	return estimateTokens(JSON.stringify(message));
+export function findLastUserMessageIndex(messages: ModelMessage[]): number {
+	for (let i = messages.length - 1; i >= 0; i--) {
+		if (messages[i].role === 'user') {
+			return i;
+		}
+	}
+	return -1;
 }
 
-export async function estimateToolsTokens(tools: AgentTools): Promise<number> {
-	const toolSchemaSizePromise = Object.values(tools).map(async (tool) => {
-		const schema = await getJsonSchema(tool);
-		return estimateTokens(JSON.stringify(schema, null, 2));
-	});
-	const toolSchemaSizes = await Promise.all(toolSchemaSizePromise);
-	return toolSchemaSizes.reduce((acc, curr) => acc + curr, 0);
+export function findLastCompactionPart(
+	messages: UIMessage[],
+): [CompactionPart, messageIdx: number] | [undefined, undefined] {
+	for (let i = messages.length - 1; i >= 0; i--) {
+		for (const part of messages[i].parts) {
+			if (part.type === 'data-compaction') {
+				return [part.data, i];
+			}
+		}
+	}
+
+	return [undefined, undefined];
+}
+
+/**
+ * Selects as many messages from the end of the conversation that fit within the given budget.
+ */
+export function selectMessagesInBudget(messages: ModelMessage[], budget: number): ModelMessage[] {
+	const selectedMessages: ModelMessage[] = [];
+	let tokenCount = 0;
+
+	for (let i = messages.length - 1; i >= 0; i--) {
+		const message = messages[i];
+		const messageTokens = tokenCounter.estimateMessage(message);
+
+		if (message.role === 'tool') {
+			const assistantMessage = messages.at(i - 1);
+			if (!assistantMessage || assistantMessage.role !== 'assistant') {
+				break;
+			}
+			const assistantMessageTokens = tokenCounter.estimateMessage(assistantMessage);
+			if (tokenCount + assistantMessageTokens + messageTokens > budget) {
+				break;
+			}
+			selectedMessages.unshift(assistantMessage, message);
+			tokenCount += assistantMessageTokens + messageTokens;
+			i--; // skip the assistant message already included as part of the pair
+			continue;
+		}
+
+		if (tokenCount + messageTokens > budget) {
+			break;
+		}
+		selectedMessages.unshift(message);
+		tokenCount += messageTokens;
+	}
+
+	return selectedMessages;
 }

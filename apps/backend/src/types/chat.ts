@@ -43,18 +43,16 @@ export type MessageCustomDataParts = {
 	newChat: ChatListItem;
 	/** Maps the client-generated user message ID to the server-generated one */
 	newUserMessage: { newId: string };
-
 	/** Sent when conversation compaction is triggered */
 	compactionSummaryStarted: undefined;
 	/** Sent when the conversation compaction summary is finished */
-	compaction: {
-		summary: string;
-		/** `partial` = history compaction, `full` = turn compaction (includes current turn's messages) */
-		summaryType: CompactionSummaryType;
-	};
+	compaction: CompactionPart;
 };
 
-export type CompactionSummaryType = 'partial' | 'full';
+export interface CompactionPart {
+	/** The summary of the compaction */
+	summary: string;
+}
 
 export type UIMessagePart = UIGenericMessagePart<MessageCustomDataParts, UITools>;
 

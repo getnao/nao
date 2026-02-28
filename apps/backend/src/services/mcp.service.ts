@@ -7,7 +7,7 @@ import { join } from 'path';
 
 import * as mcpConfigQueries from '../queries/project.queries';
 import { mcpJsonSchema, McpServerConfig, McpServerState } from '../types/mcp';
-import { retrieveProjectById } from '../utils/ai';
+import { retrieveProjectById } from '../queries/project.queries';
 import { prefixToolName, removePrefixToolName, sanitizeTools } from '../utils/tools';
 import { replaceEnvVars } from '../utils/utils';
 

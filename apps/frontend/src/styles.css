@@ -152,6 +152,11 @@ code {
 
 /* Streamdown styles */
 
+@utility markdown-small {
+	@apply **:[code]:text-[12px]! **:[pre]:text-[12px]! **:text-sm!;
+	--spacing: 1px;
+}
+
 [data-streamdown='heading-1'],
 [data-streamdown='heading-2'] {
 	font-size: 20px;

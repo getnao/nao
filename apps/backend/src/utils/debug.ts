@@ -12,10 +12,10 @@ export const debugCompaction = (message: string, data: unknown) => {
 	}
 };
 
-const log = (message: string, data: unknown) => {
+export const log = (message: string, data: unknown) => {
 	console.log(
 		`<--- ${message} --->\n`,
-		inspect(data, { showHidden: false, depth: null, colors: true }),
+		inspect(data, { showHidden: false, depth: null, colors: true, maxStringLength: 30 }),
 		`\n>--- ${message} ---<`,
 	);
 };

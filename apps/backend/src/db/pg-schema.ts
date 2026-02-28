@@ -233,7 +233,6 @@ export const messagePart = pgTable(
 		// text columns
 		text: text('text'),
 		reasoningText: text('reasoning_text'),
-		summaryType: text('summary_type').$type<'partial' | 'full'>(),
 
 		// tool call columns
 		toolCallId: text('tool_call_id').unique(),

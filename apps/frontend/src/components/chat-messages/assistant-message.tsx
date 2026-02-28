@@ -28,6 +28,12 @@ export const AssistantMessage = memo(
 		const chatId = useChatId();
 		const messageParts = useMemo(() => groupToolCalls(message.parts), [message.parts]);
 		const hasContent = useMemo(() => checkAssistantMessageHasContent(message), [message]);
+		const isCompacting = useMemo(
+			() =>
+				messageParts.filter((p) => p.type === 'data-compactionSummaryStarted').length >
+				messageParts.filter((p) => p.type === 'data-compaction').length,
+			[messageParts],
+		);
 
 		if (!message.parts.length && isSettled) {
 			return null;
@@ -42,7 +48,7 @@ export const AssistantMessage = memo(
 						<div className='text-muted-foreground italic text-sm'>No response</div>
 					)}
 
-					{showLoader && <TextShimmer />}
+					{showLoader && !isCompacting && <TextShimmer />}
 
 					{chatId && (
 						<AssistantMessageActions
@@ -62,21 +68,32 @@ export const AssistantMessage = memo(
 
 const MessageParts = memo(({ parts }: { parts: GroupedMessagePart[] }) => {
 	const { isSettled } = useAssistantMessage();
-	const hasSummary = useMemo(() => parts.some((part) => part.type === 'data-compaction'), [parts]);
-	return parts.map((part, i) => (
-		<MessagePart key={i} part={part} isPartSettled={isSettled || !isLast(part, parts)} hasSummary={hasSummary} />
-	));
+	return parts.map((part, i) => {
+		const hasCompactionAfter =
+			part.type === 'data-compactionSummaryStarted'
+				? parts.slice(i + 1).some((p) => p.type === 'data-compaction')
+				: false;
+
+		return (
+			<MessagePart
+				key={i}
+				part={part}
+				hasCompactionAfter={hasCompactionAfter}
+				isPartSettled={isSettled || !isLast(part, parts)}
+			/>
+		);
+	});
 });
 
 const MessagePart = memo(
 	({
 		part,
+		hasCompactionAfter,
 		isPartSettled,
-		hasSummary,
 	}: {
 		part: GroupedMessagePart;
+		hasCompactionAfter: boolean;
 		isPartSettled: boolean;
-		hasSummary: boolean;
 	}) => {
 		if (isToolGroupPart(part)) {
 			return <ToolCallsGroup parts={part.parts} isSettled={isPartSettled} />;
@@ -97,9 +114,8 @@ const MessagePart = memo(
 				);
 			case 'reasoning':
 				return <AssistantReasoning text={part.text} isStreaming={isPartStreaming} />;
-			case 'data-compactionSummaryStarted': {
-				return !hasSummary ? <AssistantCompaction summary={''} isSummarizing={true} /> : null;
-			}
+			case 'data-compactionSummaryStarted':
+				return hasCompactionAfter ? null : <AssistantCompaction summary={''} isSummarizing={true} />;
 			case 'data-compaction':
 				return <AssistantCompaction summary={part.data.summary} isSummarizing={false} />;
 			default:

@@ -1,1 +1,0 @@
-ALTER TABLE "message_part" ADD COLUMN "summary_type" text;

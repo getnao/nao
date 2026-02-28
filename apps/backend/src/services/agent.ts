@@ -17,18 +17,20 @@ import { CACHE_1H, CACHE_5M } from '../agents/providers';
 import { getTools } from '../agents/tools';
 import { getConnections, getUserRules } from '../agents/user-rules';
 import { SystemPrompt } from '../components/ai';
+import { DBChat } from '../db/abstractSchema';
 import { renderToMarkdown } from '../lib/markdown';
 import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import * as storyQueries from '../queries/story.queries';
 import { AgentSettings } from '../types/agent-settings';
-import { AgentTools, Mention, MessageCustomDataParts, TokenCost, TokenUsage, UIChat, UIMessage } from '../types/chat';
+import { AgentTools, Mention, MessageCustomDataParts, TokenCost, TokenUsage, UIMessage } from '../types/chat';
 import { ToolContext } from '../types/tools';
-import { convertToCost, convertToTokenUsage, findLastUserMessage, retrieveProjectById } from '../utils/ai';
+import { convertToCost, convertToTokenUsage, findLastUserMessage } from '../utils/ai';
 import { HandlerError } from '../utils/error';
 import { getDefaultModelId, getEnvModelSelections, ModelSelection, resolveProviderModel } from '../utils/llm';
-import { compactionService } from './compaction.service';
+import { truncateMiddle } from '../utils/utils';
+import { compactionService } from './compaction';
 import { memoryService } from './memory';
 import { skillService } from './skill.service';
 
@@ -50,10 +52,7 @@ export interface AgentRunResult {
 	}>;
 }
 
-type AgentChat = UIChat & {
-	userId: string;
-	projectId: string;
-};
+export type AgentChat = Pick<DBChat, 'id' | 'projectId' | 'userId'>;
 
 export class AgentService {
 	private _agents = new Map<string, AgentManager>();
@@ -110,7 +109,7 @@ export class AgentService {
 		chatId: string,
 		agentSettings: AgentSettings | null,
 	): Promise<ToolContext> {
-		const project = await retrieveProjectById(projectId);
+		const project = await projectQueries.retrieveProjectById(projectId);
 		if (!project.path) {
 			throw new HandlerError('BAD_REQUEST', 'Project path does not exist.');
 		}
@@ -173,14 +172,12 @@ class AgentManager {
 
 	private async _prepareStep(messages: ModelMessage[]): Promise<{ messages: ModelMessage[] }> {
 		await compactionService.compactConversationIfNeeded({
-			chatId: this.chat.id,
-			projectId: this.chat.projectId,
-			userId: this.chat.userId,
+			chat: this.chat,
 			provider: this._modelSelection.provider,
 			messages,
 			tools: this._agentTools,
 			maxOutputTokens: MAX_OUTPUT_TOKENS,
-			contextWindow: 29_000,
+			contextWindow: 200_000,
 			onCompactionStarted: () => {
 				this._streamWriter?.write({
 					type: 'data-compactionSummaryStarted',
@@ -437,7 +434,10 @@ class AgentManager {
 		const updatedMessages = [...messages];
 		const textPartIndex = lastUserMessage.parts.findIndex((part) => part.type === 'text');
 		const newParts = [...lastUserMessage.parts];
-		newParts[textPartIndex] = { type: 'text', text: skillContent };
+		newParts[textPartIndex] = {
+			type: 'text',
+			text: truncateMiddle(skillContent, 16_000),
+		};
 		updatedMessages[lastUserMessageIndex] = { ...lastUserMessage, parts: newParts };
 
 		return updatedMessages;

@@ -2,7 +2,7 @@ import type { App } from '../app';
 import { slackAuthMiddleware } from '../middleware/slack.middleware';
 import * as chatQueries from '../queries/chat.queries';
 import * as slackConfigQueries from '../queries/project-slack-config.queries';
-import { agentService } from '../services/agent.service';
+import { agentService } from '../services/agent';
 import { SlackService } from '../services/slack.service';
 import { SlackInteractionBodySchema, SlackInteractionPayloadSchema, SlackRequestSchema } from '../types/slack';
 

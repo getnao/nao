@@ -64,7 +64,6 @@ export const convertUIPartToDBPart = (
 			return {
 				type: 'data-compaction',
 				text: part.data.summary,
-				summaryType: part.data.summaryType!,
 				messageId,
 				order,
 			};
@@ -125,7 +124,6 @@ export const convertDBPartToUIPart = (part: DBMessagePart): UIMessagePart | unde
 				type: 'data-compaction',
 				data: {
 					summary: part.text!,
-					summaryType: part.summaryType!,
 				},
 			};
 		default:

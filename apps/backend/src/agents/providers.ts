@@ -2,8 +2,7 @@ import { type AnthropicProviderOptions, createAnthropic } from '@ai-sdk/anthropi
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createMistral } from '@ai-sdk/mistral';
 import { createOpenAI } from '@ai-sdk/openai';
-import { createOpenRouter } from '@openrouter/ai-sdk-provider';
-import type { LanguageModel } from 'ai';
+import { createOpenRouter, LanguageModelV3 } from '@openrouter/ai-sdk-provider';
 import { createOllama } from 'ai-sdk-ollama';
 
 import type { LlmProvider, LlmProvidersType, ProviderConfigMap } from '../types/llm';
@@ -276,7 +275,7 @@ export function getProviderModelConfig<P extends LlmProvider>(provider: P, model
 	return (model?.config ?? {}) as ProviderConfigMap[P];
 }
 
-type ModelCreator = (settings: ProviderSettings, modelId: string) => LanguageModel;
+type ModelCreator = (settings: ProviderSettings, modelId: string) => LanguageModelV3;
 
 const MODEL_CREATORS: Record<LlmProvider, ModelCreator> = {
 	anthropic: (settings, modelId) => createAnthropic(settings).chat(modelId),
@@ -288,7 +287,7 @@ const MODEL_CREATORS: Record<LlmProvider, ModelCreator> = {
 };
 
 export type ProviderModelResult = {
-	model: LanguageModel;
+	model: LanguageModelV3;
 	providerOptions: Partial<{ [P in LlmProvider]: ProviderConfigMap[P] }>;
 };
 

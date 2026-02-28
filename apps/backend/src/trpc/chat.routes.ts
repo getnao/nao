@@ -3,7 +3,7 @@ import { z } from 'zod/v4';
 
 import * as chatQueries from '../queries/chat.queries';
 import { type SearchChatResult } from '../queries/chat.queries';
-import { agentService } from '../services/agent.service';
+import { agentService } from '../services/agent';
 import { posthog, PostHogEvent } from '../services/posthog';
 import { type ContextUsage, type ListChatResponse, type UIChat } from '../types/chat';
 import { llmProviderSchema } from '../types/llm';

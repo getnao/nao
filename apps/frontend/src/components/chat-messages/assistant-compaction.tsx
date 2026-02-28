@@ -14,7 +14,7 @@ export const AssistantCompaction = memo(({ summary, isSummarizing }: { summary: 
 			isLoading={isSummarizing}
 			onExpandedChange={setIsExpanded}
 		>
-			<div className='text-muted-foreground text-sm'>
+			<div className='text-muted-foreground markdown-small'>
 				<Conversation className='p-0'>
 					<ConversationContent className='p-0 max-h-[200px]'>
 						<Streamdown mode='static'>{summary}</Streamdown>
