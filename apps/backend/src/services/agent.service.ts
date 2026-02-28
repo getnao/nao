@@ -251,90 +251,66 @@ class AgentManager {
 	}
 
 	/**
-	 * Keep historical story tool outputs aligned with latest saved story versions.
-	 * This ensures user-edited story content is what the model sees in follow-ups.
+	 * Sync story tool outputs with the DB and deduplicate: only the last occurrence
+	 * of each story carries the full content; earlier ones are marked `_stale` so the
+	 * model sees a short placeholder instead of redundant code.
 	 */
 	private async _syncStoryToolOutputs(messages: UIMessage[]): Promise<UIMessage[]> {
-		const storyIds = new Set<string>();
-		type StoryToolOutputPart = Extract<
-			UIMessage['parts'][number],
-			{ type: 'tool-story'; state: 'output-available' }
-		>;
-		const isStoryToolOutputPart = (part: UIMessage['parts'][number]): part is StoryToolOutputPart =>
+		type StoryPart = Extract<UIMessage['parts'][number], { type: 'tool-story'; state: 'output-available' }>;
+		const isStoryPart = (part: UIMessage['parts'][number]): part is StoryPart =>
 			isToolUIPart(part) && part.type === 'tool-story' && part.state === 'output-available';
 
+		const lastToolCallByStory = new Map<string, string>();
 		for (const message of messages) {
 			for (const part of message.parts) {
-				if (!isStoryToolOutputPart(part)) {
-					continue;
-				}
-				const storyId = part.output.id;
-				if (storyId) {
-					storyIds.add(storyId);
+				if (isStoryPart(part) && part.output.id) {
+					lastToolCallByStory.set(part.output.id, part.toolCallId);
 				}
 			}
 		}
 
-		if (storyIds.size === 0) {
+		if (lastToolCallByStory.size === 0) {
 			return messages;
 		}
 
 		try {
-			const latestByStoryId = new Map<string, Awaited<ReturnType<typeof storyQueries.getLatestVersion>>>();
+			const latestVersions = new Map<string, Awaited<ReturnType<typeof storyQueries.getLatestVersion>>>();
 			await Promise.all(
-				[...storyIds].map(async (storyId) => {
-					const latest = await storyQueries.getLatestVersion(this.chat.id, storyId);
-					latestByStoryId.set(storyId, latest);
+				[...lastToolCallByStory.keys()].map(async (storyId) => {
+					latestVersions.set(storyId, await storyQueries.getLatestVersion(this.chat.id, storyId));
 				}),
 			);
 
-			let hasAnyChange = false;
-			const updatedMessages = messages.map((message) => {
-				let didChangeMessage = false;
-				const updatedParts = message.parts.map((part) => {
-					if (!isStoryToolOutputPart(part)) {
+			return messages.map((message) => ({
+				...message,
+				parts: message.parts.map((part) => {
+					if (!isStoryPart(part) || !part.output.id) {
 						return part;
 					}
 
-					const output = part.output;
-					const storyId = output.id;
-					if (!storyId) {
-						return part;
+					const storyId = part.output.id;
+
+					if (lastToolCallByStory.get(storyId) !== part.toolCallId) {
+						return { ...part, output: { ...part.output, _stale: true, code: '' } };
 					}
 
-					const latest = latestByStoryId.get(storyId);
+					const latest = latestVersions.get(storyId);
 					if (!latest) {
 						return part;
 					}
 
-					const isOutdated =
-						output.version !== latest.version ||
-						output.code !== latest.code ||
-						output.title !== latest.title;
-
-					if (!isOutdated) {
-						return part;
-					}
-
-					didChangeMessage = true;
-					hasAnyChange = true;
-					const updatedOutput = {
-						...output,
-						version: latest.version,
-						code: latest.code,
-						title: latest.title,
-					};
-
 					return {
 						...part,
-						output: updatedOutput,
+						output: {
+							...part.output,
+							version: latest.version,
+							code: latest.code,
+							title: latest.title,
+							_editedByUser: latest.source === 'user',
+						},
 					};
-				});
-
-				return didChangeMessage ? { ...message, parts: updatedParts } : message;
-			});
-
-			return hasAnyChange ? updatedMessages : messages;
+				}),
+			}));
 		} catch {
 			return messages;
 		}
