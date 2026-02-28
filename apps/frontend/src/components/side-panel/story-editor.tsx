@@ -2,8 +2,9 @@ import { memo, useMemo, useEffect } from 'react';
 import { Node, mergeAttributes } from '@tiptap/core';
 import { useEditor, EditorContent, ReactNodeViewRenderer, NodeViewWrapper } from '@tiptap/react';
 import { DragHandle } from '@tiptap/extension-drag-handle-react';
+import { TableKit } from '@tiptap/extension-table';
 import StarterKit from '@tiptap/starter-kit';
-import { Markdown } from 'tiptap-markdown';
+import { Markdown } from '@tiptap/markdown';
 import { Streamdown } from 'streamdown';
 import { GripVertical } from 'lucide-react';
 import { StoryChartEmbed } from './story-chart-embed';
@@ -120,16 +121,9 @@ const ChartBlock = Node.create({
 		return ReactNodeViewRenderer(ChartBlockView);
 	},
 
-	addStorage() {
-		return {
-			markdown: {
-				serialize(state: any, node: any) {
-					state.write(node.attrs.rawTag);
-					state.closeBlock(node);
-				},
-				parse: {},
-			},
-		};
+	renderMarkdown(node) {
+		const rawTag = typeof node.attrs?.rawTag === 'string' ? node.attrs.rawTag : '';
+		return `${rawTag}\n\n`;
 	},
 });
 
@@ -203,16 +197,9 @@ const TableBlock = Node.create({
 		return ReactNodeViewRenderer(TableBlockView);
 	},
 
-	addStorage() {
-		return {
-			markdown: {
-				serialize(state: any, node: any) {
-					state.write(node.attrs.rawTag);
-					state.closeBlock(node);
-				},
-				parse: {},
-			},
-		};
+	renderMarkdown(node) {
+		const rawTag = typeof node.attrs?.rawTag === 'string' ? node.attrs.rawTag : '';
+		return `${rawTag}\n\n`;
 	},
 });
 
@@ -294,16 +281,9 @@ const GridBlock = Node.create({
 		return ReactNodeViewRenderer(GridBlockView);
 	},
 
-	addStorage() {
-		return {
-			markdown: {
-				serialize(state: any, node: any) {
-					state.write(node.attrs.rawContent);
-					state.closeBlock(node);
-				},
-				parse: {},
-			},
-		};
+	renderMarkdown(node) {
+		const rawContent = typeof node.attrs?.rawContent === 'string' ? node.attrs.rawContent : '';
+		return `${rawContent}\n\n`;
 	},
 });
 
@@ -315,10 +295,11 @@ const EDITOR_EXTENSIONS = [
 	StarterKit.configure({
 		dropcursor: { width: 3, class: 'drop-cursor' },
 	}),
+	TableKit,
 	Markdown.configure({
-		html: true,
-		transformPastedText: true,
-		transformCopiedText: true,
+		markedOptions: {
+			gfm: true,
+		},
 	}),
 	ChartBlock,
 	TableBlock,
@@ -336,6 +317,7 @@ export const StoryEditor = memo(function StoryEditor({ code, editorRef }: StoryE
 	const editor = useEditor({
 		extensions: EDITOR_EXTENSIONS,
 		content: processedContent,
+		contentType: 'markdown',
 	});
 
 	useEffect(() => {
@@ -352,7 +334,7 @@ export const StoryEditor = memo(function StoryEditor({ code, editorRef }: StoryE
 		if (getEditorMarkdown(editor) === code) {
 			return;
 		}
-		editor.commands.setContent(processedContent, { emitUpdate: false });
+		editor.commands.setContent(processedContent, { emitUpdate: false, contentType: 'markdown' });
 	}, [editor, code, processedContent]);
 
 	return (
@@ -370,6 +352,5 @@ export const StoryEditor = memo(function StoryEditor({ code, editorRef }: StoryE
 });
 
 export function getEditorMarkdown(editor: Editor): string {
-	const storage = editor.storage as Record<string, any>;
-	return storage.markdown.getMarkdown();
+	return editor.getMarkdown();
 }

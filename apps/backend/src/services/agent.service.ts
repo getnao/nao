@@ -4,6 +4,7 @@ import {
 	FinishReason,
 	hasToolCall,
 	InferUIMessageChunk,
+	isToolUIPart,
 	ModelMessage,
 	pruneMessages,
 	StreamTextResult,
@@ -19,6 +20,7 @@ import { renderToMarkdown } from '../lib/markdown';
 import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
+import * as storyQueries from '../queries/story.queries';
 import { AgentSettings } from '../types/agent-settings';
 import { Mention, MessageCustomDataParts, TokenCost, TokenUsage, UIChat, UIMessage } from '../types/chat';
 import { ToolContext } from '../types/tools';
@@ -236,6 +238,7 @@ class AgentManager {
 	 */
 	private async _buildModelMessages(uiMessages: UIMessage[], mentions?: Mention[]): Promise<ModelMessage[]> {
 		uiMessages = this._addSkills(uiMessages, mentions);
+		uiMessages = await this._syncStoryToolOutputs(uiMessages);
 		const modelMessages = await convertToModelMessages(uiMessages, { tools: this._agentTools });
 		const memories = await memoryService.safeGetUserMemories(this.chat.userId, this.chat.projectId, this.chat.id);
 		const userRules = getUserRules();
@@ -245,6 +248,96 @@ class AgentManager {
 		const systemMessage: ModelMessage = { role: 'system', content: systemPrompt };
 		modelMessages.unshift(systemMessage);
 		return modelMessages;
+	}
+
+	/**
+	 * Keep historical story tool outputs aligned with latest saved story versions.
+	 * This ensures user-edited story content is what the model sees in follow-ups.
+	 */
+	private async _syncStoryToolOutputs(messages: UIMessage[]): Promise<UIMessage[]> {
+		const storyIds = new Set<string>();
+		type StoryToolOutputPart = Extract<
+			UIMessage['parts'][number],
+			{ type: 'tool-story'; state: 'output-available' }
+		>;
+		const isStoryToolOutputPart = (part: UIMessage['parts'][number]): part is StoryToolOutputPart =>
+			isToolUIPart(part) && part.type === 'tool-story' && part.state === 'output-available';
+
+		for (const message of messages) {
+			for (const part of message.parts) {
+				if (!isStoryToolOutputPart(part)) {
+					continue;
+				}
+				const storyId = part.output.id;
+				if (storyId) {
+					storyIds.add(storyId);
+				}
+			}
+		}
+
+		if (storyIds.size === 0) {
+			return messages;
+		}
+
+		try {
+			const latestByStoryId = new Map<string, Awaited<ReturnType<typeof storyQueries.getLatestVersion>>>();
+			await Promise.all(
+				[...storyIds].map(async (storyId) => {
+					const latest = await storyQueries.getLatestVersion(this.chat.id, storyId);
+					latestByStoryId.set(storyId, latest);
+				}),
+			);
+
+			let hasAnyChange = false;
+			const updatedMessages = messages.map((message) => {
+				let didChangeMessage = false;
+				const updatedParts = message.parts.map((part) => {
+					if (!isStoryToolOutputPart(part)) {
+						return part;
+					}
+
+					const output = part.output;
+					const storyId = output.id;
+					if (!storyId) {
+						return part;
+					}
+
+					const latest = latestByStoryId.get(storyId);
+					if (!latest) {
+						return part;
+					}
+
+					const isOutdated =
+						output.version !== latest.version ||
+						output.code !== latest.code ||
+						output.title !== latest.title;
+
+					if (!isOutdated) {
+						return part;
+					}
+
+					didChangeMessage = true;
+					hasAnyChange = true;
+					const updatedOutput = {
+						...output,
+						version: latest.version,
+						code: latest.code,
+						title: latest.title,
+					};
+
+					return {
+						...part,
+						output: updatedOutput,
+					};
+				});
+
+				return didChangeMessage ? { ...message, parts: updatedParts } : message;
+			});
+
+			return hasAnyChange ? updatedMessages : messages;
+		} catch {
+			return messages;
+		}
 	}
 
 	private _scheduleMemoryExtraction(uiMessages: UIMessage[]): void {
