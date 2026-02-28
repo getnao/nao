@@ -9,11 +9,11 @@ import {
 	pruneMessages,
 	StreamTextResult,
 	ToolLoopAgent,
-	ToolLoopAgentSettings,
 	UIMessageStreamWriter,
 } from 'ai';
 
 import { CACHE_1H, CACHE_5M } from '../agents/providers';
+import { ProviderModelResult } from '../agents/providers';
 import { getTools } from '../agents/tools';
 import { getConnections, getUserRules } from '../agents/user-rules';
 import { SystemPrompt } from '../components/ai';
@@ -133,10 +133,7 @@ export class AgentService {
 		return this._agents.get(chatId);
 	}
 
-	protected async _getModelConfig(
-		projectId: string,
-		modelSelection: ModelSelection,
-	): Promise<Pick<ToolLoopAgentSettings, 'model' | 'providerOptions'>> {
+	protected async _getModelConfig(projectId: string, modelSelection: ModelSelection): Promise<ProviderModelResult> {
 		const result = await resolveProviderModel(projectId, modelSelection.provider, modelSelection.modelId);
 		if (!result) {
 			throw new HandlerError('BAD_REQUEST', 'The selected model could not be resolved.');
@@ -153,7 +150,7 @@ class AgentManager {
 
 	constructor(
 		readonly chat: AgentChat,
-		private readonly _modelConfig: Pick<ToolLoopAgentSettings, 'model' | 'providerOptions'>,
+		private readonly _modelConfig: ProviderModelResult,
 		private readonly _modelSelection: ModelSelection,
 		private readonly _onDispose: () => void,
 		private readonly _abortController: AbortController,
@@ -161,7 +158,8 @@ class AgentManager {
 		private readonly _toolContext: ToolContext,
 	) {
 		this._agent = new ToolLoopAgent({
-			...this._modelConfig,
+			model: this._modelConfig.model,
+			providerOptions: this._modelConfig.providerOptions,
 			tools: this._agentTools,
 			maxOutputTokens: MAX_OUTPUT_TOKENS,
 			prepareStep: async ({ messages }) => this._prepareStep(messages),
@@ -177,7 +175,7 @@ class AgentManager {
 			messages,
 			tools: this._agentTools,
 			maxOutputTokens: MAX_OUTPUT_TOKENS,
-			contextWindow: 200_000,
+			contextWindow: this._modelConfig.contextWindow,
 			onCompactionStarted: () => {
 				this._streamWriter?.write({
 					type: 'data-compactionSummaryStarted',

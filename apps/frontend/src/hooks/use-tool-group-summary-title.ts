@@ -1,12 +1,12 @@
 import { useMemo } from 'react';
 import { pluralize } from '@nao/shared';
-import type { CollapsiblePart } from '@/types/ai';
+import type { GroupablePart } from '@/types/ai';
 import { isReasoningPart } from '@/lib/ai';
 
 /**
  * Creates a summary title for the tool group based on the tool calls (e.g. "Explore X files, X folders (X errors)").
  */
-export const useToolGroupSummaryTitle = (opts: { parts: CollapsiblePart[]; isLoading: boolean }): string => {
+export const useToolGroupSummaryTitle = (opts: { parts: GroupablePart[]; isLoading: boolean }): string => {
 	const { parts, isLoading } = opts;
 
 	const title = useMemo(() => {
@@ -29,7 +29,7 @@ export const useToolGroupSummaryTitle = (opts: { parts: CollapsiblePart[]; isLoa
 	return title;
 };
 
-const createToolCallsSummary = (parts: CollapsiblePart[]): string => {
+const createToolCallsSummary = (parts: GroupablePart[]): string => {
 	const counts = collectExplorationCounts(parts);
 
 	const formatCount = (count: number, word: string): string => {
@@ -53,7 +53,7 @@ interface ExplorationCounts {
 	searches: number;
 }
 
-const collectExplorationCounts = (parts: CollapsiblePart[]): ExplorationCounts => {
+const collectExplorationCounts = (parts: GroupablePart[]): ExplorationCounts => {
 	const counts: ExplorationCounts = { files: 0, folders: 0, searches: 0 };
 
 	for (const part of parts) {

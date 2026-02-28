@@ -16,9 +16,11 @@ export type ProviderSettings = { apiKey: string; baseURL?: string };
 /** Provider configuration with env var names and known models */
 export const LLM_PROVIDERS: LlmProvidersType = {
 	anthropic: {
+		create: (settings, modelId) => createAnthropic(settings).chat(modelId),
 		envVar: 'ANTHROPIC_API_KEY',
 		baseUrlEnvVar: 'ANTHROPIC_BASE_URL',
 		extractorModelId: 'claude-haiku-4-5',
+		summaryModelId: 'claude-sonnet-4-5',
 		defaultOptions: {
 			disableParallelToolUse: false,
 			contextManagement: {
@@ -128,9 +130,11 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 		],
 	},
 	openai: {
+		create: (settings, modelId) => createOpenAI(settings).responses(modelId),
 		envVar: 'OPENAI_API_KEY',
 		baseUrlEnvVar: 'OPENAI_BASE_URL',
 		extractorModelId: 'gpt-4.1-mini',
+		summaryModelId: 'gpt-4.1-mini',
 		defaultOptions: { store: false, truncation: 'auto' },
 		models: [
 			{
@@ -155,9 +159,11 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 		],
 	},
 	google: {
+		create: (settings, modelId) => createGoogleGenerativeAI(settings).chat(modelId),
 		envVar: 'GEMINI_API_KEY',
 		baseUrlEnvVar: 'GEMINI_BASE_URL',
 		extractorModelId: 'gemini-2.5-flash',
+		summaryModelId: 'gemini-2.5-flash',
 		models: [
 			{
 				id: 'gemini-3-pro-preview',
@@ -187,9 +193,11 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 		],
 	},
 	mistral: {
+		create: (settings, modelId) => createMistral(settings).chat(modelId),
 		envVar: 'MISTRAL_API_KEY',
 		baseUrlEnvVar: 'MISTRAL_BASE_URL',
 		extractorModelId: 'mistral-medium-latest',
+		summaryModelId: 'mistral-medium-latest',
 		models: [
 			{
 				id: 'mistral-medium-latest',
@@ -207,9 +215,11 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 		],
 	},
 	openrouter: {
+		create: (settings, modelId) => createOpenRouter(settings).chat(modelId),
 		envVar: 'OPENROUTER_API_KEY',
 		baseUrlEnvVar: 'OPENROUTER_BASE_URL',
 		extractorModelId: 'anthropic/claude-haiku-4.5',
+		summaryModelId: 'anthropic/claude-haiku-4.5',
 		models: [
 			{
 				id: 'moonshotai/kimi-k2.5',
@@ -239,9 +249,11 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 		],
 	},
 	ollama: {
+		create: (settings, modelId) => createOllama(settings).chat(modelId),
 		envVar: 'OLLAMA_API_KEY',
 		baseUrlEnvVar: 'OLLAMA_BASE_URL',
 		extractorModelId: 'llama3.2:3b',
+		summaryModelId: 'llama3.2:3b',
 		models: [
 			{ id: 'qwen3:8b', name: 'Qwen 3 8B', default: true },
 			{ id: 'llama3.2:3b', name: 'Llama 3.2 3B' },
@@ -270,25 +282,15 @@ export function getProviderApiKeyRequirement(provider: LlmProvider): boolean {
 	}
 }
 
-export function getProviderModelConfig<P extends LlmProvider>(provider: P, modelId: string): ProviderConfigMap[P] {
+function getProviderModelConfig<P extends LlmProvider>(provider: P, modelId: string): ProviderConfigMap[P] {
 	const model = LLM_PROVIDERS[provider].models.find((m) => m.id === modelId);
 	return (model?.config ?? {}) as ProviderConfigMap[P];
 }
 
-type ModelCreator = (settings: ProviderSettings, modelId: string) => LanguageModelV3;
-
-const MODEL_CREATORS: Record<LlmProvider, ModelCreator> = {
-	anthropic: (settings, modelId) => createAnthropic(settings).chat(modelId),
-	google: (settings, modelId) => createGoogleGenerativeAI(settings).chat(modelId),
-	mistral: (settings, modelId) => createMistral(settings).chat(modelId),
-	openai: (settings, modelId) => createOpenAI(settings).responses(modelId),
-	openrouter: (settings, modelId) => createOpenRouter(settings).chat(modelId),
-	ollama: (settings, modelId) => createOllama(settings).chat(modelId),
-};
-
 export type ProviderModelResult = {
 	model: LanguageModelV3;
 	providerOptions: Partial<{ [P in LlmProvider]: ProviderConfigMap[P] }>;
+	contextWindow: number;
 };
 
 /** Create a language model instance with merged provider options */
@@ -297,14 +299,16 @@ export function createProviderModel(
 	settings: ProviderSettings,
 	modelId: string,
 ): ProviderModelResult {
-	const model = MODEL_CREATORS[provider](settings, modelId);
-	const defaultOptions = LLM_PROVIDERS[provider].defaultOptions ?? {};
+	const providerConfig = LLM_PROVIDERS[provider];
+	const defaultOptions = providerConfig.defaultOptions ?? {};
 	const modelConfig = getProviderModelConfig(provider, modelId);
+	const contextWindow = providerConfig.models.find((m) => m.id === modelId)?.contextWindow ?? 200_000;
 
 	return {
-		model,
+		model: providerConfig.create(settings, modelId),
 		providerOptions: {
 			[provider]: { ...defaultOptions, ...modelConfig },
 		},
+		contextWindow,
 	};
 }

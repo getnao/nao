@@ -8,7 +8,6 @@ import { convertToTokenUsage, selectMessagesInBudget } from '../../utils/ai';
 import { debugCompaction } from '../../utils/debug';
 import { type ProviderModelResult } from '../providers';
 
-const COMPACTION_CONTEXT_WINDOW = 200_000;
 const MAX_OUTPUT_TOKENS = 16_000;
 
 export class CompactionLLM implements ICompactionLLM {
@@ -56,7 +55,7 @@ export class CompactionLLM implements ICompactionLLM {
 			{ role: 'user', content: COMPACTION_USER_PROMPT },
 		];
 		const prefixAndSuffixTokens = this._tc.estimateMessages(prefixAndSuffixMessages);
-		return COMPACTION_CONTEXT_WINDOW - MAX_OUTPUT_TOKENS - prefixAndSuffixTokens;
+		return this._model.contextWindow - MAX_OUTPUT_TOKENS - prefixAndSuffixTokens;
 	}
 
 	private _composeMessages(selectedMessages: ModelMessage[]): ModelMessage[] {

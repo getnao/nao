@@ -116,6 +116,7 @@ describe('CompactionLLM', () => {
 	const fakeModel = {
 		model: { modelId: 'test-model' } as never,
 		providerOptions: {},
+		contextWindow: 200_000,
 	};
 
 	class FakeTokenCounter implements ITokenCounter {
