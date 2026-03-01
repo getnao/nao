@@ -24,7 +24,7 @@ export const tools = {
 	suggest_follow_ups: suggestFollowUps,
 };
 
-export const getTools = (agentSettings: AgentSettings | null) => {
+export const getTools = (agentSettings: AgentSettings | null, extraTools?: Record<string, unknown>) => {
 	const mcpTools = mcpService.getMcpTools();
 
 	const { execute_python, ...baseTools } = tools;
@@ -33,5 +33,6 @@ export const getTools = (agentSettings: AgentSettings | null) => {
 		...baseTools,
 		...mcpTools,
 		...(agentSettings?.experimental?.pythonSandboxing && execute_python && { execute_python }),
+		...extraTools,
 	};
 };

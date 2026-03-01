@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { SavedPrompts } from '@/components/settings/saved-prompts';
 import { SettingsExperimental } from '@/components/settings/experimental';
 import { SettingsProjectMemory } from '@/components/settings/project-memory';
+import { SettingsWebSearch } from '@/components/settings/web-search';
 import { trpc } from '@/main';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/project/agent')({
@@ -16,6 +17,7 @@ function ProjectAgentTabPage() {
 	return (
 		<>
 			<SettingsProjectMemory isAdmin={isAdmin} />
+			<SettingsWebSearch isAdmin={isAdmin} />
 			<SavedPrompts isAdmin={isAdmin} />
 			<SettingsExperimental isAdmin={isAdmin} />
 		</>

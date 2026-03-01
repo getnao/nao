@@ -305,6 +305,12 @@ export const projectRoutes = {
 					.optional(),
 				sql: z.object({ dangerouslyWritePermEnabled: z.boolean().optional() }).optional(),
 				memoryEnabled: z.boolean().optional(),
+				webSearch: z
+					.object({
+						enabled: z.boolean().optional(),
+						mode: z.enum(['provider']).optional(),
+					})
+					.optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
@@ -314,6 +320,7 @@ export const projectRoutes = {
 				experimental: { ...existing.experimental, ...input.experimental },
 				transcribe: { ...existing.transcribe, ...input.transcribe },
 				sql: { ...existing.sql, ...input.sql },
+				webSearch: { ...existing.webSearch, ...input.webSearch },
 			};
 			posthog.capture(ctx.user.id, PostHogEvent.ProjectAgentSettingsUpdated, {
 				project_id: ctx.project.id,
@@ -323,6 +330,8 @@ export const projectRoutes = {
 				sql_dangerously_write_perm_enabled: merged.sql?.dangerouslyWritePermEnabled,
 				python_sandboxing_enabled: merged.experimental?.pythonSandboxing,
 				memory_enabled: merged.memoryEnabled,
+				web_search_enabled: merged.webSearch?.enabled,
+				web_search_mode: merged.webSearch?.mode,
 			});
 			return projectQueries.updateAgentSettings(ctx.project.id, merged);
 		}),
