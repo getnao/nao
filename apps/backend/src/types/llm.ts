@@ -1,3 +1,4 @@
+import type { AmazonBedrockLanguageModelOptions } from '@ai-sdk/amazon-bedrock';
 import type { AnthropicProviderOptions } from '@ai-sdk/anthropic';
 import type { GoogleGenerativeAIProviderOptions } from '@ai-sdk/google';
 import type { MistralLanguageModelOptions } from '@ai-sdk/mistral';
@@ -8,7 +9,15 @@ import { z } from 'zod/v4';
 
 import { TokenCost } from './chat';
 
-export const llmProviderSchema = z.enum(['openai', 'anthropic', 'google', 'mistral', 'openrouter', 'ollama']);
+export const llmProviderSchema = z.enum([
+	'openai',
+	'anthropic',
+	'google',
+	'mistral',
+	'openrouter',
+	'ollama',
+	'bedrock',
+]);
 export type LlmProvider = z.infer<typeof llmProviderSchema>;
 
 export type ProviderSettings = { apiKey: string; baseURL?: string };
@@ -34,6 +43,7 @@ export type ProviderConfigMap = {
 	mistral: MistralLanguageModelOptions;
 	openrouter: OpenRouterProviderOptions;
 	ollama: Flatten<OllamaChatProviderOptions>;
+	bedrock: AmazonBedrockLanguageModelOptions;
 };
 
 /** Model definition with provider-specific config type */

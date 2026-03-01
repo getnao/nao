@@ -15,6 +15,7 @@ class LLMProvider(str, Enum):
     GEMINI = "gemini"
     OPENROUTER = "openrouter"
     OLLAMA = "ollama"
+    BEDROCK = "bedrock"
 
 
 class LLMConfig(BaseModel):
@@ -26,7 +27,7 @@ class LLMConfig(BaseModel):
 
     @property
     def requires_api_key(self) -> bool:
-        return self.provider != LLMProvider.OLLAMA
+        return self.provider not in (LLMProvider.OLLAMA, LLMProvider.BEDROCK)
 
     def get_effective_api_key_for_env(self) -> str | None:
         """Return the API key value to export via environment variables."""
@@ -52,11 +53,12 @@ class LLMConfig(BaseModel):
             questionary.Choice("Google Gemini", value="gemini"),
             questionary.Choice("OpenRouter (Kimi, DeepSeek, etc.)", value="openrouter"),
             questionary.Choice("Ollama", value="ollama"),
+            questionary.Choice("AWS Bedrock (Claude, Nova, etc)", value="bedrock"),
         ]
 
         llm_provider = ask_select("Select LLM provider:", choices=provider_choices)
         api_key = None
-        if llm_provider != LLMProvider.OLLAMA:
+        if llm_provider not in (LLMProvider.OLLAMA, LLMProvider.BEDROCK):
             api_key = ask_text(f"Enter your {llm_provider.upper()} API key:", password=True, required_field=True)
 
         return LLMConfig(

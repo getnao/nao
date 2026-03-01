@@ -1,3 +1,4 @@
+import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock';
 import { type AnthropicProviderOptions, createAnthropic } from '@ai-sdk/anthropic';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createMistral } from '@ai-sdk/mistral';
@@ -258,6 +259,26 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 			{ id: 'mistral:7b', name: 'Mistral 7B' },
 		],
 	},
+	bedrock: {
+		create: (settings, modelId) => {
+			const region = process.env.AWS_REGION ?? 'us-east-1';
+			const config = settings.apiKey
+				? { apiKey: settings.apiKey, region }
+				: {
+						region,
+						accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+						secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+					};
+			return createAmazonBedrock(config).languageModel(modelId);
+		},
+		envVar: 'AWS_BEARER_TOKEN_BEDROCK',
+		extractorModelId: 'us.anthropic.claude-sonnet-4-6',
+		summaryModelId: 'us.anthropic.claude-sonnet-4-6',
+		models: [
+			{ id: 'us.anthropic.claude-sonnet-4-6', name: 'Claude Sonnet 4.6 (Bedrock)', default: true },
+			{ id: 'us.anthropic.claude-opus-4-6-v1', name: 'Claude Opus 4.6 (Bedrock)' },
+		],
+	},
 };
 
 /** Known models for each provider (legacy format for API compatibility) */
@@ -274,6 +295,7 @@ export function getDefaultModelId(provider: LlmProvider): string {
 export function getProviderApiKeyRequirement(provider: LlmProvider): boolean {
 	switch (provider) {
 		case 'ollama':
+		case 'bedrock':
 			return false;
 		default:
 			return true;
@@ -284,7 +306,6 @@ function getProviderModelConfig<P extends LlmProvider>(provider: P, modelId: str
 	const model = LLM_PROVIDERS[provider].models.find((m) => m.id === modelId);
 	return (model?.config ?? {}) as ProviderConfigMap[P];
 }
-
 export type ProviderModelResult = {
 	model: LanguageModelV3;
 	providerOptions: Partial<{ [P in LlmProvider]: ProviderConfigMap[P] }>;
