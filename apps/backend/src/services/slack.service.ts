@@ -18,9 +18,12 @@ import {
 	createCompletionCard,
 	createFeedbackModal,
 	createImageBlock,
+	createLiveToolCall,
 	createStopButtonCard,
+	createSummaryToolCalls,
 	createTextBlock,
 	FEEDBACK_MODAL_CALLBACK_ID,
+	type ToolCallEntry,
 } from '../utils/slack';
 import { agentService } from './agent.service';
 
@@ -41,6 +44,8 @@ type StreamState = {
 	renderedChartIds: Set<string>;
 	sqlOutputs: Map<string, Record<string, unknown>[]>;
 	lastUpdateAt: number;
+	toolGroup: Map<string, ToolCallEntry>;
+	toolGroupBlockIndex: number;
 };
 
 class SlackService {
@@ -256,6 +261,8 @@ class SlackService {
 			renderedChartIds: new Set(),
 			sqlOutputs: new Map(),
 			lastUpdateAt: Date.now(),
+			toolGroup: new Map(),
+			toolGroupBlockIndex: -1,
 		};
 
 		let lastMessage: UIMessage | null = null;
@@ -265,16 +272,17 @@ class SlackService {
 			if (!part) {
 				continue;
 			}
-			switch (part.type) {
-				case 'text':
-					await this._handleTextPart(part, state);
-					break;
-				case 'tool-execute_sql':
-					this._handleSqlPart(part, state);
-					break;
-				case 'tool-display_chart':
-					await this._handleChartPart(part, state);
-					break;
+			if (part.type === 'text') {
+				this._flushToolGroup(state);
+				await this._handleTextPart(part, state);
+			} else if (part.type === 'tool-execute_sql') {
+				this._flushToolGroup(state);
+				this._handleSqlPart(part, state);
+			} else if (part.type === 'tool-display_chart') {
+				this._flushToolGroup(state);
+				await this._handleChartPart(part, state);
+			} else if (part.type.startsWith('tool-') && part.type !== 'tool-suggest_follow_ups') {
+				await this._handleCollapsibleToolPart(part as Extract<UIMessagePart, { toolCallId: string }>, state);
 			}
 			lastMessage = uiMessage;
 		}
@@ -316,7 +324,10 @@ class SlackService {
 			const png = generateChartImage({ config: part.input, data });
 			const chartId = await chartImageQueries.saveChart(part.toolCallId, png.toString('base64'));
 			state.renderedChartIds.add(part.toolCallId);
-			const imageUrl = new URL(`c/${this._ctx.chatId}/${chartId}.png`, this._redirectUrl).toString();
+			const imageUrl = new URL(
+				`c/${this._ctx.chatId}/${chartId}.png`,
+				'https://c54e-86-229-150-239.ngrok-free.app',
+			).toString();
 
 			this._ctx.textBlockIndex = -1;
 			this._ctx.blocks.push(createImageBlock(imageUrl));
@@ -324,6 +335,44 @@ class SlackService {
 		} catch (error) {
 			console.error('Error generating chart image:', error);
 		}
+	}
+
+	private async _handleCollapsibleToolPart(
+		part: Extract<UIMessagePart, { toolCallId: string }>,
+		state: StreamState,
+	): Promise<void> {
+		if (part.state === 'input-streaming') {
+			return;
+		}
+
+		const entry: ToolCallEntry = {
+			type: part.type,
+			input: ('input' in part ? part.input : {}) as Record<string, string>,
+			toolCallId: part.toolCallId,
+		};
+
+		state.toolGroup.set(part.toolCallId, entry);
+
+		if (state.toolGroupBlockIndex === -1) {
+			state.toolGroupBlockIndex = this._ctx.blocks.length;
+			this._ctx.blocks.push(createLiveToolCall(state.toolGroup));
+		} else {
+			this._ctx.blocks[state.toolGroupBlockIndex] = createLiveToolCall(state.toolGroup);
+		}
+
+		if (Date.now() - state.lastUpdateAt >= UPDATE_INTERVAL_MS) {
+			await this._ctx.convMessage?.edit(Card({ children: this._ctx.blocks }));
+			state.lastUpdateAt = Date.now();
+		}
+	}
+
+	private _flushToolGroup(state: StreamState): void {
+		if (state.toolGroup.size === 0) {
+			return;
+		}
+		this._ctx.blocks[state.toolGroupBlockIndex] = createSummaryToolCalls(state.toolGroup);
+		state.toolGroup = new Map();
+		state.toolGroupBlockIndex = -1;
 	}
 
 	private async _sendFinalText(): Promise<void> {

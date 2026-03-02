@@ -1,6 +1,44 @@
 import type { CardChild, CardElement, ModalElement } from 'chat';
 import { Actions, Button, Card, CardText, Image, LinkButton } from 'chat';
 
+export type ToolCallEntry = {
+	type: string;
+	input: Record<string, string>;
+	toolCallId: string;
+};
+
+const TOOL_LIVE_LABELS: Record<string, (input: Record<string, string>) => string> = {
+	'tool-read': (input) => `_reading **${input['file_path'] ?? '...'}**_`,
+	'tool-search': (input) => `_searching **${input['pattern'] ?? '...'}**_`,
+	'tool-grep': (input) => `_grepping **${input['pattern'] ?? '...'}**_`,
+	'tool-list': (input) => `_listing **${input['path'] ?? '...'}**_`,
+};
+
+const TOOL_SUMMARY_LABELS: Record<string, (count: number) => string> = {
+	'tool-read': (n) => `read **${n} ${n === 1 ? 'file' : 'files'}**`,
+	'tool-search': (n) => `searched **${n} ${n === 1 ? 'pattern' : 'patterns'}**`,
+	'tool-grep': (n) => `grepped **${n} ${n === 1 ? 'time' : 'times'}**`,
+	'tool-list': (n) => `listed **${n} ${n === 1 ? 'path' : 'paths'}**`,
+};
+
+export const createLiveToolCall = (toolGroup: Map<string, ToolCallEntry>): CardChild => {
+	const lines = [...toolGroup.values()].map(
+		(entry) => TOOL_LIVE_LABELS[entry.type]?.(entry.input) ?? `_${entry.type}_`,
+	);
+	return CardText(lines.join('\n'));
+};
+
+export const createSummaryToolCalls = (toolGroup: Map<string, ToolCallEntry>): CardChild => {
+	const countByType = new Map<string, number>();
+	for (const entry of toolGroup.values()) {
+		countByType.set(entry.type, (countByType.get(entry.type) ?? 0) + 1);
+	}
+	const parts = [...countByType.entries()].map(([type, count]) => {
+		return TOOL_SUMMARY_LABELS[type]?.(count) ?? `${type.replace('tool-', '')} ×${count}`;
+	});
+	return CardText(parts.join(' · '));
+};
+
 export const FEEDBACK_MODAL_CALLBACK_ID = 'feedback_negative_modal';
 
 export const createFeedbackModal = (): ModalElement => ({
