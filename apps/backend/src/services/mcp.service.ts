@@ -11,6 +11,8 @@ import { retrieveProjectById } from '../utils/ai';
 import { prefixToolName, removePrefixToolName, sanitizeTools } from '../utils/tools';
 import { replaceEnvVars } from '../utils/utils';
 
+const HTTP_TRANSPORTS = ['streamable-http', 'sse', 'http'];
+
 export class McpService {
 	private _mcpJsonFilePath: string;
 	private _mcpServers: Record<string, McpServerConfig>;
@@ -153,7 +155,10 @@ export class McpService {
 
 	// Convert MCP server config to MCPorter server definition
 	private _convertToServerDefinition(name: string, config: McpServerConfig): ServerDefinition {
-		if (config.type === 'http') {
+		const isHttp =
+			config.type === 'http' || (config.transport !== undefined && HTTP_TRANSPORTS.includes(config.transport));
+
+		if (isHttp) {
 			return {
 				name,
 				command: {
