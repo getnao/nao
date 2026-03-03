@@ -7,6 +7,7 @@ import { mcpRoutes } from './mcp.routes';
 import { memoryRoutes } from './memory.routes';
 import { posthogRoutes } from './posthog.routes';
 import { projectRoutes } from './project.routes';
+import { sharedChatRoutes } from './shared-chat.routes';
 import { sharedStoryRoutes } from './shared-story.routes';
 import { skillRoutes } from './skill.routes';
 import { storyRoutes } from './story.routes';
@@ -22,6 +23,7 @@ export const trpcRouter = router({
 	feedback: feedbackRoutes,
 	posthog: posthogRoutes,
 	project: projectRoutes,
+	chatShare: sharedChatRoutes,
 	storyShare: sharedStoryRoutes,
 	story: storyRoutes,
 	usage: usageRoutes,

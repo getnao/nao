@@ -3,36 +3,53 @@ import { z } from 'zod/v4';
 
 import * as chatQueries from '../queries/chat.queries';
 import { type SearchChatResult } from '../queries/chat.queries';
+import * as sharedChatQueries from '../queries/shared-chat.queries';
 import { agentService } from '../services/agent';
 import { posthog, PostHogEvent } from '../services/posthog';
 import { type ContextUsage, type ListChatResponse, type UIChat } from '../types/chat';
 import { llmProviderSchema } from '../types/llm';
 import { getChatContextUsage } from '../utils/chat-context-usage';
-import { ownedResourceProcedure, protectedProcedure } from './trpc';
+import { ownedResourceProcedure, projectProtectedProcedure, protectedProcedure } from './trpc';
 
 const chatOwnerProcedure = ownedResourceProcedure(chatQueries.getChatOwnerId, 'chat');
 
 export const chatRoutes = {
-	get: protectedProcedure.input(z.object({ chatId: z.string() })).query(async ({ input, ctx }): Promise<UIChat> => {
+	get: projectProtectedProcedure.input(z.object({ chatId: z.string() })).query(async ({ input, ctx }): Promise<UIChat> => {
 		const [chat, userId] = await chatQueries.loadChat(input.chatId, { includeFeedback: true });
 		if (!chat) {
 			throw new TRPCError({ code: 'NOT_FOUND', message: `Chat with id ${input.chatId} not found.` });
 		}
-		const isAuthorized = userId === ctx.user.id;
-		if (!isAuthorized) {
+
+		const chatProjectId = await chatQueries.getChatProjectId(input.chatId);
+		if (!chatProjectId || chatProjectId !== ctx.project.id) {
 			throw new TRPCError({ code: 'FORBIDDEN', message: `You are not authorized to access this chat.` });
 		}
-		return chat;
+
+		if (userId === ctx.user.id) {
+			return { ...chat, canWrite: true, accessType: 'owner', shareId: undefined };
+		}
+
+		const share = await sharedChatQueries.getReadableSharedChatByChatId(input.chatId, ctx.user.id);
+		if (!share) {
+			throw new TRPCError({ code: 'FORBIDDEN', message: `You are not authorized to access this chat.` });
+		}
+
+		return {
+			...chat,
+			canWrite: false,
+			accessType: share.visibility === 'project' ? 'shared-project' : 'shared-specific',
+			shareId: share.shareId,
+		};
 	}),
 
-	list: protectedProcedure.query(async ({ ctx }): Promise<ListChatResponse> => {
-		return chatQueries.listUserChats(ctx.user.id);
+	list: projectProtectedProcedure.query(async ({ ctx }): Promise<ListChatResponse> => {
+		return chatQueries.listUserChats(ctx.user.id, ctx.project.id);
 	}),
 
-	search: protectedProcedure
+	search: projectProtectedProcedure
 		.input(z.object({ query: z.string().min(1).max(255), limit: z.number().min(1).max(50).optional() }))
 		.query(async ({ input, ctx }): Promise<SearchChatResult[]> => {
-			return chatQueries.searchUserChats(ctx.user.id, input.query, input.limit);
+			return chatQueries.searchUserChats(ctx.user.id, ctx.project.id, input.query, input.limit);
 		}),
 
 	delete: chatOwnerProcedure

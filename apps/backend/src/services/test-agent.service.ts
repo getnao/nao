@@ -26,6 +26,8 @@ export class TestAgentService extends AgentService {
 			title: 'Test',
 			createdAt: Date.now(),
 			updatedAt: Date.now(),
+			canWrite: true as const,
+			accessType: 'owner' as const,
 			messages: [userMessage],
 			userId: 'test',
 			projectId,

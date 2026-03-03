@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, gte, isNotNull, isNull, like, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, gte, inArray, isNotNull, isNull, like, sql } from 'drizzle-orm';
 
 import s, { DBChat, DBChatMessage, DBMessagePart, MessageFeedback, NewChat } from '../db/abstractSchema';
 import { db } from '../db/db';
@@ -7,26 +7,58 @@ import { ListChatResponse, StopReason, TokenUsage, UIChat, UIMessage } from '../
 import { LlmProvider } from '../types/llm';
 import { convertDBPartToUIPart, mapUIPartsToDBParts } from '../utils/chat-message-part-mappings';
 import { getErrorMessage } from '../utils/utils';
+import * as sharedChatQueries from './shared-chat.queries';
 
 export const checkChatExists = async (chatId: string): Promise<boolean> => {
 	const result = await db.select().from(s.chat).where(eq(s.chat.id, chatId)).execute();
 	return result.length > 0;
 };
 
-export const listUserChats = async (userId: string): Promise<ListChatResponse> => {
-	const chats = await db
+export const listUserChats = async (userId: string, projectId: string): Promise<ListChatResponse> => {
+	const ownChats = await db
 		.select()
 		.from(s.chat)
-		.where(eq(s.chat.userId, userId))
+		.where(and(eq(s.chat.userId, userId), eq(s.chat.projectId, projectId)))
 		.orderBy(desc(s.chat.createdAt))
 		.execute();
-	return {
-		chats: chats.map((chat) => ({
-			id: chat.id,
+
+	const sharedChats = await sharedChatQueries.listProjectSharedChats(projectId, userId);
+
+	const ownedItems: ListChatResponse['chats'] = ownChats.map((chat) => ({
+		id: chat.id,
+		title: chat.title,
+		createdAt: chat.createdAt.getTime(),
+		updatedAt: chat.updatedAt.getTime(),
+		canWrite: true,
+		isOwned: true,
+		accessType: 'owner',
+		shareId: undefined,
+	}));
+
+	const sharedItems: ListChatResponse['chats'] = sharedChats
+		.filter((chat) => chat.userId !== userId)
+		.map((chat) => ({
+			id: chat.chatId,
 			title: chat.title,
-			createdAt: chat.createdAt.getTime(),
-			updatedAt: chat.updatedAt.getTime(),
-		})),
+			createdAt: chat.chatCreatedAt.getTime(),
+			updatedAt: chat.chatUpdatedAt.getTime(),
+			canWrite: false,
+			isOwned: false,
+			accessType: chat.visibility === 'project' ? 'shared-project' : 'shared-specific',
+			shareId: chat.id,
+		}));
+
+	const deduped = new Map<string, ListChatResponse['chats'][number]>();
+	for (const chat of [...ownedItems, ...sharedItems]) {
+		if (!deduped.has(chat.id)) {
+			deduped.set(chat.id, chat);
+		}
+	}
+
+	const chats = [...deduped.values()].sort((a, b) => b.updatedAt - a.updatedAt);
+
+	return {
+		chats,
 	};
 };
 
@@ -64,6 +96,8 @@ export const loadChat = async (
 			title: chat.title,
 			createdAt: chat.createdAt.getTime(),
 			updatedAt: chat.updatedAt.getTime(),
+			canWrite: true,
+			accessType: 'owner',
 			messages,
 		},
 		chat.userId,
@@ -307,25 +341,30 @@ export type SearchChatResult = {
 	title: string;
 	createdAt: number;
 	updatedAt: number;
+	canWrite: boolean;
+	isOwned: boolean;
+	accessType: 'owner' | 'shared-project' | 'shared-specific';
+	shareId?: string;
 	matchedText?: string;
 };
 
-export const searchUserChats = async (userId: string, query: string, limit = 10): Promise<SearchChatResult[]> => {
+export const searchUserChats = async (
+	userId: string,
+	projectId: string,
+	query: string,
+	limit = 10,
+): Promise<SearchChatResult[]> => {
+	const list = await listUserChats(userId, projectId);
+	const chatMetaById = new Map(list.chats.map((chat) => [chat.id, chat]));
+	const accessibleChatIds = list.chats.map((chat) => chat.id);
+	if (accessibleChatIds.length === 0) {
+		return [];
+	}
+
 	const searchPattern = `%${query}%`;
 
 	// Search in chat titles
-	const titleMatches = await db
-		.select({
-			id: s.chat.id,
-			title: s.chat.title,
-			createdAt: s.chat.createdAt,
-			updatedAt: s.chat.updatedAt,
-		})
-		.from(s.chat)
-		.where(and(eq(s.chat.userId, userId), caseInsensitiveLike(s.chat.title, searchPattern)))
-		.orderBy(desc(s.chat.updatedAt))
-		.limit(limit)
-		.execute();
+	const titleMatches = list.chats.filter((chat) => chat.title.toLowerCase().includes(query.toLowerCase())).slice(0, limit);
 
 	const titleMatchIds = new Set(titleMatches.map((m) => m.id));
 
@@ -341,28 +380,24 @@ export const searchUserChats = async (userId: string, query: string, limit = 10)
 		.from(s.chat)
 		.innerJoin(s.chatMessage, eq(s.chatMessage.chatId, s.chat.id))
 		.innerJoin(s.messagePart, eq(s.messagePart.messageId, s.chatMessage.id))
-		.where(and(eq(s.chat.userId, userId), caseInsensitiveLike(s.messagePart.text, searchPattern)))
+		.where(and(inArray(s.chat.id, accessibleChatIds), caseInsensitiveLike(s.messagePart.text, searchPattern)))
 		.orderBy(desc(s.chat.updatedAt))
 		.limit(limit * 2) // Fetch more to account for duplicates
 		.execute();
 
 	// Combine results: title matches first, then content matches (deduplicated)
-	const results: SearchChatResult[] = titleMatches.map((m) => ({
-		id: m.id,
-		title: m.title,
-		createdAt: m.createdAt.getTime(),
-		updatedAt: m.updatedAt.getTime(),
-	}));
+	const results: SearchChatResult[] = titleMatches.map((match) => ({ ...match }));
 
 	const seenIds = new Set(titleMatchIds);
 	for (const m of contentMatches) {
 		if (!seenIds.has(m.id)) {
 			seenIds.add(m.id);
+			const chatMeta = chatMetaById.get(m.id);
+			if (!chatMeta) {
+				continue;
+			}
 			results.push({
-				id: m.id,
-				title: m.title,
-				createdAt: m.createdAt.getTime(),
-				updatedAt: m.updatedAt.getTime(),
+				...chatMeta,
 				matchedText: m.matchedText ?? undefined,
 			});
 		}

@@ -17,6 +17,9 @@ export interface UIChat {
 	title: string;
 	createdAt: number;
 	updatedAt: number;
+	canWrite: boolean;
+	accessType: ChatAccessType;
+	shareId?: string;
 	messages: UIMessage[];
 }
 
@@ -29,7 +32,13 @@ export interface ChatListItem {
 	title: string;
 	createdAt: number;
 	updatedAt: number;
+	canWrite: boolean;
+	isOwned: boolean;
+	accessType: ChatAccessType;
+	shareId?: string;
 }
+
+export type ChatAccessType = 'owner' | 'shared-project' | 'shared-specific';
 
 export type UIMessage = UIGenericMessage<unknown, MessageCustomDataParts, UITools> & {
 	feedback?: MessageFeedback;

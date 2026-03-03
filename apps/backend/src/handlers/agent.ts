@@ -60,6 +60,9 @@ export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<H
 						title: chat.title,
 						createdAt: chat.createdAt,
 						updatedAt: chat.updatedAt,
+						canWrite: true,
+						isOwned: true,
+						accessType: 'owner',
 					}
 				: undefined,
 			newUserMessage: { newId: newMessageId },
