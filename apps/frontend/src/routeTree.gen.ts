@@ -29,6 +29,7 @@ import { Route as SidebarLayoutSettingsProjectSlackRouteImport } from './routes/
 import { Route as SidebarLayoutSettingsProjectModelsRouteImport } from './routes/_sidebar-layout.settings.project.models'
 import { Route as SidebarLayoutSettingsProjectMcpServersRouteImport } from './routes/_sidebar-layout.settings.project.mcp-servers'
 import { Route as SidebarLayoutSettingsProjectAgentRouteImport } from './routes/_sidebar-layout.settings.project.agent'
+import { Route as SidebarLayoutChatsSharedShareIdRouteImport } from './routes/_sidebar-layout.chats.shared.$shareId'
 import { Route as SidebarLayoutStoriesPreviewChatIdStoryIdRouteImport } from './routes/_sidebar-layout.stories.preview.$chatId.$storyId'
 
 const SignupRoute = SignupRouteImport.update({
@@ -144,6 +145,12 @@ const SidebarLayoutSettingsProjectAgentRoute =
     path: '/agent',
     getParentRoute: () => SidebarLayoutSettingsProjectRoute,
   } as any)
+const SidebarLayoutChatsSharedShareIdRoute =
+  SidebarLayoutChatsSharedShareIdRouteImport.update({
+    id: '/chats/shared/$shareId',
+    path: '/chats/shared/$shareId',
+    getParentRoute: () => SidebarLayoutRoute,
+  } as any)
 const SidebarLayoutStoriesPreviewChatIdStoryIdRoute =
   SidebarLayoutStoriesPreviewChatIdStoryIdRouteImport.update({
     id: '/stories/preview/$chatId/$storyId',
@@ -163,6 +170,7 @@ export interface FileRoutesByFullPath {
   '/settings/usage': typeof SidebarLayoutSettingsUsageRoute
   '/settings/': typeof SidebarLayoutSettingsIndexRoute
   '/stories/': typeof SidebarLayoutStoriesIndexRoute
+  '/chats/shared/$shareId': typeof SidebarLayoutChatsSharedShareIdRoute
   '/settings/project/agent': typeof SidebarLayoutSettingsProjectAgentRoute
   '/settings/project/mcp-servers': typeof SidebarLayoutSettingsProjectMcpServersRoute
   '/settings/project/models': typeof SidebarLayoutSettingsProjectModelsRoute
@@ -182,6 +190,7 @@ export interface FileRoutesByTo {
   '/settings/usage': typeof SidebarLayoutSettingsUsageRoute
   '/settings': typeof SidebarLayoutSettingsIndexRoute
   '/stories': typeof SidebarLayoutStoriesIndexRoute
+  '/chats/shared/$shareId': typeof SidebarLayoutChatsSharedShareIdRoute
   '/settings/project/agent': typeof SidebarLayoutSettingsProjectAgentRoute
   '/settings/project/mcp-servers': typeof SidebarLayoutSettingsProjectMcpServersRoute
   '/settings/project/models': typeof SidebarLayoutSettingsProjectModelsRoute
@@ -206,6 +215,7 @@ export interface FileRoutesById {
   '/_sidebar-layout/_chat-layout/': typeof SidebarLayoutChatLayoutIndexRoute
   '/_sidebar-layout/settings/': typeof SidebarLayoutSettingsIndexRoute
   '/_sidebar-layout/stories/': typeof SidebarLayoutStoriesIndexRoute
+  '/_sidebar-layout/chats/shared/$shareId': typeof SidebarLayoutChatsSharedShareIdRoute
   '/_sidebar-layout/settings/project/agent': typeof SidebarLayoutSettingsProjectAgentRoute
   '/_sidebar-layout/settings/project/mcp-servers': typeof SidebarLayoutSettingsProjectMcpServersRoute
   '/_sidebar-layout/settings/project/models': typeof SidebarLayoutSettingsProjectModelsRoute
@@ -229,6 +239,7 @@ export interface FileRouteTypes {
     | '/settings/usage'
     | '/settings/'
     | '/stories/'
+    | '/chats/shared/$shareId'
     | '/settings/project/agent'
     | '/settings/project/mcp-servers'
     | '/settings/project/models'
@@ -248,6 +259,7 @@ export interface FileRouteTypes {
     | '/settings/usage'
     | '/settings'
     | '/stories'
+    | '/chats/shared/$shareId'
     | '/settings/project/agent'
     | '/settings/project/mcp-servers'
     | '/settings/project/models'
@@ -271,6 +283,7 @@ export interface FileRouteTypes {
     | '/_sidebar-layout/_chat-layout/'
     | '/_sidebar-layout/settings/'
     | '/_sidebar-layout/stories/'
+    | '/_sidebar-layout/chats/shared/$shareId'
     | '/_sidebar-layout/settings/project/agent'
     | '/_sidebar-layout/settings/project/mcp-servers'
     | '/_sidebar-layout/settings/project/models'
@@ -429,6 +442,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SidebarLayoutSettingsProjectAgentRouteImport
       parentRoute: typeof SidebarLayoutSettingsProjectRoute
     }
+    '/_sidebar-layout/chats/shared/$shareId': {
+      id: '/_sidebar-layout/chats/shared/$shareId'
+      path: '/chats/shared/$shareId'
+      fullPath: '/chats/shared/$shareId'
+      preLoaderRoute: typeof SidebarLayoutChatsSharedShareIdRouteImport
+      parentRoute: typeof SidebarLayoutRoute
+    }
     '/_sidebar-layout/stories/preview/$chatId/$storyId': {
       id: '/_sidebar-layout/stories/preview/$chatId/$storyId'
       path: '/stories/preview/$chatId/$storyId'
@@ -511,6 +531,7 @@ interface SidebarLayoutRouteChildren {
   SidebarLayoutChatLayoutRoute: typeof SidebarLayoutChatLayoutRouteWithChildren
   SidebarLayoutSettingsRoute: typeof SidebarLayoutSettingsRouteWithChildren
   SidebarLayoutStoriesIndexRoute: typeof SidebarLayoutStoriesIndexRoute
+  SidebarLayoutChatsSharedShareIdRoute: typeof SidebarLayoutChatsSharedShareIdRoute
   SidebarLayoutStoriesSharedShareIdRoute: typeof SidebarLayoutStoriesSharedShareIdRoute
   SidebarLayoutStoriesPreviewChatIdStoryIdRoute: typeof SidebarLayoutStoriesPreviewChatIdStoryIdRoute
 }
@@ -519,6 +540,7 @@ const SidebarLayoutRouteChildren: SidebarLayoutRouteChildren = {
   SidebarLayoutChatLayoutRoute: SidebarLayoutChatLayoutRouteWithChildren,
   SidebarLayoutSettingsRoute: SidebarLayoutSettingsRouteWithChildren,
   SidebarLayoutStoriesIndexRoute: SidebarLayoutStoriesIndexRoute,
+  SidebarLayoutChatsSharedShareIdRoute: SidebarLayoutChatsSharedShareIdRoute,
   SidebarLayoutStoriesSharedShareIdRoute:
     SidebarLayoutStoriesSharedShareIdRoute,
   SidebarLayoutStoriesPreviewChatIdStoryIdRoute:
