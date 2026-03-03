@@ -19,6 +19,7 @@ class DatabaseType(str, Enum):
     DATABRICKS = "databricks"
     SNOWFLAKE = "snowflake"
     MSSQL = "mssql"
+    MYSQL = "mysql"
     POSTGRES = "postgres"
     REDSHIFT = "redshift"
     TRINO = "trino"

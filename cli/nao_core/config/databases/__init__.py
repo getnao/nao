@@ -8,6 +8,7 @@ from .bigquery import BigQueryConfig
 from .databricks import DatabricksConfig
 from .duckdb import DuckDBConfig
 from .mssql import MssqlConfig
+from .mysql import MysqlConfig
 from .postgres import PostgresConfig
 from .redshift import RedshiftConfig
 from .snowflake import SnowflakeConfig
@@ -24,6 +25,7 @@ AnyDatabaseConfig = Annotated[
         Annotated[DatabricksConfig, Tag("databricks")],
         Annotated[SnowflakeConfig, Tag("snowflake")],
         Annotated[DuckDBConfig, Tag("duckdb")],
+        Annotated[MysqlConfig, Tag("mysql")],
         Annotated[MssqlConfig, Tag("mssql")],
         Annotated[PostgresConfig, Tag("postgres")],
         Annotated[RedshiftConfig, Tag("redshift")],
@@ -40,6 +42,7 @@ DATABASE_CONFIG_CLASSES: dict[DatabaseType, type[DatabaseConfig]] = {
     DatabaseType.DUCKDB: DuckDBConfig,
     DatabaseType.DATABRICKS: DatabricksConfig,
     DatabaseType.MSSQL: MssqlConfig,
+    DatabaseType.MYSQL: MysqlConfig,
     DatabaseType.SNOWFLAKE: SnowflakeConfig,
     DatabaseType.POSTGRES: PostgresConfig,
     DatabaseType.REDSHIFT: RedshiftConfig,
@@ -60,6 +63,8 @@ def parse_database_config(data: dict) -> DatabaseConfig:
         return SnowflakeConfig.model_validate(data)
     elif db_type == "mssql":
         return MssqlConfig.model_validate(data)
+    elif db_type == "mysql":
+        return MysqlConfig.model_validate(data)
     elif db_type == "postgres":
         return PostgresConfig.model_validate(data)
     elif db_type == "redshift":
@@ -83,6 +88,7 @@ __all__ = [
     "DuckDBConfig",
     "DatabricksConfig",
     "MssqlConfig",
+    "MysqlConfig",
     "SnowflakeConfig",
     "PostgresConfig",
     "RedshiftConfig",
