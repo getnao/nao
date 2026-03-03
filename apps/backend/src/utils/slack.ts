@@ -1,11 +1,7 @@
 import type { CardChild, CardElement, ModalElement } from 'chat';
 import { Actions, Button, Card, CardText, Image, LinkButton } from 'chat';
 
-export type ToolCallEntry = {
-	type: string;
-	input: Record<string, string>;
-	toolCallId: string;
-};
+import { ToolCallEntry } from '../types/slack';
 
 const TOOL_LIVE_LABELS: Record<string, (input: Record<string, string>) => string> = {
 	'tool-read': (input) => `_reading **${input['file_path'] ?? '...'}**_`,
@@ -84,4 +80,9 @@ export const createTextBlock = (text: string): CardChild => {
 
 export const createImageBlock = (url: string): CardChild => {
 	return Image({ url, alt: 'image' });
+};
+
+export const escapeCsvCell = (value: unknown): string => {
+	const str = value === null || value === undefined ? '' : String(value);
+	return /[,"\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
 };

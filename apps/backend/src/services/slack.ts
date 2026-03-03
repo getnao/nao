@@ -2,11 +2,10 @@ import { createSlackAdapter } from '@chat-adapter/slack';
 import { createMemoryState } from '@chat-adapter/state-memory';
 import { WebClient } from '@slack/web-api';
 import { InferUIMessageChunk, readUIMessageStream } from 'ai';
-import { Card, CardChild, Chat, Message, SentMessage, Thread } from 'chat';
+import { Card, Chat, Message, Thread } from 'chat';
 
 import { SlackSystemPrompt } from '../components/ai';
 import { generateChartImage } from '../components/generate-chart';
-import { User } from '../db/abstractSchema';
 import { renderToMarkdown } from '../lib/markdown';
 import * as chartImageQueries from '../queries/chart-image';
 import * as chatQueries from '../queries/chat.queries';
@@ -15,6 +14,7 @@ import * as projectQueries from '../queries/project.queries';
 import { SlackConfig } from '../queries/project-slack-config.queries';
 import { get as getUser } from '../queries/user.queries';
 import { UIChat, UIMessage, UIMessagePart } from '../types/chat';
+import { ConversationContext, StreamState, ToolCallEntry } from '../types/slack';
 import { createChatTitle } from '../utils/ai';
 import {
 	createCompletionCard,
@@ -24,31 +24,12 @@ import {
 	createStopButtonCard,
 	createSummaryToolCalls,
 	createTextBlock,
+	escapeCsvCell,
 	FEEDBACK_MODAL_CALLBACK_ID,
-	type ToolCallEntry,
 } from '../utils/slack';
 import { agentService } from './agent';
 
 const UPDATE_INTERVAL_MS = 50;
-
-type ConversationContext = {
-	thread: Thread;
-	userMessage: Message;
-	user: User | null;
-	chatId: string;
-	assistantMessage: UIMessage | null;
-	convMessage: SentMessage | null;
-	blocks: CardChild[];
-	textBlockIndex: number;
-};
-
-type StreamState = {
-	renderedChartIds: Set<string>;
-	sqlOutputs: Map<string, Record<string, unknown>[]>;
-	lastUpdateAt: number;
-	toolGroup: Map<string, ToolCallEntry>;
-	toolGroupBlockIndex: number;
-};
 
 class SlackService {
 	private _bot: Chat | null = null;
@@ -254,9 +235,10 @@ class SlackService {
 		const stream = await this._createAgentStream(chat);
 		const stopCard = await this._ctx.thread.post(createStopButtonCard());
 
-		await this._readStreamAndUpdateSlackMessage(stream);
+		const state = await this._readStreamAndUpdateSlackMessage(stream);
 
 		await stopCard.delete();
+		await this._uploadLastSqlResultAsCsv(state);
 		const chatUrl = new URL(this._ctx.chatId, this._redirectUrl).toString();
 		await this._ctx.thread.post(createCompletionCard(chatUrl));
 	}
@@ -269,7 +251,7 @@ class SlackService {
 
 	private async _readStreamAndUpdateSlackMessage(
 		stream: ReadableStream<InferUIMessageChunk<UIMessage>>,
-	): Promise<void> {
+	): Promise<StreamState> {
 		const state: StreamState = {
 			renderedChartIds: new Set(),
 			sqlOutputs: new Map(),
@@ -301,6 +283,7 @@ class SlackService {
 
 		this._ctx.assistantMessage = lastMessage;
 		await this._sendFinalText();
+		return state;
 	}
 
 	private async _handleTextPart(part: Extract<UIMessagePart, { type: 'text' }>, state: StreamState): Promise<void> {
@@ -317,7 +300,7 @@ class SlackService {
 			return;
 		}
 		if (part.output.id && part.output.data) {
-			state.sqlOutputs.set(part.output.id, part.output.data);
+			state.sqlOutputs.set(part.output.id, { name: part.input.name ?? null, rows: part.output.data });
 		}
 	}
 
@@ -328,18 +311,15 @@ class SlackService {
 		if (part.state !== 'output-available' || state.renderedChartIds.has(part.toolCallId)) {
 			return;
 		}
-		const data = state.sqlOutputs.get(part.input.query_id);
-		if (!data) {
+		const sqlOutput = state.sqlOutputs.get(part.input.query_id);
+		if (!sqlOutput) {
 			return;
 		}
 		try {
-			const png = generateChartImage({ config: part.input, data });
+			const png = generateChartImage({ config: part.input, data: sqlOutput.rows });
 			const chartId = await chartImageQueries.saveChart(part.toolCallId, png.toString('base64'));
 			state.renderedChartIds.add(part.toolCallId);
-			const imageUrl = new URL(
-				`c/${this._ctx.chatId}/${chartId}.png`,
-				'https://c54e-86-229-150-239.ngrok-free.app',
-			).toString();
+			const imageUrl = new URL(`c/${this._ctx.chatId}/${chartId}.png`, this._redirectUrl).toString();
 
 			this._ctx.textBlockIndex = -1;
 			this._ctx.blocks.push(createImageBlock(imageUrl));
@@ -402,6 +382,29 @@ class SlackService {
 		} else {
 			this._ctx.blocks[this._ctx.textBlockIndex] = block;
 		}
+	}
+
+	private async _uploadLastSqlResultAsCsv(state: StreamState): Promise<void> {
+		if (state.sqlOutputs.size === 0) {
+			return;
+		}
+		const { name, rows } = [...state.sqlOutputs.values()].at(-1)!;
+		if (rows.length === 0) {
+			return;
+		}
+		const columns = Object.keys(rows[0]);
+		const header = columns.join(',');
+		const body = rows.map((row) => columns.map((col) => escapeCsvCell(row[col])).join(',')).join('\n');
+		const csv = `${header}\n${body}`;
+		const filename = name ? `${name.toLowerCase().replace(/\s+/g, '_')}.csv` : 'data.csv';
+
+		const [, channelId, threadTs] = this._ctx.thread.id.split(':');
+		await this._slackClient?.files.uploadV2({
+			channel_id: channelId,
+			thread_ts: threadTs,
+			filename,
+			content: csv,
+		});
 	}
 
 	private async _getLastAssistantMessageId(threadId: string): Promise<string | null> {
