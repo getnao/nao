@@ -1,6 +1,7 @@
 """Database sync provider implementation."""
 
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -17,7 +18,7 @@ from rich.progress import (
 
 from nao_core.commands.sync.cleanup import DatabaseSyncState, cleanup_stale_databases, cleanup_stale_paths
 from nao_core.config import AnyDatabaseConfig, NaoConfig
-from nao_core.config.databases.base import DatabaseConfig
+from nao_core.config.databases.base import DatabaseConfig, ProfilingRefreshPolicy
 from nao_core.config.llm import LLMConfig
 from nao_core.templates.engine import get_template_engine
 
@@ -43,6 +44,41 @@ def _fmt_duration(seconds: float) -> str:
     minutes = int(seconds // 60)
     secs = seconds % 60
     return f"{minutes}m{secs:.0f}s"
+
+
+def _should_refresh_profiling(
+    output_file: Path,
+    profiling_config,
+) -> bool:
+    """Decide whether profiling should be recomputed based on refresh policy."""
+
+    policy = profiling_config.refresh_policy
+    if policy == ProfilingRefreshPolicy.ALWAYS:
+        return True
+
+    if not output_file.exists():
+        return True
+    if policy == ProfilingRefreshPolicy.ONCE:
+        return False
+
+    if policy == ProfilingRefreshPolicy.INTERVAL:
+        try:
+            content = output_file.read_text()
+            for line in content.splitlines():
+                line_lower = line.lower()
+                if "computed at" in line_lower:
+                    start = line.index("`") + 1
+                    end = line.rindex("`")
+                    computed_at_str = line[start:end]
+                    computed_at = datetime.fromisoformat(computed_at_str)
+                    if computed_at.tzinfo is None:
+                        computed_at = computed_at.replace(tzinfo=timezone.utc)
+                    age = datetime.now(timezone.utc) - computed_at
+                    return age > timedelta(days=profiling_config.interval_days)
+        except Exception:
+            return True
+
+    return True
 
 
 def sync_database(
@@ -129,6 +165,15 @@ def sync_database(
                 for template_name in templates:
                     output_filename = Path(template_name).stem
                     accessor_name = output_filename.replace(".md", "")
+                    output_file = table_path / output_filename
+
+                    if accessor_name == "profiling" and hasattr(db_config, "profiling"):
+                        if not _should_refresh_profiling(output_file, db_config.profiling):
+                            console.print(
+                                f"    [dim]⏭ {schema}.{table} profiling skipped "
+                                f"(policy: {db_config.profiling.refresh_policy.value})[/dim]"
+                            )
+                            continue
 
                     t_render = time.monotonic()
                     try:

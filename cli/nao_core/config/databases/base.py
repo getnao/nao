@@ -40,6 +40,26 @@ class DatabaseAccessor(str, Enum):
     AI_SUMMARY = "ai_summary"
 
 
+class ProfilingRefreshPolicy(str, Enum):
+    ALWAYS = "always"
+    INTERVAL = "interval"
+    ONCE = "once"
+
+
+class ProfilingConfig(BaseModel):
+    """Configuration for profiling refresh policy."""
+
+    refresh_policy: ProfilingRefreshPolicy = Field(
+        default=ProfilingRefreshPolicy.ALWAYS,
+        description="When to recompute profiling: always, interval, or once",
+    )
+    interval_days: int = Field(
+        default=7,
+        ge=1,  # strictly positive
+        description="Number of days between profiling runs (only used when refresh_policy=interval)",
+    )
+
+
 class DatabaseConfig(BaseModel, ABC):
     """Base configuration for all database backends."""
 
@@ -65,6 +85,10 @@ class DatabaseConfig(BaseModel, ABC):
             "(e.g., ['columns', 'description', 'ai_summary']). "
             "Defaults to ['columns', 'description', 'preview']."
         ),
+    )
+    profiling: ProfilingConfig = Field(
+        default_factory=ProfilingConfig,
+        description="Profiling refresh policy configuration",
     )
 
     @classmethod
