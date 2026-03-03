@@ -1,5 +1,6 @@
 import json
 import logging
+from datetime import datetime, timezone
 from typing import Any, Literal
 
 import ibis
@@ -61,6 +62,102 @@ class BigQueryDatabaseContext(DatabaseContext):
             WHERE table_name = '{self._table_name}' AND description IS NOT NULL AND description != ''
         """
         return {row[0]: str(row[1]) for row in self._conn.raw_sql(query) if row[1]}  # type: ignore[union-attr]
+
+    def profiling(self) -> dict[str, Any] | None:
+        try:
+            schema_query = f"""
+                SELECT column_name, data_type
+                FROM `{self._project_id}.{self._schema}.INFORMATION_SCHEMA.COLUMNS`
+                WHERE table_name = '{self._table_name}'
+                ORDER BY ordinal_position
+            """
+            columns = self._conn.raw_sql(schema_query).fetchall()  # type: ignore[union-attr]
+
+            if not columns:
+                return None
+
+            aggs = ["COUNT(*) AS __total_count"]
+            for col_name, data_type in columns:
+                aggs.append(f"COUNTIF(`{col_name}` IS NULL) AS `{col_name}__null_count`")
+                aggs.append(f"COUNT(DISTINCT `{col_name}`) AS `{col_name}__distinct_count`")
+
+                if data_type in ("INT64", "FLOAT64", "NUMERIC", "BIGNUMERIC", "INT", "INTEGER", "FLOAT"):
+                    aggs.append(f"MIN(`{col_name}`) AS `{col_name}__min`")
+                    aggs.append(f"MAX(`{col_name}`) AS `{col_name}__max`")
+                    aggs.append(f"AVG(`{col_name}`) AS `{col_name}__mean`")
+                    aggs.append(f"STDDEV(`{col_name}`) AS `{col_name}__stddev`")
+
+                elif data_type in ("DATE", "DATETIME", "TIMESTAMP"):
+                    aggs.append(f"CAST(MIN(`{col_name}`) AS STRING) AS `{col_name}__min`")
+                    aggs.append(f"CAST(MAX(`{col_name}`) AS STRING) AS `{col_name}__max`")
+
+            partition_cols = self.partition_columns()
+            partition_filter = ""
+            if partition_cols:
+                partition_filter = f"WHERE `{partition_cols[0]}` >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)"
+
+            profiling_query = f"""
+                SELECT {", ".join(aggs)}
+                FROM `{self._project_id}.{self._schema}.{self._table_name}`
+                {partition_filter}
+            """
+
+            row = self._conn.raw_sql(profiling_query).fetchone()  # type: ignore[union-attr]
+            if not row:
+                return None
+
+            result = dict(zip([k for k in row.keys()], row))
+            total_count = result.get("__total_count") or 0
+
+            profiles: list[dict[str, Any]] = []
+            for col_name, data_type in columns:
+                null_count = result.get(f"{col_name}__null_count") or 0
+                distinct_count = result.get(f"{col_name}__distinct_count")
+
+                profile: dict[str, Any] = {
+                    "column": col_name,
+                    "type": data_type,
+                    "total_count": total_count,
+                    "null_count": null_count,
+                    "null_percentage": round(null_count / total_count * 100, 2) if total_count else None,
+                    "distinct_count": distinct_count,
+                }
+
+                for stat in ("min", "max", "mean", "stddev"):
+                    if (val := result.get(f"{col_name}__{stat}")) is not None:
+                        profile[stat] = val
+
+                is_date = data_type in ("DATE", "DATETIME", "TIMESTAMP")
+                top_values_distinct_limit = 10 if is_date else 50
+                if distinct_count and distinct_count <= top_values_distinct_limit:
+                    try:
+                        top_query = f"""
+                            SELECT CAST(`{col_name}` AS STRING) AS value, COUNT(*) AS count
+                            FROM `{self._project_id}.{self._schema}.{self._table_name}`
+                            {partition_filter}
+                            GROUP BY 1
+                            ORDER BY 2 DESC
+                            LIMIT 10
+                        """
+                        top_rows = self._conn.raw_sql(top_query).fetchall()  # type: ignore[union-attr]
+                        profile["top_values"] = [{"value": row[0], "count": row[1]} for row in top_rows]
+                    except Exception:
+                        pass
+
+                profiles.append(profile)
+
+            return {
+                "columns": profiles,
+                "row_count": int(total_count) if total_count is not None else 0,
+                "column_count": len(columns),
+                "partition_columns": partition_cols,
+                "description": self.description(),
+                "computed_at": datetime.now(timezone.utc).isoformat(),
+            }
+
+        except Exception:
+            logger.debug("Failed to compute profiling for %s.%s", self._schema, self._table_name)
+            return None
 
 
 def _get_bq_partition_columns(conn: BaseBackend, schema: str, table: str) -> list[str]:

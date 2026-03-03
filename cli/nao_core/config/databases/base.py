@@ -128,9 +128,20 @@ class DatabaseConfig(BaseModel, ABC):
 
     def get_schemas(self, conn: BaseBackend) -> list[str]:
         """Return the list of schemas to sync. Override in subclasses for custom behavior."""
+        # Prefer schemas (dataset-like) when available.
+        list_schemas = getattr(conn, "list_schemas", None)
+        if callable(list_schemas):
+            try:
+                return list_schemas()
+            except TypeError:
+                # Some backends require positional/keyword args. Fall back to other discovery.
+                pass
+
+        # Fall back to databases/catalogs if schemas aren't supported.
         list_databases = getattr(conn, "list_databases", None)
-        if list_databases:
+        if callable(list_databases):
             return list_databases()
+
         return []
 
     def create_context(self, conn: BaseBackend, schema: str, table_name: str):
@@ -154,8 +165,8 @@ class DatabaseConfig(BaseModel, ABC):
         """Test connectivity to the database. Override in subclasses for custom behavior."""
         try:
             conn = self.connect()
-            if list_databases := getattr(conn, "list_databases", None):
-                schemas = list_databases()
+            schemas = self.get_schemas(conn)
+            if schemas:
                 return True, f"Connected successfully ({len(schemas)} schemas found)"
             return True, "Connected successfully"
         except Exception as e:

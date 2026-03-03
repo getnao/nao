@@ -1,5 +1,6 @@
 import logging
 import os
+from datetime import datetime, timezone
 from typing import Any, Literal
 
 import certifi
@@ -57,6 +58,125 @@ class DatabricksDatabaseContext(DatabaseContext):
         """
         rows = self._conn.raw_sql(query).fetchall()  # type: ignore[union-attr]
         return {row[0]: str(row[1]) for row in rows if row[1]}
+
+    def profiling(self) -> dict[str, Any] | None:
+        try:
+            cols = self.columns()
+            if not cols:
+                return None
+
+            total_count = self.row_count()
+            profiles = []
+
+            partition_cols = self.partition_columns()
+            partition_filter = ""
+            if partition_cols:
+                partition_filter = f"WHERE `{partition_cols[0]}` >= DATE_SUB(CURRENT_DATE(), {30})"
+
+            for col in cols:
+                col_name = col["name"]
+                col_type = self._normalize_type(col["type"])  # strips NOT NULL
+
+                is_numeric = any(
+                    t in col_type.lower()
+                    for t in ("int", "float", "double", "decimal", "numeric", "real", "long", "short")
+                )
+                is_integer = self._is_integer_type(col_type)
+                is_date = any(t in col_type.lower() for t in ("date", "timestamp", "time"))
+
+                is_numeric_stats_column = is_numeric and not (
+                    is_integer and col_name.lower().endswith("_id") and col_name.lower() != "id"
+                )
+
+                numeric_aggs = ""
+                if is_numeric_stats_column or is_date:
+                    numeric_aggs = f"""
+                        , MIN(`{col_name}`) AS col_min
+                        , MAX(`{col_name}`) AS col_max
+                    """
+                if is_numeric_stats_column:
+                    numeric_aggs += f"""
+                        , AVG(CAST(`{col_name}` AS DOUBLE)) AS col_mean
+                        , STDDEV_POP(CAST(`{col_name}` AS DOUBLE)) AS col_stddev
+                    """
+
+                numeric_aggs = (
+                    f"""
+                    , CAST(MIN(`{col_name}`) AS STRING) AS col_min
+                    , CAST(MAX(`{col_name}`) AS STRING) AS col_max
+                    , AVG(CAST(`{col_name}` AS DOUBLE)) AS col_mean
+                    , STDDEV_POP(CAST(`{col_name}` AS DOUBLE)) AS col_stddev
+                """
+                    if is_numeric or is_date
+                    else ""
+                )
+
+                query = f"""
+                    SELECT
+                        COUNT(*) - COUNT(`{col_name}`) AS null_count,
+                        COUNT(DISTINCT `{col_name}`) AS distinct_count
+                        {numeric_aggs}
+                    FROM `{self._schema}`.`{self._table_name}`
+                    {partition_filter}
+                """
+
+                row = self._conn.raw_sql(query).fetchone()  # type: ignore[union-attr]
+                if not row:
+                    continue
+
+                null_count = int(row[0] or 0)
+                distinct_count = int(row[1] or 0)
+
+                profile: dict[str, Any] = {
+                    "column": col_name,
+                    "type": col_type,
+                    "total_count": total_count,
+                    "null_count": null_count,
+                    "null_percentage": round(null_count / total_count * 100, 2) if total_count else None,
+                    "distinct_count": distinct_count,
+                }
+
+                if is_numeric_stats_column:
+                    if row[2] is not None:
+                        profile["min"] = int(row[2]) if is_integer else round(float(row[2]), 4)
+                    if row[3] is not None:
+                        profile["max"] = int(row[3]) if is_integer else round(float(row[3]), 4)
+                    if row[4] is not None:
+                        profile["mean"] = round(float(row[4]), 4)
+                    if row[5] is not None:
+                        profile["stddev"] = round(float(row[5]), 4)
+                elif is_date:
+                    if row[2] is not None:
+                        profile["min"] = str(row[2])
+                    if row[3] is not None:
+                        profile["max"] = str(row[3])
+
+                include_top_values = (
+                    distinct_count and distinct_count <= 50 and not is_numeric_stats_column and not is_date
+                )
+                if include_top_values:
+                    top_query = f"""
+                        SELECT `{col_name}` AS value, COUNT(*) AS count
+                        FROM `{self._schema}`.`{self._table_name}`
+                        {partition_filter}
+                        GROUP BY 1
+                        ORDER BY 2 DESC, 1 ASC
+                        LIMIT 10
+                    """
+                    top_rows = self._conn.raw_sql(top_query).fetchall()  # type: ignore[union-attr]
+                    profile["top_values"] = [
+                        {"value": self._json_safe_value(r[0]), "count": int(r[1])} for r in top_rows if r[0] is not None
+                    ]
+
+                profiles.append(profile)
+
+            return {
+                "computed_at": datetime.now(timezone.utc).isoformat(),
+                "columns": profiles,
+            }
+
+        except Exception:
+            return None
 
 
 def _get_databricks_partition_columns(conn: BaseBackend, schema: str, table: str) -> list[str]:

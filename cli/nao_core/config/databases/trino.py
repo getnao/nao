@@ -1,4 +1,5 @@
-from typing import Literal
+from datetime import datetime, timezone
+from typing import Any, Literal
 
 import ibis
 from ibis import BaseBackend
@@ -8,6 +9,7 @@ from nao_core.config.exceptions import InitError
 from nao_core.ui import ask_text
 
 from .base import DatabaseConfig
+from .context import DatabaseContext
 
 EXCLUDED_SCHEMAS = {"information_schema", "default", "sys", "pg_catalog", "test"}
 
@@ -22,6 +24,100 @@ def _normalize_schema_name(value: object) -> str:
 def _is_excluded_schema(value: object) -> bool:
     schema = _normalize_schema_name(value).lower()
     return not schema or schema in {"none", "null"} or schema in EXCLUDED_SCHEMAS or schema.startswith("pg_")
+
+
+class TrinoDatabaseContext(DatabaseContext):
+    def profiling(self) -> dict[str, Any] | None:
+        try:
+            cols = self.columns()
+            if not cols:
+                return None
+
+            total_count = self.row_count()
+            profiles = []
+
+            for col in cols:
+                col_name = col["name"]
+                col_type = col["type"]
+
+                is_numeric = any(
+                    t in col_type.lower() for t in ("int", "float", "double", "decimal", "numeric", "real")
+                )
+                is_date = any(t in col_type.lower() for t in ("date", "timestamp", "time"))
+
+                numeric_aggs = (
+                    f"""
+                    , CAST(MIN("{col_name}") AS VARCHAR) AS col_min
+                    , CAST(MAX("{col_name}") AS VARCHAR) AS col_max
+                    , AVG(CAST("{col_name}" AS DOUBLE)) AS col_mean
+                    , STDDEV(CAST("{col_name}" AS DOUBLE)) AS col_stddev
+                """
+                    if is_numeric or is_date
+                    else ""
+                )
+
+                query = f"""
+                    SELECT
+                        COUNT(*) - COUNT("{col_name}") AS null_count,
+                        COUNT(DISTINCT "{col_name}") AS distinct_count
+                        {numeric_aggs}
+                    FROM "{self._schema}"."{self._table_name}"
+                """
+
+                row = self._conn.raw_sql(query).fetchone()  # type: ignore[union-attr]
+                if not row:
+                    continue
+
+                null_count = int(row[0] or 0)
+                distinct_count = int(row[1] or 0)
+
+                profile: dict[str, Any] = {
+                    "column": col_name,
+                    "type": col_type,
+                    "total_count": total_count,
+                    "null_count": null_count,
+                    "null_percentage": round(null_count / total_count * 100, 2) if total_count else None,
+                    "distinct_count": distinct_count,
+                }
+
+                if is_numeric or is_date:
+                    if row[2] is not None:
+                        profile["min"] = str(row[2])
+                    if row[3] is not None:
+                        profile["max"] = str(row[3])
+                if is_numeric:
+                    if row[4] is not None:
+                        profile["mean"] = round(float(row[4]), 4)
+                    if row[5] is not None:
+                        profile["stddev"] = round(float(row[5]), 4)
+
+                if distinct_count and distinct_count <= 50:
+                    try:
+                        top_query = f"""
+                            SELECT CAST("{col_name}" AS VARCHAR) AS value, COUNT(*) AS count
+                            FROM "{self._schema}"."{self._table_name}"
+                            GROUP BY 1
+                            ORDER BY 2 DESC
+                            LIMIT 10
+                        """
+                        top_rows = self._conn.raw_sql(top_query).fetchall()  # type: ignore[union-attr]
+                        profile["top_values"] = [
+                            {"value": row[0], "count": int(row[1])}
+                            for row in top_rows
+                            if str(row[0]) not in ("None", "nan", "NaT")
+                        ]
+                    except Exception:
+                        pass
+
+                profiles.append(profile)
+
+            return {
+                "computed_at": datetime.now(timezone.utc).isoformat(),
+                "columns": profiles,
+            }
+
+        except Exception:
+            return None
 
 
 class TrinoConfig(DatabaseConfig):

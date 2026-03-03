@@ -4,6 +4,7 @@ databases:
   accessors:
   - columns
   - preview
+  - profiling
   include: []
   exclude: []
   type: duckdb

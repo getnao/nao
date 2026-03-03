@@ -164,6 +164,8 @@ class DatabaseContext:
         lowered = normalized.lower()
         if lowered.startswith("string(") and normalized.endswith(")"):
             return "string"
+        if normalized == "int64":
+            return "int32"
         return normalized
 
     @staticmethod

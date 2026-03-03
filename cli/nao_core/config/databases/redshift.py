@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
@@ -154,6 +155,105 @@ class RedshiftDatabaseContext(DatabaseContext):
         except Exception:
             pass
         return None
+
+    def profiling(self) -> dict[str, Any] | None:
+        try:
+            cols = self.columns()
+            if not cols:
+                return None
+
+            total_count = self.row_count()
+            profiles = []
+
+            for col in cols:
+                col_name = col["name"]
+                col_type = self._normalize_type(col["type"])
+
+                is_numeric = any(
+                    t in col_type.lower() for t in ("int", "float", "numeric", "double", "decimal", "real")
+                )
+                is_integer = self._is_integer_type(col_type)
+                is_date = any(t in col_type.lower() for t in ("date", "timestamp", "time"))
+
+                is_numeric_stats_column = is_numeric and not (
+                    is_integer and col_name.lower().endswith("_id") and col_name.lower() != "id"
+                )
+
+                numeric_aggs = ""
+                if is_numeric_stats_column or is_date:
+                    numeric_aggs = f"""
+                        , MIN("{col_name}") AS col_min
+                        , MAX("{col_name}") AS col_max
+                    """
+                if is_numeric_stats_column:
+                    numeric_aggs += f"""
+                        , AVG("{col_name}"::float) AS col_mean
+                        , STDDEV_POP("{col_name}"::float) AS col_stddev
+                    """
+
+                query = f"""
+                    SELECT
+                        COUNT(*) - COUNT("{col_name}") AS null_count,
+                        COUNT(DISTINCT "{col_name}") AS distinct_count
+                        {numeric_aggs}
+                    FROM "{self._schema}"."{self._table_name}"
+                """
+                row = self._conn.raw_sql(query).fetchone()  # type: ignore[union-attr]
+                if not row:
+                    continue
+
+                null_count = int(row[0] or 0)
+                distinct_count = int(row[1] or 0)
+
+                profile: dict[str, Any] = {
+                    "column": col_name,
+                    "type": col_type,
+                    "total_count": total_count,
+                    "null_count": null_count,
+                    "null_percentage": round(null_count / total_count * 100, 2) if total_count else None,
+                    "distinct_count": distinct_count,
+                }
+
+                if is_numeric_stats_column:
+                    if row[2] is not None:
+                        profile["min"] = int(row[2]) if is_integer else round(float(row[2]), 4)
+                    if row[3] is not None:
+                        profile["max"] = int(row[3]) if is_integer else round(float(row[3]), 4)
+                    if row[4] is not None:
+                        profile["mean"] = round(float(row[4]), 4)
+                    if row[5] is not None:
+                        profile["stddev"] = round(float(row[5]), 4)
+                elif is_date:
+                    if row[2] is not None:
+                        profile["min"] = str(row[2])
+                    if row[3] is not None:
+                        profile["max"] = str(row[3])
+
+                include_top_values = (
+                    distinct_count and distinct_count <= 50 and not is_numeric_stats_column and not is_date
+                )
+                if include_top_values:
+                    top_query = f"""
+                        SELECT "{col_name}" AS value, COUNT(*) AS count
+                        FROM "{self._schema}"."{self._table_name}"
+                        GROUP BY 1
+                        ORDER BY 2 DESC, 1 ASC
+                        LIMIT 10
+                    """
+                    top_rows = self._conn.raw_sql(top_query).fetchall()  # type: ignore[union-attr]
+                    profile["top_values"] = [
+                        {"value": self._json_safe_value(r[0]), "count": int(r[1])} for r in top_rows if r[0] is not None
+                    ]
+
+                profiles.append(profile)
+
+            return {
+                "computed_at": datetime.now(timezone.utc).isoformat(),
+                "columns": profiles,
+            }
+
+        except Exception:
+            return None
 
 
 class RedshiftSSHTunnelConfig(BaseModel):
