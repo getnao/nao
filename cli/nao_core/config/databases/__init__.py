@@ -53,8 +53,9 @@ def parse_database_config(data: dict) -> DatabaseConfig:
     config_class = DATABASE_CONFIG_CLASSES.get(db_type)
     if not config_class:
         raise ValueError(f"Unknown database type: {db_type}")
-    return config_class.model_validate(data)        
-       
+    return config_class.model_validate(data)
+
+
 __all__ = [
     "AnyDatabaseConfig",
     "AthenaConfig",
