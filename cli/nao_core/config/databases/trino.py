@@ -36,9 +36,13 @@ class TrinoDatabaseContext(DatabaseContext):
             total_count = self.row_count()
             profiles = []
 
+            schema_sql = self._quote_ident(self._schema)
+            table_sql = self._quote_ident(self._table_name)
+
             for col in cols:
                 col_name = col["name"]
                 col_type = col["type"]
+                col_sql = self._quote_ident(col_name)
 
                 is_numeric = any(
                     t in col_type.lower() for t in ("int", "float", "double", "decimal", "numeric", "real")
@@ -47,10 +51,10 @@ class TrinoDatabaseContext(DatabaseContext):
 
                 numeric_aggs = (
                     f"""
-                    , CAST(MIN("{col_name}") AS VARCHAR) AS col_min
-                    , CAST(MAX("{col_name}") AS VARCHAR) AS col_max
-                    , AVG(CAST("{col_name}" AS DOUBLE)) AS col_mean
-                    , STDDEV(CAST("{col_name}" AS DOUBLE)) AS col_stddev
+                    , CAST(MIN({col_sql}) AS VARCHAR) AS col_min
+                    , CAST(MAX({col_sql}) AS VARCHAR) AS col_max
+                    , AVG(CAST({col_sql} AS DOUBLE)) AS col_mean
+                    , STDDEV(CAST({col_sql} AS DOUBLE)) AS col_stddev
                 """
                     if is_numeric or is_date
                     else ""
@@ -58,10 +62,10 @@ class TrinoDatabaseContext(DatabaseContext):
 
                 query = f"""
                     SELECT
-                        COUNT(*) - COUNT("{col_name}") AS null_count,
-                        COUNT(DISTINCT "{col_name}") AS distinct_count
+                        COUNT(*) - COUNT({col_sql}) AS null_count,
+                        COUNT(DISTINCT {col_sql}) AS distinct_count
                         {numeric_aggs}
-                    FROM "{self._schema}"."{self._table_name}"
+                    FROM {schema_sql}.{table_sql}
                 """
 
                 row = self._conn.raw_sql(query).fetchone()  # type: ignore[union-attr]
@@ -94,8 +98,8 @@ class TrinoDatabaseContext(DatabaseContext):
                 if distinct_count and distinct_count <= 50:
                     try:
                         top_query = f"""
-                            SELECT CAST("{col_name}" AS VARCHAR) AS value, COUNT(*) AS count
-                            FROM "{self._schema}"."{self._table_name}"
+                            SELECT CAST({col_sql} AS VARCHAR) AS value, COUNT(*) AS count
+                            FROM {schema_sql}.{table_sql}
                             GROUP BY 1
                             ORDER BY 2 DESC
                             LIMIT 10

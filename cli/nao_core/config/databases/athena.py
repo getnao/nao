@@ -38,18 +38,31 @@ class AthenaDatabaseContext(DatabaseContext):
             # One single query for all column stats
             aggs = []
             for col_name, col_type, is_numeric, is_integer, is_date, is_numeric_stats_column in classified:
-                aggs.append(f'COUNT(*) - COUNT("{col_name}") AS "{col_name}__null_count"')
-                aggs.append(f'COUNT(DISTINCT "{col_name}") AS "{col_name}__distinct_count"')
-                if is_numeric_stats_column:
-                    aggs.append(f'MIN("{col_name}") AS "{col_name}__min"')
-                    aggs.append(f'MAX("{col_name}") AS "{col_name}__max"')
-                    aggs.append(f'AVG(CAST("{col_name}" AS DOUBLE)) AS "{col_name}__mean"')
-                    aggs.append(f'STDDEV_POP(CAST("{col_name}" AS DOUBLE)) AS "{col_name}__stddev"')
-                elif is_date:
-                    aggs.append(f'MIN("{col_name}") AS "{col_name}__min"')
-                    aggs.append(f'MAX("{col_name}") AS "{col_name}__max"')
+                col_sql = self._quote_ident(col_name)
+                null_alias_sql = self._quote_ident(f"{col_name}__null_count")
+                distinct_alias_sql = self._quote_ident(f"{col_name}__distinct_count")
 
-            query = f'SELECT {", ".join(aggs)} FROM "{self._schema}"."{self._table_name}"'
+                aggs.append(f"COUNT(*) - COUNT({col_sql}) AS {null_alias_sql}")
+                aggs.append(f"COUNT(DISTINCT {col_sql}) AS {distinct_alias_sql}")
+                if is_numeric_stats_column:
+                    min_alias_sql = self._quote_ident(f"{col_name}__min")
+                    max_alias_sql = self._quote_ident(f"{col_name}__max")
+                    mean_alias_sql = self._quote_ident(f"{col_name}__mean")
+                    stddev_alias_sql = self._quote_ident(f"{col_name}__stddev")
+
+                    aggs.append(f"MIN({col_sql}) AS {min_alias_sql}")
+                    aggs.append(f"MAX({col_sql}) AS {max_alias_sql}")
+                    aggs.append(f"AVG(CAST({col_sql} AS DOUBLE)) AS {mean_alias_sql}")
+                    aggs.append(f"STDDEV_POP(CAST({col_sql} AS DOUBLE)) AS {stddev_alias_sql}")
+                elif is_date:
+                    min_alias_sql = self._quote_ident(f"{col_name}__min")
+                    max_alias_sql = self._quote_ident(f"{col_name}__max")
+                    aggs.append(f"MIN({col_sql}) AS {min_alias_sql}")
+                    aggs.append(f"MAX({col_sql}) AS {max_alias_sql}")
+
+            schema_sql = self._quote_ident(self._schema)
+            table_sql = self._quote_ident(self._table_name)
+            query = f"SELECT {', '.join(aggs)} FROM {schema_sql}.{table_sql}"
             stats_row = self._conn.raw_sql(query).fetchone()  # type: ignore[union-attr]
             if not stats_row:
                 return None
@@ -111,9 +124,12 @@ class AthenaDatabaseContext(DatabaseContext):
                         profile["max"] = str(s["max"])
 
                 if distinct_count and distinct_count <= 50 and not is_numeric_stats_column and not is_date:
+                    col_sql = self._quote_ident(col_name)
+                    schema_sql = self._quote_ident(self._schema)
+                    table_sql = self._quote_ident(self._table_name)
                     top_query = f"""
-                        SELECT "{col_name}" AS value, COUNT(*) AS count
-                        FROM "{self._schema}"."{self._table_name}"
+                        SELECT {col_sql} AS value, COUNT(*) AS count
+                        FROM {schema_sql}.{table_sql}
                         GROUP BY 1
                         ORDER BY 2 DESC, 1 ASC
                         LIMIT 10

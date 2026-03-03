@@ -67,6 +67,13 @@ class DatabaseContext:
         """Return the total number of rows in the table."""
         return self.table.count().execute()
 
+    def _quote_ident(self, name: object) -> str:
+        escaped = str(name).replace('"', '""')
+        return f'"{escaped}"'
+
+    def _quote_qualified_table(self) -> str:
+        return f"{self._quote_ident(self._schema)}.{self._quote_ident(self._table_name)}"
+
     def column_count(self) -> int:
         """Return the number of columns in the table."""
         return len(self.table.schema())
@@ -116,7 +123,7 @@ class DatabaseContext:
                     profile["min"] = self._json_safe_value(column.min().execute())
                     profile["max"] = self._json_safe_value(column.max().execute())
                     numeric_expr = column.cast("float64") if is_integer else column
-                    profile["mean"] = round(float(numeric_expr.mean().execute()), 4)
+                    profile["mean"] = self._round_or_none(numeric_expr.mean().execute(), 4)
                     profile["stddev"] = self._round_or_none(self._stddev_pop(numeric_expr), 4)
 
                 is_date = any(t in col_type.lower() for t in ("date", "timestamp", "time"))

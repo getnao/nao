@@ -93,7 +93,9 @@ class RedshiftDatabaseContext(DatabaseContext):
     def preview(self, limit: int = 10) -> list[dict[str, Any]]:
         """Return the first N rows as a list of dictionaries."""
         # Use raw SQL to avoid Ibis's pg_enum queries
-        query = f'SELECT * FROM "{self._schema}"."{self._table_name}" LIMIT {limit}'
+        schema_sql = self._quote_ident(self._schema)
+        table_sql = self._quote_ident(self._table_name)
+        query = f"SELECT * FROM {schema_sql}.{table_sql} LIMIT {limit}"
         result = self._conn.raw_sql(query).fetchall()  # type: ignore[union-attr]
 
         # Get column names from the columns metadata
@@ -115,7 +117,9 @@ class RedshiftDatabaseContext(DatabaseContext):
     def row_count(self) -> int:
         """Return the total number of rows in the table."""
         # Use raw SQL to avoid Ibis's pg_enum queries
-        query = f'SELECT COUNT(*) FROM "{self._schema}"."{self._table_name}"'
+        schema_sql = self._quote_ident(self._schema)
+        table_sql = self._quote_ident(self._table_name)
+        query = f"SELECT COUNT(*) FROM {schema_sql}.{table_sql}"
         result = self._conn.raw_sql(query).fetchone()  # type: ignore[union-attr]
         return result[0] if result else 0
 
@@ -165,9 +169,13 @@ class RedshiftDatabaseContext(DatabaseContext):
             total_count = self.row_count()
             profiles = []
 
+            schema_sql = self._quote_ident(self._schema)
+            table_sql = self._quote_ident(self._table_name)
+
             for col in cols:
                 col_name = col["name"]
                 col_type = self._normalize_type(col["type"])
+                col_sql = self._quote_ident(col_name)
 
                 is_numeric = any(
                     t in col_type.lower() for t in ("int", "float", "numeric", "double", "decimal", "real")
@@ -182,21 +190,21 @@ class RedshiftDatabaseContext(DatabaseContext):
                 numeric_aggs = ""
                 if is_numeric_stats_column or is_date:
                     numeric_aggs = f"""
-                        , MIN("{col_name}") AS col_min
-                        , MAX("{col_name}") AS col_max
+                        , MIN({col_sql}) AS col_min
+                        , MAX({col_sql}) AS col_max
                     """
                 if is_numeric_stats_column:
                     numeric_aggs += f"""
-                        , AVG("{col_name}"::float) AS col_mean
-                        , STDDEV_POP("{col_name}"::float) AS col_stddev
+                        , AVG({col_sql}::float) AS col_mean
+                        , STDDEV_POP({col_sql}::float) AS col_stddev
                     """
 
                 query = f"""
                     SELECT
-                        COUNT(*) - COUNT("{col_name}") AS null_count,
-                        COUNT(DISTINCT "{col_name}") AS distinct_count
+                        COUNT(*) - COUNT({col_sql}) AS null_count,
+                        COUNT(DISTINCT {col_sql}) AS distinct_count
                         {numeric_aggs}
-                    FROM "{self._schema}"."{self._table_name}"
+                    FROM {schema_sql}.{table_sql}
                 """
                 row = self._conn.raw_sql(query).fetchone()  # type: ignore[union-attr]
                 if not row:
@@ -234,8 +242,8 @@ class RedshiftDatabaseContext(DatabaseContext):
                 )
                 if include_top_values:
                     top_query = f"""
-                        SELECT "{col_name}" AS value, COUNT(*) AS count
-                        FROM "{self._schema}"."{self._table_name}"
+                        SELECT {col_sql} AS value, COUNT(*) AS count
+                        FROM {schema_sql}.{table_sql}
                         GROUP BY 1
                         ORDER BY 2 DESC, 1 ASC
                         LIMIT 10

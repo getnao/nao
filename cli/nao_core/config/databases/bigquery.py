@@ -16,6 +16,31 @@ from .context import DatabaseContext
 logger = logging.getLogger(__name__)
 
 
+def _bq_escape_quoted_identifier(name: object) -> str:
+    # BigQuery quoted identifiers use the same escape sequences as string literals.
+    # https://docs.cloud.google.com/bigquery/docs/reference/standard-sql/lexical#quoted_identifiers
+    value = str(name)
+    value = value.replace("\\", "\\\\")
+    value = value.replace("`", "\\`")
+    return value
+
+
+def _bq_ident(name: object) -> str:
+    return f"`{_bq_escape_quoted_identifier(name)}`"
+
+
+def _bq_path(*parts: object) -> str:
+    escaped = ".".join(_bq_escape_quoted_identifier(p) for p in parts)
+    return f"`{escaped}`"
+
+
+def _bq_string_literal(value: object) -> str:
+    text = str(value)
+    text = text.replace("\\", "\\\\")
+    text = text.replace("'", "\\'")
+    return f"'{text}'"
+
+
 class BigQueryDatabaseContext(DatabaseContext):
     """BigQuery context with partition, clustering, and description discovery."""
 
@@ -32,10 +57,12 @@ class BigQueryDatabaseContext(DatabaseContext):
 
     def description(self) -> str | None:
         try:
+            table_name_literal = _bq_string_literal(self._table_name)
+            table_options_path = _bq_path(self._project_id, self._schema, "INFORMATION_SCHEMA", "TABLE_OPTIONS")
             query = f"""
                 SELECT option_value
-                FROM `{self._project_id}.{self._schema}.INFORMATION_SCHEMA.TABLE_OPTIONS`
-                WHERE table_name = '{self._table_name}' AND option_name = 'description'
+                FROM {table_options_path}
+                WHERE table_name = {table_name_literal} AND option_name = 'description'
             """
             for row in self._conn.raw_sql(query):  # type: ignore[union-attr]
                 if row[0]:
@@ -56,19 +83,23 @@ class BigQueryDatabaseContext(DatabaseContext):
         return cols
 
     def _fetch_column_descriptions(self) -> dict[str, str]:
+        table_name_literal = _bq_string_literal(self._table_name)
+        column_paths = _bq_path(self._project_id, self._schema, "INFORMATION_SCHEMA", "COLUMN_FIELD_PATHS")
         query = f"""
             SELECT column_name, description
-            FROM `{self._project_id}.{self._schema}.INFORMATION_SCHEMA.COLUMN_FIELD_PATHS`
-            WHERE table_name = '{self._table_name}' AND description IS NOT NULL AND description != ''
+            FROM {column_paths}
+            WHERE table_name = {table_name_literal} AND description IS NOT NULL AND description != ''
         """
         return {row[0]: str(row[1]) for row in self._conn.raw_sql(query) if row[1]}  # type: ignore[union-attr]
 
     def profiling(self) -> dict[str, Any] | None:
         try:
+            table_name_literal = _bq_string_literal(self._table_name)
+            columns_path = _bq_path(self._project_id, self._schema, "INFORMATION_SCHEMA", "COLUMNS")
             schema_query = f"""
                 SELECT column_name, data_type
-                FROM `{self._project_id}.{self._schema}.INFORMATION_SCHEMA.COLUMNS`
-                WHERE table_name = '{self._table_name}'
+                FROM {columns_path}
+                WHERE table_name = {table_name_literal}
                 ORDER BY ordinal_position
             """
             columns = self._conn.raw_sql(schema_query).fetchall()  # type: ignore[union-attr]
@@ -78,27 +109,53 @@ class BigQueryDatabaseContext(DatabaseContext):
 
             aggs = ["COUNT(*) AS __total_count"]
             for col_name, data_type in columns:
-                aggs.append(f"COUNTIF(`{col_name}` IS NULL) AS `{col_name}__null_count`")
-                aggs.append(f"COUNT(DISTINCT `{col_name}`) AS `{col_name}__distinct_count`")
+                col_sql = _bq_ident(col_name)
+                null_alias_sql = _bq_ident(f"{col_name}__null_count")
+                distinct_alias_sql = _bq_ident(f"{col_name}__distinct_count")
+                aggs.append(f"COUNTIF({col_sql} IS NULL) AS {null_alias_sql}")
+                aggs.append(f"COUNT(DISTINCT {col_sql}) AS {distinct_alias_sql}")
 
                 if data_type in ("INT64", "FLOAT64", "NUMERIC", "BIGNUMERIC", "INT", "INTEGER", "FLOAT"):
-                    aggs.append(f"MIN(`{col_name}`) AS `{col_name}__min`")
-                    aggs.append(f"MAX(`{col_name}`) AS `{col_name}__max`")
-                    aggs.append(f"AVG(`{col_name}`) AS `{col_name}__mean`")
-                    aggs.append(f"STDDEV(`{col_name}`) AS `{col_name}__stddev`")
+                    aggs.append(f"MIN({col_sql}) AS {_bq_ident(f'{col_name}__min')}")
+                    aggs.append(f"MAX({col_sql}) AS {_bq_ident(f'{col_name}__max')}")
+                    aggs.append(f"AVG({col_sql}) AS {_bq_ident(f'{col_name}__mean')}")
+                    aggs.append(f"STDDEV({col_sql}) AS {_bq_ident(f'{col_name}__stddev')}")
 
                 elif data_type in ("DATE", "DATETIME", "TIMESTAMP"):
-                    aggs.append(f"CAST(MIN(`{col_name}`) AS STRING) AS `{col_name}__min`")
-                    aggs.append(f"CAST(MAX(`{col_name}`) AS STRING) AS `{col_name}__max`")
+                    aggs.append(f"CAST(MIN({col_sql}) AS STRING) AS {_bq_ident(f'{col_name}__min')}")
+                    aggs.append(f"CAST(MAX({col_sql}) AS STRING) AS {_bq_ident(f'{col_name}__max')}")
 
             partition_cols = self.partition_columns()
             partition_filter = ""
             if partition_cols:
-                partition_filter = f"WHERE `{partition_cols[0]}` >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)"
+                type_by_column_lower = {str(col_name).lower(): str(data_type) for col_name, data_type in columns}
 
+                partition_col_name: str | None = None
+                partition_col_type: str | None = None
+                for candidate in partition_cols:
+                    candidate_type = type_by_column_lower.get(str(candidate).lower())
+                    if candidate_type in ("DATE", "DATETIME", "TIMESTAMP"):
+                        partition_col_name = str(candidate)
+                        partition_col_type = candidate_type
+                        break
+
+                if partition_col_name and partition_col_type:
+                    partition_col_sql = _bq_ident(partition_col_name)
+                    if partition_col_type == "DATE":
+                        partition_filter = f"WHERE {partition_col_sql} >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)"
+                    elif partition_col_type == "DATETIME":
+                        partition_filter = (
+                            f"WHERE {partition_col_sql} >= DATETIME_SUB(CURRENT_DATETIME(), INTERVAL 30 DAY)"
+                        )
+                    elif partition_col_type == "TIMESTAMP":
+                        partition_filter = (
+                            f"WHERE {partition_col_sql} >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 DAY)"
+                        )
+
+            table_path = _bq_path(self._project_id, self._schema, self._table_name)
             profiling_query = f"""
                 SELECT {", ".join(aggs)}
-                FROM `{self._project_id}.{self._schema}.{self._table_name}`
+                FROM {table_path}
                 {partition_filter}
             """
 
@@ -131,9 +188,10 @@ class BigQueryDatabaseContext(DatabaseContext):
                 top_values_distinct_limit = 10 if is_date else 50
                 if distinct_count and distinct_count <= top_values_distinct_limit:
                     try:
+                        col_sql = _bq_ident(col_name)
                         top_query = f"""
-                            SELECT CAST(`{col_name}` AS STRING) AS value, COUNT(*) AS count
-                            FROM `{self._project_id}.{self._schema}.{self._table_name}`
+                            SELECT CAST({col_sql} AS STRING) AS value, COUNT(*) AS count
+                            FROM {table_path}
                             {partition_filter}
                             GROUP BY 1
                             ORDER BY 2 DESC
@@ -161,15 +219,17 @@ class BigQueryDatabaseContext(DatabaseContext):
 
 
 def _get_bq_partition_columns(conn: BaseBackend, schema: str, table: str) -> list[str]:
+    schema_info_path = _bq_path(schema, "INFORMATION_SCHEMA", "COLUMNS")
+    table_name_literal = _bq_string_literal(table)
     partition_query = f"""
         SELECT column_name
-        FROM `{schema}.INFORMATION_SCHEMA.COLUMNS`
-        WHERE table_name = '{table}' AND is_partitioning_column = 'YES'
+        FROM {schema_info_path}
+        WHERE table_name = {table_name_literal} AND is_partitioning_column = 'YES'
     """
     clustering_query = f"""
         SELECT column_name
-        FROM `{schema}.INFORMATION_SCHEMA.COLUMNS`
-        WHERE table_name = '{table}' AND clustering_ordinal_position IS NOT NULL
+        FROM {schema_info_path}
+        WHERE table_name = {table_name_literal} AND clustering_ordinal_position IS NOT NULL
         ORDER BY clustering_ordinal_position
     """
     columns: list[str] = []
