@@ -523,7 +523,9 @@ function MemberRow({
 			<div
 				className={cn(
 					'flex size-5 shrink-0 items-center justify-center rounded-md border transition-colors',
-					selected ? 'border-primary bg-primary text-white' : 'border-muted-foreground/30',
+					selected
+						? 'border-primary bg-primary text-primary-foreground shadow-sm'
+						: 'border-muted-foreground/30 bg-background',
 				)}
 			>
 				{selected && <Check className='size-3' />}
