@@ -84,5 +84,6 @@ export const createImageBlock = (url: string): CardChild => {
 
 export const escapeCsvCell = (value: unknown): string => {
 	const str = value === null || value === undefined ? '' : String(value);
-	return /[,"\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
+	const sanitized = /^[=+\-@]/.test(str) ? `'${str}` : str;
+	return /[,"\n]/.test(sanitized) ? `"${sanitized.replace(/"/g, '""')}"` : sanitized;
 };

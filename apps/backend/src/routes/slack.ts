@@ -1,12 +1,14 @@
 import type { App } from '../app';
 import * as slackConfigQueries from '../queries/project-slack-config.queries';
 import { slackService } from '../services/slack';
+import { convertHeaders } from '../utils/utils';
 
 export const slackRoutes = async (app: App) => {
-	app.post('/:projectId', { config: { rawBody: true } }, async (request) => {
-		const webRequest = new Request(`http://localhost${request.url}`, {
+	app.post('/:projectId', { config: { rawBody: true } }, async (request, reply) => {
+		const url = new URL(request.url, `http://${request.headers.host}`);
+		const webRequest = new Request(url.toString(), {
 			method: request.method,
-			headers: request.headers as Record<string, string>,
+			headers: convertHeaders(request.headers),
 			body: request.rawBody as string,
 		});
 
@@ -19,8 +21,12 @@ export const slackRoutes = async (app: App) => {
 		if (!webhooks) {
 			throw new Error('Failed to initialize Slack webhooks');
 		}
-		return webhooks.slack(webRequest, {
+		const response = await webhooks.slack(webRequest, {
 			waitUntil: (task: Promise<unknown>) => task,
 		});
+
+		reply.status(response.status);
+		response.headers.forEach((value, key) => reply.header(key, value));
+		return reply.send(await response.text());
 	});
 };

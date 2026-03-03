@@ -98,7 +98,7 @@ app.register(authRoutes, {
 });
 
 app.register(slackRoutes, {
-	prefix: '/api/webhooks/slack/',
+	prefix: '/api/webhooks/slack',
 });
 
 /**
