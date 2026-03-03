@@ -142,9 +142,8 @@ export class McpService {
 					throw new Error('Runtime not initialized');
 				}
 				const definition = this._convertToServerDefinition(serverName, serverConfig);
-				this._runtime.registerDefinition(definition, { overwrite: true });
+				this._runtime?.registerDefinition(definition, { overwrite: true });
 				await this._listTools(serverName);
-				return { serverName, success: true };
 			} catch (error) {
 				this._failedConnections[serverName] = (error as Error).message;
 			}
@@ -161,10 +160,12 @@ export class McpService {
 		if (isHttp) {
 			return {
 				name,
+				auth: 'oauth',
 				command: {
 					kind: 'http',
 					url: config.url!,
 				},
+				source: { kind: 'local', path: '<adhoc>' },
 			};
 		}
 
@@ -221,11 +222,9 @@ export class McpService {
 			throw new Error('Runtime not initialized');
 		}
 
-		const result = await this._runtime.callTool(serverName, removePrefixToolName(toolName), {
+		return await this._runtime.callTool(serverName, removePrefixToolName(toolName), {
 			args: toolArgs,
 		});
-
-		return result;
 	}
 
 	private async _cacheMcpState(): Promise<void> {
