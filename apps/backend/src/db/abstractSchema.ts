@@ -53,6 +53,14 @@ export type NewSharedStoryAccess = typeof sqliteSchema.sharedStoryAccess.$inferI
 
 export type StoryVisibility = DBSharedStory['visibility'];
 
+export type DBSharedChat = typeof sqliteSchema.sharedChat.$inferSelect;
+export type NewSharedChat = typeof sqliteSchema.sharedChat.$inferInsert;
+
+export type DBSharedChatAccess = typeof sqliteSchema.sharedChatAccess.$inferSelect;
+export type NewSharedChatAccess = typeof sqliteSchema.sharedChatAccess.$inferInsert;
+
+export type ChatVisibility = DBSharedChat['visibility'];
+
 export type DBStoryVersion = typeof sqliteSchema.storyVersion.$inferSelect;
 export type NewStoryVersion = typeof sqliteSchema.storyVersion.$inferInsert;
 
