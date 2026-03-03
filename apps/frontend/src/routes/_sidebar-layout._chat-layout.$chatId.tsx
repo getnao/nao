@@ -7,6 +7,7 @@ import { ChatMessages } from '@/components/chat-messages/chat-messages';
 import { SidePanel } from '@/components/side-panel/side-panel';
 import { MobileHeader } from '@/components/mobile-header';
 import { Spinner } from '@/components/ui/spinner';
+import { Badge } from '@/components/ui/badge';
 import { useAgentContext } from '@/contexts/agent.provider';
 import { useSidePanel } from '@/hooks/use-side-panel';
 import { SidePanelProvider } from '@/contexts/side-panel';
@@ -16,7 +17,7 @@ export const Route = createFileRoute('/_sidebar-layout/_chat-layout/$chatId')({
 });
 
 export function RouteComponent() {
-	const { isLoadingMessages } = useAgentContext();
+	const { isLoadingMessages, canWrite } = useAgentContext();
 	const router = useRouter();
 	const { chatId } = Route.useParams();
 
@@ -54,7 +55,10 @@ export function RouteComponent() {
 					<MobileHeader />
 
 					<div className='absolute top-3 right-3 z-10 max-md:hidden'>
-						<StoryOpenButton />
+						<div className='flex items-center gap-2'>
+							{!canWrite && <Badge variant='viewer'>Read-only</Badge>}
+							<StoryOpenButton />
+						</div>
 					</div>
 
 					{isLoadingMessages ? (
@@ -65,7 +69,7 @@ export function RouteComponent() {
 						<ChatMessages />
 					)}
 
-					<ChatInput />
+					{canWrite && <ChatInput />}
 				</div>
 
 				{sidePanel.content && (

@@ -6,16 +6,23 @@ import { cn } from '@/lib/utils';
 
 export interface Props extends Omit<ComponentProps<'div'>, 'children'> {
 	chats: ChatListItemType[];
+	emptyMessage?: string;
 }
 
-export function ChatList({ chats, className, ...props }: Props) {
+export function ChatList({ chats, className, emptyMessage = 'No chats yet.', ...props }: Props) {
+	const showDefaultSubtitle = emptyMessage === 'No chats yet.';
+
 	if (chats.length === 0) {
 		return (
 			<div className={cn('flex-1 flex items-center justify-center p-4', className)} {...props}>
 				<p className='text-sm text-muted-foreground text-center'>
-					No chats yet.
-					<br />
-					Start a new chat!
+					{emptyMessage}
+					{showDefaultSubtitle && (
+						<>
+							<br />
+							Start a new chat!
+						</>
+					)}
 				</p>
 			</div>
 		);

@@ -35,6 +35,9 @@ export interface AgentHelpers {
 	selectedModel: ChatSelectedModel | null;
 	setSelectedModel: React.Dispatch<React.SetStateAction<ChatSelectedModel | null>>;
 	setMentions: (mentions: MentionOption[]) => void;
+	canWrite: boolean;
+	accessType: 'owner' | 'shared-project' | 'shared-specific';
+	shareId?: string;
 }
 
 export interface SendMessageArgs {
@@ -135,15 +138,18 @@ export const useAgent = (): AgentHelpers => {
 
 	const stopAgentMutation = useMutation(trpc.chat.stop.mutationOptions());
 	const isRunning = checkIsAgentRunning({ status });
+	const canWrite = chat.data?.canWrite ?? true;
+	const accessType = chat.data?.accessType ?? 'owner';
+	const shareId = chat.data?.shareId;
 
 	const stopAgent = useCallback(async () => {
-		if (!chatId) {
+		if (!chatId || !canWrite) {
 			return;
 		}
 
 		agentInstance.stop(); // Stop the agent instance to instantly stop reading the stream
 		await stopAgentMutation.mutateAsync({ chatId });
-	}, [chatId, agentInstance, stopAgentMutation.mutateAsync]); // eslint-disable-line
+	}, [chatId, canWrite, agentInstance, stopAgentMutation.mutateAsync]); // eslint-disable-line
 
 	const handleSendMessage = useCallback<UseChatHelpers<UIMessage>['sendMessage']>(
 		async (...args) => {
@@ -155,7 +161,7 @@ export const useAgent = (): AgentHelpers => {
 
 	const queueOrSendMessage = useCallback(
 		async ({ text }: SendMessageArgs) => {
-			if (!text.trim()) {
+			if (!text.trim() || !canWrite) {
 				return;
 			}
 
@@ -171,13 +177,13 @@ export const useAgent = (): AgentHelpers => {
 				mentions,
 			});
 		},
-		[isRunning, handleSendMessage, chatIdRef],
+		[canWrite, isRunning, handleSendMessage, chatIdRef],
 	);
 
 	const editMessage = useCallback(
 		async ({ messageId, text }: { messageId: string; text: string }) => {
 			const trimmedText = text.trim();
-			if (!trimmedText || isRunning) {
+			if (!trimmedText || isRunning || !canWrite) {
 				return;
 			}
 
@@ -189,7 +195,7 @@ export const useAgent = (): AgentHelpers => {
 			setMessages(messages.slice(0, messageIndex));
 			return handleSendMessage({ text: trimmedText }, { body: { messageToEditId: messageId } });
 		},
-		[messages, setMessages, isRunning, handleSendMessage],
+		[messages, setMessages, isRunning, canWrite, handleSendMessage],
 	);
 
 	return useMemoObject({
@@ -206,6 +212,9 @@ export const useAgent = (): AgentHelpers => {
 		selectedModel,
 		setSelectedModel,
 		setMentions,
+		canWrite,
+		accessType,
+		shareId,
 	});
 };
 

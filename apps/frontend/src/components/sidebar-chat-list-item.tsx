@@ -1,4 +1,4 @@
-import { Ellipsis, Pencil, TrashIcon } from 'lucide-react';
+import { Ellipsis, Pencil, Share2, TrashIcon, Users } from 'lucide-react';
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
@@ -18,6 +18,8 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useTimeAgo } from '@/hooks/use-time-ago';
 import { trpc } from '@/main';
+import { useChatSharing } from '@/components/chat/hooks/use-chat-sharing';
+import { ShareChatDialog } from '@/components/chat/share-chat-dialog';
 
 export interface Props extends Omit<ComponentProps<'div'>, 'children'> {
 	chat: ChatListItem;
@@ -28,6 +30,10 @@ export function ChatListItem({ chat }: Props) {
 	const timeAgo = useTimeAgo(chat.createdAt);
 	const [title, setTitle] = useState(chat.title);
 	const [isRenaming, setIsRenaming] = useState(false);
+	const { isShareDialogOpen, setIsShareDialogOpen, isShared } = useChatSharing({
+		chatId: chat.id,
+		isOwned: chat.isOwned,
+	});
 
 	const deleteChat = useMutation(
 		trpc.chat.delete.mutationOptions({
@@ -89,6 +95,9 @@ export function ChatListItem({ chat }: Props) {
 	const handleDeleteSelect = () => {
 		deleteChat.mutate({ chatId: chat.id });
 	};
+	const handleShareSelect = () => {
+		setIsShareDialogOpen(true);
+	};
 
 	const handleDoubleClick = () => {
 		setIsRenaming(true);
@@ -120,34 +129,46 @@ export function ChatListItem({ chat }: Props) {
 				/>
 			) : (
 				<>
-					<div className='truncate text-sm mr-auto'>{chat.title}</div>
+					<div className='truncate text-sm mr-auto flex items-center gap-1.5'>
+						{!chat.isOwned && <Users className='size-3.5 text-muted-foreground shrink-0' />}
+						<span className='truncate'>{chat.title}</span>
+					</div>
 					<div className='text-xs text-muted-foreground whitespace-nowrap'>{timeAgo.humanReadable}</div>
 
-					<DropdownMenu>
-						<DropdownMenuTrigger asChild>
-							<Button
-								variant='ghost'
-								size='icon-xs'
-								className='absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100'
-							>
-								<Ellipsis />
-							</Button>
-						</DropdownMenuTrigger>
+					{chat.isOwned && (
+						<DropdownMenu>
+							<DropdownMenuTrigger asChild>
+								<Button
+									variant='ghost'
+									size='icon-xs'
+									className='absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100'
+								>
+									<Ellipsis />
+								</Button>
+							</DropdownMenuTrigger>
 
-						<DropdownMenuContent onClick={(e) => e.stopPropagation()}>
-							<DropdownMenuGroup>
-								<DropdownMenuItem onSelect={handleRenameSelect}>
-									<Pencil />
-									Rename
-								</DropdownMenuItem>
-								<DropdownMenuItem variant='destructive' onSelect={handleDeleteSelect}>
-									<TrashIcon />
-									Delete
-								</DropdownMenuItem>
-							</DropdownMenuGroup>
-						</DropdownMenuContent>
-					</DropdownMenu>
+							<DropdownMenuContent onClick={(e) => e.stopPropagation()}>
+								<DropdownMenuGroup>
+									<DropdownMenuItem onSelect={handleShareSelect}>
+										<Share2 className={cn(isShared && 'text-emerald-600')} />
+										Share
+									</DropdownMenuItem>
+									<DropdownMenuItem onSelect={handleRenameSelect}>
+										<Pencil />
+										Rename
+									</DropdownMenuItem>
+									<DropdownMenuItem variant='destructive' onSelect={handleDeleteSelect}>
+										<TrashIcon />
+										Delete
+									</DropdownMenuItem>
+								</DropdownMenuGroup>
+							</DropdownMenuContent>
+						</DropdownMenu>
+					)}
 				</>
+			)}
+			{chat.isOwned && (
+				<ShareChatDialog open={isShareDialogOpen} onOpenChange={setIsShareDialogOpen} chatId={chat.id} />
 			)}
 		</Link>
 	);

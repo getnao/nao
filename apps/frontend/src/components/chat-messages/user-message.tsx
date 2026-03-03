@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/button';
 import { editedMessageIdStore } from '@/stores/chat-edited-message';
 
 export const UserMessage = memo(({ message }: { message: UIMessage }) => {
-	const { isRunning, editMessage } = useAgentContext();
+	const { isRunning, editMessage, canWrite } = useAgentContext();
 	const { isCopied, copy } = useCopyToClipboard();
 	const isEditing = useIsEditingMessage(message.id);
 	const editContainerRef = useRef<HTMLDivElement>(null);
@@ -55,13 +55,15 @@ export const UserMessage = memo(({ message }: { message: UIMessage }) => {
 					isRunning && 'group-last:opacity-0 invisible',
 				)}
 			>
-				<Button
-					variant='ghost-muted'
-					size='icon-sm'
-					onClick={() => editedMessageIdStore.setEditingId(message.id)}
-				>
-					<Pencil />
-				</Button>
+				{canWrite && (
+					<Button
+						variant='ghost-muted'
+						size='icon-sm'
+						onClick={() => editedMessageIdStore.setEditingId(message.id)}
+					>
+						<Pencil />
+					</Button>
+				)}
 				<Button variant='ghost-muted' size='icon-sm' onClick={() => copy(getMessageText(message))}>
 					{isCopied ? <Check className='size-4' /> : <Copy />}
 				</Button>

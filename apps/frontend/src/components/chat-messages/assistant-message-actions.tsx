@@ -10,6 +10,7 @@ import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { getMessageText } from '@/lib/ai';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
+import { useAgentContext } from '@/contexts/agent.provider';
 
 export function AssistantMessageActions({
 	message,
@@ -22,6 +23,7 @@ export function AssistantMessageActions({
 }) {
 	const [showFeedbackDialog, setShowFeedbackDialog] = useState(false);
 	const { isCopied, copy } = useCopyToClipboard();
+	const { canWrite } = useAgentContext();
 
 	const submitFeedback = useMutation(
 		trpc.feedback.submit.mutationOptions({
@@ -68,27 +70,31 @@ export function AssistantMessageActions({
 	return (
 		<>
 			<div className={cn('flex items-center gap-1', className)}>
-				<Button
-					variant='ghost'
-					size='icon-sm'
-					onClick={handlePositiveFeedback}
-					disabled={submitFeedback.isPending}
-					className={cn(message.feedback?.vote === 'up' ? 'text-primary' : 'opacity-50 hover:opacity-100')}
-					aria-label='Good response'
-				>
-					<ThumbsUp className='size-4' />
-				</Button>
+				{canWrite && (
+					<>
+						<Button
+							variant='ghost'
+							size='icon-sm'
+							onClick={handlePositiveFeedback}
+							disabled={submitFeedback.isPending}
+							className={cn(message.feedback?.vote === 'up' ? 'text-primary' : 'opacity-50 hover:opacity-100')}
+							aria-label='Good response'
+						>
+							<ThumbsUp className='size-4' />
+						</Button>
 
-				<Button
-					variant='ghost'
-					size='icon-sm'
-					onClick={handleNegativeFeedbackClick}
-					disabled={submitFeedback.isPending}
-					className={cn(message.feedback?.vote === 'down' ? 'text-primary' : 'opacity-50 hover:opacity-100')}
-					aria-label='Bad response'
-				>
-					<ThumbsDown className='size-4' />
-				</Button>
+						<Button
+							variant='ghost'
+							size='icon-sm'
+							onClick={handleNegativeFeedbackClick}
+							disabled={submitFeedback.isPending}
+							className={cn(message.feedback?.vote === 'down' ? 'text-primary' : 'opacity-50 hover:opacity-100')}
+							aria-label='Bad response'
+						>
+							<ThumbsDown className='size-4' />
+						</Button>
+					</>
+				)}
 
 				<Button
 					variant='ghost'
@@ -101,12 +107,14 @@ export function AssistantMessageActions({
 				</Button>
 			</div>
 
-			<NegativeFeedbackDialog
-				open={showFeedbackDialog}
-				onOpenChange={setShowFeedbackDialog}
-				onSubmit={handleNegativeFeedbackSubmit}
-				isPending={submitFeedback.isPending}
-			/>
+			{canWrite && (
+				<NegativeFeedbackDialog
+					open={showFeedbackDialog}
+					onOpenChange={setShowFeedbackDialog}
+					onSubmit={handleNegativeFeedbackSubmit}
+					isPending={submitFeedback.isPending}
+				/>
+			)}
 		</>
 	);
 }
