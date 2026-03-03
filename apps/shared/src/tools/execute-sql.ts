@@ -6,6 +6,7 @@ export const InputSchema = z.object({
 		.string()
 		.optional()
 		.describe('The database name/id to use. Required if multiple databases are configured.'),
+	name: z.string().optional().describe('A descriptive name for the query that will be used to show in the UI.'),
 });
 
 export const OutputSchema = z.object({

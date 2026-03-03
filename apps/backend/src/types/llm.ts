@@ -2,7 +2,7 @@ import type { AnthropicProviderOptions } from '@ai-sdk/anthropic';
 import type { GoogleGenerativeAIProviderOptions } from '@ai-sdk/google';
 import type { MistralLanguageModelOptions } from '@ai-sdk/mistral';
 import type { OpenAIResponsesProviderOptions } from '@ai-sdk/openai';
-import type { OpenRouterProviderOptions } from '@openrouter/ai-sdk-provider';
+import type { LanguageModelV3, OpenRouterProviderOptions } from '@openrouter/ai-sdk-provider';
 import type { OllamaChatProviderOptions } from 'ai-sdk-ollama';
 import { z } from 'zod/v4';
 
@@ -10,6 +10,8 @@ import { TokenCost } from './chat';
 
 export const llmProviderSchema = z.enum(['openai', 'anthropic', 'google', 'mistral', 'openrouter', 'ollama']);
 export type LlmProvider = z.infer<typeof llmProviderSchema>;
+
+export type ProviderSettings = { apiKey: string; baseURL?: string };
 
 export const llmConfigSchema = z.object({
 	id: z.string(),
@@ -46,12 +48,13 @@ type ProviderModel<P extends LlmProvider> = {
 
 /** Provider configuration with typed models */
 type ProviderConfig<P extends LlmProvider> = {
+	create: (settings: ProviderSettings, modelId: string) => LanguageModelV3;
 	envVar: string;
 	baseUrlEnvVar?: string;
 	defaultOptions?: ProviderConfigMap[P];
 	models: readonly ProviderModel<P>[];
-	/** Preferred cheap model id for memory extraction. */
 	extractorModelId: string;
+	summaryModelId: string;
 };
 
 /** Full providers type - each key gets its own config type */
@@ -65,5 +68,5 @@ export type ModelSelection = {
 	modelId: string;
 };
 
-export const LLM_INFERENCE_TYPES = ['memory_extraction'] as const;
+export const LLM_INFERENCE_TYPES = ['memory_extraction', 'compaction'] as const;
 export type LlmInferenceType = (typeof LLM_INFERENCE_TYPES)[number];

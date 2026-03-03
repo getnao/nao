@@ -27,10 +27,10 @@ jobs:
                       platform: linux
                       arch: arm64
                       wheel-tag: manylinux2014_aarch64
-                    - os: windows-latest
-                      platform: win
-                      arch: x64
-                      wheel-tag: win_amd64
+                    # - os: windows-latest
+                    #   platform: win
+                    #   arch: x64
+                    #   wheel-tag: win_amd64
 
         runs-on: ${{ matrix.os }}
         defaults:

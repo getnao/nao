@@ -3,7 +3,7 @@ import { existsSync, readdirSync, readFileSync, statSync, watch } from 'fs';
 import matter from 'gray-matter';
 import { join } from 'path';
 
-import { retrieveProjectById } from '../utils/ai';
+import * as projectQueries from '../queries/project.queries';
 
 export interface Skill {
 	name: string;
@@ -31,7 +31,7 @@ class SkillService {
 		}
 		this._initialized = true;
 
-		const project = await retrieveProjectById(projectId);
+		const project = await projectQueries.retrieveProjectById(projectId);
 		this._skillsFolderPath = join(project.path || '', 'agent', 'skills');
 
 		this.loadSkills();

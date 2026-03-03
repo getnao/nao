@@ -23,7 +23,7 @@ export const AssistantReasoning = memo(({ text, isStreaming }: { text: string; i
 			onExpandedChange={setIsExpanded}
 			isLoading={isStreaming}
 		>
-			<div className='text-muted-foreground text-sm'>
+			<div className='text-muted-foreground markdown-small'>
 				<Conversation className='p-0'>
 					<ConversationContent className='p-0 max-h-[200px]'>
 						<Streamdown isAnimating={isStreaming} mode={isStreaming ? 'streaming' : 'static'}>

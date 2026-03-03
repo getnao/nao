@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { usePrevRef } from './use-prev';
 import { createLocalStorage } from '@/lib/local-storage';
 
@@ -34,9 +34,17 @@ const playNotificationSound = () => {
 
 export const useStreamEndSound = (isRunning: boolean) => {
 	const prevIsRunningRef = usePrevRef(isRunning);
+	const mountedRef = useRef(true);
 
 	useEffect(() => {
-		if (prevIsRunningRef.current && !isRunning && soundNotificationStorage.get()) {
+		mountedRef.current = true;
+		return () => {
+			mountedRef.current = false;
+		};
+	}, []);
+
+	useEffect(() => {
+		if (prevIsRunningRef.current && !isRunning && mountedRef.current && soundNotificationStorage.get()) {
 			playNotificationSound();
 		}
 	}, [isRunning, prevIsRunningRef]);

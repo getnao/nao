@@ -8,7 +8,7 @@ import {
 } from 'ai';
 import z from 'zod/v4';
 
-import { tools } from '../agents/tools';
+import { getTools, tools } from '../agents/tools';
 import { MessageFeedback } from '../db/abstractSchema';
 import { llmProviderSchema } from './llm';
 
@@ -43,7 +43,17 @@ export type MessageCustomDataParts = {
 	newChat: ChatListItem;
 	/** Maps the client-generated user message ID to the server-generated one */
 	newUserMessage: { newId: string };
+	/** Sent when conversation compaction is triggered */
+	compactionSummaryStarted: undefined;
+	/** Sent when the conversation compaction summary is finished */
+	compaction: CompactionPart;
 };
+
+export interface CompactionPart {
+	/** The summary of the compaction */
+	summary: string;
+	error?: string;
+}
 
 export type UIMessagePart = UIGenericMessagePart<MessageCustomDataParts, UITools>;
 
@@ -86,6 +96,8 @@ export type ContextUsage = {
 	tokensUsed: number;
 	contextWindow: number | null;
 };
+
+export type AgentTools = Awaited<ReturnType<typeof getTools>>;
 
 /**
  * Agent Request Types

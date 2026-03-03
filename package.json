@@ -37,6 +37,7 @@
 		"typescript-eslint": "^8.51.0"
 	},
 	"dependencies": {
+		"@pydantic/monty": "^0.0.7",
 		"depd": "^2.0.0"
 	}
 }

@@ -1,4 +1,4 @@
-import { Tool, tool } from 'ai';
+import { asSchema, type JSONSchema7, Tool, tool } from 'ai';
 import fs from 'fs';
 import { minimatch } from 'minimatch';
 import path from 'path';
@@ -299,3 +299,7 @@ export function removePrefixToolName(prefixedToolName: string): string {
 	}
 	return prefixedToolName;
 }
+
+export const getJsonSchema = async (tools: Tool): Promise<JSONSchema7> => {
+	return await asSchema(tools.inputSchema).jsonSchema;
+};

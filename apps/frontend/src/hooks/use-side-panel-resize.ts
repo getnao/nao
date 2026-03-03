@@ -1,6 +1,14 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { useResizeObserver } from './use-resize-observer';
-import { SIDE_PANEL_DEFAULT_WIDTH_RATIO } from '@/lib/side-panel';
+import { loadPersistedWidthRatio, SIDE_PANEL_MIN_WIDTH, SIDE_PANEL_WIDTH_STORAGE_KEY } from '@/lib/side-panel';
+
+function persistRatio(ratio: number) {
+	try {
+		localStorage.setItem(SIDE_PANEL_WIDTH_STORAGE_KEY, String(ratio));
+	} catch {
+		/* localStorage unavailable */
+	}
+}
 
 /** Handles the manual resize of the side panel */
 export const useSidePanelResize = (
@@ -9,10 +17,8 @@ export const useSidePanelResize = (
 	resizeHandleRef: React.RefObject<HTMLDivElement | null>,
 	enabled: boolean,
 ) => {
-	const ratioRef = useRef(SIDE_PANEL_DEFAULT_WIDTH_RATIO);
-	const [isResizing, setIsResizing] = useState(false);
-	const resizeStartXRef = useRef(0);
-	const resizeStartWidthRef = useRef(0);
+	const ratioRef = useRef(loadPersistedWidthRatio());
+	const rafRef = useRef(0);
 
 	useEffect(() => {
 		if (!enabled) {
@@ -25,65 +31,58 @@ export const useSidePanelResize = (
 			return;
 		}
 
+		let startX = 0;
+		let startWidth = 0;
+
+		const handleMouseMove = (e: MouseEvent) => {
+			cancelAnimationFrame(rafRef.current);
+			rafRef.current = requestAnimationFrame(() => {
+				const deltaX = e.clientX - startX;
+				const width = startWidth - deltaX;
+				sidePanel.style.transitionDuration = '0ms';
+				sidePanel.style.width = `${width}px`;
+			});
+		};
+
+		const handleMouseUp = () => {
+			cancelAnimationFrame(rafRef.current);
+			document.removeEventListener('mousemove', handleMouseMove);
+			document.removeEventListener('mouseup', handleMouseUp);
+			document.body.style.cursor = 'default';
+
+			const container = containerRef.current;
+			if (container) {
+				const sidePanelWidth = sidePanel.getBoundingClientRect().width;
+				const containerWidth = container.getBoundingClientRect().width;
+				ratioRef.current = sidePanelWidth / containerWidth;
+				persistRatio(ratioRef.current);
+			}
+		};
+
 		const handleMouseDown = (e: MouseEvent) => {
 			e.preventDefault();
 			e.stopPropagation();
-			setIsResizing(true);
-
-			resizeStartXRef.current = e.clientX;
-			resizeStartWidthRef.current = sidePanel.getBoundingClientRect().width || 0;
-
+			startX = e.clientX;
+			startWidth = sidePanel.getBoundingClientRect().width || 0;
 			document.body.style.cursor = 'ew-resize';
+			document.addEventListener('mousemove', handleMouseMove);
+			document.addEventListener('mouseup', handleMouseUp);
 		};
 
 		resizeHandle.addEventListener('mousedown', handleMouseDown);
 		return () => {
 			resizeHandle.removeEventListener('mousedown', handleMouseDown);
-		};
-	}, [enabled, sidePanelRef, resizeHandleRef]);
-
-	useEffect(() => {
-		if (!isResizing) {
-			return;
-		}
-
-		const handleMouseMove = (e: MouseEvent) => {
-			const sidePanel = sidePanelRef.current;
-			if (!sidePanel) {
-				return;
-			}
-
-			const deltaX = e.clientX - resizeStartXRef.current;
-			const width = resizeStartWidthRef.current - deltaX;
-			sidePanel.style.transitionDuration = '0ms';
-			sidePanel.style.width = `${width}px`;
-		};
-
-		const handleMouseUp = () => {
-			setIsResizing(false);
-			document.body.style.cursor = 'default';
-
-			const sidePanel = sidePanelRef.current;
-			const container = containerRef.current;
-			if (sidePanel && container) {
-				const sidePanelWidth = sidePanel.getBoundingClientRect().width;
-				const containerWidth = container.getBoundingClientRect().width;
-				ratioRef.current = sidePanelWidth / containerWidth;
-			}
-		};
-
-		document.addEventListener('mousemove', handleMouseMove);
-		document.addEventListener('mouseup', handleMouseUp);
-
-		return () => {
 			document.removeEventListener('mousemove', handleMouseMove);
 			document.removeEventListener('mouseup', handleMouseUp);
+			cancelAnimationFrame(rafRef.current);
 		};
-	}, [isResizing, sidePanelRef, containerRef]);
+	}, [enabled, sidePanelRef, containerRef, resizeHandleRef]);
 
-	// Resize panels when the container changes size
+	const enabledRef = useRef(enabled);
+	enabledRef.current = enabled;
+
 	useResizeObserver(containerRef, () => {
-		if (!enabled) {
+		if (!enabledRef.current) {
 			return;
 		}
 
@@ -94,10 +93,10 @@ export const useSidePanelResize = (
 		}
 
 		const containerWidth = container.getBoundingClientRect().width;
-		const width = Math.floor(ratioRef.current * containerWidth);
+		const width = Math.max(SIDE_PANEL_MIN_WIDTH, Math.floor(ratioRef.current * containerWidth));
 		sidePanel.style.width = `${width}px`;
 		sidePanel.style.transitionDuration = '0ms';
-	}, [enabled]);
+	});
 
-	return { isResizing, ratioRef };
+	return { ratioRef };
 };

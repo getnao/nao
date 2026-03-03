@@ -1,8 +1,8 @@
 import { Block, Bold, Br, Italic, Link, List, ListItem, Location, Span, Title } from '../../lib/markdown';
 import type { Skill } from '../../services/skill.service';
+import { tokenCounter } from '../../services/token-counter';
 import type { UserMemory } from '../../types/memory';
 import { MEMORY_CATEGORIES, MemoryCategory } from '../../types/memory';
-import { estimateTokens } from '../../utils/ai';
 import { groupBy } from '../../utils/utils';
 
 type Connection = {
@@ -150,7 +150,7 @@ function getMemoriesInTokenRange(memories: UserMemory[], limit: number): UserMem
 	let totalTokens = 0;
 
 	for (const memory of inPriorityOrder) {
-		const memoryTokens = estimateTokens(memory.content);
+		const memoryTokens = tokenCounter.estimate(memory.content);
 		if (totalTokens + memoryTokens > limit) {
 			continue;
 		}

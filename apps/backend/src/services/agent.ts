@@ -4,32 +4,37 @@ import {
 	FinishReason,
 	hasToolCall,
 	InferUIMessageChunk,
+	isToolUIPart,
 	ModelMessage,
 	pruneMessages,
 	StreamTextResult,
 	ToolLoopAgent,
-	ToolLoopAgentSettings,
+	UIMessageStreamWriter,
 } from 'ai';
 
 import { CACHE_1H, CACHE_5M } from '../agents/providers';
+import { ProviderModelResult } from '../agents/providers';
 import { getTools } from '../agents/tools';
 import { getConnections, getUserRules } from '../agents/user-rules';
 import { SystemPrompt } from '../components/ai';
+import { DBChat } from '../db/abstractSchema';
 import { renderToMarkdown } from '../lib/markdown';
 import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
+import * as storyQueries from '../queries/story.queries';
 import { AgentSettings } from '../types/agent-settings';
-import { Mention, MessageCustomDataParts, TokenCost, TokenUsage, UIChat, UIMessage } from '../types/chat';
+import { AgentTools, Mention, MessageCustomDataParts, TokenCost, TokenUsage, UIMessage } from '../types/chat';
 import { ToolContext } from '../types/tools';
-import { convertToCost, convertToTokenUsage, findLastUserMessage, retrieveProjectById } from '../utils/ai';
+import { convertToCost, convertToTokenUsage, findLastUserMessage } from '../utils/ai';
 import { HandlerError } from '../utils/error';
 import { getDefaultModelId, getEnvModelSelections, ModelSelection, resolveProviderModel } from '../utils/llm';
+import { truncateMiddle } from '../utils/utils';
+import { compactionService } from './compaction';
 import { memoryService } from './memory';
 import { skillService } from './skill.service';
 
 export type { ModelSelection };
-type AgentTools = Awaited<ReturnType<typeof getTools>>;
 
 export interface AgentRunResult {
 	text: string;
@@ -47,10 +52,7 @@ export interface AgentRunResult {
 	}>;
 }
 
-type AgentChat = UIChat & {
-	userId: string;
-	projectId: string;
-};
+export type AgentChat = Pick<DBChat, 'id' | 'projectId' | 'userId'>;
 
 export class AgentService {
 	private _agents = new Map<string, AgentManager>();
@@ -60,7 +62,7 @@ export class AgentService {
 		const resolvedModelSelection = await this._getResolvedModelSelection(chat.projectId, modelSelection);
 		const modelConfig = await this._getModelConfig(chat.projectId, resolvedModelSelection);
 		const agentSettings = await projectQueries.getAgentSettings(chat.projectId);
-		const toolContext = await this._getToolContext(chat.projectId, agentSettings);
+		const toolContext = await this._getToolContext(chat.projectId, chat.id, agentSettings);
 		const agentTools = getTools(agentSettings);
 		const agent = new AgentManager(
 			chat,
@@ -102,13 +104,18 @@ export class AgentService {
 		throw new HandlerError('BAD_REQUEST', 'No model config found');
 	}
 
-	private async _getToolContext(projectId: string, agentSettings: AgentSettings | null): Promise<ToolContext> {
-		const project = await retrieveProjectById(projectId);
+	private async _getToolContext(
+		projectId: string,
+		chatId: string,
+		agentSettings: AgentSettings | null,
+	): Promise<ToolContext> {
+		const project = await projectQueries.retrieveProjectById(projectId);
 		if (!project.path) {
 			throw new HandlerError('BAD_REQUEST', 'Project path does not exist.');
 		}
 		return {
 			projectFolder: project.path ?? '',
+			chatId,
 			agentSettings,
 		};
 	}
@@ -126,10 +133,7 @@ export class AgentService {
 		return this._agents.get(chatId);
 	}
 
-	protected async _getModelConfig(
-		projectId: string,
-		modelSelection: ModelSelection,
-	): Promise<Pick<ToolLoopAgentSettings, 'model' | 'providerOptions'>> {
+	protected async _getModelConfig(projectId: string, modelSelection: ModelSelection): Promise<ProviderModelResult> {
 		const result = await resolveProviderModel(projectId, modelSelection.provider, modelSelection.modelId);
 		if (!result) {
 			throw new HandlerError('BAD_REQUEST', 'The selected model could not be resolved.');
@@ -138,12 +142,15 @@ export class AgentService {
 	}
 }
 
+const MAX_OUTPUT_TOKENS = 16_000;
+
 class AgentManager {
 	private readonly _agent: ToolLoopAgent<never, AgentTools, never>;
+	private _streamWriter?: UIMessageStreamWriter<UIMessage>;
 
 	constructor(
 		readonly chat: AgentChat,
-		private readonly _modelConfig: Pick<ToolLoopAgentSettings, 'model' | 'providerOptions'>,
+		private readonly _modelConfig: ProviderModelResult,
 		private readonly _modelSelection: ModelSelection,
 		private readonly _onDispose: () => void,
 		private readonly _abortController: AbortController,
@@ -151,15 +158,39 @@ class AgentManager {
 		private readonly _toolContext: ToolContext,
 	) {
 		this._agent = new ToolLoopAgent({
-			...this._modelConfig,
+			model: this._modelConfig.model,
+			providerOptions: this._modelConfig.providerOptions,
 			tools: this._agentTools,
-			maxOutputTokens: 16_000,
-			prepareStep: ({ messages }) => ({
-				messages: this._addCache(this._pruneMessages(messages)),
-			}),
+			maxOutputTokens: MAX_OUTPUT_TOKENS,
+			prepareStep: async ({ messages }) => this._prepareStep(messages),
 			stopWhen: [hasToolCall('suggest_follow_ups')],
 			experimental_context: this._toolContext,
 		});
+	}
+
+	private async _prepareStep(messages: ModelMessage[]): Promise<{ messages: ModelMessage[] }> {
+		await compactionService.compactConversationIfNeeded({
+			chat: this.chat,
+			provider: this._modelSelection.provider,
+			messages,
+			tools: this._agentTools,
+			maxOutputTokens: MAX_OUTPUT_TOKENS,
+			contextWindow: this._modelConfig.contextWindow,
+			onCompactionStarted: () => {
+				this._streamWriter?.write({
+					type: 'data-compactionSummaryStarted',
+					data: undefined,
+				});
+			},
+			onCompactionFinished: (result) => {
+				this._streamWriter?.write({
+					type: 'data-compaction',
+					data: result,
+				});
+			},
+		});
+
+		return { messages: this._addCache(this._pruneMessages(messages)) };
 	}
 
 	stream(
@@ -186,10 +217,10 @@ class AgentManager {
 					writer.write({
 						type: 'data-newUserMessage',
 						data: opts.events.newUserMessage,
-						transient: true,
 					});
 				}
 
+				this._streamWriter = writer;
 				const messages = await this._buildModelMessages(uiMessages, opts.mentions);
 
 				result = await this._agent.stream({
@@ -200,7 +231,11 @@ class AgentManager {
 				// Extract memory immediately after the request to the agent is sent
 				this._scheduleMemoryExtraction(uiMessages);
 
-				writer.merge(result.toUIMessageStream({}));
+				writer.merge(
+					result.toUIMessageStream({
+						sendStart: false,
+					}),
+				);
 			},
 			onError: (err) => {
 				error = err;
@@ -227,19 +262,95 @@ class AgentManager {
 	}
 
 	/**
-	 * Prepares the UI messages and builds them into model messages with memory.
+	 * Prepares the UI messages and builds them into model messages with memory and compaction summary.
 	 */
 	private async _buildModelMessages(uiMessages: UIMessage[], mentions?: Mention[]): Promise<ModelMessage[]> {
-		uiMessages = this._addSkills(uiMessages, mentions);
-		const modelMessages = await convertToModelMessages(uiMessages);
+		const uiMessagesWithStories = await this._syncStoryToolOutputs(uiMessages);
+		const uiMessagesWithSkills = this._addSkills(uiMessagesWithStories, mentions);
+		const uiMessagesWithCompaction = compactionService.useLastCompaction(uiMessagesWithSkills);
+
 		const memories = await memoryService.safeGetUserMemories(this.chat.userId, this.chat.projectId, this.chat.id);
 		const userRules = getUserRules();
 		const connections = getConnections();
 		const skills = skillService.getSkills();
 		const systemPrompt = renderToMarkdown(SystemPrompt({ memories, userRules, connections, skills }));
-		const systemMessage: ModelMessage = { role: 'system', content: systemPrompt };
-		modelMessages.unshift(systemMessage);
+
+		const systemMessage: Omit<UIMessage, 'id'> = {
+			role: 'system',
+			parts: [{ type: 'text', text: systemPrompt }],
+		};
+
+		const modelMessages = await convertToModelMessages<UIMessage>([systemMessage, ...uiMessagesWithCompaction], {
+			tools: this._agentTools,
+		});
+
 		return modelMessages;
+	}
+
+	/**
+	 * Sync story tool outputs with the DB and deduplicate: only the last occurrence
+	 * of each story carries the full content; earlier ones are marked `_stale` so the
+	 * model sees a short placeholder instead of redundant code.
+	 */
+	private async _syncStoryToolOutputs(messages: UIMessage[]): Promise<UIMessage[]> {
+		type StoryPart = Extract<UIMessage['parts'][number], { type: 'tool-story'; state: 'output-available' }>;
+		const isStoryPart = (part: UIMessage['parts'][number]): part is StoryPart =>
+			isToolUIPart(part) && part.type === 'tool-story' && part.state === 'output-available';
+
+		const lastToolCallByStory = new Map<string, string>();
+		for (const message of messages) {
+			for (const part of message.parts) {
+				if (isStoryPart(part) && part.output.id) {
+					lastToolCallByStory.set(part.output.id, part.toolCallId);
+				}
+			}
+		}
+
+		if (lastToolCallByStory.size === 0) {
+			return messages;
+		}
+
+		try {
+			const latestVersions = new Map<string, Awaited<ReturnType<typeof storyQueries.getLatestVersion>>>();
+			await Promise.all(
+				[...lastToolCallByStory.keys()].map(async (storyId) => {
+					latestVersions.set(storyId, await storyQueries.getLatestVersion(this.chat.id, storyId));
+				}),
+			);
+
+			return messages.map((message) => ({
+				...message,
+				parts: message.parts.map((part) => {
+					if (!isStoryPart(part) || !part.output.id) {
+						return part;
+					}
+
+					const storyId = part.output.id;
+
+					if (lastToolCallByStory.get(storyId) !== part.toolCallId) {
+						return { ...part, output: { ...part.output, _stale: true, code: '' } };
+					}
+
+					const latest = latestVersions.get(storyId);
+					if (!latest) {
+						return part;
+					}
+
+					return {
+						...part,
+						output: {
+							...part.output,
+							version: latest.version,
+							code: latest.code,
+							title: latest.title,
+							_editedByUser: latest.source === 'user',
+						},
+					};
+				}),
+			}));
+		} catch {
+			return messages;
+		}
 	}
 
 	private _scheduleMemoryExtraction(uiMessages: UIMessage[]): void {
@@ -268,11 +379,15 @@ class AgentManager {
 		}
 	}
 
-	async generate(messages: UIMessage[]): Promise<AgentRunResult> {
+	async generate(uiMessages: UIMessage[]): Promise<AgentRunResult> {
 		const startTime = performance.now();
+		const messages = await this._buildModelMessages(uiMessages);
 		const result = await this._agent.generate({
-			messages: await this._buildModelMessages(messages),
+			messages,
 			abortSignal: this._abortController.signal,
+			onFinish: () => {
+				this._onDispose();
+			},
 		});
 		const durationMs = Math.round(performance.now() - startTime);
 
@@ -280,7 +395,6 @@ class AgentManager {
 		const cost = convertToCost(usage, this._modelSelection.provider, this._modelSelection.modelId);
 		const finishReason = result.finishReason ?? 'stop';
 
-		this._onDispose();
 		return {
 			text: result.text,
 			usage,
@@ -319,7 +433,10 @@ class AgentManager {
 		const updatedMessages = [...messages];
 		const textPartIndex = lastUserMessage.parts.findIndex((part) => part.type === 'text');
 		const newParts = [...lastUserMessage.parts];
-		newParts[textPartIndex] = { type: 'text', text: skillContent };
+		newParts[textPartIndex] = {
+			type: 'text',
+			text: truncateMiddle(skillContent, 16_000),
+		};
 		updatedMessages[lastUserMessageIndex] = { ...lastUserMessage, parts: newParts };
 
 		return updatedMessages;

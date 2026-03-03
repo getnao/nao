@@ -22,6 +22,7 @@ import {
 	CommandShortcut,
 } from '@/components/ui/command';
 import { useTheme } from '@/contexts/theme.provider';
+import { useRegisterCommandMenuCallback } from '@/contexts/command-menu-callback';
 import { trpc } from '@/main';
 import { useSearchChatsQuery } from '@/queries/use-search-chats-query';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
@@ -43,6 +44,9 @@ export function CommandMenu() {
 	const navigate = useNavigate();
 	const { theme, setTheme } = useTheme();
 	const project = useQuery(trpc.project.getCurrent.queryOptions());
+
+	const toggleOpen = useCallback(() => setOpen((prev) => !prev), []);
+	useRegisterCommandMenuCallback(toggleOpen, [toggleOpen]);
 
 	const { data: searchResults, isFetching: isSearching } = useSearchChatsQuery(debouncedSearch, {
 		enabled: open && debouncedSearch.length >= 2,

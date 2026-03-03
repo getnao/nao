@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react';
+import { memo, useCallback, useMemo, useState } from 'react';
 import { buildChart, labelize } from '@nao/shared';
-import { Download } from 'lucide-react';
-import { useQueryClient } from '@tanstack/react-query';
+import { Download, FilePlus } from 'lucide-react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useParams } from '@tanstack/react-router';
 import { useAgentContext } from '../../contexts/agent.provider';
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from '../ui/chart';
 import { TextShimmer } from '../ui/text-shimmer';
@@ -13,19 +14,42 @@ import type { ToolCallComponentProps } from '.';
 import type { ChartConfig } from '../ui/chart';
 import type { displayChart } from '@nao/shared/tools';
 import type { DateRange } from '@/lib/charts.utils';
-import { trpc } from '@/main';
 import { filterByDateRange, DATE_RANGE_OPTIONS, toKey } from '@/lib/charts.utils';
+import { findStoryIds } from '@/lib/story.utils';
+import { useSidePanel } from '@/contexts/side-panel';
+import { StoryViewer } from '@/components/side-panel/story-viewer';
+import { trpc } from '@/main';
 
 const Colors = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)', 'var(--chart-5)'];
+
+const escapeDoubleQuotedAttr = (value: string) => value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+const escapeSingleQuotedAttr = (value: string) => value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 
 export const DisplayChartToolCall = ({
 	toolPart: { state, input, output, toolCallId },
 }: ToolCallComponentProps<'display_chart'>) => {
 	const { messages } = useAgentContext();
+	const { chatId } = useParams({ strict: false });
+	const queryClient = useQueryClient();
+	const { open: openSidePanel, currentStoryId, isVisible } = useSidePanel();
 	const config = state !== 'input-streaming' ? input : undefined;
 	const [dataRange, setDataRange] = useState<DateRange>('all');
+	const storyIds = useMemo(() => findStoryIds(messages), [messages]);
 
-	const queryClient = useQueryClient();
+	const addToStoryMutation = useMutation(
+		trpc.story.createVersion.mutationOptions({
+			onSuccess: (_data, variables) => {
+				queryClient.invalidateQueries({
+					queryKey: trpc.story.listVersions.queryKey({
+						chatId: variables.chatId,
+						storyId: variables.storyId,
+					}),
+				});
+				queryClient.invalidateQueries({ queryKey: trpc.story.listAll.queryKey() });
+			},
+		}),
+	);
+
 	const [isDownloading, setIsDownloading] = useState(false);
 
 	const handleDownload = async () => {
@@ -114,8 +138,48 @@ export const DisplayChartToolCall = ({
 		);
 	}
 
+	const handleAddToStory = async () => {
+		const targetId = isVisible && currentStoryId ? currentStoryId : storyIds[storyIds.length - 1];
+		if (!targetId || !config || !chatId) {
+			return;
+		}
+
+		const versions = await queryClient.fetchQuery(
+			trpc.story.listVersions.queryOptions({ chatId, storyId: targetId }),
+		);
+		const latest = versions.at(-1);
+		if (!latest) {
+			return;
+		}
+
+		const seriesJson = JSON.stringify(config.series);
+		const chartBlock = `<chart query_id="${escapeDoubleQuotedAttr(config.query_id)}" chart_type="${escapeDoubleQuotedAttr(config.chart_type)}" x_axis_key="${escapeDoubleQuotedAttr(config.x_axis_key)}" x_axis_type="${escapeDoubleQuotedAttr(config.x_axis_type ?? '')}" series='${escapeSingleQuotedAttr(seriesJson)}' title="${escapeDoubleQuotedAttr(config.title ?? '')}" />`;
+		const newCode = latest.code.trimEnd() + '\n\n' + chartBlock;
+
+		addToStoryMutation.mutate({
+			chatId,
+			storyId: targetId,
+			title: latest.title,
+			code: newCode,
+			action: 'update',
+		});
+
+		if (!isVisible) {
+			openSidePanel(<StoryViewer chatId={chatId} storyId={targetId} />, targetId);
+		}
+	};
+
 	return (
 		<div className='flex flex-col items-center my-4 gap-2 aspect-3/2'>
+			<div className='flex w-full items-center justify-between'>
+				<span className='text-sm font-medium flex-1'>{config.title}</span>
+				{storyIds.length > 0 && (
+					<Button variant='ghost-muted' size='sm' onClick={handleAddToStory} className='gap-1'>
+						<FilePlus className='size-3' />
+						<span className='text-xs'>Add to story</span>
+					</Button>
+				)}
+			</div>
 			<div className='relative w-full flex justify-end'>
 				<div className='flex items-center gap-1'>
 					{config.chart_type !== 'pie' && config.x_axis_type === 'date' && (
@@ -160,7 +224,7 @@ export interface ChartDisplayProps {
 	showGrid?: boolean;
 }
 
-export const ChartDisplay = ({
+export const ChartDisplay = memo(function ChartDisplay({
 	data,
 	chartType,
 	xAxisKey,
@@ -169,7 +233,7 @@ export const ChartDisplay = ({
 	series,
 	title,
 	showGrid = true,
-}: ChartDisplayProps) => {
+}: ChartDisplayProps) {
 	const { visibleSeries, hiddenSeriesKeys, handleToggleSeriesVisibility } = useSeriesVisibility(series);
 
 	const chartConfig = useMemo((): ChartConfig => {
@@ -200,46 +264,69 @@ export const ChartDisplay = ({
 		}, {} as ChartConfig);
 	}, [series, xAxisKey, data, chartType]);
 
-	const colorFor =
-		chartType === 'pie'
-			? (value: string, _i: number) => `var(--color-${toKey(value)})`
-			: (dataKey: string, _i: number) => `var(--color-${dataKey})`;
+	const colorFor = useMemo(
+		() =>
+			chartType === 'pie'
+				? (value: string, _i: number) => `var(--color-${toKey(value)})`
+				: (dataKey: string, _i: number) => `var(--color-${dataKey})`,
+		[chartType],
+	);
 
-	const legendPayload = series.map((s, idx) => ({
-		value: s.label || labelize(s.data_key),
-		dataKey: s.data_key,
-		color: s.color || Colors[idx % Colors.length],
-		isHidden: hiddenSeriesKeys.has(s.data_key),
-	}));
+	const legendPayload = useMemo(
+		() =>
+			series.map((s, idx) => ({
+				value: s.label || labelize(s.data_key),
+				dataKey: s.data_key,
+				color: s.color || Colors[idx % Colors.length],
+				isHidden: hiddenSeriesKeys.has(s.data_key),
+			})),
+		[series, hiddenSeriesKeys],
+	);
 
-	const chartElement = buildChart({
-		data,
-		chartType,
-		xAxisKey,
-		xAxisType,
-		series: visibleSeries,
-		colorFor,
-		labelFormatter: xAxisLabelFormatter,
-		showGrid,
-		margin: { top: 0, right: 0, bottom: 0, left: -18 },
-		children: [
-			<ChartTooltip
-				key='tooltip'
-				animationDuration={150}
-				animationEasing='linear'
-				allowEscapeViewBox={{ y: true, x: false }}
-				content={<ChartTooltipContent labelFormatter={(value) => labelize(value)} />}
-			/>,
-			chartType !== 'pie' && (
-				<ChartLegend
-					key='legend'
-					payload={legendPayload}
-					content={<ChartLegendContent onItemClick={handleToggleSeriesVisibility} />}
-				/>
-			),
+	const chartElement = useMemo(
+		() =>
+			buildChart({
+				data,
+				chartType,
+				xAxisKey,
+				xAxisType,
+				series: visibleSeries,
+				colorFor,
+				labelFormatter: xAxisLabelFormatter,
+				showGrid,
+				margin: { top: 0, right: 0, bottom: 0, left: -18 },
+				children: [
+					<ChartTooltip
+						key='tooltip'
+						animationDuration={150}
+						animationEasing='linear'
+						allowEscapeViewBox={{ y: true, x: false }}
+						content={<ChartTooltipContent labelFormatter={(value) => labelize(value)} />}
+					/>,
+					chartType !== 'pie' && (
+						<ChartLegend
+							key='legend'
+							payload={legendPayload}
+							content={<ChartLegendContent onItemClick={handleToggleSeriesVisibility} />}
+						/>
+					),
+				],
+				title,
+			}),
+		[
+			data,
+			chartType,
+			xAxisKey,
+			xAxisType,
+			visibleSeries,
+			colorFor,
+			xAxisLabelFormatter,
+			showGrid,
+			legendPayload,
+			handleToggleSeriesVisibility,
+			title,
 		],
-		title,
-	});
+	);
 
 	return (
 		<div className='flex flex-col items-center gap-2 w-full'>
@@ -248,7 +335,7 @@ export const ChartDisplay = ({
 			</ChartContainer>
 		</div>
 	);
-};
+});
 
 /** Manages which series are visible and hidden */
 const useSeriesVisibility = (series: displayChart.SeriesConfig[]) => {
@@ -259,7 +346,7 @@ const useSeriesVisibility = (series: displayChart.SeriesConfig[]) => {
 		[series, hiddenSeriesKeys],
 	);
 
-	const handleToggleSeriesVisibility = (dataKey: string) => {
+	const handleToggleSeriesVisibility = useCallback((dataKey: string) => {
 		setHiddenSeriesKeys((prev) => {
 			const copy = new Set(prev);
 			if (copy.has(dataKey)) {
@@ -269,7 +356,7 @@ const useSeriesVisibility = (series: displayChart.SeriesConfig[]) => {
 			}
 			return copy;
 		});
-	};
+	}, []);
 
 	return {
 		visibleSeries,

@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useParams } from '@tanstack/react-router';
+import { useIsMobile } from '@/hooks/use-is-mobile';
 import { useSidebar } from '@/contexts/sidebar';
 import {
 	SIDEBAR_DELTA,
 	SIDE_PANEL_ANIMATION_DURATION,
-	SIDE_PANEL_DEFAULT_WIDTH_RATIO,
 	SIDE_PANEL_MIN_WIDTH,
+	loadPersistedWidthRatio,
 } from '@/lib/side-panel';
 
 export const useSidePanel = ({
@@ -20,12 +21,14 @@ export const useSidePanel = ({
 	const resizeHandleRef = useRef<HTMLDivElement>(null);
 
 	const [content, setContent] = useState<React.ReactNode>(null);
+	const [currentStoryId, setCurrentStoryId] = useState<string | null>(null);
 
 	const [isVisible, setIsVisible] = useState(false);
 	const [isAnimating, setIsAnimating] = useState(false);
 
 	const removeTransitionEndEventListener = useRef<(() => void) | null>(null);
 
+	const isMobile = useIsMobile();
 	const { collapse: collapseSidebar, expand: expandSidebar, isCollapsed: isSidebarCollapsed } = useSidebar();
 
 	const chatId = useParams({ strict: false, select: (params) => params.chatId });
@@ -81,12 +84,16 @@ export const useSidePanel = ({
 			return;
 		}
 
+		if (isMobile) {
+			return;
+		}
+
 		sidePanel.style.width = '0px';
 		sidePanel.style.opacity = '0';
 
 		const containerWidth =
 			container.getBoundingClientRect().width + (didCollapseSidebarRef.current ? SIDEBAR_DELTA : 0);
-		const targetWidth = Math.floor(SIDE_PANEL_DEFAULT_WIDTH_RATIO * containerWidth);
+		const targetWidth = Math.floor(loadPersistedWidthRatio() * containerWidth);
 
 		animateSidePanel({
 			width: `${targetWidth}px`,
@@ -95,16 +102,19 @@ export const useSidePanel = ({
 				sidePanel.style.minWidth = `${SIDE_PANEL_MIN_WIDTH}px`;
 			},
 		});
-	}, [isVisible, animateSidePanel, containerRef, sidePanelRef]);
+	}, [isVisible, isMobile, animateSidePanel, containerRef, sidePanelRef]);
 
 	const open = useCallback(
-		(newContent: React.ReactNode) => {
+		(newContent: React.ReactNode, storyId?: string) => {
 			setIsVisible(true);
 			setContent(newContent);
-			didCollapseSidebarRef.current = !isSidebarCollapsed;
-			collapseSidebar({ persist: false });
+			setCurrentStoryId(storyId ?? null);
+			if (!isMobile) {
+				didCollapseSidebarRef.current = !isSidebarCollapsed;
+				collapseSidebar({ persist: false });
+			}
 		},
-		[collapseSidebar, isSidebarCollapsed],
+		[isMobile, collapseSidebar, isSidebarCollapsed],
 	);
 
 	const expandSidebarIfWasCollapsed = useCallback(() => {
@@ -115,21 +125,24 @@ export const useSidePanel = ({
 	}, [expandSidebar]);
 
 	const close = useCallback(() => {
-		expandSidebarIfWasCollapsed();
-		animateSidePanel({
-			width: '0px',
-			opacity: '0',
-			onComplete: () => {
-				setIsVisible(false);
-				setContent(null);
-			},
-		});
-	}, [expandSidebarIfWasCollapsed, animateSidePanel]);
+		setIsVisible(false);
+		if (isMobile) {
+			setContent(null);
+		} else {
+			expandSidebarIfWasCollapsed();
+			animateSidePanel({
+				width: '0px',
+				opacity: '0',
+				onComplete: () => setContent(null),
+			});
+		}
+	}, [isMobile, expandSidebarIfWasCollapsed, animateSidePanel]);
 
 	useEffect(() => {
 		expandSidebarIfWasCollapsed();
 		setIsVisible(false);
 		setContent(null);
+		setCurrentStoryId(null);
 	}, [chatId, expandSidebarIfWasCollapsed]);
 
 	return {
@@ -137,6 +150,7 @@ export const useSidePanel = ({
 		isVisible,
 		isAnimating,
 		content,
+		currentStoryId,
 		open,
 		close,
 	};

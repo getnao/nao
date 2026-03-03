@@ -6,10 +6,16 @@ export const debugMemory = (message: string, data: unknown) => {
 	}
 };
 
-const log = (message: string, data: unknown) => {
+export const debugCompaction = (message: string, data: unknown) => {
+	if (process.env.DEBUG_COMPACTION === 'true') {
+		log(message, data);
+	}
+};
+
+export const log = (message: string, data: unknown) => {
 	console.log(
-		`<--- ${message} --->`,
-		inspect(data, { showHidden: false, depth: null, colors: true }),
-		`>--- ${message} ---<`,
+		`<--- ${message} --->\n`,
+		inspect(data, { showHidden: false, depth: null, colors: true, maxStringLength: 30 }),
+		`\n>--- ${message} ---<`,
 	);
 };

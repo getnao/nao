@@ -6,8 +6,8 @@ import { createRuntime, type Runtime, ServerDefinition, ServerToolInfo } from 'm
 import { join } from 'path';
 
 import * as mcpConfigQueries from '../queries/project.queries';
+import { retrieveProjectById } from '../queries/project.queries';
 import { mcpJsonSchema, McpServerConfig, McpServerState } from '../types/mcp';
-import { retrieveProjectById } from '../utils/ai';
 import { prefixToolName, removePrefixToolName, sanitizeTools } from '../utils/tools';
 import { replaceEnvVars } from '../utils/utils';
 

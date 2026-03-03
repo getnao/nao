@@ -4,6 +4,7 @@ import s, { AgentSettings, DBProject, DBProjectMember, NewProject, NewProjectMem
 import { db } from '../db/db';
 import { env } from '../env';
 import { UserRole, UserWithRole } from '../types/project';
+import { HandlerError } from '../utils/error';
 
 export const getProjectByPath = async (path: string): Promise<DBProject | null> => {
 	const [project] = await db.select().from(s.project).where(eq(s.project.path, path)).execute();
@@ -173,4 +174,15 @@ export const updateEnabledToolsAndKnownServers = async (
 		.set({ enabledMcpTools: next.enabledTools, knownMcpServers: next.knownServers })
 		.where(eq(s.project.id, projectId))
 		.execute();
+};
+
+export const retrieveProjectById = async (projectId: string): Promise<DBProject> => {
+	const project = await getProjectById(projectId);
+	if (!project) {
+		throw new HandlerError('NOT_FOUND', `Project not found: ${projectId}`);
+	}
+	if (!project.path) {
+		throw new HandlerError('BAD_REQUEST', `Project path not configured: ${projectId}`);
+	}
+	return project;
 };

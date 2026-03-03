@@ -12,6 +12,7 @@ import * as feedbackQueries from '../queries/feedback.queries';
 import * as projectQueries from '../queries/project.queries';
 import { SlackConfig } from '../queries/project-slack-config.queries';
 import { get as getUser } from '../queries/user.queries';
+import { agentService } from '../services/agent';
 import { UIChat, UIMessage, UIMessagePart } from '../types/chat';
 import { createChatTitle } from '../utils/ai';
 import {
@@ -25,7 +26,6 @@ import {
 	FEEDBACK_MODAL_CALLBACK_ID,
 	type ToolCallEntry,
 } from '../utils/slack';
-import { agentService } from './agent.service';
 
 const UPDATE_INTERVAL_MS = 500;
 

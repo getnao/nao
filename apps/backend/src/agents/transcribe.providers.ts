@@ -1,7 +1,7 @@
 import { createOpenAI } from '@ai-sdk/openai';
 import type { TranscriptionModel } from 'ai';
 
-import type { ProviderSettings } from './providers';
+import type { ProviderSettings } from '../types/llm';
 
 export type TranscribeProvider = 'openai';
 

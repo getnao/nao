@@ -1,4 +1,5 @@
 import { memo } from 'react';
+import { StoryToolCall } from './story';
 import { DefaultToolCall } from './default';
 import { DisplayChartToolCall } from './display-chart';
 import { ExecutePythonToolCall } from './execute-python';
@@ -19,6 +20,7 @@ export type ToolCallComponentProps<TToolName extends StaticToolName | undefined 
 const toolComponents: Partial<{
 	[TToolName in StaticToolName]: React.ComponentType<ToolCallComponentProps<TToolName>>;
 }> = {
+	story: StoryToolCall,
 	display_chart: DisplayChartToolCall,
 	execute_python: ExecutePythonToolCall,
 	execute_sql: ExecuteSqlToolCall,

@@ -1,5 +1,5 @@
 import * as chatQueries from '../queries/chat.queries';
-import { agentService } from '../services/agent.service';
+import { agentService } from '../services/agent';
 import { mcpService } from '../services/mcp.service';
 import { skillService } from '../services/skill.service';
 import { AgentRequest, AgentRequestUserMessage } from '../types/chat';

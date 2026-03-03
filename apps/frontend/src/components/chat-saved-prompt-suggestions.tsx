@@ -18,7 +18,7 @@ export function SavedPromptSuggestions() {
 
 	return (
 		<div
-			className='flex flex-col gap-1 max-w-3xl mx-auto w-full px-6 h-32'
+			className='flex flex-col gap-1 max-w-3xl mx-auto w-full px-3 md:px-6 h-32'
 			key={animationKey}
 			onMouseEnter={pause}
 			onMouseLeave={resume}

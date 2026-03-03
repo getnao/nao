@@ -6,6 +6,7 @@ import { checkAssistantMessageHasContent, groupToolCalls, isToolGroupPart, isToo
 import { ToolCallsGroup } from '@/components/tool-calls/tool-calls-group';
 import { ToolCall } from '@/components/tool-calls';
 import { AssistantReasoning } from '@/components/chat-messages/assistant-reasoning';
+import { AssistantCompaction } from '@/components/chat-messages/assistant-compaction';
 import { TextShimmer } from '@/components/ui/text-shimmer';
 import { AssistantMessageActions } from '@/components/chat-messages/assistant-message-actions';
 import { cn, isLast } from '@/lib/utils';
@@ -27,6 +28,7 @@ export const AssistantMessage = memo(
 		const chatId = useChatId();
 		const messageParts = useMemo(() => groupToolCalls(message.parts), [message.parts]);
 		const hasContent = useMemo(() => checkAssistantMessageHasContent(message), [message]);
+		const isCompacting = message.parts.at(-1)?.type === 'data-compactionSummaryStarted';
 
 		if (!message.parts.length && isSettled) {
 			return null;
@@ -41,7 +43,7 @@ export const AssistantMessage = memo(
 						<div className='text-muted-foreground italic text-sm'>No response</div>
 					)}
 
-					{showLoader && <TextShimmer />}
+					{isCompacting ? <AssistantCompaction /> : showLoader && <TextShimmer />}
 
 					{chatId && (
 						<AssistantMessageActions
@@ -61,9 +63,9 @@ export const AssistantMessage = memo(
 
 const MessageParts = memo(({ parts }: { parts: GroupedMessagePart[] }) => {
 	const { isSettled } = useAssistantMessage();
-	return parts.map((part, i) => (
-		<MessagePart key={i} part={part} isPartSettled={isSettled || !isLast(part, parts)} />
-	));
+	return parts.map((part, i) => {
+		return <MessagePart key={i} part={part} isPartSettled={isSettled || !isLast(part, parts)} />;
+	});
 });
 
 const MessagePart = memo(({ part, isPartSettled }: { part: GroupedMessagePart; isPartSettled: boolean }) => {
@@ -86,6 +88,8 @@ const MessagePart = memo(({ part, isPartSettled }: { part: GroupedMessagePart; i
 			);
 		case 'reasoning':
 			return <AssistantReasoning text={part.text} isStreaming={isPartStreaming} />;
+		case 'data-compaction':
+			return <AssistantCompaction part={part.data} />;
 		default:
 			return null;
 	}
