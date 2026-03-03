@@ -141,6 +141,13 @@
       "when": 1772144197644,
       "tag": "0019_add_stories",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1772530516296,
+      "tag": "0020_add_source_chat_message",
+      "breakpoints": true
     }
   ]
 }

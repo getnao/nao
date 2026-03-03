@@ -1,6 +1,6 @@
 import type { App } from '../app';
 import * as slackConfigQueries from '../queries/project-slack-config.queries';
-import { slackService } from '../services/slack.service';
+import { slackService } from '../services/slack';
 
 export const slackRoutes = async (app: App) => {
 	app.post('/:projectId', { config: { rawBody: true } }, async (request) => {

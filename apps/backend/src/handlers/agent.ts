@@ -1,7 +1,7 @@
 import * as chatQueries from '../queries/chat.queries';
 import { agentService } from '../services/agent';
 import { mcpService } from '../services/mcp.service';
-import { skillService } from '../services/skill.service';
+import { skillService } from '../services/skill';
 import { AgentRequest, AgentRequestUserMessage } from '../types/chat';
 import { createChatTitle } from '../utils/ai';
 import { HandlerError } from '../utils/error';

@@ -94,6 +94,7 @@ const aggregateChatMessagParts = (
 					role: row.chat_message.role,
 					parts: [uiPart],
 					feedback: row.message_feedback ?? undefined,
+					source: (row.chat_message.source as 'slack' | null) ?? null,
 				};
 			}
 			return acc;
@@ -201,6 +202,7 @@ export const createChat = async (
 	newChat: NewChat,
 	newUserMessage: {
 		text: string;
+		source?: 'slack' | null;
 	},
 ): Promise<[DBChat, DBChatMessage]> => {
 	return db.transaction(async (t): Promise<[DBChat, DBChatMessage]> => {
@@ -211,6 +213,7 @@ export const createChat = async (
 			.values({
 				chatId: savedChat.id,
 				role: 'user',
+				source: newUserMessage.source,
 			})
 			.returning()
 			.execute();
@@ -245,6 +248,7 @@ export const upsertMessage = async (
 				errorMessage: getErrorMessage(message.error),
 				llmProvider: message.llmProvider,
 				llmModelId: message.llmModelId,
+				source: message.source,
 				...message.tokenUsage,
 			})
 			.onConflictDoNothing({ target: s.chatMessage.id })

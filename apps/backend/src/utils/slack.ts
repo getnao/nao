@@ -12,6 +12,8 @@ const TOOL_LIVE_LABELS: Record<string, (input: Record<string, string>) => string
 	'tool-search': (input) => `_searching **${input['pattern'] ?? '...'}**_`,
 	'tool-grep': (input) => `_grepping **${input['pattern'] ?? '...'}**_`,
 	'tool-list': (input) => `_listing **${input['path'] ?? '...'}**_`,
+	'tool-execute_sql': (input) => `_executing **${input['query'] ?? 'SQL query'}**_`,
+	'tool-display_chart': (input) => `_displaying **${input['title'] ?? 'chart'}**_`,
 };
 
 const TOOL_SUMMARY_LABELS: Record<string, (count: number) => string> = {
@@ -19,6 +21,8 @@ const TOOL_SUMMARY_LABELS: Record<string, (count: number) => string> = {
 	'tool-search': (n) => `searched **${n} ${n === 1 ? 'pattern' : 'patterns'}**`,
 	'tool-grep': (n) => `grepped **${n} ${n === 1 ? 'time' : 'times'}**`,
 	'tool-list': (n) => `listed **${n} ${n === 1 ? 'path' : 'paths'}**`,
+	'tool-execute_sql': (n) => `executed **${n} ${n === 1 ? 'query' : 'queries'}**`,
+	'tool-display_chart': (n) => `displayed **${n} ${n === 1 ? 'chart' : 'charts'}**`,
 };
 
 export const createLiveToolCall = (toolGroup: Map<string, ToolCallEntry>): CardChild => {

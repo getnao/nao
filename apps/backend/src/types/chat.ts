@@ -33,6 +33,7 @@ export interface ChatListItem {
 
 export type UIMessage = UIGenericMessage<unknown, MessageCustomDataParts, UITools> & {
 	feedback?: MessageFeedback;
+	source?: 'slack' | null;
 };
 
 export type UITools = InferUITools<typeof tools>;

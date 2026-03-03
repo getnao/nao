@@ -49,22 +49,25 @@ export const UserMessage = memo(({ message }: { message: UIMessage }) => {
 				<span className='whitespace-pre-wrap wrap-break-word'>{text}</span>
 			</div>
 
-			<div
-				className={cn(
-					'ml-auto flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200',
-					isRunning && 'group-last:opacity-0 invisible',
-				)}
-			>
-				<Button
-					variant='ghost-muted'
-					size='icon-sm'
-					onClick={() => editedMessageIdStore.setEditingId(message.id)}
+			<div className='ml-auto flex items-center gap-2'>
+				{message.source === 'slack' && <span className='text-xs text-muted-foreground'>Sent in Slack</span>}
+				<div
+					className={cn(
+						'flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200',
+						isRunning && 'group-last:opacity-0 invisible',
+					)}
 				>
-					<Pencil />
-				</Button>
-				<Button variant='ghost-muted' size='icon-sm' onClick={() => copy(getMessageText(message))}>
-					{isCopied ? <Check className='size-4' /> : <Copy />}
-				</Button>
+					<Button
+						variant='ghost-muted'
+						size='icon-sm'
+						onClick={() => editedMessageIdStore.setEditingId(message.id)}
+					>
+						<Pencil />
+					</Button>
+					<Button variant='ghost-muted' size='icon-sm' onClick={() => copy(getMessageText(message))}>
+						{isCopied ? <Check className='size-4' /> : <Copy />}
+					</Button>
+				</div>
 			</div>
 		</div>
 	);

@@ -4,15 +4,16 @@ import { WebClient } from '@slack/web-api';
 import { InferUIMessageChunk, readUIMessageStream } from 'ai';
 import { Card, CardChild, Chat, Message, SentMessage, Thread } from 'chat';
 
+import { SlackSystemPrompt } from '../components/ai';
 import { generateChartImage } from '../components/generate-chart';
 import { User } from '../db/abstractSchema';
+import { renderToMarkdown } from '../lib/markdown';
 import * as chartImageQueries from '../queries/chart-image';
 import * as chatQueries from '../queries/chat.queries';
 import * as feedbackQueries from '../queries/feedback.queries';
 import * as projectQueries from '../queries/project.queries';
 import { SlackConfig } from '../queries/project-slack-config.queries';
 import { get as getUser } from '../queries/user.queries';
-import { agentService } from '../services/agent';
 import { UIChat, UIMessage, UIMessagePart } from '../types/chat';
 import { createChatTitle } from '../utils/ai';
 import {
@@ -26,8 +27,9 @@ import {
 	FEEDBACK_MODAL_CALLBACK_ID,
 	type ToolCallEntry,
 } from '../utils/slack';
+import { agentService } from './agent';
 
-const UPDATE_INTERVAL_MS = 500;
+const UPDATE_INTERVAL_MS = 50;
 
 type ConversationContext = {
 	thread: Thread;
@@ -133,6 +135,16 @@ class SlackService {
 			if (!messageId) {
 				return;
 			}
+
+			const ownerId = await chatQueries.getOwnerOfChatAndMessage(this._ctx.chatId, messageId);
+			if (!ownerId) {
+				throw new Error(`Message with id ${messageId} not found.`);
+			}
+
+			if (ownerId !== this._ctx.user!.id) {
+				throw new Error(`You are not authorized to provide feedback on this message.`);
+			}
+
 			await feedbackQueries.upsertFeedback({
 				messageId,
 				vote: 'down',
@@ -169,8 +181,7 @@ class SlackService {
 
 			await this._handleStreamAgent(chat);
 		} catch (error) {
-			console.error('Slack workflow error:', error);
-			const errorMessage = '❌ An error occurred while processing your message. Please try again later.';
+			const errorMessage = `❌ An error occurred while processing your message. ${error instanceof Error ? error.message : 'Unknown error'}.`;
 			if (this._ctx.convMessage) {
 				await this._ctx.convMessage.edit(errorMessage);
 			} else {
@@ -226,13 +237,14 @@ class SlackService {
 				role: 'user',
 				parts: [{ type: 'text', text }],
 				chatId: existingChat.id,
+				source: 'slack',
 			});
 			this._ctx.chatId = existingChat.id;
 		} else {
 			const title = createChatTitle({ text });
 			const [createdChat] = await chatQueries.createChat(
 				{ title, userId: this._ctx.user!.id, projectId: this._projectId, slackThreadId: this._ctx.thread.id },
-				{ text },
+				{ text, source: 'slack' },
 			);
 			this._ctx.chatId = createdChat.id;
 		}
@@ -251,7 +263,8 @@ class SlackService {
 
 	private async _createAgentStream(chat: UIChat): Promise<ReadableStream<InferUIMessageChunk<UIMessage>>> {
 		const agent = await agentService.create({ ...chat, userId: this._ctx.user!.id, projectId: this._projectId });
-		return agent.stream(chat.messages);
+		const systemPrompt = renderToMarkdown(SlackSystemPrompt());
+		return agent.stream(chat.messages, { slackSystemPrompt: systemPrompt });
 	}
 
 	private async _readStreamAndUpdateSlackMessage(
@@ -272,17 +285,16 @@ class SlackService {
 			if (!part) {
 				continue;
 			}
+			if (part.type.startsWith('tool-') && part.type !== 'tool-suggest_follow_ups') {
+				await this._handleCollapsibleToolPart(part as Extract<UIMessagePart, { toolCallId: string }>, state);
+			}
 			if (part.type === 'text') {
 				this._flushToolGroup(state);
 				await this._handleTextPart(part, state);
 			} else if (part.type === 'tool-execute_sql') {
-				this._flushToolGroup(state);
 				this._handleSqlPart(part, state);
 			} else if (part.type === 'tool-display_chart') {
-				this._flushToolGroup(state);
 				await this._handleChartPart(part, state);
-			} else if (part.type.startsWith('tool-') && part.type !== 'tool-suggest_follow_ups') {
-				await this._handleCollapsibleToolPart(part as Extract<UIMessagePart, { toolCallId: string }>, state);
 			}
 			lastMessage = uiMessage;
 		}
