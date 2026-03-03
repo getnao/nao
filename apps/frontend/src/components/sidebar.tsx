@@ -246,32 +246,34 @@ function SidebarNav({ chats, isCollapsed }: { chats: ChatListItemType[]; isColla
 						)}
 					/>
 				</button>
-				<div className='px-3 py-1 flex items-center gap-1'>
-					<Button
-						variant={chatFilter === 'my' ? 'secondary' : 'ghost'}
-						size='sm'
-						className='h-6 px-2 text-xs'
-						onClick={() => setChatFilter('my')}
-					>
-						My chats
-					</Button>
-					<Button
-						variant={chatFilter === 'shared' ? 'secondary' : 'ghost'}
-						size='sm'
-						className='h-6 px-2 text-xs'
-						onClick={() => setChatFilter('shared')}
-					>
-						Shared with me
-					</Button>
-				</div>
 			</div>
 
 			{chatsOpen && (
-				<ChatList
-					chats={filteredChats}
-					className='w-72'
-					emptyMessage={chatFilter === 'my' ? 'No chats yet.' : 'No chats have been shared with you.'}
-				/>
+				<>
+					<div className='px-5 py-1 flex items-center gap-1'>
+						<Button
+							variant={chatFilter === 'my' ? 'secondary' : 'ghost'}
+							size='sm'
+							className='h-6 px-2 text-xs'
+							onClick={() => setChatFilter('my')}
+						>
+							My chats
+						</Button>
+						<Button
+							variant={chatFilter === 'shared' ? 'secondary' : 'ghost'}
+							size='sm'
+							className='h-6 px-2 text-xs'
+							onClick={() => setChatFilter('shared')}
+						>
+							Shared with me
+						</Button>
+					</div>
+					<ChatList
+						chats={filteredChats}
+						className='w-72'
+						emptyMessage={chatFilter === 'my' ? 'No chats yet.' : 'No chats have been shared with you.'}
+					/>
+				</>
 			)}
 		</div>
 	);
