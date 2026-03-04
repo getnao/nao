@@ -70,15 +70,18 @@ class DatabaseConfig(BaseModel, ABC):
     def execute_sql(self, sql: str) -> pd.DataFrame:
         """Execute arbitrary SQL and return results as a DataFrame."""
         conn = self.connect()
-        cursor = conn.raw_sql(sql)  # type: ignore[union-attr]
+        try:
+            cursor = conn.raw_sql(sql)  # type: ignore[union-attr]
 
-        if hasattr(cursor, "fetchdf"):
-            return cursor.fetchdf()
-        if hasattr(cursor, "to_dataframe"):
-            return cursor.to_dataframe()
+            if hasattr(cursor, "fetchdf"):
+                return cursor.fetchdf()
+            if hasattr(cursor, "to_dataframe"):
+                return cursor.to_dataframe()
 
-        columns: list[str] = [desc[0] for desc in cursor.description]
-        return pd.DataFrame(cursor.fetchall(), columns=columns)  # type: ignore[arg-type]
+            columns: list[str] = [desc[0] for desc in cursor.description]
+            return pd.DataFrame(cursor.fetchall(), columns=columns)  # type: ignore[arg-type]
+        finally:
+            conn.disconnect()
 
     def matches_pattern(self, schema: str, table: str) -> bool:
         """Check if a schema.table matches the include/exclude patterns.

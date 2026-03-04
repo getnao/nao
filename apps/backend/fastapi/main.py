@@ -101,6 +101,7 @@ class ExecuteSQLResponse(BaseModel):
     data: list[dict]
     row_count: int
     columns: list[str]
+    dialect: str | None = None
 
 
 class RefreshResponse(BaseModel):
@@ -271,6 +272,7 @@ async def execute_sql(request: ExecuteSQLRequest):
             data=data,
             row_count=len(data),
             columns=[str(c) for c in df.columns.tolist()],
+            dialect=db_config.type, 
         )
     except HTTPException:
         raise

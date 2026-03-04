@@ -56,119 +56,122 @@ def sync_database(
 
     t_connect = time.monotonic()
     conn = db_config.connect()
-    console.print(
-        f"  [dim]Connected to[/dim] [bold]{db_config.name}[/bold] "
-        f"[dim]({_fmt_duration(time.monotonic() - t_connect)})[/dim]"
-    )
-
-    db_name = db_config.get_database_name()
-    db_path = base_path / f"type={db_config.type}" / f"database={db_name}"
-    state = DatabaseSyncState(db_path=db_path)
-
-    t_schemas = time.monotonic()
-    schemas = db_config.get_schemas(conn)
-    console.print(
-        f"  [dim]Found[/dim] [bold]{len(schemas)}[/bold] "
-        f"[dim]schemas ({_fmt_duration(time.monotonic() - t_schemas)})[/dim]"
-    )
-
-    schema_task = progress.add_task(
-        f"[dim]{db_config.name}[/dim]",
-        total=len(schemas),
-    )
-
-    total_errors = 0
-
-    for schema in schemas:
-        try:
-            t_list = time.monotonic()
-            all_tables = conn.list_tables(database=schema)
-        except Exception as e:
-            console.print(f"  [yellow]⚠[/yellow] [dim]Skipping schema[/dim] {schema}: {e}")
-            progress.update(schema_task, advance=1)
-            continue
-
-        tables = [t for t in all_tables if db_config.matches_pattern(schema, t)]
-
-        if not tables:
-            progress.update(schema_task, advance=1)
-            continue
-
-        list_dur = _fmt_duration(time.monotonic() - t_list)
+    try:
         console.print(
-            f"  [cyan]▸ {schema}[/cyan] [dim]— {len(tables)} tables "
-            f"(of {len(all_tables)} total, listed in {list_dur})[/dim]"
+            f"  [dim]Connected to[/dim] [bold]{db_config.name}[/bold] "
+            f"[dim]({_fmt_duration(time.monotonic() - t_connect)})[/dim]"
         )
 
-        schema_path = db_path / f"schema={schema}"
-        schema_path.mkdir(parents=True, exist_ok=True)
-        state.add_schema(schema)
+        db_name = db_config.get_database_name()
+        db_path = base_path / f"type={db_config.type}" / f"database={db_name}"
+        state = DatabaseSyncState(db_path=db_path)
 
-        table_task = progress.add_task(
-            f"    [cyan]{schema}[/cyan]",
-            total=len(tables),
+        t_schemas = time.monotonic()
+        schemas = db_config.get_schemas(conn)
+        console.print(
+            f"  [dim]Found[/dim] [bold]{len(schemas)}[/bold] "
+            f"[dim]schemas ({_fmt_duration(time.monotonic() - t_schemas)})[/dim]"
         )
 
-        schema_errors = 0
-        schema_start = time.monotonic()
+        schema_task = progress.add_task(
+            f"[dim]{db_config.name}[/dim]",
+            total=len(schemas),
+        )
 
-        for table in tables:
-            table_path = schema_path / f"table={table}"
-            table_path.mkdir(parents=True, exist_ok=True)
+        total_errors = 0
+
+        for schema in schemas:
+            try:
+                t_list = time.monotonic()
+                all_tables = conn.list_tables(database=schema)
+            except Exception as e:
+                console.print(f"  [yellow]⚠[/yellow] [dim]Skipping schema[/dim] {schema}: {e}")
+                progress.update(schema_task, advance=1)
+                continue
+
+            tables = [t for t in all_tables if db_config.matches_pattern(schema, t)]
+
+            if not tables:
+                progress.update(schema_task, advance=1)
+                continue
+
+            list_dur = _fmt_duration(time.monotonic() - t_list)
+            console.print(
+                f"  [cyan]▸ {schema}[/cyan] [dim]— {len(tables)} tables "
+                f"(of {len(all_tables)} total, listed in {list_dur})[/dim]"
+            )
+
+            schema_path = db_path / f"schema={schema}"
+            schema_path.mkdir(parents=True, exist_ok=True)
+            state.add_schema(schema)
+
+            table_task = progress.add_task(
+                f"    [cyan]{schema}[/cyan]",
+                total=len(tables),
+            )
+
+            schema_errors = 0
+            schema_start = time.monotonic()
+
+            for table in tables:
+                table_path = schema_path / f"table={table}"
+                table_path.mkdir(parents=True, exist_ok=True)
+
+                progress.update(
+                    table_task,
+                    description=f"    [cyan]{schema}[/cyan] [dim]→ {table}[/dim]",
+                )
+
+                ctx = db_config.create_context(conn, schema, table)
+
+                for template_name in templates:
+                    output_filename = Path(template_name).stem
+                    accessor_name = output_filename.replace(".md", "")
+
+                    t_render = time.monotonic()
+                    try:
+                        content = engine.render(template_name, db=ctx, table_name=table, dataset=schema)
+                        render_dur = time.monotonic() - t_render
+                        if render_dur > 5:
+                            console.print(
+                                f"    [yellow]⏱[/yellow] [dim]{schema}.{table}[/dim] "
+                                f"[yellow]{accessor_name}[/yellow] [dim]took {_fmt_duration(render_dur)}[/dim]"
+                            )
+                    except Exception as e:
+                        render_dur = time.monotonic() - t_render
+                        schema_errors += 1
+                        total_errors += 1
+                        console.print(
+                            f"    [bold red]✗[/bold red] [dim]{schema}.{table}[/dim] "
+                            f"[red]{accessor_name}[/red] [dim]failed after "
+                            f"{_fmt_duration(render_dur)}:[/dim] {e}"
+                        )
+                        content = f"# {table}\n\nError generating content: {e}"
+
+                    output_file = table_path / output_filename
+                    output_file.write_text(content)
+
+                state.add_table(schema, table)
+                progress.update(table_task, advance=1)
 
             progress.update(
                 table_task,
-                description=f"    [cyan]{schema}[/cyan] [dim]→ {table}[/dim]",
+                description=f"    [cyan]{schema}[/cyan]",
+            )
+            schema_dur = _fmt_duration(time.monotonic() - schema_start)
+            error_suffix = f" [red]({schema_errors} errors)[/red]" if schema_errors else ""
+            console.print(
+                f"  [green]✓ {schema}[/green] [dim]— {len(tables)} tables synced in {schema_dur}{error_suffix}[/dim]"
             )
 
-            ctx = db_config.create_context(conn, schema, table)
+            progress.update(schema_task, advance=1)
 
-            for template_name in templates:
-                output_filename = Path(template_name).stem
-                accessor_name = output_filename.replace(".md", "")
+        if total_errors:
+            console.print(f"  [yellow]⚠ {total_errors} total errors during sync[/yellow]")
 
-                t_render = time.monotonic()
-                try:
-                    content = engine.render(template_name, db=ctx, table_name=table, dataset=schema)
-                    render_dur = time.monotonic() - t_render
-                    if render_dur > 5:
-                        console.print(
-                            f"    [yellow]⏱[/yellow] [dim]{schema}.{table}[/dim] "
-                            f"[yellow]{accessor_name}[/yellow] [dim]took {_fmt_duration(render_dur)}[/dim]"
-                        )
-                except Exception as e:
-                    render_dur = time.monotonic() - t_render
-                    schema_errors += 1
-                    total_errors += 1
-                    console.print(
-                        f"    [bold red]✗[/bold red] [dim]{schema}.{table}[/dim] "
-                        f"[red]{accessor_name}[/red] [dim]failed after "
-                        f"{_fmt_duration(render_dur)}:[/dim] {e}"
-                    )
-                    content = f"# {table}\n\nError generating content: {e}"
-
-                output_file = table_path / output_filename
-                output_file.write_text(content)
-
-            state.add_table(schema, table)
-            progress.update(table_task, advance=1)
-
-        progress.update(
-            table_task,
-            description=f"    [cyan]{schema}[/cyan]",
-        )
-        schema_dur = _fmt_duration(time.monotonic() - schema_start)
-        error_suffix = f" [red]({schema_errors} errors)[/red]" if schema_errors else ""
-        console.print(
-            f"  [green]✓ {schema}[/green] [dim]— {len(tables)} tables synced in {schema_dur}{error_suffix}[/dim]"
-        )
-
-        progress.update(schema_task, advance=1)
-
-    if total_errors:
-        console.print(f"  [yellow]⚠ {total_errors} total errors during sync[/yellow]")
-
-    return state
+        return state
+    finally:
+        conn.disconnect()
 
 
 class DatabaseSyncProvider(SyncProvider):

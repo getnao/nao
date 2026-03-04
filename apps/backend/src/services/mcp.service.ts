@@ -11,6 +11,8 @@ import { mcpJsonSchema, McpServerConfig, McpServerState } from '../types/mcp';
 import { prefixToolName, removePrefixToolName, sanitizeTools } from '../utils/tools';
 import { replaceEnvVars } from '../utils/utils';
 
+const HTTP_TRANSPORTS = ['streamable-http', 'sse', 'http'];
+
 export class McpService {
 	private _mcpJsonFilePath: string;
 	private _mcpServers: Record<string, McpServerConfig>;
@@ -140,9 +142,8 @@ export class McpService {
 					throw new Error('Runtime not initialized');
 				}
 				const definition = this._convertToServerDefinition(serverName, serverConfig);
-				this._runtime.registerDefinition(definition, { overwrite: true });
+				this._runtime?.registerDefinition(definition, { overwrite: true });
 				await this._listTools(serverName);
-				return { serverName, success: true };
 			} catch (error) {
 				this._failedConnections[serverName] = (error as Error).message;
 			}
@@ -153,13 +154,18 @@ export class McpService {
 
 	// Convert MCP server config to MCPorter server definition
 	private _convertToServerDefinition(name: string, config: McpServerConfig): ServerDefinition {
-		if (config.type === 'http') {
+		const isHttp =
+			config.type === 'http' || (config.transport !== undefined && HTTP_TRANSPORTS.includes(config.transport));
+
+		if (isHttp) {
 			return {
 				name,
+				auth: 'oauth',
 				command: {
 					kind: 'http',
 					url: config.url!,
 				},
+				source: { kind: 'local', path: '<adhoc>' },
 			};
 		}
 
@@ -216,11 +222,9 @@ export class McpService {
 			throw new Error('Runtime not initialized');
 		}
 
-		const result = await this._runtime.callTool(serverName, removePrefixToolName(toolName), {
+		return await this._runtime.callTool(serverName, removePrefixToolName(toolName), {
 			args: toolArgs,
 		});
-
-		return result;
 	}
 
 	private async _cacheMcpState(): Promise<void> {

@@ -16,6 +16,7 @@ export const OutputSchema = z.object({
 	columns: z.array(z.string()),
 	/** The id of the query result. May be referenced by the `display_chart` tool call. */
 	id: z.custom<`query_${string}`>(),
+	dialect: z.string().optional(),
 });
 
 export type Input = z.infer<typeof InputSchema>;

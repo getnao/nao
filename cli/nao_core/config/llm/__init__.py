@@ -24,9 +24,21 @@ class LLMConfig(BaseModel):
     api_key: str | None = Field(default=None, description="The API key to use")
     base_url: str | None = Field(default=None, description="Optional custom base URL for the provider API")
 
+    @property
+    def requires_api_key(self) -> bool:
+        return self.provider != LLMProvider.OLLAMA
+
+    def get_effective_api_key_for_env(self) -> str | None:
+        """Return the API key value to export via environment variables."""
+        if self.api_key:
+            return self.api_key
+        if self.requires_api_key:
+            return None
+        return f"{self.provider.value}_api_key"
+
     @model_validator(mode="after")
     def validate_api_key(self) -> "LLMConfig":
-        if self.provider != LLMProvider.OLLAMA and not self.api_key:
+        if self.requires_api_key and not self.api_key:
             raise ValueError(f"api_key is required for provider {self.provider.value}")
         return self
 

@@ -13,6 +13,8 @@ export const useAgentContext = () => {
 	return agent;
 };
 
+export const useOptionalAgentContext = () => useContext(AgentContext);
+
 export interface Props {
 	children: React.ReactNode;
 }

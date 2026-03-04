@@ -152,10 +152,13 @@ class BigQueryConfig(DatabaseConfig):
 
     def execute_sql(self, sql: str) -> pd.DataFrame:
         conn = self.connect()
-        cursor = conn.raw_sql(sql)  # type: ignore[union-attr]
-        # Disable BigQuery Storage Read API (gRPC) — it deadlocks when an
-        # asyncio event loop is running in the same process (e.g. FastAPI).
-        return cursor.to_dataframe(create_bqstorage_client=False)
+        try:
+            cursor = conn.raw_sql(sql)  # type: ignore[union-attr]
+            # Disable BigQuery Storage Read API (gRPC) — it deadlocks when an
+            # asyncio event loop is running in the same process (e.g. FastAPI).
+            return cursor.to_dataframe(create_bqstorage_client=False)
+        finally:
+            conn.disconnect()
 
     def connect(self) -> BaseBackend:
         """Create an Ibis BigQuery connection."""

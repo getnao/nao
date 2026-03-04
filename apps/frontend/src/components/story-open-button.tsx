@@ -5,16 +5,16 @@ import StoryIcon from './ui/story-icon';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './ui/dropdown-menu';
 import { StoryViewer } from '@/components/side-panel/story-viewer';
 import { useSidePanel } from '@/contexts/side-panel';
-import { useAgentContext } from '@/contexts/agent.provider';
+import { useOptionalAgentContext } from '@/contexts/agent.provider';
 import { findStories } from '@/lib/story.utils';
 
 export function StoryOpenButton({ variant = 'outline' }: { variant?: 'outline' | 'ghost' }) {
-	const { messages } = useAgentContext();
+	const agent = useOptionalAgentContext();
 	const { chatId } = useParams({ strict: false });
 	const { isVisible, open: openSidePanel } = useSidePanel();
-	const stories = useMemo(() => findStories(messages), [messages]);
+	const stories = useMemo(() => findStories(agent?.messages ?? []), [agent?.messages]);
 
-	if (stories.length === 0 || isVisible || !chatId) {
+	if (!agent || stories.length === 0 || isVisible || !chatId) {
 		return null;
 	}
 
