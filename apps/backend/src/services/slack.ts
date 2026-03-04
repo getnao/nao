@@ -2,11 +2,9 @@ import { createSlackAdapter } from '@chat-adapter/slack';
 import { createMemoryState } from '@chat-adapter/state-memory';
 import { WebClient } from '@slack/web-api';
 import { InferUIMessageChunk, readUIMessageStream } from 'ai';
-import { Card, Chat, Message, Thread } from 'chat';
+import { Card, Chat, Message, SentMessage, Thread } from 'chat';
 
-import { SlackSystemPrompt } from '../components/ai';
 import { generateChartImage } from '../components/generate-chart';
-import { renderToMarkdown } from '../lib/markdown';
 import * as chartImageQueries from '../queries/chart-image';
 import * as chatQueries from '../queries/chat.queries';
 import * as feedbackQueries from '../queries/feedback.queries';
@@ -29,7 +27,7 @@ import {
 } from '../utils/slack';
 import { agentService } from './agent';
 
-const UPDATE_INTERVAL_MS = 50;
+const UPDATE_INTERVAL_MS = 200;
 
 class SlackService {
 	private _bot: Chat | null = null;
@@ -37,6 +35,7 @@ class SlackService {
 	private _projectId: string = '';
 	private _redirectUrl: string = '';
 	private _initialized: boolean = false;
+	private _lastCompletionCard: Map<string, { card: SentMessage; chatUrl: string }> = new Map();
 
 	constructor() {}
 
@@ -88,6 +87,10 @@ class SlackService {
 				return;
 			}
 			await feedbackQueries.upsertFeedback({ messageId, vote: 'up' });
+			const completion = this._lastCompletionCard.get(event.thread.id);
+			if (completion) {
+				await completion.card.edit(createCompletionCard(completion.chatUrl, 'up'));
+			}
 		});
 
 		this._bot.onAction('feedback_negative', async (event) => {
@@ -130,6 +133,10 @@ class SlackService {
 				vote: 'down',
 				explanation: event.values['explanation'] || undefined,
 			});
+			const completion = this._lastCompletionCard.get(threadId);
+			if (completion) {
+				await completion.card.edit(createCompletionCard(completion.chatUrl, 'down'));
+			}
 			return { action: 'close' };
 		});
 	}
@@ -238,8 +245,10 @@ class SlackService {
 
 		await stopCard.delete();
 		await this._uploadLastSqlResultAsCsv(state, ctx);
+		await this._lastCompletionCard.get(ctx.thread.id)?.card.delete();
 		const chatUrl = new URL(ctx.chatId, this._redirectUrl).toString();
-		await ctx.thread.post(createCompletionCard(chatUrl));
+		const card = await ctx.thread.post(createCompletionCard(chatUrl));
+		this._lastCompletionCard.set(ctx.thread.id, { card, chatUrl });
 	}
 
 	private async _createAgentStream(
@@ -247,8 +256,7 @@ class SlackService {
 		ctx: ConversationContext,
 	): Promise<ReadableStream<InferUIMessageChunk<UIMessage>>> {
 		const agent = await agentService.create({ ...chat, userId: ctx.user!.id, projectId: this._projectId });
-		const systemPrompt = renderToMarkdown(SlackSystemPrompt());
-		return agent.stream(chat.messages, { slackSystemPrompt: systemPrompt });
+		return agent.stream(chat.messages, { isSlack: true });
 	}
 
 	private async _readStreamAndUpdateSlackMessage(

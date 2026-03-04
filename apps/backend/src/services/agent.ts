@@ -16,7 +16,7 @@ import { CACHE_1H, CACHE_5M } from '../agents/providers';
 import { ProviderModelResult } from '../agents/providers';
 import { getTools } from '../agents/tools';
 import { getConnections, getUserRules } from '../agents/user-rules';
-import { SystemPrompt } from '../components/ai';
+import { SlackSystemPrompt, SystemPrompt } from '../components/ai';
 import { DBChat } from '../db/abstractSchema';
 import { renderToMarkdown } from '../lib/markdown';
 import * as chatQueries from '../queries/chat.queries';
@@ -198,7 +198,7 @@ class AgentManager {
 		opts: {
 			events?: Partial<MessageCustomDataParts>;
 			mentions?: Mention[];
-			slackSystemPrompt?: string;
+			isSlack?: boolean;
 		} = {},
 	): ReadableStream<InferUIMessageChunk<UIMessage>> {
 		let error: unknown = undefined;
@@ -222,7 +222,7 @@ class AgentManager {
 				}
 
 				this._streamWriter = writer;
-				const messages = await this._buildModelMessages(uiMessages, opts.mentions, opts.slackSystemPrompt);
+				const messages = await this._buildModelMessages(uiMessages, opts.mentions, opts.isSlack);
 
 				result = await this._agent.stream({
 					messages,
@@ -268,7 +268,7 @@ class AgentManager {
 	private async _buildModelMessages(
 		uiMessages: UIMessage[],
 		mentions?: Mention[],
-		slackSystemPrompt?: string,
+		isSlack?: boolean,
 	): Promise<ModelMessage[]> {
 		const uiMessagesWithStories = await this._syncStoryToolOutputs(uiMessages);
 		const uiMessagesWithSkills = this._addSkills(uiMessagesWithStories, mentions);
@@ -279,7 +279,7 @@ class AgentManager {
 		const connections = getConnections();
 		const skills = skillService.getSkills();
 		const basePrompt = renderToMarkdown(SystemPrompt({ memories, userRules, connections, skills }));
-		const systemPrompt = slackSystemPrompt ? `${basePrompt}\n\n${slackSystemPrompt}` : basePrompt;
+		const systemPrompt = isSlack ? renderToMarkdown(SlackSystemPrompt({ basePrompt })) : basePrompt;
 
 		const systemMessage: Omit<UIMessage, 'id'> = {
 			role: 'system',

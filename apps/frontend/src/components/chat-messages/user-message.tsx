@@ -10,6 +10,7 @@ import { ChatInputInline } from '@/components/chat-input';
 import { getMessageText } from '@/lib/ai';
 import { Button } from '@/components/ui/button';
 import { editedMessageIdStore } from '@/stores/chat-edited-message';
+import SlackIcon from '@/components/icons/slack.svg';
 
 export const UserMessage = memo(({ message }: { message: UIMessage }) => {
 	const { isRunning, editMessage } = useAgentContext();
@@ -46,11 +47,16 @@ export const UserMessage = memo(({ message }: { message: UIMessage }) => {
 	return (
 		<div className='group flex flex-col gap-2'>
 			<div className={cn('rounded-2xl px-3 py-2 bg-card text-card-foreground ml-auto max-w-xl border')}>
+				{message.source === 'slack' && (
+					<span className='flex items-center gap-1 text-xs text-muted-foreground'>
+						<SlackIcon className='size-3.5' />
+						sent in Slack
+					</span>
+				)}
 				<span className='whitespace-pre-wrap wrap-break-word'>{text}</span>
 			</div>
 
 			<div className='ml-auto flex items-center gap-2'>
-				{message.source === 'slack' && <span className='text-xs text-muted-foreground'>Sent in Slack</span>}
 				<div
 					className={cn(
 						'flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200',

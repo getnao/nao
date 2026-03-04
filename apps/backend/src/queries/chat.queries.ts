@@ -94,7 +94,7 @@ const aggregateChatMessagParts = (
 					role: row.chat_message.role,
 					parts: [uiPart],
 					feedback: row.message_feedback ?? undefined,
-					source: (row.chat_message.source as 'slack' | null) ?? null,
+					source: row.chat_message.source ?? undefined,
 				};
 			}
 			return acc;
@@ -202,7 +202,7 @@ export const createChat = async (
 	newChat: NewChat,
 	newUserMessage: {
 		text: string;
-		source?: 'slack' | null;
+		source?: 'slack' | 'web';
 	},
 ): Promise<[DBChat, DBChatMessage]> => {
 	return db.transaction(async (t): Promise<[DBChat, DBChatMessage]> => {

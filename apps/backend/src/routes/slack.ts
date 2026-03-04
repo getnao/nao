@@ -5,8 +5,7 @@ import { convertHeaders } from '../utils/utils';
 
 export const slackRoutes = async (app: App) => {
 	app.post('/:projectId', { config: { rawBody: true } }, async (request, reply) => {
-		const url = new URL(request.url, `http://${request.headers.host}`);
-		const webRequest = new Request(url.toString(), {
+		const webRequest = new Request(`http://localhost${request.url}`, {
 			method: request.method,
 			headers: convertHeaders(request.headers),
 			body: request.rawBody as string,

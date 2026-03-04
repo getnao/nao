@@ -1,3 +1,4 @@
+import { pluralize, TOOL_LABELS } from '@nao/shared';
 import type { CardChild, CardElement, ModalElement } from 'chat';
 import { Actions, Button, Card, CardText, Image, LinkButton } from 'chat';
 
@@ -9,16 +10,6 @@ const TOOL_LIVE_LABELS: Record<string, (input: Record<string, string>) => string
 	'tool-grep': (input) => `_grepping **${input['pattern'] ?? '...'}**_`,
 	'tool-list': (input) => `_listing **${input['path'] ?? '...'}**_`,
 	'tool-execute_sql': (input) => `_executing **${input['query'] ?? 'SQL query'}**_`,
-	'tool-display_chart': (input) => `_displaying **${input['title'] ?? 'chart'}**_`,
-};
-
-const TOOL_SUMMARY_LABELS: Record<string, (count: number) => string> = {
-	'tool-read': (n) => `read **${n} ${n === 1 ? 'file' : 'files'}**`,
-	'tool-search': (n) => `searched **${n} ${n === 1 ? 'pattern' : 'patterns'}**`,
-	'tool-grep': (n) => `grepped **${n} ${n === 1 ? 'time' : 'times'}**`,
-	'tool-list': (n) => `listed **${n} ${n === 1 ? 'path' : 'paths'}**`,
-	'tool-execute_sql': (n) => `executed **${n} ${n === 1 ? 'query' : 'queries'}**`,
-	'tool-display_chart': (n) => `displayed **${n} ${n === 1 ? 'chart' : 'charts'}**`,
 };
 
 export const createLiveToolCall = (toolGroup: Map<string, ToolCallEntry>): CardChild => {
@@ -34,9 +25,10 @@ export const createSummaryToolCalls = (toolGroup: Map<string, ToolCallEntry>): C
 		countByType.set(entry.type, (countByType.get(entry.type) ?? 0) + 1);
 	}
 	const parts = [...countByType.entries()].map(([type, count]) => {
-		return TOOL_SUMMARY_LABELS[type]?.(count) ?? `${type.replace('tool-', '')} ×${count}`;
+		const noun = TOOL_LABELS[type] ?? type.replace('tool-', '');
+		return `**${count} ${pluralize(noun, count)}**`;
 	});
-	return CardText(parts.join(' · '));
+	return CardText(`Explored ${parts.join(', ')}`);
 };
 
 export const FEEDBACK_MODAL_CALLBACK_ID = 'feedback_negative_modal';
@@ -63,13 +55,13 @@ export const createStopButtonCard = (): CardElement =>
 		children: [Actions([Button({ id: 'stop_generation', label: 'Stop Generation', style: 'primary' })])],
 	});
 
-export const createCompletionCard = (chatUrl: string): CardElement =>
+export const createCompletionCard = (chatUrl: string, vote?: 'up' | 'down'): CardElement =>
 	Card({
 		children: [
 			Actions([
 				LinkButton({ url: chatUrl, label: 'Open in nao' }),
-				Button({ id: 'feedback_positive', label: '👍' }),
-				Button({ id: 'feedback_negative', label: '👎' }),
+				Button({ id: 'feedback_positive', label: '👍', style: vote === 'up' ? 'primary' : 'default' }),
+				Button({ id: 'feedback_negative', label: '👎', style: vote === 'down' ? 'primary' : 'default' }),
 			]),
 		],
 	});
@@ -84,6 +76,6 @@ export const createImageBlock = (url: string): CardChild => {
 
 export const escapeCsvCell = (value: unknown): string => {
 	const str = value === null || value === undefined ? '' : String(value);
-	const sanitized = /^[=+\-@]/.test(str) ? `'${str}` : str;
+	const sanitized = /^[=+\-@]/.test(str.trimStart()) ? `'${str}` : str;
 	return /[,"\n]/.test(sanitized) ? `"${sanitized.replace(/"/g, '""')}"` : sanitized;
 };
