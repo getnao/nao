@@ -1,7 +1,7 @@
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
-import { KNOWN_MODELS } from '../agents/providers';
+import { getProviderAuth, KNOWN_MODELS } from '../agents/providers';
 import { env } from '../env';
 import * as projectQueries from '../queries/project.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
@@ -12,6 +12,7 @@ import { getAvailableModels as getAvailableTranscribeModels } from '../services/
 import { AgentSettings } from '../types/agent-settings';
 import { llmConfigSchema, LlmProvider, llmProviderSchema } from '../types/llm';
 import { getEnvApiKey, getEnvBaseUrls, getEnvProviders, getProjectAvailableModels } from '../utils/llm';
+import { buildCredentialPreviews } from '../utils/utils';
 import { adminProtectedProcedure, projectProtectedProcedure, publicProcedure } from './trpc';
 
 export const projectRoutes = {
@@ -44,6 +45,7 @@ export const projectRoutes = {
 				id: c.id,
 				provider: c.provider as LlmProvider,
 				apiKeyPreview: c.apiKey ? c.apiKey.slice(0, 8) + '...' + c.apiKey.slice(-4) : null,
+				credentialPreviews: buildCredentialPreviews(c.credentials),
 				enabledModels: c.enabledModels ?? [],
 				baseUrl: c.baseUrl ?? null,
 				createdAt: c.createdAt,
@@ -77,7 +79,8 @@ export const projectRoutes = {
 		.input(
 			z.object({
 				provider: llmProviderSchema,
-				apiKey: z.string().min(1).optional(), // Optional - if not provided, uses env var or keeps existing
+				apiKey: z.string().min(1).optional(),
+				credentials: z.record(z.string(), z.string()).optional(),
 				enabledModels: z.array(z.string()).optional(),
 				baseUrl: z.string().url().optional().or(z.literal('')),
 			}),
@@ -87,22 +90,20 @@ export const projectRoutes = {
 			const existingConfig = await llmConfigQueries.getProjectLlmConfigByProvider(ctx.project.id, input.provider);
 			const envApiKey = getEnvApiKey(input.provider);
 
-			// Determine the API key to use:
-			// 1. If apiKey provided in input, use it
-			// 2. If editing existing config and no new key, keep existing (pass null to skip update)
-			// 3. If new config and no key, use env var
+			const hasNewCredentials =
+				input.credentials && Object.keys(input.credentials).some((k) => input.credentials![k]);
+
 			let apiKey: string | null;
 
 			if (input.apiKey) {
-				// New key provided
 				apiKey = input.apiKey;
+			} else if (hasNewCredentials && !input.apiKey) {
+				apiKey = '';
 			} else if (existingConfig) {
-				// Editing - keep existing key (null signals "don't update")
 				apiKey = null;
 			} else if (envApiKey) {
 				apiKey = envApiKey;
-			} else if (input.provider === 'ollama') {
-				// Ollama is a local provider that doesn't require an API key
+			} else if (getProviderAuth(input.provider).apiKey !== 'required') {
 				apiKey = '';
 			} else {
 				throw new Error(
@@ -114,6 +115,7 @@ export const projectRoutes = {
 				projectId: ctx.project.id,
 				provider: input.provider,
 				apiKey,
+				credentials: hasNewCredentials ? input.credentials! : undefined,
 				enabledModels: input.enabledModels ?? [],
 				baseUrl: input.baseUrl || null,
 			} as Parameters<typeof llmConfigQueries.upsertProjectLlmConfig>[0]);
@@ -122,6 +124,7 @@ export const projectRoutes = {
 				id: config.id,
 				provider: config.provider as LlmProvider,
 				apiKeyPreview: config.apiKey ? config.apiKey.slice(0, 8) + '...' + config.apiKey.slice(-4) : null,
+				credentialPreviews: buildCredentialPreviews(config.credentials),
 				enabledModels: config.enabledModels ?? [],
 				baseUrl: config.baseUrl ?? null,
 			};

@@ -20,12 +20,13 @@ export const llmProviderSchema = z.enum([
 ]);
 export type LlmProvider = z.infer<typeof llmProviderSchema>;
 
-export type ProviderSettings = { apiKey: string; baseURL?: string };
+export type ProviderSettings = { apiKey: string; baseURL?: string; credentials?: Record<string, string> };
 
 export const llmConfigSchema = z.object({
 	id: z.string(),
 	provider: llmProviderSchema,
 	apiKeyPreview: z.string().nullable(),
+	credentialPreviews: z.record(z.string(), z.string()).nullable(),
 	enabledModels: z.array(z.string()).nullable(),
 	baseUrl: z.string().url().nullable(),
 	createdAt: z.date(),
@@ -56,9 +57,27 @@ type ProviderModel<P extends LlmProvider> = {
 	costPerM?: TokenCost;
 };
 
+/** An additional credential field (e.g. AWS Access Key ID) */
+export type AuthField = {
+	name: string;
+	label: string;
+	envVar: string;
+	secret?: boolean;
+	placeholder?: string;
+};
+
+/** Describes how a provider authenticates */
+export type ProviderAuth = {
+	apiKey: 'required' | 'optional' | 'none';
+	alternativeEnvVars?: string[];
+	hint?: string;
+	extraFields?: AuthField[];
+};
+
 /** Provider configuration with typed models */
 type ProviderConfig<P extends LlmProvider> = {
 	create: (settings: ProviderSettings, modelId: string) => LanguageModelV3;
+	auth: ProviderAuth;
 	envVar: string;
 	baseUrlEnvVar?: string;
 	defaultOptions?: ProviderConfigMap[P];

@@ -6,7 +6,7 @@ import { createOpenAI } from '@ai-sdk/openai';
 import { createOpenRouter, LanguageModelV3 } from '@openrouter/ai-sdk-provider';
 import { createOllama } from 'ai-sdk-ollama';
 
-import type { LlmProvider, LlmProvidersType, ProviderConfigMap, ProviderSettings } from '../types/llm';
+import type { LlmProvider, LlmProvidersType, ProviderAuth, ProviderConfigMap, ProviderSettings } from '../types/llm';
 
 // See: https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching
 export const CACHE_1H = { type: 'ephemeral', ttl: '1h' } as const;
@@ -16,6 +16,7 @@ export const CACHE_5M = { type: 'ephemeral' } as const;
 export const LLM_PROVIDERS: LlmProvidersType = {
 	anthropic: {
 		create: (settings, modelId) => createAnthropic(settings).chat(modelId),
+		auth: { apiKey: 'required' },
 		envVar: 'ANTHROPIC_API_KEY',
 		baseUrlEnvVar: 'ANTHROPIC_BASE_URL',
 		extractorModelId: 'claude-haiku-4-5',
@@ -130,6 +131,7 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 	},
 	openai: {
 		create: (settings, modelId) => createOpenAI(settings).responses(modelId),
+		auth: { apiKey: 'required' },
 		envVar: 'OPENAI_API_KEY',
 		baseUrlEnvVar: 'OPENAI_BASE_URL',
 		extractorModelId: 'gpt-4.1-mini',
@@ -159,6 +161,7 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 	},
 	google: {
 		create: (settings, modelId) => createGoogleGenerativeAI(settings).chat(modelId),
+		auth: { apiKey: 'required' },
 		envVar: 'GEMINI_API_KEY',
 		baseUrlEnvVar: 'GEMINI_BASE_URL',
 		extractorModelId: 'gemini-2.5-flash',
@@ -193,6 +196,7 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 	},
 	mistral: {
 		create: (settings, modelId) => createMistral(settings).chat(modelId),
+		auth: { apiKey: 'required' },
 		envVar: 'MISTRAL_API_KEY',
 		baseUrlEnvVar: 'MISTRAL_BASE_URL',
 		extractorModelId: 'mistral-medium-latest',
@@ -215,6 +219,7 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 	},
 	openrouter: {
 		create: (settings, modelId) => createOpenRouter(settings).chat(modelId),
+		auth: { apiKey: 'required' },
 		envVar: 'OPENROUTER_API_KEY',
 		baseUrlEnvVar: 'OPENROUTER_BASE_URL',
 		extractorModelId: 'anthropic/claude-haiku-4.5',
@@ -249,6 +254,7 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 	},
 	ollama: {
 		create: (settings, modelId) => createOllama(settings).chat(modelId),
+		auth: { apiKey: 'none' },
 		envVar: 'OLLAMA_API_KEY',
 		baseUrlEnvVar: 'OLLAMA_BASE_URL',
 		extractorModelId: 'llama3.2:3b',
@@ -261,22 +267,43 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 	},
 	bedrock: {
 		create: (settings, modelId) => {
-			const region = process.env.AWS_REGION ?? 'us-east-1';
-			const config = settings.apiKey
-				? { apiKey: settings.apiKey, region }
-				: {
-						region,
-						accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-						secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-					};
-			return createAmazonBedrock(config).languageModel(modelId);
+			const creds = settings.credentials;
+			const region = creds?.region || process.env.AWS_REGION || 'us-east-1';
+			const resolvedModelId = resolveBedrockModelId(modelId, region);
+			let config;
+
+			if (settings.apiKey) {
+				config = { apiKey: settings.apiKey, region };
+			} else if (creds?.accessKeyId && creds?.secretAccessKey) {
+				config = { region, accessKeyId: creds.accessKeyId, secretAccessKey: creds.secretAccessKey };
+			} else {
+				config = {
+					region,
+					accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+					secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+				};
+			}
+
+			return createAmazonBedrock(config).languageModel(resolvedModelId);
+		},
+		auth: {
+			apiKey: 'optional',
+			alternativeEnvVars: ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY'],
+			hint: 'Optional — uses AWS credentials from environment if not provided',
+			extraFields: [
+				{ name: 'region', label: 'AWS Region', envVar: 'AWS_REGION', placeholder: 'us-east-1' },
+				{ name: 'accessKeyId', label: 'Access Key ID', envVar: 'AWS_ACCESS_KEY_ID' },
+				{ name: 'secretAccessKey', label: 'Secret Access Key', envVar: 'AWS_SECRET_ACCESS_KEY', secret: true },
+			],
 		},
 		envVar: 'AWS_BEARER_TOKEN_BEDROCK',
-		extractorModelId: 'us.anthropic.claude-sonnet-4-6',
-		summaryModelId: 'us.anthropic.claude-sonnet-4-6',
+		extractorModelId: 'anthropic.claude-sonnet-4-6',
+		summaryModelId: 'anthropic.claude-sonnet-4-6',
 		models: [
-			{ id: 'us.anthropic.claude-sonnet-4-6', name: 'Claude Sonnet 4.6 (Bedrock)', default: true },
-			{ id: 'us.anthropic.claude-opus-4-6-v1', name: 'Claude Opus 4.6 (Bedrock)' },
+			{ id: 'us.anthropic.claude-sonnet-4-6', name: 'Claude Sonnet 4.6 (Bedrock US)', default: true },
+			{ id: 'eu.anthropic.claude-opus-4-6-v1', name: 'Claude Opus 4.6 (Bedrock EU)' },
+			{ id: 'deepseek.v3.2', name: 'DeepSeek V3.2 (Bedrock)' },
+			{ id: 'mistral.devstral-2-123b', name: 'Mistral 2 123B (Bedrock)' },
 		],
 	},
 };
@@ -292,14 +319,12 @@ export function getDefaultModelId(provider: LlmProvider): string {
 	return defaultModel?.id ?? models[0].id;
 }
 
+export function getProviderAuth(provider: LlmProvider): ProviderAuth {
+	return LLM_PROVIDERS[provider].auth;
+}
+
 export function getProviderApiKeyRequirement(provider: LlmProvider): boolean {
-	switch (provider) {
-		case 'ollama':
-		case 'bedrock':
-			return false;
-		default:
-			return true;
-	}
+	return LLM_PROVIDERS[provider].auth.apiKey === 'required';
 }
 
 function getProviderModelConfig<P extends LlmProvider>(provider: P, modelId: string): ProviderConfigMap[P] {
@@ -330,4 +355,24 @@ export function createProviderModel(
 		},
 		contextWindow,
 	};
+}
+
+const BEDROCK_REGION_PREFIXES = new Set(['us', 'eu', 'ap']);
+const BEDROCK_CROSS_REGION_PROVIDERS = new Set(['anthropic', 'meta']);
+
+function getBedrockRegionPrefix(region: string): string {
+	const geo = region.split('-')[0];
+	return BEDROCK_REGION_PREFIXES.has(geo) ? geo : 'us';
+}
+
+/** Prepend the geographic prefix for cross-region inference models that don't already have one. */
+function resolveBedrockModelId(modelId: string, region: string): string {
+	const firstSegment = modelId.split('.')[0];
+	if (BEDROCK_REGION_PREFIXES.has(firstSegment)) {
+		return modelId;
+	}
+	if (BEDROCK_CROSS_REGION_PROVIDERS.has(firstSegment)) {
+		return `${getBedrockRegionPrefix(region)}.${modelId}`;
+	}
+	return modelId;
 }
