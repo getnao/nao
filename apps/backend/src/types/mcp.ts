@@ -2,6 +2,7 @@ import { z } from 'zod/v4';
 
 export interface McpServerConfig {
 	type?: 'http';
+	transport?: 'streamable-http' | 'sse' | 'http' | 'stdio';
 	url?: URL;
 
 	// For stdio transport
@@ -25,6 +26,7 @@ export const mcpJsonSchema = z.object({
 		z.string(),
 		z.object({
 			type: z.enum(['http']).optional(),
+			transport: z.enum(['streamable-http', 'sse', 'http', 'stdio']).optional(),
 			url: z
 				.string()
 				.url()
