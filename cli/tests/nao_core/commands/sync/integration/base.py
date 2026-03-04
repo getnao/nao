@@ -305,7 +305,15 @@ class BaseSyncIntegrationTests:
         if spec.schema_field is None:
             pytest.skip("Provider does not support multi-schema test")
 
-        config = db_config.model_copy(update={spec.schema_field: None})
+        config = db_config.model_copy(
+            update={
+                spec.schema_field: None,
+                "include": [
+                    f"{spec.primary_schema}.*",
+                    f"{spec.another_schema}.*",
+                ],
+            }
+        )
 
         output = tmp_path_factory.mktemp(f"{spec.db_type}_all_schemas")
         with Progress(transient=True) as progress:

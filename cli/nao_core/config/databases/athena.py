@@ -19,8 +19,6 @@ class AthenaDatabaseContext(DatabaseContext):
                 return None
 
             total_count = self.row_count()
-
-            # Classify columns once
             classified = []
             for col in cols:
                 col_name = col["name"]
@@ -35,7 +33,6 @@ class AthenaDatabaseContext(DatabaseContext):
                 )
                 classified.append((col_name, col_type, is_numeric, is_integer, is_date, is_numeric_stats_column))
 
-            # One single query for all column stats
             aggs = []
             for col_name, col_type, is_numeric, is_integer, is_date, is_numeric_stats_column in classified:
                 col_sql = self._quote_ident(col_name)
@@ -67,7 +64,6 @@ class AthenaDatabaseContext(DatabaseContext):
             if not stats_row:
                 return None
 
-            # Parse results by position
             idx = 0
             stats: dict[str, dict] = {}
             for col_name, col_type, is_numeric, is_integer, is_date, is_numeric_stats_column in classified:
@@ -92,7 +88,6 @@ class AthenaDatabaseContext(DatabaseContext):
                     idx += 1
                 stats[col_name] = s
 
-            # top_values queries — still one per low-cardinality non-numeric column
             profiles = []
             for col_name, col_type, is_numeric, is_integer, is_date, is_numeric_stats_column in classified:
                 s = stats[col_name]

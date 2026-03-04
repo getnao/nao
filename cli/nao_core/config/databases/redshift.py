@@ -95,6 +95,7 @@ class RedshiftDatabaseContext(DatabaseContext):
         # Use raw SQL to avoid Ibis's pg_enum queries
         schema_sql = self._quote_ident(self._schema)
         table_sql = self._quote_ident(self._table_name)
+        limit = int(limit)
         query = f"SELECT * FROM {schema_sql}.{table_sql} LIMIT {limit}"
         result = self._conn.raw_sql(query).fetchall()  # type: ignore[union-attr]
 

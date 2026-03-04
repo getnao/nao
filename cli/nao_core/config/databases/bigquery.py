@@ -17,8 +17,6 @@ logger = logging.getLogger(__name__)
 
 
 def _bq_escape_quoted_identifier(name: object) -> str:
-    # BigQuery quoted identifiers use the same escape sequences as string literals.
-    # https://docs.cloud.google.com/bigquery/docs/reference/standard-sql/lexical#quoted_identifiers
     value = str(name)
     value = value.replace("\\", "\\\\")
     value = value.replace("`", "\\`")
@@ -102,7 +100,7 @@ class BigQueryDatabaseContext(DatabaseContext):
                 WHERE table_name = {table_name_literal}
                 ORDER BY ordinal_position
             """
-            columns = self._conn.raw_sql(schema_query).fetchall()  # type: ignore[union-attr]
+            columns = list(self._conn.raw_sql(schema_query))  # type: ignore[union-attr]
 
             if not columns:
                 return None
@@ -159,7 +157,8 @@ class BigQueryDatabaseContext(DatabaseContext):
                 {partition_filter}
             """
 
-            row = self._conn.raw_sql(profiling_query).fetchone()  # type: ignore[union-attr]
+            results = list(self._conn.raw_sql(profiling_query))  # type: ignore[union-attr]
+            row = results[0] if results else None
             if not row:
                 return None
 
@@ -197,7 +196,7 @@ class BigQueryDatabaseContext(DatabaseContext):
                             ORDER BY 2 DESC
                             LIMIT 10
                         """
-                        top_rows = self._conn.raw_sql(top_query).fetchall()  # type: ignore[union-attr]
+                        top_rows = self._conn.raw_sql(top_query).fetchone()  # type: ignore[union-attr]
                         profile["top_values"] = [{"value": row[0], "count": row[1]} for row in top_rows]
                     except Exception:
                         pass
@@ -206,15 +205,11 @@ class BigQueryDatabaseContext(DatabaseContext):
 
             return {
                 "columns": profiles,
-                "row_count": int(total_count) if total_count is not None else 0,
-                "column_count": len(columns),
-                "partition_columns": partition_cols,
-                "description": self.description(),
                 "computed_at": datetime.now(timezone.utc).isoformat(),
             }
 
         except Exception:
-            logger.debug("Failed to compute profiling for %s.%s", self._schema, self._table_name)
+            logger.exception("Failed to compute profiling for %s.%s", self._schema, self._table_name)
             return None
 
 
