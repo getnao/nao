@@ -48,7 +48,7 @@ export const UserMessage = memo(({ message }: { message: UIMessage }) => {
 		<div className='group flex flex-col gap-2'>
 			<div className={cn('rounded-2xl px-3 py-2 bg-card text-card-foreground ml-auto max-w-xl border')}>
 				{message.source === 'slack' && (
-					<span className='flex items-center gap-1 text-xs text-muted-foreground'>
+					<span className='flex items-center justify-end gap-1 text-xs text-muted-foreground'>
 						<SlackIcon className='size-3.5' />
 						sent in Slack
 					</span>
