@@ -173,7 +173,7 @@ export const DisplayChartToolCall = ({
 		<div className='flex flex-col items-center my-4 gap-2 aspect-3/2'>
 			<div className='flex w-full items-center justify-between'>
 				<span className='text-sm font-medium flex-1'>{config.title}</span>
-				{storyIds.length > 0 && (
+				{storyIds.length > 0 && config.chart_type != 'kpi_card' && (
 					<Button variant='ghost-muted' size='sm' onClick={handleAddToStory} className='gap-1'>
 						<FilePlus className='size-3' />
 						<span className='text-xs'>Add to story</span>

@@ -1,7 +1,7 @@
 import React from 'react';
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Customized, Pie, PieChart, XAxis, YAxis } from 'recharts';
 
-import type * as displayChart from './tools/display-chart';
+import * as displayChart from './tools/display-chart';
 
 export const DEFAULT_COLORS = ['#2563eb', '#dc2626', '#16a34a', '#ca8a04', '#9333ea'];
 
@@ -42,6 +42,10 @@ export interface BuildChartProps {
  */
 export function buildChart(props: BuildChartProps) {
 	const resolved = buildResolved(props);
+
+	if (resolved.chartType === 'kpi_card') {
+		return buildKpiCard(resolved);
+	}
 
 	if (resolved.chartType === 'pie') {
 		return buildPieChart(resolved);
@@ -87,6 +91,44 @@ function buildResolved(props: BuildChartProps) {
 }
 
 type ResolvedProps = BuildChartProps & Required<Pick<BuildChartProps, 'colorFor' | 'labelFormatter'>>;
+
+function buildKpiCard(props: ResolvedProps) {
+	const { data, series } = props;
+
+	const kpis = series.map((s) => {
+		const value = data[0][s.data_key];
+		return { value, displayName: s.label ?? s.data_key };
+	});
+
+	return (
+		<KpiCardContainer>
+			{kpis.map((kpi) => (
+				<KpiCard value={kpi.value} displayName={kpi.displayName} />
+			))}
+		</KpiCardContainer>
+	);
+}
+
+function KpiCardContainer({ children }: { children: React.ReactNode }) {
+	return <div className='flex flex-wrap gap-4'>{children}</div>;
+}
+
+function KpiCard({ value, displayName }: { value: unknown; displayName: string }) {
+	let formattedValue = '';
+
+	if (typeof value === 'number') {
+		formattedValue = value.toLocaleString();
+	} else if (typeof value === 'string') {
+		formattedValue = value;
+	}
+
+	return (
+		<div className='min-w-[140px] p-4 rounded-lg border bg-white shadow-sm'>
+			<div className='text-sm text-gray-500'>{displayName}</div>
+			<div className='text-2xl font-semibold mt-1'>{formattedValue}</div>
+		</div>
+	);
+}
 
 function buildBarChart(props: ResolvedProps) {
 	const { data, chartType, xAxisKey, xAxisType, series, colorFor, labelFormatter, showGrid, children, margin } =
