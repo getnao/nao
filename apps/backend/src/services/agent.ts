@@ -280,9 +280,20 @@ class AgentManager {
 			parts: [{ type: 'text', text: systemPrompt }],
 		};
 
-		const modelMessages = await convertToModelMessages<UIMessage>([systemMessage, ...uiMessagesWithCompaction], {
-			tools: this._agentTools,
-		});
+		const datetimeUserMessage: Omit<UIMessage, 'id'> = {
+            role: 'user',
+            parts: [{ type: 'text', text: `Current datetime: ${new Date().toISOString()}` }],
+        };
+
+        const datetimeAssistantMessage: Omit<UIMessage, 'id'> = {
+            role: 'assistant',
+            parts: [{ type: 'text', text: 'Understood.' }],
+        };
+
+        const modelMessages = await convertToModelMessages<UIMessage>(
+            [systemMessage, datetimeUserMessage, datetimeAssistantMessage, ...uiMessagesWithCompaction],
+            { tools: this._agentTools },
+        );
 
 		return modelMessages;
 	}
