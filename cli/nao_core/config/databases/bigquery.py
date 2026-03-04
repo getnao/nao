@@ -196,7 +196,7 @@ class BigQueryDatabaseContext(DatabaseContext):
                             ORDER BY 2 DESC
                             LIMIT 10
                         """
-                        top_rows = self._conn.raw_sql(top_query).fetchone()  # type: ignore[union-attr]
+                        top_rows = self._conn.raw_sql(top_query).fetchall()  # type: ignore[union-attr]
                         profile["top_values"] = [{"value": row[0], "count": row[1]} for row in top_rows]
                     except Exception:
                         pass
