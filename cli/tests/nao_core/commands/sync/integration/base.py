@@ -38,6 +38,11 @@ class SyncTestSpec:
     # Expected preview rows (sorted by row_id_key when sort_rows is True)
     users_preview_rows: list[dict] = field(default_factory=list)
     orders_preview_rows: list[dict] = field(default_factory=list)
+
+    # Expected profiling rows (sorted by column when sort_rows is True)
+    users_profiling_rows: list[dict] = field(default_factory=list)
+    orders_profiling_rows: list[dict] = field(default_factory=list)
+
     sort_rows: bool = False
     row_id_key: str = "id"
 
@@ -87,7 +92,7 @@ class BaseSyncIntegrationTests:
             table_dir = base / f"table={table}"
             assert table_dir.is_dir()
             files = sorted(f.name for f in table_dir.iterdir())
-            assert files == ["columns.md", "description.md", "preview.md"]
+            assert files == ["columns.md", "description.md", "preview.md", "profiling.md"]
 
         # "another" schema was NOT synced (only when provider has one)
         if spec.another_schema:
@@ -169,6 +174,30 @@ class BaseSyncIntegrationTests:
             rows = sorted(rows, key=lambda r: r[spec.row_id_key])
 
         assert rows == spec.orders_preview_rows
+
+    # ── profiling.md ───────────────────────────────────────────────────
+
+    def test_profiling_md_users(self, synced, spec):
+        _, output, config = synced
+        content = self._read_table_file(output, config, spec, spec.users_table, "profiling.md")
+
+        assert "## Column Profiles (JSONL)" in content
+
+        rows = self._parse_preview_rows(content)
+        assert len(rows) == 4
+
+        assert rows == spec.users_profiling_rows
+
+    def test_profiling_md_orders(self, synced, spec):
+        _, output, config = synced
+        content = self._read_table_file(output, config, spec, spec.orders_table, "profiling.md")
+
+        assert "## Column Profiles (JSONL)" in content
+
+        rows = self._parse_preview_rows(content)
+        assert len(rows) == 3
+
+        assert rows == spec.orders_profiling_rows
 
     # ── sync state ───────────────────────────────────────────────────
 
@@ -292,7 +321,7 @@ class BaseSyncIntegrationTests:
 
         for table in (spec.users_table, spec.orders_table):
             files = sorted(f.name for f in (primary_base / f"table={table}").iterdir())
-            assert files == ["columns.md", "description.md", "preview.md"]
+            assert files == ["columns.md", "description.md", "preview.md", "profiling.md"]
 
         # Another schema
         another_base = output / f"type={spec.db_type}" / f"database={db_name}" / f"schema={spec.another_schema}"
@@ -300,7 +329,7 @@ class BaseSyncIntegrationTests:
         assert (another_base / f"table={spec.another_table}").is_dir()
 
         files = sorted(f.name for f in (another_base / f"table={spec.another_table}").iterdir())
-        assert files == ["columns.md", "description.md", "preview.md"]
+        assert files == ["columns.md", "description.md", "preview.md", "profiling.md"]
 
         # State
         assert state.schemas_synced == 2

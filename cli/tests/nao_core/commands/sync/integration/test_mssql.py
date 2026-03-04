@@ -12,7 +12,7 @@ To run locally with Docker:
         -p 1433:1433 mcr.microsoft.com/mssql/server:2022-latest
 
     MSSQL_HOST=localhost MSSQL_PASSWORD="naoTesting123!" \\
-        MSSQL_DRIVER="/opt/homebrew/lib/libtdsodbc.so" \\
+        MSSQL_DRIVER="/opt/homebrew/opt/freetds/lib/libtdsodbc.so" \\
         uv run pytest tests/nao_core/commands/sync/integration/test_mssql.py -v
 """
 
@@ -101,6 +101,7 @@ def db_config(temp_database):
         database=temp_database,
         user=os.environ.get("MSSQL_USER", "sa") or "sa",
         password=os.environ["MSSQL_PASSWORD"],
+        driver=os.environ.get("MSSQL_DRIVER", "FreeTDS"),
         schema_name=os.environ.get("MSSQL_SCHEMA", "dbo"),
     )
 
@@ -135,6 +136,89 @@ def spec():
         orders_preview_rows=[
             {"id": 1, "user_id": 1, "amount": 99.99},
             {"id": 2, "user_id": 1, "amount": 24.5},
+        ],
+        users_profiling_rows=[
+            {
+                "column": "id",
+                "type": "int32",
+                "total_count": 3,
+                "null_count": 0,
+                "null_percentage": 0.0,
+                "distinct_count": 3,
+                "min": 1,
+                "max": 3,
+                "mean": 2.0,
+                "stddev": 0.8165,
+            },
+            {
+                "column": "name",
+                "type": "string",
+                "total_count": 3,
+                "null_count": 0,
+                "null_percentage": 0.0,
+                "distinct_count": 3,
+                "top_values": [
+                    {"value": "Alice", "count": 1},
+                    {"value": "Bob", "count": 1},
+                    {"value": "Charlie", "count": 1},
+                ],
+            },
+            {
+                "column": "email",
+                "type": "string",
+                "total_count": 3,
+                "null_count": 1,
+                "null_percentage": 33.33,
+                "distinct_count": 2,
+                "top_values": [
+                    {"value": "alice@example.com", "count": 1},
+                    {"value": "charlie@example.com", "count": 1},
+                ],
+            },
+            {
+                "column": "active",
+                "type": "boolean",
+                "total_count": 3,
+                "null_count": 0,
+                "null_percentage": 0.0,
+                "distinct_count": 2,
+                "top_values": [{"value": True, "count": 2}, {"value": False, "count": 1}],
+            },
+        ],
+        orders_profiling_rows=[
+            {
+                "column": "id",
+                "type": "int32",
+                "total_count": 2,
+                "null_count": 0,
+                "null_percentage": 0.0,
+                "distinct_count": 2,
+                "min": 1,
+                "max": 2,
+                "mean": 1.5,
+                "stddev": 0.5,
+            },
+            {
+                "column": "user_id",
+                "type": "int32",
+                "total_count": 2,
+                "null_count": 0,
+                "null_percentage": 0.0,
+                "distinct_count": 1,
+                "top_values": [{"value": 1, "count": 2}],
+            },
+            {
+                "column": "amount",
+                "type": "float64",
+                "total_count": 2,
+                "null_count": 0,
+                "null_percentage": 0.0,
+                "distinct_count": 2,
+                "min": 24.5,
+                "max": 99.99,
+                "mean": 62.245,
+                "stddev": 37.745,
+            },
         ],
         schema_field="schema_name",
         another_schema="another",
