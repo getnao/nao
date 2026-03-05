@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Streamdown } from 'streamdown';
-import { Box, Code, Copy, Database, Package, Terminal } from 'lucide-react';
+import { executeSandboxedCode } from '@nao/shared/tools';
+import { Box, Code, Copy, Cpu, Database, Package, Terminal } from 'lucide-react';
 import { ToolCallWrapper } from './tool-call-wrapper';
 import type { ToolCallComponentProps } from '.';
 import { useToolCallContext } from '@/contexts/tool-call';
@@ -43,6 +44,10 @@ export const ExecuteSandboxedCodeToolCall = ({
 	];
 
 	const codePreview = input?.code ? (input.code.length > 50 ? `${input.code.slice(0, 50)}...` : input.code) : '';
+
+	const vmSize = input?.vm_size ?? 'xxs';
+	const vmSpecs = executeSandboxedCode.VM_SIZE_SPECS[vmSize];
+	const sandboxId = output?.sandbox_id;
 
 	const setupInfo = [
 		...(packages?.length ? [`${packages.length} pkg${packages.length > 1 ? 's' : ''}`] : []),
@@ -95,8 +100,19 @@ export const ExecuteSandboxedCodeToolCall = ({
 				</div>
 			) : output ? (
 				<div className='overflow-auto max-h-80'>
-					{setupInfo && (
-						<div className='px-3 py-1.5 border-b border-border text-xs text-foreground/50'>{setupInfo}</div>
+					{(setupInfo || sandboxId) && (
+						<div className='flex items-center gap-3 px-3 py-1.5 border-b border-border text-xs text-foreground/50'>
+							{setupInfo && <span>{setupInfo}</span>}
+							<span className='flex items-center gap-1'>
+								<Cpu size={10} />
+								{vmSize.toUpperCase()} · {vmSpecs.memoryMib}MB · {vmSpecs.cpus}cpu
+							</span>
+							{sandboxId && (
+								<span className='ml-auto font-mono truncate max-w-[180px]' title={sandboxId}>
+									{sandboxId}
+								</span>
+							)}
+						</div>
 					)}
 					{output.stdout && (
 						<pre className='font-mono text-sm rounded overflow-auto hide-code-header'>

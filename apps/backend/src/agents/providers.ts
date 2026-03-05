@@ -36,6 +36,7 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 							'display_chart',
 							'execute_python',
 							'execute_sql',
+							'execute_sandboxed_code',
 							'grep',
 							'list',
 							'read',
