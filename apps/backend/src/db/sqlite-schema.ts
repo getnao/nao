@@ -144,6 +144,8 @@ export const project = sqliteTable(
 		path: text('path'),
 		slackBotToken: text('slack_bot_token'),
 		slackSigningSecret: text('slack_signing_secret'),
+		slackllmProvider: text('slack_llm_provider'),
+		slackllmModelId: text('slack_llm_model_id'),
 		agentSettings: text('agent_settings', { mode: 'json' }).$type<AgentSettings>(),
 		enabledMcpTools: text('enabled_tools', { mode: 'json' }).$type<string[]>().notNull().default([]),
 		knownMcpServers: text('known_mcp_servers', { mode: 'json' }).$type<string[]>().notNull().default([]),

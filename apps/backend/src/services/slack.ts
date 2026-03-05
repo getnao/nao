@@ -9,6 +9,7 @@ import * as chartImageQueries from '../queries/chart-image';
 import * as chatQueries from '../queries/chat.queries';
 import * as feedbackQueries from '../queries/feedback.queries';
 import * as projectQueries from '../queries/project.queries';
+import * as slackConfigQueries from '../queries/project-slack-config.queries';
 import { SlackConfig } from '../queries/project-slack-config.queries';
 import { get as getUser } from '../queries/user.queries';
 import { UIChat, UIMessage, UIMessagePart } from '../types/chat';
@@ -262,7 +263,11 @@ class SlackService {
 		chat: UIChat,
 		ctx: ConversationContext,
 	): Promise<ReadableStream<InferUIMessageChunk<UIMessage>>> {
-		const agent = await agentService.create({ ...chat, userId: ctx.user!.id, projectId: this._projectId });
+		const slackConfig = await slackConfigQueries.getSlackConfig();
+		const agent = await agentService.create(
+			{ ...chat, userId: ctx.user!.id, projectId: this._projectId },
+			slackConfig?.modelSelection,
+		);
 		return agent.stream(chat.messages, { isSlack: true });
 	}
 

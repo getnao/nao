@@ -1,8 +1,12 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Pencil, Trash2 } from 'lucide-react';
 import { SlackForm } from './slack-form';
+import type ChatSelectedModel from '@/types/ai';
 import { Button } from '@/components/ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { LlmProviderIcon } from '@/components/ui/llm-provider-icon';
+import { SettingsCard } from '@/components/ui/settings-card';
 import { trpc } from '@/main';
 
 interface SlackConfigSectionProps {
@@ -12,18 +16,37 @@ interface SlackConfigSectionProps {
 export function SlackConfigSection({ isAdmin }: SlackConfigSectionProps) {
 	const queryClient = useQueryClient();
 	const slackConfig = useQuery(trpc.project.getSlackConfig.queryOptions());
+	const { data: availableModels } = useQuery(trpc.project.getAvailableModels.queryOptions());
+	const { data: knownModels } = useQuery(trpc.project.getKnownModels.queryOptions());
 
 	const [isEditing, setIsEditing] = useState(false);
-
-	const upsertSlackConfig = useMutation(trpc.project.upsertSlackConfig.mutationOptions());
-	const deleteSlackConfig = useMutation(trpc.project.deleteSlackConfig.mutationOptions());
+	const [selectedModel, setSelectedModel] = useState<ChatSelectedModel | null>(null);
 
 	const projectId = slackConfig.data?.projectId;
 	const projectConfig = slackConfig.data?.projectConfig;
 	const redirectUrl = slackConfig.data?.redirectUrl;
 
+	useEffect(() => {
+		if (!availableModels || availableModels.length === 0) {
+			return;
+		}
+		const persisted = projectConfig?.modelSelection;
+		const isValid =
+			persisted &&
+			availableModels.some((m) => m.provider === persisted.provider && m.modelId === persisted.modelId);
+		setSelectedModel(isValid ? persisted : availableModels[0]);
+	}, [availableModels, projectConfig]);
+
+	const upsertSlackConfig = useMutation(trpc.project.upsertSlackConfig.mutationOptions());
+	const updateSlackModel = useMutation(trpc.project.updateSlackModel.mutationOptions());
+	const deleteSlackConfig = useMutation(trpc.project.deleteSlackConfig.mutationOptions());
+
 	const handleSubmit = async (values: { botToken: string; signingSecret: string }) => {
-		await upsertSlackConfig.mutateAsync(values);
+		await upsertSlackConfig.mutateAsync({
+			...values,
+			modelProvider: selectedModel?.provider,
+			modelId: selectedModel?.modelId,
+		});
 		queryClient.invalidateQueries(trpc.project.getSlackConfig.queryOptions());
 		setIsEditing(false);
 	};
@@ -33,11 +56,36 @@ export function SlackConfigSection({ isAdmin }: SlackConfigSectionProps) {
 		queryClient.removeQueries(trpc.project.getSlackConfig.queryOptions());
 	};
 
+	const handleStartEditing = () => {
+		setSelectedModel(projectConfig?.modelSelection ?? null);
+		setIsEditing(true);
+	};
+
+	const handleModelChange = useCallback(
+		(value: string) => {
+			const model = availableModels?.find((m) => `${m.provider}:${m.modelId}` === value);
+			if (model) {
+				setSelectedModel(model);
+				updateSlackModel.mutate({ modelProvider: model.provider, modelId: model.modelId });
+				queryClient.invalidateQueries(trpc.project.getSlackConfig.queryOptions());
+			}
+		},
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+		[availableModels, queryClient],
+	);
+
+	const getModelDisplayName = (provider: string, modelId: string) => {
+		const models = knownModels?.[provider as keyof typeof knownModels] ?? [];
+		return models.find((m) => m.id === modelId)?.name ?? modelId;
+	};
+
 	if (!isAdmin) {
 		return (
-			<p className='text-sm text-muted-foreground'>
-				No Slack integration configured. Contact an admin to set it up.
-			</p>
+			<SettingsCard title='Connection' description='Your Slack app credentials'>
+				<p className='text-sm text-muted-foreground'>
+					No Slack integration configured. Contact an admin to set it up.
+				</p>
+			</SettingsCard>
 		);
 	}
 
@@ -54,32 +102,79 @@ export function SlackConfigSection({ isAdmin }: SlackConfigSectionProps) {
 		);
 	}
 
+	const hasMultipleModels = Boolean(availableModels && availableModels.length > 1);
+
 	return (
-		<div className='p-4 rounded-lg border border-border bg-muted/30'>
-			<div className='flex items-center gap-4'>
-				<div className='flex-1 grid gap-0.5'>
-					<span className='text-sm font-medium text-foreground'>Slack</span>
-					<span className='text-xs font-mono text-muted-foreground'>
-						Bot Token: {projectConfig.botTokenPreview}
-					</span>
-					<span className='text-xs font-mono text-muted-foreground'>
-						Signing Secret: {projectConfig.signingSecretPreview}
-					</span>
+		<div className='flex flex-col gap-6'>
+			<SettingsCard title='Connection' description='Your Slack app credentials'>
+				<div className='flex items-center gap-4'>
+					<div className='flex-1 grid gap-1'>
+						<span className='text-sm font-medium text-foreground'>Slack App</span>
+						<span className='text-xs font-mono text-muted-foreground'>
+							Bot Token: {projectConfig.botTokenPreview}
+						</span>
+						<span className='text-xs font-mono text-muted-foreground'>
+							Signing Secret: {projectConfig.signingSecretPreview}
+						</span>
+					</div>
+					<div className='flex gap-1'>
+						<Button variant='ghost' size='icon-sm' onClick={handleStartEditing}>
+							<Pencil className='size-3 text-muted-foreground' />
+						</Button>
+						<Button
+							variant='ghost'
+							size='icon-sm'
+							onClick={handleDelete}
+							disabled={deleteSlackConfig.isPending}
+						>
+							<Trash2 className='size-4 text-destructive' />
+						</Button>
+					</div>
 				</div>
-				<div className='flex gap-1'>
-					<Button variant='ghost' size='icon-sm' onClick={() => setIsEditing(true)}>
-						<Pencil className='size-3 text-muted-foreground' />
-					</Button>
-					<Button
-						variant='ghost'
-						size='icon-sm'
-						onClick={handleDelete}
-						disabled={deleteSlackConfig.isPending}
-					>
-						<Trash2 className='size-4 text-destructive' />
-					</Button>
+			</SettingsCard>
+
+			<SettingsCard title='Settings' description='Configure how the Slack bot behaves'>
+				<div className='grid gap-2'>
+					<label className='text-sm font-medium text-foreground'>Model</label>
+					<p className='text-xs text-muted-foreground'>The model used to answer questions asked in Slack.</p>
+					{hasMultipleModels ? (
+						<Select
+							value={selectedModel ? `${selectedModel.provider}:${selectedModel.modelId}` : undefined}
+							onValueChange={handleModelChange}
+							disabled={updateSlackModel.isPending}
+						>
+							<SelectTrigger className='w-full'>
+								<SelectValue>
+									{selectedModel && (
+										<div className='flex items-center gap-2'>
+											<LlmProviderIcon provider={selectedModel.provider} className='size-4' />
+											{getModelDisplayName(selectedModel.provider, selectedModel.modelId)}
+										</div>
+									)}
+								</SelectValue>
+							</SelectTrigger>
+							<SelectContent>
+								{availableModels?.map((model) => (
+									<SelectItem
+										key={`${model.provider}-${model.modelId}`}
+										value={`${model.provider}:${model.modelId}`}
+									>
+										<LlmProviderIcon provider={model.provider} className='size-4' />
+										{getModelDisplayName(model.provider, model.modelId)}
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
+					) : (
+						selectedModel && (
+							<div className='flex items-center gap-2 text-sm text-muted-foreground'>
+								<LlmProviderIcon provider={selectedModel.provider} className='size-4' />
+								<span>{getModelDisplayName(selectedModel.provider, selectedModel.modelId)}</span>
+							</div>
+						)
+					)}
 				</div>
-			</div>
+			</SettingsCard>
 		</div>
 	);
 }

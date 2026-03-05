@@ -29,9 +29,6 @@ const envSchema = z.object({
 	GOOGLE_CLIENT_SECRET: z.string().optional(),
 	GOOGLE_AUTH_DOMAINS: z.string().optional(),
 
-	SLACK_BOT_TOKEN: z.string().optional(),
-	SLACK_SIGNING_SECRET: z.string().optional(),
-
 	FASTAPI_PORT: z.coerce.number().default(8005),
 	APP_VERSION: z.string().default('dev'),
 	APP_COMMIT: z.string().default('unknown'),

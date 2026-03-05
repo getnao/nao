@@ -149,6 +149,7 @@ export const projectRoutes = {
 			? {
 					botTokenPreview: config.botToken.slice(0, 4) + '...' + config.botToken.slice(-4),
 					signingSecretPreview: config.signingSecret.slice(0, 4) + '...' + config.signingSecret.slice(-4),
+					modelSelection: config.modelSelection,
 				}
 			: null;
 
@@ -164,6 +165,8 @@ export const projectRoutes = {
 			z.object({
 				botToken: z.string().min(1),
 				signingSecret: z.string().min(1),
+				modelProvider: llmProviderSchema.optional(),
+				modelId: z.string().optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
@@ -171,11 +174,29 @@ export const projectRoutes = {
 				projectId: ctx.project.id,
 				botToken: input.botToken,
 				signingSecret: input.signingSecret,
+				modelProvider: input.modelProvider,
+				modelId: input.modelId,
 			});
 			return {
 				botTokenPreview: config.botToken.slice(0, 4) + '...' + config.botToken.slice(-4),
 				signingSecretPreview: config.signingSecret.slice(0, 4) + '...' + config.signingSecret.slice(-4),
+				modelSelection: config.modelSelection,
 			};
+		}),
+
+	updateSlackModel: adminProtectedProcedure
+		.input(
+			z.object({
+				modelProvider: llmProviderSchema.optional(),
+				modelId: z.string().optional(),
+			}),
+		)
+		.mutation(async ({ ctx, input }) => {
+			await slackConfigQueries.updateProjectSlackModel(
+				ctx.project.id,
+				input.modelProvider ?? null,
+				input.modelId ?? null,
+			);
 		}),
 
 	deleteSlackConfig: adminProtectedProcedure.mutation(async ({ ctx }) => {

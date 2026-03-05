@@ -3,10 +3,15 @@ import { eq } from 'drizzle-orm';
 import s, { DBProject } from '../db/abstractSchema';
 import { db } from '../db/db';
 import { env } from '../env';
+import { LlmProvider } from '../types/llm';
 
 export const getProjectSlackConfig = async (
 	projectId: string,
-): Promise<{ botToken: string; signingSecret: string } | null> => {
+): Promise<{
+	botToken: string;
+	signingSecret: string;
+	modelSelection?: { provider: LlmProvider; modelId: string };
+} | null> => {
 	const [project] = await db.select().from(s.project).where(eq(s.project.id, projectId)).execute();
 
 	if (!project?.slackBotToken || !project?.slackSigningSecret) {
@@ -16,6 +21,10 @@ export const getProjectSlackConfig = async (
 	return {
 		botToken: project.slackBotToken,
 		signingSecret: project.slackSigningSecret,
+		modelSelection:
+			project.slackllmProvider && project.slackllmModelId
+				? { provider: project.slackllmProvider as LlmProvider, modelId: project.slackllmModelId }
+				: undefined,
 	};
 };
 
@@ -23,12 +32,20 @@ export const upsertProjectSlackConfig = async (data: {
 	projectId: string;
 	botToken: string;
 	signingSecret: string;
-}): Promise<{ botToken: string; signingSecret: string }> => {
+	modelProvider?: LlmProvider;
+	modelId?: string;
+}): Promise<{
+	botToken: string;
+	signingSecret: string;
+	modelSelection?: { provider: LlmProvider; modelId: string };
+}> => {
 	const [updated] = await db
 		.update(s.project)
 		.set({
 			slackBotToken: data.botToken,
 			slackSigningSecret: data.signingSecret,
+			slackllmProvider: data.modelProvider ?? null,
+			slackllmModelId: data.modelId ?? null,
 		})
 		.where(eq(s.project.id, data.projectId))
 		.returning()
@@ -37,7 +54,23 @@ export const upsertProjectSlackConfig = async (data: {
 	return {
 		botToken: updated.slackBotToken!,
 		signingSecret: updated.slackSigningSecret!,
+		modelSelection:
+			updated.slackllmProvider && updated.slackllmModelId
+				? { provider: updated.slackllmProvider as LlmProvider, modelId: updated.slackllmModelId }
+				: undefined,
 	};
+};
+
+export const updateProjectSlackModel = async (
+	projectId: string,
+	modelProvider: LlmProvider | null,
+	modelId: string | null,
+): Promise<void> => {
+	await db
+		.update(s.project)
+		.set({ slackllmProvider: modelProvider, slackllmModelId: modelId })
+		.where(eq(s.project.id, projectId))
+		.execute();
 };
 
 export const deleteProjectSlackConfig = async (projectId: string): Promise<void> => {
@@ -56,6 +89,7 @@ export interface SlackConfig {
 	botToken: string;
 	signingSecret: string;
 	redirectUrl: string;
+	modelSelection?: { provider: LlmProvider; modelId: string };
 }
 
 /**
@@ -74,8 +108,8 @@ export async function getSlackConfig(): Promise<SlackConfig | null> {
 		return null;
 	}
 
-	const botToken = project.slackBotToken || env.SLACK_BOT_TOKEN;
-	const signingSecret = project.slackSigningSecret || env.SLACK_SIGNING_SECRET;
+	const botToken = project.slackBotToken;
+	const signingSecret = project.slackSigningSecret;
 	const redirectUrl = env.BETTER_AUTH_URL || 'http://localhost:3000/';
 
 	if (!botToken || !signingSecret) {
@@ -87,6 +121,10 @@ export async function getSlackConfig(): Promise<SlackConfig | null> {
 		botToken,
 		signingSecret,
 		redirectUrl,
+		modelSelection:
+			project.slackllmProvider && project.slackllmModelId
+				? { provider: project.slackllmProvider as LlmProvider, modelId: project.slackllmModelId }
+				: undefined,
 	};
 }
 
