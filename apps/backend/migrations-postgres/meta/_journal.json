@@ -148,6 +148,13 @@
       "when": 1772650051523,
       "tag": "0020_bedrock_fields",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1772702845282,
+      "tag": "0021_add_source_chat_message",
+      "breakpoints": true
     }
   ]
 }
