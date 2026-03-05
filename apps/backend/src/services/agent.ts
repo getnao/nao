@@ -285,13 +285,14 @@ class AgentManager {
 			parts: [{ type: 'text', text: `Current datetime: ${new Date().toISOString()}` }],
 		};
 
-		const datetimeAssistantMessage: Omit<UIMessage, 'id'> = {
-			role: 'assistant',
-			parts: [{ type: 'text', text: 'Understood.' }],
-		};
+		const lastUserIndex = [...uiMessagesWithCompaction].map(m => m.role).lastIndexOf('user');
+		const messagesWithDatetime = [...uiMessagesWithCompaction];
+		if (lastUserIndex !== -1) {
+			messagesWithDatetime.splice(lastUserIndex, 0, datetimeUserMessage);
+		}
 
 		const modelMessages = await convertToModelMessages<UIMessage>(
-			[systemMessage, datetimeUserMessage, datetimeAssistantMessage, ...uiMessagesWithCompaction],
+			[systemMessage, ...messagesWithDatetime],
 			{ tools: this._agentTools },
 		);
 
