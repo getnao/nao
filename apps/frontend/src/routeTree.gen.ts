@@ -21,6 +21,7 @@ import { Route as SidebarLayoutSettingsUsageRouteImport } from './routes/_sideba
 import { Route as SidebarLayoutSettingsProjectRouteImport } from './routes/_sidebar-layout.settings.project'
 import { Route as SidebarLayoutSettingsMemoryRouteImport } from './routes/_sidebar-layout.settings.memory'
 import { Route as SidebarLayoutSettingsGeneralRouteImport } from './routes/_sidebar-layout.settings.general'
+import { Route as SidebarLayoutSettingsChatsReplayRouteImport } from './routes/_sidebar-layout.settings.chats-replay'
 import { Route as SidebarLayoutChatLayoutChatIdRouteImport } from './routes/_sidebar-layout._chat-layout.$chatId'
 import { Route as SidebarLayoutSettingsProjectIndexRouteImport } from './routes/_sidebar-layout.settings.project.index'
 import { Route as SidebarLayoutStoriesSharedShareIdRouteImport } from './routes/_sidebar-layout.stories.shared.$shareId'
@@ -97,6 +98,12 @@ const SidebarLayoutSettingsGeneralRoute =
     path: '/general',
     getParentRoute: () => SidebarLayoutSettingsRoute,
   } as any)
+const SidebarLayoutSettingsChatsReplayRoute =
+  SidebarLayoutSettingsChatsReplayRouteImport.update({
+    id: '/chats-replay',
+    path: '/chats-replay',
+    getParentRoute: () => SidebarLayoutSettingsRoute,
+  } as any)
 const SidebarLayoutChatLayoutChatIdRoute =
   SidebarLayoutChatLayoutChatIdRouteImport.update({
     id: '/$chatId',
@@ -164,6 +171,7 @@ export interface FileRoutesByFullPath {
   '/signup': typeof SignupRoute
   '/settings': typeof SidebarLayoutSettingsRouteWithChildren
   '/$chatId': typeof SidebarLayoutChatLayoutChatIdRoute
+  '/settings/chats-replay': typeof SidebarLayoutSettingsChatsReplayRoute
   '/settings/general': typeof SidebarLayoutSettingsGeneralRoute
   '/settings/memory': typeof SidebarLayoutSettingsMemoryRoute
   '/settings/project': typeof SidebarLayoutSettingsProjectRouteWithChildren
@@ -185,6 +193,7 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/signup': typeof SignupRoute
   '/$chatId': typeof SidebarLayoutChatLayoutChatIdRoute
+  '/settings/chats-replay': typeof SidebarLayoutSettingsChatsReplayRoute
   '/settings/general': typeof SidebarLayoutSettingsGeneralRoute
   '/settings/memory': typeof SidebarLayoutSettingsMemoryRoute
   '/settings/usage': typeof SidebarLayoutSettingsUsageRoute
@@ -208,6 +217,7 @@ export interface FileRoutesById {
   '/_sidebar-layout/_chat-layout': typeof SidebarLayoutChatLayoutRouteWithChildren
   '/_sidebar-layout/settings': typeof SidebarLayoutSettingsRouteWithChildren
   '/_sidebar-layout/_chat-layout/$chatId': typeof SidebarLayoutChatLayoutChatIdRoute
+  '/_sidebar-layout/settings/chats-replay': typeof SidebarLayoutSettingsChatsReplayRoute
   '/_sidebar-layout/settings/general': typeof SidebarLayoutSettingsGeneralRoute
   '/_sidebar-layout/settings/memory': typeof SidebarLayoutSettingsMemoryRoute
   '/_sidebar-layout/settings/project': typeof SidebarLayoutSettingsProjectRouteWithChildren
@@ -233,6 +243,7 @@ export interface FileRouteTypes {
     | '/signup'
     | '/settings'
     | '/$chatId'
+    | '/settings/chats-replay'
     | '/settings/general'
     | '/settings/memory'
     | '/settings/project'
@@ -254,6 +265,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/signup'
     | '/$chatId'
+    | '/settings/chats-replay'
     | '/settings/general'
     | '/settings/memory'
     | '/settings/usage'
@@ -276,6 +288,7 @@ export interface FileRouteTypes {
     | '/_sidebar-layout/_chat-layout'
     | '/_sidebar-layout/settings'
     | '/_sidebar-layout/_chat-layout/$chatId'
+    | '/_sidebar-layout/settings/chats-replay'
     | '/_sidebar-layout/settings/general'
     | '/_sidebar-layout/settings/memory'
     | '/_sidebar-layout/settings/project'
@@ -384,6 +397,13 @@ declare module '@tanstack/react-router' {
       path: '/general'
       fullPath: '/settings/general'
       preLoaderRoute: typeof SidebarLayoutSettingsGeneralRouteImport
+      parentRoute: typeof SidebarLayoutSettingsRoute
+    }
+    '/_sidebar-layout/settings/chats-replay': {
+      id: '/_sidebar-layout/settings/chats-replay'
+      path: '/chats-replay'
+      fullPath: '/settings/chats-replay'
+      preLoaderRoute: typeof SidebarLayoutSettingsChatsReplayRouteImport
       parentRoute: typeof SidebarLayoutSettingsRoute
     }
     '/_sidebar-layout/_chat-layout/$chatId': {
@@ -509,6 +529,7 @@ const SidebarLayoutSettingsProjectRouteWithChildren =
   )
 
 interface SidebarLayoutSettingsRouteChildren {
+  SidebarLayoutSettingsChatsReplayRoute: typeof SidebarLayoutSettingsChatsReplayRoute
   SidebarLayoutSettingsGeneralRoute: typeof SidebarLayoutSettingsGeneralRoute
   SidebarLayoutSettingsMemoryRoute: typeof SidebarLayoutSettingsMemoryRoute
   SidebarLayoutSettingsProjectRoute: typeof SidebarLayoutSettingsProjectRouteWithChildren
@@ -517,6 +538,7 @@ interface SidebarLayoutSettingsRouteChildren {
 }
 
 const SidebarLayoutSettingsRouteChildren: SidebarLayoutSettingsRouteChildren = {
+  SidebarLayoutSettingsChatsReplayRoute: SidebarLayoutSettingsChatsReplayRoute,
   SidebarLayoutSettingsGeneralRoute: SidebarLayoutSettingsGeneralRoute,
   SidebarLayoutSettingsMemoryRoute: SidebarLayoutSettingsMemoryRoute,
   SidebarLayoutSettingsProjectRoute:

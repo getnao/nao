@@ -27,7 +27,11 @@ const settingsNavItems: NavItem[] = [
 		to: '/settings/usage',
 		visible: (userRole) => userRole === 'admin',
 	},
-];
+	{
+		label: 'Chats Replay',
+		to: '/settings/chats-replay',
+	},
+] as const;
 
 interface SidebarSettingsNavProps {
 	isCollapsed: boolean;
