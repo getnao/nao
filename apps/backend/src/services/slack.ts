@@ -34,21 +34,28 @@ class SlackService {
 	private _slackClient: WebClient | null = null;
 	private _projectId: string = '';
 	private _redirectUrl: string = '';
-	private _initialized: boolean = false;
+	private _currentBotToken: string = '';
+	private _currentSigningSecret: string = '';
 	private _lastCompletionCard: Map<string, { card: SentMessage; chatUrl: string }> = new Map();
 
 	constructor() {}
 
 	public getWebhooks(slackConfig: SlackConfig) {
-		this._initialize(slackConfig);
+		if (this._configChanged(slackConfig)) {
+			this._initialize(slackConfig);
+		}
 		return this._bot?.webhooks;
 	}
 
+	private _configChanged(slackConfig: SlackConfig): boolean {
+		return (
+			this._currentBotToken !== slackConfig.botToken || this._currentSigningSecret !== slackConfig.signingSecret
+		);
+	}
+
 	private _initialize(slackConfig: SlackConfig): void {
-		if (this._initialized) {
-			return;
-		}
-		this._initialized = true;
+		this._currentBotToken = slackConfig.botToken;
+		this._currentSigningSecret = slackConfig.signingSecret;
 
 		this._projectId = slackConfig.projectId;
 		this._redirectUrl = slackConfig.redirectUrl;

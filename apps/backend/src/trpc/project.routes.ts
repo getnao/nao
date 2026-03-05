@@ -140,12 +140,10 @@ export const projectRoutes = {
 
 	getSlackConfig: projectProtectedProcedure.query(async ({ ctx }) => {
 		if (!ctx.project) {
-			return { projectConfig: null, hasEnvConfig: false };
+			return { projectConfig: null, redirectUrl: '', projectId: '' };
 		}
 
 		const config = await slackConfigQueries.getProjectSlackConfig(ctx.project.id);
-
-		const hasEnvConfig = !!(env.SLACK_BOT_TOKEN && env.SLACK_SIGNING_SECRET);
 
 		const projectConfig = config
 			? {
@@ -154,11 +152,9 @@ export const projectRoutes = {
 				}
 			: null;
 
-		const baseUrl = env.BETTER_AUTH_URL || '';
 		return {
 			projectConfig,
-			hasEnvConfig,
-			redirectUrl: baseUrl,
+			redirectUrl: env.BETTER_AUTH_URL || '',
 			projectId: ctx.project.id,
 		};
 	}),
