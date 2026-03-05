@@ -46,7 +46,6 @@ export function buildChart(props: BuildChartProps) {
 	if (resolved.chartType === 'kpi_card') {
 		return buildKpiCard(resolved);
 	}
-
 	if (resolved.chartType === 'pie') {
 		return buildPieChart(resolved);
 	}
@@ -110,7 +109,7 @@ function buildKpiCard(props: ResolvedProps) {
 }
 
 function KpiCardContainer({ children }: { children: React.ReactNode }) {
-	return <div className='flex flex-wrap gap-4'>{children}</div>;
+	return <div className='flex flex-wrap gap-4 w-full justify-start'>{children}</div>;
 }
 
 function KpiCard({ value, displayName }: { value: unknown; displayName: string }) {
