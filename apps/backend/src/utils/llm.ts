@@ -15,9 +15,13 @@ export function getEnvBaseUrl(provider: LlmProvider): string | undefined {
 	return baseUrlEnvVar ? process.env[baseUrlEnvVar] : undefined;
 }
 
-/** Check if a provider has an API key configured via environment */
+/** Check if a provider has authentication configured via environment */
 export function hasEnvApiKey(provider: LlmProvider): boolean {
-	return !!getEnvApiKey(provider);
+	if (getEnvApiKey(provider)) {
+		return true;
+	}
+	const { alternativeEnvVars } = LLM_PROVIDERS[provider].auth;
+	return alternativeEnvVars?.every((v) => process.env[v]) ?? false;
 }
 
 /** Get all providers that have API keys configured via environment */
@@ -76,7 +80,11 @@ export async function resolveProviderModel(
 	if (config) {
 		return createProviderModel(
 			provider,
-			{ apiKey: config.apiKey, ...(config.baseUrl && { baseURL: config.baseUrl }) },
+			{
+				apiKey: config.apiKey,
+				...(config.baseUrl && { baseURL: config.baseUrl }),
+				...(config.credentials && { credentials: config.credentials }),
+			},
 			modelId,
 		);
 	}
@@ -89,6 +97,10 @@ export async function resolveProviderModel(
 			{ apiKey: envApiKey, ...(envBaseUrl && { baseURL: envBaseUrl }) },
 			modelId,
 		);
+	}
+
+	if (hasEnvApiKey(provider)) {
+		return createProviderModel(provider, { apiKey: '' }, modelId);
 	}
 
 	return null;

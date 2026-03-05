@@ -33,6 +33,7 @@
 		"test:tool-outputs": "PRINT_OUTPUT=true vitest run tests/tool-outputs/"
 	},
 	"dependencies": {
+		"@ai-sdk/amazon-bedrock": "^4.0.69",
 		"@ai-sdk/anthropic": "^3.0.15",
 		"@ai-sdk/google": "^3.0.16",
 		"@ai-sdk/mistral": "^3.0.13",

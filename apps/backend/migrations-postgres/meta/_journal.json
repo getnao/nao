@@ -141,6 +141,13 @@
       "when": 1772144278927,
       "tag": "0019_add_stories",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1772650051523,
+      "tag": "0020_bedrock_fields",
+      "breakpoints": true
     }
   ]
 }

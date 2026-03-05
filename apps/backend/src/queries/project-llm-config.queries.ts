@@ -30,8 +30,8 @@ export const upsertProjectLlmConfig = async (
 		const [updated] = await db
 			.update(s.projectLlmConfig)
 			.set({
-				// Only update apiKey if a new one is provided
 				...(config.apiKey !== null && { apiKey: config.apiKey }),
+				...(config.credentials !== undefined && { credentials: config.credentials }),
 				enabledModels: config.enabledModels,
 				baseUrl: config.baseUrl,
 			})

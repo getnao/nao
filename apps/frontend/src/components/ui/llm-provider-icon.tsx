@@ -4,6 +4,7 @@ import MistralIcon from '@/components/icons/mistral.svg';
 import OpenAIIcon from '@/components/icons/openai.svg';
 import OpenRouterIcon from '@/components/icons/openrouter.svg';
 import OllamaIcon from '@/components/icons/ollama.svg';
+import BedrockIcon from '@/components/icons/bedrock.svg';
 
 import { cn } from '@/lib/utils';
 
@@ -22,6 +23,8 @@ export function LlmProviderIcon({ provider, className: customClassName }: { prov
 			return <OpenRouterIcon className={className} />;
 		case 'ollama':
 			return <OllamaIcon className={className} />;
+		case 'bedrock':
+			return <BedrockIcon className={className} />;
 		default:
 			return null;
 	}

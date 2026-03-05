@@ -12,6 +12,7 @@ from rich.console import Console
 
 from nao_core import __version__
 from nao_core.config import NaoConfig
+from nao_core.config.llm import PROVIDER_AUTH, LLMProvider
 from nao_core.mode import MODE
 from nao_core.tracking import track_command
 
@@ -177,16 +178,21 @@ def chat(port: Annotated[Optional[int], Parameter(name=["-p", "--port"])] = None
 
         # Set LLM API key from config if available
         if config and config.llm:
-            env_var_name = f"{config.llm.provider.upper()}_API_KEY"
-            if config.llm.api_key is not None:
-                console.print(f"[bold green]✓[/bold green] Set {env_var_name} from config")
-            api_key_value = config.llm.get_effective_api_key_for_env()
-            if api_key_value is not None:
-                env[env_var_name] = api_key_value
-            if config.llm.base_url:
-                base_url_var = f"{config.llm.provider.upper()}_BASE_URL"
-                env[base_url_var] = config.llm.base_url
-                console.print(f"[bold green]✓[/bold green] Set {base_url_var} from config")
+            auth = PROVIDER_AUTH[config.llm.provider]
+            if config.llm.api_key is not None and auth.api_key != "none":
+                env[auth.env_var] = config.llm.api_key
+                console.print(f"[bold green]✓[/bold green] Set {auth.env_var} from config")
+            if config.llm.base_url and auth.base_url_env_var:
+                env[auth.base_url_env_var] = config.llm.base_url
+                console.print(f"[bold green]✓[/bold green] Set {auth.base_url_env_var} from config")
+
+            if config.llm.provider == LLMProvider.BEDROCK:
+                if config.llm.access_key:
+                    env["AWS_ACCESS_KEY_ID"] = config.llm.access_key
+                    console.print("[bold green]✓[/bold green] Set AWS_ACCESS_KEY_ID from config")
+                if config.llm.secret_key:
+                    env["AWS_SECRET_ACCESS_KEY"] = config.llm.secret_key
+                    console.print("[bold green]✓[/bold green] Set AWS_SECRET_ACCESS_KEY from config")
 
         # Set Slack config if available
         if config and config.slack:

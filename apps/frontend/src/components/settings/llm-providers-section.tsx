@@ -85,6 +85,7 @@ export function LlmProvidersSection({ isAdmin }: LlmProvidersSectionProps) {
 						key={config.id}
 						provider={config.provider}
 						apiKeyPreview={config.apiKeyPreview}
+						credentialPreviews={config.credentialPreviews}
 						baseUrl={config.baseUrl}
 						envBaseUrl={envBaseUrls[config.provider]}
 						enabledModels={config.enabledModels}
