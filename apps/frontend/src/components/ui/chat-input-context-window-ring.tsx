@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -53,6 +54,14 @@ export function ContextWindowRing({ className }: ContextWindowRingProps) {
 	const chatId = useChatId();
 	const { selectedModel, messages, isRunning } = useAgentContext();
 	const hasAssistantMessage = messages.some((m) => m.role === 'assistant');
+	const lastAssistantMessageId = useMemo(() => {
+		for (let i = messages.length - 1; i >= 0; i--) {
+			if (messages[i].role === 'assistant') {
+				return messages[i].id;
+			}
+		}
+		return undefined;
+	}, [messages]);
 
 	const contextUsage = useQuery(
 		trpc.chat.getContextUsage.queryOptions(
@@ -66,6 +75,42 @@ export function ContextWindowRing({ className }: ContextWindowRingProps) {
 			},
 		),
 	);
+	const { refetch: refetchContextUsage, isFetching, isFetched } = contextUsage;
+
+	const assistantIdByChatKeyRef = useRef<Map<string, string | undefined>>(new Map());
+	useEffect(() => {
+		if (!chatId || !selectedModel || !hasAssistantMessage || isRunning || isFetching) {
+			return;
+		}
+
+		const chatKey = `${chatId}:${selectedModel.provider}:${selectedModel.modelId}`;
+		const existingEntry = assistantIdByChatKeyRef.current.has(chatKey);
+		const previousAssistantId = assistantIdByChatKeyRef.current.get(chatKey);
+
+		if (!existingEntry) {
+			assistantIdByChatKeyRef.current.set(chatKey, lastAssistantMessageId);
+			return;
+		}
+
+		if (previousAssistantId === lastAssistantMessageId) {
+			return;
+		}
+
+		assistantIdByChatKeyRef.current.set(chatKey, lastAssistantMessageId);
+
+		if (isFetched) {
+			void refetchContextUsage();
+		}
+	}, [
+		chatId,
+		selectedModel,
+		hasAssistantMessage,
+		isRunning,
+		lastAssistantMessageId,
+		isFetching,
+		isFetched,
+		refetchContextUsage,
+	]);
 
 	if (isRunning || !hasAssistantMessage || contextUsage.data?.contextWindow == null) {
 		return null;

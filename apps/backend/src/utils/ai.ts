@@ -79,19 +79,6 @@ export const getLastUserMessageText = (messages: UIMessage[]): string => {
 	return extractLastTextFromMessage(lastUserMessage);
 };
 
-export type EstimateTokensType = 'text' | 'json';
-
-const CHARS_PER_TOKEN = {
-	text: 4,
-	json: 3,
-} as const;
-
-/** Estimates the number of tokens in a text. */
-export function estimateTokens(text: string, type?: EstimateTokensType): number {
-	const charsPerToken = CHARS_PER_TOKEN[type ?? 'text'];
-	return Math.ceil(text.length / charsPerToken);
-}
-
 export const createChatTitle = ({ text }: { text: string }) => {
 	return text.slice(0, 64);
 };
