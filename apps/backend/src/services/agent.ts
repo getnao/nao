@@ -15,7 +15,7 @@ import {
 import { CACHE_1H, CACHE_5M } from '../agents/providers';
 import { ProviderModelResult } from '../agents/providers';
 import { getTools } from '../agents/tools';
-import { createWebSearchTool } from '../agents/tools/web-search';
+import { createWebSearchTools } from '../agents/tools/web-search';
 import { getConnections, getUserRules } from '../agents/user-rules';
 import { SlackSystemPrompt, SystemPrompt } from '../components/ai';
 import { DBChat } from '../db/abstractSchema';
@@ -71,12 +71,8 @@ export class AgentService {
 		const modelConfig = await this._getModelConfig(chat.projectId, resolvedModelSelection);
 		const agentSettings = await projectQueries.getAgentSettings(chat.projectId);
 		const toolContext = await this._getToolContext(chat.projectId, chat.id, agentSettings);
-		const webSearchTool = await this._resolveWebSearchTool(
-			chat.projectId,
-			resolvedModelSelection.provider,
-			agentSettings,
-		);
-		const agentTools = getTools(agentSettings, webSearchTool ? { web_search: webSearchTool } : undefined);
+		const webTools = await this._resolveWebTools(chat.projectId, resolvedModelSelection.provider, agentSettings);
+		const agentTools = getTools(agentSettings, webTools ?? undefined);
 		const agent = new AgentManager(
 			chat,
 			modelConfig,
@@ -146,11 +142,11 @@ export class AgentService {
 		return this._agents.get(chatId);
 	}
 
-	private async _resolveWebSearchTool(
+	private async _resolveWebTools(
 		projectId: string,
 		provider: LlmProvider,
 		agentSettings: AgentSettings | null,
-	): Promise<unknown | null> {
+	): Promise<Record<string, unknown> | null> {
 		if (!agentSettings?.webSearch?.enabled) {
 			return null;
 		}
@@ -158,7 +154,7 @@ export class AgentService {
 		if (!settings) {
 			return null;
 		}
-		return createWebSearchTool(provider, settings);
+		return createWebSearchTools(provider, settings);
 	}
 
 	protected async _getModelConfig(projectId: string, modelSelection: ModelSelection): Promise<ProviderModelResult> {

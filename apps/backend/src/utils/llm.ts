@@ -1,9 +1,4 @@
-import {
-	createProviderModel,
-	getDefaultModelId,
-	LLM_PROVIDERS,
-	type ProviderModelResult,
-} from '../agents/providers';
+import { createProviderModel, getDefaultModelId, LLM_PROVIDERS, type ProviderModelResult } from '../agents/providers';
 import * as projectLlmConfigQueries from '../queries/project-llm-config.queries';
 import { LlmProvider, ModelSelection, type ProviderSettings } from '../types/llm';
 export { getDefaultModelId };

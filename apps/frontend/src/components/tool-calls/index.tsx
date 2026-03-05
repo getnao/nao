@@ -8,6 +8,8 @@ import { GrepToolCall } from './grep';
 import { ListToolCall } from './list';
 import { ReadToolCall } from './read';
 import { SearchToolCall } from './search';
+import { WebFetchToolCall } from './web-fetch';
+import { WebSearchToolCall } from './web-search';
 import type { StaticToolName, UIToolPart } from '@nao/backend/chat';
 import { getToolName, isToolSettled } from '@/lib/ai';
 import { ToolCallProvider } from '@/contexts/tool-call';
@@ -30,15 +32,22 @@ const toolComponents: Partial<{
 	search: SearchToolCall,
 };
 
+const dynamicToolComponents: Record<string, React.ComponentType<ToolCallComponentProps>> = {
+	web_search: WebSearchToolCall,
+	web_fetch: WebFetchToolCall,
+	google_search: WebSearchToolCall,
+};
+
 export const ToolCall = memo(({ toolPart }: { toolPart: UIToolPart }) => {
 	const { isSettled: isMessageSettled } = useAssistantMessage();
 	if (toolPart.type === 'tool-suggest_follow_ups') {
 		return null;
 	}
 
-	const Component = toolComponents[getToolName(toolPart) as StaticToolName] as
-		| React.ComponentType<ToolCallComponentProps>
-		| undefined;
+	const toolName = getToolName(toolPart);
+	const Component =
+		(toolComponents[toolName as StaticToolName] as React.ComponentType<ToolCallComponentProps> | undefined) ??
+		dynamicToolComponents[toolName];
 
 	const Rendered = Component ? <Component toolPart={toolPart} /> : <DefaultToolCall toolPart={toolPart} />;
 

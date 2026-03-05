@@ -38,7 +38,7 @@ export function SettingsWebSearch({ isAdmin }: SettingsWebSearchProps) {
 			<SettingsControlRow
 				id='web-search'
 				label='Enable web search'
-				description="Uses the model provider's built-in web search when available (OpenAI, Anthropic)."
+				description="Uses the model provider's built-in web search and fetch when available (OpenAI, Anthropic, Google)."
 				control={
 					<Switch
 						id='web-search'
