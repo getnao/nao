@@ -62,11 +62,11 @@ export function SlackConfigSection({ isAdmin }: SlackConfigSectionProps) {
 	};
 
 	const handleModelChange = useCallback(
-		(value: string) => {
+		async (value: string) => {
 			const model = availableModels?.find((m) => `${m.provider}:${m.modelId}` === value);
 			if (model) {
 				setSelectedModel(model);
-				updateSlackModel.mutate({ modelProvider: model.provider, modelId: model.modelId });
+				await updateSlackModel.mutateAsync({ modelProvider: model.provider, modelId: model.modelId });
 				queryClient.invalidateQueries(trpc.project.getSlackConfig.queryOptions());
 			}
 		},
@@ -82,9 +82,21 @@ export function SlackConfigSection({ isAdmin }: SlackConfigSectionProps) {
 	if (!isAdmin) {
 		return (
 			<SettingsCard title='Connection' description='Your Slack app credentials'>
-				<p className='text-sm text-muted-foreground'>
-					No Slack integration configured. Contact an admin to set it up.
-				</p>
+				{projectConfig ? (
+					<div className='grid gap-1'>
+						<span className='text-sm font-medium text-foreground'>Slack App</span>
+						<span className='text-xs font-mono text-muted-foreground'>
+							Bot Token: {projectConfig.botTokenPreview}
+						</span>
+						<span className='text-xs font-mono text-muted-foreground'>
+							Signing Secret: {projectConfig.signingSecretPreview}
+						</span>
+					</div>
+				) : (
+					<p className='text-sm text-muted-foreground'>
+						No Slack integration configured. Contact an admin to set it up.
+					</p>
+				)}
 			</SettingsCard>
 		);
 	}

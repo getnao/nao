@@ -50,7 +50,10 @@ class SlackService {
 
 	private _configChanged(slackConfig: SlackConfig): boolean {
 		return (
-			this._currentBotToken !== slackConfig.botToken || this._currentSigningSecret !== slackConfig.signingSecret
+			this._currentBotToken !== slackConfig.botToken ||
+			this._currentSigningSecret !== slackConfig.signingSecret ||
+			this._projectId !== slackConfig.projectId ||
+			this._redirectUrl !== slackConfig.redirectUrl
 		);
 	}
 

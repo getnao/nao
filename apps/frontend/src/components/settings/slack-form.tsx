@@ -141,19 +141,12 @@ export function SlackForm({ projectId, redirectUrl, hasProjectConfig, onSubmit, 
 						Click to open Slack with a pre-filled app manifest — scopes, event subscriptions, and
 						interactivity are configured automatically.
 					</p>
-					<a
-						href={manifestUrl || undefined}
-						target='_blank'
-						rel='noopener noreferrer'
-						aria-disabled={!manifestUrl}
-						onClick={!manifestUrl ? (e) => e.preventDefault() : undefined}
-						className={!manifestUrl ? 'pointer-events-none opacity-40 inline-flex' : 'inline-flex'}
-					>
-						<Button type='button' size='sm' variant='outline' disabled={!manifestUrl} asChild={false}>
+					<Button type='button' size='sm' variant='outline' disabled={!manifestUrl} asChild>
+						<a href={manifestUrl || undefined} target='_blank' rel='noopener noreferrer'>
 							<ExternalLink className='size-3.5 mr-1.5' />
 							Create Slack App
-						</Button>
-					</a>
+						</a>
+					</Button>
 				</div>
 
 				{/* Step 3 */}
