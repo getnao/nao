@@ -5,7 +5,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Annotated
 
-import numpy as np
 import pandas as pd
 from cyclopts import Parameter
 
@@ -65,15 +64,11 @@ class TestRunResult:
     details: TestRunDetails | None = None
 
 
-def check_dataframe(
-    verification: VerificationResult, rtol: float = 1e-5, atol: float = 1e-8
-) -> tuple[bool, str, str | None]:
+def check_dataframe(verification: VerificationResult) -> tuple[bool, str, str | None]:
     """Check if actual data matches expected. Returns (passed, message, comparison).
 
     Args:
         verification: The verification result containing actual and expected data.
-        rtol: Relative tolerance for float comparison.
-        atol: Absolute tolerance for float comparison.
     """
     actual = pd.DataFrame(verification.data)
     expected = pd.DataFrame(verification.expectedData)
@@ -97,72 +92,45 @@ def check_dataframe(
         return False, f"row count: {len(actual)} vs {len(expected)}", None
 
     def round_numeric(df: pd.DataFrame, decimals: int = 2) -> pd.DataFrame:
-        """Round float-like columns to the given number of decimals for stable comparisons."""
+        """Round numeric-like columns to the given number of decimals for stable comparisons."""
         for col in df.columns:
             series = df[col]
-            if pd.api.types.is_float_dtype(series) or (
-                pd.api.types.is_numeric_dtype(series) and not pd.api.types.is_integer_dtype(series)
-            ):
+            if pd.api.types.is_numeric_dtype(series):
                 df[col] = series.round(decimals)
+                continue
+
+            # Handle numeric-like object columns that infer_objects may leave as object dtype.
+            coerced = pd.to_numeric(series, errors="coerce")
+            if coerced.notna().sum() == series.notna().sum():
+                df[col] = coerced.round(decimals)
         return df
 
-    # Normalize: reset index, infer types, and sort columns consistently
+    # Normalize: reset index and infer object types.
     actual = pd.DataFrame(actual.reset_index(drop=True).infer_objects(copy=False))
     expected = pd.DataFrame(expected.reset_index(drop=True).infer_objects(copy=False))
 
-    # Sort columns alphabetically for consistent comparison
-    sorted_cols = sorted(actual.columns)
-    actual = actual[sorted_cols]
-    expected = expected[sorted_cols]
+    # Align to the same ordered (alphabetical) columns.
+    sorted_cols = sorted(set(actual.columns) | set(expected.columns))
+    actual = actual.reindex(columns=sorted_cols)
+    expected = expected.reindex(columns=sorted_cols)
 
-    # Round float-like values to 2 decimals to avoid noisy diffs
+    # Sort rows by all columns so row order does not affect equality.
+    if sorted_cols:
+        actual = actual.sort_values(by=sorted_cols, na_position="last").reset_index(drop=True)
+        expected = expected.sort_values(by=sorted_cols, na_position="last").reset_index(drop=True)
+    else:
+        actual = actual.reset_index(drop=True)
+        expected = expected.reset_index(drop=True)
+
+    # Round numeric values to 2 decimals.
     actual = round_numeric(actual, decimals=2)
     expected = round_numeric(expected, decimals=2)
 
-    # Check for exact match first
     if actual.equals(expected):
         return True, "match", None
 
-    # Try approximate comparison for numeric columns
-    try:
-        is_close = True
-        for col in actual.columns:
-            actual_series: pd.Series = actual[col]
-            expected_series: pd.Series = expected[col]
-
-            # Check if both columns are numeric
-            if pd.api.types.is_numeric_dtype(actual_series) and pd.api.types.is_numeric_dtype(expected_series):
-                # Use numpy's isclose for float comparison
-                if not np.allclose(
-                    actual_series.to_numpy(),
-                    expected_series.to_numpy(),
-                    rtol=rtol,
-                    atol=atol,
-                    equal_nan=True,
-                ):
-                    is_close = False
-                    break
-            else:
-                # For non-numeric columns, require exact equality
-                if not actual_series.equals(expected_series):
-                    is_close = False
-                    break
-
-        if is_close:
-            return True, "match (approximate)", None
-    except Exception:
-        pass  # Fall through to show diff
-
-    # Build comparison string
-    comparison: str | None = None
-    try:
-        diff = actual.compare(expected, result_names=("actual", "expected"))
-        comparison = diff.to_string()
-        UI.print(f"[dim]{comparison}[/dim]")
-    except Exception:
-        comparison = f"Actual:\n{actual.to_string()}\n\nExpected:\n{expected.to_string()}"
-        UI.print(f"[dim]  Actual:\n{actual.to_string()}[/dim]")
-        UI.print(f"[dim]  Expected:\n{expected.to_string()}[/dim]")
+    comparison = actual.compare(expected, result_names=("actual", "expected")).to_string()
+    UI.print(f"[dim]{comparison}[/dim]")
 
     return False, "values differ", comparison
 
