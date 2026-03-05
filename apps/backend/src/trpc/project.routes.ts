@@ -177,6 +177,13 @@ export const projectRoutes = {
 				modelProvider: input.modelProvider,
 				modelId: input.modelId,
 			});
+
+			posthog.capture(ctx.user.id, PostHogEvent.SlackConfigured, {
+				project_id: ctx.project.id,
+				modelProvider: input.modelProvider,
+				modelId: input.modelId,
+			});
+
 			return {
 				botTokenPreview: config.botToken.slice(0, 4) + '...' + config.botToken.slice(-4),
 				signingSecretPreview: config.signingSecret.slice(0, 4) + '...' + config.signingSecret.slice(-4),

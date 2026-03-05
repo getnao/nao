@@ -101,5 +101,6 @@ const insertOrSupersedeMessage = async (opts: {
 		role: 'user',
 		parts: [{ type: 'text', text: message.text }],
 		chatId,
+		source: 'web',
 	});
 };

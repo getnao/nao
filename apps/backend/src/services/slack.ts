@@ -27,6 +27,7 @@ import {
 	FEEDBACK_MODAL_CALLBACK_ID,
 } from '../utils/slack';
 import { agentService } from './agent';
+import { posthog, PostHogEvent } from './posthog';
 
 const UPDATE_INTERVAL_MS = 200;
 
@@ -164,6 +165,8 @@ class SlackService {
 			blocks: [],
 			textBlockIndex: -1,
 			assistantMessage: null,
+			isNewChat: false,
+			modelId: undefined,
 		};
 
 		await this._validateUserAccess(ctx);
@@ -238,6 +241,7 @@ class SlackService {
 				source: 'slack',
 			});
 			ctx.chatId = existingChat.id;
+			ctx.isNewChat = false;
 		} else {
 			const title = createChatTitle({ text });
 			const [createdChat] = await chatQueries.createChat(
@@ -245,6 +249,7 @@ class SlackService {
 				{ text, source: 'slack' },
 			);
 			ctx.chatId = createdChat.id;
+			ctx.isNewChat = true;
 		}
 	}
 
@@ -260,6 +265,14 @@ class SlackService {
 		const chatUrl = new URL(ctx.chatId, this._redirectUrl).toString();
 		const card = await ctx.thread.post(createCompletionCard(chatUrl));
 		this._lastCompletionCard.set(ctx.thread.id, { card, chatUrl });
+
+		posthog.capture(ctx.user!.id, PostHogEvent.MessageSent, {
+			project_id: this._projectId,
+			chat_id: ctx.chatId,
+			model_id: ctx.modelId,
+			is_new_chat: ctx.isNewChat,
+			source: 'slack',
+		});
 	}
 
 	private async _createAgentStream(
@@ -271,6 +284,7 @@ class SlackService {
 			{ ...chat, userId: ctx.user!.id, projectId: this._projectId },
 			slackConfig?.modelSelection,
 		);
+		ctx.modelId = slackConfig?.modelSelection?.modelId;
 		return agent.stream(chat.messages, { isSlack: true });
 	}
 
