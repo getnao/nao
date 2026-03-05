@@ -1,6 +1,6 @@
 import { createProviderModel, getDefaultModelId, LLM_PROVIDERS, type ProviderModelResult } from '../agents/providers';
 import * as projectLlmConfigQueries from '../queries/project-llm-config.queries';
-import { LlmProvider, ModelSelection } from '../types/llm';
+import { LlmProvider, ModelSelection, type ProviderSettings } from '../types/llm';
 export { getDefaultModelId };
 export type { ModelSelection };
 
@@ -65,6 +65,25 @@ export function getEnvModelSelections(): ModelSelection[] {
 		provider,
 		modelId: getDefaultModelId(provider),
 	}));
+}
+
+/** Resolve API key + base URL for a provider from DB config or env vars. */
+export async function resolveProviderSettings(
+	projectId: string,
+	provider: LlmProvider,
+): Promise<ProviderSettings | null> {
+	const config = await projectLlmConfigQueries.getProjectLlmConfigByProvider(projectId, provider);
+	if (config) {
+		return { apiKey: config.apiKey, ...(config.baseUrl && { baseURL: config.baseUrl }) };
+	}
+
+	const envApiKey = getEnvApiKey(provider);
+	if (envApiKey) {
+		const envBaseUrl = getEnvBaseUrl(provider);
+		return { apiKey: envApiKey, ...(envBaseUrl && { baseURL: envBaseUrl }) };
+	}
+
+	return null;
 }
 
 /**

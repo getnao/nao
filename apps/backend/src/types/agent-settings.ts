@@ -1,3 +1,5 @@
+export type WebSearchMode = 'provider';
+
 export interface AgentSettings {
 	memoryEnabled?: boolean;
 	experimental?: {
@@ -10,5 +12,9 @@ export interface AgentSettings {
 	};
 	sql?: {
 		dangerouslyWritePermEnabled?: boolean;
+	};
+	webSearch?: {
+		enabled?: boolean;
+		mode?: WebSearchMode;
 	};
 }

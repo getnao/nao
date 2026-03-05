@@ -15,6 +15,7 @@ import {
 import { CACHE_1H, CACHE_5M } from '../agents/providers';
 import { ProviderModelResult } from '../agents/providers';
 import { getTools } from '../agents/tools';
+import { createWebSearchTools } from '../agents/tools/web-search';
 import { getConnections, getUserRules } from '../agents/user-rules';
 import { SlackSystemPrompt, SystemPrompt } from '../components/ai';
 import { DBChat } from '../db/abstractSchema';
@@ -25,10 +26,17 @@ import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import * as storyQueries from '../queries/story.queries';
 import { AgentSettings } from '../types/agent-settings';
 import { AgentTools, Mention, MessageCustomDataParts, TokenCost, TokenUsage, UIMessage } from '../types/chat';
+import { LlmProvider } from '../types/llm';
 import { ToolContext } from '../types/tools';
 import { convertToCost, convertToTokenUsage, findLastUserMessage } from '../utils/ai';
 import { HandlerError } from '../utils/error';
-import { getDefaultModelId, getEnvModelSelections, ModelSelection, resolveProviderModel } from '../utils/llm';
+import {
+	getDefaultModelId,
+	getEnvModelSelections,
+	ModelSelection,
+	resolveProviderModel,
+	resolveProviderSettings,
+} from '../utils/llm';
 import { truncateMiddle } from '../utils/utils';
 import { compactionService } from './compaction';
 import { memoryService } from './memory';
@@ -63,7 +71,8 @@ export class AgentService {
 		const modelConfig = await this._getModelConfig(chat.projectId, resolvedModelSelection);
 		const agentSettings = await projectQueries.getAgentSettings(chat.projectId);
 		const toolContext = await this._getToolContext(chat.projectId, chat.id, agentSettings);
-		const agentTools = getTools(agentSettings);
+		const webTools = await this._resolveWebTools(chat.projectId, resolvedModelSelection.provider, agentSettings);
+		const agentTools = getTools(agentSettings, webTools ?? undefined);
 		const agent = new AgentManager(
 			chat,
 			modelConfig,
@@ -131,6 +140,21 @@ export class AgentService {
 
 	get(chatId: string): AgentManager | undefined {
 		return this._agents.get(chatId);
+	}
+
+	private async _resolveWebTools(
+		projectId: string,
+		provider: LlmProvider,
+		agentSettings: AgentSettings | null,
+	): Promise<Record<string, unknown> | null> {
+		if (!agentSettings?.webSearch?.enabled) {
+			return null;
+		}
+		const settings = await resolveProviderSettings(projectId, provider);
+		if (!settings) {
+			return null;
+		}
+		return createWebSearchTools(provider, settings);
 	}
 
 	protected async _getModelConfig(projectId: string, modelSelection: ModelSelection): Promise<ProviderModelResult> {
