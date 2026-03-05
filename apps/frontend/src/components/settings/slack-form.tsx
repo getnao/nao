@@ -160,14 +160,10 @@ export function SlackForm({ projectId, redirectUrl, hasProjectConfig, onSubmit, 
 				<div className='grid gap-3'>
 					<p className='text-xs font-medium text-foreground'>3. Enter your app credentials</p>
 					<p className='text-[11px] text-muted-foreground leading-relaxed'>
-						After creating the app, find these in your Slack App settings under{' '}
+						After creating the app, install it. Then find these in your Slack App settings under{' '}
 						<strong>OAuth &amp; Permissions</strong> (Bot Token) and <strong>Basic Information</strong>{' '}
 						(Signing Secret).
 					</p>
-					<p className='text-[11px] text-muted-foreground leading-relaxed'>
-						Then go to <strong>Event Subscriptions</strong>, validate the request URL, and save changes.
-					</p>
-					<PasswordField form={form} name='botToken' label='Bot Token' placeholder='xoxb-...' required />
 					<PasswordField
 						form={form}
 						name='signingSecret'
@@ -175,6 +171,7 @@ export function SlackForm({ projectId, redirectUrl, hasProjectConfig, onSubmit, 
 						placeholder='Enter your Slack signing secret'
 						required
 					/>
+					<PasswordField form={form} name='botToken' label='Bot Token' placeholder='xoxb-...' required />
 				</div>
 
 				<div className='flex justify-end gap-2 pt-2'>
