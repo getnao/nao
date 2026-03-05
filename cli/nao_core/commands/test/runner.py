@@ -272,6 +272,22 @@ def save_results(results: list[TestRunResult], output_dir: Path) -> Path:
     return output_file
 
 
+def filter_test_cases(test_cases: list[TestCase], selected_test: str | None) -> list[TestCase]:
+    """Filter test cases to a single selected test, if provided."""
+    if not selected_test:
+        return test_cases
+
+    matches = [tc for tc in test_cases if tc.name == selected_test or tc.file_path.stem == selected_test]
+    if not matches:
+        available = ", ".join(tc.name for tc in test_cases)
+        raise ValueError(f"Test not found: {selected_test}. Available tests: {available}")
+    if len(matches) > 1:
+        names = ", ".join(f"{tc.name} ({tc.file_path.name})" for tc in matches)
+        raise ValueError(f"Multiple tests match '{selected_test}': {names}")
+
+    return [matches[0]]
+
+
 def test(
     models: Annotated[
         list[str] | None,
@@ -287,6 +303,13 @@ def test(
             help="Number of parallel threads for running tests.",
         ),
     ] = 1,
+    select: Annotated[
+        str | None,
+        Parameter(
+            name=["-s", "--select"],
+            help="Run only one test by name or yaml filename stem.",
+        ),
+    ] = None,
 ):
     """Run tests from the tests/ folder.
 
@@ -295,6 +318,7 @@ def test(
         nao test -m openai:gpt-4.1
         nao test -m openai:gpt-4.1 -m anthropic:claude-sonnet-4-20250514
         nao test --threads 4
+        nao test -s test_name
     """
     UI.info("\n🧪 Running nao tests...\n")
 
@@ -318,6 +342,12 @@ def test(
 
     if not test_cases:
         UI.warn("No tests to run.")
+        return
+
+    try:
+        test_cases = filter_test_cases(test_cases, select)
+    except ValueError as e:
+        UI.error(str(e))
         return
 
     total_runs = len(test_cases) * len(model_configs)
