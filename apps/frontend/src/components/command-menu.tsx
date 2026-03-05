@@ -27,6 +27,7 @@ import { useRegisterCommandMenuCallback } from '@/contexts/command-menu-callback
 import { trpc } from '@/main';
 import { useSearchChatsQuery } from '@/queries/use-search-chats-query';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
+import { TextShimmer } from '@/components/ui/text-shimmer';
 
 type CommandConfig = {
 	id: string;
@@ -54,7 +55,7 @@ export function CommandMenu() {
 	});
 
 	const isSearchMode = searchValue.length >= 2;
-	const hasConversationResults = isSearchMode && searchResults && searchResults.length > 0;
+	const hasSearchResults = isSearchMode && searchResults && searchResults.length > 0;
 	const isPendingSearch = isSearchMode && (searchValue !== debouncedSearch || isSearching);
 
 	const commands: CommandConfig[] = useMemo(
@@ -72,14 +73,14 @@ export function CommandMenu() {
 				label: 'Open General Settings',
 				icon: UserIcon,
 				action: () => navigate({ to: '/settings/general' }),
-				group: 'Jump to',
+				group: 'Actions',
 			},
 			{
 				id: 'open-project-settings',
 				label: 'Open Project Settings',
 				icon: SettingsIcon,
 				action: () => navigate({ to: '/settings/project' }),
-				group: 'Jump to',
+				group: 'Actions',
 			},
 			{
 				id: 'open-llm-provider-settings',
@@ -94,7 +95,7 @@ export function CommandMenu() {
 				label: 'Usage & Costs',
 				icon: CreditCardIcon,
 				action: () => navigate({ to: '/settings/usage' }),
-				group: 'Jump to',
+				group: 'Actions',
 				visible: project.data?.userRole === 'admin',
 			},
 			{
@@ -110,23 +111,8 @@ export function CommandMenu() {
 		[navigate, theme, setTheme, project.data?.userRole],
 	);
 
-	const filteredCommands = useMemo(() => {
-		if (!searchValue) {
-			return commands;
-		}
-		const lowerSearch = searchValue.toLowerCase();
-		return commands.filter((cmd) => cmd.label.toLowerCase().includes(lowerSearch));
-	}, [commands, searchValue]);
-
-	const groupedCommands = useMemo(() => {
-		const groups = new Map<string, CommandConfig[]>();
-		for (const command of filteredCommands) {
-			const group = groups.get(command.group) ?? [];
-			group.push(command);
-			groups.set(command.group, group);
-		}
-		return groups;
-	}, [filteredCommands]);
+	const jumpToCommands = useMemo(() => commands.filter((cmd) => cmd.group === 'Jump to'), [commands]);
+	const actionCommands = useMemo(() => commands.filter((cmd) => cmd.group === 'Actions'), [commands]);
 
 	useEffect(() => {
 		const handleKeyDown = (e: KeyboardEvent) => {
@@ -160,6 +146,9 @@ export function CommandMenu() {
 		[navigate],
 	);
 
+	const visibleActions = actionCommands.filter((cmd) => cmd.visible ?? true);
+	const showNoResults = !hasSearchResults && !isPendingSearch && isSearchMode;
+
 	return (
 		<CommandDialog open={open} onOpenChange={handleOpenChange} shouldFilter={false} loop>
 			<CommandInput
@@ -168,52 +157,103 @@ export function CommandMenu() {
 				onValueChange={setSearchValue}
 			/>
 			<CommandList>
-				{filteredCommands.length === 0 && !hasConversationResults && !isPendingSearch && (
-					<CommandEmpty>No results found.</CommandEmpty>
-				)}
-				{isPendingSearch && !hasConversationResults && (
-					<div className='py-6 text-center text-sm text-muted-foreground'>Searching...</div>
-				)}
-				{Array.from(groupedCommands.entries()).map(([group, items]) => (
-					<CommandGroup key={group} heading={group}>
-						{items
-							.filter((command) => command.visible ?? true)
-							.map((command) => (
-								<CommandItem
-									key={command.id}
-									value={command.id}
-									onSelect={() => runCommand(command.action)}
-								>
-									<command.icon />
-									<span>{command.label}</span>
-									{command.shortcut && <CommandShortcut>{command.shortcut}</CommandShortcut>}
-								</CommandItem>
-							))}
+				{showNoResults && <CommandEmpty>No results found.</CommandEmpty>}
+
+				{jumpToCommands.length > 0 && (
+					<CommandGroup heading='Jump to'>
+						{jumpToCommands.map((command) => (
+							<CommandItem
+								key={command.id}
+								value={command.id}
+								onSelect={() => runCommand(command.action)}
+							>
+								<command.icon />
+								<span>
+									{command.label}
+									{isSearchMode && (
+										<span className='text-muted-foreground'> &ldquo;{searchValue}&rdquo;</span>
+									)}
+								</span>
+								{command.shortcut && <CommandShortcut>{command.shortcut}</CommandShortcut>}
+							</CommandItem>
+						))}
 					</CommandGroup>
-				))}
-				{hasConversationResults && (
-					<CommandGroup heading='Conversations'>
+				)}
+
+				{hasSearchResults ? (
+					<CommandGroup heading='Search results'>
 						{searchResults.map((chat) => (
 							<CommandItem
 								key={chat.id}
-								value={`conversation-${chat.id}`}
+								value={`search-${chat.id}`}
 								onSelect={() => runCommand(() => openChat(chat.id))}
 							>
 								<MessageSquareIcon />
 								<div className='flex flex-col gap-0.5 overflow-hidden'>
-									<span className='truncate'>{chat.title}</span>
+									<span className='truncate'>{highlightMatch(chat.title, debouncedSearch)}</span>
 									{chat.matchedText && (
 										<span className='text-muted-foreground truncate text-xs'>
-											...{truncateMatchedText(chat.matchedText, debouncedSearch)}...
+											...
+											{highlightMatch(
+												truncateMatchedText(chat.matchedText, debouncedSearch),
+												debouncedSearch,
+											)}
+											...
 										</span>
 									)}
 								</div>
 							</CommandItem>
 						))}
 					</CommandGroup>
+				) : isPendingSearch ? (
+					<div className='px-4 py-3'>
+						<TextShimmer text='Searching deeper...' />
+					</div>
+				) : null}
+
+				{!isSearchMode && visibleActions.length > 0 && (
+					<CommandGroup heading='Actions'>
+						{visibleActions.map((command) => (
+							<CommandItem
+								key={command.id}
+								value={command.id}
+								onSelect={() => runCommand(command.action)}
+							>
+								<command.icon />
+								<span>{command.label}</span>
+								{command.shortcut && <CommandShortcut>{command.shortcut}</CommandShortcut>}
+							</CommandItem>
+						))}
+					</CommandGroup>
 				)}
 			</CommandList>
 		</CommandDialog>
+	);
+}
+
+function highlightMatch(text: string, query: string) {
+	if (!query) {
+		return text;
+	}
+
+	const lowerText = text.toLowerCase();
+	const lowerQuery = query.toLowerCase();
+	const index = lowerText.indexOf(lowerQuery);
+
+	if (index === -1) {
+		return text;
+	}
+
+	const before = text.slice(0, index);
+	const match = text.slice(index, index + query.length);
+	const after = text.slice(index + query.length);
+
+	return (
+		<>
+			{before}
+			<span className='font-semibold text-foreground'>{match}</span>
+			{after}
+		</>
 	);
 }
 

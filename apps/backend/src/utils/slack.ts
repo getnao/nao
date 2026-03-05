@@ -1,30 +1,81 @@
-import type { ImageBlock, MarkdownBlock } from '@slack/web-api';
+import { pluralize, TOOL_LABELS } from '@nao/shared';
+import type { CardChild, CardElement, ModalElement } from 'chat';
+import { Actions, Button, Card, CardText, Image, LinkButton } from 'chat';
 
-export const addButtonStopBlock = () => {
-	return {
-		type: 'actions',
-		elements: [
-			{
-				type: 'button',
-				text: {
-					type: 'plain_text',
-					text: 'Stop Generation',
-					emoji: true,
-				},
-				style: 'primary',
-				action_id: 'stop_generation',
-			},
-		],
-	};
+import { ToolCallEntry } from '../types/slack';
+
+const TOOL_LIVE_LABELS: Record<string, (input: Record<string, string>) => string> = {
+	'tool-read': (input) => `_reading **${input['file_path'] ?? '...'}**_`,
+	'tool-search': (input) => `_searching **${input['pattern'] ?? '...'}**_`,
+	'tool-grep': (input) => `_grepping **${input['pattern'] ?? '...'}**_`,
+	'tool-list': (input) => `_listing **${input['path'] ?? '...'}**_`,
+	'tool-execute_sql': (input) => `_executing **${input['query'] ?? 'SQL query'}**_`,
 };
 
-export const createImageBlock = (imageUrl: string): ImageBlock => ({
-	type: 'image',
-	image_url: imageUrl,
-	alt_text: 'chart',
+export const createLiveToolCall = (toolGroup: Map<string, ToolCallEntry>): CardChild => {
+	const lines = [...toolGroup.values()].map(
+		(entry) => TOOL_LIVE_LABELS[entry.type]?.(entry.input) ?? `_${entry.type}_`,
+	);
+	return CardText(lines.join('\n'));
+};
+
+export const createSummaryToolCalls = (toolGroup: Map<string, ToolCallEntry>): CardChild => {
+	const countByType = new Map<string, number>();
+	for (const entry of toolGroup.values()) {
+		countByType.set(entry.type, (countByType.get(entry.type) ?? 0) + 1);
+	}
+	const parts = [...countByType.entries()].map(([type, count]) => {
+		const noun = TOOL_LABELS[type] ?? type.replace('tool-', '');
+		return `**${count} ${pluralize(noun, count)}**`;
+	});
+	return CardText(`Explored ${parts.join(', ')}`);
+};
+
+export const FEEDBACK_MODAL_CALLBACK_ID = 'feedback_negative_modal';
+
+export const createFeedbackModal = (): ModalElement => ({
+	type: 'modal',
+	callbackId: FEEDBACK_MODAL_CALLBACK_ID,
+	title: 'What went wrong?',
+	submitLabel: 'Submit',
+	children: [
+		{
+			type: 'text_input',
+			id: 'explanation',
+			label: 'Help us improve by explaining what was wrong with this response.',
+			placeholder: 'Tell us what could be better',
+			multiline: true,
+			optional: true,
+		},
+	],
 });
 
-export const createTextBlock = (text: string): MarkdownBlock => ({
-	type: 'markdown',
-	text: text,
-});
+export const createStopButtonCard = (): CardElement =>
+	Card({
+		children: [Actions([Button({ id: 'stop_generation', label: 'Stop Generation', style: 'primary' })])],
+	});
+
+export const createCompletionCard = (chatUrl: string, vote?: 'up' | 'down'): CardElement =>
+	Card({
+		children: [
+			Actions([
+				LinkButton({ url: chatUrl, label: 'Open in nao' }),
+				Button({ id: 'feedback_positive', label: '👍', style: vote === 'up' ? 'primary' : 'default' }),
+				Button({ id: 'feedback_negative', label: '👎', style: vote === 'down' ? 'primary' : 'default' }),
+			]),
+		],
+	});
+
+export const createTextBlock = (text: string): CardChild => {
+	return CardText(text);
+};
+
+export const createImageBlock = (url: string): CardChild => {
+	return Image({ url, alt: 'image' });
+};
+
+export const escapeCsvCell = (value: unknown): string => {
+	const str = value === null || value === undefined ? '' : String(value);
+	const sanitized = /^[=+\-@]/.test(str.trimStart()) ? `'${str}` : str;
+	return /[,"\n]/.test(sanitized) ? `"${sanitized.replace(/"/g, '""')}"` : sanitized;
+};

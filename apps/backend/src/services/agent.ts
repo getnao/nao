@@ -16,7 +16,7 @@ import { CACHE_1H, CACHE_5M } from '../agents/providers';
 import { ProviderModelResult } from '../agents/providers';
 import { getTools } from '../agents/tools';
 import { getConnections, getUserRules } from '../agents/user-rules';
-import { SystemPrompt } from '../components/ai';
+import { SlackSystemPrompt, SystemPrompt } from '../components/ai';
 import { DBChat } from '../db/abstractSchema';
 import { renderToMarkdown } from '../lib/markdown';
 import * as chatQueries from '../queries/chat.queries';
@@ -32,7 +32,7 @@ import { getDefaultModelId, getEnvModelSelections, ModelSelection, resolveProvid
 import { truncateMiddle } from '../utils/utils';
 import { compactionService } from './compaction';
 import { memoryService } from './memory';
-import { skillService } from './skill.service';
+import { skillService } from './skill';
 
 export type { ModelSelection };
 
@@ -198,6 +198,7 @@ class AgentManager {
 		opts: {
 			events?: Partial<MessageCustomDataParts>;
 			mentions?: Mention[];
+			isSlack?: boolean;
 		} = {},
 	): ReadableStream<InferUIMessageChunk<UIMessage>> {
 		let error: unknown = undefined;
@@ -221,7 +222,7 @@ class AgentManager {
 				}
 
 				this._streamWriter = writer;
-				const messages = await this._buildModelMessages(uiMessages, opts.mentions);
+				const messages = await this._buildModelMessages(uiMessages, opts.mentions, opts.isSlack);
 
 				result = await this._agent.stream({
 					messages,
@@ -264,7 +265,11 @@ class AgentManager {
 	/**
 	 * Prepares the UI messages and builds them into model messages with memory and compaction summary.
 	 */
-	private async _buildModelMessages(uiMessages: UIMessage[], mentions?: Mention[]): Promise<ModelMessage[]> {
+	private async _buildModelMessages(
+		uiMessages: UIMessage[],
+		mentions?: Mention[],
+		isSlack?: boolean,
+	): Promise<ModelMessage[]> {
 		const uiMessagesWithStories = await this._syncStoryToolOutputs(uiMessages);
 		const uiMessagesWithSkills = this._addSkills(uiMessagesWithStories, mentions);
 		const uiMessagesWithCompaction = compactionService.useLastCompaction(uiMessagesWithSkills);
@@ -273,7 +278,8 @@ class AgentManager {
 		const userRules = getUserRules();
 		const connections = getConnections();
 		const skills = skillService.getSkills();
-		const systemPrompt = renderToMarkdown(SystemPrompt({ memories, userRules, connections, skills }));
+		const basePrompt = renderToMarkdown(SystemPrompt({ memories, userRules, connections, skills }));
+		const systemPrompt = isSlack ? renderToMarkdown(SlackSystemPrompt({ basePrompt })) : basePrompt;
 
 		const systemMessage: Omit<UIMessage, 'id'> = {
 			role: 'system',

@@ -12,13 +12,7 @@ interface SlackConfigSectionProps {
 	isAdmin: boolean;
 }
 
-function SlackAppConfigUrls({
-	eventSubscriptionUrl,
-	interactivityUrl,
-}: {
-	eventSubscriptionUrl: string;
-	interactivityUrl: string;
-}) {
+function SlackAppConfigUrls({ slackWebhookUrl }: { slackWebhookUrl: string }) {
 	const [appId, setAppId] = useState('');
 
 	const slackEventSubscriptionsUrl = appId ? `https://api.slack.com/apps/${appId}/event-subscriptions?` : '';
@@ -67,13 +61,17 @@ function SlackAppConfigUrls({
 
 			<div className='grid gap-3'>
 				<div>
-					<CopyableUrl label='Event Subscriptions → Request URL' url={eventSubscriptionUrl} />
+					<CopyableUrl
+						label='Request URL (for both Event Subscriptions and Interactivity)'
+						url={slackWebhookUrl}
+					/>
 					<p className='mt-1.5 text-[11px] text-muted-foreground leading-relaxed'>
 						In Event Subscriptions, enable events and subscribe to bot events:{' '}
 						<code className='px-1 py-0.5 bg-muted rounded text-[10px] font-semibold'>app_mention</code>
+						<br />
+						Use the same URL above for both Event Subscriptions and Interactivity & Shortcuts request URLs.
 					</p>
 				</div>
-				<CopyableUrl label='Interactivity & Shortcuts → Request URL' url={interactivityUrl} />
 			</div>
 		</div>
 	);
@@ -90,8 +88,7 @@ export function SlackConfigSection({ isAdmin }: SlackConfigSectionProps) {
 
 	const baseUrl = slackConfig.data?.redirectUrl || window.location.origin;
 	const projectId = slackConfig.data?.projectId;
-	const eventSubscriptionUrl = projectId ? `${baseUrl}/api/slack/events/${projectId}/app_mention` : '';
-	const interactivityUrl = projectId ? `${baseUrl}/api/slack/events/${projectId}/interactions` : '';
+	const slackWebhookUrl = projectId ? `${baseUrl}/api/webhooks/slack/${projectId}` : '';
 
 	const projectConfig = slackConfig.data?.projectConfig;
 	const hasEnvConfig = slackConfig.data?.hasEnvConfig ?? false;
@@ -184,8 +181,8 @@ export function SlackConfigSection({ isAdmin }: SlackConfigSectionProps) {
 			)}
 
 			{/* Slack App Setup URLs - shown when Slack is configured */}
-			{(hasEnvConfig || projectConfig) && !isEditing && eventSubscriptionUrl && (
-				<SlackAppConfigUrls eventSubscriptionUrl={eventSubscriptionUrl} interactivityUrl={interactivityUrl} />
+			{(hasEnvConfig || projectConfig) && !isEditing && slackWebhookUrl && (
+				<SlackAppConfigUrls slackWebhookUrl={slackWebhookUrl} />
 			)}
 
 			{/* Add/Edit config form (admin only) */}

@@ -94,6 +94,7 @@ const aggregateChatMessagParts = (
 					role: row.chat_message.role,
 					parts: [uiPart],
 					feedback: row.message_feedback ?? undefined,
+					source: row.chat_message.source ?? undefined,
 				};
 			}
 			return acc;
@@ -201,6 +202,7 @@ export const createChat = async (
 	newChat: NewChat,
 	newUserMessage: {
 		text: string;
+		source?: 'slack' | 'web';
 	},
 ): Promise<[DBChat, DBChatMessage]> => {
 	return db.transaction(async (t): Promise<[DBChat, DBChatMessage]> => {
@@ -211,6 +213,7 @@ export const createChat = async (
 			.values({
 				chatId: savedChat.id,
 				role: 'user',
+				source: newUserMessage.source,
 			})
 			.returning()
 			.execute();
@@ -245,6 +248,7 @@ export const upsertMessage = async (
 				errorMessage: getErrorMessage(message.error),
 				llmProvider: message.llmProvider,
 				llmModelId: message.llmModelId,
+				source: message.source,
 				...message.tokenUsage,
 			})
 			.onConflictDoNothing({ target: s.chatMessage.id })
@@ -290,6 +294,23 @@ export const getOwnerOfChatAndMessage = async (chatId: string, messageId: string
 		.execute();
 
 	return result?.userId;
+};
+
+export const getLastAssistantMessageId = async (chatId: string): Promise<string | null> => {
+	const [result] = await db
+		.select({ id: s.chatMessage.id })
+		.from(s.chatMessage)
+		.where(
+			and(
+				eq(s.chatMessage.chatId, chatId),
+				isNull(s.chatMessage.supersededAt),
+				eq(s.chatMessage.role, 'assistant'),
+			),
+		)
+		.orderBy(desc(s.chatMessage.createdAt))
+		.limit(1)
+		.execute();
+	return result?.id ?? null;
 };
 
 export const getChatBySlackThread = async (threadId: string): Promise<{ id: string; title: string } | null> => {

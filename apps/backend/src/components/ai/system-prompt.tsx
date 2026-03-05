@@ -1,5 +1,5 @@
 import { Block, Bold, Br, Italic, Link, List, ListItem, Location, Span, Title } from '../../lib/markdown';
-import type { Skill } from '../../services/skill.service';
+import type { Skill } from '../../services/skill';
 import { tokenCounter } from '../../services/token-counter';
 import type { UserMemory } from '../../types/memory';
 import { MEMORY_CATEGORIES, MemoryCategory } from '../../types/memory';
