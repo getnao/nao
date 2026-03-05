@@ -145,8 +145,8 @@
     {
       "idx": 20,
       "version": "7",
-      "when": 1772641123711,
-      "tag": "0020_add_source_chat_message",
+      "when": 1772650051523,
+      "tag": "0020_bedrock_fields",
       "breakpoints": true
     }
   ]

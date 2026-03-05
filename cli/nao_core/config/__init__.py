@@ -12,7 +12,7 @@ from .databases import (
     TrinoConfig,
 )
 from .exceptions import InitError
-from .llm import LLMConfig, LLMProvider
+from .llm import PROVIDER_AUTH, LLMConfig, LLMProvider, ProviderAuthConfig
 from .slack import SlackConfig
 
 __all__ = [
@@ -30,6 +30,8 @@ __all__ = [
     "DatabaseType",
     "LLMConfig",
     "LLMProvider",
+    "PROVIDER_AUTH",
+    "ProviderAuthConfig",
     "SlackConfig",
     "InitError",
 ]

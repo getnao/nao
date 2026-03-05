@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "6136d3ed-b9a2-4d4d-8f70-8f47c17ecb40",
+  "id": "fae5b643-36e2-4741-89b8-bd1819ffb0ad",
   "prevId": "42ad1c6e-3406-4133-86b2-b8f47e4cd5f5",
   "tables": {
     "account": {
@@ -294,13 +294,6 @@
         "superseded_at": {
           "name": "superseded_at",
           "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "source": {
-          "name": "source",
-          "type": "text",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -1321,6 +1314,13 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false
+        },
+        "credentials": {
+          "name": "credentials",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         },
         "enabled_models": {

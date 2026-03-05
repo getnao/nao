@@ -1,5 +1,5 @@
 {
-  "id": "8420165d-31ad-4476-a6c9-e9dd0e275a8c",
+  "id": "27f2a405-a21c-4547-8c13-6ce3f5e7d10c",
   "prevId": "975c2acb-d086-44b2-9654-e268a73e0d4d",
   "version": "7",
   "dialect": "postgresql",
@@ -306,12 +306,6 @@
         "superseded_at": {
           "name": "superseded_at",
           "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "source": {
-          "name": "source",
-          "type": "text",
           "primaryKey": false,
           "notNull": false
         },
@@ -1372,6 +1366,12 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "credentials": {
+          "name": "credentials",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
         },
         "enabled_models": {
           "name": "enabled_models",

@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import {
+	CodeIcon,
 	CreditCardIcon,
 	MessageSquareIcon,
 	MessageSquarePlusIcon,
@@ -79,6 +80,14 @@ export function CommandMenu() {
 				icon: SettingsIcon,
 				action: () => navigate({ to: '/settings/project' }),
 				group: 'Jump to',
+			},
+			{
+				id: 'open-llm-provider-settings',
+				label: 'Open LLM Provider Settings',
+				icon: CodeIcon,
+				action: () => navigate({ to: '/settings/project/models' }),
+				group: 'Jump to',
+				visible: project.data?.userRole === 'admin',
 			},
 			{
 				id: 'open-usage',
