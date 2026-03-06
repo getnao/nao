@@ -49,7 +49,7 @@ code {
 	--color-muted: var(--muted);
 	--color-muted-foreground: var(--muted-foreground);
 	--color-accent: var(--accent);
-	--color-accent-: var(--accent-foreground);
+	--color-accent-foreground: var(--accent-foreground);
 	--color-destructive: var(--destructive);
 	--color-border: var(--border);
 	--color-input: var(--input);

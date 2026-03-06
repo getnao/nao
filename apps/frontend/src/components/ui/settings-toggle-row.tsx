@@ -20,7 +20,7 @@ export function SettingsControlRow({ id, label, description, control, className 
 				) : (
 					<p className='text-sm font-medium text-foreground h-5'>{label}</p>
 				)}
-				<p className='text-xs text-muted-foreground'>{description}</p>
+				<div className='text-xs text-muted-foreground'>{description}</div>
 			</div>
 			{control}
 		</div>

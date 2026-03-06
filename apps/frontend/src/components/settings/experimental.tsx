@@ -78,6 +78,7 @@ export function SettingsExperimental({ isAdmin }: SettingsExperimentalProps) {
 						<a
 							href='https://github.com/boxlite-ai/boxlite'
 							target='_blank'
+							rel='noopener noreferrer'
 							className='text-primary hover:text-primary/80 underline font-medium'
 						>
 							Boxlite

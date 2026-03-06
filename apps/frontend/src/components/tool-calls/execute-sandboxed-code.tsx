@@ -74,15 +74,15 @@ export const ExecuteSandboxedCodeToolCall = ({
 		>
 			{viewMode === 'code' ? (
 				<div className='overflow-auto max-h-80'>
-					{(packages?.length || dataFiles?.length) && (
+					{!!(packages?.length || dataFiles?.length) && (
 						<div className='flex flex-wrap gap-2 px-3 py-2 border-b border-border text-xs text-foreground/60'>
-							{packages?.length && (
+							{!!packages?.length && (
 								<span className='flex items-center gap-1'>
 									<Package size={10} />
 									{packages.join(', ')}
 								</span>
 							)}
-							{dataFiles?.length && (
+							{!!dataFiles?.length && (
 								<span className='flex items-center gap-1'>
 									<Database size={10} />
 									{dataFiles.map((f) => f?.filename).join(', ')}
