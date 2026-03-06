@@ -33,7 +33,10 @@ function evictSandbox(id: string) {
 	}
 	clearTimeout(entry.timeout);
 	sandboxPool.delete(id);
-	entry.box.stop().catch(() => {});
+	// Do NOT call box.stop() — boxlite v0.3.0 has a bug where stopping a box
+	// corrupts the runtime, causing all subsequent box creations to fail with
+	// "received unexpected message: InitReady, expected: IntermediateReady(0)".
+	// The runtime will clean up the VM resources when the box is GC'd.
 }
 
 function resetSandboxTTL(id: string) {
@@ -85,15 +88,11 @@ async function getOrCreateSandbox(
 	const { CodeBox: CodeBoxClass } = boxliteModule!;
 	const resources = schemas.VM_SIZE_SPECS[vmSize];
 
-	const isDocker = process.env.DOCKER === '1' || process.env.container === 'docker';
 	const box = new CodeBoxClass({
 		image,
 		...resources,
 		workingDir: WORKING_DIR,
-		security: {
-			networkEnabled: true,
-			jailerEnabled: !isDocker,
-		},
+		security: { networkEnabled: true },
 	});
 
 	const id = registerSandbox(box);
