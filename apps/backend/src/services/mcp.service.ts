@@ -198,7 +198,7 @@ export class McpService {
 			const toolName = tool.name.startsWith(serverName) ? tool.name : prefixToolName(serverName, tool.name);
 			this._mcpTools[toolName] = {
 				description: tool.description,
-				inputSchema: jsonSchema(tool.inputSchema as JSONSchema7),
+				inputSchema: jsonSchema(tool.inputSchema as JSONSchema7) as unknown as Tool['inputSchema'],
 				execute: async (toolArgs: Record<string, unknown>) => {
 					return await this._callTool(toolName, toolArgs);
 				},
