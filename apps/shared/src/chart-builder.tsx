@@ -122,9 +122,14 @@ function KpiCard({ value, displayName }: { value: unknown; displayName: string }
 	}
 
 	return (
-		<div className='min-w-[140px] p-4 rounded-lg border bg-white shadow-sm'>
-			<div className='text-sm text-gray-500'>{displayName}</div>
-			<div className='text-2xl font-semibold mt-1'>{formattedValue}</div>
+		<div className='min-w-[160px] p-6 rounded-xl border shadow'>
+			<div className='flex gap-2'>
+				<div className='flex gap-1'>
+					<div className='border-l-4'></div>
+					<div className='text-3xl font-bold'>{formattedValue}</div>
+				</div>
+				<div className='text-xs uppercase tracking-wide mt-3'>{displayName}</div>
+			</div>
 		</div>
 	);
 }
