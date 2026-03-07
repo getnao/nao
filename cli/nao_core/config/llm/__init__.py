@@ -146,7 +146,7 @@ class LLMConfig(BaseModel):
         if prompt_annotation_model:
             annotation_model = ask_text(
                 "Model to use for ai_summary generation (prompt helper):",
-                default=DEFAULT_ANNOTATION_MODELS.get(provider),
+                default=DEFAULT_ANNOTATION_MODELS[provider],
             )
 
         config = LLMConfig(
