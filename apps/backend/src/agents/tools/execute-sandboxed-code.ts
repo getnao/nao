@@ -88,11 +88,15 @@ async function getOrCreateSandbox(
 	const { CodeBox: CodeBoxClass } = boxliteModule!;
 	const resources = schemas.VM_SIZE_SPECS[vmSize];
 
+	const isDocker = process.env.DOCKER === '1' || process.env.container === 'docker';
 	const box = new CodeBoxClass({
 		image,
 		...resources,
 		workingDir: WORKING_DIR,
-		security: { networkEnabled: true },
+		security: {
+			networkEnabled: true,
+			jailerEnabled: !isDocker,
+		},
 	});
 
 	const id = registerSandbox(box);
