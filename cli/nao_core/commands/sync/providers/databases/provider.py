@@ -18,6 +18,7 @@ from rich.progress import (
 from nao_core.commands.sync.cleanup import DatabaseSyncState, cleanup_stale_databases, cleanup_stale_paths
 from nao_core.config import AnyDatabaseConfig, NaoConfig
 from nao_core.config.databases.base import DatabaseConfig
+from nao_core.config.llm import LLMConfig
 from nao_core.templates.engine import get_template_engine
 
 from ..base import SyncProvider, SyncResult
@@ -49,9 +50,10 @@ def sync_database(
     base_path: Path,
     progress: Progress,
     project_path: Path | None = None,
+    llm_config: LLMConfig | None = None,
 ) -> DatabaseSyncState:
     """Sync a single database by rendering all database templates for each table."""
-    engine = get_template_engine(project_path)
+    engine = get_template_engine(project_path, llm_config=llm_config)
     templates = _filter_templates_by_accessor(engine.list_templates(TEMPLATE_PREFIX), db_config)
 
     t_connect = time.monotonic()
@@ -177,6 +179,9 @@ def sync_database(
 class DatabaseSyncProvider(SyncProvider):
     """Provider for syncing database schemas to markdown documentation."""
 
+    def __init__(self) -> None:
+        self._llm_config: LLMConfig | None = None
+
     @property
     def name(self) -> str:
         return "Databases"
@@ -190,6 +195,7 @@ class DatabaseSyncProvider(SyncProvider):
         return "databases"
 
     def pre_sync(self, config: NaoConfig, output_path: Path) -> None:
+        self._llm_config = config.llm
         cleanup_stale_databases(config.databases, output_path, verbose=True)
 
     def get_items(self, config: NaoConfig) -> list[AnyDatabaseConfig]:
@@ -227,7 +233,7 @@ class DatabaseSyncProvider(SyncProvider):
         ) as progress:
             for db in items:
                 try:
-                    state = sync_database(db, output_path, progress, project_path)
+                    state = sync_database(db, output_path, progress, project_path, self._llm_config)
                     sync_states.append(state)
                     total_datasets += state.schemas_synced
                     total_tables += state.tables_synced

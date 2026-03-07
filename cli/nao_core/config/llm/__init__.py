@@ -57,6 +57,17 @@ PROVIDER_AUTH: dict[LLMProvider, ProviderAuthConfig] = {
 }
 
 
+DEFAULT_ANNOTATION_MODELS: dict[LLMProvider, str] = {
+    LLMProvider.OPENAI: "gpt-4.1-mini",
+    LLMProvider.ANTHROPIC: "claude-3-5-sonnet-latest",
+    LLMProvider.MISTRAL: "mistral-small-latest",
+    LLMProvider.GEMINI: "gemini-2.0-flash",
+    LLMProvider.OPENROUTER: "openai/gpt-4.1-mini",
+    LLMProvider.OLLAMA: "llama3.2",
+    LLMProvider.BEDROCK: "anthropic.claude-3-5-sonnet-20241022-v2:0",
+}
+
+
 class LLMConfig(BaseModel):
     """LLM configuration."""
 
@@ -65,6 +76,10 @@ class LLMConfig(BaseModel):
     base_url: str | None = Field(default=None, description="Optional custom base URL for the provider API")
     access_key: str | None = Field(default=None, description="AWS access key (only for Bedrock)")
     secret_key: str | None = Field(default=None, description="AWS secret key (only for Bedrock)")
+    annotation_model: str | None = Field(
+        default=None,
+        description="Model to use for ai_summary generation via prompt(...) in Jinja templates",
+    )
 
     @property
     def requires_api_key(self) -> bool:
@@ -83,10 +98,15 @@ class LLMConfig(BaseModel):
         auth = PROVIDER_AUTH[self.provider]
         if auth.api_key == "required" and not self.api_key:
             raise ValueError(f"api_key is required for provider {self.provider.value}")
+
+        if not self.annotation_model:
+            default_annotation_model = DEFAULT_ANNOTATION_MODELS.get(self.provider)
+            if default_annotation_model:
+                self.annotation_model = default_annotation_model
         return self
 
     @classmethod
-    def promptConfig(cls) -> "LLMConfig":
+    def promptConfig(cls, *, prompt_annotation_model: bool = True) -> "LLMConfig":
         """Interactively prompt the user for LLM configuration."""
         provider_choices = [
             questionary.Choice("OpenAI (GPT-4, GPT-3.5)", value="openai"),
@@ -121,9 +141,25 @@ class LLMConfig(BaseModel):
             elif bedrock_auth_mode == "bearer":
                 api_key = ask_text("Enter AWS bearer token:", password=True, required_field=True)
 
-        return LLMConfig(
-            provider=LLMProvider(llm_provider),
+        provider = LLMProvider(llm_provider)
+        annotation_model: str | None = None
+        if prompt_annotation_model:
+            annotation_model = ask_text(
+                "Model to use for ai_summary generation (prompt helper):",
+                default=DEFAULT_ANNOTATION_MODELS.get(provider),
+            )
+
+        config = LLMConfig(
+            provider=provider,
             api_key=api_key,
             access_key=access_key,
             secret_key=secret_key,
+            annotation_model=annotation_model,
         )
+
+        # Keep annotation model out of config unless ai_summary is enabled.
+        # The default is still applied when needed during runtime/validation.
+        if not prompt_annotation_model:
+            config.annotation_model = None
+
+        return config
