@@ -1,7 +1,8 @@
 """Unit tests for LLM configuration."""
 
-import pytest
 from unittest.mock import patch
+
+import pytest
 
 from nao_core.config.llm import DEFAULT_ANNOTATION_MODELS, LLMConfig, LLMProvider
 

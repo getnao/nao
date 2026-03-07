@@ -1,9 +1,9 @@
 import os
 from unittest.mock import patch
 
-from nao_core.config.llm import LLMConfig, LLMProvider
 from nao_core.config.base import NaoConfig
 from nao_core.config.databases.duckdb import DuckDBConfig
+from nao_core.config.llm import LLMConfig, LLMProvider
 
 
 def test_env_var_replacement():
