@@ -16,7 +16,7 @@ export default tool<displayChart.Input, displayChart.Output>({
 
 		// Validate pie charts have exactly one series
 		if (chartType === 'pie' && series.length !== 1) {
-			return { _version: '1', success: false, error: `${chartType} charts require exactly one series.` };
+			return { _version: '1', success: false, error: 'Pie charts require exactly one series.' };
 		}
 
 		// Validate series is not empty

@@ -170,7 +170,6 @@ export const DisplayChartToolCall = ({
 	};
 
 	return (
-		// aspect-3/2
 		<div
 			className={`flex flex-col items-center my-4 gap-2 ${config.chart_type !== 'kpi_card' ? 'aspect-3/2' : ''}`}
 		>
