@@ -17,6 +17,7 @@ class DatabaseType(str, Enum):
     BIGQUERY = "bigquery"
     DUCKDB = "duckdb"
     DATABRICKS = "databricks"
+    FABRIC = "fabric"
     SNOWFLAKE = "snowflake"
     MSSQL = "mssql"
     POSTGRES = "postgres"
@@ -79,7 +80,8 @@ class DatabaseConfig(BaseModel, ABC):
                 return cursor.to_dataframe()
 
             columns: list[str] = [desc[0] for desc in cursor.description]
-            return pd.DataFrame(cursor.fetchall(), columns=columns)  # type: ignore[arg-type]
+            rows = [list(row) for row in cursor.fetchall()]
+            return pd.DataFrame(rows, columns=columns)  # type: ignore[arg-type]
         finally:
             conn.disconnect()
 
