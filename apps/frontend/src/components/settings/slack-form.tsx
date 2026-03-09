@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useForm } from '@tanstack/react-form';
 import { ExternalLink, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -86,6 +86,14 @@ function normalizeUrl(value: string): string {
 
 export function SlackForm({ projectId, redirectUrl, hasProjectConfig, onSubmit, onCancel, isPending }: SlackFormProps) {
 	const [deploymentUrl, setDeploymentUrl] = useState(redirectUrl ?? '');
+
+	useEffect(() => {
+		if (redirectUrl) {
+			setDeploymentUrl(redirectUrl);
+		}
+	}, [redirectUrl]);
+
+	console.log('Current deploymentUrl state:', deploymentUrl);
 
 	const form = useForm({
 		defaultValues: { botToken: '', signingSecret: '' },

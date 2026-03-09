@@ -41,8 +41,6 @@ docker run -d \
 | `ANTHROPIC_API_KEY`        | No\*     | Anthropic API key                                     |
 | `BETTER_AUTH_SECRET`       | No       | Secret key for authentication                         |
 | `DB_URI`                   | No       | PostgreSQL connection string (uses SQLite if not set) |
-| `SLACK_BOT_TOKEN`          | No       | Slack bot token for Slack integration                 |
-| `SLACK_SIGNING_SECRET`     | No       | Slack signing secret                                  |
 | `SERVER_PORT`              | No       | Port to listen to                                     |
 
 \* At least one LLM API key is required to make AI queries.

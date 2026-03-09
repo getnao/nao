@@ -3,7 +3,13 @@ import { useQuery } from '@tanstack/react-query';
 import { cn, hideIf } from '@/lib/utils';
 import { trpc } from '@/main';
 
-const settingsNavItems = [
+interface NavItem {
+	label: string;
+	to: string;
+	visible?: (userRole?: string | null) => boolean;
+}
+
+const settingsNavItems: NavItem[] = [
 	{
 		label: 'General',
 		to: '/settings/general',
@@ -19,7 +25,7 @@ const settingsNavItems = [
 	{
 		label: 'Usage & costs',
 		to: '/settings/usage',
-		visible: 'admin',
+		visible: (userRole) => userRole === 'admin',
 	},
 ];
 
@@ -30,7 +36,7 @@ interface SidebarSettingsNavProps {
 export function SidebarSettingsNav({ isCollapsed }: SidebarSettingsNavProps) {
 	const project = useQuery(trpc.project.getCurrent.queryOptions());
 	const userRole = project.data?.userRole;
-	const visibleSettings = settingsNavItems.filter((item) => !item.visible || item.visible === userRole);
+	const visibleSettings = settingsNavItems.filter((item) => !item.visible || item.visible(userRole));
 
 	return (
 		<nav className={cn('flex flex-col gap-1 px-2', hideIf(isCollapsed))}>

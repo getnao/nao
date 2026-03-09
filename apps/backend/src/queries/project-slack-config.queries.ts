@@ -3,14 +3,22 @@ import { eq } from 'drizzle-orm';
 import s, { DBProject } from '../db/abstractSchema';
 import { db } from '../db/db';
 import { env } from '../env';
-import { LlmProvider } from '../types/llm';
+import { LlmProvider, llmProviderSchema, ModelSelection } from '../types/llm';
+
+function toModelSelection(provider: string | null, modelId: string | null): ModelSelection | undefined {
+	if (!provider || !modelId) {
+		return undefined;
+	}
+	const parsed = llmProviderSchema.safeParse(provider);
+	return parsed.success ? { provider: parsed.data, modelId } : undefined;
+}
 
 export const getProjectSlackConfig = async (
 	projectId: string,
 ): Promise<{
 	botToken: string;
 	signingSecret: string;
-	modelSelection?: { provider: LlmProvider; modelId: string };
+	modelSelection?: ModelSelection;
 } | null> => {
 	const [project] = await db.select().from(s.project).where(eq(s.project.id, projectId)).execute();
 
@@ -21,10 +29,7 @@ export const getProjectSlackConfig = async (
 	return {
 		botToken: project.slackBotToken,
 		signingSecret: project.slackSigningSecret,
-		modelSelection:
-			project.slackllmProvider && project.slackllmModelId
-				? { provider: project.slackllmProvider as LlmProvider, modelId: project.slackllmModelId }
-				: undefined,
+		modelSelection: toModelSelection(project.slackllmProvider, project.slackllmModelId),
 	};
 };
 
@@ -37,7 +42,7 @@ export const upsertProjectSlackConfig = async (data: {
 }): Promise<{
 	botToken: string;
 	signingSecret: string;
-	modelSelection?: { provider: LlmProvider; modelId: string };
+	modelSelection?: ModelSelection;
 }> => {
 	const [updated] = await db
 		.update(s.project)
@@ -52,12 +57,9 @@ export const upsertProjectSlackConfig = async (data: {
 		.execute();
 
 	return {
-		botToken: updated.slackBotToken!,
-		signingSecret: updated.slackSigningSecret!,
-		modelSelection:
-			updated.slackllmProvider && updated.slackllmModelId
-				? { provider: updated.slackllmProvider as LlmProvider, modelId: updated.slackllmModelId }
-				: undefined,
+		botToken: updated.slackBotToken || '',
+		signingSecret: updated.slackSigningSecret || '',
+		modelSelection: toModelSelection(updated.slackllmProvider, updated.slackllmModelId),
 	};
 };
 
@@ -89,7 +91,7 @@ export interface SlackConfig {
 	botToken: string;
 	signingSecret: string;
 	redirectUrl: string;
-	modelSelection?: { provider: LlmProvider; modelId: string };
+	modelSelection?: ModelSelection;
 }
 
 /**
@@ -121,10 +123,7 @@ export async function getSlackConfig(): Promise<SlackConfig | null> {
 		botToken,
 		signingSecret,
 		redirectUrl,
-		modelSelection:
-			project.slackllmProvider && project.slackllmModelId
-				? { provider: project.slackllmProvider as LlmProvider, modelId: project.slackllmModelId }
-				: undefined,
+		modelSelection: toModelSelection(project.slackllmProvider, project.slackllmModelId),
 	};
 }
 

@@ -65,6 +65,7 @@ export const projectRoutes = {
 				z.object({
 					provider: llmProviderSchema,
 					modelId: z.string(),
+					name: z.string(),
 				}),
 			),
 		)
@@ -191,7 +192,7 @@ export const projectRoutes = {
 			};
 		}),
 
-	updateSlackModel: adminProtectedProcedure
+	updateSlackModelConfig: adminProtectedProcedure
 		.input(
 			z.object({
 				modelProvider: llmProviderSchema.optional(),

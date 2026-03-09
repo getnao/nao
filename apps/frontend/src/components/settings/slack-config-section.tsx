@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Pencil, Trash2 } from 'lucide-react';
 import { SlackForm } from './slack-form';
-import type ChatSelectedModel from '@/types/ai';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { LlmProviderIcon } from '@/components/ui/llm-provider-icon';
@@ -17,10 +16,10 @@ export function SlackConfigSection({ isAdmin }: SlackConfigSectionProps) {
 	const queryClient = useQueryClient();
 	const slackConfig = useQuery(trpc.project.getSlackConfig.queryOptions());
 	const { data: availableModels } = useQuery(trpc.project.getAvailableModels.queryOptions());
-	const { data: knownModels } = useQuery(trpc.project.getKnownModels.queryOptions());
 
 	const [isEditing, setIsEditing] = useState(false);
-	const [selectedModel, setSelectedModel] = useState<ChatSelectedModel | null>(null);
+	type AvailableModel = NonNullable<typeof availableModels>[number];
+	const [selectedModel, setSelectedModel] = useState<AvailableModel | null>(null);
 
 	const projectId = slackConfig.data?.projectId;
 	const projectConfig = slackConfig.data?.projectConfig;
@@ -31,14 +30,14 @@ export function SlackConfigSection({ isAdmin }: SlackConfigSectionProps) {
 			return;
 		}
 		const persisted = projectConfig?.modelSelection;
-		const isValid =
+		const match =
 			persisted &&
-			availableModels.some((m) => m.provider === persisted.provider && m.modelId === persisted.modelId);
-		setSelectedModel(isValid ? persisted : availableModels[0]);
+			availableModels.find((m) => m.provider === persisted.provider && m.modelId === persisted.modelId);
+		setSelectedModel(match || availableModels[0]);
 	}, [availableModels, projectConfig]);
 
 	const upsertSlackConfig = useMutation(trpc.project.upsertSlackConfig.mutationOptions());
-	const updateSlackModel = useMutation(trpc.project.updateSlackModel.mutationOptions());
+	const updateSlackModel = useMutation(trpc.project.updateSlackModelConfig.mutationOptions());
 	const deleteSlackConfig = useMutation(trpc.project.deleteSlackConfig.mutationOptions());
 
 	const handleSubmit = async (values: { botToken: string; signingSecret: string }) => {
@@ -57,7 +56,11 @@ export function SlackConfigSection({ isAdmin }: SlackConfigSectionProps) {
 	};
 
 	const handleStartEditing = () => {
-		setSelectedModel(projectConfig?.modelSelection ?? null);
+		const persisted = projectConfig?.modelSelection;
+		const match =
+			persisted &&
+			availableModels?.find((m) => m.provider === persisted.provider && m.modelId === persisted.modelId);
+		setSelectedModel(match || (availableModels?.[0] ?? null));
 		setIsEditing(true);
 	};
 
@@ -73,11 +76,6 @@ export function SlackConfigSection({ isAdmin }: SlackConfigSectionProps) {
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 		[availableModels, queryClient],
 	);
-
-	const getModelDisplayName = (provider: string, modelId: string) => {
-		const models = knownModels?.[provider as keyof typeof knownModels] ?? [];
-		return models.find((m) => m.id === modelId)?.name ?? modelId;
-	};
 
 	if (!isAdmin) {
 		return (
@@ -160,7 +158,7 @@ export function SlackConfigSection({ isAdmin }: SlackConfigSectionProps) {
 									{selectedModel && (
 										<div className='flex items-center gap-2'>
 											<LlmProviderIcon provider={selectedModel.provider} className='size-4' />
-											{getModelDisplayName(selectedModel.provider, selectedModel.modelId)}
+											{selectedModel.name}
 										</div>
 									)}
 								</SelectValue>
@@ -172,7 +170,7 @@ export function SlackConfigSection({ isAdmin }: SlackConfigSectionProps) {
 										value={`${model.provider}:${model.modelId}`}
 									>
 										<LlmProviderIcon provider={model.provider} className='size-4' />
-										{getModelDisplayName(model.provider, model.modelId)}
+										{model.name}
 									</SelectItem>
 								))}
 							</SelectContent>
@@ -181,7 +179,7 @@ export function SlackConfigSection({ isAdmin }: SlackConfigSectionProps) {
 						selectedModel && (
 							<div className='flex items-center gap-2 text-sm text-muted-foreground'>
 								<LlmProviderIcon provider={selectedModel.provider} className='size-4' />
-								<span>{getModelDisplayName(selectedModel.provider, selectedModel.modelId)}</span>
+								<span>{selectedModel.name}</span>
 							</div>
 						)
 					)}
