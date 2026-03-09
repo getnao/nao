@@ -7,6 +7,7 @@ interface SettingsCardProps {
 	description?: string;
 	action?: React.ReactNode;
 	children: React.ReactNode;
+	rootClassName?: string;
 	className?: string;
 	divide?: boolean;
 }
@@ -18,11 +19,19 @@ export function SettingsCard({
 	description,
 	action,
 	children,
+	rootClassName,
 	className,
 	divide = false,
 }: SettingsCardProps) {
 	return (
-		<div className={cn('flex flex-col', titleSize === 'lg' && 'gap-5', titleSize === 'md' && 'gap-2.5')}>
+		<div
+			className={cn(
+				'flex flex-col',
+				titleSize === 'lg' && 'gap-5',
+				titleSize === 'md' && 'gap-2.5',
+				rootClassName,
+			)}
+		>
 			{title && (
 				<div className='flex items-center justify-between'>
 					<div className='px-4 space-y-0'>

@@ -1,9 +1,9 @@
-import { and, desc, eq, isNull, sql } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 
 import s, { DBOrganization, DBOrgMember, NewOrganization, NewOrgMember } from '../db/abstractSchema';
 import { db } from '../db/db';
 import { env } from '../env';
-import { OrgChatsResponse, OrgRole } from '../types/organization';
+import { OrgRole } from '../types/organization';
 import * as projectQueries from './project.queries';
 import * as userQueries from './user.queries';
 
@@ -151,7 +151,7 @@ export const initializeDefaultOrganizationForFirstUser = async (userId: string):
 
 /**
  * Add a user to the default organization and project if they don't already exist.
- * Called when a new user signs up via Google OAuth (or other social provider).
+ * Called when a new user signs up.
  * Idempotent: safe to call multiple times for the same user.
  */
 export const addUserToDefaultProjectIfExists = async (userId: string): Promise<void> => {
@@ -225,78 +225,4 @@ export const ensureOrganizationSetup = async (): Promise<void> => {
 
 	// Assign any orphaned projects (projects without org) to the default org
 	await db.update(s.project).set({ orgId: org.id }).where(isNull(s.project.orgId)).execute();
-};
-
-export const listOrgChats = async (
-	orgId: string,
-	opts?: {
-		chatLimit?: number;
-	},
-): Promise<OrgChatsResponse> => {
-	const members = await db
-		.select({
-			id: s.user.id,
-			name: s.user.name,
-			role: s.orgMember.role,
-		})
-		.from(s.orgMember)
-		.innerJoin(s.user, eq(s.orgMember.userId, s.user.id))
-		.where(eq(s.orgMember.orgId, orgId))
-		.execute();
-
-	if (!members.length) {
-		return { chats: [] };
-	}
-
-	const chatLimit = opts?.chatLimit ?? 30;
-
-	const chatRows = await db
-		.select({
-			chatId: s.chat.id,
-			title: s.chat.title,
-			createdAt: s.chat.createdAt,
-			updatedAt: s.chat.updatedAt,
-			userId: s.user.id,
-			userName: s.user.name,
-			userRole: s.orgMember.role,
-
-			hasErrorWarning: sql<number>`
-				max(case when ${s.chatMessage.errorMessage} is not null then 1 else 0 end)
-			`.as('hasErrorWarning'),
-			hasDownvoteWarning: sql<number>`
-				max(case when ${s.messageFeedback.vote} = 'down' then 1 else 0 end)
-			`.as('hasDownvoteWarning'),
-		})
-		.from(s.chat)
-		.innerJoin(s.user, eq(s.chat.userId, s.user.id))
-		.innerJoin(s.orgMember, and(eq(s.orgMember.userId, s.user.id), eq(s.orgMember.orgId, orgId)))
-		.innerJoin(s.project, and(eq(s.chat.projectId, s.project.id), eq(s.project.orgId, orgId)))
-		.leftJoin(s.chatMessage, and(eq(s.chatMessage.chatId, s.chat.id), isNull(s.chatMessage.supersededAt)))
-		.leftJoin(s.messageFeedback, eq(s.messageFeedback.messageId, s.chatMessage.id))
-		.groupBy(s.chat.id, s.chat.title, s.chat.createdAt, s.chat.updatedAt, s.user.id, s.user.name, s.orgMember.role)
-		.orderBy(desc(s.chat.updatedAt))
-		.limit(chatLimit)
-		.execute();
-
-	return {
-		chats: chatRows.map((row) => ({
-			id: row.chatId,
-			title: row.title,
-			createdAt: row.createdAt.getTime(),
-			updatedAt: row.updatedAt.getTime(),
-			warningTypes: [
-				Number(row.hasErrorWarning ?? 0) > 0 ? 'error' : null,
-				Number(row.hasDownvoteWarning ?? 0) > 0 ? 'downvote' : null,
-			].filter((t): t is 'error' | 'downvote' => t !== null),
-			warningSummary: [
-				Number(row.hasErrorWarning ?? 0) > 0 ? 'Message error' : null,
-				Number(row.hasDownvoteWarning ?? 0) > 0 ? 'Downvoted' : null,
-			]
-				.filter((t): t is string => t !== null)
-				.join(' · '),
-			userId: row.userId,
-			userName: row.userName,
-			userRole: row.userRole,
-		})),
-	};
 };

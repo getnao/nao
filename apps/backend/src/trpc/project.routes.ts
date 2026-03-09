@@ -4,6 +4,7 @@ import { z } from 'zod/v4';
 import { getProviderAuth, KNOWN_MODELS } from '../agents/providers';
 import { getDatabaseObjects } from '../agents/user-rules';
 import { env } from '../env';
+import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import * as savedPromptQueries from '../queries/project-saved-prompt.queries';
@@ -466,5 +467,47 @@ export const projectRoutes = {
 	getMemorySettings: projectProtectedProcedure.query(async ({ ctx }) => {
 		const memoryEnabled = await projectQueries.getProjectMemoryEnabled(ctx.project.id);
 		return { memoryEnabled };
+	}),
+
+	getProjectChats: adminProtectedProcedure
+		.input(
+			z.object({
+				page: z.number().int().min(0).default(0),
+				pageSize: z.number().int().min(1).max(100).default(30),
+				search: z.string().trim().optional(),
+				filters: z
+					.array(
+						z.object({
+							id: z.enum(['userName', 'userRole', 'toolErrorCount']),
+							values: z.array(z.string()).default([]),
+						}),
+					)
+					.optional(),
+				sorting: z
+					.array(
+						z.object({
+							id: z.string(),
+							desc: z.boolean().optional(),
+						}),
+					)
+					.optional(),
+			}),
+		)
+		.query(async ({ ctx, input }) => {
+			return projectQueries.listProjectChats(ctx.project.id, input);
+		}),
+
+	getChatReplay: adminProtectedProcedure.input(z.object({ chatId: z.string() })).query(async ({ ctx, input }) => {
+		const projectId = await chatQueries.getChatProjectId(input.chatId);
+		if (!projectId || projectId !== ctx.project.id) {
+			throw new TRPCError({ code: 'NOT_FOUND', message: `Chat with id ${input.chatId} not found.` });
+		}
+
+		const [chat] = await chatQueries.loadChat(input.chatId, { includeFeedback: true });
+		if (!chat) {
+			throw new TRPCError({ code: 'NOT_FOUND', message: `Chat with id ${input.chatId} not found.` });
+		}
+
+		return chat;
 	}),
 };

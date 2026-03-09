@@ -1,6 +1,7 @@
-import { ArrowLeftFromLine, ArrowRightToLine, PlusIcon, ArrowLeft, ChevronRight, SearchIcon, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useMatchRoute, useRouterState } from '@tanstack/react-router';
+import { ArrowLeftFromLine, ArrowRightToLine, PlusIcon, ArrowLeft, ChevronRight, SearchIcon, X } from 'lucide-react';
 import { ChatList } from './sidebar-chat-list';
 import { SidebarUserMenu } from './sidebar-user-menu';
 import { SidebarSettingsNav } from './sidebar-settings-nav';
@@ -17,6 +18,8 @@ import { useSidebar } from '@/contexts/sidebar';
 import { useCommandMenuCallback } from '@/contexts/command-menu-callback';
 import { useSectionActivity } from '@/hooks/use-chat-activity';
 import NaoLogo from '@/components/icons/nao-logo.svg';
+import NaoLogoGreyscale from '@/components/icons/nao-logo-greyscale.svg';
+import { trpc } from '@/main';
 
 export function Sidebar() {
 	const chats = useChatListQuery();
@@ -24,6 +27,8 @@ export function Sidebar() {
 	const matchRoute = useMatchRoute();
 	const { isCollapsed, isMobile, isMobileOpen, closeMobile, toggle: toggleSidebar } = useSidebar();
 	const { fire: openCommandMenu } = useCommandMenuCallback();
+	const project = useQuery(trpc.project.getCurrent.queryOptions());
+	const isAdmin = project.data?.userRole === 'admin';
 
 	const locationPath = useRouterState({ select: (s) => s.location.pathname });
 	const isInSettings = matchRoute({ to: '/settings', fuzzy: true });
@@ -161,7 +166,7 @@ export function Sidebar() {
 			</div>
 
 			{isInSettings ? (
-				<SidebarSettingsNav isCollapsed={effectiveIsCollapsed} />
+				<SidebarSettingsNav isCollapsed={effectiveIsCollapsed} isAdmin={isAdmin} />
 			) : (
 				<SidebarNav chats={chats.data?.chats || []} isCollapsed={effectiveIsCollapsed} />
 			)}

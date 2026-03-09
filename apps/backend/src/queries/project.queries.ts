@@ -1,9 +1,10 @@
-import { and, eq } from 'drizzle-orm';
+import { and, asc, desc, eq, or, type SQL, sql } from 'drizzle-orm';
 
-import s, { AgentSettings, DBProject, DBProjectMember, NewProject, NewProjectMember } from '../db/abstractSchema';
+import type { AgentSettings, DBProject, DBProjectMember, NewProject, NewProjectMember } from '../db/abstractSchema';
+import s from '../db/abstractSchema';
 import { db } from '../db/db';
 import { env } from '../env';
-import { UserRole, UserWithRole } from '../types/project';
+import type { ListProjectChatsResponse, ProjectChatsFacetKey, UserRole, UserWithRole } from '../types/project';
 import { HandlerError } from '../utils/error';
 
 export const getProjectByPath = async (path: string): Promise<DBProject | null> => {
@@ -190,3 +191,288 @@ export const retrieveProjectById = async (projectId: string): Promise<DBProject>
 	}
 	return project;
 };
+
+export const listProjectChats = async (
+	projectId: string,
+	opts?: {
+		page?: number;
+		pageSize?: number;
+		search?: string;
+		filters?: { id: ProjectChatsFacetKey; values: string[] }[];
+		sorting?: { id: string; desc?: boolean }[];
+	},
+): Promise<ListProjectChatsResponse> => {
+	const page = Math.max(0, opts?.page ?? 0);
+	const pageSize = Math.min(100, Math.max(1, opts?.pageSize ?? 30));
+	const search = opts?.search?.trim() ?? '';
+	const filters = (opts?.filters ?? []).filter((f) => f.values?.length);
+	const sorting = opts?.sorting ?? [];
+
+	const numberOfMessagesExpr = sql<number>`
+		(
+			select count(*)
+			from ${s.chatMessage}
+			where ${s.chatMessage.chatId} = ${s.chat.id}
+				and ${s.chatMessage.supersededAt} is null
+		)
+	`;
+
+	const totalTokensExpr = sql<number>`
+		(
+			select coalesce(sum(${s.chatMessage.totalTokens}), 0)
+			from ${s.chatMessage}
+			where ${s.chatMessage.chatId} = ${s.chat.id}
+				and ${s.chatMessage.supersededAt} is null
+		)
+	`;
+
+	const downvotesExpr = sql<number>`
+		(
+			select count(*)
+			from ${s.messageFeedback}
+			inner join ${s.chatMessage} on ${s.chatMessage.id} = ${s.messageFeedback.messageId}
+			where ${s.chatMessage.chatId} = ${s.chat.id}
+				and ${s.chatMessage.supersededAt} is null
+				and ${s.messageFeedback.vote} = 'down'
+		)
+	`;
+
+	const upvotesExpr = sql<number>`
+		(
+			select count(*)
+			from ${s.messageFeedback}
+			inner join ${s.chatMessage} on ${s.chatMessage.id} = ${s.messageFeedback.messageId}
+			where ${s.chatMessage.chatId} = ${s.chat.id}
+				and ${s.chatMessage.supersededAt} is null
+				and ${s.messageFeedback.vote} = 'up'
+		)
+	`;
+
+	const toolErrorCountExpr = sql<number>`
+		(
+			select count(*)
+			from ${s.chatMessage}
+			inner join ${s.messagePart} on ${s.messagePart.messageId} = ${s.chatMessage.id}
+			where ${s.chatMessage.chatId} = ${s.chat.id}
+				and ${s.chatMessage.supersededAt} is null
+				and ${s.messagePart.toolState} = 'output-error'
+		)
+	`;
+
+	const toolAvailableCountExpr = sql<number>`
+		(
+			select count(*)
+			from ${s.chatMessage}
+			inner join ${s.messagePart} on ${s.messagePart.messageId} = ${s.chatMessage.id}
+			where ${s.chatMessage.chatId} = ${s.chat.id}
+				and ${s.chatMessage.supersededAt} is null
+				and ${s.messagePart.toolState} = 'output-available'
+		)
+	`;
+
+	const whereClauses = [eq(s.chat.projectId, projectId)];
+	if (search) {
+		const like = `%${search.toLowerCase()}%`;
+		whereClauses.push(sql`(lower(${s.chat.title}) like ${like} or lower(${s.user.name}) like ${like})`);
+	}
+	for (const filter of filters) {
+		if (filter.values.length === 0) {
+			continue;
+		}
+
+		if (filter.id === 'userName') {
+			const expr = or(...filter.values.map((v) => eq(s.user.name, v)));
+			if (expr) {
+				whereClauses.push(expr);
+			}
+		} else if (filter.id === 'userRole') {
+			const expr = or(...filter.values.map((v) => eq(s.projectMember.role, v as UserRole)));
+			if (expr) {
+				whereClauses.push(expr);
+			}
+		} else if (filter.id === 'toolErrorCount') {
+			const expr = or(...filter.values.map((v) => eq(toolErrorCountExpr, Number(v))));
+			if (expr) {
+				whereClauses.push(expr);
+			}
+		}
+	}
+	const where = and(...whereClauses) as SQL<unknown>;
+
+	const orderBy = buildProjectChatsOrderBy({
+		sorting,
+		numberOfMessagesExpr,
+		totalTokensExpr,
+		downvotesExpr,
+		upvotesExpr,
+		toolErrorCountExpr,
+	});
+
+	const chatRows = await db
+		.select({
+			chatId: s.chat.id,
+			updatedAt: s.chat.updatedAt,
+			userId: s.user.id,
+			userName: s.user.name,
+			userRole: s.projectMember.role,
+			title: s.chat.title,
+			numberOfMessages: numberOfMessagesExpr.as('numberOfMessages'),
+			totalTokens: totalTokensExpr.as('totalTokens'),
+			downvotes: downvotesExpr.as('downvotes'),
+			upvotes: upvotesExpr.as('upvotes'),
+			toolErrorCount: toolErrorCountExpr.as('toolErrorCount'),
+			toolAvailableCount: toolAvailableCountExpr.as('toolAvailableCount'),
+		})
+		.from(s.chat)
+		.innerJoin(s.user, eq(s.chat.userId, s.user.id))
+		.innerJoin(
+			s.projectMember,
+			and(eq(s.projectMember.userId, s.user.id), eq(s.projectMember.projectId, projectId)),
+		)
+		.where(where)
+		.orderBy(...orderBy)
+		.limit(pageSize)
+		.offset(page * pageSize)
+		.execute();
+
+	const [{ total }] = await db
+		.select({ total: sql<number>`count(*)`.as('total') })
+		.from(s.chat)
+		.innerJoin(s.user, eq(s.chat.userId, s.user.id))
+		.innerJoin(
+			s.projectMember,
+			and(eq(s.projectMember.userId, s.user.id), eq(s.projectMember.projectId, projectId)),
+		)
+		.where(where)
+		.execute();
+
+	const facets = await loadProjectChatsFacets({
+		projectId,
+		where,
+		toolErrorCountExpr,
+	});
+
+	return {
+		chats: chatRows.map((row) => ({
+			id: row.chatId,
+			updatedAt: row.updatedAt.getTime(),
+			userId: row.userId,
+			userName: row.userName,
+			userRole: row.userRole,
+			title: row.title,
+			numberOfMessages: Number(row.numberOfMessages ?? 0),
+			totalTokens: Number(row.totalTokens ?? 0),
+			downvotes: Number(row.downvotes ?? 0),
+			upvotes: Number(row.upvotes ?? 0),
+			toolErrorCount: Number(row.toolErrorCount ?? 0),
+			toolAvailableCount: Number(row.toolAvailableCount ?? 0),
+		})),
+		total: Number(total ?? 0),
+		facets,
+	};
+};
+
+function buildProjectChatsOrderBy(args: {
+	sorting: { id: string; desc?: boolean }[];
+	numberOfMessagesExpr: ReturnType<typeof sql<number>>;
+	totalTokensExpr: ReturnType<typeof sql<number>>;
+	downvotesExpr: ReturnType<typeof sql<number>>;
+	upvotesExpr: ReturnType<typeof sql<number>>;
+	toolErrorCountExpr: ReturnType<typeof sql<number>>;
+}) {
+	const { sorting, numberOfMessagesExpr, totalTokensExpr, downvotesExpr, upvotesExpr, toolErrorCountExpr } = args;
+
+	const sorters: SQL<unknown>[] = [];
+
+	for (const srt of sorting) {
+		const dir = srt.desc ? desc : asc;
+		switch (srt.id) {
+			case 'updatedAt':
+				sorters.push(dir(s.chat.updatedAt));
+				break;
+			case 'userName':
+				sorters.push(dir(s.user.name));
+				break;
+			case 'userRole':
+				sorters.push(dir(s.projectMember.role));
+				break;
+			case 'title':
+				sorters.push(dir(s.chat.title));
+				break;
+			case 'numberOfMessages':
+				sorters.push(dir(numberOfMessagesExpr));
+				break;
+			case 'totalTokens':
+				sorters.push(dir(totalTokensExpr));
+				break;
+			case 'upvotes':
+				sorters.push(dir(upvotesExpr));
+				break;
+			case 'downvotes':
+				sorters.push(dir(downvotesExpr));
+				break;
+			case 'toolErrorCount':
+				sorters.push(dir(toolErrorCountExpr));
+				break;
+		}
+	}
+
+	return sorters.length ? [...sorters, desc(s.chat.updatedAt)] : [desc(s.chat.updatedAt)];
+}
+
+async function loadProjectChatsFacets(args: {
+	projectId: string;
+	where: SQL<unknown>;
+	toolErrorCountExpr: ReturnType<typeof sql<number>>;
+}): Promise<ListProjectChatsResponse['facets']> {
+	const { projectId, where, toolErrorCountExpr } = args;
+
+	const userNamesRows = await db
+		.selectDistinct({ userName: s.user.name })
+		.from(s.chat)
+		.innerJoin(s.user, eq(s.chat.userId, s.user.id))
+		.innerJoin(
+			s.projectMember,
+			and(eq(s.projectMember.userId, s.user.id), eq(s.projectMember.projectId, projectId)),
+		)
+		.where(where)
+		.execute();
+
+	const userRolesRows = await db
+		.selectDistinct({ userRole: s.projectMember.role })
+		.from(s.chat)
+		.innerJoin(s.user, eq(s.chat.userId, s.user.id))
+		.innerJoin(
+			s.projectMember,
+			and(eq(s.projectMember.userId, s.user.id), eq(s.projectMember.projectId, projectId)),
+		)
+		.where(where)
+		.execute();
+
+	const toolErrorCountRows = await db
+		.selectDistinct({ toolErrorCount: toolErrorCountExpr.as('toolErrorCount') })
+		.from(s.chat)
+		.innerJoin(s.user, eq(s.chat.userId, s.user.id))
+		.innerJoin(
+			s.projectMember,
+			and(eq(s.projectMember.userId, s.user.id), eq(s.projectMember.projectId, projectId)),
+		)
+		.where(where)
+		.execute();
+
+	return {
+		userNames: userNamesRows
+			.map((r) => r.userName)
+			.filter((v): v is string => !!v)
+			.sort((a, b) => a.localeCompare(b)),
+		userRoles: userRolesRows
+			.map((r) => String(r.userRole))
+			.filter((v): v is string => !!v)
+			.sort((a, b) => a.localeCompare(b)),
+		toolErrorCount:
+			toolErrorCountRows
+				.map((r) => Number(r.toolErrorCount ?? 0))
+				.filter((v): v is number => !!v)
+				.sort((a, b) => a - b)[0] ?? 0,
+	};
+}
