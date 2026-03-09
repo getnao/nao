@@ -4,6 +4,7 @@ export interface AgentSettings {
 	memoryEnabled?: boolean;
 	experimental?: {
 		pythonSandboxing?: boolean;
+		sandboxes?: boolean;
 	};
 	transcribe?: {
 		enabled?: boolean;

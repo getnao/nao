@@ -39,10 +39,14 @@ export async function executeQuery(
 	}
 
 	const data = await response.json();
+	const id = `query_${crypto.randomUUID().slice(0, 8)}` as const;
+
+	context.queryResults.set(id, { columns: data.columns, data: data.data });
+
 	return {
 		_version: '1',
 		...data,
-		id: `query_${crypto.randomUUID().slice(0, 8)}`,
+		id,
 	};
 }
 

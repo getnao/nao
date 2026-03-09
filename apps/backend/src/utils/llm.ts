@@ -127,9 +127,9 @@ export async function resolveProviderModel(
 
 export const getProjectAvailableModels = async (
 	projectId: string,
-): Promise<Array<{ provider: LlmProvider; modelId: string }>> => {
+): Promise<Array<{ provider: LlmProvider; modelId: string; name: string }>> => {
 	const configs = await projectLlmConfigQueries.getProjectLlmConfigs(projectId);
-	const models: Array<{ provider: LlmProvider; modelId: string }> = [];
+	const models: Array<{ provider: LlmProvider; modelId: string; name: string }> = [];
 
 	for (const config of configs) {
 		const provider = config.provider as LlmProvider;
@@ -137,17 +137,23 @@ export const getProjectAvailableModels = async (
 
 		if (enabledModels.length === 0) {
 			// If no models explicitly enabled, add the default
-			models.push({ provider, modelId: getDefaultModelId(provider) });
+			const defaultModelId = getDefaultModelId(provider);
+			models.push({ provider, modelId: defaultModelId, name: getModelName(provider, defaultModelId) });
 		} else {
 			for (const modelId of enabledModels) {
-				models.push({ provider, modelId });
+				models.push({ provider, modelId, name: getModelName(provider, modelId) });
 			}
 		}
 	}
 
 	// Also add env-configured providers with their defaults
-	const envSelections = getEnvModelSelections().filter((s) => !configs.some((c) => c.provider === s.provider));
+	const envSelections = getEnvModelSelections()
+		.filter((s) => !configs.some((c) => c.provider === s.provider))
+		.map((s) => ({ ...s, name: getModelName(s.provider, s.modelId) }));
 	models.push(...envSelections);
 
 	return models;
 };
+
+const getModelName = (provider: LlmProvider, modelId: string): string =>
+	LLM_PROVIDERS[provider].models.find((m) => m.id === modelId)?.name ?? modelId;

@@ -9,6 +9,7 @@ import * as chartImageQueries from '../queries/chart-image';
 import * as chatQueries from '../queries/chat.queries';
 import * as feedbackQueries from '../queries/feedback.queries';
 import * as projectQueries from '../queries/project.queries';
+import * as slackConfigQueries from '../queries/project-slack-config.queries';
 import { SlackConfig } from '../queries/project-slack-config.queries';
 import { get as getUser } from '../queries/user.queries';
 import { UIChat, UIMessage, UIMessagePart } from '../types/chat';
@@ -26,6 +27,7 @@ import {
 	FEEDBACK_MODAL_CALLBACK_ID,
 } from '../utils/slack';
 import { agentService } from './agent';
+import { posthog, PostHogEvent } from './posthog';
 
 const UPDATE_INTERVAL_MS = 200;
 
@@ -34,21 +36,31 @@ class SlackService {
 	private _slackClient: WebClient | null = null;
 	private _projectId: string = '';
 	private _redirectUrl: string = '';
-	private _initialized: boolean = false;
+	private _currentBotToken: string = '';
+	private _currentSigningSecret: string = '';
 	private _lastCompletionCard: Map<string, { card: SentMessage; chatUrl: string }> = new Map();
 
 	constructor() {}
 
 	public getWebhooks(slackConfig: SlackConfig) {
-		this._initialize(slackConfig);
+		if (this._configChanged(slackConfig)) {
+			this._initialize(slackConfig);
+		}
 		return this._bot?.webhooks;
 	}
 
+	private _configChanged(slackConfig: SlackConfig): boolean {
+		return (
+			this._currentBotToken !== slackConfig.botToken ||
+			this._currentSigningSecret !== slackConfig.signingSecret ||
+			this._projectId !== slackConfig.projectId ||
+			this._redirectUrl !== slackConfig.redirectUrl
+		);
+	}
+
 	private _initialize(slackConfig: SlackConfig): void {
-		if (this._initialized) {
-			return;
-		}
-		this._initialized = true;
+		this._currentBotToken = slackConfig.botToken;
+		this._currentSigningSecret = slackConfig.signingSecret;
 
 		this._projectId = slackConfig.projectId;
 		this._redirectUrl = slackConfig.redirectUrl;
@@ -75,19 +87,19 @@ class SlackService {
 		});
 
 		this._bot.onAction('stop_generation', async (event) => {
-			const existingChat = await chatQueries.getChatBySlackThread(event.thread.id);
+			const existingChat = await chatQueries.getChatBySlackThread(event.thread!.id);
 			if (existingChat) {
 				agentService.get(existingChat.id)?.stop();
 			}
 		});
 
 		this._bot.onAction('feedback_positive', async (event) => {
-			const messageId = await this._getLastAssistantMessageId(event.thread.id);
+			const messageId = await this._getLastAssistantMessageId(event.thread!.id);
 			if (!messageId) {
 				return;
 			}
 			await feedbackQueries.upsertFeedback({ messageId, vote: 'up' });
-			const completion = this._lastCompletionCard.get(event.thread.id);
+			const completion = this._lastCompletionCard.get(event.thread!.id);
 			if (completion) {
 				await completion.card.edit(createCompletionCard(completion.chatUrl, 'up'));
 			}
@@ -96,7 +108,7 @@ class SlackService {
 		this._bot.onAction('feedback_negative', async (event) => {
 			await event.openModal({
 				...createFeedbackModal(),
-				privateMetadata: event.thread.id,
+				privateMetadata: event.thread!.id,
 			});
 		});
 
@@ -153,6 +165,8 @@ class SlackService {
 			blocks: [],
 			textBlockIndex: -1,
 			assistantMessage: null,
+			isNewChat: false,
+			modelId: undefined,
 		};
 
 		await this._validateUserAccess(ctx);
@@ -227,6 +241,7 @@ class SlackService {
 				source: 'slack',
 			});
 			ctx.chatId = existingChat.id;
+			ctx.isNewChat = false;
 		} else {
 			const title = createChatTitle({ text });
 			const [createdChat] = await chatQueries.createChat(
@@ -234,6 +249,7 @@ class SlackService {
 				{ text, source: 'slack' },
 			);
 			ctx.chatId = createdChat.id;
+			ctx.isNewChat = true;
 		}
 	}
 
@@ -249,13 +265,26 @@ class SlackService {
 		const chatUrl = new URL(ctx.chatId, this._redirectUrl).toString();
 		const card = await ctx.thread.post(createCompletionCard(chatUrl));
 		this._lastCompletionCard.set(ctx.thread.id, { card, chatUrl });
+
+		posthog.capture(ctx.user!.id, PostHogEvent.MessageSent, {
+			project_id: this._projectId,
+			chat_id: ctx.chatId,
+			model_id: ctx.modelId,
+			is_new_chat: ctx.isNewChat,
+			source: 'slack',
+		});
 	}
 
 	private async _createAgentStream(
 		chat: UIChat,
 		ctx: ConversationContext,
 	): Promise<ReadableStream<InferUIMessageChunk<UIMessage>>> {
-		const agent = await agentService.create({ ...chat, userId: ctx.user!.id, projectId: this._projectId });
+		const slackConfig = await slackConfigQueries.getSlackConfig();
+		const agent = await agentService.create(
+			{ ...chat, userId: ctx.user!.id, projectId: this._projectId },
+			slackConfig?.modelSelection,
+		);
+		ctx.modelId = slackConfig?.modelSelection?.modelId;
 		return agent.stream(chat.messages, { isSlack: true });
 	}
 

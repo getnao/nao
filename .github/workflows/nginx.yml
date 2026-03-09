@@ -1,0 +1,41 @@
+name: Deploy nginx config
+
+on:
+    push:
+        branches:
+            - main
+        paths:
+            - 'nginx/nginx.conf'
+            - '.github/workflows/nginx.yml'
+
+jobs:
+    deploy:
+        name: Deploy to GCP instance
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Check out the repo
+              uses: actions/checkout@v4
+
+            - name: Copy nginx config
+              uses: appleboy/scp-action@master
+              with:
+                  host: ${{ secrets.VM_HOST }}
+                  username: github-actions-demo
+                  key: ${{ secrets.PRIVATE_KEY }}
+                  source: nginx/nginx.conf
+                  target: /home/github-actions-demo/
+
+            - name: Restart nginx
+              uses: appleboy/ssh-action@master
+              with:
+                  host: ${{ secrets.VM_HOST }}
+                  username: github-actions-demo
+                  key: ${{ secrets.PRIVATE_KEY }}
+                  script: |
+                      docker rm -f nginx 2>/dev/null || true
+                      docker run --name nginx -d --net=host \
+                        -v /home/github-actions-demo/nginx/nginx.conf:/etc/nginx/conf.d/nginx.conf:ro \
+                        -v /etc/letsencrypt:/etc/letsencrypt \
+                        -v /var/lib/letsencrypt:/var/lib/letsencrypt \
+                        nginx:1.19.0

@@ -166,5 +166,6 @@ jobs:
                         -e "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" \
                         -e "ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}" \
                         -e "BETTER_AUTH_SECRET=${{ secrets.BETTER_AUTH_SECRET }}" \
+                        --device /dev/kvm \
                         --name nao-chat \
                         -d getnao/nao:${{ needs.merge.outputs.image-tag }}

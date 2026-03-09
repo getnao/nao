@@ -49,6 +49,8 @@ export const getMessagesUsage = async (projectId: string, filter: UsageFilter): 
 		.select({
 			date: dateExpr,
 			messageCount: sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' then ${s.chatMessage.id} end)`,
+			webMessageCount: sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' and ${s.chatMessage.source} = 'web' then ${s.chatMessage.id} end)`,
+			slackMessageCount: sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' and ${s.chatMessage.source} = 'slack' then ${s.chatMessage.id} end)`,
 			inputNoCacheTokens: sum(s.chatMessage.inputNoCacheTokens),
 			inputCacheReadTokens: sum(s.chatMessage.inputCacheReadTokens),
 			inputCacheWriteTokens: sum(s.chatMessage.inputCacheWriteTokens),
@@ -72,6 +74,8 @@ export const getMessagesUsage = async (projectId: string, filter: UsageFilter): 
 		rows.map((row) => ({
 			date: row.date,
 			messageCount: row.messageCount,
+			webMessageCount: row.webMessageCount,
+			slackMessageCount: row.slackMessageCount,
 			inputNoCacheTokens: Number(row.inputNoCacheTokens ?? 0),
 			inputCacheReadTokens: Number(row.inputCacheReadTokens ?? 0),
 			inputCacheWriteTokens: Number(row.inputCacheWriteTokens ?? 0),

@@ -1,232 +1,190 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useForm } from '@tanstack/react-form';
-import { ExternalLink, Pencil, Plus, Trash2 } from 'lucide-react';
-import { CopyableUrl } from '@/components/ui/copyable-url';
+import { Pencil, Trash2 } from 'lucide-react';
+import { SlackForm } from './slack-form';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { LlmProviderIcon } from '@/components/ui/llm-provider-icon';
+import { SettingsCard } from '@/components/ui/settings-card';
 import { trpc } from '@/main';
-import { PasswordField } from '@/components/ui/form-fields';
 
 interface SlackConfigSectionProps {
 	isAdmin: boolean;
 }
 
-function SlackAppConfigUrls({ slackWebhookUrl }: { slackWebhookUrl: string }) {
-	const [appId, setAppId] = useState('');
-
-	const slackEventSubscriptionsUrl = appId ? `https://api.slack.com/apps/${appId}/event-subscriptions?` : '';
-	const slackInteractiveMessagesUrl = appId ? `https://api.slack.com/apps/${appId}/interactive-messages?` : '';
-
-	return (
-		<div className='p-4 rounded-lg border border-border bg-muted/20'>
-			<h5 className='text-xs font-medium text-foreground mb-3'>Slack App Configuration URLs</h5>
-			<p className='text-xs text-muted-foreground mb-3'>Add these URLs to your Slack App settings:</p>
-
-			<div className='mb-4 p-3 rounded border border-border bg-background/50'>
-				<label htmlFor='slack-app-id' className='text-xs font-medium text-foreground block mb-2'>
-					Slack App ID (optional, for quick links)
-				</label>
-				<Input
-					id='slack-app-id'
-					type='text'
-					value={appId}
-					onChange={(e) => setAppId(e.target.value)}
-					placeholder='e.g. A0A9937DI4L'
-					className='text-xs h-8'
-				/>
-				{appId && (
-					<div className='mt-2 flex flex-col gap-1.5'>
-						<a
-							href={slackEventSubscriptionsUrl}
-							target='_blank'
-							rel='noopener noreferrer'
-							className='inline-flex items-center gap-1.5 text-xs text-primary hover:underline'
-						>
-							<ExternalLink className='size-3' />
-							Open Event Subscriptions settings
-						</a>
-						<a
-							href={slackInteractiveMessagesUrl}
-							target='_blank'
-							rel='noopener noreferrer'
-							className='inline-flex items-center gap-1.5 text-xs text-primary hover:underline'
-						>
-							<ExternalLink className='size-3' />
-							Open Interactivity & Shortcuts settings
-						</a>
-					</div>
-				)}
-			</div>
-
-			<div className='grid gap-3'>
-				<div>
-					<CopyableUrl
-						label='Request URL (for both Event Subscriptions and Interactivity)'
-						url={slackWebhookUrl}
-					/>
-					<p className='mt-1.5 text-[11px] text-muted-foreground leading-relaxed'>
-						In Event Subscriptions, enable events and subscribe to bot events:{' '}
-						<code className='px-1 py-0.5 bg-muted rounded text-[10px] font-semibold'>app_mention</code>
-						<br />
-						Use the same URL above for both Event Subscriptions and Interactivity & Shortcuts request URLs.
-					</p>
-				</div>
-			</div>
-		</div>
-	);
-}
-
 export function SlackConfigSection({ isAdmin }: SlackConfigSectionProps) {
 	const queryClient = useQueryClient();
 	const slackConfig = useQuery(trpc.project.getSlackConfig.queryOptions());
+	const { data: availableModels } = useQuery(trpc.project.getAvailableModels.queryOptions());
 
 	const [isEditing, setIsEditing] = useState(false);
+	type AvailableModel = NonNullable<typeof availableModels>[number];
+	const [selectedModel, setSelectedModel] = useState<AvailableModel | null>(null);
+
+	const projectId = slackConfig.data?.projectId;
+	const projectConfig = slackConfig.data?.projectConfig;
+	const redirectUrl = slackConfig.data?.redirectUrl;
+
+	useEffect(() => {
+		if (!availableModels || availableModels.length === 0) {
+			return;
+		}
+		const persisted = projectConfig?.modelSelection;
+		const match =
+			persisted &&
+			availableModels.find((m) => m.provider === persisted.provider && m.modelId === persisted.modelId);
+		setSelectedModel(match || availableModels[0]);
+	}, [availableModels, projectConfig]);
 
 	const upsertSlackConfig = useMutation(trpc.project.upsertSlackConfig.mutationOptions());
+	const updateSlackModel = useMutation(trpc.project.updateSlackModelConfig.mutationOptions());
 	const deleteSlackConfig = useMutation(trpc.project.deleteSlackConfig.mutationOptions());
 
-	const baseUrl = slackConfig.data?.redirectUrl || window.location.origin;
-	const projectId = slackConfig.data?.projectId;
-	const slackWebhookUrl = projectId ? `${baseUrl}/api/webhooks/slack/${projectId}` : '';
+	const handleSubmit = async (values: { botToken: string; signingSecret: string }) => {
+		await upsertSlackConfig.mutateAsync({
+			...values,
+			modelProvider: selectedModel?.provider,
+			modelId: selectedModel?.modelId,
+		});
+		queryClient.invalidateQueries(trpc.project.getSlackConfig.queryOptions());
+		setIsEditing(false);
+	};
 
-	const projectConfig = slackConfig.data?.projectConfig;
-	const hasEnvConfig = slackConfig.data?.hasEnvConfig ?? false;
-
-	const form = useForm({
-		defaultValues: {
-			botToken: '',
-			signingSecret: '',
-		},
-		onSubmit: async ({ value }) => {
-			if (!value.botToken || !value.signingSecret) {
-				return;
-			}
-			await upsertSlackConfig.mutateAsync(value);
-			queryClient.invalidateQueries(trpc.project.getSlackConfig.queryOptions());
-			setIsEditing(false);
-			form.reset();
-		},
-	});
-
-	const handleDeleteConfig = async () => {
+	const handleDelete = async () => {
 		await deleteSlackConfig.mutateAsync();
 		queryClient.removeQueries(trpc.project.getSlackConfig.queryOptions());
 	};
 
-	const handleCancel = () => {
-		setIsEditing(false);
-		form.reset();
+	const handleStartEditing = () => {
+		const persisted = projectConfig?.modelSelection;
+		const match =
+			persisted &&
+			availableModels?.find((m) => m.provider === persisted.provider && m.modelId === persisted.modelId);
+		setSelectedModel(match || (availableModels?.[0] ?? null));
+		setIsEditing(true);
 	};
 
-	return (
-		<div className='grid gap-4'>
-			{/* Environment-configured Slack (read-only) */}
-			{hasEnvConfig && !projectConfig && !isEditing && (
-				<div className='flex items-center gap-4 p-4 rounded-lg border border-border bg-muted/30'>
-					<div className='flex-1 grid gap-1'>
-						<span className='text-sm font-medium text-foreground'>Slack</span>
-						<span className='text-xs text-muted-foreground'>Configured from environment</span>
-					</div>
-					<div className='flex items-center gap-2 text-xs'>
-						{isAdmin && (
-							<Button variant='ghost' size='icon-sm' onClick={() => setIsEditing(true)}>
-								<Pencil className='size-3 text-muted-foreground' />
-							</Button>
-						)}
-						<span className='px-2 py-0.5 text-xs font-medium rounded bg-muted text-muted-foreground'>
-							ENV
+	const handleModelChange = useCallback(
+		async (value: string) => {
+			const model = availableModels?.find((m) => `${m.provider}:${m.modelId}` === value);
+			if (model) {
+				setSelectedModel(model);
+				await updateSlackModel.mutateAsync({ modelProvider: model.provider, modelId: model.modelId });
+				queryClient.invalidateQueries(trpc.project.getSlackConfig.queryOptions());
+			}
+		},
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+		[availableModels, queryClient],
+	);
+
+	if (!isAdmin) {
+		return (
+			<SettingsCard title='Connection' description='Your Slack app credentials'>
+				{projectConfig ? (
+					<div className='grid gap-1'>
+						<span className='text-sm font-medium text-foreground'>Slack App</span>
+						<span className='text-xs font-mono text-muted-foreground'>
+							Bot Token: {projectConfig.botTokenPreview}
+						</span>
+						<span className='text-xs font-mono text-muted-foreground'>
+							Signing Secret: {projectConfig.signingSecretPreview}
 						</span>
 					</div>
-				</div>
-			)}
+				) : (
+					<p className='text-sm text-muted-foreground'>
+						No Slack integration configured. Contact an admin to set it up.
+					</p>
+				)}
+			</SettingsCard>
+		);
+	}
 
-			{/* Project-specific config (editable) */}
-			{projectConfig && !isEditing && (
-				<div className='flex items-center gap-4 p-4 rounded-lg border border-border bg-muted/30'>
+	if (isEditing || !projectConfig) {
+		return (
+			<SlackForm
+				projectId={projectId}
+				redirectUrl={redirectUrl}
+				hasProjectConfig={!!projectConfig}
+				onSubmit={handleSubmit}
+				onCancel={() => setIsEditing(false)}
+				isPending={upsertSlackConfig.isPending}
+			/>
+		);
+	}
+
+	const hasMultipleModels = Boolean(availableModels && availableModels.length > 1);
+
+	return (
+		<div className='flex flex-col gap-6'>
+			<SettingsCard title='Connection' description='Your Slack app credentials'>
+				<div className='flex items-center gap-4'>
 					<div className='flex-1 grid gap-1'>
-						<div className='flex items-center gap-2'>
-							<span className='text-sm font-medium text-foreground'>Slack</span>
-							{hasEnvConfig && (
-								<span className='px-1.5 py-0.5 text-[10px] font-medium rounded bg-primary/10 text-primary'>
-									Override
-								</span>
-							)}
-						</div>
-						<div className='grid gap-0.5'>
-							<span className='text-xs font-mono text-muted-foreground'>
-								Bot Token: {projectConfig.botTokenPreview}
-							</span>
-							<span className='text-xs font-mono text-muted-foreground'>
-								Signing Secret: {projectConfig.signingSecretPreview}
-							</span>
-						</div>
+						<span className='text-sm font-medium text-foreground'>Slack App</span>
+						<span className='text-xs font-mono text-muted-foreground'>
+							Bot Token: {projectConfig.botTokenPreview}
+						</span>
+						<span className='text-xs font-mono text-muted-foreground'>
+							Signing Secret: {projectConfig.signingSecretPreview}
+						</span>
 					</div>
-					{isAdmin && (
-						<div className='flex gap-1'>
-							<Button variant='ghost' size='icon-sm' onClick={() => setIsEditing(true)}>
-								<Pencil className='size-4 text-muted-foreground' />
-							</Button>
-							<Button
-								variant='ghost'
-								size='icon-sm'
-								onClick={handleDeleteConfig}
-								disabled={deleteSlackConfig.isPending}
-							>
-								<Trash2 className='size-4 text-destructive' />
-							</Button>
-						</div>
+					<div className='flex gap-1'>
+						<Button variant='ghost' size='icon-sm' onClick={handleStartEditing}>
+							<Pencil className='size-3 text-muted-foreground' />
+						</Button>
+						<Button
+							variant='ghost'
+							size='icon-sm'
+							onClick={handleDelete}
+							disabled={deleteSlackConfig.isPending}
+						>
+							<Trash2 className='size-4 text-destructive' />
+						</Button>
+					</div>
+				</div>
+			</SettingsCard>
+
+			<SettingsCard title='Settings' description='Configure how the Slack bot behaves'>
+				<div className='grid gap-2'>
+					<label className='text-sm font-medium text-foreground'>Model</label>
+					<p className='text-xs text-muted-foreground'>The model used to answer questions asked in Slack.</p>
+					{hasMultipleModels ? (
+						<Select
+							value={selectedModel ? `${selectedModel.provider}:${selectedModel.modelId}` : undefined}
+							onValueChange={handleModelChange}
+							disabled={updateSlackModel.isPending}
+						>
+							<SelectTrigger className='w-full'>
+								<SelectValue>
+									{selectedModel && (
+										<div className='flex items-center gap-2'>
+											<LlmProviderIcon provider={selectedModel.provider} className='size-4' />
+											{selectedModel.name}
+										</div>
+									)}
+								</SelectValue>
+							</SelectTrigger>
+							<SelectContent>
+								{availableModels?.map((model) => (
+									<SelectItem
+										key={`${model.provider}-${model.modelId}`}
+										value={`${model.provider}:${model.modelId}`}
+									>
+										<LlmProviderIcon provider={model.provider} className='size-4' />
+										{model.name}
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
+					) : (
+						selectedModel && (
+							<div className='flex items-center gap-2 text-sm text-muted-foreground'>
+								<LlmProviderIcon provider={selectedModel.provider} className='size-4' />
+								<span>{selectedModel.name}</span>
+							</div>
+						)
 					)}
 				</div>
-			)}
-
-			{/* Slack App Setup URLs - shown when Slack is configured */}
-			{(hasEnvConfig || projectConfig) && !isEditing && slackWebhookUrl && (
-				<SlackAppConfigUrls slackWebhookUrl={slackWebhookUrl} />
-			)}
-
-			{/* Add/Edit config form (admin only) */}
-			{isAdmin && (isEditing || (!projectConfig && !hasEnvConfig)) && (
-				<form
-					onSubmit={(e) => {
-						e.preventDefault();
-						form.handleSubmit();
-					}}
-					className='flex flex-col gap-3 p-4 rounded-lg border border-dashed border-border'
-				>
-					<div className='grid gap-4'>
-						<PasswordField form={form} name='botToken' label='Bot Token' placeholder='xoxb-...' required />
-						<PasswordField
-							form={form}
-							name='signingSecret'
-							label='Signing Secret'
-							placeholder='Enter your Slack signing secret'
-							required
-						/>
-					</div>
-					<div className='flex justify-end gap-2'>
-						{(isEditing || projectConfig || hasEnvConfig) && (
-							<Button variant='ghost' size='sm' onClick={handleCancel} type='button'>
-								Cancel
-							</Button>
-						)}
-						<form.Subscribe selector={(state: { canSubmit: boolean }) => state.canSubmit}>
-							{(canSubmit: boolean) => (
-								<Button size='sm' type='submit' disabled={!canSubmit || upsertSlackConfig.isPending}>
-									<Plus className='size-4 mr-1' />
-									{projectConfig ? 'Update' : hasEnvConfig ? 'Add Override' : 'Add'}
-								</Button>
-							)}
-						</form.Subscribe>
-					</div>
-				</form>
-			)}
-
-			{!projectConfig && !hasEnvConfig && !isAdmin && (
-				<p className='text-sm text-muted-foreground'>
-					No Slack integration configured. Contact an admin to set it up.
-				</p>
-			)}
+			</SettingsCard>
 		</div>
 	);
 }

@@ -56,9 +56,12 @@ function UsagePage() {
 					isFetching={messagesUsage.isFetching}
 					isError={messagesUsage.isError}
 					data={chartData}
-					chartType='bar'
+					chartType='stacked_bar'
 					xAxisLabelFormatter={(value) => format(new Date(value), dateFormats[granularity])}
-					series={[{ data_key: 'messageCount', color: 'var(--chart-1)', label: 'Number of messages' }]}
+					series={[
+						{ data_key: 'webMessageCount', color: 'var(--chart-1)', label: 'Web' },
+						{ data_key: 'slackMessageCount', color: 'var(--chart-2)', label: 'Slack' },
+					]}
 					filters={filtersComponent}
 				/>
 			)}

@@ -12,6 +12,8 @@ export type ConversationContext = {
 	convMessage: SentMessage | null;
 	blocks: CardChild[];
 	textBlockIndex: number;
+	isNewChat: boolean;
+	modelId: string | undefined;
 };
 
 type SqlOutput = {

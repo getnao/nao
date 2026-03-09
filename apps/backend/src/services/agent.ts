@@ -126,6 +126,7 @@ export class AgentService {
 			projectFolder: project.path ?? '',
 			chatId,
 			agentSettings,
+			queryResults: new Map(),
 		};
 	}
 

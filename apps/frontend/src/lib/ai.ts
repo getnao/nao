@@ -76,6 +76,7 @@ export const NON_COLLAPSIBLE_TOOLS: StaticToolName[] = [
 	'display_chart',
 	'suggest_follow_ups',
 	'execute_python',
+	'execute_sandboxed_code',
 ];
 
 /** Check if a part is a reasoning part */
@@ -170,6 +171,15 @@ export const groupMessages = (messages: UIMessage[]): MessageGroup[] => {
 		groups.push(group);
 	}
 	return groups;
+};
+
+export const getLastAssistantMessageId = (messages: UIMessage[]): string | undefined => {
+	for (let i = messages.length - 1; i >= 0; i--) {
+		if (messages[i].role === 'assistant') {
+			return messages[i].id;
+		}
+	}
+	return undefined;
 };
 
 export const getLastUserMessageIdx = (messages: UIMessage[]): number | undefined => {
