@@ -172,6 +172,15 @@ export const groupMessages = (messages: UIMessage[]): MessageGroup[] => {
 	return groups;
 };
 
+export const getLastAssistantMessageId = (messages: UIMessage[]): string | undefined => {
+	for (let i = messages.length - 1; i >= 0; i--) {
+		if (messages[i].role === 'assistant') {
+			return messages[i].id;
+		}
+	}
+	return undefined;
+};
+
 export const getLastUserMessageIdx = (messages: UIMessage[]): number | undefined => {
 	for (let i = messages.length - 1; i >= 0; i--) {
 		if (messages[i].role === 'user') {
