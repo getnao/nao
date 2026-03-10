@@ -19,8 +19,12 @@ function readNaoConfigLlm(): NaoConfigLlm | null {
 	}
 	try {
 		const raw = readFileSync(join(projectFolder, 'nao_config.yaml'), 'utf8');
-		const config = parseYaml(raw) as { llm?: NaoConfigLlm };
-		return config?.llm ?? null;
+		const config = parseYaml(raw) as { llm?: { provider?: unknown; api_key?: unknown; base_url?: unknown } };
+		const llm = config?.llm;
+		if (!llm || typeof llm.provider !== 'string' || !(llm.provider in LLM_PROVIDERS)) {
+			return null;
+		}
+		return llm as NaoConfigLlm;
 	} catch {
 		return null;
 	}
