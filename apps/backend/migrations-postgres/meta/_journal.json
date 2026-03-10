@@ -162,6 +162,13 @@
       "when": 1772706637768,
       "tag": "0022_add_slack_provider",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1773133940694,
+      "tag": "0023_added_microsoft_teams",
+      "breakpoints": true
     }
   ]
 }

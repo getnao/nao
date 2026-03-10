@@ -24,6 +24,7 @@ import { Route as SidebarLayoutSettingsGeneralRouteImport } from './routes/_side
 import { Route as SidebarLayoutChatLayoutChatIdRouteImport } from './routes/_sidebar-layout._chat-layout.$chatId'
 import { Route as SidebarLayoutSettingsProjectIndexRouteImport } from './routes/_sidebar-layout.settings.project.index'
 import { Route as SidebarLayoutStoriesSharedShareIdRouteImport } from './routes/_sidebar-layout.stories.shared.$shareId'
+import { Route as SidebarLayoutSettingsProjectTeamsRouteImport } from './routes/_sidebar-layout.settings.project.teams'
 import { Route as SidebarLayoutSettingsProjectTeamRouteImport } from './routes/_sidebar-layout.settings.project.team'
 import { Route as SidebarLayoutSettingsProjectSlackRouteImport } from './routes/_sidebar-layout.settings.project.slack'
 import { Route as SidebarLayoutSettingsProjectModelsRouteImport } from './routes/_sidebar-layout.settings.project.models'
@@ -114,6 +115,12 @@ const SidebarLayoutStoriesSharedShareIdRoute =
     path: '/stories/shared/$shareId',
     getParentRoute: () => SidebarLayoutRoute,
   } as any)
+const SidebarLayoutSettingsProjectTeamsRoute =
+  SidebarLayoutSettingsProjectTeamsRouteImport.update({
+    id: '/teams',
+    path: '/teams',
+    getParentRoute: () => SidebarLayoutSettingsProjectRoute,
+  } as any)
 const SidebarLayoutSettingsProjectTeamRoute =
   SidebarLayoutSettingsProjectTeamRouteImport.update({
     id: '/team',
@@ -168,6 +175,7 @@ export interface FileRoutesByFullPath {
   '/settings/project/models': typeof SidebarLayoutSettingsProjectModelsRoute
   '/settings/project/slack': typeof SidebarLayoutSettingsProjectSlackRoute
   '/settings/project/team': typeof SidebarLayoutSettingsProjectTeamRoute
+  '/settings/project/teams': typeof SidebarLayoutSettingsProjectTeamsRoute
   '/stories/shared/$shareId': typeof SidebarLayoutStoriesSharedShareIdRoute
   '/settings/project/': typeof SidebarLayoutSettingsProjectIndexRoute
   '/stories/preview/$chatId/$storyId': typeof SidebarLayoutStoriesPreviewChatIdStoryIdRoute
@@ -187,6 +195,7 @@ export interface FileRoutesByTo {
   '/settings/project/models': typeof SidebarLayoutSettingsProjectModelsRoute
   '/settings/project/slack': typeof SidebarLayoutSettingsProjectSlackRoute
   '/settings/project/team': typeof SidebarLayoutSettingsProjectTeamRoute
+  '/settings/project/teams': typeof SidebarLayoutSettingsProjectTeamsRoute
   '/stories/shared/$shareId': typeof SidebarLayoutStoriesSharedShareIdRoute
   '/settings/project': typeof SidebarLayoutSettingsProjectIndexRoute
   '/stories/preview/$chatId/$storyId': typeof SidebarLayoutStoriesPreviewChatIdStoryIdRoute
@@ -211,6 +220,7 @@ export interface FileRoutesById {
   '/_sidebar-layout/settings/project/models': typeof SidebarLayoutSettingsProjectModelsRoute
   '/_sidebar-layout/settings/project/slack': typeof SidebarLayoutSettingsProjectSlackRoute
   '/_sidebar-layout/settings/project/team': typeof SidebarLayoutSettingsProjectTeamRoute
+  '/_sidebar-layout/settings/project/teams': typeof SidebarLayoutSettingsProjectTeamsRoute
   '/_sidebar-layout/stories/shared/$shareId': typeof SidebarLayoutStoriesSharedShareIdRoute
   '/_sidebar-layout/settings/project/': typeof SidebarLayoutSettingsProjectIndexRoute
   '/_sidebar-layout/stories/preview/$chatId/$storyId': typeof SidebarLayoutStoriesPreviewChatIdStoryIdRoute
@@ -234,6 +244,7 @@ export interface FileRouteTypes {
     | '/settings/project/models'
     | '/settings/project/slack'
     | '/settings/project/team'
+    | '/settings/project/teams'
     | '/stories/shared/$shareId'
     | '/settings/project/'
     | '/stories/preview/$chatId/$storyId'
@@ -253,6 +264,7 @@ export interface FileRouteTypes {
     | '/settings/project/models'
     | '/settings/project/slack'
     | '/settings/project/team'
+    | '/settings/project/teams'
     | '/stories/shared/$shareId'
     | '/settings/project'
     | '/stories/preview/$chatId/$storyId'
@@ -276,6 +288,7 @@ export interface FileRouteTypes {
     | '/_sidebar-layout/settings/project/models'
     | '/_sidebar-layout/settings/project/slack'
     | '/_sidebar-layout/settings/project/team'
+    | '/_sidebar-layout/settings/project/teams'
     | '/_sidebar-layout/stories/shared/$shareId'
     | '/_sidebar-layout/settings/project/'
     | '/_sidebar-layout/stories/preview/$chatId/$storyId'
@@ -394,6 +407,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SidebarLayoutStoriesSharedShareIdRouteImport
       parentRoute: typeof SidebarLayoutRoute
     }
+    '/_sidebar-layout/settings/project/teams': {
+      id: '/_sidebar-layout/settings/project/teams'
+      path: '/teams'
+      fullPath: '/settings/project/teams'
+      preLoaderRoute: typeof SidebarLayoutSettingsProjectTeamsRouteImport
+      parentRoute: typeof SidebarLayoutSettingsProjectRoute
+    }
     '/_sidebar-layout/settings/project/team': {
       id: '/_sidebar-layout/settings/project/team'
       path: '/team'
@@ -461,6 +481,7 @@ interface SidebarLayoutSettingsProjectRouteChildren {
   SidebarLayoutSettingsProjectModelsRoute: typeof SidebarLayoutSettingsProjectModelsRoute
   SidebarLayoutSettingsProjectSlackRoute: typeof SidebarLayoutSettingsProjectSlackRoute
   SidebarLayoutSettingsProjectTeamRoute: typeof SidebarLayoutSettingsProjectTeamRoute
+  SidebarLayoutSettingsProjectTeamsRoute: typeof SidebarLayoutSettingsProjectTeamsRoute
   SidebarLayoutSettingsProjectIndexRoute: typeof SidebarLayoutSettingsProjectIndexRoute
 }
 
@@ -476,6 +497,8 @@ const SidebarLayoutSettingsProjectRouteChildren: SidebarLayoutSettingsProjectRou
       SidebarLayoutSettingsProjectSlackRoute,
     SidebarLayoutSettingsProjectTeamRoute:
       SidebarLayoutSettingsProjectTeamRoute,
+    SidebarLayoutSettingsProjectTeamsRoute:
+      SidebarLayoutSettingsProjectTeamsRoute,
     SidebarLayoutSettingsProjectIndexRoute:
       SidebarLayoutSettingsProjectIndexRoute,
   }

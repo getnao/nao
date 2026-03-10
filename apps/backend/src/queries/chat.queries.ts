@@ -159,7 +159,7 @@ export const createChat = async (
 	newChat: NewChat,
 	newUserMessage: {
 		text: string;
-		source?: 'slack' | 'web';
+		source?: 'slack' | 'teams' | 'web';
 	},
 ): Promise<[DBChat, DBChatMessage]> => {
 	return db.transaction(async (t): Promise<[DBChat, DBChatMessage]> => {
@@ -275,6 +275,16 @@ export const getChatBySlackThread = async (threadId: string): Promise<{ id: stri
 		.select({ id: s.chat.id, title: s.chat.title })
 		.from(s.chat)
 		.where(eq(s.chat.slackThreadId, threadId))
+		.limit(1)
+		.execute();
+	return result.at(0) || null;
+};
+
+export const getChatByTeamsThread = async (threadId: string): Promise<{ id: string; title: string } | null> => {
+	const result = await db
+		.select({ id: s.chat.id, title: s.chat.title })
+		.from(s.chat)
+		.where(eq(s.chat.teamsThreadId, threadId))
 		.limit(1)
 		.execute();
 	return result.at(0) || null;

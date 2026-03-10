@@ -5,7 +5,10 @@ import { db } from '../db/db';
 import { env } from '../env';
 import { LlmProvider, llmProviderSchema, ModelSelection } from '../types/llm';
 
-function toModelSelection(provider: string | null, modelId: string | null): ModelSelection | undefined {
+function toModelSelection(
+	provider: string | null | undefined,
+	modelId: string | null | undefined,
+): ModelSelection | undefined {
 	if (!provider || !modelId) {
 		return undefined;
 	}
@@ -21,15 +24,16 @@ export const getProjectSlackConfig = async (
 	modelSelection?: ModelSelection;
 } | null> => {
 	const [project] = await db.select().from(s.project).where(eq(s.project.id, projectId)).execute();
+	const settings = project?.slackSettings;
 
-	if (!project?.slackBotToken || !project?.slackSigningSecret) {
+	if (!settings?.slackBotToken || !settings?.slackSigningSecret) {
 		return null;
 	}
 
 	return {
-		botToken: project.slackBotToken,
-		signingSecret: project.slackSigningSecret,
-		modelSelection: toModelSelection(project.slackllmProvider, project.slackllmModelId),
+		botToken: settings.slackBotToken,
+		signingSecret: settings.slackSigningSecret,
+		modelSelection: toModelSelection(settings.slackllmProvider, settings.slackllmModelId),
 	};
 };
 
@@ -47,19 +51,22 @@ export const upsertProjectSlackConfig = async (data: {
 	const [updated] = await db
 		.update(s.project)
 		.set({
-			slackBotToken: data.botToken,
-			slackSigningSecret: data.signingSecret,
-			slackllmProvider: data.modelProvider ?? null,
-			slackllmModelId: data.modelId ?? null,
+			slackSettings: {
+				slackBotToken: data.botToken,
+				slackSigningSecret: data.signingSecret,
+				slackllmProvider: data.modelProvider ?? '',
+				slackllmModelId: data.modelId ?? '',
+			},
 		})
 		.where(eq(s.project.id, data.projectId))
 		.returning()
 		.execute();
 
+	const settings = updated.slackSettings;
 	return {
-		botToken: updated.slackBotToken || '',
-		signingSecret: updated.slackSigningSecret || '',
-		modelSelection: toModelSelection(updated.slackllmProvider, updated.slackllmModelId),
+		botToken: settings?.slackBotToken || '',
+		signingSecret: settings?.slackSigningSecret || '',
+		modelSelection: toModelSelection(settings?.slackllmProvider, settings?.slackllmModelId),
 	};
 };
 
@@ -68,22 +75,25 @@ export const updateProjectSlackModel = async (
 	modelProvider: LlmProvider | null,
 	modelId: string | null,
 ): Promise<void> => {
+	const [project] = await db.select().from(s.project).where(eq(s.project.id, projectId)).execute();
+	const existing = project?.slackSettings;
+
 	await db
 		.update(s.project)
-		.set({ slackllmProvider: modelProvider, slackllmModelId: modelId })
+		.set({
+			slackSettings: {
+				slackBotToken: existing?.slackBotToken ?? '',
+				slackSigningSecret: existing?.slackSigningSecret ?? '',
+				slackllmProvider: modelProvider ?? '',
+				slackllmModelId: modelId ?? '',
+			},
+		})
 		.where(eq(s.project.id, projectId))
 		.execute();
 };
 
 export const deleteProjectSlackConfig = async (projectId: string): Promise<void> => {
-	await db
-		.update(s.project)
-		.set({
-			slackBotToken: null,
-			slackSigningSecret: null,
-		})
-		.where(eq(s.project.id, projectId))
-		.execute();
+	await db.update(s.project).set({ slackSettings: null }).where(eq(s.project.id, projectId)).execute();
 };
 
 export interface SlackConfig {
@@ -110,8 +120,9 @@ export async function getSlackConfig(): Promise<SlackConfig | null> {
 		return null;
 	}
 
-	const botToken = project.slackBotToken;
-	const signingSecret = project.slackSigningSecret;
+	const settings = project.slackSettings;
+	const botToken = settings?.slackBotToken;
+	const signingSecret = settings?.slackSigningSecret;
 	const redirectUrl = env.BETTER_AUTH_URL || 'http://localhost:3000/';
 
 	if (!botToken || !signingSecret) {
@@ -123,7 +134,7 @@ export async function getSlackConfig(): Promise<SlackConfig | null> {
 		botToken,
 		signingSecret,
 		redirectUrl,
-		modelSelection: toModelSelection(project.slackllmProvider, project.slackllmModelId),
+		modelSelection: toModelSelection(settings?.slackllmProvider, settings?.slackllmModelId),
 	};
 }
 

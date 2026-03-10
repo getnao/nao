@@ -2,14 +2,15 @@ import type { ReactNode } from 'react';
 
 import { Block, Bold, List, ListItem, Span, Title } from '../../lib/markdown';
 
-export function SlackSystemPrompt({ basePrompt }: { basePrompt: ReactNode }) {
+export function MessagingProviderSystemPrompt({ basePrompt, provider }: { basePrompt: ReactNode; provider: string }) {
 	return (
 		<Block>
 			{basePrompt}
 
-			<Title>Slack Response Flow</Title>
+			<Title>Provider Response Flow</Title>
 			<Span>
-				You are responding to a user in Slack. Follow this strict three-phase response flow for every request.
+				You are responding to a user in {provider}. Follow this strict three-phase response flow for every
+				request.
 			</Span>
 
 			<Title level={2}>Phase 1 — Plan</Title>

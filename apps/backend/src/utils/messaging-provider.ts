@@ -2,7 +2,9 @@ import { pluralize, TOOL_LABELS } from '@nao/shared';
 import type { CardChild, CardElement, ModalElement } from 'chat';
 import { Actions, Button, Card, CardText, Image, LinkButton } from 'chat';
 
-import { ToolCallEntry } from '../types/slack';
+import { ToolCallEntry } from '../types/messaging-provider';
+
+export const EXCLUDED_TOOLS = ['tool-suggest_follow_ups', 'tool-display_chart'];
 
 const TOOL_LIVE_LABELS: Record<string, (input: Record<string, string>) => string> = {
 	'tool-read': (input) => `_reading **${input['file_path'] ?? '...'}**_`,
@@ -16,7 +18,7 @@ export const createLiveToolCall = (toolGroup: Map<string, ToolCallEntry>): CardC
 	const lines = [...toolGroup.values()].map(
 		(entry) => TOOL_LIVE_LABELS[entry.type]?.(entry.input) ?? `_${entry.type}_`,
 	);
-	return CardText(lines.join('\n'));
+	return CardText(lines.join('\n\n'));
 };
 
 export const createSummaryToolCalls = (toolGroup: Map<string, ToolCallEntry>): CardChild => {
@@ -29,6 +31,32 @@ export const createSummaryToolCalls = (toolGroup: Map<string, ToolCallEntry>): C
 		return `**${count} ${pluralize(noun, count)}**`;
 	});
 	return CardText(`Explored ${parts.join(', ')}`);
+};
+
+export const createStopButtonCard = (): CardElement =>
+	Card({
+		children: [Actions([Button({ id: 'stop_generation', label: 'Stop Generation', style: 'primary' })])],
+	});
+
+export const createCompletionCard = (chatUrl: string, vote?: 'up' | 'down'): CardElement =>
+	Card({
+		children: [
+			Actions([
+				LinkButton({ url: chatUrl, label: 'Open in nao' }),
+				Button({ id: 'feedback_positive', label: '👍', style: vote === 'up' ? 'primary' : 'default' }),
+				Button({ id: 'feedback_negative', label: '👎', style: vote === 'down' ? 'primary' : 'default' }),
+			]),
+		],
+	});
+
+export const createTextBlock = (text: string): CardChild => CardText(text);
+
+export const createImageBlock = (url: string): CardChild => Image({ url, alt: 'image' });
+
+export const escapeCsvCell = (value: unknown): string => {
+	const str = value === null || value === undefined ? '' : String(value);
+	const sanitized = /^[=+\-@]/.test(str.trimStart()) ? `'${str}` : str;
+	return /[,"\n]/.test(sanitized) ? `"${sanitized.replace(/"/g, '""')}"` : sanitized;
 };
 
 export const FEEDBACK_MODAL_CALLBACK_ID = 'feedback_negative_modal';
@@ -49,33 +77,3 @@ export const createFeedbackModal = (): ModalElement => ({
 		},
 	],
 });
-
-export const createStopButtonCard = (): CardElement =>
-	Card({
-		children: [Actions([Button({ id: 'stop_generation', label: 'Stop Generation', style: 'primary' })])],
-	});
-
-export const createCompletionCard = (chatUrl: string, vote?: 'up' | 'down'): CardElement =>
-	Card({
-		children: [
-			Actions([
-				LinkButton({ url: chatUrl, label: 'Open in nao' }),
-				Button({ id: 'feedback_positive', label: '👍', style: vote === 'up' ? 'primary' : 'default' }),
-				Button({ id: 'feedback_negative', label: '👎', style: vote === 'down' ? 'primary' : 'default' }),
-			]),
-		],
-	});
-
-export const createTextBlock = (text: string): CardChild => {
-	return CardText(text);
-};
-
-export const createImageBlock = (url: string): CardChild => {
-	return Image({ url, alt: 'image' });
-};
-
-export const escapeCsvCell = (value: unknown): string => {
-	const str = value === null || value === undefined ? '' : String(value);
-	const sanitized = /^[=+\-@]/.test(str.trimStart()) ? `'${str}` : str;
-	return /[,"\n]/.test(sanitized) ? `"${sanitized.replace(/"/g, '""')}"` : sanitized;
-};

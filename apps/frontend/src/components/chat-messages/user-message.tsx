@@ -11,6 +11,7 @@ import { getMessageText } from '@/lib/ai';
 import { Button } from '@/components/ui/button';
 import { editedMessageIdStore } from '@/stores/chat-edited-message';
 import SlackIcon from '@/components/icons/slack.svg';
+import TeamsIcon from '@/components/icons/microsoft-teams.svg';
 
 export const UserMessage = memo(({ message }: { message: UIMessage }) => {
 	const { isRunning, editMessage } = useAgentContext();
@@ -51,6 +52,12 @@ export const UserMessage = memo(({ message }: { message: UIMessage }) => {
 					<span className='flex items-center justify-end gap-1 text-xs text-muted-foreground mb-2'>
 						<SlackIcon className='size-3.5' />
 						sent in Slack
+					</span>
+				)}
+				{message.source === 'teams' && (
+					<span className='flex items-center justify-end gap-1 text-xs text-muted-foreground mb-2'>
+						<TeamsIcon className='size-4' />
+						sent in Teams
 					</span>
 				)}
 				<span className='flex items-center justify-end '>{text}</span>

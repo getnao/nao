@@ -1,7 +1,7 @@
 import { CardChild, Message, SentMessage, Thread } from 'chat';
 
 import { User } from '../db/abstractSchema';
-import { UIMessage } from '../types/chat';
+import { UIMessage } from './chat';
 
 export type ConversationContext = {
 	thread: Thread;
@@ -33,4 +33,21 @@ export type StreamState = {
 	lastUpdateAt: number;
 	toolGroup: Map<string, ToolCallEntry>;
 	toolGroupBlockIndex: number;
+};
+
+export type Provider = 'slack' | 'teams';
+
+export type SlackSettings = {
+	slackBotToken: string;
+	slackSigningSecret: string;
+	slackllmProvider: string;
+	slackllmModelId: string;
+};
+
+export type TeamsSettings = {
+	teamsAppId: string;
+	teamsAppPassword: string;
+	teamsTenantId: string;
+	teamsLlmProvider: string;
+	teamsLlmModelId: string;
 };

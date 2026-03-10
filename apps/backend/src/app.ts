@@ -14,6 +14,7 @@ import { agentRoutes } from './routes/agent';
 import { authRoutes } from './routes/auth';
 import { chartRoutes } from './routes/chart';
 import { slackRoutes } from './routes/slack';
+import { teamsRoutes } from './routes/teams';
 import { testRoutes } from './routes/test';
 import { posthog, PostHogEvent } from './services/posthog';
 import { TrpcRouter, trpcRouter } from './trpc/router';
@@ -99,6 +100,10 @@ app.register(authRoutes, {
 
 app.register(slackRoutes, {
 	prefix: '/api/webhooks/slack',
+});
+
+app.register(teamsRoutes, {
+	prefix: '/api/webhooks/teams',
 });
 
 /**

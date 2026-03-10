@@ -1,6 +1,8 @@
-import { createSlackAdapter } from '@chat-adapter/slack';
+import { ClientSecretCredential } from '@azure/identity';
 import { createMemoryState } from '@chat-adapter/state-memory';
-import { WebClient } from '@slack/web-api';
+import { createTeamsAdapter } from '@chat-adapter/teams';
+import { Client } from '@microsoft/microsoft-graph-client';
+import { TokenCredentialAuthenticationProvider } from '@microsoft/microsoft-graph-client/authProviders/azureTokenCredentials';
 import { InferUIMessageChunk, readUIMessageStream } from 'ai';
 import { Card, Chat, Message, SentMessage, Thread } from 'chat';
 
@@ -9,75 +11,70 @@ import * as chartImageQueries from '../queries/chart-image';
 import * as chatQueries from '../queries/chat.queries';
 import * as feedbackQueries from '../queries/feedback.queries';
 import * as projectQueries from '../queries/project.queries';
-import { SlackConfig } from '../queries/project-slack-config.queries';
+import { TeamsConfig } from '../queries/project-teams-config.queries';
 import { get as getUser } from '../queries/user.queries';
 import { UIChat, UIMessage, UIMessagePart } from '../types/chat';
 import { ConversationContext, StreamState, ToolCallEntry } from '../types/messaging-provider';
 import { createChatTitle } from '../utils/ai';
 import {
 	createCompletionCard,
-	createFeedbackModal,
-	createImageBlock,
+	createImageBlock as _createImageBlock,
 	createLiveToolCall,
 	createStopButtonCard,
 	createSummaryToolCalls,
 	createTextBlock,
-	escapeCsvCell,
 	EXCLUDED_TOOLS,
-	FEEDBACK_MODAL_CALLBACK_ID,
 } from '../utils/messaging-provider';
 import { agentService } from './agent';
-import { posthog, PostHogEvent } from './posthog';
 
 const UPDATE_INTERVAL_MS = 200;
 
-class SlackService {
+class TeamsService {
 	private _bot: Chat | null = null;
-	private _slackClient: WebClient | null = null;
 	private _projectId: string = '';
 	private _redirectUrl: string = '';
-	private _currentBotToken: string = '';
-	private _currentSigningSecret: string = '';
+	private _appId: string = '';
+	private _appPassword: string = '';
+	private _tenantId: string = '';
+	private _initialized: boolean = false;
 	private _lastCompletionCard: Map<string, { card: SentMessage; chatUrl: string }> = new Map();
 
 	constructor() {}
 
-	public getWebhooks(slackConfig: SlackConfig) {
-		if (this._configChanged(slackConfig)) {
-			this._initialize(slackConfig);
-		}
+	public getWebhooks(config: TeamsConfig) {
+		this._initialize(config);
 		return this._bot?.webhooks;
 	}
 
-	private _configChanged(slackConfig: SlackConfig): boolean {
-		return (
-			this._currentBotToken !== slackConfig.botToken ||
-			this._currentSigningSecret !== slackConfig.signingSecret ||
-			this._projectId !== slackConfig.projectId ||
-			this._redirectUrl !== slackConfig.redirectUrl
-		);
-	}
+	private _initialize(config: TeamsConfig): void {
+		if (this._initialized) {
+			return;
+		}
+		this._initialized = true;
 
-	private _initialize(slackConfig: SlackConfig): void {
-		this._currentBotToken = slackConfig.botToken;
-		this._currentSigningSecret = slackConfig.signingSecret;
-
-		this._projectId = slackConfig.projectId;
-		this._redirectUrl = slackConfig.redirectUrl;
-		this._slackClient = new WebClient(slackConfig.botToken);
+		this._projectId = config.projectId;
+		this._redirectUrl = config.redirectUrl;
+		this._appId = config.appId;
+		this._appPassword = config.appPassword;
+		this._tenantId = config.tenantId ?? '';
 
 		this._bot = new Chat({
-			userName: 'nao-chat',
+			userName: 'nao',
 			adapters: {
-				slack: createSlackAdapter({
-					botToken: slackConfig.botToken,
-					signingSecret: slackConfig.signingSecret,
+				teams: createTeamsAdapter({
+					appId: config.appId,
+					appPassword: config.appPassword,
+					appTenantId: config.tenantId,
+					appType: 'SingleTenant',
 				}),
 			},
 			state: createMemoryState(),
 		});
 
-		this._bot.onNewMention(async (thread, message) => {
+		this._bot.onNewMessage(/.*/, async (thread, message) => {
+			if (!thread.isDM && !message.text.startsWith('@nao')) {
+				return;
+			}
 			await thread.subscribe();
 			await this._handleWorkFlow(thread, message);
 		});
@@ -87,74 +84,39 @@ class SlackService {
 		});
 
 		this._bot.onAction('stop_generation', async (event) => {
-			const existingChat = await chatQueries.getChatBySlackThread(event.thread!.id);
+			const existingChat = await chatQueries.getChatByTeamsThread(event.thread.id);
 			if (existingChat) {
 				agentService.get(existingChat.id)?.stop();
 			}
 		});
 
 		this._bot.onAction('feedback_positive', async (event) => {
-			const messageId = await this._getLastAssistantMessageId(event.thread!.id);
+			const messageId = await this._getLastAssistantMessageId(event.thread.id);
 			if (!messageId) {
 				return;
 			}
 			await feedbackQueries.upsertFeedback({ messageId, vote: 'up' });
-			const completion = this._lastCompletionCard.get(event.thread!.id);
+			const completion = this._lastCompletionCard.get(event.thread.id);
 			if (completion) {
 				await completion.card.edit(createCompletionCard(completion.chatUrl, 'up'));
 			}
 		});
 
 		this._bot.onAction('feedback_negative', async (event) => {
-			await event.openModal({
-				...createFeedbackModal(),
-				privateMetadata: event.thread!.id,
-			});
-		});
-
-		this._bot.onModalSubmit(FEEDBACK_MODAL_CALLBACK_ID, async (event) => {
-			const threadId = event.privateMetadata;
-			if (!threadId) {
-				return;
-			}
-			const messageId = await this._getLastAssistantMessageId(threadId);
+			const messageId = await this._getLastAssistantMessageId(event.thread.id);
 			if (!messageId) {
 				return;
 			}
-
-			const chat = await chatQueries.getChatBySlackThread(threadId);
-			if (!chat) {
-				throw new Error(`Chat for thread ${threadId} not found.`);
-			}
-
-			const ownerId = await chatQueries.getOwnerOfChatAndMessage(chat.id, messageId);
-			if (!ownerId) {
-				throw new Error(`Message with id ${messageId} not found.`);
-			}
-
-			const slackUserId = event.user?.userId;
-			const email = slackUserId ? await this._getSlackUserEmail(slackUserId) : null;
-			const user = email ? await getUser({ email }) : null;
-
-			if (ownerId !== user?.id) {
-				throw new Error(`You are not authorized to provide feedback on this message.`);
-			}
-
-			await feedbackQueries.upsertFeedback({
-				messageId,
-				vote: 'down',
-				explanation: event.values['explanation'] || undefined,
-			});
-			const completion = this._lastCompletionCard.get(threadId);
+			await feedbackQueries.upsertFeedback({ messageId, vote: 'down' });
+			const completion = this._lastCompletionCard.get(event.thread.id);
 			if (completion) {
 				await completion.card.edit(createCompletionCard(completion.chatUrl, 'down'));
 			}
-			return { action: 'close' };
 		});
 	}
 
 	private async _handleWorkFlow(thread: Thread, userMessage: Message): Promise<void> {
-		userMessage.text = userMessage.text.replace(/(?:<@|@)([A-Z0-9]+)(?:\|[^>]+)?>?\s*/g, '').trim();
+		userMessage.text = userMessage.text.replace(/(?:<at>[^<]*<\/at>|@\S+)\s*/g, '').trim();
 
 		const ctx: ConversationContext = {
 			thread,
@@ -198,11 +160,16 @@ class SlackService {
 	}
 
 	private async _getUser(ctx: ConversationContext): Promise<void> {
-		const slackUserId = ctx.userMessage.author.userId;
-		const email = await this._getSlackUserEmail(slackUserId);
+		const raw = ctx.userMessage.raw as { from?: { aadObjectId?: string } };
+		const aadObjectId = raw?.from?.aadObjectId;
 
+		if (!aadObjectId) {
+			throw new Error('Could not retrieve user identity from Teams');
+		}
+
+		const email = await this._getEmailByAadId(aadObjectId);
 		if (!email) {
-			throw new Error('Could not retrieve user email from Slack');
+			throw new Error('Could not retrieve user email from Teams');
 		}
 
 		const user = await getUser({ email });
@@ -215,9 +182,14 @@ class SlackService {
 		ctx.user = user;
 	}
 
-	private async _getSlackUserEmail(userId: string): Promise<string | null> {
-		const userProfile = await this._slackClient?.users.profile.get({ user: userId });
-		return userProfile?.profile?.email || null;
+	private async _getEmailByAadId(aadObjectId: string): Promise<string | null> {
+		const credential = new ClientSecretCredential(this._tenantId, this._appId, this._appPassword);
+		const authProvider = new TokenCredentialAuthenticationProvider(credential, {
+			scopes: ['https://graph.microsoft.com/.default'],
+		});
+		const client = Client.initWithMiddleware({ authProvider });
+		const user = await client.api(`/users/${aadObjectId}`).select('mail,userPrincipalName').get();
+		return (user.mail as string) || (user.userPrincipalName as string) || null;
 	}
 
 	private async _checkUserBelongsToProject(ctx: ConversationContext): Promise<void> {
@@ -233,61 +205,45 @@ class SlackService {
 	private async _saveOrUpdateUserMessage(ctx: ConversationContext): Promise<void> {
 		const text = ctx.userMessage.text;
 
-		const existingChat = await chatQueries.getChatBySlackThread(ctx.thread.id);
+		const existingChat = await chatQueries.getChatByTeamsThread(ctx.thread.id);
 		if (existingChat) {
 			await chatQueries.upsertMessage({
 				role: 'user',
 				parts: [{ type: 'text', text }],
 				chatId: existingChat.id,
-				source: 'slack',
+				source: 'teams',
 			});
 			ctx.chatId = existingChat.id;
-			ctx.isNewChat = false;
 		} else {
 			const title = createChatTitle({ text });
 			const [createdChat] = await chatQueries.createChat(
-				{ title, userId: ctx.user!.id, projectId: this._projectId, slackThreadId: ctx.thread.id },
-				{ text, source: 'slack' },
+				{ title, userId: ctx.user!.id, projectId: this._projectId, teamsThreadId: ctx.thread.id },
+				{ text, source: 'teams' },
 			);
 			ctx.chatId = createdChat.id;
-			ctx.isNewChat = true;
 		}
 	}
 
 	private async _handleStreamAgent(chat: UIChat, ctx: ConversationContext): Promise<void> {
-		const stream = await this._createAgentStream(chat, ctx);
+		const agent = await agentService.create({ ...chat, userId: ctx.user!.id, projectId: this._projectId });
+		const stream = agent.stream(chat.messages, { provider: 'teams' });
 		const stopCard = await ctx.thread.post(createStopButtonCard());
 
-		const state = await this._readStreamAndUpdateSlackMessage(stream, ctx);
+		const state = await this._readStreamAndUpdateMessage(stream, ctx);
 
 		await stopCard.delete();
-		await this._uploadLastSqlResultAsCsv(state, ctx);
 		await this._lastCompletionCard.get(ctx.thread.id)?.card.delete();
 		const chatUrl = new URL(ctx.chatId, this._redirectUrl).toString();
 		const card = await ctx.thread.post(createCompletionCard(chatUrl));
 		this._lastCompletionCard.set(ctx.thread.id, { card, chatUrl });
 
-		posthog.capture(ctx.user!.id, PostHogEvent.MessageSent, {
-			project_id: this._projectId,
-			chat_id: ctx.chatId,
-			model_id: ctx.modelId,
-			is_new_chat: ctx.isNewChat,
-			source: 'slack',
-		});
+		ctx.assistantMessage = state.lastMessage;
 	}
 
-	private async _createAgentStream(
-		chat: UIChat,
-		ctx: ConversationContext,
-	): Promise<ReadableStream<InferUIMessageChunk<UIMessage>>> {
-		const agent = await agentService.create({ ...chat, userId: ctx.user!.id, projectId: this._projectId });
-		return agent.stream(chat.messages, { provider: 'slack' });
-	}
-
-	private async _readStreamAndUpdateSlackMessage(
+	private async _readStreamAndUpdateMessage(
 		stream: ReadableStream<InferUIMessageChunk<UIMessage>>,
 		ctx: ConversationContext,
-	): Promise<StreamState> {
+	): Promise<StreamState & { lastMessage: UIMessage | null }> {
 		const state: StreamState = {
 			renderedChartIds: new Set(),
 			sqlOutputs: new Map(),
@@ -321,9 +277,8 @@ class SlackService {
 			lastMessage = uiMessage;
 		}
 
-		ctx.assistantMessage = lastMessage;
 		await this._sendFinalText(ctx);
-		return state;
+		return { ...state, lastMessage };
 	}
 
 	private async _handleTextPart(
@@ -362,13 +317,23 @@ class SlackService {
 		}
 		try {
 			const png = generateChartImage({ config: part.input, data: sqlOutput.rows });
-			const chartId = await chartImageQueries.saveChart(part.toolCallId, png.toString('base64'));
 			state.renderedChartIds.add(part.toolCallId);
-			const imageUrl = new URL(`c/${ctx.chatId}/${chartId}.png`, this._redirectUrl).toString();
+
+			// -- Previous approach: save to DB and serve via URL --
+			const chartId = await chartImageQueries.saveChart(part.toolCallId, png.toString('base64'));
+			const imageUrl = new URL(
+				`c/${ctx.chatId}/${chartId}.png`,
+				'https://31bc-83-199-194-64.ngrok-free.app',
+			).toString();
+			// ctx.textBlockIndex = -1;
+			// ctx.blocks.push(createImageBlock(imageUrl));
+			// await ctx.convMessage?.edit(Card({ children: ctx.blocks }));
 
 			ctx.textBlockIndex = -1;
-			ctx.blocks.push(createImageBlock(imageUrl));
-			await ctx.convMessage?.edit(Card({ children: ctx.blocks }));
+			await ctx.thread.post({
+				markdown: '',
+				attachments: [{ type: 'image', url: imageUrl, mimeType: 'image/png', name: 'chart.png' }],
+			});
 		} catch (error) {
 			console.error('Error generating chart image:', error);
 		}
@@ -430,31 +395,8 @@ class SlackService {
 		}
 	}
 
-	private async _uploadLastSqlResultAsCsv(state: StreamState, ctx: ConversationContext): Promise<void> {
-		if (state.sqlOutputs.size === 0) {
-			return;
-		}
-		const { name, rows } = [...state.sqlOutputs.values()].at(-1)!;
-		if (rows.length === 0) {
-			return;
-		}
-		const columns = Object.keys(rows[0]);
-		const header = columns.join(',');
-		const body = rows.map((row) => columns.map((col) => escapeCsvCell(row[col])).join(',')).join('\n');
-		const csv = `${header}\n${body}`;
-		const filename = name ? `${name.toLowerCase().replace(/\s+/g, '_')}.csv` : 'data.csv';
-
-		const [, channelId, threadTs] = ctx.thread.id.split(':');
-		await this._slackClient?.files.uploadV2({
-			channel_id: channelId,
-			thread_ts: threadTs,
-			filename,
-			content: csv,
-		});
-	}
-
 	private async _getLastAssistantMessageId(threadId: string): Promise<string | null> {
-		const chat = await chatQueries.getChatBySlackThread(threadId);
+		const chat = await chatQueries.getChatByTeamsThread(threadId);
 		if (!chat) {
 			return null;
 		}
@@ -462,4 +404,4 @@ class SlackService {
 	}
 }
 
-export const slackService = new SlackService();
+export const teamsService = new TeamsService();

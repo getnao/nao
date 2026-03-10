@@ -6,6 +6,7 @@ import { AgentSettings } from '../types/agent-settings';
 import { StopReason, ToolState, UIMessagePartType } from '../types/chat';
 import { LLM_INFERENCE_TYPES, LlmProvider } from '../types/llm';
 import { MEMORY_CATEGORIES } from '../types/memory';
+import { SlackSettings, TeamsSettings } from '../types/messaging-provider';
 import { ORG_ROLES } from '../types/organization';
 import { USER_ROLES } from '../types/project';
 
@@ -142,13 +143,13 @@ export const project = sqliteTable(
 		name: text('name').notNull(),
 		type: text('type', { enum: ['local'] }).notNull(),
 		path: text('path'),
-		slackBotToken: text('slack_bot_token'),
-		slackSigningSecret: text('slack_signing_secret'),
-		slackllmProvider: text('slack_llm_provider'),
-		slackllmModelId: text('slack_llm_model_id'),
 		agentSettings: text('agent_settings', { mode: 'json' }).$type<AgentSettings>(),
 		enabledMcpTools: text('enabled_tools', { mode: 'json' }).$type<string[]>().notNull().default([]),
 		knownMcpServers: text('known_mcp_servers', { mode: 'json' }).$type<string[]>().notNull().default([]),
+
+		slackSettings: text('slack_settings', { mode: 'json' }).$type<SlackSettings>(),
+		teamsSettings: text('teams_settings', { mode: 'json' }).$type<TeamsSettings>(),
+
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull(),
@@ -180,6 +181,7 @@ export const chat = sqliteTable(
 			.references(() => project.id, { onDelete: 'cascade' }),
 		title: text('title').notNull().default('New Conversation'),
 		slackThreadId: text('slack_thread_id'),
+		teamsThreadId: text('teams_thread_id'),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull(),
@@ -192,6 +194,7 @@ export const chat = sqliteTable(
 		index('chat_userId_idx').on(table.userId),
 		index('chat_projectId_idx').on(table.projectId),
 		index('chat_slack_thread_idx').on(table.slackThreadId),
+		index('chat_teams_thread_idx').on(table.teamsThreadId),
 	],
 );
 
@@ -210,7 +213,7 @@ export const chatMessage = sqliteTable(
 		llmProvider: text('llm_provider').$type<LlmProvider>(),
 		llmModelId: text('llm_model_id'),
 		supersededAt: integer('superseded_at', { mode: 'timestamp_ms' }),
-		source: text('source', { enum: ['slack', 'web'] }),
+		source: text('source', { enum: ['slack', 'teams', 'web'] }),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull(),
