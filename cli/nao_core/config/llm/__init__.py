@@ -76,6 +76,7 @@ class LLMConfig(BaseModel):
     base_url: str | None = Field(default=None, description="Optional custom base URL for the provider API")
     access_key: str | None = Field(default=None, description="AWS access key (only for Bedrock)")
     secret_key: str | None = Field(default=None, description="AWS secret key (only for Bedrock)")
+    aws_region: str | None = Field(default=None, description="AWS region (only for Bedrock)")
     annotation_model: str | None = Field(
         default=None,
         description="Model to use for ai_summary generation via prompt(...) in Jinja templates",
@@ -123,6 +124,7 @@ class LLMConfig(BaseModel):
         api_key = None
         access_key = None
         secret_key = None
+        aws_region = None
 
         if auth.api_key == "required":
             api_key = ask_text(f"Enter your {llm_provider.upper()} API key:", password=True, required_field=True)
@@ -140,6 +142,7 @@ class LLMConfig(BaseModel):
                 secret_key = ask_text("Enter AWS secret key:", password=True, required_field=True)
             elif bedrock_auth_mode == "bearer":
                 api_key = ask_text("Enter AWS bearer token:", password=True, required_field=True)
+            aws_region = ask_text("Enter AWS region (e.g. us-east-1):", password=False, required_field=False)
 
         provider = LLMProvider(llm_provider)
         annotation_model: str | None = None
@@ -154,6 +157,7 @@ class LLMConfig(BaseModel):
             api_key=api_key,
             access_key=access_key,
             secret_key=secret_key,
+            aws_region=aws_region or None,
             annotation_model=annotation_model,
         )
 
