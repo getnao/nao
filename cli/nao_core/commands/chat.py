@@ -193,6 +193,9 @@ def chat(port: Annotated[Optional[int], Parameter(name=["-p", "--port"])] = None
                 if config.llm.secret_key:
                     env["AWS_SECRET_ACCESS_KEY"] = config.llm.secret_key
                     console.print("[bold green]✓[/bold green] Set AWS_SECRET_ACCESS_KEY from config")
+                if config.llm.aws_region:
+                    env["AWS_REGION"] = config.llm.aws_region
+                    console.print("[bold green]✓[/bold green] Set AWS_REGION from config")
 
         env["NAO_DEFAULT_PROJECT_PATH"] = str(Path.cwd())
         if "BETTER_AUTH_URL" not in os.environ:

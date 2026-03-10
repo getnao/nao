@@ -288,9 +288,10 @@ class TestNaoConfigPromptLLM:
 
         mock_confirm.return_value = False
 
-        result = NaoConfig._prompt_llm()
+        llm, enable_ai_summary = NaoConfig._prompt_llm()
 
-        assert result is None
+        assert llm is None
+        assert enable_ai_summary is False
 
     @patch("nao_core.config.base.ask_confirm")
     @patch("nao_core.config.llm.LLMConfig.promptConfig")
@@ -302,10 +303,12 @@ class TestNaoConfigPromptLLM:
         mock_prompt_config.return_value = mock_llm
         mock_confirm.return_value = True
 
-        result = NaoConfig._prompt_llm()
+        result_llm, enable_ai_summary = NaoConfig._prompt_llm()
 
-        assert result is not None
-        assert result.api_key == "sk-test-key"
+        assert result_llm is not None
+        assert result_llm.api_key == "sk-test-key"
+        assert enable_ai_summary is False
+        mock_prompt_config.assert_called_once_with(prompt_annotation_model=False)
 
     @patch("nao_core.config.llm.ask_text")
     @patch("nao_core.config.llm.ask_select")
@@ -321,6 +324,47 @@ class TestNaoConfigPromptLLM:
 
         with pytest.raises(KeyboardInterrupt):
             LLMConfig.promptConfig()
+
+
+class TestNaoConfigAiSummaryAccessors:
+    """Tests for NaoConfig._configure_ai_summary_accessors."""
+
+    def test_skips_when_llm_not_configured(self):
+        """Does not modify accessors when llm is not configured."""
+        from nao_core.config import NaoConfig
+        from nao_core.config.databases.base import DatabaseAccessor
+        from nao_core.config.databases.duckdb import DuckDBConfig
+
+        db = DuckDBConfig(name="test-db", path=":memory:")
+        result = NaoConfig._configure_ai_summary_accessors([db], llm=None, enable_ai_summary=True)
+
+        assert DatabaseAccessor.AI_SUMMARY not in result[0].accessors
+
+    def test_adds_ai_summary_accessor_when_enabled(self):
+        """Adds ai_summary accessor when enabled."""
+        from nao_core.config import LLMConfig, LLMProvider, NaoConfig
+        from nao_core.config.databases.base import DatabaseAccessor
+        from nao_core.config.databases.duckdb import DuckDBConfig
+
+        db = DuckDBConfig(name="test-db", path=":memory:")
+        llm = LLMConfig(provider=LLMProvider.OPENAI, api_key="sk-test")
+
+        result = NaoConfig._configure_ai_summary_accessors([db], llm=llm, enable_ai_summary=True)
+
+        assert DatabaseAccessor.AI_SUMMARY in result[0].accessors
+
+    def test_does_not_add_ai_summary_accessor_when_disabled(self):
+        """Keeps accessors unchanged when ai_summary is disabled."""
+        from nao_core.config import LLMConfig, LLMProvider, NaoConfig
+        from nao_core.config.databases.base import DatabaseAccessor
+        from nao_core.config.databases.duckdb import DuckDBConfig
+
+        db = DuckDBConfig(name="test-db", path=":memory:")
+        llm = LLMConfig(provider=LLMProvider.OPENAI, api_key="sk-test")
+
+        result = NaoConfig._configure_ai_summary_accessors([db], llm=llm, enable_ai_summary=False)
+
+        assert DatabaseAccessor.AI_SUMMARY not in result[0].accessors
 
 
 class TestNaoConfigPromptSlack:

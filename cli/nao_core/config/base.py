@@ -11,7 +11,7 @@ from rich.console import Console
 
 from nao_core.ui import UI, ask_confirm, ask_select
 
-from .databases import DATABASE_CONFIG_CLASSES, AnyDatabaseConfig, DatabaseType, parse_database_config
+from .databases import DATABASE_CONFIG_CLASSES, AnyDatabaseConfig, DatabaseAccessor, DatabaseType, parse_database_config
 from .llm import LLMConfig
 from .mcp import McpConfig
 from .notion import NotionConfig
@@ -55,11 +55,15 @@ class NaoConfig(BaseModel):
         if existing:
             return cls._prompt_extend(existing)
 
+        databases = cls._prompt_databases()
+        llm, enable_ai_summary = cls._prompt_llm(databases=databases)
+        databases = cls._configure_ai_summary_accessors(databases, llm, enable_ai_summary)
+
         return cls(
             project_name=project_name,
-            databases=cls._prompt_databases(),
+            databases=databases,
             repos=cls._prompt_repos(),
-            llm=cls._prompt_llm(),
+            llm=llm,
             slack=cls._prompt_slack(),
             notion=cls._prompt_notion(),
             mcp=cls._prompt_mcp(project_name),
@@ -99,8 +103,10 @@ class NaoConfig(BaseModel):
         databases.extend(cls._prompt_databases(has_existing=bool(existing.databases)))
         repos.extend(cls._prompt_repos(has_existing=bool(existing.repos)))
 
-        if not llm:
-            llm = cls._prompt_llm()
+        if llm:
+            enable_ai_summary = cls._prompt_enable_ai_summary_accessors(databases)
+        else:
+            llm, enable_ai_summary = cls._prompt_llm(databases=databases)
 
         if not slack:
             slack = cls._prompt_slack()
@@ -113,6 +119,8 @@ class NaoConfig(BaseModel):
 
         if not skills:
             skills = cls._prompt_skills(existing.project_name)
+
+        databases = cls._configure_ai_summary_accessors(databases, llm, enable_ai_summary)
 
         return cls(
             project_name=existing.project_name,
@@ -170,11 +178,36 @@ class NaoConfig(BaseModel):
         return repos
 
     @staticmethod
-    def _prompt_llm() -> LLMConfig | None:
-        """Prompt for LLM configuration using questionary."""
+    def _prompt_llm(databases: list[AnyDatabaseConfig] | None = None) -> tuple[LLMConfig | None, bool]:
+        """Prompt for LLM configuration and optional ai_summary settings."""
         if ask_confirm("Set up LLM configuration?", default=True):
-            return LLMConfig.promptConfig()
-        return None
+            enable_ai_summary = NaoConfig._prompt_enable_ai_summary_accessors(databases or [])
+            return LLMConfig.promptConfig(prompt_annotation_model=enable_ai_summary), enable_ai_summary
+        return None, False
+
+    @staticmethod
+    def _prompt_enable_ai_summary_accessors(databases: list[AnyDatabaseConfig]) -> bool:
+        """Prompt whether ai_summary should be enabled for configured databases."""
+        if not databases:
+            return False
+
+        return ask_confirm("Enable `ai_summary` accessor for all configured databases?", default=True)
+
+    @staticmethod
+    def _configure_ai_summary_accessors(
+        databases: list[AnyDatabaseConfig],
+        llm: LLMConfig | None,
+        enable_ai_summary: bool,
+    ) -> list[AnyDatabaseConfig]:
+        """Enable ai_summary accessor for configured databases when requested."""
+        if not databases or llm is None or not enable_ai_summary:
+            return databases
+
+        for db in databases:
+            if DatabaseAccessor.AI_SUMMARY not in db.accessors:
+                db.accessors.append(DatabaseAccessor.AI_SUMMARY)
+
+        return databases
 
     @staticmethod
     def _prompt_slack() -> SlackConfig | None:

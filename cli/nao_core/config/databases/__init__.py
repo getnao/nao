@@ -50,10 +50,13 @@ DATABASE_CONFIG_CLASSES: dict[DatabaseType, type[DatabaseConfig]] = {
 def parse_database_config(data: dict) -> DatabaseConfig:
     """Parse a database config dict into the appropriate type."""
     raw_type = data.get("type")
+    if not isinstance(raw_type, str):
+        raise ValueError(f"Unknown database type: {raw_type}")
+
     try:
         db_type = DatabaseType(raw_type)
-    except (ValueError, KeyError):
-        raise ValueError(f"Unknown database type: {raw_type}")
+    except ValueError as e:
+        raise ValueError(f"Unknown database type: {raw_type}") from e
     config_class = DATABASE_CONFIG_CLASSES[db_type]
     return config_class.model_validate(data)
 
