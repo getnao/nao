@@ -95,7 +95,7 @@ function buildKpiCard(props: ResolvedProps) {
 	const { data, series } = props;
 
 	const kpis = series.map((s) => {
-		const value = data[0][s.data_key];
+		const value = data[0]?.[s.data_key];
 		return { value, displayName: s.label ?? s.data_key };
 	});
 
