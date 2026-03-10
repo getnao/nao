@@ -15,11 +15,12 @@ type SystemPromptProps = {
 	userRules?: string;
 	connections?: Connection[];
 	skills?: Skill[];
+	timezone?: string;
 };
 
 export const MEMORY_TOKEN_LIMIT = 1000;
 
-export function SystemPrompt({ memories = [], userRules, connections = [], skills = [] }: SystemPromptProps) {
+export function SystemPrompt({ memories = [], userRules, connections = [], skills = [], timezone }: SystemPromptProps) {
 	const visibleMemories = getMemoriesInTokenRange(memories, MEMORY_TOKEN_LIMIT);
 
 	return (
@@ -29,6 +30,8 @@ export function SystemPrompt({ memories = [], userRules, connections = [], skill
 				You are nao, an expert AI data analyst tailored for people doing analytics, you are integrated into an
 				agentic workflow made by nao Labs (<Link href='https://getnao.io' text='https://getnao.io' />
 				).
+				<Br />
+				Today's date is <Bold>{formatDate(timezone)}</Bold>.
 				<Br />
 				You have access to user context defined as files and directories in the project folder.
 				<Br />
@@ -163,6 +166,30 @@ function getMemoriesInTokenRange(memories: UserMemory[], limit: number): UserMem
 	}
 
 	return visible;
+}
+
+function formatDate(timezone?: string): string {
+	const tz = resolveTimezone(timezone);
+	const formatted = new Date().toLocaleDateString('en-US', {
+		weekday: 'long',
+		year: 'numeric',
+		month: 'long',
+		day: 'numeric',
+		timeZone: tz,
+	});
+	return tz === 'UTC' ? `${formatted} (UTC)` : `${formatted} (${tz})`;
+}
+
+function resolveTimezone(timezone?: string): string {
+	if (!timezone) {
+		return 'UTC';
+	}
+	try {
+		Intl.DateTimeFormat(undefined, { timeZone: timezone });
+		return timezone;
+	} catch {
+		return 'UTC';
+	}
 }
 
 const CATEGORY_LABEL: Record<MemoryCategory, string> = {

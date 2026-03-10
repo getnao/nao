@@ -108,6 +108,7 @@ export const useAgent = (): AgentHelpers => {
 							},
 							model: selectedModelRef.current ?? undefined,
 							mentions: mentions.length > 0 ? mentions : undefined,
+							timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
 						},
 					};
 				},

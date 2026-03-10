@@ -128,4 +128,5 @@ export const AgentRequestSchema = z.object({
 	messageToEditId: z.string().optional(),
 	model: ModelSelectionSchema.optional(),
 	mentions: z.array(MentionSchema).optional(),
+	timezone: z.string().optional(),
 });

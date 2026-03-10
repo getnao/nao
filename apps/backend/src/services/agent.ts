@@ -224,6 +224,7 @@ class AgentManager {
 			events?: Partial<MessageCustomDataParts>;
 			mentions?: Mention[];
 			isSlack?: boolean;
+			timezone?: string;
 		} = {},
 	): ReadableStream<InferUIMessageChunk<UIMessage>> {
 		let error: unknown = undefined;
@@ -247,7 +248,7 @@ class AgentManager {
 				}
 
 				this._streamWriter = writer;
-				const messages = await this._buildModelMessages(uiMessages, opts.mentions, opts.isSlack);
+				const messages = await this._buildModelMessages(uiMessages, opts.mentions, opts.isSlack, opts.timezone);
 
 				result = await this._agent.stream({
 					messages,
@@ -294,6 +295,7 @@ class AgentManager {
 		uiMessages: UIMessage[],
 		mentions?: Mention[],
 		isSlack?: boolean,
+		timezone?: string,
 	): Promise<ModelMessage[]> {
 		const uiMessagesWithStories = await this._syncStoryToolOutputs(uiMessages);
 		const uiMessagesWithStoryMode = this._addStoryMode(uiMessagesWithStories, mentions);
@@ -305,7 +307,7 @@ class AgentManager {
 		const userRules = getUserRules();
 		const connections = getConnections();
 		const skills = skillService.getSkills();
-		const basePrompt = renderToMarkdown(SystemPrompt({ memories, userRules, connections, skills }));
+		const basePrompt = renderToMarkdown(SystemPrompt({ memories, userRules, connections, skills, timezone }));
 		const systemPrompt = isSlack ? renderToMarkdown(SlackSystemPrompt({ basePrompt })) : basePrompt;
 
 		const systemMessage: Omit<UIMessage, 'id'> = {
