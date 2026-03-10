@@ -1,8 +1,30 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+import { parse as parseYaml } from 'yaml';
+
 import { createProviderModel, getDefaultModelId, LLM_PROVIDERS, type ProviderModelResult } from '../agents/providers';
 import * as projectLlmConfigQueries from '../queries/project-llm-config.queries';
 import { LlmProvider, ModelSelection, type ProviderSettings } from '../types/llm';
 export { getDefaultModelId };
 export type { ModelSelection };
+
+type NaoConfigLlm = { provider: LlmProvider; api_key?: string; base_url?: string };
+
+/** Read the llm section from nao_config.yaml in the project folder, if present. */
+function readNaoConfigLlm(): NaoConfigLlm | null {
+	const projectFolder = process.env.NAO_DEFAULT_PROJECT_PATH;
+	if (!projectFolder) {
+		return null;
+	}
+	try {
+		const raw = readFileSync(join(projectFolder, 'nao_config.yaml'), 'utf8');
+		const config = parseYaml(raw) as { llm?: NaoConfigLlm };
+		return config?.llm ?? null;
+	} catch {
+		return null;
+	}
+}
 
 /** Get the API key from environment for a provider */
 export function getEnvApiKey(provider: LlmProvider): string | undefined {
@@ -67,7 +89,7 @@ export function getEnvModelSelections(): ModelSelection[] {
 	}));
 }
 
-/** Resolve API key + base URL for a provider from DB config or env vars. */
+/** Resolve API key + base URL for a provider from DB config, env vars, or nao_config.yaml. */
 export async function resolveProviderSettings(
 	projectId: string,
 	provider: LlmProvider,
@@ -83,12 +105,17 @@ export async function resolveProviderSettings(
 		return { apiKey: envApiKey, ...(envBaseUrl && { baseURL: envBaseUrl }) };
 	}
 
+	const naoLlm = readNaoConfigLlm();
+	if (naoLlm?.provider === provider && naoLlm.api_key) {
+		return { apiKey: naoLlm.api_key, ...(naoLlm.base_url && { baseURL: naoLlm.base_url }) };
+	}
+
 	return null;
 }
 
 /**
- * Resolve a provider model from DB config, falling back to env vars.
- * Returns null when neither source has credentials for the provider.
+ * Resolve a provider model from DB config, env vars, or nao_config.yaml.
+ * Returns null when no source has credentials for the provider.
  */
 export async function resolveProviderModel(
 	projectId: string,
@@ -122,6 +149,15 @@ export async function resolveProviderModel(
 		return createProviderModel(provider, { apiKey: '' }, modelId);
 	}
 
+	const naoLlm = readNaoConfigLlm();
+	if (naoLlm?.provider === provider && naoLlm.api_key) {
+		return createProviderModel(
+			provider,
+			{ apiKey: naoLlm.api_key, ...(naoLlm.base_url && { baseURL: naoLlm.base_url }) },
+			modelId,
+		);
+	}
+
 	return null;
 }
 
@@ -151,6 +187,18 @@ export const getProjectAvailableModels = async (
 		.filter((s) => !configs.some((c) => c.provider === s.provider))
 		.map((s) => ({ ...s, name: getModelName(s.provider, s.modelId) }));
 	models.push(...envSelections);
+
+	// Also add the nao_config.yaml provider if not already covered by DB or env
+	const naoLlm = readNaoConfigLlm();
+	if (naoLlm?.api_key) {
+		const alreadyCovered =
+			configs.some((c) => c.provider === naoLlm.provider) ||
+			envSelections.some((s) => s.provider === naoLlm.provider);
+		if (!alreadyCovered) {
+			const modelId = getDefaultModelId(naoLlm.provider);
+			models.push({ provider: naoLlm.provider, modelId, name: getModelName(naoLlm.provider, modelId) });
+		}
+	}
 
 	return models;
 };
