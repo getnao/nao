@@ -48,7 +48,10 @@ export async function getSharedChat(id: string): Promise<SharedChat | null> {
 	);
 }
 
-export async function findByChat(chatId: string, userId: string): Promise<{ id: string; visibility: ChatVisibility } | null> {
+export async function findByChat(
+	chatId: string,
+	userId: string,
+): Promise<{ id: string; visibility: ChatVisibility } | null> {
 	return takeFirstOrNull(
 		db
 			.select({ id: s.sharedChat.id, visibility: s.sharedChat.visibility })
@@ -159,9 +162,7 @@ export async function getReadableSharedChatByChatId(
 	}
 
 	const canAccess =
-		share.userId === userId ||
-		share.visibility === 'project' ||
-		(await canUserAccessSharedChat(share.id, userId));
+		share.userId === userId || share.visibility === 'project' || (await canUserAccessSharedChat(share.id, userId));
 
 	return canAccess ? { shareId: share.id, visibility: share.visibility } : null;
 }

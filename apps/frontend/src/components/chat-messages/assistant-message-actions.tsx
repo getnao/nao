@@ -77,7 +77,9 @@ export function AssistantMessageActions({
 							size='icon-sm'
 							onClick={handlePositiveFeedback}
 							disabled={submitFeedback.isPending}
-							className={cn(message.feedback?.vote === 'up' ? 'text-primary' : 'opacity-50 hover:opacity-100')}
+							className={cn(
+								message.feedback?.vote === 'up' ? 'text-primary' : 'opacity-50 hover:opacity-100',
+							)}
 							aria-label='Good response'
 						>
 							<ThumbsUp className='size-4' />
@@ -88,7 +90,9 @@ export function AssistantMessageActions({
 							size='icon-sm'
 							onClick={handleNegativeFeedbackClick}
 							disabled={submitFeedback.isPending}
-							className={cn(message.feedback?.vote === 'down' ? 'text-primary' : 'opacity-50 hover:opacity-100')}
+							className={cn(
+								message.feedback?.vote === 'down' ? 'text-primary' : 'opacity-50 hover:opacity-100',
+							)}
 							aria-label='Bad response'
 						>
 							<ThumbsDown className='size-4' />

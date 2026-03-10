@@ -342,7 +342,9 @@ export const searchUserChats = async (
 	const searchPattern = `%${query}%`;
 
 	// Search in chat titles
-	const titleMatches = list.chats.filter((chat) => chat.title.toLowerCase().includes(query.toLowerCase())).slice(0, limit);
+	const titleMatches = list.chats
+		.filter((chat) => chat.title.toLowerCase().includes(query.toLowerCase()))
+		.slice(0, limit);
 
 	const titleMatchIds = new Set(titleMatches.map((m) => m.id));
 

@@ -14,33 +14,35 @@ import { ownedResourceProcedure, projectProtectedProcedure, protectedProcedure }
 const chatOwnerProcedure = ownedResourceProcedure(chatQueries.getChatOwnerId, 'chat');
 
 export const chatRoutes = {
-	get: projectProtectedProcedure.input(z.object({ chatId: z.string() })).query(async ({ input, ctx }): Promise<UIChat> => {
-		const [chat, userId] = await chatQueries.loadChat(input.chatId, { includeFeedback: true });
-		if (!chat) {
-			throw new TRPCError({ code: 'NOT_FOUND', message: `Chat with id ${input.chatId} not found.` });
-		}
+	get: projectProtectedProcedure
+		.input(z.object({ chatId: z.string() }))
+		.query(async ({ input, ctx }): Promise<UIChat> => {
+			const [chat, userId] = await chatQueries.loadChat(input.chatId, { includeFeedback: true });
+			if (!chat) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: `Chat with id ${input.chatId} not found.` });
+			}
 
-		const chatProjectId = await chatQueries.getChatProjectId(input.chatId);
-		if (!chatProjectId || chatProjectId !== ctx.project.id) {
-			throw new TRPCError({ code: 'FORBIDDEN', message: `You are not authorized to access this chat.` });
-		}
+			const chatProjectId = await chatQueries.getChatProjectId(input.chatId);
+			if (!chatProjectId || chatProjectId !== ctx.project.id) {
+				throw new TRPCError({ code: 'FORBIDDEN', message: `You are not authorized to access this chat.` });
+			}
 
-		if (userId === ctx.user.id) {
-			return { ...chat, canWrite: true, accessType: 'owner', shareId: undefined };
-		}
+			if (userId === ctx.user.id) {
+				return { ...chat, canWrite: true, accessType: 'owner', shareId: undefined };
+			}
 
-		const share = await sharedChatQueries.getReadableSharedChatByChatId(input.chatId, ctx.user.id);
-		if (!share) {
-			throw new TRPCError({ code: 'FORBIDDEN', message: `You are not authorized to access this chat.` });
-		}
+			const share = await sharedChatQueries.getReadableSharedChatByChatId(input.chatId, ctx.user.id);
+			if (!share) {
+				throw new TRPCError({ code: 'FORBIDDEN', message: `You are not authorized to access this chat.` });
+			}
 
-		return {
-			...chat,
-			canWrite: false,
-			accessType: share.visibility === 'project' ? 'shared-project' : 'shared-specific',
-			shareId: share.shareId,
-		};
-	}),
+			return {
+				...chat,
+				canWrite: false,
+				accessType: share.visibility === 'project' ? 'shared-project' : 'shared-specific',
+				shareId: share.shareId,
+			};
+		}),
 
 	list: projectProtectedProcedure.query(async ({ ctx }): Promise<ListChatResponse> => {
 		return chatQueries.listUserChats(ctx.user.id, ctx.project.id);

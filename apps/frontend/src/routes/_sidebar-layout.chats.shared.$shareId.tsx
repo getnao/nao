@@ -13,12 +13,7 @@ export const Route = createFileRoute('/_sidebar-layout/chats/shared/$shareId')({
 function SharedChatRedirectPage() {
 	const { shareId } = Route.useParams();
 	const navigate = useNavigate();
-	const shareQuery = useQuery(
-		trpc.chatShare.get.queryOptions(
-			{ id: shareId ?? '' },
-			{ enabled: !!shareId },
-		),
-	);
+	const shareQuery = useQuery(trpc.chatShare.get.queryOptions({ id: shareId ?? '' }, { enabled: !!shareId }));
 
 	useEffect(() => {
 		if (!shareQuery.data?.chatId) {
