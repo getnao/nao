@@ -80,6 +80,7 @@ def create_empty_structure(project_path: Path) -> tuple[list[str], list[CreatedF
         "repos",
         "agent/tools",
         "agent/mcps",
+        "agent/skills",
     ]
 
     FILES = [

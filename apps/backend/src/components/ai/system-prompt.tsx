@@ -35,6 +35,10 @@ export function SystemPrompt({ memories = [], userRules, connections = [], skill
 				Databases content is defined as files in the project folder so you can easily search for information
 				about the database instead of querying the database directly (it's faster and avoids leaking sensitive
 				information).
+				<Br />
+				Tables from databases can be mentionned using the @ trigger.
+				<Br />
+				Skills can be mentionned using the / trigger.
 			</Span>
 
 			<Title level={2}>How nao Works</Title>

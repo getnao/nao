@@ -137,6 +137,11 @@ function ChatInputBase({
 	};
 	const isInputEmpty = !inputText.trim();
 
+	const skills = useQuery(trpc.skill.list.queryOptions());
+	const databaseObjects = useQuery(trpc.project.getDatabaseObjects.queryOptions());
+	const hasSkills = Boolean(skills.data?.length);
+	const hasDatabases = Boolean(databaseObjects.data?.length);
+
 	const openSkillsMenu = useCallback(() => {
 		promptRef.current?.insertText('/');
 	}, [promptRef]);
@@ -165,8 +170,13 @@ function ChatInputBase({
 
 						<div className='flex items-center gap-1.5 md:gap-2 ml-auto relative'>
 							<ChatInputPlusMenu
+								hasDatabases={hasDatabases}
+								hasSkills={hasSkills}
 								onAddStory={() => {
-									promptRef.current?.appendMention({ id: STORY_MENTION_ID, label: 'Story' }, '#');
+									promptRef.current?.appendMention(
+										{ id: STORY_MENTION_ID, label: 'Story mode' },
+										'#',
+									);
 								}}
 								onOpenSkills={openSkillsMenu}
 								onOpenDatabase={openDatabaseMenu}
@@ -213,11 +223,15 @@ function ChatInputBase({
 }
 
 function ChatInputPlusMenu({
+	hasDatabases,
+	hasSkills,
 	onAddStory,
 	onOpenSkills,
 	onOpenDatabase,
 	onFocusPrompt,
 }: {
+	hasDatabases: boolean;
+	hasSkills: boolean;
 	onAddStory: () => void;
 	onOpenSkills: () => void;
 	onOpenDatabase: () => void;
@@ -244,18 +258,22 @@ function ChatInputPlusMenu({
 					requestAnimationFrame(onFocusPrompt);
 				}}
 			>
-				<DropdownMenuItem onSelect={onOpenDatabase}>
-					<Database className='size-4' />
-					<span>Database table</span>
-				</DropdownMenuItem>
+				{hasDatabases && (
+					<DropdownMenuItem onSelect={onOpenDatabase}>
+						<Database className='size-4' />
+						<span>Database tables</span>
+					</DropdownMenuItem>
+				)}
 				<DropdownMenuItem onSelect={onAddStory}>
 					<StoryIcon className='size-4' />
-					<span>Story</span>
+					<span>Story mode</span>
 				</DropdownMenuItem>
-				<DropdownMenuItem onSelect={onOpenSkills}>
-					<Hammer className='size-4' />
-					<span>Skills</span>
-				</DropdownMenuItem>
+				{hasSkills && (
+					<DropdownMenuItem onSelect={onOpenSkills}>
+						<Hammer className='size-4' />
+						<span>Skills</span>
+					</DropdownMenuItem>
+				)}
 			</DropdownMenuContent>
 		</DropdownMenu>
 	);
