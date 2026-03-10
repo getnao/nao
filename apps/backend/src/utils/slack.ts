@@ -75,7 +75,9 @@ function mdToMrkdwn(text: string): string {
 	const parts = text.split(/(```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]+`)/);
 	return parts
 		.map((part, i) => {
-			if (i % 2 === 1) return part;
+			if (i % 2 === 1) {
+				return part;
+			}
 			return part
 				.replace(/^#{1,6}\s+(.+)$/gm, '*$1*')
 				.replace(/\*\*(.+?)\*\*/g, '*$1*')
