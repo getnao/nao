@@ -483,6 +483,12 @@ export const projectRoutes = {
 						}),
 					)
 					.optional(),
+				updatedAtFilter: z
+					.union([
+						z.object({ mode: z.literal('single'), value: z.string() }),
+						z.object({ mode: z.literal('range'), start: z.string(), end: z.string() }),
+					])
+					.optional(),
 				sorting: z
 					.array(
 						z.object({

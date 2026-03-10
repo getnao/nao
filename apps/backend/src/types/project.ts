@@ -20,6 +20,7 @@ export interface ProjectChatListItem {
 	title: string;
 	numberOfMessages: number;
 	totalTokens: number;
+	feedbackText: string;
 	downvotes: number;
 	upvotes: number;
 	toolErrorCount: number;

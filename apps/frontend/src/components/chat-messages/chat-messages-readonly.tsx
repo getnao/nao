@@ -1,4 +1,5 @@
 import { memo, useMemo } from 'react';
+import { ThumbsDown, ThumbsUp } from 'lucide-react';
 import { Streamdown } from 'streamdown';
 import type { UIMessage } from '@nao/backend/chat';
 
@@ -82,7 +83,7 @@ const UserMessageReadonly = memo(({ message }: { message: UIMessage }) => {
 	const text = useMemo(() => getMessageText(message), [message]);
 	return (
 		<div className='group flex flex-col gap-2'>
-			<div className={cn('rounded-2xl px-3 py-2 bg-card text-card-foreground ml-auto max-w-xl border')}>
+			<div className={cn('rounded-2xl mt-2 px-3 py-2 bg-card text-card-foreground ml-auto max-w-xl border')}>
 				{message.source === 'slack' && (
 					<span className='flex items-center justify-end gap-1 text-xs text-muted-foreground'>
 						<SlackIcon className='size-3.5' />
@@ -108,6 +109,25 @@ const AssistantMessageReadonly = memo(({ message, isLastMessage }: { message: UI
 		<AssistantMessageProvider isSettled={true}>
 			<div className={cn('group px-3 flex flex-col gap-2 bg-transparent')}>
 				<MessagePartsReadonly parts={messageParts} />
+
+				{message.feedback && (
+					<div
+						data-replay-nav='feedback'
+						className='flex items-center gap-1.5 text-xs text-muted-foreground mt-1'
+					>
+						{message.feedback.vote === 'up' ? (
+							<ThumbsUp className='size-3.5 text-green-600' />
+						) : (
+							<ThumbsDown className='size-3.5 text-red-500' />
+						)}
+						<span>Feedback</span>
+						{message.feedback.vote === 'down' &&
+							message.feedback.explanation != null &&
+							message.feedback.explanation.trim() !== '' && (
+								<span className='text-xs font-semibold'> : {message.feedback.explanation}</span>
+							)}
+					</div>
+				)}
 
 				{!hasContent && <div className='text-muted-foreground italic text-sm'>No response</div>}
 

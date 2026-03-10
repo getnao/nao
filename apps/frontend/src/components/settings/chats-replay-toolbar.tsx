@@ -1,6 +1,8 @@
 import { Columns2, Filter, Users, X } from 'lucide-react';
+import { ChatsReplayDateFilter } from './chats-replay-date-filter';
 import type { ColumnFiltersState, Table } from '@tanstack/react-table';
 
+import type { DateFilterValue } from '@/lib/chats-replay.date-filter.utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -49,6 +51,15 @@ export function ChatsReplayToolbar<TData>({
 		(columnFilters.find((f) => f.id === 'userName')?.value as string[] | undefined) ?? facets.userNames;
 	const someUsersUnchecked = selectedUsers.length < facets.userNames.length;
 
+	const updatedAtFilter = columnFilters.find((f) => f.id === 'updatedAt')?.value as DateFilterValue | undefined;
+
+	const setUpdatedAtFilter = (value: DateFilterValue | undefined) => {
+		const next = value
+			? [...columnFilters.filter((f) => f.id !== 'updatedAt'), { id: 'updatedAt', value }]
+			: columnFilters.filter((f) => f.id !== 'updatedAt');
+		onColumnFiltersChange(next);
+	};
+
 	const toolStateValues = [
 		{ value: 'noToolsUsed', label: 'No tools used', count: facets.toolState.noToolsUsed },
 		{ value: 'toolsNoErrors', label: 'Tools, no errors', count: facets.toolState.toolsNoErrors },
@@ -69,6 +80,10 @@ export function ChatsReplayToolbar<TData>({
 	};
 
 	const activeFilters = columnFilters.filter((f) => {
+		if (f.id === 'updatedAt') {
+			const v = f.value as DateFilterValue | undefined;
+			return !!(v && ((v.mode === 'single' && v.value) || (v.mode === 'range' && v.start && v.end)));
+		}
 		const v = (f.value as string[]) ?? [];
 		const all = getAllValuesForFilterId(f.id);
 		return v.length > 0 && v.length < all.length;
@@ -104,6 +119,10 @@ export function ChatsReplayToolbar<TData>({
 	const clearAllFilters = () => {
 		onColumnFiltersChange([]);
 		onGlobalFilterChange('');
+	};
+
+	const removeUpdatedAtFilter = () => {
+		onColumnFiltersChange(columnFilters.filter((f) => f.id !== 'updatedAt'));
 	};
 
 	const toggleableColumns = table.getAllLeafColumns().filter((col) => col.getCanHide());
@@ -144,6 +163,8 @@ export function ChatsReplayToolbar<TData>({
 					placeholder='Search chats...'
 					className='h-8 text-sm max-w-sm'
 				/>
+
+				<ChatsReplayDateFilter value={updatedAtFilter} onChange={setUpdatedAtFilter} />
 
 				<DropdownMenu>
 					<DropdownMenuTrigger asChild>
@@ -342,7 +363,7 @@ export function ChatsReplayToolbar<TData>({
 							);
 						})}
 
-						{(activeFilters.length > 0 || globalFilter) && (
+						{(activeFilters.length > 0 || globalFilter || updatedAtFilter) && (
 							<>
 								<DropdownMenuSeparator />
 								<button
@@ -357,9 +378,28 @@ export function ChatsReplayToolbar<TData>({
 				</DropdownMenu>
 			</div>
 
-			{(activeFilters.length > 0 || globalFilter) && (
+			{(activeFilters.length > 0 || globalFilter || updatedAtFilter) && (
 				<div className='flex flex-wrap gap-1.5 items-center'>
 					<span className='text-xs text-muted-foreground'>Active:</span>
+
+					{updatedAtFilter &&
+						((updatedAtFilter.mode === 'single' && updatedAtFilter.value) ||
+							(updatedAtFilter.mode === 'range' && updatedAtFilter.start && updatedAtFilter.end)) && (
+							<Badge variant='secondary' className='flex items-center gap-1 pl-2 pr-1 py-0.5 text-xs'>
+								<span className='text-muted-foreground'>Last update:</span>
+								<span>
+									{updatedAtFilter.mode === 'single'
+										? updatedAtFilter.value
+										: `${updatedAtFilter.start} – ${updatedAtFilter.end}`}
+								</span>
+								<button
+									onClick={removeUpdatedAtFilter}
+									className='ml-0.5 rounded-full hover:bg-muted p-0.5'
+								>
+									<X className='size-2.5' />
+								</button>
+							</Badge>
+						)}
 
 					{globalFilter && (
 						<Badge variant='secondary' className='flex items-center gap-1 pl-2 pr-1 py-0.5 text-xs'>
@@ -374,27 +414,29 @@ export function ChatsReplayToolbar<TData>({
 						</Badge>
 					)}
 
-					{activeFilters.flatMap((filter) => {
-						const cfg = filterConfigs.find((c) => c.id === filter.id);
-						const getLabel = (val: string) =>
-							cfg && cfg.id === 'toolState' && cfg.valueLabels?.[val] ? cfg.valueLabels[val] : val;
-						return (filter.value as string[]).map((val) => (
-							<Badge
-								key={`${filter.id}-${val}`}
-								variant='secondary'
-								className='flex items-center gap-1 pl-2 pr-1 py-0.5 text-xs'
-							>
-								<span className='text-muted-foreground capitalize'>{filter.id}:</span>
-								{getLabel(val)}
-								<button
-									onClick={() => removeFilterValue(filter.id, val)}
-									className='ml-0.5 rounded-full hover:bg-muted p-0.5'
+					{activeFilters
+						.filter((f) => f.id !== 'updatedAt')
+						.flatMap((filter) => {
+							const cfg = filterConfigs.find((c) => c.id === filter.id);
+							const getLabel = (val: string) =>
+								cfg && cfg.id === 'toolState' && cfg.valueLabels?.[val] ? cfg.valueLabels[val] : val;
+							return (filter.value as string[]).map((val) => (
+								<Badge
+									key={`${filter.id}-${val}`}
+									variant='secondary'
+									className='flex items-center gap-1 pl-2 pr-1 py-0.5 text-xs'
 								>
-									<X className='size-2.5' />
-								</button>
-							</Badge>
-						));
-					})}
+									<span className='text-muted-foreground capitalize'>{filter.id}:</span>
+									{getLabel(val)}
+									<button
+										onClick={() => removeFilterValue(filter.id, val)}
+										className='ml-0.5 rounded-full hover:bg-muted p-0.5'
+									>
+										<X className='size-2.5' />
+									</button>
+								</Badge>
+							));
+						})}
 
 					<button
 						onClick={clearAllFilters}

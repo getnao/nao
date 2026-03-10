@@ -1,8 +1,9 @@
-import { and, asc, desc, eq, gt, or, type SQL, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, gte, lte, or, type SQL, sql } from 'drizzle-orm';
 
 import type { AgentSettings, DBProject, DBProjectMember, NewProject, NewProjectMember } from '../db/abstractSchema';
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
+import dbConfig, { Dialect } from '../db/dbConfig';
 import { env } from '../env';
 import type { ListProjectChatsResponse, ProjectChatsFacetKey, UserRole, UserWithRole } from '../types/project';
 import { HandlerError } from '../utils/error';
@@ -192,6 +193,8 @@ export const retrieveProjectById = async (projectId: string): Promise<DBProject>
 	return project;
 };
 
+export type UpdatedAtFilter = { mode: 'single'; value: string } | { mode: 'range'; start: string; end: string };
+
 export const listProjectChats = async (
 	projectId: string,
 	opts?: {
@@ -199,6 +202,7 @@ export const listProjectChats = async (
 		pageSize?: number;
 		search?: string;
 		filters?: { id: ProjectChatsFacetKey; values: string[] }[];
+		updatedAtFilter?: UpdatedAtFilter;
 		sorting?: { id: string; desc?: boolean }[];
 	},
 ): Promise<ListProjectChatsResponse> => {
@@ -206,6 +210,7 @@ export const listProjectChats = async (
 	const pageSize = Math.min(100, Math.max(1, opts?.pageSize ?? 30));
 	const search = opts?.search?.trim() ?? '';
 	const filters = (opts?.filters ?? []).filter((f) => f.values?.length);
+	const updatedAtFilter = opts?.updatedAtFilter;
 	const sorting = opts?.sorting ?? [];
 
 	const numberOfMessagesExpr = sql<number>`
@@ -225,6 +230,29 @@ export const listProjectChats = async (
 				and ${s.chatMessage.supersededAt} is null
 		)
 	`;
+
+	const feedbackTextExpr =
+		dbConfig.dialect === Dialect.Postgres
+			? sql<string>`
+					(
+						select coalesce(string_agg(${s.messageFeedback.explanation}, ' '), '')
+						from ${s.messageFeedback}
+						inner join ${s.chatMessage} on ${s.chatMessage.id} = ${s.messageFeedback.messageId}
+						where ${s.chatMessage.chatId} = ${s.chat.id}
+							and ${s.chatMessage.supersededAt} is null
+							and ${s.messageFeedback.vote} = 'down'
+					)
+				`
+			: sql<string>`
+					(
+						select coalesce(group_concat(${s.messageFeedback.explanation}, ' '), '')
+						from ${s.messageFeedback}
+						inner join ${s.chatMessage} on ${s.chatMessage.id} = ${s.messageFeedback.messageId}
+						where ${s.chatMessage.chatId} = ${s.chat.id}
+							and ${s.chatMessage.supersededAt} is null
+							and ${s.messageFeedback.vote} = 'down'
+					)
+				`;
 
 	const downvotesExpr = sql<number>`
 		(
@@ -271,6 +299,25 @@ export const listProjectChats = async (
 	`;
 
 	const baseWhereClauses = [eq(s.chat.projectId, projectId)];
+
+	if (updatedAtFilter) {
+		const toUtcDayStart = (isoDate: string) => {
+			const [y, m, d] = isoDate.split('-').map(Number);
+			return new Date(Date.UTC(y, m - 1, d));
+		};
+		const toUtcDayEnd = (isoDate: string) => {
+			const [y, m, d] = isoDate.split('-').map(Number);
+			return new Date(Date.UTC(y, m - 1, d, 23, 59, 59, 999));
+		};
+		if (updatedAtFilter.mode === 'single') {
+			baseWhereClauses.push(gte(s.chat.updatedAt, toUtcDayStart(updatedAtFilter.value)));
+			baseWhereClauses.push(lte(s.chat.updatedAt, toUtcDayEnd(updatedAtFilter.value)));
+		} else {
+			baseWhereClauses.push(gte(s.chat.updatedAt, toUtcDayStart(updatedAtFilter.start)));
+			baseWhereClauses.push(lte(s.chat.updatedAt, toUtcDayEnd(updatedAtFilter.end)));
+		}
+	}
+
 	if (search) {
 		const escaped = search.toLowerCase().replace(/[%_\\]/g, '\\$&');
 		const like = `%${escaped}%`;
@@ -350,6 +397,7 @@ export const listProjectChats = async (
 			title: s.chat.title,
 			numberOfMessages: numberOfMessagesExpr.as('numberOfMessages'),
 			totalTokens: totalTokensExpr.as('totalTokens'),
+			feedbackText: feedbackTextExpr.as('feedbackText'),
 			downvotes: downvotesExpr.as('downvotes'),
 			upvotes: upvotesExpr.as('upvotes'),
 			toolErrorCount: toolErrorCountExpr.as('toolErrorCount'),
@@ -395,6 +443,7 @@ export const listProjectChats = async (
 			title: row.title,
 			numberOfMessages: Number(row.numberOfMessages ?? 0),
 			totalTokens: Number(row.totalTokens ?? 0),
+			feedbackText: row.feedbackText ?? '',
 			downvotes: Number(row.downvotes ?? 0),
 			upvotes: Number(row.upvotes ?? 0),
 			toolErrorCount: Number(row.toolErrorCount ?? 0),

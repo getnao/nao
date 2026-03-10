@@ -47,11 +47,20 @@ export function ChatsReplayPage() {
 				(f): f is { id: 'userName' | 'userRole' | 'toolState'; values: string[] } =>
 					(f.id === 'userName' || f.id === 'userRole' || f.id === 'toolState') && f.values.length > 0,
 			);
+		const updatedAtFilter = columnFilters.find((f) => f.id === 'updatedAt')?.value as
+			| { mode: 'single'; value: string }
+			| { mode: 'range'; start: string; end: string }
+			| undefined;
+		const hasValidDateFilter =
+			updatedAtFilter &&
+			((updatedAtFilter.mode === 'single' && updatedAtFilter.value) ||
+				(updatedAtFilter.mode === 'range' && updatedAtFilter.start && updatedAtFilter.end));
 		return {
 			page: pagination.pageIndex,
 			pageSize: pagination.pageSize,
 			search: globalFilter || undefined,
 			filters: filters.length ? filters : undefined,
+			updatedAtFilter: hasValidDateFilter ? updatedAtFilter : undefined,
 			sorting: sorting.length ? sorting : undefined,
 		};
 	}, [columnFilters, globalFilter, pagination.pageIndex, pagination.pageSize, sorting]);
@@ -118,6 +127,9 @@ export function ChatsReplayPage() {
 									chatId: selectedChat.id,
 									userName: selectedChat.userName,
 									updatedAt: selectedChat.updatedAt,
+									feedbackCount: selectedChat.upvotes + selectedChat.downvotes,
+									feedbackText: selectedChat.feedbackText,
+									toolErrorCount: selectedChat.toolErrorCount,
 								}
 							: null
 					}

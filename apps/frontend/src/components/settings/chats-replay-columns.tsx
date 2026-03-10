@@ -14,6 +14,7 @@ export type ProjectChatRow = {
 	title: string;
 	numberOfMessages: number;
 	totalTokens: number;
+	feedbackText: string;
 	downvotes: number;
 	upvotes: number;
 	toolErrorCount: number;
@@ -133,7 +134,7 @@ function formatLastUpdate(value: number): string {
 		return 'Today ' + format(date, 'HH:mm');
 	}
 	if (isYesterday(date)) {
-		return 'Yesterday ' + format(date, 'HH:mm');
+		return 'Yest ' + format(date, 'HH:mm');
 	}
 	if (differenceInDays(Date.now(), date) < 7) {
 		return format(date, 'EEE HH:mm');
