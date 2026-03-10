@@ -44,10 +44,9 @@ export function ChatsReplayPage() {
 		const filters = columnFilters
 			.map((f) => ({ id: f.id, values: (f.value as string[]) ?? [] }))
 			.filter(
-				(f): f is { id: 'userName' | 'userRole' | 'toolErrorCount'; values: string[] } =>
-					(f.id === 'userName' || f.id === 'userRole' || f.id === 'toolErrorCount') && f.values.length > 0,
+				(f): f is { id: 'userName' | 'userRole' | 'toolState'; values: string[] } =>
+					(f.id === 'userName' || f.id === 'userRole' || f.id === 'toolState') && f.values.length > 0,
 			);
-
 		return {
 			page: pagination.pageIndex,
 			pageSize: pagination.pageSize,
@@ -60,7 +59,14 @@ export function ChatsReplayPage() {
 	const projectChatsQuery = useQuery(trpc.project.getProjectChats.queryOptions(queryInput));
 	const chats = projectChatsQuery.data?.chats ?? [];
 	const total = projectChatsQuery.data?.total ?? 0;
-	const facets = projectChatsQuery.data?.facets ?? { userNames: [], userRoles: [], toolErrorCount: 0 };
+	const defaultToolStateFacet = { noToolsUsed: 0, toolsNoErrors: 0, toolsWithErrors: 0 };
+	const facets = projectChatsQuery.data?.facets ?? {
+		userNames: [],
+		userNameCounts: {},
+		userRoles: [],
+		userRoleCounts: {},
+		toolState: defaultToolStateFacet,
+	};
 
 	const table = useReactTable({
 		data: chats,

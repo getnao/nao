@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, or, type SQL, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, or, type SQL, sql } from 'drizzle-orm';
 
 import type { AgentSettings, DBProject, DBProjectMember, NewProject, NewProjectMember } from '../db/abstractSchema';
 import s from '../db/abstractSchema';
@@ -270,11 +270,25 @@ export const listProjectChats = async (
 		)
 	`;
 
-	const whereClauses = [eq(s.chat.projectId, projectId)];
+	const baseWhereClauses = [eq(s.chat.projectId, projectId)];
 	if (search) {
-		const like = `%${search.toLowerCase()}%`;
-		whereClauses.push(sql`(lower(${s.chat.title}) like ${like} or lower(${s.user.name}) like ${like})`);
+		const escaped = search.toLowerCase().replace(/[%_\\]/g, '\\$&');
+		const like = `%${escaped}%`;
+		baseWhereClauses.push(sql`
+			(
+				lower(${s.chat.title}) like ${like}
+				or lower(${s.user.name}) like ${like}
+				or lower(${s.projectMember.role}) like ${like}
+				or CAST(${numberOfMessagesExpr} AS TEXT) like ${like}
+				or CAST(${totalTokensExpr} AS TEXT) like ${like}
+				or CAST(${downvotesExpr} AS TEXT) like ${like}
+				or CAST(${upvotesExpr} AS TEXT) like ${like}
+				or CAST(${toolErrorCountExpr} AS TEXT) like ${like}
+				or CAST(${toolAvailableCountExpr} AS TEXT) like ${like}
+			)
+		`);
 	}
+	const filterWhereClauses: SQL<unknown>[] = [];
 	for (const filter of filters) {
 		if (filter.values.length === 0) {
 			continue;
@@ -283,21 +297,38 @@ export const listProjectChats = async (
 		if (filter.id === 'userName') {
 			const expr = or(...filter.values.map((v) => eq(s.user.name, v)));
 			if (expr) {
-				whereClauses.push(expr);
+				filterWhereClauses.push(expr);
 			}
 		} else if (filter.id === 'userRole') {
 			const expr = or(...filter.values.map((v) => eq(s.projectMember.role, v as UserRole)));
 			if (expr) {
-				whereClauses.push(expr);
+				filterWhereClauses.push(expr);
 			}
-		} else if (filter.id === 'toolErrorCount') {
-			const expr = or(...filter.values.map((v) => eq(toolErrorCountExpr, Number(v))));
+		} else if (filter.id === 'toolState') {
+			const exprs: SQL<unknown>[] = [];
+			for (const v of filter.values) {
+				if (v === 'noToolsUsed') {
+					const e = and(eq(toolErrorCountExpr, 0), eq(toolAvailableCountExpr, 0));
+					if (e) {
+						exprs.push(e);
+					}
+				} else if (v === 'toolsNoErrors') {
+					const e = and(eq(toolErrorCountExpr, 0), gt(toolAvailableCountExpr, 0));
+					if (e) {
+						exprs.push(e);
+					}
+				} else if (v === 'toolsWithErrors') {
+					exprs.push(gt(toolErrorCountExpr, 0));
+				}
+			}
+			const expr = or(...exprs);
 			if (expr) {
-				whereClauses.push(expr);
+				filterWhereClauses.push(expr);
 			}
 		}
 	}
-	const where = and(...whereClauses) as SQL<unknown>;
+	const baseWhere = and(...baseWhereClauses) as SQL<unknown>;
+	const where = filterWhereClauses.length > 0 ? (and(baseWhere, ...filterWhereClauses) as SQL<unknown>) : baseWhere;
 
 	const orderBy = buildProjectChatsOrderBy({
 		sorting,
@@ -306,6 +337,7 @@ export const listProjectChats = async (
 		downvotesExpr,
 		upvotesExpr,
 		toolErrorCountExpr,
+		toolAvailableCountExpr,
 	});
 
 	const chatRows = await db
@@ -348,8 +380,9 @@ export const listProjectChats = async (
 
 	const facets = await loadProjectChatsFacets({
 		projectId,
-		where,
+		where: baseWhere,
 		toolErrorCountExpr,
+		toolAvailableCountExpr,
 	});
 
 	return {
@@ -379,8 +412,17 @@ function buildProjectChatsOrderBy(args: {
 	downvotesExpr: ReturnType<typeof sql<number>>;
 	upvotesExpr: ReturnType<typeof sql<number>>;
 	toolErrorCountExpr: ReturnType<typeof sql<number>>;
+	toolAvailableCountExpr: ReturnType<typeof sql<number>>;
 }) {
-	const { sorting, numberOfMessagesExpr, totalTokensExpr, downvotesExpr, upvotesExpr, toolErrorCountExpr } = args;
+	const {
+		sorting,
+		numberOfMessagesExpr,
+		totalTokensExpr,
+		downvotesExpr,
+		upvotesExpr,
+		toolErrorCountExpr,
+		toolAvailableCountExpr,
+	} = args;
 
 	const sorters: SQL<unknown>[] = [];
 
@@ -405,14 +447,29 @@ function buildProjectChatsOrderBy(args: {
 			case 'totalTokens':
 				sorters.push(dir(totalTokensExpr));
 				break;
-			case 'upvotes':
-				sorters.push(dir(upvotesExpr));
+			case 'feedback':
+				sorters.push(
+					dir(sql<number>`
+						CASE
+							WHEN ${downvotesExpr} = 0 AND ${upvotesExpr} = 0 THEN 0
+							WHEN ${downvotesExpr} = 0 THEN 1
+							ELSE 2
+						END
+					`),
+				);
+				sorters.push(dir(sql<number>`cast(${downvotesExpr} as integer)`));
 				break;
-			case 'downvotes':
-				sorters.push(dir(downvotesExpr));
-				break;
-			case 'toolErrorCount':
-				sorters.push(dir(toolErrorCountExpr));
+			case 'toolState':
+				sorters.push(
+					dir(sql<number>`
+						CASE
+							WHEN ${toolErrorCountExpr} = 0 AND ${toolAvailableCountExpr} = 0 THEN 0
+							WHEN ${toolErrorCountExpr} = 0 THEN 1
+							ELSE 2
+						END
+					`),
+				);
+				sorters.push(dir(sql<number>`cast(${toolErrorCountExpr} as integer)`));
 				break;
 		}
 	}
@@ -424,11 +481,15 @@ async function loadProjectChatsFacets(args: {
 	projectId: string;
 	where: SQL<unknown>;
 	toolErrorCountExpr: ReturnType<typeof sql<number>>;
+	toolAvailableCountExpr: ReturnType<typeof sql<number>>;
 }): Promise<ListProjectChatsResponse['facets']> {
-	const { projectId, where, toolErrorCountExpr } = args;
+	const { projectId, where, toolErrorCountExpr, toolAvailableCountExpr } = args;
 
 	const userNamesRows = await db
-		.selectDistinct({ userName: s.user.name })
+		.select({
+			userName: s.user.name,
+			count: sql<number>`count(*)`.as('count'),
+		})
 		.from(s.chat)
 		.innerJoin(s.user, eq(s.chat.userId, s.user.id))
 		.innerJoin(
@@ -436,10 +497,14 @@ async function loadProjectChatsFacets(args: {
 			and(eq(s.projectMember.userId, s.user.id), eq(s.projectMember.projectId, projectId)),
 		)
 		.where(where)
+		.groupBy(s.user.name)
 		.execute();
 
 	const userRolesRows = await db
-		.selectDistinct({ userRole: s.projectMember.role })
+		.select({
+			userRole: s.projectMember.role,
+			count: sql<number>`count(*)`.as('count'),
+		})
 		.from(s.chat)
 		.innerJoin(s.user, eq(s.chat.userId, s.user.id))
 		.innerJoin(
@@ -447,10 +512,23 @@ async function loadProjectChatsFacets(args: {
 			and(eq(s.projectMember.userId, s.user.id), eq(s.projectMember.projectId, projectId)),
 		)
 		.where(where)
+		.groupBy(s.projectMember.role)
 		.execute();
 
-	const toolErrorCountRows = await db
-		.selectDistinct({ toolErrorCount: toolErrorCountExpr.as('toolErrorCount') })
+	const [toolStateRow] = await db
+		.select({
+			noToolsUsed:
+				sql<number>`sum(case when ${toolErrorCountExpr} = 0 and ${toolAvailableCountExpr} = 0 then 1 else 0 end)`.as(
+					'noToolsUsed',
+				),
+			toolsNoErrors:
+				sql<number>`sum(case when ${toolErrorCountExpr} = 0 and ${toolAvailableCountExpr} > 0 then 1 else 0 end)`.as(
+					'toolsNoErrors',
+				),
+			toolsWithErrors: sql<number>`sum(case when ${toolErrorCountExpr} > 0 then 1 else 0 end)`.as(
+				'toolsWithErrors',
+			),
+		})
 		.from(s.chat)
 		.innerJoin(s.user, eq(s.chat.userId, s.user.id))
 		.innerJoin(
@@ -469,10 +547,16 @@ async function loadProjectChatsFacets(args: {
 			.map((r) => String(r.userRole))
 			.filter((v): v is string => !!v)
 			.sort((a, b) => a.localeCompare(b)),
-		toolErrorCount:
-			toolErrorCountRows
-				.map((r) => Number(r.toolErrorCount ?? 0))
-				.filter((v): v is number => !!v)
-				.sort((a, b) => a - b)[0] ?? 0,
+		userNameCounts: Object.fromEntries(
+			userNamesRows.filter((r) => !!r.userName).map((r) => [String(r.userName), Number(r.count ?? 0)]),
+		),
+		userRoleCounts: Object.fromEntries(
+			userRolesRows.filter((r) => !!r.userRole).map((r) => [String(r.userRole), Number(r.count ?? 0)]),
+		),
+		toolState: {
+			noToolsUsed: Number(toolStateRow?.noToolsUsed ?? 0),
+			toolsNoErrors: Number(toolStateRow?.toolsNoErrors ?? 0),
+			toolsWithErrors: Number(toolStateRow?.toolsWithErrors ?? 0),
+		},
 	};
 }

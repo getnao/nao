@@ -23,7 +23,7 @@ export function ChatsReplayPanel({ chatInfo, onClose }: ChatsReplayPanelProps) {
 	);
 
 	return (
-		<div className='w-full border-l flex flex-col'>
+		<div className='w-full flex flex-col'>
 			<div className='flex items-center justify-between p-4 border-b'>
 				<div className='flex flex-col md:p-4 max-w-4xl mx-16'>
 					<h2 className='text-foreground font-semibold text-xl'>Read-Only Chat</h2>

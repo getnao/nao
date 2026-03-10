@@ -18,8 +18,14 @@ import { cn } from '@/lib/utils';
 
 export type ChatsReplayFacets = {
 	userNames: string[];
+	userNameCounts: Record<string, number>;
 	userRoles: string[];
-	toolErrorCount: number;
+	userRoleCounts: Record<string, number>;
+	toolState: {
+		noToolsUsed: number;
+		toolsNoErrors: number;
+		toolsWithErrors: number;
+	};
 };
 
 type ChatsReplayToolbarProps<TData> = {
@@ -39,9 +45,42 @@ export function ChatsReplayToolbar<TData>({
 	facets,
 	table,
 }: ChatsReplayToolbarProps<TData>) {
-	const userNameFilter = (columnFilters.find((f) => f.id === 'userName')?.value as string[]) ?? [];
+	const selectedUsers =
+		(columnFilters.find((f) => f.id === 'userName')?.value as string[] | undefined) ?? facets.userNames;
+	const someUsersUnchecked = selectedUsers.length < facets.userNames.length;
 
-	const activeFilters = columnFilters.filter((f) => (f.value as string[])?.length > 0);
+	const toolStateValues = [
+		{ value: 'noToolsUsed', label: 'No tools used', count: facets.toolState.noToolsUsed },
+		{ value: 'toolsNoErrors', label: 'Tools, no errors', count: facets.toolState.toolsNoErrors },
+		{ value: 'toolsWithErrors', label: 'Tools with errors', count: facets.toolState.toolsWithErrors },
+	].filter((o) => o.count > 0);
+
+	const getAllValuesForFilterId = (id: string): string[] => {
+		if (id === 'userName') {
+			return facets.userNames;
+		}
+		if (id === 'userRole') {
+			return facets.userRoles;
+		}
+		if (id === 'toolState') {
+			return toolStateValues.map((o) => o.value);
+		}
+		return [];
+	};
+
+	const activeFilters = columnFilters.filter((f) => {
+		const v = (f.value as string[]) ?? [];
+		const all = getAllValuesForFilterId(f.id);
+		return v.length > 0 && v.length < all.length;
+	});
+
+	const setSelectedUsers = (next: string[]) => {
+		const nextFilters = columnFilters.filter((f) => f.id !== 'userName');
+		if (next.length > 0 && next.length < facets.userNames.length) {
+			nextFilters.push({ id: 'userName', value: next });
+		}
+		onColumnFiltersChange(nextFilters);
+	};
 
 	const removeFilterValue = (columnId: string, value: string) => {
 		onColumnFiltersChange(
@@ -50,10 +89,15 @@ export function ChatsReplayToolbar<TData>({
 					if (f.id !== columnId) {
 						return f;
 					}
-					const next = (f.value as string[]).filter((v) => v !== value);
+					const current = (f.value as string[]) ?? [];
+					const next = current.filter((v) => v !== value);
 					return { ...f, value: next };
 				})
-				.filter((f) => (f.value as string[])?.length > 0),
+				.filter((f) => {
+					const v = f.value as string[];
+					const all = getAllValuesForFilterId(f.id);
+					return v.length > 0 && v.length < all.length;
+				}),
 		);
 	};
 
@@ -66,7 +110,29 @@ export function ChatsReplayToolbar<TData>({
 	const visibleCount = toggleableColumns.filter((col) => col.getIsVisible()).length;
 	const hiddenCount = toggleableColumns.length - visibleCount;
 
-	const filterConfigs = [{ id: 'userRole', label: 'Role', values: facets.userRoles }] as const;
+	const filterConfigs = [
+		{
+			id: 'userRole',
+			label: 'Role',
+			values: facets.userRoles,
+			valueCounts: facets.userRoles.reduce<Record<string, number>>((acc, role) => {
+				acc[role] = facets.userRoleCounts?.[role] ?? 0;
+				return acc;
+			}, {}),
+		},
+		{
+			id: 'toolState',
+			label: 'Tool State',
+			values: toolStateValues.map((o) => o.value),
+			valueLabels: Object.fromEntries(toolStateValues.map((o) => [o.value, o.label])),
+			valueCounts: Object.fromEntries(toolStateValues.map((o) => [o.value, o.count])),
+		},
+	] as const;
+
+	const totalFilterSelectedCount = filterConfigs.reduce((acc, cfg) => {
+		const selected = (columnFilters.find((f) => f.id === cfg.id)?.value as string[] | undefined) ?? cfg.values;
+		return acc + selected.length;
+	}, 0);
 
 	return (
 		<div className='flex flex-col gap-2'>
@@ -81,52 +147,56 @@ export function ChatsReplayToolbar<TData>({
 
 				<DropdownMenu>
 					<DropdownMenuTrigger asChild>
-						<Button variant='ghost' size='sm' className={cn(userNameFilter.length > 0 && 'text-primary')}>
+						<Button variant='ghost' size='sm' className={cn(someUsersUnchecked && 'text-primary')}>
 							<Users className='size-4 mr-1' />
 							Users
-							{userNameFilter.length > 0 && (
-								<Badge variant='secondary' className='ml-1 h-4 px-1 text-xs'>
-									{userNameFilter.length}
-								</Badge>
-							)}
+							<Badge variant='secondary' className='ml-1 h-4 px-1 text-xs'>
+								{selectedUsers.length}
+							</Badge>
 						</Button>
 					</DropdownMenuTrigger>
 					<DropdownMenuContent align='end' className='w-48 max-h-64 overflow-y-auto'>
+						<div className='px-2 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide'>
+							Users
+						</div>
+						<DropdownMenuSeparator />
 						{facets.userNames.length === 0 ? (
 							<div className='px-2 py-3 text-xs text-center text-muted-foreground'>No users</div>
 						) : (
 							<>
-								{userNameFilter.length > 0 && (
-									<>
-										<button
-											className='w-full text-left px-2 py-1 text-xs text-muted-foreground hover:text-foreground'
-											onClick={() => {
-												onColumnFiltersChange(columnFilters.filter((f) => f.id !== 'userName'));
-											}}
-										>
-											Clear ({userNameFilter.length})
-										</button>
-										<DropdownMenuSeparator />
-									</>
-								)}
 								{facets.userNames.map((name) => (
 									<DropdownMenuCheckboxItem
 										key={name}
-										checked={userNameFilter.includes(name)}
+										checked={selectedUsers.includes(name)}
 										onCheckedChange={(checked) => {
 											const next = checked
-												? [...userNameFilter, name]
-												: userNameFilter.filter((v) => v !== name);
-											const nextFilters = columnFilters.filter((f) => f.id !== 'userName');
-											if (next.length) {
-												nextFilters.push({ id: 'userName', value: next });
-											}
-											onColumnFiltersChange(nextFilters);
+												? [...selectedUsers, name]
+												: selectedUsers.filter((v) => v !== name);
+											setSelectedUsers(next);
 										}}
 									>
-										<span className='text-sm'>{name}</span>
+										<div className='flex w-full items-center justify-between'>
+											<span className='text-sm'>{name}</span>
+											{typeof facets.userNameCounts?.[name] === 'number' &&
+												facets.userNameCounts[name] > 0 && (
+													<Badge variant='secondary' className='ml-2 h-4 px-1 text-xs'>
+														{facets.userNameCounts[name]}
+													</Badge>
+												)}
+										</div>
 									</DropdownMenuCheckboxItem>
 								))}
+								{someUsersUnchecked && (
+									<>
+										<DropdownMenuSeparator />
+										<button
+											className='w-full text-left px-2 py-1.5 text-xs text-muted-foreground hover:text-foreground'
+											onClick={() => setSelectedUsers(facets.userNames)}
+										>
+											Show all
+										</button>
+									</>
+								)}
 							</>
 						)}
 					</DropdownMenuContent>
@@ -177,11 +247,9 @@ export function ChatsReplayToolbar<TData>({
 						<Button variant='ghost' size='sm' className={cn(activeFilters.length > 0 && 'text-primary')}>
 							<Filter className='size-4 mr-1' />
 							Filter
-							{activeFilters.length > 0 && (
-								<Badge variant='secondary' className='ml-1 h-4 px-1 text-xs'>
-									{activeFilters.reduce((acc, f) => acc + (f.value as string[]).length, 0)}
-								</Badge>
-							)}
+							<Badge variant='secondary' className='ml-1 h-4 px-1 text-xs'>
+								{totalFilterSelectedCount}
+							</Badge>
 						</Button>
 					</DropdownMenuTrigger>
 
@@ -192,22 +260,29 @@ export function ChatsReplayToolbar<TData>({
 						<DropdownMenuSeparator />
 
 						{filterConfigs.map((cfg) => {
-							const selected = (columnFilters.find((f) => f.id === cfg.id)?.value as string[]) ?? [];
+							const selected =
+								(columnFilters.find((f) => f.id === cfg.id)?.value as string[] | undefined) ??
+								cfg.values;
+							const someUnchecked = selected.length < cfg.values.length;
 
 							const toggleValue = (value: string, checked: boolean) => {
 								const next = checked ? [...selected, value] : selected.filter((v) => v !== value);
 								const nextFilters = columnFilters.filter((f) => f.id !== cfg.id);
-								if (next.length) {
+								if (next.length > 0 && next.length < cfg.values.length) {
 									nextFilters.push({ id: cfg.id, value: next });
 								}
 								onColumnFiltersChange(nextFilters);
+							};
+
+							const showAll = () => {
+								onColumnFiltersChange(columnFilters.filter((f) => f.id !== cfg.id));
 							};
 
 							return (
 								<DropdownMenuSub key={cfg.id}>
 									<DropdownMenuSubTrigger className='flex items-center justify-between'>
 										<span className='capitalize'>{cfg.label}</span>
-										{selected.length > 0 && (
+										{someUnchecked && (
 											<Badge variant='secondary' className='ml-auto h-4 px-1 text-xs'>
 												{selected.length}
 											</Badge>
@@ -215,37 +290,51 @@ export function ChatsReplayToolbar<TData>({
 									</DropdownMenuSubTrigger>
 
 									<DropdownMenuSubContent className='w-48 max-h-64 overflow-y-auto'>
+										<div className='px-2 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide'>
+											{cfg.label}
+										</div>
+										<DropdownMenuSeparator />
 										{cfg.values.length === 0 ? (
 											<div className='px-2 py-3 text-xs text-center text-muted-foreground'>
 												No values
 											</div>
 										) : (
 											<>
-												{selected.length > 0 && (
-													<>
-														<button
-															className='w-full text-left px-2 py-1 text-xs text-muted-foreground hover:text-foreground'
-															onClick={() => {
-																const nextFilters = columnFilters.filter(
-																	(f) => f.id !== cfg.id,
-																);
-																onColumnFiltersChange(nextFilters);
-															}}
-														>
-															Clear ({selected.length})
-														</button>
-														<DropdownMenuSeparator />
-													</>
-												)}
 												{cfg.values.map((value) => (
 													<DropdownMenuCheckboxItem
 														key={value}
 														checked={selected.includes(value)}
 														onCheckedChange={(checked) => toggleValue(value, checked)}
 													>
-														<span className='text-sm'>{value}</span>
+														<div className='flex w-full items-center justify-between'>
+															<span className='text-sm'>
+																{cfg.id === 'toolState' && cfg.valueLabels?.[value]
+																	? cfg.valueLabels[value]
+																	: value}
+															</span>
+															{typeof cfg.valueCounts?.[value] === 'number' &&
+																cfg.valueCounts[value] > 0 && (
+																	<Badge
+																		variant='secondary'
+																		className='ml-2 h-4 px-1 text-xs'
+																	>
+																		{cfg.valueCounts[value]}
+																	</Badge>
+																)}
+														</div>
 													</DropdownMenuCheckboxItem>
 												))}
+												{someUnchecked && (
+													<>
+														<DropdownMenuSeparator />
+														<button
+															className='w-full text-left px-2 py-1.5 text-xs text-muted-foreground hover:text-foreground'
+															onClick={showAll}
+														>
+															Show all
+														</button>
+													</>
+												)}
 											</>
 										)}
 									</DropdownMenuSubContent>
@@ -285,15 +374,18 @@ export function ChatsReplayToolbar<TData>({
 						</Badge>
 					)}
 
-					{activeFilters.flatMap((filter) =>
-						(filter.value as string[]).map((val) => (
+					{activeFilters.flatMap((filter) => {
+						const cfg = filterConfigs.find((c) => c.id === filter.id);
+						const getLabel = (val: string) =>
+							cfg && cfg.id === 'toolState' && cfg.valueLabels?.[val] ? cfg.valueLabels[val] : val;
+						return (filter.value as string[]).map((val) => (
 							<Badge
 								key={`${filter.id}-${val}`}
 								variant='secondary'
 								className='flex items-center gap-1 pl-2 pr-1 py-0.5 text-xs'
 							>
 								<span className='text-muted-foreground capitalize'>{filter.id}:</span>
-								{val}
+								{getLabel(val)}
 								<button
 									onClick={() => removeFilterValue(filter.id, val)}
 									className='ml-0.5 rounded-full hover:bg-muted p-0.5'
@@ -301,8 +393,8 @@ export function ChatsReplayToolbar<TData>({
 									<X className='size-2.5' />
 								</button>
 							</Badge>
-						)),
-					)}
+						));
+					})}
 
 					<button
 						onClick={clearAllFilters}

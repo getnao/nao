@@ -9,7 +9,7 @@ export interface UserWithRole {
 	role: UserRole;
 }
 
-export type ProjectChatsFacetKey = 'userName' | 'userRole' | 'toolErrorCount';
+export type ProjectChatsFacetKey = 'userName' | 'userRole' | 'toolState';
 
 export interface ProjectChatListItem {
 	id: string;
@@ -31,7 +31,13 @@ export interface ListProjectChatsResponse {
 	total: number;
 	facets: {
 		userNames: string[];
+		userNameCounts: Record<string, number>;
 		userRoles: string[];
-		toolErrorCount: number;
+		userRoleCounts: Record<string, number>;
+		toolState: {
+			noToolsUsed: number;
+			toolsNoErrors: number;
+			toolsWithErrors: number;
+		};
 	};
 }

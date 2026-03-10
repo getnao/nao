@@ -1,4 +1,5 @@
 import { CircleAlert, Eye, ThumbsDown, ThumbsUp } from 'lucide-react';
+import { differenceInDays, format, isToday, isYesterday } from 'date-fns';
 import type { ColumnDef } from '@tanstack/react-table';
 
 import { Badge } from '@/components/ui/badge';
@@ -30,7 +31,8 @@ export function getChatsReplayColumns(args: {
 			header: 'Last update',
 			cell: ({ getValue }) => {
 				const value = getValue<number>();
-				return <span className='text-muted-foreground text-xs whitespace-nowrap'>{formatDate(value)}</span>;
+				const formatted = value ? formatLastUpdate(value) : '—';
+				return <span className='text-muted-foreground text-xs whitespace-nowrap'>{formatted}</span>;
 			},
 		},
 		{
@@ -87,7 +89,7 @@ export function getChatsReplayColumns(args: {
 			},
 		},
 		{
-			id: 'toolErrorCount',
+			id: 'toolState',
 			header: 'Tool State',
 			accessorFn: (row) => ({
 				errors: row.toolErrorCount ?? 0,
@@ -125,31 +127,16 @@ export function getChatsReplayColumns(args: {
 	];
 }
 
-function formatDate(value: number): string {
-	if (!value) {
-		return '—';
-	}
+function formatLastUpdate(value: number): string {
 	const date = new Date(value);
-	const now = new Date();
-	const diffMs = now.getTime() - date.getTime();
-	const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-
-	if (diffDays === 0) {
-		return 'Today ' + date.toLocaleString('en-US', { hour: '2-digit', minute: '2-digit' });
+	if (isToday(date)) {
+		return 'Today ' + format(date, 'HH:mm');
 	}
-	if (diffDays === 1) {
-		return 'Yesterday ' + date.toLocaleString('en-US', { hour: '2-digit', minute: '2-digit' });
+	if (isYesterday(date)) {
+		return 'Yesterday ' + format(date, 'HH:mm');
 	}
-	if (diffDays < 7) {
-		return (
-			date.toLocaleString('en-US', { weekday: 'short' }) +
-			' ' +
-			date.toLocaleString('en-US', { hour: '2-digit', minute: '2-digit' })
-		);
+	if (differenceInDays(Date.now(), date) < 7) {
+		return format(date, 'EEE HH:mm');
 	}
-	return date.toLocaleString('en-CA', {
-		year: 'numeric',
-		month: '2-digit',
-		day: '2-digit',
-	});
+	return format(date, 'dd/MM/yyyy');
 }
