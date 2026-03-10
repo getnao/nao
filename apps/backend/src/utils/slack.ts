@@ -67,8 +67,24 @@ export const createCompletionCard = (chatUrl: string, vote?: 'up' | 'down'): Car
 	});
 
 export const createTextBlock = (text: string): CardChild => {
-	return CardText(text);
+	return CardText(mdToMrkdwn(text));
 };
+
+function mdToMrkdwn(text: string): string {
+	// Split on fenced and inline code spans so we never mutate literal content
+	const parts = text.split(/(```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]+`)/);
+	return parts
+		.map((part, i) => {
+			if (i % 2 === 1) return part;
+			return part
+				.replace(/^#{1,6}\s+(.+)$/gm, '*$1*')
+				.replace(/\*\*(.+?)\*\*/g, '*$1*')
+				.replace(/\*\*\s*\*\*/g, '')
+				.replace(/^\*\*$/gm, '')
+				.replace(/\*\*(?!\S)/g, '');
+		})
+		.join('');
+}
 
 export const createImageBlock = (url: string): CardChild => {
 	return Image({ url, alt: 'image' });
