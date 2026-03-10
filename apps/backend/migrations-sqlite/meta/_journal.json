@@ -145,8 +145,29 @@
     {
       "idx": 20,
       "version": "6",
-      "when": 1772478204873,
-      "tag": "0020_add_shared_chat",
+      "when": 1772640831692,
+      "tag": "0020_bedrock_fields",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1772702832964,
+      "tag": "0021_add_source_chat_message",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "6",
+      "when": 1772706229518,
+      "tag": "0022_add_slack_provider",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1773171985012,
+      "tag": "0023_add_shared_chat",
       "breakpoints": true
     }
   ]

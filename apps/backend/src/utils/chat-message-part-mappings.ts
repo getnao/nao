@@ -4,6 +4,8 @@ import { getToolName, isToolUIPart } from 'ai';
 import { DBMessagePart, NewMessagePart } from '../db/abstractSchema';
 import { UIMessagePart, UIToolPart } from '../types/chat';
 
+const PROVIDER_EXECUTED_TOOLS = new Set(['web_search', 'web_fetch', 'google_search']);
+
 /**
  * Converts a list of UI message parts to a list of database message parts.
  */
@@ -90,7 +92,7 @@ export const convertDBPartToUIPart = (part: DBMessagePart): UIMessagePart | unde
 			rawInput: part.toolRawInput as any,
 			output: part.toolOutput as any,
 			errorText: part.toolErrorText as any,
-			providerExecuted: false,
+			providerExecuted: PROVIDER_EXECUTED_TOOLS.has(part.toolName!),
 			approval: part.toolApprovalId
 				? {
 						id: part.toolApprovalId!,

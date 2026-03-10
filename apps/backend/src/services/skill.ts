@@ -1,7 +1,7 @@
 import { debounce } from '@nao/shared';
 import { existsSync, readdirSync, readFileSync, statSync, watch } from 'fs';
 import matter from 'gray-matter';
-import { join } from 'path';
+import { join, relative } from 'path';
 
 import * as projectQueries from '../queries/project.queries';
 
@@ -12,6 +12,7 @@ export interface Skill {
 }
 
 class SkillService {
+	private _projectPath: string = '';
 	private _skillsFolderPath: string;
 	private _skills: Skill[] = [];
 	private _fileWatcher: ReturnType<typeof watch> | null = null;
@@ -32,7 +33,8 @@ class SkillService {
 		this._initialized = true;
 
 		const project = await projectQueries.retrieveProjectById(projectId);
-		this._skillsFolderPath = join(project.path || '', 'agent', 'skills');
+		this._projectPath = project.path || '';
+		this._skillsFolderPath = join(this._projectPath, 'agent', 'skills');
 
 		this.loadSkills();
 		this._setupFileWatcher();
@@ -71,7 +73,7 @@ class SkillService {
 		}
 
 		try {
-			return readFileSync(skill.location, 'utf8');
+			return readFileSync(join(this._projectPath, skill.location), 'utf8');
 		} catch (error) {
 			console.error(`[skills] Failed to read skill content for ${skillName}:`, error);
 			return null;
@@ -88,7 +90,7 @@ class SkillService {
 			return {
 				name: data.name || file.replace('.md', ''),
 				description: data.description || '',
-				location: filePath,
+				location: '/' + relative(this._projectPath, filePath),
 			};
 		});
 	}

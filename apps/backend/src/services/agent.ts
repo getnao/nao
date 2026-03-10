@@ -15,8 +15,9 @@ import {
 import { CACHE_1H, CACHE_5M } from '../agents/providers';
 import { ProviderModelResult } from '../agents/providers';
 import { getTools } from '../agents/tools';
+import { createWebSearchTools } from '../agents/tools/web-search';
 import { getConnections, getUserRules } from '../agents/user-rules';
-import { SystemPrompt } from '../components/ai';
+import { SlackSystemPrompt, SystemPrompt } from '../components/ai';
 import { DBChat } from '../db/abstractSchema';
 import { renderToMarkdown } from '../lib/markdown';
 import * as chatQueries from '../queries/chat.queries';
@@ -25,14 +26,21 @@ import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import * as storyQueries from '../queries/story.queries';
 import { AgentSettings } from '../types/agent-settings';
 import { AgentTools, Mention, MessageCustomDataParts, TokenCost, TokenUsage, UIMessage } from '../types/chat';
+import { LlmProvider } from '../types/llm';
 import { ToolContext } from '../types/tools';
 import { convertToCost, convertToTokenUsage, findLastUserMessage } from '../utils/ai';
 import { HandlerError } from '../utils/error';
-import { getDefaultModelId, getEnvModelSelections, ModelSelection, resolveProviderModel } from '../utils/llm';
+import {
+	getDefaultModelId,
+	getEnvModelSelections,
+	ModelSelection,
+	resolveProviderModel,
+	resolveProviderSettings,
+} from '../utils/llm';
 import { truncateMiddle } from '../utils/utils';
 import { compactionService } from './compaction';
 import { memoryService } from './memory';
-import { skillService } from './skill.service';
+import { skillService } from './skill';
 
 export type { ModelSelection };
 
@@ -63,7 +71,8 @@ export class AgentService {
 		const modelConfig = await this._getModelConfig(chat.projectId, resolvedModelSelection);
 		const agentSettings = await projectQueries.getAgentSettings(chat.projectId);
 		const toolContext = await this._getToolContext(chat.projectId, chat.id, agentSettings);
-		const agentTools = getTools(agentSettings);
+		const webTools = await this._resolveWebTools(chat.projectId, resolvedModelSelection.provider, agentSettings);
+		const agentTools = getTools(agentSettings, webTools ?? undefined);
 		const agent = new AgentManager(
 			chat,
 			modelConfig,
@@ -117,6 +126,7 @@ export class AgentService {
 			projectFolder: project.path ?? '',
 			chatId,
 			agentSettings,
+			queryResults: new Map(),
 		};
 	}
 
@@ -131,6 +141,21 @@ export class AgentService {
 
 	get(chatId: string): AgentManager | undefined {
 		return this._agents.get(chatId);
+	}
+
+	private async _resolveWebTools(
+		projectId: string,
+		provider: LlmProvider,
+		agentSettings: AgentSettings | null,
+	): Promise<Record<string, unknown> | null> {
+		if (!agentSettings?.webSearch?.enabled) {
+			return null;
+		}
+		const settings = await resolveProviderSettings(projectId, provider);
+		if (!settings) {
+			return null;
+		}
+		return createWebSearchTools(provider, settings);
 	}
 
 	protected async _getModelConfig(projectId: string, modelSelection: ModelSelection): Promise<ProviderModelResult> {
@@ -198,6 +223,7 @@ class AgentManager {
 		opts: {
 			events?: Partial<MessageCustomDataParts>;
 			mentions?: Mention[];
+			isSlack?: boolean;
 		} = {},
 	): ReadableStream<InferUIMessageChunk<UIMessage>> {
 		let error: unknown = undefined;
@@ -221,7 +247,7 @@ class AgentManager {
 				}
 
 				this._streamWriter = writer;
-				const messages = await this._buildModelMessages(uiMessages, opts.mentions);
+				const messages = await this._buildModelMessages(uiMessages, opts.mentions, opts.isSlack);
 
 				result = await this._agent.stream({
 					messages,
@@ -264,7 +290,11 @@ class AgentManager {
 	/**
 	 * Prepares the UI messages and builds them into model messages with memory and compaction summary.
 	 */
-	private async _buildModelMessages(uiMessages: UIMessage[], mentions?: Mention[]): Promise<ModelMessage[]> {
+	private async _buildModelMessages(
+		uiMessages: UIMessage[],
+		mentions?: Mention[],
+		isSlack?: boolean,
+	): Promise<ModelMessage[]> {
 		const uiMessagesWithStories = await this._syncStoryToolOutputs(uiMessages);
 		const uiMessagesWithSkills = this._addSkills(uiMessagesWithStories, mentions);
 		const uiMessagesWithCompaction = compactionService.useLastCompaction(uiMessagesWithSkills);
@@ -273,7 +303,8 @@ class AgentManager {
 		const userRules = getUserRules();
 		const connections = getConnections();
 		const skills = skillService.getSkills();
-		const systemPrompt = renderToMarkdown(SystemPrompt({ memories, userRules, connections, skills }));
+		const basePrompt = renderToMarkdown(SystemPrompt({ memories, userRules, connections, skills }));
+		const systemPrompt = isSlack ? renderToMarkdown(SlackSystemPrompt({ basePrompt })) : basePrompt;
 
 		const systemMessage: Omit<UIMessage, 'id'> = {
 			role: 'system',

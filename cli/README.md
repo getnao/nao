@@ -35,7 +35,8 @@ This will create a new nao project in the current directory. It will prompt you 
 
 - **Database connections** (BigQuery, DuckDB, Databricks, Snowflake, PostgreSQL, Redshift, MSSQL, Trino)
 - **Git repositories** to sync
-- **LLM provider** (OpenAI, Anthropic, Mistral, Gemini)
+- **LLM provider** (OpenAI, Anthropic, Mistral, Gemini, OpenRouter, Ollama)
+- **`ai_summary` accessor + model** (prompted only when you enable `ai_summary` for databases)
 - **Slack integration**
 - **Notion integration**
 
@@ -85,11 +86,17 @@ nao sync
 
 Syncs configured resources to local files:
 
-- **Databases** — generates markdown docs (`columns.md`, `preview.md`, `description.md`, `profiling.md`) for each table into `databases/`
+- **Databases** - generates markdown docs (`columns.md`, `preview.md`, `description.md`) for each table into `databases/`
 - **Git repositories** — clones or pulls repos into `repos/`
 - **Notion pages** — exports pages as markdown into `docs/notion/`
 
 After syncing, any Jinja templates (`*.j2` files) in the project directory are rendered with the nao context.
+
+Optional `ai_summary` generation:
+
+- Add `ai_summary` to a database connection `accessors` list to render `ai_summary.md`.
+- Use `prompt("...")` inside Jinja templates to generate `ai_summary` content.
+- `prompt(...)` requires `llm.provider`, `llm.annotation_model`, and `llm.api_key` (except for ollama).
 
 ### Run tests
 

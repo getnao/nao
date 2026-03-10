@@ -25,6 +25,7 @@ export const agentRoutes = async (app: App) => {
 			chat_id: result.chatId,
 			model_id: result.modelId,
 			is_new_chat: result.isNewChat,
+			source: 'web',
 		});
 
 		let stream = result.stream;

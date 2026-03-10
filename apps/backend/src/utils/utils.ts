@@ -83,6 +83,17 @@ export function groupBy<T, K extends string>(
 	);
 }
 
+export const buildCredentialPreviews = (
+	credentials: Record<string, string> | null | undefined,
+): Record<string, string> | null => {
+	if (!credentials) {
+		return null;
+	}
+	return Object.fromEntries(
+		Object.entries(credentials).map(([key, val]) => [key, val ? val.slice(0, 4) + '...' + val.slice(-4) : '']),
+	);
+};
+
 export const formatSize = (bytes: number) => {
 	if (bytes < 1024) {
 		return `${bytes} B`;

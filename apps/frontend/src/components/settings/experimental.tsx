@@ -24,7 +24,9 @@ export function SettingsExperimental({ isAdmin }: SettingsExperimentalProps) {
 
 	const pythonSandboxingEnabled = agentSettings.data?.experimental?.pythonSandboxing ?? false;
 	const pythonAvailable = agentSettings.data?.capabilities?.pythonSandbox ?? true;
+	const sandboxAvailable = agentSettings.data?.capabilities?.sandbox ?? true;
 	const dangerouslyWritePermEnabled = agentSettings.data?.sql?.dangerouslyWritePermEnabled ?? false;
+	const sandboxesEnabled = agentSettings.data?.experimental?.sandboxes ?? false;
 
 	const handlePythonSandboxingChange = (enabled: boolean) => {
 		updateAgentSettings.mutate({
@@ -36,6 +38,14 @@ export function SettingsExperimental({ isAdmin }: SettingsExperimentalProps) {
 
 	const handleDangerouslyWritePermChange = (enabled: boolean) => {
 		updateAgentSettings.mutate({ sql: { dangerouslyWritePermEnabled: enabled } });
+	};
+
+	const handleSandboxesChange = (enabled: boolean) => {
+		updateAgentSettings.mutate({
+			experimental: {
+				sandboxes: enabled,
+			},
+		});
 	};
 
 	return (
@@ -56,6 +66,32 @@ export function SettingsExperimental({ isAdmin }: SettingsExperimentalProps) {
 						checked={pythonSandboxingEnabled}
 						onCheckedChange={handlePythonSandboxingChange}
 						disabled={!isAdmin || !pythonAvailable || updateAgentSettings.isPending}
+					/>
+				}
+			/>
+			<SettingsControlRow
+				id='sandboxes'
+				label='Sandboxes'
+				description={
+					<span>
+						Allow the agent to use sandboxes to run code in a secure environment. Works with{' '}
+						<a
+							href='https://github.com/boxlite-ai/boxlite'
+							target='_blank'
+							rel='noopener noreferrer'
+							className='text-primary hover:text-primary/80 underline font-medium'
+						>
+							Boxlite
+						</a>
+						.{!sandboxAvailable && ' Not available on this platform.'}
+					</span>
+				}
+				control={
+					<Switch
+						id='sandboxes'
+						checked={sandboxesEnabled}
+						onCheckedChange={handleSandboxesChange}
+						disabled={!isAdmin || !sandboxAvailable || updateAgentSettings.isPending}
 					/>
 				}
 			/>

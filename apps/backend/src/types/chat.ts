@@ -42,6 +42,7 @@ export type ChatAccessType = 'owner' | 'shared-project' | 'shared-specific';
 
 export type UIMessage = UIGenericMessage<unknown, MessageCustomDataParts, UITools> & {
 	feedback?: MessageFeedback;
+	source?: 'slack' | 'web';
 };
 
 export type UITools = InferUITools<typeof tools>;

@@ -4,6 +4,9 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import pytest
+
+from nao_core.config.llm import LLMConfig, LLMProvider
 from nao_core.templates.engine import (
     DEFAULT_TEMPLATES_DIR,
     TemplateEngine,
@@ -49,6 +52,7 @@ class TestTemplateEngine:
             "databases/columns.md.j2",
             "databases/preview.md.j2",
             "databases/description.md.j2",
+            "databases/ai_summary.md.j2",
         ]
 
         for template in expected_templates:
@@ -157,6 +161,36 @@ class TestTemplateEngine:
 
         assert engine.is_user_override("databases/columns.md.j2") is False
 
+    def test_prompt_helper_requires_llm_config(self, tmp_path: Path):
+        """prompt helper should raise clear error when llm config is missing."""
+        templates_dir = tmp_path / "templates"
+        templates_dir.mkdir()
+        (templates_dir / "test.j2").write_text("{{ prompt('hello') }}")
+
+        engine = TemplateEngine(project_path=tmp_path)
+        with pytest.raises(RuntimeError, match="ai_summary generation requires an `llm` config"):
+            engine.render("test.j2")
+
+    def test_prompt_helper_uses_configured_model(self, tmp_path: Path):
+        """prompt helper should call provider generator with configured model."""
+        templates_dir = tmp_path / "templates"
+        templates_dir.mkdir()
+        (templates_dir / "test.j2").write_text("{{ prompt('hello world') }}")
+
+        llm_config = LLMConfig(
+            provider=LLMProvider.OPENAI,
+            api_key="sk-test",
+            annotation_model="gpt-4.1-mini",
+        )
+        engine = TemplateEngine(project_path=tmp_path, llm_config=llm_config)
+
+        mock_generate = MagicMock(return_value="AI output")
+        engine._generate_openai_compatible = mock_generate  # type: ignore[method-assign]
+        rendered = engine.render("test.j2")
+
+        assert rendered == "AI output"
+        mock_generate.assert_called_once_with("gpt-4.1-mini", "hello world")
+
 
 class TestTemplateFilters:
     """Tests for custom Jinja2 filters."""
@@ -194,7 +228,8 @@ class TestTemplateFilters:
         # Path objects are not JSON serializable by default
         result = engine.render("test.j2", data={"path": Path("/some/path")})
 
-        assert "/some/path" in result
+        parsed = json.loads(result)
+        assert parsed["path"].replace("\\", "/").endswith("/some/path")
 
     def test_truncate_middle_filter_short_text(self, tmp_path: Path):
         """truncate_middle filter leaves short text unchanged."""
@@ -254,6 +289,7 @@ class TestGetTemplateEngine:
         import nao_core.templates.engine as engine_module
 
         engine_module._engine = None
+        engine_module._engine_signature = None
 
         engine = get_template_engine()
 
@@ -264,6 +300,7 @@ class TestGetTemplateEngine:
         import nao_core.templates.engine as engine_module
 
         engine_module._engine = None
+        engine_module._engine_signature = None
 
         engine1 = get_template_engine()
         engine2 = get_template_engine()
@@ -275,12 +312,58 @@ class TestGetTemplateEngine:
         import nao_core.templates.engine as engine_module
 
         engine_module._engine = None
+        engine_module._engine_signature = None
 
         engine1 = get_template_engine(project_path=None)
         engine2 = get_template_engine(project_path=tmp_path)
 
         assert engine1 is not engine2
         assert engine2.project_path == tmp_path
+
+    def test_creates_new_engine_when_llm_settings_change(self):
+        """get_template_engine should invalidate cache when llm settings change."""
+        import nao_core.templates.engine as engine_module
+
+        engine_module._engine = None
+        engine_module._engine_signature = None
+
+        llm1 = LLMConfig(provider=LLMProvider.OPENAI, api_key="k1", annotation_model="gpt-4.1-mini")
+        llm2 = LLMConfig(provider=LLMProvider.OPENAI, api_key="k1", annotation_model="gpt-4.1")
+
+        engine1 = get_template_engine(llm_config=llm1)
+        engine2 = get_template_engine(llm_config=llm2)
+
+        assert engine1 is not engine2
+
+    def test_creates_new_engine_for_different_llm_instance(self):
+        """get_template_engine should invalidate cache for different effective llm values."""
+        import nao_core.templates.engine as engine_module
+
+        engine_module._engine = None
+        engine_module._engine_signature = None
+
+        llm1 = LLMConfig(provider=LLMProvider.OPENAI, api_key="k1", annotation_model="gpt-4.1-mini")
+        llm2 = LLMConfig(provider=LLMProvider.OPENAI, api_key="k2", annotation_model="gpt-4.1-mini")
+
+        engine1 = get_template_engine(llm_config=llm1)
+        engine2 = get_template_engine(llm_config=llm2)
+
+        assert engine1 is not engine2
+
+    def test_reuses_engine_for_equivalent_llm_values(self):
+        """get_template_engine should reuse cache for equivalent llm config values."""
+        import nao_core.templates.engine as engine_module
+
+        engine_module._engine = None
+        engine_module._engine_signature = None
+
+        llm1 = LLMConfig(provider=LLMProvider.OPENAI, api_key="k1", annotation_model="gpt-4.1-mini")
+        llm2 = LLMConfig(provider=LLMProvider.OPENAI, api_key="k1", annotation_model="gpt-4.1-mini")
+
+        engine1 = get_template_engine(llm_config=llm1)
+        engine2 = get_template_engine(llm_config=llm2)
+
+        assert engine1 is engine2
 
 
 class TestDefaultTemplatesDir:
@@ -305,6 +388,7 @@ class TestDefaultTemplatesDir:
             "columns.md.j2",
             "preview.md.j2",
             "description.md.j2",
+            "ai_summary.md.j2",
         ]
 
         for filename in expected_files:

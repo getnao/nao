@@ -2,6 +2,8 @@ import os
 from unittest.mock import patch
 
 from nao_core.config.base import NaoConfig
+from nao_core.config.databases.duckdb import DuckDBConfig
+from nao_core.config.llm import LLMConfig, LLMProvider
 
 
 def test_env_var_replacement():
@@ -50,3 +52,65 @@ def test_mixed_dollar_and_no_dollar_syntax():
         content = "a: ${{ env('VAR1') }}, b: {{ env('VAR2') }}"
         result = NaoConfig._process_env_vars(content)
         assert result == "a: value1, b: value2"
+
+
+@patch("nao_core.config.base.ask_confirm")
+@patch("nao_core.config.llm.LLMConfig.promptConfig")
+def test_prompt_llm_skips_annotation_model_when_ai_summary_is_disabled(mock_prompt_config, mock_confirm):
+    """Model prompt should be disabled when ai_summary is declined."""
+    db = DuckDBConfig(name="test-db", path=":memory:")
+    mock_llm = LLMConfig(provider=LLMProvider.OPENAI, api_key="sk-test")
+    mock_prompt_config.return_value = mock_llm
+    mock_confirm.side_effect = [True, False]
+
+    llm, enable_ai_summary = NaoConfig._prompt_llm(databases=[db])
+
+    assert llm == mock_llm
+    assert enable_ai_summary is False
+    mock_prompt_config.assert_called_once_with(prompt_annotation_model=False)
+
+
+@patch("nao_core.config.base.ask_confirm")
+@patch("nao_core.config.llm.LLMConfig.promptConfig")
+def test_prompt_llm_prompts_annotation_model_when_ai_summary_is_enabled(mock_prompt_config, mock_confirm):
+    """Model prompt should be enabled when ai_summary is accepted."""
+    db = DuckDBConfig(name="test-db", path=":memory:")
+    mock_llm = LLMConfig(provider=LLMProvider.OPENAI, api_key="sk-test")
+    mock_prompt_config.return_value = mock_llm
+    mock_confirm.side_effect = [True, True]
+
+    llm, enable_ai_summary = NaoConfig._prompt_llm(databases=[db])
+
+    assert llm == mock_llm
+    assert enable_ai_summary is True
+    mock_prompt_config.assert_called_once_with(prompt_annotation_model=True)
+
+
+@patch("nao_core.config.base.ask_confirm")
+@patch("nao_core.config.llm.LLMConfig.promptConfig")
+def test_prompt_llm_returns_none_when_skipped(mock_prompt_config, mock_confirm):
+    """LLM should remain unset when user skips LLM setup."""
+    mock_confirm.return_value = False
+
+    llm, enable_ai_summary = NaoConfig._prompt_llm(databases=[])
+
+    assert llm is None
+    assert enable_ai_summary is False
+    mock_prompt_config.assert_not_called()
+
+
+def test_configure_ai_summary_accessors_does_not_duplicate_existing_accessor():
+    """ai_summary accessor should only appear once."""
+    from nao_core.config.databases.base import DatabaseAccessor
+
+    db = DuckDBConfig(name="test-db", path=":memory:")
+    db.accessors = [DatabaseAccessor.COLUMNS, DatabaseAccessor.AI_SUMMARY]
+    llm = LLMConfig(provider=LLMProvider.OPENAI, api_key="sk-test")
+
+    result = NaoConfig._configure_ai_summary_accessors(
+        databases=[db],
+        llm=llm,
+        enable_ai_summary=True,
+    )
+
+    assert result[0].accessors.count(DatabaseAccessor.AI_SUMMARY) == 1

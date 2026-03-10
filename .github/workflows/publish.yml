@@ -56,7 +56,6 @@ jobs:
               uses: actions/setup-node@v4
               with:
                   node-version-file: '.nvmrc'
-                  cache: 'npm'
 
             - name: Setup Python
               uses: actions/setup-python@v5
@@ -70,7 +69,7 @@ jobs:
               run: uv pip install --system cyclopts
 
             - name: Install npm dependencies
-              run: npm ci
+              run: bun install
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

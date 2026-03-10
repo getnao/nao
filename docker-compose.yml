@@ -38,12 +38,6 @@ services:
             ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
 
             # =================================================================
-            # Slack Integration (optional)
-            # =================================================================
-            SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN}
-            SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET}
-
-            # =================================================================
             # Database for nao chat history
             # =================================================================
             DB_URI: postgres://${POSTGRES_USER:-nao}:${POSTGRES_PASSWORD:-nao}@postgres:5432/${POSTGRES_DB:-nao}

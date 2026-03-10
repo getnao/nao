@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "4417a902-e282-4749-aa75-69b2bd283096",
+  "id": "fae5b643-36e2-4741-89b8-bd1819ffb0ad",
   "prevId": "42ad1c6e-3406-4133-86b2-b8f47e4cd5f5",
   "tables": {
     "account": {
@@ -1316,6 +1316,13 @@
           "notNull": true,
           "autoincrement": false
         },
+        "credentials": {
+          "name": "credentials",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "enabled_models": {
           "name": "enabled_models",
           "type": "text",
@@ -1635,174 +1642,6 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "shared_chat": {
-      "name": "shared_chat",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "project_id": {
-          "name": "project_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "chat_id": {
-          "name": "chat_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "visibility": {
-          "name": "visibility",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'project'"
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
-        }
-      },
-      "indexes": {
-        "shared_chat_projectId_idx": {
-          "name": "shared_chat_projectId_idx",
-          "columns": [
-            "project_id"
-          ],
-          "isUnique": false
-        },
-        "shared_chat_chat_idx": {
-          "name": "shared_chat_chat_idx",
-          "columns": [
-            "chat_id"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "shared_chat_project_id_project_id_fk": {
-          "name": "shared_chat_project_id_project_id_fk",
-          "tableFrom": "shared_chat",
-          "tableTo": "project",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "shared_chat_user_id_user_id_fk": {
-          "name": "shared_chat_user_id_user_id_fk",
-          "tableFrom": "shared_chat",
-          "tableTo": "user",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "shared_chat_chat_id_chat_id_fk": {
-          "name": "shared_chat_chat_id_chat_id_fk",
-          "tableFrom": "shared_chat",
-          "tableTo": "chat",
-          "columnsFrom": [
-            "chat_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "shared_chat_access": {
-      "name": "shared_chat_access",
-      "columns": {
-        "shared_chat_id": {
-          "name": "shared_chat_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "shared_chat_access_shared_chat_id_shared_chat_id_fk": {
-          "name": "shared_chat_access_shared_chat_id_shared_chat_id_fk",
-          "tableFrom": "shared_chat_access",
-          "tableTo": "shared_chat",
-          "columnsFrom": [
-            "shared_chat_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "shared_chat_access_user_id_user_id_fk": {
-          "name": "shared_chat_access_user_id_user_id_fk",
-          "tableFrom": "shared_chat_access",
-          "tableTo": "user",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "shared_chat_access_shared_chat_id_user_id_pk": {
-          "columns": [
-            "shared_chat_id",
-            "user_id"
-          ],
-          "name": "shared_chat_access_shared_chat_id_user_id_pk"
-        }
-      },
       "uniqueConstraints": {},
       "checkConstraints": {}
     },

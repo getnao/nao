@@ -1,43 +1,36 @@
-import { z } from 'zod/v4';
+import { CardChild, Message, SentMessage, Thread } from 'chat';
 
-export const SlackEventSchema = z.object({
-	type: z.string(),
-	user: z.string(),
-	ts: z.string(),
-	thread_ts: z.string().optional(),
-	text: z.string(),
-	channel: z.string(),
-	event_ts: z.string(),
-});
+import { User } from '../db/abstractSchema';
+import { UIMessage } from '../types/chat';
 
-export const SlackRequestSchema = z.object({
-	type: z.string().optional(),
-	challenge: z.string().optional(),
-	token: z.string().optional(),
-	event: SlackEventSchema.optional(),
-});
+export type ConversationContext = {
+	thread: Thread;
+	userMessage: Message;
+	user: User | null;
+	chatId: string;
+	assistantMessage: UIMessage | null;
+	convMessage: SentMessage | null;
+	blocks: CardChild[];
+	textBlockIndex: number;
+	isNewChat: boolean;
+	modelId: string | undefined;
+};
 
-export const SlackInteractionPayloadSchema = z.object({
-	type: z.string(),
-	channel: z.object({
-		id: z.string(),
-		name: z.string(),
-	}),
-	message: z.object({
-		ts: z.string(),
-		thread_ts: z.string(),
-	}),
-	actions: z.array(
-		z.object({
-			action_id: z.string(),
-		}),
-	),
-});
+type SqlOutput = {
+	name: string | null;
+	rows: Record<string, unknown>[];
+};
 
-export const SlackInteractionBodySchema = z.object({
-	payload: z.string(),
-});
+export type ToolCallEntry = {
+	type: string;
+	input: Record<string, string>;
+	toolCallId: string;
+};
 
-export type SlackRequest = z.infer<typeof SlackRequestSchema>;
-export type SlackEvent = z.infer<typeof SlackEventSchema>;
-export type SlackInteractionPayload = z.infer<typeof SlackInteractionPayloadSchema>;
+export type StreamState = {
+	renderedChartIds: Set<string>;
+	sqlOutputs: Map<string, SqlOutput>;
+	lastUpdateAt: number;
+	toolGroup: Map<string, ToolCallEntry>;
+	toolGroupBlockIndex: number;
+};

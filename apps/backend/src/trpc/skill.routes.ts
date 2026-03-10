@@ -1,4 +1,4 @@
-import { skillService } from '../services/skill.service';
+import { skillService } from '../services/skill';
 import { projectProtectedProcedure, router } from './trpc';
 
 export const skillRoutes = router({

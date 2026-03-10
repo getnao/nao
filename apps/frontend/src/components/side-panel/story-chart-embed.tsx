@@ -45,7 +45,7 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({ chart }: { chart:
 	const xAxisType = chart.xAxisType === 'number' ? 'number' : ('category' as const);
 
 	return (
-		<div className='my-2 aspect-3/2'>
+		<div className={`my-2 ${chart.chartType != 'kpi_card' ? 'aspect-3/2' : ''} `}>
 			<ChartDisplay
 				data={sourceData.data}
 				chartType={chart.chartType as displayChart.ChartType}

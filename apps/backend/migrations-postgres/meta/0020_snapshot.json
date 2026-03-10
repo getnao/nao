@@ -1,5 +1,5 @@
 {
-  "id": "707341c3-a765-4da8-90b8-9ce480d0f049",
+  "id": "27f2a405-a21c-4547-8c13-6ce3f5e7d10c",
   "prevId": "975c2acb-d086-44b2-9654-e268a73e0d4d",
   "version": "7",
   "dialect": "postgresql",
@@ -1367,6 +1367,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "credentials": {
+          "name": "credentials",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
         "enabled_models": {
           "name": "enabled_models",
           "type": "jsonb",
@@ -1708,188 +1714,6 @@
           ]
         }
       },
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.shared_chat": {
-      "name": "shared_chat",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "project_id": {
-          "name": "project_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "chat_id": {
-          "name": "chat_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "visibility": {
-          "name": "visibility",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'project'"
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "shared_chat_projectId_idx": {
-          "name": "shared_chat_projectId_idx",
-          "columns": [
-            {
-              "expression": "project_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "shared_chat_chat_idx": {
-          "name": "shared_chat_chat_idx",
-          "columns": [
-            {
-              "expression": "chat_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "shared_chat_project_id_project_id_fk": {
-          "name": "shared_chat_project_id_project_id_fk",
-          "tableFrom": "shared_chat",
-          "tableTo": "project",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "shared_chat_user_id_user_id_fk": {
-          "name": "shared_chat_user_id_user_id_fk",
-          "tableFrom": "shared_chat",
-          "tableTo": "user",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "shared_chat_chat_id_chat_id_fk": {
-          "name": "shared_chat_chat_id_chat_id_fk",
-          "tableFrom": "shared_chat",
-          "tableTo": "chat",
-          "columnsFrom": [
-            "chat_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.shared_chat_access": {
-      "name": "shared_chat_access",
-      "schema": "",
-      "columns": {
-        "shared_chat_id": {
-          "name": "shared_chat_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "shared_chat_access_shared_chat_id_shared_chat_id_fk": {
-          "name": "shared_chat_access_shared_chat_id_shared_chat_id_fk",
-          "tableFrom": "shared_chat_access",
-          "tableTo": "shared_chat",
-          "columnsFrom": [
-            "shared_chat_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "shared_chat_access_user_id_user_id_fk": {
-          "name": "shared_chat_access_user_id_user_id_fk",
-          "tableFrom": "shared_chat_access",
-          "tableTo": "user",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "shared_chat_access_shared_chat_id_user_id_pk": {
-          "name": "shared_chat_access_shared_chat_id_user_id_pk",
-          "columns": [
-            "shared_chat_id",
-            "user_id"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false

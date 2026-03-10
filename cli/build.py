@@ -9,6 +9,7 @@ This script:
 """
 
 import json
+import platform
 import re
 import shutil
 import subprocess
@@ -126,6 +127,74 @@ def update_version(cli_dir: Path, new_version: str) -> None:
     print(f"✓ Version bumped to {new_version}")
 
 
+def get_native_platform_suffix() -> str | None:
+    """Return the NAPI-RS platform suffix for the current OS/arch, or None."""
+    os_name = sys.platform
+    arch = platform.machine()
+
+    if os_name == "darwin":
+        if arch == "arm64":
+            return "darwin-arm64"
+        if arch == "x86_64":
+            return "darwin-x64"
+    elif os_name == "linux":
+        if arch == "x86_64":
+            return "linux-x64-gnu"
+        if arch in ("aarch64", "arm64"):
+            return "linux-arm64-gnu"
+    return None
+
+
+def bundle_native_packages(project_root: Path, output_dir: Path) -> None:
+    """Copy NAPI-RS native addons into node_modules/ next to the binary.
+
+    Both @boxlite-ai/boxlite and @pydantic/monty are externalized from the Bun
+    standalone build because they load platform-specific .node files at runtime.
+    """
+    suffix = get_native_platform_suffix()
+    if suffix is None:
+        print(f"   ⚠️  Unsupported platform {sys.platform}/{platform.machine()} — skipping native addons")
+        return
+
+    nm_root = project_root / "node_modules"
+    out_nm = output_dir / "node_modules"
+
+    packages_to_copy = [
+        # (source scope/name, destination scope/name)
+        ("@boxlite-ai/boxlite", "@boxlite-ai/boxlite"),
+        (f"@boxlite-ai/boxlite-{suffix}", f"@boxlite-ai/boxlite-{suffix}"),
+        ("@pydantic/monty", "@pydantic/monty"),
+    ]
+
+    # monty's platform package may be nested inside its own node_modules
+    monty_platform_pkg = f"@pydantic/monty-{suffix}"
+    monty_nested = nm_root / "@pydantic" / "monty" / "node_modules" / monty_platform_pkg
+    monty_hoisted = nm_root / monty_platform_pkg
+
+    if monty_nested.exists():
+        # Keep the nested structure so require() resolves correctly
+        packages_to_copy.append(
+            (
+                str(monty_nested.relative_to(nm_root)),
+                f"@pydantic/monty/node_modules/{monty_platform_pkg}",
+            )
+        )
+    elif monty_hoisted.exists():
+        packages_to_copy.append((monty_platform_pkg, monty_platform_pkg))
+
+    for src_rel, dst_rel in packages_to_copy:
+        src = nm_root / src_rel
+        dst = out_nm / dst_rel
+        if not src.exists():
+            print(f"   ⚠️  {src_rel} not found — skipping")
+            continue
+        if dst.exists():
+            shutil.rmtree(dst)
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(src, dst)
+        print(f"   {dst_rel}")
+
+
 def build_server(project_root: Path, output_dir: Path) -> None:
     """Build the frontend and backend into a standalone server."""
     backend_dir = project_root / "apps" / "backend"
@@ -241,10 +310,14 @@ def build_server(project_root: Path, output_dir: Path) -> None:
         print("   ⚠️  No ripgrep binary found (grep tool will not work in standalone mode)")
         print("   Run 'npm install @vscode/ripgrep' in the backend or root directory")
 
+    # Step 9: Bundle native NAPI addons (boxlite, monty)
+    print("\n📦 Bundling native addons...")
+    bundle_native_packages(project_root, output_dir)
+
     # Cleanup temporary public folder in backend
     shutil.rmtree(backend_public)
 
-    # Step 9: Write git commit info
+    # Step 10: Write git commit info
     print("\n📦 Writing build info...")
     commit_hash = get_git_commit(project_root)
     commit_short = get_git_commit_short(project_root)

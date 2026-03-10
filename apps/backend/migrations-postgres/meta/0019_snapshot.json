@@ -121,17 +121,7 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "story_version_chat_story_version_unique": {
-          "name": "story_version_chat_story_version_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "chat_id",
-            "story_id",
-            "version"
-          ]
-        }
-      },
+      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false

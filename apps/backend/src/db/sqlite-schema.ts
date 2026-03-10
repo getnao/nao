@@ -144,6 +144,8 @@ export const project = sqliteTable(
 		path: text('path'),
 		slackBotToken: text('slack_bot_token'),
 		slackSigningSecret: text('slack_signing_secret'),
+		slackllmProvider: text('slack_llm_provider'),
+		slackllmModelId: text('slack_llm_model_id'),
 		agentSettings: text('agent_settings', { mode: 'json' }).$type<AgentSettings>(),
 		enabledMcpTools: text('enabled_tools', { mode: 'json' }).$type<string[]>().notNull().default([]),
 		knownMcpServers: text('known_mcp_servers', { mode: 'json' }).$type<string[]>().notNull().default([]),
@@ -208,6 +210,7 @@ export const chatMessage = sqliteTable(
 		llmProvider: text('llm_provider').$type<LlmProvider>(),
 		llmModelId: text('llm_model_id'),
 		supersededAt: integer('superseded_at', { mode: 'timestamp_ms' }),
+		source: text('source', { enum: ['slack', 'web'] }),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull(),
@@ -327,6 +330,7 @@ export const projectLlmConfig = sqliteTable(
 			.references(() => project.id, { onDelete: 'cascade' }),
 		provider: text('provider').$type<LlmProvider>().notNull(),
 		apiKey: text('api_key').notNull(),
+		credentials: text('credentials', { mode: 'json' }).$type<Record<string, string>>(),
 		enabledModels: text('enabled_models', { mode: 'json' }).$type<string[]>().default([]).notNull(),
 		baseUrl: text('base_url'),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })

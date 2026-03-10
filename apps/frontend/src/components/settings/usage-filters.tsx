@@ -23,6 +23,7 @@ const providerLabels: Record<LlmProvider, string> = {
 	mistral: 'Mistral',
 	openrouter: 'OpenRouter',
 	ollama: 'Ollama',
+	bedrock: 'AWS Bedrock',
 };
 
 export const dateFormats: Record<Granularity, string> = {

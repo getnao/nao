@@ -138,6 +138,8 @@ export const project = pgTable(
 		path: text('path'),
 		slackBotToken: text('slack_bot_token'),
 		slackSigningSecret: text('slack_signing_secret'),
+		slackllmProvider: text('slack_llm_provider'),
+		slackllmModelId: text('slack_llm_model_id'),
 		agentSettings: jsonb('agent_settings').$type<AgentSettings>(),
 		enabledMcpTools: jsonb('enabled_tools').$type<string[]>().notNull().default([]),
 		knownMcpServers: jsonb('known_mcp_servers').$type<string[]>().notNull().default([]),
@@ -198,6 +200,7 @@ export const chatMessage = pgTable(
 		llmProvider: text('llm_provider').$type<LlmProvider>(),
 		llmModelId: text('llm_model_id'),
 		supersededAt: timestamp('superseded_at'),
+		source: text('source', { enum: ['slack', 'web'] }),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 
 		// Token usage columns
@@ -308,6 +311,7 @@ export const projectLlmConfig = pgTable(
 			.references(() => project.id, { onDelete: 'cascade' }),
 		provider: text('provider').$type<LlmProvider>().notNull(),
 		apiKey: text('api_key').notNull(),
+		credentials: jsonb('credentials').$type<Record<string, string>>(),
 		enabledModels: jsonb('enabled_models').$type<string[]>().default([]).notNull(),
 		baseUrl: text('base_url'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
