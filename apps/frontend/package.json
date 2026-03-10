@@ -47,6 +47,7 @@
 		"date-fns": "^4.1.0",
 		"lucide-react": "^0.562.0",
 		"posthog-js": "^1.336.4",
+		"prompt-mentions": "^0.0.34",
 		"proxy-from-env": "^1.1.0",
 		"radix-ui": "^1.4.3",
 		"react": "^19.2.0",
