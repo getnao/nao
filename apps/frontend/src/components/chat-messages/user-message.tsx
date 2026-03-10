@@ -1,6 +1,9 @@
 import { memo, useMemo, useRef } from 'react';
-import { Pencil, Check, Copy } from 'lucide-react';
+import { Pencil, Check, Copy, Table } from 'lucide-react';
+import { Message } from 'prompt-mentions';
+import { useQuery } from '@tanstack/react-query';
 import type { UIMessage } from '@nao/backend/chat';
+import type { MessageMentionConfig, MentionOption, PromptTheme } from 'prompt-mentions';
 import { cn } from '@/lib/utils';
 import { useAgentContext } from '@/contexts/agent.provider';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
@@ -10,7 +13,59 @@ import { ChatInputInline } from '@/components/chat-input';
 import { getMessageText } from '@/lib/ai';
 import { Button } from '@/components/ui/button';
 import { editedMessageIdStore } from '@/stores/chat-edited-message';
+import { trpc } from '@/main';
+import { STORY_MENTION_ID } from '@/components/chat-input-prompt';
+import StoryIcon from '@/components/ui/story-icon';
 import SlackIcon from '@/components/icons/slack.svg';
+
+const messageTheme: PromptTheme = {
+	backgroundColor: 'transparent',
+	color: 'var(--color-foreground)',
+	fontSize: '16px',
+	fontFamily: 'inherit',
+	borderColor: 'transparent',
+	focusBorderColor: 'transparent',
+	focusBoxShadow: 'none',
+	padding: '0',
+	minHeight: 'auto',
+	pill: {
+		backgroundColor: 'var(--accent)',
+		color: 'var(--accent-foreground)',
+		padding: 'calc(var(--spacing) * 0.4) calc(var(--spacing) * 1.2)',
+		borderRadius: 'var(--radius-sm)',
+	},
+};
+
+const tableIcon = <Table className='size-4' />;
+
+function useMentionConfigs(): MessageMentionConfig[] {
+	const { data: skills } = useQuery(trpc.skill.list.queryOptions());
+	const { data: databaseObjects } = useQuery(trpc.project.getDatabaseObjects.queryOptions());
+
+	return useMemo(() => {
+		const dbOptions: MentionOption[] = (databaseObjects ?? []).map((obj) => ({
+			id: obj.fqdn,
+			label: obj.table,
+			icon: tableIcon,
+		}));
+
+		const skillOptions: MentionOption[] = (skills ?? []).map((skill) => ({
+			id: skill.name,
+			label: skill.name,
+			icon: <span>/</span>,
+		}));
+
+		const storyOptions: MentionOption[] = [
+			{ id: STORY_MENTION_ID, label: 'Story mode', icon: <StoryIcon className='size-4' /> },
+		];
+
+		return [
+			{ trigger: '@', options: dbOptions },
+			{ trigger: '/', options: skillOptions, showTrigger: true },
+			{ trigger: '#', options: storyOptions },
+		];
+	}, [databaseObjects, skills]);
+}
 
 export const UserMessage = memo(({ message }: { message: UIMessage }) => {
 	const { isRunning, editMessage } = useAgentContext();
@@ -18,6 +73,7 @@ export const UserMessage = memo(({ message }: { message: UIMessage }) => {
 	const isEditing = useIsEditingMessage(message.id);
 	const editContainerRef = useRef<HTMLDivElement>(null);
 	const text = useMemo(() => getMessageText(message), [message]);
+	const mentionConfigs = useMentionConfigs();
 
 	useClickOutside(
 		{
@@ -53,7 +109,7 @@ export const UserMessage = memo(({ message }: { message: UIMessage }) => {
 						sent in Slack
 					</span>
 				)}
-				<span className='flex items-center justify-end '>{text}</span>
+				<Message value={text} mentionConfigs={mentionConfigs} theme={messageTheme} className='inline' />
 			</div>
 
 			<div className='flex items-center gap-2'>
