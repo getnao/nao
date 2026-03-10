@@ -11,6 +11,11 @@ export function conflictUpdateSet<TTable extends SQLiteTable>(
 	) as SQLiteUpdateSetSource<TTable>;
 }
 
+export async function takeFirstOrNull<T>(queryPromise: Promise<T[]>): Promise<T | null> {
+	const result = await queryPromise;
+	return result[0] ?? null;
+}
+
 /**
  * Returns the first row of a query promise or throws an error if nothing is returned.
  */
