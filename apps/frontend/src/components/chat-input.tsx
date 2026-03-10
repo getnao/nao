@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { Plus, Hammer } from 'lucide-react';
+import { Plus, Hammer, Database } from 'lucide-react';
 import { Button, ChatButton, MicButton } from './ui/button';
 import { SlidingWaveform } from './chat-input-sliding-waveform';
-import { ChatPrompt, STORY_MENTION_ID } from './chat-input-prompt';
+import { ChatPrompt, STORY_MENTION_ID, DATABASE_MENTION_TRIGGER } from './chat-input-prompt';
 import { ChatInputModelSelect } from './chat-input-model-select';
 import { ChatInputMessageQueue } from './chat-input-message-queue';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './ui/dropdown-menu';
@@ -141,6 +141,10 @@ function ChatInputBase({
 		promptRef.current?.insertText('/');
 	}, [promptRef]);
 
+	const openDatabaseMenu = useCallback(() => {
+		promptRef.current?.insertText(DATABASE_MENTION_TRIGGER);
+	}, [promptRef]);
+
 	return (
 		<div className={cn('px-3 pb-3 pt-0 md:px-4 md:pb-4 max-w-3xl w-full mx-auto', className)}>
 			<ChatInputMessageQueue />
@@ -165,6 +169,7 @@ function ChatInputBase({
 									promptRef.current?.appendMention({ id: STORY_MENTION_ID, label: 'Story' }, '#');
 								}}
 								onOpenSkills={openSkillsMenu}
+								onOpenDatabase={openDatabaseMenu}
 								onFocusPrompt={() => promptRef.current?.focus()}
 							/>
 
@@ -210,10 +215,12 @@ function ChatInputBase({
 function ChatInputPlusMenu({
 	onAddStory,
 	onOpenSkills,
+	onOpenDatabase,
 	onFocusPrompt,
 }: {
 	onAddStory: () => void;
 	onOpenSkills: () => void;
+	onOpenDatabase: () => void;
 	onFocusPrompt: () => void;
 }) {
 	return (
@@ -224,18 +231,23 @@ function ChatInputPlusMenu({
 					aria-label='Add context'
 					className='inline-flex items-center justify-center rounded-full size-7 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors cursor-pointer'
 				>
-					<Plus className='size-4' />
+					<Plus className='size-4 transition-transform duration-200 [[data-state=open]_&]:rotate-45' />
 				</button>
 			</DropdownMenuTrigger>
 			<DropdownMenuContent
 				side='top'
 				align='start'
+				collisionPadding={12}
 				className='min-w-44'
 				onCloseAutoFocus={(e) => {
 					e.preventDefault();
 					requestAnimationFrame(onFocusPrompt);
 				}}
 			>
+				<DropdownMenuItem onSelect={onOpenDatabase}>
+					<Database className='size-4' />
+					<span>Database table</span>
+				</DropdownMenuItem>
 				<DropdownMenuItem onSelect={onAddStory}>
 					<StoryIcon className='size-4' />
 					<span>Story</span>

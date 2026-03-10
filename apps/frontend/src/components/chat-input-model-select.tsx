@@ -67,7 +67,7 @@ export function ChatInputModelSelect() {
 				</SelectValue>
 			</SelectTrigger>
 
-			<SelectContent align='center' position='popper' side='top'>
+			<SelectContent align='center' position='popper' side='top' collisionPadding={12}>
 				{availableModels.map((model) => (
 					<SelectItem key={`${model.provider}-${model.modelId}`} value={`${model.provider}:${model.modelId}`}>
 						<LlmProviderIcon provider={model.provider} className='size-4' />

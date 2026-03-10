@@ -2,6 +2,7 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
 import { getProviderAuth, KNOWN_MODELS } from '../agents/providers';
+import { getDatabaseObjects } from '../agents/user-rules';
 import { env } from '../env';
 import * as projectQueries from '../queries/project.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
@@ -25,6 +26,25 @@ export const projectRoutes = {
 			userRole: ctx.userRole,
 		};
 	}),
+
+	getDatabaseObjects: projectProtectedProcedure
+		.output(
+			z.array(
+				z.object({
+					type: z.string(),
+					database: z.string(),
+					schema: z.string(),
+					table: z.string(),
+					fqdn: z.string(),
+				}),
+			),
+		)
+		.query(({ ctx }) => {
+			if (!ctx.project?.path) {
+				return [];
+			}
+			return getDatabaseObjects(ctx.project.path);
+		}),
 
 	getLlmConfigs: projectProtectedProcedure
 		.output(

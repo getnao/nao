@@ -16,7 +16,7 @@ import { CACHE_1H, CACHE_5M } from '../agents/providers';
 import { ProviderModelResult } from '../agents/providers';
 import { getTools } from '../agents/tools';
 import { createWebSearchTools } from '../agents/tools/web-search';
-import { getConnections, getUserRules } from '../agents/user-rules';
+import { getConnections, getTableColumnsContent, getUserRules } from '../agents/user-rules';
 import { SlackSystemPrompt, SystemPrompt } from '../components/ai';
 import { DBChat } from '../db/abstractSchema';
 import { renderToMarkdown } from '../lib/markdown';
@@ -298,7 +298,8 @@ class AgentManager {
 		const uiMessagesWithStories = await this._syncStoryToolOutputs(uiMessages);
 		const uiMessagesWithStoryMode = this._addStoryMode(uiMessagesWithStories, mentions);
 		const uiMessagesWithSkills = this._addSkills(uiMessagesWithStoryMode, mentions);
-		const uiMessagesWithCompaction = compactionService.useLastCompaction(uiMessagesWithSkills);
+		const uiMessagesWithDbContext = this._addDatabaseContext(uiMessagesWithSkills, mentions);
+		const uiMessagesWithCompaction = compactionService.useLastCompaction(uiMessagesWithDbContext);
 
 		const memories = await memoryService.safeGetUserMemories(this.chat.userId, this.chat.projectId, this.chat.id);
 		const userRules = getUserRules();
@@ -463,6 +464,31 @@ class AgentManager {
 			return messages;
 		}
 		return this._transformLastUserMessageText(messages, () => truncateMiddle(skillContent, 16_000));
+	}
+
+	private _addDatabaseContext(messages: UIMessage[], mentions?: Mention[]): UIMessage[] {
+		const dbMentions = mentions?.filter((m) => m.trigger === '@') ?? [];
+		if (dbMentions.length === 0) {
+			return messages;
+		}
+
+		const contextParts: string[] = [];
+		for (const mention of dbMentions) {
+			const content = getTableColumnsContent(this._toolContext.projectFolder, mention.id);
+			if (content) {
+				contextParts.push(`[Table: ${mention.id}]\n${content}`);
+			}
+		}
+
+		if (contextParts.length === 0) {
+			return messages;
+		}
+
+		const dbContext = contextParts.join('\n\n');
+		return this._transformLastUserMessageText(
+			messages,
+			(text) => `${text}\n\n---\nReferenced tables:\n${dbContext}`,
+		);
 	}
 
 	private _transformLastUserMessageText(messages: UIMessage[], transform: (text: string) => string): UIMessage[] {

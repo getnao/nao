@@ -324,6 +324,11 @@ code {
 	grid-area: icon;
 }
 
+.mention-menu .mention-menu-item-icon svg {
+	stroke-width: 1.2;
+	width: 14px;
+}
+
 .mention-menu .mention-menu-item-label {
 	grid-area: label;
 	min-width: 0;
