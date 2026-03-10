@@ -168,7 +168,7 @@ function getMemoriesInTokenRange(memories: UserMemory[], limit: number): UserMem
 	return visible;
 }
 
-function formatDate(timezone?: string): string {
+export function formatDate(timezone?: string): string {
 	const tz = resolveTimezone(timezone);
 	const formatted = new Date().toLocaleDateString('en-US', {
 		weekday: 'long',
@@ -180,7 +180,7 @@ function formatDate(timezone?: string): string {
 	return tz === 'UTC' ? `${formatted} (UTC)` : `${formatted} (${tz})`;
 }
 
-function resolveTimezone(timezone?: string): string {
+export function resolveTimezone(timezone?: string): string {
 	if (!timezone) {
 		return 'UTC';
 	}
