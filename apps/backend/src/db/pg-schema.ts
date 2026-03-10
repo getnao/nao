@@ -326,8 +326,7 @@ export const projectLlmConfig = pgTable(
 	],
 );
 
-export const STORY_VISIBILITY = ['project', 'specific'] as const;
-export const CHAT_VISIBILITY = ['project', 'specific'] as const;
+export const SHARED_VISIBILITY = ['project', 'specific'] as const;
 
 export const sharedStory = pgTable(
 	'shared_story',
@@ -345,7 +344,7 @@ export const sharedStory = pgTable(
 			.notNull()
 			.references(() => chat.id, { onDelete: 'cascade' }),
 		storyId: text('story_id').notNull(),
-		visibility: text('visibility', { enum: STORY_VISIBILITY }).default('project').notNull(),
+		visibility: text('visibility', { enum: SHARED_VISIBILITY }).default('project').notNull(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 	},
 	(t) => [
@@ -382,7 +381,7 @@ export const sharedChat = pgTable(
 		chatId: text('chat_id')
 			.notNull()
 			.references(() => chat.id, { onDelete: 'cascade' }),
-		visibility: text('visibility', { enum: CHAT_VISIBILITY }).default('project').notNull(),
+		visibility: text('visibility', { enum: SHARED_VISIBILITY }).default('project').notNull(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 	},
 	(t) => [index('shared_chat_projectId_idx').on(t.projectId), index('shared_chat_chat_idx').on(t.chatId)],
