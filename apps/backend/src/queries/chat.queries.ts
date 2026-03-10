@@ -3,7 +3,7 @@ import { and, asc, desc, eq, gte, inArray, isNull, like, sql } from 'drizzle-orm
 import s, { DBChat, DBChatMessage, DBMessagePart, MessageFeedback, NewChat } from '../db/abstractSchema';
 import { db } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
-import { ListChatResponse, StopReason, TokenUsage, UIChat, UIMessage } from '../types/chat';
+import { ChatAccessType, ListChatResponse, StopReason, TokenUsage, UIChat, UIMessage } from '../types/chat';
 import { LlmProvider } from '../types/llm';
 import { convertDBPartToUIPart, mapUIPartsToDBParts } from '../utils/chat-message-part-mappings';
 import { getErrorMessage } from '../utils/utils';
@@ -321,7 +321,7 @@ export type SearchChatResult = {
 	updatedAt: number;
 	canWrite: boolean;
 	isOwned: boolean;
-	accessType: 'owner' | 'shared-project' | 'shared-specific';
+	accessType: ChatAccessType;
 	shareId?: string;
 	matchedText?: string;
 };
