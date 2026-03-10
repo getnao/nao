@@ -3,6 +3,7 @@ import { X } from 'lucide-react';
 import JSZip from 'jszip';
 import { Button } from '@/components/ui/button';
 import { PasswordField } from '@/components/ui/form-fields';
+import { CopyableUrl } from '@/components/ui/copyable-url';
 
 export interface TeamsFormProps {
 	hasProjectConfig: boolean;
@@ -10,6 +11,7 @@ export interface TeamsFormProps {
 	onCancel: () => void;
 	isPending: boolean;
 	teamsRedirectUrl: string | undefined;
+	messagingEndpointUrl: string;
 }
 
 export function buildTeamsManifest(appId: string, redirectUrl: string) {
@@ -17,8 +19,8 @@ export function buildTeamsManifest(appId: string, redirectUrl: string) {
 	const domain = url.hostname;
 
 	return {
-		$schema: 'https://developer.microsoft.com/json-schemas/teams/v1.25/MicrosoftTeams.schema.json',
-		manifestVersion: '1.25',
+		$schema: 'https://developer.microsoft.com/json-schemas/teams/v1.16/MicrosoftTeams.schema.json',
+		manifestVersion: '1.16',
 		version: '1.0.0',
 		id: appId,
 		developer: {
@@ -27,7 +29,7 @@ export function buildTeamsManifest(appId: string, redirectUrl: string) {
 			privacyUrl: 'https://getnao.io/privacy',
 			termsOfUseUrl: 'https://getnao.io/terms',
 		},
-		name: { short: 'nao-2', full: 'nao-chat' },
+		name: { short: 'nao', full: 'nao' },
 		description: {
 			short: 'Analytics agent for data queries',
 			full: 'Analytics agent for data queries, providing insights and visualizations based on your data.',
@@ -78,7 +80,14 @@ export async function downloadTeamsManifestZip(appId: string, redirectUrl: strin
 	URL.revokeObjectURL(url);
 }
 
-export function TeamsForm({ hasProjectConfig, onSubmit, onCancel, isPending, teamsRedirectUrl }: TeamsFormProps) {
+export function TeamsForm({
+	hasProjectConfig,
+	onSubmit,
+	onCancel,
+	isPending,
+	teamsRedirectUrl,
+	messagingEndpointUrl,
+}: TeamsFormProps) {
 	const form = useForm({
 		defaultValues: { appId: '', appPassword: '', tenantId: '' },
 		onSubmit: async ({ value }) => {
@@ -111,6 +120,7 @@ export function TeamsForm({ hasProjectConfig, onSubmit, onCancel, isPending, tea
 						Enter your Azure Bot credentials. You can find these in your Azure portal under your Bot
 						registration.
 					</p>
+					{messagingEndpointUrl && <CopyableUrl label='Messaging Endpoint URL' url={messagingEndpointUrl} />}
 					<PasswordField
 						form={form}
 						name='appId'
@@ -141,7 +151,7 @@ export function TeamsForm({ hasProjectConfig, onSubmit, onCancel, isPending, tea
 					<form.Subscribe selector={(state: { canSubmit: boolean }) => state.canSubmit}>
 						{(canSubmit: boolean) => (
 							<Button size='sm' type='submit' disabled={!canSubmit || isPending}>
-								{hasProjectConfig ? 'Update' : 'Add'}
+								{hasProjectConfig ? 'Update' : 'Save'}
 							</Button>
 						)}
 					</form.Subscribe>

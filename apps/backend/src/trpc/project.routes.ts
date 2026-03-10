@@ -229,10 +229,12 @@ export const projectRoutes = {
 				}
 			: null;
 
+		const baseUrl = env.BETTER_AUTH_URL || 'http://localhost:3000';
 		return {
 			projectConfig,
 			projectId: ctx.project.id,
-			redirectUrl: env.BETTER_AUTH_URL || 'http://localhost:3000/',
+			redirectUrl: baseUrl,
+			messagingEndpointUrl: `${baseUrl}/api/webhooks/teams/${ctx.project.id}`,
 		};
 	}),
 

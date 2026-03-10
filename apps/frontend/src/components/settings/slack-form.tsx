@@ -45,7 +45,7 @@ function buildSlackManifest(webhookUrl: string) {
 					'reactions:read',
 					'reactions:write',
 					'app_mentions:read',
-					'users.profile:read',
+					'users:read',
 					'chat:write',
 					'files:write',
 				],
@@ -123,7 +123,6 @@ export function SlackForm({ projectId, redirectUrl, hasProjectConfig, onSubmit, 
 					</Button>
 				</div>
 
-				{/* Step 1 */}
 				<div className='grid gap-2'>
 					<label htmlFor='deployment-url' className='text-xs font-medium text-foreground'>
 						1. What is your deployment URL?
@@ -141,7 +140,6 @@ export function SlackForm({ projectId, redirectUrl, hasProjectConfig, onSubmit, 
 					)}
 				</div>
 
-				{/* Step 2 */}
 				<div className='grid gap-2'>
 					<p className='text-xs font-medium text-foreground'>2. Create your Slack App</p>
 					<p className='text-[11px] text-muted-foreground leading-relaxed'>
@@ -156,7 +154,6 @@ export function SlackForm({ projectId, redirectUrl, hasProjectConfig, onSubmit, 
 					</Button>
 				</div>
 
-				{/* Step 3 */}
 				<div className='grid gap-3'>
 					<p className='text-xs font-medium text-foreground'>3. Enter your app credentials</p>
 					<p className='text-[11px] text-muted-foreground leading-relaxed'>
@@ -181,7 +178,7 @@ export function SlackForm({ projectId, redirectUrl, hasProjectConfig, onSubmit, 
 					<form.Subscribe selector={(state: { canSubmit: boolean }) => state.canSubmit}>
 						{(canSubmit: boolean) => (
 							<Button size='sm' type='submit' disabled={!canSubmit || isPending}>
-								{hasProjectConfig ? 'Update' : 'Add'}
+								{hasProjectConfig ? 'Update' : 'Save'}
 							</Button>
 						)}
 					</form.Subscribe>

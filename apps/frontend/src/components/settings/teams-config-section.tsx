@@ -22,6 +22,7 @@ export function TeamsConfigSection({ isAdmin }: TeamsConfigSectionProps) {
 	const [selectedModel, setSelectedModel] = useState<AvailableModel | null>(null);
 
 	const projectConfig = teamsConfig.data?.projectConfig;
+	const messagingEndpointUrl = teamsConfig.data?.messagingEndpointUrl ?? '';
 
 	useEffect(() => {
 		if (!availableModels || availableModels.length === 0) {
@@ -108,6 +109,7 @@ export function TeamsConfigSection({ isAdmin }: TeamsConfigSectionProps) {
 				onCancel={() => setIsEditing(false)}
 				isPending={upsertTeamsConfig.isPending}
 				teamsRedirectUrl={teamsConfig.data?.redirectUrl}
+				messagingEndpointUrl={messagingEndpointUrl}
 			/>
 		);
 	}

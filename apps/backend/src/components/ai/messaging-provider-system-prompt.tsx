@@ -32,11 +32,7 @@ export function MessagingProviderSystemPrompt({ basePrompt, provider }: { basePr
 			<Span>After all tools have completed, produce the final response in this order:</Span>
 			<List ordered>
 				<ListItem>
-					<Bold>Assets</Bold> — Output all charts and data tables generated during execution.
-				</ListItem>
-				<ListItem>
-					<Bold>Summary of findings</Bold> — A concise, insight-driven summary of what the data shows. Avoid
-					restating raw numbers already visible in the assets.
+					<Bold>Summary of findings</Bold> — A concise, insight-driven summary of what the data shows.
 				</ListItem>
 				<ListItem>
 					<Bold>Resources &amp; definitions</Bold> — List every table or data source used, and for each metric

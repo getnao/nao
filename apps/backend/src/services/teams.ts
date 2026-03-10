@@ -18,7 +18,7 @@ import { ConversationContext, StreamState, ToolCallEntry } from '../types/messag
 import { createChatTitle } from '../utils/ai';
 import {
 	createCompletionCard,
-	createImageBlock as _createImageBlock,
+	createImageBlock,
 	createLiveToolCall,
 	createStopButtonCard,
 	createSummaryToolCalls,
@@ -319,21 +319,11 @@ class TeamsService {
 			const png = generateChartImage({ config: part.input, data: sqlOutput.rows });
 			state.renderedChartIds.add(part.toolCallId);
 
-			// -- Previous approach: save to DB and serve via URL --
 			const chartId = await chartImageQueries.saveChart(part.toolCallId, png.toString('base64'));
-			const imageUrl = new URL(
-				`c/${ctx.chatId}/${chartId}.png`,
-				'https://31bc-83-199-194-64.ngrok-free.app',
-			).toString();
-			// ctx.textBlockIndex = -1;
-			// ctx.blocks.push(createImageBlock(imageUrl));
-			// await ctx.convMessage?.edit(Card({ children: ctx.blocks }));
-
+			const imageUrl = new URL(`c/${ctx.chatId}/${chartId}.png`, this._redirectUrl).toString();
 			ctx.textBlockIndex = -1;
-			await ctx.thread.post({
-				markdown: '',
-				attachments: [{ type: 'image', url: imageUrl, mimeType: 'image/png', name: 'chart.png' }],
-			});
+			ctx.blocks.push(createImageBlock(imageUrl));
+			await ctx.convMessage?.edit(Card({ children: ctx.blocks }));
 		} catch (error) {
 			console.error('Error generating chart image:', error);
 		}
