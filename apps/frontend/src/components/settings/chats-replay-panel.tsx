@@ -50,9 +50,11 @@ export function ChatsReplayPanel({ chatInfo, onClose }: ChatsReplayPanelProps) {
 				<div className='flex flex-col md:p-4 max-w-4xl mx-16'>
 					<h2 className='text-foreground font-semibold text-xl'>Read-Only Chat</h2>
 					<p className='text-muted-foreground text-sm'>
-						Preview from : <span className='font-semibold'>{chatInfo?.userName}</span> at{' '}
+						Preview from : <span className='font-semibold'>{chatInfo?.userName ?? '—'}</span> at{' '}
 						<span className='font-semibold'>
-							{formatDate(new Date(chatInfo?.updatedAt ?? 0), 'dd/MM/yyyy HH:mm')}
+							{chatInfo?.updatedAt != null
+								? formatDate(new Date(chatInfo.updatedAt), 'dd/MM/yyyy HH:mm')
+								: '—'}
 						</span>
 					</p>
 				</div>

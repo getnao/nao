@@ -2,6 +2,7 @@ import { CircleAlert, Eye, ThumbsDown, ThumbsUp } from 'lucide-react';
 import { differenceInDays, format, isToday, isYesterday } from 'date-fns';
 import type { ColumnDef } from '@tanstack/react-table';
 
+import type { UserRole } from '../../../../backend/src/types/project';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 
@@ -10,7 +11,7 @@ export type ProjectChatRow = {
 	updatedAt: number;
 	userId: string;
 	userName: string;
-	userRole: string;
+	userRole: UserRole | null;
 	title: string;
 	numberOfMessages: number;
 	totalTokens: number;
@@ -136,7 +137,8 @@ function formatLastUpdate(value: number): string {
 	if (isYesterday(date)) {
 		return 'Yest ' + format(date, 'HH:mm');
 	}
-	if (differenceInDays(Date.now(), date) < 7) {
+	const daysAgo = differenceInDays(Date.now(), date);
+	if (daysAgo >= 0 && daysAgo < 7) {
 		return format(date, 'EEE HH:mm');
 	}
 	return format(date, 'dd/MM/yyyy');

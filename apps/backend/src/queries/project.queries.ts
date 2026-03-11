@@ -325,7 +325,7 @@ export const listProjectChats = async (
 			(
 				lower(${s.chat.title}) like ${like}
 				or lower(${s.user.name}) like ${like}
-				or lower(${s.projectMember.role}) like ${like}
+				or lower(coalesce(${s.projectMember.role}, 'Former member')) like ${like}
 				or CAST(${numberOfMessagesExpr} AS TEXT) like ${like}
 				or CAST(${totalTokensExpr} AS TEXT) like ${like}
 				or CAST(${downvotesExpr} AS TEXT) like ${like}
@@ -347,7 +347,13 @@ export const listProjectChats = async (
 				filterWhereClauses.push(expr);
 			}
 		} else if (filter.id === 'userRole') {
-			const expr = or(...filter.values.map((v) => eq(s.projectMember.role, v as UserRole)));
+			const expr = or(
+				...filter.values.map((v) =>
+					v === 'Former member'
+						? sql`${s.projectMember.role} is null`
+						: eq(s.projectMember.role, v as UserRole),
+				),
+			);
 			if (expr) {
 				filterWhereClauses.push(expr);
 			}
@@ -387,13 +393,15 @@ export const listProjectChats = async (
 		toolAvailableCountExpr,
 	});
 
+	const projectMemberJoin = and(eq(s.projectMember.userId, s.user.id), eq(s.projectMember.projectId, projectId));
+
 	const chatRows = await db
 		.select({
 			chatId: s.chat.id,
 			updatedAt: s.chat.updatedAt,
 			userId: s.user.id,
 			userName: s.user.name,
-			userRole: s.projectMember.role,
+			userRole: sql<UserRole | null>`coalesce(${s.projectMember.role}, 'Former member')`.as('userRole'),
 			title: s.chat.title,
 			numberOfMessages: numberOfMessagesExpr.as('numberOfMessages'),
 			totalTokens: totalTokensExpr.as('totalTokens'),
@@ -405,10 +413,7 @@ export const listProjectChats = async (
 		})
 		.from(s.chat)
 		.innerJoin(s.user, eq(s.chat.userId, s.user.id))
-		.innerJoin(
-			s.projectMember,
-			and(eq(s.projectMember.userId, s.user.id), eq(s.projectMember.projectId, projectId)),
-		)
+		.leftJoin(s.projectMember, projectMemberJoin)
 		.where(where)
 		.orderBy(...orderBy)
 		.limit(pageSize)
@@ -419,10 +424,7 @@ export const listProjectChats = async (
 		.select({ total: sql<number>`count(*)`.as('total') })
 		.from(s.chat)
 		.innerJoin(s.user, eq(s.chat.userId, s.user.id))
-		.innerJoin(
-			s.projectMember,
-			and(eq(s.projectMember.userId, s.user.id), eq(s.projectMember.projectId, projectId)),
-		)
+		.leftJoin(s.projectMember, projectMemberJoin)
 		.where(where)
 		.execute();
 
@@ -485,7 +487,7 @@ function buildProjectChatsOrderBy(args: {
 				sorters.push(dir(s.user.name));
 				break;
 			case 'userRole':
-				sorters.push(dir(s.projectMember.role));
+				sorters.push(dir(sql`coalesce(${s.projectMember.role}, 'Former member')`));
 				break;
 			case 'title':
 				sorters.push(dir(s.chat.title));
@@ -534,6 +536,8 @@ async function loadProjectChatsFacets(args: {
 }): Promise<ListProjectChatsResponse['facets']> {
 	const { projectId, where, toolErrorCountExpr, toolAvailableCountExpr } = args;
 
+	const facetMemberJoin = and(eq(s.projectMember.userId, s.user.id), eq(s.projectMember.projectId, projectId));
+
 	const userNamesRows = await db
 		.select({
 			userName: s.user.name,
@@ -541,27 +545,21 @@ async function loadProjectChatsFacets(args: {
 		})
 		.from(s.chat)
 		.innerJoin(s.user, eq(s.chat.userId, s.user.id))
-		.innerJoin(
-			s.projectMember,
-			and(eq(s.projectMember.userId, s.user.id), eq(s.projectMember.projectId, projectId)),
-		)
+		.leftJoin(s.projectMember, facetMemberJoin)
 		.where(where)
 		.groupBy(s.user.name)
 		.execute();
 
 	const userRolesRows = await db
 		.select({
-			userRole: s.projectMember.role,
+			userRole: sql<UserRole | null>`coalesce(${s.projectMember.role}, 'Former member')`.as('userRole'),
 			count: sql<number>`count(*)`.as('count'),
 		})
 		.from(s.chat)
 		.innerJoin(s.user, eq(s.chat.userId, s.user.id))
-		.innerJoin(
-			s.projectMember,
-			and(eq(s.projectMember.userId, s.user.id), eq(s.projectMember.projectId, projectId)),
-		)
+		.leftJoin(s.projectMember, facetMemberJoin)
 		.where(where)
-		.groupBy(s.projectMember.role)
+		.groupBy(sql`coalesce(${s.projectMember.role}, 'Former member')`)
 		.execute();
 
 	const [toolStateRow] = await db
@@ -580,10 +578,7 @@ async function loadProjectChatsFacets(args: {
 		})
 		.from(s.chat)
 		.innerJoin(s.user, eq(s.chat.userId, s.user.id))
-		.innerJoin(
-			s.projectMember,
-			and(eq(s.projectMember.userId, s.user.id), eq(s.projectMember.projectId, projectId)),
-		)
+		.leftJoin(s.projectMember, facetMemberJoin)
 		.where(where)
 		.execute();
 
@@ -593,8 +588,8 @@ async function loadProjectChatsFacets(args: {
 			.filter((v): v is string => !!v)
 			.sort((a, b) => a.localeCompare(b)),
 		userRoles: userRolesRows
-			.map((r) => String(r.userRole))
-			.filter((v): v is string => !!v)
+			.map((r) => r.userRole ?? 'Former member')
+			.filter((v): v is UserRole | 'Former member' => v != null)
 			.sort((a, b) => a.localeCompare(b)),
 		userNameCounts: Object.fromEntries(
 			userNamesRows.filter((r) => !!r.userName).map((r) => [String(r.userName), Number(r.count ?? 0)]),

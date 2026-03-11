@@ -68,6 +68,15 @@ export function useReplayNav(scrollContainerRef: React.RefObject<HTMLElement | n
 
 			const elements = getSortedElements(container, type);
 			if (elements.length === 0) {
+				const indexRef = type === 'feedback' ? feedbackIndexRef : toolErrorIndexRef;
+				indexRef.current = -1;
+				if (type === 'feedback') {
+					setFeedbackCurrent(0);
+					setFeedbackTotal(0);
+				} else {
+					setToolErrorCurrent(0);
+					setToolErrorTotal(0);
+				}
 				return;
 			}
 

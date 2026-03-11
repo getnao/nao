@@ -16,7 +16,7 @@ export interface ProjectChatListItem {
 	updatedAt: number;
 	userId: string;
 	userName: string;
-	userRole: string;
+	userRole: UserRole | null;
 	title: string;
 	numberOfMessages: number;
 	totalTokens: number;
@@ -33,8 +33,8 @@ export interface ListProjectChatsResponse {
 	facets: {
 		userNames: string[];
 		userNameCounts: Record<string, number>;
-		userRoles: string[];
-		userRoleCounts: Record<string, number>;
+		userRoles: (UserRole | 'Former member')[];
+		userRoleCounts: Partial<Record<UserRole | 'Former member', number>>;
 		toolState: {
 			noToolsUsed: number;
 			toolsNoErrors: number;

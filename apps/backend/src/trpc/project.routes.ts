@@ -14,9 +14,14 @@ import { posthog, PostHogEvent } from '../services/posthog';
 import { getAvailableModels as getAvailableTranscribeModels } from '../services/transcribe.service';
 import { AgentSettings } from '../types/agent-settings';
 import { llmConfigSchema, LlmProvider, llmProviderSchema } from '../types/llm';
+import { isValidIsoDateString } from '../utils/date';
 import { getEnvApiKey, getEnvBaseUrls, getEnvProviders, getProjectAvailableModels } from '../utils/llm';
 import { buildCredentialPreviews } from '../utils/utils';
 import { adminProtectedProcedure, projectProtectedProcedure, publicProcedure } from './trpc';
+
+const isoDateString = z.string().refine(isValidIsoDateString, {
+	message: 'Must be a valid YYYY-MM-DD date',
+});
 
 export const projectRoutes = {
 	getCurrent: projectProtectedProcedure.query(({ ctx }) => {
@@ -485,8 +490,8 @@ export const projectRoutes = {
 					.optional(),
 				updatedAtFilter: z
 					.union([
-						z.object({ mode: z.literal('single'), value: z.string() }),
-						z.object({ mode: z.literal('range'), start: z.string(), end: z.string() }),
+						z.object({ mode: z.literal('single'), value: isoDateString }),
+						z.object({ mode: z.literal('range'), start: isoDateString, end: isoDateString }),
 					])
 					.optional(),
 				sorting: z
