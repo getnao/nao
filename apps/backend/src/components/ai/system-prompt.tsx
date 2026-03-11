@@ -40,9 +40,9 @@ export function SystemPrompt({ memories = [], userRules, connections = [], skill
 				about the database instead of querying the database directly (it's faster and avoids leaking sensitive
 				information).
 				<Br />
-				Tables from databases can be mentionned using the @ trigger.
+				Tables from databases can be mentioned using the @ trigger.
 				<Br />
-				Skills can be mentionned using the / trigger.
+				Skills can be mentioned using the / trigger.
 			</Span>
 
 			<Title level={2}>How nao Works</Title>

@@ -2,14 +2,16 @@ import 'prompt-mentions/style.css';
 
 import { useQuery } from '@tanstack/react-query';
 import { Table } from 'lucide-react';
+import { DATABASE_MENTION_TRIGGER, SKILL_MENTION_TRIGGER } from '@nao/shared';
+import { story } from '@nao/shared/tools';
 import { Prompt } from 'prompt-mentions';
 import StoryIcon from './ui/story-icon';
 import type { MentionOption, PromptHandle, PromptTheme, SelectedMention } from 'prompt-mentions';
 import type { RefObject } from 'react';
 import { trpc } from '@/main';
 
-export const STORY_MENTION_ID = '__story__';
-export const DATABASE_MENTION_TRIGGER = '@';
+export const STORY_MENTION_ID = story.MENTION_ID;
+export { DATABASE_MENTION_TRIGGER, SKILL_MENTION_TRIGGER };
 
 const storyMentionOption: MentionOption = {
 	id: STORY_MENTION_ID,
@@ -74,19 +76,19 @@ export function ChatPrompt({ promptRef, placeholder, onChange, onEnter }: ChatPr
 			placeholder={placeholder}
 			mentionConfigs={[
 				{
-					trigger: '/',
+					trigger: SKILL_MENTION_TRIGGER,
 					menuPosition: 'above',
 					options: [
 						...(skills?.map((skill) => ({
 							id: skill.name,
 							label: skill.name,
 							labelRight: skill.description ?? undefined,
-							icon: <span>/</span>,
+							icon: <span>{SKILL_MENTION_TRIGGER}</span>,
 						})) ?? []),
 					],
 				},
 				{
-					trigger: '#',
+					trigger: story.MENTION_TRIGGER,
 					menuPosition: 'above',
 					options: [storyMentionOption],
 				},

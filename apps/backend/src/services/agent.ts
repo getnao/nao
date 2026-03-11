@@ -1,3 +1,4 @@
+import { story } from '@nao/shared/tools';
 import {
 	convertToModelMessages,
 	createUIMessageStream,
@@ -450,7 +451,7 @@ class AgentManager {
 	}
 
 	private _addStoryMode(messages: UIMessage[], mentions?: Mention[]): UIMessage[] {
-		if (!mentions?.some((m) => m.id === '__story__')) {
+		if (!mentions?.some((m) => m.id === story.MENTION_ID)) {
 			return messages;
 		}
 

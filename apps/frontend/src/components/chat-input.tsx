@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { Plus, Hammer, Database } from 'lucide-react';
+import { Plus, PencilRuler, Database } from 'lucide-react';
 import { Button, ChatButton, MicButton } from './ui/button';
 import { SlidingWaveform } from './chat-input-sliding-waveform';
 import { ChatPrompt, STORY_MENTION_ID, DATABASE_MENTION_TRIGGER } from './chat-input-prompt';
@@ -270,7 +270,7 @@ function ChatInputPlusMenu({
 				</DropdownMenuItem>
 				{hasSkills && (
 					<DropdownMenuItem onSelect={onOpenSkills}>
-						<Hammer className='size-4' />
+						<PencilRuler className='size-4' />
 						<span>Skills</span>
 					</DropdownMenuItem>
 				)}

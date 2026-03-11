@@ -52,7 +52,6 @@ function useMentionConfigs(): MessageMentionConfig[] {
 		const skillOptions: MentionOption[] = (skills ?? []).map((skill) => ({
 			id: skill.name,
 			label: skill.name,
-			icon: <span>/</span>,
 		}));
 
 		const storyOptions: MentionOption[] = [

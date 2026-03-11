@@ -47,27 +47,9 @@ export function getConnections(): Connection[] | undefined {
 	}
 
 	try {
-		const entries = readdirSync(databasesPath, { withFileTypes: true });
-		const connections: Connection[] = [];
-
-		for (const entry of entries) {
-			if (entry.isDirectory() && entry.name.startsWith('type=')) {
-				const type = entry.name.slice('type='.length);
-				if (type) {
-					const typePath = join(databasesPath, entry.name);
-					const dbEntries = readdirSync(typePath, { withFileTypes: true });
-
-					for (const dbEntry of dbEntries) {
-						if (dbEntry.isDirectory() && dbEntry.name.startsWith('database=')) {
-							const database = dbEntry.name.slice('database='.length);
-							if (database) {
-								connections.push({ type, database });
-							}
-						}
-					}
-				}
-			}
-		}
+		const connections = readDirEntries(databasesPath, 'type=').flatMap(({ name: type, path: typePath }) =>
+			readDirEntries(typePath, 'database=').map(({ name: database }) => ({ type, database })),
+		);
 
 		return connections.length > 0 ? connections : undefined;
 	} catch (error) {
@@ -103,6 +85,13 @@ export function getDatabaseObjects(projectFolder?: string): DatabaseObject[] {
 	return objects;
 }
 
+function readDirEntries(dir: string, prefix: string): { name: string; path: string }[] {
+	return readdirSync(dir, { withFileTypes: true })
+		.filter((e) => e.isDirectory() && e.name.startsWith(prefix))
+		.map((e) => ({ name: e.name.slice(prefix.length), path: join(dir, e.name) }))
+		.filter((e) => e.name);
+}
+
 function readDatabaseObjectsFromDisk(folder: string): DatabaseObject[] {
 	const databasesPath = join(folder, 'databases');
 	if (!existsSync(databasesPath)) {
@@ -110,54 +99,19 @@ function readDatabaseObjectsFromDisk(folder: string): DatabaseObject[] {
 	}
 
 	try {
-		const objects: DatabaseObject[] = [];
-
-		for (const typeEntry of readdirSync(databasesPath, { withFileTypes: true })) {
-			if (!typeEntry.isDirectory() || !typeEntry.name.startsWith('type=')) {
-				continue;
-			}
-			const type = typeEntry.name.slice('type='.length);
-			if (!type) {
-				continue;
-			}
-
-			const typePath = join(databasesPath, typeEntry.name);
-			for (const dbEntry of readdirSync(typePath, { withFileTypes: true })) {
-				if (!dbEntry.isDirectory() || !dbEntry.name.startsWith('database=')) {
-					continue;
-				}
-				const database = dbEntry.name.slice('database='.length);
-				if (!database) {
-					continue;
-				}
-
-				const dbPath = join(typePath, dbEntry.name);
-				for (const schemaEntry of readdirSync(dbPath, { withFileTypes: true })) {
-					if (!schemaEntry.isDirectory() || !schemaEntry.name.startsWith('schema=')) {
-						continue;
-					}
-					const schema = schemaEntry.name.slice('schema='.length);
-					if (!schema) {
-						continue;
-					}
-
-					const schemaPath = join(dbPath, schemaEntry.name);
-					for (const tableEntry of readdirSync(schemaPath, { withFileTypes: true })) {
-						if (!tableEntry.isDirectory() || !tableEntry.name.startsWith('table=')) {
-							continue;
-						}
-						const table = tableEntry.name.slice('table='.length);
-						if (!table) {
-							continue;
-						}
-
-						objects.push({ type, database, schema, table, fqdn: `${database}.${schema}.${table}` });
-					}
-				}
-			}
-		}
-
-		return objects;
+		return readDirEntries(databasesPath, 'type=').flatMap(({ name: type, path: typePath }) =>
+			readDirEntries(typePath, 'database=').flatMap(({ name: database, path: dbPath }) =>
+				readDirEntries(dbPath, 'schema=').flatMap(({ name: schema, path: schemaPath }) =>
+					readDirEntries(schemaPath, 'table=').map(({ name: table }) => ({
+						type,
+						database,
+						schema,
+						table,
+						fqdn: `${database}.${schema}.${table}`,
+					})),
+				),
+			),
+		);
 	} catch (error) {
 		console.error('Error reading database objects:', error);
 		return [];
@@ -165,39 +119,24 @@ function readDatabaseObjectsFromDisk(folder: string): DatabaseObject[] {
 }
 
 export function getTableColumnsContent(projectFolder: string, fqdn: string): string | undefined {
-	const parts = fqdn.split('.');
-	if (parts.length !== 3) {
+	const obj = getDatabaseObjects(projectFolder).find((o) => o.fqdn === fqdn);
+	if (!obj) {
 		return undefined;
 	}
-	const [database, schema, table] = parts;
 
-	const databasesPath = join(projectFolder, 'databases');
-	if (!existsSync(databasesPath)) {
-		return undefined;
-	}
+	const columnsPath = join(
+		projectFolder,
+		'databases',
+		`type=${obj.type}`,
+		`database=${obj.database}`,
+		`schema=${obj.schema}`,
+		`table=${obj.table}`,
+		'columns.md',
+	);
 
 	try {
-		for (const typeEntry of readdirSync(databasesPath, { withFileTypes: true })) {
-			if (!typeEntry.isDirectory() || !typeEntry.name.startsWith('type=')) {
-				continue;
-			}
-
-			const columnsPath = join(
-				databasesPath,
-				typeEntry.name,
-				`database=${database}`,
-				`schema=${schema}`,
-				`table=${table}`,
-				'columns.md',
-			);
-
-			if (existsSync(columnsPath)) {
-				return readFileSync(columnsPath, 'utf-8');
-			}
-		}
-	} catch (error) {
-		console.error('Error reading columns for', fqdn, error);
+		return readFileSync(columnsPath, 'utf-8');
+	} catch {
+		return undefined;
 	}
-
-	return undefined;
 }
