@@ -29,7 +29,7 @@ export default tool<displayChart.Input, displayChart.Output>({
 			return {
 				_version: '1',
 				success: false,
-				error: 'Stacked bar requires at least two series you may need to pivot the data to create a series for each stack',
+				error: 'Stacked bar chart requires at least two series. You may need to pivot the data to create a series for each stack.',
 			};
 		}
 
