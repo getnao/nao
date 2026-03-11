@@ -43,38 +43,39 @@ class SlackService {
 
 	constructor() {}
 
-	public getWebhooks(slackConfig: SlackConfig) {
-		if (this._configChanged(slackConfig)) {
-			this._initialize(slackConfig);
+	public getWebhooks(config: SlackConfig) {
+		if (this._configChanged(config)) {
+			this._initialize(config);
 		}
 		return this._bot?.webhooks;
 	}
 
-	private _configChanged(slackConfig: SlackConfig): boolean {
+	private _configChanged(config: SlackConfig): boolean {
 		return (
-			this._currentBotToken !== slackConfig.botToken ||
-			this._currentSigningSecret !== slackConfig.signingSecret ||
-			this._projectId !== slackConfig.projectId ||
-			this._redirectUrl !== slackConfig.redirectUrl ||
-			this._modelSelection !== slackConfig.modelSelection
+			this._currentBotToken !== config.botToken ||
+			this._currentSigningSecret !== config.signingSecret ||
+			this._projectId !== config.projectId ||
+			this._redirectUrl !== config.redirectUrl ||
+			this._modelSelection?.provider !== config.modelSelection?.provider ||
+			this._modelSelection?.modelId !== config.modelSelection?.modelId
 		);
 	}
 
-	private _initialize(slackConfig: SlackConfig): void {
-		this._currentBotToken = slackConfig.botToken;
-		this._currentSigningSecret = slackConfig.signingSecret;
+	private _initialize(config: SlackConfig): void {
+		this._currentBotToken = config.botToken;
+		this._currentSigningSecret = config.signingSecret;
 
-		this._projectId = slackConfig.projectId;
-		this._redirectUrl = slackConfig.redirectUrl;
-		this._modelSelection = slackConfig.modelSelection;
-		this._slackClient = new WebClient(slackConfig.botToken);
+		this._projectId = config.projectId;
+		this._redirectUrl = config.redirectUrl;
+		this._modelSelection = config.modelSelection;
+		this._slackClient = new WebClient(config.botToken);
 
 		this._bot = new Chat({
 			userName: 'nao-chat',
 			adapters: {
 				slack: createSlackAdapter({
-					botToken: slackConfig.botToken,
-					signingSecret: slackConfig.signingSecret,
+					botToken: config.botToken,
+					signingSecret: config.signingSecret,
 				}),
 			},
 			state: createMemoryState(),

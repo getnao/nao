@@ -55,7 +55,8 @@ class TeamsService {
 			this._tenantId !== (config.tenantId ?? '') ||
 			this._projectId !== config.projectId ||
 			this._redirectUrl !== config.redirectUrl ||
-			this._modelSelection !== config.modelSelection
+			this._modelSelection?.provider !== config.modelSelection?.provider ||
+			this._modelSelection?.modelId !== config.modelSelection?.modelId
 		);
 	}
 
