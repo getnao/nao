@@ -3,6 +3,7 @@ import type { Skill } from '../../services/skill';
 import { tokenCounter } from '../../services/token-counter';
 import type { UserMemory } from '../../types/memory';
 import { MEMORY_CATEGORIES, MemoryCategory } from '../../types/memory';
+import { formatCurrentDate } from '../../utils/date';
 import { groupBy } from '../../utils/utils';
 
 type Connection = {
@@ -31,7 +32,7 @@ export function SystemPrompt({ memories = [], userRules, connections = [], skill
 				agentic workflow made by nao Labs (<Link href='https://getnao.io' text='https://getnao.io' />
 				).
 				<Br />
-				Today's date is <Bold>{formatDate(timezone)}</Bold>.
+				Today's date is <Bold>{formatCurrentDate(timezone)}</Bold>.
 				<Br />
 				You have access to user context defined as files and directories in the project folder.
 				<Br />
@@ -166,30 +167,6 @@ function getMemoriesInTokenRange(memories: UserMemory[], limit: number): UserMem
 	}
 
 	return visible;
-}
-
-export function formatDate(timezone?: string): string {
-	const tz = resolveTimezone(timezone);
-	const formatted = new Date().toLocaleDateString('en-US', {
-		weekday: 'long',
-		year: 'numeric',
-		month: 'long',
-		day: 'numeric',
-		timeZone: tz,
-	});
-	return tz === 'UTC' ? `${formatted} (UTC)` : `${formatted} (${tz})`;
-}
-
-export function resolveTimezone(timezone?: string): string {
-	if (!timezone) {
-		return 'UTC';
-	}
-	try {
-		Intl.DateTimeFormat(undefined, { timeZone: timezone });
-		return timezone;
-	} catch {
-		return 'UTC';
-	}
 }
 
 const CATEGORY_LABEL: Record<MemoryCategory, string> = {

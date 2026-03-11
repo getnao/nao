@@ -14,10 +14,11 @@ export interface SlackFormProps {
 	isPending: boolean;
 }
 
-function buildSlackManifest(webhookUrl: string) {
+function buildSlackManifest(webhookUrl: string, mentionName: string) {
+	const name = mentionName.trim() || 'nao';
 	return {
 		display_information: {
-			name: 'nao',
+			name,
 			description: 'Analytics agent for data queries',
 			background_color: '#522bff',
 		},
@@ -27,7 +28,7 @@ function buildSlackManifest(webhookUrl: string) {
 				messages_tab_read_only_enabled: false,
 			},
 			bot_user: {
-				display_name: 'nao',
+				display_name: name,
 				always_online: true,
 			},
 		},
@@ -45,8 +46,10 @@ function buildSlackManifest(webhookUrl: string) {
 					'reactions:read',
 					'reactions:write',
 					'app_mentions:read',
-					'users.profile:read',
+					'users:read',
+					'users:read.email',
 					'chat:write',
+					'files:write',
 				],
 			},
 		},
@@ -66,8 +69,8 @@ function buildSlackManifest(webhookUrl: string) {
 	};
 }
 
-function buildManifestUrl(webhookUrl: string): string {
-	const manifest = buildSlackManifest(webhookUrl);
+function buildManifestUrl(webhookUrl: string, mentionName: string): string {
+	const manifest = buildSlackManifest(webhookUrl, mentionName);
 	return `https://api.slack.com/apps?new_app=1&manifest_json=${encodeURIComponent(JSON.stringify(manifest))}`;
 }
 
@@ -86,14 +89,13 @@ function normalizeUrl(value: string): string {
 
 export function SlackForm({ projectId, redirectUrl, hasProjectConfig, onSubmit, onCancel, isPending }: SlackFormProps) {
 	const [deploymentUrl, setDeploymentUrl] = useState(redirectUrl ?? '');
+	const [mentionName, setMentionName] = useState('nao');
 
 	useEffect(() => {
 		if (redirectUrl) {
 			setDeploymentUrl(redirectUrl);
 		}
 	}, [redirectUrl]);
-
-	console.log('Current deploymentUrl state:', deploymentUrl);
 
 	const form = useForm({
 		defaultValues: { botToken: '', signingSecret: '' },
@@ -106,7 +108,7 @@ export function SlackForm({ projectId, redirectUrl, hasProjectConfig, onSubmit, 
 	const normalized = normalizeUrl(deploymentUrl);
 	const valid = isValidUrl(normalized);
 	const webhookUrl = valid && projectId ? `${normalized}/api/webhooks/slack/${projectId}` : '';
-	const manifestUrl = webhookUrl ? buildManifestUrl(webhookUrl) : '';
+	const manifestUrl = webhookUrl ? buildManifestUrl(webhookUrl, mentionName) : '';
 
 	return (
 		<div className='flex flex-col gap-4 p-4 rounded-lg border border-primary/50 bg-muted/30'>
@@ -140,6 +142,24 @@ export function SlackForm({ projectId, redirectUrl, hasProjectConfig, onSubmit, 
 					{deploymentUrl && !valid && (
 						<p className='text-[11px] text-destructive'>Enter a valid URL (e.g. https://my-app.com)</p>
 					)}
+				</div>
+
+				{/* Mention name */}
+				<div className='grid gap-2'>
+					<label htmlFor='mention-name' className='text-xs font-medium text-foreground'>
+						Bot mention name
+					</label>
+					<Input
+						id='mention-name'
+						type='text'
+						value={mentionName}
+						onChange={(e) => setMentionName(e.target.value)}
+						placeholder='nao'
+						className='text-xs h-8'
+					/>
+					<p className='text-[11px] text-muted-foreground'>
+						The name users will use to mention the bot (e.g. @nao).
+					</p>
 				</div>
 
 				{/* Step 2 */}

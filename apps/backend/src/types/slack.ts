@@ -14,6 +14,7 @@ export type ConversationContext = {
 	textBlockIndex: number;
 	isNewChat: boolean;
 	modelId: string | undefined;
+	timezone: string | undefined;
 };
 
 type SqlOutput = {
