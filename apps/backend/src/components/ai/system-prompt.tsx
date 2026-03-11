@@ -3,6 +3,7 @@ import type { Skill } from '../../services/skill';
 import { tokenCounter } from '../../services/token-counter';
 import type { UserMemory } from '../../types/memory';
 import { MEMORY_CATEGORIES, MemoryCategory } from '../../types/memory';
+import { formatCurrentDate } from '../../utils/date';
 import { groupBy } from '../../utils/utils';
 
 type Connection = {
@@ -15,11 +16,12 @@ type SystemPromptProps = {
 	userRules?: string;
 	connections?: Connection[];
 	skills?: Skill[];
+	timezone?: string;
 };
 
 export const MEMORY_TOKEN_LIMIT = 1000;
 
-export function SystemPrompt({ memories = [], userRules, connections = [], skills = [] }: SystemPromptProps) {
+export function SystemPrompt({ memories = [], userRules, connections = [], skills = [], timezone }: SystemPromptProps) {
 	const visibleMemories = getMemoriesInTokenRange(memories, MEMORY_TOKEN_LIMIT);
 
 	return (
@@ -30,11 +32,17 @@ export function SystemPrompt({ memories = [], userRules, connections = [], skill
 				agentic workflow made by nao Labs (<Link href='https://getnao.io' text='https://getnao.io' />
 				).
 				<Br />
+				Today's date is <Bold>{formatCurrentDate(timezone)}</Bold>.
+				<Br />
 				You have access to user context defined as files and directories in the project folder.
 				<Br />
 				Databases content is defined as files in the project folder so you can easily search for information
 				about the database instead of querying the database directly (it's faster and avoids leaking sensitive
 				information).
+				<Br />
+				Tables from databases can be mentionned using the @ trigger.
+				<Br />
+				Skills can be mentionned using the / trigger.
 			</Span>
 
 			<Title level={2}>How nao Works</Title>

@@ -170,7 +170,9 @@ export const DisplayChartToolCall = ({
 	};
 
 	return (
-		<div className='flex flex-col items-center my-4 gap-2 aspect-3/2'>
+		<div
+			className={`flex flex-col items-center my-4 gap-2 ${config.chart_type !== 'kpi_card' ? 'aspect-3/2' : ''}`}
+		>
 			<div className='flex w-full items-center justify-between'>
 				<span className='text-sm font-medium flex-1'>{config.title}</span>
 				{storyIds.length > 0 && (
@@ -189,15 +191,17 @@ export const DisplayChartToolCall = ({
 							onRangeSelected={(range) => setDataRange(range)}
 						/>
 					)}
-					<Button
-						variant='ghost-muted'
-						size='icon-xs'
-						onClick={handleDownload}
-						disabled={isDownloading}
-						title='Download as PNG'
-					>
-						<Download className='size-3.5' />
-					</Button>
+					{config.chart_type != 'kpi_card' && (
+						<Button
+							variant='ghost-muted'
+							size='icon-xs'
+							onClick={handleDownload}
+							disabled={isDownloading}
+							title='Download as PNG'
+						>
+							<Download className='size-3.5' />
+						</Button>
+					)}
 				</div>
 			</div>
 
@@ -330,9 +334,13 @@ export const ChartDisplay = memo(function ChartDisplay({
 
 	return (
 		<div className='flex flex-col items-center gap-2 w-full'>
-			<ChartContainer config={chartConfig} className='w-full'>
-				{chartElement}
-			</ChartContainer>
+			{chartType === 'kpi_card' ? (
+				chartElement
+			) : (
+				<ChartContainer config={chartConfig} className='w-full'>
+					{chartElement}
+				</ChartContainer>
+			)}
 		</div>
 	);
 });

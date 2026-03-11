@@ -136,7 +136,8 @@ class SlackService {
 			}
 
 			const slackUserId = event.user?.userId;
-			const email = slackUserId ? await this._getSlackUserEmail(slackUserId) : null;
+			const slackUser = slackUserId ? await this._getSlackUser(slackUserId) : null;
+			const email = slackUser?.profile?.email || null;
 			const user = email ? await getUser({ email }) : null;
 
 			if (ownerId !== user?.id) {
@@ -170,6 +171,7 @@ class SlackService {
 			assistantMessage: null,
 			isNewChat: false,
 			modelId: undefined,
+			timezone: undefined,
 		};
 
 		await this._validateUserAccess(ctx);
@@ -202,7 +204,8 @@ class SlackService {
 
 	private async _getUser(ctx: ConversationContext): Promise<void> {
 		const slackUserId = ctx.userMessage.author.userId;
-		const email = await this._getSlackUserEmail(slackUserId);
+		const slackUser = await this._getSlackUser(slackUserId);
+		const email = slackUser?.profile?.email || null;
 
 		if (!email) {
 			throw new Error('Could not retrieve user email from Slack');
@@ -216,11 +219,12 @@ class SlackService {
 			throw new Error('User not found');
 		}
 		ctx.user = user;
+		ctx.timezone = slackUser?.tz || undefined;
 	}
 
-	private async _getSlackUserEmail(userId: string): Promise<string | null> {
-		const userProfile = await this._slackClient?.users.profile.get({ user: userId });
-		return userProfile?.profile?.email || null;
+	private async _getSlackUser(userId: string) {
+		const response = await this._slackClient?.users.info({ user: userId });
+		return response?.user || null;
 	}
 
 	private async _checkUserBelongsToProject(ctx: ConversationContext): Promise<void> {
@@ -287,7 +291,7 @@ class SlackService {
 			{ ...chat, userId: ctx.user!.id, projectId: this._projectId },
 			this._modelSelection,
 		);
-		return agent.stream(chat.messages, { provider: 'slack' });
+		return agent.stream(chat.messages, { provider: 'slack', timezone: ctx.timezone });
 	}
 
 	private async _readStreamAndUpdateSlackMessage(

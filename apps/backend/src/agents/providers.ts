@@ -140,9 +140,19 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 		defaultOptions: { store: false, truncation: 'auto' },
 		models: [
 			{
+				id: 'gpt-5.4',
+				name: 'GPT 5.4',
+				default: true,
+				contextWindow: 400_000,
+				costPerM: { inputNoCache: 1.75, inputCacheRead: 0.175, inputCacheWrite: 0, output: 14 },
+				config: {
+					reasoningEffort: 'medium',
+					reasoningSummary: 'concise',
+				},
+			},
+			{
 				id: 'gpt-5.2',
 				name: 'GPT 5.2',
-				default: true,
 				contextWindow: 400_000,
 				costPerM: { inputNoCache: 1.75, inputCacheRead: 0.175, inputCacheWrite: 0, output: 14 },
 			},

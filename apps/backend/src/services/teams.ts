@@ -138,6 +138,7 @@ class TeamsService {
 			assistantMessage: null,
 			isNewChat: false,
 			modelId: undefined,
+			timezone: undefined,
 		};
 
 		await this._validateUserAccess(ctx);

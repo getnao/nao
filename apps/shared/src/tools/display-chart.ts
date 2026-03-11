@@ -1,6 +1,6 @@
 import z from 'zod/v3';
 
-export const ChartTypeEnum = z.enum(['bar', 'stacked_bar', 'line', 'pie']);
+export const ChartTypeEnum = z.enum(['bar', 'stacked_bar', 'line', 'pie', 'kpi_card']);
 
 export const XAxisTypeEnum = z.enum(['date', 'number', 'category']);
 

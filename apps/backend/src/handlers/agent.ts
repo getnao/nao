@@ -53,6 +53,7 @@ export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<H
 
 	const stream = agent.stream(chat.messages, {
 		mentions,
+		timezone: opts.timezone,
 		events: {
 			newChat: isNewChat
 				? {

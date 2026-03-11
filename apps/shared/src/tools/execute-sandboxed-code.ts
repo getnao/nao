@@ -25,7 +25,7 @@ export const description = [
 	'Execute code inside an isolated sandbox (micro-VM) and return stdout/stderr.',
 	'Supports any language available in the container image (Python by default).',
 	'Use this for data analysis, visualisations, or anything that needs pip packages or a full OS environment.',
-	'The project context files are automatically mounted at `/root/context/` so code can read them directly (e.g. `open("context/RULES.md") or list("context/databases")`).',
+	'When using a sandbox the project context files are automatically mounted so code can read them directly (e.g. `open("context/RULES.md") or list("context/databases")`).',
 	'You can pre-install Python packages via `packages` and mount previous SQL query results as CSV files via `data_files`.',
 	'Data files are written to the working directory `/root/` so code can read them directly by filename (e.g. `pd.read_csv("sales.csv")`).',
 	'Choose `image` based on the language/tools needed and `vm_size` based on workload intensity (default: "s").',
