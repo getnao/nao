@@ -4,6 +4,7 @@ import { Link, useNavigate, useMatchRoute, useRouterState } from '@tanstack/reac
 import { ChatList } from './sidebar-chat-list';
 import { SidebarUserMenu } from './sidebar-user-menu';
 import { SidebarSettingsNav } from './sidebar-settings-nav';
+import { Spinner } from './ui/spinner';
 
 import StoryIcon from './ui/story-icon';
 import type { LucideIcon } from 'lucide-react';
@@ -13,7 +14,8 @@ import { cn, hideIf } from '@/lib/utils';
 import { useChatListQuery } from '@/queries/use-chat-list-query';
 import { useSidebar } from '@/contexts/sidebar';
 import { useCommandMenuCallback } from '@/contexts/command-menu-callback';
-import NaoLogoGreyscale from '@/components/icons/nao-logo-greyscale.svg';
+import { useSectionActivity } from '@/hooks/use-chat-activity';
+import NaoLogo from '@/components/icons/nao-logo.svg';
 
 export function Sidebar() {
 	const chats = useChatListQuery();
@@ -104,7 +106,7 @@ export function Sidebar() {
 									hideIf(effectiveIsCollapsed),
 								)}
 							>
-								<NaoLogoGreyscale className='size-5' />
+								<NaoLogo className='size-5' />
 							</div>
 
 							{isMobile ? (
@@ -239,7 +241,7 @@ function SidebarNav({ chats, isCollapsed }: { chats: ChatListItemType[]; isColla
 		});
 	}, []);
 
-	const { starred, regular } = useMemo(() => {
+	const { starred, regular, starredIds, regularIds } = useMemo(() => {
 		const starredChats: ChatListItemType[] = [];
 		const rest: ChatListItemType[] = [];
 		for (const chat of chats) {
@@ -249,8 +251,16 @@ function SidebarNav({ chats, isCollapsed }: { chats: ChatListItemType[]; isColla
 				rest.push(chat);
 			}
 		}
-		return { starred: starredChats, regular: rest };
+		return {
+			starred: starredChats,
+			regular: rest,
+			starredIds: starredChats.map((c) => c.id),
+			regularIds: rest.map((c) => c.id),
+		};
 	}, [chats]);
+
+	const starredActivity = useSectionActivity(starredIds);
+	const chatsActivity = useSectionActivity(regularIds);
 
 	return (
 		<div
@@ -262,39 +272,56 @@ function SidebarNav({ chats, isCollapsed }: { chats: ChatListItemType[]; isColla
 			{starred.length > 0 && (
 				<>
 					<div className='px-2 space-y-0.5'>
-						<SidebarSectionHeader label='Starred' isOpen={starredOpen} onToggle={toggleStarred} />
+						<SidebarSectionHeader
+							label='Starred'
+							isOpen={starredOpen}
+							onToggle={toggleStarred}
+							activity={starredActivity}
+						/>
 					</div>
-					<CollapsibleSection isOpen={starredOpen}>
-						<ChatList chats={starred} className='w-72 flex-none' />
-					</CollapsibleSection>
+					<ChatList
+						chats={starred}
+						className={cn(
+							'w-72 flex-none transition-opacity duration-200',
+							starredOpen ? 'opacity-100' : 'opacity-0 h-0 overflow-hidden',
+						)}
+					/>
 				</>
 			)}
 
 			<div className='px-2 space-y-0.5'>
-				<SidebarSectionHeader label='Chats' isOpen={chatsOpen} onToggle={toggleChats} />
+				<SidebarSectionHeader
+					label='Chats'
+					isOpen={chatsOpen}
+					onToggle={toggleChats}
+					activity={chatsActivity}
+				/>
 			</div>
 
-			<CollapsibleSection isOpen={chatsOpen}>
-				<ChatList chats={regular} className='w-72' />
-			</CollapsibleSection>
+			<ChatList
+				chats={regular}
+				className={cn(
+					'w-72 transition-opacity duration-200',
+					chatsOpen ? 'opacity-100' : 'opacity-0 h-0 overflow-hidden',
+				)}
+			/>
 		</div>
 	);
 }
 
-function CollapsibleSection({ isOpen, children }: { isOpen: boolean; children: React.ReactNode }) {
-	return (
-		<div
-			className={cn(
-				'grid transition-[grid-template-rows,opacity] duration-200 ease-in-out',
-				isOpen ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0',
-			)}
-		>
-			<div className='overflow-hidden'>{children}</div>
-		</div>
-	);
-}
+function SidebarSectionHeader({
+	label,
+	isOpen,
+	onToggle,
+	activity,
+}: {
+	label: string;
+	isOpen: boolean;
+	onToggle: () => void;
+	activity?: { running: boolean; unread: boolean };
+}) {
+	const showIndicator = !isOpen && activity;
 
-function SidebarSectionHeader({ label, isOpen, onToggle }: { label: string; isOpen: boolean; onToggle: () => void }) {
 	return (
 		<button
 			onClick={onToggle}
@@ -307,6 +334,10 @@ function SidebarSectionHeader({ label, isOpen, onToggle }: { label: string; isOp
 					isOpen ? 'opacity-100 rotate-90' : 'opacity-0 rotate-0',
 				)}
 			/>
+			{showIndicator && activity.running && <Spinner className='size-3 ml-auto' />}
+			{showIndicator && !activity.running && activity.unread && (
+				<span className='size-1.5 rounded-full bg-primary ml-auto' />
+			)}
 		</button>
 	);
 }
