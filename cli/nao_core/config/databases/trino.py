@@ -1,5 +1,4 @@
-from datetime import datetime, timezone
-from typing import Any, Literal
+from typing import Literal
 
 import ibis
 from ibis import BaseBackend
@@ -27,101 +26,38 @@ def _is_excluded_schema(value: object) -> bool:
 
 
 class TrinoDatabaseContext(DatabaseContext):
-    def profiling(self) -> dict[str, Any] | None:
-        try:
-            cols = self.columns()
-            if not cols:
-                return None
+    def _stddev(self, expr: str) -> str:
+        return f"STDDEV_POP({expr})"
 
-            total_count = self.row_count()
-            profiles = []
+    def _numeric_agg_fragments(self, col_sql: str, col: dict) -> list[tuple[str, str]]:
+        col_type = self._normalize_type(col["type"])
+        is_numeric = self._is_numeric_stats_column(col)
+        is_date = any(t in col_type.lower() for t in ("date", "timestamp", "time"))
 
-            schema_sql = self._quote_ident(self._schema)
-            table_sql = self._quote_ident(self._table_name)
+        frags = []
+        if is_numeric:
+            frags.append(("col_min", f"MIN({col_sql})"))
+            frags.append(("col_max", f"MAX({col_sql})"))
+            frags.append(("col_mean", f"AVG({self._cast_float(col_sql)})"))
+            frags.append(("col_stddev", f"{self._stddev(self._cast_float(col_sql))}"))
+        elif is_date:
+            frags.append(("col_min", f"CAST(MIN({col_sql}) AS VARCHAR)"))
+            frags.append(("col_max", f"CAST(MAX({col_sql}) AS VARCHAR)"))
+        return frags
 
-            for col in cols:
-                col_name = col["name"]
-                col_type = col["type"]
-                col_sql = self._quote_ident(col_name)
-
-                is_numeric = any(
-                    t in col_type.lower() for t in ("int", "float", "double", "decimal", "numeric", "real")
-                )
-                is_date = any(t in col_type.lower() for t in ("date", "timestamp", "time"))
-
-                numeric_aggs = (
-                    f"""
-                    , CAST(MIN({col_sql}) AS VARCHAR) AS col_min
-                    , CAST(MAX({col_sql}) AS VARCHAR) AS col_max
-                    , AVG(CAST({col_sql} AS DOUBLE)) AS col_mean
-                    , STDDEV(CAST({col_sql} AS DOUBLE)) AS col_stddev
-                """
-                    if is_numeric or is_date
-                    else ""
-                )
-
-                query = f"""
-                    SELECT
-                        COUNT(*) - COUNT({col_sql}) AS null_count,
-                        COUNT(DISTINCT {col_sql}) AS distinct_count
-                        {numeric_aggs}
-                    FROM {schema_sql}.{table_sql}
-                """
-
-                row = self._conn.raw_sql(query).fetchone()  # type: ignore[union-attr]
-                if not row:
-                    continue
-
-                null_count = int(row[0] or 0)
-                distinct_count = int(row[1] or 0)
-
-                profile: dict[str, Any] = {
-                    "column": col_name,
-                    "type": col_type,
-                    "total_count": total_count,
-                    "null_count": null_count,
-                    "null_percentage": round(null_count / total_count * 100, 2) if total_count else None,
-                    "distinct_count": distinct_count,
-                }
-
-                if is_numeric or is_date:
-                    if row[2] is not None:
-                        profile["min"] = str(row[2])
-                    if row[3] is not None:
-                        profile["max"] = str(row[3])
-                if is_numeric:
-                    if row[4] is not None:
-                        profile["mean"] = round(float(row[4]), 4)
-                    if row[5] is not None:
-                        profile["stddev"] = round(float(row[5]), 4)
-
-                if distinct_count and distinct_count <= 50:
-                    try:
-                        top_query = f"""
-                            SELECT CAST({col_sql} AS VARCHAR) AS value, COUNT(*) AS count
-                            FROM {schema_sql}.{table_sql}
-                            GROUP BY 1
-                            ORDER BY 2 DESC
-                            LIMIT 10
-                        """
-                        top_rows = self._conn.raw_sql(top_query).fetchall()  # type: ignore[union-attr]
-                        profile["top_values"] = [
-                            {"value": row[0], "count": int(row[1])}
-                            for row in top_rows
-                            if str(row[0]) not in ("None", "nan", "NaT")
-                        ]
-                    except Exception:
-                        pass
-
-                profiles.append(profile)
-
-            return {
-                "computed_at": datetime.now(timezone.utc).isoformat(),
-                "columns": profiles,
-            }
-
-        except Exception:
-            return None
+    def _build_top_values_query(self, col: dict) -> str:
+        col_sql = self._quote(col["name"])
+        table_sql = f"{self._quote(self._schema)}.{self._quote(self._table_name)}"
+        partition_filter = self._partition_filter()
+        where_clause = f"WHERE {partition_filter}" if partition_filter else ""
+        return f"""
+            SELECT {col_sql} AS value, COUNT(*) AS cnt
+            FROM {table_sql}
+            {where_clause}
+            GROUP BY {col_sql}
+            ORDER BY cnt DESC, {col_sql} ASC
+            LIMIT 10
+        """.strip()
 
 
 class TrinoConfig(DatabaseConfig):
@@ -205,6 +141,9 @@ class TrinoConfig(DatabaseConfig):
                 return []
 
         return []
+
+    def create_context(self, conn: BaseBackend, schema: str, table_name: str) -> TrinoDatabaseContext:
+        return TrinoDatabaseContext(conn, schema, table_name)
 
     def check_connection(self) -> tuple[bool, str]:
         """Test connectivity to Trino."""

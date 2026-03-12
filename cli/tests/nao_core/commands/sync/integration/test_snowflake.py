@@ -201,7 +201,7 @@ def spec():
         ],
         users_profiling_rows=[
             {
-                "column": "id",
+                "column": "ID",
                 "type": "int32",
                 "total_count": 3,
                 "null_count": 0,
@@ -213,7 +213,7 @@ def spec():
                 "stddev": 0.8165,
             },
             {
-                "column": "name",
+                "column": "NAME",
                 "type": "string",
                 "total_count": 3,
                 "null_count": 0,
@@ -226,7 +226,7 @@ def spec():
                 ],
             },
             {
-                "column": "email",
+                "column": "EMAIL",
                 "type": "string",
                 "total_count": 3,
                 "null_count": 1,
@@ -238,7 +238,7 @@ def spec():
                 ],
             },
             {
-                "column": "active",
+                "column": "ACTIVE",
                 "type": "boolean",
                 "total_count": 3,
                 "null_count": 0,
@@ -249,7 +249,7 @@ def spec():
         ],
         orders_profiling_rows=[
             {
-                "column": "id",
+                "column": "ID",
                 "type": "int32",
                 "total_count": 2,
                 "null_count": 0,
@@ -261,7 +261,7 @@ def spec():
                 "stddev": 0.5,
             },
             {
-                "column": "user_id",
+                "column": "USER_ID",
                 "type": "int32",
                 "total_count": 2,
                 "null_count": 0,
@@ -270,7 +270,7 @@ def spec():
                 "top_values": [{"value": 1, "count": 2}],
             },
             {
-                "column": "amount",
+                "column": "AMOUNT",
                 "type": "float64",
                 "total_count": 2,
                 "null_count": 0,

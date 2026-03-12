@@ -1,6 +1,5 @@
 import json
 import logging
-from datetime import datetime, timezone
 from typing import Any, Literal
 
 import ibis
@@ -90,127 +89,17 @@ class BigQueryDatabaseContext(DatabaseContext):
         """
         return {row[0]: str(row[1]) for row in self._conn.raw_sql(query) if row[1]}  # type: ignore[union-attr]
 
-    def profiling(self) -> dict[str, Any] | None:
-        try:
-            table_name_literal = _bq_string_literal(self._table_name)
-            columns_path = _bq_path(self._project_id, self._schema, "INFORMATION_SCHEMA", "COLUMNS")
-            schema_query = f"""
-                SELECT column_name, data_type
-                FROM {columns_path}
-                WHERE table_name = {table_name_literal}
-                ORDER BY ordinal_position
-            """
-            columns = list(self._conn.raw_sql(schema_query))  # type: ignore[union-attr]
+    def _quote(self, name: str) -> str:
+        return f"`{name}`"
 
-            if not columns:
-                return None
+    def _cast_float(self, expr: str) -> str:
+        return f"CAST({expr} AS FLOAT64)"
 
-            aggs = ["COUNT(*) AS __total_count"]
-            for col_name, data_type in columns:
-                col_sql = _bq_ident(col_name)
-                null_alias_sql = _bq_ident(f"{col_name}__null_count")
-                distinct_alias_sql = _bq_ident(f"{col_name}__distinct_count")
-                aggs.append(f"COUNTIF({col_sql} IS NULL) AS {null_alias_sql}")
-                aggs.append(f"COUNT(DISTINCT {col_sql}) AS {distinct_alias_sql}")
-
-                if data_type in ("INT64", "FLOAT64", "NUMERIC", "BIGNUMERIC", "INT", "INTEGER", "FLOAT"):
-                    aggs.append(f"MIN({col_sql}) AS {_bq_ident(f'{col_name}__min')}")
-                    aggs.append(f"MAX({col_sql}) AS {_bq_ident(f'{col_name}__max')}")
-                    aggs.append(f"AVG({col_sql}) AS {_bq_ident(f'{col_name}__mean')}")
-                    aggs.append(f"STDDEV({col_sql}) AS {_bq_ident(f'{col_name}__stddev')}")
-
-                elif data_type in ("DATE", "DATETIME", "TIMESTAMP"):
-                    aggs.append(f"CAST(MIN({col_sql}) AS STRING) AS {_bq_ident(f'{col_name}__min')}")
-                    aggs.append(f"CAST(MAX({col_sql}) AS STRING) AS {_bq_ident(f'{col_name}__max')}")
-
-            partition_cols = self.partition_columns()
-            partition_filter = ""
-            if partition_cols:
-                type_by_column_lower = {str(col_name).lower(): str(data_type) for col_name, data_type in columns}
-
-                partition_col_name: str | None = None
-                partition_col_type: str | None = None
-                for candidate in partition_cols:
-                    candidate_type = type_by_column_lower.get(str(candidate).lower())
-                    if candidate_type in ("DATE", "DATETIME", "TIMESTAMP"):
-                        partition_col_name = str(candidate)
-                        partition_col_type = candidate_type
-                        break
-
-                if partition_col_name and partition_col_type:
-                    partition_col_sql = _bq_ident(partition_col_name)
-                    if partition_col_type == "DATE":
-                        partition_filter = f"WHERE {partition_col_sql} >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)"
-                    elif partition_col_type == "DATETIME":
-                        partition_filter = (
-                            f"WHERE {partition_col_sql} >= DATETIME_SUB(CURRENT_DATETIME(), INTERVAL 30 DAY)"
-                        )
-                    elif partition_col_type == "TIMESTAMP":
-                        partition_filter = (
-                            f"WHERE {partition_col_sql} >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 DAY)"
-                        )
-
-            table_path = _bq_path(self._project_id, self._schema, self._table_name)
-            profiling_query = f"""
-                SELECT {", ".join(aggs)}
-                FROM {table_path}
-                {partition_filter}
-            """
-
-            results = list(self._conn.raw_sql(profiling_query))  # type: ignore[union-attr]
-            row = results[0] if results else None
-            if not row:
-                return None
-
-            result = dict(zip([k for k in row.keys()], row))
-            total_count = result.get("__total_count") or 0
-
-            profiles: list[dict[str, Any]] = []
-            for col_name, data_type in columns:
-                null_count = result.get(f"{col_name}__null_count") or 0
-                distinct_count = result.get(f"{col_name}__distinct_count")
-
-                profile: dict[str, Any] = {
-                    "column": col_name,
-                    "type": data_type,
-                    "total_count": total_count,
-                    "null_count": null_count,
-                    "null_percentage": round(null_count / total_count * 100, 2) if total_count else None,
-                    "distinct_count": distinct_count,
-                }
-
-                for stat in ("min", "max", "mean", "stddev"):
-                    if (val := result.get(f"{col_name}__{stat}")) is not None:
-                        profile[stat] = val
-
-                is_date = data_type in ("DATE", "DATETIME", "TIMESTAMP")
-                top_values_distinct_limit = 10 if is_date else 50
-                if distinct_count and distinct_count <= top_values_distinct_limit:
-                    try:
-                        col_sql = _bq_ident(col_name)
-                        top_query = f"""
-                            SELECT CAST({col_sql} AS STRING) AS value, COUNT(*) AS count
-                            FROM {table_path}
-                            {partition_filter}
-                            GROUP BY 1
-                            ORDER BY 2 DESC
-                            LIMIT 10
-                        """
-                        top_rows = self._conn.raw_sql(top_query).fetchall()  # type: ignore[union-attr]
-                        profile["top_values"] = [{"value": row[0], "count": row[1]} for row in top_rows]
-                    except Exception:
-                        pass
-
-                profiles.append(profile)
-
-            return {
-                "columns": profiles,
-                "computed_at": datetime.now(timezone.utc).isoformat(),
-            }
-
-        except Exception:
-            logger.exception("Failed to compute profiling for %s.%s", self._schema, self._table_name)
-            return None
+    def _partition_filter(self) -> str:
+        cols = self.partition_columns()
+        if cols:
+            return f"`{cols[0]}` >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)"
+        return ""
 
 
 def _get_bq_partition_columns(conn: BaseBackend, schema: str, table: str) -> list[str]:
@@ -306,8 +195,6 @@ class BigQueryConfig(DatabaseConfig):
         conn = self.connect()
         try:
             cursor = conn.raw_sql(sql)  # type: ignore[union-attr]
-            # Disable BigQuery Storage Read API (gRPC) — it deadlocks when an
-            # asyncio event loop is running in the same process (e.g. FastAPI).
             return cursor.to_dataframe(create_bqstorage_client=False)
         finally:
             conn.disconnect()

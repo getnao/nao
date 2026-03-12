@@ -1,4 +1,3 @@
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
@@ -18,46 +17,36 @@ class RedshiftDatabaseContext(DatabaseContext):
     """Redshift-specific context that bypasses Ibis's problematic pg_enum queries."""
 
     def columns(self) -> list[dict[str, Any]]:
-        """Return column metadata by querying information_schema directly."""
-        col_descs = self._fetch_column_descriptions()
-
-        query = f"""
-            SELECT 
-                column_name,
-                data_type,
-                is_nullable,
-                character_maximum_length,
-                numeric_precision,
-                numeric_scale
-            FROM information_schema.columns
-            WHERE table_schema = '{self._schema}'
-              AND table_name = '{self._table_name}'
-            ORDER BY ordinal_position
-        """
-        result = self._conn.raw_sql(query).fetchall()  # type: ignore[union-attr]
-
-        columns = []
-        for row in result:
-            col_name = row[0]
-            data_type = row[1]
-            is_nullable = row[2] == "YES"
-            char_length = row[3]
-            num_precision = row[4]
-            num_scale = row[5]
-
-            # Map SQL types to Ibis-like type strings
-            formatted_type = self._format_redshift_type(data_type, is_nullable, char_length, num_precision, num_scale)
-
-            columns.append(
+        if self._columns_cache is None:
+            col_descs = self._fetch_column_descriptions()
+            query = f"""
+                SELECT
+                    column_name, data_type, is_nullable,
+                    character_maximum_length, numeric_precision, numeric_scale
+                FROM information_schema.columns
+                WHERE table_schema = '{self._schema}'
+                AND table_name = '{self._table_name}'
+                ORDER BY ordinal_position
+            """
+            result = self._fetchall(self._conn.raw_sql(query))  # type: ignore[union-attr]
+            self._columns_cache = [
                 {
-                    "name": col_name,
-                    "type": formatted_type,
-                    "nullable": is_nullable,
-                    "description": col_descs.get(col_name),
+                    "name": row[0],
+                    "type": self._format_redshift_type(row[1], row[2] == "YES", row[3], row[4], row[5]),
+                    "nullable": row[2] == "YES",
+                    "description": col_descs.get(row[0]),
                 }
-            )
+                for row in result
+            ]
+        return self._columns_cache
 
-        return columns
+    def row_count(self) -> int:
+        if self._row_count_cache is None:
+            schema_sql = self._quote(self._schema)
+            table_sql = self._quote(self._table_name)
+            result = self._fetchone(self._conn.raw_sql(f"SELECT COUNT(*) FROM {schema_sql}.{table_sql}"))  # type: ignore[union-attr]
+            self._row_count_cache = int(result[0]) if result else 0
+        return self._row_count_cache
 
     @staticmethod
     def _format_redshift_type(
@@ -93,8 +82,8 @@ class RedshiftDatabaseContext(DatabaseContext):
     def preview(self, limit: int = 10) -> list[dict[str, Any]]:
         """Return the first N rows as a list of dictionaries."""
         # Use raw SQL to avoid Ibis's pg_enum queries
-        schema_sql = self._quote_ident(self._schema)
-        table_sql = self._quote_ident(self._table_name)
+        schema_sql = self._quote(self._schema)
+        table_sql = self._quote(self._table_name)
         limit = int(limit)
         query = f"SELECT * FROM {schema_sql}.{table_sql} LIMIT {limit}"
         result = self._conn.raw_sql(query).fetchall()  # type: ignore[union-attr]
@@ -114,19 +103,6 @@ class RedshiftDatabaseContext(DatabaseContext):
                     row_dict[col_name] = val
             rows.append(row_dict)
         return rows
-
-    def row_count(self) -> int:
-        """Return the total number of rows in the table."""
-        # Use raw SQL to avoid Ibis's pg_enum queries
-        schema_sql = self._quote_ident(self._schema)
-        table_sql = self._quote_ident(self._table_name)
-        query = f"SELECT COUNT(*) FROM {schema_sql}.{table_sql}"
-        result = self._conn.raw_sql(query).fetchone()  # type: ignore[union-attr]
-        return result[0] if result else 0
-
-    def column_count(self) -> int:
-        """Return the number of columns in the table."""
-        return len(self.columns())
 
     def _fetch_column_descriptions(self) -> dict[str, str]:
         """Fetch column descriptions from pg_catalog."""
@@ -161,108 +137,8 @@ class RedshiftDatabaseContext(DatabaseContext):
             pass
         return None
 
-    def profiling(self) -> dict[str, Any] | None:
-        try:
-            cols = self.columns()
-            if not cols:
-                return None
-
-            total_count = self.row_count()
-            profiles = []
-
-            schema_sql = self._quote_ident(self._schema)
-            table_sql = self._quote_ident(self._table_name)
-
-            for col in cols:
-                col_name = col["name"]
-                col_type = self._normalize_type(col["type"])
-                col_sql = self._quote_ident(col_name)
-
-                is_numeric = any(
-                    t in col_type.lower() for t in ("int", "float", "numeric", "double", "decimal", "real")
-                )
-                is_integer = self._is_integer_type(col_type)
-                is_date = any(t in col_type.lower() for t in ("date", "timestamp", "time"))
-
-                is_numeric_stats_column = is_numeric and not (
-                    is_integer and col_name.lower().endswith("_id") and col_name.lower() != "id"
-                )
-
-                numeric_aggs = ""
-                if is_numeric_stats_column or is_date:
-                    numeric_aggs = f"""
-                        , MIN({col_sql}) AS col_min
-                        , MAX({col_sql}) AS col_max
-                    """
-                if is_numeric_stats_column:
-                    numeric_aggs += f"""
-                        , AVG({col_sql}::float) AS col_mean
-                        , STDDEV_POP({col_sql}::float) AS col_stddev
-                    """
-
-                query = f"""
-                    SELECT
-                        COUNT(*) - COUNT({col_sql}) AS null_count,
-                        COUNT(DISTINCT {col_sql}) AS distinct_count
-                        {numeric_aggs}
-                    FROM {schema_sql}.{table_sql}
-                """
-                row = self._conn.raw_sql(query).fetchone()  # type: ignore[union-attr]
-                if not row:
-                    continue
-
-                null_count = int(row[0] or 0)
-                distinct_count = int(row[1] or 0)
-
-                profile: dict[str, Any] = {
-                    "column": col_name,
-                    "type": col_type,
-                    "total_count": total_count,
-                    "null_count": null_count,
-                    "null_percentage": round(null_count / total_count * 100, 2) if total_count else None,
-                    "distinct_count": distinct_count,
-                }
-
-                if is_numeric_stats_column:
-                    if row[2] is not None:
-                        profile["min"] = int(row[2]) if is_integer else round(float(row[2]), 4)
-                    if row[3] is not None:
-                        profile["max"] = int(row[3]) if is_integer else round(float(row[3]), 4)
-                    if row[4] is not None:
-                        profile["mean"] = round(float(row[4]), 4)
-                    if row[5] is not None:
-                        profile["stddev"] = round(float(row[5]), 4)
-                elif is_date:
-                    if row[2] is not None:
-                        profile["min"] = str(row[2])
-                    if row[3] is not None:
-                        profile["max"] = str(row[3])
-
-                include_top_values = (
-                    distinct_count and distinct_count <= 50 and not is_numeric_stats_column and not is_date
-                )
-                if include_top_values:
-                    top_query = f"""
-                        SELECT {col_sql} AS value, COUNT(*) AS count
-                        FROM {schema_sql}.{table_sql}
-                        GROUP BY 1
-                        ORDER BY 2 DESC, 1 ASC
-                        LIMIT 10
-                    """
-                    top_rows = self._conn.raw_sql(top_query).fetchall()  # type: ignore[union-attr]
-                    profile["top_values"] = [
-                        {"value": self._json_safe_value(r[0]), "count": int(r[1])} for r in top_rows if r[0] is not None
-                    ]
-
-                profiles.append(profile)
-
-            return {
-                "computed_at": datetime.now(timezone.utc).isoformat(),
-                "columns": profiles,
-            }
-
-        except Exception:
-            return None
+    def _cast_float(self, expr: str) -> str:
+        return f"{expr}::float"
 
 
 class RedshiftSSHTunnelConfig(BaseModel):

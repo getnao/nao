@@ -1,5 +1,4 @@
-from datetime import datetime, timezone
-from typing import Any, Literal
+from typing import Literal
 
 import ibis
 from ibis import BaseBackend
@@ -12,137 +11,35 @@ from .context import DatabaseContext
 
 
 class AthenaDatabaseContext(DatabaseContext):
-    def profiling(self) -> dict[str, Any] | None:
+    def _quote(self, name: str) -> str:
+        return f'"{name}"'
+
+    def _cast_float(self, expr: str) -> str:
+        return f"CAST({expr} AS DOUBLE)"
+
+    def _fetch_top_values(self, col: dict) -> list[dict]:
+        col_sql = self._quote(col["name"])
+        table_sql = f"{self._quote(self._schema)}.{self._quote(self._table_name)}"
+        partition_filter = self._partition_filter()
+        where_clause = f"WHERE {partition_filter}" if partition_filter else ""
+
+        query = f"""
+            SELECT {col_sql} AS value, COUNT(*) AS cnt
+            FROM {table_sql}
+            {where_clause}
+            GROUP BY 1
+            ORDER BY 2 DESC, 1 ASC
+            LIMIT 10
+        """
         try:
-            cols = self.columns()
-            if not cols:
-                return None
-
-            total_count = self.row_count()
-            classified = []
-            for col in cols:
-                col_name = col["name"]
-                col_type = self._normalize_type(col["type"])
-                is_numeric = any(
-                    t in col_type.lower() for t in ("int", "float", "double", "decimal", "numeric", "real")
-                )
-                is_integer = self._is_integer_type(col_type)
-                is_date = any(t in col_type.lower() for t in ("date", "timestamp", "time"))
-                is_numeric_stats_column = is_numeric and not (
-                    is_integer and col_name.lower().endswith("_id") and col_name.lower() != "id"
-                )
-                classified.append((col_name, col_type, is_numeric, is_integer, is_date, is_numeric_stats_column))
-
-            aggs = []
-            for col_name, col_type, is_numeric, is_integer, is_date, is_numeric_stats_column in classified:
-                col_sql = self._quote_ident(col_name)
-                null_alias_sql = self._quote_ident(f"{col_name}__null_count")
-                distinct_alias_sql = self._quote_ident(f"{col_name}__distinct_count")
-
-                aggs.append(f"COUNT(*) - COUNT({col_sql}) AS {null_alias_sql}")
-                aggs.append(f"COUNT(DISTINCT {col_sql}) AS {distinct_alias_sql}")
-                if is_numeric_stats_column:
-                    min_alias_sql = self._quote_ident(f"{col_name}__min")
-                    max_alias_sql = self._quote_ident(f"{col_name}__max")
-                    mean_alias_sql = self._quote_ident(f"{col_name}__mean")
-                    stddev_alias_sql = self._quote_ident(f"{col_name}__stddev")
-
-                    aggs.append(f"MIN({col_sql}) AS {min_alias_sql}")
-                    aggs.append(f"MAX({col_sql}) AS {max_alias_sql}")
-                    aggs.append(f"AVG(CAST({col_sql} AS DOUBLE)) AS {mean_alias_sql}")
-                    aggs.append(f"STDDEV_POP(CAST({col_sql} AS DOUBLE)) AS {stddev_alias_sql}")
-                elif is_date:
-                    min_alias_sql = self._quote_ident(f"{col_name}__min")
-                    max_alias_sql = self._quote_ident(f"{col_name}__max")
-                    aggs.append(f"MIN({col_sql}) AS {min_alias_sql}")
-                    aggs.append(f"MAX({col_sql}) AS {max_alias_sql}")
-
-            schema_sql = self._quote_ident(self._schema)
-            table_sql = self._quote_ident(self._table_name)
-            query = f"SELECT {', '.join(aggs)} FROM {schema_sql}.{table_sql}"
-            stats_row = self._conn.raw_sql(query).fetchone()  # type: ignore[union-attr]
-            if not stats_row:
-                return None
-
-            idx = 0
-            stats: dict[str, dict] = {}
-            for col_name, col_type, is_numeric, is_integer, is_date, is_numeric_stats_column in classified:
-                s: dict[str, Any] = {}
-                s["null_count"] = int(stats_row[idx] or 0)
-                idx += 1
-                s["distinct_count"] = int(stats_row[idx] or 0)
-                idx += 1
-                if is_numeric_stats_column:
-                    s["min"] = stats_row[idx]
-                    idx += 1
-                    s["max"] = stats_row[idx]
-                    idx += 1
-                    s["mean"] = stats_row[idx]
-                    idx += 1
-                    s["stddev"] = stats_row[idx]
-                    idx += 1
-                elif is_date:
-                    s["min"] = stats_row[idx]
-                    idx += 1
-                    s["max"] = stats_row[idx]
-                    idx += 1
-                stats[col_name] = s
-
-            profiles = []
-            for col_name, col_type, is_numeric, is_integer, is_date, is_numeric_stats_column in classified:
-                s = stats[col_name]
-                null_count = s["null_count"]
-                distinct_count = s["distinct_count"]
-
-                profile: dict[str, Any] = {
-                    "column": col_name,
-                    "type": col_type,
-                    "total_count": total_count,
-                    "null_count": null_count,
-                    "null_percentage": round(null_count / total_count * 100, 2) if total_count else None,
-                    "distinct_count": distinct_count,
-                }
-
-                if is_numeric_stats_column:
-                    if s["min"] is not None:
-                        profile["min"] = int(s["min"]) if is_integer else round(float(s["min"]), 4)
-                    if s["max"] is not None:
-                        profile["max"] = int(s["max"]) if is_integer else round(float(s["max"]), 4)
-                    if s["mean"] is not None:
-                        profile["mean"] = round(float(s["mean"]), 4)
-                    if s["stddev"] is not None:
-                        profile["stddev"] = round(float(s["stddev"]), 4)
-                elif is_date:
-                    if s["min"] is not None:
-                        profile["min"] = str(s["min"])
-                    if s["max"] is not None:
-                        profile["max"] = str(s["max"])
-
-                if distinct_count and distinct_count <= 50 and not is_numeric_stats_column and not is_date:
-                    col_sql = self._quote_ident(col_name)
-                    schema_sql = self._quote_ident(self._schema)
-                    table_sql = self._quote_ident(self._table_name)
-                    top_query = f"""
-                        SELECT {col_sql} AS value, COUNT(*) AS count
-                        FROM {schema_sql}.{table_sql}
-                        GROUP BY 1
-                        ORDER BY 2 DESC, 1 ASC
-                        LIMIT 10
-                    """
-                    top_rows = self._conn.raw_sql(top_query).fetchall()  # type: ignore[union-attr]
-                    profile["top_values"] = [
-                        {"value": self._json_safe_value(r[0]), "count": int(r[1])} for r in top_rows if r[0] is not None
-                    ]
-
-                profiles.append(profile)
-
-            return {
-                "computed_at": datetime.now(timezone.utc).isoformat(),
-                "columns": profiles,
-            }
-
+            rows = self._fetchall(self._conn.raw_sql(query))  # type: ignore[union-attr]
+            return [
+                {"value": self._json_safe_value(r[0]), "count": int(r[1])}
+                for r in rows
+                if r[0] is not None and r[0] != ""
+            ]
         except Exception:
-            return None
+            return []
 
 
 class AthenaConfig(DatabaseConfig):
@@ -229,6 +126,9 @@ class AthenaConfig(DatabaseConfig):
         if list_databases:
             return list_databases()
         return []
+
+    def create_context(self, conn: BaseBackend, schema: str, table_name: str) -> AthenaDatabaseContext:
+        return AthenaDatabaseContext(conn, schema, table_name)
 
     def check_connection(self) -> tuple[bool, str]:
         """Test connectivity to Athena"""

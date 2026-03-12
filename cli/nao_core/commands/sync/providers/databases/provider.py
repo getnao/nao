@@ -1,5 +1,6 @@
 """Database sync provider implementation."""
 
+import re
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -53,28 +54,21 @@ def _should_refresh_profiling(
     """Decide whether profiling should be recomputed based on refresh policy."""
 
     policy = profiling_config.refresh_policy
-    if policy == ProfilingRefreshPolicy.ALWAYS:
-        return True
-
-    if not output_file.exists():
+    if not output_file.exists() or policy == ProfilingRefreshPolicy.ALWAYS:
         return True
     if policy == ProfilingRefreshPolicy.ONCE:
         return False
-
     if policy == ProfilingRefreshPolicy.INTERVAL:
         try:
             content = output_file.read_text()
-            for line in content.splitlines():
-                line_lower = line.lower()
-                if "computed at" in line_lower:
-                    start = line.index("`") + 1
-                    end = line.rindex("`")
-                    computed_at_str = line[start:end]
-                    computed_at = datetime.fromisoformat(computed_at_str)
-                    if computed_at.tzinfo is None:
-                        computed_at = computed_at.replace(tzinfo=timezone.utc)
-                    age = datetime.now(timezone.utc) - computed_at
-                    return age > timedelta(days=profiling_config.interval_days)
+            match = re.search(r"\*\*Computed at:\*\*\s*`([^`]+)`", content, re.IGNORECASE)
+            if match:
+                computed_at_str = match.group(1)
+                computed_at = datetime.fromisoformat(computed_at_str)
+                if computed_at.tzinfo is None:
+                    computed_at = computed_at.replace(tzinfo=timezone.utc)
+                age = datetime.now(timezone.utc) - computed_at
+                return age > timedelta(days=profiling_config.interval_days)
         except Exception:
             return True
 

@@ -53,6 +53,9 @@ class PostgresDatabaseContext(DatabaseContext):
         rows = self._conn.raw_sql(query).fetchall()  # type: ignore[union-attr]
         return {row[0]: str(row[1]) for row in rows if row[1]}
 
+    def _cast_float(self, expr: str) -> str:
+        return f"CAST({expr} AS DOUBLE PRECISION)"
+
 
 class PostgresConfig(DatabaseConfig):
     """PostgreSQL-specific configuration."""

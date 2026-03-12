@@ -114,7 +114,7 @@ class DatabaseConfig(BaseModel, ABC):
                 return cursor.to_dataframe()
 
             columns = pd.Index([desc[0] for desc in cursor.description])
-            rows = [tuple(row) for row in cursor.fetchall()]  # type: ignore[arg-type]
+            rows = [tuple(row) for row in cursor.fetchall()]
             return pd.DataFrame(rows, columns=columns)
         finally:
             conn.disconnect()

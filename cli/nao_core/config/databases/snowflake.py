@@ -1,7 +1,6 @@
 import logging
 import os
 import re
-from datetime import datetime, timezone
 from typing import Any, Literal
 
 import ibis
@@ -62,165 +61,14 @@ class SnowflakeDatabaseContext(DatabaseContext):
         rows = self._conn.raw_sql(query).fetchall()  # type: ignore[union-attr]
         return {row[0]: str(row[1]) for row in rows if row[1]}
 
-    def profiling(self) -> dict[str, Any] | None:
-        try:
-            cols = self.columns()
-            if not cols:
-                return None
+    def _cast_float(self, expr: str) -> str:
+        return f"{expr}::FLOAT"
 
-            clustering_cols = self.partition_columns()
-            partition_filter = ""
-            if clustering_cols:
-                type_by_column_lower = {
-                    str(c["name"]).lower(): self._normalize_type(str(c["type"])).lower() for c in cols
-                }
-
-                clustering_col_name: str | None = None
-                clustering_col_type: str | None = None
-                for candidate in clustering_cols:
-                    candidate_type = type_by_column_lower.get(str(candidate).lower())
-                    if candidate_type is None:
-                        continue
-                    if "date" in candidate_type or "timestamp" in candidate_type:
-                        clustering_col_name = str(candidate)
-                        clustering_col_type = candidate_type
-                        break
-
-                if clustering_col_name and clustering_col_type:
-                    clustering_col_sql = self._quote_ident(clustering_col_name)
-                    if "timestamp" in clustering_col_type:
-                        partition_filter = f"WHERE {clustering_col_sql} >= DATEADD(day, -30, CURRENT_TIMESTAMP())"
-                    else:
-                        partition_filter = f"WHERE {clustering_col_sql} >= DATEADD(day, -30, CURRENT_DATE())"
-
-            total_count = self._row_count_with_filter(partition_filter) if partition_filter else self.row_count()
-            profiles = []
-
-            schema_sql = self._quote_ident(self._schema)
-            table_sql = self._quote_ident(self._table_name)
-
-            for col in cols:
-                col_name = col["name"]
-                col_type = self._normalize_type(col["type"])  # strips NOT NULL, normalizes
-                col_sql = self._quote_ident(col_name)
-
-                is_numeric = self._is_numeric_type(col_type)
-                is_integer = self._is_integer_type(col_type)
-                is_date = any(t in col_type.lower() for t in ("date", "timestamp", "time"))
-
-                is_numeric_stats_column = is_numeric and not (
-                    is_integer and col_name.lower().endswith("_id") and col_name.lower() != "id"
-                )
-
-                numeric_aggs = ""
-                if is_numeric or is_date:
-                    numeric_aggs = f"""
-                        , MIN("{col_name}") AS col_min
-                        , MAX("{col_name}") AS col_max
-                    """
-                if is_numeric:
-                    numeric_aggs += f"""
-                        , AVG("{col_name}"::FLOAT) AS col_mean
-                        , STDDEV_POP("{col_name}"::FLOAT) AS col_stddev
-                    """
-
-                numeric_aggs = (
-                    f"""
-                    , TO_VARCHAR(MIN({col_sql})) AS col_min
-                    , TO_VARCHAR(MAX({col_sql})) AS col_max
-                    , AVG({col_sql}::FLOAT) AS col_mean
-                    , STDDEV_POP({col_sql}::FLOAT) AS col_stddev
-                """
-                    if is_numeric or is_date
-                    else ""
-                )
-
-                query = f"""
-                    SELECT
-                        COUNT(*) - COUNT({col_sql}) AS null_count,
-                        COUNT(DISTINCT {col_sql}) AS distinct_count
-                        {numeric_aggs}
-                    FROM {schema_sql}.{table_sql}
-                    {partition_filter}
-                """
-
-                row = self._conn.raw_sql(query).fetchone()  # type: ignore[union-attr]
-                if not row:
-                    continue
-
-                null_count = int(row[0] or 0)
-                distinct_count = int(row[1] or 0)
-
-                profile: dict[str, Any] = {
-                    "column": col_name,
-                    "type": col_type,
-                    "total_count": total_count,
-                    "null_count": null_count,
-                    "null_percentage": round(null_count / total_count * 100, 2) if total_count else None,
-                    "distinct_count": distinct_count,
-                }
-
-                profile: dict[str, Any] = {
-                    "column": col_name.lower(),  # <-- lowercase
-                    "type": col_type,  # <-- normalized
-                    "total_count": total_count,
-                    "null_count": null_count,
-                    "null_percentage": round(null_count / total_count * 100, 2) if total_count else None,
-                    "distinct_count": distinct_count,
-                }
-
-                if is_numeric_stats_column:
-                    if row[2] is not None:
-                        profile["min"] = int(row[2]) if is_integer else round(float(row[2]), 4)
-                    if row[3] is not None:
-                        profile["max"] = int(row[3]) if is_integer else round(float(row[3]), 4)
-                    if row[4] is not None:
-                        profile["mean"] = round(float(row[4]), 4)
-                    if row[5] is not None:
-                        profile["stddev"] = round(float(row[5]), 4)
-                elif is_date:
-                    if row[2] is not None:
-                        profile["min"] = str(row[2])
-                    if row[3] is not None:
-                        profile["max"] = str(row[3])
-
-                include_top_values = (
-                    distinct_count and distinct_count <= 50 and not is_numeric_stats_column and not is_date
-                )
-                if include_top_values:
-                    top_query = f"""
-                        SELECT {col_sql} AS value, COUNT(*) AS count
-                        FROM {schema_sql}.{table_sql}
-                        {partition_filter}
-                        GROUP BY 1
-                        ORDER BY 2 DESC, 1 ASC
-                        LIMIT 10
-                    """
-                    top_rows = self._conn.raw_sql(top_query).fetchall()  # type: ignore[union-attr]
-                    profile["top_values"] = [
-                        {"value": self._json_safe_value(r[0]), "count": int(r[1])} for r in top_rows if r[0] is not None
-                    ]
-
-                profiles.append(profile)
-
-            return {
-                "computed_at": datetime.now(timezone.utc).isoformat(),
-                "columns": profiles,
-            }
-
-        except Exception:
-            return None
-
-    def _row_count_with_filter(self, where_clause: str) -> int:
-        schema_sql = self._quote_ident(self._schema)
-        table_sql = self._quote_ident(self._table_name)
-        query = f"""
-            SELECT COUNT(*)
-            FROM {schema_sql}.{table_sql}
-            {where_clause}
-        """
-        row = self._conn.raw_sql(query).fetchone()  # type: ignore[union-attr]
-        return int(row[0]) if row and row[0] is not None else 0
+    def _partition_filter(self) -> str:
+        cols = self.partition_columns()
+        if cols:
+            return f'"{cols[0]}" >= DATEADD(day, -30, CURRENT_DATE())'
+        return ""
 
 
 def _get_snowflake_clustering_columns(conn: BaseBackend, schema: str, table: str) -> list[str]:

@@ -1,10 +1,9 @@
 """Base database context exposing methods available in templates during sync."""
 
-import math
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any
 
-import ibis
+from dateutil.parser import parse
 from ibis import BaseBackend
 
 
@@ -23,6 +22,8 @@ class DatabaseContext:
         self._schema = schema
         self._table_name = table_name
         self._table_ref = None
+        self._columns_cache: list[dict[str, Any]] | None = None
+        self._row_count_cache: int | None = None
 
     @property
     def table(self):
@@ -31,25 +32,26 @@ class DatabaseContext:
         return self._table_ref
 
     def columns(self) -> list[dict[str, Any]]:
-        """Return column metadata: name, type, nullable, description."""
-        schema = self.table.schema()
-        return [
-            {
-                "name": name,
-                "type": self._format_type(dtype),
-                "nullable": dtype.nullable if hasattr(dtype, "nullable") else True,
-                "description": None,
-            }
-            for name, dtype in schema.items()
-        ]
+        if self._columns_cache is None:
+            schema = self.table.schema()
+            self._columns_cache = [
+                {
+                    "name": name,
+                    "type": (raw[1:] + " NOT NULL" if (raw := str(dtype)).startswith("!") else raw),
+                    "nullable": dtype.nullable if hasattr(dtype, "nullable") else True,
+                    "description": None,
+                }
+                for name, dtype in schema.items()
+            ]
+        return self._columns_cache
 
-    @staticmethod
-    def _format_type(dtype) -> str:
-        """Convert Ibis type to a human-readable string (e.g. !int32 -> int32 NOT NULL)."""
-        raw = str(dtype)
-        if raw.startswith("!"):
-            return f"{raw[1:]} NOT NULL"
-        return raw
+    def row_count(self) -> int:
+        if self._row_count_cache is None:
+            self._row_count_cache = self.table.count().execute()
+        return self._row_count_cache
+
+    def column_count(self) -> int:
+        return len(self.columns())
 
     def preview(self, limit: int = 10) -> list[dict[str, Any]]:
         """Return the first N rows as a list of dictionaries."""
@@ -63,21 +65,6 @@ class DatabaseContext:
             rows.append(row_dict)
         return rows
 
-    def row_count(self) -> int:
-        """Return the total number of rows in the table."""
-        return self.table.count().execute()
-
-    def _quote_ident(self, name: object) -> str:
-        escaped = str(name).replace('"', '""')
-        return f'"{escaped}"'
-
-    def _quote_qualified_table(self) -> str:
-        return f"{self._quote_ident(self._schema)}.{self._quote_ident(self._table_name)}"
-
-    def column_count(self) -> int:
-        """Return the number of columns in the table."""
-        return len(self.table.schema())
-
     def partition_columns(self) -> list[str]:
         """Return partition/clustering column names if available."""
         return []
@@ -87,73 +74,32 @@ class DatabaseContext:
         return None
 
     def profiling(self) -> dict[str, Any] | None:
-        """Return column-level profiling statistics for the table."""
+        """Return profiling data for the table."""
         try:
             cols = self.columns()
             if not cols:
                 return None
 
-            table = self.table
             total_count = self.row_count()
-            profiles: list[dict[str, Any]] = []
+            profiles = []
 
             for col in cols:
-                col_name = col["name"]
                 col_type = self._normalize_type(col["type"])
-                column = table[col_name]
-
-                profile: dict[str, Any] = {
-                    "column": col_name,
-                    "type": col_type,
-                    "total_count": total_count,
-                    "null_count": int(column.isnull().sum().execute()),
-                }
-
-                null_count = profile["null_count"]
-                profile["null_percentage"] = round(null_count / total_count * 100, 2) if total_count else None
-                profile["distinct_count"] = int(column.nunique().execute())
-
-                is_integer = self._is_integer_type(col_type)
-                is_numeric = self._is_numeric_type(col_type)
-                is_numeric_stats_column = is_numeric and not (
-                    is_integer and col_name.endswith("_id") and col_name != "id"
-                )
-
-                if is_numeric_stats_column:
-                    profile["min"] = self._json_safe_value(column.min().execute())
-                    profile["max"] = self._json_safe_value(column.max().execute())
-                    numeric_expr = column.cast("float64") if is_integer else column
-                    profile["mean"] = self._round_or_none(numeric_expr.mean().execute(), 4)
-                    profile["stddev"] = self._round_or_none(self._stddev_pop(numeric_expr), 4)
-
+                is_numeric = self._is_numeric_stats_column(col)
                 is_date = any(t in col_type.lower() for t in ("date", "timestamp", "time"))
-                if is_date:
-                    profile["min"] = str(column.min().execute())
-                    profile["max"] = str(column.max().execute())
+
+                query = self._build_profiling_query(col)
+                row = self._fetchone(self._conn.raw_sql(query))  # type: ignore[union-attr]
+                if not row:
+                    continue
+
+                profile = self._parse_profiling_row(row, col, total_count)
 
                 distinct_count = profile["distinct_count"]
-                top_values_distinct_limit = 10 if is_date else 50
-                include_top_values = (
-                    bool(distinct_count)
-                    and distinct_count <= top_values_distinct_limit
-                    and (not is_numeric_stats_column)
-                )
-                if include_top_values:
-                    filtered_table = table.filter(column.notnull())
-                    top = (
-                        filtered_table.group_by(col_name)
-                        .aggregate(count=filtered_table[col_name].count())
-                        .order_by([ibis.desc("count"), ibis.asc(col_name)])
-                        .limit(10)
-                        .execute()
-                    )
-                    profile["top_values"] = [
-                        {
-                            "value": self._json_safe_value(row[col_name]),
-                            "count": int(row["count"]),
-                        }
-                        for _, row in top.iterrows()
-                    ]
+                if distinct_count and distinct_count <= 50 and not is_numeric and not is_date:
+                    top_vals = self._fetch_top_values(col)
+                    if top_vals:
+                        profile["top_values"] = top_vals
 
                 profiles.append(profile)
 
@@ -164,6 +110,156 @@ class DatabaseContext:
 
         except Exception:
             return None
+
+    # ─── SQL primitives ───────────────────────────────────────────────────────
+
+    def _quote(self, name: str) -> str:
+        return f'"{name}"'
+
+    def _cast_float(self, expr: str) -> str:
+        return f"CAST({expr} AS DOUBLE)"
+
+    def _stddev(self, expr: str) -> str:
+        return f"STDDEV_POP({expr})"
+
+    def _partition_filter(self) -> str:
+        return ""
+
+    def _distinct_count_sql(self, col_sql: str) -> str:
+        """How to express COUNT(DISTINCT col) — overridable for MSSQL."""
+        return f"COUNT(DISTINCT {col_sql})"
+
+    def _null_count_sql(self, col_sql: str) -> str:
+        return f"COUNT(*) - COUNT({col_sql})"
+
+    # ─── query builders ───────────────────────────────────────────────────────
+
+    def _numeric_agg_fragments(self, col_sql: str, col: dict) -> list[tuple[str, str]]:
+        """Return (alias, expression) pairs for numeric/date aggregates."""
+        col_type = self._normalize_type(col["type"])
+        is_numeric = self._is_numeric_stats_column(col)
+        is_date = any(t in col_type.lower() for t in ("date", "timestamp", "time"))
+
+        frags = []
+        if is_numeric or is_date:
+            frags.append(("col_min", f"MIN({col_sql})"))
+            frags.append(("col_max", f"MAX({col_sql})"))
+        if is_numeric:
+            frags.append(("col_mean", f"AVG({self._cast_float(col_sql)})"))
+            frags.append(("col_stddev", f"{self._stddev(self._cast_float(col_sql))}"))
+        return frags
+
+    def _build_profiling_query(self, col: dict) -> str:
+        col_sql = self._quote(col["name"])
+        table_sql = f"{self._quote(self._schema)}.{self._quote(self._table_name)}"
+
+        partition_filter = self._partition_filter()
+        where_clause = f"WHERE {partition_filter}" if partition_filter else ""
+
+        frags = self._numeric_agg_fragments(col_sql, col)
+        extra_aggs = "".join(f"\n    , {expr} AS {alias}" for alias, expr in frags)
+
+        return f"""
+            SELECT
+                {self._null_count_sql(col_sql)} AS null_count,
+                {self._distinct_count_sql(col_sql)} AS distinct_count{extra_aggs}
+            FROM {table_sql}
+            {where_clause}
+        """.strip()
+
+    def _build_top_values_query(self, col: dict) -> str:
+        col_sql = self._quote(col["name"])
+        table_sql = f"{self._quote(self._schema)}.{self._quote(self._table_name)}"
+        partition_filter = self._partition_filter()
+        where_clause = f"WHERE {partition_filter}" if partition_filter else ""
+        return f"""
+            SELECT {col_sql} AS value, COUNT(*) AS cnt
+            FROM {table_sql}
+            {where_clause}
+            GROUP BY {col_sql}
+            ORDER BY cnt DESC, {col_sql} ASC
+            LIMIT 10
+        """.strip()
+
+    # ─── result fetching ──────────────────────────────────────────────────────
+
+    def _fetchone(self, result) -> tuple | None:
+        """Normalise raw_sql() results across drivers."""
+        if hasattr(result, "__iter__") and not hasattr(result, "fetchone"):
+            rows = list(result)
+            return tuple(rows[0].values()) if rows else None
+        return result.fetchone()
+
+    def _fetchall(self, result) -> list[tuple]:
+        """Normalise raw_sql() results across drivers."""
+        if hasattr(result, "__iter__") and not hasattr(result, "fetchall"):
+            return [tuple(row.values()) for row in result]
+        return result.fetchall()
+
+    def _fetch_top_values(self, col: dict) -> list[dict]:
+        query = self._build_top_values_query(col)
+        try:
+            rows = self._fetchall(self._conn.raw_sql(query))  # type: ignore[union-attr]
+            return [
+                {"value": self._json_safe_value(r[0]), "count": int(r[1])}
+                for r in rows
+                if r[0] is not None and r[0] != ""
+            ]
+        except Exception:
+            return []
+
+    # ─── parsing ──────────────────────────────────────────────────────────────
+
+    def _parse_profiling_row(self, row, col: dict, total_count: int) -> dict[str, Any]:
+        col_type = self._normalize_type(col["type"])
+        is_numeric = self._is_numeric_stats_column(col)
+        is_date = any(t in col_type.lower() for t in ("date", "timestamp", "time"))
+
+        null_count = int(row[0] or 0)
+        distinct_count = int(row[1] or 0)
+
+        profile: dict[str, Any] = {
+            "column": col["name"],
+            "type": col_type,
+            "total_count": total_count,
+            "null_count": null_count,
+            "null_percentage": round(null_count / total_count * 100, 2) if total_count else None,
+            "distinct_count": distinct_count,
+        }
+
+        if is_date:
+            if row[2] is not None:
+                profile["min"] = self._format_date_value(row[2])
+            if row[3] is not None:
+                profile["max"] = self._format_date_value(row[3])
+        if is_numeric:
+            if row[2] is not None:
+                profile["min"] = str(row[2]) if is_date else row[2]
+            if row[3] is not None:
+                profile["max"] = str(row[3]) if is_date else row[3]
+            if row[4] is not None:
+                profile["mean"] = round(float(row[4]), 4)
+            if row[5] is not None:
+                profile["stddev"] = round(float(row[5]), 4)
+
+        return profile
+
+    def _format_date_value(self, val):
+        if val is None:
+            return None
+        if hasattr(val, "item"):
+            try:
+                val = val.item()
+            except Exception:
+                pass
+        if isinstance(val, date):
+            return f"{val.isoformat()} 00:00:00"
+        try:
+            return parse(str(val)).isoformat()
+        except Exception:
+            return str(val)
+
+    # ─── type helpers ─────────────────────────────────────────────────────────
 
     @staticmethod
     def _normalize_type(col_type: str) -> str:
@@ -176,31 +272,11 @@ class DatabaseContext:
         return normalized
 
     @staticmethod
-    def _is_numeric_type(col_type: str) -> bool:
-        lowered = col_type.lower()
-        return any(t in lowered for t in ("int", "float", "decimal", "numeric", "double"))
-
-    @staticmethod
-    def _is_integer_type(col_type: str) -> bool:
-        lowered = col_type.lower()
-        return "int" in lowered and not any(t in lowered for t in ("float", "double", "decimal", "numeric"))
-
-    @staticmethod
-    def _stddev_pop(expr) -> float | None:
-        mean_value = expr.mean().execute()
-        if mean_value is None:
-            return None
-        diff = expr - ibis.literal(float(mean_value))
-        var_value = (diff * diff).mean().execute()
-        if var_value is None:
-            return None
-        return math.sqrt(float(var_value))
-
-    @staticmethod
-    def _round_or_none(value: float | None, digits: int) -> float | None:
-        if value is None:
-            return None
-        return round(float(value), digits)
+    def _is_numeric_stats_column(col: dict) -> bool:
+        col_type = col["type"]
+        is_numeric = any(t in col_type.lower() for t in ("int", "float", "decimal", "numeric", "double"))
+        is_integer = any(t in col_type.lower() for t in ("int", "integer"))
+        return is_numeric and not (is_integer and col["name"].lower().endswith("_id") and col["name"].lower() != "id")
 
     @staticmethod
     def _json_safe_value(value: Any) -> Any:
