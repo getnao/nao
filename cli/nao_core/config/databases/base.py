@@ -79,11 +79,12 @@ class DatabaseConfig(BaseModel, ABC):
             DatabaseAccessor.COLUMNS,
             DatabaseAccessor.DESCRIPTION,
             DatabaseAccessor.PREVIEW,
+            DatabaseAccessor.PROFILING,
         ],
         description=(
             "Which default templates to render per table "
             "(e.g., ['columns', 'description', 'ai_summary']). "
-            "Defaults to ['columns', 'description', 'preview']."
+            "Defaults to ['columns', 'description', 'preview', 'profiling']."
         ),
     )
     profiling: ProfilingConfig = Field(
