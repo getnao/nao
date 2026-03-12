@@ -61,6 +61,7 @@ function UsagePage() {
 					series={[
 						{ data_key: 'webMessageCount', color: 'var(--chart-1)', label: 'Web' },
 						{ data_key: 'slackMessageCount', color: 'var(--chart-2)', label: 'Slack' },
+						{ data_key: 'teamsMessageCount', color: 'var(--chart-3)', label: 'Teams' },
 					]}
 					filters={filtersComponent}
 				/>

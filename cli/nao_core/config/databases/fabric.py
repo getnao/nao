@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import struct
 from enum import Enum
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
-import pyodbc
-from azure.identity import AzureCliCredential, InteractiveBrowserCredential
+if TYPE_CHECKING:
+    from azure.identity import AzureCliCredential, InteractiveBrowserCredential
+
 from ibis import BaseBackend
-from ibis.backends.mssql import Backend as MSSQLBackend
 from pydantic import Field, model_validator
 
 from nao_core.config.exceptions import InitError
@@ -56,6 +56,8 @@ def _odbc_escape(value: str) -> str:
 def _detect_fabric_driver() -> str:
     """Pick the best available Microsoft ODBC driver."""
     try:
+        import pyodbc
+
         preferred = ["ODBC Driver 18 for SQL Server", "ODBC Driver 17 for SQL Server"]
         installed = set(pyodbc.drivers())
         for driver in preferred:
@@ -199,16 +201,23 @@ class FabricConfig(DatabaseConfig):
         sql_password and azure_service_principal use a standard ODBC connection string.
         """
         if self.auth_mode == FabricAuthMode.AZURE_CLI:
+            from azure.identity import AzureCliCredential
+
             return self._connect_via_aad_token_injection(
                 AzureCliCredential(), "Azure CLI: fetching token from 'az login' credentials."
             )
         if self.auth_mode == FabricAuthMode.AZURE_INTERACTIVE:
+            from azure.identity import InteractiveBrowserCredential
+
             # ActiveDirectoryInteractive in the ODBC driver doesn't open a browser on macOS.
             # Use InteractiveBrowserCredential from azure-identity instead, which handles
             # browser-based auth correctly cross-platform, then inject the token directly.
             return self._connect_via_aad_token_injection(
                 InteractiveBrowserCredential(), "Azure Interactive: a browser window will open for authentication."
             )
+
+        import pyodbc
+        from ibis.backends.mssql import Backend as MSSQLBackend
 
         conn = pyodbc.connect(self.build_odbc_string())
         return MSSQLBackend.from_connection(conn)
@@ -227,6 +236,9 @@ class FabricConfig(DatabaseConfig):
 
         token = credential.get_token("https://database.windows.net/.default")
         token_struct = _encode_access_token(token.token)
+
+        import pyodbc
+        from ibis.backends.mssql import Backend as MSSQLBackend
 
         conn = pyodbc.connect(";".join(self._base_odbc_parts()), attrs_before={_SQL_COPT_SS_ACCESS_TOKEN: token_struct})
         return MSSQLBackend.from_connection(conn)
