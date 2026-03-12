@@ -300,6 +300,16 @@ class RedshiftConfig(DatabaseConfig):
         """Create a Redshift-specific database context that avoids pg_enum queries."""
         return RedshiftDatabaseContext(conn, schema, table_name)
 
+    def get_query_history_sql(self, days: int) -> str | None:
+        return (
+            f"SELECT querytxt AS query_text "
+            f"FROM stl_query "
+            f"WHERE starttime >= DATEADD(day, -{days}, GETDATE()) "
+            f"AND aborted = 0 "
+            f"ORDER BY starttime DESC "
+            f"LIMIT 10000"
+        )
+
     def check_connection(self) -> tuple[bool, str]:
         """Test connectivity to Redshift."""
         conn = None

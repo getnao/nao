@@ -2121,6 +2121,7 @@ dependencies = [
     { name = "questionary" },
     { name = "rich" },
     { name = "snowflake-connector-python", extra = ["secure-local-storage"] },
+    { name = "sqlglot" },
     { name = "sshtunnel" },
     { name = "uvicorn" },
 ]
@@ -2162,6 +2163,7 @@ requires-dist = [
     { name = "questionary", specifier = ">=2.1.0" },
     { name = "rich", specifier = ">=14.0.0" },
     { name = "snowflake-connector-python", extras = ["secure-local-storage"], specifier = ">=4.2.0" },
+    { name = "sqlglot", specifier = ">=26.0.0" },
     { name = "sshtunnel", specifier = ">=0.4.0" },
     { name = "uvicorn", specifier = ">=0.40.0" },
 ]

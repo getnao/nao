@@ -136,6 +136,17 @@ class DatabricksConfig(DatabaseConfig):
     def create_context(self, conn: BaseBackend, schema: str, table_name: str) -> DatabricksDatabaseContext:
         return DatabricksDatabaseContext(conn, schema, table_name)
 
+    def get_query_history_sql(self, days: int) -> str | None:
+        return (
+            f"SELECT statement AS query_text "
+            f"FROM system.query.history "
+            f"WHERE start_time >= DATEADD(day, -{days}, CURRENT_TIMESTAMP()) "
+            f"AND status = 'FINISHED' "
+            f"AND statement_type = 'SELECT' "
+            f"ORDER BY start_time DESC "
+            f"LIMIT 10000"
+        )
+
     def check_connection(self) -> tuple[bool, str]:
         """Test connectivity to Databricks."""
         conn = None

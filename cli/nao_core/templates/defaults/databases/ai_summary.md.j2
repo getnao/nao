@@ -4,7 +4,7 @@
 
   Requirements:
     - nao_config.yaml must contain an `llm` section with provider + credentials.
-    - `db.accessors` must include `ai_summary` for this template to render.
+    - `db.templates` must include `ai_summary` for this template to render.
 #}
 {% set columns = db.columns() %}
 {% set table_description = db.description() %}

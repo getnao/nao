@@ -7,7 +7,7 @@ from enum import Enum
 import pandas as pd
 import questionary
 from ibis import BaseBackend
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class DatabaseType(str, Enum):
@@ -30,17 +30,24 @@ class DatabaseType(str, Enum):
         return [questionary.Choice(db.value.capitalize(), value=db.value) for db in cls]
 
 
-class DatabaseAccessor(str, Enum):
-    """Available default template accessors for database sync."""
+class DatabaseTemplate(str, Enum):
+    """Available default templates for database sync."""
 
     COLUMNS = "columns"
     DESCRIPTION = "description"
     PREVIEW = "preview"
     AI_SUMMARY = "ai_summary"
+    HOW_TO_USE = "how_to_use"
+
+
+# Backward-compatible alias
+DatabaseAccessor = DatabaseTemplate
 
 
 class DatabaseConfig(BaseModel, ABC):
     """Base configuration for all database backends."""
+
+    model_config = ConfigDict(populate_by_name=True)
 
     type: str  # Narrowed to Literal in each subclass for discriminated union
     name: str = Field(description="A friendly name for this connection")
@@ -53,11 +60,11 @@ class DatabaseConfig(BaseModel, ABC):
         default_factory=list,
         description="Glob patterns for schemas/tables to exclude (e.g., 'temp_*.*', '*.backup_*')",
     )
-    accessors: list[DatabaseAccessor] = Field(
+    templates: list[DatabaseTemplate] = Field(
         default_factory=lambda: [
-            DatabaseAccessor.COLUMNS,
-            DatabaseAccessor.DESCRIPTION,
-            DatabaseAccessor.PREVIEW,
+            DatabaseTemplate.COLUMNS,
+            DatabaseTemplate.DESCRIPTION,
+            DatabaseTemplate.PREVIEW,
         ],
         description=(
             "Which default templates to render per table "
@@ -65,6 +72,18 @@ class DatabaseConfig(BaseModel, ABC):
             "Defaults to ['columns', 'description', 'preview']."
         ),
     )
+    query_history_days: int | None = Field(
+        default=None,
+        description="Number of days to look back for query history (used by how_to_use template).",
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_accessors_to_templates(cls, data: dict) -> dict:
+        """Accept legacy 'accessors' key as an alias for 'templates'."""
+        if isinstance(data, dict) and "accessors" in data and "templates" not in data:
+            data["templates"] = data.pop("accessors")
+        return data
 
     @classmethod
     @abstractmethod
@@ -137,6 +156,15 @@ class DatabaseConfig(BaseModel, ABC):
         from nao_core.config.databases.context import DatabaseContext
 
         return DatabaseContext(conn, schema, table_name)
+
+    def get_query_history_sql(self, days: int) -> str | None:
+        """Return SQL to fetch query history for the last N days.
+
+        The query must return rows with at least a `query_text` column.
+        Override in subclasses that support query history introspection.
+        Returns None if query history is not supported.
+        """
+        return None
 
     def _get_empty_credentials(self) -> list[str]:
         """Get list of empty credential fields that typically cause connection failures."""

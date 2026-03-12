@@ -11,7 +11,7 @@ from rich.console import Console
 
 from nao_core.ui import UI, ask_confirm, ask_select
 
-from .databases import DATABASE_CONFIG_CLASSES, AnyDatabaseConfig, DatabaseAccessor, DatabaseType, parse_database_config
+from .databases import DATABASE_CONFIG_CLASSES, AnyDatabaseConfig, DatabaseTemplate, DatabaseType, parse_database_config
 from .error_handler import format_all_validation_errors
 from .llm import LLMConfig
 from .mcp import McpConfig
@@ -60,7 +60,7 @@ class NaoConfig(BaseModel):
 
         databases = cls._prompt_databases()
         llm, enable_ai_summary = cls._prompt_llm(databases=databases)
-        databases = cls._configure_ai_summary_accessors(databases, llm, enable_ai_summary)
+        databases = cls._configure_ai_summary_templates(databases, llm, enable_ai_summary)
 
         return cls(
             project_name=project_name,
@@ -107,7 +107,7 @@ class NaoConfig(BaseModel):
         repos.extend(cls._prompt_repos(has_existing=bool(existing.repos)))
 
         if llm:
-            enable_ai_summary = cls._prompt_enable_ai_summary_accessors(databases)
+            enable_ai_summary = cls._prompt_enable_ai_summary_templates(databases)
         else:
             llm, enable_ai_summary = cls._prompt_llm(databases=databases)
 
@@ -123,7 +123,7 @@ class NaoConfig(BaseModel):
         if not skills:
             skills = cls._prompt_skills(existing.project_name)
 
-        databases = cls._configure_ai_summary_accessors(databases, llm, enable_ai_summary)
+        databases = cls._configure_ai_summary_templates(databases, llm, enable_ai_summary)
 
         return cls(
             project_name=existing.project_name,
@@ -184,31 +184,31 @@ class NaoConfig(BaseModel):
     def _prompt_llm(databases: list[AnyDatabaseConfig] | None = None) -> tuple[LLMConfig | None, bool]:
         """Prompt for LLM configuration and optional ai_summary settings."""
         if ask_confirm("Set up LLM configuration?", default=True):
-            enable_ai_summary = NaoConfig._prompt_enable_ai_summary_accessors(databases or [])
+            enable_ai_summary = NaoConfig._prompt_enable_ai_summary_templates(databases or [])
             return LLMConfig.promptConfig(prompt_annotation_model=enable_ai_summary), enable_ai_summary
         return None, False
 
     @staticmethod
-    def _prompt_enable_ai_summary_accessors(databases: list[AnyDatabaseConfig]) -> bool:
+    def _prompt_enable_ai_summary_templates(databases: list[AnyDatabaseConfig]) -> bool:
         """Prompt whether ai_summary should be enabled for configured databases."""
         if not databases:
             return False
 
-        return ask_confirm("Enable `ai_summary` accessor for all configured databases?", default=True)
+        return ask_confirm("Enable `ai_summary` template for all configured databases?", default=True)
 
     @staticmethod
-    def _configure_ai_summary_accessors(
+    def _configure_ai_summary_templates(
         databases: list[AnyDatabaseConfig],
         llm: LLMConfig | None,
         enable_ai_summary: bool,
     ) -> list[AnyDatabaseConfig]:
-        """Enable ai_summary accessor for configured databases when requested."""
+        """Enable ai_summary template for configured databases when requested."""
         if not databases or llm is None or not enable_ai_summary:
             return databases
 
         for db in databases:
-            if DatabaseAccessor.AI_SUMMARY not in db.accessors:
-                db.accessors.append(DatabaseAccessor.AI_SUMMARY)
+            if DatabaseTemplate.AI_SUMMARY not in db.templates:
+                db.templates.append(DatabaseTemplate.AI_SUMMARY)
 
         return databases
 

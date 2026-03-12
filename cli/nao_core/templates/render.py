@@ -60,7 +60,7 @@ def discover_templates(
     """
     if exclude_dirs is None:
         exclude_dirs = {
-            "templates",  # Don't process accessor template overrides
+            "templates",  # Don't process database template overrides
             ".git",
             ".venv",
             "venv",

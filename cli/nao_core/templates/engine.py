@@ -96,7 +96,7 @@ class TemplateEngine:
             raise RuntimeError(
                 "ai_summary generation requires an `llm` config in nao_config.yaml. "
                 "Configure `llm.provider`, `llm.api_key` (except ollama), and optionally "
-                "`llm.annotation_model`, or disable the `ai_summary` accessor."
+                "`llm.annotation_model`, or disable the `ai_summary` template."
             )
 
         if self.llm_config.provider != LLMProvider.OLLAMA and not self.llm_config.api_key:
