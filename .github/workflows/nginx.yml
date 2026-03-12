@@ -33,9 +33,13 @@ jobs:
                   username: github-actions-demo
                   key: ${{ secrets.PRIVATE_KEY }}
                   script: |
+                      # Ensure preview config directory exists
+                      mkdir -p /home/github-actions-demo/nginx/preview.d
+
                       docker rm -f nginx 2>/dev/null || true
                       docker run --name nginx -d --net=host \
                         -v /home/github-actions-demo/nginx/nginx.conf:/etc/nginx/conf.d/nginx.conf:ro \
+                        -v /home/github-actions-demo/nginx/preview.d:/etc/nginx/preview.d:ro \
                         -v /etc/letsencrypt:/etc/letsencrypt \
                         -v /var/lib/letsencrypt:/var/lib/letsencrypt \
                         nginx:1.19.0
