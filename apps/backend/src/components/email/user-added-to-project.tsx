@@ -1,9 +1,20 @@
-import { EmailData } from '../../types/email';
 import { EmailButton } from './email-button';
 import { EmailLayout } from './email-layout';
 import { WarningBox } from './warning-box';
 
-export function UserAddedToProjectEmail({ userName, projectName, loginUrl, to, temporaryPassword }: EmailData) {
+export function UserAddedToProject({
+	userName,
+	projectName,
+	loginUrl,
+	to,
+	temporaryPassword,
+}: {
+	userName: string;
+	projectName?: string;
+	loginUrl: string;
+	to: string;
+	temporaryPassword?: string;
+}) {
 	const isNewUser = !!temporaryPassword;
 
 	return (

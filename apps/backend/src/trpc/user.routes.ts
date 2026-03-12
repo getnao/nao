@@ -5,7 +5,7 @@ import { z } from 'zod/v4';
 import * as memoryQueries from '../queries/memory';
 import * as projectQueries from '../queries/project.queries';
 import * as userQueries from '../queries/user.queries';
-import { emailService } from '../services/email.service';
+import { emailService } from '../services/email';
 import { adminProtectedProcedure, projectProtectedProcedure, protectedProcedure, publicProcedure } from './trpc';
 
 export const userRoutes = {
@@ -96,7 +96,7 @@ export const userRoutes = {
 					},
 				);
 
-				await emailService.safeSendEmail({
+				await emailService.sendEmail({
 					user: newUser,
 					type: 'createUser',
 					projectName: ctx.project?.name,
@@ -124,7 +124,7 @@ export const userRoutes = {
 				role: 'user',
 			});
 
-			await emailService.safeSendEmail({
+			await emailService.sendEmail({
 				user,
 				type: 'createUser',
 				projectName: ctx.project?.name,

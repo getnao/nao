@@ -1,24 +1,18 @@
 import { User } from 'better-auth';
 
-interface CreatedEmailData {
+interface CreatedEmail {
 	subject: string;
 	html: string;
-	text: string;
 }
 
-interface SendEmailParams {
+interface SendEmail {
 	user: User;
-	type: 'createUser' | 'resetPassword';
+	type: 'createUser' | 'resetPassword' | 'sharedStory';
 	projectName?: string;
 	temporaryPassword?: string;
+	sharerName?: string;
+	storyTitle?: string;
+	storyUrl?: string;
 }
 
-interface EmailData {
-	to?: string;
-	userName: string;
-	projectName?: string;
-	temporaryPassword?: string;
-	loginUrl: string;
-}
-
-export { CreatedEmailData, EmailData, SendEmailParams };
+export { CreatedEmail, SendEmail };
