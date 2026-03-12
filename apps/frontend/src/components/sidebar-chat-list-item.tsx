@@ -58,6 +58,12 @@ export function ChatListItem({ chat }: Props) {
 						chats: prev.chats.map((c) => (c.id === vars.chatId ? { ...c, title: vars.title } : c)),
 					};
 				});
+				ctx.client.setQueryData(trpc.chat.get.queryKey({ chatId: vars.chatId }), (prev) => {
+					if (!prev) {
+						return prev;
+					}
+					return { ...prev, title: vars.title };
+				});
 			},
 			onSettled: () => {
 				setIsRenaming(false);

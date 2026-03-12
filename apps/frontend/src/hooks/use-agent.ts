@@ -79,6 +79,15 @@ export const useAgent = (): AgentHelpers => {
 				return;
 			}
 
+			if (dataPart.type === 'data-chatTitleUpdate') {
+				const { title } = dataPart.data;
+				setChat({ chatId: agentId }, (prev) => (prev ? { ...prev, title } : prev));
+				setChatList((old) => ({
+					chats: (old?.chats ?? []).map((c) => (c.id === agentId ? { ...c, title } : c)),
+				}));
+				return;
+			}
+
 			if (dataPart.type === 'data-newUserMessage') {
 				const { newId } = dataPart.data;
 				const lastUserMessageIndex = getLastUserMessageIdx(agent.messages);

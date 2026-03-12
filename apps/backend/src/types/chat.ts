@@ -42,6 +42,8 @@ export type UITools = InferUITools<typeof tools>;
 export type MessageCustomDataParts = {
 	/** Sent when a new chat is created */
 	newChat: ChatListItem;
+	/** Sent when an LLM-generated title replaces the initial placeholder */
+	chatTitleUpdate: { title: string };
 	/** Maps the client-generated user message ID to the server-generated one */
 	newUserMessage: { newId: string };
 	/** Sent when conversation compaction is triggered */
