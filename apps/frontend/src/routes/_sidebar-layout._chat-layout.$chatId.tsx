@@ -58,7 +58,7 @@ export function RouteComponent() {
 					<MobileHeader chatId={chatId} title={title} />
 
 					{title && (
-						<div className='absolute top-3 left-3 z-10 min-w-[240px] max-w-[60%] max-md:hidden'>
+						<div className='absolute top-3 left-4 z-10 min-w-[220px] max-w-[60%] max-md:hidden'>
 							<EditableChatTitle
 								chatId={chatId}
 								title={title}
@@ -72,8 +72,8 @@ export function RouteComponent() {
 					</div>
 
 					<div className='absolute inset-x-0 top-0 z-[5] pointer-events-none max-md:hidden'>
-						<div className='h-11 bg-panel' />
-						<div className='h-4 bg-gradient-to-b from-panel to-transparent' />
+						<div className='h-10 bg-panel' />
+						<div className='h-3 bg-gradient-to-b from-panel to-transparent' />
 					</div>
 
 					{isLoadingMessages ? (

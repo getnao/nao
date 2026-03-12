@@ -46,7 +46,7 @@ export function ChatMessages() {
 
 	return (
 		<div
-			className={cn('h-full min-h-0 flex', !fromMessageSend && 'animate-fade-in')}
+			className={cn('mt-6 h-full min-h-0 flex', !fromMessageSend && 'animate-fade-in')}
 			ref={contentRef}
 			style={{ '--container-height': `${containerHeight}px` } as React.CSSProperties}
 			key={chatId}
