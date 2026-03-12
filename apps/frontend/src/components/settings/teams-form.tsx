@@ -1,5 +1,5 @@
 import { useForm } from '@tanstack/react-form';
-import { X } from 'lucide-react';
+import { ExternalLink, X } from 'lucide-react';
 import JSZip from 'jszip';
 import { Button } from '@/components/ui/button';
 import { PasswordField } from '@/components/ui/form-fields';
@@ -122,8 +122,15 @@ export function TeamsForm({
 
 				<div className='grid gap-3'>
 					<p className='text-[11px] text-muted-foreground leading-relaxed'>
-						Enter your Azure Bot credentials. You can find these in your Azure portal under your Bot
-						registration.
+						<a
+							href='https://docs.getnao.io/nao-agent/chat/microsoft_teams'
+							target='_blank'
+							rel='noopener noreferrer'
+							className='inline-flex items-center gap-1 underline hover:text-foreground'
+						>
+							See how to set up the Teams integration
+							<ExternalLink className='size-3' />
+						</a>
 					</p>
 					{messagingEndpointUrl && <CopyableUrl label='Messaging Endpoint URL' url={messagingEndpointUrl} />}
 					<PasswordField
