@@ -235,6 +235,8 @@ class AgentManager {
 		return createUIMessageStream<UIMessage>({
 			generateId: () => crypto.randomUUID(),
 			execute: async ({ writer }) => {
+				writer.write({ type: 'start' });
+
 				if (opts.events?.newChat) {
 					writer.write({
 						type: 'data-newChat',
