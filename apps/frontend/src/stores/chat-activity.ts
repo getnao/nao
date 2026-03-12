@@ -12,7 +12,7 @@ class ChatActivityStore extends SelectorStore<Map<string, ChatActivity>> {
 
 	setRunning(chatId: string, running: boolean) {
 		const current = this.state.get(chatId);
-		if (current?.running === running) {
+		if ((current?.running ?? false) === running) {
 			return;
 		}
 
@@ -27,7 +27,7 @@ class ChatActivityStore extends SelectorStore<Map<string, ChatActivity>> {
 
 	setUnread(chatId: string, unread: boolean) {
 		const current = this.state.get(chatId);
-		if (current?.unread === unread) {
+		if ((current?.unread ?? false) === unread) {
 			return;
 		}
 

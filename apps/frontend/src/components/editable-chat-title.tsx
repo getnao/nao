@@ -11,6 +11,7 @@ interface Props {
 
 export function EditableChatTitle({ chatId, title: currentTitle, className }: Props) {
 	const inputRef = useRef<HTMLInputElement>(null);
+	const submittingRef = useRef(false);
 	const [isEditing, setIsEditing] = useState(false);
 	const [draft, setDraft] = useState(currentTitle);
 
@@ -49,12 +50,17 @@ export function EditableChatTitle({ chatId, title: currentTitle, className }: Pr
 	};
 
 	const submit = async () => {
-		if (!isEditing) {
+		if (!isEditing || submittingRef.current) {
 			return;
 		}
 		const trimmed = draft.trim();
 		if (trimmed && trimmed !== currentTitle) {
-			await renameChat.mutateAsync({ chatId, title: trimmed });
+			submittingRef.current = true;
+			try {
+				await renameChat.mutateAsync({ chatId, title: trimmed });
+			} finally {
+				submittingRef.current = false;
+			}
 		} else {
 			setDraft(currentTitle);
 			setIsEditing(false);
