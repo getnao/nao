@@ -5,14 +5,9 @@ interface CreatedEmail {
 	html: string;
 }
 
-interface SendEmail {
-	user: User;
-	type: 'createUser' | 'resetPassword' | 'sharedStory';
-	projectName?: string;
-	temporaryPassword?: string;
-	sharerName?: string;
-	storyTitle?: string;
-	storyUrl?: string;
-}
+type SendEmail =
+	| { type: 'createUser'; user: User; projectName: string; temporaryPassword?: string }
+	| { type: 'resetPassword'; user: User; projectName: string; temporaryPassword: string }
+	| { type: 'sharedStory'; user: User; sharerName: string; storyTitle: string; storyUrl: string };
 
 export { CreatedEmail, SendEmail };

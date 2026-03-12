@@ -35,7 +35,8 @@ class EmailService {
 			});
 
 			this.enabled = true;
-		} catch {
+		} catch (error) {
+			console.error('❌ Failed to initialize email transporter:', error);
 			this.enabled = false;
 		}
 	}
@@ -66,45 +67,38 @@ class EmailService {
 		}
 	}
 
-	private _createSharedStoryEmail({ user, sharerName, storyTitle, storyUrl }: SendEmail): CreatedEmail {
+	private _createSharedStoryEmail({
+		user,
+		sharerName,
+		storyTitle,
+		storyUrl,
+	}: Extract<SendEmail, { type: 'sharedStory' }>): CreatedEmail {
 		const subject = `${sharerName} shared "${storyTitle}" with you on nao`;
-		const html = renderToString(
-			SharedStory({ userName: user.name, sharerName: sharerName!, storyTitle: storyTitle!, storyUrl: storyUrl! }),
-		);
+		const html = renderToString(SharedStory({ userName: user.name, sharerName, storyTitle, storyUrl }));
 		return { subject, html };
 	}
 
-	private _createUserAddedToProjectEmail({ user, projectName, temporaryPassword }: SendEmail): CreatedEmail {
+	private _createUserAddedToProjectEmail({
+		user,
+		projectName,
+		temporaryPassword,
+	}: Extract<SendEmail, { type: 'createUser' }>): CreatedEmail {
 		const loginUrl = env.BETTER_AUTH_URL || 'http://localhost:3000';
-
 		const subject = `You've been added to ${projectName} on nao`;
-
 		const html = renderToString(
-			UserAddedToProject({
-				userName: user.name,
-				projectName,
-				loginUrl,
-				to: user.email || '',
-				temporaryPassword,
-			}),
+			UserAddedToProject({ userName: user.name, projectName, loginUrl, to: user.email || '', temporaryPassword }),
 		);
-
 		return { subject, html };
 	}
 
-	private _createResetPasswordEmail({ user, projectName, temporaryPassword }: SendEmail): CreatedEmail {
+	private _createResetPasswordEmail({
+		user,
+		projectName,
+		temporaryPassword,
+	}: Extract<SendEmail, { type: 'resetPassword' }>): CreatedEmail {
 		const subject = `Your password on the project ${projectName} has been reset on nao`;
 		const loginUrl = env.BETTER_AUTH_URL || 'http://localhost:3000';
-
-		const html = renderToString(
-			ResetPassword({
-				userName: user.name,
-				temporaryPassword: temporaryPassword!,
-				loginUrl,
-				projectName,
-			}),
-		);
-
+		const html = renderToString(ResetPassword({ userName: user.name, temporaryPassword, loginUrl, projectName }));
 		return { subject, html };
 	}
 }
