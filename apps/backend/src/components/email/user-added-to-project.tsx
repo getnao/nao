@@ -2,19 +2,21 @@ import { EmailButton } from './email-button';
 import { EmailLayout } from './email-layout';
 import { WarningBox } from './warning-box';
 
+interface UserAddedToProjectProps {
+	userName: string;
+	projectName?: string;
+	loginUrl: string;
+	to: string;
+	temporaryPassword?: string;
+}
+
 export function UserAddedToProject({
 	userName,
 	projectName,
 	loginUrl,
 	to,
 	temporaryPassword,
-}: {
-	userName: string;
-	projectName?: string;
-	loginUrl: string;
-	to: string;
-	temporaryPassword?: string;
-}) {
+}: UserAddedToProjectProps) {
 	const isNewUser = !!temporaryPassword;
 
 	return (

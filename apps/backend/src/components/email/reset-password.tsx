@@ -2,17 +2,14 @@ import { EmailButton } from './email-button';
 import { EmailLayout } from './email-layout';
 import { WarningBox } from './warning-box';
 
-export function ResetPassword({
-	userName,
-	temporaryPassword,
-	loginUrl,
-	projectName,
-}: {
+interface ResetPasswordProps {
 	userName: string;
 	temporaryPassword: string;
 	loginUrl: string;
 	projectName?: string;
-}) {
+}
+
+export function ResetPassword({ userName, temporaryPassword, loginUrl, projectName }: ResetPasswordProps) {
 	return (
 		<EmailLayout>
 			<p>Hi {userName},</p>

@@ -1,17 +1,14 @@
 import { EmailButton } from './email-button';
 import { EmailLayout } from './email-layout';
 
-export function SharedStory({
-	userName,
-	sharerName,
-	storyTitle,
-	storyUrl,
-}: {
+interface SharedStoryProps {
 	userName: string;
 	sharerName: string;
 	storyTitle: string;
 	storyUrl: string;
-}) {
+}
+
+export function SharedStory({ userName, sharerName, storyTitle, storyUrl }: SharedStoryProps) {
 	return (
 		<EmailLayout>
 			<p>Hi {userName},</p>
