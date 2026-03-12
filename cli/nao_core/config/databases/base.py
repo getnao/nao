@@ -17,6 +17,7 @@ class DatabaseType(str, Enum):
     BIGQUERY = "bigquery"
     DUCKDB = "duckdb"
     DATABRICKS = "databricks"
+    FABRIC = "fabric"
     SNOWFLAKE = "snowflake"
     MSSQL = "mssql"
     POSTGRES = "postgres"
@@ -88,7 +89,8 @@ class DatabaseConfig(BaseModel, ABC):
                 return cursor.to_dataframe()
 
             columns: list[str] = [desc[0] for desc in cursor.description]
-            return pd.DataFrame(cursor.fetchall(), columns=columns)  # type: ignore[arg-type]
+            rows = [list(row) for row in cursor.fetchall()]
+            return pd.DataFrame(rows, columns=columns)  # type: ignore[arg-type]
         finally:
             conn.disconnect()
 
@@ -136,6 +138,17 @@ class DatabaseConfig(BaseModel, ABC):
 
         return DatabaseContext(conn, schema, table_name)
 
+    def _get_empty_credentials(self) -> list[str]:
+        """Get list of empty credential fields that typically cause connection failures."""
+        empty = []
+        # Check common credential fields
+        for field_name in ("password", "api_key", "access_key", "secret_key", "token", "api_token"):
+            if hasattr(self, field_name):
+                value = getattr(self, field_name)
+                if value is None or (isinstance(value, str) and not value.strip()):
+                    empty.append(field_name)
+        return empty
+
     def check_connection(self) -> tuple[bool, str]:
         """Test connectivity to the database. Override in subclasses for custom behavior."""
         try:
@@ -145,4 +158,12 @@ class DatabaseConfig(BaseModel, ABC):
                 return True, f"Connected successfully ({len(schemas)} schemas found)"
             return True, "Connected successfully"
         except Exception as e:
-            return False, str(e)
+            error_msg = str(e)
+            empty_creds = self._get_empty_credentials()
+            if empty_creds and any(
+                keyword in error_msg.lower()
+                for keyword in ("auth", "password", "credentials", "forbidden", "401", "403", "permission")
+            ):
+                creds_list = ", ".join(f"'{c}'" for c in empty_creds)
+                return False, f"{error_msg} (check if environment variables for {creds_list} are set and non-empty)"
+            return False, error_msg

@@ -29,6 +29,10 @@ const envSchema = z.object({
 	GOOGLE_CLIENT_SECRET: z.string().optional(),
 	GOOGLE_AUTH_DOMAINS: z.string().optional(),
 
+	GITHUB_CLIENT_ID: z.string().optional(),
+	GITHUB_CLIENT_SECRET: z.string().optional(),
+	GITHUB_ALLOWED_USERS: z.string().optional(),
+
 	SMTP_PASSWORD: z.string().optional(),
 	SMTP_HOST: z.string().optional(),
 	SMTP_PORT: z.string().optional(),

@@ -63,7 +63,11 @@ COPY apps/shared ./apps/shared
 FROM python:3.12-slim AS python-builder
 WORKDIR /app
 
-# Install uv for fast dependency management
+# Install uv and unixodbc-dev (required to build pyodbc for FabricConfig)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    unixodbc-dev \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN pip install uv
 
 # Copy cli package (contains nao_core)
@@ -89,6 +93,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     libpq5 \
     supervisor \
+    unixodbc \
     && curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
     && apt-get install -y nodejs \
     && npm install -g bun \

@@ -12,6 +12,7 @@ from nao_core.commands.init import (
     create_empty_structure,
     setup_project_name,
 )
+from nao_core.config import NaoConfigError
 from nao_core.config.exceptions import InitError
 
 
@@ -207,6 +208,23 @@ class TestSetupProjectName:
             setup_project_name()
 
         assert "cancelled" in str(exc_info.value).lower()
+
+    @patch("nao_core.commands.init.ask_confirm")
+    @patch("nao_core.commands.init.NaoConfig.try_load")
+    def test_fails_fast_on_invalid_config_file(self, mock_try_load, mock_confirm, tmp_path: Path, monkeypatch):
+        """Raises InitError when existing config is invalid."""
+        monkeypatch.chdir(tmp_path)
+
+        # Create invalid config file (missing required fields)
+        (tmp_path / "nao_config.yaml").write_text("invalid: yaml\nwithout: project_name\n")
+
+        mock_try_load.side_effect = NaoConfigError("Failed to load nao_config.yaml: validation error")
+
+        with pytest.raises(InitError) as exc_info:
+            setup_project_name()
+
+        assert "invalid nao_config.yaml" in str(exc_info.value)
+        mock_confirm.assert_not_called()
 
 
 class TestNaoConfigPromptDatabases:
@@ -586,15 +604,15 @@ class TestInitCommand:
     @patch("nao_core.commands.init.setup_project_name")
     @patch("nao_core.commands.init.UI")
     def test_init_handles_init_error(self, mock_ui, mock_setup_project_name):
-        """Init command handles InitError gracefully."""
+        """Init command prints error and exits non-zero on InitError."""
         from nao_core.commands.init import init
 
         mock_setup_project_name.side_effect = EmptyProjectNameError()
 
-        # Should not raise, just print error
-        init()
+        with pytest.raises(SystemExit) as exc_info:
+            init()
 
-        # Verify error was printed
+        assert exc_info.value.code == 1
         mock_ui.error.assert_called()
         calls = [str(c) for c in mock_ui.error.call_args_list]
         assert any("cannot be empty" in c for c in calls)

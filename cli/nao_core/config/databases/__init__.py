@@ -7,6 +7,7 @@ from .base import DatabaseAccessor, DatabaseConfig, DatabaseType
 from .bigquery import BigQueryConfig
 from .databricks import DatabricksConfig
 from .duckdb import DuckDBConfig
+from .fabric import FabricConfig
 from .mssql import MssqlConfig
 from .postgres import PostgresConfig
 from .redshift import RedshiftConfig
@@ -22,6 +23,7 @@ AnyDatabaseConfig = Annotated[
         Annotated[AthenaConfig, Tag("athena")],
         Annotated[BigQueryConfig, Tag("bigquery")],
         Annotated[DatabricksConfig, Tag("databricks")],
+        Annotated[FabricConfig, Tag("fabric")],
         Annotated[SnowflakeConfig, Tag("snowflake")],
         Annotated[DuckDBConfig, Tag("duckdb")],
         Annotated[MssqlConfig, Tag("mssql")],
@@ -39,6 +41,7 @@ DATABASE_CONFIG_CLASSES: dict[DatabaseType, type[DatabaseConfig]] = {
     DatabaseType.BIGQUERY: BigQueryConfig,
     DatabaseType.DUCKDB: DuckDBConfig,
     DatabaseType.DATABRICKS: DatabricksConfig,
+    DatabaseType.FABRIC: FabricConfig,
     DatabaseType.MSSQL: MssqlConfig,
     DatabaseType.SNOWFLAKE: SnowflakeConfig,
     DatabaseType.POSTGRES: PostgresConfig,
@@ -71,6 +74,7 @@ __all__ = [
     "DatabaseType",
     "DuckDBConfig",
     "DatabricksConfig",
+    "FabricConfig",
     "MssqlConfig",
     "SnowflakeConfig",
     "PostgresConfig",

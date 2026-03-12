@@ -26,7 +26,7 @@ export function formatSQL(sql: string, dialect: string = 'sql'): string {
 			tabWidth: 2,
 			linesBetweenQueries: 2,
 		});
-	} catch (error) {
+	} catch {
 		// Fallback to original SQL if formatting fails
 		return sql;
 	}

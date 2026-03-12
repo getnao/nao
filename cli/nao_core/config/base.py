@@ -12,6 +12,7 @@ from rich.console import Console
 from nao_core.ui import UI, ask_confirm, ask_select
 
 from .databases import DATABASE_CONFIG_CLASSES, AnyDatabaseConfig, DatabaseAccessor, DatabaseType, parse_database_config
+from .error_handler import format_all_validation_errors
 from .llm import LLMConfig
 from .mcp import McpConfig
 from .notion import NotionConfig
@@ -37,6 +38,8 @@ class NaoConfig(BaseModel):
     slack: SlackConfig | None = Field(default=None, description="The Slack configuration")
     mcp: McpConfig | None = Field(default=None, description="The MCP configuration")
     skills: SkillsConfig | None = Field(default=None, description="The Skills configuration")
+
+    _missing_env_vars: dict[str, None] = {}
 
     @model_validator(mode="before")
     @classmethod
@@ -241,6 +244,10 @@ class NaoConfig(BaseModel):
         """Save the configuration to a YAML file."""
         config_file = path / "nao_config.yaml"
         with config_file.open("w") as f:
+            # Documentation Link
+            f.write("# Configuration documentation:\n")
+            f.write("# https://docs.getnao.io/nao-agent/context-builder/configuration#nao_config-yaml\n\n")
+
             yaml.dump(
                 self.model_dump(mode="json", by_alias=True, exclude_none=True),
                 f,
@@ -254,8 +261,10 @@ class NaoConfig(BaseModel):
         """Load the configuration from a YAML file."""
         config_file = path / "nao_config.yaml"
         content = config_file.read_text()
-        content = cls._process_env_vars(content)
-        data = yaml.safe_load(content)
+        processed_content, env_vars = cls._process_env_vars(content)
+        # Track missing/empty env vars for error reporting
+        cls._missing_env_vars = {k: None for k, v in env_vars.items() if v is None}
+        data = yaml.safe_load(processed_content)
         return cls.model_validate(data)
 
     def get_connection(self, name: str) -> BaseBackend:
@@ -312,10 +321,18 @@ class NaoConfig(BaseModel):
             handle_error(f"Failed to load nao_config.yaml: Invalid YAML syntax: {e}")
             return None
         except ValidationError as e:
-            errors = "; ".join(
-                f"{' → '.join(str(x) for x in err['loc']) or 'config'}: {err['msg']}" for err in e.errors()
-            )
-            handle_error(f"Failed to load nao_config.yaml: {errors}")
+            # Build detailed error message with suggestions
+            main_errors = format_all_validation_errors(e, cls)
+            msg = f"Failed to load nao_config.yaml:\n  • {main_errors}"
+
+            # Add warning about missing env vars if any
+            if cls._missing_env_vars:
+                env_var_warnings = "\n  • ".join(
+                    f"{k} (environment variable not set or empty)" for k in cls._missing_env_vars.keys()
+                )
+                msg += f"\n\nWarning: Missing or empty environment variables:\n  • {env_var_warnings}"
+
+            handle_error(msg)
             return None
         except ValueError as e:
             handle_error(f"Failed to load nao_config.yaml: {e}")
@@ -327,12 +344,21 @@ class NaoConfig(BaseModel):
         return cls.model_json_schema()
 
     @staticmethod
-    def _process_env_vars(content: str) -> str:
-        # Support both ${{ env('VAR') }} and {{ env('VAR') }} formats
+    def _process_env_vars(content: str) -> tuple[str, dict[str, str | None]]:
+        """Support both ${{ env('VAR') }} and {{ env('VAR') }} formats.
+        Returns:
+            Tuple of (processed_content, env_var_status) where env_var_status maps
+            env var names to their values (None if not set or empty)
+        """
         regex = re.compile(r"\$?\{\{\s*env\(['\"]([^'\"]+)['\"]\)\s*\}\}")
+        env_vars: dict[str, str | None] = {}
 
         def replacer(match: re.Match[str]) -> str:
             env_var = match.group(1)
-            return os.environ.get(env_var, "")
+            value = os.environ.get(env_var)
+            # Track the env var and its status (None if not set or empty)
+            env_vars[env_var] = value if value else None
+            return value or ""
 
-        return regex.sub(replacer, content)
+        processed = regex.sub(replacer, content)
+        return processed, env_vars

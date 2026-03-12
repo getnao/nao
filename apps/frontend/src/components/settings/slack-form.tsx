@@ -125,11 +125,22 @@ export function SlackForm({ projectId, redirectUrl, hasProjectConfig, onSubmit, 
 						<X className='size-4' />
 					</Button>
 				</div>
+				<p className='text-[11px] text-muted-foreground leading-relaxed'>
+					<a
+						href='https://docs.getnao.io/nao-agent/chat/slack'
+						target='_blank'
+						rel='noopener noreferrer'
+						className='inline-flex items-center gap-1 underline hover:text-foreground'
+					>
+						See how to set up the Slack integration
+						<ExternalLink className='size-3' />
+					</a>
+				</p>
 
 				{/* Step 1 */}
 				<div className='grid gap-2'>
 					<label htmlFor='deployment-url' className='text-xs font-medium text-foreground'>
-						1. What is your deployment URL?
+						Deployment URL
 					</label>
 					<Input
 						id='deployment-url'
@@ -164,11 +175,6 @@ export function SlackForm({ projectId, redirectUrl, hasProjectConfig, onSubmit, 
 
 				{/* Step 2 */}
 				<div className='grid gap-2'>
-					<p className='text-xs font-medium text-foreground'>2. Create your Slack App</p>
-					<p className='text-[11px] text-muted-foreground leading-relaxed'>
-						Click to open Slack with a pre-filled app manifest — scopes, event subscriptions, and
-						interactivity are configured automatically.
-					</p>
 					<Button type='button' size='sm' variant='outline' disabled={!manifestUrl} asChild>
 						<a href={manifestUrl || undefined} target='_blank' rel='noopener noreferrer'>
 							<ExternalLink className='size-3.5 mr-1.5' />
@@ -179,12 +185,6 @@ export function SlackForm({ projectId, redirectUrl, hasProjectConfig, onSubmit, 
 
 				{/* Step 3 */}
 				<div className='grid gap-3'>
-					<p className='text-xs font-medium text-foreground'>3. Enter your app credentials</p>
-					<p className='text-[11px] text-muted-foreground leading-relaxed'>
-						After creating the app, install it. Then find these in your Slack App settings under{' '}
-						<strong>OAuth &amp; Permissions</strong> (Bot Token) and <strong>Basic Information</strong>{' '}
-						(Signing Secret).
-					</p>
 					<PasswordField form={form} name='botToken' label='Bot Token' placeholder='xoxb-...' required />
 					<PasswordField
 						form={form}

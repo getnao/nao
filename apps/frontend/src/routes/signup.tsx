@@ -5,12 +5,16 @@ import { signUp } from '@/lib/auth-client';
 import { AuthForm, FormTextField } from '@/components/auth-form';
 
 export const Route = createFileRoute('/signup')({
+	validateSearch: (search: Record<string, unknown>) => ({
+		error: typeof search.error === 'string' ? search.error : undefined,
+	}),
 	component: SignUp,
 });
 
 function SignUp() {
 	const navigate = useNavigate();
-	const [serverError, setServerError] = useState<string>();
+	const { error: oauthError } = Route.useSearch();
+	const [serverError, setServerError] = useState<string | undefined>(oauthError);
 
 	const form = useForm({
 		defaultValues: { name: '', email: '', password: '', requiresPasswordReset: false },

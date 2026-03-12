@@ -25,6 +25,19 @@ export const getErrorMessage = (error: unknown): string | null => {
 	return String(error);
 };
 
+export const buildGithubAllowlist = (allowedUsers?: string): Set<string> => {
+	const allowed = new Set<string>();
+	if (allowedUsers) {
+		for (const login of allowedUsers.split(',')) {
+			const trimmed = login.trim();
+			if (trimmed) {
+				allowed.add(trimmed);
+			}
+		}
+	}
+	return allowed;
+};
+
 export const isEmailDomainAllowed = (userEmail: string, authDomains?: string) => {
 	if (authDomains) {
 		const allowedDomains = authDomains.split(',').map((domain) => domain.trim().toLowerCase());
