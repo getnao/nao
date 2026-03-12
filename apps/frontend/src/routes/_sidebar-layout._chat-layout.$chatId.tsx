@@ -58,13 +58,17 @@ export function RouteComponent() {
 					<MobileHeader chatId={chatId} title={title} />
 
 					{title && (
-						<div className='absolute flex items-center gap-4 top-3 left-4 z-10 min-w-[220px] max-w-[60%] max-md:hidden'>
-							<EditableChatTitle
-								chatId={chatId}
-								title={title}
-								className='text-sm text-muted-foreground'
-							/>
-							<StoryOpenButton variant='ghost' />
+						<div className='group/header absolute flex items-center justify-between top-3 inset-x-4 z-10 max-md:hidden'>
+							<div className='min-w-0 max-w-[60%]'>
+								<EditableChatTitle
+									chatId={chatId}
+									title={title}
+									className='text-sm text-muted-foreground'
+								/>
+							</div>
+							<div className='flex items-center gap-2'>
+								<StoryOpenButton variant='ghost' />
+							</div>
 						</div>
 					)}
 

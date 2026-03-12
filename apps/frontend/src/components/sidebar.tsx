@@ -1,5 +1,5 @@
 import { ArrowLeftFromLine, ArrowRightToLine, PlusIcon, ArrowLeft, ChevronRight, SearchIcon, X } from 'lucide-react';
-import { useEffect, useCallback, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useMatchRoute, useRouterState } from '@tanstack/react-router';
 import { ChatList } from './sidebar-chat-list';
 import { SidebarUserMenu } from './sidebar-user-menu';
@@ -222,7 +222,35 @@ function SidebarMenuButton({
 }
 
 function SidebarNav({ chats, isCollapsed }: { chats: ChatListItemType[]; isCollapsed: boolean }) {
-	const [chatsOpen, setChatsOpen] = useState(true);
+	const [starredOpen, setStarredOpen] = useState(() => localStorage.getItem('sidebar-starred-open') !== 'false');
+	const [chatsOpen, setChatsOpen] = useState(() => localStorage.getItem('sidebar-chats-open') !== 'false');
+
+	const toggleStarred = useCallback(() => {
+		setStarredOpen((prev) => {
+			localStorage.setItem('sidebar-starred-open', String(!prev));
+			return !prev;
+		});
+	}, []);
+
+	const toggleChats = useCallback(() => {
+		setChatsOpen((prev) => {
+			localStorage.setItem('sidebar-chats-open', String(!prev));
+			return !prev;
+		});
+	}, []);
+
+	const { starred, regular } = useMemo(() => {
+		const starredChats: ChatListItemType[] = [];
+		const rest: ChatListItemType[] = [];
+		for (const chat of chats) {
+			if (chat.isStarred) {
+				starredChats.push(chat);
+			} else {
+				rest.push(chat);
+			}
+		}
+		return { starred: starredChats, regular: rest };
+	}, [chats]);
 
 	return (
 		<div
@@ -231,22 +259,54 @@ function SidebarNav({ chats, isCollapsed }: { chats: ChatListItemType[]; isColla
 				hideIf(isCollapsed),
 			)}
 		>
+			{starred.length > 0 && (
+				<>
+					<div className='px-2 space-y-0.5'>
+						<SidebarSectionHeader label='Starred' isOpen={starredOpen} onToggle={toggleStarred} />
+					</div>
+					<CollapsibleSection isOpen={starredOpen}>
+						<ChatList chats={starred} className='w-72 flex-none' />
+					</CollapsibleSection>
+				</>
+			)}
+
 			<div className='px-2 space-y-0.5'>
-				<button
-					onClick={() => setChatsOpen((prev) => !prev)}
-					className='group flex items-center gap-2 px-3 py-1.5 text-sm rounded-md transition-colors w-full text-left text-muted-foreground whitespace-nowrap cursor-pointer'
-				>
-					<span>Chats</span>
-					<ChevronRight
-						className={cn(
-							'size-4 shrink-0 transition-[transform,opacity,rotate] duration-200 group-hover:opacity-100',
-							chatsOpen ? 'opacity-100 rotate-90' : 'opacity-0 rotate-0',
-						)}
-					/>
-				</button>
+				<SidebarSectionHeader label='Chats' isOpen={chatsOpen} onToggle={toggleChats} />
 			</div>
 
-			{chatsOpen && <ChatList chats={chats} className='w-72' />}
+			<CollapsibleSection isOpen={chatsOpen}>
+				<ChatList chats={regular} className='w-72' />
+			</CollapsibleSection>
 		</div>
+	);
+}
+
+function CollapsibleSection({ isOpen, children }: { isOpen: boolean; children: React.ReactNode }) {
+	return (
+		<div
+			className={cn(
+				'grid transition-[grid-template-rows,opacity] duration-200 ease-in-out',
+				isOpen ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0',
+			)}
+		>
+			<div className='overflow-hidden'>{children}</div>
+		</div>
+	);
+}
+
+function SidebarSectionHeader({ label, isOpen, onToggle }: { label: string; isOpen: boolean; onToggle: () => void }) {
+	return (
+		<button
+			onClick={onToggle}
+			className='group flex items-center gap-2 px-3 py-1.5 text-sm rounded-md transition-colors w-full text-left text-muted-foreground whitespace-nowrap cursor-pointer'
+		>
+			<span>{label}</span>
+			<ChevronRight
+				className={cn(
+					'size-4 shrink-0 transition-[transform,opacity,rotate] duration-200 group-hover:opacity-100',
+					isOpen ? 'opacity-100 rotate-90' : 'opacity-0 rotate-0',
+				)}
+			/>
+		</button>
 	);
 }

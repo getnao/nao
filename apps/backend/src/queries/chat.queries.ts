@@ -18,12 +18,13 @@ export const listUserChats = async (userId: string): Promise<ListChatResponse> =
 		.select()
 		.from(s.chat)
 		.where(eq(s.chat.userId, userId))
-		.orderBy(desc(s.chat.createdAt))
+		.orderBy(desc(s.chat.updatedAt))
 		.execute();
 	return {
 		chats: chats.map((chat) => ({
 			id: chat.id,
 			title: chat.title,
+			isStarred: chat.isStarred,
 			createdAt: chat.createdAt.getTime(),
 			updatedAt: chat.updatedAt.getTime(),
 		})),
@@ -62,6 +63,7 @@ export const loadChat = async (
 		{
 			id: chatId,
 			title: chat.title,
+			isStarred: chat.isStarred,
 			createdAt: chat.createdAt.getTime(),
 			updatedAt: chat.updatedAt.getTime(),
 			messages,
@@ -217,6 +219,8 @@ export const upsertMessage = async (
 			await t.insert(s.messagePart).values(dbParts).execute();
 		}
 
+		await t.update(s.chat).set({ updatedAt: new Date() }).where(eq(s.chat.id, message.chatId)).execute();
+
 		return { messageId };
 	});
 };
@@ -228,6 +232,10 @@ export const deleteChat = async (chatId: string): Promise<{ projectId: string }>
 		.returning({ projectId: s.chat.projectId })
 		.execute();
 	return result;
+};
+
+export const toggleStarred = async (chatId: string, isStarred: boolean): Promise<void> => {
+	await db.update(s.chat).set({ isStarred }).where(eq(s.chat.id, chatId)).execute();
 };
 
 export const renameChat = async (chatId: string, title: string): Promise<{ projectId: string }> => {

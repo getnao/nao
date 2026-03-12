@@ -12,16 +12,18 @@ export function MobileHeader({ chatId, title }: { chatId?: string; title?: strin
 	}
 
 	return (
-		<div className='flex items-center gap-2 px-3 py-2 shrink-0'>
+		<div className='group/header flex items-center gap-2 px-3 py-2 shrink-0'>
 			<Button variant='ghost' size='icon-md' onClick={openMobile}>
 				<PanelLeft className='size-4' strokeWidth={1.5} />
 			</Button>
 			{chatId && title && (
-				<EditableChatTitle
-					chatId={chatId}
-					title={title}
-					className='text-sm text-muted-foreground min-w-0 flex-1'
-				/>
+				<>
+					<EditableChatTitle
+						chatId={chatId}
+						title={title}
+						className='text-sm text-muted-foreground min-w-0 flex-1'
+					/>
+				</>
 			)}
 			<div className='ml-auto shrink-0'>
 				<StoryOpenButton variant='ghost' />

@@ -15,6 +15,7 @@ import { llmProviderSchema } from './llm';
 export interface UIChat {
 	id: string;
 	title: string;
+	isStarred: boolean;
 	createdAt: number;
 	updatedAt: number;
 	messages: UIMessage[];
@@ -27,6 +28,7 @@ export interface ListChatResponse {
 export interface ChatListItem {
 	id: string;
 	title: string;
+	isStarred: boolean;
 	createdAt: number;
 	updatedAt: number;
 }

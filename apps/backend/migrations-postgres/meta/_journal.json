@@ -169,6 +169,13 @@
       "when": 1773133940694,
       "tag": "0023_added_microsoft_teams",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1773338861347,
+      "tag": "0024_add_favs",
+      "breakpoints": true
     }
   ]
 }
