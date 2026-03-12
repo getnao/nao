@@ -40,7 +40,7 @@ docker exec nginx nginx -s reload 2>/dev/null || echo "  Could not reload nginx"
 
 # Clean up docker images for this PR
 echo "Cleaning up images..."
-docker images --format "{{.Repository}}:{{.Tag}}" | grep "preview:pr-${PR_NUMBER}" | xargs -r docker rmi 2>/dev/null || true
+docker images --format "{{.Repository}}:{{.Tag}}" | grep -F ":pr-${PR_NUMBER}-" | xargs -r docker rmi 2>/dev/null || true
 
 echo ""
 echo "=== Cleanup Complete ==="
