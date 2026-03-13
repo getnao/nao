@@ -28,17 +28,17 @@ export function SidebarUserMenu({ isCollapsed }: SidebarUserMenuProps) {
 				isCollapsed ? 'p-1.5' : 'p-3 py-2',
 			)}
 		>
-			<div className='flex items-center gap-2'>
+			<div className='flex items-center gap-2 min-w-0'>
 				{username && <Avatar username={username} className='shrink-0' />}
 
 				<span
 					className={cn(
-						'flex flex-col justify-center text-left transition-[opacity,visibility] h-8 duration-300',
+						'flex flex-col justify-center text-left transition-[opacity,visibility] h-8 duration-300 min-w-0',
 						hideIf(isCollapsed),
 					)}
 				>
-					<span className='text-sm font-medium'>{username}</span>
-					<span className='text-xs text-muted-foreground'>{email}</span>
+					<span className='text-sm font-medium truncate'>{username}</span>
+					<span className='text-xs text-muted-foreground truncate'>{email}</span>
 				</span>
 			</div>
 		</Link>
