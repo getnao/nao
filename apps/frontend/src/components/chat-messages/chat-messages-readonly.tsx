@@ -1,16 +1,8 @@
 import { memo, useMemo } from 'react';
 import { ThumbsDown, ThumbsUp } from 'lucide-react';
-import { Streamdown } from 'streamdown';
-import { UserMessage } from './user-message';
+import { UserMessageBubble } from './user-message';
 import type { UIMessage } from '@nao/backend/chat';
-import type { GroupedMessagePart } from '@/types/ai';
-import {
-	checkAssistantMessageHasContent,
-	groupMessages,
-	groupToolCalls,
-	isToolGroupPart,
-	isToolUIPart,
-} from '@/lib/ai';
+import { checkAssistantMessageHasContent, groupMessages, groupToolCalls } from '@/lib/ai';
 import { cn } from '@/lib/utils';
 import {
 	Conversation,
@@ -18,11 +10,9 @@ import {
 	ConversationEmptyState,
 	ConversationScrollButton,
 } from '@/components/ui/conversation';
-import { ToolCallsGroup } from '@/components/tool-calls/tool-calls-group';
-import { ToolCall } from '@/components/tool-calls';
-import { AssistantReasoning } from '@/components/chat-messages/assistant-reasoning';
 import { AssistantCompaction } from '@/components/chat-messages/assistant-compaction';
 import { AssistantMessageProvider } from '@/contexts/assistant-message';
+import { MessageParts } from '@/components/chat-messages/assistant-message';
 
 export function ChatMessagesReadonly({ messages, className }: { messages: UIMessage[]; className?: string }) {
 	const messageGroups = useMemo(() => groupMessages(messages), [messages]);
@@ -78,7 +68,11 @@ const MessageBlockReadonly = ({ message, isLastMessage }: { message: UIMessage; 
 };
 
 const UserMessageReadonly = memo(({ message }: { message: UIMessage }) => {
-	return <UserMessage message={message} />;
+	return (
+		<div className='flex flex-col gap-2 items-end w-full'>
+			<UserMessageBubble message={message} />
+		</div>
+	);
 });
 
 const AssistantMessageReadonly = memo(({ message, isLastMessage }: { message: UIMessage; isLastMessage: boolean }) => {
@@ -93,7 +87,7 @@ const AssistantMessageReadonly = memo(({ message, isLastMessage }: { message: UI
 	return (
 		<AssistantMessageProvider isSettled={true}>
 			<div className={cn('group px-3 flex flex-col gap-2 bg-transparent')}>
-				<MessagePartsReadonly parts={messageParts} />
+				<MessageParts parts={messageParts} />
 
 				{message.feedback && (
 					<div
@@ -121,35 +115,4 @@ const AssistantMessageReadonly = memo(({ message, isLastMessage }: { message: UI
 			</div>
 		</AssistantMessageProvider>
 	);
-});
-
-const MessagePartsReadonly = memo(({ parts }: { parts: GroupedMessagePart[] }) => {
-	return parts.map((part, i) => {
-		return <MessagePartReadonly key={i} part={part} />;
-	});
-});
-
-const MessagePartReadonly = memo(({ part }: { part: GroupedMessagePart }) => {
-	if (isToolGroupPart(part)) {
-		return <ToolCallsGroup parts={part.parts} isSettled={true} />;
-	}
-
-	if (isToolUIPart(part)) {
-		return <ToolCall toolPart={part} />;
-	}
-
-	switch (part.type) {
-		case 'text':
-			return (
-				<Streamdown isAnimating={false} mode='static'>
-					{part.text}
-				</Streamdown>
-			);
-		case 'reasoning':
-			return <AssistantReasoning text={part.text} isStreaming={false} />;
-		case 'data-compaction':
-			return <AssistantCompaction part={part.data} />;
-		default:
-			return null;
-	}
 });

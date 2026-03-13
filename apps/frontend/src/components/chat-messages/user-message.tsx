@@ -67,13 +67,40 @@ function useMentionConfigs(): MessageMentionConfig[] {
 	}, [databaseObjects, skills]);
 }
 
+export const UserMessageBubble = memo(({ message }: { message: UIMessage }) => {
+	const text = useMemo(() => getMessageText(message), [message]);
+	const mentionConfigs = useMentionConfigs();
+
+	return (
+		<div className='rounded-2xl px-3 py-2 bg-card text-card-foreground ml-auto max-w-xl'>
+			{message.source === 'slack' && (
+				<span className='flex items-center justify-end gap-1 text-xs text-muted-foreground mb-2'>
+					<SlackIcon className='size-3.5' />
+					sent in Slack
+				</span>
+			)}
+			{message.source === 'teams' && (
+				<span className='flex items-center justify-end gap-1 text-xs text-muted-foreground mb-2'>
+					<TeamsIcon className='size-4' />
+					sent in Teams
+				</span>
+			)}
+			<Message
+				value={text}
+				mentionConfigs={mentionConfigs}
+				theme={messageTheme}
+				className='flex items-center justify-end'
+			/>
+		</div>
+	);
+});
+
 export const UserMessage = memo(({ message }: { message: UIMessage }) => {
 	const { isRunning, editMessage } = useAgentContext();
 	const { isCopied, copy } = useCopyToClipboard();
 	const isEditing = useIsEditingMessage(message.id);
 	const editContainerRef = useRef<HTMLDivElement>(null);
 	const text = useMemo(() => getMessageText(message), [message]);
-	const mentionConfigs = useMentionConfigs();
 
 	useClickOutside(
 		{
@@ -102,26 +129,7 @@ export const UserMessage = memo(({ message }: { message: UIMessage }) => {
 
 	return (
 		<div className='group flex flex-col gap-2 items-end w-full'>
-			<div className={cn('rounded-2xl px-3 py-2 bg-card text-card-foreground ml-auto max-w-xl')}>
-				{message.source === 'slack' && (
-					<span className='flex items-center justify-end gap-1 text-xs text-muted-foreground mb-2'>
-						<SlackIcon className='size-3.5' />
-						sent in Slack
-					</span>
-				)}
-				{message.source === 'teams' && (
-					<span className='flex items-center justify-end gap-1 text-xs text-muted-foreground mb-2'>
-						<TeamsIcon className='size-4' />
-						sent in Teams
-					</span>
-				)}
-				<Message
-					value={text}
-					mentionConfigs={mentionConfigs}
-					theme={messageTheme}
-					className='flex items-center justify-end'
-				/>
-			</div>
+			<UserMessageBubble message={message} />
 
 			<div className='flex items-center gap-2'>
 				<div
