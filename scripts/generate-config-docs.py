@@ -407,6 +407,14 @@ def push_to_docs_repo(md_content: str, schema_json: str) -> None:
         schema_file.write_text(schema_json)
 
         _run(["git", "add", "-A"], cwd=tmp_path)
+
+        status = subprocess.run(
+            ["git", "diff", "--cached", "--quiet"], cwd=tmp_path
+        )
+        if status.returncode == 0:
+            print("Nothing to commit — docs are already up to date.")
+            return
+
         _run(["git", "commit", "-m", "docs: update configuration reference"], cwd=tmp_path)
         _run(["git", "push", "-u", "origin", branch], cwd=tmp_path)
 
