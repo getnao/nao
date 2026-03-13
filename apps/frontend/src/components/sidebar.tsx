@@ -18,7 +18,6 @@ import { useSidebar } from '@/contexts/sidebar';
 import { useCommandMenuCallback } from '@/contexts/command-menu-callback';
 import { useSectionActivity } from '@/hooks/use-chat-activity';
 import NaoLogo from '@/components/icons/nao-logo.svg';
-import NaoLogoGreyscale from '@/components/icons/nao-logo-greyscale.svg';
 import { trpc } from '@/main';
 
 export function Sidebar() {

@@ -25,9 +25,15 @@ export const useSectionActivity = (chatIds: string[]): ChatActivity => {
 		let unread = false;
 		for (const id of chatIds) {
 			const a = chatActivityStore.getActivity(id);
-			if (a.running) running = true;
-			if (a.unread) unread = true;
-			if (running && unread) break;
+			if (a.running) {
+				running = true;
+			}
+			if (a.unread) {
+				unread = true;
+			}
+			if (running && unread) {
+				break;
+			}
 		}
 		return (running ? 1 : 0) | (unread ? 2 : 0);
 	}, [idsKey]); // eslint-disable-line react-hooks/exhaustive-deps

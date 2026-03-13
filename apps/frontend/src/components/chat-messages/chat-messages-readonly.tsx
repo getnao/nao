@@ -1,12 +1,11 @@
 import { memo, useMemo } from 'react';
 import { ThumbsDown, ThumbsUp } from 'lucide-react';
 import { Streamdown } from 'streamdown';
+import { UserMessage } from './user-message';
 import type { UIMessage } from '@nao/backend/chat';
-
 import type { GroupedMessagePart } from '@/types/ai';
 import {
 	checkAssistantMessageHasContent,
-	getMessageText,
 	groupMessages,
 	groupToolCalls,
 	isToolGroupPart,
@@ -23,7 +22,6 @@ import { ToolCallsGroup } from '@/components/tool-calls/tool-calls-group';
 import { ToolCall } from '@/components/tool-calls';
 import { AssistantReasoning } from '@/components/chat-messages/assistant-reasoning';
 import { AssistantCompaction } from '@/components/chat-messages/assistant-compaction';
-import SlackIcon from '@/components/icons/slack.svg';
 import { AssistantMessageProvider } from '@/contexts/assistant-message';
 
 export function ChatMessagesReadonly({ messages, className }: { messages: UIMessage[]; className?: string }) {
@@ -80,20 +78,7 @@ const MessageBlockReadonly = ({ message, isLastMessage }: { message: UIMessage; 
 };
 
 const UserMessageReadonly = memo(({ message }: { message: UIMessage }) => {
-	const text = useMemo(() => getMessageText(message), [message]);
-	return (
-		<div className='group flex flex-col gap-2'>
-			<div className={cn('rounded-2xl mt-2 px-3 py-2 bg-card text-card-foreground ml-auto max-w-xl border')}>
-				{message.source === 'slack' && (
-					<span className='flex items-center justify-end gap-1 text-xs text-muted-foreground'>
-						<SlackIcon className='size-3.5' />
-						sent in Slack
-					</span>
-				)}
-				<span className='whitespace-pre-wrap wrap-break-word'>{text}</span>
-			</div>
-		</div>
-	);
+	return <UserMessage message={message} />;
 });
 
 const AssistantMessageReadonly = memo(({ message, isLastMessage }: { message: UIMessage; isLastMessage: boolean }) => {
