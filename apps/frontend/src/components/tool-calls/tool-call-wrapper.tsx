@@ -92,6 +92,7 @@ export const ToolCallWrapper = ({
 		<div
 			onMouseEnter={() => setIsHovering(true)}
 			onMouseLeave={() => setIsHovering(false)}
+			className={cn(isBordered && '-mx-3')}
 			{...(hasError && { 'data-replay-nav': 'tool-error' })}
 		>
 			<Expandable
@@ -104,7 +105,6 @@ export const ToolCallWrapper = ({
 				leadingIcon={statusIcon}
 				variant={isBordered ? 'bordered' : 'inline'}
 				trailingContent={actionsContent}
-				className={cn(isBordered && '-mx-3')}
 			>
 				{contentToShow}
 			</Expandable>

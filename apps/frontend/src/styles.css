@@ -343,7 +343,7 @@ code {
 }
 
 .replay-nav-highlight {
-	@apply rounded-md ring-2 ring-primary ring-offset-2;
+	@apply rounded-xl ring-2 ring-primary ring-offset-2 -mx-3;
 	--tw-ring-offset-color: var(--background);
 }
 

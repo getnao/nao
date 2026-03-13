@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { getCoreRowModel, useReactTable } from '@tanstack/react-table';
 import type { ColumnFiltersState, PaginationState, SortingState, VisibilityState } from '@tanstack/react-table';
 
@@ -65,7 +65,10 @@ export function ChatsReplayPage() {
 		};
 	}, [columnFilters, globalFilter, pagination.pageIndex, pagination.pageSize, sorting]);
 
-	const projectChatsQuery = useQuery(trpc.project.getProjectChats.queryOptions(queryInput));
+	const projectChatsQuery = useQuery({
+		...trpc.project.getProjectChats.queryOptions(queryInput),
+		placeholderData: keepPreviousData,
+	});
 	const chats = projectChatsQuery.data?.chats ?? [];
 	const total = projectChatsQuery.data?.total ?? 0;
 	const defaultToolStateFacet = { noToolsUsed: 0, toolsNoErrors: 0, toolsWithErrors: 0 };
