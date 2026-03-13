@@ -101,7 +101,7 @@ export function ChatsReplayPage() {
 		<div className='flex w-full h-full min-h-0'>
 			{!isPanelOpen ? (
 				<div className={cn('w-full h-full min-w-0 min-h-0 flex flex-col transition-all duration-200 p-4')}>
-					<div className='flex flex-col md:p-4 max-w-4xl mx-16'>
+					<div className='flex flex-col md:p-4 max-w-4xl'>
 						<h2 className='text-foreground font-semibold text-xl'>Chats Replay</h2>
 						<p className='text-muted-foreground text-sm'>
 							Browse chats across the organization and replay them.

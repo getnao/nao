@@ -30,6 +30,7 @@ export function useReplayNav(scrollContainerRef: React.RefObject<HTMLElement | n
 
 	const [feedbackCurrent, setFeedbackCurrent] = useState(0);
 	const [feedbackTotal, setFeedbackTotal] = useState(0);
+	const [currentFeedbackVote, setCurrentFeedbackVote] = useState<'up' | 'down' | null>(null);
 	const [toolErrorCurrent, setToolErrorCurrent] = useState(0);
 	const [toolErrorTotal, setToolErrorTotal] = useState(0);
 
@@ -98,6 +99,8 @@ export function useReplayNav(scrollContainerRef: React.RefObject<HTMLElement | n
 			if (type === 'feedback') {
 				setFeedbackCurrent(nextIndex + 1);
 				setFeedbackTotal(elements.length);
+				const vote = target.dataset.replayNavVote;
+				setCurrentFeedbackVote(vote === 'up' || vote === 'down' ? vote : null);
 			} else {
 				setToolErrorCurrent(nextIndex + 1);
 				setToolErrorTotal(elements.length);
@@ -128,6 +131,7 @@ export function useReplayNav(scrollContainerRef: React.RefObject<HTMLElement | n
 		goToNextToolError,
 		feedbackCurrent,
 		feedbackTotal,
+		currentFeedbackVote,
 		toolErrorCurrent,
 		toolErrorTotal,
 	};

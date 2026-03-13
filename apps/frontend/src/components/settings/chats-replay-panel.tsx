@@ -1,10 +1,12 @@
 import { useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { ChevronDown, ChevronUp, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import { formatDate } from 'date-fns';
 
+import { SettingsCard } from '@/components/ui/settings-card';
 import { ChatMessagesReadonly } from '@/components/chat-messages/chat-messages-readonly';
 import { Button } from '@/components/ui/button';
+import { InlineStatusBar } from '@/components/settings/inline-status-bar';
 import { ReadonlyAgentMessagesProvider } from '@/contexts/agent.provider';
 import { useReplayNav } from '@/hooks/use-replay-nav';
 import { trpc } from '@/main';
@@ -40,85 +42,33 @@ export function ChatsReplayPanel({ chatInfo, onClose }: ChatsReplayPanelProps) {
 		goToNextToolError,
 		feedbackCurrent,
 		feedbackTotal,
+		currentFeedbackVote,
 		toolErrorCurrent,
 		toolErrorTotal,
 	} = useReplayNav(scrollContainerRef, contentReady);
 
 	return (
-		<div className='w-full flex flex-col'>
-			<div className='flex items-center justify-between p-4 border-b'>
-				<div className='flex flex-col md:p-4 max-w-4xl mx-16'>
-					<h2 className='text-foreground font-semibold text-xl'>Read-Only Chat</h2>
-					<p className='text-muted-foreground text-sm'>
-						Preview from : <span className='font-semibold'>{chatInfo?.userName ?? '—'}</span> at{' '}
-						<span className='font-semibold'>
-							{chatInfo?.updatedAt != null
-								? formatDate(new Date(chatInfo.updatedAt), 'dd/MM/yyyy HH:mm')
-								: '—'}
-						</span>
-					</p>
+		<div className='w-full h-full min-h-0 flex flex-col p-4 bg-white'>
+			<div className='flex items-center justify-between'>
+				<div className='flex flex-col md:p-4 max-w-4xl'>
+					<h2 className='text-foreground font-semibold text-xl'>Chat by {chatInfo?.userName ?? '—'}</h2>
+					<span className='text-muted-foreground text-xs font-semibold'>
+						{chatInfo?.updatedAt != null ? formatDate(new Date(chatInfo.updatedAt), 'yyyy-MM-dd') : '—'}
+					</span>
 				</div>
 				<div className='flex items-center gap-2'>
 					{chatInfo?.chatId && chatReplayQuery.data && (
-						<>
-							<div className='flex items-center gap-1' title='Go to previous/next feedback (votes)'>
-								<div className='flex items-center flex-col'>
-									<span className='text-xs text-muted-foreground'>Feedback</span>
-									<span className='text-xs text-muted-foreground'>
-										{feedbackCurrent}/{feedbackTotal}
-									</span>
-								</div>
-
-								<div className='flex border rounded-md p-0.5'>
-									<Button
-										size='icon'
-										variant='ghost'
-										className='size-8'
-										onClick={goToPrevFeedback}
-										aria-label='Previous feedback'
-									>
-										<ChevronUp className='size-4' />
-									</Button>
-									<Button
-										size='icon'
-										variant='ghost'
-										className='size-8'
-										onClick={goToNextFeedback}
-										aria-label='Next feedback'
-									>
-										<ChevronDown className='size-4' />
-									</Button>
-								</div>
-							</div>
-							<div className='flex items-center gap-1' title='Go to previous/next tool error'>
-								<div className='flex items-center flex-col'>
-									<span className='text-xs text-muted-foreground'>Error</span>
-									<span className='text-xs text-muted-foreground'>
-										{toolErrorCurrent}/{toolErrorTotal}
-									</span>
-								</div>
-								<div className='flex border rounded-md p-0.5'>
-									<Button
-										size='icon'
-										variant='ghost'
-										className='size-8'
-										onClick={goToPrevToolError}
-										aria-label='Previous tool error'
-									>
-										<ChevronUp className='size-4' />
-									</Button>
-									<Button
-										size='icon'
-										variant='ghost'
-										className='size-8'
-										onClick={goToNextToolError}
-										aria-label='Next tool error'
-									>
-										<ChevronDown className='size-4' />
-									</Button>
-								</div>
-							</div>
-						</>
+						<InlineStatusBar
+							feedbackCurrent={feedbackCurrent}
+							feedbackTotal={feedbackTotal}
+							feedbackVote={currentFeedbackVote}
+							errorCurrent={toolErrorCurrent}
+							errorTotal={toolErrorTotal}
+							onPrevFeedback={goToPrevFeedback}
+							onNextFeedback={goToNextFeedback}
+							onPrevError={goToPrevToolError}
+							onNextError={goToNextToolError}
+						/>
 					)}
 					<Button size='icon' variant='ghost' onClick={onClose}>
 						<X className='size-4' />
@@ -126,21 +76,23 @@ export function ChatsReplayPanel({ chatInfo, onClose }: ChatsReplayPanelProps) {
 				</div>
 			</div>
 
-			<div ref={scrollContainerRef} className='flex-1 overflow-auto p-4'>
-				{!chatInfo?.chatId ? (
-					<div className='text-sm text-muted-foreground'>Select a chat to preview.</div>
-				) : chatReplayQuery.isLoading ? (
-					<div className='text-sm text-muted-foreground'>Loading chat…</div>
-				) : chatReplayQuery.isError ? (
-					<div className='text-sm text-destructive'>Failed to load chat.</div>
-				) : chatReplayQuery.data ? (
-					<ReadonlyAgentMessagesProvider messages={chatReplayQuery.data.messages}>
-						<ChatMessagesReadonly messages={chatReplayQuery.data.messages} />
-					</ReadonlyAgentMessagesProvider>
-				) : (
-					<div className='text-sm text-muted-foreground'>Select a chat to preview.</div>
-				)}
-			</div>
+			<SettingsCard rootClassName='flex-1 min-h-0' className='flex-1 min-h-0 overflow-hidden bg-muted/30 border'>
+				<div ref={scrollContainerRef} className='flex-1 overflow-auto p-4'>
+					{!chatInfo?.chatId ? (
+						<div className='text-sm text-muted-foreground'>Select a chat to preview.</div>
+					) : chatReplayQuery.isLoading ? (
+						<div className='text-sm text-muted-foreground'>Loading chat…</div>
+					) : chatReplayQuery.isError ? (
+						<div className='text-sm text-destructive'>Failed to load chat.</div>
+					) : chatReplayQuery.data ? (
+						<ReadonlyAgentMessagesProvider messages={chatReplayQuery.data.messages}>
+							<ChatMessagesReadonly messages={chatReplayQuery.data.messages} />
+						</ReadonlyAgentMessagesProvider>
+					) : (
+						<div className='text-sm text-muted-foreground'>Select a chat to preview.</div>
+					)}
+				</div>
+			</SettingsCard>
 		</div>
 	);
 }

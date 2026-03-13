@@ -69,7 +69,7 @@ const MessageBlockReadonly = ({ message, isLastMessage }: { message: UIMessage; 
 
 const UserMessageReadonly = memo(({ message }: { message: UIMessage }) => {
 	return (
-		<div className='flex flex-col gap-2 items-end w-full'>
+		<div className='flex flex-col gap-2 items-end w-full p-2'>
 			<UserMessageBubble message={message} />
 		</div>
 	);
@@ -92,7 +92,8 @@ const AssistantMessageReadonly = memo(({ message, isLastMessage }: { message: UI
 				{message.feedback && (
 					<div
 						data-replay-nav='feedback'
-						className='flex items-center gap-1.5 text-xs text-muted-foreground mt-1'
+						data-replay-nav-vote={message.feedback.vote}
+						className='flex items-center gap-1.5 text-xs text-muted-foreground mt-1 p-1'
 					>
 						{message.feedback.vote === 'up' ? (
 							<ThumbsUp className='size-3.5 text-green-600' />
