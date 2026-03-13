@@ -45,6 +45,7 @@ export function useReplayNav(scrollContainerRef: React.RefObject<HTMLElement | n
 		setToolErrorTotal(toolErrorEls.length);
 		setFeedbackCurrent(0);
 		setToolErrorCurrent(0);
+		setCurrentFeedbackVote(null);
 		feedbackIndexRef.current = -1;
 		toolErrorIndexRef.current = -1;
 	}, [contentReady, scrollContainerRef]);
