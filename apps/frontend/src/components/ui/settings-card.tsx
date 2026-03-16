@@ -1,5 +1,13 @@
 import { cn } from '@/lib/utils';
 
+export function SettingsPageWrapper({ children }: { children: React.ReactNode }) {
+	return (
+		<div className='overflow-auto flex-1'>
+			<div className='flex flex-col w-full px-4 py-6 md:p-8 gap-8 md:gap-12 max-w-4xl mx-auto'>{children}</div>
+		</div>
+	);
+}
+
 interface SettingsCardProps {
 	icon?: React.ReactNode;
 	title?: string;

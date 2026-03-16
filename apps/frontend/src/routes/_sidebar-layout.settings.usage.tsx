@@ -8,7 +8,7 @@ import type { LlmProvider } from '@nao/backend/llm';
 import type { ChartView } from '@/components/settings/usage-filters';
 import { UsageChartCard } from '@/components/settings/usage-chart-card';
 import { UsageFilters, dateFormats } from '@/components/settings/usage-filters';
-import { SettingsCard } from '@/components/ui/settings-card';
+import { SettingsCard, SettingsPageWrapper } from '@/components/ui/settings-card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { trpc } from '@/main';
 import { Empty } from '@/components/ui/empty';
@@ -47,7 +47,7 @@ function UsagePage() {
 	);
 
 	return (
-		<>
+		<SettingsPageWrapper>
 			{chartView === 'messages' && (
 				<UsageChartCard
 					title='Messages'
@@ -170,6 +170,6 @@ function UsagePage() {
 					</Table>
 				)}
 			</SettingsCard>
-		</>
+		</SettingsPageWrapper>
 	);
 }

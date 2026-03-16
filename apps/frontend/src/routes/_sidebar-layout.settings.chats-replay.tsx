@@ -9,8 +9,10 @@ export const Route = createFileRoute('/_sidebar-layout/settings/chats-replay')({
 
 function RouteComponent() {
 	return (
-		<RequireProjectRole role='admin'>
-			<ChatsReplayPage />
-		</RequireProjectRole>
+		<div className='flex flex-col flex-1 min-h-0'>
+			<RequireProjectRole role='admin'>
+				<ChatsReplayPage />
+			</RequireProjectRole>
+		</div>
 	);
 }
