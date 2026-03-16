@@ -2,7 +2,7 @@ import { Columns2, Filter, Users, X } from 'lucide-react';
 import { ChatsReplayDateFilter } from './chats-replay-date-filter';
 import type { ColumnFiltersState, Table } from '@tanstack/react-table';
 
-import type { DateFilterValue } from '@/lib/chats-replay.date-filter.utils';
+import type { UpdatedAtFilter } from '@nao/shared';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -51,9 +51,9 @@ export function ChatsReplayToolbar<TData>({
 		(columnFilters.find((f) => f.id === 'userName')?.value as string[] | undefined) ?? facets.userNames;
 	const someUsersUnchecked = selectedUsers.length < facets.userNames.length;
 
-	const updatedAtFilter = columnFilters.find((f) => f.id === 'updatedAt')?.value as DateFilterValue | undefined;
+	const updatedAtFilter = columnFilters.find((f) => f.id === 'updatedAt')?.value as UpdatedAtFilter | undefined;
 
-	const setUpdatedAtFilter = (value: DateFilterValue | undefined) => {
+	const setUpdatedAtFilter = (value: UpdatedAtFilter | undefined) => {
 		const next = value
 			? [...columnFilters.filter((f) => f.id !== 'updatedAt'), { id: 'updatedAt', value }]
 			: columnFilters.filter((f) => f.id !== 'updatedAt');
@@ -81,7 +81,7 @@ export function ChatsReplayToolbar<TData>({
 
 	const activeFilters = columnFilters.filter((f) => {
 		if (f.id === 'updatedAt') {
-			const v = f.value as DateFilterValue | undefined;
+			const v = f.value as UpdatedAtFilter | undefined;
 			return !!(v && ((v.mode === 'single' && v.value) || (v.mode === 'range' && v.start && v.end)));
 		}
 		const v = (f.value as string[]) ?? [];

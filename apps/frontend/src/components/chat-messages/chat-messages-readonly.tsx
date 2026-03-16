@@ -29,7 +29,6 @@ export function ChatMessagesReadonly({ messages, className }: { messages: UIMess
 								key={group.userMessage.id}
 								userMessage={group.userMessage}
 								assistantMessages={group.assistantMessages}
-								isLastMessage={(messageId) => messageId === messages.at(-1)?.id}
 							/>
 						))
 					)}
@@ -44,27 +43,25 @@ export function ChatMessagesReadonly({ messages, className }: { messages: UIMess
 const MessageGroupReadonly = ({
 	userMessage,
 	assistantMessages,
-	isLastMessage,
 }: {
 	userMessage: UIMessage;
 	assistantMessages: UIMessage[];
-	isLastMessage: (messageId: string) => boolean;
 }) => {
 	return (
 		<div className='flex flex-col gap-4 last:mb-4'>
 			{[userMessage, ...assistantMessages].map((message) => (
-				<MessageBlockReadonly key={message.id} message={message} isLastMessage={isLastMessage(message.id)} />
+				<MessageBlockReadonly key={message.id} message={message} />
 			))}
 		</div>
 	);
 };
 
-const MessageBlockReadonly = ({ message, isLastMessage }: { message: UIMessage; isLastMessage: boolean }) => {
+const MessageBlockReadonly = ({ message }: { message: UIMessage }) => {
 	if (message.role === 'user') {
 		return <UserMessageReadonly message={message} />;
 	}
 
-	return <AssistantMessageReadonly message={message} isLastMessage={isLastMessage} />;
+	return <AssistantMessageReadonly message={message} />;
 };
 
 const UserMessageReadonly = memo(({ message }: { message: UIMessage }) => {
@@ -75,7 +72,7 @@ const UserMessageReadonly = memo(({ message }: { message: UIMessage }) => {
 	);
 });
 
-const AssistantMessageReadonly = memo(({ message, isLastMessage }: { message: UIMessage; isLastMessage: boolean }) => {
+const AssistantMessageReadonly = memo(({ message }: { message: UIMessage }) => {
 	const messageParts = useMemo(() => groupToolCalls(message.parts), [message.parts]);
 	const hasContent = useMemo(() => checkAssistantMessageHasContent(message), [message]);
 	const isCompacting = message.parts.at(-1)?.type === 'data-compactionSummaryStarted';
@@ -112,7 +109,6 @@ const AssistantMessageReadonly = memo(({ message, isLastMessage }: { message: UI
 				{!hasContent && <div className='text-muted-foreground italic text-sm'>No response</div>}
 
 				{isCompacting && <AssistantCompaction />}
-				{isLastMessage && null}
 			</div>
 		</AssistantMessageProvider>
 	);

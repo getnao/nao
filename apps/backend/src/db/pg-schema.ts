@@ -1,3 +1,4 @@
+import { USER_ROLES } from '@nao/shared';
 import { type ProviderMetadata } from 'ai';
 import { sql } from 'drizzle-orm';
 import {
@@ -19,7 +20,6 @@ import { LLM_INFERENCE_TYPES, LlmProvider } from '../types/llm';
 import { MEMORY_CATEGORIES } from '../types/memory';
 import { SlackSettings, TeamsSettings } from '../types/messaging-provider';
 import { ORG_ROLES } from '../types/organization';
-import { USER_ROLES } from '../types/project';
 
 export const user = pgTable('user', {
 	id: text('id').primaryKey(),

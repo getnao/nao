@@ -4,6 +4,7 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { getCoreRowModel, useReactTable } from '@tanstack/react-table';
 import type { ColumnFiltersState, PaginationState, SortingState, VisibilityState } from '@tanstack/react-table';
 
+import type { UpdatedAtFilter } from '@nao/shared';
 import type { ProjectChatRow } from '@/components/settings/chats-replay-columns';
 import { getChatsReplayColumns } from '@/components/settings/chats-replay-columns';
 import { ChatsReplayPanel } from '@/components/settings/chats-replay-panel';
@@ -47,10 +48,7 @@ export function ChatsReplayPage() {
 				(f): f is { id: 'userName' | 'userRole' | 'toolState'; values: string[] } =>
 					(f.id === 'userName' || f.id === 'userRole' || f.id === 'toolState') && f.values.length > 0,
 			);
-		const updatedAtFilter = columnFilters.find((f) => f.id === 'updatedAt')?.value as
-			| { mode: 'single'; value: string }
-			| { mode: 'range'; start: string; end: string }
-			| undefined;
+		const updatedAtFilter = columnFilters.find((f) => f.id === 'updatedAt')?.value as UpdatedAtFilter | undefined;
 		const hasValidDateFilter =
 			updatedAtFilter &&
 			((updatedAtFilter.mode === 'single' && updatedAtFilter.value) ||

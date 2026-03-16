@@ -2,18 +2,17 @@ import { useState } from 'react';
 import DatePicker from 'react-datepicker';
 import { Calendar } from 'lucide-react';
 
-import type { DateFilterValue } from '@/lib/chats-replay.date-filter.utils';
-import { toLocalDateString } from '@/lib/chats-replay.date-filter.utils';
+import type { UpdatedAtFilter } from '@nao/shared';
+import { cn, toLocalDateString } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { cn } from '@/lib/utils';
 
 import 'react-datepicker/dist/react-datepicker.css';
 
 type ChatsReplayDateFilterProps = {
-	value: DateFilterValue | undefined;
-	onChange: (value: DateFilterValue | undefined) => void;
+	value: UpdatedAtFilter | undefined;
+	onChange: (value: UpdatedAtFilter | undefined) => void;
 };
 
 export function ChatsReplayDateFilter({ value, onChange }: ChatsReplayDateFilterProps) {

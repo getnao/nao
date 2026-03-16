@@ -2,7 +2,7 @@ import { CircleAlert, Eye, ThumbsDown, ThumbsUp } from 'lucide-react';
 import { differenceInDays, format, isToday, isYesterday } from 'date-fns';
 import type { ColumnDef } from '@tanstack/react-table';
 
-import type { UserRole } from '../../../../backend/src/types/project';
+import type { UserRole } from '@nao/shared';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 

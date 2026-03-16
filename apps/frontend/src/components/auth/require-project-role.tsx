@@ -15,15 +15,12 @@ export function RequireProjectRole({ role, children }: RequireProjectRoleProps) 
 	const navigate = useNavigate();
 
 	useEffect(() => {
-		if (!userRole) {
-			return;
-		}
-		if (userRole !== role) {
+		if (userRole && userRole !== role) {
 			navigate({ to: '/settings/general' });
 		}
 	}, [role, userRole, navigate]);
 
-	if (!project.data) {
+	if (!project.data || userRole !== role) {
 		return <div className='text-sm text-muted-foreground'>Loading...</div>;
 	}
 
