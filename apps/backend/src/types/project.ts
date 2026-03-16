@@ -27,6 +27,8 @@ export interface ProjectChatListItem {
 	toolAvailableCount: number;
 }
 
+export type UpdatedAtFilter = { mode: 'single'; value: string } | { mode: 'range'; start: string; end: string };
+
 export interface ListProjectChatsResponse {
 	chats: ProjectChatListItem[];
 	total: number;

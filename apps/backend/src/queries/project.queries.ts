@@ -5,7 +5,13 @@ import s from '../db/abstractSchema';
 import { db } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
 import { env } from '../env';
-import type { ListProjectChatsResponse, ProjectChatsFacetKey, UserRole, UserWithRole } from '../types/project';
+import type {
+	ListProjectChatsResponse,
+	ProjectChatsFacetKey,
+	UpdatedAtFilter,
+	UserRole,
+	UserWithRole,
+} from '../types/project';
 import { HandlerError } from '../utils/error';
 
 export const getProjectByPath = async (path: string): Promise<DBProject | null> => {
@@ -193,7 +199,40 @@ export const retrieveProjectById = async (projectId: string): Promise<DBProject>
 	return project;
 };
 
-export type UpdatedAtFilter = { mode: 'single'; value: string } | { mode: 'range'; start: string; end: string };
+const toUtcDayStart = (isoDate: string): Date => {
+	const [y, m, d] = isoDate.split('-').map(Number);
+	return new Date(Date.UTC(y, m - 1, d));
+};
+
+const toUtcDayEnd = (isoDate: string): Date => {
+	const [y, m, d] = isoDate.split('-').map(Number);
+	return new Date(Date.UTC(y, m - 1, d, 23, 59, 59, 999));
+};
+
+const buildMemberJoin = (projectId: string) =>
+	and(eq(s.projectMember.userId, s.user.id), eq(s.projectMember.projectId, projectId));
+
+const feedbackExpr = <T extends number | string>(vote: 'up' | 'down', aggregate: SQL<T>) => sql<T>`
+	(
+	select ${aggregate}
+	from ${s.messageFeedback}
+	inner join ${s.chatMessage} on ${s.chatMessage.id} = ${s.messageFeedback.messageId}
+	where ${s.chatMessage.chatId} = ${s.chat.id}
+		and ${s.chatMessage.supersededAt} is null
+		and ${s.messageFeedback.vote} = ${vote}
+	)
+`;
+
+const countToolState = (state: 'output-error' | 'output-available') => sql<number>`
+	(
+		select count(*)
+		from ${s.chatMessage}
+		inner join ${s.messagePart} on ${s.messagePart.messageId} = ${s.chatMessage.id}
+		where ${s.chatMessage.chatId} = ${s.chat.id}
+		and ${s.chatMessage.supersededAt} is null
+		and ${s.messagePart.toolState} = ${state}
+	)
+`;
 
 export const listProjectChats = async (
 	projectId: string,
@@ -231,84 +270,21 @@ export const listProjectChats = async (
 		)
 	`;
 
-	const feedbackTextExpr =
+	const downvotesExpr = feedbackExpr('down', sql<number>`count(*)`);
+	const upvotesExpr = feedbackExpr('up', sql<number>`count(*)`);
+	const feedbackTextExpr = feedbackExpr(
+		'down',
 		dbConfig.dialect === Dialect.Postgres
-			? sql<string>`
-					(
-						select coalesce(string_agg(${s.messageFeedback.explanation}, ' '), '')
-						from ${s.messageFeedback}
-						inner join ${s.chatMessage} on ${s.chatMessage.id} = ${s.messageFeedback.messageId}
-						where ${s.chatMessage.chatId} = ${s.chat.id}
-							and ${s.chatMessage.supersededAt} is null
-							and ${s.messageFeedback.vote} = 'down'
-					)
-				`
-			: sql<string>`
-					(
-						select coalesce(group_concat(${s.messageFeedback.explanation}, ' '), '')
-						from ${s.messageFeedback}
-						inner join ${s.chatMessage} on ${s.chatMessage.id} = ${s.messageFeedback.messageId}
-						where ${s.chatMessage.chatId} = ${s.chat.id}
-							and ${s.chatMessage.supersededAt} is null
-							and ${s.messageFeedback.vote} = 'down'
-					)
-				`;
+			? sql<string>`coalesce(string_agg(${s.messageFeedback.explanation}, ' '), '')`
+			: sql<string>`coalesce(group_concat(${s.messageFeedback.explanation}, ' '), '')`,
+	);
 
-	const downvotesExpr = sql<number>`
-		(
-			select count(*)
-			from ${s.messageFeedback}
-			inner join ${s.chatMessage} on ${s.chatMessage.id} = ${s.messageFeedback.messageId}
-			where ${s.chatMessage.chatId} = ${s.chat.id}
-				and ${s.chatMessage.supersededAt} is null
-				and ${s.messageFeedback.vote} = 'down'
-		)
-	`;
-
-	const upvotesExpr = sql<number>`
-		(
-			select count(*)
-			from ${s.messageFeedback}
-			inner join ${s.chatMessage} on ${s.chatMessage.id} = ${s.messageFeedback.messageId}
-			where ${s.chatMessage.chatId} = ${s.chat.id}
-				and ${s.chatMessage.supersededAt} is null
-				and ${s.messageFeedback.vote} = 'up'
-		)
-	`;
-
-	const toolErrorCountExpr = sql<number>`
-		(
-			select count(*)
-			from ${s.chatMessage}
-			inner join ${s.messagePart} on ${s.messagePart.messageId} = ${s.chatMessage.id}
-			where ${s.chatMessage.chatId} = ${s.chat.id}
-				and ${s.chatMessage.supersededAt} is null
-				and ${s.messagePart.toolState} = 'output-error'
-		)
-	`;
-
-	const toolAvailableCountExpr = sql<number>`
-		(
-			select count(*)
-			from ${s.chatMessage}
-			inner join ${s.messagePart} on ${s.messagePart.messageId} = ${s.chatMessage.id}
-			where ${s.chatMessage.chatId} = ${s.chat.id}
-				and ${s.chatMessage.supersededAt} is null
-				and ${s.messagePart.toolState} = 'output-available'
-		)
-	`;
+	const toolErrorCountExpr = countToolState('output-error');
+	const toolAvailableCountExpr = countToolState('output-available');
 
 	const baseWhereClauses = [eq(s.chat.projectId, projectId)];
 
 	if (updatedAtFilter) {
-		const toUtcDayStart = (isoDate: string) => {
-			const [y, m, d] = isoDate.split('-').map(Number);
-			return new Date(Date.UTC(y, m - 1, d));
-		};
-		const toUtcDayEnd = (isoDate: string) => {
-			const [y, m, d] = isoDate.split('-').map(Number);
-			return new Date(Date.UTC(y, m - 1, d, 23, 59, 59, 999));
-		};
 		if (updatedAtFilter.mode === 'single') {
 			baseWhereClauses.push(gte(s.chat.updatedAt, toUtcDayStart(updatedAtFilter.value)));
 			baseWhereClauses.push(lte(s.chat.updatedAt, toUtcDayEnd(updatedAtFilter.value)));
@@ -380,9 +356,9 @@ export const listProjectChats = async (
 			}
 		}
 	}
-	const baseWhere = and(...baseWhereClauses) as SQL<unknown>;
-	const where = filterWhereClauses.length > 0 ? (and(baseWhere, ...filterWhereClauses) as SQL<unknown>) : baseWhere;
 
+	const baseWhere = and(...baseWhereClauses) as SQL<unknown>;
+	const where = and(...baseWhereClauses, ...filterWhereClauses) as SQL<unknown>;
 	const orderBy = buildProjectChatsOrderBy({
 		sorting,
 		numberOfMessagesExpr,
@@ -393,7 +369,7 @@ export const listProjectChats = async (
 		toolAvailableCountExpr,
 	});
 
-	const projectMemberJoin = and(eq(s.projectMember.userId, s.user.id), eq(s.projectMember.projectId, projectId));
+	const projectMemberJoin = buildMemberJoin(projectId);
 
 	const chatRows = await db
 		.select({
@@ -456,6 +432,23 @@ export const listProjectChats = async (
 	};
 };
 
+function buildTieredSort(
+	dir: typeof asc | typeof desc,
+	primaryExpr: SQL<number>,
+	secondaryExpr: SQL<number>,
+): SQL<unknown>[] {
+	return [
+		dir(sql<number>`
+		CASE
+			WHEN ${primaryExpr} = 0 AND ${secondaryExpr} = 0 THEN 0
+			WHEN ${primaryExpr} = 0 THEN 1
+			ELSE 2
+		END
+		`),
+		dir(sql<number>`cast(${primaryExpr} as integer)`),
+	];
+}
+
 function buildProjectChatsOrderBy(args: {
 	sorting: { id: string; desc?: boolean }[];
 	numberOfMessagesExpr: ReturnType<typeof sql<number>>;
@@ -499,28 +492,10 @@ function buildProjectChatsOrderBy(args: {
 				sorters.push(dir(totalTokensExpr));
 				break;
 			case 'feedback':
-				sorters.push(
-					dir(sql<number>`
-						CASE
-							WHEN ${downvotesExpr} = 0 AND ${upvotesExpr} = 0 THEN 0
-							WHEN ${downvotesExpr} = 0 THEN 1
-							ELSE 2
-						END
-					`),
-				);
-				sorters.push(dir(sql<number>`cast(${downvotesExpr} as integer)`));
+				sorters.push(...buildTieredSort(dir, downvotesExpr, upvotesExpr));
 				break;
 			case 'toolState':
-				sorters.push(
-					dir(sql<number>`
-						CASE
-							WHEN ${toolErrorCountExpr} = 0 AND ${toolAvailableCountExpr} = 0 THEN 0
-							WHEN ${toolErrorCountExpr} = 0 THEN 1
-							ELSE 2
-						END
-					`),
-				);
-				sorters.push(dir(sql<number>`cast(${toolErrorCountExpr} as integer)`));
+				sorters.push(...buildTieredSort(dir, toolErrorCountExpr, toolAvailableCountExpr));
 				break;
 		}
 	}
@@ -536,51 +511,52 @@ async function loadProjectChatsFacets(args: {
 }): Promise<ListProjectChatsResponse['facets']> {
 	const { projectId, where, toolErrorCountExpr, toolAvailableCountExpr } = args;
 
-	const facetMemberJoin = and(eq(s.projectMember.userId, s.user.id), eq(s.projectMember.projectId, projectId));
+	const facetMemberJoin = buildMemberJoin(projectId);
+	const [userNamesRows, userRolesRows, [toolStateRow]] = await Promise.all([
+		db
+			.select({
+				userName: s.user.name,
+				count: sql<number>`count(*)`.as('count'),
+			})
+			.from(s.chat)
+			.innerJoin(s.user, eq(s.chat.userId, s.user.id))
+			.leftJoin(s.projectMember, facetMemberJoin)
+			.where(where)
+			.groupBy(s.user.name)
+			.execute(),
 
-	const userNamesRows = await db
-		.select({
-			userName: s.user.name,
-			count: sql<number>`count(*)`.as('count'),
-		})
-		.from(s.chat)
-		.innerJoin(s.user, eq(s.chat.userId, s.user.id))
-		.leftJoin(s.projectMember, facetMemberJoin)
-		.where(where)
-		.groupBy(s.user.name)
-		.execute();
+		db
+			.select({
+				userRole: sql<UserRole | null>`coalesce(${s.projectMember.role}, 'Former member')`.as('userRole'),
+				count: sql<number>`count(*)`.as('count'),
+			})
+			.from(s.chat)
+			.innerJoin(s.user, eq(s.chat.userId, s.user.id))
+			.leftJoin(s.projectMember, facetMemberJoin)
+			.where(where)
+			.groupBy(sql`coalesce(${s.projectMember.role}, 'Former member')`)
+			.execute(),
 
-	const userRolesRows = await db
-		.select({
-			userRole: sql<UserRole | null>`coalesce(${s.projectMember.role}, 'Former member')`.as('userRole'),
-			count: sql<number>`count(*)`.as('count'),
-		})
-		.from(s.chat)
-		.innerJoin(s.user, eq(s.chat.userId, s.user.id))
-		.leftJoin(s.projectMember, facetMemberJoin)
-		.where(where)
-		.groupBy(sql`coalesce(${s.projectMember.role}, 'Former member')`)
-		.execute();
-
-	const [toolStateRow] = await db
-		.select({
-			noToolsUsed:
-				sql<number>`sum(case when ${toolErrorCountExpr} = 0 and ${toolAvailableCountExpr} = 0 then 1 else 0 end)`.as(
-					'noToolsUsed',
+		db
+			.select({
+				noToolsUsed:
+					sql<number>`sum(case when ${toolErrorCountExpr} = 0 and ${toolAvailableCountExpr} = 0 then 1 else 0 end)`.as(
+						'noToolsUsed',
+					),
+				toolsNoErrors:
+					sql<number>`sum(case when ${toolErrorCountExpr} = 0 and ${toolAvailableCountExpr} > 0 then 1 else 0 end)`.as(
+						'toolsNoErrors',
+					),
+				toolsWithErrors: sql<number>`sum(case when ${toolErrorCountExpr} > 0 then 1 else 0 end)`.as(
+					'toolsWithErrors',
 				),
-			toolsNoErrors:
-				sql<number>`sum(case when ${toolErrorCountExpr} = 0 and ${toolAvailableCountExpr} > 0 then 1 else 0 end)`.as(
-					'toolsNoErrors',
-				),
-			toolsWithErrors: sql<number>`sum(case when ${toolErrorCountExpr} > 0 then 1 else 0 end)`.as(
-				'toolsWithErrors',
-			),
-		})
-		.from(s.chat)
-		.innerJoin(s.user, eq(s.chat.userId, s.user.id))
-		.leftJoin(s.projectMember, facetMemberJoin)
-		.where(where)
-		.execute();
+			})
+			.from(s.chat)
+			.innerJoin(s.user, eq(s.chat.userId, s.user.id))
+			.leftJoin(s.projectMember, facetMemberJoin)
+			.where(where)
+			.execute(),
+	]);
 
 	return {
 		userNames: userNamesRows
