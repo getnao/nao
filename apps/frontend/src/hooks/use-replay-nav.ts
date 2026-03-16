@@ -43,11 +43,11 @@ export function useReplayNav(scrollContainerRef: React.RefObject<HTMLElement | n
 		const toolErrorEls = getSortedElements(container, 'tool-error');
 		setFeedbackTotal(feedbackEls.length);
 		setToolErrorTotal(toolErrorEls.length);
-		setFeedbackCurrent(0);
-		setToolErrorCurrent(0);
+		setFeedbackCurrent(feedbackEls.length + 1);
+		setToolErrorCurrent(toolErrorEls.length + 1);
 		setCurrentFeedbackVote(null);
-		feedbackIndexRef.current = -1;
-		toolErrorIndexRef.current = -1;
+		feedbackIndexRef.current = feedbackEls.length;
+		toolErrorIndexRef.current = toolErrorEls.length;
 	}, [contentReady, scrollContainerRef]);
 
 	const clearHighlight = useCallback(() => {

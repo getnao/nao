@@ -9,7 +9,6 @@ type NavSegmentProps = {
 	color: 'amber' | 'green' | 'red';
 	onPrev: () => void;
 	onNext: () => void;
-	disabled?: boolean;
 };
 
 const DOT_COLORS: Record<NavSegmentProps['color'], string> = {
@@ -18,14 +17,12 @@ const DOT_COLORS: Record<NavSegmentProps['color'], string> = {
 	red: 'bg-red-500',
 };
 
-function NavSegment({ label, current, total, color, onPrev, onNext, disabled }: NavSegmentProps) {
-	const isDisabled = disabled || total === 0;
-
+function NavSegment({ label, current, total, color, onPrev, onNext }: NavSegmentProps) {
 	return (
 		<div className='flex items-center gap-2 px-3 py-1.5 border-r border-border last:border-r-0'>
 			<span className={cn('size-2 rounded-full flex-shrink-0', DOT_COLORS[color])} />
 			<span className='text-sm text-muted-foreground whitespace-nowrap'>
-				<span className='font-medium text-foreground'>{isDisabled ? 0 : current}</span>
+				<span className='font-medium text-foreground'>{current > total ? 0 : current}</span>
 				{' / '}
 				{total} {label}
 			</span>
@@ -34,7 +31,7 @@ function NavSegment({ label, current, total, color, onPrev, onNext, disabled }: 
 					variant='ghost-muted'
 					size='icon-sm'
 					onClick={onPrev}
-					disabled={isDisabled || current <= 1}
+					disabled={current <= 1}
 					aria-label={`Previous ${label}`}
 				>
 					<ChevronUp className='size-3.5' />
@@ -44,7 +41,7 @@ function NavSegment({ label, current, total, color, onPrev, onNext, disabled }: 
 					variant='ghost-muted'
 					size='icon-sm'
 					onClick={onNext}
-					disabled={isDisabled || current >= total}
+					disabled={current >= total}
 					aria-label={`Next ${label}`}
 				>
 					<ChevronDown className='size-3.5' />
