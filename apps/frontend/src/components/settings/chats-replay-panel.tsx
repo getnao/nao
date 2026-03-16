@@ -6,7 +6,7 @@ import { formatDate } from 'date-fns';
 import { SettingsCard } from '@/components/ui/settings-card';
 import { ChatMessagesReadonly } from '@/components/chat-messages/chat-messages-readonly';
 import { Button } from '@/components/ui/button';
-import { InlineStatusBar } from '@/components/settings/inline-status-bar';
+import { InlineStatusBar } from '@/components/settings/chats-replay-inline-status-bar';
 import { ReadonlyAgentMessagesProvider } from '@/contexts/agent.provider';
 import { useReplayNav } from '@/hooks/use-replay-nav';
 import { trpc } from '@/main';
