@@ -266,7 +266,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 		return series.reduce((acc, s, idx) => {
 			acc[s.data_key] = {
 				label: s.label || labelize(s.data_key),
-				color: s.color || Colors[idx % Colors.length],
+				color: (s.color && s.color !== 'auto') ? s.color : Colors[idx % Colors.length],
 			};
 			return acc;
 		}, {} as ChartConfig);
@@ -285,7 +285,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 			series.map((s, idx) => ({
 				value: s.label || labelize(s.data_key),
 				dataKey: s.data_key,
-				color: s.color || Colors[idx % Colors.length],
+				color: (s.color && s.color !== 'auto') ? s.color : Colors[idx % Colors.length],
 				isHidden: hiddenSeriesKeys.has(s.data_key),
 			})),
 		[series, hiddenSeriesKeys],
