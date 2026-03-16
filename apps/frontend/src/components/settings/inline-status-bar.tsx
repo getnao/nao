@@ -103,7 +103,7 @@ export function InlineStatusBar({
 		>
 			{feedbackTotal > 0 && (
 				<NavSegment
-					label='feedback'
+					label={feedbackTotal > 1 ? 'feedbacks' : 'feedback'}
 					current={feedbackCurrent}
 					total={feedbackTotal}
 					color={feedbackColor(feedbackVote)}
@@ -113,7 +113,7 @@ export function InlineStatusBar({
 			)}
 			{errorTotal > 0 && (
 				<NavSegment
-					label='errors'
+					label={errorTotal > 1 ? 'errors' : 'error'}
 					current={errorCurrent}
 					total={errorTotal}
 					color='red'
