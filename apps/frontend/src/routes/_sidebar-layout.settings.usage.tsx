@@ -12,8 +12,10 @@ import { SettingsCard } from '@/components/ui/settings-card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { trpc } from '@/main';
 import { Empty } from '@/components/ui/empty';
+import { requireAdmin } from '@/lib/require-admin';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/usage')({
+	beforeLoad: requireAdmin,
 	component: UsagePage,
 });
 

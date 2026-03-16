@@ -34,7 +34,7 @@ const router = createRouter({
 });
 
 /** Query client for state management */
-const queryClient = new QueryClient({
+export const queryClient = new QueryClient({
 	defaultOptions: {
 		queries: {
 			retry: false,

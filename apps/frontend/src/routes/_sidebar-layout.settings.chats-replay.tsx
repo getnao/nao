@@ -1,16 +1,9 @@
 import { createFileRoute } from '@tanstack/react-router';
 
-import { RequireProjectRole } from '@/components/auth/require-project-role';
 import { ChatsReplayPage } from '@/components/settings/chats-replay-page';
+import { requireAdmin } from '@/lib/require-admin';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/chats-replay')({
-	component: RouteComponent,
+	beforeLoad: requireAdmin,
+	component: ChatsReplayPage,
 });
-
-function RouteComponent() {
-	return (
-		<RequireProjectRole role='admin'>
-			<ChatsReplayPage />
-		</RequireProjectRole>
-	);
-}
