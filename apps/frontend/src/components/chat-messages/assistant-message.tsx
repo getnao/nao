@@ -35,7 +35,7 @@ export const AssistantMessage = memo(
 		}
 
 		return (
-			<AssistantMessageProvider isSettled={isSettled}>
+			<AssistantMessageProvider isSettled={isSettled} isReplay={false}>
 				<div className={cn('group px-3 flex flex-col gap-2 bg-transparent')}>
 					<MessageParts parts={messageParts} />
 

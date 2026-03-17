@@ -3,6 +3,7 @@ import { useMemoObject } from '@/hooks/useMemoObject';
 
 interface AssistantMessageContextValue {
 	isSettled: boolean;
+	isReplay: boolean;
 }
 
 const AssistantMessageContext = createContext<AssistantMessageContextValue | null>(null);
@@ -18,12 +19,14 @@ export const useAssistantMessage = () => {
 export const AssistantMessageProvider = ({
 	children,
 	isSettled,
+	isReplay = false,
 }: {
 	children: React.ReactNode;
 	isSettled: boolean;
+	isReplay?: boolean;
 }) => {
 	return (
-		<AssistantMessageContext.Provider value={useMemoObject({ isSettled })}>
+		<AssistantMessageContext.Provider value={useMemoObject({ isSettled, isReplay })}>
 			{children}
 		</AssistantMessageContext.Provider>
 	);
