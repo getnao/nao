@@ -32,6 +32,7 @@ export function StoriesGroups({
 		trpc.story.archiveMany.mutationOptions({
 			onSuccess: () => {
 				queryClient.invalidateQueries({ queryKey: trpc.story.listAll.queryKey() });
+				queryClient.invalidateQueries({ queryKey: trpc.story.listArchived.queryKey() });
 			},
 		}),
 	);
