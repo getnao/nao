@@ -1,0 +1,1 @@
+ALTER TABLE "story_version" ADD COLUMN "archived_at" timestamp;

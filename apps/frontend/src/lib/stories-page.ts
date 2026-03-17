@@ -18,6 +18,8 @@ export type StoryItem = {
 	createdAt: Date;
 	author: string;
 	kind: 'own' | 'shared-with-me' | 'shared-project';
+	chatId?: string;
+	storyId?: string;
 	summary: StorySummary;
 	link:
 		| { to: '/stories/preview/$chatId/$storyId'; params: { chatId: string; storyId: string } }
@@ -80,6 +82,8 @@ export function buildStoryItems({
 			createdAt: new Date(story.createdAt),
 			author: currentUserName,
 			kind: 'own',
+			chatId: story.chatId,
+			storyId: story.storyId,
 			summary: story.summary,
 			link: shareId
 				? { to: '/stories/shared/$shareId', params: { shareId } }

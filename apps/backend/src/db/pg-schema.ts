@@ -408,6 +408,7 @@ export const storyVersion = pgTable(
 		code: text('code').notNull(),
 		action: text('action', { enum: STORY_ACTIONS }).notNull(),
 		source: text('source', { enum: STORY_SOURCES }).notNull(),
+		archivedAt: timestamp('archived_at'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 	},
 	(t) => [

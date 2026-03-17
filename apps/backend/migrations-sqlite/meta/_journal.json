@@ -176,6 +176,13 @@
       "when": 1773338645081,
       "tag": "0024_add_favs",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "6",
+      "when": 1773740147271,
+      "tag": "0025_archive_stories",
+      "breakpoints": true
     }
   ]
 }

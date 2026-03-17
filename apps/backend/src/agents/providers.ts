@@ -226,6 +226,12 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 				contextWindow: 256_000,
 				costPerM: { inputNoCache: 0.5, inputCacheRead: 0.5, inputCacheWrite: 0, output: 1.5 },
 			},
+			{
+				id: 'labs-leanstral-2603',
+				name: 'Leanstral',
+				contextWindow: 256_000,
+				costPerM: { inputNoCache: 0, inputCacheRead: 0, inputCacheWrite: 0, output: 0 },
+			},
 		],
 	},
 	openrouter: {
