@@ -3,7 +3,7 @@ import { Streamdown } from 'streamdown';
 
 import { CitationPopover } from '@/components/citation-popover';
 
-const CITATION_STRIP_REGEX = /<citation-number[^>]*>.*?<\/citation-number>/g;
+const CITATION_TAG_REGEX = /<\/?citation-number[^>]*>/g;
 const CLOBBER_PREFIX = 'user-content-';
 
 function stripClobberPrefix(value: string): string {
@@ -12,7 +12,7 @@ function stripClobberPrefix(value: string): string {
 
 export const AssistantText = memo(({ text, isStreaming }: { text: string; isStreaming: boolean }) => {
 	if (isStreaming) {
-		const strippedText = text.replace(CITATION_STRIP_REGEX, '');
+		const strippedText = text.replace(CITATION_TAG_REGEX, '');
 		return (
 			<Streamdown isAnimating mode='streaming'>
 				{strippedText}

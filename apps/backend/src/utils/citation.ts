@@ -2,13 +2,13 @@ import type { ColumnLineageNode } from '@nao/shared';
 import type { LineageNode } from '@polyglot-sql/sdk';
 import { generate, init } from '@polyglot-sql/sdk';
 
-let polyglotInitialized = false;
+let initPromise: Promise<void> | null = null;
 
-export async function ensurePolyglotInitialized() {
-	if (!polyglotInitialized) {
-		await init();
-		polyglotInitialized = true;
+export function ensurePolyglotInitialized(): Promise<void> {
+	if (!initPromise) {
+		initPromise = init();
 	}
+	return initPromise;
 }
 
 export function extractLineageNode(raw: LineageNode): ColumnLineageNode {

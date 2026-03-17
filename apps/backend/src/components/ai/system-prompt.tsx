@@ -120,9 +120,7 @@ export function SystemPrompt({ memories = [], userRules, connections = [], skill
 				<ListItem>
 					The column_name must match the column in the SELECT output that produced the number.
 				</ListItem>
-				<ListItem>
-					The id is shown in the execute_sql tool output (e.g., &quot;id&quot;: &quot;query_a1b2&quot;).
-				</ListItem>
+				<ListItem>The Query ID is shown in the execute_sql tool output (e.g., Query ID: query_a1b2).</ListItem>
 			</List>
 			<Block separator={'\n\n---\n\n'}>
 				{userRules && (

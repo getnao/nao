@@ -20,11 +20,19 @@ function computeTopOffset(triggerEl: HTMLElement): number {
 export const CitationPopover = memo(
 	({ value, queryId, column }: { value: string; queryId: string; column: string }) => {
 		const [isOpen, setIsOpen] = useState(false);
+		const hasOpened = useRef(false);
 		const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 		const triggerRef = useRef<HTMLSpanElement>(null);
 		const { open: openSidePanel } = useSidePanel();
 
-		const { data } = useQuery(trpc.citation.get.queryOptions({ queryId, column }));
+		if (isOpen) {
+			hasOpened.current = true;
+		}
+
+		const { data } = useQuery({
+			...trpc.citation.get.queryOptions({ queryId, column }),
+			enabled: hasOpened.current,
+		});
 
 		const topOffset = isOpen && triggerRef.current ? computeTopOffset(triggerRef.current) : 0;
 

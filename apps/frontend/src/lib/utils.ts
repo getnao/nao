@@ -31,7 +31,7 @@ export function isLast<T>(item: T, array: T[]): boolean {
 }
 
 export function truncateLines(text: string, max: number): string {
-	const lines = text.split('\n');
+	const lines = text.replace(/\n$/, '').split('\n');
 	if (lines.length <= max) {
 		return text;
 	}
