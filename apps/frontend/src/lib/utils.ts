@@ -30,6 +30,14 @@ export function isLast<T>(item: T, array: T[]): boolean {
 	return item === array.at(-1);
 }
 
+export function truncateLines(text: string, max: number): string {
+	const lines = text.split('\n');
+	if (lines.length <= max) {
+		return text;
+	}
+	return lines.slice(0, max).join('\n') + '\n...';
+}
+
 export function toLocalDateString(d: Date): string {
 	const y = d.getFullYear();
 	const m = String(d.getMonth() + 1).padStart(2, '0');

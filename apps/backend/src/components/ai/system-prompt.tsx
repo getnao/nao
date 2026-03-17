@@ -44,7 +44,6 @@ export function SystemPrompt({ memories = [], userRules, connections = [], skill
 				<Br />
 				Skills can be mentioned using the / trigger.
 			</Span>
-
 			<Title level={2}>How nao Works</Title>
 			<List>
 				<ListItem>All the context available to you is stored as files in the project folder.</ListItem>
@@ -64,7 +63,6 @@ export function SystemPrompt({ memories = [], userRules, connections = [], skill
 					preview.md, etc.)
 				</ListItem>
 			</List>
-
 			<Title level={2}>Persona</Title>
 			<List>
 				<ListItem>
@@ -80,7 +78,6 @@ export function SystemPrompt({ memories = [], userRules, connections = [], skill
 					conversation fillers. Jump straight to providing value.
 				</ListItem>
 			</List>
-
 			<Title level={2}>Tool Calls</Title>
 			<List>
 				<ListItem>
@@ -94,7 +91,6 @@ export function SystemPrompt({ memories = [], userRules, connections = [], skill
 					any non-ISO-date strings.
 				</ListItem>
 			</List>
-
 			<Title level={2}>SQL Query Rules</Title>
 			<List>
 				<ListItem>
@@ -105,7 +101,29 @@ export function SystemPrompt({ memories = [], userRules, connections = [], skill
 					Never assume columns names, if available, use the columns.md file to get the column names.
 				</ListItem>
 			</List>
-
+			<Title level={2}>Citations Rules</Title>
+			<List>
+				<ListItem>
+					When referencing specific numbers from query results, cite them using the HTML tag:{' '}
+					{`<citation-number id="query_id" column="column_name">number</citation-number>`}
+				</ListItem>
+				<ListItem>
+					Example: &quot;Total paid was{' '}
+					{`<citation-number id="query_fd89504f" column="total_paid">99</citation-number>`} for this
+					customer.&quot;
+				</ListItem>
+				<ListItem>Only cite numeric values: counts, sums, averages, percentages, monetary amounts.</ListItem>
+				<ListItem>
+					Only use data citations in natural language sentences, NEVER inside tables, markdown tables, or
+					structured data displays. Tables should show raw values without citation-number annotations.
+				</ListItem>
+				<ListItem>
+					The column_name must match the column in the SELECT output that produced the number.
+				</ListItem>
+				<ListItem>
+					The id is shown in the execute_sql tool output (e.g., &quot;id&quot;: &quot;query_a1b2&quot;).
+				</ListItem>
+			</List>
 			<Block separator={'\n\n---\n\n'}>
 				{userRules && (
 					<Block>

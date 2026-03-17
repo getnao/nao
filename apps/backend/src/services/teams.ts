@@ -95,31 +95,31 @@ class TeamsService {
 		});
 
 		this._bot.onAction('stop_generation', async (event) => {
-			const existingChat = await chatQueries.getChatByTeamsThread(event.thread.id);
+			const existingChat = await chatQueries.getChatByTeamsThread(event.thread?.id || '');
 			if (existingChat) {
 				agentService.get(existingChat.id)?.stop();
 			}
 		});
 
 		this._bot.onAction('feedback_positive', async (event) => {
-			const messageId = await this._getLastAssistantMessageId(event.thread.id);
+			const messageId = await this._getLastAssistantMessageId(event.thread?.id || '');
 			if (!messageId) {
 				return;
 			}
 			await feedbackQueries.upsertFeedback({ messageId, vote: 'up' });
-			const completion = this._lastCompletionCard.get(event.thread.id);
+			const completion = this._lastCompletionCard.get(event.thread?.id || '');
 			if (completion) {
 				await completion.card.edit(createCompletionCard(completion.chatUrl, 'up'));
 			}
 		});
 
 		this._bot.onAction('feedback_negative', async (event) => {
-			const messageId = await this._getLastAssistantMessageId(event.thread.id);
+			const messageId = await this._getLastAssistantMessageId(event.thread?.id || '');
 			if (!messageId) {
 				return;
 			}
 			await feedbackQueries.upsertFeedback({ messageId, vote: 'down' });
-			const completion = this._lastCompletionCard.get(event.thread.id);
+			const completion = this._lastCompletionCard.get(event.thread?.id || '');
 			if (completion) {
 				await completion.card.edit(createCompletionCard(completion.chatUrl, 'down'));
 			}

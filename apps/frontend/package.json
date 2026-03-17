@@ -58,7 +58,7 @@
 		"react-syntax-highlighter": "^16.1.0",
 		"recharts": "2.15.4",
 		"sql-formatter": "^15.7.2",
-		"streamdown": "^2.0.1",
+		"streamdown": "^2.4.0",
 		"superjson": "^2.2.6",
 		"tailwind-merge": "^3.4.0",
 		"tailwindcss": "^4.0.6",
