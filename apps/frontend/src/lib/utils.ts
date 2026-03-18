@@ -39,8 +39,8 @@ export function toLocalDateString(d: Date): string {
 
 export function isValidUrl(value: string): boolean {
 	try {
-		new URL(value);
-		return true;
+		const url = new URL(value);
+		return url.protocol === 'http:' || url.protocol === 'https:';
 	} catch {
 		return false;
 	}

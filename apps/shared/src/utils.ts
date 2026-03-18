@@ -10,8 +10,12 @@ export function extractBaseUrl(url: string | undefined): string | null {
 	if (!url) {
 		return null;
 	}
-	const parsed = new URL(url);
-	return `${parsed.protocol}//${parsed.host}`;
+	try {
+		const parsed = new URL(url);
+		return `${parsed.protocol}//${parsed.host}`;
+	} catch {
+		return null;
+	}
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

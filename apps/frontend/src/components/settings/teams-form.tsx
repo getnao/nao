@@ -92,28 +92,21 @@ export async function downloadTeamsManifestZip(appId: string, redirectUrl: strin
 	URL.revokeObjectURL(url);
 }
 
-export function TeamsForm({
-	hasProjectConfig,
-	onSubmit,
-	onCancel,
-	isPending,
-	messagingEndpointUrl: initialEndpointUrl,
-}: TeamsFormProps) {
-	const [endpointUrl, setEndpointUrl] = useState(initialEndpointUrl ?? '');
+export function TeamsForm({ hasProjectConfig, onSubmit, onCancel, isPending, messagingEndpointUrl }: TeamsFormProps) {
+	const [endpointUrl, setEndpointUrl] = useState(messagingEndpointUrl ?? '');
 
 	useEffect(() => {
-		if (initialEndpointUrl) {
-			setEndpointUrl(initialEndpointUrl);
-		}
-	}, [initialEndpointUrl]);
+		setEndpointUrl(messagingEndpointUrl ?? '');
+	}, [messagingEndpointUrl]);
 
 	const form = useForm({
 		defaultValues: { appId: '', appPassword: '', tenantId: '' },
 		onSubmit: async ({ value }) => {
 			const url = normalizeUrl(endpointUrl);
-			await onSubmit({ ...value, deploymentUrl: url || undefined });
-			if (url) {
-				const baseUrl = extractBaseUrl(url);
+			const validatedUrl = isValidUrl(url) ? url : undefined;
+			await onSubmit({ ...value, deploymentUrl: validatedUrl });
+			if (validatedUrl) {
+				const baseUrl = extractBaseUrl(validatedUrl);
 				if (baseUrl) {
 					await downloadTeamsManifestZip(value.appId, baseUrl);
 				}

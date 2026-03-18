@@ -89,7 +89,8 @@ export function SlackForm({ projectId, redirectUrl, hasProjectConfig, onSubmit, 
 		defaultValues: { botToken: '', signingSecret: '' },
 		onSubmit: async ({ value }) => {
 			const url = normalizeUrl(deploymentUrl);
-			await onSubmit({ ...value, deploymentUrl: url || undefined });
+			const validatedUrl = isValidUrl(url) ? url : undefined;
+			await onSubmit({ ...value, deploymentUrl: validatedUrl });
 			form.reset();
 		},
 	});
