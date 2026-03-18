@@ -429,7 +429,7 @@ function ChatsSectionHeader({
 						onToggleShared();
 					}}
 					className={cn(
-						'transition-[opacity,border-color,background-color] duration-200 p-1 h-5 rounded-md border',
+						'transition-[opacity,border-color,background-color] duration-200 p-2 h-5 rounded-sm border',
 						sharedOpen ? 'opacity-90' : 'opacity-0 group-hover:opacity-90',
 						'border-border text-muted-foreground hover:text-muted-foreground',
 						'hover:border-foreground hover:bg-foreground hover:text-background',
@@ -438,7 +438,7 @@ function ChatsSectionHeader({
 					variant='ghost-no-hover'
 					size='sm'
 				>
-					<span className='text-[10px]'>Share with me</span>
+					<span className='text-[10px]'>Shared with me</span>
 				</Button>
 			}
 		/>

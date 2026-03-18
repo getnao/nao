@@ -43,6 +43,25 @@ export function ShareChatDialog({ open, onOpenChange, chatId }: ShareChatDialogP
 		);
 	}
 
+	if (shareQuery.isError) {
+		return (
+			<Dialog open={open} onOpenChange={onOpenChange}>
+				<DialogContent className='sm:max-w-md'>
+				<DialogHeader>
+					<DialogTitle>Share Chat</DialogTitle>
+					<DialogDescription className="text-destructive">
+					Failed to load sharing settings. Please try again.
+					</DialogDescription>
+				</DialogHeader>
+				<DialogFooter>
+					<Button variant='outline' onClick={() => onOpenChange(false)}>Close</Button>
+					<Button onClick={() => shareQuery.refetch()}>Retry</Button>
+				</DialogFooter>
+				</DialogContent>
+			</Dialog>
+		);
+	  }
+
 	if (!isShared) {
 		return <CreateShareDialog open={open} onOpenChange={onOpenChange} chatId={chatId} />;
 	}
@@ -59,12 +78,20 @@ export function ShareChatDialog({ open, onOpenChange, chatId }: ShareChatDialogP
 	);
 }
 
+function useInvalidateShareQueries(chatId: string) {
+	const queryClient = useQueryClient();
+	return useCallback(() => {
+		queryClient.invalidateQueries({ queryKey: trpc.sharedChat.findByChat.queryKey({ chatId }) });
+		queryClient.invalidateQueries({ queryKey: trpc.sharedChat.list.queryKey() });
+	}, [queryClient, chatId]);
+}
+
 function CreateShareDialog({ open, onOpenChange, chatId }: ShareChatDialogProps) {
 	const { data: session } = useSession();
-	const queryClient = useQueryClient();
 	const [visibility, setVisibility] = useState<Visibility>('project');
 	const [isCopied, setIsCopied] = useState(false);
 	const timeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+	const invalidateShareQueries = useInvalidateShareQueries(chatId);
 
 	useEffect(() => () => clearTimeout(timeoutRef.current), []);
 
@@ -83,8 +110,7 @@ function CreateShareDialog({ open, onOpenChange, chatId }: ShareChatDialogProps)
 	const shareMutation = useMutation(
 		trpc.sharedChat.create.mutationOptions({
 			onSuccess: (data) => {
-				queryClient.invalidateQueries({ queryKey: trpc.sharedChat.findByChat.queryKey({ chatId }) });
-				queryClient.invalidateQueries({ queryKey: trpc.sharedChat.list.queryKey() });
+				invalidateShareQueries();
 				const url = `${window.location.origin}/chats/shared/${data.id}`;
 				navigator.clipboard.writeText(url);
 				setIsCopied(true);
@@ -181,8 +207,8 @@ function ManageShareDialog({
 	allowedUserIds: string[];
 }) {
 	const { data: session } = useSession();
-	const queryClient = useQueryClient();
 	const { isCopied, copy: copyLink } = useCopyWithFeedback();
+	const invalidateShareQueries = useInvalidateShareQueries(chatId);
 
 	const currentUserId = session?.user?.id;
 	const { selectedUserIds, search, setSearch, filteredMembers, toggleUser, membersQuery, reset } = useMemberPicker(
@@ -190,21 +216,21 @@ function ManageShareDialog({
 		allowedUserIds,
 	);
 
+	const stableAllowedUserIds = useMemo(() => allowedUserIds,
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+		[allowedUserIds.join(',')]
+	);
+
 	useEffect(() => {
 		if (open) {
-			reset(allowedUserIds);
+			reset(stableAllowedUserIds);
 		}
-	}, [open, allowedUserIds, reset]);
+	}, [open, stableAllowedUserIds, reset]);
 
 	const hasChanges = useMemo(
 		() => hasAccessChanges(visibility, allowedUserIds, selectedUserIds),
 		[visibility, allowedUserIds, selectedUserIds],
 	);
-
-	const invalidateShareQueries = useCallback(() => {
-		queryClient.invalidateQueries({ queryKey: trpc.sharedChat.findByChat.queryKey({ chatId }) });
-		queryClient.invalidateQueries({ queryKey: trpc.sharedChat.list.queryKey() });
-	}, [queryClient, chatId]);
 
 	const deleteMutation = useMutation(
 		trpc.sharedChat.delete.mutationOptions({
