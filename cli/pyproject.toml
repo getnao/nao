@@ -24,7 +24,7 @@ dependencies = [
     "pydantic>=2.10.0",
     "pyyaml>=6.0.0",
     "rich>=14.0.0",
-    "ibis-framework[bigquery,duckdb,databricks,mssql,mysql,snowflake,postgres,athena,trino]>=9.0.0",
+    "ibis-framework[bigquery,clickhouse,duckdb,databricks,mssql,mysql,snowflake,postgres,athena,trino]>=9.0.0",
     "openai>=1.0.0",
     "fastapi>=0.128.0",
     "uvicorn>=0.40.0",
@@ -41,13 +41,14 @@ dependencies = [
     "posthog>=7.8.0",
     "mistralai>=1.11.1",
     "google-genai>=1.61.0",
+    "azure-identity>=1.19.0",
     "sshtunnel>=0.4.0",
     "snowflake-connector-python[secure-local-storage]>=4.2.0",
     "ollama>=0.4.0",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest-cov"]
+dev = ["pytest-cov", "pytest-timeout>=2.3.0"]
 
 [project.scripts]
 nao = "nao_core.main:main"
@@ -87,3 +88,6 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
+markers = [
+    "timeout: mark test with a timeout in seconds (pytest-timeout).",
+]

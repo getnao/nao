@@ -61,14 +61,14 @@ export const AssistantMessage = memo(
 	},
 );
 
-const MessageParts = memo(({ parts }: { parts: GroupedMessagePart[] }) => {
+export const MessageParts = memo(({ parts }: { parts: GroupedMessagePart[] }) => {
 	const { isSettled } = useAssistantMessage();
 	return parts.map((part, i) => {
 		return <MessagePart key={i} part={part} isPartSettled={isSettled || !isLast(part, parts)} />;
 	});
 });
 
-const MessagePart = memo(({ part, isPartSettled }: { part: GroupedMessagePart; isPartSettled: boolean }) => {
+export const MessagePart = memo(({ part, isPartSettled }: { part: GroupedMessagePart; isPartSettled: boolean }) => {
 	if (isToolGroupPart(part)) {
 		return <ToolCallsGroup parts={part.parts} isSettled={isPartSettled} />;
 	}

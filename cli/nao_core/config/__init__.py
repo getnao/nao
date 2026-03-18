@@ -2,6 +2,7 @@ from .base import NaoConfig, NaoConfigError
 from .databases import (
     AnyDatabaseConfig,
     BigQueryConfig,
+    ClickHouseConfig,
     DatabaseType,
     DatabricksConfig,
     DuckDBConfig,
@@ -12,7 +13,7 @@ from .databases import (
     TrinoConfig,
 )
 from .exceptions import InitError
-from .llm import LLMConfig, LLMProvider
+from .llm import PROVIDER_AUTH, LLMConfig, LLMProvider, ProviderAuthConfig
 from .slack import SlackConfig
 
 __all__ = [
@@ -20,6 +21,7 @@ __all__ = [
     "NaoConfigError",
     "AnyDatabaseConfig",
     "BigQueryConfig",
+    "ClickHouseConfig",
     "DuckDBConfig",
     "DatabricksConfig",
     "SnowflakeConfig",
@@ -30,6 +32,8 @@ __all__ = [
     "DatabaseType",
     "LLMConfig",
     "LLMProvider",
+    "PROVIDER_AUTH",
+    "ProviderAuthConfig",
     "SlackConfig",
     "InitError",
 ]

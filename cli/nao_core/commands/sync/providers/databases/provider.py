@@ -1,6 +1,8 @@
 """Database sync provider implementation."""
 
+import re
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -15,9 +17,15 @@ from rich.progress import (
     TimeElapsedColumn,
 )
 
-from nao_core.commands.sync.cleanup import DatabaseSyncState, cleanup_stale_databases, cleanup_stale_paths
+from nao_core.commands.sync.cleanup import (
+    DatabaseSyncState,
+    cleanup_stale_databases,
+    cleanup_stale_paths,
+    get_database_folder_names,
+)
 from nao_core.config import AnyDatabaseConfig, NaoConfig
-from nao_core.config.databases.base import DatabaseConfig
+from nao_core.config.databases.base import ProfilingRefreshPolicy
+from nao_core.config.llm import LLMConfig
 from nao_core.templates.engine import get_template_engine
 
 from ..base import SyncProvider, SyncResult
@@ -27,7 +35,7 @@ console = Console()
 TEMPLATE_PREFIX = "databases"
 
 
-def _filter_templates_by_accessor(templates: list[str], db_config: DatabaseConfig) -> list[str]:
+def _filter_templates_by_accessor(templates: list[str], db_config: AnyDatabaseConfig) -> list[str]:
     """Keep only templates whose stem matches the configured accessors."""
     allowed = {a.value for a in db_config.accessors}
     return [t for t in templates if Path(t).stem.replace(".md", "") in allowed]
@@ -44,135 +52,181 @@ def _fmt_duration(seconds: float) -> str:
     return f"{minutes}m{secs:.0f}s"
 
 
+def _should_refresh_profiling(
+    output_file: Path,
+    profiling_config,
+) -> bool:
+    """Decide whether profiling should be recomputed based on refresh policy."""
+
+    policy = profiling_config.refresh_policy
+    if not output_file.exists() or policy == ProfilingRefreshPolicy.ALWAYS:
+        return True
+    if policy == ProfilingRefreshPolicy.ONCE:
+        return False
+    if policy == ProfilingRefreshPolicy.INTERVAL:
+        try:
+            content = output_file.read_text()
+            match = re.search(r"\*\*Computed at:\*\*\s*`([^`]+)`", content, re.IGNORECASE)
+            if match:
+                computed_at_str = match.group(1)
+                computed_at = datetime.fromisoformat(computed_at_str)
+                if computed_at.tzinfo is None:
+                    computed_at = computed_at.replace(tzinfo=timezone.utc)
+                age = datetime.now(timezone.utc) - computed_at
+                return age > timedelta(days=profiling_config.interval_days)
+        except Exception:
+            return True
+
+    return True
+
+
 def sync_database(
-    db_config: DatabaseConfig,
+    db_config: AnyDatabaseConfig,
     base_path: Path,
     progress: Progress,
     project_path: Path | None = None,
+    llm_config: LLMConfig | None = None,
+    db_folder: str | None = None,
 ) -> DatabaseSyncState:
     """Sync a single database by rendering all database templates for each table."""
-    engine = get_template_engine(project_path)
+    engine = get_template_engine(project_path, llm_config=llm_config)
     templates = _filter_templates_by_accessor(engine.list_templates(TEMPLATE_PREFIX), db_config)
 
     t_connect = time.monotonic()
     conn = db_config.connect()
-    console.print(
-        f"  [dim]Connected to[/dim] [bold]{db_config.name}[/bold] "
-        f"[dim]({_fmt_duration(time.monotonic() - t_connect)})[/dim]"
-    )
-
-    db_name = db_config.get_database_name()
-    db_path = base_path / f"type={db_config.type}" / f"database={db_name}"
-    state = DatabaseSyncState(db_path=db_path)
-
-    t_schemas = time.monotonic()
-    schemas = db_config.get_schemas(conn)
-    console.print(
-        f"  [dim]Found[/dim] [bold]{len(schemas)}[/bold] "
-        f"[dim]schemas ({_fmt_duration(time.monotonic() - t_schemas)})[/dim]"
-    )
-
-    schema_task = progress.add_task(
-        f"[dim]{db_config.name}[/dim]",
-        total=len(schemas),
-    )
-
-    total_errors = 0
-
-    for schema in schemas:
-        try:
-            t_list = time.monotonic()
-            all_tables = conn.list_tables(database=schema)
-        except Exception as e:
-            console.print(f"  [yellow]⚠[/yellow] [dim]Skipping schema[/dim] {schema}: {e}")
-            progress.update(schema_task, advance=1)
-            continue
-
-        tables = [t for t in all_tables if db_config.matches_pattern(schema, t)]
-
-        if not tables:
-            progress.update(schema_task, advance=1)
-            continue
-
-        list_dur = _fmt_duration(time.monotonic() - t_list)
+    try:
         console.print(
-            f"  [cyan]▸ {schema}[/cyan] [dim]— {len(tables)} tables "
-            f"(of {len(all_tables)} total, listed in {list_dur})[/dim]"
+            f"  [dim]Connected to[/dim] [bold]{db_config.name}[/bold] "
+            f"[dim]({_fmt_duration(time.monotonic() - t_connect)})[/dim]"
         )
 
-        schema_path = db_path / f"schema={schema}"
-        schema_path.mkdir(parents=True, exist_ok=True)
-        state.add_schema(schema)
+        if db_folder is None:
+            db_folder = f"database={db_config.get_database_name()}"
+        db_path = base_path / f"type={db_config.type}" / db_folder
+        state = DatabaseSyncState(db_path=db_path)
 
-        table_task = progress.add_task(
-            f"    [cyan]{schema}[/cyan]",
-            total=len(tables),
+        t_schemas = time.monotonic()
+        schemas = db_config.get_schemas(conn)
+        console.print(
+            f"  [dim]Found[/dim] [bold]{len(schemas)}[/bold] "
+            f"[dim]schemas ({_fmt_duration(time.monotonic() - t_schemas)})[/dim]"
         )
 
-        schema_errors = 0
-        schema_start = time.monotonic()
+        schema_task = progress.add_task(
+            f"[dim]{db_config.name}[/dim]",
+            total=len(schemas),
+        )
 
-        for table in tables:
-            table_path = schema_path / f"table={table}"
-            table_path.mkdir(parents=True, exist_ok=True)
+        total_errors = 0
+
+        for schema in schemas:
+            try:
+                t_list = time.monotonic()
+                all_tables = conn.list_tables(database=schema)
+            except Exception as e:
+                console.print(f"  [yellow]⚠[/yellow] [dim]Skipping schema[/dim] {schema}: {e}")
+                progress.update(schema_task, advance=1)
+                continue
+
+            tables = [t for t in all_tables if db_config.matches_pattern(schema, t)]
+
+            if not tables:
+                progress.update(schema_task, advance=1)
+                continue
+
+            list_dur = _fmt_duration(time.monotonic() - t_list)
+            console.print(
+                f"  [cyan]▸ {schema}[/cyan] [dim]— {len(tables)} tables "
+                f"(of {len(all_tables)} total, listed in {list_dur})[/dim]"
+            )
+
+            schema_path = db_path / f"schema={schema}"
+            schema_path.mkdir(parents=True, exist_ok=True)
+            state.add_schema(schema)
+
+            table_task = progress.add_task(
+                f"    [cyan]{schema}[/cyan]",
+                total=len(tables),
+            )
+
+            schema_errors = 0
+            schema_start = time.monotonic()
+
+            for table in tables:
+                table_path = schema_path / f"table={table}"
+                table_path.mkdir(parents=True, exist_ok=True)
+
+                progress.update(
+                    table_task,
+                    description=f"    [cyan]{schema}[/cyan] [dim]→ {table}[/dim]",
+                )
+
+                ctx = db_config.create_context(conn, schema, table)
+
+                for template_name in templates:
+                    output_filename = Path(template_name).stem
+                    accessor_name = output_filename.replace(".md", "")
+                    output_file = table_path / output_filename
+
+                    if accessor_name == "profiling" and hasattr(db_config, "profiling"):
+                        if not _should_refresh_profiling(output_file, db_config.profiling):
+                            console.print(
+                                f"    [dim]⏭ {schema}.{table} profiling skipped "
+                                f"(policy: {db_config.profiling.refresh_policy.value})[/dim]"
+                            )
+                            continue
+
+                    t_render = time.monotonic()
+                    try:
+                        content = engine.render(template_name, db=ctx, table_name=table, dataset=schema)
+                        render_dur = time.monotonic() - t_render
+                        if render_dur > 5:
+                            console.print(
+                                f"    [yellow]⏱[/yellow] [dim]{schema}.{table}[/dim] "
+                                f"[yellow]{accessor_name}[/yellow] [dim]took {_fmt_duration(render_dur)}[/dim]"
+                            )
+                    except Exception as e:
+                        render_dur = time.monotonic() - t_render
+                        schema_errors += 1
+                        total_errors += 1
+                        console.print(
+                            f"    [bold red]✗[/bold red] [dim]{schema}.{table}[/dim] "
+                            f"[red]{accessor_name}[/red] [dim]failed after "
+                            f"{_fmt_duration(render_dur)}:[/dim] {e}"
+                        )
+                        content = f"# {table}\n\nError generating content: {e}"
+
+                    output_file = table_path / output_filename
+                    output_file.write_text(content)
+
+                state.add_table(schema, table)
+                progress.update(table_task, advance=1)
 
             progress.update(
                 table_task,
-                description=f"    [cyan]{schema}[/cyan] [dim]→ {table}[/dim]",
+                description=f"    [cyan]{schema}[/cyan]",
+            )
+            schema_dur = _fmt_duration(time.monotonic() - schema_start)
+            error_suffix = f" [red]({schema_errors} errors)[/red]" if schema_errors else ""
+            console.print(
+                f"  [green]✓ {schema}[/green] [dim]— {len(tables)} tables synced in {schema_dur}{error_suffix}[/dim]"
             )
 
-            ctx = db_config.create_context(conn, schema, table)
+            progress.update(schema_task, advance=1)
 
-            for template_name in templates:
-                output_filename = Path(template_name).stem
-                accessor_name = output_filename.replace(".md", "")
+        if total_errors:
+            console.print(f"  [yellow]⚠ {total_errors} total errors during sync[/yellow]")
 
-                t_render = time.monotonic()
-                try:
-                    content = engine.render(template_name, db=ctx, table_name=table, dataset=schema)
-                    render_dur = time.monotonic() - t_render
-                    if render_dur > 5:
-                        console.print(
-                            f"    [yellow]⏱[/yellow] [dim]{schema}.{table}[/dim] "
-                            f"[yellow]{accessor_name}[/yellow] [dim]took {_fmt_duration(render_dur)}[/dim]"
-                        )
-                except Exception as e:
-                    render_dur = time.monotonic() - t_render
-                    schema_errors += 1
-                    total_errors += 1
-                    console.print(
-                        f"    [bold red]✗[/bold red] [dim]{schema}.{table}[/dim] "
-                        f"[red]{accessor_name}[/red] [dim]failed after "
-                        f"{_fmt_duration(render_dur)}:[/dim] {e}"
-                    )
-                    content = f"# {table}\n\nError generating content: {e}"
-
-                output_file = table_path / output_filename
-                output_file.write_text(content)
-
-            state.add_table(schema, table)
-            progress.update(table_task, advance=1)
-
-        progress.update(
-            table_task,
-            description=f"    [cyan]{schema}[/cyan]",
-        )
-        schema_dur = _fmt_duration(time.monotonic() - schema_start)
-        error_suffix = f" [red]({schema_errors} errors)[/red]" if schema_errors else ""
-        console.print(
-            f"  [green]✓ {schema}[/green] [dim]— {len(tables)} tables synced in {schema_dur}{error_suffix}[/dim]"
-        )
-
-        progress.update(schema_task, advance=1)
-
-    if total_errors:
-        console.print(f"  [yellow]⚠ {total_errors} total errors during sync[/yellow]")
-
-    return state
+        return state
+    finally:
+        conn.disconnect()
 
 
 class DatabaseSyncProvider(SyncProvider):
     """Provider for syncing database schemas to markdown documentation."""
+
+    def __init__(self) -> None:
+        self._llm_config: LLMConfig | None = None
 
     @property
     def name(self) -> str:
@@ -187,6 +241,7 @@ class DatabaseSyncProvider(SyncProvider):
         return "databases"
 
     def pre_sync(self, config: NaoConfig, output_path: Path) -> None:
+        self._llm_config = config.llm
         cleanup_stale_databases(config.databases, output_path, verbose=True)
 
     def get_items(self, config: NaoConfig) -> list[AnyDatabaseConfig]:
@@ -222,9 +277,17 @@ class DatabaseSyncProvider(SyncProvider):
             console=console,
             transient=False,
         ) as progress:
-            for db in items:
+            db_folders = get_database_folder_names(items)
+            for db, db_folder in zip(items, db_folders, strict=False):
                 try:
-                    state = sync_database(db, output_path, progress, project_path)
+                    state = sync_database(
+                        db,
+                        output_path,
+                        progress,
+                        project_path,
+                        self._llm_config,
+                        db_folder=db_folder,
+                    )
                     sync_states.append(state)
                     total_datasets += state.schemas_synced
                     total_tables += state.tables_synced

@@ -89,7 +89,12 @@ export const ToolCallWrapper = ({
 	const contentToShow = toolPart.errorText && !overrideError ? errorContent : children;
 
 	return (
-		<div onMouseEnter={() => setIsHovering(true)} onMouseLeave={() => setIsHovering(false)}>
+		<div
+			onMouseEnter={() => setIsHovering(true)}
+			onMouseLeave={() => setIsHovering(false)}
+			className={cn(isBordered && '-mx-3')}
+			{...(hasError && { 'data-replay-nav': 'tool-error' })}
+		>
 			<Expandable
 				title={title}
 				badge={badge}
@@ -100,7 +105,6 @@ export const ToolCallWrapper = ({
 				leadingIcon={statusIcon}
 				variant={isBordered ? 'bordered' : 'inline'}
 				trailingContent={actionsContent}
-				className={cn(isBordered && '-mx-3')}
 			>
 				{contentToShow}
 			</Expandable>

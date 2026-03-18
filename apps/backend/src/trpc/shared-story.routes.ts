@@ -4,6 +4,7 @@ import { z } from 'zod/v4';
 import * as projectQueries from '../queries/project.queries';
 import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
+import { notifySharedStoryRecipients } from '../utils/email';
 import { extractStorySummary } from '../utils/story-summary';
 import { projectProtectedProcedure, protectedProcedure } from './trpc';
 
@@ -31,7 +32,7 @@ export const sharedStoryRoutes = {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
 			}
 
-			return sharedStoryQueries.createSharedStory(
+			const created = await sharedStoryQueries.createSharedStory(
 				{
 					projectId: ctx.project.id,
 					userId: ctx.user.id,
@@ -41,6 +42,18 @@ export const sharedStoryRoutes = {
 				},
 				input.allowedUserIds,
 			);
+
+			await notifySharedStoryRecipients({
+				projectId: ctx.project.id,
+				sharerId: ctx.user.id,
+				sharerName: ctx.user.name,
+				shareId: created.id,
+				storyTitle: latestVersion.title,
+				visibility: input.visibility,
+				allowedUserIds: input.allowedUserIds,
+			});
+
+			return created;
 		}),
 
 	get: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ input, ctx }) => {
@@ -96,7 +109,21 @@ export const sharedStoryRoutes = {
 				throw new TRPCError({ code: 'FORBIDDEN', message: 'Only the creator or an admin can update this.' });
 			}
 
+			const previousAllowedUserIds = await sharedStoryQueries.getSharedStoryAllowedUserIds(input.id);
 			await sharedStoryQueries.updateAllowedUsers(input.id, input.allowedUserIds);
+
+			const newlyAddedUserIds = input.allowedUserIds.filter((id) => !previousAllowedUserIds.includes(id));
+			if (newlyAddedUserIds.length > 0) {
+				await notifySharedStoryRecipients({
+					projectId: ctx.project.id,
+					sharerId: story.userId,
+					sharerName: story.authorName,
+					shareId: input.id,
+					storyTitle: story.title,
+					visibility: 'specific',
+					allowedUserIds: newlyAddedUserIds,
+				});
+			}
 		}),
 
 	delete: projectProtectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input, ctx }) => {

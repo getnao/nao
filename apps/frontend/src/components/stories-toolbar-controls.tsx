@@ -1,4 +1,4 @@
-import { LayoutGrid, List, Search, X } from 'lucide-react';
+import { ArchiveIcon, LayoutGrid, List, Search, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import type { DisplayMode, GroupBy } from '@/lib/stories-page';
@@ -14,6 +14,8 @@ export function StoriesToolbarControls({
 	onGroupByChange,
 	displayMode,
 	onDisplayModeChange,
+	showArchived,
+	onShowArchivedChange,
 }: {
 	searchQuery: string;
 	onSearchQueryChange: (value: string) => void;
@@ -21,11 +23,26 @@ export function StoriesToolbarControls({
 	onGroupByChange: (value: GroupBy) => void;
 	displayMode: DisplayMode;
 	onDisplayModeChange: (value: DisplayMode) => void;
+	showArchived: boolean;
+	onShowArchivedChange: (value: boolean) => void;
 }) {
 	return (
 		<div className='flex items-center gap-1'>
-			<SearchInput value={searchQuery} onChange={onSearchQueryChange} />
-			<GroupBySelect value={groupBy} onChange={onGroupByChange} />
+			<Button
+				variant='ghost'
+				size='sm'
+				onClick={() => onShowArchivedChange(!showArchived)}
+				className='text-muted-foreground gap-1.5'
+			>
+				<ArchiveIcon className='size-3.5' />
+				<span className='text-xs'>{showArchived ? 'Back to stories' : 'See archives'}</span>
+			</Button>
+			{!showArchived && (
+				<>
+					<SearchInput value={searchQuery} onChange={onSearchQueryChange} />
+					<GroupBySelect value={groupBy} onChange={onGroupByChange} />
+				</>
+			)}
 			<DisplayModeToggle value={displayMode} onChange={onDisplayModeChange} />
 		</div>
 	);

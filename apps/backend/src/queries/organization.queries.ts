@@ -151,7 +151,7 @@ export const initializeDefaultOrganizationForFirstUser = async (userId: string):
 
 /**
  * Add a user to the default organization and project if they don't already exist.
- * Called when a new user signs up via Google OAuth (or other social provider).
+ * Called when a new user signs up.
  * Idempotent: safe to call multiple times for the same user.
  */
 export const addUserToDefaultProjectIfExists = async (userId: string): Promise<void> => {
@@ -165,19 +165,21 @@ export const addUserToDefaultProjectIfExists = async (userId: string): Promise<v
 		return;
 	}
 
+	const role = env.DEFAULT_USER_ROLE;
+
 	await db.transaction(async (tx) => {
 		const existingOrgMember = await tx.query.orgMember.findFirst({
 			where: and(eq(s.orgMember.orgId, org.id), eq(s.orgMember.userId, userId)),
 		});
 		if (!existingOrgMember) {
-			await tx.insert(s.orgMember).values({ orgId: org.id, userId, role: 'user' }).execute();
+			await tx.insert(s.orgMember).values({ orgId: org.id, userId, role }).execute();
 		}
 
 		const existingProjectMember = await tx.query.projectMember.findFirst({
 			where: and(eq(s.projectMember.projectId, project.id), eq(s.projectMember.userId, userId)),
 		});
 		if (!existingProjectMember) {
-			await tx.insert(s.projectMember).values({ projectId: project.id, userId, role: 'user' }).execute();
+			await tx.insert(s.projectMember).values({ projectId: project.id, userId, role }).execute();
 		}
 	});
 };

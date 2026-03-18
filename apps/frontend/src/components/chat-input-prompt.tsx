@@ -1,11 +1,24 @@
 import 'prompt-mentions/style.css';
 
 import { useQuery } from '@tanstack/react-query';
+import { Table } from 'lucide-react';
+import { DATABASE_MENTION_TRIGGER, SKILL_MENTION_TRIGGER } from '@nao/shared';
+import { story } from '@nao/shared/tools';
 import { Prompt } from 'prompt-mentions';
-import type { PromptHandle, PromptTheme, SelectedMention } from 'prompt-mentions';
+import StoryIcon from './ui/story-icon';
+import type { MentionOption, PromptHandle, PromptTheme, SelectedMention } from 'prompt-mentions';
 import type { RefObject } from 'react';
-import { capitalize } from '@/lib/utils';
 import { trpc } from '@/main';
+
+export const STORY_MENTION_ID = story.MENTION_ID;
+export { DATABASE_MENTION_TRIGGER, SKILL_MENTION_TRIGGER };
+
+const storyMentionOption: MentionOption = {
+	id: STORY_MENTION_ID,
+	label: 'Story mode',
+	labelRight: 'Create a new story',
+	icon: <StoryIcon className='size-4' />,
+};
 
 type ChatPromptProps = {
 	promptRef: RefObject<PromptHandle | null>;
@@ -40,8 +53,22 @@ const theme: PromptTheme = {
 	},
 };
 
+const tableIcon = <Table className='size-4' />;
+
+function buildDatabaseObjectOptions(
+	objects: { type: string; database: string; schema: string; table: string; fqdn: string }[],
+): MentionOption[] {
+	return objects.map((obj) => ({
+		id: obj.fqdn,
+		label: obj.table,
+		labelRight: `${obj.database}.${obj.schema}`,
+		icon: tableIcon,
+	}));
+}
+
 export function ChatPrompt({ promptRef, placeholder, onChange, onEnter }: ChatPromptProps) {
 	const { data: skills } = useQuery(trpc.skill.list.queryOptions());
+	const { data: databaseObjects } = useQuery(trpc.project.getDatabaseObjects.queryOptions());
 
 	return (
 		<Prompt
@@ -49,14 +76,26 @@ export function ChatPrompt({ promptRef, placeholder, onChange, onEnter }: ChatPr
 			placeholder={placeholder}
 			mentionConfigs={[
 				{
-					trigger: '/',
+					trigger: SKILL_MENTION_TRIGGER,
 					menuPosition: 'above',
-					options:
-						skills?.map((skill) => ({
+					options: [
+						...(skills?.map((skill) => ({
 							id: skill.name,
-							label: capitalize(skill.name.replace(/-/g, ' ')),
+							label: skill.name,
 							labelRight: skill.description ?? undefined,
-						})) ?? [],
+							icon: <span>{SKILL_MENTION_TRIGGER}</span>,
+						})) ?? []),
+					],
+				},
+				{
+					trigger: story.MENTION_TRIGGER,
+					menuPosition: 'above',
+					options: [storyMentionOption],
+				},
+				{
+					trigger: DATABASE_MENTION_TRIGGER,
+					menuPosition: 'above',
+					options: buildDatabaseObjectOptions(databaseObjects ?? []),
 				},
 			]}
 			onChange={onChange}

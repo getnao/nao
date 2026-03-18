@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.10"
 resolution-markers = [
     "python_full_version < '3.11'",
@@ -276,6 +276,35 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/6b/5c/685e6633917e101e5dcb62b9dd76946cbb57c26e133bae9e0cd36033c0a9/attrs-25.4.0.tar.gz", hash = "sha256:16d5969b87f0859ef33a48b35d55ac1be6e42ae49d5e853b597db70c35c57e11", size = 934251, upload-time = "2025-10-06T13:54:44.725Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/3a/2a/7cc015f5b9f5db42b7d48157e23356022889fc354a2813c15934b7cb5c0e/attrs-25.4.0-py3-none-any.whl", hash = "sha256:adcf7e2a1fb3b36ac48d97835bb6d8ade15b8dcce26aba8bf1d14847b57a3373", size = 67615, upload-time = "2025-10-06T13:54:43.17Z" },
+]
+
+[[package]]
+name = "azure-core"
+version = "1.38.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "requests" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/00/fe/5c7710bc611a4070d06ba801de9a935cc87c3d4b689c644958047bdf2cba/azure_core-1.38.2.tar.gz", hash = "sha256:67562857cb979217e48dc60980243b61ea115b77326fa93d83b729e7ff0482e7", size = 363734, upload-time = "2026-02-18T19:33:05.6Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/42/23/6371a551800d3812d6019cd813acd985f9fac0fedc1290129211a73da4ae/azure_core-1.38.2-py3-none-any.whl", hash = "sha256:074806c75cf239ea284a33a66827695ef7aeddac0b4e19dda266a93e4665ead9", size = 217957, upload-time = "2026-02-18T19:33:07.696Z" },
+]
+
+[[package]]
+name = "azure-identity"
+version = "1.25.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "azure-core" },
+    { name = "cryptography" },
+    { name = "msal" },
+    { name = "msal-extensions" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c2/3a/439a32a5e23e45f6a91f0405949dc66cfe6834aba15a430aebfc063a81e7/azure_identity-1.25.2.tar.gz", hash = "sha256:030dbaa720266c796221c6cdbd1999b408c079032c919fef725fcc348a540fe9", size = 284709, upload-time = "2026-02-11T01:55:42.323Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/9b/77/f658c76f9e9a52c784bd836aaca6fd5b9aae176f1f53273e758a2bcda695/azure_identity-1.25.2-py3-none-any.whl", hash = "sha256:1b40060553d01a72ba0d708b9a46d0f61f56312e215d8896d836653ffdc6753d", size = 191423, upload-time = "2026-02-11T01:55:44.245Z" },
 ]
 
 [[package]]
@@ -597,6 +626,77 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/3d/fa/656b739db8587d7b5dfa22e22ed02566950fbfbcdc20311993483657a5c0/click-8.3.1.tar.gz", hash = "sha256:12ff4785d337a1bb490bb7e9c2b1ee5da3112e94a8622f26a6c77f5d2fc6842a", size = 295065, upload-time = "2025-11-15T20:45:42.706Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/98/78/01c019cdb5d6498122777c1a43056ebb3ebfeef2076d9d026bfe15583b2b/click-8.3.1-py3-none-any.whl", hash = "sha256:981153a64e25f12d547d3426c367a4857371575ee7ad18df2a6183ab0545b2a6", size = 108274, upload-time = "2025-11-15T20:45:41.139Z" },
+]
+
+[[package]]
+name = "clickhouse-connect"
+version = "0.11.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "certifi" },
+    { name = "lz4" },
+    { name = "pytz" },
+    { name = "urllib3" },
+    { name = "zstandard" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/01/27/ed733561fe9ea78318900545671c33df5a44476e4ea35561b3a7b49662b0/clickhouse_connect-0.11.0.tar.gz", hash = "sha256:2dd49ac4d0d59a836ceda8b2c6b7f348accf2512f81d46543fc33f3b64c55152", size = 111237, upload-time = "2026-02-11T00:48:17.614Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/52/1f/f7085e0c887a8039beaba47ddd4396f59b7521e0c81fc53bb3b71869ab8b/clickhouse_connect-0.11.0-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:035d66337654c7d7812e43910195d0c1ab2e64512a98407a51ee5860d7f32289", size = 279821, upload-time = "2026-02-11T00:46:49.233Z" },
+    { url = "https://files.pythonhosted.org/packages/ef/f5/9bdaab3939411a787eb5cb1cc3e99d6b53d42878dd97906e1e126e1638d9/clickhouse_connect-0.11.0-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:dfd2b70a91debe45b9ad5470a87e7cf904e06981bc90c0380e5bd62da27c4393", size = 273130, upload-time = "2026-02-11T00:46:51.34Z" },
+    { url = "https://files.pythonhosted.org/packages/b7/f6/c2e9b96b10065dd0c161638be812561d9b2ebf32a3a72be3a5503d40f00e/clickhouse_connect-0.11.0-cp310-cp310-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:83478aa71633e1bc555c8607d6716c365d2e7bfdb1296588f386e29b464983cc", size = 1026530, upload-time = "2026-02-11T00:46:54.157Z" },
+    { url = "https://files.pythonhosted.org/packages/a8/cd/e20d83c8714aceeb7ff710e4c649cf5880cea207bfaff76d0b2e525e7d0b/clickhouse_connect-0.11.0-cp310-cp310-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:e70da2df99fff309285a4f25b774e05d82d01c60ff68dc414de9f292ad2508b4", size = 1049723, upload-time = "2026-02-11T00:46:55.394Z" },
+    { url = "https://files.pythonhosted.org/packages/5e/16/495488edca7c91e9d119e8fb12a33c3d513109e2513fc0cb48c90b12d16f/clickhouse_connect-0.11.0-cp310-cp310-musllinux_1_2_aarch64.whl", hash = "sha256:3b0196d4a7f6cd76dc57cf178f4dee2e92c08daa6e77def88d95604cf715b913", size = 1016341, upload-time = "2026-02-11T00:46:56.931Z" },
+    { url = "https://files.pythonhosted.org/packages/39/41/c9c643d8e112471a682073a05a5b3d3c2d64945984e2e5315234d0f1880e/clickhouse_connect-0.11.0-cp310-cp310-musllinux_1_2_x86_64.whl", hash = "sha256:2e8f339f7fbd1880d67e5a8d07dfaecd4cd0f5bf6c77ae3e254030b2a7e71f53", size = 1056735, upload-time = "2026-02-11T00:46:58.494Z" },
+    { url = "https://files.pythonhosted.org/packages/67/e3/80627afde3d0847beb5f8208f899be1fb4a1ef79e2148f7428043414e853/clickhouse_connect-0.11.0-cp310-cp310-win32.whl", hash = "sha256:4196a2caad25ea83cfbc627306daa4345c9b44ce4dd247dc462842da5f10630f", size = 251541, upload-time = "2026-02-11T00:46:59.993Z" },
+    { url = "https://files.pythonhosted.org/packages/fd/47/8a7d56f7a797238cf67d59d6a7c27713c9f901f3d8d818d55496050ac0d7/clickhouse_connect-0.11.0-cp310-cp310-win_amd64.whl", hash = "sha256:69bf8935c8b4dd6455483ae4713ee21230bf6abe84a173e5587d8b9bb862bb7c", size = 269335, upload-time = "2026-02-11T00:47:01.062Z" },
+    { url = "https://files.pythonhosted.org/packages/fb/31/bcb0cddcee7241cad431348007d5229b4fc6f42cf02cb0c826269e5ebbb4/clickhouse_connect-0.11.0-cp311-cp311-macosx_10_9_x86_64.whl", hash = "sha256:c522fd0ee6adc0c9bac97cd4c079993301b79919dfdacfb6310eecfb62c050e7", size = 280157, upload-time = "2026-02-11T00:47:02.048Z" },
+    { url = "https://files.pythonhosted.org/packages/d0/2e/0ee3c701d748d1f98386ebd1d9fc7ed24c65b0868c90ee6ebecaac2a2f52/clickhouse_connect-0.11.0-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:c6f19acaf8b2de034bae55ab82e154ed9194c5c5d454fde72012e9f44e9c52fa", size = 273185, upload-time = "2026-02-11T00:47:03.103Z" },
+    { url = "https://files.pythonhosted.org/packages/d2/58/52441958bfa4cdd7a1b410dff557b9af043bcf7c49b2e6c07f45d511b85e/clickhouse_connect-0.11.0-cp311-cp311-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:242f891559a2b0c4b9eb37cad5181b6141c521763b10c8025a105826ae0c6957", size = 1120807, upload-time = "2026-02-11T00:47:04.523Z" },
+    { url = "https://files.pythonhosted.org/packages/19/d4/d3f9baef9a613c06ae085eae7f9db382d83792da58feeea4c4692a2093b0/clickhouse_connect-0.11.0-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:7c78caf3aeeed4243843be887a3056f0b0ef5d148f2035e2bd8decd3f8760399", size = 1142319, upload-time = "2026-02-11T00:47:06.042Z" },
+    { url = "https://files.pythonhosted.org/packages/50/36/8e63ea8abaffa5c0970e9c15d14334521674dedbca819520caa7a8ffcaff/clickhouse_connect-0.11.0-cp311-cp311-musllinux_1_2_aarch64.whl", hash = "sha256:cc0dfa69da660fa2847c79c0698e0ebfb5309afae14b53fb29121475860cfacb", size = 1112366, upload-time = "2026-02-11T00:47:07.196Z" },
+    { url = "https://files.pythonhosted.org/packages/79/a7/0270a8d3ffb3ff43ea948bf2a284aa6f22c6442dcec12c666b90dab9aea6/clickhouse_connect-0.11.0-cp311-cp311-musllinux_1_2_x86_64.whl", hash = "sha256:dd1f9d8ac9b95027a36ba66e00bf82297e041e8682e68bc1dc5a4ab08d091e28", size = 1158052, upload-time = "2026-02-11T00:47:08.925Z" },
+    { url = "https://files.pythonhosted.org/packages/06/e4/fef34a21bebc590175f8caa6787532239ee437e6a2731e234cb6f6423fb0/clickhouse_connect-0.11.0-cp311-cp311-win32.whl", hash = "sha256:9c16c54d3ae023a85ca278609c3a1fef9ccbfaa3d96c1a7d789b3c7faaf32262", size = 251308, upload-time = "2026-02-11T00:47:10.129Z" },
+    { url = "https://files.pythonhosted.org/packages/36/af/f32aed395a8c6e17fa424aca64aa0addd9580b0f246bc4a74c940bc7ce16/clickhouse_connect-0.11.0-cp311-cp311-win_amd64.whl", hash = "sha256:2853493849e59ccf60a095915f9a8d70f539853fc4536260f21720a6c495e339", size = 269570, upload-time = "2026-02-11T00:47:11.339Z" },
+    { url = "https://files.pythonhosted.org/packages/f2/12/26b0ed7aa696d3b26fd160423f83b5a2cd11ee1bddced332abf16b62e2d1/clickhouse_connect-0.11.0-cp312-cp312-macosx_10_13_x86_64.whl", hash = "sha256:a27bf20184c491d42501989f04fa0228e4b062dd9b09b0ff9766a7968b92dcfb", size = 283653, upload-time = "2026-02-11T00:47:12.297Z" },
+    { url = "https://files.pythonhosted.org/packages/17/a5/5d4a281dc7ee153429c4ef3bb49bfcb0bf238efc7ca71633e29a34be2a6f/clickhouse_connect-0.11.0-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:68cb75f902cf0bfa150ba4ebba01a831af62d54270e74ee7349c6dd62db40300", size = 275443, upload-time = "2026-02-11T00:47:13.31Z" },
+    { url = "https://files.pythonhosted.org/packages/f6/9f/2f6627bb087c29dfe21ab23b2cd60f7867b7eb0b9583e7fea5e0538e0aa3/clickhouse_connect-0.11.0-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:9d3174b1944391777d4549c29a88dbb5214e4ef7194d3cfcd3d338706f58d6bc", size = 1131072, upload-time = "2026-02-11T00:47:14.888Z" },
+    { url = "https://files.pythonhosted.org/packages/b3/30/dfde06ff97e2f8f3e8acacd51652c08e4d71b00e6090f83192bbbde13def/clickhouse_connect-0.11.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:dc91654e353b22980d4e34ca212e1eaa063b047110f8db7d1739a7ca8fbb44e6", size = 1160668, upload-time = "2026-02-11T00:47:16.367Z" },
+    { url = "https://files.pythonhosted.org/packages/eb/0c/00fe37ddf0840c547f4c742a2470215989e27de297b3654c5f08f6148345/clickhouse_connect-0.11.0-cp312-cp312-musllinux_1_2_aarch64.whl", hash = "sha256:76ad068e7b73c27eae7e620dd0bbbb95cf8089ecb661b50a02af771f845649a8", size = 1111955, upload-time = "2026-02-11T00:47:18.173Z" },
+    { url = "https://files.pythonhosted.org/packages/1f/55/23e3be2f3ce25ad9a82e49a1d8877d2c5ab7f9830a2b94d76c786e1ffa00/clickhouse_connect-0.11.0-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:7c24ae9f88caf9cb503c4641051cb89978cb677e0db0e1ef28eb3e3615e1473f", size = 1163650, upload-time = "2026-02-11T00:47:19.867Z" },
+    { url = "https://files.pythonhosted.org/packages/02/82/c9bfa244a84cbd54bb0ebe99f1a383a9c6f5377059511c16d2d9ab392b0b/clickhouse_connect-0.11.0-cp312-cp312-win32.whl", hash = "sha256:9159ac864c0fadd785de64aabf875e8bb1a97303871dff745a5ae647cc7d449f", size = 250979, upload-time = "2026-02-11T00:47:21.016Z" },
+    { url = "https://files.pythonhosted.org/packages/d0/dd/a3377207e54b85cf7f43348af09f5dcba8e6cf9b73c0ade8794dbb669af3/clickhouse_connect-0.11.0-cp312-cp312-win_amd64.whl", hash = "sha256:dceb4201905993dcf7efa56678d30c12f82c195c14249292b9f381bd91940f65", size = 270053, upload-time = "2026-02-11T00:47:22.046Z" },
+    { url = "https://files.pythonhosted.org/packages/b6/0b/7e296bdfbc76eb1db068dd228e2a9a473f79d313999b68b17de88d95c43c/clickhouse_connect-0.11.0-cp313-cp313-macosx_10_13_x86_64.whl", hash = "sha256:0fdd59e35164472404ddddf4407903e516dd11c929f248846dd2993e2c005774", size = 280924, upload-time = "2026-02-11T00:47:23.533Z" },
+    { url = "https://files.pythonhosted.org/packages/5c/6a/bf643ffd72536cf3a35906a0518d3c55bcf9873505a4f4d5d3ecd7828e99/clickhouse_connect-0.11.0-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:49898f30c94dfac1d655e32f3ca829f98344384b470f29dc46532ad2285b2fad", size = 272589, upload-time = "2026-02-11T00:47:24.619Z" },
+    { url = "https://files.pythonhosted.org/packages/0f/ea/91583b8a719a24e4bcec9d005b6c1c82160a080abd2edaf76ca8de5ea22c/clickhouse_connect-0.11.0-cp313-cp313-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:f5db1b8032d6a252040eb4fecb6a330de4712133d0d75b0fbf7cbee1ba7ade61", size = 1112205, upload-time = "2026-02-11T00:47:25.728Z" },
+    { url = "https://files.pythonhosted.org/packages/48/09/6a65bd1be49eae6e45b13e196d2f70199d52b339301feb6ebd982450c69c/clickhouse_connect-0.11.0-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:00c525036aeb968c578a7e32bf3d4acbac4f91a3748b39921a654dbbf8fae482", size = 1144674, upload-time = "2026-02-11T00:47:27.012Z" },
+    { url = "https://files.pythonhosted.org/packages/d2/2a/5947127b0849bf0f98b7661b8c7f7f8098aacffe7588bfd02e5c92474622/clickhouse_connect-0.11.0-cp313-cp313-musllinux_1_2_aarch64.whl", hash = "sha256:e47d9270b2e6fcadd691f6958ae15a365e80edfb2ea002348ea0f045dc2485c3", size = 1093752, upload-time = "2026-02-11T00:47:28.259Z" },
+    { url = "https://files.pythonhosted.org/packages/0a/db/29be13c7caa147e9d8a63366fa3aa3ade67bfd600841617f7cf4846c640f/clickhouse_connect-0.11.0-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:7e6b23587c7ef5c33c22b830e9ad93d0cc90d498526aec970467cac51065cfd7", size = 1147985, upload-time = "2026-02-11T00:47:29.696Z" },
+    { url = "https://files.pythonhosted.org/packages/b2/cb/b7a2d776deccdc456a6315b5d9099eed362be70ef971ff3944cd985fd36b/clickhouse_connect-0.11.0-cp313-cp313-win32.whl", hash = "sha256:acc1009501b651504aa7c6c0d1e21dd0974d1c36a77b10407c31c91fef359ffe", size = 250289, upload-time = "2026-02-11T00:47:30.851Z" },
+    { url = "https://files.pythonhosted.org/packages/09/16/dc5a6b3788f6e2414432edc7cc5fd1a6ade4f715e902a706df3aea1844a6/clickhouse_connect-0.11.0-cp313-cp313-win_amd64.whl", hash = "sha256:d783d69eadc8d1b5f6581e3e1d82e8ea0af8f9a2386c795d35b4a2ac845f6f5a", size = 269114, upload-time = "2026-02-11T00:47:32.044Z" },
+    { url = "https://files.pythonhosted.org/packages/b3/8c/a004b62bf1097afd452a5663f3980761edc1c8434b08d1d4576a06a3886c/clickhouse_connect-0.11.0-cp314-cp314-macosx_10_15_x86_64.whl", hash = "sha256:ffde6e5bda89af1217bd888175e5854b5e7539b1e9efc715de48c908fe072561", size = 281055, upload-time = "2026-02-11T00:47:33.248Z" },
+    { url = "https://files.pythonhosted.org/packages/d5/2e/3225f299ee83fde6785ae3e458f954ab513fbcfc9732df2907b08ad90773/clickhouse_connect-0.11.0-cp314-cp314-macosx_11_0_arm64.whl", hash = "sha256:e9429c5241bf1fdeb92678705857aa06ef4bb2b923e382a7e76dc83b14eff615", size = 273565, upload-time = "2026-02-11T00:47:34.476Z" },
+    { url = "https://files.pythonhosted.org/packages/98/7a/439f5e373e0a05a334ffc902c15f5d8c4f30d36d5796558af20ba79efaae/clickhouse_connect-0.11.0-cp314-cp314-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:524afd5a64fd9fd53184ec14ad1a69ea89e1fa8373c89350b53c38982232aa45", size = 1110717, upload-time = "2026-02-11T00:47:35.683Z" },
+    { url = "https://files.pythonhosted.org/packages/d2/09/2b84ef8e9b94e20027b7f46774e6262d256eab21c04ddab6e9c228c3bd65/clickhouse_connect-0.11.0-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:c1f3daf18324c3ac4c56ddc594bc122dd9512c55df9410ae08a4df325e63df03", size = 1135579, upload-time = "2026-02-11T00:47:37.061Z" },
+    { url = "https://files.pythonhosted.org/packages/4e/20/c550990867a41ab1c075e280623385232d82698520acfba4ad26e96004b8/clickhouse_connect-0.11.0-cp314-cp314-musllinux_1_2_aarch64.whl", hash = "sha256:121cb63648ee812582c8691bc1c4bd3f4c5ee1220278f32fb3d2bf581cb5fe2b", size = 1093123, upload-time = "2026-02-11T00:47:38.269Z" },
+    { url = "https://files.pythonhosted.org/packages/e1/ca/6ab0002566dc7a9f102720b2893c0ea30efe2ba38d1ddb35778ec0a33ef2/clickhouse_connect-0.11.0-cp314-cp314-musllinux_1_2_x86_64.whl", hash = "sha256:3e5d64a10f2938ac3e84194c6dd312a42c62f875d6f0be00bc73d337d2115570", size = 1141944, upload-time = "2026-02-11T00:47:40.013Z" },
+    { url = "https://files.pythonhosted.org/packages/84/cc/6257c793569b2bf96d06757df8396adb45e92d7a84538801af56a0fecd0d/clickhouse_connect-0.11.0-cp314-cp314-win32.whl", hash = "sha256:40267a3b72c3d26b5e062d1858183d1b7c2ff8142457b6962a5826f726ba8ba8", size = 254242, upload-time = "2026-02-11T00:47:42.027Z" },
+    { url = "https://files.pythonhosted.org/packages/3c/73/92ec46fb55ba38a31409e71c5b687b90b5c06cf0e5531e29647e4b1c3564/clickhouse_connect-0.11.0-cp314-cp314-win_amd64.whl", hash = "sha256:c00e38d3d621b3e14f2566257c4b95efc7769cb0673172ae0aeeb9114169dc62", size = 273348, upload-time = "2026-02-11T00:47:43.644Z" },
+    { url = "https://files.pythonhosted.org/packages/d6/ca/abbe9b26fd113d172696a8f11316bc7ab3275955854687963b000c5163f8/clickhouse_connect-0.11.0-pp310-pypy310_pp73-macosx_10_15_x86_64.whl", hash = "sha256:de312c2a1be01c3015e8ac1ebd742f28843d12c1352359b4070c65fbbb6e1cb0", size = 251763, upload-time = "2026-02-11T00:48:03.982Z" },
+    { url = "https://files.pythonhosted.org/packages/9b/04/fdd603e9e4632c193d9c1dd6474a1a9499c65e5945db18488ac8adafde5c/clickhouse_connect-0.11.0-pp310-pypy310_pp73-macosx_11_0_arm64.whl", hash = "sha256:55d23aa3a68617323ea23440dcdcd6d85f47ac239076aa83c568ffdf28e41348", size = 247969, upload-time = "2026-02-11T00:48:05.207Z" },
+    { url = "https://files.pythonhosted.org/packages/de/41/de1be6e604a1249e40105f6677e5f7b0986e32d61157bf7e06303665c215/clickhouse_connect-0.11.0-pp310-pypy310_pp73-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:e4f2fd9df304ada18fbd4a8ef8008cbe77d64d163102ee173d4f05b86f00a7c5", size = 281351, upload-time = "2026-02-11T00:48:06.34Z" },
+    { url = "https://files.pythonhosted.org/packages/b4/87/0db2abf9227bf3e6c7792c00e11057e414a2cf36871fc5d0d51f5bc747bd/clickhouse_connect-0.11.0-pp310-pypy310_pp73-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:2dbc742bc0c7db72ca88bb5e67bf1959c60dfe1ed3376bf4c48e35b026374a97", size = 291571, upload-time = "2026-02-11T00:48:07.923Z" },
+    { url = "https://files.pythonhosted.org/packages/2f/be/a28f507bccc4f4ba1aaf081e54ac6e53bcce5628209423ad78095643ea57/clickhouse_connect-0.11.0-pp310-pypy310_pp73-win_amd64.whl", hash = "sha256:470d5ab8f2cd9835feb4198c6fbd80730b52257fad23a20dbc7e4ab0c0ab1c2f", size = 255574, upload-time = "2026-02-11T00:48:09.133Z" },
+]
+
+[package.optional-dependencies]
+arrow = [
+    { name = "pyarrow" },
+]
+numpy = [
+    { name = "numpy" },
+]
+pandas = [
+    { name = "pandas" },
 ]
 
 [[package]]
@@ -1437,6 +1537,14 @@ bigquery = [
     { name = "pydata-google-auth" },
     { name = "rich" },
 ]
+clickhouse = [
+    { name = "clickhouse-connect", extra = ["arrow", "numpy", "pandas"] },
+    { name = "numpy" },
+    { name = "pandas" },
+    { name = "pyarrow" },
+    { name = "pyarrow-hotfix" },
+    { name = "rich" },
+]
 databricks = [
     { name = "databricks-sql-connector" },
     { name = "numpy" },
@@ -1901,6 +2009,32 @@ wheels = [
 ]
 
 [[package]]
+name = "msal"
+version = "1.35.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cryptography" },
+    { name = "pyjwt", extra = ["crypto"] },
+    { name = "requests" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/3c/aa/5a646093ac218e4a329391d5a31e5092a89db7d2ef1637a90b82cd0b6f94/msal-1.35.1.tar.gz", hash = "sha256:70cac18ab80a053bff86219ba64cfe3da1f307c74b009e2da57ef040eb1b5656", size = 165658, upload-time = "2026-03-04T23:38:51.812Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/96/86/16815fddf056ca998853c6dc525397edf0b43559bb4073a80d2bc7fe8009/msal-1.35.1-py3-none-any.whl", hash = "sha256:8f4e82f34b10c19e326ec69f44dc6b30171f2f7098f3720ea8a9f0c11832caa3", size = 119909, upload-time = "2026-03-04T23:38:50.452Z" },
+]
+
+[[package]]
+name = "msal-extensions"
+version = "1.3.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "msal" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/01/99/5d239b6156eddf761a636bded1118414d161bd6b7b37a9335549ed159396/msal_extensions-1.3.1.tar.gz", hash = "sha256:c5b0fd10f65ef62b5f1d62f4251d51cbcaf003fcedae8c91b040a488614be1a4", size = 23315, upload-time = "2025-03-14T23:51:03.902Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5e/75/bd9b7bb966668920f06b200e84454c8f3566b102183bc55c5473d96cb2b9/msal_extensions-1.3.1-py3-none-any.whl", hash = "sha256:96d3de4d034504e969ac5e85bae8106c8373b5c6568e4c8fa7af2eca9dbe6bca", size = 20583, upload-time = "2025-03-14T23:51:03.016Z" },
+]
+
+[[package]]
 name = "multidict"
 version = "6.7.1"
 source = { registry = "https://pypi.org/simple" }
@@ -2045,12 +2179,13 @@ source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
     { name = "apscheduler" },
+    { name = "azure-identity" },
     { name = "cryptography" },
     { name = "cyclopts" },
     { name = "dotenv" },
     { name = "fastapi" },
     { name = "google-genai" },
-    { name = "ibis-framework", extra = ["athena", "bigquery", "databricks", "duckdb", "mssql", "postgres", "snowflake", "trino"] },
+    { name = "ibis-framework", extra = ["athena", "bigquery", "clickhouse", "databricks", "duckdb", "mssql", "postgres", "snowflake", "trino"] },
     { name = "jinja2" },
     { name = "mistralai" },
     { name = "notion-client" },
@@ -2072,6 +2207,7 @@ dependencies = [
 [package.optional-dependencies]
 dev = [
     { name = "pytest-cov" },
+    { name = "pytest-timeout" },
 ]
 
 [package.dev-dependencies]
@@ -2084,12 +2220,13 @@ dev = [
 requires-dist = [
     { name = "anthropic", specifier = ">=0.76.0" },
     { name = "apscheduler", specifier = ">=3.10.0" },
+    { name = "azure-identity", specifier = ">=1.19.0" },
     { name = "cryptography", specifier = ">=46.0.3" },
     { name = "cyclopts", specifier = ">=4.4.4" },
     { name = "dotenv", specifier = ">=0.9.9" },
     { name = "fastapi", specifier = ">=0.128.0" },
     { name = "google-genai", specifier = ">=1.61.0" },
-    { name = "ibis-framework", extras = ["bigquery", "duckdb", "databricks", "mssql", "snowflake", "postgres", "athena", "trino"], specifier = ">=9.0.0" },
+    { name = "ibis-framework", extras = ["bigquery", "clickhouse", "duckdb", "databricks", "mssql", "snowflake", "postgres", "athena", "trino"], specifier = ">=9.0.0" },
     { name = "jinja2", specifier = ">=3.1.0" },
     { name = "mistralai", specifier = ">=1.11.1" },
     { name = "notion-client", specifier = ">=2.7.0" },
@@ -2100,6 +2237,7 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.10.0" },
     { name = "pytest", specifier = ">=9.0.2" },
     { name = "pytest-cov", marker = "extra == 'dev'" },
+    { name = "pytest-timeout", marker = "extra == 'dev'", specifier = ">=2.3.0" },
     { name = "python-dotenv", specifier = ">=1.2.1" },
     { name = "pyyaml", specifier = ">=6.0.0" },
     { name = "questionary", specifier = ">=2.1.0" },
@@ -3059,6 +3197,11 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/6f/01/c26ce75ba460d5cd503da9e13b21a33804d38c2165dec7b716d06b13010c/pyjwt-2.11.0-py3-none-any.whl", hash = "sha256:94a6bde30eb5c8e04fee991062b534071fd1439ef58d2adc9ccb823e7bcd0469", size = 28224, upload-time = "2026-01-30T19:59:54.539Z" },
 ]
 
+[package.optional-dependencies]
+crypto = [
+    { name = "cryptography" },
+]
+
 [[package]]
 name = "pynacl"
 version = "1.6.2"
@@ -3199,6 +3342,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/5e/f7/c933acc76f5208b3b00089573cf6a2bc26dc80a8aece8f52bb7d6b1855ca/pytest_cov-7.0.0.tar.gz", hash = "sha256:33c97eda2e049a0c5298e91f519302a1334c26ac65c1a483d6206fd458361af1", size = 54328, upload-time = "2025-09-09T10:57:02.113Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ee/49/1377b49de7d0c1ce41292161ea0f721913fa8722c19fb9c1e3aa0367eecb/pytest_cov-7.0.0-py3-none-any.whl", hash = "sha256:3b8e9558b16cc1479da72058bdecf8073661c7f57f7d3c5f22a1c23507f2d861", size = 22424, upload-time = "2025-09-09T10:57:00.695Z" },
+]
+
+[[package]]
+name = "pytest-timeout"
+version = "2.4.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pytest" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ac/82/4c9ecabab13363e72d880f2fb504c5f750433b2b6f16e99f4ec21ada284c/pytest_timeout-2.4.0.tar.gz", hash = "sha256:7e68e90b01f9eff71332b25001f85c75495fc4e3a836701876183c4bcfd0540a", size = 17973, upload-time = "2025-05-05T19:44:34.99Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fa/b6/3127540ecdf1464a00e5a01ee60a1b09175f6913f0644ac748494d9c4b21/pytest_timeout-2.4.0-py3-none-any.whl", hash = "sha256:c42667e5cdadb151aeb5b26d114aff6bdf5a907f176a007a30b940d3d865b5c2", size = 14382, upload-time = "2025-05-05T19:44:33.502Z" },
 ]
 
 [[package]]

@@ -18,6 +18,10 @@ logger = logging.getLogger(__name__)
 class DatabricksDatabaseContext(DatabaseContext):
     """Databricks context with partition and description discovery."""
 
+    def _quote_ident(self, name: object) -> str:
+        escaped = str(name).replace("`", "``")
+        return f"`{escaped}`"
+
     def partition_columns(self) -> list[str]:
         try:
             return _get_databricks_partition_columns(self._conn, self._schema, self._table_name)
@@ -57,6 +61,18 @@ class DatabricksDatabaseContext(DatabaseContext):
         """
         rows = self._conn.raw_sql(query).fetchall()  # type: ignore[union-attr]
         return {row[0]: str(row[1]) for row in rows if row[1]}
+
+    def _quote(self, name: str) -> str:
+        return f"`{name}`"
+
+    def _cast_float(self, expr: str) -> str:
+        return f"CAST({expr} AS DOUBLE)"
+
+    def _partition_filter(self) -> str:
+        cols = self.partition_columns()
+        if cols:
+            return f"`{cols[0]}` >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)"
+        return ""
 
 
 def _get_databricks_partition_columns(conn: BaseBackend, schema: str, table: str) -> list[str]:

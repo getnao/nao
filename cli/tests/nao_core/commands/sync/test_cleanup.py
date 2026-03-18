@@ -9,6 +9,7 @@ from nao_core.commands.sync.cleanup import (
     cleanup_stale_databases,
     cleanup_stale_paths,
     cleanup_stale_repos,
+    get_database_folder_names,
 )
 from nao_core.config.repos import RepoConfig
 
@@ -16,6 +17,7 @@ from nao_core.config.repos import RepoConfig
 @dataclass
 class DBConfig:
     type: str
+    name: str = "db"
     project_id: str | None = None
     path: str | None = None
     database: str | None = None
@@ -262,6 +264,42 @@ class TestCleanupStaleDatabases:
 
         assert (tmp_path / "type=duckdb" / "database=valid").exists()
         assert not (tmp_path / "type=duckdb" / "database=old").exists()
+
+    def test_keeps_distinct_folders_for_duplicate_type_and_database(self, tmp_path: Path):
+        """Duplicate (type, database) configs should map to different folders."""
+        (tmp_path / "type=clickhouse" / "database=primary").mkdir(parents=True)
+        (tmp_path / "type=clickhouse" / "database=secondary").mkdir(parents=True)
+        (tmp_path / "type=clickhouse" / "database=default").mkdir(parents=True)  # stale legacy/colliding path
+
+        active_dbs: List[DBConfig] = [
+            DBConfig(type="clickhouse", name="primary", database="default"),
+            DBConfig(type="clickhouse", name="secondary", database="default"),
+        ]
+
+        cleanup_stale_databases(active_dbs, tmp_path)
+
+        assert (tmp_path / "type=clickhouse" / "database=primary").exists()
+        assert (tmp_path / "type=clickhouse" / "database=secondary").exists()
+        assert not (tmp_path / "type=clickhouse" / "database=default").exists()
+
+    def test_database_folder_names_clickhouse_uses_config_name_only(self):
+        active_dbs: List[DBConfig] = [
+            DBConfig(type="clickhouse", name="last", database="default"),
+            DBConfig(type="clickhouse", name="numia", database="default"),
+            DBConfig(type="clickhouse", name="unique", database="analytics"),
+            DBConfig(type="duckdb", name="analytics-copy", path="/tmp/analytics.db"),
+            DBConfig(type="duckdb", name="analytics-copy-2", path="/tmp/analytics.db"),
+        ]
+
+        folders = get_database_folder_names(active_dbs)
+
+        assert folders == [
+            "database=last",
+            "database=numia",
+            "database=unique",
+            "database=analytics",
+            "database=analytics",
+        ]
 
 
 class TestCleanupStaleRespositories:

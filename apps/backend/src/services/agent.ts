@@ -1,22 +1,26 @@
+import { story } from '@nao/shared/tools';
 import {
 	convertToModelMessages,
 	createUIMessageStream,
 	FinishReason,
+	generateText,
 	hasToolCall,
 	InferUIMessageChunk,
 	isToolUIPart,
 	ModelMessage,
+	Output,
 	pruneMessages,
 	StreamTextResult,
 	ToolLoopAgent,
 	UIMessageStreamWriter,
 } from 'ai';
+import { z } from 'zod';
 
-import { CACHE_1H, CACHE_5M } from '../agents/providers';
-import { ProviderModelResult } from '../agents/providers';
+import { CACHE_1H, CACHE_5M, LLM_PROVIDERS, ProviderModelResult } from '../agents/providers';
 import { getTools } from '../agents/tools';
-import { getConnections, getUserRules } from '../agents/user-rules';
-import { SystemPrompt } from '../components/ai';
+import { createWebSearchTools } from '../agents/tools/web-search';
+import { getConnections, getTableColumnsContent, getUserRules } from '../agents/user-rules';
+import { MessagingProviderSystemPrompt, SystemPrompt } from '../components/ai';
 import { DBChat } from '../db/abstractSchema';
 import { renderToMarkdown } from '../lib/markdown';
 import * as chatQueries from '../queries/chat.queries';
@@ -25,14 +29,22 @@ import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import * as storyQueries from '../queries/story.queries';
 import { AgentSettings } from '../types/agent-settings';
 import { AgentTools, Mention, MessageCustomDataParts, TokenCost, TokenUsage, UIMessage } from '../types/chat';
+import { LlmProvider } from '../types/llm';
+import { Provider } from '../types/messaging-provider';
 import { ToolContext } from '../types/tools';
-import { convertToCost, convertToTokenUsage, findLastUserMessage } from '../utils/ai';
+import { convertToCost, convertToTokenUsage, findLastUserMessage, getLastUserMessageText } from '../utils/ai';
 import { HandlerError } from '../utils/error';
-import { getDefaultModelId, getEnvModelSelections, ModelSelection, resolveProviderModel } from '../utils/llm';
+import {
+	getDefaultModelId,
+	getEnvModelSelections,
+	ModelSelection,
+	resolveProviderModel,
+	resolveProviderSettings,
+} from '../utils/llm';
 import { truncateMiddle } from '../utils/utils';
 import { compactionService } from './compaction';
 import { memoryService } from './memory';
-import { skillService } from './skill.service';
+import { skillService } from './skill';
 
 export type { ModelSelection };
 
@@ -63,7 +75,8 @@ export class AgentService {
 		const modelConfig = await this._getModelConfig(chat.projectId, resolvedModelSelection);
 		const agentSettings = await projectQueries.getAgentSettings(chat.projectId);
 		const toolContext = await this._getToolContext(chat.projectId, chat.id, agentSettings);
-		const agentTools = getTools(agentSettings);
+		const webTools = await this._resolveWebTools(chat.projectId, resolvedModelSelection.provider, agentSettings);
+		const agentTools = getTools(agentSettings, webTools ?? undefined);
 		const agent = new AgentManager(
 			chat,
 			modelConfig,
@@ -117,6 +130,7 @@ export class AgentService {
 			projectFolder: project.path ?? '',
 			chatId,
 			agentSettings,
+			queryResults: new Map(),
 		};
 	}
 
@@ -131,6 +145,21 @@ export class AgentService {
 
 	get(chatId: string): AgentManager | undefined {
 		return this._agents.get(chatId);
+	}
+
+	private async _resolveWebTools(
+		projectId: string,
+		provider: LlmProvider,
+		agentSettings: AgentSettings | null,
+	): Promise<Record<string, unknown> | null> {
+		if (!agentSettings?.webSearch?.enabled) {
+			return null;
+		}
+		const settings = await resolveProviderSettings(projectId, provider);
+		if (!settings) {
+			return null;
+		}
+		return createWebSearchTools(provider, settings);
 	}
 
 	protected async _getModelConfig(projectId: string, modelSelection: ModelSelection): Promise<ProviderModelResult> {
@@ -198,6 +227,8 @@ class AgentManager {
 		opts: {
 			events?: Partial<MessageCustomDataParts>;
 			mentions?: Mention[];
+			provider?: Provider;
+			timezone?: string;
 		} = {},
 	): ReadableStream<InferUIMessageChunk<UIMessage>> {
 		let error: unknown = undefined;
@@ -206,6 +237,8 @@ class AgentManager {
 		return createUIMessageStream<UIMessage>({
 			generateId: () => crypto.randomUUID(),
 			execute: async ({ writer }) => {
+				writer.write({ type: 'start' });
+
 				if (opts.events?.newChat) {
 					writer.write({
 						type: 'data-newChat',
@@ -221,7 +254,12 @@ class AgentManager {
 				}
 
 				this._streamWriter = writer;
-				const messages = await this._buildModelMessages(uiMessages, opts.mentions);
+				const messages = await this._buildModelMessages(
+					uiMessages,
+					opts.mentions,
+					opts.provider,
+					opts.timezone,
+				);
 
 				result = await this._agent.stream({
 					messages,
@@ -230,6 +268,10 @@ class AgentManager {
 
 				// Extract memory immediately after the request to the agent is sent
 				this._scheduleMemoryExtraction(uiMessages);
+
+				if (opts.events?.newChat) {
+					this._scheduleTitleGeneration(getLastUserMessageText(uiMessages));
+				}
 
 				writer.merge(
 					result.toUIMessageStream({
@@ -264,16 +306,26 @@ class AgentManager {
 	/**
 	 * Prepares the UI messages and builds them into model messages with memory and compaction summary.
 	 */
-	private async _buildModelMessages(uiMessages: UIMessage[], mentions?: Mention[]): Promise<ModelMessage[]> {
+	private async _buildModelMessages(
+		uiMessages: UIMessage[],
+		mentions?: Mention[],
+		provider?: Provider,
+		timezone?: string,
+	): Promise<ModelMessage[]> {
 		const uiMessagesWithStories = await this._syncStoryToolOutputs(uiMessages);
-		const uiMessagesWithSkills = this._addSkills(uiMessagesWithStories, mentions);
-		const uiMessagesWithCompaction = compactionService.useLastCompaction(uiMessagesWithSkills);
+		const uiMessagesWithStoryMode = this._addStoryMode(uiMessagesWithStories, mentions);
+		const uiMessagesWithSkills = this._addSkills(uiMessagesWithStoryMode, mentions);
+		const uiMessagesWithDbContext = this._addDatabaseContext(uiMessagesWithSkills, mentions);
+		const uiMessagesWithCompaction = compactionService.useLastCompaction(uiMessagesWithDbContext);
 
 		const memories = await memoryService.safeGetUserMemories(this.chat.userId, this.chat.projectId, this.chat.id);
 		const userRules = getUserRules();
 		const connections = getConnections();
 		const skills = skillService.getSkills();
-		const systemPrompt = renderToMarkdown(SystemPrompt({ memories, userRules, connections, skills }));
+		const basePrompt = renderToMarkdown(SystemPrompt({ memories, userRules, connections, skills, timezone }));
+		const systemPrompt = provider
+			? renderToMarkdown(MessagingProviderSystemPrompt({ basePrompt, provider }))
+			: basePrompt;
 
 		const systemMessage: Omit<UIMessage, 'id'> = {
 			role: 'system',
@@ -363,6 +415,51 @@ class AgentManager {
 		});
 	}
 
+	private _scheduleTitleGeneration(userMessageText: string): void {
+		this._generateTitle(userMessageText).catch((err) => {
+			console.error('[title] generation failed:', err);
+		});
+	}
+
+	private async _generateTitle(userMessageText: string): Promise<void> {
+		const provider = this._modelSelection.provider;
+		const summaryModelId = LLM_PROVIDERS[provider].summaryModelId;
+		const modelResult = await resolveProviderModel(this.chat.projectId, provider, summaryModelId);
+		if (!modelResult) {
+			return;
+		}
+
+		const { output } = await generateText({
+			model: modelResult.model,
+			system: 'Generate a short, descriptive title (3-8 words) for this conversation based on the user message. Always generate a title, no matter the input. Only capitalize the first letter of the title and nouns.',
+			messages: [
+				{
+					role: 'user',
+					content: userMessageText,
+				},
+			],
+			output: Output.object({
+				schema: z.object({
+					title: z.string().describe('A short, descriptive conversation title (3-8 words)'),
+				}),
+			}),
+			maxOutputTokens: 60,
+		});
+
+		const title = output?.title.trim();
+		if (!title) {
+			return;
+		}
+
+		await chatQueries.renameChat(this.chat.id, title);
+
+		try {
+			this._streamWriter?.write({ type: 'data-chatTitleUpdate', data: { title } });
+		} catch {
+			// Stream may already be closed — the DB is updated regardless
+		}
+	}
+
 	private async _getTotalUsage(
 		result: StreamTextResult<ReturnType<typeof getTools>, never> | undefined,
 	): Promise<TokenUsage | undefined> {
@@ -414,31 +511,66 @@ class AgentManager {
 		this._abortController.abort();
 	}
 
-	private _addSkills(messages: UIMessage[], mentions?: Mention[]): UIMessage[] {
-		const skillMention = mentions?.find((m) => m.trigger === '/');
-		if (!skillMention) {
+	private _addStoryMode(messages: UIMessage[], mentions?: Mention[]): UIMessage[] {
+		if (!mentions?.some((m) => m.id === story.MENTION_ID)) {
 			return messages;
 		}
 
-		const skillContent = skillService.getSkillContent(skillMention.id);
+		const STORY_INSTRUCTION =
+			'[Story mode: present your response as an interactive nao Story using the story tool, combining markdown and charts]';
+		return this._transformLastUserMessageText(messages, (text) => `${STORY_INSTRUCTION}\n\n${text}`);
+	}
+
+	private _addSkills(messages: UIMessage[], mentions?: Mention[]): UIMessage[] {
+		const skillMention = mentions?.find((m) => m.trigger === '/');
+		const skillContent = skillMention ? skillService.getSkillContent(skillMention.id) : undefined;
 		if (!skillContent) {
 			return messages;
 		}
+		return this._transformLastUserMessageText(messages, () => truncateMiddle(skillContent, 16_000));
+	}
 
+	private _addDatabaseContext(messages: UIMessage[], mentions?: Mention[]): UIMessage[] {
+		const dbMentions = mentions?.filter((m) => m.trigger === '@') ?? [];
+		if (dbMentions.length === 0) {
+			return messages;
+		}
+
+		const contextParts: string[] = [];
+		for (const mention of dbMentions) {
+			const content = getTableColumnsContent(this._toolContext.projectFolder, mention.id);
+			if (content) {
+				contextParts.push(`[Table: ${mention.id}]\n${content}`);
+			}
+		}
+
+		if (contextParts.length === 0) {
+			return messages;
+		}
+
+		const dbContext = contextParts.join('\n\n');
+		return this._transformLastUserMessageText(
+			messages,
+			(text) => `${text}\n\n---\nReferenced tables:\n${dbContext}`,
+		);
+	}
+
+	private _transformLastUserMessageText(messages: UIMessage[], transform: (text: string) => string): UIMessage[] {
 		const [lastUserMessage, lastUserMessageIndex] = findLastUserMessage(messages);
 		if (!lastUserMessage) {
 			return messages;
 		}
 
-		const updatedMessages = [...messages];
 		const textPartIndex = lastUserMessage.parts.findIndex((part) => part.type === 'text');
-		const newParts = [...lastUserMessage.parts];
-		newParts[textPartIndex] = {
-			type: 'text',
-			text: truncateMiddle(skillContent, 16_000),
-		};
-		updatedMessages[lastUserMessageIndex] = { ...lastUserMessage, parts: newParts };
+		if (textPartIndex === -1) {
+			return messages;
+		}
 
+		const textPart = lastUserMessage.parts[textPartIndex] as { type: 'text'; text: string };
+		const updatedMessages = [...messages];
+		const newParts = [...lastUserMessage.parts];
+		newParts[textPartIndex] = { type: 'text', text: transform(textPart.text) };
+		updatedMessages[lastUserMessageIndex] = { ...lastUserMessage, parts: newParts };
 		return updatedMessages;
 	}
 

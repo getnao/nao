@@ -115,6 +115,7 @@ def spec(db_config, temp_datasets):
     return SyncTestSpec(
         db_type="bigquery",
         primary_schema=db_config.dataset_id,
+        primary_table_count=3,
         users_column_assertions=(
             "# users",
             f"**Dataset:** `{db_config.dataset_id}`",
@@ -142,6 +143,89 @@ def spec(db_config, temp_datasets):
             {"id": 1, "user_id": 1, "amount": 99.99},
             {"id": 2, "user_id": 1, "amount": 24.5},
         ],
+        users_profiling_rows=[
+            {
+                "column": "id",
+                "type": "int32",
+                "total_count": 3,
+                "null_count": 0,
+                "null_percentage": 0.0,
+                "distinct_count": 3,
+                "min": 1,
+                "max": 3,
+                "mean": 2.0,
+                "stddev": 0.8165,
+            },
+            {
+                "column": "name",
+                "type": "string",
+                "total_count": 3,
+                "null_count": 0,
+                "null_percentage": 0.0,
+                "distinct_count": 3,
+                "top_values": [
+                    {"value": "Alice", "count": 1},
+                    {"value": "Bob", "count": 1},
+                    {"value": "Charlie", "count": 1},
+                ],
+            },
+            {
+                "column": "email",
+                "type": "string",
+                "total_count": 3,
+                "null_count": 1,
+                "null_percentage": 33.33,
+                "distinct_count": 2,
+                "top_values": [
+                    {"value": "alice@example.com", "count": 1},
+                    {"value": "charlie@example.com", "count": 1},
+                ],
+            },
+            {
+                "column": "active",
+                "type": "boolean",
+                "total_count": 3,
+                "null_count": 0,
+                "null_percentage": 0.0,
+                "distinct_count": 2,
+                "top_values": [{"value": True, "count": 2}, {"value": False, "count": 1}],
+            },
+        ],
+        orders_profiling_rows=[
+            {
+                "column": "id",
+                "type": "int32",
+                "total_count": 2,
+                "null_count": 0,
+                "null_percentage": 0.0,
+                "distinct_count": 2,
+                "min": 1,
+                "max": 2,
+                "mean": 1.5,
+                "stddev": 0.5,
+            },
+            {
+                "column": "user_id",
+                "type": "int32",
+                "total_count": 2,
+                "null_count": 0,
+                "null_percentage": 0.0,
+                "distinct_count": 1,
+                "top_values": [{"value": 1, "count": 2}],
+            },
+            {
+                "column": "amount",
+                "type": "float64",
+                "total_count": 2,
+                "null_count": 0,
+                "null_percentage": 0.0,
+                "distinct_count": 2,
+                "min": 24.5,
+                "max": 99.99,
+                "mean": 62.245,
+                "stddev": 37.745,
+            },
+        ],
         sort_rows=True,
         schema_field="dataset_id",
         another_schema=temp_datasets["another"],
@@ -151,3 +235,55 @@ def spec(db_config, temp_datasets):
 
 class TestBigQuerySyncIntegration(BaseSyncIntegrationTests):
     """Verify the sync pipeline produces correct output against a live BigQuery project."""
+
+
+class TestBigQueryPartitionFilter:
+    """Verify preview and row_count work on tables that require a partition filter."""
+
+    def test_preview_returns_rows_on_partition_required_table(self, db_config, temp_datasets):
+        conn = db_config.connect()
+        try:
+            ctx = db_config.create_context(conn, temp_datasets["public"], "events")
+            rows = ctx.preview()
+            assert len(rows) == 2
+            assert all(r["event_date"] == "2026-01-15" for r in rows)
+        finally:
+            conn.disconnect()
+
+    def test_row_count_returns_total_on_partition_required_table(self, db_config, temp_datasets):
+        conn = db_config.connect()
+        try:
+            ctx = db_config.create_context(conn, temp_datasets["public"], "events")
+            assert ctx.row_count() == 2
+        finally:
+            conn.disconnect()
+
+    def test_custom_partition_filter_overrides_auto_detection(self, db_config, temp_datasets):
+        config = db_config.model_copy(update={"partition_filters": {"events": "event_date = DATE('2026-01-15')"}})
+        conn = config.connect()
+        try:
+            ctx = config.create_context(conn, temp_datasets["public"], "events")
+            rows = ctx.preview()
+            assert len(rows) == 2
+        finally:
+            conn.disconnect()
+
+    def test_is_partitioned_and_requires_filter_flags_are_set(self, db_config, temp_datasets):
+        conn = db_config.connect()
+        try:
+            ctx = db_config.create_context(conn, temp_datasets["public"], "events")
+            assert ctx.is_partitioned() is True
+            assert ctx.requires_partition_filter() is True
+            assert ctx.active_partition_filter() is not None
+        finally:
+            conn.disconnect()
+
+    def test_non_partitioned_table_flags_are_false(self, db_config, temp_datasets):
+        conn = db_config.connect()
+        try:
+            ctx = db_config.create_context(conn, temp_datasets["public"], "users")
+            assert ctx.is_partitioned() is False
+            assert ctx.requires_partition_filter() is False
+            assert ctx.active_partition_filter() is None
+        finally:
+            conn.disconnect()

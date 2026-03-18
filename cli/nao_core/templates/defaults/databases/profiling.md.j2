@@ -1,0 +1,23 @@
+{#
+  Template: profiling.md.j2
+  Description: Generates column-level profiling statistics in JSONL format
+
+  Available context:
+    - table_name (str): Name of the table
+    - dataset (str): Schema/dataset name
+    - db (DatabaseContext): Database context with helper methods
+#}
+{% set result = db.profiling() %}
+# {{ table_name }} - Profiling
+
+**Dataset:** `{{ dataset }}`
+
+**Computed at:** `{{ result.computed_at }}`
+
+**Columns:** {{ result.columns | length }}
+
+## Column Profiles (JSONL)
+
+{% for col in result.columns %}
+- {{ col | to_json }}
+{% endfor %}

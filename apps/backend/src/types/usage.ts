@@ -14,6 +14,9 @@ export type UsageFilter = z.infer<typeof usageFilterSchema>;
 export interface UsageRecord {
 	date: string;
 	messageCount: number;
+	webMessageCount: number;
+	slackMessageCount: number;
+	teamsMessageCount: number;
 	inputNoCacheTokens: number;
 	inputCacheReadTokens: number;
 	inputCacheWriteTokens: number;

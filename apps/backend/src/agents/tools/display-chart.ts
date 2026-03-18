@@ -24,6 +24,15 @@ export default tool<displayChart.Input, displayChart.Output>({
 			return { _version: '1', success: false, error: 'At least one series is required.' };
 		}
 
+		// Stacked bar requires at least two series
+		if (chartType === 'stacked_bar' && series.length < 2) {
+			return {
+				_version: '1',
+				success: false,
+				error: 'Stacked bar chart requires at least two series. You may need to pivot the data to create a series for each stack.',
+			};
+		}
+
 		// TODO: check that the chart is displayable and that the data is valid
 
 		return { _version: '1', success: true };

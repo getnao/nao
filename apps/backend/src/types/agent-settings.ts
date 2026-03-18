@@ -1,7 +1,10 @@
+export type WebSearchMode = 'provider';
+
 export interface AgentSettings {
 	memoryEnabled?: boolean;
 	experimental?: {
 		pythonSandboxing?: boolean;
+		sandboxes?: boolean;
 	};
 	transcribe?: {
 		enabled?: boolean;
@@ -10,5 +13,9 @@ export interface AgentSettings {
 	};
 	sql?: {
 		dangerouslyWritePermEnabled?: boolean;
+	};
+	webSearch?: {
+		enabled?: boolean;
+		mode?: WebSearchMode;
 	};
 }

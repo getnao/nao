@@ -5,6 +5,7 @@ import { getChartById } from '../queries/chart-image';
 import { HandlerError } from '../utils/error';
 
 const paramsSchema = z.object({
+	chatId: z.string(),
 	chartid: z.string(),
 });
 

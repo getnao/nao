@@ -61,6 +61,15 @@ class SnowflakeDatabaseContext(DatabaseContext):
         rows = self._conn.raw_sql(query).fetchall()  # type: ignore[union-attr]
         return {row[0]: str(row[1]) for row in rows if row[1]}
 
+    def _cast_float(self, expr: str) -> str:
+        return f"{expr}::FLOAT"
+
+    def _partition_filter(self) -> str:
+        cols = self.partition_columns()
+        if cols:
+            return f'"{cols[0]}" >= DATEADD(day, -30, CURRENT_DATE())'
+        return ""
+
 
 def _get_snowflake_clustering_columns(conn: BaseBackend, schema: str, table: str) -> list[str]:
     query = f"""

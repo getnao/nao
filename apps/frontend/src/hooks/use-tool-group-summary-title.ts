@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { pluralize } from '@nao/shared';
+import { TOOL_LABELS, pluralize } from '@nao/shared';
 import type { GroupablePart } from '@/types/ai';
 import { isReasoningPart } from '@/lib/ai';
 
@@ -30,48 +30,20 @@ export const useToolGroupSummaryTitle = (opts: { parts: GroupablePart[]; isLoadi
 };
 
 const createToolCallsSummary = (parts: GroupablePart[]): string => {
-	const counts = collectExplorationCounts(parts);
-
-	const formatCount = (count: number, word: string): string => {
-		const countClamped = Math.min(count, 10);
-		const isClamped = countClamped !== count;
-		return count ? `${countClamped}${isClamped ? `+` : ''} ${pluralize(word, count)}` : '';
-	};
-
-	const segments = [
-		formatCount(counts.files, 'file'),
-		formatCount(counts.folders, 'folder'),
-		formatCount(counts.searches, 'search'),
-	];
-
-	return segments.filter(Boolean).join(', ');
-};
-
-interface ExplorationCounts {
-	files: number;
-	folders: number;
-	searches: number;
-}
-
-const collectExplorationCounts = (parts: GroupablePart[]): ExplorationCounts => {
-	const counts: ExplorationCounts = { files: 0, folders: 0, searches: 0 };
+	const countByNoun = new Map<string, number>();
 
 	for (const part of parts) {
-		switch (part.type) {
-			case 'tool-read':
-				counts.files++;
-				break;
-			case 'tool-list':
-				counts.folders++;
-				break;
-			case 'tool-search':
-				counts.searches++;
-				break;
-			case 'tool-grep':
-				counts.searches++;
-				break;
+		const noun = TOOL_LABELS[part.type];
+		if (noun) {
+			countByNoun.set(noun, (countByNoun.get(noun) ?? 0) + 1);
 		}
 	}
 
-	return counts;
+	const segments = [...countByNoun.entries()].map(([noun, count]) => {
+		const countClamped = Math.min(count, 10);
+		const isClamped = countClamped !== count;
+		return `${countClamped}${isClamped ? '+' : ''} ${pluralize(noun, count)}`;
+	});
+
+	return segments.join(', ');
 };

@@ -1,8 +1,9 @@
 import { Block, Bold, Br, Italic, Link, List, ListItem, Location, Span, Title } from '../../lib/markdown';
-import type { Skill } from '../../services/skill.service';
+import type { Skill } from '../../services/skill';
 import { tokenCounter } from '../../services/token-counter';
 import type { UserMemory } from '../../types/memory';
 import { MEMORY_CATEGORIES, MemoryCategory } from '../../types/memory';
+import { formatCurrentDate } from '../../utils/date';
 import { groupBy } from '../../utils/utils';
 
 type Connection = {
@@ -15,12 +16,14 @@ type SystemPromptProps = {
 	userRules?: string;
 	connections?: Connection[];
 	skills?: Skill[];
+	timezone?: string;
 };
 
 export const MEMORY_TOKEN_LIMIT = 1000;
 
-export function SystemPrompt({ memories = [], userRules, connections = [], skills = [] }: SystemPromptProps) {
+export function SystemPrompt({ memories = [], userRules, connections = [], skills = [], timezone }: SystemPromptProps) {
 	const visibleMemories = getMemoriesInTokenRange(memories, MEMORY_TOKEN_LIMIT);
+	const hasClickHouse = connections.some((connection) => connection.type.toLowerCase() === 'clickhouse');
 
 	return (
 		<Block>
@@ -30,11 +33,17 @@ export function SystemPrompt({ memories = [], userRules, connections = [], skill
 				agentic workflow made by nao Labs (<Link href='https://getnao.io' text='https://getnao.io' />
 				).
 				<Br />
+				Today's date is <Bold>{formatCurrentDate(timezone)}</Bold>.
+				<Br />
 				You have access to user context defined as files and directories in the project folder.
 				<Br />
 				Databases content is defined as files in the project folder so you can easily search for information
 				about the database instead of querying the database directly (it's faster and avoids leaking sensitive
 				information).
+				<Br />
+				Tables from databases can be mentioned using the @ trigger.
+				<Br />
+				Skills can be mentioned using the / trigger.
 			</Span>
 
 			<Title level={2}>How nao Works</Title>
@@ -85,6 +94,12 @@ export function SystemPrompt({ memories = [], userRules, connections = [], skill
 					(e.g. YYYY-MM-DD). Use "category" for quarter labels (quarter_ending), fiscal periods (FY25-Q1), or
 					any non-ISO-date strings.
 				</ListItem>
+				{hasClickHouse && (
+					<ListItem>
+						When available, use indexes.md to see how the table is ordered and indexed (ORDER BY, PRIMARY
+						KEY, PARTITION BY) so you can write efficient queries.
+					</ListItem>
+				)}
 			</List>
 
 			<Title level={2}>SQL Query Rules</Title>

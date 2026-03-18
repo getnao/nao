@@ -8,6 +8,7 @@ from nao_core.config.exceptions import InitError
 from nao_core.ui import ask_text
 
 from .base import DatabaseConfig
+from .context import DatabaseContext
 
 EXCLUDED_SCHEMAS = {"information_schema", "default", "sys", "pg_catalog", "test"}
 
@@ -22,6 +23,41 @@ def _normalize_schema_name(value: object) -> str:
 def _is_excluded_schema(value: object) -> bool:
     schema = _normalize_schema_name(value).lower()
     return not schema or schema in {"none", "null"} or schema in EXCLUDED_SCHEMAS or schema.startswith("pg_")
+
+
+class TrinoDatabaseContext(DatabaseContext):
+    def _stddev(self, expr: str) -> str:
+        return f"STDDEV_POP({expr})"
+
+    def _numeric_agg_fragments(self, col_sql: str, col: dict) -> list[tuple[str, str]]:
+        col_type = self._normalize_type(col["type"])
+        is_numeric = self._is_numeric_stats_column(col)
+        is_date = any(t in col_type.lower() for t in ("date", "timestamp", "time"))
+
+        frags = []
+        if is_numeric:
+            frags.append(("col_min", f"MIN({col_sql})"))
+            frags.append(("col_max", f"MAX({col_sql})"))
+            frags.append(("col_mean", f"AVG({self._cast_float(col_sql)})"))
+            frags.append(("col_stddev", f"{self._stddev(self._cast_float(col_sql))}"))
+        elif is_date:
+            frags.append(("col_min", f"CAST(MIN({col_sql}) AS VARCHAR)"))
+            frags.append(("col_max", f"CAST(MAX({col_sql}) AS VARCHAR)"))
+        return frags
+
+    def _build_top_values_query(self, col: dict) -> str:
+        col_sql = self._quote(col["name"])
+        table_sql = f"{self._quote(self._schema)}.{self._quote(self._table_name)}"
+        partition_filter = self._partition_filter()
+        where_clause = f"WHERE {partition_filter}" if partition_filter else ""
+        return f"""
+            SELECT {col_sql} AS value, COUNT(*) AS cnt
+            FROM {table_sql}
+            {where_clause}
+            GROUP BY {col_sql}
+            ORDER BY cnt DESC, {col_sql} ASC
+            LIMIT 10
+        """.strip()
 
 
 class TrinoConfig(DatabaseConfig):
@@ -105,6 +141,9 @@ class TrinoConfig(DatabaseConfig):
                 return []
 
         return []
+
+    def create_context(self, conn: BaseBackend, schema: str, table_name: str) -> TrinoDatabaseContext:
+        return TrinoDatabaseContext(conn, schema, table_name)
 
     def check_connection(self) -> tuple[bool, str]:
         """Test connectivity to Trino."""

@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from nao_core.commands.debug import check_llm_connection, debug
-from nao_core.config.databases import BigQueryConfig, DuckDBConfig, PostgresConfig, TrinoConfig
+from nao_core.config.databases import BigQueryConfig, ClickHouseConfig, DuckDBConfig, PostgresConfig, TrinoConfig
 from nao_core.config.llm import LLMConfig, LLMProvider
 
 
@@ -247,6 +247,35 @@ class TestDatabaseConnection:
         schemas = config.get_schemas(mock_conn)
 
         assert schemas == ["analytics", "public", "sales"]
+
+    @pytest.mark.parametrize(
+        ("include", "expected"),
+        [
+            ([], ["default", "analytics"]),
+            (["system.*"], ["default", "analytics", "system"]),
+        ],
+    )
+    def test_clickhouse_get_schemas_system_filtering(self, include, expected):
+        config = ClickHouseConfig(
+            name="test",
+            host="localhost",
+            database="default",
+            user="default",
+            password="",
+            include=include,
+        )
+        mock_conn = MagicMock()
+        mock_conn.list_databases.return_value = [
+            "default",
+            "analytics",
+            "system",
+            "INFORMATION_SCHEMA",
+            "information_schema",
+        ]
+
+        schemas = config.get_schemas(mock_conn)
+
+        assert schemas == expected
 
     def test_connection_failure(self):
         config = DuckDBConfig(name="test", path=":memory:")

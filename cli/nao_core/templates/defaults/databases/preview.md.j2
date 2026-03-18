@@ -8,10 +8,15 @@
     - db (DatabaseContext): Database context with helper methods
 #}
 {% set rows = db.preview() %}
+{% set active_filter = db.active_partition_filter() %}
 # {{ table_name }} - Preview
 
 **Dataset:** `{{ dataset }}`
 
+{% if active_filter %}
+> Filtered by partition: `{{ active_filter }}`
+
+{% endif %}
 ## Rows ({{ rows | length }})
 
 {% for row in rows %}

@@ -1,10 +1,10 @@
+import type { UserRole } from '@nao/shared';
 import { initTRPC, TRPCError } from '@trpc/server';
 import type { CreateFastifyContextOptions } from '@trpc/server/adapters/fastify';
 import superjson from 'superjson';
 
 import { getAuth } from '../auth';
 import * as projectQueries from '../queries/project.queries';
-import type { UserRole } from '../types/project';
 import { HandlerError } from '../utils/error';
 import { convertHeaders } from '../utils/utils';
 

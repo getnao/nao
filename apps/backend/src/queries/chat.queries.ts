@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, gte, isNotNull, isNull, like, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, isNull, like, sql } from 'drizzle-orm';
 
 import s, { DBChat, DBChatMessage, DBMessagePart, MessageFeedback, NewChat } from '../db/abstractSchema';
 import { db } from '../db/db';
@@ -18,12 +18,13 @@ export const listUserChats = async (userId: string): Promise<ListChatResponse> =
 		.select()
 		.from(s.chat)
 		.where(eq(s.chat.userId, userId))
-		.orderBy(desc(s.chat.createdAt))
+		.orderBy(desc(s.chat.updatedAt))
 		.execute();
 	return {
 		chats: chats.map((chat) => ({
 			id: chat.id,
 			title: chat.title,
+			isStarred: chat.isStarred,
 			createdAt: chat.createdAt.getTime(),
 			updatedAt: chat.updatedAt.getTime(),
 		})),
@@ -62,6 +63,7 @@ export const loadChat = async (
 		{
 			id: chatId,
 			title: chat.title,
+			isStarred: chat.isStarred,
 			createdAt: chat.createdAt.getTime(),
 			updatedAt: chat.updatedAt.getTime(),
 			messages,
@@ -94,6 +96,7 @@ const aggregateChatMessagParts = (
 					role: row.chat_message.role,
 					parts: [uiPart],
 					feedback: row.message_feedback ?? undefined,
+					source: row.chat_message.source ?? undefined,
 				};
 			}
 			return acc;
@@ -105,58 +108,15 @@ const aggregateChatMessagParts = (
 };
 
 export const loadChatMessages = async (chatId: string): Promise<UIMessage[]> => {
-	return loadChatMessagesInternal(chatId);
-};
-
-export const loadChatMessagesAfter = async (chatId: string, afterCreatedAt: Date): Promise<UIMessage[]> => {
-	return loadChatMessagesInternal(chatId, { afterCreatedAt });
-};
-
-const loadChatMessagesInternal = async (
-	chatId: string,
-	opts?: {
-		afterCreatedAt?: Date;
-	},
-): Promise<UIMessage[]> => {
-	const baseWhere = and(eq(s.chatMessage.chatId, chatId), isNull(s.chatMessage.supersededAt));
-	const where = opts?.afterCreatedAt ? and(baseWhere, gt(s.chatMessage.createdAt, opts.afterCreatedAt)) : baseWhere;
-
 	const result = await db
 		.select()
 		.from(s.chatMessage)
-		.where(where)
+		.where(and(eq(s.chatMessage.chatId, chatId), isNull(s.chatMessage.supersededAt)))
 		.innerJoin(s.messagePart, eq(s.messagePart.messageId, s.chatMessage.id))
 		.orderBy(asc(s.chatMessage.createdAt), asc(s.messagePart.order))
 		.execute();
 
 	return aggregateChatMessagParts(result);
-};
-
-export const getLastAssistantMessageWithTokenUsage = async (
-	chatId: string,
-): Promise<{
-	createdAt: Date;
-	totalTokens: number | null;
-} | null> => {
-	const [result] = await db
-		.select({
-			createdAt: s.chatMessage.createdAt,
-			totalTokens: s.chatMessage.totalTokens,
-		})
-		.from(s.chatMessage)
-		.where(
-			and(
-				eq(s.chatMessage.chatId, chatId),
-				isNull(s.chatMessage.supersededAt),
-				eq(s.chatMessage.role, 'assistant'),
-				isNotNull(s.chatMessage.totalTokens),
-			),
-		)
-		.orderBy(desc(s.chatMessage.createdAt))
-		.limit(1)
-		.execute();
-
-	return result ?? null;
 };
 
 export const getChatOwnerId = async (chatId: string): Promise<string | undefined> => {
@@ -201,6 +161,7 @@ export const createChat = async (
 	newChat: NewChat,
 	newUserMessage: {
 		text: string;
+		source?: 'slack' | 'teams' | 'web';
 	},
 ): Promise<[DBChat, DBChatMessage]> => {
 	return db.transaction(async (t): Promise<[DBChat, DBChatMessage]> => {
@@ -211,6 +172,7 @@ export const createChat = async (
 			.values({
 				chatId: savedChat.id,
 				role: 'user',
+				source: newUserMessage.source,
 			})
 			.returning()
 			.execute();
@@ -245,6 +207,7 @@ export const upsertMessage = async (
 				errorMessage: getErrorMessage(message.error),
 				llmProvider: message.llmProvider,
 				llmModelId: message.llmModelId,
+				source: message.source,
 				...message.tokenUsage,
 			})
 			.onConflictDoNothing({ target: s.chatMessage.id })
@@ -255,6 +218,8 @@ export const upsertMessage = async (
 			const dbParts = mapUIPartsToDBParts(message.parts, messageId);
 			await t.insert(s.messagePart).values(dbParts).execute();
 		}
+
+		await t.update(s.chat).set({ updatedAt: new Date() }).where(eq(s.chat.id, message.chatId)).execute();
 
 		return { messageId };
 	});
@@ -267,6 +232,10 @@ export const deleteChat = async (chatId: string): Promise<{ projectId: string }>
 		.returning({ projectId: s.chat.projectId })
 		.execute();
 	return result;
+};
+
+export const toggleStarred = async (chatId: string, isStarred: boolean): Promise<void> => {
+	await db.update(s.chat).set({ isStarred }).where(eq(s.chat.id, chatId)).execute();
 };
 
 export const renameChat = async (chatId: string, title: string): Promise<{ projectId: string }> => {
@@ -292,11 +261,38 @@ export const getOwnerOfChatAndMessage = async (chatId: string, messageId: string
 	return result?.userId;
 };
 
+export const getLastAssistantMessageId = async (chatId: string): Promise<string | null> => {
+	const [result] = await db
+		.select({ id: s.chatMessage.id })
+		.from(s.chatMessage)
+		.where(
+			and(
+				eq(s.chatMessage.chatId, chatId),
+				isNull(s.chatMessage.supersededAt),
+				eq(s.chatMessage.role, 'assistant'),
+			),
+		)
+		.orderBy(desc(s.chatMessage.createdAt))
+		.limit(1)
+		.execute();
+	return result?.id ?? null;
+};
+
 export const getChatBySlackThread = async (threadId: string): Promise<{ id: string; title: string } | null> => {
 	const result = await db
 		.select({ id: s.chat.id, title: s.chat.title })
 		.from(s.chat)
 		.where(eq(s.chat.slackThreadId, threadId))
+		.limit(1)
+		.execute();
+	return result.at(0) || null;
+};
+
+export const getChatByTeamsThread = async (threadId: string): Promise<{ id: string; title: string } | null> => {
+	const result = await db
+		.select({ id: s.chat.id, title: s.chat.title })
+		.from(s.chat)
+		.where(eq(s.chat.teamsThreadId, threadId))
 		.limit(1)
 		.execute();
 	return result.at(0) || null;

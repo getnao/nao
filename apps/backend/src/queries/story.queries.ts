@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, max, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull, max, or, sql } from 'drizzle-orm';
 
 import s, { type DBStoryVersion } from '../db/abstractSchema';
 import { db } from '../db/db';
@@ -74,6 +74,7 @@ export async function listStoriesInChat(
 
 export async function listUserStories(
 	userId: string,
+	options?: { archived?: boolean },
 ): Promise<{ storyId: string; chatId: string; title: string; code: string; createdAt: Date }[]> {
 	const latestVersions = db
 		.select({
@@ -86,6 +87,10 @@ export async function listUserStories(
 		.where(eq(s.chat.userId, userId))
 		.groupBy(s.storyVersion.chatId, s.storyVersion.storyId)
 		.as('latest');
+
+	const archivedFilter = options?.archived
+		? sql`${s.storyVersion.archivedAt} IS NOT NULL`
+		: isNull(s.storyVersion.archivedAt);
 
 	return db
 		.select({
@@ -104,6 +109,35 @@ export async function listUserStories(
 				eq(s.storyVersion.version, latestVersions.maxVersion),
 			),
 		)
+		.where(archivedFilter)
 		.orderBy(desc(s.storyVersion.createdAt))
+		.execute();
+}
+
+export async function archiveStory(chatId: string, storyId: string): Promise<void> {
+	await db
+		.update(s.storyVersion)
+		.set({ archivedAt: new Date() })
+		.where(and(eq(s.storyVersion.chatId, chatId), eq(s.storyVersion.storyId, storyId)))
+		.execute();
+}
+
+export async function archiveMany(stories: { chatId: string; storyId: string }[]): Promise<void> {
+	const conditions = stories.map(({ chatId, storyId }) =>
+		and(eq(s.storyVersion.chatId, chatId), eq(s.storyVersion.storyId, storyId)),
+	);
+
+	await db
+		.update(s.storyVersion)
+		.set({ archivedAt: new Date() })
+		.where(or(...conditions))
+		.execute();
+}
+
+export async function unarchiveStory(chatId: string, storyId: string): Promise<void> {
+	await db
+		.update(s.storyVersion)
+		.set({ archivedAt: null })
+		.where(and(eq(s.storyVersion.chatId, chatId), eq(s.storyVersion.storyId, storyId)))
 		.execute();
 }

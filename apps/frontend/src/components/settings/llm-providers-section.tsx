@@ -85,6 +85,7 @@ export function LlmProvidersSection({ isAdmin }: LlmProvidersSectionProps) {
 						key={config.id}
 						provider={config.provider}
 						apiKeyPreview={config.apiKeyPreview}
+						credentialPreviews={config.credentialPreviews}
 						baseUrl={config.baseUrl}
 						envBaseUrl={envBaseUrls[config.provider]}
 						enabledModels={config.enabledModels}
@@ -105,7 +106,7 @@ export function LlmProvidersSection({ isAdmin }: LlmProvidersSectionProps) {
 					{!editingState && availableProvidersToAdd.length > 0 && (
 						<div className='grid gap-2'>
 							<label className='text-sm font-medium text-foreground'>Add Provider</label>
-							<div className='flex gap-2'>
+							<div className='flex flex-wrap gap-2'>
 								{availableProvidersToAdd.map((provider) => (
 									<button
 										key={provider}

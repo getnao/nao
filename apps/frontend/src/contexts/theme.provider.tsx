@@ -15,6 +15,13 @@ export const useTheme = () => {
 	return context;
 };
 
+function syncThemeColor() {
+	const meta = document.querySelector('meta[name="theme-color"]');
+	if (meta) {
+		meta.setAttribute('content', getComputedStyle(document.documentElement).getPropertyValue('--background'));
+	}
+}
+
 export const ThemeProvider = ({ children }: { children: React.ReactNode }) => {
 	const [theme, setTheme] = useState<Theme>(() => {
 		const saved = localStorage.getItem('theme');
@@ -30,20 +37,25 @@ export const ThemeProvider = ({ children }: { children: React.ReactNode }) => {
 
 		if (theme === 'dark') {
 			root.classList.add('dark');
+			syncThemeColor();
 		} else if (theme === 'system') {
 			const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
 			if (systemDark) {
 				root.classList.add('dark');
 			}
+			syncThemeColor();
 			const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
 			const handleChange = (e: MediaQueryListEvent) => {
 				root.classList.remove('dark');
 				if (e.matches) {
 					root.classList.add('dark');
 				}
+				syncThemeColor();
 			};
 			mediaQuery.addEventListener('change', handleChange);
 			return () => mediaQuery.removeEventListener('change', handleChange);
+		} else {
+			syncThemeColor();
 		}
 	}, [theme]);
 

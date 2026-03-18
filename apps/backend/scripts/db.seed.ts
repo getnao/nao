@@ -12,8 +12,12 @@ const ORG_SLUG = 'test';
 const PROJECT_NAME = 'Test Project';
 const PROJECT_PATH = env.NAO_DEFAULT_PROJECT_PATH ?? './';
 
+const useGithubAuth = !!(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET);
+
 /**
- * Seeds the database with the test admin user and their project.
+ * Seeds the database with an admin user, organization, and project.
+ * When GitHub auth is configured, the seed user gets a random password
+ * (users sign in via GitHub instead).
  */
 async function seed() {
 	console.log('Seeding database...');
@@ -27,9 +31,10 @@ async function seed() {
 		return;
 	}
 
+	const password = useGithubAuth ? crypto.randomUUID() : ADMIN_PASSWORD;
 	const userId = existingUser?.id ?? crypto.randomUUID();
 	const accountId = crypto.randomUUID();
-	const hashedPassword = await hashPassword(ADMIN_PASSWORD);
+	const hashedPassword = await hashPassword(password);
 
 	await db.transaction(async (tx) => {
 		if (!existingUser) {
@@ -78,7 +83,7 @@ async function seed() {
 	});
 
 	console.log('Done.');
-	if (!existingUser) {
+	if (!existingUser && !useGithubAuth) {
 		console.log(`  Email:    ${ADMIN_EMAIL}`);
 		console.log(`  Password: ${ADMIN_PASSWORD}`);
 	}
