@@ -73,7 +73,7 @@ export const CitationPopover = memo(
 const PopoverContent = memo(
 	({ data, topOffset, onExpand }: { data: CitationPayload; topOffset: number; onExpand: () => void }) => {
 		return (
-			<div className='absolute left-full pl-2' style={{ top: topOffset }}>
+			<div className='absolute left-full z-50 pl-2' style={{ top: topOffset }}>
 				<div
 					className={cn(
 						'w-[420px] max-h-[400px] overflow-auto',
