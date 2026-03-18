@@ -1,6 +1,6 @@
 """Repository sync provider implementation."""
 
-import fnmatch
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -72,14 +72,54 @@ def clone_or_pull_repo(repo: RepoConfig, base_path: Path) -> bool:
         return False
 
 
+def _glob_to_regex(pattern: str) -> re.Pattern[str]:
+    """Convert a path-aware glob pattern to a compiled regex.
+
+    Handles ** as zero-or-more directory levels. Segments are split on /
+    so that * only matches within a single path component.
+    """
+    segments = pattern.split("/")
+    regex_parts: list[str] = []
+
+    for i, seg in enumerate(segments):
+        if seg == "**":
+            regex_parts.append("(?:.+/)?")
+        else:
+            part = ""
+            for ch in seg:
+                if ch == "*":
+                    part += "[^/]*"
+                elif ch == "?":
+                    part += "[^/]"
+                elif ch in r"\.[{()+^$|":
+                    part += "\\" + ch
+                else:
+                    part += ch
+            regex_parts.append(part + ("/" if i < len(segments) - 1 else ""))
+
+    return re.compile("^" + "".join(regex_parts) + "$")
+
+
+def _matches_single_pattern(relative_path: str, pattern: str) -> bool:
+    """Match a single glob pattern against a relative file path.
+
+    Patterns without / are matched against the filename only (any depth).
+    Patterns with / are matched against the full path with ** support.
+    """
+    if "/" not in pattern:
+        filename = relative_path.rsplit("/", 1)[-1] if "/" in relative_path else relative_path
+        return _glob_to_regex(pattern).match(filename) is not None
+    return _glob_to_regex(pattern).match(relative_path) is not None
+
+
 def _matches_patterns(relative_path: str, include: list[str], exclude: list[str]) -> bool:
     """Check if a relative file path matches include/exclude glob patterns."""
     if include:
-        if not any(fnmatch.fnmatch(relative_path, pattern) for pattern in include):
+        if not any(_matches_single_pattern(relative_path, p) for p in include):
             return False
 
     if exclude:
-        if any(fnmatch.fnmatch(relative_path, pattern) for pattern in exclude):
+        if any(_matches_single_pattern(relative_path, p) for p in exclude):
             return False
 
     return True

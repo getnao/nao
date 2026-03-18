@@ -16,8 +16,13 @@ class RepoConfig(BaseModel):
     name: str = Field(description="The name of the repository")
     url: Optional[str] = Field(default=None, description="The URL of the repository")
     branch: Optional[str] = Field(default=None, description="The branch of the repository")
-    local_path: Optional[str] = Field(default=None, description="Local filesystem path (relative to nao_config.yaml or absolute)")
-    include: list[str] = Field(default_factory=list, description="Glob patterns for files to include (e.g. 'models/**/*.sql'). Empty means include all.")
+    local_path: Optional[str] = Field(
+        default=None, description="Local filesystem path (relative to nao_config.yaml or absolute)"
+    )
+    include: list[str] = Field(
+        default_factory=list,
+        description="Glob patterns for files to include (e.g. 'models/**/*.sql'). Empty means include all.",
+    )
     exclude: list[str] = Field(default_factory=list, description="Glob patterns for files to exclude (e.g. '*.pyc')")
 
     @model_validator(mode="after")
@@ -43,6 +48,6 @@ class RepoConfig(BaseModel):
 
         return RepoConfig(
             name=name,  # type: ignore
-            url=url,  # type: ignore
+            url=url,
             branch=branch,
         )
