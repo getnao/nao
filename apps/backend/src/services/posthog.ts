@@ -32,6 +32,9 @@ export enum PostHogEvent {
 	AgentMemoryDeleted = 'agent_memory_deleted',
 	AgentMemoryEnabledUpdated = 'agent_memory_enabled_updated',
 	AgentMemoryExtractionCompleted = 'agent_memory_extraction_completed',
+
+	SlackConfigured = 'slack_configured',
+	TeamsConfigured = 'teams_configured',
 }
 
 /**

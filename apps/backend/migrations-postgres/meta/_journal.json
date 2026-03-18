@@ -141,6 +141,48 @@
       "when": 1772144278927,
       "tag": "0019_add_stories",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1772650051523,
+      "tag": "0020_bedrock_fields",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1772702845282,
+      "tag": "0021_add_source_chat_message",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1772706637768,
+      "tag": "0022_add_slack_provider",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1773133940694,
+      "tag": "0023_added_microsoft_teams",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1773338861347,
+      "tag": "0024_add_favs",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1773740178731,
+      "tag": "0025_archive_stories",
+      "breakpoints": true
     }
   ]
 }

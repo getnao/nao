@@ -25,6 +25,19 @@ export const getErrorMessage = (error: unknown): string | null => {
 	return String(error);
 };
 
+export const buildGithubAllowlist = (allowedUsers?: string): Set<string> => {
+	const allowed = new Set<string>();
+	if (allowedUsers) {
+		for (const login of allowedUsers.split(',')) {
+			const trimmed = login.trim();
+			if (trimmed) {
+				allowed.add(trimmed);
+			}
+		}
+	}
+	return allowed;
+};
+
 export const isEmailDomainAllowed = (userEmail: string, authDomains?: string) => {
 	if (authDomains) {
 		const allowedDomains = authDomains.split(',').map((domain) => domain.trim().toLowerCase());
@@ -82,6 +95,17 @@ export function groupBy<T, K extends string>(
 		{} as Record<K, T[]>,
 	);
 }
+
+export const buildCredentialPreviews = (
+	credentials: Record<string, string> | null | undefined,
+): Record<string, string> | null => {
+	if (!credentials) {
+		return null;
+	}
+	return Object.fromEntries(
+		Object.entries(credentials).map(([key, val]) => [key, val ? val.slice(0, 4) + '...' + val.slice(-4) : '']),
+	);
+};
 
 export const formatSize = (bytes: number) => {
 	if (bytes < 1024) {

@@ -18,6 +18,14 @@ export const storyRoutes = {
 		}));
 	}),
 
+	listArchived: protectedProcedure.query(async ({ ctx }) => {
+		const stories = await storyQueries.listUserStories(ctx.user.id, { archived: true });
+		return stories.map(({ code, ...rest }) => ({
+			...rest,
+			summary: extractStorySummary(code),
+		}));
+	}),
+
 	getLatest: chatOwnerProcedure
 		.input(z.object({ chatId: z.string(), storyId: z.string() }))
 		.query(async ({ input }) => {
@@ -54,5 +62,32 @@ export const storyRoutes = {
 				...input,
 				source: 'user',
 			});
+		}),
+
+	archive: chatOwnerProcedure
+		.input(z.object({ chatId: z.string(), storyId: z.string() }))
+		.mutation(async ({ input }) => {
+			await storyQueries.archiveStory(input.chatId, input.storyId);
+		}),
+
+	unarchive: chatOwnerProcedure
+		.input(z.object({ chatId: z.string(), storyId: z.string() }))
+		.mutation(async ({ input }) => {
+			await storyQueries.unarchiveStory(input.chatId, input.storyId);
+		}),
+
+	archiveMany: protectedProcedure
+		.input(z.object({ stories: z.array(z.object({ chatId: z.string(), storyId: z.string() })).min(1) }))
+		.mutation(async ({ input, ctx }) => {
+			const chatIds = [...new Set(input.stories.map((s) => s.chatId))];
+			await Promise.all(
+				chatIds.map(async (chatId) => {
+					const ownerId = await chatQueries.getChatOwnerId(chatId);
+					if (ownerId !== ctx.user.id) {
+						throw new TRPCError({ code: 'FORBIDDEN', message: 'You can only archive your own stories.' });
+					}
+				}),
+			);
+			await storyQueries.archiveMany(input.stories);
 		}),
 };

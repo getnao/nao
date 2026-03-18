@@ -1,11 +1,14 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
+import { Plus, PencilRuler, Database } from 'lucide-react';
 import { Button, ChatButton, MicButton } from './ui/button';
 import { SlidingWaveform } from './chat-input-sliding-waveform';
-import { ChatPrompt } from './chat-input-prompt';
+import { ChatPrompt, STORY_MENTION_ID, DATABASE_MENTION_TRIGGER } from './chat-input-prompt';
 import { ChatInputModelSelect } from './chat-input-model-select';
 import { ChatInputMessageQueue } from './chat-input-message-queue';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './ui/dropdown-menu';
+import StoryIcon from './ui/story-icon';
 import type { PromptHandle, SelectedMention } from 'prompt-mentions';
 import type { FormEvent } from 'react';
 import type { AgentHelpers } from '@/hooks/use-agent';
@@ -99,9 +102,11 @@ function ChatInputBase({
 			if (!trimmedInput || (isRunning && !allowQueueing)) {
 				return;
 			}
+
 			setMentions(currentMentions.map((m) => ({ id: m.id, label: m.label, trigger: m.trigger })));
 			promptRef.current?.clear();
 			setInputText('');
+
 			await onSubmitMessage({ text: trimmedInput });
 		},
 		[onSubmitMessage, isRunning, allowQueueing, setMentions, promptRef],
@@ -132,6 +137,19 @@ function ChatInputBase({
 	};
 	const isInputEmpty = !inputText.trim();
 
+	const skills = useQuery(trpc.skill.list.queryOptions());
+	const databaseObjects = useQuery(trpc.project.getDatabaseObjects.queryOptions());
+	const hasSkills = Boolean(skills.data?.length);
+	const hasDatabases = Boolean(databaseObjects.data?.length);
+
+	const openSkillsMenu = useCallback(() => {
+		promptRef.current?.insertText('/');
+	}, [promptRef]);
+
+	const openDatabaseMenu = useCallback(() => {
+		promptRef.current?.insertText(DATABASE_MENTION_TRIGGER);
+	}, [promptRef]);
+
 	return (
 		<div className={cn('px-3 pb-3 pt-0 md:px-4 md:pb-4 max-w-3xl w-full mx-auto', className)}>
 			<ChatInputMessageQueue />
@@ -151,6 +169,20 @@ function ChatInputBase({
 						{isTranscribeReady && isRecording && <SlidingWaveform analyserRef={analyserRef} />}
 
 						<div className='flex items-center gap-1.5 md:gap-2 ml-auto relative'>
+							<ChatInputPlusMenu
+								hasDatabases={hasDatabases}
+								hasSkills={hasSkills}
+								onAddStory={() => {
+									promptRef.current?.appendMention(
+										{ id: STORY_MENTION_ID, label: 'Story mode' },
+										'#',
+									);
+								}}
+								onOpenSkills={openSkillsMenu}
+								onOpenDatabase={openDatabaseMenu}
+								onFocusPrompt={() => promptRef.current?.focus()}
+							/>
+
 							{onCancel && (
 								<Button variant='ghost' type='button' size='sm' onClick={onCancel}>
 									Cancel
@@ -187,6 +219,63 @@ function ChatInputBase({
 				</InputGroup>
 			</form>
 		</div>
+	);
+}
+
+function ChatInputPlusMenu({
+	hasDatabases,
+	hasSkills,
+	onAddStory,
+	onOpenSkills,
+	onOpenDatabase,
+	onFocusPrompt,
+}: {
+	hasDatabases: boolean;
+	hasSkills: boolean;
+	onAddStory: () => void;
+	onOpenSkills: () => void;
+	onOpenDatabase: () => void;
+	onFocusPrompt: () => void;
+}) {
+	return (
+		<DropdownMenu>
+			<DropdownMenuTrigger asChild>
+				<button
+					type='button'
+					aria-label='Add context'
+					className='inline-flex items-center justify-center rounded-full size-7 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors cursor-pointer'
+				>
+					<Plus className='size-4 transition-transform duration-200 [[data-state=open]_&]:rotate-45' />
+				</button>
+			</DropdownMenuTrigger>
+			<DropdownMenuContent
+				side='top'
+				align='start'
+				collisionPadding={12}
+				className='min-w-44'
+				onCloseAutoFocus={(e) => {
+					e.preventDefault();
+					requestAnimationFrame(onFocusPrompt);
+				}}
+			>
+				{hasDatabases && (
+					<DropdownMenuItem onSelect={onOpenDatabase}>
+						<Database className='size-4' />
+						<span>Database tables</span>
+					</DropdownMenuItem>
+				)}
+				<DropdownMenuItem onSelect={onAddStory}>
+					<StoryIcon className='size-4' />
+					<span>Story mode</span>
+				</DropdownMenuItem>
+				{hasSkills && (
+					<DropdownMenuItem onSelect={onOpenSkills}>
+						<PencilRuler className='size-4' />
+						<span>Skills</span>
+					</DropdownMenuItem>
+				)}
+			</DropdownMenuContent>
+		</DropdownMenu>
 	);
 }
 

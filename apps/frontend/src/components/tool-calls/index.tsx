@@ -3,11 +3,14 @@ import { StoryToolCall } from './story';
 import { DefaultToolCall } from './default';
 import { DisplayChartToolCall } from './display-chart';
 import { ExecutePythonToolCall } from './execute-python';
+import { ExecuteSandboxedCodeToolCall } from './execute-sandboxed-code';
 import { ExecuteSqlToolCall } from './execute-sql';
 import { GrepToolCall } from './grep';
 import { ListToolCall } from './list';
 import { ReadToolCall } from './read';
 import { SearchToolCall } from './search';
+import { WebFetchToolCall } from './web-fetch';
+import { WebSearchToolCall } from './web-search';
 import type { StaticToolName, UIToolPart } from '@nao/backend/chat';
 import { getToolName, isToolSettled } from '@/lib/ai';
 import { ToolCallProvider } from '@/contexts/tool-call';
@@ -23,11 +26,18 @@ const toolComponents: Partial<{
 	story: StoryToolCall,
 	display_chart: DisplayChartToolCall,
 	execute_python: ExecutePythonToolCall,
+	execute_sandboxed_code: ExecuteSandboxedCodeToolCall,
 	execute_sql: ExecuteSqlToolCall,
 	grep: GrepToolCall,
 	list: ListToolCall,
 	read: ReadToolCall,
 	search: SearchToolCall,
+};
+
+const dynamicToolComponents: Record<string, React.ComponentType<ToolCallComponentProps>> = {
+	web_search: WebSearchToolCall,
+	web_fetch: WebFetchToolCall,
+	google_search: WebSearchToolCall,
 };
 
 export const ToolCall = memo(({ toolPart }: { toolPart: UIToolPart }) => {
@@ -36,9 +46,10 @@ export const ToolCall = memo(({ toolPart }: { toolPart: UIToolPart }) => {
 		return null;
 	}
 
-	const Component = toolComponents[getToolName(toolPart) as StaticToolName] as
-		| React.ComponentType<ToolCallComponentProps>
-		| undefined;
+	const toolName = getToolName(toolPart);
+	const Component =
+		(toolComponents[toolName as StaticToolName] as React.ComponentType<ToolCallComponentProps> | undefined) ??
+		dynamicToolComponents[toolName];
 
 	const Rendered = Component ? <Component toolPart={toolPart} /> : <DefaultToolCall toolPart={toolPart} />;
 

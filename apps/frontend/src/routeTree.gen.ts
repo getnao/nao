@@ -21,9 +21,11 @@ import { Route as SidebarLayoutSettingsUsageRouteImport } from './routes/_sideba
 import { Route as SidebarLayoutSettingsProjectRouteImport } from './routes/_sidebar-layout.settings.project'
 import { Route as SidebarLayoutSettingsMemoryRouteImport } from './routes/_sidebar-layout.settings.memory'
 import { Route as SidebarLayoutSettingsGeneralRouteImport } from './routes/_sidebar-layout.settings.general'
+import { Route as SidebarLayoutSettingsChatsReplayRouteImport } from './routes/_sidebar-layout.settings.chats-replay'
 import { Route as SidebarLayoutChatLayoutChatIdRouteImport } from './routes/_sidebar-layout._chat-layout.$chatId'
 import { Route as SidebarLayoutSettingsProjectIndexRouteImport } from './routes/_sidebar-layout.settings.project.index'
 import { Route as SidebarLayoutStoriesSharedShareIdRouteImport } from './routes/_sidebar-layout.stories.shared.$shareId'
+import { Route as SidebarLayoutSettingsProjectTeamsRouteImport } from './routes/_sidebar-layout.settings.project.teams'
 import { Route as SidebarLayoutSettingsProjectTeamRouteImport } from './routes/_sidebar-layout.settings.project.team'
 import { Route as SidebarLayoutSettingsProjectSlackRouteImport } from './routes/_sidebar-layout.settings.project.slack'
 import { Route as SidebarLayoutSettingsProjectModelsRouteImport } from './routes/_sidebar-layout.settings.project.models'
@@ -96,6 +98,12 @@ const SidebarLayoutSettingsGeneralRoute =
     path: '/general',
     getParentRoute: () => SidebarLayoutSettingsRoute,
   } as any)
+const SidebarLayoutSettingsChatsReplayRoute =
+  SidebarLayoutSettingsChatsReplayRouteImport.update({
+    id: '/chats-replay',
+    path: '/chats-replay',
+    getParentRoute: () => SidebarLayoutSettingsRoute,
+  } as any)
 const SidebarLayoutChatLayoutChatIdRoute =
   SidebarLayoutChatLayoutChatIdRouteImport.update({
     id: '/$chatId',
@@ -113,6 +121,12 @@ const SidebarLayoutStoriesSharedShareIdRoute =
     id: '/stories/shared/$shareId',
     path: '/stories/shared/$shareId',
     getParentRoute: () => SidebarLayoutRoute,
+  } as any)
+const SidebarLayoutSettingsProjectTeamsRoute =
+  SidebarLayoutSettingsProjectTeamsRouteImport.update({
+    id: '/teams',
+    path: '/teams',
+    getParentRoute: () => SidebarLayoutSettingsProjectRoute,
   } as any)
 const SidebarLayoutSettingsProjectTeamRoute =
   SidebarLayoutSettingsProjectTeamRouteImport.update({
@@ -157,6 +171,7 @@ export interface FileRoutesByFullPath {
   '/signup': typeof SignupRoute
   '/settings': typeof SidebarLayoutSettingsRouteWithChildren
   '/$chatId': typeof SidebarLayoutChatLayoutChatIdRoute
+  '/settings/chats-replay': typeof SidebarLayoutSettingsChatsReplayRoute
   '/settings/general': typeof SidebarLayoutSettingsGeneralRoute
   '/settings/memory': typeof SidebarLayoutSettingsMemoryRoute
   '/settings/project': typeof SidebarLayoutSettingsProjectRouteWithChildren
@@ -168,6 +183,7 @@ export interface FileRoutesByFullPath {
   '/settings/project/models': typeof SidebarLayoutSettingsProjectModelsRoute
   '/settings/project/slack': typeof SidebarLayoutSettingsProjectSlackRoute
   '/settings/project/team': typeof SidebarLayoutSettingsProjectTeamRoute
+  '/settings/project/teams': typeof SidebarLayoutSettingsProjectTeamsRoute
   '/stories/shared/$shareId': typeof SidebarLayoutStoriesSharedShareIdRoute
   '/settings/project/': typeof SidebarLayoutSettingsProjectIndexRoute
   '/stories/preview/$chatId/$storyId': typeof SidebarLayoutStoriesPreviewChatIdStoryIdRoute
@@ -177,6 +193,7 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/signup': typeof SignupRoute
   '/$chatId': typeof SidebarLayoutChatLayoutChatIdRoute
+  '/settings/chats-replay': typeof SidebarLayoutSettingsChatsReplayRoute
   '/settings/general': typeof SidebarLayoutSettingsGeneralRoute
   '/settings/memory': typeof SidebarLayoutSettingsMemoryRoute
   '/settings/usage': typeof SidebarLayoutSettingsUsageRoute
@@ -187,6 +204,7 @@ export interface FileRoutesByTo {
   '/settings/project/models': typeof SidebarLayoutSettingsProjectModelsRoute
   '/settings/project/slack': typeof SidebarLayoutSettingsProjectSlackRoute
   '/settings/project/team': typeof SidebarLayoutSettingsProjectTeamRoute
+  '/settings/project/teams': typeof SidebarLayoutSettingsProjectTeamsRoute
   '/stories/shared/$shareId': typeof SidebarLayoutStoriesSharedShareIdRoute
   '/settings/project': typeof SidebarLayoutSettingsProjectIndexRoute
   '/stories/preview/$chatId/$storyId': typeof SidebarLayoutStoriesPreviewChatIdStoryIdRoute
@@ -199,6 +217,7 @@ export interface FileRoutesById {
   '/_sidebar-layout/_chat-layout': typeof SidebarLayoutChatLayoutRouteWithChildren
   '/_sidebar-layout/settings': typeof SidebarLayoutSettingsRouteWithChildren
   '/_sidebar-layout/_chat-layout/$chatId': typeof SidebarLayoutChatLayoutChatIdRoute
+  '/_sidebar-layout/settings/chats-replay': typeof SidebarLayoutSettingsChatsReplayRoute
   '/_sidebar-layout/settings/general': typeof SidebarLayoutSettingsGeneralRoute
   '/_sidebar-layout/settings/memory': typeof SidebarLayoutSettingsMemoryRoute
   '/_sidebar-layout/settings/project': typeof SidebarLayoutSettingsProjectRouteWithChildren
@@ -211,6 +230,7 @@ export interface FileRoutesById {
   '/_sidebar-layout/settings/project/models': typeof SidebarLayoutSettingsProjectModelsRoute
   '/_sidebar-layout/settings/project/slack': typeof SidebarLayoutSettingsProjectSlackRoute
   '/_sidebar-layout/settings/project/team': typeof SidebarLayoutSettingsProjectTeamRoute
+  '/_sidebar-layout/settings/project/teams': typeof SidebarLayoutSettingsProjectTeamsRoute
   '/_sidebar-layout/stories/shared/$shareId': typeof SidebarLayoutStoriesSharedShareIdRoute
   '/_sidebar-layout/settings/project/': typeof SidebarLayoutSettingsProjectIndexRoute
   '/_sidebar-layout/stories/preview/$chatId/$storyId': typeof SidebarLayoutStoriesPreviewChatIdStoryIdRoute
@@ -223,6 +243,7 @@ export interface FileRouteTypes {
     | '/signup'
     | '/settings'
     | '/$chatId'
+    | '/settings/chats-replay'
     | '/settings/general'
     | '/settings/memory'
     | '/settings/project'
@@ -234,6 +255,7 @@ export interface FileRouteTypes {
     | '/settings/project/models'
     | '/settings/project/slack'
     | '/settings/project/team'
+    | '/settings/project/teams'
     | '/stories/shared/$shareId'
     | '/settings/project/'
     | '/stories/preview/$chatId/$storyId'
@@ -243,6 +265,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/signup'
     | '/$chatId'
+    | '/settings/chats-replay'
     | '/settings/general'
     | '/settings/memory'
     | '/settings/usage'
@@ -253,6 +276,7 @@ export interface FileRouteTypes {
     | '/settings/project/models'
     | '/settings/project/slack'
     | '/settings/project/team'
+    | '/settings/project/teams'
     | '/stories/shared/$shareId'
     | '/settings/project'
     | '/stories/preview/$chatId/$storyId'
@@ -264,6 +288,7 @@ export interface FileRouteTypes {
     | '/_sidebar-layout/_chat-layout'
     | '/_sidebar-layout/settings'
     | '/_sidebar-layout/_chat-layout/$chatId'
+    | '/_sidebar-layout/settings/chats-replay'
     | '/_sidebar-layout/settings/general'
     | '/_sidebar-layout/settings/memory'
     | '/_sidebar-layout/settings/project'
@@ -276,6 +301,7 @@ export interface FileRouteTypes {
     | '/_sidebar-layout/settings/project/models'
     | '/_sidebar-layout/settings/project/slack'
     | '/_sidebar-layout/settings/project/team'
+    | '/_sidebar-layout/settings/project/teams'
     | '/_sidebar-layout/stories/shared/$shareId'
     | '/_sidebar-layout/settings/project/'
     | '/_sidebar-layout/stories/preview/$chatId/$storyId'
@@ -373,6 +399,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SidebarLayoutSettingsGeneralRouteImport
       parentRoute: typeof SidebarLayoutSettingsRoute
     }
+    '/_sidebar-layout/settings/chats-replay': {
+      id: '/_sidebar-layout/settings/chats-replay'
+      path: '/chats-replay'
+      fullPath: '/settings/chats-replay'
+      preLoaderRoute: typeof SidebarLayoutSettingsChatsReplayRouteImport
+      parentRoute: typeof SidebarLayoutSettingsRoute
+    }
     '/_sidebar-layout/_chat-layout/$chatId': {
       id: '/_sidebar-layout/_chat-layout/$chatId'
       path: '/$chatId'
@@ -393,6 +426,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/stories/shared/$shareId'
       preLoaderRoute: typeof SidebarLayoutStoriesSharedShareIdRouteImport
       parentRoute: typeof SidebarLayoutRoute
+    }
+    '/_sidebar-layout/settings/project/teams': {
+      id: '/_sidebar-layout/settings/project/teams'
+      path: '/teams'
+      fullPath: '/settings/project/teams'
+      preLoaderRoute: typeof SidebarLayoutSettingsProjectTeamsRouteImport
+      parentRoute: typeof SidebarLayoutSettingsProjectRoute
     }
     '/_sidebar-layout/settings/project/team': {
       id: '/_sidebar-layout/settings/project/team'
@@ -461,6 +501,7 @@ interface SidebarLayoutSettingsProjectRouteChildren {
   SidebarLayoutSettingsProjectModelsRoute: typeof SidebarLayoutSettingsProjectModelsRoute
   SidebarLayoutSettingsProjectSlackRoute: typeof SidebarLayoutSettingsProjectSlackRoute
   SidebarLayoutSettingsProjectTeamRoute: typeof SidebarLayoutSettingsProjectTeamRoute
+  SidebarLayoutSettingsProjectTeamsRoute: typeof SidebarLayoutSettingsProjectTeamsRoute
   SidebarLayoutSettingsProjectIndexRoute: typeof SidebarLayoutSettingsProjectIndexRoute
 }
 
@@ -476,6 +517,8 @@ const SidebarLayoutSettingsProjectRouteChildren: SidebarLayoutSettingsProjectRou
       SidebarLayoutSettingsProjectSlackRoute,
     SidebarLayoutSettingsProjectTeamRoute:
       SidebarLayoutSettingsProjectTeamRoute,
+    SidebarLayoutSettingsProjectTeamsRoute:
+      SidebarLayoutSettingsProjectTeamsRoute,
     SidebarLayoutSettingsProjectIndexRoute:
       SidebarLayoutSettingsProjectIndexRoute,
   }
@@ -486,6 +529,7 @@ const SidebarLayoutSettingsProjectRouteWithChildren =
   )
 
 interface SidebarLayoutSettingsRouteChildren {
+  SidebarLayoutSettingsChatsReplayRoute: typeof SidebarLayoutSettingsChatsReplayRoute
   SidebarLayoutSettingsGeneralRoute: typeof SidebarLayoutSettingsGeneralRoute
   SidebarLayoutSettingsMemoryRoute: typeof SidebarLayoutSettingsMemoryRoute
   SidebarLayoutSettingsProjectRoute: typeof SidebarLayoutSettingsProjectRouteWithChildren
@@ -494,6 +538,7 @@ interface SidebarLayoutSettingsRouteChildren {
 }
 
 const SidebarLayoutSettingsRouteChildren: SidebarLayoutSettingsRouteChildren = {
+  SidebarLayoutSettingsChatsReplayRoute: SidebarLayoutSettingsChatsReplayRoute,
   SidebarLayoutSettingsGeneralRoute: SidebarLayoutSettingsGeneralRoute,
   SidebarLayoutSettingsMemoryRoute: SidebarLayoutSettingsMemoryRoute,
   SidebarLayoutSettingsProjectRoute:

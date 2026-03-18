@@ -2,6 +2,7 @@ import { accountRoutes } from './account.routes';
 import { chartRoutes } from './chart.routes';
 import { chatRoutes } from './chat.routes';
 import { feedbackRoutes } from './feedback.routes';
+import { githubRoutes } from './github.routes';
 import { googleRoutes } from './google.routes';
 import { mcpRoutes } from './mcp.routes';
 import { memoryRoutes } from './memory.routes';
@@ -27,6 +28,7 @@ export const trpcRouter = router({
 	usage: usageRoutes,
 	user: userRoutes,
 	memory: memoryRoutes,
+	github: githubRoutes,
 	google: googleRoutes,
 	account: accountRoutes,
 	mcp: mcpRoutes,

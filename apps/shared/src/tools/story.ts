@@ -1,5 +1,8 @@
 import z from 'zod/v3';
 
+export const MENTION_ID = '__story__';
+export const MENTION_TRIGGER = '#';
+
 export const InputSchema = z.object({
 	action: z
 		.enum(['create', 'update', 'replace'])

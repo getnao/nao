@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import { useForm } from '@tanstack/react-form';
 import { Check, ChevronDown, Plus, X } from 'lucide-react';
-import { getDefaultModelId, getProviderApiKeyRequirement } from '@nao/backend/providers';
+import { getDefaultModelId, getProviderAuth } from '@nao/backend/providers';
 import type { LlmProvider } from '@nao/backend/llm';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { capitalize } from '@/lib/utils';
-import { PasswordField, FormError } from '@/components/ui/form-fields';
+import { PasswordField, TextField, FormError } from '@/components/ui/form-fields';
 
 export interface LlmProviderFormProps {
 	provider: LlmProvider;
@@ -17,7 +17,12 @@ export interface LlmProviderFormProps {
 		baseUrl: string;
 	};
 	currentModels: readonly { id: string; name: string; default?: boolean }[];
-	onSubmit: (values: { apiKey?: string; enabledModels: string[]; baseUrl?: string }) => Promise<void>;
+	onSubmit: (values: {
+		apiKey?: string;
+		credentials?: Record<string, string>;
+		enabledModels: string[];
+		baseUrl?: string;
+	}) => Promise<void>;
 	onCancel: () => void;
 	isPending: boolean;
 	error: { message: string } | null;
@@ -42,16 +47,25 @@ export function LlmProviderForm({
 }: LlmProviderFormProps) {
 	const [showAdvanced, setShowAdvanced] = useState(!!initialValues?.baseUrl);
 	const [customModelInput, setCustomModelInput] = useState('');
+	const providerAuth = getProviderAuth(provider);
+	const showApiKey = providerAuth.apiKey !== 'none';
+	const extraFields = providerAuth.extraFields ?? [];
+
+	const defaultCredentials = Object.fromEntries(extraFields.map((f) => [f.name, '']));
 
 	const form = useForm({
 		defaultValues: {
 			apiKey: '',
+			credentials: defaultCredentials,
 			enabledModels: initialValues?.enabledModels ?? [],
 			baseUrl: initialValues?.baseUrl ?? '',
 		},
 		onSubmit: async ({ value }) => {
+			const filledCredentials = Object.fromEntries(Object.entries(value.credentials).filter(([, v]) => v));
+
 			await onSubmit({
 				apiKey: value.apiKey || undefined,
+				credentials: Object.keys(filledCredentials).length > 0 ? filledCredentials : undefined,
 				enabledModels: value.enabledModels,
 				baseUrl: value.baseUrl || undefined,
 			});
@@ -59,6 +73,9 @@ export function LlmProviderForm({
 	});
 
 	const getApiKeyHint = () => {
+		if (providerAuth.apiKey === 'optional') {
+			return providerAuth.hint ? `(${providerAuth.hint})` : '(optional)';
+		}
 		if (usesEnvKey) {
 			return '(optional - leave empty to use env)';
 		}
@@ -69,6 +86,9 @@ export function LlmProviderForm({
 	};
 
 	const getApiKeyPlaceholder = () => {
+		if (providerAuth.apiKey === 'optional') {
+			return 'Enter bearer token or leave empty for env credentials';
+		}
 		if (usesEnvKey) {
 			return 'Enter API key to override env variable';
 		}
@@ -99,17 +119,31 @@ export function LlmProviderForm({
 				</Button>
 			</div>
 
-			{/* API Key field — Ollama is a local provider and does not require one */}
-			{getProviderApiKeyRequirement(provider) && (
+			{showApiKey && (
 				<PasswordField
 					form={form}
 					name='apiKey'
 					label='API Key'
 					hint={getApiKeyHint()}
 					placeholder={getApiKeyPlaceholder()}
-					required={!isEditing && !usesEnvKey}
+					required={providerAuth.apiKey === 'required' && !isEditing && !usesEnvKey}
 				/>
 			)}
+
+			{extraFields.map((field) => {
+				const FieldComponent = field.secret ? PasswordField : TextField;
+				const hint = isEditing ? '(leave empty to keep current)' : `(or set ${field.envVar} in env)`;
+				return (
+					<FieldComponent
+						key={field.name}
+						form={form}
+						name={`credentials.${field.name}`}
+						label={field.label}
+						hint={hint}
+						placeholder={field.placeholder ?? `Enter ${field.label}`}
+					/>
+				);
+			})}
 
 			{/* Model selection */}
 			<form.Field name='enabledModels'>

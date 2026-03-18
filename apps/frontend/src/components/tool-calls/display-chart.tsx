@@ -3,7 +3,7 @@ import { buildChart, labelize } from '@nao/shared';
 import { Download, FilePlus } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams } from '@tanstack/react-router';
-import { useAgentContext } from '../../contexts/agent.provider';
+import { useOptionalAgentContext } from '../../contexts/agent.provider';
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from '../ui/chart';
 import { TextShimmer } from '../ui/text-shimmer';
 import { Skeleton } from '../ui/skeleton';
@@ -13,6 +13,7 @@ import { ChartRangeSelector } from './display-chart-range-selector';
 import type { ToolCallComponentProps } from '.';
 import type { ChartConfig } from '../ui/chart';
 import type { displayChart } from '@nao/shared/tools';
+import type { UIMessage } from '@nao/backend/chat';
 import type { DateRange } from '@/lib/charts.utils';
 import { filterByDateRange, DATE_RANGE_OPTIONS, toKey } from '@/lib/charts.utils';
 import { findStoryIds } from '@/lib/story.utils';
@@ -21,6 +22,7 @@ import { StoryViewer } from '@/components/side-panel/story-viewer';
 import { trpc } from '@/main';
 
 const Colors = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)', 'var(--chart-5)'];
+const EMPTY_MESSAGES: UIMessage[] = [];
 
 const escapeDoubleQuotedAttr = (value: string) => value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 const escapeSingleQuotedAttr = (value: string) => value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
@@ -28,7 +30,8 @@ const escapeSingleQuotedAttr = (value: string) => value.replace(/\\/g, '\\\\').r
 export const DisplayChartToolCall = ({
 	toolPart: { state, input, output, toolCallId },
 }: ToolCallComponentProps<'display_chart'>) => {
-	const { messages } = useAgentContext();
+	const agent = useOptionalAgentContext();
+	const messages = agent?.messages ?? EMPTY_MESSAGES;
 	const { chatId } = useParams({ strict: false });
 	const queryClient = useQueryClient();
 	const { open: openSidePanel, currentStoryId, isVisible } = useSidePanel();
@@ -170,9 +173,15 @@ export const DisplayChartToolCall = ({
 	};
 
 	return (
-		<div className='flex flex-col items-center my-4 gap-2 aspect-3/2'>
+		<div
+			className={`flex flex-col items-center my-4 gap-2 ${config.chart_type !== 'kpi_card' ? 'aspect-3/2' : ''}`}
+		>
 			<div className='flex w-full items-center justify-between'>
-				<span className='text-sm font-medium flex-1'>{config.title}</span>
+				{config.chart_type != 'kpi_card' ? (
+					<span className='text-sm font-medium flex-1'>{config.title}</span>
+				) : (
+					<div></div>
+				)}
 				{storyIds.length > 0 && (
 					<Button variant='ghost-muted' size='sm' onClick={handleAddToStory} className='gap-1'>
 						<FilePlus className='size-3' />
@@ -189,15 +198,17 @@ export const DisplayChartToolCall = ({
 							onRangeSelected={(range) => setDataRange(range)}
 						/>
 					)}
-					<Button
-						variant='ghost-muted'
-						size='icon-xs'
-						onClick={handleDownload}
-						disabled={isDownloading}
-						title='Download as PNG'
-					>
-						<Download className='size-3.5' />
-					</Button>
+					{config.chart_type != 'kpi_card' && (
+						<Button
+							variant='ghost-muted'
+							size='icon-xs'
+							onClick={handleDownload}
+							disabled={isDownloading}
+							title='Download as PNG'
+						>
+							<Download className='size-3.5' />
+						</Button>
+					)}
 				</div>
 			</div>
 
@@ -330,9 +341,13 @@ export const ChartDisplay = memo(function ChartDisplay({
 
 	return (
 		<div className='flex flex-col items-center gap-2 w-full'>
-			<ChartContainer config={chartConfig} className='w-full'>
-				{chartElement}
-			</ChartContainer>
+			{chartType === 'kpi_card' ? (
+				chartElement
+			) : (
+				<ChartContainer config={chartConfig} className='w-full'>
+					{chartElement}
+				</ChartContainer>
+			)}
 		</div>
 	);
 });

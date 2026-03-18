@@ -4,6 +4,9 @@ databases:
   accessors:
   - columns
   - preview
+  profiling:
+    refresh_policy: "interval" # "always", "interval", or "once"
+    interval_days: 1
   include: []
   exclude: []
   type: duckdb

@@ -1,11 +1,14 @@
-import { ArrowLeftFromLine, ArrowRightToLine, PlusIcon, ArrowLeft, ChevronRight, SearchIcon, X } from 'lucide-react';
-import { useEffect, useCallback, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useMatchRoute, useRouterState } from '@tanstack/react-router';
+import { ArrowLeftFromLine, ArrowRightToLine, PlusIcon, ArrowLeft, ChevronRight, SearchIcon, X } from 'lucide-react';
 import { ChatList } from './sidebar-chat-list';
 import { SidebarUserMenu } from './sidebar-user-menu';
 import { SidebarSettingsNav } from './sidebar-settings-nav';
+import { Spinner } from './ui/spinner';
 
 import StoryIcon from './ui/story-icon';
+import { SidebarCommunity } from './sidebar-community';
 import type { LucideIcon } from 'lucide-react';
 import type { ChatListItem as ChatListItemType } from '@nao/backend/chat';
 import { Button } from '@/components/ui/button';
@@ -13,7 +16,9 @@ import { cn, hideIf } from '@/lib/utils';
 import { useChatListQuery } from '@/queries/use-chat-list-query';
 import { useSidebar } from '@/contexts/sidebar';
 import { useCommandMenuCallback } from '@/contexts/command-menu-callback';
-import NaoLogoGreyscale from '@/components/icons/nao-logo-greyscale.svg';
+import { useSectionActivity } from '@/hooks/use-chat-activity';
+import NaoLogo from '@/components/icons/nao-logo.svg';
+import { trpc } from '@/main';
 
 export function Sidebar() {
 	const chats = useChatListQuery();
@@ -21,6 +26,8 @@ export function Sidebar() {
 	const matchRoute = useMatchRoute();
 	const { isCollapsed, isMobile, isMobileOpen, closeMobile, toggle: toggleSidebar } = useSidebar();
 	const { fire: openCommandMenu } = useCommandMenuCallback();
+	const project = useQuery(trpc.project.getCurrent.queryOptions());
+	const isAdmin = project.data?.userRole === 'admin';
 
 	const locationPath = useRouterState({ select: (s) => s.location.pathname });
 	const isInSettings = matchRoute({ to: '/settings', fuzzy: true });
@@ -104,7 +111,7 @@ export function Sidebar() {
 									hideIf(effectiveIsCollapsed),
 								)}
 							>
-								<NaoLogoGreyscale className='size-5' />
+								<NaoLogo className='size-5' />
 							</div>
 
 							{isMobile ? (
@@ -158,12 +165,13 @@ export function Sidebar() {
 			</div>
 
 			{isInSettings ? (
-				<SidebarSettingsNav isCollapsed={effectiveIsCollapsed} />
+				<SidebarSettingsNav isCollapsed={effectiveIsCollapsed} isAdmin={isAdmin} />
 			) : (
 				<SidebarNav chats={chats.data?.chats || []} isCollapsed={effectiveIsCollapsed} />
 			)}
 
 			<div className={cn('mt-auto transition-[padding] duration-300', effectiveIsCollapsed ? 'p-1' : 'p-2')}>
+				{isInSettings && <SidebarCommunity isCollapsed={effectiveIsCollapsed} />}
 				<SidebarUserMenu isCollapsed={effectiveIsCollapsed} />
 			</div>
 		</div>
@@ -222,7 +230,43 @@ function SidebarMenuButton({
 }
 
 function SidebarNav({ chats, isCollapsed }: { chats: ChatListItemType[]; isCollapsed: boolean }) {
-	const [chatsOpen, setChatsOpen] = useState(true);
+	const [starredOpen, setStarredOpen] = useState(() => localStorage.getItem('sidebar-starred-open') !== 'false');
+	const [chatsOpen, setChatsOpen] = useState(() => localStorage.getItem('sidebar-chats-open') !== 'false');
+
+	const toggleStarred = useCallback(() => {
+		setStarredOpen((prev) => {
+			localStorage.setItem('sidebar-starred-open', String(!prev));
+			return !prev;
+		});
+	}, []);
+
+	const toggleChats = useCallback(() => {
+		setChatsOpen((prev) => {
+			localStorage.setItem('sidebar-chats-open', String(!prev));
+			return !prev;
+		});
+	}, []);
+
+	const { starred, regular, starredIds, regularIds } = useMemo(() => {
+		const starredChats: ChatListItemType[] = [];
+		const rest: ChatListItemType[] = [];
+		for (const chat of chats) {
+			if (chat.isStarred) {
+				starredChats.push(chat);
+			} else {
+				rest.push(chat);
+			}
+		}
+		return {
+			starred: starredChats,
+			regular: rest,
+			starredIds: starredChats.map((c) => c.id),
+			regularIds: rest.map((c) => c.id),
+		};
+	}, [chats]);
+
+	const starredActivity = useSectionActivity(starredIds);
+	const chatsActivity = useSectionActivity(regularIds);
 
 	return (
 		<div
@@ -231,22 +275,75 @@ function SidebarNav({ chats, isCollapsed }: { chats: ChatListItemType[]; isColla
 				hideIf(isCollapsed),
 			)}
 		>
-			<div className='px-2 space-y-0.5'>
-				<button
-					onClick={() => setChatsOpen((prev) => !prev)}
-					className='group flex items-center gap-2 px-3 py-1.5 text-sm rounded-md transition-colors w-full text-left text-muted-foreground whitespace-nowrap cursor-pointer'
-				>
-					<span>Chats</span>
-					<ChevronRight
+			{starred.length > 0 && (
+				<>
+					<div className='px-2 space-y-0.5'>
+						<SidebarSectionHeader
+							label='Starred'
+							isOpen={starredOpen}
+							onToggle={toggleStarred}
+							activity={starredActivity}
+						/>
+					</div>
+					<ChatList
+						chats={starred}
 						className={cn(
-							'size-4 shrink-0 transition-[transform,opacity,rotate] duration-200 group-hover:opacity-100',
-							chatsOpen ? 'opacity-100 rotate-90' : 'opacity-0 rotate-0',
+							'w-72 flex-none transition-opacity duration-200',
+							starredOpen ? 'opacity-100' : 'opacity-0 h-0 overflow-hidden',
 						)}
 					/>
-				</button>
+				</>
+			)}
+
+			<div className='px-2 space-y-0.5'>
+				<SidebarSectionHeader
+					label='Chats'
+					isOpen={chatsOpen}
+					onToggle={toggleChats}
+					activity={chatsActivity}
+				/>
 			</div>
 
-			{chatsOpen && <ChatList chats={chats} className='w-72' />}
+			<ChatList
+				chats={regular}
+				className={cn(
+					'w-72 transition-opacity duration-200',
+					chatsOpen ? 'opacity-100' : 'opacity-0 h-0 overflow-hidden',
+				)}
+			/>
 		</div>
+	);
+}
+
+function SidebarSectionHeader({
+	label,
+	isOpen,
+	onToggle,
+	activity,
+}: {
+	label: string;
+	isOpen: boolean;
+	onToggle: () => void;
+	activity?: { running: boolean; unread: boolean };
+}) {
+	const showIndicator = !isOpen && activity;
+
+	return (
+		<button
+			onClick={onToggle}
+			className='group flex items-center gap-2 px-3 py-1.5 text-sm rounded-md transition-colors w-full text-left text-muted-foreground whitespace-nowrap cursor-pointer'
+		>
+			<span>{label}</span>
+			<ChevronRight
+				className={cn(
+					'size-4 shrink-0 transition-[transform,opacity,rotate] duration-200 group-hover:opacity-100',
+					isOpen ? 'opacity-100 rotate-90' : 'opacity-0 rotate-0',
+				)}
+			/>
+			{showIndicator && activity.running && <Spinner className='size-3 ml-auto' />}
+			{showIndicator && !activity.running && activity.unread && (
+				<span className='size-1.5 rounded-full bg-primary ml-auto' />
+			)}
+		</button>
 	);
 }

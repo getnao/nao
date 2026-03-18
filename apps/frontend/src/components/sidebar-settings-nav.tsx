@@ -1,33 +1,51 @@
 import { Link } from '@tanstack/react-router';
 import { cn, hideIf } from '@/lib/utils';
 
-const settingsNavItems = [
+interface NavItem {
+	label: string;
+	to: string;
+	visible?: boolean;
+}
+
+const settingsNavItems: NavItem[] = [
 	{
 		label: 'General',
 		to: '/settings/general',
+		visible: undefined,
 	},
 	{
 		label: 'Memory',
 		to: '/settings/memory',
+		visible: undefined,
 	},
 	{
 		label: 'Project',
 		to: '/settings/project',
+		visible: undefined,
 	},
 	{
 		label: 'Usage & costs',
 		to: '/settings/usage',
+		visible: true,
+	},
+	{
+		label: 'Chats Replay',
+		to: '/settings/chats-replay',
+		visible: true,
 	},
 ] as const;
 
 interface SidebarSettingsNavProps {
 	isCollapsed: boolean;
+	isAdmin: boolean;
 }
 
-export function SidebarSettingsNav({ isCollapsed }: SidebarSettingsNavProps) {
+export function SidebarSettingsNav({ isCollapsed, isAdmin }: SidebarSettingsNavProps) {
+	const navItems = settingsNavItems.filter((item) => (item.visible === undefined ? true : item.visible === isAdmin));
+
 	return (
 		<nav className={cn('flex flex-col gap-1 px-2', hideIf(isCollapsed))}>
-			{settingsNavItems.map((item) => {
+			{navItems.map((item) => {
 				return (
 					<Link
 						key={item.to}

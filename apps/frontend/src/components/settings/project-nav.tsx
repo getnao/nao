@@ -12,6 +12,7 @@ const navItems: NavItem[] = [
 	{ to: '/settings/project/agent', label: 'Agent' },
 	{ to: '/settings/project/mcp-servers', label: 'MCP Servers' },
 	{ to: '/settings/project/slack', label: 'Slack' },
+	{ to: '/settings/project/teams', label: 'Microsoft Teams' },
 	{ to: '/settings/project/team', label: 'Team' },
 ];
 

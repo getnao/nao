@@ -1,6 +1,6 @@
 import { createProviderModel, getDefaultModelId, LLM_PROVIDERS, type ProviderModelResult } from '../agents/providers';
 import * as projectLlmConfigQueries from '../queries/project-llm-config.queries';
-import { LlmProvider, ModelSelection } from '../types/llm';
+import { LlmProvider, ModelSelection, type ProviderSettings } from '../types/llm';
 export { getDefaultModelId };
 export type { ModelSelection };
 
@@ -15,9 +15,13 @@ export function getEnvBaseUrl(provider: LlmProvider): string | undefined {
 	return baseUrlEnvVar ? process.env[baseUrlEnvVar] : undefined;
 }
 
-/** Check if a provider has an API key configured via environment */
+/** Check if a provider has authentication configured via environment */
 export function hasEnvApiKey(provider: LlmProvider): boolean {
-	return !!getEnvApiKey(provider);
+	if (getEnvApiKey(provider)) {
+		return true;
+	}
+	const { alternativeEnvVars } = LLM_PROVIDERS[provider].auth;
+	return alternativeEnvVars?.every((v) => process.env[v]) ?? false;
 }
 
 /** Get all providers that have API keys configured via environment */
@@ -63,6 +67,25 @@ export function getEnvModelSelections(): ModelSelection[] {
 	}));
 }
 
+/** Resolve API key + base URL for a provider from DB config or env vars. */
+export async function resolveProviderSettings(
+	projectId: string,
+	provider: LlmProvider,
+): Promise<ProviderSettings | null> {
+	const config = await projectLlmConfigQueries.getProjectLlmConfigByProvider(projectId, provider);
+	if (config) {
+		return { apiKey: config.apiKey, ...(config.baseUrl && { baseURL: config.baseUrl }) };
+	}
+
+	const envApiKey = getEnvApiKey(provider);
+	if (envApiKey) {
+		const envBaseUrl = getEnvBaseUrl(provider);
+		return { apiKey: envApiKey, ...(envBaseUrl && { baseURL: envBaseUrl }) };
+	}
+
+	return null;
+}
+
 /**
  * Resolve a provider model from DB config, falling back to env vars.
  * Returns null when neither source has credentials for the provider.
@@ -76,7 +99,11 @@ export async function resolveProviderModel(
 	if (config) {
 		return createProviderModel(
 			provider,
-			{ apiKey: config.apiKey, ...(config.baseUrl && { baseURL: config.baseUrl }) },
+			{
+				apiKey: config.apiKey,
+				...(config.baseUrl && { baseURL: config.baseUrl }),
+				...(config.credentials && { credentials: config.credentials }),
+			},
 			modelId,
 		);
 	}
@@ -91,14 +118,18 @@ export async function resolveProviderModel(
 		);
 	}
 
+	if (hasEnvApiKey(provider)) {
+		return createProviderModel(provider, { apiKey: '' }, modelId);
+	}
+
 	return null;
 }
 
 export const getProjectAvailableModels = async (
 	projectId: string,
-): Promise<Array<{ provider: LlmProvider; modelId: string }>> => {
+): Promise<Array<{ provider: LlmProvider; modelId: string; name: string }>> => {
 	const configs = await projectLlmConfigQueries.getProjectLlmConfigs(projectId);
-	const models: Array<{ provider: LlmProvider; modelId: string }> = [];
+	const models: Array<{ provider: LlmProvider; modelId: string; name: string }> = [];
 
 	for (const config of configs) {
 		const provider = config.provider as LlmProvider;
@@ -106,17 +137,23 @@ export const getProjectAvailableModels = async (
 
 		if (enabledModels.length === 0) {
 			// If no models explicitly enabled, add the default
-			models.push({ provider, modelId: getDefaultModelId(provider) });
+			const defaultModelId = getDefaultModelId(provider);
+			models.push({ provider, modelId: defaultModelId, name: getModelName(provider, defaultModelId) });
 		} else {
 			for (const modelId of enabledModels) {
-				models.push({ provider, modelId });
+				models.push({ provider, modelId, name: getModelName(provider, modelId) });
 			}
 		}
 	}
 
 	// Also add env-configured providers with their defaults
-	const envSelections = getEnvModelSelections().filter((s) => !configs.some((c) => c.provider === s.provider));
+	const envSelections = getEnvModelSelections()
+		.filter((s) => !configs.some((c) => c.provider === s.provider))
+		.map((s) => ({ ...s, name: getModelName(s.provider, s.modelId) }));
 	models.push(...envSelections);
 
 	return models;
 };
+
+const getModelName = (provider: LlmProvider, modelId: string): string =>
+	LLM_PROVIDERS[provider].models.find((m) => m.id === modelId)?.name ?? modelId;

@@ -1,10 +1,15 @@
 """Unit tests for DatabaseContext."""
 
+from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock
 
 import pandas as pd
+import pytest
+from pydantic import ValidationError
 
 from nao_core.commands.sync.providers.databases.context import DatabaseContext
+from nao_core.commands.sync.providers.databases.provider import _should_refresh_profiling
+from nao_core.config.databases.base import ProfilingConfig, ProfilingRefreshPolicy
 
 
 class TestDatabaseContext:
@@ -72,3 +77,50 @@ class TestDatabaseContext:
         _ = ctx.table
         _ = ctx.table
         mock_conn.table.assert_called_once()
+
+    def test_should_not_refresh_when_recent(self, tmp_path):
+        profiling_file = tmp_path / "profiling.md"
+        recent_time = datetime.now(timezone.utc) - timedelta(hours=1)
+        profiling_file.write_text(f"**Computed at:** `{recent_time.isoformat()}`\n")
+
+        config = ProfilingConfig(refresh_policy=ProfilingRefreshPolicy.INTERVAL, interval_days=1)
+
+        assert _should_refresh_profiling(profiling_file, config) is False
+
+    def test_should_refresh_when_stale(self, tmp_path):
+        profiling_file = tmp_path / "profiling.md"
+        old_time = datetime.now(timezone.utc) - timedelta(days=2)
+        profiling_file.write_text(f"**Computed at:** `{old_time.isoformat()}`\n")
+
+        config = ProfilingConfig(refresh_policy=ProfilingRefreshPolicy.INTERVAL, interval_days=1)
+
+        assert _should_refresh_profiling(profiling_file, config) is True
+
+    def test_should_refresh_when_file_missing(self, tmp_path):
+        profiling_file = tmp_path / "profiling.md"
+
+        config = ProfilingConfig(refresh_policy=ProfilingRefreshPolicy.ONCE, interval_days=1)
+
+        assert _should_refresh_profiling(profiling_file, config) is True
+
+    def test_should_not_refresh_once_when_file_exists(self, tmp_path):
+        profiling_file = tmp_path / "profiling.md"
+        profiling_file.write_text("**Computed at:** `2026-01-01T00:00:00+00:00`\n")
+
+        config = ProfilingConfig(refresh_policy=ProfilingRefreshPolicy.ONCE, interval_days=1)
+
+        assert _should_refresh_profiling(profiling_file, config) is False
+
+    def test_interval_days_valid_with_interval_policy(self):
+        config = ProfilingConfig(
+            refresh_policy=ProfilingRefreshPolicy.INTERVAL,
+            interval_days=3,
+        )
+        assert config.interval_days == 3
+
+    def test_interval_days_must_be_positive(self):
+        with pytest.raises(ValidationError):
+            ProfilingConfig(
+                refresh_policy=ProfilingRefreshPolicy.INTERVAL,
+                interval_days=0,  # interdit par ge=1
+            )

@@ -1,0 +1,33 @@
+name: Nightly cleanup
+
+on:
+    schedule:
+        # Every day at 1am
+        - cron: '0 1 * * *'
+
+jobs:
+    remove-old-artifacts:
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+
+        permissions:
+            actions: write
+
+        steps:
+            - name: Remove old artifacts
+              uses: c-hive/gha-remove-artifacts@v1
+              with:
+                  age: '5 days'
+
+    cleanup-docker-images:
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+
+        steps:
+            - name: Remove all Docker images on VM
+              uses: appleboy/ssh-action@master
+              with:
+                  host: ${{ secrets.VM_HOST }}
+                  username: github-actions-demo
+                  key: ${{ secrets.PRIVATE_KEY }}
+                  script: docker rmi -f $(docker images -aq) 2>/dev/null || true

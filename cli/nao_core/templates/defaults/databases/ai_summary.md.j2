@@ -1,0 +1,37 @@
+{#
+  Template: ai_summary.md.j2
+  Description: Generates an AI-written table summary using the prompt(...) helper.
+
+  Requirements:
+    - nao_config.yaml must contain an `llm` section with provider + credentials.
+    - `db.accessors` must include `ai_summary` for this template to render.
+#}
+{% set columns = db.columns() %}
+{% set table_description = db.description() %}
+{% set preview_rows = db.preview(limit=5) %}
+{% set instruction -%}
+You are generating short data documentation for analysts.
+Write a concise markdown summary for table {{ dataset }}.{{ table_name }}.
+
+Include:
+1. What this table appears to represent.
+2. Data quality or ambiguity risks based on the schema/preview.
+3. Suggested analytical use cases.
+
+Table description:
+{{ table_description if table_description else "No description provided." }}
+
+Columns:
+{% for col in columns %}
+- {{ col.name }} ({{ col.type }}){% if col.description %}: {{ col.description }}{% endif %}
+{% endfor %}
+
+Sample rows (JSON):
+{{ preview_rows | to_json(indent=2) }}
+{%- endset %}
+{% set summary = prompt(instruction) %}
+# {{ table_name }} - AI Summary
+
+**Dataset:** `{{ dataset }}`
+
+{{ summary }}

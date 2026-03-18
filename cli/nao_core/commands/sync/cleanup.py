@@ -1,5 +1,6 @@
 """Cleanup utilities for removing stale sync files."""
 
+import re
 import shutil
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -54,6 +55,32 @@ class DatabaseSyncState:
         """
         self.synced_schemas.add(schema)
         self.schemas_synced += 1
+
+
+def _sanitize_folder_part(value: str) -> str:
+    """Sanitize arbitrary text for stable folder naming."""
+    sanitized = re.sub(r"[^A-Za-z0-9._-]+", "_", value.strip())
+    return sanitized.strip("_") or "connection"
+
+
+def get_database_folder_names(active_databases: List) -> list[str]:
+    """Return deterministic database folder names for configured databases.
+
+    Default folder is `database=<db_name>`.
+    For ClickHouse, use config name (`database=<config_name>`) because many
+    connections use the same logical database name (often `default`).
+    """
+    folders: list[str] = []
+
+    for db in active_databases:
+        if db.type == "clickhouse":
+            config_name = _sanitize_folder_part(str(getattr(db, "name", "connection")))
+            folders.append(f"database={config_name}")
+            continue
+
+        folders.append(f"database={db.get_database_name()}")
+
+    return folders
 
 
 def cleanup_stale_paths(state: DatabaseSyncState, verbose: bool = False) -> int:
@@ -111,12 +138,9 @@ def cleanup_stale_databases(active_databases: List, base_path: Path, verbose: bo
     """Remove databases that are not present in the config file."""
 
     valid_db_folders_by_type: Dict[str, set] = defaultdict(set)
-
-    for db in active_databases:
+    db_folders = get_database_folder_names(active_databases)
+    for db, db_folder in zip(active_databases, db_folders, strict=False):
         type_folder = f"type={db.type}"
-        db_identifier = db.get_database_name()
-        db_folder = f"database={db_identifier}"
-
         valid_db_folders_by_type[type_folder].add(db_folder)
 
     for type_dir in base_path.iterdir():

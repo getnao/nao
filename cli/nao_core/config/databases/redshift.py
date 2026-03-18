@@ -17,46 +17,36 @@ class RedshiftDatabaseContext(DatabaseContext):
     """Redshift-specific context that bypasses Ibis's problematic pg_enum queries."""
 
     def columns(self) -> list[dict[str, Any]]:
-        """Return column metadata by querying information_schema directly."""
-        col_descs = self._fetch_column_descriptions()
-
-        query = f"""
-            SELECT 
-                column_name,
-                data_type,
-                is_nullable,
-                character_maximum_length,
-                numeric_precision,
-                numeric_scale
-            FROM information_schema.columns
-            WHERE table_schema = '{self._schema}'
-              AND table_name = '{self._table_name}'
-            ORDER BY ordinal_position
-        """
-        result = self._conn.raw_sql(query).fetchall()  # type: ignore[union-attr]
-
-        columns = []
-        for row in result:
-            col_name = row[0]
-            data_type = row[1]
-            is_nullable = row[2] == "YES"
-            char_length = row[3]
-            num_precision = row[4]
-            num_scale = row[5]
-
-            # Map SQL types to Ibis-like type strings
-            formatted_type = self._format_redshift_type(data_type, is_nullable, char_length, num_precision, num_scale)
-
-            columns.append(
+        if self._columns_cache is None:
+            col_descs = self._fetch_column_descriptions()
+            query = f"""
+                SELECT
+                    column_name, data_type, is_nullable,
+                    character_maximum_length, numeric_precision, numeric_scale
+                FROM information_schema.columns
+                WHERE table_schema = '{self._schema}'
+                AND table_name = '{self._table_name}'
+                ORDER BY ordinal_position
+            """
+            result = self._fetchall(self._conn.raw_sql(query))  # type: ignore[union-attr]
+            self._columns_cache = [
                 {
-                    "name": col_name,
-                    "type": formatted_type,
-                    "nullable": is_nullable,
-                    "description": col_descs.get(col_name),
+                    "name": row[0],
+                    "type": self._format_redshift_type(row[1], row[2] == "YES", row[3], row[4], row[5]),
+                    "nullable": row[2] == "YES",
+                    "description": col_descs.get(row[0]),
                 }
-            )
+                for row in result
+            ]
+        return self._columns_cache
 
-        return columns
+    def row_count(self) -> int:
+        if self._row_count_cache is None:
+            schema_sql = self._quote(self._schema)
+            table_sql = self._quote(self._table_name)
+            result = self._fetchone(self._conn.raw_sql(f"SELECT COUNT(*) FROM {schema_sql}.{table_sql}"))  # type: ignore[union-attr]
+            self._row_count_cache = int(result[0]) if result else 0
+        return self._row_count_cache
 
     @staticmethod
     def _format_redshift_type(
@@ -92,7 +82,10 @@ class RedshiftDatabaseContext(DatabaseContext):
     def preview(self, limit: int = 10) -> list[dict[str, Any]]:
         """Return the first N rows as a list of dictionaries."""
         # Use raw SQL to avoid Ibis's pg_enum queries
-        query = f'SELECT * FROM "{self._schema}"."{self._table_name}" LIMIT {limit}'
+        schema_sql = self._quote(self._schema)
+        table_sql = self._quote(self._table_name)
+        limit = int(limit)
+        query = f"SELECT * FROM {schema_sql}.{table_sql} LIMIT {limit}"
         result = self._conn.raw_sql(query).fetchall()  # type: ignore[union-attr]
 
         # Get column names from the columns metadata
@@ -110,17 +103,6 @@ class RedshiftDatabaseContext(DatabaseContext):
                     row_dict[col_name] = val
             rows.append(row_dict)
         return rows
-
-    def row_count(self) -> int:
-        """Return the total number of rows in the table."""
-        # Use raw SQL to avoid Ibis's pg_enum queries
-        query = f'SELECT COUNT(*) FROM "{self._schema}"."{self._table_name}"'
-        result = self._conn.raw_sql(query).fetchone()  # type: ignore[union-attr]
-        return result[0] if result else 0
-
-    def column_count(self) -> int:
-        """Return the number of columns in the table."""
-        return len(self.columns())
 
     def _fetch_column_descriptions(self) -> dict[str, str]:
         """Fetch column descriptions from pg_catalog."""
@@ -154,6 +136,9 @@ class RedshiftDatabaseContext(DatabaseContext):
         except Exception:
             pass
         return None
+
+    def _cast_float(self, expr: str) -> str:
+        return f"{expr}::float"
 
 
 class RedshiftSSHTunnelConfig(BaseModel):

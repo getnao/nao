@@ -3,19 +3,37 @@ import { eq } from 'drizzle-orm';
 import s, { DBProject } from '../db/abstractSchema';
 import { db } from '../db/db';
 import { env } from '../env';
+import { LlmProvider, llmProviderSchema, ModelSelection } from '../types/llm';
+
+function toModelSelection(
+	provider: string | null | undefined,
+	modelId: string | null | undefined,
+): ModelSelection | undefined {
+	if (!provider || !modelId) {
+		return undefined;
+	}
+	const parsed = llmProviderSchema.safeParse(provider);
+	return parsed.success ? { provider: parsed.data, modelId } : undefined;
+}
 
 export const getProjectSlackConfig = async (
 	projectId: string,
-): Promise<{ botToken: string; signingSecret: string } | null> => {
+): Promise<{
+	botToken: string;
+	signingSecret: string;
+	modelSelection?: ModelSelection;
+} | null> => {
 	const [project] = await db.select().from(s.project).where(eq(s.project.id, projectId)).execute();
+	const settings = project?.slackSettings;
 
-	if (!project?.slackBotToken || !project?.slackSigningSecret) {
+	if (!settings?.slackBotToken || !settings?.slackSigningSecret) {
 		return null;
 	}
 
 	return {
-		botToken: project.slackBotToken,
-		signingSecret: project.slackSigningSecret,
+		botToken: settings.slackBotToken,
+		signingSecret: settings.slackSigningSecret,
+		modelSelection: toModelSelection(settings.slackllmProvider, settings.slackllmModelId),
 	};
 };
 
@@ -23,32 +41,61 @@ export const upsertProjectSlackConfig = async (data: {
 	projectId: string;
 	botToken: string;
 	signingSecret: string;
-}): Promise<{ botToken: string; signingSecret: string }> => {
+	modelProvider?: LlmProvider;
+	modelId?: string;
+}): Promise<{
+	botToken: string;
+	signingSecret: string;
+	modelSelection?: ModelSelection;
+}> => {
 	const [updated] = await db
 		.update(s.project)
 		.set({
-			slackBotToken: data.botToken,
-			slackSigningSecret: data.signingSecret,
+			slackSettings: {
+				slackBotToken: data.botToken,
+				slackSigningSecret: data.signingSecret,
+				slackllmProvider: data.modelProvider ?? '',
+				slackllmModelId: data.modelId ?? '',
+			},
 		})
 		.where(eq(s.project.id, data.projectId))
 		.returning()
 		.execute();
 
+	const settings = updated.slackSettings;
 	return {
-		botToken: updated.slackBotToken!,
-		signingSecret: updated.slackSigningSecret!,
+		botToken: settings?.slackBotToken || '',
+		signingSecret: settings?.slackSigningSecret || '',
+		modelSelection: toModelSelection(settings?.slackllmProvider, settings?.slackllmModelId),
 	};
 };
 
+export const updateProjectSlackModel = async (
+	projectId: string,
+	modelProvider: LlmProvider | null,
+	modelId: string | null,
+): Promise<void> => {
+	await db.transaction(async (tx) => {
+		const [project] = await tx.select().from(s.project).where(eq(s.project.id, projectId)).execute();
+		const existing = project?.slackSettings;
+
+		await tx
+			.update(s.project)
+			.set({
+				slackSettings: {
+					slackBotToken: existing?.slackBotToken ?? '',
+					slackSigningSecret: existing?.slackSigningSecret ?? '',
+					slackllmProvider: modelProvider ?? '',
+					slackllmModelId: modelId ?? '',
+				},
+			})
+			.where(eq(s.project.id, projectId))
+			.execute();
+	});
+};
+
 export const deleteProjectSlackConfig = async (projectId: string): Promise<void> => {
-	await db
-		.update(s.project)
-		.set({
-			slackBotToken: null,
-			slackSigningSecret: null,
-		})
-		.where(eq(s.project.id, projectId))
-		.execute();
+	await db.update(s.project).set({ slackSettings: null }).where(eq(s.project.id, projectId)).execute();
 };
 
 export interface SlackConfig {
@@ -56,6 +103,7 @@ export interface SlackConfig {
 	botToken: string;
 	signingSecret: string;
 	redirectUrl: string;
+	modelSelection?: ModelSelection;
 }
 
 /**
@@ -74,8 +122,9 @@ export async function getSlackConfig(): Promise<SlackConfig | null> {
 		return null;
 	}
 
-	const botToken = project.slackBotToken || env.SLACK_BOT_TOKEN;
-	const signingSecret = project.slackSigningSecret || env.SLACK_SIGNING_SECRET;
+	const settings = project.slackSettings;
+	const botToken = settings?.slackBotToken;
+	const signingSecret = settings?.slackSigningSecret;
 	const redirectUrl = env.BETTER_AUTH_URL || 'http://localhost:3000/';
 
 	if (!botToken || !signingSecret) {
@@ -87,6 +136,7 @@ export async function getSlackConfig(): Promise<SlackConfig | null> {
 		botToken,
 		signingSecret,
 		redirectUrl,
+		modelSelection: toModelSelection(settings?.slackllmProvider, settings?.slackllmModelId),
 	};
 }
 

@@ -1,6 +1,8 @@
 import { memo, useCallback, useMemo, useRef } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Editor } from '@monaco-editor/react';
 import {
+	ArchiveRestoreIcon,
 	ChevronDown,
 	ChevronLeft,
 	ChevronRight,
@@ -41,6 +43,7 @@ import {
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { splitCodeIntoSegments } from '@/lib/story-segments';
+import { trpc } from '@/main';
 
 interface StoryViewerProps {
 	chatId: string;
@@ -104,6 +107,8 @@ export function StoryViewer({ chatId, storyId }: StoryViewerProps) {
 		viewMode,
 	});
 
+	const isArchived = Boolean(currentVersion?.archivedAt);
+
 	if (!storyCode) {
 		return (
 			<div className='flex h-full items-center justify-center text-muted-foreground text-sm'>
@@ -135,6 +140,8 @@ export function StoryViewer({ chatId, storyId }: StoryViewerProps) {
 				onClose={closeSidePanel}
 			/>
 
+			{isArchived && <ArchivedBanner chatId={chatId} storyId={resolvedStoryId} />}
+
 			<div ref={scrollContainerRef} className='flex-1 min-h-0 overflow-auto'>
 				{viewMode === 'preview' ? (
 					<StoryPreview code={storyCode} />
@@ -151,6 +158,36 @@ export function StoryViewer({ chatId, storyId }: StoryViewerProps) {
 				chatId={chatId}
 				storyId={resolvedStoryId}
 			/>
+		</div>
+	);
+}
+
+function ArchivedBanner({ chatId, storyId }: { chatId: string; storyId: string }) {
+	const queryClient = useQueryClient();
+
+	const unarchiveMutation = useMutation(
+		trpc.story.unarchive.mutationOptions({
+			onSuccess: () => {
+				queryClient.invalidateQueries({ queryKey: trpc.story.listVersions.queryKey({ chatId, storyId }) });
+				queryClient.invalidateQueries({ queryKey: trpc.story.listAll.queryKey() });
+				queryClient.invalidateQueries({ queryKey: trpc.story.listArchived.queryKey() });
+			},
+		}),
+	);
+
+	return (
+		<div className='flex items-center justify-between gap-3 border-b bg-muted/50 px-4 py-2'>
+			<span className='text-xs text-muted-foreground'>This story has been archived.</span>
+			<Button
+				variant='outline'
+				size='sm'
+				className='gap-1.5 shrink-0'
+				onClick={() => unarchiveMutation.mutate({ chatId, storyId })}
+				disabled={unarchiveMutation.isPending}
+			>
+				<ArchiveRestoreIcon className='size-3' />
+				<span>Unarchive</span>
+			</Button>
 		</div>
 	);
 }

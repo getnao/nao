@@ -80,7 +80,7 @@ export const StoryToolCall = ({ toolPart }: ToolCallComponentProps<'story'>) => 
 			type='button'
 			onClick={handleOpen}
 			disabled={!canOpen}
-			className='group my-2 -mx-3 flex md:w-2/3 items-center gap-3 rounded-xl border bg-card py-4 pl-4 pr-3 text-left transition-colors hover:bg-accent/50 disabled:opacity-50 disabled:cursor-default cursor-pointer overflow-hidden'
+			className='group my-2 -mx-3 flex items-center gap-3 rounded-xl border bg-card py-4 pl-4 pr-3 text-left transition-colors hover:bg-accent/50 disabled:opacity-50 disabled:cursor-default cursor-pointer overflow-hidden'
 		>
 			<div className='relative -mt-4 -mb-12 mr-1 flex h-16 w-14 shrink-0 items-center justify-center rounded-lg border border-border bg-gradient-to-b from-muted/40 to-white/80 rotate-[-4deg] transition-transform duration-200 ease-out group-hover:-translate-y-0.5 group-hover:rotate-[-2.5deg]'>
 				<StoryIcon className='size-5 text-muted-foreground' strokeWidth={1} />

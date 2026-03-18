@@ -87,6 +87,16 @@ fi
 echo ""
 echo "=== Starting Services ==="
 
+# Grant the nao user access to /dev/kvm if it exists (needed for Boxlite sandboxing)
+if [ -e /dev/kvm ]; then
+    KVM_GID=$(stat -c '%g' /dev/kvm)
+    if ! getent group kvm > /dev/null 2>&1; then
+        groupadd -g "$KVM_GID" kvm
+    fi
+    usermod -aG kvm nao
+    echo "✓ Added nao user to kvm group (GID $KVM_GID)"
+fi
+
 # Generate BETTER_AUTH_SECRET if not provided
 if [ -z "$BETTER_AUTH_SECRET" ]; then
     export BETTER_AUTH_SECRET=$(openssl rand -hex 32)

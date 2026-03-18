@@ -1,4 +1,4 @@
-"""Test that template rendering errors are logged to CLI."""
+"""Test that template rendering errors are logged to CLI and connections are cleaned up."""
 
 from unittest.mock import MagicMock, patch
 
@@ -162,3 +162,42 @@ class TestSyncDatabaseErrorLogging:
         assert "ANALYTICS.CUSTOMERS" in error_msg
         # Should have the actual error message
         assert "Test error message" in error_msg
+
+
+class TestSyncDatabaseConnectionCleanup:
+    """Test that database connections are always closed after sync."""
+
+    def test_connection_closed_after_successful_sync(self, tmp_path, mock_progress):
+        db_config = create_mock_db_config()
+        mock_conn = db_config.connect.return_value
+        engine = create_mock_engine(
+            templates=["databases/columns.md.j2"],
+            render_behavior=lambda *a, **kw: "# test",
+        )
+
+        run_sync_with_mocks(db_config, engine, tmp_path, mock_progress)
+
+        mock_conn.disconnect.assert_called_once()
+
+    def test_connection_closed_after_template_error(self, tmp_path, mock_progress):
+        db_config = create_mock_db_config()
+        mock_conn = db_config.connect.return_value
+        engine = create_mock_engine(
+            templates=["databases/columns.md.j2"],
+            render_behavior=RuntimeError("Render failed"),
+        )
+
+        run_sync_with_mocks(db_config, engine, tmp_path, mock_progress)
+
+        mock_conn.disconnect.assert_called_once()
+
+    def test_connection_closed_after_schema_listing_error(self, tmp_path, mock_progress):
+        db_config = create_mock_db_config()
+        mock_conn = db_config.connect.return_value
+        db_config.get_schemas.side_effect = RuntimeError("Cannot list schemas")
+        engine = create_mock_engine(templates=[], render_behavior=None)
+
+        with pytest.raises(RuntimeError, match="Cannot list schemas"):
+            run_sync_with_mocks(db_config, engine, tmp_path, mock_progress)
+
+        mock_conn.disconnect.assert_called_once()

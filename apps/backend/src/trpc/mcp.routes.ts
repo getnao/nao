@@ -1,7 +1,7 @@
 import { z } from 'zod/v4';
 
 import * as mcpConfigQueries from '../queries/project.queries';
-import { mcpService } from '../services/mcp.service';
+import { mcpService } from '../services/mcp';
 import { adminProtectedProcedure, projectProtectedProcedure, router } from './trpc';
 
 const applyEnabledToolsUpdate = async (projectId: string, updater: (current: string[]) => string[]) => {

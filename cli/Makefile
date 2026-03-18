@@ -1,4 +1,4 @@
-.PHONY: lint lint-fix format
+.PHONY: lint lint-fix format docs docs-push
 
 lint:
 	uv run ty check
@@ -9,4 +9,10 @@ lint:
 lint-fix:
 	uv run ruff check --select I . --fix
 	uv run ruff format
+
+docs:
+	uv run python ../scripts/generate-config-docs.py ../docs
+
+docs-push:
+	uv run python ../scripts/generate-config-docs.py --push
 

@@ -20,7 +20,10 @@ COPY apps/frontend/package.json ./apps/frontend/
 COPY apps/backend/package.json ./apps/backend/
 COPY apps/shared/package.json ./apps/shared/
 
-RUN npm ci
+# Use bun install instead of npm ci for the frontend builder.
+# npm ci doesn't install platform-specific optional deps (rollup, lightningcss, etc.)
+# when the lockfile was generated on a different platform (npm bug #4828).
+RUN bun install
 
 COPY apps/frontend ./apps/frontend
 COPY apps/backend ./apps/backend
@@ -45,8 +48,10 @@ COPY apps/frontend/package.json ./apps/frontend/
 COPY apps/shared/package.json ./apps/shared/
 
 # Install production dependencies only
+# Uses bun instead of npm ci — npm ci doesn't install platform-specific optional
+# deps when the lockfile was generated on a different platform (npm bug #4828).
 # --ignore-scripts skips prepare (husky) but we need to manually run @vscode/ripgrep postinstall
-RUN npm ci --omit=dev --ignore-scripts && cd node_modules/@vscode/ripgrep && npm run postinstall
+RUN bun install --ignore-scripts && cd node_modules/@vscode/ripgrep && npm run postinstall
 
 # Copy backend source
 COPY apps/backend ./apps/backend
@@ -58,7 +63,11 @@ COPY apps/shared ./apps/shared
 FROM python:3.12-slim AS python-builder
 WORKDIR /app
 
-# Install uv for fast dependency management
+# Install uv and unixodbc-dev (required to build pyodbc for FabricConfig)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    unixodbc-dev \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN pip install uv
 
 # Copy cli package (contains nao_core)
@@ -81,9 +90,12 @@ ARG APP_BUILD_DATE=
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
+    fontconfig \
+    fonts-dejavu-core \
     git \
     libpq5 \
     supervisor \
+    unixodbc \
     && curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
     && apt-get install -y nodejs \
     && npm install -g bun \
@@ -140,6 +152,7 @@ ENV APP_COMMIT=$APP_COMMIT
 ENV APP_BUILD_DATE=$APP_BUILD_DATE
 ENV NAO_DEFAULT_PROJECT_PATH=/app/example
 ENV NAO_CONTEXT_SOURCE=local
+ENV DOCKER=1
 
 EXPOSE 5005
 

@@ -1,3 +1,4 @@
+import os
 from typing import Tuple
 
 from rich.console import Console
@@ -53,6 +54,17 @@ def _check_available_models(provider: str, api_key: str) -> Tuple[bool, str]:
             )
 
         models = ollama.list().models
+    elif provider == "bedrock":
+        region = os.environ.get("AWS_REGION", "us-east-1")
+        bearer_token = api_key or os.environ.get("AWS_BEARER_TOKEN_BEDROCK")
+        if bearer_token:
+            return True, f"Bearer token configured (region: {region})"
+
+        import boto3
+
+        client = boto3.client("bedrock", region_name=region)
+        response = client.list_foundation_models()
+        models = response.get("modelSummaries", [])
     else:
         return False, f"Unknown provider: {provider}"
 
@@ -66,10 +78,20 @@ def check_llm_connection(llm_config) -> tuple[bool, str]:
     Returns:
             Tuple of (success, message)
     """
+    # Check if API key is required but missing
+    if llm_config.requires_api_key and not llm_config.api_key:
+        provider = llm_config.provider.value
+        return False, f"API key is empty or not set (required for {provider})"
+
     try:
         return _check_available_models(llm_config.provider.value, llm_config.api_key)
     except Exception as e:
-        return False, str(e)
+        error_msg = str(e)
+        if "Unauthorized" in error_msg or "401" in error_msg:
+            return False, f"Authentication failed: {error_msg} (check if API key is valid)"
+        if "invalid_api_key" in error_msg.lower():
+            return False, f"Invalid API key: {error_msg}"
+        return False, error_msg
 
 
 @track_command("debug")

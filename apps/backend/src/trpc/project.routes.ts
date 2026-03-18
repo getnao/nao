@@ -1,18 +1,27 @@
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
-import { KNOWN_MODELS } from '../agents/providers';
+import { getProviderAuth, KNOWN_MODELS } from '../agents/providers';
+import { getDatabaseObjects } from '../agents/user-rules';
 import { env } from '../env';
+import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import * as savedPromptQueries from '../queries/project-saved-prompt.queries';
 import * as slackConfigQueries from '../queries/project-slack-config.queries';
+import * as teamsConfigQueries from '../queries/project-teams-config.queries';
 import { posthog, PostHogEvent } from '../services/posthog';
 import { getAvailableModels as getAvailableTranscribeModels } from '../services/transcribe.service';
 import { AgentSettings } from '../types/agent-settings';
 import { llmConfigSchema, LlmProvider, llmProviderSchema } from '../types/llm';
+import { isValidIsoDateString } from '../utils/date';
 import { getEnvApiKey, getEnvBaseUrls, getEnvProviders, getProjectAvailableModels } from '../utils/llm';
+import { buildCredentialPreviews } from '../utils/utils';
 import { adminProtectedProcedure, projectProtectedProcedure, publicProcedure } from './trpc';
+
+const isoDateString = z.string().refine(isValidIsoDateString, {
+	message: 'Must be a valid YYYY-MM-DD date',
+});
 
 export const projectRoutes = {
 	getCurrent: projectProtectedProcedure.query(({ ctx }) => {
@@ -24,6 +33,25 @@ export const projectRoutes = {
 			userRole: ctx.userRole,
 		};
 	}),
+
+	getDatabaseObjects: projectProtectedProcedure
+		.output(
+			z.array(
+				z.object({
+					type: z.string(),
+					database: z.string(),
+					schema: z.string(),
+					table: z.string(),
+					fqdn: z.string(),
+				}),
+			),
+		)
+		.query(({ ctx }) => {
+			if (!ctx.project?.path) {
+				return [];
+			}
+			return getDatabaseObjects(ctx.project.path);
+		}),
 
 	getLlmConfigs: projectProtectedProcedure
 		.output(
@@ -44,6 +72,7 @@ export const projectRoutes = {
 				id: c.id,
 				provider: c.provider as LlmProvider,
 				apiKeyPreview: c.apiKey ? c.apiKey.slice(0, 8) + '...' + c.apiKey.slice(-4) : null,
+				credentialPreviews: buildCredentialPreviews(c.credentials),
 				enabledModels: c.enabledModels ?? [],
 				baseUrl: c.baseUrl ?? null,
 				createdAt: c.createdAt,
@@ -63,6 +92,7 @@ export const projectRoutes = {
 				z.object({
 					provider: llmProviderSchema,
 					modelId: z.string(),
+					name: z.string(),
 				}),
 			),
 		)
@@ -77,7 +107,8 @@ export const projectRoutes = {
 		.input(
 			z.object({
 				provider: llmProviderSchema,
-				apiKey: z.string().min(1).optional(), // Optional - if not provided, uses env var or keeps existing
+				apiKey: z.string().min(1).optional(),
+				credentials: z.record(z.string(), z.string()).optional(),
 				enabledModels: z.array(z.string()).optional(),
 				baseUrl: z.string().url().optional().or(z.literal('')),
 			}),
@@ -87,22 +118,20 @@ export const projectRoutes = {
 			const existingConfig = await llmConfigQueries.getProjectLlmConfigByProvider(ctx.project.id, input.provider);
 			const envApiKey = getEnvApiKey(input.provider);
 
-			// Determine the API key to use:
-			// 1. If apiKey provided in input, use it
-			// 2. If editing existing config and no new key, keep existing (pass null to skip update)
-			// 3. If new config and no key, use env var
+			const hasNewCredentials =
+				input.credentials && Object.keys(input.credentials).some((k) => input.credentials![k]);
+
 			let apiKey: string | null;
 
 			if (input.apiKey) {
-				// New key provided
 				apiKey = input.apiKey;
+			} else if (hasNewCredentials && !input.apiKey) {
+				apiKey = '';
 			} else if (existingConfig) {
-				// Editing - keep existing key (null signals "don't update")
 				apiKey = null;
 			} else if (envApiKey) {
 				apiKey = envApiKey;
-			} else if (input.provider === 'ollama') {
-				// Ollama is a local provider that doesn't require an API key
+			} else if (getProviderAuth(input.provider).apiKey !== 'required') {
 				apiKey = '';
 			} else {
 				throw new Error(
@@ -114,6 +143,7 @@ export const projectRoutes = {
 				projectId: ctx.project.id,
 				provider: input.provider,
 				apiKey,
+				credentials: hasNewCredentials ? input.credentials! : undefined,
 				enabledModels: input.enabledModels ?? [],
 				baseUrl: input.baseUrl || null,
 			} as Parameters<typeof llmConfigQueries.upsertProjectLlmConfig>[0]);
@@ -122,6 +152,7 @@ export const projectRoutes = {
 				id: config.id,
 				provider: config.provider as LlmProvider,
 				apiKeyPreview: config.apiKey ? config.apiKey.slice(0, 8) + '...' + config.apiKey.slice(-4) : null,
+				credentialPreviews: buildCredentialPreviews(config.credentials),
 				enabledModels: config.enabledModels ?? [],
 				baseUrl: config.baseUrl ?? null,
 			};
@@ -137,25 +168,22 @@ export const projectRoutes = {
 
 	getSlackConfig: projectProtectedProcedure.query(async ({ ctx }) => {
 		if (!ctx.project) {
-			return { projectConfig: null, hasEnvConfig: false };
+			return { projectConfig: null, redirectUrl: '', projectId: '' };
 		}
 
 		const config = await slackConfigQueries.getProjectSlackConfig(ctx.project.id);
-
-		const hasEnvConfig = !!(env.SLACK_BOT_TOKEN && env.SLACK_SIGNING_SECRET);
 
 		const projectConfig = config
 			? {
 					botTokenPreview: config.botToken.slice(0, 4) + '...' + config.botToken.slice(-4),
 					signingSecretPreview: config.signingSecret.slice(0, 4) + '...' + config.signingSecret.slice(-4),
+					modelSelection: config.modelSelection,
 				}
 			: null;
 
-		const baseUrl = env.BETTER_AUTH_URL || '';
 		return {
 			projectConfig,
-			hasEnvConfig,
-			redirectUrl: baseUrl,
+			redirectUrl: env.BETTER_AUTH_URL || '',
 			projectId: ctx.project.id,
 		};
 	}),
@@ -165,6 +193,8 @@ export const projectRoutes = {
 			z.object({
 				botToken: z.string().min(1),
 				signingSecret: z.string().min(1),
+				modelProvider: llmProviderSchema.optional(),
+				modelId: z.string().optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
@@ -172,15 +202,119 @@ export const projectRoutes = {
 				projectId: ctx.project.id,
 				botToken: input.botToken,
 				signingSecret: input.signingSecret,
+				modelProvider: input.modelProvider,
+				modelId: input.modelId,
 			});
+
+			posthog.capture(ctx.user.id, PostHogEvent.SlackConfigured, {
+				project_id: ctx.project.id,
+				modelProvider: input.modelProvider,
+				modelId: input.modelId,
+			});
+
 			return {
 				botTokenPreview: config.botToken.slice(0, 4) + '...' + config.botToken.slice(-4),
 				signingSecretPreview: config.signingSecret.slice(0, 4) + '...' + config.signingSecret.slice(-4),
+				modelSelection: config.modelSelection,
 			};
+		}),
+
+	updateSlackModelConfig: adminProtectedProcedure
+		.input(
+			z.object({
+				modelProvider: llmProviderSchema.optional(),
+				modelId: z.string().optional(),
+			}),
+		)
+		.mutation(async ({ ctx, input }) => {
+			await slackConfigQueries.updateProjectSlackModel(
+				ctx.project.id,
+				input.modelProvider ?? null,
+				input.modelId ?? null,
+			);
 		}),
 
 	deleteSlackConfig: adminProtectedProcedure.mutation(async ({ ctx }) => {
 		await slackConfigQueries.deleteProjectSlackConfig(ctx.project.id);
+		return { success: true };
+	}),
+
+	getTeamsConfig: projectProtectedProcedure.query(async ({ ctx }) => {
+		if (!ctx.project) {
+			return { projectConfig: null, projectId: '' };
+		}
+
+		const config = await teamsConfigQueries.getProjectTeamsConfig(ctx.project.id);
+
+		const projectConfig = config
+			? {
+					appIdPreview: config.appId.slice(0, 4) + '...' + config.appId.slice(-4),
+					appPasswordPreview: config.appPassword.slice(0, 4) + '...' + config.appPassword.slice(-4),
+					tenantIdPreview: config.tenantId.slice(0, 4) + '...' + config.tenantId.slice(-4),
+					modelSelection: config.modelSelection,
+				}
+			: null;
+
+		const baseUrl = env.BETTER_AUTH_URL || 'http://localhost:3000';
+		return {
+			projectConfig,
+			projectId: ctx.project.id,
+			redirectUrl: baseUrl,
+			messagingEndpointUrl: `${baseUrl}/api/webhooks/teams/${ctx.project.id}`,
+		};
+	}),
+
+	upsertTeamsConfig: adminProtectedProcedure
+		.input(
+			z.object({
+				appId: z.string().min(1),
+				appPassword: z.string().min(1),
+				tenantId: z.string().min(1),
+				modelProvider: llmProviderSchema.optional(),
+				modelId: z.string().optional(),
+			}),
+		)
+		.mutation(async ({ ctx, input }) => {
+			const config = await teamsConfigQueries.upsertProjectTeamsConfig({
+				projectId: ctx.project.id,
+				appId: input.appId,
+				appPassword: input.appPassword,
+				tenantId: input.tenantId,
+				modelProvider: input.modelProvider,
+				modelId: input.modelId,
+			});
+
+			posthog.capture(ctx.user.id, PostHogEvent.TeamsConfigured, {
+				project_id: ctx.project.id,
+				modelProvider: input.modelProvider,
+				modelId: input.modelId,
+			});
+
+			return {
+				appIdPreview: config.appId.slice(0, 4) + '...' + config.appId.slice(-4),
+				appPasswordPreview: config.appPassword.slice(0, 4) + '...' + config.appPassword.slice(-4),
+				tenantIdPreview: config.tenantId.slice(0, 4) + '...' + config.tenantId.slice(-4),
+				modelSelection: config.modelSelection,
+			};
+		}),
+
+	updateTeamsModelConfig: adminProtectedProcedure
+		.input(
+			z.object({
+				modelProvider: llmProviderSchema.optional(),
+				modelId: z.string().optional(),
+			}),
+		)
+		.mutation(async ({ ctx, input }) => {
+			await teamsConfigQueries.updateProjectTeamsModel(
+				ctx.project.id,
+				input.modelProvider ?? null,
+				input.modelId ?? null,
+			);
+		}),
+
+	deleteTeamsConfig: adminProtectedProcedure.mutation(async ({ ctx }) => {
+		await teamsConfigQueries.deleteProjectTeamsConfig(ctx.project.id);
 		return { success: true };
 	}),
 
@@ -274,13 +408,14 @@ export const projectRoutes = {
 			return null;
 		}
 
-		const { isPythonAvailable } = await import('../agents/tools');
+		const { isPythonAvailable, isSandboxAvailable } = await import('../agents/tools');
 		const settings = await projectQueries.getAgentSettings(ctx.project.id);
 
 		return {
 			...settings,
 			capabilities: {
 				pythonSandbox: isPythonAvailable,
+				sandbox: isSandboxAvailable,
 			},
 		};
 	}),
@@ -291,6 +426,7 @@ export const projectRoutes = {
 				experimental: z
 					.object({
 						pythonSandboxing: z.boolean().optional(),
+						sandboxes: z.boolean().optional(),
 					})
 					.optional(),
 				transcribe: z
@@ -302,6 +438,12 @@ export const projectRoutes = {
 					.optional(),
 				sql: z.object({ dangerouslyWritePermEnabled: z.boolean().optional() }).optional(),
 				memoryEnabled: z.boolean().optional(),
+				webSearch: z
+					.object({
+						enabled: z.boolean().optional(),
+						mode: z.enum(['provider']).optional(),
+					})
+					.optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
@@ -311,6 +453,7 @@ export const projectRoutes = {
 				experimental: { ...existing.experimental, ...input.experimental },
 				transcribe: { ...existing.transcribe, ...input.transcribe },
 				sql: { ...existing.sql, ...input.sql },
+				webSearch: { ...existing.webSearch, ...input.webSearch },
 			};
 			posthog.capture(ctx.user.id, PostHogEvent.ProjectAgentSettingsUpdated, {
 				project_id: ctx.project.id,
@@ -320,6 +463,8 @@ export const projectRoutes = {
 				sql_dangerously_write_perm_enabled: merged.sql?.dangerouslyWritePermEnabled,
 				python_sandboxing_enabled: merged.experimental?.pythonSandboxing,
 				memory_enabled: merged.memoryEnabled,
+				web_search_enabled: merged.webSearch?.enabled,
+				web_search_mode: merged.webSearch?.mode,
 			});
 			return projectQueries.updateAgentSettings(ctx.project.id, merged);
 		}),
@@ -327,5 +472,53 @@ export const projectRoutes = {
 	getMemorySettings: projectProtectedProcedure.query(async ({ ctx }) => {
 		const memoryEnabled = await projectQueries.getProjectMemoryEnabled(ctx.project.id);
 		return { memoryEnabled };
+	}),
+
+	getProjectChats: adminProtectedProcedure
+		.input(
+			z.object({
+				page: z.number().int().min(0).default(0),
+				pageSize: z.number().int().min(1).max(100).default(30),
+				search: z.string().trim().optional(),
+				filters: z
+					.array(
+						z.object({
+							id: z.enum(['userName', 'userRole', 'toolState']),
+							values: z.array(z.string()).default([]),
+						}),
+					)
+					.optional(),
+				updatedAtFilter: z
+					.union([
+						z.object({ mode: z.literal('single'), value: isoDateString }),
+						z.object({ mode: z.literal('range'), start: isoDateString, end: isoDateString }),
+					])
+					.optional(),
+				sorting: z
+					.array(
+						z.object({
+							id: z.string(),
+							desc: z.boolean().optional(),
+						}),
+					)
+					.optional(),
+			}),
+		)
+		.query(async ({ ctx, input }) => {
+			return projectQueries.listProjectChats(ctx.project.id, input);
+		}),
+
+	getChatReplay: adminProtectedProcedure.input(z.object({ chatId: z.string() })).query(async ({ ctx, input }) => {
+		const projectId = await chatQueries.getChatProjectId(input.chatId);
+		if (!projectId || projectId !== ctx.project.id) {
+			throw new TRPCError({ code: 'NOT_FOUND', message: `Chat with id ${input.chatId} not found.` });
+		}
+
+		const [chat] = await chatQueries.loadChat(input.chatId, { includeFeedback: true });
+		if (!chat) {
+			throw new TRPCError({ code: 'NOT_FOUND', message: `Chat with id ${input.chatId} not found.` });
+		}
+
+		return chat;
 	}),
 };
