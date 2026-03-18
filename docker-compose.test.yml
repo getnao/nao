@@ -1,4 +1,20 @@
 services:
+    mysql:
+        image: mysql:8
+        environment:
+            MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-nao}
+            MYSQL_DATABASE: ${MYSQL_DB:-nao}
+            MYSQL_USER: ${MYSQL_USER:-nao}
+            MYSQL_PASSWORD: ${MYSQL_PASSWORD:-nao}
+        ports:
+            - '3306:3306'
+        volumes:
+            - nao_mysql_data:/var/lib/mysql
+        healthcheck:
+            test: ['CMD', 'mysqladmin', 'ping', '-h', 'localhost']
+            interval: 5s
+            timeout: 5s
+            retries: 10
     postgres:
         image: postgres:16-alpine
         container_name: nao_chat_postgres
@@ -15,6 +31,7 @@ services:
             interval: 5s
             timeout: 5s
             retries: 5
-
+ 
 volumes:
+    nao_mysql_data:
     nao_postgres_data:
