@@ -18,7 +18,6 @@ from nao_core.tracking import track_command
 
 console = Console()
 
-# Default port for the nao chat server
 DEFAULT_SERVER_PORT = 5005
 FASTAPI_PORT = 8005
 SECRET_FILE_NAME = ".nao-secret"
@@ -123,8 +122,46 @@ def ensure_auth_secret(bin_dir: Path) -> str | None:
         return new_secret
 
 
+def start_ngrok_tunnel(port: int) -> str:
+    """Start an ngrok tunnel and return the public HTTPS URL."""
+    try:
+        from pyngrok import ngrok
+    except ImportError:
+        console.print("[bold red]✗[/bold red] pyngrok is required for --ngrok support")
+        console.print("[dim]Install it with: pip install pyngrok[/dim]")
+        sys.exit(1)
+
+    tunnel = ngrok.connect(str(port), "http")
+    public_url: str | None = tunnel.public_url
+
+    if not public_url:
+        console.print("[bold red]✗[/bold red] ngrok tunnel failed to return a public URL")
+        sys.exit(1)
+
+    assert public_url is not None
+    if public_url.startswith("http://"):
+        public_url = public_url.replace("http://", "https://", 1)
+
+    console.print(f"[bold green]✓[/bold green] ngrok tunnel established: {public_url}")
+    return public_url
+
+
+def stop_ngrok():
+    """Shut down all ngrok tunnels."""
+    try:
+        from pyngrok import ngrok
+
+        ngrok.kill()
+    except Exception:
+        pass
+
+
 @track_command("chat")
-def chat(port: Annotated[Optional[int], Parameter(name=["-p", "--port"])] = None):
+def chat(
+    port: Annotated[Optional[int], Parameter(name=["-p", "--port"])] = None,
+    *,
+    ngrok: Annotated[bool, Parameter(name=["--ngrok"])] = False,
+):
     """Start the nao chat UI.
 
     Launches the nao chat server and opens the web interface in your browser.
@@ -134,12 +171,14 @@ def chat(port: Annotated[Optional[int], Parameter(name=["-p", "--port"])] = None
     port : int
         Sets chat web app port. Defaults to `SERVER_PORT` env var and 5005 if not set.
         Must be different from FASTAPI_PORT (8005).
+    ngrok : bool
+        Start an ngrok tunnel to expose the chat server publicly. Useful for
+        Slack integration workflows. Requires an ngrok account and authtoken.
     """
     console.print("\n[bold cyan]💬 Starting nao chat...[/bold cyan]\n")
 
-    # Try to load nao config from current directory
     config = NaoConfig.try_load(exit_on_error=True)
-    assert config is not None  # Help type checker after exit_on_error=True
+    assert config is not None
     console.print(f"[bold green]✓[/bold green] Loaded config from {Path.cwd() / 'nao_config.yaml'}")
 
     binary_path = get_server_binary_path()
@@ -148,12 +187,15 @@ def chat(port: Annotated[Optional[int], Parameter(name=["-p", "--port"])] = None
     console.print(f"[dim]Server binary: {binary_path}[/dim]")
     console.print(f"[dim]Working directory: {bin_dir}[/dim]")
 
-    # Start the server processes
     chat_process = None
     fastapi_process = None
+    ngrok_url = None
 
     def shutdown_servers():
-        """Gracefully shut down both server processes."""
+        """Gracefully shut down server processes and ngrok tunnel."""
+        if ngrok_url:
+            stop_ngrok()
+            console.print("[bold green]✓[/bold green] ngrok tunnel closed")
         for name, proc in (("Chat server", chat_process), ("FastAPI server", fastapi_process)):
             if proc:
                 proc.terminate()
@@ -164,19 +206,13 @@ def chat(port: Annotated[Optional[int], Parameter(name=["-p", "--port"])] = None
                     proc.wait()
 
     try:
-        # Set up environment - inherit from parent but ensure we're in the bin dir
-        # so the server can find the public folder
         env = os.environ.copy()
-
-        # Get chat app port
         port = validate_port(port)
 
-        # Ensure auth secret is available
         auth_secret = ensure_auth_secret(bin_dir)
         if auth_secret:
             env["BETTER_AUTH_SECRET"] = auth_secret
 
-        # Set LLM API key from config if available
         if config and config.llm:
             auth = PROVIDER_AUTH[config.llm.provider]
             if config.llm.api_key is not None and auth.api_key != "none":
@@ -198,12 +234,16 @@ def chat(port: Annotated[Optional[int], Parameter(name=["-p", "--port"])] = None
                     console.print("[bold green]✓[/bold green] Set AWS_REGION from config")
 
         env["NAO_DEFAULT_PROJECT_PATH"] = str(Path.cwd())
-        if "BETTER_AUTH_URL" not in os.environ:
+
+        if ngrok:
+            ngrok_url = start_ngrok_tunnel(port)
+            env["BETTER_AUTH_URL"] = ngrok_url
+        elif "BETTER_AUTH_URL" not in os.environ:
             env["BETTER_AUTH_URL"] = f"http://localhost:{port}"
+
         env["MODE"] = MODE
         env["NAO_CORE_VERSION"] = __version__
 
-        # Start the FastAPI server first
         fastapi_path = get_fastapi_main_path()
         console.print(f"[dim]FastAPI server: {fastapi_path}[/dim]")
 
@@ -216,13 +256,11 @@ def chat(port: Annotated[Optional[int], Parameter(name=["-p", "--port"])] = None
 
         console.print("[bold green]✓[/bold green] FastAPI server starting...")
 
-        # Wait for FastAPI server to be ready
         if wait_for_server(FASTAPI_PORT):
             console.print(f"[bold green]✓[/bold green] FastAPI server ready at http://localhost:{FASTAPI_PORT}")
         else:
             console.print("[bold yellow]⚠[/bold yellow] FastAPI server is taking longer than expected to start...")
 
-        # Start the chat server
         chat_process = subprocess.Popen(
             [str(binary_path), "--port", str(port)],
             cwd=str(bin_dir),
@@ -234,9 +272,8 @@ def chat(port: Annotated[Optional[int], Parameter(name=["-p", "--port"])] = None
 
         console.print("[bold green]✓[/bold green] Chat server starting...")
 
-        # Wait for the chat server to be ready
         if wait_for_server(port):
-            url = f"http://localhost:{port}"
+            url = ngrok_url or f"http://localhost:{port}"
             console.print(f"[bold green]✓[/bold green] Chat server ready at {url}")
             console.print("\n[bold]Opening browser...[/bold]")
             webbrowser.open(url)
@@ -245,13 +282,10 @@ def chat(port: Annotated[Optional[int], Parameter(name=["-p", "--port"])] = None
             console.print("[bold yellow]⚠[/bold yellow] Chat server is taking longer than expected to start...")
             console.print(f"[dim]Check http://localhost:{port} manually[/dim]")
 
-        # Stream chat server output to console
         if chat_process.stdout:
             for line in chat_process.stdout:
-                # Filter out some of the verbose logging if needed
                 console.print(f"[dim]{line.rstrip()}[/dim]")
 
-        # Wait for process to complete
         chat_process.wait()
 
     except KeyboardInterrupt:
