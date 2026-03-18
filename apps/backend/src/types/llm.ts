@@ -17,6 +17,7 @@ export const llmProviderSchema = z.enum([
 	'openrouter',
 	'ollama',
 	'bedrock',
+	'vertex',
 ]);
 export type LlmProvider = z.infer<typeof llmProviderSchema>;
 
@@ -45,6 +46,7 @@ export type ProviderConfigMap = {
 	openrouter: OpenRouterProviderOptions;
 	ollama: Flatten<OllamaChatProviderOptions>;
 	bedrock: AmazonBedrockLanguageModelOptions;
+	vertex: GoogleGenerativeAIProviderOptions;
 };
 
 /** Model definition with provider-specific config type */
@@ -63,6 +65,7 @@ export type AuthField = {
 	label: string;
 	envVar: string;
 	secret?: boolean;
+	multiline?: boolean;
 	placeholder?: string;
 };
 
@@ -74,16 +77,24 @@ export type ProviderAuth = {
 	extraFields?: AuthField[];
 };
 
-/** Provider configuration with typed models */
-type ProviderConfig<P extends LlmProvider> = {
-	create: (settings: ProviderSettings, modelId: string) => LanguageModelV3;
+/** Data-only provider config (no SDK imports, safe for frontend) */
+export type ProviderMeta<P extends LlmProvider> = {
 	auth: ProviderAuth;
 	envVar: string;
 	baseUrlEnvVar?: string;
-	defaultOptions?: ProviderConfigMap[P];
 	models: readonly ProviderModel<P>[];
 	extractorModelId: string;
 	summaryModelId: string;
+};
+
+export type ProviderMetaMap = {
+	[P in LlmProvider]: ProviderMeta<P>;
+};
+
+/** Full provider configuration with SDK create function (backend-only) */
+type ProviderConfig<P extends LlmProvider> = ProviderMeta<P> & {
+	create: (settings: ProviderSettings, modelId: string) => LanguageModelV3;
+	defaultOptions?: ProviderConfigMap[P];
 };
 
 /** Full providers type - each key gets its own config type */
