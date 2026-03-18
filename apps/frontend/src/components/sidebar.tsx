@@ -269,16 +269,22 @@ function SidebarNav({ chats, isCollapsed }: { chats: ChatListItemType[]; isColla
 	const starredActivity = useSectionActivity(starredIds);
 	const chatsActivity = useSectionActivity(regularIds);
 
-	// TODO: replace with trpc.chatShare.findByUser once backend is ready
-	const mockSharedChats: ChatListItemType[] = [
-		{
-			id: 'shared-1',
-			title: 'Shared example chat',
-			isStarred: false,
-			createdAt: Date.now(),
-			updatedAt: Date.now(),
-		},
-	];
+	const sharedChatsQuery = useQuery(trpc.sharedChat.list.queryOptions());
+	const allOwnChatIds = useMemo(() => new Set([...starredIds, ...regularIds]), [starredIds, regularIds]);
+	const sharedWithMeChats = useMemo((): ChatListItemType[] => {
+		if (!sharedChatsQuery.data) {
+			return [];
+		}
+		return sharedChatsQuery.data
+			.filter((sc) => !allOwnChatIds.has(sc.chatId))
+			.map((sc) => ({
+				id: sc.chatId,
+				title: sc.title,
+				isStarred: false,
+				createdAt: sc.createdAt instanceof Date ? sc.createdAt.getTime() : Number(sc.createdAt),
+				updatedAt: sc.createdAt instanceof Date ? sc.createdAt.getTime() : Number(sc.createdAt),
+			}));
+	}, [sharedChatsQuery.data, allOwnChatIds]);
 
 	return (
 		<div
@@ -319,7 +325,6 @@ function SidebarNav({ chats, isCollapsed }: { chats: ChatListItemType[]; isColla
 				/>
 			</div>
 
-			{/* TODO: replace with trpc.chatShare.findByUser once backend is ready */}
 			{!sharedOpen ? (
 				<ChatList
 					chats={regular}
@@ -329,7 +334,7 @@ function SidebarNav({ chats, isCollapsed }: { chats: ChatListItemType[]; isColla
 					)}
 				/>
 			) : (
-				<ChatList chats={mockSharedChats} className='w-72' />
+				<ChatList chats={sharedWithMeChats} className='w-72' />
 			)}
 		</div>
 	);

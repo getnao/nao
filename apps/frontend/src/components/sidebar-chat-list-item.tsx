@@ -11,7 +11,7 @@ import {
 	DropdownMenuTrigger,
 } from './ui/dropdown-menu';
 import { InputEdit } from './ui/input-edit';
-import { ShareChatDialog } from './share-chat-dialog';
+import { ShareChatDialog } from './share-dialog.chat';
 import { Spinner } from './ui/spinner';
 import type { ComponentProps } from 'react';
 

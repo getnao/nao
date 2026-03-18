@@ -1,5 +1,6 @@
+import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, useRouter } from '@tanstack/react-router';
-import { Share } from 'lucide-react';
+import { Globe, Share } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { StoryOpenButton } from '@/components/story-open-button';
 import { StoryViewer } from '@/components/side-panel/story-viewer';
@@ -13,8 +14,9 @@ import { useAgentContext } from '@/contexts/agent.provider';
 import { useSidePanel } from '@/hooks/use-side-panel';
 import { SidePanelProvider } from '@/contexts/side-panel';
 import { EditableChatTitle } from '@/components/editable-chat-title';
+import { ShareChatDialog } from '@/components/share-dialog.chat';
 import { useChatQuery } from '@/queries/use-chat-query';
-import { ShareChatDialog } from '@/components/share-chat-dialog';
+import { trpc } from '@/main';
 
 export const Route = createFileRoute('/_sidebar-layout/_chat-layout/$chatId')({
 	component: RouteComponent,
@@ -26,6 +28,8 @@ export function RouteComponent() {
 	const { chatId } = Route.useParams();
 	const chat = useChatQuery({ chatId });
 	const title = chat.data?.title;
+	const shareQuery = useQuery(trpc.sharedChat.findByChat.queryOptions({ chatId: chatId ?? '' }));
+	const isShared = !!shareQuery.data?.shareId;
 
 	const containerRef = useRef<HTMLDivElement>(null);
 	const sidePanelRef = useRef<HTMLDivElement>(null);
@@ -80,7 +84,11 @@ export function RouteComponent() {
 								disabled={isRunning}
 								aria-label='Share Chat'
 							>
-								{!isRunning && <Share className='size-3' />}
+								{!isRunning && isShared ? (
+									<Globe className='size-3 text-emerald-600' />
+								) : (
+									<Share className='size-3' />
+								)}
 							</Button>
 						</div>
 					</div>

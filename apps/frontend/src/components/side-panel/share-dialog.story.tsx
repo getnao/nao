@@ -1,9 +1,9 @@
-import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Globe, Loader2, Users, Link as LinkIcon, Unlink } from 'lucide-react';
+import type { Visibility } from '@/components/share-dialog';
+import { hasAccessChanges, MemberPicker, VisibilityOption } from '@/components/share-dialog';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Avatar } from '@/components/ui/avatar';
 import {
 	Dialog,
 	DialogContent,
@@ -13,10 +13,8 @@ import {
 	DialogTitle,
 } from '@/components/ui/dialog';
 import { useSession } from '@/lib/auth-client';
-import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
-
-type Visibility = 'project' | 'specific';
+import { useMemberPicker, useCopyWithFeedback } from '@/hooks/use-share-dialog';
 
 interface ShareStoryDialogProps {
 	open: boolean;
@@ -67,48 +65,22 @@ function CreateShareDialog({ open, onOpenChange, chatId, storyId }: ShareStoryDi
 	const { data: session } = useSession();
 	const queryClient = useQueryClient();
 	const [visibility, setVisibility] = useState<Visibility>('project');
-	const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(new Set());
-	const [search, setSearch] = useState('');
 	const [isCopied, setIsCopied] = useState(false);
 	const timeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
 	useEffect(() => () => clearTimeout(timeoutRef.current), []);
 
-	const membersQuery = useQuery(trpc.project.getAllUsersWithRoles.queryOptions());
 	const currentUserId = session?.user?.id;
-
-	const otherMembers = useMemo(() => {
-		return (membersQuery.data ?? []).filter((m) => m.id !== currentUserId);
-	}, [membersQuery.data, currentUserId]);
-
-	const filteredMembers = useMemo(() => {
-		if (!search.trim()) {
-			return otherMembers;
-		}
-		const q = search.toLowerCase();
-		return otherMembers.filter((m) => m.name.toLowerCase().includes(q) || m.email.toLowerCase().includes(q));
-	}, [otherMembers, search]);
-
-	const toggleUser = useCallback((userId: string) => {
-		setSelectedUserIds((prev) => {
-			const next = new Set(prev);
-			if (next.has(userId)) {
-				next.delete(userId);
-			} else {
-				next.add(userId);
-			}
-			return next;
-		});
-	}, []);
+	const { selectedUserIds, search, setSearch, filteredMembers, toggleUser, membersQuery, reset } =
+		useMemberPicker(currentUserId);
 
 	useEffect(() => {
 		if (open) {
 			setVisibility('project');
-			setSelectedUserIds(new Set());
-			setSearch('');
+			reset();
 			setIsCopied(false);
 		}
-	}, [open]);
+	}, [open, reset]);
 
 	const shareMutation = useMutation(
 		trpc.storyShare.create.mutationOptions({
@@ -217,63 +189,24 @@ function ManageShareDialog({
 }) {
 	const { data: session } = useSession();
 	const queryClient = useQueryClient();
-	const [isCopied, setIsCopied] = useState(false);
-	const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(() => new Set(allowedUserIds));
-	const [search, setSearch] = useState('');
-	const timeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-
-	useEffect(() => () => clearTimeout(timeoutRef.current), []);
+	const { isCopied, copy: copyLink } = useCopyWithFeedback();
 
 	const currentUserId = session?.user?.id;
-	const membersQuery = useQuery(trpc.project.getAllUsersWithRoles.queryOptions());
-
-	const otherMembers = useMemo(() => {
-		return (membersQuery.data ?? []).filter((m) => m.id !== currentUserId);
-	}, [membersQuery.data, currentUserId]);
-
-	const filteredMembers = useMemo(() => {
-		if (!search.trim()) {
-			return otherMembers;
-		}
-		const q = search.toLowerCase();
-		return otherMembers.filter((m) => m.name.toLowerCase().includes(q) || m.email.toLowerCase().includes(q));
-	}, [otherMembers, search]);
-
-	const toggleUser = useCallback((userId: string) => {
-		setSelectedUserIds((prev) => {
-			const next = new Set(prev);
-			if (next.has(userId)) {
-				next.delete(userId);
-			} else {
-				next.add(userId);
-			}
-			return next;
-		});
-	}, []);
+	const { selectedUserIds, search, setSearch, filteredMembers, toggleUser, membersQuery, reset } = useMemberPicker(
+		currentUserId,
+		allowedUserIds,
+	);
 
 	useEffect(() => {
 		if (open) {
-			setIsCopied(false);
-			setSelectedUserIds(new Set(allowedUserIds));
-			setSearch('');
+			reset(allowedUserIds);
 		}
-	}, [open, allowedUserIds]);
+	}, [open, allowedUserIds, reset]);
 
-	const hasAccessChanges = useMemo(() => {
-		if (visibility !== 'specific') {
-			return false;
-		}
-		const original = new Set(allowedUserIds);
-		if (original.size !== selectedUserIds.size) {
-			return true;
-		}
-		for (const id of selectedUserIds) {
-			if (!original.has(id)) {
-				return true;
-			}
-		}
-		return false;
-	}, [visibility, allowedUserIds, selectedUserIds]);
+	const hasChanges = useMemo(
+		() => hasAccessChanges(visibility, allowedUserIds, selectedUserIds),
+		[visibility, allowedUserIds, selectedUserIds],
+	);
 
 	const invalidateShareQueries = useCallback(() => {
 		queryClient.invalidateQueries({ queryKey: trpc.storyShare.findByStory.queryKey({ chatId, storyId }) });
@@ -299,12 +232,8 @@ function ManageShareDialog({
 	);
 
 	const handleCopyLink = useCallback(() => {
-		const url = `${window.location.origin}/stories/shared/${shareId}`;
-		navigator.clipboard.writeText(url);
-		setIsCopied(true);
-		clearTimeout(timeoutRef.current);
-		timeoutRef.current = setTimeout(() => setIsCopied(false), 1500);
-	}, [shareId]);
+		copyLink(`${window.location.origin}/stories/shared/${shareId}`);
+	}, [copyLink, shareId]);
 
 	const handleUnshare = useCallback(() => {
 		deleteMutation.mutate({ id: shareId });
@@ -385,7 +314,7 @@ function ManageShareDialog({
 						<span>Unshare</span>
 					</Button>
 					<div className='flex items-center gap-2'>
-						{hasAccessChanges && (
+						{hasChanges && (
 							<Button
 								onClick={handleSaveAccess}
 								disabled={isBusy || selectedUserIds.size === 0}
@@ -407,127 +336,5 @@ function ManageShareDialog({
 				</DialogFooter>
 			</DialogContent>
 		</Dialog>
-	);
-}
-
-function VisibilityOption({
-	active,
-	icon,
-	label,
-	description,
-	onClick,
-}: {
-	active: boolean;
-	icon: React.ReactNode;
-	label: string;
-	description: string;
-	onClick: () => void;
-}) {
-	return (
-		<button
-			type='button'
-			onClick={onClick}
-			className={cn(
-				'flex-1 flex flex-col items-center gap-1.5 rounded-lg border-2 p-3 transition-colors cursor-pointer',
-				active
-					? 'border-primary bg-primary/5'
-					: 'border-border hover:border-muted-foreground/30 hover:bg-muted/50',
-			)}
-		>
-			<div className={cn('text-muted-foreground', active && 'text-primary')}>{icon}</div>
-			<span className={cn('text-sm font-medium', active && 'text-primary')}>{label}</span>
-			<span className='text-xs text-muted-foreground'>{description}</span>
-		</button>
-	);
-}
-
-function MemberPicker({
-	members,
-	selectedUserIds,
-	isLoading,
-	search,
-	onSearchChange,
-	onToggleUser,
-}: {
-	members: { id: string; name: string; email: string }[];
-	selectedUserIds: Set<string>;
-	isLoading: boolean;
-	search: string;
-	onSearchChange: (value: string) => void;
-	onToggleUser: (userId: string) => void;
-}) {
-	return (
-		<div className='flex flex-col gap-2'>
-			<Input
-				placeholder='Search members...'
-				value={search}
-				onChange={(e) => onSearchChange(e.target.value)}
-				className='h-8 text-sm'
-			/>
-			<div className='max-h-48 overflow-y-auto rounded-md border'>
-				{isLoading ? (
-					<div className='flex items-center justify-center py-6'>
-						<Loader2 className='size-4 animate-spin text-muted-foreground' />
-					</div>
-				) : members.length === 0 ? (
-					<div className='py-6 text-center text-sm text-muted-foreground'>
-						{search ? 'No members found' : 'No other members in this project'}
-					</div>
-				) : (
-					members.map((member) => (
-						<MemberRow
-							key={member.id}
-							name={member.name}
-							email={member.email}
-							selected={selectedUserIds.has(member.id)}
-							onClick={() => onToggleUser(member.id)}
-						/>
-					))
-				)}
-			</div>
-			{selectedUserIds.size > 0 && (
-				<p className='text-xs text-muted-foreground'>
-					{selectedUserIds.size} {selectedUserIds.size === 1 ? 'person' : 'people'} selected
-				</p>
-			)}
-		</div>
-	);
-}
-
-function MemberRow({
-	name,
-	email,
-	selected,
-	onClick,
-}: {
-	name: string;
-	email: string;
-	selected: boolean;
-	onClick: () => void;
-}) {
-	return (
-		<button
-			type='button'
-			onClick={onClick}
-			className={cn(
-				'flex w-full items-center gap-3 px-3 py-2 text-left transition-colors cursor-pointer',
-				'hover:bg-muted/50',
-				selected && 'bg-primary/5',
-			)}
-		>
-			<Avatar username={name} size='sm' />
-			<div className='min-w-0 flex-1'>
-				<div className='text-sm font-medium truncate'>{name}</div>
-				<div className='text-xs text-muted-foreground truncate'>{email}</div>
-			</div>
-			<div
-				className={cn(
-					'flex size-5 shrink-0 items-center justify-center rounded-md border transition-colors',
-					selected ? 'border-primary bg-primary text-white' : 'border-muted-foreground/30',
-				)}
-			>
-				{selected && <Check className='size-3' />}
-			</div>
-		</button>
 	);
 }
