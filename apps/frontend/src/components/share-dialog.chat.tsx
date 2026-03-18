@@ -47,20 +47,22 @@ export function ShareChatDialog({ open, onOpenChange, chatId }: ShareChatDialogP
 		return (
 			<Dialog open={open} onOpenChange={onOpenChange}>
 				<DialogContent className='sm:max-w-md'>
-				<DialogHeader>
-					<DialogTitle>Share Chat</DialogTitle>
-					<DialogDescription className="text-destructive">
-					Failed to load sharing settings. Please try again.
-					</DialogDescription>
-				</DialogHeader>
-				<DialogFooter>
-					<Button variant='outline' onClick={() => onOpenChange(false)}>Close</Button>
-					<Button onClick={() => shareQuery.refetch()}>Retry</Button>
-				</DialogFooter>
+					<DialogHeader>
+						<DialogTitle>Share Chat</DialogTitle>
+						<DialogDescription className='text-destructive'>
+							Failed to load sharing settings. Please try again.
+						</DialogDescription>
+					</DialogHeader>
+					<DialogFooter>
+						<Button variant='outline' onClick={() => onOpenChange(false)}>
+							Close
+						</Button>
+						<Button onClick={() => shareQuery.refetch()}>Retry</Button>
+					</DialogFooter>
 				</DialogContent>
 			</Dialog>
 		);
-	  }
+	}
 
 	if (!isShared) {
 		return <CreateShareDialog open={open} onOpenChange={onOpenChange} chatId={chatId} />;
@@ -216,9 +218,10 @@ function ManageShareDialog({
 		allowedUserIds,
 	);
 
-	const stableAllowedUserIds = useMemo(() => allowedUserIds,
+	const stableAllowedUserIds = useMemo(
+		() => allowedUserIds,
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-		[allowedUserIds.join(',')]
+		[allowedUserIds.join(',')],
 	);
 
 	useEffect(() => {
