@@ -1,3 +1,4 @@
+import { USER_ROLES } from '@nao/shared/types';
 import { type ProviderMetadata } from 'ai';
 import { sql } from 'drizzle-orm';
 import {
@@ -20,7 +21,6 @@ import { LOG_LEVELS, LOG_SOURCES } from '../types/log';
 import { MEMORY_CATEGORIES } from '../types/memory';
 import { SlackSettings, TeamsSettings } from '../types/messaging-provider';
 import { ORG_ROLES } from '../types/organization';
-import { USER_ROLES } from '../types/project';
 
 export const user = pgTable('user', {
 	id: text('id').primaryKey(),
@@ -331,8 +331,7 @@ export const projectLlmConfig = pgTable(
 	],
 );
 
-export const STORY_VISIBILITY = ['project', 'specific'] as const;
-export const CHAT_VISIBILITY = ['project', 'specific'] as const;
+export const SHARE_VISIBILITY = ['project', 'specific'] as const;
 
 export const sharedChat = pgTable(
 	'shared_chat',
@@ -349,10 +348,14 @@ export const sharedChat = pgTable(
 		chatId: text('chat_id')
 			.notNull()
 			.references(() => chat.id, { onDelete: 'cascade' }),
-		visibility: text('visibility', { enum: CHAT_VISIBILITY }).default('project').notNull(),
+		visibility: text('visibility', { enum: SHARE_VISIBILITY }).default('project').notNull(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 	},
-	(t) => [index('shared_chat_projectId_idx').on(t.projectId), index('shared_chat_chatId_idx').on(t.chatId)],
+	(t) => [
+		index('shared_chat_projectId_idx').on(t.projectId),
+		index('shared_chat_chatId_idx').on(t.chatId),
+		unique('shared_chat_chatId_unique').on(t.chatId),
+	],
 );
 
 export const sharedChatAccess = pgTable(
@@ -384,7 +387,7 @@ export const sharedStory = pgTable(
 			.notNull()
 			.references(() => chat.id, { onDelete: 'cascade' }),
 		storyId: text('story_id').notNull(),
-		visibility: text('visibility', { enum: STORY_VISIBILITY }).default('project').notNull(),
+		visibility: text('visibility', { enum: SHARE_VISIBILITY }).default('project').notNull(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 	},
 	(t) => [

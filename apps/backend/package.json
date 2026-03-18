@@ -11,7 +11,8 @@
 		"./tools": "./src/agents/tools/index.ts",
 		"./providers": "./src/agents/providers.ts",
 		"./log": "./src/types/log.ts",
-		"./provider-meta": "./src/agents/provider-meta.ts"
+		"./provider-meta": "./src/agents/provider-meta.ts",
+		"./shared-chat": "./src/queries/shared-chat.queries.ts"
 	},
 	"scripts": {
 		"dev": "bun --watch src/index.ts",

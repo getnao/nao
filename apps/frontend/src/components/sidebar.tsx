@@ -3,6 +3,8 @@ import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useMatchRoute, useRouterState } from '@tanstack/react-router';
 import { ArrowLeftFromLine, ArrowRightToLine, PlusIcon, ArrowLeft, ChevronRight, SearchIcon, X } from 'lucide-react';
 import { ChatList } from './sidebar-chat-list';
+import { ChatListItem } from './sidebar-chat-list-item';
+import { SharedChatListItem } from './shared-chat-list-item';
 import { SidebarUserMenu } from './sidebar-user-menu';
 import { SidebarSettingsNav } from './sidebar-settings-nav';
 import { Spinner } from './ui/spinner';
@@ -11,6 +13,7 @@ import StoryIcon from './ui/story-icon';
 import { SidebarCommunity } from './sidebar-community';
 import type { LucideIcon } from 'lucide-react';
 import type { ChatListItem as ChatListItemType } from '@nao/backend/chat';
+import type { SharedChatWithDetails } from '@nao/backend/shared-chat';
 import { Button } from '@/components/ui/button';
 import { cn, hideIf } from '@/lib/utils';
 import { useChatListQuery } from '@/queries/use-chat-list-query';
@@ -19,6 +22,10 @@ import { useCommandMenuCallback } from '@/contexts/command-menu-callback';
 import { useSectionActivity } from '@/hooks/use-chat-activity';
 import NaoLogo from '@/components/icons/nao-logo.svg';
 import { trpc } from '@/main';
+
+type MixedItem = { kind: 'own'; data: ChatListItemType } | { kind: 'shared'; data: SharedChatWithDetails };
+
+const normalizeDate = (v: Date | number | string): number => (v instanceof Date ? v.getTime() : Number(v));
 
 export function Sidebar() {
 	const chats = useChatListQuery();
@@ -271,20 +278,19 @@ function SidebarNav({ chats, isCollapsed }: { chats: ChatListItemType[]; isColla
 
 	const sharedChatsQuery = useQuery(trpc.sharedChat.list.queryOptions());
 	const allOwnChatIds = useMemo(() => new Set([...starredIds, ...regularIds]), [starredIds, regularIds]);
-	const sharedWithMeChats = useMemo((): ChatListItemType[] => {
+	const sharedWithMeChats = useMemo((): SharedChatWithDetails[] => {
 		if (!sharedChatsQuery.data) {
 			return [];
 		}
-		return sharedChatsQuery.data
-			.filter((sc) => !allOwnChatIds.has(sc.chatId))
-			.map((sc) => ({
-				id: sc.chatId,
-				title: sc.title,
-				isStarred: false,
-				createdAt: sc.createdAt instanceof Date ? sc.createdAt.getTime() : Number(sc.createdAt),
-				updatedAt: sc.createdAt instanceof Date ? sc.createdAt.getTime() : Number(sc.createdAt),
-			}));
+		return sharedChatsQuery.data.filter((sc) => !allOwnChatIds.has(sc.chatId));
 	}, [sharedChatsQuery.data, allOwnChatIds]);
+
+	const mixedList = useMemo((): MixedItem[] => {
+		const own: MixedItem[] = regular.map((chat) => ({ kind: 'own', data: chat }));
+		const shared: MixedItem[] = sharedWithMeChats.map((sc) => ({ kind: 'shared', data: sc }));
+
+		return [...own, ...shared].sort((a, b) => normalizeDate(b.data.createdAt) - normalizeDate(a.data.createdAt));
+	}, [regular, sharedWithMeChats]);
 
 	return (
 		<div
@@ -301,7 +307,6 @@ function SidebarNav({ chats, isCollapsed }: { chats: ChatListItemType[]; isColla
 							isOpen={starredOpen}
 							onToggle={toggleStarred}
 							activity={starredActivity}
-							sharedOpen={sharedOpen}
 						/>
 					</div>
 					<ChatList
@@ -315,8 +320,7 @@ function SidebarNav({ chats, isCollapsed }: { chats: ChatListItemType[]; isColla
 			)}
 
 			<div className='px-2 space-y-0.5'>
-				<SidebarSectionHeader
-					label='Chats'
+				<ChatsSectionHeader
 					isOpen={chatsOpen}
 					onToggle={toggleChats}
 					activity={chatsActivity}
@@ -326,15 +330,36 @@ function SidebarNav({ chats, isCollapsed }: { chats: ChatListItemType[]; isColla
 			</div>
 
 			{!sharedOpen ? (
-				<ChatList
-					chats={regular}
+				<div
 					className={cn(
-						'w-72 transition-opacity duration-200',
+						'w-72 flex-1 overflow-y-auto px-2 space-y-1 transition-opacity duration-200',
 						chatsOpen ? 'opacity-100' : 'opacity-0 h-0 overflow-hidden',
 					)}
-				/>
+				>
+					{mixedList.length === 0 ? (
+						<p className='text-sm text-muted-foreground text-center p-4'>
+							No chats yet.
+							<br />
+							Start a new chat!
+						</p>
+					) : (
+						mixedList.map((item) =>
+							item.kind === 'own' ? (
+								<ChatListItem key={item.data.id} chat={item.data} />
+							) : (
+								<SharedChatListItem key={item.data.id} sharedChat={item.data} />
+							),
+						)
+					)}
+				</div>
 			) : (
-				<ChatList chats={sharedWithMeChats} className='w-72' />
+				<div className='w-72 flex flex-col overflow-y-auto px-2 gap-0.5'>
+					{sharedWithMeChats.length === 0 ? (
+						<p className='text-sm text-muted-foreground text-center p-4'>No chats shared with you.</p>
+					) : (
+						sharedWithMeChats.map((sc) => <SharedChatListItem key={sc.id} sharedChat={sc} />)
+					)}
+				</div>
 			)}
 		</div>
 	);
@@ -345,15 +370,13 @@ function SidebarSectionHeader({
 	isOpen,
 	onToggle,
 	activity,
-	sharedOpen,
-	onToggleShared,
+	extra,
 }: {
 	label: string;
 	isOpen: boolean;
 	onToggle: () => void;
 	activity?: { running: boolean; unread: boolean };
-	sharedOpen?: boolean;
-	onToggleShared?: () => void;
+	extra?: React.ReactNode;
 }) {
 	const showIndicator = !isOpen && activity;
 
@@ -370,30 +393,54 @@ function SidebarSectionHeader({
 				)}
 			/>
 			<div className='absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-2'>
-				{!showIndicator && (
-					<Button
-						onClick={(e) => {
-							e.stopPropagation();
-							onToggleShared?.();
-						}}
-						className={cn(
-							'transition-[opacity,border-color,background-color] duration-200 p-1 h-5 rounded-md border',
-							sharedOpen ? 'opacity-90' : 'opacity-0 group-hover:opacity-90',
-							'border-border text-muted-foreground hover:text-muted-foreground hover:border-foreground',
-							'hover:border-foreground hover:bg-foreground hover:text-background',
-							sharedOpen && 'border-foreground bg-foreground text-background',
-						)}
-						variant='ghost-no-hover'
-						size='sm'
-					>
-						<span className='text-[10px]'>Share with me</span>
-					</Button>
-				)}
 				{showIndicator && activity.running && <Spinner className='size-3' />}
 				{showIndicator && !activity.running && activity.unread && (
 					<span className='size-1.5 rounded-full bg-primary' />
 				)}
+				{!showIndicator && extra}
 			</div>
 		</button>
+	);
+}
+
+function ChatsSectionHeader({
+	isOpen,
+	onToggle,
+	activity,
+	sharedOpen,
+	onToggleShared,
+}: {
+	isOpen: boolean;
+	onToggle: () => void;
+	activity?: { running: boolean; unread: boolean };
+	sharedOpen: boolean;
+	onToggleShared: () => void;
+}) {
+	return (
+		<SidebarSectionHeader
+			label='Chats'
+			isOpen={isOpen}
+			onToggle={onToggle}
+			activity={activity}
+			extra={
+				<Button
+					onClick={(e) => {
+						e.stopPropagation();
+						onToggleShared();
+					}}
+					className={cn(
+						'transition-[opacity,border-color,background-color] duration-200 p-1 h-5 rounded-md border',
+						sharedOpen ? 'opacity-90' : 'opacity-0 group-hover:opacity-90',
+						'border-border text-muted-foreground hover:text-muted-foreground',
+						'hover:border-foreground hover:bg-foreground hover:text-background',
+						sharedOpen && 'border-foreground bg-foreground text-background',
+					)}
+					variant='ghost-no-hover'
+					size='sm'
+				>
+					<span className='text-[10px]'>Share with me</span>
+				</Button>
+			}
+		/>
 	);
 }
