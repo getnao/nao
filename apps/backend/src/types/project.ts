@@ -1,4 +1,6 @@
-import type { UserRole } from '@nao/shared';
+export type UserRole = 'admin' | 'user' | 'viewer';
+
+export const USER_ROLES = ['admin', 'user', 'viewer'] as const satisfies readonly UserRole[];
 
 export interface UserWithRole {
 	id: string;

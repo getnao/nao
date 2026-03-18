@@ -1,4 +1,3 @@
-import { USER_ROLES } from '@nao/shared/types';
 import { type ProviderMetadata } from 'ai';
 import { sql } from 'drizzle-orm';
 import { check, index, integer, primaryKey, sqliteTable, text, unique } from 'drizzle-orm/sqlite-core';
@@ -10,6 +9,7 @@ import { LOG_LEVELS, LOG_SOURCES } from '../types/log';
 import { MEMORY_CATEGORIES } from '../types/memory';
 import { SlackSettings, TeamsSettings } from '../types/messaging-provider';
 import { ORG_ROLES } from '../types/organization';
+import { USER_ROLES } from '../types/project';
 
 export const user = sqliteTable('user', {
 	id: text('id').primaryKey(),

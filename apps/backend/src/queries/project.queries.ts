@@ -1,4 +1,3 @@
-import type { UpdatedAtFilter, UserRole } from '@nao/shared';
 import { and, asc, desc, eq, gt, gte, lte, or, type SQL, sql } from 'drizzle-orm';
 
 import type { AgentSettings, DBProject, DBProjectMember, NewProject, NewProjectMember } from '../db/abstractSchema';
@@ -6,8 +5,10 @@ import s from '../db/abstractSchema';
 import { db } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
 import { env } from '../env';
-import type { ListProjectChatsResponse, ProjectChatsFacetKey, UserWithRole } from '../types/project';
+import type { ListProjectChatsResponse, ProjectChatsFacetKey, UserRole, UserWithRole } from '../types/project';
 import { HandlerError } from '../utils/error';
+
+export type UpdatedAtFilter = { mode: 'single'; value: string } | { mode: 'range'; start: string; end: string };
 
 export const getProjectByPath = async (path: string): Promise<DBProject | null> => {
 	const [project] = await db.select().from(s.project).where(eq(s.project.path, path)).execute();
