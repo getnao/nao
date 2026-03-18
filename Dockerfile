@@ -65,8 +65,11 @@ WORKDIR /app
 
 # Install uv and unixodbc-dev (required to build pyodbc for FabricConfig)
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    gcc \
     unixodbc-dev \
-    pkg-config libmariadb-dev \
+    pkg-config \
+    libmariadb-dev \
     && rm -rf /var/lib/apt/lists/*
  
 RUN pip install uv
