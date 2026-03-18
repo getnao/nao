@@ -41,6 +41,7 @@ export type SlackSettings = {
 	slackSigningSecret: string;
 	slackllmProvider: string;
 	slackllmModelId: string;
+	slackDeploymentUrl?: string;
 };
 
 export type TeamsSettings = {
@@ -49,4 +50,5 @@ export type TeamsSettings = {
 	teamsTenantId: string;
 	teamsLlmProvider: string;
 	teamsLlmModelId: string;
+	teamsDeploymentUrl?: string;
 };

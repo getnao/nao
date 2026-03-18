@@ -21,6 +21,7 @@ export const getProjectSlackConfig = async (
 ): Promise<{
 	botToken: string;
 	signingSecret: string;
+	deploymentUrl?: string;
 	modelSelection?: ModelSelection;
 } | null> => {
 	const [project] = await db.select().from(s.project).where(eq(s.project.id, projectId)).execute();
@@ -33,6 +34,7 @@ export const getProjectSlackConfig = async (
 	return {
 		botToken: settings.slackBotToken,
 		signingSecret: settings.slackSigningSecret,
+		deploymentUrl: settings.slackDeploymentUrl,
 		modelSelection: toModelSelection(settings.slackllmProvider, settings.slackllmModelId),
 	};
 };
@@ -41,6 +43,7 @@ export const upsertProjectSlackConfig = async (data: {
 	projectId: string;
 	botToken: string;
 	signingSecret: string;
+	deploymentUrl?: string;
 	modelProvider?: LlmProvider;
 	modelId?: string;
 }): Promise<{
@@ -56,6 +59,7 @@ export const upsertProjectSlackConfig = async (data: {
 				slackSigningSecret: data.signingSecret,
 				slackllmProvider: data.modelProvider ?? '',
 				slackllmModelId: data.modelId ?? '',
+				slackDeploymentUrl: data.deploymentUrl ?? '',
 			},
 		})
 		.where(eq(s.project.id, data.projectId))
@@ -87,6 +91,7 @@ export const updateProjectSlackModel = async (
 					slackSigningSecret: existing?.slackSigningSecret ?? '',
 					slackllmProvider: modelProvider ?? '',
 					slackllmModelId: modelId ?? '',
+					slackDeploymentUrl: existing?.slackDeploymentUrl ?? '',
 				},
 			})
 			.where(eq(s.project.id, projectId))
@@ -125,7 +130,7 @@ export async function getSlackConfig(): Promise<SlackConfig | null> {
 	const settings = project.slackSettings;
 	const botToken = settings?.slackBotToken;
 	const signingSecret = settings?.slackSigningSecret;
-	const redirectUrl = env.BETTER_AUTH_URL || 'http://localhost:3000/';
+	const redirectUrl = settings?.slackDeploymentUrl || env.BETTER_AUTH_URL || 'http://localhost:3000/';
 
 	if (!botToken || !signingSecret) {
 		return null;

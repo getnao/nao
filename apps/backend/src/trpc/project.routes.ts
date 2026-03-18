@@ -183,7 +183,7 @@ export const projectRoutes = {
 
 		return {
 			projectConfig,
-			redirectUrl: env.BETTER_AUTH_URL || '',
+			redirectUrl: config?.deploymentUrl || env.BETTER_AUTH_URL || '',
 			projectId: ctx.project.id,
 		};
 	}),
@@ -193,6 +193,7 @@ export const projectRoutes = {
 			z.object({
 				botToken: z.string().min(1),
 				signingSecret: z.string().min(1),
+				deploymentUrl: z.string().optional(),
 				modelProvider: llmProviderSchema.optional(),
 				modelId: z.string().optional(),
 			}),
@@ -202,6 +203,7 @@ export const projectRoutes = {
 				projectId: ctx.project.id,
 				botToken: input.botToken,
 				signingSecret: input.signingSecret,
+				deploymentUrl: input.deploymentUrl,
 				modelProvider: input.modelProvider,
 				modelId: input.modelId,
 			});
@@ -256,11 +258,11 @@ export const projectRoutes = {
 			: null;
 
 		const baseUrl = env.BETTER_AUTH_URL || 'http://localhost:3000';
+		const fallbackEndpoint = `${baseUrl}/api/webhooks/teams/${ctx.project.id}`;
 		return {
 			projectConfig,
 			projectId: ctx.project.id,
-			redirectUrl: baseUrl,
-			messagingEndpointUrl: `${baseUrl}/api/webhooks/teams/${ctx.project.id}`,
+			messagingEndpointUrl: config?.deploymentUrl || fallbackEndpoint,
 		};
 	}),
 
@@ -270,6 +272,7 @@ export const projectRoutes = {
 				appId: z.string().min(1),
 				appPassword: z.string().min(1),
 				tenantId: z.string().min(1),
+				deploymentUrl: z.string().optional(),
 				modelProvider: llmProviderSchema.optional(),
 				modelId: z.string().optional(),
 			}),
@@ -280,6 +283,7 @@ export const projectRoutes = {
 				appId: input.appId,
 				appPassword: input.appPassword,
 				tenantId: input.tenantId,
+				deploymentUrl: input.deploymentUrl,
 				modelProvider: input.modelProvider,
 				modelId: input.modelId,
 			});

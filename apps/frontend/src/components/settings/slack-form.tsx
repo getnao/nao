@@ -4,12 +4,13 @@ import { ExternalLink, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { PasswordField } from '@/components/ui/form-fields';
+import { isValidUrl, normalizeUrl } from '@/lib/utils';
 
 export interface SlackFormProps {
 	projectId?: string;
 	redirectUrl?: string;
 	hasProjectConfig: boolean;
-	onSubmit: (values: { botToken: string; signingSecret: string }) => Promise<void>;
+	onSubmit: (values: { botToken: string; signingSecret: string; deploymentUrl?: string }) => Promise<void>;
 	onCancel: () => void;
 	isPending: boolean;
 }
@@ -74,19 +75,6 @@ function buildManifestUrl(webhookUrl: string, mentionName: string): string {
 	return `https://api.slack.com/apps?new_app=1&manifest_json=${encodeURIComponent(JSON.stringify(manifest))}`;
 }
 
-function isValidUrl(value: string): boolean {
-	try {
-		new URL(value);
-		return true;
-	} catch {
-		return false;
-	}
-}
-
-function normalizeUrl(value: string): string {
-	return value.trim().replace(/\/+$/, '');
-}
-
 export function SlackForm({ projectId, redirectUrl, hasProjectConfig, onSubmit, onCancel, isPending }: SlackFormProps) {
 	const [deploymentUrl, setDeploymentUrl] = useState(redirectUrl ?? '');
 	const [mentionName, setMentionName] = useState('nao');
@@ -100,7 +88,8 @@ export function SlackForm({ projectId, redirectUrl, hasProjectConfig, onSubmit, 
 	const form = useForm({
 		defaultValues: { botToken: '', signingSecret: '' },
 		onSubmit: async ({ value }) => {
-			await onSubmit(value);
+			const url = normalizeUrl(deploymentUrl);
+			await onSubmit({ ...value, deploymentUrl: url || undefined });
 			form.reset();
 		},
 	});

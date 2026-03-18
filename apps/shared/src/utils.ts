@@ -6,6 +6,14 @@ export const TOOL_LABELS: Record<string, string> = {
 	'tool-execute_sql': 'query',
 };
 
+export function extractBaseUrl(url: string | undefined): string | null {
+	if (!url) {
+		return null;
+	}
+	const parsed = new URL(url);
+	return `${parsed.protocol}//${parsed.host}`;
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function debounce<T extends (...args: any[]) => any>(func: T, delay: number): (...args: Parameters<T>) => void {
 	let timeout: ReturnType<typeof setTimeout>;

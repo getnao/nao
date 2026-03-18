@@ -36,3 +36,16 @@ export function toLocalDateString(d: Date): string {
 	const day = String(d.getDate()).padStart(2, '0');
 	return `${y}-${m}-${day}`;
 }
+
+export function isValidUrl(value: string): boolean {
+	try {
+		new URL(value);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+export function normalizeUrl(value: string): string {
+	return value.trim().replace(/\/+$/, '');
+}

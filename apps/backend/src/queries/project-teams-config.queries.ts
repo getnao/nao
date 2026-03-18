@@ -1,3 +1,4 @@
+import { extractBaseUrl } from '@nao/shared';
 import { eq } from 'drizzle-orm';
 
 import s from '../db/abstractSchema';
@@ -22,6 +23,7 @@ export const getProjectTeamsConfig = async (
 	appId: string;
 	appPassword: string;
 	tenantId: string;
+	deploymentUrl?: string;
 	modelSelection?: ModelSelection;
 } | null> => {
 	const [project] = await db.select().from(s.project).where(eq(s.project.id, projectId)).execute();
@@ -35,6 +37,7 @@ export const getProjectTeamsConfig = async (
 		appId: settings.teamsAppId,
 		appPassword: settings.teamsAppPassword,
 		tenantId: settings.teamsTenantId,
+		deploymentUrl: settings.teamsDeploymentUrl,
 		modelSelection: toModelSelection(settings.teamsLlmProvider, settings.teamsLlmModelId),
 	};
 };
@@ -44,6 +47,7 @@ export const upsertProjectTeamsConfig = async (data: {
 	appId: string;
 	appPassword: string;
 	tenantId: string;
+	deploymentUrl?: string;
 	modelProvider?: LlmProvider;
 	modelId?: string;
 }): Promise<{
@@ -61,6 +65,7 @@ export const upsertProjectTeamsConfig = async (data: {
 				teamsTenantId: data.tenantId,
 				teamsLlmProvider: data.modelProvider ?? '',
 				teamsLlmModelId: data.modelId ?? '',
+				teamsDeploymentUrl: data.deploymentUrl ?? '',
 			},
 		})
 		.where(eq(s.project.id, data.projectId))
@@ -98,6 +103,7 @@ export const updateProjectTeamsModel = async (
 					teamsTenantId: existing?.teamsTenantId ?? '',
 					teamsLlmProvider: modelProvider ?? '',
 					teamsLlmModelId: modelId ?? '',
+					teamsDeploymentUrl: existing?.teamsDeploymentUrl ?? '',
 				},
 			})
 			.where(eq(s.project.id, projectId))
@@ -138,7 +144,7 @@ export async function getTeamsConfig(): Promise<TeamsConfig | null> {
 	const appId = settings?.teamsAppId;
 	const appPassword = settings?.teamsAppPassword;
 	const tenantId = settings?.teamsTenantId;
-	const redirectUrl = env.BETTER_AUTH_URL || 'http://localhost:3000/';
+	const redirectUrl = extractBaseUrl(settings?.teamsDeploymentUrl) || env.BETTER_AUTH_URL || 'http://localhost:3000/';
 
 	if (!appId || !appPassword || !tenantId) {
 		return null;

@@ -40,7 +40,7 @@ export function SlackConfigSection({ isAdmin }: SlackConfigSectionProps) {
 	const updateSlackModel = useMutation(trpc.project.updateSlackModelConfig.mutationOptions());
 	const deleteSlackConfig = useMutation(trpc.project.deleteSlackConfig.mutationOptions());
 
-	const handleSubmit = async (values: { botToken: string; signingSecret: string }) => {
+	const handleSubmit = async (values: { botToken: string; signingSecret: string; deploymentUrl?: string }) => {
 		await upsertSlackConfig.mutateAsync({
 			...values,
 			modelProvider: selectedModel?.provider,

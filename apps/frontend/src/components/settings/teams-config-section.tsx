@@ -22,7 +22,6 @@ export function TeamsConfigSection({ isAdmin }: TeamsConfigSectionProps) {
 	const [selectedModel, setSelectedModel] = useState<AvailableModel | null>(null);
 
 	const projectConfig = teamsConfig.data?.projectConfig;
-	const messagingEndpointUrl = teamsConfig.data?.messagingEndpointUrl ?? '';
 
 	useEffect(() => {
 		if (!availableModels || availableModels.length === 0) {
@@ -39,7 +38,12 @@ export function TeamsConfigSection({ isAdmin }: TeamsConfigSectionProps) {
 	const updateTeamsModel = useMutation(trpc.project.updateTeamsModelConfig.mutationOptions());
 	const deleteTeamsConfig = useMutation(trpc.project.deleteTeamsConfig.mutationOptions());
 
-	const handleSubmit = async (values: { appId: string; appPassword: string; tenantId: string }) => {
+	const handleSubmit = async (values: {
+		appId: string;
+		appPassword: string;
+		tenantId: string;
+		deploymentUrl?: string;
+	}) => {
 		await upsertTeamsConfig.mutateAsync({
 			...values,
 			modelProvider: selectedModel?.provider,
@@ -108,8 +112,7 @@ export function TeamsConfigSection({ isAdmin }: TeamsConfigSectionProps) {
 				onSubmit={handleSubmit}
 				onCancel={() => setIsEditing(false)}
 				isPending={upsertTeamsConfig.isPending}
-				teamsRedirectUrl={teamsConfig.data?.redirectUrl}
-				messagingEndpointUrl={messagingEndpointUrl}
+				messagingEndpointUrl={teamsConfig.data?.messagingEndpointUrl}
 			/>
 		);
 	}

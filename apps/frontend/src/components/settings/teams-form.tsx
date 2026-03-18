@@ -1,17 +1,24 @@
+import { useEffect, useState } from 'react';
 import { useForm } from '@tanstack/react-form';
+import { extractBaseUrl } from '@nao/shared';
 import { ExternalLink, X } from 'lucide-react';
 import JSZip from 'jszip';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { PasswordField } from '@/components/ui/form-fields';
-import { CopyableUrl } from '@/components/ui/copyable-url';
+import { isValidUrl, normalizeUrl } from '@/lib/utils';
 
 export interface TeamsFormProps {
 	hasProjectConfig: boolean;
-	onSubmit: (values: { appId: string; appPassword: string; tenantId: string }) => Promise<void>;
+	onSubmit: (values: {
+		appId: string;
+		appPassword: string;
+		tenantId: string;
+		deploymentUrl?: string;
+	}) => Promise<void>;
 	onCancel: () => void;
 	isPending: boolean;
-	teamsRedirectUrl: string | undefined;
-	messagingEndpointUrl: string;
+	messagingEndpointUrl: string | undefined;
 }
 
 export function buildTeamsManifest(appId: string, redirectUrl: string) {
@@ -90,19 +97,33 @@ export function TeamsForm({
 	onSubmit,
 	onCancel,
 	isPending,
-	teamsRedirectUrl,
-	messagingEndpointUrl,
+	messagingEndpointUrl: initialEndpointUrl,
 }: TeamsFormProps) {
+	const [endpointUrl, setEndpointUrl] = useState(initialEndpointUrl ?? '');
+
+	useEffect(() => {
+		if (initialEndpointUrl) {
+			setEndpointUrl(initialEndpointUrl);
+		}
+	}, [initialEndpointUrl]);
+
 	const form = useForm({
 		defaultValues: { appId: '', appPassword: '', tenantId: '' },
 		onSubmit: async ({ value }) => {
-			await onSubmit(value);
-			if (teamsRedirectUrl) {
-				await downloadTeamsManifestZip(value.appId, teamsRedirectUrl);
+			const url = normalizeUrl(endpointUrl);
+			await onSubmit({ ...value, deploymentUrl: url || undefined });
+			if (url) {
+				const baseUrl = extractBaseUrl(url);
+				if (baseUrl) {
+					await downloadTeamsManifestZip(value.appId, baseUrl);
+				}
 			}
 			form.reset();
 		},
 	});
+
+	const normalized = normalizeUrl(endpointUrl);
+	const valid = isValidUrl(normalized);
 
 	return (
 		<div className='flex flex-col gap-4 p-4 rounded-lg border border-primary/50 bg-muted/30'>
@@ -132,7 +153,25 @@ export function TeamsForm({
 							<ExternalLink className='size-3' />
 						</a>
 					</p>
-					{messagingEndpointUrl && <CopyableUrl label='Messaging Endpoint URL' url={messagingEndpointUrl} />}
+
+					<div className='grid gap-2'>
+						<label htmlFor='teams-messaging-endpoint' className='text-xs font-medium text-foreground'>
+							Messaging Endpoint URL
+						</label>
+						<Input
+							id='teams-messaging-endpoint'
+							type='url'
+							value={endpointUrl}
+							onChange={(e) => setEndpointUrl(e.target.value)}
+							placeholder='https://my-app.com/api/webhooks/teams/...'
+							className='text-xs h-8'
+						/>
+						{endpointUrl && !valid && (
+							<p className='text-[11px] text-destructive'>
+								Enter a valid URL (e.g. https://my-app.com/api/webhooks/teams/project-id)
+							</p>
+						)}
+					</div>
 					<PasswordField
 						form={form}
 						name='appId'
