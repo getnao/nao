@@ -44,10 +44,10 @@ def validate_port(port: int | None) -> int:
 
 def get_server_binary_path() -> Path:
     """Get the path to the bundled nao-chat-server binary."""
-    # The binary is in the bin folder relative to this file
     cli_dir = Path(__file__).parent.parent
     bin_dir = cli_dir / "bin"
-    binary_path = bin_dir / "nao-chat-server"
+    binary_name = "nao-chat-server.exe" if sys.platform == "win32" else "nao-chat-server"
+    binary_path = bin_dir / binary_name
 
     if not binary_path.exists():
         console.print(f"[bold red]✗[/bold red] Server binary not found at {binary_path}")

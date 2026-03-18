@@ -142,6 +142,9 @@ def get_native_platform_suffix() -> str | None:
             return "linux-x64-gnu"
         if arch in ("aarch64", "arm64"):
             return "linux-arm64-gnu"
+    elif os_name == "win32":
+        if arch in ("AMD64", "x86_64"):
+            return "win32-x64-msvc"
     return None
 
 
@@ -159,12 +162,18 @@ def bundle_native_packages(project_root: Path, output_dir: Path) -> None:
     nm_root = project_root / "node_modules"
     out_nm = output_dir / "node_modules"
 
-    packages_to_copy = [
-        # (source scope/name, destination scope/name)
-        ("@boxlite-ai/boxlite", "@boxlite-ai/boxlite"),
-        (f"@boxlite-ai/boxlite-{suffix}", f"@boxlite-ai/boxlite-{suffix}"),
+    packages_to_copy: list[tuple[str, str]] = [
         ("@pydantic/monty", "@pydantic/monty"),
     ]
+
+    # boxlite requires KVM (Linux) or Hypervisor.framework (macOS) — not available on Windows
+    if sys.platform != "win32":
+        packages_to_copy = [
+            ("@boxlite-ai/boxlite", "@boxlite-ai/boxlite"),
+            (f"@boxlite-ai/boxlite-{suffix}", f"@boxlite-ai/boxlite-{suffix}"),
+        ] + packages_to_copy
+    else:
+        print("   Skipping @boxlite-ai/boxlite (not available on Windows)")
 
     # monty's platform package may be nested inside its own node_modules
     monty_platform_pkg = f"@pydantic/monty-{suffix}"
@@ -237,8 +246,9 @@ def build_server(project_root: Path, output_dir: Path) -> None:
 
     # Step 4: Copy the compiled binary to output directory
     print("\n📦 Copying binary to output directory...")
-    binary_src = backend_dir / "nao-chat-server"
-    binary_dst = output_dir / "nao-chat-server"
+    binary_name = "nao-chat-server.exe" if sys.platform == "win32" else "nao-chat-server"
+    binary_src = backend_dir / binary_name
+    binary_dst = output_dir / binary_name
     shutil.copy2(binary_src, binary_dst)
     print(f"   Binary: {binary_dst}")
 
@@ -331,7 +341,7 @@ def build_server(project_root: Path, output_dir: Path) -> None:
     print(f"   Build info: {build_info_path} (commit: {commit_short})")
 
     print("\n✓ Server build complete!")
-    print(f"   Binary: {output_dir / 'nao-chat-server'}")
+    print(f"   Binary: {binary_dst}")
     print(f"   Assets: {output_public}")
     print(f"   FastAPI: {fastapi_dst}")
     if rg_src:
@@ -376,7 +386,8 @@ def build(
     cli_dir = Path(__file__).parent
     project_root = cli_dir.parent
     output_dir = cli_dir / "nao_core" / "bin"
-    binary_path = output_dir / "nao-chat-server"
+    binary_name = "nao-chat-server.exe" if sys.platform == "win32" else "nao-chat-server"
+    binary_path = output_dir / binary_name
     public_dir = output_dir / "public"
     sqlite_migrations_dir = output_dir / "migrations-sqlite"
     postgres_migrations_dir = output_dir / "migrations-postgres"
