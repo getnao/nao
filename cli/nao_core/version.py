@@ -1,6 +1,8 @@
 """Check for newer nao-core versions on PyPI."""
 
+import atexit
 import json
+import threading
 import time
 import urllib.request
 from pathlib import Path
@@ -12,6 +14,8 @@ CACHE_FILE = Path.home() / ".nao" / "version_check.json"
 PYPI_URL = "https://pypi.org/pypi/nao-core/json"
 CHECK_INTERVAL = 24 * 60 * 60
 
+_background_thread: threading.Thread | None = None
+
 
 def parse_version(v: str) -> tuple[int, ...]:
     """Parse a version string like '0.0.37' into a comparable tuple."""
@@ -19,7 +23,7 @@ def parse_version(v: str) -> tuple[int, ...]:
 
 
 def get_latest_version() -> str | None:
-    """Get latest version from PyPI."""
+    """Get latest version from PyPI (blocking). Used by `nao upgrade`."""
     latest = _read_cache()
     if latest is None:
         latest = _fetch_and_cache()
@@ -27,16 +31,26 @@ def get_latest_version() -> str | None:
 
 
 def check_for_updates() -> None:
-    """Check PyPI for a newer version of nao-core, using a 24h local cache."""
+    """Non-blocking version check. Shows a warning only on cache hit; refreshes cache in background."""
+    global _background_thread
     try:
-        latest = get_latest_version()
-        if latest is None:
+        cached = _read_cache()
+        if cached is not None:
+            if parse_version(cached) > parse_version(__version__):
+                UI.warn(f"Update available: {__version__} → {cached}. Run: nao upgrade")
             return
 
-        if parse_version(latest) > parse_version(__version__):
-            UI.warn(f"Update available: {__version__} → {latest}. Run: nao upgrade")
+        _background_thread = threading.Thread(target=_fetch_and_cache, daemon=True)
+        _background_thread.start()
+        atexit.register(_wait_for_background_fetch)
     except Exception:
-        pass  # do nothing
+        pass
+
+
+def _wait_for_background_fetch() -> None:
+    """Wait briefly for the background fetch so the cache file is written before exit."""
+    if _background_thread is not None and _background_thread.is_alive():
+        _background_thread.join(timeout=5)
 
 
 def clear_version_cache() -> None:
@@ -50,7 +64,6 @@ def _read_cache() -> str | None:
     if not CACHE_FILE.exists():
         return None
     data = json.loads(CACHE_FILE.read_text())
-    # If not fresh tell check_for_updates to fetch again
     if time.time() - data.get("checked_at", 0) < CHECK_INTERVAL:
         return data.get("latest")
     return None
@@ -58,10 +71,13 @@ def _read_cache() -> str | None:
 
 def _fetch_and_cache() -> str | None:
     """Fetch latest version from PyPI and write it to the cache file."""
-    with urllib.request.urlopen(PYPI_URL, timeout=3) as resp:
-        data = json.loads(resp.read())
+    try:
+        with urllib.request.urlopen(PYPI_URL, timeout=3) as resp:
+            data = json.loads(resp.read())
 
-    latest = data["info"]["version"]
-    CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    CACHE_FILE.write_text(json.dumps({"latest": latest, "checked_at": time.time()}))
-    return latest
+        latest = data["info"]["version"]
+        CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        CACHE_FILE.write_text(json.dumps({"latest": latest, "checked_at": time.time()}))
+        return latest
+    except Exception:
+        return None
