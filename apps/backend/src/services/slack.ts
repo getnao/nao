@@ -1,5 +1,6 @@
 import { createSlackAdapter } from '@chat-adapter/slack';
 import { createMemoryState } from '@chat-adapter/state-memory';
+import { CITATION_TAG_REGEX } from '@nao/shared';
 import { WebClient } from '@slack/web-api';
 import { InferUIMessageChunk, readUIMessageStream } from 'ai';
 import { Card, Chat, Message, SentMessage, Thread } from 'chat';
@@ -433,7 +434,7 @@ class SlackService {
 	}
 
 	private _updateTextBlock(text: string, ctx: ConversationContext): void {
-		const block = createTextBlock(text);
+		const block = createTextBlock(text.replace(CITATION_TAG_REGEX, ''));
 		if (ctx.textBlockIndex === -1) {
 			ctx.textBlockIndex = ctx.blocks.length;
 			ctx.blocks.push(block);

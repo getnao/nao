@@ -1,3 +1,5 @@
+export const CITATION_TAG_REGEX = /<\/?citation-number[^>]*>/g;
+
 export type ColumnLineageNode = {
 	name: string;
 	source_name: string;

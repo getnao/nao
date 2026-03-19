@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useForm } from '@tanstack/react-form';
 import { ExternalLink, X } from 'lucide-react';
+import { CopyableUrl } from '../ui/copyable-url';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { PasswordField } from '@/components/ui/form-fields';
@@ -88,14 +89,7 @@ function normalizeUrl(value: string): string {
 }
 
 export function SlackForm({ projectId, redirectUrl, hasProjectConfig, onSubmit, onCancel, isPending }: SlackFormProps) {
-	const [deploymentUrl, setDeploymentUrl] = useState(redirectUrl ?? '');
 	const [mentionName, setMentionName] = useState('nao');
-
-	useEffect(() => {
-		if (redirectUrl) {
-			setDeploymentUrl(redirectUrl);
-		}
-	}, [redirectUrl]);
 
 	const form = useForm({
 		defaultValues: { botToken: '', signingSecret: '' },
@@ -105,9 +99,9 @@ export function SlackForm({ projectId, redirectUrl, hasProjectConfig, onSubmit, 
 		},
 	});
 
-	const normalized = normalizeUrl(deploymentUrl);
-	const valid = isValidUrl(normalized);
-	const webhookUrl = valid && projectId ? `${normalized}/api/webhooks/slack/${projectId}` : '';
+	const normalized = redirectUrl ? normalizeUrl(redirectUrl) : '';
+	const webhookUrl =
+		normalized && isValidUrl(normalized) && projectId ? `${normalized}/api/webhooks/slack/${projectId}` : '';
 	const manifestUrl = webhookUrl ? buildManifestUrl(webhookUrl, mentionName) : '';
 
 	return (
@@ -138,22 +132,7 @@ export function SlackForm({ projectId, redirectUrl, hasProjectConfig, onSubmit, 
 				</p>
 
 				{/* Step 1 */}
-				<div className='grid gap-2'>
-					<label htmlFor='deployment-url' className='text-xs font-medium text-foreground'>
-						Deployment URL
-					</label>
-					<Input
-						id='deployment-url'
-						type='url'
-						value={deploymentUrl}
-						onChange={(e) => setDeploymentUrl(e.target.value)}
-						placeholder='https://my-app.com'
-						className='text-xs h-8'
-					/>
-					{deploymentUrl && !valid && (
-						<p className='text-[11px] text-destructive'>Enter a valid URL (e.g. https://my-app.com)</p>
-					)}
-				</div>
+				{webhookUrl && <CopyableUrl label='Webhook URL' url={webhookUrl} />}
 
 				{/* Mention name */}
 				<div className='grid gap-2'>

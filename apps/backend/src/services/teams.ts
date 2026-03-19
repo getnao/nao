@@ -3,6 +3,7 @@ import { createMemoryState } from '@chat-adapter/state-memory';
 import { createTeamsAdapter } from '@chat-adapter/teams';
 import { Client } from '@microsoft/microsoft-graph-client';
 import { TokenCredentialAuthenticationProvider } from '@microsoft/microsoft-graph-client/authProviders/azureTokenCredentials';
+import { CITATION_TAG_REGEX } from '@nao/shared';
 import { InferUIMessageChunk, readUIMessageStream } from 'ai';
 import { Card, Chat, Message, SentMessage, Thread } from 'chat';
 
@@ -411,7 +412,7 @@ class TeamsService {
 	}
 
 	private _updateTextBlock(text: string, ctx: ConversationContext): void {
-		const block = createTextBlock(text);
+		const block = createTextBlock(text.replace(CITATION_TAG_REGEX, ''));
 		if (ctx.textBlockIndex === -1) {
 			ctx.textBlockIndex = ctx.blocks.length;
 			ctx.blocks.push(block);

@@ -1,9 +1,10 @@
 import { memo } from 'react';
 import { Streamdown } from 'streamdown';
 
+import { CITATION_TAG_REGEX } from '@nao/shared';
+
 import { CitationPopover } from '@/components/citation-popover';
 
-const CITATION_TAG_REGEX = /<\/?citation-number[^>]*>/g;
 const CLOBBER_PREFIX = 'user-content-';
 
 function stripClobberPrefix(value: string): string {
