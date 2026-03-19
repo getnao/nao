@@ -153,7 +153,7 @@ export const useAgent = (): AgentHelpers => {
 	}, [chatId, navigate, setChat, setChatList]);
 
 	const activity = useChatActivity(chatId ?? NEW_CHAT_ID);
-	const shouldResume = !!chatId && !chat.isLoading && activity.running;
+	const shouldResume = !!chatId && !chat.isLoading && activity.running && !checkIsAgentRunning(agentInstance);
 
 	const { status, error, clearError, sendMessage, setMessages, messages } = useChat({
 		chat: agentInstance,
