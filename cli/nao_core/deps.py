@@ -114,22 +114,47 @@ def get_required_extras(config: NaoConfig) -> list[str]:
     return extras
 
 
+def get_missing_extras(config: NaoConfig) -> list[str]:
+    """Return the list of extras that are needed but not yet installed."""
+    return [extra for extra in get_required_extras(config) if not _is_extra_installed(extra)]
+
+
 def get_install_command(config: NaoConfig) -> str | None:
     """Return the pip install command for missing extras, or None if everything is installed."""
-    extras = get_required_extras(config)
-    if not extras:
-        return None
-
-    missing = []
-    for extra in extras:
-        if not _is_extra_installed(extra):
-            missing.append(extra)
-
+    missing = get_missing_extras(config)
     if not missing:
         return None
 
     extras_str = ",".join(missing)
     return f"pip install 'nao-core[{extras_str}]'"
+
+
+def install_extras(extras: list[str]) -> bool:
+    """Install the given nao-core extras using pip or uv.
+
+    Returns True if the install succeeded, False otherwise.
+    """
+    import shutil
+    import subprocess
+    import sys
+
+    extras_str = ",".join(extras)
+    spec = f"nao-core[{extras_str}]"
+
+    uv_path = shutil.which("uv")
+    if uv_path:
+        cmd = [uv_path, "pip", "install", spec]
+    else:
+        cmd = [sys.executable, "-m", "pip", "install", spec]
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        if result.returncode == 0:
+            importlib.invalidate_caches()
+            return True
+        return False
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return False
 
 
 def _is_extra_installed(extra: str) -> bool:
