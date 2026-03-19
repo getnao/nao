@@ -73,9 +73,9 @@ function GeneralPage() {
 				<SettingsControlRow label='Theme' description='Choose how nao looks.' control={<ThemeSelector />} />
 			</SettingsCard>
 
-			{isAdmin && <SettingsVersionInfo />}
-
 			<DangerZone />
+
+			{isAdmin && <SettingsVersionInfo />}
 		</SettingsPageWrapper>
 	);
 }
