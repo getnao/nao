@@ -9,7 +9,8 @@
 		"./memory": "./src/types/memory.ts",
 		"./saved-prompts": "./src/types/saved-prompt.ts",
 		"./tools": "./src/agents/tools/index.ts",
-		"./providers": "./src/agents/providers.ts"
+		"./providers": "./src/agents/providers.ts",
+		"./provider-meta": "./src/agents/provider-meta.ts"
 	},
 	"scripts": {
 		"dev": "bun --watch src/index.ts",
@@ -36,6 +37,7 @@
 		"@ai-sdk/amazon-bedrock": "^4.0.69",
 		"@ai-sdk/anthropic": "^3.0.15",
 		"@ai-sdk/google": "^3.0.16",
+		"@ai-sdk/google-vertex": "^4.0.80",
 		"@ai-sdk/mistral": "^3.0.13",
 		"@ai-sdk/openai": "^3.0.1",
 		"@azure/identity": "^4.13.0",

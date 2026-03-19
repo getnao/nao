@@ -60,6 +60,7 @@ _BACKEND_EXTRA: dict[str, str] = {
     "duckdb": "duckdb",
     "clickhouse": "clickhouse",
     "databricks": "databricks",
+    "mysql": "mysql",
     "mssql": "mssql",
     "athena": "athena",
     "trino": "trino",
@@ -72,6 +73,7 @@ _DB_TYPE_TO_EXTRA: dict[str, str] = {
     "duckdb": "duckdb",
     "clickhouse": "clickhouse",
     "databricks": "databricks",
+    "mysql": "mysql",
     "mssql": "mssql",
     "athena": "athena",
     "trino": "trino",
@@ -86,6 +88,7 @@ _LLM_PROVIDER_TO_EXTRA: dict[str, str] = {
     "gemini": "gemini",
     "openrouter": "openai",
     "ollama": "ollama",
+    "vertex": "gemini",
 }
 
 
@@ -166,6 +169,7 @@ def _is_extra_installed(extra: str) -> bool:
         "duckdb": ["ibis.backends.duckdb"],
         "clickhouse": ["ibis.backends.clickhouse"],
         "databricks": ["ibis.backends.databricks"],
+        "mysql": ["ibis.backends.mysql"],
         "mssql": ["ibis.backends.mssql"],
         "athena": ["ibis.backends.athena"],
         "trino": ["ibis.backends.trino"],

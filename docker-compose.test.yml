@@ -1,15 +1,46 @@
-# ClickHouse only — for sync integration tests (including dictionary metadata).
-# Official image sets default user password from CLICKHOUSE_PASSWORD so dictionary
-# sync (SHOW CREATE DICTIONARY, system.columns) works. For Altinity image use
-# equivalent users.d config (see clickhouse-users.d/default-password.xml).
-# From repo root:
-#   docker compose -f docker-compose.test.yml up -d
-#   cd cli && cp tests/nao_core/commands/sync/integration/.env.example \
-#        tests/nao_core/commands/sync/integration/.env
-#   uv run pytest tests/nao_core/commands/sync/integration/test_clickhouse.py -v
-# Stop: docker compose -f docker-compose.test.yml down
-
 services:
+    mysql:
+        image: mysql:8
+        environment:
+            MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-nao}
+            MYSQL_DATABASE: ${MYSQL_DB:-nao}
+            MYSQL_USER: ${MYSQL_USER:-nao}
+            MYSQL_PASSWORD: ${MYSQL_PASSWORD:-nao}
+        ports:
+            - '3306:3306'
+        volumes:
+            - nao_mysql_data:/var/lib/mysql
+        healthcheck:
+            test: ['CMD', 'mysqladmin', 'ping', '-h', 'localhost']
+            interval: 5s
+            timeout: 5s
+            retries: 10
+    postgres:
+        image: postgres:16-alpine
+        container_name: nao_chat_postgres
+        environment:
+            POSTGRES_USER: ${POSTGRES_USER:-nao}
+            POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nao}
+            POSTGRES_DB: ${POSTGRES_DB:-nao}
+        ports:
+            - '8888:5432'
+        volumes:
+            - nao_postgres_data:/var/lib/postgresql/data
+        healthcheck:
+            test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-nao} -d ${POSTGRES_DB:-nao}']
+            interval: 5s
+            timeout: 5s
+            retries: 5
+    # ClickHouse only — for sync integration tests (including dictionary metadata).
+    # Official image sets default user password from CLICKHOUSE_PASSWORD so dictionary
+    # sync (SHOW CREATE DICTIONARY, system.columns) works. For Altinity image use
+    # equivalent users.d config (see clickhouse-users.d/default-password.xml).
+    # From repo root:
+    #   docker compose -f docker-compose.test.yml up -d
+    #   cd cli && cp tests/nao_core/commands/sync/integration/.env.example \
+    #        tests/nao_core/commands/sync/integration/.env
+    #   uv run pytest tests/nao_core/commands/sync/integration/test_clickhouse.py -v
+    # Stop: docker compose -f docker-compose.test.yml down
     clickhouse:
         image: clickhouse/clickhouse-server:25.3
         container_name: nao_test_clickhouse
@@ -26,3 +57,7 @@ services:
             interval: 5s
             timeout: 5s
             retries: 5
+
+volumes:
+    nao_mysql_data:
+    nao_postgres_data:

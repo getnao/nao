@@ -24,6 +24,7 @@ class DatabaseType(str, Enum):
     FABRIC = "fabric"
     SNOWFLAKE = "snowflake"
     MSSQL = "mssql"
+    MYSQL = "mysql"
     POSTGRES = "postgres"
     REDSHIFT = "redshift"
     TRINO = "trino"

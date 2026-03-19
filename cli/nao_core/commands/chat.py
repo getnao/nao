@@ -233,6 +233,20 @@ def chat(
                     env["AWS_REGION"] = config.llm.aws_region
                     console.print("[bold green]✓[/bold green] Set AWS_REGION from config")
 
+            if config.llm.provider == LLMProvider.VERTEX:
+                if config.llm.gcp_project:
+                    env["GOOGLE_VERTEX_PROJECT"] = config.llm.gcp_project
+                    console.print("[bold green]✓[/bold green] Set GOOGLE_VERTEX_PROJECT from config")
+                if config.llm.gcp_location:
+                    env["GOOGLE_VERTEX_LOCATION"] = config.llm.gcp_location
+                    console.print("[bold green]✓[/bold green] Set GOOGLE_VERTEX_LOCATION from config")
+                if config.llm.service_account_json:
+                    env["VERTEX_GOOGLE_SERVICE_ACCOUNT_JSON"] = config.llm.service_account_json
+                    console.print("[bold green]✓[/bold green] Set VERTEX_GOOGLE_SERVICE_ACCOUNT_JSON from config")
+                if config.llm.key_file:
+                    env["VERTEX_GOOGLE_APPLICATION_CREDENTIALS"] = str(Path(config.llm.key_file).resolve())
+                    console.print("[bold green]✓[/bold green] Set VERTEX_GOOGLE_APPLICATION_CREDENTIALS from config")
+
         env["NAO_DEFAULT_PROJECT_PATH"] = str(Path.cwd())
 
         if ngrok:
