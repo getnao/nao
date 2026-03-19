@@ -125,20 +125,31 @@ def _ensure_platform_deps(project_root: Path) -> None:
     """Install platform-specific npm optional dependencies if missing.
 
     package-lock.json is typically generated on one OS, so native packages for
-    other platforms are absent. All deps are installed in a single `npm install`
-    call because npm reconciles the full tree on each invocation and removes
-    previously-installed packages that aren't in the lockfile.
+    other platforms are absent. Packages are installed in a single `npm install`
+    call. Failures are non-fatal because some packages (e.g. boxlite) don't
+    publish binaries for every platform.
     """
     all_deps = _find_platform_deps(project_root)
     nm = project_root / "node_modules"
-    if not all_deps or all((nm / dep).exists() for dep in all_deps):
+    missing = [dep for dep in all_deps if not (nm / dep).exists()]
+    if not missing:
         return
 
     print("\n📦 Installing platform-specific dependencies...")
-    for dep in all_deps:
-        existing = "✓" if (nm / dep).exists() else "+"
-        print(f"   {existing} {dep}")
-    run(["npm", "install", "--no-save", *all_deps], cwd=project_root)
+    for dep in missing:
+        print(f"   + {dep}")
+
+    result = subprocess.run(
+        ["npm", "install", "--no-save", *missing],
+        cwd=project_root,
+        shell=sys.platform == "win32",
+    )
+    if result.returncode != 0:
+        still_missing = [dep for dep in missing if not (nm / dep).exists()]
+        if still_missing:
+            print(f"   ⚠️  Could not install: {', '.join(still_missing)} (may not exist for this platform)")
+        else:
+            print("   ✓ All needed packages were installed despite npm warnings")
 
 
 def get_git_commit(project_root: Path) -> str:
