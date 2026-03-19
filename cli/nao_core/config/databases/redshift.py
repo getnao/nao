@@ -1,13 +1,15 @@
-from pathlib import Path
-from typing import Any, Literal
+from __future__ import annotations
 
-import ibis
-from ibis import BaseBackend
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Literal
+
 from pydantic import BaseModel, Field
-from sshtunnel import SSHTunnelForwarder
 
 from nao_core.config.exceptions import InitError
 from nao_core.ui import ask_confirm, ask_text
+
+if TYPE_CHECKING:
+    from ibis import BaseBackend
 
 from .base import DatabaseConfig
 from .context import DatabaseContext
@@ -216,13 +218,20 @@ class RedshiftConfig(DatabaseConfig):
 
     def connect(self) -> BaseBackend:
         """Create an Ibis Redshift connection."""
+        from nao_core.deps import require_database_backend
 
-        # Determine connection host and port
+        require_database_backend("postgres")
+        import ibis
+
         connect_host = self.host
         connect_port = self.port
 
-        # Set up SSH tunnel if configured
         if self.ssh_tunnel:
+            from nao_core.deps import require_dependency
+
+            require_dependency("sshtunnel", "redshift", "for SSH tunnel connections")
+            from sshtunnel import SSHTunnelForwarder
+
             ssh_pkey_path = Path(self.ssh_tunnel.ssh_private_key_path).expanduser()
 
             tunnel = SSHTunnelForwarder(
@@ -231,11 +240,10 @@ class RedshiftConfig(DatabaseConfig):
                 ssh_pkey=str(ssh_pkey_path),
                 ssh_private_key_password=self.ssh_tunnel.ssh_private_key_passphrase,
                 remote_bind_address=(self.host, self.port),
-                local_bind_address=("127.0.0.1", 0),  # let the OS pick an random free port
+                local_bind_address=("127.0.0.1", 0),
             )
             tunnel.start()
 
-            # Use tunnel's local bind address
             connect_host = "127.0.0.1"
             connect_port = tunnel.local_bind_port
 

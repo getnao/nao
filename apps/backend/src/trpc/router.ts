@@ -5,6 +5,7 @@ import { citationRoutes } from './citation.routes';
 import { feedbackRoutes } from './feedback.routes';
 import { githubRoutes } from './github.routes';
 import { googleRoutes } from './google.routes';
+import { logRoutes } from './log.routes';
 import { mcpRoutes } from './mcp.routes';
 import { memoryRoutes } from './memory.routes';
 import { posthogRoutes } from './posthog.routes';
@@ -23,6 +24,7 @@ export const trpcRouter = router({
 	chat: chatRoutes,
 	citation: citationRoutes,
 	feedback: feedbackRoutes,
+	log: logRoutes,
 	posthog: posthogRoutes,
 	project: projectRoutes,
 	storyShare: sharedStoryRoutes,

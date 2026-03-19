@@ -8,6 +8,7 @@ import { join } from 'path';
 import * as mcpConfigQueries from '../queries/project.queries';
 import { retrieveProjectById } from '../queries/project.queries';
 import { mcpJsonSchema, McpServerConfig, McpServerState } from '../types/mcp';
+import { logger } from '../utils/logger';
 import { prefixToolName, removePrefixToolName, sanitizeTools } from '../utils/tools';
 import { replaceEnvVars } from '../utils/utils';
 
@@ -69,7 +70,11 @@ export class McpService {
 
 			await this._cacheMcpState();
 		} catch (error) {
-			console.error('[mcp] Failed to cache MCP state:', error);
+			logger.error(`MCP state loading failed: ${String(error)}`, {
+				source: 'tool',
+				projectId: this._projectId ?? undefined,
+				context: { error: String(error) },
+			});
 			throw error;
 		}
 	}
@@ -125,7 +130,11 @@ export class McpService {
 			const content = mcpJsonSchema.parse(JSON.parse(resolvedContent));
 			this._mcpServers = content.mcpServers;
 		} catch (error) {
-			console.error(`[mcp] Failed to parse MCP config file at ${this._mcpJsonFilePath}:`, error);
+			logger.error(`MCP config parse failed: ${this._mcpJsonFilePath}`, {
+				source: 'tool',
+				projectId: this._projectId ?? undefined,
+				context: { path: this._mcpJsonFilePath, error: String(error) },
+			});
 			this._mcpServers = {};
 		}
 	}
@@ -145,7 +154,13 @@ export class McpService {
 				this._runtime?.registerDefinition(definition, { overwrite: true });
 				await this._listTools(serverName);
 			} catch (error) {
-				this._failedConnections[serverName] = (error as Error).message;
+				const errorMessage = (error as Error).message;
+				this._failedConnections[serverName] = errorMessage;
+				logger.error(`MCP server connection failed: ${serverName}`, {
+					source: 'tool',
+					projectId: this._projectId ?? undefined,
+					context: { serverName, error: errorMessage },
+				});
 			}
 		});
 
@@ -222,9 +237,18 @@ export class McpService {
 			throw new Error('Runtime not initialized');
 		}
 
-		return await this._runtime.callTool(serverName, removePrefixToolName(toolName), {
-			args: toolArgs,
-		});
+		try {
+			return await this._runtime.callTool(serverName, removePrefixToolName(toolName), {
+				args: toolArgs,
+			});
+		} catch (error) {
+			logger.error(`MCP tool call failed: ${toolName}`, {
+				source: 'tool',
+				projectId: this._projectId ?? undefined,
+				context: { serverName, toolName, error: String(error) },
+			});
+			throw error;
+		}
 	}
 
 	private async _cacheMcpState(): Promise<void> {
@@ -291,7 +315,11 @@ export class McpService {
 				}
 			});
 		} catch (error) {
-			console.error('[mcp] Failed to setup file watcher:', error);
+			logger.error(`MCP file watcher setup failed: ${String(error)}`, {
+				source: 'tool',
+				projectId: this._projectId ?? undefined,
+				context: { path: this._mcpJsonFilePath, error: String(error) },
+			});
 		}
 	}
 }

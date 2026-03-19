@@ -99,6 +99,7 @@ jobs:
                           -e "GITHUB_CLIENT_SECRET=${{ secrets.PREVIEW_GITHUB_CLIENT_SECRET }}" \
                           -e "GITHUB_ALLOWED_USERS=${{ secrets.PREVIEW_GITHUB_ALLOWED_USERS }},${{ github.event.pull_request.user.login }}" \
                           -e "DEFAULT_USER_ROLE=admin" \
+                          -e "NOTION_API_KEY=something-random" \
                           -e "OPENAI_API_KEY=${{ secrets.PREVIEW_OPENAI_API_KEY }}" \
                           "$PREVIEW_IMAGE"
 

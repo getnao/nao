@@ -14,6 +14,7 @@ import { get as getUser } from '../queries/user.queries';
 import { UIChat, UIMessage, UIMessagePart } from '../types/chat';
 import { ConversationContext, StreamState, ToolCallEntry } from '../types/messaging-provider';
 import { createChatTitle } from '../utils/ai';
+import { logger } from '../utils/logger';
 import {
 	createCompletionCard,
 	createFeedbackModal,
@@ -378,7 +379,10 @@ class SlackService {
 			ctx.blocks.push(createImageBlock(imageUrl));
 			await ctx.convMessage?.edit(Card({ children: ctx.blocks }));
 		} catch (error) {
-			console.error('Error generating chart image:', error);
+			logger.error(`Chart image generation failed: ${String(error)}`, {
+				source: 'system',
+				context: { chatId: ctx.chatId, toolCallId: part.toolCallId },
+			});
 		}
 	}
 

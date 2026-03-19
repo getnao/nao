@@ -23,6 +23,7 @@ export const MEMORY_TOKEN_LIMIT = 1000;
 
 export function SystemPrompt({ memories = [], userRules, connections = [], skills = [], timezone }: SystemPromptProps) {
 	const visibleMemories = getMemoriesInTokenRange(memories, MEMORY_TOKEN_LIMIT);
+	const hasClickHouse = connections.some((connection) => connection.type.toLowerCase() === 'clickhouse');
 
 	return (
 		<Block>
@@ -90,6 +91,12 @@ export function SystemPrompt({ memories = [], userRules, connections = [], skill
 					(e.g. YYYY-MM-DD). Use "category" for quarter labels (quarter_ending), fiscal periods (FY25-Q1), or
 					any non-ISO-date strings.
 				</ListItem>
+				{hasClickHouse && (
+					<ListItem>
+						When available, use indexes.md to see how the table is ordered and indexed (ORDER BY, PRIMARY
+						KEY, PARTITION BY) so you can write efficient queries.
+					</ListItem>
+				)}
 			</List>
 			<Title level={2}>SQL Query Rules</Title>
 			<List>

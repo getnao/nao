@@ -4,6 +4,7 @@ import matter from 'gray-matter';
 import { join, relative } from 'path';
 
 import * as projectQueries from '../queries/project.queries';
+import { logger } from '../utils/logger';
 
 export interface Skill {
 	name: string;
@@ -43,13 +44,13 @@ class SkillService {
 	public loadSkills(): void {
 		try {
 			if (!existsSync(this._skillsFolderPath)) {
-				console.warn(`[skills] Folder not found: ${this._skillsFolderPath}`);
+				logger.warn(`Skills folder not found: ${this._skillsFolderPath}`, { source: 'agent' });
 				this._skills = [];
 				return;
 			}
 
 			if (!statSync(this._skillsFolderPath).isDirectory()) {
-				console.error(`[skills] Path is not a directory: ${this._skillsFolderPath}`);
+				logger.error(`Skills path is not a directory: ${this._skillsFolderPath}`, { source: 'agent' });
 				this._skills = [];
 				return;
 			}
@@ -57,7 +58,7 @@ class SkillService {
 			const files = readdirSync(this._skillsFolderPath).filter((f) => f.endsWith('.md'));
 			this._readSkills(files);
 		} catch (error) {
-			console.error('[skills] Failed to load skills:', error);
+			logger.error(`Failed to load skills: ${String(error)}`, { source: 'agent' });
 			this._skills = [];
 		}
 	}
@@ -75,7 +76,7 @@ class SkillService {
 		try {
 			return readFileSync(join(this._projectPath, skill.location), 'utf8');
 		} catch (error) {
-			console.error(`[skills] Failed to read skill content for ${skillName}:`, error);
+			logger.error(`Failed to read skill content for ${skillName}: ${String(error)}`, { source: 'agent' });
 			return null;
 		}
 	}
@@ -107,7 +108,7 @@ class SkillService {
 				}
 			});
 		} catch (error) {
-			console.error('[skills] Failed to setup file watcher:', error);
+			logger.error(`Skills file watcher setup failed: ${String(error)}`, { source: 'agent' });
 		}
 	}
 }

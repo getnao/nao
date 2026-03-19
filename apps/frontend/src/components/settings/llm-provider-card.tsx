@@ -1,5 +1,5 @@
 import { Pencil, Trash2 } from 'lucide-react';
-import { getDefaultModelId, getProviderAuth } from '@nao/backend/providers';
+import { getDefaultModelId, getProviderAuth } from '@nao/backend/provider-meta';
 import { LlmProviderIcon } from '../ui/llm-provider-icon';
 import type { LlmProvider } from '@nao/backend/llm';
 import { Button } from '@/components/ui/button';

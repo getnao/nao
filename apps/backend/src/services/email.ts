@@ -7,6 +7,7 @@ import { SharedStory } from '../components/email/shared-story';
 import { UserAddedToProject } from '../components/email/user-added-to-project';
 import { env } from '../env';
 import type { CreatedEmail, SendEmail } from '../types/email';
+import { logger } from '../utils/logger';
 
 class EmailService {
 	private transporter: Transporter | undefined = undefined;
@@ -36,7 +37,7 @@ class EmailService {
 
 			this.enabled = true;
 		} catch (error) {
-			console.error('❌ Failed to initialize email transporter:', error);
+			logger.error(`Failed to initialize email transporter: ${String(error)}`, { source: 'system' });
 			this.enabled = false;
 		}
 	}
@@ -63,7 +64,10 @@ class EmailService {
 				html: email.html,
 			});
 		} catch (error) {
-			console.error(`❌ Failed to send email to ${params.user.email}:`, error);
+			logger.error(`Failed to send email to ${params.user.email}: ${String(error)}`, {
+				source: 'system',
+				context: { email: params.user.email, type: params.type },
+			});
 		}
 	}
 

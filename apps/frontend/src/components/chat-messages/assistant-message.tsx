@@ -6,7 +6,7 @@ import { ToolCallsGroup } from '@/components/tool-calls/tool-calls-group';
 import { ToolCall } from '@/components/tool-calls';
 import { AssistantReasoning } from '@/components/chat-messages/assistant-reasoning';
 import { AssistantCompaction } from '@/components/chat-messages/assistant-compaction';
-import { AssistantText } from '@/components/chat-messages/citation-text';
+import { AssistantTextWithCitation } from '@/components/chat-messages/citation-text';
 import { TextShimmer } from '@/components/ui/text-shimmer';
 import { AssistantMessageActions } from '@/components/chat-messages/assistant-message-actions';
 import { cn, isLast } from '@/lib/utils';
@@ -81,7 +81,7 @@ export const MessagePart = memo(({ part, isPartSettled }: { part: GroupedMessage
 
 	switch (part.type) {
 		case 'text':
-			return <AssistantText text={part.text} isStreaming={isPartStreaming} />;
+			return <AssistantTextWithCitation text={part.text} isStreaming={isPartStreaming} />;
 		case 'reasoning':
 			return <AssistantReasoning text={part.text} isStreaming={isPartStreaming} />;
 		case 'data-compaction':

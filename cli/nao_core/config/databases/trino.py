@@ -1,11 +1,14 @@
-from typing import Literal
+from __future__ import annotations
 
-import ibis
-from ibis import BaseBackend
+from typing import TYPE_CHECKING, Literal
+
 from pydantic import Field
 
 from nao_core.config.exceptions import InitError
 from nao_core.ui import ask_text
+
+if TYPE_CHECKING:
+    from ibis import BaseBackend
 
 from .base import DatabaseConfig
 from .context import DatabaseContext
@@ -98,6 +101,11 @@ class TrinoConfig(DatabaseConfig):
 
     def connect(self) -> BaseBackend:
         """Create an Ibis Trino connection."""
+        from nao_core.deps import require_database_backend
+
+        require_database_backend("trino")
+        import ibis
+
         kwargs: dict = {
             "host": self.host,
             "port": self.port,

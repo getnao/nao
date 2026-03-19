@@ -2,8 +2,6 @@ import re
 from pathlib import Path
 from typing import Any, cast
 
-from notion2md.exporter.block import StringExporter
-from notion_client import Client
 from rich.console import Console
 from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn
 
@@ -67,7 +65,7 @@ def extract_page_id(page_url: str) -> str:
     raise ValueError(f"Could not extract Notion page ID from: {page_url}")
 
 
-def get_page_title(client: Client, page_id: str) -> str:
+def get_page_title(client: Any, page_id: str) -> str:
     """Get the title of a Notion page."""
     page = cast(dict[str, Any], client.pages.retrieve(page_id=page_id))
     properties = page.get("properties", {})
@@ -91,9 +89,16 @@ def get_page_as_markdown(page_url: str, api_key: str) -> tuple[str, str]:
     Returns:
         Tuple of (title, markdown_content)
     """
+    from nao_core.deps import require_dependency
+
+    require_dependency("notion_client", "notion", "for Notion integration")
+    require_dependency("notion2md", "notion", "for Notion integration")
+
+    from notion2md.exporter.block import StringExporter
+    from notion_client import Client
+
     page_id = extract_page_id(page_url)
 
-    # Get page title for the filename
     client = Client(auth=api_key)
     title = get_page_title(client, page_id)
 

@@ -10,7 +10,7 @@ function stripClobberPrefix(value: string): string {
 	return value.startsWith(CLOBBER_PREFIX) ? value.slice(CLOBBER_PREFIX.length) : value;
 }
 
-export const AssistantText = memo(({ text, isStreaming }: { text: string; isStreaming: boolean }) => {
+export const AssistantTextWithCitation = memo(({ text, isStreaming }: { text: string; isStreaming: boolean }) => {
 	if (isStreaming) {
 		const strippedText = text.replace(CITATION_TAG_REGEX, '');
 		return (

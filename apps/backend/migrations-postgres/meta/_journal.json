@@ -183,6 +183,13 @@
       "when": 1773740178731,
       "tag": "0025_archive_stories",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1773740178800,
+      "tag": "0026_add_log_table",
+      "breakpoints": true
     }
   ]
 }

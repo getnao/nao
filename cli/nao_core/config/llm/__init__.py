@@ -18,6 +18,7 @@ class LLMProvider(str, Enum):
     OPENROUTER = "openrouter"
     OLLAMA = "ollama"
     BEDROCK = "bedrock"
+    VERTEX = "vertex"
 
 
 @dataclass(frozen=True)
@@ -54,6 +55,15 @@ PROVIDER_AUTH: dict[LLMProvider, ProviderAuthConfig] = {
         alternative_env_vars=("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"),
         hint="Optional — uses AWS credentials from environment if not provided",
     ),
+    LLMProvider.VERTEX: ProviderAuthConfig(
+        env_var="VERTEX_GOOGLE_SERVICE_ACCOUNT_JSON",
+        api_key="none",
+        alternative_env_vars=(
+            "GOOGLE_VERTEX_PROJECT",
+            "GOOGLE_VERTEX_LOCATION",
+            "VERTEX_GOOGLE_APPLICATION_CREDENTIALS",
+        ),
+    ),
 }
 
 
@@ -65,6 +75,7 @@ DEFAULT_ANNOTATION_MODELS: dict[LLMProvider, str] = {
     LLMProvider.OPENROUTER: "openai/gpt-4.1-mini",
     LLMProvider.OLLAMA: "llama3.2",
     LLMProvider.BEDROCK: "anthropic.claude-3-5-sonnet-20241022-v2:0",
+    LLMProvider.VERTEX: "gemini-2.5-flash",
 }
 
 
@@ -77,6 +88,10 @@ class LLMConfig(BaseModel):
     access_key: str | None = Field(default=None, description="AWS access key (only for Bedrock)")
     secret_key: str | None = Field(default=None, description="AWS secret key (only for Bedrock)")
     aws_region: str | None = Field(default=None, description="AWS region (only for Bedrock)")
+    gcp_project: str | None = Field(default=None, description="GCP project ID (only for Vertex)")
+    gcp_location: str | None = Field(default=None, description="GCP location (only for Vertex)")
+    service_account_json: str | None = Field(default=None, description="Service account JSON (only for Vertex)")
+    key_file: str | None = Field(default=None, description="Path to service account key file (only for Vertex)")
     annotation_model: str | None = Field(
         default=None,
         description="Model to use for ai_summary generation via prompt(...) in Jinja templates",
@@ -84,7 +99,7 @@ class LLMConfig(BaseModel):
 
     @property
     def requires_api_key(self) -> bool:
-        return self.provider not in (LLMProvider.OLLAMA, LLMProvider.BEDROCK)
+        return self.provider not in (LLMProvider.OLLAMA, LLMProvider.BEDROCK, LLMProvider.VERTEX)
 
     def get_effective_api_key_for_env(self) -> str | None:
         """Return the API key value to export via environment variables."""
@@ -117,6 +132,7 @@ class LLMConfig(BaseModel):
             questionary.Choice("OpenRouter (Kimi, DeepSeek, etc.)", value="openrouter"),
             questionary.Choice("Ollama", value="ollama"),
             questionary.Choice("AWS Bedrock (Claude, Nova, etc)", value="bedrock"),
+            questionary.Choice("Google Vertex AI (Claude, Gemini)", value="vertex"),
         ]
 
         llm_provider = ask_select("Select LLM provider:", choices=provider_choices)
@@ -125,6 +141,10 @@ class LLMConfig(BaseModel):
         access_key = None
         secret_key = None
         aws_region = None
+        gcp_project = None
+        gcp_location = None
+        service_account_json = None
+        key_file = None
 
         if auth.api_key == "required":
             api_key = ask_text(f"Enter your {llm_provider.upper()} API key:", password=True, required_field=True)
@@ -143,6 +163,21 @@ class LLMConfig(BaseModel):
             elif bedrock_auth_mode == "bearer":
                 api_key = ask_text("Enter AWS bearer token:", password=True, required_field=True)
             aws_region = ask_text("Enter AWS region (e.g. us-east-1):", password=False, required_field=False)
+        elif llm_provider == "vertex":
+            gcp_project = ask_text("Enter GCP project ID:", password=False, required_field=True)
+            gcp_location = ask_text("Enter GCP location (e.g. us-east5):", password=False, required_field=False)
+            vertex_auth_mode = ask_select(
+                "Select Vertex AI authentication mode:",
+                choices=[
+                    questionary.Choice("Application Default Credentials (gcloud auth)", value="adc"),
+                    questionary.Choice("Service account JSON (paste inline)", value="json"),
+                    questionary.Choice("Key file path", value="file"),
+                ],
+            )
+            if vertex_auth_mode == "json":
+                service_account_json = ask_text("Paste service account JSON:", password=True, required_field=True)
+            elif vertex_auth_mode == "file":
+                key_file = ask_text("Enter path to service account key file:", password=False, required_field=True)
 
         provider = LLMProvider(llm_provider)
         annotation_model: str | None = None
@@ -158,6 +193,10 @@ class LLMConfig(BaseModel):
             access_key=access_key,
             secret_key=secret_key,
             aws_region=aws_region or None,
+            gcp_project=gcp_project or None,
+            gcp_location=gcp_location or None,
+            service_account_json=service_account_json or None,
+            key_file=key_file or None,
             annotation_model=annotation_model,
         )
 

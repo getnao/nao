@@ -20,6 +20,8 @@ import { posthog, PostHogEvent } from './services/posthog';
 import { TrpcRouter, trpcRouter } from './trpc/router';
 import { createContext } from './trpc/trpc';
 import { HandlerError } from './utils/error';
+import { startLogCleanup } from './utils/log-cleanup';
+import { logger } from './utils/logger';
 
 // Get the directory of the current module (works in both dev and compiled)
 const __filename = fileURLToPath(import.meta.url);
@@ -53,11 +55,37 @@ app.setValidatorCompiler(validatorCompiler);
 app.setSerializerCompiler(serializerCompiler);
 
 // Map HandlerError to HTTP status code
-app.setErrorHandler((error, _request, reply) => {
+app.setErrorHandler((error, request, reply) => {
+	const message = error instanceof Error ? error.message : String(error);
+	const statusCode =
+		typeof (error as Record<string, unknown>).statusCode === 'number'
+			? (error as Record<string, unknown>).statusCode
+			: undefined;
+	logger.error(message, {
+		source: 'http',
+		context: { method: request.method, url: request.url, statusCode },
+	});
 	if (error instanceof HandlerError) {
 		return reply.status(error.code).send({ error: error.message });
 	}
 	throw error;
+});
+
+// Log HTTP requests to the database (skip log-polling to avoid self-referential noise)
+app.addHook('onResponse', (request, reply, done) => {
+	if (request.url.includes('log.getLogs')) {
+		done();
+		return;
+	}
+	if (reply.statusCode >= 400) {
+		done();
+		return;
+	}
+	logger.info(`${request.method} ${request.url} ${reply.statusCode}`, {
+		source: 'http',
+		context: { method: request.method, url: request.url, statusCode: reply.statusCode, elapsed: reply.elapsedTime },
+	});
+	done();
 });
 
 // Register raw body plugin for Slack signature verification
@@ -77,7 +105,10 @@ app.register(fastifyTRPCPlugin, {
 		router: trpcRouter,
 		createContext,
 		onError({ path, error }) {
-			console.error(`Error in tRPC handler on path '${path}':\n`, error);
+			logger.error(`tRPC error on ${path}: ${error.message}`, {
+				source: 'http',
+				context: { path, code: error.code },
+			});
 		},
 	} satisfies FastifyTRPCPluginOptions<TrpcRouter>['trpcOptions'],
 });
@@ -145,6 +176,7 @@ if (staticRoot) {
 
 export const startServer = async (opts: { port: number; host: string }) => {
 	await ensureOrganizationSetup();
+	startLogCleanup();
 
 	const address = await app.listen({ host: opts.host, port: opts.port });
 	app.log.info(`Server is running on ${address}`);

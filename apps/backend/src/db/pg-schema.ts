@@ -1,4 +1,4 @@
-import { USER_ROLES } from '@nao/shared';
+import { USER_ROLES } from '@nao/shared/types';
 import { type ProviderMetadata } from 'ai';
 import { sql } from 'drizzle-orm';
 import {
@@ -17,6 +17,7 @@ import {
 import { AgentSettings } from '../types/agent-settings';
 import { StopReason, ToolState, UIMessagePartType } from '../types/chat';
 import { LLM_INFERENCE_TYPES, LlmProvider } from '../types/llm';
+import { LOG_LEVELS, LOG_SOURCES } from '../types/log';
 import { MEMORY_CATEGORIES } from '../types/memory';
 import { SlackSettings, TeamsSettings } from '../types/messaging-provider';
 import { ORG_ROLES } from '../types/organization';
@@ -487,3 +488,23 @@ export const message_part_chart_image = pgTable('chart_image', {
 	data: text('data').notNull(),
 	createdAt: timestamp('created_at').defaultNow().notNull(),
 });
+
+export const log = pgTable(
+	'log',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		level: text('level', { enum: LOG_LEVELS }).notNull(),
+		message: text('message').notNull(),
+		context: jsonb('context').$type<Record<string, unknown>>(),
+		source: text('source', { enum: LOG_SOURCES }).notNull(),
+		projectId: text('project_id').references(() => project.id, { onDelete: 'cascade' }),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+	},
+	(t) => [
+		index('log_createdAt_idx').on(t.createdAt),
+		index('log_level_idx').on(t.level),
+		index('log_projectId_idx').on(t.projectId),
+	],
+);

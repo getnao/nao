@@ -1,10 +1,12 @@
 """Base database context exposing methods available in templates during sync."""
 
-from datetime import date, datetime, timezone
-from typing import Any
+from __future__ import annotations
 
-from dateutil.parser import parse
-from ibis import BaseBackend
+from datetime import date, datetime, timezone
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from ibis import BaseBackend
 
 
 class DatabaseContext:
@@ -83,6 +85,12 @@ class DatabaseContext:
 
     def description(self) -> str | None:
         """Return the table description if available."""
+        return None
+
+    def indexes(self) -> str | None:
+        """Return index/ordering key information if available (e.g. ORDER BY, PRIMARY KEY, indexes).
+        Used by table metadata templates so the agent knows how the table is indexed for querying.
+        """
         return None
 
     def profiling(self) -> dict[str, Any] | None:
@@ -267,6 +275,8 @@ class DatabaseContext:
         if isinstance(val, date):
             return f"{val.isoformat()} 00:00:00"
         try:
+            from dateutil.parser import parse
+
             return parse(str(val)).isoformat()
         except Exception:
             return str(val)

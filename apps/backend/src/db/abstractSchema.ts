@@ -59,4 +59,7 @@ export type NewStoryVersion = typeof sqliteSchema.storyVersion.$inferInsert;
 export type DBLlmInference = typeof sqliteSchema.llmInference.$inferSelect;
 export type NewLlmInference = typeof sqliteSchema.llmInference.$inferInsert;
 
+export type DBLog = typeof sqliteSchema.log.$inferSelect;
+export type NewLog = typeof sqliteSchema.log.$inferInsert;
+
 export default allSchema as typeof sqliteSchema;

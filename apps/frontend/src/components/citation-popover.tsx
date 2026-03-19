@@ -2,7 +2,7 @@ import { memo, useCallback, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowUpRight } from 'lucide-react';
 import type { CitationPayload, ColumnLineageNode } from '@nao/shared';
-import { truncateLines, cn } from '@/lib/utils';
+import { cn } from '@/lib/utils';
 import { formatSQL } from '@/lib/sql-formatter';
 import { trpc } from '@/main';
 import { useSidePanel } from '@/contexts/side-panel';
@@ -92,9 +92,14 @@ const PopoverContent = memo(
 								<ArrowUpRight className='size-3.5' />
 							</button>
 						</div>
-						<pre className='overflow-hidden rounded bg-muted p-2 font-mono text-[11px] whitespace-pre-wrap'>
-							{truncateLines(data.sql_query, 5)}
-						</pre>
+						<details className='rounded bg-muted text-[11px]'>
+							<summary className='cursor-pointer select-none px-2 py-1.5 font-medium text-muted-foreground hover:text-foreground'>
+								Show query
+							</summary>
+							<pre className='overflow-auto px-2 pb-2 font-mono whitespace-pre-wrap'>
+								{data.sql_query}
+							</pre>
+						</details>
 						<CitationSection title='Database Origin'>
 							<p className='font-mono'>{data.database_id}</p>
 						</CitationSection>

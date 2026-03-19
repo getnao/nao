@@ -1,13 +1,15 @@
+from __future__ import annotations
+
 import logging
 import os
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
-import certifi
-import ibis
-from ibis import BaseBackend
 from pydantic import Field
 
 from nao_core.ui import ask_text
+
+if TYPE_CHECKING:
+    from ibis import BaseBackend
 
 from .base import DatabaseConfig
 from .context import DatabaseContext
@@ -85,10 +87,15 @@ def _get_databricks_partition_columns(conn: BaseBackend, schema: str, table: str
     return [row[0] for row in result]
 
 
-# Ensure Python uses certifi's CA bundle for SSL verification.
-# This fixes "certificate verify failed" errors when Python's default CA path is empty.
-os.environ.setdefault("SSL_CERT_FILE", certifi.where())
-os.environ.setdefault("REQUESTS_CA_BUNDLE", certifi.where())
+def _ensure_ssl_cert_env() -> None:
+    """Ensure Python uses certifi's CA bundle for SSL verification."""
+    try:
+        import certifi
+
+        os.environ.setdefault("SSL_CERT_FILE", certifi.where())
+        os.environ.setdefault("REQUESTS_CA_BUNDLE", certifi.where())
+    except ImportError:
+        pass
 
 
 class DatabricksConfig(DatabaseConfig):
@@ -125,6 +132,12 @@ class DatabricksConfig(DatabaseConfig):
 
     def connect(self) -> BaseBackend:
         """Create an Ibis Databricks connection."""
+        from nao_core.deps import require_database_backend
+
+        require_database_backend("databricks")
+        _ensure_ssl_cert_env()
+        import ibis
+
         kwargs: dict = {
             "server_hostname": self.server_hostname,
             "http_path": self.http_path,

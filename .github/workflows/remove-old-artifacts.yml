@@ -4,6 +4,7 @@ on:
     schedule:
         # Every day at 1am
         - cron: '0 1 * * *'
+    workflow_dispatch:
 
 jobs:
     remove-old-artifacts:
@@ -18,6 +19,69 @@ jobs:
               uses: c-hive/gha-remove-artifacts@v1
               with:
                   age: '5 days'
+
+    cleanup-pr-previews:
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+
+        permissions:
+            pull-requests: read
+
+        steps:
+            - name: Get open PR numbers
+              id: open-prs
+              uses: actions/github-script@v7
+              with:
+                  script: |
+                      const prs = await github.paginate(github.rest.pulls.list, {
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          state: 'open',
+                      });
+                      const numbers = prs.map(pr => pr.number);
+                      core.setOutput('numbers', numbers.join(','));
+                      console.log(`Open PRs: ${numbers.join(', ') || 'none'}`);
+
+            - name: Cleanup stale preview deployments
+              uses: appleboy/ssh-action@master
+              with:
+                  host: ${{ secrets.VM_HOST }}
+                  username: github-actions-demo
+                  key: ${{ secrets.PRIVATE_KEY }}
+                  script: |
+                      OPEN_PRS="${{ steps.open-prs.outputs.numbers }}"
+
+                      CONTAINERS=$(docker ps -a --filter "name=nao-preview-" --format "{{.Names}}" 2>/dev/null || true)
+
+                      if [ -z "$CONTAINERS" ]; then
+                          echo "No preview containers found"
+                          exit 0
+                      fi
+
+                      CLEANED=0
+                      for CONTAINER in $CONTAINERS; do
+                          PR_NUMBER=$(echo "$CONTAINER" | sed 's/nao-preview-//')
+
+                          if echo ",$OPEN_PRS," | grep -q ",$PR_NUMBER,"; then
+                              echo "PR #${PR_NUMBER} is still open — keeping preview"
+                              continue
+                          fi
+
+                          echo "PR #${PR_NUMBER} is merged or closed — cleaning up..."
+
+                          docker rm -f "nao-preview-${PR_NUMBER}" 2>/dev/null || true
+                          rm -f /home/github-actions-demo/nginx/preview.d/pr-${PR_NUMBER}-*.conf
+                          docker images --format "{{.Repository}}:{{.Tag}}" | grep "preview:pr-${PR_NUMBER}" | xargs -r docker rmi 2>/dev/null || true
+
+                          CLEANED=$((CLEANED + 1))
+                      done
+
+                      if [ "$CLEANED" -gt 0 ]; then
+                          docker exec nginx nginx -s reload 2>/dev/null || true
+                          echo "Cleaned up $CLEANED stale preview(s)"
+                      else
+                          echo "No stale previews to clean up"
+                      fi
 
     cleanup-docker-images:
         runs-on: ubuntu-latest

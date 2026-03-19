@@ -113,6 +113,28 @@ def create_empty_structure(project_path: Path) -> tuple[list[str], list[CreatedF
     return created_folders, created_files
 
 
+def _install_with_progress(extras: list[str]) -> bool:
+    """Run the extras install with a Rich spinner. Returns True on success."""
+    from rich.console import Console
+    from rich.status import Status
+
+    from nao_core.deps import install_extras
+
+    console = Console()
+
+    with Status("[bold cyan]Installing dependencies…[/bold cyan]", console=console, spinner="dots"):
+        success = install_extras(extras)
+
+    if success:
+        UI.success("Dependencies installed successfully.")
+        return True
+
+    extras_str = ",".join(extras)
+    UI.error("Automatic installation failed.")
+    UI.print(f"Install manually with: [bold cyan]pip install 'nao-core[{extras_str}]'[/bold cyan]")
+    return False
+
+
 @track_command("init")
 def init(
     *,
@@ -144,13 +166,35 @@ def init(
             UI.success(f"Created project [cyan]{project_name}[/cyan]")
         UI.success(f"Saved [dim]{project_path / 'nao_config.yaml'}[/dim]")
         UI.print()
+
+        # Install missing optional dependencies inline
+        from nao_core.deps import get_missing_extras
+
+        missing = get_missing_extras(config)
+        deps_ready = not missing
+        if missing:
+            extras_label = ", ".join(missing)
+            UI.title("Installing provider dependencies")
+            UI.print(f"[dim]Extras: {extras_label}[/dim]\n")
+
+            if ask_confirm("Install the required provider dependencies now?", default=True):
+                UI.print()
+                deps_ready = _install_with_progress(missing)
+            else:
+                extras_str = ",".join(missing)
+                UI.print()
+                UI.warn("Skipped dependency installation.")
+                UI.print(
+                    f"You can install them later with: [bold cyan]pip install 'nao-core[{extras_str}]'[/bold cyan]"
+                )
+
+        UI.print()
         UI.print("[bold green]Done![/bold green] Your nao project is ready. 🎉")
 
         is_subfolder = project_path.resolve() != Path.cwd().resolve()
 
         has_connections = config.databases or config.llm
-        if has_connections:
-            # Change directory for the debug command to run in the right context
+        if has_connections and deps_ready:
             os.chdir(project_path)
             from nao_core.commands.debug import debug
 
