@@ -19,39 +19,41 @@ def _count(models) -> int:
 
 
 def _check_available_models(provider: str, api_key: str) -> Tuple[bool, str]:
+    from nao_core.deps import require_dependency
+
     if provider == "openai":
+        require_dependency("openai", "openai", "for OpenAI LLM provider")
         from openai import OpenAI
 
         client = OpenAI(api_key=api_key)
         models = client.models.list()
     elif provider == "anthropic":
+        require_dependency("anthropic", "anthropic", "for Anthropic LLM provider")
         from anthropic import Anthropic
 
         client = Anthropic(api_key=api_key)
         models = client.models.list()
     elif provider == "gemini":
+        require_dependency("google.genai", "gemini", "for Google Gemini LLM provider")
         from google import genai
 
         client = genai.Client(api_key=api_key)
         models = client.models.list()
     elif provider == "mistral":
+        require_dependency("mistralai", "mistral", "for Mistral LLM provider")
         from mistralai import Mistral
 
         client = Mistral(api_key=api_key)
         models = client.models.list()
     elif provider == "openrouter":
+        require_dependency("openai", "openai", "for OpenRouter LLM provider")
         from openai import OpenAI
 
         client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=api_key)
         models = client.models.list()
     elif provider == "ollama":
-        try:
-            import ollama
-        except ImportError:
-            return (
-                False,
-                "Provider 'ollama' requires the optional dependency 'ollama'. Install it to use this provider.",
-            )
+        require_dependency("ollama", "ollama", "for Ollama LLM provider")
+        import ollama
 
         models = ollama.list().models
     elif provider == "bedrock":

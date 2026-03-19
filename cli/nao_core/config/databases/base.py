@@ -3,12 +3,14 @@ from __future__ import annotations
 import fnmatch
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
-import pandas as pd
 import questionary
-from ibis import BaseBackend
 from pydantic import BaseModel, Field
+
+if TYPE_CHECKING:
+    import pandas as pd
+    from ibis import BaseBackend
 
 
 class DatabaseType(str, Enum):
@@ -107,6 +109,8 @@ class DatabaseConfig(BaseModel, ABC):
 
     def execute_sql(self, sql: str) -> pd.DataFrame:
         """Execute arbitrary SQL and return results as a DataFrame."""
+        import pandas as pd  # noqa: F811
+
         conn = self.connect()
         try:
             cursor = conn.raw_sql(sql)  # type: ignore[union-attr]

@@ -2177,81 +2177,174 @@ name = "nao-core"
 version = "0.0.36"
 source = { editable = "." }
 dependencies = [
-    { name = "anthropic" },
     { name = "apscheduler" },
-    { name = "azure-identity" },
     { name = "cryptography" },
     { name = "cyclopts" },
     { name = "dotenv" },
     { name = "fastapi" },
+    { name = "ibis-framework" },
+    { name = "jinja2" },
+    { name = "posthog" },
+    { name = "pydantic" },
+    { name = "pyngrok" },
+    { name = "pytest" },
+    { name = "python-dateutil" },
+    { name = "python-dotenv" },
+    { name = "pyyaml" },
+    { name = "questionary" },
+    { name = "rich" },
+    { name = "uvicorn" },
+]
+
+[package.optional-dependencies]
+all = [
+    { name = "anthropic" },
+    { name = "azure-identity" },
+    { name = "certifi" },
     { name = "google-genai" },
     { name = "ibis-framework", extra = ["athena", "bigquery", "clickhouse", "databricks", "duckdb", "mssql", "postgres", "snowflake", "trino"] },
-    { name = "jinja2" },
     { name = "mistralai" },
     { name = "notion-client" },
     { name = "notion2md" },
     { name = "ollama" },
     { name = "openai" },
-    { name = "posthog" },
-    { name = "pydantic" },
-    { name = "pyngrok" },
-    { name = "pytest" },
-    { name = "python-dotenv" },
-    { name = "pyyaml" },
-    { name = "questionary" },
-    { name = "rich" },
     { name = "snowflake-connector-python", extra = ["secure-local-storage"] },
     { name = "sshtunnel" },
-    { name = "uvicorn" },
 ]
-
-[package.optional-dependencies]
+all-databases = [
+    { name = "azure-identity" },
+    { name = "certifi" },
+    { name = "ibis-framework", extra = ["athena", "bigquery", "clickhouse", "databricks", "duckdb", "mssql", "postgres", "snowflake", "trino"] },
+    { name = "snowflake-connector-python", extra = ["secure-local-storage"] },
+    { name = "sshtunnel" },
+]
+all-llms = [
+    { name = "anthropic" },
+    { name = "google-genai" },
+    { name = "mistralai" },
+    { name = "ollama" },
+    { name = "openai" },
+]
+anthropic = [
+    { name = "anthropic" },
+]
+athena = [
+    { name = "ibis-framework", extra = ["athena"] },
+]
+bigquery = [
+    { name = "ibis-framework", extra = ["bigquery"] },
+]
+clickhouse = [
+    { name = "ibis-framework", extra = ["clickhouse"] },
+]
+databricks = [
+    { name = "certifi" },
+    { name = "ibis-framework", extra = ["databricks"] },
+]
 dev = [
     { name = "pytest-cov" },
     { name = "pytest-timeout" },
 ]
+duckdb = [
+    { name = "ibis-framework", extra = ["duckdb"] },
+]
+fabric = [
+    { name = "azure-identity" },
+    { name = "ibis-framework", extra = ["mssql"] },
+]
+gemini = [
+    { name = "google-genai" },
+]
+mistral = [
+    { name = "mistralai" },
+]
+mssql = [
+    { name = "ibis-framework", extra = ["mssql"] },
+]
+notion = [
+    { name = "notion-client" },
+    { name = "notion2md" },
+]
+ollama = [
+    { name = "ollama" },
+]
+openai = [
+    { name = "openai" },
+]
+postgres = [
+    { name = "ibis-framework", extra = ["postgres"] },
+]
+redshift = [
+    { name = "ibis-framework", extra = ["postgres"] },
+    { name = "sshtunnel" },
+]
+snowflake = [
+    { name = "ibis-framework", extra = ["snowflake"] },
+    { name = "snowflake-connector-python", extra = ["secure-local-storage"] },
+]
+trino = [
+    { name = "ibis-framework", extra = ["trino"] },
+]
 
 [package.dev-dependencies]
 dev = [
+    { name = "nao-core", extra = ["all"] },
     { name = "ruff" },
     { name = "ty" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "anthropic", specifier = ">=0.76.0" },
+    { name = "anthropic", marker = "extra == 'anthropic'", specifier = ">=0.76.0" },
     { name = "apscheduler", specifier = ">=3.10.0" },
-    { name = "azure-identity", specifier = ">=1.19.0" },
+    { name = "azure-identity", marker = "extra == 'fabric'", specifier = ">=1.19.0" },
+    { name = "certifi", marker = "extra == 'databricks'", specifier = ">=2024.0.0" },
     { name = "cryptography", specifier = ">=46.0.3" },
     { name = "cyclopts", specifier = ">=4.4.4" },
     { name = "dotenv", specifier = ">=0.9.9" },
     { name = "fastapi", specifier = ">=0.128.0" },
-    { name = "google-genai", specifier = ">=1.61.0" },
-    { name = "ibis-framework", extras = ["bigquery", "clickhouse", "duckdb", "databricks", "mssql", "snowflake", "postgres", "athena", "trino"], specifier = ">=9.0.0" },
+    { name = "google-genai", marker = "extra == 'gemini'", specifier = ">=1.61.0" },
+    { name = "ibis-framework", specifier = ">=9.0.0" },
+    { name = "ibis-framework", extras = ["athena"], marker = "extra == 'athena'", specifier = ">=9.0.0" },
+    { name = "ibis-framework", extras = ["bigquery"], marker = "extra == 'bigquery'", specifier = ">=9.0.0" },
+    { name = "ibis-framework", extras = ["clickhouse"], marker = "extra == 'clickhouse'", specifier = ">=9.0.0" },
+    { name = "ibis-framework", extras = ["databricks"], marker = "extra == 'databricks'", specifier = ">=9.0.0" },
+    { name = "ibis-framework", extras = ["duckdb"], marker = "extra == 'duckdb'", specifier = ">=9.0.0" },
+    { name = "ibis-framework", extras = ["mssql"], marker = "extra == 'fabric'", specifier = ">=9.0.0" },
+    { name = "ibis-framework", extras = ["mssql"], marker = "extra == 'mssql'", specifier = ">=9.0.0" },
+    { name = "ibis-framework", extras = ["postgres"], marker = "extra == 'postgres'", specifier = ">=9.0.0" },
+    { name = "ibis-framework", extras = ["postgres"], marker = "extra == 'redshift'", specifier = ">=9.0.0" },
+    { name = "ibis-framework", extras = ["snowflake"], marker = "extra == 'snowflake'", specifier = ">=9.0.0" },
+    { name = "ibis-framework", extras = ["trino"], marker = "extra == 'trino'", specifier = ">=9.0.0" },
     { name = "jinja2", specifier = ">=3.1.0" },
-    { name = "mistralai", specifier = ">=1.11.1" },
-    { name = "notion-client", specifier = ">=2.7.0" },
-    { name = "notion2md", specifier = ">=2.9.0" },
-    { name = "ollama", specifier = ">=0.4.0" },
-    { name = "openai", specifier = ">=1.0.0" },
+    { name = "mistralai", marker = "extra == 'mistral'", specifier = ">=1.11.1" },
+    { name = "nao-core", extras = ["all-databases", "all-llms", "notion"], marker = "extra == 'all'" },
+    { name = "nao-core", extras = ["openai", "anthropic", "mistral", "gemini", "ollama"], marker = "extra == 'all-llms'" },
+    { name = "nao-core", extras = ["postgres", "bigquery", "snowflake", "duckdb", "clickhouse", "databricks", "mssql", "athena", "trino", "redshift", "fabric"], marker = "extra == 'all-databases'" },
+    { name = "notion-client", marker = "extra == 'notion'", specifier = ">=2.7.0" },
+    { name = "notion2md", marker = "extra == 'notion'", specifier = ">=2.9.0" },
+    { name = "ollama", marker = "extra == 'ollama'", specifier = ">=0.4.0" },
+    { name = "openai", marker = "extra == 'openai'", specifier = ">=1.0.0" },
     { name = "posthog", specifier = ">=7.8.0" },
     { name = "pydantic", specifier = ">=2.10.0" },
     { name = "pyngrok", specifier = ">=7.0.0" },
     { name = "pytest", specifier = ">=9.0.2" },
     { name = "pytest-cov", marker = "extra == 'dev'" },
     { name = "pytest-timeout", marker = "extra == 'dev'", specifier = ">=2.3.0" },
+    { name = "python-dateutil", specifier = ">=2.8.0" },
     { name = "python-dotenv", specifier = ">=1.2.1" },
     { name = "pyyaml", specifier = ">=6.0.0" },
     { name = "questionary", specifier = ">=2.1.0" },
     { name = "rich", specifier = ">=14.0.0" },
-    { name = "snowflake-connector-python", extras = ["secure-local-storage"], specifier = ">=4.2.0" },
-    { name = "sshtunnel", specifier = ">=0.4.0" },
+    { name = "snowflake-connector-python", extras = ["secure-local-storage"], marker = "extra == 'snowflake'", specifier = ">=4.2.0" },
+    { name = "sshtunnel", marker = "extra == 'redshift'", specifier = ">=0.4.0" },
     { name = "uvicorn", specifier = ">=0.40.0" },
 ]
-provides-extras = ["dev"]
+provides-extras = ["postgres", "bigquery", "snowflake", "duckdb", "clickhouse", "databricks", "mssql", "athena", "trino", "redshift", "fabric", "openai", "anthropic", "mistral", "gemini", "ollama", "notion", "all-databases", "all-llms", "all", "dev"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "nao-core", extras = ["all"] },
     { name = "ruff", specifier = ">=0.8.0" },
     { name = "ty", specifier = ">=0.0.9" },
 ]

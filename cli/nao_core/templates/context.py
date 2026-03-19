@@ -29,6 +29,11 @@ class NotionPage:
     def _load(self) -> dict[str, Any]:
         """Lazily load page data from Notion API."""
         if self._data is None:
+            from nao_core.deps import require_dependency
+
+            require_dependency("notion_client", "notion", "for Notion integration")
+            require_dependency("notion2md", "notion", "for Notion integration")
+
             from notion2md.exporter.block import StringExporter
             from notion_client import Client
 

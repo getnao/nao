@@ -26,8 +26,7 @@ dependencies = [
     "pydantic>=2.10.0",
     "pyyaml>=6.0.0",
     "rich>=14.0.0",
-    "ibis-framework[bigquery,clickhouse,duckdb,databricks,mssql,snowflake,postgres,athena,trino]>=9.0.0",
-    "openai>=1.0.0",
+    "ibis-framework>=9.0.0",
     "fastapi>=0.128.0",
     "uvicorn>=0.40.0",
     "cryptography>=46.0.3",
@@ -36,21 +35,42 @@ dependencies = [
     "python-dotenv>=1.2.1",
     "jinja2>=3.1.0",
     "apscheduler>=3.10.0",
-    "anthropic>=0.76.0",
-    "notion-client>=2.7.0",
-    "notion2md>=2.9.0",
     "questionary>=2.1.0",
     "posthog>=7.8.0",
-    "mistralai>=1.11.1",
-    "google-genai>=1.61.0",
-    "azure-identity>=1.19.0",
-    "sshtunnel>=0.4.0",
-    "snowflake-connector-python[secure-local-storage]>=4.2.0",
-    "ollama>=0.4.0",
     "pyngrok>=7.0.0",
+    "python-dateutil>=2.8.0",
 ]
 
 [project.optional-dependencies]
+# Database backends
+postgres = ["ibis-framework[postgres]>=9.0.0"]
+bigquery = ["ibis-framework[bigquery]>=9.0.0"]
+snowflake = ["ibis-framework[snowflake]>=9.0.0", "snowflake-connector-python[secure-local-storage]>=4.2.0"]
+duckdb = ["ibis-framework[duckdb]>=9.0.0"]
+clickhouse = ["ibis-framework[clickhouse]>=9.0.0"]
+databricks = ["ibis-framework[databricks]>=9.0.0", "certifi>=2024.0.0"]
+mssql = ["ibis-framework[mssql]>=9.0.0"]
+athena = ["ibis-framework[athena]>=9.0.0"]
+trino = ["ibis-framework[trino]>=9.0.0"]
+redshift = ["ibis-framework[postgres]>=9.0.0", "sshtunnel>=0.4.0"]
+fabric = ["ibis-framework[mssql]>=9.0.0", "azure-identity>=1.19.0"]
+
+# LLM providers
+openai = ["openai>=1.0.0"]
+anthropic = ["anthropic>=0.76.0"]
+mistral = ["mistralai>=1.11.1"]
+gemini = ["google-genai>=1.61.0"]
+ollama = ["ollama>=0.4.0"]
+
+# Integrations
+notion = ["notion-client>=2.7.0", "notion2md>=2.9.0"]
+
+# Convenience groups
+all-databases = [
+    "nao-core[postgres,bigquery,snowflake,duckdb,clickhouse,databricks,mssql,athena,trino,redshift,fabric]",
+]
+all-llms = ["nao-core[openai,anthropic,mistral,gemini,ollama]"]
+all = ["nao-core[all-databases,all-llms,notion]"]
 dev = ["pytest-cov", "pytest-timeout>=2.3.0"]
 
 [project.scripts]
@@ -61,7 +81,7 @@ Homepage = "https://getnao.io"
 Repository = "https://github.com/naolabs/chat"
 
 [dependency-groups]
-dev = ["ruff>=0.8.0", "ty>=0.0.9"]
+dev = ["ruff>=0.8.0", "ty>=0.0.9", "nao-core[all]"]
 
 [build-system]
 requires = ["hatchling"]
