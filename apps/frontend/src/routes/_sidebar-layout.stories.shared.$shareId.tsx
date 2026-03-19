@@ -59,9 +59,7 @@ function SharedStoryPage() {
 								</div>
 							</TooltipTrigger>
 							<TooltipContent>
-								{cachedAt
-									? `Data cached ${cachedAt.toLocaleString()}`
-									: 'Live story with fresh data'}
+								{cachedAt ? `Data cached ${cachedAt.toLocaleString()}` : 'Live story with fresh data'}
 							</TooltipContent>
 						</Tooltip>
 						<Tooltip>

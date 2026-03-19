@@ -16,7 +16,6 @@ import {
 	RefreshCw,
 	Save,
 	RotateCcw,
-	Settings,
 	Share,
 	X,
 } from 'lucide-react';
@@ -380,11 +379,7 @@ const StoryHeader = memo(function StoryHeader({
 						disabled={isAgentRunning}
 						aria-label='Live settings'
 					>
-						{isLive ? (
-							<Activity className='size-3 text-emerald-600' />
-						) : (
-							<Activity className='size-3' />
-						)}
+						{isLive ? <Activity className='size-3 text-emerald-600' /> : <Activity className='size-3' />}
 					</Button>
 				</TooltipTrigger>
 				<TooltipContent>{isLive ? 'Live story settings' : 'Enable live mode'}</TooltipContent>
@@ -527,13 +522,7 @@ function LiveStoryPreview({
 	);
 }
 
-function LiveChartEmbed({
-	chart,
-	queryData,
-}: {
-	chart: ParsedChartBlock;
-	queryData: QueryDataMap | null;
-}) {
+function LiveChartEmbed({ chart, queryData }: { chart: ParsedChartBlock; queryData: QueryDataMap | null }) {
 	const result = queryData?.[chart.queryId];
 	const data = result?.data;
 
@@ -567,13 +556,7 @@ function LiveChartEmbed({
 	);
 }
 
-function LiveTableEmbed({
-	table,
-	queryData,
-}: {
-	table: ParsedTableBlock;
-	queryData: QueryDataMap | null;
-}) {
+function LiveTableEmbed({ table, queryData }: { table: ParsedTableBlock; queryData: QueryDataMap | null }) {
 	const result = queryData?.[table.queryId];
 	const data = result?.data;
 

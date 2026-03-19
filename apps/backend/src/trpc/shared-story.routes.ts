@@ -90,22 +90,20 @@ export const sharedStoryRoutes = {
 		return { ...story, queryData, isLive, cacheTtlMinutes, cachedAt };
 	}),
 
-	refreshData: protectedProcedure
-		.input(z.object({ id: z.string() }))
-		.mutation(async ({ input, ctx }) => {
-			const story = await sharedStoryQueries.getSharedStory(input.id);
-			if (!story) {
-				throw new TRPCError({ code: 'NOT_FOUND', message: 'Shared story not found.' });
-			}
+	refreshData: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input, ctx }) => {
+		const story = await sharedStoryQueries.getSharedStory(input.id);
+		if (!story) {
+			throw new TRPCError({ code: 'NOT_FOUND', message: 'Shared story not found.' });
+		}
 
-			const member = await projectQueries.getProjectMember(story.projectId, ctx.user.id);
-			if (!member) {
-				throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this story.' });
-			}
+		const member = await projectQueries.getProjectMember(story.projectId, ctx.user.id);
+		if (!member) {
+			throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this story.' });
+		}
 
-			const queryData = await refreshStoryData(story.chatId, story.storyId);
-			return { queryData, cachedAt: new Date() };
-		}),
+		const queryData = await refreshStoryData(story.chatId, story.storyId);
+		return { queryData, cachedAt: new Date() };
+	}),
 
 	findByStory: protectedProcedure
 		.input(z.object({ chatId: z.string(), storyId: z.string() }))

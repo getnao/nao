@@ -51,7 +51,8 @@ export function LiveStorySettingsDialog({
 		}
 	}, [open, isLive, cacheTtlMinutes]);
 
-	const hasChanges = localIsLive !== isLive || (localIsLive && localTtl !== (cacheTtlMinutes?.toString() ?? 'manual'));
+	const hasChanges =
+		localIsLive !== isLive || (localIsLive && localTtl !== (cacheTtlMinutes?.toString() ?? 'manual'));
 
 	const handleSave = useCallback(() => {
 		if (localIsLive !== isLive) {
