@@ -14,8 +14,8 @@ import { useAgentContext } from '@/contexts/agent.provider';
 import { useSidePanel } from '@/hooks/use-side-panel';
 import { SidePanelProvider } from '@/contexts/side-panel';
 import { EditableChatTitle } from '@/components/editable-chat-title';
-import { ShareChatDialog } from '@/components/share-dialog.chat';
 import { useChatQuery } from '@/queries/use-chat-query';
+import { ShareChatDialog } from '@/components/share-dialog.chat';
 import { trpc } from '@/main';
 
 export const Route = createFileRoute('/_sidebar-layout/_chat-layout/$chatId')({
@@ -58,6 +58,7 @@ export function RouteComponent() {
 		<SidePanelProvider
 			isVisible={sidePanel.isVisible}
 			currentStoryId={sidePanel.currentStoryId}
+			chatId={chatId}
 			open={sidePanel.open}
 			close={sidePanel.close}
 		>

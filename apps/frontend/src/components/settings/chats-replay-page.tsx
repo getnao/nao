@@ -126,6 +126,7 @@ export function ChatsReplayPage() {
 						selectedChat
 							? {
 									chatId: selectedChat.id,
+									chatOwnerId: selectedChat.userId,
 									userName: selectedChat.userName,
 									updatedAt: selectedChat.updatedAt,
 									feedbackCount: selectedChat.upvotes + selectedChat.downvotes,

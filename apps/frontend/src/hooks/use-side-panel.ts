@@ -13,9 +13,13 @@ import {
 export const useSidePanel = ({
 	containerRef,
 	sidePanelRef,
+	defaultWidthRatio,
+	collapsesSidebar = true,
 }: {
 	containerRef: React.RefObject<HTMLDivElement | null>;
 	sidePanelRef: React.RefObject<HTMLDivElement | null>;
+	defaultWidthRatio?: number;
+	collapsesSidebar?: boolean;
 }) => {
 	const didCollapseSidebarRef = useRef(false);
 	const resizeHandleRef = useRef<HTMLDivElement>(null);
@@ -91,9 +95,10 @@ export const useSidePanel = ({
 		sidePanel.style.width = '0px';
 		sidePanel.style.opacity = '0';
 
-		const containerWidth =
-			container.getBoundingClientRect().width + (didCollapseSidebarRef.current ? SIDEBAR_DELTA : 0);
-		const targetWidth = Math.floor(loadPersistedWidthRatio() * containerWidth);
+		const sidebarDelta = collapsesSidebar && didCollapseSidebarRef.current ? SIDEBAR_DELTA : 0;
+		const containerWidth = container.getBoundingClientRect().width + sidebarDelta;
+		const ratio = defaultWidthRatio !== undefined ? defaultWidthRatio : loadPersistedWidthRatio();
+		const targetWidth = Math.floor(ratio * containerWidth);
 
 		animateSidePanel({
 			width: `${targetWidth}px`,
@@ -102,19 +107,19 @@ export const useSidePanel = ({
 				sidePanel.style.minWidth = `${SIDE_PANEL_MIN_WIDTH}px`;
 			},
 		});
-	}, [isVisible, isMobile, animateSidePanel, containerRef, sidePanelRef]);
+	}, [isVisible, isMobile, animateSidePanel, containerRef, sidePanelRef, defaultWidthRatio, collapsesSidebar]);
 
 	const open = useCallback(
 		(newContent: React.ReactNode, storyId?: string) => {
 			setIsVisible(true);
 			setContent(newContent);
 			setCurrentStoryId(storyId ?? null);
-			if (!isMobile) {
+			if (!isMobile && collapsesSidebar) {
 				didCollapseSidebarRef.current = !isSidebarCollapsed;
 				collapseSidebar({ persist: false });
 			}
 		},
-		[isMobile, collapseSidebar, isSidebarCollapsed],
+		[isMobile, collapsesSidebar, collapseSidebar, isSidebarCollapsed],
 	);
 
 	const expandSidebarIfWasCollapsed = useCallback(() => {
