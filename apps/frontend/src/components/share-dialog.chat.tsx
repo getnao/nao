@@ -113,7 +113,7 @@ function CreateShareDialog({ open, onOpenChange, chatId }: ShareChatDialogProps)
 		trpc.sharedChat.create.mutationOptions({
 			onSuccess: (data) => {
 				invalidateShareQueries();
-				const url = `${window.location.origin}/chats/shared/${data.id}`;
+				const url = `${window.location.origin}/shared-chat/${data.id}`;
 				navigator.clipboard.writeText(url);
 				setIsCopied(true);
 				clearTimeout(timeoutRef.current);
@@ -254,7 +254,7 @@ function ManageShareDialog({
 	);
 
 	const handleCopyLink = useCallback(() => {
-		copyLink(`${window.location.origin}/chats/shared/${shareId}`);
+		copyLink(`${window.location.origin}/shared-chat/${shareId}`);
 	}, [copyLink, shareId]);
 
 	const handleUnshare = useCallback(() => {
