@@ -59,7 +59,7 @@ export async function notifySharedChatRecipients({
 	visibility: 'project' | 'specific';
 	allowedUserIds?: string[];
 }): Promise<void> {
-	const chatUrl = `${env.BETTER_AUTH_URL || 'http://localhost:3000'}/chats/shared/${shareId}`;
+	const chatUrl = `${env.BETTER_AUTH_URL || 'http://localhost:3000'}/shared-chat/${shareId}`;
 	const allMembers = await projectQueries.getAllUsersWithRoles(projectId);
 	const recipients =
 		visibility === 'project'
