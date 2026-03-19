@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, isNull, max, or, sql } from 'drizzle-orm';
 
-import s, { type DBStoryVersion } from '../db/abstractSchema';
+import s, { type DBStoryDataCache, type DBStoryVersion } from '../db/abstractSchema';
 import { db } from '../db/db';
 
 export async function createVersion(data: {
@@ -10,6 +10,8 @@ export async function createVersion(data: {
 	code: string;
 	action: 'create' | 'update' | 'replace';
 	source: 'assistant' | 'user';
+	isLive?: boolean;
+	cacheTtlMinutes?: number | null;
 }): Promise<DBStoryVersion> {
 	const nextVersion = db
 		.select({ v: sql<number>`coalesce(max(${s.storyVersion.version}), 0) + 1` })
@@ -18,7 +20,17 @@ export async function createVersion(data: {
 
 	const [created] = await db
 		.insert(s.storyVersion)
-		.values({ ...data, version: sql`(${nextVersion})` })
+		.values({
+			chatId: data.chatId,
+			storyId: data.storyId,
+			title: data.title,
+			code: data.code,
+			action: data.action,
+			source: data.source,
+			version: sql`(${nextVersion})`,
+			...(data.isLive !== undefined && { isLive: data.isLive }),
+			...(data.cacheTtlMinutes !== undefined && { cacheTtlMinutes: data.cacheTtlMinutes }),
+		})
 		.returning()
 		.execute();
 
@@ -140,4 +152,81 @@ export async function unarchiveStory(chatId: string, storyId: string): Promise<v
 		.set({ archivedAt: null })
 		.where(and(eq(s.storyVersion.chatId, chatId), eq(s.storyVersion.storyId, storyId)))
 		.execute();
+}
+
+export async function updateLiveSettings(
+	chatId: string,
+	storyId: string,
+	settings: { isLive: boolean; cacheTtlMinutes: number | null },
+): Promise<void> {
+	await db
+		.update(s.storyVersion)
+		.set({ isLive: settings.isLive, cacheTtlMinutes: settings.cacheTtlMinutes })
+		.where(and(eq(s.storyVersion.chatId, chatId), eq(s.storyVersion.storyId, storyId)))
+		.execute();
+}
+
+export async function getStoryDataCache(chatId: string, storyId: string): Promise<DBStoryDataCache | null> {
+	const [row] = await db
+		.select()
+		.from(s.storyDataCache)
+		.where(and(eq(s.storyDataCache.chatId, chatId), eq(s.storyDataCache.storyId, storyId)))
+		.execute();
+
+	return row ?? null;
+}
+
+export async function upsertStoryDataCache(
+	chatId: string,
+	storyId: string,
+	queryData: Record<string, { data: unknown[]; columns: string[] }>,
+): Promise<DBStoryDataCache> {
+	const [row] = await db
+		.insert(s.storyDataCache)
+		.values({ chatId, storyId, queryData, cachedAt: new Date() })
+		.onConflictDoUpdate({
+			target: [s.storyDataCache.chatId, s.storyDataCache.storyId],
+			set: { queryData, cachedAt: new Date() },
+		})
+		.returning()
+		.execute();
+
+	return row;
+}
+
+export async function collectSqlQueries(
+	chatId: string,
+	code: string,
+): Promise<Record<string, { sqlQuery: string; databaseId?: string }>> {
+	const chartRegex = /<(?:chart|table)\s+[^>]*query_id="([^"]*)"[^>]*\/?>/g;
+	const queryIds = new Set<string>();
+	let match;
+	while ((match = chartRegex.exec(code)) !== null) {
+		queryIds.add(match[1]);
+	}
+
+	if (queryIds.size === 0) {
+		return {};
+	}
+
+	const parts = await db
+		.select({ toolInput: s.messagePart.toolInput, toolOutput: s.messagePart.toolOutput })
+		.from(s.messagePart)
+		.innerJoin(s.chatMessage, eq(s.messagePart.messageId, s.chatMessage.id))
+		.where(and(eq(s.chatMessage.chatId, chatId), eq(s.messagePart.toolName, 'execute_sql')))
+		.execute();
+
+	const queries: Record<string, { sqlQuery: string; databaseId?: string }> = {};
+	for (const part of parts) {
+		const output = part.toolOutput as { id?: string } | null;
+		const input = part.toolInput as { sql_query?: string; database_id?: string } | null;
+		if (output?.id && queryIds.has(output.id) && input?.sql_query) {
+			queries[output.id] = {
+				sqlQuery: input.sql_query,
+				...(input.database_id && { databaseId: input.database_id }),
+			};
+		}
+	}
+
+	return queries;
 }
