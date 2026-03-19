@@ -1,195 +1,202 @@
 {
-  "version": "7",
-  "dialect": "sqlite",
-  "entries": [
-    {
-      "idx": 0,
-      "version": "6",
-      "when": 1768388391105,
-      "tag": "0000_user_auth_and_chat_tables",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "6",
-      "when": 1768493382221,
-      "tag": "0001_message_feedback",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "6",
-      "when": 1768552721702,
-      "tag": "0002_chat_message_stop_reason_and_error_message",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "6",
-      "when": 1768561598427,
-      "tag": "0003_handle_slack_with_thread",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "6",
-      "when": 1768817979545,
-      "tag": "0004_input_and_output_tokens",
-      "breakpoints": true
-    },
-    {
-      "idx": 5,
-      "version": "6",
-      "when": 1769163991907,
-      "tag": "0005_add_project_tables",
-      "breakpoints": true
-    },
-    {
-      "idx": 6,
-      "version": "6",
-      "when": 1769301411587,
-      "tag": "0006_llm_model_ids",
-      "breakpoints": true
-    },
-    {
-      "idx": 7,
-      "version": "6",
-      "when": 1769686400000,
-      "tag": "0007_chat_message_llm_info",
-      "breakpoints": true
-    },
-    {
-      "idx": 8,
-      "version": "6",
-      "when": 1770129133018,
-      "tag": "0008_user_password_reset",
-      "breakpoints": true
-    },
-    {
-      "idx": 9,
-      "version": "6",
-      "when": 1770285799418,
-      "tag": "0009_organization_level",
-      "breakpoints": true
-    },
-    {
-      "idx": 10,
-      "version": "6",
-      "when": 1770381609572,
-      "tag": "0010_saved_prompts",
-      "breakpoints": true
-    },
-    {
-      "idx": 11,
-      "version": "6",
-      "when": 1770819225942,
-      "tag": "0011_add-experimental-agent",
-      "breakpoints": true
-    },
-    {
-      "idx": 12,
-      "version": "6",
-      "when": 1771512415648,
-      "tag": "0012_chat_message_metadata_and_tool_raw_input",
-      "breakpoints": true
-    },
-    {
-      "idx": 13,
-      "version": "6",
-      "when": 1771575705677,
-      "tag": "0013_agent_memory",
-      "breakpoints": true
-    },
-    {
-      "idx": 14,
-      "version": "6",
-      "when": 1771591511059,
-      "tag": "0014_add_enabledMcpTools_and_knownMcpServers_to_project",
-      "breakpoints": true
-    },
-    {
-      "idx": 15,
-      "version": "6",
-      "when": 1771614350511,
-      "tag": "0015_user_memory_enabled",
-      "breakpoints": true
-    },
-    {
-      "idx": 16,
-      "version": "6",
-      "when": 1771694141518,
-      "tag": "0016_chat_message_superseded_at",
-      "breakpoints": true
-    },
-    {
-      "idx": 17,
-      "version": "6",
-      "when": 1772031581593,
-      "tag": "0017_llm_inference_memory_superseded_by",
-      "breakpoints": true
-    },
-    {
-      "idx": 18,
-      "version": "6",
-      "when": 1772124770677,
-      "tag": "0018_added_message_part_chart_image",
-      "breakpoints": true
-    },
-    {
-      "idx": 19,
-      "version": "6",
-      "when": 1772144197644,
-      "tag": "0019_add_stories",
-      "breakpoints": true
-    },
-    {
-      "idx": 20,
-      "version": "6",
-      "when": 1772640831692,
-      "tag": "0020_bedrock_fields",
-      "breakpoints": true
-    },
-    {
-      "idx": 21,
-      "version": "6",
-      "when": 1772702832964,
-      "tag": "0021_add_source_chat_message",
-      "breakpoints": true
-    },
-    {
-      "idx": 22,
-      "version": "6",
-      "when": 1772706229518,
-      "tag": "0022_add_slack_provider",
-      "breakpoints": true
-    },
-    {
-      "idx": 23,
-      "version": "6",
-      "when": 1773133917020,
-      "tag": "0023_added_microsoft_teams",
-      "breakpoints": true
-    },
-    {
-      "idx": 24,
-      "version": "6",
-      "when": 1773338645081,
-      "tag": "0024_add_favs",
-      "breakpoints": true
-    },
-    {
-      "idx": 25,
-      "version": "6",
-      "when": 1773740147271,
-      "tag": "0025_archive_stories",
-      "breakpoints": true
-    },
-    {
-      "idx": 26,
-      "version": "6",
-      "when": 1773740147400,
-      "tag": "0026_add_log_table",
-      "breakpoints": true
-    }
-  ]
+	"version": "7",
+	"dialect": "sqlite",
+	"entries": [
+		{
+			"idx": 0,
+			"version": "6",
+			"when": 1768388391105,
+			"tag": "0000_user_auth_and_chat_tables",
+			"breakpoints": true
+		},
+		{
+			"idx": 1,
+			"version": "6",
+			"when": 1768493382221,
+			"tag": "0001_message_feedback",
+			"breakpoints": true
+		},
+		{
+			"idx": 2,
+			"version": "6",
+			"when": 1768552721702,
+			"tag": "0002_chat_message_stop_reason_and_error_message",
+			"breakpoints": true
+		},
+		{
+			"idx": 3,
+			"version": "6",
+			"when": 1768561598427,
+			"tag": "0003_handle_slack_with_thread",
+			"breakpoints": true
+		},
+		{
+			"idx": 4,
+			"version": "6",
+			"when": 1768817979545,
+			"tag": "0004_input_and_output_tokens",
+			"breakpoints": true
+		},
+		{
+			"idx": 5,
+			"version": "6",
+			"when": 1769163991907,
+			"tag": "0005_add_project_tables",
+			"breakpoints": true
+		},
+		{
+			"idx": 6,
+			"version": "6",
+			"when": 1769301411587,
+			"tag": "0006_llm_model_ids",
+			"breakpoints": true
+		},
+		{
+			"idx": 7,
+			"version": "6",
+			"when": 1769686400000,
+			"tag": "0007_chat_message_llm_info",
+			"breakpoints": true
+		},
+		{
+			"idx": 8,
+			"version": "6",
+			"when": 1770129133018,
+			"tag": "0008_user_password_reset",
+			"breakpoints": true
+		},
+		{
+			"idx": 9,
+			"version": "6",
+			"when": 1770285799418,
+			"tag": "0009_organization_level",
+			"breakpoints": true
+		},
+		{
+			"idx": 10,
+			"version": "6",
+			"when": 1770381609572,
+			"tag": "0010_saved_prompts",
+			"breakpoints": true
+		},
+		{
+			"idx": 11,
+			"version": "6",
+			"when": 1770819225942,
+			"tag": "0011_add-experimental-agent",
+			"breakpoints": true
+		},
+		{
+			"idx": 12,
+			"version": "6",
+			"when": 1771512415648,
+			"tag": "0012_chat_message_metadata_and_tool_raw_input",
+			"breakpoints": true
+		},
+		{
+			"idx": 13,
+			"version": "6",
+			"when": 1771575705677,
+			"tag": "0013_agent_memory",
+			"breakpoints": true
+		},
+		{
+			"idx": 14,
+			"version": "6",
+			"when": 1771591511059,
+			"tag": "0014_add_enabledMcpTools_and_knownMcpServers_to_project",
+			"breakpoints": true
+		},
+		{
+			"idx": 15,
+			"version": "6",
+			"when": 1771614350511,
+			"tag": "0015_user_memory_enabled",
+			"breakpoints": true
+		},
+		{
+			"idx": 16,
+			"version": "6",
+			"when": 1771694141518,
+			"tag": "0016_chat_message_superseded_at",
+			"breakpoints": true
+		},
+		{
+			"idx": 17,
+			"version": "6",
+			"when": 1772031581593,
+			"tag": "0017_llm_inference_memory_superseded_by",
+			"breakpoints": true
+		},
+		{
+			"idx": 18,
+			"version": "6",
+			"when": 1772124770677,
+			"tag": "0018_added_message_part_chart_image",
+			"breakpoints": true
+		},
+		{
+			"idx": 19,
+			"version": "6",
+			"when": 1772144197644,
+			"tag": "0019_add_stories",
+			"breakpoints": true
+		},
+		{
+			"idx": 20,
+			"version": "6",
+			"when": 1772640831692,
+			"tag": "0020_bedrock_fields",
+			"breakpoints": true
+		},
+		{
+			"idx": 21,
+			"version": "6",
+			"when": 1772702832964,
+			"tag": "0021_add_source_chat_message",
+			"breakpoints": true
+		},
+		{
+			"idx": 22,
+			"version": "6",
+			"when": 1772706229518,
+			"tag": "0022_add_slack_provider",
+			"breakpoints": true
+		},
+		{
+			"idx": 23,
+			"version": "6",
+			"when": 1773133917020,
+			"tag": "0023_added_microsoft_teams",
+			"breakpoints": true
+		},
+		{
+			"idx": 24,
+			"version": "6",
+			"when": 1773338645081,
+			"tag": "0024_add_favs",
+			"breakpoints": true
+		},
+		{
+			"idx": 25,
+			"version": "6",
+			"when": 1773740147271,
+			"tag": "0025_archive_stories",
+			"breakpoints": true
+		},
+		{
+			"idx": 26,
+			"version": "6",
+			"when": 1773740147400,
+			"tag": "0026_add_log_table",
+			"breakpoints": true
+		},
+		{
+			"idx": 27,
+			"version": "6",
+			"when": 1773932046314,
+			"tag": "0027_add_shared_chat",
+			"breakpoints": true
+		}
+	]
 }

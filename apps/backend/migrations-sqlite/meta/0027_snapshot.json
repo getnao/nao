@@ -1,8 +1,8 @@
 {
 	"version": "6",
 	"dialect": "sqlite",
-	"id": "b9b33780-26b2-4d13-8b69-b24f8c84b39f",
-	"prevId": "c2801b43-3da3-4379-ab55-bf3fe6d0c67b",
+	"id": "0687a983-8caf-434b-bb03-70171f0f6a57",
+	"prevId": "b9b33780-26b2-4d13-8b69-b24f8c84b39f",
 	"tables": {
 		"account": {
 			"name": "account",
@@ -557,6 +557,92 @@
 					"columnsFrom": ["chat_id"],
 					"columnsTo": ["id"],
 					"onDelete": "set null",
+					"onUpdate": "no action"
+				}
+			},
+			"compositePrimaryKeys": {},
+			"uniqueConstraints": {},
+			"checkConstraints": {}
+		},
+		"log": {
+			"name": "log",
+			"columns": {
+				"id": {
+					"name": "id",
+					"type": "text",
+					"primaryKey": true,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"level": {
+					"name": "level",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"message": {
+					"name": "message",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"context": {
+					"name": "context",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				},
+				"source": {
+					"name": "source",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"project_id": {
+					"name": "project_id",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				},
+				"created_at": {
+					"name": "created_at",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false,
+					"default": "(cast(unixepoch('subsecond') * 1000 as integer))"
+				}
+			},
+			"indexes": {
+				"log_createdAt_idx": {
+					"name": "log_createdAt_idx",
+					"columns": ["created_at"],
+					"isUnique": false
+				},
+				"log_level_idx": {
+					"name": "log_level_idx",
+					"columns": ["level"],
+					"isUnique": false
+				},
+				"log_projectId_idx": {
+					"name": "log_projectId_idx",
+					"columns": ["project_id"],
+					"isUnique": false
+				}
+			},
+			"foreignKeys": {
+				"log_project_id_project_id_fk": {
+					"name": "log_project_id_project_id_fk",
+					"tableFrom": "log",
+					"tableTo": "project",
+					"columnsFrom": ["project_id"],
+					"columnsTo": ["id"],
+					"onDelete": "cascade",
 					"onUpdate": "no action"
 				}
 			},
@@ -1538,6 +1624,152 @@
 			"uniqueConstraints": {},
 			"checkConstraints": {}
 		},
+		"shared_chat": {
+			"name": "shared_chat",
+			"columns": {
+				"id": {
+					"name": "id",
+					"type": "text",
+					"primaryKey": true,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"project_id": {
+					"name": "project_id",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"user_id": {
+					"name": "user_id",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"chat_id": {
+					"name": "chat_id",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"visibility": {
+					"name": "visibility",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false,
+					"default": "'project'"
+				},
+				"created_at": {
+					"name": "created_at",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false,
+					"default": "(cast(unixepoch('subsecond') * 1000 as integer))"
+				}
+			},
+			"indexes": {
+				"shared_chat_projectId_idx": {
+					"name": "shared_chat_projectId_idx",
+					"columns": ["project_id"],
+					"isUnique": false
+				},
+				"shared_chat_chatId_idx": {
+					"name": "shared_chat_chatId_idx",
+					"columns": ["chat_id"],
+					"isUnique": false
+				},
+				"shared_chat_chatId_unique": {
+					"name": "shared_chat_chatId_unique",
+					"columns": ["chat_id"],
+					"isUnique": true
+				}
+			},
+			"foreignKeys": {
+				"shared_chat_project_id_project_id_fk": {
+					"name": "shared_chat_project_id_project_id_fk",
+					"tableFrom": "shared_chat",
+					"tableTo": "project",
+					"columnsFrom": ["project_id"],
+					"columnsTo": ["id"],
+					"onDelete": "cascade",
+					"onUpdate": "no action"
+				},
+				"shared_chat_user_id_user_id_fk": {
+					"name": "shared_chat_user_id_user_id_fk",
+					"tableFrom": "shared_chat",
+					"tableTo": "user",
+					"columnsFrom": ["user_id"],
+					"columnsTo": ["id"],
+					"onDelete": "cascade",
+					"onUpdate": "no action"
+				},
+				"shared_chat_chat_id_chat_id_fk": {
+					"name": "shared_chat_chat_id_chat_id_fk",
+					"tableFrom": "shared_chat",
+					"tableTo": "chat",
+					"columnsFrom": ["chat_id"],
+					"columnsTo": ["id"],
+					"onDelete": "cascade",
+					"onUpdate": "no action"
+				}
+			},
+			"compositePrimaryKeys": {},
+			"uniqueConstraints": {},
+			"checkConstraints": {}
+		},
+		"shared_chat_access": {
+			"name": "shared_chat_access",
+			"columns": {
+				"shared_chat_id": {
+					"name": "shared_chat_id",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"user_id": {
+					"name": "user_id",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				}
+			},
+			"indexes": {},
+			"foreignKeys": {
+				"shared_chat_access_shared_chat_id_shared_chat_id_fk": {
+					"name": "shared_chat_access_shared_chat_id_shared_chat_id_fk",
+					"tableFrom": "shared_chat_access",
+					"tableTo": "shared_chat",
+					"columnsFrom": ["shared_chat_id"],
+					"columnsTo": ["id"],
+					"onDelete": "cascade",
+					"onUpdate": "no action"
+				},
+				"shared_chat_access_user_id_user_id_fk": {
+					"name": "shared_chat_access_user_id_user_id_fk",
+					"tableFrom": "shared_chat_access",
+					"tableTo": "user",
+					"columnsFrom": ["user_id"],
+					"columnsTo": ["id"],
+					"onDelete": "cascade",
+					"onUpdate": "no action"
+				}
+			},
+			"compositePrimaryKeys": {
+				"shared_chat_access_shared_chat_id_user_id_pk": {
+					"columns": ["shared_chat_id", "user_id"],
+					"name": "shared_chat_access_shared_chat_id_user_id_pk"
+				}
+			},
+			"uniqueConstraints": {},
+			"checkConstraints": {}
+		},
 		"shared_story": {
 			"name": "shared_story",
 			"columns": {
@@ -1928,92 +2160,6 @@
 				}
 			},
 			"foreignKeys": {},
-			"compositePrimaryKeys": {},
-			"uniqueConstraints": {},
-			"checkConstraints": {}
-		},
-		"log": {
-			"name": "log",
-			"columns": {
-				"id": {
-					"name": "id",
-					"type": "text",
-					"primaryKey": true,
-					"notNull": true,
-					"autoincrement": false
-				},
-				"level": {
-					"name": "level",
-					"type": "text",
-					"primaryKey": false,
-					"notNull": true,
-					"autoincrement": false
-				},
-				"message": {
-					"name": "message",
-					"type": "text",
-					"primaryKey": false,
-					"notNull": true,
-					"autoincrement": false
-				},
-				"context": {
-					"name": "context",
-					"type": "text",
-					"primaryKey": false,
-					"notNull": false,
-					"autoincrement": false
-				},
-				"source": {
-					"name": "source",
-					"type": "text",
-					"primaryKey": false,
-					"notNull": true,
-					"autoincrement": false
-				},
-				"project_id": {
-					"name": "project_id",
-					"type": "text",
-					"primaryKey": false,
-					"notNull": false,
-					"autoincrement": false
-				},
-				"created_at": {
-					"name": "created_at",
-					"type": "integer",
-					"primaryKey": false,
-					"notNull": true,
-					"autoincrement": false,
-					"default": "(cast(unixepoch('subsecond') * 1000 as integer))"
-				}
-			},
-			"indexes": {
-				"log_createdAt_idx": {
-					"name": "log_createdAt_idx",
-					"columns": ["created_at"],
-					"isUnique": false
-				},
-				"log_level_idx": {
-					"name": "log_level_idx",
-					"columns": ["level"],
-					"isUnique": false
-				},
-				"log_projectId_idx": {
-					"name": "log_projectId_idx",
-					"columns": ["project_id"],
-					"isUnique": false
-				}
-			},
-			"foreignKeys": {
-				"log_project_id_project_id_fk": {
-					"name": "log_project_id_project_id_fk",
-					"tableFrom": "log",
-					"tableTo": "project",
-					"columnsFrom": ["project_id"],
-					"columnsTo": ["id"],
-					"onDelete": "cascade",
-					"onUpdate": "no action"
-				}
-			},
 			"compositePrimaryKeys": {},
 			"uniqueConstraints": {},
 			"checkConstraints": {}
