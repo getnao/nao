@@ -25,7 +25,7 @@ export function SharedChatListItem({ sharedChat }: Props) {
 			<div className='truncate text-sm mr-auto'>{sharedChat.title}</div>
 			<div className='flex flex-col items-end gap-0.5 shrink-0'>
 				<div className='text-xs text-muted-foreground whitespace-nowrap overflow-hidden text-ellipsis max-w-[60px]'>
-					· by {sharedChat.authorName}
+					by {sharedChat.authorName}
 				</div>
 			</div>
 		</Link>

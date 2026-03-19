@@ -353,7 +353,12 @@ function SidebarNav({ chats, isCollapsed }: { chats: ChatListItemType[]; isColla
 					)}
 				</div>
 			) : (
-				<div className='w-72 flex flex-col overflow-y-auto px-2 gap-0.5'>
+				<div
+					className={cn(
+						'w-72 flex flex-col overflow-y-auto px-2 gap-0.5',
+						chatsOpen ? 'opacity-100' : 'opacity-0 h-0 overflow-hidden',
+					)}
+				>
 					{sharedWithMeChats.length === 0 ? (
 						<p className='text-sm text-muted-foreground text-center p-4'>No chats shared with you.</p>
 					) : (

@@ -1,4 +1,4 @@
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, inArray } from 'drizzle-orm';
 
 import s, { type DBSharedChat } from '../db/abstractSchema';
 import { db } from '../db/db';
@@ -85,7 +85,7 @@ export async function listProjectSharedChats(projectId: string, userId: string):
 	const accessRows = await db
 		.select({ sharedChatId: s.sharedChatAccess.sharedChatId })
 		.from(s.sharedChatAccess)
-		.where(eq(s.sharedChatAccess.userId, userId))
+		.where(and(eq(s.sharedChatAccess.userId, userId), inArray(s.sharedChatAccess.sharedChatId, specificChatIds)))
 		.execute();
 
 	const accessibleIds = new Set(accessRows.map((r) => r.sharedChatId));
@@ -124,12 +124,13 @@ export async function getSharedChatAllowedUserIds(shareId: string): Promise<stri
 }
 
 export async function updateAllowedUsers(shareId: string, userIds: string[]): Promise<void> {
-	await db.delete(s.sharedChatAccess).where(eq(s.sharedChatAccess.sharedChatId, shareId)).execute();
-
-	if (userIds.length > 0) {
-		const rows = userIds.map((userId) => ({ sharedChatId: shareId, userId }));
-		await db.insert(s.sharedChatAccess).values(rows).execute();
-	}
+	await db.transaction(async (tx) => {
+		await tx.delete(s.sharedChatAccess).where(eq(s.sharedChatAccess.sharedChatId, shareId)).execute();
+		if (userIds.length > 0) {
+			const rows = userIds.map((userId) => ({ sharedChatId: shareId, userId }));
+			await tx.insert(s.sharedChatAccess).values(rows).execute();
+		}
+	});
 }
 
 export async function deleteSharedChat(id: string): Promise<void> {
