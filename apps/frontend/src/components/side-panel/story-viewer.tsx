@@ -1,7 +1,8 @@
-import { memo, useCallback, useMemo, useRef } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { memo, useCallback, useMemo, useRef, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Editor } from '@monaco-editor/react';
 import {
+	Activity,
 	ArchiveRestoreIcon,
 	ChevronDown,
 	ChevronLeft,
@@ -9,10 +10,13 @@ import {
 	Code,
 	Eye,
 	Globe,
+	Loader2,
 	Maximize2,
 	Pencil,
+	RefreshCw,
 	Save,
 	RotateCcw,
+	Settings,
 	Share,
 	X,
 } from 'lucide-react';
@@ -20,8 +24,10 @@ import { StoryChartEmbed } from './story-chart-embed';
 import { StoryTableEmbed } from './story-table-embed';
 import { StoryEditor } from './story-editor';
 import { ShareStoryDialog } from './share-story-dialog';
+import { LiveStorySettingsDialog } from './live-story-settings-dialog';
 import { useStoryViewerAgentState } from './hooks/use-story-viewer-agent-state';
 import { useStoryViewerEnlarge } from './hooks/use-story-viewer-enlarge';
+import { useStoryViewerLiveSettings } from './hooks/use-story-viewer-live-settings';
 import { useStoryViewerSharing } from './hooks/use-story-viewer-sharing';
 import { useStoryViewerStreamScroll } from './hooks/use-story-viewer-stream-scroll';
 import { useStoryViewerSwitchStory } from './hooks/use-story-viewer-switch-story';
@@ -32,10 +38,14 @@ import type { StoryViewMode } from './story-viewer.types';
 import type { StorySummary } from '@/lib/story.utils';
 import type { ParsedChartBlock, ParsedTableBlock } from '@/lib/story-segments';
 import type { Editor as TiptapEditor } from '@tiptap/react';
+import type { displayChart } from '@nao/shared/tools';
 import { SegmentList } from '@/components/story-rendering';
+import { ChartDisplay } from '@/components/tool-calls/display-chart';
+import { TableDisplay } from '@/components/tool-calls/display-table';
 import { useIsMobile } from '@/hooks/use-is-mobile';
 import { useSidePanel } from '@/contexts/side-panel';
 import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -76,8 +86,19 @@ export function StoryViewer({ chatId, storyId }: StoryViewerProps) {
 		chatId,
 		storyId: resolvedStoryId,
 	});
+	const {
+		isLive,
+		cacheTtlMinutes,
+		isUpdating: isLiveUpdating,
+		isRefreshing,
+		handleToggleLive,
+		handleUpdateCacheTtl,
+		handleRefreshData,
+	} = useStoryViewerLiveSettings({ chatId, storyId: resolvedStoryId });
+	const [isLiveSettingsOpen, setIsLiveSettingsOpen] = useState(false);
 	const { handleEnlarge } = useStoryViewerEnlarge({ chatId, storyId: resolvedStoryId });
 	const handleOpenShare = useCallback(() => setIsShareDialogOpen(true), [setIsShareDialogOpen]);
+	const handleOpenLiveSettings = useCallback(() => setIsLiveSettingsOpen(true), []);
 
 	const renderStoryViewer = useCallback(
 		(nextStoryId: string) => <StoryViewer chatId={chatId} storyId={nextStoryId} />,
@@ -137,6 +158,10 @@ export function StoryViewer({ chatId, storyId }: StoryViewerProps) {
 				onEnlarge={handleEnlarge}
 				isShared={isShared}
 				isAgentRunning={isAgentRunning}
+				isLive={isLive}
+				isRefreshing={isRefreshing}
+				onRefreshData={handleRefreshData}
+				onOpenLiveSettings={handleOpenLiveSettings}
 				onClose={closeSidePanel}
 			/>
 
@@ -144,7 +169,7 @@ export function StoryViewer({ chatId, storyId }: StoryViewerProps) {
 
 			<div ref={scrollContainerRef} className='flex-1 min-h-0 overflow-auto'>
 				{viewMode === 'preview' ? (
-					<StoryPreview code={storyCode} />
+					<StoryPreview code={storyCode} isLive={isLive} chatId={chatId} storyId={resolvedStoryId} />
 				) : viewMode === 'edit' ? (
 					<StoryEditor code={storyCode} editorRef={tiptapEditorRef} />
 				) : (
@@ -157,6 +182,16 @@ export function StoryViewer({ chatId, storyId }: StoryViewerProps) {
 				onOpenChange={setIsShareDialogOpen}
 				chatId={chatId}
 				storyId={resolvedStoryId}
+			/>
+
+			<LiveStorySettingsDialog
+				open={isLiveSettingsOpen}
+				onOpenChange={setIsLiveSettingsOpen}
+				isLive={isLive}
+				cacheTtlMinutes={cacheTtlMinutes}
+				isUpdating={isLiveUpdating}
+				onToggleLive={handleToggleLive}
+				onUpdateCacheTtl={handleUpdateCacheTtl}
 			/>
 		</div>
 	);
@@ -210,6 +245,10 @@ const StoryHeader = memo(function StoryHeader({
 	onEnlarge,
 	isShared,
 	isAgentRunning,
+	isLive,
+	isRefreshing,
+	onRefreshData,
+	onOpenLiveSettings,
 	onClose,
 }: {
 	title: string;
@@ -229,6 +268,10 @@ const StoryHeader = memo(function StoryHeader({
 	onEnlarge: () => void;
 	isShared: boolean;
 	isAgentRunning: boolean;
+	isLive: boolean;
+	isRefreshing: boolean;
+	onRefreshData: () => void;
+	onOpenLiveSettings: () => void;
 	onClose: () => void;
 }) {
 	const isMobile = useIsMobile();
@@ -308,6 +351,44 @@ const StoryHeader = memo(function StoryHeader({
 
 	const actionButtons = (
 		<>
+			{isLive && (
+				<Tooltip>
+					<TooltipTrigger asChild>
+						<Button
+							variant='ghost-muted'
+							size='icon-xs'
+							onClick={onRefreshData}
+							disabled={isRefreshing}
+							aria-label='Refresh data'
+						>
+							{isRefreshing ? (
+								<Loader2 className='size-3 animate-spin' />
+							) : (
+								<RefreshCw className='size-3' />
+							)}
+						</Button>
+					</TooltipTrigger>
+					<TooltipContent>Refresh data</TooltipContent>
+				</Tooltip>
+			)}
+			<Tooltip>
+				<TooltipTrigger asChild>
+					<Button
+						variant='ghost-muted'
+						size='icon-xs'
+						onClick={onOpenLiveSettings}
+						disabled={isAgentRunning}
+						aria-label='Live settings'
+					>
+						{isLive ? (
+							<Activity className='size-3 text-emerald-600' />
+						) : (
+							<Activity className='size-3' />
+						)}
+					</Button>
+				</TooltipTrigger>
+				<TooltipContent>{isLive ? 'Live story settings' : 'Enable live mode'}</TooltipContent>
+			</Tooltip>
 			<Button variant='ghost-muted' size='icon-xs' onClick={onEnlarge} aria-label='Enlarge Story'>
 				<Maximize2 className='size-3' />
 			</Button>
@@ -381,8 +462,33 @@ const StoryHeader = memo(function StoryHeader({
 	);
 });
 
-const StoryPreview = memo(function StoryPreview({ code }: { code: string }) {
+type QueryDataMap = Record<string, { data: Record<string, unknown>[]; columns: string[] }>;
+
+const StoryPreview = memo(function StoryPreview({
+	code,
+	isLive,
+	chatId,
+	storyId,
+}: {
+	code: string;
+	isLive: boolean;
+	chatId: string;
+	storyId: string;
+}) {
 	const segments = useMemo(() => splitCodeIntoSegments(code), [code]);
+
+	if (isLive) {
+		return <LiveStoryPreview segments={segments} chatId={chatId} storyId={storyId} />;
+	}
+
+	return <StaticStoryPreview segments={segments} />;
+});
+
+const StaticStoryPreview = memo(function StaticStoryPreview({
+	segments,
+}: {
+	segments: ReturnType<typeof splitCodeIntoSegments>;
+}) {
 	const renderChart = useCallback((chart: ParsedChartBlock) => <StoryChartEmbed chart={chart} />, []);
 	const renderTable = useCallback((table: ParsedTableBlock) => <StoryTableEmbed table={table} />, []);
 
@@ -392,6 +498,102 @@ const StoryPreview = memo(function StoryPreview({ code }: { code: string }) {
 		</div>
 	);
 });
+
+function LiveStoryPreview({
+	segments,
+	chatId,
+	storyId,
+}: {
+	segments: ReturnType<typeof splitCodeIntoSegments>;
+	chatId: string;
+	storyId: string;
+}) {
+	const { data } = useQuery(trpc.story.getLatest.queryOptions({ chatId, storyId }));
+	const queryData = data?.queryData as QueryDataMap | null | undefined;
+
+	const renderChart = useCallback(
+		(chart: ParsedChartBlock) => <LiveChartEmbed chart={chart} queryData={queryData ?? null} />,
+		[queryData],
+	);
+	const renderTable = useCallback(
+		(table: ParsedTableBlock) => <LiveTableEmbed table={table} queryData={queryData ?? null} />,
+		[queryData],
+	);
+
+	return (
+		<div className='p-6 flex flex-col gap-4'>
+			<SegmentList segments={segments} renderChart={renderChart} renderTable={renderTable} />
+		</div>
+	);
+}
+
+function LiveChartEmbed({
+	chart,
+	queryData,
+}: {
+	chart: ParsedChartBlock;
+	queryData: QueryDataMap | null;
+}) {
+	const result = queryData?.[chart.queryId];
+	const data = result?.data;
+
+	if (!data || data.length === 0) {
+		return (
+			<div className='my-2 rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground'>
+				Chart data unavailable
+			</div>
+		);
+	}
+
+	if (chart.series.length === 0) {
+		return (
+			<div className='my-2 rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground'>
+				No series configured for chart
+			</div>
+		);
+	}
+
+	return (
+		<div className={`my-2 ${chart.chartType !== 'kpi_card' ? 'aspect-3/2' : ''}`}>
+			<ChartDisplay
+				data={data}
+				chartType={chart.chartType as displayChart.ChartType}
+				xAxisKey={chart.xAxisKey}
+				xAxisType={chart.xAxisType === 'number' ? 'number' : 'category'}
+				series={chart.series}
+				title={chart.title}
+			/>
+		</div>
+	);
+}
+
+function LiveTableEmbed({
+	table,
+	queryData,
+}: {
+	table: ParsedTableBlock;
+	queryData: QueryDataMap | null;
+}) {
+	const result = queryData?.[table.queryId];
+	const data = result?.data;
+
+	if (!data) {
+		return (
+			<div className='my-2 rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground'>
+				Table data unavailable
+			</div>
+		);
+	}
+
+	return (
+		<TableDisplay
+			data={data}
+			columns={result.columns}
+			title={table.title}
+			tableContainerClassName='max-h-[28rem]'
+		/>
+	);
+}
 
 const MONACO_OPTIONS = {
 	minimap: { enabled: false },
