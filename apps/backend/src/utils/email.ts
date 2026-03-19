@@ -41,3 +41,40 @@ export async function notifySharedStoryRecipients({
 		),
 	);
 }
+
+export async function notifySharedChatRecipients({
+	projectId,
+	sharerId,
+	sharerName,
+	shareId,
+	chatTitle,
+	visibility,
+	allowedUserIds,
+}: {
+	projectId: string;
+	sharerId: string;
+	sharerName: string;
+	shareId: string;
+	chatTitle: string;
+	visibility: 'project' | 'specific';
+	allowedUserIds?: string[];
+}): Promise<void> {
+	const chatUrl = `${env.BETTER_AUTH_URL || 'http://localhost:3000'}/chats/shared/${shareId}`;
+	const allMembers = await projectQueries.getAllUsersWithRoles(projectId);
+	const recipients =
+		visibility === 'project'
+			? allMembers.filter((m) => m.id !== sharerId)
+			: allMembers.filter((m) => allowedUserIds?.includes(m.id) && m.id !== sharerId);
+
+	await Promise.all(
+		recipients.map((recipient) =>
+			emailService.sendEmail({
+				user: { id: recipient.id, name: recipient.name, email: recipient.email } as User,
+				type: 'sharedChat',
+				sharerName,
+				chatTitle,
+				chatUrl,
+			}),
+		),
+	);
+}

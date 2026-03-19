@@ -3,6 +3,7 @@ import nodemailer from 'nodemailer';
 import { renderToString } from 'react-dom/server';
 
 import { ResetPassword } from '../components/email/reset-password';
+import { SharedChat } from '../components/email/shared-chat';
 import { SharedStory } from '../components/email/shared-story';
 import { UserAddedToProject } from '../components/email/user-added-to-project';
 import { env } from '../env';
@@ -52,6 +53,8 @@ class EmailService {
 			email = this._createResetPasswordEmail(params);
 		} else if (params.type === 'sharedStory') {
 			email = this._createSharedStoryEmail(params);
+		} else if (params.type === 'sharedChat') {
+			email = this._createSharedChatEmail(params);
 		} else {
 			email = this._createUserAddedToProjectEmail(params);
 		}
@@ -79,6 +82,17 @@ class EmailService {
 	}: Extract<SendEmail, { type: 'sharedStory' }>): CreatedEmail {
 		const subject = `${sharerName} shared "${storyTitle}" with you on nao`;
 		const html = renderToString(SharedStory({ userName: user.name, sharerName, storyTitle, storyUrl }));
+		return { subject, html };
+	}
+
+	private _createSharedChatEmail({
+		user,
+		sharerName,
+		chatTitle,
+		chatUrl,
+	}: Extract<SendEmail, { type: 'sharedChat' }>): CreatedEmail {
+		const subject = `${sharerName} shared "${chatTitle}" with you on nao`;
+		const html = renderToString(SharedChat({ userName: user.name, sharerName, chatTitle, chatUrl }));
 		return { subject, html };
 	}
 

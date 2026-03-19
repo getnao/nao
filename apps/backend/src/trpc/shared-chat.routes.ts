@@ -5,6 +5,7 @@ import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as sharedChatQueries from '../queries/shared-chat.queries';
 import { type UIChat } from '../types/chat';
+import { notifySharedChatRecipients } from '../utils/email';
 import { projectProtectedProcedure, protectedProcedure } from './trpc';
 
 export const sharedChatRoutes = {
@@ -21,13 +22,11 @@ export const sharedChatRoutes = {
 			}),
 		)
 		.mutation(async ({ input, ctx }) => {
-			const chatExists = await chatQueries.checkChatExists(input.chatId);
-			if (!chatExists) {
+			const chatInfo = await chatQueries.getChatInfo(input.chatId);
+			if (!chatInfo) {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Chat not found.' });
 			}
-
-			const chatId = await chatQueries.getChatProjectId(input.chatId);
-			if (!chatId || chatId !== ctx.project.id) {
+			if (chatInfo.projectId !== ctx.project.id) {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Chat not found.' });
 			}
 
@@ -41,7 +40,15 @@ export const sharedChatRoutes = {
 				input.allowedUserIds,
 			);
 
-			// TODO: notifySharedChatRecipients
+			notifySharedChatRecipients({
+				projectId: ctx.project.id,
+				sharerId: ctx.user.id,
+				sharerName: ctx.user.name,
+				shareId: created.id,
+				chatTitle: chatInfo.title,
+				visibility: input.visibility,
+				allowedUserIds: input.allowedUserIds,
+			}).catch((err) => console.error('Failed to notify shared chat recipients', err));
 
 			return created;
 		}),
@@ -111,6 +118,16 @@ export const sharedChatRoutes = {
 			}
 
 			await sharedChatQueries.updateAllowedUsers(input.id, validUserIds);
+
+			notifySharedChatRecipients({
+				projectId: ctx.project.id,
+				sharerId: ctx.user.id,
+				sharerName: ctx.user.name,
+				shareId: input.id,
+				chatTitle: share.title || '',
+				visibility: share.visibility,
+				allowedUserIds: validUserIds,
+			}).catch((err) => console.error('Failed to notify shared chat recipients', err));
 		}),
 
 	delete: projectProtectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input, ctx }) => {
