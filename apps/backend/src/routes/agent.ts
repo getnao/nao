@@ -3,10 +3,16 @@ import { createUIMessageStreamResponse } from 'ai';
 import type { App } from '../app';
 import { handleAgentRoute } from '../handlers/agent';
 import { authMiddleware } from '../middleware/auth';
+import { agentService } from '../services/agent';
 import { posthog, PostHogEvent } from '../services/posthog';
 import { AgentRequestSchema } from '../types/chat';
 
 const DEBUG_CHUNKS = false;
+
+const STREAMING_HEADERS = {
+	'X-Accel-Buffering': 'no',
+	'Cache-Control': 'no-cache, no-transform',
+} as const;
 
 export const agentRoutes = async (app: App) => {
 	app.addHook('preHandler', authMiddleware);
@@ -45,12 +51,27 @@ export const agentRoutes = async (app: App) => {
 
 		return createUIMessageStreamResponse({
 			stream,
-			headers: {
-				// Disable nginx buffering for streaming responses
-				// This is critical for proper stream termination behind reverse proxies
-				'X-Accel-Buffering': 'no',
-				'Cache-Control': 'no-cache, no-transform',
-			},
+			headers: STREAMING_HEADERS,
+		});
+	});
+
+	app.get<{ Params: { chatId: string } }>('/:chatId/stream', async ({ user, params }) => {
+		const agent = agentService.get(params.chatId);
+		if (!agent) {
+			return new Response(null, { status: 204 });
+		}
+		if (!agent.checkIsUserOwner(user.id)) {
+			return new Response('Forbidden', { status: 403 });
+		}
+
+		const stream = agent.resumeStream();
+		if (!stream) {
+			return new Response(null, { status: 204 });
+		}
+
+		return createUIMessageStreamResponse({
+			stream,
+			headers: STREAMING_HEADERS,
 		});
 	});
 };

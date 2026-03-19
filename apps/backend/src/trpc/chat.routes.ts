@@ -42,6 +42,10 @@ export const chatRoutes = {
 			posthog.capture(ctx.user.id, PostHogEvent.ChatDeleted, { project_id: projectId, chat_id: input.chatId });
 		}),
 
+	activeChats: protectedProcedure.query(({ ctx }): string[] => {
+		return agentService.getRunningChatIds(ctx.user.id);
+	}),
+
 	stop: protectedProcedure.input(z.object({ chatId: z.string() })).mutation(async ({ input, ctx }): Promise<void> => {
 		const agent = agentService.get(input.chatId);
 		if (!agent) {

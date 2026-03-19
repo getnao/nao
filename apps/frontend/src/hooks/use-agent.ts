@@ -7,6 +7,7 @@ import { useMemoObject } from './useMemoObject';
 import { usePrevRef } from './use-prev';
 import { useLocalStorage } from './use-local-storage';
 import { useChatId } from './use-chat-id';
+import { useChatActivity } from './use-chat-activity';
 import type { InferUIMessageChunk } from 'ai';
 import type { UseChatHelpers } from '@ai-sdk/react';
 import type { UIMessage } from '@nao/backend/chat';
@@ -124,6 +125,9 @@ export const useAgent = (): AgentHelpers => {
 						},
 					};
 				},
+				prepareReconnectToStreamRequest: () => ({
+					api: `/api/agent/${agentId}/stream`,
+				}),
 			}),
 			onData: (dataPart) => handleAgentDataPart(dataPart, newAgent),
 			onFinish: ({ isAbort, isError, isDisconnect }) => {
@@ -148,7 +152,13 @@ export const useAgent = (): AgentHelpers => {
 		return agentService.registerAgent(agentId, newAgent);
 	}, [chatId, navigate, setChat, setChatList]);
 
-	const { status, error, clearError, sendMessage, setMessages, messages } = useChat({ chat: agentInstance });
+	const activity = useChatActivity(chatId ?? NEW_CHAT_ID);
+	const shouldResume = !!chatId && !chat.isLoading && activity.running;
+
+	const { status, error, clearError, sendMessage, setMessages, messages } = useChat({
+		chat: agentInstance,
+		resume: shouldResume,
+	});
 
 	const stopAgentMutation = useMutation(trpc.chat.stop.mutationOptions());
 	const isRunning = checkIsAgentRunning({ status });

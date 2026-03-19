@@ -23,6 +23,7 @@ import { getConnections, getTableColumnsContent, getUserRules } from '../agents/
 import { MessagingProviderSystemPrompt, SystemPrompt } from '../components/ai';
 import { DBChat } from '../db/abstractSchema';
 import { renderToMarkdown } from '../lib/markdown';
+import { StreamBuffer } from '../lib/stream-buffer';
 import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
@@ -148,6 +149,16 @@ export class AgentService {
 		return this._agents.get(chatId);
 	}
 
+	getRunningChatIds(userId: string): string[] {
+		const result: string[] = [];
+		for (const [chatId, agent] of this._agents) {
+			if (agent.chat.userId === userId) {
+				result.push(chatId);
+			}
+		}
+		return result;
+	}
+
 	private async _resolveWebTools(
 		projectId: string,
 		provider: LlmProvider,
@@ -174,9 +185,12 @@ export class AgentService {
 
 const MAX_OUTPUT_TOKENS = 16_000;
 
+const RESUME_FILTERED_TYPES = new Set(['data-newChat', 'data-newUserMessage']);
+
 class AgentManager {
 	private readonly _agent: ToolLoopAgent<never, AgentTools, never>;
 	private _streamWriter?: UIMessageStreamWriter<UIMessage>;
+	private _streamBuffer?: StreamBuffer<InferUIMessageChunk<UIMessage>>;
 
 	constructor(
 		readonly chat: AgentChat,
@@ -235,7 +249,7 @@ class AgentManager {
 		let error: unknown = undefined;
 		let result: StreamTextResult<AgentTools, never> | undefined;
 
-		return createUIMessageStream<UIMessage>({
+		const rawStream = createUIMessageStream<UIMessage>({
 			generateId: () => crypto.randomUUID(),
 			execute: async ({ writer }) => {
 				writer.write({ type: 'start' });
@@ -307,6 +321,16 @@ class AgentManager {
 				}
 			},
 		});
+
+		this._streamBuffer = new StreamBuffer(rawStream);
+		return this._streamBuffer.createReader();
+	}
+
+	resumeStream(): ReadableStream<InferUIMessageChunk<UIMessage>> | null {
+		if (!this._streamBuffer) {
+			return null;
+		}
+		return this._streamBuffer.createReader((chunk) => !RESUME_FILTERED_TYPES.has(chunk.type));
 	}
 
 	/**
