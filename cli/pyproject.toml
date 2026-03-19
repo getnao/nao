@@ -59,7 +59,7 @@ fabric = ["ibis-framework[mssql]>=9.0.0", "azure-identity>=1.19.0"]
 # LLM providers
 openai = ["openai>=1.0.0"]
 anthropic = ["anthropic>=0.76.0"]
-mistral = ["mistralai>=1.11.1"]
+mistral = ["mistralai>=1.11.1,<2.0.0"]
 gemini = ["google-genai>=1.61.0"]
 ollama = ["ollama>=0.4.0"]
 
