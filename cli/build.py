@@ -9,6 +9,7 @@ This script:
 """
 
 import json
+import os
 import platform
 import re
 import shutil
@@ -27,6 +28,36 @@ if sys.platform == "win32":
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8")
 
+
+def _add_to_path(directory: Path) -> None:
+    os.environ["PATH"] = str(directory) + os.pathsep + os.environ.get("PATH", "")
+
+
+def _ensure_tools_in_path() -> None:
+    """On Windows, tools like nvm-managed Node.js and Git may not be in PATH.
+
+    nvm injects node via .bash_profile which is never sourced by PowerShell/cmd.
+    Git is commonly installed at 'C:/Program Files/Git/cmd' but not added to PATH.
+    """
+    if not shutil.which("git"):
+        git_cmd = Path("C:/Program Files/Git/cmd")
+        if git_cmd.exists():
+            _add_to_path(git_cmd)
+            print(f"✓ Added Git to PATH: {git_cmd}")
+
+    if not shutil.which("npm"):
+        nvm_node_dir = Path.home() / ".nvm" / "versions" / "node"
+        if nvm_node_dir.exists():
+            versions = sorted(nvm_node_dir.iterdir(), key=lambda p: p.name, reverse=True)
+            if versions:
+                bin_dir = versions[0] / "bin"
+                if bin_dir.exists():
+                    _add_to_path(bin_dir)
+                    print(f"✓ Added nvm Node.js to PATH: {bin_dir}")
+
+
+_ensure_tools_in_path()
+
 app = App(help="Build and package nao-core CLI.")
 
 
@@ -38,10 +69,76 @@ class BumpType(Enum):
 
 def run(cmd: list[str], cwd: Path | None = None, env: dict | None = None) -> None:
     """Run a command and exit on failure."""
-    result = subprocess.run(cmd, cwd=cwd, env=env)
+    result = subprocess.run(cmd, cwd=cwd, env=env, shell=sys.platform == "win32")
     if result.returncode != 0:
         print(f"❌ Command failed: {' '.join(cmd)}")
         sys.exit(1)
+
+
+def _find_platform_deps(project_root: Path) -> list[str]:
+    """Scan node_modules for all platform-specific optional dependencies.
+
+    Packages like rollup, lightningcss, tailwindcss/oxide, and esbuild ship
+    platform-specific native binaries as optional dependencies. When the
+    lockfile was generated on a different OS, these are absent.
+
+    Returns ALL platform deps (not just missing ones) because npm's tree
+    reconciliation removes previously-installed unlocked packages on each run.
+    """
+    platform_markers = {
+        "darwin-arm64": ["darwin-arm64"],
+        "darwin-x64": ["darwin-x64"],
+        "linux-x64-gnu": ["linux-x64-gnu", "linux-x64"],
+        "linux-arm64-gnu": ["linux-arm64-gnu", "linux-arm64"],
+        "win32-x64-msvc": ["win32-x64-msvc", "win32-x64"],
+    }
+    suffix = get_native_platform_suffix()
+    markers = platform_markers.get(suffix or "", [])
+    if not markers:
+        return []
+
+    nm = project_root / "node_modules"
+    if not nm.exists():
+        return []
+
+    deps: list[str] = []
+    scoped_dirs = [d for d in nm.iterdir() if d.is_dir() and d.name.startswith("@")]
+    packages = [d.name for d in nm.iterdir() if d.is_dir() and not d.name.startswith(("@", "."))]
+    packages += [f"{s.name}/{p.name}" for s in scoped_dirs for p in s.iterdir() if p.is_dir()]
+
+    for pkg_name in packages:
+        pkg_json = nm / pkg_name / "package.json"
+        if not pkg_json.exists():
+            continue
+        try:
+            meta = json.loads(pkg_json.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            continue
+        for dep in meta.get("optionalDependencies", {}):
+            if any(m in dep for m in markers):
+                deps.append(dep)
+
+    return sorted(set(deps))
+
+
+def _ensure_platform_deps(project_root: Path) -> None:
+    """Install platform-specific npm optional dependencies if missing.
+
+    package-lock.json is typically generated on one OS, so native packages for
+    other platforms are absent. All deps are installed in a single `npm install`
+    call because npm reconciles the full tree on each invocation and removes
+    previously-installed packages that aren't in the lockfile.
+    """
+    all_deps = _find_platform_deps(project_root)
+    nm = project_root / "node_modules"
+    if not all_deps or all((nm / dep).exists() for dep in all_deps):
+        return
+
+    print("\n📦 Installing platform-specific dependencies...")
+    for dep in all_deps:
+        existing = "✓" if (nm / dep).exists() else "+"
+        print(f"   {existing} {dep}")
+    run(["npm", "install", "--no-save", *all_deps], cwd=project_root)
 
 
 def get_git_commit(project_root: Path) -> str:
@@ -235,22 +332,27 @@ def build_server(project_root: Path, output_dir: Path) -> None:
                 data_path.unlink()
             print(f"   Removed: {data_path}")
 
-    # Step 1: Build frontend
+    # Step 1: Ensure platform-specific npm optional deps are installed.
+    # package-lock.json is generated on macOS/Linux, so Windows-only optional
+    # packages (e.g. @rollup/rollup-win32-x64-msvc) are missing from the lockfile.
+    _ensure_platform_deps(project_root)
+
+    # Step 2: Build frontend
     print("\n🎨 Building frontend...")
     run(["npm", "run", "build"], cwd=frontend_dir)
 
-    # Step 2: Copy frontend dist to backend public folder
+    # Step 3: Copy frontend dist to backend public folder
     print("\n📁 Copying frontend assets to backend...")
     backend_public = backend_dir / "public"
     if backend_public.exists():
         shutil.rmtree(backend_public)
     shutil.copytree(frontend_dir / "dist", backend_public)
 
-    # Step 3: Compile backend CLI with Bun
+    # Step 4: Compile backend CLI with Bun
     print("\n⚡ Compiling backend CLI with Bun...")
     run(["npm", "run", "build:standalone"], cwd=backend_dir)
 
-    # Step 4: Copy the compiled binary to output directory
+    # Step 5: Copy the compiled binary to output directory
     print("\n📦 Copying binary to output directory...")
     binary_name = "nao-chat-server.exe" if sys.platform == "win32" else "nao-chat-server"
     binary_src = backend_dir / binary_name
@@ -258,14 +360,14 @@ def build_server(project_root: Path, output_dir: Path) -> None:
     shutil.copy2(binary_src, binary_dst)
     print(f"   Binary: {binary_dst}")
 
-    # Step 5: Copy frontend assets next to the binary
+    # Step 6: Copy frontend assets next to the binary
     print("\n📦 Bundling assets with binary...")
     output_public = output_dir / "public"
     if output_public.exists():
         shutil.rmtree(output_public)
     shutil.copytree(backend_public, output_public)
 
-    # Step 6: Copy migrations next to the binary (both SQLite and PostgreSQL)
+    # Step 7: Copy migrations next to the binary (both SQLite and PostgreSQL)
     print("\n📦 Bundling migrations with binary...")
 
     # Copy SQLite migrations
@@ -290,7 +392,7 @@ def build_server(project_root: Path, output_dir: Path) -> None:
     else:
         print("   ⚠️  No PostgreSQL migrations folder found")
 
-    # Step 7: Copy FastAPI server
+    # Step 8: Copy FastAPI server
     print("\n📦 Bundling FastAPI server...")
     fastapi_src = backend_dir / "fastapi"
     fastapi_dst = output_dir / "fastapi"
@@ -302,7 +404,7 @@ def build_server(project_root: Path, output_dir: Path) -> None:
     else:
         print("   ⚠️  No FastAPI folder found")
 
-    # Step 8: Copy ripgrep binary
+    # Step 9: Copy ripgrep binary
     print("\n📦 Bundling ripgrep binary...")
     rg_binary_name = "rg.exe" if sys.platform == "win32" else "rg"
     # Look in both monorepo root and backend node_modules
@@ -326,14 +428,14 @@ def build_server(project_root: Path, output_dir: Path) -> None:
         print("   ⚠️  No ripgrep binary found (grep tool will not work in standalone mode)")
         print("   Run 'npm install @vscode/ripgrep' in the backend or root directory")
 
-    # Step 9: Bundle native NAPI addons (boxlite, monty)
+    # Step 10: Bundle native NAPI addons (boxlite, monty)
     print("\n📦 Bundling native addons...")
     bundle_native_packages(project_root, output_dir)
 
     # Cleanup temporary public folder in backend
     shutil.rmtree(backend_public)
 
-    # Step 10: Write git commit info
+    # Step 11: Write git commit info
     print("\n📦 Writing build info...")
     commit_hash = get_git_commit(project_root)
     commit_short = get_git_commit_short(project_root)
