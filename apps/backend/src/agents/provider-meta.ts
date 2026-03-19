@@ -198,7 +198,7 @@ export const PROVIDER_META: ProviderMetaMap = {
 				{
 					name: 'serviceAccountJson',
 					label: 'Service Account JSON',
-					envVar: 'GOOGLE_SERVICE_ACCOUNT_JSON',
+					envVar: 'VERTEX_GOOGLE_SERVICE_ACCOUNT_JSON',
 					placeholder:
 						'{"client_email": "sa@project.iam.gserviceaccount.com", "private_key": "-----BEGIN PRIVATE KEY-----..."}',
 					secret: true,
@@ -207,12 +207,12 @@ export const PROVIDER_META: ProviderMetaMap = {
 				{
 					name: 'keyFile',
 					label: 'Key File Path',
-					envVar: 'GOOGLE_APPLICATION_CREDENTIALS',
+					envVar: 'VERTEX_GOOGLE_APPLICATION_CREDENTIALS',
 					placeholder: '/path/to/service-account.json',
 				},
 			],
 		},
-		envVar: 'GOOGLE_SERVICE_ACCOUNT_JSON',
+		envVar: 'VERTEX_GOOGLE_SERVICE_ACCOUNT_JSON',
 		extractorModelId: 'gemini-2.5-flash',
 		summaryModelId: 'gemini-2.5-flash',
 		models: [

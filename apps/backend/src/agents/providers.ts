@@ -150,7 +150,7 @@ function getProviderModelConfig<P extends LlmProvider>(provider: P, modelId: str
 
 /** Build googleAuthOptions from service account JSON, key file path, or env vars */
 function buildVertexAuthOptions(creds?: Record<string, string>) {
-	const json = creds?.serviceAccountJson || process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+	const json = creds?.serviceAccountJson || process.env.VERTEX_GOOGLE_SERVICE_ACCOUNT_JSON;
 	if (json) {
 		try {
 			const sa = JSON.parse(json);
@@ -162,7 +162,7 @@ function buildVertexAuthOptions(creds?: Record<string, string>) {
 		}
 	}
 
-	const keyFile = creds?.keyFile || process.env.GOOGLE_APPLICATION_CREDENTIALS;
+	const keyFile = creds?.keyFile || process.env.VERTEX_GOOGLE_APPLICATION_CREDENTIALS;
 	if (keyFile) {
 		return { keyFile };
 	}
