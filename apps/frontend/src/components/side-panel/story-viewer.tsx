@@ -44,7 +44,7 @@ import { TableDisplay } from '@/components/tool-calls/display-table';
 import { useIsMobile } from '@/hooks/use-is-mobile';
 import { useSidePanel } from '@/contexts/side-panel';
 import { Button } from '@/components/ui/button';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -351,39 +351,47 @@ const StoryHeader = memo(function StoryHeader({
 	const actionButtons = (
 		<>
 			{isLive && (
+				<TooltipProvider>
+					<Tooltip>
+						<TooltipTrigger asChild>
+							<Button
+								variant='ghost-muted'
+								size='icon-xs'
+								onClick={onRefreshData}
+								disabled={isRefreshing}
+								aria-label='Refresh data'
+							>
+								{isRefreshing ? (
+									<Loader2 className='size-3 animate-spin' />
+								) : (
+									<RefreshCw className='size-3' />
+								)}
+							</Button>
+						</TooltipTrigger>
+						<TooltipContent>Refresh data</TooltipContent>
+					</Tooltip>
+				</TooltipProvider>
+			)}
+			<TooltipProvider>
 				<Tooltip>
 					<TooltipTrigger asChild>
 						<Button
 							variant='ghost-muted'
 							size='icon-xs'
-							onClick={onRefreshData}
-							disabled={isRefreshing}
-							aria-label='Refresh data'
+							onClick={onOpenLiveSettings}
+							disabled={isAgentRunning}
+							aria-label='Live settings'
 						>
-							{isRefreshing ? (
-								<Loader2 className='size-3 animate-spin' />
+							{isLive ? (
+								<Activity className='size-3 text-emerald-600' />
 							) : (
-								<RefreshCw className='size-3' />
+								<Activity className='size-3' />
 							)}
 						</Button>
 					</TooltipTrigger>
-					<TooltipContent>Refresh data</TooltipContent>
+					<TooltipContent>{isLive ? 'Live story settings' : 'Enable live mode'}</TooltipContent>
 				</Tooltip>
-			)}
-			<Tooltip>
-				<TooltipTrigger asChild>
-					<Button
-						variant='ghost-muted'
-						size='icon-xs'
-						onClick={onOpenLiveSettings}
-						disabled={isAgentRunning}
-						aria-label='Live settings'
-					>
-						{isLive ? <Activity className='size-3 text-emerald-600' /> : <Activity className='size-3' />}
-					</Button>
-				</TooltipTrigger>
-				<TooltipContent>{isLive ? 'Live story settings' : 'Enable live mode'}</TooltipContent>
-			</Tooltip>
+			</TooltipProvider>
 			<Button variant='ghost-muted' size='icon-xs' onClick={onEnlarge} aria-label='Enlarge Story'>
 				<Maximize2 className='size-3' />
 			</Button>

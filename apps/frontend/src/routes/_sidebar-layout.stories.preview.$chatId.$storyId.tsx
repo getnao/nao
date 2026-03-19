@@ -9,7 +9,7 @@ import { SegmentList } from '@/components/story-rendering';
 import { ChartDisplay } from '@/components/tool-calls/display-chart';
 import { TableDisplay } from '@/components/tool-calls/display-table';
 import { Button } from '@/components/ui/button';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { trpc } from '@/main';
 
 export const Route = createFileRoute('/_sidebar-layout/stories/preview/$chatId/$storyId')({
@@ -47,35 +47,41 @@ function StoryPreviewPage() {
 				<h1 className='text-base font-medium truncate'>{story.title}</h1>
 				{story.isLive && (
 					<div className='flex items-center gap-1.5'>
-						<Tooltip>
-							<TooltipTrigger asChild>
-								<div className='flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700'>
-									<Activity className='size-3' />
-									<span>Live</span>
-								</div>
-							</TooltipTrigger>
-							<TooltipContent>
-								{cachedAt ? `Data cached ${cachedAt.toLocaleString()}` : 'Live story with fresh data'}
-							</TooltipContent>
-						</Tooltip>
-						<Tooltip>
-							<TooltipTrigger asChild>
-								<Button
-									variant='ghost-muted'
-									size='icon-xs'
-									onClick={() => refreshMutation.mutate({ chatId, storyId })}
-									disabled={refreshMutation.isPending}
-									aria-label='Refresh data'
-								>
-									{refreshMutation.isPending ? (
-										<Loader2 className='size-3.5 animate-spin' />
-									) : (
-										<RefreshCw className='size-3.5' />
-									)}
-								</Button>
-							</TooltipTrigger>
-							<TooltipContent>Refresh data</TooltipContent>
-						</Tooltip>
+						<TooltipProvider>
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<div className='flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700'>
+										<Activity className='size-3' />
+										<span>Live</span>
+									</div>
+								</TooltipTrigger>
+								<TooltipContent>
+									{cachedAt
+										? `Data cached ${cachedAt.toLocaleString()}`
+										: 'Live story with fresh data'}
+								</TooltipContent>
+							</Tooltip>
+						</TooltipProvider>
+						<TooltipProvider>
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<Button
+										variant='ghost-muted'
+										size='icon-xs'
+										onClick={() => refreshMutation.mutate({ chatId, storyId })}
+										disabled={refreshMutation.isPending}
+										aria-label='Refresh data'
+									>
+										{refreshMutation.isPending ? (
+											<Loader2 className='size-3.5 animate-spin' />
+										) : (
+											<RefreshCw className='size-3.5' />
+										)}
+									</Button>
+								</TooltipTrigger>
+								<TooltipContent>Refresh data</TooltipContent>
+							</Tooltip>
+						</TooltipProvider>
 					</div>
 				)}
 				<Button variant='outline' size='sm' className='ml-auto gap-1.5 shrink-0' asChild>
