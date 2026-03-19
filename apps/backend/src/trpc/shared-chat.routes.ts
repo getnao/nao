@@ -61,7 +61,7 @@ export const sharedChatRoutes = {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Shared chat not found.' });
 			}
 
-			assertCanAccessShare(share, ctx.user.id);
+			await assertCanAccessShare(share, ctx.user.id);
 
 			const [chat] = await chatQueries.loadChat(share.chatId, { includeFeedback: true });
 			if (!chat) {
@@ -77,7 +77,7 @@ export const sharedChatRoutes = {
 			throw new TRPCError({ code: 'NOT_FOUND', message: 'Shared chat not found.' });
 		}
 
-		assertCanAccessShare(share, ctx.user.id);
+		await assertCanAccessShare(share, ctx.user.id);
 
 		return share;
 	}),
