@@ -248,6 +248,16 @@ class TestMatchesPatterns:
         assert _matches_patterns("models/dim.sql", patterns, []) is True
         assert _matches_patterns("models/readme.md", patterns, []) is False
 
+    def test_trailing_double_star_matches_all_files(self):
+        assert _matches_patterns("__pycache__/foo.pyc", [], ["__pycache__/**"]) is False
+        assert _matches_patterns("__pycache__/sub/bar.pyc", [], ["__pycache__/**"]) is False
+        assert _matches_patterns("src/__pycache__/foo.pyc", [], ["__pycache__/**"]) is True
+
+    def test_trailing_double_star_in_include(self):
+        assert _matches_patterns("docs/guide.md", ["docs/**"], []) is True
+        assert _matches_patterns("docs/api/ref.md", ["docs/**"], []) is True
+        assert _matches_patterns("src/main.py", ["docs/**"], []) is False
+
 
 class TestSyncLocalRepo:
     def test_copies_all_files_without_filters(self, tmp_path: Path):

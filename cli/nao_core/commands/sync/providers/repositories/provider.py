@@ -83,7 +83,10 @@ def _glob_to_regex(pattern: str) -> re.Pattern[str]:
 
     for i, seg in enumerate(segments):
         if seg == "**":
-            regex_parts.append("(?:.+/)?")
+            if i == len(segments) - 1:
+                regex_parts.append(".*")
+            else:
+                regex_parts.append("(?:.+/)?")
         else:
             part = ""
             for ch in seg:
