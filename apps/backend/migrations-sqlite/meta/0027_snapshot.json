@@ -1678,12 +1678,7 @@
 					"columns": ["project_id"],
 					"isUnique": false
 				},
-				"shared_chat_chatId_idx": {
-					"name": "shared_chat_chatId_idx",
-					"columns": ["chat_id"],
-					"isUnique": false
-				},
-				"shared_chat_chatId_unique": {
+			"shared_chat_chatId_unique": {
 					"name": "shared_chat_chatId_unique",
 					"columns": ["chat_id"],
 					"isUnique": true

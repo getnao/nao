@@ -11,7 +11,6 @@ CREATE TABLE `shared_chat` (
 );
 --> statement-breakpoint
 CREATE INDEX `shared_chat_projectId_idx` ON `shared_chat` (`project_id`);--> statement-breakpoint
-CREATE INDEX `shared_chat_chatId_idx` ON `shared_chat` (`chat_id`);--> statement-breakpoint
 CREATE UNIQUE INDEX `shared_chat_chatId_unique` ON `shared_chat` (`chat_id`);--> statement-breakpoint
 CREATE TABLE `shared_chat_access` (
 	`shared_chat_id` text NOT NULL,

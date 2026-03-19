@@ -374,11 +374,7 @@ export const sharedChat = sqliteTable(
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull(),
 	},
-	(t) => [
-		index('shared_chat_projectId_idx').on(t.projectId),
-		index('shared_chat_chatId_idx').on(t.chatId),
-		unique('shared_chat_chatId_unique').on(t.chatId),
-	],
+	(t) => [index('shared_chat_projectId_idx').on(t.projectId), unique('shared_chat_chatId_unique').on(t.chatId)],
 );
 
 export const sharedChatAccess = sqliteTable(

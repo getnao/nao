@@ -19,5 +19,4 @@ ALTER TABLE "shared_chat" ADD CONSTRAINT "shared_chat_chat_id_chat_id_fk" FOREIG
 ALTER TABLE "shared_chat_access" ADD CONSTRAINT "shared_chat_access_shared_chat_id_shared_chat_id_fk" FOREIGN KEY ("shared_chat_id") REFERENCES "public"."shared_chat"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "shared_chat_access" ADD CONSTRAINT "shared_chat_access_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "shared_chat_projectId_idx" ON "shared_chat" USING btree ("project_id");--> statement-breakpoint
-CREATE INDEX "shared_chat_chatId_idx" ON "shared_chat" USING btree ("chat_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "shared_chat_chatId_unique" ON "shared_chat" USING btree ("chat_id");

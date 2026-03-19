@@ -351,11 +351,7 @@ export const sharedChat = pgTable(
 		visibility: text('visibility', { enum: SHARE_VISIBILITY }).default('project').notNull(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 	},
-	(t) => [
-		index('shared_chat_projectId_idx').on(t.projectId),
-		index('shared_chat_chatId_idx').on(t.chatId),
-		unique('shared_chat_chatId_unique').on(t.chatId),
-	],
+	(t) => [index('shared_chat_projectId_idx').on(t.projectId), unique('shared_chat_chatId_unique').on(t.chatId)],
 );
 
 export const sharedChatAccess = pgTable(
