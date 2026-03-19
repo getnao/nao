@@ -355,7 +355,7 @@ function SidebarNav({ chats, isCollapsed }: { chats: ChatListItemType[]; isColla
 			) : (
 				<div
 					className={cn(
-						'w-72 flex flex-col overflow-y-auto px-2 gap-0.5',
+						'w-72 flex-1 flex-col overflow-y-auto px-2 space-y-1 gap-0.5',
 						chatsOpen ? 'opacity-100' : 'opacity-0 h-0 overflow-hidden',
 					)}
 				>
