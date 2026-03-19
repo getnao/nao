@@ -208,7 +208,7 @@ def chat(port: Annotated[Optional[int], Parameter(name=["-p", "--port"])] = None
                     env["VERTEX_GOOGLE_SERVICE_ACCOUNT_JSON"] = config.llm.service_account_json
                     console.print("[bold green]✓[/bold green] Set VERTEX_GOOGLE_SERVICE_ACCOUNT_JSON from config")
                 if config.llm.key_file:
-                    env["VERTEX_GOOGLE_APPLICATION_CREDENTIALS"] = config.llm.key_file
+                    env["VERTEX_GOOGLE_APPLICATION_CREDENTIALS"] = str(Path(config.llm.key_file).resolve())
                     console.print("[bold green]✓[/bold green] Set VERTEX_GOOGLE_APPLICATION_CREDENTIALS from config")
 
         env["NAO_DEFAULT_PROJECT_PATH"] = str(Path.cwd())
