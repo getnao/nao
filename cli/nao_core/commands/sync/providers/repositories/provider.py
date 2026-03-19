@@ -3,7 +3,7 @@
 import re
 import shutil
 import subprocess
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from rich.console import Console
@@ -156,7 +156,7 @@ def sync_local_repo(repo: RepoConfig, base_path: Path) -> bool:
                 if not file_path.is_file():
                     continue
 
-                relative = str(file_path.relative_to(source_path))
+                relative = PurePosixPath(file_path.relative_to(source_path)).as_posix()
                 if not _matches_patterns(relative, repo.include, repo.exclude):
                     continue
 
