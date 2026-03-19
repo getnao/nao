@@ -144,13 +144,23 @@ def init(
             UI.success(f"Created project [cyan]{project_name}[/cyan]")
         UI.success(f"Saved [dim]{project_path / 'nao_config.yaml'}[/dim]")
         UI.print()
+
+        # Show install command for missing optional dependencies
+        from nao_core.deps import get_install_command
+
+        install_cmd = get_install_command(config)
+        if install_cmd:
+            UI.print()
+            UI.warn("Some provider dependencies are not yet installed.")
+            UI.print(f"Run: [bold cyan]{install_cmd}[/bold cyan]")
+            UI.print()
+
         UI.print("[bold green]Done![/bold green] Your nao project is ready. 🎉")
 
         is_subfolder = project_path.resolve() != Path.cwd().resolve()
 
         has_connections = config.databases or config.llm
-        if has_connections:
-            # Change directory for the debug command to run in the right context
+        if has_connections and not install_cmd:
             os.chdir(project_path)
             from nao_core.commands.debug import debug
 

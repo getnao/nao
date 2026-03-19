@@ -8,6 +8,10 @@ when a required package is missing.
 from __future__ import annotations
 
 import importlib
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from nao_core.config.base import NaoConfig
 
 
 class MissingDependencyError(ImportError):
@@ -60,3 +64,98 @@ _BACKEND_EXTRA: dict[str, str] = {
     "athena": "athena",
     "trino": "trino",
 }
+
+_DB_TYPE_TO_EXTRA: dict[str, str] = {
+    "postgres": "postgres",
+    "bigquery": "bigquery",
+    "snowflake": "snowflake",
+    "duckdb": "duckdb",
+    "clickhouse": "clickhouse",
+    "databricks": "databricks",
+    "mssql": "mssql",
+    "athena": "athena",
+    "trino": "trino",
+    "redshift": "redshift",
+    "fabric": "fabric",
+}
+
+_LLM_PROVIDER_TO_EXTRA: dict[str, str] = {
+    "openai": "openai",
+    "anthropic": "anthropic",
+    "mistral": "mistral",
+    "gemini": "gemini",
+    "openrouter": "openai",
+    "ollama": "ollama",
+}
+
+
+def get_required_extras(config: NaoConfig) -> list[str]:
+    """Return the list of extras needed for a given config."""
+    extras: list[str] = []
+    seen: set[str] = set()
+
+    for db in config.databases:
+        extra = _DB_TYPE_TO_EXTRA.get(db.type)
+        if extra and extra not in seen:
+            extras.append(extra)
+            seen.add(extra)
+
+    if config.llm:
+        extra = _LLM_PROVIDER_TO_EXTRA.get(config.llm.provider.value)
+        if extra and extra not in seen:
+            extras.append(extra)
+            seen.add(extra)
+
+    if config.notion:
+        if "notion" not in seen:
+            extras.append("notion")
+            seen.add("notion")
+
+    return extras
+
+
+def get_install_command(config: NaoConfig) -> str | None:
+    """Return the pip install command for missing extras, or None if everything is installed."""
+    extras = get_required_extras(config)
+    if not extras:
+        return None
+
+    missing = []
+    for extra in extras:
+        if not _is_extra_installed(extra):
+            missing.append(extra)
+
+    if not missing:
+        return None
+
+    extras_str = ",".join(missing)
+    return f"pip install 'nao-core[{extras_str}]'"
+
+
+def _is_extra_installed(extra: str) -> bool:
+    """Check if the packages for an extra are importable."""
+    checks: dict[str, list[str]] = {
+        "postgres": ["ibis.backends.postgres"],
+        "bigquery": ["ibis.backends.bigquery"],
+        "snowflake": ["ibis.backends.snowflake"],
+        "duckdb": ["ibis.backends.duckdb"],
+        "clickhouse": ["ibis.backends.clickhouse"],
+        "databricks": ["ibis.backends.databricks"],
+        "mssql": ["ibis.backends.mssql"],
+        "athena": ["ibis.backends.athena"],
+        "trino": ["ibis.backends.trino"],
+        "redshift": ["ibis.backends.postgres", "sshtunnel"],
+        "fabric": ["ibis.backends.mssql", "azure.identity"],
+        "openai": ["openai"],
+        "anthropic": ["anthropic"],
+        "mistral": ["mistralai"],
+        "gemini": ["google.genai"],
+        "ollama": ["ollama"],
+        "notion": ["notion_client", "notion2md"],
+    }
+    for module in checks.get(extra, []):
+        try:
+            importlib.import_module(module)
+        except (ImportError, ModuleNotFoundError):
+            return False
+    return True
