@@ -13,8 +13,10 @@ export function LlmProviderIcon({ provider, className: customClassName }: { prov
 	const className = cn('text-foreground opacity-50', customClassName);
 	switch (provider) {
 		case 'anthropic':
+		case 'claude-code':
 			return <ClaudeIcon className={className} />;
 		case 'openai':
+		case 'codex':
 			return <OpenAIIcon className={className} />;
 		case 'mistral':
 			return <MistralIcon className={className} />;

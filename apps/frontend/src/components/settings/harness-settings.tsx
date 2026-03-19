@@ -9,8 +9,8 @@ interface HarnessSettingsProps {
 }
 
 const HARNESS_PROVIDER_MAP: Record<string, string> = {
-	anthropic: 'anthropic',
-	openai: 'openai',
+	anthropic: 'claude-code',
+	openai: 'codex',
 };
 
 export function HarnessSettings({ isAdmin }: HarnessSettingsProps) {

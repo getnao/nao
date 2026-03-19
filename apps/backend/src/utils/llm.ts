@@ -86,15 +86,23 @@ export async function resolveProviderSettings(
 	return null;
 }
 
+/** Providers that use local CLI auth instead of API keys */
+const CLI_PROVIDERS = new Set<LlmProvider>(['claude-code', 'codex']);
+
 /**
  * Resolve a provider model from DB config, falling back to env vars.
  * Returns null when neither source has credentials for the provider.
+ * CLI-based providers (claude-code, codex) always resolve without API keys.
  */
 export async function resolveProviderModel(
 	projectId: string,
 	provider: LlmProvider,
 	modelId: string,
 ): Promise<ProviderModelResult | null> {
+	if (CLI_PROVIDERS.has(provider)) {
+		return createProviderModel(provider, { apiKey: '' }, modelId);
+	}
+
 	const config = await projectLlmConfigQueries.getProjectLlmConfigByProvider(projectId, provider);
 	if (config) {
 		return createProviderModel(

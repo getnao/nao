@@ -7,6 +7,8 @@ import { createMistral } from '@ai-sdk/mistral';
 import { createOpenAI } from '@ai-sdk/openai';
 import { createOpenRouter, LanguageModelV3 } from '@openrouter/ai-sdk-provider';
 import { createOllama } from 'ai-sdk-ollama';
+import { createClaudeCode } from 'ai-sdk-provider-claude-code';
+import { createCodexCli } from 'ai-sdk-provider-codex-cli';
 
 import type { LlmProvider, LlmProvidersType, ProviderConfigMap, ProviderSettings } from '../types/llm';
 import { PROVIDER_META } from './provider-meta';
@@ -113,6 +115,31 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 				return createVertexAnthropic(config)(modelId);
 			}
 			return createVertex(config)(modelId);
+		},
+	},
+	'claude-code': {
+		...PROVIDER_META['claude-code'],
+		create: (_settings, modelId) => {
+			const provider = createClaudeCode({
+				defaultSettings: {
+					permissionMode: 'bypassPermissions',
+					allowDangerouslySkipPermissions: true,
+				},
+			});
+			return provider(modelId);
+		},
+	},
+	codex: {
+		...PROVIDER_META.codex,
+		create: (_settings, modelId) => {
+			const provider = createCodexCli({
+				defaultSettings: {
+					approvalMode: 'never',
+					sandboxMode: 'workspace-write',
+					reasoningEffort: 'high',
+				},
+			});
+			return provider(modelId);
 		},
 	},
 };

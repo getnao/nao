@@ -12,18 +12,20 @@ export interface HarnessConfig {
 
 const HARNESS_CONFIGS: Record<Exclude<AiHarness, 'default'>, HarnessConfig> = {
 	anthropic: {
-		label: 'Claude',
-		description: 'Anthropic Claude — optimised for analytics with extended thinking and prompt caching.',
-		provider: 'anthropic',
-		modelId: getDefaultModel('anthropic'),
-		modelName: getDefaultModelName('anthropic'),
+		label: 'Claude Code',
+		description:
+			'Uses the Claude Code SDK (ai-sdk-provider-claude-code). Requires the Claude CLI installed and a Pro/Max subscription.',
+		provider: 'claude-code',
+		modelId: getDefaultModel('claude-code'),
+		modelName: getDefaultModelName('claude-code'),
 	},
 	openai: {
 		label: 'Codex',
-		description: 'OpenAI Codex — optimised for analytics with the Responses API.',
-		provider: 'openai',
-		modelId: getDefaultModel('openai'),
-		modelName: getDefaultModelName('openai'),
+		description:
+			'Uses the Codex CLI SDK (ai-sdk-provider-codex-cli). Requires the Codex CLI installed and a ChatGPT Plus/Pro subscription.',
+		provider: 'codex',
+		modelId: getDefaultModel('codex'),
+		modelName: getDefaultModelName('codex'),
 	},
 };
 

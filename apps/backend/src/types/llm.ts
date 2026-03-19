@@ -18,6 +18,8 @@ export const llmProviderSchema = z.enum([
 	'ollama',
 	'bedrock',
 	'vertex',
+	'claude-code',
+	'codex',
 ]);
 export type LlmProvider = z.infer<typeof llmProviderSchema>;
 
@@ -37,6 +39,9 @@ export const llmConfigSchema = z.object({
 /** Flatten an interface into a plain type so it gains an implicit index signature. */
 type Flatten<T> = { [K in keyof T]: T[K] };
 
+/** Provider options stub for CLI-based providers that handle auth internally */
+type CliProviderOptions = { [key: string]: string | number | boolean | null | undefined };
+
 /** Map each provider to its specific config type */
 export type ProviderConfigMap = {
 	google: GoogleGenerativeAIProviderOptions;
@@ -47,6 +52,8 @@ export type ProviderConfigMap = {
 	ollama: Flatten<OllamaChatProviderOptions>;
 	bedrock: AmazonBedrockLanguageModelOptions;
 	vertex: GoogleGenerativeAIProviderOptions;
+	'claude-code': CliProviderOptions;
+	codex: CliProviderOptions;
 };
 
 /** Model definition with provider-specific config type */

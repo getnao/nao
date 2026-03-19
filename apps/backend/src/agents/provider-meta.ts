@@ -220,6 +220,35 @@ export const PROVIDER_META: ProviderMetaMap = {
 			{ id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash (Vertex)', contextWindow: 200_000 },
 		],
 	},
+	'claude-code': {
+		auth: {
+			apiKey: 'none',
+			hint: 'Requires Claude Code CLI installed and authenticated (claude auth login). Uses your Claude Pro/Max subscription.',
+		},
+		envVar: 'CLAUDE_CODE_ENABLED',
+		extractorModelId: 'haiku',
+		summaryModelId: 'haiku',
+		models: [
+			{ id: 'sonnet', name: 'Claude Code (Sonnet)', default: true, contextWindow: 200_000 },
+			{ id: 'opus', name: 'Claude Code (Opus)', contextWindow: 200_000 },
+			{ id: 'haiku', name: 'Claude Code (Haiku)', contextWindow: 200_000 },
+		],
+	},
+	codex: {
+		auth: {
+			apiKey: 'none',
+			hint: 'Requires Codex CLI installed. Uses your ChatGPT Plus/Pro subscription or OPENAI_API_KEY.',
+		},
+		envVar: 'CODEX_CLI_ENABLED',
+		extractorModelId: 'gpt-5.2-codex',
+		summaryModelId: 'gpt-5.2-codex',
+		models: [
+			{ id: 'gpt-5.3-codex', name: 'Codex (GPT 5.3)', default: true, contextWindow: 400_000 },
+			{ id: 'gpt-5.2-codex', name: 'Codex (GPT 5.2)', contextWindow: 400_000 },
+			{ id: 'gpt-5.2-codex-max', name: 'Codex Max (GPT 5.2)', contextWindow: 400_000 },
+			{ id: 'gpt-5.2-codex-mini', name: 'Codex Mini (GPT 5.2)', contextWindow: 400_000 },
+		],
+	},
 };
 
 export function getDefaultModelId(provider: LlmProvider): string {
