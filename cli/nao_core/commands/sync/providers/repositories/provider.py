@@ -52,7 +52,8 @@ def clone_or_pull_repo(repo: RepoConfig, base_path: Path) -> bool:
             cmd = ["git", "clone"]
             if repo.branch:
                 cmd.extend(["-b", repo.branch])
-            cmd.extend([repo.url, str(repo_path)])
+            if repo.url:
+                cmd.extend([repo.url, str(repo_path)])
 
             result = subprocess.run(
                 cmd,

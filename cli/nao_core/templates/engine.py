@@ -78,7 +78,7 @@ class TemplateEngine:
 
     def _register_globals(self) -> None:
         """Register template global helper functions."""
-        self.env.globals["prompt"] = self._prompt
+        self.env.globals["prompt"] = self._prompt  # type: ignore[assignment]
 
     def _prompt(self, text: str) -> str:
         """Generate text with the configured LLM.
