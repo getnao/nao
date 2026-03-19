@@ -166,14 +166,14 @@ def bundle_native_packages(project_root: Path, output_dir: Path) -> None:
         ("@pydantic/monty", "@pydantic/monty"),
     ]
 
-    # boxlite requires KVM (Linux) or Hypervisor.framework (macOS) — not available on Windows
+    # boxlite has no native win32 binaries (works on Windows only through WSL)
     if sys.platform != "win32":
         packages_to_copy = [
             ("@boxlite-ai/boxlite", "@boxlite-ai/boxlite"),
             (f"@boxlite-ai/boxlite-{suffix}", f"@boxlite-ai/boxlite-{suffix}"),
         ] + packages_to_copy
     else:
-        print("   Skipping @boxlite-ai/boxlite (not available on Windows)")
+        print("   Skipping @boxlite-ai/boxlite (no native win32 binaries — use WSL for sandbox support)")
 
     # monty's platform package may be nested inside its own node_modules
     monty_platform_pkg = f"@pydantic/monty-{suffix}"
