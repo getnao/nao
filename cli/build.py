@@ -21,6 +21,12 @@ from typing import Annotated
 
 from cyclopts import App, Parameter
 
+# Windows defaults to cp1252 which cannot encode emoji used in log messages
+if sys.platform == "win32":
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
+
 app = App(help="Build and package nao-core CLI.")
 
 
