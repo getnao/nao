@@ -16,6 +16,9 @@ SYSTEM_SCHEMAS = ("information_schema", "mysql", "performance_schema", "sys")
 class MysqlDatabaseContext(DatabaseContext):
     """MySQL context with information_schema description discovery."""
 
+    def _quote(self, name: str) -> str:
+        return f"`{name}`"
+
     def description(self) -> str | None:
         try:
             query = f"""

@@ -57,7 +57,7 @@ services:
             interval: 5s
             timeout: 5s
             retries: 5
- 
+
 volumes:
     nao_mysql_data:
     nao_postgres_data:
