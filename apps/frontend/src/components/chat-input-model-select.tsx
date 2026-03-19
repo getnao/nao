@@ -5,10 +5,20 @@ import { LlmProviderIcon } from '@/components/ui/llm-provider-icon';
 import { useAgentContext } from '@/contexts/agent.provider';
 import { trpc } from '@/main';
 
+const HARNESS_PROVIDER_MAP: Record<string, string> = {
+	anthropic: 'anthropic',
+	openai: 'openai',
+};
+
 export function ChatInputModelSelect() {
 	const { selectedModel, setSelectedModel } = useAgentContext();
 	const { data: availableModels } = useQuery(trpc.project.getAvailableModels.queryOptions());
+	const { data: agentSettings } = useQuery(trpc.project.getAgentSettings.queryOptions());
 	const hasMultipleModels = Boolean(availableModels && availableModels.length > 1);
+
+	const activeHarness = agentSettings?.harness ?? 'default';
+	const harnessInfo = agentSettings?.availableHarnesses?.find((h) => h.id === activeHarness);
+	const isHarnessOverride = activeHarness !== 'default';
 
 	// Set default model when available models load, or reset if current selection is no longer available
 	useEffect(() => {
@@ -39,6 +49,16 @@ export function ChatInputModelSelect() {
 		? (availableModels?.find((m) => m.provider === selectedModel.provider && m.modelId === selectedModel.modelId)
 				?.name ?? selectedModel.modelId)
 		: 'Select model';
+
+	if (isHarnessOverride && harnessInfo) {
+		const provider = HARNESS_PROVIDER_MAP[activeHarness];
+		return (
+			<div className='flex items-center gap-2 text-sm font-normal text-muted-foreground'>
+				{provider && <LlmProviderIcon provider={provider} className='size-4' />}
+				<span>{harnessInfo.label}</span>
+			</div>
+		);
+	}
 
 	if (!availableModels?.length) {
 		return null;

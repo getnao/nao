@@ -1,5 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
+import { HarnessSettings } from '@/components/settings/harness-settings';
 import { SavedPrompts } from '@/components/settings/saved-prompts';
 import { SettingsExperimental } from '@/components/settings/experimental';
 import { SettingsProjectMemory } from '@/components/settings/project-memory';
@@ -16,6 +17,7 @@ function ProjectAgentTabPage() {
 
 	return (
 		<>
+			<HarnessSettings isAdmin={isAdmin} />
 			<SettingsProjectMemory isAdmin={isAdmin} />
 			<SettingsWebSearch isAdmin={isAdmin} />
 			<SavedPrompts isAdmin={isAdmin} />

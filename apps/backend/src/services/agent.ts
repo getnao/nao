@@ -16,6 +16,7 @@ import {
 } from 'ai';
 import { z } from 'zod';
 
+import { getHarnessConfig } from '../agents/harness';
 import { CACHE_1H, CACHE_5M, LLM_PROVIDERS, ProviderModelResult } from '../agents/providers';
 import { getTools } from '../agents/tools';
 import { createWebSearchTools } from '../agents/tools/web-search';
@@ -72,9 +73,13 @@ export class AgentService {
 
 	async create(chat: AgentChat, modelSelection?: ModelSelection): Promise<AgentManager> {
 		this._disposeAgent(chat.id);
-		const resolvedModelSelection = await this._getResolvedModelSelection(chat.projectId, modelSelection);
-		const modelConfig = await this._getModelConfig(chat.projectId, resolvedModelSelection);
 		const agentSettings = await projectQueries.getAgentSettings(chat.projectId);
+		const resolvedModelSelection = await this._getResolvedModelSelection(
+			chat.projectId,
+			modelSelection,
+			agentSettings,
+		);
+		const modelConfig = await this._getModelConfig(chat.projectId, resolvedModelSelection);
 		const toolContext = await this._getToolContext(chat.projectId, chat.id, agentSettings);
 		const webTools = await this._resolveWebTools(chat.projectId, resolvedModelSelection.provider, agentSettings);
 		const agentTools = getTools(agentSettings, webTools ?? undefined);
@@ -94,7 +99,15 @@ export class AgentService {
 	protected async _getResolvedModelSelection(
 		projectId: string,
 		modelSelection?: ModelSelection,
+		agentSettings?: AgentSettings | null,
 	): Promise<ModelSelection> {
+		const harness = agentSettings?.harness ?? 'default';
+		const harnessConfig = getHarnessConfig(harness);
+
+		if (harnessConfig) {
+			return { provider: harnessConfig.provider, modelId: harnessConfig.modelId };
+		}
+
 		if (modelSelection) {
 			return modelSelection;
 		}

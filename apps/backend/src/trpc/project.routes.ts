@@ -1,6 +1,7 @@
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
+import { getAvailableHarnesses } from '../agents/harness';
 import { getProviderAuth, KNOWN_MODELS } from '../agents/providers';
 import { getDatabaseObjects } from '../agents/user-rules';
 import { env } from '../env';
@@ -12,7 +13,7 @@ import * as slackConfigQueries from '../queries/project-slack-config.queries';
 import * as teamsConfigQueries from '../queries/project-teams-config.queries';
 import { posthog, PostHogEvent } from '../services/posthog';
 import { getAvailableModels as getAvailableTranscribeModels } from '../services/transcribe.service';
-import { AgentSettings } from '../types/agent-settings';
+import { AgentSettings, AI_HARNESSES } from '../types/agent-settings';
 import { llmConfigSchema, LlmProvider, llmProviderSchema } from '../types/llm';
 import { isValidIsoDateString } from '../utils/date';
 import { getEnvApiKey, getEnvBaseUrls, getEnvProviders, getProjectAvailableModels } from '../utils/llm';
@@ -325,6 +326,10 @@ export const projectRoutes = {
 		return projectQueries.getAllUsersWithRoles(ctx.project.id);
 	}),
 
+	getHarnesses: publicProcedure.query(() => {
+		return getAvailableHarnesses();
+	}),
+
 	getKnownModels: publicProcedure.query(() => {
 		return KNOWN_MODELS;
 	}),
@@ -417,12 +422,14 @@ export const projectRoutes = {
 				pythonSandbox: isPythonAvailable,
 				sandbox: isSandboxAvailable,
 			},
+			availableHarnesses: getAvailableHarnesses(),
 		};
 	}),
 
 	updateAgentSettings: adminProtectedProcedure
 		.input(
 			z.object({
+				harness: z.enum(AI_HARNESSES).optional(),
 				experimental: z
 					.object({
 						pythonSandboxing: z.boolean().optional(),
@@ -450,6 +457,7 @@ export const projectRoutes = {
 			const existing = (await projectQueries.getAgentSettings(ctx.project.id)) ?? {};
 			const merged: AgentSettings = {
 				memoryEnabled: input.memoryEnabled ?? existing.memoryEnabled,
+				harness: input.harness ?? existing.harness,
 				experimental: { ...existing.experimental, ...input.experimental },
 				transcribe: { ...existing.transcribe, ...input.transcribe },
 				sql: { ...existing.sql, ...input.sql },
@@ -457,6 +465,7 @@ export const projectRoutes = {
 			};
 			posthog.capture(ctx.user.id, PostHogEvent.ProjectAgentSettingsUpdated, {
 				project_id: ctx.project.id,
+				harness: merged.harness,
 				transcribe_enabled: merged.transcribe?.enabled,
 				transcribe_provider: merged.transcribe?.provider,
 				transcribe_model_id: merged.transcribe?.modelId,
