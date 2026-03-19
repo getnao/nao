@@ -14,6 +14,46 @@ if TYPE_CHECKING:
     from nao_core.config.base import NaoConfig
 
 
+# ---------------------------------------------------------------------------
+# Single registry: extra name → modules that must be importable
+# ---------------------------------------------------------------------------
+
+_EXTRAS: dict[str, list[str]] = {
+    # Database backends
+    "postgres": ["ibis.backends.postgres"],
+    "bigquery": ["ibis.backends.bigquery"],
+    "snowflake": ["ibis.backends.snowflake"],
+    "duckdb": ["ibis.backends.duckdb"],
+    "clickhouse": ["ibis.backends.clickhouse"],
+    "databricks": ["ibis.backends.databricks"],
+    "mysql": ["ibis.backends.mysql"],
+    "mssql": ["ibis.backends.mssql"],
+    "athena": ["ibis.backends.athena"],
+    "trino": ["ibis.backends.trino"],
+    "redshift": ["ibis.backends.postgres", "sshtunnel"],
+    "fabric": ["ibis.backends.mssql", "azure.identity"],
+    # LLM providers
+    "openai": ["openai"],
+    "anthropic": ["anthropic"],
+    "mistral": ["mistralai"],
+    "gemini": ["google.genai"],
+    "ollama": ["ollama"],
+    # Integrations
+    "notion": ["notion_client", "notion2md"],
+}
+
+# Providers whose extra name differs from their config value.
+_PROVIDER_ALIASES: dict[str, str] = {
+    "openrouter": "openai",
+    "vertex": "gemini",
+}
+
+
+# ---------------------------------------------------------------------------
+# Public helpers
+# ---------------------------------------------------------------------------
+
+
 class MissingDependencyError(ImportError):
     """Raised when an optional dependency is not installed."""
 
@@ -42,7 +82,7 @@ def require_dependency(package: str, extra: str, purpose: str = "") -> None:
 
 def require_database_backend(backend: str) -> None:
     """Verify that the ibis backend for *backend* is importable."""
-    extra = _BACKEND_EXTRA.get(backend, backend)
+    extra = _PROVIDER_ALIASES.get(backend, backend)
     try:
         importlib.import_module(f"ibis.backends.{backend}")
     except (ImportError, ModuleNotFoundError):
@@ -53,66 +93,26 @@ def require_database_backend(backend: str) -> None:
         ) from None
 
 
-_BACKEND_EXTRA: dict[str, str] = {
-    "postgres": "postgres",
-    "bigquery": "bigquery",
-    "snowflake": "snowflake",
-    "duckdb": "duckdb",
-    "clickhouse": "clickhouse",
-    "databricks": "databricks",
-    "mysql": "mysql",
-    "mssql": "mssql",
-    "athena": "athena",
-    "trino": "trino",
-}
-
-_DB_TYPE_TO_EXTRA: dict[str, str] = {
-    "postgres": "postgres",
-    "bigquery": "bigquery",
-    "snowflake": "snowflake",
-    "duckdb": "duckdb",
-    "clickhouse": "clickhouse",
-    "databricks": "databricks",
-    "mysql": "mysql",
-    "mssql": "mssql",
-    "athena": "athena",
-    "trino": "trino",
-    "redshift": "redshift",
-    "fabric": "fabric",
-}
-
-_LLM_PROVIDER_TO_EXTRA: dict[str, str] = {
-    "openai": "openai",
-    "anthropic": "anthropic",
-    "mistral": "mistral",
-    "gemini": "gemini",
-    "openrouter": "openai",
-    "ollama": "ollama",
-    "vertex": "gemini",
-}
-
-
 def get_required_extras(config: NaoConfig) -> list[str]:
     """Return the list of extras needed for a given config."""
     extras: list[str] = []
     seen: set[str] = set()
 
     for db in config.databases:
-        extra = _DB_TYPE_TO_EXTRA.get(db.type)
+        extra = _resolve_extra(db.type)
         if extra and extra not in seen:
             extras.append(extra)
             seen.add(extra)
 
     if config.llm:
-        extra = _LLM_PROVIDER_TO_EXTRA.get(config.llm.provider.value)
+        extra = _resolve_extra(config.llm.provider.value)
         if extra and extra not in seen:
             extras.append(extra)
             seen.add(extra)
 
-    if config.notion:
-        if "notion" not in seen:
-            extras.append("notion")
-            seen.add("notion")
+    if config.notion and "notion" not in seen:
+        extras.append("notion")
+        seen.add("notion")
 
     return extras
 
@@ -160,29 +160,20 @@ def install_extras(extras: list[str]) -> bool:
         return False
 
 
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+
+def _resolve_extra(provider_or_type: str) -> str | None:
+    """Map a config provider/database type to its extra name."""
+    name = _PROVIDER_ALIASES.get(provider_or_type, provider_or_type)
+    return name if name in _EXTRAS else None
+
+
 def _is_extra_installed(extra: str) -> bool:
-    """Check if the packages for an extra are importable."""
-    checks: dict[str, list[str]] = {
-        "postgres": ["ibis.backends.postgres"],
-        "bigquery": ["ibis.backends.bigquery"],
-        "snowflake": ["ibis.backends.snowflake"],
-        "duckdb": ["ibis.backends.duckdb"],
-        "clickhouse": ["ibis.backends.clickhouse"],
-        "databricks": ["ibis.backends.databricks"],
-        "mysql": ["ibis.backends.mysql"],
-        "mssql": ["ibis.backends.mssql"],
-        "athena": ["ibis.backends.athena"],
-        "trino": ["ibis.backends.trino"],
-        "redshift": ["ibis.backends.postgres", "sshtunnel"],
-        "fabric": ["ibis.backends.mssql", "azure.identity"],
-        "openai": ["openai"],
-        "anthropic": ["anthropic"],
-        "mistral": ["mistralai"],
-        "gemini": ["google.genai"],
-        "ollama": ["ollama"],
-        "notion": ["notion_client", "notion2md"],
-    }
-    for module in checks.get(extra, []):
+    """Check if every module required by *extra* is importable."""
+    for module in _EXTRAS.get(extra, []):
         try:
             importlib.import_module(module)
         except (ImportError, ModuleNotFoundError):
