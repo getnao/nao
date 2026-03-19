@@ -18,6 +18,8 @@ export async function createVersion(data: {
 		.from(s.storyVersion)
 		.where(and(eq(s.storyVersion.chatId, data.chatId), eq(s.storyVersion.storyId, data.storyId)));
 
+	const liveSettings = await resolveLiveSettings(data);
+
 	const [created] = await db
 		.insert(s.storyVersion)
 		.values({
@@ -28,13 +30,30 @@ export async function createVersion(data: {
 			action: data.action,
 			source: data.source,
 			version: sql`(${nextVersion})`,
-			...(data.isLive !== undefined && { isLive: data.isLive }),
-			...(data.cacheTtlMinutes !== undefined && { cacheTtlMinutes: data.cacheTtlMinutes }),
+			...liveSettings,
 		})
 		.returning()
 		.execute();
 
 	return created;
+}
+
+async function resolveLiveSettings(data: {
+	chatId: string;
+	storyId: string;
+	isLive?: boolean;
+	cacheTtlMinutes?: number | null;
+}): Promise<{ isLive: boolean; cacheTtlMinutes: number | null }> {
+	if (data.isLive !== undefined) {
+		return { isLive: data.isLive, cacheTtlMinutes: data.cacheTtlMinutes ?? null };
+	}
+
+	const latest = await getLatestVersion(data.chatId, data.storyId);
+	if (latest) {
+		return { isLive: latest.isLive, cacheTtlMinutes: latest.cacheTtlMinutes };
+	}
+
+	return { isLive: false, cacheTtlMinutes: null };
 }
 
 export async function getLatestVersion(chatId: string, storyId: string): Promise<DBStoryVersion | null> {
