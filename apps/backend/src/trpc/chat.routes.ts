@@ -64,6 +64,12 @@ export const chatRoutes = {
 			posthog.capture(ctx.user.id, PostHogEvent.ChatRenamed, { project_id: projectId, chat_id: input.chatId });
 		}),
 
+	deleteAllNonStarred: protectedProcedure.mutation(async ({ ctx }): Promise<{ count: number }> => {
+		const { count } = await chatQueries.softDeleteNonStarredChats(ctx.user.id);
+		posthog.capture(ctx.user.id, PostHogEvent.AllNonStarredChatsDeleted, { deleted_count: count });
+		return { count };
+	}),
+
 	toggleStarred: chatOwnerProcedure
 		.input(z.object({ chatId: z.string(), isStarred: z.boolean() }))
 		.mutation(async ({ input }): Promise<void> => {

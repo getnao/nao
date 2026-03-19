@@ -17,7 +17,7 @@ export const listUserChats = async (userId: string): Promise<ListChatResponse> =
 	const chats = await db
 		.select()
 		.from(s.chat)
-		.where(eq(s.chat.userId, userId))
+		.where(and(eq(s.chat.userId, userId), isNull(s.chat.deletedAt)))
 		.orderBy(desc(s.chat.updatedAt))
 		.execute();
 	return {
@@ -44,7 +44,7 @@ export const loadChat = async (
 		.select()
 		.from(s.chat)
 		.innerJoin(s.chatMessage, eq(s.chatMessage.chatId, s.chat.id))
-		.where(and(eq(s.chatMessage.chatId, chatId), isNull(s.chatMessage.supersededAt)))
+		.where(and(eq(s.chatMessage.chatId, chatId), isNull(s.chatMessage.supersededAt), isNull(s.chat.deletedAt)))
 		.innerJoin(s.messagePart, eq(s.messagePart.messageId, s.chatMessage.id))
 		.orderBy(asc(s.chatMessage.createdAt), asc(s.messagePart.order))
 		.$dynamic();
@@ -234,6 +234,16 @@ export const deleteChat = async (chatId: string): Promise<{ projectId: string }>
 	return result;
 };
 
+export const softDeleteNonStarredChats = async (userId: string): Promise<{ count: number }> => {
+	const result = await db
+		.update(s.chat)
+		.set({ deletedAt: new Date() })
+		.where(and(eq(s.chat.userId, userId), eq(s.chat.isStarred, false), isNull(s.chat.deletedAt)))
+		.returning({ id: s.chat.id })
+		.execute();
+	return { count: result.length };
+};
+
 export const toggleStarred = async (chatId: string, isStarred: boolean): Promise<void> => {
 	await db.update(s.chat).set({ isStarred }).where(eq(s.chat.id, chatId)).execute();
 };
@@ -318,7 +328,9 @@ export const searchUserChats = async (userId: string, query: string, limit = 10)
 			updatedAt: s.chat.updatedAt,
 		})
 		.from(s.chat)
-		.where(and(eq(s.chat.userId, userId), caseInsensitiveLike(s.chat.title, searchPattern)))
+		.where(
+			and(eq(s.chat.userId, userId), isNull(s.chat.deletedAt), caseInsensitiveLike(s.chat.title, searchPattern)),
+		)
 		.orderBy(desc(s.chat.updatedAt))
 		.limit(limit)
 		.execute();
@@ -337,7 +349,13 @@ export const searchUserChats = async (userId: string, query: string, limit = 10)
 		.from(s.chat)
 		.innerJoin(s.chatMessage, eq(s.chatMessage.chatId, s.chat.id))
 		.innerJoin(s.messagePart, eq(s.messagePart.messageId, s.chatMessage.id))
-		.where(and(eq(s.chat.userId, userId), caseInsensitiveLike(s.messagePart.text, searchPattern)))
+		.where(
+			and(
+				eq(s.chat.userId, userId),
+				isNull(s.chat.deletedAt),
+				caseInsensitiveLike(s.messagePart.text, searchPattern),
+			),
+		)
 		.orderBy(desc(s.chat.updatedAt))
 		.limit(limit * 2) // Fetch more to account for duplicates
 		.execute();

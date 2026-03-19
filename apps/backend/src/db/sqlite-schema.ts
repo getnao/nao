@@ -181,6 +181,7 @@ export const chat = sqliteTable(
 			.references(() => project.id, { onDelete: 'cascade' }),
 		title: text('title').notNull().default('New Conversation'),
 		isStarred: integer('is_starred', { mode: 'boolean' }).default(false).notNull(),
+		deletedAt: integer('deleted_at', { mode: 'timestamp_ms' }),
 		slackThreadId: text('slack_thread_id'),
 		teamsThreadId: text('teams_thread_id'),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })

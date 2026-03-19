@@ -183,6 +183,13 @@
       "when": 1773740147271,
       "tag": "0025_archive_stories",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "6",
+      "when": 1774044000000,
+      "tag": "0026_add_chat_soft_delete",
+      "breakpoints": true
     }
   ]
 }
