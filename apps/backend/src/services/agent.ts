@@ -16,8 +16,6 @@ import {
 } from 'ai';
 import { z } from 'zod';
 
-import * as imageQueries from '../queries/image.queries';
-
 import { CACHE_1H, CACHE_5M, LLM_PROVIDERS, ProviderModelResult } from '../agents/providers';
 import { getTools } from '../agents/tools';
 import { createWebSearchTools } from '../agents/tools/web-search';
@@ -26,6 +24,7 @@ import { MessagingProviderSystemPrompt, SystemPrompt } from '../components/ai';
 import { DBChat } from '../db/abstractSchema';
 import { renderToMarkdown } from '../lib/markdown';
 import * as chatQueries from '../queries/chat.queries';
+import * as imageQueries from '../queries/image.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import * as storyQueries from '../queries/story.queries';
@@ -641,11 +640,13 @@ class AgentManager {
 
 const IMAGE_URL_PATTERN = /^\/i\/([a-f0-9-]+)$/;
 
+type MessageLike = Omit<UIMessage, 'id'>;
+
 /**
  * Replaces server image URLs (/i/{id}) with data URLs so the model provider
  * receives the actual image content without a circular HTTP fetch.
  */
-async function resolveImageUrls(messages: UIMessage[]): Promise<UIMessage[]> {
+async function resolveImageUrls<T extends MessageLike>(messages: T[]): Promise<T[]> {
 	const imageIds = new Set<string>();
 	for (const message of messages) {
 		for (const part of message.parts) {
