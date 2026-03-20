@@ -7,7 +7,7 @@ import type { LogLevel, LogSource } from '@nao/backend/log';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { SettingsCard } from '@/components/ui/settings-card';
+import { SettingsCard, SettingsPageWrapper } from '@/components/ui/settings-card';
 import { TextShimmer } from '@/components/ui/text-shimmer';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
@@ -108,119 +108,118 @@ function LogsPage() {
 	const isRefreshing = showRefresh;
 
 	return (
-		<SettingsCard title='Logs' titleSize='lg' description='Real-time backend logs with auto-refresh.'>
-			{/* Filter bar - left aligned */}
-			<div className='flex items-center gap-2'>
-				<Select value={level} onValueChange={(v) => setLevel(v as LogLevel | 'all')}>
-					<SelectTrigger size='sm'>
-						<SelectValue />
-					</SelectTrigger>
-					<SelectContent>
-						<SelectItem value='all'>All levels</SelectItem>
-						<SelectItem value='error'>Error</SelectItem>
-						<SelectItem value='warn'>Warn</SelectItem>
-						<SelectItem value='info'>Info</SelectItem>
-						<SelectItem value='debug'>Debug</SelectItem>
-					</SelectContent>
-				</Select>
+		<SettingsPageWrapper>
+			<SettingsCard title='Logs' titleSize='lg' description='Real-time backend logs with auto-refresh.'>
+				<div className='flex items-center gap-2'>
+					<Select value={level} onValueChange={(v) => setLevel(v as LogLevel | 'all')}>
+						<SelectTrigger size='sm'>
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							<SelectItem value='all'>All levels</SelectItem>
+							<SelectItem value='error'>Error</SelectItem>
+							<SelectItem value='warn'>Warn</SelectItem>
+							<SelectItem value='info'>Info</SelectItem>
+							<SelectItem value='debug'>Debug</SelectItem>
+						</SelectContent>
+					</Select>
 
-				<Select value={source} onValueChange={(v) => setSource(v as LogSource | 'all')}>
-					<SelectTrigger size='sm'>
-						<SelectValue />
-					</SelectTrigger>
-					<SelectContent>
-						<SelectItem value='all'>All sources</SelectItem>
-						<SelectItem value='http'>HTTP</SelectItem>
-						<SelectItem value='agent'>Agent</SelectItem>
-						<SelectItem value='tool'>Tool</SelectItem>
-						<SelectItem value='system'>System</SelectItem>
-					</SelectContent>
-				</Select>
+					<Select value={source} onValueChange={(v) => setSource(v as LogSource | 'all')}>
+						<SelectTrigger size='sm'>
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							<SelectItem value='all'>All sources</SelectItem>
+							<SelectItem value='http'>HTTP</SelectItem>
+							<SelectItem value='agent'>Agent</SelectItem>
+							<SelectItem value='tool'>Tool</SelectItem>
+							<SelectItem value='system'>System</SelectItem>
+						</SelectContent>
+					</Select>
 
-				<div className='flex-1' />
+					<div className='flex-1' />
 
-				{/* Actions - right side */}
-				<Button variant='outline' size='sm' onClick={handleCopy} disabled={!sortedEntries.length}>
-					{copied ? (
-						<>
-							<Copy className='size-3.5' />
-							Copied
-						</>
+					<Button variant='outline' size='sm' onClick={handleCopy} disabled={!sortedEntries.length}>
+						{copied ? (
+							<>
+								<Copy className='size-3.5' />
+								Copied
+							</>
+						) : (
+							<>
+								<Copy className='size-3.5' />
+								Copy
+							</>
+						)}
+					</Button>
+					<Button variant='outline' size='sm' onClick={handleRefresh} disabled={isRefreshing}>
+						{isRefreshing ? (
+							<TextShimmer text='Refreshing...' />
+						) : (
+							<>
+								<RefreshCw className='size-3.5' />
+								Refresh
+							</>
+						)}
+					</Button>
+				</div>
+
+				<div
+					ref={terminalRef}
+					onScroll={handleScroll}
+					className='rounded-lg bg-background border border-border font-mono text-xs overflow-auto max-h-[480px] min-h-[300px]'
+				>
+					{logs.isLoading ? (
+						<div className='flex items-center justify-center h-[280px]'>
+							<TextShimmer text='Loading logs...' />
+						</div>
+					) : logs.isError ? (
+						<div className='flex flex-col items-center justify-center h-[280px] gap-2 text-muted-foreground'>
+							<Terminal className='size-8 opacity-30' />
+							<span className='text-sm'>Failed to load logs.</span>
+							<Button variant='outline' size='sm' onClick={handleRefresh}>
+								Retry
+							</Button>
+						</div>
+					) : !sortedEntries.length ? (
+						<div className='flex flex-col items-center justify-center h-[280px] gap-2 text-muted-foreground'>
+							<Terminal className='size-8 opacity-30' />
+							<span className='text-sm'>No logs yet.</span>
+						</div>
 					) : (
-						<>
-							<Copy className='size-3.5' />
-							Copy
-						</>
-					)}
-				</Button>
-				<Button variant='outline' size='sm' onClick={handleRefresh} disabled={isRefreshing}>
-					{isRefreshing ? (
-						<TextShimmer text='Refreshing...' />
-					) : (
-						<>
-							<RefreshCw className='size-3.5' />
-							Refresh
-						</>
-					)}
-				</Button>
-			</div>
-
-			{/* Terminal */}
-			<div
-				ref={terminalRef}
-				onScroll={handleScroll}
-				className='rounded-lg bg-background border border-border font-mono text-xs overflow-auto max-h-[480px] min-h-[300px]'
-			>
-				{logs.isLoading ? (
-					<div className='flex items-center justify-center h-[280px]'>
-						<TextShimmer text='Loading logs...' />
-					</div>
-				) : logs.isError ? (
-					<div className='flex flex-col items-center justify-center h-[280px] gap-2 text-muted-foreground'>
-						<Terminal className='size-8 opacity-30' />
-						<span className='text-sm'>Failed to load logs.</span>
-						<Button variant='outline' size='sm' onClick={handleRefresh}>
-							Retry
-						</Button>
-					</div>
-				) : !sortedEntries.length ? (
-					<div className='flex flex-col items-center justify-center h-[280px] gap-2 text-muted-foreground'>
-						<Terminal className='size-8 opacity-30' />
-						<span className='text-sm'>No logs yet.</span>
-					</div>
-				) : (
-					<div className='flex flex-col p-1'>
-						{sortedEntries.map((entry) => (
-							<div
-								key={entry.id}
-								className='flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-muted/50 transition-colors'
-							>
-								<span className='text-muted-foreground shrink-0 tabular-nums'>
-									{formatTimestamp(entry.createdAt)}
-								</span>
-								<Badge
-									variant='ghost'
-									className={cn(
-										'uppercase text-[10px] px-1.5 py-0 rounded-md font-semibold shrink-0',
-										LEVEL_STYLES[entry.level],
-									)}
+						<div className='flex flex-col p-1'>
+							{sortedEntries.map((entry) => (
+								<div
+									key={entry.id}
+									className='flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-muted/50 transition-colors'
 								>
-									{entry.level}
-								</Badge>
-								<span
-									className={cn(
-										'text-[10px] shrink-0 font-medium',
-										SOURCE_STYLES[entry.source] ?? 'text-muted-foreground',
-									)}
-								>
-									{entry.source}
-								</span>
-								<span className='text-foreground/80 truncate'>{entry.message}</span>
-							</div>
-						))}
-					</div>
-				)}
-			</div>
-		</SettingsCard>
+									<span className='text-muted-foreground shrink-0 tabular-nums'>
+										{formatTimestamp(entry.createdAt)}
+									</span>
+									<Badge
+										variant='ghost'
+										className={cn(
+											'uppercase text-[10px] px-1.5 py-0 rounded-md font-semibold shrink-0',
+											LEVEL_STYLES[entry.level],
+										)}
+									>
+										{entry.level}
+									</Badge>
+									<span
+										className={cn(
+											'text-[10px] shrink-0 font-medium',
+											SOURCE_STYLES[entry.source] ?? 'text-muted-foreground',
+										)}
+									>
+										{entry.source}
+									</span>
+									<span className='text-foreground/80 truncate'>{entry.message}</span>
+								</div>
+							))}
+						</div>
+					)}
+				</div>
+			</SettingsCard>
+		</SettingsPageWrapper>
 	);
 }
