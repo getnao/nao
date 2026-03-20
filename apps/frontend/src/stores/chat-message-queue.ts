@@ -77,6 +77,19 @@ class MessageQueueStore extends Store<Map<string, QueuedMessage[]>> {
 		this.notify();
 	};
 
+	reorder = (agentId: string | undefined, fromIndex: number, toIndex: number) => {
+		agentId ??= NEW_CHAT_ID;
+		const agentQueue = this.state.get(agentId);
+		if (!agentQueue || agentQueue.length < 2 || fromIndex === toIndex) {
+			return;
+		}
+		const newQueue = [...agentQueue];
+		const [moved] = newQueue.splice(fromIndex, 1);
+		newQueue.splice(toIndex, 0, moved);
+		this.state.set(agentId, newQueue);
+		this.notify();
+	};
+
 	moveQueue = (fromAgentId: string, toAgentId: string) => {
 		const agentQueue = this.state.get(fromAgentId);
 		if (!agentQueue) {

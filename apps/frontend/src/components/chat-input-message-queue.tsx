@@ -1,6 +1,10 @@
 import { useState } from 'react';
-import { ChevronDown, CornerDownLeft, Pencil, ArrowUpToLine, Trash2 } from 'lucide-react';
+import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
+import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import { ChevronDown, CornerDownLeft, GripVertical, Pencil, Trash2 } from 'lucide-react';
 import { Button } from './ui/button';
+import type { DragEndEvent } from '@dnd-kit/core';
 import { useMessageQueueStore } from '@/hooks/use-message-queue-store';
 import { useChatId } from '@/hooks/use-chat-id';
 import { cn } from '@/lib/utils';
@@ -16,9 +20,26 @@ export const ChatInputMessageQueue = ({ onEditMessage, onSubmitNow }: ChatInputM
 	const { queuedMessages } = useMessageQueueStore(chatId);
 	const [isExpanded, setIsExpanded] = useState(true);
 
+	const sensors = useSensors(
+		useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+		useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+	);
+
 	if (!queuedMessages.length) {
 		return null;
 	}
+
+	const handleDragEnd = (event: DragEndEvent) => {
+		const { active, over } = event;
+		if (!over || active.id === over.id) {
+			return;
+		}
+		const fromIndex = queuedMessages.findIndex((m) => m.id === active.id);
+		const toIndex = queuedMessages.findIndex((m) => m.id === over.id);
+		if (fromIndex !== -1 && toIndex !== -1) {
+			messageQueueStore.reorder(chatId, fromIndex, toIndex);
+		}
+	};
 
 	return (
 		<div className='flex flex-col w-full mx-auto border border-input/50 rounded-2xl rounded-b-none -mb-4 pb-5 bg-muted/50 overflow-hidden'>
@@ -32,31 +53,35 @@ export const ChatInputMessageQueue = ({ onEditMessage, onSubmitNow }: ChatInputM
 			</button>
 
 			{isExpanded && (
-				<div className='flex flex-col px-3'>
-					{queuedMessages.map((qm, idx) => (
-						<QueuedMessageRow
-							key={qm.id}
-							chatId={chatId}
-							messageId={qm.id}
-							text={qm.text}
-							isFirst={idx === 0}
-							showPromote={queuedMessages.length > 1}
-							onEdit={onEditMessage}
-							onSubmitNow={onSubmitNow}
-						/>
-					))}
-				</div>
+				<DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+					<SortableContext items={queuedMessages.map((m) => m.id)} strategy={verticalListSortingStrategy}>
+						<div className='flex flex-col px-3'>
+							{queuedMessages.map((qm, idx) => (
+								<SortableQueuedMessageRow
+									key={qm.id}
+									chatId={chatId}
+									messageId={qm.id}
+									text={qm.text}
+									isFirst={idx === 0}
+									isDraggable={queuedMessages.length > 1}
+									onEdit={onEditMessage}
+									onSubmitNow={onSubmitNow}
+								/>
+							))}
+						</div>
+					</SortableContext>
+				</DndContext>
 			)}
 		</div>
 	);
 };
 
-function QueuedMessageRow({
+function SortableQueuedMessageRow({
 	chatId,
 	messageId,
 	text,
 	isFirst,
-	showPromote,
+	isDraggable,
 	onEdit,
 	onSubmitNow,
 }: {
@@ -64,12 +89,41 @@ function QueuedMessageRow({
 	messageId: string;
 	text: string;
 	isFirst: boolean;
-	showPromote: boolean;
+	isDraggable: boolean;
 	onEdit?: (text: string) => void;
 	onSubmitNow?: (messageId: string) => Promise<void>;
 }) {
+	const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({
+		id: messageId,
+	});
+
+	const style = {
+		transform: CSS.Transform.toString(transform),
+		transition,
+	};
+
 	return (
-		<div className={cn('flex w-full items-center gap-2 text-sm group h-8', !isFirst && 'text-muted-foreground/75')}>
+		<div
+			ref={setNodeRef}
+			style={style}
+			className={cn(
+				'flex w-full items-center gap-1 text-sm group h-8 rounded-md',
+				!isFirst && 'text-muted-foreground/75',
+				isDragging && 'opacity-50',
+			)}
+		>
+			{isDraggable && (
+				<button
+					ref={setActivatorNodeRef}
+					type='button'
+					className='shrink-0 cursor-grab active:cursor-grabbing text-muted-foreground/40 hover:text-muted-foreground touch-none'
+					{...attributes}
+					{...listeners}
+				>
+					<GripVertical className='size-3.5' />
+				</button>
+			)}
+
 			<span className='truncate flex-1 min-w-0'>{text}</span>
 
 			<div className='flex items-center shrink-0'>
@@ -94,16 +148,6 @@ function QueuedMessageRow({
 					>
 						<Pencil className='size-3' />
 					</Button>
-					{showPromote && !isFirst && (
-						<Button
-							variant='ghost-muted'
-							size='icon-xs'
-							type='button'
-							onClick={() => messageQueueStore.promoteToFront(chatId, messageId)}
-						>
-							<ArrowUpToLine className='size-3' />
-						</Button>
-					)}
 					<Button
 						variant='ghost-muted'
 						size='icon-xs'
