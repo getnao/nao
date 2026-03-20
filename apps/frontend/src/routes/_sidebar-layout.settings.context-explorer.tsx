@@ -32,7 +32,7 @@ function ContextExplorerPage() {
 				defaultLayout={{ tree: 1, viewer: 3 }}
 			>
 				<ResizablePanel id='tree' minSize={180}>
-					<div className='h-full overflow-hidden bg-card border-r border-border'>
+					<div className='h-full overflow-hidden bg-card'>
 						{fileTree.isLoading ? (
 							<div className='flex items-center justify-center h-32'>
 								<Spinner />
