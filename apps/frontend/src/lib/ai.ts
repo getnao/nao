@@ -162,6 +162,22 @@ export const getMessageImages = (message: UIMessage): { url: string; mediaType: 
 		.map((part) => ({ url: part.url, mediaType: part.mediaType }));
 };
 
+/** Extracts base64 image data from file parts in a message for the upload payload. */
+export const extractImagesFromMessage = (
+	message: UIMessage,
+): { mediaType: string; data: string }[] => {
+	return message.parts
+		.filter((part): part is Extract<UIMessagePart, { type: 'file' }> => part.type === 'file')
+		.filter((part) => part.mediaType.startsWith('image/') && part.url.startsWith('data:'))
+		.map((part) => {
+			const commaIdx = part.url.indexOf(',');
+			return {
+				mediaType: part.mediaType,
+				data: commaIdx >= 0 ? part.url.slice(commaIdx + 1) : part.url,
+			};
+		});
+};
+
 /** Group messages into user and response (assistant) messages. */
 export const groupMessages = (messages: UIMessage[]): MessageGroup[] => {
 	const groups: MessageGroup[] = [];

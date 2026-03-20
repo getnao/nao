@@ -7,7 +7,7 @@ import { useMemoObject } from './useMemoObject';
 import { usePrevRef } from './use-prev';
 import { useLocalStorage } from './use-local-storage';
 import { useChatId } from './use-chat-id';
-import type { InferUIMessageChunk } from 'ai';
+import type { FileUIPart, InferUIMessageChunk } from 'ai';
 import type { UseChatHelpers } from '@ai-sdk/react';
 import type { UIMessage } from '@nao/backend/chat';
 import type { MentionOption } from 'prompt-mentions';
@@ -17,7 +17,13 @@ import { chatActivityStore } from '@/stores/chat-activity';
 import { useChatQuery, useSetChat } from '@/queries/use-chat-query';
 import { trpc } from '@/main';
 import { agentService } from '@/services/agents';
-import { checkIsAgentRunning, getLastUserMessageIdx, getTextFromUserMessageOrThrow, NEW_CHAT_ID } from '@/lib/ai';
+import {
+	checkIsAgentRunning,
+	extractImagesFromMessage,
+	getLastUserMessageIdx,
+	getTextFromUserMessageOrThrow,
+	NEW_CHAT_ID,
+} from '@/lib/ai';
 import { useSetChatList } from '@/queries/use-chat-list-query';
 import { createLocalStorage } from '@/lib/local-storage';
 
@@ -52,7 +58,6 @@ const selectedModelStorage = createLocalStorage<ChatSelectedModel>('nao-selected
 
 const selectedModelRef: { current: ChatSelectedModel | null } = { current: null };
 const mentionsRef: { current: MentionOption[] } = { current: [] };
-const imagesRef: { current: ImageUploadData[] | undefined } = { current: undefined };
 const chatIdRef: { current: string | undefined } = { current: undefined };
 
 export const useAgent = (): AgentHelpers => {
@@ -119,15 +124,14 @@ export const useAgent = (): AgentHelpers => {
 
 				const mentions = mentionsRef.current;
 				mentionsRef.current = [];
-				const images = imagesRef.current;
-				imagesRef.current = undefined;
+				const images = extractImagesFromMessage(messageToSend);
 				return {
 					body: {
 						...body,
 						chatId: agentId === NEW_CHAT_ID ? undefined : agentId,
 						message: {
 							text: getTextFromUserMessageOrThrow(messageToSend),
-							images: images?.length ? images : undefined,
+							images: images.length > 0 ? images : undefined,
 						},
 						model: selectedModelRef.current ?? undefined,
 						mentions: mentions.length > 0 ? mentions : undefined,
@@ -142,8 +146,8 @@ export const useAgent = (): AgentHelpers => {
 				const next = canSendNextMessage ? messageQueueStore.dequeue(agentId) : undefined;
 				if (next) {
 					mentionsRef.current = next.mentions;
-					imagesRef.current = next.images;
-					newAgent.sendMessage({ text: next.text });
+					const files = imagesToFileUIParts(next.images);
+					newAgent.sendMessage({ text: next.text, files: files.length > 0 ? files : undefined });
 				} else {
 					chatActivityStore.setRunning(agentId, false);
 					if (chatIdRef.current !== agentId) {
@@ -200,10 +204,12 @@ export const useAgent = (): AgentHelpers => {
 				return;
 			}
 
-			imagesRef.current = images;
-
 			if (!isRunning) {
-				return handleSendMessage({ text: text || 'Describe this image' });
+				const files = imagesToFileUIParts(images);
+				return handleSendMessage({
+					text: text || 'Describe this image',
+					files: files.length > 0 ? files : undefined,
+				});
 			}
 
 			const mentions = [...mentionsRef.current];
@@ -287,6 +293,17 @@ export const useSyncMessages = ({ agent }: { agent: AgentHelpers }) => {
 		}
 	}, [setChat, agent.messages, chatId, agent.isRunning]);
 };
+
+function imagesToFileUIParts(images?: ImageUploadData[]): FileUIPart[] {
+	if (!images?.length) {
+		return [];
+	}
+	return images.map((img) => ({
+		type: 'file' as const,
+		mediaType: img.mediaType,
+		url: `data:${img.mediaType};base64,${img.data}`,
+	}));
+}
 
 /** Dispose inactive agents to free up memory */
 export const useDisposeInactiveAgents = () => {
