@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { RefreshCw } from 'lucide-react';
 
 import { FileTree } from '@/components/settings/file-tree';
 import { FileViewer } from '@/components/settings/file-viewer';
@@ -27,17 +26,6 @@ function ContextExplorerPage() {
 
 	return (
 		<div className='flex flex-col flex-1 overflow-hidden'>
-			<div className='flex items-center justify-between px-6 py-4 border-b border-border shrink-0'>
-				<div>
-					<h1 className='text-xl font-semibold'>File Explorer</h1>
-					<p className='text-sm text-muted-foreground'>Browse files in the context folder (read-only)</p>
-				</div>
-				<Button variant='outline' size='sm' onClick={() => fileTree.refetch()} disabled={fileTree.isFetching}>
-					<RefreshCw className='size-3.5' />
-					Refresh
-				</Button>
-			</div>
-
 			<ResizablePanelGroup
 				orientation='horizontal'
 				className='flex-1 min-h-0'
