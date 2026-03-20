@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "65def899-a6ff-4240-9d98-d839bdd3d0ae",
-  "prevId": "b9b33780-26b2-4d13-8b69-b24f8c84b39f",
+  "id": "b018c9cc-575e-4d4f-b9e6-0efb8dc70ee8",
+  "prevId": "65def899-a6ff-4240-9d98-d839bdd3d0ae",
   "tables": {
     "account": {
       "name": "account",
@@ -2067,6 +2067,74 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
+    "story_data_cache": {
+      "name": "story_data_cache",
+      "columns": {
+        "chat_id": {
+          "name": "chat_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "story_id": {
+          "name": "story_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "query_data": {
+          "name": "query_data",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "regenerated_code": {
+          "name": "regenerated_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "cached_at": {
+          "name": "cached_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "story_data_cache_chat_id_chat_id_fk": {
+          "name": "story_data_cache_chat_id_chat_id_fk",
+          "tableFrom": "story_data_cache",
+          "tableTo": "chat",
+          "columnsFrom": [
+            "chat_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "story_data_cache_chat_id_story_id_pk": {
+          "columns": [
+            "chat_id",
+            "story_id"
+          ],
+          "name": "story_data_cache_chat_id_story_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "story_version": {
       "name": "story_version",
       "columns": {
@@ -2200,74 +2268,6 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "story_data_cache": {
-      "name": "story_data_cache",
-      "columns": {
-        "chat_id": {
-          "name": "chat_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "story_id": {
-          "name": "story_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "query_data": {
-          "name": "query_data",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "regenerated_code": {
-          "name": "regenerated_code",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "cached_at": {
-          "name": "cached_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "story_data_cache_chat_id_chat_id_fk": {
-          "name": "story_data_cache_chat_id_chat_id_fk",
-          "tableFrom": "story_data_cache",
-          "tableTo": "chat",
-          "columnsFrom": [
-            "chat_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "story_data_cache_chat_id_story_id_pk": {
-          "columns": [
-            "chat_id",
-            "story_id"
-          ],
-          "name": "story_data_cache_chat_id_story_id_pk"
-        }
-      },
       "uniqueConstraints": {},
       "checkConstraints": {}
     },

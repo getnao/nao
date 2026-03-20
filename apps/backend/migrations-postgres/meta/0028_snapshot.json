@@ -1,6 +1,6 @@
 {
-  "id": "be38a6af-8663-402f-81a6-a16106102373",
-  "prevId": "dd08cd98-3f6e-46b9-92fd-9dfa6e5899e1",
+  "id": "7f303111-4ca0-43ab-8c85-29785a3f52a6",
+  "prevId": "be38a6af-8663-402f-81a6-a16106102373",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -2183,6 +2183,72 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.story_data_cache": {
+      "name": "story_data_cache",
+      "schema": "",
+      "columns": {
+        "chat_id": {
+          "name": "chat_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "story_id": {
+          "name": "story_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "query_data": {
+          "name": "query_data",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "regenerated_code": {
+          "name": "regenerated_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cached_at": {
+          "name": "cached_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "story_data_cache_chat_id_chat_id_fk": {
+          "name": "story_data_cache_chat_id_chat_id_fk",
+          "tableFrom": "story_data_cache",
+          "tableTo": "chat",
+          "columnsFrom": [
+            "chat_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "story_data_cache_chat_id_story_id_pk": {
+          "name": "story_data_cache_chat_id_story_id_pk",
+          "columns": [
+            "chat_id",
+            "story_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.story_version": {
       "name": "story_version",
       "schema": "",
@@ -2319,72 +2385,6 @@
           ]
         }
       },
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.story_data_cache": {
-      "name": "story_data_cache",
-      "schema": "",
-      "columns": {
-        "chat_id": {
-          "name": "chat_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "story_id": {
-          "name": "story_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "query_data": {
-          "name": "query_data",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "regenerated_code": {
-          "name": "regenerated_code",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "cached_at": {
-          "name": "cached_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "story_data_cache_chat_id_chat_id_fk": {
-          "name": "story_data_cache_chat_id_chat_id_fk",
-          "tableFrom": "story_data_cache",
-          "tableTo": "chat",
-          "columnsFrom": [
-            "chat_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "story_data_cache_chat_id_story_id_pk": {
-          "name": "story_data_cache_chat_id_story_id_pk",
-          "columns": [
-            "chat_id",
-            "story_id"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
