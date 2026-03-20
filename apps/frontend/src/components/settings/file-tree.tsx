@@ -176,19 +176,32 @@ function FileIcon({ fileName }: { fileName: string }) {
 	return <Icon className={cn('size-4 shrink-0', color)} />;
 }
 
+function fuzzyMatch(text: string, query: string): boolean {
+	let qi = 0;
+	for (let ti = 0; ti < text.length && qi < query.length; ti++) {
+		if (text[ti] === query[qi]) {
+			qi++;
+		}
+	}
+	return qi === query.length;
+}
+
 function filterTree(entries: FileTreeEntry[], query: string): FileTreeEntry[] {
 	const result: FileTreeEntry[] = [];
 
 	for (const entry of entries) {
-		if (entry.type === 'file') {
-			if (entry.name.toLowerCase().includes(query)) {
-				result.push(entry);
-			}
-		} else if (entry.children) {
+		const nameMatch = fuzzyMatch(entry.name.toLowerCase(), query);
+
+		if (entry.type === 'directory' && entry.children) {
 			const filteredChildren = filterTree(entry.children, query);
-			if (filteredChildren.length > 0) {
-				result.push({ ...entry, children: filteredChildren });
+			if (nameMatch || filteredChildren.length > 0) {
+				result.push({
+					...entry,
+					children: nameMatch ? entry.children : filteredChildren,
+				});
 			}
+		} else if (nameMatch) {
+			result.push(entry);
 		}
 	}
 
