@@ -20,16 +20,13 @@ function SharedChatPage() {
 	const { shareId } = Route.useParams();
 	const { data: session } = useSession();
 
-	const shareQuery = useQuery(trpc.sharedChat.get.queryOptions({ id: shareId }));
-	const chatQuery = useQuery(trpc.sharedChat.getChat.queryOptions({ shareId }));
+	const chatQuery = useQuery(trpc.sharedChat.getSharedChat.queryOptions({ shareId }));
 
 	const containerRef = useRef<HTMLDivElement>(null);
 	const sidePanelRef = useRef<HTMLDivElement>(null);
 	const sidePanel = useSidePanel({ containerRef, sidePanelRef });
 
-	const isLoading = shareQuery.isLoading || chatQuery.isLoading;
-
-	if (isLoading) {
+	if (chatQuery.isLoading) {
 		return (
 			<div className='flex flex-1 items-center justify-center'>
 				<Spinner />
@@ -37,7 +34,7 @@ function SharedChatPage() {
 		);
 	}
 
-	if (!shareQuery.data || !chatQuery.data) {
+	if (!chatQuery.data) {
 		return (
 			<div className='flex flex-1 items-center justify-center'>
 				<p className='text-sm text-muted-foreground'>Chat not found.</p>
@@ -45,8 +42,7 @@ function SharedChatPage() {
 		);
 	}
 
-	const share = shareQuery.data;
-	const chat = chatQuery.data;
+	const { share, chat } = chatQuery.data;
 	const isOwner = session?.user?.id === share.userId;
 
 	return (

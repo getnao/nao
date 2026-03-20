@@ -55,7 +55,12 @@ export function ChatsReplayPanel({ chatInfo, onClose }: ChatsReplayPanelProps) {
 
 	const containerRef = useRef<HTMLDivElement>(null);
 	const sidePanelRef = useRef<HTMLDivElement>(null);
-	const sidePanel = useSidePanel({ containerRef, sidePanelRef, defaultWidthRatio: 0.5, collapsesSidebar: false });
+	const sidePanel = useSidePanel({
+		containerRef,
+		sidePanelRef,
+		defaultWidthRatio: 0.5,
+		shouldCollapseSidebar: false,
+	});
 	const { data: session } = useSession();
 	const isOwner = session?.user?.id === chatInfo?.chatOwnerId;
 

@@ -6,61 +6,16 @@ import { db } from '../db/db';
 export type SharedChatWithDetails = DBSharedChat & {
 	authorName: string;
 	title: string;
+	userId: string;
+	projectId: string;
 };
-
-export async function createSharedChat(
-	chat: Pick<DBSharedChat, 'projectId' | 'userId' | 'chatId' | 'visibility'>,
-	allowedUserIds?: string[],
-): Promise<DBSharedChat> {
-	const [created] = await db.insert(s.sharedChat).values(chat).returning().execute();
-
-	if (chat.visibility === 'specific' && allowedUserIds && allowedUserIds.length > 0) {
-		const accessRows = allowedUserIds.map((userId) => ({
-			sharedChatId: created.id,
-			userId,
-		}));
-		await db.insert(s.sharedChatAccess).values(accessRows).execute();
-	}
-
-	return created;
-}
-
-export async function getSharedChat(id: string): Promise<SharedChatWithDetails | null> {
-	const [row] = await db
-		.select({
-			id: s.sharedChat.id,
-			projectId: s.sharedChat.projectId,
-			userId: s.sharedChat.userId,
-			chatId: s.sharedChat.chatId,
-			visibility: s.sharedChat.visibility,
-			createdAt: s.sharedChat.createdAt,
-			authorName: s.user.name,
-			title: s.chat.title,
-		})
-		.from(s.sharedChat)
-		.innerJoin(s.user, eq(s.sharedChat.userId, s.user.id))
-		.innerJoin(s.chat, eq(s.sharedChat.chatId, s.chat.id))
-		.where(eq(s.sharedChat.id, id))
-		.execute();
-
-	return row ?? null;
-}
-
-export async function canUserAccessSharedChat(shareId: string, userId: string): Promise<boolean> {
-	const [row] = await db
-		.select({ sharedChatId: s.sharedChatAccess.sharedChatId })
-		.from(s.sharedChatAccess)
-		.where(and(eq(s.sharedChatAccess.sharedChatId, shareId), eq(s.sharedChatAccess.userId, userId)))
-		.execute();
-	return !!row;
-}
 
 export async function listProjectSharedChats(projectId: string, userId: string): Promise<SharedChatWithDetails[]> {
 	const allChats = await db
 		.select({
 			id: s.sharedChat.id,
-			projectId: s.sharedChat.projectId,
-			userId: s.sharedChat.userId,
+			projectId: s.chat.projectId,
+			userId: s.chat.userId,
 			chatId: s.sharedChat.chatId,
 			visibility: s.sharedChat.visibility,
 			createdAt: s.sharedChat.createdAt,
@@ -68,9 +23,9 @@ export async function listProjectSharedChats(projectId: string, userId: string):
 			title: s.chat.title,
 		})
 		.from(s.sharedChat)
-		.innerJoin(s.user, eq(s.sharedChat.userId, s.user.id))
 		.innerJoin(s.chat, eq(s.sharedChat.chatId, s.chat.id))
-		.where(eq(s.sharedChat.projectId, projectId))
+		.innerJoin(s.user, eq(s.chat.userId, s.user.id))
+		.where(eq(s.chat.projectId, projectId))
 		.orderBy(desc(s.sharedChat.createdAt))
 		.execute();
 
@@ -101,11 +56,62 @@ export async function listProjectSharedChats(projectId: string, userId: string):
 	});
 }
 
-export async function findByChat(chatId: string, userId: string): Promise<{ id: string; visibility: string } | null> {
+export async function createSharedChat(
+	chat: Pick<DBSharedChat, 'chatId' | 'visibility'>,
+	allowedUserIds?: string[],
+): Promise<DBSharedChat> {
+	const [created] = await db.insert(s.sharedChat).values(chat).returning().execute();
+
+	if (chat.visibility === 'specific' && allowedUserIds && allowedUserIds.length > 0) {
+		const accessRows = allowedUserIds.map((userId) => ({
+			sharedChatId: created.id,
+			userId,
+		}));
+		await db.insert(s.sharedChatAccess).values(accessRows).execute();
+	}
+
+	return created;
+}
+
+export async function canUserAccessSharedChat(shareId: string, userId: string): Promise<boolean> {
+	const [row] = await db
+		.select({ sharedChatId: s.sharedChatAccess.sharedChatId })
+		.from(s.sharedChatAccess)
+		.where(and(eq(s.sharedChatAccess.sharedChatId, shareId), eq(s.sharedChatAccess.userId, userId)))
+		.execute();
+	return !!row;
+}
+
+export async function getSharedChatInfo(id: string): Promise<SharedChatWithDetails | null> {
+	const [row] = await db
+		.select({
+			id: s.sharedChat.id,
+			projectId: s.chat.projectId,
+			userId: s.chat.userId,
+			chatId: s.sharedChat.chatId,
+			visibility: s.sharedChat.visibility,
+			createdAt: s.sharedChat.createdAt,
+			authorName: s.user.name,
+			title: s.chat.title,
+		})
+		.from(s.sharedChat)
+		.innerJoin(s.chat, eq(s.sharedChat.chatId, s.chat.id))
+		.innerJoin(s.user, eq(s.chat.userId, s.user.id))
+		.where(eq(s.sharedChat.id, id))
+		.execute();
+
+	return row ?? null;
+}
+
+export async function getShareIdByChatId(
+	chatId: string,
+	userId: string,
+): Promise<{ id: string; visibility: string } | null> {
 	const [row] = await db
 		.select({ id: s.sharedChat.id, visibility: s.sharedChat.visibility })
 		.from(s.sharedChat)
-		.where(and(eq(s.sharedChat.chatId, chatId), eq(s.sharedChat.userId, userId)))
+		.innerJoin(s.chat, eq(s.sharedChat.chatId, s.chat.id))
+		.where(and(eq(s.sharedChat.chatId, chatId), eq(s.chat.userId, userId)))
 		.orderBy(desc(s.sharedChat.createdAt))
 		.limit(1)
 		.execute();
@@ -113,7 +119,7 @@ export async function findByChat(chatId: string, userId: string): Promise<{ id: 
 	return row ?? null;
 }
 
-export async function getSharedChatAllowedUserIds(shareId: string): Promise<string[]> {
+export async function getShareAllowedUserIds(shareId: string): Promise<string[]> {
 	const rows = await db
 		.select({ userId: s.sharedChatAccess.userId })
 		.from(s.sharedChatAccess)

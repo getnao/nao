@@ -22,8 +22,8 @@ import { userRoutes } from './user.routes';
 
 export const trpcRouter = router({
 	chart: chartRoutes,
-	sharedChat: sharedChatRoutes,
 	chat: chatRoutes,
+	sharedChat: sharedChatRoutes,
 	citation: citationRoutes,
 	feedback: feedbackRoutes,
 	log: logRoutes,

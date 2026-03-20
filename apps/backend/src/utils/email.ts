@@ -21,7 +21,7 @@ export async function notifySharedStoryRecipients({
 	visibility: 'project' | 'specific';
 	allowedUserIds?: string[];
 }): Promise<void> {
-	const storyUrl = `${env.BETTER_AUTH_URL || 'http://localhost:3000'}/stories/shared/${shareId}`;
+	const storyUrl = `${env.BETTER_AUTH_URL}/stories/shared/${shareId}`;
 	const allMembers = await projectQueries.getAllUsersWithRoles(projectId);
 
 	const recipients =
@@ -59,7 +59,7 @@ export async function notifySharedChatRecipients({
 	visibility: 'project' | 'specific';
 	allowedUserIds?: string[];
 }): Promise<void> {
-	const chatUrl = `${env.BETTER_AUTH_URL || 'http://localhost:3000'}/shared-chat/${shareId}`;
+	const chatUrl = `${env.BETTER_AUTH_URL}/shared-chat/${shareId}`;
 	const allMembers = await projectQueries.getAllUsersWithRoles(projectId);
 	const recipients =
 		visibility === 'project'

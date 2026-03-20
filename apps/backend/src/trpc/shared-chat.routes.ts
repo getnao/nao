@@ -32,8 +32,6 @@ export const sharedChatRoutes = {
 
 			const created = await sharedChatQueries.createSharedChat(
 				{
-					projectId: ctx.project.id,
-					userId: ctx.user.id,
 					chatId: input.chatId,
 					visibility: input.visibility,
 				},
@@ -53,60 +51,64 @@ export const sharedChatRoutes = {
 			return created;
 		}),
 
-	getChat: protectedProcedure
+	getSharedChat: protectedProcedure
 		.input(z.object({ shareId: z.string() }))
-		.query(async ({ input, ctx }): Promise<UIChat> => {
-			const share = await sharedChatQueries.getSharedChat(input.shareId);
+		.query(async ({ input, ctx }): Promise<{ share: sharedChatQueries.SharedChatWithDetails; chat: UIChat }> => {
+			const share = await sharedChatQueries.getSharedChatInfo(input.shareId);
 			if (!share) {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Shared chat not found.' });
 			}
 
-			await assertCanAccessShare(share, ctx.user.id);
+			const project = await projectQueries.getProjectByUserId(ctx.user.id);
+			if (!project || project.id !== share.projectId) {
+				throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this chat.' });
+			}
+
+			if (share.visibility === 'specific') {
+				const isOwner = (await chatQueries.getChatOwnerId(share.chatId)) === ctx.user.id;
+				if (!isOwner) {
+					const hasAccess = await sharedChatQueries.canUserAccessSharedChat(share.id, ctx.user.id);
+					if (!hasAccess) {
+						throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this chat.' });
+					}
+				}
+			}
 
 			const [chat] = await chatQueries.loadChat(share.chatId, { includeFeedback: true });
 			if (!chat) {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Chat not found.' });
 			}
 
-			return chat;
+			return { share, chat };
 		}),
 
-	get: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ input, ctx }) => {
-		const share = await sharedChatQueries.getSharedChat(input.id);
-		if (!share) {
-			throw new TRPCError({ code: 'NOT_FOUND', message: 'Shared chat not found.' });
-		}
+	getShareOptionsByChatId: protectedProcedure
+		.input(z.object({ chatId: z.string() }))
+		.query(async ({ input, ctx }) => {
+			const share = await sharedChatQueries.getShareIdByChatId(input.chatId, ctx.user.id);
+			if (!share) {
+				return { shareId: null, visibility: null, allowedUserIds: [] };
+			}
 
-		await assertCanAccessShare(share, ctx.user.id);
+			const allowedUserIds =
+				share.visibility === 'specific' ? await sharedChatQueries.getShareAllowedUserIds(share.id) : [];
 
-		return share;
-	}),
-
-	findByChat: protectedProcedure.input(z.object({ chatId: z.string() })).query(async ({ input, ctx }) => {
-		const share = await sharedChatQueries.findByChat(input.chatId, ctx.user.id);
-		if (!share) {
-			return { shareId: null, visibility: null, allowedUserIds: [] };
-		}
-
-		const allowedUserIds =
-			share.visibility === 'specific' ? await sharedChatQueries.getSharedChatAllowedUserIds(share.id) : [];
-
-		return { shareId: share.id, visibility: share.visibility, allowedUserIds };
-	}),
+			return { shareId: share.id, visibility: share.visibility, allowedUserIds };
+		}),
 
 	updateAccess: projectProtectedProcedure
 		.input(z.object({ id: z.string(), allowedUserIds: z.array(z.string()) }))
 		.mutation(async ({ input, ctx }) => {
-			const share = await sharedChatQueries.getSharedChat(input.id);
+			const share = await sharedChatQueries.getSharedChatInfo(input.id);
 			if (!share) {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Shared chat not found.' });
 			}
-
 			if (share.projectId !== ctx.project.id) {
 				throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this chat.' });
 			}
 
-			if (share.userId !== ctx.user.id && ctx.userRole !== 'admin') {
+			const userId = await chatQueries.getChatOwnerId(share.chatId);
+			if (!userId || (userId !== ctx.user.id && ctx.userRole !== 'admin')) {
 				throw new TRPCError({ code: 'FORBIDDEN', message: 'Only the creator or an admin can update this.' });
 			}
 
@@ -131,32 +133,16 @@ export const sharedChatRoutes = {
 		}),
 
 	delete: projectProtectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input, ctx }) => {
-		const share = await sharedChatQueries.getSharedChat(input.id);
+		const share = await sharedChatQueries.getSharedChatInfo(input.id);
 		if (!share) {
 			throw new TRPCError({ code: 'NOT_FOUND', message: 'Shared chat not found.' });
 		}
 
-		if (share.projectId !== ctx.project.id) {
-			throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this chat.' });
-		}
-
-		if (share.userId !== ctx.user.id && ctx.userRole !== 'admin') {
+		const chatOwnerId = await chatQueries.getChatOwnerId(share.chatId);
+		if (!chatOwnerId || (chatOwnerId !== ctx.user.id && ctx.userRole !== 'admin')) {
 			throw new TRPCError({ code: 'FORBIDDEN', message: 'Only the creator or an admin can delete this.' });
 		}
 
 		await sharedChatQueries.deleteSharedChat(input.id);
 	}),
 };
-
-async function assertCanAccessShare(share: sharedChatQueries.SharedChatWithDetails, userId: string) {
-	const member = await projectQueries.getProjectMember(share.projectId, userId);
-	if (!member) {
-		throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this chat.' });
-	}
-	if (share.visibility === 'specific' && share.userId !== userId) {
-		const hasAccess = await sharedChatQueries.canUserAccessSharedChat(share.id, userId);
-		if (!hasAccess) {
-			throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this chat.' });
-		}
-	}
-}

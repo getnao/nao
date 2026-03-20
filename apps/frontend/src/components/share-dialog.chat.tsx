@@ -23,7 +23,7 @@ interface ShareChatDialogProps {
 }
 
 export function ShareChatDialog({ open, onOpenChange, chatId }: ShareChatDialogProps) {
-	const shareQuery = useQuery(trpc.sharedChat.findByChat.queryOptions({ chatId }));
+	const shareQuery = useQuery(trpc.sharedChat.getShareOptionsByChatId.queryOptions({ chatId }));
 	const shareData = shareQuery.data;
 	const isShared = !!shareData?.shareId;
 
@@ -83,7 +83,7 @@ export function ShareChatDialog({ open, onOpenChange, chatId }: ShareChatDialogP
 function useInvalidateShareQueries(chatId: string) {
 	const queryClient = useQueryClient();
 	return useCallback(() => {
-		queryClient.invalidateQueries({ queryKey: trpc.sharedChat.findByChat.queryKey({ chatId }) });
+		queryClient.invalidateQueries({ queryKey: trpc.sharedChat.getShareOptionsByChatId.queryKey({ chatId }) });
 		queryClient.invalidateQueries({ queryKey: trpc.sharedChat.list.queryKey() });
 	}, [queryClient, chatId]);
 }

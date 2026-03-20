@@ -360,12 +360,6 @@ export const sharedChat = sqliteTable(
 		id: text('id')
 			.$defaultFn(() => crypto.randomUUID())
 			.primaryKey(),
-		projectId: text('project_id')
-			.notNull()
-			.references(() => project.id, { onDelete: 'cascade' }),
-		userId: text('user_id')
-			.notNull()
-			.references(() => user.id, { onDelete: 'cascade' }),
 		chatId: text('chat_id')
 			.notNull()
 			.references(() => chat.id, { onDelete: 'cascade' }),
@@ -374,7 +368,7 @@ export const sharedChat = sqliteTable(
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull(),
 	},
-	(t) => [index('shared_chat_projectId_idx').on(t.projectId), unique('shared_chat_chatId_unique').on(t.chatId)],
+	(t) => [unique('shared_chat_chatId_unique').on(t.chatId)],
 );
 
 export const sharedChatAccess = sqliteTable(
