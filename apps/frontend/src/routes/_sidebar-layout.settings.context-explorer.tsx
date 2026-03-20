@@ -38,8 +38,12 @@ function ContextExplorerPage() {
 				</Button>
 			</div>
 
-			<ResizablePanelGroup orientation='horizontal' className='flex-1 min-h-0'>
-				<ResizablePanel id='tree' defaultSize={25} minSize={15} maxSize={50}>
+			<ResizablePanelGroup
+				orientation='horizontal'
+				className='flex-1 min-h-0'
+				defaultLayout={{ tree: 1, viewer: 3 }}
+			>
+				<ResizablePanel id='tree' minSize={180}>
 					<div className='h-full overflow-hidden bg-card border-r border-border'>
 						{fileTree.isLoading ? (
 							<div className='flex items-center justify-center h-32'>
@@ -64,7 +68,7 @@ function ContextExplorerPage() {
 
 				<ResizableSeparator />
 
-				<ResizablePanel id='viewer' defaultSize={75} minSize={40}>
+				<ResizablePanel id='viewer' minSize={300}>
 					<div className='h-full bg-background'>
 						<FileViewer
 							filePath={selectedPath}
