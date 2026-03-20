@@ -78,6 +78,7 @@ function ChatInputBase({
 	const [inputText, setInputText] = useState('');
 	const { isRunning, stopAgent, isLoadingMessages, setMentions } = useAgentContext();
 	const chatId = useChatId();
+	const effectivePlaceholder = isRunning && allowQueueing ? 'Add a follow-up...' : placeholder;
 
 	const agentSettings = useQuery(trpc.project.getAgentSettings.queryOptions());
 	const transcribeModels = useQuery(trpc.project.getKnownTranscribeModels.queryOptions());
@@ -142,6 +143,15 @@ function ChatInputBase({
 	const hasSkills = Boolean(skills.data?.length);
 	const hasDatabases = Boolean(databaseObjects.data?.length);
 
+	const handleEditQueuedMessage = useCallback(
+		(text: string) => {
+			promptRef.current?.clear();
+			promptRef.current?.insertText(text);
+			promptRef.current?.focus();
+		},
+		[promptRef],
+	);
+
 	const openSkillsMenu = useCallback(() => {
 		promptRef.current?.insertText('/');
 	}, [promptRef]);
@@ -152,13 +162,13 @@ function ChatInputBase({
 
 	return (
 		<div className={cn('px-3 pb-3 pt-0 md:px-4 md:pb-4 max-w-3xl w-full mx-auto', className)}>
-			<ChatInputMessageQueue />
+			<ChatInputMessageQueue onEditMessage={handleEditQueuedMessage} />
 
 			<form onSubmit={handleSubmitMessage} className='mx-auto relative'>
 				<InputGroup htmlFor='chat-input'>
 					<ChatPrompt
 						promptRef={promptRef}
-						placeholder={placeholder}
+						placeholder={effectivePlaceholder}
 						onChange={(value) => setInputText(value)}
 						onEnter={(value, mentions) => submitMessage(value, mentions)}
 					/>

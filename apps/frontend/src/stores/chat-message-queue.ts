@@ -61,6 +61,22 @@ class MessageQueueStore extends Store<Map<string, QueuedMessage[]>> {
 		}
 	};
 
+	promoteToFront = (agentId: string | undefined, messageId: string) => {
+		agentId ??= NEW_CHAT_ID;
+		const agentQueue = this.state.get(agentId);
+		if (!agentQueue || agentQueue.length < 2) {
+			return;
+		}
+		const idx = agentQueue.findIndex((m) => m.id === messageId);
+		if (idx <= 0) {
+			return;
+		}
+		const promoted = agentQueue[idx];
+		const newQueue = [promoted, ...agentQueue.slice(0, idx), ...agentQueue.slice(idx + 1)];
+		this.state.set(agentId, newQueue);
+		this.notify();
+	};
+
 	moveQueue = (fromAgentId: string, toAgentId: string) => {
 		const agentQueue = this.state.get(fromAgentId);
 		if (!agentQueue) {

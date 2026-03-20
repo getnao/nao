@@ -1,42 +1,112 @@
-import { ArrowRight, X } from 'lucide-react';
+import { useState } from 'react';
+import { ChevronDown, CornerDownLeft, Pencil, ArrowUpToLine, Trash2 } from 'lucide-react';
 import { Button } from './ui/button';
 import { useMessageQueueStore } from '@/hooks/use-message-queue-store';
 import { useChatId } from '@/hooks/use-chat-id';
 import { cn } from '@/lib/utils';
 import { messageQueueStore } from '@/stores/chat-message-queue';
 
-export const ChatInputMessageQueue = () => {
+interface ChatInputMessageQueueProps {
+	onEditMessage?: (text: string) => void;
+}
+
+export const ChatInputMessageQueue = ({ onEditMessage }: ChatInputMessageQueueProps) => {
 	const chatId = useChatId();
 	const { queuedMessages } = useMessageQueueStore(chatId);
+	const [isExpanded, setIsExpanded] = useState(true);
 
 	if (!queuedMessages.length) {
 		return null;
 	}
 
 	return (
-		<div className='flex flex-col gap-0 px-3 py-2 pb-5.5 w-full mx-auto border border-input/50 rounded-2xl rounded-b-none -mb-4 bg-muted/50'>
-			{queuedMessages.map((qm, idx) => (
-				<div
-					key={qm.id}
-					className={cn(
-						'flex w-full items-center gap-2 text-sm [&_>_svg]:shrink-0 group cursor-pointer h-7',
-						idx !== 0 && '[&_span]:text-muted-foreground/75 [&>*:first-child]:text-muted-foreground/50',
-					)}
-				>
-					<ArrowRight className={cn('size-3.5 group-hover:hidden flex', idx !== 0 && '')} />
+		<div className='flex flex-col w-full mx-auto border border-input/50 rounded-2xl rounded-b-none -mb-4 bg-muted/50 overflow-hidden'>
+			<button
+				type='button'
+				onClick={() => setIsExpanded(!isExpanded)}
+				className='flex items-center gap-1.5 px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer select-none'
+			>
+				<ChevronDown className={cn('size-3 transition-transform duration-200', !isExpanded && '-rotate-90')} />
+				<span>{queuedMessages.length} Queued</span>
+			</button>
 
-					<Button
-						variant='ghost-muted'
-						size='icon-xs'
-						className='group-hover:flex hidden -m-1.25 hover:text-destructive'
-						onClick={() => messageQueueStore.remove(chatId, qm.id)}
-					>
-						<X className='size-3.5 group-hover:flex hidden' />
-					</Button>
-
-					<span className='truncate'>{qm.text}</span>
+			{isExpanded && (
+				<div className='flex flex-col px-3 pb-3'>
+					{queuedMessages.map((qm, idx) => (
+						<QueuedMessageRow
+							key={qm.id}
+							chatId={chatId}
+							messageId={qm.id}
+							text={qm.text}
+							isFirst={idx === 0}
+							showPromote={queuedMessages.length > 1}
+							onEdit={onEditMessage}
+						/>
+					))}
 				</div>
-			))}
+			)}
 		</div>
 	);
 };
+
+function QueuedMessageRow({
+	chatId,
+	messageId,
+	text,
+	isFirst,
+	showPromote,
+	onEdit,
+}: {
+	chatId: string | undefined;
+	messageId: string;
+	text: string;
+	isFirst: boolean;
+	showPromote: boolean;
+	onEdit?: (text: string) => void;
+}) {
+	return (
+		<div className={cn('flex w-full items-center gap-2 text-sm group h-8', !isFirst && 'text-muted-foreground/75')}>
+			<span className='truncate flex-1 min-w-0'>{text}</span>
+
+			<div className='flex items-center shrink-0'>
+				<span className='group-hover:hidden flex items-center gap-1 text-xs text-muted-foreground/50'>
+					<CornerDownLeft className='size-3' />
+					<span>to submit</span>
+				</span>
+
+				<div className='hidden group-hover:flex items-center'>
+					<Button
+						variant='ghost-muted'
+						size='icon-xs'
+						type='button'
+						onClick={() => {
+							messageQueueStore.remove(chatId, messageId);
+							onEdit?.(text);
+						}}
+					>
+						<Pencil className='size-3' />
+					</Button>
+					{showPromote && !isFirst && (
+						<Button
+							variant='ghost-muted'
+							size='icon-xs'
+							type='button'
+							onClick={() => messageQueueStore.promoteToFront(chatId, messageId)}
+						>
+							<ArrowUpToLine className='size-3' />
+						</Button>
+					)}
+					<Button
+						variant='ghost-muted'
+						size='icon-xs'
+						type='button'
+						className='hover:text-destructive'
+						onClick={() => messageQueueStore.remove(chatId, messageId)}
+					>
+						<Trash2 className='size-3' />
+					</Button>
+				</div>
+			</div>
+		</div>
+	);
+}
