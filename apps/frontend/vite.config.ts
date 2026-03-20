@@ -36,6 +36,12 @@ export default defineConfig({
 			'/api': {
 				target: 'http://localhost:5005',
 			},
+			'/i': {
+				target: 'http://localhost:5005',
+			},
+			'/c': {
+				target: 'http://localhost:5005',
+			},
 		},
 	},
 });
