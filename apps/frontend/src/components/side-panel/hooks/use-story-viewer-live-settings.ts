@@ -13,7 +13,7 @@ export const useStoryViewerLiveSettings = ({ chatId, storyId }: UseStoryViewerLi
 	const latestVersion = useMemo(() => versionsQuery.data?.at(-1), [versionsQuery.data]);
 
 	const isLive = latestVersion?.isLive ?? false;
-	const cacheTtlMinutes = latestVersion?.cacheTtlMinutes ?? null;
+	const cacheSchedule = latestVersion?.cacheSchedule ?? null;
 	const refreshText = latestVersion?.refreshText ?? false;
 
 	const updateLiveSettingsMutation = useMutation(
@@ -40,7 +40,7 @@ export const useStoryViewerLiveSettings = ({ chatId, storyId }: UseStoryViewerLi
 	);
 
 	const handleSaveSettings = useCallback(
-		(settings: { isLive: boolean; cacheTtlMinutes: number | null; refreshText: boolean }) => {
+		(settings: { isLive: boolean; cacheSchedule: string | null; refreshText: boolean }) => {
 			updateLiveSettingsMutation.mutate({ chatId, storyId, ...settings });
 		},
 		[chatId, storyId, updateLiveSettingsMutation],
@@ -52,7 +52,7 @@ export const useStoryViewerLiveSettings = ({ chatId, storyId }: UseStoryViewerLi
 
 	return {
 		isLive,
-		cacheTtlMinutes,
+		cacheSchedule,
 		refreshText,
 		isUpdating: updateLiveSettingsMutation.isPending,
 		isRefreshing: refreshDataMutation.isPending,

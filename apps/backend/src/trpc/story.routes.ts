@@ -3,9 +3,10 @@ import { z } from 'zod/v4';
 
 import * as chatQueries from '../queries/chat.queries';
 import * as storyQueries from '../queries/story.queries';
+import { naturalLanguageToCron } from '../services/cron-nlp';
 import { getStoryQueryData, refreshStoryData } from '../services/live-story';
 import { extractStorySummary } from '../utils/story-summary';
-import { ownedResourceProcedure, protectedProcedure } from './trpc';
+import { ownedResourceProcedure, projectProtectedProcedure, protectedProcedure } from './trpc';
 
 const chatOwnerProcedure = ownedResourceProcedure(chatQueries.getChatOwnerId, 'chat');
 
@@ -38,7 +39,7 @@ export const storyRoutes = {
 				input.storyId,
 				version.code,
 				version.isLive,
-				version.cacheTtlMinutes,
+				version.cacheSchedule,
 			);
 			return { ...version, queryData, regeneratedCode, cachedAt };
 		}),
@@ -76,14 +77,14 @@ export const storyRoutes = {
 				chatId: z.string(),
 				storyId: z.string(),
 				isLive: z.boolean(),
-				cacheTtlMinutes: z.number().int().min(1).nullable(),
+				cacheSchedule: z.string().nullable(),
 				refreshText: z.boolean(),
 			}),
 		)
 		.mutation(async ({ input }) => {
 			await storyQueries.updateLiveSettings(input.chatId, input.storyId, {
 				isLive: input.isLive,
-				cacheTtlMinutes: input.cacheTtlMinutes,
+				cacheSchedule: input.cacheSchedule,
 				refreshText: input.refreshText,
 			});
 		}),
@@ -93,6 +94,13 @@ export const storyRoutes = {
 		.mutation(async ({ input }) => {
 			const { queryData, regeneratedCode } = await refreshStoryData(input.chatId, input.storyId);
 			return { queryData, regeneratedCode, cachedAt: new Date() };
+		}),
+
+	parseCronFromText: projectProtectedProcedure
+		.input(z.object({ text: z.string().min(1) }))
+		.mutation(async ({ input, ctx }) => {
+			const cron = await naturalLanguageToCron(ctx.project.id, input.text);
+			return { cron };
 		}),
 
 	archive: chatOwnerProcedure

@@ -1,3 +1,5 @@
+import { CronExpressionParser } from 'cron-parser';
+
 import { env } from '../env';
 import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
@@ -64,7 +66,7 @@ export async function getStoryQueryData(
 	storyId: string,
 	code: string,
 	isLive: boolean,
-	cacheTtlMinutes: number | null,
+	cacheSchedule: string | null,
 ): Promise<StoryQueryDataResult> {
 	if (!isLive) {
 		const { collectQueryData } = await import('../queries/shared-story.queries');
@@ -74,8 +76,7 @@ export async function getStoryQueryData(
 	const cache = await storyQueries.getStoryDataCache(chatId, storyId);
 
 	if (cache) {
-		const isCacheValid =
-			cacheTtlMinutes === null || Date.now() - cache.cachedAt.getTime() < cacheTtlMinutes * 60 * 1000;
+		const isCacheValid = !isCacheExpired(cache.cachedAt, cacheSchedule);
 
 		if (isCacheValid) {
 			return {
@@ -128,4 +129,18 @@ async function executeRawSql(
 
 	const data = await response.json();
 	return { data: data.data, columns: data.columns };
+}
+
+function isCacheExpired(cachedAt: Date, cacheSchedule: string | null): boolean {
+	if (!cacheSchedule) {
+		return false;
+	}
+
+	try {
+		const interval = CronExpressionParser.parse(cacheSchedule, { currentDate: new Date() });
+		const prevScheduledTime = interval.prev().toDate();
+		return cachedAt.getTime() < prevScheduledTime.getTime();
+	} catch {
+		return false;
+	}
 }

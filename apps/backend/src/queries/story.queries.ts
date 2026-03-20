@@ -42,18 +42,17 @@ async function resolveLiveSettings(data: {
 	chatId: string;
 	storyId: string;
 	isLive?: boolean;
-	cacheTtlMinutes?: number | null;
-}): Promise<{ isLive: boolean; cacheTtlMinutes: number | null; refreshText: boolean }> {
+}): Promise<{ isLive: boolean; cacheSchedule: string | null; refreshText: boolean }> {
 	if (data.isLive !== undefined) {
-		return { isLive: data.isLive, cacheTtlMinutes: data.cacheTtlMinutes ?? null, refreshText: false };
+		return { isLive: data.isLive, cacheSchedule: null, refreshText: false };
 	}
 
 	const latest = await getLatestVersion(data.chatId, data.storyId);
 	if (latest) {
-		return { isLive: latest.isLive, cacheTtlMinutes: latest.cacheTtlMinutes, refreshText: latest.refreshText };
+		return { isLive: latest.isLive, cacheSchedule: latest.cacheSchedule, refreshText: latest.refreshText };
 	}
 
-	return { isLive: false, cacheTtlMinutes: null, refreshText: false };
+	return { isLive: false, cacheSchedule: null, refreshText: false };
 }
 
 export async function getLatestVersion(chatId: string, storyId: string): Promise<DBStoryVersion | null> {
@@ -176,13 +175,13 @@ export async function unarchiveStory(chatId: string, storyId: string): Promise<v
 export async function updateLiveSettings(
 	chatId: string,
 	storyId: string,
-	settings: { isLive: boolean; cacheTtlMinutes: number | null; refreshText: boolean },
+	settings: { isLive: boolean; cacheSchedule: string | null; refreshText: boolean },
 ): Promise<void> {
 	await db
 		.update(s.storyVersion)
 		.set({
 			isLive: settings.isLive,
-			cacheTtlMinutes: settings.cacheTtlMinutes,
+			cacheSchedule: settings.cacheSchedule,
 			refreshText: settings.refreshText,
 		})
 		.where(and(eq(s.storyVersion.chatId, chatId), eq(s.storyVersion.storyId, storyId)))

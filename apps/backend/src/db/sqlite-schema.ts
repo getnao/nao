@@ -434,7 +434,7 @@ export const storyVersion = sqliteTable(
 		action: text('action', { enum: STORY_ACTIONS }).notNull(),
 		source: text('source', { enum: STORY_SOURCES }).notNull(),
 		isLive: integer('is_live', { mode: 'boolean' }).default(false).notNull(),
-		cacheTtlMinutes: integer('cache_ttl_minutes'),
+		cacheSchedule: text('cache_schedule'),
 		refreshText: integer('refresh_text', { mode: 'boolean' }).default(false).notNull(),
 		archivedAt: integer('archived_at', { mode: 'timestamp_ms' }),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })

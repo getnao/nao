@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Activity, Sparkles } from 'lucide-react';
+import { useMutation } from '@tanstack/react-query';
+import { Activity, Loader2, Sparkles, Wand2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
 	Dialog,
@@ -9,64 +10,105 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
+import { trpc } from '@/main';
 
 interface LiveStorySettingsDialogProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	isLive: boolean;
-	cacheTtlMinutes: number | null;
+	cacheSchedule: string | null;
 	refreshText: boolean;
 	isUpdating: boolean;
-	onSaveSettings: (settings: { isLive: boolean; cacheTtlMinutes: number | null; refreshText: boolean }) => void;
+	onSaveSettings: (settings: { isLive: boolean; cacheSchedule: string | null; refreshText: boolean }) => void;
 }
 
-const TTL_OPTIONS = [
-	{ value: 'manual', label: 'Manual refresh only' },
-	{ value: '5', label: '5 minutes' },
-	{ value: '15', label: '15 minutes' },
-	{ value: '30', label: '30 minutes' },
-	{ value: '60', label: '1 hour' },
-	{ value: '360', label: '6 hours' },
-	{ value: '1440', label: '24 hours' },
+const SCHEDULE_PRESETS = [
+	{ value: 'manual', label: 'Manual refresh only', cron: null },
+	{ value: '*/5 * * * *', label: 'Every 5 minutes', cron: '*/5 * * * *' },
+	{ value: '0 * * * *', label: 'Every hour', cron: '0 * * * *' },
+	{ value: '0 0 * * *', label: 'Every 24 hours', cron: '0 0 * * *' },
+	{ value: '0 0 * * 1', label: 'Weekly (Monday)', cron: '0 0 * * 1' },
+	{ value: '0 0 1 * *', label: 'Monthly (1st)', cron: '0 0 1 * *' },
+	{ value: 'custom', label: 'Custom schedule...', cron: null },
 ] as const;
+
+function resolvePresetValue(cacheSchedule: string | null): string {
+	if (!cacheSchedule) {
+		return 'manual';
+	}
+	const match = SCHEDULE_PRESETS.find((p) => p.cron === cacheSchedule);
+	return match ? match.value : 'custom';
+}
 
 export function LiveStorySettingsDialog({
 	open,
 	onOpenChange,
 	isLive,
-	cacheTtlMinutes,
+	cacheSchedule,
 	refreshText,
 	isUpdating,
 	onSaveSettings,
 }: LiveStorySettingsDialogProps) {
 	const [localIsLive, setLocalIsLive] = useState(isLive);
-	const [localTtl, setLocalTtl] = useState<string>(cacheTtlMinutes?.toString() ?? 'manual');
+	const [localPreset, setLocalPreset] = useState(() => resolvePresetValue(cacheSchedule));
+	const [localCustomCron, setLocalCustomCron] = useState(localPreset === 'custom' ? (cacheSchedule ?? '') : '');
 	const [localRefreshText, setLocalRefreshText] = useState(refreshText);
+	const [nlInput, setNlInput] = useState('');
 
 	useEffect(() => {
 		if (open) {
 			setLocalIsLive(isLive);
-			setLocalTtl(cacheTtlMinutes?.toString() ?? 'manual');
+			const preset = resolvePresetValue(cacheSchedule);
+			setLocalPreset(preset);
+			setLocalCustomCron(preset === 'custom' ? (cacheSchedule ?? '') : '');
 			setLocalRefreshText(refreshText);
+			setNlInput('');
 		}
-	}, [open, isLive, cacheTtlMinutes, refreshText]);
+	}, [open, isLive, cacheSchedule, refreshText]);
 
-	const hasChanges =
-		localIsLive !== isLive ||
-		(localIsLive && localTtl !== (cacheTtlMinutes?.toString() ?? 'manual')) ||
-		localRefreshText !== refreshText;
+	const resolvedCron =
+		localPreset === 'manual' ? null : localPreset === 'custom' ? localCustomCron || null : localPreset;
+
+	const originalCron = cacheSchedule;
+	const hasChanges = localIsLive !== isLive || resolvedCron !== originalCron || localRefreshText !== refreshText;
+
+	const handlePresetChange = useCallback((value: string) => {
+		setLocalPreset(value);
+		if (value !== 'custom') {
+			setLocalCustomCron('');
+			setNlInput('');
+		}
+	}, []);
 
 	const handleSave = useCallback(() => {
-		const newTtl = localTtl === 'manual' ? null : parseInt(localTtl, 10);
 		onSaveSettings({
 			isLive: localIsLive,
-			cacheTtlMinutes: localIsLive ? newTtl : null,
+			cacheSchedule: localIsLive ? resolvedCron : null,
 			refreshText: localIsLive ? localRefreshText : false,
 		});
 		onOpenChange(false);
-	}, [localIsLive, localTtl, localRefreshText, onSaveSettings, onOpenChange]);
+	}, [localIsLive, resolvedCron, localRefreshText, onSaveSettings, onOpenChange]);
+
+	const cronNlpMutation = useMutation(
+		trpc.story.parseCronFromText.mutationOptions({
+			onSuccess: (data) => {
+				if (data.cron) {
+					setLocalCustomCron(data.cron);
+					setNlInput('');
+				}
+			},
+		}),
+	);
+
+	const handleNlConvert = useCallback(() => {
+		if (!nlInput.trim()) {
+			return;
+		}
+		cronNlpMutation.mutate({ text: nlInput.trim() });
+	}, [nlInput, cronNlpMutation]);
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
@@ -95,17 +137,17 @@ export function LiveStorySettingsDialog({
 					{localIsLive && (
 						<>
 							<div className='flex flex-col gap-2'>
-								<label className='text-sm font-medium'>Cache expiration</label>
+								<label className='text-sm font-medium'>Refresh schedule</label>
 								<p className='text-xs text-muted-foreground'>
-									How often the cached data should be automatically refreshed. You can always refresh
+									How often the data should be automatically refreshed. You can always refresh
 									manually using the refresh button.
 								</p>
-								<Select value={localTtl} onValueChange={setLocalTtl}>
+								<Select value={localPreset} onValueChange={handlePresetChange}>
 									<SelectTrigger className='w-full'>
 										<SelectValue />
 									</SelectTrigger>
 									<SelectContent>
-										{TTL_OPTIONS.map((opt) => (
+										{SCHEDULE_PRESETS.map((opt) => (
 											<SelectItem key={opt.value} value={opt.value}>
 												{opt.label}
 											</SelectItem>
@@ -113,6 +155,63 @@ export function LiveStorySettingsDialog({
 									</SelectContent>
 								</Select>
 							</div>
+
+							{localPreset === 'custom' && (
+								<div className='flex flex-col gap-3'>
+									<div className='flex flex-col gap-1.5'>
+										<label className='text-xs font-medium text-muted-foreground'>
+											Cron expression
+										</label>
+										<Input
+											value={localCustomCron}
+											onChange={(e) => setLocalCustomCron(e.target.value)}
+											placeholder='*/5 * * * *'
+											className='h-8 text-sm font-mono'
+										/>
+										<p className='text-[11px] text-muted-foreground'>
+											Format: minute hour day-of-month month day-of-week
+										</p>
+									</div>
+
+									<div className='flex flex-col gap-1.5'>
+										<label className='text-xs font-medium text-muted-foreground'>
+											Or describe in plain English
+										</label>
+										<div className='flex gap-2'>
+											<Input
+												value={nlInput}
+												onChange={(e) => setNlInput(e.target.value)}
+												placeholder='e.g. every weekday at 9am'
+												className='h-8 text-sm flex-1'
+												onKeyDown={(e) => {
+													if (e.key === 'Enter') {
+														handleNlConvert();
+													}
+												}}
+											/>
+											<Button
+												variant='outline'
+												size='sm'
+												className='gap-1 shrink-0 h-8'
+												onClick={handleNlConvert}
+												disabled={!nlInput.trim() || cronNlpMutation.isPending}
+											>
+												{cronNlpMutation.isPending ? (
+													<Loader2 className='size-3 animate-spin' />
+												) : (
+													<Wand2 className='size-3' />
+												)}
+												<span>Convert</span>
+											</Button>
+										</div>
+										{cronNlpMutation.isError && (
+											<p className='text-[11px] text-destructive'>
+												Could not convert to cron expression. Try a different description.
+											</p>
+										)}
+									</div>
+								</div>
+							)}
 
 							<div className='flex items-center justify-between gap-4'>
 								<div className='flex items-center gap-2.5'>

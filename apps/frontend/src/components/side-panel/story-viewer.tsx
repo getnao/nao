@@ -87,7 +87,7 @@ export function StoryViewer({ chatId, storyId }: StoryViewerProps) {
 	});
 	const {
 		isLive,
-		cacheTtlMinutes,
+		cacheSchedule,
 		refreshText,
 		isUpdating: isLiveUpdating,
 		isRefreshing,
@@ -187,7 +187,7 @@ export function StoryViewer({ chatId, storyId }: StoryViewerProps) {
 				open={isLiveSettingsOpen}
 				onOpenChange={setIsLiveSettingsOpen}
 				isLive={isLive}
-				cacheTtlMinutes={cacheTtlMinutes}
+				cacheSchedule={cacheSchedule}
 				refreshText={refreshText}
 				isUpdating={isLiveUpdating}
 				onSaveSettings={handleSaveSettings}

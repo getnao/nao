@@ -409,7 +409,7 @@ export const storyVersion = pgTable(
 		action: text('action', { enum: STORY_ACTIONS }).notNull(),
 		source: text('source', { enum: STORY_SOURCES }).notNull(),
 		isLive: boolean('is_live').default(false).notNull(),
-		cacheTtlMinutes: integer('cache_ttl_minutes'),
+		cacheSchedule: text('cache_schedule'),
 		refreshText: boolean('refresh_text').default(false).notNull(),
 		archivedAt: timestamp('archived_at'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),

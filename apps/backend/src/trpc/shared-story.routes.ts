@@ -77,17 +77,17 @@ export const sharedStoryRoutes = {
 
 		const latestVersion = await storyQueries.getLatestVersion(story.chatId, story.storyId);
 		const isLive = latestVersion?.isLive ?? false;
-		const cacheTtlMinutes = latestVersion?.cacheTtlMinutes ?? null;
+		const cacheSchedule = latestVersion?.cacheSchedule ?? null;
 
 		const { queryData, regeneratedCode, cachedAt } = await getStoryQueryData(
 			story.chatId,
 			story.storyId,
 			story.code,
 			isLive,
-			cacheTtlMinutes,
+			cacheSchedule,
 		);
 
-		return { ...story, queryData, regeneratedCode, isLive, cacheTtlMinutes, cachedAt };
+		return { ...story, queryData, regeneratedCode, isLive, cacheSchedule, cachedAt };
 	}),
 
 	refreshData: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input, ctx }) => {
