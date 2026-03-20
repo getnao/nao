@@ -3,7 +3,7 @@ import { and, asc, desc, eq, gte, isNull, like, sql } from 'drizzle-orm';
 import s, { DBChat, DBChatMessage, DBMessagePart, MessageFeedback, NewChat } from '../db/abstractSchema';
 import { db } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
-import { ListChatResponse, StopReason, TokenUsage, UIChat, UIMessage } from '../types/chat';
+import { ListChatResponse, StopReason, TokenUsage, UIChat, UIMessage, UIMessagePart } from '../types/chat';
 import { LlmProvider } from '../types/llm';
 import { convertDBPartToUIPart, mapUIPartsToDBParts } from '../utils/chat-message-part-mappings';
 import { getErrorMessage } from '../utils/utils';
@@ -163,6 +163,7 @@ export const createChat = async (
 		text: string;
 		source?: 'slack' | 'teams' | 'telegram' | 'whatsapp' | 'web';
 	},
+	additionalParts: UIMessagePart[] = [],
 ): Promise<[DBChat, DBChatMessage]> => {
 	return db.transaction(async (t): Promise<[DBChat, DBChatMessage]> => {
 		const [savedChat] = await t.insert(s.chat).values(newChat).returning().execute();
@@ -177,7 +178,8 @@ export const createChat = async (
 			.returning()
 			.execute();
 
-		const dbParts = mapUIPartsToDBParts([{ type: 'text', text: newUserMessage.text }], savedMessage.id);
+		const parts: UIMessagePart[] = [{ type: 'text', text: newUserMessage.text }, ...additionalParts];
+		const dbParts = mapUIPartsToDBParts(parts, savedMessage.id);
 		await t.insert(s.messagePart).values(dbParts).execute();
 
 		return [savedChat, savedMessage];

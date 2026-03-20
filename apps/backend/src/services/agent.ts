@@ -16,6 +16,8 @@ import {
 } from 'ai';
 import { z } from 'zod';
 
+import * as imageQueries from '../queries/image.queries';
+
 import { CACHE_1H, CACHE_5M, LLM_PROVIDERS, ProviderModelResult } from '../agents/providers';
 import { getTools } from '../agents/tools';
 import { createWebSearchTools } from '../agents/tools/web-search';
@@ -34,6 +36,7 @@ import { Provider } from '../types/messaging-provider';
 import { ToolContext } from '../types/tools';
 import { convertToCost, convertToTokenUsage, findLastUserMessage, getLastUserMessageText } from '../utils/ai';
 import { HandlerError } from '../utils/error';
+import { buildImageDataUrl } from '../utils/image';
 import {
 	getDefaultModelId,
 	getEnvModelSelections,
@@ -323,6 +326,7 @@ class AgentManager {
 		const uiMessagesWithSkills = this._addSkills(uiMessagesWithStoryMode, mentions);
 		const uiMessagesWithDbContext = this._addDatabaseContext(uiMessagesWithSkills, mentions);
 		const uiMessagesWithCompaction = compactionService.useLastCompaction(uiMessagesWithDbContext);
+		const uiMessagesWithResolvedImages = await resolveImageUrls(uiMessagesWithCompaction);
 
 		const memories = await memoryService.safeGetUserMemories(this.chat.userId, this.chat.projectId, this.chat.id);
 		const userRules = getUserRules();
@@ -338,9 +342,12 @@ class AgentManager {
 			parts: [{ type: 'text', text: systemPrompt }],
 		};
 
-		const modelMessages = await convertToModelMessages<UIMessage>([systemMessage, ...uiMessagesWithCompaction], {
-			tools: this._agentTools,
-		});
+		const modelMessages = await convertToModelMessages<UIMessage>(
+			[systemMessage, ...uiMessagesWithResolvedImages],
+			{
+				tools: this._agentTools,
+			},
+		);
 
 		return modelMessages;
 	}
@@ -630,6 +637,61 @@ class AgentManager {
 	getModelId(): string {
 		return this._modelSelection.modelId;
 	}
+}
+
+const IMAGE_URL_PATTERN = /^\/i\/([a-f0-9-]+)$/;
+
+/**
+ * Replaces server image URLs (/i/{id}) with data URLs so the model provider
+ * receives the actual image content without a circular HTTP fetch.
+ */
+async function resolveImageUrls(messages: UIMessage[]): Promise<UIMessage[]> {
+	const imageIds = new Set<string>();
+	for (const message of messages) {
+		for (const part of message.parts) {
+			if (part.type === 'file') {
+				const match = part.url.match(IMAGE_URL_PATTERN);
+				if (match) {
+					imageIds.add(match[1]);
+				}
+			}
+		}
+	}
+
+	if (imageIds.size === 0) {
+		return messages;
+	}
+
+	const imageDataMap = new Map<string, { data: string; mediaType: string }>();
+	await Promise.all(
+		[...imageIds].map(async (id) => {
+			const image = await imageQueries.getImageById(id);
+			if (image) {
+				imageDataMap.set(id, image);
+			}
+		}),
+	);
+
+	return messages.map((message) => ({
+		...message,
+		parts: message.parts.map((part) => {
+			if (part.type !== 'file') {
+				return part;
+			}
+			const match = part.url.match(IMAGE_URL_PATTERN);
+			if (!match) {
+				return part;
+			}
+			const imageData = imageDataMap.get(match[1]);
+			if (!imageData) {
+				return part;
+			}
+			return {
+				...part,
+				url: buildImageDataUrl(imageData.mediaType, imageData.data),
+			};
+		}),
+	}));
 }
 
 // Singleton instance of the agent service

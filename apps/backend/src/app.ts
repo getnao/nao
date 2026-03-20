@@ -13,6 +13,7 @@ import { ensureOrganizationSetup } from './queries/organization.queries';
 import { agentRoutes } from './routes/agent';
 import { authRoutes } from './routes/auth';
 import { chartRoutes } from './routes/chart';
+import { imageRoutes } from './routes/image';
 import { slackRoutes } from './routes/slack';
 import { teamsRoutes } from './routes/teams';
 import { telegramRoutes } from './routes/telegram';
@@ -128,6 +129,10 @@ app.register(chartRoutes, {
 	prefix: '/c',
 });
 
+app.register(imageRoutes, {
+	prefix: '/i',
+});
+
 app.register(authRoutes, {
 	prefix: '/api',
 });
@@ -177,7 +182,7 @@ if (staticRoot) {
 
 	// SPA fallback: serve index.html for all non-API routes
 	app.setNotFoundHandler((request, reply) => {
-		if (request.url.startsWith('/api') || request.url.startsWith('/c')) {
+		if (request.url.startsWith('/api') || request.url.startsWith('/c') || request.url.startsWith('/i')) {
 			reply.status(404).send({ error: 'Not found' });
 		} else {
 			reply.sendFile('index.html');

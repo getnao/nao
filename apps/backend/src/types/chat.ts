@@ -115,9 +115,16 @@ export const MentionSchema = z.object({
 	label: z.string(),
 });
 
+export const AgentRequestImageSchema = z.object({
+	mediaType: z.string(),
+	data: z.string(),
+});
+export type AgentRequestImage = z.infer<typeof AgentRequestImageSchema>;
+
 export type AgentRequestUserMessage = z.infer<typeof AgentRequestUserMessageSchema>;
 export const AgentRequestUserMessageSchema = z.object({
 	text: z.string(),
+	images: z.array(AgentRequestImageSchema).optional(),
 });
 
 const ModelSelectionSchema = z.object({

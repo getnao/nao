@@ -1,10 +1,12 @@
 import * as chatQueries from '../queries/chat.queries';
+import * as imageQueries from '../queries/image.queries';
 import { agentService } from '../services/agent';
 import { mcpService } from '../services/mcp';
 import { skillService } from '../services/skill';
-import { AgentRequest, AgentRequestUserMessage } from '../types/chat';
+import { AgentRequest, AgentRequestImage, AgentRequestUserMessage, UIMessagePart } from '../types/chat';
 import { createChatTitle } from '../utils/ai';
 import { HandlerError } from '../utils/error';
+import { buildImageUrl } from '../utils/image';
 
 interface HandleAgentMessageInput extends AgentRequest {
 	userId: string;
@@ -28,16 +30,24 @@ export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<H
 		);
 	}
 
+	const imageParts = await saveAndBuildImageParts(message.images);
+
 	let chatId = opts.chatId;
 	const isNewChat = !chatId;
 	let newMessageId: string;
 
 	if (!chatId) {
-		const [createdChat, createdMessage] = await createChat(userId, projectId, message);
+		const [createdChat, createdMessage] = await createChat(userId, projectId, message, imageParts);
 		chatId = createdChat.id;
 		newMessageId = createdMessage.id;
 	} else {
-		const { messageId } = await insertOrSupersedeMessage({ userId, chatId, message, messageToEditId });
+		const { messageId } = await insertOrSupersedeMessage({
+			userId,
+			chatId,
+			message,
+			messageToEditId,
+			imageParts,
+		});
 		newMessageId = messageId;
 	}
 
@@ -76,9 +86,27 @@ export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<H
 	};
 };
 
-const createChat = async (userId: string, projectId: string, message: AgentRequestUserMessage) => {
+async function saveAndBuildImageParts(images: AgentRequestImage[] | undefined): Promise<UIMessagePart[]> {
+	if (!images?.length) {
+		return [];
+	}
+
+	const savedImages = await imageQueries.saveImages(images);
+	return savedImages.map(({ id, mediaType }) => ({
+		type: 'file' as const,
+		mediaType,
+		url: buildImageUrl(id),
+	}));
+}
+
+const createChat = async (
+	userId: string,
+	projectId: string,
+	message: AgentRequestUserMessage,
+	imageParts: UIMessagePart[],
+) => {
 	const title = createChatTitle(message);
-	return await chatQueries.createChat({ title, userId, projectId }, message);
+	return await chatQueries.createChat({ title, userId, projectId }, message, imageParts);
 };
 
 /** Insert a message into a chat or supersede an existing message when it is edited. */
@@ -87,8 +115,9 @@ const insertOrSupersedeMessage = async (opts: {
 	chatId: string;
 	message: AgentRequestUserMessage;
 	messageToEditId?: string;
+	imageParts: UIMessagePart[];
 }) => {
-	const { userId, chatId, message, messageToEditId } = opts;
+	const { userId, chatId, message, messageToEditId, imageParts } = opts;
 	const ownerId = await chatQueries.getChatOwnerId(chatId);
 	if (!ownerId) {
 		throw new HandlerError('NOT_FOUND', `Chat with id ${chatId} not found.`);
@@ -101,7 +130,7 @@ const insertOrSupersedeMessage = async (opts: {
 	}
 	return chatQueries.upsertMessage({
 		role: 'user',
-		parts: [{ type: 'text', text: message.text }],
+		parts: [{ type: 'text', text: message.text }, ...imageParts],
 		chatId,
 		source: 'web',
 	});

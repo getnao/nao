@@ -266,6 +266,10 @@ export const messagePart = pgTable(
 		// provider metadata columns
 		toolProviderMetadata: jsonb('tool_provider_metadata').$type<ProviderMetadata>(),
 		providerMetadata: jsonb('provider_metadata').$type<ProviderMetadata>(),
+
+		// file/image columns
+		mediaType: text('media_type'),
+		imageId: text('image_id').references(() => messageImage.id, { onDelete: 'set null' }),
 	},
 	(t) => [
 		index('parts_message_id_idx').on(t.messageId),
@@ -543,6 +547,15 @@ export const llmInference = pgTable(
 		index('llm_inference_type_idx').on(t.type),
 	],
 );
+
+export const messageImage = pgTable('message_image', {
+	id: text('id')
+		.$defaultFn(() => crypto.randomUUID())
+		.primaryKey(),
+	data: text('data').notNull(),
+	mediaType: text('media_type').notNull(),
+	createdAt: timestamp('created_at').defaultNow().notNull(),
+});
 
 export const message_part_chart_image = pgTable('chart_image', {
 	id: text('id')

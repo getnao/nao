@@ -281,6 +281,10 @@ export const messagePart = sqliteTable(
 		// provider metadata columns
 		toolProviderMetadata: text('tool_provider_metadata', { mode: 'json' }).$type<ProviderMetadata>(),
 		providerMetadata: text('provider_metadata', { mode: 'json' }).$type<ProviderMetadata>(),
+
+		// file/image columns
+		mediaType: text('media_type'),
+		imageId: text('image_id').references(() => messageImage.id, { onDelete: 'set null' }),
 	},
 	(t) => [
 		index('parts_message_id_idx').on(t.messageId),
@@ -581,6 +585,20 @@ export const llmInference = sqliteTable(
 		index('llm_inference_userId_idx').on(t.userId),
 		index('llm_inference_type_idx').on(t.type),
 	],
+);
+
+export const messageImage = sqliteTable(
+	'message_image',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		data: text('data').notNull(),
+		mediaType: text('media_type').notNull(),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+	},
 );
 
 export const message_part_chart_image = sqliteTable('chart_image', {
