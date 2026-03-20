@@ -3,8 +3,7 @@ import nodemailer from 'nodemailer';
 import { renderToString } from 'react-dom/server';
 
 import { ResetPassword } from '../components/email/reset-password';
-import { SharedChat } from '../components/email/shared-chat';
-import { SharedStory } from '../components/email/shared-story';
+import { SharedItemEmail } from '../components/email/shared-item-email';
 import { UserAddedToProject } from '../components/email/user-added-to-project';
 import { env } from '../env';
 import type { CreatedEmail, SendEmail } from '../types/email';
@@ -81,7 +80,15 @@ class EmailService {
 		storyUrl,
 	}: Extract<SendEmail, { type: 'sharedStory' }>): CreatedEmail {
 		const subject = `${sharerName} shared "${storyTitle}" with you on nao`;
-		const html = renderToString(SharedStory({ userName: user.name, sharerName, storyTitle, storyUrl }));
+		const html = renderToString(
+			SharedItemEmail({
+				userName: user.name,
+				sharerName,
+				itemLabel: 'story',
+				itemTitle: storyTitle,
+				itemUrl: storyUrl,
+			}),
+		);
 		return { subject, html };
 	}
 
@@ -92,7 +99,15 @@ class EmailService {
 		chatUrl,
 	}: Extract<SendEmail, { type: 'sharedChat' }>): CreatedEmail {
 		const subject = `${sharerName} shared "${chatTitle}" with you on nao`;
-		const html = renderToString(SharedChat({ userName: user.name, sharerName, chatTitle, chatUrl }));
+		const html = renderToString(
+			SharedItemEmail({
+				userName: user.name,
+				sharerName,
+				itemLabel: 'chat',
+				itemTitle: chatTitle,
+				itemUrl: chatUrl,
+			}),
+		);
 		return { subject, html };
 	}
 
@@ -101,7 +116,7 @@ class EmailService {
 		projectName,
 		temporaryPassword,
 	}: Extract<SendEmail, { type: 'createUser' }>): CreatedEmail {
-		const loginUrl = env.BETTER_AUTH_URL || 'http://localhost:3000';
+		const loginUrl = env.BETTER_AUTH_URL;
 		const subject = `You've been added to ${projectName} on nao`;
 		const html = renderToString(
 			UserAddedToProject({ userName: user.name, projectName, loginUrl, to: user.email || '', temporaryPassword }),
@@ -115,7 +130,7 @@ class EmailService {
 		temporaryPassword,
 	}: Extract<SendEmail, { type: 'resetPassword' }>): CreatedEmail {
 		const subject = `Your password on the project ${projectName} has been reset on nao`;
-		const loginUrl = env.BETTER_AUTH_URL || 'http://localhost:3000';
+		const loginUrl = env.BETTER_AUTH_URL;
 		const html = renderToString(ResetPassword({ userName: user.name, temporaryPassword, loginUrl, projectName }));
 		return { subject, html };
 	}
