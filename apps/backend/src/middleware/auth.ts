@@ -24,5 +24,13 @@ export async function authMiddleware(request: FastifyRequest, reply: FastifyRepl
 
 	request.user = session.user;
 	request.session = session.session;
-	request.project = await projectQueries.getProjectByUserId(session.user.id);
+
+	const body = request.body as Record<string, unknown> | undefined;
+	const projectId = body?.projectId as string | undefined;
+
+	if (projectId) {
+		request.project = await projectQueries.getProjectByIdForUser(projectId, session.user.id);
+	} else {
+		request.project = await projectQueries.getProjectByUserId(session.user.id);
+	}
 }

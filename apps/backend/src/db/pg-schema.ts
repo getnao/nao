@@ -128,6 +128,8 @@ export const orgMember = pgTable(
 	(t) => [primaryKey({ columns: [t.orgId, t.userId] }), index('org_member_userId_idx').on(t.userId)],
 );
 
+export const PROJECT_TYPES = ['local', 'git'] as const;
+
 export const project = pgTable(
 	'project',
 	{
@@ -136,8 +138,13 @@ export const project = pgTable(
 			.primaryKey(),
 		orgId: text('org_id').references(() => organization.id, { onDelete: 'cascade' }),
 		name: text('name').notNull(),
-		type: text('type', { enum: ['local'] }).notNull(),
+		type: text('type', { enum: PROJECT_TYPES }).notNull(),
 		path: text('path'),
+
+		gitUrl: text('git_url'),
+		gitBranch: text('git_branch'),
+		gitToken: text('git_token'),
+
 		agentSettings: jsonb('agent_settings').$type<AgentSettings>(),
 		enabledMcpTools: jsonb('enabled_tools').$type<string[]>().notNull().default([]),
 		knownMcpServers: jsonb('known_mcp_servers').$type<string[]>().notNull().default([]),
@@ -155,6 +162,10 @@ export const project = pgTable(
 		check(
 			'local_project_path_required',
 			sql`CASE WHEN ${t.type} = 'local' THEN ${t.path} IS NOT NULL ELSE TRUE END`,
+		),
+		check(
+			'git_project_url_required',
+			sql`CASE WHEN ${t.type} = 'git' THEN ${t.gitUrl} IS NOT NULL ELSE TRUE END`,
 		),
 		index('project_orgId_idx').on(t.orgId),
 	],

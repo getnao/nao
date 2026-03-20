@@ -11,6 +11,7 @@ import { Spinner } from './ui/spinner';
 
 import StoryIcon from './ui/story-icon';
 import { SidebarCommunity } from './sidebar-community';
+import { SidebarProjectSwitcher } from './sidebar-project-switcher';
 import type { LucideIcon } from 'lucide-react';
 import type { ChatListItem as ChatListItemType } from '@nao/backend/chat';
 import type { SharedChatWithDetails } from '@nao/backend/shared-chat';
@@ -145,6 +146,8 @@ export function Sidebar() {
 								</Button>
 							)}
 						</div>
+
+						<SidebarProjectSwitcher isCollapsed={effectiveIsCollapsed} />
 
 						<SidebarMenuButton
 							icon={PlusIcon}

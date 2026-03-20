@@ -21,6 +21,7 @@ import { cn } from '@/lib/utils';
 import { useTimeAgo } from '@/hooks/use-time-ago';
 import { useChatActivity } from '@/hooks/use-chat-activity';
 import { useToggleStarred } from '@/hooks/use-toggle-starred';
+import { useProjects } from '@/hooks/use-projects';
 import { trpc } from '@/main';
 
 export interface Props extends Omit<ComponentProps<'div'>, 'children'> {
@@ -32,6 +33,10 @@ export function ChatListItem({ chat }: Props) {
 	const timeAgo = useTimeAgo(chat.createdAt);
 	const activity = useChatActivity(chat.id);
 	const toggleStarred = useToggleStarred();
+	const { projects, hasMultiple: hasMultipleProjects } = useProjects();
+	const projectName = hasMultipleProjects
+		? projects.find((p) => p.id === chat.projectId)?.name
+		: undefined;
 	const [title, setTitle] = useState(chat.title);
 	const [isRenaming, setIsRenaming] = useState(false);
 	const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
@@ -139,7 +144,14 @@ export function ChatListItem({ chat }: Props) {
 				) : (
 					<>
 						{activity.unread && <span className='size-1.5 shrink-0 rounded-full bg-primary' />}
-						<div className='truncate text-sm mr-auto'>{chat.title}</div>
+						<div className='flex flex-col min-w-0 mr-auto'>
+							<div className='truncate text-sm'>{chat.title}</div>
+							{projectName && (
+								<span className='truncate text-[10px] text-muted-foreground/70'>
+									{projectName}
+								</span>
+							)}
+						</div>
 						{activity.running ? (
 							<Spinner className='size-3.5 shrink-0' />
 						) : (

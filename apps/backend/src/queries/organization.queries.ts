@@ -160,11 +160,6 @@ export const addUserToDefaultProjectIfExists = async (userId: string): Promise<v
 		return;
 	}
 
-	const project = await projectQueries.getDefaultProject();
-	if (!project) {
-		return;
-	}
-
 	const role = env.DEFAULT_USER_ROLE;
 
 	await db.transaction(async (tx) => {
@@ -175,11 +170,14 @@ export const addUserToDefaultProjectIfExists = async (userId: string): Promise<v
 			await tx.insert(s.orgMember).values({ orgId: org.id, userId, role }).execute();
 		}
 
-		const existingProjectMember = await tx.query.projectMember.findFirst({
-			where: and(eq(s.projectMember.projectId, project.id), eq(s.projectMember.userId, userId)),
-		});
-		if (!existingProjectMember) {
-			await tx.insert(s.projectMember).values({ projectId: project.id, userId, role }).execute();
+		const project = await projectQueries.getDefaultProject();
+		if (project) {
+			const existingProjectMember = await tx.query.projectMember.findFirst({
+				where: and(eq(s.projectMember.projectId, project.id), eq(s.projectMember.userId, userId)),
+			});
+			if (!existingProjectMember) {
+				await tx.insert(s.projectMember).values({ projectId: project.id, userId, role }).execute();
+			}
 		}
 	});
 };

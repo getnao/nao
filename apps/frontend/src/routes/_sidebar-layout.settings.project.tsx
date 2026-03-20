@@ -24,7 +24,7 @@ function ProjectPage() {
 							<Outlet />
 						) : (
 							<SettingsCard>
-								<Empty>No project configured. Set NAO_DEFAULT_PROJECT_PATH environment variable.</Empty>
+								<Empty>No project configured. Add a project using the sidebar project switcher.</Empty>
 							</SettingsCard>
 						)}
 					</div>

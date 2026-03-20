@@ -5,11 +5,13 @@ import { getProviderAuth, KNOWN_MODELS } from '../agents/providers';
 import { getDatabaseObjects } from '../agents/user-rules';
 import { env } from '../env';
 import * as chatQueries from '../queries/chat.queries';
+import * as organizationQueries from '../queries/organization.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import * as savedPromptQueries from '../queries/project-saved-prompt.queries';
 import * as slackConfigQueries from '../queries/project-slack-config.queries';
 import * as teamsConfigQueries from '../queries/project-teams-config.queries';
+import { cloneOrPullGitProject } from '../services/git';
 import { posthog, PostHogEvent } from '../services/posthog';
 import { getAvailableModels as getAvailableTranscribeModels } from '../services/transcribe.service';
 import { AgentSettings } from '../types/agent-settings';
@@ -17,13 +19,89 @@ import { llmConfigSchema, LlmProvider, llmProviderSchema } from '../types/llm';
 import { isValidIsoDateString } from '../utils/date';
 import { getEnvApiKey, getEnvBaseUrls, getEnvProviders, getProjectAvailableModels } from '../utils/llm';
 import { buildCredentialPreviews } from '../utils/utils';
-import { adminProtectedProcedure, projectProtectedProcedure, publicProcedure } from './trpc';
+import { adminProtectedProcedure, projectProtectedProcedure, protectedProcedure, publicProcedure } from './trpc';
 
 const isoDateString = z.string().refine(isValidIsoDateString, {
 	message: 'Must be a valid YYYY-MM-DD date',
 });
 
 export const projectRoutes = {
+	list: protectedProcedure.query(async ({ ctx }) => {
+		const projects = await projectQueries.listUserProjects(ctx.user.id);
+		return projects.map((p) => ({
+			id: p.id,
+			name: p.name,
+			type: p.type,
+			path: p.path,
+			gitUrl: p.gitUrl,
+			gitBranch: p.gitBranch,
+			createdAt: p.createdAt,
+		}));
+	}),
+
+	create: protectedProcedure
+		.input(
+			z.discriminatedUnion('type', [
+				z.object({
+					type: z.literal('local'),
+					name: z.string().trim().min(1).max(255),
+					path: z.string().trim().min(1),
+				}),
+				z.object({
+					type: z.literal('git'),
+					name: z.string().trim().min(1).max(255),
+					gitUrl: z.string().trim().min(1).url(),
+					gitBranch: z.string().trim().optional(),
+					gitToken: z.string().trim().optional(),
+				}),
+			]),
+		)
+		.mutation(async ({ ctx, input }) => {
+			const org = await organizationQueries.getOrCreateDefaultOrganization();
+
+			let path: string | undefined;
+			if (input.type === 'git') {
+				path = await cloneOrPullGitProject({
+					gitUrl: input.gitUrl,
+					gitBranch: input.gitBranch,
+					gitToken: input.gitToken,
+				});
+			} else {
+				path = input.path;
+			}
+
+			const project = await projectQueries.createProject({
+				name: input.name,
+				type: input.type,
+				path,
+				orgId: org.id,
+				...(input.type === 'git' && {
+					gitUrl: input.gitUrl,
+					gitBranch: input.gitBranch ?? null,
+					gitToken: input.gitToken ?? null,
+				}),
+			});
+
+			await projectQueries.addProjectMember({
+				projectId: project.id,
+				userId: ctx.user.id,
+				role: 'admin',
+			});
+
+			return project;
+		}),
+
+	remove: protectedProcedure
+		.input(z.object({ projectId: z.string() }))
+		.mutation(async ({ ctx, input }) => {
+			const role = await projectQueries.getUserRoleInProject(input.projectId, ctx.user.id);
+			if (role !== 'admin') {
+				throw new TRPCError({ code: 'FORBIDDEN', message: 'Only admins can delete a project.' });
+			}
+			await projectQueries.deleteProject(input.projectId);
+			return { success: true };
+		}),
+
 	getCurrent: projectProtectedProcedure.query(({ ctx }) => {
 		if (!ctx.project) {
 			return null;

@@ -25,6 +25,7 @@ export const listUserChats = async (userId: string): Promise<ListChatResponse> =
 			id: chat.id,
 			title: chat.title,
 			isStarred: chat.isStarred,
+			projectId: chat.projectId,
 			createdAt: chat.createdAt.getTime(),
 			updatedAt: chat.updatedAt.getTime(),
 		})),

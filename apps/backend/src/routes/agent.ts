@@ -12,7 +12,7 @@ export const agentRoutes = async (app: App) => {
 	app.addHook('preHandler', authMiddleware);
 
 	app.post('/', { schema: { body: AgentRequestSchema } }, async ({ user, project, body, headers }) => {
-		const projectId = project?.id;
+		const projectId = body.projectId ?? project?.id;
 
 		const result = await handleAgentRoute({
 			userId: user.id,

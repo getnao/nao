@@ -29,6 +29,7 @@ export interface ChatListItem {
 	id: string;
 	title: string;
 	isStarred: boolean;
+	projectId: string;
 	createdAt: number;
 	updatedAt: number;
 }
@@ -129,6 +130,7 @@ export type AgentRequest = z.infer<typeof AgentRequestSchema>;
 export const AgentRequestSchema = z.object({
 	message: AgentRequestUserMessageSchema,
 	chatId: z.string().optional(),
+	projectId: z.string().optional(),
 	messageToEditId: z.string().optional(),
 	model: ModelSelectionSchema.optional(),
 	mentions: z.array(MentionSchema).optional(),

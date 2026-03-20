@@ -52,8 +52,17 @@ export const protectedProcedure = publicProcedure.use(async ({ ctx, next }) => {
 	return next({ ctx: { user: ctx.session.user } });
 });
 
-export const projectProtectedProcedure = protectedProcedure.use(async ({ ctx, next }) => {
-	const project = await projectQueries.getProjectByUserId(ctx.user.id);
+export const projectProtectedProcedure = protectedProcedure.use(async ({ ctx, next, getRawInput }) => {
+	const rawInput = (await getRawInput()) as Record<string, unknown> | undefined;
+	const inputProjectId = rawInput?.projectId as string | undefined;
+
+	let project;
+	if (inputProjectId) {
+		project = await projectQueries.getProjectByIdForUser(inputProjectId, ctx.user.id);
+	} else {
+		project = await projectQueries.getProjectByUserId(ctx.user.id);
+	}
+
 	if (!project) {
 		throw new TRPCError({ code: 'BAD_REQUEST', message: 'No project configured' });
 	}

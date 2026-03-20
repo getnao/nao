@@ -14,6 +14,7 @@ import type { MentionOption } from 'prompt-mentions';
 import type ChatSelectedModel from '@/types/ai';
 import { messageQueueStore } from '@/stores/chat-message-queue';
 import { chatActivityStore } from '@/stores/chat-activity';
+import { activeProjectStore } from '@/stores/active-project';
 import { useChatQuery, useSetChat } from '@/queries/use-chat-query';
 import { trpc } from '@/main';
 import { agentService } from '@/services/agents';
@@ -115,6 +116,7 @@ export const useAgent = (): AgentHelpers => {
 						body: {
 							...body,
 							chatId: agentId === NEW_CHAT_ID ? undefined : agentId,
+							projectId: activeProjectStore.get() ?? undefined,
 							message: {
 								text: getTextFromUserMessageOrThrow(messageToSend),
 							},

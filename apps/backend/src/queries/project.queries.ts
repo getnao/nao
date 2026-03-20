@@ -109,23 +109,40 @@ export const getDefaultProject = async (): Promise<DBProject | null> => {
 };
 
 export const getProjectByUserId = async (userId: string): Promise<DBProject | null> => {
+	const projects = await listUserProjects(userId);
+	if (projects.length === 0) {
+		return null;
+	}
+
 	const projectPath = env.NAO_DEFAULT_PROJECT_PATH;
-	if (!projectPath) {
-		return null;
+	if (projectPath) {
+		const defaultProject = projects.find((p) => p.path === projectPath);
+		if (defaultProject) {
+			return defaultProject;
+		}
 	}
 
-	const project = await getProjectByPath(projectPath);
-	if (!project) {
+	return projects[0];
+};
+
+export const getProjectByIdForUser = async (projectId: string, userId: string): Promise<DBProject | null> => {
+	const member = await getProjectMember(projectId, userId);
+	if (!member) {
 		return null;
 	}
+	return getProjectById(projectId);
+};
 
-	const userProject = await getProjectMember(project.id, userId);
+export const updateProject = async (
+	projectId: string,
+	data: { name?: string; path?: string; gitUrl?: string; gitBranch?: string; gitToken?: string },
+): Promise<DBProject> => {
+	const [updated] = await db.update(s.project).set(data).where(eq(s.project.id, projectId)).returning().execute();
+	return updated;
+};
 
-	if (!userProject) {
-		return null;
-	}
-
-	return project;
+export const deleteProject = async (projectId: string): Promise<void> => {
+	await db.delete(s.project).where(eq(s.project.id, projectId)).execute();
 };
 
 export const checkProjectHasMoreThanOneAdmin = async (projectId: string): Promise<boolean> => {

@@ -22,10 +22,7 @@ export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<H
 	const { userId, message, messageToEditId, model, mentions, projectId } = opts;
 
 	if (!projectId) {
-		throw new HandlerError(
-			'BAD_REQUEST',
-			'No project configured. Set NAO_DEFAULT_PROJECT_PATH environment variable.',
-		);
+		throw new HandlerError('BAD_REQUEST', 'No project configured. Add a project from the sidebar.');
 	}
 
 	let chatId = opts.chatId;
@@ -60,6 +57,7 @@ export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<H
 						id: chatId,
 						title: chat.title,
 						isStarred: chat.isStarred,
+						projectId: projectId!,
 						createdAt: chat.createdAt,
 						updatedAt: chat.updatedAt,
 					}

@@ -134,6 +134,8 @@ export const orgMember = sqliteTable(
 	(t) => [primaryKey({ columns: [t.orgId, t.userId] }), index('org_member_userId_idx').on(t.userId)],
 );
 
+export const PROJECT_TYPES = ['local', 'git'] as const;
+
 export const project = sqliteTable(
 	'project',
 	{
@@ -142,8 +144,13 @@ export const project = sqliteTable(
 			.primaryKey(),
 		orgId: text('org_id').references(() => organization.id, { onDelete: 'cascade' }),
 		name: text('name').notNull(),
-		type: text('type', { enum: ['local'] }).notNull(),
+		type: text('type', { enum: PROJECT_TYPES }).notNull(),
 		path: text('path'),
+
+		gitUrl: text('git_url'),
+		gitBranch: text('git_branch'),
+		gitToken: text('git_token'),
+
 		agentSettings: text('agent_settings', { mode: 'json' }).$type<AgentSettings>(),
 		enabledMcpTools: text('enabled_tools', { mode: 'json' }).$type<string[]>().notNull().default([]),
 		knownMcpServers: text('known_mcp_servers', { mode: 'json' }).$type<string[]>().notNull().default([]),
@@ -163,6 +170,10 @@ export const project = sqliteTable(
 		check(
 			'local_project_path_required',
 			sql`CASE WHEN ${t.type} = 'local' THEN ${t.path} IS NOT NULL ELSE TRUE END`,
+		),
+		check(
+			'git_project_url_required',
+			sql`CASE WHEN ${t.type} = 'git' THEN ${t.gitUrl} IS NOT NULL ELSE TRUE END`,
 		),
 		index('project_orgId_idx').on(t.orgId),
 	],
