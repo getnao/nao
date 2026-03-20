@@ -6,6 +6,7 @@ import * as accountQueries from '../queries/account.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as userQueries from '../queries/user.queries';
 import { emailService } from '../services/email';
+import { buildResetPasswordEmail } from '../utils/email-builders';
 import { regexPassword } from '../utils/utils';
 import { adminProtectedProcedure, projectProtectedProcedure } from './trpc';
 
@@ -42,12 +43,7 @@ export const accountRoutes = {
 			const user = await userQueries.get({ id: input.userId });
 
 			if (user) {
-				await emailService.sendEmail({
-					user,
-					projectName: userProject?.name,
-					type: 'resetPassword',
-					temporaryPassword: password,
-				});
+				await emailService.sendEmail(user.email, buildResetPasswordEmail(user, userProject?.name, password));
 			}
 
 			return { password };

@@ -5,7 +5,7 @@ import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as sharedChatQueries from '../queries/shared-chat.queries';
 import { type UIChat } from '../types/chat';
-import { notifySharedChatRecipients } from '../utils/email';
+import { notifySharedItemRecipients } from '../utils/email';
 import { projectProtectedProcedure, protectedProcedure } from './trpc';
 
 export const sharedChatRoutes = {
@@ -38,12 +38,13 @@ export const sharedChatRoutes = {
 				input.allowedUserIds,
 			);
 
-			notifySharedChatRecipients({
+			notifySharedItemRecipients({
 				projectId: ctx.project.id,
 				sharerId: ctx.user.id,
 				sharerName: ctx.user.name,
 				shareId: created.id,
-				chatTitle: chatInfo.title,
+				itemLabel: 'chat',
+				itemTitle: chatInfo.title,
 				visibility: input.visibility,
 				allowedUserIds: input.allowedUserIds,
 			}).catch((err) => console.error('Failed to notify shared chat recipients', err));
@@ -121,12 +122,13 @@ export const sharedChatRoutes = {
 
 			await sharedChatQueries.updateAllowedUsers(input.id, validUserIds);
 
-			notifySharedChatRecipients({
+			notifySharedItemRecipients({
 				projectId: ctx.project.id,
 				sharerId: ctx.user.id,
 				sharerName: ctx.user.name,
 				shareId: input.id,
-				chatTitle: share.title || '',
+				itemLabel: 'chat',
+				itemTitle: share.title || '',
 				visibility: share.visibility,
 				allowedUserIds: validUserIds,
 			}).catch((err) => console.error('Failed to notify shared chat recipients', err));
