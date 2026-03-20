@@ -4,6 +4,7 @@ import { z } from 'zod/v4';
 import * as projectQueries from '../queries/project.queries';
 import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
+import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../services/live-story';
 import { notifySharedStoryRecipients } from '../utils/email';
 import { extractStorySummary } from '../utils/story-summary';
 import { projectProtectedProcedure, protectedProcedure } from './trpc';
@@ -74,9 +75,40 @@ export const sharedStoryRoutes = {
 			}
 		}
 
-		const queryData = await sharedStoryQueries.collectQueryData(story.chatId, story.code);
+		const latestVersion = await storyQueries.getLatestVersion(story.chatId, story.storyId);
+		const isLive = latestVersion?.isLive ?? false;
+		const cacheSchedule = latestVersion?.cacheSchedule ?? null;
 
-		return { ...story, queryData };
+		const { queryData, regeneratedCode, cachedAt } = await getStoryQueryData(
+			story.chatId,
+			story.storyId,
+			story.code,
+			isLive,
+			cacheSchedule,
+		);
+
+		return { ...story, queryData, regeneratedCode, isLive, cacheSchedule, cachedAt };
+	}),
+
+	getLiveQueryData: protectedProcedure
+		.input(z.object({ chatId: z.string(), queryId: z.string() }))
+		.query(async ({ input }) => {
+			return executeLiveQuery(input.chatId, input.queryId);
+		}),
+
+	refreshData: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input, ctx }) => {
+		const story = await sharedStoryQueries.getSharedStory(input.id);
+		if (!story) {
+			throw new TRPCError({ code: 'NOT_FOUND', message: 'Shared story not found.' });
+		}
+
+		const member = await projectQueries.getProjectMember(story.projectId, ctx.user.id);
+		if (!member) {
+			throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this story.' });
+		}
+
+		const { queryData, regeneratedCode } = await refreshStoryData(story.chatId, story.storyId);
+		return { queryData, regeneratedCode, cachedAt: new Date() };
 	}),
 
 	findByStory: protectedProcedure

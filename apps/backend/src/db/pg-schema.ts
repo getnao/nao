@@ -409,6 +409,9 @@ export const storyVersion = pgTable(
 		code: text('code').notNull(),
 		action: text('action', { enum: STORY_ACTIONS }).notNull(),
 		source: text('source', { enum: STORY_SOURCES }).notNull(),
+		isLive: boolean('is_live').default(false).notNull(),
+		cacheSchedule: text('cache_schedule'),
+		refreshText: boolean('refresh_text').default(false).notNull(),
 		archivedAt: timestamp('archived_at'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 	},
@@ -416,6 +419,20 @@ export const storyVersion = pgTable(
 		index('story_version_chat_story_idx').on(t.chatId, t.storyId),
 		unique('story_version_chat_story_version_unique').on(t.chatId, t.storyId, t.version),
 	],
+);
+
+export const storyDataCache = pgTable(
+	'story_data_cache',
+	{
+		chatId: text('chat_id')
+			.notNull()
+			.references(() => chat.id, { onDelete: 'cascade' }),
+		storyId: text('story_id').notNull(),
+		queryData: jsonb('query_data').$type<Record<string, { data: unknown[]; columns: string[] }>>().notNull(),
+		regeneratedCode: text('regenerated_code'),
+		cachedAt: timestamp('cached_at').defaultNow().notNull(),
+	},
+	(t) => [primaryKey({ columns: [t.chatId, t.storyId] })],
 );
 
 export const memories = pgTable(

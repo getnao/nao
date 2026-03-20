@@ -434,6 +434,9 @@ export const storyVersion = sqliteTable(
 		code: text('code').notNull(),
 		action: text('action', { enum: STORY_ACTIONS }).notNull(),
 		source: text('source', { enum: STORY_SOURCES }).notNull(),
+		isLive: integer('is_live', { mode: 'boolean' }).default(false).notNull(),
+		cacheSchedule: text('cache_schedule'),
+		refreshText: integer('refresh_text', { mode: 'boolean' }).default(false).notNull(),
 		archivedAt: integer('archived_at', { mode: 'timestamp_ms' }),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
@@ -443,6 +446,24 @@ export const storyVersion = sqliteTable(
 		index('story_version_chat_story_idx').on(t.chatId, t.storyId),
 		unique('story_version_chat_story_version_unique').on(t.chatId, t.storyId, t.version),
 	],
+);
+
+export const storyDataCache = sqliteTable(
+	'story_data_cache',
+	{
+		chatId: text('chat_id')
+			.notNull()
+			.references(() => chat.id, { onDelete: 'cascade' }),
+		storyId: text('story_id').notNull(),
+		queryData: text('query_data', { mode: 'json' })
+			.$type<Record<string, { data: unknown[]; columns: string[] }>>()
+			.notNull(),
+		regeneratedCode: text('regenerated_code'),
+		cachedAt: integer('cached_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+	},
+	(t) => [primaryKey({ columns: [t.chatId, t.storyId] })],
 );
 
 export const memories = sqliteTable(

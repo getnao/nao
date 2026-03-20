@@ -2005,11 +2005,18 @@
           "notNull": true,
           "default": false
         },
-        "cache_ttl_minutes": {
-          "name": "cache_ttl_minutes",
-          "type": "integer",
+        "cache_schedule": {
+          "name": "cache_schedule",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
+        },
+        "refresh_text": {
+          "name": "refresh_text",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
         },
         "archived_at": {
           "name": "archived_at",
@@ -2100,6 +2107,12 @@
           "type": "jsonb",
           "primaryKey": false,
           "notNull": true
+        },
+        "regenerated_code": {
+          "name": "regenerated_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "cached_at": {
           "name": "cached_at",

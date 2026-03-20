@@ -2,10 +2,11 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
 import * as chatQueries from '../queries/chat.queries';
-import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
+import { naturalLanguageToCron } from '../services/cron-nlp';
+import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../services/live-story';
 import { extractStorySummary } from '../utils/story-summary';
-import { ownedResourceProcedure, protectedProcedure } from './trpc';
+import { ownedResourceProcedure, projectProtectedProcedure, protectedProcedure } from './trpc';
 
 const chatOwnerProcedure = ownedResourceProcedure(chatQueries.getChatOwnerId, 'chat');
 
@@ -33,8 +34,14 @@ export const storyRoutes = {
 			if (!version) {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
 			}
-			const queryData = await sharedStoryQueries.collectQueryData(input.chatId, version.code);
-			return { ...version, queryData };
+			const { queryData, regeneratedCode, cachedAt } = await getStoryQueryData(
+				input.chatId,
+				input.storyId,
+				version.code,
+				version.isLive,
+				version.cacheSchedule,
+			);
+			return { ...version, queryData, regeneratedCode, cachedAt };
 		}),
 
 	listVersions: chatOwnerProcedure
@@ -62,6 +69,44 @@ export const storyRoutes = {
 				...input,
 				source: 'user',
 			});
+		}),
+
+	updateLiveSettings: chatOwnerProcedure
+		.input(
+			z.object({
+				chatId: z.string(),
+				storyId: z.string(),
+				isLive: z.boolean(),
+				cacheSchedule: z.string().nullable(),
+				refreshText: z.boolean(),
+			}),
+		)
+		.mutation(async ({ input }) => {
+			await storyQueries.updateLiveSettings(input.chatId, input.storyId, {
+				isLive: input.isLive,
+				cacheSchedule: input.cacheSchedule,
+				refreshText: input.refreshText,
+			});
+		}),
+
+	refreshData: chatOwnerProcedure
+		.input(z.object({ chatId: z.string(), storyId: z.string() }))
+		.mutation(async ({ input }) => {
+			const { queryData, regeneratedCode } = await refreshStoryData(input.chatId, input.storyId);
+			return { queryData, regeneratedCode, cachedAt: new Date() };
+		}),
+
+	getLiveQueryData: chatOwnerProcedure
+		.input(z.object({ chatId: z.string(), queryId: z.string() }))
+		.query(async ({ input }) => {
+			return executeLiveQuery(input.chatId, input.queryId);
+		}),
+
+	parseCronFromText: projectProtectedProcedure
+		.input(z.object({ text: z.string().min(1) }))
+		.mutation(async ({ input, ctx }) => {
+			const cron = await naturalLanguageToCron(ctx.project.id, input.text);
+			return { cron };
 		}),
 
 	archive: chatOwnerProcedure
