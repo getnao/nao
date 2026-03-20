@@ -26,6 +26,7 @@ export interface AgentHelpers {
 	setMessages: UseChatHelpers<UIMessage>['setMessages'];
 	queueOrSendMessage: (args: SendMessageArgs) => Promise<void>;
 	editMessage: (args: { messageId: string; text: string }) => Promise<void | UIMessage>;
+	submitQueuedMessageNow: (messageId: string) => Promise<void>;
 	status: UseChatHelpers<UIMessage>['status'];
 	isRunning: boolean;
 	isLoadingMessages: boolean;
@@ -46,6 +47,7 @@ const selectedModelStorage = createLocalStorage<ChatSelectedModel>('nao-selected
 const selectedModelRef: { current: ChatSelectedModel | null } = { current: null };
 const mentionsRef: { current: MentionOption[] } = { current: [] };
 const chatIdRef: { current: string | undefined } = { current: undefined };
+const forceProcessQueueOnAbortRef: { current: boolean } = { current: false };
 
 export const useAgent = (): AgentHelpers => {
 	const navigate = useNavigate();
@@ -127,7 +129,9 @@ export const useAgent = (): AgentHelpers => {
 			}),
 			onData: (dataPart) => handleAgentDataPart(dataPart, newAgent),
 			onFinish: ({ isAbort, isError, isDisconnect }) => {
-				const canSendNextMessage = !isAbort && !isError && !isDisconnect;
+				const forceQueue = forceProcessQueueOnAbortRef.current;
+				forceProcessQueueOnAbortRef.current = false;
+				const canSendNextMessage = (!isAbort || forceQueue) && !isError && !isDisconnect;
 				const next = canSendNextMessage ? messageQueueStore.dequeue(agentId) : undefined;
 				if (next) {
 					mentionsRef.current = next.mentions;
@@ -203,6 +207,15 @@ export const useAgent = (): AgentHelpers => {
 		[isRunning, handleSendMessage],
 	);
 
+	const submitQueuedMessageNow = useCallback(
+		async (messageId: string) => {
+			messageQueueStore.promoteToFront(chatIdRef.current, messageId);
+			forceProcessQueueOnAbortRef.current = true;
+			await stopAgent();
+		},
+		[stopAgent],
+	);
+
 	const editMessage = useCallback(
 		async ({ messageId, text }: { messageId: string; text: string }) => {
 			const trimmedText = text.trim();
@@ -226,6 +239,7 @@ export const useAgent = (): AgentHelpers => {
 		setMessages,
 		queueOrSendMessage,
 		editMessage,
+		submitQueuedMessageNow,
 		status,
 		isRunning,
 		isLoadingMessages: chat.isLoading,

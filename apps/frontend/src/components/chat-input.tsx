@@ -76,7 +76,7 @@ function ChatInputBase({
 	allowQueueing,
 }: ChatInputBaseProps) {
 	const [inputText, setInputText] = useState('');
-	const { isRunning, stopAgent, isLoadingMessages, setMentions } = useAgentContext();
+	const { isRunning, stopAgent, isLoadingMessages, setMentions, submitQueuedMessageNow } = useAgentContext();
 	const chatId = useChatId();
 	const effectivePlaceholder = isRunning && allowQueueing ? 'Add a follow-up...' : placeholder;
 
@@ -162,7 +162,7 @@ function ChatInputBase({
 
 	return (
 		<div className={cn('px-3 pb-3 pt-0 md:px-4 md:pb-4 max-w-3xl w-full mx-auto', className)}>
-			<ChatInputMessageQueue onEditMessage={handleEditQueuedMessage} />
+			<ChatInputMessageQueue onEditMessage={handleEditQueuedMessage} onSubmitNow={submitQueuedMessageNow} />
 
 			<form onSubmit={handleSubmitMessage} className='mx-auto relative'>
 				<InputGroup htmlFor='chat-input'>

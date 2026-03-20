@@ -8,9 +8,10 @@ import { messageQueueStore } from '@/stores/chat-message-queue';
 
 interface ChatInputMessageQueueProps {
 	onEditMessage?: (text: string) => void;
+	onSubmitNow?: (messageId: string) => Promise<void>;
 }
 
-export const ChatInputMessageQueue = ({ onEditMessage }: ChatInputMessageQueueProps) => {
+export const ChatInputMessageQueue = ({ onEditMessage, onSubmitNow }: ChatInputMessageQueueProps) => {
 	const chatId = useChatId();
 	const { queuedMessages } = useMessageQueueStore(chatId);
 	const [isExpanded, setIsExpanded] = useState(true);
@@ -41,6 +42,7 @@ export const ChatInputMessageQueue = ({ onEditMessage }: ChatInputMessageQueuePr
 							isFirst={idx === 0}
 							showPromote={queuedMessages.length > 1}
 							onEdit={onEditMessage}
+							onSubmitNow={onSubmitNow}
 						/>
 					))}
 				</div>
@@ -56,6 +58,7 @@ function QueuedMessageRow({
 	isFirst,
 	showPromote,
 	onEdit,
+	onSubmitNow,
 }: {
 	chatId: string | undefined;
 	messageId: string;
@@ -63,16 +66,21 @@ function QueuedMessageRow({
 	isFirst: boolean;
 	showPromote: boolean;
 	onEdit?: (text: string) => void;
+	onSubmitNow?: (messageId: string) => Promise<void>;
 }) {
 	return (
 		<div className={cn('flex w-full items-center gap-2 text-sm group h-8', !isFirst && 'text-muted-foreground/75')}>
 			<span className='truncate flex-1 min-w-0'>{text}</span>
 
 			<div className='flex items-center shrink-0'>
-				<span className='group-hover:hidden flex items-center gap-1 text-xs text-muted-foreground/50'>
+				<button
+					type='button'
+					onClick={() => onSubmitNow?.(messageId)}
+					className='group-hover:hidden flex items-center gap-1 text-xs text-muted-foreground/50 hover:text-muted-foreground transition-colors cursor-pointer'
+				>
 					<CornerDownLeft className='size-3' />
 					<span>to submit</span>
-				</span>
+				</button>
 
 				<div className='hidden group-hover:flex items-center'>
 					<Button
