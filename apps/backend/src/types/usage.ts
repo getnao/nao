@@ -17,6 +17,7 @@ export interface UsageRecord {
 	webMessageCount: number;
 	slackMessageCount: number;
 	teamsMessageCount: number;
+	telegramMessageCount: number;
 	inputNoCacheTokens: number;
 	inputCacheReadTokens: number;
 	inputCacheWriteTokens: number;

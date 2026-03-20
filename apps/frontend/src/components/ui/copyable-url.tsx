@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Check, Copy } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
-export function CopyableUrl({ label, url }: { label: string; url: string }) {
+export function CopyableUrl({ label, url }: { label?: string; url: string }) {
 	const [copied, setCopied] = useState(false);
 
 	const handleCopy = async () => {

@@ -8,6 +8,9 @@ export const authClient = createAuthClient({
 				requiresPasswordReset: {
 					type: 'boolean',
 				},
+				messagingProviderCode: {
+					type: 'string',
+				},
 			},
 		}),
 	],

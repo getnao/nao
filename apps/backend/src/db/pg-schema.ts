@@ -19,7 +19,7 @@ import { StopReason, ToolState, UIMessagePartType } from '../types/chat';
 import { LLM_INFERENCE_TYPES, LlmProvider } from '../types/llm';
 import { LOG_LEVELS, LOG_SOURCES } from '../types/log';
 import { MEMORY_CATEGORIES } from '../types/memory';
-import { SlackSettings, TeamsSettings } from '../types/messaging-provider';
+import { SlackSettings, TeamsSettings, TelegramSettings } from '../types/messaging-provider';
 import { ORG_ROLES } from '../types/organization';
 
 export const user = pgTable('user', {
@@ -30,6 +30,7 @@ export const user = pgTable('user', {
 	image: text('image'),
 	requiresPasswordReset: boolean('requires_password_reset').default(false).notNull(),
 	memoryEnabled: boolean('memory_enabled').default(true).notNull(),
+	messagingProviderCode: text('messaging_provider_code').unique(),
 	createdAt: timestamp('created_at').defaultNow().notNull(),
 	updatedAt: timestamp('updated_at')
 		.defaultNow()
@@ -144,6 +145,7 @@ export const project = pgTable(
 
 		slackSettings: jsonb('slack_settings').$type<SlackSettings>(),
 		teamsSettings: jsonb('teams_settings').$type<TeamsSettings>(),
+		telegramSettings: jsonb('telegram_settings').$type<TelegramSettings>(),
 
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
@@ -176,6 +178,7 @@ export const chat = pgTable(
 		isStarred: boolean('is_starred').default(false).notNull(),
 		slackThreadId: text('slack_thread_id'),
 		teamsThreadId: text('teams_thread_id'),
+		telegramThreadId: text('telegram_thread_id'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()
@@ -187,6 +190,7 @@ export const chat = pgTable(
 		index('chat_projectId_idx').on(table.projectId),
 		index('chat_slack_thread_idx').on(table.slackThreadId),
 		index('chat_teams_thread_idx').on(table.teamsThreadId),
+		index('chat_telegram_thread_idx').on(table.telegramThreadId),
 	],
 );
 
@@ -205,7 +209,7 @@ export const chatMessage = pgTable(
 		llmProvider: text('llm_provider').$type<LlmProvider>(),
 		llmModelId: text('llm_model_id'),
 		supersededAt: timestamp('superseded_at'),
-		source: text('source', { enum: ['slack', 'teams', 'web'] }),
+		source: text('source', { enum: ['slack', 'teams', 'telegram', 'web'] }),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 
 		// Token usage columns
