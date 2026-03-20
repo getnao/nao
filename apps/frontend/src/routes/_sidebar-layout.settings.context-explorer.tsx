@@ -29,7 +29,7 @@ function ContextExplorerPage() {
 			<ResizablePanelGroup
 				orientation='horizontal'
 				className='flex-1 min-h-0'
-				defaultLayout={{ tree: 310, viewer: 900 }}
+				defaultLayout={{ tree: 1, viewer: 5 }}
 			>
 				<ResizablePanel id='tree' minSize={180}>
 					<div className='h-full overflow-hidden bg-card'>
