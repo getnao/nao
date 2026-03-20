@@ -216,8 +216,8 @@ export const upsertMessage = async (
 			.execute();
 
 		await t.delete(s.messagePart).where(eq(s.messagePart.messageId, messageId)).execute();
-		if (message.parts.length) {
-			const dbParts = mapUIPartsToDBParts(message.parts, messageId);
+		const dbParts = mapUIPartsToDBParts(message.parts, messageId);
+		if (dbParts.length) {
 			await t.insert(s.messagePart).values(dbParts).execute();
 		}
 
