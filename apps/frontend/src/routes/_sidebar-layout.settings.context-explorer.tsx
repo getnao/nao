@@ -6,6 +6,7 @@ import { RefreshCw } from 'lucide-react';
 import { FileTree } from '@/components/settings/file-tree';
 import { FileViewer } from '@/components/settings/file-viewer';
 import { Button } from '@/components/ui/button';
+import { ResizablePanel, ResizablePanelGroup, ResizableSeparator } from '@/components/ui/resizable';
 import { Spinner } from '@/components/ui/spinner';
 import { requireAdmin } from '@/lib/require-admin';
 import { trpc } from '@/main';
@@ -37,37 +38,43 @@ function ContextExplorerPage() {
 				</Button>
 			</div>
 
-			<div className='flex flex-1 min-h-0'>
-				<div className='w-72 shrink-0 border-r border-border overflow-auto bg-card'>
-					{fileTree.isLoading ? (
-						<div className='flex items-center justify-center h-32'>
-							<Spinner />
-						</div>
-					) : fileTree.isError ? (
-						<div className='flex flex-col items-center justify-center h-32 text-muted-foreground text-sm gap-2'>
-							<p>Failed to load files</p>
-							<Button variant='outline' size='sm' onClick={() => fileTree.refetch()}>
-								Retry
-							</Button>
-						</div>
-					) : (
-						<FileTree
-							entries={fileTree.data ?? []}
-							selectedPath={selectedPath}
-							onSelectFile={setSelectedPath}
-						/>
-					)}
-				</div>
+			<ResizablePanelGroup orientation='horizontal' className='flex-1 min-h-0'>
+				<ResizablePanel id='tree' defaultSize={25} minSize={15} maxSize={50}>
+					<div className='h-full overflow-hidden bg-card border-r border-border'>
+						{fileTree.isLoading ? (
+							<div className='flex items-center justify-center h-32'>
+								<Spinner />
+							</div>
+						) : fileTree.isError ? (
+							<div className='flex flex-col items-center justify-center h-32 text-muted-foreground text-sm gap-2'>
+								<p>Failed to load files</p>
+								<Button variant='outline' size='sm' onClick={() => fileTree.refetch()}>
+									Retry
+								</Button>
+							</div>
+						) : (
+							<FileTree
+								entries={fileTree.data ?? []}
+								selectedPath={selectedPath}
+								onSelectFile={setSelectedPath}
+							/>
+						)}
+					</div>
+				</ResizablePanel>
 
-				<div className='flex-1 min-w-0 bg-background'>
-					<FileViewer
-						filePath={selectedPath}
-						content={fileContent.data?.content}
-						isLoading={fileContent.isLoading && fileContent.fetchStatus !== 'idle'}
-						isError={fileContent.isError}
-					/>
-				</div>
-			</div>
+				<ResizableSeparator />
+
+				<ResizablePanel id='viewer' defaultSize={75} minSize={40}>
+					<div className='h-full bg-background'>
+						<FileViewer
+							filePath={selectedPath}
+							content={fileContent.data?.content}
+							isLoading={fileContent.isLoading && fileContent.fetchStatus !== 'idle'}
+							isError={fileContent.isError}
+						/>
+					</div>
+				</ResizablePanel>
+			</ResizablePanelGroup>
 		</div>
 	);
 }

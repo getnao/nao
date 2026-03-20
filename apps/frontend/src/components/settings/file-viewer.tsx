@@ -1,6 +1,7 @@
 import { Editor } from '@monaco-editor/react';
 import { File } from 'lucide-react';
 import { Spinner } from '@/components/ui/spinner';
+import { useEditorTheme } from '@/hooks/use-editor-theme';
 
 interface FileViewerProps {
 	filePath: string | null;
@@ -46,6 +47,8 @@ function getFileName(filePath: string): string {
 }
 
 export function FileViewer({ filePath, content, isLoading, isError }: FileViewerProps) {
+	const editorTheme = useEditorTheme();
+
 	if (!filePath) {
 		return (
 			<div className='flex flex-col items-center justify-center h-full text-muted-foreground gap-2'>
@@ -85,7 +88,7 @@ export function FileViewer({ filePath, content, isLoading, isError }: FileViewer
 				<Editor
 					value={content ?? ''}
 					language={language}
-					theme='vs-dark'
+					theme={editorTheme}
 					options={{
 						readOnly: true,
 						minimap: { enabled: false },
