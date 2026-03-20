@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from 'react';
-import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { Activity, ArchiveRestoreIcon, Loader2, MessageSquare, RefreshCw } from 'lucide-react';
 import type { displayChart } from '@nao/shared/tools';
@@ -113,6 +113,8 @@ function StoryPreviewPage() {
 				queryData={
 					story.queryData as Record<string, { data: Record<string, unknown>[]; columns: string[] }> | null
 				}
+				chatId={chatId}
+				cacheSchedule={story.cacheSchedule}
 			/>
 		</div>
 	);
@@ -121,18 +123,46 @@ function StoryPreviewPage() {
 function PreviewContent({
 	code,
 	queryData,
+	chatId,
+	cacheSchedule,
 }: {
 	code: string;
 	queryData: Record<string, { data: Record<string, unknown>[]; columns: string[] }> | null;
+	chatId: string;
+	cacheSchedule?: string | null;
 }) {
 	const segments = useMemo(() => splitCodeIntoSegments(code), [code]);
+
+	if (cacheSchedule === 'no-cache') {
+		return <NoCachePreviewContent segments={segments} chatId={chatId} />;
+	}
+
+	const renderChart = (chart: ParsedChartBlock) => <PreviewChartEmbed chart={chart} queryData={queryData} />;
+	const renderTable = (table: ParsedTableBlock) => <PreviewTableEmbed table={table} queryData={queryData} />;
+
+	return (
+		<div className='flex-1 overflow-auto'>
+			<div className='max-w-5xl mx-auto p-4 md:p-8 flex flex-col gap-4'>
+				<SegmentList segments={segments} renderChart={renderChart} renderTable={renderTable} />
+			</div>
+		</div>
+	);
+}
+
+function NoCachePreviewContent({
+	segments,
+	chatId,
+}: {
+	segments: ReturnType<typeof splitCodeIntoSegments>;
+	chatId: string;
+}) {
 	const renderChart = useCallback(
-		(chart: ParsedChartBlock) => <PreviewChartEmbed chart={chart} queryData={queryData} />,
-		[queryData],
+		(chart: ParsedChartBlock) => <NoCachePreviewChartEmbed chart={chart} chatId={chatId} />,
+		[chatId],
 	);
 	const renderTable = useCallback(
-		(table: ParsedTableBlock) => <PreviewTableEmbed table={table} queryData={queryData} />,
-		[queryData],
+		(table: ParsedTableBlock) => <NoCachePreviewTableEmbed table={table} chatId={chatId} />,
+		[chatId],
 	);
 
 	return (
@@ -141,6 +171,77 @@ function PreviewContent({
 				<SegmentList segments={segments} renderChart={renderChart} renderTable={renderTable} />
 			</div>
 		</div>
+	);
+}
+
+function NoCachePreviewChartEmbed({ chart, chatId }: { chart: ParsedChartBlock; chatId: string }) {
+	const { data, isLoading } = useQuery({
+		...trpc.story.getLiveQueryData.queryOptions({ chatId, queryId: chart.queryId }),
+		staleTime: 0,
+	});
+
+	if (isLoading) {
+		return (
+			<div className='my-2 rounded-lg border border-dashed p-4 flex items-center justify-center text-sm text-muted-foreground'>
+				<Loader2 className='size-4 animate-spin mr-2' />
+				Loading live data...
+			</div>
+		);
+	}
+
+	const rows = data?.data as Record<string, unknown>[] | undefined;
+	if (!rows || rows.length === 0) {
+		return (
+			<div className='my-2 rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground'>
+				Chart data unavailable
+			</div>
+		);
+	}
+
+	return (
+		<div className={`my-2 ${chart.chartType !== 'kpi_card' ? 'aspect-3/2' : ''}`}>
+			<ChartDisplay
+				data={rows}
+				chartType={chart.chartType as displayChart.ChartType}
+				xAxisKey={chart.xAxisKey}
+				xAxisType={chart.xAxisType === 'number' ? 'number' : 'category'}
+				series={chart.series}
+				title={chart.title}
+			/>
+		</div>
+	);
+}
+
+function NoCachePreviewTableEmbed({ table, chatId }: { table: ParsedTableBlock; chatId: string }) {
+	const { data, isLoading } = useQuery({
+		...trpc.story.getLiveQueryData.queryOptions({ chatId, queryId: table.queryId }),
+		staleTime: 0,
+	});
+
+	if (isLoading) {
+		return (
+			<div className='my-2 rounded-lg border border-dashed p-4 flex items-center justify-center text-sm text-muted-foreground'>
+				<Loader2 className='size-4 animate-spin mr-2' />
+				Loading live data...
+			</div>
+		);
+	}
+
+	if (!data?.data) {
+		return (
+			<div className='my-2 rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground'>
+				Table data unavailable
+			</div>
+		);
+	}
+
+	return (
+		<TableDisplay
+			data={data.data as Record<string, unknown>[]}
+			columns={data.columns}
+			title={table.title}
+			tableContainerClassName='max-h-[28rem]'
+		/>
 	);
 }
 

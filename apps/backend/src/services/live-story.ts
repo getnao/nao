@@ -6,6 +6,30 @@ import * as projectQueries from '../queries/project.queries';
 import * as storyQueries from '../queries/story.queries';
 import { regenerateStoryText } from './story-text-regeneration';
 
+export const NO_CACHE_SCHEDULE = 'no-cache';
+
+export async function executeLiveQuery(
+	chatId: string,
+	queryId: string,
+): Promise<{ data: unknown[]; columns: string[] }> {
+	const query = await storyQueries.findSqlQueryById(chatId, queryId);
+	if (!query) {
+		throw new Error(`Query ${queryId} not found in chat ${chatId}`);
+	}
+
+	const projectId = await chatQueries.getChatProjectId(chatId);
+	if (!projectId) {
+		throw new Error('Chat project not found');
+	}
+
+	const project = await projectQueries.retrieveProjectById(projectId);
+	if (!project.path) {
+		throw new Error('Project path not configured');
+	}
+
+	return executeRawSql(query.sqlQuery, project.path, query.databaseId);
+}
+
 export interface RefreshResult {
 	queryData: Record<string, { data: unknown[]; columns: string[] }>;
 	regeneratedCode: string | null;

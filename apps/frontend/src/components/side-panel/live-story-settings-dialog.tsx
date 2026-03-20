@@ -25,8 +25,11 @@ interface LiveStorySettingsDialogProps {
 	onSaveSettings: (settings: { isLive: boolean; cacheSchedule: string | null; refreshText: boolean }) => void;
 }
 
+const NO_CACHE_SCHEDULE = 'no-cache';
+
 const SCHEDULE_PRESETS = [
 	{ value: 'manual', label: 'Manual refresh only', cron: null },
+	{ value: NO_CACHE_SCHEDULE, label: 'No cache (always fresh)', cron: NO_CACHE_SCHEDULE },
 	{ value: '*/5 * * * *', label: 'Every 5 minutes', cron: '*/5 * * * *' },
 	{ value: '0 * * * *', label: 'Every hour', cron: '0 * * * *' },
 	{ value: '0 0 * * *', label: 'Every 24 hours', cron: '0 0 * * *' },

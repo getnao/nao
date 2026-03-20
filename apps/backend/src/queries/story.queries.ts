@@ -232,6 +232,21 @@ export async function collectSqlQueries(
 		return {};
 	}
 
+	return findSqlQueriesByIds(chatId, queryIds);
+}
+
+export async function findSqlQueryById(
+	chatId: string,
+	queryId: string,
+): Promise<{ sqlQuery: string; databaseId?: string } | null> {
+	const result = await findSqlQueriesByIds(chatId, new Set([queryId]));
+	return result[queryId] ?? null;
+}
+
+async function findSqlQueriesByIds(
+	chatId: string,
+	queryIds: Set<string>,
+): Promise<Record<string, { sqlQuery: string; databaseId?: string }>> {
 	const parts = await db
 		.select({ toolInput: s.messagePart.toolInput, toolOutput: s.messagePart.toolOutput })
 		.from(s.messagePart)

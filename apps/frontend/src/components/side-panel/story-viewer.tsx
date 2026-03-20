@@ -168,7 +168,13 @@ export function StoryViewer({ chatId, storyId }: StoryViewerProps) {
 
 			<div ref={scrollContainerRef} className='flex-1 min-h-0 overflow-auto'>
 				{viewMode === 'preview' ? (
-					<StoryPreview code={storyCode} isLive={isLive} chatId={chatId} storyId={resolvedStoryId} />
+					<StoryPreview
+						code={storyCode}
+						isLive={isLive}
+						cacheSchedule={cacheSchedule}
+						chatId={chatId}
+						storyId={resolvedStoryId}
+					/>
 				) : viewMode === 'edit' ? (
 					<StoryEditor code={storyCode} editorRef={tiptapEditorRef} />
 				) : (
@@ -465,19 +471,27 @@ const StoryHeader = memo(function StoryHeader({
 	);
 });
 
+const NO_CACHE_SCHEDULE = 'no-cache';
+
 type QueryDataMap = Record<string, { data: Record<string, unknown>[]; columns: string[] }>;
 
 const StoryPreview = memo(function StoryPreview({
 	code,
 	isLive,
+	cacheSchedule,
 	chatId,
 	storyId,
 }: {
 	code: string;
 	isLive: boolean;
+	cacheSchedule: string | null;
 	chatId: string;
 	storyId: string;
 }) {
+	if (isLive && cacheSchedule === NO_CACHE_SCHEDULE) {
+		return <NoCacheStoryPreview code={code} chatId={chatId} />;
+	}
+
 	if (isLive) {
 		return <LiveStoryPreview code={code} chatId={chatId} storyId={storyId} />;
 	}
@@ -522,6 +536,103 @@ function LiveStoryPreview({ code, chatId, storyId }: { code: string; chatId: str
 		<div className='p-6 flex flex-col gap-4'>
 			<SegmentList segments={segments} renderChart={renderChart} renderTable={renderTable} />
 		</div>
+	);
+}
+
+function NoCacheStoryPreview({ code, chatId }: { code: string; chatId: string }) {
+	const segments = useMemo(() => splitCodeIntoSegments(code), [code]);
+
+	const renderChart = useCallback(
+		(chart: ParsedChartBlock) => <NoCacheChartEmbed chart={chart} chatId={chatId} />,
+		[chatId],
+	);
+	const renderTable = useCallback(
+		(table: ParsedTableBlock) => <NoCacheTableEmbed table={table} chatId={chatId} />,
+		[chatId],
+	);
+
+	return (
+		<div className='p-6 flex flex-col gap-4'>
+			<SegmentList segments={segments} renderChart={renderChart} renderTable={renderTable} />
+		</div>
+	);
+}
+
+function NoCacheChartEmbed({ chart, chatId }: { chart: ParsedChartBlock; chatId: string }) {
+	const { data, isLoading } = useQuery({
+		...trpc.story.getLiveQueryData.queryOptions({ chatId, queryId: chart.queryId }),
+		staleTime: 0,
+	});
+
+	if (isLoading) {
+		return (
+			<div className='my-2 rounded-lg border border-dashed p-4 flex items-center justify-center text-sm text-muted-foreground'>
+				<Loader2 className='size-4 animate-spin mr-2' />
+				Loading live data...
+			</div>
+		);
+	}
+
+	if (!data?.data || data.data.length === 0) {
+		return (
+			<div className='my-2 rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground'>
+				Chart data unavailable
+			</div>
+		);
+	}
+
+	if (chart.series.length === 0) {
+		return (
+			<div className='my-2 rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground'>
+				No series configured for chart
+			</div>
+		);
+	}
+
+	return (
+		<div className={`my-2 ${chart.chartType !== 'kpi_card' ? 'aspect-3/2' : ''}`}>
+			<ChartDisplay
+				data={data.data as Record<string, unknown>[]}
+				chartType={chart.chartType as displayChart.ChartType}
+				xAxisKey={chart.xAxisKey}
+				xAxisType={chart.xAxisType === 'number' ? 'number' : 'category'}
+				series={chart.series}
+				title={chart.title}
+			/>
+		</div>
+	);
+}
+
+function NoCacheTableEmbed({ table, chatId }: { table: ParsedTableBlock; chatId: string }) {
+	const { data, isLoading } = useQuery({
+		...trpc.story.getLiveQueryData.queryOptions({ chatId, queryId: table.queryId }),
+		staleTime: 0,
+	});
+
+	if (isLoading) {
+		return (
+			<div className='my-2 rounded-lg border border-dashed p-4 flex items-center justify-center text-sm text-muted-foreground'>
+				<Loader2 className='size-4 animate-spin mr-2' />
+				Loading live data...
+			</div>
+		);
+	}
+
+	if (!data?.data) {
+		return (
+			<div className='my-2 rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground'>
+				Table data unavailable
+			</div>
+		);
+	}
+
+	return (
+		<TableDisplay
+			data={data.data as Record<string, unknown>[]}
+			columns={data.columns}
+			title={table.title}
+			tableContainerClassName='max-h-[28rem]'
+		/>
 	);
 }
 

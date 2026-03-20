@@ -4,7 +4,7 @@ import { z } from 'zod/v4';
 import * as projectQueries from '../queries/project.queries';
 import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
-import { getStoryQueryData, refreshStoryData } from '../services/live-story';
+import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../services/live-story';
 import { notifySharedStoryRecipients } from '../utils/email';
 import { extractStorySummary } from '../utils/story-summary';
 import { projectProtectedProcedure, protectedProcedure } from './trpc';
@@ -89,6 +89,12 @@ export const sharedStoryRoutes = {
 
 		return { ...story, queryData, regeneratedCode, isLive, cacheSchedule, cachedAt };
 	}),
+
+	getLiveQueryData: protectedProcedure
+		.input(z.object({ chatId: z.string(), queryId: z.string() }))
+		.query(async ({ input }) => {
+			return executeLiveQuery(input.chatId, input.queryId);
+		}),
 
 	refreshData: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input, ctx }) => {
 		const story = await sharedStoryQueries.getSharedStory(input.id);

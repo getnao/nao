@@ -4,7 +4,7 @@ import { z } from 'zod/v4';
 import * as chatQueries from '../queries/chat.queries';
 import * as storyQueries from '../queries/story.queries';
 import { naturalLanguageToCron } from '../services/cron-nlp';
-import { getStoryQueryData, refreshStoryData } from '../services/live-story';
+import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../services/live-story';
 import { extractStorySummary } from '../utils/story-summary';
 import { ownedResourceProcedure, projectProtectedProcedure, protectedProcedure } from './trpc';
 
@@ -94,6 +94,12 @@ export const storyRoutes = {
 		.mutation(async ({ input }) => {
 			const { queryData, regeneratedCode } = await refreshStoryData(input.chatId, input.storyId);
 			return { queryData, regeneratedCode, cachedAt: new Date() };
+		}),
+
+	getLiveQueryData: chatOwnerProcedure
+		.input(z.object({ chatId: z.string(), queryId: z.string() }))
+		.query(async ({ input }) => {
+			return executeLiveQuery(input.chatId, input.queryId);
 		}),
 
 	parseCronFromText: projectProtectedProcedure
