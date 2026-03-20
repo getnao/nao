@@ -190,17 +190,18 @@ function filterTree(entries: FileTreeEntry[], query: string): FileTreeEntry[] {
 	const result: FileTreeEntry[] = [];
 
 	for (const entry of entries) {
-		const nameMatch = fuzzyMatch(entry.name.toLowerCase(), query);
+		const pathMatch = fuzzyMatch(entry.path.toLowerCase(), query);
 
 		if (entry.type === 'directory' && entry.children) {
-			const filteredChildren = filterTree(entry.children, query);
-			if (nameMatch || filteredChildren.length > 0) {
-				result.push({
-					...entry,
-					children: nameMatch ? entry.children : filteredChildren,
-				});
+			if (pathMatch) {
+				result.push(entry);
+			} else {
+				const filteredChildren = filterTree(entry.children, query);
+				if (filteredChildren.length > 0) {
+					result.push({ ...entry, children: filteredChildren });
+				}
 			}
-		} else if (nameMatch) {
+		} else if (pathMatch) {
 			result.push(entry);
 		}
 	}
