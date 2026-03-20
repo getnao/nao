@@ -1,17 +1,17 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, Globe, Loader2, Users, Link as LinkIcon, Unlink } from 'lucide-react';
+import { Check, Link as LinkIcon, Loader2 } from 'lucide-react';
 import type { Visibility } from '@/components/share-dialog';
-import { hasAccessChanges, MemberPicker, VisibilityOption } from '@/components/share-dialog';
-import { Button } from '@/components/ui/button';
 import {
-	Dialog,
-	DialogContent,
-	DialogDescription,
-	DialogFooter,
-	DialogHeader,
-	DialogTitle,
-} from '@/components/ui/dialog';
+	hasAccessChanges,
+	ManageShareFooter,
+	MemberPicker,
+	ShareLoadingDialog,
+	VisibilityPicker,
+	VisibilitySummary,
+} from '@/components/share-dialog';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useSession } from '@/lib/auth-client';
 import { trpc } from '@/main';
 import { useMemberPicker, useCopyWithFeedback } from '@/hooks/use-share-dialog';
@@ -29,19 +29,7 @@ export function ShareStoryDialog({ open, onOpenChange, chatId, storyId }: ShareS
 	const isShared = !!shareData?.shareId;
 
 	if (shareQuery.isLoading && !shareData) {
-		return (
-			<Dialog open={open} onOpenChange={onOpenChange}>
-				<DialogContent className='sm:max-w-md'>
-					<DialogHeader>
-						<DialogTitle>Share Story</DialogTitle>
-						<DialogDescription>Loading sharing settings...</DialogDescription>
-					</DialogHeader>
-					<div className='flex items-center justify-center py-6'>
-						<Loader2 className='size-4 animate-spin text-muted-foreground' />
-					</div>
-				</DialogContent>
-			</Dialog>
-		);
+		return <ShareLoadingDialog open={open} onOpenChange={onOpenChange} title='Share Story' />;
 	}
 
 	if (!isShared) {
@@ -61,12 +49,20 @@ export function ShareStoryDialog({ open, onOpenChange, chatId, storyId }: ShareS
 	);
 }
 
+function useInvalidateShareQueries(chatId: string, storyId: string) {
+	const queryClient = useQueryClient();
+	return useCallback(() => {
+		queryClient.invalidateQueries({ queryKey: trpc.storyShare.findByStory.queryKey({ chatId, storyId }) });
+		queryClient.invalidateQueries({ queryKey: trpc.storyShare.list.queryKey() });
+	}, [queryClient, chatId, storyId]);
+}
+
 function CreateShareDialog({ open, onOpenChange, chatId, storyId }: ShareStoryDialogProps) {
 	const { data: session } = useSession();
-	const queryClient = useQueryClient();
 	const [visibility, setVisibility] = useState<Visibility>('project');
 	const [isCopied, setIsCopied] = useState(false);
 	const timeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+	const invalidateShareQueries = useInvalidateShareQueries(chatId, storyId);
 
 	useEffect(() => () => clearTimeout(timeoutRef.current), []);
 
@@ -85,8 +81,7 @@ function CreateShareDialog({ open, onOpenChange, chatId, storyId }: ShareStoryDi
 	const shareMutation = useMutation(
 		trpc.storyShare.create.mutationOptions({
 			onSuccess: (data) => {
-				queryClient.invalidateQueries({ queryKey: trpc.storyShare.findByStory.queryKey({ chatId, storyId }) });
-				queryClient.invalidateQueries({ queryKey: trpc.storyShare.list.queryKey() });
+				invalidateShareQueries();
 				const url = `${window.location.origin}/stories/shared/${data.id}`;
 				navigator.clipboard.writeText(url);
 				setIsCopied(true);
@@ -121,23 +116,7 @@ function CreateShareDialog({ open, onOpenChange, chatId, storyId }: ShareStoryDi
 				</DialogHeader>
 
 				<div className='flex flex-col gap-4'>
-					<div className='flex gap-2'>
-						<VisibilityOption
-							active={visibility === 'project'}
-							icon={<Globe className='size-4' />}
-							label='Entire project'
-							description='All project members'
-							onClick={() => setVisibility('project')}
-						/>
-						<VisibilityOption
-							active={visibility === 'specific'}
-							icon={<Users className='size-4' />}
-							label='Specific people'
-							description='Choose who can view'
-							onClick={() => setVisibility('specific')}
-						/>
-					</div>
-
+					<VisibilityPicker visibility={visibility} onChange={setVisibility} />
 					{visibility === 'specific' && (
 						<MemberPicker
 							members={filteredMembers}
@@ -150,7 +129,7 @@ function CreateShareDialog({ open, onOpenChange, chatId, storyId }: ShareStoryDi
 					)}
 				</div>
 
-				<DialogFooter>
+				<div className='flex justify-end gap-2'>
 					<Button variant='outline' onClick={() => onOpenChange(false)}>
 						Cancel
 					</Button>
@@ -164,7 +143,7 @@ function CreateShareDialog({ open, onOpenChange, chatId, storyId }: ShareStoryDi
 						)}
 						<span>{isCopied ? 'Link copied!' : 'Share & copy link'}</span>
 					</Button>
-				</DialogFooter>
+				</div>
 			</DialogContent>
 		</Dialog>
 	);
@@ -188,8 +167,8 @@ function ManageShareDialog({
 	allowedUserIds: string[];
 }) {
 	const { data: session } = useSession();
-	const queryClient = useQueryClient();
 	const { isCopied, copy: copyLink } = useCopyWithFeedback();
+	const invalidateShareQueries = useInvalidateShareQueries(chatId, storyId);
 
 	const currentUserId = session?.user?.id;
 	const { selectedUserIds, search, setSearch, filteredMembers, toggleUser, membersQuery, reset } = useMemberPicker(
@@ -207,11 +186,6 @@ function ManageShareDialog({
 		() => hasAccessChanges(visibility, allowedUserIds, selectedUserIds),
 		[visibility, allowedUserIds, selectedUserIds],
 	);
-
-	const invalidateShareQueries = useCallback(() => {
-		queryClient.invalidateQueries({ queryKey: trpc.storyShare.findByStory.queryKey({ chatId, storyId }) });
-		queryClient.invalidateQueries({ queryKey: trpc.storyShare.list.queryKey() });
-	}, [queryClient, chatId, storyId]);
 
 	const deleteMutation = useMutation(
 		trpc.storyShare.delete.mutationOptions({
@@ -256,37 +230,7 @@ function ManageShareDialog({
 				</DialogHeader>
 
 				<div className='flex flex-col gap-4'>
-					<div className='flex items-center gap-3 rounded-lg border bg-muted/30 p-3'>
-						{visibility === 'project' ? (
-							<>
-								<div className='flex size-8 items-center justify-center rounded-full bg-emerald-100 text-emerald-600'>
-									<Globe className='size-4' />
-								</div>
-								<div className='flex-1 min-w-0'>
-									<p className='text-sm font-medium'>Shared with entire project</p>
-									<p className='text-xs text-muted-foreground'>
-										All project members can view this story
-									</p>
-								</div>
-							</>
-						) : (
-							<>
-								<div className='flex size-8 items-center justify-center rounded-full bg-blue-100 text-blue-600'>
-									<Users className='size-4' />
-								</div>
-								<div className='flex-1 min-w-0'>
-									<p className='text-sm font-medium'>
-										Shared with {selectedUserIds.size}{' '}
-										{selectedUserIds.size === 1 ? 'person' : 'people'}
-									</p>
-									<p className='text-xs text-muted-foreground'>
-										Only selected members can view this story
-									</p>
-								</div>
-							</>
-						)}
-					</div>
-
+					<VisibilitySummary visibility={visibility} selectedUserIds={selectedUserIds} itemLabel='story' />
 					{visibility === 'specific' && (
 						<MemberPicker
 							members={filteredMembers}
@@ -299,41 +243,17 @@ function ManageShareDialog({
 					)}
 				</div>
 
-				<DialogFooter className='flex-row sm:justify-between'>
-					<Button
-						variant='outline'
-						onClick={handleUnshare}
-						disabled={isBusy}
-						className='gap-1.5 text-destructive hover:text-destructive'
-					>
-						{deleteMutation.isPending ? (
-							<Loader2 className='size-3.5 animate-spin' />
-						) : (
-							<Unlink className='size-3.5' />
-						)}
-						<span>Unshare</span>
-					</Button>
-					<div className='flex items-center gap-2'>
-						{hasChanges && (
-							<Button
-								onClick={handleSaveAccess}
-								disabled={isBusy || selectedUserIds.size === 0}
-								className='gap-1.5'
-							>
-								{updateAccessMutation.isPending ? (
-									<Loader2 className='size-3.5 animate-spin' />
-								) : (
-									<Check className='size-3.5' />
-								)}
-								<span>Save</span>
-							</Button>
-						)}
-						<Button variant='outline' onClick={handleCopyLink} className='gap-1.5'>
-							{isCopied ? <Check className='size-3.5' /> : <LinkIcon className='size-3.5' />}
-							<span>{isCopied ? 'Copied!' : 'Copy link'}</span>
-						</Button>
-					</div>
-				</DialogFooter>
+				<ManageShareFooter
+					isBusy={isBusy}
+					hasChanges={hasChanges}
+					isDeletePending={deleteMutation.isPending}
+					isUpdatePending={updateAccessMutation.isPending}
+					isCopied={isCopied}
+					canSave={selectedUserIds.size > 0}
+					onUnshare={handleUnshare}
+					onSaveAccess={handleSaveAccess}
+					onCopyLink={handleCopyLink}
+				/>
 			</DialogContent>
 		</Dialog>
 	);

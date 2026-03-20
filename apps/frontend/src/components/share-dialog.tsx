@@ -1,9 +1,190 @@
-import { Check, Loader2 } from 'lucide-react';
+import { Check, Globe, Link as LinkIcon, Loader2, Unlink, Users } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Avatar } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
 
 export type Visibility = 'project' | 'specific';
+
+export function ShareLoadingDialog({
+	open,
+	onOpenChange,
+	title,
+}: {
+	open: boolean;
+	onOpenChange: (open: boolean) => void;
+	title: string;
+}) {
+	return (
+		<Dialog open={open} onOpenChange={onOpenChange}>
+			<DialogContent className='sm:max-w-md'>
+				<DialogHeader>
+					<DialogTitle>{title}</DialogTitle>
+					<DialogDescription>Loading sharing settings...</DialogDescription>
+				</DialogHeader>
+				<div className='flex items-center justify-center py-6'>
+					<Loader2 className='size-4 animate-spin text-muted-foreground' />
+				</div>
+			</DialogContent>
+		</Dialog>
+	);
+}
+
+export function ShareErrorDialog({
+	open,
+	onOpenChange,
+	title,
+	onRetry,
+}: {
+	open: boolean;
+	onOpenChange: (open: boolean) => void;
+	title: string;
+	onRetry: () => void;
+}) {
+	return (
+		<Dialog open={open} onOpenChange={onOpenChange}>
+			<DialogContent className='sm:max-w-md'>
+				<DialogHeader>
+					<DialogTitle>{title}</DialogTitle>
+					<DialogDescription className='text-destructive'>
+						Failed to load sharing settings. Please try again.
+					</DialogDescription>
+				</DialogHeader>
+				<DialogFooter>
+					<Button variant='outline' onClick={() => onOpenChange(false)}>
+						Close
+					</Button>
+					<Button onClick={onRetry}>Retry</Button>
+				</DialogFooter>
+			</DialogContent>
+		</Dialog>
+	);
+}
+
+export function VisibilityPicker({
+	visibility,
+	onChange,
+}: {
+	visibility: Visibility;
+	onChange: (v: Visibility) => void;
+}) {
+	return (
+		<div className='flex gap-2'>
+			<VisibilityOption
+				active={visibility === 'project'}
+				icon={<Globe className='size-4' />}
+				label='Entire project'
+				description='All project members'
+				onClick={() => onChange('project')}
+			/>
+			<VisibilityOption
+				active={visibility === 'specific'}
+				icon={<Users className='size-4' />}
+				label='Specific people'
+				description='Choose who can view'
+				onClick={() => onChange('specific')}
+			/>
+		</div>
+	);
+}
+
+export function VisibilitySummary({
+	visibility,
+	selectedUserIds,
+	itemLabel,
+}: {
+	visibility: Visibility;
+	selectedUserIds: Set<string>;
+	itemLabel: string;
+}) {
+	return (
+		<div className='flex items-center gap-3 rounded-lg border bg-muted/30 p-3'>
+			{visibility === 'project' ? (
+				<>
+					<div className='flex size-8 items-center justify-center rounded-full bg-emerald-100 text-emerald-600'>
+						<Globe className='size-4' />
+					</div>
+					<div className='flex-1 min-w-0'>
+						<p className='text-sm font-medium'>Shared with entire project</p>
+						<p className='text-xs text-muted-foreground'>All project members can view this {itemLabel}</p>
+					</div>
+				</>
+			) : (
+				<>
+					<div className='flex size-8 items-center justify-center rounded-full bg-blue-100 text-blue-600'>
+						<Users className='size-4' />
+					</div>
+					<div className='flex-1 min-w-0'>
+						<p className='text-sm font-medium'>
+							Shared with {selectedUserIds.size} {selectedUserIds.size === 1 ? 'person' : 'people'}
+						</p>
+						<p className='text-xs text-muted-foreground'>Only selected members can view this {itemLabel}</p>
+					</div>
+				</>
+			)}
+		</div>
+	);
+}
+
+export function ManageShareFooter({
+	isBusy,
+	hasChanges,
+	isDeletePending,
+	isUpdatePending,
+	isCopied,
+	canSave,
+	onUnshare,
+	onSaveAccess,
+	onCopyLink,
+}: {
+	isBusy: boolean;
+	hasChanges: boolean;
+	isDeletePending: boolean;
+	isUpdatePending: boolean;
+	isCopied: boolean;
+	canSave: boolean;
+	onUnshare: () => void;
+	onSaveAccess: () => void;
+	onCopyLink: () => void;
+}) {
+	return (
+		<DialogFooter className='flex-row sm:justify-between'>
+			<Button
+				variant='outline'
+				onClick={onUnshare}
+				disabled={isBusy}
+				className='gap-1.5 text-destructive hover:text-destructive'
+			>
+				{isDeletePending ? <Loader2 className='size-3.5 animate-spin' /> : <Unlink className='size-3.5' />}
+				<span>Unshare</span>
+			</Button>
+			<div className='flex items-center gap-2'>
+				{hasChanges && (
+					<Button onClick={onSaveAccess} disabled={isBusy || !canSave} className='gap-1.5'>
+						{isUpdatePending ? (
+							<Loader2 className='size-3.5 animate-spin' />
+						) : (
+							<Check className='size-3.5' />
+						)}
+						<span>Save</span>
+					</Button>
+				)}
+				<Button variant='outline' onClick={onCopyLink} className='gap-1.5'>
+					{isCopied ? <Check className='size-3.5' /> : <LinkIcon className='size-3.5' />}
+					<span>{isCopied ? 'Copied!' : 'Copy link'}</span>
+				</Button>
+			</div>
+		</DialogFooter>
+	);
+}
 
 export function VisibilityOption({
 	active,
