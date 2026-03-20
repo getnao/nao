@@ -44,10 +44,7 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({ chart }: { chart:
 	}
 
 	const xAxisType = chart.xAxisType === 'number' ? 'number' : ('category' as const);
-	const data = useMemo(
-		() => (chart.xAxisType === 'date' ? sortByDateKey(sourceData.data, chart.xAxisKey) : sourceData.data),
-		[sourceData.data, chart.xAxisType, chart.xAxisKey],
-	);
+	const data = chart.xAxisType === 'date' ? sortByDateKey(sourceData.data, chart.xAxisKey) : sourceData.data;
 
 	return (
 		<div className={`my-2 ${chart.chartType != 'kpi_card' ? 'aspect-3/2' : ''} `}>
