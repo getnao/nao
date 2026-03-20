@@ -1,5 +1,6 @@
 import { Editor } from '@monaco-editor/react';
 import { File } from 'lucide-react';
+import type { Monaco } from '@monaco-editor/react';
 import { Spinner } from '@/components/ui/spinner';
 import { useEditorTheme } from '@/hooks/use-editor-theme';
 
@@ -46,8 +47,34 @@ function getFileName(filePath: string): string {
 	return filePath.split('/').pop() ?? filePath;
 }
 
+function defineCustomThemes(monaco: Monaco) {
+	monaco.editor.defineTheme('nao-light', {
+		base: 'vs',
+		inherit: true,
+		rules: [],
+		colors: {
+			'editor.lineHighlightBackground': '#00000008',
+			'editor.lineHighlightBorder': '#00000000',
+		},
+	});
+	monaco.editor.defineTheme('nao-dark', {
+		base: 'vs-dark',
+		inherit: true,
+		rules: [],
+		colors: {
+			'editor.lineHighlightBackground': '#ffffff06',
+			'editor.lineHighlightBorder': '#00000000',
+		},
+	});
+}
+
 export function FileViewer({ filePath, content, isLoading, isError }: FileViewerProps) {
 	const editorTheme = useEditorTheme();
+	const themeName = editorTheme === 'vs-dark' ? 'nao-dark' : 'nao-light';
+
+	const handleBeforeMount = (monaco: Monaco) => {
+		defineCustomThemes(monaco);
+	};
 
 	if (!filePath) {
 		return (
@@ -88,7 +115,8 @@ export function FileViewer({ filePath, content, isLoading, isError }: FileViewer
 				<Editor
 					value={content ?? ''}
 					language={language}
-					theme={editorTheme}
+					theme={themeName}
+					beforeMount={handleBeforeMount}
 					options={{
 						readOnly: true,
 						minimap: { enabled: false },
