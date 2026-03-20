@@ -2,6 +2,7 @@ import { accountRoutes } from './account.routes';
 import { chartRoutes } from './chart.routes';
 import { chatRoutes } from './chat.routes';
 import { citationRoutes } from './citation.routes';
+import { contextExplorerRoutes } from './context-explorer.routes';
 import { feedbackRoutes } from './feedback.routes';
 import { githubRoutes } from './github.routes';
 import { googleRoutes } from './google.routes';
@@ -23,6 +24,7 @@ export const trpcRouter = router({
 	chart: chartRoutes,
 	chat: chatRoutes,
 	citation: citationRoutes,
+	contextExplorer: contextExplorerRoutes,
 	feedback: feedbackRoutes,
 	log: logRoutes,
 	posthog: posthogRoutes,
