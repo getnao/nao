@@ -21,6 +21,7 @@ import { useRegisterSetChatInputCallback } from '@/contexts/set-chat-input-callb
 import { useTranscribe } from '@/hooks/use-transcribe';
 import { cn } from '@/lib/utils';
 import { useChatId } from '@/hooks/use-chat-id';
+import { messageQueueStore } from '@/stores/chat-message-queue';
 
 type ChatInputBaseProps = {
 	promptRef: React.RefObject<PromptHandle | null>;
@@ -100,7 +101,18 @@ function ChatInputBase({
 	const submitMessage = useCallback(
 		async (text: string, currentMentions: SelectedMention[] = []) => {
 			const trimmedInput = text.trim();
-			if (!trimmedInput || (isRunning && !allowQueueing)) {
+
+			if (!trimmedInput) {
+				if (isRunning && allowQueueing) {
+					const queue = messageQueueStore.getSnapshot(chatId);
+					if (queue?.length) {
+						await submitQueuedMessageNow(queue[0].id);
+					}
+				}
+				return;
+			}
+
+			if (isRunning && !allowQueueing) {
 				return;
 			}
 
@@ -110,7 +122,7 @@ function ChatInputBase({
 
 			await onSubmitMessage({ text: trimmedInput });
 		},
-		[onSubmitMessage, isRunning, allowQueueing, setMentions, promptRef],
+		[onSubmitMessage, isRunning, allowQueueing, setMentions, promptRef, chatId, submitQueuedMessageNow],
 	);
 
 	const {
@@ -165,7 +177,7 @@ function ChatInputBase({
 			<ChatInputMessageQueue onEditMessage={handleEditQueuedMessage} onSubmitNow={submitQueuedMessageNow} />
 
 			<form onSubmit={handleSubmitMessage} className='mx-auto relative'>
-				<InputGroup htmlFor='chat-input'>
+				<InputGroup htmlFor='chat-input' className='dark:bg-muted'>
 					<ChatPrompt
 						promptRef={promptRef}
 						placeholder={effectivePlaceholder}

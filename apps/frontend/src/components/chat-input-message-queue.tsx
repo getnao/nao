@@ -47,7 +47,7 @@ export const ChatInputMessageQueue = ({ onEditMessage, onSubmitNow }: ChatInputM
 	};
 
 	return (
-		<div className='flex flex-col w-full mx-auto border border-input/50 rounded-2xl rounded-b-none -mb-4 pb-5 bg-muted/50 overflow-hidden'>
+		<div className='relative flex flex-col w-full mx-auto border border-input/50 rounded-2xl rounded-b-none -mb-4 pb-4 bg-muted/50 overflow-hidden'>
 			<button
 				type='button'
 				onClick={() => setIsExpanded(!isExpanded)}
@@ -132,16 +132,17 @@ function SortableQueuedMessageRow({
 			<span className='truncate flex-1 min-w-0'>{text}</span>
 
 			<div className='flex items-center shrink-0'>
-				<button
-					type='button'
-					onClick={() => onSubmitNow?.(messageId)}
-					className='group-hover:hidden flex items-center gap-1 text-xs text-muted-foreground/50 hover:text-muted-foreground transition-colors cursor-pointer'
-				>
-					<CornerDownLeft className='size-3' />
-					<span>to submit</span>
-				</button>
+				{isFirst && (
+					<span className='group-hover:hidden flex items-center gap-1 text-xs text-muted-foreground/50'>
+						<CornerDownLeft className='size-3' />
+						<span>to submit</span>
+					</span>
+				)}
 
 				<div className='hidden group-hover:flex items-center'>
+					<Button variant='ghost-muted' size='icon-xs' type='button' onClick={() => onSubmitNow?.(messageId)}>
+						<CornerDownLeft className='size-3' />
+					</Button>
 					<Button
 						variant='ghost-muted'
 						size='icon-xs'

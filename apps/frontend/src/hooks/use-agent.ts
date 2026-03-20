@@ -47,7 +47,6 @@ const selectedModelStorage = createLocalStorage<ChatSelectedModel>('nao-selected
 const selectedModelRef: { current: ChatSelectedModel | null } = { current: null };
 const mentionsRef: { current: MentionOption[] } = { current: [] };
 const chatIdRef: { current: string | undefined } = { current: undefined };
-const forceProcessQueueOnAbortRef: { current: boolean } = { current: false };
 
 export const useAgent = (): AgentHelpers => {
 	const navigate = useNavigate();
@@ -129,9 +128,7 @@ export const useAgent = (): AgentHelpers => {
 			}),
 			onData: (dataPart) => handleAgentDataPart(dataPart, newAgent),
 			onFinish: ({ isAbort, isError, isDisconnect }) => {
-				const forceQueue = forceProcessQueueOnAbortRef.current;
-				forceProcessQueueOnAbortRef.current = false;
-				const canSendNextMessage = (!isAbort || forceQueue) && !isError && !isDisconnect;
+				const canSendNextMessage = !isAbort && !isError && !isDisconnect;
 				const next = canSendNextMessage ? messageQueueStore.dequeue(agentId) : undefined;
 				if (next) {
 					mentionsRef.current = next.mentions;
@@ -210,10 +207,14 @@ export const useAgent = (): AgentHelpers => {
 	const submitQueuedMessageNow = useCallback(
 		async (messageId: string) => {
 			messageQueueStore.promoteToFront(chatIdRef.current, messageId);
-			forceProcessQueueOnAbortRef.current = true;
 			await stopAgent();
+			const next = messageQueueStore.dequeue(chatIdRef.current ?? NEW_CHAT_ID);
+			if (next) {
+				mentionsRef.current = next.mentions;
+				await handleSendMessage({ text: next.text });
+			}
 		},
-		[stopAgent],
+		[stopAgent, handleSendMessage],
 	);
 
 	const editMessage = useCallback(
