@@ -68,8 +68,13 @@ export function sortByDateKey<T extends Record<string, any>>(data: T[], xAxisKey
 	return [...data].sort((a, b) => {
 		const dateA = new Date(a[xAxisKey]);
 		const dateB = new Date(b[xAxisKey]);
-		if (!isValidDate(dateA) || !isValidDate(dateB)) {
-			return 0;
+		const validA = isValidDate(dateA);
+		const validB = isValidDate(dateB);
+		if (!validA || !validB) {
+			if (!validA && !validB) {
+				return 0;
+			}
+			return validA ? -1 : 1;
 		}
 		return dateA.getTime() - dateB.getTime();
 	});
