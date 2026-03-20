@@ -82,13 +82,14 @@ const AssistantMessageReadonly = memo(({ message }: { message: UIMessage }) => {
 	}
 
 	return (
-		<AssistantMessageProvider isSettled={true}>
+		<AssistantMessageProvider isSettled={true} isReplay={true}>
 			<div className={cn('group px-3 flex flex-col gap-2 bg-transparent')}>
 				<MessageParts parts={messageParts} />
 
 				{message.feedback && (
 					<div
 						data-replay-nav='feedback'
+						data-replay-bordered='true'
 						data-replay-nav-vote={message.feedback.vote}
 						className='flex items-center gap-1.5 text-xs text-muted-foreground mt-1 p-1'
 					>
