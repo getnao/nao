@@ -5,7 +5,6 @@ import { Expandable } from '@/components/ui/expandable';
 import { AssistantReasoning } from '@/components/chat-messages/assistant-reasoning';
 import { isReasoningPart } from '@/lib/ai';
 import { useToolGroupSummaryTitle } from '@/hooks/use-tool-group-summary-title';
-import { useAssistantMessage } from '@/contexts/assistant-message';
 
 interface Props {
 	parts: GroupablePart[];
@@ -13,18 +12,15 @@ interface Props {
 }
 
 export const ToolCallsGroup = memo(({ parts, isSettled }: Props) => {
-	const { isReplay } = useAssistantMessage();
 	const isLoading = !isSettled;
-	const hasError = isReplay && parts.some((p) => !isReasoningPart(p) && p.state === 'output-error');
-	const [isExpanded, setIsExpanded] = useState(isLoading || hasError);
+	const [isExpanded, setIsExpanded] = useState(isLoading);
 
 	useEffect(() => {
-		if (isLoading || hasError) {
-			setIsExpanded(true);
-		}
-	}, [isLoading, hasError]);
+		setIsExpanded(isLoading);
+	}, [isLoading]);
 
 	const title = useToolGroupSummaryTitle({ parts, isLoading });
+
 	return (
 		<Expandable
 			title={title}

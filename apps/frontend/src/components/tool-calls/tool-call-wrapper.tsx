@@ -93,10 +93,7 @@ export const ToolCallWrapper = ({
 			onMouseEnter={() => setIsHovering(true)}
 			onMouseLeave={() => setIsHovering(false)}
 			className={cn(isBordered && '-mx-3')}
-			{...(hasError && {
-				'data-replay-nav': 'tool-error',
-				'data-replay-bordered': isBordered ? 'true' : 'false',
-			})}
+			{...(hasError && { 'data-replay-nav': 'tool-error' })}
 		>
 			<Expandable
 				title={title}
