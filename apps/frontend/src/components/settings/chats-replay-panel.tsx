@@ -8,6 +8,7 @@ import { ChatMessagesReadonly } from '@/components/chat-messages/chat-messages-r
 import { Button } from '@/components/ui/button';
 import { InlineStatusBar } from '@/components/settings/chats-replay-inline-status-bar';
 import { ReadonlyAgentMessagesProvider } from '@/contexts/agent.provider';
+import { ChatViewProvider } from '@/contexts/chat-view';
 import { useReplayNav } from '@/hooks/use-replay-nav';
 import { trpc } from '@/main';
 
@@ -85,9 +86,11 @@ export function ChatsReplayPanel({ chatInfo, onClose }: ChatsReplayPanelProps) {
 					) : chatReplayQuery.isError ? (
 						<div className='text-sm text-destructive'>Failed to load chat.</div>
 					) : chatReplayQuery.data ? (
-						<ReadonlyAgentMessagesProvider messages={chatReplayQuery.data.messages}>
-							<ChatMessagesReadonly messages={chatReplayQuery.data.messages} />
-						</ReadonlyAgentMessagesProvider>
+						<ChatViewProvider expandOnError={true}>
+							<ReadonlyAgentMessagesProvider messages={chatReplayQuery.data.messages}>
+								<ChatMessagesReadonly messages={chatReplayQuery.data.messages} />
+							</ReadonlyAgentMessagesProvider>
+						</ChatViewProvider>
 					) : (
 						<div className='text-sm text-muted-foreground'>Select a chat to preview.</div>
 					)}

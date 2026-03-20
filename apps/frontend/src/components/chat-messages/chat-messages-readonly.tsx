@@ -82,7 +82,7 @@ const AssistantMessageReadonly = memo(({ message }: { message: UIMessage }) => {
 	}
 
 	return (
-		<AssistantMessageProvider isSettled={true} isReplay={true}>
+		<AssistantMessageProvider isSettled={true}>
 			<div className={cn('group px-3 flex flex-col gap-2 bg-transparent')}>
 				<MessageParts parts={messageParts} />
 
