@@ -37,7 +37,7 @@ export function SidebarUserMenu({ isCollapsed }: SidebarUserMenuProps) {
 						hideIf(isCollapsed),
 					)}
 				>
-					<span className='text-sm font-medium truncate'>{username}</span>
+					<span className='text-sm leading-4 font-medium truncate'>{username}</span>
 					<span className='text-xs text-muted-foreground truncate'>{email}</span>
 				</span>
 			</div>
