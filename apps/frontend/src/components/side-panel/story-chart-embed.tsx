@@ -2,6 +2,7 @@ import { memo, useMemo } from 'react';
 import type { displayChart } from '@nao/shared/tools';
 import { useAgentContext } from '@/contexts/agent.provider';
 import { ChartDisplay } from '@/components/tool-calls/display-chart';
+import { sortByDateKey } from '@/lib/charts.utils';
 
 interface ChartBlock {
 	queryId: string;
@@ -43,11 +44,15 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({ chart }: { chart:
 	}
 
 	const xAxisType = chart.xAxisType === 'number' ? 'number' : ('category' as const);
+	const data = useMemo(
+		() => (chart.xAxisType === 'date' ? sortByDateKey(sourceData.data, chart.xAxisKey) : sourceData.data),
+		[sourceData.data, chart.xAxisType, chart.xAxisKey],
+	);
 
 	return (
 		<div className={`my-2 ${chart.chartType != 'kpi_card' ? 'aspect-3/2' : ''} `}>
 			<ChartDisplay
-				data={sourceData.data}
+				data={data}
 				chartType={chart.chartType as displayChart.ChartType}
 				xAxisKey={chart.xAxisKey}
 				xAxisType={xAxisType}
