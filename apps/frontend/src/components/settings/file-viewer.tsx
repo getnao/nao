@@ -1,6 +1,7 @@
 import { Editor } from '@monaco-editor/react';
 import { File } from 'lucide-react';
 import type { Monaco } from '@monaco-editor/react';
+import type { editor } from 'monaco-editor';
 import { Spinner } from '@/components/ui/spinner';
 import { useEditorTheme } from '@/hooks/use-editor-theme';
 
@@ -76,6 +77,23 @@ export function FileViewer({ filePath, content, isLoading, isError }: FileViewer
 		defineCustomThemes(monaco);
 	};
 
+	const handleMount = (editorInstance: editor.IStandaloneCodeEditor, monaco: Monaco) => {
+		const KeyMod = monaco.KeyMod;
+		const KeyCode = monaco.KeyCode;
+
+		editorInstance.addCommand(KeyMod.CtrlCmd | KeyCode.KeyK, () => {
+			window.dispatchEvent(
+				new KeyboardEvent('keydown', {
+					key: 'k',
+					code: 'KeyK',
+					metaKey: navigator.platform.includes('Mac'),
+					ctrlKey: !navigator.platform.includes('Mac'),
+					bubbles: true,
+				}),
+			);
+		});
+	};
+
 	if (!filePath) {
 		return (
 			<div className='flex flex-col items-center justify-center h-full text-muted-foreground gap-2'>
@@ -117,6 +135,7 @@ export function FileViewer({ filePath, content, isLoading, isError }: FileViewer
 					language={language}
 					theme={themeName}
 					beforeMount={handleBeforeMount}
+					onMount={handleMount}
 					options={{
 						readOnly: true,
 						minimap: { enabled: false },
