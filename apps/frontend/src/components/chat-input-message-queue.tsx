@@ -20,7 +20,7 @@ export const ChatInputMessageQueue = ({ onEditMessage }: ChatInputMessageQueuePr
 	}
 
 	return (
-		<div className='flex flex-col w-full mx-auto border border-input/50 rounded-2xl rounded-b-none -mb-4 bg-muted/50 overflow-hidden'>
+		<div className='flex flex-col w-full mx-auto border border-input/50 rounded-2xl rounded-b-none -mb-4 pb-5 bg-muted/50 overflow-hidden'>
 			<button
 				type='button'
 				onClick={() => setIsExpanded(!isExpanded)}
@@ -31,7 +31,7 @@ export const ChatInputMessageQueue = ({ onEditMessage }: ChatInputMessageQueuePr
 			</button>
 
 			{isExpanded && (
-				<div className='flex flex-col px-3 pb-3'>
+				<div className='flex flex-col px-3'>
 					{queuedMessages.map((qm, idx) => (
 						<QueuedMessageRow
 							key={qm.id}
