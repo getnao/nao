@@ -1,4 +1,4 @@
-import type { UpdatedAtFilter, UserRole } from '@nao/shared';
+import type { UpdatedAtFilter, UserRole } from '@nao/shared/types';
 import { and, asc, desc, eq, gt, gte, lte, or, type SQL, sql } from 'drizzle-orm';
 
 import type { AgentSettings, DBProject, DBProjectMember, NewProject, NewProjectMember } from '../db/abstractSchema';

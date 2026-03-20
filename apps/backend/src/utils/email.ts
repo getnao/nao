@@ -1,15 +1,20 @@
-import type { User } from 'better-auth';
-
 import { env } from '../env';
 import * as projectQueries from '../queries/project.queries';
 import { emailService } from '../services/email';
+import { buildSharedItemEmail } from './email-builders';
 
-export async function notifySharedStoryRecipients({
+const itemUrls: Record<'story' | 'chat', (shareId: string) => string> = {
+	story: (shareId) => `${env.BETTER_AUTH_URL}/stories/shared/${shareId}`,
+	chat: (shareId) => `${env.BETTER_AUTH_URL}/shared-chat/${shareId}`,
+};
+
+export async function notifySharedItemRecipients({
 	projectId,
 	sharerId,
 	sharerName,
 	shareId,
-	storyTitle,
+	itemLabel,
+	itemTitle,
 	visibility,
 	allowedUserIds,
 }: {
@@ -17,11 +22,12 @@ export async function notifySharedStoryRecipients({
 	sharerId: string;
 	sharerName: string;
 	shareId: string;
-	storyTitle: string;
+	itemLabel: 'story' | 'chat';
+	itemTitle: string;
 	visibility: 'project' | 'specific';
 	allowedUserIds?: string[];
 }): Promise<void> {
-	const storyUrl = `${env.BETTER_AUTH_URL || 'http://localhost:3000'}/stories/shared/${shareId}`;
+	const itemUrl = itemUrls[itemLabel](shareId);
 	const allMembers = await projectQueries.getAllUsersWithRoles(projectId);
 
 	const recipients =
@@ -31,13 +37,10 @@ export async function notifySharedStoryRecipients({
 
 	await Promise.all(
 		recipients.map((recipient) =>
-			emailService.sendEmail({
-				user: { id: recipient.id, name: recipient.name, email: recipient.email } as User,
-				type: 'sharedStory',
-				sharerName,
-				storyTitle,
-				storyUrl,
-			}),
+			emailService.sendEmail(
+				recipient.email,
+				buildSharedItemEmail(recipient, sharerName, itemLabel, itemTitle, itemUrl),
+			),
 		),
 	);
 }

@@ -5,7 +5,7 @@ import * as projectQueries from '../queries/project.queries';
 import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
 import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../services/live-story';
-import { notifySharedStoryRecipients } from '../utils/email';
+import { notifySharedItemRecipients } from '../utils/email';
 import { extractStorySummary } from '../utils/story-summary';
 import { projectProtectedProcedure, protectedProcedure } from './trpc';
 
@@ -44,12 +44,13 @@ export const sharedStoryRoutes = {
 				input.allowedUserIds,
 			);
 
-			await notifySharedStoryRecipients({
+			await notifySharedItemRecipients({
 				projectId: ctx.project.id,
 				sharerId: ctx.user.id,
 				sharerName: ctx.user.name,
 				shareId: created.id,
-				storyTitle: latestVersion.title,
+				itemLabel: 'story',
+				itemTitle: latestVersion.title,
 				visibility: input.visibility,
 				allowedUserIds: input.allowedUserIds,
 			});
@@ -146,12 +147,13 @@ export const sharedStoryRoutes = {
 
 			const newlyAddedUserIds = input.allowedUserIds.filter((id) => !previousAllowedUserIds.includes(id));
 			if (newlyAddedUserIds.length > 0) {
-				await notifySharedStoryRecipients({
+				await notifySharedItemRecipients({
 					projectId: ctx.project.id,
 					sharerId: story.userId,
 					sharerName: story.authorName,
 					shareId: input.id,
-					storyTitle: story.title,
+					itemLabel: 'story',
+					itemTitle: story.title,
 					visibility: 'specific',
 					allowedUserIds: newlyAddedUserIds,
 				});

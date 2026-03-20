@@ -10,6 +10,7 @@ The test suite is skipped entirely when BIGQUERY_PROJECT_ID is not set.
 import json
 import os
 from pathlib import Path
+from typing import Any
 
 import ibis
 import pytest
@@ -48,7 +49,7 @@ def temp_datasets():
     bq_client = bigquery.Client(project=project_id, credentials=credentials)
 
     # Create ibis connection for data operations
-    ibis_kwargs = {"project_id": project_id}
+    ibis_kwargs: dict[str, Any] = {"project_id": project_id}
     if credentials_json_str:
         ibis_kwargs["credentials"] = credentials
 

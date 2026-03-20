@@ -4,6 +4,7 @@
 	"type": "module",
 	"exports": {
 		".": "./src/index.ts",
+		"./types": "./src/types.ts",
 		"./posthog": "./src/posthog.ts",
 		"./tools": "./src/tools/index.ts"
 	},

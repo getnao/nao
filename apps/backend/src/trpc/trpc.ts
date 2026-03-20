@@ -1,4 +1,4 @@
-import type { UserRole } from '@nao/shared';
+import type { UserRole } from '@nao/shared/types';
 import { initTRPC, TRPCError } from '@trpc/server';
 import type { CreateFastifyContextOptions } from '@trpc/server/adapters/fastify';
 import superjson from 'superjson';

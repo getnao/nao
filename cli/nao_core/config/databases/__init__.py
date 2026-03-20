@@ -10,6 +10,7 @@ from .databricks import DatabricksConfig
 from .duckdb import DuckDBConfig
 from .fabric import FabricConfig
 from .mssql import MssqlConfig
+from .mysql import MysqlConfig
 from .postgres import PostgresConfig
 from .redshift import RedshiftConfig
 from .snowflake import SnowflakeConfig
@@ -28,6 +29,7 @@ AnyDatabaseConfig = Annotated[
         Annotated[FabricConfig, Tag("fabric")],
         Annotated[SnowflakeConfig, Tag("snowflake")],
         Annotated[DuckDBConfig, Tag("duckdb")],
+        Annotated[MysqlConfig, Tag("mysql")],
         Annotated[MssqlConfig, Tag("mssql")],
         Annotated[PostgresConfig, Tag("postgres")],
         Annotated[RedshiftConfig, Tag("redshift")],
@@ -46,6 +48,7 @@ DATABASE_CONFIG_CLASSES: Dict[DatabaseType, Type[object]] = {
     DatabaseType.DATABRICKS: DatabricksConfig,
     DatabaseType.FABRIC: FabricConfig,
     DatabaseType.MSSQL: MssqlConfig,
+    DatabaseType.MYSQL: MysqlConfig,
     DatabaseType.SNOWFLAKE: SnowflakeConfig,
     DatabaseType.POSTGRES: PostgresConfig,
     DatabaseType.REDSHIFT: RedshiftConfig,
@@ -80,6 +83,7 @@ __all__ = [
     "DatabricksConfig",
     "FabricConfig",
     "MssqlConfig",
+    "MysqlConfig",
     "SnowflakeConfig",
     "PostgresConfig",
     "RedshiftConfig",

@@ -1,4 +1,4 @@
-import { USER_ROLES } from '@nao/shared';
+import { USER_ROLES } from '@nao/shared/types';
 import { type ProviderMetadata } from 'ai';
 import { sql } from 'drizzle-orm';
 import {
@@ -17,6 +17,7 @@ import {
 import { AgentSettings } from '../types/agent-settings';
 import { StopReason, ToolState, UIMessagePartType } from '../types/chat';
 import { LLM_INFERENCE_TYPES, LlmProvider } from '../types/llm';
+import { LOG_LEVELS, LOG_SOURCES } from '../types/log';
 import { MEMORY_CATEGORIES } from '../types/memory';
 import { SlackSettings, TeamsSettings } from '../types/messaging-provider';
 import { ORG_ROLES } from '../types/organization';
@@ -330,7 +331,35 @@ export const projectLlmConfig = pgTable(
 	],
 );
 
-export const STORY_VISIBILITY = ['project', 'specific'] as const;
+export const SHARE_VISIBILITY = ['project', 'specific'] as const;
+
+export const sharedChat = pgTable(
+	'shared_chat',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		chatId: text('chat_id')
+			.notNull()
+			.references(() => chat.id, { onDelete: 'cascade' }),
+		visibility: text('visibility', { enum: SHARE_VISIBILITY }).default('project').notNull(),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+	},
+	(t) => [unique('shared_chat_chatId_unique').on(t.chatId)],
+);
+
+export const sharedChatAccess = pgTable(
+	'shared_chat_access',
+	{
+		sharedChatId: text('shared_chat_id')
+			.notNull()
+			.references(() => sharedChat.id, { onDelete: 'cascade' }),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+	},
+	(t) => [primaryKey({ columns: [t.sharedChatId, t.userId] })],
+);
 
 export const sharedStory = pgTable(
 	'shared_story',
@@ -348,7 +377,7 @@ export const sharedStory = pgTable(
 			.notNull()
 			.references(() => chat.id, { onDelete: 'cascade' }),
 		storyId: text('story_id').notNull(),
-		visibility: text('visibility', { enum: STORY_VISIBILITY }).default('project').notNull(),
+		visibility: text('visibility', { enum: SHARE_VISIBILITY }).default('project').notNull(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 	},
 	(t) => [
@@ -504,3 +533,23 @@ export const message_part_chart_image = pgTable('chart_image', {
 	data: text('data').notNull(),
 	createdAt: timestamp('created_at').defaultNow().notNull(),
 });
+
+export const log = pgTable(
+	'log',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		level: text('level', { enum: LOG_LEVELS }).notNull(),
+		message: text('message').notNull(),
+		context: jsonb('context').$type<Record<string, unknown>>(),
+		source: text('source', { enum: LOG_SOURCES }).notNull(),
+		projectId: text('project_id').references(() => project.id, { onDelete: 'cascade' }),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+	},
+	(t) => [
+		index('log_createdAt_idx').on(t.createdAt),
+		index('log_level_idx').on(t.level),
+		index('log_projectId_idx').on(t.projectId),
+	],
+);

@@ -10,8 +10,9 @@ import { StoryViewer } from '@/components/side-panel/story-viewer';
 import { useSidePanel } from '@/contexts/side-panel';
 
 export const StoryToolCall = ({ toolPart }: ToolCallComponentProps<'story'>) => {
-	const { open: openSidePanel, isVisible, currentStoryId } = useSidePanel();
-	const { chatId } = useParams({ strict: false });
+	const { open: openSidePanel, isVisible, currentStoryId, chatId: contextChatId } = useSidePanel();
+	const { chatId: routeChatId } = useParams({ strict: false });
+	const chatId = routeChatId ?? contextChatId;
 	const input = toolPart.input;
 	const isStreaming = toolPart.state === 'input-streaming';
 	const output = toolPart.output;

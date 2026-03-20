@@ -24,6 +24,7 @@ const providerLabels: Record<LlmProvider, string> = {
 	openrouter: 'OpenRouter',
 	ollama: 'Ollama',
 	bedrock: 'AWS Bedrock',
+	vertex: 'Google Vertex',
 };
 
 export const dateFormats: Record<Granularity, string> = {

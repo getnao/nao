@@ -33,7 +33,12 @@ const settingsNavItems: NavItem[] = [
 		to: '/settings/chats-replay',
 		visible: true,
 	},
-] as const;
+	{
+		label: 'Logs',
+		to: '/settings/logs',
+		visible: true,
+	},
+];
 
 interface SidebarSettingsNavProps {
 	isCollapsed: boolean;

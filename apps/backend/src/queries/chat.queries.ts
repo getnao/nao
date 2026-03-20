@@ -383,3 +383,31 @@ export const getChatProjectId = async (chatId: string): Promise<string | undefin
 		.execute();
 	return result?.projectId;
 };
+
+export const getProjectIdByQueryId = async (queryId: string): Promise<string | undefined> => {
+	const jsonIdFilter =
+		dbConfig.dialect === Dialect.Postgres
+			? sql`${s.messagePart.toolOutput}->>'id' = ${queryId}`
+			: sql`json_extract(${s.messagePart.toolOutput}, '$.id') = ${queryId}`;
+
+	const [result] = await db
+		.select({ projectId: s.chat.projectId })
+		.from(s.messagePart)
+		.innerJoin(s.chatMessage, eq(s.messagePart.messageId, s.chatMessage.id))
+		.innerJoin(s.chat, eq(s.chatMessage.chatId, s.chat.id))
+		.where(jsonIdFilter)
+		.execute();
+
+	return result?.projectId;
+};
+
+export async function getChatInfo(
+	chatId: string,
+): Promise<{ projectId: string; userId: string; title: string } | null> {
+	const [row] = await db
+		.select({ projectId: s.chat.projectId, userId: s.chat.userId, title: s.chat.title })
+		.from(s.chat)
+		.where(eq(s.chat.id, chatId))
+		.execute();
+	return row ?? null;
+}

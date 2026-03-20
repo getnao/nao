@@ -1,17 +1,17 @@
-# ABOUTME: BigQuery database configuration and context for nao sync.
-# ABOUTME: Handles connection, schema discovery, and partition-aware preview/row_count.
+from __future__ import annotations
 
 import json
 import logging
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
-import ibis
-import pandas as pd
-from ibis import BaseBackend
 from pydantic import Field, PrivateAttr, field_validator
 
 from nao_core.ui import ask_select, ask_text
+
+if TYPE_CHECKING:
+    import pandas as pd
+    from ibis import BaseBackend
 
 from .base import DatabaseConfig
 from .context import DatabaseContext
@@ -418,6 +418,11 @@ class BigQueryConfig(DatabaseConfig):
 
     def connect(self) -> BaseBackend:
         """Create an Ibis BigQuery connection."""
+        from nao_core.deps import require_database_backend
+
+        require_database_backend("bigquery")
+        import ibis
+
         kwargs: dict = {"project_id": self.project_id}
 
         if self.dataset_id:

@@ -7,7 +7,7 @@ export const SIDE_PANEL_ANIMATION_DURATION = 500;
 export const SIDE_PANEL_DEFAULT_WIDTH_RATIO = 0.5;
 export const SIDE_PANEL_WIDTH_STORAGE_KEY = 'nao:side-panel-width-ratio';
 
-export function loadPersistedWidthRatio(): number {
+export function loadPersistedWidthRatio(defaultRatio = SIDE_PANEL_DEFAULT_WIDTH_RATIO): number {
 	try {
 		const stored = localStorage.getItem(SIDE_PANEL_WIDTH_STORAGE_KEY);
 		if (stored) {
@@ -19,5 +19,5 @@ export function loadPersistedWidthRatio(): number {
 	} catch {
 		/* localStorage unavailable */
 	}
-	return SIDE_PANEL_DEFAULT_WIDTH_RATIO;
+	return defaultRatio;
 }
