@@ -27,6 +27,14 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({ chart }: { chart:
 		return null;
 	}, [messages, chart.queryId]);
 
+	const data = useMemo(
+		() =>
+			sourceData?.data && chart.xAxisType === 'date'
+				? sortByDateKey(sourceData.data, chart.xAxisKey)
+				: (sourceData?.data ?? []),
+		[sourceData?.data, chart.xAxisType, chart.xAxisKey],
+	);
+
 	if (!sourceData?.data || sourceData.data.length === 0) {
 		return (
 			<div className='my-2 rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground'>
@@ -44,7 +52,6 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({ chart }: { chart:
 	}
 
 	const xAxisType = chart.xAxisType === 'number' ? 'number' : ('category' as const);
-	const data = chart.xAxisType === 'date' ? sortByDateKey(sourceData.data, chart.xAxisKey) : sourceData.data;
 
 	return (
 		<div className={`my-2 ${chart.chartType != 'kpi_card' ? 'aspect-3/2' : ''} `}>
