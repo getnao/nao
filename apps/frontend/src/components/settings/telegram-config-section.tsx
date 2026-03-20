@@ -46,13 +46,17 @@ export function TelegramConfigSection({ isAdmin }: TelegramConfigSectionProps) {
 			modelId: selectedModel?.modelId,
 		});
 
-		await fetch(`https://api.telegram.org/bot${values.botToken}/setWebhook`, {
+		const webhookResponse = await fetch(`https://api.telegram.org/bot${values.botToken}/setWebhook`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({
 				url: webhookUrl,
 			}),
 		});
+		const webhookResult = await webhookResponse.json();
+		if (!webhookResult.ok) {
+			throw new Error(webhookResult.description ?? 'Failed to set Telegram webhook');
+		}
 
 		queryClient.invalidateQueries(trpc.project.getTelegramConfig.queryOptions());
 		setIsEditing(false);

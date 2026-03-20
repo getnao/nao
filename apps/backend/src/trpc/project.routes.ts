@@ -392,7 +392,12 @@ export const projectRoutes = {
 
 	regenerateMessagingProviderCode: adminProtectedProcedure
 		.input(z.object({ userId: z.string() }))
-		.mutation(async ({ input }) => {
+		.mutation(async ({ ctx, input }) => {
+			const members = await projectQueries.getAllUsersWithRoles(ctx.project.id);
+			const isMember = members.some((m) => m.id === input.userId);
+			if (!isMember) {
+				throw new TRPCError({ code: 'FORBIDDEN', message: 'User is not a member of this project' });
+			}
 			return await userQueries.regenerateMessagingProviderCode(input.userId);
 		}),
 

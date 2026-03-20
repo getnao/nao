@@ -25,9 +25,9 @@ export function LinkingCodesCard() {
 		}
 		const userId = user.id;
 		if (!user.messagingProviderCode) {
-			handleRegenerateRef.current(userId);
+			handleRegenerateRef.current(userId).catch(console.error);
 		}
-		const interval = setInterval(() => handleRegenerateRef.current(userId), 2 * 60 * 1000);
+		const interval = setInterval(() => handleRegenerateRef.current(userId).catch(console.error), 2 * 60 * 1000);
 		return () => clearInterval(interval);
 	}, [user?.id, user?.messagingProviderCode]);
 

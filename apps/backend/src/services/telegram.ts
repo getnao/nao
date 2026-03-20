@@ -207,7 +207,7 @@ class TelegramService {
 
 		if (!user) {
 			this._userByTelegramId.delete(telegramId);
-			await ctx.thread.post(`❌ No account found for ${email}. Send \`/email\` again with the correct email.`);
+			await ctx.thread.post(`❌ No account found for ${email}. Send \`/login\` again with the correct code.`);
 			throw new Error('User not found');
 		}
 		ctx.user = user;
