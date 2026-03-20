@@ -38,14 +38,21 @@ export interface AgentHelpers {
 	setMentions: (mentions: MentionOption[]) => void;
 }
 
+export interface ImageUploadData {
+	mediaType: string;
+	data: string;
+}
+
 export interface SendMessageArgs {
 	text: string;
+	images?: ImageUploadData[];
 }
 
 const selectedModelStorage = createLocalStorage<ChatSelectedModel>('nao-selected-model');
 
 const selectedModelRef: { current: ChatSelectedModel | null } = { current: null };
 const mentionsRef: { current: MentionOption[] } = { current: [] };
+const imagesRef: { current: ImageUploadData[] | undefined } = { current: undefined };
 const chatIdRef: { current: string | undefined } = { current: undefined };
 
 export const useAgent = (): AgentHelpers => {
@@ -102,36 +109,40 @@ export const useAgent = (): AgentHelpers => {
 		};
 
 		const newAgent = new Agent<UIMessage>({
-			transport: new DefaultChatTransport({
-				api: '/api/agent',
-				prepareSendMessagesRequest: ({ body, messages }) => {
-					const messageToSend = messages.at(-1);
-					if (!messageToSend) {
-						throw new Error('No message to send.');
-					}
+		transport: new DefaultChatTransport({
+			api: '/api/agent',
+			prepareSendMessagesRequest: ({ body, messages }) => {
+				const messageToSend = messages.at(-1);
+				if (!messageToSend) {
+					throw new Error('No message to send.');
+				}
 
-					const mentions = mentionsRef.current;
-					mentionsRef.current = [];
-					return {
-						body: {
-							...body,
-							chatId: agentId === NEW_CHAT_ID ? undefined : agentId,
-							message: {
-								text: getTextFromUserMessageOrThrow(messageToSend),
-							},
-							model: selectedModelRef.current ?? undefined,
-							mentions: mentions.length > 0 ? mentions : undefined,
-							timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+				const mentions = mentionsRef.current;
+				mentionsRef.current = [];
+				const images = imagesRef.current;
+				imagesRef.current = undefined;
+				return {
+					body: {
+						...body,
+						chatId: agentId === NEW_CHAT_ID ? undefined : agentId,
+						message: {
+							text: getTextFromUserMessageOrThrow(messageToSend),
+							images: images?.length ? images : undefined,
 						},
-					};
-				},
-			}),
+						model: selectedModelRef.current ?? undefined,
+						mentions: mentions.length > 0 ? mentions : undefined,
+						timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+					},
+				};
+			},
+		}),
 			onData: (dataPart) => handleAgentDataPart(dataPart, newAgent),
 			onFinish: ({ isAbort, isError, isDisconnect }) => {
 				const canSendNextMessage = !isAbort && !isError && !isDisconnect;
 				const next = canSendNextMessage ? messageQueueStore.dequeue(agentId) : undefined;
 				if (next) {
 					mentionsRef.current = next.mentions;
+					imagesRef.current = next.images;
 					newAgent.sendMessage({ text: next.text });
 				} else {
 					chatActivityStore.setRunning(agentId, false);
@@ -184,13 +195,15 @@ export const useAgent = (): AgentHelpers => {
 	);
 
 	const queueOrSendMessage = useCallback(
-		async ({ text }: SendMessageArgs) => {
-			if (!text.trim()) {
+		async ({ text, images }: SendMessageArgs) => {
+			if (!text.trim() && !images?.length) {
 				return;
 			}
 
+			imagesRef.current = images;
+
 			if (!isRunning) {
-				return handleSendMessage({ text });
+				return handleSendMessage({ text: text || 'Describe this image' });
 			}
 
 			const mentions = [...mentionsRef.current];
@@ -199,6 +212,7 @@ export const useAgent = (): AgentHelpers => {
 			messageQueueStore.enqueue(chatIdRef.current, {
 				text,
 				mentions,
+				images,
 			});
 		},
 		[isRunning, handleSendMessage],

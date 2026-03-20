@@ -10,7 +10,7 @@ import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { useIsEditingMessage } from '@/hooks/use-is-editing-message-store';
 import { useClickOutside } from '@/hooks/use-click-outside';
 import { ChatInputInline } from '@/components/chat-input';
-import { getMessageText } from '@/lib/ai';
+import { getMessageText, getMessageImages } from '@/lib/ai';
 import { Button } from '@/components/ui/button';
 import { editedMessageIdStore } from '@/stores/chat-edited-message';
 import { trpc } from '@/main';
@@ -92,17 +92,32 @@ function useMentionConfigs(): MessageMentionConfig[] {
 
 export const UserMessageBubble = memo(({ message }: { message: UIMessage }) => {
 	const text = useMemo(() => getMessageText(message), [message]);
+	const images = useMemo(() => getMessageImages(message), [message]);
 	const mentionConfigs = useMentionConfigs();
 
 	return (
 		<div className='rounded-2xl px-3 py-2 bg-card text-card-foreground ml-auto max-w-xl'>
 			<MessageSourceBadge source={message.source} />
-			<Message
-				value={text}
-				mentionConfigs={mentionConfigs}
-				theme={messageTheme}
-				className='flex items-center justify-end'
-			/>
+			{images.length > 0 && (
+				<div className='flex gap-2 flex-wrap mb-2'>
+					{images.map((img, idx) => (
+						<img
+							key={idx}
+							src={img.url}
+							alt=''
+							className='max-w-48 max-h-48 rounded-lg object-cover'
+						/>
+					))}
+				</div>
+			)}
+			{text && (
+				<Message
+					value={text}
+					mentionConfigs={mentionConfigs}
+					theme={messageTheme}
+					className='flex items-center justify-end'
+				/>
+			)}
 		</div>
 	);
 });

@@ -155,6 +155,13 @@ export const getMessageText = (message: UIMessage): string => {
 		.join('\n');
 };
 
+export const getMessageImages = (message: UIMessage): { url: string; mediaType: string }[] => {
+	return message.parts
+		.filter((part): part is Extract<UIMessagePart, { type: 'file' }> => part.type === 'file')
+		.filter((part) => part.mediaType.startsWith('image/'))
+		.map((part) => ({ url: part.url, mediaType: part.mediaType }));
+};
+
 /** Group messages into user and response (assistant) messages. */
 export const groupMessages = (messages: UIMessage[]): MessageGroup[] => {
 	const groups: MessageGroup[] = [];
@@ -195,10 +202,11 @@ export const getTextFromUserMessageOrThrow = (message: UIMessage): string => {
 	if (message.role !== 'user') {
 		throw new Error('Message is not a user message.');
 	}
-	if (message.parts.length === 0 || message.parts[0].type !== 'text') {
-		throw new Error('User message has no text.');
+	const textPart = message.parts.find((part) => part.type === 'text');
+	if (!textPart) {
+		return '';
 	}
-	return message.parts[0].text;
+	return textPart.text;
 };
 
 export const checkAssistantMessageHasContent = (message: UIMessage): boolean => {
