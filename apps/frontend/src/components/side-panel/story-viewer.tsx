@@ -88,10 +88,10 @@ export function StoryViewer({ chatId, storyId }: StoryViewerProps) {
 	const {
 		isLive,
 		cacheTtlMinutes,
+		refreshText,
 		isUpdating: isLiveUpdating,
 		isRefreshing,
-		handleToggleLive,
-		handleUpdateCacheTtl,
+		handleSaveSettings,
 		handleRefreshData,
 	} = useStoryViewerLiveSettings({ chatId, storyId: resolvedStoryId });
 	const [isLiveSettingsOpen, setIsLiveSettingsOpen] = useState(false);
@@ -188,9 +188,9 @@ export function StoryViewer({ chatId, storyId }: StoryViewerProps) {
 				onOpenChange={setIsLiveSettingsOpen}
 				isLive={isLive}
 				cacheTtlMinutes={cacheTtlMinutes}
+				refreshText={refreshText}
 				isUpdating={isLiveUpdating}
-				onToggleLive={handleToggleLive}
-				onUpdateCacheTtl={handleUpdateCacheTtl}
+				onSaveSettings={handleSaveSettings}
 			/>
 		</div>
 	);
@@ -478,12 +478,11 @@ const StoryPreview = memo(function StoryPreview({
 	chatId: string;
 	storyId: string;
 }) {
-	const segments = useMemo(() => splitCodeIntoSegments(code), [code]);
-
 	if (isLive) {
-		return <LiveStoryPreview segments={segments} chatId={chatId} storyId={storyId} />;
+		return <LiveStoryPreview code={code} chatId={chatId} storyId={storyId} />;
 	}
 
+	const segments = splitCodeIntoSegments(code);
 	return <StaticStoryPreview segments={segments} />;
 });
 
@@ -502,17 +501,13 @@ const StaticStoryPreview = memo(function StaticStoryPreview({
 	);
 });
 
-function LiveStoryPreview({
-	segments,
-	chatId,
-	storyId,
-}: {
-	segments: ReturnType<typeof splitCodeIntoSegments>;
-	chatId: string;
-	storyId: string;
-}) {
+function LiveStoryPreview({ code, chatId, storyId }: { code: string; chatId: string; storyId: string }) {
 	const { data } = useQuery(trpc.story.getLatest.queryOptions({ chatId, storyId }));
 	const queryData = data?.queryData as QueryDataMap | null | undefined;
+	const regeneratedCode = data?.regeneratedCode;
+
+	const displayCode = regeneratedCode || code;
+	const segments = useMemo(() => splitCodeIntoSegments(displayCode), [displayCode]);
 
 	const renderChart = useCallback(
 		(chart: ParsedChartBlock) => <LiveChartEmbed chart={chart} queryData={queryData ?? null} />,

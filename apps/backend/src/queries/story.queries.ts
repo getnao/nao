@@ -43,17 +43,17 @@ async function resolveLiveSettings(data: {
 	storyId: string;
 	isLive?: boolean;
 	cacheTtlMinutes?: number | null;
-}): Promise<{ isLive: boolean; cacheTtlMinutes: number | null }> {
+}): Promise<{ isLive: boolean; cacheTtlMinutes: number | null; refreshText: boolean }> {
 	if (data.isLive !== undefined) {
-		return { isLive: data.isLive, cacheTtlMinutes: data.cacheTtlMinutes ?? null };
+		return { isLive: data.isLive, cacheTtlMinutes: data.cacheTtlMinutes ?? null, refreshText: false };
 	}
 
 	const latest = await getLatestVersion(data.chatId, data.storyId);
 	if (latest) {
-		return { isLive: latest.isLive, cacheTtlMinutes: latest.cacheTtlMinutes };
+		return { isLive: latest.isLive, cacheTtlMinutes: latest.cacheTtlMinutes, refreshText: latest.refreshText };
 	}
 
-	return { isLive: false, cacheTtlMinutes: null };
+	return { isLive: false, cacheTtlMinutes: null, refreshText: false };
 }
 
 export async function getLatestVersion(chatId: string, storyId: string): Promise<DBStoryVersion | null> {
@@ -176,11 +176,15 @@ export async function unarchiveStory(chatId: string, storyId: string): Promise<v
 export async function updateLiveSettings(
 	chatId: string,
 	storyId: string,
-	settings: { isLive: boolean; cacheTtlMinutes: number | null },
+	settings: { isLive: boolean; cacheTtlMinutes: number | null; refreshText: boolean },
 ): Promise<void> {
 	await db
 		.update(s.storyVersion)
-		.set({ isLive: settings.isLive, cacheTtlMinutes: settings.cacheTtlMinutes })
+		.set({
+			isLive: settings.isLive,
+			cacheTtlMinutes: settings.cacheTtlMinutes,
+			refreshText: settings.refreshText,
+		})
 		.where(and(eq(s.storyVersion.chatId, chatId), eq(s.storyVersion.storyId, storyId)))
 		.execute();
 }
@@ -199,13 +203,14 @@ export async function upsertStoryDataCache(
 	chatId: string,
 	storyId: string,
 	queryData: Record<string, { data: unknown[]; columns: string[] }>,
+	regeneratedCode?: string | null,
 ): Promise<DBStoryDataCache> {
 	const [row] = await db
 		.insert(s.storyDataCache)
-		.values({ chatId, storyId, queryData, cachedAt: new Date() })
+		.values({ chatId, storyId, queryData, regeneratedCode: regeneratedCode ?? null, cachedAt: new Date() })
 		.onConflictDoUpdate({
 			target: [s.storyDataCache.chatId, s.storyDataCache.storyId],
-			set: { queryData, cachedAt: new Date() },
+			set: { queryData, regeneratedCode: regeneratedCode ?? null, cachedAt: new Date() },
 		})
 		.returning()
 		.execute();

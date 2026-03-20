@@ -14,6 +14,7 @@ export const useStoryViewerLiveSettings = ({ chatId, storyId }: UseStoryViewerLi
 
 	const isLive = latestVersion?.isLive ?? false;
 	const cacheTtlMinutes = latestVersion?.cacheTtlMinutes ?? null;
+	const refreshText = latestVersion?.refreshText ?? false;
 
 	const updateLiveSettingsMutation = useMutation(
 		trpc.story.updateLiveSettings.mutationOptions({
@@ -38,28 +39,11 @@ export const useStoryViewerLiveSettings = ({ chatId, storyId }: UseStoryViewerLi
 		}),
 	);
 
-	const handleToggleLive = useCallback(
-		(newIsLive: boolean) => {
-			updateLiveSettingsMutation.mutate({
-				chatId,
-				storyId,
-				isLive: newIsLive,
-				cacheTtlMinutes: newIsLive ? cacheTtlMinutes : null,
-			});
+	const handleSaveSettings = useCallback(
+		(settings: { isLive: boolean; cacheTtlMinutes: number | null; refreshText: boolean }) => {
+			updateLiveSettingsMutation.mutate({ chatId, storyId, ...settings });
 		},
-		[chatId, storyId, cacheTtlMinutes, updateLiveSettingsMutation],
-	);
-
-	const handleUpdateCacheTtl = useCallback(
-		(newTtl: number | null) => {
-			updateLiveSettingsMutation.mutate({
-				chatId,
-				storyId,
-				isLive,
-				cacheTtlMinutes: newTtl,
-			});
-		},
-		[chatId, storyId, isLive, updateLiveSettingsMutation],
+		[chatId, storyId, updateLiveSettingsMutation],
 	);
 
 	const handleRefreshData = useCallback(() => {
@@ -69,10 +53,10 @@ export const useStoryViewerLiveSettings = ({ chatId, storyId }: UseStoryViewerLi
 	return {
 		isLive,
 		cacheTtlMinutes,
+		refreshText,
 		isUpdating: updateLiveSettingsMutation.isPending,
 		isRefreshing: refreshDataMutation.isPending,
-		handleToggleLive,
-		handleUpdateCacheTtl,
+		handleSaveSettings,
 		handleRefreshData,
 	};
 };

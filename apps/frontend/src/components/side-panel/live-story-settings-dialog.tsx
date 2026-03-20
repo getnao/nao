@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Activity } from 'lucide-react';
+import { Activity, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
 	Dialog,
@@ -17,9 +17,9 @@ interface LiveStorySettingsDialogProps {
 	onOpenChange: (open: boolean) => void;
 	isLive: boolean;
 	cacheTtlMinutes: number | null;
+	refreshText: boolean;
 	isUpdating: boolean;
-	onToggleLive: (isLive: boolean) => void;
-	onUpdateCacheTtl: (ttl: number | null) => void;
+	onSaveSettings: (settings: { isLive: boolean; cacheTtlMinutes: number | null; refreshText: boolean }) => void;
 }
 
 const TTL_OPTIONS = [
@@ -37,35 +37,36 @@ export function LiveStorySettingsDialog({
 	onOpenChange,
 	isLive,
 	cacheTtlMinutes,
+	refreshText,
 	isUpdating,
-	onToggleLive,
-	onUpdateCacheTtl,
+	onSaveSettings,
 }: LiveStorySettingsDialogProps) {
 	const [localIsLive, setLocalIsLive] = useState(isLive);
 	const [localTtl, setLocalTtl] = useState<string>(cacheTtlMinutes?.toString() ?? 'manual');
+	const [localRefreshText, setLocalRefreshText] = useState(refreshText);
 
 	useEffect(() => {
 		if (open) {
 			setLocalIsLive(isLive);
 			setLocalTtl(cacheTtlMinutes?.toString() ?? 'manual');
+			setLocalRefreshText(refreshText);
 		}
-	}, [open, isLive, cacheTtlMinutes]);
+	}, [open, isLive, cacheTtlMinutes, refreshText]);
 
 	const hasChanges =
-		localIsLive !== isLive || (localIsLive && localTtl !== (cacheTtlMinutes?.toString() ?? 'manual'));
+		localIsLive !== isLive ||
+		(localIsLive && localTtl !== (cacheTtlMinutes?.toString() ?? 'manual')) ||
+		localRefreshText !== refreshText;
 
 	const handleSave = useCallback(() => {
-		if (localIsLive !== isLive) {
-			onToggleLive(localIsLive);
-		}
-		if (localIsLive) {
-			const newTtl = localTtl === 'manual' ? null : parseInt(localTtl, 10);
-			if (newTtl !== cacheTtlMinutes) {
-				onUpdateCacheTtl(newTtl);
-			}
-		}
+		const newTtl = localTtl === 'manual' ? null : parseInt(localTtl, 10);
+		onSaveSettings({
+			isLive: localIsLive,
+			cacheTtlMinutes: localIsLive ? newTtl : null,
+			refreshText: localIsLive ? localRefreshText : false,
+		});
 		onOpenChange(false);
-	}, [localIsLive, localTtl, isLive, cacheTtlMinutes, onToggleLive, onUpdateCacheTtl, onOpenChange]);
+	}, [localIsLive, localTtl, localRefreshText, onSaveSettings, onOpenChange]);
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
@@ -92,25 +93,42 @@ export function LiveStorySettingsDialog({
 					</div>
 
 					{localIsLive && (
-						<div className='flex flex-col gap-2'>
-							<label className='text-sm font-medium'>Cache expiration</label>
-							<p className='text-xs text-muted-foreground'>
-								How often the cached data should be automatically refreshed. You can always refresh
-								manually using the refresh button.
-							</p>
-							<Select value={localTtl} onValueChange={setLocalTtl}>
-								<SelectTrigger className='w-full'>
-									<SelectValue />
-								</SelectTrigger>
-								<SelectContent>
-									{TTL_OPTIONS.map((opt) => (
-										<SelectItem key={opt.value} value={opt.value}>
-											{opt.label}
-										</SelectItem>
-									))}
-								</SelectContent>
-							</Select>
-						</div>
+						<>
+							<div className='flex flex-col gap-2'>
+								<label className='text-sm font-medium'>Cache expiration</label>
+								<p className='text-xs text-muted-foreground'>
+									How often the cached data should be automatically refreshed. You can always refresh
+									manually using the refresh button.
+								</p>
+								<Select value={localTtl} onValueChange={setLocalTtl}>
+									<SelectTrigger className='w-full'>
+										<SelectValue />
+									</SelectTrigger>
+									<SelectContent>
+										{TTL_OPTIONS.map((opt) => (
+											<SelectItem key={opt.value} value={opt.value}>
+												{opt.label}
+											</SelectItem>
+										))}
+									</SelectContent>
+								</Select>
+							</div>
+
+							<div className='flex items-center justify-between gap-4'>
+								<div className='flex items-center gap-2.5'>
+									<div className='flex size-8 items-center justify-center rounded-full bg-violet-100 text-violet-600'>
+										<Sparkles className='size-4' />
+									</div>
+									<div>
+										<p className='text-sm font-medium'>Refresh text analysis</p>
+										<p className='text-xs text-muted-foreground'>
+											Use AI to update the story text when data refreshes
+										</p>
+									</div>
+								</div>
+								<Switch checked={localRefreshText} onCheckedChange={setLocalRefreshText} />
+							</div>
+						</>
 					)}
 				</div>
 

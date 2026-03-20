@@ -2,11 +2,14 @@ import { env } from '../env';
 import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as storyQueries from '../queries/story.queries';
+import { regenerateStoryText } from './story-text-regeneration';
 
-export async function refreshStoryData(
-	chatId: string,
-	storyId: string,
-): Promise<Record<string, { data: unknown[]; columns: string[] }>> {
+export interface RefreshResult {
+	queryData: Record<string, { data: unknown[]; columns: string[] }>;
+	regeneratedCode: string | null;
+}
+
+export async function refreshStoryData(chatId: string, storyId: string): Promise<RefreshResult> {
 	const version = await storyQueries.getLatestVersion(chatId, storyId);
 	if (!version) {
 		throw new Error('Story not found');
@@ -14,7 +17,7 @@ export async function refreshStoryData(
 
 	const sqlQueries = await storyQueries.collectSqlQueries(chatId, version.code);
 	if (Object.keys(sqlQueries).length === 0) {
-		return {};
+		return { queryData: {}, regeneratedCode: null };
 	}
 
 	const projectId = await chatQueries.getChatProjectId(chatId);
@@ -36,9 +39,24 @@ export async function refreshStoryData(
 		}),
 	);
 
-	await storyQueries.upsertStoryDataCache(chatId, storyId, queryData);
+	let regeneratedCode: string | null = null;
+	if (version.refreshText && Object.keys(queryData).length > 0) {
+		try {
+			regeneratedCode = await regenerateStoryText(chatId, version.code, queryData);
+		} catch (err) {
+			console.error('[live-story] Text regeneration failed, keeping original text:', err);
+		}
+	}
 
-	return queryData;
+	await storyQueries.upsertStoryDataCache(chatId, storyId, queryData, regeneratedCode);
+
+	return { queryData, regeneratedCode };
+}
+
+export interface StoryQueryDataResult {
+	queryData: Record<string, { data: unknown[]; columns: string[] }> | null;
+	regeneratedCode: string | null;
+	cachedAt: Date | null;
 }
 
 export async function getStoryQueryData(
@@ -47,10 +65,10 @@ export async function getStoryQueryData(
 	code: string,
 	isLive: boolean,
 	cacheTtlMinutes: number | null,
-): Promise<{ queryData: Record<string, { data: unknown[]; columns: string[] }> | null; cachedAt: Date | null }> {
+): Promise<StoryQueryDataResult> {
 	if (!isLive) {
 		const { collectQueryData } = await import('../queries/shared-story.queries');
-		return { queryData: await collectQueryData(chatId, code), cachedAt: null };
+		return { queryData: await collectQueryData(chatId, code), regeneratedCode: null, cachedAt: null };
 	}
 
 	const cache = await storyQueries.getStoryDataCache(chatId, storyId);
@@ -60,22 +78,31 @@ export async function getStoryQueryData(
 			cacheTtlMinutes === null || Date.now() - cache.cachedAt.getTime() < cacheTtlMinutes * 60 * 1000;
 
 		if (isCacheValid) {
-			return { queryData: cache.queryData, cachedAt: cache.cachedAt };
+			return {
+				queryData: cache.queryData,
+				regeneratedCode: cache.regeneratedCode,
+				cachedAt: cache.cachedAt,
+			};
 		}
 	}
 
 	try {
-		const queryData = await refreshStoryData(chatId, storyId);
+		const { queryData, regeneratedCode } = await refreshStoryData(chatId, storyId);
 		return {
 			queryData: Object.keys(queryData).length > 0 ? queryData : null,
+			regeneratedCode,
 			cachedAt: new Date(),
 		};
 	} catch {
 		if (cache) {
-			return { queryData: cache.queryData, cachedAt: cache.cachedAt };
+			return {
+				queryData: cache.queryData,
+				regeneratedCode: cache.regeneratedCode,
+				cachedAt: cache.cachedAt,
+			};
 		}
 		const { collectQueryData } = await import('../queries/shared-story.queries');
-		return { queryData: await collectQueryData(chatId, code), cachedAt: null };
+		return { queryData: await collectQueryData(chatId, code), regeneratedCode: null, cachedAt: null };
 	}
 }
 

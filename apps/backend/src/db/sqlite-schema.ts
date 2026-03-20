@@ -435,6 +435,7 @@ export const storyVersion = sqliteTable(
 		source: text('source', { enum: STORY_SOURCES }).notNull(),
 		isLive: integer('is_live', { mode: 'boolean' }).default(false).notNull(),
 		cacheTtlMinutes: integer('cache_ttl_minutes'),
+		refreshText: integer('refresh_text', { mode: 'boolean' }).default(false).notNull(),
 		archivedAt: integer('archived_at', { mode: 'timestamp_ms' }),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
@@ -456,6 +457,7 @@ export const storyDataCache = sqliteTable(
 		queryData: text('query_data', { mode: 'json' })
 			.$type<Record<string, { data: unknown[]; columns: string[] }>>()
 			.notNull(),
+		regeneratedCode: text('regenerated_code'),
 		cachedAt: integer('cached_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull(),

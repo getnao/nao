@@ -190,6 +190,13 @@
       "when": 1774041600000,
       "tag": "0026_live_stories",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1774128000000,
+      "tag": "0027_live_story_text_regeneration",
+      "breakpoints": true
     }
   ]
 }

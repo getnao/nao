@@ -109,7 +109,7 @@ function StoryPreviewPage() {
 			)}
 
 			<PreviewContent
-				code={story.code}
+				code={story.regeneratedCode || story.code}
 				queryData={
 					story.queryData as Record<string, { data: Record<string, unknown>[]; columns: string[] }> | null
 				}
