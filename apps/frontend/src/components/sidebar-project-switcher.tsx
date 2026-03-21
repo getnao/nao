@@ -35,9 +35,7 @@ export function SidebarProjectSwitcher({ isCollapsed }: { isCollapsed: boolean }
 							) : (
 								<FolderOpen className='size-3.5 shrink-0 text-muted-foreground' />
 							)}
-							<span className='truncate text-sm'>
-								{activeProject?.name ?? 'No project'}
-							</span>
+							<span className='truncate text-sm'>{activeProject?.name ?? 'No project'}</span>
 						</div>
 						<ChevronsUpDown className='size-3.5 shrink-0 text-muted-foreground' />
 					</Button>
@@ -57,9 +55,7 @@ export function SidebarProjectSwitcher({ isCollapsed }: { isCollapsed: boolean }
 									<FolderOpen className='size-3.5 shrink-0 text-muted-foreground' />
 								)}
 								<span className='truncate'>{p.name}</span>
-								{activeProject?.id === p.id && (
-									<Check className={cn('size-3.5 shrink-0 ml-auto')} />
-								)}
+								{activeProject?.id === p.id && <Check className={cn('size-3.5 shrink-0 ml-auto')} />}
 							</DropdownMenuItem>
 						))}
 					</DropdownMenuGroup>

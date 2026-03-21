@@ -91,16 +91,14 @@ export const projectRoutes = {
 			return project;
 		}),
 
-	remove: protectedProcedure
-		.input(z.object({ projectId: z.string() }))
-		.mutation(async ({ ctx, input }) => {
-			const role = await projectQueries.getUserRoleInProject(input.projectId, ctx.user.id);
-			if (role !== 'admin') {
-				throw new TRPCError({ code: 'FORBIDDEN', message: 'Only admins can delete a project.' });
-			}
-			await projectQueries.deleteProject(input.projectId);
-			return { success: true };
-		}),
+	remove: protectedProcedure.input(z.object({ projectId: z.string() })).mutation(async ({ ctx, input }) => {
+		const role = await projectQueries.getUserRoleInProject(input.projectId, ctx.user.id);
+		if (role !== 'admin') {
+			throw new TRPCError({ code: 'FORBIDDEN', message: 'Only admins can delete a project.' });
+		}
+		await projectQueries.deleteProject(input.projectId);
+		return { success: true };
+	}),
 
 	getCurrent: projectProtectedProcedure.query(({ ctx }) => {
 		if (!ctx.project) {

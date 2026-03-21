@@ -171,10 +171,7 @@ export const project = sqliteTable(
 			'local_project_path_required',
 			sql`CASE WHEN ${t.type} = 'local' THEN ${t.path} IS NOT NULL ELSE TRUE END`,
 		),
-		check(
-			'git_project_url_required',
-			sql`CASE WHEN ${t.type} = 'git' THEN ${t.gitUrl} IS NOT NULL ELSE TRUE END`,
-		),
+		check('git_project_url_required', sql`CASE WHEN ${t.type} = 'git' THEN ${t.gitUrl} IS NOT NULL ELSE TRUE END`),
 		index('project_orgId_idx').on(t.orgId),
 	],
 );

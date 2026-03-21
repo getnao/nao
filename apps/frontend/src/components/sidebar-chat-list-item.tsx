@@ -34,9 +34,7 @@ export function ChatListItem({ chat }: Props) {
 	const activity = useChatActivity(chat.id);
 	const toggleStarred = useToggleStarred();
 	const { projects, hasMultiple: hasMultipleProjects } = useProjects();
-	const projectName = hasMultipleProjects
-		? projects.find((p) => p.id === chat.projectId)?.name
-		: undefined;
+	const projectName = hasMultipleProjects ? projects.find((p) => p.id === chat.projectId)?.name : undefined;
 	const [title, setTitle] = useState(chat.title);
 	const [isRenaming, setIsRenaming] = useState(false);
 	const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
@@ -147,9 +145,7 @@ export function ChatListItem({ chat }: Props) {
 						<div className='flex flex-col min-w-0 mr-auto'>
 							<div className='truncate text-sm'>{chat.title}</div>
 							{projectName && (
-								<span className='truncate text-[10px] text-muted-foreground/70'>
-									{projectName}
-								</span>
+								<span className='truncate text-[10px] text-muted-foreground/70'>{projectName}</span>
 							)}
 						</div>
 						{activity.running ? (

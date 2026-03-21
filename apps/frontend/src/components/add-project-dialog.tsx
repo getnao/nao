@@ -15,13 +15,7 @@ import { trpc, trpcClient } from '@/main';
 
 type ProjectType = 'local' | 'git';
 
-export function AddProjectDialog({
-	open,
-	onOpenChange,
-}: {
-	open: boolean;
-	onOpenChange: (open: boolean) => void;
-}) {
+export function AddProjectDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
 	const [type, setType] = useState<ProjectType>('local');
 	const [name, setName] = useState('');
 	const [path, setPath] = useState('');
@@ -60,8 +54,7 @@ export function AddProjectDialog({
 		onOpenChange(false);
 	};
 
-	const canSubmit =
-		name.trim() && (type === 'local' ? path.trim() : gitUrl.trim()) && !createProject.isPending;
+	const canSubmit = name.trim() && (type === 'local' ? path.trim() : gitUrl.trim()) && !createProject.isPending;
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
@@ -116,9 +109,7 @@ export function AddProjectDialog({
 					)}
 				</div>
 
-				{createProject.error && (
-					<p className='text-sm text-destructive'>{createProject.error.message}</p>
-				)}
+				{createProject.error && <p className='text-sm text-destructive'>{createProject.error.message}</p>}
 
 				<DialogFooter>
 					<Button variant='outline' onClick={resetAndClose}>
