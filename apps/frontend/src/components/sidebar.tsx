@@ -11,6 +11,7 @@ import {
 	X,
 	ListFilter,
 	Check,
+	Layers,
 } from 'lucide-react';
 import { ChatList } from './sidebar-chat-list';
 import { ChatListItem } from './sidebar-chat-list-item';
@@ -23,6 +24,7 @@ import {
 	DropdownMenuContent,
 	DropdownMenuGroup,
 	DropdownMenuItem,
+	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from './ui/dropdown-menu';
 
@@ -260,6 +262,7 @@ function SidebarNav({ chats, isCollapsed }: { chats: ChatListItemType[]; isColla
 	const [sharedOpen, setSharedOpen] = useState(false);
 	const { projects, hasMultiple, switchProject } = useProjects();
 	const [projectFilterId, setProjectFilterId] = useState<string | null>(null);
+	const [groupByProject, setGroupByProject] = useState(false);
 
 	const toggleStarred = useCallback(() => {
 		setStarredOpen((prev) => {
@@ -331,6 +334,22 @@ function SidebarNav({ chats, isCollapsed }: { chats: ChatListItemType[]; isColla
 
 	const filterProjectName = projectFilterId ? projects.find((p) => p.id === projectFilterId)?.name : null;
 
+	const groupedByProject = useMemo(() => {
+		if (!groupByProject) {
+			return null;
+		}
+		const groups = new Map<string, { name: string; items: MixedItem[] }>();
+		for (const item of mixedList) {
+			const pid = item.kind === 'own' ? item.data.projectId : '';
+			if (!groups.has(pid)) {
+				const project = projects.find((p) => p.id === pid);
+				groups.set(pid, { name: project?.name ?? 'Other', items: [] });
+			}
+			groups.get(pid)!.items.push(item);
+		}
+		return [...groups.entries()].map(([id, group]) => ({ id, ...group }));
+	}, [groupByProject, mixedList, projects]);
+
 	return (
 		<div
 			className={cn(
@@ -370,6 +389,8 @@ function SidebarNav({ chats, isCollapsed }: { chats: ChatListItemType[]; isColla
 					activeProjectFilterId={projectFilterId}
 					onSelectProjectFilter={handleSelectProjectFilter}
 					filterProjectName={filterProjectName ?? undefined}
+					groupByProject={groupByProject}
+					onToggleGroupByProject={() => setGroupByProject((p) => !p)}
 				/>
 			</div>
 
@@ -386,6 +407,21 @@ function SidebarNav({ chats, isCollapsed }: { chats: ChatListItemType[]; isColla
 							<br />
 							Start a new chat!
 						</p>
+					) : groupedByProject ? (
+						groupedByProject.map((group) => (
+							<div key={group.id}>
+								<div className='px-3 pt-2 pb-0.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider'>
+									{group.name}
+								</div>
+								{group.items.map((item) =>
+									item.kind === 'own' ? (
+										<ChatListItem key={item.data.id} chat={item.data} />
+									) : (
+										<SharedChatListItem key={item.data.id} sharedChat={item.data} />
+									),
+								)}
+							</div>
+						))
 					) : (
 						mixedList.map((item) =>
 							item.kind === 'own' ? (
@@ -463,6 +499,8 @@ function ChatsSectionHeader({
 	activeProjectFilterId,
 	onSelectProjectFilter,
 	filterProjectName,
+	groupByProject,
+	onToggleGroupByProject,
 }: {
 	isOpen: boolean;
 	onToggle: () => void;
@@ -474,6 +512,8 @@ function ChatsSectionHeader({
 	activeProjectFilterId: string | null;
 	onSelectProjectFilter: (id: string | null) => void;
 	filterProjectName?: string;
+	groupByProject: boolean;
+	onToggleGroupByProject: () => void;
 }) {
 	return (
 		<SidebarSectionHeader
@@ -490,10 +530,13 @@ function ChatsSectionHeader({
 									onClick={(e) => e.stopPropagation()}
 									className={cn(
 										'transition-[opacity,border-color,background-color] duration-200 p-1.5 h-5 rounded-sm border gap-1',
-										activeProjectFilterId ? 'opacity-90' : 'opacity-0 group-hover:opacity-90',
+										activeProjectFilterId || groupByProject
+											? 'opacity-90'
+											: 'opacity-0 group-hover:opacity-90',
 										'border-border text-muted-foreground hover:text-muted-foreground',
 										'hover:border-foreground hover:bg-foreground hover:text-background',
-										activeProjectFilterId && 'border-foreground bg-foreground text-background',
+										(activeProjectFilterId || groupByProject) &&
+											'border-foreground bg-foreground text-background',
 									)}
 									variant='ghost-no-hover'
 									size='sm'
@@ -526,6 +569,12 @@ function ChatsSectionHeader({
 										</DropdownMenuItem>
 									))}
 								</DropdownMenuGroup>
+								<DropdownMenuSeparator />
+								<DropdownMenuItem onSelect={onToggleGroupByProject} className='flex items-center gap-2'>
+									<Layers className='size-3.5' />
+									<span className='truncate'>Group by project</span>
+									{groupByProject && <Check className='size-3.5 shrink-0 ml-auto' />}
+								</DropdownMenuItem>
 							</DropdownMenuContent>
 						</DropdownMenu>
 					)}
