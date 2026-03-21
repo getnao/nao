@@ -1,17 +1,33 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useMatchRoute, useRouterState } from '@tanstack/react-router';
-import { ArrowLeftFromLine, ArrowRightToLine, PlusIcon, ArrowLeft, ChevronRight, SearchIcon, X } from 'lucide-react';
+import {
+	ArrowLeftFromLine,
+	ArrowRightToLine,
+	PlusIcon,
+	ArrowLeft,
+	ChevronRight,
+	SearchIcon,
+	X,
+	ListFilter,
+	Check,
+} from 'lucide-react';
 import { ChatList } from './sidebar-chat-list';
 import { ChatListItem } from './sidebar-chat-list-item';
 import { SharedChatListItem } from './shared-chat-list-item';
 import { SidebarUserMenu } from './sidebar-user-menu';
 import { SidebarSettingsNav } from './sidebar-settings-nav';
 import { Spinner } from './ui/spinner';
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuGroup,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from './ui/dropdown-menu';
 
 import StoryIcon from './ui/story-icon';
 import { SidebarCommunity } from './sidebar-community';
-import { SidebarProjectSwitcher } from './sidebar-project-switcher';
 import type { LucideIcon } from 'lucide-react';
 import type { ChatListItem as ChatListItemType } from '@nao/backend/chat';
 import type { SharedChatWithDetails } from '@nao/backend/shared-chat';
@@ -21,6 +37,7 @@ import { useChatListQuery } from '@/queries/use-chat-list-query';
 import { useSidebar } from '@/contexts/sidebar';
 import { useCommandMenuCallback } from '@/contexts/command-menu-callback';
 import { useSectionActivity } from '@/hooks/use-chat-activity';
+import { useProjects } from '@/hooks/use-projects';
 import NaoLogo from '@/components/icons/nao-logo.svg';
 import { trpc } from '@/main';
 
@@ -147,8 +164,6 @@ export function Sidebar() {
 							)}
 						</div>
 
-						<SidebarProjectSwitcher isCollapsed={effectiveIsCollapsed} />
-
 						<SidebarMenuButton
 							icon={PlusIcon}
 							label='New chat'
@@ -243,6 +258,8 @@ function SidebarNav({ chats, isCollapsed }: { chats: ChatListItemType[]; isColla
 	const [starredOpen, setStarredOpen] = useState(() => localStorage.getItem('sidebar-starred-open') !== 'false');
 	const [chatsOpen, setChatsOpen] = useState(() => localStorage.getItem('sidebar-chats-open') !== 'false');
 	const [sharedOpen, setSharedOpen] = useState(false);
+	const { projects, hasMultiple, switchProject } = useProjects();
+	const [projectFilterId, setProjectFilterId] = useState<string | null>(null);
 
 	const toggleStarred = useCallback(() => {
 		setStarredOpen((prev) => {
@@ -258,10 +275,17 @@ function SidebarNav({ chats, isCollapsed }: { chats: ChatListItemType[]; isColla
 		});
 	}, []);
 
+	const filteredChats = useMemo(() => {
+		if (!projectFilterId) {
+			return chats;
+		}
+		return chats.filter((c) => c.projectId === projectFilterId);
+	}, [chats, projectFilterId]);
+
 	const { starred, regular, starredIds, regularIds } = useMemo(() => {
 		const starredChats: ChatListItemType[] = [];
 		const rest: ChatListItemType[] = [];
-		for (const chat of chats) {
+		for (const chat of filteredChats) {
 			if (chat.isStarred) {
 				starredChats.push(chat);
 			} else {
@@ -274,7 +298,7 @@ function SidebarNav({ chats, isCollapsed }: { chats: ChatListItemType[]; isColla
 			starredIds: starredChats.map((c) => c.id),
 			regularIds: rest.map((c) => c.id),
 		};
-	}, [chats]);
+	}, [filteredChats]);
 
 	const starredActivity = useSectionActivity(starredIds);
 	const chatsActivity = useSectionActivity(regularIds);
@@ -294,6 +318,18 @@ function SidebarNav({ chats, isCollapsed }: { chats: ChatListItemType[]; isColla
 
 		return [...own, ...shared].sort((a, b) => normalizeDate(b.data.createdAt) - normalizeDate(a.data.createdAt));
 	}, [regular, sharedWithMeChats]);
+
+	const handleSelectProjectFilter = useCallback(
+		(id: string | null) => {
+			setProjectFilterId(id);
+			if (id) {
+				switchProject(id);
+			}
+		},
+		[switchProject],
+	);
+
+	const filterProjectName = projectFilterId ? projects.find((p) => p.id === projectFilterId)?.name : null;
 
 	return (
 		<div
@@ -329,6 +365,11 @@ function SidebarNav({ chats, isCollapsed }: { chats: ChatListItemType[]; isColla
 					activity={chatsActivity}
 					sharedOpen={sharedOpen}
 					onToggleShared={() => setSharedOpen((prev) => !prev)}
+					hasMultipleProjects={hasMultiple}
+					projects={projects}
+					activeProjectFilterId={projectFilterId}
+					onSelectProjectFilter={handleSelectProjectFilter}
+					filterProjectName={filterProjectName ?? undefined}
 				/>
 			</div>
 
@@ -417,12 +458,22 @@ function ChatsSectionHeader({
 	activity,
 	sharedOpen,
 	onToggleShared,
+	hasMultipleProjects,
+	projects,
+	activeProjectFilterId,
+	onSelectProjectFilter,
+	filterProjectName,
 }: {
 	isOpen: boolean;
 	onToggle: () => void;
 	activity?: { running: boolean; unread: boolean };
 	sharedOpen: boolean;
 	onToggleShared: () => void;
+	hasMultipleProjects: boolean;
+	projects: { id: string; name: string }[];
+	activeProjectFilterId: string | null;
+	onSelectProjectFilter: (id: string | null) => void;
+	filterProjectName?: string;
 }) {
 	return (
 		<SidebarSectionHeader
@@ -431,23 +482,71 @@ function ChatsSectionHeader({
 			onToggle={onToggle}
 			activity={activity}
 			extra={
-				<Button
-					onClick={(e) => {
-						e.stopPropagation();
-						onToggleShared();
-					}}
-					className={cn(
-						'transition-[opacity,border-color,background-color] duration-200 p-2 h-5 rounded-sm border',
-						sharedOpen ? 'opacity-90' : 'opacity-0 group-hover:opacity-90',
-						'border-border text-muted-foreground hover:text-muted-foreground',
-						'hover:border-foreground hover:bg-foreground hover:text-background',
-						sharedOpen && 'border-foreground bg-foreground text-background',
+				<div className='flex items-center gap-1'>
+					{hasMultipleProjects && (
+						<DropdownMenu>
+							<DropdownMenuTrigger asChild>
+								<Button
+									onClick={(e) => e.stopPropagation()}
+									className={cn(
+										'transition-[opacity,border-color,background-color] duration-200 p-1.5 h-5 rounded-sm border gap-1',
+										activeProjectFilterId ? 'opacity-90' : 'opacity-0 group-hover:opacity-90',
+										'border-border text-muted-foreground hover:text-muted-foreground',
+										'hover:border-foreground hover:bg-foreground hover:text-background',
+										activeProjectFilterId && 'border-foreground bg-foreground text-background',
+									)}
+									variant='ghost-no-hover'
+									size='sm'
+								>
+									<ListFilter className='size-3' />
+									{filterProjectName && (
+										<span className='text-[10px] max-w-[80px] truncate'>{filterProjectName}</span>
+									)}
+								</Button>
+							</DropdownMenuTrigger>
+							<DropdownMenuContent align='end' className='w-52'>
+								<DropdownMenuGroup>
+									<DropdownMenuItem
+										onSelect={() => onSelectProjectFilter(null)}
+										className='flex items-center gap-2'
+									>
+										<span className='truncate'>All projects</span>
+										{!activeProjectFilterId && <Check className='size-3.5 shrink-0 ml-auto' />}
+									</DropdownMenuItem>
+									{projects.map((p) => (
+										<DropdownMenuItem
+											key={p.id}
+											onSelect={() => onSelectProjectFilter(p.id)}
+											className='flex items-center gap-2'
+										>
+											<span className='truncate'>{p.name}</span>
+											{activeProjectFilterId === p.id && (
+												<Check className='size-3.5 shrink-0 ml-auto' />
+											)}
+										</DropdownMenuItem>
+									))}
+								</DropdownMenuGroup>
+							</DropdownMenuContent>
+						</DropdownMenu>
 					)}
-					variant='ghost-no-hover'
-					size='sm'
-				>
-					<span className='text-[10px]'>Shared with me</span>
-				</Button>
+					<Button
+						onClick={(e) => {
+							e.stopPropagation();
+							onToggleShared();
+						}}
+						className={cn(
+							'transition-[opacity,border-color,background-color] duration-200 p-2 h-5 rounded-sm border',
+							sharedOpen ? 'opacity-90' : 'opacity-0 group-hover:opacity-90',
+							'border-border text-muted-foreground hover:text-muted-foreground',
+							'hover:border-foreground hover:bg-foreground hover:text-background',
+							sharedOpen && 'border-foreground bg-foreground text-background',
+						)}
+						variant='ghost-no-hover'
+						size='sm'
+					>
+						<span className='text-[10px]'>Shared with me</span>
+					</Button>
+				</div>
 			}
 		/>
 	);

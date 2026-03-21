@@ -19,6 +19,11 @@ const settingsNavItems: NavItem[] = [
 		visible: undefined,
 	},
 	{
+		label: 'Projects',
+		to: '/settings/projects',
+		visible: undefined,
+	},
+	{
 		label: 'Project',
 		to: '/settings/project',
 		visible: undefined,
