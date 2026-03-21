@@ -101,12 +101,7 @@ export const UserMessageBubble = memo(({ message }: { message: UIMessage }) => {
 			{images.length > 0 && (
 				<div className='flex gap-2 flex-wrap mb-2'>
 					{images.map((img, idx) => (
-						<img
-							key={idx}
-							src={img.url}
-							alt=''
-							className='max-w-48 max-h-48 rounded-lg object-cover'
-						/>
+						<img key={idx} src={img.url} alt='' className='max-w-48 max-h-48 rounded-lg object-cover' />
 					))}
 				</div>
 			)}

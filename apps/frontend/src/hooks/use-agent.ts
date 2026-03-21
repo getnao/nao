@@ -114,32 +114,32 @@ export const useAgent = (): AgentHelpers => {
 		};
 
 		const newAgent = new Agent<UIMessage>({
-		transport: new DefaultChatTransport({
-			api: '/api/agent',
-			prepareSendMessagesRequest: ({ body, messages }) => {
-				const messageToSend = messages.at(-1);
-				if (!messageToSend) {
-					throw new Error('No message to send.');
-				}
+			transport: new DefaultChatTransport({
+				api: '/api/agent',
+				prepareSendMessagesRequest: ({ body, messages }) => {
+					const messageToSend = messages.at(-1);
+					if (!messageToSend) {
+						throw new Error('No message to send.');
+					}
 
-				const mentions = mentionsRef.current;
-				mentionsRef.current = [];
-				const images = extractImagesFromMessage(messageToSend);
-				return {
-					body: {
-						...body,
-						chatId: agentId === NEW_CHAT_ID ? undefined : agentId,
-						message: {
-							text: getTextFromUserMessageOrThrow(messageToSend),
-							images: images.length > 0 ? images : undefined,
+					const mentions = mentionsRef.current;
+					mentionsRef.current = [];
+					const images = extractImagesFromMessage(messageToSend);
+					return {
+						body: {
+							...body,
+							chatId: agentId === NEW_CHAT_ID ? undefined : agentId,
+							message: {
+								text: getTextFromUserMessageOrThrow(messageToSend),
+								images: images.length > 0 ? images : undefined,
+							},
+							model: selectedModelRef.current ?? undefined,
+							mentions: mentions.length > 0 ? mentions : undefined,
+							timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
 						},
-						model: selectedModelRef.current ?? undefined,
-						mentions: mentions.length > 0 ? mentions : undefined,
-						timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-					},
-				};
-			},
-		}),
+					};
+				},
+			}),
 			onData: (dataPart) => handleAgentDataPart(dataPart, newAgent),
 			onFinish: ({ isAbort, isError, isDisconnect }) => {
 				const canSendNextMessage = !isAbort && !isError && !isDisconnect;

@@ -587,19 +587,16 @@ export const llmInference = sqliteTable(
 	],
 );
 
-export const messageImage = sqliteTable(
-	'message_image',
-	{
-		id: text('id')
-			.$defaultFn(() => crypto.randomUUID())
-			.primaryKey(),
-		data: text('data').notNull(),
-		mediaType: text('media_type').notNull(),
-		createdAt: integer('created_at', { mode: 'timestamp_ms' })
-			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
-			.notNull(),
-	},
-);
+export const messageImage = sqliteTable('message_image', {
+	id: text('id')
+		.$defaultFn(() => crypto.randomUUID())
+		.primaryKey(),
+	data: text('data').notNull(),
+	mediaType: text('media_type').notNull(),
+	createdAt: integer('created_at', { mode: 'timestamp_ms' })
+		.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+		.notNull(),
+});
 
 export const message_part_chart_image = sqliteTable('chart_image', {
 	id: text('id')

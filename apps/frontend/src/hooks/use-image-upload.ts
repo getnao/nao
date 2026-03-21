@@ -39,9 +39,7 @@ export function useImageUpload() {
 	const fileInputRef = useRef<HTMLInputElement>(null);
 
 	const addFiles = useCallback(async (files: FileList | File[]) => {
-		const fileArray = Array.from(files).filter(
-			(f) => isAcceptedImageType(f.type) && f.size <= MAX_IMAGE_SIZE,
-		);
+		const fileArray = Array.from(files).filter((f) => isAcceptedImageType(f.type) && f.size <= MAX_IMAGE_SIZE);
 
 		if (fileArray.length === 0) {
 			return;

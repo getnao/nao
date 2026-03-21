@@ -15,11 +15,7 @@ export function ChatInputImagePreview({ images, onRemove }: ChatInputImagePrevie
 		<div className='flex gap-2 px-3 pt-3 flex-wrap'>
 			{images.map((image) => (
 				<div key={image.id} className='relative group/preview'>
-					<img
-						src={image.dataUrl}
-						alt=''
-						className='size-16 rounded-lg object-cover border border-border'
-					/>
+					<img src={image.dataUrl} alt='' className='size-16 rounded-lg object-cover border border-border' />
 					<button
 						type='button'
 						onClick={() => onRemove(image.id)}
