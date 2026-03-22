@@ -246,11 +246,26 @@ export const ChartDisplay = memo(function ChartDisplay({
 	title,
 	showGrid = true,
 }: ChartDisplayProps) {
-	const { visibleSeries, hiddenSeriesKeys, handleToggleSeriesVisibility } = useSeriesVisibility(series);
+	const { finalSeries, finalData } = useMemo(() => {
+		if (!series.some((s) => s.breakdown_key)) {
+			return {
+				finalSeries: series,
+				finalData: data,
+			};
+		}
+		const { pivotedData, expandedSeries } = handleBreakdownKeys(series, xAxisKey, data);
+
+		return {
+			finalSeries: expandedSeries,
+			finalData: pivotedData,
+		};
+	}, [data, series, xAxisKey]);
+
+	const { visibleSeries, hiddenSeriesKeys, handleToggleSeriesVisibility } = useSeriesVisibility(finalSeries);
 
 	const chartConfig = useMemo((): ChartConfig => {
 		if (chartType === 'pie') {
-			const values = new Set(data.map((item) => String(item[xAxisKey])));
+			const values = new Set(finalData.map((item) => String(item[xAxisKey])));
 			return [...values].reduce(
 				(acc, v, index) => {
 					acc[toKey(v)] = {
@@ -267,14 +282,14 @@ export const ChartDisplay = memo(function ChartDisplay({
 			);
 		}
 
-		return series.reduce((acc, s, idx) => {
+		return finalSeries.reduce((acc, s, idx) => {
 			acc[s.data_key] = {
 				label: s.label || labelize(s.data_key),
 				color: s.color || Colors[idx % Colors.length],
 			};
 			return acc;
 		}, {} as ChartConfig);
-	}, [series, xAxisKey, data, chartType]);
+	}, [finalSeries, xAxisKey, finalData, chartType]);
 
 	const colorFor = useMemo(
 		() =>
@@ -286,19 +301,19 @@ export const ChartDisplay = memo(function ChartDisplay({
 
 	const legendPayload = useMemo(
 		() =>
-			series.map((s, idx) => ({
+			finalSeries.map((s, idx) => ({
 				value: s.label || labelize(s.data_key),
 				dataKey: s.data_key,
 				color: s.color || Colors[idx % Colors.length],
 				isHidden: hiddenSeriesKeys.has(s.data_key),
 			})),
-		[series, hiddenSeriesKeys],
+		[finalSeries, hiddenSeriesKeys],
 	);
 
 	const chartElement = useMemo(
 		() =>
 			buildChart({
-				data,
+				data: finalData,
 				chartType,
 				xAxisKey,
 				xAxisType,
@@ -326,7 +341,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 				title,
 			}),
 		[
-			data,
+			finalData,
 			chartType,
 			xAxisKey,
 			xAxisType,
@@ -352,6 +367,59 @@ export const ChartDisplay = memo(function ChartDisplay({
 		</div>
 	);
 });
+
+/** Handles breakdown keys in series config - expands the series and pivots the data  */
+const handleBreakdownKeys = (
+	series: displayChart.SeriesConfig[],
+	xAxisKey: string,
+	data: Record<string, unknown>[],
+): {
+	pivotedData: Record<string, unknown>[];
+	expandedSeries: displayChart.SeriesConfig[];
+} => {
+	const grouped = new Map<string, Record<string, unknown>>();
+	const expandedSeries: displayChart.SeriesConfig[] = [];
+
+	for (const row of data) {
+		const x = row[xAxisKey] as string;
+		if (x == null) {
+			continue;
+		}
+
+		if (!grouped.has(x)) {
+			grouped.set(x, { [xAxisKey]: x });
+		}
+
+		const target = grouped.get(x)!;
+
+		for (const s of series) {
+			if (!s.breakdown_key) {
+				continue;
+			}
+
+			const breakdown = row[s.breakdown_key] as string;
+			const value = row[s.data_key];
+
+			if (breakdown == null) {
+				continue;
+			}
+
+			target[breakdown] = value;
+
+			if (!expandedSeries.some((es) => es.data_key === breakdown)) {
+				expandedSeries.push({
+					data_key: breakdown,
+					label: labelize(breakdown),
+				});
+			}
+		}
+	}
+
+	return {
+		pivotedData: Array.from(grouped.values()),
+		expandedSeries,
+	};
+};
 
 /** Manages which series are visible and hidden */
 const useSeriesVisibility = (series: displayChart.SeriesConfig[]) => {

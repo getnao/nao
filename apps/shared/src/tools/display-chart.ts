@@ -6,6 +6,12 @@ export const XAxisTypeEnum = z.enum(['date', 'number', 'category']);
 
 export const SeriesConfigSchema = z.object({
 	data_key: z.string().describe('Column name from SQL result to plot.'),
+	breakdown_key: z
+		.string()
+		.describe(
+			'Column name from SQL. Creates a series for each value in the column. Useful for generating multiseries charts without pivoting',
+		)
+		.optional(),
 	color: z.string().describe('CSS color (defaults to theme colors).').optional(),
 	label: z.string().describe('Label to display in the legend.').optional(),
 });

@@ -24,13 +24,23 @@ export default tool<displayChart.Input, displayChart.Output>({
 			return { _version: '1', success: false, error: 'At least one series is required.' };
 		}
 
-		// Stacked bar requires at least two series
-		if (chartType === 'stacked_bar' && series.length < 2) {
+		if (series.some((s) => s.breakdown_key) && series.some((s) => s.breakdown_key === undefined)) {
 			return {
 				_version: '1',
 				success: false,
-				error: 'Stacked bar chart requires at least two series. You may need to pivot the data to create a series for each stack.',
+				error: 'Cannot combine breakdown series and none breakdown series',
 			};
+		}
+
+		// Stacked bar requires at least two series or a breakdown
+		if (chartType === 'stacked_bar' && series.length < 2) {
+			if (!series[0]?.breakdown_key) {
+				return {
+					_version: '1',
+					success: false,
+					error: 'Stacked bar chart requires at least two series or a breakdown key. Pivot the data to create a series for each stack or provide a breakdown key.',
+				};
+			}
 		}
 
 		// TODO: check that the chart is displayable and that the data is valid
