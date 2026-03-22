@@ -115,9 +115,11 @@ export const MentionSchema = z.object({
 	label: z.string(),
 });
 
+const ALLOWED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'] as const;
+
 export const AgentRequestImageSchema = z.object({
-	mediaType: z.string(),
-	data: z.string(),
+	mediaType: z.enum(ALLOWED_IMAGE_TYPES),
+	data: z.string().min(1),
 });
 export type AgentRequestImage = z.infer<typeof AgentRequestImageSchema>;
 

@@ -147,7 +147,11 @@ function ChatInputBase({
 	}, [imageUpload.addFiles]); // eslint-disable-line
 
 	useEffect(() => {
-		const handler = (e: ClipboardEvent) => imageUpload.handlePaste(e);
+		const handler = (e: ClipboardEvent) => {
+			if (dropZoneRef.current?.contains(e.target as Node)) {
+				imageUpload.handlePaste(e);
+			}
+		};
 		document.addEventListener('paste', handler);
 		return () => document.removeEventListener('paste', handler);
 	}, [imageUpload.handlePaste]); // eslint-disable-line

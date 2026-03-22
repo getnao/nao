@@ -286,6 +286,10 @@ export const messagePart = pgTable(
 			'tool_call_fields_required',
 			sql`CASE WHEN ${t.type} LIKE 'tool-%' THEN ${t.toolCallId} IS NOT NULL AND ${t.toolState} IS NOT NULL ELSE TRUE END`,
 		),
+		check(
+			'file_fields_required',
+			sql`CASE WHEN ${t.type} = 'file' THEN ${t.mediaType} IS NOT NULL AND ${t.imageId} IS NOT NULL ELSE TRUE END`,
+		),
 	],
 );
 

@@ -30,13 +30,12 @@ export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<H
 		);
 	}
 
-	const imageParts = await saveAndBuildImageParts(message.images);
-
 	let chatId = opts.chatId;
 	const isNewChat = !chatId;
 	let newMessageId: string;
 
 	if (!chatId) {
+		const imageParts = await saveAndBuildImageParts(message.images);
 		const [createdChat, createdMessage] = await createChat(userId, projectId, message, imageParts);
 		chatId = createdChat.id;
 		newMessageId = createdMessage.id;
@@ -46,7 +45,6 @@ export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<H
 			chatId,
 			message,
 			messageToEditId,
-			imageParts,
 		});
 		newMessageId = messageId;
 	}
@@ -115,9 +113,8 @@ const insertOrSupersedeMessage = async (opts: {
 	chatId: string;
 	message: AgentRequestUserMessage;
 	messageToEditId?: string;
-	imageParts: UIMessagePart[];
 }) => {
-	const { userId, chatId, message, messageToEditId, imageParts } = opts;
+	const { userId, chatId, message, messageToEditId } = opts;
 	const ownerId = await chatQueries.getChatOwnerId(chatId);
 	if (!ownerId) {
 		throw new HandlerError('NOT_FOUND', `Chat with id ${chatId} not found.`);
@@ -125,6 +122,9 @@ const insertOrSupersedeMessage = async (opts: {
 	if (ownerId !== userId) {
 		throw new HandlerError('FORBIDDEN', 'You are not authorized to access this chat.');
 	}
+
+	const imageParts = await saveAndBuildImageParts(message.images);
+
 	if (messageToEditId) {
 		await chatQueries.supersedeMessagesFrom(chatId, messageToEditId);
 	}

@@ -127,10 +127,13 @@ export const convertDBPartToUIPart = (part: DBMessagePart): UIMessagePart | unde
 				providerMetadata: part.providerMetadata ?? undefined,
 			};
 		case 'file':
+			if (!part.imageId) {
+				return undefined;
+			}
 			return {
 				type: 'file',
 				mediaType: part.mediaType!,
-				url: part.imageId ? buildImageUrl(part.imageId) : '',
+				url: buildImageUrl(part.imageId),
 			};
 		case 'step-start':
 			return {

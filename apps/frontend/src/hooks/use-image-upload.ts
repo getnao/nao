@@ -38,26 +38,34 @@ export function useImageUpload() {
 	const [images, setImages] = useState<UploadedImage[]>([]);
 	const fileInputRef = useRef<HTMLInputElement>(null);
 
-	const addFiles = useCallback(async (files: FileList | File[]) => {
-		const fileArray = Array.from(files).filter((f) => isAcceptedImageType(f.type) && f.size <= MAX_IMAGE_SIZE);
+	const addFiles = useCallback(
+		async (files: FileList | File[]) => {
+			const fileArray = Array.from(files).filter((f) => isAcceptedImageType(f.type) && f.size <= MAX_IMAGE_SIZE);
 
-		if (fileArray.length === 0) {
-			return;
-		}
+			if (fileArray.length === 0) {
+				return;
+			}
 
-		const newImages: UploadedImage[] = [];
-		for (const file of fileArray) {
-			const dataUrl = await readFileAsDataUrl(file);
-			newImages.push({
-				id: crypto.randomUUID(),
-				file,
-				dataUrl,
-				mediaType: file.type,
-			});
-		}
+			const slotsAvailable = MAX_IMAGES - images.length;
+			const filesToProcess = fileArray.slice(0, Math.max(0, slotsAvailable));
 
-		setImages((prev) => [...prev, ...newImages].slice(0, MAX_IMAGES));
-	}, []);
+			const newImages: UploadedImage[] = [];
+			for (const file of filesToProcess) {
+				const dataUrl = await readFileAsDataUrl(file);
+				newImages.push({
+					id: crypto.randomUUID(),
+					file,
+					dataUrl,
+					mediaType: file.type,
+				});
+			}
+
+			if (newImages.length > 0) {
+				setImages((prev) => [...prev, ...newImages].slice(0, MAX_IMAGES));
+			}
+		},
+		[images.length],
+	);
 
 	const removeImage = useCallback((id: string) => {
 		setImages((prev) => prev.filter((img) => img.id !== id));

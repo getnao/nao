@@ -17,6 +17,10 @@ export const imageRoutes = async (app: App) => {
 			throw new HandlerError('NOT_FOUND', 'Image not found');
 		}
 
+		if (!image.mediaType.startsWith('image/')) {
+			throw new HandlerError('BAD_REQUEST', 'Invalid media type');
+		}
+
 		const buffer = Buffer.from(image.data, 'base64');
 		return reply
 			.header('Content-Type', image.mediaType)

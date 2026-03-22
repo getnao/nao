@@ -28,7 +28,10 @@ export function ImageLightbox({ src, onClose }: ImageLightboxProps) {
 		>
 			<button
 				type='button'
-				onClick={onClose}
+				onClick={(e) => {
+					e.stopPropagation();
+					onClose();
+				}}
 				className='absolute top-4 right-4 size-9 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors cursor-pointer z-10'
 			>
 				<X className='size-5' />
