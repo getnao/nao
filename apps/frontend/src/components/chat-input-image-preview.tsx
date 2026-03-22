@@ -12,7 +12,7 @@ export function ChatInputImagePreview({ images, onRemove }: ChatInputImagePrevie
 	}
 
 	return (
-		<div className='flex gap-2 px-3 pt-3 flex-wrap'>
+		<div className='flex gap-2 px-3 pt-3 flex-wrap w-full justify-start'>
 			{images.map((image) => (
 				<div key={image.id} className='relative group/preview'>
 					<img src={image.dataUrl} alt='' className='size-16 rounded-lg object-cover border border-border' />
