@@ -433,3 +433,18 @@ export const StoryEditor = memo(function StoryEditor({ code, editorRef }: StoryE
 export function getEditorMarkdown(editor: Editor): string {
 	return editor.getMarkdown();
 }
+
+let analysisCounter = 0;
+
+export function insertAnalysisBlock(editor: Editor): void {
+	const id = `analysis-${++analysisCounter}`;
+	const rawTag = `<analysis id="${id}" prompt="" />`;
+	editor
+		.chain()
+		.focus()
+		.insertContent({
+			type: 'analysisBlock',
+			attrs: { rawTag },
+		})
+		.run();
+}

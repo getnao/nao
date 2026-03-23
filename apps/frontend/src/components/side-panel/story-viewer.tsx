@@ -25,7 +25,7 @@ import { Streamdown } from 'streamdown';
 import { ShareStoryDialog } from '../share-dialog.story';
 import { StoryChartEmbed } from './story-chart-embed';
 import { StoryTableEmbed } from './story-table-embed';
-import { StoryEditor } from './story-editor';
+import { StoryEditor, insertAnalysisBlock } from './story-editor';
 import { LiveStorySettingsDialog } from './live-story-settings-dialog';
 import { useStoryViewerAgentState } from './hooks/use-story-viewer-agent-state';
 import { useStoryViewerEnlarge } from './hooks/use-story-viewer-enlarge';
@@ -100,6 +100,12 @@ export function StoryViewer({ chatId, storyId }: StoryViewerProps) {
 	const { handleEnlarge } = useStoryViewerEnlarge({ chatId, storyId: resolvedStoryId });
 	const handleOpenShare = useCallback(() => setIsShareDialogOpen(true), [setIsShareDialogOpen]);
 	const handleOpenLiveSettings = useCallback(() => setIsLiveSettingsOpen(true), []);
+	const handleInsertAnalysis = useCallback(() => {
+		const editor = tiptapEditorRef.current;
+		if (editor) {
+			insertAnalysisBlock(editor);
+		}
+	}, [tiptapEditorRef]);
 
 	const renderStoryViewer = useCallback(
 		(nextStoryId: string) => <StoryViewer chatId={chatId} storyId={nextStoryId} />,
@@ -166,6 +172,7 @@ export function StoryViewer({ chatId, storyId }: StoryViewerProps) {
 				isRefreshing={isRefreshing}
 				onRefreshData={handleRefreshData}
 				onOpenLiveSettings={handleOpenLiveSettings}
+				onInsertAnalysis={handleInsertAnalysis}
 				onClose={closeSidePanel}
 			/>
 
@@ -259,6 +266,7 @@ const StoryHeader = memo(function StoryHeader({
 	isRefreshing,
 	onRefreshData,
 	onOpenLiveSettings,
+	onInsertAnalysis,
 	onClose,
 }: {
 	title: string;
@@ -283,6 +291,7 @@ const StoryHeader = memo(function StoryHeader({
 	isRefreshing: boolean;
 	onRefreshData: () => void;
 	onOpenLiveSettings: () => void;
+	onInsertAnalysis: () => void;
 	onClose: () => void;
 }) {
 	const isMobile = useIsMobile();
@@ -449,7 +458,15 @@ const StoryHeader = memo(function StoryHeader({
 				<div className='flex items-center justify-between border-b bg-muted/40 px-4 py-2'>
 					{viewMode === 'edit' ? (
 						<>
-							<span className='text-xs text-muted-foreground'>Editing</span>
+							<Button
+								variant='outline'
+								size='sm'
+								onClick={onInsertAnalysis}
+								className='gap-1.5 text-violet-600 border-violet-200 hover:bg-violet-50'
+							>
+								<Sparkles className='size-3' />
+								<span>Analysis block</span>
+							</Button>
 							<div className='flex items-center gap-2'>
 								<Button variant='outline' size='sm' onClick={() => onViewModeChange('preview')}>
 									Cancel
