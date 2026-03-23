@@ -7,6 +7,7 @@ import StarterKit from '@tiptap/starter-kit';
 import { Markdown } from '@tiptap/markdown';
 import { Streamdown } from 'streamdown';
 import { GripVertical, Sparkles } from 'lucide-react';
+import { SlashCommandExtension, SlashCommandMenu } from './story-slash-command';
 import { StoryChartEmbed } from './story-chart-embed';
 import { StoryTableEmbed } from './story-table-embed';
 import type { ReactNodeViewProps, Editor } from '@tiptap/react';
@@ -383,6 +384,7 @@ const EDITOR_EXTENSIONS = [
 	TableBlock,
 	GridBlock,
 	AnalysisBlock,
+	SlashCommandExtension,
 ];
 
 interface StoryEditorProps {
@@ -419,11 +421,14 @@ export const StoryEditor = memo(function StoryEditor({ code, editorRef }: StoryE
 	return (
 		<div className='story-editor relative'>
 			{editor && (
-				<DragHandle editor={editor} className='drag-handle'>
-					<div className='drag-handle-button'>
-						<GripVertical className='size-4' />
-					</div>
-				</DragHandle>
+				<>
+					<DragHandle editor={editor} className='drag-handle'>
+						<div className='drag-handle-button'>
+							<GripVertical className='size-4' />
+						</div>
+					</DragHandle>
+					<SlashCommandMenu editor={editor} />
+				</>
 			)}
 			<EditorContent editor={editor} />
 		</div>
@@ -442,6 +447,34 @@ export function insertAnalysisBlock(editor: Editor): void {
 	editor
 		.chain()
 		.focus()
+		.insertContent({
+			type: 'analysisBlock',
+			attrs: { rawTag },
+		})
+		.run();
+}
+
+export function convertToAnalysisBlock(editor: Editor): void {
+	const { $from, $to } = editor.state.selection;
+	const blockNode = $from.parent;
+
+	if (blockNode.type.name === 'analysisBlock') {
+		return;
+	}
+
+	const textContent = editor.state.doc.textBetween($from.start(), $to.end(), ' ').trim();
+	const id = `analysis-${++analysisCounter}`;
+	const prompt = textContent || '';
+	const escapedPrompt = prompt.replace(/"/g, '\\"');
+	const rawTag = `<analysis id="${id}" prompt="${escapedPrompt}" />`;
+
+	const blockStart = $from.before($from.depth);
+	const blockEnd = $from.after($from.depth);
+
+	editor
+		.chain()
+		.focus()
+		.deleteRange({ from: blockStart, to: blockEnd })
 		.insertContent({
 			type: 'analysisBlock',
 			attrs: { rawTag },
