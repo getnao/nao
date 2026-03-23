@@ -99,3 +99,58 @@ export const escapeCsvCell = (value: unknown): string => {
 	const sanitized = /^[=+\-@]/.test(str.trimStart()) ? `'${str}` : str;
 	return /[,"\n]/.test(sanitized) ? `"${sanitized.replace(/"/g, '""')}"` : sanitized;
 };
+
+export const createPlainTextBlock = (text: string): CardChild => {
+	return CardText(stripMarkdown(text));
+};
+
+function stripMarkdown(text: string): string {
+	const newtext = text
+		.replace(/```[\s\S]*?```/g, (m) => m.slice(3, -3).trim())
+		.replace(/`([^`\n]+)`/g, '$1')
+		.replace(/^#{1,6}\s+/gm, '')
+		.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+		.replace(/\*\*(.+?)\*\*/g, '$1')
+		.replace(/\*(.+?)\*/g, '$1')
+		.replace(/__(.+?)__/g, '$1')
+		.replace(/_(.+?)_/g, '$1')
+		.replace(/~~(.+?)~~/g, '$1')
+		.replace(/<\/?[a-zA-Z][^>]*>/g, '');
+	// eslint-disable-next-line no-useless-escape
+	return newtext.replace(/([_*`\[])/g, '\\$1');
+}
+
+export const createTelegramStopButtonCard = (): CardElement =>
+	Card({
+		children: [
+			CardText('The agent is thinking...'),
+			Actions([
+				Button({
+					id: 'stop_generation',
+					label: '⏹️ Stop Generation',
+				}),
+			]),
+		],
+	});
+
+export const createTelegramCompletionCard = (chatUrl: string, vote?: 'up' | 'down') =>
+	Card({
+		children: [
+			CardText('What do you think about this response?'),
+
+			Actions([
+				LinkButton({
+					url: chatUrl,
+					label: 'Open in nao',
+				}),
+				Button({
+					id: 'feedback_positive',
+					label: vote === 'up' ? '✅' : '👍',
+				}),
+				Button({
+					id: 'feedback_negative',
+					label: vote === 'down' ? '❌' : '👎',
+				}),
+			]),
+		],
+	});

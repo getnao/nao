@@ -27,6 +27,7 @@ import { Route as SidebarLayoutSettingsChatsReplayRouteImport } from './routes/_
 import { Route as SidebarLayoutChatLayoutChatIdRouteImport } from './routes/_sidebar-layout._chat-layout.$chatId'
 import { Route as SidebarLayoutSettingsProjectIndexRouteImport } from './routes/_sidebar-layout.settings.project.index'
 import { Route as SidebarLayoutStoriesSharedShareIdRouteImport } from './routes/_sidebar-layout.stories.shared.$shareId'
+import { Route as SidebarLayoutSettingsProjectTelegramRouteImport } from './routes/_sidebar-layout.settings.project.telegram'
 import { Route as SidebarLayoutSettingsProjectTeamsRouteImport } from './routes/_sidebar-layout.settings.project.teams'
 import { Route as SidebarLayoutSettingsProjectTeamRouteImport } from './routes/_sidebar-layout.settings.project.team'
 import { Route as SidebarLayoutSettingsProjectSlackRouteImport } from './routes/_sidebar-layout.settings.project.slack'
@@ -136,6 +137,12 @@ const SidebarLayoutStoriesSharedShareIdRoute =
     path: '/stories/shared/$shareId',
     getParentRoute: () => SidebarLayoutRoute,
   } as any)
+const SidebarLayoutSettingsProjectTelegramRoute =
+  SidebarLayoutSettingsProjectTelegramRouteImport.update({
+    id: '/telegram',
+    path: '/telegram',
+    getParentRoute: () => SidebarLayoutSettingsProjectRoute,
+  } as any)
 const SidebarLayoutSettingsProjectTeamsRoute =
   SidebarLayoutSettingsProjectTeamsRouteImport.update({
     id: '/teams',
@@ -200,6 +207,7 @@ export interface FileRoutesByFullPath {
   '/settings/project/slack': typeof SidebarLayoutSettingsProjectSlackRoute
   '/settings/project/team': typeof SidebarLayoutSettingsProjectTeamRoute
   '/settings/project/teams': typeof SidebarLayoutSettingsProjectTeamsRoute
+  '/settings/project/telegram': typeof SidebarLayoutSettingsProjectTelegramRoute
   '/stories/shared/$shareId': typeof SidebarLayoutStoriesSharedShareIdRoute
   '/settings/project/': typeof SidebarLayoutSettingsProjectIndexRoute
   '/stories/preview/$chatId/$storyId': typeof SidebarLayoutStoriesPreviewChatIdStoryIdRoute
@@ -223,6 +231,7 @@ export interface FileRoutesByTo {
   '/settings/project/slack': typeof SidebarLayoutSettingsProjectSlackRoute
   '/settings/project/team': typeof SidebarLayoutSettingsProjectTeamRoute
   '/settings/project/teams': typeof SidebarLayoutSettingsProjectTeamsRoute
+  '/settings/project/telegram': typeof SidebarLayoutSettingsProjectTelegramRoute
   '/stories/shared/$shareId': typeof SidebarLayoutStoriesSharedShareIdRoute
   '/settings/project': typeof SidebarLayoutSettingsProjectIndexRoute
   '/stories/preview/$chatId/$storyId': typeof SidebarLayoutStoriesPreviewChatIdStoryIdRoute
@@ -251,6 +260,7 @@ export interface FileRoutesById {
   '/_sidebar-layout/settings/project/slack': typeof SidebarLayoutSettingsProjectSlackRoute
   '/_sidebar-layout/settings/project/team': typeof SidebarLayoutSettingsProjectTeamRoute
   '/_sidebar-layout/settings/project/teams': typeof SidebarLayoutSettingsProjectTeamsRoute
+  '/_sidebar-layout/settings/project/telegram': typeof SidebarLayoutSettingsProjectTelegramRoute
   '/_sidebar-layout/stories/shared/$shareId': typeof SidebarLayoutStoriesSharedShareIdRoute
   '/_sidebar-layout/settings/project/': typeof SidebarLayoutSettingsProjectIndexRoute
   '/_sidebar-layout/stories/preview/$chatId/$storyId': typeof SidebarLayoutStoriesPreviewChatIdStoryIdRoute
@@ -278,6 +288,7 @@ export interface FileRouteTypes {
     | '/settings/project/slack'
     | '/settings/project/team'
     | '/settings/project/teams'
+    | '/settings/project/telegram'
     | '/stories/shared/$shareId'
     | '/settings/project/'
     | '/stories/preview/$chatId/$storyId'
@@ -301,6 +312,7 @@ export interface FileRouteTypes {
     | '/settings/project/slack'
     | '/settings/project/team'
     | '/settings/project/teams'
+    | '/settings/project/telegram'
     | '/stories/shared/$shareId'
     | '/settings/project'
     | '/stories/preview/$chatId/$storyId'
@@ -328,6 +340,7 @@ export interface FileRouteTypes {
     | '/_sidebar-layout/settings/project/slack'
     | '/_sidebar-layout/settings/project/team'
     | '/_sidebar-layout/settings/project/teams'
+    | '/_sidebar-layout/settings/project/telegram'
     | '/_sidebar-layout/stories/shared/$shareId'
     | '/_sidebar-layout/settings/project/'
     | '/_sidebar-layout/stories/preview/$chatId/$storyId'
@@ -467,6 +480,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SidebarLayoutStoriesSharedShareIdRouteImport
       parentRoute: typeof SidebarLayoutRoute
     }
+    '/_sidebar-layout/settings/project/telegram': {
+      id: '/_sidebar-layout/settings/project/telegram'
+      path: '/telegram'
+      fullPath: '/settings/project/telegram'
+      preLoaderRoute: typeof SidebarLayoutSettingsProjectTelegramRouteImport
+      parentRoute: typeof SidebarLayoutSettingsProjectRoute
+    }
     '/_sidebar-layout/settings/project/teams': {
       id: '/_sidebar-layout/settings/project/teams'
       path: '/teams'
@@ -542,6 +562,7 @@ interface SidebarLayoutSettingsProjectRouteChildren {
   SidebarLayoutSettingsProjectSlackRoute: typeof SidebarLayoutSettingsProjectSlackRoute
   SidebarLayoutSettingsProjectTeamRoute: typeof SidebarLayoutSettingsProjectTeamRoute
   SidebarLayoutSettingsProjectTeamsRoute: typeof SidebarLayoutSettingsProjectTeamsRoute
+  SidebarLayoutSettingsProjectTelegramRoute: typeof SidebarLayoutSettingsProjectTelegramRoute
   SidebarLayoutSettingsProjectIndexRoute: typeof SidebarLayoutSettingsProjectIndexRoute
 }
 
@@ -559,6 +580,8 @@ const SidebarLayoutSettingsProjectRouteChildren: SidebarLayoutSettingsProjectRou
       SidebarLayoutSettingsProjectTeamRoute,
     SidebarLayoutSettingsProjectTeamsRoute:
       SidebarLayoutSettingsProjectTeamsRoute,
+    SidebarLayoutSettingsProjectTelegramRoute:
+      SidebarLayoutSettingsProjectTelegramRoute,
     SidebarLayoutSettingsProjectIndexRoute:
       SidebarLayoutSettingsProjectIndexRoute,
   }

@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "b018c9cc-575e-4d4f-b9e6-0efb8dc70ee8",
+  "id": "97ab8ed8-2b5b-4711-aabc-d5018734d3eb",
   "prevId": "65def899-a6ff-4240-9d98-d839bdd3d0ae",
   "tables": {
     "account": {
@@ -182,6 +182,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "telegram_thread_id": {
+          "name": "telegram_thread_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -225,6 +232,13 @@
           "name": "chat_teams_thread_idx",
           "columns": [
             "teams_thread_id"
+          ],
+          "isUnique": false
+        },
+        "chat_telegram_thread_idx": {
+          "name": "chat_telegram_thread_idx",
+          "columns": [
+            "telegram_thread_id"
           ],
           "isUnique": false
         }
@@ -1360,6 +1374,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "telegram_settings": {
+          "name": "telegram_settings",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -2067,74 +2088,6 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "story_data_cache": {
-      "name": "story_data_cache",
-      "columns": {
-        "chat_id": {
-          "name": "chat_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "story_id": {
-          "name": "story_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "query_data": {
-          "name": "query_data",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "regenerated_code": {
-          "name": "regenerated_code",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "cached_at": {
-          "name": "cached_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "story_data_cache_chat_id_chat_id_fk": {
-          "name": "story_data_cache_chat_id_chat_id_fk",
-          "tableFrom": "story_data_cache",
-          "tableTo": "chat",
-          "columnsFrom": [
-            "chat_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "story_data_cache_chat_id_story_id_pk": {
-          "columns": [
-            "chat_id",
-            "story_id"
-          ],
-          "name": "story_data_cache_chat_id_story_id_pk"
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
     "story_version": {
       "name": "story_version",
       "columns": {
@@ -2193,29 +2146,6 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
-        },
-        "is_live": {
-          "name": "is_live",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": false
-        },
-        "cache_schedule": {
-          "name": "cache_schedule",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "refresh_text": {
-          "name": "refresh_text",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": false
         },
         "archived_at": {
           "name": "archived_at",
@@ -2326,6 +2256,13 @@
           "autoincrement": false,
           "default": true
         },
+        "messaging_provider_code": {
+          "name": "messaging_provider_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -2348,6 +2285,13 @@
           "name": "user_email_unique",
           "columns": [
             "email"
+          ],
+          "isUnique": true
+        },
+        "user_messaging_provider_code_unique": {
+          "name": "user_messaging_provider_code_unique",
+          "columns": [
+            "messaging_provider_code"
           ],
           "isUnique": true
         }

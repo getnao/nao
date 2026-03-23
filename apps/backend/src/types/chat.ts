@@ -35,7 +35,7 @@ export interface ChatListItem {
 
 export type UIMessage = UIGenericMessage<unknown, MessageCustomDataParts, UITools> & {
 	feedback?: MessageFeedback;
-	source?: 'slack' | 'teams' | 'web';
+	source?: 'slack' | 'teams' | 'telegram' | 'web';
 };
 
 export type UITools = InferUITools<typeof tools>;

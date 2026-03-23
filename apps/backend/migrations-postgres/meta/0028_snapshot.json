@@ -1,5 +1,5 @@
 {
-  "id": "7f303111-4ca0-43ab-8c85-29785a3f52a6",
+  "id": "7682d11c-1cee-4b31-8aab-9e63052274c1",
   "prevId": "be38a6af-8663-402f-81a6-a16106102373",
   "version": "7",
   "dialect": "postgresql",
@@ -174,6 +174,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "telegram_thread_id": {
+          "name": "telegram_thread_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp",
@@ -240,6 +246,21 @@
           "columns": [
             {
               "expression": "teams_thread_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "chat_telegram_thread_idx": {
+          "name": "chat_telegram_thread_idx",
+          "columns": [
+            {
+              "expression": "telegram_thread_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -1431,6 +1452,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "telegram_settings": {
+          "name": "telegram_settings",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp",
@@ -2183,72 +2210,6 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.story_data_cache": {
-      "name": "story_data_cache",
-      "schema": "",
-      "columns": {
-        "chat_id": {
-          "name": "chat_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "story_id": {
-          "name": "story_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "query_data": {
-          "name": "query_data",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "regenerated_code": {
-          "name": "regenerated_code",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "cached_at": {
-          "name": "cached_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "story_data_cache_chat_id_chat_id_fk": {
-          "name": "story_data_cache_chat_id_chat_id_fk",
-          "tableFrom": "story_data_cache",
-          "tableTo": "chat",
-          "columnsFrom": [
-            "chat_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "story_data_cache_chat_id_story_id_pk": {
-          "name": "story_data_cache_chat_id_story_id_pk",
-          "columns": [
-            "chat_id",
-            "story_id"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
     "public.story_version": {
       "name": "story_version",
       "schema": "",
@@ -2300,26 +2261,6 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
-        },
-        "is_live": {
-          "name": "is_live",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "cache_schedule": {
-          "name": "cache_schedule",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "refresh_text": {
-          "name": "refresh_text",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
         },
         "archived_at": {
           "name": "archived_at",
@@ -2438,6 +2379,12 @@
           "notNull": true,
           "default": true
         },
+        "messaging_provider_code": {
+          "name": "messaging_provider_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp",
@@ -2462,6 +2409,13 @@
           "nullsNotDistinct": false,
           "columns": [
             "email"
+          ]
+        },
+        "user_messaging_provider_code_unique": {
+          "name": "user_messaging_provider_code_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "messaging_provider_code"
           ]
         }
       },

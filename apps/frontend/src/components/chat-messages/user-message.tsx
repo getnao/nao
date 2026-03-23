@@ -18,6 +18,7 @@ import { STORY_MENTION_ID } from '@/components/chat-input-prompt';
 import StoryIcon from '@/components/ui/story-icon';
 import SlackIcon from '@/components/icons/slack.svg';
 import TeamsIcon from '@/components/icons/microsoft-teams.svg';
+import TelegramIcon from '@/components/icons/telegram.svg';
 
 const messageTheme: PromptTheme = {
 	backgroundColor: 'transparent',
@@ -83,6 +84,12 @@ export const UserMessageBubble = memo(({ message }: { message: UIMessage }) => {
 				<span className='flex items-center justify-end gap-1 text-xs text-muted-foreground mb-2'>
 					<TeamsIcon className='size-4' />
 					sent in Teams
+				</span>
+			)}
+			{message.source === 'telegram' && (
+				<span className='flex items-center justify-end gap-1 text-xs text-muted-foreground mb-2'>
+					<TelegramIcon className='size-4' />
+					sent in Telegram
 				</span>
 			)}
 			<Message

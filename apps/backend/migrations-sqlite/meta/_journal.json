@@ -201,8 +201,8 @@
     {
       "idx": 28,
       "version": "6",
-      "when": 1774028729510,
-      "tag": "0028_live_stories",
+      "when": 1774262217065,
+      "tag": "0028_add_telegram_channel",
       "breakpoints": true
     }
   ]

@@ -91,6 +91,7 @@ export const getAllUsersWithRoles = async (projectId: string): Promise<UserWithR
 			name: s.user.name,
 			email: s.user.email,
 			role: s.projectMember.role,
+			messagingProviderCode: s.user.messagingProviderCode,
 		})
 		.from(s.user)
 		.innerJoin(s.projectMember, eq(s.projectMember.userId, s.user.id))
