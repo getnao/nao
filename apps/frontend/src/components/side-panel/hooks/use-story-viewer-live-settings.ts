@@ -14,7 +14,6 @@ export const useStoryViewerLiveSettings = ({ chatId, storyId }: UseStoryViewerLi
 
 	const isLive = latestVersion?.isLive ?? false;
 	const cacheSchedule = latestVersion?.cacheSchedule ?? null;
-	const refreshText = latestVersion?.refreshText ?? false;
 
 	const updateLiveSettingsMutation = useMutation(
 		trpc.story.updateLiveSettings.mutationOptions({
@@ -40,7 +39,7 @@ export const useStoryViewerLiveSettings = ({ chatId, storyId }: UseStoryViewerLi
 	);
 
 	const handleSaveSettings = useCallback(
-		(settings: { isLive: boolean; cacheSchedule: string | null; refreshText: boolean }) => {
+		(settings: { isLive: boolean; cacheSchedule: string | null }) => {
 			updateLiveSettingsMutation.mutate({ chatId, storyId, ...settings });
 		},
 		[chatId, storyId, updateLiveSettingsMutation],
@@ -53,7 +52,6 @@ export const useStoryViewerLiveSettings = ({ chatId, storyId }: UseStoryViewerLi
 	return {
 		isLive,
 		cacheSchedule,
-		refreshText,
 		isUpdating: updateLiveSettingsMutation.isPending,
 		isRefreshing: refreshDataMutation.isPending,
 		handleSaveSettings,

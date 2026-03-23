@@ -34,14 +34,14 @@ export const storyRoutes = {
 			if (!version) {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
 			}
-			const { queryData, regeneratedCode, cachedAt } = await getStoryQueryData(
+			const { queryData, analysisResults, cachedAt } = await getStoryQueryData(
 				input.chatId,
 				input.storyId,
 				version.code,
 				version.isLive,
 				version.cacheSchedule,
 			);
-			return { ...version, queryData, regeneratedCode, cachedAt };
+			return { ...version, queryData, analysisResults, cachedAt };
 		}),
 
 	listVersions: chatOwnerProcedure
@@ -78,22 +78,20 @@ export const storyRoutes = {
 				storyId: z.string(),
 				isLive: z.boolean(),
 				cacheSchedule: z.string().nullable(),
-				refreshText: z.boolean(),
 			}),
 		)
 		.mutation(async ({ input }) => {
 			await storyQueries.updateLiveSettings(input.chatId, input.storyId, {
 				isLive: input.isLive,
 				cacheSchedule: input.cacheSchedule,
-				refreshText: input.refreshText,
 			});
 		}),
 
 	refreshData: chatOwnerProcedure
 		.input(z.object({ chatId: z.string(), storyId: z.string() }))
 		.mutation(async ({ input }) => {
-			const { queryData, regeneratedCode } = await refreshStoryData(input.chatId, input.storyId);
-			return { queryData, regeneratedCode, cachedAt: new Date() };
+			const { queryData, analysisResults } = await refreshStoryData(input.chatId, input.storyId);
+			return { queryData, analysisResults, cachedAt: new Date() };
 		}),
 
 	getLiveQueryData: chatOwnerProcedure

@@ -1,15 +1,17 @@
-import { useCallback, useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import { createFileRoute, Link } from '@tanstack/react-router';
-import { Activity, ArchiveRestoreIcon, Loader2, MessageSquare, RefreshCw } from 'lucide-react';
+import { Activity, ArchiveRestoreIcon, Loader2, MessageSquare, RefreshCw, Sparkles } from 'lucide-react';
+import { useCallback, useMemo } from 'react';
+import { Streamdown } from 'streamdown';
 import type { displayChart } from '@nao/shared/tools';
-import type { ParsedChartBlock, ParsedTableBlock } from '@/lib/story-segments';
-import { splitCodeIntoSegments } from '@/lib/story-segments';
+
+import type { ParsedAnalysisBlock, ParsedChartBlock, ParsedTableBlock } from '@/lib/story-segments';
 import { SegmentList } from '@/components/story-rendering';
 import { ChartDisplay } from '@/components/tool-calls/display-chart';
 import { TableDisplay } from '@/components/tool-calls/display-table';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { splitCodeIntoSegments } from '@/lib/story-segments';
 import { trpc } from '@/main';
 
 export const Route = createFileRoute('/_sidebar-layout/stories/preview/$chatId/$storyId')({
@@ -109,7 +111,8 @@ function StoryPreviewPage() {
 			)}
 
 			<PreviewContent
-				code={story.regeneratedCode || story.code}
+				code={story.code}
+				analysisResults={story.analysisResults}
 				queryData={
 					story.queryData as Record<string, { data: Record<string, unknown>[]; columns: string[] }> | null
 				}
@@ -123,11 +126,13 @@ function StoryPreviewPage() {
 function PreviewContent({
 	code,
 	queryData,
+	analysisResults,
 	chatId,
 	cacheSchedule,
 }: {
 	code: string;
 	queryData: Record<string, { data: Record<string, unknown>[]; columns: string[] }> | null;
+	analysisResults: Record<string, string> | null;
 	chatId: string;
 	cacheSchedule?: string | null;
 }) {
@@ -139,12 +144,45 @@ function PreviewContent({
 
 	const renderChart = (chart: ParsedChartBlock) => <PreviewChartEmbed chart={chart} queryData={queryData} />;
 	const renderTable = (table: ParsedTableBlock) => <PreviewTableEmbed table={table} queryData={queryData} />;
+	const renderAnalysis = (analysis: ParsedAnalysisBlock) => (
+		<PreviewAnalysisEmbed analysis={analysis} analysisResults={analysisResults} />
+	);
 
 	return (
 		<div className='flex-1 overflow-auto'>
 			<div className='max-w-5xl mx-auto p-4 md:p-8 flex flex-col gap-4'>
-				<SegmentList segments={segments} renderChart={renderChart} renderTable={renderTable} />
+				<SegmentList
+					segments={segments}
+					renderChart={renderChart}
+					renderTable={renderTable}
+					renderAnalysis={renderAnalysis}
+				/>
 			</div>
+		</div>
+	);
+}
+
+function PreviewAnalysisEmbed({
+	analysis,
+	analysisResults,
+}: {
+	analysis: ParsedAnalysisBlock;
+	analysisResults: Record<string, string> | null;
+}) {
+	const content = analysisResults?.[analysis.id];
+
+	if (!content) {
+		return (
+			<div className='my-2 rounded-lg border border-dashed border-violet-300 bg-violet-50/50 p-4 text-center text-sm text-muted-foreground'>
+				<Sparkles className='size-4 inline-block mr-1.5 text-violet-500' />
+				{analysis.prompt ? `Analysis: ${analysis.prompt}` : `Dynamic analysis (${analysis.id})`}
+			</div>
+		);
+	}
+
+	return (
+		<div className='my-2 rounded-lg border border-violet-200 bg-violet-50/30 p-4'>
+			<Streamdown mode='static'>{content}</Streamdown>
 		</div>
 	);
 }

@@ -1,6 +1,5 @@
-import { memo, useCallback, useMemo, useRef, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Editor } from '@monaco-editor/react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
 	Activity,
 	ArchiveRestoreIcon,
@@ -14,11 +13,15 @@ import {
 	Maximize2,
 	Pencil,
 	RefreshCw,
-	Save,
 	RotateCcw,
+	Save,
 	Share,
+	Sparkles,
 	X,
 } from 'lucide-react';
+import { memo, useCallback, useMemo, useRef, useState } from 'react';
+import { Streamdown } from 'streamdown';
+
 import { ShareStoryDialog } from '../share-dialog.story';
 import { StoryChartEmbed } from './story-chart-embed';
 import { StoryTableEmbed } from './story-table-embed';
@@ -34,10 +37,10 @@ import { useStoryViewerVersionActions } from './hooks/use-story-viewer-version-a
 import { useStoryViewerVersions } from './hooks/use-story-viewer-versions';
 import { useStoryViewerViewMode } from './hooks/use-story-viewer-view-mode';
 import type { StoryViewMode } from './story-viewer.types';
-import type { StorySummary } from '@/lib/story.utils';
-import type { ParsedChartBlock, ParsedTableBlock } from '@/lib/story-segments';
-import type { Editor as TiptapEditor } from '@tiptap/react';
 import type { displayChart } from '@nao/shared/tools';
+import type { Editor as TiptapEditor } from '@tiptap/react';
+import type { StorySummary } from '@/lib/story.utils';
+import type { ParsedAnalysisBlock, ParsedChartBlock, ParsedTableBlock } from '@/lib/story-segments';
 import { SegmentList } from '@/components/story-rendering';
 import { ChartDisplay } from '@/components/tool-calls/display-chart';
 import { TableDisplay } from '@/components/tool-calls/display-table';
@@ -88,7 +91,6 @@ export function StoryViewer({ chatId, storyId }: StoryViewerProps) {
 	const {
 		isLive,
 		cacheSchedule,
-		refreshText,
 		isUpdating: isLiveUpdating,
 		isRefreshing,
 		handleSaveSettings,
@@ -197,7 +199,6 @@ export function StoryViewer({ chatId, storyId }: StoryViewerProps) {
 				onOpenChange={setIsLiveSettingsOpen}
 				isLive={isLive}
 				cacheSchedule={cacheSchedule}
-				refreshText={refreshText}
 				isUpdating={isLiveUpdating}
 				onSaveSettings={handleSaveSettings}
 			/>
@@ -523,10 +524,9 @@ const StaticStoryPreview = memo(function StaticStoryPreview({
 function LiveStoryPreview({ code, chatId, storyId }: { code: string; chatId: string; storyId: string }) {
 	const { data } = useQuery(trpc.story.getLatest.queryOptions({ chatId, storyId }));
 	const queryData = data?.queryData as QueryDataMap | null | undefined;
-	const regeneratedCode = data?.regeneratedCode;
+	const analysisResults = data?.analysisResults;
 
-	const displayCode = regeneratedCode || code;
-	const segments = useMemo(() => splitCodeIntoSegments(displayCode), [displayCode]);
+	const segments = useMemo(() => splitCodeIntoSegments(code), [code]);
 
 	const renderChart = useCallback(
 		(chart: ParsedChartBlock) => <LiveChartEmbed chart={chart} queryData={queryData ?? null} />,
@@ -536,10 +536,46 @@ function LiveStoryPreview({ code, chatId, storyId }: { code: string; chatId: str
 		(table: ParsedTableBlock) => <LiveTableEmbed table={table} queryData={queryData ?? null} />,
 		[queryData],
 	);
+	const renderAnalysis = useCallback(
+		(analysis: ParsedAnalysisBlock) => (
+			<AnalysisBlockDisplay analysis={analysis} analysisResults={analysisResults ?? null} />
+		),
+		[analysisResults],
+	);
 
 	return (
 		<div className='p-6 flex flex-col gap-4'>
-			<SegmentList segments={segments} renderChart={renderChart} renderTable={renderTable} />
+			<SegmentList
+				segments={segments}
+				renderChart={renderChart}
+				renderTable={renderTable}
+				renderAnalysis={renderAnalysis}
+			/>
+		</div>
+	);
+}
+
+function AnalysisBlockDisplay({
+	analysis,
+	analysisResults,
+}: {
+	analysis: ParsedAnalysisBlock;
+	analysisResults: Record<string, string> | null;
+}) {
+	const content = analysisResults?.[analysis.id];
+
+	if (!content) {
+		return (
+			<div className='my-2 rounded-lg border border-dashed border-violet-300 bg-violet-50/50 p-4 text-center text-sm text-muted-foreground'>
+				<Sparkles className='size-4 inline-block mr-1.5 text-violet-500' />
+				{analysis.prompt ? `Analysis: ${analysis.prompt}` : `Dynamic analysis (${analysis.id})`}
+			</div>
+		);
+	}
+
+	return (
+		<div className='my-2 rounded-lg border border-violet-200 bg-violet-50/30 p-4'>
+			<Streamdown mode='static'>{content}</Streamdown>
 		</div>
 	);
 }

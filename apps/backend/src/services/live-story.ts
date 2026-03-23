@@ -4,7 +4,7 @@ import { env } from '../env';
 import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as storyQueries from '../queries/story.queries';
-import { regenerateStoryText } from './story-text-regeneration';
+import { generateAnalyses, parseAnalysisBlocks } from './story-analysis';
 
 export const NO_CACHE_SCHEDULE = 'no-cache';
 
@@ -32,7 +32,7 @@ export async function executeLiveQuery(
 
 export interface RefreshResult {
 	queryData: Record<string, { data: unknown[]; columns: string[] }>;
-	regeneratedCode: string | null;
+	analysisResults: Record<string, string> | null;
 }
 
 export async function refreshStoryData(chatId: string, storyId: string): Promise<RefreshResult> {
@@ -43,7 +43,7 @@ export async function refreshStoryData(chatId: string, storyId: string): Promise
 
 	const sqlQueries = await storyQueries.collectSqlQueries(chatId, version.code);
 	if (Object.keys(sqlQueries).length === 0) {
-		return { queryData: {}, regeneratedCode: null };
+		return { queryData: {}, analysisResults: null };
 	}
 
 	const projectId = await chatQueries.getChatProjectId(chatId);
@@ -65,23 +65,24 @@ export async function refreshStoryData(chatId: string, storyId: string): Promise
 		}),
 	);
 
-	let regeneratedCode: string | null = null;
-	if (version.refreshText && Object.keys(queryData).length > 0) {
+	let analysisResults: Record<string, string> | null = null;
+	const hasAnalysisBlocks = parseAnalysisBlocks(version.code).length > 0;
+	if (hasAnalysisBlocks && Object.keys(queryData).length > 0) {
 		try {
-			regeneratedCode = await regenerateStoryText(chatId, version.code, queryData);
+			analysisResults = await generateAnalyses(chatId, version.code, queryData);
 		} catch (err) {
-			console.error('[live-story] Text regeneration failed, keeping original text:', err);
+			console.error('[live-story] Analysis generation failed:', err);
 		}
 	}
 
-	await storyQueries.upsertStoryDataCache(chatId, storyId, queryData, regeneratedCode);
+	await storyQueries.upsertStoryDataCache(chatId, storyId, queryData, analysisResults);
 
-	return { queryData, regeneratedCode };
+	return { queryData, analysisResults };
 }
 
 export interface StoryQueryDataResult {
 	queryData: Record<string, { data: unknown[]; columns: string[] }> | null;
-	regeneratedCode: string | null;
+	analysisResults: Record<string, string> | null;
 	cachedAt: Date | null;
 }
 
@@ -94,7 +95,7 @@ export async function getStoryQueryData(
 ): Promise<StoryQueryDataResult> {
 	if (!isLive) {
 		const { collectQueryData } = await import('../queries/shared-story.queries');
-		return { queryData: await collectQueryData(chatId, code), regeneratedCode: null, cachedAt: null };
+		return { queryData: await collectQueryData(chatId, code), analysisResults: null, cachedAt: null };
 	}
 
 	const cache = await storyQueries.getStoryDataCache(chatId, storyId);
@@ -105,29 +106,29 @@ export async function getStoryQueryData(
 		if (isCacheValid) {
 			return {
 				queryData: cache.queryData,
-				regeneratedCode: cache.regeneratedCode,
+				analysisResults: cache.analysisResults,
 				cachedAt: cache.cachedAt,
 			};
 		}
 	}
 
 	try {
-		const { queryData, regeneratedCode } = await refreshStoryData(chatId, storyId);
+		const { queryData, analysisResults } = await refreshStoryData(chatId, storyId);
 		return {
 			queryData: Object.keys(queryData).length > 0 ? queryData : null,
-			regeneratedCode,
+			analysisResults,
 			cachedAt: new Date(),
 		};
 	} catch {
 		if (cache) {
 			return {
 				queryData: cache.queryData,
-				regeneratedCode: cache.regeneratedCode,
+				analysisResults: cache.analysisResults,
 				cachedAt: cache.cachedAt,
 			};
 		}
 		const { collectQueryData } = await import('../queries/shared-story.queries');
-		return { queryData: await collectQueryData(chatId, code), regeneratedCode: null, cachedAt: null };
+		return { queryData: await collectQueryData(chatId, code), analysisResults: null, cachedAt: null };
 	}
 }
 

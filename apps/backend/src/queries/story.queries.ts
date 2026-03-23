@@ -42,17 +42,17 @@ async function resolveLiveSettings(data: {
 	chatId: string;
 	storyId: string;
 	isLive?: boolean;
-}): Promise<{ isLive: boolean; cacheSchedule: string | null; refreshText: boolean }> {
+}): Promise<{ isLive: boolean; cacheSchedule: string | null }> {
 	if (data.isLive !== undefined) {
-		return { isLive: data.isLive, cacheSchedule: null, refreshText: false };
+		return { isLive: data.isLive, cacheSchedule: null };
 	}
 
 	const latest = await getLatestVersion(data.chatId, data.storyId);
 	if (latest) {
-		return { isLive: latest.isLive, cacheSchedule: latest.cacheSchedule, refreshText: latest.refreshText };
+		return { isLive: latest.isLive, cacheSchedule: latest.cacheSchedule };
 	}
 
-	return { isLive: false, cacheSchedule: null, refreshText: false };
+	return { isLive: false, cacheSchedule: null };
 }
 
 export async function getLatestVersion(chatId: string, storyId: string): Promise<DBStoryVersion | null> {
@@ -175,14 +175,13 @@ export async function unarchiveStory(chatId: string, storyId: string): Promise<v
 export async function updateLiveSettings(
 	chatId: string,
 	storyId: string,
-	settings: { isLive: boolean; cacheSchedule: string | null; refreshText: boolean },
+	settings: { isLive: boolean; cacheSchedule: string | null },
 ): Promise<void> {
 	await db
 		.update(s.storyVersion)
 		.set({
 			isLive: settings.isLive,
 			cacheSchedule: settings.cacheSchedule,
-			refreshText: settings.refreshText,
 		})
 		.where(and(eq(s.storyVersion.chatId, chatId), eq(s.storyVersion.storyId, storyId)))
 		.execute();
@@ -202,14 +201,14 @@ export async function upsertStoryDataCache(
 	chatId: string,
 	storyId: string,
 	queryData: Record<string, { data: unknown[]; columns: string[] }>,
-	regeneratedCode?: string | null,
+	analysisResults?: Record<string, string> | null,
 ): Promise<DBStoryDataCache> {
 	const [row] = await db
 		.insert(s.storyDataCache)
-		.values({ chatId, storyId, queryData, regeneratedCode: regeneratedCode ?? null, cachedAt: new Date() })
+		.values({ chatId, storyId, queryData, analysisResults: analysisResults ?? null, cachedAt: new Date() })
 		.onConflictDoUpdate({
 			target: [s.storyDataCache.chatId, s.storyDataCache.storyId],
-			set: { queryData, regeneratedCode: regeneratedCode ?? null, cachedAt: new Date() },
+			set: { queryData, analysisResults: analysisResults ?? null, cachedAt: new Date() },
 		})
 		.returning()
 		.execute();

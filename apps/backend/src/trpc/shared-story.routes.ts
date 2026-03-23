@@ -80,7 +80,7 @@ export const sharedStoryRoutes = {
 		const isLive = latestVersion?.isLive ?? false;
 		const cacheSchedule = latestVersion?.cacheSchedule ?? null;
 
-		const { queryData, regeneratedCode, cachedAt } = await getStoryQueryData(
+		const { queryData, analysisResults, cachedAt } = await getStoryQueryData(
 			story.chatId,
 			story.storyId,
 			story.code,
@@ -88,7 +88,7 @@ export const sharedStoryRoutes = {
 			cacheSchedule,
 		);
 
-		return { ...story, queryData, regeneratedCode, isLive, cacheSchedule, cachedAt };
+		return { ...story, queryData, analysisResults, isLive, cacheSchedule, cachedAt };
 	}),
 
 	getLiveQueryData: protectedProcedure
@@ -108,8 +108,8 @@ export const sharedStoryRoutes = {
 			throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this story.' });
 		}
 
-		const { queryData, regeneratedCode } = await refreshStoryData(story.chatId, story.storyId);
-		return { queryData, regeneratedCode, cachedAt: new Date() };
+		const { queryData, analysisResults } = await refreshStoryData(story.chatId, story.storyId);
+		return { queryData, analysisResults, cachedAt: new Date() };
 	}),
 
 	findByStory: protectedProcedure

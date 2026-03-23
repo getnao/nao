@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { Activity, Loader2, Sparkles, Wand2 } from 'lucide-react';
+import { Activity, Loader2, Wand2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
 	Dialog,
@@ -20,9 +20,8 @@ interface LiveStorySettingsDialogProps {
 	onOpenChange: (open: boolean) => void;
 	isLive: boolean;
 	cacheSchedule: string | null;
-	refreshText: boolean;
 	isUpdating: boolean;
-	onSaveSettings: (settings: { isLive: boolean; cacheSchedule: string | null; refreshText: boolean }) => void;
+	onSaveSettings: (settings: { isLive: boolean; cacheSchedule: string | null }) => void;
 }
 
 const NO_CACHE_SCHEDULE = 'no-cache';
@@ -51,14 +50,12 @@ export function LiveStorySettingsDialog({
 	onOpenChange,
 	isLive,
 	cacheSchedule,
-	refreshText,
 	isUpdating,
 	onSaveSettings,
 }: LiveStorySettingsDialogProps) {
 	const [localIsLive, setLocalIsLive] = useState(isLive);
 	const [localPreset, setLocalPreset] = useState(() => resolvePresetValue(cacheSchedule));
 	const [localCustomCron, setLocalCustomCron] = useState(localPreset === 'custom' ? (cacheSchedule ?? '') : '');
-	const [localRefreshText, setLocalRefreshText] = useState(refreshText);
 	const [nlInput, setNlInput] = useState('');
 
 	useEffect(() => {
@@ -67,16 +64,15 @@ export function LiveStorySettingsDialog({
 			const preset = resolvePresetValue(cacheSchedule);
 			setLocalPreset(preset);
 			setLocalCustomCron(preset === 'custom' ? (cacheSchedule ?? '') : '');
-			setLocalRefreshText(refreshText);
 			setNlInput('');
 		}
-	}, [open, isLive, cacheSchedule, refreshText]);
+	}, [open, isLive, cacheSchedule]);
 
 	const resolvedCron =
 		localPreset === 'manual' ? null : localPreset === 'custom' ? localCustomCron || null : localPreset;
 
 	const originalCron = cacheSchedule;
-	const hasChanges = localIsLive !== isLive || resolvedCron !== originalCron || localRefreshText !== refreshText;
+	const hasChanges = localIsLive !== isLive || resolvedCron !== originalCron;
 
 	const handlePresetChange = useCallback((value: string) => {
 		setLocalPreset(value);
@@ -90,10 +86,9 @@ export function LiveStorySettingsDialog({
 		onSaveSettings({
 			isLive: localIsLive,
 			cacheSchedule: localIsLive ? resolvedCron : null,
-			refreshText: localIsLive ? localRefreshText : false,
 		});
 		onOpenChange(false);
-	}, [localIsLive, resolvedCron, localRefreshText, onSaveSettings, onOpenChange]);
+	}, [localIsLive, resolvedCron, onSaveSettings, onOpenChange]);
 
 	const cronNlpMutation = useMutation(
 		trpc.story.parseCronFromText.mutationOptions({
@@ -215,21 +210,6 @@ export function LiveStorySettingsDialog({
 									</div>
 								</div>
 							)}
-
-							<div className='flex items-center justify-between gap-4'>
-								<div className='flex items-center gap-2.5'>
-									<div className='flex size-8 items-center justify-center rounded-full bg-violet-100 text-violet-600'>
-										<Sparkles className='size-4' />
-									</div>
-									<div>
-										<p className='text-sm font-medium'>Refresh text analysis</p>
-										<p className='text-xs text-muted-foreground'>
-											Use AI to update the story text when data refreshes
-										</p>
-									</div>
-								</div>
-								<Switch checked={localRefreshText} onCheckedChange={setLocalRefreshText} />
-							</div>
 						</>
 					)}
 				</div>

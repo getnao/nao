@@ -12,10 +12,16 @@ export interface ParsedTableBlock {
 	title: string;
 }
 
+export interface ParsedAnalysisBlock {
+	id: string;
+	prompt: string;
+}
+
 export type Segment =
 	| { type: 'markdown'; content: string }
 	| { type: 'chart'; chart: ParsedChartBlock }
 	| { type: 'table'; table: ParsedTableBlock }
+	| { type: 'analysis'; analysis: ParsedAnalysisBlock }
 	| { type: 'grid'; cols: number; children: Segment[] };
 
 function unescapeAttributeValue(value: string): string {
@@ -78,6 +84,18 @@ export function parseTableBlock(attrString: string): ParsedTableBlock | null {
 	};
 }
 
+export function parseAnalysisBlock(attrString: string): ParsedAnalysisBlock | null {
+	const attrs = parseChartAttributes(attrString);
+	if (!attrs.id) {
+		return null;
+	}
+
+	return {
+		id: attrs.id,
+		prompt: attrs.prompt || '',
+	};
+}
+
 export const GRID_CLASSES: Record<number, string> = {
 	1: 'grid-cols-1',
 	2: 'grid-cols-1 @lg:grid-cols-2',
@@ -91,7 +109,8 @@ export function getGridClass(cols: number): string {
 
 export function splitCodeIntoSegments(code: string): Segment[] {
 	const segments: Segment[] = [];
-	const blockRegex = /<grid\s+([^>]*)>([\s\S]*?)<\/grid>|<chart\s+([^/>]*)\/?>|<table\s+([^/>]*)\/?>/g;
+	const blockRegex =
+		/<grid\s+([^>]*)>([\s\S]*?)<\/grid>|<chart\s+([^/>]*)\/?>|<table\s+([^/>]*)\/?>|<analysis\s+([^/>]*)\/?\s*>/g;
 	let match;
 	let lastIndex = 0;
 
@@ -117,6 +136,11 @@ export function splitCodeIntoSegments(code: string): Segment[] {
 			const table = parseTableBlock(match[4]);
 			if (table) {
 				segments.push({ type: 'table', table });
+			}
+		} else if (match[5] !== undefined) {
+			const analysis = parseAnalysisBlock(match[5]);
+			if (analysis) {
+				segments.push({ type: 'analysis', analysis });
 			}
 		}
 

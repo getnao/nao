@@ -6,7 +6,7 @@ import { TableKit } from '@tiptap/extension-table';
 import StarterKit from '@tiptap/starter-kit';
 import { Markdown } from '@tiptap/markdown';
 import { Streamdown } from 'streamdown';
-import { GripVertical } from 'lucide-react';
+import { GripVertical, Sparkles } from 'lucide-react';
 import { StoryChartEmbed } from './story-chart-embed';
 import { StoryTableEmbed } from './story-table-embed';
 import type { ReactNodeViewProps, Editor } from '@tiptap/react';
@@ -46,6 +46,10 @@ export function preprocessForEditor(code: string): string {
 
 	result = result.replace(/<table\s+[^/>]*\/?>/g, (match) => {
 		return `<table-embed data-raw="${encodeForAttr(match)}"></table-embed>`;
+	});
+
+	result = result.replace(/<analysis\s+[^/>]*\/?\s*>/g, (match) => {
+		return `<analysis-embed data-raw="${encodeForAttr(match)}"></analysis-embed>`;
 	});
 
 	return result;
@@ -288,6 +292,80 @@ const GridBlock = Node.create({
 });
 
 // ---------------------------------------------------------------------------
+// AnalysisBlock extension – atom node rendered as a dynamic AI analysis
+// ---------------------------------------------------------------------------
+
+function AnalysisBlockView({ node }: ReactNodeViewProps) {
+	const rawTag = node.attrs.rawTag as string;
+
+	const attrs = useMemo(() => {
+		const attrMatch = rawTag.match(/<analysis\s+([^/>]*)\/?\s*>/);
+		if (!attrMatch) {
+			return null;
+		}
+		return parseChartAttributes(attrMatch[1]);
+	}, [rawTag]);
+
+	const id = attrs?.id ?? '';
+	const prompt = attrs?.prompt ?? '';
+
+	return (
+		<NodeViewWrapper draggable data-type='analysis-block'>
+			<div className='my-2 rounded-lg border border-dashed border-violet-300 bg-violet-50/50 p-4'>
+				<div className='flex items-center gap-2 text-sm text-violet-700'>
+					<Sparkles className='size-4 shrink-0' />
+					<span className='font-medium'>Dynamic analysis</span>
+					{id && <span className='text-xs text-violet-500'>({id})</span>}
+				</div>
+				{prompt && <p className='mt-1 text-xs text-muted-foreground'>{prompt}</p>}
+			</div>
+		</NodeViewWrapper>
+	);
+}
+
+const AnalysisBlock = Node.create({
+	name: 'analysisBlock',
+	group: 'block',
+	atom: true,
+	selectable: true,
+	draggable: true,
+
+	addAttributes() {
+		return {
+			rawTag: { default: '' },
+		};
+	},
+
+	parseHTML() {
+		return [
+			{
+				tag: 'analysis-embed',
+				getAttrs(element) {
+					if (typeof element === 'string') {
+						return false;
+					}
+					const encoded = element.getAttribute('data-raw') || '';
+					return { rawTag: decodeFromAttr(encoded) };
+				},
+			},
+		];
+	},
+
+	renderHTML({ HTMLAttributes }) {
+		return ['analysis-embed', mergeAttributes(HTMLAttributes)];
+	},
+
+	addNodeView() {
+		return ReactNodeViewRenderer(AnalysisBlockView);
+	},
+
+	renderMarkdown(node) {
+		const rawTag = typeof node.attrs?.rawTag === 'string' ? node.attrs.rawTag : '';
+		return `${rawTag}\n\n`;
+	},
+});
+
+// ---------------------------------------------------------------------------
 // Editor component
 // ---------------------------------------------------------------------------
 
@@ -304,6 +382,7 @@ const EDITOR_EXTENSIONS = [
 	ChartBlock,
 	TableBlock,
 	GridBlock,
+	AnalysisBlock,
 ];
 
 interface StoryEditorProps {
