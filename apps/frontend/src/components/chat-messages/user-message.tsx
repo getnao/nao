@@ -19,6 +19,7 @@ import StoryIcon from '@/components/ui/story-icon';
 import SlackIcon from '@/components/icons/slack.svg';
 import TeamsIcon from '@/components/icons/microsoft-teams.svg';
 import TelegramIcon from '@/components/icons/telegram.svg';
+import WhatsAppIcon from '@/components/icons/whatsapp.svg';
 
 const messageTheme: PromptTheme = {
 	backgroundColor: 'transparent',
@@ -39,6 +40,27 @@ const messageTheme: PromptTheme = {
 };
 
 const tableIcon = <Table className='size-4' />;
+
+const MESSAGE_SOURCES = {
+	slack: { icon: <SlackIcon className='size-3.5' />, label: 'sent in Slack' },
+	teams: { icon: <TeamsIcon className='size-4' />, label: 'sent in Teams' },
+	telegram: { icon: <TelegramIcon className='size-4' />, label: 'sent in Telegram' },
+	whatsapp: { icon: <WhatsAppIcon className='size-4' />, label: 'sent in WhatsApp' },
+} as const;
+
+function MessageSourceBadge({ source }: { source: UIMessage['source'] }) {
+	const config = source ? MESSAGE_SOURCES[source as keyof typeof MESSAGE_SOURCES] : null;
+	if (!config) {
+		return null;
+	}
+
+	return (
+		<span className='flex items-center justify-end gap-1 text-xs text-muted-foreground mb-2'>
+			{config.icon}
+			{config.label}
+		</span>
+	);
+}
 
 function useMentionConfigs(): MessageMentionConfig[] {
 	const { data: skills } = useQuery(trpc.skill.list.queryOptions());
@@ -74,24 +96,7 @@ export const UserMessageBubble = memo(({ message }: { message: UIMessage }) => {
 
 	return (
 		<div className='rounded-2xl px-3 py-2 bg-card text-card-foreground ml-auto max-w-xl'>
-			{message.source === 'slack' && (
-				<span className='flex items-center justify-end gap-1 text-xs text-muted-foreground mb-2'>
-					<SlackIcon className='size-3.5' />
-					sent in Slack
-				</span>
-			)}
-			{message.source === 'teams' && (
-				<span className='flex items-center justify-end gap-1 text-xs text-muted-foreground mb-2'>
-					<TeamsIcon className='size-4' />
-					sent in Teams
-				</span>
-			)}
-			{message.source === 'telegram' && (
-				<span className='flex items-center justify-end gap-1 text-xs text-muted-foreground mb-2'>
-					<TelegramIcon className='size-4' />
-					sent in Telegram
-				</span>
-			)}
+			<MessageSourceBadge source={message.source} />
 			<Message
 				value={text}
 				mentionConfigs={mentionConfigs}

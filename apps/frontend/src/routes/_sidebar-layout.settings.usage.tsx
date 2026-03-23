@@ -65,6 +65,7 @@ function UsagePage() {
 						{ data_key: 'slackMessageCount', color: 'var(--chart-2)', label: 'Slack' },
 						{ data_key: 'teamsMessageCount', color: 'var(--chart-3)', label: 'Teams' },
 						{ data_key: 'telegramMessageCount', color: 'var(--chart-4)', label: 'Telegram' },
+						{ data_key: 'whatsappMessageCount', color: 'var(--chart-5)', label: 'WhatsApp' },
 					]}
 					filters={filtersComponent}
 				/>

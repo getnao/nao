@@ -14,6 +14,7 @@ const navItems: NavItem[] = [
 	{ to: '/settings/project/slack', label: 'Slack' },
 	{ to: '/settings/project/teams', label: 'Microsoft Teams' },
 	{ to: '/settings/project/telegram', label: 'Telegram' },
+	{ to: '/settings/project/whatsapp', label: 'WhatsApp' },
 	{ to: '/settings/project/team', label: 'Team' },
 ];
 

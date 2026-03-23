@@ -57,69 +57,6 @@ export const createStopButtonCard = (): CardElement =>
 		children: [Actions([Button({ id: 'stop_generation', label: 'Stop Generation', style: 'primary' })])],
 	});
 
-export const createCompletionCard = (chatUrl: string, vote?: 'up' | 'down'): CardElement =>
-	Card({
-		children: [
-			Actions([
-				LinkButton({ url: chatUrl, label: 'Open in nao' }),
-				Button({ id: 'feedback_positive', label: '👍', style: vote === 'up' ? 'primary' : 'default' }),
-				Button({ id: 'feedback_negative', label: '👎', style: vote === 'down' ? 'primary' : 'default' }),
-			]),
-		],
-	});
-
-export const createTextBlock = (text: string): CardChild => {
-	return CardText(mdToMrkdwn(text));
-};
-
-function mdToMrkdwn(text: string): string {
-	// Split on fenced and inline code spans so we never mutate literal content
-	const parts = text.split(/(```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]+`)/);
-	return parts
-		.map((part, i) => {
-			if (i % 2 === 1) {
-				return part;
-			}
-			return part
-				.replace(/^#{1,6}\s+(.+)$/gm, '*$1*')
-				.replace(/\*\*(.+?)\*\*/g, '*$1*')
-				.replace(/\*\*\s*\*\*/g, '')
-				.replace(/^\*\*$/gm, '')
-				.replace(/\*\*(?!\S)/g, '');
-		})
-		.join('');
-}
-
-export const createImageBlock = (url: string): CardChild => {
-	return Image({ url, alt: 'image' });
-};
-
-export const escapeCsvCell = (value: unknown): string => {
-	const str = value === null || value === undefined ? '' : String(value);
-	const sanitized = /^[=+\-@]/.test(str.trimStart()) ? `'${str}` : str;
-	return /[,"\n]/.test(sanitized) ? `"${sanitized.replace(/"/g, '""')}"` : sanitized;
-};
-
-export const createPlainTextBlock = (text: string): CardChild => {
-	return CardText(stripMarkdown(text));
-};
-
-function stripMarkdown(text: string): string {
-	const newtext = text
-		.replace(/```[\s\S]*?```/g, (m) => m.slice(3, -3).trim())
-		.replace(/`([^`\n]+)`/g, '$1')
-		.replace(/^#{1,6}\s+/gm, '')
-		.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
-		.replace(/\*\*(.+?)\*\*/g, '$1')
-		.replace(/\*(.+?)\*/g, '$1')
-		.replace(/__(.+?)__/g, '$1')
-		.replace(/_(.+?)_/g, '$1')
-		.replace(/~~(.+?)~~/g, '$1')
-		.replace(/<\/?[a-zA-Z][^>]*>/g, '');
-	// eslint-disable-next-line no-useless-escape
-	return newtext.replace(/([_*`\[])/g, '\\$1');
-}
-
 export const createTelegramStopButtonCard = (): CardElement =>
 	Card({
 		children: [
@@ -129,6 +66,17 @@ export const createTelegramStopButtonCard = (): CardElement =>
 					id: 'stop_generation',
 					label: '⏹️ Stop Generation',
 				}),
+			]),
+		],
+	});
+
+export const createCompletionCard = (chatUrl: string, vote?: 'up' | 'down'): CardElement =>
+	Card({
+		children: [
+			Actions([
+				LinkButton({ url: chatUrl, label: 'Open in nao' }),
+				Button({ id: 'feedback_positive', label: '👍', style: vote === 'up' ? 'primary' : 'default' }),
+				Button({ id: 'feedback_negative', label: '👎', style: vote === 'down' ? 'primary' : 'default' }),
 			]),
 		],
 	});
@@ -154,3 +102,60 @@ export const createTelegramCompletionCard = (chatUrl: string, vote?: 'up' | 'dow
 			]),
 		],
 	});
+
+export const createWhatsAppCompletionCard = (chatUrl: string): CardElement =>
+	Card({
+		children: [CardText(`Open in nao: ${chatUrl}`)],
+	});
+
+export const createTextBlock = (text: string): CardChild => {
+	return CardText(mdToMrkdwn(text));
+};
+
+export const createImageBlock = (url: string): CardChild => {
+	return Image({ url, alt: 'image' });
+};
+
+export const createPlainTextBlock = (text: string): CardChild => {
+	return CardText(stripMarkdown(text));
+};
+
+function mdToMrkdwn(text: string): string {
+	// Split on fenced and inline code spans so we never mutate literal content
+	const parts = text.split(/(```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]+`)/);
+	return parts
+		.map((part, i) => {
+			if (i % 2 === 1) {
+				return part;
+			}
+			return part
+				.replace(/^#{1,6}\s+(.+)$/gm, '*$1*')
+				.replace(/\*\*(.+?)\*\*/g, '*$1*')
+				.replace(/\*\*\s*\*\*/g, '')
+				.replace(/^\*\*$/gm, '')
+				.replace(/\*\*(?!\S)/g, '');
+		})
+		.join('');
+}
+
+export const escapeCsvCell = (value: unknown): string => {
+	const str = value === null || value === undefined ? '' : String(value);
+	const sanitized = /^[=+\-@]/.test(str.trimStart()) ? `'${str}` : str;
+	return /[,"\n]/.test(sanitized) ? `"${sanitized.replace(/"/g, '""')}"` : sanitized;
+};
+
+function stripMarkdown(text: string): string {
+	const newtext = text
+		.replace(/```[\s\S]*?```/g, (m) => m.slice(3, -3).trim())
+		.replace(/`([^`\n]+)`/g, '$1')
+		.replace(/^#{1,6}\s+/gm, '')
+		.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+		.replace(/\*\*(.+?)\*\*/g, '$1')
+		.replace(/\*(.+?)\*/g, '$1')
+		.replace(/__(.+?)__/g, '$1')
+		.replace(/_(.+?)_/g, '$1')
+		.replace(/~~(.+?)~~/g, '$1')
+		.replace(/<\/?[a-zA-Z][^>]*>/g, '');
+	// eslint-disable-next-line no-useless-escape
+	return newtext.replace(/([_*`\[])/g, '\\$1');
+}

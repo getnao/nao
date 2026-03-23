@@ -34,7 +34,7 @@ export type StreamState = {
 	toolGroupBlockIndex: number;
 };
 
-export type Provider = 'slack' | 'teams' | 'telegram';
+export type Provider = 'slack' | 'teams' | 'telegram' | 'whatsapp';
 
 export type SlackSettings = {
 	slackBotToken: string;
@@ -55,4 +55,13 @@ export type TelegramSettings = {
 	telegramBotToken: string;
 	telegramLlmProvider: string;
 	telegramLlmModelId: string;
+};
+
+export type WhatsappSettings = {
+	whatsappAccessToken: string;
+	whatsappAppSecret: string;
+	whatsappPhoneNumberId: string;
+	whatsappVerifyToken: string;
+	whatsappLlmProvider: string;
+	whatsappLlmModelId: string;
 };

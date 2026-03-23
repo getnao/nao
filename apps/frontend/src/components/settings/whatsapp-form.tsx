@@ -2,19 +2,24 @@ import { useForm } from '@tanstack/react-form';
 import { ExternalLink, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { CopyableUrl } from '@/components/ui/copyable-url';
-import { PasswordField } from '@/components/ui/form-fields';
+import { PasswordField, TextField } from '@/components/ui/form-fields';
 
-export interface TelegramFormProps {
+export interface WhatsappFormProps {
+	webhookUrl: string;
 	hasProjectConfig: boolean;
-	onSubmit: (values: { botToken: string }) => Promise<void>;
+	onSubmit: (values: {
+		accessToken: string;
+		appSecret: string;
+		phoneNumberId: string;
+		verifyToken: string;
+	}) => Promise<void>;
 	onCancel: () => void;
 	isPending: boolean;
-	webhookUrl: string;
 }
 
-export function TelegramForm({ hasProjectConfig, onSubmit, onCancel, isPending, webhookUrl }: TelegramFormProps) {
+export function WhatsappForm({ webhookUrl, hasProjectConfig, onSubmit, onCancel, isPending }: WhatsappFormProps) {
 	const form = useForm({
-		defaultValues: { botToken: '' },
+		defaultValues: { accessToken: '', appSecret: '', phoneNumberId: '', verifyToken: '' },
 		onSubmit: async ({ value }) => {
 			await onSubmit(value);
 			form.reset();
@@ -31,7 +36,7 @@ export function TelegramForm({ hasProjectConfig, onSubmit, onCancel, isPending, 
 				className='flex flex-col gap-4'
 			>
 				<div className='flex items-center justify-between'>
-					<span className='text-sm font-medium text-foreground'>Telegram</span>
+					<span className='text-sm font-medium text-foreground'>WhatsApp</span>
 					<Button variant='ghost' size='icon-sm' type='button' onClick={onCancel}>
 						<X className='size-4' />
 					</Button>
@@ -40,21 +45,42 @@ export function TelegramForm({ hasProjectConfig, onSubmit, onCancel, isPending, 
 				<div className='grid gap-3'>
 					<p className='text-[11px] text-muted-foreground leading-relaxed'>
 						<a
-							href='https://docs.getnao.io/nao-agent/chat/telegram'
+							href='https://docs.getnao.io/nao-agent/chat/whatsapp'
 							target='_blank'
 							rel='noopener noreferrer'
 							className='inline-flex items-center gap-1 underline hover:text-foreground'
 						>
-							See how to set up the Telegram integration
+							See how to set up the WhatsApp integration
 							<ExternalLink className='size-3' />
 						</a>
 					</p>
 					{webhookUrl && <CopyableUrl label='Webhook URL' url={webhookUrl} />}
 					<PasswordField
 						form={form}
-						name='botToken'
-						label='Bot Token'
-						placeholder='Enter your Telegram bot token'
+						name='accessToken'
+						label='Access Token'
+						placeholder='Enter your WhatsApp access token'
+						required
+					/>
+					<PasswordField
+						form={form}
+						name='appSecret'
+						label='App Secret'
+						placeholder='Enter your Meta app secret'
+						required
+					/>
+					<TextField
+						form={form}
+						name='phoneNumberId'
+						label='Phone Number ID'
+						placeholder='Enter your WhatsApp phone number ID'
+						required
+					/>
+					<TextField
+						form={form}
+						name='verifyToken'
+						label='Verify Token'
+						placeholder='A secret string you choose for webhook verification'
 						required
 					/>
 				</div>

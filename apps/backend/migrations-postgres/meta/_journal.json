@@ -204,6 +204,13 @@
       "when": 1774262249057,
       "tag": "0028_add_telegram_channel",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1774271895478,
+      "tag": "0029_add_whatsapp_channel",
+      "breakpoints": true
     }
   ]
 }

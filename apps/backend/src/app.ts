@@ -17,6 +17,7 @@ import { slackRoutes } from './routes/slack';
 import { teamsRoutes } from './routes/teams';
 import { telegramRoutes } from './routes/telegram';
 import { testRoutes } from './routes/test';
+import { whatsappRoutes } from './routes/whatsapp';
 import { posthog, PostHogEvent } from './services/posthog';
 import { TrpcRouter, trpcRouter } from './trpc/router';
 import { createContext } from './trpc/trpc';
@@ -141,6 +142,10 @@ app.register(teamsRoutes, {
 
 app.register(telegramRoutes, {
 	prefix: '/api/webhooks/telegram',
+});
+
+app.register(whatsappRoutes, {
+	prefix: '/api/webhooks/whatsapp',
 });
 
 /**

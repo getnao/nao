@@ -110,6 +110,7 @@ export function fillMissingDates(records: UsageRecord[], granularity: Granularit
 				slackMessageCount: 0,
 				teamsMessageCount: 0,
 				telegramMessageCount: 0,
+				whatsappMessageCount: 0,
 				inputNoCacheTokens: 0,
 				inputCacheReadTokens: 0,
 				inputCacheWriteTokens: 0,

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useForm } from '@tanstack/react-form';
 import { ExternalLink, X } from 'lucide-react';
-import { CopyableUrl } from '../ui/copyable-url';
+import { CopyableUrl } from '@/components/ui/copyable-url';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { PasswordField } from '@/components/ui/form-fields';
