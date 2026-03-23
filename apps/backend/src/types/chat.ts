@@ -19,6 +19,11 @@ export interface UIChat {
 	createdAt: number;
 	updatedAt: number;
 	messages: UIMessage[];
+	sourceInfo?: {
+		id: string;
+		title: string;
+		authorName: string;
+	};
 }
 
 export interface ListChatResponse {

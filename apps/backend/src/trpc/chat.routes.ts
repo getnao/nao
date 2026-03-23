@@ -22,7 +22,18 @@ export const chatRoutes = {
 		if (!isAuthorized) {
 			throw new TRPCError({ code: 'FORBIDDEN', message: `You are not authorized to access this chat.` });
 		}
-		return chat;
+		if (!chat.sourceInfo) {
+			return chat;
+		}
+		const sourceInfo = await chatQueries.getChatInfo(chat.sourceInfo.id);
+		return {
+			...chat,
+			sourceInfo: {
+				id: chat.sourceInfo.id,
+				title: sourceInfo?.title ?? '',
+				authorName: chat.sourceInfo.authorName,
+			},
+		};
 	}),
 
 	list: protectedProcedure.query(async ({ ctx }): Promise<ListChatResponse> => {

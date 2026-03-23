@@ -9,7 +9,7 @@ import { debugCompaction } from '../../utils/debug';
 import { stripImageParts } from '../../utils/model-message';
 import { type ProviderModelResult } from '../providers';
 
-const MAX_OUTPUT_TOKENS = 16_000;
+export const MAX_OUTPUT_TOKENS = 16_000;
 
 export class CompactionLLM implements ICompactionLLM {
 	readonly modelId: string;

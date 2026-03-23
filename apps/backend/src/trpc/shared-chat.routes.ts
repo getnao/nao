@@ -4,6 +4,7 @@ import { z } from 'zod/v4';
 import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as sharedChatQueries from '../queries/shared-chat.queries';
+import { forkChat } from '../services/fork-chat.service';
 import { type UIChat } from '../types/chat';
 import { notifySharedItemRecipients } from '../utils/email';
 import { projectProtectedProcedure, protectedProcedure } from './trpc';
@@ -147,4 +148,33 @@ export const sharedChatRoutes = {
 
 		await sharedChatQueries.deleteSharedChat(input.id);
 	}),
+
+	fork: protectedProcedure
+		.input(z.object({ shareId: z.string() }))
+		.mutation(async ({ input, ctx }): Promise<{ chatId: string }> => {
+			const share = await sharedChatQueries.getSharedChatInfo(input.shareId);
+			if (!share) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: 'Shared chat not found.' });
+			}
+
+			const project = await projectQueries.getProjectByUserId(ctx.user.id);
+			if (!project || project.id !== share.projectId) {
+				throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this chat.' });
+			}
+
+			if (share.visibility === 'specific' && share.userId !== ctx.user.id) {
+				const hasAccess = await sharedChatQueries.canUserAccessSharedChat(share.id, ctx.user.id);
+				if (!hasAccess) {
+					throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this chat.' });
+				}
+			}
+
+			return forkChat({
+				sourceChatId: share.chatId,
+				projectId: project.id,
+				userId: ctx.user.id,
+				sourceTitle: share.title,
+				sourceAuthorName: share.authorName,
+			});
+		}),
 };

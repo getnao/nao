@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, useRouter } from '@tanstack/react-router';
-import { Globe, Share } from 'lucide-react';
+import { GitFork, Globe, Share } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { StoryOpenButton } from '@/components/story-open-button';
 import { StoryViewer } from '@/components/side-panel/story-viewer';
@@ -8,6 +8,7 @@ import { ChatInput } from '@/components/chat-input';
 import { ChatMessages } from '@/components/chat-messages/chat-messages';
 import { SidePanel } from '@/components/side-panel/side-panel';
 import { MobileHeader } from '@/components/mobile-header';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { useAgentContext } from '@/contexts/agent.provider';
@@ -67,13 +68,20 @@ export function RouteComponent() {
 					<MobileHeader chatId={chatId} title={title} />
 
 					<div className='group/header absolute flex items-center justify-between top-3 inset-x-4 z-10 max-md:hidden'>
-						<div className='min-w-0 max-w-[60%]'>
+						<div className='min-w-0 max-w-[60%] flex flex-row gap-4'>
 							{title && (
 								<EditableChatTitle
 									chatId={chatId}
 									title={title}
 									className='text-sm text-muted-foreground'
 								/>
+							)}
+							{chat.data?.sourceInfo && (
+								<Badge variant='outline' className='gap-1 text-muted-foreground w-fit'>
+									<GitFork />
+									<span className='truncate'>Forked from </span>
+									<span className='text-xs text-foreground'>{chat.data.sourceInfo.authorName}</span>
+								</Badge>
 							)}
 						</div>
 						<div className='flex items-center gap-2'>
