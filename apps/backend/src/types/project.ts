@@ -1,4 +1,4 @@
-import type { UserRole } from '@nao/shared';
+import type { UserRole } from '@nao/shared/types';
 
 export interface UserWithRole {
 	id: string;

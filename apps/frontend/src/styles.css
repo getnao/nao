@@ -342,7 +342,11 @@ code {
 	direction: ltr;
 }
 
-.replay-nav-highlight {
+.replay-nav-highlight:not([data-replay-bordered='true']) {
+	@apply rounded-xl ring-2 ring-inset ring-primary p-[2px];
+}
+
+[data-replay-bordered='true'].replay-nav-highlight {
 	@apply rounded-xl ring-2 ring-primary ring-offset-2 -mx-3;
 	--tw-ring-offset-color: var(--background);
 }

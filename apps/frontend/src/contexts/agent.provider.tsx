@@ -44,6 +44,7 @@ export const ReadonlyAgentMessagesProvider = ({
 		const setMessages: AgentHelpers['setMessages'] = () => {};
 		const queueOrSendMessage: AgentHelpers['queueOrSendMessage'] = noopPromise;
 		const editMessage: AgentHelpers['editMessage'] = noopPromise;
+		const submitQueuedMessageNow: AgentHelpers['submitQueuedMessageNow'] = noopPromise;
 		const stopAgent: AgentHelpers['stopAgent'] = noopPromise;
 		const clearError: AgentHelpers['clearError'] = noop;
 		const setSelectedModel: AgentHelpers['setSelectedModel'] = () => {};
@@ -54,6 +55,7 @@ export const ReadonlyAgentMessagesProvider = ({
 			setMessages,
 			queueOrSendMessage,
 			editMessage,
+			submitQueuedMessageNow,
 			status: 'ready',
 			isRunning: false,
 			isLoadingMessages: false,

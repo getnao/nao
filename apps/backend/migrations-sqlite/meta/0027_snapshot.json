@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "6df08185-e8a8-495f-ac60-b1e8d6af8321",
+  "id": "65def899-a6ff-4240-9d98-d839bdd3d0ae",
   "prevId": "b9b33780-26b2-4d13-8b69-b24f8c84b39f",
   "tables": {
     "account": {
@@ -182,13 +182,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "telegram_thread_id": {
-          "name": "telegram_thread_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -232,13 +225,6 @@
           "name": "chat_teams_thread_idx",
           "columns": [
             "teams_thread_id"
-          ],
-          "isUnique": false
-        },
-        "chat_telegram_thread_idx": {
-          "name": "chat_telegram_thread_idx",
-          "columns": [
-            "telegram_thread_id"
           ],
           "isUnique": false
         }
@@ -1374,13 +1360,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "telegram_settings": {
-          "name": "telegram_settings",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -1791,6 +1770,127 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
+    "shared_chat": {
+      "name": "shared_chat",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "chat_id": {
+          "name": "chat_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "visibility": {
+          "name": "visibility",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'project'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
+        }
+      },
+      "indexes": {
+        "shared_chat_chatId_unique": {
+          "name": "shared_chat_chatId_unique",
+          "columns": [
+            "chat_id"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "shared_chat_chat_id_chat_id_fk": {
+          "name": "shared_chat_chat_id_chat_id_fk",
+          "tableFrom": "shared_chat",
+          "tableTo": "chat",
+          "columnsFrom": [
+            "chat_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "shared_chat_access": {
+      "name": "shared_chat_access",
+      "columns": {
+        "shared_chat_id": {
+          "name": "shared_chat_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "shared_chat_access_shared_chat_id_shared_chat_id_fk": {
+          "name": "shared_chat_access_shared_chat_id_shared_chat_id_fk",
+          "tableFrom": "shared_chat_access",
+          "tableTo": "shared_chat",
+          "columnsFrom": [
+            "shared_chat_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "shared_chat_access_user_id_user_id_fk": {
+          "name": "shared_chat_access_user_id_user_id_fk",
+          "tableFrom": "shared_chat_access",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "shared_chat_access_shared_chat_id_user_id_pk": {
+          "columns": [
+            "shared_chat_id",
+            "user_id"
+          ],
+          "name": "shared_chat_access_shared_chat_id_user_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "shared_story": {
       "name": "shared_story",
       "columns": {
@@ -2135,13 +2235,6 @@
           "autoincrement": false,
           "default": true
         },
-        "messaging_provider_code": {
-          "name": "messaging_provider_code",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -2164,13 +2257,6 @@
           "name": "user_email_unique",
           "columns": [
             "email"
-          ],
-          "isUnique": true
-        },
-        "user_messaging_provider_code_unique": {
-          "name": "user_messaging_provider_code_unique",
-          "columns": [
-            "messaging_provider_code"
           ],
           "isUnique": true
         }

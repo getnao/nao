@@ -39,7 +39,9 @@ export function StoriesGroups({
 
 	function handleArchiveAll(items: StoryItem[]) {
 		const archivable = items.filter((i) => i.kind === 'own' && i.chatId && i.storyId);
-		if (archivable.length === 0) return;
+		if (archivable.length === 0) {
+			return;
+		}
 		archiveAllMutation.mutate({
 			stories: archivable.map((i) => ({ chatId: i.chatId!, storyId: i.storyId! })),
 		});

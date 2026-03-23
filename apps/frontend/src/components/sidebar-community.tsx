@@ -26,7 +26,7 @@ export function SidebarCommunity({ isCollapsed }: SidebarCommunityProps) {
 					)}
 					title='GitHub'
 				>
-					<GithubIcon className='size-3.5 grayscale brightness-0 dark:brightness-200 opacity-30' />
+					<GithubIcon className='size-3.5' />
 				</a>
 				<a
 					href='https://join.slack.com/t/naolabs/shared_invite/zt-3cgdql4up-Az9FxGkTb8Qr34z2Dxp9TQ'

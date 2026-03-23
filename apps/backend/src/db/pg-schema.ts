@@ -335,7 +335,35 @@ export const projectLlmConfig = pgTable(
 	],
 );
 
-export const STORY_VISIBILITY = ['project', 'specific'] as const;
+export const SHARE_VISIBILITY = ['project', 'specific'] as const;
+
+export const sharedChat = pgTable(
+	'shared_chat',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		chatId: text('chat_id')
+			.notNull()
+			.references(() => chat.id, { onDelete: 'cascade' }),
+		visibility: text('visibility', { enum: SHARE_VISIBILITY }).default('project').notNull(),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+	},
+	(t) => [unique('shared_chat_chatId_unique').on(t.chatId)],
+);
+
+export const sharedChatAccess = pgTable(
+	'shared_chat_access',
+	{
+		sharedChatId: text('shared_chat_id')
+			.notNull()
+			.references(() => sharedChat.id, { onDelete: 'cascade' }),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+	},
+	(t) => [primaryKey({ columns: [t.sharedChatId, t.userId] })],
+);
 
 export const sharedStory = pgTable(
 	'shared_story',
@@ -353,7 +381,7 @@ export const sharedStory = pgTable(
 			.notNull()
 			.references(() => chat.id, { onDelete: 'cascade' }),
 		storyId: text('story_id').notNull(),
-		visibility: text('visibility', { enum: STORY_VISIBILITY }).default('project').notNull(),
+		visibility: text('visibility', { enum: SHARE_VISIBILITY }).default('project').notNull(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 	},
 	(t) => [

@@ -29,8 +29,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const isDev = env.MODE !== 'prod';
-// pino-pretty transport uses worker threads and can't be resolved inside a Bun-compiled binary
-const isCompiled = typeof Bun !== 'undefined' && Bun.main.startsWith('/$bunfs/');
+// pino-pretty transport uses worker threads and can't be resolved inside a Bun-compiled binary.
+// Unix path: /$bunfs/root/..., Windows path: B:/~BUN/root/...
+const isCompiled = typeof Bun !== 'undefined' && /(\$bunfs|~BUN)/.test(Bun.main);
 
 const app = fastify({
 	logger:

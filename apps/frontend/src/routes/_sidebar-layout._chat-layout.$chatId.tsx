@@ -1,33 +1,41 @@
+import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, useRouter } from '@tanstack/react-router';
-import { useEffect, useRef } from 'react';
+import { Globe, Share } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import { StoryOpenButton } from '@/components/story-open-button';
 import { StoryViewer } from '@/components/side-panel/story-viewer';
 import { ChatInput } from '@/components/chat-input';
 import { ChatMessages } from '@/components/chat-messages/chat-messages';
 import { SidePanel } from '@/components/side-panel/side-panel';
 import { MobileHeader } from '@/components/mobile-header';
+import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { useAgentContext } from '@/contexts/agent.provider';
 import { useSidePanel } from '@/hooks/use-side-panel';
 import { SidePanelProvider } from '@/contexts/side-panel';
 import { EditableChatTitle } from '@/components/editable-chat-title';
 import { useChatQuery } from '@/queries/use-chat-query';
+import { ShareChatDialog } from '@/components/share-dialog.chat';
+import { trpc } from '@/main';
 
 export const Route = createFileRoute('/_sidebar-layout/_chat-layout/$chatId')({
 	component: RouteComponent,
 });
 
 export function RouteComponent() {
-	const { isLoadingMessages } = useAgentContext();
+	const { isLoadingMessages, isRunning } = useAgentContext();
 	const router = useRouter();
 	const { chatId } = Route.useParams();
 	const chat = useChatQuery({ chatId });
 	const title = chat.data?.title;
+	const shareQuery = useQuery(trpc.sharedChat.getShareOptionsByChatId.queryOptions({ chatId: chatId ?? '' }));
+	const isShared = !!shareQuery.data?.shareId;
 
 	const containerRef = useRef<HTMLDivElement>(null);
 	const sidePanelRef = useRef<HTMLDivElement>(null);
 
 	const sidePanel = useSidePanel({ containerRef, sidePanelRef });
+	const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
 
 	useEffect(() => {
 		const openStoryId = router.state.location.state.openStoryId;
@@ -50,6 +58,7 @@ export function RouteComponent() {
 		<SidePanelProvider
 			isVisible={sidePanel.isVisible}
 			currentStoryId={sidePanel.currentStoryId}
+			chatId={chatId}
 			open={sidePanel.open}
 			close={sidePanel.close}
 		>
@@ -69,6 +78,19 @@ export function RouteComponent() {
 						</div>
 						<div className='flex items-center gap-2'>
 							<StoryOpenButton variant='ghost' />
+							<Button
+								variant='ghost'
+								size='icon-sm'
+								onClick={() => setIsShareDialogOpen(true)}
+								disabled={isRunning}
+								aria-label='Share Chat'
+							>
+								{!isRunning && isShared ? (
+									<Globe className='size-3 text-emerald-600' />
+								) : (
+									<Share className='size-3' />
+								)}
+							</Button>
 						</div>
 					</div>
 
@@ -100,6 +122,7 @@ export function RouteComponent() {
 					</SidePanel>
 				)}
 			</div>
+			<ShareChatDialog open={isShareDialogOpen} onOpenChange={setIsShareDialogOpen} chatId={chatId} />
 		</SidePanelProvider>
 	);
 }

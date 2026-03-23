@@ -2,7 +2,7 @@ import { useState } from 'react';
 import DatePicker from 'react-datepicker';
 import { Calendar } from 'lucide-react';
 
-import type { UpdatedAtFilter } from '@nao/shared';
+import type { UpdatedAtFilter } from '@nao/shared/types';
 import { cn, toLocalDateString } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';

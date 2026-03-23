@@ -4,7 +4,7 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { getCoreRowModel, useReactTable } from '@tanstack/react-table';
 import type { ColumnFiltersState, PaginationState, SortingState, VisibilityState } from '@tanstack/react-table';
 
-import type { UpdatedAtFilter } from '@nao/shared';
+import type { UpdatedAtFilter } from '@nao/shared/types';
 import type { ProjectChatRow } from '@/components/settings/chats-replay-columns';
 import { getChatsReplayColumns } from '@/components/settings/chats-replay-columns';
 import { ChatsReplayPanel } from '@/components/settings/chats-replay-panel';
@@ -126,6 +126,7 @@ export function ChatsReplayPage() {
 						selectedChat
 							? {
 									chatId: selectedChat.id,
+									chatOwnerId: selectedChat.userId,
 									userName: selectedChat.userName,
 									updatedAt: selectedChat.updatedAt,
 									feedbackCount: selectedChat.upvotes + selectedChat.downvotes,

@@ -410,3 +410,14 @@ export const getProjectIdByQueryId = async (queryId: string): Promise<string | u
 
 	return result?.projectId;
 };
+
+export async function getChatInfo(
+	chatId: string,
+): Promise<{ projectId: string; userId: string; title: string } | null> {
+	const [row] = await db
+		.select({ projectId: s.chat.projectId, userId: s.chat.userId, title: s.chat.title })
+		.from(s.chat)
+		.where(eq(s.chat.id, chatId))
+		.execute();
+	return row ?? null;
+}

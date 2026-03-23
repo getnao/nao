@@ -57,8 +57,10 @@ jobs:
                   tags: |
                       ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:pr-${{ github.event.pull_request.number }}
                       ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.preview.outputs.name }}
-                  cache-from: type=gha,scope=pr-preview
-                  cache-to: type=gha,mode=max,scope=pr-preview
+                  cache-from: |
+                      type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:cache
+                      type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:pr-${{ github.event.pull_request.number }}
+                  cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:cache,mode=max
                   build-args: |
                       GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}
                       APP_VERSION=pr-${{ github.event.pull_request.number }}

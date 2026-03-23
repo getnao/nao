@@ -45,6 +45,14 @@ export type NewProjectSavedPrompt = typeof sqliteSchema.projectSavedPrompt.$infe
 export type DBMemory = typeof sqliteSchema.memories.$inferSelect;
 export type DBNewMemory = typeof sqliteSchema.memories.$inferInsert;
 
+export type DBSharedChat = typeof sqliteSchema.sharedChat.$inferSelect;
+export type NewSharedChat = typeof sqliteSchema.sharedChat.$inferInsert;
+
+export type DBSharedChatAccess = typeof sqliteSchema.sharedChatAccess.$inferSelect;
+export type NewSharedChatAccess = typeof sqliteSchema.sharedChatAccess.$inferInsert;
+
+export type ChatVisibility = DBSharedChat['visibility'];
+
 export type DBSharedStory = typeof sqliteSchema.sharedStory.$inferSelect;
 export type NewSharedStory = typeof sqliteSchema.sharedStory.$inferInsert;
 
