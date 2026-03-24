@@ -8,12 +8,14 @@ import type { LlmProvider } from '@nao/backend/llm';
 import type { ChartView } from '@/components/settings/usage-filters';
 import { UsageChartCard } from '@/components/settings/usage-chart-card';
 import { UsageFilters, dateFormats } from '@/components/settings/usage-filters';
-import { SettingsCard } from '@/components/ui/settings-card';
+import { SettingsCard, SettingsPageWrapper } from '@/components/ui/settings-card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { trpc } from '@/main';
 import { Empty } from '@/components/ui/empty';
+import { requireAdmin } from '@/lib/require-admin';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/usage')({
+	beforeLoad: requireAdmin,
 	component: UsagePage,
 });
 
@@ -47,7 +49,7 @@ function UsagePage() {
 	);
 
 	return (
-		<>
+		<SettingsPageWrapper>
 			{chartView === 'messages' && (
 				<UsageChartCard
 					title='Messages'
@@ -61,6 +63,9 @@ function UsagePage() {
 					series={[
 						{ data_key: 'webMessageCount', color: 'var(--chart-1)', label: 'Web' },
 						{ data_key: 'slackMessageCount', color: 'var(--chart-2)', label: 'Slack' },
+						{ data_key: 'teamsMessageCount', color: 'var(--chart-3)', label: 'Teams' },
+						{ data_key: 'telegramMessageCount', color: 'var(--chart-4)', label: 'Telegram' },
+						{ data_key: 'whatsappMessageCount', color: 'var(--chart-5)', label: 'WhatsApp' },
 					]}
 					filters={filtersComponent}
 				/>
@@ -169,6 +174,6 @@ function UsagePage() {
 					</Table>
 				)}
 			</SettingsCard>
-		</>
+		</SettingsPageWrapper>
 	);
 }

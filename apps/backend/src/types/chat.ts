@@ -15,6 +15,7 @@ import { llmProviderSchema } from './llm';
 export interface UIChat {
 	id: string;
 	title: string;
+	isStarred: boolean;
 	createdAt: number;
 	updatedAt: number;
 	messages: UIMessage[];
@@ -27,13 +28,14 @@ export interface ListChatResponse {
 export interface ChatListItem {
 	id: string;
 	title: string;
+	isStarred: boolean;
 	createdAt: number;
 	updatedAt: number;
 }
 
 export type UIMessage = UIGenericMessage<unknown, MessageCustomDataParts, UITools> & {
 	feedback?: MessageFeedback;
-	source?: 'slack' | 'teams' | 'web';
+	source?: 'slack' | 'teams' | 'telegram' | 'whatsapp' | 'web';
 };
 
 export type UITools = InferUITools<typeof tools>;
@@ -42,6 +44,8 @@ export type UITools = InferUITools<typeof tools>;
 export type MessageCustomDataParts = {
 	/** Sent when a new chat is created */
 	newChat: ChatListItem;
+	/** Sent when an LLM-generated title replaces the initial placeholder */
+	chatTitleUpdate: { title: string };
 	/** Maps the client-generated user message ID to the server-generated one */
 	newUserMessage: { newId: string };
 	/** Sent when conversation compaction is triggered */

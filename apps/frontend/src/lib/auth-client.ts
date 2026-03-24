@@ -8,6 +8,9 @@ export const authClient = createAuthClient({
 				requiresPasswordReset: {
 					type: 'boolean',
 				},
+				messagingProviderCode: {
+					type: 'string',
+				},
 			},
 		}),
 	],
@@ -23,4 +26,12 @@ const handleGoogleSignIn = async () => {
 	});
 };
 
-export { handleGoogleSignIn };
+const handleGithubSignIn = async () => {
+	await authClient.signIn.social({
+		provider: 'github',
+		callbackURL: '/',
+		errorCallbackURL: '/login',
+	});
+};
+
+export { handleGoogleSignIn, handleGithubSignIn };

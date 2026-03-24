@@ -11,7 +11,7 @@ const DEBUG_CHUNKS = false;
 export const agentRoutes = async (app: App) => {
 	app.addHook('preHandler', authMiddleware);
 
-	app.post('/', { schema: { body: AgentRequestSchema } }, async ({ user, project, body }) => {
+	app.post('/', { schema: { body: AgentRequestSchema } }, async ({ user, project, body, headers }) => {
 		const projectId = project?.id;
 
 		const result = await handleAgentRoute({
@@ -26,6 +26,7 @@ export const agentRoutes = async (app: App) => {
 			model_id: result.modelId,
 			is_new_chat: result.isNewChat,
 			source: 'web',
+			domain_host: headers['x-forwarded-host'] || headers.host,
 		});
 
 		let stream = result.stream;

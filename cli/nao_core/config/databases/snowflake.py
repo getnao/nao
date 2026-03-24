@@ -1,16 +1,17 @@
+from __future__ import annotations
+
 import logging
 import os
 import re
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
-import ibis
-from cryptography.hazmat.backends import default_backend
-from cryptography.hazmat.primitives import serialization
-from ibis import BaseBackend
 from pydantic import Field
 
 from nao_core.config.exceptions import InitError
 from nao_core.ui import UI, ask_confirm, ask_text
+
+if TYPE_CHECKING:
+    from ibis import BaseBackend
 
 from .base import DatabaseConfig
 from .context import DatabaseContext
@@ -60,6 +61,15 @@ class SnowflakeDatabaseContext(DatabaseContext):
         """
         rows = self._conn.raw_sql(query).fetchall()  # type: ignore[union-attr]
         return {row[0]: str(row[1]) for row in rows if row[1]}
+
+    def _cast_float(self, expr: str) -> str:
+        return f"{expr}::FLOAT"
+
+    def _partition_filter(self) -> str:
+        cols = self.partition_columns()
+        if cols:
+            return f'"{cols[0]}" >= DATEADD(day, -30, CURRENT_DATE())'
+        return ""
 
 
 def _get_snowflake_clustering_columns(conn: BaseBackend, schema: str, table: str) -> list[str]:
@@ -150,18 +160,22 @@ class SnowflakeConfig(DatabaseConfig):
 
     def connect(self) -> BaseBackend:
         """Create an Ibis Snowflake connection."""
+        from nao_core.deps import require_database_backend
+
+        require_database_backend("snowflake")
+        import ibis
+        from cryptography.hazmat.backends import default_backend
+        from cryptography.hazmat.primitives import serialization
+
         kwargs: dict = {"user": self.username}
         kwargs["account"] = self.account_id
 
-        # Always connect to just the database, not database/schema
-        # The sync provider will handle schema filtering via list_tables(database=schema)
         if self.database:
             kwargs["database"] = self.database
 
         if self.warehouse:
             kwargs["warehouse"] = self.warehouse
 
-        # Add authenticator if using SSO (external browser)
         if self.authenticator:
             kwargs["authenticator"] = self.authenticator
             UI.info(f"[yellow]Using authenticator: {self.authenticator}[/yellow]")
@@ -173,7 +187,6 @@ class SnowflakeConfig(DatabaseConfig):
                     password=self.passphrase.encode() if self.passphrase else None,
                     backend=default_backend(),
                 )
-                # Convert to DER format which Snowflake expects
                 kwargs["private_key"] = private_key.private_bytes(
                     encoding=serialization.Encoding.DER,
                     format=serialization.PrivateFormat.PKCS8,

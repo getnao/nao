@@ -1,5 +1,13 @@
 import { cn } from '@/lib/utils';
 
+export function SettingsPageWrapper({ children }: { children: React.ReactNode }) {
+	return (
+		<div className='overflow-auto flex-1'>
+			<div className='flex flex-col w-full px-4 py-6 md:p-8 gap-8 md:gap-12 max-w-4xl mx-auto'>{children}</div>
+		</div>
+	);
+}
+
 interface SettingsCardProps {
 	icon?: React.ReactNode;
 	title?: string;
@@ -7,6 +15,7 @@ interface SettingsCardProps {
 	description?: string;
 	action?: React.ReactNode;
 	children: React.ReactNode;
+	rootClassName?: string;
 	className?: string;
 	divide?: boolean;
 }
@@ -18,11 +27,19 @@ export function SettingsCard({
 	description,
 	action,
 	children,
+	rootClassName,
 	className,
 	divide = false,
 }: SettingsCardProps) {
 	return (
-		<div className={cn('flex flex-col', titleSize === 'lg' && 'gap-5', titleSize === 'md' && 'gap-2.5')}>
+		<div
+			className={cn(
+				'flex flex-col',
+				titleSize === 'lg' && 'gap-5',
+				titleSize === 'md' && 'gap-2.5',
+				rootClassName,
+			)}
+		>
 			{title && (
 				<div className='flex items-center justify-between'>
 					<div className='px-4 space-y-0'>

@@ -27,3 +27,15 @@ CREATE TABLE {another_dataset}.whatever (
 id INT64 NOT NULL,
 price FLOAT64 NOT NULL
 );
+
+CREATE TABLE {public_dataset}.events (
+id INT64 NOT NULL,
+event_date DATE NOT NULL,
+event_type STRING NOT NULL
+)
+PARTITION BY event_date
+OPTIONS (require_partition_filter = true);
+
+INSERT INTO {public_dataset}.events VALUES
+(1, DATE('2026-01-15'), 'click'),
+(2, DATE('2026-01-15'), 'view');

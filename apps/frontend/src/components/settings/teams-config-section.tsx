@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Pencil, Trash2 } from 'lucide-react';
 import { TeamsForm } from './teams-form';
 import { Button } from '@/components/ui/button';
+import { CopyableUrl } from '@/components/ui/copyable-url';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { LlmProviderIcon } from '@/components/ui/llm-provider-icon';
 import { SettingsCard } from '@/components/ui/settings-card';
@@ -22,7 +23,7 @@ export function TeamsConfigSection({ isAdmin }: TeamsConfigSectionProps) {
 	const [selectedModel, setSelectedModel] = useState<AvailableModel | null>(null);
 
 	const projectConfig = teamsConfig.data?.projectConfig;
-	const messagingEndpointUrl = teamsConfig.data?.messagingEndpointUrl ?? '';
+	const webhookUrl = teamsConfig.data?.webhookUrl ?? '';
 
 	useEffect(() => {
 		if (!availableModels || availableModels.length === 0) {
@@ -109,7 +110,6 @@ export function TeamsConfigSection({ isAdmin }: TeamsConfigSectionProps) {
 				onCancel={() => setIsEditing(false)}
 				isPending={upsertTeamsConfig.isPending}
 				teamsRedirectUrl={teamsConfig.data?.redirectUrl}
-				messagingEndpointUrl={messagingEndpointUrl}
 			/>
 		);
 	}
@@ -147,6 +147,12 @@ export function TeamsConfigSection({ isAdmin }: TeamsConfigSectionProps) {
 					</div>
 				</div>
 			</SettingsCard>
+
+			{webhookUrl && (
+				<SettingsCard title='Messaging Endpoint' description='Register this URL in your Azure bot settings'>
+					<CopyableUrl url={webhookUrl} />
+				</SettingsCard>
+			)}
 
 			<SettingsCard title='Settings' description='Configure how the Teams bot behaves'>
 				<div className='grid gap-2'>

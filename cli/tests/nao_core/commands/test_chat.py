@@ -8,6 +8,8 @@ from nao_core.commands.chat import (
     ensure_auth_secret,
     get_fastapi_main_path,
     get_server_binary_path,
+    start_ngrok_tunnel,
+    stop_ngrok,
     wait_for_server,
 )
 from nao_core.config.base import NaoConfig, NaoConfigError
@@ -507,3 +509,163 @@ llm:
         chat_server_call = mock_popen.call_args_list[1]
         env = chat_server_call.kwargs.get("env", {})
         assert env.get("OPENAI_API_KEY") == "sk-test-key-12345"
+
+
+class TestStartNgrokTunnel:
+    @patch("nao_core.commands.chat.console")
+    def test_returns_https_url(self, mock_console):
+        mock_tunnel = MagicMock()
+        mock_tunnel.public_url = "https://abc123.ngrok-free.app"
+
+        with patch("pyngrok.ngrok.connect", return_value=mock_tunnel):
+            url = start_ngrok_tunnel(5005)
+
+        assert url == "https://abc123.ngrok-free.app"
+
+    @patch("nao_core.commands.chat.console")
+    def test_converts_http_to_https(self, mock_console):
+        mock_tunnel = MagicMock()
+        mock_tunnel.public_url = "http://abc123.ngrok-free.app"
+
+        with patch("pyngrok.ngrok.connect", return_value=mock_tunnel):
+            url = start_ngrok_tunnel(5005)
+
+        assert url == "https://abc123.ngrok-free.app"
+
+    @patch("nao_core.commands.chat.console")
+    def test_passes_port_to_ngrok(self, mock_console):
+        mock_tunnel = MagicMock()
+        mock_tunnel.public_url = "https://abc123.ngrok-free.app"
+
+        with patch("pyngrok.ngrok.connect", return_value=mock_tunnel) as mock_connect:
+            start_ngrok_tunnel(9999)
+
+        mock_connect.assert_called_once_with("9999", "http")
+
+
+class TestStopNgrok:
+    def test_calls_ngrok_kill(self):
+        with patch("pyngrok.ngrok.kill") as mock_kill:
+            stop_ngrok()
+        mock_kill.assert_called_once()
+
+    def test_handles_exception_gracefully(self):
+        with patch("pyngrok.ngrok.kill", side_effect=Exception("fail")):
+            stop_ngrok()
+
+
+class TestChatWithNgrok:
+    @patch("nao_core.commands.chat.stop_ngrok")
+    @patch("nao_core.commands.chat.start_ngrok_tunnel")
+    @patch("nao_core.commands.chat.webbrowser.open")
+    @patch("nao_core.commands.chat.wait_for_server")
+    @patch("nao_core.commands.chat.subprocess.Popen")
+    @patch("nao_core.commands.chat.get_fastapi_main_path")
+    @patch("nao_core.commands.chat.get_server_binary_path")
+    @patch("nao_core.commands.chat.console")
+    def test_ngrok_sets_better_auth_url(
+        self,
+        mock_console,
+        mock_binary_path,
+        mock_fastapi_path,
+        mock_popen,
+        mock_wait_for_server,
+        mock_webbrowser,
+        mock_start_ngrok,
+        mock_stop_ngrok,
+        mock_chat_dependencies,
+    ):
+        """Verify --ngrok sets BETTER_AUTH_URL to the ngrok tunnel URL."""
+        tmp_path, bin_dir = mock_chat_dependencies
+
+        mock_binary_path.return_value = bin_dir / "nao-chat-server"
+        mock_fastapi_path.return_value = bin_dir / "fastapi" / "main.py"
+        mock_wait_for_server.return_value = True
+        mock_start_ngrok.return_value = "https://abc123.ngrok-free.app"
+
+        mock_process = MagicMock()
+        mock_process.stdout = iter([])
+        mock_process.wait.return_value = 0
+        mock_popen.return_value = mock_process
+
+        chat(ngrok=True)
+
+        mock_start_ngrok.assert_called_once_with(5005)
+        chat_server_call = mock_popen.call_args_list[1]
+        env = chat_server_call.kwargs.get("env", {})
+        assert env.get("BETTER_AUTH_URL") == "https://abc123.ngrok-free.app"
+
+    @patch("nao_core.commands.chat.stop_ngrok")
+    @patch("nao_core.commands.chat.start_ngrok_tunnel")
+    @patch("nao_core.commands.chat.webbrowser.open")
+    @patch("nao_core.commands.chat.wait_for_server")
+    @patch("nao_core.commands.chat.subprocess.Popen")
+    @patch("nao_core.commands.chat.get_fastapi_main_path")
+    @patch("nao_core.commands.chat.get_server_binary_path")
+    @patch("nao_core.commands.chat.console")
+    def test_ngrok_opens_browser_with_ngrok_url(
+        self,
+        mock_console,
+        mock_binary_path,
+        mock_fastapi_path,
+        mock_popen,
+        mock_wait_for_server,
+        mock_webbrowser,
+        mock_start_ngrok,
+        mock_stop_ngrok,
+        mock_chat_dependencies,
+    ):
+        """Verify browser opens with the ngrok URL when --ngrok is used."""
+        tmp_path, bin_dir = mock_chat_dependencies
+
+        mock_binary_path.return_value = bin_dir / "nao-chat-server"
+        mock_fastapi_path.return_value = bin_dir / "fastapi" / "main.py"
+        mock_wait_for_server.return_value = True
+        mock_start_ngrok.return_value = "https://abc123.ngrok-free.app"
+
+        mock_process = MagicMock()
+        mock_process.stdout = iter([])
+        mock_process.wait.return_value = 0
+        mock_popen.return_value = mock_process
+
+        chat(ngrok=True)
+
+        mock_webbrowser.assert_called_once_with("https://abc123.ngrok-free.app")
+
+    @patch("nao_core.commands.chat.stop_ngrok")
+    @patch("nao_core.commands.chat.start_ngrok_tunnel")
+    @patch("nao_core.commands.chat.webbrowser.open")
+    @patch("nao_core.commands.chat.wait_for_server")
+    @patch("nao_core.commands.chat.subprocess.Popen")
+    @patch("nao_core.commands.chat.get_fastapi_main_path")
+    @patch("nao_core.commands.chat.get_server_binary_path")
+    @patch("nao_core.commands.chat.console")
+    def test_ngrok_shutdown_on_keyboard_interrupt(
+        self,
+        mock_console,
+        mock_binary_path,
+        mock_fastapi_path,
+        mock_popen,
+        mock_wait_for_server,
+        mock_webbrowser,
+        mock_start_ngrok,
+        mock_stop_ngrok,
+        mock_chat_dependencies,
+    ):
+        """Verify ngrok tunnel is closed on Ctrl+C."""
+        tmp_path, bin_dir = mock_chat_dependencies
+
+        mock_binary_path.return_value = bin_dir / "nao-chat-server"
+        mock_fastapi_path.return_value = bin_dir / "fastapi" / "main.py"
+        mock_wait_for_server.return_value = True
+        mock_start_ngrok.return_value = "https://abc123.ngrok-free.app"
+
+        mock_process = MagicMock()
+        mock_process.stdout.__iter__ = MagicMock(side_effect=KeyboardInterrupt)
+        mock_popen.return_value = mock_process
+
+        with pytest.raises(SystemExit) as exc_info:
+            chat(ngrok=True)
+
+        assert exc_info.value.code == 0
+        mock_stop_ngrok.assert_called_once()

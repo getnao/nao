@@ -2,7 +2,8 @@ import { useQuery } from '@tanstack/react-query';
 import { trpc } from '../main';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { handleGoogleSignIn } from '@/lib/auth-client';
+import { handleGithubSignIn, handleGoogleSignIn } from '@/lib/auth-client';
+import GithubIcon from '@/components/icons/github-icon.svg';
 import GoogleIcon from '@/components/icons/google-icon.svg';
 import NaoLogo from '@/components/icons/nao-logo-greyscale.svg';
 
@@ -16,6 +17,7 @@ interface AuthFormProps {
 
 export function AuthForm({ form, title, submitText, children, serverError }: AuthFormProps) {
 	const isGoogleSetup = useQuery(trpc.google.isSetup.queryOptions());
+	const isGithubSetup = useQuery(trpc.github.isSetup.queryOptions());
 
 	return (
 		<div className='mx-auto w-full max-w-md p-8 my-auto'>
@@ -44,7 +46,7 @@ export function AuthForm({ form, title, submitText, children, serverError }: Aut
 				</form.Subscribe>
 			</form>
 
-			{isGoogleSetup.data && (
+			{(isGoogleSetup.data || isGithubSetup.data) && (
 				<div className='mt-6'>
 					<div className='relative'>
 						<div className='absolute inset-0 flex items-center'>
@@ -55,10 +57,30 @@ export function AuthForm({ form, title, submitText, children, serverError }: Aut
 						</div>
 					</div>
 
-					<Button type='button' variant='outline' className='w-full h-11 mt-6' onClick={handleGoogleSignIn}>
-						<GoogleIcon className='w-5 h-5' />
-						Continue with Google
-					</Button>
+					<div className='flex flex-col gap-3 mt-6'>
+						{isGoogleSetup.data && (
+							<Button
+								type='button'
+								variant='outline'
+								className='w-full h-11'
+								onClick={handleGoogleSignIn}
+							>
+								<GoogleIcon className='w-5 h-5' />
+								Continue with Google
+							</Button>
+						)}
+						{isGithubSetup.data && (
+							<Button
+								type='button'
+								variant='outline'
+								className='w-full h-11'
+								onClick={handleGithubSignIn}
+							>
+								<GithubIcon className='w-5 h-5' />
+								Continue with GitHub
+							</Button>
+						)}
+					</div>
 				</div>
 			)}
 		</div>

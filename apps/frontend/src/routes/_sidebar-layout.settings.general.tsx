@@ -9,7 +9,7 @@ import { useUserPageContext } from '@/contexts/user.provider';
 import { useLocalStorage } from '@/hooks/use-local-storage';
 import { soundNotificationStorage } from '@/hooks/use-stream-end-sound';
 import { ThemeSelector } from '@/components/settings/theme-selector';
-import { SettingsCard } from '@/components/ui/settings-card';
+import { SettingsCard, SettingsPageWrapper } from '@/components/ui/settings-card';
 import { SettingsControlRow, SettingsToggleRow } from '@/components/ui/settings-toggle-row';
 import { trpc } from '@/main';
 
@@ -42,7 +42,7 @@ function GeneralPage() {
 	};
 
 	return (
-		<>
+		<SettingsPageWrapper>
 			<UserProfileCard
 				name={user?.name}
 				email={user?.email}
@@ -73,6 +73,6 @@ function GeneralPage() {
 			</SettingsCard>
 
 			{isAdmin && <SettingsVersionInfo />}
-		</>
+		</SettingsPageWrapper>
 	);
 }

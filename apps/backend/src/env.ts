@@ -29,6 +29,17 @@ const envSchema = z.object({
 	GOOGLE_CLIENT_SECRET: z.string().optional(),
 	GOOGLE_AUTH_DOMAINS: z.string().optional(),
 
+	GITHUB_CLIENT_ID: z.string().optional(),
+	GITHUB_CLIENT_SECRET: z.string().optional(),
+	GITHUB_ALLOWED_USERS: z.string().optional(),
+	DEFAULT_USER_ROLE: z.enum(['admin', 'user']).default('user'),
+
+	SMTP_PASSWORD: z.string().optional(),
+	SMTP_HOST: z.string().optional(),
+	SMTP_PORT: z.string().optional(),
+	SMTP_MAIL_FROM: z.string().optional(),
+	SMTP_SSL: z.enum(['true', 'false']).optional(),
+
 	FASTAPI_PORT: z.coerce.number().default(8005),
 	APP_VERSION: z.string().default('dev'),
 	APP_COMMIT: z.string().default('unknown'),

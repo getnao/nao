@@ -16,7 +16,7 @@ COMMENT ON COLUMN public.users.email IS 'User email address';
 CREATE TABLE {database}.public.orders (
 id INTEGER NOT NULL,
 user_id INTEGER NOT NULL,
-amount FLOAT4 NOT NULL
+amount DOUBLE PRECISION NOT NULL
 );
 
 INSERT INTO {database}.public.orders VALUES
@@ -27,5 +27,5 @@ CREATE SCHEMA {database}.another;
 
 CREATE TABLE {database}.another.whatever (
 id INTEGER NOT NULL,
-price FLOAT4 NOT NULL
+price DOUBLE PRECISION NOT NULL
 );

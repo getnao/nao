@@ -1,4 +1,5 @@
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 
 type AnyForm = any;
 
@@ -68,6 +69,61 @@ export function PasswordField({ form, name, label, placeholder, hint, required =
 			hint={hint}
 			required={required}
 		/>
+	);
+}
+
+interface TextareaFieldProps {
+	form: AnyForm;
+	name: string;
+	label: string;
+	placeholder?: string;
+	hint?: string;
+	required?: boolean;
+	rows?: number;
+}
+
+export function TextareaField({
+	form,
+	name,
+	label,
+	placeholder,
+	hint,
+	required = false,
+	rows = 4,
+}: TextareaFieldProps) {
+	return (
+		<form.Field
+			name={name}
+			validators={
+				required ? { onChange: ({ value }: { value: string }) => (!value ? 'Required' : undefined) } : undefined
+			}
+		>
+			{(field: {
+				state: { value: string; meta: { errors: string[] } };
+				handleChange: (v: string) => void;
+				handleBlur: () => void;
+			}) => (
+				<div className='grid gap-2'>
+					<label htmlFor={name} className='text-sm font-medium text-foreground'>
+						{label}
+						{hint && <span className='text-muted-foreground font-normal ml-1'>{hint}</span>}
+					</label>
+					<Textarea
+						id={name}
+						name={name}
+						placeholder={placeholder}
+						value={field.state.value ?? ''}
+						onChange={(e) => field.handleChange(e.target.value)}
+						onBlur={field.handleBlur}
+						rows={rows}
+						className='font-mono text-xs'
+					/>
+					{field.state.meta.errors.length > 0 && (
+						<p className='text-xs text-destructive'>{field.state.meta.errors[0]}</p>
+					)}
+				</div>
+			)}
+		</form.Field>
 	);
 }
 

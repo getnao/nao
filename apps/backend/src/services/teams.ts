@@ -3,6 +3,7 @@ import { createMemoryState } from '@chat-adapter/state-memory';
 import { createTeamsAdapter } from '@chat-adapter/teams';
 import { Client } from '@microsoft/microsoft-graph-client';
 import { TokenCredentialAuthenticationProvider } from '@microsoft/microsoft-graph-client/authProviders/azureTokenCredentials';
+import { CITATION_TAG_REGEX } from '@nao/shared';
 import { InferUIMessageChunk, readUIMessageStream } from 'ai';
 import { Card, Chat, Message, SentMessage, Thread } from 'chat';
 
@@ -16,6 +17,7 @@ import { get as getUser } from '../queries/user.queries';
 import { UIChat, UIMessage, UIMessagePart } from '../types/chat';
 import { ConversationContext, StreamState, ToolCallEntry } from '../types/messaging-provider';
 import { createChatTitle } from '../utils/ai';
+import { logger } from '../utils/logger';
 import {
 	createCompletionCard,
 	createImageBlock,
@@ -26,6 +28,7 @@ import {
 	EXCLUDED_TOOLS,
 } from '../utils/messaging-provider';
 import { agentService, ModelSelection } from './agent';
+import { posthog, PostHogEvent } from './posthog';
 
 const UPDATE_INTERVAL_MS = 200;
 
@@ -94,31 +97,31 @@ class TeamsService {
 		});
 
 		this._bot.onAction('stop_generation', async (event) => {
-			const existingChat = await chatQueries.getChatByTeamsThread(event.thread.id);
+			const existingChat = await chatQueries.getChatByTeamsThread(event.thread?.id || '');
 			if (existingChat) {
 				agentService.get(existingChat.id)?.stop();
 			}
 		});
 
 		this._bot.onAction('feedback_positive', async (event) => {
-			const messageId = await this._getLastAssistantMessageId(event.thread.id);
+			const messageId = await this._getLastAssistantMessageId(event.thread?.id || '');
 			if (!messageId) {
 				return;
 			}
 			await feedbackQueries.upsertFeedback({ messageId, vote: 'up' });
-			const completion = this._lastCompletionCard.get(event.thread.id);
+			const completion = this._lastCompletionCard.get(event.thread?.id || '');
 			if (completion) {
 				await completion.card.edit(createCompletionCard(completion.chatUrl, 'up'));
 			}
 		});
 
 		this._bot.onAction('feedback_negative', async (event) => {
-			const messageId = await this._getLastAssistantMessageId(event.thread.id);
+			const messageId = await this._getLastAssistantMessageId(event.thread?.id || '');
 			if (!messageId) {
 				return;
 			}
 			await feedbackQueries.upsertFeedback({ messageId, vote: 'down' });
-			const completion = this._lastCompletionCard.get(event.thread.id);
+			const completion = this._lastCompletionCard.get(event.thread?.id || '');
 			if (completion) {
 				await completion.card.edit(createCompletionCard(completion.chatUrl, 'down'));
 			}
@@ -136,7 +139,6 @@ class TeamsService {
 			convMessage: null,
 			blocks: [],
 			textBlockIndex: -1,
-			assistantMessage: null,
 			isNewChat: false,
 			modelId: undefined,
 			timezone: undefined,
@@ -225,6 +227,7 @@ class TeamsService {
 				source: 'teams',
 			});
 			ctx.chatId = existingChat.id;
+			ctx.isNewChat = false;
 		} else {
 			const title = createChatTitle({ text });
 			const [createdChat] = await chatQueries.createChat(
@@ -232,18 +235,15 @@ class TeamsService {
 				{ text, source: 'teams' },
 			);
 			ctx.chatId = createdChat.id;
+			ctx.isNewChat = true;
 		}
 	}
 
 	private async _handleStreamAgent(chat: UIChat, ctx: ConversationContext): Promise<void> {
-		const agent = await agentService.create(
-			{ ...chat, userId: ctx.user!.id, projectId: this._projectId },
-			this._modelSelection,
-		);
-		const stream = agent.stream(chat.messages, { provider: 'teams' });
+		const stream = await this._createAgentStream(chat, ctx);
 		const stopCard = await ctx.thread.post(createStopButtonCard());
 
-		const state = await this._readStreamAndUpdateMessage(stream, ctx);
+		await this._readStreamAndUpdateMessage(stream, ctx);
 
 		await stopCard.delete();
 		await this._lastCompletionCard.get(ctx.thread.id)?.card.delete();
@@ -251,7 +251,26 @@ class TeamsService {
 		const card = await ctx.thread.post(createCompletionCard(chatUrl));
 		this._lastCompletionCard.set(ctx.thread.id, { card, chatUrl });
 
-		ctx.assistantMessage = state.lastMessage;
+		posthog.capture(ctx.user!.id, PostHogEvent.MessageSent, {
+			project_id: this._projectId,
+			chat_id: ctx.chatId,
+			model_id: ctx.modelId,
+			is_new_chat: ctx.isNewChat,
+			source: 'teams',
+			domain_host: new URL(this._redirectUrl).host,
+		});
+	}
+
+	private async _createAgentStream(
+		chat: UIChat,
+		ctx: ConversationContext,
+	): Promise<ReadableStream<InferUIMessageChunk<UIMessage>>> {
+		const agent = await agentService.create(
+			{ ...chat, userId: ctx.user!.id, projectId: this._projectId },
+			this._modelSelection,
+		);
+		ctx.modelId = agent.getModelId();
+		return agent.stream(chat.messages, { provider: 'teams', timezone: ctx.timezone });
 	}
 
 	private async _readStreamAndUpdateMessage(
@@ -339,7 +358,10 @@ class TeamsService {
 			ctx.blocks.push(createImageBlock(imageUrl));
 			await ctx.convMessage?.edit(Card({ children: ctx.blocks }));
 		} catch (error) {
-			console.error('Error generating chart image:', error);
+			logger.error(`Chart image generation failed: ${String(error)}`, {
+				source: 'system',
+				context: { chatId: ctx.chatId, toolCallId: part.toolCallId },
+			});
 		}
 	}
 
@@ -390,7 +412,7 @@ class TeamsService {
 	}
 
 	private _updateTextBlock(text: string, ctx: ConversationContext): void {
-		const block = createTextBlock(text);
+		const block = createTextBlock(text.replace(CITATION_TAG_REGEX, ''));
 		if (ctx.textBlockIndex === -1) {
 			ctx.textBlockIndex = ctx.blocks.length;
 			ctx.blocks.push(block);

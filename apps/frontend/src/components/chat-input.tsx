@@ -21,6 +21,7 @@ import { useRegisterSetChatInputCallback } from '@/contexts/set-chat-input-callb
 import { useTranscribe } from '@/hooks/use-transcribe';
 import { cn } from '@/lib/utils';
 import { useChatId } from '@/hooks/use-chat-id';
+import { messageQueueStore } from '@/stores/chat-message-queue';
 
 type ChatInputBaseProps = {
 	promptRef: React.RefObject<PromptHandle | null>;
@@ -76,8 +77,9 @@ function ChatInputBase({
 	allowQueueing,
 }: ChatInputBaseProps) {
 	const [inputText, setInputText] = useState('');
-	const { isRunning, stopAgent, isLoadingMessages, setMentions } = useAgentContext();
+	const { isRunning, stopAgent, isLoadingMessages, setMentions, submitQueuedMessageNow } = useAgentContext();
 	const chatId = useChatId();
+	const effectivePlaceholder = isRunning && allowQueueing ? 'Add a follow-up...' : placeholder;
 
 	const agentSettings = useQuery(trpc.project.getAgentSettings.queryOptions());
 	const transcribeModels = useQuery(trpc.project.getKnownTranscribeModels.queryOptions());
@@ -99,7 +101,18 @@ function ChatInputBase({
 	const submitMessage = useCallback(
 		async (text: string, currentMentions: SelectedMention[] = []) => {
 			const trimmedInput = text.trim();
-			if (!trimmedInput || (isRunning && !allowQueueing)) {
+
+			if (!trimmedInput) {
+				if (isRunning && allowQueueing) {
+					const queue = messageQueueStore.getSnapshot(chatId);
+					if (queue?.length) {
+						await submitQueuedMessageNow(queue[0].id);
+					}
+				}
+				return;
+			}
+
+			if (isRunning && !allowQueueing) {
 				return;
 			}
 
@@ -109,7 +122,7 @@ function ChatInputBase({
 
 			await onSubmitMessage({ text: trimmedInput });
 		},
-		[onSubmitMessage, isRunning, allowQueueing, setMentions, promptRef],
+		[onSubmitMessage, isRunning, allowQueueing, setMentions, promptRef, chatId, submitQueuedMessageNow],
 	);
 
 	const {
@@ -142,6 +155,15 @@ function ChatInputBase({
 	const hasSkills = Boolean(skills.data?.length);
 	const hasDatabases = Boolean(databaseObjects.data?.length);
 
+	const handleEditQueuedMessage = useCallback(
+		(text: string) => {
+			promptRef.current?.clear();
+			promptRef.current?.insertText(text);
+			promptRef.current?.focus();
+		},
+		[promptRef],
+	);
+
 	const openSkillsMenu = useCallback(() => {
 		promptRef.current?.insertText('/');
 	}, [promptRef]);
@@ -152,13 +174,13 @@ function ChatInputBase({
 
 	return (
 		<div className={cn('px-3 pb-3 pt-0 md:px-4 md:pb-4 max-w-3xl w-full mx-auto', className)}>
-			<ChatInputMessageQueue />
+			<ChatInputMessageQueue onEditMessage={handleEditQueuedMessage} onSubmitNow={submitQueuedMessageNow} />
 
 			<form onSubmit={handleSubmitMessage} className='mx-auto relative'>
-				<InputGroup htmlFor='chat-input'>
+				<InputGroup htmlFor='chat-input' className='dark:bg-muted'>
 					<ChatPrompt
 						promptRef={promptRef}
-						placeholder={placeholder}
+						placeholder={effectivePlaceholder}
 						onChange={(value) => setInputText(value)}
 						onEnter={(value, mentions) => submitMessage(value, mentions)}
 					/>

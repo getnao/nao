@@ -1,9 +1,8 @@
 import { useNavigate, useParams } from '@tanstack/react-router';
 import { useMutation } from '@tanstack/react-query';
-import { useMemo, useEffect, useRef, useCallback } from 'react';
+import { useMemo, useEffect, useCallback } from 'react';
 import { Chat as Agent, useChat } from '@ai-sdk/react';
 import { DefaultChatTransport } from 'ai';
-import { useCurrent } from './useCurrent';
 import { useMemoObject } from './useMemoObject';
 import { usePrevRef } from './use-prev';
 import { useLocalStorage } from './use-local-storage';
@@ -14,6 +13,7 @@ import type { UIMessage } from '@nao/backend/chat';
 import type { MentionOption } from 'prompt-mentions';
 import type ChatSelectedModel from '@/types/ai';
 import { messageQueueStore } from '@/stores/chat-message-queue';
+import { chatActivityStore } from '@/stores/chat-activity';
 import { useChatQuery, useSetChat } from '@/queries/use-chat-query';
 import { trpc } from '@/main';
 import { agentService } from '@/services/agents';
@@ -26,6 +26,7 @@ export interface AgentHelpers {
 	setMessages: UseChatHelpers<UIMessage>['setMessages'];
 	queueOrSendMessage: (args: SendMessageArgs) => Promise<void>;
 	editMessage: (args: { messageId: string; text: string }) => Promise<void | UIMessage>;
+	submitQueuedMessageNow: (messageId: string) => Promise<void>;
 	status: UseChatHelpers<UIMessage>['status'];
 	isRunning: boolean;
 	isLoadingMessages: boolean;
@@ -43,15 +44,18 @@ export interface SendMessageArgs {
 
 const selectedModelStorage = createLocalStorage<ChatSelectedModel>('nao-selected-model');
 
+const selectedModelRef: { current: ChatSelectedModel | null } = { current: null };
+const mentionsRef: { current: MentionOption[] } = { current: [] };
+const chatIdRef: { current: string | undefined } = { current: undefined };
+
 export const useAgent = (): AgentHelpers => {
 	const navigate = useNavigate();
 	const chatId = useChatId();
-	const chatIdRef = useCurrent(chatId);
+	chatIdRef.current = chatId;
 	const chat = useChatQuery({ chatId });
 
 	const [selectedModel, setSelectedModel] = useLocalStorage(selectedModelStorage);
-	const selectedModelRef = useCurrent(selectedModel);
-	const mentionsRef = useRef<MentionOption[]>([]);
+	selectedModelRef.current = selectedModel;
 	const setChat = useSetChat();
 	const setChatList = useSetChatList();
 
@@ -76,6 +80,15 @@ export const useAgent = (): AgentHelpers => {
 				setChat({ chatId: newChat.id }, { ...newChat, messages: [] });
 				setChatList((old) => ({ chats: [newChat, ...(old?.chats || [])] }));
 				navigate({ to: '/$chatId', params: { chatId: newChat.id }, state: { fromMessageSend: true } });
+				return;
+			}
+
+			if (dataPart.type === 'data-chatTitleUpdate') {
+				const { title } = dataPart.data;
+				setChat({ chatId: agentId }, (prev) => (prev ? { ...prev, title } : prev));
+				setChatList((old) => ({
+					chats: (old?.chats ?? []).map((c) => (c.id === agentId ? { ...c, title } : c)),
+				}));
 				return;
 			}
 
@@ -120,8 +133,12 @@ export const useAgent = (): AgentHelpers => {
 				if (next) {
 					mentionsRef.current = next.mentions;
 					newAgent.sendMessage({ text: next.text });
-				} else if (chatIdRef.current !== agentId) {
-					agentService.disposeAgent(agentId);
+				} else {
+					chatActivityStore.setRunning(agentId, false);
+					if (chatIdRef.current !== agentId) {
+						chatActivityStore.setUnread(agentId, true);
+						agentService.disposeAgent(agentId);
+					}
 				}
 			},
 			onError: () => {
@@ -130,12 +147,24 @@ export const useAgent = (): AgentHelpers => {
 		});
 
 		return agentService.registerAgent(agentId, newAgent);
-	}, [chatId, navigate, setChat, setChatList, chatIdRef, selectedModelRef]);
+	}, [chatId, navigate, setChat, setChatList]);
 
 	const { status, error, clearError, sendMessage, setMessages, messages } = useChat({ chat: agentInstance });
 
 	const stopAgentMutation = useMutation(trpc.chat.stop.mutationOptions());
 	const isRunning = checkIsAgentRunning({ status });
+
+	useEffect(() => {
+		if (chatId) {
+			chatActivityStore.setRunning(chatId, isRunning);
+		}
+	}, [chatId, isRunning]);
+
+	useEffect(() => {
+		if (chatId) {
+			chatActivityStore.setUnread(chatId, false);
+		}
+	}, [chatId]);
 
 	const stopAgent = useCallback(async () => {
 		if (!chatId) {
@@ -172,7 +201,20 @@ export const useAgent = (): AgentHelpers => {
 				mentions,
 			});
 		},
-		[isRunning, handleSendMessage, chatIdRef],
+		[isRunning, handleSendMessage],
+	);
+
+	const submitQueuedMessageNow = useCallback(
+		async (messageId: string) => {
+			messageQueueStore.promoteToFront(chatIdRef.current, messageId);
+			await stopAgent();
+			const next = messageQueueStore.dequeue(chatIdRef.current ?? NEW_CHAT_ID);
+			if (next) {
+				mentionsRef.current = next.mentions;
+				await handleSendMessage({ text: next.text });
+			}
+		},
+		[stopAgent, handleSendMessage],
 	);
 
 	const editMessage = useCallback(
@@ -198,6 +240,7 @@ export const useAgent = (): AgentHelpers => {
 		setMessages,
 		queueOrSendMessage,
 		editMessage,
+		submitQueuedMessageNow,
 		status,
 		isRunning,
 		isLoadingMessages: chat.isLoading,

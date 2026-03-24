@@ -16,13 +16,13 @@ export const DATE_RANGE_OPTIONS = {
 
 export type DateRange = keyof typeof DATE_RANGE_OPTIONS;
 
-/** Filters data by date range preset (relative to the first date in the data, assuming data is ordered) */
+/** Filters data by date range preset (relative to the latest date in the data, expects ascending sort) */
 export function filterByDateRange<T extends Record<string, any>>(data: T[], xAxisKey: string, range: DateRange): T[] {
 	if (range === 'all' || data.length === 0) {
 		return data;
 	}
 
-	const latestDate = data.at(-1)?.[xAxisKey]; // Assuming data is ordered by date
+	const latestDate = data.at(-1)?.[xAxisKey];
 	if (latestDate == null) {
 		return data;
 	}
@@ -60,6 +60,23 @@ export function filterByDateRange<T extends Record<string, any>>(data: T[], xAxi
 		}
 
 		return date >= cutoffDate;
+	});
+}
+
+/** Sorts data chronologically (ascending) by a date key so charts render left-to-right */
+export function sortByDateKey<T extends Record<string, any>>(data: T[], xAxisKey: string): T[] {
+	return [...data].sort((a, b) => {
+		const dateA = new Date(a[xAxisKey]);
+		const dateB = new Date(b[xAxisKey]);
+		const validA = isValidDate(dateA);
+		const validB = isValidDate(dateB);
+		if (!validA || !validB) {
+			if (!validA && !validB) {
+				return 0;
+			}
+			return validA ? -1 : 1;
+		}
+		return dateA.getTime() - dateB.getTime();
 	});
 }
 

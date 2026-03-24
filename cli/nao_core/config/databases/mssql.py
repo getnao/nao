@@ -1,14 +1,18 @@
-import platform
-from typing import Literal
+from __future__ import annotations
 
-import ibis
-from ibis import BaseBackend
+import platform
+from typing import TYPE_CHECKING, Literal
+
 from pydantic import Field
 
 from nao_core.config.exceptions import InitError
 from nao_core.ui import ask_text
 
+if TYPE_CHECKING:
+    from ibis import BaseBackend
+
 from .base import DatabaseConfig
+from .context import DatabaseContext
 
 
 def _detect_odbc_driver() -> str:
@@ -46,6 +50,36 @@ MSSQL_SYSTEM_SCHEMAS = frozenset(
         "sys",
     }
 )
+
+
+class MssqlDatabaseContext(DatabaseContext):
+    def _quote(self, name: str) -> str:
+        return f"[{name.replace(']', ']]')}]"
+
+    def _cast_float(self, expr: str) -> str:
+        return f"CAST({expr} AS FLOAT)"
+
+    def _stddev(self, expr: str) -> str:
+        return f"STDEVP({expr})"
+
+    def _distinct_count_sql(self, col_sql: str) -> str:
+        table_sql = f"{self._quote(self._schema)}.{self._quote(self._table_name)}"
+        partition_filter = self._partition_filter()
+        where_clause = f"WHERE {partition_filter}" if partition_filter else ""
+        return f"(SELECT COUNT(DISTINCT {col_sql}) FROM {table_sql} {where_clause})"
+
+    def _build_top_values_query(self, col: dict) -> str:
+        col_sql = self._quote(col["name"])
+        table_sql = f"{self._quote(self._schema)}.{self._quote(self._table_name)}"
+        partition_filter = self._partition_filter()
+        where_clause = f"WHERE {partition_filter}" if partition_filter else ""
+        return f"""
+            SELECT TOP 10 {col_sql} AS value, COUNT(*) AS cnt
+            FROM {table_sql}
+            {where_clause}
+            GROUP BY {col_sql}
+            ORDER BY cnt DESC, {col_sql} ASC
+        """.strip()
 
 
 class MssqlConfig(DatabaseConfig):
@@ -93,6 +127,11 @@ class MssqlConfig(DatabaseConfig):
 
     def connect(self) -> BaseBackend:
         """Create an Ibis MSSQL connection."""
+        from nao_core.deps import require_database_backend
+
+        require_database_backend("mssql")
+        import ibis
+
         return ibis.mssql.connect(
             host=self.host,
             port=self.port,
@@ -114,6 +153,9 @@ class MssqlConfig(DatabaseConfig):
             schemas = list_databases()
             return [s for s in schemas if s not in MSSQL_SYSTEM_SCHEMAS]
         return []
+
+    def create_context(self, conn: BaseBackend, schema: str, table_name: str) -> MssqlDatabaseContext:
+        return MssqlDatabaseContext(conn, schema, table_name)
 
     def check_connection(self) -> tuple[bool, str]:
         """Test connectivity to MSSQL."""

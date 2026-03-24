@@ -2,16 +2,16 @@ from __future__ import annotations
 
 import struct
 from enum import Enum
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
-import pyodbc
-from azure.identity import AzureCliCredential, InteractiveBrowserCredential
-from ibis import BaseBackend
-from ibis.backends.mssql import Backend as MSSQLBackend
 from pydantic import Field, model_validator
 
 from nao_core.config.exceptions import InitError
 from nao_core.ui import UI, ask_select, ask_text
+
+if TYPE_CHECKING:
+    from azure.identity import AzureCliCredential, InteractiveBrowserCredential
+    from ibis import BaseBackend
 
 from .base import DatabaseConfig
 
@@ -56,6 +56,8 @@ def _odbc_escape(value: str) -> str:
 def _detect_fabric_driver() -> str:
     """Pick the best available Microsoft ODBC driver."""
     try:
+        import pyodbc
+
         preferred = ["ODBC Driver 18 for SQL Server", "ODBC Driver 17 for SQL Server"]
         installed = set(pyodbc.drivers())
         for driver in preferred:
@@ -198,17 +200,27 @@ class FabricConfig(DatabaseConfig):
         azure_cli and azure_interactive use token injection (see _connect_via_aad_token_injection).
         sql_password and azure_service_principal use a standard ODBC connection string.
         """
+        from nao_core.deps import require_database_backend, require_dependency
+
+        require_database_backend("mssql")
+
         if self.auth_mode == FabricAuthMode.AZURE_CLI:
+            require_dependency("azure.identity", "fabric", "for Azure authentication")
+            from azure.identity import AzureCliCredential
+
             return self._connect_via_aad_token_injection(
                 AzureCliCredential(), "Azure CLI: fetching token from 'az login' credentials."
             )
         if self.auth_mode == FabricAuthMode.AZURE_INTERACTIVE:
-            # ActiveDirectoryInteractive in the ODBC driver doesn't open a browser on macOS.
-            # Use InteractiveBrowserCredential from azure-identity instead, which handles
-            # browser-based auth correctly cross-platform, then inject the token directly.
+            require_dependency("azure.identity", "fabric", "for Azure authentication")
+            from azure.identity import InteractiveBrowserCredential
+
             return self._connect_via_aad_token_injection(
                 InteractiveBrowserCredential(), "Azure Interactive: a browser window will open for authentication."
             )
+
+        import pyodbc
+        from ibis.backends.mssql import Backend as MSSQLBackend
 
         conn = pyodbc.connect(self.build_odbc_string())
         return MSSQLBackend.from_connection(conn)
@@ -216,17 +228,14 @@ class FabricConfig(DatabaseConfig):
     def _connect_via_aad_token_injection(
         self, credential: AzureCliCredential | InteractiveBrowserCredential, message: str
     ) -> BaseBackend:
-        """Connect using an Azure AD token injected via SQL_COPT_SS_ACCESS_TOKEN.
-
-        The token is obtained from the provided credential (AzureCliCredential for azure_cli,
-        InteractiveBrowserCredential for azure_interactive), encoded as UTF-16-LE with a 4-byte
-        little-endian length prefix, and passed via attrs_before so the ODBC driver
-        receives it before opening the session.
-        """
+        """Connect using an Azure AD token injected via SQL_COPT_SS_ACCESS_TOKEN."""
         UI.info(f"[yellow]{message}[/yellow]")
 
         token = credential.get_token("https://database.windows.net/.default")
         token_struct = _encode_access_token(token.token)
+
+        import pyodbc
+        from ibis.backends.mssql import Backend as MSSQLBackend
 
         conn = pyodbc.connect(";".join(self._base_odbc_parts()), attrs_before={_SQL_COPT_SS_ACCESS_TOKEN: token_struct})
         return MSSQLBackend.from_connection(conn)

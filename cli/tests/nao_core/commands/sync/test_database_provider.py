@@ -3,6 +3,7 @@
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+from nao_core.commands.sync.cleanup import DatabaseSyncState
 from nao_core.commands.sync.providers.databases.provider import DatabaseSyncProvider
 from nao_core.config.base import NaoConfig
 
@@ -58,3 +59,35 @@ class TestDatabaseSyncProvider:
         mock_config.databases = []
 
         assert provider.should_sync(mock_config) is False
+
+    @patch("nao_core.commands.sync.providers.databases.provider.cleanup_stale_paths", return_value=0)
+    @patch("nao_core.commands.sync.providers.databases.provider.sync_database")
+    def test_sync_uses_distinct_db_folders_for_duplicate_database_names(
+        self, mock_sync_database, _mock_cleanup_stale_paths, tmp_path: Path
+    ):
+        provider = DatabaseSyncProvider()
+
+        db1 = MagicMock()
+        db1.name = "clickhouse-last"
+        db1.type = "clickhouse"
+        db1.accessors = []
+        db1.get_database_name.return_value = "default"
+
+        db2 = MagicMock()
+        db2.name = "clickhouse-numia"
+        db2.type = "clickhouse"
+        db2.accessors = []
+        db2.get_database_name.return_value = "default"
+
+        mock_sync_database.side_effect = [
+            DatabaseSyncState(db_path=tmp_path / "type=clickhouse" / "database=clickhouse-last"),
+            DatabaseSyncState(db_path=tmp_path / "type=clickhouse" / "database=clickhouse-numia"),
+        ]
+
+        provider.sync([db1, db2], tmp_path)
+
+        db_folders = [call.kwargs.get("db_folder") for call in mock_sync_database.call_args_list]
+        assert db_folders == [
+            "database=clickhouse-last",
+            "database=clickhouse-numia",
+        ]

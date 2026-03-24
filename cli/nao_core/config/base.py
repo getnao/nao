@@ -1,13 +1,17 @@
+from __future__ import annotations
+
 import os
 import re
 import sys
 from pathlib import Path
-from typing import cast
+from typing import TYPE_CHECKING, Any, cast
 
 import yaml
-from ibis import BaseBackend
 from pydantic import BaseModel, Field, ValidationError, model_validator
 from rich.console import Console
+
+if TYPE_CHECKING:
+    from ibis import BaseBackend
 
 from nao_core.ui import UI, ask_confirm, ask_select
 
@@ -150,7 +154,7 @@ class NaoConfig(BaseModel):
 
             db_type = ask_select("Select database type:", choices=DatabaseType.choices())
 
-            config_class = DATABASE_CONFIG_CLASSES[DatabaseType(db_type)]
+            config_class = cast(Any, DATABASE_CONFIG_CLASSES[DatabaseType(db_type)])
             db_config = cast(AnyDatabaseConfig, config_class.promptConfig())
             databases.append(db_config)
 

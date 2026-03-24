@@ -1,10 +1,16 @@
 """CLI UI utilities using questionary and Rich."""
 
-import pandas as pd
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import questionary
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 console = Console()
 

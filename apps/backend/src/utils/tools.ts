@@ -117,14 +117,15 @@ export const isIgnoredByNaoignore = (relativePath: string, projectFolder: string
  */
 export const isIgnoredPath = (realPath: string, projectFolder: string): boolean => {
 	const resolved = path.resolve(realPath);
-	const relativePath = path.relative(projectFolder, resolved);
+	const normalizedFolder = path.resolve(projectFolder);
+	const relativePath = path.relative(normalizedFolder, resolved);
 
 	// Paths outside project folder are not subject to naoignore
 	if (relativePath.startsWith('..')) {
 		return false;
 	}
 
-	return isIgnoredByNaoignore(relativePath, projectFolder);
+	return isIgnoredByNaoignore(relativePath, normalizedFolder);
 };
 
 /**
@@ -167,14 +168,15 @@ export const shouldExcludeEntry = (entryName: string, parentPath: string, projec
  */
 export const isWithinProjectFolder = (filePath: string, projectFolder: string): boolean => {
 	const resolved = path.resolve(filePath);
-	const withinFolder = resolved === projectFolder || resolved.startsWith(projectFolder + path.sep);
+	const normalizedFolder = path.resolve(projectFolder);
+	const withinFolder = resolved === normalizedFolder || resolved.startsWith(normalizedFolder + path.sep);
 	if (!withinFolder) {
 		return false;
 	}
 	if (isInExcludedDir(resolved)) {
 		return false;
 	}
-	if (isIgnoredPath(resolved, projectFolder)) {
+	if (isIgnoredPath(resolved, normalizedFolder)) {
 		return false;
 	}
 	return true;
@@ -188,14 +190,16 @@ export const isWithinProjectFolder = (filePath: string, projectFolder: string): 
  * @throws Error if the resolved path escapes the project folder or is ignored by .naoignore
  */
 export const toRealPath = (virtualPath: string, projectFolder: string): string => {
+	const normalizedFolder = path.resolve(projectFolder);
+
 	// Strip leading slash to make it relative to project folder
 	const relativePath = virtualPath.startsWith('/') ? virtualPath.slice(1) : virtualPath;
 
 	// Resolve and normalize (this handles .. and .)
-	const resolvedPath = path.resolve(projectFolder, relativePath);
+	const resolvedPath = path.resolve(normalizedFolder, relativePath);
 
 	// Check if path is outside project folder
-	const withinFolder = resolvedPath === projectFolder || resolvedPath.startsWith(projectFolder + path.sep);
+	const withinFolder = resolvedPath === normalizedFolder || resolvedPath.startsWith(normalizedFolder + path.sep);
 	if (!withinFolder) {
 		throw new Error(`Access denied: path '${virtualPath}' is outside the project folder`);
 	}
@@ -206,7 +210,7 @@ export const toRealPath = (virtualPath: string, projectFolder: string): string =
 	}
 
 	// Check if path is ignored by .naoignore
-	if (isIgnoredPath(resolvedPath, projectFolder)) {
+	if (isIgnoredPath(resolvedPath, normalizedFolder)) {
 		throw new Error(`Access denied: path '${virtualPath}' is ignored by .naoignore`);
 	}
 
@@ -221,17 +225,19 @@ export const toRealPath = (virtualPath: string, projectFolder: string): string =
  */
 export const toVirtualPath = (realPath: string, projectFolder: string): string => {
 	const resolved = path.resolve(realPath);
+	const normalizedFolder = path.resolve(projectFolder);
 
-	if (!isWithinProjectFolder(resolved, projectFolder)) {
+	if (!isWithinProjectFolder(resolved, normalizedFolder)) {
 		throw new Error(`Path '${realPath}' is outside the project folder`);
 	}
 
-	if (resolved === projectFolder) {
+	if (resolved === normalizedFolder) {
 		return '/';
 	}
 
-	const relativePath = path.relative(projectFolder, resolved);
-	return '/' + relativePath;
+	const relativePath = path.relative(normalizedFolder, resolved);
+	// Virtual paths always use forward slashes
+	return '/' + relativePath.replaceAll('\\', '/');
 };
 
 /**

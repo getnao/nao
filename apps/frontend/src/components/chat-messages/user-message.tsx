@@ -18,6 +18,8 @@ import { STORY_MENTION_ID } from '@/components/chat-input-prompt';
 import StoryIcon from '@/components/ui/story-icon';
 import SlackIcon from '@/components/icons/slack.svg';
 import TeamsIcon from '@/components/icons/microsoft-teams.svg';
+import TelegramIcon from '@/components/icons/telegram.svg';
+import WhatsAppIcon from '@/components/icons/whatsapp.svg';
 
 const messageTheme: PromptTheme = {
 	backgroundColor: 'transparent',
@@ -38,6 +40,27 @@ const messageTheme: PromptTheme = {
 };
 
 const tableIcon = <Table className='size-4' />;
+
+const MESSAGE_SOURCES = {
+	slack: { icon: <SlackIcon className='size-3.5' />, label: 'sent in Slack' },
+	teams: { icon: <TeamsIcon className='size-4' />, label: 'sent in Teams' },
+	telegram: { icon: <TelegramIcon className='size-4' />, label: 'sent in Telegram' },
+	whatsapp: { icon: <WhatsAppIcon className='size-4' />, label: 'sent in WhatsApp' },
+} as const;
+
+function MessageSourceBadge({ source }: { source: UIMessage['source'] }) {
+	const config = source ? MESSAGE_SOURCES[source as keyof typeof MESSAGE_SOURCES] : null;
+	if (!config) {
+		return null;
+	}
+
+	return (
+		<span className='flex items-center justify-end gap-1 text-xs text-muted-foreground mb-2'>
+			{config.icon}
+			{config.label}
+		</span>
+	);
+}
 
 function useMentionConfigs(): MessageMentionConfig[] {
 	const { data: skills } = useQuery(trpc.skill.list.queryOptions());
@@ -67,13 +90,29 @@ function useMentionConfigs(): MessageMentionConfig[] {
 	}, [databaseObjects, skills]);
 }
 
+export const UserMessageBubble = memo(({ message }: { message: UIMessage }) => {
+	const text = useMemo(() => getMessageText(message), [message]);
+	const mentionConfigs = useMentionConfigs();
+
+	return (
+		<div className='rounded-2xl px-3 py-2 bg-card text-card-foreground ml-auto max-w-xl'>
+			<MessageSourceBadge source={message.source} />
+			<Message
+				value={text}
+				mentionConfigs={mentionConfigs}
+				theme={messageTheme}
+				className='flex items-center justify-end'
+			/>
+		</div>
+	);
+});
+
 export const UserMessage = memo(({ message }: { message: UIMessage }) => {
 	const { isRunning, editMessage } = useAgentContext();
 	const { isCopied, copy } = useCopyToClipboard();
 	const isEditing = useIsEditingMessage(message.id);
 	const editContainerRef = useRef<HTMLDivElement>(null);
 	const text = useMemo(() => getMessageText(message), [message]);
-	const mentionConfigs = useMentionConfigs();
 
 	useClickOutside(
 		{
@@ -102,26 +141,7 @@ export const UserMessage = memo(({ message }: { message: UIMessage }) => {
 
 	return (
 		<div className='group flex flex-col gap-2 items-end w-full'>
-			<div className={cn('rounded-2xl px-3 py-2 bg-card text-card-foreground ml-auto max-w-xl')}>
-				{message.source === 'slack' && (
-					<span className='flex items-center justify-end gap-1 text-xs text-muted-foreground mb-2'>
-						<SlackIcon className='size-3.5' />
-						sent in Slack
-					</span>
-				)}
-				{message.source === 'teams' && (
-					<span className='flex items-center justify-end gap-1 text-xs text-muted-foreground mb-2'>
-						<TeamsIcon className='size-4' />
-						sent in Teams
-					</span>
-				)}
-				<Message
-					value={text}
-					mentionConfigs={mentionConfigs}
-					theme={messageTheme}
-					className='flex items-center justify-end'
-				/>
-			</div>
+			<UserMessageBubble message={message} />
 
 			<div className='flex items-center gap-2'>
 				<div

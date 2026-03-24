@@ -1,13 +1,15 @@
-from pathlib import Path
-from typing import Any, Literal
+from __future__ import annotations
 
-import ibis
-from ibis import BaseBackend
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Literal
+
 from pydantic import BaseModel, Field
-from sshtunnel import SSHTunnelForwarder
 
 from nao_core.config.exceptions import InitError
 from nao_core.ui import ask_confirm, ask_text
+
+if TYPE_CHECKING:
+    from ibis import BaseBackend
 
 from .base import DatabaseConfig
 from .context import DatabaseContext
@@ -17,46 +19,36 @@ class RedshiftDatabaseContext(DatabaseContext):
     """Redshift-specific context that bypasses Ibis's problematic pg_enum queries."""
 
     def columns(self) -> list[dict[str, Any]]:
-        """Return column metadata by querying information_schema directly."""
-        col_descs = self._fetch_column_descriptions()
-
-        query = f"""
-            SELECT 
-                column_name,
-                data_type,
-                is_nullable,
-                character_maximum_length,
-                numeric_precision,
-                numeric_scale
-            FROM information_schema.columns
-            WHERE table_schema = '{self._schema}'
-              AND table_name = '{self._table_name}'
-            ORDER BY ordinal_position
-        """
-        result = self._conn.raw_sql(query).fetchall()  # type: ignore[union-attr]
-
-        columns = []
-        for row in result:
-            col_name = row[0]
-            data_type = row[1]
-            is_nullable = row[2] == "YES"
-            char_length = row[3]
-            num_precision = row[4]
-            num_scale = row[5]
-
-            # Map SQL types to Ibis-like type strings
-            formatted_type = self._format_redshift_type(data_type, is_nullable, char_length, num_precision, num_scale)
-
-            columns.append(
+        if self._columns_cache is None:
+            col_descs = self._fetch_column_descriptions()
+            query = f"""
+                SELECT
+                    column_name, data_type, is_nullable,
+                    character_maximum_length, numeric_precision, numeric_scale
+                FROM information_schema.columns
+                WHERE table_schema = '{self._schema}'
+                AND table_name = '{self._table_name}'
+                ORDER BY ordinal_position
+            """
+            result = self._fetchall(self._conn.raw_sql(query))  # type: ignore[union-attr]
+            self._columns_cache = [
                 {
-                    "name": col_name,
-                    "type": formatted_type,
-                    "nullable": is_nullable,
-                    "description": col_descs.get(col_name),
+                    "name": row[0],
+                    "type": self._format_redshift_type(row[1], row[2] == "YES", row[3], row[4], row[5]),
+                    "nullable": row[2] == "YES",
+                    "description": col_descs.get(row[0]),
                 }
-            )
+                for row in result
+            ]
+        return self._columns_cache
 
-        return columns
+    def row_count(self) -> int:
+        if self._row_count_cache is None:
+            schema_sql = self._quote(self._schema)
+            table_sql = self._quote(self._table_name)
+            result = self._fetchone(self._conn.raw_sql(f"SELECT COUNT(*) FROM {schema_sql}.{table_sql}"))  # type: ignore[union-attr]
+            self._row_count_cache = int(result[0]) if result else 0
+        return self._row_count_cache
 
     @staticmethod
     def _format_redshift_type(
@@ -92,7 +84,10 @@ class RedshiftDatabaseContext(DatabaseContext):
     def preview(self, limit: int = 10) -> list[dict[str, Any]]:
         """Return the first N rows as a list of dictionaries."""
         # Use raw SQL to avoid Ibis's pg_enum queries
-        query = f'SELECT * FROM "{self._schema}"."{self._table_name}" LIMIT {limit}'
+        schema_sql = self._quote(self._schema)
+        table_sql = self._quote(self._table_name)
+        limit = int(limit)
+        query = f"SELECT * FROM {schema_sql}.{table_sql} LIMIT {limit}"
         result = self._conn.raw_sql(query).fetchall()  # type: ignore[union-attr]
 
         # Get column names from the columns metadata
@@ -110,17 +105,6 @@ class RedshiftDatabaseContext(DatabaseContext):
                     row_dict[col_name] = val
             rows.append(row_dict)
         return rows
-
-    def row_count(self) -> int:
-        """Return the total number of rows in the table."""
-        # Use raw SQL to avoid Ibis's pg_enum queries
-        query = f'SELECT COUNT(*) FROM "{self._schema}"."{self._table_name}"'
-        result = self._conn.raw_sql(query).fetchone()  # type: ignore[union-attr]
-        return result[0] if result else 0
-
-    def column_count(self) -> int:
-        """Return the number of columns in the table."""
-        return len(self.columns())
 
     def _fetch_column_descriptions(self) -> dict[str, str]:
         """Fetch column descriptions from pg_catalog."""
@@ -154,6 +138,9 @@ class RedshiftDatabaseContext(DatabaseContext):
         except Exception:
             pass
         return None
+
+    def _cast_float(self, expr: str) -> str:
+        return f"{expr}::float"
 
 
 class RedshiftSSHTunnelConfig(BaseModel):
@@ -231,13 +218,20 @@ class RedshiftConfig(DatabaseConfig):
 
     def connect(self) -> BaseBackend:
         """Create an Ibis Redshift connection."""
+        from nao_core.deps import require_database_backend
 
-        # Determine connection host and port
+        require_database_backend("postgres")
+        import ibis
+
         connect_host = self.host
         connect_port = self.port
 
-        # Set up SSH tunnel if configured
         if self.ssh_tunnel:
+            from nao_core.deps import require_dependency
+
+            require_dependency("sshtunnel", "redshift", "for SSH tunnel connections")
+            from sshtunnel import SSHTunnelForwarder
+
             ssh_pkey_path = Path(self.ssh_tunnel.ssh_private_key_path).expanduser()
 
             tunnel = SSHTunnelForwarder(
@@ -246,11 +240,10 @@ class RedshiftConfig(DatabaseConfig):
                 ssh_pkey=str(ssh_pkey_path),
                 ssh_private_key_password=self.ssh_tunnel.ssh_private_key_passphrase,
                 remote_bind_address=(self.host, self.port),
-                local_bind_address=("127.0.0.1", 0),  # let the OS pick an random free port
+                local_bind_address=("127.0.0.1", 0),
             )
             tunnel.start()
 
-            # Use tunnel's local bind address
             connect_host = "127.0.0.1"
             connect_port = tunnel.local_bind_port
 

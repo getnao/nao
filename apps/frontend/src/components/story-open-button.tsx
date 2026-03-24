@@ -24,8 +24,8 @@ export function StoryOpenButton({ variant = 'outline' }: { variant?: 'outline' |
 
 	if (stories.length === 1) {
 		return (
-			<Button variant={variant} size='icon-md' onClick={() => openStory(stories[0].id)} title={stories[0].title}>
-				<StoryIcon className='size-5' strokeWidth={1.5} />
+			<Button variant={variant} size='icon-sm' onClick={() => openStory(stories[0].id)} title={stories[0].title}>
+				<StoryIcon className='size-4 text-muted-foreground' strokeWidth={1.5} />
 			</Button>
 		);
 	}
@@ -33,8 +33,8 @@ export function StoryOpenButton({ variant = 'outline' }: { variant?: 'outline' |
 	return (
 		<DropdownMenu>
 			<DropdownMenuTrigger asChild>
-				<Button variant={variant} size='icon-md' title='Open stories'>
-					<StoryIcon className='size-5' strokeWidth={1.5} />
+				<Button variant={variant} size='icon-sm' title='Open stories'>
+					<StoryIcon className='size-4 text-muted-foreground' strokeWidth={1.5} />
 				</Button>
 			</DropdownMenuTrigger>
 

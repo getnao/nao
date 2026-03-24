@@ -3,18 +3,20 @@ import {
 	convertToModelMessages,
 	createUIMessageStream,
 	FinishReason,
+	generateText,
 	hasToolCall,
 	InferUIMessageChunk,
 	isToolUIPart,
 	ModelMessage,
+	Output,
 	pruneMessages,
 	StreamTextResult,
 	ToolLoopAgent,
 	UIMessageStreamWriter,
 } from 'ai';
+import { z } from 'zod';
 
-import { CACHE_1H, CACHE_5M } from '../agents/providers';
-import { ProviderModelResult } from '../agents/providers';
+import { CACHE_1H, CACHE_5M, LLM_PROVIDERS, ProviderModelResult } from '../agents/providers';
 import { getTools } from '../agents/tools';
 import { createWebSearchTools } from '../agents/tools/web-search';
 import { getConnections, getTableColumnsContent, getUserRules } from '../agents/user-rules';
@@ -30,7 +32,7 @@ import { AgentTools, Mention, MessageCustomDataParts, TokenCost, TokenUsage, UIM
 import { LlmProvider } from '../types/llm';
 import { Provider } from '../types/messaging-provider';
 import { ToolContext } from '../types/tools';
-import { convertToCost, convertToTokenUsage, findLastUserMessage } from '../utils/ai';
+import { convertToCost, convertToTokenUsage, findLastUserMessage, getLastUserMessageText } from '../utils/ai';
 import { HandlerError } from '../utils/error';
 import {
 	getDefaultModelId,
@@ -39,6 +41,7 @@ import {
 	resolveProviderModel,
 	resolveProviderSettings,
 } from '../utils/llm';
+import { logger } from '../utils/logger';
 import { truncateMiddle } from '../utils/utils';
 import { compactionService } from './compaction';
 import { memoryService } from './memory';
@@ -235,6 +238,8 @@ class AgentManager {
 		return createUIMessageStream<UIMessage>({
 			generateId: () => crypto.randomUUID(),
 			execute: async ({ writer }) => {
+				writer.write({ type: 'start' });
+
 				if (opts.events?.newChat) {
 					writer.write({
 						type: 'data-newChat',
@@ -265,6 +270,10 @@ class AgentManager {
 				// Extract memory immediately after the request to the agent is sent
 				this._scheduleMemoryExtraction(uiMessages);
 
+				if (opts.events?.newChat) {
+					this._scheduleTitleGeneration(getLastUserMessageText(uiMessages));
+				}
+
 				writer.merge(
 					result.toUIMessageStream({
 						sendStart: false,
@@ -273,6 +282,11 @@ class AgentManager {
 			},
 			onError: (err) => {
 				error = err;
+				logger.error(`Agent stream error: ${String(err)}`, {
+					source: 'agent',
+					projectId: this.chat.projectId,
+					context: { chatId: this.chat.id, modelId: this._modelSelection.modelId },
+				});
 				return String(err);
 			},
 			onFinish: async (e) => {
@@ -405,6 +419,55 @@ class AgentManager {
 			messages: uiMessages,
 			provider: this._modelSelection.provider,
 		});
+	}
+
+	private _scheduleTitleGeneration(userMessageText: string): void {
+		this._generateTitle(userMessageText).catch((err) => {
+			logger.error(`Title generation failed: ${String(err)}`, {
+				source: 'agent',
+				projectId: this.chat.projectId,
+				context: { chatId: this.chat.id },
+			});
+		});
+	}
+
+	private async _generateTitle(userMessageText: string): Promise<void> {
+		const provider = this._modelSelection.provider;
+		const summaryModelId = LLM_PROVIDERS[provider].summaryModelId;
+		const modelResult = await resolveProviderModel(this.chat.projectId, provider, summaryModelId);
+		if (!modelResult) {
+			return;
+		}
+
+		const { output } = await generateText({
+			model: modelResult.model,
+			system: 'Generate a short, descriptive title (3-8 words) for this conversation based on the user message. Always generate a title, no matter the input. Only capitalize the first letter of the title and nouns.',
+			messages: [
+				{
+					role: 'user',
+					content: userMessageText,
+				},
+			],
+			output: Output.object({
+				schema: z.object({
+					title: z.string().describe('A short, descriptive conversation title (3-8 words)'),
+				}),
+			}),
+			maxOutputTokens: 60,
+		});
+
+		const title = output?.title.trim();
+		if (!title) {
+			return;
+		}
+
+		await chatQueries.renameChat(this.chat.id, title);
+
+		try {
+			this._streamWriter?.write({ type: 'data-chatTitleUpdate', data: { title } });
+		} catch {
+			// Stream may already be closed — the DB is updated regardless
+		}
 	}
 
 	private async _getTotalUsage(

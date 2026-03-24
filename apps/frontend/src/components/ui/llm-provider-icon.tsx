@@ -5,6 +5,7 @@ import OpenAIIcon from '@/components/icons/openai.svg';
 import OpenRouterIcon from '@/components/icons/openrouter.svg';
 import OllamaIcon from '@/components/icons/ollama.svg';
 import BedrockIcon from '@/components/icons/bedrock.svg';
+import GoogleVertexIcon from '@/components/icons/google-vertex.svg';
 
 import { cn } from '@/lib/utils';
 
@@ -25,6 +26,8 @@ export function LlmProviderIcon({ provider, className: customClassName }: { prov
 			return <OllamaIcon className={className} />;
 		case 'bedrock':
 			return <BedrockIcon className={className} />;
+		case 'vertex':
+			return <GoogleVertexIcon className={className} />;
 		default:
 			return null;
 	}

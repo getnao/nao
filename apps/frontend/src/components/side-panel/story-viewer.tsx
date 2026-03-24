@@ -1,6 +1,8 @@
 import { memo, useCallback, useMemo, useRef } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Editor } from '@monaco-editor/react';
 import {
+	ArchiveRestoreIcon,
 	ChevronDown,
 	ChevronLeft,
 	ChevronRight,
@@ -14,10 +16,10 @@ import {
 	Share,
 	X,
 } from 'lucide-react';
+import { ShareStoryDialog } from '../share-dialog.story';
 import { StoryChartEmbed } from './story-chart-embed';
 import { StoryTableEmbed } from './story-table-embed';
 import { StoryEditor } from './story-editor';
-import { ShareStoryDialog } from './share-story-dialog';
 import { useStoryViewerAgentState } from './hooks/use-story-viewer-agent-state';
 import { useStoryViewerEnlarge } from './hooks/use-story-viewer-enlarge';
 import { useStoryViewerSharing } from './hooks/use-story-viewer-sharing';
@@ -41,6 +43,7 @@ import {
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { splitCodeIntoSegments } from '@/lib/story-segments';
+import { trpc } from '@/main';
 
 interface StoryViewerProps {
 	chatId: string;
@@ -97,12 +100,16 @@ export function StoryViewer({ chatId, storyId }: StoryViewerProps) {
 				: (currentVersion?.code ?? draftStory?.code),
 		[shouldUseDraftStory, draftStory?.code, currentVersion?.code],
 	);
+	const { isReadonlyMode } = useSidePanel();
+
 	useStoryViewerStreamScroll({
 		scrollContainerRef,
 		isStreaming: Boolean(draftStory?.isStreaming),
 		code: storyCode,
 		viewMode,
 	});
+
+	const isArchived = Boolean(currentVersion?.archivedAt);
 
 	if (!storyCode) {
 		return (
@@ -132,8 +139,11 @@ export function StoryViewer({ chatId, storyId }: StoryViewerProps) {
 				onEnlarge={handleEnlarge}
 				isShared={isShared}
 				isAgentRunning={isAgentRunning}
+				isReadonlyMode={isReadonlyMode}
 				onClose={closeSidePanel}
 			/>
+
+			{isArchived && <ArchivedBanner chatId={chatId} storyId={resolvedStoryId} />}
 
 			<div ref={scrollContainerRef} className='flex-1 min-h-0 overflow-auto'>
 				{viewMode === 'preview' ? (
@@ -151,6 +161,36 @@ export function StoryViewer({ chatId, storyId }: StoryViewerProps) {
 				chatId={chatId}
 				storyId={resolvedStoryId}
 			/>
+		</div>
+	);
+}
+
+function ArchivedBanner({ chatId, storyId }: { chatId: string; storyId: string }) {
+	const queryClient = useQueryClient();
+
+	const unarchiveMutation = useMutation(
+		trpc.story.unarchive.mutationOptions({
+			onSuccess: () => {
+				queryClient.invalidateQueries({ queryKey: trpc.story.listVersions.queryKey({ chatId, storyId }) });
+				queryClient.invalidateQueries({ queryKey: trpc.story.listAll.queryKey() });
+				queryClient.invalidateQueries({ queryKey: trpc.story.listArchived.queryKey() });
+			},
+		}),
+	);
+
+	return (
+		<div className='flex items-center justify-between gap-3 border-b bg-muted/50 px-4 py-2'>
+			<span className='text-xs text-muted-foreground'>This story has been archived.</span>
+			<Button
+				variant='outline'
+				size='sm'
+				className='gap-1.5 shrink-0'
+				onClick={() => unarchiveMutation.mutate({ chatId, storyId })}
+				disabled={unarchiveMutation.isPending}
+			>
+				<ArchiveRestoreIcon className='size-3' />
+				<span>Unarchive</span>
+			</Button>
 		</div>
 	);
 }
@@ -173,6 +213,7 @@ const StoryHeader = memo(function StoryHeader({
 	onEnlarge,
 	isShared,
 	isAgentRunning,
+	isReadonlyMode,
 	onClose,
 }: {
 	title: string;
@@ -192,6 +233,7 @@ const StoryHeader = memo(function StoryHeader({
 	onEnlarge: () => void;
 	isShared: boolean;
 	isAgentRunning: boolean;
+	isReadonlyMode: boolean;
 	onClose: () => void;
 }) {
 	const isMobile = useIsMobile();
@@ -242,7 +284,7 @@ const StoryHeader = memo(function StoryHeader({
 		</div>
 	);
 
-	const viewModeToggle = (
+	const viewModeToggle = !isReadonlyMode && (
 		<div className='flex items-center rounded-lg border p-0.5 gap-0.5'>
 			<Button
 				variant={viewMode === 'preview' ? 'secondary' : 'ghost'}
@@ -269,7 +311,7 @@ const StoryHeader = memo(function StoryHeader({
 		</div>
 	);
 
-	const actionButtons = (
+	const actionButtons = !isReadonlyMode && (
 		<>
 			<Button variant='ghost-muted' size='icon-xs' onClick={onEnlarge} aria-label='Enlarge Story'>
 				<Maximize2 className='size-3' />

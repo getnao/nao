@@ -1,7 +1,7 @@
 import { useCallback, useMemo } from 'react';
+import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import { createFileRoute, Link } from '@tanstack/react-router';
-import { useSuspenseQuery } from '@tanstack/react-query';
-import { MessageSquare } from 'lucide-react';
+import { ArchiveRestoreIcon, MessageSquare } from 'lucide-react';
 import type { displayChart } from '@nao/shared/tools';
 import type { ParsedChartBlock, ParsedTableBlock } from '@/lib/story-segments';
 import { splitCodeIntoSegments } from '@/lib/story-segments';
@@ -18,6 +18,17 @@ export const Route = createFileRoute('/_sidebar-layout/stories/preview/$chatId/$
 function StoryPreviewPage() {
 	const { chatId, storyId } = Route.useParams();
 	const { data: story } = useSuspenseQuery(trpc.story.getLatest.queryOptions({ chatId, storyId }));
+	const queryClient = useQueryClient();
+
+	const unarchiveMutation = useMutation(
+		trpc.story.unarchive.mutationOptions({
+			onSuccess: () => {
+				queryClient.invalidateQueries({ queryKey: trpc.story.getLatest.queryKey({ chatId, storyId }) });
+				queryClient.invalidateQueries({ queryKey: trpc.story.listAll.queryKey() });
+				queryClient.invalidateQueries({ queryKey: trpc.story.listArchived.queryKey() });
+			},
+		}),
+	);
 
 	return (
 		<div className='flex flex-col flex-1 h-full overflow-hidden bg-panel min-w-0'>
@@ -30,6 +41,22 @@ function StoryPreviewPage() {
 					</Link>
 				</Button>
 			</header>
+
+			{story.archivedAt && (
+				<div className='flex items-center justify-between gap-3 border-b bg-muted/50 px-4 py-2 md:px-6'>
+					<span className='text-xs text-muted-foreground'>This story has been archived.</span>
+					<Button
+						variant='outline'
+						size='sm'
+						className='gap-1.5 shrink-0'
+						onClick={() => unarchiveMutation.mutate({ chatId, storyId })}
+						disabled={unarchiveMutation.isPending}
+					>
+						<ArchiveRestoreIcon className='size-3' />
+						<span>Unarchive</span>
+					</Button>
+				</div>
+			)}
 
 			<PreviewContent
 				code={story.code}

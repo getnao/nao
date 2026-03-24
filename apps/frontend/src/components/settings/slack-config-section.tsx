@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Pencil, Trash2 } from 'lucide-react';
 import { SlackForm } from './slack-form';
 import { Button } from '@/components/ui/button';
+import { CopyableUrl } from '@/components/ui/copyable-url';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { LlmProviderIcon } from '@/components/ui/llm-provider-icon';
 import { SettingsCard } from '@/components/ui/settings-card';
@@ -21,9 +22,8 @@ export function SlackConfigSection({ isAdmin }: SlackConfigSectionProps) {
 	type AvailableModel = NonNullable<typeof availableModels>[number];
 	const [selectedModel, setSelectedModel] = useState<AvailableModel | null>(null);
 
-	const projectId = slackConfig.data?.projectId;
 	const projectConfig = slackConfig.data?.projectConfig;
-	const redirectUrl = slackConfig.data?.redirectUrl;
+	const webhookUrl = slackConfig.data?.webhookUrl ?? '';
 
 	useEffect(() => {
 		if (!availableModels || availableModels.length === 0) {
@@ -102,8 +102,7 @@ export function SlackConfigSection({ isAdmin }: SlackConfigSectionProps) {
 	if (isEditing || !projectConfig) {
 		return (
 			<SlackForm
-				projectId={projectId}
-				redirectUrl={redirectUrl}
+				webhookUrl={webhookUrl}
 				hasProjectConfig={!!projectConfig}
 				onSubmit={handleSubmit}
 				onCancel={() => setIsEditing(false)}
@@ -142,6 +141,12 @@ export function SlackConfigSection({ isAdmin }: SlackConfigSectionProps) {
 					</div>
 				</div>
 			</SettingsCard>
+
+			{webhookUrl && (
+				<SettingsCard title='Webhook' description='Register this URL in your Slack app settings'>
+					<CopyableUrl url={webhookUrl} />
+				</SettingsCard>
+			)}
 
 			<SettingsCard title='Settings' description='Configure how the Slack bot behaves'>
 				<div className='grid gap-2'>

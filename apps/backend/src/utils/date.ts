@@ -1,5 +1,14 @@
 import type { Granularity, UsageRecord } from '../types/usage';
 
+export function isValidIsoDateString(s: string): boolean {
+	if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+		return false;
+	}
+	const [y, m, d] = s.split('-').map(Number);
+	const date = new Date(Date.UTC(y, m - 1, d));
+	return date.getUTCFullYear() === y && date.getUTCMonth() === m - 1 && date.getUTCDate() === d;
+}
+
 export const lookbackPeriods = {
 	hour: 24,
 	day: 30,
@@ -99,6 +108,9 @@ export function fillMissingDates(records: UsageRecord[], granularity: Granularit
 				messageCount: 0,
 				webMessageCount: 0,
 				slackMessageCount: 0,
+				teamsMessageCount: 0,
+				telegramMessageCount: 0,
+				whatsappMessageCount: 0,
 				inputNoCacheTokens: 0,
 				inputCacheReadTokens: 0,
 				inputCacheWriteTokens: 0,

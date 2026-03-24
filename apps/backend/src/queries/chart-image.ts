@@ -25,19 +25,34 @@ export const getChartConfigByToolCallId = async (toolCallId: string): Promise<di
 			.where(eq(s.messagePart.toolCallId, toolCallId))
 			.execute(),
 	);
-	return result.toolInput as displayChart.Input;
+	return displayChart.InputSchema.parse(result.toolInput);
 };
 
-export const getChartDataByQueryId = async (queryId: string): Promise<executeSql.Output['data']> => {
+export const getExecuteSqlPartByQueryId = async (
+	queryId: string,
+): Promise<{ toolInput: executeSql.Input; toolOutput: executeSql.Output }> => {
 	const jsonIdFilter =
 		dbConfig.dialect === Dialect.Postgres
 			? sql`${s.messagePart.toolOutput}->>'id' = ${queryId}`
 			: sql`json_extract(${s.messagePart.toolOutput}, '$.id') = ${queryId}`;
 
 	const result = await takeFirstOrThrow(
-		db.select({ toolOutput: s.messagePart.toolOutput }).from(s.messagePart).where(jsonIdFilter).execute(),
+		db
+			.select({ toolInput: s.messagePart.toolInput, toolOutput: s.messagePart.toolOutput })
+			.from(s.messagePart)
+			.where(jsonIdFilter)
+			.execute(),
 	);
-	return (result.toolOutput as executeSql.Output).data;
+
+	return {
+		toolInput: executeSql.InputSchema.parse(result.toolInput),
+		toolOutput: executeSql.OutputSchema.parse(result.toolOutput),
+	};
+};
+
+export const getChartDataByQueryId = async (queryId: string): Promise<executeSql.Output['data']> => {
+	const result = await getExecuteSqlPartByQueryId(queryId);
+	return result.toolOutput.data;
 };
 
 export const saveChart = async (toolCallId: string, data: string): Promise<string> => {

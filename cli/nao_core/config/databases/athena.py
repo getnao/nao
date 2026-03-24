@@ -1,12 +1,48 @@
-from typing import Literal
+from __future__ import annotations
 
-import ibis
-from ibis import BaseBackend
+from typing import TYPE_CHECKING, Literal
+
 from pydantic import Field
 
 from nao_core.ui import ask_select, ask_text
 
+if TYPE_CHECKING:
+    from ibis import BaseBackend
+
 from .base import DatabaseConfig
+from .context import DatabaseContext
+
+
+class AthenaDatabaseContext(DatabaseContext):
+    def _quote(self, name: str) -> str:
+        return f'"{name}"'
+
+    def _cast_float(self, expr: str) -> str:
+        return f"CAST({expr} AS DOUBLE)"
+
+    def _fetch_top_values(self, col: dict) -> list[dict]:
+        col_sql = self._quote(col["name"])
+        table_sql = f"{self._quote(self._schema)}.{self._quote(self._table_name)}"
+        partition_filter = self._partition_filter()
+        where_clause = f"WHERE {partition_filter}" if partition_filter else ""
+
+        query = f"""
+            SELECT {col_sql} AS value, COUNT(*) AS cnt
+            FROM {table_sql}
+            {where_clause}
+            GROUP BY 1
+            ORDER BY 2 DESC, 1 ASC
+            LIMIT 10
+        """
+        try:
+            rows = self._fetchall(self._conn.raw_sql(query))  # type: ignore[union-attr]
+            return [
+                {"value": self._json_safe_value(r[0]), "count": int(r[1])}
+                for r in rows
+                if r[0] is not None and r[0] != ""
+            ]
+        except Exception:
+            return []
 
 
 class AthenaConfig(DatabaseConfig):
@@ -62,6 +98,11 @@ class AthenaConfig(DatabaseConfig):
 
     def connect(self) -> BaseBackend:
         """Create an Ibis Athena connection."""
+        from nao_core.deps import require_database_backend
+
+        require_database_backend("athena")
+        import ibis
+
         kwargs = {
             "s3_staging_dir": self.s3_staging_dir,
             "region_name": self.region_name,
@@ -93,6 +134,9 @@ class AthenaConfig(DatabaseConfig):
         if list_databases:
             return list_databases()
         return []
+
+    def create_context(self, conn: BaseBackend, schema: str, table_name: str) -> AthenaDatabaseContext:
+        return AthenaDatabaseContext(conn, schema, table_name)
 
     def check_connection(self) -> tuple[bool, str]:
         """Test connectivity to Athena"""

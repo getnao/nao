@@ -1,6 +1,8 @@
 """Database sync provider implementation."""
 
+import re
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -15,10 +17,15 @@ from rich.progress import (
     TimeElapsedColumn,
 )
 
-from nao_core.commands.sync.cleanup import DatabaseSyncState, cleanup_stale_databases, cleanup_stale_paths
+from nao_core.commands.sync.cleanup import (
+    DatabaseSyncState,
+    cleanup_stale_databases,
+    cleanup_stale_paths,
+    get_database_folder_names,
+)
 from nao_core.commands.sync.providers.databases.query_history import TableUsageStats, compute_table_usage
 from nao_core.config import AnyDatabaseConfig, NaoConfig
-from nao_core.config.databases.base import DatabaseConfig, DatabaseTemplate
+from nao_core.config.databases.base import DatabaseConfig, DatabaseTemplate, ProfilingRefreshPolicy
 from nao_core.config.llm import LLMConfig
 from nao_core.templates.engine import get_template_engine
 
@@ -29,9 +36,9 @@ console = Console()
 TEMPLATE_PREFIX = "databases"
 
 
-def _filter_templates_by_config(templates: list[str], db_config: DatabaseConfig) -> list[str]:
-    """Keep only templates whose stem matches the configured templates."""
-    allowed = {t.value for t in db_config.templates}
+def _filter_templates_by_accessor(templates: list[str], db_config: AnyDatabaseConfig) -> list[str]:
+    """Keep only templates whose stem matches the configured accessors."""
+    allowed = {a.value for a in db_config.accessors}
     return [t for t in templates if Path(t).stem.replace(".md", "") in allowed]
 
 
@@ -65,12 +72,41 @@ def _fetch_query_history(db_config: DatabaseConfig) -> list[str]:
         return []
 
 
+def _should_refresh_profiling(
+    output_file: Path,
+    profiling_config,
+) -> bool:
+    """Decide whether profiling should be recomputed based on refresh policy."""
+
+    policy = profiling_config.refresh_policy
+    if not output_file.exists() or policy == ProfilingRefreshPolicy.ALWAYS:
+        return True
+    if policy == ProfilingRefreshPolicy.ONCE:
+        return False
+    if policy == ProfilingRefreshPolicy.INTERVAL:
+        try:
+            content = output_file.read_text()
+            match = re.search(r"\*\*Computed at:\*\*\s*`([^`]+)`", content, re.IGNORECASE)
+            if match:
+                computed_at_str = match.group(1)
+                computed_at = datetime.fromisoformat(computed_at_str)
+                if computed_at.tzinfo is None:
+                    computed_at = computed_at.replace(tzinfo=timezone.utc)
+                age = datetime.now(timezone.utc) - computed_at
+                return age > timedelta(days=profiling_config.interval_days)
+        except Exception:
+            return True
+
+    return True
+
+
 def sync_database(
-    db_config: DatabaseConfig,
+    db_config: AnyDatabaseConfig,
     base_path: Path,
     progress: Progress,
     project_path: Path | None = None,
     llm_config: LLMConfig | None = None,
+    db_folder: str | None = None,
 ) -> DatabaseSyncState:
     """Sync a single database by rendering all database templates for each table."""
     engine = get_template_engine(project_path, llm_config=llm_config)
@@ -89,8 +125,9 @@ def sync_database(
             f"[dim]({_fmt_duration(time.monotonic() - t_connect)})[/dim]"
         )
 
-        db_name = db_config.get_database_name()
-        db_path = base_path / f"type={db_config.type}" / f"database={db_name}"
+        if db_folder is None:
+            db_folder = f"database={db_config.get_database_name()}"
+        db_path = base_path / f"type={db_config.type}" / db_folder
         state = DatabaseSyncState(db_path=db_path)
 
         t_schemas = time.monotonic()
@@ -176,6 +213,15 @@ def sync_database(
                     extra_ctx: dict[str, Any] = {}
                     if tpl_name == "how_to_use":
                         extra_ctx["usage_stats"] = table_usage
+                    output_file = table_path / output_filename
+
+                    if tpl_name == "profiling" and hasattr(db_config, "profiling"):
+                        if not _should_refresh_profiling(output_file, db_config.profiling):
+                            console.print(
+                                f"    [dim]⏭ {schema}.{table} profiling skipped "
+                                f"(policy: {db_config.profiling.refresh_policy.value})[/dim]"
+                            )
+                            continue
 
                     t_render = time.monotonic()
                     try:
@@ -278,9 +324,17 @@ class DatabaseSyncProvider(SyncProvider):
             console=console,
             transient=False,
         ) as progress:
-            for db in items:
+            db_folders = get_database_folder_names(items)
+            for db, db_folder in zip(items, db_folders, strict=False):
                 try:
-                    state = sync_database(db, output_path, progress, project_path, self._llm_config)
+                    state = sync_database(
+                        db,
+                        output_path,
+                        progress,
+                        project_path,
+                        self._llm_config,
+                        db_folder=db_folder,
+                    )
                     sync_states.append(state)
                     total_datasets += state.schemas_synced
                     total_tables += state.tables_synced

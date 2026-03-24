@@ -99,6 +99,14 @@ export function CommandMenu() {
 				visible: project.data?.userRole === 'admin',
 			},
 			{
+				id: 'open-chats-replay',
+				label: 'Open Chats Replay',
+				icon: MessageSquareIcon,
+				action: () => navigate({ to: '/settings/chats-replay' }),
+				group: 'Actions',
+				visible: project.data?.userRole === 'admin',
+			},
+			{
 				id: 'switch-mode',
 				label: `Switch ${theme === 'light' ? 'Dark' : 'Light'} Mode`,
 				icon: theme === 'light' ? MoonIcon : SunIcon,

@@ -1,7 +1,7 @@
 export { isPythonAvailable } from './execute-python';
 export { isSandboxAvailable } from './execute-sandboxed-code';
 
-import { mcpService } from '../../services/mcp.service';
+import { mcpService } from '../../services/mcp';
 import { AgentSettings } from '../../types/agent-settings';
 import displayChart from './display-chart';
 import executePython from './execute-python';

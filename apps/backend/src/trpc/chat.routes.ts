@@ -64,6 +64,12 @@ export const chatRoutes = {
 			posthog.capture(ctx.user.id, PostHogEvent.ChatRenamed, { project_id: projectId, chat_id: input.chatId });
 		}),
 
+	toggleStarred: chatOwnerProcedure
+		.input(z.object({ chatId: z.string(), isStarred: z.boolean() }))
+		.mutation(async ({ input }): Promise<void> => {
+			await chatQueries.toggleStarred(input.chatId, input.isStarred);
+		}),
+
 	getContextUsage: chatOwnerProcedure
 		.input(
 			z.object({
