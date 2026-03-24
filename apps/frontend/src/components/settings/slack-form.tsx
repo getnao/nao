@@ -1,14 +1,12 @@
 import { useState } from 'react';
 import { useForm } from '@tanstack/react-form';
 import { ExternalLink, X } from 'lucide-react';
-import { CopyableUrl } from '@/components/ui/copyable-url';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { PasswordField } from '@/components/ui/form-fields';
 
 export interface SlackFormProps {
-	projectId?: string;
-	redirectUrl?: string;
+	webhookUrl: string;
 	hasProjectConfig: boolean;
 	onSubmit: (values: { botToken: string; signingSecret: string }) => Promise<void>;
 	onCancel: () => void;
@@ -75,20 +73,7 @@ function buildManifestUrl(webhookUrl: string, mentionName: string): string {
 	return `https://api.slack.com/apps?new_app=1&manifest_json=${encodeURIComponent(JSON.stringify(manifest))}`;
 }
 
-function isValidUrl(value: string): boolean {
-	try {
-		new URL(value);
-		return true;
-	} catch {
-		return false;
-	}
-}
-
-function normalizeUrl(value: string): string {
-	return value.trim().replace(/\/+$/, '');
-}
-
-export function SlackForm({ projectId, redirectUrl, hasProjectConfig, onSubmit, onCancel, isPending }: SlackFormProps) {
+export function SlackForm({ webhookUrl, hasProjectConfig, onSubmit, onCancel, isPending }: SlackFormProps) {
 	const [mentionName, setMentionName] = useState('nao');
 
 	const form = useForm({
@@ -99,9 +84,6 @@ export function SlackForm({ projectId, redirectUrl, hasProjectConfig, onSubmit, 
 		},
 	});
 
-	const normalized = redirectUrl ? normalizeUrl(redirectUrl) : '';
-	const webhookUrl =
-		normalized && isValidUrl(normalized) && projectId ? `${normalized}/api/webhooks/slack/${projectId}` : '';
 	const manifestUrl = webhookUrl ? buildManifestUrl(webhookUrl, mentionName) : '';
 
 	return (
@@ -130,9 +112,6 @@ export function SlackForm({ projectId, redirectUrl, hasProjectConfig, onSubmit, 
 						<ExternalLink className='size-3' />
 					</a>
 				</p>
-
-				{/* Step 1 */}
-				{webhookUrl && <CopyableUrl label='Webhook URL' url={webhookUrl} />}
 
 				{/* Mention name */}
 				<div className='grid gap-2'>

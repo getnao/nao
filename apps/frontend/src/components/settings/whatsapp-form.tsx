@@ -1,11 +1,9 @@
 import { useForm } from '@tanstack/react-form';
 import { ExternalLink, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { CopyableUrl } from '@/components/ui/copyable-url';
 import { PasswordField, TextField } from '@/components/ui/form-fields';
 
 export interface WhatsappFormProps {
-	webhookUrl: string;
 	hasProjectConfig: boolean;
 	onSubmit: (values: {
 		accessToken: string;
@@ -17,7 +15,7 @@ export interface WhatsappFormProps {
 	isPending: boolean;
 }
 
-export function WhatsappForm({ webhookUrl, hasProjectConfig, onSubmit, onCancel, isPending }: WhatsappFormProps) {
+export function WhatsappForm({ hasProjectConfig, onSubmit, onCancel, isPending }: WhatsappFormProps) {
 	const form = useForm({
 		defaultValues: { accessToken: '', appSecret: '', phoneNumberId: '', verifyToken: '' },
 		onSubmit: async ({ value }) => {
@@ -54,7 +52,6 @@ export function WhatsappForm({ webhookUrl, hasProjectConfig, onSubmit, onCancel,
 							<ExternalLink className='size-3' />
 						</a>
 					</p>
-					{webhookUrl && <CopyableUrl label='Webhook URL' url={webhookUrl} />}
 					<PasswordField
 						form={form}
 						name='accessToken'

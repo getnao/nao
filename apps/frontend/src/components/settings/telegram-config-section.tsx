@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Pencil, Trash2 } from 'lucide-react';
 import { TelegramForm } from './telegram-form';
 import { Button } from '@/components/ui/button';
+import { CopyableUrl } from '@/components/ui/copyable-url';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { LlmProviderIcon } from '@/components/ui/llm-provider-icon';
 import { SettingsCard } from '@/components/ui/settings-card';
@@ -115,7 +116,6 @@ export function TelegramConfigSection({ isAdmin }: TelegramConfigSectionProps) {
 				onSubmit={handleSubmit}
 				onCancel={() => setIsEditing(false)}
 				isPending={upsertTelegramConfig.isPending}
-				webhookUrl={webhookUrl}
 			/>
 		);
 	}
@@ -147,6 +147,12 @@ export function TelegramConfigSection({ isAdmin }: TelegramConfigSectionProps) {
 					</div>
 				</div>
 			</SettingsCard>
+
+			{webhookUrl && (
+				<SettingsCard title='Webhook' description='Register this URL in your Telegram bot settings'>
+					<CopyableUrl url={webhookUrl} />
+				</SettingsCard>
+			)}
 
 			<SettingsCard title='Settings' description='Configure how the Telegram bot behaves'>
 				<div className='grid gap-2'>

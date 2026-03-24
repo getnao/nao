@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Pencil, Trash2 } from 'lucide-react';
 import { WhatsappForm } from './whatsapp-form';
 import { Button } from '@/components/ui/button';
+import { CopyableUrl } from '@/components/ui/copyable-url';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { LlmProviderIcon } from '@/components/ui/llm-provider-icon';
 import { SettingsCard } from '@/components/ui/settings-card';
@@ -106,7 +107,6 @@ export function WhatsappConfigSection({ isAdmin }: WhatsappConfigSectionProps) {
 	if (isEditing || !projectConfig) {
 		return (
 			<WhatsappForm
-				webhookUrl={webhookUrl ?? ''}
 				hasProjectConfig={!!projectConfig}
 				onSubmit={handleSubmit}
 				onCancel={() => setIsEditing(false)}
@@ -151,6 +151,12 @@ export function WhatsappConfigSection({ isAdmin }: WhatsappConfigSectionProps) {
 					</div>
 				</div>
 			</SettingsCard>
+
+			{webhookUrl && (
+				<SettingsCard title='Webhook' description='Register this URL in your WhatsApp app settings'>
+					<CopyableUrl url={webhookUrl} />
+				</SettingsCard>
+			)}
 
 			<SettingsCard title='Settings' description='Configure how the WhatsApp bot behaves'>
 				<div className='grid gap-2'>

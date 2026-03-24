@@ -1,7 +1,6 @@
 import { useForm } from '@tanstack/react-form';
 import { ExternalLink, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { CopyableUrl } from '@/components/ui/copyable-url';
 import { PasswordField } from '@/components/ui/form-fields';
 
 export interface TelegramFormProps {
@@ -9,10 +8,9 @@ export interface TelegramFormProps {
 	onSubmit: (values: { botToken: string }) => Promise<void>;
 	onCancel: () => void;
 	isPending: boolean;
-	webhookUrl: string;
 }
 
-export function TelegramForm({ hasProjectConfig, onSubmit, onCancel, isPending, webhookUrl }: TelegramFormProps) {
+export function TelegramForm({ hasProjectConfig, onSubmit, onCancel, isPending }: TelegramFormProps) {
 	const form = useForm({
 		defaultValues: { botToken: '' },
 		onSubmit: async ({ value }) => {
@@ -49,7 +47,6 @@ export function TelegramForm({ hasProjectConfig, onSubmit, onCancel, isPending, 
 							<ExternalLink className='size-3' />
 						</a>
 					</p>
-					{webhookUrl && <CopyableUrl label='Webhook URL' url={webhookUrl} />}
 					<PasswordField
 						form={form}
 						name='botToken'

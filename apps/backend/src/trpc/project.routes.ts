@@ -171,7 +171,7 @@ export const projectRoutes = {
 
 	getSlackConfig: projectProtectedProcedure.query(async ({ ctx }) => {
 		if (!ctx.project) {
-			return { projectConfig: null, redirectUrl: '', projectId: '' };
+			return { projectConfig: null, webhookUrl: '' };
 		}
 
 		const config = await slackConfigQueries.getProjectSlackConfig(ctx.project.id);
@@ -184,10 +184,10 @@ export const projectRoutes = {
 				}
 			: null;
 
+		const baseUrl = env.BETTER_AUTH_URL || 'http://localhost:3000';
 		return {
 			projectConfig,
-			redirectUrl: env.BETTER_AUTH_URL || '',
-			projectId: ctx.project.id,
+			webhookUrl: `${baseUrl}/api/webhooks/slack/${ctx.project.id}`,
 		};
 	}),
 
@@ -263,7 +263,7 @@ export const projectRoutes = {
 			projectConfig,
 			projectId: ctx.project.id,
 			redirectUrl: baseUrl,
-			messagingEndpointUrl: `${baseUrl}/api/webhooks/teams/${ctx.project.id}`,
+			webhookUrl: `${baseUrl}/api/webhooks/teams/${ctx.project.id}`,
 		};
 	}),
 
