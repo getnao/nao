@@ -1,10 +1,9 @@
 import { accountRoutes } from './account.routes';
+import { authConfigRoutes } from './auth-config.routes';
 import { chartRoutes } from './chart.routes';
 import { chatRoutes } from './chat.routes';
 import { citationRoutes } from './citation.routes';
 import { feedbackRoutes } from './feedback.routes';
-import { githubRoutes } from './github.routes';
-import { googleRoutes } from './google.routes';
 import { logRoutes } from './log.routes';
 import { mcpRoutes } from './mcp.routes';
 import { memoryRoutes } from './memory.routes';
@@ -34,8 +33,7 @@ export const trpcRouter = router({
 	usage: usageRoutes,
 	user: userRoutes,
 	memory: memoryRoutes,
-	github: githubRoutes,
-	google: googleRoutes,
+	authConfig: authConfigRoutes,
 	account: accountRoutes,
 	mcp: mcpRoutes,
 	system: systemRoutes,

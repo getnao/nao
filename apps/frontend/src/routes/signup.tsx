@@ -28,7 +28,13 @@ function SignUp() {
 	});
 
 	return (
-		<AuthForm form={form} title='Sign Up' submitText='Sign Up' serverError={serverError}>
+		<AuthForm
+			form={form}
+			title='Sign Up'
+			submitText='Sign Up'
+			serverError={serverError}
+			displaySocialProviders={true}
+		>
 			<FormTextField form={form} name='name' placeholder='Name' />
 			<FormTextField form={form} name='email' type='email' placeholder='Email' />
 			<FormTextField form={form} name='password' type='password' placeholder='Password' />

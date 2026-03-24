@@ -9,13 +9,13 @@ export interface GoogleEditingState {
 export function useGoogleSettings() {
 	const queryClient = useQueryClient();
 
-	const googleSettings = useQuery(trpc.google.getSettings.queryOptions());
-	const updateSettings = useMutation(trpc.google.updateSettings.mutationOptions());
+	const googleSettings = useQuery(trpc.authConfig.google.getSettings.queryOptions());
+	const updateSettings = useMutation(trpc.authConfig.google.updateSettings.mutationOptions());
 
 	const [editingState, setEditingState] = useState<GoogleEditingState | null>(null);
 
 	const invalidateQueries = async () => {
-		await queryClient.invalidateQueries({ queryKey: trpc.google.getSettings.queryOptions().queryKey });
+		await queryClient.invalidateQueries({ queryKey: trpc.authConfig.google.getSettings.queryOptions().queryKey });
 	};
 
 	const handleSubmit = async (values: { clientId: string; clientSecret: string; authDomains: string }) => {

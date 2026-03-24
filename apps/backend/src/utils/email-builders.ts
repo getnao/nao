@@ -1,5 +1,6 @@
 import { renderToString } from 'react-dom/server';
 
+import { ForgotPassword } from '../components/email/forgot-password';
 import { ResetPassword } from '../components/email/reset-password';
 import { SharedItemEmail } from '../components/email/shared-item-email';
 import { UserAddedToProject } from '../components/email/user-added-to-project';
@@ -33,6 +34,12 @@ export function buildUserAddedToProjectEmail(
 			temporaryPassword,
 		}),
 	);
+	return { subject, html };
+}
+
+export function buildForgotPasswordEmail(user: { name: string }, resetUrl: string): CreatedEmail {
+	const subject = 'Reset your password on nao';
+	const html = renderToString(ForgotPassword({ userName: user.name, resetUrl }));
 	return { subject, html };
 }
 

@@ -5,6 +5,8 @@ import { db } from './db/db';
 import dbConfig, { Dialect } from './db/dbConfig';
 import { env } from './env';
 import * as orgQueries from './queries/organization.queries';
+import { emailService } from './services/email';
+import { buildForgotPasswordEmail } from './utils/email-builders';
 import { buildGithubAllowlist, isEmailDomainAllowed } from './utils/utils';
 
 type GoogleConfig = Awaited<ReturnType<typeof orgQueries.getGoogleConfig>>;
@@ -59,6 +61,12 @@ function createAuthInstance(googleConfig: GoogleConfig) {
 		trustedOrigins: env.BETTER_AUTH_URL ? [env.BETTER_AUTH_URL] : undefined,
 		emailAndPassword: {
 			enabled: true,
+			sendResetPassword: async ({ user, url }) => {
+				if (!emailService.isEnabled()) {
+					return;
+				}
+				emailService.sendEmail(user.email, buildForgotPasswordEmail(user, url));
+			},
 		},
 		socialProviders,
 		databaseHooks: {
