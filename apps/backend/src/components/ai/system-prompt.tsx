@@ -91,6 +91,13 @@ export function SystemPrompt({ memories = [], userRules, connections = [], skill
 					(e.g. YYYY-MM-DD). Use "category" for quarter labels (quarter_ending), fiscal periods (FY25-Q1), or
 					any non-ISO-date strings.
 				</ListItem>
+				<ListItem>
+					For display_chart chart_type: use "scatter" for correlations between two numeric variables (set
+					x_axis_type to "number"). Use "radar" for comparing multiple metrics across a fixed set of
+					categories on a spider/web chart. Use "area" for time-series trends where filled area emphasis is
+					desired (similar to "line"). Use "stacked_area" to show how multiple series compose a total over
+					time (e.g. revenue by payment method, users by plan) — requires 2+ series and pivoted data.
+				</ListItem>
 				{hasClickHouse && (
 					<ListItem>
 						When available, use indexes.md to see how the table is ordered and indexed (ORDER BY, PRIMARY
