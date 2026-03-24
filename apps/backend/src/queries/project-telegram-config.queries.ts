@@ -4,6 +4,7 @@ import s from '../db/abstractSchema';
 import { db } from '../db/db';
 import { env } from '../env';
 import { LlmProvider, llmProviderSchema, ModelSelection } from '../types/llm';
+import { takeFirstOrThrow } from '../utils/queries';
 
 function toModelSelection(
 	provider: string | null | undefined,
@@ -44,22 +45,21 @@ export const upsertProjectTelegramConfig = async (data: {
 	botToken: string;
 	modelSelection?: ModelSelection;
 }> => {
-	const [updated] = await db
-		.update(s.project)
-		.set({
-			telegramSettings: {
-				telegramBotToken: data.botToken,
-				telegramLlmProvider: data.modelProvider ?? '',
-				telegramLlmModelId: data.modelId ?? '',
-			},
-		})
-		.where(eq(s.project.id, data.projectId))
-		.returning()
-		.execute();
-
-	if (!updated) {
-		throw new Error(`Project not found: ${data.projectId}`);
-	}
+	const updated = await takeFirstOrThrow(
+		db
+			.update(s.project)
+			.set({
+				telegramSettings: {
+					telegramBotToken: data.botToken,
+					telegramLlmProvider: data.modelProvider ?? '',
+					telegramLlmModelId: data.modelId ?? '',
+				},
+			})
+			.where(eq(s.project.id, data.projectId))
+			.returning()
+			.execute(),
+		`Project not found: ${data.projectId}`,
+	);
 
 	const settings = updated.telegramSettings;
 	return {
@@ -74,8 +74,11 @@ export const updateProjectTelegramModel = async (
 	modelId: string | null,
 ): Promise<void> => {
 	await db.transaction(async (tx) => {
-		const [project] = await tx.select().from(s.project).where(eq(s.project.id, projectId)).execute();
-		const existing = project?.telegramSettings;
+		const project = await takeFirstOrThrow(
+			tx.select().from(s.project).where(eq(s.project.id, projectId)).execute(),
+			`Project not found: ${projectId}`,
+		);
+		const existing = project.telegramSettings;
 
 		await tx
 			.update(s.project)

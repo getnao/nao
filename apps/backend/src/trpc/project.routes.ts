@@ -459,6 +459,7 @@ export const projectRoutes = {
 				accessTokenPreview: config.accessToken.slice(0, 4) + '...' + config.accessToken.slice(-4),
 				appSecretPreview: config.appSecret.slice(0, 4) + '...' + config.appSecret.slice(-4),
 				phoneNumberIdPreview: config.phoneNumberId.slice(0, 4) + '...' + config.phoneNumberId.slice(-4),
+				verifyTokenPreview: config.verifyToken.slice(0, 4) + '...' + config.verifyToken.slice(-4),
 				modelSelection: config.modelSelection,
 			};
 		}),

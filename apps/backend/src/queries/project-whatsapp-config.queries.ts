@@ -4,6 +4,7 @@ import s from '../db/abstractSchema';
 import { db } from '../db/db';
 import { env } from '../env';
 import { LlmProvider, llmProviderSchema, ModelSelection } from '../types/llm';
+import { takeFirstOrThrow } from '../utils/queries';
 
 function toModelSelection(
 	provider: string | null | undefined,
@@ -61,25 +62,24 @@ export const upsertProjectWhatsappConfig = async (data: {
 	verifyToken: string;
 	modelSelection?: ModelSelection;
 }> => {
-	const [updated] = await db
-		.update(s.project)
-		.set({
-			whatsappSettings: {
-				whatsappAccessToken: data.accessToken,
-				whatsappAppSecret: data.appSecret,
-				whatsappPhoneNumberId: data.phoneNumberId,
-				whatsappVerifyToken: data.verifyToken,
-				whatsappLlmProvider: data.modelProvider ?? '',
-				whatsappLlmModelId: data.modelId ?? '',
-			},
-		})
-		.where(eq(s.project.id, data.projectId))
-		.returning()
-		.execute();
-
-	if (!updated) {
-		throw new Error(`Project not found: ${data.projectId}`);
-	}
+	const updated = await takeFirstOrThrow(
+		db
+			.update(s.project)
+			.set({
+				whatsappSettings: {
+					whatsappAccessToken: data.accessToken,
+					whatsappAppSecret: data.appSecret,
+					whatsappPhoneNumberId: data.phoneNumberId,
+					whatsappVerifyToken: data.verifyToken,
+					whatsappLlmProvider: data.modelProvider ?? '',
+					whatsappLlmModelId: data.modelId ?? '',
+				},
+			})
+			.where(eq(s.project.id, data.projectId))
+			.returning()
+			.execute(),
+		`Project not found: ${data.projectId}`,
+	);
 
 	const settings = updated.whatsappSettings;
 	return {
@@ -97,8 +97,11 @@ export const updateProjectWhatsappModel = async (
 	modelId: string | null,
 ): Promise<void> => {
 	await db.transaction(async (tx) => {
-		const [project] = await tx.select().from(s.project).where(eq(s.project.id, projectId)).execute();
-		const existing = project?.whatsappSettings;
+		const project = await takeFirstOrThrow(
+			tx.select().from(s.project).where(eq(s.project.id, projectId)).execute(),
+			`Project not found: ${projectId}`,
+		);
+		const existing = project.whatsappSettings;
 
 		await tx
 			.update(s.project)
