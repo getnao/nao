@@ -1,7 +1,7 @@
 project_name: example
 databases:
 - name: duckdb-jaffle-shop
-  accessors:
+  templates:
   - columns
   - preview
   profiling:

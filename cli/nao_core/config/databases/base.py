@@ -39,7 +39,6 @@ class DatabaseTemplate(str, Enum):
     """Available default templates for database sync."""
 
     COLUMNS = "columns"
-    DESCRIPTION = "description"
     PREVIEW = "preview"
     PROFILING = "profiling"
     AI_SUMMARY = "ai_summary"
@@ -48,26 +47,6 @@ class DatabaseTemplate(str, Enum):
 
 # Backward-compatible alias
 DatabaseAccessor = DatabaseTemplate
-
-
-class ProfilingRefreshPolicy(str, Enum):
-    ALWAYS = "always"
-    INTERVAL = "interval"
-    ONCE = "once"
-
-
-class ProfilingConfig(BaseModel):
-    """Configuration for profiling refresh policy."""
-
-    refresh_policy: ProfilingRefreshPolicy = Field(
-        default=ProfilingRefreshPolicy.ALWAYS,
-        description="When to recompute profiling: always, interval, or once",
-    )
-    interval_days: int = Field(
-        default=7,
-        ge=1,  # strictly positive
-        description="Number of days between profiling runs (only used when refresh_policy=interval)",
-    )
 
 
 class ProfilingRefreshPolicy(str, Enum):
@@ -109,14 +88,14 @@ class DatabaseConfig(BaseModel, ABC):
     templates: list[DatabaseTemplate] = Field(
         default_factory=lambda: [
             DatabaseTemplate.COLUMNS,
-            DatabaseTemplate.DESCRIPTION,
+            DatabaseTemplate.HOW_TO_USE,
             DatabaseTemplate.PREVIEW,
-            DatabaseAccessor.PROFILING,
+            DatabaseTemplate.PROFILING,
         ],
         description=(
             "Which default templates to render per table "
-            "(e.g., ['columns', 'description', 'ai_summary']). "
-            "Defaults to ['columns', 'description', 'preview', 'profiling']."
+            "(e.g., ['columns', 'how_to_use', 'ai_summary']). "
+            "Defaults to ['columns', 'how_to_use', 'preview', 'profiling']."
         ),
     )
     query_history_days: int | None = Field(
@@ -127,9 +106,11 @@ class DatabaseConfig(BaseModel, ABC):
     @model_validator(mode="before")
     @classmethod
     def _migrate_accessors_to_templates(cls, data: dict) -> dict:
-        """Accept legacy 'accessors' key as an alias for 'templates'."""
+        """Accept legacy 'accessors' key as an alias for 'templates', and strip removed values."""
         if isinstance(data, dict) and "accessors" in data and "templates" not in data:
             data["templates"] = data.pop("accessors")
+        if isinstance(data, dict) and "templates" in data:
+            data["templates"] = [t for t in data["templates"] if t != "description"]
         return data
 
     profiling: ProfilingConfig = Field(

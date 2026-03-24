@@ -36,9 +36,9 @@ console = Console()
 TEMPLATE_PREFIX = "databases"
 
 
-def _filter_templates_by_accessor(templates: list[str], db_config: AnyDatabaseConfig) -> list[str]:
-    """Keep only templates whose stem matches the configured accessors."""
-    allowed = {a.value for a in db_config.accessors}
+def _filter_templates_by_config(templates: list[str], db_config: AnyDatabaseConfig) -> list[str]:
+    """Keep only templates whose stem matches the configured templates."""
+    allowed = {a.value for a in db_config.templates}
     return [t for t in templates if Path(t).stem.replace(".md", "") in allowed]
 
 
@@ -144,8 +144,7 @@ def sync_database(
 
         total_errors = 0
 
-        selected_tables: list[tuple[str, str]] = []
-        schema_tables_map: dict[str, list[str]] = {}
+        schema_tables: dict[str, list[str]] = {}
 
         for schema in schemas:
             try:
@@ -157,31 +156,26 @@ def sync_database(
                 continue
 
             tables = [t for t in all_tables if db_config.matches_pattern(schema, t)]
-            schema_tables_map[schema] = tables
 
             if not tables:
                 progress.update(schema_task, advance=1)
                 continue
-
-            for t in tables:
-                selected_tables.append((schema, t))
 
             list_dur = _fmt_duration(time.monotonic() - t_list)
             console.print(
                 f"  [cyan]▸ {schema}[/cyan] [dim]— {len(tables)} tables "
                 f"(of {len(all_tables)} total, listed in {list_dur})[/dim]"
             )
+            schema_tables[schema] = tables
+
+        selected_tables = [(schema, t) for schema, tables in schema_tables.items() for t in tables]
 
         usage_stats: dict[str, TableUsageStats] = {}
         if has_how_to_use and raw_queries and selected_tables:
             dialect = db_config.type if db_config.type != "duckdb" else None
             usage_stats = compute_table_usage(raw_queries, selected_tables, dialect=dialect)
 
-        for schema in schemas:
-            tables = schema_tables_map.get(schema, [])
-            if not tables:
-                continue
-
+        for schema, tables in schema_tables.items():
             schema_path = db_path / f"schema={schema}"
             schema_path.mkdir(parents=True, exist_ok=True)
             state.add_schema(schema)
