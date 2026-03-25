@@ -38,7 +38,7 @@ type ChatInputBaseProps = {
 type ChatInputInlineProps = {
 	className?: string;
 	initialText: string;
-	onCancel: () => void;
+	onCancel?: () => void;
 	onSubmitMessage: AgentHelpers['queueOrSendMessage'];
 };
 

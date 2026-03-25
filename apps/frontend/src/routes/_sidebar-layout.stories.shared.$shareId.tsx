@@ -7,12 +7,17 @@ import type { ParsedChartBlock, ParsedTableBlock } from '@/lib/story-segments';
 import type { QueryDataMap } from '@/components/story-embeds';
 import { StoryChartEmbed, StoryTableEmbed } from '@/components/story-embeds';
 import { SegmentList } from '@/components/story-rendering';
+import { HighlightBubble } from '@/components/highlight-bubble';
+import { SelectionChatPanel } from '@/components/selection-chat-panel';
+import { ChartDisplay } from '@/components/tool-calls/display-chart';
+import { TableDisplay } from '@/components/tool-calls/display-table';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useSession } from '@/lib/auth-client';
 import { splitCodeIntoSegments } from '@/lib/story-segments';
 import { trpc } from '@/main';
+import { SelectionProvider } from '@/contexts/selection';
 
 export const Route = createFileRoute('/_sidebar-layout/stories/shared/$shareId')({
 	component: SharedStoryPage,
@@ -122,12 +127,16 @@ function SharedStoryPage() {
 				)}
 			</header>
 
-			<SharedStoryContent
-				code={story.code}
-				queryData={story.queryData as QueryDataMap | null}
-				chatId={story.chatId}
-				cacheSchedule={story.cacheSchedule}
-			/>
+			<SelectionProvider>
+				<HighlightBubble />
+				<SelectionChatPanel />
+				<SharedStoryContent
+					code={story.code}
+					queryData={story.queryData as QueryDataMap | null}
+					chatId={story.chatId}
+					cacheSchedule={story.cacheSchedule}
+				/>
+			</SelectionProvider>
 		</div>
 	);
 }

@@ -3,6 +3,8 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { MessageSquare } from 'lucide-react';
 import { useRef } from 'react';
 import { ChatMessagesReadonly } from '@/components/chat-messages/chat-messages-readonly';
+import { HighlightBubble } from '@/components/highlight-bubble';
+import { SelectionChatPanel } from '@/components/selection-chat-panel';
 import { SidePanel } from '@/components/side-panel/side-panel';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
@@ -11,6 +13,7 @@ import { trpc } from '@/main';
 import { ReadonlyAgentMessagesProvider } from '@/contexts/agent.provider';
 import { useSidePanel } from '@/hooks/use-side-panel';
 import { SidePanelProvider } from '@/contexts/side-panel';
+import { SelectionProvider } from '@/contexts/selection';
 
 export const Route = createFileRoute('/_sidebar-layout/shared-chat/$shareId')({
 	component: SharedChatPage,
@@ -92,21 +95,25 @@ function SharedChatPage() {
 						)}
 					</header>
 
-					<div className='flex flex-1 min-h-0 min-w-0'>
-						<ChatMessagesReadonly className='flex-1' messages={chat.messages} />
+					<SelectionProvider>
+						<HighlightBubble />
+						<SelectionChatPanel />
+						<div className='flex flex-1 min-h-0 min-w-0'>
+							<ChatMessagesReadonly className='flex-1' messages={chat.messages} />
 
-						{sidePanel.content && (
-							<SidePanel
-								containerRef={containerRef}
-								isAnimating={sidePanel.isAnimating}
-								sidePanelRef={sidePanelRef}
-								resizeHandleRef={sidePanel.resizeHandleRef}
-								onClose={sidePanel.close}
-							>
-								{sidePanel.content}
-							</SidePanel>
-						)}
-					</div>
+							{sidePanel.content && (
+								<SidePanel
+									containerRef={containerRef}
+									isAnimating={sidePanel.isAnimating}
+									sidePanelRef={sidePanelRef}
+									resizeHandleRef={sidePanel.resizeHandleRef}
+									onClose={sidePanel.close}
+								>
+									{sidePanel.content}
+								</SidePanel>
+							)}
+						</div>
+					</SelectionProvider>
 				</div>
 			</SidePanelProvider>
 		</ReadonlyAgentMessagesProvider>

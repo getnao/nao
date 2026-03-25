@@ -54,7 +54,7 @@ export interface SendMessageArgs {
 	images?: ImageUploadData[];
 }
 
-const selectedModelStorage = createLocalStorage<ChatSelectedModel>('nao-selected-model');
+export const selectedModelStorage = createLocalStorage<ChatSelectedModel>('nao-selected-model');
 
 const selectedModelRef: { current: ChatSelectedModel | null } = { current: null };
 const mentionsRef: { current: MentionOption[] } = { current: [] };

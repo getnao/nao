@@ -35,15 +35,6 @@ export function ChatMessages() {
 	const chatId = useParams({ strict: false }).chatId;
 	const contentRef = useRef<HTMLDivElement>(null);
 	const containerHeight = useHeight(contentRef, [chatId]);
-	const { messages, isRunning } = useAgentContext();
-	const isAgentGenerating = isRunning && checkIsLastMessageStreaming(messages);
-	const someToolsExectuting = isRunning && checkIsSomeToolsExecuting(messages);
-
-	// Debounce when the agent is running but not generating content yet to prevent flickering
-	const showThinkingLoader = useDebounceValue(isRunning && !isAgentGenerating && !someToolsExectuting, {
-		delay: 50,
-		skipDebounce: (value) => !value, // Skip debounce if the value equals `false` to immediately remove the loader
-	});
 
 	// Skip fade-in animation when navigating from home after sending a message
 	const fromMessageSend = useRouterState({ select: (state) => state.location.state.fromMessageSend });
@@ -57,7 +48,7 @@ export function ChatMessages() {
 		>
 			<Conversation>
 				<ConversationContent className='max-w-3xl mx-auto gap-0 pt-15 max-md:pt-0'>
-					<ChatMessagesContent showThinkingLoader={showThinkingLoader} />
+					<ChatMessagesContent />
 				</ConversationContent>
 
 				<ConversationScrollButton />
@@ -66,9 +57,17 @@ export function ChatMessages() {
 	);
 }
 
-const ChatMessagesContent = memo(({ showThinkingLoader }: { showThinkingLoader: boolean }) => {
+export const ChatMessagesContent = memo(() => {
 	const chatId = useChatId();
 	const { messages, isRunning } = useAgentContext();
+	const isAgentGenerating = isRunning && checkIsLastMessageStreaming(messages);
+	const someToolsExectuting = isRunning && checkIsSomeToolsExecuting(messages);
+
+	// Debounce when the agent is running but not generating content yet to prevent flickering
+	const showThinkingLoader = useDebounceValue(isRunning && !isAgentGenerating && !someToolsExectuting, {
+		delay: 50,
+		skipDebounce: (value) => !value, // Skip debounce if the value equals `false` to immediately remove the loader
+	});
 	const followUpSuggestionsToolCall = useMemo(() => getLastFollowUpSuggestionsToolCall(messages), [messages]);
 	const extraComponentsRef = useRef<HTMLDivElement>(null);
 	const extraComponentsHeight = useHeight(extraComponentsRef);

@@ -223,6 +223,10 @@ export const sharedStoryRoutes = {
 				}
 			}
 
+			if (share.projectId !== ctx.project.id) {
+				throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this story.' });
+			}
+
 			return forkStory({
 				sourceChatId: share.chatId,
 				projectId: ctx.project.id,

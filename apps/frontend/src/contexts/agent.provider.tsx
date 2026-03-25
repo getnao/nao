@@ -1,7 +1,7 @@
-import { createContext, useContext, useMemo } from 'react';
+import { createContext, useCallback, useContext, useMemo } from 'react';
 import type { UIMessage } from '@nao/backend/chat';
 
-import type { AgentHelpers } from '@/hooks/use-agent';
+import type { AgentHelpers, SendMessageArgs } from '@/hooks/use-agent';
 import { useAgent, useSyncMessages } from '@/hooks/use-agent';
 import { useStreamEndSound } from '@/hooks/use-stream-end-sound';
 
@@ -67,6 +67,58 @@ export const ReadonlyAgentMessagesProvider = ({
 			setMentions,
 		};
 	}, [messages]);
+
+	return <AgentContext.Provider value={value}>{children}</AgentContext.Provider>;
+};
+
+export const SelectionAgentProvider = ({
+	children,
+	messages,
+	isRunning,
+	status,
+	sendMessage,
+	stopAgent,
+	selectedModel,
+	setSelectedModel,
+	setMentions,
+}: {
+	children: React.ReactNode;
+	messages: UIMessage[];
+	isRunning: boolean;
+	status: AgentHelpers['status'];
+	sendMessage: (args: SendMessageArgs) => Promise<void>;
+	stopAgent: () => void;
+	selectedModel: AgentHelpers['selectedModel'];
+	setSelectedModel: AgentHelpers['setSelectedModel'];
+	setMentions: AgentHelpers['setMentions'];
+}) => {
+	const setSelectedModelDispatch = useCallback<AgentHelpers['setSelectedModel']>(
+		(v) => setSelectedModel(v),
+		[setSelectedModel],
+	);
+
+	const value = useMemo<AgentHelpers>(
+		() => ({
+			messages,
+			setMessages: () => {},
+			queueOrSendMessage: sendMessage,
+			editMessage: async () => {},
+			submitQueuedMessageNow: async () => {},
+			status,
+			isRunning,
+			isLoadingMessages: false,
+			stopAgent: () => {
+				stopAgent();
+				return Promise.resolve();
+			},
+			error: undefined,
+			clearError: () => {},
+			selectedModel,
+			setSelectedModel: setSelectedModelDispatch,
+			setMentions,
+		}),
+		[messages, isRunning, status, sendMessage, stopAgent, selectedModel, setSelectedModelDispatch, setMentions],
+	);
 
 	return <AgentContext.Provider value={value}>{children}</AgentContext.Provider>;
 };
