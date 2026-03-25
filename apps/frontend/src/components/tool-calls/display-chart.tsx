@@ -397,12 +397,8 @@ const handleBreakdownKeys = (
 				continue;
 			}
 
-			const breakdown = row[s.breakdown_key] as string;
+			const breakdown = (row[s.breakdown_key] ?? 'Null') as string;
 			const value = row[s.data_key];
-
-			if (breakdown == null) {
-				continue;
-			}
 
 			target[breakdown] = value;
 
@@ -417,7 +413,7 @@ const handleBreakdownKeys = (
 
 	return {
 		pivotedData: Array.from(grouped.values()),
-		expandedSeries,
+		expandedSeries: expandedSeries.sort((a, b) => a.data_key.localeCompare(b.data_key)),
 	};
 };
 

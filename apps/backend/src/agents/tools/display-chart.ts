@@ -19,16 +19,31 @@ export default tool<displayChart.Input, displayChart.Output>({
 			return { _version: '1', success: false, error: 'Pie charts require exactly one series.' };
 		}
 
+		// Validate breakdown key not set when for pie charts
+		if (chartType === 'pie' && series[0].breakdown_key) {
+			return { _version: '1', success: false, error: 'Pie charts do not accept a breakdown key.' };
+		}
+
 		// Validate series is not empty
 		if (series.length === 0) {
 			return { _version: '1', success: false, error: 'At least one series is required.' };
 		}
 
+		// Validates that breakdown series are not combined with non-breakdown series
 		if (series.some((s) => s.breakdown_key) && series.some((s) => s.breakdown_key === undefined)) {
 			return {
 				_version: '1',
 				success: false,
-				error: 'Cannot combine breakdown series and none breakdown series',
+				error: 'Cannot combine breakdown and non-breakdown series.',
+			};
+		}
+
+		// Validates that only one breakdown series is passed
+		if (series.filter((s) => s.breakdown_key).length > 1) {
+			return {
+				_version: '1',
+				success: false,
+				error: 'Multiple breakdown series are not supported. Use a single series with a breakdown key.',
 			};
 		}
 

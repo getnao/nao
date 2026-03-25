@@ -91,6 +91,10 @@ export function SystemPrompt({ memories = [], userRules, connections = [], skill
 					(e.g. YYYY-MM-DD). Use "category" for quarter labels (quarter_ending), fiscal periods (FY25-Q1), or
 					any non-ISO-date strings.
 				</ListItem>
+				<ListItem>
+					For multi-series charts where data has a categorical column (e.g. payment_method, region), use
+					breakdown_key on the series instead of pivoting in SQL.
+				</ListItem>
 				{hasClickHouse && (
 					<ListItem>
 						When available, use indexes.md to see how the table is ordered and indexed (ORDER BY, PRIMARY
