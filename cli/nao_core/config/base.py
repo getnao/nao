@@ -234,14 +234,14 @@ class NaoConfig(BaseModel):
     def _prompt_mcp(project_name: str) -> McpConfig | None:
         """Prompt for MCP configuration using questionary."""
         if ask_confirm("Set up MCP servers?", default=False):
-            McpConfig.promptConfig(project_name)
+            return McpConfig.promptConfig(project_name)
         return None
 
     @staticmethod
     def _prompt_skills(project_name: str) -> SkillsConfig | None:
         """Prompt for Skills configuration using questionary."""
         if ask_confirm("Set up Skills folder?", default=False):
-            SkillsConfig.promptConfig(project_name)
+            return SkillsConfig.promptConfig(project_name)
         return None
 
     def save(self, path: Path) -> None:
