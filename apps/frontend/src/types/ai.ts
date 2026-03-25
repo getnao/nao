@@ -18,6 +18,6 @@ export default interface ChatSelectedModel {
 
 /** A group of user and assistant messages. */
 export interface MessageGroup {
-	userMessage: UIMessage;
+	userMessage: UIMessage | null;
 	assistantMessages: UIMessage[];
 }

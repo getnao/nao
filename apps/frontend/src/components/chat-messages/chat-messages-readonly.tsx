@@ -26,7 +26,7 @@ export function ChatMessagesReadonly({ messages, className }: { messages: UIMess
 					) : (
 						messageGroups.map((group) => (
 							<MessageGroupReadonly
-								key={group.userMessage.id}
+								key={group.userMessage?.id ?? group.assistantMessages[0]?.id}
 								userMessage={group.userMessage}
 								assistantMessages={group.assistantMessages}
 							/>
@@ -44,12 +44,13 @@ const MessageGroupReadonly = ({
 	userMessage,
 	assistantMessages,
 }: {
-	userMessage: UIMessage;
+	userMessage: UIMessage | null;
 	assistantMessages: UIMessage[];
 }) => {
+	const messages = userMessage ? [userMessage, ...assistantMessages] : assistantMessages;
 	return (
 		<div className='flex flex-col gap-4 last:mb-4'>
-			{[userMessage, ...assistantMessages].map((message) => (
+			{messages.map((message) => (
 				<MessageBlockReadonly key={message.id} message={message} />
 			))}
 		</div>

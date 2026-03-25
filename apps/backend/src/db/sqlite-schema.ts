@@ -211,6 +211,12 @@ export const chat = sqliteTable(
 		teamsThreadId: text('teams_thread_id'),
 		telegramThreadId: text('telegram_thread_id'),
 		whatsappThreadId: text('whatsapp_thread_id'),
+		forkMetadata: text('fork_metadata', { mode: 'json' }).$type<{
+			type: 'chat' | 'story';
+			id: string;
+			title: string;
+			authorName: string;
+		}>(),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull(),
@@ -244,7 +250,8 @@ export const chatMessage = sqliteTable(
 		llmProvider: text('llm_provider').$type<LlmProvider>(),
 		llmModelId: text('llm_model_id'),
 		supersededAt: integer('superseded_at', { mode: 'timestamp_ms' }),
-		source: text('source', { enum: ['slack', 'teams', 'telegram', 'whatsapp', 'web'] }),
+		source: text('source', { enum: ['slack', 'teams', 'web'] }),
+		synthetic: integer('synthetic', { mode: 'boolean' }),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull(),

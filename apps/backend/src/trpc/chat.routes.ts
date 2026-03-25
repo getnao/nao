@@ -5,7 +5,7 @@ import * as chatQueries from '../queries/chat.queries';
 import { type SearchChatResult } from '../queries/chat.queries';
 import { agentService } from '../services/agent';
 import { posthog, PostHogEvent } from '../services/posthog';
-import { type ContextUsage, type ListChatResponse, type UIChat } from '../types/chat';
+import { type ContextUsage, type ForkMetadata, type ListChatResponse, type UIChat } from '../types/chat';
 import { llmProviderSchema } from '../types/llm';
 import { getChatContextUsage } from '../utils/chat-context-usage';
 import { ownedResourceProcedure, protectedProcedure } from './trpc';
@@ -18,22 +18,10 @@ export const chatRoutes = {
 		if (!chat) {
 			throw new TRPCError({ code: 'NOT_FOUND', message: `Chat with id ${input.chatId} not found.` });
 		}
-		const isAuthorized = userId === ctx.user.id;
-		if (!isAuthorized) {
+		if (userId !== ctx.user.id) {
 			throw new TRPCError({ code: 'FORBIDDEN', message: `You are not authorized to access this chat.` });
 		}
-		if (!chat.sourceInfo) {
-			return chat;
-		}
-		const sourceInfo = await chatQueries.getChatInfo(chat.sourceInfo.id);
-		return {
-			...chat,
-			sourceInfo: {
-				id: chat.sourceInfo.id,
-				title: sourceInfo?.title ?? '',
-				authorName: chat.sourceInfo.authorName,
-			},
-		};
+		return chat;
 	}),
 
 	list: protectedProcedure.query(async ({ ctx }): Promise<ListChatResponse> => {
@@ -85,6 +73,16 @@ export const chatRoutes = {
 		.input(z.object({ chatId: z.string(), isStarred: z.boolean() }))
 		.mutation(async ({ input }): Promise<void> => {
 			await chatQueries.toggleStarred(input.chatId, input.isStarred);
+		}),
+
+	getForkMetadata: protectedProcedure
+		.input(z.object({ chatId: z.string() }))
+		.query(async ({ input, ctx }): Promise<ForkMetadata | null> => {
+			const ownerId = await chatQueries.getChatOwnerId(input.chatId);
+			if (!ownerId || ownerId !== ctx.user.id) {
+				return null;
+			}
+			return chatQueries.getForkMetadata(input.chatId);
 		}),
 
 	getContextUsage: chatOwnerProcedure

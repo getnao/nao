@@ -76,11 +76,13 @@ export function RouteComponent() {
 									className='text-sm text-muted-foreground'
 								/>
 							)}
-							{chat.data?.sourceInfo && (
+							{chat.data?.forkMetadata && (
 								<Badge variant='outline' className='gap-1 text-muted-foreground w-fit'>
 									<GitFork />
-									<span className='truncate'>Forked from </span>
-									<span className='text-xs text-foreground'>{chat.data.sourceInfo.authorName}</span>
+									<span className='truncate'>
+										{chat.data.forkMetadata.type === 'story' ? 'Story' : 'Chat'} thread from{' '}
+									</span>
+									<span className='text-xs text-foreground'>{chat.data.forkMetadata.authorName}</span>
 								</Badge>
 							)}
 						</div>

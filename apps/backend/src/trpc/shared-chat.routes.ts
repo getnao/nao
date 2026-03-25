@@ -170,11 +170,10 @@ export const sharedChatRoutes = {
 			}
 
 			return forkChat({
-				sourceChatId: share.chatId,
+				chatId: share.chatId,
 				projectId: project.id,
 				userId: ctx.user.id,
-				sourceTitle: share.title,
-				sourceAuthorName: share.authorName,
+				forkMetadata: { type: 'chat', id: share.chatId, title: share.title, authorName: share.authorName },
 			});
 		}),
 };

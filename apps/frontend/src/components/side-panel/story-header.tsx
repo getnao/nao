@@ -126,7 +126,7 @@ export const StoryHeader = memo(function StoryHeader({
 		</div>
 	);
 
-	const viewModeToggle = !isReadonlyMode && (
+	const viewModeToggle = (
 		<div className='flex items-center rounded-lg border p-0.5 gap-0.5'>
 			<Button
 				variant={viewMode === 'preview' ? 'secondary' : 'ghost'}
@@ -135,14 +135,16 @@ export const StoryHeader = memo(function StoryHeader({
 			>
 				<Eye className='size-3' />
 			</Button>
-			<Button
-				variant={viewMode === 'edit' ? 'secondary' : 'ghost'}
-				size='icon-xs'
-				onClick={() => onViewModeChange('edit')}
-				disabled={isAgentRunning}
-			>
-				<Pencil className='size-3' />
-			</Button>
+			{!isReadonlyMode && (
+				<Button
+					variant={viewMode === 'edit' ? 'secondary' : 'ghost'}
+					size='icon-xs'
+					onClick={() => onViewModeChange('edit')}
+					disabled={isAgentRunning}
+				>
+					<Pencil className='size-3' />
+				</Button>
+			)}
 			<Button
 				variant={viewMode === 'code' ? 'secondary' : 'ghost'}
 				size='icon-xs'

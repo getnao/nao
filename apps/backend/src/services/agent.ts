@@ -29,7 +29,15 @@ import * as projectQueries from '../queries/project.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import * as storyQueries from '../queries/story.queries';
 import { AgentSettings } from '../types/agent-settings';
-import { AgentTools, Mention, MessageCustomDataParts, TokenCost, TokenUsage, UIMessage } from '../types/chat';
+import {
+	AgentTools,
+	ForkMetadata,
+	Mention,
+	MessageCustomDataParts,
+	TokenCost,
+	TokenUsage,
+	UIMessage,
+} from '../types/chat';
 import { LlmProvider } from '../types/llm';
 import { Provider } from '../types/messaging-provider';
 import { ToolContext } from '../types/tools';
@@ -66,7 +74,9 @@ export interface AgentRunResult {
 	}>;
 }
 
-export type AgentChat = Pick<DBChat, 'id' | 'projectId' | 'userId'>;
+export type AgentChat = Pick<DBChat, 'id' | 'projectId' | 'userId'> & {
+	forkMetadata?: ForkMetadata | null;
+};
 
 export class AgentService {
 	private _agents = new Map<string, AgentManager>();
@@ -334,9 +344,10 @@ class AgentManager {
 		const connections = getConnections();
 		const skills = skillService.getSkills();
 		const basePrompt = renderToMarkdown(SystemPrompt({ memories, userRules, connections, skills, timezone }));
-		const systemPrompt = provider
-			? renderToMarkdown(MessagingProviderSystemPrompt({ basePrompt, provider, chatUrl }))
+		const renderedPrompt = provider
+			? renderToMarkdown(MessagingProviderSystemPrompt({ basePrompt, provider }))
 			: basePrompt;
+		const systemPrompt = await this._appendForkContext(renderedPrompt);
 
 		const systemMessage: Omit<UIMessage, 'id'> = {
 			role: 'system',
@@ -527,6 +538,18 @@ class AgentManager {
 
 	stop(): void {
 		this._abortController.abort();
+	}
+
+	private async _appendForkContext(prompt: string): Promise<string> {
+		const fork = this.chat.forkMetadata;
+		if (!fork || fork.type !== 'story') {
+			return prompt;
+		}
+		const latestVersion = await storyQueries.getLatestVersion(this.chat.id, fork.id);
+		if (!latestVersion) {
+			return prompt;
+		}
+		return `${prompt}\n\n---\n\nThe user is discussing the following story titled **"${latestVersion.title}"** by ${fork.authorName}. Use it as context when answering questions.\n\n${latestVersion.code}`;
 	}
 
 	private _addStoryMode(messages: UIMessage[], mentions?: Mention[]): UIMessage[] {

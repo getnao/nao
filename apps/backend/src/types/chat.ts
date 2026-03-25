@@ -12,6 +12,13 @@ import { getTools, tools } from '../agents/tools';
 import { MessageFeedback } from '../db/abstractSchema';
 import { llmProviderSchema } from './llm';
 
+export interface ForkMetadata {
+	type: 'chat' | 'story';
+	id: string;
+	title: string;
+	authorName: string;
+}
+
 export interface UIChat {
 	id: string;
 	title: string;
@@ -19,11 +26,7 @@ export interface UIChat {
 	createdAt: number;
 	updatedAt: number;
 	messages: UIMessage[];
-	sourceInfo?: {
-		id: string;
-		title: string;
-		authorName: string;
-	};
+	forkMetadata?: ForkMetadata;
 }
 
 export interface ListChatResponse {
@@ -41,6 +44,7 @@ export interface ChatListItem {
 export type UIMessage = UIGenericMessage<unknown, MessageCustomDataParts, UITools> & {
 	feedback?: MessageFeedback;
 	source?: 'slack' | 'teams' | 'telegram' | 'whatsapp' | 'web';
+	synthetic?: boolean;
 };
 
 export type UITools = InferUITools<typeof tools>;

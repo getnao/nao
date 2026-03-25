@@ -10,7 +10,7 @@ import s, {
 } from '../db/abstractSchema';
 import { db } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
-import { ListChatResponse, StopReason, TokenUsage, UIChat, UIMessage, UIMessagePart } from '../types/chat';
+import { ForkMetadata, ListChatResponse, StopReason, TokenUsage, UIChat, UIMessage, UIMessagePart } from '../types/chat';
 import { LlmProvider } from '../types/llm';
 import { convertDBPartToUIPart, mapUIPartsToDBParts } from '../utils/chat-message-part-mappings';
 import { getErrorMessage } from '../utils/utils';
@@ -74,13 +74,7 @@ export const loadChat = async (
 			createdAt: chat.createdAt.getTime(),
 			updatedAt: chat.updatedAt.getTime(),
 			messages,
-			sourceInfo: chat.sourceInfo
-				? {
-						id: chat.sourceInfo.id,
-						title: chat.sourceInfo.title,
-						authorName: chat.sourceInfo.authorName,
-					}
-				: undefined,
+			forkMetadata: chat.forkMetadata ?? undefined,
 		},
 		chat.userId,
 	];
@@ -89,7 +83,6 @@ export const loadChat = async (
 /** Aggregate the message parts into a list of UI messages. */
 const aggregateChatMessagParts = (
 	result: {
-		chat?: DBChat;
 		chat_message: DBChatMessage;
 		message_part: DBMessagePart;
 		message_feedback?: MessageFeedback | null;
@@ -111,6 +104,7 @@ const aggregateChatMessagParts = (
 					parts: [uiPart],
 					feedback: row.message_feedback ?? undefined,
 					source: row.chat_message.source ?? undefined,
+					synthetic: row.chat_message.synthetic ?? undefined,
 				};
 			}
 			return acc;
@@ -206,7 +200,10 @@ export const createForkedChat = async (newChat: NewChat, messages: Array<Omit<UI
 
 		for (const message of messages) {
 			const messageId = crypto.randomUUID();
-			await t.insert(s.chatMessage).values({ id: messageId, chatId: savedChat.id, role: message.role }).execute();
+			await t
+				.insert(s.chatMessage)
+				.values({ id: messageId, chatId: savedChat.id, role: message.role, synthetic: message.synthetic })
+				.execute();
 
 			const dbParts = remapToolCallIds(mapUIPartsToDBParts(message.parts, messageId));
 			if (dbParts.length > 0) {
@@ -469,6 +466,15 @@ const caseInsensitiveLike = (column: Parameters<typeof like>[0], pattern: string
 	}
 	// SQLite LIKE is case-insensitive by default for ASCII
 	return like(column, pattern);
+};
+
+export const getForkMetadata = async (chatId: string): Promise<ForkMetadata | null> => {
+	const [result] = await db
+		.select({ forkMetadata: s.chat.forkMetadata })
+		.from(s.chat)
+		.where(eq(s.chat.id, chatId))
+		.execute();
+	return result?.forkMetadata ?? null;
 };
 
 export const getChatProjectId = async (chatId: string): Promise<string | undefined> => {

@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
-import { createFileRoute, Link } from '@tanstack/react-router';
+import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { Activity, Loader2, MessageSquare, RefreshCw } from 'lucide-react';
 import { useCallback, useMemo } from 'react';
 
@@ -22,6 +22,7 @@ function SharedStoryPage() {
 	const { shareId } = Route.useParams();
 	const { data: session } = useSession();
 	const queryClient = useQueryClient();
+	const navigate = useNavigate();
 
 	const { data: story, isLoading } = useSuspenseQuery(trpc.storyShare.get.queryOptions({ id: shareId }));
 
@@ -29,6 +30,14 @@ function SharedStoryPage() {
 		trpc.storyShare.refreshData.mutationOptions({
 			onSuccess: () => {
 				queryClient.invalidateQueries({ queryKey: trpc.storyShare.get.queryKey({ id: shareId }) });
+			},
+		}),
+	);
+
+	const forkMutation = useMutation(
+		trpc.storyShare.fork.mutationOptions({
+			onSuccess: ({ chatId }) => {
+				navigate({ to: '/$chatId', params: { chatId } });
 			},
 		}),
 	);
@@ -88,12 +97,27 @@ function SharedStoryPage() {
 						</TooltipProvider>
 					</div>
 				)}
-				{isOwner && (
+				{isOwner ? (
 					<Button variant='outline' size='sm' className='ml-auto gap-1.5 shrink-0' asChild>
 						<Link to='/$chatId' params={{ chatId: story.chatId }} state={{ openStoryId: story.storyId }}>
 							<MessageSquare className='size-3.5' />
 							<span>Open chat</span>
 						</Link>
+					</Button>
+				) : (
+					<Button
+						variant='outline'
+						size='sm'
+						className='ml-auto gap-1.5 shrink-0'
+						onClick={() => forkMutation.mutate({ shareId })}
+						disabled={forkMutation.isPending}
+					>
+						{forkMutation.isPending ? (
+							<Loader2 className='size-3.5 animate-spin' />
+						) : (
+							<MessageSquare className='size-3.5' />
+						)}
+						<span>Discuss story</span>
 					</Button>
 				)}
 			</header>

@@ -201,6 +201,12 @@ export const chat = pgTable(
 		teamsThreadId: text('teams_thread_id'),
 		telegramThreadId: text('telegram_thread_id'),
 		whatsappThreadId: text('whatsapp_thread_id'),
+		forkMetadata: jsonb('fork_metadata').$type<{
+			type: 'chat' | 'story';
+			id: string;
+			title: string;
+			authorName: string;
+		}>(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()
@@ -232,7 +238,8 @@ export const chatMessage = pgTable(
 		llmProvider: text('llm_provider').$type<LlmProvider>(),
 		llmModelId: text('llm_model_id'),
 		supersededAt: timestamp('superseded_at'),
-		source: text('source', { enum: ['slack', 'teams', 'telegram', 'whatsapp', 'web'] }),
+		source: text('source', { enum: ['slack', 'teams', 'web'] }),
+		synthetic: boolean('synthetic'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 
 		// Token usage columns

@@ -12,6 +12,7 @@ import { AssistantMessageActions } from '@/components/chat-messages/assistant-me
 import { cn, isLast } from '@/lib/utils';
 import { useChatId } from '@/hooks/use-chat-id';
 import { AssistantMessageProvider, useAssistantMessage } from '@/contexts/assistant-message';
+import { useChatThread } from '@/contexts/chat-thread';
 
 export const AssistantMessage = memo(
 	({
@@ -26,9 +27,11 @@ export const AssistantMessage = memo(
 		isRunning: boolean;
 	}) => {
 		const chatId = useChatId();
+		const { storyHeaderMessageId } = useChatThread();
 		const messageParts = useMemo(() => groupToolCalls(message.parts), [message.parts]);
 		const hasContent = useMemo(() => checkAssistantMessageHasContent(message), [message]);
 		const isCompacting = message.parts.at(-1)?.type === 'data-compactionSummaryStarted';
+		const showActions = message.id !== storyHeaderMessageId;
 
 		if (!message.parts.length && isSettled) {
 			return null;
@@ -45,7 +48,7 @@ export const AssistantMessage = memo(
 
 					{isCompacting ? <AssistantCompaction /> : showLoader && <TextShimmer />}
 
-					{chatId && (
+					{chatId && showActions && (
 						<AssistantMessageActions
 							message={message}
 							chatId={chatId}

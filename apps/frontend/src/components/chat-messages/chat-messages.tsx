@@ -1,4 +1,5 @@
 import { memo, useMemo, useRef } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useParams, useRouterState } from '@tanstack/react-router';
 import { TextShimmer } from '../ui/text-shimmer';
 import { ChatError } from './chat-error';
@@ -24,6 +25,9 @@ import { useAgentContext } from '@/contexts/agent.provider';
 import { useHeight } from '@/hooks/use-height';
 import { useDebounceValue } from '@/hooks/use-debounce-value';
 import { useScrollToBottomOnNewUserMessage } from '@/hooks/use-scroll-to-bottom-on-new-user-message';
+import { useChatId } from '@/hooks/use-chat-id';
+import { ChatThreadProvider } from '@/contexts/chat-thread';
+import { trpc } from '@/main';
 
 const DEBUG_MESSAGES = false;
 
@@ -63,16 +67,25 @@ export function ChatMessages() {
 }
 
 const ChatMessagesContent = memo(({ showThinkingLoader }: { showThinkingLoader: boolean }) => {
+	const chatId = useChatId();
 	const { messages, isRunning } = useAgentContext();
 	const followUpSuggestionsToolCall = useMemo(() => getLastFollowUpSuggestionsToolCall(messages), [messages]);
 	const extraComponentsRef = useRef<HTMLDivElement>(null);
 	const extraComponentsHeight = useHeight(extraComponentsRef);
-	const messageGroups = useMemo(() => groupMessages(messages), [messages]);
+	const visibleMessages = useMemo(() => messages.filter((m) => !m.synthetic), [messages]);
+	const messageGroups = useMemo(() => groupMessages(visibleMessages), [visibleMessages]);
+
+	const forkMetadata = useQuery({
+		...trpc.chat.getForkMetadata.queryOptions({ chatId: chatId ?? '' }),
+		enabled: !!chatId,
+	});
+	const storyHeaderMessageId =
+		forkMetadata.data?.type === 'story' ? messageGroups[0]?.assistantMessages[0]?.id : undefined;
 
 	useScrollToBottomOnNewUserMessage(messages);
 
 	return (
-		<>
+		<ChatThreadProvider storyHeaderMessageId={storyHeaderMessageId}>
 			<div
 				className='flex flex-col gap-8 max-md:gap-0'
 				style={{ '--extra-components-height': `${extraComponentsHeight}px` } as React.CSSProperties}
@@ -82,7 +95,7 @@ const ChatMessagesContent = memo(({ showThinkingLoader }: { showThinkingLoader: 
 				) : (
 					messageGroups.map((group) => (
 						<MessageGroup
-							key={group.userMessage.id}
+							key={group.userMessage?.id ?? group.assistantMessages[0]?.id}
 							userMessage={group.userMessage}
 							assistantMessages={group.assistantMessages}
 							showLoader={showThinkingLoader && isLast(group, messageGroups)}
@@ -98,7 +111,7 @@ const ChatMessagesContent = memo(({ showThinkingLoader }: { showThinkingLoader: 
 
 				<ChatError className='mt-4' />
 			</div>
-		</>
+		</ChatThreadProvider>
 	);
 });
 
@@ -109,15 +122,16 @@ const MessageGroup = ({
 	isLastMessage,
 	isRunning,
 }: {
-	userMessage: UIMessage;
+	userMessage: UIMessage | null;
 	assistantMessages: UIMessage[];
 	showLoader: boolean;
 	isLastMessage: (messageId: string) => boolean;
 	isRunning: boolean;
 }) => {
+	const messages = userMessage ? [userMessage, ...assistantMessages] : assistantMessages;
 	return (
 		<div className='flex flex-col gap-4 last:min-h-[calc(var(--container-height)-var(--extra-components-height)-calc(2*24px+16px))] group/message last:mb-4'>
-			{[userMessage, ...assistantMessages].map((message) => (
+			{messages.map((message) => (
 				<MessageBlock
 					key={message.id}
 					message={message}

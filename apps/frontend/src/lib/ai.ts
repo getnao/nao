@@ -180,11 +180,17 @@ export const extractImagesFromMessage = (message: UIMessage): { mediaType: strin
 export const groupMessages = (messages: UIMessage[]): MessageGroup[] => {
 	const groups: MessageGroup[] = [];
 	for (let i = 0; i < messages.length; ) {
-		const user = messages[i++];
-		if (user.role !== 'user') {
+		const msg = messages[i++];
+		if (msg.role !== 'user') {
+			const lastGroup = groups.at(-1);
+			if (lastGroup) {
+				lastGroup.assistantMessages.push(msg);
+			} else {
+				groups.push({ userMessage: null, assistantMessages: [msg] });
+			}
 			continue;
 		}
-		const group: MessageGroup = { userMessage: user, assistantMessages: [] };
+		const group: MessageGroup = { userMessage: msg, assistantMessages: [] };
 		while (i < messages.length && messages[i].role === 'assistant') {
 			group.assistantMessages.push(messages[i]);
 			i++;
