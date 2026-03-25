@@ -81,12 +81,7 @@ function PanelContainer({ anchor, onClose }: { anchor: SelectionAnchor; onClose:
 
 	return (
 		<div className='fixed right-4 top-20 bottom-10 w-[400px] z-50 flex flex-col items-center'>
-			<ChatPanelContent
-				key={anchor.id}
-				anchor={anchor}
-				onClose={onClose}
-				onMessagesChange={handleMessagesChange}
-			/>
+			<ChatPanelContent key={anchor.id} anchor={anchor} onMessagesChange={handleMessagesChange} />
 			<Button
 				onClick={onClose}
 				variant='ghost-no-hover'
@@ -107,11 +102,9 @@ function PanelContainer({ anchor, onClose }: { anchor: SelectionAnchor; onClose:
 
 function ChatPanelContent({
 	anchor,
-	onClose,
 	onMessagesChange,
 }: {
 	anchor: SelectionAnchor;
-	onClose: () => void;
 	onMessagesChange: (messages: UIMessage[]) => void;
 }) {
 	const onMessagesChangeRef = useRef(onMessagesChange);
