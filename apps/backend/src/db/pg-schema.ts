@@ -238,7 +238,7 @@ export const chatMessage = pgTable(
 		llmProvider: text('llm_provider').$type<LlmProvider>(),
 		llmModelId: text('llm_model_id'),
 		supersededAt: timestamp('superseded_at'),
-		source: text('source', { enum: ['slack', 'teams', 'web'] }),
+		source: text('source', { enum: ['slack', 'teams', 'web', 'telegram', 'whatsapp'] }),
 		synthetic: boolean('synthetic'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 

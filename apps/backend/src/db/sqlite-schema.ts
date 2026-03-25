@@ -250,7 +250,7 @@ export const chatMessage = sqliteTable(
 		llmProvider: text('llm_provider').$type<LlmProvider>(),
 		llmModelId: text('llm_model_id'),
 		supersededAt: integer('superseded_at', { mode: 'timestamp_ms' }),
-		source: text('source', { enum: ['slack', 'teams', 'web'] }),
+		source: text('source', { enum: ['slack', 'teams', 'web', 'telegram', 'whatsapp'] }),
 		synthetic: integer('synthetic', { mode: 'boolean' }),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
