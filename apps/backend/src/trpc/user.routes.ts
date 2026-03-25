@@ -64,7 +64,8 @@ export const userRoutes = {
 			}),
 		)
 		.mutation(async ({ input, ctx }) => {
-			const user = await userQueries.get({ email: input.email });
+			const email = input.email.toLowerCase();
+			const user = await userQueries.get({ email });
 
 			if (!user) {
 				if (!input.name) {
@@ -80,7 +81,7 @@ export const userRoutes = {
 					{
 						id: userId,
 						name: input.name!,
-						email: input.email,
+						email,
 						requiresPasswordReset: true,
 					},
 					{

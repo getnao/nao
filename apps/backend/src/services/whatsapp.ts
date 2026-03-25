@@ -136,7 +136,7 @@ class WhatsappService {
 			return;
 		}
 
-		this._userByWhatsappId.set(whatsappId, user.email);
+		this._userByWhatsappId.set(whatsappId, user.email.toLowerCase());
 		await thread.post(`✅ Linked to ${user.email}. You can now send messages to nao!`);
 	}
 

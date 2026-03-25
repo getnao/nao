@@ -180,7 +180,7 @@ class TelegramService {
 			return;
 		}
 
-		this._userByTelegramId.set(telegramId, user.email);
+		this._userByTelegramId.set(telegramId, user.email.toLowerCase());
 		await thread.post(`✅ Linked to ${user.email}. You can now send messages to nao!`);
 	}
 
