@@ -225,6 +225,15 @@ export const upsertMessage = async (
 	});
 };
 
+export const deleteAllUserChats = async (userId: string): Promise<number> => {
+	const deleted = await db
+		.delete(s.chat)
+		.where(and(eq(s.chat.userId, userId), eq(s.chat.isStarred, false)))
+		.returning({ id: s.chat.id })
+		.execute();
+	return deleted.length;
+};
+
 export const deleteChat = async (chatId: string): Promise<{ projectId: string }> => {
 	const [result] = await db
 		.delete(s.chat)

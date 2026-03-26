@@ -42,6 +42,11 @@ export const chatRoutes = {
 			posthog.capture(ctx.user.id, PostHogEvent.ChatDeleted, { project_id: projectId, chat_id: input.chatId });
 		}),
 
+	deleteAll: protectedProcedure.mutation(async ({ ctx }): Promise<void> => {
+		const count = await chatQueries.deleteAllUserChats(ctx.user.id);
+		posthog.capture(ctx.user.id, PostHogEvent.AllChatsDeleted, { deleted_count: count });
+	}),
+
 	stop: protectedProcedure.input(z.object({ chatId: z.string() })).mutation(async ({ input, ctx }): Promise<void> => {
 		const agent = agentService.get(input.chatId);
 		if (!agent) {
