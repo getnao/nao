@@ -34,6 +34,14 @@ export function labelize(key: unknown): string {
 	return str.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+export function formatYAxisTick(value: number): string {
+	const abs = Math.abs(value);
+	if (abs >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(1).replace(/\.0$/, '')}B`;
+	if (abs >= 1_000_000) return `${(value / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
+	if (abs >= 10_000) return `${(value / 1_000).toFixed(1).replace(/\.0$/, '')}K`;
+	return String(value);
+}
+
 export function defaultColorFor(_key: string, index: number): string {
 	return DEFAULT_COLORS[index % DEFAULT_COLORS.length];
 }
@@ -161,7 +169,7 @@ function buildBarChart(props: ResolvedProps) {
 	return (
 		<BarChart data={data} accessibilityLayer margin={margin}>
 			{showGrid && <CartesianGrid horizontal vertical={false} strokeDasharray='3 3' />}
-			<YAxis tickLine={false} axisLine={false} minTickGap={12} />
+			<YAxis tickLine={false} axisLine={false} minTickGap={12} tickFormatter={formatYAxisTick} />
 			<XAxis
 				dataKey={xAxisKey}
 				type={xAxisType}
@@ -207,7 +215,7 @@ function buildAreaChart(props: ResolvedProps) {
 				})}
 			</defs>
 			{showGrid && <CartesianGrid horizontal vertical={false} strokeDasharray='3 3' />}
-			<YAxis tickLine={false} axisLine={false} minTickGap={12} />
+			<YAxis tickLine={false} axisLine={false} minTickGap={12} tickFormatter={formatYAxisTick} />
 			<XAxis
 				dataKey={xAxisKey}
 				type={xAxisType}
@@ -241,7 +249,7 @@ function buildScatterChart(props: ResolvedProps) {
 		<ScatterChart data={data} accessibilityLayer margin={margin}>
 			{showGrid && <CartesianGrid strokeDasharray='3 3' />}
 			<XAxis dataKey={xAxisKey} type={xAxisType ?? 'number'} tickLine={false} axisLine={false} minTickGap={12} />
-			<YAxis tickLine={false} axisLine={false} minTickGap={12} />
+			<YAxis tickLine={false} axisLine={false} minTickGap={12} tickFormatter={formatYAxisTick} />
 			{children}
 			{series.map((s, i) => (
 				<Scatter
