@@ -36,16 +36,19 @@ function decodeFromAttr(encoded: string): string {
  * Tiptap's DOMParser can match against custom node extensions.
  */
 export function preprocessForEditor(code: string): string {
+	// Each embed is wrapped in a <div> so that `marked` emits an "html" token
+	// instead of folding the custom element into a paragraph token (marked only
+	// recognises standard HTML block elements like <div>).
 	let result = code.replace(/<grid\s+[^>]*>[\s\S]*?<\/grid>/g, (match) => {
-		return `<grid-embed data-raw="${encodeForAttr(match)}"></grid-embed>`;
+		return `<div><grid-embed data-raw="${encodeForAttr(match)}"></grid-embed></div>\n\n`;
 	});
 
 	result = result.replace(/<chart\s+[^/>]*\/?>/g, (match) => {
-		return `<chart-embed data-raw="${encodeForAttr(match)}"></chart-embed>`;
+		return `<div><chart-embed data-raw="${encodeForAttr(match)}"></chart-embed></div>\n\n`;
 	});
 
 	result = result.replace(/<table\s+[^/>]*\/?>/g, (match) => {
-		return `<table-embed data-raw="${encodeForAttr(match)}"></table-embed>`;
+		return `<div><table-embed data-raw="${encodeForAttr(match)}"></table-embed></div>\n\n`;
 	});
 
 	return result;

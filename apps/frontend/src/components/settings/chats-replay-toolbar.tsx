@@ -2,7 +2,7 @@ import { Columns2, Filter, Users, X } from 'lucide-react';
 import { ChatsReplayDateFilter } from './chats-replay-date-filter';
 import type { ColumnFiltersState, Table } from '@tanstack/react-table';
 
-import type { UpdatedAtFilter } from '@nao/shared';
+import type { UpdatedAtFilter } from '@nao/shared/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {

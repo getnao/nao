@@ -93,6 +93,8 @@ jobs:
             - name: Build server and package
               working-directory: cli
               run: python build.py --force
+              env:
+                  PYTHONUTF8: '1'
 
             - name: Rename wheel with platform tag
               working-directory: cli/dist

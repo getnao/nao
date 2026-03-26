@@ -15,7 +15,7 @@ import type { ChartConfig } from '../ui/chart';
 import type { displayChart } from '@nao/shared/tools';
 import type { UIMessage } from '@nao/backend/chat';
 import type { DateRange } from '@/lib/charts.utils';
-import { filterByDateRange, DATE_RANGE_OPTIONS, toKey } from '@/lib/charts.utils';
+import { filterByDateRange, sortByDateKey, DATE_RANGE_OPTIONS, toKey } from '@/lib/charts.utils';
 import { findStoryIds } from '@/lib/story.utils';
 import { useSidePanel } from '@/contexts/side-panel';
 import { StoryViewer } from '@/components/side-panel/story-viewer';
@@ -95,7 +95,8 @@ export const DisplayChartToolCall = ({
 		if (config.x_axis_type !== 'date') {
 			return sourceData.data;
 		}
-		return filterByDateRange(sourceData.data, config.x_axis_key, dataRange);
+		const sorted = sortByDateKey(sourceData.data, config.x_axis_key);
+		return filterByDateRange(sorted, config.x_axis_key, dataRange);
 	}, [sourceData?.data, config, dataRange]);
 
 	if (output && output.error) {

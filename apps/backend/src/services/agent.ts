@@ -41,6 +41,7 @@ import {
 	resolveProviderModel,
 	resolveProviderSettings,
 } from '../utils/llm';
+import { logger } from '../utils/logger';
 import { truncateMiddle } from '../utils/utils';
 import { compactionService } from './compaction';
 import { memoryService } from './memory';
@@ -281,6 +282,11 @@ class AgentManager {
 			},
 			onError: (err) => {
 				error = err;
+				logger.error(`Agent stream error: ${String(err)}`, {
+					source: 'agent',
+					projectId: this.chat.projectId,
+					context: { chatId: this.chat.id, modelId: this._modelSelection.modelId },
+				});
 				return String(err);
 			},
 			onFinish: async (e) => {
@@ -417,7 +423,11 @@ class AgentManager {
 
 	private _scheduleTitleGeneration(userMessageText: string): void {
 		this._generateTitle(userMessageText).catch((err) => {
-			console.error('[title] generation failed:', err);
+			logger.error(`Title generation failed: ${String(err)}`, {
+				source: 'agent',
+				projectId: this.chat.projectId,
+				context: { chatId: this.chat.id },
+			});
 		});
 	}
 

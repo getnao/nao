@@ -1,5 +1,6 @@
 import { createSlackAdapter } from '@chat-adapter/slack';
 import { createMemoryState } from '@chat-adapter/state-memory';
+import { CITATION_TAG_REGEX } from '@nao/shared';
 import { WebClient } from '@slack/web-api';
 import { InferUIMessageChunk, readUIMessageStream } from 'ai';
 import { Card, Chat, Message, SentMessage, Thread } from 'chat';
@@ -14,6 +15,7 @@ import { get as getUser } from '../queries/user.queries';
 import { UIChat, UIMessage, UIMessagePart } from '../types/chat';
 import { ConversationContext, StreamState, ToolCallEntry } from '../types/messaging-provider';
 import { createChatTitle } from '../utils/ai';
+import { logger } from '../utils/logger';
 import {
 	createCompletionCard,
 	createFeedbackModal,
@@ -71,7 +73,7 @@ class SlackService {
 		this._slackClient = new WebClient(config.botToken);
 
 		this._bot = new Chat({
-			userName: 'nao-chat',
+			userName: 'nao',
 			adapters: {
 				slack: createSlackAdapter({
 					botToken: config.botToken,
@@ -91,19 +93,19 @@ class SlackService {
 		});
 
 		this._bot.onAction('stop_generation', async (event) => {
-			const existingChat = await chatQueries.getChatBySlackThread(event.thread!.id);
+			const existingChat = await chatQueries.getChatBySlackThread(event.thread?.id || '');
 			if (existingChat) {
 				agentService.get(existingChat.id)?.stop();
 			}
 		});
 
 		this._bot.onAction('feedback_positive', async (event) => {
-			const messageId = await this._getLastAssistantMessageId(event.thread!.id);
+			const messageId = await this._getLastAssistantMessageId(event.thread?.id || '');
 			if (!messageId) {
 				return;
 			}
 			await feedbackQueries.upsertFeedback({ messageId, vote: 'up' });
-			const completion = this._lastCompletionCard.get(event.thread!.id);
+			const completion = this._lastCompletionCard.get(event.thread?.id || '');
 			if (completion) {
 				await completion.card.edit(createCompletionCard(completion.chatUrl, 'up'));
 			}
@@ -112,7 +114,7 @@ class SlackService {
 		this._bot.onAction('feedback_negative', async (event) => {
 			await event.openModal({
 				...createFeedbackModal(),
-				privateMetadata: event.thread!.id,
+				privateMetadata: event.thread?.id || '',
 			});
 		});
 
@@ -378,7 +380,10 @@ class SlackService {
 			ctx.blocks.push(createImageBlock(imageUrl));
 			await ctx.convMessage?.edit(Card({ children: ctx.blocks }));
 		} catch (error) {
-			console.error('Error generating chart image:', error);
+			logger.error(`Chart image generation failed: ${String(error)}`, {
+				source: 'system',
+				context: { chatId: ctx.chatId, toolCallId: part.toolCallId },
+			});
 		}
 	}
 
@@ -429,7 +434,7 @@ class SlackService {
 	}
 
 	private _updateTextBlock(text: string, ctx: ConversationContext): void {
-		const block = createTextBlock(text);
+		const block = createTextBlock(text.replace(CITATION_TAG_REGEX, ''));
 		if (ctx.textBlockIndex === -1) {
 			ctx.textBlockIndex = ctx.blocks.length;
 			ctx.blocks.push(block);

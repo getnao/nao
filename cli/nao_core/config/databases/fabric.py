@@ -4,14 +4,14 @@ import struct
 from enum import Enum
 from typing import TYPE_CHECKING, Literal
 
-if TYPE_CHECKING:
-    from azure.identity import AzureCliCredential, InteractiveBrowserCredential
-
-from ibis import BaseBackend
 from pydantic import Field, model_validator
 
 from nao_core.config.exceptions import InitError
 from nao_core.ui import UI, ask_select, ask_text
+
+if TYPE_CHECKING:
+    from azure.identity import AzureCliCredential, InteractiveBrowserCredential
+    from ibis import BaseBackend
 
 from .base import DatabaseConfig
 
@@ -200,18 +200,21 @@ class FabricConfig(DatabaseConfig):
         azure_cli and azure_interactive use token injection (see _connect_via_aad_token_injection).
         sql_password and azure_service_principal use a standard ODBC connection string.
         """
+        from nao_core.deps import require_database_backend, require_dependency
+
+        require_database_backend("mssql")
+
         if self.auth_mode == FabricAuthMode.AZURE_CLI:
+            require_dependency("azure.identity", "fabric", "for Azure authentication")
             from azure.identity import AzureCliCredential
 
             return self._connect_via_aad_token_injection(
                 AzureCliCredential(), "Azure CLI: fetching token from 'az login' credentials."
             )
         if self.auth_mode == FabricAuthMode.AZURE_INTERACTIVE:
+            require_dependency("azure.identity", "fabric", "for Azure authentication")
             from azure.identity import InteractiveBrowserCredential
 
-            # ActiveDirectoryInteractive in the ODBC driver doesn't open a browser on macOS.
-            # Use InteractiveBrowserCredential from azure-identity instead, which handles
-            # browser-based auth correctly cross-platform, then inject the token directly.
             return self._connect_via_aad_token_injection(
                 InteractiveBrowserCredential(), "Azure Interactive: a browser window will open for authentication."
             )
@@ -225,13 +228,7 @@ class FabricConfig(DatabaseConfig):
     def _connect_via_aad_token_injection(
         self, credential: AzureCliCredential | InteractiveBrowserCredential, message: str
     ) -> BaseBackend:
-        """Connect using an Azure AD token injected via SQL_COPT_SS_ACCESS_TOKEN.
-
-        The token is obtained from the provided credential (AzureCliCredential for azure_cli,
-        InteractiveBrowserCredential for azure_interactive), encoded as UTF-16-LE with a 4-byte
-        little-endian length prefix, and passed via attrs_before so the ODBC driver
-        receives it before opening the session.
-        """
+        """Connect using an Azure AD token injected via SQL_COPT_SS_ACCESS_TOKEN."""
         UI.info(f"[yellow]{message}[/yellow]")
 
         token = credential.get_token("https://database.windows.net/.default")

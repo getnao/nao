@@ -10,6 +10,9 @@ import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import * as savedPromptQueries from '../queries/project-saved-prompt.queries';
 import * as slackConfigQueries from '../queries/project-slack-config.queries';
 import * as teamsConfigQueries from '../queries/project-teams-config.queries';
+import * as telegramConfigQueries from '../queries/project-telegram-config.queries';
+import * as whatsappConfigQueries from '../queries/project-whatsapp-config.queries';
+import * as userQueries from '../queries/user.queries';
 import { posthog, PostHogEvent } from '../services/posthog';
 import { getAvailableModels as getAvailableTranscribeModels } from '../services/transcribe.service';
 import { AgentSettings } from '../types/agent-settings';
@@ -168,7 +171,7 @@ export const projectRoutes = {
 
 	getSlackConfig: projectProtectedProcedure.query(async ({ ctx }) => {
 		if (!ctx.project) {
-			return { projectConfig: null, redirectUrl: '', projectId: '' };
+			return { projectConfig: null, webhookUrl: '' };
 		}
 
 		const config = await slackConfigQueries.getProjectSlackConfig(ctx.project.id);
@@ -181,10 +184,10 @@ export const projectRoutes = {
 				}
 			: null;
 
+		const baseUrl = env.BETTER_AUTH_URL || 'http://localhost:3000';
 		return {
 			projectConfig,
-			redirectUrl: env.BETTER_AUTH_URL || '',
-			projectId: ctx.project.id,
+			webhookUrl: `${baseUrl}/api/webhooks/slack/${ctx.project.id}`,
 		};
 	}),
 
@@ -260,7 +263,7 @@ export const projectRoutes = {
 			projectConfig,
 			projectId: ctx.project.id,
 			redirectUrl: baseUrl,
-			messagingEndpointUrl: `${baseUrl}/api/webhooks/teams/${ctx.project.id}`,
+			webhookUrl: `${baseUrl}/api/webhooks/teams/${ctx.project.id}`,
 		};
 	}),
 
@@ -315,6 +318,169 @@ export const projectRoutes = {
 
 	deleteTeamsConfig: adminProtectedProcedure.mutation(async ({ ctx }) => {
 		await teamsConfigQueries.deleteProjectTeamsConfig(ctx.project.id);
+		return { success: true };
+	}),
+
+	getTelegramConfig: projectProtectedProcedure.query(async ({ ctx }) => {
+		if (!ctx.project) {
+			return { projectConfig: null, projectId: '' };
+		}
+
+		const config = await telegramConfigQueries.getProjectTelegramConfig(ctx.project.id);
+
+		const projectConfig = config
+			? {
+					botTokenPreview: config.botToken.slice(0, 4) + '...' + config.botToken.slice(-4),
+					modelSelection: config.modelSelection,
+				}
+			: null;
+
+		const baseUrl = env.BETTER_AUTH_URL || 'http://localhost:3000';
+		return {
+			projectConfig,
+			projectId: ctx.project.id,
+			webhookUrl: `${baseUrl}/api/webhooks/telegram/${ctx.project.id}`,
+		};
+	}),
+
+	upsertTelegramConfig: adminProtectedProcedure
+		.input(
+			z.object({
+				botToken: z.string().min(1),
+				modelProvider: llmProviderSchema.optional(),
+				modelId: z.string().optional(),
+			}),
+		)
+		.mutation(async ({ ctx, input }) => {
+			const config = await telegramConfigQueries.upsertProjectTelegramConfig({
+				projectId: ctx.project.id,
+				botToken: input.botToken,
+				modelProvider: input.modelProvider,
+				modelId: input.modelId,
+			});
+
+			posthog.capture(ctx.user.id, PostHogEvent.TelegramConfigured, {
+				project_id: ctx.project.id,
+				modelProvider: input.modelProvider,
+				modelId: input.modelId,
+			});
+
+			return {
+				botTokenPreview: config.botToken.slice(0, 4) + '...' + config.botToken.slice(-4),
+				modelSelection: config.modelSelection,
+			};
+		}),
+
+	updateTelegramModelConfig: adminProtectedProcedure
+		.input(
+			z.object({
+				modelProvider: llmProviderSchema.optional(),
+				modelId: z.string().optional(),
+			}),
+		)
+		.mutation(async ({ ctx, input }) => {
+			await telegramConfigQueries.updateProjectTelegramModel(
+				ctx.project.id,
+				input.modelProvider ?? null,
+				input.modelId ?? null,
+			);
+		}),
+
+	deleteTelegramConfig: adminProtectedProcedure.mutation(async ({ ctx }) => {
+		await telegramConfigQueries.deleteProjectTelegramConfig(ctx.project.id);
+		return { success: true };
+	}),
+
+	regenerateMessagingProviderCode: adminProtectedProcedure
+		.input(z.object({ userId: z.string() }))
+		.mutation(async ({ ctx, input }) => {
+			const members = await projectQueries.getAllUsersWithRoles(ctx.project.id);
+			const isMember = members.some((m) => m.id === input.userId);
+			if (!isMember) {
+				throw new TRPCError({ code: 'FORBIDDEN', message: 'User is not a member of this project' });
+			}
+			return await userQueries.regenerateMessagingProviderCode(input.userId);
+		}),
+
+	getWhatsappConfig: projectProtectedProcedure.query(async ({ ctx }) => {
+		if (!ctx.project) {
+			return { projectConfig: null, projectId: '' };
+		}
+
+		const config = await whatsappConfigQueries.getProjectWhatsappConfig(ctx.project.id);
+
+		const projectConfig = config
+			? {
+					accessTokenPreview: config.accessToken.slice(0, 4) + '...' + config.accessToken.slice(-4),
+					appSecretPreview: config.appSecret.slice(0, 4) + '...' + config.appSecret.slice(-4),
+					phoneNumberIdPreview: config.phoneNumberId.slice(0, 4) + '...' + config.phoneNumberId.slice(-4),
+					verifyTokenPreview: config.verifyToken.slice(0, 4) + '...' + config.verifyToken.slice(-4),
+					modelSelection: config.modelSelection,
+				}
+			: null;
+
+		const baseUrl = env.BETTER_AUTH_URL || 'http://localhost:3000';
+		return {
+			projectConfig,
+			projectId: ctx.project.id,
+			webhookUrl: `${baseUrl}/api/webhooks/whatsapp/${ctx.project.id}`,
+		};
+	}),
+
+	upsertWhatsappConfig: adminProtectedProcedure
+		.input(
+			z.object({
+				accessToken: z.string().min(1),
+				appSecret: z.string().min(1),
+				phoneNumberId: z.string().min(1),
+				verifyToken: z.string().min(1),
+				modelProvider: llmProviderSchema.optional(),
+				modelId: z.string().optional(),
+			}),
+		)
+		.mutation(async ({ ctx, input }) => {
+			const config = await whatsappConfigQueries.upsertProjectWhatsappConfig({
+				projectId: ctx.project.id,
+				accessToken: input.accessToken,
+				appSecret: input.appSecret,
+				phoneNumberId: input.phoneNumberId,
+				verifyToken: input.verifyToken,
+				modelProvider: input.modelProvider,
+				modelId: input.modelId,
+			});
+
+			posthog.capture(ctx.user.id, PostHogEvent.WhatsappConfigured, {
+				project_id: ctx.project.id,
+				modelProvider: input.modelProvider,
+				modelId: input.modelId,
+			});
+
+			return {
+				accessTokenPreview: config.accessToken.slice(0, 4) + '...' + config.accessToken.slice(-4),
+				appSecretPreview: config.appSecret.slice(0, 4) + '...' + config.appSecret.slice(-4),
+				phoneNumberIdPreview: config.phoneNumberId.slice(0, 4) + '...' + config.phoneNumberId.slice(-4),
+				verifyTokenPreview: config.verifyToken.slice(0, 4) + '...' + config.verifyToken.slice(-4),
+				modelSelection: config.modelSelection,
+			};
+		}),
+
+	updateWhatsappModelConfig: adminProtectedProcedure
+		.input(
+			z.object({
+				modelProvider: llmProviderSchema.optional(),
+				modelId: z.string().optional(),
+			}),
+		)
+		.mutation(async ({ ctx, input }) => {
+			await whatsappConfigQueries.updateProjectWhatsappModel(
+				ctx.project.id,
+				input.modelProvider ?? null,
+				input.modelId ?? null,
+			);
+		}),
+
+	deleteWhatsappConfig: adminProtectedProcedure.mutation(async ({ ctx }) => {
+		await whatsappConfigQueries.deleteProjectWhatsappConfig(ctx.project.id);
 		return { success: true };
 	}),
 

@@ -16,10 +16,10 @@ import {
 	Share,
 	X,
 } from 'lucide-react';
+import { ShareStoryDialog } from '../share-dialog.story';
 import { StoryChartEmbed } from './story-chart-embed';
 import { StoryTableEmbed } from './story-table-embed';
 import { StoryEditor } from './story-editor';
-import { ShareStoryDialog } from './share-story-dialog';
 import { useStoryViewerAgentState } from './hooks/use-story-viewer-agent-state';
 import { useStoryViewerEnlarge } from './hooks/use-story-viewer-enlarge';
 import { useStoryViewerSharing } from './hooks/use-story-viewer-sharing';
@@ -100,6 +100,8 @@ export function StoryViewer({ chatId, storyId }: StoryViewerProps) {
 				: (currentVersion?.code ?? draftStory?.code),
 		[shouldUseDraftStory, draftStory?.code, currentVersion?.code],
 	);
+	const { isReadonlyMode } = useSidePanel();
+
 	useStoryViewerStreamScroll({
 		scrollContainerRef,
 		isStreaming: Boolean(draftStory?.isStreaming),
@@ -137,6 +139,7 @@ export function StoryViewer({ chatId, storyId }: StoryViewerProps) {
 				onEnlarge={handleEnlarge}
 				isShared={isShared}
 				isAgentRunning={isAgentRunning}
+				isReadonlyMode={isReadonlyMode}
 				onClose={closeSidePanel}
 			/>
 
@@ -210,6 +213,7 @@ const StoryHeader = memo(function StoryHeader({
 	onEnlarge,
 	isShared,
 	isAgentRunning,
+	isReadonlyMode,
 	onClose,
 }: {
 	title: string;
@@ -229,6 +233,7 @@ const StoryHeader = memo(function StoryHeader({
 	onEnlarge: () => void;
 	isShared: boolean;
 	isAgentRunning: boolean;
+	isReadonlyMode: boolean;
 	onClose: () => void;
 }) {
 	const isMobile = useIsMobile();
@@ -279,7 +284,7 @@ const StoryHeader = memo(function StoryHeader({
 		</div>
 	);
 
-	const viewModeToggle = (
+	const viewModeToggle = !isReadonlyMode && (
 		<div className='flex items-center rounded-lg border p-0.5 gap-0.5'>
 			<Button
 				variant={viewMode === 'preview' ? 'secondary' : 'ghost'}
@@ -306,7 +311,7 @@ const StoryHeader = memo(function StoryHeader({
 		</div>
 	);
 
-	const actionButtons = (
+	const actionButtons = !isReadonlyMode && (
 		<>
 			<Button variant='ghost-muted' size='icon-xs' onClick={onEnlarge} aria-label='Enlarge Story'>
 				<Maximize2 className='size-3' />

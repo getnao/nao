@@ -78,7 +78,7 @@ class TemplateEngine:
 
     def _register_globals(self) -> None:
         """Register template global helper functions."""
-        self.env.globals["prompt"] = self._prompt
+        self.env.globals["prompt"] = self._prompt  # type: ignore[assignment]
 
     def _prompt(self, text: str) -> str:
         """Generate text with the configured LLM.
@@ -133,6 +133,9 @@ class TemplateEngine:
 
     def _generate_openai_compatible(self, model: str, prompt_text: str) -> str:
         """Generate text via OpenAI-compatible chat completion APIs."""
+        from nao_core.deps import require_dependency
+
+        require_dependency("openai", "openai", "for OpenAI/OpenRouter LLM provider")
         from openai import OpenAI
 
         kwargs: dict[str, Any] = {}
@@ -156,6 +159,9 @@ class TemplateEngine:
 
     def _generate_anthropic(self, model: str, prompt_text: str) -> str:
         """Generate text via Anthropic Messages API."""
+        from nao_core.deps import require_dependency
+
+        require_dependency("anthropic", "anthropic", "for Anthropic LLM provider")
         from anthropic import Anthropic
 
         if not self.llm_config or not self.llm_config.api_key:
@@ -182,6 +188,9 @@ class TemplateEngine:
 
     def _generate_mistral(self, model: str, prompt_text: str) -> str:
         """Generate text via Mistral chat completion API."""
+        from nao_core.deps import require_dependency
+
+        require_dependency("mistralai", "mistral", "for Mistral LLM provider")
         from mistralai import Mistral
         from mistralai.models.chatcompletionrequest import MessagesTypedDict
 
@@ -202,6 +211,9 @@ class TemplateEngine:
 
     def _generate_gemini(self, model: str, prompt_text: str) -> str:
         """Generate text via Google Gemini API."""
+        from nao_core.deps import require_dependency
+
+        require_dependency("google.genai", "gemini", "for Google Gemini LLM provider")
         from google import genai
         from google.genai import types
 
@@ -222,6 +234,9 @@ class TemplateEngine:
 
     def _generate_ollama(self, model: str, prompt_text: str) -> str:
         """Generate text via local Ollama chat API."""
+        from nao_core.deps import require_dependency
+
+        require_dependency("ollama", "ollama", "for Ollama LLM provider")
         import ollama
 
         response = ollama.chat(

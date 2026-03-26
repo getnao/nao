@@ -26,6 +26,7 @@ export interface AgentHelpers {
 	setMessages: UseChatHelpers<UIMessage>['setMessages'];
 	queueOrSendMessage: (args: SendMessageArgs) => Promise<void>;
 	editMessage: (args: { messageId: string; text: string }) => Promise<void | UIMessage>;
+	submitQueuedMessageNow: (messageId: string) => Promise<void>;
 	status: UseChatHelpers<UIMessage>['status'];
 	isRunning: boolean;
 	isLoadingMessages: boolean;
@@ -203,6 +204,19 @@ export const useAgent = (): AgentHelpers => {
 		[isRunning, handleSendMessage],
 	);
 
+	const submitQueuedMessageNow = useCallback(
+		async (messageId: string) => {
+			messageQueueStore.promoteToFront(chatIdRef.current, messageId);
+			await stopAgent();
+			const next = messageQueueStore.dequeue(chatIdRef.current ?? NEW_CHAT_ID);
+			if (next) {
+				mentionsRef.current = next.mentions;
+				await handleSendMessage({ text: next.text });
+			}
+		},
+		[stopAgent, handleSendMessage],
+	);
+
 	const editMessage = useCallback(
 		async ({ messageId, text }: { messageId: string; text: string }) => {
 			const trimmedText = text.trim();
@@ -226,6 +240,7 @@ export const useAgent = (): AgentHelpers => {
 		setMessages,
 		queueOrSendMessage,
 		editMessage,
+		submitQueuedMessageNow,
 		status,
 		isRunning,
 		isLoadingMessages: chat.isLoading,

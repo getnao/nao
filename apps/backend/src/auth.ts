@@ -86,6 +86,7 @@ function createAuthInstance(googleConfig: GoogleConfig) {
 		user: {
 			additionalFields: {
 				requiresPasswordReset: { type: 'boolean', default: false, input: false },
+				messagingProviderCode: { type: 'string', default: '', input: false },
 			},
 		},
 	});

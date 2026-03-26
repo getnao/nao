@@ -1,10 +1,12 @@
 """Base database context exposing methods available in templates during sync."""
 
-from datetime import date, datetime, timezone
-from typing import Any
+from __future__ import annotations
 
-from dateutil.parser import parse
-from ibis import BaseBackend
+from datetime import date, datetime, timezone
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from ibis import BaseBackend
 
 
 class DatabaseContext:
@@ -273,6 +275,8 @@ class DatabaseContext:
         if isinstance(val, date):
             return f"{val.isoformat()} 00:00:00"
         try:
+            from dateutil.parser import parse
+
             return parse(str(val)).isoformat()
         except Exception:
             return str(val)

@@ -33,7 +33,7 @@ def get_valid_fields(config_class: type[Any]) -> list[str]:
     if hasattr(config_class, "model_fields"):
         model_fields = getattr(config_class, "model_fields")
         if isinstance(model_fields, dict):
-            return list(model_fields.keys())
+            return [str(k) for k in model_fields.keys()]
     return []
 
 

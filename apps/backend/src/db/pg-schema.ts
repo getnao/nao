@@ -1,4 +1,4 @@
-import { USER_ROLES } from '@nao/shared';
+import { USER_ROLES } from '@nao/shared/types';
 import { type ProviderMetadata } from 'ai';
 import { sql } from 'drizzle-orm';
 import {
@@ -17,8 +17,9 @@ import {
 import { AgentSettings } from '../types/agent-settings';
 import { StopReason, ToolState, UIMessagePartType } from '../types/chat';
 import { LLM_INFERENCE_TYPES, LlmProvider } from '../types/llm';
+import { LOG_LEVELS, LOG_SOURCES } from '../types/log';
 import { MEMORY_CATEGORIES } from '../types/memory';
-import { SlackSettings, TeamsSettings } from '../types/messaging-provider';
+import { SlackSettings, TeamsSettings, TelegramSettings, WhatsappSettings } from '../types/messaging-provider';
 import { ORG_ROLES } from '../types/organization';
 
 export const user = pgTable('user', {
@@ -29,6 +30,7 @@ export const user = pgTable('user', {
 	image: text('image'),
 	requiresPasswordReset: boolean('requires_password_reset').default(false).notNull(),
 	memoryEnabled: boolean('memory_enabled').default(true).notNull(),
+	messagingProviderCode: text('messaging_provider_code').unique(),
 	createdAt: timestamp('created_at').defaultNow().notNull(),
 	updatedAt: timestamp('updated_at')
 		.defaultNow()
@@ -143,6 +145,8 @@ export const project = pgTable(
 
 		slackSettings: jsonb('slack_settings').$type<SlackSettings>(),
 		teamsSettings: jsonb('teams_settings').$type<TeamsSettings>(),
+		telegramSettings: jsonb('telegram_settings').$type<TelegramSettings>(),
+		whatsappSettings: jsonb('whatsapp_settings').$type<WhatsappSettings>(),
 
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
@@ -176,6 +180,8 @@ export const chat = pgTable(
 		deletedAt: timestamp('deleted_at'),
 		slackThreadId: text('slack_thread_id'),
 		teamsThreadId: text('teams_thread_id'),
+		telegramThreadId: text('telegram_thread_id'),
+		whatsappThreadId: text('whatsapp_thread_id'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()
@@ -187,6 +193,8 @@ export const chat = pgTable(
 		index('chat_projectId_idx').on(table.projectId),
 		index('chat_slack_thread_idx').on(table.slackThreadId),
 		index('chat_teams_thread_idx').on(table.teamsThreadId),
+		index('chat_telegram_thread_idx').on(table.telegramThreadId),
+		index('chat_whatsapp_thread_idx').on(table.whatsappThreadId),
 	],
 );
 
@@ -205,7 +213,7 @@ export const chatMessage = pgTable(
 		llmProvider: text('llm_provider').$type<LlmProvider>(),
 		llmModelId: text('llm_model_id'),
 		supersededAt: timestamp('superseded_at'),
-		source: text('source', { enum: ['slack', 'teams', 'web'] }),
+		source: text('source', { enum: ['slack', 'teams', 'telegram', 'whatsapp', 'web'] }),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 
 		// Token usage columns
@@ -331,7 +339,35 @@ export const projectLlmConfig = pgTable(
 	],
 );
 
-export const STORY_VISIBILITY = ['project', 'specific'] as const;
+export const SHARE_VISIBILITY = ['project', 'specific'] as const;
+
+export const sharedChat = pgTable(
+	'shared_chat',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		chatId: text('chat_id')
+			.notNull()
+			.references(() => chat.id, { onDelete: 'cascade' }),
+		visibility: text('visibility', { enum: SHARE_VISIBILITY }).default('project').notNull(),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+	},
+	(t) => [unique('shared_chat_chatId_unique').on(t.chatId)],
+);
+
+export const sharedChatAccess = pgTable(
+	'shared_chat_access',
+	{
+		sharedChatId: text('shared_chat_id')
+			.notNull()
+			.references(() => sharedChat.id, { onDelete: 'cascade' }),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+	},
+	(t) => [primaryKey({ columns: [t.sharedChatId, t.userId] })],
+);
 
 export const sharedStory = pgTable(
 	'shared_story',
@@ -349,7 +385,7 @@ export const sharedStory = pgTable(
 			.notNull()
 			.references(() => chat.id, { onDelete: 'cascade' }),
 		storyId: text('story_id').notNull(),
-		visibility: text('visibility', { enum: STORY_VISIBILITY }).default('project').notNull(),
+		visibility: text('visibility', { enum: SHARE_VISIBILITY }).default('project').notNull(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 	},
 	(t) => [
@@ -488,3 +524,23 @@ export const message_part_chart_image = pgTable('chart_image', {
 	data: text('data').notNull(),
 	createdAt: timestamp('created_at').defaultNow().notNull(),
 });
+
+export const log = pgTable(
+	'log',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		level: text('level', { enum: LOG_LEVELS }).notNull(),
+		message: text('message').notNull(),
+		context: jsonb('context').$type<Record<string, unknown>>(),
+		source: text('source', { enum: LOG_SOURCES }).notNull(),
+		projectId: text('project_id').references(() => project.id, { onDelete: 'cascade' }),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+	},
+	(t) => [
+		index('log_createdAt_idx').on(t.createdAt),
+		index('log_level_idx').on(t.level),
+		index('log_projectId_idx').on(t.projectId),
+	],
+);

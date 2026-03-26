@@ -1,13 +1,17 @@
+from __future__ import annotations
+
 import os
 import re
 import sys
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import yaml
-from ibis import BaseBackend
 from pydantic import BaseModel, Field, ValidationError, model_validator
 from rich.console import Console
+
+if TYPE_CHECKING:
+    from ibis import BaseBackend
 
 from nao_core.ui import UI, ask_confirm, ask_select
 

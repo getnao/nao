@@ -5,6 +5,7 @@ import { SettingsCard } from '@/components/ui/settings-card';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { trpc } from '@/main';
+import { LinkingCodesCard } from '@/components/settings/linking-code-section';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/project/')({
 	component: ProjectTabPage,
@@ -46,6 +47,8 @@ function ProjectTabPage() {
 					<GoogleConfigSection isAdmin={isAdmin} />
 				)}
 			</SettingsCard>
+
+			<LinkingCodesCard />
 		</>
 	);
 }

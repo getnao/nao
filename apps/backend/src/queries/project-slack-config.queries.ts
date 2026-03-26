@@ -4,6 +4,7 @@ import s, { DBProject } from '../db/abstractSchema';
 import { db } from '../db/db';
 import { env } from '../env';
 import { LlmProvider, llmProviderSchema, ModelSelection } from '../types/llm';
+import { takeFirstOrThrow } from '../utils/queries';
 
 function toModelSelection(
 	provider: string | null | undefined,
@@ -48,19 +49,22 @@ export const upsertProjectSlackConfig = async (data: {
 	signingSecret: string;
 	modelSelection?: ModelSelection;
 }> => {
-	const [updated] = await db
-		.update(s.project)
-		.set({
-			slackSettings: {
-				slackBotToken: data.botToken,
-				slackSigningSecret: data.signingSecret,
-				slackllmProvider: data.modelProvider ?? '',
-				slackllmModelId: data.modelId ?? '',
-			},
-		})
-		.where(eq(s.project.id, data.projectId))
-		.returning()
-		.execute();
+	const updated = await takeFirstOrThrow(
+		db
+			.update(s.project)
+			.set({
+				slackSettings: {
+					slackBotToken: data.botToken,
+					slackSigningSecret: data.signingSecret,
+					slackllmProvider: data.modelProvider ?? '',
+					slackllmModelId: data.modelId ?? '',
+				},
+			})
+			.where(eq(s.project.id, data.projectId))
+			.returning()
+			.execute(),
+		`Project not found: ${data.projectId}`,
+	);
 
 	const settings = updated.slackSettings;
 	return {
@@ -76,8 +80,11 @@ export const updateProjectSlackModel = async (
 	modelId: string | null,
 ): Promise<void> => {
 	await db.transaction(async (tx) => {
-		const [project] = await tx.select().from(s.project).where(eq(s.project.id, projectId)).execute();
-		const existing = project?.slackSettings;
+		const project = await takeFirstOrThrow(
+			tx.select().from(s.project).where(eq(s.project.id, projectId)).execute(),
+			`Project not found: ${projectId}`,
+		);
+		const existing = project.slackSettings;
 
 		await tx
 			.update(s.project)

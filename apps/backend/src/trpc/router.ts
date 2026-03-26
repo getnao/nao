@@ -1,13 +1,16 @@
 import { accountRoutes } from './account.routes';
 import { chartRoutes } from './chart.routes';
 import { chatRoutes } from './chat.routes';
+import { citationRoutes } from './citation.routes';
 import { feedbackRoutes } from './feedback.routes';
 import { githubRoutes } from './github.routes';
 import { googleRoutes } from './google.routes';
+import { logRoutes } from './log.routes';
 import { mcpRoutes } from './mcp.routes';
 import { memoryRoutes } from './memory.routes';
 import { posthogRoutes } from './posthog.routes';
 import { projectRoutes } from './project.routes';
+import { sharedChatRoutes } from './shared-chat.routes';
 import { sharedStoryRoutes } from './shared-story.routes';
 import { skillRoutes } from './skill.routes';
 import { storyRoutes } from './story.routes';
@@ -20,7 +23,10 @@ import { userRoutes } from './user.routes';
 export const trpcRouter = router({
 	chart: chartRoutes,
 	chat: chatRoutes,
+	sharedChat: sharedChatRoutes,
+	citation: citationRoutes,
 	feedback: feedbackRoutes,
+	log: logRoutes,
 	posthog: posthogRoutes,
 	project: projectRoutes,
 	storyShare: sharedStoryRoutes,

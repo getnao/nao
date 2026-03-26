@@ -1,4 +1,4 @@
-import type { UpdatedAtFilter, UserRole } from '@nao/shared';
+import type { UpdatedAtFilter, UserRole } from '@nao/shared/types';
 import { and, asc, desc, eq, gt, gte, lte, or, type SQL, sql } from 'drizzle-orm';
 
 import type { AgentSettings, DBProject, DBProjectMember, NewProject, NewProjectMember } from '../db/abstractSchema';
@@ -91,6 +91,7 @@ export const getAllUsersWithRoles = async (projectId: string): Promise<UserWithR
 			name: s.user.name,
 			email: s.user.email,
 			role: s.projectMember.role,
+			messagingProviderCode: s.user.messagingProviderCode,
 		})
 		.from(s.user)
 		.innerJoin(s.projectMember, eq(s.projectMember.userId, s.user.id))

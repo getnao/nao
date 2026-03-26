@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "4c04b6b6-7b7c-4a1a-aebd-3e73a806590f",
+  "id": "b9b33780-26b2-4d13-8b69-b24f8c84b39f",
   "prevId": "c2801b43-3da3-4379-ab55-bf3fe6d0c67b",
   "tables": {
     "account": {
@@ -197,13 +197,6 @@
           "notNull": true,
           "autoincrement": false,
           "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
-        },
-        "deleted_at": {
-          "name": "deleted_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
         }
       },
       "indexes": {
@@ -2114,6 +2107,102 @@
         }
       },
       "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "log": {
+      "name": "log",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "level": {
+          "name": "level",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "message": {
+          "name": "message",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "context": {
+          "name": "context",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "source": {
+          "name": "source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "project_id": {
+          "name": "project_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
+        }
+      },
+      "indexes": {
+        "log_createdAt_idx": {
+          "name": "log_createdAt_idx",
+          "columns": [
+            "created_at"
+          ],
+          "isUnique": false
+        },
+        "log_level_idx": {
+          "name": "log_level_idx",
+          "columns": [
+            "level"
+          ],
+          "isUnique": false
+        },
+        "log_projectId_idx": {
+          "name": "log_projectId_idx",
+          "columns": [
+            "project_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "log_project_id_project_id_fk": {
+          "name": "log_project_id_project_id_fk",
+          "tableFrom": "log",
+          "tableTo": "project",
+          "columnsFrom": [
+            "project_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}

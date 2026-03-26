@@ -2,7 +2,7 @@ import { CircleAlert, Eye, ThumbsDown, ThumbsUp } from 'lucide-react';
 import { differenceInDays, format, isToday, isYesterday } from 'date-fns';
 import type { ColumnDef } from '@tanstack/react-table';
 
-import type { UserRole } from '@nao/shared';
+import type { UserRole } from '@nao/shared/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 
@@ -129,7 +129,7 @@ export function getChatsReplayColumns(args: {
 	];
 }
 
-function formatLastUpdate(value: number): string {
+export function formatLastUpdate(value: number): string {
 	const date = new Date(value);
 	if (isToday(date)) {
 		return 'Today ' + format(date, 'HH:mm');

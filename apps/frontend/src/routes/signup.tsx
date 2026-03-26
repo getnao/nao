@@ -17,7 +17,7 @@ function SignUp() {
 	const [serverError, setServerError] = useState<string | undefined>(oauthError);
 
 	const form = useForm({
-		defaultValues: { name: '', email: '', password: '', requiresPasswordReset: false },
+		defaultValues: { name: '', email: '', password: '', requiresPasswordReset: false, messagingProviderCode: '' },
 		onSubmit: async ({ value }) => {
 			setServerError(undefined);
 			await signUp.email(value, {

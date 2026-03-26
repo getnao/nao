@@ -14,6 +14,7 @@ import type {
 	UserProfile,
 } from '../types/memory';
 import { resolveProviderModel } from '../utils/llm';
+import { logger } from '../utils/logger';
 import { posthog, PostHogEvent } from './posthog';
 
 /**
@@ -34,7 +35,10 @@ class MemoryService {
 				content: memory.content,
 			}));
 		} catch (err) {
-			console.error('[memory] injection failed:', err);
+			logger.error(`Memory injection failed: ${String(err)}`, {
+				source: 'agent',
+				context: { userId, projectId },
+			});
 			return [];
 		}
 	}
@@ -42,7 +46,11 @@ class MemoryService {
 	/** Safely schedules memory extraction for a user message. */
 	public safeScheduleMemoryExtraction(opts: MemoryExtractionOptions) {
 		this._extractMemory(opts).catch((err) => {
-			console.error('[memory] extractor failed:', err);
+			logger.error(`Memory extraction failed: ${String(err)}`, {
+				source: 'agent',
+				projectId: opts.projectId,
+				context: { chatId: opts.chatId, userId: opts.userId },
+			});
 		});
 	}
 

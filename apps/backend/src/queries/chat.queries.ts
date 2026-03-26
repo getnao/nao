@@ -161,7 +161,7 @@ export const createChat = async (
 	newChat: NewChat,
 	newUserMessage: {
 		text: string;
-		source?: 'slack' | 'teams' | 'web';
+		source?: 'slack' | 'teams' | 'telegram' | 'whatsapp' | 'web';
 	},
 ): Promise<[DBChat, DBChatMessage]> => {
 	return db.transaction(async (t): Promise<[DBChat, DBChatMessage]> => {
@@ -308,6 +308,26 @@ export const getChatByTeamsThread = async (threadId: string): Promise<{ id: stri
 	return result.at(0) || null;
 };
 
+export const getChatByTelegramThread = async (threadId: string): Promise<{ id: string; title: string } | null> => {
+	const result = await db
+		.select({ id: s.chat.id, title: s.chat.title })
+		.from(s.chat)
+		.where(eq(s.chat.telegramThreadId, threadId))
+		.limit(1)
+		.execute();
+	return result.at(0) || null;
+};
+
+export const getChatByWhatsappThread = async (threadId: string): Promise<{ id: string; title: string } | null> => {
+	const result = await db
+		.select({ id: s.chat.id, title: s.chat.title })
+		.from(s.chat)
+		.where(eq(s.chat.whatsappThreadId, threadId))
+		.limit(1)
+		.execute();
+	return result.at(0) || null;
+};
+
 export type SearchChatResult = {
 	id: string;
 	title: string;
@@ -401,3 +421,31 @@ export const getChatProjectId = async (chatId: string): Promise<string | undefin
 		.execute();
 	return result?.projectId;
 };
+
+export const getProjectIdByQueryId = async (queryId: string): Promise<string | undefined> => {
+	const jsonIdFilter =
+		dbConfig.dialect === Dialect.Postgres
+			? sql`${s.messagePart.toolOutput}->>'id' = ${queryId}`
+			: sql`json_extract(${s.messagePart.toolOutput}, '$.id') = ${queryId}`;
+
+	const [result] = await db
+		.select({ projectId: s.chat.projectId })
+		.from(s.messagePart)
+		.innerJoin(s.chatMessage, eq(s.messagePart.messageId, s.chatMessage.id))
+		.innerJoin(s.chat, eq(s.chatMessage.chatId, s.chat.id))
+		.where(jsonIdFilter)
+		.execute();
+
+	return result?.projectId;
+};
+
+export async function getChatInfo(
+	chatId: string,
+): Promise<{ projectId: string; userId: string; title: string } | null> {
+	const [row] = await db
+		.select({ projectId: s.chat.projectId, userId: s.chat.userId, title: s.chat.title })
+		.from(s.chat)
+		.where(eq(s.chat.id, chatId))
+		.execute();
+	return row ?? null;
+}

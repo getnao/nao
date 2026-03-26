@@ -3,7 +3,6 @@ import { ExternalLink, X } from 'lucide-react';
 import JSZip from 'jszip';
 import { Button } from '@/components/ui/button';
 import { PasswordField } from '@/components/ui/form-fields';
-import { CopyableUrl } from '@/components/ui/copyable-url';
 
 export interface TeamsFormProps {
 	hasProjectConfig: boolean;
@@ -11,7 +10,6 @@ export interface TeamsFormProps {
 	onCancel: () => void;
 	isPending: boolean;
 	teamsRedirectUrl: string | undefined;
-	messagingEndpointUrl: string;
 }
 
 export function buildTeamsManifest(appId: string, redirectUrl: string) {
@@ -85,14 +83,7 @@ export async function downloadTeamsManifestZip(appId: string, redirectUrl: strin
 	URL.revokeObjectURL(url);
 }
 
-export function TeamsForm({
-	hasProjectConfig,
-	onSubmit,
-	onCancel,
-	isPending,
-	teamsRedirectUrl,
-	messagingEndpointUrl,
-}: TeamsFormProps) {
+export function TeamsForm({ hasProjectConfig, onSubmit, onCancel, isPending, teamsRedirectUrl }: TeamsFormProps) {
 	const form = useForm({
 		defaultValues: { appId: '', appPassword: '', tenantId: '' },
 		onSubmit: async ({ value }) => {
@@ -132,7 +123,6 @@ export function TeamsForm({
 							<ExternalLink className='size-3' />
 						</a>
 					</p>
-					{messagingEndpointUrl && <CopyableUrl label='Messaging Endpoint URL' url={messagingEndpointUrl} />}
 					<PasswordField
 						form={form}
 						name='appId'

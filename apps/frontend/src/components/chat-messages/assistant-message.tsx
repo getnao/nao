@@ -1,5 +1,4 @@
 import { memo, useMemo } from 'react';
-import { Streamdown } from 'streamdown';
 import type { UIMessage } from '@nao/backend/chat';
 import type { GroupedMessagePart } from '@/types/ai';
 import { checkAssistantMessageHasContent, groupToolCalls, isToolGroupPart, isToolUIPart } from '@/lib/ai';
@@ -7,6 +6,7 @@ import { ToolCallsGroup } from '@/components/tool-calls/tool-calls-group';
 import { ToolCall } from '@/components/tool-calls';
 import { AssistantReasoning } from '@/components/chat-messages/assistant-reasoning';
 import { AssistantCompaction } from '@/components/chat-messages/assistant-compaction';
+import { AssistantTextWithCitation } from '@/components/chat-messages/citation-text';
 import { TextShimmer } from '@/components/ui/text-shimmer';
 import { AssistantMessageActions } from '@/components/chat-messages/assistant-message-actions';
 import { cn, isLast } from '@/lib/utils';
@@ -81,11 +81,7 @@ export const MessagePart = memo(({ part, isPartSettled }: { part: GroupedMessage
 
 	switch (part.type) {
 		case 'text':
-			return (
-				<Streamdown isAnimating={isPartStreaming} mode={isPartStreaming ? 'streaming' : 'static'}>
-					{part.text}
-				</Streamdown>
-			);
+			return <AssistantTextWithCitation text={part.text} isStreaming={isPartStreaming} />;
 		case 'reasoning':
 			return <AssistantReasoning text={part.text} isStreaming={isPartStreaming} />;
 		case 'data-compaction':

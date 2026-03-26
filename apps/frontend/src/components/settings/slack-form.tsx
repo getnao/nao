@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useForm } from '@tanstack/react-form';
 import { ExternalLink, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -6,8 +6,7 @@ import { Input } from '@/components/ui/input';
 import { PasswordField } from '@/components/ui/form-fields';
 
 export interface SlackFormProps {
-	projectId?: string;
-	redirectUrl?: string;
+	webhookUrl: string;
 	hasProjectConfig: boolean;
 	onSubmit: (values: { botToken: string; signingSecret: string }) => Promise<void>;
 	onCancel: () => void;
@@ -74,28 +73,8 @@ function buildManifestUrl(webhookUrl: string, mentionName: string): string {
 	return `https://api.slack.com/apps?new_app=1&manifest_json=${encodeURIComponent(JSON.stringify(manifest))}`;
 }
 
-function isValidUrl(value: string): boolean {
-	try {
-		new URL(value);
-		return true;
-	} catch {
-		return false;
-	}
-}
-
-function normalizeUrl(value: string): string {
-	return value.trim().replace(/\/+$/, '');
-}
-
-export function SlackForm({ projectId, redirectUrl, hasProjectConfig, onSubmit, onCancel, isPending }: SlackFormProps) {
-	const [deploymentUrl, setDeploymentUrl] = useState(redirectUrl ?? '');
+export function SlackForm({ webhookUrl, hasProjectConfig, onSubmit, onCancel, isPending }: SlackFormProps) {
 	const [mentionName, setMentionName] = useState('nao');
-
-	useEffect(() => {
-		if (redirectUrl) {
-			setDeploymentUrl(redirectUrl);
-		}
-	}, [redirectUrl]);
 
 	const form = useForm({
 		defaultValues: { botToken: '', signingSecret: '' },
@@ -105,9 +84,6 @@ export function SlackForm({ projectId, redirectUrl, hasProjectConfig, onSubmit, 
 		},
 	});
 
-	const normalized = normalizeUrl(deploymentUrl);
-	const valid = isValidUrl(normalized);
-	const webhookUrl = valid && projectId ? `${normalized}/api/webhooks/slack/${projectId}` : '';
 	const manifestUrl = webhookUrl ? buildManifestUrl(webhookUrl, mentionName) : '';
 
 	return (
@@ -136,24 +112,6 @@ export function SlackForm({ projectId, redirectUrl, hasProjectConfig, onSubmit, 
 						<ExternalLink className='size-3' />
 					</a>
 				</p>
-
-				{/* Step 1 */}
-				<div className='grid gap-2'>
-					<label htmlFor='deployment-url' className='text-xs font-medium text-foreground'>
-						Deployment URL
-					</label>
-					<Input
-						id='deployment-url'
-						type='url'
-						value={deploymentUrl}
-						onChange={(e) => setDeploymentUrl(e.target.value)}
-						placeholder='https://my-app.com'
-						className='text-xs h-8'
-					/>
-					{deploymentUrl && !valid && (
-						<p className='text-[11px] text-destructive'>Enter a valid URL (e.g. https://my-app.com)</p>
-					)}
-				</div>
 
 				{/* Mention name */}
 				<div className='grid gap-2'>

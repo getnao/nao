@@ -3,17 +3,23 @@ import { useQuery } from '@tanstack/react-query';
 import { X } from 'lucide-react';
 import { formatDate } from 'date-fns';
 
+import { SidePanelProvider } from '@/contexts/side-panel';
+import { SidePanel } from '@/components/side-panel/side-panel';
 import { SettingsCard } from '@/components/ui/settings-card';
 import { ChatMessagesReadonly } from '@/components/chat-messages/chat-messages-readonly';
 import { Button } from '@/components/ui/button';
 import { InlineStatusBar } from '@/components/settings/chats-replay-inline-status-bar';
 import { ReadonlyAgentMessagesProvider } from '@/contexts/agent.provider';
+import { ChatViewProvider } from '@/contexts/chat-view';
 import { useReplayNav } from '@/hooks/use-replay-nav';
+import { useSidePanel } from '@/hooks/use-side-panel';
 import { trpc } from '@/main';
+import { useSession } from '@/lib/auth-client';
 
 type ChatsReplayPanelProps = {
 	chatInfo: {
 		chatId: string;
+		chatOwnerId: string;
 		userName: string;
 		updatedAt: number;
 		feedbackCount: number;
@@ -47,6 +53,17 @@ export function ChatsReplayPanel({ chatInfo, onClose }: ChatsReplayPanelProps) {
 		toolErrorTotal,
 	} = useReplayNav(scrollContainerRef, contentReady);
 
+	const containerRef = useRef<HTMLDivElement>(null);
+	const sidePanelRef = useRef<HTMLDivElement>(null);
+	const sidePanel = useSidePanel({
+		containerRef,
+		sidePanelRef,
+		defaultWidthRatio: 0.5,
+		shouldCollapseSidebar: false,
+	});
+	const { data: session } = useSession();
+	const isOwner = session?.user?.id === chatInfo?.chatOwnerId;
+
 	return (
 		<div className='w-full h-full min-h-0 flex flex-col p-4 bg-white'>
 			<div className='flex items-center justify-between'>
@@ -76,22 +93,53 @@ export function ChatsReplayPanel({ chatInfo, onClose }: ChatsReplayPanelProps) {
 				</div>
 			</div>
 
-			<SettingsCard rootClassName='flex-1 min-h-0' className='flex-1 min-h-0 overflow-hidden bg-muted/30 border'>
-				<div ref={scrollContainerRef} className='flex-1 overflow-auto p-4'>
-					{!chatInfo?.chatId ? (
-						<div className='text-sm text-muted-foreground'>Select a chat to preview.</div>
-					) : chatReplayQuery.isLoading ? (
-						<div className='text-sm text-muted-foreground'>Loading chat…</div>
-					) : chatReplayQuery.isError ? (
-						<div className='text-sm text-destructive'>Failed to load chat.</div>
-					) : chatReplayQuery.data ? (
+			<SettingsCard
+				rootClassName='flex-1 min-h-0'
+				className='flex-1 min-h-0 overflow-hidden bg-muted/30 border p-0'
+			>
+				{!chatInfo?.chatId ? (
+					<div className='flex-1 overflow-auto p-4 text-sm text-muted-foreground'>
+						Select a chat to preview.
+					</div>
+				) : chatReplayQuery.isLoading ? (
+					<div className='flex-1 overflow-auto p-4 text-sm text-muted-foreground'>Loading chat…</div>
+				) : chatReplayQuery.isError ? (
+					<div className='flex-1 overflow-auto p-4 text-sm text-destructive'>Failed to load chat.</div>
+				) : chatReplayQuery.data ? (
+					<ChatViewProvider expandOnError={true}>
 						<ReadonlyAgentMessagesProvider messages={chatReplayQuery.data.messages}>
-							<ChatMessagesReadonly messages={chatReplayQuery.data.messages} />
+							<SidePanelProvider
+								isVisible={sidePanel.isVisible}
+								currentStoryId={sidePanel.currentStoryId}
+								chatId={chatInfo?.chatId}
+								isReadonlyMode={!isOwner}
+								open={sidePanel.open}
+								close={sidePanel.close}
+							>
+								<div ref={containerRef} className='flex h-full min-h-0'>
+									<div ref={scrollContainerRef} className='flex-1 overflow-auto p-4'>
+										<ChatMessagesReadonly messages={chatReplayQuery.data.messages} />
+									</div>
+									{sidePanel.content && (
+										<SidePanel
+											containerRef={containerRef}
+											isAnimating={sidePanel.isAnimating}
+											sidePanelRef={sidePanelRef}
+											resizeHandleRef={sidePanel.resizeHandleRef}
+											onClose={sidePanel.close}
+										>
+											{sidePanel.content}
+										</SidePanel>
+									)}
+								</div>
+							</SidePanelProvider>
 						</ReadonlyAgentMessagesProvider>
-					) : (
-						<div className='text-sm text-muted-foreground'>Select a chat to preview.</div>
-					)}
-				</div>
+					</ChatViewProvider>
+				) : (
+					<div className='flex-1 overflow-auto p-4 text-sm text-muted-foreground'>
+						Select a chat to preview.
+					</div>
+				)}
 			</SettingsCard>
 		</div>
 	);

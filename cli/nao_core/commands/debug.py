@@ -18,46 +18,50 @@ def _count(models) -> int:
         return sum(1 for _ in models)
 
 
-def _check_available_models(provider: str, api_key: str) -> Tuple[bool, str]:
+def _check_available_models(llm_config) -> Tuple[bool, str]:
+    from nao_core.deps import require_dependency
+
+    provider = llm_config.provider.value
+    api_key = llm_config.api_key
+
     if provider == "openai":
+        require_dependency("openai", "openai", "for OpenAI LLM provider")
         from openai import OpenAI
 
         client = OpenAI(api_key=api_key)
         models = client.models.list()
     elif provider == "anthropic":
+        require_dependency("anthropic", "anthropic", "for Anthropic LLM provider")
         from anthropic import Anthropic
 
         client = Anthropic(api_key=api_key)
         models = client.models.list()
     elif provider == "gemini":
+        require_dependency("google.genai", "gemini", "for Google Gemini LLM provider")
         from google import genai
 
         client = genai.Client(api_key=api_key)
         models = client.models.list()
     elif provider == "mistral":
+        require_dependency("mistralai", "mistral", "for Mistral LLM provider")
         from mistralai import Mistral
 
         client = Mistral(api_key=api_key)
         models = client.models.list()
     elif provider == "openrouter":
+        require_dependency("openai", "openai", "for OpenRouter LLM provider")
         from openai import OpenAI
 
         client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=api_key)
         models = client.models.list()
     elif provider == "ollama":
-        try:
-            import ollama
-        except ImportError:
-            return (
-                False,
-                "Provider 'ollama' requires the optional dependency 'ollama'. Install it to use this provider.",
-            )
+        require_dependency("ollama", "ollama", "for Ollama LLM provider")
+        import ollama
 
         models = ollama.list().models
     elif provider == "bedrock":
-        region = os.environ.get("AWS_REGION", "us-east-1")
-        bearer_token = api_key or os.environ.get("AWS_BEARER_TOKEN_BEDROCK")
-        if bearer_token:
+        region = llm_config.aws_region or os.environ.get("AWS_REGION", "us-east-1")
+        if api_key:
             return True, f"Bearer token configured (region: {region})"
 
         import boto3
@@ -65,6 +69,34 @@ def _check_available_models(provider: str, api_key: str) -> Tuple[bool, str]:
         client = boto3.client("bedrock", region_name=region)
         response = client.list_foundation_models()
         models = response.get("modelSummaries", [])
+    elif provider == "vertex":
+        project = llm_config.gcp_project
+        location = llm_config.gcp_location or "us-east5"
+        if not project:
+            return False, "gcp_project is not set in config"
+
+        if llm_config.service_account_json:
+            import json
+
+            from google.oauth2 import service_account
+
+            info = json.loads(llm_config.service_account_json)
+            credentials = service_account.Credentials.from_service_account_info(
+                info, scopes=["https://www.googleapis.com/auth/cloud-platform"]
+            )
+            return True, f"Service account configured (project: {project}, location: {location})"
+        if llm_config.key_file:
+            from google.oauth2 import service_account
+
+            credentials = service_account.Credentials.from_service_account_file(
+                llm_config.key_file, scopes=["https://www.googleapis.com/auth/cloud-platform"]
+            )
+            return True, f"Key file configured (project: {project}, location: {location})"
+
+        import google.auth
+
+        credentials, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
+        return True, f"ADC configured (project: {project}, location: {location})"
     else:
         return False, f"Unknown provider: {provider}"
 
@@ -78,13 +110,12 @@ def check_llm_connection(llm_config) -> tuple[bool, str]:
     Returns:
             Tuple of (success, message)
     """
-    # Check if API key is required but missing
     if llm_config.requires_api_key and not llm_config.api_key:
         provider = llm_config.provider.value
         return False, f"API key is empty or not set (required for {provider})"
 
     try:
-        return _check_available_models(llm_config.provider.value, llm_config.api_key)
+        return _check_available_models(llm_config)
     except Exception as e:
         error_msg = str(e)
         if "Unauthorized" in error_msg or "401" in error_msg:

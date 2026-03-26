@@ -1,10 +1,13 @@
-from typing import Literal
+from __future__ import annotations
 
-import ibis
-from ibis import BaseBackend
+from typing import TYPE_CHECKING, Literal
+
 from pydantic import Field
 
 from nao_core.ui import ask_select, ask_text
+
+if TYPE_CHECKING:
+    from ibis import BaseBackend
 
 from .base import DatabaseConfig
 from .context import DatabaseContext
@@ -95,6 +98,11 @@ class AthenaConfig(DatabaseConfig):
 
     def connect(self) -> BaseBackend:
         """Create an Ibis Athena connection."""
+        from nao_core.deps import require_database_backend
+
+        require_database_backend("athena")
+        import ibis
+
         kwargs = {
             "s3_staging_dir": self.s3_staging_dir,
             "region_name": self.region_name,
