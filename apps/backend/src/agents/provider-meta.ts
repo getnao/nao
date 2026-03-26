@@ -223,17 +223,7 @@ export const PROVIDER_META: ProviderMetaMap = {
 		],
 	},
 	azure: {
-		auth: {
-			apiKey: 'required',
-			extraFields: [
-				{
-					name: 'resourceName',
-					label: 'Resource Name',
-					envVar: 'AZURE_RESOURCE_NAME',
-					placeholder: 'my-azure-resource',
-				},
-			],
-		},
+		auth: { apiKey: 'required' },
 		envVar: 'AZURE_API_KEY',
 		baseUrlEnvVar: 'AZURE_OPENAI_BASE_URL',
 		extractorModelId: '',

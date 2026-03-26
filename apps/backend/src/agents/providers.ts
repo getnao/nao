@@ -119,16 +119,11 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 	},
 	azure: {
 		...PROVIDER_META.azure,
-		create: (settings, modelId) => {
-			const creds = settings.credentials;
-			const resourceName = creds?.resourceName || process.env.AZURE_RESOURCE_NAME;
-
-			return createAzure({
+		create: (settings, modelId) =>
+			createAzure({
 				apiKey: settings.apiKey,
 				...(settings.baseURL && { baseURL: settings.baseURL }),
-				...(resourceName && { resourceName }),
-			})(modelId);
-		},
+			})(modelId),
 		defaultOptions: { store: false },
 	},
 };
