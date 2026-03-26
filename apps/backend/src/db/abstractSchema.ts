@@ -61,8 +61,14 @@ export type NewSharedStoryAccess = typeof sqliteSchema.sharedStoryAccess.$inferI
 
 export type StoryVisibility = DBSharedStory['visibility'];
 
+export type DBStory = typeof sqliteSchema.story.$inferSelect;
+export type NewStory = typeof sqliteSchema.story.$inferInsert;
+
 export type DBStoryVersion = typeof sqliteSchema.storyVersion.$inferSelect;
 export type NewStoryVersion = typeof sqliteSchema.storyVersion.$inferInsert;
+
+export type DBStoryDataCache = typeof sqliteSchema.storyDataCache.$inferSelect;
+export type NewStoryDataCache = typeof sqliteSchema.storyDataCache.$inferInsert;
 
 export type DBLlmInference = typeof sqliteSchema.llmInference.$inferSelect;
 export type NewLlmInference = typeof sqliteSchema.llmInference.$inferInsert;

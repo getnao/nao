@@ -1,5 +1,5 @@
-import { memo, useMemo, useEffect } from 'react';
-import { Node, mergeAttributes } from '@tiptap/core';
+import { memo, useMemo, useEffect, useRef } from 'react';
+import { Node, Extension, mergeAttributes } from '@tiptap/core';
 import { useEditor, EditorContent, ReactNodeViewRenderer, NodeViewWrapper } from '@tiptap/react';
 import { DragHandle } from '@tiptap/extension-drag-handle-react';
 import { TableKit } from '@tiptap/extension-table';
@@ -9,6 +9,7 @@ import { Streamdown } from 'streamdown';
 import { GripVertical } from 'lucide-react';
 import { StoryChartEmbed } from './story-chart-embed';
 import { StoryTableEmbed } from './story-table-embed';
+import type { Editor as CoreEditor } from '@tiptap/core';
 import type { ReactNodeViewProps, Editor } from '@tiptap/react';
 import type { Segment } from '@/lib/story-segments';
 import {
@@ -291,6 +292,52 @@ const GridBlock = Node.create({
 });
 
 // ---------------------------------------------------------------------------
+// TableDeleteShortcuts – lets users delete markdown tables via keyboard
+// ---------------------------------------------------------------------------
+// ProseMirror's table plugin intercepts Backspace/Delete to handle cell
+// operations, which prevents deletion of the table node itself. This
+// extension runs at higher priority so its shortcuts fire first:
+//   - Backspace/Delete in an empty table → remove the table
+//   - Mod-Shift-Backspace in any table   → force-remove the table
+
+const TableDeleteShortcuts = Extension.create({
+	name: 'tableDeleteShortcuts',
+	priority: 150,
+
+	addKeyboardShortcuts() {
+		const findEnclosingTable = (editor: CoreEditor) => {
+			const { $anchor } = editor.state.selection;
+			for (let depth = $anchor.depth; depth > 0; depth--) {
+				const node = $anchor.node(depth);
+				if (node.type.name === 'table') {
+					return node;
+				}
+			}
+			return null;
+		};
+
+		const deleteIfEmpty = ({ editor }: { editor: CoreEditor }): boolean => {
+			const table = findEnclosingTable(editor);
+			if (table && !table.textContent) {
+				return editor.commands.deleteTable();
+			}
+			return false;
+		};
+
+		return {
+			Backspace: deleteIfEmpty,
+			Delete: deleteIfEmpty,
+			'Mod-Shift-Backspace': ({ editor }) => {
+				if (findEnclosingTable(editor)) {
+					return editor.commands.deleteTable();
+				}
+				return false;
+			},
+		};
+	},
+});
+
+// ---------------------------------------------------------------------------
 // Editor component
 // ---------------------------------------------------------------------------
 
@@ -299,6 +346,7 @@ const EDITOR_EXTENSIONS = [
 		dropcursor: { width: 3, class: 'drop-cursor' },
 	}),
 	TableKit,
+	TableDeleteShortcuts,
 	Markdown.configure({
 		markedOptions: {
 			gfm: true,
@@ -312,13 +360,34 @@ const EDITOR_EXTENSIONS = [
 interface StoryEditorProps {
 	code: string;
 	editorRef: React.MutableRefObject<Editor | null>;
+	onSave?: () => void;
 }
 
-export const StoryEditor = memo(function StoryEditor({ code, editorRef }: StoryEditorProps) {
+export const StoryEditor = memo(function StoryEditor({ code, editorRef, onSave }: StoryEditorProps) {
 	const processedContent = useMemo(() => preprocessForEditor(code), [code]);
+	const onSaveRef = useRef(onSave);
+	onSaveRef.current = onSave;
+
+	const extensions = useMemo(
+		() => [
+			...EDITOR_EXTENSIONS,
+			Extension.create({
+				name: 'saveShortcut',
+				addKeyboardShortcuts() {
+					return {
+						'Mod-s': () => {
+							onSaveRef.current?.();
+							return true;
+						},
+					};
+				},
+			}),
+		],
+		[],
+	);
 
 	const editor = useEditor({
-		extensions: EDITOR_EXTENSIONS,
+		extensions,
 		content: processedContent,
 		contentType: 'markdown',
 	});

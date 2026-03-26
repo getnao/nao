@@ -148,10 +148,8 @@ export const DisplayChartToolCall = ({
 			return;
 		}
 
-		const versions = await queryClient.fetchQuery(
-			trpc.story.listVersions.queryOptions({ chatId, storyId: targetId }),
-		);
-		const latest = versions.at(-1);
+		const data = await queryClient.fetchQuery(trpc.story.listVersions.queryOptions({ chatId, storyId: targetId }));
+		const latest = data.versions.at(-1);
 		if (!latest) {
 			return;
 		}
@@ -163,7 +161,7 @@ export const DisplayChartToolCall = ({
 		addToStoryMutation.mutate({
 			chatId,
 			storyId: targetId,
-			title: latest.title,
+			title: data.title,
 			code: newCode,
 			action: 'update',
 		});

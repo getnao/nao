@@ -398,25 +398,21 @@ export const sharedStory = sqliteTable(
 		id: text('id')
 			.$defaultFn(() => crypto.randomUUID())
 			.primaryKey(),
+		storyId: text('story_id')
+			.notNull()
+			.references(() => story.id, { onDelete: 'cascade' }),
 		projectId: text('project_id')
 			.notNull()
 			.references(() => project.id, { onDelete: 'cascade' }),
 		userId: text('user_id')
 			.notNull()
 			.references(() => user.id, { onDelete: 'cascade' }),
-		chatId: text('chat_id')
-			.notNull()
-			.references(() => chat.id, { onDelete: 'cascade' }),
-		storyId: text('story_id').notNull(),
 		visibility: text('visibility', { enum: SHARE_VISIBILITY }).default('project').notNull(),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull(),
 	},
-	(t) => [
-		index('shared_story_projectId_idx').on(t.projectId),
-		index('shared_story_chat_story_idx').on(t.chatId, t.storyId),
-	],
+	(t) => [index('shared_story_projectId_idx').on(t.projectId), index('shared_story_storyId_idx').on(t.storyId)],
 );
 
 export const sharedStoryAccess = sqliteTable(
@@ -457,8 +453,8 @@ export const projectSavedPrompt = sqliteTable(
 export const STORY_ACTIONS = ['create', 'update', 'replace'] as const;
 export const STORY_SOURCES = ['assistant', 'user'] as const;
 
-export const storyVersion = sqliteTable(
-	'story_version',
+export const story = sqliteTable(
+	'story',
 	{
 		id: text('id')
 			.$defaultFn(() => crypto.randomUUID())
@@ -466,22 +462,60 @@ export const storyVersion = sqliteTable(
 		chatId: text('chat_id')
 			.notNull()
 			.references(() => chat.id, { onDelete: 'cascade' }),
-		storyId: text('story_id').notNull(),
-		version: integer('version').notNull(),
+		slug: text('slug').notNull(),
 		title: text('title').notNull(),
+		isLive: integer('is_live', { mode: 'boolean' }).default(false).notNull(),
+		isLiveTextDynamic: integer('is_live_text_dynamic', { mode: 'boolean' }).default(false).notNull(),
+		cacheSchedule: text('cache_schedule'),
+		cacheScheduleDescription: text('cache_schedule_description'),
+		archivedAt: integer('archived_at', { mode: 'timestamp_ms' }),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+		updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [unique('story_chat_slug_unique').on(t.chatId, t.slug), index('story_chatId_idx').on(t.chatId)],
+);
+
+export const storyVersion = sqliteTable(
+	'story_version',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		storyId: text('story_id')
+			.notNull()
+			.references(() => story.id, { onDelete: 'cascade' }),
+		version: integer('version').notNull(),
 		code: text('code').notNull(),
 		action: text('action', { enum: STORY_ACTIONS }).notNull(),
 		source: text('source', { enum: STORY_SOURCES }).notNull(),
-		archivedAt: integer('archived_at', { mode: 'timestamp_ms' }),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull(),
 	},
 	(t) => [
-		index('story_version_chat_story_idx').on(t.chatId, t.storyId),
-		unique('story_version_chat_story_version_unique').on(t.chatId, t.storyId, t.version),
+		index('story_version_storyId_idx').on(t.storyId),
+		unique('story_version_story_version_unique').on(t.storyId, t.version),
 	],
 );
+
+export const storyDataCache = sqliteTable('story_data_cache', {
+	storyId: text('story_id')
+		.notNull()
+		.references(() => story.id, { onDelete: 'cascade' })
+		.primaryKey(),
+	queryData: text('query_data', { mode: 'json' })
+		.$type<Record<string, { data: unknown[]; columns: string[] }>>()
+		.notNull(),
+	analysisResults: text('analysis_results', { mode: 'json' }).$type<Record<string, string>>(),
+	cachedAt: integer('cached_at', { mode: 'timestamp_ms' })
+		.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+		.notNull(),
+});
 
 export const memories = sqliteTable(
 	'memories',

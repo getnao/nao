@@ -218,6 +218,13 @@
       "when": 1774539613392,
       "tag": "0030_add_chat_soft_delete",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1774549798905,
+      "tag": "0031_live_stories",
+      "breakpoints": true
     }
   ]
 }

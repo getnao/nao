@@ -67,6 +67,7 @@
 		"better-sqlite3": "^12.5.0",
 		"chat": "^4.15.0",
 		"cheerio": "^1.2.0",
+		"cron-parser": "^5.5.0",
 		"dotenv": "^17.2.3",
 		"drizzle-orm": "^0.45.1",
 		"drizzle-query-logger": "^1.1.2",

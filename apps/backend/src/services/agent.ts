@@ -172,7 +172,7 @@ export class AgentService {
 	}
 }
 
-const MAX_OUTPUT_TOKENS = 16_000;
+export const MAX_OUTPUT_TOKENS = 16_000;
 
 class AgentManager {
 	private readonly _agent: ToolLoopAgent<never, AgentTools, never>;
