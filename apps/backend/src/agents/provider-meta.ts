@@ -223,7 +223,30 @@ export const PROVIDER_META: ProviderMetaMap = {
 		],
 	},
 	azure: {
-		auth: { apiKey: 'required' },
+		auth: {
+			apiKey: 'required',
+			hint: 'Provide either a Resource Name or a Base URL — not both',
+			extraFields: [
+				{
+					name: 'resourceName',
+					label: 'Resource Name',
+					envVar: 'AZURE_RESOURCE_NAME',
+					placeholder: 'my-resource (builds https://{name}.openai.azure.com)',
+				},
+				{
+					name: 'apiVersion',
+					label: 'API Version',
+					envVar: 'AZURE_API_VERSION',
+					placeholder: 'v1',
+				},
+				{
+					name: 'useDeploymentBasedUrls',
+					label: 'Use Deployment-Based URLs',
+					envVar: 'AZURE_USE_DEPLOYMENT_BASED_URLS',
+					placeholder: 'false',
+				},
+			],
+		},
 		envVar: 'AZURE_API_KEY',
 		baseUrlEnvVar: 'AZURE_OPENAI_BASE_URL',
 		extractorModelId: '',

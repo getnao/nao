@@ -119,11 +119,20 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 	},
 	azure: {
 		...PROVIDER_META.azure,
-		create: (settings, modelId) =>
-			createAzure({
+		create: (settings, modelId) => {
+			const creds = settings.credentials;
+			const resourceName = creds?.resourceName || process.env.AZURE_RESOURCE_NAME;
+			const apiVersion = creds?.apiVersion || process.env.AZURE_API_VERSION;
+			const useDeploymentBasedUrls =
+				(creds?.useDeploymentBasedUrls || process.env.AZURE_USE_DEPLOYMENT_BASED_URLS) === 'true';
+
+			return createAzure({
 				apiKey: settings.apiKey,
-				...(settings.baseURL && { baseURL: settings.baseURL }),
-			})(modelId),
+				...(settings.baseURL ? { baseURL: settings.baseURL } : resourceName ? { resourceName } : {}),
+				...(apiVersion && { apiVersion }),
+				...(useDeploymentBasedUrls && { useDeploymentBasedUrls }),
+			})(modelId);
+		},
 		defaultOptions: { store: false },
 	},
 };
