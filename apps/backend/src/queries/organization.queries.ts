@@ -228,14 +228,14 @@ export const ensureOrganizationSetup = async (): Promise<void> => {
 	await db.update(s.project).set({ orgId: org.id }).where(isNull(s.project.orgId)).execute();
 
 	// Ensure a project exists for the current NAO_DEFAULT_PROJECT_PATH
-	await ensureDefaultProject(org, firstUser.id);
+	await ensureDefaultProject(org);
 };
 
 /**
  * Ensures a project exists for the current NAO_DEFAULT_PROJECT_PATH.
  * When users change the project path and restart, the DB may not have a record for the new path.
  */
-const ensureDefaultProject = async (org: DBOrganization, firstUserId: string): Promise<void> => {
+const ensureDefaultProject = async (org: DBOrganization): Promise<void> => {
 	const projectPath = env.NAO_DEFAULT_PROJECT_PATH;
 	if (!projectPath) {
 		return;
