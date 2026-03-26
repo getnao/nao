@@ -222,12 +222,30 @@ export const PROVIDER_META: ProviderMetaMap = {
 			{ id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash (Vertex)', contextWindow: 200_000 },
 		],
 	},
+	azure: {
+		auth: {
+			apiKey: 'required',
+			extraFields: [
+				{
+					name: 'resourceName',
+					label: 'Resource Name',
+					envVar: 'AZURE_RESOURCE_NAME',
+					placeholder: 'my-azure-resource',
+				},
+			],
+		},
+		envVar: 'AZURE_API_KEY',
+		baseUrlEnvVar: 'AZURE_OPENAI_BASE_URL',
+		extractorModelId: '',
+		summaryModelId: '',
+		models: [],
+	},
 };
 
 export function getDefaultModelId(provider: LlmProvider): string {
 	const models = PROVIDER_META[provider].models;
 	const defaultModel = models.find((m) => m.default);
-	return defaultModel?.id ?? models[0].id;
+	return defaultModel?.id ?? models[0]?.id ?? '';
 }
 
 export function getProviderAuth(provider: LlmProvider): ProviderAuth {

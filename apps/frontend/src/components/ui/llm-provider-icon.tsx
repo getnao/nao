@@ -1,3 +1,4 @@
+import AzureIcon from '@/components/icons/azure.svg';
 import ClaudeIcon from '@/components/icons/claude.svg';
 import GoogleIcon from '@/components/icons/google.svg';
 import MistralIcon from '@/components/icons/mistral.svg';
@@ -28,6 +29,8 @@ export function LlmProviderIcon({ provider, className: customClassName }: { prov
 			return <BedrockIcon className={className} />;
 		case 'vertex':
 			return <GoogleVertexIcon className={className} />;
+		case 'azure':
+			return <AzureIcon className={className} />;
 		default:
 			return null;
 	}

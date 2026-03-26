@@ -25,6 +25,7 @@ const providerLabels: Record<LlmProvider, string> = {
 	ollama: 'Ollama',
 	bedrock: 'AWS Bedrock',
 	vertex: 'Google Vertex',
+	azure: 'Azure OpenAI',
 };
 
 export const dateFormats: Record<Granularity, string> = {

@@ -15,6 +15,7 @@ export const LLM_PROVIDERS = [
 	'ollama',
 	'bedrock',
 	'vertex',
+	'azure',
 ] as const;
 export type LlmProvider = (typeof LLM_PROVIDERS)[number];
 

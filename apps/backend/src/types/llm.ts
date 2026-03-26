@@ -1,5 +1,6 @@
 import type { AmazonBedrockLanguageModelOptions } from '@ai-sdk/amazon-bedrock';
 import type { AnthropicProviderOptions } from '@ai-sdk/anthropic';
+import type { OpenAIResponsesProviderOptions as AzureOpenAIResponsesProviderOptions } from '@ai-sdk/azure';
 import type { GoogleGenerativeAIProviderOptions } from '@ai-sdk/google';
 import type { MistralLanguageModelOptions } from '@ai-sdk/mistral';
 import type { OpenAIResponsesProviderOptions } from '@ai-sdk/openai';
@@ -43,6 +44,7 @@ export type ProviderConfigMap = {
 	ollama: Flatten<OllamaChatProviderOptions>;
 	bedrock: AmazonBedrockLanguageModelOptions;
 	vertex: GoogleGenerativeAIProviderOptions;
+	azure: AzureOpenAIResponsesProviderOptions;
 };
 
 /** Model definition with provider-specific config type */
