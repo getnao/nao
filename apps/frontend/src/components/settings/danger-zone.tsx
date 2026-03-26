@@ -69,7 +69,10 @@ export function DangerZone() {
 						<AlertDialogAction
 							variant='destructive'
 							size='sm'
-							onClick={() => deleteAllChats.mutate()}
+							onClick={(e) => {
+								e.preventDefault();
+								deleteAllChats.mutate();
+							}}
 							disabled={deleteAllChats.isPending}
 						>
 							Delete all chats
