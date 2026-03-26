@@ -4,7 +4,7 @@ import { useNavigate, useRouterState } from '@tanstack/react-router';
 import { useSession } from '@/lib/auth-client';
 import { useGetSigninLocation } from '@/hooks/useGetSigninLocation';
 
-const PUBLIC_ROUTES = ['/login', '/signup', '/forgot-password', '/reset-password'];
+const PUBLIC_ROUTES = ['/login', '/forgot-password', '/reset-password'];
 
 export const useSessionOrNavigateToLoginPage = () => {
 	const navigate = useNavigate();
