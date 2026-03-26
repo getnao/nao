@@ -230,10 +230,21 @@ function buildNumericSummaries(rows: Record<string, unknown>[], columns: string[
 			continue;
 		}
 
-		const sum = values.reduce((total, value) => total + value, 0);
+		let min = Infinity;
+		let max = -Infinity;
+		let sum = 0;
+		for (const v of values) {
+			if (v < min) {
+				min = v;
+			}
+			if (v > max) {
+				max = v;
+			}
+			sum += v;
+		}
 		summaries[column] = {
-			min: Math.min(...values),
-			max: Math.max(...values),
+			min,
+			max,
 			avg: sum / values.length,
 			sum,
 			count: values.length,

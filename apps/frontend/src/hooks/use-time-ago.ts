@@ -5,8 +5,6 @@ import { getTimeAgo } from '@/lib/time-ago';
 /** Calculate how long ago a timestamp is and update it with a dynamic interval */
 export const useTimeAgo = (timestamp: number): TimeAgo => {
 	const [timeAgo, setTimeAgo] = useState(getTimeAgo(timestamp));
-	console.log('timeAgo', timeAgo);
-	console.log('timestamp', timestamp);
 
 	useEffect(() => {
 		let intervalTime = 0;

@@ -1,6 +1,7 @@
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
+import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
@@ -104,7 +105,17 @@ export const sharedStoryRoutes = {
 
 	getLiveQueryData: protectedProcedure
 		.input(z.object({ chatId: z.string(), queryId: z.string() }))
-		.query(async ({ input }) => {
+		.query(async ({ input, ctx }) => {
+			const projectId = await chatQueries.getChatProjectId(input.chatId);
+			if (!projectId) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: 'Chat not found.' });
+			}
+
+			const member = await projectQueries.getProjectMember(projectId, ctx.user.id);
+			if (!member) {
+				throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this chat.' });
+			}
+
 			return executeLiveQuery(input.chatId, input.queryId);
 		}),
 
@@ -117,6 +128,13 @@ export const sharedStoryRoutes = {
 		const member = await projectQueries.getProjectMember(shared.projectId, ctx.user.id);
 		if (!member) {
 			throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this story.' });
+		}
+
+		if (shared.visibility === 'specific' && shared.userId !== ctx.user.id) {
+			const hasAccess = await sharedStoryQueries.canUserAccessSharedStory(shared.id, ctx.user.id);
+			if (!hasAccess) {
+				throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this story.' });
+			}
 		}
 
 		const { queryData } = await refreshStoryData(shared.chatId, shared.slug);
