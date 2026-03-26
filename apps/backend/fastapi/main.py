@@ -16,7 +16,7 @@ from pydantic import BaseModel
 
 load_dotenv()
 
-cli_path = Path(__file__).parent.parent.parent / "cli"
+cli_path = Path(__file__).resolve().parent.parent.parent.parent / "cli"
 sys.path.insert(0, str(cli_path))
 
 from nao_core.config import NaoConfig, NaoConfigError
