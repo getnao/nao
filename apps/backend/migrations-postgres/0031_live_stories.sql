@@ -27,6 +27,24 @@ ALTER TABLE "story_version" DROP CONSTRAINT "story_version_chat_id_chat_id_fk";
 --> statement-breakpoint
 DROP INDEX "shared_story_chat_story_idx";--> statement-breakpoint
 DROP INDEX "story_version_chat_story_idx";--> statement-breakpoint
+INSERT INTO "story" ("id", "chat_id", "slug", "title", "archived_at", "created_at", "updated_at")
+SELECT
+	gen_random_uuid()::text,
+	sv."chat_id",
+	sv."story_id",
+	(array_agg(sv."title" ORDER BY sv."version" DESC))[1],
+	(array_agg(sv."archived_at" ORDER BY sv."version" DESC))[1],
+	min(sv."created_at"),
+	max(sv."created_at")
+FROM "story_version" sv
+GROUP BY sv."chat_id", sv."story_id"
+ON CONFLICT DO NOTHING;--> statement-breakpoint
+UPDATE "story_version" SET "story_id" = st."id"
+FROM "story" st
+WHERE "story_version"."chat_id" = st."chat_id" AND "story_version"."story_id" = st."slug";--> statement-breakpoint
+UPDATE "shared_story" SET "story_id" = st."id"
+FROM "story" st
+WHERE "shared_story"."chat_id" = st."chat_id" AND "shared_story"."story_id" = st."slug";--> statement-breakpoint
 ALTER TABLE "story" ADD CONSTRAINT "story_chat_id_chat_id_fk" FOREIGN KEY ("chat_id") REFERENCES "public"."chat"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "story_data_cache" ADD CONSTRAINT "story_data_cache_story_id_story_id_fk" FOREIGN KEY ("story_id") REFERENCES "public"."story"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "story_chatId_idx" ON "story" USING btree ("chat_id");--> statement-breakpoint

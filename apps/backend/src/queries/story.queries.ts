@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNull, max, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull, max, or, sql } from 'drizzle-orm';
 
 import s, { type DBStory, type DBStoryDataCache, type DBStoryVersion } from '../db/abstractSchema';
 import { db } from '../db/db';
@@ -20,13 +20,17 @@ export async function getOrCreateStory(data: { chatId: string; slug: string; tit
 		return existing;
 	}
 
-	const [created] = await db
+	await db
 		.insert(s.story)
 		.values({ chatId: data.chatId, slug: data.slug, title: data.title })
-		.returning()
+		.onConflictDoNothing({ target: [s.story.chatId, s.story.slug] })
 		.execute();
 
-	return created;
+	const row = await getStoryByChatAndSlug(data.chatId, data.slug);
+	if (!row) {
+		throw new Error(`Failed to create or retrieve story: ${data.chatId}/${data.slug}`);
+	}
+	return row;
 }
 
 export async function createVersion(data: {
@@ -188,15 +192,17 @@ export async function archiveStory(chatId: string, slug: string): Promise<void> 
 }
 
 export async function archiveMany(stories: { chatId: string; slug: string }[]): Promise<void> {
-	await Promise.all(
-		stories.map(({ chatId, slug }) =>
-			db
-				.update(s.story)
-				.set({ archivedAt: new Date() })
-				.where(and(eq(s.story.chatId, chatId), eq(s.story.slug, slug)))
-				.execute(),
-		),
-	);
+	if (stories.length === 0) {
+		return;
+	}
+
+	const conditions = stories.map(({ chatId, slug }) => and(eq(s.story.chatId, chatId), eq(s.story.slug, slug)));
+
+	await db
+		.update(s.story)
+		.set({ archivedAt: new Date() })
+		.where(or(...conditions))
+		.execute();
 }
 
 export async function unarchiveStory(chatId: string, slug: string): Promise<void> {
