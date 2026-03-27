@@ -450,6 +450,8 @@ class BigQueryConfig(DatabaseConfig):
 
         client = self._create_bigquery_client()
         job_config = bq.QueryJobConfig(dry_run=True, use_query_cache=False)
+        if self.dataset_id:
+            job_config.default_dataset = f"{self.project_id}.{self.dataset_id}"
         query_job = client.query(sql, job_config=job_config)
         return query_job.total_bytes_processed or 0
 
