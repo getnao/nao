@@ -438,7 +438,7 @@ export const story = pgTable(
 		slug: text('slug').notNull(),
 		title: text('title').notNull(),
 		isLive: boolean('is_live').default(false).notNull(),
-		isLiveTextDynamic: boolean('is_live_text_dynamic').default(false).notNull(),
+		isLiveTextDynamic: boolean('is_live_text_dynamic').default(true).notNull(),
 		cacheSchedule: text('cache_schedule'),
 		cacheScheduleDescription: text('cache_schedule_description'),
 		archivedAt: timestamp('archived_at'),

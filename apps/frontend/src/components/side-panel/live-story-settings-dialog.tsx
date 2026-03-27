@@ -1,3 +1,4 @@
+import { NO_CACHE_SCHEDULE } from '@nao/shared';
 import { useCallback, useEffect, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Activity, Loader2, Type, Wand2 } from 'lucide-react';
@@ -30,8 +31,6 @@ interface LiveStorySettingsDialogProps {
 		cacheScheduleDescription: string | null;
 	}) => void;
 }
-
-const NO_CACHE_SCHEDULE = 'no-cache';
 
 const SCHEDULE_PRESETS = [
 	{ value: 'manual', label: 'Manual refresh only', cron: null },
@@ -252,7 +251,7 @@ export function LiveStorySettingsDialog({
 
 							<div className='flex items-center justify-between gap-4'>
 								<div className='flex items-center gap-2.5'>
-									<div className='flex size-8 items-center justify-center rounded-full bg-yellow-100 text-yellow-600'>
+									<div className='flex size-8 shrink-0 items-center justify-center rounded-full bg-yellow-100 text-yellow-600'>
 										<Type className='size-4' />
 									</div>
 									<div>

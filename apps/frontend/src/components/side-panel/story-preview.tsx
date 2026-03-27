@@ -1,3 +1,4 @@
+import { NO_CACHE_SCHEDULE } from '@nao/shared';
 import { memo, useCallback, useMemo } from 'react';
 import { StoryChartEmbed as StaticChartEmbed } from './story-chart-embed';
 import { StoryTableEmbed as StaticTableEmbed } from './story-table-embed';
@@ -7,8 +8,6 @@ import { StoryChartEmbed as LiveChartEmbed, StoryTableEmbed as LiveTableEmbed } 
 import { SegmentList } from '@/components/story-rendering';
 import { splitCodeIntoSegments } from '@/lib/story-segments';
 import { trpc } from '@/main';
-
-const NO_CACHE_SCHEDULE = 'no-cache';
 
 interface StoryPreviewProps {
 	code: string;

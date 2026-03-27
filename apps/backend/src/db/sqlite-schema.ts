@@ -465,7 +465,7 @@ export const story = sqliteTable(
 		slug: text('slug').notNull(),
 		title: text('title').notNull(),
 		isLive: integer('is_live', { mode: 'boolean' }).default(false).notNull(),
-		isLiveTextDynamic: integer('is_live_text_dynamic', { mode: 'boolean' }).default(false).notNull(),
+		isLiveTextDynamic: integer('is_live_text_dynamic', { mode: 'boolean' }).default(true).notNull(),
 		cacheSchedule: text('cache_schedule'),
 		cacheScheduleDescription: text('cache_schedule_description'),
 		archivedAt: integer('archived_at', { mode: 'timestamp_ms' }),

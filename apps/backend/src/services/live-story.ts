@@ -8,11 +8,10 @@ import { renderToMarkdown } from '../lib/markdown';
 import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
+import { collectQueryData } from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
 import { getDefaultModelId, resolveProviderModel } from '../utils/llm';
 import { MAX_OUTPUT_TOKENS } from './agent';
-
-export const NO_CACHE_SCHEDULE = 'no-cache';
 const MAX_RENDERED_ROWS = 60;
 
 export async function executeLiveQuery(
@@ -96,7 +95,6 @@ export async function getStoryQueryData(
 	cacheSchedule: string | null,
 ): Promise<StoryQueryDataResult> {
 	if (!isLive) {
-		const { collectQueryData } = await import('../queries/shared-story.queries');
 		return { queryData: await collectQueryData(chatId, code), cachedAt: null };
 	}
 
@@ -116,7 +114,6 @@ export async function getStoryQueryData(
 		if (cache) {
 			return { queryData: cache.queryData, cachedAt: cache.cachedAt };
 		}
-		const { collectQueryData } = await import('../queries/shared-story.queries');
 		return { queryData: await collectQueryData(chatId, code), cachedAt: null };
 	}
 }

@@ -12,7 +12,7 @@ export const useStoryViewerLiveSettings = ({ chatId, storyId }: UseStoryViewerLi
 	const { data } = useQuery(trpc.story.listVersions.queryOptions({ chatId, storyId }));
 
 	const isLive = data?.isLive ?? false;
-	const isLiveTextDynamic = data?.isLiveTextDynamic ?? false;
+	const isLiveTextDynamic = data?.isLiveTextDynamic ?? true;
 	const cacheSchedule = data?.cacheSchedule ?? null;
 	const cacheScheduleDescription = data?.cacheScheduleDescription ?? null;
 

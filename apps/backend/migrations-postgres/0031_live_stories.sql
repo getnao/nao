@@ -45,6 +45,7 @@ WHERE "story_version"."chat_id" = st."chat_id" AND "story_version"."story_id" = 
 UPDATE "shared_story" SET "story_id" = st."id"
 FROM "story" st
 WHERE "shared_story"."chat_id" = st."chat_id" AND "shared_story"."story_id" = st."slug";--> statement-breakpoint
+DELETE FROM "shared_story" WHERE "story_id" NOT IN (SELECT "id" FROM "story");--> statement-breakpoint
 ALTER TABLE "story" ADD CONSTRAINT "story_chat_id_chat_id_fk" FOREIGN KEY ("chat_id") REFERENCES "public"."chat"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "story_data_cache" ADD CONSTRAINT "story_data_cache_story_id_story_id_fk" FOREIGN KEY ("story_id") REFERENCES "public"."story"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "story_chatId_idx" ON "story" USING btree ("chat_id");--> statement-breakpoint
