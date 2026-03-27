@@ -41,6 +41,7 @@ dependencies = [
     "python-dateutil>=2.8.0",
     "numpy>=1.26.0",
     "pandas>=2.1.0",
+    "google-cloud>=0.34.0",
 ]
 
 [project.optional-dependencies]
