@@ -191,7 +191,16 @@ function ChatInputBase({
 				images: images.length > 0 ? images : undefined,
 			});
 		},
-		[onSubmitMessage, isRunning, allowQueueing, setMentions, promptRef, imageUpload, chatId, submitQueuedMessageNow],
+		[
+			onSubmitMessage,
+			isRunning,
+			allowQueueing,
+			setMentions,
+			promptRef,
+			imageUpload,
+			chatId,
+			submitQueuedMessageNow,
+		],
 	);
 
 	const {
@@ -246,7 +255,10 @@ function ChatInputBase({
 			<ChatInputMessageQueue onEditMessage={handleEditQueuedMessage} onSubmitNow={submitQueuedMessageNow} />
 
 			<form onSubmit={handleSubmitMessage} className='mx-auto relative'>
-				<InputGroup htmlFor='chat-input' className={cn('dark:bg-muted', isDragging && 'ring-2 ring-primary/50 border-primary')}>
+				<InputGroup
+					htmlFor='chat-input'
+					className={cn('dark:bg-muted', isDragging && 'ring-2 ring-primary/50 border-primary')}
+				>
 					<ChatInputImagePreview images={imageUpload.images} onRemove={imageUpload.removeImage} />
 					<ChatPrompt
 						promptRef={promptRef}

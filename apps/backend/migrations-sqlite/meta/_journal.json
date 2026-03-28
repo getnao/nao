@@ -225,6 +225,13 @@
       "when": 1774549788607,
       "tag": "0031_live_stories",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "6",
+      "when": 1774736984710,
+      "tag": "0032_add_image_upload",
+      "breakpoints": true
     }
   ]
 }
