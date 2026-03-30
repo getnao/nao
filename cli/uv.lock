@@ -2269,7 +2269,6 @@ dependencies = [
     { name = "cyclopts" },
     { name = "dotenv" },
     { name = "fastapi" },
-    { name = "google-cloud" },
     { name = "ibis-framework" },
     { name = "jinja2" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
@@ -2292,6 +2291,7 @@ all = [
     { name = "anthropic" },
     { name = "azure-identity" },
     { name = "certifi" },
+    { name = "google-cloud" },
     { name = "google-genai" },
     { name = "ibis-framework", extra = ["athena", "bigquery", "clickhouse", "databricks", "duckdb", "mssql", "mysql", "postgres", "snowflake", "trino"] },
     { name = "mistralai" },
@@ -2305,6 +2305,7 @@ all = [
 all-databases = [
     { name = "azure-identity" },
     { name = "certifi" },
+    { name = "google-cloud" },
     { name = "ibis-framework", extra = ["athena", "bigquery", "clickhouse", "databricks", "duckdb", "mssql", "mysql", "postgres", "snowflake", "trino"] },
     { name = "snowflake-connector-python", extra = ["secure-local-storage"] },
     { name = "sshtunnel" },
@@ -2323,6 +2324,7 @@ athena = [
     { name = "ibis-framework", extra = ["athena"] },
 ]
 bigquery = [
+    { name = "google-cloud" },
     { name = "ibis-framework", extra = ["bigquery"] },
 ]
 clickhouse = [
@@ -2397,7 +2399,7 @@ requires-dist = [
     { name = "cyclopts", specifier = ">=4.4.4" },
     { name = "dotenv", specifier = ">=0.9.9" },
     { name = "fastapi", specifier = ">=0.128.0" },
-    { name = "google-cloud", specifier = ">=0.34.0" },
+    { name = "google-cloud", marker = "extra == 'bigquery'", specifier = ">=0.34.0" },
     { name = "google-genai", marker = "extra == 'gemini'", specifier = ">=1.61.0" },
     { name = "ibis-framework", specifier = ">=9.0.0" },
     { name = "ibis-framework", extras = ["athena"], marker = "extra == 'athena'", specifier = ">=9.0.0" },

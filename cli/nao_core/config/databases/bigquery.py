@@ -425,19 +425,19 @@ class BigQueryConfig(DatabaseConfig):
         )
 
     def execute_sql(self, sql: str) -> pd.DataFrame:
-        if self.max_query_size and self.max_query_size > 0:
-            self._check_max_query_size(sql)
         conn = self.connect()
+        if self.max_query_size and self.max_query_size > 0:
+            self._check_max_query_size(sql, conn)
         try:
             cursor = conn.raw_sql(sql)  # type: ignore[union-attr]
             return cursor.to_dataframe(create_bqstorage_client=False)
         finally:
             conn.disconnect()
 
-    def _check_max_query_size(self, sql: str) -> None:
+    def _check_max_query_size(self, sql: str, conn: BaseBackend) -> None:
         assert self.max_query_size is not None
         bytes_limit = int(self.max_query_size * 1024**3)
-        estimated_bytes = self._dry_run_bytes(sql)
+        estimated_bytes = self._dry_run_bytes(sql, conn)
         estimated_gb = estimated_bytes / 1024**3
         if estimated_bytes > bytes_limit:
             raise ValueError(
@@ -445,38 +445,14 @@ class BigQueryConfig(DatabaseConfig):
                 f"which exceeds the configured limit of {self.max_query_size:.6f} GB."
             )
 
-    def _dry_run_bytes(self, sql: str) -> int:
+    def _dry_run_bytes(self, sql: str, conn: Any) -> int:
         from google.cloud import bigquery as bq
 
-        client = self._create_bigquery_client()
         job_config = bq.QueryJobConfig(dry_run=True, use_query_cache=False)
         if self.dataset_id:
             job_config.default_dataset = f"{self.project_id}.{self.dataset_id}"
-        query_job = client.query(sql, job_config=job_config)
+        query_job = conn.client.query(sql, job_config=job_config)
         return query_job.total_bytes_processed or 0
-
-    def _create_bigquery_client(self):
-        from google.cloud import bigquery as bq
-
-        kwargs: dict = {"project": self.project_id}
-        if self.location:
-            kwargs["location"] = self.location
-        if self.credentials_json:
-            from google.oauth2 import service_account
-
-            kwargs["credentials"] = service_account.Credentials.from_service_account_info(
-                self.credentials_json,
-                scopes=["https://www.googleapis.com/auth/bigquery"],
-            )
-        elif self.credentials_path:
-            from google.oauth2 import service_account
-
-            kwargs["credentials"] = service_account.Credentials.from_service_account_file(
-                self.credentials_path,
-                scopes=["https://www.googleapis.com/auth/bigquery"],
-            )
-        # SSO/ADC: no credentials kwarg; google-cloud-bigquery uses ADC automatically
-        return bq.Client(**kwargs)
 
     def connect(self) -> BaseBackend:
         """Create an Ibis BigQuery connection."""
