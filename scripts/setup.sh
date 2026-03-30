@@ -9,7 +9,7 @@ cd "$(dirname "$0")/.."
 # Use Node 22
 export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
 [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-nvm use 22
+nvm use
 
 # Install all dependencies (root + all workspaces)
 echo "Installing dependencies..."
