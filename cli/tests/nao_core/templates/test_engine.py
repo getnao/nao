@@ -207,6 +207,34 @@ class TestTemplateFilters:
         parsed = json.loads(result)
         assert parsed == {"key": "value", "num": 42}
 
+    def test_to_json_filter_preserves_non_ascii(self, tmp_path: Path):
+        """to_json filter preserves non-ASCII characters (e.g. Japanese, emoji)."""
+        templates_dir = tmp_path / "templates"
+        templates_dir.mkdir()
+        (templates_dir / "test.j2").write_text("{{ data | to_json }}")
+
+        engine = TemplateEngine(project_path=tmp_path)
+        result = engine.render("test.j2", data={"name": "テスト", "emoji": "🎉"})
+
+        assert "テスト" in result
+        assert "🎉" in result
+        assert "\\u" not in result
+        parsed = json.loads(result)
+        assert parsed == {"name": "テスト", "emoji": "🎉"}
+
+    def test_to_json_filter_non_ascii_with_indent(self, tmp_path: Path):
+        """to_json filter preserves non-ASCII characters even with indentation."""
+        templates_dir = tmp_path / "templates"
+        templates_dir.mkdir()
+        (templates_dir / "test.j2").write_text("{{ data | to_json(indent=2) }}")
+
+        engine = TemplateEngine(project_path=tmp_path)
+        result = engine.render("test.j2", data={"city": "東京", "country": "日本"})
+
+        assert "東京" in result
+        assert "日本" in result
+        assert "\\u" not in result
+
     def test_to_json_filter_with_indent(self, tmp_path: Path):
         """to_json filter supports indent parameter."""
         templates_dir = tmp_path / "templates"

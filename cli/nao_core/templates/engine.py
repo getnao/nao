@@ -63,7 +63,7 @@ class TemplateEngine:
 
         def to_json(value: Any, indent: int | None = None) -> str:
             """Convert value to JSON string."""
-            return json.dumps(value, indent=indent, default=str)
+            return json.dumps(value, indent=indent, default=str, ensure_ascii=False)
 
         def truncate_middle(text: str, max_length: int = 50) -> str:
             """Truncate text in the middle if it exceeds max_length."""
