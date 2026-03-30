@@ -1,5 +1,6 @@
 """Template engine for rendering Jinja2 templates with user overrides."""
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -99,7 +100,7 @@ class TemplateEngine:
                 "`llm.annotation_model`, or disable the `ai_summary` accessor."
             )
 
-        if self.llm_config.provider != LLMProvider.OLLAMA and not self.llm_config.api_key:
+        if self.llm_config.requires_api_key and not self.llm_config.api_key:
             raise RuntimeError(
                 f"ai_summary generation requires an API key for provider '{self.llm_config.provider.value}'. "
                 "Set `llm.api_key` in nao_config.yaml or disable `ai_summary`."
@@ -120,6 +121,8 @@ class TemplateEngine:
                 return self._generate_gemini(model, prompt_text)
             if self.llm_config.provider == LLMProvider.OLLAMA:
                 return self._generate_ollama(model, prompt_text)
+            if self.llm_config.provider == LLMProvider.BEDROCK:
+                return self._generate_bedrock(model, prompt_text)
         except ImportError as e:
             raise RuntimeError(
                 f"Provider '{self.llm_config.provider.value}' is not available in this environment: {e}"
@@ -248,6 +251,39 @@ class TemplateEngine:
         if not content:
             raise RuntimeError("Empty response from model.")
         return str(content).strip()
+
+    def _generate_bedrock(self, model: str, prompt_text: str) -> str:
+        """Generate text via AWS Bedrock Converse API."""
+        if not self.llm_config:
+            raise RuntimeError("Missing LLM config for Bedrock.")
+
+        if bool(self.llm_config.access_key) != bool(self.llm_config.secret_key):
+            raise RuntimeError(
+                "Bedrock configuration is incomplete: set both `llm.access_key` and `llm.secret_key`, or neither."
+            )
+
+        import boto3
+
+        region = self.llm_config.aws_region or os.environ.get("AWS_REGION", "us-east-1")
+
+        client_kwargs: dict[str, Any] = {"region_name": region}
+        if self.llm_config.access_key and self.llm_config.secret_key:
+            client_kwargs["aws_access_key_id"] = self.llm_config.access_key
+            client_kwargs["aws_secret_access_key"] = self.llm_config.secret_key
+
+        client = boto3.client("bedrock-runtime", **client_kwargs)
+        response = client.converse(
+            modelId=model,
+            messages=[{"role": "user", "content": [{"text": prompt_text}]}],
+            inferenceConfig={"temperature": 0},
+        )
+
+        content_blocks = response.get("output", {}).get("message", {}).get("content", [])
+        parts = [str(block.get("text")) for block in content_blocks if isinstance(block, dict) and block.get("text")]
+        content = "\n".join(parts).strip()
+        if not content:
+            raise RuntimeError("Empty response from model.")
+        return content
 
     def render(self, template_name: str, **context: Any) -> str:
         """Render a template with the given context.

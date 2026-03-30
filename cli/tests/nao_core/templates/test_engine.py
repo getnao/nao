@@ -1,8 +1,9 @@
 """Unit tests for the template engine."""
 
 import json
+import sys
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -184,12 +185,80 @@ class TestTemplateEngine:
         )
         engine = TemplateEngine(project_path=tmp_path, llm_config=llm_config)
 
-        mock_generate = MagicMock(return_value="AI output")
-        engine._generate_openai_compatible = mock_generate  # type: ignore[method-assign]
-        rendered = engine.render("test.j2")
+        with patch.object(engine, "_generate_openai_compatible", return_value="AI output") as mock_generate:
+            rendered = engine.render("test.j2")
 
         assert rendered == "AI output"
         mock_generate.assert_called_once_with("gpt-4.1-mini", "hello world")
+
+    def test_prompt_helper_supports_bedrock_without_api_key(self, tmp_path: Path):
+        """prompt helper should not require api_key for bedrock provider."""
+        templates_dir = tmp_path / "templates"
+        templates_dir.mkdir()
+        (templates_dir / "test.j2").write_text("{{ prompt('summarize this') }}")
+
+        llm_config = LLMConfig(
+            provider=LLMProvider.BEDROCK,
+            api_key=None,
+            access_key="AKIA_TEST",
+            secret_key="SECRET_TEST",
+            aws_region="us-east-1",
+            annotation_model="anthropic.claude-3-5-sonnet-20241022-v2:0",
+        )
+        engine = TemplateEngine(project_path=tmp_path, llm_config=llm_config)
+
+        with patch.object(engine, "_generate_bedrock", return_value="Bedrock output") as mock_generate:
+            rendered = engine.render("test.j2")
+
+        assert rendered == "Bedrock output"
+        mock_generate.assert_called_once_with("anthropic.claude-3-5-sonnet-20241022-v2:0", "summarize this")
+
+    def test_generate_bedrock_uses_explicit_aws_credentials(self, tmp_path: Path, monkeypatch):
+        """Bedrock client should use configured credentials and region when provided."""
+        llm_config = LLMConfig(
+            provider=LLMProvider.BEDROCK,
+            api_key=None,
+            access_key="AKIA_TEST",
+            secret_key="SECRET_TEST",
+            aws_region="us-west-2",
+            annotation_model="anthropic.claude-3-5-sonnet-20241022-v2:0",
+        )
+        engine = TemplateEngine(project_path=tmp_path, llm_config=llm_config)
+
+        fake_client = MagicMock()
+        fake_client.converse.return_value = {"output": {"message": {"content": [{"text": "Bedrock summary"}]}}}
+        fake_boto3 = MagicMock()
+        fake_boto3.client.return_value = fake_client
+        monkeypatch.setitem(sys.modules, "boto3", fake_boto3)
+
+        rendered = engine._generate_bedrock("anthropic.claude-3-5-sonnet-20241022-v2:0", "summarize this")
+
+        assert rendered == "Bedrock summary"
+        fake_boto3.client.assert_called_once_with(
+            "bedrock-runtime",
+            region_name="us-west-2",
+            aws_access_key_id="AKIA_TEST",
+            aws_secret_access_key="SECRET_TEST",
+        )
+        fake_client.converse.assert_called_once_with(
+            modelId="anthropic.claude-3-5-sonnet-20241022-v2:0",
+            messages=[{"role": "user", "content": [{"text": "summarize this"}]}],
+            inferenceConfig={"temperature": 0},
+        )
+
+    def test_generate_bedrock_rejects_partial_static_credentials(self, tmp_path: Path):
+        """Providing only one of access_key/secret_key should fail with a clear error."""
+        llm_config = LLMConfig(
+            provider=LLMProvider.BEDROCK,
+            api_key=None,
+            access_key="AKIA_TEST",
+            secret_key=None,
+            annotation_model="anthropic.claude-3-5-sonnet-20241022-v2:0",
+        )
+        engine = TemplateEngine(project_path=tmp_path, llm_config=llm_config)
+
+        with pytest.raises(RuntimeError, match="Bedrock configuration is incomplete"):
+            engine._generate_bedrock("anthropic.claude-3-5-sonnet-20241022-v2:0", "summarize this")
 
 
 class TestTemplateFilters:
