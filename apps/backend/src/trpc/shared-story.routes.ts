@@ -5,7 +5,7 @@ import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
-import { forkStory } from '../services/fork-chat.service';
+import { forkSharedStoryFromSelection, forkStory } from '../services/fork-chat.service';
 import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../services/live-story';
 import { notifySharedItemRecipients } from '../utils/email';
 import { extractStorySummary } from '../utils/story-summary';
@@ -235,6 +235,46 @@ export const sharedStoryRoutes = {
 				title: share.title,
 				code: share.code,
 				authorName: share.authorName,
+			});
+		}),
+
+	getSelectionForks: protectedProcedure.input(z.object({ shareId: z.string() })).query(async ({ input, ctx }) => {
+		return chatQueries.getSelectionForksByShareId(ctx.user.id, input.shareId, 'story_selection');
+	}),
+
+	forkFromSelection: projectProtectedProcedure
+		.input(
+			z.object({
+				shareId: z.string(),
+				selection: z.object({ start: z.number(), end: z.number(), text: z.string() }),
+			}),
+		)
+		.mutation(async ({ input, ctx }): Promise<{ chatId: string }> => {
+			const share = await sharedStoryQueries.getSharedStory(input.shareId);
+			if (!share) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: 'Shared story not found.' });
+			}
+
+			if (share.visibility === 'specific' && share.userId !== ctx.user.id) {
+				const hasAccess = await sharedStoryQueries.canUserAccessSharedStory(share.id, ctx.user.id);
+				if (!hasAccess) {
+					throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this story.' });
+				}
+			}
+
+			if (share.projectId !== ctx.project.id) {
+				throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this story.' });
+			}
+
+			return forkSharedStoryFromSelection({
+				shareId: input.shareId,
+				projectId: ctx.project.id,
+				userId: ctx.user.id,
+				selection: input.selection,
+				title: share.title,
+				authorName: share.authorName,
+				code: share.code,
+				sourceChatId: share.chatId,
 			});
 		}),
 };

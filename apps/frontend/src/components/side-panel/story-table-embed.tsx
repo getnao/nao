@@ -1,21 +1,26 @@
 import { memo, useMemo } from 'react';
+import type { UIMessage } from '@nao/backend/chat';
 import type { ParsedTableBlock } from '@/lib/story-segments';
-import { useAgentContext } from '@/contexts/agent.provider';
+import { useOptionalAgentContext } from '@/contexts/agent.provider';
 import { TableDisplay } from '@/components/tool-calls/display-table';
 
 export const StoryTableEmbed = memo(function StoryTableEmbed({ table }: { table: ParsedTableBlock }) {
-	const { messages } = useAgentContext();
+	const agent = useOptionalAgentContext();
 
 	const sourceData = useMemo(() => {
-		for (const message of messages) {
-			for (const part of message.parts) {
-				if (part.type === 'tool-execute_sql' && part.output?.id === table.queryId) {
-					return part.output;
+		const findInMessages = (messages: UIMessage[]) => {
+			for (const message of messages) {
+				for (const part of message.parts) {
+					if (part.type === 'tool-execute_sql' && part.output?.id === table.queryId) {
+						return part.output;
+					}
 				}
 			}
-		}
-		return null;
-	}, [messages, table.queryId]);
+			return null;
+		};
+
+		return findInMessages(agent?.messages ?? []);
+	}, [agent?.messages, table.queryId]);
 
 	if (!sourceData?.data || !Array.isArray(sourceData.data)) {
 		return (

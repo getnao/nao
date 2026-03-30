@@ -1,30 +1,47 @@
-import { Chat, useChat } from '@ai-sdk/react';
-import { DefaultChatTransport } from 'ai';
-import { ChevronDown, MessageCircle } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { ChevronDown, Maximize2, MessageCircle, MoreHorizontal, Trash, X } from 'lucide-react';
+import { useNavigate } from '@tanstack/react-router';
 import { createPortal } from 'react-dom';
-import type { UIMessage } from '@nao/backend/chat';
-import type { MentionOption } from 'prompt-mentions';
+import { useCallback, useEffect, useState } from 'react';
+import { useMutation } from '@tanstack/react-query';
+import type React from 'react';
 
 import type { SelectionAnchor } from '@/contexts/selection';
+import { AgentProvider } from '@/contexts/agent.provider';
+import { useChatQuery } from '@/queries/use-chat-query';
 import { Button } from '@/components/ui/button';
-import { ChatInputInline } from '@/components/chat-input';
+import { ChatInput } from '@/components/chat-input';
 import { ChatMessagesContent } from '@/components/chat-messages/chat-messages';
 import { Conversation, ConversationContent, ConversationScrollButton } from '@/components/ui/conversation';
-import { SelectionAgentProvider } from '@/contexts/agent.provider';
+import { SetChatInputCallbackProvider } from '@/contexts/set-chat-input-callback';
 import { useSelection } from '@/contexts/selection';
-import { selectedModelStorage } from '@/hooks/use-agent';
-import { useLocalStorage } from '@/hooks/use-local-storage';
+import { trpc } from '@/main';
+import { ChatIdContext } from '@/hooks/use-chat-id';
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuSeparator,
+	DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
-export const SelectionChatPanel = () => {
-	const { anchors, openAnchorId, closePanel, reopenAnchor } = useSelection();
-	const openAnchor = openAnchorId ? (anchors.find((a) => a.id === openAnchorId) ?? null) : null;
+export const SelectionChatPanel = ({ contentAreaRef }: { contentAreaRef?: React.RefObject<HTMLElement | null> }) => {
+	const { anchors, openAnchorChatId, openAnchor, closePanel } = useSelection();
+	const openAnchor_ = openAnchorChatId ? (anchors.find((a) => a.chatId === openAnchorChatId) ?? null) : null;
 
 	return (
 		<>
-			{openAnchor && createPortal(<PanelContainer anchor={openAnchor} onClose={closePanel} />, document.body)}
+			{openAnchor_ &&
+				createPortal(
+					<PanelContainer anchor={openAnchor_} onClose={closePanel} contentAreaRef={contentAreaRef} />,
+					document.body,
+				)}
 			{createPortal(
-				<AnchorDots anchors={anchors} openAnchorId={openAnchorId} onOpen={reopenAnchor} />,
+				<AnchorDots
+					anchors={anchors}
+					openAnchorChatId={openAnchorChatId}
+					onOpen={openAnchor}
+					contentAreaRef={contentAreaRef}
+				/>,
 				document.body,
 			)}
 		</>
@@ -33,63 +50,188 @@ export const SelectionChatPanel = () => {
 
 function AnchorDots({
 	anchors,
-	openAnchorId,
+	openAnchorChatId,
 	onOpen,
+	contentAreaRef,
 }: {
 	anchors: SelectionAnchor[];
-	openAnchorId: string | null;
-	onOpen: (id: string) => void;
+	openAnchorChatId: string | null;
+	onOpen: (chatId: string) => void;
+	contentAreaRef?: React.RefObject<HTMLElement | null>;
 }) {
 	return (
 		<>
 			{anchors
-				.filter((a) => a.id !== openAnchorId)
+				.filter((a) => a.chatId !== openAnchorChatId)
 				.map((anchor) => (
-					<AnchorDot key={anchor.id} anchor={anchor} onOpen={() => onOpen(anchor.id)} />
+					<AnchorDot
+						key={anchor.chatId}
+						anchor={anchor}
+						onOpen={() => onOpen(anchor.chatId)}
+						contentAreaRef={contentAreaRef}
+					/>
 				))}
 		</>
 	);
 }
 
-function AnchorDot({ anchor, onOpen }: { anchor: SelectionAnchor; onOpen: () => void }) {
-	const left = anchor.rect.left - 14;
-	const top = anchor.rect.top + anchor.rect.height / 2;
+function AnchorDot({
+	anchor,
+	onOpen,
+	contentAreaRef,
+}: {
+	anchor: SelectionAnchor;
+	onOpen: () => void;
+	contentAreaRef?: React.RefObject<HTMLElement | null>;
+}) {
+	const { measureAnchorPosition, containerRef } = useSelection();
+
+	const [pos, setPos] = useState(() => ({
+		left: anchor.containerLeft,
+		top: anchor.rect.top + anchor.rect.height / 2,
+	}));
+
+	useEffect(() => {
+		const update = () => {
+			const measured = measureAnchorPosition(anchor.start, anchor.end);
+			if (measured) {
+				setPos({ left: measured.containerLeft, top: measured.top + measured.height / 2 });
+			}
+		};
+
+		update();
+		window.addEventListener('scroll', update, { capture: true, passive: true });
+		window.addEventListener('resize', update, { passive: true });
+
+		const resizeObserver = new ResizeObserver(update);
+		const layoutEl = containerRef.current?.parentElement;
+		if (layoutEl) {
+			resizeObserver.observe(layoutEl);
+		}
+		if (contentAreaRef?.current) {
+			resizeObserver.observe(contentAreaRef.current);
+		}
+
+		return () => {
+			window.removeEventListener('scroll', update, true);
+			window.removeEventListener('resize', update);
+			resizeObserver.disconnect();
+		};
+	}, [anchor.start, anchor.end, measureAnchorPosition, containerRef, contentAreaRef]);
+
+	const ICON_HALF_SIZE = 7;
+	const contentAreaRect = contentAreaRef?.current?.getBoundingClientRect();
+	const contentAreaTop = contentAreaRect?.top ?? 52;
+	const contentAreaLeft = contentAreaRect?.left ?? 0;
+	const isHidden = pos.top - ICON_HALF_SIZE < contentAreaTop;
+	const dotLeft = contentAreaRef ? Math.max(pos.left, contentAreaLeft + ICON_HALF_SIZE) : pos.left;
 
 	return (
 		<button
 			type='button'
 			title='View conversation'
-			style={{ position: 'fixed', left, top, transform: 'translateX(-50%) translateY(-50%)', zIndex: 40 }}
+			style={{
+				position: 'fixed',
+				left: dotLeft,
+				top: pos.top,
+				transform: 'translateX(-50%) translateY(-50%)',
+				zIndex: 40,
+			}}
 			onClick={onOpen}
 			onMouseDown={(e) => e.stopPropagation()}
-			className='hover:scale-125 transition-transform cursor-pointer'
+			className={`hover:scale-125 transition-transform cursor-pointer ${isHidden ? 'invisible' : ''}`}
 		>
 			<MessageCircle className='size-3.5 text-foreground' />
 		</button>
 	);
 }
 
-function PanelContainer({ anchor, onClose }: { anchor: SelectionAnchor; onClose: () => void }) {
-	const { updateAnchorMessages } = useSelection();
+const PANEL_MARGIN = 16;
 
-	const handleMessagesChange = useCallback(
-		(messages: UIMessage[]) => {
-			updateAnchorMessages(anchor.id, messages);
-		},
-		[anchor.id, updateAnchorMessages],
+function usePanelRightOffset(contentAreaRef?: React.RefObject<HTMLElement | null>): number {
+	const [rightOffset, setRightOffset] = useState(PANEL_MARGIN);
+
+	useEffect(() => {
+		const el = contentAreaRef?.current;
+		if (!el) {
+			return;
+		}
+
+		const update = () => {
+			const rect = el.getBoundingClientRect();
+			setRightOffset(window.innerWidth - rect.right + PANEL_MARGIN);
+		};
+
+		update();
+		const observer = new ResizeObserver(update);
+		observer.observe(el);
+		window.addEventListener('resize', update, { passive: true });
+
+		return () => {
+			observer.disconnect();
+			window.removeEventListener('resize', update);
+		};
+	}, [contentAreaRef]);
+
+	return rightOffset;
+}
+
+const PANEL_WIDTH = 400;
+
+function PanelContainer({
+	anchor,
+	onClose,
+	contentAreaRef,
+}: {
+	anchor: SelectionAnchor;
+	onClose: () => void;
+	contentAreaRef?: React.RefObject<HTMLElement | null>;
+}) {
+	const rightOffset = usePanelRightOffset(contentAreaRef);
+	const { removeAnchor } = useSelection();
+
+	useEffect(() => {
+		const el = contentAreaRef?.current;
+		if (!el) {
+			return;
+		}
+		const observer = new ResizeObserver(() => {
+			if (el.getBoundingClientRect().width < PANEL_WIDTH + PANEL_MARGIN) {
+				onClose();
+			}
+		});
+		observer.observe(el);
+		return () => observer.disconnect();
+	}, [contentAreaRef, onClose]);
+
+	const deleteChatMutation = useMutation(
+		trpc.chat.delete.mutationOptions({
+			onSuccess: () => removeAnchor(anchor.chatId),
+		}),
 	);
 
+	const handleDelete = useCallback(() => {
+		deleteChatMutation.mutate({ chatId: anchor.chatId });
+	}, [deleteChatMutation, anchor.chatId]);
+
 	return (
-		<div className='fixed right-4 top-20 bottom-10 w-[400px] z-50 flex flex-col items-center'>
-			<ChatPanelContent key={anchor.id} anchor={anchor} onMessagesChange={handleMessagesChange} />
+		<div
+			style={{ right: rightOffset }}
+			className='fixed top-20 bottom-10 w-[400px] z-50 flex flex-col items-center'
+		>
+			<ChatPanelContent
+				key={anchor.chatId}
+				anchor={anchor}
+				rightOffset={rightOffset}
+				handleDelete={handleDelete}
+				onClose={onClose}
+			/>
 			<Button
 				onClick={onClose}
 				variant='ghost-no-hover'
 				className='
-					absolute right-10 translate-x-1/2 bottom-[-32px]
-					w-10 h-10
-					flex items-center justify-center
-					rounded-full
+					absolute right-10 translate-x-1/2 bottom-[-32px] w-10 h-10
+					flex items-center justify-center rounded-full
 					bg-background border border-border shadow-md
 					hover:bg-accent transition-colors
 				'
@@ -102,118 +244,95 @@ function PanelContainer({ anchor, onClose }: { anchor: SelectionAnchor; onClose:
 
 function ChatPanelContent({
 	anchor,
-	onMessagesChange,
+	rightOffset,
+	handleDelete,
+	onClose,
 }: {
 	anchor: SelectionAnchor;
-	onMessagesChange: (messages: UIMessage[]) => void;
+	rightOffset: number;
+	handleDelete: () => void;
+	onClose: () => void;
 }) {
-	const onMessagesChangeRef = useRef(onMessagesChange);
-	onMessagesChangeRef.current = onMessagesChange;
-
-	// Model selection — shared via localStorage with the main chat
-	const [selectedModel, setSelectedModel] = useLocalStorage(selectedModelStorage);
-	// Ref keeps prepareSendMessagesRequest up-to-date without recreating the Chat instance
-	const selectedModelRef = useRef(selectedModel);
-	selectedModelRef.current = selectedModel;
-
-	// Mentions captured between setMentions() and prepareSendMessagesRequest()
-	const mentionsRef = useRef<MentionOption[]>([]);
-
-	const chatRef = useRef<Chat<UIMessage> | null>(null);
-	const chatInstance = useMemo(() => {
-		const instance = new Chat<UIMessage>({
-			transport: new DefaultChatTransport({
-				api: '/api/ask-selection',
-				prepareSendMessagesRequest: ({ body, messages }) => {
-					const mentions = mentionsRef.current;
-					mentionsRef.current = [];
-					return {
-						body: {
-							...body,
-							systemContext: anchor.contentText,
-							messages,
-							model: selectedModelRef.current ?? undefined,
-							mentions: mentions.length > 0 ? mentions : undefined,
-						},
-					};
-				},
-			}),
-		});
-		chatRef.current = instance;
-		return instance;
-		// anchor.contentText is stable per anchor and captured correctly on first mount
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [anchor.id]);
-
-	const { messages, sendMessage, setMessages, status } = useChat({ chat: chatInstance });
-
-	useEffect(() => {
-		if (anchor.messages.length > 0) {
-			setMessages(anchor.messages);
-		}
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, []);
-
-	useEffect(() => {
-		if (messages.length > 0) {
-			onMessagesChangeRef.current(messages);
-		}
-	}, [messages]);
-
-	const isRunning = status === 'streaming' || status === 'submitted';
-
-	const handleSendMessage = useCallback(
-		async ({ text }: { text: string }) => {
-			await sendMessage({ text });
-		},
-		[sendMessage],
-	);
-
-	const handleSetMentions = useCallback((mentions: MentionOption[]) => {
-		mentionsRef.current = mentions;
-	}, []);
-
 	return (
 		<div
+			style={{ right: rightOffset }}
 			className='flex flex-col bg-panel border border-border shadow-xl rounded-2xl
-					fixed right-4 top-20 bottom-15 w-[400px] z-50 overflow-hidden'
+					fixed top-20 bottom-15 w-[400px] z-50 overflow-hidden'
 			onMouseDown={(e) => e.stopPropagation()}
 		>
-			<PanelHeader anchor={anchor} />
-			<SelectionAgentProvider
-				messages={messages}
-				isRunning={isRunning}
-				status={status}
-				sendMessage={handleSendMessage}
-				stopAgent={() => chatRef.current?.stop()}
-				selectedModel={selectedModel}
-				setSelectedModel={setSelectedModel}
-				setMentions={handleSetMentions}
-			>
-				<Conversation>
-					<ConversationContent className='gap-0 p-4'>
-						<ChatMessagesContent />
-					</ConversationContent>
-					<ConversationScrollButton />
-				</Conversation>
-				<ChatInputInline initialText='' onSubmitMessage={handleSendMessage} />
-			</SelectionAgentProvider>
+			<PanelHeader anchor={anchor} handleDelete={handleDelete} onClose={onClose} />
+			<SetChatInputCallbackProvider>
+				<ChatIdContext.Provider value={anchor.chatId}>
+					<AgentProvider disableNavigation>
+						<Conversation>
+							<ConversationContent className='gap-0 p-4'>
+								<ChatMessagesContent />
+							</ConversationContent>
+							<ConversationScrollButton />
+						</Conversation>
+						<ChatInput />
+					</AgentProvider>
+				</ChatIdContext.Provider>
+			</SetChatInputCallbackProvider>
 		</div>
 	);
 }
-function PanelHeader({ anchor }: { anchor: SelectionAnchor }) {
-	const displayed = anchor.text.length > 220 ? `${anchor.text.slice(0, 220)}\u2026` : anchor.text;
+
+export function PanelHeader({
+	anchor,
+	handleDelete,
+	onClose,
+}: {
+	anchor: SelectionAnchor;
+	handleDelete: () => void;
+	onClose: () => void;
+}) {
+	const navigate = useNavigate();
+	const chat = useChatQuery({ chatId: anchor.chatId });
+	const forkMetadata = chat.data?.forkMetadata;
+	const selectionText = forkMetadata?.selectionText ?? '';
+	const displayed = selectionText.length > 220 ? `${selectionText.slice(0, 220)}\u2026` : selectionText;
 
 	return (
-		<div className='mx-4 my-3 px-4 py-3 border-b border-border bg-background shrink-0 rounded-lg'>
-			<div className='flex items-center justify-between mb-1.5'>
-				<p className='text-[11px] text-muted-foreground font-mono tracking-tight'>
-					@chars {anchor.start}–{anchor.end}
-				</p>
+		<div className='flex flex-col w-full'>
+			<div className='flex items-center justify-between w-full mt-2 px-4'>
+				<p className='text-sm font-medium'>Ask a question</p>
+				<div className='flex items-center -mr-1'>
+					<DropdownMenu>
+						<DropdownMenuTrigger asChild>
+							<Button variant='ghost' size='icon-xs'>
+								<MoreHorizontal />
+							</Button>
+						</DropdownMenuTrigger>
+						<DropdownMenuContent align='end'>
+							<DropdownMenuItem
+								onSelect={() => navigate({ to: '/$chatId', params: { chatId: anchor.chatId } })}
+							>
+								<Maximize2 size={16} /> Expand
+							</DropdownMenuItem>
+							<DropdownMenuSeparator />
+							<DropdownMenuItem variant='destructive' onSelect={handleDelete}>
+								<Trash /> Delete
+							</DropdownMenuItem>
+						</DropdownMenuContent>
+					</DropdownMenu>
+					<Button variant='ghost' size='icon-xs' onClick={onClose}>
+						<X />
+					</Button>
+				</div>
 			</div>
-			<blockquote className='text-xs text-foreground/80 italic leading-relaxed line-clamp-3 border-l-2 border-primary/50 pl-3'>
-				&ldquo;{displayed}&rdquo;
-			</blockquote>
+			<div className='px-4 mt-1'>
+				<div className='px-4 py-3 border border-border bg-background rounded-xl'>
+					<p className='text-[11px] text-muted-foreground font-mono tracking-tight mb-1.5'>
+						@chars {anchor.start}–{anchor.end}
+					</p>
+					{displayed && (
+						<blockquote className='text-xs text-foreground/80 italic leading-relaxed line-clamp-3 border-l-2 border-primary/50 pl-3'>
+							“{displayed}”
+						</blockquote>
+					)}
+				</div>
+			</div>
 		</div>
 	);
 }

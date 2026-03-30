@@ -198,11 +198,19 @@ export const createForkedChat = async (newChat: NewChat, messages: Array<Omit<UI
 	return db.transaction(async (t) => {
 		const [savedChat] = await t.insert(s.chat).values(newChat).returning().execute();
 
-		for (const message of messages) {
+		const baseTime = Date.now();
+		for (let i = 0; i < messages.length; i++) {
+			const message = messages[i];
 			const messageId = crypto.randomUUID();
 			await t
 				.insert(s.chatMessage)
-				.values({ id: messageId, chatId: savedChat.id, role: message.role, synthetic: message.synthetic })
+				.values({
+					id: messageId,
+					chatId: savedChat.id,
+					role: message.role,
+					synthetic: true,
+					createdAt: new Date(baseTime + i),
+				})
 				.execute();
 
 			const dbParts = remapToolCallIds(mapUIPartsToDBParts(message.parts, messageId));
@@ -253,6 +261,7 @@ export const upsertMessage = async (
 				llmProvider: message.llmProvider,
 				llmModelId: message.llmModelId,
 				source: message.source,
+				synthetic: message.synthetic,
 				...message.tokenUsage,
 			})
 			.onConflictDoNothing({ target: s.chatMessage.id })
@@ -466,6 +475,37 @@ const caseInsensitiveLike = (column: Parameters<typeof like>[0], pattern: string
 	}
 	// SQLite LIKE is case-insensitive by default for ASCII
 	return like(column, pattern);
+};
+
+export const getSelectionForksByShareId = async (
+	userId: string,
+	shareId: string,
+	forkType: 'chat_selection' | 'story_selection',
+): Promise<{ chatId: string; selectionStart: number; selectionEnd: number; selectionText: string }[]> => {
+	const typeFilter =
+		dbConfig.dialect === Dialect.Postgres
+			? sql`${s.chat.forkMetadata}->>'type' = ${forkType}`
+			: sql`json_extract(${s.chat.forkMetadata}, '$.type') = ${forkType}`;
+
+	const idFilter =
+		dbConfig.dialect === Dialect.Postgres
+			? sql`${s.chat.forkMetadata}->>'id' = ${shareId}`
+			: sql`json_extract(${s.chat.forkMetadata}, '$.id') = ${shareId}`;
+
+	const results = await db
+		.select({ id: s.chat.id, forkMetadata: s.chat.forkMetadata })
+		.from(s.chat)
+		.where(and(eq(s.chat.userId, userId), typeFilter, idFilter))
+		.execute();
+
+	return results
+		.filter((r) => r.forkMetadata?.selectionStart !== undefined)
+		.map((r) => ({
+			chatId: r.id,
+			selectionStart: r.forkMetadata!.selectionStart!,
+			selectionEnd: r.forkMetadata!.selectionEnd!,
+			selectionText: r.forkMetadata!.selectionText ?? '',
+		}));
 };
 
 export const getForkMetadata = async (chatId: string): Promise<ForkMetadata | null> => {

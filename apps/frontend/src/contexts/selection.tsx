@@ -1,34 +1,50 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
-import type { UIMessage } from '@nao/backend/chat';
+import { useQuery } from '@tanstack/react-query';
+
+import type { AnchorPosition } from '@/lib/selection-dom.utils';
+import {
+	createRangeFromOffsets,
+	getContainerLeft,
+	getSelectionBoundingRect,
+	getTextOffset,
+	measureRangePosition,
+} from '@/lib/selection-dom.utils';
+import { trpc } from '@/main';
+
+export type { AnchorPosition };
 
 export interface SelectionState {
 	text: string;
 	start: number;
 	end: number;
 	rect: DOMRect;
+	containerLeft: number;
 }
 
 export interface SelectionAnchor {
-	id: string;
-	text: string;
+	chatId: string;
 	start: number;
 	end: number;
-	/** Viewport rect captured at selection time — used to position the dot. */
 	rect: DOMRect;
-	/** Full rendered text of the content area, sent as AI system context. */
-	contentText: string;
-	messages: UIMessage[];
+	containerLeft: number;
+}
+
+export interface PersistenceConfig {
+	shareId: string;
+	contentType: 'shared_chat' | 'shared_story';
 }
 
 interface SelectionContextValue {
 	selection: SelectionState | null;
 	clearSelection: () => void;
+	containerRef: React.RefObject<HTMLDivElement | null>;
 	anchors: SelectionAnchor[];
-	openAnchorId: string | null;
-	openAnchorFromSelection: () => void;
-	reopenAnchor: (anchorId: string) => void;
+	openAnchorChatId: string | null;
+	addAnchor: (chatId: string, start: number, end: number, rect: DOMRect, containerLeft: number) => void;
+	removeAnchor: (chatId: string) => void;
+	openAnchor: (chatId: string) => void;
 	closePanel: () => void;
-	updateAnchorMessages: (anchorId: string, messages: UIMessage[]) => void;
+	measureAnchorPosition: (start: number, end: number) => AnchorPosition | null;
 }
 
 const SelectionContext = createContext<SelectionContextValue | null>(null);
@@ -41,11 +57,63 @@ export const useSelection = (): SelectionContextValue => {
 	return ctx;
 };
 
-export const SelectionProvider = ({ children }: { children: React.ReactNode }) => {
+export const useOptionalSelection = () => useContext(SelectionContext);
+
+interface SelectionProviderProps {
+	children: React.ReactNode;
+	persistenceConfig?: PersistenceConfig;
+}
+
+export const SelectionProvider = ({ children, persistenceConfig }: SelectionProviderProps) => {
 	const [selection, setSelection] = useState<SelectionState | null>(null);
 	const [anchors, setAnchors] = useState<SelectionAnchor[]>([]);
-	const [openAnchorId, setOpenAnchorId] = useState<string | null>(null);
+	const [openAnchorChatId, setOpenAnchorChatId] = useState<string | null>(null);
+	const [containerMounted, setContainerMounted] = useState(false);
 	const containerRef = useRef<HTMLDivElement>(null);
+
+	useEffect(() => {
+		setContainerMounted(true);
+	}, []);
+
+	const chatSelectionForksQuery = useQuery({
+		...trpc.sharedChat.getSelectionForks.queryOptions({ shareId: persistenceConfig?.shareId ?? '' }),
+		enabled: !!persistenceConfig && persistenceConfig.contentType === 'shared_chat',
+	});
+
+	const storySelectionForksQuery = useQuery({
+		...trpc.storyShare.getSelectionForks.queryOptions({ shareId: persistenceConfig?.shareId ?? '' }),
+		enabled: !!persistenceConfig && persistenceConfig.contentType === 'shared_story',
+	});
+
+	const selectionForks =
+		persistenceConfig?.contentType === 'shared_chat' ? chatSelectionForksQuery.data : storySelectionForksQuery.data;
+
+	useEffect(() => {
+		if (!selectionForks || !containerRef.current || !containerMounted) {
+			return;
+		}
+
+		const hydrated: SelectionAnchor[] = [];
+		for (const fork of selectionForks) {
+			const anchor = restoreAnchor(containerRef.current, fork.chatId, fork.selectionStart, fork.selectionEnd);
+			if (anchor) {
+				hydrated.push(anchor);
+			}
+		}
+
+		if (hydrated.length > 0) {
+			setAnchors((prev) => {
+				const existing = new Set(prev.map((a) => a.chatId));
+				return [...prev, ...hydrated.filter((a) => !existing.has(a.chatId))];
+			});
+		}
+	}, [selectionForks, containerMounted]);
+
+	useEffect(() => {
+		const handleMouseDown = () => setSelection(null);
+		document.addEventListener('mousedown', handleMouseDown);
+		return () => document.removeEventListener('mousedown', handleMouseDown);
+	}, []);
 
 	const handleMouseUp = useCallback(() => {
 		const sel = window.getSelection();
@@ -55,7 +123,6 @@ export const SelectionProvider = ({ children }: { children: React.ReactNode }) =
 
 		const range = sel.getRangeAt(0);
 		const text = sel.toString().trim();
-
 		if (!text || !containerRef.current.contains(range.commonAncestorContainer)) {
 			return;
 		}
@@ -63,71 +130,56 @@ export const SelectionProvider = ({ children }: { children: React.ReactNode }) =
 		const start = getTextOffset(containerRef.current, range.startContainer, range.startOffset);
 		const end = getTextOffset(containerRef.current, range.endContainer, range.endOffset);
 		const rect = getSelectionBoundingRect(range) ?? range.getBoundingClientRect();
+		const containerLeft = getContainerLeft(range);
 
-		setSelection({ text, start, end, rect });
+		setSelection({ text, start, end, rect, containerLeft });
 	}, []);
 
-	const clearSelection = useCallback(() => {
-		setSelection(null);
+	const addAnchor = useCallback(
+		(chatId: string, start: number, end: number, rect: DOMRect, containerLeft: number) => {
+			setAnchors((prev) => {
+				if (prev.some((a) => a.chatId === chatId)) {
+					return prev;
+				}
+				return [...prev, { chatId, start, end, rect, containerLeft }];
+			});
+		},
+		[],
+	);
+
+	const removeAnchor = useCallback((chatId: string) => {
+		setAnchors((prev) => prev.filter((a) => a.chatId !== chatId));
+		setOpenAnchorChatId((prev) => (prev === chatId ? null : prev));
 	}, []);
 
-	useEffect(() => {
-		const handleMouseDown = () => setSelection(null);
-		document.addEventListener('mousedown', handleMouseDown);
-		return () => document.removeEventListener('mousedown', handleMouseDown);
-	}, []);
-
-	const openAnchorFromSelection = useCallback(() => {
-		if (!selection) {
-			return;
-		}
-
-		const contentText = buildSystemContext(
-			containerRef.current?.textContent ?? '',
-			selection.text,
-			selection.start,
-			selection.end,
-		);
-
-		const anchor: SelectionAnchor = {
-			id: crypto.randomUUID(),
-			text: selection.text,
-			start: selection.start,
-			end: selection.end,
-			rect: selection.rect,
-			contentText,
-			messages: [],
-		};
-
-		setAnchors((prev) => [...prev, anchor]);
-		setOpenAnchorId(anchor.id);
-		setSelection(null);
-		window.getSelection()?.removeAllRanges();
-	}, [selection]);
-
-	const reopenAnchor = useCallback((anchorId: string) => {
-		setOpenAnchorId(anchorId);
+	const openAnchor = useCallback((chatId: string) => {
+		setOpenAnchorChatId(chatId);
 	}, []);
 
 	const closePanel = useCallback(() => {
-		setOpenAnchorId(null);
+		setOpenAnchorChatId(null);
 	}, []);
 
-	const updateAnchorMessages = useCallback((anchorId: string, messages: UIMessage[]) => {
-		setAnchors((prev) => prev.map((a) => (a.id === anchorId ? { ...a, messages } : a)));
+	const measureAnchorPosition = useCallback((start: number, end: number): AnchorPosition | null => {
+		if (!containerRef.current) {
+			return null;
+		}
+		return measureRangePosition(containerRef.current, start, end);
 	}, []);
 
 	return (
 		<SelectionContext.Provider
 			value={{
 				selection,
-				clearSelection,
+				clearSelection: () => setSelection(null),
+				containerRef,
 				anchors,
-				openAnchorId,
-				openAnchorFromSelection,
-				reopenAnchor,
+				openAnchorChatId,
+				addAnchor,
+				removeAnchor,
+				openAnchor,
 				closePanel,
-				updateAnchorMessages,
+				measureAnchorPosition,
 			}}
 		>
 			<div ref={containerRef} onMouseUp={handleMouseUp} style={{ display: 'contents' }}>
@@ -137,76 +189,19 @@ export const SelectionProvider = ({ children }: { children: React.ReactNode }) =
 	);
 };
 
-/** Builds the system context sent to the AI: full page text + cited passage reference. */
-function buildSystemContext(rawText: string, citedText: string, start: number, end: number): string {
-	const truncated = rawText.slice(0, 50_000);
-	return [
-		'You are a helpful assistant answering questions about a document.',
-		'',
-		'Full document content:',
-		'---',
-		truncated,
-		'---',
-		'',
-		`The user has selected this specific passage for discussion (characters ${start}–${end}):`,
-		`"${citedText}"`,
-		'',
-		'Answer questions about this passage using the full document for context. Be concise and precise.',
-	].join('\n');
-}
-
-/**
- * Walks only the text nodes within the range and unions their rects.
- * This avoids block-level elements (p, div…) whose rects span the full container width,
- * which would push the bubble's centre far from the actual selected words.
- */
-function getSelectionBoundingRect(range: Range): DOMRect | null {
-	const root =
-		range.commonAncestorContainer.nodeType === Node.TEXT_NODE
-			? range.commonAncestorContainer.parentNode!
-			: range.commonAncestorContainer;
-
-	const rects: DOMRect[] = [];
-	const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-
-	let node: Node | null = walker.nextNode();
-	while (node) {
-		if (range.intersectsNode(node)) {
-			const textRange = document.createRange();
-			textRange.selectNodeContents(node);
-			if (node === range.startContainer) {
-				textRange.setStart(node, range.startOffset);
-			}
-			if (node === range.endContainer) {
-				textRange.setEnd(node, range.endOffset);
-			}
-			rects.push(...Array.from(textRange.getClientRects()));
-		}
-		node = walker.nextNode();
-	}
-
-	if (rects.length === 0) {
+function restoreAnchor(container: Element, chatId: string, start: number, end: number): SelectionAnchor | null {
+	const range = createRangeFromOffsets(container, start, end);
+	if (!range) {
 		return null;
 	}
 
-	const left = Math.min(...rects.map((r) => r.left));
-	const top = Math.min(...rects.map((r) => r.top));
-	const right = Math.max(...rects.map((r) => r.right));
-	const bottom = Math.max(...rects.map((r) => r.bottom));
-	return new DOMRect(left, top, right - left, bottom - top);
-}
-
-function getTextOffset(container: Element, node: Node, offset: number): number {
-	let charCount = 0;
-	const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
-
-	while (walker.nextNode()) {
-		const current = walker.currentNode;
-		if (current === node) {
-			return charCount + offset;
-		}
-		charCount += current.textContent?.length ?? 0;
+	const text = range.toString().trim();
+	if (!text) {
+		return null;
 	}
 
-	return -1;
+	const rect = getSelectionBoundingRect(range) ?? range.getBoundingClientRect();
+	const containerLeft = getContainerLeft(range);
+
+	return { chatId, start, end, rect, containerLeft };
 }

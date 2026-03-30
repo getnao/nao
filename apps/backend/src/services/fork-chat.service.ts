@@ -1,10 +1,15 @@
-import { MAX_OUTPUT_TOKENS } from '../agents/compaction';
 import * as chatQueries from '../queries/chat.queries';
+import * as sharedChatQueries from '../queries/shared-chat.queries';
 import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
 import type { ForkMetadata, UIMessage, UIMessagePart } from '../types/chat';
 import { compactionService } from './compaction';
-import { tokenCounter } from './token-counter';
+
+export interface SelectionInfo {
+	start: number;
+	end: number;
+	text: string;
+}
 
 export async function forkChat(opts: {
 	chatId: string;
@@ -13,8 +18,7 @@ export async function forkChat(opts: {
 	forkMetadata?: ForkMetadata;
 }): Promise<{ chatId: string }> {
 	const rawMessages = await chatQueries.loadChatMessages(opts.chatId);
-	const messages = compactionService.useLastCompaction(rawMessages);
-	const seededMessages = await buildForkContext(messages, opts.projectId);
+	const seededMessages = compactionService.useLastCompaction(rawMessages);
 
 	const savedChat = await chatQueries.createForkedChat(
 		{
@@ -25,6 +29,8 @@ export async function forkChat(opts: {
 		},
 		seededMessages,
 	);
+
+	await copyStoriesToFork(opts.chatId, savedChat.id);
 
 	return { chatId: savedChat.id };
 }
@@ -87,6 +93,99 @@ export async function forkStory(opts: {
 	return { chatId: chat.id };
 }
 
+export async function forkSharedChatFromSelection(opts: {
+	shareId: string;
+	projectId: string;
+	userId: string;
+	selection: SelectionInfo;
+	authorName: string;
+	title: string;
+}): Promise<{ chatId: string }> {
+	const share = await sharedChatQueries.getSharedChatInfo(opts.shareId);
+	if (!share) {
+		throw new Error('Shared chat not found.');
+	}
+
+	const rawMessages = await chatQueries.loadChatMessages(share.chatId);
+	const seededMessages = compactionService.useLastCompaction(rawMessages);
+
+	const forkMetadata: ForkMetadata = {
+		type: 'chat_selection',
+		id: opts.shareId,
+		title: opts.title,
+		authorName: opts.authorName,
+		selectionStart: opts.selection.start,
+		selectionEnd: opts.selection.end,
+		selectionText: opts.selection.text,
+	};
+
+	const contextMessage = buildSelectionContextMessage(opts.title, opts.selection);
+	const savedChat = await chatQueries.createForkedChat(
+		{ projectId: opts.projectId, userId: opts.userId, title: opts.title, forkMetadata },
+		[...seededMessages, contextMessage],
+	);
+
+	await copyStoriesToFork(share.chatId, savedChat.id);
+
+	return { chatId: savedChat.id };
+}
+
+export async function forkSharedStoryFromSelection(opts: {
+	shareId: string;
+	projectId: string;
+	userId: string;
+	selection: SelectionInfo;
+	authorName: string;
+	title: string;
+	code: string;
+	sourceChatId: string;
+}): Promise<{ chatId: string }> {
+	const queryData = await sharedStoryQueries.collectQueryData(opts.sourceChatId, opts.code);
+	const seededMessages = buildQueryDataMessages(queryData);
+
+	const forkMetadata: ForkMetadata = {
+		type: 'story_selection',
+		id: opts.shareId,
+		title: opts.title,
+		authorName: opts.authorName,
+		selectionStart: opts.selection.start,
+		selectionEnd: opts.selection.end,
+		selectionText: opts.selection.text,
+	};
+
+	const contextMessage = buildSelectionContextMessage(opts.title, opts.selection);
+	const savedChat = await chatQueries.createForkedChat(
+		{ projectId: opts.projectId, userId: opts.userId, title: opts.title, forkMetadata },
+		[...seededMessages, contextMessage],
+	);
+
+	return { chatId: savedChat.id };
+}
+
+async function copyStoriesToFork(sourceChatId: string, forkChatId: string): Promise<void> {
+	const stories = await storyQueries.listStoriesInChat(sourceChatId);
+	if (stories.length === 0) {
+		return;
+	}
+
+	await Promise.all(
+		stories.map(async ({ storyId }) => {
+			const latest = await storyQueries.getLatestVersion(sourceChatId, storyId);
+			if (!latest) {
+				return;
+			}
+			await storyQueries.createVersion({
+				chatId: forkChatId,
+				storyId,
+				title: latest.title,
+				code: latest.code,
+				action: 'create',
+				source: 'assistant',
+			});
+		}),
+	);
+}
+
 function buildQueryDataMessages(
 	queryData: Record<string, { data: unknown[]; columns: string[] }> | null,
 ): Array<Omit<UIMessage, 'id'>> {
@@ -111,52 +210,14 @@ function buildQueryDataMessages(
 	return [{ role: 'assistant', synthetic: true, parts }];
 }
 
-async function buildForkContext(
-	messages: Array<Omit<UIMessage, 'id'>>,
-	projectId: string,
-): Promise<Array<Omit<UIMessage, 'id'>>> {
-	const totalTokens = tokenCounter.estimate(JSON.stringify(messages));
-	if (totalTokens <= MAX_OUTPUT_TOKENS) {
-		return messages;
-	}
-
-	return compressToFitBudget(messages, projectId);
-}
-
-async function compressToFitBudget(
-	messages: Array<Omit<UIMessage, 'id'>>,
-	projectId: string,
-): Promise<Array<Omit<UIMessage, 'id'>>> {
-	const [recentMessages, olderMessages] = partitionByTokenBudget(messages, MAX_OUTPUT_TOKENS / 2);
-
-	const summary = await compactionService.summarize(olderMessages, projectId);
-	if (!summary) {
-		return recentMessages;
-	}
-
-	const summaryMessage: Omit<UIMessage, 'id'> = {
+function buildSelectionContextMessage(sourceTitle: string, selection: SelectionInfo): Omit<UIMessage, 'id'> {
+	return {
 		role: 'assistant',
-		parts: [{ type: 'text', text: summary }],
+		parts: [
+			{
+				type: 'text',
+				text: `**From "${sourceTitle}"** — @chars ${selection.start}–${selection.end}:\n\n> ${selection.text}`,
+			},
+		],
 	};
-	return [summaryMessage, ...recentMessages];
-}
-
-function partitionByTokenBudget(
-	messages: Array<Omit<UIMessage, 'id'>>,
-	recentBudget: number,
-): [recent: Array<Omit<UIMessage, 'id'>>, older: Array<Omit<UIMessage, 'id'>>] {
-	const recent: Array<Omit<UIMessage, 'id'>> = [];
-	let tokenCount = 0;
-
-	for (let i = messages.length - 1; i >= 0; i--) {
-		const msgTokens = tokenCounter.estimate(JSON.stringify(messages[i]));
-		if (tokenCount + msgTokens > recentBudget) {
-			break;
-		}
-		recent.unshift(messages[i]);
-		tokenCount += msgTokens;
-	}
-
-	const olderCount = messages.length - recent.length;
-	return [recent, messages.slice(0, olderCount)];
 }

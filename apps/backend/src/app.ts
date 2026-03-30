@@ -11,7 +11,6 @@ import { fileURLToPath } from 'url';
 import { env } from './env';
 import { ensureOrganizationSetup } from './queries/organization.queries';
 import { agentRoutes } from './routes/agent';
-import { askSelectionRoutes } from './routes/ask-selection';
 import { authRoutes } from './routes/auth';
 import { chartRoutes } from './routes/chart';
 import { imageRoutes } from './routes/image';
@@ -120,10 +119,6 @@ app.register(fastifyTRPCPlugin, {
 
 app.register(agentRoutes, {
 	prefix: '/api/agent',
-});
-
-app.register(askSelectionRoutes, {
-	prefix: '/api/ask-selection',
 });
 
 app.register(testRoutes, {

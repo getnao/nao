@@ -38,6 +38,7 @@ export const DisplayChartToolCall = ({
 	const config = state !== 'input-streaming' ? input : undefined;
 	const [dataRange, setDataRange] = useState<DateRange>('all');
 	const storyIds = useMemo(() => findStoryIds(messages), [messages]);
+	const normalSize = useMemo(() => (document.querySelector('[data-selection-container]') ? true : false), []);
 
 	const addToStoryMutation = useMutation(
 		trpc.story.createVersion.mutationOptions({
@@ -173,7 +174,7 @@ export const DisplayChartToolCall = ({
 
 	return (
 		<div
-			className={`flex flex-col items-center my-4 gap-2 ${config.chart_type !== 'kpi_card' ? 'aspect-3/2' : ''}`}
+			className={`flex flex-col items-center my-4 gap-2 ${config.chart_type !== 'kpi_card' && !normalSize ? 'aspect-3/2' : ''}`}
 		>
 			<div className='flex w-full items-center justify-between'>
 				{config.chart_type != 'kpi_card' ? (

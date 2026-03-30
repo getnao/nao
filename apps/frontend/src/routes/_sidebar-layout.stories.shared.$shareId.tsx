@@ -127,8 +127,8 @@ function SharedStoryPage() {
 				)}
 			</header>
 
-			<SelectionProvider>
-				<HighlightBubble />
+			<SelectionProvider key={shareId} persistenceConfig={{ shareId, contentType: 'shared_story' }}>
+				<HighlightBubble shareId={shareId} contentType='shared_story' />
 				<SelectionChatPanel />
 				<SharedStoryContent
 					code={story.code}
@@ -176,7 +176,7 @@ function SharedStoryContent({
 
 	return (
 		<div className='flex-1 overflow-auto'>
-			<div className='max-w-5xl mx-auto p-4 md:p-8 flex flex-col gap-4'>
+			<div className='max-w-5xl mx-auto p-4 md:p-8 flex flex-col gap-4' data-selection-container>
 				<SegmentList segments={segments} renderChart={renderChart} renderTable={renderTable} />
 			</div>
 		</div>

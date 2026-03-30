@@ -1,7 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, useRouter } from '@tanstack/react-router';
-import { GitFork, Globe, Share } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { GitFork, Globe, Share } from 'lucide-react';
+import type { ForkMetadata } from '@nao/backend/chat';
 import { StoryOpenButton } from '@/components/story-open-button';
 import { StoryViewer } from '@/components/side-panel/story-viewer';
 import { ChatInput } from '@/components/chat-input';
@@ -37,6 +38,10 @@ export function RouteComponent() {
 
 	const sidePanel = useSidePanel({ containerRef, sidePanelRef });
 	const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
+
+	const isSelectionFork =
+		chat.data?.forkMetadata?.type === 'chat_selection' || chat.data?.forkMetadata?.type === 'story_selection';
+	const headerCitation = buildHeaderCitation(isSelectionFork ? chat.data?.forkMetadata : undefined);
 
 	useEffect(() => {
 		const openStoryId = router.state.location.state.openStoryId;
@@ -83,6 +88,12 @@ export function RouteComponent() {
 										{chat.data.forkMetadata.type === 'story' ? 'Story' : 'Chat'} thread from{' '}
 									</span>
 									<span className='text-xs text-foreground'>{chat.data.forkMetadata.authorName}</span>
+									{headerCitation && (
+										<span className='truncate'>
+											{' '}
+											— {headerCitation.citation}: &ldquo;{headerCitation.text}&rdquo;
+										</span>
+									)}
 								</Badge>
 							)}
 						</div>
@@ -135,4 +146,13 @@ export function RouteComponent() {
 			<ShareChatDialog open={isShareDialogOpen} onOpenChange={setIsShareDialogOpen} chatId={chatId} />
 		</SidePanelProvider>
 	);
+}
+
+function buildHeaderCitation(meta: ForkMetadata | undefined): { citation: string; text: string } | null {
+	if (!meta?.selectionText) {
+		return null;
+	}
+	const text = meta.selectionText.length > 20 ? `${meta.selectionText.slice(0, 20)}\u2026` : meta.selectionText;
+	const citation = `@chars ${meta.selectionStart}–${meta.selectionEnd}`;
+	return { citation, text };
 }

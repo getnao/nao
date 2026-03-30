@@ -1,11 +1,11 @@
-import { createContext, useCallback, useContext, useMemo } from 'react';
+import { createContext, useContext, useMemo } from 'react';
 import type { UIMessage } from '@nao/backend/chat';
 
-import type { AgentHelpers, SendMessageArgs } from '@/hooks/use-agent';
+import type { AgentHelpers } from '@/hooks/use-agent';
 import { useAgent, useSyncMessages } from '@/hooks/use-agent';
 import { useStreamEndSound } from '@/hooks/use-stream-end-sound';
 
-const AgentContext = createContext<AgentHelpers | null>(null);
+export const AgentContext = createContext<AgentHelpers | null>(null);
 
 export const useAgentContext = () => {
 	const agent = useContext(AgentContext);
@@ -19,10 +19,11 @@ export const useOptionalAgentContext = () => useContext(AgentContext);
 
 export interface Props {
 	children: React.ReactNode;
+	disableNavigation?: boolean;
 }
 
-export const AgentProvider = ({ children }: Props) => {
-	const agent = useAgent();
+export const AgentProvider = ({ children, disableNavigation }: Props) => {
+	const agent = useAgent({ disableNavigation });
 
 	useSyncMessages({ agent });
 	useStreamEndSound(agent.isRunning);
@@ -37,88 +38,29 @@ export const ReadonlyAgentMessagesProvider = ({
 	messages: UIMessage[];
 	children: React.ReactNode;
 }) => {
-	const value = useMemo<AgentHelpers>(() => {
-		const noopPromise = async () => {};
-		const noop = () => {};
-
-		const setMessages: AgentHelpers['setMessages'] = () => {};
-		const queueOrSendMessage: AgentHelpers['queueOrSendMessage'] = noopPromise;
-		const editMessage: AgentHelpers['editMessage'] = noopPromise;
-		const submitQueuedMessageNow: AgentHelpers['submitQueuedMessageNow'] = noopPromise;
-		const stopAgent: AgentHelpers['stopAgent'] = noopPromise;
-		const clearError: AgentHelpers['clearError'] = noop;
-		const setSelectedModel: AgentHelpers['setSelectedModel'] = () => {};
-		const setMentions: AgentHelpers['setMentions'] = noop;
-
-		return {
+	const value = useMemo<AgentHelpers>(
+		() => ({
+			chatId: undefined,
 			messages,
-			setMessages,
-			queueOrSendMessage,
-			editMessage,
-			submitQueuedMessageNow,
+			setMessages: noop,
+			queueOrSendMessage: noopPromise,
+			editMessage: noopPromise,
+			submitQueuedMessageNow: noopPromise,
 			status: 'ready',
 			isRunning: false,
 			isLoadingMessages: false,
-			stopAgent,
+			stopAgent: noopPromise,
 			error: undefined,
-			clearError,
+			clearError: noop,
 			selectedModel: null,
-			setSelectedModel,
-			setMentions,
-		};
-	}, [messages]);
-
-	return <AgentContext.Provider value={value}>{children}</AgentContext.Provider>;
-};
-
-export const SelectionAgentProvider = ({
-	children,
-	messages,
-	isRunning,
-	status,
-	sendMessage,
-	stopAgent,
-	selectedModel,
-	setSelectedModel,
-	setMentions,
-}: {
-	children: React.ReactNode;
-	messages: UIMessage[];
-	isRunning: boolean;
-	status: AgentHelpers['status'];
-	sendMessage: (args: SendMessageArgs) => Promise<void>;
-	stopAgent: () => void;
-	selectedModel: AgentHelpers['selectedModel'];
-	setSelectedModel: AgentHelpers['setSelectedModel'];
-	setMentions: AgentHelpers['setMentions'];
-}) => {
-	const setSelectedModelDispatch = useCallback<AgentHelpers['setSelectedModel']>(
-		(v) => setSelectedModel(v),
-		[setSelectedModel],
-	);
-
-	const value = useMemo<AgentHelpers>(
-		() => ({
-			messages,
-			setMessages: () => {},
-			queueOrSendMessage: sendMessage,
-			editMessage: async () => {},
-			submitQueuedMessageNow: async () => {},
-			status,
-			isRunning,
-			isLoadingMessages: false,
-			stopAgent: () => {
-				stopAgent();
-				return Promise.resolve();
-			},
-			error: undefined,
-			clearError: () => {},
-			selectedModel,
-			setSelectedModel: setSelectedModelDispatch,
-			setMentions,
+			setSelectedModel: noop,
+			setMentions: noop,
 		}),
-		[messages, isRunning, status, sendMessage, stopAgent, selectedModel, setSelectedModelDispatch, setMentions],
+		[messages],
 	);
 
 	return <AgentContext.Provider value={value}>{children}</AgentContext.Provider>;
 };
+
+const noop = () => {};
+const noopPromise = async () => {};

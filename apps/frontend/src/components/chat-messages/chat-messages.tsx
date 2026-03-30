@@ -98,7 +98,7 @@ export const ChatMessagesContent = memo(() => {
 							userMessage={group.userMessage}
 							assistantMessages={group.assistantMessages}
 							showLoader={showThinkingLoader && isLast(group, messageGroups)}
-							isLastMessage={(messageId) => messageId === messages.at(-1)?.id}
+							isLastMessage={(messageId) => messageId === visibleMessages.at(-1)?.id}
 							isRunning={isRunning}
 						/>
 					))

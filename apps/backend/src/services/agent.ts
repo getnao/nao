@@ -542,14 +542,23 @@ class AgentManager {
 
 	private async _appendForkContext(prompt: string): Promise<string> {
 		const fork = this.chat.forkMetadata;
-		if (!fork || fork.type !== 'story') {
+		if (!fork) {
 			return prompt;
 		}
-		const latestVersion = await storyQueries.getLatestVersion(this.chat.id, fork.id);
-		if (!latestVersion) {
-			return prompt;
+
+		if (fork.type === 'story') {
+			const latestVersion = await storyQueries.getLatestVersion(this.chat.id, fork.id);
+			if (!latestVersion) {
+				return prompt;
+			}
+			return `${prompt}\n\n---\n\nThe user is discussing the following story titled **"${latestVersion.title}"** by ${fork.authorName}. Use it as context when answering questions.\n\n${latestVersion.code}`;
 		}
-		return `${prompt}\n\n---\n\nThe user is discussing the following story titled **"${latestVersion.title}"** by ${fork.authorName}. Use it as context when answering questions.\n\n${latestVersion.code}`;
+
+		if ((fork.type === 'chat_selection' || fork.type === 'story_selection') && fork.selectionText) {
+			return `${prompt}\n\n---\n\nThe user is asking about the following passage selected from **"${fork.title}"** by ${fork.authorName}. Keep this selection as your primary focus when answering.\n\n> ${fork.selectionText}`;
+		}
+
+		return prompt;
 	}
 
 	private _addStoryMode(messages: UIMessage[], mentions?: Mention[]): UIMessage[] {

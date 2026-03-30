@@ -13,10 +13,13 @@ import { MessageFeedback } from '../db/abstractSchema';
 import { llmProviderSchema } from './llm';
 
 export interface ForkMetadata {
-	type: 'chat' | 'story';
+	type: 'chat' | 'chat_selection' | 'story' | 'story_selection';
 	id: string;
 	title: string;
 	authorName: string;
+	selectionStart?: number;
+	selectionEnd?: number;
+	selectionText?: string;
 }
 
 export interface UIChat {

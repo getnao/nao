@@ -35,6 +35,7 @@ function SharedChatPage() {
 
 	const containerRef = useRef<HTMLDivElement>(null);
 	const sidePanelRef = useRef<HTMLDivElement>(null);
+	const contentAreaRef = useRef<HTMLDivElement>(null);
 	const sidePanel = useSidePanel({ containerRef, sidePanelRef });
 
 	if (chatQuery.isLoading) {
@@ -95,11 +96,17 @@ function SharedChatPage() {
 						)}
 					</header>
 
-					<SelectionProvider>
-						<HighlightBubble />
-						<SelectionChatPanel />
+					<SelectionProvider key={shareId} persistenceConfig={{ shareId, contentType: 'shared_chat' }}>
+						<HighlightBubble shareId={shareId} contentType='shared_chat' />
+						<SelectionChatPanel contentAreaRef={contentAreaRef} />
 						<div className='flex flex-1 min-h-0 min-w-0'>
-							<ChatMessagesReadonly className='flex-1' messages={chat.messages} />
+							<div ref={contentAreaRef} className='flex-1 min-w-0'>
+								<ChatMessagesReadonly
+									className='h-full'
+									messages={chat.messages}
+									forkMetadata={chat.forkMetadata}
+								/>
+							</div>
 
 							{sidePanel.content && (
 								<SidePanel
