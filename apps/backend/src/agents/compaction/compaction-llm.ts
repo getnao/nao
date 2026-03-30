@@ -6,6 +6,7 @@ import { ITokenCounter } from '../../services/token-counter';
 import { CompactionResult, ICompactionLLM } from '../../types/compaction';
 import { convertToTokenUsage, selectMessagesInBudget } from '../../utils/ai';
 import { debugCompaction } from '../../utils/debug';
+import { stripImageParts } from '../../utils/model-message';
 import { type ProviderModelResult } from '../providers';
 
 const MAX_OUTPUT_TOKENS = 16_000;
@@ -36,7 +37,8 @@ export class CompactionLLM implements ICompactionLLM {
 
 	private _buildModelMessages(messages: ModelMessage[]): ModelMessage[] {
 		const budget = this._getTokenBudget();
-		const selectedMessages = selectMessagesInBudget(messages, budget, this._tc);
+		const textOnlyMessages = stripImageParts(messages);
+		const selectedMessages = selectMessagesInBudget(textOnlyMessages, budget, this._tc);
 		const modelMessages = this._composeMessages(selectedMessages);
 
 		debugCompaction('message selection', {

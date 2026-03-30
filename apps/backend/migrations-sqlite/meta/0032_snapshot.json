@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "f7413d8c-a401-4765-92f1-887ab669d3a4",
+  "id": "15e13d53-cc7f-45f4-8855-0f566962b5da",
   "prevId": "6aede596-1a65-4938-9595-091744931ad6",
   "tables": {
     "account": {
@@ -1169,19 +1169,19 @@
       "checkConstraints": {
         "text_required_if_type_is_text": {
           "name": "text_required_if_type_is_text",
-          "value": "CASE WHEN \"message_part\".\"type\" = 'text' THEN \"message_part\".\"text\" IS NOT NULL ELSE TRUE END"
+          "value": "CASE WHEN type = 'text' THEN text IS NOT NULL ELSE TRUE END"
         },
         "reasoning_text_required_if_type_is_reasoning": {
           "name": "reasoning_text_required_if_type_is_reasoning",
-          "value": "CASE WHEN \"message_part\".\"type\" = 'reasoning' THEN \"message_part\".\"reasoning_text\" IS NOT NULL ELSE TRUE END"
+          "value": "CASE WHEN type = 'reasoning' THEN reasoning_text IS NOT NULL ELSE TRUE END"
         },
         "tool_call_fields_required": {
           "name": "tool_call_fields_required",
-          "value": "CASE WHEN \"message_part\".\"type\" LIKE 'tool-%' THEN \"message_part\".\"tool_call_id\" IS NOT NULL AND \"message_part\".\"tool_state\" IS NOT NULL ELSE TRUE END"
+          "value": "CASE WHEN type LIKE 'tool-%' THEN tool_call_id IS NOT NULL AND tool_state IS NOT NULL ELSE TRUE END"
         },
         "file_fields_required": {
           "name": "file_fields_required",
-          "value": "CASE WHEN \"message_part\".\"type\" = 'file' THEN \"message_part\".\"media_type\" IS NOT NULL AND \"message_part\".\"image_id\" IS NOT NULL ELSE TRUE END"
+          "value": "CASE WHEN type = 'file' THEN media_type IS NOT NULL ELSE TRUE END"
         }
       }
     },
@@ -1525,7 +1525,7 @@
       "checkConstraints": {
         "local_project_path_required": {
           "name": "local_project_path_required",
-          "value": "CASE WHEN \"project\".\"type\" = 'local' THEN \"project\".\"path\" IS NOT NULL ELSE TRUE END"
+          "value": "CASE WHEN \"type\" = 'local' THEN \"path\" IS NOT NULL ELSE TRUE END"
         }
       }
     },

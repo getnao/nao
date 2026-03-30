@@ -1,5 +1,5 @@
 {
-  "id": "908e275e-9544-4ea0-8205-48b7f8823143",
+  "id": "2d66e464-a941-4127-9d09-1ea87d9bf46d",
   "prevId": "fd5ed60a-4988-4022-8884-488ea74ebbab",
   "version": "7",
   "dialect": "postgresql",
@@ -1611,7 +1611,7 @@
       "checkConstraints": {
         "local_project_path_required": {
           "name": "local_project_path_required",
-          "value": "CASE WHEN \"project\".\"type\" = 'local' THEN \"project\".\"path\" IS NOT NULL ELSE TRUE END"
+          "value": "CASE WHEN \"type\" = 'local' THEN \"path\" IS NOT NULL ELSE TRUE END"
         }
       },
       "isRLSEnabled": false

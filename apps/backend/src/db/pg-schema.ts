@@ -155,10 +155,7 @@ export const project = pgTable(
 			.notNull(),
 	},
 	(t) => [
-		check(
-			'local_project_path_required',
-			sql`CASE WHEN ${t.type} = 'local' THEN ${t.path} IS NOT NULL ELSE TRUE END`,
-		),
+		check('local_project_path_required', sql`CASE WHEN "type" = 'local' THEN "path" IS NOT NULL ELSE TRUE END`),
 		index('project_orgId_idx').on(t.orgId),
 	],
 );

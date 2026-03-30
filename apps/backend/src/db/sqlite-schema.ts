@@ -163,10 +163,7 @@ export const project = sqliteTable(
 			.notNull(),
 	},
 	(t) => [
-		check(
-			'local_project_path_required',
-			sql`CASE WHEN ${t.type} = 'local' THEN ${t.path} IS NOT NULL ELSE TRUE END`,
-		),
+		check('local_project_path_required', sql`CASE WHEN "type" = 'local' THEN "path" IS NOT NULL ELSE TRUE END`),
 		index('project_orgId_idx').on(t.orgId),
 	],
 );
@@ -289,22 +286,16 @@ export const messagePart = sqliteTable(
 	(t) => [
 		index('parts_message_id_idx').on(t.messageId),
 		index('parts_message_id_order_idx').on(t.messageId, t.order),
-		check(
-			'text_required_if_type_is_text',
-			sql`CASE WHEN ${t.type} = 'text' THEN ${t.text} IS NOT NULL ELSE TRUE END`,
-		),
+		check('text_required_if_type_is_text', sql`CASE WHEN type = 'text' THEN text IS NOT NULL ELSE TRUE END`),
 		check(
 			'reasoning_text_required_if_type_is_reasoning',
-			sql`CASE WHEN ${t.type} = 'reasoning' THEN ${t.reasoningText} IS NOT NULL ELSE TRUE END`,
+			sql`CASE WHEN type = 'reasoning' THEN reasoning_text IS NOT NULL ELSE TRUE END`,
 		),
 		check(
 			'tool_call_fields_required',
-			sql`CASE WHEN ${t.type} LIKE 'tool-%' THEN ${t.toolCallId} IS NOT NULL AND ${t.toolState} IS NOT NULL ELSE TRUE END`,
+			sql`CASE WHEN type LIKE 'tool-%' THEN tool_call_id IS NOT NULL AND tool_state IS NOT NULL ELSE TRUE END`,
 		),
-		check(
-			'file_fields_required',
-			sql`CASE WHEN ${t.type} = 'file' THEN ${t.mediaType} IS NOT NULL AND ${t.imageId} IS NOT NULL ELSE TRUE END`,
-		),
+		check('file_fields_required', sql`CASE WHEN type = 'file' THEN media_type IS NOT NULL ELSE TRUE END`),
 	],
 );
 

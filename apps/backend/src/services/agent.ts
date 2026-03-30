@@ -35,7 +35,6 @@ import { Provider } from '../types/messaging-provider';
 import { ToolContext } from '../types/tools';
 import { convertToCost, convertToTokenUsage, findLastUserMessage, getLastUserMessageText } from '../utils/ai';
 import { HandlerError } from '../utils/error';
-import { buildImageDataUrl } from '../utils/image';
 import {
 	getDefaultModelId,
 	getEnvModelSelections,
@@ -201,26 +200,26 @@ class AgentManager {
 	}
 
 	private async _prepareStep(messages: ModelMessage[]): Promise<{ messages: ModelMessage[] }> {
-		await compactionService.compactConversationIfNeeded({
-			chat: this.chat,
-			provider: this._modelSelection.provider,
-			messages,
-			tools: this._agentTools,
-			maxOutputTokens: MAX_OUTPUT_TOKENS,
-			contextWindow: this._modelConfig.contextWindow,
-			onCompactionStarted: () => {
-				this._streamWriter?.write({
-					type: 'data-compactionSummaryStarted',
-					data: undefined,
-				});
-			},
-			onCompactionFinished: (result) => {
-				this._streamWriter?.write({
-					type: 'data-compaction',
-					data: result,
-				});
-			},
-		});
+		// await compactionService.compactConversationIfNeeded({
+		// 	chat: this.chat,
+		// 	provider: this._modelSelection.provider,
+		// 	messages,
+		// 	tools: this._agentTools,
+		// 	maxOutputTokens: MAX_OUTPUT_TOKENS,
+		// 	contextWindow: this._modelConfig.contextWindow,
+		// 	onCompactionStarted: () => {
+		// 		this._streamWriter?.write({
+		// 			type: 'data-compactionSummaryStarted',
+		// 			data: undefined,
+		// 		});
+		// 	},
+		// 	onCompactionFinished: (result) => {
+		// 		this._streamWriter?.write({
+		// 			type: 'data-compaction',
+		// 			data: result,
+		// 		});
+		// 	},
+		// });
 
 		return { messages: this._addCache(this._pruneMessages(messages)) };
 	}
@@ -236,6 +235,14 @@ class AgentManager {
 	): ReadableStream<InferUIMessageChunk<UIMessage>> {
 		let error: unknown = undefined;
 		let result: StreamTextResult<AgentTools, never> | undefined;
+
+		const debugWriteMessages = async (uiMessages: UIMessage[]) => {
+			const { writeFile } = await import('node:fs/promises');
+			const path = new URL('debug-ui-messages.json', `file://${process.cwd()}/`).pathname;
+			await writeFile(path, JSON.stringify(uiMessages, null, 2));
+			console.log(`[debug] wrote ${uiMessages.length} uiMessages to ${path}`);
+		};
+		debugWriteMessages(uiMessages);
 
 		return createUIMessageStream<UIMessage>({
 			generateId: () => crypto.randomUUID(),
@@ -643,8 +650,13 @@ const IMAGE_URL_PATTERN = /^\/i\/([a-f0-9-]+)$/;
 type MessageLike = Omit<UIMessage, 'id'>;
 
 /**
- * Replaces server image URLs (/i/{id}) with data URLs so the model provider
- * receives the actual image content without a circular HTTP fetch.
+ * Replaces server-relative image URLs (/i/{id}) with raw base64 data so the
+ * model provider receives the actual image content inline.
+ *
+ * The AI SDK's `convertToModelMessages` maps `FileUIPart.url` → `FilePart.data`.
+ * A data-URL string (data:…) would be misinterpreted as a downloadable URL,
+ * so we pass the plain base64 string instead — the mediaType is already a
+ * separate field on the part.
  */
 async function resolveImageUrls<T extends MessageLike>(messages: T[]): Promise<T[]> {
 	const imageIds = new Set<string>();
@@ -663,12 +675,12 @@ async function resolveImageUrls<T extends MessageLike>(messages: T[]): Promise<T
 		return messages;
 	}
 
-	const imageDataMap = new Map<string, { data: string; mediaType: string }>();
+	const imageDataMap = new Map<string, string>();
 	await Promise.all(
 		[...imageIds].map(async (id) => {
 			const image = await imageQueries.getImageById(id);
 			if (image) {
-				imageDataMap.set(id, image);
+				imageDataMap.set(id, image.data);
 			}
 		}),
 	);
@@ -683,13 +695,14 @@ async function resolveImageUrls<T extends MessageLike>(messages: T[]): Promise<T
 			if (!match) {
 				return part;
 			}
-			const imageData = imageDataMap.get(match[1]);
-			if (!imageData) {
+			const base64Data = imageDataMap.get(match[1]);
+			console.log(`[debug] base64Data for ${match[1]}: ${base64Data}`);
+			if (!base64Data) {
 				return part;
 			}
 			return {
 				...part,
-				url: buildImageDataUrl(imageData.mediaType, imageData.data),
+				url: base64Data,
 			};
 		}),
 	}));
