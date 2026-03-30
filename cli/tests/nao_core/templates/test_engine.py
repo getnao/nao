@@ -434,6 +434,33 @@ class TestGetTemplateEngine:
 
         assert engine1 is engine2
 
+    def test_creates_new_engine_when_bedrock_region_changes(self):
+        """get_template_engine should invalidate cache when bedrock region changes."""
+        import nao_core.templates.engine as engine_module
+
+        engine_module._engine = None
+        engine_module._engine_signature = None
+
+        llm1 = LLMConfig(
+            provider=LLMProvider.BEDROCK,
+            annotation_model="anthropic.claude-3-5-sonnet-20241022-v2:0",
+            access_key="AKIA_TEST",
+            secret_key="SECRET_TEST",
+            aws_region="us-east-1",
+        )
+        llm2 = LLMConfig(
+            provider=LLMProvider.BEDROCK,
+            annotation_model="anthropic.claude-3-5-sonnet-20241022-v2:0",
+            access_key="AKIA_TEST",
+            secret_key="SECRET_TEST",
+            aws_region="eu-west-1",
+        )
+
+        engine1 = get_template_engine(llm_config=llm1)
+        engine2 = get_template_engine(llm_config=llm2)
+
+        assert engine1 is not engine2
+
 
 class TestDefaultTemplatesDir:
     """Tests for the DEFAULT_TEMPLATES_DIR constant."""

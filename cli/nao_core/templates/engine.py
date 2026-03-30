@@ -352,18 +352,25 @@ class TemplateEngine:
 
 # Global template engine instance (lazily initialized)
 _engine: TemplateEngine | None = None
-_engine_signature: tuple[str | None, str | None, str | None, str | None, str | None] | None = None
+_engine_signature: tuple[str | None, ...] | None = None
 
 
-def _llm_signature(llm_config: LLMConfig | None) -> tuple[str | None, str | None, str | None, str | None]:
+def _llm_signature(llm_config: LLMConfig | None) -> tuple[str | None, ...]:
     """Return a tuple of LLM config values used as a cache key for the template engine."""
     if not llm_config:
-        return (None, None, None, None)
+        return (None,) * 11
     return (
         llm_config.provider.value,
         llm_config.annotation_model,
         llm_config.base_url,
         llm_config.api_key,
+        llm_config.access_key,
+        llm_config.secret_key,
+        llm_config.aws_region,
+        llm_config.gcp_project,
+        llm_config.gcp_location,
+        llm_config.service_account_json,
+        llm_config.key_file,
     )
 
 
