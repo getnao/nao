@@ -120,6 +120,7 @@ export function TableDisplay({
 						setPageSize(size);
 						setPageIndex(0);
 					}}
+					showRowCount={showRowCount}
 				/>
 			) : showRowCount ? (
 				<div className='flex justify-end px-1'>
@@ -137,6 +138,7 @@ function TablePagination({
 	pageCount,
 	onPageChange,
 	onPageSizeChange,
+	showRowCount,
 }: {
 	totalRows: number;
 	pageIndex: number;
@@ -144,13 +146,14 @@ function TablePagination({
 	pageCount: number;
 	onPageChange: (page: number) => void;
 	onPageSizeChange: (size: number) => void;
+	showRowCount: boolean;
 }) {
 	const canPrevious = pageIndex > 0;
 	const canNext = pageIndex < pageCount - 1;
 
 	return (
 		<div className='flex items-center justify-between px-1'>
-			<span className='text-xs text-muted-foreground'>{totalRows} rows</span>
+			{showRowCount && <span className='text-xs text-muted-foreground'>{totalRows} rows</span>}
 
 			<div className='flex items-center gap-2'>
 				<div className='flex items-center gap-1.5'>
