@@ -7,6 +7,7 @@ import { ExecuteSandboxedCodeToolCall } from './execute-sandboxed-code';
 import { ExecuteSqlToolCall } from './execute-sql';
 import { GrepToolCall } from './grep';
 import { ListToolCall } from './list';
+import { McpToolCall } from './mcp';
 import { ReadToolCall } from './read';
 import { SearchToolCall } from './search';
 import { WebFetchToolCall } from './web-fetch';
@@ -15,6 +16,7 @@ import type { StaticToolName, UIToolPart } from '@nao/backend/chat';
 import { getToolName, isToolSettled } from '@/lib/ai';
 import { ToolCallProvider } from '@/contexts/tool-call';
 import { useAssistantMessage } from '@/contexts/assistant-message';
+import { useMcpContext } from '@/contexts/mcp';
 
 export type ToolCallComponentProps<TToolName extends StaticToolName | undefined = undefined> = {
 	toolPart: UIToolPart<TToolName>;
@@ -42,16 +44,27 @@ const dynamicToolComponents: Record<string, React.ComponentType<ToolCallComponen
 
 export const ToolCall = memo(({ toolPart }: { toolPart: UIToolPart }) => {
 	const { isSettled: isMessageSettled } = useAssistantMessage();
+	const { mcpState } = useMcpContext();
+	const mcpServerNames = mcpState ? Object.keys(mcpState) : [];
+
 	if (toolPart.type === 'tool-suggest_follow_ups') {
 		return null;
 	}
 
 	const toolName = getToolName(toolPart);
+	const isMcpTool = mcpServerNames.some((server) => toolName.startsWith(`${server}`));
+
 	const Component =
 		(toolComponents[toolName as StaticToolName] as React.ComponentType<ToolCallComponentProps> | undefined) ??
 		dynamicToolComponents[toolName];
 
-	const Rendered = Component ? <Component toolPart={toolPart} /> : <DefaultToolCall toolPart={toolPart} />;
+	const Rendered = Component ? (
+		<Component toolPart={toolPart} />
+	) : isMcpTool ? (
+		<McpToolCall toolPart={toolPart} />
+	) : (
+		<DefaultToolCall toolPart={toolPart} />
+	);
 
 	return (
 		<ToolCallProvider

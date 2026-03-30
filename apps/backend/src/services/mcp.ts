@@ -1,5 +1,6 @@
 import type { Tool } from '@ai-sdk/provider-utils';
 import { debounce } from '@nao/shared';
+import { mcpJsonSchema, McpServerConfig, McpServerState } from '@nao/shared';
 import { jsonSchema, type JSONSchema7 } from 'ai';
 import { existsSync, readFileSync, watch } from 'fs';
 import { createRuntime, type Runtime, ServerDefinition, ServerToolInfo } from 'mcporter';
@@ -7,7 +8,6 @@ import { join } from 'path';
 
 import * as mcpConfigQueries from '../queries/project.queries';
 import { retrieveProjectById } from '../queries/project.queries';
-import { mcpJsonSchema, McpServerConfig, McpServerState } from '../types/mcp';
 import { logger } from '../utils/logger';
 import { prefixToolName, removePrefixToolName, sanitizeTools } from '../utils/tools';
 import { replaceEnvVars } from '../utils/utils';

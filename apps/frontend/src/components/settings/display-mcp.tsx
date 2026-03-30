@@ -1,12 +1,13 @@
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
 import { ChevronDown, ChevronUp } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { SettingsCard } from '../ui/settings-card';
 import { trpc } from '@/main';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
+import { useMcpContext } from '@/contexts/mcp';
 
 interface Props {
 	isAdmin: boolean;
@@ -22,35 +23,28 @@ const estimateToolTokens = (tool: { name: string; description?: string; input_sc
 };
 
 export function McpSettings({ isAdmin }: Props) {
-	const mcpState = useQuery({
-		...trpc.mcp.getState.queryOptions(),
-		refetchOnMount: 'always',
-	});
+	const { mcpState, fetchMcpState } = useMcpContext();
 	const [expandedServers, setExpandedServers] = useState<string[]>([]);
+
+	useEffect(() => {
+		fetchMcpState();
+	}, [fetchMcpState]);
 
 	const reconnectMutation = useMutation(
 		trpc.mcp.reconnect.mutationOptions({
-			onSuccess: (data, _, __, ctx) => {
-				ctx.client.setQueryData(trpc.mcp.getState.queryKey(), () => {
-					return data;
-				});
-			},
+			onSuccess: () => fetchMcpState(),
 		}),
 	);
 
 	const toggleToolMutation = useMutation(
 		trpc.mcp.toggleTool.mutationOptions({
-			onSuccess: (data, _, __, ctx) => {
-				ctx.client.setQueryData(trpc.mcp.getState.queryKey(), () => data);
-			},
+			onSuccess: () => fetchMcpState(),
 		}),
 	);
 
 	const setAllServerToolsMutation = useMutation(
 		trpc.mcp.setAllServerTools.mutationOptions({
-			onSuccess: (data, _, __, ctx) => {
-				ctx.client.setQueryData(trpc.mcp.getState.queryKey(), () => data);
-			},
+			onSuccess: () => fetchMcpState(),
 		}),
 	);
 
@@ -76,7 +70,7 @@ export function McpSettings({ isAdmin }: Props) {
 		setAllServerToolsMutation.mutate({ serverName, enabled });
 	};
 
-	const mcpEntries = mcpState.data ? Object.entries(mcpState.data) : [];
+	const mcpEntries = mcpState ? Object.entries(mcpState) : [];
 
 	return (
 		<SettingsCard
@@ -96,7 +90,7 @@ export function McpSettings({ isAdmin }: Props) {
 				)
 			}
 		>
-			{mcpState.isLoading ? (
+			{mcpState === undefined ? (
 				<div className='text-sm text-muted-foreground'>Loading MCP servers...</div>
 			) : mcpEntries.length === 0 ? (
 				<div className='text-sm text-muted-foreground py-4 text-center'>
