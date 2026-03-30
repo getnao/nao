@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { signOut, useSession } from '@/lib/auth-client';
 import { SettingsVersionInfo } from '@/components/settings/version-info';
 import { ModifyUserForm } from '@/components/settings/modify-user-form';
-import { useGetSigninLocation } from '@/hooks/useGetSigninLocation';
+import { useAuthRoute } from '@/hooks/use-auth-route';
 import { UserProfileCard } from '@/components/settings/profile-card';
 import { useUserPageContext } from '@/contexts/user.provider';
 import { useLocalStorage } from '@/hooks/use-local-storage';
@@ -27,7 +27,7 @@ function GeneralPage() {
 	const [soundEnabled, setSoundEnabled] = useLocalStorage(soundNotificationStorage);
 
 	const isAdmin = project.data?.userRole === 'admin';
-	const navigation = useGetSigninLocation();
+	const navigation = useAuthRoute();
 
 	const { setIsModifyUserFormOpen, setUserInfo, setError } = useUserPageContext();
 

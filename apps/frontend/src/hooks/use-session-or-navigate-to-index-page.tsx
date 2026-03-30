@@ -2,19 +2,27 @@ import { useEffect } from 'react';
 import { useNavigate, useRouterState } from '@tanstack/react-router';
 
 import { useSession } from '@/lib/auth-client';
-import { useGetSigninLocation } from '@/hooks/useGetSigninLocation';
+import { useAuthRoute } from '@/hooks/use-auth-route';
 
-const PUBLIC_ROUTES = ['/login', '/forgot-password', '/reset-password'];
+const AUTH_ROUTES = ['/login', '/forgot-password', '/reset-password'];
 
-export const useSessionOrNavigateToLoginPage = () => {
+export const useSessionOrNavigateToIndexPage = () => {
 	const navigate = useNavigate();
 	const session = useSession();
-	const navigation = useGetSigninLocation();
+	const navigation = useAuthRoute();
 	const pathname = useRouterState({ select: (s) => s.location.pathname });
 
 	useEffect(() => {
-		if (!session.isPending && !session.data && !PUBLIC_ROUTES.includes(pathname)) {
+		if (session.isPending) {
+			return;
+		}
+
+		if (!session.data && !AUTH_ROUTES.includes(pathname)) {
 			navigate({ to: navigation });
+		}
+
+		if (session.data && (AUTH_ROUTES.includes(pathname) || pathname === '/signup')) {
+			navigate({ to: '/' });
 		}
 	}, [session.isPending, session.data, navigate, navigation, pathname]);
 

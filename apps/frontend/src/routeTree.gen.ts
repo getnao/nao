@@ -687,7 +687,8 @@ interface SidebarLayoutSettingsRouteChildren {
 
 const SidebarLayoutSettingsRouteChildren: SidebarLayoutSettingsRouteChildren = {
   SidebarLayoutSettingsChatsReplayRoute: SidebarLayoutSettingsChatsReplayRoute,
-  SidebarLayoutSettingsContextExplorerRoute: SidebarLayoutSettingsContextExplorerRoute,
+  SidebarLayoutSettingsContextExplorerRoute:
+    SidebarLayoutSettingsContextExplorerRoute,
   SidebarLayoutSettingsGeneralRoute: SidebarLayoutSettingsGeneralRoute,
   SidebarLayoutSettingsLogsRoute: SidebarLayoutSettingsLogsRoute,
   SidebarLayoutSettingsMemoryRoute: SidebarLayoutSettingsMemoryRoute,
