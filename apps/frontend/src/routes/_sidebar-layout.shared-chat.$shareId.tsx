@@ -13,7 +13,7 @@ import { trpc } from '@/main';
 import { ReadonlyAgentMessagesProvider } from '@/contexts/agent.provider';
 import { useSidePanel } from '@/hooks/use-side-panel';
 import { SidePanelProvider } from '@/contexts/side-panel';
-import { SelectionProvider } from '@/contexts/selection';
+import { SelectionProvider } from '@/contexts/text-selection';
 
 export const Route = createFileRoute('/_sidebar-layout/shared-chat/$shareId')({
 	component: SharedChatPage,

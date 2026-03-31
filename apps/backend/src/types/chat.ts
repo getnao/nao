@@ -12,6 +12,13 @@ import { getTools, tools } from '../agents/tools';
 import { MessageFeedback } from '../db/abstractSchema';
 import { llmProviderSchema } from './llm';
 
+export interface ForkedMetadata {
+	type: 'chat' | 'story';
+	id: string;
+	title: string;
+	authorName: string;
+}
+
 export interface ForkMetadata {
 	type: 'chat' | 'chat_selection' | 'story' | 'story_selection';
 	id: string;

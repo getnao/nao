@@ -5,9 +5,9 @@ import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
-import { forkSharedStoryFromSelection, forkStory } from '../services/fork-chat.service';
 import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../services/live-story';
 import { notifySharedItemRecipients } from '../utils/email';
+import { forkSharedStoryFromSelection, forkStory } from '../utils/fork-chat';
 import { extractStorySummary } from '../utils/story-summary';
 import { projectProtectedProcedure, protectedProcedure } from './trpc';
 

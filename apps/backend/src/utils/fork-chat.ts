@@ -2,8 +2,8 @@ import * as chatQueries from '../queries/chat.queries';
 import * as sharedChatQueries from '../queries/shared-chat.queries';
 import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
-import type { ForkMetadata, UIMessage, UIMessagePart } from '../types/chat';
-import { compactionService } from './compaction';
+import { compactionService } from '../services/compaction';
+import type { ForkedMetadata, ForkMetadata, UIMessage, UIMessagePart } from '../types/chat';
 
 export interface SelectionInfo {
 	start: number;
@@ -25,7 +25,7 @@ export async function forkChat(opts: {
 			projectId: opts.projectId,
 			userId: opts.userId,
 			title: opts.forkMetadata?.title,
-			forkMetadata: opts.forkMetadata,
+			forkMetadata: opts.forkMetadata as ForkedMetadata | undefined,
 		},
 		seededMessages,
 	);
@@ -121,7 +121,12 @@ export async function forkSharedChatFromSelection(opts: {
 
 	const contextMessage = buildSelectionContextMessage(opts.title, opts.selection);
 	const savedChat = await chatQueries.createForkedChat(
-		{ projectId: opts.projectId, userId: opts.userId, title: opts.title, forkMetadata },
+		{
+			projectId: opts.projectId,
+			userId: opts.userId,
+			title: opts.title,
+			forkMetadata: forkMetadata as ForkedMetadata,
+		},
 		[...seededMessages, contextMessage],
 	);
 
@@ -155,7 +160,12 @@ export async function forkSharedStoryFromSelection(opts: {
 
 	const contextMessage = buildSelectionContextMessage(opts.title, opts.selection);
 	const savedChat = await chatQueries.createForkedChat(
-		{ projectId: opts.projectId, userId: opts.userId, title: opts.title, forkMetadata },
+		{
+			projectId: opts.projectId,
+			userId: opts.userId,
+			title: opts.title,
+			forkMetadata: forkMetadata as ForkedMetadata,
+		},
 		[...seededMessages, contextMessage],
 	);
 

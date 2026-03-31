@@ -4,7 +4,7 @@ import { sql } from 'drizzle-orm';
 import { check, index, integer, primaryKey, sqliteTable, text, unique } from 'drizzle-orm/sqlite-core';
 
 import { AgentSettings } from '../types/agent-settings';
-import { StopReason, ToolState, UIMessagePartType } from '../types/chat';
+import { ForkedMetadata, StopReason, ToolState, UIMessagePartType } from '../types/chat';
 import { LLM_INFERENCE_TYPES, LlmProvider } from '../types/llm';
 import { LOG_LEVELS, LOG_SOURCES } from '../types/log';
 import { MEMORY_CATEGORIES } from '../types/memory';
@@ -211,15 +211,7 @@ export const chat = sqliteTable(
 		teamsThreadId: text('teams_thread_id'),
 		telegramThreadId: text('telegram_thread_id'),
 		whatsappThreadId: text('whatsapp_thread_id'),
-		forkMetadata: text('fork_metadata', { mode: 'json' }).$type<{
-			type: 'chat' | 'chat_selection' | 'story' | 'story_selection';
-			id: string;
-			title: string;
-			authorName: string;
-			selectionStart?: number;
-			selectionEnd?: number;
-			selectionText?: string;
-		}>(),
+		forkMetadata: text('fork_metadata', { mode: 'json' }).$type<ForkedMetadata>(),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull(),

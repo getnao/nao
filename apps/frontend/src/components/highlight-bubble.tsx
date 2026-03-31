@@ -4,7 +4,7 @@ import { useMutation } from '@tanstack/react-query';
 
 import { Button } from './ui/button';
 import { Spinner } from './ui/spinner';
-import { useSelection } from '@/contexts/selection';
+import { useSelection } from '@/contexts/text-selection';
 import { trpc } from '@/main';
 
 export interface HighlightBubbleProps {

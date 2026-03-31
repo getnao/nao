@@ -10,7 +10,16 @@ import s, {
 } from '../db/abstractSchema';
 import { db } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
-import { ForkMetadata, ListChatResponse, StopReason, TokenUsage, UIChat, UIMessage, UIMessagePart } from '../types/chat';
+import {
+	ForkedMetadata,
+	ForkMetadata,
+	ListChatResponse,
+	StopReason,
+	TokenUsage,
+	UIChat,
+	UIMessage,
+	UIMessagePart
+} from '../types/chat';
 import { LlmProvider } from '../types/llm';
 import { convertDBPartToUIPart, mapUIPartsToDBParts } from '../utils/chat-message-part-mappings';
 import { getErrorMessage } from '../utils/utils';
@@ -499,16 +508,19 @@ export const getSelectionForksByShareId = async (
 		.execute();
 
 	return results
-		.filter((r) => r.forkMetadata?.selectionStart !== undefined)
-		.map((r) => ({
-			chatId: r.id,
-			selectionStart: r.forkMetadata!.selectionStart!,
-			selectionEnd: r.forkMetadata!.selectionEnd!,
-			selectionText: r.forkMetadata!.selectionText ?? '',
-		}));
+		.filter((r) => (r.forkMetadata as ForkMetadata | null)?.selectionStart !== undefined)
+		.map((r) => {
+			const meta = r.forkMetadata as ForkMetadata;
+			return {
+				chatId: r.id,
+				selectionStart: meta.selectionStart!,
+				selectionEnd: meta.selectionEnd!,
+				selectionText: meta.selectionText ?? '',
+			};
+		});
 };
 
-export const getForkMetadata = async (chatId: string): Promise<ForkMetadata | null> => {
+export const getForkMetadata = async (chatId: string): Promise<ForkedMetadata | null> => {
 	const [result] = await db
 		.select({ forkMetadata: s.chat.forkMetadata })
 		.from(s.chat)

@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import type React from 'react';
 
-import type { SelectionAnchor } from '@/contexts/selection';
+import type { SelectionAnchor } from '@/contexts/text-selection';
 import { AgentProvider } from '@/contexts/agent.provider';
 import { useChatQuery } from '@/queries/use-chat-query';
 import { Button } from '@/components/ui/button';
@@ -13,7 +13,7 @@ import { ChatInput } from '@/components/chat-input';
 import { ChatMessagesContent } from '@/components/chat-messages/chat-messages';
 import { Conversation, ConversationContent, ConversationScrollButton } from '@/components/ui/conversation';
 import { SetChatInputCallbackProvider } from '@/contexts/set-chat-input-callback';
-import { useSelection } from '@/contexts/selection';
+import { useSelection } from '@/contexts/text-selection';
 import { trpc } from '@/main';
 import { ChatIdContext } from '@/hooks/use-chat-id';
 import {

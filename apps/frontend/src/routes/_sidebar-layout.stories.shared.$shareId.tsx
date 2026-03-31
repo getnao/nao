@@ -17,7 +17,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { useSession } from '@/lib/auth-client';
 import { splitCodeIntoSegments } from '@/lib/story-segments';
 import { trpc } from '@/main';
-import { SelectionProvider } from '@/contexts/selection';
+import { SelectionProvider } from '@/contexts/text-selection';
 
 export const Route = createFileRoute('/_sidebar-layout/stories/shared/$shareId')({
 	component: SharedStoryPage,

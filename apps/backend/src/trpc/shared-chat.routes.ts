@@ -4,9 +4,9 @@ import { z } from 'zod/v4';
 import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as sharedChatQueries from '../queries/shared-chat.queries';
-import { forkChat, forkSharedChatFromSelection } from '../services/fork-chat.service';
 import { type UIChat } from '../types/chat';
 import { notifySharedItemRecipients } from '../utils/email';
+import { forkChat, forkSharedChatFromSelection } from '../utils/fork-chat';
 import { projectProtectedProcedure, protectedProcedure } from './trpc';
 
 export const sharedChatRoutes = {
@@ -181,7 +181,7 @@ export const sharedChatRoutes = {
 		return chatQueries.getSelectionForksByShareId(ctx.user.id, input.shareId, 'chat_selection');
 	}),
 
-	forkFromSelection: protectedProcedure
+	forkFromSelection: projectProtectedProcedure
 		.input(
 			z.object({
 				shareId: z.string(),
@@ -194,11 +194,6 @@ export const sharedChatRoutes = {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Shared chat not found.' });
 			}
 
-			const project = await projectQueries.getProjectByUserId(ctx.user.id);
-			if (!project || project.id !== share.projectId) {
-				throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this chat.' });
-			}
-
 			if (share.visibility === 'specific' && share.userId !== ctx.user.id) {
 				const hasAccess = await sharedChatQueries.canUserAccessSharedChat(share.id, ctx.user.id);
 				if (!hasAccess) {
@@ -208,7 +203,7 @@ export const sharedChatRoutes = {
 
 			return forkSharedChatFromSelection({
 				shareId: input.shareId,
-				projectId: project.id,
+				projectId: ctx.project.id,
 				userId: ctx.user.id,
 				selection: input.selection,
 				title: share.title,

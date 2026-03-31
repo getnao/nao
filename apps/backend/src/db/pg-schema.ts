@@ -15,7 +15,7 @@ import {
 } from 'drizzle-orm/pg-core';
 
 import { AgentSettings } from '../types/agent-settings';
-import { StopReason, ToolState, UIMessagePartType } from '../types/chat';
+import { ForkedMetadata, StopReason, ToolState, UIMessagePartType } from '../types/chat';
 import { LLM_INFERENCE_TYPES, LlmProvider } from '../types/llm';
 import { LOG_LEVELS, LOG_SOURCES } from '../types/log';
 import { MEMORY_CATEGORIES } from '../types/memory';
@@ -201,15 +201,7 @@ export const chat = pgTable(
 		teamsThreadId: text('teams_thread_id'),
 		telegramThreadId: text('telegram_thread_id'),
 		whatsappThreadId: text('whatsapp_thread_id'),
-		forkMetadata: jsonb('fork_metadata').$type<{
-			type: 'chat' | 'chat_selection' | 'story' | 'story_selection';
-			id: string;
-			title: string;
-			authorName: string;
-			selectionStart?: number;
-			selectionEnd?: number;
-			selectionText?: string;
-		}>(),
+		forkMetadata: jsonb('fork_metadata').$type<ForkedMetadata>(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()
