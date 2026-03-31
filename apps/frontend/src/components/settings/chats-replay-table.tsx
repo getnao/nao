@@ -2,7 +2,7 @@ import { ChevronDown } from 'lucide-react';
 import { flexRender } from '@tanstack/react-table';
 import type { Table } from '@tanstack/react-table';
 
-import { DataTablePagination } from '@/components/data-table-pagination';
+import { TablePagination } from '@/components/ui/table-pagination';
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
 
@@ -77,9 +77,14 @@ export function ChatsReplayTable<TData>({ table }: { table: Table<TData> }) {
 				</table>
 			</div>
 
-			<div className='shrink-0 border-t border-border px-4 py-2'>
-				<DataTablePagination table={table} />
-			</div>
+			<TablePagination
+				totalRows={table.getRowCount()}
+				pageIndex={table.getState().pagination.pageIndex}
+				pageSize={table.getState().pagination.pageSize}
+				pageCount={table.getPageCount()}
+				onPageChange={(p) => table.setPageIndex(p)}
+				onPageSizeChange={(s) => table.setPageSize(s)}
+			/>
 		</div>
 	);
 }

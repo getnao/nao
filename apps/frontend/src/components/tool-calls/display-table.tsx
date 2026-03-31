@@ -1,10 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { Button } from '@/components/ui/button';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-
-const PAGE_SIZE_OPTIONS = [20, 50, 100, 200];
+import { TablePagination } from '@/components/ui/table-pagination';
 
 type TableRow = Record<string, unknown>;
 
@@ -49,7 +45,7 @@ export function TableDisplay({
 		<div className={cn('flex min-h-0 flex-col gap-2', className)}>
 			{title ? <span className='text-sm font-medium'>{title}</span> : null}
 
-			<div className={cn('overflow-auto rounded-lg border bg-card/50', tableContainerClassName)}>
+			<div className={cn('overflow-auto rounded-lg border bg-card/50 min-h-0', tableContainerClassName)}>
 				<table className='w-full min-w-max border-collapse text-xs'>
 					<thead className='sticky top-0 z-10 border-b bg-panel'>
 						<tr>
@@ -120,101 +116,12 @@ export function TableDisplay({
 						setPageSize(size);
 						setPageIndex(0);
 					}}
-					showRowCount={showRowCount}
 				/>
 			) : showRowCount ? (
-				<div className='flex justify-end px-1'>
-					<span className='text-xs text-muted-foreground'>{data.length} rows</span>
+				<div className='flex justify-end px-2'>
+					<span className='text-sm text-muted-foreground'>{data.length} rows</span>
 				</div>
 			) : null}
-		</div>
-	);
-}
-
-function TablePagination({
-	totalRows,
-	pageIndex,
-	pageSize,
-	pageCount,
-	onPageChange,
-	onPageSizeChange,
-	showRowCount,
-}: {
-	totalRows: number;
-	pageIndex: number;
-	pageSize: number;
-	pageCount: number;
-	onPageChange: (page: number) => void;
-	onPageSizeChange: (size: number) => void;
-	showRowCount: boolean;
-}) {
-	const canPrevious = pageIndex > 0;
-	const canNext = pageIndex < pageCount - 1;
-
-	return (
-		<div className='flex items-center justify-between px-1'>
-			{showRowCount && <span className='text-xs text-muted-foreground'>{totalRows} rows</span>}
-
-			<div className='flex items-center gap-2'>
-				<div className='flex items-center gap-1.5'>
-					<span className='text-xs text-muted-foreground'>Rows per page</span>
-					<Select value={`${pageSize}`} onValueChange={(v) => onPageSizeChange(Number(v))}>
-						<SelectTrigger size='sm' variant='default' className='h-6 text-xs'>
-							<SelectValue />
-						</SelectTrigger>
-						<SelectContent align='end'>
-							{PAGE_SIZE_OPTIONS.map((size) => (
-								<SelectItem key={size} value={`${size}`}>
-									{size}
-								</SelectItem>
-							))}
-						</SelectContent>
-					</Select>
-				</div>
-
-				<span className='text-xs text-muted-foreground'>
-					{pageIndex + 1} / {pageCount}
-				</span>
-
-				<div className='flex items-center gap-0.5'>
-					<Button
-						type='button'
-						variant='ghost'
-						size='icon-sm'
-						onClick={() => onPageChange(0)}
-						disabled={!canPrevious}
-					>
-						<ChevronsLeft className='size-3' />
-					</Button>
-					<Button
-						type='button'
-						variant='ghost'
-						size='icon-sm'
-						onClick={() => onPageChange(pageIndex - 1)}
-						disabled={!canPrevious}
-					>
-						<ChevronLeft className='size-3' />
-					</Button>
-					<Button
-						type='button'
-						variant='ghost'
-						size='icon-sm'
-						onClick={() => onPageChange(pageIndex + 1)}
-						disabled={!canNext}
-					>
-						<ChevronRight className='size-3' />
-					</Button>
-					<Button
-						type='button'
-						variant='ghost'
-						size='icon-sm'
-						onClick={() => onPageChange(pageCount - 1)}
-						disabled={!canNext}
-					>
-						<ChevronsRight className='size-3' />
-					</Button>
-				</div>
-			</div>
 		</div>
 	);
 }
