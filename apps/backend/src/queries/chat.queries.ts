@@ -18,7 +18,7 @@ import {
 	TokenUsage,
 	UIChat,
 	UIMessage,
-	UIMessagePart
+	UIMessagePart,
 } from '../types/chat';
 import { LlmProvider } from '../types/llm';
 import { convertDBPartToUIPart, mapUIPartsToDBParts } from '../utils/chat-message-part-mappings';

@@ -33,14 +33,16 @@ export const AgentProvider = ({ children, disableNavigation }: Props) => {
 
 export const ReadonlyAgentMessagesProvider = ({
 	messages,
+	chatId,
 	children,
 }: {
 	messages: UIMessage[];
+	chatId?: string;
 	children: React.ReactNode;
 }) => {
 	const value = useMemo<AgentHelpers>(
 		() => ({
-			chatId: undefined,
+			chatId,
 			messages,
 			setMessages: noop,
 			queueOrSendMessage: noopPromise,
@@ -56,7 +58,7 @@ export const ReadonlyAgentMessagesProvider = ({
 			setSelectedModel: noop,
 			setMentions: noop,
 		}),
-		[messages],
+		[chatId, messages],
 	);
 
 	return <AgentContext.Provider value={value}>{children}</AgentContext.Provider>;

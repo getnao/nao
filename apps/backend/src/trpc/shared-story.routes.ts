@@ -232,6 +232,7 @@ export const sharedStoryRoutes = {
 				projectId: ctx.project.id,
 				userId: ctx.user.id,
 				storyId: share.storyId,
+				slug: share.slug,
 				title: share.title,
 				code: share.code,
 				authorName: share.authorName,

@@ -58,7 +58,7 @@ function SharedChatPage() {
 	const isOwner = session?.user?.id === share.userId;
 
 	return (
-		<ReadonlyAgentMessagesProvider messages={chat.messages}>
+		<ReadonlyAgentMessagesProvider messages={chat.messages} chatId={share.chatId}>
 			<SidePanelProvider
 				isVisible={sidePanel.isVisible}
 				currentStoryId={sidePanel.currentStoryId}

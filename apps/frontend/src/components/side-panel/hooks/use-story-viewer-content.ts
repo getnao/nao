@@ -11,6 +11,7 @@ interface UseStoryViewerContentParams {
 	draftStory: StoryDraft | null;
 	currentVersion: { code: string } | undefined;
 	storedTitle: string | undefined;
+	isReadonlyMode?: boolean;
 }
 
 export const useStoryViewerContent = ({
@@ -20,6 +21,7 @@ export const useStoryViewerContent = ({
 	draftStory,
 	currentVersion,
 	storedTitle,
+	isReadonlyMode,
 }: UseStoryViewerContentParams) => {
 	const shouldUseDraftStory = Boolean(draftStory && (draftStory.isStreaming || !currentVersion));
 
@@ -39,7 +41,10 @@ export const useStoryViewerContent = ({
 		[shouldUseDraftStory, draftStory?.code, currentVersion?.code],
 	);
 
-	const latestStoryQuery = useQuery(trpc.story.getLatest.queryOptions({ chatId, storyId: resolvedStoryId }));
+	const latestStoryQuery = useQuery({
+		...trpc.story.getLatest.queryOptions({ chatId, storyId: resolvedStoryId }),
+		enabled: !isReadonlyMode,
+	});
 	const queryData = latestStoryQuery.data?.queryData as QueryDataMap | null | undefined;
 	const cachedAt = latestStoryQuery.data?.cachedAt as string | null | undefined;
 

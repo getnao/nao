@@ -40,6 +40,7 @@ export async function forkStory(opts: {
 	projectId: string;
 	userId: string;
 	storyId: string;
+	slug: string;
 	title: string;
 	code: string;
 	authorName: string;
@@ -59,7 +60,7 @@ export async function forkStory(opts: {
 
 	const version = await storyQueries.createVersion({
 		chatId: chat.id,
-		storyId: opts.storyId,
+		slug: opts.slug,
 		title: opts.title,
 		code: opts.code,
 		action: 'create',
@@ -179,14 +180,14 @@ async function copyStoriesToFork(sourceChatId: string, forkChatId: string): Prom
 	}
 
 	await Promise.all(
-		stories.map(async ({ storyId }) => {
-			const latest = await storyQueries.getLatestVersion(sourceChatId, storyId);
+		stories.map(async ({ slug }) => {
+			const latest = await storyQueries.getLatestVersion(sourceChatId, slug);
 			if (!latest) {
 				return;
 			}
 			await storyQueries.createVersion({
 				chatId: forkChatId,
-				storyId,
+				slug,
 				title: latest.title,
 				code: latest.code,
 				action: 'create',

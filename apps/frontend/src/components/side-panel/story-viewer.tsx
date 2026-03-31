@@ -33,7 +33,8 @@ interface StoryViewerProps {
 export function StoryViewer({ chatId, storyId, isReadonlyMode: readonlyProp }: StoryViewerProps) {
 	const tiptapEditorRef = useRef<TiptapEditor | null>(null);
 	const scrollContainerRef = useRef<HTMLDivElement | null>(null);
-	const { close: closeSidePanel } = useSidePanel();
+	const { close: closeSidePanel, isReadonlyMode: contextReadonlyMode } = useSidePanel();
+	const isReadonlyMode = readonlyProp ?? contextReadonlyMode;
 	const { viewMode, setViewMode } = useStoryViewerViewMode();
 
 	const outerAgent = useOptionalAgentContext();
@@ -65,7 +66,7 @@ export function StoryViewer({ chatId, storyId, isReadonlyMode: readonlyProp }: S
 		isViewingLatest,
 		goToPreviousVersion,
 		goToNextVersion,
-	} = useStoryViewerVersions({ chatId, storyId: resolvedStoryId, isAgentRunning });
+	} = useStoryViewerVersions({ chatId, storyId: resolvedStoryId, isAgentRunning, isReadonlyMode });
 	const { storyTitle, storyCode, queryData, cachedAt } = useStoryViewerContent({
 		storyId,
 		resolvedStoryId,
@@ -73,6 +74,7 @@ export function StoryViewer({ chatId, storyId, isReadonlyMode: readonlyProp }: S
 		draftStory,
 		currentVersion,
 		storedTitle,
+		isReadonlyMode,
 	});
 	const { handleSave, handleRestore } = useStoryViewerVersionActions({
 		chatId,
@@ -108,9 +110,6 @@ export function StoryViewer({ chatId, storyId, isReadonlyMode: readonlyProp }: S
 		[chatId, readonlyProp],
 	);
 	const { switchStory } = useStoryViewerSwitchStory({ renderStoryViewer });
-
-	const { isReadonlyMode: contextReadonlyMode } = useSidePanel();
-	const isReadonlyMode = readonlyProp ?? contextReadonlyMode;
 
 	useStoryViewerStreamScroll({
 		scrollContainerRef,
@@ -206,4 +205,3 @@ export function StoryViewer({ chatId, storyId, isReadonlyMode: readonlyProp }: S
 
 	return <ReadonlyAgentMessagesProvider messages={chatMessages}>{content}</ReadonlyAgentMessagesProvider>;
 }
-
