@@ -1,9 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
-import type { McpServerState } from '@nao/shared';
+import type { McpState } from '@nao/shared';
 import { trpcClient } from '@/main';
-
-type McpState = Record<string, McpServerState>;
 
 interface McpContextValue {
 	mcpState: McpState | undefined;

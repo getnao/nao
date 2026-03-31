@@ -21,6 +21,8 @@ export interface McpServerState {
 	error?: string;
 }
 
+export type McpState = Record<string, McpServerState>;
+
 export const mcpJsonSchema = z.object({
 	mcpServers: z.record(
 		z.string(),

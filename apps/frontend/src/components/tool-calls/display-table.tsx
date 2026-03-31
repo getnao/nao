@@ -22,7 +22,7 @@ export function TableDisplay({
 	showRowCount = true,
 }: TableDisplayProps) {
 	const resolvedColumns = columns && columns.length > 0 ? columns : inferColumns(data);
-	const numericColumns = new Set(resolvedColumns.filter((column) => hasNumericValueInColumn(data, column)));
+	const numericColumns = new Set(resolvedColumns.filter((column) => isAllNumericColumn(data, column)));
 	const hasRows = data.length > 0;
 
 	return (
@@ -62,7 +62,7 @@ export function TableDisplay({
 												key={`${rowIndex}-${column}`}
 												className={cn(
 													'border-border/40 px-3 py-1 align-top font-mono text-[11px] leading-5 whitespace-nowrap last:border-r-0',
-													isNumberValue(value) && 'text-right tabular-nums',
+													numericColumns.has(column) && 'text-right tabular-nums',
 												)}
 											>
 												{isNull ? (
@@ -119,8 +119,10 @@ function isNumberValue(value: unknown): value is number {
 	return typeof value === 'number' && Number.isFinite(value);
 }
 
-function hasNumericValueInColumn(data: TableRow[], column: string): boolean {
-	return data.some((row) => isNumberValue(row[column]));
+function isAllNumericColumn(data: TableRow[], column: string): boolean {
+	return data
+		.filter((row) => row[column] !== null && row[column] !== undefined)
+		.every((row) => isNumberValue(row[column]));
 }
 
 function formatCellValue(value: unknown): string {
