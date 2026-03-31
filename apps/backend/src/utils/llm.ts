@@ -125,12 +125,6 @@ export async function resolveProviderModel(
 	return null;
 }
 
-/** Returns the first configured LLM provider for a project, falling back to env-configured providers. */
-export async function resolveFirstProjectProvider(projectId: string): Promise<LlmProvider | null> {
-	const configs = await projectLlmConfigQueries.getProjectLlmConfigs(projectId);
-	return (configs[0]?.provider as LlmProvider | undefined) ?? getEnvModelSelections().at(0)?.provider ?? null;
-}
-
 export const getProjectAvailableModels = async (
 	projectId: string,
 ): Promise<Array<{ provider: LlmProvider; modelId: string; name: string }>> => {
