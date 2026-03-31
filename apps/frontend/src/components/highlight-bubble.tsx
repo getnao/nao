@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import { MessageCircle } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { useMutation } from '@tanstack/react-query';
@@ -24,12 +25,14 @@ export const HighlightBubble = ({ shareId, contentType }: HighlightBubbleProps) 
 
 function BubbleContent({ shareId, contentType }: { shareId: string; contentType: 'shared_chat' | 'shared_story' }) {
 	const { selection, clearSelection, addAnchor, openAnchor } = useSelection();
+	const capturedSelection = useRef(selection);
 
 	const onForkSuccess = ({ chatId }: { chatId: string }) => {
-		if (!selection) {
+		const sel = capturedSelection.current;
+		if (!sel) {
 			return;
 		}
-		addAnchor(chatId, selection.start, selection.end, selection.rect, selection.containerLeft);
+		addAnchor(chatId, sel.start, sel.end, sel.rect, sel.containerLeft);
 		openAnchor(chatId);
 		clearSelection();
 		window.getSelection()?.removeAllRanges();
@@ -49,6 +52,7 @@ function BubbleContent({ shareId, contentType }: { shareId: string; contentType:
 		if (!selection) {
 			return;
 		}
+		capturedSelection.current = selection;
 		const sel = { start: selection.start, end: selection.end, text: selection.text };
 		if (contentType === 'shared_chat') {
 			chatForkMutation.mutate({ shareId, selection: sel });

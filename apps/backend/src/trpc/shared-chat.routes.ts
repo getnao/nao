@@ -194,6 +194,10 @@ export const sharedChatRoutes = {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Shared chat not found.' });
 			}
 
+			if (share.projectId !== ctx.project.id) {
+				throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this chat.' });
+			}
+
 			if (share.visibility === 'specific' && share.userId !== ctx.user.id) {
 				const hasAccess = await sharedChatQueries.canUserAccessSharedChat(share.id, ctx.user.id);
 				if (!hasAccess) {

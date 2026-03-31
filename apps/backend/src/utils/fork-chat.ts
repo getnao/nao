@@ -76,11 +76,11 @@ export async function forkStory(opts: {
 				toolCallId: crypto.randomUUID(),
 				toolName: 'story',
 				state: 'output-available',
-				input: { action: 'create', id: opts.storyId, title: opts.title, code: opts.code },
+				input: { action: 'create', id: opts.slug, title: opts.title, code: opts.code },
 				output: {
 					_version: '1',
 					success: true,
-					id: opts.storyId,
+					id: opts.slug,
 					version: version.version,
 					code: opts.code,
 					title: opts.title,

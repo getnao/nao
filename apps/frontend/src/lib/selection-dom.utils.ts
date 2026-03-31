@@ -74,10 +74,17 @@ export function getTextOffset(container: Element, node: Node, offset: number): n
 	const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
 	while (walker.nextNode()) {
 		const current = walker.currentNode;
-		if (boundary && (boundary === current || boundary.contains(current))) {
-			break;
-		}
-		if (boundary && !(current.compareDocumentPosition(boundary) & Node.DOCUMENT_POSITION_FOLLOWING)) {
+		if (boundary) {
+			if (boundary === current || boundary.contains(current)) {
+				break;
+			}
+			if (!(current.compareDocumentPosition(boundary) & Node.DOCUMENT_POSITION_FOLLOWING)) {
+				break;
+			}
+		} else if (
+			!(node as Element).contains(current) &&
+			!(current.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING)
+		) {
 			break;
 		}
 		charCount += current.textContent?.length ?? 0;
@@ -125,7 +132,7 @@ export function getSelectionBoundingRect(range: Range): DOMRect | null {
 /** Returns the left edge of the nearest `[data-selection-container]` ancestor of the range. */
 export function getContainerLeft(range: Range): number {
 	const node = range.commonAncestorContainer;
-	const el = node.nodeType === Node.TEXT_NODE ? node.parentElement : (node as Element);
+	const el = node.nodeType === Node.TEXT_NODE ? node.parentElement : node instanceof Element ? node : null;
 	const container = el?.closest('[data-selection-container]') ?? document.querySelector('[data-selection-container]');
 	if (container) {
 		return container.getBoundingClientRect().left;

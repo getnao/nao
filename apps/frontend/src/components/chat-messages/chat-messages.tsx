@@ -26,7 +26,6 @@ import { useHeight } from '@/hooks/use-height';
 import { useDebounceValue } from '@/hooks/use-debounce-value';
 import { useScrollToBottomOnNewUserMessage } from '@/hooks/use-scroll-to-bottom-on-new-user-message';
 import { useChatId } from '@/hooks/use-chat-id';
-import { ChatThreadProvider } from '@/contexts/chat-thread';
 import { trpc } from '@/main';
 
 const DEBUG_MESSAGES = false;
@@ -78,39 +77,38 @@ export const ChatMessagesContent = memo(() => {
 		...trpc.chat.getForkMetadata.queryOptions({ chatId: chatId ?? '' }),
 		enabled: !!chatId,
 	});
-	const storyHeaderMessageId =
+	const storyIntroMessageId =
 		forkMetadata.data?.type === 'story' ? messageGroups[0]?.assistantMessages[0]?.id : undefined;
 
 	useScrollToBottomOnNewUserMessage(messages);
 
 	return (
-		<ChatThreadProvider storyHeaderMessageId={storyHeaderMessageId}>
-			<div
-				className='flex flex-col gap-8 max-md:gap-0'
-				style={{ '--extra-components-height': `${extraComponentsHeight}px` } as React.CSSProperties}
-			>
-				{messageGroups.length === 0 ? (
-					<ConversationEmptyState />
-				) : (
-					messageGroups.map((group) => (
-						<MessageGroup
-							key={group.userMessage?.id ?? group.assistantMessages[0]?.id}
-							userMessage={group.userMessage}
-							assistantMessages={group.assistantMessages}
-							showLoader={showThinkingLoader && isLast(group, messageGroups)}
-							isLastMessage={(messageId) => messageId === visibleMessages.at(-1)?.id}
-							isRunning={isRunning}
-						/>
-					))
-				)}
-			</div>
+		<div
+			className='flex flex-col gap-8 max-md:gap-0'
+			style={{ '--extra-components-height': `${extraComponentsHeight}px` } as React.CSSProperties}
+		>
+			{messageGroups.length === 0 ? (
+				<ConversationEmptyState />
+			) : (
+				messageGroups.map((group) => (
+					<MessageGroup
+						key={group.userMessage?.id ?? group.assistantMessages[0]?.id}
+						userMessage={group.userMessage}
+						assistantMessages={group.assistantMessages}
+						showLoader={showThinkingLoader && isLast(group, messageGroups)}
+						isLastMessage={(messageId) => messageId === visibleMessages.at(-1)?.id}
+						isRunning={isRunning}
+						storyIntroMessageId={storyIntroMessageId}
+					/>
+				))
+			)}
 
 			<div className='flex flex-col gap-4' ref={extraComponentsRef}>
 				{followUpSuggestionsToolCall && <FollowUpSuggestions toolPart={followUpSuggestionsToolCall} />}
 
 				<ChatError className='mt-4' />
 			</div>
-		</ChatThreadProvider>
+		</div>
 	);
 });
 
@@ -120,12 +118,14 @@ const MessageGroup = ({
 	showLoader,
 	isLastMessage,
 	isRunning,
+	storyIntroMessageId,
 }: {
 	userMessage: UIMessage | null;
 	assistantMessages: UIMessage[];
 	showLoader: boolean;
 	isLastMessage: (messageId: string) => boolean;
 	isRunning: boolean;
+	storyIntroMessageId: string | undefined;
 }) => {
 	const messages = userMessage ? [userMessage, ...assistantMessages] : assistantMessages;
 	return (
@@ -137,6 +137,7 @@ const MessageGroup = ({
 					showLoader={showLoader}
 					isLastMessage={isLastMessage(message.id)}
 					isRunning={isRunning}
+					storyIntroMessageId={storyIntroMessageId}
 				/>
 			))}
 
@@ -150,11 +151,13 @@ const MessageBlock = ({
 	showLoader,
 	isLastMessage,
 	isRunning,
+	storyIntroMessageId,
 }: {
 	message: UIMessage;
 	showLoader: boolean;
 	isLastMessage: boolean;
 	isRunning: boolean;
+	storyIntroMessageId: string | undefined;
 }) => {
 	const isUser = message.role === 'user';
 
@@ -181,6 +184,7 @@ const MessageBlock = ({
 			showLoader={showLoader && isLastMessage}
 			isSettled={!isLastMessage || !isRunning}
 			isRunning={isRunning}
+			storyIntroMessageId={storyIntroMessageId}
 		/>
 	);
 };

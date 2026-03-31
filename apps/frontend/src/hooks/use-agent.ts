@@ -309,7 +309,7 @@ export const useSyncMessages = ({ agent }: { agent: AgentHelpers }) => {
 			const src = prev ?? base;
 			return src ? { ...src, messages: agent.messages } : prev;
 		});
-	}, [setChat, agent.messages, chatId, agent.isRunning, chat.data]);
+	}, [setChat, agent.messages, chatId, agent.isRunning]);
 
 	const wasRunningRef = useRef(false);
 	useEffect(() => {

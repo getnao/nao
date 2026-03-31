@@ -504,7 +504,7 @@ export const getSelectionForksByShareId = async (
 	const results = await db
 		.select({ id: s.chat.id, forkMetadata: s.chat.forkMetadata })
 		.from(s.chat)
-		.where(and(eq(s.chat.userId, userId), typeFilter, idFilter))
+		.where(and(eq(s.chat.userId, userId), isNull(s.chat.deletedAt), typeFilter, idFilter))
 		.execute();
 
 	return results

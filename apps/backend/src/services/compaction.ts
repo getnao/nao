@@ -1,4 +1,4 @@
-import { convertToModelMessages, ModelMessage, Tool } from 'ai';
+import { ModelMessage, Tool } from 'ai';
 
 import { CompactionLLM } from '../agents/compaction';
 import { LLM_PROVIDERS } from '../agents/providers';
@@ -14,7 +14,7 @@ import {
 	findLastUserMessageIndex,
 } from '../utils/ai';
 import { debugCompaction } from '../utils/debug';
-import { resolveFirstProjectProvider, resolveProviderModel } from '../utils/llm';
+import { resolveProviderModel } from '../utils/llm';
 import { scheduleSaveLlmInferenceRecord } from '../utils/schedule-task';
 import { ITokenCounter, TokenCounter } from './token-counter';
 
@@ -88,31 +88,6 @@ export class CompactionService {
 			role: 'assistant',
 			parts: [{ type: 'text', text: summary }],
 		};
-	}
-
-	/**
-	 * Summarizes a list of UI messages into a single text summary using the project's LLM.
-	 * Returns null if no provider is configured or the message list is empty.
-	 */
-	async summarize(messages: Array<Omit<UIMessage, 'id'>>, projectId: string): Promise<string | null> {
-		if (messages.length === 0) {
-			return null;
-		}
-
-		const provider = await resolveFirstProjectProvider(projectId);
-		if (!provider) {
-			return null;
-		}
-
-		const llm = await this._resolveCompactionLLM(projectId, provider);
-		if (!llm) {
-			return null;
-		}
-
-		const messagesWithIds = messages.map((m) => ({ ...m, id: crypto.randomUUID() }));
-		const modelMessages = await convertToModelMessages(messagesWithIds, { tools: {} });
-		const { summary } = await llm.compact(modelMessages);
-		return summary;
 	}
 
 	/**
