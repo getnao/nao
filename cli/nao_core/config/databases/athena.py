@@ -14,6 +14,12 @@ from .context import DatabaseContext
 
 
 class AthenaDatabaseContext(DatabaseContext):
+    def _array_unnest_join(self, table_sql: str, col_sql: str, alias: str) -> str:
+        return f"{table_sql} CROSS JOIN UNNEST({col_sql}) AS t({alias})"
+
+    def _cast_complex_to_string(self, col_sql: str) -> str:
+        return f"CAST({col_sql} AS VARCHAR)"
+
     def _quote(self, name: str) -> str:
         return f'"{name}"'
 

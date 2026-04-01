@@ -29,6 +29,12 @@ def _is_excluded_schema(value: object) -> bool:
 
 
 class TrinoDatabaseContext(DatabaseContext):
+    def _array_unnest_join(self, table_sql: str, col_sql: str, alias: str) -> str:
+        return f"{table_sql} CROSS JOIN UNNEST({col_sql}) AS t({alias})"
+
+    def _cast_complex_to_string(self, col_sql: str) -> str:
+        return f"CAST({col_sql} AS VARCHAR)"
+
     def _stddev(self, expr: str) -> str:
         return f"STDDEV_POP({expr})"
 

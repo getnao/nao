@@ -130,7 +130,7 @@ class DatabaseConfig(BaseModel, ABC):
 
             if hasattr(cursor, "description") and cursor.description is not None and hasattr(cursor, "fetchall"):
                 columns = [desc[0] for desc in cursor.description]
-                return pd.DataFrame(cursor.fetchall(), columns=columns)  # type: ignore[arg-type]
+                return pd.DataFrame([tuple(row) for row in cursor.fetchall()], columns=columns)  # type: ignore[arg-type]
 
             raise TypeError(
                 f"Unsupported raw_sql result type: {type(cursor).__name__}. "

@@ -278,6 +278,12 @@ class BigQueryDatabaseContext(DatabaseContext):
             return f"`{cols[0]}` >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)"
         return ""
 
+    def _array_unnest_join(self, table_sql: str, col_sql: str, alias: str) -> str:
+        return f"{table_sql}, UNNEST({col_sql}) AS {alias}"
+
+    def _cast_complex_to_string(self, col_sql: str) -> str:
+        return f"TO_JSON_STRING({col_sql})"
+
 
 def _time_based_partition_filter(col: str, col_type: str, partition_id: str) -> str:
     """Build a partition filter for time-based columns, handling all BigQuery granularities."""

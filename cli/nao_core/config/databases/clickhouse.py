@@ -564,6 +564,12 @@ class ClickHouseDatabaseContext(DatabaseContext):
             )
             return []
 
+    def _array_unnest_join(self, table_sql: str, col_sql: str, alias: str) -> str:
+        return f"{table_sql} ARRAY JOIN {col_sql} AS {alias}"
+
+    def _cast_complex_to_string(self, col_sql: str) -> str:
+        return f"toString({col_sql})"
+
 
 class ClickHouseConfig(DatabaseConfig):
     """ClickHouse-specific configuration."""
