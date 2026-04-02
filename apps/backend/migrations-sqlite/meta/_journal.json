@@ -239,6 +239,13 @@
       "when": 1775130177344,
       "tag": "0033_add_whatsapp_links",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "6",
+      "when": 1775132290056,
+      "tag": "0034_add_fork_metadata_and_highlight_chats",
+      "breakpoints": true
     }
   ]
 }

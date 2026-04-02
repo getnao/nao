@@ -345,7 +345,7 @@ class AgentManager {
 		const skills = skillService.getSkills();
 		const basePrompt = renderToMarkdown(SystemPrompt({ memories, userRules, connections, skills, timezone }));
 		const renderedPrompt = provider
-			? renderToMarkdown(MessagingProviderSystemPrompt({ basePrompt, provider }))
+			? renderToMarkdown(MessagingProviderSystemPrompt({ basePrompt, provider, chatUrl }))
 			: basePrompt;
 		const systemPrompt = this.chat.forkMetadata
 			? renderToMarkdown(
