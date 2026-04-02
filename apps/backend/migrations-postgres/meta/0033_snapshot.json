@@ -1,5 +1,5 @@
 {
-  "id": "38ce407c-c472-4686-9bea-bd8ed77d3e91",
+  "id": "f011de39-8752-43ef-9e18-bbdaff7921f8",
   "prevId": "2d66e464-a941-4127-9d09-1ea87d9bf46d",
   "version": "7",
   "dialect": "postgresql",
@@ -1933,21 +1933,6 @@
         }
       },
       "indexes": {
-        "project_whatsapp_link_projectId_idx": {
-          "name": "project_whatsapp_link_projectId_idx",
-          "columns": [
-            {
-              "expression": "project_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "project_whatsapp_link_userId_idx": {
           "name": "project_whatsapp_link_userId_idx",
           "columns": [

@@ -188,7 +188,6 @@ export const projectWhatsappLink = sqliteTable(
 	},
 	(t) => [
 		primaryKey({ columns: [t.projectId, t.whatsappUserId] }),
-		index('project_whatsapp_link_projectId_idx').on(t.projectId),
 		index('project_whatsapp_link_userId_idx').on(t.userId),
 	],
 );

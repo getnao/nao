@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "bc612b03-08dd-4df7-8e9c-9bca6c7a3162",
+  "id": "a94b29db-1576-41d0-b6cf-3d098f116e65",
   "prevId": "15e13d53-cc7f-45f4-8855-0f566962b5da",
   "tables": {
     "account": {
@@ -1835,13 +1835,6 @@
         }
       },
       "indexes": {
-        "project_whatsapp_link_projectId_idx": {
-          "name": "project_whatsapp_link_projectId_idx",
-          "columns": [
-            "project_id"
-          ],
-          "isUnique": false
-        },
         "project_whatsapp_link_userId_idx": {
           "name": "project_whatsapp_link_userId_idx",
           "columns": [

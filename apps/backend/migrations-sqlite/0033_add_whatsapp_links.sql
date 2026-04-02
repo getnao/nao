@@ -9,5 +9,4 @@ CREATE TABLE `project_whatsapp_link` (
 	FOREIGN KEY (`user_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
-CREATE INDEX `project_whatsapp_link_projectId_idx` ON `project_whatsapp_link` (`project_id`);--> statement-breakpoint
 CREATE INDEX `project_whatsapp_link_userId_idx` ON `project_whatsapp_link` (`user_id`);
