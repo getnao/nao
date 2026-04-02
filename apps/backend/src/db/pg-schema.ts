@@ -15,7 +15,7 @@ import {
 } from 'drizzle-orm/pg-core';
 
 import { AgentSettings } from '../types/agent-settings';
-import { ForkedMetadata, StopReason, ToolState, UIMessagePartType } from '../types/chat';
+import { ForkMetadata, StopReason, ToolState, UIMessagePartType } from '../types/chat';
 import { LLM_INFERENCE_TYPES, LlmProvider } from '../types/llm';
 import { LOG_LEVELS, LOG_SOURCES } from '../types/log';
 import { MEMORY_CATEGORIES } from '../types/memory';
@@ -201,7 +201,7 @@ export const chat = pgTable(
 		teamsThreadId: text('teams_thread_id'),
 		telegramThreadId: text('telegram_thread_id'),
 		whatsappThreadId: text('whatsapp_thread_id'),
-		forkMetadata: jsonb('fork_metadata').$type<ForkedMetadata>(),
+		forkMetadata: jsonb('fork_metadata').$type<ForkMetadata>(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()
@@ -234,7 +234,7 @@ export const chatMessage = pgTable(
 		llmModelId: text('llm_model_id'),
 		supersededAt: timestamp('superseded_at'),
 		source: text('source', { enum: ['slack', 'teams', 'telegram', 'whatsapp', 'web'] }),
-		synthetic: boolean('synthetic'),
+		isForked: boolean('isForked'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 
 		// Token usage columns

@@ -20,7 +20,7 @@ import { CACHE_1H, CACHE_5M, LLM_PROVIDERS, ProviderModelResult } from '../agent
 import { getTools } from '../agents/tools';
 import { createWebSearchTools } from '../agents/tools/web-search';
 import { getConnections, getTableColumnsContent, getUserRules } from '../agents/user-rules';
-import { MessagingProviderSystemPrompt, SystemPrompt } from '../components/ai';
+import { ChatForkContextPrompt, MessagingProviderSystemPrompt, SystemPrompt } from '../components/ai';
 import { DBChat } from '../db/abstractSchema';
 import { renderToMarkdown } from '../lib/markdown';
 import * as chatQueries from '../queries/chat.queries';
@@ -347,7 +347,11 @@ class AgentManager {
 		const renderedPrompt = provider
 			? renderToMarkdown(MessagingProviderSystemPrompt({ basePrompt, provider }))
 			: basePrompt;
-		const systemPrompt = await this._appendForkContext(renderedPrompt);
+		const systemPrompt = this.chat.forkMetadata
+			? renderToMarkdown(
+					ChatForkContextPrompt({ basePrompt: renderedPrompt, forkMetadata: this.chat.forkMetadata }),
+				)
+			: renderedPrompt;
 
 		const systemMessage: Omit<UIMessage, 'id'> = {
 			role: 'system',
@@ -538,19 +542,6 @@ class AgentManager {
 
 	stop(): void {
 		this._abortController.abort();
-	}
-
-	private async _appendForkContext(prompt: string): Promise<string> {
-		const fork = this.chat.forkMetadata;
-		if (!fork) {
-			return prompt;
-		}
-
-		if ((fork.type === 'chat_selection' || fork.type === 'story_selection') && fork.selectionText) {
-			return `${prompt}\n\n---\n\nThe user is asking about the following passage selected from **"${fork.title}"** by ${fork.authorName}. Keep this selection as your primary focus when answering.\n\n> ${fork.selectionText}`;
-		}
-
-		return prompt;
 	}
 
 	private _addStoryMode(messages: UIMessage[], mentions?: Mention[]): UIMessage[] {

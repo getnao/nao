@@ -6,7 +6,6 @@ import * as projectQueries from '../queries/project.queries';
 import * as sharedChatQueries from '../queries/shared-chat.queries';
 import { type UIChat } from '../types/chat';
 import { notifySharedItemRecipients } from '../utils/email';
-import { forkChat, forkSharedChatFromSelection } from '../utils/fork-chat';
 import { projectProtectedProcedure, protectedProcedure } from './trpc';
 
 export const sharedChatRoutes = {
@@ -148,70 +147,4 @@ export const sharedChatRoutes = {
 
 		await sharedChatQueries.deleteSharedChat(input.id);
 	}),
-
-	fork: protectedProcedure
-		.input(z.object({ shareId: z.string() }))
-		.mutation(async ({ input, ctx }): Promise<{ chatId: string }> => {
-			const share = await sharedChatQueries.getSharedChatInfo(input.shareId);
-			if (!share) {
-				throw new TRPCError({ code: 'NOT_FOUND', message: 'Shared chat not found.' });
-			}
-
-			const project = await projectQueries.getProjectByUserId(ctx.user.id);
-			if (!project || project.id !== share.projectId) {
-				throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this chat.' });
-			}
-
-			if (share.visibility === 'specific' && share.userId !== ctx.user.id) {
-				const hasAccess = await sharedChatQueries.canUserAccessSharedChat(share.id, ctx.user.id);
-				if (!hasAccess) {
-					throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this chat.' });
-				}
-			}
-
-			return forkChat({
-				chatId: share.chatId,
-				projectId: project.id,
-				userId: ctx.user.id,
-				forkMetadata: { type: 'chat', id: share.chatId, title: share.title, authorName: share.authorName },
-			});
-		}),
-
-	getSelectionForks: protectedProcedure.input(z.object({ shareId: z.string() })).query(async ({ input, ctx }) => {
-		return chatQueries.getSelectionForksByShareId(ctx.user.id, input.shareId, 'chat_selection');
-	}),
-
-	forkFromSelection: projectProtectedProcedure
-		.input(
-			z.object({
-				shareId: z.string(),
-				selection: z.object({ start: z.number(), end: z.number(), text: z.string() }),
-			}),
-		)
-		.mutation(async ({ input, ctx }): Promise<{ chatId: string }> => {
-			const share = await sharedChatQueries.getSharedChatInfo(input.shareId);
-			if (!share) {
-				throw new TRPCError({ code: 'NOT_FOUND', message: 'Shared chat not found.' });
-			}
-
-			if (share.projectId !== ctx.project.id) {
-				throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this chat.' });
-			}
-
-			if (share.visibility === 'specific' && share.userId !== ctx.user.id) {
-				const hasAccess = await sharedChatQueries.canUserAccessSharedChat(share.id, ctx.user.id);
-				if (!hasAccess) {
-					throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this chat.' });
-				}
-			}
-
-			return forkSharedChatFromSelection({
-				shareId: input.shareId,
-				projectId: ctx.project.id,
-				userId: ctx.user.id,
-				selection: input.selection,
-				title: share.title,
-				authorName: share.authorName,
-			});
-		}),
 };

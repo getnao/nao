@@ -26,7 +26,7 @@ function SharedChatPage() {
 
 	const chatQuery = useQuery(trpc.sharedChat.getSharedChat.queryOptions({ shareId }));
 	const forkMutation = useMutation(
-		trpc.sharedChat.fork.mutationOptions({
+		trpc.chatFork.fork.mutationOptions({
 			onSuccess: (data) => {
 				navigate({ to: '/$chatId', params: { chatId: data.chatId } });
 			},
@@ -83,7 +83,7 @@ function SharedChatPage() {
 								variant='outline'
 								size='sm'
 								className='ml-auto gap-1.5 shrink-0'
-								onClick={() => forkMutation.mutate({ shareId })}
+								onClick={() => forkMutation.mutate({ shareId, type: 'chat' })}
 								disabled={forkMutation.isPending}
 							>
 								{forkMutation.isPending ? (
@@ -96,8 +96,8 @@ function SharedChatPage() {
 						)}
 					</header>
 
-					<SelectionProvider key={shareId} persistenceConfig={{ shareId, contentType: 'shared_chat' }}>
-						<HighlightBubble shareId={shareId} contentType='shared_chat' />
+					<SelectionProvider key={shareId} persistenceConfig={{ shareId, contentType: 'chat' }}>
+						<HighlightBubble shareId={shareId} contentType='chat' />
 						<SelectionChatPanel contentAreaRef={contentAreaRef} />
 						<div className='flex flex-1 min-h-0 min-w-0'>
 							<div ref={contentAreaRef} className='flex-1 min-w-0'>

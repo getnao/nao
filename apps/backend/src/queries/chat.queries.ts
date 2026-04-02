@@ -11,7 +11,6 @@ import s, {
 import { db } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
 import {
-	ForkedMetadata,
 	ForkMetadata,
 	ListChatResponse,
 	StopReason,
@@ -113,7 +112,7 @@ const aggregateChatMessagParts = (
 					parts: [uiPart],
 					feedback: row.message_feedback ?? undefined,
 					source: row.chat_message.source ?? undefined,
-					synthetic: row.chat_message.synthetic ?? undefined,
+					isForked: row.chat_message.isForked ?? undefined,
 				};
 			}
 			return acc;
@@ -217,7 +216,7 @@ export const createForkedChat = async (newChat: NewChat, messages: Array<Omit<UI
 					id: messageId,
 					chatId: savedChat.id,
 					role: message.role,
-					synthetic: true,
+					isForked: true,
 					createdAt: new Date(baseTime + i),
 				})
 				.execute();
@@ -270,7 +269,7 @@ export const upsertMessage = async (
 				llmProvider: message.llmProvider,
 				llmModelId: message.llmModelId,
 				source: message.source,
-				synthetic: message.synthetic,
+				isForked: message.isForked,
 				...message.tokenUsage,
 			})
 			.onConflictDoNothing({ target: s.chatMessage.id })
@@ -508,9 +507,9 @@ export const getSelectionForksByShareId = async (
 		.execute();
 
 	return results
-		.filter((r) => (r.forkMetadata as ForkMetadata | null)?.selectionStart !== undefined)
+		.filter((r) => r.forkMetadata?.selectionStart !== undefined)
 		.map((r) => {
-			const meta = r.forkMetadata as ForkMetadata;
+			const meta = r.forkMetadata!;
 			return {
 				chatId: r.id,
 				selectionStart: meta.selectionStart!,
@@ -520,7 +519,7 @@ export const getSelectionForksByShareId = async (
 		});
 };
 
-export const getForkMetadata = async (chatId: string): Promise<ForkedMetadata | null> => {
+export const getForkMetadata = async (chatId: string): Promise<ForkMetadata | null> => {
 	const [result] = await db
 		.select({ forkMetadata: s.chat.forkMetadata })
 		.from(s.chat)

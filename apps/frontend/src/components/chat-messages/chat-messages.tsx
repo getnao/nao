@@ -70,7 +70,7 @@ export const ChatMessagesContent = memo(() => {
 	const followUpSuggestionsToolCall = useMemo(() => getLastFollowUpSuggestionsToolCall(messages), [messages]);
 	const extraComponentsRef = useRef<HTMLDivElement>(null);
 	const extraComponentsHeight = useHeight(extraComponentsRef);
-	const visibleMessages = useMemo(() => messages.filter((m) => !m.synthetic), [messages]);
+	const visibleMessages = useMemo(() => messages.filter((m) => !m.isForked), [messages]);
 	const messageGroups = useMemo(() => groupMessages(visibleMessages), [visibleMessages]);
 
 	const forkMetadata = useQuery({

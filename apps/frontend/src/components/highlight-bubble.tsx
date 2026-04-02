@@ -10,7 +10,7 @@ import { trpc } from '@/main';
 
 export interface HighlightBubbleProps {
 	shareId: string;
-	contentType: 'shared_chat' | 'shared_story';
+	contentType: 'chat' | 'story';
 }
 
 export const HighlightBubble = ({ shareId, contentType }: HighlightBubbleProps) => {
@@ -23,30 +23,24 @@ export const HighlightBubble = ({ shareId, contentType }: HighlightBubbleProps) 
 	return createPortal(<BubbleContent shareId={shareId} contentType={contentType} />, document.body);
 };
 
-function BubbleContent({ shareId, contentType }: { shareId: string; contentType: 'shared_chat' | 'shared_story' }) {
+function BubbleContent({ shareId, contentType }: { shareId: string; contentType: 'chat' | 'story' }) {
 	const { selection, clearSelection, addAnchor, openAnchor } = useSelection();
 	const capturedSelection = useRef(selection);
 
-	const onForkSuccess = ({ chatId }: { chatId: string }) => {
-		const sel = capturedSelection.current;
-		if (!sel) {
-			return;
-		}
-		addAnchor(chatId, sel.start, sel.end, sel.rect, sel.containerLeft);
-		openAnchor(chatId);
-		clearSelection();
-		window.getSelection()?.removeAllRanges();
-	};
-
-	const chatForkMutation = useMutation(
-		trpc.sharedChat.forkFromSelection.mutationOptions({ onSuccess: onForkSuccess }),
+	const forkMutation = useMutation(
+		trpc.chatFork.fork.mutationOptions({
+			onSuccess: ({ chatId }) => {
+				const sel = capturedSelection.current;
+				if (!sel) {
+					return;
+				}
+				addAnchor(chatId, sel.start, sel.end, sel.rect, sel.containerLeft);
+				openAnchor(chatId);
+				clearSelection();
+				window.getSelection()?.removeAllRanges();
+			},
+		}),
 	);
-
-	const storyForkMutation = useMutation(
-		trpc.storyShare.forkFromSelection.mutationOptions({ onSuccess: onForkSuccess }),
-	);
-
-	const isPending = chatForkMutation.isPending || storyForkMutation.isPending;
 
 	const handleAsk = () => {
 		if (!selection) {
@@ -54,11 +48,7 @@ function BubbleContent({ shareId, contentType }: { shareId: string; contentType:
 		}
 		capturedSelection.current = selection;
 		const sel = { start: selection.start, end: selection.end, text: selection.text };
-		if (contentType === 'shared_chat') {
-			chatForkMutation.mutate({ shareId, selection: sel });
-		} else {
-			storyForkMutation.mutate({ shareId, selection: sel });
-		}
+		forkMutation.mutate({ shareId, type: contentType, selection: sel });
 	};
 
 	if (!selection) {
@@ -82,10 +72,10 @@ function BubbleContent({ shareId, contentType }: { shareId: string; contentType:
 			<Button
 				type='button'
 				onClick={handleAsk}
-				disabled={isPending}
+				disabled={forkMutation.isPending}
 				className='inline-flex items-center gap-1.5 rounded-lg border border-border bg-popover px-3 py-1.5 text-xs font-medium text-popover-foreground shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground'
 			>
-				{isPending ? <Spinner className='size-3.5' /> : <MessageCircle className='size-3.5' />}
+				{forkMutation.isPending ? <Spinner className='size-3.5' /> : <MessageCircle className='size-3.5' />}
 				Ask
 			</Button>
 		</div>

@@ -138,3 +138,7 @@ export function XML({ tag, props, children }: { tag: string; props?: Record<stri
 export const isRenderable = (node: ReactNode): boolean => {
 	return !(node == null || typeof node === 'boolean');
 };
+
+export function Quote({ children }: { children?: ReactNode }) {
+	return <Span data-indent='> '>{children}</Span>;
+}

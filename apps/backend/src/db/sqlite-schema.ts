@@ -4,7 +4,7 @@ import { sql } from 'drizzle-orm';
 import { check, index, integer, primaryKey, sqliteTable, text, unique } from 'drizzle-orm/sqlite-core';
 
 import { AgentSettings } from '../types/agent-settings';
-import { ForkedMetadata, StopReason, ToolState, UIMessagePartType } from '../types/chat';
+import { ForkMetadata, StopReason, ToolState, UIMessagePartType } from '../types/chat';
 import { LLM_INFERENCE_TYPES, LlmProvider } from '../types/llm';
 import { LOG_LEVELS, LOG_SOURCES } from '../types/log';
 import { MEMORY_CATEGORIES } from '../types/memory';
@@ -211,7 +211,7 @@ export const chat = sqliteTable(
 		teamsThreadId: text('teams_thread_id'),
 		telegramThreadId: text('telegram_thread_id'),
 		whatsappThreadId: text('whatsapp_thread_id'),
-		forkMetadata: text('fork_metadata', { mode: 'json' }).$type<ForkedMetadata>(),
+		forkMetadata: text('fork_metadata', { mode: 'json' }).$type<ForkMetadata>(),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull(),
@@ -246,7 +246,7 @@ export const chatMessage = sqliteTable(
 		llmModelId: text('llm_model_id'),
 		supersededAt: integer('superseded_at', { mode: 'timestamp_ms' }),
 		source: text('source', { enum: ['slack', 'teams', 'telegram', 'whatsapp', 'web'] }),
-		synthetic: integer('synthetic', { mode: 'boolean' }),
+		isForked: integer('isForked', { mode: 'boolean' }),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull(),

@@ -75,13 +75,9 @@ export const chatRoutes = {
 			await chatQueries.toggleStarred(input.chatId, input.isStarred);
 		}),
 
-	getForkMetadata: protectedProcedure
+	getForkMetadata: chatOwnerProcedure
 		.input(z.object({ chatId: z.string() }))
-		.query(async ({ input, ctx }): Promise<ForkMetadata | null> => {
-			const ownerId = await chatQueries.getChatOwnerId(input.chatId);
-			if (!ownerId || ownerId !== ctx.user.id) {
-				return null;
-			}
+		.query(async ({ input }): Promise<ForkMetadata | null> => {
 			return chatQueries.getForkMetadata(input.chatId);
 		}),
 

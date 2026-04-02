@@ -13,6 +13,11 @@ import { trpc } from '@/main';
 
 export type { AnchorPosition };
 
+export interface PersistenceConfig {
+	shareId: string;
+	contentType: 'chat' | 'story';
+}
+
 export interface SelectionState {
 	text: string;
 	start: number;
@@ -27,11 +32,6 @@ export interface SelectionAnchor {
 	end: number;
 	rect: DOMRect;
 	containerLeft: number;
-}
-
-export interface PersistenceConfig {
-	shareId: string;
-	contentType: 'shared_chat' | 'shared_story';
 }
 
 interface SelectionContextValue {
@@ -59,12 +59,13 @@ export const useSelection = (): SelectionContextValue => {
 
 export const useOptionalSelection = () => useContext(SelectionContext);
 
-interface SelectionProviderProps {
+export const SelectionProvider = ({
+	children,
+	persistenceConfig,
+}: {
 	children: React.ReactNode;
 	persistenceConfig?: PersistenceConfig;
-}
-
-export const SelectionProvider = ({ children, persistenceConfig }: SelectionProviderProps) => {
+}) => {
 	const [selection, setSelection] = useState<SelectionState | null>(null);
 	const [anchors, setAnchors] = useState<SelectionAnchor[]>([]);
 	const [openAnchorChatId, setOpenAnchorChatId] = useState<string | null>(null);
@@ -75,20 +76,16 @@ export const SelectionProvider = ({ children, persistenceConfig }: SelectionProv
 		setContainerMounted(true);
 	}, []);
 
-	const chatSelectionForksQuery = useQuery({
-		...trpc.sharedChat.getSelectionForks.queryOptions({ shareId: persistenceConfig?.shareId ?? '' }),
-		enabled: !!persistenceConfig && persistenceConfig.contentType === 'shared_chat',
+	const selectionForksQuery = useQuery({
+		...trpc.chatFork.getSelectionForks.queryOptions({
+			shareId: persistenceConfig?.shareId ?? '',
+			type: persistenceConfig?.contentType ?? 'chat',
+		}),
+		enabled: !!persistenceConfig,
 	});
-
-	const storySelectionForksQuery = useQuery({
-		...trpc.storyShare.getSelectionForks.queryOptions({ shareId: persistenceConfig?.shareId ?? '' }),
-		enabled: !!persistenceConfig && persistenceConfig.contentType === 'shared_story',
-	});
-
-	const selectionForks =
-		persistenceConfig?.contentType === 'shared_chat' ? chatSelectionForksQuery.data : storySelectionForksQuery.data;
 
 	useEffect(() => {
+		const selectionForks = selectionForksQuery.data;
 		if (!selectionForks || !containerRef.current || !containerMounted) {
 			return;
 		}
@@ -107,7 +104,7 @@ export const SelectionProvider = ({ children, persistenceConfig }: SelectionProv
 				return [...prev, ...hydrated.filter((a) => !existing.has(a.chatId))];
 			});
 		}
-	}, [selectionForks, containerMounted]);
+	}, [selectionForksQuery.data, containerMounted]);
 
 	useEffect(() => {
 		const handleMouseDown = () => setSelection(null);

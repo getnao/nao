@@ -1,3 +1,4 @@
+export * from './chat-fork-context-prompt';
 export * from './compaction-system-prompt';
 export * from './live-story-refresh-prompt';
 export * from './memory-system-prompt';

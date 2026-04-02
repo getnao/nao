@@ -29,14 +29,14 @@ export function ChatMessagesReadonly({
 		if (!forkMetadata?.selectionText || forkMetadata.selectionStart == null || forkMetadata.selectionEnd == null) {
 			return null;
 		}
-		const syntheticMessage = [...messages].reverse().find((m: UIMessage) => m.synthetic === true);
-		if (!syntheticMessage) {
+		const isForkedMessage = [...messages].reverse().find((m: UIMessage) => m.isForked === true);
+		if (!isForkedMessage) {
 			return null;
 		}
 		const rawText = forkMetadata.selectionText;
 		const text = rawText.length > 200 ? `${rawText.slice(0, 200)}\u2026` : rawText;
 		const citationLabel = `@chars ${forkMetadata.selectionStart}–${forkMetadata.selectionEnd}`;
-		return { id: syntheticMessage.id, citation: citationLabel, text };
+		return { id: isForkedMessage.id, citation: citationLabel, text };
 	}, [messages, forkMetadata]);
 
 	return (
@@ -89,7 +89,7 @@ const MessageBlockReadonly = ({
 	message: UIMessage;
 	citation: { id: string; citation: string; text: string } | null;
 }) => {
-	if (message.synthetic && citation?.id === message.id) {
+	if (message.isForked && citation?.id === message.id) {
 		return <CitationBlockReadonly citation={citation} />;
 	}
 
