@@ -231,6 +231,7 @@ class AgentManager {
 			mentions?: Mention[];
 			provider?: Provider;
 			timezone?: string;
+			chatUrl?: string;
 		} = {},
 	): ReadableStream<InferUIMessageChunk<UIMessage>> {
 		let error: unknown = undefined;
@@ -261,6 +262,7 @@ class AgentManager {
 					opts.mentions,
 					opts.provider,
 					opts.timezone,
+					opts.chatUrl,
 				);
 
 				result = await this._agent.stream({
@@ -318,6 +320,7 @@ class AgentManager {
 		mentions?: Mention[],
 		provider?: Provider,
 		timezone?: string,
+		chatUrl?: string,
 	): Promise<ModelMessage[]> {
 		const uiMessagesWithStories = await this._syncStoryToolOutputs(uiMessages);
 		const uiMessagesWithStoryMode = this._addStoryMode(uiMessagesWithStories, mentions);
@@ -332,7 +335,7 @@ class AgentManager {
 		const skills = skillService.getSkills();
 		const basePrompt = renderToMarkdown(SystemPrompt({ memories, userRules, connections, skills, timezone }));
 		const systemPrompt = provider
-			? renderToMarkdown(MessagingProviderSystemPrompt({ basePrompt, provider }))
+			? renderToMarkdown(MessagingProviderSystemPrompt({ basePrompt, provider, chatUrl }))
 			: basePrompt;
 
 		const systemMessage: Omit<UIMessage, 'id'> = {

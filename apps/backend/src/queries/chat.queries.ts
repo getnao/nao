@@ -330,6 +330,16 @@ export const getChatByWhatsappThread = async (threadId: string): Promise<{ id: s
 	return result.at(0) || null;
 };
 
+export const clearWhatsappThread = async (threadId: string): Promise<boolean> => {
+	const result = await db
+		.update(s.chat)
+		.set({ whatsappThreadId: null })
+		.where(eq(s.chat.whatsappThreadId, threadId))
+		.returning({ id: s.chat.id })
+		.execute();
+	return result.length > 0;
+};
+
 export type SearchChatResult = {
 	id: string;
 	title: string;

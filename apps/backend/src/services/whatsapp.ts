@@ -4,6 +4,8 @@ import { CITATION_TAG_REGEX } from '@nao/shared';
 import { InferUIMessageChunk, readUIMessageStream } from 'ai';
 import { Chat, Message, Thread } from 'chat';
 
+import { generateChartImage } from '../components/generate-chart';
+import * as chartImageQueries from '../queries/chart-image';
 import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
 import { WhatsappConfig } from '../queries/project-whatsapp-config.queries';
@@ -11,7 +13,8 @@ import { get as getUser, getByMessagingProviderCode } from '../queries/user.quer
 import { UIChat, UIMessage, UIMessagePart } from '../types/chat';
 import { ConversationContext, StreamState, ToolCallEntry } from '../types/messaging-provider';
 import { createChatTitle } from '../utils/ai';
-import { createSummaryToolCalls, createWhatsAppCompletionCard, EXCLUDED_TOOLS } from '../utils/messaging-provider';
+import { logger } from '../utils/logger';
+import { EXCLUDED_TOOLS } from '../utils/messaging-provider';
 import { agentService, ModelSelection } from './agent';
 import { posthog, PostHogEvent } from './posthog';
 
@@ -88,6 +91,8 @@ class WhatsappService {
 	}
 
 	private async _handleWorkFlow(thread: Thread, userMessage: Message): Promise<void> {
+		this._markAsReadWithTypingIndicator(userMessage.id);
+
 		const ctx: ConversationContext = {
 			thread,
 			userMessage,
@@ -115,6 +120,23 @@ class WhatsappService {
 			const errorMessage = `❌ An error occurred while processing your message. ${error instanceof Error ? error.message : 'Unknown error'}.`;
 			await ctx.thread.post(errorMessage);
 		}
+	}
+
+	private _markAsReadWithTypingIndicator(messageId: string): void {
+		const url = `https://graph.facebook.com/v21.0/${this._currentPhoneNumberId}/messages`;
+		fetch(url, {
+			method: 'POST',
+			headers: {
+				Authorization: `Bearer ${this._currentAccessToken}`,
+				'Content-Type': 'application/json',
+			},
+			body: JSON.stringify({
+				messaging_product: 'whatsapp',
+				status: 'read',
+				message_id: messageId,
+				typing_indicator: { type: 'text' },
+			}),
+		}).catch(() => {});
 	}
 
 	private async _handleLoginCommand(thread: Thread, message: Message): Promise<void> {
@@ -208,16 +230,18 @@ class WhatsappService {
 	}
 
 	private async _handleStreamAgent(chat: UIChat, ctx: ConversationContext): Promise<void> {
-		const stream = await this._createAgentStream(chat, ctx);
+		const chatUrl = new URL(ctx.chatId, this._redirectUrl).toString();
+		const stream = await this._createAgentStream(chat, ctx, chatUrl);
 
-		const { finalText } = await this._readStreamAndUpdateMessage(stream, ctx);
+		const { finalText, chartUrls } = await this._readStreamAndUpdateMessage(stream, ctx);
 
 		if (finalText) {
 			await ctx.thread.post(finalText);
 		}
 
-		const chatUrl = new URL(ctx.chatId, this._redirectUrl).toString();
-		await ctx.thread.post(createWhatsAppCompletionCard(chatUrl));
+		for (const url of chartUrls) {
+			await this._sendWhatsAppImage(ctx.thread.id, url);
+		}
 
 		posthog.capture(ctx.user!.id, PostHogEvent.MessageSent, {
 			project_id: this._projectId,
@@ -232,19 +256,20 @@ class WhatsappService {
 	private async _createAgentStream(
 		chat: UIChat,
 		ctx: ConversationContext,
+		chatUrl: string,
 	): Promise<ReadableStream<InferUIMessageChunk<UIMessage>>> {
 		const agent = await agentService.create(
 			{ ...chat, userId: ctx.user!.id, projectId: this._projectId },
 			this._modelSelection,
 		);
 		ctx.modelId = agent.getModelId();
-		return agent.stream(chat.messages, { provider: 'whatsapp', timezone: ctx.timezone });
+		return agent.stream(chat.messages, { provider: 'whatsapp', timezone: ctx.timezone, chatUrl });
 	}
 
 	private async _readStreamAndUpdateMessage(
 		stream: ReadableStream<InferUIMessageChunk<UIMessage>>,
 		ctx: ConversationContext,
-	): Promise<{ finalText: string }> {
+	): Promise<{ finalText: string; chartUrls: string[] }> {
 		const state: StreamState = {
 			renderedChartIds: new Set(),
 			sqlOutputs: new Map(),
@@ -253,9 +278,11 @@ class WhatsappService {
 			toolGroupBlockIndex: -1,
 		};
 
-		let finalText = '';
+		const chartUrls: string[] = [];
+		let lastMessage: UIMessage | null = null;
 
 		for await (const uiMessage of readUIMessageStream<UIMessage>({ stream })) {
+			lastMessage = uiMessage;
 			const part = uiMessage.parts[uiMessage.parts.length - 1];
 			if (!part) {
 				continue;
@@ -263,19 +290,77 @@ class WhatsappService {
 			if (part.type.startsWith('tool-') && !EXCLUDED_TOOLS.includes(part.type)) {
 				this._trackToolCall(part as Extract<UIMessagePart, { toolCallId: string }>, state);
 			}
-			if (part.type === 'text') {
-				finalText = part.text.replace(CITATION_TAG_REGEX, '');
-			} else if (part.type === 'tool-execute_sql') {
+			if (part.type === 'tool-execute_sql') {
 				this._handleSqlPart(part, state);
+			} else if (part.type === 'tool-display_chart') {
+				const url = await this._handleChartPart(part, state, ctx);
+				if (url) {
+					chartUrls.push(url);
+				}
 			}
 		}
 
-		if (state.toolGroup.size > 0) {
-			const summary = createSummaryToolCalls(state.toolGroup);
-			await ctx.thread.post('content' in summary ? summary.content : '');
-		}
+		const finalText = (lastMessage?.parts ?? [])
+			.filter((p): p is Extract<UIMessagePart, { type: 'text' }> => p.type === 'text')
+			.map((p) => p.text.replace(CITATION_TAG_REGEX, ''))
+			.join('\n\n');
 
-		return { finalText };
+		return { finalText, chartUrls };
+	}
+
+	private async _handleChartPart(
+		part: Extract<UIMessagePart, { type: 'tool-display_chart' }>,
+		state: StreamState,
+		ctx: ConversationContext,
+	): Promise<string | null> {
+		if (part.state !== 'output-available' || state.renderedChartIds.has(part.toolCallId)) {
+			return null;
+		}
+		const sqlOutput = state.sqlOutputs.get(part.input.query_id);
+		if (!sqlOutput) {
+			return null;
+		}
+		try {
+			const png = generateChartImage({ config: part.input, data: sqlOutput.rows });
+			const chartId = await chartImageQueries.saveChart(part.toolCallId, png.toString('base64'));
+			state.renderedChartIds.add(part.toolCallId);
+			return new URL(`c/${ctx.chatId}/${chartId}.png`, this._redirectUrl).toString();
+		} catch (error) {
+			logger.error(`Chart image generation failed: ${String(error)}`, {
+				source: 'system',
+				context: { chatId: ctx.chatId, toolCallId: part.toolCallId },
+			});
+			return null;
+		}
+	}
+
+	private async _sendWhatsAppImage(threadId: string, imageUrl: string): Promise<void> {
+		const userWaId = threadId.split(':')[2];
+		if (!userWaId) {
+			return;
+		}
+		const url = `https://graph.facebook.com/v21.0/${this._currentPhoneNumberId}/messages`;
+		const response = await fetch(url, {
+			method: 'POST',
+			headers: {
+				Authorization: `Bearer ${this._currentAccessToken}`,
+				'Content-Type': 'application/json',
+			},
+			body: JSON.stringify({
+				messaging_product: 'whatsapp',
+				recipient_type: 'individual',
+				to: userWaId,
+				type: 'image',
+				image: { link: imageUrl },
+			}),
+		});
+		if (!response.ok) {
+			const body = await response.text();
+			logger.error(`Failed to send WhatsApp image: ${response.status}`, {
+				source: 'system',
+				context: { body },
+			});
+		}
 	}
 
 	private _trackToolCall(part: Extract<UIMessagePart, { toolCallId: string }>, state: StreamState): void {

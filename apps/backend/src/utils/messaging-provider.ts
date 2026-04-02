@@ -103,11 +103,6 @@ export const createTelegramCompletionCard = (chatUrl: string, vote?: 'up' | 'dow
 		],
 	});
 
-export const createWhatsAppCompletionCard = (chatUrl: string): CardElement =>
-	Card({
-		children: [CardText(`Open in nao: ${chatUrl}`)],
-	});
-
 export const createTextBlock = (text: string): CardChild => {
 	return CardText(mdToMrkdwn(text));
 };
