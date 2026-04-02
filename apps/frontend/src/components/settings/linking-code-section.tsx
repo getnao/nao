@@ -1,51 +1,153 @@
-import { useMutation } from '@tanstack/react-query';
-import { useRef, useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Check, Copy, Loader2, RefreshCcw, Unlink } from 'lucide-react';
 import { SettingsCard } from '../ui/settings-card';
-import { CopyableUrl } from '../ui/copyable-url';
+import { Button } from '@/components/ui/button';
 import { useSession } from '@/lib/auth-client';
 import { trpc } from '@/main';
 
 export function LinkingCodesCard() {
-	const { data: session, refetch: refetchSession } = useSession();
+	const queryClient = useQueryClient();
+	const { data: session } = useSession();
 	const user = session?.user;
 
-	const regenerateCode = useMutation(trpc.project.regenerateMessagingProviderCode.mutationOptions());
+	const whatsappConfig = useQuery(trpc.project.getWhatsappConfig.queryOptions());
+	const currentCode = useQuery(trpc.project.getCurrentUserMessagingProviderCode.queryOptions());
+	const linkedAccounts = useQuery(trpc.project.getCurrentUserWhatsappLinks.queryOptions());
+	const regenerateCode = useMutation(trpc.project.regenerateCurrentUserMessagingProviderCode.mutationOptions());
+	const unlinkWhatsapp = useMutation(trpc.project.unlinkCurrentUserWhatsappLink.mutationOptions());
+	const isConfigured = Boolean(whatsappConfig.data?.projectConfig);
+	const code = currentCode.data ?? '';
+	const [copied, setCopied] = useState(false);
 
-	const handleRegenerate = async (userId: string) => {
-		await regenerateCode.mutateAsync({ userId });
-		await refetchSession();
+	const handleRegenerate = async () => {
+		await regenerateCode.mutateAsync();
+		await queryClient.invalidateQueries(trpc.project.getCurrentUserMessagingProviderCode.queryOptions());
 	};
 
 	const handleRegenerateRef = useRef(handleRegenerate);
 	handleRegenerateRef.current = handleRegenerate;
 
 	useEffect(() => {
-		if (!user?.id) {
+		if (!user?.id || currentCode.isLoading || regenerateCode.isPending) {
 			return;
 		}
-		const userId = user.id;
-		if (!user.messagingProviderCode) {
-			handleRegenerateRef.current(userId).catch(console.error);
+
+		if (!currentCode.data) {
+			handleRegenerateRef.current().catch(console.error);
 		}
-		const interval = setInterval(() => handleRegenerateRef.current(userId).catch(console.error), 2 * 60 * 1000);
+
+		const interval = setInterval(() => handleRegenerateRef.current().catch(console.error), 2 * 60 * 1000);
 		return () => clearInterval(interval);
-	}, [user?.id, user?.messagingProviderCode]);
+	}, [currentCode.data, currentCode.isLoading, regenerateCode.isPending, user?.id]);
+
+	const handleUnlink = async (whatsappUserId: string) => {
+		await unlinkWhatsapp.mutateAsync({ whatsappUserId });
+		await queryClient.invalidateQueries(trpc.project.getCurrentUserWhatsappLinks.queryOptions());
+	};
+
+	const handleCopy = async () => {
+		if (!code) {
+			return;
+		}
+		await navigator.clipboard.writeText(code);
+		setCopied(true);
+		setTimeout(() => setCopied(false), 2000);
+	};
 
 	return (
-		<SettingsCard title='Linking Code'>
+		<SettingsCard
+			title='Linking Code'
+			description='Send `/login <code>` from the WhatsApp number you want to link.'
+			action={
+				<Button
+					variant='outline'
+					size='sm'
+					onClick={() => handleRegenerate().catch(console.error)}
+					disabled={regenerateCode.isPending}
+				>
+					<RefreshCcw className='size-3.5' />
+					Refresh code
+				</Button>
+			}
+		>
 			<div className='grid gap-3'>
-				<div key={user?.id} className='flex items-center justify-between gap-4'>
-					<div className='flex-1 min-w-0'>
-						<p className='text-sm font-medium text-foreground truncate'>{user?.name}</p>
-						<p className='text-xs text-muted-foreground truncate'>{user?.email}</p>
+				<div className='grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center'>
+					<div className='min-w-0'>
+						<p className='text-xs text-muted-foreground'>Email</p>
+						<p className='text-sm font-medium text-foreground truncate'>{user?.email ?? 'Loading...'}</p>
 					</div>
-					<div className='flex items-center gap-2'>
-						{user?.messagingProviderCode ? (
-							<>{user?.messagingProviderCode && <CopyableUrl url={user?.messagingProviderCode} />}</>
+					<div className='min-w-0 sm:justify-self-end'>
+						<p className='text-xs text-muted-foreground'>Code</p>
+						{code ? (
+							<div className='flex items-center gap-2'>
+								<code className='min-w-0 rounded border border-border bg-muted/50 px-2 py-1.5 text-xs font-mono text-foreground'>
+									{code}
+								</code>
+								<Button
+									variant='ghost'
+									size='icon-sm'
+									onClick={() => handleCopy().catch(console.error)}
+								>
+									{copied ? (
+										<Check className='size-3.5 text-green-500' />
+									) : (
+										<Copy className='size-3.5' />
+									)}
+								</Button>
+							</div>
 						) : (
-							<span className='text-xs text-muted-foreground'>No code</span>
+							<div className='flex items-center gap-2 text-xs text-muted-foreground'>
+								<Loader2 className='size-3.5 animate-spin' />
+								Preparing code...
+							</div>
 						)}
 					</div>
+				</div>
+
+				{!whatsappConfig.isLoading && !isConfigured && (
+					<p className='text-xs text-muted-foreground'>
+						An admin still needs to finish the WhatsApp app setup.
+					</p>
+				)}
+
+				<div className='grid gap-2 border-t border-border pt-3'>
+					<p className='text-sm font-medium text-foreground'>
+						{linkedAccounts.data && linkedAccounts.data.length > 1
+							? 'Linked WhatsApp accounts'
+							: 'Linked WhatsApp account'}
+					</p>
+					{linkedAccounts.isLoading ? (
+						<div className='flex items-center gap-2 text-xs text-muted-foreground'>
+							<Loader2 className='size-3.5 animate-spin' />
+							Checking link...
+						</div>
+					) : linkedAccounts.data?.length ? (
+						linkedAccounts.data.map((link) => (
+							<div
+								key={link.whatsappUserId}
+								className='flex flex-col gap-3 rounded-lg border border-border bg-muted/30 p-3 sm:flex-row sm:items-center sm:justify-between'
+							>
+								<div className='min-w-0'>
+									<p className='text-xs text-muted-foreground'>Currently linked</p>
+									<code className='block truncate rounded bg-background px-2 py-1.5 font-mono text-xs text-foreground'>
+										{link.whatsappUserId}
+									</code>
+								</div>
+								<Button
+									variant='outline'
+									size='sm'
+									onClick={() => handleUnlink(link.whatsappUserId).catch(console.error)}
+									disabled={unlinkWhatsapp.isPending}
+								>
+									<Unlink className='size-3.5' />
+									Unlink
+								</Button>
+							</div>
+						))
+					) : (
+						<p className='text-xs text-muted-foreground'>No WhatsApp account linked yet.</p>
+					)}
 				</div>
 			</div>
 		</SettingsCard>

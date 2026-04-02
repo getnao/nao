@@ -168,6 +168,31 @@ export const project = sqliteTable(
 	],
 );
 
+export const projectWhatsappLink = sqliteTable(
+	'project_whatsapp_link',
+	{
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		whatsappUserId: text('whatsapp_user_id').notNull(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+		updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [
+		primaryKey({ columns: [t.projectId, t.whatsappUserId] }),
+		index('project_whatsapp_link_projectId_idx').on(t.projectId),
+		index('project_whatsapp_link_userId_idx').on(t.userId),
+	],
+);
+
 export const chat = sqliteTable(
 	'chat',
 	{

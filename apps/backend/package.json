@@ -45,6 +45,7 @@
 		"@azure/identity": "^4.13.0",
 		"@chat-adapter/slack": "^4.15.0",
 		"@chat-adapter/state-memory": "^4.15.0",
+		"@chat-adapter/state-redis": "^4.23.0",
 		"@chat-adapter/teams": "^4.19.0",
 		"@chat-adapter/telegram": "^4.19.0",
 		"@chat-adapter/whatsapp": "^4.21.0",

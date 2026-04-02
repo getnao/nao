@@ -160,6 +160,29 @@ export const project = pgTable(
 	],
 );
 
+export const projectWhatsappLink = pgTable(
+	'project_whatsapp_link',
+	{
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		whatsappUserId: text('whatsapp_user_id').notNull(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [
+		primaryKey({ columns: [t.projectId, t.whatsappUserId] }),
+		index('project_whatsapp_link_projectId_idx').on(t.projectId),
+		index('project_whatsapp_link_userId_idx').on(t.userId),
+	],
+);
+
 export const chat = pgTable(
 	'chat',
 	{

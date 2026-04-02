@@ -24,6 +24,10 @@ const envSchema = z.object({
 
 	BETTER_AUTH_URL: z.url({ message: 'BETTER_AUTH_URL must be a valid URL' }).default('http://localhost:5005/'),
 	BETTER_AUTH_SECRET: z.string().min(20).default(crypto.randomBytes(32).toString('hex')),
+	REDIS_URL: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined),
 
 	GOOGLE_CLIENT_ID: z.string().optional(),
 	GOOGLE_CLIENT_SECRET: z.string().optional(),

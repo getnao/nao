@@ -1,15 +1,18 @@
 import { createMemoryState } from '@chat-adapter/state-memory';
+import { createRedisState } from '@chat-adapter/state-redis';
 import { createWhatsAppAdapter } from '@chat-adapter/whatsapp';
 import { CITATION_TAG_REGEX } from '@nao/shared';
 import { InferUIMessageChunk, readUIMessageStream } from 'ai';
 import { Attachment, Chat, Message, Thread } from 'chat';
 
 import { generateChartImage } from '../components/generate-chart';
+import { env } from '../env';
 import * as chartImageQueries from '../queries/chart-image';
 import * as chatQueries from '../queries/chat.queries';
 import * as imageQueries from '../queries/image.queries';
 import * as projectQueries from '../queries/project.queries';
 import { WhatsappConfig } from '../queries/project-whatsapp-config.queries';
+import * as projectWhatsappLinkQueries from '../queries/project-whatsapp-link.queries';
 import { get as getUser, getByMessagingProviderCode } from '../queries/user.queries';
 import { UIChat, UIMessage, UIMessagePart } from '../types/chat';
 import { ConversationContext, StreamState, ToolCallEntry } from '../types/messaging-provider';
@@ -22,6 +25,18 @@ import { posthog, PostHogEvent } from './posthog';
 import * as transcribeService from './transcribe.service';
 
 const SUPPORTED_WHATSAPP_IMAGE_MEDIA_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
+const WHATSAPP_STATE_KEY_PREFIX = 'nao:whatsapp:state';
+
+const createState = (projectId: string) => {
+	if (!env.REDIS_URL) {
+		return createMemoryState();
+	}
+
+	return createRedisState({
+		url: env.REDIS_URL,
+		keyPrefix: `${WHATSAPP_STATE_KEY_PREFIX}:${projectId}`,
+	});
+};
 
 class WhatsappService {
 	private _bot: Chat | null = null;
@@ -32,7 +47,6 @@ class WhatsappService {
 	private _currentPhoneNumberId: string = '';
 	private _currentVerifyToken: string = '';
 	private _modelSelection: ModelSelection | undefined = undefined;
-	private _userByWhatsappId: Map<string, string> = new Map();
 
 	constructor() {}
 
@@ -75,7 +89,7 @@ class WhatsappService {
 					verifyToken: config.verifyToken,
 				}),
 			},
-			state: createMemoryState(),
+			state: createState(config.projectId),
 		});
 
 		this._bot.onNewMention(async (thread, message) => {
@@ -147,17 +161,48 @@ class WhatsappService {
 
 		const code = message.text.trim().slice('/login'.length).trim();
 		if (!code) {
-			await thread.post('❌ Invalid code. Usage: `/login <your-code>`');
+			await thread.post(
+				'❌ Missing linking code. Open nao, go to Settings > Project > WhatsApp, copy your Linking Code, then send `/login <your-linking-code>` here.',
+			);
 			return;
 		}
 
 		const user = await getByMessagingProviderCode(code);
 		if (!user) {
-			await thread.post('❌ Invalid linking code. Check your code in the project settings.');
+			await thread.post(
+				'❌ Invalid linking code. Copy the latest Linking Code from Settings > Project > WhatsApp and send `/login <your-linking-code>` again.',
+			);
 			return;
 		}
 
-		this._userByWhatsappId.set(whatsappId, user.email.toLowerCase());
+		const existingLinkForWhatsapp = await projectWhatsappLinkQueries.getLinkedWhatsappUser(
+			this._projectId,
+			whatsappId,
+		);
+		if (existingLinkForWhatsapp && existingLinkForWhatsapp.userId !== user.id) {
+			await thread.post(
+				'❌ This WhatsApp account is already linked to another nao user in this project. Unlink it first before linking it again.',
+			);
+			return;
+		}
+
+		const existingLinksForUser = await projectWhatsappLinkQueries.listLinkedWhatsappUsersByUserId(
+			this._projectId,
+			user.id,
+		);
+		const isAlreadyLinkedToThisWhatsapp = existingLinksForUser.some((link) => link.whatsappUserId === whatsappId);
+		if (!isAlreadyLinkedToThisWhatsapp && existingLinksForUser.length > 0) {
+			await thread.post(
+				'❌ This nao user is already linked to a different WhatsApp account. Open nao, go to Settings > Project > WhatsApp, unlink the current account, then try again.',
+			);
+			return;
+		}
+
+		await projectWhatsappLinkQueries.upsertLinkedWhatsappUser({
+			projectId: this._projectId,
+			whatsappUserId: whatsappId,
+			userId: user.id,
+		});
 		await thread.post(`✅ Linked to ${user.email}. You can now send messages to nao!`);
 	}
 
@@ -213,18 +258,20 @@ class WhatsappService {
 			throw new Error('Could not retrieve user identity from WhatsApp');
 		}
 
-		const email = this._userByWhatsappId.get(whatsappId);
-		if (!email) {
+		const link = await projectWhatsappLinkQueries.getLinkedWhatsappUser(this._projectId, whatsappId);
+		if (!link) {
 			await ctx.thread.post(
-				'👋 Welcome! Send `/login <your-code>` to link your account. Find your code in project settings.',
+				'👋 Your WhatsApp account is not linked yet. In nao, open Settings > Project > WhatsApp, copy your Linking Code, then send `/login <your-linking-code>` here. Example: `/login abc12345`',
 			);
 			throw new Error('User not linked');
 		}
 
-		const user = await getUser({ email });
+		const user = await getUser({ id: link.userId });
 		if (!user) {
-			this._userByWhatsappId.delete(whatsappId);
-			await ctx.thread.post(`❌ No account found for ${email}. Send \`/login\` again with the correct code.`);
+			await projectWhatsappLinkQueries.deleteLinkedWhatsappUser(this._projectId, whatsappId);
+			await ctx.thread.post(
+				'❌ Your previous link is no longer valid. Copy your current Linking Code from Settings > Project > WhatsApp and send `/login <your-linking-code>` again to relink.',
+			);
 			throw new Error('User not found');
 		}
 		ctx.user = user;

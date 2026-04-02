@@ -12,6 +12,7 @@ import * as slackConfigQueries from '../queries/project-slack-config.queries';
 import * as teamsConfigQueries from '../queries/project-teams-config.queries';
 import * as telegramConfigQueries from '../queries/project-telegram-config.queries';
 import * as whatsappConfigQueries from '../queries/project-whatsapp-config.queries';
+import * as projectWhatsappLinkQueries from '../queries/project-whatsapp-link.queries';
 import * as userQueries from '../queries/user.queries';
 import { posthog, PostHogEvent } from '../services/posthog';
 import { getAvailableModels as getAvailableTranscribeModels } from '../services/transcribe.service';
@@ -402,6 +403,18 @@ export const projectRoutes = {
 			return await userQueries.regenerateMessagingProviderCode(input.userId);
 		}),
 
+	getCurrentUserMessagingProviderCode: projectProtectedProcedure.query(async ({ ctx }) => {
+		const user = await userQueries.get({ id: ctx.user.id });
+		if (!user) {
+			throw new TRPCError({ code: 'NOT_FOUND', message: 'User not found' });
+		}
+		return user.messagingProviderCode;
+	}),
+
+	regenerateCurrentUserMessagingProviderCode: projectProtectedProcedure.mutation(async ({ ctx }) => {
+		return await userQueries.regenerateMessagingProviderCode(ctx.user.id);
+	}),
+
 	getWhatsappConfig: projectProtectedProcedure.query(async ({ ctx }) => {
 		if (!ctx.project) {
 			return { projectConfig: null, projectId: '' };
@@ -425,6 +438,10 @@ export const projectRoutes = {
 			projectId: ctx.project.id,
 			webhookUrl: `${baseUrl}/api/webhooks/whatsapp/${ctx.project.id}`,
 		};
+	}),
+
+	getCurrentUserWhatsappLinks: projectProtectedProcedure.query(async ({ ctx }) => {
+		return await projectWhatsappLinkQueries.listLinkedWhatsappUsersByUserId(ctx.project.id, ctx.user.id);
 	}),
 
 	upsertWhatsappConfig: adminProtectedProcedure
@@ -483,6 +500,21 @@ export const projectRoutes = {
 		await whatsappConfigQueries.deleteProjectWhatsappConfig(ctx.project.id);
 		return { success: true };
 	}),
+
+	unlinkCurrentUserWhatsappLink: projectProtectedProcedure
+		.input(
+			z.object({
+				whatsappUserId: z.string().min(1),
+			}),
+		)
+		.mutation(async ({ ctx, input }) => {
+			await projectWhatsappLinkQueries.deleteLinkedWhatsappUserByUserId(
+				ctx.project.id,
+				ctx.user.id,
+				input.whatsappUserId,
+			);
+			return { success: true };
+		}),
 
 	getAllUsersWithRoles: projectProtectedProcedure.query(async ({ ctx }) => {
 		if (!ctx.project) {
