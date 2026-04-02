@@ -340,20 +340,29 @@ class WhatsappService {
 			return;
 		}
 		const url = `https://graph.facebook.com/v21.0/${this._currentPhoneNumberId}/messages`;
-		const response = await fetch(url, {
-			method: 'POST',
-			headers: {
-				Authorization: `Bearer ${this._currentAccessToken}`,
-				'Content-Type': 'application/json',
-			},
-			body: JSON.stringify({
-				messaging_product: 'whatsapp',
-				recipient_type: 'individual',
-				to: userWaId,
-				type: 'image',
-				image: { link: imageUrl },
-			}),
-		});
+		let response: Response;
+		try {
+			response = await fetch(url, {
+				method: 'POST',
+				headers: {
+					Authorization: `Bearer ${this._currentAccessToken}`,
+					'Content-Type': 'application/json',
+				},
+				body: JSON.stringify({
+					messaging_product: 'whatsapp',
+					recipient_type: 'individual',
+					to: userWaId,
+					type: 'image',
+					image: { link: imageUrl },
+				}),
+			});
+		} catch (error) {
+			logger.error(`Failed to send WhatsApp image: ${error instanceof Error ? error.message : String(error)}`, {
+				source: 'system',
+				context: { threadId, imageUrl },
+			});
+			return;
+		}
 		if (!response.ok) {
 			const body = await response.text();
 			logger.error(`Failed to send WhatsApp image: ${response.status}`, {
