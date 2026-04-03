@@ -1,3 +1,4 @@
+import type { LlmProvider } from '@nao/shared/types';
 import { convertToModelMessages, type ModelMessage, type Tool } from 'ai';
 
 import { KNOWN_MODELS } from '../agents/providers';
@@ -10,7 +11,6 @@ import { compactionService } from '../services/compaction';
 import { memoryService } from '../services/memory';
 import { tokenCounter } from '../services/token-counter';
 import type { ContextUsage, UIMessage } from '../types/chat';
-import type { LlmProvider } from '../types/llm';
 
 export async function getChatContextUsage(opts: {
 	chatId: string;

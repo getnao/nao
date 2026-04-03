@@ -1,3 +1,4 @@
+import type { LlmProvider } from '@nao/shared/types';
 import { and, asc, desc, eq, gte, isNull, like, sql } from 'drizzle-orm';
 
 import s, {
@@ -19,7 +20,6 @@ import {
 	UIMessage,
 	UIMessagePart,
 } from '../types/chat';
-import { LlmProvider } from '../types/llm';
 import { convertDBPartToUIPart, mapUIPartsToDBParts } from '../utils/chat-message-part-mappings';
 import { getErrorMessage } from '../utils/utils';
 

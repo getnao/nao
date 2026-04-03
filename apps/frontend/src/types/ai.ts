@@ -1,6 +1,5 @@
 import type { ReasoningUIPart } from 'ai';
 import type { UIToolPart, UIMessagePart, UIMessage } from '@nao/backend/chat';
-import type { LlmProvider } from '@nao/backend/llm';
 
 /** A collapsible part can be either a tool or reasoning */
 export type GroupablePart = UIToolPart | ReasoningUIPart;
@@ -10,11 +9,6 @@ export type ToolGroupPart = { type: 'tool-group'; parts: GroupablePart[] };
 
 /** Union of regular message parts and tool groups */
 export type GroupedMessagePart = UIMessagePart | ToolGroupPart;
-
-export default interface ChatSelectedModel {
-	provider: LlmProvider;
-	modelId: string;
-}
 
 /** A group of user and assistant messages. */
 export interface MessageGroup {

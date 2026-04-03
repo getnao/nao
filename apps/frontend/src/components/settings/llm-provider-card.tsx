@@ -1,7 +1,7 @@
 import { Pencil, Trash2 } from 'lucide-react';
 import { getDefaultModelId, getProviderAuth } from '@nao/backend/provider-meta';
 import { LlmProviderIcon } from '../ui/llm-provider-icon';
-import type { LlmProvider } from '@nao/backend/llm';
+import type { LlmProvider } from '@nao/shared/types';
 import { Button } from '@/components/ui/button';
 
 interface ProviderCardProps {

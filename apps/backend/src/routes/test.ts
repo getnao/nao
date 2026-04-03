@@ -1,17 +1,12 @@
+import type { LlmSelectedModel } from '@nao/shared/types';
 import { z } from 'zod/v4';
 
 import { executeQuery } from '../agents/tools/execute-sql';
 import type { App } from '../app';
 import { authMiddleware } from '../middleware/auth';
 import { retrieveProjectById } from '../queries/project.queries';
-import { ModelSelection } from '../services/agent';
 import { TestAgentService, testAgentService } from '../services/test-agent.service';
-import { llmProviderSchema } from '../types/llm';
-
-const modelSelectionSchema = z.object({
-	provider: llmProviderSchema,
-	modelId: z.string(),
-});
+import { llmSelectedModelSchema } from '../types/llm';
 
 export const testRoutes = async (app: App) => {
 	app.addHook('preHandler', authMiddleware);
@@ -26,7 +21,7 @@ export const testRoutes = async (app: App) => {
 			schema: {
 				body: z.object({
 					prompt: z.string(),
-					model: modelSelectionSchema,
+					model: llmSelectedModelSchema,
 					sql: z.string(),
 				}),
 			},
@@ -42,7 +37,7 @@ export const testRoutes = async (app: App) => {
 			}
 
 			try {
-				const modelSelection = model as ModelSelection | undefined;
+				const modelSelection = model as LlmSelectedModel | undefined;
 				const result = await testAgentService.runTest(projectId, prompt, modelSelection);
 				const project = await retrieveProjectById(projectId);
 

@@ -1,3 +1,4 @@
+import type { LlmProvider } from '@nao/shared/types';
 import { ModelMessage, Tool } from 'ai';
 
 import { CompactionLLM } from '../agents/compaction';
@@ -6,7 +7,6 @@ import type { DBChat } from '../db/abstractSchema';
 import { renderToMarkdown, XML } from '../lib/markdown';
 import type { CompactionPart, TokenUsage, UIMessage } from '../types/chat';
 import { ICompactionLLM } from '../types/compaction';
-import type { LlmProvider } from '../types/llm';
 import {
 	findFirstNonSystemMessageIndex,
 	findLastCompactionPart,

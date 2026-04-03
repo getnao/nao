@@ -1,10 +1,10 @@
+import type { LlmProvider } from '@nao/shared/types';
 import { and, eq, isNotNull, SQL, sql, SQLWrapper, sum } from 'drizzle-orm';
 
 import { LLM_PROVIDERS } from '../agents/providers';
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
-import type { LlmProvider } from '../types/llm';
 import type { Granularity, UsageFilter, UsageRecord } from '../types/usage';
 import { fillMissingDates, getLookbackTimestamp } from '../utils/date';
 

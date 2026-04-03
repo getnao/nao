@@ -1,15 +1,16 @@
+import type { LlmProvider, LlmSelectedModel } from '@nao/shared/types';
 import { eq } from 'drizzle-orm';
 
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
 import { env } from '../env';
-import { LlmProvider, llmProviderSchema, ModelSelection } from '../types/llm';
+import { llmProviderSchema } from '../types/llm';
 import { takeFirstOrThrow } from '../utils/queries';
 
-function toModelSelection(
+function toLlmSelectedModel(
 	provider: string | null | undefined,
 	modelId: string | null | undefined,
-): ModelSelection | undefined {
+): LlmSelectedModel | undefined {
 	if (!provider || !modelId) {
 		return undefined;
 	}
@@ -23,7 +24,7 @@ export const getProjectTeamsConfig = async (
 	appId: string;
 	appPassword: string;
 	tenantId: string;
-	modelSelection?: ModelSelection;
+	modelSelection?: LlmSelectedModel;
 } | null> => {
 	const [project] = await db.select().from(s.project).where(eq(s.project.id, projectId)).execute();
 	const settings = project?.teamsSettings;
@@ -36,7 +37,7 @@ export const getProjectTeamsConfig = async (
 		appId: settings.teamsAppId,
 		appPassword: settings.teamsAppPassword,
 		tenantId: settings.teamsTenantId,
-		modelSelection: toModelSelection(settings.teamsLlmProvider, settings.teamsLlmModelId),
+		modelSelection: toLlmSelectedModel(settings.teamsLlmProvider, settings.teamsLlmModelId),
 	};
 };
 
@@ -51,7 +52,7 @@ export const upsertProjectTeamsConfig = async (data: {
 	appId: string;
 	appPassword: string;
 	tenantId: string;
-	modelSelection?: ModelSelection;
+	modelSelection?: LlmSelectedModel;
 }> => {
 	const updated = await takeFirstOrThrow(
 		db
@@ -76,7 +77,7 @@ export const upsertProjectTeamsConfig = async (data: {
 		appId: settings?.teamsAppId || '',
 		appPassword: settings?.teamsAppPassword || '',
 		tenantId: settings?.teamsTenantId || '',
-		modelSelection: toModelSelection(settings?.teamsLlmProvider, settings?.teamsLlmModelId),
+		modelSelection: toLlmSelectedModel(settings?.teamsLlmProvider, settings?.teamsLlmModelId),
 	};
 };
 
@@ -118,7 +119,7 @@ export interface TeamsConfig {
 	appPassword: string;
 	tenantId?: string;
 	redirectUrl: string;
-	modelSelection?: ModelSelection;
+	modelSelection?: LlmSelectedModel;
 }
 
 /**
@@ -153,6 +154,6 @@ export async function getTeamsConfig(): Promise<TeamsConfig | null> {
 		appPassword,
 		tenantId,
 		redirectUrl,
-		modelSelection: toModelSelection(settings?.teamsLlmProvider, settings?.teamsLlmModelId),
+		modelSelection: toLlmSelectedModel(settings?.teamsLlmProvider, settings?.teamsLlmModelId),
 	};
 }

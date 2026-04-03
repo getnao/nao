@@ -4,7 +4,7 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { format, formatDistanceToNow } from 'date-fns';
 import { ThumbsDown, ThumbsUp } from 'lucide-react';
 import type { Granularity } from '@nao/backend/usage';
-import type { LlmProvider } from '@nao/backend/llm';
+import type { LlmProvider } from '@nao/shared/types';
 import type { ChartView } from '@/components/settings/usage-filters';
 import { UsageChartCard } from '@/components/settings/usage-chart-card';
 import { UsageFilters, dateFormats } from '@/components/settings/usage-filters';

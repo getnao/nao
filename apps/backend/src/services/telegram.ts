@@ -1,6 +1,7 @@
 import { createMemoryState } from '@chat-adapter/state-memory';
 import { createTelegramAdapter } from '@chat-adapter/telegram';
 import { CITATION_TAG_REGEX } from '@nao/shared';
+import type { LlmSelectedModel } from '@nao/shared/types';
 import { InferUIMessageChunk, readUIMessageStream } from 'ai';
 import { Card, CardElement, Chat, Message, SentMessage, Thread } from 'chat';
 
@@ -21,7 +22,7 @@ import {
 	createTelegramStopButtonCard,
 	EXCLUDED_TOOLS,
 } from '../utils/messaging-provider';
-import { agentService, ModelSelection } from './agent';
+import { agentService } from './agent';
 import { posthog, PostHogEvent } from './posthog';
 
 const UPDATE_INTERVAL_MS = 200;
@@ -31,7 +32,7 @@ class TelegramService {
 	private _projectId: string = '';
 	private _redirectUrl: string = '';
 	private _botToken: string = '';
-	private _modelSelection: ModelSelection | undefined = undefined;
+	private _modelSelection: LlmSelectedModel | undefined = undefined;
 	private _lastCompletionCard: Map<string, { card: SentMessage; chatUrl: string }> = new Map();
 	private _userByTelegramId: Map<string, string> = new Map();
 

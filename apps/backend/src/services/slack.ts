@@ -1,6 +1,7 @@
 import { createSlackAdapter } from '@chat-adapter/slack';
 import { createMemoryState } from '@chat-adapter/state-memory';
 import { CITATION_TAG_REGEX } from '@nao/shared';
+import type { LlmSelectedModel } from '@nao/shared/types';
 import { WebClient } from '@slack/web-api';
 import { InferUIMessageChunk, readUIMessageStream } from 'ai';
 import { Card, Chat, Message, SentMessage, Thread } from 'chat';
@@ -28,7 +29,7 @@ import {
 	EXCLUDED_TOOLS,
 	FEEDBACK_MODAL_CALLBACK_ID,
 } from '../utils/messaging-provider';
-import { agentService, ModelSelection } from './agent';
+import { agentService } from './agent';
 import { posthog, PostHogEvent } from './posthog';
 
 const UPDATE_INTERVAL_MS = 200;
@@ -40,7 +41,7 @@ class SlackService {
 	private _redirectUrl: string = '';
 	private _currentBotToken: string = '';
 	private _currentSigningSecret: string = '';
-	private _modelSelection: ModelSelection | undefined = undefined;
+	private _modelSelection: LlmSelectedModel | undefined = undefined;
 	private _lastCompletionCard: Map<string, { card: SentMessage; chatUrl: string }> = new Map();
 
 	constructor() {}

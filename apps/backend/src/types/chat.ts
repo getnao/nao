@@ -10,7 +10,7 @@ import z from 'zod/v4';
 
 import { getTools, tools } from '../agents/tools';
 import { MessageFeedback } from '../db/abstractSchema';
-import { llmProviderSchema } from './llm';
+import { llmSelectedModelSchema } from './llm';
 
 export interface ForkMetadata {
 	type: 'chat' | 'chat_selection' | 'story' | 'story_selection';
@@ -141,17 +141,12 @@ export const AgentRequestUserMessageSchema = z.object({
 	images: z.array(AgentRequestImageSchema).optional(),
 });
 
-const ModelSelectionSchema = z.object({
-	provider: llmProviderSchema,
-	modelId: z.string(),
-});
-
 export type AgentRequest = z.infer<typeof AgentRequestSchema>;
 export const AgentRequestSchema = z.object({
 	message: AgentRequestUserMessageSchema,
 	chatId: z.string().optional(),
 	messageToEditId: z.string().optional(),
-	model: ModelSelectionSchema.optional(),
+	model: llmSelectedModelSchema.optional(),
 	mentions: z.array(MentionSchema).optional(),
 	timezone: z.string().optional(),
 });

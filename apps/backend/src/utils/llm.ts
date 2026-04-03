@@ -1,8 +1,10 @@
+import type { LlmProvider, LlmSelectedModel } from '@nao/shared/types';
+
 import { createProviderModel, getDefaultModelId, LLM_PROVIDERS, type ProviderModelResult } from '../agents/providers';
 import * as projectLlmConfigQueries from '../queries/project-llm-config.queries';
-import { LlmProvider, ModelSelection, type ProviderSettings } from '../types/llm';
+import type { ProviderSettings } from '../types/llm';
+
 export { getDefaultModelId };
-export type { ModelSelection };
 
 /** Get the API key from environment for a provider */
 export function getEnvApiKey(provider: LlmProvider): string | undefined {
@@ -60,7 +62,7 @@ export function getKnownModelIds(provider: LlmProvider): string[] {
 }
 
 /** Get model selections for all env-configured providers */
-export function getEnvModelSelections(): ModelSelection[] {
+export function getEnvModelSelections(): LlmSelectedModel[] {
 	return getEnvProviders().map((provider) => ({
 		provider,
 		modelId: getDefaultModelId(provider),

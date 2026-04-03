@@ -1,3 +1,4 @@
+import type { LlmProvider } from '@nao/shared/types';
 import { USER_ROLES } from '@nao/shared/types';
 import { type ProviderMetadata } from 'ai';
 import { sql } from 'drizzle-orm';
@@ -16,7 +17,7 @@ import {
 
 import { AgentSettings } from '../types/agent-settings';
 import { ForkMetadata, StopReason, ToolState, UIMessagePartType } from '../types/chat';
-import { LLM_INFERENCE_TYPES, LlmProvider } from '../types/llm';
+import { LLM_INFERENCE_TYPES } from '../types/llm';
 import { LOG_LEVELS, LOG_SOURCES } from '../types/log';
 import { MEMORY_CATEGORIES } from '../types/memory';
 import { SlackSettings, TeamsSettings, TelegramSettings, WhatsappSettings } from '../types/messaging-provider';

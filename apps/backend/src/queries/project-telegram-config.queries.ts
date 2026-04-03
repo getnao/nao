@@ -1,15 +1,16 @@
+import type { LlmProvider, LlmSelectedModel } from '@nao/shared/types';
 import { eq } from 'drizzle-orm';
 
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
 import { env } from '../env';
-import { LlmProvider, llmProviderSchema, ModelSelection } from '../types/llm';
+import { llmProviderSchema } from '../types/llm';
 import { takeFirstOrThrow } from '../utils/queries';
 
-function toModelSelection(
+function toLlmSelectedModel(
 	provider: string | null | undefined,
 	modelId: string | null | undefined,
-): ModelSelection | undefined {
+): LlmSelectedModel | undefined {
 	if (!provider || !modelId) {
 		return undefined;
 	}
@@ -21,7 +22,7 @@ export const getProjectTelegramConfig = async (
 	projectId: string,
 ): Promise<{
 	botToken: string;
-	modelSelection?: ModelSelection;
+	modelSelection?: LlmSelectedModel;
 } | null> => {
 	const [project] = await db.select().from(s.project).where(eq(s.project.id, projectId)).execute();
 	const settings = project?.telegramSettings;
@@ -32,7 +33,7 @@ export const getProjectTelegramConfig = async (
 
 	return {
 		botToken: settings.telegramBotToken,
-		modelSelection: toModelSelection(settings.telegramLlmProvider, settings.telegramLlmModelId),
+		modelSelection: toLlmSelectedModel(settings.telegramLlmProvider, settings.telegramLlmModelId),
 	};
 };
 
@@ -43,7 +44,7 @@ export const upsertProjectTelegramConfig = async (data: {
 	modelId?: string;
 }): Promise<{
 	botToken: string;
-	modelSelection?: ModelSelection;
+	modelSelection?: LlmSelectedModel;
 }> => {
 	const updated = await takeFirstOrThrow(
 		db
@@ -64,7 +65,7 @@ export const upsertProjectTelegramConfig = async (data: {
 	const settings = updated.telegramSettings;
 	return {
 		botToken: settings?.telegramBotToken || '',
-		modelSelection: toModelSelection(settings?.telegramLlmProvider, settings?.telegramLlmModelId),
+		modelSelection: toLlmSelectedModel(settings?.telegramLlmProvider, settings?.telegramLlmModelId),
 	};
 };
 
@@ -102,7 +103,7 @@ export interface TelegramConfig {
 	projectId: string;
 	botToken: string;
 	redirectUrl: string;
-	modelSelection?: ModelSelection;
+	modelSelection?: LlmSelectedModel;
 }
 
 export async function getTelegramConfig(): Promise<TelegramConfig | null> {
@@ -129,6 +130,6 @@ export async function getTelegramConfig(): Promise<TelegramConfig | null> {
 		projectId: project.id,
 		botToken,
 		redirectUrl,
-		modelSelection: toModelSelection(settings?.telegramLlmProvider, settings?.telegramLlmModelId),
+		modelSelection: toLlmSelectedModel(settings?.telegramLlmProvider, settings?.telegramLlmModelId),
 	};
 }

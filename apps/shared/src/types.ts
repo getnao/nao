@@ -6,6 +6,23 @@ export type UpdatedAtFilter = { mode: 'single'; value: string } | { mode: 'range
 
 export const NO_CACHE_SCHEDULE = 'no-cache';
 
+export const LLM_PROVIDERS = [
+	'openai',
+	'anthropic',
+	'google',
+	'mistral',
+	'openrouter',
+	'ollama',
+	'bedrock',
+	'vertex',
+] as const;
+export type LlmProvider = (typeof LLM_PROVIDERS)[number];
+
+export type LlmSelectedModel = {
+	provider: LlmProvider;
+	modelId: string;
+};
+
 export type SummarySegment =
 	| { type: 'text'; content: string }
 	| { type: 'chart'; chartType: string; title: string }

@@ -1,8 +1,8 @@
+import type { LlmProvider } from '@nao/shared/types';
 import { z } from 'zod/v4';
 
 import { DBMemory } from '../db/abstractSchema';
 import { UIMessage } from './chat';
-import { LlmProvider } from './llm';
 
 /** Categories of memories that can be extracted from user messages. Ordered by priority. */
 export const MEMORY_CATEGORIES = ['global_rule', 'personal_fact'] as const;

@@ -1,9 +1,9 @@
+import type { LlmProvider } from '@nao/shared/types';
 import { LanguageModelUsage, ModelMessage } from 'ai';
 
 import { LLM_PROVIDERS } from '../agents/providers';
 import { type ITokenCounter, tokenCounter } from '../services/token-counter';
 import { CompactionPart, TokenCost, TokenUsage, UIMessage } from '../types/chat';
-import { LlmProvider } from '../types/llm';
 
 export const convertToTokenUsage = (usage: LanguageModelUsage): TokenUsage => ({
 	inputTotalTokens: usage.inputTokens,

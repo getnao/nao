@@ -4,6 +4,7 @@ import { createTeamsAdapter } from '@chat-adapter/teams';
 import { Client } from '@microsoft/microsoft-graph-client';
 import { TokenCredentialAuthenticationProvider } from '@microsoft/microsoft-graph-client/authProviders/azureTokenCredentials';
 import { CITATION_TAG_REGEX } from '@nao/shared';
+import type { LlmSelectedModel } from '@nao/shared/types';
 import { InferUIMessageChunk, readUIMessageStream } from 'ai';
 import { Card, Chat, Message, SentMessage, Thread } from 'chat';
 
@@ -27,7 +28,7 @@ import {
 	createTextBlock,
 	EXCLUDED_TOOLS,
 } from '../utils/messaging-provider';
-import { agentService, ModelSelection } from './agent';
+import { agentService } from './agent';
 import { posthog, PostHogEvent } from './posthog';
 
 interface TeamsRawMessage {
@@ -45,7 +46,7 @@ class TeamsService {
 	private _appId: string = '';
 	private _appPassword: string = '';
 	private _tenantId: string = '';
-	private _modelSelection: ModelSelection | undefined = undefined;
+	private _modelSelection: LlmSelectedModel | undefined = undefined;
 	private _lastCompletionCard: Map<string, { card: SentMessage; chatUrl: string }> = new Map();
 
 	constructor() {}

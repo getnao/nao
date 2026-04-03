@@ -2,6 +2,7 @@ import { createMemoryState } from '@chat-adapter/state-memory';
 import { createRedisState } from '@chat-adapter/state-redis';
 import { createWhatsAppAdapter } from '@chat-adapter/whatsapp';
 import { CITATION_TAG_REGEX } from '@nao/shared';
+import type { LlmSelectedModel } from '@nao/shared/types';
 import { InferUIMessageChunk, readUIMessageStream } from 'ai';
 import { Attachment, Chat, Message, Thread } from 'chat';
 
@@ -20,7 +21,7 @@ import { createChatTitle } from '../utils/ai';
 import { buildImageUrl } from '../utils/image';
 import { logger } from '../utils/logger';
 import { EXCLUDED_TOOLS } from '../utils/messaging-provider';
-import { agentService, ModelSelection } from './agent';
+import { agentService } from './agent';
 import { posthog, PostHogEvent } from './posthog';
 import * as transcribeService from './transcribe.service';
 
@@ -46,7 +47,7 @@ class WhatsappService {
 	private _currentAppSecret: string = '';
 	private _currentPhoneNumberId: string = '';
 	private _currentVerifyToken: string = '';
-	private _modelSelection: ModelSelection | undefined = undefined;
+	private _modelSelection: LlmSelectedModel | undefined = undefined;
 
 	constructor() {}
 

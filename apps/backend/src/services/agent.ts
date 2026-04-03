@@ -1,4 +1,5 @@
 import { story } from '@nao/shared/tools';
+import type { LlmProvider, LlmSelectedModel } from '@nao/shared/types';
 import {
 	convertToModelMessages,
 	createUIMessageStream,
@@ -38,25 +39,16 @@ import {
 	TokenUsage,
 	UIMessage,
 } from '../types/chat';
-import { LlmProvider } from '../types/llm';
 import { Provider } from '../types/messaging-provider';
 import { ToolContext } from '../types/tools';
 import { convertToCost, convertToTokenUsage, findLastUserMessage, getLastUserMessageText } from '../utils/ai';
 import { HandlerError } from '../utils/error';
-import {
-	getDefaultModelId,
-	getEnvModelSelections,
-	ModelSelection,
-	resolveProviderModel,
-	resolveProviderSettings,
-} from '../utils/llm';
+import { getDefaultModelId, getEnvModelSelections, resolveProviderModel, resolveProviderSettings } from '../utils/llm';
 import { logger } from '../utils/logger';
 import { truncateMiddle } from '../utils/utils';
 import { compactionService } from './compaction';
 import { memoryService } from './memory';
 import { skillService } from './skill';
-
-export type { ModelSelection };
 
 export interface AgentRunResult {
 	text: string;
@@ -81,18 +73,18 @@ export type AgentChat = Pick<DBChat, 'id' | 'projectId' | 'userId'> & {
 export class AgentService {
 	private _agents = new Map<string, AgentManager>();
 
-	async create(chat: AgentChat, modelSelection?: ModelSelection): Promise<AgentManager> {
+	async create(chat: AgentChat, modelSelection?: LlmSelectedModel): Promise<AgentManager> {
 		this._disposeAgent(chat.id);
-		const resolvedModelSelection = await this._getResolvedModelSelection(chat.projectId, modelSelection);
-		const modelConfig = await this._getModelConfig(chat.projectId, resolvedModelSelection);
+		const resolvedLlmSelectedModel = await this._getResolvedLlmSelectedModel(chat.projectId, modelSelection);
+		const modelConfig = await this._getModelConfig(chat.projectId, resolvedLlmSelectedModel);
 		const agentSettings = await projectQueries.getAgentSettings(chat.projectId);
 		const toolContext = await this._getToolContext(chat.projectId, chat.id, agentSettings);
-		const webTools = await this._resolveWebTools(chat.projectId, resolvedModelSelection.provider, agentSettings);
+		const webTools = await this._resolveWebTools(chat.projectId, resolvedLlmSelectedModel.provider, agentSettings);
 		const agentTools = getTools(agentSettings, webTools ?? undefined);
 		const agent = new AgentManager(
 			chat,
 			modelConfig,
-			resolvedModelSelection,
+			resolvedLlmSelectedModel,
 			() => this._agents.delete(chat.id),
 			new AbortController(),
 			agentTools,
@@ -102,10 +94,10 @@ export class AgentService {
 		return agent;
 	}
 
-	protected async _getResolvedModelSelection(
+	protected async _getResolvedLlmSelectedModel(
 		projectId: string,
-		modelSelection?: ModelSelection,
-	): Promise<ModelSelection> {
+		modelSelection?: LlmSelectedModel,
+	): Promise<LlmSelectedModel> {
 		if (modelSelection) {
 			return modelSelection;
 		}
@@ -174,7 +166,7 @@ export class AgentService {
 		return createWebSearchTools(provider, settings);
 	}
 
-	protected async _getModelConfig(projectId: string, modelSelection: ModelSelection): Promise<ProviderModelResult> {
+	protected async _getModelConfig(projectId: string, modelSelection: LlmSelectedModel): Promise<ProviderModelResult> {
 		const result = await resolveProviderModel(projectId, modelSelection.provider, modelSelection.modelId);
 		if (!result) {
 			throw new HandlerError('BAD_REQUEST', 'The selected model could not be resolved.');
@@ -192,7 +184,7 @@ class AgentManager {
 	constructor(
 		readonly chat: AgentChat,
 		private readonly _modelConfig: ProviderModelResult,
-		private readonly _modelSelection: ModelSelection,
+		private readonly _modelSelection: LlmSelectedModel,
 		private readonly _onDispose: () => void,
 		private readonly _abortController: AbortController,
 		private readonly _agentTools: AgentTools,

@@ -5,10 +5,11 @@ import { createVertex } from '@ai-sdk/google-vertex';
 import { createVertexAnthropic } from '@ai-sdk/google-vertex/anthropic';
 import { createMistral } from '@ai-sdk/mistral';
 import { createOpenAI } from '@ai-sdk/openai';
+import type { LlmProvider } from '@nao/shared/types';
 import { createOpenRouter, LanguageModelV3 } from '@openrouter/ai-sdk-provider';
 import { createOllama } from 'ai-sdk-ollama';
 
-import type { LlmProvider, LlmProvidersType, ProviderConfigMap, ProviderSettings } from '../types/llm';
+import type { LlmProvidersType, ProviderConfigMap, ProviderSettings } from '../types/llm';
 import { PROVIDER_META } from './provider-meta';
 
 export {

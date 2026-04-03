@@ -1,4 +1,6 @@
-import type { LlmProvider, ProviderAuth, ProviderMetaMap } from '../types/llm';
+import type { LlmProvider } from '@nao/shared/types';
+
+import type { ProviderAuth, ProviderMetaMap } from '../types/llm';
 
 /** Provider metadata: models, auth config, env vars. No SDK imports — safe for frontend. */
 export const PROVIDER_META: ProviderMetaMap = {

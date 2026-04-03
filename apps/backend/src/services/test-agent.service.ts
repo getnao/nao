@@ -1,8 +1,9 @@
+import type { LlmSelectedModel } from '@nao/shared/types';
 import { generateText, ModelMessage, Output } from 'ai';
 import { z } from 'zod/v4';
 
 import type { UIMessage } from '../types/chat';
-import { AgentRunResult, AgentService, ModelSelection } from './agent';
+import { AgentRunResult, AgentService } from './agent';
 
 type VerificationData = Record<string, string | number | boolean | null>[] | null;
 
@@ -18,7 +19,7 @@ export class TestAgentService extends AgentService {
 	 * Run a single prompt without persisting to a chat.
 	 * Used for testing/evaluation purposes.
 	 */
-	async runTest(projectId: string, prompt: string, modelSelection?: ModelSelection): Promise<AgentRunResult> {
+	async runTest(projectId: string, prompt: string, modelSelection?: LlmSelectedModel): Promise<AgentRunResult> {
 		const userMessage = TestAgentService._buildUserMessage(prompt);
 
 		const tempChat = {
@@ -43,10 +44,10 @@ export class TestAgentService extends AgentService {
 		projectId: string,
 		agentResult: AgentRunResult,
 		expectedColumns: string[],
-		modelSelection?: ModelSelection,
+		modelSelection?: LlmSelectedModel,
 	): Promise<{ data: VerificationData }> {
-		const resolvedModelSelection = await this._getResolvedModelSelection(projectId, modelSelection);
-		const modelConfig = await this._getModelConfig(projectId, resolvedModelSelection);
+		const resolvedSelectedModel = await this._getResolvedLlmSelectedModel(projectId, modelSelection);
+		const modelConfig = await this._getModelConfig(projectId, resolvedSelectedModel);
 
 		// Use responseMessages directly and append verification request
 		const messages: ModelMessage[] = [

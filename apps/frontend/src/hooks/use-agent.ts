@@ -11,7 +11,7 @@ import type { FileUIPart, InferUIMessageChunk } from 'ai';
 import type { UseChatHelpers } from '@ai-sdk/react';
 import type { UIMessage } from '@nao/backend/chat';
 import type { MentionOption } from 'prompt-mentions';
-import type ChatSelectedModel from '@/types/ai';
+import type { LlmSelectedModel } from '@nao/shared/types';
 import { messageQueueStore } from '@/stores/chat-message-queue';
 import { chatActivityStore } from '@/stores/chat-activity';
 import { useChatQuery, useSetChat } from '@/queries/use-chat-query';
@@ -40,8 +40,8 @@ export interface AgentHelpers {
 	stopAgent: () => Promise<void>;
 	error: Error | undefined;
 	clearError: UseChatHelpers<UIMessage>['clearError'];
-	selectedModel: ChatSelectedModel | null;
-	setSelectedModel: React.Dispatch<React.SetStateAction<ChatSelectedModel | null>>;
+	selectedModel: LlmSelectedModel | null;
+	setSelectedModel: React.Dispatch<React.SetStateAction<LlmSelectedModel | null>>;
 	setMentions: (mentions: MentionOption[]) => void;
 }
 
@@ -55,7 +55,7 @@ export interface SendMessageArgs {
 	images?: ImageUploadData[];
 }
 
-export const selectedModelStorage = createLocalStorage<ChatSelectedModel>('nao-selected-model');
+export const selectedModelStorage = createLocalStorage<LlmSelectedModel>('nao-selected-model');
 
 export const useAgent = ({ disableNavigation = false }: { disableNavigation?: boolean } = {}): AgentHelpers => {
 	const navigate = useNavigate();
@@ -68,7 +68,7 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 
 	const chatIdRef = useRef(chatId);
 	chatIdRef.current = chatId;
-	const selectedModelRef = useRef<ChatSelectedModel | null>(null);
+	const selectedModelRef = useRef<LlmSelectedModel | null>(null);
 	selectedModelRef.current = selectedModel;
 	const mentionsRef = useRef<MentionOption[]>([]);
 

@@ -1,8 +1,8 @@
+import type { LlmProvider } from '@nao/shared/types';
 import { and, eq } from 'drizzle-orm';
 
 import s, { DBProjectLlmConfig, NewProjectLlmConfig } from '../db/abstractSchema';
 import { db } from '../db/db';
-import { LlmProvider } from '../types/llm';
 import { getDefaultEnvProvider, getDefaultModelId } from '../utils/llm';
 
 export const getProjectLlmConfigs = async (projectId: string): Promise<DBProjectLlmConfig[]> => {

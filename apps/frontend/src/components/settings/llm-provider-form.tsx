@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useForm } from '@tanstack/react-form';
 import { Check, ChevronDown, Plus, X } from 'lucide-react';
 import { getDefaultModelId, getProviderAuth } from '@nao/backend/provider-meta';
-import type { LlmProvider } from '@nao/backend/llm';
+import type { LlmProvider } from '@nao/shared/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { capitalize } from '@/lib/utils';

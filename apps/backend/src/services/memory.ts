@@ -1,10 +1,11 @@
+import type { LlmProvider } from '@nao/shared/types';
+
 import { MemoryExtractorLLM } from '../agents/memory/memory-extractor-llm';
 import { LLM_PROVIDERS, type ProviderModelResult } from '../agents/providers';
 import { DBMemory, DBNewMemory } from '../db/abstractSchema';
 import * as llmInferenceQueries from '../queries/llm-inference';
 import * as memoryQueries from '../queries/memory';
 import { TokenUsage } from '../types/chat';
-import { LlmProvider } from '../types/llm';
 import type {
 	ExtractorLLMOutput,
 	MemoryCategory,

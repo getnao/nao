@@ -1,3 +1,4 @@
+import type { LlmProvider } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
@@ -17,7 +18,7 @@ import * as userQueries from '../queries/user.queries';
 import { posthog, PostHogEvent } from '../services/posthog';
 import { getAvailableModels as getAvailableTranscribeModels } from '../services/transcribe.service';
 import { AgentSettings } from '../types/agent-settings';
-import { llmConfigSchema, LlmProvider, llmProviderSchema } from '../types/llm';
+import { llmConfigSchema, llmProviderSchema } from '../types/llm';
 import { isValidIsoDateString } from '../utils/date';
 import { getEnvApiKey, getEnvBaseUrls, getEnvProviders, getProjectAvailableModels } from '../utils/llm';
 import { buildCredentialPreviews } from '../utils/utils';

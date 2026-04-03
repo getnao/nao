@@ -1,15 +1,16 @@
+import type { LlmProvider, LlmSelectedModel } from '@nao/shared/types';
 import { eq } from 'drizzle-orm';
 
 import s, { DBProject } from '../db/abstractSchema';
 import { db } from '../db/db';
 import { env } from '../env';
-import { LlmProvider, llmProviderSchema, ModelSelection } from '../types/llm';
+import { llmProviderSchema } from '../types/llm';
 import { takeFirstOrThrow } from '../utils/queries';
 
-function toModelSelection(
+function toLlmSelectedModel(
 	provider: string | null | undefined,
 	modelId: string | null | undefined,
-): ModelSelection | undefined {
+): LlmSelectedModel | undefined {
 	if (!provider || !modelId) {
 		return undefined;
 	}
@@ -22,7 +23,7 @@ export const getProjectSlackConfig = async (
 ): Promise<{
 	botToken: string;
 	signingSecret: string;
-	modelSelection?: ModelSelection;
+	modelSelection?: LlmSelectedModel;
 } | null> => {
 	const [project] = await db.select().from(s.project).where(eq(s.project.id, projectId)).execute();
 	const settings = project?.slackSettings;
@@ -34,7 +35,7 @@ export const getProjectSlackConfig = async (
 	return {
 		botToken: settings.slackBotToken,
 		signingSecret: settings.slackSigningSecret,
-		modelSelection: toModelSelection(settings.slackllmProvider, settings.slackllmModelId),
+		modelSelection: toLlmSelectedModel(settings.slackllmProvider, settings.slackllmModelId),
 	};
 };
 
@@ -47,7 +48,7 @@ export const upsertProjectSlackConfig = async (data: {
 }): Promise<{
 	botToken: string;
 	signingSecret: string;
-	modelSelection?: ModelSelection;
+	modelSelection?: LlmSelectedModel;
 }> => {
 	const updated = await takeFirstOrThrow(
 		db
@@ -70,7 +71,7 @@ export const upsertProjectSlackConfig = async (data: {
 	return {
 		botToken: settings?.slackBotToken || '',
 		signingSecret: settings?.slackSigningSecret || '',
-		modelSelection: toModelSelection(settings?.slackllmProvider, settings?.slackllmModelId),
+		modelSelection: toLlmSelectedModel(settings?.slackllmProvider, settings?.slackllmModelId),
 	};
 };
 
@@ -110,7 +111,7 @@ export interface SlackConfig {
 	botToken: string;
 	signingSecret: string;
 	redirectUrl: string;
-	modelSelection?: ModelSelection;
+	modelSelection?: LlmSelectedModel;
 }
 
 /**
@@ -143,7 +144,7 @@ export async function getSlackConfig(): Promise<SlackConfig | null> {
 		botToken,
 		signingSecret,
 		redirectUrl,
-		modelSelection: toModelSelection(settings?.slackllmProvider, settings?.slackllmModelId),
+		modelSelection: toLlmSelectedModel(settings?.slackllmProvider, settings?.slackllmModelId),
 	};
 }
 

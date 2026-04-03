@@ -1,8 +1,9 @@
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createOpenAI } from '@ai-sdk/openai';
+import type { LlmProvider } from '@nao/shared/types';
 
-import type { LlmProvider, ProviderSettings } from '../../types/llm';
+import type { ProviderSettings } from '../../types/llm';
 
 type ProviderToolCreator = (settings: ProviderSettings) => unknown;
 
