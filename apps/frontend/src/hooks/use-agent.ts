@@ -11,7 +11,7 @@ import type { FileUIPart, InferUIMessageChunk } from 'ai';
 import type { UseChatHelpers } from '@ai-sdk/react';
 import type { UIMessage } from '@nao/backend/chat';
 import type { MentionOption } from 'prompt-mentions';
-import type { LlmSelectedModel } from '@nao/shared/types';
+import type { ImageUploadData, LlmSelectedModel } from '@nao/shared/types';
 import { messageQueueStore } from '@/stores/chat-message-queue';
 import { chatActivityStore } from '@/stores/chat-activity';
 import { useChatQuery, useSetChat } from '@/queries/use-chat-query';
@@ -43,11 +43,6 @@ export interface AgentHelpers {
 	selectedModel: LlmSelectedModel | null;
 	setSelectedModel: React.Dispatch<React.SetStateAction<LlmSelectedModel | null>>;
 	setMentions: (mentions: MentionOption[]) => void;
-}
-
-export interface ImageUploadData {
-	mediaType: string;
-	data: string;
 }
 
 export interface SendMessageArgs {

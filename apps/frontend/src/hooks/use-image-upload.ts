@@ -1,19 +1,20 @@
 import { useState, useCallback, useRef } from 'react';
 
-import type { ImageUploadData } from './use-agent';
+import { ALLOWED_IMAGE_MEDIA_TYPES } from '@nao/shared/types';
+import type { ImageMediaType, ImageUploadData } from '@nao/shared/types';
 
 export interface UploadedImage {
 	id: string;
 	file: File;
 	dataUrl: string;
-	mediaType: string;
+	mediaType: ImageMediaType;
 }
 
 const MAX_IMAGES = 4;
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
-const ACCEPTED_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
+const ACCEPTED_TYPES: ReadonlySet<string> = new Set(ALLOWED_IMAGE_MEDIA_TYPES);
 
-function isAcceptedImageType(type: string): boolean {
+function isAcceptedImageType(type: string): type is ImageMediaType {
 	return ACCEPTED_TYPES.has(type);
 }
 
@@ -53,7 +54,7 @@ export function useImageUpload() {
 					id: crypto.randomUUID(),
 					file,
 					dataUrl,
-					mediaType: file.type,
+					mediaType: file.type as ImageMediaType,
 				});
 			}
 

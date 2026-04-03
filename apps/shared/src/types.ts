@@ -40,6 +40,14 @@ export type FileTreeEntry = {
 	children?: FileTreeEntry[];
 };
 
+export const ALLOWED_IMAGE_MEDIA_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'] as const;
+export type ImageMediaType = (typeof ALLOWED_IMAGE_MEDIA_TYPES)[number];
+
+export type ImageUploadData = {
+	mediaType: ImageMediaType;
+	data: string;
+};
+
 export const SHARE_VISIBILITY = ['project', 'specific'] as const;
 export type Visibility = (typeof SHARE_VISIBILITY)[number];
 

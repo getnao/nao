@@ -1,3 +1,4 @@
+import { ALLOWED_IMAGE_MEDIA_TYPES } from '@nao/shared/types';
 import {
 	DynamicToolUIPart,
 	FinishReason,
@@ -127,13 +128,10 @@ export const MentionSchema = z.object({
 	label: z.string(),
 });
 
-const ALLOWED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'] as const;
-
 export const AgentRequestImageSchema = z.object({
-	mediaType: z.enum(ALLOWED_IMAGE_TYPES),
+	mediaType: z.enum(ALLOWED_IMAGE_MEDIA_TYPES),
 	data: z.string().min(1),
 });
-export type AgentRequestImage = z.infer<typeof AgentRequestImageSchema>;
 
 export type AgentRequestUserMessage = z.infer<typeof AgentRequestUserMessageSchema>;
 export const AgentRequestUserMessageSchema = z.object({

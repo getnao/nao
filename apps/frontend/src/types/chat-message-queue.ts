@@ -1,5 +1,5 @@
 import type { MentionOption } from 'prompt-mentions';
-import type { ImageUploadData } from '@/hooks/use-agent';
+import type { ImageUploadData } from '@nao/shared/types';
 
 export interface QueuedMessage {
 	id: string;

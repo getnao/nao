@@ -1,9 +1,11 @@
+import type { ImageUploadData } from '@nao/shared/types';
+
 import * as chatQueries from '../queries/chat.queries';
 import * as imageQueries from '../queries/image.queries';
 import { agentService } from '../services/agent';
 import { mcpService } from '../services/mcp';
 import { skillService } from '../services/skill';
-import { AgentRequest, AgentRequestImage, AgentRequestUserMessage, UIMessagePart } from '../types/chat';
+import { AgentRequest, AgentRequestUserMessage, UIMessagePart } from '../types/chat';
 import { createChatTitle } from '../utils/ai';
 import { HandlerError } from '../utils/error';
 import { buildImageUrl } from '../utils/image';
@@ -84,7 +86,7 @@ export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<H
 	};
 };
 
-async function saveAndBuildImageParts(images: AgentRequestImage[] | undefined): Promise<UIMessagePart[]> {
+async function saveAndBuildImageParts(images: ImageUploadData[] | undefined): Promise<UIMessagePart[]> {
 	if (!images?.length) {
 		return [];
 	}
