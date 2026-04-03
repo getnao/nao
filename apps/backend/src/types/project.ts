@@ -1,4 +1,4 @@
-import type { ProjectChatListItem, UserRole } from '@nao/shared/types';
+import type {ProjectChatListItem, ProjectChatReplayFacets, UserRole } from '@nao/shared/types';
 
 export interface UserWithRole {
 	id: string;
@@ -13,15 +13,5 @@ export type ProjectChatsFacetKey = 'userName' | 'userRole' | 'toolState';
 export interface ListProjectChatsResponse {
 	chats: ProjectChatListItem[];
 	total: number;
-	facets: {
-		userNames: string[];
-		userNameCounts: Record<string, number>;
-		userRoles: (UserRole | 'Former member')[];
-		userRoleCounts: Partial<Record<UserRole | 'Former member', number>>;
-		toolState: {
-			noToolsUsed: number;
-			toolsNoErrors: number;
-			toolsWithErrors: number;
-		};
-	};
+	facets: ProjectChatReplayFacets<UserRole>;
 }

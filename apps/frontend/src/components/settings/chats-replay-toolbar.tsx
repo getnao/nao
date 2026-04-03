@@ -2,7 +2,7 @@ import { Columns2, Filter, Users, X } from 'lucide-react';
 import { ChatsReplayDateFilter } from './chats-replay-date-filter';
 import type { ColumnFiltersState, Table } from '@tanstack/react-table';
 
-import type { UpdatedAtFilter } from '@nao/shared/types';
+import type { ProjectChatReplayFacets, UpdatedAtFilter } from '@nao/shared/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -18,24 +18,12 @@ import {
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 
-export type ChatsReplayFacets = {
-	userNames: string[];
-	userNameCounts: Record<string, number>;
-	userRoles: string[];
-	userRoleCounts: Record<string, number>;
-	toolState: {
-		noToolsUsed: number;
-		toolsNoErrors: number;
-		toolsWithErrors: number;
-	};
-};
-
 type ChatsReplayToolbarProps<TData> = {
 	globalFilter: string;
 	onGlobalFilterChange: (value: string) => void;
 	columnFilters: ColumnFiltersState;
 	onColumnFiltersChange: (next: ColumnFiltersState) => void;
-	facets: ChatsReplayFacets;
+	facets: ProjectChatReplayFacets;
 	table: Table<TData>;
 };
 

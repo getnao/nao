@@ -51,6 +51,18 @@ export type ImageUploadData = {
 export const SHARE_VISIBILITY = ['project', 'specific'] as const;
 export type Visibility = (typeof SHARE_VISIBILITY)[number];
 
+export type ProjectChatReplayFacets<R extends string = string> = {
+	userNames: string[];
+	userNameCounts: Record<string, number>;
+	userRoles: (R | 'Former member')[];
+	userRoleCounts: Partial<Record<R | 'Former member', number>>;
+	toolState: {
+		noToolsUsed: number;
+		toolsNoErrors: number;
+		toolsWithErrors: number;
+	};
+};
+
 export type ProjectChatListItem = {
 	id: string;
 	updatedAt: number;
