@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Link as LinkIcon, Loader2 } from 'lucide-react';
-import type { Visibility } from '@/components/share-dialog';
+import type { Visibility } from '@nao/shared/types';
 import {
 	hasAccessChanges,
 	ManageShareFooter,

@@ -1,3 +1,5 @@
+import type { Visibility } from '@nao/shared/types';
+
 import { env } from '../env';
 import * as projectQueries from '../queries/project.queries';
 import { emailService } from '../services/email';
@@ -24,7 +26,7 @@ export async function notifySharedItemRecipients({
 	shareId: string;
 	itemLabel: 'story' | 'chat';
 	itemTitle: string;
-	visibility: 'project' | 'specific';
+	visibility: Visibility;
 	allowedUserIds?: string[];
 }): Promise<void> {
 	const itemUrl = itemUrls[itemLabel](shareId);

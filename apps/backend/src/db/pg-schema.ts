@@ -1,5 +1,5 @@
 import type { LlmProvider } from '@nao/shared/types';
-import { USER_ROLES } from '@nao/shared/types';
+import { SHARE_VISIBILITY, USER_ROLES } from '@nao/shared/types';
 import { type ProviderMetadata } from 'ai';
 import { sql } from 'drizzle-orm';
 import {
@@ -368,8 +368,6 @@ export const projectLlmConfig = pgTable(
 		unique('project_llm_config_project_provider').on(t.projectId, t.provider),
 	],
 );
-
-export const SHARE_VISIBILITY = ['project', 'specific'] as const;
 
 export const sharedChat = pgTable(
 	'shared_chat',

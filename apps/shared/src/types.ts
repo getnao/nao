@@ -40,6 +40,9 @@ export type FileTreeEntry = {
 	children?: FileTreeEntry[];
 };
 
+export const SHARE_VISIBILITY = ['project', 'specific'] as const;
+export type Visibility = (typeof SHARE_VISIBILITY)[number];
+
 export type ProjectChatListItem = {
 	id: string;
 	updatedAt: number;

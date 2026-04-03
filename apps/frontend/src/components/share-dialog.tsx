@@ -1,4 +1,8 @@
 import { Check, Globe, Link as LinkIcon, Loader2, Unlink, Users } from 'lucide-react';
+
+import type { Visibility } from '@nao/shared/types';
+
+import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import {
 	Dialog,
@@ -9,10 +13,7 @@ import {
 	DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { Avatar } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
-
-export type Visibility = 'project' | 'specific';
 
 export function ShareLoadingDialog({
 	open,
