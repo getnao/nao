@@ -1,4 +1,4 @@
-import type { StorySummary, SummarySegment } from '@/components/story-thumbnail';
+import type { StorySummary, SummarySegment } from '@nao/shared/types';
 
 export type DisplayMode = 'grid' | 'lines';
 export type GroupBy = 'ownership' | 'date' | 'user';

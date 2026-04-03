@@ -1,14 +1,8 @@
+import type { FileTreeEntry } from '@nao/shared/types';
 import fs from 'fs/promises';
 import path from 'path';
 
 import { shouldExcludeEntry } from '../utils/tools';
-
-export interface FileTreeEntry {
-	name: string;
-	path: string;
-	type: 'file' | 'directory';
-	children?: FileTreeEntry[];
-}
 
 export async function getFileTree(projectFolder: string): Promise<FileTreeEntry[]> {
 	return readDirectoryRecursive(projectFolder, projectFolder);

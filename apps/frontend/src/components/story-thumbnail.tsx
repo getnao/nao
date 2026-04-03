@@ -1,14 +1,5 @@
+import type { StorySummary, SummarySegment } from '@nao/shared/types';
 import { cn } from '@/lib/utils';
-
-export type SummarySegment =
-	| { type: 'text'; content: string }
-	| { type: 'chart'; chartType: string; title: string }
-	| { type: 'table'; title: string }
-	| { type: 'grid'; cols: number; children: SummarySegment[] };
-
-export type StorySummary = {
-	segments: SummarySegment[];
-};
 
 export function StoryThumbnail({ summary, className }: { summary: StorySummary; className?: string }) {
 	return (

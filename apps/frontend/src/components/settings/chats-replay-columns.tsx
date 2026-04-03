@@ -2,29 +2,13 @@ import { CircleAlert, Eye, ThumbsDown, ThumbsUp } from 'lucide-react';
 import { differenceInDays, format, isToday, isYesterday } from 'date-fns';
 import type { ColumnDef } from '@tanstack/react-table';
 
-import type { UserRole } from '@nao/shared/types';
+import type { ProjectChatListItem } from '@nao/shared/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 
-export type ProjectChatRow = {
-	id: string;
-	updatedAt: number;
-	userId: string;
-	userName: string;
-	userRole: UserRole | null;
-	title: string;
-	numberOfMessages: number;
-	totalTokens: number;
-	feedbackText: string;
-	downvotes: number;
-	upvotes: number;
-	toolErrorCount: number;
-	toolAvailableCount: number;
-};
-
 export function getChatsReplayColumns(args: {
-	onOpenChat: (chat: ProjectChatRow) => void;
-}): ColumnDef<ProjectChatRow>[] {
+	onOpenChat: (chat: ProjectChatListItem) => void;
+}): ColumnDef<ProjectChatListItem>[] {
 	const { onOpenChat } = args;
 
 	return [

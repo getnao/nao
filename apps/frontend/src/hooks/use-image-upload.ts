@@ -1,15 +1,12 @@
 import { useState, useCallback, useRef } from 'react';
 
+import type { ImageUploadData } from './use-agent';
+
 export interface UploadedImage {
 	id: string;
 	file: File;
 	dataUrl: string;
 	mediaType: string;
-}
-
-export interface ImageUploadData {
-	mediaType: string;
-	data: string;
 }
 
 const MAX_IMAGES = 4;

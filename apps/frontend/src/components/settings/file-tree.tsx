@@ -11,14 +11,8 @@ import {
 	FolderOpen,
 	Search,
 } from 'lucide-react';
+import type { FileTreeEntry } from '@nao/shared/types';
 import { cn } from '@/lib/utils';
-
-export interface FileTreeEntry {
-	name: string;
-	path: string;
-	type: 'file' | 'directory';
-	children?: FileTreeEntry[];
-}
 
 interface FileTreeProps {
 	entries: FileTreeEntry[];

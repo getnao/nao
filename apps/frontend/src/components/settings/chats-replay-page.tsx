@@ -4,8 +4,7 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { getCoreRowModel, useReactTable } from '@tanstack/react-table';
 import type { ColumnFiltersState, PaginationState, SortingState, VisibilityState } from '@tanstack/react-table';
 
-import type { UpdatedAtFilter } from '@nao/shared/types';
-import type { ProjectChatRow } from '@/components/settings/chats-replay-columns';
+import type { ProjectChatListItem, UpdatedAtFilter } from '@nao/shared/types';
 import { getChatsReplayColumns } from '@/components/settings/chats-replay-columns';
 import { ChatsReplayPanel } from '@/components/settings/chats-replay-panel';
 import { ChatsReplayTable } from '@/components/settings/chats-replay-table';
@@ -26,10 +25,10 @@ export function ChatsReplayPage() {
 		pageIndex: 0,
 		pageSize: 30,
 	});
-	const [selectedChat, setSelectedChat] = useState<ProjectChatRow | null>(null);
+	const [selectedChat, setSelectedChat] = useState<ProjectChatListItem | null>(null);
 	const [isPanelOpen, setIsPanelOpen] = useState(false);
 
-	const openChatPanel = useCallback((chat: ProjectChatRow) => {
+	const openChatPanel = useCallback((chat: ProjectChatListItem) => {
 		setSelectedChat(chat);
 		setIsPanelOpen(true);
 	}, []);

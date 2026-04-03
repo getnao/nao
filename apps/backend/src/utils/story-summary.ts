@@ -1,12 +1,4 @@
-export type SummarySegment =
-	| { type: 'text'; content: string }
-	| { type: 'chart'; chartType: string; title: string }
-	| { type: 'table'; title: string }
-	| { type: 'grid'; cols: number; children: SummarySegment[] };
-
-export type StorySummary = {
-	segments: SummarySegment[];
-};
+import type { StorySummary, SummarySegment } from '@nao/shared/types';
 
 export function extractStorySummary(code: string): StorySummary {
 	return { segments: extractSegments(code) };

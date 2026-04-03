@@ -5,3 +5,36 @@ export const USER_ROLES = ['admin', 'user', 'viewer'] as const satisfies readonl
 export type UpdatedAtFilter = { mode: 'single'; value: string } | { mode: 'range'; start: string; end: string };
 
 export const NO_CACHE_SCHEDULE = 'no-cache';
+
+export type SummarySegment =
+	| { type: 'text'; content: string }
+	| { type: 'chart'; chartType: string; title: string }
+	| { type: 'table'; title: string }
+	| { type: 'grid'; cols: number; children: SummarySegment[] };
+
+export type StorySummary = {
+	segments: SummarySegment[];
+};
+
+export type FileTreeEntry = {
+	name: string;
+	path: string;
+	type: 'file' | 'directory';
+	children?: FileTreeEntry[];
+};
+
+export type ProjectChatListItem = {
+	id: string;
+	updatedAt: number;
+	userId: string;
+	userName: string;
+	userRole: UserRole | null;
+	title: string;
+	numberOfMessages: number;
+	totalTokens: number;
+	feedbackText: string;
+	downvotes: number;
+	upvotes: number;
+	toolErrorCount: number;
+	toolAvailableCount: number;
+};
