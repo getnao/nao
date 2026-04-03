@@ -1,4 +1,4 @@
-import type {ProjectChatListItem, ProjectChatReplayFacets, UserRole } from '@nao/shared/types';
+import type { ProjectChatListItem, ProjectChatReplayFacets, UserRole } from '@nao/shared/types';
 
 export interface UserWithRole {
 	id: string;
