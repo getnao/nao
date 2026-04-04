@@ -148,10 +148,19 @@ export async function listStoriesInChat(
 	}));
 }
 
-export async function listUserStories(
-	userId: string,
-	options?: { archived?: boolean },
-): Promise<{ slug: string; chatId: string; title: string; code: string; createdAt: Date }[]> {
+export type UserStoryRow = {
+	slug: string;
+	chatId: string;
+	title: string;
+	code: string;
+	createdAt: Date;
+	isStarred: boolean;
+	folderId: string | null;
+	folderName: string | null;
+	folderColor: string | null;
+};
+
+export async function listUserStories(userId: string, options?: { archived?: boolean }): Promise<UserStoryRow[]> {
 	const latestVersions = db
 		.select({
 			storyId: s.storyVersion.storyId,
@@ -163,13 +172,17 @@ export async function listUserStories(
 
 	const archivedFilter = options?.archived ? sql`${s.story.archivedAt} IS NOT NULL` : isNull(s.story.archivedAt);
 
-	return db
+	const rows = await db
 		.select({
 			slug: s.story.slug,
 			chatId: s.story.chatId,
 			title: s.story.title,
 			code: s.storyVersion.code,
 			createdAt: s.story.createdAt,
+			isStarred: s.storyOrganization.isStarred,
+			folderId: s.storyOrganization.folderId,
+			folderName: s.storyFolder.name,
+			folderColor: s.storyFolder.color,
 		})
 		.from(s.story)
 		.innerJoin(s.chat, eq(s.story.chatId, s.chat.id))
@@ -178,8 +191,84 @@ export async function listUserStories(
 			s.storyVersion,
 			and(eq(s.storyVersion.storyId, s.story.id), eq(s.storyVersion.version, latestVersions.maxVersion)),
 		)
+		.leftJoin(
+			s.storyOrganization,
+			and(
+				eq(s.storyOrganization.storyId, s.story.id),
+				eq(s.storyOrganization.userId, userId),
+			),
+		)
+		.leftJoin(s.storyFolder, eq(s.storyOrganization.folderId, s.storyFolder.id))
 		.where(and(eq(s.chat.userId, userId), archivedFilter))
 		.orderBy(desc(s.story.createdAt))
+		.execute();
+
+	return rows.map((row) => ({
+		...row,
+		isStarred: row.isStarred ?? false,
+		folderId: row.folderId ?? null,
+		folderName: row.folderName ?? null,
+		folderColor: row.folderColor ?? null,
+	}));
+}
+
+export async function toggleStar(userId: string, chatId: string, storyId: string): Promise<boolean> {
+	const existing = await db
+		.select({ id: s.storyOrganization.id, isStarred: s.storyOrganization.isStarred })
+		.from(s.storyOrganization)
+		.where(
+			and(
+				eq(s.storyOrganization.userId, userId),
+				eq(s.storyOrganization.chatId, chatId),
+				eq(s.storyOrganization.storyId, storyId),
+			),
+		)
+		.limit(1)
+		.execute();
+
+	if (existing.length > 0) {
+		const newValue = !existing[0].isStarred;
+		await db
+			.update(s.storyOrganization)
+			.set({ isStarred: newValue })
+			.where(eq(s.storyOrganization.id, existing[0].id))
+			.execute();
+		return newValue;
+	}
+
+	await db.insert(s.storyOrganization).values({ userId, chatId, storyId, isStarred: true }).execute();
+
+	return true;
+}
+
+export async function setFolder(
+	userId: string,
+	chatId: string,
+	storyId: string,
+	folderId: string | null,
+): Promise<void> {
+	if (!folderId) {
+		await db
+			.update(s.storyOrganization)
+			.set({ folderId: null })
+			.where(
+				and(
+					eq(s.storyOrganization.userId, userId),
+					eq(s.storyOrganization.chatId, chatId),
+					eq(s.storyOrganization.storyId, storyId),
+				),
+			)
+			.execute();
+		return;
+	}
+
+	await db
+		.insert(s.storyOrganization)
+		.values({ userId, chatId, storyId, folderId })
+		.onConflictDoUpdate({
+			target: [s.storyOrganization.userId, s.storyOrganization.chatId, s.storyOrganization.storyId],
+			set: { folderId },
+		})
 		.execute();
 }
 

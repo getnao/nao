@@ -29,6 +29,19 @@ export const storyRoutes = {
 		}));
 	}),
 
+	toggleStar: protectedProcedure
+		.input(z.object({ chatId: z.string().min(1), storyId: z.string().min(1) }))
+		.mutation(async ({ ctx, input }) => {
+			const isStarred = await storyQueries.toggleStar(ctx.user.id, input.chatId, input.storyId);
+			return { isStarred };
+		}),
+
+	setFolder: protectedProcedure
+		.input(z.object({ chatId: z.string().min(1), storyId: z.string().min(1), folderId: z.string().nullable() }))
+		.mutation(async ({ ctx, input }) => {
+			await storyQueries.setFolder(ctx.user.id, input.chatId, input.storyId, input.folderId);
+		}),
+
 	getLatest: chatOwnerProcedure
 		.input(z.object({ chatId: z.string(), storyId: z.string() }))
 		.query(async ({ input }) => {

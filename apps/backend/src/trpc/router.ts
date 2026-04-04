@@ -15,6 +15,7 @@ import { sharedChatRoutes } from './shared-chat.routes';
 import { sharedStoryRoutes } from './shared-story.routes';
 import { skillRoutes } from './skill.routes';
 import { storyRoutes } from './story.routes';
+import { storyFolderRoutes } from './story-folder.routes';
 import { systemRoutes } from './system.routes';
 import { transcribeRoutes } from './transcribe.routes';
 import { router } from './trpc';
@@ -34,6 +35,7 @@ export const trpcRouter = router({
 	project: projectRoutes,
 	storyShare: sharedStoryRoutes,
 	story: storyRoutes,
+	storyFolder: storyFolderRoutes,
 	usage: usageRoutes,
 	user: userRoutes,
 	memory: memoryRoutes,

@@ -629,6 +629,73 @@ export const message_part_chart_image = sqliteTable('chart_image', {
 		.notNull(),
 });
 
+export const FOLDER_COLORS = [
+	'#EF4444',
+	'#F97316',
+	'#EAB308',
+	'#22C55E',
+	'#06B6D4',
+	'#3B82F6',
+	'#8B5CF6',
+	'#EC4899',
+] as const;
+
+export const storyFolder = sqliteTable(
+	'story_folder',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		name: text('name').notNull(),
+		color: text('color'),
+		position: integer('position').default(0).notNull(),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+		updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [
+		index('story_folder_userId_idx').on(t.userId),
+		unique('story_folder_userId_name_unique').on(t.userId, t.name),
+	],
+);
+
+export const storyOrganization = sqliteTable(
+	'story_organization',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		chatId: text('chat_id')
+			.notNull()
+			.references(() => chat.id, { onDelete: 'cascade' }),
+		storyId: text('story_id').notNull(),
+		isStarred: integer('is_starred', { mode: 'boolean' }).default(false).notNull(),
+		folderId: text('folder_id').references(() => storyFolder.id, { onDelete: 'set null' }),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+		updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [
+		unique('story_org_userId_chatId_storyId_unique').on(t.userId, t.chatId, t.storyId),
+		index('story_org_userId_idx').on(t.userId),
+		index('story_org_folderId_idx').on(t.folderId),
+	],
+);
+
 export const log = sqliteTable(
 	'log',
 	{

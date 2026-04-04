@@ -1,18 +1,19 @@
-import { useMemo, useState } from 'react';
-import { createFileRoute } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
+import { createFileRoute } from '@tanstack/react-router';
+import { useMemo, useState } from 'react';
+
 import type { DisplayMode, GroupBy } from '@/lib/stories-page';
+import { MobileHeader } from '@/components/mobile-header';
 import { StoriesEmptyState, StoriesGroups, StoriesNoResults } from '@/components/stories-groups';
 import { StoriesToolbarControls } from '@/components/stories-toolbar-controls';
-import { MobileHeader } from '@/components/mobile-header';
 import { useSession } from '@/lib/auth-client';
 import {
-	STORIES_DISPLAY_KEY,
-	STORIES_GROUP_KEY,
 	buildStoryItems,
 	filterStories,
 	getStoredSetting,
 	groupStories,
+	STORIES_DISPLAY_KEY,
+	STORIES_GROUP_KEY,
 } from '@/lib/stories-page';
 import { trpc } from '@/main';
 
@@ -26,7 +27,7 @@ function StoriesPage() {
 		getStoredSetting(STORIES_DISPLAY_KEY, ['grid', 'lines'], 'grid'),
 	);
 	const [groupBy, setGroupBy] = useState<GroupBy>(() =>
-		getStoredSetting(STORIES_GROUP_KEY, ['ownership', 'date', 'user'], 'ownership'),
+		getStoredSetting(STORIES_GROUP_KEY, ['ownership', 'date', 'user', 'starred', 'folder'], 'ownership'),
 	);
 	const [searchQuery, setSearchQuery] = useState('');
 	const [showArchived, setShowArchived] = useState(false);

@@ -1,18 +1,24 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { ArchiveIcon, ArchiveRestoreIcon, Ellipsis } from 'lucide-react';
+import { ArchiveIcon, ArchiveRestoreIcon, Ellipsis, FolderIcon, Star } from 'lucide-react';
 import type { ReactNode } from 'react';
+
 import type { DisplayMode, StoryGroup, StoryItem } from '@/lib/stories-page';
 import { StoryThumbnail } from '@/components/story-thumbnail';
-import StoryIcon from '@/components/ui/story-icon';
 import { Button } from '@/components/ui/button';
 import {
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuGroup,
 	DropdownMenuItem,
+	DropdownMenuLabel,
+	DropdownMenuSeparator,
+	DropdownMenuSub,
+	DropdownMenuSubContent,
+	DropdownMenuSubTrigger,
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import StoryIcon from '@/components/ui/story-icon';
 import { formatRelativeDate } from '@/lib/time-ago';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
@@ -128,9 +134,17 @@ function StoryCard({
 	return (
 		<Link {...item.link} className={cn(storyCardClass(displayMode), 'relative')}>
 			<StoryCardContent item={item} displayMode={displayMode} />
+			<StarButton
+				chatId={item.chatId}
+				storyId={item.storyId}
+				isStarred={item.isStarred}
+				displayMode={displayMode}
+			/>
 			<StoryActionMenu
 				chatId={item.chatId}
 				storyId={item.storyId}
+				isStarred={item.isStarred}
+				folderId={item.folderId}
 				displayMode={displayMode}
 				showArchived={showArchived}
 			/>
@@ -138,18 +152,74 @@ function StoryCard({
 	);
 }
 
+function useToggleStarMutation() {
+	const queryClient = useQueryClient();
+	return useMutation(
+		trpc.story.toggleStar.mutationOptions({
+			onSuccess: () => {
+				queryClient.invalidateQueries({ queryKey: trpc.story.listAll.queryKey() });
+			},
+		}),
+	);
+}
+
+function StarButton({
+	chatId,
+	storyId,
+	isStarred,
+	displayMode,
+}: {
+	chatId: string;
+	storyId: string;
+	isStarred: boolean;
+	displayMode: DisplayMode;
+}) {
+	const toggleMutation = useToggleStarMutation();
+
+	return (
+		<Button
+			variant='ghost'
+			size='icon-xs'
+			className={cn(
+				'relative z-10',
+				displayMode === 'grid' &&
+					cn(
+						'absolute left-1.5 top-1.5 bg-background/80 backdrop-blur-sm hover:bg-background',
+						isStarred ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+					),
+				displayMode === 'lines' &&
+					cn('shrink-0', isStarred ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'),
+			)}
+			onClick={(e) => {
+				e.preventDefault();
+				e.stopPropagation();
+				toggleMutation.mutate({ chatId, storyId });
+			}}
+			disabled={toggleMutation.isPending}
+		>
+			<Star className={cn('size-4', isStarred && 'fill-yellow-400 text-yellow-400')} />
+		</Button>
+	);
+}
+
 function StoryActionMenu({
 	chatId,
 	storyId,
+	isStarred,
+	folderId,
 	displayMode,
 	showArchived,
 }: {
 	chatId: string;
 	storyId: string;
+	isStarred: boolean;
+	folderId: string | null;
 	displayMode: DisplayMode;
 	showArchived: boolean;
 }) {
 	const queryClient = useQueryClient();
+	const folders = useQuery(trpc.storyFolder.list.queryOptions());
+	const toggleStarMutation = useToggleStarMutation();
 
 	const archiveMutation = useMutation(
 		trpc.story.archive.mutationOptions({
@@ -168,9 +238,18 @@ function StoryActionMenu({
 		}),
 	);
 
+	const setFolderMutation = useMutation(
+		trpc.story.setFolder.mutationOptions({
+			onSuccess: () => {
+				queryClient.invalidateQueries({ queryKey: trpc.story.listAll.queryKey() });
+				queryClient.invalidateQueries({ queryKey: trpc.storyFolder.list.queryKey() });
+			},
+		}),
+	);
+
 	const pending = archiveMutation.isPending || unarchiveMutation.isPending;
 
-	function handleSelect() {
+	function handleArchiveSelect() {
 		if (showArchived) {
 			unarchiveMutation.mutate({ chatId, storyId });
 		} else {
@@ -198,7 +277,54 @@ function StoryActionMenu({
 			</DropdownMenuTrigger>
 			<DropdownMenuContent onClick={(e) => e.stopPropagation()}>
 				<DropdownMenuGroup>
-					<DropdownMenuItem onSelect={handleSelect} disabled={pending}>
+					<DropdownMenuItem
+						onSelect={() => toggleStarMutation.mutate({ chatId, storyId })}
+						disabled={toggleStarMutation.isPending}
+					>
+						<Star className={cn('size-4', isStarred && 'fill-yellow-400 text-yellow-400')} />
+						{isStarred ? 'Unstar' : 'Star'}
+					</DropdownMenuItem>
+					{!showArchived && folders.data && folders.data.length > 0 && (
+						<DropdownMenuSub>
+							<DropdownMenuSubTrigger>
+								<FolderIcon className='size-4' />
+								Move to folder
+							</DropdownMenuSubTrigger>
+							<DropdownMenuSubContent>
+								<DropdownMenuLabel>Folders</DropdownMenuLabel>
+								{folderId && (
+									<DropdownMenuItem
+										onSelect={() => setFolderMutation.mutate({ chatId, storyId, folderId: null })}
+									>
+										Remove from folder
+									</DropdownMenuItem>
+								)}
+								{folderId && <DropdownMenuSeparator />}
+								{folders.data.map((folder) => (
+									<DropdownMenuItem
+										key={folder.id}
+										onSelect={() =>
+											setFolderMutation.mutate({ chatId, storyId, folderId: folder.id })
+										}
+										disabled={folder.id === folderId}
+									>
+										<span className='flex items-center gap-2'>
+											{folder.color && (
+												<span
+													className='size-2.5 rounded-full shrink-0'
+													style={{ backgroundColor: folder.color }}
+												/>
+											)}
+											{folder.name}
+											<span className='text-muted-foreground text-xs'>({folder.storyCount})</span>
+										</span>
+									</DropdownMenuItem>
+								))}
+							</DropdownMenuSubContent>
+						</DropdownMenuSub>
+					)}
+					<DropdownMenuSeparator />
+					<DropdownMenuItem onSelect={handleArchiveSelect} disabled={pending}>
 						{showArchived ? <ArchiveRestoreIcon /> : <ArchiveIcon />}
 						{showArchived ? 'Unarchive' : 'Archive'}
 					</DropdownMenuItem>

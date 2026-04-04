@@ -1,7 +1,7 @@
 import type { StorySummary, SummarySegment } from '@nao/shared/types';
 
 export type DisplayMode = 'grid' | 'lines';
-export type GroupBy = 'ownership' | 'date' | 'user';
+export type GroupBy = 'ownership' | 'date' | 'user' | 'starred' | 'folder';
 
 export const STORIES_DISPLAY_KEY = 'stories-display-mode';
 export const STORIES_GROUP_KEY = 'stories-group-by';
@@ -10,6 +10,8 @@ export const GROUP_BY_LABELS: Record<GroupBy, string> = {
 	ownership: 'Ownership',
 	date: 'Date',
 	user: 'User',
+	starred: 'Starred',
+	folder: 'Folder',
 };
 
 export type StoryItem = {
@@ -21,6 +23,10 @@ export type StoryItem = {
 	chatId?: string;
 	storyId?: string;
 	summary: StorySummary;
+	isStarred: boolean;
+	folderId: string | null;
+	folderName: string | null;
+	folderColor: string | null;
 	link:
 		| { to: '/stories/preview/$chatId/$storyId'; params: { chatId: string; storyId: string } }
 		| { to: '/stories/shared/$shareId'; params: { shareId: string } };
@@ -34,6 +40,10 @@ export type OwnStoryListItem = {
 	title: string;
 	createdAt: Date | string;
 	summary: StorySummary;
+	isStarred?: boolean;
+	folderId?: string | null;
+	folderName?: string | null;
+	folderColor?: string | null;
 };
 
 export type SharedStoryListItem = {
@@ -85,6 +95,10 @@ export function buildStoryItems({
 			chatId: story.chatId,
 			storyId: story.storyId,
 			summary: story.summary,
+			isStarred: story.isStarred ?? false,
+			folderId: story.folderId ?? null,
+			folderName: story.folderName ?? null,
+			folderColor: story.folderColor ?? null,
 			link: shareId
 				? { to: '/stories/shared/$shareId', params: { shareId } }
 				: {
@@ -103,6 +117,10 @@ export function buildStoryItems({
 			author: story.authorName,
 			kind: story.visibility === 'specific' ? 'shared-with-me' : 'shared-project',
 			summary: story.summary,
+			isStarred: false,
+			folderId: null,
+			folderName: null,
+			folderColor: null,
 			link: { to: '/stories/shared/$shareId', params: { shareId: story.id } },
 		}));
 
@@ -135,6 +153,10 @@ export function groupStories(items: StoryItem[], groupBy: GroupBy): StoryGroup[]
 			return groupByDate(items);
 		case 'user':
 			return groupByUser(items);
+		case 'starred':
+			return groupByStarred(items);
+		case 'folder':
+			return groupByFolder(items);
 	}
 }
 
@@ -206,6 +228,46 @@ function groupByUser(items: StoryItem[]): StoryGroup[] {
 	}
 
 	return [...groupedByAuthor.entries()].map(([label, group]) => ({ label, items: group }));
+}
+
+function groupByStarred(items: StoryItem[]): StoryGroup[] {
+	const starred = items.filter((item) => item.isStarred);
+	const unstarred = items.filter((item) => !item.isStarred);
+	const groups: StoryGroup[] = [];
+
+	if (starred.length > 0) {
+		groups.push({ label: 'Starred', items: starred });
+	}
+	if (unstarred.length > 0) {
+		groups.push({ label: 'Everything Else', items: unstarred });
+	}
+
+	return groups;
+}
+
+function groupByFolder(items: StoryItem[]): StoryGroup[] {
+	const folderMap = new Map<string, { label: string; items: StoryItem[] }>();
+	const uncategorized: StoryItem[] = [];
+
+	for (const item of items) {
+		if (item.folderId && item.folderName) {
+			const existing = folderMap.get(item.folderId);
+			if (existing) {
+				existing.items.push(item);
+			} else {
+				folderMap.set(item.folderId, { label: item.folderName, items: [item] });
+			}
+		} else {
+			uncategorized.push(item);
+		}
+	}
+
+	const groups: StoryGroup[] = [...folderMap.values()];
+	if (uncategorized.length > 0) {
+		groups.push({ label: 'Uncategorized', items: uncategorized });
+	}
+
+	return groups;
 }
 
 function extractSummaryText(summary: StorySummary): string {

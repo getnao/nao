@@ -1,11 +1,13 @@
 import { ArchiveIcon, LayoutGrid, List, Search, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
+
 import type { DisplayMode, GroupBy } from '@/lib/stories-page';
-import { GROUP_BY_LABELS } from '@/lib/stories-page';
-import { cn } from '@/lib/utils';
+import { FolderManagementDialog } from '@/components/folder-management-dialog';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { GROUP_BY_LABELS } from '@/lib/stories-page';
+import { cn } from '@/lib/utils';
 
 export function StoriesToolbarControls({
 	searchQuery,
@@ -41,6 +43,7 @@ export function StoriesToolbarControls({
 				<>
 					<SearchInput value={searchQuery} onChange={onSearchQueryChange} />
 					<GroupBySelect value={groupBy} onChange={onGroupByChange} />
+					<FolderManagementDialog />
 				</>
 			)}
 			<DisplayModeToggle value={displayMode} onChange={onDisplayModeChange} />

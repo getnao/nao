@@ -79,6 +79,12 @@ export type NewLlmInference = typeof sqliteSchema.llmInference.$inferInsert;
 export type DBLog = typeof sqliteSchema.log.$inferSelect;
 export type NewLog = typeof sqliteSchema.log.$inferInsert;
 
+export type DBStoryFolder = typeof sqliteSchema.storyFolder.$inferSelect;
+export type NewStoryFolder = typeof sqliteSchema.storyFolder.$inferInsert;
+
+export type DBStoryOrganization = typeof sqliteSchema.storyOrganization.$inferSelect;
+export type NewStoryOrganization = typeof sqliteSchema.storyOrganization.$inferInsert;
+
 export type DBMessageImage = typeof sqliteSchema.messageImage.$inferSelect;
 export type NewMessageImage = typeof sqliteSchema.messageImage.$inferInsert;
 
