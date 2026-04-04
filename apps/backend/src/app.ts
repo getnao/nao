@@ -13,6 +13,7 @@ import { ensureOrganizationSetup } from './queries/organization.queries';
 import { agentRoutes } from './routes/agent';
 import { authRoutes } from './routes/auth';
 import { chartRoutes } from './routes/chart';
+import { imageRoutes } from './routes/image';
 import { slackRoutes } from './routes/slack';
 import { teamsRoutes } from './routes/teams';
 import { telegramRoutes } from './routes/telegram';
@@ -128,6 +129,10 @@ app.register(chartRoutes, {
 	prefix: '/c',
 });
 
+app.register(imageRoutes, {
+	prefix: '/i',
+});
+
 app.register(authRoutes, {
 	prefix: '/api',
 });
@@ -166,6 +171,18 @@ const possibleStaticPaths = [
 ];
 
 const staticRoot = possibleStaticPaths.find((p) => existsSync(p));
+const isReservedBackendPath = (url: string) => {
+	const pathname = url.split('?', 1)[0];
+	return (
+		pathname === '/api' ||
+		pathname.startsWith('/api/') ||
+		pathname === '/c' ||
+		pathname.startsWith('/c/') ||
+		pathname === '/i' ||
+		pathname.startsWith('/i/')
+	);
+};
+
 console.log('Static root:', staticRoot || 'Not found (API-only mode)');
 
 if (staticRoot) {
@@ -177,7 +194,7 @@ if (staticRoot) {
 
 	// SPA fallback: serve index.html for all non-API routes
 	app.setNotFoundHandler((request, reply) => {
-		if (request.url.startsWith('/api') || request.url.startsWith('/c')) {
+		if (isReservedBackendPath(request.url)) {
 			reply.status(404).send({ error: 'Not found' });
 		} else {
 			reply.sendFile('index.html');

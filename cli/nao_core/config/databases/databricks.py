@@ -76,6 +76,12 @@ class DatabricksDatabaseContext(DatabaseContext):
             return f"`{cols[0]}` >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)"
         return ""
 
+    def _array_unnest_join(self, table_sql: str, col_sql: str, alias: str) -> str:
+        return f"{table_sql} LATERAL VIEW EXPLODE({col_sql}) _tmp AS {alias}"
+
+    def _cast_complex_to_string(self, col_sql: str) -> str:
+        return f"CAST({col_sql} AS STRING)"
+
 
 def _get_databricks_partition_columns(conn: BaseBackend, schema: str, table: str) -> list[str]:
     query = f"""

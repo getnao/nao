@@ -20,6 +20,7 @@ export enum PostHogEvent {
 
 	ChatRenamed = 'chat_renamed',
 	ChatDeleted = 'chat_deleted',
+	AllNonStarredChatsDeleted = 'all_non_starred_chats_deleted',
 
 	SavedPromptCreated = 'saved_prompt_created',
 	SavedPromptUpdated = 'saved_prompt_updated',

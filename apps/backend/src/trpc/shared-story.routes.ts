@@ -1,9 +1,11 @@
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
+import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
+import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../services/live-story';
 import { notifySharedItemRecipients } from '../utils/email';
 import { extractStorySummary } from '../utils/story-summary';
 import { projectProtectedProcedure, protectedProcedure } from './trpc';
@@ -13,6 +15,7 @@ export const sharedStoryRoutes = {
 		const stories = await sharedStoryQueries.listProjectSharedStories(ctx.project.id, ctx.user.id);
 		return stories.map((story) => ({
 			...story,
+			storyId: story.slug,
 			summary: extractStorySummary(story.code),
 		}));
 	}),
@@ -27,17 +30,16 @@ export const sharedStoryRoutes = {
 			}),
 		)
 		.mutation(async ({ input, ctx }) => {
-			const latestVersion = await storyQueries.getLatestVersion(input.chatId, input.storyId);
-			if (!latestVersion) {
+			const story = await storyQueries.getStoryByChatAndSlug(input.chatId, input.storyId);
+			if (!story) {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
 			}
 
 			const created = await sharedStoryQueries.createSharedStory(
 				{
+					storyId: story.id,
 					projectId: ctx.project.id,
 					userId: ctx.user.id,
-					chatId: input.chatId,
-					storyId: input.storyId,
 					visibility: input.visibility,
 				},
 				input.allowedUserIds,
@@ -49,7 +51,7 @@ export const sharedStoryRoutes = {
 				sharerName: ctx.user.name,
 				shareId: created.id,
 				itemLabel: 'story',
-				itemTitle: latestVersion.title,
+				itemTitle: story.title,
 				visibility: input.visibility,
 				allowedUserIds: input.allowedUserIds,
 			});
@@ -58,32 +60,96 @@ export const sharedStoryRoutes = {
 		}),
 
 	get: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ input, ctx }) => {
-		const story = await sharedStoryQueries.getSharedStory(input.id);
-		if (!story) {
+		const shared = await sharedStoryQueries.getSharedStory(input.id);
+		if (!shared) {
 			throw new TRPCError({ code: 'NOT_FOUND', message: 'Shared story not found.' });
 		}
 
-		const member = await projectQueries.getProjectMember(story.projectId, ctx.user.id);
+		const member = await projectQueries.getProjectMember(shared.projectId, ctx.user.id);
 		if (!member) {
 			throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this story.' });
 		}
 
-		if (story.visibility === 'specific' && story.userId !== ctx.user.id) {
-			const hasAccess = await sharedStoryQueries.canUserAccessSharedStory(story.id, ctx.user.id);
+		if (shared.visibility === 'specific' && shared.userId !== ctx.user.id) {
+			const hasAccess = await sharedStoryQueries.canUserAccessSharedStory(shared.id, ctx.user.id);
 			if (!hasAccess) {
 				throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this story.' });
 			}
 		}
 
-		const queryData = await sharedStoryQueries.collectQueryData(story.chatId, story.code);
+		const storyRow = await storyQueries.getStoryByChatAndSlug(shared.chatId, shared.slug);
+		const isLive = storyRow?.isLive ?? false;
+		const isLiveTextDynamic = storyRow?.isLiveTextDynamic ?? false;
+		const cacheSchedule = storyRow?.cacheSchedule ?? null;
+		const cacheScheduleDescription = storyRow?.cacheScheduleDescription ?? null;
 
-		return { ...story, queryData };
+		const { queryData, cachedAt } = await getStoryQueryData(
+			shared.chatId,
+			shared.slug,
+			shared.code,
+			isLive,
+			cacheSchedule,
+		);
+
+		return {
+			...shared,
+			storyId: shared.slug,
+			queryData,
+			isLive,
+			isLiveTextDynamic,
+			cacheSchedule,
+			cacheScheduleDescription,
+			cachedAt,
+		};
+	}),
+
+	getLiveQueryData: protectedProcedure
+		.input(z.object({ chatId: z.string(), queryId: z.string() }))
+		.query(async ({ input, ctx }) => {
+			const projectId = await chatQueries.getChatProjectId(input.chatId);
+			if (!projectId) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: 'Chat not found.' });
+			}
+
+			const member = await projectQueries.getProjectMember(projectId, ctx.user.id);
+			if (!member) {
+				throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this chat.' });
+			}
+
+			return executeLiveQuery(input.chatId, input.queryId);
+		}),
+
+	refreshData: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input, ctx }) => {
+		const shared = await sharedStoryQueries.getSharedStory(input.id);
+		if (!shared) {
+			throw new TRPCError({ code: 'NOT_FOUND', message: 'Shared story not found.' });
+		}
+
+		const member = await projectQueries.getProjectMember(shared.projectId, ctx.user.id);
+		if (!member) {
+			throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this story.' });
+		}
+
+		if (shared.visibility === 'specific' && shared.userId !== ctx.user.id) {
+			const hasAccess = await sharedStoryQueries.canUserAccessSharedStory(shared.id, ctx.user.id);
+			if (!hasAccess) {
+				throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this story.' });
+			}
+		}
+
+		const { queryData } = await refreshStoryData(shared.chatId, shared.slug);
+		return { queryData, cachedAt: new Date() };
 	}),
 
 	findByStory: protectedProcedure
 		.input(z.object({ chatId: z.string(), storyId: z.string() }))
 		.query(async ({ input, ctx }) => {
-			const share = await sharedStoryQueries.findByStory(input.chatId, input.storyId, ctx.user.id);
+			const story = await storyQueries.getStoryByChatAndSlug(input.chatId, input.storyId);
+			if (!story) {
+				return { shareId: null, visibility: null, allowedUserIds: [] };
+			}
+
+			const share = await sharedStoryQueries.findByStory(story.id, ctx.user.id);
 			if (!share) {
 				return { shareId: null, visibility: null, allowedUserIds: [] };
 			}
@@ -97,16 +163,16 @@ export const sharedStoryRoutes = {
 	updateAccess: projectProtectedProcedure
 		.input(z.object({ id: z.string(), allowedUserIds: z.array(z.string()) }))
 		.mutation(async ({ input, ctx }) => {
-			const story = await sharedStoryQueries.getSharedStory(input.id);
-			if (!story) {
+			const shared = await sharedStoryQueries.getSharedStory(input.id);
+			if (!shared) {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Shared story not found.' });
 			}
 
-			if (story.projectId !== ctx.project.id) {
+			if (shared.projectId !== ctx.project.id) {
 				throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this story.' });
 			}
 
-			if (story.userId !== ctx.user.id && ctx.userRole !== 'admin') {
+			if (shared.userId !== ctx.user.id && ctx.userRole !== 'admin') {
 				throw new TRPCError({ code: 'FORBIDDEN', message: 'Only the creator or an admin can update this.' });
 			}
 
@@ -117,11 +183,11 @@ export const sharedStoryRoutes = {
 			if (newlyAddedUserIds.length > 0) {
 				await notifySharedItemRecipients({
 					projectId: ctx.project.id,
-					sharerId: story.userId,
-					sharerName: story.authorName,
+					sharerId: shared.userId,
+					sharerName: shared.authorName,
 					shareId: input.id,
 					itemLabel: 'story',
-					itemTitle: story.title,
+					itemTitle: shared.title,
 					visibility: 'specific',
 					allowedUserIds: newlyAddedUserIds,
 				});
@@ -129,12 +195,12 @@ export const sharedStoryRoutes = {
 		}),
 
 	delete: projectProtectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input, ctx }) => {
-		const story = await sharedStoryQueries.getSharedStory(input.id);
-		if (!story) {
+		const shared = await sharedStoryQueries.getSharedStory(input.id);
+		if (!shared) {
 			throw new TRPCError({ code: 'NOT_FOUND', message: 'Shared story not found.' });
 		}
 
-		if (story.userId !== ctx.user.id && ctx.userRole !== 'admin') {
+		if (shared.userId !== ctx.user.id && ctx.userRole !== 'admin') {
 			throw new TRPCError({ code: 'FORBIDDEN', message: 'Only the creator or an admin can delete this.' });
 		}
 

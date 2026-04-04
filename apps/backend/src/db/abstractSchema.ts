@@ -30,6 +30,9 @@ export type NewProject = typeof sqliteSchema.project.$inferInsert;
 export type DBProjectMember = typeof sqliteSchema.projectMember.$inferSelect;
 export type NewProjectMember = typeof sqliteSchema.projectMember.$inferInsert;
 
+export type DBProjectWhatsappLink = typeof sqliteSchema.projectWhatsappLink.$inferSelect;
+export type NewProjectWhatsappLink = typeof sqliteSchema.projectWhatsappLink.$inferInsert;
+
 export type DBProjectLlmConfig = typeof sqliteSchema.projectLlmConfig.$inferSelect;
 export type NewProjectLlmConfig = typeof sqliteSchema.projectLlmConfig.$inferInsert;
 
@@ -61,13 +64,22 @@ export type NewSharedStoryAccess = typeof sqliteSchema.sharedStoryAccess.$inferI
 
 export type StoryVisibility = DBSharedStory['visibility'];
 
+export type DBStory = typeof sqliteSchema.story.$inferSelect;
+export type NewStory = typeof sqliteSchema.story.$inferInsert;
+
 export type DBStoryVersion = typeof sqliteSchema.storyVersion.$inferSelect;
 export type NewStoryVersion = typeof sqliteSchema.storyVersion.$inferInsert;
+
+export type DBStoryDataCache = typeof sqliteSchema.storyDataCache.$inferSelect;
+export type NewStoryDataCache = typeof sqliteSchema.storyDataCache.$inferInsert;
 
 export type DBLlmInference = typeof sqliteSchema.llmInference.$inferSelect;
 export type NewLlmInference = typeof sqliteSchema.llmInference.$inferInsert;
 
 export type DBLog = typeof sqliteSchema.log.$inferSelect;
 export type NewLog = typeof sqliteSchema.log.$inferInsert;
+
+export type DBMessageImage = typeof sqliteSchema.messageImage.$inferSelect;
+export type NewMessageImage = typeof sqliteSchema.messageImage.$inferInsert;
 
 export default allSchema as typeof sqliteSchema;

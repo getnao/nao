@@ -19,16 +19,19 @@ export const AssistantMessage = memo(
 		showLoader,
 		isSettled,
 		isRunning,
+		storyIntroMessageId,
 	}: {
 		message: UIMessage;
 		showLoader: boolean;
 		isSettled: boolean;
 		isRunning: boolean;
+		storyIntroMessageId: string | undefined;
 	}) => {
 		const chatId = useChatId();
 		const messageParts = useMemo(() => groupToolCalls(message.parts), [message.parts]);
 		const hasContent = useMemo(() => checkAssistantMessageHasContent(message), [message]);
 		const isCompacting = message.parts.at(-1)?.type === 'data-compactionSummaryStarted';
+		const showActions = message.id !== storyIntroMessageId;
 
 		if (!message.parts.length && isSettled) {
 			return null;
@@ -45,7 +48,7 @@ export const AssistantMessage = memo(
 
 					{isCompacting ? <AssistantCompaction /> : showLoader && <TextShimmer />}
 
-					{chatId && (
+					{chatId && showActions && (
 						<AssistantMessageActions
 							message={message}
 							chatId={chatId}

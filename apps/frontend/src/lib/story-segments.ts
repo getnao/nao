@@ -40,13 +40,9 @@ export function parseChartBlock(attrString: string): ParsedChartBlock | null {
 
 	const series: ParsedChartBlock['series'] = [];
 	if (attrs.series) {
-		try {
-			const parsed = JSON.parse(attrs.series);
-			if (Array.isArray(parsed)) {
-				series.push(...parsed);
-			}
-		} catch {
-			/* ignore malformed series */
+		const parsed = tryParseSeriesJson(attrs.series) ?? extractSeriesFromRawAttrs(attrString);
+		if (parsed) {
+			series.push(...parsed);
 		}
 	} else if (attrs.data_key) {
 		series.push({
@@ -87,6 +83,40 @@ export const GRID_CLASSES: Record<number, string> = {
 
 export function getGridClass(cols: number): string {
 	return GRID_CLASSES[Math.min(cols, 4)] ?? GRID_CLASSES[2];
+}
+
+function tryParseSeriesJson(value: string): ParsedChartBlock['series'] | null {
+	try {
+		const parsed = JSON.parse(value);
+		return Array.isArray(parsed) ? parsed : null;
+	} catch {
+		return null;
+	}
+}
+
+function extractSeriesFromRawAttrs(attrString: string): ParsedChartBlock['series'] | null {
+	const seriesIdx = attrString.search(/\bseries\s*=/);
+	if (seriesIdx === -1) {
+		return null;
+	}
+
+	const bracketStart = attrString.indexOf('[', seriesIdx);
+	if (bracketStart === -1) {
+		return null;
+	}
+
+	let depth = 0;
+	for (let i = bracketStart; i < attrString.length; i++) {
+		if (attrString[i] === '[') {
+			depth++;
+		} else if (attrString[i] === ']') {
+			depth--;
+			if (depth === 0) {
+				return tryParseSeriesJson(attrString.slice(bracketStart, i + 1));
+			}
+		}
+	}
+	return null;
 }
 
 export function splitCodeIntoSegments(code: string): Segment[] {

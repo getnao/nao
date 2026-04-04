@@ -155,15 +155,42 @@ export const getMessageText = (message: UIMessage): string => {
 		.join('\n');
 };
 
+export const getMessageImages = (message: UIMessage): { url: string; mediaType: string }[] => {
+	return message.parts
+		.filter((part): part is Extract<UIMessagePart, { type: 'file' }> => part.type === 'file')
+		.filter((part) => part.mediaType.startsWith('image/'))
+		.map((part) => ({ url: part.url, mediaType: part.mediaType }));
+};
+
+/** Extracts base64 image data from file parts in a message for the upload payload. */
+export const extractImagesFromMessage = (message: UIMessage): { mediaType: string; data: string }[] => {
+	return message.parts
+		.filter((part): part is Extract<UIMessagePart, { type: 'file' }> => part.type === 'file')
+		.filter((part) => part.mediaType.startsWith('image/') && part.url.startsWith('data:'))
+		.map((part) => {
+			const commaIdx = part.url.indexOf(',');
+			return {
+				mediaType: part.mediaType,
+				data: commaIdx >= 0 ? part.url.slice(commaIdx + 1) : part.url,
+			};
+		});
+};
+
 /** Group messages into user and response (assistant) messages. */
 export const groupMessages = (messages: UIMessage[]): MessageGroup[] => {
 	const groups: MessageGroup[] = [];
 	for (let i = 0; i < messages.length; ) {
-		const user = messages[i++];
-		if (user.role !== 'user') {
+		const msg = messages[i++];
+		if (msg.role !== 'user') {
+			const lastGroup = groups.at(-1);
+			if (lastGroup) {
+				lastGroup.assistantMessages.push(msg);
+			} else {
+				groups.push({ userMessage: null, assistantMessages: [msg] });
+			}
 			continue;
 		}
-		const group: MessageGroup = { userMessage: user, assistantMessages: [] };
+		const group: MessageGroup = { userMessage: msg, assistantMessages: [] };
 		while (i < messages.length && messages[i].role === 'assistant') {
 			group.assistantMessages.push(messages[i]);
 			i++;
@@ -195,10 +222,11 @@ export const getTextFromUserMessageOrThrow = (message: UIMessage): string => {
 	if (message.role !== 'user') {
 		throw new Error('Message is not a user message.');
 	}
-	if (message.parts.length === 0 || message.parts[0].type !== 'text') {
-		throw new Error('User message has no text.');
+	const textPart = message.parts.find((part) => part.type === 'text');
+	if (!textPart) {
+		return '';
 	}
-	return message.parts[0].text;
+	return textPart.text;
 };
 
 export const checkAssistantMessageHasContent = (message: UIMessage): boolean => {

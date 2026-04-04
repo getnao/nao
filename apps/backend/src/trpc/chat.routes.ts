@@ -5,7 +5,7 @@ import * as chatQueries from '../queries/chat.queries';
 import { type SearchChatResult } from '../queries/chat.queries';
 import { agentService } from '../services/agent';
 import { posthog, PostHogEvent } from '../services/posthog';
-import { type ContextUsage, type ListChatResponse, type UIChat } from '../types/chat';
+import { type ContextUsage, type ForkMetadata, type ListChatResponse, type UIChat } from '../types/chat';
 import { llmProviderSchema } from '../types/llm';
 import { getChatContextUsage } from '../utils/chat-context-usage';
 import { ownedResourceProcedure, protectedProcedure } from './trpc';
@@ -18,8 +18,7 @@ export const chatRoutes = {
 		if (!chat) {
 			throw new TRPCError({ code: 'NOT_FOUND', message: `Chat with id ${input.chatId} not found.` });
 		}
-		const isAuthorized = userId === ctx.user.id;
-		if (!isAuthorized) {
+		if (userId !== ctx.user.id) {
 			throw new TRPCError({ code: 'FORBIDDEN', message: `You are not authorized to access this chat.` });
 		}
 		return chat;
@@ -64,10 +63,22 @@ export const chatRoutes = {
 			posthog.capture(ctx.user.id, PostHogEvent.ChatRenamed, { project_id: projectId, chat_id: input.chatId });
 		}),
 
+	deleteAllNonStarred: protectedProcedure.mutation(async ({ ctx }): Promise<{ count: number }> => {
+		const { count } = await chatQueries.softDeleteNonStarredChats(ctx.user.id);
+		posthog.capture(ctx.user.id, PostHogEvent.AllNonStarredChatsDeleted, { deleted_count: count });
+		return { count };
+	}),
+
 	toggleStarred: chatOwnerProcedure
 		.input(z.object({ chatId: z.string(), isStarred: z.boolean() }))
 		.mutation(async ({ input }): Promise<void> => {
 			await chatQueries.toggleStarred(input.chatId, input.isStarred);
+		}),
+
+	getForkMetadata: chatOwnerProcedure
+		.input(z.object({ chatId: z.string() }))
+		.query(async ({ input }): Promise<ForkMetadata | null> => {
+			return chatQueries.getForkMetadata(input.chatId);
 		}),
 
 	getContextUsage: chatOwnerProcedure

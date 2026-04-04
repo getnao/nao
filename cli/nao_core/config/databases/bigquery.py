@@ -278,6 +278,12 @@ class BigQueryDatabaseContext(DatabaseContext):
             return f"`{cols[0]}` >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)"
         return ""
 
+    def _array_unnest_join(self, table_sql: str, col_sql: str, alias: str) -> str:
+        return f"{table_sql}, UNNEST({col_sql}) AS {alias}"
+
+    def _cast_complex_to_string(self, col_sql: str) -> str:
+        return f"TO_JSON_STRING({col_sql})"
+
 
 def _time_based_partition_filter(col: str, col_type: str, partition_id: str) -> str:
     """Build a partition filter for time-based columns, handling all BigQuery granularities."""
@@ -357,6 +363,13 @@ class BigQueryConfig(DatabaseConfig):
             'Example: {"events": "event_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)"}'
         ),
     )
+    max_query_size: float | None = Field(
+        default=None,
+        description=(
+            "Maximum query size in GB. If set, a dry run is performed before executing SQL "
+            "and an error is raised if the estimated bytes processed exceeds this limit."
+        ),
+    )
 
     # Lazy cache: schema -> table_name -> TablePartitionMetadata
     _schema_metadata: dict[str, dict[str, TablePartitionMetadata]] = PrivateAttr(default_factory=dict)
@@ -399,6 +412,14 @@ class BigQueryConfig(DatabaseConfig):
         elif auth_type == "Service account JSON string":
             credentials_json = ask_text("Service account JSON:", required_field=True)
 
+        max_query_size: float | None = None
+        max_query_size_str = ask_text("Maximum query size in GB (optional):")
+        if max_query_size_str:
+            try:
+                max_query_size = float(max_query_size_str)
+            except ValueError:
+                pass
+
         return BigQueryConfig(
             name=name,
             project_id=project_id or "",
@@ -406,15 +427,38 @@ class BigQueryConfig(DatabaseConfig):
             credentials_path=credentials_path,
             credentials_json=credentials_json,  # type: ignore[arg-type]
             sso=sso,
+            max_query_size=max_query_size,
         )
 
     def execute_sql(self, sql: str) -> pd.DataFrame:
         conn = self.connect()
+        if self.max_query_size and self.max_query_size > 0:
+            self._check_max_query_size(sql, conn)
         try:
             cursor = conn.raw_sql(sql)  # type: ignore[union-attr]
             return cursor.to_dataframe(create_bqstorage_client=False)
         finally:
             conn.disconnect()
+
+    def _check_max_query_size(self, sql: str, conn: BaseBackend) -> None:
+        assert self.max_query_size is not None
+        bytes_limit = int(self.max_query_size * 1024**3)
+        estimated_bytes = self._dry_run_bytes(sql, conn)
+        estimated_gb = estimated_bytes / 1024**3
+        if estimated_bytes > bytes_limit:
+            raise ValueError(
+                f"Query would process {estimated_bytes:,} bytes ({estimated_gb:.6f} GB), "
+                f"which exceeds the configured limit of {self.max_query_size:.6f} GB."
+            )
+
+    def _dry_run_bytes(self, sql: str, conn: Any) -> int:
+        from google.cloud import bigquery as bq
+
+        job_config = bq.QueryJobConfig(dry_run=True, use_query_cache=False)
+        if self.dataset_id:
+            job_config.default_dataset = f"{self.project_id}.{self.dataset_id}"
+        query_job = conn.client.query(sql, job_config=job_config)
+        return query_job.total_bytes_processed or 0
 
     def connect(self) -> BaseBackend:
         """Create an Ibis BigQuery connection."""

@@ -30,6 +30,12 @@ import {
 import { agentService, ModelSelection } from './agent';
 import { posthog, PostHogEvent } from './posthog';
 
+interface TeamsRawMessage {
+	from?: { aadObjectId?: string };
+	conversation?: { tenantId?: string };
+	channelData?: { tenant?: { id?: string } };
+}
+
 const UPDATE_INTERVAL_MS = 200;
 
 class TeamsService {
@@ -173,18 +179,21 @@ class TeamsService {
 	}
 
 	private async _getUser(ctx: ConversationContext): Promise<void> {
-		const raw = ctx.userMessage.raw as { from?: { aadObjectId?: string } };
+		const raw = ctx.userMessage.raw as TeamsRawMessage;
 		const aadObjectId = raw?.from?.aadObjectId;
 
-		if (!aadObjectId) {
-			throw new Error('Could not retrieve user identity from Teams');
+		const senderTenantId = raw?.conversation?.tenantId || raw?.channelData?.tenant?.id;
+
+		if (!aadObjectId || !senderTenantId) {
+			throw new Error('Could not retrieve identity or tenant from Teams message');
 		}
 
-		const email = await this._getEmailByAadId(aadObjectId);
-		if (!email) {
+		const rawEmail = await this._getEmailByAadId(aadObjectId, senderTenantId);
+		if (!rawEmail) {
 			throw new Error('Could not retrieve user email from Teams');
 		}
 
+		const email = rawEmail.toLowerCase();
 		const user = await getUser({ email });
 		if (!user) {
 			await ctx.thread.post(
@@ -195,8 +204,9 @@ class TeamsService {
 		ctx.user = user;
 	}
 
-	private async _getEmailByAadId(aadObjectId: string): Promise<string | null> {
-		const credential = new ClientSecretCredential(this._tenantId, this._appId, this._appPassword);
+	private async _getEmailByAadId(aadObjectId: string, senderTenantId: string): Promise<string | null> {
+		const credential = new ClientSecretCredential(senderTenantId, this._appId, this._appPassword);
+
 		const authProvider = new TokenCredentialAuthenticationProvider(credential, {
 			scopes: ['https://graph.microsoft.com/.default'],
 		});

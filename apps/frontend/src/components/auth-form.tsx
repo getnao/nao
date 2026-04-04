@@ -13,11 +13,12 @@ interface AuthFormProps {
 	submitText: string;
 	children: React.ReactNode;
 	serverError?: string;
+	displaySocialProviders?: boolean;
 }
 
-export function AuthForm({ form, title, submitText, children, serverError }: AuthFormProps) {
-	const isGoogleSetup = useQuery(trpc.google.isSetup.queryOptions());
-	const isGithubSetup = useQuery(trpc.github.isSetup.queryOptions());
+export function AuthForm({ form, title, submitText, children, serverError, displaySocialProviders }: AuthFormProps) {
+	const isGoogleSetup = useQuery(trpc.authConfig.google.isSetup.queryOptions());
+	const isGithubSetup = useQuery(trpc.authConfig.github.isSetup.queryOptions());
 
 	return (
 		<div className='mx-auto w-full max-w-md p-8 my-auto'>
@@ -46,7 +47,7 @@ export function AuthForm({ form, title, submitText, children, serverError }: Aut
 				</form.Subscribe>
 			</form>
 
-			{(isGoogleSetup.data || isGithubSetup.data) && (
+			{displaySocialProviders && (isGoogleSetup.data || isGithubSetup.data) && (
 				<div className='mt-6'>
 					<div className='relative'>
 						<div className='absolute inset-0 flex items-center'>

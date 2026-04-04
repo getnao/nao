@@ -12,6 +12,16 @@ import { getTools, tools } from '../agents/tools';
 import { MessageFeedback } from '../db/abstractSchema';
 import { llmProviderSchema } from './llm';
 
+export interface ForkMetadata {
+	type: 'chat' | 'chat_selection' | 'story' | 'story_selection';
+	id: string;
+	title: string;
+	authorName: string;
+	selectionStart?: number;
+	selectionEnd?: number;
+	selectionText?: string;
+}
+
 export interface UIChat {
 	id: string;
 	title: string;
@@ -19,6 +29,7 @@ export interface UIChat {
 	createdAt: number;
 	updatedAt: number;
 	messages: UIMessage[];
+	forkMetadata?: ForkMetadata;
 }
 
 export interface ListChatResponse {
@@ -36,6 +47,7 @@ export interface ChatListItem {
 export type UIMessage = UIGenericMessage<unknown, MessageCustomDataParts, UITools> & {
 	feedback?: MessageFeedback;
 	source?: 'slack' | 'teams' | 'telegram' | 'whatsapp' | 'web';
+	isForked?: boolean;
 };
 
 export type UITools = InferUITools<typeof tools>;
@@ -115,9 +127,18 @@ export const MentionSchema = z.object({
 	label: z.string(),
 });
 
+const ALLOWED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'] as const;
+
+export const AgentRequestImageSchema = z.object({
+	mediaType: z.enum(ALLOWED_IMAGE_TYPES),
+	data: z.string().min(1),
+});
+export type AgentRequestImage = z.infer<typeof AgentRequestImageSchema>;
+
 export type AgentRequestUserMessage = z.infer<typeof AgentRequestUserMessageSchema>;
 export const AgentRequestUserMessageSchema = z.object({
 	text: z.string(),
+	images: z.array(AgentRequestImageSchema).optional(),
 });
 
 const ModelSelectionSchema = z.object({

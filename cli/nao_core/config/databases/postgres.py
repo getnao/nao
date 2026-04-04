@@ -59,6 +59,9 @@ class PostgresDatabaseContext(DatabaseContext):
     def _cast_float(self, expr: str) -> str:
         return f"CAST({expr} AS DOUBLE PRECISION)"
 
+    def _cast_complex_to_string(self, col_sql: str) -> str:
+        return f"{col_sql}::TEXT"
+
 
 class PostgresConfig(DatabaseConfig):
     """PostgreSQL-specific configuration."""

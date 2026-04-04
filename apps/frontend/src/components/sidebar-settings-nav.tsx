@@ -38,6 +38,11 @@ const settingsNavItems: NavItem[] = [
 		to: '/settings/logs',
 		visible: true,
 	},
+	{
+		label: 'File Explorer',
+		to: '/settings/context-explorer',
+		visible: true,
+	},
 ];
 
 interface SidebarSettingsNavProps {

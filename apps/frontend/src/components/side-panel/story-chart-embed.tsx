@@ -1,6 +1,7 @@
 import { memo, useMemo } from 'react';
+import type { UIMessage } from '@nao/backend/chat';
 import type { displayChart } from '@nao/shared/tools';
-import { useAgentContext } from '@/contexts/agent.provider';
+import { useOptionalAgentContext } from '@/contexts/agent.provider';
 import { ChartDisplay } from '@/components/tool-calls/display-chart';
 import { sortByDateKey } from '@/lib/charts.utils';
 
@@ -14,18 +15,22 @@ interface ChartBlock {
 }
 
 export const StoryChartEmbed = memo(function StoryChartEmbed({ chart }: { chart: ChartBlock }) {
-	const { messages } = useAgentContext();
+	const agent = useOptionalAgentContext();
 
 	const sourceData = useMemo(() => {
-		for (const message of messages) {
-			for (const part of message.parts) {
-				if (part.type === 'tool-execute_sql' && part.output?.id === chart.queryId) {
-					return part.output;
+		const findInMessages = (messages: UIMessage[]) => {
+			for (const message of messages) {
+				for (const part of message.parts) {
+					if (part.type === 'tool-execute_sql' && part.output?.id === chart.queryId) {
+						return part.output;
+					}
 				}
 			}
-		}
-		return null;
-	}, [messages, chart.queryId]);
+			return null;
+		};
+
+		return findInMessages(agent?.messages ?? []);
+	}, [agent?.messages, chart.queryId]);
 
 	const data = useMemo(
 		() =>

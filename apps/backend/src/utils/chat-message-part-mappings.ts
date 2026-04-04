@@ -3,6 +3,7 @@ import { getToolName, isToolUIPart } from 'ai';
 
 import { DBMessagePart, NewMessagePart } from '../db/abstractSchema';
 import { UIMessagePart, UIToolPart } from '../types/chat';
+import { buildImageUrl } from './image';
 
 const PROVIDER_EXECUTED_TOOLS = new Set(['web_search', 'web_fetch', 'google_search']);
 
@@ -55,6 +56,14 @@ export const convertUIPartToDBPart = (
 				type: 'reasoning',
 				reasoningText: part.text,
 				providerMetadata: part.providerMetadata,
+			};
+		case 'file':
+			return {
+				messageId,
+				order,
+				type: 'file',
+				mediaType: part.mediaType,
+				imageId: extractImageIdFromUrl(part.url),
 			};
 		case 'step-start':
 			return {
@@ -117,6 +126,15 @@ export const convertDBPartToUIPart = (part: DBMessagePart): UIMessagePart | unde
 				text: part.reasoningText!,
 				providerMetadata: part.providerMetadata ?? undefined,
 			};
+		case 'file':
+			if (!part.imageId) {
+				return undefined;
+			}
+			return {
+				type: 'file',
+				mediaType: part.mediaType!,
+				url: buildImageUrl(part.imageId),
+			};
 		case 'step-start':
 			return {
 				type: 'step-start',
@@ -136,3 +154,10 @@ export const convertDBPartToUIPart = (part: DBMessagePart): UIMessagePart | unde
 const isToolDBPart = (part: DBMessagePart): part is DBMessagePart & { type: UIToolPart['type'] } => {
 	return part.type.startsWith('tool-') || part.type === 'dynamic-tool';
 };
+
+const IMAGE_URL_PATTERN = /^\/i\/([a-f0-9-]+)$/;
+
+function extractImageIdFromUrl(url: string): string | null {
+	const match = url.match(IMAGE_URL_PATTERN);
+	return match?.[1] ?? null;
+}

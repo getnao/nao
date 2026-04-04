@@ -65,6 +65,9 @@ class SnowflakeDatabaseContext(DatabaseContext):
     def _cast_float(self, expr: str) -> str:
         return f"{expr}::FLOAT"
 
+    def _cast_complex_to_string(self, col_sql: str) -> str:
+        return f"TO_JSON({col_sql})::VARCHAR"
+
     def _partition_filter(self) -> str:
         cols = self.partition_columns()
         if cols:

@@ -1,7 +1,7 @@
 import { memo, useMemo } from 'react';
 import { ThumbsDown, ThumbsUp } from 'lucide-react';
 import { UserMessageBubble } from './user-message';
-import type { UIMessage } from '@nao/backend/chat';
+import type { ForkMetadata, UIMessage } from '@nao/backend/chat';
 import { checkAssistantMessageHasContent, groupMessages, groupToolCalls } from '@/lib/ai';
 import { cn } from '@/lib/utils';
 import {
@@ -14,21 +14,44 @@ import { AssistantCompaction } from '@/components/chat-messages/assistant-compac
 import { AssistantMessageProvider } from '@/contexts/assistant-message';
 import { MessageParts } from '@/components/chat-messages/assistant-message';
 
-export function ChatMessagesReadonly({ messages, className }: { messages: UIMessage[]; className?: string }) {
+export function ChatMessagesReadonly({
+	messages,
+	className,
+	forkMetadata,
+}: {
+	messages: UIMessage[];
+	className?: string;
+	forkMetadata?: ForkMetadata;
+}) {
 	const messageGroups = useMemo(() => groupMessages(messages), [messages]);
+
+	const citation = useMemo(() => {
+		if (!forkMetadata?.selectionText || forkMetadata.selectionStart == null || forkMetadata.selectionEnd == null) {
+			return null;
+		}
+		const isForkedMessage = [...messages].reverse().find((m: UIMessage) => m.isForked === true);
+		if (!isForkedMessage) {
+			return null;
+		}
+		const rawText = forkMetadata.selectionText;
+		const text = rawText.length > 200 ? `${rawText.slice(0, 200)}\u2026` : rawText;
+		const citationLabel = `@chars ${forkMetadata.selectionStart}–${forkMetadata.selectionEnd}`;
+		return { id: isForkedMessage.id, citation: citationLabel, text };
+	}, [messages, forkMetadata]);
 
 	return (
 		<div className={cn('h-full min-h-0 flex', className)}>
 			<Conversation>
-				<ConversationContent className='max-w-3xl mx-auto gap-0'>
+				<ConversationContent className='max-w-3xl mx-auto gap-0' data-selection-container>
 					{messageGroups.length === 0 ? (
 						<ConversationEmptyState title='No messages' description='' />
 					) : (
 						messageGroups.map((group) => (
 							<MessageGroupReadonly
-								key={group.userMessage.id}
+								key={group.userMessage?.id ?? group.assistantMessages[0]?.id}
 								userMessage={group.userMessage}
 								assistantMessages={group.assistantMessages}
+								citation={citation}
 							/>
 						))
 					)}
@@ -43,20 +66,33 @@ export function ChatMessagesReadonly({ messages, className }: { messages: UIMess
 const MessageGroupReadonly = ({
 	userMessage,
 	assistantMessages,
+	citation,
 }: {
-	userMessage: UIMessage;
+	userMessage: UIMessage | null;
 	assistantMessages: UIMessage[];
+	citation: { id: string; citation: string; text: string } | null;
 }) => {
+	const messages = userMessage ? [userMessage, ...assistantMessages] : assistantMessages;
 	return (
 		<div className='flex flex-col gap-4 last:mb-4'>
-			{[userMessage, ...assistantMessages].map((message) => (
-				<MessageBlockReadonly key={message.id} message={message} />
+			{messages.map((message) => (
+				<MessageBlockReadonly key={message.id} message={message} citation={citation} />
 			))}
 		</div>
 	);
 };
 
-const MessageBlockReadonly = ({ message }: { message: UIMessage }) => {
+const MessageBlockReadonly = ({
+	message,
+	citation,
+}: {
+	message: UIMessage;
+	citation: { id: string; citation: string; text: string } | null;
+}) => {
+	if (message.isForked && citation?.id === message.id) {
+		return <CitationBlockReadonly citation={citation} />;
+	}
+
 	if (message.role === 'user') {
 		return <UserMessageReadonly message={message} />;
 	}
@@ -114,3 +150,16 @@ const AssistantMessageReadonly = memo(({ message }: { message: UIMessage }) => {
 		</AssistantMessageProvider>
 	);
 });
+
+const CitationBlockReadonly = ({ citation }: { citation: { id: string; citation: string; text: string } }) => {
+	return (
+		<div className='px-4 py-3 border border-border bg-background shrink-0 rounded-xl'>
+			<div className='flex items-center justify-between mb-1.5'>
+				<p className='text-[11px] text-muted-foreground font-mono tracking-tight'>{citation.citation}</p>
+			</div>
+			<blockquote className='text-xs text-foreground/80 italic leading-relaxed line-clamp-3 border-l-2 border-primary/50 pl-3'>
+				&ldquo;{citation.text}&rdquo;
+			</blockquote>
+		</div>
+	);
+};

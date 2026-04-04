@@ -1,10 +1,11 @@
 import { accountRoutes } from './account.routes';
+import { authConfigRoutes } from './auth-config.routes';
 import { chartRoutes } from './chart.routes';
 import { chatRoutes } from './chat.routes';
+import { chatForkRoutes } from './chat-fork.routes';
 import { citationRoutes } from './citation.routes';
+import { contextExplorerRoutes } from './context-explorer.routes';
 import { feedbackRoutes } from './feedback.routes';
-import { githubRoutes } from './github.routes';
-import { googleRoutes } from './google.routes';
 import { logRoutes } from './log.routes';
 import { mcpRoutes } from './mcp.routes';
 import { memoryRoutes } from './memory.routes';
@@ -24,7 +25,9 @@ export const trpcRouter = router({
 	chart: chartRoutes,
 	chat: chatRoutes,
 	sharedChat: sharedChatRoutes,
+	chatFork: chatForkRoutes,
 	citation: citationRoutes,
+	contextExplorer: contextExplorerRoutes,
 	feedback: feedbackRoutes,
 	log: logRoutes,
 	posthog: posthogRoutes,
@@ -34,8 +37,7 @@ export const trpcRouter = router({
 	usage: usageRoutes,
 	user: userRoutes,
 	memory: memoryRoutes,
-	github: githubRoutes,
-	google: googleRoutes,
+	authConfig: authConfigRoutes,
 	account: accountRoutes,
 	mcp: mcpRoutes,
 	system: systemRoutes,

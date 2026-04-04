@@ -2,12 +2,14 @@ import { and, desc, eq, inArray } from 'drizzle-orm';
 
 import s, { type DBSharedChat } from '../db/abstractSchema';
 import { db } from '../db/db';
+import { type ForkMetadata } from '../types/chat';
 
 export type SharedChatWithDetails = DBSharedChat & {
 	authorName: string;
 	title: string;
 	userId: string;
 	projectId: string;
+	forkMetadata?: ForkMetadata;
 };
 
 export async function listProjectSharedChats(projectId: string, userId: string): Promise<SharedChatWithDetails[]> {
@@ -93,6 +95,7 @@ export async function getSharedChatInfo(id: string): Promise<SharedChatWithDetai
 			createdAt: s.sharedChat.createdAt,
 			authorName: s.user.name,
 			title: s.chat.title,
+			forkMetadata: s.chat.forkMetadata,
 		})
 		.from(s.sharedChat)
 		.innerJoin(s.chat, eq(s.sharedChat.chatId, s.chat.id))
@@ -100,7 +103,7 @@ export async function getSharedChatInfo(id: string): Promise<SharedChatWithDetai
 		.where(eq(s.sharedChat.id, id))
 		.execute();
 
-	return row ?? null;
+	return row ? { ...row, forkMetadata: row.forkMetadata ?? undefined } : null;
 }
 
 export async function getShareIdByChatId(

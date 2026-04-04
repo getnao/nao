@@ -5,29 +5,36 @@ import { getGridClass } from '@/lib/story-segments';
 
 interface SegmentRendererProps {
 	segments: Segment[];
+	versionKey?: string | number;
 	renderChart: (chart: ParsedChartBlock, key: number) => React.ReactNode;
 	renderTable: (table: ParsedTableBlock, key: number) => React.ReactNode;
 }
 
-export const SegmentList = memo(function SegmentList({ segments, renderChart, renderTable }: SegmentRendererProps) {
+export const SegmentList = memo(function SegmentList({
+	segments,
+	versionKey,
+	renderChart,
+	renderTable,
+}: SegmentRendererProps) {
 	return (
 		<>
 			{segments.map((segment, i) => {
+				const key = versionKey != null ? `${versionKey}-${i}` : i;
 				switch (segment.type) {
 					case 'markdown':
 						return (
-							<Streamdown key={i} mode='static'>
+							<Streamdown key={key} mode='static'>
 								{segment.content}
 							</Streamdown>
 						);
 					case 'chart':
-						return <Fragment key={i}>{renderChart(segment.chart, i)}</Fragment>;
+						return <Fragment key={key}>{renderChart(segment.chart, i)}</Fragment>;
 					case 'table':
-						return <Fragment key={i}>{renderTable(segment.table, i)}</Fragment>;
+						return <Fragment key={key}>{renderTable(segment.table, i)}</Fragment>;
 					case 'grid':
 						return (
 							<StoryGrid
-								key={i}
+								key={key}
 								cols={segment.cols}
 								children={segment.children}
 								renderChart={renderChart}

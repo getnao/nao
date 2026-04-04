@@ -20,15 +20,24 @@ import { CACHE_1H, CACHE_5M, LLM_PROVIDERS, ProviderModelResult } from '../agent
 import { getTools } from '../agents/tools';
 import { createWebSearchTools } from '../agents/tools/web-search';
 import { getConnections, getTableColumnsContent, getUserRules } from '../agents/user-rules';
-import { MessagingProviderSystemPrompt, SystemPrompt } from '../components/ai';
+import { ChatForkContextPrompt, MessagingProviderSystemPrompt, SystemPrompt } from '../components/ai';
 import { DBChat } from '../db/abstractSchema';
 import { renderToMarkdown } from '../lib/markdown';
 import * as chatQueries from '../queries/chat.queries';
+import * as imageQueries from '../queries/image.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import * as storyQueries from '../queries/story.queries';
 import { AgentSettings } from '../types/agent-settings';
-import { AgentTools, Mention, MessageCustomDataParts, TokenCost, TokenUsage, UIMessage } from '../types/chat';
+import {
+	AgentTools,
+	ForkMetadata,
+	Mention,
+	MessageCustomDataParts,
+	TokenCost,
+	TokenUsage,
+	UIMessage,
+} from '../types/chat';
 import { LlmProvider } from '../types/llm';
 import { Provider } from '../types/messaging-provider';
 import { ToolContext } from '../types/tools';
@@ -65,7 +74,9 @@ export interface AgentRunResult {
 	}>;
 }
 
-export type AgentChat = Pick<DBChat, 'id' | 'projectId' | 'userId'>;
+export type AgentChat = Pick<DBChat, 'id' | 'projectId' | 'userId'> & {
+	forkMetadata?: ForkMetadata | null;
+};
 
 export class AgentService {
 	private _agents = new Map<string, AgentManager>();
@@ -172,7 +183,7 @@ export class AgentService {
 	}
 }
 
-const MAX_OUTPUT_TOKENS = 16_000;
+export const MAX_OUTPUT_TOKENS = 16_000;
 
 class AgentManager {
 	private readonly _agent: ToolLoopAgent<never, AgentTools, never>;
@@ -199,26 +210,26 @@ class AgentManager {
 	}
 
 	private async _prepareStep(messages: ModelMessage[]): Promise<{ messages: ModelMessage[] }> {
-		await compactionService.compactConversationIfNeeded({
-			chat: this.chat,
-			provider: this._modelSelection.provider,
-			messages,
-			tools: this._agentTools,
-			maxOutputTokens: MAX_OUTPUT_TOKENS,
-			contextWindow: this._modelConfig.contextWindow,
-			onCompactionStarted: () => {
-				this._streamWriter?.write({
-					type: 'data-compactionSummaryStarted',
-					data: undefined,
-				});
-			},
-			onCompactionFinished: (result) => {
-				this._streamWriter?.write({
-					type: 'data-compaction',
-					data: result,
-				});
-			},
-		});
+		// await compactionService.compactConversationIfNeeded({
+		// 	chat: this.chat,
+		// 	provider: this._modelSelection.provider,
+		// 	messages,
+		// 	tools: this._agentTools,
+		// 	maxOutputTokens: MAX_OUTPUT_TOKENS,
+		// 	contextWindow: this._modelConfig.contextWindow,
+		// 	onCompactionStarted: () => {
+		// 		this._streamWriter?.write({
+		// 			type: 'data-compactionSummaryStarted',
+		// 			data: undefined,
+		// 		});
+		// 	},
+		// 	onCompactionFinished: (result) => {
+		// 		this._streamWriter?.write({
+		// 			type: 'data-compaction',
+		// 			data: result,
+		// 		});
+		// 	},
+		// });
 
 		return { messages: this._addCache(this._pruneMessages(messages)) };
 	}
@@ -230,6 +241,7 @@ class AgentManager {
 			mentions?: Mention[];
 			provider?: Provider;
 			timezone?: string;
+			chatUrl?: string;
 		} = {},
 	): ReadableStream<InferUIMessageChunk<UIMessage>> {
 		let error: unknown = undefined;
@@ -260,6 +272,7 @@ class AgentManager {
 					opts.mentions,
 					opts.provider,
 					opts.timezone,
+					opts.chatUrl,
 				);
 
 				result = await this._agent.stream({
@@ -317,30 +330,40 @@ class AgentManager {
 		mentions?: Mention[],
 		provider?: Provider,
 		timezone?: string,
+		chatUrl?: string,
 	): Promise<ModelMessage[]> {
 		const uiMessagesWithStories = await this._syncStoryToolOutputs(uiMessages);
 		const uiMessagesWithStoryMode = this._addStoryMode(uiMessagesWithStories, mentions);
 		const uiMessagesWithSkills = this._addSkills(uiMessagesWithStoryMode, mentions);
 		const uiMessagesWithDbContext = this._addDatabaseContext(uiMessagesWithSkills, mentions);
 		const uiMessagesWithCompaction = compactionService.useLastCompaction(uiMessagesWithDbContext);
+		const uiMessagesWithResolvedImages = await resolveImageUrls(uiMessagesWithCompaction);
 
 		const memories = await memoryService.safeGetUserMemories(this.chat.userId, this.chat.projectId, this.chat.id);
 		const userRules = getUserRules();
 		const connections = getConnections();
 		const skills = skillService.getSkills();
 		const basePrompt = renderToMarkdown(SystemPrompt({ memories, userRules, connections, skills, timezone }));
-		const systemPrompt = provider
-			? renderToMarkdown(MessagingProviderSystemPrompt({ basePrompt, provider }))
+		const renderedPrompt = provider
+			? renderToMarkdown(MessagingProviderSystemPrompt({ basePrompt, provider, chatUrl }))
 			: basePrompt;
+		const systemPrompt = this.chat.forkMetadata
+			? renderToMarkdown(
+					ChatForkContextPrompt({ basePrompt: renderedPrompt, forkMetadata: this.chat.forkMetadata }),
+				)
+			: renderedPrompt;
 
 		const systemMessage: Omit<UIMessage, 'id'> = {
 			role: 'system',
 			parts: [{ type: 'text', text: systemPrompt }],
 		};
 
-		const modelMessages = await convertToModelMessages<UIMessage>([systemMessage, ...uiMessagesWithCompaction], {
-			tools: this._agentTools,
-		});
+		const modelMessages = await convertToModelMessages<UIMessage>(
+			[systemMessage, ...uiMessagesWithResolvedImages],
+			{
+				tools: this._agentTools,
+			},
+		);
 
 		return modelMessages;
 	}
@@ -630,6 +653,69 @@ class AgentManager {
 	getModelId(): string {
 		return this._modelSelection.modelId;
 	}
+}
+
+const IMAGE_URL_PATTERN = /^\/i\/([a-f0-9-]+)$/;
+
+type MessageLike = Omit<UIMessage, 'id'>;
+
+/**
+ * Replaces server-relative image URLs (/i/{id}) with raw base64 data so the
+ * model provider receives the actual image content inline.
+ *
+ * The AI SDK's `convertToModelMessages` maps `FileUIPart.url` → `FilePart.data`.
+ * A data-URL string (data:…) would be misinterpreted as a downloadable URL,
+ * so we pass the plain base64 string instead — the mediaType is already a
+ * separate field on the part.
+ */
+async function resolveImageUrls<T extends MessageLike>(messages: T[]): Promise<T[]> {
+	const imageIds = new Set<string>();
+	for (const message of messages) {
+		for (const part of message.parts) {
+			if (part.type === 'file') {
+				const match = part.url.match(IMAGE_URL_PATTERN);
+				if (match) {
+					imageIds.add(match[1]);
+				}
+			}
+		}
+	}
+
+	if (imageIds.size === 0) {
+		return messages;
+	}
+
+	const imageDataMap = new Map<string, string>();
+	await Promise.all(
+		[...imageIds].map(async (id) => {
+			const image = await imageQueries.getImageById(id);
+			if (image) {
+				imageDataMap.set(id, image.data);
+			}
+		}),
+	);
+
+	return messages.map((message) => ({
+		...message,
+		parts: message.parts.map((part) => {
+			if (part.type !== 'file') {
+				return part;
+			}
+			const match = part.url.match(IMAGE_URL_PATTERN);
+			if (!match) {
+				return part;
+			}
+			const base64Data = imageDataMap.get(match[1]);
+			console.log(`[debug] base64Data for ${match[1]}: ${base64Data}`);
+			if (!base64Data) {
+				return part;
+			}
+			return {
+				...part,
+				url: base64Data,
+			};
+		}),
+	}));
 }
 
 // Singleton instance of the agent service

@@ -140,7 +140,7 @@ class SlackService {
 
 			const slackUserId = event.user?.userId;
 			const slackUser = slackUserId ? await this._getSlackUser(slackUserId) : null;
-			const email = slackUser?.profile?.email || null;
+			const email = slackUser?.profile?.email?.toLowerCase() || null;
 			const user = email ? await getUser({ email }) : null;
 
 			if (ownerId !== user?.id) {
@@ -207,7 +207,7 @@ class SlackService {
 	private async _getUser(ctx: ConversationContext): Promise<void> {
 		const slackUserId = ctx.userMessage.author.userId;
 		const slackUser = await this._getSlackUser(slackUserId);
-		const email = slackUser?.profile?.email || null;
+		const email = slackUser?.profile?.email?.toLowerCase() || null;
 
 		if (!email) {
 			throw new Error('Could not retrieve user email from Slack');

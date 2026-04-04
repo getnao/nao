@@ -5,7 +5,7 @@ import type { AgentHelpers } from '@/hooks/use-agent';
 import { useAgent, useSyncMessages } from '@/hooks/use-agent';
 import { useStreamEndSound } from '@/hooks/use-stream-end-sound';
 
-const AgentContext = createContext<AgentHelpers | null>(null);
+export const AgentContext = createContext<AgentHelpers | null>(null);
 
 export const useAgentContext = () => {
 	const agent = useContext(AgentContext);
@@ -19,10 +19,11 @@ export const useOptionalAgentContext = () => useContext(AgentContext);
 
 export interface Props {
 	children: React.ReactNode;
+	disableNavigation?: boolean;
 }
 
-export const AgentProvider = ({ children }: Props) => {
-	const agent = useAgent();
+export const AgentProvider = ({ children, disableNavigation }: Props) => {
+	const agent = useAgent({ disableNavigation });
 
 	useSyncMessages({ agent });
 	useStreamEndSound(agent.isRunning);
@@ -32,41 +33,36 @@ export const AgentProvider = ({ children }: Props) => {
 
 export const ReadonlyAgentMessagesProvider = ({
 	messages,
+	chatId,
 	children,
 }: {
 	messages: UIMessage[];
+	chatId?: string;
 	children: React.ReactNode;
 }) => {
-	const value = useMemo<AgentHelpers>(() => {
-		const noopPromise = async () => {};
-		const noop = () => {};
-
-		const setMessages: AgentHelpers['setMessages'] = () => {};
-		const queueOrSendMessage: AgentHelpers['queueOrSendMessage'] = noopPromise;
-		const editMessage: AgentHelpers['editMessage'] = noopPromise;
-		const submitQueuedMessageNow: AgentHelpers['submitQueuedMessageNow'] = noopPromise;
-		const stopAgent: AgentHelpers['stopAgent'] = noopPromise;
-		const clearError: AgentHelpers['clearError'] = noop;
-		const setSelectedModel: AgentHelpers['setSelectedModel'] = () => {};
-		const setMentions: AgentHelpers['setMentions'] = noop;
-
-		return {
+	const value = useMemo<AgentHelpers>(
+		() => ({
+			chatId,
 			messages,
-			setMessages,
-			queueOrSendMessage,
-			editMessage,
-			submitQueuedMessageNow,
+			setMessages: noop,
+			queueOrSendMessage: noopPromise,
+			editMessage: noopPromise,
+			submitQueuedMessageNow: noopPromise,
 			status: 'ready',
 			isRunning: false,
 			isLoadingMessages: false,
-			stopAgent,
+			stopAgent: noopPromise,
 			error: undefined,
-			clearError,
+			clearError: noop,
 			selectedModel: null,
-			setSelectedModel,
-			setMentions,
-		};
-	}, [messages]);
+			setSelectedModel: noop,
+			setMentions: noop,
+		}),
+		[chatId, messages],
+	);
 
 	return <AgentContext.Provider value={value}>{children}</AgentContext.Provider>;
 };
+
+const noop = () => {};
+const noopPromise = async () => {};

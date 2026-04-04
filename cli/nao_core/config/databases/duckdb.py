@@ -11,6 +11,12 @@ if TYPE_CHECKING:
     from ibis import BaseBackend
 
 from .base import DatabaseConfig
+from .context import DatabaseContext
+
+
+class DuckDBDatabaseContext(DatabaseContext):
+    def _cast_complex_to_string(self, col_sql: str) -> str:
+        return f"CAST({col_sql} AS VARCHAR)"
 
 
 class DuckDBConfig(DatabaseConfig):
@@ -57,3 +63,6 @@ class DuckDBConfig(DatabaseConfig):
         finally:
             if conn is not None:
                 conn.disconnect()
+
+    def create_context(self, conn: BaseBackend, schema: str, table_name: str) -> DuckDBDatabaseContext:
+        return DuckDBDatabaseContext(conn, schema, table_name)

@@ -38,8 +38,12 @@ class EmailService {
 		}
 	}
 
+	public isEnabled(): boolean {
+		return this.enabled;
+	}
+
 	public async sendEmail(to: string, email: CreatedEmail): Promise<void> {
-		if (!this.enabled || !this.transporter) {
+		if (!this.isEnabled() || !this.transporter) {
 			return;
 		}
 

@@ -63,6 +63,7 @@ export function ContextWindowRing({ className }: ContextWindowRingProps) {
 			{
 				enabled: !!chatId && !isRunning && hasAssistantMessage && !!selectedModel,
 				staleTime: 0,
+				refetchOnWindowFocus: false,
 			},
 		),
 	);

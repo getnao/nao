@@ -38,6 +38,7 @@ export const DisplayChartToolCall = ({
 	const config = state !== 'input-streaming' ? input : undefined;
 	const [dataRange, setDataRange] = useState<DateRange>('all');
 	const storyIds = useMemo(() => findStoryIds(messages), [messages]);
+	const normalSize = useMemo(() => (document.querySelector('[data-selection-container]') ? true : false), []);
 
 	const addToStoryMutation = useMutation(
 		trpc.story.createVersion.mutationOptions({
@@ -148,10 +149,8 @@ export const DisplayChartToolCall = ({
 			return;
 		}
 
-		const versions = await queryClient.fetchQuery(
-			trpc.story.listVersions.queryOptions({ chatId, storyId: targetId }),
-		);
-		const latest = versions.at(-1);
+		const data = await queryClient.fetchQuery(trpc.story.listVersions.queryOptions({ chatId, storyId: targetId }));
+		const latest = data.versions.at(-1);
 		if (!latest) {
 			return;
 		}
@@ -163,7 +162,7 @@ export const DisplayChartToolCall = ({
 		addToStoryMutation.mutate({
 			chatId,
 			storyId: targetId,
-			title: latest.title,
+			title: data.title,
 			code: newCode,
 			action: 'update',
 		});
@@ -175,7 +174,7 @@ export const DisplayChartToolCall = ({
 
 	return (
 		<div
-			className={`flex flex-col items-center my-4 gap-2 ${config.chart_type !== 'kpi_card' ? 'aspect-3/2' : ''}`}
+			className={`flex flex-col items-center my-4 gap-2 ${config.chart_type !== 'kpi_card' && !normalSize ? 'aspect-3/2' : ''}`}
 		>
 			<div className='flex w-full items-center justify-between'>
 				{config.chart_type != 'kpi_card' ? (
@@ -306,7 +305,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 				colorFor,
 				labelFormatter: xAxisLabelFormatter,
 				showGrid,
-				margin: { top: 0, right: 0, bottom: 0, left: -18 },
+				margin: { top: 0, right: 0, bottom: 0, left: 0 },
 				children: [
 					<ChartTooltip
 						key='tooltip'

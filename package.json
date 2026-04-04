@@ -22,6 +22,7 @@
 		"cli:fix": "cd cli && make lint-fix",
 		"cli:check": "cd cli && make lint",
 		"build:cli": "cd cli && python build.py -f",
+		"setup": "cd scripts && ./setup.sh",
 		"release": "./scripts/release.sh",
 		"prepare": "husky",
 		"pg:start": "docker compose -f docker-compose.postgres.yml up -d",

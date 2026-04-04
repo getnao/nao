@@ -188,6 +188,7 @@ export const addUserToDefaultProjectIfExists = async (userId: string): Promise<v
  * Startup check: Ensures organization structure is valid.
  * - If there are users but no organization, creates one and assigns first user as org_admin
  * - If there are projects without an org, assigns them to the default org
+ * - If NAO_DEFAULT_PROJECT_PATH is set, ensures a project exists for that path
  */
 export const ensureOrganizationSetup = async (): Promise<void> => {
 	const firstUser = await userQueries.getFirst();
@@ -225,4 +226,41 @@ export const ensureOrganizationSetup = async (): Promise<void> => {
 
 	// Assign any orphaned projects (projects without org) to the default org
 	await db.update(s.project).set({ orgId: org.id }).where(isNull(s.project.orgId)).execute();
+
+	// Ensure a project exists for the current NAO_DEFAULT_PROJECT_PATH
+	await ensureDefaultProject(org);
+};
+
+/**
+ * Ensures a project exists for the current NAO_DEFAULT_PROJECT_PATH.
+ * When users change the project path and restart, the DB may not have a record for the new path.
+ */
+const ensureDefaultProject = async (org: DBOrganization): Promise<void> => {
+	const projectPath = env.NAO_DEFAULT_PROJECT_PATH;
+	if (!projectPath) {
+		return;
+	}
+
+	const existing = await projectQueries.getProjectByPath(projectPath);
+	if (existing) {
+		return;
+	}
+
+	const projectName = projectPath.split('/').pop() || 'Default Project';
+	const project = await projectQueries.createProject({
+		name: projectName,
+		type: 'local',
+		path: projectPath,
+		orgId: org.id,
+	});
+
+	// Add all org members to the new project
+	const orgMembers = await db.select().from(s.orgMember).where(eq(s.orgMember.orgId, org.id)).execute();
+	for (const member of orgMembers) {
+		await projectQueries.addProjectMember({
+			projectId: project.id,
+			userId: member.userId,
+			role: member.role,
+		});
+	}
 };

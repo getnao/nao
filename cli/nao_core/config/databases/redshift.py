@@ -73,6 +73,7 @@ class RedshiftDatabaseContext(DatabaseContext):
             "date": "date",
             "timestamp without time zone": "timestamp",
             "timestamp with time zone": "timestamp",
+            "super": "super",
         }
 
         ibis_type = type_map.get(data_type, "string")
@@ -141,6 +142,9 @@ class RedshiftDatabaseContext(DatabaseContext):
 
     def _cast_float(self, expr: str) -> str:
         return f"{expr}::float"
+
+    def _cast_complex_to_string(self, col_sql: str) -> str:
+        return f"JSON_SERIALIZE({col_sql})"
 
 
 class RedshiftSSHTunnelConfig(BaseModel):

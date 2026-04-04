@@ -1,13 +1,13 @@
 import { useNavigate, useParams } from '@tanstack/react-router';
 import { useMutation } from '@tanstack/react-query';
-import { useMemo, useEffect, useCallback } from 'react';
+import { useMemo, useEffect, useCallback, useRef } from 'react';
 import { Chat as Agent, useChat } from '@ai-sdk/react';
 import { DefaultChatTransport } from 'ai';
 import { useMemoObject } from './useMemoObject';
 import { usePrevRef } from './use-prev';
 import { useLocalStorage } from './use-local-storage';
 import { useChatId } from './use-chat-id';
-import type { InferUIMessageChunk } from 'ai';
+import type { FileUIPart, InferUIMessageChunk } from 'ai';
 import type { UseChatHelpers } from '@ai-sdk/react';
 import type { UIMessage } from '@nao/backend/chat';
 import type { MentionOption } from 'prompt-mentions';
@@ -17,11 +17,18 @@ import { chatActivityStore } from '@/stores/chat-activity';
 import { useChatQuery, useSetChat } from '@/queries/use-chat-query';
 import { trpc } from '@/main';
 import { agentService } from '@/services/agents';
-import { checkIsAgentRunning, getLastUserMessageIdx, getTextFromUserMessageOrThrow, NEW_CHAT_ID } from '@/lib/ai';
+import {
+	checkIsAgentRunning,
+	extractImagesFromMessage,
+	getLastUserMessageIdx,
+	getTextFromUserMessageOrThrow,
+	NEW_CHAT_ID,
+} from '@/lib/ai';
 import { useSetChatList } from '@/queries/use-chat-list-query';
 import { createLocalStorage } from '@/lib/local-storage';
 
 export interface AgentHelpers {
+	chatId: string | undefined;
 	messages: UIMessage[];
 	setMessages: UseChatHelpers<UIMessage>['setMessages'];
 	queueOrSendMessage: (args: SendMessageArgs) => Promise<void>;
@@ -38,26 +45,32 @@ export interface AgentHelpers {
 	setMentions: (mentions: MentionOption[]) => void;
 }
 
-export interface SendMessageArgs {
-	text: string;
+export interface ImageUploadData {
+	mediaType: string;
+	data: string;
 }
 
-const selectedModelStorage = createLocalStorage<ChatSelectedModel>('nao-selected-model');
+export interface SendMessageArgs {
+	text: string;
+	images?: ImageUploadData[];
+}
 
-const selectedModelRef: { current: ChatSelectedModel | null } = { current: null };
-const mentionsRef: { current: MentionOption[] } = { current: [] };
-const chatIdRef: { current: string | undefined } = { current: undefined };
+export const selectedModelStorage = createLocalStorage<ChatSelectedModel>('nao-selected-model');
 
-export const useAgent = (): AgentHelpers => {
+export const useAgent = ({ disableNavigation = false }: { disableNavigation?: boolean } = {}): AgentHelpers => {
 	const navigate = useNavigate();
 	const chatId = useChatId();
-	chatIdRef.current = chatId;
 	const chat = useChatQuery({ chatId });
 
 	const [selectedModel, setSelectedModel] = useLocalStorage(selectedModelStorage);
-	selectedModelRef.current = selectedModel;
 	const setChat = useSetChat();
 	const setChatList = useSetChatList();
+
+	const chatIdRef = useRef(chatId);
+	chatIdRef.current = chatId;
+	const selectedModelRef = useRef<ChatSelectedModel | null>(null);
+	selectedModelRef.current = selectedModel;
+	const mentionsRef = useRef<MentionOption[]>([]);
 
 	const setMentions = useCallback((mentions: MentionOption[]) => {
 		mentionsRef.current = mentions;
@@ -66,9 +79,11 @@ export const useAgent = (): AgentHelpers => {
 	const agentInstance = useMemo(() => {
 		let agentId = chatId ?? NEW_CHAT_ID;
 
-		const existingAgent = agentService.getAgent(agentId);
-		if (existingAgent) {
-			return existingAgent;
+		if (!disableNavigation) {
+			const existingAgent = agentService.getAgent(agentId);
+			if (existingAgent) {
+				return existingAgent;
+			}
 		}
 
 		const handleAgentDataPart = (dataPart: InferUIMessageChunk<UIMessage>, agent: Agent<UIMessage>) => {
@@ -79,7 +94,9 @@ export const useAgent = (): AgentHelpers => {
 				agentId = newChat.id;
 				setChat({ chatId: newChat.id }, { ...newChat, messages: [] });
 				setChatList((old) => ({ chats: [newChat, ...(old?.chats || [])] }));
-				navigate({ to: '/$chatId', params: { chatId: newChat.id }, state: { fromMessageSend: true } });
+				if (!disableNavigation) {
+					navigate({ to: '/$chatId', params: { chatId: newChat.id }, state: { fromMessageSend: true } });
+				}
 				return;
 			}
 
@@ -112,12 +129,14 @@ export const useAgent = (): AgentHelpers => {
 
 					const mentions = mentionsRef.current;
 					mentionsRef.current = [];
+					const images = extractImagesFromMessage(messageToSend);
 					return {
 						body: {
 							...body,
 							chatId: agentId === NEW_CHAT_ID ? undefined : agentId,
 							message: {
 								text: getTextFromUserMessageOrThrow(messageToSend),
+								images: images.length > 0 ? images : undefined,
 							},
 							model: selectedModelRef.current ?? undefined,
 							mentions: mentions.length > 0 ? mentions : undefined,
@@ -132,7 +151,8 @@ export const useAgent = (): AgentHelpers => {
 				const next = canSendNextMessage ? messageQueueStore.dequeue(agentId) : undefined;
 				if (next) {
 					mentionsRef.current = next.mentions;
-					newAgent.sendMessage({ text: next.text });
+					const files = imagesToFileUIParts(next.images);
+					newAgent.sendMessage({ text: next.text, files: files.length > 0 ? files : undefined });
 				} else {
 					chatActivityStore.setRunning(agentId, false);
 					if (chatIdRef.current !== agentId) {
@@ -146,8 +166,12 @@ export const useAgent = (): AgentHelpers => {
 			},
 		});
 
+		if (disableNavigation) {
+			return newAgent;
+		}
+
 		return agentService.registerAgent(agentId, newAgent);
-	}, [chatId, navigate, setChat, setChatList]);
+	}, [chatId, disableNavigation, navigate, setChat, setChatList]);
 
 	const { status, error, clearError, sendMessage, setMessages, messages } = useChat({ chat: agentInstance });
 
@@ -184,13 +208,17 @@ export const useAgent = (): AgentHelpers => {
 	);
 
 	const queueOrSendMessage = useCallback(
-		async ({ text }: SendMessageArgs) => {
-			if (!text.trim()) {
+		async ({ text, images }: SendMessageArgs) => {
+			if (!text.trim() && !images?.length) {
 				return;
 			}
 
 			if (!isRunning) {
-				return handleSendMessage({ text });
+				const files = imagesToFileUIParts(images);
+				return handleSendMessage({
+					text: text || 'Describe this image',
+					files: files.length > 0 ? files : undefined,
+				});
 			}
 
 			const mentions = [...mentionsRef.current];
@@ -199,6 +227,7 @@ export const useAgent = (): AgentHelpers => {
 			messageQueueStore.enqueue(chatIdRef.current, {
 				text,
 				mentions,
+				images,
 			});
 		},
 		[isRunning, handleSendMessage],
@@ -236,6 +265,7 @@ export const useAgent = (): AgentHelpers => {
 	);
 
 	return useMemoObject({
+		chatId,
 		messages,
 		setMessages,
 		queueOrSendMessage,
@@ -255,24 +285,55 @@ export const useAgent = (): AgentHelpers => {
 
 /** Sync the messages between the useChat hook and the query client. */
 export const useSyncMessages = ({ agent }: { agent: AgentHelpers }) => {
-	const { chatId } = useParams({ strict: false });
+	const chatId = useChatId();
 	const chat = useChatQuery({ chatId });
 	const setChat = useSetChat();
 
-	// Sync the agent's messages with the fetched ones
 	useEffect(() => {
 		if (chat.data?.messages && !agent.isRunning) {
 			agent.setMessages(chat.data.messages);
 		}
-	}, [chat.data?.messages, agent.isRunning, agent.setMessages]); // eslint-disable-line
+	}, [chat.data?.messages]); // eslint-disable-line react-hooks/exhaustive-deps
 
-	// Sync the fetched messages with the agent's
+	const agentMessagesRef = useRef(agent.messages);
+	agentMessagesRef.current = agent.messages;
+	const chatDataRef = useRef(chat.data);
+	chatDataRef.current = chat.data;
+
 	useEffect(() => {
-		if (agent.isRunning) {
-			setChat({ chatId }, (prev) => (!prev ? prev : { ...prev, messages: agent.messages }));
+		if (!agent.isRunning) {
+			return;
 		}
+		const base = chatDataRef.current;
+		setChat({ chatId }, (prev) => {
+			const src = prev ?? base;
+			return src ? { ...src, messages: agent.messages } : prev;
+		});
 	}, [setChat, agent.messages, chatId, agent.isRunning]);
+
+	const wasRunningRef = useRef(false);
+	useEffect(() => {
+		if (wasRunningRef.current && !agent.isRunning) {
+			const base = chatDataRef.current;
+			setChat({ chatId }, (prev) => {
+				const src = prev ?? base;
+				return src ? { ...src, messages: agentMessagesRef.current } : prev;
+			});
+		}
+		wasRunningRef.current = agent.isRunning;
+	}, [agent.isRunning, setChat, chatId]);
 };
+
+function imagesToFileUIParts(images?: ImageUploadData[]): FileUIPart[] {
+	if (!images?.length) {
+		return [];
+	}
+	return images.map((img) => ({
+		type: 'file' as const,
+		mediaType: img.mediaType,
+		url: `data:${img.mediaType};base64,${img.data}`,
+	}));
+}
 
 /** Dispose inactive agents to free up memory */
 export const useDisposeInactiveAgents = () => {

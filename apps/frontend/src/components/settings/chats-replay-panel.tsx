@@ -107,7 +107,10 @@ export function ChatsReplayPanel({ chatInfo, onClose }: ChatsReplayPanelProps) {
 					<div className='flex-1 overflow-auto p-4 text-sm text-destructive'>Failed to load chat.</div>
 				) : chatReplayQuery.data ? (
 					<ChatViewProvider expandOnError={true}>
-						<ReadonlyAgentMessagesProvider messages={chatReplayQuery.data.messages}>
+						<ReadonlyAgentMessagesProvider
+							messages={chatReplayQuery.data.messages}
+							chatId={chatInfo.chatId}
+						>
 							<SidePanelProvider
 								isVisible={sidePanel.isVisible}
 								currentStoryId={sidePanel.currentStoryId}
@@ -118,7 +121,10 @@ export function ChatsReplayPanel({ chatInfo, onClose }: ChatsReplayPanelProps) {
 							>
 								<div ref={containerRef} className='flex h-full min-h-0'>
 									<div ref={scrollContainerRef} className='flex-1 overflow-auto p-4'>
-										<ChatMessagesReadonly messages={chatReplayQuery.data.messages} />
+										<ChatMessagesReadonly
+											messages={chatReplayQuery.data.messages}
+											forkMetadata={chatReplayQuery.data.forkMetadata}
+										/>
 									</div>
 									{sidePanel.content && (
 										<SidePanel

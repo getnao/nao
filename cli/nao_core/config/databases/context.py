@@ -99,37 +99,141 @@ class DatabaseContext:
             cols = self.columns()
             if not cols:
                 return None
-
             total_count = self.row_count()
-            profiles = []
-
-            for col in cols:
-                col_type = self._normalize_type(col["type"])
-                is_numeric = self._is_numeric_stats_column(col)
-                is_date = any(t in col_type.lower() for t in ("date", "timestamp", "time"))
-
-                query = self._build_profiling_query(col)
-                row = self._fetchone(self._conn.raw_sql(query))  # type: ignore[union-attr]
-                if not row:
-                    continue
-
-                profile = self._parse_profiling_row(row, col, total_count)
-
-                distinct_count = profile["distinct_count"]
-                if distinct_count and distinct_count <= 50 and not is_numeric and not is_date:
-                    top_vals = self._fetch_top_values(col)
-                    if top_vals:
-                        profile["top_values"] = top_vals
-
-                profiles.append(profile)
-
-            return {
-                "computed_at": datetime.now(timezone.utc).isoformat(),
-                "columns": profiles,
-            }
-
         except Exception:
             return None
+
+        profiles = []
+        for col in cols:
+            try:
+                if self._is_complex_type_column(col):
+                    profile = self._profile_complex_type_column(col, total_count)
+                else:
+                    profile = self._profile_standard_column(col, total_count)
+                if profile:
+                    profiles.append(profile)
+            except Exception:
+                continue
+
+        return {
+            "computed_at": datetime.now(timezone.utc).isoformat(),
+            "columns": profiles,
+        }
+
+    def _profile_standard_column(self, col: dict, total_count: int) -> dict[str, Any] | None:
+        col_type = self._normalize_type(col["type"])
+        is_numeric = self._is_numeric_stats_column(col)
+        is_date = any(t in col_type.lower() for t in ("date", "timestamp", "time"))
+
+        query = self._build_profiling_query(col)
+        row = self._fetchone(self._conn.raw_sql(query))  # type: ignore[union-attr]
+        if not row:
+            return None
+
+        profile = self._parse_profiling_row(row, col, total_count)
+
+        distinct_count = profile["distinct_count"]
+        if distinct_count and distinct_count <= 50 and not is_numeric and not is_date:
+            top_vals = self._fetch_top_values(col)
+            if top_vals:
+                profile["top_values"] = top_vals
+
+        return profile
+
+    def _profile_complex_type_column(self, col: dict, total_count: int) -> dict[str, Any] | None:
+        """Profile a complex type column (array, struct, map, json, tuple, variant, …).
+
+        Always computes null_count. Then enriches with distinct_count and top_values
+        following this priority:
+          1. array type  + _array_unnest_join → element-level distinct count + top values via UNNEST
+          2. any complex + _cast_complex_to_string → distinct count + top values via string cast
+          3. otherwise   → null_count only
+        """
+        col_sql = self._quote(col["name"])
+        col_type = col["type"].lower()
+        table_sql = f"{self._quote(self._schema)}.{self._quote(self._table_name)}"
+        partition_filter = self._partition_filter()
+        where_clause = f"WHERE {partition_filter}" if partition_filter else ""
+
+        query = f"SELECT {self._null_count_sql(col_sql)} AS null_count FROM {table_sql} {where_clause}".strip()
+        row = self._fetchone(self._conn.raw_sql(query))  # type: ignore[union-attr]
+        if not row:
+            return None
+
+        null_count = int(row[0] or 0)
+        profile: dict[str, Any] = {
+            "column": col["name"],
+            "type": self._normalize_type(col["type"]),
+            "total_count": total_count,
+            "null_count": null_count,
+            "null_percentage": round(null_count / total_count * 100, 2) if total_count else None,
+            "distinct_count": None,
+        }
+
+        unnest_from = self._array_unnest_join(table_sql, col_sql, "val") if self._is_array_type(col_type) else None
+
+        if unnest_from:
+            base_conditions = [partition_filter] if partition_filter else []
+            base_where = f"WHERE {' AND '.join(base_conditions)}" if base_conditions else ""
+            val_where = "WHERE " + " AND ".join(base_conditions + ["val IS NOT NULL"])
+            try:
+                row = self._fetchone(
+                    self._conn.raw_sql(  # type: ignore[union-attr]
+                        f"SELECT COUNT(DISTINCT val) FROM {unnest_from} {base_where}".strip()
+                    )
+                )
+                if row and row[0] is not None:
+                    profile["distinct_count"] = int(row[0])
+            except Exception:
+                pass
+            if profile["distinct_count"] and profile["distinct_count"] <= 50:
+                try:
+                    rows = self._fetchall(
+                        self._conn.raw_sql(  # type: ignore[union-attr]
+                            f"SELECT val, COUNT(*) AS cnt FROM {unnest_from} {val_where} "
+                            f"GROUP BY val ORDER BY cnt DESC, val ASC LIMIT 10".strip()
+                        )
+                    )
+                    top_vals = [
+                        {"value": self._json_safe_value(r[0]), "count": int(r[1])} for r in rows if r[0] is not None
+                    ]
+                    if top_vals:
+                        profile["top_values"] = top_vals
+                except Exception:
+                    pass
+        else:
+            string_expr = self._cast_complex_to_string(col_sql)
+            if string_expr:
+                try:
+                    row = self._fetchone(
+                        self._conn.raw_sql(  # type: ignore[union-attr]
+                            f"SELECT COUNT(DISTINCT {string_expr}) FROM {table_sql} {where_clause}".strip()
+                        )
+                    )
+                    if row and row[0] is not None:
+                        profile["distinct_count"] = int(row[0])
+                except Exception:
+                    pass
+                if profile["distinct_count"] and profile["distinct_count"] <= 50:
+                    try:
+                        conditions = [partition_filter] if partition_filter else []
+                        conditions.append(f"{string_expr} IS NOT NULL")
+                        top_where = "WHERE " + " AND ".join(conditions)
+                        rows = self._fetchall(
+                            self._conn.raw_sql(  # type: ignore[union-attr]
+                                f"SELECT {string_expr} AS val, COUNT(*) AS cnt FROM {table_sql} {top_where} "
+                                f"GROUP BY {string_expr} ORDER BY COUNT(*) DESC, {string_expr} ASC LIMIT 10".strip()
+                            )
+                        )
+                        top_vals = [
+                            {"value": self._json_safe_value(r[0]), "count": int(r[1])} for r in rows if r[0] is not None
+                        ]
+                        if top_vals:
+                            profile["top_values"] = top_vals
+                    except Exception:
+                        pass
+
+        return profile
 
     # ─── SQL primitives ───────────────────────────────────────────────────────
 
@@ -148,6 +252,14 @@ class DatabaseContext:
     def _distinct_count_sql(self, col_sql: str) -> str:
         """How to express COUNT(DISTINCT col) — overridable for MSSQL."""
         return f"COUNT(DISTINCT {col_sql})"
+
+    def _array_unnest_join(self, table_sql: str, col_sql: str, alias: str) -> str | None:
+        """Return the FROM clause for unnesting an array column, or None if unsupported."""
+        return None
+
+    def _cast_complex_to_string(self, col_sql: str) -> str | None:
+        """Return an expression casting a complex type to string for distinct count, or None if unsupported."""
+        return None
 
     def _null_count_sql(self, col_sql: str) -> str:
         return f"COUNT(*) - COUNT({col_sql})"
@@ -292,6 +404,17 @@ class DatabaseContext:
         if normalized == "int64":
             return "int32"
         return normalized
+
+    @staticmethod
+    def _is_complex_type_column(col: dict) -> bool:
+        """Return True for column types that require specialised profiling."""
+        col_type = col["type"].lower()
+        return col_type.startswith(("array", "struct", "map", "json", "row", "tuple", "variant", "object", "super"))
+
+    @staticmethod
+    def _is_array_type(col_type: str) -> bool:
+        """Return True only for array types — the only ones where element-level unnesting applies."""
+        return col_type.startswith("array")
 
     @staticmethod
     def _is_numeric_stats_column(col: dict) -> bool:

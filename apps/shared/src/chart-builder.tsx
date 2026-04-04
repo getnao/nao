@@ -1,5 +1,23 @@
 import React from 'react';
-import { Area, AreaChart, Bar, BarChart, CartesianGrid, Customized, Pie, PieChart, XAxis, YAxis } from 'recharts';
+import {
+	Area,
+	AreaChart,
+	Bar,
+	BarChart,
+	CartesianGrid,
+	Customized,
+	Pie,
+	PieChart,
+	PolarAngleAxis,
+	PolarGrid,
+	PolarRadiusAxis,
+	Radar,
+	RadarChart,
+	Scatter,
+	ScatterChart,
+	XAxis,
+	YAxis,
+} from 'recharts';
 
 import * as displayChart from './tools/display-chart';
 
@@ -14,6 +32,20 @@ export function labelize(key: unknown): string {
 		}
 	}
 	return str.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+export function formatYAxisTick(value: number): string {
+	const abs = Math.abs(value);
+	if (abs >= 1_000_000_000) {
+		return `${(value / 1_000_000_000).toFixed(1).replace(/\.0$/, '')}B`;
+	}
+	if (abs >= 1_000_000) {
+		return `${(value / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
+	}
+	if (abs >= 10_000) {
+		return `${(value / 1_000).toFixed(1).replace(/\.0$/, '')}K`;
+	}
+	return String(value);
 }
 
 export function defaultColorFor(_key: string, index: number): string {
@@ -49,8 +81,14 @@ export function buildChart(props: BuildChartProps) {
 	if (resolved.chartType === 'pie') {
 		return buildPieChart(resolved);
 	}
-	if (resolved.chartType === 'line') {
+	if (resolved.chartType === 'line' || resolved.chartType === 'area' || resolved.chartType === 'stacked_area') {
 		return buildAreaChart(resolved);
+	}
+	if (resolved.chartType === 'scatter') {
+		return buildScatterChart(resolved);
+	}
+	if (resolved.chartType === 'radar') {
+		return buildRadarChart(resolved);
 	}
 	return buildBarChart(resolved);
 }
@@ -137,7 +175,7 @@ function buildBarChart(props: ResolvedProps) {
 	return (
 		<BarChart data={data} accessibilityLayer margin={margin}>
 			{showGrid && <CartesianGrid horizontal vertical={false} strokeDasharray='3 3' />}
-			<YAxis tickLine={false} axisLine={false} minTickGap={12} />
+			<YAxis tickLine={false} axisLine={false} minTickGap={12} tickFormatter={formatYAxisTick} />
 			<XAxis
 				dataKey={xAxisKey}
 				type={xAxisType}
@@ -164,7 +202,10 @@ function buildBarChart(props: ResolvedProps) {
 }
 
 function buildAreaChart(props: ResolvedProps) {
-	const { data, xAxisKey, xAxisType, series, colorFor, labelFormatter, showGrid, children, margin } = props;
+	const { data, chartType, xAxisKey, xAxisType, series, colorFor, labelFormatter, showGrid, children, margin } =
+		props;
+	const isStacked = chartType === 'stacked_area';
+
 	return (
 		<AreaChart data={data} accessibilityLayer margin={margin}>
 			<defs>
@@ -180,7 +221,7 @@ function buildAreaChart(props: ResolvedProps) {
 				})}
 			</defs>
 			{showGrid && <CartesianGrid horizontal vertical={false} strokeDasharray='3 3' />}
-			<YAxis tickLine={false} axisLine={false} minTickGap={12} />
+			<YAxis tickLine={false} axisLine={false} minTickGap={12} tickFormatter={formatYAxisTick} />
 			<XAxis
 				dataKey={xAxisKey}
 				type={xAxisType}
@@ -199,10 +240,55 @@ function buildAreaChart(props: ResolvedProps) {
 					type='monotone'
 					stroke={colorFor(s.data_key, i)}
 					fill={`url(#grad-${i})`}
+					stackId={isStacked ? 'stack' : undefined}
 					isAnimationActive={false}
 				/>
 			))}
 		</AreaChart>
+	);
+}
+
+function buildScatterChart(props: ResolvedProps) {
+	const { data, xAxisKey, xAxisType, series, colorFor, showGrid, children, margin } = props;
+
+	return (
+		<ScatterChart data={data} accessibilityLayer margin={margin}>
+			{showGrid && <CartesianGrid strokeDasharray='3 3' />}
+			<XAxis dataKey={xAxisKey} type={xAxisType ?? 'number'} tickLine={false} axisLine={false} minTickGap={12} />
+			<YAxis tickLine={false} axisLine={false} minTickGap={12} tickFormatter={formatYAxisTick} />
+			{children}
+			{series.map((s, i) => (
+				<Scatter
+					key={s.data_key}
+					dataKey={s.data_key}
+					fill={colorFor(s.data_key, i)}
+					isAnimationActive={false}
+				/>
+			))}
+		</ScatterChart>
+	);
+}
+
+function buildRadarChart(props: ResolvedProps) {
+	const { data, xAxisKey, series, colorFor, children, margin } = props;
+
+	return (
+		<RadarChart data={data} accessibilityLayer margin={margin}>
+			<PolarGrid />
+			<PolarAngleAxis dataKey={xAxisKey} />
+			<PolarRadiusAxis />
+			{children}
+			{series.map((s, i) => (
+				<Radar
+					key={s.data_key}
+					dataKey={s.data_key}
+					stroke={colorFor(s.data_key, i)}
+					fill={colorFor(s.data_key, i)}
+					fillOpacity={0.3}
+					isAnimationActive={false}
+				/>
+			))}
+		</RadarChart>
 	);
 }
 
