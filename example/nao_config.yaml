@@ -11,6 +11,23 @@ databases:
   exclude: []
   type: duckdb
   path: ./jaffle_shop.duckdb
+# Power BI Semantic Model via XMLA (requires nao-core[powerbi_xmla] + Power BI Premium/Fabric)
+# Uncomment and fill in to enable. Enable execute_dax tool in agent settings (powerbi.xmlaEnabled: true).
+#
+# - name: sales-model
+#   type: powerbi_xmla
+#   workspace: "My Analytics Workspace"      # exact name from Power BI Service
+#   dataset: "Sales Semantic Model"          # dataset / semantic model name
+#   tenant_id: ${AZURE_TENANT_ID}            # Azure AD tenant ID (env var reference)
+#   client_id: ${AZURE_CLIENT_ID}            # service principal client ID
+#   client_secret: ${AZURE_CLIENT_SECRET}    # service principal secret (never inline)
+#   row_limit: 5000                          # max rows per DAX query (default 5000)
+#   timeout_seconds: 30                      # query timeout (default 30)
+#   include_hidden: false                    # set true to include hidden tables/columns
+#   accessors:
+#     - columns                              # generates columns.md per table
+#   # Also generates measures.md and relations.md at dataset level
+
 repos:
 - name: dbt
   url: https://github.com/dbt-labs/jaffle_shop_duckdb.git

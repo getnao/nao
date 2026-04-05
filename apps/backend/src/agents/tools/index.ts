@@ -4,6 +4,7 @@ export { isSandboxAvailable } from './execute-sandboxed-code';
 import { mcpService } from '../../services/mcp';
 import { AgentSettings } from '../../types/agent-settings';
 import displayChart from './display-chart';
+import executeDax from './execute-dax';
 import executePython from './execute-python';
 import executeSandboxedCode from './execute-sandboxed-code';
 import executeSql from './execute-sql';
@@ -20,6 +21,7 @@ export const tools = {
 	...(executePython && { execute_python: executePython }),
 	...(executeSandboxedCode && { execute_sandboxed_code: executeSandboxedCode }),
 	execute_sql: executeSql,
+	execute_dax: executeDax,
 	grep,
 	list,
 	read,
@@ -30,13 +32,14 @@ export const tools = {
 export const getTools = (agentSettings: AgentSettings | null, extraTools?: Record<string, unknown>) => {
 	const mcpTools = mcpService.getMcpTools();
 
-	const { execute_python, execute_sandboxed_code, ...baseTools } = tools;
+	const { execute_python, execute_sandboxed_code, execute_dax, ...baseTools } = tools;
 
 	return {
 		...baseTools,
 		...mcpTools,
 		...(agentSettings?.experimental?.pythonSandboxing && execute_python && { execute_python }),
 		...(agentSettings?.experimental?.sandboxes && execute_sandboxed_code && { execute_sandboxed_code }),
+		...(agentSettings?.powerbi?.xmlaEnabled && { execute_dax }),
 		...extraTools,
 	};
 };

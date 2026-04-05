@@ -1,4 +1,5 @@
 export * as displayChart from './display-chart';
+export * as executeDax from './execute-dax';
 export * as executePython from './execute-python';
 export * as executeSandboxedCode from './execute-sandboxed-code';
 export * as executeSql from './execute-sql';

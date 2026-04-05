@@ -65,12 +65,15 @@ mistral = ["mistralai>=1.11.1,<2.0.0"]
 gemini = ["google-genai>=1.61.0"]
 ollama = ["ollama>=0.4.0"]
 
+# Power BI Semantic Models via XMLA
+powerbi_xmla = ["msal>=1.28.0,<2", "httpx>=0.27.0,<1"]
+
 # Integrations
 notion = ["notion-client>=2.7.0", "notion2md>=2.9.0"]
 
 # Convenience groups
 all-databases = [
-    "nao-core[postgres,bigquery,snowflake,duckdb,clickhouse,databricks,mysql,mssql,athena,trino,redshift,fabric]",
+    "nao-core[postgres,bigquery,snowflake,duckdb,clickhouse,databricks,mysql,mssql,athena,trino,redshift,fabric,powerbi_xmla]",
 ]
 all-llms = ["nao-core[openai,anthropic,mistral,gemini,ollama]"]
 all = ["nao-core[all-databases,all-llms,notion]"]

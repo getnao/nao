@@ -280,14 +280,21 @@ class DatabaseSyncProvider(SyncProvider):
             db_folders = get_database_folder_names(items)
             for db, db_folder in zip(items, db_folders, strict=False):
                 try:
-                    state = sync_database(
-                        db,
-                        output_path,
-                        progress,
-                        project_path,
-                        self._llm_config,
-                        db_folder=db_folder,
-                    )
+                    if db.type == "powerbi_xmla":
+                        from nao_core.commands.sync.providers.databases.powerbi_xmla import (
+                            sync_powerbi_xmla,
+                        )
+
+                        state = sync_powerbi_xmla(db, output_path, progress, db_folder=db_folder)
+                    else:
+                        state = sync_database(
+                            db,
+                            output_path,
+                            progress,
+                            project_path,
+                            self._llm_config,
+                            db_folder=db_folder,
+                        )
                     sync_states.append(state)
                     total_datasets += state.schemas_synced
                     total_tables += state.tables_synced

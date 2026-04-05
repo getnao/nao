@@ -642,6 +642,7 @@ export const projectRoutes = {
 						mode: z.enum(['provider']).optional(),
 					})
 					.optional(),
+				powerbi: z.object({ xmlaEnabled: z.boolean().optional() }).optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
@@ -652,6 +653,7 @@ export const projectRoutes = {
 				transcribe: { ...existing.transcribe, ...input.transcribe },
 				sql: { ...existing.sql, ...input.sql },
 				webSearch: { ...existing.webSearch, ...input.webSearch },
+				powerbi: { ...existing.powerbi, ...input.powerbi },
 			};
 			posthog.capture(ctx.user.id, PostHogEvent.ProjectAgentSettingsUpdated, {
 				project_id: ctx.project.id,

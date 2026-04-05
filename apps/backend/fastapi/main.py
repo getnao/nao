@@ -104,6 +104,12 @@ class ExecuteSQLResponse(BaseModel):
     dialect: str | None = None
 
 
+class ExecuteDAXRequest(BaseModel):
+    dax: str
+    nao_project_folder: str
+    database_id: str | None = None
+
+
 class RefreshResponse(BaseModel):
     status: str
     updated: bool
@@ -278,6 +284,101 @@ async def execute_sql(request: ExecuteSQLRequest):
         raise
     except NaoConfigError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/health/powerbi-xmla")
+async def health_powerbi_xmla():
+    """Validate that each configured powerbi_xmla database is reachable."""
+    nao_project_folder = os.getenv("NAO_DEFAULT_PROJECT_PATH")
+    if not nao_project_folder:
+        return {"status": "skipped", "reason": "NAO_DEFAULT_PROJECT_PATH not set"}
+
+    try:
+        config = NaoConfig.try_load(Path(nao_project_folder), raise_on_error=True)
+    except Exception as e:
+        return {"status": "error", "reason": str(e)}
+
+    from nao_core.config.databases.powerbi_xmla import PowerBIXmlaConfig
+
+    xmla_dbs = [db for db in (config.databases if config else []) if isinstance(db, PowerBIXmlaConfig)]
+    if not xmla_dbs:
+        return {"status": "skipped", "reason": "No powerbi_xmla databases configured"}
+
+    results = []
+    for db in xmla_dbs:
+        ok, msg = db.check_connection()
+        results.append({"name": db.name, "dataset": db.dataset, "ok": ok, "message": msg})
+
+    overall = "ok" if all(r["ok"] for r in results) else "degraded"
+    return {"status": overall, "databases": results}
+
+
+@app.post("/execute_dax", response_model=ExecuteSQLResponse)
+async def execute_dax(request: ExecuteDAXRequest):
+    try:
+        project_path = Path(request.nao_project_folder)
+        os.chdir(project_path)
+        config = NaoConfig.try_load(project_path, raise_on_error=True)
+        assert config is not None
+
+        from nao_core.config.databases.powerbi_xmla import PowerBIXmlaConfig
+
+        xmla_dbs = [db for db in config.databases if isinstance(db, PowerBIXmlaConfig)]
+
+        if not xmla_dbs:
+            raise HTTPException(
+                status_code=400,
+                detail="No powerbi_xmla database configured in nao_config.yaml",
+            )
+
+        if len(xmla_dbs) == 1:
+            db_config = xmla_dbs[0]
+        elif request.database_id:
+            db_config = next((db for db in xmla_dbs if db.name == request.database_id), None)
+            if db_config is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "message": f"Power BI dataset '{request.database_id}' not found",
+                        "available_databases": [db.name for db in xmla_dbs],
+                    },
+                )
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "message": "Multiple powerbi_xmla databases configured. Specify database_id.",
+                    "available_databases": [db.name for db in xmla_dbs],
+                },
+            )
+
+        if not request.dax.strip().upper().startswith("EVALUATE"):
+            raise HTTPException(
+                status_code=400,
+                detail="DAX queries must start with EVALUATE",
+            )
+
+        df = db_config.execute_dax(request.dax)
+
+        data = [
+            {k: _convert_value(v) for k, v in row.items()}
+            for row in df.to_dict(orient="records")
+        ]
+
+        return ExecuteSQLResponse(
+            data=data,
+            row_count=len(data),
+            columns=[str(c) for c in df.columns.tolist()],
+            dialect="powerbi_xmla",
+        )
+    except HTTPException:
+        raise
+    except NaoConfigError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except TimeoutError as e:
+        raise HTTPException(status_code=504, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

@@ -28,6 +28,7 @@ class DatabaseType(str, Enum):
     POSTGRES = "postgres"
     REDSHIFT = "redshift"
     TRINO = "trino"
+    POWERBI_XMLA = "powerbi_xmla"
 
     @classmethod
     def choices(cls) -> list[questionary.Choice]:

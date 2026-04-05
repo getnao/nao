@@ -12,6 +12,7 @@ from .fabric import FabricConfig
 from .mssql import MssqlConfig
 from .mysql import MysqlConfig
 from .postgres import PostgresConfig
+from .powerbi_xmla import PowerBIXmlaConfig
 from .redshift import RedshiftConfig
 from .snowflake import SnowflakeConfig
 from .trino import TrinoConfig
@@ -32,6 +33,7 @@ AnyDatabaseConfig = Annotated[
         Annotated[MysqlConfig, Tag("mysql")],
         Annotated[MssqlConfig, Tag("mssql")],
         Annotated[PostgresConfig, Tag("postgres")],
+        Annotated[PowerBIXmlaConfig, Tag("powerbi_xmla")],
         Annotated[RedshiftConfig, Tag("redshift")],
         Annotated[TrinoConfig, Tag("trino")],
     ],
@@ -49,6 +51,7 @@ DATABASE_CONFIG_CLASSES: Dict[DatabaseType, Type[object]] = {
     DatabaseType.FABRIC: FabricConfig,
     DatabaseType.MSSQL: MssqlConfig,
     DatabaseType.MYSQL: MysqlConfig,
+    DatabaseType.POWERBI_XMLA: PowerBIXmlaConfig,
     DatabaseType.SNOWFLAKE: SnowflakeConfig,
     DatabaseType.POSTGRES: PostgresConfig,
     DatabaseType.REDSHIFT: RedshiftConfig,
@@ -84,6 +87,7 @@ __all__ = [
     "FabricConfig",
     "MssqlConfig",
     "MysqlConfig",
+    "PowerBIXmlaConfig",
     "SnowflakeConfig",
     "PostgresConfig",
     "RedshiftConfig",

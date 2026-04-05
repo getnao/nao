@@ -40,6 +40,8 @@ _EXTRAS: dict[str, list[str]] = {
     "ollama": ["ollama"],
     # Integrations
     "notion": ["notion_client", "notion2md"],
+    # Power BI XMLA
+    "powerbi_xmla": ["msal", "httpx"],
 }
 
 # Providers whose extra name differs from their config value.

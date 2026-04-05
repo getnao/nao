@@ -27,6 +27,7 @@ export function SettingsExperimental({ isAdmin }: SettingsExperimentalProps) {
 	const sandboxAvailable = agentSettings.data?.capabilities?.sandbox ?? true;
 	const dangerouslyWritePermEnabled = agentSettings.data?.sql?.dangerouslyWritePermEnabled ?? false;
 	const sandboxesEnabled = agentSettings.data?.experimental?.sandboxes ?? false;
+	const xmlaEnabled = agentSettings.data?.powerbi?.xmlaEnabled ?? false;
 
 	const handlePythonSandboxingChange = (enabled: boolean) => {
 		updateAgentSettings.mutate({
@@ -46,6 +47,10 @@ export function SettingsExperimental({ isAdmin }: SettingsExperimentalProps) {
 				sandboxes: enabled,
 			},
 		});
+	};
+
+	const handleXmlaChange = (enabled: boolean) => {
+		updateAgentSettings.mutate({ powerbi: { xmlaEnabled: enabled } });
 	};
 
 	return (
@@ -104,6 +109,19 @@ export function SettingsExperimental({ isAdmin }: SettingsExperimentalProps) {
 						id='dangerously-write-perm'
 						checked={dangerouslyWritePermEnabled}
 						onCheckedChange={handleDangerouslyWritePermChange}
+						disabled={!isAdmin || updateAgentSettings.isPending}
+					/>
+				}
+			/>
+			<SettingsControlRow
+				id='powerbi-xmla'
+				label='Power BI Semantic Models (XMLA)'
+				description='Enable the execute_dax tool to query Power BI Semantic Models via XMLA. Requires a powerbi_xmla database in nao_config.yaml and Power BI Premium or Fabric capacity.'
+				control={
+					<Switch
+						id='powerbi-xmla'
+						checked={xmlaEnabled}
+						onCheckedChange={handleXmlaChange}
 						disabled={!isAdmin || updateAgentSettings.isPending}
 					/>
 				}
