@@ -319,7 +319,6 @@ async def health_powerbi_xmla():
 async def execute_dax(request: ExecuteDAXRequest):
     try:
         project_path = Path(request.nao_project_folder)
-        os.chdir(project_path)
         config = NaoConfig.try_load(project_path, raise_on_error=True)
         assert config is not None
 
@@ -333,9 +332,7 @@ async def execute_dax(request: ExecuteDAXRequest):
                 detail="No powerbi_xmla database configured in nao_config.yaml",
             )
 
-        if len(xmla_dbs) == 1:
-            db_config = xmla_dbs[0]
-        elif request.database_id:
+        if request.database_id:
             db_config = next((db for db in xmla_dbs if db.name == request.database_id), None)
             if db_config is None:
                 raise HTTPException(
@@ -345,6 +342,8 @@ async def execute_dax(request: ExecuteDAXRequest):
                         "available_databases": [db.name for db in xmla_dbs],
                     },
                 )
+        elif len(xmla_dbs) == 1:
+            db_config = xmla_dbs[0]
         else:
             raise HTTPException(
                 status_code=400,

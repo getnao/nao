@@ -15,6 +15,7 @@ Usage:
 
 from __future__ import annotations
 
+import html
 import os
 import sys
 from xml.etree import ElementTree as ET
@@ -80,7 +81,7 @@ def xmla_discover(token: str, workspace: str, dataset: str, request_type: str) -
     from urllib.parse import quote
 
     url = f"https://api.powerbi.com/v1.0/myorg/{quote(workspace, safe='')}"
-    soap = _DISCOVER_SOAP.format(request_type=request_type, dataset=dataset)
+    soap = _DISCOVER_SOAP.format(request_type=html.escape(request_type), dataset=html.escape(dataset))
 
     response = httpx.post(
         url,

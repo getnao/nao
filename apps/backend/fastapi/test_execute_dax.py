@@ -147,11 +147,46 @@ def test_execute_dax_database_id_not_found(powerbi_project_folder, mock_execute_
     assert "not found" in response.json()["detail"]["message"]
 
 
-def test_health_powerbi_xmla_no_env():
+def test_health_powerbi_xmla_no_env(monkeypatch):
     """Returns 'skipped' when NAO_DEFAULT_PROJECT_PATH is not set."""
-    import os
-
-    os.environ.pop("NAO_DEFAULT_PROJECT_PATH", None)
+    monkeypatch.delenv("NAO_DEFAULT_PROJECT_PATH", raising=False)
     response = client.get("/health/powerbi-xmla")
     assert response.status_code == 200
     assert response.json()["status"] == "skipped"
+
+
+# ---------------------------------------------------------------------------
+# env-var resolution (finding 3: fail-fast on missing ${VAR})
+# ---------------------------------------------------------------------------
+
+
+def test_execute_dax_missing_env_var_fails_fast(monkeypatch):
+    """Config validation raises immediately when a ${VAR} placeholder is unset."""
+    from nao_core.config.databases.powerbi_xmla import PowerBIXmlaConfig
+
+    monkeypatch.delenv("MISSING_SECRET", raising=False)
+    with pytest.raises(Exception, match="MISSING_SECRET"):
+        PowerBIXmlaConfig(
+            name="test",
+            workspace="ws",
+            dataset="ds",
+            tenant_id="tid",
+            client_id="cid",
+            client_secret="${MISSING_SECRET}",
+        )
+
+
+def test_execute_dax_env_var_resolved(monkeypatch):
+    """${VAR} placeholders resolve correctly when the env var is set."""
+    from nao_core.config.databases.powerbi_xmla import PowerBIXmlaConfig
+
+    monkeypatch.setenv("MY_SECRET", "actual-secret-value")
+    cfg = PowerBIXmlaConfig(
+        name="test",
+        workspace="ws",
+        dataset="ds",
+        tenant_id="tid",
+        client_id="cid",
+        client_secret="${MY_SECRET}",
+    )
+    assert cfg.client_secret == "actual-secret-value"

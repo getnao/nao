@@ -16,10 +16,11 @@ if TYPE_CHECKING:
 
 from .base import DatabaseConfig
 
-# Module-level MSAL app cache keyed by (tenant_id, client_id).
-# Allows token reuse across requests without rebuilding ConfidentialClientApplication each time.
-# Secrets are never stored as part of the key.
-_MSAL_APP_CACHE: dict[tuple[str, str], object] = {}
+# Module-level MSAL app cache keyed by (tenant_id, client_id, secret_hash).
+# Including a hash of the secret ensures a rotated credential gets a fresh MSAL instance
+# rather than reusing cached tokens issued for the old secret.
+# Secrets are never stored directly; only a one-way hash is kept in memory.
+_MSAL_APP_CACHE: dict[tuple[str, str, str], object] = {}
 _MSAL_APP_LOCK = threading.Lock()
 
 
@@ -50,7 +51,11 @@ class PowerBIXmlaConfig(DatabaseConfig):
 
     @model_validator(mode="after")
     def resolve_env_vars(self) -> "PowerBIXmlaConfig":
-        """Expand ${VAR} references in credential fields."""
+        """Expand ${VAR} references in credential fields.
+
+        Raises ValueError immediately if a referenced env var is not set,
+        preventing silent empty-string credentials reaching MSAL.
+        """
         import os
         import re
 
@@ -59,7 +64,12 @@ class PowerBIXmlaConfig(DatabaseConfig):
             value = getattr(self, field)
             m = pattern.match(value)
             if m:
-                resolved = os.environ.get(m.group(1), "")
+                var_name = m.group(1)
+                resolved = os.environ.get(var_name)
+                if resolved is None:
+                    raise ValueError(
+                        f"Environment variable '{var_name}' referenced in '{field}' is not set"
+                    )
                 object.__setattr__(self, field, resolved)
         return self
 
@@ -112,12 +122,15 @@ class PowerBIXmlaConfig(DatabaseConfig):
         MSAL's internal token cache is reused across requests, avoiding a round-trip to
         Azure AD on every query.
         """
+        import hashlib
+
         from nao_core.deps import require_dependency
 
         require_dependency("msal", "powerbi_xmla", "for Power BI authentication")
         import msal  # type: ignore[import-untyped]
 
-        cache_key = (self.tenant_id, self.client_id)
+        secret_hash = hashlib.sha256(self.client_secret.encode()).hexdigest()[:16]
+        cache_key = (self.tenant_id, self.client_id, secret_hash)
         with _MSAL_APP_LOCK:
             if cache_key not in _MSAL_APP_CACHE:
                 _MSAL_APP_CACHE[cache_key] = msal.ConfidentialClientApplication(

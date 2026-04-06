@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.10"
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
@@ -2293,8 +2293,10 @@ all = [
     { name = "certifi" },
     { name = "google-cloud" },
     { name = "google-genai" },
+    { name = "httpx" },
     { name = "ibis-framework", extra = ["athena", "bigquery", "clickhouse", "databricks", "duckdb", "mssql", "mysql", "postgres", "snowflake", "trino"] },
     { name = "mistralai" },
+    { name = "msal" },
     { name = "notion-client" },
     { name = "notion2md" },
     { name = "ollama" },
@@ -2306,7 +2308,9 @@ all-databases = [
     { name = "azure-identity" },
     { name = "certifi" },
     { name = "google-cloud" },
+    { name = "httpx" },
     { name = "ibis-framework", extra = ["athena", "bigquery", "clickhouse", "databricks", "duckdb", "mssql", "mysql", "postgres", "snowflake", "trino"] },
+    { name = "msal" },
     { name = "snowflake-connector-python", extra = ["secure-local-storage"] },
     { name = "sshtunnel" },
 ]
@@ -2370,6 +2374,10 @@ openai = [
 postgres = [
     { name = "ibis-framework", extra = ["postgres"] },
 ]
+powerbi-xmla = [
+    { name = "httpx" },
+    { name = "msal" },
+]
 redshift = [
     { name = "ibis-framework", extra = ["postgres"] },
     { name = "sshtunnel" },
@@ -2401,6 +2409,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.128.0" },
     { name = "google-cloud", marker = "extra == 'bigquery'", specifier = ">=0.34.0" },
     { name = "google-genai", marker = "extra == 'gemini'", specifier = ">=1.61.0" },
+    { name = "httpx", marker = "extra == 'powerbi-xmla'", specifier = ">=0.27.0,<1" },
     { name = "ibis-framework", specifier = ">=9.0.0" },
     { name = "ibis-framework", extras = ["athena"], marker = "extra == 'athena'", specifier = ">=9.0.0" },
     { name = "ibis-framework", extras = ["bigquery"], marker = "extra == 'bigquery'", specifier = ">=9.0.0" },
@@ -2416,9 +2425,10 @@ requires-dist = [
     { name = "ibis-framework", extras = ["trino"], marker = "extra == 'trino'", specifier = ">=9.0.0" },
     { name = "jinja2", specifier = ">=3.1.0" },
     { name = "mistralai", marker = "extra == 'mistral'", specifier = ">=1.11.1,<2.0.0" },
+    { name = "msal", marker = "extra == 'powerbi-xmla'", specifier = ">=1.28.0,<2" },
     { name = "nao-core", extras = ["all-databases", "all-llms", "notion"], marker = "extra == 'all'" },
     { name = "nao-core", extras = ["openai", "anthropic", "mistral", "gemini", "ollama"], marker = "extra == 'all-llms'" },
-    { name = "nao-core", extras = ["postgres", "bigquery", "snowflake", "duckdb", "clickhouse", "databricks", "mysql", "mssql", "athena", "trino", "redshift", "fabric"], marker = "extra == 'all-databases'" },
+    { name = "nao-core", extras = ["postgres", "bigquery", "snowflake", "duckdb", "clickhouse", "databricks", "mysql", "mssql", "athena", "trino", "redshift", "fabric", "powerbi-xmla"], marker = "extra == 'all-databases'" },
     { name = "notion-client", marker = "extra == 'notion'", specifier = ">=2.7.0" },
     { name = "notion2md", marker = "extra == 'notion'", specifier = ">=2.9.0" },
     { name = "numpy", specifier = ">=1.26.0" },
@@ -2440,7 +2450,7 @@ requires-dist = [
     { name = "sshtunnel", marker = "extra == 'redshift'", specifier = ">=0.4.0" },
     { name = "uvicorn", specifier = ">=0.40.0" },
 ]
-provides-extras = ["postgres", "bigquery", "snowflake", "duckdb", "clickhouse", "databricks", "mysql", "mssql", "athena", "trino", "redshift", "fabric", "openai", "anthropic", "mistral", "gemini", "ollama", "notion", "all-databases", "all-llms", "all", "dev"]
+provides-extras = ["postgres", "bigquery", "snowflake", "duckdb", "clickhouse", "databricks", "mysql", "mssql", "athena", "trino", "redshift", "fabric", "openai", "anthropic", "mistral", "gemini", "ollama", "powerbi-xmla", "notion", "all-databases", "all-llms", "all", "dev"]
 
 [package.metadata.requires-dev]
 dev = [

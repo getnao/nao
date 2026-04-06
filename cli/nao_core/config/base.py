@@ -319,7 +319,6 @@ class NaoConfig(BaseModel):
             return None
 
         try:
-            os.chdir(path)
             return cls.load(path)
         except yaml.YAMLError as e:
             handle_error(f"Failed to load nao_config.yaml: Invalid YAML syntax: {e}")

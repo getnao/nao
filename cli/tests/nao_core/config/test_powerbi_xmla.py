@@ -37,21 +37,24 @@ def test_resolve_env_vars_expands_credentials():
     assert config.client_secret == "s3cr3t"
 
 
-def test_resolve_env_vars_missing_env_becomes_empty():
+def test_resolve_env_vars_missing_env_raises():
+    """A ${VAR} placeholder whose env var is unset must raise immediately (fail-fast)."""
+    import pytest
+    from pydantic import ValidationError
+
     from nao_core.config.databases.powerbi_xmla import PowerBIXmlaConfig
 
     with patch.dict(os.environ, {}, clear=False):
         os.environ.pop("MISSING_VAR", None)
-        config = PowerBIXmlaConfig(
-            name="test",
-            workspace="W",
-            dataset="D",
-            tenant_id="${MISSING_VAR}",
-            client_id="cid",
-            client_secret="sec",
-        )
-
-    assert config.tenant_id == ""
+        with pytest.raises(ValidationError, match="MISSING_VAR"):
+            PowerBIXmlaConfig(
+                name="test",
+                workspace="W",
+                dataset="D",
+                tenant_id="${MISSING_VAR}",
+                client_id="cid",
+                client_secret="sec",
+            )
 
 
 def test_resolve_env_vars_literal_value_unchanged():

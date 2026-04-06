@@ -114,8 +114,10 @@ class XmlaClient:
         """Execute a DAX EVALUATE query and return results as a DataFrame."""
         import html
 
-        escaped = html.escape(dax_query)
-        soap = _EXECUTE_SOAP.format(statement=escaped, dataset=self._config.dataset)
+        soap = _EXECUTE_SOAP.format(
+            statement=html.escape(dax_query),
+            dataset=html.escape(self._config.dataset),
+        )
         xml_text = self._post_soap(soap, action="Execute")
         df = self._parse_execute_response(xml_text)
 
@@ -211,8 +213,11 @@ class XmlaClient:
             raise RuntimeError(f"XMLA SOAP fault: {fstring}. {detail}".strip())
 
     def _discover(self, request_type: str) -> list[dict]:
+        import html
+
         soap = _DISCOVER_SOAP.format(
-            request_type=request_type, dataset=self._config.dataset
+            request_type=html.escape(request_type),
+            dataset=html.escape(self._config.dataset),
         )
         xml_text = self._post_soap(soap, action="Discover")
         return self._parse_discover_response(xml_text)
