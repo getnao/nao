@@ -1,4 +1,5 @@
 import os
+import warnings
 from unittest.mock import patch
 
 from nao_core.config.base import NaoConfig
@@ -116,14 +117,36 @@ def test_configure_ai_summary_templates_does_not_duplicate_existing_template():
     assert result[0].templates.count(DatabaseTemplate.AI_SUMMARY) == 1
 
 
-def test_legacy_accessors_key_migrated_to_templates():
-    """The legacy 'accessors' YAML key should be accepted as 'templates'."""
+def test_legacy_accessors_key_migrated_to_templates_with_warning():
+    """The legacy 'accessors' YAML key should be accepted as 'templates' and emit a FutureWarning."""
     from nao_core.config.databases.base import DatabaseTemplate
 
-    db = DuckDBConfig.model_validate(
-        {"type": "duckdb", "name": "test-db", "path": ":memory:", "accessors": ["columns", "preview"]}
-    )
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        db = DuckDBConfig.model_validate(
+            {"type": "duckdb", "name": "test-db", "path": ":memory:", "accessors": ["columns", "preview"]}
+        )
+
     assert db.templates == [DatabaseTemplate.COLUMNS, DatabaseTemplate.PREVIEW]
+    deprecation_warnings = [w for w in caught if issubclass(w.category, FutureWarning)]
+    assert len(deprecation_warnings) == 1
+    assert "accessors" in str(deprecation_warnings[0].message)
+    assert "templates" in str(deprecation_warnings[0].message)
+
+
+def test_templates_key_works_without_deprecation_warning():
+    """The 'templates' key should work without emitting any deprecation warning."""
+    from nao_core.config.databases.base import DatabaseTemplate
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        db = DuckDBConfig.model_validate(
+            {"type": "duckdb", "name": "test-db", "path": ":memory:", "templates": ["columns", "preview"]}
+        )
+
+    assert db.templates == [DatabaseTemplate.COLUMNS, DatabaseTemplate.PREVIEW]
+    deprecation_warnings = [w for w in caught if issubclass(w.category, FutureWarning)]
+    assert len(deprecation_warnings) == 0
 
 
 def test_how_to_use_template_variant():

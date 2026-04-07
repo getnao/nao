@@ -53,6 +53,7 @@ class TestTemplateEngine:
             "databases/columns.md.j2",
             "databases/preview.md.j2",
             "databases/description.md.j2",
+            "databases/how_to_use.md.j2",
             "databases/ai_summary.md.j2",
         ]
 

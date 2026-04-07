@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import fnmatch
+import warnings
 from abc import ABC, abstractmethod
 from enum import Enum
 from typing import TYPE_CHECKING, cast
@@ -108,6 +109,12 @@ class DatabaseConfig(BaseModel, ABC):
     def _migrate_accessors_to_templates(cls, data: dict) -> dict:
         """Accept legacy 'accessors' key as an alias for 'templates', and strip removed values."""
         if isinstance(data, dict) and "accessors" in data and "templates" not in data:
+            warnings.warn(
+                "The 'accessors' config key is deprecated and will be removed in a future version. "
+                "Please rename it to 'templates' in your nao.yaml.",
+                FutureWarning,
+                stacklevel=2,
+            )
             data["templates"] = data.pop("accessors")
         if isinstance(data, dict) and "templates" in data:
             data["templates"] = [t for t in data["templates"] if t != "description"]
