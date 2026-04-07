@@ -1,4 +1,5 @@
 import json
+import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
 from datetime import datetime
@@ -170,12 +171,17 @@ def check_dataframe(
     return False, "values differ", comparison
 
 
-def run_test(test_case: TestCase, model: ModelConfig) -> TestRunResult:
+def run_test(
+    test_case: TestCase,
+    model: ModelConfig,
+    email: str | None = None,
+    password: str | None = None,
+) -> TestRunResult:
     """Run a single test case with a specific model. Returns TestRunResult."""
     UI.print(f"[bold]Running:[/bold] {test_case.name} [dim]({model})[/dim]")
     UI.print(f"[dim]  Prompt: {test_case.prompt}[/dim]")
 
-    client = get_client()
+    client = get_client(email=email, password=password)
 
     try:
         result = client.run_test(test_case, provider=model.provider, model_id=model.model_id)
@@ -310,6 +316,20 @@ def test(
             help="Run only one test by name or yaml filename stem.",
         ),
     ] = None,
+    username: Annotated[
+        str | None,
+        Parameter(
+            name=["-u", "--username"],
+            help="Email for authentication. Falls back to NAO_USERNAME env var.",
+        ),
+    ] = None,
+    password: Annotated[
+        str | None,
+        Parameter(
+            name=["--password"],
+            help="Password for authentication. Falls back to NAO_PASSWORD env var.",
+        ),
+    ] = None,
 ):
     """Run tests from the tests/ folder.
 
@@ -319,7 +339,11 @@ def test(
         nao test -m openai:gpt-4.1 -m anthropic:claude-sonnet-4-20250514
         nao test --threads 4
         nao test -s test_name
+        nao test -u user@example.com --password secret
     """
+    email = username or os.environ.get("NAO_USERNAME")
+    pwd = password or os.environ.get("NAO_PASSWORD")
+
     UI.info("\n🧪 Running nao tests...\n")
 
     config = NaoConfig.try_load(exit_on_error=True)
@@ -361,15 +385,13 @@ def test(
 
     results: list[TestRunResult] = []
     if threads == 1:
-        # Sequential execution
         for test_case, model in test_runs:
-            result = run_test(test_case, model)
+            result = run_test(test_case, model, email=email, password=pwd)
             results.append(result)
             UI.print("")
     else:
-        # Parallel execution
         with ThreadPoolExecutor(max_workers=threads) as executor:
-            futures = {executor.submit(run_test, tc, m): (tc, m) for tc, m in test_runs}
+            futures = {executor.submit(run_test, tc, m, email=email, password=pwd): (tc, m) for tc, m in test_runs}
             for future in as_completed(futures):
                 result = future.result()
                 results.append(result)

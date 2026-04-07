@@ -4,7 +4,7 @@ from typing import Any
 
 import requests
 
-from nao_core.auth import clear_stored_cookies, get_auth_session, prompt_login
+from nao_core.auth import clear_stored_cookies, get_auth_session, login, prompt_login
 from nao_core.ui import UI
 
 from .case import TestCase
@@ -68,14 +68,25 @@ class AgentClientError(Exception):
 class AgentClient:
     """Client for interacting with the nao agent API."""
 
-    def __init__(self, backend_url: str = BACKEND_URL):
+    def __init__(
+        self,
+        backend_url: str = BACKEND_URL,
+        email: str | None = None,
+        password: str | None = None,
+    ):
         self.backend_url = backend_url
+        self._email = email
+        self._password = password
         self._session: requests.Session | None = None
 
     def _get_session(self) -> requests.Session:
         """Get or create an authenticated session."""
         if self._session is None:
-            self._session = get_auth_session(self.backend_url)
+            self._session = get_auth_session(
+                self.backend_url,
+                email=self._email,
+                password=self._password,
+            )
         return self._session
 
     def _reset_session(self) -> None:
@@ -83,12 +94,16 @@ class AgentClient:
         self._session = None
 
     def _handle_auth_retry(self) -> bool:
-        """Handle 401 by prompting for login. Returns True if re-auth succeeded."""
+        """Handle 401 by re-authenticating. Uses stored credentials when available."""
         UI.warn("Session expired or unauthorized.")
         clear_stored_cookies()
         self._reset_session()
 
-        cookies = prompt_login(self.backend_url)
+        if self._email and self._password:
+            cookies = login(self.backend_url, self._email, self._password)
+        else:
+            cookies = prompt_login(self.backend_url)
+
         if cookies:
             self._reset_session()
             return True
@@ -139,9 +154,9 @@ class AgentClient:
 _client: AgentClient | None = None
 
 
-def get_client() -> AgentClient:
+def get_client(email: str | None = None, password: str | None = None) -> AgentClient:
     """Get or create the module-level agent client."""
     global _client
     if _client is None:
-        _client = AgentClient(BACKEND_URL)
+        _client = AgentClient(BACKEND_URL, email=email, password=password)
     return _client
