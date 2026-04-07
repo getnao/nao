@@ -63,6 +63,7 @@ function SharedChatPage() {
 				isVisible={sidePanel.isVisible}
 				currentStorySlug={sidePanel.currentStorySlug}
 				chatId={share.chatId}
+				shareId={shareId}
 				isReadonlyMode={!isOwner}
 				open={sidePanel.open}
 				close={sidePanel.close}

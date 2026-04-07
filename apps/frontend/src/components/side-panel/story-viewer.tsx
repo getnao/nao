@@ -33,7 +33,7 @@ interface StoryViewerProps {
 export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp }: StoryViewerProps) {
 	const tiptapEditorRef = useRef<TiptapEditor | null>(null);
 	const scrollContainerRef = useRef<HTMLDivElement | null>(null);
-	const { close: closeSidePanel, isReadonlyMode: contextReadonlyMode } = useSidePanel();
+	const { close: closeSidePanel, isReadonlyMode: contextReadonlyMode, shareId } = useSidePanel();
 	const isReadonlyMode = readonlyProp ?? contextReadonlyMode;
 	const { viewMode, setViewMode } = useStoryViewerViewMode();
 
@@ -141,6 +141,7 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp }:
 				title={storyTitle}
 				chatId={chatId}
 				storySlug={resolvedStorySlug}
+				shareId={shareId}
 				allStories={allStories}
 				onSwitchStory={switchStory}
 				viewMode={viewMode}

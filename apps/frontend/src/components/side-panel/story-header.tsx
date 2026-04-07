@@ -33,6 +33,7 @@ export interface StoryHeaderProps {
 	title: string;
 	chatId: string;
 	storySlug: string;
+	shareId?: string | null;
 	allStories: StorySummary[];
 	onSwitchStory: (id: string) => void;
 	viewMode: StoryViewMode;
@@ -61,6 +62,7 @@ export const StoryHeader = memo(function StoryHeader({
 	title,
 	chatId,
 	storySlug,
+	shareId,
 	allStories,
 	onSwitchStory,
 	viewMode,
@@ -211,6 +213,7 @@ export const StoryHeader = memo(function StoryHeader({
 			<StoryDownload
 				chatId={chatId}
 				storySlug={storySlug}
+				shareId={shareId ?? undefined}
 				isOwner={!isReadonlyMode}
 				isIconMode={true}
 				isAgentRunning={isAgentRunning}
