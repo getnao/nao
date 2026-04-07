@@ -38,7 +38,7 @@ export function Sidebar() {
 
 	const locationPath = useRouterState({ select: (s) => s.location.pathname });
 	const isInSettings = matchRoute({ to: '/settings', fuzzy: true });
-	const effectiveIsCollapsed = isInSettings ? false : isMobile ? false : isCollapsed;
+	const effectiveIsCollapsed = isMobile ? false : isCollapsed;
 
 	useEffect(() => {
 		if (isMobile && isMobileOpen) {
@@ -93,22 +93,36 @@ export function Sidebar() {
 		>
 			<div className='p-2 flex flex-col gap-1'>
 				{isInSettings ? (
-					<Link
-						to='/'
-						onClick={() => isMobile && closeMobile()}
-						className={cn(
-							'flex items-center gap-2 px-3 py-2 text-sm rounded-md transition-colors',
-							'text-muted-foreground hover:bg-sidebar-accent hover:text-foreground whitespace-nowrap',
-							effectiveIsCollapsed ? 'px-2.5' : '',
-						)}
-					>
-						<ArrowLeft className='size-4 shrink-0' />
-						<span
-							className={cn('transition-[opacity,visibility] duration-300', hideIf(effectiveIsCollapsed))}
+					<div className='flex items-center relative'>
+						<Link
+							to='/'
+							onClick={() => isMobile && closeMobile()}
+							className={cn(
+								'flex items-center gap-2 text-sm rounded-md transition-all duration-300',
+								'text-muted-foreground hover:bg-sidebar-accent hover:text-foreground whitespace-nowrap',
+								effectiveIsCollapsed
+									? 'w-0 opacity-0 overflow-hidden p-0'
+									: 'flex-1 min-w-0 opacity-100 px-3 py-2',
+							)}
 						>
-							Back to app
-						</span>
-					</Link>
+							<ArrowLeft className='size-4 shrink-0' />
+							<span className='truncate'>Back to app</span>
+						</Link>
+						{!isMobile && (
+							<Button
+								variant='ghost'
+								size='icon-md'
+								onClick={() => toggleSidebar()}
+								className='text-muted-foreground shrink-0'
+							>
+								{effectiveIsCollapsed ? (
+									<ArrowRightToLine className='size-4' />
+								) : (
+									<ArrowLeftFromLine className='size-4' />
+								)}
+							</Button>
+						)}
+					</div>
 				) : (
 					<>
 						<div className='flex items-center relative'>
