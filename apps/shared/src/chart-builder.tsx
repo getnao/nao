@@ -21,7 +21,7 @@ import {
 
 import * as displayChart from './tools/display-chart';
 
-export const DEFAULT_COLORS = ['#2563eb', '#dc2626', '#16a34a', '#ca8a04', '#9333ea'];
+export const DEFAULT_COLORS = ['#104e64', '#f54900', '#009689', '#ffb900', '#fe9a00'];
 
 export function labelize(key: unknown): string {
 	const str = String(key);

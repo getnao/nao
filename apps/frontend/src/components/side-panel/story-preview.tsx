@@ -1,12 +1,13 @@
 import { NO_CACHE_SCHEDULE } from '@nao/shared';
+import { splitCodeIntoSegments } from '@nao/shared/story-segments';
 import { memo, useCallback, useMemo } from 'react';
-import { StoryChartEmbed as StaticChartEmbed } from './story-chart-embed';
-import { StoryTableEmbed as StaticTableEmbed } from './story-table-embed';
-import type { ParsedChartBlock, ParsedTableBlock } from '@/lib/story-segments';
+import type { ParsedChartBlock, ParsedTableBlock } from '@nao/shared/story-segments';
+
 import type { QueryDataMap } from '@/components/story-embeds';
 import { StoryChartEmbed as LiveChartEmbed, StoryTableEmbed as LiveTableEmbed } from '@/components/story-embeds';
 import { SegmentList } from '@/components/story-rendering';
-import { splitCodeIntoSegments } from '@/lib/story-segments';
+import { StoryChartEmbed as StaticChartEmbed } from '@/components/side-panel/story-chart-embed';
+import { StoryTableEmbed as StaticTableEmbed } from '@/components/side-panel/story-table-embed';
 import { trpc } from '@/main';
 
 interface StoryPreviewProps {

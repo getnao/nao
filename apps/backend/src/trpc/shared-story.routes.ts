@@ -1,3 +1,4 @@
+import { DOWNLOAD_FORMATS } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
@@ -7,6 +8,7 @@ import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
 import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../services/live-story';
 import { notifySharedItemRecipients } from '../utils/email';
+import { buildDownloadResponse } from '../utils/story-download';
 import { extractStorySummary } from '../utils/story-summary';
 import { projectProtectedProcedure, protectedProcedure } from './trpc';
 
@@ -15,7 +17,7 @@ export const sharedStoryRoutes = {
 		const stories = await sharedStoryQueries.listProjectSharedStories(ctx.project.id, ctx.user.id);
 		return stories.map((story) => ({
 			...story,
-			storyId: story.slug,
+			storySlug: story.slug,
 			summary: extractStorySummary(story.code),
 		}));
 	}),
@@ -24,13 +26,13 @@ export const sharedStoryRoutes = {
 		.input(
 			z.object({
 				chatId: z.string(),
-				storyId: z.string(),
+				storySlug: z.string(),
 				visibility: z.enum(['project', 'specific']).default('project'),
 				allowedUserIds: z.array(z.string()).optional(),
 			}),
 		)
 		.mutation(async ({ input, ctx }) => {
-			const story = await storyQueries.getStoryByChatAndSlug(input.chatId, input.storyId);
+			const story = await storyQueries.getStoryByChatAndSlug(input.chatId, input.storySlug);
 			if (!story) {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
 			}
@@ -93,7 +95,7 @@ export const sharedStoryRoutes = {
 
 		return {
 			...shared,
-			storyId: shared.slug,
+			storyId: shared.storyId,
 			queryData,
 			isLive,
 			isLiveTextDynamic,
@@ -142,9 +144,9 @@ export const sharedStoryRoutes = {
 	}),
 
 	findByStory: protectedProcedure
-		.input(z.object({ chatId: z.string(), storyId: z.string() }))
+		.input(z.object({ chatId: z.string(), storySlug: z.string() }))
 		.query(async ({ input, ctx }) => {
-			const story = await storyQueries.getStoryByChatAndSlug(input.chatId, input.storyId);
+			const story = await storyQueries.getStoryByChatAndSlug(input.chatId, input.storySlug);
 			if (!story) {
 				return { shareId: null, visibility: null, allowedUserIds: [] };
 			}
@@ -206,4 +208,48 @@ export const sharedStoryRoutes = {
 
 		await sharedStoryQueries.deleteSharedStory(input.id);
 	}),
+
+	download: protectedProcedure
+		.input(
+			z.object({
+				shareId: z.string(),
+				format: z.enum(DOWNLOAD_FORMATS),
+				versionNumber: z.number().int().positive().optional(),
+			}),
+		)
+		.query(async ({ input, ctx }) => {
+			const shared = await sharedStoryQueries.getSharedStory(input.shareId);
+			if (!shared) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: 'Shared story not found.' });
+			}
+
+			const member = await projectQueries.getProjectMember(shared.projectId, ctx.user.id);
+			if (!member) {
+				throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this story.' });
+			}
+
+			if (shared.visibility === 'specific' && shared.userId !== ctx.user.id) {
+				const hasAccess = await sharedStoryQueries.canUserAccessSharedStory(shared.id, ctx.user.id);
+				if (!hasAccess) {
+					throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this story.' });
+				}
+			}
+
+			const version = input.versionNumber
+				? await storyQueries.getVersionByNumber(shared.chatId, shared.slug, input.versionNumber)
+				: await storyQueries.getLatestVersion(shared.chatId, shared.slug);
+			if (!version) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story version not found.' });
+			}
+
+			const { queryData } = await getStoryQueryData(
+				shared.chatId,
+				shared.slug,
+				version.code,
+				version.isLive,
+				version.cacheSchedule,
+			);
+
+			return buildDownloadResponse(input.format, version.title, version.code, queryData);
+		}),
 };

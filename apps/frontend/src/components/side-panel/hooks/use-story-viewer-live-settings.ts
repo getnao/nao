@@ -4,12 +4,12 @@ import { trpc } from '@/main';
 
 interface UseStoryViewerLiveSettingsParams {
 	chatId: string;
-	storyId: string;
+	storySlug: string;
 }
 
-export const useStoryViewerLiveSettings = ({ chatId, storyId }: UseStoryViewerLiveSettingsParams) => {
+export const useStoryViewerLiveSettings = ({ chatId, storySlug }: UseStoryViewerLiveSettingsParams) => {
 	const queryClient = useQueryClient();
-	const { data } = useQuery(trpc.story.listVersions.queryOptions({ chatId, storyId }));
+	const { data } = useQuery(trpc.story.listVersions.queryOptions({ chatId, storySlug }));
 
 	const isLive = data?.isLive ?? false;
 	const isLiveTextDynamic = data?.isLiveTextDynamic ?? true;
@@ -20,10 +20,10 @@ export const useStoryViewerLiveSettings = ({ chatId, storyId }: UseStoryViewerLi
 		trpc.story.updateLiveSettings.mutationOptions({
 			onSuccess: () => {
 				void queryClient.invalidateQueries({
-					queryKey: trpc.story.listVersions.queryKey({ chatId, storyId }),
+					queryKey: trpc.story.listVersions.queryKey({ chatId, storySlug }),
 				});
 				void queryClient.invalidateQueries({
-					queryKey: trpc.story.getLatest.queryKey({ chatId, storyId }),
+					queryKey: trpc.story.getLatest.queryKey({ chatId, storySlug }),
 				});
 			},
 		}),
@@ -33,10 +33,10 @@ export const useStoryViewerLiveSettings = ({ chatId, storyId }: UseStoryViewerLi
 		trpc.story.refreshData.mutationOptions({
 			onSuccess: () => {
 				void queryClient.invalidateQueries({
-					queryKey: trpc.story.listVersions.queryKey({ chatId, storyId }),
+					queryKey: trpc.story.listVersions.queryKey({ chatId, storySlug }),
 				});
 				void queryClient.invalidateQueries({
-					queryKey: trpc.story.getLatest.queryKey({ chatId, storyId }),
+					queryKey: trpc.story.getLatest.queryKey({ chatId, storySlug }),
 				});
 			},
 		}),
@@ -49,14 +49,14 @@ export const useStoryViewerLiveSettings = ({ chatId, storyId }: UseStoryViewerLi
 			cacheSchedule: string | null;
 			cacheScheduleDescription: string | null;
 		}) => {
-			updateLiveSettingsMutation.mutate({ chatId, storyId, ...settings });
+			updateLiveSettingsMutation.mutate({ chatId, storySlug, ...settings });
 		},
-		[chatId, storyId, updateLiveSettingsMutation],
+		[chatId, storySlug, updateLiveSettingsMutation],
 	);
 
 	const handleRefreshData = useCallback(() => {
-		refreshDataMutation.mutate({ chatId, storyId });
-	}, [chatId, storyId, refreshDataMutation]);
+		refreshDataMutation.mutate({ chatId, storySlug });
+	}, [chatId, storySlug, refreshDataMutation]);
 
 	return {
 		isLive,

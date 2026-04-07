@@ -3,15 +3,15 @@ import { useNavigate } from '@tanstack/react-router';
 
 interface UseStoryViewerEnlargeParams {
 	chatId: string;
-	storyId: string;
+	storySlug: string;
 }
 
-export const useStoryViewerEnlarge = ({ chatId, storyId }: UseStoryViewerEnlargeParams) => {
+export const useStoryViewerEnlarge = ({ chatId, storySlug }: UseStoryViewerEnlargeParams) => {
 	const navigate = useNavigate();
 
 	const handleEnlarge = useCallback(() => {
-		navigate({ to: '/stories/preview/$chatId/$storyId', params: { chatId, storyId } });
-	}, [chatId, storyId, navigate]);
+		navigate({ to: '/stories/preview/$chatId/$storySlug', params: { chatId, storySlug } });
+	}, [chatId, storySlug, navigate]);
 
 	return {
 		handleEnlarge,

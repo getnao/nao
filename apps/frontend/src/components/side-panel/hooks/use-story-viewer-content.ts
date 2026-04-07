@@ -5,8 +5,8 @@ import type { QueryDataMap } from '@/components/story-embeds';
 import { trpc } from '@/main';
 
 interface UseStoryViewerContentParams {
-	storyId: string;
-	resolvedStoryId: string;
+	storySlug: string;
+	resolvedStorySlug: string;
 	chatId: string;
 	draftStory: StoryDraft | null;
 	currentVersion: { code: string } | undefined;
@@ -15,8 +15,8 @@ interface UseStoryViewerContentParams {
 }
 
 export const useStoryViewerContent = ({
-	storyId,
-	resolvedStoryId,
+	storySlug,
+	resolvedStorySlug,
 	chatId,
 	draftStory,
 	currentVersion,
@@ -28,9 +28,9 @@ export const useStoryViewerContent = ({
 	const storyTitle = useMemo(
 		() =>
 			shouldUseDraftStory
-				? (draftStory?.title ?? storedTitle ?? storyId)
-				: (storedTitle ?? draftStory?.title ?? storyId),
-		[shouldUseDraftStory, draftStory?.title, storedTitle, storyId],
+				? (draftStory?.title ?? storedTitle ?? storySlug)
+				: (storedTitle ?? draftStory?.title ?? storySlug),
+		[shouldUseDraftStory, draftStory?.title, storedTitle, storySlug],
 	);
 
 	const storyCode = useMemo(
@@ -42,7 +42,7 @@ export const useStoryViewerContent = ({
 	);
 
 	const latestStoryQuery = useQuery({
-		...trpc.story.getLatest.queryOptions({ chatId, storyId: resolvedStoryId }),
+		...trpc.story.getLatest.queryOptions({ chatId, storySlug: resolvedStorySlug }),
 		enabled: !isReadonlyMode,
 	});
 	const queryData = latestStoryQuery.data?.queryData as QueryDataMap | null | undefined;

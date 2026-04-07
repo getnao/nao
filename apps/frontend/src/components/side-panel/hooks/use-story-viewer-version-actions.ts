@@ -8,7 +8,7 @@ import { trpc } from '@/main';
 
 interface UseStoryViewerVersionActionsParams {
 	chatId: string;
-	storyId: string;
+	storySlug: string;
 	storyTitle?: string;
 	currentVersionCode?: string;
 	isViewingLatest: boolean;
@@ -18,7 +18,7 @@ interface UseStoryViewerVersionActionsParams {
 
 export const useStoryViewerVersionActions = ({
 	chatId,
-	storyId,
+	storySlug,
 	storyTitle,
 	currentVersionCode,
 	isViewingLatest,
@@ -26,7 +26,7 @@ export const useStoryViewerVersionActions = ({
 	setViewMode,
 }: UseStoryViewerVersionActionsParams) => {
 	const queryClient = useQueryClient();
-	const latestStoryQueryKey = trpc.story.getLatest.queryKey({ chatId, storyId });
+	const latestStoryQueryKey = trpc.story.getLatest.queryKey({ chatId, storySlug });
 
 	const createVersionMutation = useMutation(
 		trpc.story.createVersion.mutationOptions({
@@ -48,7 +48,9 @@ export const useStoryViewerVersionActions = ({
 				}
 			},
 			onSuccess: () => {
-				void queryClient.invalidateQueries({ queryKey: trpc.story.listVersions.queryKey({ chatId, storyId }) });
+				void queryClient.invalidateQueries({
+					queryKey: trpc.story.listVersions.queryKey({ chatId, storySlug }),
+				});
 				void queryClient.invalidateQueries({ queryKey: trpc.story.listAll.queryKey() });
 				void queryClient.invalidateQueries({ queryKey: latestStoryQueryKey });
 			},
@@ -70,14 +72,14 @@ export const useStoryViewerVersionActions = ({
 
 		createVersionMutation.mutate({
 			chatId,
-			storyId,
+			storySlug,
 			title: storyTitle,
 			code: newCode,
 			action: 'replace',
 		});
 
 		setViewMode('preview');
-	}, [chatId, storyId, storyTitle, currentVersionCode, tiptapEditorRef, createVersionMutation, setViewMode]);
+	}, [chatId, storySlug, storyTitle, currentVersionCode, tiptapEditorRef, createVersionMutation, setViewMode]);
 
 	const handleRestore = useCallback(() => {
 		const hasVersionData = storyTitle !== undefined && currentVersionCode !== undefined;
@@ -87,12 +89,12 @@ export const useStoryViewerVersionActions = ({
 
 		createVersionMutation.mutate({
 			chatId,
-			storyId,
+			storySlug,
 			title: storyTitle,
 			code: currentVersionCode,
 			action: 'replace',
 		});
-	}, [chatId, storyId, storyTitle, currentVersionCode, isViewingLatest, createVersionMutation]);
+	}, [chatId, storySlug, storyTitle, currentVersionCode, isViewingLatest, createVersionMutation]);
 
 	return {
 		handleSave,

@@ -1,9 +1,9 @@
 import { Loader2 } from 'lucide-react';
 import { memo } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import type { ParsedChartBlock, ParsedTableBlock } from '@nao/shared/story-segments';
 import type { displayChart } from '@nao/shared/tools';
 
-import type { ParsedChartBlock, ParsedTableBlock } from '@/lib/story-segments';
 import { ChartDisplay } from '@/components/tool-calls/display-chart';
 import { TableDisplay } from '@/components/tool-calls/display-table';
 

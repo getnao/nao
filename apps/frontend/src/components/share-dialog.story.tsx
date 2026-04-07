@@ -20,11 +20,11 @@ interface ShareStoryDialogProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	chatId: string;
-	storyId: string;
+	storySlug: string;
 }
 
-export function ShareStoryDialog({ open, onOpenChange, chatId, storyId }: ShareStoryDialogProps) {
-	const shareQuery = useQuery(trpc.storyShare.findByStory.queryOptions({ chatId, storyId }));
+export function ShareStoryDialog({ open, onOpenChange, chatId, storySlug }: ShareStoryDialogProps) {
+	const shareQuery = useQuery(trpc.storyShare.findByStory.queryOptions({ chatId, storySlug }));
 	const shareData = shareQuery.data;
 	const isShared = !!shareData?.shareId;
 
@@ -33,7 +33,7 @@ export function ShareStoryDialog({ open, onOpenChange, chatId, storyId }: ShareS
 	}
 
 	if (!isShared) {
-		return <CreateShareDialog open={open} onOpenChange={onOpenChange} chatId={chatId} storyId={storyId} />;
+		return <CreateShareDialog open={open} onOpenChange={onOpenChange} chatId={chatId} storySlug={storySlug} />;
 	}
 
 	return (
@@ -41,7 +41,7 @@ export function ShareStoryDialog({ open, onOpenChange, chatId, storyId }: ShareS
 			open={open}
 			onOpenChange={onOpenChange}
 			chatId={chatId}
-			storyId={storyId}
+			storySlug={storySlug}
 			shareId={shareData.shareId}
 			visibility={shareData.visibility as Visibility}
 			allowedUserIds={shareData.allowedUserIds}
@@ -49,20 +49,20 @@ export function ShareStoryDialog({ open, onOpenChange, chatId, storyId }: ShareS
 	);
 }
 
-function useInvalidateShareQueries(chatId: string, storyId: string) {
+function useInvalidateShareQueries(chatId: string, storySlug: string) {
 	const queryClient = useQueryClient();
 	return useCallback(() => {
-		queryClient.invalidateQueries({ queryKey: trpc.storyShare.findByStory.queryKey({ chatId, storyId }) });
+		queryClient.invalidateQueries({ queryKey: trpc.storyShare.findByStory.queryKey({ chatId, storySlug }) });
 		queryClient.invalidateQueries({ queryKey: trpc.storyShare.list.queryKey() });
-	}, [queryClient, chatId, storyId]);
+	}, [queryClient, chatId, storySlug]);
 }
 
-function CreateShareDialog({ open, onOpenChange, chatId, storyId }: ShareStoryDialogProps) {
+function CreateShareDialog({ open, onOpenChange, chatId, storySlug }: ShareStoryDialogProps) {
 	const { data: session } = useSession();
 	const [visibility, setVisibility] = useState<Visibility>('project');
 	const [isCopied, setIsCopied] = useState(false);
 	const timeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-	const invalidateShareQueries = useInvalidateShareQueries(chatId, storyId);
+	const invalidateShareQueries = useInvalidateShareQueries(chatId, storySlug);
 
 	useEffect(() => () => clearTimeout(timeoutRef.current), []);
 
@@ -97,11 +97,11 @@ function CreateShareDialog({ open, onOpenChange, chatId, storyId }: ShareStoryDi
 	const handleShare = useCallback(() => {
 		shareMutation.mutate({
 			chatId,
-			storyId,
+			storySlug,
 			visibility,
 			allowedUserIds: visibility === 'specific' ? [...selectedUserIds] : undefined,
 		});
-	}, [chatId, storyId, visibility, selectedUserIds, shareMutation]);
+	}, [chatId, storySlug, visibility, selectedUserIds, shareMutation]);
 
 	const canShare = visibility === 'project' || selectedUserIds.size > 0;
 
@@ -153,7 +153,7 @@ function ManageShareDialog({
 	open,
 	onOpenChange,
 	chatId,
-	storyId,
+	storySlug,
 	shareId,
 	visibility,
 	allowedUserIds,
@@ -161,14 +161,14 @@ function ManageShareDialog({
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	chatId: string;
-	storyId: string;
+	storySlug: string;
 	shareId: string;
 	visibility: Visibility;
 	allowedUserIds: string[];
 }) {
 	const { data: session } = useSession();
 	const { isCopied, copy: copyLink } = useCopyWithFeedback();
-	const invalidateShareQueries = useInvalidateShareQueries(chatId, storyId);
+	const invalidateShareQueries = useInvalidateShareQueries(chatId, storySlug);
 
 	const currentUserId = session?.user?.id;
 	const { selectedUserIds, search, setSearch, filteredMembers, toggleUser, membersQuery, reset } = useMemberPicker(

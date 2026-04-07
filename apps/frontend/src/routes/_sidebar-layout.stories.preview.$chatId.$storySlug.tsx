@@ -3,28 +3,29 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { Activity, ArchiveRestoreIcon, Loader2, MessageSquare, RefreshCw } from 'lucide-react';
 import { useCallback, useMemo } from 'react';
 
-import type { ParsedChartBlock, ParsedTableBlock } from '@/lib/story-segments';
+import { splitCodeIntoSegments } from '@nao/shared/story-segments';
+import type { ParsedChartBlock, ParsedTableBlock } from '@nao/shared/story-segments';
 import type { QueryDataMap } from '@/components/story-embeds';
 import { StoryChartEmbed, StoryTableEmbed } from '@/components/story-embeds';
 import { SegmentList } from '@/components/story-rendering';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { splitCodeIntoSegments } from '@/lib/story-segments';
 import { trpc } from '@/main';
+import { StoryDownload } from '@/components/story-download';
 
-export const Route = createFileRoute('/_sidebar-layout/stories/preview/$chatId/$storyId')({
+export const Route = createFileRoute('/_sidebar-layout/stories/preview/$chatId/$storySlug')({
 	component: StoryPreviewPage,
 });
 
 function StoryPreviewPage() {
-	const { chatId, storyId } = Route.useParams();
-	const { data: story } = useSuspenseQuery(trpc.story.getLatest.queryOptions({ chatId, storyId }));
+	const { chatId, storySlug } = Route.useParams();
+	const { data: story } = useSuspenseQuery(trpc.story.getLatest.queryOptions({ chatId, storySlug }));
 	const queryClient = useQueryClient();
 
 	const unarchiveMutation = useMutation(
 		trpc.story.unarchive.mutationOptions({
 			onSuccess: () => {
-				queryClient.invalidateQueries({ queryKey: trpc.story.getLatest.queryKey({ chatId, storyId }) });
+				queryClient.invalidateQueries({ queryKey: trpc.story.getLatest.queryKey({ chatId, storySlug }) });
 				queryClient.invalidateQueries({ queryKey: trpc.story.listAll.queryKey() });
 				queryClient.invalidateQueries({ queryKey: trpc.story.listArchived.queryKey() });
 			},
@@ -34,7 +35,7 @@ function StoryPreviewPage() {
 	const refreshMutation = useMutation(
 		trpc.story.refreshData.mutationOptions({
 			onSuccess: () => {
-				queryClient.invalidateQueries({ queryKey: trpc.story.getLatest.queryKey({ chatId, storyId }) });
+				queryClient.invalidateQueries({ queryKey: trpc.story.getLatest.queryKey({ chatId, storySlug }) });
 			},
 		}),
 	);
@@ -68,7 +69,7 @@ function StoryPreviewPage() {
 									<Button
 										variant='ghost-muted'
 										size='icon-xs'
-										onClick={() => refreshMutation.mutate({ chatId, storyId })}
+										onClick={() => refreshMutation.mutate({ chatId, storySlug })}
 										disabled={refreshMutation.isPending}
 										aria-label='Refresh data'
 									>
@@ -84,12 +85,15 @@ function StoryPreviewPage() {
 						</TooltipProvider>
 					</div>
 				)}
-				<Button variant='outline' size='sm' className='ml-auto gap-1.5 shrink-0' asChild>
-					<Link to='/$chatId' params={{ chatId }} state={{ openStoryId: storyId }}>
-						<MessageSquare className='size-3.5' />
-						<span>Open chat</span>
-					</Link>
-				</Button>
+				<div className='ml-auto flex items-center gap-1.5 shrink-0'>
+					<StoryDownload chatId={chatId} storySlug={storySlug} isOwner={true} isIconMode={false} />
+					<Button variant='outline' size='sm' className='gap-1.5' asChild>
+						<Link to='/$chatId' params={{ chatId }} state={{ openStorySlug: storySlug }}>
+							<MessageSquare className='size-3.5' />
+							<span>Open chat</span>
+						</Link>
+					</Button>
+				</div>
 			</header>
 
 			{story.archivedAt && (
@@ -99,7 +103,7 @@ function StoryPreviewPage() {
 						variant='outline'
 						size='sm'
 						className='gap-1.5 shrink-0'
-						onClick={() => unarchiveMutation.mutate({ chatId, storyId })}
+						onClick={() => unarchiveMutation.mutate({ chatId, storySlug })}
 						disabled={unarchiveMutation.isPending}
 					>
 						<ArchiveRestoreIcon className='size-3' />

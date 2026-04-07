@@ -4,12 +4,12 @@ import { trpc } from '@/main';
 
 interface UseStoryViewerSharingParams {
 	chatId: string;
-	storyId: string;
+	storySlug: string;
 }
 
-export const useStoryViewerSharing = ({ chatId, storyId }: UseStoryViewerSharingParams) => {
+export const useStoryViewerSharing = ({ chatId, storySlug }: UseStoryViewerSharingParams) => {
 	const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
-	const shareQuery = useQuery(trpc.storyShare.findByStory.queryOptions({ chatId, storyId }));
+	const shareQuery = useQuery(trpc.storyShare.findByStory.queryOptions({ chatId, storySlug }));
 	const isShared = Boolean(shareQuery.data?.shareId);
 
 	return {

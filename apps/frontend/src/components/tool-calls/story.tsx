@@ -10,7 +10,7 @@ import { useSidePanel } from '@/contexts/side-panel';
 import { useChatId } from '@/hooks/use-chat-id';
 
 export const StoryToolCall = ({ toolPart }: ToolCallComponentProps<'story'>) => {
-	const { open: openSidePanel, isVisible, currentStoryId, chatId: sidePanelChatId } = useSidePanel();
+	const { open: openSidePanel, isVisible, currentStorySlug, chatId: sidePanelChatId } = useSidePanel();
 	const contextOrUrlChatId = useChatId();
 	const chatId = contextOrUrlChatId ?? sidePanelChatId;
 	const input = toolPart.input;
@@ -18,19 +18,19 @@ export const StoryToolCall = ({ toolPart }: ToolCallComponentProps<'story'>) => 
 	const output = toolPart.output;
 	const hasAutoOpenedRef = useRef(false);
 
-	const finalStoryId = output?.id ?? input?.id;
-	const canOpen = Boolean(chatId && finalStoryId);
+	const finalStorySlug = output?.id ?? input?.id;
+	const canOpen = Boolean(chatId && finalStorySlug);
 	const isCreateAction = input?.action === 'create';
 
 	const isInInteractiveContext = Boolean(contextOrUrlChatId);
 
 	useEffect(() => {
-		if (hasAutoOpenedRef.current || !isCreateAction || !isStreaming || !canOpen || !chatId || !finalStoryId) {
+		if (hasAutoOpenedRef.current || !isCreateAction || !isStreaming || !canOpen || !chatId || !finalStorySlug) {
 			return;
 		}
 
 		// Do not re-open if the same story is already visible.
-		if (isVisible && currentStoryId === finalStoryId) {
+		if (isVisible && currentStorySlug === finalStorySlug) {
 			hasAutoOpenedRef.current = true;
 			return;
 		}
@@ -38,10 +38,10 @@ export const StoryToolCall = ({ toolPart }: ToolCallComponentProps<'story'>) => 
 		openSidePanel(
 			<StoryViewer
 				chatId={chatId}
-				storyId={finalStoryId}
+				storySlug={finalStorySlug}
 				isReadonlyMode={isInInteractiveContext ? false : undefined}
 			/>,
-			finalStoryId,
+			finalStorySlug,
 		);
 		hasAutoOpenedRef.current = true;
 	}, [
@@ -49,9 +49,9 @@ export const StoryToolCall = ({ toolPart }: ToolCallComponentProps<'story'>) => 
 		isStreaming,
 		canOpen,
 		chatId,
-		finalStoryId,
+		finalStorySlug,
 		isVisible,
-		currentStoryId,
+		currentStorySlug,
 		openSidePanel,
 		isInInteractiveContext,
 	]);
@@ -89,16 +89,16 @@ export const StoryToolCall = ({ toolPart }: ToolCallComponentProps<'story'>) => 
 		: `${actionLabel}${output?.version ? ` · v${output.version}` : ''}`;
 
 	const handleOpen = () => {
-		if (!canOpen || !chatId || !finalStoryId) {
+		if (!canOpen || !chatId || !finalStorySlug) {
 			return;
 		}
 		openSidePanel(
 			<StoryViewer
 				chatId={chatId}
-				storyId={finalStoryId}
+				storySlug={finalStorySlug}
 				isReadonlyMode={isInInteractiveContext ? false : undefined}
 			/>,
-			finalStoryId,
+			finalStorySlug,
 		);
 	};
 

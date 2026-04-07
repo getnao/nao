@@ -1,8 +1,9 @@
 import { memo, useMemo } from 'react';
 import type { UIMessage } from '@nao/backend/chat';
-import type { ParsedTableBlock } from '@/lib/story-segments';
-import { useOptionalAgentContext } from '@/contexts/agent.provider';
+import type { ParsedTableBlock } from '@nao/shared/story-segments';
+
 import { TableDisplay } from '@/components/tool-calls/display-table';
+import { useOptionalAgentContext } from '@/contexts/agent.provider';
 
 export const StoryTableEmbed = memo(function StoryTableEmbed({ table }: { table: ParsedTableBlock }) {
 	const agent = useOptionalAgentContext();

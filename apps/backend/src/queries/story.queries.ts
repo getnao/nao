@@ -108,6 +108,43 @@ export async function getLatestVersion(
 	return row ?? null;
 }
 
+export async function getVersionByNumber(
+	chatId: string,
+	slug: string,
+	versionNumber: number,
+): Promise<
+	| (DBStoryVersion &
+			Pick<
+				DBStory,
+				'title' | 'isLive' | 'isLiveTextDynamic' | 'cacheSchedule' | 'cacheScheduleDescription' | 'archivedAt'
+			>)
+	| null
+> {
+	const [row] = await db
+		.select({
+			id: s.storyVersion.id,
+			storyId: s.storyVersion.storyId,
+			version: s.storyVersion.version,
+			code: s.storyVersion.code,
+			action: s.storyVersion.action,
+			source: s.storyVersion.source,
+			createdAt: s.storyVersion.createdAt,
+			title: s.story.title,
+			isLive: s.story.isLive,
+			isLiveTextDynamic: s.story.isLiveTextDynamic,
+			cacheSchedule: s.story.cacheSchedule,
+			cacheScheduleDescription: s.story.cacheScheduleDescription,
+			archivedAt: s.story.archivedAt,
+		})
+		.from(s.storyVersion)
+		.innerJoin(s.story, eq(s.storyVersion.storyId, s.story.id))
+		.where(and(eq(s.story.chatId, chatId), eq(s.story.slug, slug), eq(s.storyVersion.version, versionNumber)))
+		.limit(1)
+		.execute();
+
+	return row ?? null;
+}
+
 export async function listVersions(chatId: string, slug: string): Promise<DBStoryVersion[]> {
 	return db
 		.select({

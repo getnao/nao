@@ -1,7 +1,8 @@
+import { getGridClass } from '@nao/shared/story-segments';
 import { Fragment, memo, useMemo } from 'react';
 import { Streamdown } from 'streamdown';
-import type { Segment, ParsedChartBlock, ParsedTableBlock } from '@/lib/story-segments';
-import { getGridClass } from '@/lib/story-segments';
+
+import type { ParsedChartBlock, ParsedTableBlock, Segment } from '@nao/shared/story-segments';
 
 interface SegmentRendererProps {
 	segments: Segment[];

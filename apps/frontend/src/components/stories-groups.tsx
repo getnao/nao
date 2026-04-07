@@ -38,12 +38,12 @@ export function StoriesGroups({
 	);
 
 	function handleArchiveAll(items: StoryItem[]) {
-		const archivable = items.filter((i) => i.kind === 'own' && i.chatId && i.storyId);
+		const archivable = items.filter((i) => i.kind === 'own' && i.chatId && i.storySlug);
 		if (archivable.length === 0) {
 			return;
 		}
 		archiveAllMutation.mutate({
-			stories: archivable.map((i) => ({ chatId: i.chatId!, storyId: i.storyId! })),
+			stories: archivable.map((i) => ({ chatId: i.chatId!, storySlug: i.storySlug! })),
 		});
 	}
 
@@ -117,7 +117,7 @@ function StoryCard({
 	displayMode: DisplayMode;
 	showArchived: boolean;
 }) {
-	if (item.kind !== 'own' || !item.chatId || !item.storyId) {
+	if (item.kind !== 'own' || !item.chatId || !item.storySlug) {
 		return (
 			<Link {...item.link} className={storyCardClass(displayMode)}>
 				<StoryCardContent item={item} displayMode={displayMode} />
@@ -130,7 +130,7 @@ function StoryCard({
 			<StoryCardContent item={item} displayMode={displayMode} />
 			<StoryActionMenu
 				chatId={item.chatId}
-				storyId={item.storyId}
+				storySlug={item.storySlug}
 				displayMode={displayMode}
 				showArchived={showArchived}
 			/>
@@ -140,12 +140,12 @@ function StoryCard({
 
 function StoryActionMenu({
 	chatId,
-	storyId,
+	storySlug,
 	displayMode,
 	showArchived,
 }: {
 	chatId: string;
-	storyId: string;
+	storySlug: string;
 	displayMode: DisplayMode;
 	showArchived: boolean;
 }) {
@@ -172,9 +172,9 @@ function StoryActionMenu({
 
 	function handleSelect() {
 		if (showArchived) {
-			unarchiveMutation.mutate({ chatId, storyId });
+			unarchiveMutation.mutate({ chatId, storySlug });
 		} else {
-			archiveMutation.mutate({ chatId, storyId });
+			archiveMutation.mutate({ chatId, storySlug });
 		}
 	}
 
