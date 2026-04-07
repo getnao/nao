@@ -143,7 +143,7 @@ class TestSyncDatabaseErrorLogging:
             tables=["CUSTOMERS"],
         )
         engine = create_mock_engine(
-            templates=["databases/description.md.j2"],
+            templates=["databases/columns.md.j2"],
             render_behavior=Exception("Test error message"),
         )
 
@@ -157,7 +157,7 @@ class TestSyncDatabaseErrorLogging:
         error_msg = error_lines[0]
 
         # Should have accessor name
-        assert "description" in error_msg
+        assert "columns" in error_msg
         # Should have schema.table identifier
         assert "ANALYTICS.CUSTOMERS" in error_msg
         # Should have the actual error message
