@@ -61,8 +61,9 @@ function chartTooltipScript(): string {
 	return (
 		`<script>
 (function(){
-	function labelize(s){return String(s).replace(/_/g,' ').replace(/\\b\\w/g,function(c){return c.toUpperCase()})}
-	function formatVal(v){return typeof v==='number'?v.toLocaleString():String(v!=null?v:'')}
+	function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;')}
+	function labelize(s){return escHtml(String(s).replace(/_/g,' ').replace(/\\b\\w/g,function(c){return c.toUpperCase()}))}
+	function formatVal(v){return escHtml(typeof v==='number'?v.toLocaleString():String(v!=null?v:''))}
 
 	document.querySelectorAll('.nao-chart').forEach(function(container){
 		var raw=container.getAttribute('data-chart');
@@ -124,7 +125,7 @@ function chartTooltipScript(): string {
 			cfg.series.forEach(function(s){
 				var color=s.color||'#2563eb';
 				if(color.startsWith('var('))color='#2563eb';
-				html+='<div class="nao-tooltip-row"><span class="nao-tooltip-swatch" style="background:'+color+'"></span><span>'+labelize(s.label||s.data_key)+': </span><span class="nao-tooltip-value">'+formatVal(row[s.data_key])+'</span></div>';
+				html+='<div class="nao-tooltip-row"><span class="nao-tooltip-swatch" style="background:'+escHtml(color)+'"></span><span>'+labelize(s.label||s.data_key)+': </span><span class="nao-tooltip-value">'+formatVal(row[s.data_key])+'</span></div>';
 			});
 			tip.innerHTML=html;
 			tip.classList.add('visible');
