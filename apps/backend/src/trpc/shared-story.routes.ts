@@ -107,6 +107,10 @@ export const sharedStoryRoutes = {
 		.input(z.object({ chatId: z.string(), queryId: z.string() }))
 		.query(async ({ input, ctx }) => {
 			const projectId = await chatQueries.getChatProjectId(input.chatId);
+			if (!projectId) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: 'Chat not found.' });
+			}
+
 			if (projectId !== ctx.project.id) {
 				throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this chat.' });
 			}
