@@ -9,7 +9,6 @@ import {
 	DropdownMenuGroup,
 	DropdownMenuItem,
 	DropdownMenuLabel,
-	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { trpcClient } from '@/main';
@@ -102,7 +101,6 @@ export function StoryDownload({
 						<DropdownMenuItem onSelect={() => handleDownload('pdf')}>
 							<FileText /> <span className='text-xs'>PDF</span>
 						</DropdownMenuItem>
-						<DropdownMenuSeparator />
 						<DropdownMenuItem onSelect={() => handleDownload('html')}>
 							<FileCode /> <span className='text-xs'>HTML</span>
 						</DropdownMenuItem>
