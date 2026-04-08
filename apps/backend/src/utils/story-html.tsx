@@ -3,7 +3,7 @@ import type { ParsedChartBlock, ParsedTableBlock, Segment } from '@nao/shared/st
 import { splitCodeIntoSegments } from '@nao/shared/story-segments';
 import { formatCellValue, isNumericColumn } from '@nao/shared/story-table-utils';
 import type { displayChart } from '@nao/shared/tools';
-import { marked } from 'marked';
+import { marked, Renderer } from 'marked';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
@@ -71,8 +71,11 @@ function StorySegment({ segment, queryData }: { segment: Segment; queryData: Que
 	}
 }
 
+const safeRenderer = new Renderer();
+safeRenderer.html = () => '';
+
 function MarkdownBlock({ content }: { content: string }) {
-	const html = marked.parse(content, { async: false }) as string;
+	const html = marked.parse(content, { async: false, renderer: safeRenderer }) as string;
 	return <div className='nao-md' dangerouslySetInnerHTML={{ __html: html }} />;
 }
 
@@ -352,7 +355,7 @@ const TOOLTIP_SCRIPT = `
 	document.querySelectorAll('.nao-chart').forEach(function(container){
 		var raw=container.getAttribute('data-chart');
 		if(!raw)return;
-		var cfg;try{cfg=JSON.parse(raw.replace(/&#39;/g,"'").replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"'))}catch(e){return}
+		var cfg;try{cfg=JSON.parse(raw.replace(/&#39;/g,"'").replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&amp;/g,'&'))}catch(e){return}
 
 		var pieColorMap=null;
 		if(cfg.chartType==='pie'){
