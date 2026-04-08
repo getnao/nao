@@ -179,6 +179,7 @@ export class McpService {
 				command: {
 					kind: 'http',
 					url: config.url!,
+					headers: config.headers,
 				},
 				source: { kind: 'local', path: '<adhoc>' },
 			};
