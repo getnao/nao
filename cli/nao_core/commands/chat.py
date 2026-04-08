@@ -42,7 +42,11 @@ def validate_port(port: int | None) -> int:
 
 
 def get_server_binary_path() -> Path:
-    """Get the path to the bundled nao-chat-server binary."""
+    """Get the path to the bundled nao-chat-server binary.
+
+    Validates that the binary exists and is compiled for the current platform
+    by checking magic bytes (ELF for Linux, PE for Windows, Mach-O for macOS).
+    """
     cli_dir = Path(__file__).parent.parent
     bin_dir = cli_dir / "bin"
     binary_name = "nao-chat-server.exe" if sys.platform == "win32" else "nao-chat-server"
@@ -50,7 +54,40 @@ def get_server_binary_path() -> Path:
 
     if not binary_path.exists():
         console.print(f"[bold red]✗[/bold red] Server binary not found at {binary_path}")
-        console.print("[dim]Make sure you've built the server by running python file build.py[/dim]")
+        console.print("[dim]This usually means the nao package wasn't installed for your platform.[/dim]")
+        console.print("[dim]Try: pip install --force-reinstall nao-core[/dim]")
+        sys.exit(1)
+
+    # Detect platform mismatch: wrong-OS binary shipped in wheel
+    try:
+        with open(binary_path, "rb") as f:
+            magic = f.read(4)
+    except OSError:
+        magic = b""
+
+    is_elf = magic[:4] == b"\x7fELF"
+    is_pe = magic[:2] == b"MZ"
+    is_macho = magic[:4] in (
+        b"\xfe\xed\xfa\xce",
+        b"\xfe\xed\xfa\xcf",
+        b"\xce\xfa\xed\xfe",
+        b"\xcf\xfa\xed\xfe",
+    )
+
+    platform = sys.platform
+    mismatch = False
+    if platform == "win32" and not is_pe:
+        mismatch = True
+    elif platform == "darwin" and not is_macho:
+        mismatch = True
+    elif platform == "linux" and not is_elf:
+        mismatch = True
+
+    if mismatch:
+        detected = "Linux" if is_elf else "Windows" if is_pe else "macOS" if is_macho else "unknown"
+        console.print(f"[bold red]✗[/bold red] Server binary is for {detected}, but you're on {platform}")
+        console.print("[dim]This usually means the wrong platform wheel was installed.[/dim]")
+        console.print("[dim]Try: pip install --force-reinstall nao-core[/dim]")
         sys.exit(1)
 
     return binary_path

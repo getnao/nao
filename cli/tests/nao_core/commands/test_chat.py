@@ -1,3 +1,4 @@
+import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -140,23 +141,96 @@ def test_chat_exits_when_no_config_found(tmp_path: Path, monkeypatch, clean_env)
         assert exc_info.value.code == 1
 
 
+def _magic_bytes_for_platform():
+    """Return the correct magic bytes for the current platform."""
+    if sys.platform == "darwin":
+        return b"\xfe\xed\xfa\xcf"
+    elif sys.platform == "win32":
+        return b"MZ\x00\x00"
+    else:
+        return b"\x7fELF"
+
+
 def test_get_server_binary_path():
     """Test that get_server_binary_path returns the expected path structure."""
-    with patch.object(Path, "exists", return_value=True):
+    magic = _magic_bytes_for_platform()
+    mock_file = MagicMock()
+    mock_file.__enter__ = MagicMock(return_value=mock_file)
+    mock_file.__exit__ = MagicMock(return_value=False)
+    mock_file.read = MagicMock(return_value=magic + b"\x00" * 100)
+
+    with (
+        patch.object(Path, "exists", return_value=True),
+        patch("builtins.open", return_value=mock_file),
+    ):
         result_path = get_server_binary_path()
 
-    assert result_path.name == "nao-chat-server"
+    assert result_path.name in ("nao-chat-server", "nao-chat-server.exe")
     assert result_path.parent.name == "bin"
 
 
 def test_get_server_binary_path_does_not_exists():
     """Exit when the server binary does not exist."""
-    with patch("nao_core.commands.chat.Path.exists", return_value=False):
+    with patch.object(Path, "exists", return_value=False):
         with pytest.raises(SystemExit) as exc_info:
             get_server_binary_path()
 
     assert exc_info.value.code == 1
     assert exc_info.type is SystemExit
+
+
+def _make_mock_binary(magic_bytes: bytes):
+    """Create a mock file object that returns the given magic bytes on read."""
+    mock_file = MagicMock()
+    mock_file.__enter__ = MagicMock(return_value=mock_file)
+    mock_file.__exit__ = MagicMock(return_value=False)
+    mock_file.read = MagicMock(return_value=magic_bytes + b"\x00" * 100)
+    return mock_file
+
+
+@pytest.mark.parametrize(
+    ("magic_bytes", "platform", "description"),
+    [
+        (b"\x7fELF", "win32", "Linux ELF binary on Windows"),
+        (b"MZ", "linux", "Windows PE binary on Linux"),
+        (b"\xfe\xed\xfa\xcf", "linux", "macOS Mach-O binary on Linux"),
+    ],
+    ids=["elf_on_windows", "pe_on_linux", "macho_on_linux"],
+)
+def test_get_server_binary_path_platform_mismatch(magic_bytes, platform, description):
+    """Exit with clear error on platform mismatch: {description}."""
+    mock_file = _make_mock_binary(magic_bytes)
+
+    with (
+        patch("nao_core.commands.chat.sys") as mock_sys,
+        patch.object(Path, "exists", return_value=True),
+        patch("builtins.open", return_value=mock_file),
+    ):
+        mock_sys.platform = platform
+        mock_sys.exit = MagicMock(side_effect=SystemExit(1))
+
+        with pytest.raises(SystemExit):
+            get_server_binary_path()
+
+        mock_sys.exit.assert_called_once_with(1)
+
+
+def test_get_server_binary_path_truncated_binary():
+    """Exit with clear error when binary is truncated (< 4 bytes)."""
+    mock_file = _make_mock_binary(b"\x00\x01")
+
+    with (
+        patch("nao_core.commands.chat.sys") as mock_sys,
+        patch.object(Path, "exists", return_value=True),
+        patch("builtins.open", return_value=mock_file),
+    ):
+        mock_sys.platform = "linux"
+        mock_sys.exit = MagicMock(side_effect=SystemExit(1))
+
+        with pytest.raises(SystemExit):
+            get_server_binary_path()
+
+        mock_sys.exit.assert_called_once_with(1)
 
 
 def test_get_fastapi_main_path():

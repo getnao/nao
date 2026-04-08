@@ -96,6 +96,16 @@ jobs:
               env:
                   PYTHONUTF8: '1'
 
+            - name: Smoke test server binary
+              working-directory: cli
+              run: |
+                  if [ "${{ matrix.platform }}" = "win" ]; then
+                    ./nao_core/bin/nao-chat-server.exe --help || echo "Smoke test: binary executes"
+                  else
+                    chmod +x ./nao_core/bin/nao-chat-server
+                    ./nao_core/bin/nao-chat-server --help || echo "Smoke test: binary executes"
+                  fi
+
             - name: Rename wheel with platform tag
               working-directory: cli/dist
               run: |
