@@ -37,6 +37,7 @@ import { Route as SidebarLayoutSettingsProjectTeamRouteImport } from './routes/_
 import { Route as SidebarLayoutSettingsProjectSlackRouteImport } from './routes/_sidebar-layout.settings.project.slack'
 import { Route as SidebarLayoutSettingsProjectModelsRouteImport } from './routes/_sidebar-layout.settings.project.models'
 import { Route as SidebarLayoutSettingsProjectMcpServersRouteImport } from './routes/_sidebar-layout.settings.project.mcp-servers'
+import { Route as SidebarLayoutSettingsProjectBudgetsRouteImport } from './routes/_sidebar-layout.settings.project.budgets'
 import { Route as SidebarLayoutSettingsProjectAgentRouteImport } from './routes/_sidebar-layout.settings.project.agent'
 import { Route as SidebarLayoutStoriesPreviewChatIdStorySlugRouteImport } from './routes/_sidebar-layout.stories.preview.$chatId.$storySlug'
 
@@ -199,6 +200,12 @@ const SidebarLayoutSettingsProjectMcpServersRoute =
     path: '/mcp-servers',
     getParentRoute: () => SidebarLayoutSettingsProjectRoute,
   } as any)
+const SidebarLayoutSettingsProjectBudgetsRoute =
+  SidebarLayoutSettingsProjectBudgetsRouteImport.update({
+    id: '/budgets',
+    path: '/budgets',
+    getParentRoute: () => SidebarLayoutSettingsProjectRoute,
+  } as any)
 const SidebarLayoutSettingsProjectAgentRoute =
   SidebarLayoutSettingsProjectAgentRouteImport.update({
     id: '/agent',
@@ -231,6 +238,7 @@ export interface FileRoutesByFullPath {
   '/settings/': typeof SidebarLayoutSettingsIndexRoute
   '/stories/': typeof SidebarLayoutStoriesIndexRoute
   '/settings/project/agent': typeof SidebarLayoutSettingsProjectAgentRoute
+  '/settings/project/budgets': typeof SidebarLayoutSettingsProjectBudgetsRoute
   '/settings/project/mcp-servers': typeof SidebarLayoutSettingsProjectMcpServersRoute
   '/settings/project/models': typeof SidebarLayoutSettingsProjectModelsRoute
   '/settings/project/slack': typeof SidebarLayoutSettingsProjectSlackRoute
@@ -259,6 +267,7 @@ export interface FileRoutesByTo {
   '/settings': typeof SidebarLayoutSettingsIndexRoute
   '/stories': typeof SidebarLayoutStoriesIndexRoute
   '/settings/project/agent': typeof SidebarLayoutSettingsProjectAgentRoute
+  '/settings/project/budgets': typeof SidebarLayoutSettingsProjectBudgetsRoute
   '/settings/project/mcp-servers': typeof SidebarLayoutSettingsProjectMcpServersRoute
   '/settings/project/models': typeof SidebarLayoutSettingsProjectModelsRoute
   '/settings/project/slack': typeof SidebarLayoutSettingsProjectSlackRoute
@@ -292,6 +301,7 @@ export interface FileRoutesById {
   '/_sidebar-layout/settings/': typeof SidebarLayoutSettingsIndexRoute
   '/_sidebar-layout/stories/': typeof SidebarLayoutStoriesIndexRoute
   '/_sidebar-layout/settings/project/agent': typeof SidebarLayoutSettingsProjectAgentRoute
+  '/_sidebar-layout/settings/project/budgets': typeof SidebarLayoutSettingsProjectBudgetsRoute
   '/_sidebar-layout/settings/project/mcp-servers': typeof SidebarLayoutSettingsProjectMcpServersRoute
   '/_sidebar-layout/settings/project/models': typeof SidebarLayoutSettingsProjectModelsRoute
   '/_sidebar-layout/settings/project/slack': typeof SidebarLayoutSettingsProjectSlackRoute
@@ -324,6 +334,7 @@ export interface FileRouteTypes {
     | '/settings/'
     | '/stories/'
     | '/settings/project/agent'
+    | '/settings/project/budgets'
     | '/settings/project/mcp-servers'
     | '/settings/project/models'
     | '/settings/project/slack'
@@ -352,6 +363,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/stories'
     | '/settings/project/agent'
+    | '/settings/project/budgets'
     | '/settings/project/mcp-servers'
     | '/settings/project/models'
     | '/settings/project/slack'
@@ -384,6 +396,7 @@ export interface FileRouteTypes {
     | '/_sidebar-layout/settings/'
     | '/_sidebar-layout/stories/'
     | '/_sidebar-layout/settings/project/agent'
+    | '/_sidebar-layout/settings/project/budgets'
     | '/_sidebar-layout/settings/project/mcp-servers'
     | '/_sidebar-layout/settings/project/models'
     | '/_sidebar-layout/settings/project/slack'
@@ -602,6 +615,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SidebarLayoutSettingsProjectMcpServersRouteImport
       parentRoute: typeof SidebarLayoutSettingsProjectRoute
     }
+    '/_sidebar-layout/settings/project/budgets': {
+      id: '/_sidebar-layout/settings/project/budgets'
+      path: '/budgets'
+      fullPath: '/settings/project/budgets'
+      preLoaderRoute: typeof SidebarLayoutSettingsProjectBudgetsRouteImport
+      parentRoute: typeof SidebarLayoutSettingsProjectRoute
+    }
     '/_sidebar-layout/settings/project/agent': {
       id: '/_sidebar-layout/settings/project/agent'
       path: '/agent'
@@ -637,6 +657,7 @@ const SidebarLayoutChatLayoutRouteWithChildren =
 
 interface SidebarLayoutSettingsProjectRouteChildren {
   SidebarLayoutSettingsProjectAgentRoute: typeof SidebarLayoutSettingsProjectAgentRoute
+  SidebarLayoutSettingsProjectBudgetsRoute: typeof SidebarLayoutSettingsProjectBudgetsRoute
   SidebarLayoutSettingsProjectMcpServersRoute: typeof SidebarLayoutSettingsProjectMcpServersRoute
   SidebarLayoutSettingsProjectModelsRoute: typeof SidebarLayoutSettingsProjectModelsRoute
   SidebarLayoutSettingsProjectSlackRoute: typeof SidebarLayoutSettingsProjectSlackRoute
@@ -651,6 +672,8 @@ const SidebarLayoutSettingsProjectRouteChildren: SidebarLayoutSettingsProjectRou
   {
     SidebarLayoutSettingsProjectAgentRoute:
       SidebarLayoutSettingsProjectAgentRoute,
+    SidebarLayoutSettingsProjectBudgetsRoute:
+      SidebarLayoutSettingsProjectBudgetsRoute,
     SidebarLayoutSettingsProjectMcpServersRoute:
       SidebarLayoutSettingsProjectMcpServersRoute,
     SidebarLayoutSettingsProjectModelsRoute:
