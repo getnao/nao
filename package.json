@@ -40,7 +40,6 @@
 	"dependencies": {
 		"@boxlite-ai/boxlite": "^0.3.0",
 		"@pydantic/monty": "^0.0.7",
-		"depd": "^2.0.0",
-		"puppeteer": "^24.40.0"
+		"depd": "^2.0.0"
 	}
 }
