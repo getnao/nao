@@ -60,6 +60,8 @@ function RouteComponent() {
 		}),
 	);
 
+	const providerCosts = useQuery(trpc.budget.getProviderCosts.queryOptions());
+
 	const [budgets, setBudgets] = useState<Record<string, number>>({});
 	const [periods, setPeriods] = useState<Record<string, Period>>({});
 
@@ -177,6 +179,16 @@ function RouteComponent() {
 								<TableCell>{provider}</TableCell>
 								<TableCell>
 									<div className='flex items-center gap-1'>
+										<span className='text-muted-foreground text-sm mr-1'>$</span>
+										<Input
+											type='number'
+											min={0}
+											max={MAX_BUDGET_LIMIT_USD}
+											disabled={!isAdmin}
+											value={budget}
+											onChange={(e) => updateBudget(provider, Number(e.target.value))}
+											className='w-16 h-7 text-center px-1 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none'
+										/>
 										<div className='flex flex-col items-center'>
 											<button
 												disabled={!isAdmin || budget >= MAX_BUDGET_LIMIT_USD}
@@ -193,16 +205,6 @@ function RouteComponent() {
 												<ChevronDown className='size-3' />
 											</button>
 										</div>
-										<Input
-											type='number'
-											min={0}
-											max={MAX_BUDGET_LIMIT_USD}
-											disabled={!isAdmin}
-											value={budget}
-											onChange={(e) => updateBudget(provider, Number(e.target.value))}
-											className='w-16 h-7 text-center px-1 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none'
-										/>
-										<span className='text-muted-foreground text-sm mr-1'>$</span>
 									</div>
 								</TableCell>
 								<TableCell>
@@ -225,7 +227,18 @@ function RouteComponent() {
 										</SelectContent>
 									</Select>
 								</TableCell>
-								<TableCell>{period === 'none' ? '-' : '-'}</TableCell>
+								<TableCell>
+									{period === 'none' ? (
+										<span className='text-muted-foreground text-sm mr-1'>-</span>
+									) : (
+										<>
+											<span className='text-muted-foreground text-sm mr-1'>$</span>
+											<span className='text-sm mr-1'>
+												{(providerCosts.data?.[provider] ?? 0).toFixed(2)}
+											</span>
+										</>
+									)}
+								</TableCell>
 								<TableCell>{nextResetLabel(provider, period)}</TableCell>
 							</TableRow>
 						);

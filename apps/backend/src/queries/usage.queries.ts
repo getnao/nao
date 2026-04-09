@@ -123,7 +123,7 @@ function getDateExpr(field: SQLWrapper, granularity: Granularity): SQL<string> {
 }
 
 /** Build a SQL VALUES table with cost-per-million for each (provider, modelId) */
-function buildCostValuesTable(): SQL {
+export function buildCostValuesTable(): SQL {
 	const tuples = Object.entries(LLM_PROVIDERS).flatMap(([provider, config]) =>
 		config.models.map((model) => {
 			const cost = model.costPerM ?? {};

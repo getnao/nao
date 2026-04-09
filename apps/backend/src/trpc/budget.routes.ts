@@ -19,6 +19,10 @@ export const budgetRoutes = {
 		return budgetQueries.getProjectProviderBudgets(ctx.project.id);
 	}),
 
+	getProviderCosts: projectProtectedProcedure.query(async ({ ctx }) => {
+		return budgetQueries.getProviderPeriodCosts(ctx.project.id);
+	}),
+
 	setBudgets: adminProtectedProcedure.input(setBudgetsInputSchema).mutation(async ({ ctx, input }) => {
 		const activeProviders = input.budgets.map((b) => b.provider);
 
