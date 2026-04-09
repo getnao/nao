@@ -246,6 +246,13 @@
       "when": 1775132293619,
       "tag": "0034_add_fork_metadata_and_highlight_chats",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1775740878738,
+      "tag": "0035_add_project_provider_budget",
+      "breakpoints": true
     }
   ]
 }

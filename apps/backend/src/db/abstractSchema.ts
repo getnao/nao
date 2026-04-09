@@ -73,6 +73,9 @@ export type NewStoryVersion = typeof sqliteSchema.storyVersion.$inferInsert;
 export type DBStoryDataCache = typeof sqliteSchema.storyDataCache.$inferSelect;
 export type NewStoryDataCache = typeof sqliteSchema.storyDataCache.$inferInsert;
 
+export type DBProjectProviderBudget = typeof sqliteSchema.projectProviderBudget.$inferSelect;
+export type NewProjectProviderBudget = typeof sqliteSchema.projectProviderBudget.$inferInsert;
+
 export type DBLlmInference = typeof sqliteSchema.llmInference.$inferSelect;
 export type NewLlmInference = typeof sqliteSchema.llmInference.$inferInsert;
 

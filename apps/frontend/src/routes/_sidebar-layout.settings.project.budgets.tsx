@@ -1,66 +1,142 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronDown, ChevronUp, TriangleAlert } from 'lucide-react';
-import { useQuery } from '@tanstack/react-query';
-import { SettingsCard } from '@/components/ui/settings-card';
-import { trpc } from '@/main';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Input } from '@/components/ui/input';
+import { BUDGET_PERIODS, MAX_BUDGET_LIMIT_USD } from '@nao/shared/types';
+import type { BudgetPeriod } from '@nao/shared/types';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { SettingsCard } from '@/components/ui/settings-card';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useLlmProviders } from '@/hooks/use-llm-providers';
 import { toLocalDateString } from '@/lib/utils';
+import { trpc } from '@/main';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/project/budgets')({
 	component: RouteComponent,
 });
 
-type Period = 'none' | 'day' | 'week' | 'month';
+type Period = 'none' | BudgetPeriod;
 
 const PERIOD_OPTIONS: { value: Period; label: string }[] = [
 	{ value: 'none', label: '-' },
-	{ value: 'day', label: 'Day' },
-	{ value: 'week', label: 'Week' },
-	{ value: 'month', label: 'Month' },
+	...BUDGET_PERIODS.map((p) => ({ value: p, label: p.charAt(0).toUpperCase() + p.slice(1) })),
 ];
 
-const PERIOD_MS: Record<Period, number> = {
-	none: 0,
+const PERIOD_MS: Record<BudgetPeriod, number> = {
 	day: 24 * 60 * 60 * 1000,
 	week: 7 * 24 * 60 * 60 * 1000,
 	month: 30 * 24 * 60 * 60 * 1000,
 };
 
-const MAX_LIMIT_BUDGET = 200_000;
-
-function nextResetLabel(period: Period): string {
-	if (period === 'none') {
-		return '-';
+function buildFormState(data: { provider: string; limitUsd: number; period: string }[]) {
+	const b: Record<string, number> = {};
+	const p: Record<string, Period> = {};
+	for (const row of data) {
+		b[row.provider] = row.limitUsd;
+		p[row.provider] = row.period as Period;
 	}
-	return toLocalDateString(new Date(Date.now() + PERIOD_MS[period]));
+	return { budgets: b, periods: p };
 }
-
-const spinnerButtonClass =
-	'text-muted-foreground hover:text-foreground hover:bg-accent transition-all duration-200 size-4 rounded-sm inline-flex items-center justify-center disabled:opacity-20 disabled:cursor-not-allowed';
 
 function RouteComponent() {
 	const project = useQuery(trpc.project.getCurrent.queryOptions());
 	const isAdmin = project.data?.userRole === 'admin';
 
 	const { projectConfigs, envProviders } = useLlmProviders();
-	const allConfiguredProviders = [...new Set([...projectConfigs.map((config) => config.provider), ...envProviders])];
+	const allConfiguredProviders = useMemo(
+		() => [...new Set([...projectConfigs.map((config) => config.provider), ...envProviders])],
+		[projectConfigs, envProviders],
+	);
 	const costSupport = useQuery(trpc.budget.getProvidersCostSupport.queryOptions());
+
+	const savedBudgets = useQuery(trpc.budget.getBudgets.queryOptions());
+	const queryClient = useQueryClient();
+	const setBudgetsMutation = useMutation(
+		trpc.budget.setBudgets.mutationOptions({
+			onSuccess: () =>
+				queryClient.invalidateQueries({ queryKey: trpc.budget.getBudgets.queryOptions().queryKey }),
+		}),
+	);
 
 	const [budgets, setBudgets] = useState<Record<string, number>>({});
 	const [periods, setPeriods] = useState<Record<string, Period>>({});
-	const [costs, setCosts] = useState<Record<string, number>>({});
 
-	function updateBudget(provider: string, next: number) {
-		const clamped = Math.min(MAX_LIMIT_BUDGET, Math.max(0, next));
+	useEffect(() => {
+		if (!savedBudgets.data) {
+			return;
+		}
+		const state = buildFormState(savedBudgets.data);
+		setBudgets(state.budgets);
+		setPeriods(state.periods);
+	}, [savedBudgets.data]);
+
+	const savedPeriodStarts = useMemo(() => {
+		const map: Record<string, Date> = {};
+		for (const row of savedBudgets.data ?? []) {
+			map[row.provider] = new Date(row.currentPeriodStart);
+		}
+		return map;
+	}, [savedBudgets.data]);
+
+	const isDirty = useMemo(() => {
+		if (!savedBudgets.data) {
+			return false;
+		}
+		const saved = buildFormState(savedBudgets.data);
+		for (const provider of allConfiguredProviders) {
+			const savedBudget = saved.budgets[provider] ?? 0;
+			const savedPeriod = saved.periods[provider] ?? 'none';
+			const currentBudget = budgets[provider] ?? 0;
+			const currentPeriod = periods[provider] ?? 'none';
+			if (savedBudget !== currentBudget || savedPeriod !== currentPeriod) {
+				return true;
+			}
+		}
+		return false;
+	}, [savedBudgets.data, budgets, periods, allConfiguredProviders]);
+
+	function resetForm() {
+		const state = buildFormState(savedBudgets.data ?? []);
+		setBudgets(state.budgets);
+		setPeriods(state.periods);
+	}
+
+	function updateBudget(provider: string, budget: number) {
+		const clamped = Math.min(MAX_BUDGET_LIMIT_USD, Math.max(0, budget));
 		setBudgets((prev) => ({ ...prev, [provider]: clamped }));
 		if (clamped === 0) {
 			setPeriods((prev) => ({ ...prev, [provider]: 'none' }));
 		}
+	}
+
+	function nextResetLabel(provider: string, period: Period): string {
+		if (period === 'none') {
+			return '-';
+		}
+		const start = savedPeriodStarts[provider];
+		if (start) {
+			return toLocalDateString(new Date(start.getTime() + PERIOD_MS[period]));
+		}
+		return toLocalDateString(new Date(Date.now() + PERIOD_MS[period]));
+	}
+
+	async function handleSave() {
+		const entries = allConfiguredProviders
+			.filter((provider) => {
+				const hasCost = costSupport.data?.[provider] ?? false;
+				const budget = budgets[provider] ?? 0;
+				const period = periods[provider] ?? 'none';
+				return hasCost && budget > 0 && period !== 'none';
+			})
+			.map((provider) => ({
+				provider,
+				limitUsd: budgets[provider] ?? 0,
+				period: periods[provider] as BudgetPeriod,
+			}));
+
+		await setBudgetsMutation.mutateAsync({ budgets: entries });
 	}
 
 	return (
@@ -95,7 +171,6 @@ function RouteComponent() {
 
 						const budget = budgets[provider] ?? 0;
 						const period = periods[provider] ?? 'none';
-						const cost = costs[provider] ?? 0;
 
 						return (
 							<TableRow key={provider}>
@@ -104,16 +179,16 @@ function RouteComponent() {
 									<div className='flex items-center gap-1'>
 										<div className='flex flex-col items-center'>
 											<button
-												disabled={!isAdmin || budget >= MAX_LIMIT_BUDGET}
+												disabled={!isAdmin || budget >= MAX_BUDGET_LIMIT_USD}
 												onClick={() => updateBudget(provider, budget + 1)}
-												className={spinnerButtonClass}
+												className='text-muted-foreground hover:text-foreground hover:bg-accent transition-all duration-200 size-4 rounded-sm inline-flex items-center justify-center disabled:opacity-20 disabled:cursor-not-allowed'
 											>
 												<ChevronUp className='size-3' />
 											</button>
 											<button
 												disabled={!isAdmin || budget <= 0}
 												onClick={() => updateBudget(provider, budget - 1)}
-												className={spinnerButtonClass}
+												className='text-muted-foreground hover:text-foreground hover:bg-accent transition-all duration-200 size-4 rounded-sm inline-flex items-center justify-center disabled:opacity-20 disabled:cursor-not-allowed'
 											>
 												<ChevronDown className='size-3' />
 											</button>
@@ -121,7 +196,7 @@ function RouteComponent() {
 										<Input
 											type='number'
 											min={0}
-											max={MAX_LIMIT_BUDGET}
+											max={MAX_BUDGET_LIMIT_USD}
 											disabled={!isAdmin}
 											value={budget}
 											onChange={(e) => updateBudget(provider, Number(e.target.value))}
@@ -150,22 +225,24 @@ function RouteComponent() {
 										</SelectContent>
 									</Select>
 								</TableCell>
-								<TableCell>{period === 'none' ? '-' : cost}</TableCell>
-								<TableCell>{nextResetLabel(period)}</TableCell>
+								<TableCell>{period === 'none' ? '-' : '-'}</TableCell>
+								<TableCell>{nextResetLabel(provider, period)}</TableCell>
 							</TableRow>
 						);
 					})}
 				</TableBody>
 			</Table>
 
-			<div className='flex justify-end gap-2 pt-2'>
-				<Button variant='ghost' size='sm' onClick={() => {}}>
-					Cancel
-				</Button>
-				<Button size='sm' onClick={() => {}} disabled={false}>
-					Save Changes
-				</Button>
-			</div>
+			{isAdmin && (
+				<div className='flex justify-end gap-2 pt-2'>
+					<Button variant='ghost' size='sm' onClick={resetForm} disabled={!isDirty}>
+						Cancel
+					</Button>
+					<Button size='sm' onClick={handleSave} disabled={!isDirty || setBudgetsMutation.isPending}>
+						{setBudgetsMutation.isPending ? 'Saving...' : 'Save Changes'}
+					</Button>
+				</div>
+			)}
 		</SettingsCard>
 	);
 }
