@@ -16,6 +16,7 @@ export const budgetRoutes = {
 	}),
 
 	getBudgets: projectProtectedProcedure.query(async ({ ctx }) => {
+		await budgetQueries.advanceStaleBudgetPeriods(ctx.project.id);
 		return budgetQueries.getProjectProviderBudgets(ctx.project.id);
 	}),
 

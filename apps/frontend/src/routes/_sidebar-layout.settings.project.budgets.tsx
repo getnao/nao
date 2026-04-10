@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronDown, ChevronUp, TriangleAlert } from 'lucide-react';
+import { getNextPeriodReset } from '@nao/shared/date';
 import { BUDGET_PERIODS, MAX_BUDGET_LIMIT_USD } from '@nao/shared/types';
 import type { BudgetPeriod } from '@nao/shared/types';
 import { Button } from '@/components/ui/button';
@@ -23,12 +24,6 @@ const PERIOD_OPTIONS: { value: Period; label: string }[] = [
 	{ value: 'none', label: '-' },
 	...BUDGET_PERIODS.map((p) => ({ value: p, label: p.charAt(0).toUpperCase() + p.slice(1) })),
 ];
-
-const PERIOD_MS: Record<BudgetPeriod, number> = {
-	day: 24 * 60 * 60 * 1000,
-	week: 7 * 24 * 60 * 60 * 1000,
-	month: 30 * 24 * 60 * 60 * 1000,
-};
 
 function buildFormState(data: { provider: string; limitUsd: number; period: string }[]) {
 	const b: Record<string, number> = {};
@@ -74,14 +69,6 @@ function RouteComponent() {
 		setPeriods(state.periods);
 	}, [savedBudgets.data]);
 
-	const savedPeriodStarts = useMemo(() => {
-		const map: Record<string, Date> = {};
-		for (const row of savedBudgets.data ?? []) {
-			map[row.provider] = new Date(row.currentPeriodStart);
-		}
-		return map;
-	}, [savedBudgets.data]);
-
 	const isDirty = useMemo(() => {
 		if (!savedBudgets.data) {
 			return false;
@@ -113,16 +100,14 @@ function RouteComponent() {
 		}
 	}
 
-	function nextResetLabel(provider: string, period: Period): string {
-		if (period === 'none') {
-			return '-';
-		}
-		const start = savedPeriodStarts[provider];
-		if (start) {
-			return toLocalDateString(new Date(start.getTime() + PERIOD_MS[period]));
-		}
-		return toLocalDateString(new Date(Date.now() + PERIOD_MS[period]));
-	}
+	const resetLabels = useMemo(
+		() =>
+			Object.fromEntries(BUDGET_PERIODS.map((p) => [p, toLocalDateString(getNextPeriodReset(p))])) as Record<
+				BudgetPeriod,
+				string
+			>,
+		[],
+	);
 
 	async function handleSave() {
 		const entries = allConfiguredProviders
@@ -239,7 +224,7 @@ function RouteComponent() {
 										</>
 									)}
 								</TableCell>
-								<TableCell>{nextResetLabel(provider, period)}</TableCell>
+								<TableCell>{period === 'none' ? '-' : resetLabels[period]}</TableCell>
 							</TableRow>
 						);
 					})}

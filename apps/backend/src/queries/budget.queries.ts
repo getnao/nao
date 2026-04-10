@@ -1,13 +1,51 @@
+import { getCurrentPeriodStart } from '@nao/shared/date';
 import type { LlmProvider } from '@nao/shared/types';
 import { and, eq, notInArray, sql } from 'drizzle-orm';
 
 import s, { DBProjectProviderBudget } from '../db/abstractSchema';
 import { db } from '../db/db';
 import type { BudgetPeriod } from '../types/budget';
-import { buildCostValuesTable } from './usage.queries';
+import { createCostLookup, TOTAL_COST_EXPR } from './usage.queries';
+
+export const getProviderBudget = async (
+	projectId: string,
+	provider: LlmProvider,
+): Promise<DBProjectProviderBudget | null> => {
+	const [row] = await db
+		.select()
+		.from(s.projectProviderBudget)
+		.where(and(eq(s.projectProviderBudget.projectId, projectId), eq(s.projectProviderBudget.provider, provider)))
+		.execute();
+	return row ?? null;
+};
+
+export const getProviderCurrentSpend = async (projectId: string, provider: LlmProvider): Promise<number> => {
+	const costs = await getProviderPeriodCosts(projectId, provider);
+	return costs[provider] ?? 0;
+};
 
 export const getProjectProviderBudgets = async (projectId: string): Promise<DBProjectProviderBudget[]> => {
 	return db.select().from(s.projectProviderBudget).where(eq(s.projectProviderBudget.projectId, projectId)).execute();
+};
+
+export const advanceStaleBudgetPeriods = async (projectId: string, provider?: LlmProvider): Promise<void> => {
+	const budgets = provider
+		? await getProviderBudget(projectId, provider).then((b) => (b ? [b] : []))
+		: await getProjectProviderBudgets(projectId);
+
+	for (const budget of budgets) {
+		if (budget.limitUsd <= 0) {
+			continue;
+		}
+		const expectedPeriodStart = getCurrentPeriodStart(budget.period as BudgetPeriod);
+		if (expectedPeriodStart.getTime() > budget.currentPeriodStart.getTime()) {
+			await db
+				.update(s.projectProviderBudget)
+				.set({ currentPeriodStart: expectedPeriodStart })
+				.where(eq(s.projectProviderBudget.id, budget.id))
+				.execute();
+		}
+	}
 };
 
 export const upsertProjectProviderBudget = async (
@@ -64,31 +102,36 @@ export const deleteProjectProviderBudgets = async (
 		.execute();
 };
 
-export const getProviderPeriodCosts = async (projectId: string): Promise<Record<string, number>> => {
-	const costLookup = buildCostValuesTable();
+export const getProviderPeriodCosts = async (
+	projectId: string,
+	provider?: LlmProvider,
+): Promise<Record<string, number>> => {
+	const costLookup = createCostLookup();
+	const dayStart = getCurrentPeriodStart('day').getTime();
+	const weekStart = getCurrentPeriodStart('week').getTime();
+	const monthStart = getCurrentPeriodStart('month').getTime();
+
+	const periodStartExpr = sql`CASE ${s.projectProviderBudget.period}
+		WHEN 'day' THEN ${dayStart}
+		WHEN 'week' THEN ${weekStart}
+		WHEN 'month' THEN ${monthStart}
+	END`;
 
 	const rows = await db
 		.select({
 			provider: s.projectProviderBudget.provider,
-			totalCost: sql<number>`sum(
-				coalesce(${s.chatMessage.inputNoCacheTokens}, 0) * coalesce(cost_lookup.input_no_cache, 0) / 1000000.0 +
-				coalesce(${s.chatMessage.inputCacheReadTokens}, 0) * coalesce(cost_lookup.input_cache_read, 0) / 1000000.0 +
-				coalesce(${s.chatMessage.inputCacheWriteTokens}, 0) * coalesce(cost_lookup.input_cache_write, 0) / 1000000.0 +
-				coalesce(${s.chatMessage.outputTotalTokens}, 0) * coalesce(cost_lookup.output, 0) / 1000000.0
-			)`,
+			totalCost: sql<number>`sum(${TOTAL_COST_EXPR})`,
 		})
 		.from(s.projectProviderBudget)
 		.innerJoin(s.chat, eq(s.chat.projectId, s.projectProviderBudget.projectId))
 		.innerJoin(s.chatMessage, eq(s.chatMessage.chatId, s.chat.id))
-		.leftJoin(
-			costLookup,
-			sql`cost_lookup.provider = ${s.chatMessage.llmProvider} AND cost_lookup.model_id = ${s.chatMessage.llmModelId}`,
-		)
+		.leftJoin(costLookup.table, costLookup.joinCondition)
 		.where(
 			and(
 				eq(s.projectProviderBudget.projectId, projectId),
 				sql`${s.chatMessage.llmProvider} = ${s.projectProviderBudget.provider}`,
-				sql`${s.chatMessage.createdAt} >= ${s.projectProviderBudget.currentPeriodStart}`,
+				sql`${s.chatMessage.createdAt} >= ${periodStartExpr}`,
+				provider ? eq(s.projectProviderBudget.provider, provider) : undefined,
 			),
 		)
 		.groupBy(s.projectProviderBudget.provider);
