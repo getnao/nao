@@ -25,8 +25,9 @@ export const providerLabels: Record<LlmProvider, string> = {
 	mistral: 'Mistral',
 	openrouter: 'OpenRouter',
 	ollama: 'Ollama',
-	bedrock: 'AWS Bedrock',
-	vertex: 'Google Vertex',
+	bedrock: 'Amazon Bedrock',
+	vertex: 'Vertex AI',
+	azure: 'Azure Foundry',
 };
 
 export type LlmProvider = (typeof LLM_PROVIDERS)[number];

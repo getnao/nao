@@ -17,18 +17,6 @@ const chartViewOptions: { value: ChartView; label: string }[] = [
 	{ value: 'cost', label: 'Cost' },
 ];
 
-const providerLabels: Record<LlmProvider, string> = {
-	openai: 'OpenAI',
-	anthropic: 'Anthropic',
-	google: 'Google',
-	mistral: 'Mistral',
-	openrouter: 'OpenRouter',
-	ollama: 'Ollama',
-	bedrock: 'AWS Bedrock',
-	vertex: 'Google Vertex',
-	azure: 'Azure OpenAI',
-};
-
 export const dateFormats: Record<Granularity, string> = {
 	hour: 'MMM d, HH:00',
 	day: 'MMM d',
