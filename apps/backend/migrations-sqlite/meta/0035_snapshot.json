@@ -1785,6 +1785,13 @@
           "autoincrement": false,
           "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
         },
+        "notified_at": {
+          "name": "notified_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "updated_at": {
           "name": "updated_at",
           "type": "integer",

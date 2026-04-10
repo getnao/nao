@@ -74,6 +74,11 @@ export type AgentChat = Pick<DBChat, 'id' | 'projectId' | 'userId'> & {
 export class AgentService {
 	private _agents = new Map<string, AgentManager>();
 
+	async assertBudget(projectId: string, modelSelection?: LlmSelectedModel): Promise<void> {
+		const resolved = await this._getResolvedLlmSelectedModel(projectId, modelSelection);
+		await assertBudgetNotExceeded(projectId, resolved.provider);
+	}
+
 	async create(chat: AgentChat, modelSelection?: LlmSelectedModel): Promise<AgentManager> {
 		this._disposeAgent(chat.id);
 		const resolvedLlmSelectedModel = await this._getResolvedLlmSelectedModel(chat.projectId, modelSelection);

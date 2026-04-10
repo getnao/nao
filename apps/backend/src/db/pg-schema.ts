@@ -383,6 +383,7 @@ export const projectProviderBudget = pgTable(
 		period: text('period', { enum: BUDGET_PERIODS }).notNull(),
 		currentPeriodStart: timestamp('current_period_start').defaultNow().notNull(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
+		notifiedAt: timestamp('notified_at'),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()
 			.$onUpdate(() => new Date())

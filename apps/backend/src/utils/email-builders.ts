@@ -1,5 +1,6 @@
 import { renderToString } from 'react-dom/server';
 
+import { BudgetLimitReached } from '../components/email/budget-limit-reached';
 import { ForgotPassword } from '../components/email/forgot-password';
 import { ResetPassword } from '../components/email/reset-password';
 import { SharedItemEmail } from '../components/email/shared-item-email';
@@ -51,6 +52,28 @@ export function buildResetPasswordEmail(
 	const subject = `Your password on the project ${projectName} has been reset on nao`;
 	const html = renderToString(
 		ResetPassword({ userName: user.name, temporaryPassword, loginUrl: env.BETTER_AUTH_URL, projectName }),
+	);
+	return { subject, html };
+}
+
+export function buildBudgetLimitReachedEmail(
+	user: { name: string },
+	providerLabel: string,
+	limitUsd: number,
+	currentSpendUsd: number,
+	period: string,
+	resetLabel: string,
+): CreatedEmail {
+	const subject = `Budget limit reached for ${providerLabel} on nao`;
+	const html = renderToString(
+		BudgetLimitReached({
+			userName: user.name,
+			providerLabel,
+			limitUsd,
+			currentSpendUsd,
+			period,
+			resetLabel,
+		}),
 	);
 	return { subject, html };
 }

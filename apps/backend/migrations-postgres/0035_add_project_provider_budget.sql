@@ -6,6 +6,7 @@ CREATE TABLE "project_provider_budget" (
 	"period" text NOT NULL,
 	"current_period_start" timestamp DEFAULT now() NOT NULL,
 	"created_at" timestamp DEFAULT now() NOT NULL,
+	"notified_at" timestamp,
 	"updated_at" timestamp DEFAULT now() NOT NULL,
 	CONSTRAINT "project_provider_budget_project_provider" UNIQUE("project_id","provider")
 );

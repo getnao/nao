@@ -22,7 +22,7 @@ import { whatsappRoutes } from './routes/whatsapp';
 import { posthog, PostHogEvent } from './services/posthog';
 import { TrpcRouter, trpcRouter } from './trpc/router';
 import { createContext } from './trpc/trpc';
-import { HandlerError } from './utils/error';
+import { BudgetExceededError, HandlerError } from './utils/error';
 import { startLogCleanup } from './utils/log-cleanup';
 import { logger } from './utils/logger';
 
@@ -69,6 +69,9 @@ app.setErrorHandler((error, request, reply) => {
 		source: 'http',
 		context: { method: request.method, url: request.url, statusCode },
 	});
+	if (error instanceof BudgetExceededError) {
+		return reply.status(error.code).send({ error: error.message, code: 'BUDGET_EXCEEDED' });
+	}
 	if (error instanceof HandlerError) {
 		return reply.status(error.code).send({ error: error.message });
 	}

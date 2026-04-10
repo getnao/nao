@@ -1,3 +1,4 @@
+import { providerLabels } from '@nao/shared/types';
 import type { Granularity } from '@nao/backend/usage';
 import type { LlmProvider } from '@nao/shared/types';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';

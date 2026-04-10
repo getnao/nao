@@ -50,8 +50,7 @@ function RouteComponent() {
 	const queryClient = useQueryClient();
 	const setBudgetsMutation = useMutation(
 		trpc.budget.setBudgets.mutationOptions({
-			onSuccess: () =>
-				queryClient.invalidateQueries({ queryKey: trpc.budget.getBudgets.queryOptions().queryKey }),
+			onSuccess: () => queryClient.invalidateQueries({ queryKey: [['budget']] }),
 		}),
 	);
 

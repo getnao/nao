@@ -404,6 +404,7 @@ export const projectProviderBudget = sqliteTable(
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull(),
+		notifiedAt: integer('notified_at', { mode: 'timestamp_ms' }),
 		updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.$onUpdate(() => new Date())

@@ -142,3 +142,11 @@ export const getProviderPeriodCosts = async (
 	}
 	return result;
 };
+
+export const markBudgetNotified = async (budgetId: string): Promise<void> => {
+	await db
+		.update(s.projectProviderBudget)
+		.set({ notifiedAt: new Date() })
+		.where(eq(s.projectProviderBudget.id, budgetId))
+		.execute();
+};

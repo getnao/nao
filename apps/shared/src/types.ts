@@ -17,6 +17,18 @@ export const LLM_PROVIDERS = [
 	'vertex',
 	'azure',
 ] as const;
+
+export const providerLabels: Record<LlmProvider, string> = {
+	openai: 'OpenAI',
+	anthropic: 'Anthropic',
+	google: 'Google',
+	mistral: 'Mistral',
+	openrouter: 'OpenRouter',
+	ollama: 'Ollama',
+	bedrock: 'AWS Bedrock',
+	vertex: 'Google Vertex',
+};
+
 export type LlmProvider = (typeof LLM_PROVIDERS)[number];
 
 export type LlmSelectedModel = {
@@ -49,6 +61,7 @@ export type ImageUploadData = {
 	data: string;
 };
 
+export const WARNING_BUDGET_THRESHOLD = 0.8;
 export const MAX_BUDGET_LIMIT_USD = 200_000;
 
 export const BUDGET_PERIODS = ['day', 'week', 'month'] as const;

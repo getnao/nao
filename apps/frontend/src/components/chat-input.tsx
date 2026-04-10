@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { Plus, PencilRuler, Database, Image as ImageIcon } from 'lucide-react';
+import { Plus, PencilRuler, Database, Image as ImageIcon, AlertTriangle } from 'lucide-react';
 import { Button, ChatButton, MicButton } from './ui/button';
 import { SlidingWaveform } from './chat-input-sliding-waveform';
 import { ChatPrompt, STORY_MENTION_ID, DATABASE_MENTION_TRIGGER } from './chat-input-prompt';
@@ -21,6 +21,7 @@ import { useAgentContext } from '@/contexts/agent.provider';
 import { useRegisterSetChatInputCallback } from '@/contexts/set-chat-input-callback';
 import { useTranscribe } from '@/hooks/use-transcribe';
 import { useImageUpload } from '@/hooks/use-image-upload';
+import { parseBudgetError } from '@/lib/ai';
 import { cn } from '@/lib/utils';
 import { useChatId } from '@/hooks/use-chat-id';
 import { messageQueueStore } from '@/stores/chat-message-queue';
@@ -253,6 +254,7 @@ function ChatInputBase({
 	return (
 		<div ref={dropZoneRef} className={cn('px-3 pb-3 pt-0 md:px-4 md:pb-4 max-w-3xl w-full mx-auto', className)}>
 			<ChatInputMessageQueue onEditMessage={handleEditQueuedMessage} onSubmitNow={submitQueuedMessageNow} />
+			<BudgetBanner />
 
 			<form onSubmit={handleSubmitMessage} className='mx-auto relative'>
 				<InputGroup
@@ -332,6 +334,34 @@ function ChatInputBase({
 					</InputGroupAddon>
 				</InputGroup>
 			</form>
+		</div>
+	);
+}
+
+function BudgetBanner() {
+	const { error, selectedModel } = useAgentContext();
+
+	const budgetStatus = useQuery({
+		...trpc.budget.checkBudgetStatus.queryOptions({ provider: selectedModel?.provider ?? 'openai' }),
+		enabled: !!selectedModel?.provider,
+		refetchOnWindowFocus: false,
+	});
+
+	const errorMessage = parseBudgetError(error);
+	const level = errorMessage ? 'exceeded' : (budgetStatus.data?.level ?? 'ok');
+	const proactiveMessage = level !== 'ok' ? budgetStatus.data?.message : null;
+	const message = errorMessage ?? proactiveMessage;
+
+	if (!message) {
+		return null;
+	}
+
+	const isExceeded = level === 'exceeded';
+
+	return (
+		<div className='mb-2 flex items-start gap-2.5 rounded-2xl border border-input/50 bg-muted/50 px-3 py-2.5 text-sm text-muted-foreground animate-in fade-in slide-in-from-bottom-2 duration-200'>
+			<AlertTriangle className={cn('size-4 shrink-0 mt-0.5', isExceeded ? 'text-red-500' : 'text-amber-500')} />
+			<p className='flex-1 min-w-0'>{message}</p>
 		</div>
 	);
 }
