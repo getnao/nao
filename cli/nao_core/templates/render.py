@@ -112,10 +112,12 @@ def render_template(
     # Register custom filters
     import json
 
-    env.filters["to_json"] = lambda v, indent=None: json.dumps(v, indent=indent, default=str, ensure_ascii=False)
+    # Create the nao context first so filters share its FileProvider cache
+    nao = create_nao_context(config, project_path=project_path)
 
-    # Create the nao context
-    nao = create_nao_context(config)
+    env.filters["to_json"] = lambda v, indent=None: json.dumps(v, indent=indent, default=str, ensure_ascii=False)
+    env.filters["read_yaml"] = lambda path: nao.file.yaml(path)
+    env.filters["read_text"] = lambda path: nao.file.text(path)
 
     # Load and render the template
     template = env.get_template(str(template_path))

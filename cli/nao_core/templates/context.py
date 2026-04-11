@@ -6,16 +6,205 @@ allowing them to access data from various providers like Notion, databases, etc.
 Example template usage:
     {{ nao.notion.page('https://notion.so/...').content }}
     {{ nao.notion.page('abc123').title }}
+    {{ nao.file.yaml('metadata.yaml').description }}
+    {{ nao.file.text('README.md') }}
 """
 
 from __future__ import annotations
 
+import csv
+import io
+import json
 from dataclasses import dataclass
 from functools import cached_property
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+import yaml
 
 if TYPE_CHECKING:
     from nao_core.config.base import NaoConfig
+
+MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+
+
+class FileProvider:
+    """Provider for reading local project files in templates.
+
+    All paths are relative to the project root. Absolute paths and
+    path traversal (e.g. `../../etc/passwd`) are rejected.
+
+    Example:
+        {{ nao.file.yaml('config/metadata.yaml').description }}
+        {{ nao.file.text('docs/intro.md') }}
+        {{ nao.file.glob('schemas/*.yaml') }}
+    """
+
+    def __init__(self, project_path: Path):
+        self._project_path = project_path
+        self._cache: dict[str, Any] = {}
+
+    def _validate_path(self, path: str) -> Path:
+        """Validate and resolve a relative path against the project root."""
+        p = Path(path)
+        if p.is_absolute():
+            raise ValueError(f"Absolute paths are not allowed: '{path}'. Use a relative path from the project root.")
+
+        resolved = (self._project_path / p).resolve()
+        if not resolved.is_relative_to(self._project_path.resolve()):
+            raise ValueError(f"Path traversal is not allowed: '{path}'. Path must stay within the project directory.")
+
+        return resolved
+
+    def _read_file(self, path: str) -> str:
+        """Read a file with size and permission checks, using cache."""
+        cache_key = f"text:{path}"
+        if cache_key in self._cache:
+            return self._cache[cache_key]
+
+        resolved = self._validate_path(path)
+
+        if not resolved.exists():
+            suggestion = self._suggest_similar(path)
+            msg = f"File not found: '{path}'"
+            if suggestion:
+                msg += f". Did you mean: {suggestion}?"
+            raise FileNotFoundError(msg)
+
+        size = resolved.stat().st_size
+        if size > MAX_FILE_SIZE:
+            raise ValueError(f"File exceeds 10MB limit: '{path}' ({size / 1024 / 1024:.1f}MB)")
+
+        try:
+            content = resolved.read_text(encoding="utf-8")
+        except PermissionError:
+            raise PermissionError(f"Permission denied: '{path}'") from None
+        except UnicodeDecodeError:
+            raise ValueError(f"Cannot read '{path}': file is not valid UTF-8 text") from None
+
+        self._cache[cache_key] = content
+        return content
+
+    def _suggest_similar(self, path: str) -> str | None:
+        """Find similar files to suggest on FileNotFoundError."""
+        target = Path(path)
+        parent = self._project_path / target.parent
+        if not parent.exists():
+            return None
+
+        suffix = target.suffix or ""
+        candidates = [
+            str(p.relative_to(self._project_path))
+            for p in parent.iterdir()
+            if p.is_file() and (not suffix or p.suffix == suffix)
+        ]
+        if not candidates:
+            return None
+
+        return ", ".join(sorted(candidates)[:3])
+
+    def yaml(self, path: str) -> Any:
+        """Read and parse a YAML file.
+
+        Returns a dict (or list) from the YAML content.
+        Empty YAML files return an empty dict.
+        """
+        cache_key = f"yaml:{path}"
+        if cache_key in self._cache:
+            return self._cache[cache_key]
+
+        content = self._read_file(path)
+        try:
+            result = yaml.safe_load(content)
+        except yaml.YAMLError as e:
+            raise ValueError(f"Failed to parse YAML in '{path}': {e}") from e
+
+        # Normalize empty YAML (returns None) to empty dict
+        if result is None:
+            result = {}
+
+        self._cache[cache_key] = result
+        return result
+
+    def json(self, path: str) -> Any:
+        """Read and parse a JSON file."""
+        cache_key = f"json:{path}"
+        if cache_key in self._cache:
+            return self._cache[cache_key]
+
+        content = self._read_file(path)
+        try:
+            result = json.loads(content)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Failed to parse JSON in '{path}': {e}") from e
+
+        self._cache[cache_key] = result
+        return result
+
+    def csv(self, path: str) -> list[dict[str, str]]:
+        """Read a CSV file as a list of dicts (one per row)."""
+        cache_key = f"csv:{path}"
+        if cache_key in self._cache:
+            return self._cache[cache_key]
+
+        content = self._read_file(path)
+        try:
+            reader = csv.DictReader(io.StringIO(content))
+            result = list(reader)
+        except csv.Error as e:
+            raise ValueError(f"Failed to parse CSV in '{path}': {e}") from e
+
+        self._cache[cache_key] = result
+        return result
+
+    def text(self, path: str) -> str:
+        """Read a file as a UTF-8 string."""
+        return self._read_file(path)
+
+    def frontmatter(self, path: str) -> dict[str, Any]:
+        """Parse YAML frontmatter from a markdown file.
+
+        Returns {'meta': dict, 'content': str}.
+        """
+        cache_key = f"frontmatter:{path}"
+        if cache_key in self._cache:
+            return self._cache[cache_key]
+
+        content = self._read_file(path)
+
+        if content.startswith("---"):
+            parts = content.split("---", 2)
+            if len(parts) >= 3:
+                try:
+                    meta = yaml.safe_load(parts[1]) or {}
+                except yaml.YAMLError as e:
+                    raise ValueError(f"Failed to parse frontmatter in '{path}': {e}") from e
+                result = {"meta": meta, "content": parts[2].strip()}
+            else:
+                result = {"meta": {}, "content": content}
+        else:
+            result = {"meta": {}, "content": content}
+
+        self._cache[cache_key] = result
+        return result
+
+    def glob(self, pattern: str) -> list[str]:
+        """Return matching file paths relative to the project root."""
+        resolved_root = self._project_path.resolve()
+        matches = [
+            str(p.relative_to(resolved_root))
+            for p in resolved_root.glob(pattern)
+            if p.is_file() and p.resolve().is_relative_to(resolved_root)
+        ]
+        return sorted(matches)
+
+    def exists(self, path: str) -> bool:
+        """Check if a file exists within the project root."""
+        try:
+            resolved = self._validate_path(path)
+            return resolved.exists()
+        except ValueError:
+            return False
 
 
 @dataclass
@@ -153,8 +342,25 @@ class NaoContext:
         {{ nao.config.project_name }}
     """
 
-    def __init__(self, config: NaoConfig):
+    def __init__(self, config: NaoConfig, project_path: Path | None = None):
         self._config = config
+        self._project_path = project_path
+
+    @cached_property
+    def file(self) -> FileProvider:
+        """Access local project files.
+
+        Example:
+            {{ nao.file.yaml('metadata.yaml') }}
+            {{ nao.file.text('README.md') }}
+        """
+        if self._project_path is None:
+            raise RuntimeError(
+                "File reading requires a project path. "
+                "This context was created without a project_path — "
+                "ensure nao sync is run from a valid nao project directory."
+            )
+        return FileProvider(self._project_path)
 
     @cached_property
     def notion(self) -> NotionProvider:
@@ -174,25 +380,15 @@ class NaoContext:
         """
         return self._config
 
-    # Future providers can be added here:
-    # @cached_property
-    # def database(self) -> DatabaseProvider:
-    #     """Access database tables and schemas."""
-    #     return DatabaseProvider(self._config)
-    #
-    # @cached_property
-    # def repo(self) -> RepoProvider:
-    #     """Access git repository files."""
-    #     return RepoProvider(self._config)
 
-
-def create_nao_context(config: NaoConfig) -> NaoContext:
+def create_nao_context(config: NaoConfig, project_path: Path | None = None) -> NaoContext:
     """Create a NaoContext for template rendering.
 
     Args:
         config: The nao configuration.
+        project_path: Path to the nao project root (enables file reading).
 
     Returns:
         A NaoContext instance to be used as `nao` in templates.
     """
-    return NaoContext(config)
+    return NaoContext(config, project_path=project_path)

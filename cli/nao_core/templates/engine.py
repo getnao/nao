@@ -74,8 +74,26 @@ class TemplateEngine:
             text = str(text)
             return text[:half] + "..." + text[-half:]
 
+        from .context import FileProvider
+
+        file_provider = FileProvider(self.project_path) if self.project_path else None
+
+        def read_yaml(path: str) -> Any:
+            """Read and parse a YAML file relative to project root."""
+            if not file_provider:
+                raise RuntimeError("read_yaml filter requires a project path.")
+            return file_provider.yaml(path)
+
+        def read_text(path: str) -> str:
+            """Read a text file relative to project root."""
+            if not file_provider:
+                raise RuntimeError("read_text filter requires a project path.")
+            return file_provider.text(path)
+
         self.env.filters["to_json"] = to_json
         self.env.filters["truncate_middle"] = truncate_middle
+        self.env.filters["read_yaml"] = read_yaml
+        self.env.filters["read_text"] = read_text
 
     def _register_globals(self) -> None:
         """Register template global helper functions."""
