@@ -604,13 +604,14 @@ class TestBuildPartitionFilter:
 
 
 class TestFetchSchemaPartitionMetadata:
-    def _mock_conn(self, column_rows, partition_rows, required_filter_table_names):
+    def _mock_conn(self, column_rows, partition_rows, required_filter_table_names, clustering_rows=None):
         """Helper: build a mock conn whose raw_sql returns appropriate rows per call."""
         mock_conn = MagicMock()
         results = [
             column_rows,
             partition_rows,
             [(name,) for name in required_filter_table_names],
+            clustering_rows or [],
         ]
         mock_conn.raw_sql.side_effect = results
         return mock_conn
@@ -659,6 +660,7 @@ class TestFetchSchemaPartitionMetadata:
             [],
             [],
             Exception("permission denied"),
+            [],
         ]
 
         result = _fetch_schema_partition_metadata(mock_conn, "my-project", "my_schema")
@@ -741,3 +743,96 @@ class TestTablePartitionMetadata:
             require_partition_filter=True,
         )
         assert meta.require_partition_filter is True
+
+    def test_clustering_columns_defaults_to_empty(self):
+        meta = TablePartitionMetadata(
+            partition_column="event_date",
+            partition_column_type="DATE",
+            last_partition_id="20260310",
+            total_rows=100,
+        )
+        assert meta.clustering_columns == []
+
+    def test_clustering_columns_can_be_set(self):
+        meta = TablePartitionMetadata(
+            partition_column="event_date",
+            partition_column_type="DATE",
+            last_partition_id="20260310",
+            total_rows=100,
+            clustering_columns=["user_id", "event_type"],
+        )
+        assert meta.clustering_columns == ["user_id", "event_type"]
+
+
+class TestClusteringColumns:
+    def test_clustering_columns_fetched_in_batch(self):
+        mock_conn = MagicMock()
+        mock_conn.raw_sql.side_effect = [
+            [("events_v1", "event_date", "DATE")],
+            [("events_v1", ["20260310"], 5000)],
+            [],
+            [("events_v1", "user_id"), ("events_v1", "event_type")],
+        ]
+
+        result = _fetch_schema_partition_metadata(mock_conn, "my-project", "my_schema")
+
+        assert result["events_v1"].clustering_columns == ["user_id", "event_type"]
+
+    def test_clustering_columns_empty_when_none_exist(self):
+        mock_conn = MagicMock()
+        mock_conn.raw_sql.side_effect = [
+            [("events_v1", "event_date", "DATE")],
+            [("events_v1", ["20260310"], 5000)],
+            [],
+            [],
+        ]
+
+        result = _fetch_schema_partition_metadata(mock_conn, "my-project", "my_schema")
+
+        assert result["events_v1"].clustering_columns == []
+
+    def test_clustering_query_failure_does_not_crash(self):
+        mock_conn = MagicMock()
+        mock_conn.raw_sql.side_effect = [
+            [("events_v1", "event_date", "DATE")],
+            [("events_v1", ["20260310"], 5000)],
+            [],
+            Exception("permission denied"),
+        ]
+
+        result = _fetch_schema_partition_metadata(mock_conn, "my-project", "my_schema")
+
+        assert result["events_v1"].partition_column == "event_date"
+        assert result["events_v1"].clustering_columns == []
+
+    def test_table_with_only_clustering_no_partition(self):
+        mock_conn = MagicMock()
+        mock_conn.raw_sql.side_effect = [
+            [],
+            [],
+            [],
+            [("logs", "user_id"), ("logs", "timestamp")],
+        ]
+
+        result = _fetch_schema_partition_metadata(mock_conn, "my-project", "my_schema")
+
+        assert "logs" in result
+        assert result["logs"].partition_column is None
+        assert result["logs"].clustering_columns == ["user_id", "timestamp"]
+
+    def test_context_clustering_columns_from_metadata(self):
+        meta = TablePartitionMetadata(
+            partition_column="event_date",
+            partition_column_type="DATE",
+            last_partition_id="20260310",
+            total_rows=100,
+            clustering_columns=["user_id", "event_type"],
+        )
+        ctx, _ = _make_context(partition_metadata=meta)
+
+        assert ctx.clustering_columns() == ["user_id", "event_type"]
+
+    def test_context_clustering_columns_empty_when_no_metadata(self):
+        ctx, _ = _make_context(partition_metadata=None)
+
+        assert ctx.clustering_columns() == []

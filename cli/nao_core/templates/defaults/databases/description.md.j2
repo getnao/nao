@@ -44,13 +44,25 @@ _No description available._
 
 {% set partitions = db.partition_columns() %}
 {% if partitions %}
-## Partition / Clustering columns
+## Partition columns
 
 {% for col in partitions %}
 - {{ col }}
 {% endfor %}
 
 > When querying this table, always filter on {% for col in partitions %}{{ col }}{% if not loop.last %}, {% endif %}{% endfor %} for best performance.
+
+{% endif %}
+
+{% set clustering = db.clustering_columns() %}
+{% if clustering %}
+## Clustering columns
+
+{% for col in clustering %}
+- {{ col }}
+{% endfor %}
+
+> Filtering or ordering by {% for col in clustering %}{{ col }}{% if not loop.last %}, {% endif %}{% endfor %} improves query performance.
 
 {% endif %}
 

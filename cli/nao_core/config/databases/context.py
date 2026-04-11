@@ -68,7 +68,11 @@ class DatabaseContext:
         return rows
 
     def partition_columns(self) -> list[str]:
-        """Return partition/clustering column names if available."""
+        """Return partition column names if available."""
+        return []
+
+    def clustering_columns(self) -> list[str]:
+        """Return clustering column names if available."""
         return []
 
     def is_partitioned(self) -> bool:
