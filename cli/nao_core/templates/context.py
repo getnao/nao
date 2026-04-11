@@ -71,6 +71,9 @@ class FileProvider:
                 msg += f". Did you mean: {suggestion}?"
             raise FileNotFoundError(msg)
 
+        if resolved.is_dir():
+            raise ValueError(f"'{path}' is a directory, not a file")
+
         size = resolved.stat().st_size
         if size > MAX_FILE_SIZE:
             raise ValueError(f"File exceeds 10MB limit: '{path}' ({size / 1024 / 1024:.1f}MB)")
@@ -89,7 +92,7 @@ class FileProvider:
         """Find similar files to suggest on FileNotFoundError."""
         target = Path(path)
         parent = self._project_path / target.parent
-        if not parent.exists():
+        if not parent.is_dir():
             return None
 
         suffix = target.suffix or ""
@@ -190,6 +193,9 @@ class FileProvider:
 
     def glob(self, pattern: str) -> list[str]:
         """Return matching file paths relative to the project root."""
+        if ".." in pattern:
+            raise ValueError(f"Path traversal is not allowed in glob pattern: '{pattern}'")
+
         resolved_root = self._project_path.resolve()
         matches = [
             str(p.relative_to(resolved_root))

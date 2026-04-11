@@ -144,6 +144,14 @@ class TestPathSecurity:
         result = provider.yaml("schemas/users.yaml")
         assert result == {"table": "users"}
 
+    def test_directory_path_rejected(self, provider: FileProvider):
+        with pytest.raises(ValueError, match="is a directory"):
+            provider.text("schemas")
+
+    def test_glob_traversal_rejected(self, provider: FileProvider):
+        with pytest.raises(ValueError, match="Path traversal is not allowed"):
+            provider.glob("../../**/*")
+
 
 class TestMissingFile:
     def test_file_not_found_with_suggestion(self, provider: FileProvider):
