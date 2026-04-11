@@ -17,11 +17,13 @@ def extract_page_id(page_url: str) -> str:
     - https://www.notion.so/2bfc7a70bc0680978900d1e85ece83a0
     - https://www.notion.so/Page-2bfc7a70bc0680978900d1e85ece83a0?v=abc
     - 2bfc7a70bc0680978900d1e85ece83a0 (raw ID)
+    - 2BFC7A70-BC06-8097-8900-D1E85ECE83A0 (dashed UUID, any case)
     """
-    stripped = page_url.strip()
-    # Raw 32-char hex ID
-    if re.fullmatch(r"[a-f0-9]{32}", stripped):
-        return stripped
+    stripped = page_url.strip().lower()
+    # Dashed UUID -> strip dashes
+    nodash = stripped.replace("-", "")
+    if re.fullmatch(r"[a-f0-9]{32}", nodash) and len(stripped) <= 36:
+        return nodash
     match = NOTION_PAGE_ID_PATTERN.search(stripped)
     if match:
         return match.group(1)

@@ -48,17 +48,18 @@ def notion(
         UI.error("No Notion pages configured.")
         return
 
-    # Build a map of page_id -> index for existing pages
+    # Build a map of page_id -> all indices for existing pages
     existing_pages = list(notion_config["pages"])
-    id_to_index: dict[str, int] = {}
+    id_to_indices: dict[str, list[int]] = {}
     for i, page in enumerate(existing_pages):
         try:
             pid = extract_page_id(str(page))
-            id_to_index[pid] = i
+            id_to_indices.setdefault(pid, []).append(i)
         except ValueError:
             pass
 
     removed: list[str] = []
+    seen_ids: set[str] = set()
     has_errors = False
     indices_to_remove: set[int] = set()
 
@@ -70,8 +71,12 @@ def notion(
             UI.error(f"Invalid Notion page URL or ID: {page}")
             continue
 
-        if page_id in id_to_index:
-            indices_to_remove.add(id_to_index[page_id])
+        if page_id in seen_ids:
+            continue
+        seen_ids.add(page_id)
+
+        if page_id in id_to_indices:
+            indices_to_remove.update(id_to_indices[page_id])
             removed.append(page_id)
         else:
             UI.warn(f"Page {page_id} not found in configuration, skipping.")

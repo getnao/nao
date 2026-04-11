@@ -44,6 +44,15 @@ class TestExtractPageId:
         url = "https://www.notion.so/My-Great-Page-Title-2bfc7a70bc0680978900d1e85ece83a0"
         assert extract_page_id(url) == "2bfc7a70bc0680978900d1e85ece83a0"
 
+    def test_uppercase_hex_id(self):
+        assert extract_page_id("2BFC7A70BC0680978900D1E85ECE83A0") == "2bfc7a70bc0680978900d1e85ece83a0"
+
+    def test_dashed_uuid(self):
+        assert extract_page_id("2bfc7a70-bc06-8097-8900-d1e85ece83a0") == "2bfc7a70bc0680978900d1e85ece83a0"
+
+    def test_uppercase_dashed_uuid(self):
+        assert extract_page_id("2BFC7A70-BC06-8097-8900-D1E85ECE83A0") == "2bfc7a70bc0680978900d1e85ece83a0"
+
     def test_backward_compat_with_provider_import(self):
         """Verify the import redirect in provider.py still works."""
         from nao_core.commands.sync.providers.notion.provider import extract_page_id as provider_extract
