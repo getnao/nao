@@ -28,7 +28,7 @@ def sync(
     provider: Annotated[
         list[str] | None,
         Parameter(
-            name=["-p", "--provider"],
+            name=["-p", "--provider", "--providers"],
             help=f"Provider(s) to sync. Use `-p provider:name` to sync a specific connection (e.g. databases:my-db). Or just `-p databases` to sync all connections. Options: {', '.join(PROVIDER_CHOICES)}",
         ),
     ] = None,
