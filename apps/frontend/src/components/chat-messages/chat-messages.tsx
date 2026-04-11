@@ -1,6 +1,7 @@
-import { memo, useMemo, useRef } from 'react';
+import { Component, memo, useMemo, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useParams, useRouterState } from '@tanstack/react-router';
+import { AlertCircleIcon } from 'lucide-react';
 import { TextShimmer } from '../ui/text-shimmer';
 import { ChatError } from './chat-error';
 import { FollowUpSuggestions } from './follow-up-suggestions';
@@ -30,6 +31,32 @@ import { trpc } from '@/main';
 
 const DEBUG_MESSAGES = false;
 
+class ChatErrorBoundary extends Component<
+	{ children: React.ReactNode },
+	{ hasError: boolean; error?: Error }
+> {
+	state = { hasError: false, error: undefined as Error | undefined };
+
+	static getDerivedStateFromError(error: Error) {
+		return { hasError: true, error };
+	}
+
+	render() {
+		if (this.state.hasError) {
+			return (
+				<div className='flex items-start gap-2.5 px-4 py-3 text-red-500 m-4'>
+					<AlertCircleIcon className='size-4 shrink-0 mt-1' />
+					<div className='text-sm'>
+						<span className='font-medium'>Something went wrong</span>
+						<p className='text-red-400 mt-1 leading-relaxed'>{this.state.error?.message}</p>
+					</div>
+				</div>
+			);
+		}
+		return this.props.children;
+	}
+}
+
 export function ChatMessages() {
 	const chatId = useParams({ strict: false }).chatId;
 	const contentRef = useRef<HTMLDivElement>(null);
@@ -47,7 +74,9 @@ export function ChatMessages() {
 		>
 			<Conversation>
 				<ConversationContent className='max-w-3xl mx-auto gap-0 pt-15 max-md:pt-0'>
-					<ChatMessagesContent />
+					<ChatErrorBoundary>
+						<ChatMessagesContent />
+					</ChatErrorBoundary>
 				</ConversationContent>
 
 				<ConversationScrollButton />
