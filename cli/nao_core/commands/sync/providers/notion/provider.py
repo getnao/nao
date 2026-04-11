@@ -6,14 +6,11 @@ from rich.console import Console
 from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn
 
 from nao_core.config.base import NaoConfig
-from nao_core.config.notion import NotionConfig
+from nao_core.config.notion import NOTION_PAGE_ID_PATTERN, NotionConfig, extract_page_id  # noqa: F401
 
 from ..base import SyncProvider, SyncResult
 
 console = Console()
-
-# Notion page IDs are 32-character hex strings (UUID without dashes)
-NOTION_PAGE_ID_PATTERN = re.compile(r"[a-f0-9]{32}")
 
 
 def cleanup_stale_pages(synced_files: set[str], output_path: Path, verbose: bool = False) -> int:
@@ -49,20 +46,6 @@ IMAGE_PATTERN = re.compile(r"!\[[^\]]*\]\([^)]+\)\n?")
 def strip_images(markdown: str) -> str:
     """Replace markdown image references with a placeholder."""
     return IMAGE_PATTERN.sub("[image]\n", markdown)
-
-
-def extract_page_id(page_url: str) -> str:
-    """Extract Notion page ID from a URL.
-
-    Handles URLs like:
-    - https://www.notion.so/naolabs/Conversational-analytics-2bfc7a70bc0680978900d1e85ece83a0
-    - https://www.notion.so/2bfc7a70bc0680978900d1e85ece83a0
-    - 2bfc7a70bc0680978900d1e85ece83a0 (raw ID)
-    """
-    match = NOTION_PAGE_ID_PATTERN.search(page_url)
-    if match:
-        return match.group(0)
-    raise ValueError(f"Could not extract Notion page ID from: {page_url}")
 
 
 def get_page_title(client: Any, page_id: str) -> str:

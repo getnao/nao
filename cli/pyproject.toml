@@ -25,6 +25,7 @@ dependencies = [
     "cyclopts>=4.4.4",
     "pydantic>=2.10.0",
     "pyyaml>=6.0.0",
+    "ruamel.yaml>=0.18.0",
     "rich>=14.0.0",
     "ibis-framework>=9.0.0",
     "fastapi>=0.128.0",
