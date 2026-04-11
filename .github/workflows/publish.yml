@@ -100,12 +100,12 @@ jobs:
               working-directory: cli
               run: |
                   if [ "${{ matrix.platform }}" = "win" ]; then
-                    ./nao_core/bin/nao-chat-server.exe --help
-                    STATUS=$?
+                    STATUS=0
+                    ./nao_core/bin/nao-chat-server.exe --help || STATUS=$?
                   else
                     chmod +x ./nao_core/bin/nao-chat-server
-                    ./nao_core/bin/nao-chat-server --help
-                    STATUS=$?
+                    STATUS=0
+                    ./nao_core/bin/nao-chat-server --help || STATUS=$?
                   fi
                   # Exit codes 126 (cannot execute) and 127 (not found) mean the OS
                   # could not load the binary — wrong platform or missing file.
