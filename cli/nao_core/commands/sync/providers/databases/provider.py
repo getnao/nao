@@ -261,6 +261,21 @@ def sync_database(
                 f"  [green]✓ {schema}[/green] [dim]— {len(tables)} tables synced in {schema_dur}{error_suffix}[/dim]"
             )
 
+            semantic_views = db_config.get_semantic_views(conn, schema)
+            if semantic_views:
+                for sv in semantic_views:
+                    sv_path = schema_path / f"semantic_view={sv['name']}"
+                    sv_path.mkdir(parents=True, exist_ok=True)
+                    content_parts = [f"# {sv['name']}\n"]
+                    if sv.get("comment"):
+                        content_parts.append(f"{sv['comment']}\n")
+                    if sv.get("definition"):
+                        content_parts.append("## Definition\n")
+                        content_parts.append(f"```yaml\n{sv['definition']}\n```\n")
+                    (sv_path / "definition.md").write_text("\n".join(content_parts))
+                    state.add_table(schema, sv["name"])
+                console.print(f"  [green]✓ {schema}[/green] [dim]— {len(semantic_views)} semantic views synced[/dim]")
+
             progress.update(schema_task, advance=1)
 
         if total_errors:

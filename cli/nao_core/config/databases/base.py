@@ -223,6 +223,10 @@ class DatabaseConfig(BaseModel, ABC):
 
         return DatabaseContext(conn, schema, table_name)
 
+    def get_semantic_views(self, conn: "BaseBackend", schema: str) -> list[dict[str, str]]:
+        """Fetch semantic views for a schema. Override in subclasses that support semantic views."""
+        return []
+
     def get_query_history_sql(self, days: int) -> str | None:
         """Return SQL to fetch query history for the last N days.
 
