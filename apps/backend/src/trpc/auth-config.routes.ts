@@ -51,14 +51,14 @@ export const authConfigRoutes = {
 		isSetup: publicProcedure.query(() => emailService.isEnabled()),
 		getSettings: adminProtectedProcedure.query(async () => {
 			const config = await orgQueries.getSmtpConfig();
-			return { ...config, password: config.password ? '••••••••' : '' };
+			return { ...config, hasPassword: !!config.password, password: undefined };
 		}),
 		updateSettings: adminProtectedProcedure
 			.input(
 				z.object({
 					host: z.string(),
-					port: z.string(),
-					ssl: z.string(),
+					port: z.string().regex(/^\d*$/, 'Port must be a number').optional().default('587'),
+					ssl: z.enum(['true', 'false']).optional().default('false'),
 					mailFrom: z.string(),
 					password: z.string(),
 				}),
@@ -68,8 +68,7 @@ export const authConfigRoutes = {
 				if (!org) {
 					throw new TRPCError({ code: 'NOT_FOUND', message: 'No organization found' });
 				}
-				const currentConfig = await orgQueries.getSmtpConfig();
-				const password = input.password === '••••••••' ? (currentConfig.password || null) : (input.password || null);
+				const password = input.password ? input.password : (org.smtpPassword || null);
 				await orgQueries.updateSmtpSettings(org.id, {
 					smtpHost: input.host || null,
 					smtpPort: input.port || null,

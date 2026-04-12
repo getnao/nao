@@ -28,12 +28,15 @@ export function SmtpForm({ hasExistingConfig, initialValues, onSubmit, onCancel,
         defaultValues: {
             host: initialValues?.host ?? '',
             port: initialValues?.port ?? '587',
-            ssl: initialValues?.ssl ?? 'false',
+            ssl: initialValues?.ssl === 'true',
             mailFrom: initialValues?.mailFrom ?? '',
             password: '',
         },
         onSubmit: async ({ value }) => {
-            await onSubmit(value);
+            await onSubmit({
+                ...value,
+                ssl: value.ssl ? 'true' : 'false',
+            });
         },
     });
 
@@ -61,14 +64,27 @@ export function SmtpForm({ hasExistingConfig, initialValues, onSubmit, onCancel,
                     placeholder='smtp.gmail.com'
                     required={!hasExistingConfig}
                 />
-                <TextField form={form} name='port' label='Port' placeholder='587' />
                 <TextField
                     form={form}
-                    name='ssl'
-                    label='SSL/TLS'
-                    placeholder='false'
-                    hint='Set to "true" for port 465'
+                    name='port'
+                    label='Port'
+                    placeholder='587'
+                    hint='Common ports: 587 (STARTTLS), 465 (SSL)'
                 />
+                <form.Field name='ssl'>
+                    {(field) => (
+                        <label className='flex items-center gap-2 text-sm cursor-pointer'>
+                            <input
+                                type='checkbox'
+                                checked={field.state.value}
+                                onChange={(e) => field.handleChange(e.target.checked)}
+                                className='rounded'
+                            />
+                            <span>Use SSL/TLS</span>
+                            <span className='text-xs text-muted-foreground'>(enable for port 465)</span>
+                        </label>
+                    )}
+                </form.Field>
                 <TextField
                     form={form}
                     name='mailFrom'

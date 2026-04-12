@@ -26,7 +26,10 @@ export function useSmtpSettings() {
         mailFrom: string;
         password: string;
     }) => {
-        await updateSettings.mutateAsync(values);
+        await updateSettings.mutateAsync({
+            ...values,
+            ssl: values.ssl as 'true' | 'false',
+        });
         await invalidateQueries();
         setEditingState(null);
         updateSettings.reset();
