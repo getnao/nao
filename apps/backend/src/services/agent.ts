@@ -38,6 +38,7 @@ import {
 	TokenCost,
 	TokenUsage,
 	UIMessage,
+	ThinkingLevel,
 } from '../types/chat';
 import { Provider } from '../types/messaging-provider';
 import { ToolContext } from '../types/tools';
@@ -73,10 +74,10 @@ export type AgentChat = Pick<DBChat, 'id' | 'projectId' | 'userId'> & {
 export class AgentService {
 	private _agents = new Map<string, AgentManager>();
 
-	async create(chat: AgentChat, modelSelection?: LlmSelectedModel): Promise<AgentManager> {
+	async create(chat: AgentChat, modelSelection?: LlmSelectedModel, thinkingLevel?: ThinkingLevel): Promise<AgentManager> {
 		this._disposeAgent(chat.id);
 		const resolvedLlmSelectedModel = await this._getResolvedLlmSelectedModel(chat.projectId, modelSelection);
-		const modelConfig = await this._getModelConfig(chat.projectId, resolvedLlmSelectedModel);
+		const modelConfig = await this._getModelConfig(chat.projectId, resolvedLlmSelectedModel, thinkingLevel);
 		const agentSettings = await projectQueries.getAgentSettings(chat.projectId);
 		const toolContext = await this._getToolContext(chat.projectId, chat.id, agentSettings);
 		const webTools = await this._resolveWebTools(chat.projectId, resolvedLlmSelectedModel.provider, agentSettings);
@@ -166,8 +167,12 @@ export class AgentService {
 		return createWebSearchTools(provider, settings);
 	}
 
-	protected async _getModelConfig(projectId: string, modelSelection: LlmSelectedModel): Promise<ProviderModelResult> {
-		const result = await resolveProviderModel(projectId, modelSelection.provider, modelSelection.modelId);
+	protected async _getModelConfig(
+		projectId: string,
+		modelSelection: LlmSelectedModel,
+		thinkingLevel?: ThinkingLevel,
+	): Promise<ProviderModelResult> {
+		const result = await resolveProviderModel(projectId, modelSelection.provider, modelSelection.modelId, thinkingLevel);
 		if (!result) {
 			throw new HandlerError('BAD_REQUEST', 'The selected model could not be resolved.');
 		}

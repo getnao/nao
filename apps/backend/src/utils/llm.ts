@@ -1,6 +1,7 @@
 import type { LlmProvider, LlmSelectedModel } from '@nao/shared/types';
 
 import { createProviderModel, getDefaultModelId, LLM_PROVIDERS, type ProviderModelResult } from '../agents/providers';
+import type { ThinkingLevel } from '../types/chat';
 import * as projectLlmConfigQueries from '../queries/project-llm-config.queries';
 import type { ProviderSettings } from '../types/llm';
 
@@ -96,6 +97,7 @@ export async function resolveProviderModel(
 	projectId: string,
 	provider: LlmProvider,
 	modelId: string,
+	thinkingLevel?: ThinkingLevel,
 ): Promise<ProviderModelResult | null> {
 	const config = await projectLlmConfigQueries.getProjectLlmConfigByProvider(projectId, provider);
 	if (config) {
@@ -107,6 +109,7 @@ export async function resolveProviderModel(
 				...(config.credentials && { credentials: config.credentials }),
 			},
 			modelId,
+			thinkingLevel,
 		);
 	}
 
@@ -117,11 +120,12 @@ export async function resolveProviderModel(
 			provider,
 			{ apiKey: envApiKey, ...(envBaseUrl && { baseURL: envBaseUrl }) },
 			modelId,
+			thinkingLevel,
 		);
 	}
 
 	if (hasEnvApiKey(provider)) {
-		return createProviderModel(provider, { apiKey: '' }, modelId);
+		return createProviderModel(provider, { apiKey: '' }, modelId, thinkingLevel);
 	}
 
 	return null;

@@ -139,6 +139,9 @@ export const AgentRequestUserMessageSchema = z.object({
 	images: z.array(AgentRequestImageSchema).optional(),
 });
 
+export const thinkingLevelSchema = z.enum(['fast', 'balanced', 'deep']);
+export type ThinkingLevel = z.infer<typeof thinkingLevelSchema>;
+
 export type AgentRequest = z.infer<typeof AgentRequestSchema>;
 export const AgentRequestSchema = z.object({
 	message: AgentRequestUserMessageSchema,
@@ -147,4 +150,5 @@ export const AgentRequestSchema = z.object({
 	model: llmSelectedModelSchema.optional(),
 	mentions: z.array(MentionSchema).optional(),
 	timezone: z.string().optional(),
+	thinkingLevel: thinkingLevelSchema.optional(),
 });

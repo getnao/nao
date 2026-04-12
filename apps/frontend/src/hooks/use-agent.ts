@@ -11,7 +11,7 @@ import type { FileUIPart, InferUIMessageChunk } from 'ai';
 import type { UseChatHelpers } from '@ai-sdk/react';
 import type { UIMessage } from '@nao/backend/chat';
 import type { MentionOption } from 'prompt-mentions';
-import type { ImageUploadData, LlmSelectedModel } from '@nao/shared/types';
+import type { ImageUploadData, LlmSelectedModel, ThinkingLevel } from '@nao/shared/types';
 import { messageQueueStore } from '@/stores/chat-message-queue';
 import { chatActivityStore } from '@/stores/chat-activity';
 import { useChatQuery, useSetChat } from '@/queries/use-chat-query';
@@ -42,6 +42,8 @@ export interface AgentHelpers {
 	clearError: UseChatHelpers<UIMessage>['clearError'];
 	selectedModel: LlmSelectedModel | null;
 	setSelectedModel: React.Dispatch<React.SetStateAction<LlmSelectedModel | null>>;
+	thinkingLevel: ThinkingLevel;
+	setThinkingLevel: React.Dispatch<React.SetStateAction<ThinkingLevel>>;
 	setMentions: (mentions: MentionOption[]) => void;
 }
 
@@ -51,6 +53,7 @@ export interface SendMessageArgs {
 }
 
 export const selectedModelStorage = createLocalStorage<LlmSelectedModel>('nao-selected-model');
+export const thinkingLevelStorage = createLocalStorage<ThinkingLevel>('nao-thinking-level', 'balanced');
 
 export const useAgent = ({ disableNavigation = false }: { disableNavigation?: boolean } = {}): AgentHelpers => {
 	const navigate = useNavigate();
@@ -58,6 +61,7 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 	const chat = useChatQuery({ chatId });
 
 	const [selectedModel, setSelectedModel] = useLocalStorage(selectedModelStorage);
+	const [thinkingLevel, setThinkingLevel] = useLocalStorage(thinkingLevelStorage);
 	const setChat = useSetChat();
 	const setChatList = useSetChatList();
 
@@ -65,6 +69,8 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 	chatIdRef.current = chatId;
 	const selectedModelRef = useRef<LlmSelectedModel | null>(null);
 	selectedModelRef.current = selectedModel;
+	const thinkingLevelRef = useRef<ThinkingLevel>(thinkingLevel ?? 'balanced');
+	thinkingLevelRef.current = thinkingLevel ?? 'balanced';
 	const mentionsRef = useRef<MentionOption[]>([]);
 
 	const setMentions = useCallback((mentions: MentionOption[]) => {
@@ -136,6 +142,7 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 							model: selectedModelRef.current ?? undefined,
 							mentions: mentions.length > 0 ? mentions : undefined,
 							timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+							thinkingLevel: thinkingLevelRef.current,
 						},
 					};
 				},
@@ -274,6 +281,8 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 		clearError,
 		selectedModel,
 		setSelectedModel,
+		thinkingLevel: thinkingLevel ?? ('balanced' as ThinkingLevel),
+		setThinkingLevel,
 		setMentions,
 	});
 };

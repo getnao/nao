@@ -56,6 +56,8 @@ export const ReadonlyAgentMessagesProvider = ({
 			clearError: noop,
 			selectedModel: null,
 			setSelectedModel: noop,
+			thinkingLevel: 'balanced',
+			setThinkingLevel: noop,
 			setMentions: noop,
 		}),
 		[chatId, messages],

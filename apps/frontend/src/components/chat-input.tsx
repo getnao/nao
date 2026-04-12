@@ -6,6 +6,7 @@ import { Button, ChatButton, MicButton } from './ui/button';
 import { SlidingWaveform } from './chat-input-sliding-waveform';
 import { ChatPrompt, STORY_MENTION_ID, DATABASE_MENTION_TRIGGER } from './chat-input-prompt';
 import { ChatInputModelSelect } from './chat-input-model-select';
+import { ChatInputThinkingSelect } from './chat-input-thinking-select';
 import { ChatInputMessageQueue } from './chat-input-message-queue';
 import { ChatInputImagePreview } from './chat-input-image-preview';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './ui/dropdown-menu';
@@ -79,7 +80,8 @@ function ChatInputBase({
 	allowQueueing,
 }: ChatInputBaseProps) {
 	const [inputText, setInputText] = useState('');
-	const { isRunning, stopAgent, isLoadingMessages, setMentions, submitQueuedMessageNow } = useAgentContext();
+	const { isRunning, stopAgent, isLoadingMessages, setMentions, submitQueuedMessageNow, thinkingLevel, setThinkingLevel } =
+		useAgentContext();
 	const chatId = useChatId();
 	const imageUpload = useImageUpload();
 	const effectivePlaceholder = isRunning && allowQueueing ? 'Add a follow-up...' : placeholder;
@@ -277,7 +279,15 @@ function ChatInputBase({
 					/>
 
 					<InputGroupAddon align='block-end'>
-						{(!isTranscribeReady || (!isRecording && !isTranscribing)) && <ChatInputModelSelect />}
+						{(!isTranscribeReady || (!isRecording && !isTranscribing)) && (
+							<div className='flex items-center gap-3'>
+								<ChatInputModelSelect />
+								<ChatInputThinkingSelect
+									value={thinkingLevel}
+									onChange={setThinkingLevel}
+								/>
+							</div>
+						)}
 
 						{isTranscribeReady && isRecording && <SlidingWaveform analyserRef={analyserRef} />}
 

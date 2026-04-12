@@ -19,6 +19,9 @@ export const LLM_PROVIDERS = [
 ] as const;
 export type LlmProvider = (typeof LLM_PROVIDERS)[number];
 
+export const THINKING_LEVELS = ['fast', 'balanced', 'deep'] as const;
+export type ThinkingLevel = (typeof THINKING_LEVELS)[number];
+
 export type LlmSelectedModel = {
 	provider: LlmProvider;
 	modelId: string;

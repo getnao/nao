@@ -23,7 +23,7 @@ interface HandleAgentMessageResult {
 }
 
 export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<HandleAgentMessageResult> => {
-	const { userId, message, messageToEditId, model, mentions, projectId } = opts;
+	const { userId, message, messageToEditId, model, mentions, projectId, thinkingLevel } = opts;
 
 	if (!projectId) {
 		throw new HandlerError(
@@ -59,7 +59,7 @@ export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<H
 	await mcpService.initializeMcpState(projectId);
 	await skillService.initializeSkills(projectId);
 
-	const agent = await agentService.create({ ...chat, userId, projectId }, model);
+	const agent = await agentService.create({ ...chat, userId, projectId }, model, thinkingLevel);
 
 	const stream = agent.stream(chat.messages, {
 		mentions,

@@ -10,6 +10,7 @@ import type { LlmProvider } from '@nao/shared/types';
 import { createOpenRouter, LanguageModelV3 } from '@openrouter/ai-sdk-provider';
 import { createOllama } from 'ai-sdk-ollama';
 
+import type { ThinkingLevel } from '../types/chat';
 import type { LlmProvidersType, ProviderConfigMap, ProviderSettings } from '../types/llm';
 import { PROVIDER_META } from './provider-meta';
 
@@ -143,21 +144,60 @@ export type ProviderModelResult = {
 	contextWindow: number;
 };
 
+const ANTHROPIC_THINKING_BUDGETS: Record<ThinkingLevel, number> = {
+	fast: 0,
+	balanced: 10_000,
+	deep: 50_000,
+};
+
+const OPENAI_REASONING_EFFORT: Record<ThinkingLevel, 'low' | 'medium' | 'high'> = {
+	fast: 'low',
+	balanced: 'medium',
+	deep: 'high',
+};
+
+function buildThinkingOptions(
+	provider: LlmProvider,
+	thinkingLevel?: ThinkingLevel,
+): Partial<ProviderConfigMap[typeof provider]> {
+	if (!thinkingLevel) {
+		return {};
+	}
+
+	if (provider === 'anthropic' || provider === 'bedrock') {
+		const budget = ANTHROPIC_THINKING_BUDGETS[thinkingLevel];
+		if (budget === 0) {
+			return {};
+		}
+		return { thinking: { type: 'enabled', budgetTokens: budget } } as Partial<ProviderConfigMap[typeof provider]>;
+	}
+
+	if (provider === 'openai' || provider === 'azure') {
+		return { reasoningEffort: OPENAI_REASONING_EFFORT[thinkingLevel] } as Partial<
+			ProviderConfigMap[typeof provider]
+		>;
+	}
+
+	return {};
+}
+
 /** Create a language model instance with merged provider options */
 export function createProviderModel(
 	provider: LlmProvider,
 	settings: ProviderSettings,
 	modelId: string,
+	thinkingLevel?: ThinkingLevel,
 ): ProviderModelResult {
 	const providerConfig = LLM_PROVIDERS[provider];
 	const defaultOptions = providerConfig.defaultOptions ?? {};
 	const modelConfig = getProviderModelConfig(provider, modelId);
+	const thinkingOptions = buildThinkingOptions(provider, thinkingLevel);
 	const contextWindow = providerConfig.models.find((m) => m.id === modelId)?.contextWindow ?? 200_000;
 
 	return {
 		model: providerConfig.create(settings, modelId),
 		providerOptions: {
-			[provider]: { ...defaultOptions, ...modelConfig },
+			[provider]: { ...defaultOptions, ...modelConfig, ...thinkingOptions },
 		},
 		contextWindow,
 	};
