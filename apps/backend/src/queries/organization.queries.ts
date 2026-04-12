@@ -87,6 +87,37 @@ export const getGoogleConfig = async () => {
 	};
 };
 
+export const updateSmtpSettings = async (
+	orgId: string,
+	settings: {
+		smtpHost: string | null;
+		smtpPort: string | null;
+		smtpSsl: string | null;
+		smtpMailFrom: string | null;
+		smtpPassword: string | null;
+	},
+): Promise<DBOrganization> => {
+	const [updated] = await db
+		.update(s.organization)
+		.set(settings)
+		.where(eq(s.organization.id, orgId))
+		.returning()
+		.execute();
+	return updated;
+};
+
+export const getSmtpConfig = async () => {
+	const org = await getFirstOrganization();
+	return {
+		host: org?.smtpHost || env.SMTP_HOST || '',
+		port: org?.smtpPort || env.SMTP_PORT || '',
+		ssl: org?.smtpSsl || env.SMTP_SSL || 'false',
+		mailFrom: org?.smtpMailFrom || env.SMTP_MAIL_FROM || '',
+		password: org?.smtpPassword || env.SMTP_PASSWORD || '',
+		usingDbOverride: !!(org?.smtpHost && org?.smtpMailFrom),
+	};
+};
+
 export const getOrCreateDefaultOrganization = async (): Promise<DBOrganization> => {
 	const existing = await getFirstOrganization();
 	if (existing) {

@@ -49,5 +49,37 @@ export const authConfigRoutes = {
 	},
 	smtp: {
 		isSetup: publicProcedure.query(() => emailService.isEnabled()),
+		getSettings: adminProtectedProcedure.query(async () => {
+			const config = await orgQueries.getSmtpConfig();
+			return { ...config, password: config.password ? '••••••••' : '' };
+		}),
+		updateSettings: adminProtectedProcedure
+			.input(
+				z.object({
+					host: z.string(),
+					port: z.string(),
+					ssl: z.string(),
+					mailFrom: z.string(),
+					password: z.string(),
+				}),
+			)
+			.mutation(async ({ input }) => {
+				const org = await orgQueries.getFirstOrganization();
+				if (!org) {
+					throw new TRPCError({ code: 'NOT_FOUND', message: 'No organization found' });
+				}
+				const currentConfig = await orgQueries.getSmtpConfig();
+				const password = input.password === '••••••••' ? (currentConfig.password || null) : (input.password || null);
+				await orgQueries.updateSmtpSettings(org.id, {
+					smtpHost: input.host || null,
+					smtpPort: input.port || null,
+					smtpSsl: input.ssl || null,
+					smtpMailFrom: input.mailFrom || null,
+					smtpPassword: password,
+				});
+				const updatedConfig = await orgQueries.getSmtpConfig();
+				emailService.reload(updatedConfig);
+				return { success: true };
+			}),
 	},
 };

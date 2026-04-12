@@ -108,6 +108,12 @@ export const organization = pgTable('organization', {
 	googleClientId: text('google_client_id'),
 	googleClientSecret: text('google_client_secret'),
 	googleAuthDomains: text('google_auth_domains'), // comma-separated list
+	// SMTP config
+	smtpHost: text('smtp_host'),
+	smtpPort: text('smtp_port'),
+	smtpSsl: text('smtp_ssl'),
+	smtpMailFrom: text('smtp_mail_from'),
+	smtpPassword: text('smtp_password'),
 	createdAt: timestamp('created_at').defaultNow().notNull(),
 	updatedAt: timestamp('updated_at')
 		.defaultNow()

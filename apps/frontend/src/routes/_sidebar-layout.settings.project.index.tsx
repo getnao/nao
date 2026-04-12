@@ -1,6 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { GoogleConfigSection } from '@/components/settings/google-credentials-section';
+import { SmtpConfigSection } from '@/components/settings/smtp-config-section';
 import { SettingsCard } from '@/components/ui/settings-card';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -44,6 +45,17 @@ function ProjectTabPage() {
 					</div>
 				) : (
 					<GoogleConfigSection isAdmin={isAdmin} />
+				)}
+			</SettingsCard>
+
+			<SettingsCard title='Email (SMTP)'>
+				{project.isLoading ? (
+					<div className='space-y-2'>
+						<Skeleton className='h-4 w-40' />
+						<Skeleton className='h-4 w-full max-w-xs' />
+					</div>
+				) : (
+					<SmtpConfigSection isAdmin={isAdmin} />
 				)}
 			</SettingsCard>
 		</>
