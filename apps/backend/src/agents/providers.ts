@@ -158,13 +158,15 @@ const OPENAI_REASONING_EFFORT: Record<ThinkingLevel, 'low' | 'medium' | 'high'> 
 
 function buildThinkingOptions(
 	provider: LlmProvider,
+	modelId: string,
 	thinkingLevel?: ThinkingLevel,
 ): Partial<ProviderConfigMap[typeof provider]> {
 	if (!thinkingLevel) {
 		return {};
 	}
 
-	if (provider === 'anthropic' || provider === 'bedrock') {
+	const isAnthropicModel = provider === 'anthropic' || (provider === 'bedrock' && modelId.includes('anthropic'));
+	if (isAnthropicModel) {
 		const budget = ANTHROPIC_THINKING_BUDGETS[thinkingLevel];
 		if (budget === 0) {
 			return {};
@@ -191,7 +193,7 @@ export function createProviderModel(
 	const providerConfig = LLM_PROVIDERS[provider];
 	const defaultOptions = providerConfig.defaultOptions ?? {};
 	const modelConfig = getProviderModelConfig(provider, modelId);
-	const thinkingOptions = buildThinkingOptions(provider, thinkingLevel);
+	const thinkingOptions = buildThinkingOptions(provider, modelId, thinkingLevel);
 	const contextWindow = providerConfig.models.find((m) => m.id === modelId)?.contextWindow ?? 200_000;
 
 	return {
