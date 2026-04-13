@@ -413,6 +413,7 @@ export const projectProviderBudget = sqliteTable(
 	(t) => [
 		index('project_provider_budget_projectId_idx').on(t.projectId),
 		unique('project_provider_budget_project_provider').on(t.projectId, t.provider),
+		check('budget_period_valid', sql.raw(`period IN (${BUDGET_PERIODS.map((p) => `'${p}'`).join(', ')})`)),
 	],
 );
 

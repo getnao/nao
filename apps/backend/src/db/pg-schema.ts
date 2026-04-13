@@ -392,6 +392,7 @@ export const projectProviderBudget = pgTable(
 	(t) => [
 		index('project_provider_budget_projectId_idx').on(t.projectId),
 		unique('project_provider_budget_project_provider').on(t.projectId, t.provider),
+		check('budget_period_valid', sql`${t.period} IN (${sql.raw(BUDGET_PERIODS.map((p) => `'${p}'`).join(', '))})`),
 	],
 );
 

@@ -92,7 +92,7 @@ function RouteComponent() {
 	}
 
 	function updateBudget(provider: string, budget: number) {
-		const clamped = Math.min(MAX_BUDGET_LIMIT_USD, Math.max(0, budget));
+		const clamped = Math.round(Math.min(MAX_BUDGET_LIMIT_USD, Math.max(0, budget)));
 		setBudgets((prev) => ({ ...prev, [provider]: clamped }));
 		if (clamped === 0) {
 			setPeriods((prev) => ({ ...prev, [provider]: 'none' }));

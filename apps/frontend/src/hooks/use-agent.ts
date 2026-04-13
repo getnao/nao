@@ -192,7 +192,11 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 		}
 		const lastMsg = messages.at(-1);
 		if (lastMsg?.role === 'user') {
-			setMessages(messages.slice(0, -1));
+			const nextMessages = messages.slice(0, -1);
+			setMessages(nextMessages);
+			if (chatIdRef.current) {
+				setChat({ chatId: chatIdRef.current }, (prev) => (prev ? { ...prev, messages: nextMessages } : prev));
+			}
 		}
 	}, [error]); // eslint-disable-line react-hooks/exhaustive-deps
 

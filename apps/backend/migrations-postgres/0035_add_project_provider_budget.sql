@@ -4,6 +4,7 @@ CREATE TABLE "project_provider_budget" (
 	"provider" text NOT NULL,
 	"limit_usd" integer NOT NULL,
 	"period" text NOT NULL,
+	CONSTRAINT "budget_period_valid" CHECK ("project_provider_budget"."period" IN ('day', 'week', 'month')),
 	"current_period_start" timestamp DEFAULT now() NOT NULL,
 	"created_at" timestamp DEFAULT now() NOT NULL,
 	"notified_at" timestamp,

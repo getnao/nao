@@ -59,7 +59,12 @@ export async function notifyAdminsOnBudgetLimitReached(
 		return;
 	}
 
-	if (!shouldNotify(budget)) {
+	if (!shouldAttemptNotify(budget)) {
+		return;
+	}
+
+	const claimed = await budgetQueries.markBudgetNotified(budget);
+	if (!claimed) {
 		return;
 	}
 
@@ -84,13 +89,12 @@ export async function notifyAdminsOnBudgetLimitReached(
 				),
 			),
 		);
-		await budgetQueries.markBudgetNotified(budget.id);
 	} catch (error) {
 		logger.error(`Failed to send budget limit notification: ${String(error)}`, { source: 'system' });
 	}
 }
 
-function shouldNotify(budget: DBProjectProviderBudget): boolean {
+function shouldAttemptNotify(budget: DBProjectProviderBudget): boolean {
 	if (!budget.notifiedAt) {
 		return true;
 	}
@@ -101,5 +105,5 @@ function formatResetDate(date: Date, period: BudgetPeriod): string {
 	if (period === 'day') {
 		return 'tomorrow';
 	}
-	return `on ${date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}`;
+	return `on ${date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'UTC' })}`;
 }

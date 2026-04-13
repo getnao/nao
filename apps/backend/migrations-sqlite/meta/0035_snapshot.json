@@ -1835,7 +1835,12 @@
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
-      "checkConstraints": {}
+      "checkConstraints": {
+        "budget_period_valid": {
+          "name": "budget_period_valid",
+          "value": "period IN ('day', 'week', 'month')"
+        }
+      }
     },
     "project_saved_prompt": {
       "name": "project_saved_prompt",

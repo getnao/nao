@@ -84,22 +84,61 @@ export const upsertProjectProviderBudget = async (
 	return created;
 };
 
-export const deleteProjectProviderBudgets = async (
+export const setBudgets = async (
 	projectId: string,
-	activeProviders: LlmProvider[],
-): Promise<void> => {
-	if (activeProviders.length === 0) {
-		return;
-	}
-	await db
-		.delete(s.projectProviderBudget)
-		.where(
-			and(
-				eq(s.projectProviderBudget.projectId, projectId),
-				notInArray(s.projectProviderBudget.provider, activeProviders),
-			),
-		)
-		.execute();
+	budgets: Array<{ provider: LlmProvider; limitUsd: number; period: BudgetPeriod }>,
+): Promise<DBProjectProviderBudget[]> => {
+	const activeProviders = budgets.map((b) => b.provider);
+
+	return db.transaction(async (tx) => {
+		const deleteConditions = [eq(s.projectProviderBudget.projectId, projectId)];
+		if (activeProviders.length > 0) {
+			deleteConditions.push(notInArray(s.projectProviderBudget.provider, activeProviders));
+		}
+		await tx
+			.delete(s.projectProviderBudget)
+			.where(and(...deleteConditions))
+			.execute();
+
+		const results = await Promise.all(
+			budgets.map(async ({ provider, limitUsd, period }) => {
+				const [existing] = await tx
+					.select()
+					.from(s.projectProviderBudget)
+					.where(
+						and(
+							eq(s.projectProviderBudget.projectId, projectId),
+							eq(s.projectProviderBudget.provider, provider),
+						),
+					)
+					.execute();
+
+				if (existing) {
+					const periodChanged = existing.period !== period;
+					const [updated] = await tx
+						.update(s.projectProviderBudget)
+						.set({
+							limitUsd,
+							period,
+							...(periodChanged && { currentPeriodStart: new Date() }),
+						})
+						.where(eq(s.projectProviderBudget.id, existing.id))
+						.returning()
+						.execute();
+					return updated;
+				}
+
+				const [created] = await tx
+					.insert(s.projectProviderBudget)
+					.values({ projectId, provider, limitUsd, period })
+					.returning()
+					.execute();
+				return created;
+			}),
+		);
+
+		return results;
+	});
 };
 
 export const getProviderPeriodCosts = async (
@@ -143,10 +182,17 @@ export const getProviderPeriodCosts = async (
 	return result;
 };
 
-export const markBudgetNotified = async (budgetId: string): Promise<void> => {
-	await db
+export const markBudgetNotified = async (budget: DBProjectProviderBudget): Promise<boolean> => {
+	const notifiedCondition = budget.notifiedAt
+		? sql`${s.projectProviderBudget.notifiedAt} = ${budget.notifiedAt}`
+		: sql`${s.projectProviderBudget.notifiedAt} IS NULL`;
+
+	const rows = await db
 		.update(s.projectProviderBudget)
 		.set({ notifiedAt: new Date() })
-		.where(eq(s.projectProviderBudget.id, budgetId))
+		.where(and(eq(s.projectProviderBudget.id, budget.id), notifiedCondition))
+		.returning({ id: s.projectProviderBudget.id })
 		.execute();
+
+	return rows.length > 0;
 };

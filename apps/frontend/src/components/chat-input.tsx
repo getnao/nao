@@ -80,7 +80,8 @@ function ChatInputBase({
 	allowQueueing,
 }: ChatInputBaseProps) {
 	const [inputText, setInputText] = useState('');
-	const { isRunning, stopAgent, isLoadingMessages, setMentions, submitQueuedMessageNow } = useAgentContext();
+	const { isRunning, stopAgent, isLoadingMessages, setMentions, submitQueuedMessageNow, error, selectedModel } =
+		useAgentContext();
 	const chatId = useChatId();
 	const imageUpload = useImageUpload();
 	const effectivePlaceholder = isRunning && allowQueueing ? 'Add a follow-up...' : placeholder;
@@ -90,6 +91,13 @@ function ChatInputBase({
 	const isTranscribeEnabled = agentSettings.data?.transcribe?.enabled ?? false;
 	const hasTranscribeProvider = Object.values(transcribeModels.data ?? {}).some((p) => p.hasKey);
 	const isTranscribeReady = isTranscribeEnabled && hasTranscribeProvider;
+
+	const budgetStatus = useQuery({
+		...trpc.budget.checkBudgetStatus.queryOptions({ provider: selectedModel?.provider ?? 'openai' }),
+		enabled: !!selectedModel?.provider,
+		refetchOnWindowFocus: false,
+	});
+	const isBudgetExceeded = !!parseBudgetError(error) || budgetStatus.data?.level === 'exceeded';
 
 	const [micWarning, setMicWarning] = useState(false);
 	const micWarningTimer = useRef(0);
@@ -176,7 +184,7 @@ function ChatInputBase({
 				return;
 			}
 
-			if (isRunning && !allowQueueing) {
+			if ((isRunning && !allowQueueing) || isBudgetExceeded) {
 				return;
 			}
 
@@ -196,6 +204,7 @@ function ChatInputBase({
 			onSubmitMessage,
 			isRunning,
 			allowQueueing,
+			isBudgetExceeded,
 			setMentions,
 			promptRef,
 			imageUpload,
@@ -318,14 +327,14 @@ function ChatInputBase({
 							{allowQueueing && isRunning ? (
 								<ChatButton
 									showStop={isInputEmpty}
-									disabled={false}
+									disabled={!isInputEmpty && isBudgetExceeded}
 									onClick={isInputEmpty ? stopAgent : handleSubmitMessage}
 									type='button'
 								/>
 							) : (
 								<ChatButton
 									showStop={isRunning}
-									disabled={isLoadingMessages || isInputEmpty}
+									disabled={isLoadingMessages || isInputEmpty || (!isRunning && isBudgetExceeded)}
 									onClick={isRunning ? stopAgent : handleSubmitMessage}
 									type='button'
 								/>
@@ -339,7 +348,16 @@ function ChatInputBase({
 }
 
 function BudgetBanner() {
-	const { error, selectedModel } = useAgentContext();
+	const { error, clearError, selectedModel } = useAgentContext();
+	const prevProviderRef = useRef(selectedModel?.provider);
+
+	useEffect(() => {
+		const prev = prevProviderRef.current;
+		prevProviderRef.current = selectedModel?.provider;
+		if (prev && prev !== selectedModel?.provider && parseBudgetError(error)) {
+			clearError();
+		}
+	}, [selectedModel?.provider, error, clearError]);
 
 	const budgetStatus = useQuery({
 		...trpc.budget.checkBudgetStatus.queryOptions({ provider: selectedModel?.provider ?? 'openai' }),

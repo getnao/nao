@@ -34,16 +34,6 @@ export const budgetRoutes = {
 		}),
 
 	setBudgets: adminProtectedProcedure.input(setBudgetsInputSchema).mutation(async ({ ctx, input }) => {
-		const activeProviders = input.budgets.map((b) => b.provider);
-
-		await budgetQueries.deleteProjectProviderBudgets(ctx.project.id, activeProviders);
-
-		const results = await Promise.all(
-			input.budgets.map((b) =>
-				budgetQueries.upsertProjectProviderBudget(ctx.project.id, b.provider, b.limitUsd, b.period),
-			),
-		);
-
-		return results;
+		return budgetQueries.setBudgets(ctx.project.id, input.budgets);
 	}),
 };

@@ -1932,7 +1932,12 @@
         }
       },
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "budget_period_valid": {
+          "name": "budget_period_valid",
+          "value": "\"project_provider_budget\".\"period\" IN ('day', 'week', 'month')"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.project_saved_prompt": {
