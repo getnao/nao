@@ -63,7 +63,13 @@ export async function notifyAdminsOnBudgetLimitReached(
 		return;
 	}
 
-	const claimed = await budgetQueries.markBudgetNotified(budget);
+	const allMembers = await projectQueries.getAllUsersWithRoles(projectId);
+	const admins = allMembers.filter((m) => m.role === 'admin');
+	if (admins.length === 0) {
+		return;
+	}
+
+	const claimed = await budgetQueries.claimBudgetNotification(budget);
 	if (!claimed) {
 		return;
 	}
@@ -72,13 +78,6 @@ export async function notifyAdminsOnBudgetLimitReached(
 	const label = providerLabels[budget.provider as LlmProvider] ?? budget.provider;
 	const resetDate = getNextPeriodReset(period);
 	const resetLabel = formatResetDate(resetDate, period);
-
-	const allMembers = await projectQueries.getAllUsersWithRoles(projectId);
-	const admins = allMembers.filter((m) => m.role === 'admin');
-
-	if (admins.length === 0) {
-		return;
-	}
 
 	try {
 		await Promise.all(
@@ -90,6 +89,7 @@ export async function notifyAdminsOnBudgetLimitReached(
 			),
 		);
 	} catch (error) {
+		await budgetQueries.rollbackBudgetNotification(budget).catch(() => {});
 		logger.error(`Failed to send budget limit notification: ${String(error)}`, { source: 'system' });
 	}
 }

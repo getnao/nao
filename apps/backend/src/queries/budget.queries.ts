@@ -182,7 +182,7 @@ export const getProviderPeriodCosts = async (
 	return result;
 };
 
-export const markBudgetNotified = async (budget: DBProjectProviderBudget): Promise<boolean> => {
+export const claimBudgetNotification = async (budget: DBProjectProviderBudget): Promise<boolean> => {
 	const notifiedCondition = budget.notifiedAt
 		? sql`${s.projectProviderBudget.notifiedAt} = ${budget.notifiedAt}`
 		: sql`${s.projectProviderBudget.notifiedAt} IS NULL`;
@@ -195,4 +195,12 @@ export const markBudgetNotified = async (budget: DBProjectProviderBudget): Promi
 		.execute();
 
 	return rows.length > 0;
+};
+
+export const rollbackBudgetNotification = async (budget: DBProjectProviderBudget): Promise<void> => {
+	await db
+		.update(s.projectProviderBudget)
+		.set({ notifiedAt: budget.notifiedAt })
+		.where(eq(s.projectProviderBudget.id, budget.id))
+		.execute();
 };
