@@ -4,16 +4,15 @@ import type { executeSql } from '@nao/shared/tools';
 import { Block, CodeBlock, ListItem, Span, Title, TitledList } from '../../lib/markdown';
 import { truncateMiddle } from '../../utils/utils';
 
-const MAX_ROWS = 20;
-
-export const ExecuteSqlOutput = ({ output, maxRows = MAX_ROWS }: { output: executeSql.Output; maxRows?: number }) => {
+export const ExecuteSqlOutput = ({ output, maxRows }: { output: executeSql.Output; maxRows?: number }) => {
 	if (output.data.length === 0) {
 		return <Block>The query was successfully executed and returned no rows.</Block>;
 	}
 
-	const isTruncated = output.data.length > maxRows;
-	const visibleRows = isTruncated ? output.data.slice(0, maxRows) : output.data;
-	const remainingRows = isTruncated ? output.data.length - maxRows : 0;
+	const effectiveMaxRows = maxRows ?? output.data.length;
+	const isTruncated = output.data.length > effectiveMaxRows;
+	const visibleRows = isTruncated ? output.data.slice(0, effectiveMaxRows) : output.data;
+	const remainingRows = isTruncated ? output.data.length - effectiveMaxRows : 0;
 
 	return (
 		<Block>

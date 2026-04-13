@@ -118,4 +118,25 @@ name: Bob
 ...(1 more)`,
 		);
 	});
+
+	it('does not truncate rows by default', () => {
+		const data = Array.from({ length: 25 }, (_, i) => ({
+			id: i + 1,
+			name: `User ${i + 1}`,
+		}));
+
+		const result = renderToMarkdown(
+			<ExecuteSqlOutput
+				output={{
+					id: 'query_all_rows',
+					columns: ['id', 'name'],
+					row_count: data.length,
+					data,
+				}}
+			/>,
+		);
+
+		expect(result).toContain('```#25');
+		expect(result).not.toContain('...(5 more)');
+	});
 });
