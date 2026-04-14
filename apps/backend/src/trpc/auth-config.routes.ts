@@ -68,7 +68,7 @@ export const authConfigRoutes = {
 				if (!org) {
 					throw new TRPCError({ code: 'NOT_FOUND', message: 'No organization found' });
 				}
-				const password = input.password ? input.password : (org.smtpPassword || null);
+				const password = input.password ? input.password : org.smtpPassword || null;
 				await orgQueries.updateSmtpSettings(org.id, {
 					smtpHost: input.host || null,
 					smtpPort: input.port || null,
