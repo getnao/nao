@@ -24,6 +24,9 @@ export const MEMORY_TOKEN_LIMIT = 1000;
 export function SystemPrompt({ memories = [], userRules, connections = [], skills = [], timezone }: SystemPromptProps) {
 	const visibleMemories = getMemoriesInTokenRange(memories, MEMORY_TOKEN_LIMIT);
 	const hasClickHouse = connections.some((connection) => connection.type.toLowerCase() === 'clickhouse');
+	const hasTSQL = connections.some((connection) => ['mssql', 'fabric'].includes(connection.type.toLowerCase()));
+	const hasBigQuery = connections.some((connection) => connection.type.toLowerCase() === 'bigquery');
+	const hasMySQL = connections.some((connection) => connection.type.toLowerCase() === 'mysql');
 
 	return (
 		<Block>
@@ -114,6 +117,44 @@ export function SystemPrompt({ memories = [], userRules, connections = [], skill
 				<ListItem>
 					Never assume columns names, if available, use the columns.md file to get the column names.
 				</ListItem>
+				{hasTSQL && (
+					<>
+						<ListItem>
+							<Bold>T-SQL dialect (Fabric/MSSQL):</Bold> Use TOP N instead of LIMIT N (e.g. SELECT TOP
+							10 * FROM table).
+						</ListItem>
+						<ListItem>
+							Do not use GROUP BY ALL — explicitly list all non-aggregated columns in the GROUP BY
+							clause.
+						</ListItem>
+						<ListItem>
+							Use T-SQL date functions (DATEADD, DATEDIFF, CONVERT, FORMAT) instead of PostgreSQL-style
+							intervals or TO_CHAR.
+						</ListItem>
+						<ListItem>Use ISNULL() instead of COALESCE() when there are only two arguments.</ListItem>
+					</>
+				)}
+				{hasBigQuery && (
+					<>
+						<ListItem>
+							<Bold>BigQuery dialect:</Bold> Use backtick-quoted identifiers (e.g.{' '}
+							{`\`project.dataset.table\``}).
+						</ListItem>
+						<ListItem>
+							Use SAFE_DIVIDE for division to avoid division-by-zero errors.
+						</ListItem>
+					</>
+				)}
+				{hasMySQL && (
+					<>
+						<ListItem>
+							<Bold>MySQL dialect:</Bold> Use backtick-quoted identifiers for column and table names.
+						</ListItem>
+						<ListItem>
+							Use IFNULL() instead of COALESCE() when there are only two arguments.
+						</ListItem>
+					</>
+				)}
 			</List>
 			<Title level={2}>Citations Rules</Title>
 			<List>
