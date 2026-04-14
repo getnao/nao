@@ -8,6 +8,14 @@ interface SmtpConfigSectionProps {
 }
 
 export function SmtpConfigSection({ isAdmin }: SmtpConfigSectionProps) {
+	if (!isAdmin) {
+		return <p className='text-sm text-muted-foreground'>Contact your admin to update SMTP settings.</p>;
+	}
+
+	return <SmtpConfigAdmin />;
+}
+
+function SmtpConfigAdmin() {
 	const {
 		settings,
 		usingDbOverride,
@@ -18,10 +26,6 @@ export function SmtpConfigSection({ isAdmin }: SmtpConfigSectionProps) {
 		handleCancel,
 		handleEdit,
 	} = useSmtpSettings();
-
-	if (!isAdmin) {
-		return <p className='text-sm text-muted-foreground'>Contact your admin to update SMTP settings.</p>;
-	}
 
 	if (editingState?.isEditing) {
 		return (
@@ -71,11 +75,9 @@ export function SmtpConfigSection({ isAdmin }: SmtpConfigSectionProps) {
 						<span className='text-xs font-mono text-muted-foreground'>From: {settings.mailFrom}</span>
 					</div>
 				</div>
-				{isAdmin && (
-					<Button variant='ghost' size='icon-sm' onClick={handleEdit}>
-						<Pencil className='size-3 text-muted-foreground' />
-					</Button>
-				)}
+				<Button variant='ghost' size='icon-sm' onClick={handleEdit}>
+					<Pencil className='size-3 text-muted-foreground' />
+				</Button>
 			</div>
 		</div>
 	);
