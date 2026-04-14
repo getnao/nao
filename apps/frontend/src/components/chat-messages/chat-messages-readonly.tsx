@@ -130,9 +130,9 @@ const AssistantMessageReadonly = memo(({ message }: { message: UIMessage }) => {
 						className='flex items-center gap-1.5 text-xs text-muted-foreground mt-1 p-1'
 					>
 						{message.feedback.vote === 'up' ? (
-							<ThumbsUp className='size-3.5 text-green-600' />
+							<ThumbsUp className='size-3.5 text-green-600 dark:text-green-400' />
 						) : (
-							<ThumbsDown className='size-3.5 text-red-500' />
+							<ThumbsDown className='size-3.5 text-red-500 dark:text-red-400' />
 						)}
 						<span>Feedback</span>
 						{message.feedback.vote === 'down' &&
