@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronDown, ChevronUp, TriangleAlert } from 'lucide-react';
-import { getNextPeriodReset } from '@nao/shared/date';
+import { getNextPeriodStart } from '@nao/shared/date';
 import { BUDGET_PERIODS, MAX_BUDGET_LIMIT_USD } from '@nao/shared/types';
 import type { BudgetPeriod } from '@nao/shared/types';
 import { Button } from '@/components/ui/button';
@@ -101,7 +101,7 @@ function RouteComponent() {
 
 	const resetLabels = useMemo(
 		() =>
-			Object.fromEntries(BUDGET_PERIODS.map((p) => [p, toLocalDateString(getNextPeriodReset(p))])) as Record<
+			Object.fromEntries(BUDGET_PERIODS.map((p) => [p, toLocalDateString(getNextPeriodStart(p))])) as Record<
 				BudgetPeriod,
 				string
 			>,

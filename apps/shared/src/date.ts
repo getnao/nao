@@ -15,7 +15,7 @@ export function getCurrentPeriodStart(period: BudgetPeriod): Date {
 	}
 }
 
-export function getNextPeriodReset(period: BudgetPeriod): Date {
+export function getNextPeriodStart(period: BudgetPeriod): Date {
 	const start = getCurrentPeriodStart(period);
 	switch (period) {
 		case 'day':

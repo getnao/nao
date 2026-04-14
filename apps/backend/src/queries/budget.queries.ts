@@ -4,6 +4,7 @@ import { and, eq, notInArray, sql } from 'drizzle-orm';
 
 import s, { DBProjectProviderBudget } from '../db/abstractSchema';
 import { db } from '../db/db';
+import dbConfig, { Dialect } from '../db/dbConfig';
 import type { BudgetPeriod } from '../types/budget';
 import { createCostLookup, TOTAL_COST_EXPR } from './usage.queries';
 
@@ -146,14 +147,16 @@ export const getProviderPeriodCosts = async (
 	provider?: LlmProvider,
 ): Promise<Record<string, number>> => {
 	const costLookup = createCostLookup();
-	const dayStart = getCurrentPeriodStart('day').getTime();
-	const weekStart = getCurrentPeriodStart('week').getTime();
-	const monthStart = getCurrentPeriodStart('month').getTime();
+	const isPostgres = dbConfig.dialect === Dialect.Postgres;
+	const dayStart = getCurrentPeriodStart('day');
+	const weekStart = getCurrentPeriodStart('week');
+	const monthStart = getCurrentPeriodStart('month');
 
+	const toParam = (d: Date) => (isPostgres ? d.toISOString() : d.getTime());
 	const periodStartExpr = sql`CASE ${s.projectProviderBudget.period}
-		WHEN 'day' THEN ${dayStart}
-		WHEN 'week' THEN ${weekStart}
-		WHEN 'month' THEN ${monthStart}
+		WHEN 'day' THEN ${toParam(dayStart)}
+		WHEN 'week' THEN ${toParam(weekStart)}
+		WHEN 'month' THEN ${toParam(monthStart)}
 	END`;
 
 	const rows = await db

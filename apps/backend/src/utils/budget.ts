@@ -1,4 +1,4 @@
-import { getNextPeriodReset } from '@nao/shared/date';
+import { getNextPeriodStart } from '@nao/shared/date';
 import { type LlmProvider, providerLabels, WARNING_BUDGET_THRESHOLD } from '@nao/shared/types';
 
 import type { DBProjectProviderBudget } from '../db/abstractSchema';
@@ -20,7 +20,7 @@ export async function checkBudgetStatus(projectId: string, provider: LlmProvider
 
 	return {
 		level: usage.ratio >= 1 ? 'exceeded' : 'warning',
-		message: `You've used ${usage.ratio * 100}% of your ${providerLabels[provider]} budget. It will reset ${usage.resetLabel}.`,
+		message: buildBudgetMessage(usage.ratio, providerLabels[provider], usage.resetLabel),
 	};
 }
 
@@ -30,9 +30,15 @@ export async function assertBudgetNotExceeded(projectId: string, provider: LlmPr
 		return;
 	}
 
-	const message = `You've used 100% of your ${providerLabels[provider]} budget. It will reset ${usage.resetLabel}.`;
-	notifyAdminsOnBudgetLimitReached(projectId, usage.budget, usage.currentSpend).catch(() => {});
-	throw new BudgetExceededError(message);
+	await notifyAdminsOnBudgetLimitReached(projectId, usage.budget, usage.currentSpend, usage.resetLabel).catch(
+		() => {},
+	);
+	throw new BudgetExceededError(buildBudgetMessage(usage.ratio, providerLabels[provider], usage.resetLabel));
+}
+
+function buildBudgetMessage(ratio: number, providerLabel: string, resetLabel: string): string {
+	const percent = Math.min(Math.round(ratio * 100), 100);
+	return `You've used ${percent}% of your ${providerLabel} budget. It will reset ${resetLabel}.`;
 }
 
 async function resolveBudgetUsage(projectId: string, provider: LlmProvider) {
@@ -45,15 +51,16 @@ async function resolveBudgetUsage(projectId: string, provider: LlmProvider) {
 	const currentSpend = await budgetQueries.getProviderCurrentSpend(projectId, provider);
 	const ratio = currentSpend / budget.limitUsd;
 	const period = budget.period as BudgetPeriod;
-	const resetLabel = formatResetDate(getNextPeriodReset(period), period);
+	const resetLabel = formatResetDate(getNextPeriodStart(period), period);
 
 	return { budget, currentSpend, ratio, resetLabel };
 }
 
-export async function notifyAdminsOnBudgetLimitReached(
+async function notifyAdminsOnBudgetLimitReached(
 	projectId: string,
 	budget: DBProjectProviderBudget,
 	currentSpendUsd: number,
+	resetLabel: string,
 ): Promise<void> {
 	if (!emailService.isEnabled()) {
 		return;
@@ -76,8 +83,6 @@ export async function notifyAdminsOnBudgetLimitReached(
 
 	const period = budget.period as BudgetPeriod;
 	const label = providerLabels[budget.provider as LlmProvider] ?? budget.provider;
-	const resetDate = getNextPeriodReset(period);
-	const resetLabel = formatResetDate(resetDate, period);
 
 	try {
 		await Promise.all(
