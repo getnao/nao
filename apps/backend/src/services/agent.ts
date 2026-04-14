@@ -504,28 +504,29 @@ class AgentManager {
 	async generate(uiMessages: UIMessage[]): Promise<AgentRunResult> {
 		const startTime = performance.now();
 		const messages = await this._buildModelMessages(uiMessages);
-		const result = await this._agent.generate({
-			messages,
-			abortSignal: this._abortController.signal,
-			onFinish: () => {
-				this._onDispose();
-			},
-		});
-		const durationMs = Math.round(performance.now() - startTime);
+		try {
+			const result = await this._agent.generate({
+				messages,
+				abortSignal: this._abortController.signal,
+			});
+			const durationMs = Math.round(performance.now() - startTime);
 
-		const usage = convertToTokenUsage(result.totalUsage);
-		const cost = convertToCost(usage, this._modelSelection.provider, this._modelSelection.modelId);
-		const finishReason = result.finishReason ?? 'stop';
+			const usage = convertToTokenUsage(result.totalUsage);
+			const cost = convertToCost(usage, this._modelSelection.provider, this._modelSelection.modelId);
+			const finishReason = result.finishReason ?? 'stop';
 
-		return {
-			text: result.text,
-			usage,
-			cost,
-			finishReason,
-			durationMs,
-			responseMessages: result.response.messages,
-			steps: result.steps as AgentRunResult['steps'],
-		};
+			return {
+				text: result.text,
+				usage,
+				cost,
+				finishReason,
+				durationMs,
+				responseMessages: result.response.messages,
+				steps: result.steps as AgentRunResult['steps'],
+			};
+		} finally {
+			this._onDispose();
+		}
 	}
 
 	checkIsUserOwner(userId: string): boolean {
