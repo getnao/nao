@@ -1,4 +1,6 @@
-import puppeteer, { type Browser } from 'puppeteer';
+import { execSync } from 'child_process';
+import { existsSync } from 'fs';
+import puppeteer, { type Browser } from 'puppeteer-core';
 
 import type { QueryDataMap, StoryInput } from './story-download';
 import { generateStoryHtml } from './story-html';
@@ -33,9 +35,33 @@ async function getBrowser(): Promise<Browser> {
 	}
 	browserPromise = puppeteer.launch({
 		headless: true,
+		executablePath: findChromePath(),
 		args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu'],
 	});
 	return browserPromise;
+}
+
+function findChromePath(): string {
+	const candidates = [
+		process.env.CHROME_PATH,
+		'/usr/bin/chromium',
+		'/usr/bin/chromium-browser',
+		'/usr/bin/google-chrome',
+	];
+
+	for (const candidate of candidates) {
+		if (candidate && existsSync(candidate)) {
+			return candidate;
+		}
+	}
+
+	try {
+		return execSync('which chromium || which chromium-browser || which google-chrome', {
+			encoding: 'utf-8',
+		}).trim();
+	} catch {
+		throw new Error('Chrome/Chromium not found. Install chromium or set the CHROME_PATH environment variable.');
+	}
 }
 
 async function closeBrowser() {
