@@ -1,4 +1,4 @@
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -40,7 +40,7 @@ export const deployRoutes = async (app: App) => {
 
 			const extractDir = path.join(tmpDir, 'extracted');
 			fs.mkdirSync(extractDir, { recursive: true });
-			execSync(`tar xzf ${tarPath} -C ${extractDir}`, { timeout: 30_000 });
+			execFileSync('tar', ['xzf', tarPath, '-C', extractDir], { timeout: 30_000 });
 
 			const configPath = path.join(extractDir, 'nao_config.yaml');
 			if (!fs.existsSync(configPath)) {

@@ -1,8 +1,15 @@
+import crypto from 'node:crypto';
+
 import type { App } from '../app';
 import { getAuth } from '../auth';
+import { env } from '../env';
 import * as userQueries from '../queries/user.queries';
 import * as githubService from '../services/github';
 import { convertHeaders } from '../utils/utils';
+
+function signState(payload: string): string {
+	return crypto.createHmac('sha256', env.BETTER_AUTH_SECRET).update(payload).digest('base64url');
+}
 
 export const githubRoutes = async (app: App) => {
 	app.get('/connect', async (request, reply) => {
@@ -16,7 +23,9 @@ export const githubRoutes = async (app: App) => {
 			return reply.status(401).send({ error: 'Unauthorized' });
 		}
 
-		const state = Buffer.from(JSON.stringify({ userId: session.user.id })).toString('base64url');
+		const payload = Buffer.from(JSON.stringify({ userId: session.user.id })).toString('base64url');
+		const signature = signState(payload);
+		const state = `${payload}.${signature}`;
 		const url = githubService.buildAuthorizationUrl(state);
 		return reply.redirect(url);
 	});
@@ -27,12 +36,30 @@ export const githubRoutes = async (app: App) => {
 			return reply.redirect('/settings/organization?github=error&reason=missing_params');
 		}
 
+		const auth = await getAuth();
+		const session = await auth.api.getSession({ headers: convertHeaders(request.headers) });
+		if (!session?.user) {
+			return reply.redirect('/settings/organization?github=error&reason=unauthorized');
+		}
+
 		let userId: string;
 		try {
-			const decoded = JSON.parse(Buffer.from(state, 'base64url').toString());
+			const [payload, signature] = state.split('.');
+			if (!payload || !signature) {
+				throw new Error('malformed state');
+			}
+			const expectedSignature = signState(payload);
+			if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSignature))) {
+				throw new Error('invalid signature');
+			}
+			const decoded = JSON.parse(Buffer.from(payload, 'base64url').toString());
 			userId = decoded.userId;
 		} catch {
 			return reply.redirect('/settings/organization?github=error&reason=invalid_state');
+		}
+
+		if (session.user.id !== userId) {
+			return reply.redirect('/settings/organization?github=error&reason=user_mismatch');
 		}
 
 		try {

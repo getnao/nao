@@ -203,13 +203,6 @@
             "org_id"
           ],
           "isUnique": false
-        },
-        "api_key_keyHash_idx": {
-          "name": "api_key_keyHash_idx",
-          "columns": [
-            "key_hash"
-          ],
-          "isUnique": false
         }
       },
       "foreignKeys": {

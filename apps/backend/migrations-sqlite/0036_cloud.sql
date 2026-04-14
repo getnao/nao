@@ -13,6 +13,5 @@ CREATE TABLE `api_key` (
 --> statement-breakpoint
 CREATE UNIQUE INDEX `api_key_key_hash_unique` ON `api_key` (`key_hash`);--> statement-breakpoint
 CREATE INDEX `api_key_orgId_idx` ON `api_key` (`org_id`);--> statement-breakpoint
-CREATE INDEX `api_key_keyHash_idx` ON `api_key` (`key_hash`);--> statement-breakpoint
 ALTER TABLE `project` ADD `env_vars` text DEFAULT '{}' NOT NULL;--> statement-breakpoint
 ALTER TABLE `user` ADD `github_access_token` text;

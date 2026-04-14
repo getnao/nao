@@ -195,7 +195,7 @@ export const initializePersonalOrganization = async (userId: string): Promise<vo
 
 	const user = await userQueries.get({ id: userId });
 	const orgName = user ? `${user.name}'s Organization` : 'Personal Organization';
-	const orgSlug = `org-${userId.slice(0, 8)}`;
+	const orgSlug = `org-${userId.replace(/-/g, '').slice(0, 16)}`;
 
 	await db.transaction(async (tx) => {
 		const [org] = await tx.insert(s.organization).values({ name: orgName, slug: orgSlug }).returning().execute();

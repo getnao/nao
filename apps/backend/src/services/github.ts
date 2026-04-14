@@ -1,4 +1,4 @@
-import { execSync } from 'node:child_process';
+import { execFileSync, execSync } from 'node:child_process';
 
 import { env } from '../env';
 
@@ -151,7 +151,7 @@ async function searchRepos(
 
 export function cloneRepo(token: string, fullName: string, targetDir: string): void {
 	const cloneUrl = `https://x-access-token:${token}@github.com/${fullName}.git`;
-	execSync(`git clone --depth 1 ${cloneUrl} ${targetDir}`, {
+	execFileSync('git', ['clone', '--depth', '1', cloneUrl, targetDir], {
 		timeout: 120_000,
 		stdio: 'pipe',
 	});
@@ -203,15 +203,17 @@ export function pullRepo(token: string, repoFullName: string, projectDir: string
 	const opts = { cwd: projectDir, stdio: 'pipe' as const, timeout: 120_000 };
 
 	const authenticatedUrl = `https://x-access-token:${token}@github.com/${repoFullName}.git`;
-	execSync(`git remote set-url origin ${authenticatedUrl}`, opts);
+	execFileSync('git', ['remote', 'set-url', 'origin', authenticatedUrl], opts);
 
 	try {
-		execSync('git fetch --depth 1 origin', opts);
-		const branch = execSync('git rev-parse --abbrev-ref HEAD', opts).toString().trim();
-		const output = execSync(`git reset --hard origin/${branch}`, opts).toString().trim();
+		execFileSync('git', ['fetch', '--depth', '1', 'origin'], opts);
+		const branch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], opts).toString().trim();
+		const output = execFileSync('git', ['reset', '--hard', `origin/${branch}`], opts)
+			.toString()
+			.trim();
 		return output;
 	} finally {
 		const cleanUrl = `https://github.com/${repoFullName}.git`;
-		execSync(`git remote set-url origin ${cleanUrl}`, { ...opts, timeout: 5_000 });
+		execFileSync('git', ['remote', 'set-url', 'origin', cleanUrl], { ...opts, timeout: 5_000 });
 	}
 }

@@ -33,7 +33,13 @@ export const projectRoutes = {
 	listForCurrentUser: protectedProcedure.query(async ({ ctx }) => {
 		const projects = await projectQueries.listUserProjectsWithRoles(ctx.user.id);
 		return projects.map(({ project, userRole }) => ({
-			...project,
+			id: project.id,
+			orgId: project.orgId,
+			name: project.name,
+			type: project.type,
+			path: project.path,
+			createdAt: project.createdAt,
+			updatedAt: project.updatedAt,
 			userRole,
 		}));
 	}),

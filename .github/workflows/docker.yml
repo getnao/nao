@@ -74,10 +74,11 @@ jobs:
                   cache-from: type=registry,ref=${{ env.CACHE_REGISTRY }}/${{ env.CACHE_IMAGE }}:${{ matrix.platform == 'linux/amd64' && 'amd64' || 'arm64' }}
                   cache-to: type=registry,ref=${{ env.CACHE_REGISTRY }}/${{ env.CACHE_IMAGE }}:${{ matrix.platform == 'linux/amd64' && 'amd64' || 'arm64' }},mode=max
                   build-args: |
-                      GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}
                       APP_VERSION=${{ github.ref_name }}
                       APP_COMMIT=${{ steps.sha.outputs.short_sha }}
                       APP_BUILD_DATE=${{ steps.build_date.outputs.value }}
+                  secrets: |
+                      GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}
 
             - name: Export digest
               run: |
@@ -159,7 +160,7 @@ jobs:
 
         steps:
             - name: Deploy with remote ssh commands using ssh key
-              uses: appleboy/ssh-action@master
+              uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
               with:
                   host: ${{ secrets.VM_HOST }}
                   username: github-actions-demo

@@ -20,6 +20,10 @@ export function AddMemberDialog({ open, onOpenChange, title = 'Add Member', onSu
 		defaultValues: { email: '', name: '' },
 		onSubmit: async ({ value }) => {
 			setError('');
+			if (needsName && !value.name.trim()) {
+				setError('Name is required to create a new user.');
+				return;
+			}
 			try {
 				const result = await onSubmit({
 					email: value.email,

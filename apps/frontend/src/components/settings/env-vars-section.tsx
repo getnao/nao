@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Eye, EyeOff, Loader2 } from 'lucide-react';
 
@@ -15,17 +15,19 @@ export function EnvVarsSection({ isAdmin }: { isAdmin: boolean }) {
 	const [localValues, setLocalValues] = useState<Record<string, string>>({});
 	const [revealedKeys, setRevealedKeys] = useState<Set<string>>(new Set());
 	const [hasChanges, setHasChanges] = useState(false);
+	const initializedRef = useRef(false);
 
 	useEffect(() => {
-		if (envVarsQuery.data) {
+		if (envVarsQuery.data && !initializedRef.current) {
 			setLocalValues(envVarsQuery.data.values);
-			setHasChanges(false);
+			initializedRef.current = true;
 		}
 	}, [envVarsQuery.data]);
 
 	const updateMutation = useMutation({
 		...trpc.project.updateEnvVars.mutationOptions(),
 		onSuccess: () => {
+			initializedRef.current = false;
 			queryClient.invalidateQueries({ queryKey: trpc.project.getEnvVars.queryKey() });
 			setHasChanges(false);
 		},

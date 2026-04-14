@@ -50,12 +50,13 @@ jobs:
                   cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:cache
                   cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:cache,mode=max
                   build-args: |
-                      GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}
                       APP_VERSION=${{ github.ref_name }}
                       APP_COMMIT=${{ steps.sha.outputs.short_sha }}
+                  secrets: |
+                      GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}
 
             - name: Deploy to preview server
-              uses: appleboy/ssh-action@master
+              uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
               with:
                   host: ${{ secrets.VM_HOST }}
                   username: github-actions-demo

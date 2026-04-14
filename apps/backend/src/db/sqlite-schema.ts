@@ -683,7 +683,7 @@ export const apiKey = sqliteTable(
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull(),
 	},
-	(t) => [index('api_key_orgId_idx').on(t.orgId), index('api_key_keyHash_idx').on(t.keyHash)],
+	(t) => [index('api_key_orgId_idx').on(t.orgId)],
 );
 
 export const log = sqliteTable(

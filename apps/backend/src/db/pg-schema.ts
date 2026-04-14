@@ -639,7 +639,7 @@ export const apiKey = pgTable(
 		lastUsedAt: timestamp('last_used_at'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 	},
-	(t) => [index('api_key_orgId_idx').on(t.orgId), index('api_key_keyHash_idx').on(t.keyHash)],
+	(t) => [index('api_key_orgId_idx').on(t.orgId)],
 );
 
 export const log = pgTable(

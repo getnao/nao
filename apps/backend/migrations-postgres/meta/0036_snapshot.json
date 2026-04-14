@@ -195,21 +195,6 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
-        },
-        "api_key_keyHash_idx": {
-          "name": "api_key_keyHash_idx",
-          "columns": [
-            {
-              "expression": "key_hash",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
         }
       },
       "foreignKeys": {

@@ -48,7 +48,10 @@ function GeneralPage() {
 
 	const handleEdit = async (data: { userId: string; name?: string; newRole?: UserRole }) => {
 		await modifyUser.mutateAsync(data);
-		await queryClient.invalidateQueries({ queryKey: trpc.project.getAllUsersWithRoles.queryKey() });
+		await Promise.all([
+			queryClient.invalidateQueries({ queryKey: trpc.project.getAllUsersWithRoles.queryKey() }),
+			queryClient.invalidateQueries({ queryKey: trpc.project.getCurrent.queryKey() }),
+		]);
 		await refetch();
 	};
 
