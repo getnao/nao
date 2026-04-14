@@ -127,6 +127,29 @@ export async function resolveProviderModel(
 	return null;
 }
 
+/**
+ * Resolve the model to use for background tasks (memory extraction, compaction, title generation).
+ * Priority: NAO_ANNOTATION_MODEL env var > first enabled model in project config > provider default.
+ */
+export async function resolveAnnotationModelId(
+	projectId: string,
+	provider: LlmProvider,
+	fallbackModelId: string,
+): Promise<string> {
+	const envOverride = process.env.NAO_ANNOTATION_MODEL;
+	if (envOverride) {
+		return envOverride;
+	}
+
+	const config = await projectLlmConfigQueries.getProjectLlmConfigByProvider(projectId, provider);
+	const enabledModels = config?.enabledModels ?? [];
+	if (enabledModels.length > 0) {
+		return enabledModels[0];
+	}
+
+	return fallbackModelId;
+}
+
 export const getProjectAvailableModels = async (
 	projectId: string,
 ): Promise<Array<{ provider: LlmProvider; modelId: string; name: string }>> => {
