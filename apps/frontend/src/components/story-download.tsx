@@ -9,9 +9,6 @@ import {
 	DropdownMenuGroup,
 	DropdownMenuItem,
 	DropdownMenuLabel,
-	DropdownMenuSub,
-	DropdownMenuSubContent,
-	DropdownMenuSubTrigger,
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { trpcClient } from '@/main';
@@ -59,22 +56,6 @@ function useStoryDownload({ chatId, storySlug, shareId, isOwner = true, versionN
 	return { isDownloading, error, canDownload, handleDownload };
 }
 
-function DownloadFormatItems({ onDownload }: { onDownload: (format: DownloadFormat) => void }) {
-	return (
-		<>
-			<DropdownMenuLabel className='text-xs text-muted-foreground'>Download as</DropdownMenuLabel>
-			<DropdownMenuGroup>
-				<DropdownMenuItem onSelect={() => onDownload('pdf')}>
-					<FileText /> <span className='text-xs'>PDF</span>
-				</DropdownMenuItem>
-				<DropdownMenuItem onSelect={() => onDownload('html')}>
-					<FileCode /> <span className='text-xs'>HTML</span>
-				</DropdownMenuItem>
-			</DropdownMenuGroup>
-		</>
-	);
-}
-
 interface StoryDownloadProps extends StoryDownloadOptions {
 	isAgentRunning?: boolean;
 }
@@ -105,7 +86,15 @@ export function StoryDownload({ isAgentRunning, ...downloadOptions }: StoryDownl
 					</Button>
 				</DropdownMenuTrigger>
 				<DropdownMenuContent align='end'>
-					<DownloadFormatItems onDownload={handleDownload} />
+					<DropdownMenuLabel className='text-xs text-muted-foreground'>Download as</DropdownMenuLabel>
+					<DropdownMenuGroup>
+						<DropdownMenuItem onSelect={() => handleDownload('pdf')}>
+							<FileText /> <span className='text-xs'>PDF</span>
+						</DropdownMenuItem>
+						<DropdownMenuItem onSelect={() => handleDownload('html')}>
+							<FileCode /> <span className='text-xs'>HTML</span>
+						</DropdownMenuItem>
+					</DropdownMenuGroup>
 				</DropdownMenuContent>
 			</DropdownMenu>
 			{error && (
@@ -129,14 +118,15 @@ export function StoryDownloadSubMenu({ isAgentRunning, ...downloadOptions }: Sto
 	}
 
 	return (
-		<DropdownMenuSub>
-			<DropdownMenuSubTrigger disabled={isAgentRunning || isDownloading}>
-				{isDownloading ? <Loader2 className='size-3 animate-spin' /> : <Download className='size-3' />}
-				Download
-			</DropdownMenuSubTrigger>
-			<DropdownMenuSubContent>
-				<DownloadFormatItems onDownload={handleDownload} />
-			</DropdownMenuSubContent>
-		</DropdownMenuSub>
+		<>
+			<DropdownMenuLabel className='text-xs text-muted-foreground'>Download as</DropdownMenuLabel>
+			<DropdownMenuItem onSelect={() => handleDownload('pdf')} disabled={isDownloading || isAgentRunning}>
+				<FileText className='size-3' />
+				PDF
+			</DropdownMenuItem>
+			<DropdownMenuItem onSelect={() => handleDownload('html')} disabled={isDownloading || isAgentRunning}>
+				<FileCode className='size-3' /> HTML
+			</DropdownMenuItem>
+		</>
 	);
 }

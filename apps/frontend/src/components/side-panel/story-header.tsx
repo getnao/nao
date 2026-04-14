@@ -26,8 +26,8 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import {
 	DropdownMenu,
 	DropdownMenuContent,
-	DropdownMenuGroup,
 	DropdownMenuItem,
+	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 
@@ -220,32 +220,31 @@ export const StoryHeader = memo(function StoryHeader({
 						</Button>
 					</DropdownMenuTrigger>
 					<DropdownMenuContent align='end'>
-						<DropdownMenuGroup>
-							<StoryDownloadSubMenu
-								chatId={chatId}
-								storySlug={storySlug}
-								shareId={shareId ?? undefined}
-								isOwner={!isReadonlyMode}
-								isAgentRunning={isAgentRunning}
-								versionNumber={versionNumber}
-							/>
-							{!isReadonlyMode && (
-								<>
-									<DropdownMenuItem onSelect={onShare} disabled={isAgentRunning}>
-										{isShared ? (
-											<Globe className='text-emerald-600' />
-										) : (
-											<Upload className='size-3' />
-										)}
-										Share
-									</DropdownMenuItem>
-									<DropdownMenuItem onSelect={onEnlarge}>
-										<Maximize2 className='size-3' />
-										Expand
-									</DropdownMenuItem>
-								</>
-							)}
-						</DropdownMenuGroup>
+						{!isReadonlyMode && (
+							<>
+								<DropdownMenuItem onSelect={onShare} disabled={isAgentRunning}>
+									{isShared ? (
+										<Globe className='size-3 text-emerald-600' />
+									) : (
+										<Upload className='size-3' />
+									)}
+									Share
+								</DropdownMenuItem>
+								<DropdownMenuItem onSelect={onEnlarge}>
+									<Maximize2 className='size-3' />
+									Expand
+								</DropdownMenuItem>
+								<DropdownMenuSeparator />
+							</>
+						)}
+						<StoryDownloadSubMenu
+							chatId={chatId}
+							storySlug={storySlug}
+							shareId={shareId ?? undefined}
+							isOwner={!isReadonlyMode}
+							isAgentRunning={isAgentRunning}
+							versionNumber={versionNumber}
+						/>
 					</DropdownMenuContent>
 				</DropdownMenu>
 			)}
