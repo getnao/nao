@@ -253,6 +253,13 @@
       "when": 1775740878738,
       "tag": "0035_add_project_provider_budget",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1776201516452,
+      "tag": "0036_add_smtp_config",
+      "breakpoints": true
     }
   ]
 }
