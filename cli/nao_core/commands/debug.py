@@ -66,7 +66,9 @@ def _check_available_models(llm_config) -> Tuple[bool, str]:
 
         import boto3
 
-        client = boto3.client("bedrock", region_name=region)
+        profile = llm_config.aws_profile or os.environ.get("AWS_PROFILE")
+        session = boto3.Session(profile_name=profile, region_name=region)
+        client = session.client("bedrock")
         response = client.list_foundation_models()
         models = response.get("modelSummaries", [])
     elif provider == "vertex":
@@ -163,13 +165,11 @@ def debug():
                 )
             else:
                 console.print("[bold red]✗[/bold red]")
-                # Truncate long error messages
-                short_msg = message[:80] + "..." if len(message) > 80 else message
                 db_table.add_row(
                     db.name,
                     db.type,
                     "[red]Failed[/red]",
-                    short_msg,
+                    f"[red]{message}[/red]",
                 )
 
         console.print()
@@ -199,11 +199,10 @@ def debug():
             )
         else:
             console.print("[bold red]✗[/bold red]")
-            short_msg = message[:80] + "..." if len(message) > 80 else message
             llm_table.add_row(
                 config.llm.provider.value,
                 "[red]Failed[/red]",
-                short_msg,
+                f"[red]{message}[/red]",
             )
 
         console.print()

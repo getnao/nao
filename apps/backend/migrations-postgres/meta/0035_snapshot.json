@@ -1,5 +1,5 @@
 {
-  "id": "39d834b7-1cb5-4367-ba49-54c8805aed74",
+  "id": "db914627-64e1-4ea7-bb99-03f3c86f4d2c",
   "prevId": "0a733c7b-4301-43f1-9870-7b74959244ec",
   "version": "7",
   "dialect": "postgresql",
@@ -1461,36 +1461,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "smtp_host": {
-          "name": "smtp_host",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "smtp_port": {
-          "name": "smtp_port",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "smtp_ssl": {
-          "name": "smtp_ssl",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "smtp_mail_from": {
-          "name": "smtp_mail_from",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "smtp_password": {
-          "name": "smtp_password",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp",
@@ -1854,6 +1824,120 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.project_provider_budget": {
+      "name": "project_provider_budget",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "project_id": {
+          "name": "project_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "provider": {
+          "name": "provider",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "limit_usd": {
+          "name": "limit_usd",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "period": {
+          "name": "period",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "current_period_start": {
+          "name": "current_period_start",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "notified_at": {
+          "name": "notified_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "project_provider_budget_projectId_idx": {
+          "name": "project_provider_budget_projectId_idx",
+          "columns": [
+            {
+              "expression": "project_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "project_provider_budget_project_id_project_id_fk": {
+          "name": "project_provider_budget_project_id_project_id_fk",
+          "tableFrom": "project_provider_budget",
+          "tableTo": "project",
+          "columnsFrom": [
+            "project_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "project_provider_budget_project_provider": {
+          "name": "project_provider_budget_project_provider",
+          "nullsNotDistinct": false,
+          "columns": [
+            "project_id",
+            "provider"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "budget_period_valid": {
+          "name": "budget_period_valid",
+          "value": "\"project_provider_budget\".\"period\" IN ('day', 'week', 'month')"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.project_saved_prompt": {

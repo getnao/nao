@@ -15,6 +15,13 @@ export class HandlerError extends Error {
 	}
 }
 
+export class BudgetExceededError extends HandlerError {
+	constructor(message: string) {
+		super('FORBIDDEN', message);
+		this.name = 'BudgetExceededError';
+	}
+}
+
 const httpStatusByHandlerErrorCode: Record<HandlerErrorCode, number> = {
 	BAD_REQUEST: 400,
 	UNAUTHORIZED: 401,

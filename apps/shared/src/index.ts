@@ -1,5 +1,6 @@
 export * from './chart-builder';
 export * from './citation';
+export * from './date';
 export * from './mcp';
 export * from './mentions';
 export * from './pluralize';

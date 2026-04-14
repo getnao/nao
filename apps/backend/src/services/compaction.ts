@@ -14,7 +14,7 @@ import {
 	findLastUserMessageIndex,
 } from '../utils/ai';
 import { debugCompaction } from '../utils/debug';
-import { resolveProviderModel } from '../utils/llm';
+import { resolveAnnotationModelId, resolveProviderModel } from '../utils/llm';
 import { scheduleSaveLlmInferenceRecord } from '../utils/schedule-task';
 import { ITokenCounter, TokenCounter } from './token-counter';
 
@@ -170,7 +170,7 @@ export class CompactionService {
 	}
 
 	private async _resolveCompactionLLM(projectId: string, provider: LlmProvider) {
-		const modelId = LLM_PROVIDERS[provider].extractorModelId;
+		const modelId = await resolveAnnotationModelId(projectId, provider, LLM_PROVIDERS[provider].extractorModelId);
 		const model = await resolveProviderModel(projectId, provider, modelId);
 		if (!model) {
 			return undefined;

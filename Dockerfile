@@ -73,6 +73,7 @@ ARG APP_BUILD_DATE=
 # base stage below, avoiding the slow nodesource.com setup + npm install.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
+    chromium \
     curl \
     fontconfig \
     fonts-dejavu-core \
