@@ -1,5 +1,5 @@
 import type { LlmProvider } from '@nao/shared/types';
-import { SHARE_VISIBILITY, USER_ROLES } from '@nao/shared/types';
+import { BUDGET_PERIODS, SHARE_VISIBILITY, USER_ROLES } from '@nao/shared/types';
 import { type ProviderMetadata } from 'ai';
 import { sql } from 'drizzle-orm';
 import { check, index, integer, primaryKey, sqliteTable, text, unique } from 'drizzle-orm/sqlite-core';
@@ -383,6 +383,37 @@ export const projectLlmConfig = sqliteTable(
 	(t) => [
 		index('project_llm_config_projectId_idx').on(t.projectId),
 		unique('project_llm_config_project_provider').on(t.projectId, t.provider),
+	],
+);
+
+export const projectProviderBudget = sqliteTable(
+	'project_provider_budget',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		provider: text('provider').$type<LlmProvider>().notNull(),
+		limitUsd: integer('limit_usd').notNull(),
+		period: text('period', { enum: BUDGET_PERIODS }).notNull(),
+		currentPeriodStart: integer('current_period_start', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+		notifiedAt: integer('notified_at', { mode: 'timestamp_ms' }),
+		updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [
+		index('project_provider_budget_projectId_idx').on(t.projectId),
+		unique('project_provider_budget_project_provider').on(t.projectId, t.provider),
+		check('budget_period_valid', sql.raw(`period IN (${BUDGET_PERIODS.map((p) => `'${p}'`).join(', ')})`)),
 	],
 );
 

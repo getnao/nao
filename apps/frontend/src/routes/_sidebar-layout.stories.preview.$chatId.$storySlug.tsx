@@ -86,7 +86,7 @@ function StoryPreviewPage() {
 					</div>
 				)}
 				<div className='ml-auto flex items-center gap-1.5 shrink-0'>
-					<StoryDownload chatId={chatId} storySlug={storySlug} isOwner={true} isIconMode={false} />
+					<StoryDownload chatId={chatId} storySlug={storySlug} isOwner={true} />
 					<Button variant='outline' size='sm' className='gap-1.5' asChild>
 						<Link to='/$chatId' params={{ chatId }} state={{ openStorySlug: storySlug }}>
 							<MessageSquare className='size-3.5' />

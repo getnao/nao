@@ -65,7 +65,7 @@ export function ChatsReplayPanel({ chatInfo, onClose }: ChatsReplayPanelProps) {
 	const isOwner = session?.user?.id === chatInfo?.chatOwnerId;
 
 	return (
-		<div className='w-full h-full min-h-0 flex flex-col p-4 bg-white'>
+		<div className='w-full h-full min-h-0 flex flex-col p-4 bg-background'>
 			<div className='flex items-center justify-between'>
 				<div className='flex flex-col md:p-4 max-w-4xl'>
 					<h2 className='text-foreground font-semibold text-xl'>Chat by {chatInfo?.userName ?? '—'}</h2>

@@ -85,10 +85,31 @@ export const PROVIDER_META: ProviderMetaMap = {
 		extractorModelId: 'gemini-2.5-flash',
 		summaryModelId: 'gemini-2.5-flash',
 		models: [
-			{ id: 'gemini-3-pro-preview', name: 'Gemini 3 Pro', default: true, contextWindow: 1_000_000 },
-			{ id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash', contextWindow: 1_000_000 },
-			{ id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', contextWindow: 1_000_000 },
-			{ id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', contextWindow: 1_000_000 },
+			{
+				id: 'gemini-3-pro-preview',
+				name: 'Gemini 3 Pro',
+				default: true,
+				contextWindow: 1_000_000,
+				costPerM: { inputNoCache: 2, inputCacheRead: 0.2, inputCacheWrite: 0, output: 12 },
+			},
+			{
+				id: 'gemini-3-flash-preview',
+				name: 'Gemini 3 Flash',
+				contextWindow: 1_000_000,
+				costPerM: { inputNoCache: 0.5, inputCacheRead: 0.05, inputCacheWrite: 0, output: 3 },
+			},
+			{
+				id: 'gemini-2.5-pro',
+				name: 'Gemini 2.5 Pro',
+				contextWindow: 1_000_000,
+				costPerM: { inputNoCache: 1.25, inputCacheRead: 0.125, inputCacheWrite: 0, output: 10 },
+			},
+			{
+				id: 'gemini-2.5-flash',
+				name: 'Gemini 2.5 Flash',
+				contextWindow: 1_000_000,
+				costPerM: { inputNoCache: 0.3, inputCacheRead: 0.03, inputCacheWrite: 0, output: 2.5 },
+			},
 		],
 	},
 	mistral: {
@@ -180,10 +201,27 @@ export const PROVIDER_META: ProviderMetaMap = {
 		extractorModelId: 'anthropic.claude-sonnet-4-6',
 		summaryModelId: 'anthropic.claude-sonnet-4-6',
 		models: [
-			{ id: 'us.anthropic.claude-sonnet-4-6', name: 'Claude Sonnet 4.6 (Bedrock US)', default: true },
-			{ id: 'eu.anthropic.claude-opus-4-6-v1', name: 'Claude Opus 4.6 (Bedrock EU)' },
-			{ id: 'deepseek.v3.2', name: 'DeepSeek V3.2 (Bedrock)' },
-			{ id: 'mistral.devstral-2-123b', name: 'Mistral 2 123B (Bedrock)' },
+			{
+				id: 'us.anthropic.claude-sonnet-4-6',
+				name: 'Claude Sonnet 4.6 (Bedrock US)',
+				default: true,
+				costPerM: { inputNoCache: 3, inputCacheRead: 0.3, inputCacheWrite: 3.75, output: 15 },
+			},
+			{
+				id: 'eu.anthropic.claude-opus-4-6-v1',
+				name: 'Claude Opus 4.6 (Bedrock EU)',
+				costPerM: { inputNoCache: 5, inputCacheRead: 0.5, inputCacheWrite: 6.25, output: 25 },
+			},
+			{
+				id: 'deepseek.v3.2',
+				name: 'DeepSeek V3.2 (Bedrock)',
+				costPerM: { inputNoCache: 0.62, inputCacheRead: 0.62, inputCacheWrite: 0, output: 1.85 },
+			},
+			{
+				id: 'mistral.devstral-2-123b',
+				name: 'Mistral 2 123B (Bedrock)',
+				costPerM: { inputNoCache: 0.4, inputCacheRead: 0.4, inputCacheWrite: 0, output: 2 },
+			},
 		],
 	},
 	vertex: {
@@ -218,8 +256,19 @@ export const PROVIDER_META: ProviderMetaMap = {
 		extractorModelId: 'gemini-2.5-flash',
 		summaryModelId: 'gemini-2.5-flash',
 		models: [
-			{ id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6 (Vertex)', default: true, contextWindow: 200_000 },
-			{ id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash (Vertex)', contextWindow: 200_000 },
+			{
+				id: 'claude-sonnet-4-6',
+				name: 'Claude Sonnet 4.6 (Vertex)',
+				default: true,
+				contextWindow: 200_000,
+				costPerM: { inputNoCache: 3, inputCacheRead: 0.3, inputCacheWrite: 3.75, output: 15 },
+			},
+			{
+				id: 'gemini-3-flash-preview',
+				name: 'Gemini 3 Flash (Vertex)',
+				contextWindow: 200_000,
+				costPerM: { inputNoCache: 0.5, inputCacheRead: 0.05, inputCacheWrite: 0, output: 3 },
+			},
 		],
 	},
 	azure: {

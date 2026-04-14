@@ -1,6 +1,7 @@
 import { AlertCircleIcon } from 'lucide-react';
 
 import { useAgentContext } from '@/contexts/agent.provider';
+import { parseBudgetError } from '@/lib/ai';
 import { cn } from '@/lib/utils';
 
 export interface Props {
@@ -27,7 +28,7 @@ function parseError(error: Error): ParsedError {
 export function ChatError({ className }: Props) {
 	const { error } = useAgentContext();
 
-	if (!error) {
+	if (!error || parseBudgetError(error)) {
 		return null;
 	}
 

@@ -1,5 +1,5 @@
 import type { LlmProvider } from '@nao/shared/types';
-import { SHARE_VISIBILITY, USER_ROLES } from '@nao/shared/types';
+import { BUDGET_PERIODS, SHARE_VISIBILITY, USER_ROLES } from '@nao/shared/types';
 import { type ProviderMetadata } from 'ai';
 import { sql } from 'drizzle-orm';
 import {
@@ -366,6 +366,33 @@ export const projectLlmConfig = pgTable(
 	(t) => [
 		index('project_llm_config_projectId_idx').on(t.projectId),
 		unique('project_llm_config_project_provider').on(t.projectId, t.provider),
+	],
+);
+
+export const projectProviderBudget = pgTable(
+	'project_provider_budget',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		provider: text('provider').$type<LlmProvider>().notNull(),
+		limitUsd: integer('limit_usd').notNull(),
+		period: text('period', { enum: BUDGET_PERIODS }).notNull(),
+		currentPeriodStart: timestamp('current_period_start').defaultNow().notNull(),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		notifiedAt: timestamp('notified_at'),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [
+		index('project_provider_budget_projectId_idx').on(t.projectId),
+		unique('project_provider_budget_project_provider').on(t.projectId, t.provider),
+		check('budget_period_valid', sql`${t.period} IN (${sql.raw(BUDGET_PERIODS.map((p) => `'${p}'`).join(', '))})`),
 	],
 );
 

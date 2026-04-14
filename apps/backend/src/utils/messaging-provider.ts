@@ -3,6 +3,7 @@ import type { CardChild, CardElement, ModalElement } from 'chat';
 import { Actions, Button, Card, CardText, Image, LinkButton } from 'chat';
 
 import { ToolCallEntry } from '../types/messaging-provider';
+import { BudgetExceededError } from './error';
 
 export const EXCLUDED_TOOLS = ['tool-suggest_follow_ups', 'tool-display_chart'];
 
@@ -153,4 +154,12 @@ function stripMarkdown(text: string): string {
 		.replace(/<\/?[a-zA-Z][^>]*>/g, '');
 	// eslint-disable-next-line no-useless-escape
 	return newtext.replace(/([_*`\[])/g, '\\$1');
+}
+
+export function formatMessagingError(error: unknown): string {
+	if (error instanceof BudgetExceededError) {
+		return `🚦 ${error.message}`;
+	}
+	const detail = error instanceof Error ? error.message : 'Unknown error';
+	return `❌ An error occurred while processing your message. ${detail}.`;
 }

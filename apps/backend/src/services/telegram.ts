@@ -21,6 +21,7 @@ import {
 	createTelegramCompletionCard,
 	createTelegramStopButtonCard,
 	EXCLUDED_TOOLS,
+	formatMessagingError,
 } from '../utils/messaging-provider';
 import { agentService } from './agent';
 import { posthog, PostHogEvent } from './posthog';
@@ -151,7 +152,7 @@ class TelegramService {
 			if (!ctx.convMessage) {
 				return;
 			}
-			const errorMessage = `❌ An error occurred while processing your message. ${error instanceof Error ? error.message : 'Unknown error'}.`;
+			const errorMessage = formatMessagingError(error);
 			ctx.blocks = [createPlainTextBlock(errorMessage)];
 			await this._safeEdit(ctx.convMessage, Card({ children: ctx.blocks }));
 		}

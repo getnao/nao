@@ -88,6 +88,9 @@ class LLMConfig(BaseModel):
     access_key: str | None = Field(default=None, description="AWS access key (only for Bedrock)")
     secret_key: str | None = Field(default=None, description="AWS secret key (only for Bedrock)")
     aws_region: str | None = Field(default=None, description="AWS region (only for Bedrock)")
+    aws_profile: str | None = Field(
+        default=None, description="AWS CLI profile name (only for Bedrock, e.g. SSO profile)"
+    )
     gcp_project: str | None = Field(default=None, description="GCP project ID (only for Vertex)")
     gcp_location: str | None = Field(default=None, description="GCP location (only for Vertex)")
     service_account_json: str | None = Field(default=None, description="Service account JSON (only for Vertex)")
@@ -146,6 +149,8 @@ class LLMConfig(BaseModel):
         service_account_json = None
         key_file = None
 
+        aws_profile = None
+
         if auth.api_key == "required":
             api_key = ask_text(f"Enter your {llm_provider.upper()} API key:", password=True, required_field=True)
         elif llm_provider == "bedrock":
@@ -157,7 +162,13 @@ class LLMConfig(BaseModel):
                     questionary.Choice("Bearer token", value="bearer"),
                 ],
             )
-            if bedrock_auth_mode == "keys":
+            if bedrock_auth_mode == "env":
+                aws_profile = ask_text(
+                    "Enter AWS profile name (leave blank for default):",
+                    password=False,
+                    required_field=False,
+                )
+            elif bedrock_auth_mode == "keys":
                 access_key = ask_text("Enter AWS access key:", password=False, required_field=True)
                 secret_key = ask_text("Enter AWS secret key:", password=True, required_field=True)
             elif bedrock_auth_mode == "bearer":
@@ -193,6 +204,7 @@ class LLMConfig(BaseModel):
             access_key=access_key,
             secret_key=secret_key,
             aws_region=aws_region or None,
+            aws_profile=aws_profile or None,
             gcp_project=gcp_project or None,
             gcp_location=gcp_location or None,
             service_account_json=service_account_json or None,

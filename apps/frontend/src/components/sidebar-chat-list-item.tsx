@@ -1,4 +1,4 @@
-import { Ellipsis, Pencil, Share, StarIcon, StarOffIcon, TrashIcon } from 'lucide-react';
+import { Ellipsis, Pencil, StarIcon, StarOffIcon, TrashIcon, Upload } from 'lucide-react';
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
@@ -170,7 +170,7 @@ export function ChatListItem({ chat }: Props) {
 										Rename
 									</DropdownMenuItem>
 									<DropdownMenuItem onSelect={() => setIsShareDialogOpen(true)}>
-										<Share />
+										<Upload />
 										Share
 									</DropdownMenuItem>
 									<DropdownMenuItem variant='destructive' onSelect={handleDeleteSelect}>

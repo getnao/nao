@@ -1,5 +1,6 @@
 import { accountRoutes } from './account.routes';
 import { authConfigRoutes } from './auth-config.routes';
+import { budgetRoutes } from './budget.routes';
 import { chartRoutes } from './chart.routes';
 import { chatRoutes } from './chat.routes';
 import { chatForkRoutes } from './chat-fork.routes';
@@ -22,6 +23,7 @@ import { usageRoutes } from './usage.routes';
 import { userRoutes } from './user.routes';
 
 export const trpcRouter = router({
+	budget: budgetRoutes,
 	chart: chartRoutes,
 	chat: chatRoutes,
 	sharedChat: sharedChatRoutes,

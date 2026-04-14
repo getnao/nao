@@ -28,6 +28,7 @@ import {
 	escapeCsvCell,
 	EXCLUDED_TOOLS,
 	FEEDBACK_MODAL_CALLBACK_ID,
+	formatMessagingError,
 } from '../utils/messaging-provider';
 import { agentService } from './agent';
 import { posthog, PostHogEvent } from './posthog';
@@ -190,7 +191,7 @@ class SlackService {
 
 			await this._handleStreamAgent(chat, ctx);
 		} catch (error) {
-			const errorMessage = `❌ An error occurred while processing your message. ${error instanceof Error ? error.message : 'Unknown error'}.`;
+			const errorMessage = formatMessagingError(error);
 			ctx.blocks.push(createTextBlock(errorMessage));
 			if (ctx.convMessage) {
 				await ctx.convMessage.edit(Card({ children: ctx.blocks }));
