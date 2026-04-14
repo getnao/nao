@@ -43,7 +43,13 @@ import { Provider } from '../types/messaging-provider';
 import { ToolContext } from '../types/tools';
 import { convertToCost, convertToTokenUsage, findLastUserMessage, getLastUserMessageText } from '../utils/ai';
 import { HandlerError } from '../utils/error';
-import { getDefaultModelId, getEnvModelSelections, resolveProviderModel, resolveProviderSettings } from '../utils/llm';
+import {
+	getDefaultModelId,
+	getEnvModelSelections,
+	resolveAnnotationModelId,
+	resolveProviderModel,
+	resolveProviderSettings,
+} from '../utils/llm';
 import { logger } from '../utils/logger';
 import { truncateMiddle } from '../utils/utils';
 import { compactionService } from './compaction';
@@ -448,7 +454,11 @@ class AgentManager {
 
 	private async _generateTitle(userMessageText: string): Promise<void> {
 		const provider = this._modelSelection.provider;
-		const summaryModelId = LLM_PROVIDERS[provider].summaryModelId;
+		const summaryModelId = await resolveAnnotationModelId(
+			this.chat.projectId,
+			provider,
+			LLM_PROVIDERS[provider].summaryModelId,
+		);
 		const modelResult = await resolveProviderModel(this.chat.projectId, provider, summaryModelId);
 		if (!modelResult) {
 			return;

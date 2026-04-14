@@ -6,6 +6,7 @@ import { createVertex } from '@ai-sdk/google-vertex';
 import { createVertexAnthropic } from '@ai-sdk/google-vertex/anthropic';
 import { createMistral } from '@ai-sdk/mistral';
 import { createOpenAI } from '@ai-sdk/openai';
+import { fromNodeProviderChain } from '@aws-sdk/credential-providers';
 import type { LlmProvider } from '@nao/shared/types';
 import { createOpenRouter, LanguageModelV3 } from '@openrouter/ai-sdk-provider';
 import { createOllama } from 'ai-sdk-ollama';
@@ -89,12 +90,26 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 			if (settings.apiKey) {
 				config = { apiKey: settings.apiKey, region };
 			} else if (creds?.accessKeyId && creds?.secretAccessKey) {
-				config = { region, accessKeyId: creds.accessKeyId, secretAccessKey: creds.secretAccessKey };
-			} else {
+				config = {
+					region,
+					accessKeyId: creds.accessKeyId,
+					secretAccessKey: creds.secretAccessKey,
+					...(creds.sessionToken && { sessionToken: creds.sessionToken }),
+				};
+			} else if (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) {
 				config = {
 					region,
 					accessKeyId: process.env.AWS_ACCESS_KEY_ID,
 					secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+					...(process.env.AWS_SESSION_TOKEN && { sessionToken: process.env.AWS_SESSION_TOKEN }),
+				};
+			} else {
+				config = {
+					region,
+					credentialProvider: fromNodeProviderChain({
+						profile: process.env.AWS_PROFILE,
+						ignoreCache: true,
+					}),
 				};
 			}
 
@@ -198,14 +213,16 @@ function getBedrockRegionPrefix(region: string): string {
 	return BEDROCK_REGION_PREFIXES.has(geo) ? geo : 'us';
 }
 
-/** Prepend the geographic prefix for cross-region inference models that don't already have one. */
+/** Ensure cross-region inference models use the correct geographic prefix for the target region. */
 function resolveBedrockModelId(modelId: string, region: string): string {
+	const prefix = getBedrockRegionPrefix(region);
 	const firstSegment = modelId.split('.')[0];
 	if (BEDROCK_REGION_PREFIXES.has(firstSegment)) {
-		return modelId;
+		const rest = modelId.slice(firstSegment.length + 1);
+		return firstSegment === prefix ? modelId : `${prefix}.${rest}`;
 	}
 	if (BEDROCK_CROSS_REGION_PROVIDERS.has(firstSegment)) {
-		return `${getBedrockRegionPrefix(region)}.${modelId}`;
+		return `${prefix}.${modelId}`;
 	}
 	return modelId;
 }
