@@ -4,6 +4,7 @@ import {
 	ChevronLeft,
 	ChevronRight,
 	Code,
+	Ellipsis,
 	Eye,
 	Globe,
 	Loader2,
@@ -12,20 +13,21 @@ import {
 	RefreshCw,
 	RotateCcw,
 	Save,
-	Share,
+	Upload,
 	X,
 } from 'lucide-react';
 import { memo, useMemo } from 'react';
 import type { StorySummary } from '@/lib/story.utils';
 import type { StoryViewMode } from './story-viewer.types';
 import { useIsMobile } from '@/hooks/use-is-mobile';
-import { StoryDownload } from '@/components/story-download';
+import { StoryDownloadSubMenu } from '@/components/story-download';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import {
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuItem,
+	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 
@@ -210,30 +212,41 @@ export const StoryHeader = memo(function StoryHeader({
 					</TooltipProvider>
 				</>
 			)}
-			<StoryDownload
-				chatId={chatId}
-				storySlug={storySlug}
-				shareId={shareId ?? undefined}
-				isOwner={!isReadonlyMode}
-				isIconMode={true}
-				isAgentRunning={isAgentRunning}
-				versionNumber={versionNumber}
-			/>
-			{!isReadonlyMode && (
-				<>
-					<Button
-						variant='ghost-muted'
-						size='icon-xs'
-						onClick={onShare}
-						disabled={isAgentRunning}
-						aria-label='Share Story'
-					>
-						{isShared ? <Globe className='size-3 text-emerald-600' /> : <Share className='size-3' />}
-					</Button>
-					<Button variant='ghost-muted' size='icon-xs' onClick={onEnlarge} aria-label='Enlarge Story'>
-						<Maximize2 className='size-3' />
-					</Button>
-				</>
+			{(!isReadonlyMode || !!shareId) && (
+				<DropdownMenu>
+					<DropdownMenuTrigger asChild>
+						<Button variant='ghost-muted' size='icon-xs' aria-label='More actions'>
+							<Ellipsis className='size-3' />
+						</Button>
+					</DropdownMenuTrigger>
+					<DropdownMenuContent align='end'>
+						{!isReadonlyMode && (
+							<>
+								<DropdownMenuItem onSelect={onShare} disabled={isAgentRunning}>
+									{isShared ? (
+										<Globe className='size-3 text-emerald-600' />
+									) : (
+										<Upload className='size-3' />
+									)}
+									Share
+								</DropdownMenuItem>
+								<DropdownMenuItem onSelect={onEnlarge}>
+									<Maximize2 className='size-3' />
+									Expand
+								</DropdownMenuItem>
+								<DropdownMenuSeparator />
+							</>
+						)}
+						<StoryDownloadSubMenu
+							chatId={chatId}
+							storySlug={storySlug}
+							shareId={shareId ?? undefined}
+							isOwner={!isReadonlyMode}
+							isAgentRunning={isAgentRunning}
+							versionNumber={versionNumber}
+						/>
+					</DropdownMenuContent>
+				</DropdownMenu>
 			)}
 		</>
 	);
