@@ -120,12 +120,11 @@ export function SystemPrompt({ memories = [], userRules, connections = [], skill
 				{hasTSQL && (
 					<>
 						<ListItem>
-							<Bold>T-SQL dialect (Fabric/MSSQL):</Bold> Use TOP N instead of LIMIT N (e.g. SELECT TOP
-							10 * FROM table).
+							<Bold>T-SQL dialect (Fabric/MSSQL):</Bold> Use TOP N instead of LIMIT N (e.g. SELECT TOP 10
+							* FROM table).
 						</ListItem>
 						<ListItem>
-							Do not use GROUP BY ALL — explicitly list all non-aggregated columns in the GROUP BY
-							clause.
+							Do not use GROUP BY ALL — explicitly list all non-aggregated columns in the GROUP BY clause.
 						</ListItem>
 						<ListItem>
 							Use T-SQL date functions (DATEADD, DATEDIFF, CONVERT, FORMAT) instead of PostgreSQL-style
@@ -140,9 +139,7 @@ export function SystemPrompt({ memories = [], userRules, connections = [], skill
 							<Bold>BigQuery dialect:</Bold> Use backtick-quoted identifiers (e.g.{' '}
 							{`\`project.dataset.table\``}).
 						</ListItem>
-						<ListItem>
-							Use SAFE_DIVIDE for division to avoid division-by-zero errors.
-						</ListItem>
+						<ListItem>Use SAFE_DIVIDE for division to avoid division-by-zero errors.</ListItem>
 					</>
 				)}
 				{hasMySQL && (
@@ -150,9 +147,7 @@ export function SystemPrompt({ memories = [], userRules, connections = [], skill
 						<ListItem>
 							<Bold>MySQL dialect:</Bold> Use backtick-quoted identifiers for column and table names.
 						</ListItem>
-						<ListItem>
-							Use IFNULL() instead of COALESCE() when there are only two arguments.
-						</ListItem>
+						<ListItem>Use IFNULL() instead of COALESCE() when there are only two arguments.</ListItem>
 					</>
 				)}
 			</List>
