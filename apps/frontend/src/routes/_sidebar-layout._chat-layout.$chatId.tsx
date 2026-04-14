@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, useRouter } from '@tanstack/react-router';
 import { useEffect, useRef, useState } from 'react';
-import { GitFork, Globe, Share } from 'lucide-react';
+import { GitFork, Globe, Upload } from 'lucide-react';
 import type { ForkMetadata } from '@nao/backend/chat';
 import { StoryOpenButton } from '@/components/story-open-button';
 import { StoryViewer } from '@/components/side-panel/story-viewer';
@@ -109,7 +109,7 @@ export function RouteComponent() {
 								{!isRunning && isShared ? (
 									<Globe className='size-3 text-emerald-600' />
 								) : (
-									<Share className='size-3' />
+									<Upload className='size-3' />
 								)}
 							</Button>
 						</div>

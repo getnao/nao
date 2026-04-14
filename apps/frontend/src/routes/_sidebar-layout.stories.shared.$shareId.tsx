@@ -119,13 +119,7 @@ function SharedStoryPage() {
 						</div>
 					)}
 					<div className='ml-auto flex items-center gap-1.5 shrink-0'>
-						<StoryDownload
-							chatId={story.chatId}
-							storySlug={story.slug}
-							shareId={shareId}
-							isOwner={false}
-							isIconMode={false}
-						/>
+						<StoryDownload chatId={story.chatId} storySlug={story.slug} shareId={shareId} isOwner={false} />
 						{isOwner ? (
 							<Button variant='outline' size='sm' className='gap-1.5 shrink-0' asChild>
 								<Link
