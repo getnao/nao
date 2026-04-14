@@ -1,6 +1,7 @@
 import { BrainCircuit } from 'lucide-react';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import type { ThinkingLevel } from '@nao/shared/types';
+
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 const THINKING_OPTIONS: { value: ThinkingLevel; label: string }[] = [
     { value: 'fast', label: 'Fast' },

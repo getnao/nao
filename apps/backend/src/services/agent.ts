@@ -35,10 +35,10 @@ import {
 	ForkMetadata,
 	Mention,
 	MessageCustomDataParts,
+	ThinkingLevel,
 	TokenCost,
 	TokenUsage,
 	UIMessage,
-	ThinkingLevel,
 } from '../types/chat';
 import { Provider } from '../types/messaging-provider';
 import { ToolContext } from '../types/tools';

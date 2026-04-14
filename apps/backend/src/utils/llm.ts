@@ -1,8 +1,8 @@
 import type { LlmProvider, LlmSelectedModel } from '@nao/shared/types';
 
 import { createProviderModel, getDefaultModelId, LLM_PROVIDERS, type ProviderModelResult } from '../agents/providers';
-import type { ThinkingLevel } from '../types/chat';
 import * as projectLlmConfigQueries from '../queries/project-llm-config.queries';
+import type { ThinkingLevel } from '../types/chat';
 import type { ProviderSettings } from '../types/llm';
 
 export { getDefaultModelId };
