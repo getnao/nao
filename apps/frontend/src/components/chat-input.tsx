@@ -91,8 +91,7 @@ function ChatInputBase({
 		setThinkingLevel,
 		error,
 		selectedModel,
-	} =
-		useAgentContext();
+	} = useAgentContext();
 	const chatId = useChatId();
 	const imageUpload = useImageUpload();
 	const effectivePlaceholder = isRunning && allowQueueing ? 'Add a follow-up...' : placeholder;
@@ -302,10 +301,7 @@ function ChatInputBase({
 						{(!isTranscribeReady || (!isRecording && !isTranscribing)) && (
 							<div className='flex items-center gap-3'>
 								<ChatInputModelSelect />
-								<ChatInputThinkingSelect
-									value={thinkingLevel}
-									onChange={setThinkingLevel}
-								/>
+								<ChatInputThinkingSelect value={thinkingLevel} onChange={setThinkingLevel} />
 							</div>
 						)}
 

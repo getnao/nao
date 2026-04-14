@@ -86,7 +86,11 @@ export class AgentService {
 		await assertBudgetNotExceeded(projectId, resolved.provider);
 	}
 
-	async create(chat: AgentChat, modelSelection?: LlmSelectedModel, thinkingLevel?: ThinkingLevel): Promise<AgentManager> {
+	async create(
+		chat: AgentChat,
+		modelSelection?: LlmSelectedModel,
+		thinkingLevel?: ThinkingLevel,
+	): Promise<AgentManager> {
 		this._disposeAgent(chat.id);
 		const resolvedLlmSelectedModel = await this._getResolvedLlmSelectedModel(chat.projectId, modelSelection);
 		await assertBudgetNotExceeded(chat.projectId, resolvedLlmSelectedModel.provider);
@@ -185,7 +189,12 @@ export class AgentService {
 		modelSelection: LlmSelectedModel,
 		thinkingLevel?: ThinkingLevel,
 	): Promise<ProviderModelResult> {
-		const result = await resolveProviderModel(projectId, modelSelection.provider, modelSelection.modelId, thinkingLevel);
+		const result = await resolveProviderModel(
+			projectId,
+			modelSelection.provider,
+			modelSelection.modelId,
+			thinkingLevel,
+		);
 		if (!result) {
 			throw new HandlerError('BAD_REQUEST', 'The selected model could not be resolved.');
 		}
