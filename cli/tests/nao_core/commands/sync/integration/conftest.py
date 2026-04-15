@@ -14,6 +14,7 @@ from rich.progress import Progress  # noqa: E402
 
 import nao_core.templates.engine as engine_module  # noqa: E402
 from nao_core.commands.sync.providers.databases.provider import sync_database  # noqa: E402
+from nao_core.config.databases.base import DatabaseTemplate  # noqa: E402
 
 # Auto-load .env sitting next to this conftest so env vars are available
 # before pytest collects test modules (where skipif reads them).
@@ -30,7 +31,14 @@ def reset_template_engine():
 
 @pytest.fixture(scope="module")
 def synced(tmp_path_factory, db_config):
-    """Run sync once for the whole module and return (state, output_path, config)."""
+    """Run sync once for the whole module and return (state, output_path, config).
+
+    Profiling is explicitly enabled so that integration tests cover the full
+    template surface (profiling is opt-in during ``nao init``).
+    """
+    if DatabaseTemplate.PROFILING not in db_config.templates:
+        db_config.templates.append(DatabaseTemplate.PROFILING)
+
     output = tmp_path_factory.mktemp(f"{db_config.type}_sync")
 
     with Progress(transient=True) as progress:
