@@ -223,7 +223,7 @@ jobs:
                           -e "SMTP_PORT=${{ secrets.SMTP_PORT }}" \
                           -e "SMTP_MAIL_FROM=${{ secrets.SMTP_MAIL_FROM }}" \
                           -e "SMTP_SSL=${{ secrets.SMTP_SSL }}" \
-                          "$IMAGE"
+                          getnao/nao:${{ needs.merge.outputs.image-tag }}
 
                       echo "Waiting for container to start..."
                       sleep 10
