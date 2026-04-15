@@ -202,6 +202,7 @@ jobs:
                   username: github-actions-demo
                   key: ${{ secrets.PRIVATE_KEY }}
                   script: |
+                      docker pull getnao/nao:${{ needs.merge.outputs.image-tag }}
                       docker rm -f "${{ env.CLOUD_CONTAINER_NAME }}" 2>/dev/null || true
                       docker volume create nao-app-preview-projects 2>/dev/null || true
                       docker run -d \
