@@ -164,3 +164,60 @@ def test_how_to_use_template_variant():
     )
     assert DatabaseTemplate.HOW_TO_USE in db.templates
     assert db.query_history_days == 14
+
+
+def test_default_templates_exclude_profiling():
+    """Default templates should not include profiling."""
+    from nao_core.config.databases.base import DatabaseTemplate
+
+    db = DuckDBConfig(name="test-db", path=":memory:")
+    assert DatabaseTemplate.PROFILING not in db.templates
+
+
+def test_configure_profiling_templates_adds_profiling_when_enabled():
+    """Profiling template should be added when user opts in."""
+    from nao_core.config.databases.base import DatabaseTemplate
+
+    db = DuckDBConfig(name="test-db", path=":memory:")
+    result = NaoConfig._configure_profiling_templates(databases=[db], enable_profiling=True)
+    assert DatabaseTemplate.PROFILING in result[0].templates
+
+
+def test_configure_profiling_templates_skips_when_disabled():
+    """Profiling template should not be added when user opts out."""
+    from nao_core.config.databases.base import DatabaseTemplate
+
+    db = DuckDBConfig(name="test-db", path=":memory:")
+    result = NaoConfig._configure_profiling_templates(databases=[db], enable_profiling=False)
+    assert DatabaseTemplate.PROFILING not in result[0].templates
+
+
+def test_configure_profiling_templates_does_not_duplicate():
+    """Profiling template should only appear once."""
+    from nao_core.config.databases.base import DatabaseTemplate
+
+    db = DuckDBConfig(name="test-db", path=":memory:")
+    db.templates.append(DatabaseTemplate.PROFILING)
+    result = NaoConfig._configure_profiling_templates(databases=[db], enable_profiling=True)
+    assert result[0].templates.count(DatabaseTemplate.PROFILING) == 1
+
+
+@patch("nao_core.config.base.ask_confirm")
+def test_prompt_enable_profiling_returns_true_when_accepted(mock_confirm):
+    """Profiling prompt should return True when user accepts."""
+    mock_confirm.return_value = True
+    db = DuckDBConfig(name="test-db", path=":memory:")
+    assert NaoConfig._prompt_enable_profiling([db]) is True
+
+
+@patch("nao_core.config.base.ask_confirm")
+def test_prompt_enable_profiling_returns_false_when_declined(mock_confirm):
+    """Profiling prompt should return False when user declines."""
+    mock_confirm.return_value = False
+    db = DuckDBConfig(name="test-db", path=":memory:")
+    assert NaoConfig._prompt_enable_profiling([db]) is False
+
+
+def test_prompt_enable_profiling_returns_false_without_databases():
+    """Profiling prompt should return False when no databases are configured."""
+    assert NaoConfig._prompt_enable_profiling([]) is False

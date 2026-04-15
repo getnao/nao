@@ -63,6 +63,8 @@ class NaoConfig(BaseModel):
             return cls._prompt_extend(existing)
 
         databases = cls._prompt_databases()
+        enable_profiling = cls._prompt_enable_profiling(databases)
+        databases = cls._configure_profiling_templates(databases, enable_profiling)
         llm, enable_ai_summary = cls._prompt_llm(databases=databases)
         databases = cls._configure_ai_summary_templates(databases, llm, enable_ai_summary)
 
@@ -107,7 +109,11 @@ class NaoConfig(BaseModel):
         UI.print()
 
         # Prompt for additions
-        databases.extend(cls._prompt_databases(has_existing=bool(existing.databases)))
+        new_databases = cls._prompt_databases(has_existing=bool(existing.databases))
+        if new_databases:
+            enable_profiling = cls._prompt_enable_profiling(new_databases)
+            new_databases = cls._configure_profiling_templates(new_databases, enable_profiling)
+        databases.extend(new_databases)
         repos.extend(cls._prompt_repos(has_existing=bool(existing.repos)))
 
         if llm:
@@ -213,6 +219,32 @@ class NaoConfig(BaseModel):
         for db in databases:
             if DatabaseTemplate.AI_SUMMARY not in db.templates:
                 db.templates.append(DatabaseTemplate.AI_SUMMARY)
+
+        return databases
+
+    @staticmethod
+    def _prompt_enable_profiling(databases: list[AnyDatabaseConfig]) -> bool:
+        """Prompt whether column profiling should be enabled for configured databases."""
+        if not databases:
+            return False
+
+        return ask_confirm(
+            "Enable `profiling` template for all configured databases? (can be costly on large datasets)",
+            default=False,
+        )
+
+    @staticmethod
+    def _configure_profiling_templates(
+        databases: list[AnyDatabaseConfig],
+        enable_profiling: bool,
+    ) -> list[AnyDatabaseConfig]:
+        """Enable profiling template for configured databases when requested."""
+        if not databases or not enable_profiling:
+            return databases
+
+        for db in databases:
+            if DatabaseTemplate.PROFILING not in db.templates:
+                db.templates.append(DatabaseTemplate.PROFILING)
 
         return databases
 

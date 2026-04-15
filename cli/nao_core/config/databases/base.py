@@ -91,12 +91,11 @@ class DatabaseConfig(BaseModel, ABC):
             DatabaseTemplate.COLUMNS,
             DatabaseTemplate.HOW_TO_USE,
             DatabaseTemplate.PREVIEW,
-            DatabaseTemplate.PROFILING,
         ],
         description=(
             "Which default templates to render per table "
-            "(e.g., ['columns', 'how_to_use', 'ai_summary']). "
-            "Defaults to ['columns', 'how_to_use', 'preview', 'profiling']."
+            "(e.g., ['columns', 'how_to_use', 'profiling', 'ai_summary']). "
+            "Defaults to ['columns', 'how_to_use', 'preview']."
         ),
     )
     query_history_days: int | None = Field(
