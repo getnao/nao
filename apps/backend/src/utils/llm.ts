@@ -76,13 +76,21 @@ export async function resolveProviderSettings(
 ): Promise<ProviderSettings | null> {
 	const config = await projectLlmConfigQueries.getProjectLlmConfigByProvider(projectId, provider);
 	if (config) {
-		return { apiKey: config.apiKey, ...(config.baseUrl && { baseURL: config.baseUrl }) };
+		return {
+			apiKey: config.apiKey,
+			...(config.baseUrl && { baseURL: config.baseUrl }),
+			...(config.credentials && { credentials: config.credentials }),
+		};
 	}
 
 	const envApiKey = getEnvApiKey(provider);
 	if (envApiKey) {
 		const envBaseUrl = getEnvBaseUrl(provider);
 		return { apiKey: envApiKey, ...(envBaseUrl && { baseURL: envBaseUrl }) };
+	}
+
+	if (hasEnvApiKey(provider)) {
+		return { apiKey: '' };
 	}
 
 	return null;

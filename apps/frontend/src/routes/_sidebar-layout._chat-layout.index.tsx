@@ -9,6 +9,7 @@ import { SavedPromptSuggestions } from '@/components/chat-saved-prompt-suggestio
 import { ChatInput } from '@/components/chat-input';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { MobileHeader } from '@/components/mobile-header';
 import { trpc } from '@/main';
 
 export const Route = createFileRoute('/_sidebar-layout/_chat-layout/')({
@@ -30,6 +31,7 @@ function RouteComponent() {
 
 	return (
 		<div className='flex flex-col h-full flex-1 bg-panel min-w-72 overflow-hidden justify-center'>
+			<MobileHeader />
 			{messages.length ? (
 				<>
 					<ChatMessages />
