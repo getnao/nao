@@ -71,6 +71,15 @@ export const getProjectModelProvider = async (projectId: string): Promise<LlmPro
 		return 'openai';
 	}
 
+	const openaiCompatibleConfig = configs.find((c) => c.provider === 'openaiCompatible');
+	if (openaiCompatibleConfig) {
+		return 'openaiCompatible';
+	}
+
+	if (configs[0]) {
+		return configs[0].provider as LlmProvider;
+	}
+
 	// Fall back to env providers
 	return getDefaultEnvProvider();
 };

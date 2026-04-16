@@ -23,7 +23,7 @@ export const deployRoutes = async (app: App) => {
 			return reply.status(401).send({ error: 'Invalid API key' });
 		}
 
-		const file = await request.file();
+		const file = await (request as { file?: () => Promise<{ file: AsyncIterable<Buffer> } | undefined> }).file?.();
 		if (!file) {
 			return reply.status(400).send({ error: 'No file uploaded. Send a tar.gz as multipart field "context".' });
 		}

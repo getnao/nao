@@ -48,6 +48,9 @@ export function getDefaultEnvProvider(): LlmProvider | undefined {
 	if (hasEnvApiKey('openai')) {
 		return 'openai';
 	}
+	if (hasEnvApiKey('openaiCompatible')) {
+		return 'openaiCompatible';
+	}
 	return undefined;
 }
 

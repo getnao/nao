@@ -8,6 +8,7 @@ export const NO_CACHE_SCHEDULE = 'no-cache';
 
 export const LLM_PROVIDERS = [
 	'openai',
+	'openaiCompatible',
 	'anthropic',
 	'google',
 	'mistral',
@@ -20,6 +21,7 @@ export const LLM_PROVIDERS = [
 
 export const providerLabels: Record<LlmProvider, string> = {
 	openai: 'OpenAI',
+	openaiCompatible: 'OpenAI Compatible',
 	anthropic: 'Anthropic',
 	google: 'Google',
 	mistral: 'Mistral',

@@ -38,6 +38,7 @@ type Flatten<T> = { [K in keyof T]: T[K] };
 export type ProviderConfigMap = {
 	google: GoogleGenerativeAIProviderOptions;
 	openai: OpenAIResponsesProviderOptions;
+	openaiCompatible: Record<string, never>;
 	anthropic: AnthropicProviderOptions;
 	mistral: MistralLanguageModelOptions;
 	openrouter: OpenRouterProviderOptions;

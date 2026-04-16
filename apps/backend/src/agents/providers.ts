@@ -6,6 +6,7 @@ import { createVertex } from '@ai-sdk/google-vertex';
 import { createVertexAnthropic } from '@ai-sdk/google-vertex/anthropic';
 import { createMistral } from '@ai-sdk/mistral';
 import { createOpenAI } from '@ai-sdk/openai';
+import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { fromNodeProviderChain } from '@aws-sdk/credential-providers';
 import type { LlmProvider } from '@nao/shared/types';
 import { createOpenRouter, LanguageModelV3 } from '@openrouter/ai-sdk-provider';
@@ -62,6 +63,29 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 		...PROVIDER_META.openai,
 		create: (settings, modelId) => createOpenAI(settings).responses(modelId),
 		defaultOptions: { store: false, truncation: 'auto' },
+	},
+	openaiCompatible: {
+		...PROVIDER_META.openaiCompatible,
+		create: (settings, modelId) => {
+			if (!settings.baseURL) {
+				throw new Error('OpenAI Compatible provider requires a base URL.');
+			}
+
+			const provider = settings.apiKey
+				? createOpenAICompatible({
+						name: 'openaiCompatible',
+						apiKey: settings.apiKey,
+						baseURL: settings.baseURL,
+						includeUsage: true,
+					})
+				: createOpenAICompatible({
+						name: 'openaiCompatible',
+						baseURL: settings.baseURL,
+						includeUsage: true,
+					});
+
+			return provider.languageModel(modelId);
+		},
 	},
 	google: {
 		...PROVIDER_META.google,
