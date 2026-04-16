@@ -66,6 +66,7 @@ export interface BuildChartProps {
 	children?: React.ReactNode[];
 	margin?: { top?: number; right?: number; bottom?: number; left?: number };
 	title?: string;
+	maxXAxisTicks?: number;
 }
 
 /**
@@ -119,17 +120,24 @@ function buildResolved(props: BuildChartProps) {
 		/>
 	) : null;
 
+	const xAxisInterval =
+		props.maxXAxisTicks && props.data.length > props.maxXAxisTicks
+			? Math.ceil(props.data.length / props.maxXAxisTicks) - 1
+			: undefined;
+
 	const resolved: ResolvedProps = {
 		...props,
 		colorFor,
 		labelFormatter,
+		xAxisInterval,
 		margin: props.title ? { ...props.margin, top: (props.margin?.top ?? 0) + 30 } : props.margin,
 		children: titleChild ? [titleChild, ...(props.children ?? [])] : props.children,
 	};
 	return resolved;
 }
 
-type ResolvedProps = BuildChartProps & Required<Pick<BuildChartProps, 'colorFor' | 'labelFormatter'>>;
+type ResolvedProps = BuildChartProps &
+	Required<Pick<BuildChartProps, 'colorFor' | 'labelFormatter'>> & { xAxisInterval?: number };
 
 function buildKpiCard(props: ResolvedProps) {
 	const { data, series } = props;
@@ -170,8 +178,19 @@ function KpiCard({ value, displayName }: { value: unknown; displayName: string }
 }
 
 function buildBarChart(props: ResolvedProps) {
-	const { data, chartType, xAxisKey, xAxisType, series, colorFor, labelFormatter, showGrid, children, margin } =
-		props;
+	const {
+		data,
+		chartType,
+		xAxisKey,
+		xAxisType,
+		series,
+		colorFor,
+		labelFormatter,
+		showGrid,
+		children,
+		margin,
+		xAxisInterval,
+	} = props;
 	const isStacked = chartType === 'stacked_bar';
 
 	return (
@@ -187,6 +206,7 @@ function buildBarChart(props: ResolvedProps) {
 				tickMargin={10}
 				axisLine={false}
 				minTickGap={12}
+				interval={xAxisInterval}
 				tickFormatter={labelFormatter}
 			/>
 			{children}
@@ -205,8 +225,19 @@ function buildBarChart(props: ResolvedProps) {
 }
 
 function buildAreaChart(props: ResolvedProps) {
-	const { data, chartType, xAxisKey, xAxisType, series, colorFor, labelFormatter, showGrid, children, margin } =
-		props;
+	const {
+		data,
+		chartType,
+		xAxisKey,
+		xAxisType,
+		series,
+		colorFor,
+		labelFormatter,
+		showGrid,
+		children,
+		margin,
+		xAxisInterval,
+	} = props;
 	const isStacked = chartType === 'stacked_area';
 
 	return (
@@ -234,6 +265,7 @@ function buildAreaChart(props: ResolvedProps) {
 				tickMargin={10}
 				axisLine={false}
 				minTickGap={12}
+				interval={xAxisInterval}
 				tickFormatter={labelFormatter}
 			/>
 			{children}

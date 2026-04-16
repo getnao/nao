@@ -41,6 +41,7 @@ export function renderChartToSvg(input: RenderChartInput): string {
 		showGrid: true,
 		margin,
 		title: config.title,
+		maxXAxisTicks: Math.floor(width / 80),
 	});
 
 	const html = renderToString(React.cloneElement(chart, { width, height }));
