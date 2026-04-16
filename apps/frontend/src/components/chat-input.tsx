@@ -50,8 +50,8 @@ export function ChatInput() {
 	const { queueOrSendMessage } = useAgentContext();
 
 	useRegisterSetChatInputCallback((text) => {
+		promptRef.current?.clear();
 		if (text) {
-			promptRef.current?.clear();
 			promptRef.current?.insertText(text);
 		}
 		requestAnimationFrame(() => promptRef.current?.focus());
