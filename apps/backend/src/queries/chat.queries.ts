@@ -1,4 +1,4 @@
-import type { LlmProvider } from '@nao/shared/types';
+import type { CitationData, LlmProvider } from '@nao/shared/types';
 import { and, asc, desc, eq, gte, isNull, like, sql } from 'drizzle-orm';
 
 import s, {
@@ -113,6 +113,7 @@ const aggregateChatMessagParts = (
 					feedback: row.message_feedback ?? undefined,
 					source: row.chat_message.source ?? undefined,
 					isForked: row.chat_message.isForked ?? undefined,
+					citation: row.chat_message.citation ?? undefined,
 				};
 			}
 			return acc;
@@ -178,6 +179,7 @@ export const createChat = async (
 	newUserMessage: {
 		text: string;
 		source?: 'slack' | 'teams' | 'telegram' | 'whatsapp' | 'web';
+		citation?: CitationData;
 	},
 	additionalParts: UIMessagePart[] = [],
 ): Promise<[DBChat, DBChatMessage]> => {
@@ -190,6 +192,7 @@ export const createChat = async (
 				chatId: savedChat.id,
 				role: 'user',
 				source: newUserMessage.source,
+				citation: newUserMessage.citation ?? null,
 			})
 			.returning()
 			.execute();
@@ -270,6 +273,7 @@ export const upsertMessage = async (
 				llmModelId: message.llmModelId,
 				source: message.source,
 				isForked: message.isForked,
+				citation: message.citation ?? null,
 				...message.tokenUsage,
 			})
 			.onConflictDoNothing({ target: s.chatMessage.id })

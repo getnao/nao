@@ -106,7 +106,11 @@ const createChat = async (
 	imageParts: UIMessagePart[],
 ) => {
 	const title = createChatTitle(message);
-	return await chatQueries.createChat({ title, userId, projectId }, message, imageParts);
+	return await chatQueries.createChat(
+		{ title, userId, projectId },
+		{ text: message.text, citation: message.citation },
+		imageParts,
+	);
 };
 
 /** Insert a message into a chat or supersede an existing message when it is edited. */
@@ -135,5 +139,6 @@ const insertOrSupersedeMessage = async (opts: {
 		parts: [{ type: 'text', text: message.text }, ...imageParts],
 		chatId,
 		source: 'web',
+		citation: message.citation,
 	});
 };

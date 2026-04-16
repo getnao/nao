@@ -3,7 +3,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { MessageSquare } from 'lucide-react';
 import { useRef } from 'react';
 import { ChatMessagesReadonly } from '@/components/chat-messages/chat-messages-readonly';
-import { HighlightBubble } from '@/components/highlight-bubble';
+import { ForkBubble } from '@/components/highlight-bubble';
 import { SelectionChatPanel } from '@/components/selection-chat-panel';
 import { SidePanel } from '@/components/side-panel/side-panel';
 import { Button } from '@/components/ui/button';
@@ -98,7 +98,7 @@ function SharedChatPage() {
 					</header>
 
 					<SelectionProvider key={shareId} persistenceConfig={{ shareId, contentType: 'chat' }}>
-						<HighlightBubble shareId={shareId} contentType='chat' />
+						<ForkBubble shareId={shareId} contentType='chat' />
 						<SelectionChatPanel contentAreaRef={contentAreaRef} />
 						<div className='flex flex-1 min-h-0 min-w-0'>
 							<div ref={contentAreaRef} className='flex-1 min-w-0'>

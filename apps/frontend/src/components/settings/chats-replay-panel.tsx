@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { InlineStatusBar } from '@/components/settings/chats-replay-inline-status-bar';
 import { ReadonlyAgentMessagesProvider } from '@/contexts/agent.provider';
 import { ChatViewProvider } from '@/contexts/chat-view';
+import { ChatIdContext } from '@/hooks/use-chat-id';
 import { useReplayNav } from '@/hooks/use-replay-nav';
 import { useSidePanel } from '@/hooks/use-side-panel';
 import { trpc } from '@/main';
@@ -107,39 +108,41 @@ export function ChatsReplayPanel({ chatInfo, onClose }: ChatsReplayPanelProps) {
 					<div className='flex-1 overflow-auto p-4 text-sm text-destructive'>Failed to load chat.</div>
 				) : chatReplayQuery.data ? (
 					<ChatViewProvider expandOnError={true}>
-						<ReadonlyAgentMessagesProvider
-							messages={chatReplayQuery.data.messages}
-							chatId={chatInfo.chatId}
-						>
-							<SidePanelProvider
-								isVisible={sidePanel.isVisible}
-								currentStorySlug={sidePanel.currentStorySlug}
-								chatId={chatInfo?.chatId}
-								isReadonlyMode={!isOwner}
-								open={sidePanel.open}
-								close={sidePanel.close}
+						<ChatIdContext.Provider value={chatInfo.chatId}>
+							<ReadonlyAgentMessagesProvider
+								messages={chatReplayQuery.data.messages}
+								chatId={chatInfo.chatId}
 							>
-								<div ref={containerRef} className='flex h-full min-h-0'>
-									<div ref={scrollContainerRef} className='flex-1 overflow-auto p-4'>
-										<ChatMessagesReadonly
-											messages={chatReplayQuery.data.messages}
-											forkMetadata={chatReplayQuery.data.forkMetadata}
-										/>
+								<SidePanelProvider
+									isVisible={sidePanel.isVisible}
+									currentStorySlug={sidePanel.currentStorySlug}
+									chatId={chatInfo?.chatId}
+									isReadonlyMode={!isOwner}
+									open={sidePanel.open}
+									close={sidePanel.close}
+								>
+									<div ref={containerRef} className='flex h-full min-h-0'>
+										<div ref={scrollContainerRef} className='flex-1 overflow-auto p-4'>
+											<ChatMessagesReadonly
+												messages={chatReplayQuery.data.messages}
+												forkMetadata={chatReplayQuery.data.forkMetadata}
+											/>
+										</div>
+										{sidePanel.content && (
+											<SidePanel
+												containerRef={containerRef}
+												isAnimating={sidePanel.isAnimating}
+												sidePanelRef={sidePanelRef}
+												resizeHandleRef={sidePanel.resizeHandleRef}
+												onClose={sidePanel.close}
+											>
+												{sidePanel.content}
+											</SidePanel>
+										)}
 									</div>
-									{sidePanel.content && (
-										<SidePanel
-											containerRef={containerRef}
-											isAnimating={sidePanel.isAnimating}
-											sidePanelRef={sidePanelRef}
-											resizeHandleRef={sidePanel.resizeHandleRef}
-											onClose={sidePanel.close}
-										>
-											{sidePanel.content}
-										</SidePanel>
-									)}
-								</div>
-							</SidePanelProvider>
-						</ReadonlyAgentMessagesProvider>
+								</SidePanelProvider>
+							</ReadonlyAgentMessagesProvider>
+						</ChatIdContext.Provider>
 					</ChatViewProvider>
 				) : (
 					<div className='flex-1 overflow-auto p-4 text-sm text-muted-foreground'>

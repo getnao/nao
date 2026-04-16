@@ -1,4 +1,4 @@
-import type { LlmProvider } from '@nao/shared/types';
+import type { CitationData, LlmProvider } from '@nao/shared/types';
 import { BUDGET_PERIODS, SHARE_VISIBILITY, USER_ROLES } from '@nao/shared/types';
 import { type ProviderMetadata } from 'ai';
 import { sql } from 'drizzle-orm';
@@ -251,6 +251,7 @@ export const chatMessage = sqliteTable(
 		supersededAt: integer('superseded_at', { mode: 'timestamp_ms' }),
 		source: text('source', { enum: ['slack', 'teams', 'telegram', 'whatsapp', 'web'] }),
 		isForked: integer('isForked', { mode: 'boolean' }),
+		citation: text('citation', { mode: 'json' }).$type<CitationData>(),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull(),

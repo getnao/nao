@@ -6,7 +6,7 @@ import { useCallback, useMemo, useRef } from 'react';
 import type { ParsedChartBlock, ParsedTableBlock } from '@nao/shared/story-segments';
 
 import type { QueryDataMap } from '@/components/story-embeds';
-import { HighlightBubble } from '@/components/highlight-bubble';
+import { ForkBubble } from '@/components/highlight-bubble';
 import { SelectionChatPanel } from '@/components/selection-chat-panel';
 import { SidePanel } from '@/components/side-panel/side-panel';
 import { StoryDownload } from '@/components/story-download';
@@ -151,7 +151,7 @@ function SharedStoryPage() {
 				</header>
 
 				<SelectionProvider key={shareId} persistenceConfig={{ shareId, contentType: 'story' }}>
-					<HighlightBubble shareId={shareId} contentType='story' />
+					<ForkBubble shareId={shareId} contentType='story' />
 					<SelectionChatPanel contentAreaRef={contentAreaRef} />
 					<div className='flex flex-1 min-h-0 min-w-0'>
 						<div ref={contentAreaRef} className='flex flex-col flex-1 min-w-0 min-h-0'>

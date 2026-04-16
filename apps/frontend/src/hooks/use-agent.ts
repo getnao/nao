@@ -11,7 +11,7 @@ import type { FileUIPart, InferUIMessageChunk } from 'ai';
 import type { UseChatHelpers } from '@ai-sdk/react';
 import type { UIMessage } from '@nao/backend/chat';
 import type { MentionOption } from 'prompt-mentions';
-import type { ImageUploadData, LlmSelectedModel } from '@nao/shared/types';
+import type { CitationData, ImageUploadData, LlmSelectedModel } from '@nao/shared/types';
 import { messageQueueStore } from '@/stores/chat-message-queue';
 import { chatActivityStore } from '@/stores/chat-activity';
 import { useChatQuery, useSetChat } from '@/queries/use-chat-query';
@@ -50,9 +50,12 @@ export interface AgentHelpers {
 export interface SendMessageArgs {
 	text: string;
 	images?: ImageUploadData[];
+	citation?: CitationData;
 }
 
 export const selectedModelStorage = createLocalStorage<LlmSelectedModel>('nao-selected-model');
+
+const agentCitationStore = new WeakMap<Agent<UIMessage>, CitationData | undefined>();
 
 export const useAgent = ({ disableNavigation = false }: { disableNavigation?: boolean } = {}): AgentHelpers => {
 	const navigate = useNavigate();
@@ -108,9 +111,11 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 
 			if (dataPart.type === 'data-newUserMessage') {
 				const { newId } = dataPart.data;
+				const citation = agentCitationStore.get(newAgent);
+				agentCitationStore.delete(newAgent);
 				const lastUserMessageIndex = getLastUserMessageIdx(agent.messages);
 				agent.messages = agent.messages.map((message, idx) =>
-					idx === lastUserMessageIndex ? { ...message, id: newId } : message,
+					idx === lastUserMessageIndex ? { ...message, id: newId, ...(citation && { citation }) } : message,
 				);
 			}
 		};
@@ -126,6 +131,7 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 
 					const mentions = mentionsRef.current;
 					mentionsRef.current = [];
+					const citation = agentCitationStore.get(newAgent);
 					const images = extractImagesFromMessage(messageToSend);
 					return {
 						headers: getActiveProjectId() ? { 'x-nao-project-id': getActiveProjectId()! } : undefined,
@@ -135,6 +141,7 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 							message: {
 								text: getTextFromUserMessageOrThrow(messageToSend),
 								images: images.length > 0 ? images : undefined,
+								citation,
 							},
 							model: selectedModelRef.current ?? undefined,
 							mentions: mentions.length > 0 ? mentions : undefined,
@@ -220,15 +227,16 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 	);
 
 	const queueOrSendMessage = useCallback(
-		async ({ text, images }: SendMessageArgs) => {
+		async ({ text, images, citation }: SendMessageArgs) => {
 			if (!text.trim() && !images?.length) {
 				return;
 			}
 
 			if (!isRunning) {
+				agentCitationStore.set(agentInstance, citation);
 				const files = imagesToFileUIParts(images);
 				return handleSendMessage({
-					text: text || 'Describe this image',
+					text: text || (images?.length ? 'Describe this image' : ''),
 					files: files.length > 0 ? files : undefined,
 				});
 			}
@@ -242,7 +250,7 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 				images,
 			});
 		},
-		[isRunning, handleSendMessage],
+		[isRunning, handleSendMessage, agentInstance],
 	);
 
 	const submitQueuedMessageNow = useCallback(

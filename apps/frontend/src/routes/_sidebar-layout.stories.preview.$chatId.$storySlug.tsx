@@ -1,17 +1,22 @@
 import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
-import { createFileRoute, Link } from '@tanstack/react-router';
+import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { Activity, ArchiveRestoreIcon, Loader2, MessageSquare, RefreshCw } from 'lucide-react';
 import { useCallback, useMemo } from 'react';
 
 import { splitCodeIntoSegments } from '@nao/shared/story-segments';
 import type { ParsedChartBlock, ParsedTableBlock } from '@nao/shared/story-segments';
 import type { QueryDataMap } from '@/components/story-embeds';
+import type { SelectionData } from '@/components/highlight-bubble';
 import { StoryChartEmbed, StoryTableEmbed } from '@/components/story-embeds';
+import { HighlightBubble } from '@/components/highlight-bubble';
 import { SegmentList } from '@/components/story-rendering';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { trpc } from '@/main';
 import { StoryDownload } from '@/components/story-download';
+import { SelectionProvider } from '@/contexts/text-selection';
+import { chatPendingCitationStore } from '@/stores/chat-pending-citation';
+import { useChatActivity } from '@/hooks/use-chat-activity';
 
 export const Route = createFileRoute('/_sidebar-layout/stories/preview/$chatId/$storySlug')({
 	component: StoryPreviewPage,
@@ -21,6 +26,16 @@ function StoryPreviewPage() {
 	const { chatId, storySlug } = Route.useParams();
 	const { data: story } = useSuspenseQuery(trpc.story.getLatest.queryOptions({ chatId, storySlug }));
 	const queryClient = useQueryClient();
+	const navigate = useNavigate();
+	const { running: isChatRunning } = useChatActivity(chatId);
+
+	const handleSelectionAsk = useCallback(
+		(data: SelectionData) => {
+			chatPendingCitationStore.set({ chatId, storySlug, ...data });
+			navigate({ to: '/$chatId', params: { chatId } });
+		},
+		[navigate, chatId, storySlug],
+	);
 
 	const unarchiveMutation = useMutation(
 		trpc.story.unarchive.mutationOptions({
@@ -112,12 +127,15 @@ function StoryPreviewPage() {
 				</div>
 			)}
 
-			<PreviewContent
-				code={story.code}
-				queryData={story.queryData as QueryDataMap | null}
-				chatId={chatId}
-				cacheSchedule={story.cacheSchedule}
-			/>
+			<SelectionProvider key={storySlug}>
+				<HighlightBubble onAsk={handleSelectionAsk} disabled={isChatRunning} />
+				<PreviewContent
+					code={story.code}
+					queryData={story.queryData as QueryDataMap | null}
+					chatId={chatId}
+					cacheSchedule={story.cacheSchedule}
+				/>
+			</SelectionProvider>
 		</div>
 	);
 }

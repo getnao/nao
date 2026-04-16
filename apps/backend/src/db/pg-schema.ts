@@ -1,4 +1,4 @@
-import type { LlmProvider } from '@nao/shared/types';
+import type { CitationData, LlmProvider } from '@nao/shared/types';
 import { BUDGET_PERIODS, SHARE_VISIBILITY, USER_ROLES } from '@nao/shared/types';
 import { type ProviderMetadata } from 'ai';
 import { sql } from 'drizzle-orm';
@@ -240,6 +240,7 @@ export const chatMessage = pgTable(
 		supersededAt: timestamp('superseded_at'),
 		source: text('source', { enum: ['slack', 'teams', 'telegram', 'whatsapp', 'web'] }),
 		isForked: boolean('isForked'),
+		citation: jsonb('citation').$type<CitationData>(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 
 		// Token usage columns

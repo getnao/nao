@@ -151,6 +151,26 @@ export function measureRangePosition(container: Element, start: number, end: num
 	return { top: rect.top, height: rect.height, containerLeft };
 }
 
+export function findTextRange(container: Element, searchText: string): Range | null {
+	if (!searchText) {
+		return null;
+	}
+
+	const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+	let fullText = '';
+	let node: Node | null;
+	while ((node = walker.nextNode())) {
+		fullText += node.textContent ?? '';
+	}
+
+	const matchIndex = fullText.indexOf(searchText);
+	if (matchIndex === -1) {
+		return null;
+	}
+
+	return createRangeFromOffsets(container, matchIndex, matchIndex + searchText.length);
+}
+
 /** Returns the geometry (rect + containerLeft) for the current window selection. */
 export function getSelectionGeometry(range: Range): SelectionGeometry {
 	const rect = getSelectionBoundingRect(range) ?? range.getBoundingClientRect();

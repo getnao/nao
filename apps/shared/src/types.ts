@@ -102,3 +102,10 @@ export type ProjectChatListItem = {
 export type DownloadFormat = 'pdf' | 'html';
 
 export const DOWNLOAD_FORMATS = ['pdf', 'html'] as const satisfies readonly DownloadFormat[];
+
+export interface CitationData {
+	start: number;
+	end: number;
+	text: string;
+	storySlug?: string;
+}
