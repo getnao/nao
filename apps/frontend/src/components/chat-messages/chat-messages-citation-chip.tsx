@@ -37,7 +37,7 @@ export const ChatMessagesCitationChip = ({ start, end, text, storySlug }: ChatMe
 			return;
 		}
 
-		const range = findTextRange(container, text) ?? createRangeFromOffsets(container, start, end);
+		const range = createRangeFromOffsets(container, start, end) ?? findTextRange(container, text);
 		if (!range) {
 			return;
 		}
