@@ -22,9 +22,6 @@ jobs:
                   node-version-file: '.nvmrc'
                   cache: 'npm'
 
-            - name: Upgrade npm
-              run: npm install -g npm@11
-
             - name: Setup Bun
               uses: oven-sh/setup-bun@v2
 
