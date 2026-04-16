@@ -340,10 +340,10 @@ class AgentManager {
 		chatUrl?: string,
 	): Promise<ModelMessage[]> {
 		const uiMessagesWithStories = await this._syncStoryToolOutputs(uiMessages);
-		const uiMessagesWithCitation = this._addCitationContext(uiMessagesWithStories);
-		const uiMessagesWithStoryMode = this._addStoryMode(uiMessagesWithCitation, mentions);
+		const uiMessagesWithStoryMode = this._addStoryMode(uiMessagesWithStories, mentions);
 		const uiMessagesWithSkills = this._addSkills(uiMessagesWithStoryMode, mentions);
-		const uiMessagesWithDbContext = this._addDatabaseContext(uiMessagesWithSkills, mentions);
+		const uiMessagesWithCitation = this._addCitationContext(uiMessagesWithSkills);
+		const uiMessagesWithDbContext = this._addDatabaseContext(uiMessagesWithCitation, mentions);
 		const uiMessagesWithCompaction = compactionService.useLastCompaction(uiMessagesWithDbContext);
 		const uiMessagesWithResolvedImages = await resolveImageUrls(uiMessagesWithCompaction);
 

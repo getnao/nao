@@ -26,6 +26,7 @@ import { cn } from '@/lib/utils';
 import { useChatId } from '@/hooks/use-chat-id';
 import { messageQueueStore } from '@/stores/chat-message-queue';
 import { chatPendingCitationStore } from '@/stores/chat-pending-citation';
+import { useChatPendingCitation } from '@/hooks/use-chat-pending-citation';
 import { SelectionCitationBanner } from '@/components/selection-citation-banner';
 
 type ChatInputBaseProps = {
@@ -256,7 +257,8 @@ function ChatInputBase({
 		const mentions = promptRef.current?.getMentions() ?? [];
 		await submitMessage(inputText, mentions);
 	};
-	const isInputEmpty = !inputText.trim() && !imageUpload.hasImages;
+	const pendingCitation = useChatPendingCitation(chatId);
+	const isInputEmpty = !inputText.trim() && !imageUpload.hasImages && !pendingCitation;
 
 	const skills = useQuery(trpc.skill.list.queryOptions());
 	const databaseObjects = useQuery(trpc.project.getDatabaseObjects.queryOptions());
