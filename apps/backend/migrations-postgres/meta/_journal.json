@@ -260,6 +260,13 @@
       "when": 1776187674321,
       "tag": "0036_cloud",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1776332134291,
+      "tag": "0037_add_citation_column",
+      "breakpoints": true
     }
   ]
 }

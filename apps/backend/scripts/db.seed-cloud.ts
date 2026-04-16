@@ -373,13 +373,17 @@ async function insertMessage(tx: Tx, chatId: string, role: 'user' | 'assistant',
 
 async function upsertOrg(tx: Tx, values: { name: string; slug: string }) {
 	const existing = await tx.query.organization.findFirst({ where: (o, { eq }) => eq(o.slug, values.slug) });
-	if (existing) return [existing] as const;
+	if (existing) {
+		return [existing] as const;
+	}
 	return tx.insert(s.organization).values(values).returning().execute();
 }
 
 async function upsertProject(tx: Tx, values: { name: string; type: 'local'; path: string; orgId: string }) {
 	const existing = await tx.query.project.findFirst({ where: (p, { eq }) => eq(p.path, values.path) });
-	if (existing) return [existing] as const;
+	if (existing) {
+		return [existing] as const;
+	}
 	return tx.insert(s.project).values(values).returning().execute();
 }
 
