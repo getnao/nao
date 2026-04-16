@@ -249,6 +249,7 @@ class AgentManager {
 			provider?: Provider;
 			timezone?: string;
 			chatUrl?: string;
+			generateTitle?: boolean;
 		} = {},
 	): ReadableStream<InferUIMessageChunk<UIMessage>> {
 		let error: unknown = undefined;
@@ -290,7 +291,7 @@ class AgentManager {
 				// Extract memory immediately after the request to the agent is sent
 				this._scheduleMemoryExtraction(uiMessages);
 
-				if (opts.events?.newChat) {
+				if (opts.events?.newChat || opts.generateTitle) {
 					this._scheduleTitleGeneration(getLastUserMessageText(uiMessages));
 				}
 

@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { MessageSquare } from 'lucide-react';
 import { useRef } from 'react';
 import { ChatMessagesReadonly } from '@/components/chat-messages/chat-messages-readonly';
@@ -24,10 +24,12 @@ function SharedChatPage() {
 	const { data: session } = useSession();
 	const navigate = useNavigate();
 
+	const queryClient = useQueryClient();
 	const chatQuery = useQuery(trpc.sharedChat.getSharedChat.queryOptions({ shareId }));
 	const forkMutation = useMutation(
 		trpc.chatFork.fork.mutationOptions({
 			onSuccess: (data) => {
+				queryClient.invalidateQueries({ queryKey: trpc.chat.list.queryKey() });
 				navigate({ to: '/$chatId', params: { chatId: data.chatId } });
 			},
 		}),

@@ -29,7 +29,7 @@ export interface Props extends Omit<ComponentProps<'div'>, 'children'> {
 
 export function ChatListItem({ chat }: Props) {
 	const navigate = useNavigate();
-	const timeAgo = useTimeAgo(chat.createdAt);
+	const timeAgo = useTimeAgo(chat.updatedAt);
 	const activity = useChatActivity(chat.id);
 	const toggleStarred = useToggleStarred();
 	const [title, setTitle] = useState(chat.title);

@@ -49,6 +49,7 @@ function SharedStoryPage() {
 	const forkMutation = useMutation(
 		trpc.chatFork.fork.mutationOptions({
 			onSuccess: ({ chatId }) => {
+				queryClient.invalidateQueries({ queryKey: trpc.chat.list.queryKey() });
 				navigate({ to: '/$chatId', params: { chatId } });
 			},
 		}),

@@ -1,4 +1,4 @@
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 
 import type { SelectionData } from '@/components/highlight-bubble';
 import { useSelection } from '@/contexts/text-selection';
@@ -6,6 +6,7 @@ import { trpc } from '@/main';
 
 export function useForkSelectionAsk(shareId: string, contentType: 'chat' | 'story') {
 	const { selection, addAnchor, openAnchor } = useSelection();
+	const queryClient = useQueryClient();
 
 	const forkMutation = useMutation(trpc.chatFork.fork.mutationOptions());
 
@@ -15,6 +16,7 @@ export function useForkSelectionAsk(shareId: string, contentType: 'chat' | 'stor
 			{ shareId, type: contentType, selection: data },
 			{
 				onSuccess: ({ chatId }) => {
+					queryClient.invalidateQueries({ queryKey: trpc.chat.list.queryKey() });
 					if (!captured) {
 						return;
 					}

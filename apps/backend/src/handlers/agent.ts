@@ -61,9 +61,13 @@ export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<H
 
 	const agent = await agentService.create({ ...chat, userId, projectId }, model);
 
+	const isFirstForkMessage =
+		!isNewChat && !!chat.forkMetadata && chat.messages.filter((m) => m.role === 'user' && !m.isForked).length === 1;
+
 	const stream = agent.stream(chat.messages, {
 		mentions,
 		timezone: opts.timezone,
+		generateTitle: isFirstForkMessage,
 		events: {
 			newChat: isNewChat
 				? {
