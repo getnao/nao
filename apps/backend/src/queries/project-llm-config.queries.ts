@@ -77,7 +77,7 @@ export const getProjectModelProvider = async (projectId: string): Promise<LlmPro
 	}
 
 	if (configs[0]) {
-		return configs[0].provider as LlmProvider;
+		return [...configs].sort((a, b) => a.provider.localeCompare(b.provider))[0].provider as LlmProvider;
 	}
 
 	// Fall back to env providers
