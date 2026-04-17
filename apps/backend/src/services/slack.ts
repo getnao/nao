@@ -95,19 +95,39 @@ class SlackService {
 		});
 
 		this._bot.onAction('stop_generation', async (event) => {
-			const existingChat = await chatQueries.getChatBySlackThread(event.thread?.id || '');
-			if (existingChat) {
-				agentService.get(existingChat.id)?.stop();
+			try {
+				const existingChat = await chatQueries.getChatBySlackThread(event.threadId);
+				if (!existingChat) {
+					logger.warn('stop_generation: no chat found for thread', {
+						source: 'system',
+						context: { threadId: event.threadId },
+					});
+					return;
+				}
+				const agent = agentService.get(existingChat.id);
+				if (!agent) {
+					logger.warn('stop_generation: no active agent for chat', {
+						source: 'system',
+						context: { chatId: existingChat.id },
+					});
+					return;
+				}
+				agent.stop();
+			} catch (error) {
+				logger.error(`stop_generation failed: ${String(error)}`, {
+					source: 'system',
+					context: { threadId: event.threadId },
+				});
 			}
 		});
 
 		this._bot.onAction('feedback_positive', async (event) => {
-			const messageId = await this._getLastAssistantMessageId(event.thread?.id || '');
+			const messageId = await this._getLastAssistantMessageId(event.threadId);
 			if (!messageId) {
 				return;
 			}
 			await feedbackQueries.upsertFeedback({ messageId, vote: 'up' });
-			const completion = this._lastCompletionCard.get(event.thread?.id || '');
+			const completion = this._lastCompletionCard.get(event.threadId);
 			if (completion) {
 				await completion.card.edit(createCompletionCard(completion.chatUrl, 'up'));
 			}
@@ -116,7 +136,7 @@ class SlackService {
 		this._bot.onAction('feedback_negative', async (event) => {
 			await event.openModal({
 				...createFeedbackModal(),
-				privateMetadata: event.thread?.id || '',
+				privateMetadata: event.threadId,
 			});
 		});
 
@@ -255,13 +275,65 @@ class SlackService {
 			ctx.chatId = existingChat.id;
 			ctx.isNewChat = false;
 		} else {
+			const threadContext = await this._getSlackThreadContext(ctx.thread.id);
+			const messageText = threadContext
+				? `[Previous messages in this Slack thread]\n${threadContext}\n\n[Your message]\n${text}`
+				: text;
+
 			const title = createChatTitle({ text });
 			const [createdChat] = await chatQueries.createChat(
 				{ title, userId: ctx.user!.id, projectId: this._projectId, slackThreadId: ctx.thread.id },
-				{ text, source: 'slack' },
+				{ text: messageText, source: 'slack' },
 			);
 			ctx.chatId = createdChat.id;
 			ctx.isNewChat = true;
+		}
+	}
+
+	private async _getSlackThreadContext(threadId: string): Promise<string | null> {
+		const [, channelId, threadTs] = threadId.split(':');
+		if (!channelId || !threadTs) {
+			return null;
+		}
+
+		try {
+			const result = await this._slackClient?.conversations.replies({
+				channel: channelId,
+				ts: threadTs,
+			});
+
+			const allMessages = result?.messages ?? [];
+			const userMessages = allMessages.filter(
+				(msg) => !msg.bot_id && (msg as Record<string, unknown>).subtype !== 'bot_message',
+			);
+
+			const priorMessages = userMessages.slice(0, -1);
+			if (priorMessages.length === 0) {
+				return null;
+			}
+
+			const userIds = [...new Set(priorMessages.map((msg) => msg.user).filter(Boolean))] as string[];
+			const userNames = new Map<string, string>();
+			await Promise.all(
+				userIds.map(async (userId) => {
+					const slackUser = await this._getSlackUser(userId);
+					userNames.set(userId, slackUser?.real_name || slackUser?.name || userId);
+				}),
+			);
+
+			return priorMessages
+				.map((msg) => {
+					const name = msg.user ? userNames.get(msg.user) || msg.user : 'Unknown';
+					const text = (msg.text || '').replace(/(?:<@|@)([A-Z0-9]+)(?:\|[^>]+)?>?\s*/g, '').trim();
+					return `${name}: ${text}`;
+				})
+				.join('\n');
+		} catch (error) {
+			logger.error(`Failed to fetch Slack thread history: ${String(error)}`, {
+				source: 'system',
+				context: { threadId },
+			});
+			return null;
 		}
 	}
 
@@ -269,10 +341,21 @@ class SlackService {
 		const stream = await this._createAgentStream(chat, ctx);
 		const stopCard = await ctx.thread.post(createStopButtonCard());
 
-		const state = await this._readStreamAndUpdateSlackMessage(stream, ctx);
+		let state: StreamState | undefined;
+		try {
+			state = await this._readStreamAndUpdateSlackMessage(stream, ctx);
+		} catch (error) {
+			logger.error(`Stream interrupted: ${String(error)}`, {
+				source: 'system',
+				context: { chatId: ctx.chatId },
+			});
+		} finally {
+			await stopCard.delete().catch(() => {});
+		}
 
-		await stopCard.delete();
-		await this._uploadLastSqlResultAsCsv(state, ctx);
+		if (state) {
+			await this._uploadLastSqlResultAsCsv(state, ctx);
+		}
 		await this._lastCompletionCard.get(ctx.thread.id)?.card.delete();
 		const chatUrl = new URL(ctx.chatId, this._redirectUrl).toString();
 		const card = await ctx.thread.post(createCompletionCard(chatUrl));

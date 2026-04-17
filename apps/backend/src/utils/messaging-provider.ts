@@ -7,19 +7,16 @@ import { BudgetExceededError } from './error';
 
 export const EXCLUDED_TOOLS = ['tool-suggest_follow_ups', 'tool-display_chart'];
 
-const TOOL_LIVE_LABELS: Record<string, (input: Record<string, string>) => string> = {
-	'tool-read': (input) => `_reading **${input['file_path'] ?? '...'}**_`,
-	'tool-search': (input) => `_searching **${input['pattern'] ?? '...'}**_`,
-	'tool-grep': (input) => `_grepping **${input['pattern'] ?? '...'}**_`,
-	'tool-list': (input) => `_listing **${input['path'] ?? '...'}**_`,
-	'tool-execute_sql': (input) => `_executing **${input['query'] ?? 'SQL query'}**_`,
-};
-
 export const createLiveToolCall = (toolGroup: Map<string, ToolCallEntry>): CardChild => {
-	const lines = [...toolGroup.values()].map(
-		(entry) => TOOL_LIVE_LABELS[entry.type]?.(entry.input) ?? `_${entry.type}_`,
-	);
-	return CardText(lines.join('\n\n'));
+	const countByType = new Map<string, number>();
+	for (const entry of toolGroup.values()) {
+		countByType.set(entry.type, (countByType.get(entry.type) ?? 0) + 1);
+	}
+	const parts = [...countByType.entries()].map(([type, count]) => {
+		const noun = TOOL_LABELS[type] ?? type.replace('tool-', '');
+		return `*${count} ${pluralize(noun, count)}*`;
+	});
+	return CardText(`_Exploring ${parts.join(', ')}..._`);
 };
 
 export const createSummaryToolCalls = (toolGroup: Map<string, ToolCallEntry>): CardChild => {
