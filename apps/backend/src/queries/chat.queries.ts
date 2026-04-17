@@ -98,7 +98,7 @@ async function fetchSharedWithMeChats(userId: string, projectId: string): Promis
 			s.sharedChatAccess,
 			and(eq(s.sharedChatAccess.sharedChatId, s.sharedChat.id), eq(s.sharedChatAccess.userId, userId)),
 		)
-		.where(eq(s.chat.projectId, projectId))
+		.where(and(eq(s.chat.projectId, projectId), isNull(s.chat.deletedAt)))
 		.orderBy(desc(s.chat.updatedAt))
 		.execute();
 
