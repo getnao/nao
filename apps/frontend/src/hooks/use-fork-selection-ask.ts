@@ -16,7 +16,7 @@ export function useForkSelectionAsk(shareId: string, contentType: 'chat' | 'stor
 			{ shareId, type: contentType, selection: data },
 			{
 				onSuccess: ({ chatId }) => {
-					queryClient.invalidateQueries({ queryKey: trpc.chat.list.queryKey() });
+					queryClient.invalidateQueries({ queryKey: [['chat', 'listGrouped']] });
 					if (!captured) {
 						return;
 					}

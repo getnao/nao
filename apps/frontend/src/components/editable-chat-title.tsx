@@ -18,21 +18,13 @@ export function EditableChatTitle({ chatId, title: currentTitle, className }: Pr
 	const renameChat = useMutation(
 		trpc.chat.rename.mutationOptions({
 			onSuccess: (_data, vars, _res, ctx) => {
-				ctx.client.setQueryData(trpc.chat.list.queryKey(), (prev) => {
-					if (!prev) {
-						return prev;
-					}
-					return {
-						...prev,
-						chats: prev.chats.map((c) => (c.id === vars.chatId ? { ...c, title: vars.title } : c)),
-					};
-				});
 				ctx.client.setQueryData(trpc.chat.get.queryKey({ chatId }), (prev) => {
 					if (!prev) {
 						return prev;
 					}
 					return { ...prev, title: vars.title };
 				});
+				ctx.client.invalidateQueries({ queryKey: [['chat', 'listGrouped']] });
 			},
 			onSettled: () => {
 				setIsEditing(false);

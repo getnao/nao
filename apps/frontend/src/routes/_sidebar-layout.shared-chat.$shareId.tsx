@@ -29,7 +29,7 @@ function SharedChatPage() {
 	const forkMutation = useMutation(
 		trpc.chatFork.fork.mutationOptions({
 			onSuccess: (data) => {
-				queryClient.invalidateQueries({ queryKey: trpc.chat.list.queryKey() });
+				queryClient.invalidateQueries({ queryKey: [['chat', 'listGrouped']] });
 				navigate({ to: '/$chatId', params: { chatId: data.chatId } });
 			},
 		}),

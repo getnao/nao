@@ -1,22 +1,19 @@
-import { useNavigate, useParams } from '@tanstack/react-router';
-import { useMutation } from '@tanstack/react-query';
-import { useMemo, useEffect, useCallback, useRef } from 'react';
 import { Chat as Agent, useChat } from '@ai-sdk/react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useNavigate, useParams } from '@tanstack/react-router';
 import { DefaultChatTransport } from 'ai';
-import { useMemoObject } from './useMemoObject';
-import { usePrevRef } from './use-prev';
-import { useLocalStorage } from './use-local-storage';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useChatId } from './use-chat-id';
-import type { FileUIPart, InferUIMessageChunk } from 'ai';
+import { useLocalStorage } from './use-local-storage';
+import { usePrevRef } from './use-prev';
+import { useMemoObject } from './useMemoObject';
 import type { UseChatHelpers } from '@ai-sdk/react';
 import type { UIMessage } from '@nao/backend/chat';
-import type { MentionOption } from 'prompt-mentions';
 import type { CitationData, ImageUploadData, LlmSelectedModel } from '@nao/shared/types';
-import { messageQueueStore } from '@/stores/chat-message-queue';
-import { chatActivityStore } from '@/stores/chat-activity';
-import { useChatQuery, useSetChat } from '@/queries/use-chat-query';
-import { trpc } from '@/main';
-import { agentService } from '@/services/agents';
+import type { FileUIPart, InferUIMessageChunk } from 'ai';
+import type { MentionOption } from 'prompt-mentions';
+
+import { getActiveProjectId } from '@/lib/active-project';
 import {
 	checkIsAgentRunning,
 	extractImagesFromMessage,
@@ -25,9 +22,12 @@ import {
 	NEW_CHAT_ID,
 	parseBudgetError,
 } from '@/lib/ai';
-import { useSetChatList } from '@/queries/use-chat-list-query';
 import { createLocalStorage } from '@/lib/local-storage';
-import { getActiveProjectId } from '@/lib/active-project';
+import { trpc } from '@/main';
+import { useChatQuery, useSetChat } from '@/queries/use-chat-query';
+import { agentService } from '@/services/agents';
+import { chatActivityStore } from '@/stores/chat-activity';
+import { messageQueueStore } from '@/stores/chat-message-queue';
 
 export interface AgentHelpers {
 	chatId: string | undefined;
@@ -64,7 +64,7 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 
 	const [selectedModel, setSelectedModel] = useLocalStorage(selectedModelStorage);
 	const setChat = useSetChat();
-	const setChatList = useSetChatList();
+	const queryClient = useQueryClient();
 
 	const chatIdRef = useRef(chatId);
 	chatIdRef.current = chatId;
@@ -93,7 +93,7 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 				agentService.moveAgent(agentId, newChat.id);
 				agentId = newChat.id;
 				setChat({ chatId: newChat.id }, { ...newChat, messages: [] });
-				setChatList((old) => ({ chats: [newChat, ...(old?.chats || [])] }));
+				queryClient.invalidateQueries({ queryKey: [['chat', 'listGrouped']] });
 				if (!disableNavigation) {
 					navigate({ to: '/$chatId', params: { chatId: newChat.id }, state: { fromMessageSend: true } });
 				}
@@ -103,9 +103,7 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 			if (dataPart.type === 'data-chatTitleUpdate') {
 				const { title } = dataPart.data;
 				setChat({ chatId: agentId }, (prev) => (prev ? { ...prev, title } : prev));
-				setChatList((old) => ({
-					chats: (old?.chats ?? []).map((c) => (c.id === agentId ? { ...c, title } : c)),
-				}));
+				queryClient.invalidateQueries({ queryKey: [['chat', 'listGrouped']] });
 				return;
 			}
 
@@ -176,7 +174,7 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 		}
 
 		return agentService.registerAgent(agentId, newAgent);
-	}, [chatId, disableNavigation, navigate, setChat, setChatList]);
+	}, [chatId, disableNavigation, navigate, setChat, queryClient]);
 
 	const { status, error, clearError, sendMessage, setMessages, messages } = useChat({ chat: agentInstance });
 
@@ -216,7 +214,7 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 
 		agentInstance.stop(); // Stop the agent instance to instantly stop reading the stream
 		await stopAgentMutation.mutateAsync({ chatId });
-	}, [chatId, agentInstance, stopAgentMutation.mutateAsync]); // eslint-disable-line
+	}, [chatId, agentInstance, stopAgentMutation]);
 
 	const handleSendMessage = useCallback<UseChatHelpers<UIMessage>['sendMessage']>(
 		async (...args) => {

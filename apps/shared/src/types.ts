@@ -109,3 +109,29 @@ export interface CitationData {
 	text: string;
 	storySlug?: string;
 }
+
+export const CHAT_GROUP_BY_OPTIONS = ['star', 'date', 'project', 'ownership', 'none'];
+export const CHAT_FILTER_OPTIONS = ['all', 'mine', 'starred', 'shared', 'shared_with_me'];
+
+export type ChatGroupBy = (typeof CHAT_GROUP_BY_OPTIONS)[number];
+export type ChatFilterType = (typeof CHAT_FILTER_OPTIONS)[number];
+
+export interface GroupedChatItem {
+	id: string;
+	title: string;
+	isStarred: boolean;
+	createdAt: number;
+	updatedAt: number;
+	kind: 'own' | 'shared';
+	shareId?: string;
+	ownerName: string;
+}
+
+export interface ChatGroup {
+	label: string;
+	chats: GroupedChatItem[];
+}
+
+export interface GroupedChatListResponse {
+	groups: ChatGroup[];
+}

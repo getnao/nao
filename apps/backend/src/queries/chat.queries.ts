@@ -1,4 +1,4 @@
-import type { CitationData, LlmProvider } from '@nao/shared/types';
+import type { ChatFilterType, ChatGroupBy, CitationData, GroupedChatListResponse, LlmProvider } from '@nao/shared/types';
 import { and, asc, desc, eq, gte, isNull, like, sql } from 'drizzle-orm';
 
 import s, {
@@ -11,15 +11,8 @@ import s, {
 } from '../db/abstractSchema';
 import { db } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
-import {
-	ForkMetadata,
-	ListChatResponse,
-	StopReason,
-	TokenUsage,
-	UIChat,
-	UIMessage,
-	UIMessagePart,
-} from '../types/chat';
+import { ForkMetadata, StopReason, TokenUsage, UIChat, UIMessage, UIMessagePart } from '../types/chat';
+import { applyChatFilters, buildChatGroups, type EnrichedChat } from '../utils/chat-list';
 import { convertDBPartToUIPart, mapUIPartsToDBParts } from '../utils/chat-message-part-mappings';
 import { getErrorMessage } from '../utils/utils';
 
@@ -28,24 +21,114 @@ export const checkChatExists = async (chatId: string): Promise<boolean> => {
 	return result.length > 0;
 };
 
-export const listUserChats = async (userId: string): Promise<ListChatResponse> => {
-	const chats = await db
-		.select()
+export const listGroupedChats = async (
+	userId: string,
+	projectId: string,
+	groupBy: ChatGroupBy,
+	filters: ChatFilterType[],
+): Promise<GroupedChatListResponse> => {
+	const effective = filters.length === 0 || filters.includes('all') ? (['all'] as ChatFilterType[]) : filters;
+	const needsShared = effective.includes('all') || effective.includes('shared_with_me') || groupBy === 'ownership';
+
+	const [ownItems, sharedItems] = await Promise.all([
+		fetchOwnChats(userId),
+		needsShared ? fetchSharedWithMeChats(userId, projectId) : Promise.resolve([]),
+	]);
+
+	const allItems = [...ownItems, ...sharedItems];
+	const filtered = applyChatFilters(allItems, effective);
+	return { groups: buildChatGroups(filtered, groupBy) };
+};
+
+async function fetchOwnChats(userId: string): Promise<EnrichedChat[]> {
+	const rows = await db
+		.select({
+			id: s.chat.id,
+			title: s.chat.title,
+			isStarred: s.chat.isStarred,
+			createdAt: s.chat.createdAt,
+			updatedAt: s.chat.updatedAt,
+			projectId: s.chat.projectId,
+			projectName: s.project.name,
+			ownerName: s.user.name,
+			sharedChatId: s.sharedChat.id,
+		})
 		.from(s.chat)
+		.innerJoin(s.project, eq(s.project.id, s.chat.projectId))
+		.innerJoin(s.user, eq(s.user.id, s.chat.userId))
+		.leftJoin(s.sharedChat, eq(s.sharedChat.chatId, s.chat.id))
 		.where(and(eq(s.chat.userId, userId), isNull(s.chat.deletedAt)))
 		.orderBy(desc(s.chat.updatedAt))
 		.execute();
-	return {
-		chats: chats.map((chat) => ({
-			id: chat.id,
-			projectId: chat.projectId,
-			title: chat.title,
-			isStarred: chat.isStarred,
-			createdAt: chat.createdAt.getTime(),
-			updatedAt: chat.updatedAt.getTime(),
-		})),
-	};
-};
+
+	return rows.map((row) => ({
+		id: row.id,
+		title: row.title,
+		isStarred: row.isStarred,
+		createdAt: row.createdAt.getTime(),
+		updatedAt: row.updatedAt.getTime(),
+		kind: 'own' as const,
+		ownerName: row.ownerName,
+		projectId: row.projectId,
+		projectName: row.projectName,
+		isSharedByMe: row.sharedChatId !== null,
+	}));
+}
+
+async function fetchSharedWithMeChats(userId: string, projectId: string): Promise<EnrichedChat[]> {
+	const rows = await db
+		.select({
+			shareId: s.sharedChat.id,
+			chatId: s.sharedChat.chatId,
+			chatUserId: s.chat.userId,
+			title: s.chat.title,
+			chatCreatedAt: s.chat.createdAt,
+			chatUpdatedAt: s.chat.updatedAt,
+			projectId: s.chat.projectId,
+			projectName: s.project.name,
+			ownerName: s.user.name,
+			visibility: s.sharedChat.visibility,
+			accessUserId: s.sharedChatAccess.userId,
+		})
+		.from(s.sharedChat)
+		.innerJoin(s.chat, eq(s.sharedChat.chatId, s.chat.id))
+		.innerJoin(s.project, eq(s.project.id, s.chat.projectId))
+		.innerJoin(s.user, eq(s.user.id, s.chat.userId))
+		.leftJoin(
+			s.sharedChatAccess,
+			and(eq(s.sharedChatAccess.sharedChatId, s.sharedChat.id), eq(s.sharedChatAccess.userId, userId)),
+		)
+		.where(eq(s.chat.projectId, projectId))
+		.orderBy(desc(s.chat.updatedAt))
+		.execute();
+
+	return rows
+		.filter((r) => {
+			if (r.chatUserId === userId) {
+				return false;
+			}
+			if (r.visibility === 'project') {
+				return true;
+			}
+			if (r.visibility === 'specific') {
+				return r.accessUserId !== null;
+			}
+			return false;
+		})
+		.map((r) => ({
+			id: r.chatId,
+			title: r.title,
+			isStarred: false,
+			createdAt: r.chatCreatedAt.getTime(),
+			updatedAt: r.chatUpdatedAt.getTime(),
+			kind: 'shared' as const,
+			shareId: r.shareId,
+			ownerName: r.ownerName,
+			projectId: r.projectId,
+			projectName: r.projectName,
+			isSharedByMe: false,
+		}));
+}
 
 /** Return the chat with its messages as well as the user id for ownership check. */
 export const loadChat = async (

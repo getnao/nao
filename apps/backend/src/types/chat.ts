@@ -34,10 +34,6 @@ export interface UIChat {
 	forkMetadata?: ForkMetadata;
 }
 
-export interface ListChatResponse {
-	chats: ChatListItem[];
-}
-
 export interface ChatListItem {
 	id: string;
 	projectId: string;
