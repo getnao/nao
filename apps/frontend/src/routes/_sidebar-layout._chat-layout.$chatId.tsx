@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, useRouter } from '@tanstack/react-router';
 import { useEffect, useRef, useState } from 'react';
-import { GitFork, Globe, Upload } from 'lucide-react';
+import { Folder, GitFork, Globe, Upload } from 'lucide-react';
 import type { ForkMetadata } from '@nao/backend/chat';
 import { StoryOpenButton } from '@/components/story-open-button';
 import { StoryViewer } from '@/components/side-panel/story-viewer';
@@ -32,6 +32,9 @@ export function RouteComponent() {
 	const title = chat.data?.title;
 	const shareQuery = useQuery(trpc.sharedChat.getShareOptionsByChatId.queryOptions({ chatId: chatId ?? '' }));
 	const isShared = !!shareQuery.data?.shareId;
+	const projects = useQuery(trpc.project.listForCurrentUser.queryOptions());
+	const hasMultipleProjects = (projects.data?.length ?? 0) > 1;
+	const chatProject = hasMultipleProjects ? projects.data?.find((p) => p.id === chat.data?.projectId) : undefined;
 
 	const containerRef = useRef<HTMLDivElement>(null);
 	const sidePanelRef = useRef<HTMLDivElement>(null);
@@ -80,6 +83,12 @@ export function RouteComponent() {
 									title={title}
 									className='text-sm text-muted-foreground'
 								/>
+							)}
+							{chatProject && (
+								<Badge variant='outline' className='gap-1 text-muted-foreground w-fit'>
+									<Folder />
+									<span className='truncate'>{chatProject.name}</span>
+								</Badge>
 							)}
 							{chat.data?.forkMetadata && (
 								<Badge variant='outline' className='gap-1 text-muted-foreground w-fit'>

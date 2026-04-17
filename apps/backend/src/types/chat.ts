@@ -25,6 +25,7 @@ export interface ForkMetadata {
 
 export interface UIChat {
 	id: string;
+	projectId: string;
 	title: string;
 	isStarred: boolean;
 	createdAt: number;
@@ -39,6 +40,7 @@ export interface ListChatResponse {
 
 export interface ChatListItem {
 	id: string;
+	projectId: string;
 	title: string;
 	isStarred: boolean;
 	createdAt: number;

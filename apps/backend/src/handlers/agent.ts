@@ -68,6 +68,7 @@ export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<H
 			newChat: isNewChat
 				? {
 						id: chatId,
+						projectId,
 						title: chat.title,
 						isStarred: chat.isStarred,
 						createdAt: chat.createdAt,

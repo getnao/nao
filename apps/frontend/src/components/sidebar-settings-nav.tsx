@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
 import Fuse from 'fuse.js';
-import { Search, X } from 'lucide-react';
+import { Folder, Search, X } from 'lucide-react';
 
 import type { FuseResult } from 'fuse.js';
+import type { ProjectOption } from '@/components/project-selector';
 import type { SettingsSearchEntry } from '@/components/settings-search-index';
 
+import { ProjectSelector } from '@/components/project-selector';
 import { settingsSearchIndex } from '@/components/settings-search-index';
 import { cn, hideIf } from '@/lib/utils';
 
@@ -77,6 +79,9 @@ interface SidebarSettingsNavProps {
 	isCollapsed: boolean;
 	isAdmin: boolean;
 	isCloud: boolean;
+	projects: ProjectOption[];
+	currentProjectId?: string;
+	onProjectChange: (projectId: string) => void;
 }
 
 function dedupeByPage(results: FuseResult<SettingsSearchEntry>[]) {
@@ -90,12 +95,20 @@ function dedupeByPage(results: FuseResult<SettingsSearchEntry>[]) {
 	});
 }
 
-export function SidebarSettingsNav({ isCollapsed, isAdmin, isCloud }: SidebarSettingsNavProps) {
+export function SidebarSettingsNav({
+	isCollapsed,
+	isAdmin,
+	isCloud,
+	projects,
+	currentProjectId,
+	onProjectChange,
+}: SidebarSettingsNavProps) {
 	const navigate = useNavigate();
 	const inputRef = useRef<HTMLInputElement>(null);
 	const [query, setQuery] = useState('');
 
 	const navItems = settingsNavItems.filter((item) => item.visible?.({ isAdmin, isCloud }) ?? true);
+	const canSwitchProjects = projects.length > 1 && !!currentProjectId;
 
 	useEffect(() => {
 		const handleSlashKey = (e: KeyboardEvent) => {
@@ -221,26 +234,63 @@ export function SidebarSettingsNav({ isCollapsed, isAdmin, isCloud }: SidebarSet
 							);
 						}
 
+						const isProjectItem = item.to === '/settings/project';
+
 						return (
-							<Link
-								key={item.to}
-								to={item.to}
-								className={cn(
-									'flex items-center gap-3 px-3 py-2 text-sm rounded-md transition-colors whitespace-nowrap',
+							<div key={item.to} className='flex flex-col'>
+								<Link
+									to={item.to}
+									className={cn(
+										'flex items-center gap-3 px-3 py-2 text-sm rounded-md transition-colors whitespace-nowrap',
+									)}
+									activeProps={{
+										className: cn('bg-sidebar-accent text-foreground font-medium'),
+									}}
+									inactiveProps={{
+										className: cn('hover:bg-sidebar-accent hover:text-foreground'),
+									}}
+								>
+									{item.label}
+								</Link>
+								{isProjectItem && canSwitchProjects && currentProjectId && (
+									<ProjectSwitcherSubItem
+										projects={projects}
+										currentProjectId={currentProjectId}
+										onChange={onProjectChange}
+									/>
 								)}
-								activeProps={{
-									className: cn('bg-sidebar-accent text-foreground font-medium'),
-								}}
-								inactiveProps={{
-									className: cn('hover:bg-sidebar-accent hover:text-foreground'),
-								}}
-							>
-								{item.label}
-							</Link>
+							</div>
 						);
 					})}
 				</nav>
 			)}
+		</div>
+	);
+}
+
+function ProjectSwitcherSubItem({
+	projects,
+	currentProjectId,
+	onChange,
+}: {
+	projects: ProjectOption[];
+	currentProjectId: string;
+	onChange: (projectId: string) => void;
+}) {
+	return (
+		<div className='ml-3 mt-1 pl-3 border-l border-sidebar-border'>
+			<div className='px-1 pb-1 text-[10px] uppercase tracking-wider text-muted-foreground'>Switch project</div>
+			<ProjectSelector
+				projects={projects}
+				currentProjectId={currentProjectId}
+				onChange={onChange}
+				triggerVariant='ghost'
+				triggerIcon={<Folder className='size-3.5 shrink-0' />}
+				triggerClassName={cn(
+					'w-full h-auto py-1.5 px-2 text-sm rounded-md',
+					'bg-sidebar-accent/40 hover:bg-sidebar-accent hover:text-foreground',
+				)}
+			/>
 		</div>
 	);
 }
