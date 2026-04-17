@@ -28,7 +28,7 @@ export const createSummaryToolCalls = (toolGroup: Map<string, ToolCallEntry>): C
 		const noun = TOOL_LABELS[type] ?? type.replace('tool-', '');
 		return `**${count} ${pluralize(noun, count)}**`;
 	});
-	return CardText(`Explored ${parts.join(', ')}`);
+	return CardText(`_Explored ${parts.join(', ')}._`, { style: 'muted' });
 };
 
 export const FEEDBACK_MODAL_CALLBACK_ID = 'feedback_negative_modal';

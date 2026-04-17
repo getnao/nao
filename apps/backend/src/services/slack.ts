@@ -35,6 +35,10 @@ import { posthog, PostHogEvent } from './posthog';
 
 const UPDATE_INTERVAL_MS = 200;
 
+const SLACK_MENTION_REGEX = /(?:<@|@)([A-Z0-9]+)(?:\|[^>]+)?>?\s*/g;
+
+type SlackReplyMessage = NonNullable<Awaited<ReturnType<WebClient['conversations']['replies']>>['messages']>[number];
+
 class SlackService {
 	private _bot: Chat | null = null;
 	private _slackClient: WebClient | null = null;
@@ -86,15 +90,19 @@ class SlackService {
 		});
 
 		this._bot.onNewMention(async (thread, message) => {
-			await thread.subscribe();
-			await this._handleWorkFlow(thread, message);
+			const startsThread = await this._isThreadStarter(thread.id);
+			if (startsThread) {
+				await thread.subscribe();
+			}
+			await this._handleWorkFlow(thread, message, { fetchUnseenMessages: true });
 		});
 
 		this._bot.onSubscribedMessage(async (thread, message) => {
-			await this._handleWorkFlow(thread, message);
+			await this._handleWorkFlow(thread, message, { fetchUnseenMessages: false });
 		});
 
 		this._bot.onAction('stop_generation', async (event) => {
+			console.log('stop_generation', event);
 			try {
 				const existingChat = await chatQueries.getChatBySlackThread(event.threadId);
 				if (!existingChat) {
@@ -182,8 +190,12 @@ class SlackService {
 		});
 	}
 
-	private async _handleWorkFlow(thread: Thread, userMessage: Message): Promise<void> {
-		userMessage.text = userMessage.text.replace(/(?:<@|@)([A-Z0-9]+)(?:\|[^>]+)?>?\s*/g, '').trim();
+	private async _handleWorkFlow(
+		thread: Thread,
+		userMessage: Message,
+		options: { fetchUnseenMessages: boolean },
+	): Promise<void> {
+		userMessage.text = userMessage.text.replace(SLACK_MENTION_REGEX, '').trim();
 
 		const ctx: ConversationContext = {
 			thread,
@@ -202,7 +214,7 @@ class SlackService {
 
 		try {
 			ctx.convMessage = await ctx.thread.post('✨ nao is answering...');
-			await this._saveOrUpdateUserMessage(ctx);
+			await this._saveOrUpdateUserMessage(ctx, options.fetchUnseenMessages);
 
 			const [chat] = await chatQueries.loadChat(ctx.chatId);
 			if (!chat) {
@@ -261,36 +273,38 @@ class SlackService {
 		}
 	}
 
-	private async _saveOrUpdateUserMessage(ctx: ConversationContext): Promise<void> {
+	private async _saveOrUpdateUserMessage(ctx: ConversationContext, fetchUnseenMessages: boolean): Promise<void> {
 		const text = ctx.userMessage.text;
+		const unseenMessages = fetchUnseenMessages
+			? await this._getUnseenSlackMessages(ctx.thread.id, ctx.userMessage.id)
+			: null;
+		const messageText = unseenMessages
+			? `[Previous messages in this Slack thread]\n${unseenMessages}\n\n[Your message]\n${text}`
+			: text;
 
 		const existingChat = await chatQueries.getChatBySlackThread(ctx.thread.id);
 		if (existingChat) {
 			await chatQueries.upsertMessage({
 				role: 'user',
-				parts: [{ type: 'text', text }],
+				parts: [{ type: 'text', text: messageText }],
 				chatId: existingChat.id,
 				source: 'slack',
 			});
 			ctx.chatId = existingChat.id;
 			ctx.isNewChat = false;
-		} else {
-			const threadContext = await this._getSlackThreadContext(ctx.thread.id);
-			const messageText = threadContext
-				? `[Previous messages in this Slack thread]\n${threadContext}\n\n[Your message]\n${text}`
-				: text;
-
-			const title = createChatTitle({ text });
-			const [createdChat] = await chatQueries.createChat(
-				{ title, userId: ctx.user!.id, projectId: this._projectId, slackThreadId: ctx.thread.id },
-				{ text: messageText, source: 'slack' },
-			);
-			ctx.chatId = createdChat.id;
-			ctx.isNewChat = true;
+			return;
 		}
+
+		const title = createChatTitle({ text });
+		const [createdChat] = await chatQueries.createChat(
+			{ title, userId: ctx.user!.id, projectId: this._projectId, slackThreadId: ctx.thread.id },
+			{ text: messageText, source: 'slack' },
+		);
+		ctx.chatId = createdChat.id;
+		ctx.isNewChat = true;
 	}
 
-	private async _getSlackThreadContext(threadId: string): Promise<string | null> {
+	private async _getUnseenSlackMessages(threadId: string, currentMessageId: string): Promise<string | null> {
 		const [, channelId, threadTs] = threadId.split(':');
 		if (!channelId || !threadTs) {
 			return null;
@@ -301,39 +315,82 @@ class SlackService {
 				channel: channelId,
 				ts: threadTs,
 			});
-
-			const allMessages = result?.messages ?? [];
-			const userMessages = allMessages.filter(
-				(msg) => !msg.bot_id && (msg as Record<string, unknown>).subtype !== 'bot_message',
-			);
-
-			const priorMessages = userMessages.slice(0, -1);
-			if (priorMessages.length === 0) {
+			const messages = this._extractUnseenUserMessages(result?.messages ?? [], currentMessageId);
+			if (messages.length === 0) {
 				return null;
 			}
-
-			const userIds = [...new Set(priorMessages.map((msg) => msg.user).filter(Boolean))] as string[];
-			const userNames = new Map<string, string>();
-			await Promise.all(
-				userIds.map(async (userId) => {
-					const slackUser = await this._getSlackUser(userId);
-					userNames.set(userId, slackUser?.real_name || slackUser?.name || userId);
-				}),
-			);
-
-			return priorMessages
-				.map((msg) => {
-					const name = msg.user ? userNames.get(msg.user) || msg.user : 'Unknown';
-					const text = (msg.text || '').replace(/(?:<@|@)([A-Z0-9]+)(?:\|[^>]+)?>?\s*/g, '').trim();
-					return `${name}: ${text}`;
-				})
-				.join('\n');
+			const userNames = await this._resolveUserNames(messages);
+			return this._formatThreadMessages(messages, userNames);
 		} catch (error) {
 			logger.error(`Failed to fetch Slack thread history: ${String(error)}`, {
 				source: 'system',
 				context: { threadId },
 			});
 			return null;
+		}
+	}
+
+	private _extractUnseenUserMessages(
+		allMessages: SlackReplyMessage[],
+		currentMessageId: string,
+	): SlackReplyMessage[] {
+		const currentIndex = allMessages.findIndex((msg) => msg.ts === currentMessageId);
+		if (currentIndex === -1) {
+			return [];
+		}
+		const priorMessages = allMessages.slice(0, currentIndex);
+		const lastBotIndex = this._findLastBotMessageIndex(priorMessages);
+		return priorMessages.slice(lastBotIndex + 1).filter((msg) => !this._isBotMessage(msg));
+	}
+
+	private _findLastBotMessageIndex(messages: SlackReplyMessage[]): number {
+		for (let i = messages.length - 1; i >= 0; i--) {
+			if (this._isBotMessage(messages[i])) {
+				return i;
+			}
+		}
+		return -1;
+	}
+
+	private _isBotMessage(message: SlackReplyMessage): boolean {
+		return !!message.bot_id || (message as { subtype?: string }).subtype === 'bot_message';
+	}
+
+	private async _resolveUserNames(messages: SlackReplyMessage[]): Promise<Map<string, string>> {
+		const userIds = [...new Set(messages.map((m) => m.user).filter((u): u is string => !!u))];
+		const entries = await Promise.all(
+			userIds.map(async (userId): Promise<[string, string]> => {
+				const slackUser = await this._getSlackUser(userId);
+				return [userId, slackUser?.real_name || slackUser?.name || userId];
+			}),
+		);
+		return new Map(entries);
+	}
+
+	private _formatThreadMessages(messages: SlackReplyMessage[], userNames: Map<string, string>): string {
+		return messages
+			.map((msg) => {
+				const name = msg.user ? userNames.get(msg.user) || msg.user : 'Unknown';
+				const text = (msg.text || '').replace(SLACK_MENTION_REGEX, '').trim();
+				return `${name}: ${text}`;
+			})
+			.join('\n');
+	}
+
+	private async _isThreadStarter(threadId: string): Promise<boolean> {
+		const [, channelId, threadTs] = threadId.split(':');
+		if (!channelId || !threadTs) {
+			return false;
+		}
+		try {
+			const result = await this._slackClient?.conversations.replies({
+				channel: channelId,
+				ts: threadTs,
+				limit: 2,
+			});
+			return (result?.messages?.length ?? 0) <= 1;
+		} catch {
+			return false;
 		}
 	}
 
@@ -344,11 +401,6 @@ class SlackService {
 		let state: StreamState | undefined;
 		try {
 			state = await this._readStreamAndUpdateSlackMessage(stream, ctx);
-		} catch (error) {
-			logger.error(`Stream interrupted: ${String(error)}`, {
-				source: 'system',
-				context: { chatId: ctx.chatId },
-			});
 		} finally {
 			await stopCard.delete().catch(() => {});
 		}

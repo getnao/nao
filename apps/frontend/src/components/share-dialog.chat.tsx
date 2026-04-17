@@ -24,7 +24,10 @@ interface ShareChatDialogProps {
 }
 
 export function ShareChatDialog({ open, onOpenChange, chatId }: ShareChatDialogProps) {
-	const shareQuery = useQuery(trpc.sharedChat.getShareOptionsByChatId.queryOptions({ chatId }));
+	const shareQuery = useQuery({
+		...trpc.sharedChat.getShareOptionsByChatId.queryOptions({ chatId }),
+		enabled: open,
+	});
 	const shareData = shareQuery.data;
 	const isShared = !!shareData?.shareId;
 
