@@ -214,7 +214,7 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 
 		agentInstance.stop(); // Stop the agent instance to instantly stop reading the stream
 		await stopAgentMutation.mutateAsync({ chatId });
-	}, [chatId, agentInstance, stopAgentMutation]);
+	}, [chatId, agentInstance, stopAgentMutation.mutateAsync]); // eslint-disable-line
 
 	const handleSendMessage = useCallback<UseChatHelpers<UIMessage>['sendMessage']>(
 		async (...args) => {
