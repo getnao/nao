@@ -47,7 +47,7 @@ dependencies = [
 
 [project.optional-dependencies]
 # Database backends
-postgres = ["ibis-framework[postgres]>=9.0.0"]
+postgres = ["ibis-framework[postgres]>=9.0.0", "psycopg[binary]>=3.2.0"]
 bigquery = ["ibis-framework[bigquery]>=9.0.0", "google-cloud>=0.34.0"]
 snowflake = ["ibis-framework[snowflake]>=9.0.0", "snowflake-connector-python[secure-local-storage]>=4.2.0"]
 duckdb = ["ibis-framework[duckdb]>=9.0.0"]
@@ -57,7 +57,7 @@ mysql = ["ibis-framework[mysql]>=9.0.0"]
 mssql = ["ibis-framework[mssql]>=9.0.0"]
 athena = ["ibis-framework[athena]>=9.0.0"]
 trino = ["ibis-framework[trino]>=9.0.0"]
-redshift = ["ibis-framework[postgres]>=9.0.0", "sshtunnel>=0.4.0"]
+redshift = ["ibis-framework[postgres]>=9.0.0", "psycopg[binary]>=3.2.0", "sshtunnel>=0.4.0"]
 fabric = ["ibis-framework[mssql]>=9.0.0", "azure-identity>=1.19.0"]
 
 # LLM providers
