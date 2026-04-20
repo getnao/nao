@@ -12,7 +12,7 @@ import s, {
 import { db } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
 import { ForkMetadata, StopReason, TokenUsage, UIChat, UIMessage, UIMessagePart } from '../types/chat';
-import { applyChatFilters, buildChatGroups, type EnrichedChat } from '../utils/chat-list';
+import { applyChatFilters, buildChatGroups, deriveSourcePlatform, type EnrichedChat } from '../utils/chat-list';
 import { convertDBPartToUIPart, mapUIPartsToDBParts } from '../utils/chat-message-part-mappings';
 import { getErrorMessage } from '../utils/utils';
 
@@ -52,6 +52,10 @@ async function fetchOwnChats(userId: string): Promise<EnrichedChat[]> {
 			projectName: s.project.name,
 			ownerName: s.user.name,
 			sharedChatId: s.sharedChat.id,
+			slackThreadId: s.chat.slackThreadId,
+			teamsThreadId: s.chat.teamsThreadId,
+			telegramThreadId: s.chat.telegramThreadId,
+			whatsappThreadId: s.chat.whatsappThreadId,
 		})
 		.from(s.chat)
 		.innerJoin(s.project, eq(s.project.id, s.chat.projectId))
@@ -72,6 +76,7 @@ async function fetchOwnChats(userId: string): Promise<EnrichedChat[]> {
 		projectId: row.projectId,
 		projectName: row.projectName,
 		isSharedByMe: row.sharedChatId !== null,
+		sourcePlatform: deriveSourcePlatform(row),
 	}));
 }
 
@@ -89,6 +94,10 @@ async function fetchSharedWithMeChats(userId: string, projectId: string): Promis
 			ownerName: s.user.name,
 			visibility: s.sharedChat.visibility,
 			accessUserId: s.sharedChatAccess.userId,
+			slackThreadId: s.chat.slackThreadId,
+			teamsThreadId: s.chat.teamsThreadId,
+			telegramThreadId: s.chat.telegramThreadId,
+			whatsappThreadId: s.chat.whatsappThreadId,
 		})
 		.from(s.sharedChat)
 		.innerJoin(s.chat, eq(s.sharedChat.chatId, s.chat.id))
@@ -127,6 +136,7 @@ async function fetchSharedWithMeChats(userId: string, projectId: string): Promis
 			projectId: r.projectId,
 			projectName: r.projectName,
 			isSharedByMe: false,
+			sourcePlatform: deriveSourcePlatform(r),
 		}));
 }
 

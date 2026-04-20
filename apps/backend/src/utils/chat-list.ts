@@ -15,13 +15,38 @@ const GROUP_STRATEGIES: Record<ChatGroupBy, (items: EnrichedChat[]) => ChatGroup
 	date: groupByDate,
 	project: groupByProject,
 	ownership: groupByOwnership,
+	sourcePlatform: groupBySourcePlatform,
 	none: (items) => [{ label: 'Chats', chats: toGroupedItems(items) }],
 };
+
+export type SourcePlatform = 'Web' | 'Slack' | 'Teams' | 'WhatsApp' | 'Telegram';
+
+export function deriveSourcePlatform(threadIds: {
+	slackThreadId?: string | null;
+	teamsThreadId?: string | null;
+	telegramThreadId?: string | null;
+	whatsappThreadId?: string | null;
+}): SourcePlatform {
+	if (threadIds.slackThreadId) {
+		return 'Slack';
+	}
+	if (threadIds.teamsThreadId) {
+		return 'Teams';
+	}
+	if (threadIds.whatsappThreadId) {
+		return 'WhatsApp';
+	}
+	if (threadIds.telegramThreadId) {
+		return 'Telegram';
+	}
+	return 'Web';
+}
 
 export interface EnrichedChat extends GroupedChatItem {
 	projectId: string;
 	projectName: string;
 	isSharedByMe: boolean;
+	sourcePlatform: SourcePlatform;
 }
 
 export function applyChatFilters(items: EnrichedChat[], filters: ChatFilterType[]): EnrichedChat[] {
@@ -93,6 +118,23 @@ function groupByProject(items: EnrichedChat[]) {
 
 function groupByOwnership(items: EnrichedChat[]) {
 	return groupByKey(items, (i) => i.ownerName);
+}
+
+const SOURCE_PLATFORM_ORDER: SourcePlatform[] = ['Web', 'Slack', 'Teams', 'WhatsApp', 'Telegram'];
+
+function groupBySourcePlatform(items: EnrichedChat[]): ChatGroup[] {
+	const groups = new Map<SourcePlatform, EnrichedChat[]>();
+	for (const item of items) {
+		const key = item.sourcePlatform;
+		if (!groups.has(key)) {
+			groups.set(key, []);
+		}
+		groups.get(key)!.push(item);
+	}
+	return SOURCE_PLATFORM_ORDER.filter((sp) => groups.has(sp)).map((sp) => ({
+		label: sp,
+		chats: toGroupedItems(groups.get(sp)!),
+	}));
 }
 
 function toGroupedItems(items: EnrichedChat[]): GroupedChatItem[] {

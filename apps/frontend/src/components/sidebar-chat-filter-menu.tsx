@@ -25,6 +25,7 @@ const GROUP_BY_OPTIONS: { value: ChatGroupBy; label: string }[] = [
 	{ value: 'date', label: 'Date' },
 	{ value: 'project', label: 'Projects' },
 	{ value: 'ownership', label: 'Ownership' },
+	{ value: 'sourcePlatform', label: 'Source platform' },
 	{ value: 'none', label: 'None' },
 ];
 
