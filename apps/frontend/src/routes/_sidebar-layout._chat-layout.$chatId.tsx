@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, useRouter } from '@tanstack/react-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { GitFork, Globe, Upload } from 'lucide-react';
+import { Folder, GitFork, Globe, Upload } from 'lucide-react';
 import type { ForkMetadata } from '@nao/backend/chat';
 import type { SelectionData } from '@/components/highlight-bubble';
 import { StoryOpenButton } from '@/components/story-open-button';
@@ -102,12 +102,12 @@ export function RouteComponent() {
 										className='text-sm text-muted-foreground'
 									/>
 								)}
-                {chatProject && (
-                  <Badge variant='outline' className='gap-1 text-muted-foreground w-fit'>
-                    <Folder />
-                    <span className='truncate'>{chatProject.name}</span>
-                  </Badge>
-                )}
+								{chatProject && (
+									<Badge variant='outline' className='gap-1 text-muted-foreground w-fit'>
+										<Folder />
+										<span className='truncate'>{chatProject.name}</span>
+									</Badge>
+								)}
 								{chat.data?.forkMetadata && (
 									<Badge variant='outline' className='gap-1 text-muted-foreground w-fit'>
 										<GitFork />
