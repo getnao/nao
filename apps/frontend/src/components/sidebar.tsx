@@ -15,15 +15,6 @@ import type { LucideIcon } from 'lucide-react';
 import type { ChatListItem as ChatListItemType } from '@nao/backend/chat';
 import type { SharedChatWithDetails } from '@nao/backend/shared-chat';
 import { Button } from '@/components/ui/button';
-import {
-	Select,
-	SelectContent,
-	SelectGroup,
-	SelectItem,
-	SelectLabel,
-	SelectTrigger,
-	SelectValue,
-} from '@/components/ui/select';
 import { getActiveProjectId, setActiveProjectId } from '@/lib/active-project';
 import { cn, hideIf } from '@/lib/utils';
 import { useChatListQuery } from '@/queries/use-chat-list-query';
@@ -110,15 +101,12 @@ export function Sidebar() {
 			}
 
 			setActiveProjectId(projectId);
-			if (!isInSettings) {
-				await navigate({ to: '/' });
-			}
-			await queryClient.resetQueries();
+			await queryClient.invalidateQueries();
 			if (isMobile) {
 				closeMobile();
 			}
 		},
-		[closeMobile, isInSettings, isMobile, navigate, project.data, queryClient],
+		[closeMobile, isMobile, project.data, queryClient],
 	);
 
 	const sidebarContent = (
@@ -168,14 +156,17 @@ export function Sidebar() {
 				) : (
 					<>
 						<div className='flex items-center relative'>
-							<div
+							<button
+								type='button'
+								onClick={handleStartNewChat}
+								aria-label='New chat'
 								className={cn(
-									'flex items-center justify-center p-2 mr-auto absolute left-0 z-0 transition-[opacity,visibility] duration-300',
+									'flex items-center justify-center p-2 mr-auto absolute left-0 z-0 rounded-md cursor-pointer hover:bg-sidebar-accent transition-[opacity,visibility,background-color] duration-300',
 									hideIf(effectiveIsCollapsed),
 								)}
 							>
 								<NaoLogo className='size-5' />
-							</div>
+							</button>
 
 							{isMobile ? (
 								<Button
@@ -228,20 +219,20 @@ export function Sidebar() {
 			</div>
 
 			{isInSettings ? (
-				<SidebarSettingsNav isCollapsed={effectiveIsCollapsed} isAdmin={isAdmin} isCloud={isCloud} />
+				<SidebarSettingsNav
+					isCollapsed={effectiveIsCollapsed}
+					isAdmin={isAdmin}
+					isCloud={isCloud}
+					projects={projects.data ?? []}
+					currentProjectId={project.data?.id}
+					onProjectChange={handleProjectChange}
+				/>
 			) : (
 				<SidebarNav chats={chats.data?.chats || []} isCollapsed={effectiveIsCollapsed} />
 			)}
 
 			<div className={cn('mt-auto transition-[padding] duration-300', effectiveIsCollapsed ? 'p-1' : 'p-2')}>
 				{isInSettings && <SidebarCommunity isCollapsed={effectiveIsCollapsed} />}
-				{!effectiveIsCollapsed && project.data && (projects.data?.length ?? 0) > 1 && (
-					<ProjectSelector
-						projects={projects.data ?? []}
-						currentProjectId={project.data.id}
-						onChange={handleProjectChange}
-					/>
-				)}
 				<SidebarUserMenu isCollapsed={effectiveIsCollapsed} />
 			</div>
 		</div>
@@ -264,42 +255,6 @@ export function Sidebar() {
 	}
 
 	return sidebarContent;
-}
-
-function ProjectSelector({
-	projects,
-	currentProjectId,
-	onChange,
-}: {
-	projects: Array<{ id: string; name: string; userRole: 'admin' | 'user' | 'viewer' }>;
-	currentProjectId: string;
-	onChange: (projectId: string) => void;
-}) {
-	return (
-		<div className='px-2 pt-1 pb-2'>
-			<div className='px-1 pb-1 text-xs text-muted-foreground'>Project</div>
-			<Select value={currentProjectId} onValueChange={onChange}>
-				<SelectTrigger className='w-full justify-between bg-sidebar-accent/40 hover:bg-sidebar-accent/60'>
-					<SelectValue placeholder='Select project' />
-				</SelectTrigger>
-				<SelectContent position='popper' align='start'>
-					<SelectGroup>
-						<SelectLabel>Projects</SelectLabel>
-						{projects.map((project) => (
-							<SelectItem key={project.id} value={project.id}>
-								<span className='flex min-w-0 items-center justify-between gap-3'>
-									<span className='truncate'>{project.name}</span>
-									<span className='shrink-0 text-xs capitalize text-muted-foreground'>
-										{project.userRole}
-									</span>
-								</span>
-							</SelectItem>
-						))}
-					</SelectGroup>
-				</SelectContent>
-			</Select>
-		</div>
-	);
 }
 
 function SidebarMenuButton({

@@ -27,12 +27,12 @@ export interface GitHubUser {
 }
 
 export function isGithubIntegrationAvailable(): boolean {
-	return !!(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET);
+	return !!(env.CLOUD_GITHUB_CLIENT_ID && env.CLOUD_GITHUB_CLIENT_SECRET);
 }
 
 export function buildAuthorizationUrl(state: string): string {
 	const params = new URLSearchParams({
-		client_id: env.GITHUB_CLIENT_ID!,
+		client_id: env.CLOUD_GITHUB_CLIENT_ID!,
 		scope: 'repo',
 		state,
 	});
@@ -47,8 +47,8 @@ export async function exchangeCodeForToken(code: string): Promise<string> {
 			Accept: 'application/json',
 		},
 		body: JSON.stringify({
-			client_id: env.GITHUB_CLIENT_ID,
-			client_secret: env.GITHUB_CLIENT_SECRET,
+			client_id: env.CLOUD_GITHUB_CLIENT_ID,
+			client_secret: env.CLOUD_GITHUB_CLIENT_SECRET,
 			code,
 		}),
 	});

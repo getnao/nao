@@ -38,6 +38,7 @@ export const listUserChats = async (userId: string): Promise<ListChatResponse> =
 	return {
 		chats: chats.map((chat) => ({
 			id: chat.id,
+			projectId: chat.projectId,
 			title: chat.title,
 			isStarred: chat.isStarred,
 			createdAt: chat.createdAt.getTime(),
@@ -77,6 +78,7 @@ export const loadChat = async (
 	return [
 		{
 			id: chatId,
+			projectId: chat.projectId,
 			title: chat.title,
 			isStarred: chat.isStarred,
 			createdAt: chat.createdAt.getTime(),

@@ -1,8 +1,10 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, createFileRoute } from '@tanstack/react-router';
 import { Settings } from 'lucide-react';
+import { useCallback } from 'react';
 import { useSession } from '@/lib/auth-client';
 import { capitalize } from '@/lib/utils';
+import { setActiveProjectId } from '@/lib/active-project';
 import { ChatMessages } from '@/components/chat-messages/chat-messages';
 import { useAgentContext } from '@/contexts/agent.provider';
 import { SavedPromptSuggestions } from '@/components/chat-saved-prompt-suggestions';
@@ -10,6 +12,7 @@ import { ChatInput } from '@/components/chat-input';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { MobileHeader } from '@/components/mobile-header';
+import { ProjectSelector } from '@/components/project-selector';
 import { trpc } from '@/main';
 
 export const Route = createFileRoute('/_sidebar-layout/_chat-layout/')({
@@ -20,18 +23,42 @@ function RouteComponent() {
 	const { data: session } = useSession();
 	const username = session?.user?.name;
 	const { messages } = useAgentContext();
+	const queryClient = useQueryClient();
 	const project = useQuery({
 		...trpc.project.getCurrent.queryOptions(),
 		retry: false,
 	});
+	const projects = useQuery(trpc.project.listForCurrentUser.queryOptions());
+	const hasMultipleProjects = (projects.data?.length ?? 0) > 1;
 	const showProjectSetupCue = project.error?.message === 'No project configured';
 	const emptyStateTitle = showProjectSetupCue
 		? 'Set up a project to start analyzing data'
 		: `${username ? capitalize(username) : ''}, what do you want to analyze?`;
 
+	const handleProjectChange = useCallback(
+		async (projectId: string) => {
+			if (!project.data || projectId === project.data.id) {
+				return;
+			}
+			setActiveProjectId(projectId);
+			await queryClient.invalidateQueries();
+		},
+		[project.data, queryClient],
+	);
+
 	return (
-		<div className='flex flex-col h-full flex-1 bg-panel min-w-72 overflow-hidden justify-center'>
+		<div className='flex flex-col h-full flex-1 bg-panel min-w-72 overflow-hidden justify-center relative'>
 			<MobileHeader />
+			{project.data && hasMultipleProjects && (
+				<div className='absolute top-3 left-4 z-10 max-md:hidden'>
+					<ProjectSelector
+						projects={projects.data ?? []}
+						currentProjectId={project.data.id}
+						onChange={handleProjectChange}
+						triggerVariant='ghost'
+					/>
+				</div>
+			)}
 			{messages.length ? (
 				<>
 					<ChatMessages />

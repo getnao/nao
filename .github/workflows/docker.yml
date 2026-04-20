@@ -17,7 +17,7 @@ env:
     CACHE_REGISTRY: ghcr.io
     CACHE_IMAGE: ${{ github.repository }}/build-cache
     CLOUD_CONTAINER_NAME: nao-cloud
-    CLOUD_DOMAIN: cloud.getnao.io
+    CLOUD_DOMAIN: app.preview.getnao.io
     CLOUD_PORT: 5050
 
 jobs:
@@ -217,6 +217,8 @@ jobs:
                           -e "NAO_MODE=cloud" \
                           -e "GITHUB_CLIENT_ID=${{ secrets.PREVIEW_GITHUB_CLIENT_ID }}" \
                           -e "GITHUB_CLIENT_SECRET=${{ secrets.PREVIEW_GITHUB_CLIENT_SECRET }}" \
+                          -e "CLOUD_GITHUB_CLIENT_ID=${{ secrets.CLOUD_GITHUB_CLIENT_ID }}" \
+                          -e "CLOUD_GITHUB_CLIENT_SECRET=${{ secrets.CLOUD_GITHUB_CLIENT_SECRET }}" \
                           -e "POSTHOG_DISABLED=true" \
                           -e "NAO_CONTEXT_SOURCE=api" \
                           -e "SMTP_PASSWORD=${{ secrets.SMTP_PASSWORD }}" \
