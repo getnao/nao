@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { handleGithubSignIn, handleGoogleSignIn } from '@/lib/auth-client';
 import GithubIcon from '@/components/icons/github-icon.svg';
 import GoogleIcon from '@/components/icons/google-icon.svg';
-import NaoLogo from '@/components/icons/nao-logo-greyscale.svg';
+import NaoLogo from '@/components/icons/nao-full-logo.svg';
 
 interface AuthFormProps {
 	form: any;
@@ -14,51 +14,32 @@ interface AuthFormProps {
 	children: React.ReactNode;
 	serverError?: string;
 	displaySocialProviders?: boolean;
+	footer?: React.ReactNode;
 }
 
-export function AuthForm({ form, title, submitText, children, serverError, displaySocialProviders }: AuthFormProps) {
+export function AuthForm({
+	form,
+	title,
+	submitText,
+	children,
+	serverError,
+	displaySocialProviders,
+	footer,
+}: AuthFormProps) {
 	const isGoogleSetup = useQuery(trpc.authConfig.google.isSetup.queryOptions());
 	const isGithubSetup = useQuery(trpc.authConfig.github.isSetup.queryOptions());
 
 	return (
 		<div className='mx-auto w-full max-w-md p-8 my-auto'>
-			<div className='flex flex-col items-center mb-8'>
-				<NaoLogo className='w-12 h-12 mb-4' />
-				<h1 className='text-2xl font-semibold'>{title}</h1>
+			<div className='flex flex-row items-end start mb-8'>
+				<NaoLogo className='w-20 h-auto' />
+				<span className='text-muted-foreground text-sm mx-4 border-l-1 border-border h-4'></span>
+				<h1 className='text-md font-semibold uppercase leading-none'>{title}</h1>
 			</div>
 
-			<form
-				onSubmit={(e) => {
-					e.preventDefault();
-					form.handleSubmit();
-				}}
-				className='space-y-4'
-			>
-				{children}
-
-				{serverError && <p className='text-red-500 text-center text-sm'>{serverError}</p>}
-
-				<form.Subscribe selector={(state: { canSubmit: boolean }) => state.canSubmit}>
-					{(canSubmit: boolean) => (
-						<Button type='submit' className='w-full h-11' disabled={!canSubmit}>
-							{submitText}
-						</Button>
-					)}
-				</form.Subscribe>
-			</form>
-
 			{displaySocialProviders && (isGoogleSetup.data || isGithubSetup.data) && (
-				<div className='mt-6'>
-					<div className='relative'>
-						<div className='absolute inset-0 flex items-center'>
-							<div className='w-full border-t' />
-						</div>
-						<div className='relative flex justify-center text-xs uppercase'>
-							<span className='px-2 bg-background text-muted-foreground'>Or</span>
-						</div>
-					</div>
-
-					<div className='flex flex-col gap-3 mt-6'>
+				<div className='mb-6'>
+					<div className='flex flex-col gap-3 mb-6'>
 						{isGoogleSetup.data && (
 							<Button
 								type='button'
@@ -82,8 +63,39 @@ export function AuthForm({ form, title, submitText, children, serverError, displ
 							</Button>
 						)}
 					</div>
+
+					<div className='relative'>
+						<div className='absolute inset-0 flex items-center'>
+							<div className='w-full border-t' />
+						</div>
+						<div className='relative flex justify-center text-xs uppercase'>
+							<span className='px-2 bg-background text-muted-foreground'>Or</span>
+						</div>
+					</div>
 				</div>
 			)}
+
+			<form
+				onSubmit={(e) => {
+					e.preventDefault();
+					form.handleSubmit();
+				}}
+				className='space-y-4'
+			>
+				{children}
+
+				{serverError && <p className='text-red-500 text-center text-sm'>{serverError}</p>}
+
+				<form.Subscribe selector={(state: { canSubmit: boolean }) => state.canSubmit}>
+					{(canSubmit: boolean) => (
+						<Button type='submit' className='w-full h-11' disabled={!canSubmit}>
+							{submitText}
+						</Button>
+					)}
+				</form.Subscribe>
+			</form>
+
+			{footer && <div className='mt-6 text-center text-sm text-muted-foreground'>{footer}</div>}
 		</div>
 	);
 }

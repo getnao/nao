@@ -532,7 +532,7 @@ class BigQueryConfig(DatabaseConfig):
             f"AND error_result IS NULL "
             f"AND statement_type IN ('SELECT') "
             f"ORDER BY creation_time DESC "
-            f"LIMIT 10000"
+            f"LIMIT 50000"
         )
 
     def check_connection(self) -> tuple[bool, str]:

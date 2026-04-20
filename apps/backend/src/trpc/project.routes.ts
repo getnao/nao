@@ -21,14 +21,29 @@ import { AgentSettings } from '../types/agent-settings';
 import { llmConfigSchema, llmProviderSchema } from '../types/llm';
 import { isValidIsoDateString } from '../utils/date';
 import { getEnvApiKey, getEnvBaseUrls, getEnvProviders, getProjectAvailableModels } from '../utils/llm';
+import { extractRequiredEnvVars } from '../utils/nao-config';
 import { buildCredentialPreviews } from '../utils/utils';
-import { adminProtectedProcedure, projectProtectedProcedure, publicProcedure } from './trpc';
+import { adminProtectedProcedure, projectProtectedProcedure, protectedProcedure, publicProcedure } from './trpc';
 
 const isoDateString = z.string().refine(isValidIsoDateString, {
 	message: 'Must be a valid YYYY-MM-DD date',
 });
 
 export const projectRoutes = {
+	listForCurrentUser: protectedProcedure.query(async ({ ctx }) => {
+		const projects = await projectQueries.listUserProjectsWithRoles(ctx.user.id);
+		return projects.map(({ project, userRole }) => ({
+			id: project.id,
+			orgId: project.orgId,
+			name: project.name,
+			type: project.type,
+			path: project.path,
+			createdAt: project.createdAt,
+			updatedAt: project.updatedAt,
+			userRole,
+		}));
+	}),
+
 	getCurrent: projectProtectedProcedure.query(({ ctx }) => {
 		if (!ctx.project) {
 			return null;
@@ -720,4 +735,19 @@ export const projectRoutes = {
 
 		return chat;
 	}),
+
+	getEnvVars: adminProtectedProcedure.query(async ({ ctx }) => {
+		const requiredVars = ctx.project.path ? extractRequiredEnvVars(ctx.project.path) : [];
+		const storedVars = await projectQueries.getEnvVars(ctx.project.id);
+		return {
+			required: requiredVars,
+			values: storedVars,
+		};
+	}),
+
+	updateEnvVars: adminProtectedProcedure
+		.input(z.object({ envVars: z.record(z.string(), z.string()) }))
+		.mutation(async ({ ctx, input }) => {
+			await projectQueries.updateEnvVars(ctx.project.id, input.envVars);
+		}),
 };

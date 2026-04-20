@@ -3,6 +3,13 @@ import { trpc } from '@/main';
 
 export function useAuthRoute(): string {
 	const userCount = useQuery(trpc.user.countAll.queryOptions());
-	const navigation = userCount.data ? '/login' : '/signup';
-	return navigation;
+	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
+
+	const isCloud = config.data?.naoMode === 'cloud';
+	const hasUsers = !!userCount.data;
+
+	if (isCloud || !hasUsers) {
+		return '/signup';
+	}
+	return '/login';
 }

@@ -18,13 +18,7 @@ function toLlmSelectedModel(
 	return parsed.success ? { provider: parsed.data, modelId } : undefined;
 }
 
-export const getProjectSlackConfig = async (
-	projectId: string,
-): Promise<{
-	botToken: string;
-	signingSecret: string;
-	modelSelection?: LlmSelectedModel;
-} | null> => {
+export const getProjectSlackConfig = async (projectId: string): Promise<SlackConfig | null> => {
 	const [project] = await db.select().from(s.project).where(eq(s.project.id, projectId)).execute();
 	const settings = project?.slackSettings;
 
@@ -33,8 +27,10 @@ export const getProjectSlackConfig = async (
 	}
 
 	return {
+		projectId,
 		botToken: settings.slackBotToken,
 		signingSecret: settings.slackSigningSecret,
+		redirectUrl: env.BETTER_AUTH_URL || 'http://localhost:3000/',
 		modelSelection: toLlmSelectedModel(settings.slackllmProvider, settings.slackllmModelId),
 	};
 };
@@ -112,40 +108,6 @@ export interface SlackConfig {
 	signingSecret: string;
 	redirectUrl: string;
 	modelSelection?: LlmSelectedModel;
-}
-
-/**
- * Get Slack configuration from project config with env var fallbacks.
- * This is the single source of truth for all Slack config values.
- */
-export async function getSlackConfig(): Promise<SlackConfig | null> {
-	const projectPath = env.NAO_DEFAULT_PROJECT_PATH;
-	if (!projectPath) {
-		return null;
-	}
-
-	const [project] = await db.select().from(s.project).where(eq(s.project.path, projectPath)).execute();
-
-	if (!project) {
-		return null;
-	}
-
-	const settings = project.slackSettings;
-	const botToken = settings?.slackBotToken;
-	const signingSecret = settings?.slackSigningSecret;
-	const redirectUrl = env.BETTER_AUTH_URL || 'http://localhost:3000/';
-
-	if (!botToken || !signingSecret) {
-		return null;
-	}
-
-	return {
-		projectId: project.id,
-		botToken,
-		signingSecret,
-		redirectUrl,
-		modelSelection: toLlmSelectedModel(settings?.slackllmProvider, settings?.slackllmModelId),
-	};
 }
 
 // Re-export DBProject for backward compatibility where needed

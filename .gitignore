@@ -17,3 +17,4 @@ nao-chat-server
 *.pyc
 
 rsa_key.*
+apps/backend/projects/

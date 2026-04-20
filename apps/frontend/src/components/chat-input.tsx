@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { Plus, PencilRuler, Database, Image as ImageIcon } from 'lucide-react';
+import { Plus, PencilRuler, Database, Image as ImageIcon, AlertTriangle } from 'lucide-react';
 import { Button, ChatButton, MicButton } from './ui/button';
 import { SlidingWaveform } from './chat-input-sliding-waveform';
 import { ChatPrompt, STORY_MENTION_ID, DATABASE_MENTION_TRIGGER } from './chat-input-prompt';
@@ -21,6 +21,7 @@ import { useAgentContext } from '@/contexts/agent.provider';
 import { useRegisterSetChatInputCallback } from '@/contexts/set-chat-input-callback';
 import { useTranscribe } from '@/hooks/use-transcribe';
 import { useImageUpload } from '@/hooks/use-image-upload';
+import { parseBudgetError } from '@/lib/ai';
 import { cn } from '@/lib/utils';
 import { useChatId } from '@/hooks/use-chat-id';
 import { messageQueueStore } from '@/stores/chat-message-queue';
@@ -79,7 +80,8 @@ function ChatInputBase({
 	allowQueueing,
 }: ChatInputBaseProps) {
 	const [inputText, setInputText] = useState('');
-	const { isRunning, stopAgent, isLoadingMessages, setMentions, submitQueuedMessageNow } = useAgentContext();
+	const { isRunning, stopAgent, isLoadingMessages, setMentions, submitQueuedMessageNow, error, selectedModel } =
+		useAgentContext();
 	const chatId = useChatId();
 	const imageUpload = useImageUpload();
 	const effectivePlaceholder = isRunning && allowQueueing ? 'Add a follow-up...' : placeholder;
@@ -89,6 +91,13 @@ function ChatInputBase({
 	const isTranscribeEnabled = agentSettings.data?.transcribe?.enabled ?? false;
 	const hasTranscribeProvider = Object.values(transcribeModels.data ?? {}).some((p) => p.hasKey);
 	const isTranscribeReady = isTranscribeEnabled && hasTranscribeProvider;
+
+	const budgetStatus = useQuery({
+		...trpc.budget.checkBudgetStatus.queryOptions({ provider: selectedModel?.provider ?? 'openai' }),
+		enabled: !!selectedModel?.provider,
+		refetchOnWindowFocus: false,
+	});
+	const isBudgetExceeded = !!parseBudgetError(error) || budgetStatus.data?.level === 'exceeded';
 
 	const [micWarning, setMicWarning] = useState(false);
 	const micWarningTimer = useRef(0);
@@ -175,7 +184,7 @@ function ChatInputBase({
 				return;
 			}
 
-			if (isRunning && !allowQueueing) {
+			if ((isRunning && !allowQueueing) || isBudgetExceeded) {
 				return;
 			}
 
@@ -195,6 +204,7 @@ function ChatInputBase({
 			onSubmitMessage,
 			isRunning,
 			allowQueueing,
+			isBudgetExceeded,
 			setMentions,
 			promptRef,
 			imageUpload,
@@ -253,6 +263,7 @@ function ChatInputBase({
 	return (
 		<div ref={dropZoneRef} className={cn('px-3 pb-3 pt-0 md:px-4 md:pb-4 max-w-3xl w-full mx-auto', className)}>
 			<ChatInputMessageQueue onEditMessage={handleEditQueuedMessage} onSubmitNow={submitQueuedMessageNow} />
+			<BudgetBanner />
 
 			<form onSubmit={handleSubmitMessage} className='mx-auto relative'>
 				<InputGroup
@@ -316,14 +327,14 @@ function ChatInputBase({
 							{allowQueueing && isRunning ? (
 								<ChatButton
 									showStop={isInputEmpty}
-									disabled={false}
+									disabled={!isInputEmpty && isBudgetExceeded}
 									onClick={isInputEmpty ? stopAgent : handleSubmitMessage}
 									type='button'
 								/>
 							) : (
 								<ChatButton
 									showStop={isRunning}
-									disabled={isLoadingMessages || isInputEmpty}
+									disabled={isLoadingMessages || isInputEmpty || (!isRunning && isBudgetExceeded)}
 									onClick={isRunning ? stopAgent : handleSubmitMessage}
 									type='button'
 								/>
@@ -332,6 +343,43 @@ function ChatInputBase({
 					</InputGroupAddon>
 				</InputGroup>
 			</form>
+		</div>
+	);
+}
+
+function BudgetBanner() {
+	const { error, clearError, selectedModel } = useAgentContext();
+	const prevProviderRef = useRef(selectedModel?.provider);
+
+	useEffect(() => {
+		const prev = prevProviderRef.current;
+		prevProviderRef.current = selectedModel?.provider;
+		if (prev && prev !== selectedModel?.provider && parseBudgetError(error)) {
+			clearError();
+		}
+	}, [selectedModel?.provider, error, clearError]);
+
+	const budgetStatus = useQuery({
+		...trpc.budget.checkBudgetStatus.queryOptions({ provider: selectedModel?.provider ?? 'openai' }),
+		enabled: !!selectedModel?.provider,
+		refetchOnWindowFocus: false,
+	});
+
+	const errorMessage = parseBudgetError(error);
+	const level = errorMessage ? 'exceeded' : (budgetStatus.data?.level ?? 'ok');
+	const proactiveMessage = level !== 'ok' ? budgetStatus.data?.message : null;
+	const message = errorMessage ?? proactiveMessage;
+
+	if (!message) {
+		return null;
+	}
+
+	const isExceeded = level === 'exceeded';
+
+	return (
+		<div className='mb-2 flex items-start gap-2.5 rounded-2xl border border-input/50 bg-muted/50 px-3 py-2.5 text-sm text-muted-foreground animate-in fade-in slide-in-from-bottom-2 duration-200'>
+			<AlertTriangle className={cn('size-4 shrink-0 mt-0.5', isExceeded ? 'text-red-500' : 'text-amber-500')} />
+			<p className='flex-1 min-w-0'>{message}</p>
 		</div>
 	);
 }

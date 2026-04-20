@@ -4,7 +4,6 @@ import atexit
 import json
 import threading
 import time
-import urllib.request
 from pathlib import Path
 
 from nao_core import __version__
@@ -72,9 +71,9 @@ def _read_cache() -> str | None:
 def _fetch_and_cache() -> str | None:
     """Fetch latest version from PyPI and write it to the cache file."""
     try:
-        with urllib.request.urlopen(PYPI_URL, timeout=3) as resp:
-            data = json.loads(resp.read())
+        import httpx
 
+        data = httpx.get(PYPI_URL, timeout=3).json()
         latest = data["info"]["version"]
         CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
         CACHE_FILE.write_text(json.dumps({"latest": latest, "checked_at": time.time()}))

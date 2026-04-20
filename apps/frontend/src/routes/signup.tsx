@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from '@tanstack/react-router';
+import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { useForm } from '@tanstack/react-form';
 import { useState } from 'react';
 import { signUp } from '@/lib/auth-client';
@@ -34,6 +34,18 @@ function SignUp() {
 			submitText='Sign Up'
 			serverError={serverError}
 			displaySocialProviders={true}
+			footer={
+				<>
+					Already have an account?{' '}
+					<Link
+						to='/login'
+						search={{ error: undefined }}
+						className='text-foreground underline underline-offset-4'
+					>
+						Log in
+					</Link>
+				</>
+			}
 		>
 			<FormTextField form={form} name='name' placeholder='Name' />
 			<FormTextField form={form} name='email' type='email' placeholder='Email' />

@@ -239,3 +239,15 @@ export const checkAssistantMessageHasContent = (message: UIMessage): boolean => 
 			part.type !== 'data-newUserMessage',
 	);
 };
+
+export function parseBudgetError(error: Error | undefined): string | null {
+	if (!error) {
+		return null;
+	}
+	try {
+		const parsed = JSON.parse(error.message);
+		return parsed.code === 'BUDGET_EXCEEDED' ? (parsed.error ?? parsed.message ?? error.message) : null;
+	} catch {
+		return null;
+	}
+}

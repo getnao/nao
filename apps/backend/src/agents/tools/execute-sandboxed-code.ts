@@ -4,6 +4,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 
+import { ChatImage, getImagesByChatId } from '../../queries/image.queries';
 import { QueryResult } from '../../types/tools';
 import { createTool, shouldExcludeEntry } from '../../utils/tools';
 
@@ -104,6 +105,7 @@ async function getOrCreateSandbox(
 }
 
 const CONTEXT_DIR = `${WORKING_DIR}/context`;
+const IMAGES_DIR = `${WORKING_DIR}/images`;
 
 async function copyProjectToSandbox(box: CodeBox, projectFolder: string, tmpDir: string): Promise<void> {
 	const walkDir = (dir: string, relativeDir: string): void => {
@@ -149,10 +151,38 @@ async function copyProjectToSandbox(box: CodeBox, projectFolder: string, tmpDir:
 	await Promise.all(copyFiles(contextTmpDir, CONTEXT_DIR));
 }
 
+const MEDIA_TYPE_EXTENSIONS: Record<string, string> = {
+	'image/png': 'png',
+	'image/jpeg': 'jpg',
+	'image/gif': 'gif',
+	'image/webp': 'webp',
+};
+
+async function copyChatImagesToSandbox(box: CodeBox, images: ChatImage[], tmpDir: string): Promise<void> {
+	if (images.length === 0) {
+		return;
+	}
+
+	const imagesDir = path.join(tmpDir, 'images');
+	fs.mkdirSync(imagesDir, { recursive: true });
+
+	const promises: Promise<void>[] = [];
+	for (const img of images) {
+		const ext = MEDIA_TYPE_EXTENSIONS[img.mediaType] ?? 'bin';
+		const filename = `${img.id}.${ext}`;
+		const hostPath = path.join(imagesDir, filename);
+		fs.writeFileSync(hostPath, Buffer.from(img.data, 'base64'));
+		promises.push(box.copyIn(hostPath, `${IMAGES_DIR}/${filename}`));
+	}
+
+	await Promise.all(promises);
+}
+
 async function executeSandboxedCode(
 	{ sandbox_id, code, language, image, vm_size, packages, data_files }: schemas.Input,
 	queryResults: Map<string, QueryResult>,
 	projectFolder: string,
+	chatId: string,
 ): Promise<schemas.Output> {
 	if (!boxliteModule) {
 		throw new Error('Sandbox execution is not available on this platform');
@@ -188,6 +218,11 @@ async function executeSandboxedCode(
 
 		if (!reused) {
 			await copyProjectToSandbox(box, projectFolder, tmpDir);
+		}
+
+		const chatImages = await getImagesByChatId(chatId);
+		if (chatImages.length > 0) {
+			await copyChatImagesToSandbox(box, chatImages, tmpDir);
 		}
 
 		if (data_files?.length) {
@@ -256,7 +291,7 @@ export default boxliteModule
 			inputSchema: schemas.inputSchema,
 			outputSchema: schemas.outputSchema,
 			execute: async (input, context) => {
-				return executeSandboxedCode(input, context.queryResults, context.projectFolder);
+				return executeSandboxedCode(input, context.queryResults, context.projectFolder, context.chatId);
 			},
 		})
 	: null;

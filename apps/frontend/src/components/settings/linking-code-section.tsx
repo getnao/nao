@@ -6,17 +6,49 @@ import { Button } from '@/components/ui/button';
 import { useSession } from '@/lib/auth-client';
 import { trpc } from '@/main';
 
-export function LinkingCodesCard() {
+type MessagingProvider = 'whatsapp' | 'telegram';
+
+interface LinkingCodesCardProps {
+	provider: MessagingProvider;
+}
+
+const PROVIDER_LABELS: Record<MessagingProvider, { name: string; loginHint: string; setupHint: string }> = {
+	whatsapp: {
+		name: 'WhatsApp',
+		loginHint: 'Send `/login <code>` from the WhatsApp number you want to link.',
+		setupHint: 'An admin still needs to finish the WhatsApp app setup.',
+	},
+	telegram: {
+		name: 'Telegram',
+		loginHint: 'Send `/login <code>` to the Telegram bot you want to link.',
+		setupHint: 'An admin still needs to finish the Telegram bot setup.',
+	},
+};
+
+export function LinkingCodesCard({ provider }: LinkingCodesCardProps) {
 	const queryClient = useQueryClient();
 	const { data: session } = useSession();
 	const user = session?.user;
+	const labels = PROVIDER_LABELS[provider];
 
-	const whatsappConfig = useQuery(trpc.project.getWhatsappConfig.queryOptions());
+	const whatsappConfig = useQuery({
+		...trpc.project.getWhatsappConfig.queryOptions(),
+		enabled: provider === 'whatsapp',
+	});
+	const telegramConfig = useQuery({
+		...trpc.project.getTelegramConfig.queryOptions(),
+		enabled: provider === 'telegram',
+	});
 	const currentCode = useQuery(trpc.project.getCurrentUserMessagingProviderCode.queryOptions());
-	const linkedAccounts = useQuery(trpc.project.getCurrentUserWhatsappLinks.queryOptions());
+	const linkedAccounts = useQuery({
+		...trpc.project.getCurrentUserWhatsappLinks.queryOptions(),
+		enabled: provider === 'whatsapp',
+	});
 	const regenerateCode = useMutation(trpc.project.regenerateCurrentUserMessagingProviderCode.mutationOptions());
 	const unlinkWhatsapp = useMutation(trpc.project.unlinkCurrentUserWhatsappLink.mutationOptions());
-	const isConfigured = Boolean(whatsappConfig.data?.projectConfig);
+
+	const configQuery = provider === 'whatsapp' ? whatsappConfig : telegramConfig;
+	const isConfigured = Boolean(configQuery.data?.projectConfig);
 	const code = currentCode.data ?? '';
 	const [copied, setCopied] = useState(false);
 
@@ -58,7 +90,7 @@ export function LinkingCodesCard() {
 	return (
 		<SettingsCard
 			title='Linking Code'
-			description='Send `/login <code>` from the WhatsApp number you want to link.'
+			description={labels.loginHint}
 			action={
 				<Button
 					variant='outline'
@@ -105,50 +137,50 @@ export function LinkingCodesCard() {
 					</div>
 				</div>
 
-				{!whatsappConfig.isLoading && !isConfigured && (
-					<p className='text-xs text-muted-foreground'>
-						An admin still needs to finish the WhatsApp app setup.
-					</p>
+				{!configQuery.isLoading && !isConfigured && (
+					<p className='text-xs text-muted-foreground'>{labels.setupHint}</p>
 				)}
 
-				<div className='grid gap-2 border-t border-border pt-3'>
-					<p className='text-sm font-medium text-foreground'>
-						{linkedAccounts.data && linkedAccounts.data.length > 1
-							? 'Linked WhatsApp accounts'
-							: 'Linked WhatsApp account'}
-					</p>
-					{linkedAccounts.isLoading ? (
-						<div className='flex items-center gap-2 text-xs text-muted-foreground'>
-							<Loader2 className='size-3.5 animate-spin' />
-							Checking link...
-						</div>
-					) : linkedAccounts.data?.length ? (
-						linkedAccounts.data.map((link) => (
-							<div
-								key={link.whatsappUserId}
-								className='flex flex-col gap-3 rounded-lg border border-border bg-muted/30 p-3 sm:flex-row sm:items-center sm:justify-between'
-							>
-								<div className='min-w-0'>
-									<p className='text-xs text-muted-foreground'>Currently linked</p>
-									<code className='block truncate rounded bg-background px-2 py-1.5 font-mono text-xs text-foreground'>
-										{link.whatsappUserId}
-									</code>
-								</div>
-								<Button
-									variant='outline'
-									size='sm'
-									onClick={() => handleUnlink(link.whatsappUserId).catch(console.error)}
-									disabled={unlinkWhatsapp.isPending}
-								>
-									<Unlink className='size-3.5' />
-									Unlink
-								</Button>
+				{provider === 'whatsapp' && (
+					<div className='grid gap-2 border-t border-border pt-3'>
+						<p className='text-sm font-medium text-foreground'>
+							{linkedAccounts.data && linkedAccounts.data.length > 1
+								? 'Linked WhatsApp accounts'
+								: 'Linked WhatsApp account'}
+						</p>
+						{linkedAccounts.isLoading ? (
+							<div className='flex items-center gap-2 text-xs text-muted-foreground'>
+								<Loader2 className='size-3.5 animate-spin' />
+								Checking link...
 							</div>
-						))
-					) : (
-						<p className='text-xs text-muted-foreground'>No WhatsApp account linked yet.</p>
-					)}
-				</div>
+						) : linkedAccounts.data?.length ? (
+							linkedAccounts.data.map((link) => (
+								<div
+									key={link.whatsappUserId}
+									className='flex flex-col gap-3 rounded-lg border border-border bg-muted/30 p-3 sm:flex-row sm:items-center sm:justify-between'
+								>
+									<div className='min-w-0'>
+										<p className='text-xs text-muted-foreground'>Currently linked</p>
+										<code className='block truncate rounded bg-background px-2 py-1.5 font-mono text-xs text-foreground'>
+											{link.whatsappUserId}
+										</code>
+									</div>
+									<Button
+										variant='outline'
+										size='sm'
+										onClick={() => handleUnlink(link.whatsappUserId).catch(console.error)}
+										disabled={unlinkWhatsapp.isPending}
+									>
+										<Unlink className='size-3.5' />
+										Unlink
+									</Button>
+								</div>
+							))
+						) : (
+							<p className='text-xs text-muted-foreground'>No WhatsApp account linked yet.</p>
+						)}
+					</div>
+				)}
 			</div>
 		</SettingsCard>
 	);

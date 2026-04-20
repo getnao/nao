@@ -69,6 +69,7 @@ class TestCreateEmptyStructure:
             "agent/tools",
             "agent/mcps",
             "agent/skills",
+            "tests",
         ]
 
         for folder in expected_folders:

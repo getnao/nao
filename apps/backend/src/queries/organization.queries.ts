@@ -1,4 +1,4 @@
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, asc, count, eq, isNull, sql } from 'drizzle-orm';
 
 import s, { DBOrganization, DBOrgMember, NewOrganization, NewOrgMember } from '../db/abstractSchema';
 import { db } from '../db/db';
@@ -126,8 +126,7 @@ export const initializeDefaultOrganizationForFirstUser = async (userId: string):
 		// Add user as org admin
 		await tx.insert(s.orgMember).values({ orgId: org.id, userId, role: 'admin' }).execute();
 
-		// Create default project if path is configured
-		const projectPath = process.env.NAO_DEFAULT_PROJECT_PATH;
+		const projectPath = env.NAO_DEFAULT_PROJECT_PATH;
 		if (projectPath) {
 			const [existingProject] = await tx
 				.select()
@@ -185,6 +184,27 @@ export const addUserToDefaultProjectIfExists = async (userId: string): Promise<v
 };
 
 /**
+ * Cloud mode: create a personal default organization for a new user.
+ * Skips if the user is already a member of any organization (e.g. invited before signup).
+ */
+export const initializePersonalOrganization = async (userId: string): Promise<void> => {
+	const existingMembership = await getUserOrgMembership(userId);
+	if (existingMembership) {
+		return;
+	}
+
+	const user = await userQueries.get({ id: userId });
+	const orgName = user ? `${user.name}'s Organization` : 'Personal Organization';
+	const orgSlug = `org-${userId.replace(/-/g, '').slice(0, 16)}`;
+
+	await db.transaction(async (tx) => {
+		const [org] = await tx.insert(s.organization).values({ name: orgName, slug: orgSlug }).returning().execute();
+
+		await tx.insert(s.orgMember).values({ orgId: org.id, userId, role: 'admin' }).execute();
+	});
+};
+
+/**
  * Startup check: Ensures organization structure is valid.
  * - If there are users but no organization, creates one and assigns first user as org_admin
  * - If there are projects without an org, assigns them to the default org
@@ -229,6 +249,86 @@ export const ensureOrganizationSetup = async (): Promise<void> => {
 
 	// Ensure a project exists for the current NAO_DEFAULT_PROJECT_PATH
 	await ensureDefaultProject(org);
+};
+
+export interface OrgMemberWithUser {
+	id: string;
+	name: string;
+	email: string;
+	role: OrgRole;
+}
+
+export interface OrgProjectWithAccess {
+	id: string;
+	name: string;
+	role: OrgRole;
+	createdAt: Date;
+	updatedAt: Date;
+}
+
+export const getOrgMembersWithUsers = async (orgId: string): Promise<OrgMemberWithUser[]> => {
+	const rows = await db
+		.select({
+			id: s.orgMember.userId,
+			name: s.user.name,
+			email: s.user.email,
+			role: s.orgMember.role,
+		})
+		.from(s.orgMember)
+		.innerJoin(s.user, eq(s.orgMember.userId, s.user.id))
+		.where(eq(s.orgMember.orgId, orgId))
+		.execute();
+	return rows;
+};
+
+export const getOrgProjectsWithAccess = async (orgId: string, userId: string): Promise<OrgProjectWithAccess[]> => {
+	const rows = await db
+		.select({
+			id: s.project.id,
+			name: s.project.name,
+			role: sql<OrgRole>`coalesce(${s.projectMember.role}, 'viewer')`,
+			createdAt: s.project.createdAt,
+			updatedAt: s.project.updatedAt,
+		})
+		.from(s.project)
+		.leftJoin(s.projectMember, and(eq(s.projectMember.projectId, s.project.id), eq(s.projectMember.userId, userId)))
+		.where(eq(s.project.orgId, orgId))
+		.orderBy(asc(s.project.name))
+		.execute();
+
+	return rows;
+};
+
+export const updateOrgMemberRole = async (orgId: string, userId: string, role: OrgRole): Promise<void> => {
+	await db
+		.update(s.orgMember)
+		.set({ role })
+		.where(and(eq(s.orgMember.orgId, orgId), eq(s.orgMember.userId, userId)))
+		.execute();
+};
+
+export const removeOrgMember = async (orgId: string, userId: string): Promise<void> => {
+	await db
+		.delete(s.orgMember)
+		.where(and(eq(s.orgMember.orgId, orgId), eq(s.orgMember.userId, userId)))
+		.execute();
+};
+
+export const removeOrgMemberFromProjects = async (orgId: string, userId: string): Promise<void> => {
+	const projects = await db.select({ id: s.project.id }).from(s.project).where(eq(s.project.orgId, orgId)).execute();
+
+	for (const project of projects) {
+		await projectQueries.removeProjectMember(project.id, userId);
+	}
+};
+
+export const countOrgAdmins = async (orgId: string): Promise<number> => {
+	const [result] = await db
+		.select({ count: count() })
+		.from(s.orgMember)
+		.where(and(eq(s.orgMember.orgId, orgId), eq(s.orgMember.role, 'admin')))
+		.execute();
+	return result?.count ?? 0;
 };
 
 /**

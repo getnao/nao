@@ -14,7 +14,7 @@ function ProjectWhatsappTabPage() {
 
 	return (
 		<>
-			<LinkingCodesCard />
+			<LinkingCodesCard provider='whatsapp' />
 			<WhatsappConfigSection isAdmin={isAdmin} />
 		</>
 	);

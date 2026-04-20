@@ -149,7 +149,6 @@ export function SlackForm({ webhookUrl, hasProjectConfig, onSubmit, onCancel, is
 						<strong>OAuth &amp; Permissions</strong> (Bot Token) and <strong>Basic Information</strong>{' '}
 						(Signing Secret).
 					</p>
-					<PasswordField form={form} name='botToken' label='Bot Token' placeholder='xoxb-...' required />
 					<PasswordField
 						form={form}
 						name='signingSecret'
@@ -157,6 +156,7 @@ export function SlackForm({ webhookUrl, hasProjectConfig, onSubmit, onCancel, is
 						placeholder='Enter your Slack signing secret'
 						required
 					/>
+					<PasswordField form={form} name='botToken' label='Bot Token' placeholder='xoxb-...' required />
 				</div>
 
 				<div className='flex justify-end gap-2 pt-2'>

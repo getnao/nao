@@ -18,15 +18,7 @@ function toLlmSelectedModel(
 	return parsed.success ? { provider: parsed.data, modelId } : undefined;
 }
 
-export const getProjectWhatsappConfig = async (
-	projectId: string,
-): Promise<{
-	accessToken: string;
-	appSecret: string;
-	phoneNumberId: string;
-	verifyToken: string;
-	modelSelection?: LlmSelectedModel;
-} | null> => {
+export const getProjectWhatsappConfig = async (projectId: string): Promise<WhatsappConfig | null> => {
 	const [project] = await db.select().from(s.project).where(eq(s.project.id, projectId)).execute();
 	const settings = project?.whatsappSettings;
 
@@ -40,10 +32,12 @@ export const getProjectWhatsappConfig = async (
 	}
 
 	return {
+		projectId,
 		accessToken: settings.whatsappAccessToken,
 		appSecret: settings.whatsappAppSecret,
 		phoneNumberId: settings.whatsappPhoneNumberId,
 		verifyToken: settings.whatsappVerifyToken,
+		redirectUrl: env.BETTER_AUTH_URL || 'http://localhost:3000/',
 		modelSelection: toLlmSelectedModel(settings.whatsappLlmProvider, settings.whatsappLlmModelId),
 	};
 };
@@ -133,42 +127,4 @@ export interface WhatsappConfig {
 	verifyToken: string;
 	redirectUrl: string;
 	modelSelection?: LlmSelectedModel;
-}
-
-/**
- * Get WhatsApp configuration from project config with env var fallbacks.
- * This is the single source of truth for all WhatsApp config values.
- */
-export async function getWhatsappConfig(): Promise<WhatsappConfig | null> {
-	const projectPath = env.NAO_DEFAULT_PROJECT_PATH;
-	if (!projectPath) {
-		return null;
-	}
-
-	const [project] = await db.select().from(s.project).where(eq(s.project.path, projectPath)).execute();
-
-	if (!project) {
-		return null;
-	}
-
-	const settings = project.whatsappSettings;
-	const accessToken = settings?.whatsappAccessToken;
-	const appSecret = settings?.whatsappAppSecret;
-	const phoneNumberId = settings?.whatsappPhoneNumberId;
-	const verifyToken = settings?.whatsappVerifyToken;
-	const redirectUrl = env.BETTER_AUTH_URL || 'http://localhost:3000/';
-
-	if (!accessToken || !appSecret || !phoneNumberId || !verifyToken) {
-		return null;
-	}
-
-	return {
-		projectId: project.id,
-		accessToken,
-		appSecret,
-		phoneNumberId,
-		verifyToken,
-		redirectUrl,
-		modelSelection: toLlmSelectedModel(settings?.whatsappLlmProvider, settings?.whatsappLlmModelId),
-	};
 }

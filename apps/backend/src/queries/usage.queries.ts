@@ -29,6 +29,21 @@ const pgFormats = {
 	month: 'YYYY-MM',
 };
 
+const COST_EXPR = {
+	inputNoCache: sql<number>`coalesce(${s.chatMessage.inputNoCacheTokens}, 0) * coalesce(cost_lookup.input_no_cache, 0) / 1000000.0`,
+	inputCacheRead: sql<number>`coalesce(${s.chatMessage.inputCacheReadTokens}, 0) * coalesce(cost_lookup.input_cache_read, 0) / 1000000.0`,
+	inputCacheWrite: sql<number>`coalesce(${s.chatMessage.inputCacheWriteTokens}, 0) * coalesce(cost_lookup.input_cache_write, 0) / 1000000.0`,
+	output: sql<number>`coalesce(${s.chatMessage.outputTotalTokens}, 0) * coalesce(cost_lookup.output, 0) / 1000000.0`,
+};
+
+export const TOTAL_COST_EXPR = sql<number>`${COST_EXPR.inputNoCache} + ${COST_EXPR.inputCacheRead} + ${COST_EXPR.inputCacheWrite} + ${COST_EXPR.output}`;
+
+export function createCostLookup() {
+	const table = buildCostValuesTable();
+	const joinCondition = sql`cost_lookup.provider = ${s.chatMessage.llmProvider} AND cost_lookup.model_id = ${s.chatMessage.llmModelId}`;
+	return { table, joinCondition };
+}
+
 export const getMessagesUsage = async (projectId: string, filter: UsageFilter): Promise<UsageRecord[]> => {
 	const { granularity, provider } = filter;
 	const dateExpr = getDateExpr(s.chatMessage.createdAt, granularity);
@@ -43,7 +58,7 @@ export const getMessagesUsage = async (projectId: string, filter: UsageFilter): 
 		whereConditions.push(eq(s.chatMessage.llmProvider, provider));
 	}
 
-	const costLookup = buildCostValuesTable();
+	const costLookup = createCostLookup();
 
 	const rows = await db
 		.select({
@@ -59,17 +74,14 @@ export const getMessagesUsage = async (projectId: string, filter: UsageFilter): 
 			inputCacheWriteTokens: sum(s.chatMessage.inputCacheWriteTokens),
 			outputTotalTokens: sum(s.chatMessage.outputTotalTokens),
 			totalTokens: sum(s.chatMessage.totalTokens),
-			inputNoCacheCost: sql<number>`sum(coalesce(${s.chatMessage.inputNoCacheTokens}, 0) * coalesce(cost_lookup.input_no_cache, 0) / 1000000.0)`,
-			inputCacheReadCost: sql<number>`sum(coalesce(${s.chatMessage.inputCacheReadTokens}, 0) * coalesce(cost_lookup.input_cache_read, 0) / 1000000.0)`,
-			inputCacheWriteCost: sql<number>`sum(coalesce(${s.chatMessage.inputCacheWriteTokens}, 0) * coalesce(cost_lookup.input_cache_write, 0) / 1000000.0)`,
-			outputCost: sql<number>`sum(coalesce(${s.chatMessage.outputTotalTokens}, 0) * coalesce(cost_lookup.output, 0) / 1000000.0)`,
+			inputNoCacheCost: sql<number>`sum(${COST_EXPR.inputNoCache})`,
+			inputCacheReadCost: sql<number>`sum(${COST_EXPR.inputCacheRead})`,
+			inputCacheWriteCost: sql<number>`sum(${COST_EXPR.inputCacheWrite})`,
+			outputCost: sql<number>`sum(${COST_EXPR.output})`,
 		})
 		.from(s.chatMessage)
 		.innerJoin(s.chat, eq(s.chatMessage.chatId, s.chat.id))
-		.leftJoin(
-			costLookup,
-			sql`cost_lookup.provider = ${s.chatMessage.llmProvider} AND cost_lookup.model_id = ${s.chatMessage.llmModelId}`,
-		)
+		.leftJoin(costLookup.table, costLookup.joinCondition)
 		.where(and(...whereConditions))
 		.groupBy(dateExpr);
 

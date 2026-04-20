@@ -12,7 +12,10 @@ import { TextShimmer } from '@/components/ui/text-shimmer';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
+import { requireAdminNonCloud } from '@/lib/require-admin';
+
 export const Route = createFileRoute('/_sidebar-layout/settings/logs')({
+	beforeLoad: requireAdminNonCloud,
 	component: LogsPage,
 });
 

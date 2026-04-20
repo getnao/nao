@@ -1,17 +1,18 @@
 import type { App } from '../app';
-import { getTelegramConfig } from '../queries/project-telegram-config.queries';
+import { getProjectTelegramConfig } from '../queries/project-telegram-config.queries';
 import { telegramService } from '../services/telegram';
 import { convertHeaders } from '../utils/utils';
 
 export const telegramRoutes = async (app: App) => {
 	app.post('/:projectId', async (request, reply) => {
+		const { projectId } = request.params as { projectId: string };
 		const webRequest = new Request(`http://localhost${request.url}`, {
 			method: request.method,
 			headers: convertHeaders(request.headers),
 			body: JSON.stringify(request.body),
 		});
 
-		const telegramConfig = await getTelegramConfig();
+		const telegramConfig = await getProjectTelegramConfig(projectId);
 		if (!telegramConfig) {
 			throw new Error('Telegram configuration not found');
 		}

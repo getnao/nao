@@ -5,6 +5,7 @@ on:
         branches:
             - main
             - '**docker'
+            - '**cloud'
 
 permissions:
     contents: read
@@ -15,6 +16,9 @@ env:
     IMAGE_NAME: getnao/nao
     CACHE_REGISTRY: ghcr.io
     CACHE_IMAGE: ${{ github.repository }}/build-cache
+    CLOUD_CONTAINER_NAME: nao-cloud
+    CLOUD_DOMAIN: app.preview.getnao.io
+    CLOUD_PORT: 5050
 
 jobs:
     build:
@@ -74,10 +78,11 @@ jobs:
                   cache-from: type=registry,ref=${{ env.CACHE_REGISTRY }}/${{ env.CACHE_IMAGE }}:${{ matrix.platform == 'linux/amd64' && 'amd64' || 'arm64' }}
                   cache-to: type=registry,ref=${{ env.CACHE_REGISTRY }}/${{ env.CACHE_IMAGE }}:${{ matrix.platform == 'linux/amd64' && 'amd64' || 'arm64' }},mode=max
                   build-args: |
-                      GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}
                       APP_VERSION=${{ github.ref_name }}
                       APP_COMMIT=${{ steps.sha.outputs.short_sha }}
                       APP_BUILD_DATE=${{ steps.build_date.outputs.value }}
+                  secrets: |
+                      GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}
 
             - name: Export digest
               run: |
@@ -159,7 +164,7 @@ jobs:
 
         steps:
             - name: Deploy with remote ssh commands using ssh key
-              uses: appleboy/ssh-action@master
+              uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
               with:
                   host: ${{ secrets.VM_HOST }}
                   username: github-actions-demo
@@ -182,3 +187,52 @@ jobs:
                         --device /dev/kvm \
                         --name nao-chat \
                         -d getnao/nao:${{ needs.merge.outputs.image-tag }}
+
+    deploy-cloud:
+        name: Deploy Cloud
+        runs-on: ubuntu-latest
+        needs: merge
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main'|| github.ref == 'refs/heads/cloud' || endsWith(github.ref, 'cloud'))
+
+        steps:
+            - name: Deploy to cloud server
+              uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
+              with:
+                  host: ${{ secrets.VM_HOST }}
+                  username: github-actions-demo
+                  key: ${{ secrets.PRIVATE_KEY }}
+                  script: |
+                      docker pull getnao/nao:${{ needs.merge.outputs.image-tag }}
+                      docker rm -f "${{ env.CLOUD_CONTAINER_NAME }}" 2>/dev/null || true
+                      docker volume create nao-app-preview-projects 2>/dev/null || true
+                      docker run -d \
+                          --name "${{ env.CLOUD_CONTAINER_NAME }}" \
+                          -p "${{ env.CLOUD_PORT }}:5005" \
+                          -v nao-app-preview-projects:/app/projects \
+                          -e "NAO_PROJECTS_DIR=/app/projects" \
+                          -e "BETTER_AUTH_URL=https://${{ env.CLOUD_DOMAIN }}" \
+                          -e "BETTER_AUTH_SECRET=${{ secrets.BETTER_AUTH_SECRET }}" \
+                          -e "DB_SSL=true" \
+                          -e "DB_URI=postgres://${{ secrets.POSTGRES_USER }}:${{ secrets.POSTGRES_PASSWORD }}@${{ secrets.POSTGRES_HOST }}:${{ secrets.POSTGRES_PORT }}/app" \
+                          -e "NAO_MODE=cloud" \
+                          -e "GITHUB_CLIENT_ID=${{ secrets.PREVIEW_GITHUB_CLIENT_ID }}" \
+                          -e "GITHUB_CLIENT_SECRET=${{ secrets.PREVIEW_GITHUB_CLIENT_SECRET }}" \
+                          -e "CLOUD_GITHUB_CLIENT_ID=${{ secrets.CLOUD_GITHUB_CLIENT_ID }}" \
+                          -e "CLOUD_GITHUB_CLIENT_SECRET=${{ secrets.CLOUD_GITHUB_CLIENT_SECRET }}" \
+                          -e "POSTHOG_DISABLED=true" \
+                          -e "NAO_CONTEXT_SOURCE=api" \
+                          -e "SMTP_PASSWORD=${{ secrets.SMTP_PASSWORD }}" \
+                          -e "SMTP_HOST=${{ secrets.SMTP_HOST }}" \
+                          -e "SMTP_PORT=${{ secrets.SMTP_PORT }}" \
+                          -e "SMTP_MAIL_FROM=${{ secrets.SMTP_MAIL_FROM }}" \
+                          -e "SMTP_SSL=${{ secrets.SMTP_SSL }}" \
+                          getnao/nao:${{ needs.merge.outputs.image-tag }}
+
+                      echo "Waiting for container to start..."
+                      sleep 10
+
+                      # Configure nginx for app.preview.getnao.io
+                      echo "\"~^app\" ${{ env.CLOUD_PORT }};" > "/home/github-actions-demo/nginx/preview.d/app.conf"
+                      docker exec nginx nginx -s reload
+
+                      echo "Deployed at https://${{ env.CLOUD_DOMAIN }}"

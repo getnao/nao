@@ -8,7 +8,7 @@ from typing import Annotated
 
 from cyclopts import Parameter
 
-from nao_core.config import NaoConfig
+from nao_core.config import NaoConfig, resolve_project_path
 from nao_core.ui import UI
 
 from .case import TESTS_FOLDER
@@ -447,7 +447,7 @@ def server(
         nao test server --port 9000
         nao test server --no-open
     """
-    config = NaoConfig.try_load(exit_on_error=True)
+    config = NaoConfig.try_load(resolve_project_path(), exit_on_error=True)
     assert config is not None
 
     project_path = Path.cwd()

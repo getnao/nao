@@ -8,6 +8,7 @@ from .git import GitContextProvider
 from .local import LocalContextProvider
 
 
+# TODO: redo the git retrieval logic
 def get_context_provider() -> ContextProvider:
     """Factory function to create the appropriate context provider based on environment variables.
 

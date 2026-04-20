@@ -18,14 +18,7 @@ function toLlmSelectedModel(
 	return parsed.success ? { provider: parsed.data, modelId } : undefined;
 }
 
-export const getProjectTeamsConfig = async (
-	projectId: string,
-): Promise<{
-	appId: string;
-	appPassword: string;
-	tenantId: string;
-	modelSelection?: LlmSelectedModel;
-} | null> => {
+export const getProjectTeamsConfig = async (projectId: string): Promise<TeamsConfig | null> => {
 	const [project] = await db.select().from(s.project).where(eq(s.project.id, projectId)).execute();
 	const settings = project?.teamsSettings;
 
@@ -34,9 +27,11 @@ export const getProjectTeamsConfig = async (
 	}
 
 	return {
+		projectId,
 		appId: settings.teamsAppId,
 		appPassword: settings.teamsAppPassword,
 		tenantId: settings.teamsTenantId,
+		redirectUrl: env.BETTER_AUTH_URL || 'http://localhost:3000/',
 		modelSelection: toLlmSelectedModel(settings.teamsLlmProvider, settings.teamsLlmModelId),
 	};
 };
@@ -117,43 +112,7 @@ export interface TeamsConfig {
 	projectId: string;
 	appId: string;
 	appPassword: string;
-	tenantId?: string;
+	tenantId: string;
 	redirectUrl: string;
 	modelSelection?: LlmSelectedModel;
-}
-
-/**
- * Get Teams configuration from project config with env var fallbacks.
- * This is the single source of truth for all Teams config values.
- */
-export async function getTeamsConfig(): Promise<TeamsConfig | null> {
-	const projectPath = env.NAO_DEFAULT_PROJECT_PATH;
-	if (!projectPath) {
-		return null;
-	}
-
-	const [project] = await db.select().from(s.project).where(eq(s.project.path, projectPath)).execute();
-
-	if (!project) {
-		return null;
-	}
-
-	const settings = project.teamsSettings;
-	const appId = settings?.teamsAppId;
-	const appPassword = settings?.teamsAppPassword;
-	const tenantId = settings?.teamsTenantId;
-	const redirectUrl = env.BETTER_AUTH_URL || 'http://localhost:3000/';
-
-	if (!appId || !appPassword || !tenantId) {
-		return null;
-	}
-
-	return {
-		projectId: project.id,
-		appId,
-		appPassword,
-		tenantId,
-		redirectUrl,
-		modelSelection: toLlmSelectedModel(settings?.teamsLlmProvider, settings?.teamsLlmModelId),
-	};
 }

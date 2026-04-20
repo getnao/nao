@@ -1,3 +1,4 @@
+import { providerLabels } from '@nao/shared/types';
 import type { Granularity } from '@nao/backend/usage';
 import type { LlmProvider } from '@nao/shared/types';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -15,18 +16,6 @@ const chartViewOptions: { value: ChartView; label: string }[] = [
 	{ value: 'tokens', label: 'Tokens' },
 	{ value: 'cost', label: 'Cost' },
 ];
-
-const providerLabels: Record<LlmProvider, string> = {
-	openai: 'OpenAI',
-	anthropic: 'Anthropic',
-	google: 'Google',
-	mistral: 'Mistral',
-	openrouter: 'OpenRouter',
-	ollama: 'Ollama',
-	bedrock: 'AWS Bedrock',
-	vertex: 'Google Vertex',
-	azure: 'Azure OpenAI',
-};
 
 export const dateFormats: Record<Granularity, string> = {
 	hour: 'MMM d, HH:00',

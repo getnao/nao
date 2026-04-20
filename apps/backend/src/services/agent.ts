@@ -42,8 +42,15 @@ import {
 import { Provider } from '../types/messaging-provider';
 import { ToolContext } from '../types/tools';
 import { convertToCost, convertToTokenUsage, findLastUserMessage, getLastUserMessageText } from '../utils/ai';
+import { assertBudgetNotExceeded } from '../utils/budget';
 import { HandlerError } from '../utils/error';
-import { getDefaultModelId, getEnvModelSelections, resolveProviderModel, resolveProviderSettings } from '../utils/llm';
+import {
+	getDefaultModelId,
+	getEnvModelSelections,
+	resolveAnnotationModelId,
+	resolveProviderModel,
+	resolveProviderSettings,
+} from '../utils/llm';
 import { logger } from '../utils/logger';
 import { truncateMiddle } from '../utils/utils';
 import { compactionService } from './compaction';
@@ -73,9 +80,15 @@ export type AgentChat = Pick<DBChat, 'id' | 'projectId' | 'userId'> & {
 export class AgentService {
 	private _agents = new Map<string, AgentManager>();
 
+	async assertBudget(projectId: string, modelSelection?: LlmSelectedModel): Promise<void> {
+		const resolved = await this._getResolvedLlmSelectedModel(projectId, modelSelection);
+		await assertBudgetNotExceeded(projectId, resolved.provider);
+	}
+
 	async create(chat: AgentChat, modelSelection?: LlmSelectedModel): Promise<AgentManager> {
 		this._disposeAgent(chat.id);
 		const resolvedLlmSelectedModel = await this._getResolvedLlmSelectedModel(chat.projectId, modelSelection);
+		await assertBudgetNotExceeded(chat.projectId, resolvedLlmSelectedModel.provider);
 		const modelConfig = await this._getModelConfig(chat.projectId, resolvedLlmSelectedModel);
 		const agentSettings = await projectQueries.getAgentSettings(chat.projectId);
 		const toolContext = await this._getToolContext(chat.projectId, chat.id, agentSettings);
@@ -130,10 +143,12 @@ export class AgentService {
 		if (!project.path) {
 			throw new HandlerError('BAD_REQUEST', 'Project path does not exist.');
 		}
+		const envVars = await projectQueries.getEnvVars(projectId);
 		return {
 			projectFolder: project.path ?? '',
 			chatId,
 			agentSettings,
+			envVars,
 			queryResults: new Map(),
 		};
 	}
@@ -332,8 +347,8 @@ class AgentManager {
 		const uiMessagesWithResolvedImages = await resolveImageUrls(uiMessagesWithCompaction);
 
 		const memories = await memoryService.safeGetUserMemories(this.chat.userId, this.chat.projectId, this.chat.id);
-		const userRules = getUserRules();
-		const connections = getConnections();
+		const userRules = getUserRules(this._toolContext.projectFolder);
+		const connections = getConnections(this._toolContext.projectFolder);
 		const skills = skillService.getSkills();
 		const basePrompt = renderToMarkdown(SystemPrompt({ memories, userRules, connections, skills, timezone }));
 		const renderedPrompt = provider
@@ -448,7 +463,11 @@ class AgentManager {
 
 	private async _generateTitle(userMessageText: string): Promise<void> {
 		const provider = this._modelSelection.provider;
-		const summaryModelId = LLM_PROVIDERS[provider].summaryModelId;
+		const summaryModelId = await resolveAnnotationModelId(
+			this.chat.projectId,
+			provider,
+			LLM_PROVIDERS[provider].summaryModelId,
+		);
 		const modelResult = await resolveProviderModel(this.chat.projectId, provider, summaryModelId);
 		if (!modelResult) {
 			return;
@@ -504,28 +523,29 @@ class AgentManager {
 	async generate(uiMessages: UIMessage[]): Promise<AgentRunResult> {
 		const startTime = performance.now();
 		const messages = await this._buildModelMessages(uiMessages);
-		const result = await this._agent.generate({
-			messages,
-			abortSignal: this._abortController.signal,
-			onFinish: () => {
-				this._onDispose();
-			},
-		});
-		const durationMs = Math.round(performance.now() - startTime);
+		try {
+			const result = await this._agent.generate({
+				messages,
+				abortSignal: this._abortController.signal,
+			});
+			const durationMs = Math.round(performance.now() - startTime);
 
-		const usage = convertToTokenUsage(result.totalUsage);
-		const cost = convertToCost(usage, this._modelSelection.provider, this._modelSelection.modelId);
-		const finishReason = result.finishReason ?? 'stop';
+			const usage = convertToTokenUsage(result.totalUsage);
+			const cost = convertToCost(usage, this._modelSelection.provider, this._modelSelection.modelId);
+			const finishReason = result.finishReason ?? 'stop';
 
-		return {
-			text: result.text,
-			usage,
-			cost,
-			finishReason,
-			durationMs,
-			responseMessages: result.response.messages,
-			steps: result.steps as AgentRunResult['steps'],
-		};
+			return {
+				text: result.text,
+				usage,
+				cost,
+				finishReason,
+				durationMs,
+				responseMessages: result.response.messages,
+				steps: result.steps as AgentRunResult['steps'],
+			};
+		} finally {
+			this._onDispose();
+		}
 	}
 
 	checkIsUserOwner(userId: string): boolean {

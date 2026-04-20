@@ -12,9 +12,9 @@ export function MobileHeader({ chatId, title }: { chatId?: string; title?: strin
 	}
 
 	return (
-		<div className='group/header flex items-center gap-2 px-3 py-2 shrink-0'>
-			<Button variant='ghost' size='icon-md' onClick={openMobile}>
-				<PanelLeft className='size-4' strokeWidth={1.5} />
+		<div className='group/header flex items-center gap-2 px-3 py-2 shrink-0 border-b border-border/60 bg-panel/95 backdrop-blur supports-[backdrop-filter]:bg-panel/80'>
+			<Button variant='outline' size='sm' onClick={openMobile} className='gap-2 rounded-full px-3 shadow-none'>
+				<PanelLeft className='size-4 shrink-0' strokeWidth={1.5} />
 			</Button>
 			{chatId && title && (
 				<>

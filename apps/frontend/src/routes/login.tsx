@@ -18,6 +18,8 @@ function Login() {
 	const { error: oauthError } = Route.useSearch();
 	const [serverError, setServerError] = useState<string | undefined>(oauthError);
 	const isSmtpSetup = useQuery(trpc.authConfig.smtp.isSetup.queryOptions());
+	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
+	const isCloud = config.data?.naoMode === 'cloud';
 
 	const form = useForm({
 		defaultValues: { email: '', password: '' },
@@ -37,6 +39,20 @@ function Login() {
 			submitText='Log In'
 			serverError={serverError}
 			displaySocialProviders={true}
+			footer={
+				isCloud ? (
+					<>
+						Don&apos;t have an account?{' '}
+						<Link
+							to='/signup'
+							search={{ error: undefined }}
+							className='text-foreground underline underline-offset-4'
+						>
+							Sign up
+						</Link>
+					</>
+				) : undefined
+			}
 		>
 			<FormTextField form={form} name='email' type='email' placeholder='Email' />
 			<FormTextField form={form} name='password' type='password' placeholder='Password' />

@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 2
 requires-python = ">=3.10"
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
@@ -2269,6 +2269,7 @@ dependencies = [
     { name = "cyclopts" },
     { name = "dotenv" },
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "ibis-framework" },
     { name = "jinja2" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
@@ -2403,6 +2404,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.128.0" },
     { name = "google-cloud", marker = "extra == 'bigquery'", specifier = ">=0.34.0" },
     { name = "google-genai", marker = "extra == 'gemini'", specifier = ">=1.61.0" },
+    { name = "httpx", specifier = ">=0.27.0" },
     { name = "ibis-framework", specifier = ">=9.0.0" },
     { name = "ibis-framework", extras = ["athena"], marker = "extra == 'athena'", specifier = ">=9.0.0" },
     { name = "ibis-framework", extras = ["bigquery"], marker = "extra == 'bigquery'", specifier = ">=9.0.0" },

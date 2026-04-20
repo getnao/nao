@@ -15,7 +15,7 @@ function ProjectTelegramTabPage() {
 	return (
 		<>
 			<TelegramConfigSection isAdmin={isAdmin} />
-			<LinkingCodesCard />
+			<LinkingCodesCard provider='telegram' />
 		</>
 	);
 }

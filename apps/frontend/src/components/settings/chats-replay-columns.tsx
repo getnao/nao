@@ -119,7 +119,7 @@ export function formatLastUpdate(value: number): string {
 		return 'Today ' + format(date, 'HH:mm');
 	}
 	if (isYesterday(date)) {
-		return 'Yest ' + format(date, 'HH:mm');
+		return 'Yesterday ' + format(date, 'HH:mm');
 	}
 	const daysAgo = differenceInDays(Date.now(), date);
 	if (daysAgo >= 0 && daysAgo < 7) {

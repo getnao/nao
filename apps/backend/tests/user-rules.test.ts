@@ -3,7 +3,6 @@ import { join } from 'path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('fs');
-vi.mock('../src/env', () => ({ env: { NAO_DEFAULT_PROJECT_PATH: undefined } }));
 
 import { getDatabaseObjects, getTableColumnsContent } from '../src/agents/user-rules';
 
@@ -26,11 +25,6 @@ function setupDirStructure(root: string, structure: Record<string, string[]>) {
 describe('getDatabaseObjects', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
-	});
-
-	it('returns empty array when no folder is provided and env has no default', () => {
-		const result = getDatabaseObjects(undefined);
-		expect(result).toEqual([]);
 	});
 
 	it('returns empty array when the databases folder does not exist', () => {

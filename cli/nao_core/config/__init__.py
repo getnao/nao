@@ -1,4 +1,4 @@
-from .base import NaoConfig, NaoConfigError
+from .base import NaoConfig, NaoConfigError, resolve_project_path
 from .databases import (
     AnyDatabaseConfig,
     BigQueryConfig,
@@ -36,4 +36,5 @@ __all__ = [
     "ProviderAuthConfig",
     "SlackConfig",
     "InitError",
+    "resolve_project_path",
 ]

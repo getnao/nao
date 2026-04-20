@@ -36,6 +36,8 @@ const envSchema = z.object({
 	GITHUB_CLIENT_ID: z.string().optional(),
 	GITHUB_CLIENT_SECRET: z.string().optional(),
 	GITHUB_ALLOWED_USERS: z.string().optional(),
+	CLOUD_GITHUB_CLIENT_ID: z.string().optional(),
+	CLOUD_GITHUB_CLIENT_SECRET: z.string().optional(),
 	DEFAULT_USER_ROLE: z.enum(['admin', 'user']).default('user'),
 
 	SMTP_PASSWORD: z.string().optional(),
@@ -50,6 +52,8 @@ const envSchema = z.object({
 	APP_BUILD_DATE: z.string().default(''),
 
 	NAO_DEFAULT_PROJECT_PATH: z.string().optional(),
+	NAO_MODE: z.enum(['self-hosted', 'cloud']).default('self-hosted'),
+	NAO_PROJECTS_DIR: z.string().default('./projects'),
 	NAO_CORE_VERSION: z.string().optional(),
 
 	POSTHOG_KEY: z.string().optional(),
@@ -70,4 +74,18 @@ if (!result.success) {
 	process.exit(1);
 }
 
+if (result.data.NAO_DEFAULT_PROJECT_PATH && result.data.NAO_MODE === 'cloud') {
+	console.error('NAO_DEFAULT_PROJECT_PATH and NAO_MODE=cloud cannot be set at the same time.');
+	process.exit(1);
+}
+
 export const env = result.data;
+
+export const isCloud = env.NAO_MODE === 'cloud';
+export const isSelfHosted = env.NAO_MODE === 'self-hosted';
+
+export function noProjectMessage(): string {
+	return isCloud
+		? 'No project configured. Create a project or ask your organization admin to add you to one.'
+		: 'No project configured. Set NAO_DEFAULT_PROJECT_PATH environment variable.';
+}

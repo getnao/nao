@@ -95,6 +95,18 @@ def _parse_clustering_key(clustering_key: str) -> list[str]:
     return [col.strip().strip('"') for col in match.group(1).split(",")]
 
 
+def _resolve_private_key(path: str | None, inline: str | None) -> bytes | None:
+    """Return raw PEM bytes from a file path or an inline string, or None."""
+    if path and inline:
+        raise InitError("Specify either private_key_path or private_key, not both")
+    if path:
+        with open(path, "rb") as f:
+            return f.read()
+    if inline:
+        return inline.encode()
+    return None
+
+
 class SnowflakeConfig(DatabaseConfig):
     """Snowflake-specific configuration."""
 
@@ -111,6 +123,10 @@ class SnowflakeConfig(DatabaseConfig):
     private_key_path: str | None = Field(
         default=None,
         description="Path to private key file for key-pair authentication",
+    )
+    private_key: str | None = Field(
+        default=None,
+        description="PEM-encoded private key string for key-pair authentication (alternative to private_key_path)",
     )
     passphrase: str | None = Field(
         default=None,
@@ -135,18 +151,24 @@ class SnowflakeConfig(DatabaseConfig):
         key_pair_auth = False if use_sso else ask_confirm("Use key-pair authentication?", default=False)
         authenticator = "externalbrowser" if use_sso else None
 
+        private_key_path = None
+        private_key = None
+        passphrase = None
+        password = None
+
         if key_pair_auth:
-            private_key_path = ask_text("Path to private key file:", required_field=True)
-            if not private_key_path or not os.path.isfile(private_key_path):
-                raise InitError(f"Private key file not found: {private_key_path}")
+            use_inline = ask_confirm("Paste the private key directly (instead of a file path)?", default=False)
+            if use_inline:
+                private_key = ask_text("PEM-encoded private key (paste full key):", password=True, required_field=True)
+            else:
+                private_key_path = ask_text("Path to private key file:", required_field=True)
+                if not private_key_path or not os.path.isfile(private_key_path):
+                    raise InitError(f"Private key file not found: {private_key_path}")
             passphrase = ask_text("Private key passphrase (optional):", password=True)
-            password = None
-        else:
-            password = None if use_sso else ask_text("Snowflake password:", password=True, required_field=True)
-            if not use_sso and not password:
+        elif not use_sso:
+            password = ask_text("Snowflake password:", password=True, required_field=True)
+            if not password:
                 raise InitError("Snowflake password cannot be empty.")
-            private_key_path = None
-            passphrase = None
 
         return SnowflakeConfig(
             name=name,
@@ -157,6 +179,7 @@ class SnowflakeConfig(DatabaseConfig):
             warehouse=warehouse,
             schema_name=schema,
             private_key_path=private_key_path,
+            private_key=private_key,
             passphrase=passphrase,
             authenticator=authenticator,
         )
@@ -183,18 +206,18 @@ class SnowflakeConfig(DatabaseConfig):
             kwargs["authenticator"] = self.authenticator
             UI.info(f"[yellow]Using authenticator: {self.authenticator}[/yellow]")
 
-        if self.private_key_path:
-            with open(self.private_key_path, "rb") as key_file:
-                private_key = serialization.load_pem_private_key(
-                    key_file.read(),
-                    password=self.passphrase.encode() if self.passphrase else None,
-                    backend=default_backend(),
-                )
-                kwargs["private_key"] = private_key.private_bytes(
-                    encoding=serialization.Encoding.DER,
-                    format=serialization.PrivateFormat.PKCS8,
-                    encryption_algorithm=serialization.NoEncryption(),
-                )
+        pem_data = _resolve_private_key(self.private_key_path, self.private_key)
+        if pem_data is not None:
+            private_key = serialization.load_pem_private_key(
+                pem_data,
+                password=self.passphrase.encode() if self.passphrase else None,
+                backend=default_backend(),
+            )
+            kwargs["private_key"] = private_key.private_bytes(
+                encoding=serialization.Encoding.DER,
+                format=serialization.PrivateFormat.PKCS8,
+                encryption_algorithm=serialization.NoEncryption(),
+            )
         elif self.password:
             kwargs["password"] = self.password
 

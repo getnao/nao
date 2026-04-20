@@ -1,12 +1,11 @@
 import { TRPCError } from '@trpc/server';
-import { hashPassword } from 'better-auth/crypto';
 import { z } from 'zod/v4';
 
 import * as memoryQueries from '../queries/memory';
 import * as projectQueries from '../queries/project.queries';
 import * as userQueries from '../queries/user.queries';
-import { emailService } from '../services/email';
-import { buildUserAddedToProjectEmail } from '../utils/email-builders';
+import { addTeamMember } from '../services/team-member';
+import { buildUserAddedEmail } from '../utils/email-builders';
 import { adminProtectedProcedure, projectProtectedProcedure, protectedProcedure, publicProcedure } from './trpc';
 
 export const userRoutes = {
@@ -64,76 +63,17 @@ export const userRoutes = {
 			}),
 		)
 		.mutation(async ({ input, ctx }) => {
-			const email = input.email.toLowerCase();
-			const user = await userQueries.get({ email });
+			const projectId = ctx.project.id;
 
-			if (!user) {
-				if (!input.name) {
-					throw new TRPCError({ code: 'NOT_FOUND', message: 'USER_DOES_NOT_EXIST' });
-				}
-				const userId = crypto.randomUUID();
-				const accountId = crypto.randomUUID();
-
-				const password = crypto.randomUUID().slice(0, 8);
-				const hashedPassword = await hashPassword(password);
-
-				const newUser = await userQueries.create(
-					{
-						id: userId,
-						name: input.name!,
-						email,
-						requiresPasswordReset: true,
-					},
-					{
-						id: accountId,
-						userId: userId,
-						accountId: userId,
-						providerId: 'credential',
-						password: hashedPassword,
-					},
-					{
-						userId: '',
-						projectId: ctx.project?.id || '',
-						role: 'user',
-					},
-				);
-
-				await emailService.sendEmail(
-					newUser.email,
-					buildUserAddedToProjectEmail(newUser, ctx.project?.name, password),
-				);
-
-				const newUserWithRole = {
-					id: newUser.id,
-					name: newUser.name,
-					email: newUser.email,
-					role: 'user',
-				};
-
-				return { newUser: newUserWithRole, password };
-			}
-
-			const existingMember = await projectQueries.getProjectMember(ctx.project!.id, user.id);
-			if (existingMember) {
-				throw new TRPCError({ code: 'BAD_REQUEST', message: 'User is already a member of the project' });
-			}
-
-			await projectQueries.addProjectMember({
-				userId: user.id,
-				projectId: ctx.project!.id,
-				role: 'user',
+			return addTeamMember({
+				email: input.email,
+				name: input.name,
+				checkExisting: async (userId) => !!(await projectQueries.getProjectMember(projectId, userId)),
+				addMember: async (userId) => {
+					await projectQueries.addProjectMember({ userId, projectId, role: 'user' });
+				},
+				buildEmail: (user, password) => buildUserAddedEmail(user, ctx.project.name, 'project', password),
 			});
-
-			await emailService.sendEmail(user.email, buildUserAddedToProjectEmail(user, ctx.project?.name));
-
-			const newUserWithRole = {
-				id: user.id,
-				name: user.name,
-				email: user.email,
-				role: 'user',
-			};
-
-			return { success: true, newUser: newUserWithRole };
 		}),
 
 	getMemorySettings: protectedProcedure.query(async ({ ctx }) => {

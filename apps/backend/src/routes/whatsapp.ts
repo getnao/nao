@@ -1,19 +1,20 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 
 import type { App } from '../app';
-import { getWhatsappConfig } from '../queries/project-whatsapp-config.queries';
+import { getProjectWhatsappConfig } from '../queries/project-whatsapp-config.queries';
 import { whatsappService } from '../services/whatsapp';
 import { convertHeaders } from '../utils/utils';
 
 export const whatsappRoutes = async (app: App) => {
 	const handleWebhook = async (request: FastifyRequest, reply: FastifyReply) => {
+		const { projectId } = request.params as { projectId: string };
 		const webRequest = new Request(`http://localhost${request.url}`, {
 			method: request.method,
 			headers: convertHeaders(request.headers),
 			body: request.rawBody as string,
 		});
 
-		const whatsappConfig = await getWhatsappConfig();
+		const whatsappConfig = await getProjectWhatsappConfig(projectId);
 		if (!whatsappConfig) {
 			throw new Error('WhatsApp configuration not found');
 		}

@@ -1,23 +1,28 @@
 import { useState } from 'react';
 import { Check, Copy, AlertTriangle, Mail } from 'lucide-react';
+
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { useUserPageContext } from '@/contexts/user.provider';
 
-export function NewUserDialog() {
-	const { isNewUserDialogOpen, setIsNewUserDialogOpen, newUser } = useUserPageContext();
+interface NewCredentialsDialogProps {
+	open: boolean;
+	onOpenChange: (open: boolean) => void;
+	credentials: { email: string; password: string } | null;
+}
+
+export function NewCredentialsDialog({ open, onOpenChange, credentials }: NewCredentialsDialogProps) {
 	const [copied, setCopied] = useState(false);
 
 	const handleCopy = async () => {
-		if (newUser?.password) {
-			await navigator.clipboard.writeText(newUser.password);
+		if (credentials?.password) {
+			await navigator.clipboard.writeText(credentials.password);
 			setCopied(true);
 			setTimeout(() => setCopied(false), 2000);
 		}
 	};
 
 	return (
-		<Dialog open={isNewUserDialogOpen} onOpenChange={setIsNewUserDialogOpen}>
+		<Dialog open={open} onOpenChange={onOpenChange}>
 			<DialogContent className='max-w-md'>
 				<div className='space-y-4'>
 					<div className='flex items-start gap-3 p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg mt-5'>
@@ -38,7 +43,7 @@ export function NewUserDialog() {
 					<div className='space-y-2'>
 						<label className='text-sm font-medium text-slate-700 dark:text-slate-300'>Email</label>
 						<div className='px-3 py-2 bg-slate-50 dark:bg-slate-800 rounded-md border border-slate-200 dark:border-slate-700'>
-							<p className='font-mono text-sm text-slate-900 dark:text-slate-100'>{newUser?.email}</p>
+							<p className='font-mono text-sm text-slate-900 dark:text-slate-100'>{credentials?.email}</p>
 						</div>
 					</div>
 
@@ -47,7 +52,7 @@ export function NewUserDialog() {
 						<div className='flex items-center gap-2'>
 							<div className='flex-1 px-3 py-2 bg-slate-50 dark:bg-slate-800 rounded-md border border-slate-200 dark:border-slate-700'>
 								<p className='font-mono text-sm font-semibold text-slate-900 dark:text-slate-100 break-all'>
-									{newUser?.password}
+									{credentials?.password}
 								</p>
 							</div>
 							<Button
@@ -63,7 +68,7 @@ export function NewUserDialog() {
 					</div>
 
 					<div className='flex justify-end gap-2 pt-2'>
-						<Button variant='default' onClick={() => setIsNewUserDialogOpen(false)}>
+						<Button variant='default' onClick={() => onOpenChange(false)}>
 							Done
 						</Button>
 					</div>

@@ -1,17 +1,18 @@
 import type { App } from '../app';
-import { getTeamsConfig } from '../queries/project-teams-config.queries';
+import { getProjectTeamsConfig } from '../queries/project-teams-config.queries';
 import { teamsService } from '../services/teams';
 import { convertHeaders } from '../utils/utils';
 
 export const teamsRoutes = async (app: App) => {
 	app.post('/:projectId', async (request, reply) => {
+		const { projectId } = request.params as { projectId: string };
 		const webRequest = new Request(`http://localhost${request.url}`, {
 			method: request.method,
 			headers: convertHeaders(request.headers),
 			body: JSON.stringify(request.body),
 		});
 
-		const teamsConfig = await getTeamsConfig();
+		const teamsConfig = await getProjectTeamsConfig(projectId);
 		if (!teamsConfig) {
 			throw new Error('Teams configuration not found');
 		}

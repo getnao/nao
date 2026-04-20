@@ -25,6 +25,14 @@ body {
 
 code {
 	font-family: var(--font-mono);
+	font-size: 0.75rem;
+	background-color: var(--color-muted);
+	padding: 0.15rem 0.35rem;
+	border-radius: var(--radius-sm);
+}
+
+code.dollar:before {
+	content: '$ ';
 }
 
 @theme inline {

@@ -4,7 +4,8 @@ import { WarningBox } from './warning-box';
 
 interface UserAddedToProjectProps {
 	userName: string;
-	projectName?: string;
+	teamName?: string;
+	teamLabel?: string;
 	loginUrl: string;
 	to: string;
 	temporaryPassword?: string;
@@ -12,7 +13,8 @@ interface UserAddedToProjectProps {
 
 export function UserAddedToProject({
 	userName,
-	projectName,
+	teamName,
+	teamLabel = 'project',
 	loginUrl,
 	to,
 	temporaryPassword,
@@ -26,10 +28,10 @@ export function UserAddedToProject({
 			<p>
 				{isNewUser ? (
 					<>
-						You've been invited to join the project <strong>{projectName}</strong> on nao.
+						You've been invited to join the {teamLabel} <strong>{teamName}</strong> on nao.
 					</>
 				) : (
-					"You've been added to a new project on nao."
+					<>You've been added to a new {teamLabel} on nao.</>
 				)}
 			</p>
 
@@ -54,16 +56,16 @@ export function UserAddedToProject({
 			) : (
 				<div className='info-box'>
 					<p>
-						<strong>Project:</strong> {projectName}
+						<strong className='capitalize'>{teamLabel}:</strong> {teamName}
 					</p>
-					<p>You can now access this project using your existing nao account.</p>
+					<p>You can now access this {teamLabel} using your existing nao account.</p>
 				</div>
 			)}
 
 			<EmailButton href={loginUrl}>Login to nao</EmailButton>
 
 			<p>
-				If you have any questions{isNewUser ? '' : ' about this project'}, please contact your project
+				If you have any questions{isNewUser ? '' : ` about this ${teamLabel}`}, please contact your {teamLabel}{' '}
 				administrator.
 			</p>
 

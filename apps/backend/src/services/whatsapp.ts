@@ -20,7 +20,7 @@ import { ConversationContext, StreamState, ToolCallEntry } from '../types/messag
 import { createChatTitle } from '../utils/ai';
 import { buildImageUrl } from '../utils/image';
 import { logger } from '../utils/logger';
-import { EXCLUDED_TOOLS } from '../utils/messaging-provider';
+import { EXCLUDED_TOOLS, formatMessagingError } from '../utils/messaging-provider';
 import { agentService } from './agent';
 import { posthog, PostHogEvent } from './posthog';
 import * as transcribeService from './transcribe.service';
@@ -131,7 +131,7 @@ class WhatsappService {
 
 			await this._handleStreamAgent(chat, ctx);
 		} catch (error) {
-			const errorMessage = `❌ An error occurred while processing your message. ${error instanceof Error ? error.message : 'Unknown error'}.`;
+			const errorMessage = formatMessagingError(error);
 			await ctx.thread.post(errorMessage);
 		}
 	}

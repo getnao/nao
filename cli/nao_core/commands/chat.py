@@ -11,7 +11,7 @@ from cyclopts import Parameter
 from rich.console import Console
 
 from nao_core import __version__
-from nao_core.config import NaoConfig
+from nao_core.config import NaoConfig, resolve_project_path
 from nao_core.config.llm import PROVIDER_AUTH, LLMProvider
 from nao_core.mode import MODE
 from nao_core.tracking import track_command
@@ -177,7 +177,7 @@ def chat(
     """
     console.print("\n[bold cyan]💬 Starting nao chat...[/bold cyan]\n")
 
-    config = NaoConfig.try_load(exit_on_error=True)
+    config = NaoConfig.try_load(resolve_project_path(), exit_on_error=True)
     assert config is not None
     console.print(f"[bold green]✓[/bold green] Loaded config from {Path.cwd() / 'nao_config.yaml'}")
 
@@ -229,6 +229,14 @@ def chat(
                 if config.llm.secret_key:
                     env["AWS_SECRET_ACCESS_KEY"] = config.llm.secret_key
                     console.print("[bold green]✓[/bold green] Set AWS_SECRET_ACCESS_KEY from config")
+                aws_profile = config.llm.aws_profile or os.environ.get("AWS_PROFILE")
+                if aws_profile:
+                    env["AWS_PROFILE"] = aws_profile
+                    console.print("[bold green]✓[/bold green] Set AWS_PROFILE from config")
+                session_token = os.environ.get("AWS_SESSION_TOKEN")
+                if session_token:
+                    env["AWS_SESSION_TOKEN"] = session_token
+                    console.print("[bold green]✓[/bold green] Set AWS_SESSION_TOKEN from environment")
                 if config.llm.aws_region:
                     env["AWS_REGION"] = config.llm.aws_region
                     console.print("[bold green]✓[/bold green] Set AWS_REGION from config")
@@ -248,6 +256,10 @@ def chat(
                     console.print("[bold green]✓[/bold green] Set VERTEX_GOOGLE_APPLICATION_CREDENTIALS from config")
 
         env["NAO_DEFAULT_PROJECT_PATH"] = str(Path.cwd())
+
+        if config and config.llm and config.llm.annotation_model:
+            env["NAO_ANNOTATION_MODEL"] = config.llm.annotation_model
+            console.print("[bold green]✓[/bold green] Set NAO_ANNOTATION_MODEL from config")
 
         if ngrok:
             ngrok_url = start_ngrok_tunnel(port)

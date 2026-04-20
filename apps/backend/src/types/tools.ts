@@ -9,6 +9,7 @@ export interface ToolContext {
 	projectFolder: string;
 	chatId: string;
 	agentSettings: AgentSettings | null;
+	envVars: Record<string, string>;
 	/** Mutable store for query results shared across tool calls within a single agent run. */
 	queryResults: Map<string, QueryResult>;
 }

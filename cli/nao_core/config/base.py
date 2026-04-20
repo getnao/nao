@@ -261,12 +261,15 @@ class NaoConfig(BaseModel):
             )
 
     @classmethod
-    def load(cls, path: Path) -> "NaoConfig":
+    def load(
+        cls,
+        path: Path,
+        extra_env: dict[str, str] | None = None,
+    ) -> "NaoConfig":
         """Load the configuration from a YAML file."""
         config_file = path / "nao_config.yaml"
         content = config_file.read_text()
-        processed_content, env_vars = cls._process_env_vars(content)
-        # Track missing/empty env vars for error reporting
+        processed_content, env_vars = cls._process_env_vars(content, extra_env=extra_env)
         cls._missing_env_vars = {k: None for k, v in env_vars.items() if v is None}
         data = yaml.safe_load(processed_content)
         return cls.model_validate(data)
@@ -285,24 +288,22 @@ class NaoConfig(BaseModel):
     @classmethod
     def try_load(
         cls,
-        path: Path | None = None,
+        path: Path,
         *,
         exit_on_error: bool = False,
         raise_on_error: bool = False,
+        extra_env: dict[str, str] | None = None,
     ) -> "NaoConfig | None":
         """Try to load config from path.
 
         Args:
-            path: Directory containing nao_config.yaml. Defaults to NAO_DEFAULT_PROJECT_PATH
-                  environment variable if set, otherwise current directory.
+            path: Directory containing nao_config.yaml.
             exit_on_error: If True, prints error message and calls sys.exit(1) on failure.
             raise_on_error: If True, raises NaoConfigError on failure.
+            extra_env: Optional env vars that take precedence over os.environ during template resolution.
         Returns:
             NaoConfig if loaded successfully, None if failed and both flags are False.
         """
-        if path is None:
-            default_path = os.environ.get("NAO_DEFAULT_PROJECT_PATH")
-            path = Path(default_path) if default_path else Path.cwd()
 
         config_file = path / "nao_config.yaml"
 
@@ -320,7 +321,7 @@ class NaoConfig(BaseModel):
 
         try:
             os.chdir(path)
-            return cls.load(path)
+            return cls.load(path, extra_env=extra_env)
         except yaml.YAMLError as e:
             handle_error(f"Failed to load nao_config.yaml: Invalid YAML syntax: {e}")
             return None
@@ -348,7 +349,10 @@ class NaoConfig(BaseModel):
         return cls.model_json_schema()
 
     @staticmethod
-    def _process_env_vars(content: str) -> tuple[str, dict[str, str | None]]:
+    def _process_env_vars(
+        content: str,
+        extra_env: dict[str, str] | None = None,
+    ) -> tuple[str, dict[str, str | None]]:
         """Support both ${{ env('VAR') }} and {{ env('VAR') }} formats.
         Returns:
             Tuple of (processed_content, env_var_status) where env_var_status maps
@@ -359,10 +363,17 @@ class NaoConfig(BaseModel):
 
         def replacer(match: re.Match[str]) -> str:
             env_var = match.group(1)
-            value = os.environ.get(env_var)
-            # Track the env var and its status (None if not set or empty)
+            if extra_env is not None and env_var in extra_env:
+                value = extra_env[env_var]
+            else:
+                value = os.environ.get(env_var)
             env_vars[env_var] = value if value else None
             return value or ""
 
         processed = regex.sub(replacer, content)
         return processed, env_vars
+
+
+def resolve_project_path() -> Path:
+    """Resolve the nao project directory from the current working directory."""
+    return Path.cwd()

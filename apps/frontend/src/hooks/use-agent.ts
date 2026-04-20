@@ -23,9 +23,11 @@ import {
 	getLastUserMessageIdx,
 	getTextFromUserMessageOrThrow,
 	NEW_CHAT_ID,
+	parseBudgetError,
 } from '@/lib/ai';
 import { useSetChatList } from '@/queries/use-chat-list-query';
 import { createLocalStorage } from '@/lib/local-storage';
+import { getActiveProjectId } from '@/lib/active-project';
 
 export interface AgentHelpers {
 	chatId: string | undefined;
@@ -126,6 +128,7 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 					mentionsRef.current = [];
 					const images = extractImagesFromMessage(messageToSend);
 					return {
+						headers: getActiveProjectId() ? { 'x-nao-project-id': getActiveProjectId()! } : undefined,
 						body: {
 							...body,
 							chatId: agentId === NEW_CHAT_ID ? undefined : agentId,
@@ -184,6 +187,20 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 			chatActivityStore.setUnread(chatId, false);
 		}
 	}, [chatId]);
+
+	useEffect(() => {
+		if (!parseBudgetError(error)) {
+			return;
+		}
+		const lastMsg = messages.at(-1);
+		if (lastMsg?.role === 'user') {
+			const nextMessages = messages.slice(0, -1);
+			setMessages(nextMessages);
+			if (chatIdRef.current) {
+				setChat({ chatId: chatIdRef.current }, (prev) => (prev ? { ...prev, messages: nextMessages } : prev));
+			}
+		}
+	}, [error]); // eslint-disable-line react-hooks/exhaustive-deps
 
 	const stopAgent = useCallback(async () => {
 		if (!chatId) {

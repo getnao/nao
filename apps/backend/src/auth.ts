@@ -3,7 +3,7 @@ import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 
 import { db } from './db/db';
 import dbConfig, { Dialect } from './db/dbConfig';
-import { env } from './env';
+import { env, isCloud } from './env';
 import * as orgQueries from './queries/organization.queries';
 import { emailService } from './services/email';
 import { buildForgotPasswordEmail } from './utils/email-builders';
@@ -83,9 +83,14 @@ function createAuthInstance(googleConfig: GoogleConfig) {
 					},
 					async after(user, ctx) {
 						const isSocial = ctx?.params?.id === 'google' || ctx?.params?.id === 'github';
-						await orgQueries.initializeDefaultOrganizationForFirstUser(user.id);
-						if (isSocial) {
-							await orgQueries.addUserToDefaultProjectIfExists(user.id);
+
+						if (isCloud) {
+							await orgQueries.initializePersonalOrganization(user.id);
+						} else {
+							await orgQueries.initializeDefaultOrganizationForFirstUser(user.id);
+							if (isSocial) {
+								await orgQueries.addUserToDefaultProjectIfExists(user.id);
+							}
 						}
 					},
 				},

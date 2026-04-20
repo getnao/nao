@@ -1,5 +1,7 @@
 import { useCallback, useEffect } from 'react';
+import { Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
+import { TriangleAlert } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { LlmProviderIcon } from '@/components/ui/llm-provider-icon';
 import { useAgentContext } from '@/contexts/agent.provider';
@@ -7,7 +9,7 @@ import { trpc } from '@/main';
 
 export function ChatInputModelSelect() {
 	const { selectedModel, setSelectedModel } = useAgentContext();
-	const { data: availableModels } = useQuery(trpc.project.getAvailableModels.queryOptions());
+	const { data: availableModels, isPending } = useQuery(trpc.project.getAvailableModels.queryOptions());
 	const hasMultipleModels = Boolean(availableModels && availableModels.length > 1);
 
 	// Set default model when available models load, or reset if current selection is no longer available
@@ -40,8 +42,20 @@ export function ChatInputModelSelect() {
 				?.name ?? selectedModel.modelId)
 		: 'Select model';
 
-	if (!availableModels?.length) {
+	if (isPending) {
 		return null;
+	}
+
+	if (!availableModels?.length) {
+		return (
+			<Link
+				to='/settings/project/models'
+				className='flex items-center gap-1.5 text-sm text-amber-500 hover:text-amber-600 dark:text-amber-400 dark:hover:text-amber-300 transition-colors'
+			>
+				<TriangleAlert className='size-3.5' />
+				<span>Configure a model</span>
+			</Link>
+		);
 	}
 
 	if (!hasMultipleModels) {

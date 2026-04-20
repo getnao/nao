@@ -1,18 +1,10 @@
 import { existsSync, readdirSync, readFileSync } from 'fs';
 import { join } from 'path';
 
-import { env } from '../env';
-
 /**
  * Reads user-defined rules from RULES.md in the project folder if it exists
  */
-export function getUserRules(): string | undefined {
-	const projectFolder = env.NAO_DEFAULT_PROJECT_PATH;
-
-	if (!projectFolder) {
-		return undefined;
-	}
-
+export function getUserRules(projectFolder: string): string | undefined {
 	const rulesPath = join(projectFolder, 'RULES.md');
 
 	if (!existsSync(rulesPath)) {
@@ -20,8 +12,7 @@ export function getUserRules(): string | undefined {
 	}
 
 	try {
-		const rulesContent = readFileSync(rulesPath, 'utf-8');
-		return rulesContent;
+		return readFileSync(rulesPath, 'utf-8');
 	} catch (error) {
 		console.error('Error reading RULES.md:', error);
 		return undefined;
@@ -33,13 +24,7 @@ type Connection = {
 	database: string;
 };
 
-export function getConnections(): Connection[] | undefined {
-	const projectFolder = env.NAO_DEFAULT_PROJECT_PATH;
-
-	if (!projectFolder) {
-		return undefined;
-	}
-
+export function getConnections(projectFolder: string): Connection[] | undefined {
 	const databasesPath = join(projectFolder, 'databases');
 
 	if (!existsSync(databasesPath)) {
@@ -69,19 +54,14 @@ export type DatabaseObject = {
 const DATABASE_OBJECTS_TTL_MS = 5 * 60 * 1000;
 const databaseObjectsCache = new Map<string, { objects: DatabaseObject[]; expiresAt: number }>();
 
-export function getDatabaseObjects(projectFolder?: string): DatabaseObject[] {
-	const folder = projectFolder ?? env.NAO_DEFAULT_PROJECT_PATH;
-	if (!folder) {
-		return [];
-	}
-
-	const cached = databaseObjectsCache.get(folder);
+export function getDatabaseObjects(projectFolder: string): DatabaseObject[] {
+	const cached = databaseObjectsCache.get(projectFolder);
 	if (cached && Date.now() < cached.expiresAt) {
 		return cached.objects;
 	}
 
-	const objects = readDatabaseObjectsFromDisk(folder);
-	databaseObjectsCache.set(folder, { objects, expiresAt: Date.now() + DATABASE_OBJECTS_TTL_MS });
+	const objects = readDatabaseObjectsFromDisk(projectFolder);
+	databaseObjectsCache.set(projectFolder, { objects, expiresAt: Date.now() + DATABASE_OBJECTS_TTL_MS });
 	return objects;
 }
 

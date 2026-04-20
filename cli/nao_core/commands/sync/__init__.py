@@ -7,7 +7,7 @@ from typing import Annotated
 from cyclopts import Parameter
 from rich.console import Console
 
-from nao_core.config import NaoConfig
+from nao_core.config import NaoConfig, resolve_project_path
 from nao_core.templates.render import render_all_templates
 from nao_core.tracking import track_command
 
@@ -48,10 +48,9 @@ def sync(
     """
     console.print("\n[bold cyan]🔄 nao sync[/bold cyan]\n")
 
-    config = NaoConfig.try_load(exit_on_error=True)
+    config = NaoConfig.try_load(resolve_project_path(), exit_on_error=True)
     assert config is not None  # Help type checker after exit_on_error=True
 
-    # Get project path (current working directory after NaoConfig.try_load)
     project_path = Path.cwd()
 
     console.print(f"[dim]Project:[/dim] {config.project_name}")

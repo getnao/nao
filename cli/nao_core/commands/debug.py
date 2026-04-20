@@ -4,7 +4,7 @@ from typing import Tuple
 from rich.console import Console
 from rich.table import Table
 
-from nao_core.config import NaoConfig
+from nao_core.config import NaoConfig, resolve_project_path
 from nao_core.tracking import track_command
 
 console = Console()
@@ -66,7 +66,9 @@ def _check_available_models(llm_config) -> Tuple[bool, str]:
 
         import boto3
 
-        client = boto3.client("bedrock", region_name=region)
+        profile = llm_config.aws_profile or os.environ.get("AWS_PROFILE")
+        session = boto3.Session(profile_name=profile, region_name=region)
+        client = session.client("bedrock")
         response = client.list_foundation_models()
         models = response.get("modelSummaries", [])
     elif provider == "vertex":
@@ -135,7 +137,7 @@ def debug():
     console.print("\n[bold cyan]🔍 nao debug - Testing connections...[/bold cyan]\n")
 
     # Load config
-    config = NaoConfig.try_load(exit_on_error=True)
+    config = NaoConfig.try_load(resolve_project_path(), exit_on_error=True)
     assert config is not None  # Help type checker after exit_on_error=True
 
     console.print(f"[bold green]✓[/bold green] Loaded config: [cyan]{config.project_name}[/cyan]\n")
@@ -163,13 +165,11 @@ def debug():
                 )
             else:
                 console.print("[bold red]✗[/bold red]")
-                # Truncate long error messages
-                short_msg = message[:80] + "..." if len(message) > 80 else message
                 db_table.add_row(
                     db.name,
                     db.type,
                     "[red]Failed[/red]",
-                    short_msg,
+                    f"[red]{message}[/red]",
                 )
 
         console.print()
@@ -199,11 +199,10 @@ def debug():
             )
         else:
             console.print("[bold red]✗[/bold red]")
-            short_msg = message[:80] + "..." if len(message) > 80 else message
             llm_table.add_row(
                 config.llm.provider.value,
                 "[red]Failed[/red]",
-                short_msg,
+                f"[red]{message}[/red]",
             )
 
         console.print()

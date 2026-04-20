@@ -18,12 +18,7 @@ function toLlmSelectedModel(
 	return parsed.success ? { provider: parsed.data, modelId } : undefined;
 }
 
-export const getProjectTelegramConfig = async (
-	projectId: string,
-): Promise<{
-	botToken: string;
-	modelSelection?: LlmSelectedModel;
-} | null> => {
+export const getProjectTelegramConfig = async (projectId: string): Promise<TelegramConfig | null> => {
 	const [project] = await db.select().from(s.project).where(eq(s.project.id, projectId)).execute();
 	const settings = project?.telegramSettings;
 
@@ -32,7 +27,9 @@ export const getProjectTelegramConfig = async (
 	}
 
 	return {
+		projectId,
 		botToken: settings.telegramBotToken,
+		redirectUrl: env.BETTER_AUTH_URL || 'http://localhost:3000/',
 		modelSelection: toLlmSelectedModel(settings.telegramLlmProvider, settings.telegramLlmModelId),
 	};
 };
@@ -104,32 +101,4 @@ export interface TelegramConfig {
 	botToken: string;
 	redirectUrl: string;
 	modelSelection?: LlmSelectedModel;
-}
-
-export async function getTelegramConfig(): Promise<TelegramConfig | null> {
-	const projectPath = env.NAO_DEFAULT_PROJECT_PATH;
-	if (!projectPath) {
-		return null;
-	}
-
-	const [project] = await db.select().from(s.project).where(eq(s.project.path, projectPath)).execute();
-
-	if (!project) {
-		return null;
-	}
-
-	const settings = project.telegramSettings;
-	const botToken = settings?.telegramBotToken;
-	const redirectUrl = env.BETTER_AUTH_URL || 'http://localhost:3000/';
-
-	if (!botToken) {
-		return null;
-	}
-
-	return {
-		projectId: project.id,
-		botToken,
-		redirectUrl,
-		modelSelection: toLlmSelectedModel(settings?.telegramLlmProvider, settings?.telegramLlmModelId),
-	};
 }

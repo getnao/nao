@@ -88,11 +88,12 @@ def create_empty_structure(project_path: Path) -> tuple[list[str], list[CreatedF
         "agent/tools",
         "agent/mcps",
         "agent/skills",
+        "tests",
     ]
 
     FILES = [
         CreatedFile(path=Path("RULES.md"), content=None),
-        CreatedFile(path=Path(".naoignore"), content="templates/\n*.j2\n"),
+        CreatedFile(path=Path(".naoignore"), content="templates/\n*.j2\ntests/\n"),
     ]
 
     created_folders = []

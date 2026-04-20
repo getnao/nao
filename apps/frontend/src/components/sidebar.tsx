@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useMatchRoute, useRouterState } from '@tanstack/react-router';
 import { ArrowLeftFromLine, ArrowRightToLine, PlusIcon, ArrowLeft, ChevronRight, SearchIcon, X } from 'lucide-react';
 import { ChatList } from './sidebar-chat-list';
@@ -15,6 +15,7 @@ import type { LucideIcon } from 'lucide-react';
 import type { ChatListItem as ChatListItemType } from '@nao/backend/chat';
 import type { SharedChatWithDetails } from '@nao/backend/shared-chat';
 import { Button } from '@/components/ui/button';
+import { getActiveProjectId, setActiveProjectId } from '@/lib/active-project';
 import { cn, hideIf } from '@/lib/utils';
 import { useChatListQuery } from '@/queries/use-chat-list-query';
 import { useSidebar } from '@/contexts/sidebar';
@@ -30,11 +31,15 @@ const normalizeDate = (v: Date | number | string): number => (v instanceof Date 
 export function Sidebar() {
 	const chats = useChatListQuery();
 	const navigate = useNavigate();
+	const queryClient = useQueryClient();
 	const matchRoute = useMatchRoute();
 	const { isCollapsed, isMobile, isMobileOpen, closeMobile, toggle: toggleSidebar } = useSidebar();
 	const { fire: openCommandMenu } = useCommandMenuCallback();
 	const project = useQuery(trpc.project.getCurrent.queryOptions());
+	const projects = useQuery(trpc.project.listForCurrentUser.queryOptions());
+	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
 	const isAdmin = project.data?.userRole === 'admin';
+	const isCloud = config.data?.naoMode === 'cloud';
 
 	const locationPath = useRouterState({ select: (s) => s.location.pathname });
 	const isInSettings = matchRoute({ to: '/settings', fuzzy: true });
@@ -78,6 +83,31 @@ export function Sidebar() {
 		window.addEventListener('keydown', handleKeyDown);
 		return () => window.removeEventListener('keydown', handleKeyDown);
 	}, [handleStartNewChat]);
+
+	useEffect(() => {
+		if (!project.data?.id) {
+			return;
+		}
+
+		if (getActiveProjectId() !== project.data.id) {
+			setActiveProjectId(project.data.id);
+		}
+	}, [project.data?.id]);
+
+	const handleProjectChange = useCallback(
+		async (projectId: string) => {
+			if (!project.data || projectId === project.data.id) {
+				return;
+			}
+
+			setActiveProjectId(projectId);
+			await queryClient.invalidateQueries();
+			if (isMobile) {
+				closeMobile();
+			}
+		},
+		[closeMobile, isMobile, project.data, queryClient],
+	);
 
 	const sidebarContent = (
 		<div
@@ -126,14 +156,17 @@ export function Sidebar() {
 				) : (
 					<>
 						<div className='flex items-center relative'>
-							<div
+							<button
+								type='button'
+								onClick={handleStartNewChat}
+								aria-label='New chat'
 								className={cn(
-									'flex items-center justify-center p-2 mr-auto absolute left-0 z-0 transition-[opacity,visibility] duration-300',
+									'flex items-center justify-center p-2 mr-auto absolute left-0 z-0 rounded-md cursor-pointer hover:bg-sidebar-accent transition-[opacity,visibility,background-color] duration-300',
 									hideIf(effectiveIsCollapsed),
 								)}
 							>
 								<NaoLogo className='size-5' />
-							</div>
+							</button>
 
 							{isMobile ? (
 								<Button
@@ -186,7 +219,14 @@ export function Sidebar() {
 			</div>
 
 			{isInSettings ? (
-				<SidebarSettingsNav isCollapsed={effectiveIsCollapsed} isAdmin={isAdmin} />
+				<SidebarSettingsNav
+					isCollapsed={effectiveIsCollapsed}
+					isAdmin={isAdmin}
+					isCloud={isCloud}
+					projects={projects.data ?? []}
+					currentProjectId={project.data?.id}
+					onProjectChange={handleProjectChange}
+				/>
 			) : (
 				<SidebarNav chats={chats.data?.chats || []} isCollapsed={effectiveIsCollapsed} />
 			)}

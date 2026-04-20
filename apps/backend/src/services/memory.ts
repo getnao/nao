@@ -14,7 +14,7 @@ import type {
 	UserMemory,
 	UserProfile,
 } from '../types/memory';
-import { resolveProviderModel } from '../utils/llm';
+import { resolveAnnotationModelId, resolveProviderModel } from '../utils/llm';
 import { logger } from '../utils/logger';
 import { posthog, PostHogEvent } from './posthog';
 
@@ -61,7 +61,7 @@ class MemoryService {
 			return;
 		}
 
-		const modelId = this._getExtractorModelId(opts.provider);
+		const modelId = await this._getExtractorModelId(opts.projectId, opts.provider);
 		const model = await this._resolveModel(opts.projectId, opts.provider, modelId);
 		if (!model) {
 			return;
@@ -104,9 +104,8 @@ class MemoryService {
 		return resolveProviderModel(projectId, provider, modelId);
 	}
 
-	private _getExtractorModelId(provider: LlmProvider): string {
-		const providerConfig = LLM_PROVIDERS[provider];
-		return providerConfig.extractorModelId;
+	private async _getExtractorModelId(projectId: string, provider: LlmProvider): Promise<string> {
+		return resolveAnnotationModelId(projectId, provider, LLM_PROVIDERS[provider].extractorModelId);
 	}
 
 	private async _persistExtractedMemories(opts: {

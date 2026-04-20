@@ -3,9 +3,14 @@ set -e
 
 echo "=== nao Chat Server Entrypoint ==="
 
-# Default values
-NAO_CONTEXT_SOURCE="${NAO_CONTEXT_SOURCE:-local}"
-NAO_DEFAULT_PROJECT_PATH="${NAO_DEFAULT_PROJECT_PATH:-/app/context}"
+# Default values — cloud mode manages projects dynamically via the API
+if [ "$NAO_MODE" = "cloud" ]; then
+    NAO_CONTEXT_SOURCE="${NAO_CONTEXT_SOURCE:-api}"
+    unset NAO_DEFAULT_PROJECT_PATH
+else
+    NAO_CONTEXT_SOURCE="${NAO_CONTEXT_SOURCE:-local}"
+    NAO_DEFAULT_PROJECT_PATH="${NAO_DEFAULT_PROJECT_PATH:-/app/context}"
+fi
 
 echo "Context source: $NAO_CONTEXT_SOURCE"
 echo "Target path: $NAO_DEFAULT_PROJECT_PATH"
@@ -78,9 +83,18 @@ elif [ "$NAO_CONTEXT_SOURCE" = "local" ]; then
     
     echo "✓ Local context validated"
 
+elif [ "$NAO_CONTEXT_SOURCE" = "api" ]; then
+    echo ""
+    echo "=== API Context Mode ==="
+    echo "Context will be deployed via nao deploy CLI command."
+    export NAO_PROJECTS_DIR="${NAO_PROJECTS_DIR:-/app/projects}"
+    mkdir -p "$NAO_PROJECTS_DIR"
+    chown nao:nao "$NAO_PROJECTS_DIR"
+    unset NAO_DEFAULT_PROJECT_PATH
+
 else
     echo "ERROR: Unknown NAO_CONTEXT_SOURCE: $NAO_CONTEXT_SOURCE"
-    echo "Must be 'local' or 'git'"
+    echo "Must be 'local', 'git', or 'api'"
     exit 1
 fi
 
@@ -105,7 +119,9 @@ if [ -z "$BETTER_AUTH_SECRET" ]; then
 fi
 
 # Export the path for child processes
-export NAO_DEFAULT_PROJECT_PATH
+if [ "$NAO_MODE" != "cloud" ]; then
+    export NAO_DEFAULT_PROJECT_PATH
+fi
 
 # Start supervisord (which manages FastAPI and Chat Server)
 exec /usr/bin/supervisord -c /etc/supervisor/conf.d/nao.conf

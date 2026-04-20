@@ -12,9 +12,6 @@ RUN npm install -g bun
 FROM base AS deps
 WORKDIR /app
 
-# GitHub token for downloading @vscode/ripgrep binaries (avoids rate limits)
-ARG GITHUB_TOKEN
-
 COPY package.json package-lock.json bun.lock ./
 COPY apps/frontend/package.json ./apps/frontend/
 COPY apps/backend/package.json ./apps/backend/
@@ -22,9 +19,13 @@ COPY apps/shared/package.json ./apps/shared/
 
 # Single install for all workspaces. --ignore-scripts skips prepare (husky);
 # @vscode/ripgrep needs its postinstall to download the platform binary.
+# GITHUB_TOKEN is injected via BuildKit secret to avoid baking it into layers.
 RUN --mount=type=cache,target=/root/.bun/install/cache \
+    --mount=type=secret,id=GITHUB_TOKEN \
+    GITHUB_TOKEN="$(cat /run/secrets/GITHUB_TOKEN 2>/dev/null || true)" \
     bun install --ignore-scripts \
-    && cd node_modules/@vscode/ripgrep && npm run postinstall
+    && GITHUB_TOKEN="$(cat /run/secrets/GITHUB_TOKEN 2>/dev/null || true)" \
+    cd node_modules/@vscode/ripgrep && npm run postinstall
 
 # =============================================================================
 # STAGE 3: Frontend builder
@@ -73,6 +74,7 @@ ARG APP_BUILD_DATE=
 # base stage below, avoiding the slow nodesource.com setup + npm install.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
+    chromium \
     curl \
     fontconfig \
     fonts-dejavu-core \
@@ -94,8 +96,8 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 # Create non-root user and required directories
 RUN useradd -m -s /bin/bash nao \
-    && mkdir -p /var/log/supervisor /app/context \
-    && chown nao:nao /var/log/supervisor /app /app/context
+    && mkdir -p /var/log/supervisor /app/context /app/projects \
+    && chown nao:nao /var/log/supervisor /app /app/context /app/projects
 
 WORKDIR /app
 

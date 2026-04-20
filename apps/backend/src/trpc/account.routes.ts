@@ -8,7 +8,7 @@ import * as userQueries from '../queries/user.queries';
 import { emailService } from '../services/email';
 import { buildResetPasswordEmail } from '../utils/email-builders';
 import { regexPassword } from '../utils/utils';
-import { adminProtectedProcedure, projectProtectedProcedure } from './trpc';
+import { adminProtectedProcedure, protectedProcedure } from './trpc';
 
 export const accountRoutes = {
 	resetPassword: adminProtectedProcedure
@@ -48,7 +48,7 @@ export const accountRoutes = {
 
 			return { password };
 		}),
-	modifyPassword: projectProtectedProcedure
+	modifyPassword: protectedProcedure
 		.input(
 			z.object({
 				newPassword: z.string(),

@@ -9,6 +9,7 @@ import superjson from 'superjson';
 import { PostHogProvider } from './contexts/posthog.provider';
 import { ThemeProvider } from './contexts/theme.provider';
 import { McpProvider } from './contexts/mcp';
+import { getActiveProjectId } from './lib/active-project';
 import { routeTree } from './routeTree.gen';
 import reportWebVitals from './reportWebVitals';
 import type { TrpcRouter } from '@nao/backend/trpc';
@@ -51,6 +52,10 @@ export const trpcClient = createTRPCClient<TrpcRouter>({
 		httpBatchLink({
 			url: '/api/trpc',
 			transformer: superjson,
+			headers() {
+				const activeProjectId = getActiveProjectId();
+				return activeProjectId ? { 'x-nao-project-id': activeProjectId } : {};
+			},
 		}),
 	],
 });

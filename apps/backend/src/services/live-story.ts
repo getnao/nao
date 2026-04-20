@@ -33,7 +33,8 @@ export async function executeLiveQuery(
 		throw new Error('Project path not configured');
 	}
 
-	return executeRawSql(query.sqlQuery, project.path, query.databaseId);
+	const envVars = await projectQueries.getEnvVars(projectId);
+	return executeRawSql(query.sqlQuery, project.path, query.databaseId, envVars);
 }
 
 export interface RefreshResult {
@@ -65,7 +66,8 @@ export async function refreshStoryData(chatId: string, slug: string): Promise<Re
 
 	await Promise.all(
 		Object.entries(sqlQueries).map(async ([queryId, { sqlQuery, databaseId }]) => {
-			const result = await executeRawSql(sqlQuery, project.path!, databaseId);
+			const projectEnvVars = await projectQueries.getEnvVars(projectId);
+			const result = await executeRawSql(sqlQuery, project.path!, databaseId, projectEnvVars);
 			queryData[queryId] = result;
 		}),
 	);
@@ -122,6 +124,7 @@ async function executeRawSql(
 	sqlQuery: string,
 	projectFolder: string,
 	databaseId?: string,
+	envVars?: Record<string, string>,
 ): Promise<{ data: unknown[]; columns: string[] }> {
 	const response = await fetch(`http://localhost:${env.FASTAPI_PORT}/execute_sql`, {
 		method: 'POST',
@@ -130,6 +133,7 @@ async function executeRawSql(
 			sql: sqlQuery,
 			nao_project_folder: projectFolder,
 			...(databaseId && { database_id: databaseId }),
+			...(envVars && Object.keys(envVars).length > 0 && { env_vars: envVars }),
 		}),
 	});
 

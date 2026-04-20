@@ -1,3 +1,3 @@
-export type OrgRole = 'admin' | 'user';
+export type OrgRole = 'admin' | 'user' | 'viewer';
 
-export const ORG_ROLES = ['admin', 'user'] as const satisfies readonly OrgRole[];
+export const ORG_ROLES = ['admin', 'user', 'viewer'] as const satisfies readonly OrgRole[];

@@ -21,9 +21,9 @@ export async function readFileContent(filePath: string, projectFolder: string): 
 }
 
 async function readDirectoryRecursive(dirPath: string, projectFolder: string): Promise<FileTreeEntry[]> {
-	const parentRelativePath = path.relative(projectFolder, dirPath);
 	const dirEntries = await fs.readdir(dirPath, { withFileTypes: true });
 
+	const parentRelativePath = path.relative(projectFolder, dirPath);
 	const filtered = dirEntries.filter((entry) => !shouldExcludeEntry(entry.name, parentRelativePath, projectFolder));
 
 	const entries: FileTreeEntry[] = [];

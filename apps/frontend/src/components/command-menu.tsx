@@ -1,16 +1,6 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import {
-	CodeIcon,
-	CreditCardIcon,
-	MessageSquareIcon,
-	MessageSquarePlusIcon,
-	MoonIcon,
-	SettingsIcon,
-	SunIcon,
-	UserIcon,
-} from 'lucide-react';
-import { useQuery } from '@tanstack/react-query';
+import { MessageSquareIcon, MessageSquarePlusIcon, MoonIcon, SunIcon, UserIcon } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
 import {
@@ -24,7 +14,6 @@ import {
 } from '@/components/ui/command';
 import { useTheme } from '@/contexts/theme.provider';
 import { useRegisterCommandMenuCallback } from '@/contexts/command-menu-callback';
-import { trpc } from '@/main';
 import { useSearchChatsQuery } from '@/queries/use-search-chats-query';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { TextShimmer } from '@/components/ui/text-shimmer';
@@ -45,7 +34,6 @@ export function CommandMenu() {
 	const debouncedSearch = useDebouncedValue(searchValue, 300);
 	const navigate = useNavigate();
 	const { theme, setTheme } = useTheme();
-	const project = useQuery(trpc.project.getCurrent.queryOptions());
 
 	const toggleOpen = useCallback(() => setOpen((prev) => !prev), []);
 	useRegisterCommandMenuCallback(toggleOpen, [toggleOpen]);
@@ -70,41 +58,10 @@ export function CommandMenu() {
 			},
 			{
 				id: 'open-settings',
-				label: 'Open General Settings',
+				label: 'Open Account Settings',
 				icon: UserIcon,
-				action: () => navigate({ to: '/settings/general' }),
-				group: 'Actions',
-			},
-			{
-				id: 'open-project-settings',
-				label: 'Open Project Settings',
-				icon: SettingsIcon,
-				action: () => navigate({ to: '/settings/project' }),
-				group: 'Actions',
-			},
-			{
-				id: 'open-llm-provider-settings',
-				label: 'Open LLM Provider Settings',
-				icon: CodeIcon,
-				action: () => navigate({ to: '/settings/project/models' }),
+				action: () => navigate({ to: '/settings/account' }),
 				group: 'Jump to',
-				visible: project.data?.userRole === 'admin',
-			},
-			{
-				id: 'open-usage',
-				label: 'Usage & Costs',
-				icon: CreditCardIcon,
-				action: () => navigate({ to: '/settings/usage' }),
-				group: 'Actions',
-				visible: project.data?.userRole === 'admin',
-			},
-			{
-				id: 'open-chats-replay',
-				label: 'Open Chats Replay',
-				icon: MessageSquareIcon,
-				action: () => navigate({ to: '/settings/chats-replay' }),
-				group: 'Actions',
-				visible: project.data?.userRole === 'admin',
 			},
 			{
 				id: 'switch-mode',
@@ -116,7 +73,7 @@ export function CommandMenu() {
 				group: 'Actions',
 			},
 		],
-		[navigate, theme, setTheme, project.data?.userRole],
+		[navigate, theme, setTheme],
 	);
 
 	const jumpToCommands = useMemo(() => commands.filter((cmd) => cmd.group === 'Jump to'), [commands]);
