@@ -8,27 +8,26 @@ import { BudgetExceededError } from './error';
 export const EXCLUDED_TOOLS = ['tool-suggest_follow_ups', 'tool-display_chart'];
 
 export const createLiveToolCall = (toolGroup: Map<string, ToolCallEntry>): CardChild => {
-	const countByType = new Map<string, number>();
-	for (const entry of toolGroup.values()) {
-		countByType.set(entry.type, (countByType.get(entry.type) ?? 0) + 1);
-	}
-	const parts = [...countByType.entries()].map(([type, count]) => {
-		const noun = TOOL_LABELS[type] ?? type.replace('tool-', '');
-		return `*${count} ${pluralize(noun, count)}*`;
-	});
+	const parts = [...countToolsByNoun(toolGroup).entries()].map(
+		([noun, count]) => `*${count} ${pluralize(noun, count)}*`,
+	);
 	return CardText(`_Exploring ${parts.join(', ')}..._`);
 };
 
 export const createSummaryToolCalls = (toolGroup: Map<string, ToolCallEntry>): CardChild => {
-	const countByType = new Map<string, number>();
-	for (const entry of toolGroup.values()) {
-		countByType.set(entry.type, (countByType.get(entry.type) ?? 0) + 1);
-	}
-	const parts = [...countByType.entries()].map(([type, count]) => {
-		const noun = TOOL_LABELS[type] ?? type.replace('tool-', '');
-		return `**${count} ${pluralize(noun, count)}**`;
-	});
+	const parts = [...countToolsByNoun(toolGroup).entries()].map(
+		([noun, count]) => `**${count} ${pluralize(noun, count)}**`,
+	);
 	return CardText(`_Explored ${parts.join(', ')}._`, { style: 'muted' });
+};
+
+const countToolsByNoun = (toolGroup: Map<string, ToolCallEntry>): Map<string, number> => {
+	const countByNoun = new Map<string, number>();
+	for (const entry of toolGroup.values()) {
+		const noun = TOOL_LABELS[entry.type] ?? entry.type.replace('tool-', '');
+		countByNoun.set(noun, (countByNoun.get(noun) ?? 0) + 1);
+	}
+	return countByNoun;
 };
 
 export const FEEDBACK_MODAL_CALLBACK_ID = 'feedback_negative_modal';

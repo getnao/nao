@@ -447,7 +447,7 @@ class SlackService {
 			toolGroupBlockIndex: -1,
 		};
 
-		for await (const uiMessage of readUIMessageStream<UIMessage>({ stream })) {
+		for await (const uiMessage of readUIMessageStream<UIMessage>({ stream, terminateOnError: true })) {
 			const part = uiMessage.parts[uiMessage.parts.length - 1];
 			if (!part) {
 				continue;
