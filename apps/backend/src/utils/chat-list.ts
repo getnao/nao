@@ -139,8 +139,9 @@ function groupBySourcePlatform(items: EnrichedChat[]): ChatGroup[] {
 
 function toGroupedItems(items: EnrichedChat[]): GroupedChatItem[] {
 	return items.map(
-		({ id, title, isStarred, createdAt, updatedAt, kind, shareId, ownerName }): GroupedChatItem => ({
+		({ id, projectId, title, isStarred, createdAt, updatedAt, kind, shareId, ownerName }): GroupedChatItem => ({
 			id,
+			projectId,
 			title,
 			isStarred,
 			createdAt,

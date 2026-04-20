@@ -14,15 +14,6 @@ import type { LucideIcon } from 'lucide-react';
 
 import NaoLogo from '@/components/icons/nao-logo.svg';
 import { Button } from '@/components/ui/button';
-import {
-	Select,
-	SelectContent,
-	SelectGroup,
-	SelectItem,
-	SelectLabel,
-	SelectTrigger,
-	SelectValue,
-} from '@/components/ui/select';
 import { useCommandMenuCallback } from '@/contexts/command-menu-callback';
 import { useSidebar } from '@/contexts/sidebar';
 import { useChatViewPreferences } from '@/hooks/use-chat-view-preferences';
@@ -222,20 +213,20 @@ export function Sidebar() {
 			</div>
 
 			{isInSettings ? (
-				<SidebarSettingsNav isCollapsed={effectiveIsCollapsed} isAdmin={isAdmin} isCloud={isCloud} />
+				<SidebarSettingsNav
+					isCollapsed={effectiveIsCollapsed}
+					isAdmin={isAdmin}
+					isCloud={isCloud}
+					projects={projects.data ?? []}
+					currentProjectId={project.data?.id}
+					onProjectChange={handleProjectChange}
+				/>
 			) : (
 				<SidebarNav isCollapsed={effectiveIsCollapsed} groupBy={groupBy} filters={filters} />
 			)}
 
 			<div className={cn('mt-auto transition-[padding] duration-300', effectiveIsCollapsed ? 'p-1' : 'p-2')}>
 				{isInSettings && <SidebarCommunity isCollapsed={effectiveIsCollapsed} />}
-				{!effectiveIsCollapsed && project.data && (projects.data?.length ?? 0) > 1 && (
-					<ProjectSelector
-						projects={projects.data ?? []}
-						currentProjectId={project.data.id}
-						onChange={handleProjectChange}
-					/>
-				)}
 				<SidebarUserMenu
 					isCollapsed={effectiveIsCollapsed}
 					chatFilterMenu={

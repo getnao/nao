@@ -1,11 +1,11 @@
 import { ChatListItem } from './sidebar-chat-list-item';
 import type { ComponentProps } from 'react';
 
-import type { ChatListItem as ChatListItemType } from '@nao/backend/chat';
+import type { GroupedChatItem } from '@nao/shared/types';
 import { cn } from '@/lib/utils';
 
 export interface Props extends Omit<ComponentProps<'div'>, 'children'> {
-	chats: ChatListItemType[];
+	chats: GroupedChatItem[];
 }
 
 export function ChatList({ chats, className, ...props }: Props) {

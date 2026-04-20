@@ -15,7 +15,7 @@ import { Link } from './ui/link';
 import { Spinner } from './ui/spinner';
 import type { ComponentProps } from 'react';
 
-import type { ChatListItem } from '@nao/backend/chat';
+import type { GroupedChatItem } from '@nao/shared/types';
 import { Button } from '@/components/ui/button';
 import { useChatActivity } from '@/hooks/use-chat-activity';
 import { useTimeAgo } from '@/hooks/use-time-ago';
@@ -24,7 +24,7 @@ import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
 export interface Props extends Omit<ComponentProps<'div'>, 'children'> {
-	chat: ChatListItem;
+	chat: GroupedChatItem;
 }
 
 export function ChatListItem({ chat }: Props) {

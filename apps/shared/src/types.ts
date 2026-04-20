@@ -118,6 +118,7 @@ export type ChatFilterType = (typeof CHAT_FILTER_OPTIONS)[number];
 
 export interface GroupedChatItem {
 	id: string;
+	projectId: string;
 	title: string;
 	isStarred: boolean;
 	createdAt: number;
