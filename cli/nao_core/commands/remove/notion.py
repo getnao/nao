@@ -48,9 +48,6 @@ def notion(
         return
 
     data = load_yaml(config_path)
-    if data is None:
-        UI.error("nao_config.yaml is empty.")
-        return
 
     if "notion" not in data or data["notion"] is None:
         UI.error("No Notion configuration found.")

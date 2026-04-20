@@ -69,9 +69,6 @@ def notion(
         return
 
     data = load_yaml(config_path)
-    if data is None:
-        UI.error("nao_config.yaml is empty. Run `nao init` first.")
-        return
 
     # Ensure notion section exists
     if "notion" not in data or data["notion"] is None:
@@ -82,6 +79,11 @@ def notion(
         data["notion"] = {"api_key": key, "pages": []}
 
     notion_config = data["notion"]
+
+    # Persist explicit api_key so sync uses the same credential as verification
+    if api_key and notion_config.get("api_key") != api_key:
+        notion_config["api_key"] = api_key
+
     if "pages" not in notion_config or notion_config["pages"] is None:
         notion_config["pages"] = []
 

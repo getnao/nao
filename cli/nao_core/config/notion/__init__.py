@@ -50,7 +50,12 @@ def load_yaml(config_path: Path):
     yaml = YAML()
     yaml.preserve_quotes = True
     with config_path.open() as f:
-        return yaml.load(f)
+        data = yaml.load(f)
+    if data is None:
+        return {}
+    if not isinstance(data, dict):
+        raise ValueError("nao_config.yaml must contain a mapping at the top level.")
+    return data
 
 
 def save_yaml(config_path: Path, data) -> None:
