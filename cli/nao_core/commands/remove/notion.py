@@ -6,8 +6,13 @@ from typing import Annotated
 
 from cyclopts import Parameter
 
-from nao_core.commands.add.notion import _find_config_path, _load_yaml, _save_yaml
-from nao_core.config.notion import extract_page_id
+from nao_core.config.notion import (
+    extract_page_id,
+    find_config_path,
+    load_yaml,
+    run_notion_sync,
+    save_yaml,
+)
 from nao_core.tracking import track_command
 from nao_core.ui import UI
 
@@ -21,20 +26,28 @@ def notion(
             show=True,
         ),
     ],
+    *,
+    sync: Annotated[
+        bool,
+        Parameter(
+            name=["--sync"],
+            help="Run sync after removing pages.",
+        ),
+    ] = True,
 ) -> None:
     """Remove Notion pages from nao configuration.
 
     Examples:
       nao remove notion abc123def456
-      nao remove notion https://www.notion.so/naolabs/My-Page-abc123
+      nao remove notion https://www.notion.so/naolabs/My-Page-abc123 --no-sync
     """
     try:
-        config_path = _find_config_path()
+        config_path = find_config_path()
     except FileNotFoundError as e:
         UI.error(str(e))
         return
 
-    data = _load_yaml(config_path)
+    data = load_yaml(config_path)
     if data is None:
         UI.error("nao_config.yaml is empty.")
         return
@@ -86,12 +99,12 @@ def notion(
             UI.info("No pages to remove.")
         return
 
-    # Remove pages by index (reverse order to preserve indices)
+    # Remove pages by index
     new_pages = [p for i, p in enumerate(existing_pages) if i not in indices_to_remove]
     notion_config["pages"] = new_pages
 
     try:
-        _save_yaml(config_path, data)
+        save_yaml(config_path, data)
     except OSError as e:
         UI.error(f"Failed to save config: {e}")
         return
@@ -100,3 +113,13 @@ def notion(
         UI.success(f"Removed page {page_id}")
 
     UI.info(f"{len(removed)} page(s) removed from nao_config.yaml")
+
+    if sync and removed:
+        from nao_core.deps import _is_extra_installed
+
+        if not _is_extra_installed("notion"):
+            UI.warn("Notion extras not installed. Skipping sync.")
+            UI.info("Install with: pip install 'nao-core[notion]'")
+            return
+        UI.print()
+        run_notion_sync()
