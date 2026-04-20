@@ -61,8 +61,9 @@ function SharedChatPage() {
 		<ReadonlyAgentMessagesProvider messages={chat.messages} chatId={share.chatId}>
 			<SidePanelProvider
 				isVisible={sidePanel.isVisible}
-				currentStoryId={sidePanel.currentStoryId}
+				currentStorySlug={sidePanel.currentStorySlug}
 				chatId={share.chatId}
+				shareId={shareId}
 				isReadonlyMode={!isOwner}
 				open={sidePanel.open}
 				close={sidePanel.close}

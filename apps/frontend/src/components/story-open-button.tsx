@@ -18,8 +18,8 @@ export function StoryOpenButton({ variant = 'outline' }: { variant?: 'outline' |
 		return null;
 	}
 
-	const openStory = (storyId: string) => {
-		openSidePanel(<StoryViewer chatId={chatId} storyId={storyId} />, storyId);
+	const openStory = (storySlug: string) => {
+		openSidePanel(<StoryViewer chatId={chatId} storySlug={storySlug} />, storySlug);
 	};
 
 	if (stories.length === 1) {

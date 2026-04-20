@@ -113,7 +113,7 @@ export function ChatsReplayPanel({ chatInfo, onClose }: ChatsReplayPanelProps) {
 						>
 							<SidePanelProvider
 								isVisible={sidePanel.isVisible}
-								currentStoryId={sidePanel.currentStoryId}
+								currentStorySlug={sidePanel.currentStorySlug}
 								chatId={chatInfo?.chatId}
 								isReadonlyMode={!isOwner}
 								open={sidePanel.open}

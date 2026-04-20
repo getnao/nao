@@ -1,24 +1,25 @@
+import { splitCodeIntoSegments } from '@nao/shared/story-segments';
 import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { Activity, Loader2, MessageSquare, RefreshCw } from 'lucide-react';
 import { useCallback, useMemo, useRef } from 'react';
+import type { ParsedChartBlock, ParsedTableBlock } from '@nao/shared/story-segments';
 
-import type { ParsedChartBlock, ParsedTableBlock } from '@/lib/story-segments';
 import type { QueryDataMap } from '@/components/story-embeds';
-import { StoryChartEmbed, StoryTableEmbed } from '@/components/story-embeds';
-import { SegmentList } from '@/components/story-rendering';
 import { HighlightBubble } from '@/components/highlight-bubble';
 import { SelectionChatPanel } from '@/components/selection-chat-panel';
 import { SidePanel } from '@/components/side-panel/side-panel';
+import { StoryDownload } from '@/components/story-download';
+import { StoryChartEmbed, StoryTableEmbed } from '@/components/story-embeds';
+import { SegmentList } from '@/components/story-rendering';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { useSession } from '@/lib/auth-client';
-import { splitCodeIntoSegments } from '@/lib/story-segments';
-import { trpc } from '@/main';
-import { useSidePanel } from '@/hooks/use-side-panel';
 import { SidePanelProvider } from '@/contexts/side-panel';
 import { SelectionProvider } from '@/contexts/text-selection';
+import { useSidePanel } from '@/hooks/use-side-panel';
+import { useSession } from '@/lib/auth-client';
+import { trpc } from '@/main';
 
 export const Route = createFileRoute('/_sidebar-layout/stories/shared/$shareId')({
 	component: SharedStoryPage,
@@ -67,8 +68,9 @@ function SharedStoryPage() {
 	return (
 		<SidePanelProvider
 			isVisible={sidePanel.isVisible}
-			currentStoryId={sidePanel.currentStoryId}
+			currentStorySlug={sidePanel.currentStorySlug}
 			chatId={story.chatId}
+			shareId={shareId}
 			isReadonlyMode={!isOwner}
 			open={sidePanel.open}
 			close={sidePanel.close}
@@ -116,33 +118,42 @@ function SharedStoryPage() {
 							</TooltipProvider>
 						</div>
 					)}
-					{isOwner ? (
-						<Button variant='outline' size='sm' className='ml-auto gap-1.5 shrink-0' asChild>
-							<Link
-								to='/$chatId'
-								params={{ chatId: story.chatId }}
-								state={{ openStoryId: story.storyId }}
+					<div className='ml-auto flex items-center gap-1.5 shrink-0'>
+						<StoryDownload
+							chatId={story.chatId}
+							storySlug={story.slug}
+							shareId={shareId}
+							isOwner={false}
+							isIconMode={false}
+						/>
+						{isOwner ? (
+							<Button variant='outline' size='sm' className='gap-1.5 shrink-0' asChild>
+								<Link
+									to='/$chatId'
+									params={{ chatId: story.chatId }}
+									state={{ openStorySlug: story.slug }}
+								>
+									<MessageSquare className='size-3.5' />
+									<span>Open chat</span>
+								</Link>
+							</Button>
+						) : (
+							<Button
+								variant='outline'
+								size='sm'
+								className='ml-auto gap-1.5 shrink-0'
+								onClick={() => forkMutation.mutate({ shareId, type: 'story' })}
+								disabled={forkMutation.isPending}
 							>
-								<MessageSquare className='size-3.5' />
-								<span>Open chat</span>
-							</Link>
-						</Button>
-					) : (
-						<Button
-							variant='outline'
-							size='sm'
-							className='ml-auto gap-1.5 shrink-0'
-							onClick={() => forkMutation.mutate({ shareId, type: 'story' })}
-							disabled={forkMutation.isPending}
-						>
-							{forkMutation.isPending ? (
-								<Loader2 className='size-3.5 animate-spin' />
-							) : (
-								<MessageSquare className='size-3.5' />
-							)}
-							<span>Discuss story</span>
-						</Button>
-					)}
+								{forkMutation.isPending ? (
+									<Loader2 className='size-3.5 animate-spin' />
+								) : (
+									<MessageSquare className='size-3.5' />
+								)}
+								<span>Discuss story</span>
+							</Button>
+						)}
+					</div>
 				</header>
 
 				<SelectionProvider key={shareId} persistenceConfig={{ shareId, contentType: 'story' }}>

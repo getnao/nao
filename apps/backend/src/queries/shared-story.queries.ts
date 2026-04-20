@@ -186,6 +186,25 @@ export async function findByStory(storyId: string, userId: string): Promise<{ id
 	return row ?? null;
 }
 
+export async function findShareForStory(
+	storyId: string,
+	projectId: string,
+): Promise<{ id: string; visibility: string; userId: string } | null> {
+	const [row] = await db
+		.select({
+			id: s.sharedStory.id,
+			visibility: s.sharedStory.visibility,
+			userId: s.sharedStory.userId,
+		})
+		.from(s.sharedStory)
+		.where(and(eq(s.sharedStory.storyId, storyId), eq(s.sharedStory.projectId, projectId)))
+		.orderBy(desc(s.sharedStory.createdAt))
+		.limit(1)
+		.execute();
+
+	return row ?? null;
+}
+
 export async function getSharedStoryAllowedUserIds(sharedStoryId: string): Promise<string[]> {
 	const rows = await db
 		.select({ userId: s.sharedStoryAccess.userId })

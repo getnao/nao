@@ -4,20 +4,20 @@ import { trpc } from '@/main';
 
 interface UseStoryViewerVersionsParams {
 	chatId: string;
-	storyId: string;
+	storySlug: string;
 	isAgentRunning: boolean;
 	isReadonlyMode?: boolean;
 }
 
 export const useStoryViewerVersions = ({
 	chatId,
-	storyId,
+	storySlug,
 	isAgentRunning,
 	isReadonlyMode,
 }: UseStoryViewerVersionsParams) => {
 	const queryClient = useQueryClient();
 	const { data, refetch } = useQuery({
-		...trpc.story.listVersions.queryOptions({ chatId, storyId }),
+		...trpc.story.listVersions.queryOptions({ chatId, storySlug }),
 		enabled: !isReadonlyMode,
 	});
 	const versions = useMemo(() => data?.versions ?? [], [data?.versions]);

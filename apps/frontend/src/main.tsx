@@ -20,7 +20,7 @@ declare module '@tanstack/react-router' {
 	}
 	interface HistoryState {
 		fromMessageSend?: boolean;
-		openStoryId?: string;
+		openStorySlug?: string;
 	}
 }
 

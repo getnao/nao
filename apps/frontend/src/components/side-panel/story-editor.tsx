@@ -1,24 +1,25 @@
-import { memo, useMemo, useEffect, useRef } from 'react';
-import { Node, Extension, mergeAttributes } from '@tiptap/core';
-import { useEditor, EditorContent, ReactNodeViewRenderer, NodeViewWrapper } from '@tiptap/react';
-import { DragHandle } from '@tiptap/extension-drag-handle-react';
-import { TableKit } from '@tiptap/extension-table';
-import StarterKit from '@tiptap/starter-kit';
-import { Markdown } from '@tiptap/markdown';
-import { Streamdown } from 'streamdown';
-import { GripVertical } from 'lucide-react';
-import { StoryChartEmbed } from './story-chart-embed';
-import { StoryTableEmbed } from './story-table-embed';
-import type { Editor as CoreEditor } from '@tiptap/core';
-import type { ReactNodeViewProps, Editor } from '@tiptap/react';
-import type { Segment } from '@/lib/story-segments';
 import {
 	getGridClass,
 	parseChartAttributes,
 	parseChartBlock,
 	parseTableBlock,
 	splitCodeIntoSegments,
-} from '@/lib/story-segments';
+} from '@nao/shared/story-segments';
+import { Extension, mergeAttributes, Node } from '@tiptap/core';
+import { DragHandle } from '@tiptap/extension-drag-handle-react';
+import { TableKit } from '@tiptap/extension-table';
+import { Markdown } from '@tiptap/markdown';
+import { EditorContent, NodeViewWrapper, ReactNodeViewRenderer, useEditor } from '@tiptap/react';
+import StarterKit from '@tiptap/starter-kit';
+import { GripVertical } from 'lucide-react';
+import { memo, useEffect, useMemo, useRef } from 'react';
+import { Streamdown } from 'streamdown';
+
+import { StoryChartEmbed } from './story-chart-embed';
+import { StoryTableEmbed } from './story-table-embed';
+import type { Segment } from '@nao/shared/story-segments';
+import type { Editor as CoreEditor } from '@tiptap/core';
+import type { Editor, ReactNodeViewProps } from '@tiptap/react';
 
 // ---------------------------------------------------------------------------
 // Encoding helpers for data-raw attributes

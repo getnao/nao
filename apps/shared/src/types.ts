@@ -79,3 +79,7 @@ export type ProjectChatListItem = {
 	toolErrorCount: number;
 	toolAvailableCount: number;
 };
+
+export type DownloadFormat = 'pdf' | 'html';
+
+export const DOWNLOAD_FORMATS = ['pdf', 'html'] as const satisfies readonly DownloadFormat[];

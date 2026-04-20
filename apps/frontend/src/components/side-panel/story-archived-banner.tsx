@@ -5,16 +5,18 @@ import { trpc } from '@/main';
 
 interface ArchivedBannerProps {
 	chatId: string;
-	storyId: string;
+	storySlug: string;
 }
 
-export function ArchivedBanner({ chatId, storyId }: ArchivedBannerProps) {
+export function ArchivedBanner({ chatId, storySlug }: ArchivedBannerProps) {
 	const queryClient = useQueryClient();
 
 	const unarchiveMutation = useMutation(
 		trpc.story.unarchive.mutationOptions({
 			onSuccess: () => {
-				void queryClient.invalidateQueries({ queryKey: trpc.story.listVersions.queryKey({ chatId, storyId }) });
+				void queryClient.invalidateQueries({
+					queryKey: trpc.story.listVersions.queryKey({ chatId, storySlug }),
+				});
 				void queryClient.invalidateQueries({ queryKey: trpc.story.listAll.queryKey() });
 				void queryClient.invalidateQueries({ queryKey: trpc.story.listArchived.queryKey() });
 			},
@@ -28,7 +30,7 @@ export function ArchivedBanner({ chatId, storyId }: ArchivedBannerProps) {
 				variant='outline'
 				size='sm'
 				className='gap-1.5 shrink-0'
-				onClick={() => unarchiveMutation.mutate({ chatId, storyId })}
+				onClick={() => unarchiveMutation.mutate({ chatId, storySlug })}
 				disabled={unarchiveMutation.isPending}
 			>
 				<ArchiveRestoreIcon className='size-3' />

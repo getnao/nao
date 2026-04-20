@@ -19,6 +19,7 @@ import { memo, useMemo } from 'react';
 import type { StorySummary } from '@/lib/story.utils';
 import type { StoryViewMode } from './story-viewer.types';
 import { useIsMobile } from '@/hooks/use-is-mobile';
+import { StoryDownload } from '@/components/story-download';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import {
@@ -30,13 +31,16 @@ import {
 
 export interface StoryHeaderProps {
 	title: string;
-	storyId: string;
+	chatId: string;
+	storySlug: string;
+	shareId?: string | null;
 	allStories: StorySummary[];
 	onSwitchStory: (id: string) => void;
 	viewMode: StoryViewMode;
 	onViewModeChange: (mode: StoryViewMode) => void;
 	currentVersion: number;
 	totalVersions: number;
+	versionNumber?: number;
 	onPreviousVersion: () => void;
 	onNextVersion: () => void;
 	isViewingLatest: boolean;
@@ -56,13 +60,16 @@ export interface StoryHeaderProps {
 
 export const StoryHeader = memo(function StoryHeader({
 	title,
-	storyId,
+	chatId,
+	storySlug,
+	shareId,
 	allStories,
 	onSwitchStory,
 	viewMode,
 	onViewModeChange,
 	currentVersion,
 	totalVersions,
+	versionNumber,
 	onPreviousVersion,
 	onNextVersion,
 	isViewingLatest,
@@ -80,7 +87,7 @@ export const StoryHeader = memo(function StoryHeader({
 	onClose,
 }: StoryHeaderProps) {
 	const isMobile = useIsMobile();
-	const otherStories = useMemo(() => allStories.filter((s) => s.id !== storyId), [allStories, storyId]);
+	const otherStories = useMemo(() => allStories.filter((s) => s.id !== storySlug), [allStories, storySlug]);
 	const hasMultiple = otherStories.length > 0;
 	const showSubHeader = viewMode === 'edit' || !isViewingLatest;
 
@@ -155,62 +162,79 @@ export const StoryHeader = memo(function StoryHeader({
 		</div>
 	);
 
-	const actionButtons = !isReadonlyMode && (
+	const actionButtons = (
 		<>
-			{isLive && (
-				<TooltipProvider>
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<Button
-								variant='ghost-muted'
-								size='icon-xs'
-								onClick={onRefreshData}
-								disabled={isRefreshing}
-								aria-label='Refresh data'
-							>
-								{isRefreshing ? (
-									<Loader2 className='size-3 animate-spin' />
-								) : (
-									<RefreshCw className='size-3' />
-								)}
-							</Button>
-						</TooltipTrigger>
-						<TooltipContent>Refresh data</TooltipContent>
-					</Tooltip>
-				</TooltipProvider>
+			{!isReadonlyMode && (
+				<>
+					{isLive && (
+						<TooltipProvider>
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<Button
+										variant='ghost-muted'
+										size='icon-xs'
+										onClick={onRefreshData}
+										disabled={isRefreshing}
+										aria-label='Refresh data'
+									>
+										{isRefreshing ? (
+											<Loader2 className='size-3 animate-spin' />
+										) : (
+											<RefreshCw className='size-3' />
+										)}
+									</Button>
+								</TooltipTrigger>
+								<TooltipContent>Refresh data</TooltipContent>
+							</Tooltip>
+						</TooltipProvider>
+					)}
+					<TooltipProvider>
+						<Tooltip>
+							<TooltipTrigger asChild>
+								<Button
+									variant='ghost-muted'
+									size='icon-xs'
+									onClick={onOpenLiveSettings}
+									disabled={isAgentRunning}
+									aria-label='Live settings'
+								>
+									{isLive ? (
+										<Activity className='size-3 text-emerald-600' />
+									) : (
+										<Activity className='size-3' />
+									)}
+								</Button>
+							</TooltipTrigger>
+							<TooltipContent>{isLive ? 'Live story settings' : 'Enable live mode'}</TooltipContent>
+						</Tooltip>
+					</TooltipProvider>
+				</>
 			)}
-			<TooltipProvider>
-				<Tooltip>
-					<TooltipTrigger asChild>
-						<Button
-							variant='ghost-muted'
-							size='icon-xs'
-							onClick={onOpenLiveSettings}
-							disabled={isAgentRunning}
-							aria-label='Live settings'
-						>
-							{isLive ? (
-								<Activity className='size-3 text-emerald-600' />
-							) : (
-								<Activity className='size-3' />
-							)}
-						</Button>
-					</TooltipTrigger>
-					<TooltipContent>{isLive ? 'Live story settings' : 'Enable live mode'}</TooltipContent>
-				</Tooltip>
-			</TooltipProvider>
-			<Button variant='ghost-muted' size='icon-xs' onClick={onEnlarge} aria-label='Enlarge Story'>
-				<Maximize2 className='size-3' />
-			</Button>
-			<Button
-				variant='ghost-muted'
-				size='icon-xs'
-				onClick={onShare}
-				disabled={isAgentRunning}
-				aria-label='Share Story'
-			>
-				{isShared ? <Globe className='size-3 text-emerald-600' /> : <Share className='size-3' />}
-			</Button>
+			<StoryDownload
+				chatId={chatId}
+				storySlug={storySlug}
+				shareId={shareId ?? undefined}
+				isOwner={!isReadonlyMode}
+				isIconMode={true}
+				isAgentRunning={isAgentRunning}
+				versionNumber={versionNumber}
+			/>
+			{!isReadonlyMode && (
+				<>
+					<Button
+						variant='ghost-muted'
+						size='icon-xs'
+						onClick={onShare}
+						disabled={isAgentRunning}
+						aria-label='Share Story'
+					>
+						{isShared ? <Globe className='size-3 text-emerald-600' /> : <Share className='size-3' />}
+					</Button>
+					<Button variant='ghost-muted' size='icon-xs' onClick={onEnlarge} aria-label='Enlarge Story'>
+						<Maximize2 className='size-3' />
+					</Button>
+				</>
+			)}
 		</>
 	);
 

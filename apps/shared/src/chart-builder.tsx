@@ -21,7 +21,9 @@ import {
 
 import * as displayChart from './tools/display-chart';
 
-export const DEFAULT_COLORS = ['#2563eb', '#dc2626', '#16a34a', '#ca8a04', '#9333ea'];
+export const DEFAULT_COLORS = ['#104e64', '#f54900', '#009689', '#ffb900', '#fe9a00'];
+
+const AXIS_TICK = { fontSize: 12 };
 
 export function labelize(key: unknown): string {
 	const str = String(key);
@@ -175,11 +177,12 @@ function buildBarChart(props: ResolvedProps) {
 	return (
 		<BarChart data={data} accessibilityLayer margin={margin}>
 			{showGrid && <CartesianGrid horizontal vertical={false} strokeDasharray='3 3' />}
-			<YAxis tickLine={false} axisLine={false} minTickGap={12} tickFormatter={formatYAxisTick} />
+			<YAxis tick={AXIS_TICK} tickLine={false} axisLine={false} minTickGap={12} tickFormatter={formatYAxisTick} />
 			<XAxis
 				dataKey={xAxisKey}
 				type={xAxisType}
 				domain={['dataMin', 'dataMax']}
+				tick={AXIS_TICK}
 				tickLine={true}
 				tickMargin={10}
 				axisLine={false}
@@ -221,11 +224,12 @@ function buildAreaChart(props: ResolvedProps) {
 				})}
 			</defs>
 			{showGrid && <CartesianGrid horizontal vertical={false} strokeDasharray='3 3' />}
-			<YAxis tickLine={false} axisLine={false} minTickGap={12} tickFormatter={formatYAxisTick} />
+			<YAxis tick={AXIS_TICK} tickLine={false} axisLine={false} minTickGap={12} tickFormatter={formatYAxisTick} />
 			<XAxis
 				dataKey={xAxisKey}
 				type={xAxisType}
 				domain={['dataMin', 'dataMax']}
+				tick={AXIS_TICK}
 				tickLine
 				tickMargin={10}
 				axisLine={false}
@@ -254,8 +258,15 @@ function buildScatterChart(props: ResolvedProps) {
 	return (
 		<ScatterChart data={data} accessibilityLayer margin={margin}>
 			{showGrid && <CartesianGrid strokeDasharray='3 3' />}
-			<XAxis dataKey={xAxisKey} type={xAxisType ?? 'number'} tickLine={false} axisLine={false} minTickGap={12} />
-			<YAxis tickLine={false} axisLine={false} minTickGap={12} tickFormatter={formatYAxisTick} />
+			<XAxis
+				dataKey={xAxisKey}
+				type={xAxisType ?? 'number'}
+				tick={AXIS_TICK}
+				tickLine={false}
+				axisLine={false}
+				minTickGap={12}
+			/>
+			<YAxis tick={AXIS_TICK} tickLine={false} axisLine={false} minTickGap={12} tickFormatter={formatYAxisTick} />
 			{children}
 			{series.map((s, i) => (
 				<Scatter
@@ -275,8 +286,8 @@ function buildRadarChart(props: ResolvedProps) {
 	return (
 		<RadarChart data={data} accessibilityLayer margin={margin}>
 			<PolarGrid />
-			<PolarAngleAxis dataKey={xAxisKey} />
-			<PolarRadiusAxis />
+			<PolarAngleAxis dataKey={xAxisKey} tick={AXIS_TICK} />
+			<PolarRadiusAxis tick={AXIS_TICK} />
 			{children}
 			{series.map((s, i) => (
 				<Radar
@@ -310,13 +321,33 @@ function buildPieChart(props: ResolvedProps) {
 				data={dataWithColors}
 				dataKey={dataKey}
 				nameKey={xAxisKey}
-				label={({ name, value }: { name: string; value: number }) =>
-					`${labelFormatter(String(name))}: ${value}`
-				}
+				label={renderPieLabel(labelFormatter)}
 				labelLine={false}
 				isAnimationActive={false}
 			/>
 			{children}
 		</PieChart>
+	);
+}
+
+function renderPieLabel(labelFormatter: (v: string) => string) {
+	return ({
+		x,
+		y,
+		name,
+		value,
+		fill,
+		textAnchor,
+	}: {
+		x: number;
+		y: number;
+		name: string;
+		value: number;
+		fill: string;
+		textAnchor: 'start' | 'middle' | 'end';
+	}) => (
+		<text x={x} y={y} fill={fill} textAnchor={textAnchor} dominantBaseline='central' fontSize={12}>
+			{`${labelFormatter(String(name))}: ${value}`}
+		</text>
 	);
 }

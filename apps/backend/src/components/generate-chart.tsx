@@ -10,6 +10,8 @@ export interface RenderChartInput {
 	data: Record<string, unknown>[];
 	width?: number;
 	height?: number;
+	margin?: { top?: number; right?: number; bottom?: number; left?: number };
+	includeLegend?: boolean;
 }
 
 export function generateChartImage(input: RenderChartInput): Buffer {
@@ -21,6 +23,8 @@ export function renderChartToSvg(input: RenderChartInput): string {
 	const { config, data } = input;
 	const width = input.width ?? 800;
 	const height = input.height ?? 500;
+	const margin = input.margin ?? { top: 10, right: 20, bottom: 5, left: 0 };
+	const includeLegend = input.includeLegend !== false;
 
 	const colorFor = (key: string, index: number) => {
 		const series = config.series.find((s) => s.data_key === key);
@@ -35,17 +39,19 @@ export function renderChartToSvg(input: RenderChartInput): string {
 		series: config.series,
 		colorFor,
 		showGrid: true,
-		margin: { top: 10, right: 20, bottom: 5, left: 0 },
+		margin,
 		title: config.title,
 	});
 
 	const html = renderToString(React.cloneElement(chart, { width, height }));
 
-	const legend: LegendEntry[] = config.series.map((s, i) => ({
-		label: s.label || labelize(s.data_key),
-		dataKey: s.data_key,
-		color: colorFor(s.data_key, i),
-	}));
+	const legend: LegendEntry[] = includeLegend
+		? config.series.map((s, i) => ({
+				label: s.label || labelize(s.data_key),
+				dataKey: s.data_key,
+				color: colorFor(s.data_key, i),
+			}))
+		: [];
 
 	return createSvg(html, width, height, legend);
 }

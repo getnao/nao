@@ -4,7 +4,7 @@ import { useOptionalAgentContext } from '@/contexts/agent.provider';
 import { findStories, findStoryDraft } from '@/lib/story.utils';
 
 export const useStoryViewerAgentState = (
-	storyId: string,
+	storySlug: string,
 	messages?: UIMessage[] | null,
 	isChatAgentRunning = false,
 ) => {
@@ -16,7 +16,7 @@ export const useStoryViewerAgentState = (
 	);
 
 	const allStories = useMemo(() => findStories(effectiveMessages), [effectiveMessages]);
-	const draftStory = useMemo(() => findStoryDraft(effectiveMessages, storyId), [effectiveMessages, storyId]);
+	const draftStory = useMemo(() => findStoryDraft(effectiveMessages, storySlug), [effectiveMessages, storySlug]);
 
 	const isStoryStreaming = useMemo(
 		() =>

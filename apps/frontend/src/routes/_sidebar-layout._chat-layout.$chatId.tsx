@@ -44,17 +44,17 @@ export function RouteComponent() {
 	const headerCitation = buildHeaderCitation(isSelectionFork ? chat.data?.forkMetadata : undefined);
 
 	useEffect(() => {
-		const openStoryId = router.state.location.state.openStoryId;
-		if (!openStoryId || isLoadingMessages) {
+		const openStorySlug = router.state.location.state.openStorySlug;
+		if (!openStorySlug || isLoadingMessages) {
 			return;
 		}
 
-		sidePanel.open(<StoryViewer chatId={chatId} storyId={openStoryId} />, openStoryId);
+		sidePanel.open(<StoryViewer chatId={chatId} storySlug={openStorySlug} />, openStorySlug);
 
 		const timer = setTimeout(() => {
 			router.history.replace(router.state.location.href, {
 				...router.state.location.state,
-				openStoryId: undefined,
+				openStorySlug: undefined,
 			});
 		});
 		return () => clearTimeout(timer);
@@ -63,7 +63,7 @@ export function RouteComponent() {
 	return (
 		<SidePanelProvider
 			isVisible={sidePanel.isVisible}
-			currentStoryId={sidePanel.currentStoryId}
+			currentStorySlug={sidePanel.currentStorySlug}
 			chatId={chatId}
 			open={sidePanel.open}
 			close={sidePanel.close}

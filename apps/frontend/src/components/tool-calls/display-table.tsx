@@ -1,6 +1,7 @@
+import { formatCellValue, isNumericColumn } from '@nao/shared/story-table-utils';
 import { useEffect, useMemo, useState } from 'react';
-import { cn } from '@/lib/utils';
 import { TablePagination } from '@/components/ui/table-pagination';
+import { cn } from '@/lib/utils';
 
 type TableRow = Record<string, unknown>;
 
@@ -26,7 +27,7 @@ export function TableDisplay({
 	maxRowsBeforePagination = 100,
 }: TableDisplayProps) {
 	const resolvedColumns = columns && columns.length > 0 ? columns : inferColumns(data);
-	const numericColumns = new Set(resolvedColumns.filter((column) => isAllNumericColumn(data, column)));
+	const numericColumns = new Set(resolvedColumns.filter((column) => isNumericColumn(data, column)));
 	const hasRows = data.length > 0;
 	const needsPagination = data.length > maxRowsBeforePagination;
 
@@ -141,34 +142,4 @@ function inferColumns(data: TableRow[]): string[] {
 	}
 
 	return columns;
-}
-
-function isNumberValue(value: unknown): value is number {
-	return typeof value === 'number' && Number.isFinite(value);
-}
-
-function isAllNumericColumn(data: TableRow[], column: string): boolean {
-	return data
-		.filter((row) => row[column] !== null && row[column] !== undefined)
-		.every((row) => isNumberValue(row[column]));
-}
-
-function formatCellValue(value: unknown): string {
-	if (typeof value === 'string') {
-		return value;
-	}
-	if (typeof value === 'number') {
-		return Number.isFinite(value) ? String(value) : 'NULL';
-	}
-	if (typeof value === 'boolean') {
-		return value ? 'TRUE' : 'FALSE';
-	}
-	if (typeof value === 'object') {
-		try {
-			return JSON.stringify(value);
-		} catch {
-			return String(value);
-		}
-	}
-	return String(value);
 }
