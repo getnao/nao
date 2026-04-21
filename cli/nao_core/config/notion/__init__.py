@@ -54,12 +54,14 @@ def load_yaml(config_path: Path):
     if data is None:
         return {}
     if not isinstance(data, dict):
-        raise ValueError("nao_config.yaml must contain a mapping at the top level.")
+        return {}
     return data
 
 
 def save_yaml(config_path: Path, data) -> None:
     """Write YAML back preserving comments and env var templates."""
+    if data is None:
+        return
     from ruamel.yaml import YAML
 
     yaml = YAML()

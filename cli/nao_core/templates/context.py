@@ -37,8 +37,8 @@ class NotionPage:
             from notion2md.exporter.block import StringExporter
             from notion_client import Client
 
+            from nao_core.config.notion import extract_page_id
             from nao_core.commands.sync.providers.notion.provider import (
-                extract_page_id,
                 get_page_title,
                 strip_images,
             )
@@ -98,7 +98,7 @@ class NotionProvider:
         First checks if the page is in any configured Notion config's pages list,
         otherwise uses the first available API key.
         """
-        from nao_core.commands.sync.providers.notion.provider import extract_page_id
+        from nao_core.config.notion import extract_page_id
 
         try:
             page_id = extract_page_id(page_url_or_id)
