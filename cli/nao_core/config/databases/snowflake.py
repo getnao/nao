@@ -284,20 +284,21 @@ class SnowflakeConfig(DatabaseConfig):
         """Fetch semantic views from a Snowflake schema."""
         try:
             query = f"""
-                SELECT SEMANTIC_VIEW_NAME, COMMENT, DEFINITION
+                SELECT NAME, COMMENT
                 FROM INFORMATION_SCHEMA.SEMANTIC_VIEWS
-                WHERE SEMANTIC_VIEW_SCHEMA = '{schema}'
-                ORDER BY SEMANTIC_VIEW_NAME
+                WHERE "SCHEMA" = '{schema}'
+                ORDER BY NAME
             """
             rows = conn.raw_sql(query).fetchall()  # type: ignore[union-attr]
-            return [
-                {
-                    "name": row[0],
-                    "comment": str(row[1]) if row[1] else "",
-                    "definition": str(row[2]) if row[2] else "",
-                }
-                for row in rows
-            ]
+            results = []
+            for name, comment in rows:
+                try:
+                    ddl_row = conn.raw_sql(f"SELECT GET_DDL('SEMANTIC VIEW', '{schema}.{name}')").fetchone()  # type: ignore[union-attr]
+                    definition = str(ddl_row[0]) if ddl_row and ddl_row[0] else ""
+                except Exception:
+                    definition = ""
+                results.append({"name": name, "comment": str(comment) if comment else "", "definition": definition})
+            return results
         except Exception:
             logger.debug("Failed to fetch semantic views for schema %s (feature may not be available)", schema)
             return []

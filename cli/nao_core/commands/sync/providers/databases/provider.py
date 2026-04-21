@@ -159,15 +159,12 @@ def sync_database(
 
             tables = [t for t in all_tables if db_config.matches_pattern(schema, t)]
 
-            if not tables:
-                progress.update(schema_task, advance=1)
-                continue
-
-            list_dur = _fmt_duration(time.monotonic() - t_list)
-            console.print(
-                f"  [cyan]▸ {schema}[/cyan] [dim]— {len(tables)} tables "
-                f"(of {len(all_tables)} total, listed in {list_dur})[/dim]"
-            )
+            if tables:
+                list_dur = _fmt_duration(time.monotonic() - t_list)
+                console.print(
+                    f"  [cyan]▸ {schema}[/cyan] [dim]— {len(tables)} tables "
+                    f"(of {len(all_tables)} total, listed in {list_dur})[/dim]"
+                )
             schema_tables[schema] = tables
 
         selected_tables = [(schema, t) for schema, tables in schema_tables.items() for t in tables]
@@ -182,84 +179,87 @@ def sync_database(
             schema_path.mkdir(parents=True, exist_ok=True)
             state.add_schema(schema)
 
-            table_task = progress.add_task(
-                f"    [cyan]{schema}[/cyan]",
-                total=len(tables),
-            )
+            if tables:
+                table_task = progress.add_task(
+                    f"    [cyan]{schema}[/cyan]",
+                    total=len(tables),
+                )
 
-            schema_errors = 0
-            schema_start = time.monotonic()
+                schema_errors = 0
+                schema_start = time.monotonic()
 
-            for table in tables:
-                table_path = schema_path / f"table={table}"
-                table_path.mkdir(parents=True, exist_ok=True)
+                for table in tables:
+                    table_path = schema_path / f"table={table}"
+                    table_path.mkdir(parents=True, exist_ok=True)
+
+                    progress.update(
+                        table_task,
+                        description=f"    [cyan]{schema}[/cyan] [dim]→ {table}[/dim]",
+                    )
+
+                    ctx = db_config.create_context(conn, schema, table)
+                    table_usage = usage_stats.get(f"{schema}.{table}", TableUsageStats())
+
+                    for template_name in templates:
+                        output_filename = Path(template_name).stem
+                        tpl_name = output_filename.replace(".md", "")
+
+                        extra_ctx: dict[str, Any] = {}
+                        if tpl_name == "how_to_use":
+                            extra_ctx["usage_stats"] = table_usage
+                        output_file = table_path / output_filename
+
+                        if tpl_name == "profiling" and hasattr(db_config, "profiling"):
+                            if not _should_refresh_profiling(output_file, db_config.profiling):
+                                console.print(
+                                    f"    [dim]⏭ {schema}.{table} profiling skipped "
+                                    f"(policy: {db_config.profiling.refresh_policy.value})[/dim]"
+                                )
+                                continue
+
+                        t_render = time.monotonic()
+                        try:
+                            content = engine.render(
+                                template_name,
+                                db=ctx,
+                                table_name=table,
+                                dataset=schema,
+                                **({"nao": nao_ctx} if nao_ctx else {}),
+                                **extra_ctx
+                                ,
+                            )
+                            render_dur = time.monotonic() - t_render
+                            if render_dur > 5:
+                                console.print(
+                                    f"    [yellow]⏱[/yellow] [dim]{schema}.{table}[/dim] "
+                                    f"[yellow]{tpl_name}[/yellow] [dim]took {_fmt_duration(render_dur)}[/dim]"
+                                )
+                        except Exception as e:
+                            render_dur = time.monotonic() - t_render
+                            schema_errors += 1
+                            total_errors += 1
+                            console.print(
+                                f"    [bold red]✗[/bold red] [dim]{schema}.{table}[/dim] "
+                                f"[red]{tpl_name}[/red] [dim]failed after "
+                                f"{_fmt_duration(render_dur)}:[/dim] {e}"
+                            )
+                            content = f"# {table}\n\nError generating content: {e}"
+
+                        output_file = table_path / output_filename
+                        output_file.write_text(content)
+
+                    state.add_table(schema, table)
+                    progress.update(table_task, advance=1)
 
                 progress.update(
                     table_task,
-                    description=f"    [cyan]{schema}[/cyan] [dim]→ {table}[/dim]",
+                    description=f"    [cyan]{schema}[/cyan]",
                 )
-
-                ctx = db_config.create_context(conn, schema, table)
-                table_usage = usage_stats.get(f"{schema}.{table}", TableUsageStats())
-
-                for template_name in templates:
-                    output_filename = Path(template_name).stem
-                    tpl_name = output_filename.replace(".md", "")
-
-                    extra_ctx: dict[str, Any] = {}
-                    if tpl_name == "how_to_use":
-                        extra_ctx["usage_stats"] = table_usage
-                    output_file = table_path / output_filename
-
-                    if tpl_name == "profiling" and hasattr(db_config, "profiling"):
-                        if not _should_refresh_profiling(output_file, db_config.profiling):
-                            console.print(
-                                f"    [dim]⏭ {schema}.{table} profiling skipped "
-                                f"(policy: {db_config.profiling.refresh_policy.value})[/dim]"
-                            )
-                            continue
-
-                    t_render = time.monotonic()
-                    try:
-                        content = engine.render(
-                            template_name,
-                            db=ctx,
-                            table_name=table,
-                            dataset=schema,
-                            **({"nao": nao_ctx} if nao_ctx else {}),
-                            **extra_ctx,
-                        )
-                        render_dur = time.monotonic() - t_render
-                        if render_dur > 5:
-                            console.print(
-                                f"    [yellow]⏱[/yellow] [dim]{schema}.{table}[/dim] "
-                                f"[yellow]{tpl_name}[/yellow] [dim]took {_fmt_duration(render_dur)}[/dim]"
-                            )
-                    except Exception as e:
-                        render_dur = time.monotonic() - t_render
-                        schema_errors += 1
-                        total_errors += 1
-                        console.print(
-                            f"    [bold red]✗[/bold red] [dim]{schema}.{table}[/dim] "
-                            f"[red]{tpl_name}[/red] [dim]failed after "
-                            f"{_fmt_duration(render_dur)}:[/dim] {e}"
-                        )
-                        content = f"# {table}\n\nError generating content: {e}"
-
-                    output_file.write_text(content)
-
-                state.add_table(schema, table)
-                progress.update(table_task, advance=1)
-
-            progress.update(
-                table_task,
-                description=f"    [cyan]{schema}[/cyan]",
-            )
-            schema_dur = _fmt_duration(time.monotonic() - schema_start)
-            error_suffix = f" [red]({schema_errors} errors)[/red]" if schema_errors else ""
-            console.print(
-                f"  [green]✓ {schema}[/green] [dim]— {len(tables)} tables synced in {schema_dur}{error_suffix}[/dim]"
-            )
+                schema_dur = _fmt_duration(time.monotonic() - schema_start)
+                error_suffix = f" [red]({schema_errors} errors)[/red]" if schema_errors else ""
+                console.print(
+                    f"  [green]✓ {schema}[/green] [dim]— {len(tables)} tables synced in {schema_dur}{error_suffix}[/dim]"
+                )
 
             semantic_views = db_config.get_semantic_views(conn, schema)
             if semantic_views:
@@ -271,7 +271,7 @@ def sync_database(
                         content_parts.append(f"{sv['comment']}\n")
                     if sv.get("definition"):
                         content_parts.append("## Definition\n")
-                        content_parts.append(f"```yaml\n{sv['definition']}\n```\n")
+                        content_parts.append(f"```sql\n{sv['definition']}\n```\n")
                     (sv_path / "definition.md").write_text("\n".join(content_parts))
                     state.add_table(schema, sv["name"])
                 console.print(f"  [green]✓ {schema}[/green] [dim]— {len(semantic_views)} semantic views synced[/dim]")
