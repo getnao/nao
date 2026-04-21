@@ -177,9 +177,9 @@ def sync_database(
         for schema, tables in schema_tables.items():
             schema_path = db_path / f"schema={schema}"
             schema_path.mkdir(parents=True, exist_ok=True)
-            state.add_schema(schema)
 
             if tables:
+                state.add_schema(schema)
                 table_task = progress.add_task(
                     f"    [cyan]{schema}[/cyan]",
                     total=len(tables),
