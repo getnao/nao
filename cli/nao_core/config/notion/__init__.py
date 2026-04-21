@@ -54,6 +54,7 @@ def load_yaml(config_path: Path):
     if data is None:
         return {}
     if not isinstance(data, dict):
+        UI.warning("nao_config.yaml does not contain a mapping at the top level; treating as empty.")
         return {}
     return data
 
