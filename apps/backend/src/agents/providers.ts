@@ -9,6 +9,7 @@ import { createOpenAI } from '@ai-sdk/openai';
 import { fromNodeProviderChain } from '@aws-sdk/credential-providers';
 import type { LlmProvider } from '@nao/shared/types';
 import { createOpenRouter, LanguageModelV3 } from '@openrouter/ai-sdk-provider';
+import { createGitHubCopilotOpenAICompatible } from '@opeoginni/github-copilot-openai-compatible';
 import { createOllama } from 'ai-sdk-ollama';
 
 import type { LlmProvidersType, ProviderConfigMap, ProviderSettings } from '../types/llm';
@@ -149,6 +150,22 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 			})(modelId);
 		},
 		defaultOptions: { store: false },
+	},
+	'github-copilot': {
+		...PROVIDER_META['github-copilot'],
+		create: (settings, modelId) => {
+			const headers: Record<string, string> = {
+				'Copilot-Integration-Id': process.env.COPILOT_INTEGRATION_ID || 'vscode-chat',
+				'User-Agent': process.env.COPILOT_USER_AGENT || 'GitHubCopilotChat/0.26.7',
+				'Editor-Version': process.env.COPILOT_EDITOR_VERSION || 'vscode/1.104.1',
+				'Editor-Plugin-Version': process.env.COPILOT_EDITOR_PLUGIN_VERSION || 'copilot-chat/0.26.7',
+			};
+
+			return createGitHubCopilotOpenAICompatible({
+				apiKey: settings.apiKey,
+				headers,
+			})(modelId);
+		},
 	},
 };
 

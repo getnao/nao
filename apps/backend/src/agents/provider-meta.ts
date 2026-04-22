@@ -308,6 +308,33 @@ export const PROVIDER_META: ProviderMetaMap = {
 		summaryModelId: '',
 		models: [],
 	},
+	'github-copilot': {
+		auth: { apiKey: 'required' },
+		envVar: 'COPILOT_TOKEN',
+		extractorModelId: 'gpt-4.1',
+		summaryModelId: 'gpt-4.1',
+		models: [
+			{
+				id: 'gpt-5',
+				name: 'GPT-5',
+				contextWindow: 200_000,
+				costPerM: { inputNoCache: 2, output: 8 },
+			},
+			{
+				id: 'gpt-4.1',
+				name: 'GPT-4.1',
+				default: true,
+				contextWindow: 128_000,
+				costPerM: { inputNoCache: 1.5, output: 6 },
+			},
+			{
+				id: 'claude-3-5-sonnet',
+				name: 'Claude 3.5 Sonnet',
+				contextWindow: 200_000,
+				costPerM: { inputNoCache: 3, output: 15 },
+			},
+		],
+	},
 };
 
 export function getDefaultModelId(provider: LlmProvider): string {

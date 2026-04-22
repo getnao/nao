@@ -255,6 +255,20 @@ def chat(
                     env["VERTEX_GOOGLE_APPLICATION_CREDENTIALS"] = str(Path(config.llm.key_file).resolve())
                     console.print("[bold green]✓[/bold green] Set VERTEX_GOOGLE_APPLICATION_CREDENTIALS from config")
 
+            if config.llm.provider == LLMProvider.GITHUB_COPILOT:
+                if config.llm.copilot_integration_id:
+                    env["COPILOT_INTEGRATION_ID"] = config.llm.copilot_integration_id
+                    console.print("[bold green]✓[/bold green] Set COPILOT_INTEGRATION_ID from config")
+                if config.llm.copilot_user_agent:
+                    env["COPILOT_USER_AGENT"] = config.llm.copilot_user_agent
+                    console.print("[bold green]✓[/bold green] Set COPILOT_USER_AGENT from config")
+                if config.llm.copilot_editor_version:
+                    env["COPILOT_EDITOR_VERSION"] = config.llm.copilot_editor_version
+                    console.print("[bold green]✓[/bold green] Set COPILOT_EDITOR_VERSION from config")
+                if config.llm.copilot_editor_plugin_version:
+                    env["COPILOT_EDITOR_PLUGIN_VERSION"] = config.llm.copilot_editor_plugin_version
+                    console.print("[bold green]✓[/bold green] Set COPILOT_EDITOR_PLUGIN_VERSION from config")
+
         env["NAO_DEFAULT_PROJECT_PATH"] = str(Path.cwd())
 
         if config and config.llm and config.llm.annotation_model:

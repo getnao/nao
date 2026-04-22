@@ -5,7 +5,7 @@ from typing import Literal
 import questionary
 from pydantic import BaseModel, Field, model_validator
 
-from nao_core.ui import ask_select, ask_text
+from nao_core.ui import ask_confirm, ask_select, ask_text
 
 
 class LLMProvider(str, Enum):
@@ -19,6 +19,7 @@ class LLMProvider(str, Enum):
     OLLAMA = "ollama"
     BEDROCK = "bedrock"
     VERTEX = "vertex"
+    GITHUB_COPILOT = "github-copilot"
 
 
 @dataclass(frozen=True)
@@ -64,6 +65,11 @@ PROVIDER_AUTH: dict[LLMProvider, ProviderAuthConfig] = {
             "VERTEX_GOOGLE_APPLICATION_CREDENTIALS",
         ),
     ),
+    LLMProvider.GITHUB_COPILOT: ProviderAuthConfig(
+        env_var="COPILOT_TOKEN",
+        api_key="required",
+        hint="GitHub PAT with models:read scope or Copilot API token",
+    ),
 }
 
 
@@ -76,6 +82,7 @@ DEFAULT_ANNOTATION_MODELS: dict[LLMProvider, str] = {
     LLMProvider.OLLAMA: "llama3.2",
     LLMProvider.BEDROCK: "anthropic.claude-3-5-sonnet-20241022-v2:0",
     LLMProvider.VERTEX: "gemini-2.5-flash",
+    LLMProvider.GITHUB_COPILOT: "gpt-4.1",
 }
 
 
@@ -98,6 +105,22 @@ class LLMConfig(BaseModel):
     annotation_model: str | None = Field(
         default=None,
         description="Model to use for ai_summary generation via prompt(...) in Jinja templates",
+    )
+    copilot_integration_id: str | None = Field(
+        default=None,
+        description="Copilot Integration ID header (only for GitHub Copilot, e.g., 'vscode-chat')",
+    )
+    copilot_user_agent: str | None = Field(
+        default=None,
+        description="User-Agent header for GitHub Copilot (e.g., 'GitHubCopilotChat/0.26.7')",
+    )
+    copilot_editor_version: str | None = Field(
+        default=None,
+        description="Editor-Version header for GitHub Copilot (e.g., 'vscode/1.104.1')",
+    )
+    copilot_editor_plugin_version: str | None = Field(
+        default=None,
+        description="Editor-Plugin-Version header for GitHub Copilot (e.g., 'copilot-chat/0.26.7')",
     )
 
     @property
@@ -133,6 +156,7 @@ class LLMConfig(BaseModel):
             questionary.Choice("Mistral", value="mistral"),
             questionary.Choice("Google Gemini", value="gemini"),
             questionary.Choice("OpenRouter (Kimi, DeepSeek, etc.)", value="openrouter"),
+            questionary.Choice("GitHub Copilot", value="github-copilot"),
             questionary.Choice("Ollama", value="ollama"),
             questionary.Choice("AWS Bedrock (Claude, Nova, etc)", value="bedrock"),
             questionary.Choice("Google Vertex AI (Claude, Gemini)", value="vertex"),
@@ -148,6 +172,10 @@ class LLMConfig(BaseModel):
         gcp_location = None
         service_account_json = None
         key_file = None
+        copilot_integration_id = None
+        copilot_user_agent = None
+        copilot_editor_version = None
+        copilot_editor_plugin_version = None
 
         aws_profile = None
 
@@ -189,6 +217,32 @@ class LLMConfig(BaseModel):
                 service_account_json = ask_text("Paste service account JSON:", password=True, required_field=True)
             elif vertex_auth_mode == "file":
                 key_file = ask_text("Enter path to service account key file:", password=False, required_field=True)
+        elif llm_provider == "github-copilot":
+            configure_headers = ask_confirm(
+                "Configure custom GitHub Copilot API headers? (leave blank for defaults)",
+                default=False,
+            )
+            if configure_headers:
+                copilot_integration_id = ask_text(
+                    "Copilot-Integration-Id header (e.g., 'vscode-chat'):",
+                    password=False,
+                    required_field=False,
+                )
+                copilot_user_agent = ask_text(
+                    "User-Agent header (e.g., 'GitHubCopilotChat/0.26.7'):",
+                    password=False,
+                    required_field=False,
+                )
+                copilot_editor_version = ask_text(
+                    "Editor-Version header (e.g., 'vscode/1.104.1'):",
+                    password=False,
+                    required_field=False,
+                )
+                copilot_editor_plugin_version = ask_text(
+                    "Editor-Plugin-Version header (e.g., 'copilot-chat/0.26.7'):",
+                    password=False,
+                    required_field=False,
+                )
 
         provider = LLMProvider(llm_provider)
         annotation_model: str | None = None
@@ -210,6 +264,10 @@ class LLMConfig(BaseModel):
             service_account_json=service_account_json or None,
             key_file=key_file or None,
             annotation_model=annotation_model,
+            copilot_integration_id=copilot_integration_id or None,
+            copilot_user_agent=copilot_user_agent or None,
+            copilot_editor_version=copilot_editor_version or None,
+            copilot_editor_plugin_version=copilot_editor_plugin_version or None,
         )
 
         # Keep annotation model out of config unless ai_summary is enabled.

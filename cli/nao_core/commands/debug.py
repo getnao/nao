@@ -99,6 +99,23 @@ def _check_available_models(llm_config) -> Tuple[bool, str]:
 
         credentials, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
         return True, f"ADC configured (project: {project}, location: {location})"
+    elif provider == "github-copilot":
+        require_dependency("requests", "requests", "for GitHub Copilot LLM provider")
+        import requests
+
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2026-03-10",
+        }
+        response = requests.get("https://api.github.com/user", headers=headers)
+        if response.status_code == 200:
+            user = response.json()
+            return True, f"Connected successfully (user: {user.get('login', 'unknown')})"
+        elif response.status_code == 401:
+            return False, "Authentication failed: Invalid GitHub token"
+        else:
+            return False, f"Failed to connect: HTTP {response.status_code}"
     else:
         return False, f"Unknown provider: {provider}"
 
