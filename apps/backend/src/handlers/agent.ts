@@ -51,7 +51,7 @@ export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<H
 		newMessageId = messageId;
 	}
 
-	const [chat] = await chatQueries.loadChat(chatId);
+	const [chat] = await chatQueries.getChat(chatId);
 	if (!chat) {
 		throw new HandlerError('NOT_FOUND', `Chat with id ${chatId} not found.`);
 	}
@@ -61,15 +61,16 @@ export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<H
 
 	const agent = await agentService.create({ ...chat, userId, projectId }, model);
 
-	const isFirstForkMessage =
+	const isForkedFirstMessage =
 		!isNewChat && !!chat.forkMetadata && chat.messages.filter((m) => m.role === 'user' && !m.isForked).length === 1;
+
+	const shouldEmitNewChat = isNewChat || isForkedFirstMessage;
 
 	const stream = agent.stream(chat.messages, {
 		mentions,
 		timezone: opts.timezone,
-		generateTitle: isFirstForkMessage,
 		events: {
-			newChat: isNewChat
+			newChat: shouldEmitNewChat
 				? {
 						id: chatId,
 						projectId,

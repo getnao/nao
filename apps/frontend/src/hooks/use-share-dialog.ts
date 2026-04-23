@@ -2,11 +2,19 @@ import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { trpc } from '@/main';
 
-export function useMemberPicker(currentUserId: string | undefined, initialIds?: string[]) {
+export function useMemberPicker(currentUserId: string | undefined, initialIds?: string[], chatId?: string) {
 	const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(() => new Set(initialIds));
 	const [search, setSearch] = useState('');
 
-	const membersQuery = useQuery(trpc.project.getAllUsersWithRoles.queryOptions());
+	const membersByChatQuery = useQuery({
+		...trpc.project.getProjectMembersByChatId.queryOptions({ chatId: chatId! }),
+		enabled: !!chatId,
+	});
+	const membersDefaultQuery = useQuery({
+		...trpc.project.getAllUsersWithRoles.queryOptions(),
+		enabled: !chatId,
+	});
+	const membersQuery = chatId ? membersByChatQuery : membersDefaultQuery;
 
 	const otherMembers = useMemo(() => {
 		return (membersQuery.data ?? []).filter((m) => m.id !== currentUserId);

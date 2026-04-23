@@ -2,12 +2,13 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
 import * as chatQueries from '../queries/chat.queries';
+import * as projectQueries from '../queries/project.queries';
 import * as sharedChatQueries from '../queries/shared-chat.queries';
 import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
 import { compactionService } from '../services/compaction';
 import type { ForkMetadata, UIMessage, UIMessagePart } from '../types/chat';
-import { projectProtectedProcedure, protectedProcedure } from './trpc';
+import { protectedProcedure } from './trpc';
 
 const shareTypeSchema = z.enum(['chat', 'story']);
 const selectionSchema = z.object({ start: z.number(), end: z.number(), text: z.string() });
@@ -19,7 +20,7 @@ export interface SelectionInfo {
 }
 
 export const chatForkRoutes = {
-	fork: projectProtectedProcedure
+	fork: protectedProcedure
 		.input(
 			z.object({
 				shareId: z.string(),
@@ -29,9 +30,9 @@ export const chatForkRoutes = {
 		)
 		.mutation(async ({ input, ctx }): Promise<{ chatId: string }> => {
 			if (input.type === 'chat') {
-				return forkSharedChat(input.shareId, input.selection, ctx.project.id, ctx.user.id);
+				return forkSharedChat(input.shareId, input.selection, ctx.user.id);
 			}
-			return forkSharedStoryItem(input.shareId, input.selection, ctx.project.id, ctx.user.id);
+			return forkSharedStoryItem(input.shareId, input.selection, ctx.user.id);
 		}),
 
 	getSelectionForks: protectedProcedure
@@ -45,23 +46,22 @@ export const chatForkRoutes = {
 async function forkSharedChat(
 	shareId: string,
 	selection: SelectionInfo | undefined,
-	projectId: string,
 	userId: string,
 ): Promise<{ chatId: string }> {
-	const share = await resolveSharedChat(shareId, projectId, userId);
+	const share = await resolveSharedChat(shareId, userId);
 
 	const forkMetadata: ForkMetadata = selection
 		? buildSelectionMetadata('chat_selection', shareId, share.title, share.authorName, selection)
 		: { type: 'chat', id: share.chatId, title: share.title, authorName: share.authorName };
 
-	const rawMessages = await chatQueries.loadChatMessages(share.chatId);
+	const rawMessages = await chatQueries.getChatMessages(share.chatId);
 	const seededMessages = compactionService.useLastCompaction(rawMessages);
 	const messages = selection
 		? [...seededMessages, buildSelectionContextMessage(share.title, selection)]
 		: seededMessages;
 
 	const savedChat = await chatQueries.createForkedChat(
-		{ projectId, userId, title: share.title, forkMetadata },
+		{ projectId: share.projectId, userId, title: share.title, forkMetadata },
 		messages,
 	);
 
@@ -73,17 +73,17 @@ async function forkSharedChat(
 async function forkSharedStoryItem(
 	shareId: string,
 	selection: SelectionInfo | undefined,
-	projectId: string,
 	userId: string,
 ): Promise<{ chatId: string }> {
-	const share = await resolveSharedStory(shareId, projectId, userId);
+	const share = await resolveSharedStory(shareId, userId);
+	const projectId = share.projectId;
 
 	const forkMetadata: ForkMetadata = selection
 		? buildSelectionMetadata('story_selection', shareId, share.title, share.authorName, selection)
 		: { type: 'story', id: share.storyId, title: share.title, authorName: share.authorName };
 
 	if (selection) {
-		const rawMessages = await chatQueries.loadChatMessages(share.chatId);
+		const rawMessages = await chatQueries.getChatMessages(share.chatId);
 		const seededMessages = compactionService.useLastCompaction(rawMessages);
 		const messages = [...seededMessages, buildSelectionContextMessage(share.title, selection)];
 
@@ -105,13 +105,14 @@ async function forkSharedStoryItem(
 	return { chatId: chat.id };
 }
 
-async function resolveSharedChat(shareId: string, projectId: string, userId: string) {
+async function resolveSharedChat(shareId: string, userId: string) {
 	const share = await sharedChatQueries.getSharedChatInfo(shareId);
 	if (!share) {
 		throw new TRPCError({ code: 'NOT_FOUND', message: 'Shared chat not found.' });
 	}
-	if (share.projectId !== projectId) {
-		throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this chat.' });
+	const userRole = await projectQueries.getUserRoleInProject(share.projectId, userId);
+	if (!userRole) {
+		throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this project.' });
 	}
 	if (share.visibility === 'specific' && share.userId !== userId) {
 		const hasAccess = await sharedChatQueries.canUserAccessSharedChat(share.id, userId);
@@ -122,13 +123,14 @@ async function resolveSharedChat(shareId: string, projectId: string, userId: str
 	return share;
 }
 
-async function resolveSharedStory(shareId: string, projectId: string, userId: string) {
+async function resolveSharedStory(shareId: string, userId: string) {
 	const share = await sharedStoryQueries.getSharedStory(shareId);
 	if (!share) {
 		throw new TRPCError({ code: 'NOT_FOUND', message: 'Shared story not found.' });
 	}
-	if (share.projectId !== projectId) {
-		throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this story.' });
+	const userRole = await projectQueries.getUserRoleInProject(share.projectId, userId);
+	if (!userRole) {
+		throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this project.' });
 	}
 	if (share.visibility === 'specific' && share.userId !== userId) {
 		const hasAccess = await sharedStoryQueries.canUserAccessSharedStory(share.id, userId);

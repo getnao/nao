@@ -124,7 +124,7 @@ class WhatsappService {
 			await this._validateUserAccess(ctx);
 			await this._saveOrUpdateUserMessage(ctx);
 
-			const [chat] = await chatQueries.loadChat(ctx.chatId);
+			const [chat] = await chatQueries.getChat(ctx.chatId);
 			if (!chat) {
 				throw new Error('Chat not found after saving message');
 			}

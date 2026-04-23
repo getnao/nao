@@ -539,6 +539,20 @@ export const projectRoutes = {
 		return projectQueries.getAllUsersWithRoles(ctx.project.id);
 	}),
 
+	getProjectMembersByChatId: protectedProcedure
+		.input(z.object({ chatId: z.string() }))
+		.query(async ({ ctx, input }) => {
+			const projectId = await chatQueries.getChatProjectId(input.chatId);
+			if (!projectId) {
+				return [];
+			}
+			const role = await projectQueries.getUserRoleInProject(projectId, ctx.user.id);
+			if (!role) {
+				throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this project.' });
+			}
+			return projectQueries.getAllUsersWithRoles(projectId);
+		}),
+
 	getKnownModels: publicProcedure.query(() => {
 		return KNOWN_MODELS;
 	}),
@@ -728,7 +742,7 @@ export const projectRoutes = {
 			throw new TRPCError({ code: 'NOT_FOUND', message: `Chat with id ${input.chatId} not found.` });
 		}
 
-		const [chat] = await chatQueries.loadChat(input.chatId, { includeFeedback: true });
+		const [chat] = await chatQueries.getChat(input.chatId, { includeFeedback: true });
 		if (!chat) {
 			throw new TRPCError({ code: 'NOT_FOUND', message: `Chat with id ${input.chatId} not found.` });
 		}

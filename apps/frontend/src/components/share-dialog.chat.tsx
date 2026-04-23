@@ -81,7 +81,7 @@ function CreateShareDialog({ open, onOpenChange, chatId }: ShareChatDialogProps)
 
 	const currentUserId = session?.user?.id;
 	const { selectedUserIds, search, setSearch, filteredMembers, toggleUser, membersQuery, reset } =
-		useMemberPicker(currentUserId);
+		useMemberPicker(currentUserId, undefined, chatId);
 
 	useEffect(() => {
 		if (open) {
@@ -91,29 +91,29 @@ function CreateShareDialog({ open, onOpenChange, chatId }: ShareChatDialogProps)
 		}
 	}, [open, reset]);
 
-	const shareMutation = useMutation(
-		trpc.sharedChat.create.mutationOptions({
-			onSuccess: (data) => {
+	const shareMutation = useMutation(trpc.sharedChat.create.mutationOptions());
+
+	const handleShare = useCallback(() => {
+		const blobPromise = shareMutation
+			.mutateAsync({
+				chatId,
+				visibility,
+				allowedUserIds: visibility === 'specific' ? [...selectedUserIds] : undefined,
+			})
+			.then((data) => {
 				invalidateShareQueries();
-				const url = `${window.location.origin}/shared-chat/${data.id}`;
-				navigator.clipboard.writeText(url);
 				setIsCopied(true);
 				clearTimeout(timeoutRef.current);
 				timeoutRef.current = setTimeout(() => {
 					setIsCopied(false);
 					onOpenChange(false);
 				}, 1500);
-			},
-		}),
-	);
+				return new Blob([`${window.location.origin}/shared-chat/${data.id}`], { type: 'text/plain' });
+			});
 
-	const handleShare = useCallback(() => {
-		shareMutation.mutate({
-			chatId,
-			visibility,
-			allowedUserIds: visibility === 'specific' ? [...selectedUserIds] : undefined,
-		});
-	}, [chatId, visibility, selectedUserIds, shareMutation]);
+		blobPromise.catch(() => {});
+		navigator.clipboard.write([new ClipboardItem({ 'text/plain': blobPromise })]).catch(() => {});
+	}, [chatId, visibility, selectedUserIds, shareMutation, invalidateShareQueries, onOpenChange]);
 
 	const canShare = visibility === 'project' || selectedUserIds.size > 0;
 
@@ -182,6 +182,7 @@ function ManageShareDialog({
 	const { selectedUserIds, search, setSearch, filteredMembers, toggleUser, membersQuery, reset } = useMemberPicker(
 		currentUserId,
 		allowedUserIds,
+		chatId,
 	);
 
 	const stableAllowedUserIds = useMemo(
@@ -224,11 +225,11 @@ function ManageShareDialog({
 	}, [copyLink, shareId]);
 
 	const handleUnshare = useCallback(() => {
-		deleteMutation.mutate({ id: shareId });
+		deleteMutation.mutate({ shareId });
 	}, [shareId, deleteMutation]);
 
 	const handleSaveAccess = useCallback(() => {
-		updateAccessMutation.mutate({ id: shareId, allowedUserIds: [...selectedUserIds] });
+		updateAccessMutation.mutate({ shareId, allowedUserIds: [...selectedUserIds] });
 	}, [shareId, selectedUserIds, updateAccessMutation]);
 
 	const isBusy = deleteMutation.isPending || updateAccessMutation.isPending;

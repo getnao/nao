@@ -89,14 +89,16 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 		const handleAgentDataPart = (dataPart: InferUIMessageChunk<UIMessage>, agent: Agent<UIMessage>) => {
 			if (dataPart.type === 'data-newChat') {
 				const newChat = dataPart.data;
-				messageQueueStore.moveQueue(agentId, newChat.id);
-				agentService.moveAgent(agentId, newChat.id);
-				agentId = newChat.id;
-				setChat({ chatId: newChat.id }, { ...newChat, messages: [] });
-				queryClient.invalidateQueries({ queryKey: [['chat', 'listGrouped']] });
-				if (!disableNavigation) {
-					navigate({ to: '/$chatId', params: { chatId: newChat.id }, state: { fromMessageSend: true } });
+				if (agentId !== newChat.id) {
+					messageQueueStore.moveQueue(agentId, newChat.id);
+					agentService.moveAgent(agentId, newChat.id);
+					agentId = newChat.id;
+					setChat({ chatId: newChat.id }, { ...newChat, messages: [] });
+					if (!disableNavigation) {
+						navigate({ to: '/$chatId', params: { chatId: newChat.id }, state: { fromMessageSend: true } });
+					}
 				}
+				queryClient.invalidateQueries({ queryKey: [['chat', 'listGrouped']] });
 				return;
 			}
 

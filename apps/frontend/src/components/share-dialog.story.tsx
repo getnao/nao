@@ -68,7 +68,7 @@ function CreateShareDialog({ open, onOpenChange, chatId, storySlug }: ShareStory
 
 	const currentUserId = session?.user?.id;
 	const { selectedUserIds, search, setSearch, filteredMembers, toggleUser, membersQuery, reset } =
-		useMemberPicker(currentUserId);
+		useMemberPicker(currentUserId, undefined, chatId);
 
 	useEffect(() => {
 		if (open) {
@@ -78,30 +78,30 @@ function CreateShareDialog({ open, onOpenChange, chatId, storySlug }: ShareStory
 		}
 	}, [open, reset]);
 
-	const shareMutation = useMutation(
-		trpc.storyShare.create.mutationOptions({
-			onSuccess: (data) => {
+	const shareMutation = useMutation(trpc.storyShare.create.mutationOptions());
+
+	const handleShare = useCallback(() => {
+		const blobPromise = shareMutation
+			.mutateAsync({
+				chatId,
+				storySlug,
+				visibility,
+				allowedUserIds: visibility === 'specific' ? [...selectedUserIds] : undefined,
+			})
+			.then((data) => {
 				invalidateShareQueries();
-				const url = `${window.location.origin}/stories/shared/${data.id}`;
-				navigator.clipboard.writeText(url);
 				setIsCopied(true);
 				clearTimeout(timeoutRef.current);
 				timeoutRef.current = setTimeout(() => {
 					setIsCopied(false);
 					onOpenChange(false);
 				}, 1500);
-			},
-		}),
-	);
+				return new Blob([`${window.location.origin}/stories/shared/${data.id}`], { type: 'text/plain' });
+			});
 
-	const handleShare = useCallback(() => {
-		shareMutation.mutate({
-			chatId,
-			storySlug,
-			visibility,
-			allowedUserIds: visibility === 'specific' ? [...selectedUserIds] : undefined,
-		});
-	}, [chatId, storySlug, visibility, selectedUserIds, shareMutation]);
+		blobPromise.catch(() => {});
+		navigator.clipboard.write([new ClipboardItem({ 'text/plain': blobPromise })]).catch(() => {});
+	}, [chatId, storySlug, visibility, selectedUserIds, shareMutation, invalidateShareQueries, onOpenChange]);
 
 	const canShare = visibility === 'project' || selectedUserIds.size > 0;
 
@@ -174,13 +174,20 @@ function ManageShareDialog({
 	const { selectedUserIds, search, setSearch, filteredMembers, toggleUser, membersQuery, reset } = useMemberPicker(
 		currentUserId,
 		allowedUserIds,
+		chatId,
+	);
+
+	const stableAllowedUserIds = useMemo(
+		() => allowedUserIds,
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+		[allowedUserIds.join(',')],
 	);
 
 	useEffect(() => {
 		if (open) {
-			reset(allowedUserIds);
+			reset(stableAllowedUserIds);
 		}
-	}, [open, allowedUserIds, reset]);
+	}, [open, stableAllowedUserIds, reset]);
 
 	const hasChanges = useMemo(
 		() => hasAccessChanges(visibility, allowedUserIds, selectedUserIds),
@@ -210,11 +217,11 @@ function ManageShareDialog({
 	}, [copyLink, shareId]);
 
 	const handleUnshare = useCallback(() => {
-		deleteMutation.mutate({ id: shareId });
+		deleteMutation.mutate({ shareId });
 	}, [shareId, deleteMutation]);
 
 	const handleSaveAccess = useCallback(() => {
-		updateAccessMutation.mutate({ id: shareId, allowedUserIds: [...selectedUserIds] });
+		updateAccessMutation.mutate({ shareId, allowedUserIds: [...selectedUserIds] });
 	}, [shareId, selectedUserIds, updateAccessMutation]);
 
 	const isBusy = deleteMutation.isPending || updateAccessMutation.isPending;

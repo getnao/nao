@@ -158,7 +158,7 @@ class TeamsService {
 			ctx.convMessage = await ctx.thread.post('✨ nao is answering...');
 			await this._saveOrUpdateUserMessage(ctx);
 
-			const [chat] = await chatQueries.loadChat(ctx.chatId);
+			const [chat] = await chatQueries.getChat(ctx.chatId);
 			if (!chat) {
 				throw new Error('Chat not found after saving message');
 			}

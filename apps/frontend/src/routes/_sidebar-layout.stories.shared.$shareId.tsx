@@ -31,7 +31,7 @@ function SharedStoryPage() {
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
 
-	const { data: story, isLoading } = useSuspenseQuery(trpc.storyShare.get.queryOptions({ id: shareId }));
+	const { data: story, isLoading } = useSuspenseQuery(trpc.storyShare.get.queryOptions({ shareId }));
 
 	const containerRef = useRef<HTMLDivElement>(null);
 	const sidePanelRef = useRef<HTMLDivElement>(null);
@@ -41,7 +41,7 @@ function SharedStoryPage() {
 	const refreshMutation = useMutation(
 		trpc.storyShare.refreshData.mutationOptions({
 			onSuccess: () => {
-				queryClient.invalidateQueries({ queryKey: trpc.storyShare.get.queryKey({ id: shareId }) });
+				queryClient.invalidateQueries({ queryKey: trpc.storyShare.get.queryKey({ shareId }) });
 			},
 		}),
 	);
@@ -103,7 +103,7 @@ function SharedStoryPage() {
 										<Button
 											variant='ghost-muted'
 											size='icon-xs'
-											onClick={() => refreshMutation.mutate({ id: shareId })}
+											onClick={() => refreshMutation.mutate({ shareId })}
 											disabled={refreshMutation.isPending}
 											aria-label='Refresh data'
 										>
