@@ -28,6 +28,7 @@ class DatabaseType(str, Enum):
     MYSQL = "mysql"
     POSTGRES = "postgres"
     REDSHIFT = "redshift"
+    STARROCKS = "starrocks"
     TRINO = "trino"
 
     @classmethod

@@ -10,6 +10,7 @@ from .databases import (
     PostgresConfig,
     RedshiftConfig,
     SnowflakeConfig,
+    StarRocksConfig,
     TrinoConfig,
 )
 from .exceptions import InitError
@@ -28,6 +29,7 @@ __all__ = [
     "PostgresConfig",
     "MssqlConfig",
     "RedshiftConfig",
+    "StarRocksConfig",
     "TrinoConfig",
     "DatabaseType",
     "LLMConfig",
