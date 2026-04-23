@@ -32,6 +32,7 @@ _EXTRAS: dict[str, list[str]] = {
     "trino": ["ibis.backends.trino"],
     "redshift": ["ibis.backends.postgres", "sshtunnel"],
     "fabric": ["ibis.backends.mssql", "azure.identity"],
+    "starrocks": ["mysql.connector"],
     # LLM providers
     "openai": ["openai"],
     "anthropic": ["anthropic"],

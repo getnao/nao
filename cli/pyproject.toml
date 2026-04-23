@@ -59,6 +59,7 @@ athena = ["ibis-framework[athena]>=9.0.0"]
 trino = ["ibis-framework[trino]>=9.0.0"]
 redshift = ["ibis-framework[postgres]>=9.0.0", "sshtunnel>=0.4.0", "redshift-connector>=2.1.13"]
 fabric = ["ibis-framework[mssql]>=9.0.0", "azure-identity>=1.19.0"]
+starrocks = ["mysql-connector-python==9.5.0"]
 
 # LLM providers
 openai = ["openai>=1.0.0"]
@@ -72,7 +73,7 @@ notion = ["notion-client>=2.7.0", "notion2md>=2.9.0"]
 
 # Convenience groups
 all-databases = [
-    "nao-core[postgres,bigquery,snowflake,duckdb,clickhouse,databricks,mysql,mssql,athena,trino,redshift,fabric]",
+    "nao-core[postgres,bigquery,snowflake,duckdb,clickhouse,databricks,mysql,mssql,athena,trino,redshift,fabric,starrocks]",
 ]
 all-llms = ["nao-core[openai,anthropic,mistral,gemini,ollama]"]
 all = ["nao-core[all-databases,all-llms,notion]"]
