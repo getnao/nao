@@ -68,19 +68,17 @@ export const sharedChatRoutes = {
 			return { share: ctx.resource, chat };
 		}),
 
-	getShareOptionsByChatId: chatProcedure
-		.input(z.object({ chatId: z.string() }))
-		.query(async ({ input, ctx }) => {
-			const share = await sharedChatQueries.getShareIdByChatId(input.chatId, ctx.user.id);
-			if (!share) {
-				return { shareId: null, visibility: null, allowedUserIds: [] };
-			}
+	getShareOptionsByChatId: chatProcedure.input(z.object({ chatId: z.string() })).query(async ({ input, ctx }) => {
+		const share = await sharedChatQueries.getShareIdByChatId(input.chatId, ctx.user.id);
+		if (!share) {
+			return { shareId: null, visibility: null, allowedUserIds: [] };
+		}
 
-			const allowedUserIds =
-				share.visibility === 'specific' ? await sharedChatQueries.getShareAllowedUserIds(share.id) : [];
+		const allowedUserIds =
+			share.visibility === 'specific' ? await sharedChatQueries.getShareAllowedUserIds(share.id) : [];
 
-			return { shareId: share.id, visibility: share.visibility, allowedUserIds };
-		}),
+		return { shareId: share.id, visibility: share.visibility, allowedUserIds };
+	}),
 
 	updateAccess: shareProcedure
 		.input(z.object({ shareId: z.string(), allowedUserIds: z.array(z.string()) }))
@@ -111,14 +109,12 @@ export const sharedChatRoutes = {
 			}).catch((err) => console.error('Failed to notify shared chat recipients', err));
 		}),
 
-	delete: shareProcedure
-		.input(z.object({ shareId: z.string() }))
-		.mutation(async ({ input, ctx }) => {
-			const chatOwnerId = await chatQueries.getChatOwnerId(ctx.resource.chatId);
-			if (!chatOwnerId || (chatOwnerId !== ctx.user.id && ctx.userRole !== 'admin')) {
-				throw new TRPCError({ code: 'FORBIDDEN', message: 'Only the creator or an admin can delete this.' });
-			}
+	delete: shareProcedure.input(z.object({ shareId: z.string() })).mutation(async ({ input, ctx }) => {
+		const chatOwnerId = await chatQueries.getChatOwnerId(ctx.resource.chatId);
+		if (!chatOwnerId || (chatOwnerId !== ctx.user.id && ctx.userRole !== 'admin')) {
+			throw new TRPCError({ code: 'FORBIDDEN', message: 'Only the creator or an admin can delete this.' });
+		}
 
-			await sharedChatQueries.deleteSharedChat(input.shareId);
-		}),
+		await sharedChatQueries.deleteSharedChat(input.shareId);
+	}),
 };

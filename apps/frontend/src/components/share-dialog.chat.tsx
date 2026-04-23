@@ -80,8 +80,11 @@ function CreateShareDialog({ open, onOpenChange, chatId }: ShareChatDialogProps)
 	useEffect(() => () => clearTimeout(timeoutRef.current), []);
 
 	const currentUserId = session?.user?.id;
-	const { selectedUserIds, search, setSearch, filteredMembers, toggleUser, membersQuery, reset } =
-		useMemberPicker(currentUserId, undefined, chatId);
+	const { selectedUserIds, search, setSearch, filteredMembers, toggleUser, membersQuery, reset } = useMemberPicker(
+		currentUserId,
+		undefined,
+		chatId,
+	);
 
 	useEffect(() => {
 		if (open) {
