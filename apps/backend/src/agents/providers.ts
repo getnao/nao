@@ -131,6 +131,9 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 			}
 			return createVertex(config)(modelId);
 		},
+		// Enable reasoning token traces for Gemini models on Vertex AI.
+		// See: https://ai-sdk.dev/providers/ai-sdk-providers/google-vertex#C27791156-L11
+		defaultOptions: { includeThoughts: true },
 	},
 	azure: {
 		...PROVIDER_META.azure,
