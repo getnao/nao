@@ -19,7 +19,7 @@ export const agentRoutes = async (app: App) => {
 
 		if (projectId) {
 			const userRole = await projectQueries.getUserRoleInProject(projectId, user.id);
-			if (userRole === 'viewer') {
+			if (!userRole || userRole === 'viewer') {
 				return reply.status(403).send({ error: 'Viewers cannot send messages' });
 			}
 		}

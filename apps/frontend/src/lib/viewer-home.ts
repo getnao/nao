@@ -70,8 +70,10 @@ function groupByType(items: SharedItem[]): SharedGroup[] {
 function groupByDate(items: SharedItem[]): SharedGroup[] {
 	const now = new Date();
 	const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-	const yesterdayStart = new Date(todayStart.getTime() - 86_400_000);
-	const weekStart = new Date(todayStart.getTime() - todayStart.getDay() * 86_400_000);
+	const yesterdayStart = new Date(todayStart);
+	yesterdayStart.setDate(todayStart.getDate() - 1);
+	const weekStart = new Date(todayStart);
+	weekStart.setDate(todayStart.getDate() - todayStart.getDay());
 	const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
 	const buckets: Record<string, SharedItem[]> = {

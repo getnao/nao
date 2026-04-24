@@ -1,19 +1,23 @@
 import { useState } from 'react';
-import { createFileRoute, Outlet } from '@tanstack/react-router';
+import { createFileRoute, Outlet, redirect } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { Github } from 'lucide-react';
 import { GitHubRepoPicker } from '@/components/settings/github-repo-picker';
 import { OrgApiKeys } from '@/components/settings/org-api-keys';
 import { SettingsProjectNav } from '@/components/settings/project-nav';
 import { usePermissions } from '@/hooks/use-permissions';
-import { requireNonViewer } from '@/lib/require-admin';
-import { trpc } from '@/main';
+import { queryClient, trpc } from '@/main';
 import { Button } from '@/components/ui/button';
 import { SettingsCard, SettingsPageWrapper } from '@/components/ui/settings-card';
 import { Empty } from '@/components/ui/empty';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/project')({
-	beforeLoad: requireNonViewer,
+	beforeLoad: async () => {
+		const project = await queryClient.ensureQueryData(trpc.project.getCurrent.queryOptions());
+		if (project?.userRole === 'viewer') {
+			throw redirect({ to: '/settings/account' });
+		}
+	},
 	component: ProjectPage,
 });
 

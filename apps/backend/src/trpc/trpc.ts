@@ -64,7 +64,7 @@ export const projectProtectedProcedure = protectedProcedure.use(async ({ ctx, ne
 });
 
 export const canSendProcedure = projectProtectedProcedure.use(async ({ ctx, next }) => {
-	if (ctx.userRole === 'viewer') {
+	if (ctx.userRole !== 'admin' && ctx.userRole !== 'user') {
 		throw new TRPCError({ code: 'FORBIDDEN', message: 'Viewers cannot perform this action' });
 	}
 

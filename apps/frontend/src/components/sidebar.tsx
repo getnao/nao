@@ -48,7 +48,7 @@ export function Sidebar() {
 		}
 	}, [locationPath]); // eslint-disable-line react-hooks/exhaustive-deps
 
-	const handleStartNewChat = useCallback(() => {
+	const handleNavigateHome = useCallback(() => {
 		navigate({ to: '/' });
 		if (isMobile) {
 			closeMobile();
@@ -76,13 +76,13 @@ export function Sidebar() {
 			}
 			if (e.shiftKey && e.metaKey && e.key.toLowerCase() === 'o') {
 				e.preventDefault();
-				handleStartNewChat();
+				handleNavigateHome();
 			}
 		};
 
 		window.addEventListener('keydown', handleKeyDown);
 		return () => window.removeEventListener('keydown', handleKeyDown);
-	}, [handleStartNewChat, isViewer]);
+	}, [handleNavigateHome, isViewer]);
 
 	useEffect(() => {
 		if (!project.data?.id) {
@@ -158,8 +158,8 @@ export function Sidebar() {
 						<div className='flex items-center relative'>
 							<button
 								type='button'
-								onClick={handleStartNewChat}
-								aria-label='New chat'
+								onClick={handleNavigateHome}
+								aria-label={isViewer ? 'View shared items' : 'New chat'}
 								className={cn(
 									'flex items-center justify-center p-2 mr-auto absolute left-0 z-0 rounded-md cursor-pointer hover:bg-sidebar-accent transition-[opacity,visibility,background-color] duration-300',
 									hideIf(effectiveIsCollapsed),
@@ -199,7 +199,7 @@ export function Sidebar() {
 								label='New chat'
 								shortcut='⇧⌘O'
 								isCollapsed={effectiveIsCollapsed}
-								onClick={handleStartNewChat}
+								onClick={handleNavigateHome}
 							/>
 						)}
 						<SidebarMenuButton

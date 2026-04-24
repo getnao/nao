@@ -27,7 +27,7 @@ function GeneralPage() {
 	const { data: session, refetch } = useSession();
 	const user = session?.user;
 	const queryClient = useQueryClient();
-	const { isAdmin, role } = usePermissions();
+	const { isAdmin, isViewer, role } = usePermissions();
 	const [soundEnabled, setSoundEnabled] = useLocalStorage(soundNotificationStorage);
 
 	const navigation = useAuthRoute();
@@ -94,7 +94,7 @@ function GeneralPage() {
 				<SettingsControlRow label='Theme' description='Choose how nao looks.' control={<ThemeSelector />} />
 			</SettingsCard>
 
-			<DangerZone />
+			{!isViewer && <DangerZone />}
 
 			{isAdmin && <SettingsVersionInfo />}
 		</SettingsPageWrapper>
