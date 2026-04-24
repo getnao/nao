@@ -274,9 +274,35 @@ class BigQueryDatabaseContext(DatabaseContext):
 
     def _partition_filter(self) -> str:
         cols = self.partition_columns()
-        if cols:
-            return f"`{cols[0]}` >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)"
-        return ""
+        if not cols:
+            return ""
+        col = cols[0]
+        col_type = self._resolve_partition_column_type(col)
+        if "TIMESTAMP" in col_type:
+            return f"`{col}` >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 DAY)"
+        if "DATETIME" in col_type:
+            return f"`{col}` >= DATETIME_SUB(CURRENT_DATETIME(), INTERVAL 30 DAY)"
+        return f"`{col}` >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)"
+
+    def _resolve_partition_column_type(self, col_name: str) -> str:
+        """Return the uppercase data type of the partition column."""
+        if self._partition_metadata and self._partition_metadata.partition_column_type:
+            return self._partition_metadata.partition_column_type.upper()
+        try:
+            table_literal = _bq_string_literal(self._table_name)
+            col_literal = _bq_string_literal(col_name)
+            info_path = _bq_path(self._project_id, self._schema, "INFORMATION_SCHEMA", "COLUMNS")
+            query = f"""
+                SELECT data_type FROM {info_path}
+                WHERE table_name = {table_literal} AND column_name = {col_literal}
+                LIMIT 1
+            """
+            row = next(iter(self._conn.raw_sql(query)), None)  # type: ignore[union-attr]
+            if row:
+                return str(row[0]).upper()
+        except Exception:
+            logger.debug("Failed to resolve partition column type for %s.%s", self._schema, self._table_name)
+        return "DATE"
 
     def _array_unnest_join(self, table_sql: str, col_sql: str, alias: str) -> str:
         return f"{table_sql}, UNNEST({col_sql}) AS {alias}"

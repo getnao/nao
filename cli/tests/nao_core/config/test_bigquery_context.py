@@ -722,6 +722,70 @@ class TestActivePartitionFilter:
         assert result == "DATE(`server_received_at`) = DATE('2026-03-11')"
 
 
+class TestPartitionFilter:
+    """_partition_filter() must generate type-appropriate SQL for DATE, TIMESTAMP, and DATETIME."""
+
+    def test_date_partition_uses_date_sub(self):
+        meta = TablePartitionMetadata(
+            partition_column="event_date",
+            partition_column_type="DATE",
+            last_partition_id="20260310",
+            total_rows=100,
+        )
+        ctx, _ = _make_context(partition_metadata=meta)
+        assert ctx._partition_filter() == "`event_date` >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)"
+
+    def test_timestamp_partition_uses_timestamp_sub(self):
+        meta = TablePartitionMetadata(
+            partition_column="event_time",
+            partition_column_type="TIMESTAMP",
+            last_partition_id="20260310",
+            total_rows=100,
+        )
+        ctx, _ = _make_context(partition_metadata=meta)
+        assert ctx._partition_filter() == "`event_time` >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 DAY)"
+
+    def test_datetime_partition_uses_datetime_sub(self):
+        meta = TablePartitionMetadata(
+            partition_column="created_at",
+            partition_column_type="DATETIME",
+            last_partition_id="20260310",
+            total_rows=100,
+        )
+        ctx, _ = _make_context(partition_metadata=meta)
+        assert ctx._partition_filter() == "`created_at` >= DATETIME_SUB(CURRENT_DATETIME(), INTERVAL 30 DAY)"
+
+    def test_no_partition_returns_empty_string(self):
+        meta = TablePartitionMetadata(
+            partition_column=None,
+            partition_column_type=None,
+            last_partition_id=None,
+            total_rows=None,
+        )
+        ctx, _ = _make_context(partition_metadata=meta)
+        assert ctx._partition_filter() == ""
+
+    def test_unknown_type_defaults_to_date(self):
+        meta = TablePartitionMetadata(
+            partition_column="event_date",
+            partition_column_type=None,
+            last_partition_id=None,
+            total_rows=None,
+        )
+        ctx, mock_conn = _make_context(partition_metadata=meta)
+        mock_conn.raw_sql.return_value = []
+        assert "DATE_SUB(CURRENT_DATE()" in ctx._partition_filter()
+
+    def test_fallback_queries_information_schema_for_type(self):
+        ctx, mock_conn = _make_context(partition_metadata=None)
+        mock_conn.raw_sql.side_effect = [
+            [("event_time",)],
+            [],
+            [("TIMESTAMP",)],
+        ]
+        assert "TIMESTAMP_SUB(CURRENT_TIMESTAMP()" in ctx._partition_filter()
+
+
 class TestTablePartitionMetadata:
     def test_require_partition_filter_defaults_to_false(self):
         meta = TablePartitionMetadata(
