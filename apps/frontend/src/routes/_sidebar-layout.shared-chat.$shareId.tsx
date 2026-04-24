@@ -26,6 +26,7 @@ function SharedChatPage() {
 
 	const queryClient = useQueryClient();
 	const chatQuery = useQuery(trpc.sharedChat.getSharedChat.queryOptions({ shareId }));
+	const isViewer = chatQuery.data?.userRole === 'viewer';
 	const forkMutation = useMutation(
 		trpc.chatFork.fork.mutationOptions({
 			onSuccess: (data) => {
@@ -82,26 +83,28 @@ function SharedChatPage() {
 								</Link>
 							</Button>
 						) : (
-							<Button
-								variant='outline'
-								size='sm'
-								className='ml-auto gap-1.5 shrink-0'
-								onClick={() => forkMutation.mutate({ shareId, type: 'chat' })}
-								disabled={forkMutation.isPending}
-							>
-								{forkMutation.isPending ? (
-									<Spinner className='size-3.5' />
-								) : (
-									<MessageSquare className='size-3.5' />
-								)}
-								<span>Continue chat</span>
-							</Button>
+							!isViewer && (
+								<Button
+									variant='outline'
+									size='sm'
+									className='ml-auto gap-1.5 shrink-0'
+									onClick={() => forkMutation.mutate({ shareId, type: 'chat' })}
+									disabled={forkMutation.isPending}
+								>
+									{forkMutation.isPending ? (
+										<Spinner className='size-3.5' />
+									) : (
+										<MessageSquare className='size-3.5' />
+									)}
+									<span>Continue chat</span>
+								</Button>
+							)
 						)}
 					</header>
 
 					<SelectionProvider key={shareId} persistenceConfig={{ shareId, contentType: 'chat' }}>
-						<ForkBubble shareId={shareId} contentType='chat' />
-						<SelectionChatPanel contentAreaRef={contentAreaRef} />
+						{!isViewer && <ForkBubble shareId={shareId} contentType='chat' />}
+						{!isViewer && <SelectionChatPanel contentAreaRef={contentAreaRef} />}
 						<div className='flex flex-1 min-h-0 min-w-0'>
 							<div ref={contentAreaRef} className='flex-1 min-w-0'>
 								<ChatMessagesReadonly

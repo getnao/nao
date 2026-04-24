@@ -1,4 +1,5 @@
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import type { MessageBubble } from '@nao/shared/types';
+import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 
 import s, { type DBSharedChat } from '../db/abstractSchema';
 import { db } from '../db/db';
@@ -10,10 +11,15 @@ export type SharedChatWithDetails = DBSharedChat & {
 	userId: string;
 	projectId: string;
 	forkMetadata?: ForkMetadata;
+	messageBubbles?: MessageBubble[];
 };
 
-export async function listProjectSharedChats(projectId: string, userId: string): Promise<SharedChatWithDetails[]> {
-	const allChats = await db
+export async function listUserSharedChats(projectIds: string[], userId: string): Promise<SharedChatWithDetails[]> {
+	if (projectIds.length === 0) {
+		return [];
+	}
+
+	const chats = await db
 		.select({
 			id: s.sharedChat.id,
 			projectId: s.chat.projectId,
@@ -27,35 +33,55 @@ export async function listProjectSharedChats(projectId: string, userId: string):
 		.from(s.sharedChat)
 		.innerJoin(s.chat, eq(s.sharedChat.chatId, s.chat.id))
 		.innerJoin(s.user, eq(s.chat.userId, s.user.id))
-		.where(eq(s.chat.projectId, projectId))
+		.leftJoin(
+			s.sharedChatAccess,
+			and(eq(s.sharedChatAccess.sharedChatId, s.sharedChat.id), eq(s.sharedChatAccess.userId, userId)),
+		)
+		.where(
+			and(
+				inArray(s.chat.projectId, projectIds),
+				sql`(${s.sharedChat.visibility} = 'project' OR ${s.chat.userId} = ${userId} OR ${s.sharedChatAccess.userId} IS NOT NULL)`,
+			),
+		)
 		.orderBy(desc(s.sharedChat.createdAt))
 		.execute();
 
-	const specificChatIds = allChats
-		.filter((chat) => chat.visibility === 'specific' && chat.userId !== userId)
-		.map((chat) => chat.id);
+	const bubblesMap = await fetchMessageBubbles(chats.map((c) => c.chatId));
+	return chats.map((chat) => ({ ...chat, messageBubbles: bubblesMap.get(chat.chatId) }));
+}
 
-	if (specificChatIds.length === 0) {
-		return allChats;
+async function fetchMessageBubbles(chatIds: string[]): Promise<Map<string, MessageBubble[]>> {
+	if (chatIds.length === 0) {
+		return new Map();
 	}
 
-	const accessRows = await db
-		.select({ sharedChatId: s.sharedChatAccess.sharedChatId })
-		.from(s.sharedChatAccess)
-		.where(and(eq(s.sharedChatAccess.userId, userId), inArray(s.sharedChatAccess.sharedChatId, specificChatIds)))
+	const rows = await db
+		.select({
+			chatId: s.chatMessage.chatId,
+			messageId: s.chatMessage.id,
+			role: s.chatMessage.role,
+			charCount: sql<number>`coalesce(sum(length(${s.messagePart.text})), 0)`.as('char_count'),
+		})
+		.from(s.chatMessage)
+		.leftJoin(s.messagePart, and(eq(s.messagePart.messageId, s.chatMessage.id), eq(s.messagePart.type, 'text')))
+		.where(
+			and(
+				inArray(s.chatMessage.chatId, chatIds),
+				isNull(s.chatMessage.supersededAt),
+				inArray(s.chatMessage.role, ['user', 'assistant']),
+			),
+		)
+		.groupBy(s.chatMessage.id, s.chatMessage.chatId, s.chatMessage.role, s.chatMessage.createdAt)
+		.orderBy(asc(s.chatMessage.createdAt))
 		.execute();
 
-	const accessibleIds = new Set(accessRows.map((r) => r.sharedChatId));
-
-	return allChats.filter((chat) => {
-		if (chat.visibility === 'project') {
-			return true;
-		}
-		if (chat.userId === userId) {
-			return true;
-		}
-		return accessibleIds.has(chat.id);
-	});
+	const map = new Map<string, MessageBubble[]>();
+	for (const row of rows) {
+		const bubbles = map.get(row.chatId) ?? [];
+		bubbles.push({ role: row.role as 'user' | 'assistant', charCount: Number(row.charCount) });
+		map.set(row.chatId, bubbles);
+	}
+	return map;
 }
 
 export async function createSharedChat(

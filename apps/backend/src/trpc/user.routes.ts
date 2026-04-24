@@ -25,7 +25,7 @@ export const userRoutes = {
 		return user;
 	}),
 
-	modify: projectProtectedProcedure
+	modify: adminProtectedProcedure
 		.input(
 			z.object({
 				userId: z.string(),
@@ -47,10 +47,10 @@ export const userRoutes = {
 			}
 			const previousName = await userQueries.getUserName(input.userId);
 
-			if (ctx.project && input.newRole && input.newRole !== previousRole) {
+			if (input.newRole && input.newRole !== previousRole) {
 				await projectQueries.updateProjectMemberRole(ctx.project.id, input.userId, input.newRole);
 			}
-			if (ctx.project && input.name && input.name !== previousName) {
+			if (input.name && input.name !== previousName) {
 				await userQueries.updateUser(input.userId, input.name);
 			}
 		}),

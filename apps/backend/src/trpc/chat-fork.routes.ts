@@ -8,7 +8,7 @@ import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
 import { compactionService } from '../services/compaction';
 import type { ForkMetadata, UIMessage, UIMessagePart } from '../types/chat';
-import { protectedProcedure } from './trpc';
+import { canSendProcedure, protectedProcedure } from './trpc';
 
 const shareTypeSchema = z.enum(['chat', 'story']);
 const selectionSchema = z.object({ start: z.number(), end: z.number(), text: z.string() });
@@ -20,7 +20,7 @@ export interface SelectionInfo {
 }
 
 export const chatForkRoutes = {
-	fork: protectedProcedure
+	fork: canSendProcedure
 		.input(
 			z.object({
 				shareId: z.string(),

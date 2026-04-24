@@ -15,12 +15,15 @@ interface NavContext {
 	isAdmin: boolean;
 	isCloud: boolean;
 	hasLicense: boolean;
+	isViewer: boolean;
+	isInMultipleProjects: boolean;
 }
 
 interface NavItem {
 	label: string;
 	to?: string;
 	visible?: (ctx: NavContext) => boolean;
+	disabled?: (ctx: NavContext) => boolean;
 	type?: 'divider' | 'item';
 }
 
@@ -36,10 +39,13 @@ const settingsNavItems: NavItem[] = [
 	{
 		label: 'Organization',
 		to: '/settings/organization',
+		visible: ({ isViewer }) => !isViewer,
 	},
 	{
 		label: 'Project',
 		to: '/settings/project',
+		visible: ({ isInMultipleProjects }) => isInMultipleProjects,
+		disabled: ({ isViewer }) => isViewer,
 	},
 	{
 		label: 'Observability',
@@ -74,10 +80,12 @@ const settingsNavItems: NavItem[] = [
 	{
 		label: 'Context',
 		type: 'divider',
+		visible: ({ isViewer }) => !isViewer,
 	},
 	{
 		label: 'Memory',
 		to: '/settings/memory',
+		visible: ({ isViewer }) => !isViewer,
 	},
 	{
 		label: 'File Explorer',
@@ -89,6 +97,7 @@ const settingsNavItems: NavItem[] = [
 interface SidebarSettingsNavProps {
 	isCollapsed: boolean;
 	isAdmin: boolean;
+	isViewer: boolean;
 	isCloud: boolean;
 	hasLicense: boolean;
 	projects: ProjectOption[];
@@ -110,6 +119,7 @@ function dedupeByPage(results: FuseResult<SettingsSearchEntry>[]) {
 export function SidebarSettingsNav({
 	isCollapsed,
 	isAdmin,
+	isViewer,
 	isCloud,
 	hasLicense,
 	projects,
@@ -120,12 +130,14 @@ export function SidebarSettingsNav({
 	const inputRef = useRef<HTMLInputElement>(null);
 	const [query, setQuery] = useState('');
 
-	const navItems = settingsNavItems.filter((item) => item.visible?.({ isAdmin, isCloud, hasLicense }) ?? true);
+	const navItems = settingsNavItems.filter(
+		(item) => item.visible?.({ isAdmin, isCloud, isViewer, isInMultipleProjects: projects.length > 1, hasLicense }) ?? true,
+	);
 	const canSwitchProjects = projects.length > 1 && !!currentProjectId;
 
 	useEffect(() => {
 		const handleSlashKey = (e: KeyboardEvent) => {
-			if (e.key !== '/' || isCollapsed) {
+			if (e.key !== '/' || isCollapsed || isViewer) {
 				return;
 			}
 			const tag = (e.target as HTMLElement)?.tagName;
@@ -137,7 +149,7 @@ export function SidebarSettingsNav({
 		};
 		document.addEventListener('keydown', handleSlashKey);
 		return () => document.removeEventListener('keydown', handleSlashKey);
-	}, [isCollapsed]);
+	}, [isCollapsed, isViewer]);
 
 	const fuse = useMemo(() => {
 		const entries = settingsSearchIndex.filter(
@@ -176,42 +188,44 @@ export function SidebarSettingsNav({
 
 	return (
 		<div className={cn('flex flex-col gap-1', hideIf(isCollapsed))}>
-			<div className='px-2 pt-2'>
-				<div className='relative'>
-					<Search className='absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground pointer-events-none' />
-					<input
-						ref={inputRef}
-						type='text'
-						placeholder='Search settings...'
-						value={query}
-						onChange={(e) => setQuery(e.target.value)}
-						onKeyDown={handleKeyDown}
-						className={cn(
-							'w-full rounded-lg border border-input bg-transparent py-1.5 pl-8 pr-8 text-sm',
-							'placeholder:text-muted-foreground',
-							'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+			{!isViewer && (
+				<div className='px-2 pt-2'>
+					<div className='relative'>
+						<Search className='absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground pointer-events-none' />
+						<input
+							ref={inputRef}
+							type='text'
+							placeholder='Search settings...'
+							value={query}
+							onChange={(e) => setQuery(e.target.value)}
+							onKeyDown={handleKeyDown}
+							className={cn(
+								'w-full rounded-lg border border-input bg-transparent py-1.5 pl-8 pr-8 text-sm',
+								'placeholder:text-muted-foreground',
+								'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+							)}
+						/>
+						{query ? (
+							<button
+								type='button'
+								onClick={() => {
+									setQuery('');
+									inputRef.current?.focus();
+								}}
+								className='absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground'
+							>
+								<X className='size-3.5' />
+							</button>
+						) : (
+							<kbd className='absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-[10px] font-mono text-muted-foreground border border-border rounded px-1'>
+								/
+							</kbd>
 						)}
-					/>
-					{query ? (
-						<button
-							type='button'
-							onClick={() => {
-								setQuery('');
-								inputRef.current?.focus();
-							}}
-							className='absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground'
-						>
-							<X className='size-3.5' />
-						</button>
-					) : (
-						<kbd className='absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-[10px] font-mono text-muted-foreground border border-border rounded px-1'>
-							/
-						</kbd>
-					)}
+					</div>
 				</div>
-			</div>
+			)}
 
-			{isSearching ? (
+			{isSearching && !isViewer ? (
 				<div className='flex flex-col gap-0.5 px-2 pt-1'>
 					{results.length === 0 ? (
 						<div className='px-3 py-4 text-xs text-muted-foreground text-center'>No results found</div>
@@ -250,23 +264,40 @@ export function SidebarSettingsNav({
 						}
 
 						const isProjectItem = item.to === '/settings/project';
+						const isDisabled =
+							item.disabled?.({
+								isAdmin,
+								isCloud,
+								isViewer,
+								isInMultipleProjects: projects.length > 1,
+								hasLicense,
+							}) ?? false;
 
 						return (
 							<div key={item.to} className='flex flex-col'>
-								<Link
-									to={item.to}
-									className={cn(
-										'flex items-center gap-3 px-3 py-2 text-sm rounded-md transition-colors whitespace-nowrap',
-									)}
-									activeProps={{
-										className: cn('bg-sidebar-accent text-foreground font-medium'),
-									}}
-									inactiveProps={{
-										className: cn('hover:bg-sidebar-accent hover:text-foreground'),
-									}}
-								>
-									{item.label}
-								</Link>
+								{isDisabled ? (
+									<span
+										className='flex items-center gap-3 px-3 py-2 text-sm rounded-md whitespace-nowrap cursor-not-allowed'
+										aria-disabled='true'
+									>
+										{item.label}
+									</span>
+								) : (
+									<Link
+										to={item.to}
+										className={cn(
+											'flex items-center gap-3 px-3 py-2 text-sm rounded-md transition-colors whitespace-nowrap',
+										)}
+										activeProps={{
+											className: cn('bg-sidebar-accent text-foreground font-medium'),
+										}}
+										inactiveProps={{
+											className: cn('hover:bg-sidebar-accent hover:text-foreground'),
+										}}
+									>
+										{item.label}
+									</Link>
+								)}
 								{isProjectItem && canSwitchProjects && currentProjectId && (
 									<ProjectSwitcherSubItem
 										projects={projects}

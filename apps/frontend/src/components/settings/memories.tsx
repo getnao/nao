@@ -22,18 +22,18 @@ import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { SettingsMemoryItem, SettingsMemorySkeleton } from '@/components/settings/memory-item';
 import { useMemoriesQuery, useMemoryMutations, useMemorySettingsQuery } from '@/queries/use-memories';
+import { usePermissions } from '@/hooks/use-permissions';
 import { trpc } from '@/main';
 import { cn } from '@/lib/utils';
 
 export function SettingsMemories() {
 	const projectMemorySettings = useQuery(trpc.project.getMemorySettings.queryOptions());
-	const project = useQuery(trpc.project.getCurrent.queryOptions());
 	const memorySettings = useMemorySettingsQuery();
+	const { isAdmin } = usePermissions();
 
 	const { updateMemorySettingsMutation, updateMutation, deleteMutation } = useMemoryMutations();
 
 	const projectMemoryEnabled = projectMemorySettings.data?.memoryEnabled ?? true;
-	const isAdmin = project.data?.userRole === 'admin';
 	const userMemoryEnabled = memorySettings.data?.memoryEnabled ?? true;
 	const isProjectDisabled = !projectMemoryEnabled;
 	const isUserDisabled = !userMemoryEnabled;

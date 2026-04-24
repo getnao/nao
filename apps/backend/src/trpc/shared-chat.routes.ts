@@ -1,3 +1,4 @@
+import type { UserRole } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
@@ -6,17 +7,31 @@ import * as projectQueries from '../queries/project.queries';
 import * as sharedChatQueries from '../queries/shared-chat.queries';
 import { type UIChat } from '../types/chat';
 import { notifySharedItemRecipients } from '../utils/email';
-import { projectProtectedProcedure, resourceProjectProcedure } from './trpc';
+import { canSendProcedure, protectedProcedure, resourceProjectProcedure } from './trpc';
 
 const chatProcedure = resourceProjectProcedure('chatId', chatQueries.getChatInfo, 'Chat');
 const shareProcedure = resourceProjectProcedure('shareId', sharedChatQueries.getSharedChatInfo, 'Shared chat');
+const shareAccessProcedure = resourceProjectProcedure(
+	'shareId',
+	sharedChatQueries.getSharedChatInfo,
+	'Shared chat',
+	async (share, userId) => {
+		if (share.visibility !== 'specific') {
+			return true;
+		}
+		const isOwner = (await chatQueries.getChatOwnerId(share.chatId)) === userId;
+		return isOwner || sharedChatQueries.canUserAccessSharedChat(share.id, userId);
+	},
+);
 
 export const sharedChatRoutes = {
-	list: projectProtectedProcedure.query(async ({ ctx }) => {
-		return sharedChatQueries.listProjectSharedChats(ctx.project.id, ctx.user.id);
+	list: protectedProcedure.query(async ({ ctx }) => {
+		const projects = await projectQueries.listUserProjects(ctx.user.id);
+		const projectIds = projects.map((p) => p.id);
+		return sharedChatQueries.listUserSharedChats(projectIds, ctx.user.id);
 	}),
 
-	create: chatProcedure
+	create: canSendProcedure
 		.input(
 			z.object({
 				chatId: z.string(),
@@ -25,6 +40,14 @@ export const sharedChatRoutes = {
 			}),
 		)
 		.mutation(async ({ input, ctx }) => {
+			const chatInfo = await chatQueries.getChatInfo(input.chatId);
+			if (!chatInfo) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: 'Chat not found.' });
+			}
+			if (chatInfo.projectId !== ctx.project.id) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: 'Chat not found.' });
+			}
+
 			const created = await sharedChatQueries.createSharedChat(
 				{
 					chatId: input.chatId,
@@ -34,12 +57,12 @@ export const sharedChatRoutes = {
 			);
 
 			notifySharedItemRecipients({
-				projectId: ctx.resource.projectId,
+				projectId: ctx.project.id,
 				sharerId: ctx.user.id,
 				sharerName: ctx.user.name,
 				shareId: created.id,
 				itemLabel: 'chat',
-				itemTitle: ctx.resource.title,
+				itemTitle: chatInfo.title,
 				visibility: input.visibility,
 				allowedUserIds: input.allowedUserIds,
 			}).catch((err) => console.error('Failed to notify shared chat recipients', err));
@@ -47,26 +70,20 @@ export const sharedChatRoutes = {
 			return created;
 		}),
 
-	getSharedChat: shareProcedure
+	getSharedChat: shareAccessProcedure
 		.input(z.object({ shareId: z.string() }))
-		.query(async ({ ctx }): Promise<{ share: sharedChatQueries.SharedChatWithDetails; chat: UIChat }> => {
-			if (ctx.resource.visibility === 'specific') {
-				const isOwner = (await chatQueries.getChatOwnerId(ctx.resource.chatId)) === ctx.user.id;
-				if (!isOwner) {
-					const hasAccess = await sharedChatQueries.canUserAccessSharedChat(ctx.resource.id, ctx.user.id);
-					if (!hasAccess) {
-						throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this chat.' });
-					}
+		.query(
+			async ({
+				ctx,
+			}): Promise<{ share: sharedChatQueries.SharedChatWithDetails; chat: UIChat; userRole: UserRole | null }> => {
+				const [chat] = await chatQueries.getChat(ctx.resource.chatId, { includeFeedback: true });
+				if (!chat) {
+					throw new TRPCError({ code: 'NOT_FOUND', message: 'Chat not found.' });
 				}
-			}
 
-			const [chat] = await chatQueries.getChat(ctx.resource.chatId, { includeFeedback: true });
-			if (!chat) {
-				throw new TRPCError({ code: 'NOT_FOUND', message: 'Chat not found.' });
-			}
-
-			return { share: ctx.resource, chat };
-		}),
+				return { share: ctx.resource, chat, userRole: ctx.userRole };
+			},
+		),
 
 	getShareOptionsByChatId: chatProcedure.input(z.object({ chatId: z.string() })).query(async ({ input, ctx }) => {
 		const share = await sharedChatQueries.getShareIdByChatId(input.chatId, ctx.user.id);

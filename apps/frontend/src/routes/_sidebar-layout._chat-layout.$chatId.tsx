@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Folder, GitFork, Globe, Upload } from 'lucide-react';
 import type { ForkMetadata } from '@nao/backend/chat';
 import type { SelectionData } from '@/components/highlight-bubble';
+import { NEW_CHAT_ID } from '@/lib/ai';
 import { StoryOpenButton } from '@/components/story-open-button';
 import { StoryViewer } from '@/components/side-panel/story-viewer';
 import { ChatInput } from '@/components/chat-input';
@@ -20,6 +21,7 @@ import { SidePanelProvider } from '@/contexts/side-panel';
 import { EditableChatTitle } from '@/components/editable-chat-title';
 import { useChatQuery } from '@/queries/use-chat-query';
 import { ShareChatDialog } from '@/components/share-dialog.chat';
+import { usePermissions } from '@/hooks/use-permissions';
 import { trpc } from '@/main';
 import { SelectionProvider } from '@/contexts/text-selection';
 import { chatPendingCitationStore } from '@/stores/chat-pending-citation';
@@ -30,7 +32,25 @@ export const Route = createFileRoute('/_sidebar-layout/_chat-layout/$chatId')({
 	component: RouteComponent,
 });
 
-export function RouteComponent() {
+function RouteComponent() {
+	const { chatId } = Route.useParams();
+	const { isViewer } = usePermissions();
+	const router = useRouter();
+
+	useEffect(() => {
+		if (isViewer && chatId === NEW_CHAT_ID) {
+			router.navigate({ to: '/' });
+		}
+	}, [isViewer, chatId, router]);
+
+	if (isViewer && chatId === NEW_CHAT_ID) {
+		return null;
+	}
+
+	return <ChatPage />;
+}
+
+function ChatPage() {
 	const { isLoadingMessages, isRunning } = useAgentContext();
 	const router = useRouter();
 	const { chatId } = Route.useParams();
@@ -39,8 +59,8 @@ export function RouteComponent() {
 	const shareQuery = useQuery(trpc.sharedChat.getShareOptionsByChatId.queryOptions({ chatId: chatId ?? '' }));
 	const isShared = !!shareQuery.data?.shareId;
 	const projects = useQuery(trpc.project.listForCurrentUser.queryOptions());
-	const hasMultipleProjects = (projects.data?.length ?? 0) > 1;
-	const chatProject = hasMultipleProjects ? projects.data?.find((p) => p.id === chat.data?.projectId) : undefined;
+	const isInMultipleProjects = (projects.data?.length ?? 0) > 1;
+	const chatProject = isInMultipleProjects ? projects.data?.find((p) => p.id === chat.data?.projectId) : undefined;
 
 	const containerRef = useRef<HTMLDivElement>(null);
 	const sidePanelRef = useRef<HTMLDivElement>(null);

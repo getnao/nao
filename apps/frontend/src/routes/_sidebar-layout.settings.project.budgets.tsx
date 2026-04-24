@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { SettingsCard } from '@/components/ui/settings-card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useLlmProviders } from '@/hooks/use-llm-providers';
+import { usePermissions } from '@/hooks/use-permissions';
 import { toLocalDateString } from '@/lib/utils';
 import { trpc } from '@/main';
 
@@ -36,8 +37,7 @@ function buildFormState(data: { provider: string; limitUsd: number; period: stri
 }
 
 function RouteComponent() {
-	const project = useQuery(trpc.project.getCurrent.queryOptions());
-	const isAdmin = project.data?.userRole === 'admin';
+	const { isAdmin } = usePermissions();
 
 	const { projectConfigs, envProviders } = useLlmProviders();
 	const allConfiguredProviders = useMemo(

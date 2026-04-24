@@ -6,7 +6,9 @@ import { useSession } from '@/lib/auth-client';
 import { capitalize } from '@/lib/utils';
 import { setActiveProjectId } from '@/lib/active-project';
 import { ChatMessages } from '@/components/chat-messages/chat-messages';
+import { ViewerHome } from '@/components/viewer-home';
 import { useAgentContext } from '@/contexts/agent.provider';
+import { usePermissions } from '@/hooks/use-permissions';
 import { SavedPromptSuggestions } from '@/components/chat-saved-prompt-suggestions';
 import { ChatInput } from '@/components/chat-input';
 import { Button } from '@/components/ui/button';
@@ -20,6 +22,14 @@ export const Route = createFileRoute('/_sidebar-layout/_chat-layout/')({
 });
 
 function RouteComponent() {
+	const { isViewer } = usePermissions();
+	if (isViewer) {
+		return <ViewerHome />;
+	}
+	return <HomePage />;
+}
+
+function HomePage() {
 	const { data: session } = useSession();
 	const username = session?.user?.name;
 	const { messages } = useAgentContext();
@@ -29,7 +39,7 @@ function RouteComponent() {
 		retry: false,
 	});
 	const projects = useQuery(trpc.project.listForCurrentUser.queryOptions());
-	const hasMultipleProjects = (projects.data?.length ?? 0) > 1;
+	const isInMultipleProjects = (projects.data?.length ?? 0) > 1;
 	const showProjectSetupCue = project.error?.message === 'No project configured';
 	const emptyStateTitle = showProjectSetupCue
 		? 'Set up a project to start analyzing data'
@@ -47,10 +57,10 @@ function RouteComponent() {
 	);
 
 	return (
-		<div className='flex flex-col h-full flex-1 bg-panel min-w-72 overflow-hidden justify-center relative'>
+		<div className='flex flex-col h-full flex-1 bg-panel min-w-72 overflow-hidden justify-center'>
 			<MobileHeader />
-			{project.data && hasMultipleProjects && (
-				<div className='absolute top-3 left-4 z-10 max-md:hidden'>
+			{project.data && isInMultipleProjects && (
+				<div className='-ml-2 px-4 pt-3 md:px-8 md:pt-4 max-md:hidden'>
 					<ProjectSelector
 						projects={projects.data ?? []}
 						currentProjectId={project.data.id}

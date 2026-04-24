@@ -110,6 +110,8 @@ export interface CitationData {
 	storySlug?: string;
 }
 
+export type MessageBubble = { role: 'user' | 'assistant'; charCount: number };
+
 export const CHAT_GROUP_BY_OPTIONS = ['star', 'date', 'project', 'ownership', 'sourcePlatform', 'none'];
 export const CHAT_FILTER_OPTIONS = ['all', 'mine', 'starred', 'shared', 'shared_with_me'];
 

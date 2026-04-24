@@ -21,6 +21,7 @@ import { useTimeAgo } from '@/hooks/use-time-ago';
 import { getActiveProjectId, setActiveProjectId } from '@/lib/active-project';
 import { cn, hideIf } from '@/lib/utils';
 import { trpc } from '@/main';
+import { usePermissions } from '@/hooks/use-permissions';
 
 export function Sidebar() {
 	const navigate = useNavigate();
@@ -32,7 +33,7 @@ export function Sidebar() {
 	const projects = useQuery(trpc.project.listForCurrentUser.queryOptions());
 	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
 	const license = useQuery(trpc.license.getStatus.queryOptions());
-	const isAdmin = project.data?.userRole === 'admin';
+	const { isAdmin, isViewer } = usePermissions();
 	const isCloud = config.data?.naoMode === 'cloud';
 	const { groupBy, filters, setGroupBy, toggleFilter } = useChatViewPreferences();
 	const hasLicense = license.data?.tokenProvided === true;
@@ -70,6 +71,9 @@ export function Sidebar() {
 
 	useEffect(() => {
 		const handleKeyDown = (e: KeyboardEvent) => {
+			if (isViewer) {
+				return;
+			}
 			if (e.shiftKey && e.metaKey && e.key.toLowerCase() === 'o') {
 				e.preventDefault();
 				handleStartNewChat();
@@ -78,7 +82,7 @@ export function Sidebar() {
 
 		window.addEventListener('keydown', handleKeyDown);
 		return () => window.removeEventListener('keydown', handleKeyDown);
-	}, [handleStartNewChat]);
+	}, [handleStartNewChat, isViewer]);
 
 	useEffect(() => {
 		if (!project.data?.id) {
@@ -189,13 +193,15 @@ export function Sidebar() {
 							)}
 						</div>
 
-						<SidebarMenuButton
-							icon={PlusIcon}
-							label='New chat'
-							shortcut='⇧⌘O'
-							isCollapsed={effectiveIsCollapsed}
-							onClick={handleStartNewChat}
-						/>
+						{!isViewer && (
+							<SidebarMenuButton
+								icon={PlusIcon}
+								label='New chat'
+								shortcut='⇧⌘O'
+								isCollapsed={effectiveIsCollapsed}
+								onClick={handleStartNewChat}
+							/>
+						)}
 						<SidebarMenuButton
 							icon={SearchIcon}
 							label='Search chats'
@@ -218,6 +224,7 @@ export function Sidebar() {
 				<SidebarSettingsNav
 					isCollapsed={effectiveIsCollapsed}
 					isAdmin={isAdmin}
+					isViewer={isViewer}
 					isCloud={isCloud}
 					hasLicense={hasLicense}
 					projects={projects.data ?? []}
@@ -225,7 +232,7 @@ export function Sidebar() {
 					onProjectChange={handleProjectChange}
 				/>
 			) : (
-				<SidebarNav isCollapsed={effectiveIsCollapsed} groupBy={groupBy} filters={filters} />
+				<SidebarNav isCollapsed={effectiveIsCollapsed} groupBy={groupBy} filters={filters}  isViewer={isViewer} />
 			)}
 
 			<div className={cn('mt-auto transition-[padding] duration-300', effectiveIsCollapsed ? 'p-1' : 'p-2')}>
@@ -303,18 +310,19 @@ function SidebarNav({
 	isCollapsed,
 	groupBy,
 	filters,
+	isViewer,
 }: {
 	isCollapsed: boolean;
 	groupBy: ChatGroupBy;
 	filters: ChatFilterType[];
+	isViewer: boolean;
 }) {
 	const groupedChats = useQuery({
 		...trpc.chat.listGrouped.queryOptions({ groupBy, filters }),
 		placeholderData: keepPreviousData,
 	});
 	const groups = groupedChats.data?.groups;
-	const isEmpty = groups && groups.every((g) => g.chats.length === 0);
-
+	const isEmpty = groups?.every((group) => group.chats.length === 0);
 	return (
 		<div
 			className={cn(
@@ -328,9 +336,15 @@ function SidebarNav({
 
 			{isEmpty && (
 				<p className='text-sm text-muted-foreground text-center p-4'>
+					{isViewer ? (
+						'No chats shared with you.'
+					) : (
+						<>
 					No chats yet.
 					<br />
 					Start a new chat!
+						</>
+					)}
 				</p>
 			)}
 		</div>

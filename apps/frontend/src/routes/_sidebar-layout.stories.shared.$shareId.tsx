@@ -32,6 +32,7 @@ function SharedStoryPage() {
 	const navigate = useNavigate();
 
 	const { data: story, isLoading } = useSuspenseQuery(trpc.storyShare.get.queryOptions({ shareId }));
+	const isViewer = story?.userRole === 'viewer';
 
 	const containerRef = useRef<HTMLDivElement>(null);
 	const sidePanelRef = useRef<HTMLDivElement>(null);
@@ -133,27 +134,29 @@ function SharedStoryPage() {
 								</Link>
 							</Button>
 						) : (
-							<Button
-								variant='outline'
-								size='sm'
-								className='ml-auto gap-1.5 shrink-0'
-								onClick={() => forkMutation.mutate({ shareId, type: 'story' })}
-								disabled={forkMutation.isPending}
-							>
-								{forkMutation.isPending ? (
-									<Loader2 className='size-3.5 animate-spin' />
-								) : (
-									<MessageSquare className='size-3.5' />
-								)}
-								<span>Discuss story</span>
-							</Button>
+							!isViewer && (
+								<Button
+									variant='outline'
+									size='sm'
+									className='ml-auto gap-1.5 shrink-0'
+									onClick={() => forkMutation.mutate({ shareId, type: 'story' })}
+									disabled={forkMutation.isPending}
+								>
+									{forkMutation.isPending ? (
+										<Loader2 className='size-3.5 animate-spin' />
+									) : (
+										<MessageSquare className='size-3.5' />
+									)}
+									<span>Discuss story</span>
+								</Button>
+							)
 						)}
 					</div>
 				</header>
 
 				<SelectionProvider key={shareId} persistenceConfig={{ shareId, contentType: 'story' }}>
-					<ForkBubble shareId={shareId} contentType='story' />
-					<SelectionChatPanel contentAreaRef={contentAreaRef} />
+					{!isViewer && <ForkBubble shareId={shareId} contentType='story' />}
+					{!isViewer && <SelectionChatPanel contentAreaRef={contentAreaRef} />}
 					<div className='flex flex-1 min-h-0 min-w-0'>
 						<div ref={contentAreaRef} className='flex flex-col flex-1 min-w-0 min-h-0'>
 							<SharedStoryContent
