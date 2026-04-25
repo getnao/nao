@@ -1,5 +1,11 @@
 import type { CitationData, LlmProvider } from '@nao/shared/types';
-import { BUDGET_PERIODS, SHARE_VISIBILITY, USER_ROLES } from '@nao/shared/types';
+import {
+	BUDGET_PERIODS,
+	NOTIFICATION_CHANNELS,
+	NOTIFICATION_EVENT_TYPES,
+	SHARE_VISIBILITY,
+	USER_ROLES,
+} from '@nao/shared/types';
 import { type ProviderMetadata } from 'ai';
 import { sql } from 'drizzle-orm';
 import { check, index, integer, primaryKey, sqliteTable, text, unique } from 'drizzle-orm/sqlite-core';
@@ -706,5 +712,53 @@ export const log = sqliteTable(
 		index('log_createdAt_idx').on(t.createdAt),
 		index('log_level_idx').on(t.level),
 		index('log_projectId_idx').on(t.projectId),
+	],
+);
+
+// ─── Notification System ──────────────────────────────────────
+
+export const notification = sqliteTable(
+	'notification',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		projectId: text('project_id').references(() => project.id, { onDelete: 'cascade' }),
+		type: text('type', { enum: NOTIFICATION_EVENT_TYPES }).notNull(),
+		title: text('title').notNull(),
+		body: text('body'),
+		payload: text('payload', { mode: 'json' }).$type<Record<string, unknown>>(),
+		read: integer('read', { mode: 'boolean' }).default(false).notNull(),
+		actionUrl: text('action_url'),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+	},
+	(t) => [
+		index('notification_userId_idx').on(t.userId),
+		index('notification_userId_read_idx').on(t.userId, t.read),
+		index('notification_createdAt_idx').on(t.createdAt),
+	],
+);
+
+export const notificationPreference = sqliteTable(
+	'notification_preference',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		event: text('event', { enum: NOTIFICATION_EVENT_TYPES }).notNull(),
+		channel: text('channel', { enum: NOTIFICATION_CHANNELS }).notNull(),
+		enabled: integer('enabled', { mode: 'boolean' }).default(true).notNull(),
+	},
+	(t) => [
+		unique('notification_pref_user_event_channel').on(t.userId, t.event, t.channel),
+		index('notification_pref_userId_idx').on(t.userId),
 	],
 );

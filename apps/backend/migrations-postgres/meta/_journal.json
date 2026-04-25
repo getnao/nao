@@ -267,6 +267,13 @@
       "when": 1776332134291,
       "tag": "0037_add_citation_column",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1777148300978,
+      "tag": "0038_add_notifications",
+      "breakpoints": true
     }
   ]
 }

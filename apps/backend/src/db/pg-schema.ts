@@ -1,5 +1,11 @@
 import type { CitationData, LlmProvider } from '@nao/shared/types';
-import { BUDGET_PERIODS, SHARE_VISIBILITY, USER_ROLES } from '@nao/shared/types';
+import {
+	BUDGET_PERIODS,
+	NOTIFICATION_CHANNELS,
+	NOTIFICATION_EVENT_TYPES,
+	SHARE_VISIBILITY,
+	USER_ROLES,
+} from '@nao/shared/types';
 import { type ProviderMetadata } from 'ai';
 import { sql } from 'drizzle-orm';
 import {
@@ -660,5 +666,49 @@ export const log = pgTable(
 		index('log_createdAt_idx').on(t.createdAt),
 		index('log_level_idx').on(t.level),
 		index('log_projectId_idx').on(t.projectId),
+	],
+);
+
+export const notification = pgTable(
+	'notification',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		projectId: text('project_id').references(() => project.id, { onDelete: 'cascade' }),
+		type: text('type', { enum: NOTIFICATION_EVENT_TYPES }).notNull(),
+		title: text('title').notNull(),
+		body: text('body'),
+		payload: jsonb('payload').$type<Record<string, unknown>>(),
+		read: boolean('read').default(false).notNull(),
+		actionUrl: text('action_url'),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+	},
+	(t) => [
+		index('notification_userId_idx').on(t.userId),
+		index('notification_userId_read_idx').on(t.userId, t.read),
+		index('notification_createdAt_idx').on(t.createdAt),
+	],
+);
+
+export const notificationPreference = pgTable(
+	'notification_preference',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		event: text('event', { enum: NOTIFICATION_EVENT_TYPES }).notNull(),
+		channel: text('channel', { enum: NOTIFICATION_CHANNELS }).notNull(),
+		enabled: boolean('enabled').default(true).notNull(),
+	},
+	(t) => [
+		unique('notification_pref_user_event_channel').on(t.userId, t.event, t.channel),
+		index('notification_pref_userId_idx').on(t.userId),
 	],
 );

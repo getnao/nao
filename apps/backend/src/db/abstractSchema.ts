@@ -88,4 +88,10 @@ export type NewMessageImage = typeof sqliteSchema.messageImage.$inferInsert;
 export type DBApiKey = typeof sqliteSchema.apiKey.$inferSelect;
 export type NewApiKey = typeof sqliteSchema.apiKey.$inferInsert;
 
+export type DBNotification = typeof sqliteSchema.notification.$inferSelect;
+export type NewNotification = typeof sqliteSchema.notification.$inferInsert;
+
+export type DBNotificationPreference = typeof sqliteSchema.notificationPreference.$inferSelect;
+export type NewNotificationPreference = typeof sqliteSchema.notificationPreference.$inferInsert;
+
 export default allSchema as typeof sqliteSchema;

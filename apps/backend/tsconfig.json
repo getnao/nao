@@ -7,11 +7,13 @@
 		"strict": true,
 		"skipLibCheck": true,
 		"declaration": true,
-		"outDir": "./dist",
-		"rootDir": "./src",
 		"types": ["node", "bun-types"],
 		"verbatimModuleSyntax": false,
-		"jsx": "react-jsx"
+		"jsx": "react-jsx",
+		"paths": {
+			"@nao/shared": ["../shared/src/index.ts"],
+			"@nao/shared/*": ["../shared/src/*"]
+		}
 	},
 	"include": ["src/**/*"],
 	"exclude": ["node_modules", "dist"]

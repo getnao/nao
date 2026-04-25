@@ -7,6 +7,7 @@ import { ChatListItem } from './sidebar-chat-list-item';
 import { SharedChatListItem } from './shared-chat-list-item';
 import { SidebarUserMenu } from './sidebar-user-menu';
 import { SidebarSettingsNav } from './sidebar-settings-nav';
+import { NotificationBell } from './notification-bell';
 import { Spinner } from './ui/spinner';
 
 import StoryIcon from './ui/story-icon';
@@ -231,8 +232,14 @@ export function Sidebar() {
 				<SidebarNav chats={chats.data?.chats || []} isCollapsed={effectiveIsCollapsed} />
 			)}
 
-			<div className={cn('mt-auto transition-[padding] duration-300', effectiveIsCollapsed ? 'p-1' : 'p-2')}>
+			<div
+				className={cn(
+					'mt-auto flex flex-col gap-2 transition-[padding] duration-300',
+					effectiveIsCollapsed ? 'p-1' : 'p-2',
+				)}
+			>
 				{isInSettings && <SidebarCommunity isCollapsed={effectiveIsCollapsed} />}
+				<NotificationBell isCollapsed={effectiveIsCollapsed} />
 				<SidebarUserMenu isCollapsed={effectiveIsCollapsed} />
 			</div>
 		</div>

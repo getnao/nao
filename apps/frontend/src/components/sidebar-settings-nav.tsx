@@ -33,6 +33,10 @@ const settingsNavItems: NavItem[] = [
 		to: '/settings/account',
 	},
 	{
+		label: 'Notifications',
+		to: '/settings/notifications',
+	},
+	{
 		label: 'Organization',
 		to: '/settings/organization',
 	},

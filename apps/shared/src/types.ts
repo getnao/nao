@@ -109,3 +109,23 @@ export interface CitationData {
 	text: string;
 	storySlug?: string;
 }
+
+// ─── Notification System ──────────────────────────────────────
+
+export const NOTIFICATION_EVENT_TYPES = [
+	'negative_feedback',
+	'budget_warning',
+	'budget_exceeded',
+	'story_published',
+] as const;
+export type NotificationEventType = (typeof NOTIFICATION_EVENT_TYPES)[number];
+
+export const NOTIFICATION_CHANNELS = ['in_app', 'email'] as const;
+export type NotificationChannel = (typeof NOTIFICATION_CHANNELS)[number];
+
+export const NOTIFICATION_EVENT_LABELS: Record<NotificationEventType, string> = {
+	negative_feedback: 'Negative Feedback',
+	budget_warning: 'Budget Warning',
+	budget_exceeded: 'Budget Exceeded',
+	story_published: 'Story Published',
+};

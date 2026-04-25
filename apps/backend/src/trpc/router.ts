@@ -12,6 +12,7 @@ import { githubRoutes } from './github.routes';
 import { logRoutes } from './log.routes';
 import { mcpRoutes } from './mcp.routes';
 import { memoryRoutes } from './memory.routes';
+import { notificationRoutes } from './notification.routes';
 import { organizationRoutes } from './organization.routes';
 import { posthogRoutes } from './posthog.routes';
 import { projectRoutes } from './project.routes';
@@ -43,6 +44,7 @@ export const trpcRouter = router({
 	usage: usageRoutes,
 	user: userRoutes,
 	memory: memoryRoutes,
+	notification: notificationRoutes,
 	organization: organizationRoutes,
 	authConfig: authConfigRoutes,
 	account: accountRoutes,

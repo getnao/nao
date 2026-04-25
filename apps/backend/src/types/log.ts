@@ -3,7 +3,7 @@ import { z } from 'zod/v4';
 export const LOG_LEVELS = ['error', 'warn', 'info', 'debug'] as const;
 export type LogLevel = (typeof LOG_LEVELS)[number];
 
-export const LOG_SOURCES = ['http', 'agent', 'tool', 'system'] as const;
+export const LOG_SOURCES = ['http', 'agent', 'tool', 'system', 'notification'] as const;
 export type LogSource = (typeof LOG_SOURCES)[number];
 
 export const logFilterSchema = z.object({

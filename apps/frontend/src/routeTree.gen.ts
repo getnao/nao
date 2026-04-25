@@ -23,6 +23,7 @@ import { Route as SidebarLayoutSharedChatShareIdRouteImport } from './routes/_si
 import { Route as SidebarLayoutSettingsUsageRouteImport } from './routes/_sidebar-layout.settings.usage'
 import { Route as SidebarLayoutSettingsProjectRouteImport } from './routes/_sidebar-layout.settings.project'
 import { Route as SidebarLayoutSettingsOrganizationRouteImport } from './routes/_sidebar-layout.settings.organization'
+import { Route as SidebarLayoutSettingsNotificationsRouteImport } from './routes/_sidebar-layout.settings.notifications'
 import { Route as SidebarLayoutSettingsMemoryRouteImport } from './routes/_sidebar-layout.settings.memory'
 import { Route as SidebarLayoutSettingsLogsRouteImport } from './routes/_sidebar-layout.settings.logs'
 import { Route as SidebarLayoutSettingsContextExplorerRouteImport } from './routes/_sidebar-layout.settings.context-explorer'
@@ -115,6 +116,12 @@ const SidebarLayoutSettingsOrganizationRoute =
   SidebarLayoutSettingsOrganizationRouteImport.update({
     id: '/organization',
     path: '/organization',
+    getParentRoute: () => SidebarLayoutSettingsRoute,
+  } as any)
+const SidebarLayoutSettingsNotificationsRoute =
+  SidebarLayoutSettingsNotificationsRouteImport.update({
+    id: '/notifications',
+    path: '/notifications',
     getParentRoute: () => SidebarLayoutSettingsRoute,
   } as any)
 const SidebarLayoutSettingsMemoryRoute =
@@ -239,6 +246,7 @@ export interface FileRoutesByFullPath {
   '/settings/context-explorer': typeof SidebarLayoutSettingsContextExplorerRoute
   '/settings/logs': typeof SidebarLayoutSettingsLogsRoute
   '/settings/memory': typeof SidebarLayoutSettingsMemoryRoute
+  '/settings/notifications': typeof SidebarLayoutSettingsNotificationsRoute
   '/settings/organization': typeof SidebarLayoutSettingsOrganizationRoute
   '/settings/project': typeof SidebarLayoutSettingsProjectRouteWithChildren
   '/settings/usage': typeof SidebarLayoutSettingsUsageRoute
@@ -270,6 +278,7 @@ export interface FileRoutesByTo {
   '/settings/context-explorer': typeof SidebarLayoutSettingsContextExplorerRoute
   '/settings/logs': typeof SidebarLayoutSettingsLogsRoute
   '/settings/memory': typeof SidebarLayoutSettingsMemoryRoute
+  '/settings/notifications': typeof SidebarLayoutSettingsNotificationsRoute
   '/settings/organization': typeof SidebarLayoutSettingsOrganizationRoute
   '/settings/usage': typeof SidebarLayoutSettingsUsageRoute
   '/shared-chat/$shareId': typeof SidebarLayoutSharedChatShareIdRoute
@@ -303,6 +312,7 @@ export interface FileRoutesById {
   '/_sidebar-layout/settings/context-explorer': typeof SidebarLayoutSettingsContextExplorerRoute
   '/_sidebar-layout/settings/logs': typeof SidebarLayoutSettingsLogsRoute
   '/_sidebar-layout/settings/memory': typeof SidebarLayoutSettingsMemoryRoute
+  '/_sidebar-layout/settings/notifications': typeof SidebarLayoutSettingsNotificationsRoute
   '/_sidebar-layout/settings/organization': typeof SidebarLayoutSettingsOrganizationRoute
   '/_sidebar-layout/settings/project': typeof SidebarLayoutSettingsProjectRouteWithChildren
   '/_sidebar-layout/settings/usage': typeof SidebarLayoutSettingsUsageRoute
@@ -338,6 +348,7 @@ export interface FileRouteTypes {
     | '/settings/context-explorer'
     | '/settings/logs'
     | '/settings/memory'
+    | '/settings/notifications'
     | '/settings/organization'
     | '/settings/project'
     | '/settings/usage'
@@ -369,6 +380,7 @@ export interface FileRouteTypes {
     | '/settings/context-explorer'
     | '/settings/logs'
     | '/settings/memory'
+    | '/settings/notifications'
     | '/settings/organization'
     | '/settings/usage'
     | '/shared-chat/$shareId'
@@ -401,6 +413,7 @@ export interface FileRouteTypes {
     | '/_sidebar-layout/settings/context-explorer'
     | '/_sidebar-layout/settings/logs'
     | '/_sidebar-layout/settings/memory'
+    | '/_sidebar-layout/settings/notifications'
     | '/_sidebar-layout/settings/organization'
     | '/_sidebar-layout/settings/project'
     | '/_sidebar-layout/settings/usage'
@@ -528,6 +541,13 @@ declare module '@tanstack/react-router' {
       path: '/organization'
       fullPath: '/settings/organization'
       preLoaderRoute: typeof SidebarLayoutSettingsOrganizationRouteImport
+      parentRoute: typeof SidebarLayoutSettingsRoute
+    }
+    '/_sidebar-layout/settings/notifications': {
+      id: '/_sidebar-layout/settings/notifications'
+      path: '/notifications'
+      fullPath: '/settings/notifications'
+      preLoaderRoute: typeof SidebarLayoutSettingsNotificationsRouteImport
       parentRoute: typeof SidebarLayoutSettingsRoute
     }
     '/_sidebar-layout/settings/memory': {
@@ -723,6 +743,7 @@ interface SidebarLayoutSettingsRouteChildren {
   SidebarLayoutSettingsContextExplorerRoute: typeof SidebarLayoutSettingsContextExplorerRoute
   SidebarLayoutSettingsLogsRoute: typeof SidebarLayoutSettingsLogsRoute
   SidebarLayoutSettingsMemoryRoute: typeof SidebarLayoutSettingsMemoryRoute
+  SidebarLayoutSettingsNotificationsRoute: typeof SidebarLayoutSettingsNotificationsRoute
   SidebarLayoutSettingsOrganizationRoute: typeof SidebarLayoutSettingsOrganizationRoute
   SidebarLayoutSettingsProjectRoute: typeof SidebarLayoutSettingsProjectRouteWithChildren
   SidebarLayoutSettingsUsageRoute: typeof SidebarLayoutSettingsUsageRoute
@@ -736,6 +757,8 @@ const SidebarLayoutSettingsRouteChildren: SidebarLayoutSettingsRouteChildren = {
     SidebarLayoutSettingsContextExplorerRoute,
   SidebarLayoutSettingsLogsRoute: SidebarLayoutSettingsLogsRoute,
   SidebarLayoutSettingsMemoryRoute: SidebarLayoutSettingsMemoryRoute,
+  SidebarLayoutSettingsNotificationsRoute:
+    SidebarLayoutSettingsNotificationsRoute,
   SidebarLayoutSettingsOrganizationRoute:
     SidebarLayoutSettingsOrganizationRoute,
   SidebarLayoutSettingsProjectRoute:

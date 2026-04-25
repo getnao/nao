@@ -55,10 +55,12 @@ class EmailService {
 				html: email.html,
 			});
 		} catch (error) {
-			logger.error(`Failed to send email to ${to}: ${String(error)}`, { source: 'system', context: { to } });
+			logger.error(`Failed to send email to ${to}: ${String(error)}`, {
+				source: 'system',
+				context: { to },
+			});
 		}
 	}
 }
 
-// Singleton instance of the email service
 export const emailService = new EmailService();

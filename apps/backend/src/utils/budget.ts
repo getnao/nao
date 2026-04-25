@@ -5,8 +5,8 @@ import type { DBProjectProviderBudget } from '../db/abstractSchema';
 import * as budgetQueries from '../queries/budget.queries';
 import * as projectQueries from '../queries/project.queries';
 import { emailService } from '../services/email';
+import { notify } from '../services/notification.service';
 import type { BudgetPeriod } from '../types/budget';
-import { buildBudgetLimitReachedEmail } from './email-builders';
 import { BudgetExceededError } from './error';
 import { logger } from './logger';
 
@@ -85,12 +85,15 @@ async function notifyAdminsOnBudgetLimitReached(
 	const label = providerLabels[budget.provider as LlmProvider] ?? budget.provider;
 
 	try {
-		await Promise.all(
+		await Promise.allSettled(
 			admins.map((admin) =>
-				emailService.sendEmail(
-					admin.email,
-					buildBudgetLimitReachedEmail(admin, label, budget.limitUsd, currentSpendUsd, period, resetLabel),
-				),
+				notify(admin.id, 'budget_exceeded', {
+					title: `Budget limit reached for ${label}`,
+					body: `Current spend: $${currentSpendUsd.toFixed(2)} / $${budget.limitUsd} per ${period}. Resets ${resetLabel}.`,
+					projectId,
+					actionUrl: '/settings/project/budgets',
+					data: { providerLabel: label, limitUsd: budget.limitUsd, currentSpendUsd, period, resetLabel },
+				}),
 			),
 		);
 	} catch (error) {

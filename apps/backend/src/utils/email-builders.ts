@@ -2,6 +2,7 @@ import { renderToString } from 'react-dom/server';
 
 import { BudgetLimitReached } from '../components/email/budget-limit-reached';
 import { ForgotPassword } from '../components/email/forgot-password';
+import { NotificationAlert } from '../components/email/notification-alert';
 import { ResetPassword } from '../components/email/reset-password';
 import { SharedItemEmail } from '../components/email/shared-item-email';
 import { UserAddedToProject } from '../components/email/user-added-to-project';
@@ -75,6 +76,24 @@ export function buildBudgetLimitReachedEmail(
 			currentSpendUsd,
 			period,
 			resetLabel,
+		}),
+	);
+	return { subject, html };
+}
+
+export function buildNotificationAlertEmail(
+	user: { name: string },
+	title: string,
+	body?: string,
+	actionUrl?: string,
+): CreatedEmail {
+	const subject = `${title} — nao`;
+	const html = renderToString(
+		NotificationAlert({
+			userName: user.name,
+			title,
+			body,
+			actionUrl,
 		}),
 	);
 	return { subject, html };
