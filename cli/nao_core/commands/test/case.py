@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
+from dataclasses import field
 
 import yaml
 
@@ -16,6 +17,7 @@ class TestCase:
     prompt: str
     file_path: Path
     sql: str
+    assertions: list[dict] = field(default_factory=list)
 
     @classmethod
     def from_yaml(cls, file_path: Path) -> "TestCase":
@@ -28,6 +30,7 @@ class TestCase:
             prompt=data["prompt"],
             sql=data.get("sql"),
             file_path=file_path,
+            assertions=data.get("assertions", [])
         )
 
 

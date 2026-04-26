@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
 from datetime import datetime
@@ -18,6 +19,33 @@ from .client import AgentClientError, VerificationResult, get_client
 
 # Default models to test
 DEFAULT_MODELS = ["openai:gpt-4.1"]
+
+def run_assertion(assertion: dict, response: str) -> tuple[bool, str]:
+    a_type= assertion.get("type")
+    val= str(assertion.get("value", ""))
+
+    response_low = (response or "").lower()
+    val_low= val.lower()
+
+    if a_type == "reference_table":
+        if val_low not in response_low:
+            return False, f"Expected to use table '{val}' but it was not found in response."
+        
+    elif a_type == "match_regex":
+        if not re.search(val, response_low, re.IGNORECASE):
+            return False, f"Pattern not found: {val}"
+        
+    elif a_type == "contains_metric":
+        if val_low not in response_low:
+            return False, f"Missing metric: {val}"
+
+        
+    elif a_type == "no_hallucination":
+        if val_low in response_low:
+            return False, f"Found forbidden term: {val}"
+        
+    return True, ""
+        
 
 
 @dataclass
@@ -185,57 +213,54 @@ def run_test(
 
     try:
         result = client.run_test(test_case, provider=model.provider, model_id=model.model_id)
+        response_text = result.text or ""
 
-        if result.text:
-            UI.print(f"[dim]  Response: {result.text[:200]}...[/dim]")
+        # 1. Start with a clean slate
+        passed, msg, comparison = True, "match", None
 
-        tool_call_count = len(result.tool_calls) if result.tool_calls else 0
-        if result.tool_calls:
-            tools = [tc.get("toolName") for tc in result.tool_calls]
-            UI.print(f"[dim]  Tool calls: {tool_call_count} {tools}[/dim]")
-
-        UI.print(f"[dim]  Tokens: {result.usage.totalTokens}[/dim]")
-        UI.print(f"[dim]  Cost: ${result.cost.totalCost}[/dim]")
-        UI.print(f"[dim]  Time: {result.duration_ms}ms[/dim]")
-
+        # 2. GATE 1: THE MATH (Data Verification)
         if result.verification:
             passed, msg, comparison = check_dataframe(result.verification)
+
+        # 3. GATE 2: THE LOGIC (Behavioral Assertions)
+        # Only check logic if Gate 1 didn't already fail
+        if passed and test_case.assertions:
+            for a in test_case.assertions:
+                a_passed, a_err = run_assertion(a, response_text)
+                if not a_passed:
+                    passed = False
+                    msg = a_err
+                    break 
+
+        # 4. FINAL REPORTING (Wait until both gates finish)
+        if result.verification or test_case.assertions:
             status = "[green]✓[/green]" if passed else "[red]✗[/red]"
             UI.print(f"  {status} {msg}")
-            return TestRunResult(
-                name=test_case.name,
-                model=str(model),
-                passed=passed,
-                message=msg,
-                tokens=result.usage.totalTokens,
-                cost=result.cost.totalCost,
-                duration_ms=result.duration_ms,
-                tool_call_count=tool_call_count,
-                details=TestRunDetails(
-                    response_text=result.text,
-                    actual_data=result.verification.data,
-                    expected_data=result.verification.expectedData,
-                    comparison=comparison,
-                    tool_calls=result.tool_calls,
-                ),
-            )
+        else:
+            msg = "no verification"
+            UI.print("[yellow]  ⚠ no verification data[/yellow]")
 
-        UI.print("[yellow]  ⚠ no verification data[/yellow]")
+        # 5. SINGLE RETURN (Handles every scenario)
         return TestRunResult(
             name=test_case.name,
             model=str(model),
-            passed=True,
-            message="no verification",
+            passed=passed,
+            message=msg,
             tokens=result.usage.totalTokens,
             cost=result.cost.totalCost,
             duration_ms=result.duration_ms,
-            tool_call_count=tool_call_count,
+            tool_call_count=len(result.tool_calls) if result.tool_calls else 0,
             details=TestRunDetails(
                 response_text=result.text,
+                actual_data=result.verification.data if result.verification else None,
+                expected_data=result.verification.expectedData if result.verification else None,
+                comparison=comparison,
                 tool_calls=result.tool_calls,
             ),
         )
-
+        
+        
+        
     except AgentClientError as e:
         UI.error(str(e))
         return TestRunResult(
