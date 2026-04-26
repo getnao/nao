@@ -20,9 +20,22 @@ from .client import AgentClientError, VerificationResult, get_client
 # Default models to test
 DEFAULT_MODELS = ["openai:gpt-4.1"]
 
+VALID_ASSERTIONS = {
+    "reference_table",
+    "contains_metric",
+    "no_hallucination",
+    "match_regex",
+}
+
 def run_assertion(assertion: dict, response: str) -> tuple[bool, str]:
     a_type= assertion.get("type")
-    val= str(assertion.get("value", ""))
+    val= assertion.get("value")
+
+    if not a_type or val is None:
+        return False, "Invalid assertion: missing type or value"
+
+    if a_type not in VALID_ASSERTIONS:
+        return False, f"Unknown assertion type: {a_type}"
 
     response_low = (response or "").lower()
     val_low= val.lower()
@@ -32,9 +45,12 @@ def run_assertion(assertion: dict, response: str) -> tuple[bool, str]:
             return False, f"Expected to use table '{val}' but it was not found in response."
         
     elif a_type == "match_regex":
-        if not re.search(val, response_low, re.IGNORECASE):
-            return False, f"Pattern not found: {val}"
-        
+        try:
+            if not re.search(val, response, re.IGNORECASE):
+                return False, f"Pattern not found: {val}"
+        except re.error:
+            return False, f"Invalid regex pattern: {val}"
+
     elif a_type == "contains_metric":
         if val_low not in response_low:
             return False, f"Missing metric: {val}"
