@@ -10,7 +10,7 @@ import { adminProtectedProcedure, projectProtectedProcedure, protectedProcedure,
 
 export const userRoutes = {
 	countAll: publicProcedure.query(() => {
-		return userQueries.countAll();
+		return userQueries.countUsers();
 	}),
 
 	get: projectProtectedProcedure.input(z.object({ userId: z.string() })).query(async ({ input, ctx }) => {
@@ -18,7 +18,7 @@ export const userRoutes = {
 			throw new TRPCError({ code: 'FORBIDDEN', message: 'Only admins can access other users information' });
 		}
 
-		const user = await userQueries.get({ id: input.userId });
+		const user = await userQueries.getUser({ id: input.userId });
 		if (!user) {
 			return null;
 		}
@@ -45,13 +45,13 @@ export const userRoutes = {
 					});
 				}
 			}
-			const previousName = await userQueries.getName(input.userId);
+			const previousName = await userQueries.getUserName(input.userId);
 
 			if (ctx.project && input.newRole && input.newRole !== previousRole) {
 				await projectQueries.updateProjectMemberRole(ctx.project.id, input.userId, input.newRole);
 			}
 			if (ctx.project && input.name && input.name !== previousName) {
-				await userQueries.modify(input.userId, input.name);
+				await userQueries.updateUser(input.userId, input.name);
 			}
 		}),
 
@@ -77,7 +77,7 @@ export const userRoutes = {
 		}),
 
 	getMemorySettings: protectedProcedure.query(async ({ ctx }) => {
-		const memoryEnabled = await userQueries.getMemoryEnabled(ctx.user.id);
+		const memoryEnabled = await userQueries.getUserMemoryEnabled(ctx.user.id);
 		return { memoryEnabled };
 	}),
 

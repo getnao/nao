@@ -34,7 +34,7 @@ export async function transcribeAudio(
 	return result.text;
 }
 
-export async function getAvailableModels(projectId: string) {
+export async function listAvailableTranscribeModels(projectId: string) {
 	const available: Record<
 		string,
 		{

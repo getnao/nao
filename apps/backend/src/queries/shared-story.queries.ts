@@ -138,7 +138,7 @@ export async function listProjectSharedStories(projectId: string, userId: string
 	});
 }
 
-export async function collectQueryData(
+export async function getQueryDataFromCode(
 	chatId: string,
 	code: string,
 ): Promise<Record<string, { data: unknown[]; columns: string[] }> | null> {
@@ -174,30 +174,14 @@ export async function collectQueryData(
 	return Object.keys(data).length > 0 ? data : null;
 }
 
-export async function findByStory(storyId: string, userId: string): Promise<{ id: string; visibility: string } | null> {
+export async function getSharedStoryInfo(
+	storyId: string,
+	userId: string,
+): Promise<{ id: string; visibility: string } | null> {
 	const [row] = await db
 		.select({ id: s.sharedStory.id, visibility: s.sharedStory.visibility })
 		.from(s.sharedStory)
 		.where(and(eq(s.sharedStory.storyId, storyId), eq(s.sharedStory.userId, userId)))
-		.orderBy(desc(s.sharedStory.createdAt))
-		.limit(1)
-		.execute();
-
-	return row ?? null;
-}
-
-export async function findShareForStory(
-	storyId: string,
-	projectId: string,
-): Promise<{ id: string; visibility: string; userId: string } | null> {
-	const [row] = await db
-		.select({
-			id: s.sharedStory.id,
-			visibility: s.sharedStory.visibility,
-			userId: s.sharedStory.userId,
-		})
-		.from(s.sharedStory)
-		.where(and(eq(s.sharedStory.storyId, storyId), eq(s.sharedStory.projectId, projectId)))
 		.orderBy(desc(s.sharedStory.createdAt))
 		.limit(1)
 		.execute();
@@ -215,7 +199,7 @@ export async function getSharedStoryAllowedUserIds(sharedStoryId: string): Promi
 	return rows.map((r) => r.userId);
 }
 
-export async function updateAllowedUsers(sharedStoryId: string, userIds: string[]): Promise<void> {
+export async function updateSharedStoryAllowedUsers(sharedStoryId: string, userIds: string[]): Promise<void> {
 	await db.delete(s.sharedStoryAccess).where(eq(s.sharedStoryAccess.sharedStoryId, sharedStoryId)).execute();
 
 	if (userIds.length > 0) {

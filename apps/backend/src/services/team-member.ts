@@ -26,7 +26,7 @@ export async function addTeamMember({
 	buildEmail,
 }: AddMemberOptions): Promise<AddMemberResult> {
 	const normalizedEmail = email.toLowerCase();
-	const user = await userQueries.get({ email: normalizedEmail });
+	const user = await userQueries.getUser({ email: normalizedEmail });
 
 	if (!user) {
 		if (!name) {
@@ -38,7 +38,7 @@ export async function addTeamMember({
 		const password = crypto.randomUUID().slice(0, 8);
 		const hashedPassword = await hashPassword(password);
 
-		const newUser = await userQueries.create(
+		const newUser = await userQueries.createUser(
 			{ id: userId, name, email: normalizedEmail, requiresPasswordReset: true },
 			{ id: accountId, userId, accountId: userId, providerId: 'credential', password: hashedPassword },
 		);

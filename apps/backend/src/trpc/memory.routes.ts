@@ -11,7 +11,7 @@ export const memoryRoutes = {
 	setEnabled: projectProtectedProcedure
 		.input(z.object({ memoryEnabled: z.boolean() }))
 		.mutation(async ({ ctx, input }) => {
-			await userQueries.setMemoryEnabled(ctx.user.id, input.memoryEnabled);
+			await userQueries.setUserMemoryEnabled(ctx.user.id, input.memoryEnabled);
 			posthog.capture(ctx.user.id, PostHogEvent.AgentMemoryEnabledUpdated, {
 				project_id: ctx.project.id,
 				memory_enabled: input.memoryEnabled,

@@ -83,7 +83,7 @@ app.setErrorHandler((error, request, reply) => {
 
 // Log HTTP requests to the database (skip log-polling to avoid self-referential noise)
 app.addHook('onResponse', (request, reply, done) => {
-	if (request.url.includes('log.getLogs')) {
+	if (request.url.includes('log.listLogs')) {
 		done();
 		return;
 	}

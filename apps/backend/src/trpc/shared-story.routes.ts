@@ -119,7 +119,7 @@ export const sharedStoryRoutes = {
 		return { queryData, cachedAt: new Date() };
 	}),
 
-	findByStory: projectProtectedProcedure
+	getSharedStoryInfo: projectProtectedProcedure
 		.input(z.object({ chatId: z.string(), storySlug: z.string() }))
 		.query(async ({ input, ctx }) => {
 			const story = await storyQueries.getStoryByChatAndSlug(input.chatId, input.storySlug);
@@ -127,7 +127,7 @@ export const sharedStoryRoutes = {
 				return { shareId: null, visibility: null, allowedUserIds: [] };
 			}
 
-			const share = await sharedStoryQueries.findByStory(story.id, ctx.user.id);
+			const share = await sharedStoryQueries.getSharedStoryInfo(story.id, ctx.user.id);
 			if (!share) {
 				return { shareId: null, visibility: null, allowedUserIds: [] };
 			}
@@ -148,7 +148,7 @@ export const sharedStoryRoutes = {
 			}
 
 			const previousAllowedUserIds = await sharedStoryQueries.getSharedStoryAllowedUserIds(input.shareId);
-			await sharedStoryQueries.updateAllowedUsers(input.shareId, input.allowedUserIds);
+			await sharedStoryQueries.updateSharedStoryAllowedUsers(input.shareId, input.allowedUserIds);
 
 			const newlyAddedUserIds = input.allowedUserIds.filter((id) => !previousAllowedUserIds.includes(id));
 			if (newlyAddedUserIds.length > 0) {

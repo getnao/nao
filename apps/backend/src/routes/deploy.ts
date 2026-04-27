@@ -83,7 +83,7 @@ export const deployRoutes = async (app: App) => {
 				projectId = project.id;
 				status = 'created';
 
-				const orgMembers = await orgQueries.getOrgMembersWithUsers(org.id);
+				const orgMembers = await orgQueries.listOrgMembersWithUsers(org.id);
 				for (const member of orgMembers) {
 					await projectQueries.addProjectMember({
 						projectId,

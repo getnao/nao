@@ -11,7 +11,7 @@ export function useMemberPicker(currentUserId: string | undefined, initialIds?: 
 		enabled: !!chatId,
 	});
 	const membersDefaultQuery = useQuery({
-		...trpc.project.getAllUsersWithRoles.queryOptions(),
+		...trpc.project.listAllUsersWithRoles.queryOptions(),
 		enabled: !chatId,
 	});
 	const membersQuery = chatId ? membersByChatQuery : membersDefaultQuery;

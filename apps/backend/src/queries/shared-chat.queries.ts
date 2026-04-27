@@ -132,7 +132,7 @@ export async function getShareAllowedUserIds(shareId: string): Promise<string[]>
 	return rows.map((r) => r.userId);
 }
 
-export async function updateAllowedUsers(shareId: string, userIds: string[]): Promise<void> {
+export async function updateSharedChatAllowedUsers(shareId: string, userIds: string[]): Promise<void> {
 	await db.transaction(async (tx) => {
 		await tx.delete(s.sharedChatAccess).where(eq(s.sharedChatAccess.sharedChatId, shareId)).execute();
 		if (userIds.length > 0) {

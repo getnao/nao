@@ -16,7 +16,7 @@ interface SlackConfigSectionProps {
 export function SlackConfigSection({ isAdmin }: SlackConfigSectionProps) {
 	const queryClient = useQueryClient();
 	const slackConfig = useQuery(trpc.project.getSlackConfig.queryOptions());
-	const { data: availableModels } = useQuery(trpc.project.getAvailableModels.queryOptions());
+	const { data: availableModels } = useQuery(trpc.project.listAvailableTranscribeModels.queryOptions());
 
 	const [isEditing, setIsEditing] = useState(false);
 	type AvailableModel = NonNullable<typeof availableModels>[number];

@@ -96,7 +96,7 @@ async function forkSharedStoryItem(
 		return { chatId: chat.id };
 	}
 
-	const queryData = await sharedStoryQueries.collectQueryData(share.chatId, share.code);
+	const queryData = await sharedStoryQueries.getQueryDataFromCode(share.chatId, share.code);
 	const messages = buildQueryDataMessages(queryData);
 
 	const chat = await chatQueries.createForkedChat({ projectId, userId, title: share.title, forkMetadata }, messages);
@@ -196,7 +196,7 @@ function buildQueryDataMessages(
 }
 
 async function createStoryInFork(chatId: string, slug: string, title: string, code: string): Promise<void> {
-	const version = await storyQueries.createVersion({
+	const version = await storyQueries.createStoryVersion({
 		chatId,
 		slug,
 		title,
@@ -235,7 +235,7 @@ async function copyStoriesToFork(sourceChatId: string, forkChatId: string): Prom
 			if (!latest) {
 				return;
 			}
-			await storyQueries.createVersion({
+			await storyQueries.createStoryVersion({
 				chatId: forkChatId,
 				slug,
 				title: latest.title,

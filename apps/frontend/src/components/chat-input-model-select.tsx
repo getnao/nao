@@ -9,7 +9,7 @@ import { trpc } from '@/main';
 
 export function ChatInputModelSelect() {
 	const { selectedModel, setSelectedModel } = useAgentContext();
-	const { data: availableModels, isPending } = useQuery(trpc.project.getAvailableModels.queryOptions());
+	const { data: availableModels, isPending } = useQuery(trpc.project.listAvailableTranscribeModels.queryOptions());
 	const hasMultipleModels = Boolean(availableModels && availableModels.length > 1);
 
 	// Set default model when available models load, or reset if current selection is no longer available

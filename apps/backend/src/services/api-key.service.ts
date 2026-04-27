@@ -35,7 +35,7 @@ export const validateApiKey = async (plaintext: string): Promise<DBOrganization 
 		return null;
 	}
 
-	apiKeyQueries.updateLastUsed(apiKey.id).catch(() => {});
+	apiKeyQueries.updateApiKeyLastUsed(apiKey.id).catch(() => {});
 
 	const { getOrganizationById } = await import('../queries/organization.queries');
 	return getOrganizationById(apiKey.orgId);

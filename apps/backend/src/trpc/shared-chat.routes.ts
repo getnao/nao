@@ -88,14 +88,14 @@ export const sharedChatRoutes = {
 				throw new TRPCError({ code: 'FORBIDDEN', message: 'Only the creator or an admin can update this.' });
 			}
 
-			const projectMembers = await projectQueries.getAllUsersWithRoles(ctx.resource.projectId);
+			const projectMembers = await projectQueries.listAllUsersWithRoles(ctx.resource.projectId);
 			const memberIds = new Set(projectMembers.map((m) => m.id));
 			const validUserIds = input.allowedUserIds.filter((id) => memberIds.has(id));
 			if (input.allowedUserIds.length > 0 && validUserIds.length === 0) {
 				throw new TRPCError({ code: 'BAD_REQUEST', message: 'No valid project members in the provided list.' });
 			}
 
-			await sharedChatQueries.updateAllowedUsers(input.shareId, validUserIds);
+			await sharedChatQueries.updateSharedChatAllowedUsers(input.shareId, validUserIds);
 
 			notifySharedItemRecipients({
 				projectId: ctx.resource.projectId,

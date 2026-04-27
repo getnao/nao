@@ -16,7 +16,7 @@ interface TelegramConfigSectionProps {
 export function TelegramConfigSection({ isAdmin }: TelegramConfigSectionProps) {
 	const queryClient = useQueryClient();
 	const telegramConfig = useQuery(trpc.project.getTelegramConfig.queryOptions());
-	const { data: availableModels } = useQuery(trpc.project.getAvailableModels.queryOptions());
+	const { data: availableModels } = useQuery(trpc.project.listAvailableTranscribeModels.queryOptions());
 
 	const [isEditing, setIsEditing] = useState(false);
 	type AvailableModel = NonNullable<typeof availableModels>[number];

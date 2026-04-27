@@ -22,6 +22,6 @@ export const deleteApiKey = async (id: string): Promise<void> => {
 	await db.delete(s.apiKey).where(eq(s.apiKey.id, id)).execute();
 };
 
-export const updateLastUsed = async (id: string): Promise<void> => {
+export const updateApiKeyLastUsed = async (id: string): Promise<void> => {
 	await db.update(s.apiKey).set({ lastUsedAt: new Date() }).where(eq(s.apiKey.id, id)).execute();
 };

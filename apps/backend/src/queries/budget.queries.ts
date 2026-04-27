@@ -85,7 +85,7 @@ export const upsertProjectProviderBudget = async (
 	return created;
 };
 
-export const setBudgets = async (
+export const setProjectProviderBudgets = async (
 	projectId: string,
 	budgets: Array<{ provider: LlmProvider; limitUsd: number; period: BudgetPeriod }>,
 ): Promise<DBProjectProviderBudget[]> => {

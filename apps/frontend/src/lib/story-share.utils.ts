@@ -5,7 +5,10 @@ import type { UIMessage } from '@nao/backend/chat';
  * matching SQL query result data from chat messages so embeds can render
  * in the shared standalone view.
  */
-export function collectQueryDataFromMessages(messages: UIMessage[], code: string): Record<string, unknown[]> | null {
+export function getQueryDataFromCodeFromMessages(
+	messages: UIMessage[],
+	code: string,
+): Record<string, unknown[]> | null {
 	const chartRegex = /<(?:chart|table)\s+[^>]*query_id="([^"]*)"[^>]*\/?>/g;
 	const queryIds = new Set<string>();
 	let match;

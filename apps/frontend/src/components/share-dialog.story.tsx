@@ -24,7 +24,7 @@ interface ShareStoryDialogProps {
 }
 
 export function ShareStoryDialog({ open, onOpenChange, chatId, storySlug }: ShareStoryDialogProps) {
-	const shareQuery = useQuery(trpc.storyShare.findByStory.queryOptions({ chatId, storySlug }));
+	const shareQuery = useQuery(trpc.storyShare.getSharedStoryInfo.queryOptions({ chatId, storySlug }));
 	const shareData = shareQuery.data;
 	const isShared = !!shareData?.shareId;
 
@@ -52,7 +52,7 @@ export function ShareStoryDialog({ open, onOpenChange, chatId, storySlug }: Shar
 function useInvalidateShareQueries(chatId: string, storySlug: string) {
 	const queryClient = useQueryClient();
 	return useCallback(() => {
-		queryClient.invalidateQueries({ queryKey: trpc.storyShare.findByStory.queryKey({ chatId, storySlug }) });
+		queryClient.invalidateQueries({ queryKey: trpc.storyShare.getSharedStoryInfo.queryKey({ chatId, storySlug }) });
 		queryClient.invalidateQueries({ queryKey: trpc.storyShare.list.queryKey() });
 	}, [queryClient, chatId, storySlug]);
 }

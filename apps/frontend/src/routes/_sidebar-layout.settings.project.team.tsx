@@ -28,7 +28,7 @@ function ProjectTeamTabPage() {
 	const { data: session } = useSession();
 	const queryClient = useQueryClient();
 	const project = useQuery(trpc.project.getCurrent.queryOptions());
-	const usersWithRoles = useQuery(trpc.project.getAllUsersWithRoles.queryOptions());
+	const usersWithRoles = useQuery(trpc.project.listAllUsersWithRoles.queryOptions());
 	const isAdmin = project.data?.userRole === 'admin';
 
 	const [isAddOpen, setIsAddOpen] = useState(false);
@@ -51,7 +51,7 @@ function ProjectTeamTabPage() {
 	const resetPassword = useMutation(trpc.account.resetPassword.mutationOptions());
 
 	const invalidateMembers = useCallback(() => {
-		queryClient.invalidateQueries({ queryKey: trpc.project.getAllUsersWithRoles.queryKey() });
+		queryClient.invalidateQueries({ queryKey: trpc.project.listAllUsersWithRoles.queryKey() });
 	}, [queryClient]);
 
 	const handleAdd = async (data: { email: string; name?: string }) => {

@@ -42,7 +42,7 @@ export default createTool<story.Input, story.Output>({
 				return fail(`Story "${input.id}" already exists. Use "update" or "replace" instead.`);
 			}
 
-			const version = await storyQueries.createVersion({
+			const version = await storyQueries.createStoryVersion({
 				chatId,
 				slug: input.id,
 				title: input.title,
@@ -78,7 +78,7 @@ export default createTool<story.Input, story.Output>({
 			const newCode = `${existing.code.slice(0, searchIndex)}${input.replace}${existing.code.slice(
 				searchIndex + input.search.length,
 			)}`;
-			const version = await storyQueries.createVersion({
+			const version = await storyQueries.createStoryVersion({
 				chatId,
 				slug: input.id,
 				title: existing.title,
@@ -102,7 +102,7 @@ export default createTool<story.Input, story.Output>({
 			return fail('"code" is required for the "replace" action.', existing);
 		}
 
-		const version = await storyQueries.createVersion({
+		const version = await storyQueries.createStoryVersion({
 			chatId,
 			slug: input.id,
 			title: existing.title,

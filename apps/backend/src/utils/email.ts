@@ -30,7 +30,7 @@ export async function notifySharedItemRecipients({
 	allowedUserIds?: string[];
 }): Promise<void> {
 	const itemUrl = itemUrls[itemLabel](shareId);
-	const allMembers = await projectQueries.getAllUsersWithRoles(projectId);
+	const allMembers = await projectQueries.listAllUsersWithRoles(projectId);
 
 	const recipients =
 		visibility === 'project'

@@ -16,7 +16,7 @@ import * as whatsappConfigQueries from '../queries/project-whatsapp-config.queri
 import * as projectWhatsappLinkQueries from '../queries/project-whatsapp-link.queries';
 import * as userQueries from '../queries/user.queries';
 import { posthog, PostHogEvent } from '../services/posthog';
-import { getAvailableModels as getAvailableTranscribeModels } from '../services/transcribe.service';
+import { listAvailableTranscribeModels as getAvailableTranscribeModels } from '../services/transcribe.service';
 import { AgentSettings } from '../types/agent-settings';
 import { llmConfigSchema, llmProviderSchema } from '../types/llm';
 import { isValidIsoDateString } from '../utils/date';
@@ -106,7 +106,7 @@ export const projectRoutes = {
 		}),
 
 	/** Get all available models for the current project (for user model selection) */
-	getAvailableModels: projectProtectedProcedure
+	listAvailableTranscribeModels: projectProtectedProcedure
 		.output(
 			z.array(
 				z.object({
@@ -411,7 +411,7 @@ export const projectRoutes = {
 	regenerateMessagingProviderCode: adminProtectedProcedure
 		.input(z.object({ userId: z.string() }))
 		.mutation(async ({ ctx, input }) => {
-			const members = await projectQueries.getAllUsersWithRoles(ctx.project.id);
+			const members = await projectQueries.listAllUsersWithRoles(ctx.project.id);
 			const isMember = members.some((m) => m.id === input.userId);
 			if (!isMember) {
 				throw new TRPCError({ code: 'FORBIDDEN', message: 'User is not a member of this project' });
@@ -420,7 +420,7 @@ export const projectRoutes = {
 		}),
 
 	getCurrentUserMessagingProviderCode: projectProtectedProcedure.query(async ({ ctx }) => {
-		const user = await userQueries.get({ id: ctx.user.id });
+		const user = await userQueries.getUser({ id: ctx.user.id });
 		if (!user) {
 			throw new TRPCError({ code: 'NOT_FOUND', message: 'User not found' });
 		}
@@ -532,11 +532,11 @@ export const projectRoutes = {
 			return { success: true };
 		}),
 
-	getAllUsersWithRoles: projectProtectedProcedure.query(async ({ ctx }) => {
+	listAllUsersWithRoles: projectProtectedProcedure.query(async ({ ctx }) => {
 		if (!ctx.project) {
 			return [];
 		}
-		return projectQueries.getAllUsersWithRoles(ctx.project.id);
+		return projectQueries.listAllUsersWithRoles(ctx.project.id);
 	}),
 
 	getProjectMembersByChatId: protectedProcedure
@@ -550,7 +550,7 @@ export const projectRoutes = {
 			if (!role) {
 				throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this project.' });
 			}
-			return projectQueries.getAllUsersWithRoles(projectId);
+			return projectQueries.listAllUsersWithRoles(projectId);
 		}),
 
 	getKnownModels: publicProcedure.query(() => {
@@ -577,7 +577,7 @@ export const projectRoutes = {
 		}),
 
 	getSavedPrompts: projectProtectedProcedure.query(async ({ ctx }) => {
-		return savedPromptQueries.getAll(ctx.project.id);
+		return savedPromptQueries.listSavedPrompts(ctx.project.id);
 	}),
 
 	createSavedPrompt: adminProtectedProcedure
@@ -588,7 +588,7 @@ export const projectRoutes = {
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
-			const saved = await savedPromptQueries.create({
+			const saved = await savedPromptQueries.createSavedPrompt({
 				projectId: ctx.project.id,
 				title: input.title,
 				prompt: input.prompt,
@@ -610,7 +610,7 @@ export const projectRoutes = {
 		)
 		.mutation(async ({ ctx, input }) => {
 			const { id: promptId, ...data } = input;
-			const updated = await savedPromptQueries.update(ctx.project.id, promptId, data);
+			const updated = await savedPromptQueries.updateSavedPrompt(ctx.project.id, promptId, data);
 			if (!updated) {
 				throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Failed to update saved prompt' });
 			}
@@ -624,7 +624,7 @@ export const projectRoutes = {
 	deleteSavedPrompt: adminProtectedProcedure
 		.input(z.object({ promptId: z.string() }))
 		.mutation(async ({ ctx, input }) => {
-			await savedPromptQueries.remove(ctx.project.id, input.promptId);
+			await savedPromptQueries.deleteSavedPrompt(ctx.project.id, input.promptId);
 			posthog.capture(ctx.user.id, PostHogEvent.SavedPromptDeleted, {
 				project_id: ctx.project.id,
 				saved_prompt_id: input.promptId,
