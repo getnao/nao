@@ -15,3 +15,11 @@ export async function requireAdminNonCloud() {
 		throw redirect({ to: '/settings/account' });
 	}
 }
+
+export async function requireAdminNonCloudWithLicense() {
+	await requireAdminNonCloud();
+	const license = await queryClient.ensureQueryData(trpc.license.getStatus.queryOptions());
+	if (!license.tokenProvided) {
+		throw redirect({ to: '/settings/account' });
+	}
+}

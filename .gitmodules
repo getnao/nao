@@ -1,0 +1,4 @@
+[submodule "ee"]
+	path = ee
+	url = git@github.com:getnao/nao-ee.git
+	branch = main

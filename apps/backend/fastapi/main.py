@@ -96,6 +96,7 @@ class ExecuteSQLRequest(BaseModel):
     nao_project_folder: str
     database_id: str | None = None
     env_vars: dict[str, str] | None = None
+    azure_access_token: str | None = None
 
 
 class ExecuteSQLResponse(BaseModel):
@@ -261,7 +262,12 @@ async def execute_sql(request: ExecuteSQLRequest):
                 },
             )
 
-        df = db_config.execute_sql(request.sql)
+        if request.azure_access_token and hasattr(db_config, "execute_sql_with_token"):
+            df = db_config.execute_sql_with_token(
+                request.sql, request.azure_access_token
+            )
+        else:
+            df = db_config.execute_sql(request.sql)
 
         data = [
             {k: _convert_value(v) for k, v in row.items()}

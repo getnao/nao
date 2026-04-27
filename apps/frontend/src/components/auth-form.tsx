@@ -2,10 +2,11 @@ import { useQuery } from '@tanstack/react-query';
 import { trpc } from '../main';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { handleGithubSignIn, handleGoogleSignIn } from '@/lib/auth-client';
 import GithubIcon from '@/components/icons/github-icon.svg';
 import GoogleIcon from '@/components/icons/google-icon.svg';
 import NaoLogo from '@/components/icons/nao-full-logo.svg';
+import { handleGithubSignIn, handleGoogleSignIn } from '@/lib/auth-client';
+import { useEeAuthProviders } from '@/lib/ee';
 
 interface AuthFormProps {
 	form: any;
@@ -28,6 +29,9 @@ export function AuthForm({
 }: AuthFormProps) {
 	const isGoogleSetup = useQuery(trpc.authConfig.google.isSetup.queryOptions());
 	const isGithubSetup = useQuery(trpc.authConfig.github.isSetup.queryOptions());
+	const eeProviders = useEeAuthProviders();
+
+	const hasAnyProvider = isGoogleSetup.data || isGithubSetup.data || eeProviders.length > 0;
 
 	return (
 		<div className='mx-auto w-full max-w-md p-8 my-auto'>
@@ -37,7 +41,7 @@ export function AuthForm({
 				<h1 className='text-md font-semibold uppercase leading-none'>{title}</h1>
 			</div>
 
-			{displaySocialProviders && (isGoogleSetup.data || isGithubSetup.data) && (
+			{displaySocialProviders && hasAnyProvider && (
 				<div className='mb-6'>
 					<div className='flex flex-col gap-3 mb-6'>
 						{isGoogleSetup.data && (
@@ -62,6 +66,18 @@ export function AuthForm({
 								Continue with GitHub
 							</Button>
 						)}
+						{eeProviders.map((provider) => (
+							<Button
+								key={provider.id}
+								type='button'
+								variant='outline'
+								className='w-full h-11'
+								onClick={() => void provider.signIn()}
+							>
+								<provider.Icon className='w-5 h-5' />
+								{provider.label}
+							</Button>
+						))}
 					</div>
 
 					<div className='relative'>

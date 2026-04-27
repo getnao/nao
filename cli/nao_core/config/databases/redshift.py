@@ -1,18 +1,25 @@
 from __future__ import annotations
 
+from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from nao_core.config.exceptions import InitError
 from nao_core.ui import ask_confirm, ask_text
 
 if TYPE_CHECKING:
+    import pandas as pd
     from ibis import BaseBackend
 
 from .base import DatabaseConfig
 from .context import DatabaseContext
+
+
+class RedshiftAuthMode(str, Enum):
+    PASSWORD = "password"
+    AZURE_ENTRA_ID = "azure_entra_id"
 
 
 class RedshiftDatabaseContext(DatabaseContext):
@@ -164,11 +171,19 @@ class RedshiftConfig(DatabaseConfig):
     host: str = Field(description="Redshift cluster endpoint")
     port: int = Field(default=5439, description="Redshift port")
     database: str = Field(description="Database name")
-    user: str = Field(description="Username")
-    password: str = Field(description="Password")
+    auth_mode: RedshiftAuthMode = Field(default=RedshiftAuthMode.PASSWORD, description="Authentication mode")
+    user: str | None = Field(default=None, description="Username (required for password auth)")
+    password: str | None = Field(default=None, description="Password (required for password auth)")
     schema_name: str | None = Field(default=None, description="Default schema (optional, uses 'public' if not set)")
     sslmode: str = Field(default="require", description="SSL mode for the connection")
     ssh_tunnel: RedshiftSSHTunnelConfig | None = Field(default=None, description="SSH tunnel configuration (optional)")
+
+    @model_validator(mode="after")
+    def validate_credentials(self) -> "RedshiftConfig":
+        if self.auth_mode == RedshiftAuthMode.PASSWORD:
+            if not self.user or not self.password:
+                raise ValueError("user and password are required when auth_mode is 'password'")
+        return self
 
     @classmethod
     def promptConfig(cls) -> "RedshiftConfig":
@@ -221,7 +236,13 @@ class RedshiftConfig(DatabaseConfig):
         )
 
     def connect(self) -> BaseBackend:
-        """Create an Ibis Redshift connection."""
+        """Create an Ibis Redshift connection (password auth only)."""
+        if self.auth_mode != RedshiftAuthMode.PASSWORD:
+            raise RuntimeError(
+                f"connect() requires auth_mode='password'. "
+                f"For '{self.auth_mode.value}', use execute_sql_with_token() instead."
+            )
+
         from nao_core.deps import require_database_backend
 
         require_database_backend("postgres")
@@ -267,6 +288,54 @@ class RedshiftConfig(DatabaseConfig):
         return ibis.postgres.connect(
             **kwargs,
         )
+
+    def execute_sql_with_token(self, sql: str, access_token: str) -> pd.DataFrame:
+        """Execute SQL using a JWT access token for Azure Entra ID native IdP federation."""
+        import pandas as pd
+
+        from nao_core.deps import require_dependency
+
+        require_dependency("redshift_connector", "redshift", "for Redshift JWT authentication")
+        import redshift_connector
+
+        kwargs: dict = {
+            "iam": True,
+            "host": self.host,
+            "port": self.port,
+            "database": self.database,
+            "credentials_provider": "BasicJwtCredentialsProvider",
+            "web_identity_token": access_token,
+            "group_federation": True,
+            "ssl": True,
+        }
+
+        serverless_parts = self._parse_serverless_host()
+        if serverless_parts:
+            kwargs["serverless_work_group"] = serverless_parts["work_group"]
+            kwargs["serverless_acct_id"] = serverless_parts["acct_id"]
+
+        conn = redshift_connector.connect(**kwargs)
+        try:
+            cursor = conn.cursor()
+            cursor.execute(sql)
+            if cursor.description is None:
+                return pd.DataFrame()
+            columns = [desc[0] for desc in cursor.description]
+            rows = cursor.fetchall()
+            return pd.DataFrame(rows, columns=columns)  # type: ignore[arg-type]
+        finally:
+            conn.close()
+
+    def _parse_serverless_host(self) -> dict[str, str] | None:
+        """Extract workgroup and account ID from a Redshift Serverless endpoint.
+        Format: <workgroup>.<acct-id>.<region>.redshift-serverless.amazonaws.com
+        """
+        if "redshift-serverless" not in self.host:
+            return None
+        parts = self.host.split(".")
+        if len(parts) >= 5:
+            return {"work_group": parts[0], "acct_id": parts[1]}
+        return None
 
     def get_database_name(self) -> str:
         """Get the database name for Redshift."""

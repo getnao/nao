@@ -8,11 +8,11 @@
 		"skipLibCheck": true,
 		"declaration": true,
 		"outDir": "./dist",
-		"rootDir": "./src",
+		"rootDir": "../..",
 		"types": ["node", "bun-types"],
 		"verbatimModuleSyntax": false,
 		"jsx": "react-jsx"
 	},
-	"include": ["src/**/*"],
+	"include": ["src/**/*", "../../ee/backend/**/*.ts"],
 	"exclude": ["node_modules", "dist"]
 }

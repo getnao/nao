@@ -31,9 +31,11 @@ export function Sidebar() {
 	const project = useQuery(trpc.project.getCurrent.queryOptions());
 	const projects = useQuery(trpc.project.listForCurrentUser.queryOptions());
 	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
+	const license = useQuery(trpc.license.getStatus.queryOptions());
 	const isAdmin = project.data?.userRole === 'admin';
 	const isCloud = config.data?.naoMode === 'cloud';
 	const { groupBy, filters, setGroupBy, toggleFilter } = useChatViewPreferences();
+	const hasLicense = license.data?.tokenProvided === true;
 
 	const locationPath = useRouterState({ select: (s) => s.location.pathname });
 	const isInSettings = matchRoute({ to: '/settings', fuzzy: true });
@@ -217,6 +219,7 @@ export function Sidebar() {
 					isCollapsed={effectiveIsCollapsed}
 					isAdmin={isAdmin}
 					isCloud={isCloud}
+					hasLicense={hasLicense}
 					projects={projects.data ?? []}
 					currentProjectId={project.data?.id}
 					onProjectChange={handleProjectChange}

@@ -7,6 +7,7 @@ export interface SettingsSearchEntry {
 	keywords?: string[];
 	adminOnly?: boolean;
 	cloudHidden?: boolean;
+	licenseRequired?: boolean;
 }
 
 export const settingsSearchIndex: SettingsSearchEntry[] = [
@@ -306,6 +307,29 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		keywords: ['error', 'warn', 'debug', 'info', 'terminal', 'console'],
 		adminOnly: true,
 		cloudHidden: true,
+	},
+
+	// ── Enterprise ───────────────────────────────────────────
+	{
+		page: '/settings/enterprise',
+		pageLabel: 'Enterprise',
+		title: 'License',
+		description: 'View the status of your nao Enterprise license.',
+		keywords: ['enterprise', 'license', 'subscription', 'activation', 'sso', 'nao_license', 'ee'],
+		adminOnly: true,
+		cloudHidden: true,
+		licenseRequired: true,
+	},
+	{
+		page: '/settings/enterprise',
+		pageLabel: 'Enterprise',
+		section: 'Features',
+		title: 'Enterprise features',
+		description: 'Enterprise capabilities enabled by your license.',
+		keywords: ['features', 'sso', 'enterprise', 'plan'],
+		adminOnly: true,
+		cloudHidden: true,
+		licenseRequired: true,
 	},
 
 	// ── Memory (user-level) ──────────────────────────────────

@@ -71,8 +71,30 @@ chat/
 │   ├── backend/     # Bun + Fastify + tRPC API server
 │   └── frontend/    # React + Vite + TanStack Router
 ├── cli/             # Python CLI (nao-core package)
-└── ...
+└── ee/              # (optional) private Enterprise Edition overlay — see below
 ```
+
+### Enterprise Edition (EE)
+
+Some features live in a separate private
+repository (`getnao/nao-ee`) mounted as a git submodule at `ee/`. **External
+contributors do not need this submodule** — the open-source codebase detects its
+absence at runtime and falls back to OSS-only behaviour. A standard `git clone`
+leaves `ee/` empty and everything (including `npm run dev` and `npm run lint`)
+works out of the box.
+
+nao team members with access to the private repo can pull it in via:
+
+```bash
+git submodule update --init --recursive
+# or when cloning fresh
+git clone --recurse-submodules git@github.com:getnao/nao.git
+```
+
+See [`ee/README.md`](ee/README.md) for the EE hooks surface and env vars.
+
+Every EE feature is gated behind a signed `NAO_LICENSE` file (JWS / Ed25519),
+verified offline against a bundled public key.
 
 ## Development Commands
 

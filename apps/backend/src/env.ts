@@ -36,6 +36,7 @@ const envSchema = z.object({
 	GITHUB_CLIENT_ID: z.string().optional(),
 	GITHUB_CLIENT_SECRET: z.string().optional(),
 	GITHUB_ALLOWED_USERS: z.string().optional(),
+
 	CLOUD_GITHUB_CLIENT_ID: z.string().optional(),
 	CLOUD_GITHUB_CLIENT_SECRET: z.string().optional(),
 	DEFAULT_USER_ROLE: z.enum(['admin', 'user']).default('user'),
@@ -55,6 +56,11 @@ const envSchema = z.object({
 	NAO_MODE: z.enum(['self-hosted', 'cloud']).default('self-hosted'),
 	NAO_PROJECTS_DIR: z.string().default('./projects'),
 	NAO_CORE_VERSION: z.string().optional(),
+
+	NAO_LICENSE: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined),
 
 	POSTHOG_KEY: z.string().optional(),
 	POSTHOG_HOST: z.url({ message: 'POSTHOG_HOST must be a valid URL' }).optional(),

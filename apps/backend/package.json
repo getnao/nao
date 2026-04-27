@@ -12,7 +12,10 @@
 		"./providers": "./src/agents/providers.ts",
 		"./log": "./src/types/log.ts",
 		"./provider-meta": "./src/agents/provider-meta.ts",
-		"./shared-chat": "./src/queries/shared-chat.queries.ts"
+		"./shared-chat": "./src/queries/shared-chat.queries.ts",
+		"./db": "./src/db/db.ts",
+		"./schema": "./src/db/abstractSchema.ts",
+		"./ee-types": "./src/ee/types.ts"
 	},
 	"scripts": {
 		"dev": "bun --watch src/index.ts",
@@ -80,6 +83,7 @@
 		"fastify-raw-body": "^5.0.0",
 		"fastify-type-provider-zod": "^6.1.0",
 		"gray-matter": "^4.0.3",
+		"jose": "^6.2.2",
 		"js-yaml": "^4.1.1",
 		"mcporter": "^0.7.3",
 		"minimatch": "^10.1.1",

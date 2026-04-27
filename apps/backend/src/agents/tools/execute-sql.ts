@@ -32,6 +32,7 @@ export async function executeQuery(
 			nao_project_folder: naoProjectFolder,
 			...(database_id && { database_id }),
 			...(Object.keys(envVars).length > 0 && { env_vars: envVars }),
+			...(context.azureAccessToken && { azure_access_token: context.azureAccessToken }),
 		}),
 	});
 

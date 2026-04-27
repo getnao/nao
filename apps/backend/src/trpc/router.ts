@@ -9,6 +9,7 @@ import { citationRoutes } from './citation.routes';
 import { contextExplorerRoutes } from './context-explorer.routes';
 import { feedbackRoutes } from './feedback.routes';
 import { githubRoutes } from './github.routes';
+import { licenseRoutes } from './license.routes';
 import { logRoutes } from './log.routes';
 import { mcpRoutes } from './mcp.routes';
 import { memoryRoutes } from './memory.routes';
@@ -35,6 +36,7 @@ export const trpcRouter = router({
 	contextExplorer: contextExplorerRoutes,
 	feedback: feedbackRoutes,
 	github: githubRoutes,
+	license: licenseRoutes,
 	log: logRoutes,
 	posthog: posthogRoutes,
 	project: projectRoutes,

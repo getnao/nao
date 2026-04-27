@@ -23,6 +23,7 @@ import { createWebSearchTools } from '../agents/tools/web-search';
 import { getConnections, getTableColumnsContent, getUserRules } from '../agents/user-rules';
 import { ChatForkContextPrompt, MessagingProviderSystemPrompt, SystemPrompt } from '../components/ai';
 import { DBChat } from '../db/abstractSchema';
+import { getEeHooks } from '../ee';
 import { renderToMarkdown } from '../lib/markdown';
 import * as chatQueries from '../queries/chat.queries';
 import * as imageQueries from '../queries/image.queries';
@@ -54,6 +55,7 @@ import {
 import { logger } from '../utils/logger';
 import { truncateMiddle } from '../utils/utils';
 import { compactionService } from './compaction';
+import { hasFeature, LICENSE_FEATURES } from './license.service';
 import { memoryService } from './memory';
 import { skillService } from './skill';
 
@@ -91,7 +93,7 @@ export class AgentService {
 		await assertBudgetNotExceeded(chat.projectId, resolvedLlmSelectedModel.provider);
 		const modelConfig = await this._getModelConfig(chat.projectId, resolvedLlmSelectedModel);
 		const agentSettings = await projectQueries.getAgentSettings(chat.projectId);
-		const toolContext = await this._getToolContext(chat.projectId, chat.id, agentSettings);
+		const toolContext = await this._getToolContext(chat.projectId, chat.id, chat.userId, agentSettings);
 		const webTools = await this._resolveWebTools(chat.projectId, resolvedLlmSelectedModel.provider, agentSettings);
 		const agentTools = getTools(agentSettings, webTools ?? undefined);
 		const agent = new AgentManager(
@@ -137,6 +139,7 @@ export class AgentService {
 	private async _getToolContext(
 		projectId: string,
 		chatId: string,
+		userId: string,
 		agentSettings: AgentSettings | null,
 	): Promise<ToolContext> {
 		const project = await projectQueries.retrieveProjectById(projectId);
@@ -144,11 +147,15 @@ export class AgentService {
 			throw new HandlerError('BAD_REQUEST', 'Project path does not exist.');
 		}
 		const envVars = await projectQueries.getEnvVars(projectId);
+		const azureAccessToken = (await hasFeature(LICENSE_FEATURES.sso))
+			? ((await (await getEeHooks())?.getAccessTokenForUser?.(userId)) ?? null)
+			: null;
 		return {
 			projectFolder: project.path ?? '',
 			chatId,
 			agentSettings,
 			envVars,
+			azureAccessToken,
 			queryResults: new Map(),
 		};
 	}

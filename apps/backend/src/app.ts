@@ -22,6 +22,7 @@ import { teamsRoutes } from './routes/teams';
 import { telegramRoutes } from './routes/telegram';
 import { testRoutes } from './routes/test';
 import { whatsappRoutes } from './routes/whatsapp';
+import { logLicenseStatus } from './services/license.service';
 import { posthog, PostHogEvent } from './services/posthog';
 import { TrpcRouter, trpcRouter } from './trpc/router';
 import { createContext } from './trpc/trpc';
@@ -225,6 +226,7 @@ export const startServer = async (opts: { port: number; host: string }) => {
 	} else {
 		await ensureOrganizationSetup();
 	}
+	await logLicenseStatus();
 	startLogCleanup();
 
 	const address = await app.listen({ host: opts.host, port: opts.port });

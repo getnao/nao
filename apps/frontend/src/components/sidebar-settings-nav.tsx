@@ -14,6 +14,7 @@ import { cn, hideIf } from '@/lib/utils';
 interface NavContext {
 	isAdmin: boolean;
 	isCloud: boolean;
+	hasLicense: boolean;
 }
 
 interface NavItem {
@@ -61,6 +62,16 @@ const settingsNavItems: NavItem[] = [
 		visible: ({ isAdmin, isCloud }) => isAdmin && !isCloud,
 	},
 	{
+		label: 'Enterprise',
+		type: 'divider',
+		visible: ({ isAdmin, isCloud, hasLicense }) => isAdmin && !isCloud && hasLicense,
+	},
+	{
+		label: 'License',
+		to: '/settings/enterprise',
+		visible: ({ isAdmin, isCloud, hasLicense }) => isAdmin && !isCloud && hasLicense,
+	},
+	{
 		label: 'Context',
 		type: 'divider',
 	},
@@ -79,6 +90,7 @@ interface SidebarSettingsNavProps {
 	isCollapsed: boolean;
 	isAdmin: boolean;
 	isCloud: boolean;
+	hasLicense: boolean;
 	projects: ProjectOption[];
 	currentProjectId?: string;
 	onProjectChange: (projectId: string) => void;
@@ -99,6 +111,7 @@ export function SidebarSettingsNav({
 	isCollapsed,
 	isAdmin,
 	isCloud,
+	hasLicense,
 	projects,
 	currentProjectId,
 	onProjectChange,
@@ -107,7 +120,7 @@ export function SidebarSettingsNav({
 	const inputRef = useRef<HTMLInputElement>(null);
 	const [query, setQuery] = useState('');
 
-	const navItems = settingsNavItems.filter((item) => item.visible?.({ isAdmin, isCloud }) ?? true);
+	const navItems = settingsNavItems.filter((item) => item.visible?.({ isAdmin, isCloud, hasLicense }) ?? true);
 	const canSwitchProjects = projects.length > 1 && !!currentProjectId;
 
 	useEffect(() => {
@@ -127,7 +140,9 @@ export function SidebarSettingsNav({
 	}, [isCollapsed]);
 
 	const fuse = useMemo(() => {
-		const entries = settingsSearchIndex.filter((e) => (!e.adminOnly || isAdmin) && (!e.cloudHidden || !isCloud));
+		const entries = settingsSearchIndex.filter(
+			(e) => (!e.adminOnly || isAdmin) && (!e.cloudHidden || !isCloud) && (!e.licenseRequired || hasLicense),
+		);
 		return new Fuse(entries, {
 			keys: [
 				{ name: 'title', weight: 0.4 },
@@ -138,7 +153,7 @@ export function SidebarSettingsNav({
 			threshold: 0.4,
 			includeScore: true,
 		});
-	}, [isAdmin, isCloud]);
+	}, [isAdmin, isCloud, hasLicense]);
 
 	const results = useMemo(() => {
 		if (query.length < 2) {

@@ -1,5 +1,13 @@
 {
-	"include": ["**/*.ts", "**/*.tsx", "eslint.config.js", "vite.config.js"],
+	"include": [
+		"**/*.ts",
+		"**/*.tsx",
+		"eslint.config.js",
+		"vite.config.js",
+		"../../ee/frontend/**/*.ts",
+		"../../ee/frontend/**/*.tsx",
+		"../../ee/svg.d.ts"
+	],
 	"compilerOptions": {
 		"target": "ES2022",
 		"jsx": "react-jsx",

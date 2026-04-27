@@ -10,6 +10,12 @@ export interface ToolContext {
 	chatId: string;
 	agentSettings: AgentSettings | null;
 	envVars: Record<string, string>;
+	/**
+	 * Database federation access token. Populated by the EE Microsoft/Azure AD
+	 * integration when the user signs in via Microsoft; always null in the
+	 * open-source edition.
+	 */
+	azureAccessToken: string | null;
 	/** Mutable store for query results shared across tool calls within a single agent run. */
 	queryResults: Map<string, QueryResult>;
 }

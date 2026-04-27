@@ -25,6 +25,7 @@ import { Route as SidebarLayoutSettingsProjectRouteImport } from './routes/_side
 import { Route as SidebarLayoutSettingsOrganizationRouteImport } from './routes/_sidebar-layout.settings.organization'
 import { Route as SidebarLayoutSettingsMemoryRouteImport } from './routes/_sidebar-layout.settings.memory'
 import { Route as SidebarLayoutSettingsLogsRouteImport } from './routes/_sidebar-layout.settings.logs'
+import { Route as SidebarLayoutSettingsEnterpriseRouteImport } from './routes/_sidebar-layout.settings.enterprise'
 import { Route as SidebarLayoutSettingsContextExplorerRouteImport } from './routes/_sidebar-layout.settings.context-explorer'
 import { Route as SidebarLayoutSettingsChatsReplayRouteImport } from './routes/_sidebar-layout.settings.chats-replay'
 import { Route as SidebarLayoutSettingsAccountRouteImport } from './routes/_sidebar-layout.settings.account'
@@ -127,6 +128,12 @@ const SidebarLayoutSettingsLogsRoute =
   SidebarLayoutSettingsLogsRouteImport.update({
     id: '/logs',
     path: '/logs',
+    getParentRoute: () => SidebarLayoutSettingsRoute,
+  } as any)
+const SidebarLayoutSettingsEnterpriseRoute =
+  SidebarLayoutSettingsEnterpriseRouteImport.update({
+    id: '/enterprise',
+    path: '/enterprise',
     getParentRoute: () => SidebarLayoutSettingsRoute,
   } as any)
 const SidebarLayoutSettingsContextExplorerRoute =
@@ -237,6 +244,7 @@ export interface FileRoutesByFullPath {
   '/settings/account': typeof SidebarLayoutSettingsAccountRoute
   '/settings/chats-replay': typeof SidebarLayoutSettingsChatsReplayRoute
   '/settings/context-explorer': typeof SidebarLayoutSettingsContextExplorerRoute
+  '/settings/enterprise': typeof SidebarLayoutSettingsEnterpriseRoute
   '/settings/logs': typeof SidebarLayoutSettingsLogsRoute
   '/settings/memory': typeof SidebarLayoutSettingsMemoryRoute
   '/settings/organization': typeof SidebarLayoutSettingsOrganizationRoute
@@ -268,6 +276,7 @@ export interface FileRoutesByTo {
   '/settings/account': typeof SidebarLayoutSettingsAccountRoute
   '/settings/chats-replay': typeof SidebarLayoutSettingsChatsReplayRoute
   '/settings/context-explorer': typeof SidebarLayoutSettingsContextExplorerRoute
+  '/settings/enterprise': typeof SidebarLayoutSettingsEnterpriseRoute
   '/settings/logs': typeof SidebarLayoutSettingsLogsRoute
   '/settings/memory': typeof SidebarLayoutSettingsMemoryRoute
   '/settings/organization': typeof SidebarLayoutSettingsOrganizationRoute
@@ -301,6 +310,7 @@ export interface FileRoutesById {
   '/_sidebar-layout/settings/account': typeof SidebarLayoutSettingsAccountRoute
   '/_sidebar-layout/settings/chats-replay': typeof SidebarLayoutSettingsChatsReplayRoute
   '/_sidebar-layout/settings/context-explorer': typeof SidebarLayoutSettingsContextExplorerRoute
+  '/_sidebar-layout/settings/enterprise': typeof SidebarLayoutSettingsEnterpriseRoute
   '/_sidebar-layout/settings/logs': typeof SidebarLayoutSettingsLogsRoute
   '/_sidebar-layout/settings/memory': typeof SidebarLayoutSettingsMemoryRoute
   '/_sidebar-layout/settings/organization': typeof SidebarLayoutSettingsOrganizationRoute
@@ -336,6 +346,7 @@ export interface FileRouteTypes {
     | '/settings/account'
     | '/settings/chats-replay'
     | '/settings/context-explorer'
+    | '/settings/enterprise'
     | '/settings/logs'
     | '/settings/memory'
     | '/settings/organization'
@@ -367,6 +378,7 @@ export interface FileRouteTypes {
     | '/settings/account'
     | '/settings/chats-replay'
     | '/settings/context-explorer'
+    | '/settings/enterprise'
     | '/settings/logs'
     | '/settings/memory'
     | '/settings/organization'
@@ -399,6 +411,7 @@ export interface FileRouteTypes {
     | '/_sidebar-layout/settings/account'
     | '/_sidebar-layout/settings/chats-replay'
     | '/_sidebar-layout/settings/context-explorer'
+    | '/_sidebar-layout/settings/enterprise'
     | '/_sidebar-layout/settings/logs'
     | '/_sidebar-layout/settings/memory'
     | '/_sidebar-layout/settings/organization'
@@ -542,6 +555,13 @@ declare module '@tanstack/react-router' {
       path: '/logs'
       fullPath: '/settings/logs'
       preLoaderRoute: typeof SidebarLayoutSettingsLogsRouteImport
+      parentRoute: typeof SidebarLayoutSettingsRoute
+    }
+    '/_sidebar-layout/settings/enterprise': {
+      id: '/_sidebar-layout/settings/enterprise'
+      path: '/enterprise'
+      fullPath: '/settings/enterprise'
+      preLoaderRoute: typeof SidebarLayoutSettingsEnterpriseRouteImport
       parentRoute: typeof SidebarLayoutSettingsRoute
     }
     '/_sidebar-layout/settings/context-explorer': {
@@ -721,6 +741,7 @@ interface SidebarLayoutSettingsRouteChildren {
   SidebarLayoutSettingsAccountRoute: typeof SidebarLayoutSettingsAccountRoute
   SidebarLayoutSettingsChatsReplayRoute: typeof SidebarLayoutSettingsChatsReplayRoute
   SidebarLayoutSettingsContextExplorerRoute: typeof SidebarLayoutSettingsContextExplorerRoute
+  SidebarLayoutSettingsEnterpriseRoute: typeof SidebarLayoutSettingsEnterpriseRoute
   SidebarLayoutSettingsLogsRoute: typeof SidebarLayoutSettingsLogsRoute
   SidebarLayoutSettingsMemoryRoute: typeof SidebarLayoutSettingsMemoryRoute
   SidebarLayoutSettingsOrganizationRoute: typeof SidebarLayoutSettingsOrganizationRoute
@@ -734,6 +755,7 @@ const SidebarLayoutSettingsRouteChildren: SidebarLayoutSettingsRouteChildren = {
   SidebarLayoutSettingsChatsReplayRoute: SidebarLayoutSettingsChatsReplayRoute,
   SidebarLayoutSettingsContextExplorerRoute:
     SidebarLayoutSettingsContextExplorerRoute,
+  SidebarLayoutSettingsEnterpriseRoute: SidebarLayoutSettingsEnterpriseRoute,
   SidebarLayoutSettingsLogsRoute: SidebarLayoutSettingsLogsRoute,
   SidebarLayoutSettingsMemoryRoute: SidebarLayoutSettingsMemoryRoute,
   SidebarLayoutSettingsOrganizationRoute:

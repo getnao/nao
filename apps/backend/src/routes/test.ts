@@ -49,6 +49,7 @@ export const testRoutes = async (app: App) => {
 							chatId: '',
 							agentSettings: null,
 							envVars: {},
+							azureAccessToken: null,
 							queryResults: new Map(),
 						},
 					);

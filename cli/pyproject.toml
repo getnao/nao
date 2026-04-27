@@ -57,7 +57,7 @@ mysql = ["ibis-framework[mysql]>=9.0.0"]
 mssql = ["ibis-framework[mssql]>=9.0.0"]
 athena = ["ibis-framework[athena]>=9.0.0"]
 trino = ["ibis-framework[trino]>=9.0.0"]
-redshift = ["ibis-framework[postgres]>=9.0.0", "sshtunnel>=0.4.0"]
+redshift = ["ibis-framework[postgres]>=9.0.0", "sshtunnel>=0.4.0", "redshift-connector>=2.1.13"]
 fabric = ["ibis-framework[mssql]>=9.0.0", "azure-identity>=1.19.0"]
 
 # LLM providers

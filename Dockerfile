@@ -36,6 +36,11 @@ COPY apps/frontend ./apps/frontend
 COPY apps/backend ./apps/backend
 COPY apps/shared ./apps/shared
 
+# Copy the EE submodule so Vite's eager glob in apps/frontend/src/lib/ee.ts
+# can bundle EE frontend hooks at build time. When the submodule is not
+# checked out, this is an empty directory and the glob resolves to {}.
+COPY ee ./ee
+
 WORKDIR /app/apps/frontend
 RUN npm run build
 
@@ -110,6 +115,16 @@ COPY --from=deps --chown=nao:nao /app/node_modules ./node_modules
 # Copy backend and shared source (no build needed — Bun runs TS directly)
 COPY --chown=nao:nao apps/backend ./apps/backend
 COPY --chown=nao:nao apps/shared ./apps/shared
+
+# Copy the EE submodule so apps/backend/src/ee/index.ts can dynamically
+# import ee/backend/index.ts at runtime. EE features remain dormant unless
+# a valid NAO_LICENSE is supplied, so this is safe to bundle unconditionally.
+COPY --chown=nao:nao ee ./ee
+
+# Run the EE post-copy hook (owned by the EE submodule). Handles EE-only
+# image mutations like locking down bundled keys. No-op when the EE
+# submodule is not checked out, so OSS clones still build.
+RUN if [ -x /app/ee/docker/post-copy.sh ]; then /app/ee/docker/post-copy.sh; fi
 
 # Copy frontend build output
 COPY --from=frontend-builder --chown=nao:nao /app/apps/frontend/dist ./apps/frontend/dist

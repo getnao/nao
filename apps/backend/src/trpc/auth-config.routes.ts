@@ -2,9 +2,11 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
 import { updateAuth } from '../auth';
+import { getEeHooks } from '../ee';
 import { env } from '../env';
 import * as orgQueries from '../queries/organization.queries';
 import { emailService } from '../services/email';
+import { hasFeature, LICENSE_FEATURES } from '../services/license.service';
 import { adminProtectedProcedure, publicProcedure } from './trpc';
 
 export const authConfigRoutes = {
@@ -45,6 +47,15 @@ export const authConfigRoutes = {
 	github: {
 		isSetup: publicProcedure.query(() => {
 			return !!(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET);
+		}),
+	},
+	microsoft: {
+		isSetup: publicProcedure.query(async () => {
+			if (!(await hasFeature(LICENSE_FEATURES.sso))) {
+				return false;
+			}
+			const hooks = await getEeHooks();
+			return hooks?.isMicrosoftConfigured?.() ?? false;
 		}),
 	},
 	smtp: {
