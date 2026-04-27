@@ -20,6 +20,12 @@ const FEATURE_DESCRIPTIONS: Record<string, string> = {
 
 function EnterprisePage() {
 	const license = useQuery(trpc.license.getStatus.queryOptions());
+	const status = license.data?.status;
+	const hasVerifiedLicense = status === 'active' || status === 'expired';
+	const details = useQuery({
+		...trpc.license.getDetails.queryOptions(),
+		enabled: hasVerifiedLicense,
+	});
 
 	if (license.isLoading || !license.data) {
 		return (
@@ -28,8 +34,6 @@ function EnterprisePage() {
 			</SettingsPageWrapper>
 		);
 	}
-
-	const data = license.data;
 
 	return (
 		<SettingsPageWrapper>
@@ -42,18 +46,18 @@ function EnterprisePage() {
 					</p>
 				</div>
 
-				<StatusCard status={data.status} />
+				<StatusCard status={license.data.status} />
 
-				{(data.status === 'active' || data.status === 'expired') && (
+				{hasVerifiedLicense && details.data && (
 					<>
 						<LicenseDetailsCard
-							companyName={data.companyName}
-							subscriptionId={data.subscriptionId}
-							isTrial={data.isTrial}
-							expiresAt={data.expiresAt}
-							status={data.status}
+							companyName={details.data.companyName}
+							subscriptionId={details.data.subscriptionId}
+							isTrial={details.data.isTrial}
+							expiresAt={details.data.expiresAt}
+							status={license.data.status}
 						/>
-						<FeaturesCard features={data.features} active={data.status === 'active'} />
+						<FeaturesCard features={details.data.features} active={license.data.status === 'active'} />
 					</>
 				)}
 			</div>
