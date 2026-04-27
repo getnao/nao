@@ -70,20 +70,22 @@ export const sharedChatRoutes = {
 			return created;
 		}),
 
-	getSharedChat: shareAccessProcedure
-		.input(z.object({ shareId: z.string() }))
-		.query(
-			async ({
-				ctx,
-			}): Promise<{ share: sharedChatQueries.SharedChatWithDetails; chat: UIChat; userRole: UserRole | null }> => {
-				const [chat] = await chatQueries.getChat(ctx.resource.chatId, { includeFeedback: true });
-				if (!chat) {
-					throw new TRPCError({ code: 'NOT_FOUND', message: 'Chat not found.' });
-				}
+	getSharedChat: shareAccessProcedure.input(z.object({ shareId: z.string() })).query(
+		async ({
+			ctx,
+		}): Promise<{
+			share: sharedChatQueries.SharedChatWithDetails;
+			chat: UIChat;
+			userRole: UserRole | null;
+		}> => {
+			const [chat] = await chatQueries.getChat(ctx.resource.chatId, { includeFeedback: true });
+			if (!chat) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: 'Chat not found.' });
+			}
 
-				return { share: ctx.resource, chat, userRole: ctx.userRole };
-			},
-		),
+			return { share: ctx.resource, chat, userRole: ctx.userRole };
+		},
+	),
 
 	getShareOptionsByChatId: chatProcedure.input(z.object({ chatId: z.string() })).query(async ({ input, ctx }) => {
 		const share = await sharedChatQueries.getShareIdByChatId(input.chatId, ctx.user.id);

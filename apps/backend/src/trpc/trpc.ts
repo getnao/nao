@@ -97,7 +97,10 @@ export function resourceProjectProcedure<T extends { projectId: string }>(
 		if (checkAccess) {
 			const canAccess = await checkAccess(resource, ctx.user.id);
 			if (!canAccess) {
-				throw new TRPCError({ code: 'FORBIDDEN', message: `You do not have access to this ${label.toLowerCase()}.` });
+				throw new TRPCError({
+					code: 'FORBIDDEN',
+					message: `You do not have access to this ${label.toLowerCase()}.`,
+				});
 			}
 		}
 

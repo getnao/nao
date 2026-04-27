@@ -232,7 +232,12 @@ export function Sidebar() {
 					onProjectChange={handleProjectChange}
 				/>
 			) : (
-				<SidebarNav isCollapsed={effectiveIsCollapsed} groupBy={groupBy} filters={filters}  isViewer={isViewer} />
+				<SidebarNav
+					isCollapsed={effectiveIsCollapsed}
+					groupBy={groupBy}
+					filters={filters}
+					isViewer={isViewer}
+				/>
 			)}
 
 			<div className={cn('mt-auto transition-[padding] duration-300', effectiveIsCollapsed ? 'p-1' : 'p-2')}>
@@ -340,9 +345,9 @@ function SidebarNav({
 						'No chats shared with you.'
 					) : (
 						<>
-					No chats yet.
-					<br />
-					Start a new chat!
+							No chats yet.
+							<br />
+							Start a new chat!
 						</>
 					)}
 				</p>
