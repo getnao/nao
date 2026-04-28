@@ -85,6 +85,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-dejavu-core \
     git \
     libpq5 \
+    openssh-client \
     supervisor \
     unixodbc \
     && rm -rf /var/lib/apt/lists/*

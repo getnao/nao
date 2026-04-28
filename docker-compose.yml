@@ -55,6 +55,11 @@ services:
             # NAO_CONTEXT_GIT_BRANCH: main
             # NAO_CONTEXT_GIT_TOKEN: ${GITHUB_TOKEN}
             # NAO_DEFAULT_PROJECT_PATH: /app/context
+            # Optional: clone only a subfolder (sparse checkout) — useful for monorepos
+            # NAO_CONTEXT_GIT_SUBPATH: analytics/finance
+            # Option B-bis: SSH deploy key auth (use git@... URL):
+            # NAO_CONTEXT_GIT_URL: git@github.com:your-org/your-nao-context.git
+            # NAO_CONTEXT_GIT_SSH_KEY: ${DEPLOY_KEY}        # raw private key contents
 
             # Optional: Schedule periodic git pull (cron expression)
             # NAO_REFRESH_SCHEDULE: "0 * * * *"  # Every hour
