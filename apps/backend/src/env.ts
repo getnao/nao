@@ -56,6 +56,15 @@ const envSchema = z.object({
 	CLOUD_GITHUB_CLIENT_SECRET: z.string().optional(),
 	DEFAULT_USER_ROLE: z.enum(['admin', 'user']).default('user'),
 
+	OIDC_PROVIDER_ID: z.string().optional(),
+	OIDC_PROVIDER_NAME: z.string().optional(),
+	OIDC_DISCOVERY_URL: z.string().optional(),
+	OIDC_CLIENT_ID: z.string().optional(),
+	OIDC_CLIENT_SECRET: z.string().optional(),
+	OIDC_SCOPES: z.string().optional(),
+	OIDC_AUTH_DOMAINS: z.string().optional(),
+	OIDC_PKCE: z.string().optional(),
+
 	SMTP_PASSWORD: z.string().optional(),
 	SMTP_HOST: z.string().optional(),
 	SMTP_PORT: z.string().optional(),

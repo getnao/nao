@@ -9,6 +9,7 @@ import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { verifyAccessToken } from 'better-auth/oauth2';
 import { jwt } from 'better-auth/plugins';
 import { bearer } from 'better-auth/plugins/bearer';
+import { genericOAuth } from 'better-auth/plugins/generic-oauth';
 import type { JWTPayload } from 'jose';
 
 import { db } from './db/db';
@@ -123,6 +124,27 @@ async function createAuthInstance(googleConfig: GoogleConfig) {
 		augmentSocialProviders(socialProviders);
 	}
 
+	const oidcProviderId = env.OIDC_PROVIDER_ID ?? 'oidc';
+
+	const oidcPlugins = [];
+	if (env.OIDC_CLIENT_ID && env.OIDC_CLIENT_SECRET && env.OIDC_DISCOVERY_URL) {
+		oidcPlugins.push(
+			genericOAuth({
+				config: [
+					{
+						providerId: oidcProviderId,
+						discoveryUrl: env.OIDC_DISCOVERY_URL,
+						clientId: env.OIDC_CLIENT_ID,
+						clientSecret: env.OIDC_CLIENT_SECRET,
+						scopes: env.OIDC_SCOPES?.split(',').map((s) => s.trim()) ?? ['openid', 'profile', 'email'],
+						pkce: env.OIDC_PKCE !== 'false',
+						prompt: 'select_account',
+					},
+				],
+			}),
+		);
+	}
+
 	const trustedProviders = ['google', 'github', ...(ssoEnabled ? getTrustedProviders() : [])];
 
 	return betterAuth({
@@ -145,6 +167,7 @@ async function createAuthInstance(googleConfig: GoogleConfig) {
 				allowUnauthenticatedClientRegistration: true,
 				validAudiences: [env.BETTER_AUTH_URL, MCP_SERVER_URL],
 			}),
+			...oidcPlugins,
 		],
 		trustedOrigins: env.BETTER_AUTH_URL ? [env.BETTER_AUTH_URL] : undefined,
 		emailAndPassword: {
@@ -171,6 +194,14 @@ async function createAuthInstance(googleConfig: GoogleConfig) {
 								message: 'This email domain is not authorized to access this application.',
 							});
 						}
+
+						const isOidc = ctx?.params?.id === oidcProviderId;
+						if (isOidc && !isEmailDomainAllowed(user.email, env.OIDC_AUTH_DOMAINS ?? '')) {
+							throw new APIError('FORBIDDEN', {
+								message: 'This email domain is not authorized to access this application.',
+							});
+						}
+
 						return true;
 					},
 					async after(user, ctx) {
@@ -178,6 +209,7 @@ async function createAuthInstance(googleConfig: GoogleConfig) {
 						const isSocial =
 							providerId === 'google' ||
 							providerId === 'github' ||
+							providerId === oidcProviderId ||
 							(ssoEnabled && isMicrosoftProvider(providerId));
 
 						if (isCloud) {

@@ -57,6 +57,17 @@ export const authConfigRoutes = {
 			return isMicrosoftConfigured();
 		}),
 	},
+	oidc: {
+		getConfig: publicProcedure.query(() => {
+			if (!env.OIDC_CLIENT_ID || !env.OIDC_CLIENT_SECRET || !env.OIDC_DISCOVERY_URL) {
+				return null;
+			}
+			return {
+				providerId: env.OIDC_PROVIDER_ID ?? 'oidc',
+				providerName: env.OIDC_PROVIDER_NAME ?? 'SSO',
+			};
+		}),
+	},
 	smtp: {
 		isSetup: publicProcedure.query(() => emailService.isEnabled()),
 	},
