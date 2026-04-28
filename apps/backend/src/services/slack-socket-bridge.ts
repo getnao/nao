@@ -1,0 +1,169 @@
+import { createHmac } from 'node:crypto';
+
+import { SocketModeClient } from '@slack/socket-mode';
+import { Chat } from 'chat';
+
+import { logger } from '../utils/logger';
+
+type SlackWebhooks = NonNullable<Chat['webhooks']>;
+
+export interface SlackSocketBridgeOptions {
+	projectId: string;
+	appToken: string;
+	signingSecret: string;
+	webhooks: SlackWebhooks;
+}
+
+interface SlackSocketEvent {
+	envelope_id: string;
+	type: string;
+	body: Record<string, unknown>;
+	event?: { type?: string };
+	accepts_response_payload?: boolean;
+	retry_num?: number;
+	retry_reason?: string;
+	ack: (response?: unknown) => Promise<void>;
+}
+
+/**
+ * Bridges Slack Socket Mode events into the existing webhook adapter pipeline.
+ *
+ * The chat-adapter's `webhooks.slack(...)` is HTTP-shaped and verifies a Slack
+ * signature. In Socket Mode we receive already-authenticated events from
+ * Slack, so we re-sign each forwarded request with the adapter's signing
+ * secret to satisfy the signature check.
+ */
+export class SlackSocketBridge {
+	private readonly _projectId: string;
+	private readonly _client: SocketModeClient;
+	private readonly _webhooks: SlackWebhooks;
+	private readonly _signingSecret: string;
+	private _started: boolean = false;
+
+	constructor(options: SlackSocketBridgeOptions) {
+		this._projectId = options.projectId;
+		this._webhooks = options.webhooks;
+		this._signingSecret = options.signingSecret;
+		this._client = new SocketModeClient({
+			appToken: options.appToken,
+			autoReconnectEnabled: true,
+		});
+		this._client.on('slack_event', (event: SlackSocketEvent) => {
+			void this._handleEvent(event);
+		});
+		this._client.on('error', (err: unknown) => {
+			logger.error(`Slack socket mode error (project ${this._projectId}): ${String(err)}`, {
+				source: 'system',
+				context: { projectId: this._projectId },
+			});
+		});
+	}
+
+	public async start(): Promise<void> {
+		if (this._started) {
+			return;
+		}
+		this._started = true;
+		try {
+			await this._client.start();
+			logger.info(`Slack socket mode started for project ${this._projectId}`, {
+				source: 'system',
+				context: { projectId: this._projectId },
+			});
+		} catch (error) {
+			this._started = false;
+			throw error;
+		}
+	}
+
+	public async stop(): Promise<void> {
+		if (!this._started) {
+			return;
+		}
+		this._started = false;
+		try {
+			await this._client.disconnect();
+		} catch (error) {
+			logger.warn(`Failed to stop Slack socket client for project ${this._projectId}: ${String(error)}`, {
+				source: 'system',
+				context: { projectId: this._projectId },
+			});
+		}
+	}
+
+	private async _handleEvent(event: SlackSocketEvent): Promise<void> {
+		try {
+			await event.ack();
+		} catch (error) {
+			logger.warn(`Failed to ack Slack socket event for project ${this._projectId}: ${String(error)}`, {
+				source: 'system',
+				context: { projectId: this._projectId },
+			});
+		}
+
+		try {
+			const request = this._buildHttpRequest(event);
+			const response = await this._webhooks.slack(request, {
+				waitUntil: (task: Promise<unknown>) => task,
+			});
+			if (!response.ok) {
+				const body = await response.text().catch(() => '');
+				logger.warn(
+					`Slack socket forwarded event returned ${response.status} for project ${this._projectId}: ${body}`,
+					{
+						source: 'system',
+						context: { projectId: this._projectId },
+					},
+				);
+			}
+		} catch (error) {
+			logger.error(`Slack socket event dispatch failed for project ${this._projectId}: ${String(error)}`, {
+				source: 'system',
+				context: { projectId: this._projectId },
+			});
+		}
+	}
+
+	private _buildHttpRequest(event: SlackSocketEvent): Request {
+		const isInteractive = event.type !== 'events_api' && event.type !== 'slash_commands';
+		const isSlashCommand = event.type === 'slash_commands';
+
+		let body: string;
+		let contentType: string;
+		if (isInteractive) {
+			body = `payload=${encodeURIComponent(JSON.stringify(event.body))}`;
+			contentType = 'application/x-www-form-urlencoded';
+		} else if (isSlashCommand) {
+			const params = new URLSearchParams();
+			for (const [key, value] of Object.entries(event.body)) {
+				if (typeof value === 'string') {
+					params.set(key, value);
+				}
+			}
+			body = params.toString();
+			contentType = 'application/x-www-form-urlencoded';
+		} else {
+			body = JSON.stringify(event.body);
+			contentType = 'application/json';
+		}
+
+		const timestamp = Math.floor(Date.now() / 1000).toString();
+		const signature = signSlackRequest(this._signingSecret, timestamp, body);
+
+		return new Request('http://localhost/api/webhooks/slack', {
+			method: 'POST',
+			headers: {
+				'content-type': contentType,
+				'x-slack-request-timestamp': timestamp,
+				'x-slack-signature': signature,
+			},
+			body,
+		});
+	}
+}
+
+function signSlackRequest(signingSecret: string, timestamp: string, body: string): string {
+	const baseString = `v0:${timestamp}:${body}`;
+	const hmac = createHmac('sha256', signingSecret).update(baseString).digest('hex');
+	return `v0=${hmac}`;
+}

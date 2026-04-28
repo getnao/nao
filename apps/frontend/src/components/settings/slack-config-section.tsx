@@ -28,6 +28,7 @@ export function SlackConfigSection({ isAdmin }: SlackConfigSectionProps) {
 
 	const projectConfig = slackConfig.data?.projectConfig;
 	const webhookUrl = slackConfig.data?.webhookUrl ?? '';
+	const transportMode = projectConfig?.transportMode ?? 'webhook';
 
 	useEffect(() => {
 		if (!availableModels || availableModels.length === 0) {
@@ -44,7 +45,12 @@ export function SlackConfigSection({ isAdmin }: SlackConfigSectionProps) {
 	const updateSlackModel = useMutation(trpc.project.updateSlackModelConfig.mutationOptions());
 	const deleteSlackConfig = useMutation(trpc.project.deleteSlackConfig.mutationOptions());
 
-	const handleSubmit = async (values: { botToken: string; signingSecret: string }) => {
+	const handleSubmit = async (values: {
+		botToken: string;
+		signingSecret: string;
+		appToken: string;
+		transportMode: 'webhook' | 'socket';
+	}) => {
 		await upsertSlackConfig.mutateAsync({
 			...values,
 			modelProvider: selectedModel?.provider,
@@ -87,12 +93,23 @@ export function SlackConfigSection({ isAdmin }: SlackConfigSectionProps) {
 				{projectConfig ? (
 					<div className='grid gap-1'>
 						<span className='text-sm font-medium text-foreground'>Slack App</span>
+						<span className='text-xs text-muted-foreground'>
+							Transport: {transportMode === 'socket' ? 'Socket Mode' : 'Webhook'}
+						</span>
 						<span className='text-xs font-mono text-muted-foreground'>
 							Bot Token: {projectConfig.botTokenPreview}
 						</span>
-						<span className='text-xs font-mono text-muted-foreground'>
-							Signing Secret: {projectConfig.signingSecretPreview}
-						</span>
+						{transportMode === 'socket' ? (
+							projectConfig.appTokenPreview && (
+								<span className='text-xs font-mono text-muted-foreground'>
+									App Token: {projectConfig.appTokenPreview}
+								</span>
+							)
+						) : (
+							<span className='text-xs font-mono text-muted-foreground'>
+								Signing Secret: {projectConfig.signingSecretPreview}
+							</span>
+						)}
 					</div>
 				) : (
 					<p className='text-sm text-muted-foreground'>
@@ -123,12 +140,23 @@ export function SlackConfigSection({ isAdmin }: SlackConfigSectionProps) {
 				<div className='flex items-center gap-4'>
 					<div className='flex-1 grid gap-1'>
 						<span className='text-sm font-medium text-foreground'>Slack App</span>
+						<span className='text-xs text-muted-foreground'>
+							Transport: {transportMode === 'socket' ? 'Socket Mode' : 'Webhook'}
+						</span>
 						<span className='text-xs font-mono text-muted-foreground'>
 							Bot Token: {projectConfig.botTokenPreview}
 						</span>
-						<span className='text-xs font-mono text-muted-foreground'>
-							Signing Secret: {projectConfig.signingSecretPreview}
-						</span>
+						{transportMode === 'socket' ? (
+							projectConfig.appTokenPreview && (
+								<span className='text-xs font-mono text-muted-foreground'>
+									App Token: {projectConfig.appTokenPreview}
+								</span>
+							)
+						) : (
+							<span className='text-xs font-mono text-muted-foreground'>
+								Signing Secret: {projectConfig.signingSecretPreview}
+							</span>
+						)}
 					</div>
 					<div className='flex gap-1'>
 						<Button variant='ghost' size='icon-sm' onClick={handleStartEditing}>
@@ -146,9 +174,21 @@ export function SlackConfigSection({ isAdmin }: SlackConfigSectionProps) {
 				</div>
 			</SettingsCard>
 
-			{webhookUrl && (
+			{transportMode === 'webhook' && webhookUrl && (
 				<SettingsCard title='Webhook' description='Register this URL in your Slack app settings'>
 					<CopyableUrl url={webhookUrl} />
+				</SettingsCard>
+			)}
+
+			{transportMode === 'socket' && (
+				<SettingsCard
+					title='Socket Mode'
+					description='nao maintains an outbound WebSocket connection to Slack — no public webhook URL is required.'
+				>
+					<p className='text-xs text-muted-foreground'>
+						Make sure Socket Mode is enabled in your Slack app settings and that the App-Level Token has the{' '}
+						<code>connections:write</code> scope.
+					</p>
 				</SettingsCard>
 			)}
 
