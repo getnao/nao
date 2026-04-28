@@ -131,7 +131,9 @@ export function SidebarSettingsNav({
 	const [query, setQuery] = useState('');
 
 	const navItems = settingsNavItems.filter(
-		(item) => item.visible?.({ isAdmin, isCloud, isViewer, isInMultipleProjects: projects.length > 1, hasLicense }) ?? true,
+		(item) =>
+			item.visible?.({ isAdmin, isCloud, isViewer, isInMultipleProjects: projects.length > 1, hasLicense }) ??
+			true,
 	);
 	const canSwitchProjects = projects.length > 1 && !!currentProjectId;
 
