@@ -1,3 +1,5 @@
+/* @license Enterprise */
+
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -7,11 +9,26 @@ import type { EeBackendHooks } from './types';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /**
- * Absolute path to the EE backend entry point. When the `ee/` submodule is not
- * initialised (open-source clone), this file does not exist and we fall back
- * to OSS behaviour.
+ * Locate `ee/backend/index.ts` by walking up from this module. This tolerates
+ * both the source layout (`apps/backend/src/ee/`) and any compiled layout
+ * (e.g. `apps/backend/dist/`), so EE hooks load regardless of how the backend
+ * is launched. Returns null when the `ee/` submodule is not initialised
+ * (open-source clone), so callers fall back to OSS behaviour.
  */
-const EE_BACKEND_ENTRY = path.resolve(__dirname, '../../../../ee/backend/index.ts');
+function findEeBackendEntry(): string | null {
+	let current = __dirname;
+	const { root } = path.parse(current);
+
+	while (current !== root) {
+		const candidate = path.join(current, 'ee', 'backend', 'index.ts');
+		if (existsSync(candidate)) {
+			return candidate;
+		}
+		current = path.dirname(current);
+	}
+
+	return null;
+}
 
 let cached: EeBackendHooks | null | undefined;
 
@@ -20,13 +37,14 @@ export async function getEeHooks(): Promise<EeBackendHooks | null> {
 		return cached;
 	}
 
-	if (!existsSync(EE_BACKEND_ENTRY)) {
+	const eeEntry = findEeBackendEntry();
+	if (!eeEntry) {
 		cached = null;
 		return cached;
 	}
 
 	try {
-		const mod = (await import(EE_BACKEND_ENTRY)) as { default?: EeBackendHooks };
+		const mod = (await import(eeEntry)) as { default?: EeBackendHooks };
 		cached = mod.default ?? null;
 	} catch (err) {
 		console.warn('[ee] Failed to load EE backend hooks:', err);

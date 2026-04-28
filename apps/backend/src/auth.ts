@@ -79,9 +79,11 @@ async function createAuthInstance(googleConfig: GoogleConfig) {
 			},
 		},
 		socialProviders,
-		accountLinking: {
-			enabled: true,
-			trustedProviders,
+		account: {
+			accountLinking: {
+				enabled: true,
+				trustedProviders,
+			},
 		},
 		databaseHooks: {
 			user: {

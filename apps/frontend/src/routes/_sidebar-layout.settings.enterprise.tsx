@@ -27,10 +27,17 @@ function EnterprisePage() {
 		enabled: hasVerifiedLicense,
 	});
 
-	if (license.isLoading || !license.data) {
+	if (license.isLoading) {
 		return (
 			<SettingsPageWrapper>
 				<div className='text-sm text-muted-foreground'>Loading license…</div>
+			</SettingsPageWrapper>
+		);
+	}
+	if (license.isError || !license.data) {
+		return (
+			<SettingsPageWrapper>
+				<div className='text-sm text-destructive'>Failed to load license status.</div>
 			</SettingsPageWrapper>
 		);
 	}
@@ -233,7 +240,7 @@ function DetailRow({ label, value }: { label: string; value: React.ReactNode }) 
 	return (
 		<div className='flex items-center justify-between gap-4 py-1'>
 			<span className='text-sm text-muted-foreground'>{label}</span>
-			<span className='text-sm text-foreground text-right'>{value}</span>
+			<div className='text-sm text-foreground text-right'>{value}</div>
 		</div>
 	);
 }

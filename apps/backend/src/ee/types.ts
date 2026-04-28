@@ -1,3 +1,5 @@
+/* @license Enterprise */
+
 import type { BetterAuthOptions } from 'better-auth';
 
 export type SocialProviders = NonNullable<BetterAuthOptions['socialProviders']>;
