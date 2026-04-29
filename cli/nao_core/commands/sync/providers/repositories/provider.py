@@ -209,6 +209,7 @@ class RepositorySyncProvider(SyncProvider):
 
         output_path.mkdir(parents=True, exist_ok=True)
         success_count = 0
+        failed_repos: list[str] = []
 
         console.print(f"\n[bold cyan]{self.emoji} Syncing {self.name}[/bold cyan]")
         console.print(f"[dim]Location:[/dim] {output_path.absolute()}\n")
@@ -217,5 +218,14 @@ class RepositorySyncProvider(SyncProvider):
             if sync_repo(repo, output_path):
                 success_count += 1
                 console.print(f"  [green]✓[/green] {repo.name}")
+            else:
+                failed_repos.append(repo.name)
+
+        if failed_repos:
+            return SyncResult(
+                provider_name=self.name,
+                items_synced=success_count,
+                error=f"Failed to sync repos: {', '.join(failed_repos)}",
+            )
 
         return SyncResult(provider_name=self.name, items_synced=success_count)

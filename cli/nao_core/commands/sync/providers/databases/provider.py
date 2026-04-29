@@ -334,6 +334,7 @@ class DatabaseSyncProvider(SyncProvider):
                     total_tables += state.tables_synced
                 except Exception as e:
                     console.print(f"[bold red]✗[/bold red] Failed to sync {db.name}: {e}")
+                    return SyncResult.from_error(self.name, e)
 
         for state in sync_states:
             removed = cleanup_stale_paths(state, verbose=True)
