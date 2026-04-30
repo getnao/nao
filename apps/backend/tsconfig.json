@@ -13,6 +13,6 @@
 		"verbatimModuleSyntax": false,
 		"jsx": "react-jsx"
 	},
-	"include": ["src/**/*", "../../ee/backend/**/*.ts"],
+	"include": ["src/**/*"],
 	"exclude": ["node_modules", "dist"]
 }

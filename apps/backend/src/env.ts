@@ -37,6 +37,10 @@ const envSchema = z.object({
 	GITHUB_CLIENT_SECRET: z.string().optional(),
 	GITHUB_ALLOWED_USERS: z.string().optional(),
 
+	AZURE_AD_CLIENT_ID: z.string().optional(),
+	AZURE_AD_CLIENT_SECRET: z.string().optional(),
+	AZURE_AD_TENANT_ID: z.string().optional(),
+
 	CLOUD_GITHUB_CLIENT_ID: z.string().optional(),
 	CLOUD_GITHUB_CLIENT_SECRET: z.string().optional(),
 	DEFAULT_USER_ROLE: z.enum(['admin', 'user']).default('user'),
@@ -86,6 +90,26 @@ if (result.data.NAO_DEFAULT_PROJECT_PATH && result.data.NAO_MODE === 'cloud') {
 }
 
 export const env = result.data;
+
+/**
+ * TEST ONLY — re-parse `process.env` into the exported `env` object so tests
+ * that mutate env vars between cases can observe the new values. Callers who
+ * imported `env` keep seeing the live object because we mutate in place
+ * rather than reassign.
+ */
+export function __reloadEnvForTesting(): void {
+	const parsed = envSchema.safeParse(process.env);
+	if (!parsed.success) {
+		throw new Error(`Invalid env during test reload: ${parsed.error.message}`);
+	}
+	// Clear first: zod omits optional keys from its output when the input is
+	// absent, so a bare Object.assign would leave the previous value in place.
+	const mutable = env as Record<string, unknown>;
+	for (const key of Object.keys(mutable)) {
+		delete mutable[key];
+	}
+	Object.assign(env, parsed.data);
+}
 
 export const isCloud = env.NAO_MODE === 'cloud';
 export const isSelfHosted = env.NAO_MODE === 'self-hosted';

@@ -3,11 +3,15 @@ import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 
 import { db } from './db/db';
 import dbConfig, { Dialect } from './db/dbConfig';
-import { getEeHooks } from './ee';
 import { env, isCloud } from './env';
 import * as orgQueries from './queries/organization.queries';
 import { emailService } from './services/email';
 import { hasFeature, LICENSE_FEATURES } from './services/license.service';
+import {
+	augmentSocialProviders,
+	getTrustedProviders,
+	isSocialProvider as isMicrosoftProvider,
+} from './services/microsoft-auth.service';
 import { buildForgotPasswordEmail } from './utils/email-builders';
 import { buildGithubAllowlist, isEmailDomainAllowed } from './utils/utils';
 
@@ -15,7 +19,6 @@ type GoogleConfig = Awaited<ReturnType<typeof orgQueries.getGoogleConfig>>;
 
 async function createAuthInstance(googleConfig: GoogleConfig) {
 	const githubAllowlist = buildGithubAllowlist(env.GITHUB_ALLOWED_USERS);
-	const eeHooks = await getEeHooks();
 
 	const socialProviders: Parameters<typeof betterAuth>[0]['socialProviders'] = {
 		google: {
@@ -57,10 +60,10 @@ async function createAuthInstance(googleConfig: GoogleConfig) {
 
 	const ssoEnabled = await hasFeature(LICENSE_FEATURES.sso);
 	if (ssoEnabled) {
-		eeHooks?.augmentSocialProviders?.(socialProviders);
+		augmentSocialProviders(socialProviders);
 	}
 
-	const trustedProviders = ['google', 'github', ...(ssoEnabled ? (eeHooks?.getTrustedProviders?.() ?? []) : [])];
+	const trustedProviders = ['google', 'github', ...(ssoEnabled ? getTrustedProviders() : [])];
 
 	return betterAuth({
 		secret: env.BETTER_AUTH_SECRET,
@@ -102,7 +105,7 @@ async function createAuthInstance(googleConfig: GoogleConfig) {
 						const isSocial =
 							providerId === 'google' ||
 							providerId === 'github' ||
-							(ssoEnabled && Boolean(eeHooks?.isSocialProvider?.(providerId)));
+							(ssoEnabled && isMicrosoftProvider(providerId));
 
 						if (isCloud) {
 							await orgQueries.initializePersonalOrganization(user.id);

@@ -23,7 +23,6 @@ import { createWebSearchTools } from '../agents/tools/web-search';
 import { getConnections, getTableColumnsContent, getUserRules } from '../agents/user-rules';
 import { ChatForkContextPrompt, MessagingProviderSystemPrompt, SystemPrompt } from '../components/ai';
 import { DBChat } from '../db/abstractSchema';
-import { getEeHooks } from '../ee';
 import { renderToMarkdown } from '../lib/markdown';
 import * as chatQueries from '../queries/chat.queries';
 import * as imageQueries from '../queries/image.queries';
@@ -57,6 +56,7 @@ import { truncateMiddle } from '../utils/utils';
 import { compactionService } from './compaction';
 import { hasFeature, LICENSE_FEATURES } from './license.service';
 import { memoryService } from './memory';
+import { getAzureAccessTokenForUser } from './microsoft-auth.service';
 import { skillService } from './skill';
 
 export interface AgentRunResult {
@@ -148,7 +148,7 @@ export class AgentService {
 		}
 		const envVars = await projectQueries.getEnvVars(projectId);
 		const azureAccessToken = (await hasFeature(LICENSE_FEATURES.sso))
-			? ((await (await getEeHooks())?.getAccessTokenForUser?.(userId)) ?? null)
+			? await getAzureAccessTokenForUser(userId)
 			: null;
 		return {
 			projectFolder: project.path ?? '',

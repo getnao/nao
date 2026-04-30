@@ -35,9 +35,6 @@ jobs:
 
         steps:
             - uses: actions/checkout@v4
-              with:
-                  submodules: recursive
-                  ssh-key: ${{ secrets.EE_SUBMODULE_KEY }}
 
             - name: Get short SHA
               id: sha

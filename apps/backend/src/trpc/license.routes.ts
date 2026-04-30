@@ -1,8 +1,10 @@
+/* @license Enterprise */
+
 import { TRPCError } from '@trpc/server';
 
-import type { LicenseStatus } from '../ee/types';
 import { env } from '../env';
 import { getLicense, hasFeature, LICENSE_FEATURES, type LicenseFeature } from '../services/license.service';
+import type { LicenseStatus } from '../types/license';
 import { adminProtectedProcedure, protectedProcedure } from './trpc';
 
 export const licenseRoutes = {

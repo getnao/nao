@@ -172,8 +172,22 @@ class RedshiftConfig(DatabaseConfig):
     port: int = Field(default=5439, description="Redshift port")
     database: str = Field(description="Database name")
     auth_mode: RedshiftAuthMode = Field(default=RedshiftAuthMode.PASSWORD, description="Authentication mode")
-    user: str | None = Field(default=None, description="Username (required for password auth)")
-    password: str | None = Field(default=None, description="Password (required for password auth)")
+    user: str | None = Field(
+        default=None,
+        description=(
+            "Username. Required for password auth. In azure_entra_id mode it is optional "
+            "but recommended: nao sync uses it to read metadata (columns, previews, query history). "
+            "It is never used at runtime from /execute_sql."
+        ),
+    )
+    password: str | None = Field(
+        default=None,
+        description=(
+            "Password. Required for password auth. In azure_entra_id mode it is optional "
+            "but recommended: nao sync uses it to read metadata (columns, previews, query history). "
+            "It is never used at runtime from /execute_sql."
+        ),
+    )
     schema_name: str | None = Field(default=None, description="Default schema (optional, uses 'public' if not set)")
     sslmode: str = Field(default="require", description="SSL mode for the connection")
     ssh_tunnel: RedshiftSSHTunnelConfig | None = Field(default=None, description="SSH tunnel configuration (optional)")
@@ -236,11 +250,18 @@ class RedshiftConfig(DatabaseConfig):
         )
 
     def connect(self) -> BaseBackend:
-        """Create an Ibis Redshift connection (password auth only)."""
-        if self.auth_mode != RedshiftAuthMode.PASSWORD:
+        """Create an Ibis Redshift connection using user/password credentials.
+
+        Used by nao sync to gather context (metadata, previews, query history).
+        Works for both auth modes whenever user/password are provided; in
+        azure_entra_id mode the credentials are sync-only and must never be
+        used to serve runtime queries from /execute_sql.
+        """
+        if not self.user or not self.password:
             raise RuntimeError(
-                f"connect() requires auth_mode='password'. "
-                f"For '{self.auth_mode.value}', use execute_sql_with_token() instead."
+                f"Redshift connect() requires user and password. "
+                f"When auth_mode='{self.auth_mode.value}', provide them so nao sync "
+                f"can read metadata; they will not be used at runtime."
             )
 
         from nao_core.deps import require_database_backend
@@ -288,6 +309,20 @@ class RedshiftConfig(DatabaseConfig):
         return ibis.postgres.connect(
             **kwargs,
         )
+
+    def execute_sql(self, sql: str) -> pd.DataFrame:
+        """Execute SQL using user/password credentials.
+
+        Forbidden when auth_mode=azure_entra_id: runtime queries must flow
+        through execute_sql_with_token() with the end user's access token so
+        per-user identity is preserved on the warehouse.
+        """
+        if self.auth_mode == RedshiftAuthMode.AZURE_ENTRA_ID:
+            raise RuntimeError(
+                "execute_sql is not allowed when auth_mode='azure_entra_id'. "
+                "Use execute_sql_with_token() with the end user's access token instead."
+            )
+        return super().execute_sql(sql)
 
     def execute_sql_with_token(self, sql: str, access_token: str) -> pd.DataFrame:
         """Execute SQL using a JWT access token for Azure Entra ID native IdP federation."""

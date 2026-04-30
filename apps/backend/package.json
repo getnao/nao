@@ -15,7 +15,7 @@
 		"./shared-chat": "./src/queries/shared-chat.queries.ts",
 		"./db": "./src/db/db.ts",
 		"./schema": "./src/db/abstractSchema.ts",
-		"./ee-types": "./src/ee/types.ts"
+		"./license-types": "./src/types/license.ts"
 	},
 	"scripts": {
 		"dev": "bun --watch src/index.ts",

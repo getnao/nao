@@ -8,7 +8,9 @@ from fastapi.testclient import TestClient
 from main import app
 
 
-def assert_sql_result(data: dict, *, row_count: int, columns: list[str], expected_data: list[dict]):
+def assert_sql_result(
+    data: dict, *, row_count: int, columns: list[str], expected_data: list[dict]
+):
     """Assert that SQL response data matches expected values."""
     assert data["row_count"] == row_count
     assert data["columns"] == columns
@@ -79,6 +81,7 @@ def test_execute_sql_with_cte_duckdb(duckdb_project_folder):
 
 
 # BigQuery tests (requires SSO authentication)
+
 
 @pytest.fixture
 def bigquery_project_folder():

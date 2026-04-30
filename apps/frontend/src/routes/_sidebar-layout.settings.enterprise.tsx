@@ -1,7 +1,9 @@
+/* @license Enterprise */
+
 import { createFileRoute } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { CheckCircle2, CircleAlert, CircleX, Clock, Sparkles, TriangleAlert } from 'lucide-react';
-import type { LicenseStatus } from '@nao/backend/ee-types';
+import type { LicenseStatus } from '@nao/backend/license-types';
 
 import { Badge } from '@/components/ui/badge';
 import { SettingsCard, SettingsPageWrapper } from '@/components/ui/settings-card';

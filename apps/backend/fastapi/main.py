@@ -262,7 +262,18 @@ async def execute_sql(request: ExecuteSQLRequest):
                 },
             )
 
-        if request.azure_access_token and hasattr(db_config, "execute_sql_with_token"):
+        auth_mode_value = getattr(getattr(db_config, "auth_mode", None), "value", None)
+
+        if auth_mode_value == "azure_entra_id":
+            if not request.azure_access_token:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "azure_access_token is required when the database auth_mode is "
+                        "'azure_entra_id'. Runtime queries must use the end user's access "
+                        "token; any configured user/password is only used by nao sync."
+                    ),
+                )
             df = db_config.execute_sql_with_token(
                 request.sql, request.azure_access_token
             )
