@@ -111,6 +111,45 @@ function UsagePage() {
 				/>
 			)}
 
+			{chartView === 'adoption' && (
+				<UsageChartCard
+					title='Adoption'
+					description='Active users and chat sessions over time.'
+					isLoading={messagesUsage.isLoading}
+					isFetching={messagesUsage.isFetching}
+					isError={messagesUsage.isError}
+					data={chartData}
+					chartType='bar'
+					xAxisLabelFormatter={(value) => format(new Date(value), dateFormats[granularity])}
+					series={[
+						{ data_key: 'userCount', color: 'var(--chart-1)', label: 'Users' },
+						{ data_key: 'sessionCount', color: 'var(--chart-2)', label: 'Chat Sessions' },
+					]}
+					filters={filtersComponent}
+				/>
+			)}
+
+			{chartView === 'sessionQuality' && (
+				<UsageChartCard
+					title='Session Quality'
+					description='Share of negatively-rated sessions over time.'
+					isLoading={messagesUsage.isLoading}
+					isFetching={messagesUsage.isFetching}
+					isError={messagesUsage.isError}
+					data={chartData}
+					chartType='bar'
+					xAxisLabelFormatter={(value) => format(new Date(value), dateFormats[granularity])}
+					series={[
+						{
+							data_key: 'negativeSessionQuality',
+							color: 'var(--chart-3)',
+							label: 'Negative Session Quality (%)',
+						},
+					]}
+					filters={filtersComponent}
+				/>
+			)}
+
 			<SettingsCard
 				title='Feedbacks'
 				description='Feedbacks users have given to the agent during their sessions.'

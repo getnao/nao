@@ -3,7 +3,7 @@ import type { Granularity } from '@nao/backend/usage';
 import type { LlmProvider } from '@nao/shared/types';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
-export type ChartView = 'messages' | 'tokens' | 'cost';
+export type ChartView = 'messages' | 'tokens' | 'cost' | 'adoption' | 'sessionQuality';
 
 const granularityOptions: { value: Granularity; label: string }[] = [
 	{ value: 'hour', label: 'Hour' },
@@ -15,6 +15,8 @@ const chartViewOptions: { value: ChartView; label: string }[] = [
 	{ value: 'messages', label: 'Messages' },
 	{ value: 'tokens', label: 'Tokens' },
 	{ value: 'cost', label: 'Cost' },
+	{ value: 'adoption', label: 'Adoption' },
+	{ value: 'sessionQuality', label: 'Session Quality' },
 ];
 
 export const dateFormats: Record<Granularity, string> = {

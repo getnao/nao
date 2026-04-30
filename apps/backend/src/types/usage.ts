@@ -19,6 +19,10 @@ export interface UsageRecord {
 	teamsMessageCount: number;
 	telegramMessageCount: number;
 	whatsappMessageCount: number;
+	userCount: number;
+	sessionCount: number;
+	downvotedSessionCount: number;
+	negativeSessionQuality: number;
 	inputNoCacheTokens: number;
 	inputCacheReadTokens: number;
 	inputCacheWriteTokens: number;

@@ -69,6 +69,9 @@ export const getMessagesUsage = async (projectId: string, filter: UsageFilter): 
 			teamsMessageCount: sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' and ${s.chatMessage.source} = 'teams' then ${s.chatMessage.id} end)`,
 			telegramMessageCount: sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' and ${s.chatMessage.source} = 'telegram' then ${s.chatMessage.id} end)`,
 			whatsappMessageCount: sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' and ${s.chatMessage.source} = 'whatsapp' then ${s.chatMessage.id} end)`,
+			userCount: sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' then ${s.chat.userId} end)`,
+			sessionCount: sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' then ${s.chat.id} end)`,
+			downvotedSessionCount: sql<number>`count(distinct case when ${s.messageFeedback.vote} = 'down' then ${s.chat.id} end)`,
 			inputNoCacheTokens: sum(s.chatMessage.inputNoCacheTokens),
 			inputCacheReadTokens: sum(s.chatMessage.inputCacheReadTokens),
 			inputCacheWriteTokens: sum(s.chatMessage.inputCacheWriteTokens),
@@ -81,6 +84,7 @@ export const getMessagesUsage = async (projectId: string, filter: UsageFilter): 
 		})
 		.from(s.chatMessage)
 		.innerJoin(s.chat, eq(s.chatMessage.chatId, s.chat.id))
+		.leftJoin(s.messageFeedback, eq(s.messageFeedback.messageId, s.chatMessage.id))
 		.leftJoin(costLookup.table, costLookup.joinCondition)
 		.where(and(...whereConditions))
 		.groupBy(dateExpr);
@@ -94,6 +98,13 @@ export const getMessagesUsage = async (projectId: string, filter: UsageFilter): 
 			teamsMessageCount: row.teamsMessageCount,
 			telegramMessageCount: row.telegramMessageCount,
 			whatsappMessageCount: row.whatsappMessageCount,
+			userCount: Number(row.userCount ?? 0),
+			sessionCount: Number(row.sessionCount ?? 0),
+			downvotedSessionCount: Number(row.downvotedSessionCount ?? 0),
+			negativeSessionQuality:
+				Number(row.sessionCount ?? 0) > 0
+					? (Number(row.downvotedSessionCount ?? 0) / Number(row.sessionCount ?? 0)) * 100
+					: 0,
 			inputNoCacheTokens: Number(row.inputNoCacheTokens ?? 0),
 			inputCacheReadTokens: Number(row.inputCacheReadTokens ?? 0),
 			inputCacheWriteTokens: Number(row.inputCacheWriteTokens ?? 0),
