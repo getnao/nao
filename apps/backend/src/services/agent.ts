@@ -221,7 +221,7 @@ class AgentManager {
 			tools: this._agentTools,
 			maxOutputTokens: MAX_OUTPUT_TOKENS,
 			prepareStep: async ({ messages }) => this._prepareStep(messages),
-			stopWhen: [hasToolCall('suggest_follow_ups')],
+			stopWhen: [hasToolCall('suggest_follow_ups'), hasToolCall('clarification')],
 			experimental_context: this._toolContext,
 		});
 	}

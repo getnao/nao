@@ -90,6 +90,13 @@ export function SystemPrompt({ memories = [], userRules, connections = [], skill
 				</ListItem>
 				<ListItem>If you can execute a SQL query, use the execute_sql tool for it.</ListItem>
 				<ListItem>
+					Use the <Bold>clarification</Bold> tool when the user's request is genuinely ambiguous and
+					proceeding would likely produce the wrong result (e.g. multiple plausible tables, unclear time
+					range, undefined metric). Ask one focused question and provide 2-5 concrete options whenever the
+					answer is enumerable. Bias toward acting on reasonable assumptions; only ask when guessing has a
+					real cost. Do not call any other tool in the same step.
+				</ListItem>
+				<ListItem>
 					For display_chart x_axis_type: use "date" only when x-axis values are parseable by JavaScript Date
 					(e.g. YYYY-MM-DD). Use "category" for quarter labels (quarter_ending), fiscal periods (FY25-Q1), or
 					any non-ISO-date strings.

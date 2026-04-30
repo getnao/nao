@@ -75,6 +75,7 @@ export const NON_COLLAPSIBLE_TOOLS: StaticToolName[] = [
 	'execute_sql',
 	'display_chart',
 	'suggest_follow_ups',
+	'clarification',
 	'execute_python',
 	'execute_sandboxed_code',
 ];

@@ -1,3 +1,4 @@
+export * as clarification from './clarification';
 export * as displayChart from './display-chart';
 export * as executePython from './execute-python';
 export * as executeSandboxedCode from './execute-sandboxed-code';
