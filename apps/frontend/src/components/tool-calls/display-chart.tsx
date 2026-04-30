@@ -1,6 +1,6 @@
 import { memo, useCallback, useMemo, useState } from 'react';
 import { buildChart, labelize } from '@nao/shared';
-import { Download, FilePlus } from 'lucide-react';
+import { Download, FilePlus, Pencil } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useOptionalAgentContext } from '../../contexts/agent.provider';
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from '../ui/chart';
@@ -9,6 +9,7 @@ import { Skeleton } from '../ui/skeleton';
 import { Button } from '../ui/button';
 import { ToolCallWrapper } from './tool-call-wrapper';
 import { ChartRangeSelector } from './display-chart-range-selector';
+import { DisplayChartEditDialog } from './display-chart-edit-dialog';
 import type { ToolCallComponentProps } from '.';
 import type { ChartConfig } from '../ui/chart';
 import type { displayChart } from '@nao/shared/tools';
@@ -55,6 +56,8 @@ export const DisplayChartToolCall = ({
 	);
 
 	const [isDownloading, setIsDownloading] = useState(false);
+	const [isEditOpen, setIsEditOpen] = useState(false);
+	const isEditable = Boolean(agent && !agent.isReadonly && !agent.isRunning);
 
 	const handleDownload = async () => {
 		if (!config) {
@@ -208,6 +211,16 @@ export const DisplayChartToolCall = ({
 							onRangeSelected={(range) => setDataRange(range)}
 						/>
 					)}
+					{isEditable && (
+						<Button
+							variant='ghost-muted'
+							size='icon-xs'
+							onClick={() => setIsEditOpen(true)}
+							title='Edit chart'
+						>
+							<Pencil className='size-3.5' />
+						</Button>
+					)}
 					{config.chart_type != 'kpi_card' && (
 						<Button
 							variant='ghost-muted'
@@ -221,6 +234,16 @@ export const DisplayChartToolCall = ({
 					)}
 				</div>
 			</div>
+
+			{isEditable && (
+				<DisplayChartEditDialog
+					open={isEditOpen}
+					onOpenChange={setIsEditOpen}
+					toolCallId={toolCallId}
+					config={config}
+					availableColumns={sourceData.columns ?? []}
+				/>
+			)}
 
 			<ChartDisplay
 				data={filteredData}

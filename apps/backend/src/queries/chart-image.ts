@@ -66,3 +66,23 @@ export const saveChart = async (toolCallId: string, data: string): Promise<strin
 	);
 	return row.id;
 };
+
+/** Returns the project owner of the chat that contains the given chart tool call. */
+export const getChartOwnerInfo = async (toolCallId: string): Promise<{ projectId: string; userId: string } | null> => {
+	const [row] = await db
+		.select({ projectId: s.chat.projectId, userId: s.chat.userId })
+		.from(s.messagePart)
+		.innerJoin(s.chatMessage, eq(s.messagePart.messageId, s.chatMessage.id))
+		.innerJoin(s.chat, eq(s.chatMessage.chatId, s.chat.id))
+		.where(eq(s.messagePart.toolCallId, toolCallId))
+		.execute();
+	return row ?? null;
+};
+
+/** Persists an updated `display_chart` config for the given tool call. */
+export const updateChartConfig = async (toolCallId: string, config: displayChart.Input): Promise<void> => {
+	await db.update(s.messagePart).set({ toolInput: config }).where(eq(s.messagePart.toolCallId, toolCallId)).execute();
+
+	// Invalidate any cached PNG so externally-served chart images refresh.
+	await db.delete(s.message_part_chart_image).where(eq(s.message_part_chart_image.toolCallId, toolCallId)).execute();
+};
