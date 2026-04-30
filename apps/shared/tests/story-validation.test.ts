@@ -87,6 +87,19 @@ describe('validateStoryCode', () => {
 			const code = '| foo | bar |\n| --- | --- |\n| 1 | 2 |';
 			expect(validateStoryCode(code)).toEqual([]);
 		});
+
+		it('still validates <table> tags that follow a markdown table in the document', () => {
+			const code = ['| a | b |', '| - | - |', '| 1 | 2 |', '', '<table title="Oops" />'].join('\n');
+			const errors = validateStoryCode(code);
+			expect(errors).toHaveLength(1);
+			expect(errors[0].message).toMatch(/missing required attribute: query_id/);
+			expect(errors[0].line).toBe(5);
+		});
+
+		it('skips <table> tags embedded inside a markdown table cell', () => {
+			const code = '| a | <table query_id="q" /> |\n| - | - |\n| 1 | 2 |';
+			expect(validateStoryCode(code)).toEqual([]);
+		});
 	});
 
 	describe('grid validation', () => {
