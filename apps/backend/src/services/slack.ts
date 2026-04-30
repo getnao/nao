@@ -569,8 +569,13 @@ class ProjectSlackBot {
 			const png = generateChartImage({ config: part.input, data: sqlOutput.rows });
 			const chartId = await chartImageQueries.saveChart(part.toolCallId, png.toString('base64'));
 			state.renderedChartIds.add(part.toolCallId);
-			const imageUrl = new URL(`c/${ctx.chatId}/${chartId}.png`, this._redirectUrl).toString();
 
+			if (this._config.transportMode === 'socket') {
+				await this._uploadChartImageFile(png, sqlOutput.name, ctx);
+				return;
+			}
+
+			const imageUrl = new URL(`c/${ctx.chatId}/${chartId}.png`, this._redirectUrl).toString();
 			ctx.textBlockIndex = -1;
 			ctx.blocks.push(createImageBlock(imageUrl));
 			await ctx.convMessage?.edit(Card({ children: ctx.blocks }));
@@ -580,6 +585,17 @@ class ProjectSlackBot {
 				context: { chatId: ctx.chatId, toolCallId: part.toolCallId },
 			});
 		}
+	}
+
+	private async _uploadChartImageFile(png: Buffer, name: string | null, ctx: ConversationContext): Promise<void> {
+		const [, channelId, threadTs] = ctx.thread.id.split(':');
+		const filename = name ? `${name.toLowerCase().replace(/\s+/g, '_')}.png` : 'chart.png';
+		await this._slackClient.files.uploadV2({
+			channel_id: channelId,
+			thread_ts: threadTs,
+			filename,
+			file: png,
+		});
 	}
 
 	private async _handleCollapsibleToolPart(
