@@ -24,7 +24,7 @@ Send a single message asking for:
 
 ## Step 2 — Look up warehouse fields, write `nao_config.yaml`, run `nao init`
 
-1. **Fetch the warehouse-specific config** from [docs.getnao.io/nao-agent/context-builder/databases](https://docs.getnao.io/nao-agent/context-builder/databases). Each warehouse has its own required and optional fields (e.g. BigQuery needs `project_id` + `dataset_id`; Snowflake needs `account_id` + `warehouse` + `schema_name`; Postgres needs `host` + `port` + `database` + `schema_name`). Ask the user for any required field you don't already have.
+1. **Fetch the warehouse-specific config** from [docs.getnao.io/nao-agent/context-builder/databases](https://docs.getnao.io/nao-agent/context-builder/databases). Each warehouse has its own required and optional fields (e.g. BigQuery needs `project_id` + `dataset_id` (optional); Snowflake needs `account_id` + `warehouse` + `schema_name` (optional); Postgres needs `host` + `port` + `database` + `schema_name` (optional). Ask the user for any required field you don't already have.
 
 2. **Write `nao_config.yaml`** from the answers (skeleton in appendix below).
 
@@ -122,13 +122,12 @@ databases:
       project_id: <gcp-project-id>
       dataset_id: <dataset>
       credentials_path: /path/to/service-account.json # or `sso: true`
-      include: ['<dataset>.<table_pattern>'] # e.g. "analytics.fct_*"
+      include: ['<dataset_pattern>.<table_pattern>'] # e.g. "analytics.fct_*" - use '*' as multiple patterns
       exclude: ['<pattern>']
       templates: [columns, preview, description]
 
 llm:
     provider: anthropic # openai | bedrock | azure | gemini | mistral | ollama
-    model: claude-sonnet-4-7
     api_key: ${ANTHROPIC_API_KEY}
 
 repos:
