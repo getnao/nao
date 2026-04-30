@@ -691,8 +691,8 @@ class SlackService {
 
 	constructor() {}
 
-	public getWebhooks(config: SlackConfig): SlackBotWebhooks | undefined {
-		const bot = this._getOrCreateBot(config);
+	public async getWebhooks(config: SlackConfig): Promise<SlackBotWebhooks | undefined> {
+		const bot = await this._getOrCreateBot(config);
 		return bot.webhooks;
 	}
 
@@ -701,7 +701,7 @@ class SlackService {
 			const configs = await listSocketModeSlackConfigs();
 			for (const config of configs) {
 				try {
-					const bot = this._getOrCreateBot(config);
+					const bot = await this._getOrCreateBot(config);
 					await bot.startSocketMode();
 				} catch (error) {
 					logger.error(
@@ -728,7 +728,7 @@ class SlackService {
 			}
 			return;
 		}
-		const bot = this._getOrCreateBot(config);
+		const bot = await this._getOrCreateBot(config);
 		await bot.stopSocketMode();
 		await bot.startSocketMode();
 	}
@@ -742,13 +742,21 @@ class SlackService {
 		this._bots.delete(projectId);
 	}
 
-	private _getOrCreateBot(config: SlackConfig): ProjectSlackBot {
+	private async _getOrCreateBot(config: SlackConfig): Promise<ProjectSlackBot> {
 		const existing = this._bots.get(config.projectId);
 		if (existing && !this._configChanged(existing.config, config)) {
 			return existing;
 		}
 		if (existing) {
-			void existing.dispose();
+			this._bots.delete(config.projectId);
+			try {
+				await existing.dispose();
+			} catch (error) {
+				logger.warn(`Failed to dispose previous Slack bot for project ${config.projectId}: ${String(error)}`, {
+					source: 'system',
+					context: { projectId: config.projectId },
+				});
+			}
 		}
 		const bot = new ProjectSlackBot(config);
 		this._bots.set(config.projectId, bot);

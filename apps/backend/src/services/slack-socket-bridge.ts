@@ -32,6 +32,11 @@ interface SlackSocketEvent {
  * signature. In Socket Mode we receive already-authenticated events from
  * Slack, so we re-sign each forwarded request with the adapter's signing
  * secret to satisfy the signature check.
+ *
+ * For events that accept a response payload (slash commands, interactive
+ * components such as view submissions), the webhook response body is
+ * forwarded to `ack()` so payloads like modal validation errors and view
+ * updates reach Slack instead of being dropped.
  */
 export class SlackSocketBridge {
 	private readonly _projectId: string;
@@ -92,32 +97,53 @@ export class SlackSocketBridge {
 	}
 
 	private async _handleEvent(event: SlackSocketEvent): Promise<void> {
+		const response = await this._dispatchToWebhook(event);
+		const payload = response ? await this._buildAckPayload(event, response) : undefined;
+		await this._safeAck(event, payload);
+	}
+
+	private async _dispatchToWebhook(event: SlackSocketEvent): Promise<Response | null> {
 		try {
-			await event.ack();
+			const request = this._buildHttpRequest(event);
+			return await this._webhooks.slack(request, {
+				waitUntil: (task: Promise<unknown>) => task,
+			});
 		} catch (error) {
-			logger.warn(`Failed to ack Slack socket event for project ${this._projectId}: ${String(error)}`, {
+			logger.error(`Slack socket event dispatch failed for project ${this._projectId}: ${String(error)}`, {
 				source: 'system',
 				context: { projectId: this._projectId },
 			});
+			return null;
 		}
+	}
 
+	private async _buildAckPayload(event: SlackSocketEvent, response: Response): Promise<unknown> {
+		const body = await response.text().catch(() => '');
+		if (!response.ok) {
+			logger.warn(
+				`Slack socket forwarded event returned ${response.status} for project ${this._projectId}: ${body}`,
+				{
+					source: 'system',
+					context: { projectId: this._projectId },
+				},
+			);
+			return undefined;
+		}
+		if (!event.accepts_response_payload || !body) {
+			return undefined;
+		}
 		try {
-			const request = this._buildHttpRequest(event);
-			const response = await this._webhooks.slack(request, {
-				waitUntil: (task: Promise<unknown>) => task,
-			});
-			if (!response.ok) {
-				const body = await response.text().catch(() => '');
-				logger.warn(
-					`Slack socket forwarded event returned ${response.status} for project ${this._projectId}: ${body}`,
-					{
-						source: 'system',
-						context: { projectId: this._projectId },
-					},
-				);
-			}
+			return JSON.parse(body);
+		} catch {
+			return body;
+		}
+	}
+
+	private async _safeAck(event: SlackSocketEvent, payload: unknown): Promise<void> {
+		try {
+			await event.ack(payload);
 		} catch (error) {
-			logger.error(`Slack socket event dispatch failed for project ${this._projectId}: ${String(error)}`, {
+			logger.warn(`Failed to ack Slack socket event for project ${this._projectId}: ${String(error)}`, {
 				source: 'system',
 				context: { projectId: this._projectId },
 			});
