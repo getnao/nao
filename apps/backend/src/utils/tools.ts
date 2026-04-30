@@ -26,41 +26,64 @@ export const createTool = <TInput, TOutput>(
  */
 export const EXCLUDED_DIRS = ['.meta'];
 
+type NaoignoreCacheEntry = {
+	/** `mtimeMs:size` of the .naoignore file, or `null` if the file does not exist */
+	signature: string | null;
+	patterns: string[];
+};
+
 /**
  * Cache for .naoignore patterns per project folder.
+ * Entries are invalidated automatically when the underlying file changes.
  */
-const naoignoreCache = new Map<string, string[]>();
+const naoignoreCache = new Map<string, NaoignoreCacheEntry>();
+
+/**
+ * Computes a cheap fingerprint of the .naoignore file used to detect changes.
+ * Returns `null` when the file does not exist or cannot be stat-ed.
+ */
+const getNaoignoreSignature = (naoignorePath: string): string | null => {
+	try {
+		const stat = fs.statSync(naoignorePath);
+		return `${stat.mtimeMs}:${stat.size}`;
+	} catch {
+		return null;
+	}
+};
 
 /**
  * Loads and parses the .naoignore file from the project folder.
- * Returns an array of patterns. Results are cached per project folder.
+ * Returns an array of patterns. Results are cached per project folder and
+ * invalidated when the file's mtime or size changes.
  */
 export const loadNaoignorePatterns = (projectFolder: string): string[] => {
-	if (naoignoreCache.has(projectFolder)) {
-		return naoignoreCache.get(projectFolder)!;
+	const naoignorePath = path.join(projectFolder, '.naoignore');
+	const signature = getNaoignoreSignature(naoignorePath);
+
+	const cached = naoignoreCache.get(projectFolder);
+	if (cached && cached.signature === signature) {
+		return cached.patterns;
 	}
 
-	const naoignorePath = path.join(projectFolder, '.naoignore');
 	let patterns: string[] = [];
-
-	try {
-		if (fs.existsSync(naoignorePath)) {
+	if (signature !== null) {
+		try {
 			const content = fs.readFileSync(naoignorePath, 'utf-8');
 			patterns = content
 				.split('\n')
 				.map((line) => line.trim())
-				.filter((line) => line && !line.startsWith('#')); // Filter empty lines and comments
+				.filter((line) => line && !line.startsWith('#'));
+		} catch {
+			// If we can't read the file, fall back to empty patterns
 		}
-	} catch {
-		// If we can't read the file, return empty patterns
 	}
 
-	naoignoreCache.set(projectFolder, patterns);
+	naoignoreCache.set(projectFolder, { signature, patterns });
 	return patterns;
 };
 
 /**
- * Clears the naoignore cache. Useful for testing or when the .naoignore file changes.
+ * Clears the naoignore cache. Useful for testing or to force a reload.
  */
 export const clearNaoignoreCache = (): void => {
 	naoignoreCache.clear();
