@@ -9,6 +9,7 @@ import { GrepToolCall } from './grep';
 import { ListToolCall } from './list';
 import { McpToolCall } from './mcp';
 import { ReadToolCall } from './read';
+import { ReadQueryResultToolCall } from './read-query-result';
 import { SearchToolCall } from './search';
 import { WebFetchToolCall } from './web-fetch';
 import { WebSearchToolCall } from './web-search';
@@ -33,6 +34,7 @@ const toolComponents: Partial<{
 	grep: GrepToolCall,
 	list: ListToolCall,
 	read: ReadToolCall,
+	read_query_result: ReadQueryResultToolCall,
 	search: SearchToolCall,
 };
 

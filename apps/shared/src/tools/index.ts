@@ -5,6 +5,7 @@ export * as executeSql from './execute-sql';
 export * as grep from './grep';
 export * as list from './list';
 export * as readFile from './read';
+export * as readQueryResult from './read-query-result';
 export * as searchFiles from './search';
 export * as story from './story';
 export * as suggestFollowUps from './suggest-follow-ups';
