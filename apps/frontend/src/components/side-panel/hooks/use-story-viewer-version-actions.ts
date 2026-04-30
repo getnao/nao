@@ -4,6 +4,7 @@ import { getEditorMarkdown } from '../story-editor';
 import type { MutableRefObject } from 'react';
 import type { Editor as TiptapEditor } from '@tiptap/react';
 import type { StoryViewMode } from '../story-viewer.types';
+import type { StoryCodeViewHandle } from '../story-code-view';
 import { trpc } from '@/main';
 
 interface UseStoryViewerVersionActionsParams {
@@ -13,6 +14,8 @@ interface UseStoryViewerVersionActionsParams {
 	currentVersionCode?: string;
 	isViewingLatest: boolean;
 	tiptapEditorRef: MutableRefObject<TiptapEditor | null>;
+	codeViewRef: MutableRefObject<StoryCodeViewHandle | null>;
+	viewMode: StoryViewMode;
 	setViewMode: (mode: StoryViewMode) => void;
 }
 
@@ -23,6 +26,8 @@ export const useStoryViewerVersionActions = ({
 	currentVersionCode,
 	isViewingLatest,
 	tiptapEditorRef,
+	codeViewRef,
+	viewMode,
 	setViewMode,
 }: UseStoryViewerVersionActionsParams) => {
 	const queryClient = useQueryClient();
@@ -58,13 +63,33 @@ export const useStoryViewerVersionActions = ({
 	);
 
 	const handleSave = useCallback(() => {
-		const editor = tiptapEditorRef.current;
 		const hasVersionData = storyTitle !== undefined && currentVersionCode !== undefined;
-		if (!editor || !hasVersionData) {
+		if (!hasVersionData) {
 			return;
 		}
 
-		const newCode = getEditorMarkdown(editor);
+		let newCode: string | null = null;
+		if (viewMode === 'edit') {
+			const editor = tiptapEditorRef.current;
+			if (!editor) {
+				return;
+			}
+			newCode = getEditorMarkdown(editor);
+		} else if (viewMode === 'code') {
+			const codeView = codeViewRef.current;
+			if (!codeView) {
+				return;
+			}
+			if (codeView.getErrors().length > 0) {
+				return;
+			}
+			newCode = codeView.getCode();
+		}
+
+		if (newCode === null) {
+			return;
+		}
+
 		if (newCode === currentVersionCode) {
 			setViewMode('preview');
 			return;
@@ -79,7 +104,17 @@ export const useStoryViewerVersionActions = ({
 		});
 
 		setViewMode('preview');
-	}, [chatId, storySlug, storyTitle, currentVersionCode, tiptapEditorRef, createVersionMutation, setViewMode]);
+	}, [
+		chatId,
+		storySlug,
+		storyTitle,
+		currentVersionCode,
+		tiptapEditorRef,
+		codeViewRef,
+		viewMode,
+		createVersionMutation,
+		setViewMode,
+	]);
 
 	const handleRestore = useCallback(() => {
 		const hasVersionData = storyTitle !== undefined && currentVersionCode !== undefined;

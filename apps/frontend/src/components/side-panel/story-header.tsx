@@ -58,6 +58,8 @@ export interface StoryHeaderProps {
 	onRefreshData: () => void;
 	onOpenLiveSettings: () => void;
 	onClose: () => void;
+	isCodeDirty?: boolean;
+	isCodeValid?: boolean;
 }
 
 export const StoryHeader = memo(function StoryHeader({
@@ -87,11 +89,14 @@ export const StoryHeader = memo(function StoryHeader({
 	onRefreshData,
 	onOpenLiveSettings,
 	onClose,
+	isCodeDirty = false,
+	isCodeValid = true,
 }: StoryHeaderProps) {
 	const isMobile = useIsMobile();
 	const otherStories = useMemo(() => allStories.filter((s) => s.id !== storySlug), [allStories, storySlug]);
 	const hasMultiple = otherStories.length > 0;
-	const showSubHeader = viewMode === 'edit' || !isViewingLatest;
+	const isEditingCode = viewMode === 'code' && isCodeDirty && !isReadonlyMode;
+	const showSubHeader = viewMode === 'edit' || isEditingCode || !isViewingLatest;
 
 	const titleElement = hasMultiple ? (
 		<DropdownMenu>
@@ -287,6 +292,28 @@ export const StoryHeader = memo(function StoryHeader({
 									Cancel
 								</Button>
 								<Button variant='default' size='sm' onClick={onSave} className='gap-1.5'>
+									<Save className='size-3' />
+									<span>Save</span>
+									<kbd className='text-[10px] opacity-60 font-sans'>⌘S</kbd>
+								</Button>
+							</div>
+						</>
+					) : isEditingCode ? (
+						<>
+							<span className='text-xs text-muted-foreground'>
+								{isCodeValid ? 'Editing code' : 'Fix validation errors to save'}
+							</span>
+							<div className='flex items-center gap-2'>
+								<Button variant='outline' size='sm' onClick={() => onViewModeChange('preview')}>
+									Cancel
+								</Button>
+								<Button
+									variant='default'
+									size='sm'
+									onClick={onSave}
+									disabled={!isCodeValid}
+									className='gap-1.5'
+								>
 									<Save className='size-3' />
 									<span>Save</span>
 									<kbd className='text-[10px] opacity-60 font-sans'>⌘S</kbd>

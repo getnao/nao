@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ShareStoryDialog } from '../share-dialog.story';
 import { StoryEditor } from './story-editor';
@@ -18,6 +18,7 @@ import { useStoryViewerVersionActions } from './hooks/use-story-viewer-version-a
 import { useStoryViewerVersions } from './hooks/use-story-viewer-versions';
 import { useStoryViewerViewMode } from './hooks/use-story-viewer-view-mode';
 import type { Editor as TiptapEditor } from '@tiptap/react';
+import type { StoryCodeViewHandle } from './story-code-view';
 import { useSidePanel } from '@/contexts/side-panel';
 import { ReadonlyAgentMessagesProvider, useOptionalAgentContext } from '@/contexts/agent.provider';
 import { Spinner } from '@/components/ui/spinner';
@@ -32,6 +33,9 @@ interface StoryViewerProps {
 
 export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp }: StoryViewerProps) {
 	const tiptapEditorRef = useRef<TiptapEditor | null>(null);
+	const codeViewRef = useRef<StoryCodeViewHandle | null>(null);
+	const [isCodeDirty, setIsCodeDirty] = useState(false);
+	const [isCodeValid, setIsCodeValid] = useState(true);
 	const scrollContainerRef = useRef<HTMLDivElement | null>(null);
 	const { close: closeSidePanel, isReadonlyMode: contextReadonlyMode, shareId } = useSidePanel();
 	const isReadonlyMode = readonlyProp ?? contextReadonlyMode;
@@ -83,6 +87,8 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp }:
 		currentVersionCode: currentVersion?.code,
 		isViewingLatest,
 		tiptapEditorRef,
+		codeViewRef,
+		viewMode,
 		setViewMode,
 	});
 	const { isShareDialogOpen, setIsShareDialogOpen, isShared } = useStoryViewerSharing({
@@ -112,6 +118,13 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp }:
 		[chatId, readonlyProp],
 	);
 	const { switchStory } = useStoryViewerSwitchStory({ renderStoryViewer });
+
+	useEffect(() => {
+		if (viewMode !== 'code') {
+			setIsCodeDirty(false);
+			setIsCodeValid(true);
+		}
+	}, [viewMode]);
 
 	useStoryViewerStreamScroll({
 		scrollContainerRef,
@@ -164,6 +177,8 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp }:
 				onRefreshData={handleRefreshData}
 				onOpenLiveSettings={handleOpenLiveSettings}
 				onClose={closeSidePanel}
+				isCodeDirty={isCodeDirty}
+				isCodeValid={isCodeValid}
 			/>
 
 			{Boolean(archivedAt) && <ArchivedBanner chatId={chatId} storySlug={resolvedStorySlug} />}
@@ -180,7 +195,14 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp }:
 				) : viewMode === 'edit' ? (
 					<StoryEditor code={storyCode} editorRef={tiptapEditorRef} onSave={handleSave} />
 				) : (
-					<StoryCodeView code={storyCode} />
+					<StoryCodeView
+						code={storyCode}
+						readOnly={isReadonlyMode}
+						codeRef={codeViewRef}
+						onDirtyChange={setIsCodeDirty}
+						onValidChange={setIsCodeValid}
+						onSave={handleSave}
+					/>
 				)}
 			</div>
 
