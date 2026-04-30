@@ -144,7 +144,14 @@ export const DisplayChartToolCall = ({
 	}
 
 	const handleAddToStory = async () => {
-		const targetId = isVisible && currentStorySlug ? currentStorySlug : storyIds[storyIds.length - 1];
+		const latestStoryId = storyIds[storyIds.length - 1];
+		// Prefer the currently-visible story slug, but only if it's a real story
+		// from this chat — the side panel's currentStorySlug can lag behind (e.g.
+		// it was set from a partial streamed slug during the story tool's
+		// input-streaming phase) and would otherwise point to a non-existent
+		// story.
+		const targetId =
+			isVisible && currentStorySlug && storyIds.includes(currentStorySlug) ? currentStorySlug : latestStoryId;
 		if (!targetId || !config || !chatId) {
 			return;
 		}
