@@ -29,17 +29,26 @@ const X_AXIS_TYPE_OPTIONS: { value: NonNullable<displayChart.XAxisType> | 'auto'
 	{ value: 'number', label: 'Number' },
 ];
 
-interface Props {
+interface ChartConfigEditDialogProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
-	toolCallId: string;
 	config: displayChart.Input;
 	availableColumns: string[];
+	onSave: (next: displayChart.Input) => Promise<void>;
+	isSaving?: boolean;
+	description?: string;
 }
 
-export function DisplayChartEditDialog({ open, onOpenChange, toolCallId, config, availableColumns }: Props) {
-	const queryClient = useQueryClient();
-	const { messages, setMessages } = useAgentContext();
+/** Presentational edit dialog for `display_chart` configuration. */
+export function ChartConfigEditDialog({
+	open,
+	onOpenChange,
+	config,
+	availableColumns,
+	onSave,
+	isSaving = false,
+	description = 'Tweak the chart parameters.',
+}: ChartConfigEditDialogProps) {
 	const [draft, setDraft] = useState<displayChart.Input>(config);
 	const [error, setError] = useState<string | null>(null);
 
@@ -49,14 +58,6 @@ export function DisplayChartEditDialog({ open, onOpenChange, toolCallId, config,
 			setError(null);
 		}
 	}, [open, config]);
-
-	const updateMutation = useMutation(
-		trpc.chart.updateConfig.mutationOptions({
-			onSuccess: () => {
-				queryClient.invalidateQueries({ queryKey: [['chat', 'get']] });
-			},
-		}),
-	);
 
 	const xAxisOptions = useMemo(() => {
 		if (availableColumns.length === 0) {
@@ -73,15 +74,10 @@ export function DisplayChartEditDialog({ open, onOpenChange, toolCallId, config,
 			return;
 		}
 
-		const next = parsed.data;
-		const previousMessages = messages;
-		setMessages(applyChartConfigToMessages(previousMessages, toolCallId, next));
-
 		try {
-			await updateMutation.mutateAsync({ toolCallId, config: next });
+			await onSave(parsed.data);
 			onOpenChange(false);
 		} catch (err) {
-			setMessages(previousMessages);
 			setError(err instanceof Error ? err.message : 'Failed to update chart.');
 		}
 	};
@@ -115,7 +111,7 @@ export function DisplayChartEditDialog({ open, onOpenChange, toolCallId, config,
 			<DialogContent className='sm:max-w-xl max-h-[90vh] overflow-y-auto'>
 				<DialogHeader>
 					<DialogTitle>Edit chart</DialogTitle>
-					<DialogDescription>Tweak the chart parameters. Changes are saved to the chat.</DialogDescription>
+					<DialogDescription>{description}</DialogDescription>
 				</DialogHeader>
 
 				<form onSubmit={handleSubmit} className='flex flex-col gap-4'>
@@ -239,13 +235,64 @@ export function DisplayChartEditDialog({ open, onOpenChange, toolCallId, config,
 						<Button type='button' variant='ghost' onClick={() => onOpenChange(false)}>
 							Cancel
 						</Button>
-						<Button type='submit' isLoading={updateMutation.isPending} disabled={updateMutation.isPending}>
+						<Button type='submit' isLoading={isSaving} disabled={isSaving}>
 							Save
 						</Button>
 					</DialogFooter>
 				</form>
 			</DialogContent>
 		</Dialog>
+	);
+}
+
+interface DisplayChartEditDialogProps {
+	open: boolean;
+	onOpenChange: (open: boolean) => void;
+	toolCallId: string;
+	config: displayChart.Input;
+	availableColumns: string[];
+}
+
+/** Edit dialog bound to a `tool-display_chart` message part: persists through `chart.updateConfig`. */
+export function DisplayChartEditDialog({
+	open,
+	onOpenChange,
+	toolCallId,
+	config,
+	availableColumns,
+}: DisplayChartEditDialogProps) {
+	const queryClient = useQueryClient();
+	const { messages, setMessages } = useAgentContext();
+
+	const updateMutation = useMutation(
+		trpc.chart.updateConfig.mutationOptions({
+			onSuccess: () => {
+				queryClient.invalidateQueries({ queryKey: [['chat', 'get']] });
+			},
+		}),
+	);
+
+	const handleSave = async (next: displayChart.Input) => {
+		const previousMessages = messages;
+		setMessages(applyChartConfigToMessages(previousMessages, toolCallId, next));
+		try {
+			await updateMutation.mutateAsync({ toolCallId, config: next });
+		} catch (err) {
+			setMessages(previousMessages);
+			throw err;
+		}
+	};
+
+	return (
+		<ChartConfigEditDialog
+			open={open}
+			onOpenChange={onOpenChange}
+			config={config}
+			availableColumns={availableColumns}
+			onSave={handleSave}
+			isSaving={updateMutation.isPending}
+			description='Tweak the chart parameters. Changes are saved to the chat.'
+		/>
 	);
 }
 

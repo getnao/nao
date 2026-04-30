@@ -1,8 +1,12 @@
-import { memo, useMemo } from 'react';
+import { memo, useMemo, useState } from 'react';
+import { Pencil } from 'lucide-react';
 import type { UIMessage } from '@nao/backend/chat';
 import type { displayChart } from '@nao/shared/tools';
+import { Button } from '@/components/ui/button';
 import { useOptionalAgentContext } from '@/contexts/agent.provider';
+import { useStoryChartEdit } from '@/contexts/story-chart-edit';
 import { ChartDisplay } from '@/components/tool-calls/display-chart';
+import { ChartConfigEditDialog } from '@/components/tool-calls/display-chart-edit-dialog';
 import { sortByDateKey } from '@/lib/charts.utils';
 
 interface ChartBlock {
@@ -12,6 +16,7 @@ interface ChartBlock {
 	xAxisType: string | null;
 	series: Array<{ data_key: string; color: string; label?: string }>;
 	title: string;
+	rawTag?: string;
 }
 
 export const StoryChartEmbed = memo(function StoryChartEmbed({ chart }: { chart: ChartBlock }) {
@@ -59,7 +64,7 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({ chart }: { chart:
 	const xAxisType = chart.xAxisType === 'number' ? 'number' : ('category' as const);
 
 	return (
-		<div className={`my-2 ${chart.chartType != 'kpi_card' ? 'aspect-3/2' : ''} `}>
+		<StoryChartEmbedShell chart={chart} availableColumns={sourceData.columns ?? []}>
 			<ChartDisplay
 				data={data}
 				chartType={chart.chartType as displayChart.ChartType}
@@ -68,6 +73,66 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({ chart }: { chart:
 				series={chart.series}
 				title={chart.title}
 			/>
-		</div>
+		</StoryChartEmbedShell>
 	);
 });
+
+interface StoryChartEmbedShellProps {
+	chart: ChartBlock;
+	availableColumns: string[];
+	children: React.ReactNode;
+}
+
+/**
+ * Wraps a rendered chart with an "Edit chart" button when the surrounding story
+ * context provides a save handler.
+ */
+export function StoryChartEmbedShell({ chart, availableColumns, children }: StoryChartEmbedShellProps) {
+	const edit = useStoryChartEdit();
+	const [isEditOpen, setIsEditOpen] = useState(false);
+	const canEdit = Boolean(edit && chart.rawTag);
+
+	const config = useMemo<displayChart.Input>(
+		() => ({
+			query_id: chart.queryId,
+			chart_type: chart.chartType as displayChart.ChartType,
+			x_axis_key: chart.xAxisKey,
+			x_axis_type: (chart.xAxisType || null) as displayChart.XAxisType | null,
+			series: chart.series.map((s) => ({
+				data_key: s.data_key,
+				color: s.color || undefined,
+				label: s.label,
+			})),
+			title: chart.title,
+		}),
+		[chart],
+	);
+
+	return (
+		<div className={`my-2 relative ${chart.chartType != 'kpi_card' ? 'aspect-3/2' : ''}`}>
+			{canEdit && (
+				<Button
+					variant='ghost-muted'
+					size='icon-xs'
+					onClick={() => setIsEditOpen(true)}
+					title='Edit chart'
+					className='absolute top-1 right-1 z-10 bg-background/80 backdrop-blur hover:bg-accent'
+				>
+					<Pencil className='size-3.5' />
+				</Button>
+			)}
+			{children}
+			{canEdit && edit && chart.rawTag && (
+				<ChartConfigEditDialog
+					open={isEditOpen}
+					onOpenChange={setIsEditOpen}
+					config={config}
+					availableColumns={availableColumns}
+					isSaving={edit.isSaving}
+					onSave={(next) => edit.saveChart(chart.rawTag!, next)}
+					description='Tweak the chart parameters. Changes are saved to the story as a new version.'
+				/>
+			)}
+		</div>
+	);
+}

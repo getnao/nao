@@ -5,6 +5,8 @@ export interface ParsedChartBlock {
 	xAxisType: string | null;
 	series: Array<{ data_key: string; color: string; label?: string }>;
 	title: string;
+	/** The original `<chart ... />` tag this block was parsed from, when available. */
+	rawTag?: string;
 }
 
 export interface ParsedTableBlock {
@@ -60,6 +62,26 @@ export function parseChartBlock(attrString: string): ParsedChartBlock | null {
 		series,
 		title: attrs.title || '',
 	};
+}
+
+const escapeDoubleQuotedAttr = (value: string) => value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+const escapeSingleQuotedAttr = (value: string) => value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+
+/** Serializes a chart config into its `<chart ... />` tag representation used in story markdown. */
+export function buildChartTag(config: {
+	query_id: string;
+	chart_type: string;
+	x_axis_key: string;
+	x_axis_type: string | null;
+	series: Array<{ data_key: string; color?: string; label?: string }>;
+	title: string;
+}): string {
+	const seriesJson = JSON.stringify(config.series);
+	return `<chart query_id="${escapeDoubleQuotedAttr(config.query_id)}" chart_type="${escapeDoubleQuotedAttr(
+		config.chart_type,
+	)}" x_axis_key="${escapeDoubleQuotedAttr(config.x_axis_key)}" x_axis_type="${escapeDoubleQuotedAttr(
+		config.x_axis_type ?? '',
+	)}" series='${escapeSingleQuotedAttr(seriesJson)}' title="${escapeDoubleQuotedAttr(config.title ?? '')}" />`;
 }
 
 export function parseTableBlock(attrString: string): ParsedTableBlock | null {
@@ -141,7 +163,7 @@ export function splitCodeIntoSegments(code: string): Segment[] {
 		} else if (match[3] !== undefined) {
 			const chart = parseChartBlock(match[3]);
 			if (chart) {
-				segments.push({ type: 'chart', chart });
+				segments.push({ type: 'chart', chart: { ...chart, rawTag: match[0] } });
 			}
 		} else if (match[4] !== undefined) {
 			const table = parseTableBlock(match[4]);

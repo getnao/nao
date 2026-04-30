@@ -15,6 +15,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { trpc } from '@/main';
 import { StoryDownload } from '@/components/story-download';
 import { SelectionProvider } from '@/contexts/text-selection';
+import { StoryChartEditProvider } from '@/contexts/story-chart-edit';
 import { chatPendingCitationStore } from '@/stores/chat-pending-citation';
 import { useChatActivity } from '@/hooks/use-chat-activity';
 
@@ -129,12 +130,19 @@ function StoryPreviewPage() {
 
 			<SelectionProvider key={storySlug}>
 				<HighlightBubble onAsk={handleSelectionAsk} disabled={isChatRunning} />
-				<PreviewContent
-					code={story.code}
-					queryData={story.queryData as QueryDataMap | null}
+				<StoryChartEditProvider
 					chatId={chatId}
-					cacheSchedule={story.cacheSchedule}
-				/>
+					storySlug={storySlug}
+					storyTitle={story.title}
+					storyCode={story.code}
+				>
+					<PreviewContent
+						code={story.code}
+						queryData={story.queryData as QueryDataMap | null}
+						chatId={chatId}
+						cacheSchedule={story.cacheSchedule}
+					/>
+				</StoryChartEditProvider>
 			</SelectionProvider>
 		</div>
 	);

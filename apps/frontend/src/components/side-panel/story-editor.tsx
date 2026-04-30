@@ -68,7 +68,8 @@ function ChartBlockView({ node }: ReactNodeViewProps) {
 		if (!attrMatch) {
 			return null;
 		}
-		return parseChartBlock(attrMatch[1]);
+		const parsed = parseChartBlock(attrMatch[1]);
+		return parsed ? { ...parsed, rawTag } : null;
 	}, [rawTag]);
 
 	if (!chart) {
