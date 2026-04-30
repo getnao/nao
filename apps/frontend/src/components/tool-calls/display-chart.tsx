@@ -149,9 +149,10 @@ export const DisplayChartToolCall = ({
 			return;
 		}
 
-		const data = await queryClient.fetchQuery(
-			trpc.story.listVersions.queryOptions({ chatId, storySlug: targetId }),
-		);
+		const data = await queryClient.fetchQuery({
+			...trpc.story.listVersions.queryOptions({ chatId, storySlug: targetId }),
+			staleTime: 0,
+		});
 		const latest = data.versions.at(-1);
 		if (!latest) {
 			return;
