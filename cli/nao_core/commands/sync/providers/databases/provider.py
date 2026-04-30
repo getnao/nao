@@ -175,6 +175,13 @@ def sync_database(
             usage_stats = compute_table_usage(raw_queries, selected_tables, dialect=dialect)
 
         for schema, tables in schema_tables.items():
+            semantic_views = db_config.get_semantic_views(conn, schema)
+            semantic_views = [sv for sv in semantic_views if db_config.matches_pattern(schema, sv["name"])]
+
+            if not tables and not semantic_views:
+                progress.update(schema_task, advance=1)
+                continue
+
             schema_path = db_path / f"schema={schema}"
             schema_path.mkdir(parents=True, exist_ok=True)
 
@@ -224,7 +231,7 @@ def sync_database(
                             table_name=table,
                             dataset=schema,
                             **({"nao": nao_ctx} if nao_ctx else {}),
-                            **extra_ctx
+                            **extra_ctx,
                         )
                         render_dur = time.monotonic() - t_render
                         if render_dur > 5:
@@ -260,8 +267,6 @@ def sync_database(
                     f"  [green]✓ {schema}[/green] [dim]— {len(tables)} tables synced in {schema_dur}{error_suffix}[/dim]"
                 )
 
-            semantic_views = db_config.get_semantic_views(conn, schema)
-            semantic_views = [sv for sv in semantic_views if db_config.matches_pattern(schema, sv["name"])]
             if semantic_views:
                 for sv in semantic_views:
                     sv_path = schema_path / f"semantic_view={sv['name']}"
