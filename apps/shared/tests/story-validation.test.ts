@@ -73,6 +73,12 @@ describe('validateStoryCode', () => {
 			const errors = validateStoryCode(code);
 			expect(errors.some((e) => e.message.includes('data_key'))).toBe(true);
 		});
+
+		it('flags <chart> tags closed with ">" instead of "/>"', () => {
+			const code = '<chart query_id="q1" chart_type="line" x_axis_key="month" data_key="revenue" title="x">';
+			const errors = validateStoryCode(code);
+			expect(errors.some((e) => e.message.includes('self-closing'))).toBe(true);
+		});
 	});
 
 	describe('table validation', () => {
@@ -99,6 +105,12 @@ describe('validateStoryCode', () => {
 		it('skips <table> tags embedded inside a markdown table cell', () => {
 			const code = '| a | <table query_id="q" /> |\n| - | - |\n| 1 | 2 |';
 			expect(validateStoryCode(code)).toEqual([]);
+		});
+
+		it('flags <table> tags closed with ">" instead of "/>"', () => {
+			const code = '<table query_id="q" title="t">';
+			const errors = validateStoryCode(code);
+			expect(errors.some((e) => e.message.includes('self-closing'))).toBe(true);
 		});
 	});
 

@@ -44,13 +44,22 @@ export function validateStoryCode(code: string): StoryValidationError[] {
 
 function validateChartBlocks(code: string): StoryValidationError[] {
 	const errors: StoryValidationError[] = [];
-	const chartRegex = /<chart\b([^/>]*?)\/?>/g;
+	const chartRegex = /<chart\b([^/>]*?)(\/?)>/g;
 	let match: RegExpExecArray | null;
 
 	while ((match = chartRegex.exec(code)) !== null) {
-		const [fullMatch, attrString] = match;
+		const [fullMatch, attrString, slash] = match;
 		const position = getPosition(code, match.index);
 		const attrs = parseChartAttributes(attrString ?? '');
+
+		if (slash !== '/') {
+			errors.push({
+				message: '<chart> tag must be self-closing — use "/>" instead of ">".',
+				line: position.line,
+				column: position.column,
+				length: fullMatch.length,
+			});
+		}
 
 		const missing = REQUIRED_CHART_ATTRS.filter((attr) => !attrs[attr]);
 		if (missing.length > 0) {
@@ -171,16 +180,26 @@ function extractRawSeriesBracket(attrString: string): string | null {
 
 function validateTableBlocks(code: string): StoryValidationError[] {
 	const errors: StoryValidationError[] = [];
-	const tableRegex = /<table\b([^/>]*?)\/?>/g;
+	const tableRegex = /<table\b([^/>]*?)(\/?)>/g;
 	let match: RegExpExecArray | null;
 
 	while ((match = tableRegex.exec(code)) !== null) {
-		const [fullMatch, attrString] = match;
+		const [fullMatch, attrString, slash] = match;
 		if (isMarkdownTable(code, match.index)) {
 			continue;
 		}
 		const position = getPosition(code, match.index);
 		const attrs = parseChartAttributes(attrString ?? '');
+
+		if (slash !== '/') {
+			errors.push({
+				message: '<table> tag must be self-closing — use "/>" instead of ">".',
+				line: position.line,
+				column: position.column,
+				length: fullMatch.length,
+			});
+		}
+
 		const missing = REQUIRED_TABLE_ATTRS.filter((attr) => !attrs[attr]);
 		if (missing.length > 0) {
 			errors.push({
