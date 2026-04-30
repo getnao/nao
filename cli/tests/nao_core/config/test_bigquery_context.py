@@ -779,12 +779,14 @@ class TestPartitionFilter:
         assert "DATE_SUB(CURRENT_DATE()" in ctx._partition_filter()
 
     def test_fallback_queries_information_schema_for_type(self):
-        ctx, mock_conn = _make_context(partition_metadata=None)
-        mock_conn.raw_sql.side_effect = [
-            [("event_time",)],
-            [],
-            [("TIMESTAMP",)],
-        ]
+        meta = TablePartitionMetadata(
+            partition_column="event_time",
+            partition_column_type=None,
+            last_partition_id=None,
+            total_rows=None,
+        )
+        ctx, mock_conn = _make_context(partition_metadata=meta)
+        mock_conn.raw_sql.side_effect = [[("TIMESTAMP",)]]
         assert "TIMESTAMP_SUB(CURRENT_TIMESTAMP()" in ctx._partition_filter()
 
 
