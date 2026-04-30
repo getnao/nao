@@ -178,83 +178,82 @@ def sync_database(
             schema_path = db_path / f"schema={schema}"
             schema_path.mkdir(parents=True, exist_ok=True)
 
-            if tables:
-                state.add_schema(schema)
-                table_task = progress.add_task(
-                    f"    [cyan]{schema}[/cyan]",
-                    total=len(tables),
-                )
+            state.add_schema(schema)
+            table_task = progress.add_task(
+                f"    [cyan]{schema}[/cyan]",
+                total=len(tables),
+            )
 
-                schema_errors = 0
-                schema_start = time.monotonic()
+            schema_errors = 0
+            schema_start = time.monotonic()
 
-                for table in tables:
-                    table_path = schema_path / f"table={table}"
-                    table_path.mkdir(parents=True, exist_ok=True)
-
-                    progress.update(
-                        table_task,
-                        description=f"    [cyan]{schema}[/cyan] [dim]→ {table}[/dim]",
-                    )
-
-                    ctx = db_config.create_context(conn, schema, table)
-                    table_usage = usage_stats.get(f"{schema}.{table}", TableUsageStats())
-
-                    for template_name in templates:
-                        output_filename = Path(template_name).stem
-                        tpl_name = output_filename.replace(".md", "")
-
-                        extra_ctx: dict[str, Any] = {}
-                        if tpl_name == "how_to_use":
-                            extra_ctx["usage_stats"] = table_usage
-                        output_file = table_path / output_filename
-
-                        if tpl_name == "profiling" and hasattr(db_config, "profiling"):
-                            if not _should_refresh_profiling(output_file, db_config.profiling):
-                                console.print(
-                                    f"    [dim]⏭ {schema}.{table} profiling skipped "
-                                    f"(policy: {db_config.profiling.refresh_policy.value})[/dim]"
-                                )
-                                continue
-
-                        t_render = time.monotonic()
-                        try:
-                            content = engine.render(
-                                template_name,
-                                db=ctx,
-                                table_name=table,
-                                dataset=schema,
-                                **({"nao": nao_ctx} if nao_ctx else {}),
-                                **extra_ctx
-                                ,
-                            )
-                            render_dur = time.monotonic() - t_render
-                            if render_dur > 5:
-                                console.print(
-                                    f"    [yellow]⏱[/yellow] [dim]{schema}.{table}[/dim] "
-                                    f"[yellow]{tpl_name}[/yellow] [dim]took {_fmt_duration(render_dur)}[/dim]"
-                                )
-                        except Exception as e:
-                            render_dur = time.monotonic() - t_render
-                            schema_errors += 1
-                            total_errors += 1
-                            console.print(
-                                f"    [bold red]✗[/bold red] [dim]{schema}.{table}[/dim] "
-                                f"[red]{tpl_name}[/red] [dim]failed after "
-                                f"{_fmt_duration(render_dur)}:[/dim] {e}"
-                            )
-                            content = f"# {table}\n\nError generating content: {e}"
-
-                        output_file = table_path / output_filename
-                        output_file.write_text(content)
-
-                    state.add_table(schema, table)
-                    progress.update(table_task, advance=1)
+            for table in tables:
+                table_path = schema_path / f"table={table}"
+                table_path.mkdir(parents=True, exist_ok=True)
 
                 progress.update(
                     table_task,
-                    description=f"    [cyan]{schema}[/cyan]",
+                    description=f"    [cyan]{schema}[/cyan] [dim]→ {table}[/dim]",
                 )
+
+                ctx = db_config.create_context(conn, schema, table)
+                table_usage = usage_stats.get(f"{schema}.{table}", TableUsageStats())
+
+                for template_name in templates:
+                    output_filename = Path(template_name).stem
+                    tpl_name = output_filename.replace(".md", "")
+
+                    extra_ctx: dict[str, Any] = {}
+                    if tpl_name == "how_to_use":
+                        extra_ctx["usage_stats"] = table_usage
+                    output_file = table_path / output_filename
+
+                    if tpl_name == "profiling" and hasattr(db_config, "profiling"):
+                        if not _should_refresh_profiling(output_file, db_config.profiling):
+                            console.print(
+                                f"    [dim]⏭ {schema}.{table} profiling skipped "
+                                f"(policy: {db_config.profiling.refresh_policy.value})[/dim]"
+                            )
+                            continue
+
+                    t_render = time.monotonic()
+                    try:
+                        content = engine.render(
+                            template_name,
+                            db=ctx,
+                            table_name=table,
+                            dataset=schema,
+                            **({"nao": nao_ctx} if nao_ctx else {}),
+                            **extra_ctx
+                        )
+                        render_dur = time.monotonic() - t_render
+                        if render_dur > 5:
+                            console.print(
+                                f"    [yellow]⏱[/yellow] [dim]{schema}.{table}[/dim] "
+                                f"[yellow]{tpl_name}[/yellow] [dim]took {_fmt_duration(render_dur)}[/dim]"
+                            )
+                    except Exception as e:
+                        render_dur = time.monotonic() - t_render
+                        schema_errors += 1
+                        total_errors += 1
+                        console.print(
+                            f"    [bold red]✗[/bold red] [dim]{schema}.{table}[/dim] "
+                            f"[red]{tpl_name}[/red] [dim]failed after "
+                            f"{_fmt_duration(render_dur)}:[/dim] {e}"
+                        )
+                        content = f"# {table}\n\nError generating content: {e}"
+
+                    output_file = table_path / output_filename
+                    output_file.write_text(content)
+
+                state.add_table(schema, table)
+                progress.update(table_task, advance=1)
+
+            progress.update(
+                table_task,
+                description=f"    [cyan]{schema}[/cyan]",
+            )
+            if tables:
                 schema_dur = _fmt_duration(time.monotonic() - schema_start)
                 error_suffix = f" [red]({schema_errors} errors)[/red]" if schema_errors else ""
                 console.print(
@@ -262,11 +261,15 @@ def sync_database(
                 )
 
             semantic_views = db_config.get_semantic_views(conn, schema)
+            semantic_views = [sv for sv in semantic_views if db_config.matches_pattern(schema, sv["name"])]
             if semantic_views:
                 for sv in semantic_views:
                     sv_path = schema_path / f"semantic_view={sv['name']}"
                     sv_path.mkdir(parents=True, exist_ok=True)
                     content_parts = [f"# {sv['name']}\n"]
+                    content_parts.append(
+                        "This is a Snowflake **semantic view** — use this to understand the intended way to query and aggregate data.\n"
+                    )
                     if sv.get("comment"):
                         content_parts.append(f"{sv['comment']}\n")
                     if sv.get("definition"):
