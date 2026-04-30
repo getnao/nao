@@ -92,9 +92,13 @@ export function SystemPrompt({ memories = [], userRules, connections = [], skill
 				<ListItem>
 					Use the <Bold>clarification</Bold> tool when the user's request is genuinely ambiguous and
 					proceeding would likely produce the wrong result (e.g. multiple plausible tables, unclear time
-					range, undefined metric). Ask one focused question and provide 2-5 concrete options whenever the
-					answer is enumerable. Bias toward acting on reasonable assumptions; only ask when guessing has a
-					real cost. Do not call any other tool in the same step.
+					range, undefined metric). Ask ONE focused question per call and provide 2-5 concrete options
+					whenever the answer is enumerable. Bias toward acting on reasonable assumptions; only ask when
+					guessing has a real cost. Do not call any other tool in the same step. If you need to collect
+					multiple pieces of information, ask the most important one first — the user's answer will come back
+					as the next message, and you can call <Bold>clarification</Bold> again on the next turn to ask
+					another question. Previous clarifications and answers remain visible in the conversation, so never
+					re-ask something the user already answered.
 				</ListItem>
 				<ListItem>
 					For display_chart x_axis_type: use "date" only when x-axis values are parseable by JavaScript Date
