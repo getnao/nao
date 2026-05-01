@@ -181,21 +181,15 @@ For end-to-end self-hosted deployment (for example on Cloud Run with PostgreSQL)
 
 ## 🧩 Skills
 
-nao ships skills for Claude Code that help you set up, test, and maintain your analytics agent.
+Use nao skills to create your nao project and context with your favourite agent.
 
 Install the nao skill pack:
-
-```bash
-nao skills add getnao/nao
-```
-
-`nao skills` is a thin wrapper around the open-source [skills CLI from Vercel Labs](https://github.com/nichochar/skills), so the equivalent direct call also works:
 
 ```bash
 npx skills add getnao/nao
 ```
 
-Once installed, skills are available as slash commands in Claude Code (e.g. `/setup-context`, `/audit-context`, `/create-context-tests`).
+Docs on nao skills: https://docs.getnao.io/nao-agent/context-engineering/skills
 
 ## 👩🏻‍💻 Development
 
