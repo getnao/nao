@@ -49,6 +49,7 @@ const settingsNavItems: NavItem[] = [
 	{
 		label: 'MCP Endpoint',
 		to: '/settings/mcp-endpoint',
+		visible: ({ isViewer }) => !isViewer,
 	},
 	{
 		label: 'Observability',

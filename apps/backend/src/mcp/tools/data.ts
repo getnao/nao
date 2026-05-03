@@ -5,6 +5,8 @@ import { z } from 'zod';
 
 import { executeQuery } from '../../agents/tools/execute-sql';
 import { getEnvVars, retrieveProjectById } from '../../queries/project.queries';
+import { hasFeature, LICENSE_FEATURES } from '../../services/license.service';
+import { getAzureAccessTokenForUser } from '../../services/microsoft-auth.service';
 import { logger } from '../../utils/logger';
 import type { McpContext } from '../logging';
 import { withLogging } from '../logging';
@@ -25,6 +27,9 @@ export function registerDataTools(server: McpServer, ctx: McpContext): void {
 			try {
 				const project = await retrieveProjectById(ctx.projectId);
 				const envVars = await getEnvVars(ctx.projectId);
+				const azureAccessToken = (await hasFeature(LICENSE_FEATURES.sso))
+					? await getAzureAccessTokenForUser(ctx.userId)
+					: null;
 				const cappedLimit = Math.min(limit, 1000);
 
 				const result = await executeQuery(
@@ -34,6 +39,7 @@ export function registerDataTools(server: McpServer, ctx: McpContext): void {
 						chatId: '',
 						agentSettings: null,
 						envVars,
+						azureAccessToken,
 						queryResults: new Map(),
 					},
 				);

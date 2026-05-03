@@ -290,7 +290,7 @@ async function saveNewVersion(
 	code: string,
 ): Promise<{ id: string; title: string; updatedAt: Date }> {
 	if (story.chatId) {
-		await storyQueries.createVersion({
+		await storyQueries.createStoryVersion({
 			chatId: story.chatId,
 			slug: story.slug,
 			title,
