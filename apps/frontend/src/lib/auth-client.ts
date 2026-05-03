@@ -18,18 +18,18 @@ export const authClient = createAuthClient({
 
 export const { useSession, signIn, signUp, signOut, requestPasswordReset, resetPassword } = authClient;
 
-const handleGoogleSignIn = async () => {
+const handleGoogleSignIn = async (callbackURL = '/') => {
 	await authClient.signIn.social({
 		provider: 'google',
-		callbackURL: '/',
+		callbackURL,
 		errorCallbackURL: '/login',
 	});
 };
 
-const handleGithubSignIn = async () => {
+const handleGithubSignIn = async (callbackURL = '/') => {
 	await authClient.signIn.social({
 		provider: 'github',
-		callbackURL: '/',
+		callbackURL,
 		errorCallbackURL: '/login',
 	});
 };

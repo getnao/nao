@@ -14,7 +14,7 @@ const chatOwnerProcedure = ownedResourceProcedure(chatQueries.getChatOwnerId, 'c
 
 export const storyRoutes = {
 	listAll: protectedProcedure.query(async ({ ctx }) => {
-		const stories = await storyQueries.listUserStories(ctx.user.id);
+		const stories = await storyQueries.listUserChatStories(ctx.user.id);
 		return stories.map(({ code, ...rest }) => ({
 			...rest,
 			storySlug: rest.slug,
@@ -23,7 +23,7 @@ export const storyRoutes = {
 	}),
 
 	listArchived: protectedProcedure.query(async ({ ctx }) => {
-		const stories = await storyQueries.listUserStories(ctx.user.id, { archived: true });
+		const stories = await storyQueries.listUserChatStories(ctx.user.id, { archived: true });
 		return stories.map(({ code, ...rest }) => ({
 			...rest,
 			storySlug: rest.slug,
@@ -31,10 +31,37 @@ export const storyRoutes = {
 		}));
 	}),
 
+	listStandalone: projectProtectedProcedure.query(async ({ ctx }) => {
+		const stories = await storyQueries.listUserStandaloneStories(ctx.user.id, ctx.project.id);
+		return stories.map(({ code, ...rest }) => ({
+			...rest,
+			storySlug: rest.slug,
+			summary: extractStorySummary(code),
+		}));
+	}),
+
+	listStandaloneArchived: projectProtectedProcedure.query(async ({ ctx }) => {
+		const stories = await storyQueries.listUserStandaloneStories(ctx.user.id, ctx.project.id, { archived: true });
+		return stories.map(({ code, ...rest }) => ({
+			...rest,
+			storySlug: rest.slug,
+			summary: extractStorySummary(code),
+		}));
+	}),
+
+	getStandalone: projectProtectedProcedure.input(z.object({ storyId: z.string() })).query(async ({ input, ctx }) => {
+		const story = await storyQueries.getStoryByIdForUser(input.storyId, ctx.user.id);
+		if (!story) {
+			throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
+		}
+		const cache = await storyQueries.getStoryDataCacheByStoryId(input.storyId);
+		return { ...story, queryData: cache?.queryData ?? null };
+	}),
+
 	getLatest: chatOwnerProcedure
 		.input(z.object({ chatId: z.string(), storySlug: z.string() }))
 		.query(async ({ input }) => {
-			const version = await storyQueries.getLatestVersion(input.chatId, input.storySlug);
+			const version = await storyQueries.getLatestVersionByChatAndSlug(input.chatId, input.storySlug);
 			if (!version) {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
 			}
@@ -154,6 +181,26 @@ export const storyRoutes = {
 			await storyQueries.unarchiveStory(input.chatId, input.storySlug);
 		}),
 
+	archiveStandalone: projectProtectedProcedure
+		.input(z.object({ storyId: z.string() }))
+		.mutation(async ({ input, ctx }) => {
+			const story = await storyQueries.getStoryByIdForUser(input.storyId, ctx.user.id);
+			if (!story) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
+			}
+			await storyQueries.archiveByStoryId(story.id);
+		}),
+
+	unarchiveStandalone: projectProtectedProcedure
+		.input(z.object({ storyId: z.string() }))
+		.mutation(async ({ input, ctx }) => {
+			const story = await storyQueries.getStoryByIdForUser(input.storyId, ctx.user.id);
+			if (!story) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
+			}
+			await storyQueries.unarchiveByStoryId(story.id);
+		}),
+
 	archiveMany: protectedProcedure
 		.input(z.object({ stories: z.array(z.object({ chatId: z.string(), storySlug: z.string() })).min(1) }))
 		.mutation(async ({ input, ctx }) => {
@@ -169,6 +216,17 @@ export const storyRoutes = {
 			await storyQueries.archiveManyStories(input.stories.map((s) => ({ chatId: s.chatId, slug: s.storySlug })));
 		}),
 
+	downloadStandalone: projectProtectedProcedure
+		.input(z.object({ storyId: z.string(), format: z.enum(DOWNLOAD_FORMATS) }))
+		.query(async ({ input, ctx }) => {
+			const story = await storyQueries.getStoryByIdForUser(input.storyId, ctx.user.id);
+			if (!story) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
+			}
+			const cache = await storyQueries.getStoryDataCacheByStoryId(input.storyId);
+			return buildDownloadResponse(input.format, story.title, story.code, cache?.queryData ?? null);
+		}),
+
 	download: chatOwnerProcedure
 		.input(
 			z.object({
@@ -181,7 +239,7 @@ export const storyRoutes = {
 		.query(async ({ input }) => {
 			const version = input.versionNumber
 				? await storyQueries.getVersionByNumber(input.chatId, input.storySlug, input.versionNumber)
-				: await storyQueries.getLatestVersion(input.chatId, input.storySlug);
+				: await storyQueries.getLatestVersionByChatAndSlug(input.chatId, input.storySlug);
 			if (!version) {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
 			}

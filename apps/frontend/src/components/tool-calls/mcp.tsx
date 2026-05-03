@@ -1,11 +1,78 @@
 import { Streamdown } from 'streamdown';
-import { ToolCallWrapper } from './tool-call-wrapper';
+import { parseChartBlock } from '@nao/shared/story-segments';
+import { ChartDisplay } from './display-chart';
 import { TableDisplay } from './display-table';
+import { ToolCallWrapper } from './tool-call-wrapper';
 import type { ToolCallComponentProps } from '.';
+import type { displayChart } from '@nao/shared/tools';
+import type { UIMessage, UIToolPart } from '@nao/backend/chat';
 import { getToolName } from '@/lib/ai';
+import { useOptionalAgentContext } from '@/contexts/agent.provider';
 import { useToolCallContext } from '@/contexts/tool-call';
 
+const EMPTY_MESSAGES: UIMessage[] = [];
+
 type McpContent = { type: string; text: string };
+
+const extractChartBlock = (output: unknown): string | null => {
+	if (output && typeof output === 'object' && !Array.isArray(output)) {
+		const block = (output as Record<string, unknown>).block;
+		if (typeof block === 'string' && /^<chart\s/.test(block)) {
+			return block;
+		}
+	}
+	return null;
+};
+
+const findSqlData = (messages: UIMessage[], queryId: string): Record<string, unknown>[] | null => {
+	for (const message of messages) {
+		for (const part of message.parts) {
+			const output = (part as UIToolPart).output;
+			if (output && typeof output === 'object' && !Array.isArray(output)) {
+				const typed = output as Record<string, unknown>;
+				if (typed.query_id === queryId && Array.isArray(typed.data)) {
+					return typed.data as Record<string, unknown>[];
+				}
+			}
+		}
+	}
+	return null;
+};
+
+const McpChartOutput = ({ chartBlock }: { chartBlock: string }) => {
+	const agent = useOptionalAgentContext();
+	const messages = agent?.messages ?? EMPTY_MESSAGES;
+
+	const attrString = chartBlock.match(/^<chart\s+([\s\S]*?)\s*\/?>$/)?.[1] ?? '';
+	const chart = parseChartBlock(attrString);
+
+	if (!chart || chart.series.length === 0) {
+		return null;
+	}
+
+	const data = findSqlData(messages, chart.queryId);
+
+	if (!data || data.length === 0) {
+		return (
+			<div className='my-2 rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground'>
+				Chart data unavailable
+			</div>
+		);
+	}
+
+	return (
+		<div className={`my-4 w-full ${chart.chartType !== 'kpi_card' ? 'aspect-3/2' : ''}`}>
+			<ChartDisplay
+				data={data}
+				chartType={chart.chartType as displayChart.ChartType}
+				xAxisKey={chart.xAxisKey}
+				xAxisType={chart.xAxisType === 'number' ? 'number' : 'category'}
+				series={chart.series}
+				title={chart.title}
+			/>
+		</div>
+	);
+};
 
 const extractText = (output: unknown): string | null => {
 	if (typeof output === 'string') {
@@ -81,7 +148,14 @@ const McpOutputContent = ({ text }: { text: string }) => {
 export const McpToolCall = ({ toolPart }: ToolCallComponentProps) => {
 	const { isSettled } = useToolCallContext();
 	const toolName = getToolName(toolPart);
-	const text = isSettled ? extractText(toolPart.output) : null;
 
+	if (isSettled) {
+		const chartBlock = extractChartBlock(toolPart.output);
+		if (chartBlock) {
+			return <McpChartOutput chartBlock={chartBlock} />;
+		}
+	}
+
+	const text = isSettled ? extractText(toolPart.output) : null;
 	return <ToolCallWrapper title={toolName}>{text !== null && <McpOutputContent text={text} />}</ToolCallWrapper>;
 };

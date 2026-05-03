@@ -189,6 +189,39 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		adminOnly: true,
 	},
 
+	// ── MCP Endpoint ────────────────────────────────────────
+	{
+		page: '/settings/mcp-endpoint',
+		pageLabel: 'MCP Endpoint',
+		title: 'MCP Server Endpoint',
+		description: 'Allow external AI clients to connect to this workspace via MCP.',
+		keywords: ['model context protocol', 'claude desktop', 'cursor', 'external', 'api', 'bearer'],
+	},
+	{
+		page: '/settings/mcp-endpoint',
+		pageLabel: 'MCP Endpoint',
+		section: 'MCP Modes',
+		title: 'Agent mode',
+		description: 'Let external agents ask analytics questions via ask_nao.',
+		keywords: ['ask_nao', 'agent', 'analytics'],
+	},
+	{
+		page: '/settings/mcp-endpoint',
+		pageLabel: 'MCP Endpoint',
+		section: 'MCP Modes',
+		title: 'Tools mode',
+		description: 'Let external agents run SQL queries directly via execute_sql.',
+		keywords: ['execute_sql', 'sql', 'query'],
+	},
+	{
+		page: '/settings/mcp-endpoint',
+		pageLabel: 'MCP Endpoint',
+		section: 'MCP Modes',
+		title: 'Objects mode',
+		description: 'Let external agents create and manage stories.',
+		keywords: ['stories', 'dashboard', 'report', 'crud'],
+	},
+
 	// ── Project > Slack ──────────────────────────────────────
 	{
 		page: '/settings/project/slack',

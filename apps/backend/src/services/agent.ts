@@ -38,6 +38,7 @@ import {
 	TokenCost,
 	TokenUsage,
 	UIMessage,
+	UIMessagePart,
 } from '../types/chat';
 import { Provider } from '../types/messaging-provider';
 import { ToolContext } from '../types/tools';
@@ -59,6 +60,10 @@ import { memoryService } from './memory';
 import { getAzureAccessTokenForUser } from './microsoft-auth.service';
 import { skillService } from './skill';
 
+export type AgentProgressEvent =
+	| { type: 'tool-call'; toolName: string; toolCallId: string }
+	| { type: 'tool-result'; toolName: string; toolCallId: string };
+
 export interface AgentRunResult {
 	text: string;
 	usage: TokenUsage;
@@ -73,6 +78,8 @@ export interface AgentRunResult {
 		toolCalls: ReadonlyArray<{ toolName: string; toolCallId: string; input: unknown }>;
 		toolResults: ReadonlyArray<{ toolCallId: string; output?: unknown }>;
 	}>;
+	/** All message parts (step-starts, tool calls, text) for persisting to the DB */
+	responseParts: UIMessagePart[];
 }
 
 export type AgentChat = Pick<DBChat, 'id' | 'projectId' | 'userId'> & {
@@ -87,7 +94,11 @@ export class AgentService {
 		await assertBudgetNotExceeded(projectId, resolved.provider);
 	}
 
-	async create(chat: AgentChat, modelSelection?: LlmSelectedModel): Promise<AgentManager> {
+	async create(
+		chat: AgentChat,
+		modelSelection?: LlmSelectedModel,
+		excludeTools?: readonly string[],
+	): Promise<AgentManager> {
 		this._disposeAgent(chat.id);
 		const resolvedLlmSelectedModel = await this._getResolvedLlmSelectedModel(chat.projectId, modelSelection);
 		await assertBudgetNotExceeded(chat.projectId, resolvedLlmSelectedModel.provider);
@@ -95,7 +106,7 @@ export class AgentService {
 		const agentSettings = await projectQueries.getAgentSettings(chat.projectId);
 		const toolContext = await this._getToolContext(chat.projectId, chat.id, chat.userId, agentSettings);
 		const webTools = await this._resolveWebTools(chat.projectId, resolvedLlmSelectedModel.provider, agentSettings);
-		const agentTools = getTools(agentSettings, webTools ?? undefined);
+		const agentTools = getTools(agentSettings, webTools ?? undefined, excludeTools);
 		const agent = new AgentManager(
 			chat,
 			modelConfig,
@@ -407,10 +418,16 @@ class AgentManager {
 		}
 
 		try {
-			const latestVersions = new Map<string, Awaited<ReturnType<typeof storyQueries.getLatestVersion>>>();
+			const latestVersions = new Map<
+				string,
+				Awaited<ReturnType<typeof storyQueries.getLatestVersionByChatAndSlug>>
+			>();
 			await Promise.all(
 				[...lastToolCallByStory.keys()].map(async (storyId) => {
-					latestVersions.set(storyId, await storyQueries.getLatestVersion(this.chat.id, storyId));
+					latestVersions.set(
+						storyId,
+						await storyQueries.getLatestVersionByChatAndSlug(this.chat.id, storyId),
+					);
 				}),
 			);
 
@@ -550,6 +567,69 @@ class AgentManager {
 				durationMs,
 				responseMessages: result.response.messages,
 				steps: result.steps as AgentRunResult['steps'],
+				responseParts: [],
+			};
+		} finally {
+			this._onDispose();
+		}
+	}
+
+	async streamWithProgress(
+		uiMessages: UIMessage[],
+		onEvent: (event: AgentProgressEvent) => Promise<void>,
+	): Promise<AgentRunResult> {
+		const startTime = performance.now();
+		const messages = await this._buildModelMessages(uiMessages);
+		const responseParts: UIMessagePart[] = [];
+		const pendingToolCalls = new Map<string, { toolName: string; args: unknown }>();
+
+		try {
+			const result = await this._agent.stream({
+				messages,
+				abortSignal: this._abortController.signal,
+			});
+
+			for await (const part of result.fullStream) {
+				if (part.type === 'tool-call') {
+					pendingToolCalls.set(part.toolCallId, { toolName: part.toolName, args: part.input });
+					await onEvent({ type: 'tool-call', toolName: part.toolName, toolCallId: part.toolCallId });
+				} else if (part.type === 'tool-result') {
+					const pending = pendingToolCalls.get(part.toolCallId);
+					if (pending) {
+						responseParts.push({
+							type: `tool-${pending.toolName}`,
+							toolName: pending.toolName,
+							toolCallId: part.toolCallId,
+							state: 'output-available',
+							input: pending.args,
+							output: part.output,
+						} as unknown as UIMessagePart);
+						pendingToolCalls.delete(part.toolCallId);
+					}
+					await onEvent({ type: 'tool-result', toolName: part.toolName, toolCallId: part.toolCallId });
+				}
+			}
+
+			const text = await result.text;
+			if (text) {
+				responseParts.push({ type: 'text', text });
+			}
+
+			const durationMs = Math.round(performance.now() - startTime);
+			const usage = convertToTokenUsage(await result.totalUsage);
+			const cost = convertToCost(usage, this._modelSelection.provider, this._modelSelection.modelId);
+			const finishReason = (await result.finishReason) ?? 'stop';
+			const steps = await result.steps;
+
+			return {
+				text,
+				usage,
+				cost,
+				finishReason,
+				durationMs,
+				responseMessages: [],
+				steps: steps as AgentRunResult['steps'],
+				responseParts,
 			};
 		} finally {
 			this._onDispose();

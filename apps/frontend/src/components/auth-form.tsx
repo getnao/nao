@@ -15,6 +15,7 @@ interface AuthFormProps {
 	children: React.ReactNode;
 	serverError?: string;
 	displaySocialProviders?: boolean;
+	socialCallbackUrl?: string;
 	footer?: React.ReactNode;
 }
 
@@ -25,6 +26,7 @@ export function AuthForm({
 	children,
 	serverError,
 	displaySocialProviders,
+	socialCallbackUrl,
 	footer,
 }: AuthFormProps) {
 	const isGoogleSetup = useQuery(trpc.authConfig.google.isSetup.queryOptions());
@@ -49,7 +51,7 @@ export function AuthForm({
 								type='button'
 								variant='outline'
 								className='w-full h-11'
-								onClick={handleGoogleSignIn}
+								onClick={() => handleGoogleSignIn(socialCallbackUrl)}
 							>
 								<GoogleIcon className='w-5 h-5' />
 								Continue with Google
@@ -60,7 +62,7 @@ export function AuthForm({
 								type='button'
 								variant='outline'
 								className='w-full h-11'
-								onClick={handleGithubSignIn}
+								onClick={() => handleGithubSignIn(socialCallbackUrl)}
 							>
 								<GithubIcon className='w-5 h-5' />
 								Continue with GitHub

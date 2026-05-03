@@ -19,6 +19,7 @@ import { AgentSettings } from '../types/agent-settings';
 import { ForkMetadata, StopReason, ToolState, UIMessagePartType } from '../types/chat';
 import { LLM_INFERENCE_TYPES } from '../types/llm';
 import { LOG_LEVELS, LOG_SOURCES } from '../types/log';
+import { McpEndpointSettings } from '../types/mcp-endpoint';
 import { MEMORY_CATEGORIES } from '../types/memory';
 import { SlackSettings, TeamsSettings, TelegramSettings, WhatsappSettings } from '../types/messaging-provider';
 import { ORG_ROLES } from '../types/organization';
@@ -152,6 +153,7 @@ export const project = pgTable(
 		teamsSettings: jsonb('teams_settings').$type<TeamsSettings>(),
 		telegramSettings: jsonb('telegram_settings').$type<TelegramSettings>(),
 		whatsappSettings: jsonb('whatsapp_settings').$type<WhatsappSettings>(),
+		mcpEndpointSettings: jsonb('mcp_endpoint_settings').$type<McpEndpointSettings>(),
 
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
@@ -492,9 +494,9 @@ export const story = pgTable(
 		id: text('id')
 			.$defaultFn(() => crypto.randomUUID())
 			.primaryKey(),
-		chatId: text('chat_id')
-			.notNull()
-			.references(() => chat.id, { onDelete: 'cascade' }),
+		chatId: text('chat_id').references(() => chat.id, { onDelete: 'cascade' }),
+		projectId: text('project_id').references(() => project.id, { onDelete: 'cascade' }),
+		userId: text('user_id').references(() => user.id, { onDelete: 'cascade' }),
 		slug: text('slug').notNull(),
 		title: text('title').notNull(),
 		isLive: boolean('is_live').default(false).notNull(),
@@ -508,7 +510,11 @@ export const story = pgTable(
 			.$onUpdate(() => new Date())
 			.notNull(),
 	},
-	(t) => [unique('story_chat_slug_unique').on(t.chatId, t.slug), index('story_chatId_idx').on(t.chatId)],
+	(t) => [
+		unique('story_chat_slug_unique').on(t.chatId, t.slug),
+		index('story_chatId_idx').on(t.chatId),
+		index('story_userId_idx').on(t.userId),
+	],
 );
 
 export const storyVersion = pgTable(
@@ -689,4 +695,105 @@ export const scheduledJob = pgTable(
 			.notNull(),
 	},
 	(t) => [index('scheduled_job_status_runAt_idx').on(t.status, t.runAt), index('scheduled_job_name_idx').on(t.name)],
+);
+
+export const mcpCallLog = pgTable(
+	'mcp_call_log',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		toolName: text('tool_name').notNull(),
+		durationMs: integer('duration_ms'),
+		success: boolean('success').notNull(),
+		toolInput: jsonb('tool_input').$type<unknown>(),
+		toolOutput: jsonb('tool_output').$type<unknown>(),
+		calledAt: timestamp('called_at').defaultNow().notNull(),
+	},
+	(t) => [
+		index('mcp_call_log_projectId_idx').on(t.projectId),
+		index('mcp_call_log_userId_idx').on(t.userId),
+		index('mcp_call_log_calledAt_idx').on(t.calledAt),
+	],
+);
+
+export const oauthApplication = pgTable(
+	'oauth_application',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		name: text('name'),
+		icon: text('icon'),
+		metadata: text('metadata'),
+		clientId: text('client_id').notNull().unique(),
+		clientSecret: text('client_secret'),
+		redirectUrls: text('redirect_urls').notNull(),
+		type: text('type').notNull(),
+		authenticationScheme: text('authentication_scheme'),
+		disabled: boolean('disabled').default(false),
+		userId: text('user_id').references(() => user.id, { onDelete: 'cascade' }),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [index('oauth_application_userId_idx').on(t.userId)],
+);
+
+export const oauthAccessToken = pgTable(
+	'oauth_access_token',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		accessToken: text('access_token').notNull().unique(),
+		refreshToken: text('refresh_token').notNull().unique(),
+		accessTokenExpiresAt: timestamp('access_token_expires_at').notNull(),
+		refreshTokenExpiresAt: timestamp('refresh_token_expires_at').notNull(),
+		clientId: text('client_id')
+			.notNull()
+			.references(() => oauthApplication.clientId, { onDelete: 'cascade' }),
+		userId: text('user_id').references(() => user.id, { onDelete: 'cascade' }),
+		scopes: text('scopes').notNull(),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [
+		index('oauth_access_token_clientId_idx').on(t.clientId),
+		index('oauth_access_token_userId_idx').on(t.userId),
+	],
+);
+
+export const oauthConsent = pgTable(
+	'oauth_consent',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		clientId: text('client_id')
+			.notNull()
+			.references(() => oauthApplication.clientId, { onDelete: 'cascade' }),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		scopes: text('scopes').notNull(),
+		consentGiven: boolean('consent_given').notNull(),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [index('oauth_consent_clientId_idx').on(t.clientId), index('oauth_consent_userId_idx').on(t.userId)],
 );

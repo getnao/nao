@@ -61,7 +61,7 @@ export default createTool<story.Input, story.Output>({
 			};
 		}
 
-		const existing = await storyQueries.getLatestVersion(chatId, input.id);
+		const existing = await storyQueries.getLatestVersionByChatAndSlug(chatId, input.id);
 		if (!existing) {
 			return fail(`Story "${input.id}" does not exist. Use "create" first.`);
 		}

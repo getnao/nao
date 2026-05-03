@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import type { DisplayMode, GroupBy } from '@/lib/stories-page';
+import type { DisplayMode, GroupBy, OwnStoryListItem } from '@/lib/stories-page';
 import { StoriesEmptyState, StoriesGroups, StoriesNoResults } from '@/components/stories-groups';
 import { StoriesToolbarControls } from '@/components/stories-toolbar-controls';
 import { MobileHeader } from '@/components/mobile-header';
@@ -32,9 +32,14 @@ function StoriesPage() {
 	const [showArchived, setShowArchived] = useState(false);
 
 	const userStories = useQuery(trpc.story.listAll.queryOptions());
+	const standaloneStories = useQuery(trpc.story.listStandalone.queryOptions());
 	const sharedStories = useQuery(trpc.storyShare.list.queryOptions());
 	const archivedStories = useQuery({
 		...trpc.story.listArchived.queryOptions(),
+		enabled: showArchived,
+	});
+	const archivedStandaloneStories = useQuery({
+		...trpc.story.listStandaloneArchived.queryOptions(),
 		enabled: showArchived,
 	});
 
@@ -42,9 +47,31 @@ function StoriesPage() {
 	const currentUserId = session?.user?.id;
 
 	const allItems = useMemo(() => {
+		const mapStandalone = (
+			stories:
+				| {
+						id: string;
+						storySlug: string;
+						title: string;
+						createdAt: Date;
+						summary: OwnStoryListItem['summary'];
+				  }[]
+				| undefined,
+		): OwnStoryListItem[] | undefined =>
+			stories?.map((s) => ({
+				id: s.id,
+				chatId: null,
+				storySlug: s.storySlug,
+				title: s.title,
+				createdAt: s.createdAt,
+				summary: s.summary,
+				isStandalone: true,
+			}));
+
 		if (showArchived) {
 			return buildStoryItems({
 				userStories: archivedStories.data ?? [],
+				standaloneStories: mapStandalone(archivedStandaloneStories.data),
 				sharedStories: [],
 				currentUserId,
 				currentUserName,
@@ -52,11 +79,21 @@ function StoriesPage() {
 		}
 		return buildStoryItems({
 			userStories: userStories.data ?? [],
+			standaloneStories: mapStandalone(standaloneStories.data),
 			sharedStories: sharedStories.data ?? [],
 			currentUserId,
 			currentUserName,
 		});
-	}, [showArchived, userStories.data, sharedStories.data, archivedStories.data, currentUserId, currentUserName]);
+	}, [
+		showArchived,
+		userStories.data,
+		standaloneStories.data,
+		sharedStories.data,
+		archivedStories.data,
+		archivedStandaloneStories.data,
+		currentUserId,
+		currentUserName,
+	]);
 
 	const filteredItems = useMemo(() => {
 		return filterStories(allItems, searchQuery);
@@ -64,7 +101,9 @@ function StoriesPage() {
 
 	const groups = useMemo(() => groupStories(filteredItems, groupBy), [filteredItems, groupBy]);
 
-	const isLoading = showArchived ? archivedStories.isLoading : userStories.isLoading || sharedStories.isLoading;
+	const isLoading = showArchived
+		? archivedStories.isLoading || archivedStandaloneStories.isLoading
+		: userStories.isLoading || standaloneStories.isLoading || sharedStories.isLoading;
 	const isEmpty = allItems.length === 0 && !isLoading;
 
 	function handleDisplayChange(mode: DisplayMode) {

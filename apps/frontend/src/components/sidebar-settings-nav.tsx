@@ -47,6 +47,10 @@ const settingsNavItems: NavItem[] = [
 		visible: ({ isViewer, isInMultipleProjects }) => !isViewer || isInMultipleProjects,
 	},
 	{
+		label: 'MCP Endpoint',
+		to: '/settings/mcp-endpoint',
+	},
+	{
 		label: 'Observability',
 		type: 'divider',
 		visible: ({ isAdmin }) => isAdmin,

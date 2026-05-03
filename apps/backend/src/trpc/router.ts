@@ -12,6 +12,7 @@ import { githubRoutes } from './github.routes';
 import { licenseRoutes } from './license.routes';
 import { logRoutes } from './log.routes';
 import { mcpRoutes } from './mcp.routes';
+import { mcpEndpointRoutes } from './mcp-endpoint.routes';
 import { memoryRoutes } from './memory.routes';
 import { organizationRoutes } from './organization.routes';
 import { posthogRoutes } from './posthog.routes';
@@ -50,6 +51,7 @@ export const trpcRouter = router({
 	account: accountRoutes,
 	apiKey: apiKeyRoutes,
 	mcp: mcpRoutes,
+	mcpEndpoint: mcpEndpointRoutes,
 	system: systemRoutes,
 	skill: skillRoutes,
 	transcribe: transcribeRoutes,

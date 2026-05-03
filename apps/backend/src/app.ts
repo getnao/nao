@@ -11,6 +11,7 @@ import { fileURLToPath } from 'url';
 
 import { env, isCloud } from './env';
 import { LOG_CLEANUP_JOB_NAME, logCleanupHandler, runLogCleanup } from './handlers/log-cleanup.handler';
+import { mcpServerRoutes } from './mcp/routes';
 import { ensureOrganizationSetup } from './queries/organization.queries';
 import { agentRoutes } from './routes/agent';
 import { authRoutes } from './routes/auth';
@@ -175,6 +176,33 @@ app.register(githubRoutes, {
 	prefix: '/api/github',
 });
 
+app.register(mcpServerRoutes, {
+	prefix: '/mcp',
+});
+
+async function proxyToBetterAuth(url: string, request: { headers: Record<string, string | string[] | undefined> }) {
+	const auth = await (await import('./auth')).getAuth();
+	const headers = (await import('./utils/utils')).convertHeaders(request.headers);
+	const req = new Request(url, { method: 'GET', headers });
+	return auth.handler(req);
+}
+
+app.get('/.well-known/oauth-protected-resource', async (request, reply) => {
+	const url = new URL('/api/auth/.well-known/oauth-protected-resource', `http://${request.headers.host}`);
+	const response = await proxyToBetterAuth(url.toString(), request);
+	reply.status(response.status);
+	response.headers.forEach((value, key) => reply.header(key, value));
+	reply.send(await response.text());
+});
+
+app.get('/.well-known/oauth-authorization-server', async (request, reply) => {
+	const url = new URL('/api/auth/.well-known/oauth-authorization-server', `http://${request.headers.host}`);
+	const response = await proxyToBetterAuth(url.toString(), request);
+	reply.status(response.status);
+	response.headers.forEach((value, key) => reply.header(key, value));
+	reply.send(await response.text());
+});
+
 /**
  * Tests the API connection
  */
@@ -201,7 +229,10 @@ const isReservedBackendPath = (url: string) => {
 		pathname === '/c' ||
 		pathname.startsWith('/c/') ||
 		pathname === '/i' ||
-		pathname.startsWith('/i/')
+		pathname.startsWith('/i/') ||
+		pathname === '/mcp' ||
+		pathname.startsWith('/mcp/') ||
+		pathname.startsWith('/.well-known/')
 	);
 };
 

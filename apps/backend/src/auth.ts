@@ -1,5 +1,7 @@
 import { APIError, betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
+import { mcp as mcpPlugin } from 'better-auth/plugins';
+import { bearer } from 'better-auth/plugins/bearer';
 
 import { db } from './db/db';
 import dbConfig, { Dialect } from './db/dbConfig';
@@ -71,6 +73,17 @@ async function createAuthInstance(googleConfig: GoogleConfig) {
 			provider: dbConfig.dialect === Dialect.Postgres ? 'pg' : 'sqlite',
 			schema: dbConfig.schema,
 		}),
+		plugins: [
+			bearer(),
+			mcpPlugin({
+				loginPage: '/login',
+				oidcConfig: {
+					loginPage: '/login',
+					accessTokenExpiresIn: 86400,
+					refreshTokenExpiresIn: 604800,
+				},
+			}),
+		],
 		trustedOrigins: env.BETTER_AUTH_URL ? [env.BETTER_AUTH_URL] : undefined,
 		emailAndPassword: {
 			enabled: true,

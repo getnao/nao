@@ -2,6 +2,16 @@ import { App } from '../app';
 import { getAuth } from '../auth';
 import { convertHeaders } from '../utils/utils';
 
+function serializeBody(body: unknown, contentType: string | undefined): string | undefined {
+	if (!body) {
+		return undefined;
+	}
+	if (contentType?.includes('application/x-www-form-urlencoded') && typeof body === 'object') {
+		return new URLSearchParams(body as Record<string, string>).toString();
+	}
+	return JSON.stringify(body);
+}
+
 export const authRoutes = async (app: App) => {
 	app.route({
 		method: ['GET', 'POST'],
@@ -16,7 +26,7 @@ export const authRoutes = async (app: App) => {
 				const req = new Request(url.toString(), {
 					method: request.method,
 					headers,
-					body: request.body ? JSON.stringify(request.body) : undefined,
+					body: serializeBody(request.body, request.headers['content-type']),
 				});
 				// Process authentication request
 				const auth = await getAuth();
