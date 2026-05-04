@@ -1,13 +1,14 @@
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import type { FastifyReply, FastifyRequest } from 'fastify';
+import type { FastifyReply } from 'fastify';
 
 import type { App } from '../app';
+import { env } from '../env';
 import { getMcpEndpointSettings } from '../queries/mcp-endpoint.queries';
 import { resolveUserId } from './auth';
 import { createMcpServer, resolveProjectId, sessions } from './server';
 
-function replyUnauthorized(request: FastifyRequest, reply: FastifyReply) {
-	const origin = `${request.protocol}://${request.headers.host ?? request.hostname}`;
+function replyUnauthorized(reply: FastifyReply) {
+	const origin = env.BETTER_AUTH_URL.replace(/\/+$/, '');
 	const wwwAuth = `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource"`;
 	return reply
 		.status(401)
@@ -20,7 +21,7 @@ export const mcpServerRoutes = async (app: App) => {
 	app.post('/', async (request, reply) => {
 		const userId = await resolveUserId(request);
 		if (!userId) {
-			return replyUnauthorized(request, reply);
+			return replyUnauthorized(reply);
 		}
 
 		const existingSessionId = request.headers['mcp-session-id'] as string | undefined;
@@ -62,7 +63,7 @@ export const mcpServerRoutes = async (app: App) => {
 	app.get('/', async (request, reply) => {
 		const userId = await resolveUserId(request);
 		if (!userId) {
-			return replyUnauthorized(request, reply);
+			return replyUnauthorized(reply);
 		}
 
 		const sessionId = request.headers['mcp-session-id'] as string | undefined;
@@ -83,7 +84,7 @@ export const mcpServerRoutes = async (app: App) => {
 	app.delete('/', async (request, reply) => {
 		const userId = await resolveUserId(request);
 		if (!userId) {
-			return replyUnauthorized(request, reply);
+			return replyUnauthorized(reply);
 		}
 
 		const sessionId = request.headers['mcp-session-id'] as string | undefined;

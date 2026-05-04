@@ -1,18 +1,22 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
+import * as chatQueries from '../../queries/chat.queries';
 import type { UserStoryRow } from '../../queries/story.queries';
 import * as storyQueries from '../../queries/story.queries';
+import { pinQueryDataToChat, pinStoryMessageToChat } from '../../utils/chat-message-story';
 import { logger } from '../../utils/logger';
 import type { McpContext } from '../logging';
 import { withLogging } from '../logging';
+import { storyChatUrl, storyUrl } from '../urls';
 
 export function registerStoryTools(server: McpServer, ctx: McpContext): void {
 	server.registerTool(
 		'list_stories',
 		{
 			title: 'List Stories',
-			description: 'List analytics stories (dashboards/reports) in the current project.',
+			description:
+				'List analytics stories (dashboards/reports) in the current project. Each story includes a `url` that opens the rendered story in the Nao UI, and a `chatUrl` that opens the underlying chat conversation (null for standalone stories).',
 			inputSchema: {
 				limit: z.number().optional().default(20).describe('Max stories to return (default 20, max 100)'),
 				archived: z.boolean().optional().default(false).describe('Include archived stories'),
@@ -24,12 +28,14 @@ export function registerStoryTools(server: McpServer, ctx: McpContext): void {
 					archived,
 					limit,
 				});
-				const result = stories.map(({ id, title, createdAt, updatedAt, archivedAt }) => ({
-					id,
-					title,
-					createdAt,
-					updatedAt,
-					archived: archivedAt !== null,
+				const result = stories.map((story) => ({
+					id: story.id,
+					title: story.title,
+					createdAt: story.createdAt,
+					updatedAt: story.updatedAt,
+					archived: story.archivedAt !== null,
+					url: storyUrl(story),
+					chatUrl: storyChatUrl(story),
 				}));
 				return { content: [{ type: 'text' as const, text: JSON.stringify(result) }], toolOutput: result };
 			} catch (error) {
@@ -44,7 +50,8 @@ export function registerStoryTools(server: McpServer, ctx: McpContext): void {
 		'get_story',
 		{
 			title: 'Get Story',
-			description: 'Retrieve a full story including its latest content/code.',
+			description:
+				'Retrieve a full story including its latest content/code. Returns a `url` that opens the rendered story in the Nao UI, and a `chatUrl` that opens the underlying chat conversation (null for standalone stories).',
 			inputSchema: {
 				story_id: z.string().describe('The story ID to retrieve'),
 			},
@@ -66,6 +73,8 @@ export function registerStoryTools(server: McpServer, ctx: McpContext): void {
 					archived: story.archivedAt !== null,
 					createdAt: story.createdAt,
 					updatedAt: story.updatedAt,
+					url: storyUrl(story),
+					chatUrl: storyChatUrl(story),
 				};
 				return {
 					content: [{ type: 'text' as const, text: JSON.stringify(output) }],
@@ -87,7 +96,7 @@ export function registerStoryTools(server: McpServer, ctx: McpContext): void {
 		{
 			title: 'Create Story',
 			description:
-				'Create a new analytics story. Stories are markdown documents with embedded chart/table components rendered by the Nao UI.\n\nWorkflow for stories with charts:\n1. execute_sql → get rows + query_id\n2. build_chart → get a `<chart .../>` block string\n3. create_story → embed the block in `content`; pass SQL rows in `query_data`\n\nSupported blocks:\n- Charts: use `build_chart` to generate the correct `<chart>` block — do NOT write these manually.\n- Tables: `<table query_id="..." title="..." />`\n- Grids: `<grid cols="2">...blocks...</grid>` (1–4 columns)\n\nOmit `content` to create an empty story.',
+				'Create a new analytics story. Stories are markdown documents with embedded chart/table components rendered by the Nao UI.\n\nWorkflow for stories with charts:\n1. execute_sql → get rows + query_id\n2. build_chart → get a `<chart .../>` block string\n3. create_story → embed the block in `content`; pass SQL rows in `query_data`\n\nSupported blocks:\n- Charts: use `build_chart` to generate the correct `<chart>` block — do NOT write these manually.\n- Tables: `<table query_id="..." title="..." />`\n- Grids: `<grid cols="2">...blocks...</grid>` (1–4 columns)\n\nOmit `content` to create an empty story.\n\nPass `chat_id` to attach the story to an existing chat (e.g. one returned by `ask_nao`). Omit it to create a standalone story listed at the project level.\n\nReturns a `url` that opens the rendered story in the Nao UI and a `chatUrl` that opens the underlying chat (null for standalone stories) — surface the relevant link to the user as a clickable link in your reply.',
 			inputSchema: {
 				title: z.string().describe('Story title'),
 				content: z
@@ -105,31 +114,43 @@ export function registerStoryTools(server: McpServer, ctx: McpContext): void {
 					.describe(
 						'Query results keyed by query_id (query_id → { columns, data }). Required for stories with <chart> or <table> blocks so the Nao UI can render data.',
 					),
+				chat_id: z
+					.string()
+					.optional()
+					.describe(
+						'Attach the story to an existing chat (e.g. the chat ID returned by `ask_nao`). ' +
+							'Omit to create a standalone story listed at the project level. ' +
+							'When provided, the chat must belong to the current user.',
+					),
 			},
 		},
-		withLogging('create_story', ctx, async ({ title, content, query_data }) => {
+		withLogging('create_story', ctx, async ({ title, content, query_data, chat_id }) => {
 			try {
-				const slug = await getUniqueStandaloneSlug(ctx, title);
+				const slug = generateSlug(title);
 				const code = content ?? `# ${title}\n`;
+				const story = chat_id
+					? await createChatLinkedStory({ chatId: chat_id, slug, title, code, ctx })
+					: await createStandaloneStory({ slug, title, code, ctx });
 
-				const version = await storyQueries.createStandaloneVersion({
-					userId: ctx.userId,
-					projectId: ctx.projectId,
-					slug,
-					title,
-					code,
-					action: 'create',
-					source: 'user',
-				});
-
-				const story = await storyQueries.getStandaloneStoryByUserAndSlug(ctx.userId, ctx.projectId, slug);
-				if (query_data && story) {
-					await storyQueries.upsertStoryDataCacheByStoryId(
-						story.id,
-						query_data as Record<string, { data: unknown[]; columns: string[] }>,
-					);
+				if ('error' in story) {
+					return { content: [{ type: 'text' as const, text: `Error: ${story.error}` }], isError: true };
 				}
-				const output = { id: story!.id, title: version.title, createdAt: story!.createdAt };
+
+				if (query_data) {
+					const typedQueryData = query_data as Record<string, { data: unknown[]; columns: string[] }>;
+					await storyQueries.upsertStoryDataCacheByStoryId(story.id, typedQueryData);
+					if (chat_id) {
+						await pinQueryDataToChat(chat_id, typedQueryData);
+					}
+				}
+				const storyForUrl = { id: story.id, slug: story.slug, chatId: story.chatId };
+				const output = {
+					id: story.id,
+					title: story.title,
+					createdAt: story.createdAt,
+					url: storyUrl(storyForUrl),
+					chatUrl: storyChatUrl(storyForUrl),
+				};
 				return {
 					content: [{ type: 'text' as const, text: JSON.stringify(output) }],
 					toolOutput: output,
@@ -150,7 +171,7 @@ export function registerStoryTools(server: McpServer, ctx: McpContext): void {
 		{
 			title: 'Update Story',
 			description:
-				'Update a story title and/or content. Omit fields to keep their current values.\n\nWhen adding or replacing charts, use `build_chart` first to generate the correct `<chart>` block, then pass it in `content`. Include the SQL rows for any new query_ids in `query_data`.',
+				'Update a story title and/or content. Omit fields to keep their current values.\n\nWhen adding or replacing charts, use `build_chart` first to generate the correct `<chart>` block, then pass it in `content`. Include the SQL rows for any new query_ids in `query_data`.\n\nReturns a `url` that opens the rendered story in the Nao UI and a `chatUrl` that opens the underlying chat (null for standalone stories) — surface the relevant link to the user as a clickable link in your reply.',
 			inputSchema: {
 				story_id: z.string().describe('The story ID to update'),
 				title: z.string().optional().describe('New title (omit to keep current)'),
@@ -173,24 +194,30 @@ export function registerStoryTools(server: McpServer, ctx: McpContext): void {
 				const newTitle = title ?? story.title;
 				const newCode = content ?? latestVersion?.code ?? `# ${newTitle}\n`;
 				const updated = await saveNewVersion(story, ctx, newTitle, newCode);
-				if (query_data && !story.chatId) {
-					const storyForCache =
-						(await storyQueries.getStandaloneStoryByUserAndSlug(ctx.userId, ctx.projectId, story.slug)) ??
-						story;
-					const existingCache = await storyQueries.getStoryDataCacheByStoryId(storyForCache.id);
-					const mergedQueryData = {
-						...((existingCache?.queryData as Record<
-							string,
-							{ data: unknown[]; columns: string[] }
-						> | null) ?? {}),
-						...query_data,
-					};
-					await storyQueries.upsertStoryDataCacheByStoryId(
-						storyForCache.id,
-						mergedQueryData as Record<string, { data: unknown[]; columns: string[] }>,
-					);
+				const output = { ...updated, url: storyUrl(story), chatUrl: storyChatUrl(story) };
+				if (query_data) {
+					const typedQueryData = query_data as Record<string, { data: unknown[]; columns: string[] }>;
+					if (story.chatId) {
+						await pinQueryDataToChat(story.chatId, typedQueryData);
+					} else {
+						const storyForCache =
+							(await storyQueries.getStandaloneStoryByUserAndSlug(
+								ctx.userId,
+								ctx.projectId,
+								story.slug,
+							)) ?? story;
+						const existingCache = await storyQueries.getStoryDataCacheByStoryId(storyForCache.id);
+						const mergedQueryData = {
+							...((existingCache?.queryData as Record<
+								string,
+								{ data: unknown[]; columns: string[] }
+							> | null) ?? {}),
+							...typedQueryData,
+						};
+						await storyQueries.upsertStoryDataCacheByStoryId(storyForCache.id, mergedQueryData);
+					}
 				}
-				return { content: [{ type: 'text' as const, text: JSON.stringify(updated) }], toolOutput: updated };
+				return { content: [{ type: 'text' as const, text: JSON.stringify(output) }], toolOutput: output };
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
 				logger.error(`MCP update_story error: ${message}`, {
@@ -260,17 +287,6 @@ export function registerStoryTools(server: McpServer, ctx: McpContext): void {
 	);
 }
 
-async function getUniqueStandaloneSlug(ctx: McpContext, title: string): Promise<string> {
-	const baseSlug = generateSlug(title);
-	let candidate = baseSlug;
-	let suffix = 2;
-	while (await storyQueries.getStandaloneStoryByUserAndSlug(ctx.userId, ctx.projectId, candidate)) {
-		candidate = `${baseSlug}-${suffix}`;
-		suffix += 1;
-	}
-	return candidate;
-}
-
 function generateSlug(title: string): string {
 	return (
 		title
@@ -278,6 +294,81 @@ function generateSlug(title: string): string {
 			.replace(/[^a-z0-9]+/g, '-')
 			.replace(/^-|-$/g, '') || 'untitled'
 	);
+}
+
+type CreatedStory = { id: string; title: string; slug: string; chatId: string | null; createdAt: Date };
+type CreateStoryResult = CreatedStory | { error: string };
+
+async function createStandaloneStory(args: {
+	slug: string;
+	title: string;
+	code: string;
+	ctx: McpContext;
+}): Promise<CreateStoryResult> {
+	const story = await storyQueries.createStandaloneStory({
+		userId: args.ctx.userId,
+		projectId: args.ctx.projectId,
+		slug: args.slug,
+		title: args.title,
+		code: args.code,
+		source: 'user',
+	});
+
+	if (!story) {
+		return {
+			error: `A story with title "${args.title}" already exists. Pick a different title or use update_story to modify the existing one.`,
+		};
+	}
+	return { ...story, chatId: null };
+}
+
+async function createChatLinkedStory(args: {
+	chatId: string;
+	slug: string;
+	title: string;
+	code: string;
+	ctx: McpContext;
+}): Promise<CreateStoryResult> {
+	const ownerId = await chatQueries.getChatOwnerId(args.chatId);
+	if (ownerId !== args.ctx.userId) {
+		return { error: `Chat not found: ${args.chatId}` };
+	}
+
+	const existing = await storyQueries.getStoryByChatAndSlug(args.chatId, args.slug);
+	if (existing) {
+		return {
+			error: `A story with title "${args.title}" already exists in this chat. Pick a different title or use update_story to modify the existing one.`,
+		};
+	}
+
+	const version = await storyQueries.createStoryVersion({
+		chatId: args.chatId,
+		slug: args.slug,
+		title: args.title,
+		code: args.code,
+		action: 'create',
+		source: 'assistant',
+	});
+	const created = await storyQueries.getStoryByChatAndSlug(args.chatId, args.slug);
+	if (!created) {
+		throw new Error(`Failed to retrieve created story: ${args.chatId}/${args.slug}`);
+	}
+
+	await pinStoryMessageToChat({
+		chatId: args.chatId,
+		slug: args.slug,
+		title: args.title,
+		code: args.code,
+		version: version.version,
+	});
+
+	return {
+		id: created.id,
+		title: created.title,
+		slug: created.slug,
+		chatId: created.chatId,
+		createdAt: created.createdAt,
+	};
 }
 
 async function resolveStory(storyId: string, ctx: McpContext): Promise<UserStoryRow> {

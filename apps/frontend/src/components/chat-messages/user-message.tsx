@@ -22,6 +22,7 @@ import { STORY_MENTION_ID } from '@/components/chat-input-prompt';
 import StoryIcon from '@/components/ui/story-icon';
 import SlackIcon from '@/components/icons/slack.svg';
 import TeamsIcon from '@/components/icons/microsoft-teams.svg';
+import McpIcon from '@/components/icons/model-context-protocol.svg';
 import TelegramIcon from '@/components/icons/telegram.svg';
 import WhatsAppIcon from '@/components/icons/whatsapp.svg';
 
@@ -50,6 +51,7 @@ const MESSAGE_SOURCES = {
 	teams: { icon: <TeamsIcon className='size-4' />, label: 'sent in Teams' },
 	telegram: { icon: <TelegramIcon className='size-4' />, label: 'sent in Telegram' },
 	whatsapp: { icon: <WhatsAppIcon className='size-4' />, label: 'sent in WhatsApp' },
+	mcp: { icon: <McpIcon className='size-4' />, label: 'sent via MCP' },
 } as const;
 
 function MessageSourceBadge({ source }: { source: UIMessage['source'] }) {

@@ -7,7 +7,8 @@ import * as sharedChatQueries from '../queries/shared-chat.queries';
 import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
 import { compactionService } from '../services/compaction';
-import type { ForkMetadata, UIMessage, UIMessagePart } from '../types/chat';
+import type { ForkMetadata, UIMessage } from '../types/chat';
+import { buildQueryDataParts, pinStoryMessageToChat } from '../utils/chat-message-story';
 import { canSendProcedure, projectProtectedProcedure, protectedProcedure } from './trpc';
 
 const shareTypeSchema = z.enum(['chat', 'story']);
@@ -58,7 +59,13 @@ export const chatForkRoutes = {
 
 			const latestVersion = await storyQueries.getLatestVersionByStoryId(story.id);
 			await storyQueries.assignChatToStory(story.id, chat.id);
-			await pinStoryMessageToChat(chat.id, story.slug, story.title, story.code, latestVersion?.version ?? 1);
+			await pinStoryMessageToChat({
+				chatId: chat.id,
+				slug: story.slug,
+				title: story.title,
+				code: story.code,
+				version: latestVersion?.version ?? 1,
+			});
 
 			return { chatId: chat.id };
 		}),
@@ -202,24 +209,10 @@ function buildSelectionContextMessage(sourceTitle: string, selection: SelectionI
 function buildQueryDataMessages(
 	queryData: Record<string, { data: unknown[]; columns: string[] }> | null,
 ): Array<Omit<UIMessage, 'id'>> {
-	if (!queryData || Object.keys(queryData).length === 0) {
+	const parts = buildQueryDataParts(queryData);
+	if (parts.length === 0) {
 		return [];
 	}
-
-	const parts: UIMessagePart[] = Object.entries(queryData).map(
-		([queryId, { data, columns }]) =>
-			({
-				type: 'tool-execute_sql',
-				toolName: 'execute_sql',
-				toolCallId: crypto.randomUUID(),
-				state: 'output-available',
-				input: { sql_query: '' },
-				output: { id: queryId as `query_${string}`, data, columns, row_count: data.length },
-				providerExecuted: false,
-				errorText: undefined,
-			}) as unknown as UIMessagePart,
-	);
-
 	return [{ role: 'assistant', isForked: true, parts }];
 }
 
@@ -233,32 +226,7 @@ async function createStoryInFork(chatId: string, slug: string, title: string, co
 		source: 'assistant',
 	});
 
-	await pinStoryMessageToChat(chatId, slug, title, code, version.version);
-}
-
-async function pinStoryMessageToChat(
-	chatId: string,
-	slug: string,
-	title: string,
-	code: string,
-	versionNumber: number,
-): Promise<void> {
-	await chatQueries.upsertMessage({
-		chatId,
-		role: 'assistant',
-		parts: [
-			{
-				type: 'tool-story',
-				toolCallId: crypto.randomUUID(),
-				toolName: 'story',
-				state: 'output-available',
-				input: { action: 'create', id: slug, title, code },
-				output: { _version: '1', success: true, id: slug, version: versionNumber, code, title },
-				errorText: undefined,
-				providerExecuted: false,
-			} as UIMessagePart,
-		],
-	});
+	await pinStoryMessageToChat({ chatId, slug, title, code, version: version.version });
 }
 
 async function copyStoriesToFork(sourceChatId: string, forkChatId: string): Promise<void> {

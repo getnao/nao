@@ -251,7 +251,7 @@ export const chatMessage = sqliteTable(
 		llmProvider: text('llm_provider').$type<LlmProvider>(),
 		llmModelId: text('llm_model_id'),
 		supersededAt: integer('superseded_at', { mode: 'timestamp_ms' }),
-		source: text('source', { enum: ['slack', 'teams', 'telegram', 'whatsapp', 'web'] }),
+		source: text('source', { enum: ['slack', 'teams', 'telegram', 'whatsapp', 'web', 'mcp'] }),
 		isForked: integer('isForked', { mode: 'boolean' }),
 		citation: text('citation', { mode: 'json' }).$type<CitationData>(),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
@@ -543,6 +543,10 @@ export const story = sqliteTable(
 		uniqueIndex('story_standalone_slug_unique')
 			.on(t.projectId, t.userId, t.slug)
 			.where(sql`chat_id IS NULL`),
+		check(
+			'story_owner_required',
+			sql`${t.chatId} IS NOT NULL OR (${t.projectId} IS NOT NULL AND ${t.userId} IS NOT NULL)`,
+		),
 		index('story_chatId_idx').on(t.chatId),
 		index('story_projectId_idx').on(t.projectId),
 		index('story_userId_idx').on(t.userId),

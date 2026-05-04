@@ -234,6 +234,53 @@ export async function createStandaloneVersion(data: {
 	return { ...created, title: data.title };
 }
 
+export async function createStandaloneStory(data: {
+	userId: string;
+	projectId: string;
+	slug: string;
+	title: string;
+	code: string;
+	source: 'assistant' | 'user';
+}): Promise<{ id: string; slug: string; title: string; createdAt: Date; version: number } | null> {
+	return db.transaction(async (tx) => {
+		const [story] = await tx
+			.insert(s.story)
+			.values({
+				projectId: data.projectId,
+				userId: data.userId,
+				slug: data.slug,
+				title: data.title,
+			})
+			.onConflictDoNothing()
+			.returning()
+			.execute();
+
+		if (!story) {
+			return null;
+		}
+
+		const [version] = await tx
+			.insert(s.storyVersion)
+			.values({
+				storyId: story.id,
+				code: data.code,
+				action: 'create',
+				source: data.source,
+				version: 1,
+			})
+			.returning()
+			.execute();
+
+		return {
+			id: story.id,
+			slug: story.slug,
+			title: story.title,
+			createdAt: story.createdAt,
+			version: version.version,
+		};
+	});
+}
+
 export async function deleteStory(storyId: string): Promise<void> {
 	await db.delete(s.story).where(eq(s.story.id, storyId)).execute();
 }

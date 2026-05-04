@@ -10,12 +10,19 @@ import type { UIMessage } from '../../types/chat';
 import { logger } from '../../utils/logger';
 import type { McpContext, ToolExtra } from '../logging';
 import { withLogging } from '../logging';
+import { chatUrl } from '../urls';
 
 export function registerAgentTools(server: McpServer, ctx: McpContext): void {
 	server.registerTool(
 		'ask_nao',
 		{
-			description: 'Ask nao an analytics question in natural language. Creates a chat that is visible in the UI.',
+			description:
+				'Ask nao an analytics question in natural language. Creates a chat that is visible in the UI.\n\n' +
+				'Use this for ad-hoc data exploration and Q&A. ' +
+				'To create a persistent Nao Story (markdown dashboard with embedded charts/tables), do NOT ask nao in natural language — use `execute_sql` → `build_chart` → `create_story` instead. ' +
+				'To browse or update existing stories, use `list_stories` / `get_story` / `update_story`.\n\n' +
+				'Returns `chatId` and a `url` that opens the chat in the Nao UI — surface the URL to the user as a clickable link so they can jump to the conversation (and any rendered charts/tables). ' +
+				'The returned `chatId` can also be passed to `create_story` as `chat_id` to attach a follow-up story to this conversation.',
 			inputSchema: {
 				question: z.string().describe('The analytics question'),
 				conversation_id: z
@@ -23,7 +30,8 @@ export function registerAgentTools(server: McpServer, ctx: McpContext): void {
 					.optional()
 					.describe(
 						'Existing chat ID to continue a conversation. Omit to start a new chat. ' +
-							'Reuse the ID returned by a previous ask_nao call from the same conversation.',
+							'Reuse the ID returned by a previous ask_nao call ONLY when the new question clearly builds on the previous nao exchange (same data, same topic). ' +
+							'If the topic shifts or the prior nao reply was a refusal / off-topic, omit this to start a fresh chat — otherwise the follow-up inherits the prior context and may repeat the refusal.',
 					),
 			},
 		},
@@ -51,12 +59,13 @@ export function registerAgentTools(server: McpServer, ctx: McpContext): void {
 					tokenUsage: result.usage,
 				});
 
+				const url = chatUrl(chat.id);
 				return {
 					content: [
 						{ type: 'text' as const, text: result.text },
-						{ type: 'text' as const, text: `\n\n[conversation_id: ${chat.id}]` },
+						{ type: 'text' as const, text: `\n\n[conversation_id: ${chat.id}]\n[chat_url: ${url}]` },
 					],
-					toolOutput: { chatId: chat.id, text: result.text },
+					toolOutput: { chatId: chat.id, text: result.text, url },
 				};
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
@@ -83,6 +92,7 @@ async function buildChatContext(
 		id: crypto.randomUUID(),
 		role: 'user',
 		parts: [{ type: 'text', text: question }],
+		source: 'mcp',
 	};
 
 	if (conversationId) {
@@ -98,7 +108,10 @@ async function buildChatContext(
 	}
 
 	const chatId = crypto.randomUUID();
-	await chatQueries.createChat({ id: chatId, projectId, userId, title: question.slice(0, 80) }, { text: question });
+	await chatQueries.createChat(
+		{ id: chatId, projectId, userId, title: question.slice(0, 80) },
+		{ text: question, source: 'mcp' },
+	);
 	return {
 		chat: { id: chatId, projectId, userId },
 		uiMessages: [userMessage],

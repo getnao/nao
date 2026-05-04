@@ -1,5 +1,5 @@
 import { splitCodeIntoSegments } from '@nao/shared/story-segments';
-import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { MessageSquare, Loader2 } from 'lucide-react';
 import { useCallback, useMemo } from 'react';
@@ -12,6 +12,7 @@ import { StoryDownload } from '@/components/story-download';
 import { StoryChartEmbed, StoryTableEmbed } from '@/components/story-embeds';
 import { SegmentList } from '@/components/story-rendering';
 import { Button } from '@/components/ui/button';
+import { Spinner } from '@/components/ui/spinner';
 import { SelectionProvider } from '@/contexts/text-selection';
 import { chatPendingCitationStore } from '@/stores/chat-pending-citation';
 import { trpc } from '@/main';
@@ -25,36 +26,52 @@ function StandaloneStoryPage() {
 	const navigate = useNavigate();
 	const queryClient = useQueryClient();
 
-	const { data: story } = useSuspenseQuery(trpc.story.getStandalone.queryOptions({ storyId }));
+	const storyQuery = useQuery(trpc.story.getStandalone.queryOptions({ storyId }));
+	const story = storyQuery.data;
 
 	const openStandaloneMutation = useMutation(
 		trpc.chatFork.openStandalone.mutationOptions({
 			onSuccess: ({ chatId }) => {
 				queryClient.invalidateQueries({ queryKey: trpc.story.listAll.queryKey() });
 				queryClient.invalidateQueries({ queryKey: trpc.story.listStandalone.queryKey() });
-				navigate({ to: '/$chatId', params: { chatId }, state: { openStorySlug: story.slug } });
+				navigate({ to: '/$chatId', params: { chatId }, state: { openStorySlug: story?.slug } });
 			},
 		}),
 	);
 
 	const handleSelectionAsk = useCallback(
 		(data: SelectionData) => {
-			if (!story.chatId) {
+			if (!story?.chatId) {
 				return;
 			}
 			chatPendingCitationStore.set({ chatId: story.chatId, storySlug: story.slug, ...data });
 			navigate({ to: '/$chatId', params: { chatId: story.chatId } });
 		},
-		[navigate, story.chatId, story.slug],
+		[navigate, story?.chatId, story?.slug],
 	);
 
 	const handleOpenChat = useCallback(() => {
+		if (!story) {
+			return;
+		}
 		if (story.chatId) {
 			navigate({ to: '/$chatId', params: { chatId: story.chatId }, state: { openStorySlug: story.slug } });
 		} else {
 			openStandaloneMutation.mutate({ storyId });
 		}
-	}, [story.chatId, story.slug, storyId, navigate, openStandaloneMutation]);
+	}, [story, storyId, navigate, openStandaloneMutation]);
+
+	if (storyQuery.isLoading) {
+		return (
+			<div className='flex flex-1 items-center justify-center'>
+				<Spinner />
+			</div>
+		);
+	}
+
+	if (!story) {
+		return <div>Not Found</div>;
+	}
 
 	return (
 		<div className='flex flex-col flex-1 h-full overflow-hidden bg-panel min-w-0'>

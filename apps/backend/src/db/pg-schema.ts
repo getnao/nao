@@ -241,7 +241,7 @@ export const chatMessage = pgTable(
 		llmProvider: text('llm_provider').$type<LlmProvider>(),
 		llmModelId: text('llm_model_id'),
 		supersededAt: timestamp('superseded_at'),
-		source: text('source', { enum: ['slack', 'teams', 'telegram', 'whatsapp', 'web'] }),
+		source: text('source', { enum: ['slack', 'teams', 'telegram', 'whatsapp', 'web', 'mcp'] }),
 		isForked: boolean('isForked'),
 		citation: jsonb('citation').$type<CitationData>(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -516,6 +516,10 @@ export const story = pgTable(
 		uniqueIndex('story_standalone_slug_unique')
 			.on(t.projectId, t.userId, t.slug)
 			.where(sql`${t.chatId} IS NULL`),
+		check(
+			'story_owner_required',
+			sql`${t.chatId} IS NOT NULL OR (${t.projectId} IS NOT NULL AND ${t.userId} IS NOT NULL)`,
+		),
 		index('story_chatId_idx').on(t.chatId),
 		index('story_projectId_idx').on(t.projectId),
 		index('story_userId_idx').on(t.userId),

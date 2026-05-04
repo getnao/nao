@@ -262,7 +262,7 @@ export const createChat = async (
 	newChat: NewChat,
 	newUserMessage: {
 		text: string;
-		source?: 'slack' | 'teams' | 'telegram' | 'whatsapp' | 'web';
+		source?: UIMessage['source'];
 		citation?: CitationData;
 	},
 	additionalParts: UIMessagePart[] = [],

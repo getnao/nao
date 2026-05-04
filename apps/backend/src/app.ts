@@ -60,6 +60,7 @@ const app = fastify({
 			: true,
 	bodyLimit: 35 * 1024 * 1024, // ~25 MB audio * 4/3 base64 overhead + JSON envelope
 	routerOptions: { maxParamLength: 2048 },
+	trustProxy: true,
 }).withTypeProvider<ZodTypeProvider>();
 export type App = typeof app;
 
@@ -188,7 +189,7 @@ async function proxyToBetterAuth(url: string, request: { headers: Record<string,
 }
 
 app.get('/.well-known/oauth-protected-resource', async (request, reply) => {
-	const url = new URL('/api/auth/.well-known/oauth-protected-resource', `http://${request.headers.host}`);
+	const url = new URL('/api/auth/.well-known/oauth-protected-resource', env.BETTER_AUTH_URL);
 	const response = await proxyToBetterAuth(url.toString(), request);
 	reply.status(response.status);
 	response.headers.forEach((value, key) => reply.header(key, value));
@@ -196,7 +197,7 @@ app.get('/.well-known/oauth-protected-resource', async (request, reply) => {
 });
 
 app.get('/.well-known/oauth-authorization-server', async (request, reply) => {
-	const url = new URL('/api/auth/.well-known/oauth-authorization-server', `http://${request.headers.host}`);
+	const url = new URL('/api/auth/.well-known/oauth-authorization-server', env.BETTER_AUTH_URL);
 	const response = await proxyToBetterAuth(url.toString(), request);
 	reply.status(response.status);
 	response.headers.forEach((value, key) => reply.header(key, value));
