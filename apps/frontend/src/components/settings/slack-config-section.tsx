@@ -1,12 +1,16 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Pencil, Trash2 } from 'lucide-react';
 import { SlackForm } from './slack-form';
 import { Button } from '@/components/ui/button';
 import { CopyableUrl } from '@/components/ui/copyable-url';
+import { FormError } from '@/components/ui/form-fields';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { LlmProviderIcon } from '@/components/ui/llm-provider-icon';
 import { SettingsCard } from '@/components/ui/settings-card';
+import { SettingsControlRow } from '@/components/ui/settings-toggle-row';
+import { Switch } from '@/components/ui/switch';
+import { Textarea } from '@/components/ui/textarea';
 import { trpc } from '@/main';
 
 interface SlackConfigSectionProps {
@@ -190,6 +194,123 @@ export function SlackConfigSection({ isAdmin }: SlackConfigSectionProps) {
 					)}
 				</div>
 			</SettingsCard>
+
+			<AutoCreateUsersCard
+				enabled={projectConfig.autoCreateUsersEnabled ?? false}
+				domains={projectConfig.autoCreateUsersDomains ?? []}
+			/>
 		</div>
 	);
+}
+
+interface AutoCreateUsersCardProps {
+	enabled: boolean;
+	domains: string[];
+}
+
+function AutoCreateUsersCard({ enabled: initialEnabled, domains: initialDomains }: AutoCreateUsersCardProps) {
+	const queryClient = useQueryClient();
+	const [enabled, setEnabled] = useState(initialEnabled);
+	const [domainsText, setDomainsText] = useState(initialDomains.join(', '));
+	const [error, setError] = useState<string | null>(null);
+
+	useEffect(() => {
+		setEnabled(initialEnabled);
+		setDomainsText(initialDomains.join(', '));
+	}, [initialEnabled, initialDomains]);
+
+	const parsedDomains = useMemo(() => parseDomains(domainsText), [domainsText]);
+
+	const hasChanges = useMemo(() => {
+		if (enabled !== initialEnabled) {
+			return true;
+		}
+		if (parsedDomains.length !== initialDomains.length) {
+			return true;
+		}
+		return parsedDomains.some((d, i) => d !== initialDomains[i]);
+	}, [enabled, initialEnabled, parsedDomains, initialDomains]);
+
+	const updateMutation = useMutation(
+		trpc.project.updateSlackAutoCreateUsers.mutationOptions({
+			onSuccess: () => {
+				setError(null);
+				queryClient.invalidateQueries(trpc.project.getSlackConfig.queryOptions());
+			},
+			onError: (err) => {
+				setError(err.message);
+			},
+		}),
+	);
+
+	const handleSave = () => {
+		if (enabled && parsedDomains.length === 0) {
+			setError('Add at least one allowed domain to enable auto-creation.');
+			return;
+		}
+		updateMutation.mutate({ enabled, domains: parsedDomains });
+	};
+
+	return (
+		<SettingsCard
+			title='Auto-create users from Slack'
+			description='Automatically provision a nao account for senders whose email domain is allowed.'
+		>
+			<SettingsControlRow
+				id='slack-auto-create-users'
+				label='Enable auto-creation'
+				description='New users receive an email with a temporary password and are added to this project only.'
+				control={
+					<Switch
+						id='slack-auto-create-users'
+						checked={enabled}
+						onCheckedChange={(value) => {
+							setEnabled(value);
+							setError(null);
+						}}
+						disabled={updateMutation.isPending}
+					/>
+				}
+			/>
+			<div className='grid gap-2'>
+				<label htmlFor='slack-auto-create-domains' className='text-sm font-medium text-foreground'>
+					Allowed email domains
+				</label>
+				<p className='text-xs text-muted-foreground'>
+					Comma-separated list (e.g. <code>example.com, company.org</code>). Only Slack users with these
+					domains are auto-provisioned.
+				</p>
+				<Textarea
+					id='slack-auto-create-domains'
+					value={domainsText}
+					onChange={(e) => {
+						setDomainsText(e.target.value);
+						setError(null);
+					}}
+					placeholder='example.com, company.org'
+					rows={2}
+					disabled={!enabled || updateMutation.isPending}
+				/>
+			</div>
+			<FormError error={error ?? undefined} />
+			<div className='flex justify-end'>
+				<Button size='sm' onClick={handleSave} disabled={!hasChanges || updateMutation.isPending}>
+					{updateMutation.isPending ? 'Saving…' : 'Save'}
+				</Button>
+			</div>
+		</SettingsCard>
+	);
+}
+
+function parseDomains(raw: string): string[] {
+	const seen = new Set<string>();
+	const result: string[] = [];
+	for (const entry of raw.split(/[\s,]+/)) {
+		const trimmed = entry.trim().toLowerCase();
+		if (trimmed && !seen.has(trimmed)) {
+			seen.add(trimmed);
+			result.push(trimmed);
+		}
+	}
+	return result;
 }

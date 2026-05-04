@@ -41,6 +41,8 @@ export type SlackSettings = {
 	slackSigningSecret: string;
 	slackllmProvider: string;
 	slackllmModelId: string;
+	autoCreateUsersEnabled?: boolean;
+	autoCreateUsersDomains?: string[];
 };
 
 export type TeamsSettings = {

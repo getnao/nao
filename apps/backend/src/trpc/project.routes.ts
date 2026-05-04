@@ -198,6 +198,8 @@ export const projectRoutes = {
 					botTokenPreview: config.botToken.slice(0, 4) + '...' + config.botToken.slice(-4),
 					signingSecretPreview: config.signingSecret.slice(0, 4) + '...' + config.signingSecret.slice(-4),
 					modelSelection: config.modelSelection,
+					autoCreateUsersEnabled: config.autoCreateUsersEnabled,
+					autoCreateUsersDomains: config.autoCreateUsersDomains,
 				}
 			: null;
 
@@ -252,6 +254,25 @@ export const projectRoutes = {
 				input.modelProvider ?? null,
 				input.modelId ?? null,
 			);
+		}),
+
+	updateSlackAutoCreateUsers: adminProtectedProcedure
+		.input(
+			z.object({
+				enabled: z.boolean(),
+				domains: z.array(z.string().trim().toLowerCase()).default([]),
+			}),
+		)
+		.mutation(async ({ ctx, input }) => {
+			const cleanedDomains = [...new Set(input.domains.map((d) => d.trim()).filter((d) => d.length > 0))];
+			if (input.enabled && cleanedDomains.length === 0) {
+				throw new TRPCError({
+					code: 'BAD_REQUEST',
+					message: 'At least one allowed domain is required to auto-create users from Slack.',
+				});
+			}
+			await slackConfigQueries.updateProjectSlackAutoCreateUsers(ctx.project.id, input.enabled, cleanedDomains);
+			return { enabled: input.enabled, domains: cleanedDomains };
 		}),
 
 	deleteSlackConfig: adminProtectedProcedure.mutation(async ({ ctx }) => {

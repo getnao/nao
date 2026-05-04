@@ -16,6 +16,7 @@ import { getUser } from '../queries/user.queries';
 import { UIChat, UIMessage, UIMessagePart } from '../types/chat';
 import { ConversationContext, StreamState, ToolCallEntry } from '../types/messaging-provider';
 import { createChatTitle } from '../utils/ai';
+import { buildUserAddedEmail } from '../utils/email-builders';
 import { logger } from '../utils/logger';
 import {
 	createCompletionCard,
@@ -30,8 +31,10 @@ import {
 	FEEDBACK_MODAL_CALLBACK_ID,
 	formatMessagingError,
 } from '../utils/messaging-provider';
+import { isEmailDomainAllowed } from '../utils/utils';
 import { agentService } from './agent';
 import { posthog, PostHogEvent } from './posthog';
+import { ensureMessagingProviderUser } from './team-member';
 
 const UPDATE_INTERVAL_MS = 200;
 
@@ -47,6 +50,8 @@ class SlackService {
 	private _currentBotToken: string = '';
 	private _currentSigningSecret: string = '';
 	private _modelSelection: LlmSelectedModel | undefined = undefined;
+	private _autoCreateUsersEnabled: boolean = false;
+	private _autoCreateUsersDomains: string[] = [];
 	private _lastCompletionCard: Map<string, { card: SentMessage; chatUrl: string }> = new Map();
 
 	constructor() {}
@@ -55,6 +60,8 @@ class SlackService {
 		if (this._configChanged(config)) {
 			this._initialize(config);
 		}
+		this._autoCreateUsersEnabled = config.autoCreateUsersEnabled;
+		this._autoCreateUsersDomains = config.autoCreateUsersDomains;
 		return this._bot?.webhooks;
 	}
 
@@ -234,11 +241,6 @@ class SlackService {
 	}
 
 	private async _validateUserAccess(ctx: ConversationContext): Promise<void> {
-		await this._getUser(ctx);
-		await this._checkUserBelongsToProject(ctx);
-	}
-
-	private async _getUser(ctx: ConversationContext): Promise<void> {
 		const slackUserId = ctx.userMessage.author.userId;
 		const slackUser = await this._getSlackUser(slackUserId);
 		const email = slackUser?.profile?.email?.toLowerCase() || null;
@@ -247,6 +249,34 @@ class SlackService {
 			throw new Error('Could not retrieve user email from Slack');
 		}
 
+		ctx.timezone = slackUser?.tz || undefined;
+
+		if (this._canAutoProvision(email)) {
+			const project = await projectQueries.getProjectById(this._projectId);
+			const projectName = project?.name ?? 'nao';
+			const displayName = slackUser?.real_name || slackUser?.name || email.split('@')[0];
+			ctx.user = await ensureMessagingProviderUser({
+				email,
+				name: displayName,
+				projectId: this._projectId,
+				buildEmail: (user, temporaryPassword) =>
+					buildUserAddedEmail(user, projectName, 'project', temporaryPassword),
+			});
+			return;
+		}
+
+		await this._resolveExistingUser(ctx, email);
+		await this._checkUserBelongsToProject(ctx);
+	}
+
+	private _canAutoProvision(email: string): boolean {
+		if (!this._autoCreateUsersEnabled || this._autoCreateUsersDomains.length === 0) {
+			return false;
+		}
+		return isEmailDomainAllowed(email, this._autoCreateUsersDomains.join(','));
+	}
+
+	private async _resolveExistingUser(ctx: ConversationContext, email: string): Promise<void> {
 		const user = await getUser({ email });
 		if (!user) {
 			await ctx.thread.post(
@@ -255,7 +285,6 @@ class SlackService {
 			throw new Error('User not found');
 		}
 		ctx.user = user;
-		ctx.timezone = slackUser?.tz || undefined;
 	}
 
 	private async _getSlackUser(userId: string) {

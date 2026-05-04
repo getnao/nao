@@ -32,6 +32,8 @@ export const getProjectSlackConfig = async (projectId: string): Promise<SlackCon
 		signingSecret: settings.slackSigningSecret,
 		redirectUrl: env.BETTER_AUTH_URL || 'http://localhost:3000/',
 		modelSelection: toLlmSelectedModel(settings.slackllmProvider, settings.slackllmModelId),
+		autoCreateUsersEnabled: settings.autoCreateUsersEnabled ?? false,
+		autoCreateUsersDomains: settings.autoCreateUsersDomains ?? [],
 	};
 };
 
@@ -46,22 +48,32 @@ export const upsertProjectSlackConfig = async (data: {
 	signingSecret: string;
 	modelSelection?: LlmSelectedModel;
 }> => {
-	const updated = await takeFirstOrThrow(
-		db
-			.update(s.project)
-			.set({
-				slackSettings: {
-					slackBotToken: data.botToken,
-					slackSigningSecret: data.signingSecret,
-					slackllmProvider: data.modelProvider ?? '',
-					slackllmModelId: data.modelId ?? '',
-				},
-			})
-			.where(eq(s.project.id, data.projectId))
-			.returning()
-			.execute(),
-		`Project not found: ${data.projectId}`,
-	);
+	const updated = await db.transaction(async (tx) => {
+		const project = await takeFirstOrThrow(
+			tx.select().from(s.project).where(eq(s.project.id, data.projectId)).execute(),
+			`Project not found: ${data.projectId}`,
+		);
+		const existing = project.slackSettings;
+
+		return takeFirstOrThrow(
+			tx
+				.update(s.project)
+				.set({
+					slackSettings: {
+						slackBotToken: data.botToken,
+						slackSigningSecret: data.signingSecret,
+						slackllmProvider: data.modelProvider ?? '',
+						slackllmModelId: data.modelId ?? '',
+						autoCreateUsersEnabled: existing?.autoCreateUsersEnabled ?? false,
+						autoCreateUsersDomains: existing?.autoCreateUsersDomains ?? [],
+					},
+				})
+				.where(eq(s.project.id, data.projectId))
+				.returning()
+				.execute(),
+			`Project not found: ${data.projectId}`,
+		);
+	});
 
 	const settings = updated.slackSettings;
 	return {
@@ -91,6 +103,37 @@ export const updateProjectSlackModel = async (
 					slackSigningSecret: existing?.slackSigningSecret ?? '',
 					slackllmProvider: modelProvider ?? '',
 					slackllmModelId: modelId ?? '',
+					autoCreateUsersEnabled: existing?.autoCreateUsersEnabled ?? false,
+					autoCreateUsersDomains: existing?.autoCreateUsersDomains ?? [],
+				},
+			})
+			.where(eq(s.project.id, projectId))
+			.execute();
+	});
+};
+
+export const updateProjectSlackAutoCreateUsers = async (
+	projectId: string,
+	enabled: boolean,
+	domains: string[],
+): Promise<void> => {
+	await db.transaction(async (tx) => {
+		const project = await takeFirstOrThrow(
+			tx.select().from(s.project).where(eq(s.project.id, projectId)).execute(),
+			`Project not found: ${projectId}`,
+		);
+		const existing = project.slackSettings;
+		if (!existing) {
+			throw new Error(`Slack is not configured for project ${projectId}`);
+		}
+
+		await tx
+			.update(s.project)
+			.set({
+				slackSettings: {
+					...existing,
+					autoCreateUsersEnabled: enabled,
+					autoCreateUsersDomains: domains,
 				},
 			})
 			.where(eq(s.project.id, projectId))
@@ -108,6 +151,8 @@ export interface SlackConfig {
 	signingSecret: string;
 	redirectUrl: string;
 	modelSelection?: LlmSelectedModel;
+	autoCreateUsersEnabled: boolean;
+	autoCreateUsersDomains: string[];
 }
 
 // Re-export DBProject for backward compatibility where needed

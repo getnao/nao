@@ -198,6 +198,14 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		keywords: ['slack bot', 'slack app', 'slack webhook', 'messaging'],
 		adminOnly: true,
 	},
+	{
+		page: '/settings/project/slack',
+		pageLabel: 'Slack',
+		title: 'Auto-create users from Slack',
+		description: 'Automatically provision nao accounts for Slack senders whose email domain is in the allowlist.',
+		keywords: ['sign up', 'provision', 'onboarding', 'domain', 'allowlist', 'whitelist', 'auto create'],
+		adminOnly: true,
+	},
 
 	// ── Project > Microsoft Teams ────────────────────────────
 	{
