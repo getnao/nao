@@ -21,18 +21,25 @@ def clone_or_pull_repo(repo: RepoConfig, base_path: Path) -> bool:
     """Clone a repository and strip .git/ so files are tracked as regular content."""
     repo_path = base_path / repo.name
 
+    # Guard against path traversal via malicious repo.name (e.g. "../other")
+    resolved_repo_path = repo_path.resolve()
+    if not resolved_repo_path.is_relative_to(base_path.resolve()):
+        console.print(f"  [yellow]⚠[/yellow] Invalid repo path: {repo.name}")
+        return False
+
+    tmp_path = base_path / f"{repo.name}.tmp"
+
     try:
-        if repo_path.exists():
-            console.print(f"  [dim]Re-cloning[/dim] {repo.name}")
-            shutil.rmtree(repo_path)
-        else:
-            console.print(f"  [dim]Cloning[/dim] {repo.name}")
+        console.print(f"  [dim]{'Re-cloning' if repo_path.exists() else 'Cloning'}[/dim] {repo.name}")
+
+        if tmp_path.exists():
+            shutil.rmtree(tmp_path)
 
         cmd = ["git", "clone"]
         if repo.branch:
             cmd.extend(["-b", repo.branch])
         if repo.url:
-            cmd.extend([repo.url, str(repo_path)])
+            cmd.extend([repo.url, str(tmp_path)])
 
         result = subprocess.run(
             cmd,
@@ -43,17 +50,24 @@ def clone_or_pull_repo(repo: RepoConfig, base_path: Path) -> bool:
 
         if result.returncode != 0:
             console.print(f"  [yellow]⚠[/yellow] Failed to clone {repo.name}: {result.stderr.strip()}")
+            shutil.rmtree(tmp_path, ignore_errors=True)
             return False
 
         # Strip .git/ so parent repo tracks files as regular content, not a gitlink
-        git_dir = repo_path / ".git"
+        git_dir = tmp_path / ".git"
         if git_dir.exists():
             shutil.rmtree(git_dir)
+
+        # Atomic swap: only replace existing repo after successful clone
+        if repo_path.exists():
+            shutil.rmtree(repo_path)
+        tmp_path.rename(repo_path)
 
         return True
 
     except Exception as e:
         console.print(f"  [yellow]⚠[/yellow] Error syncing {repo.name}: {e}")
+        shutil.rmtree(tmp_path, ignore_errors=True)
         return False
 
 
