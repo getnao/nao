@@ -9,7 +9,7 @@ export const QueryRows = ({ rows, startIndex = 0 }: { rows: Record<string, unkno
 	return (
 		<Block>
 			{rows.map((row, i) => (
-				<CodeBlock header={`#${startIndex + i + 1}`}>
+				<CodeBlock key={startIndex + i} header={`#${startIndex + i + 1}`}>
 					<Block separator={'\n'}>
 						{Object.entries(row).map(([key, value]) => `${key}: ${formatRowValue(value)}`)}
 					</Block>

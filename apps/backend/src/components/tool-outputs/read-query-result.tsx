@@ -30,8 +30,8 @@ export const ReadQueryResultOutput = ({ output }: { output: readQueryResult.Outp
 			<Span>Query ID: {id}</Span>
 
 			<TitledList title={`${pluralize('Column', columns.length)} (${columns.length})`}>
-				{columns.map((column) => (
-					<ListItem>{column}</ListItem>
+				{columns.map((column, i) => (
+					<ListItem key={`${i}:${column}`}>{column}</ListItem>
 				))}
 			</TitledList>
 

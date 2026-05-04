@@ -1,5 +1,7 @@
 import z from 'zod/v3';
 
+import { QueryIdSchema } from './query-id';
+
 export const InputSchema = z.object({
 	query_id: z
 		.string()
@@ -12,7 +14,7 @@ export const InputSchema = z.object({
 
 export const OutputSchema = z.object({
 	_version: z.literal('1').optional(),
-	id: z.custom<`query_${string}`>(),
+	id: QueryIdSchema,
 	columns: z.array(z.string()),
 	data: z.array(z.any()),
 	/** Total number of rows available in the underlying query result. */

@@ -1,5 +1,6 @@
 import { ToolCallWrapper } from './tool-call-wrapper';
 import { TableDisplay } from './display-table';
+import type { readQueryResult } from '@nao/shared/tools';
 import type { ToolCallComponentProps } from '.';
 import { useToolCallContext } from '@/contexts/tool-call';
 
@@ -23,9 +24,7 @@ export const ReadQueryResultToolCall = ({
 		);
 	}
 
-	const rangeLabel = output
-		? `rows ${output.offset + 1}–${output.offset + output.data.length} of ${output.row_count}`
-		: undefined;
+	const rangeLabel = output ? getRangeLabel(output) : undefined;
 
 	return (
 		<ToolCallWrapper
@@ -46,4 +45,12 @@ export const ReadQueryResultToolCall = ({
 			)}
 		</ToolCallWrapper>
 	);
+};
+
+const getRangeLabel = (output: readQueryResult.Output) => {
+	if (output.data.length === 0) {
+		return `0 rows of ${output.row_count}`;
+	}
+
+	return `rows ${output.offset + 1}–${output.offset + output.data.length} of ${output.row_count}`;
 };
