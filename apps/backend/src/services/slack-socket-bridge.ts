@@ -7,6 +7,9 @@ import { logger } from '../utils/logger';
 
 type SlackWebhooks = NonNullable<Chat['webhooks']>;
 
+const SLACK_SOCKET_ACK_TIMEOUT_MS = 2500;
+const SLACK_SOCKET_ACK_TIMEOUT = Symbol('slack-socket-ack-timeout');
+
 export interface SlackSocketBridgeOptions {
 	projectId: string;
 	appToken: string;
@@ -97,8 +100,14 @@ export class SlackSocketBridge {
 	}
 
 	private async _handleEvent(event: SlackSocketEvent): Promise<void> {
-		const response = await this._dispatchToWebhook(event);
-		const payload = response ? await this._buildAckPayload(event, response) : undefined;
+		if (!event.accepts_response_payload) {
+			await this._safeAck(event);
+			await this._dispatchToWebhook(event);
+			return;
+		}
+
+		const payloadPromise = this._dispatchToAckPayload(event);
+		const payload = await this._getAckPayloadBeforeDeadline(event, payloadPromise);
 		await this._safeAck(event, payload);
 	}
 
@@ -115,6 +124,34 @@ export class SlackSocketBridge {
 			});
 			return null;
 		}
+	}
+
+	private async _dispatchToAckPayload(event: SlackSocketEvent): Promise<unknown> {
+		const response = await this._dispatchToWebhook(event);
+		return response ? this._buildAckPayload(event, response) : undefined;
+	}
+
+	private async _getAckPayloadBeforeDeadline(
+		event: SlackSocketEvent,
+		payloadPromise: Promise<unknown>,
+	): Promise<unknown> {
+		let timeoutId: ReturnType<typeof setTimeout> | undefined;
+		const timeoutPromise = new Promise<typeof SLACK_SOCKET_ACK_TIMEOUT>((resolve) => {
+			timeoutId = setTimeout(() => resolve(SLACK_SOCKET_ACK_TIMEOUT), SLACK_SOCKET_ACK_TIMEOUT_MS);
+		});
+
+		const result = await Promise.race([payloadPromise, timeoutPromise]);
+		if (timeoutId) {
+			clearTimeout(timeoutId);
+		}
+		if (result === SLACK_SOCKET_ACK_TIMEOUT) {
+			logger.warn(`Slack socket ack payload timed out for project ${this._projectId}; acking without payload`, {
+				source: 'system',
+				context: { projectId: this._projectId, envelopeId: event.envelope_id, eventType: event.type },
+			});
+			return undefined;
+		}
+		return result;
 	}
 
 	private async _buildAckPayload(event: SlackSocketEvent, response: Response): Promise<unknown> {
@@ -139,7 +176,7 @@ export class SlackSocketBridge {
 		}
 	}
 
-	private async _safeAck(event: SlackSocketEvent, payload: unknown): Promise<void> {
+	private async _safeAck(event: SlackSocketEvent, payload?: unknown): Promise<void> {
 		try {
 			await event.ack(payload);
 		} catch (error) {
