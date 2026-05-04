@@ -2,7 +2,7 @@ import type { CitationData, LlmProvider } from '@nao/shared/types';
 import { BUDGET_PERIODS, SHARE_VISIBILITY, USER_ROLES } from '@nao/shared/types';
 import { type ProviderMetadata } from 'ai';
 import { sql } from 'drizzle-orm';
-import { check, index, integer, primaryKey, sqliteTable, text, unique } from 'drizzle-orm/sqlite-core';
+import { check, index, integer, primaryKey, sqliteTable, text, unique, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 import { AgentSettings } from '../types/agent-settings';
 import { ForkMetadata, StopReason, ToolState, UIMessagePartType } from '../types/chat';
@@ -540,7 +540,11 @@ export const story = sqliteTable(
 	},
 	(t) => [
 		unique('story_chat_slug_unique').on(t.chatId, t.slug),
+		uniqueIndex('story_standalone_slug_unique')
+			.on(t.projectId, t.userId, t.slug)
+			.where(sql`chat_id IS NULL`),
 		index('story_chatId_idx').on(t.chatId),
+		index('story_projectId_idx').on(t.projectId),
 		index('story_userId_idx').on(t.userId),
 	],
 );

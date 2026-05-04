@@ -24,6 +24,7 @@ export type ToolHandler<T> = (args: T, extra: ToolExtra) => Promise<ToolResult>;
 export const TOOL_MODE_MAP: Record<string, keyof McpEndpointSettings> = {
 	ask_nao: 'agentModeEnabled',
 	execute_sql: 'toolsModeEnabled',
+	build_chart: 'toolsModeEnabled',
 	grep: 'toolsModeEnabled',
 	ls: 'toolsModeEnabled',
 	list_stories: 'objectsModeEnabled',
@@ -49,6 +50,9 @@ export function withLogging<T>(toolName: string, ctx: McpContext, handler: ToolH
 		let result: ToolResult | undefined;
 		try {
 			result = await handler(args, extra);
+			if (result?.isError) {
+				success = false;
+			}
 			return result;
 		} catch (error) {
 			success = false;

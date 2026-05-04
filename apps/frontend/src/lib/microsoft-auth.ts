@@ -2,10 +2,10 @@
 
 import { authClient } from './auth-client';
 
-export async function handleMicrosoftSignIn(): Promise<void> {
+export async function handleMicrosoftSignIn(callbackURL = '/'): Promise<void> {
 	await authClient.signIn.social({
 		provider: 'microsoft',
-		callbackURL: '/',
+		callbackURL,
 		errorCallbackURL: '/login',
 	});
 }

@@ -42,7 +42,7 @@ export function registerFileTools(server: McpServer, ctx: McpContext): void {
 							glob,
 							case_insensitive,
 							context_lines,
-							max_results: Math.min(max_results ?? 100, 500),
+							max_results: Math.min(Math.max(Math.floor(max_results ?? 100), 1), 500),
 						},
 						makeExecutionOptions(project.path!),
 					);

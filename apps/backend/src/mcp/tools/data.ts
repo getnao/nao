@@ -20,7 +20,14 @@ export function registerDataTools(server: McpServer, ctx: McpContext): void {
 				'Run a SQL query against the connected data warehouse. Returns rows as JSON. The response includes a `query_id` — pass it to `build_chart` or reference it in story `<table query_id="...">` blocks. Use ask_nao instead if you want Nao to write the SQL for you.',
 			inputSchema: {
 				sql: z.string().describe('The SQL query to execute'),
-				limit: z.number().optional().default(100).describe('Max rows to return (default 100, max 1000)'),
+				limit: z
+					.number()
+					.int()
+					.min(1)
+					.max(1000)
+					.optional()
+					.default(100)
+					.describe('Max rows to return (default 100, min 1, max 1000)'),
 			},
 		},
 		withLogging('execute_sql', ctx, async ({ sql, limit }) => {
@@ -30,8 +37,6 @@ export function registerDataTools(server: McpServer, ctx: McpContext): void {
 				const azureAccessToken = (await hasFeature(LICENSE_FEATURES.sso))
 					? await getAzureAccessTokenForUser(ctx.userId)
 					: null;
-				const cappedLimit = Math.min(limit, 1000);
-
 				const result = await executeQuery(
 					{ sql_query: sql },
 					{
@@ -44,7 +49,7 @@ export function registerDataTools(server: McpServer, ctx: McpContext): void {
 					},
 				);
 
-				const rows = result.data.slice(0, cappedLimit);
+				const rows = result.data.slice(0, limit);
 				const queryId = `query_${crypto.randomUUID().slice(0, 8)}`;
 				const output = { query_id: queryId, columns: result.columns, row_count: rows.length, data: rows };
 				return {

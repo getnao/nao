@@ -64,7 +64,10 @@ export function registerAgentTools(server: McpServer, ctx: McpContext): void {
 					source: 'tool',
 					context: { question, userId: ctx.userId },
 				});
-				return { content: [{ type: 'text' as const, text: `Nao agent error: ${message}` }], isError: true };
+				return {
+					content: [{ type: 'text' as const, text: 'Nao agent failed to process the request.' }],
+					isError: true,
+				};
 			}
 		}),
 	);

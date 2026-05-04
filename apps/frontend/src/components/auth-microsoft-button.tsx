@@ -12,9 +12,18 @@ export function useIsMicrosoftSetup(): boolean {
 	return Boolean(isMicrosoftSetup.data);
 }
 
-export function MicrosoftSignInButton() {
+interface MicrosoftSignInButtonProps {
+	callbackUrl?: string;
+}
+
+export function MicrosoftSignInButton({ callbackUrl }: MicrosoftSignInButtonProps = {}) {
 	return (
-		<Button type='button' variant='outline' className='w-full h-11' onClick={() => void handleMicrosoftSignIn()}>
+		<Button
+			type='button'
+			variant='outline'
+			className='w-full h-11'
+			onClick={() => void handleMicrosoftSignIn(callbackUrl)}
+		>
 			<MicrosoftIcon className='w-5 h-5' />
 			Continue with Microsoft
 		</Button>

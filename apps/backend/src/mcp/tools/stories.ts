@@ -109,7 +109,7 @@ export function registerStoryTools(server: McpServer, ctx: McpContext): void {
 		},
 		withLogging('create_story', ctx, async ({ title, content, query_data }) => {
 			try {
-				const slug = generateSlug(title);
+				const slug = await getUniqueStandaloneSlug(ctx, title);
 				const code = content ?? `# ${title}\n`;
 
 				const version = await storyQueries.createStandaloneVersion({
@@ -260,7 +260,18 @@ export function registerStoryTools(server: McpServer, ctx: McpContext): void {
 	);
 }
 
-export function generateSlug(title: string): string {
+async function getUniqueStandaloneSlug(ctx: McpContext, title: string): Promise<string> {
+	const baseSlug = generateSlug(title);
+	let candidate = baseSlug;
+	let suffix = 2;
+	while (await storyQueries.getStandaloneStoryByUserAndSlug(ctx.userId, ctx.projectId, candidate)) {
+		candidate = `${baseSlug}-${suffix}`;
+		suffix += 1;
+	}
+	return candidate;
+}
+
+function generateSlug(title: string): string {
 	return (
 		title
 			.toLowerCase()

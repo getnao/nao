@@ -11,6 +11,7 @@ import { extractStorySummary } from '../utils/story-summary';
 import { ownedResourceProcedure, projectProtectedProcedure, protectedProcedure } from './trpc';
 
 const chatOwnerProcedure = ownedResourceProcedure(chatQueries.getChatOwnerId, 'chat');
+const storyOwnerProcedure = ownedResourceProcedure(storyQueries.getStoryOwnerId, 'story');
 
 export const storyRoutes = {
 	listAll: protectedProcedure.query(async ({ ctx }) => {
@@ -49,7 +50,7 @@ export const storyRoutes = {
 		}));
 	}),
 
-	getStandalone: projectProtectedProcedure.input(z.object({ storyId: z.string() })).query(async ({ input, ctx }) => {
+	getStandalone: storyOwnerProcedure.input(z.object({ storyId: z.string() })).query(async ({ input, ctx }) => {
 		const story = await storyQueries.getStoryByIdForUser(input.storyId, ctx.user.id);
 		if (!story) {
 			throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
@@ -181,25 +182,13 @@ export const storyRoutes = {
 			await storyQueries.unarchiveStory(input.chatId, input.storySlug);
 		}),
 
-	archiveStandalone: projectProtectedProcedure
-		.input(z.object({ storyId: z.string() }))
-		.mutation(async ({ input, ctx }) => {
-			const story = await storyQueries.getStoryByIdForUser(input.storyId, ctx.user.id);
-			if (!story) {
-				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
-			}
-			await storyQueries.archiveByStoryId(story.id);
-		}),
+	archiveStandalone: storyOwnerProcedure.input(z.object({ storyId: z.string() })).mutation(async ({ input }) => {
+		await storyQueries.archiveByStoryId(input.storyId);
+	}),
 
-	unarchiveStandalone: projectProtectedProcedure
-		.input(z.object({ storyId: z.string() }))
-		.mutation(async ({ input, ctx }) => {
-			const story = await storyQueries.getStoryByIdForUser(input.storyId, ctx.user.id);
-			if (!story) {
-				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
-			}
-			await storyQueries.unarchiveByStoryId(story.id);
-		}),
+	unarchiveStandalone: storyOwnerProcedure.input(z.object({ storyId: z.string() })).mutation(async ({ input }) => {
+		await storyQueries.unarchiveByStoryId(input.storyId);
+	}),
 
 	archiveMany: protectedProcedure
 		.input(z.object({ stories: z.array(z.object({ chatId: z.string(), storySlug: z.string() })).min(1) }))
@@ -216,7 +205,7 @@ export const storyRoutes = {
 			await storyQueries.archiveManyStories(input.stories.map((s) => ({ chatId: s.chatId, slug: s.storySlug })));
 		}),
 
-	downloadStandalone: projectProtectedProcedure
+	downloadStandalone: storyOwnerProcedure
 		.input(z.object({ storyId: z.string(), format: z.enum(DOWNLOAD_FORMATS) }))
 		.query(async ({ input, ctx }) => {
 			const story = await storyQueries.getStoryByIdForUser(input.storyId, ctx.user.id);

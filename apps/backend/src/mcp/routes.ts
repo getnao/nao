@@ -26,7 +26,7 @@ export const mcpServerRoutes = async (app: App) => {
 		const existingSessionId = request.headers['mcp-session-id'] as string | undefined;
 		if (existingSessionId) {
 			const session = sessions.get(existingSessionId);
-			if (session) {
+			if (session && session.userId === userId) {
 				session.lastAccess = Date.now();
 				await session.transport.handleRequest(request.raw, reply.raw, request.body as Record<string, unknown>);
 				reply.hijack();
@@ -46,7 +46,7 @@ export const mcpServerRoutes = async (app: App) => {
 			sessionIdGenerator: () => crypto.randomUUID(),
 			enableJsonResponse: true,
 			onsessioninitialized: (sessionId) => {
-				sessions.set(sessionId, { transport, server, userId, lastAccess: Date.now() });
+				sessions.set(sessionId, { transport, server, userId, projectId, lastAccess: Date.now() });
 			},
 			onsessionclosed: (sessionId) => {
 				sessions.delete(sessionId);
@@ -71,7 +71,7 @@ export const mcpServerRoutes = async (app: App) => {
 		}
 
 		const session = sessions.get(sessionId);
-		if (!session) {
+		if (!session || session.userId !== userId) {
 			return reply.status(404).send({ error: 'Session not found or expired.' });
 		}
 
@@ -81,9 +81,14 @@ export const mcpServerRoutes = async (app: App) => {
 	});
 
 	app.delete('/', async (request, reply) => {
+		const userId = await resolveUserId(request);
+		if (!userId) {
+			return replyUnauthorized(request, reply);
+		}
+
 		const sessionId = request.headers['mcp-session-id'] as string | undefined;
 		const session = sessionId ? sessions.get(sessionId) : undefined;
-		if (!session) {
+		if (!session || session.userId !== userId) {
 			return reply.status(400).send({ error: 'Invalid or missing session.' });
 		}
 

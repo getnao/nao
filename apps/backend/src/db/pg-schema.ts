@@ -13,6 +13,7 @@ import {
 	text,
 	timestamp,
 	unique,
+	uniqueIndex,
 } from 'drizzle-orm/pg-core';
 
 import { AgentSettings } from '../types/agent-settings';
@@ -512,7 +513,11 @@ export const story = pgTable(
 	},
 	(t) => [
 		unique('story_chat_slug_unique').on(t.chatId, t.slug),
+		uniqueIndex('story_standalone_slug_unique')
+			.on(t.projectId, t.userId, t.slug)
+			.where(sql`${t.chatId} IS NULL`),
 		index('story_chatId_idx').on(t.chatId),
+		index('story_projectId_idx').on(t.projectId),
 		index('story_userId_idx').on(t.userId),
 	],
 );

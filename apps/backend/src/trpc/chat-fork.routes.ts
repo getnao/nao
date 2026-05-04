@@ -39,7 +39,7 @@ export const chatForkRoutes = {
 		.input(z.object({ storyId: z.string() }))
 		.mutation(async ({ input, ctx }): Promise<{ chatId: string }> => {
 			const story = await storyQueries.getStoryByIdForUser(input.storyId, ctx.user.id);
-			if (!story) {
+			if (!story || story.projectId !== ctx.project.id) {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
 			}
 			if (story.chatId) {

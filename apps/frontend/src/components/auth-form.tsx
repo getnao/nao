@@ -68,7 +68,7 @@ export function AuthForm({
 								Continue with GitHub
 							</Button>
 						)}
-						{isMicrosoftSetup && <MicrosoftSignInButton />}
+						{isMicrosoftSetup && <MicrosoftSignInButton callbackUrl={socialCallbackUrl} />}
 					</div>
 
 					<div className='relative'>

@@ -31,6 +31,21 @@ export async function getStoryByChatAndSlug(chatId: string, slug: string): Promi
 	return row ?? null;
 }
 
+export async function getStoryOwnerId(storyId: string): Promise<string | undefined> {
+	const [row] = await db
+		.select({
+			storyUserId: s.story.userId,
+			chatUserId: s.chat.userId,
+		})
+		.from(s.story)
+		.leftJoin(s.chat, eq(s.story.chatId, s.chat.id))
+		.where(eq(s.story.id, storyId))
+		.limit(1)
+		.execute();
+
+	return row?.chatUserId ?? row?.storyUserId ?? undefined;
+}
+
 export async function getStoryByIdForUser(storyId: string, userId: string): Promise<UserStoryRow | null> {
 	const latestVersions = latestVersionsSubquery();
 
@@ -188,21 +203,15 @@ export async function createStandaloneVersion(data: {
 	action: 'create' | 'update' | 'replace';
 	source: 'assistant' | 'user';
 }): Promise<DBStoryVersion & { title: string }> {
-	const existing = await getStandaloneStoryByUserAndSlug(data.userId, data.projectId, data.slug);
+	const story = await getOrCreateStandaloneStory({
+		userId: data.userId,
+		projectId: data.projectId,
+		slug: data.slug,
+		title: data.title,
+	});
 
-	let story: DBStory;
-	if (existing) {
-		story = existing;
-		if (story.title !== data.title) {
-			await db.update(s.story).set({ title: data.title }).where(eq(s.story.id, story.id)).execute();
-		}
-	} else {
-		const [created] = await db
-			.insert(s.story)
-			.values({ projectId: data.projectId, userId: data.userId, slug: data.slug, title: data.title })
-			.returning()
-			.execute();
-		story = created;
+	if (story.title !== data.title) {
+		await db.update(s.story).set({ title: data.title }).where(eq(s.story.id, story.id)).execute();
 	}
 
 	const nextVersion = db
@@ -478,6 +487,30 @@ async function getOrCreateStory(data: { chatId: string; slug: string; title: str
 	const row = await getStoryByChatAndSlug(data.chatId, data.slug);
 	if (!row) {
 		throw new Error(`Failed to create or retrieve story: ${data.chatId}/${data.slug}`);
+	}
+	return row;
+}
+
+async function getOrCreateStandaloneStory(data: {
+	userId: string;
+	projectId: string;
+	slug: string;
+	title: string;
+}): Promise<DBStory> {
+	const existing = await getStandaloneStoryByUserAndSlug(data.userId, data.projectId, data.slug);
+	if (existing) {
+		return existing;
+	}
+
+	await db
+		.insert(s.story)
+		.values({ projectId: data.projectId, userId: data.userId, slug: data.slug, title: data.title })
+		.onConflictDoNothing()
+		.execute();
+
+	const row = await getStandaloneStoryByUserAndSlug(data.userId, data.projectId, data.slug);
+	if (!row) {
+		throw new Error(`Failed to create or retrieve standalone story: ${data.userId}/${data.projectId}/${data.slug}`);
 	}
 	return row;
 }
