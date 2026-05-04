@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import Field
@@ -155,6 +156,11 @@ class DatabricksConfig(DatabaseConfig):
 
         if self.schema_name:
             kwargs["schema"] = self.schema_name
+
+        # Ibis names its temporary UC memtable volume after the OS username, which
+        # breaks when the username contains dots (interpreted as UC path separators).
+        # Use the connection name instead — already user-controlled and safe.
+        kwargs["memtable_volume"] = f"{re.sub(r'[^a-zA-Z0-9_-]', '_', self.name)}-{os.getpid()}"
 
         return ibis.databricks.connect(**kwargs)
 
