@@ -280,6 +280,29 @@ class SnowflakeConfig(DatabaseConfig):
     def create_context(self, conn: BaseBackend, schema: str, table_name: str) -> SnowflakeDatabaseContext:
         return SnowflakeDatabaseContext(conn, schema, table_name)
 
+    def get_semantic_views(self, conn: BaseBackend, schema: str) -> list[dict[str, str]]:
+        """Fetch semantic views from a Snowflake schema."""
+        try:
+            query = f"""
+                SELECT NAME, COMMENT
+                FROM INFORMATION_SCHEMA.SEMANTIC_VIEWS
+                WHERE "SCHEMA" = '{schema}'
+                ORDER BY NAME
+            """
+            rows = conn.raw_sql(query).fetchall()  # type: ignore[union-attr]
+            results = []
+            for name, comment in rows:
+                try:
+                    ddl_row = conn.raw_sql(f"SELECT GET_DDL('SEMANTIC VIEW', '{schema}.{name}')").fetchone()  # type: ignore[union-attr]
+                    definition = str(ddl_row[0]) if ddl_row and ddl_row[0] else ""
+                except Exception:
+                    definition = ""
+                results.append({"name": name, "comment": str(comment) if comment else "", "definition": definition})
+            return results
+        except Exception:
+            logger.debug("Failed to fetch semantic views for schema %s (feature may not be available)", schema)
+            return []
+
     def get_query_history_sql(self, days: int) -> str | None:
         return (
             f"SELECT query_text AS query_text "

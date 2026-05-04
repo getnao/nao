@@ -4,17 +4,26 @@ import { ExternalLink, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { PasswordField } from '@/components/ui/form-fields';
+import { cn } from '@/lib/utils';
+
+export type SlackTransportMode = 'webhook' | 'socket';
 
 export interface SlackFormProps {
 	webhookUrl: string;
 	hasProjectConfig: boolean;
-	onSubmit: (values: { botToken: string; signingSecret: string }) => Promise<void>;
+	onSubmit: (values: {
+		botToken: string;
+		signingSecret: string;
+		appToken: string;
+		transportMode: SlackTransportMode;
+	}) => Promise<void>;
 	onCancel: () => void;
 	isPending: boolean;
 }
 
-function buildSlackManifest(webhookUrl: string, mentionName: string) {
+function buildSlackManifest(webhookUrl: string, mentionName: string, transportMode: SlackTransportMode) {
 	const name = mentionName.trim() || 'nao';
+	const isSocket = transportMode === 'socket';
 	return {
 		display_information: {
 			name,
@@ -54,37 +63,43 @@ function buildSlackManifest(webhookUrl: string, mentionName: string) {
 		},
 		settings: {
 			event_subscriptions: {
-				request_url: webhookUrl,
+				...(isSocket ? {} : { request_url: webhookUrl }),
 				bot_events: ['app_mention', 'message.channels', 'message.groups', 'message.im', 'message.mpim'],
 			},
 			interactivity: {
 				is_enabled: true,
-				request_url: webhookUrl,
+				...(isSocket ? {} : { request_url: webhookUrl }),
 			},
 			org_deploy_enabled: false,
-			socket_mode_enabled: false,
+			socket_mode_enabled: isSocket,
 			token_rotation_enabled: false,
 		},
 	};
 }
 
-function buildManifestUrl(webhookUrl: string, mentionName: string): string {
-	const manifest = buildSlackManifest(webhookUrl, mentionName);
+function buildManifestUrl(webhookUrl: string, mentionName: string, transportMode: SlackTransportMode): string {
+	const manifest = buildSlackManifest(webhookUrl, mentionName, transportMode);
 	return `https://api.slack.com/apps?new_app=1&manifest_json=${encodeURIComponent(JSON.stringify(manifest))}`;
 }
 
 export function SlackForm({ webhookUrl, hasProjectConfig, onSubmit, onCancel, isPending }: SlackFormProps) {
 	const [mentionName, setMentionName] = useState('nao');
+	const [transportMode, setTransportMode] = useState<SlackTransportMode>('webhook');
 
 	const form = useForm({
-		defaultValues: { botToken: '', signingSecret: '' },
+		defaultValues: { botToken: '', signingSecret: '', appToken: '' },
 		onSubmit: async ({ value }) => {
-			await onSubmit(value);
+			await onSubmit({ ...value, transportMode });
 			form.reset();
 		},
 	});
 
-	const manifestUrl = webhookUrl ? buildManifestUrl(webhookUrl, mentionName) : '';
+	const isSocket = transportMode === 'socket';
+	const manifestUrl = isSocket
+		? buildManifestUrl('', mentionName, transportMode)
+		: webhookUrl
+			? buildManifestUrl(webhookUrl, mentionName, transportMode)
+			: '';
 
 	return (
 		<div className='flex flex-col gap-4 p-4 rounded-lg border border-primary/50 bg-muted/30'>
@@ -112,6 +127,42 @@ export function SlackForm({ webhookUrl, hasProjectConfig, onSubmit, onCancel, is
 						<ExternalLink className='size-3' />
 					</a>
 				</p>
+
+				{/* Transport mode */}
+				<div className='grid gap-2'>
+					<label className='text-xs font-medium text-foreground'>Transport mode</label>
+					<div className='inline-flex rounded-md border border-input bg-background p-0.5 w-fit'>
+						<button
+							type='button'
+							onClick={() => setTransportMode('webhook')}
+							className={cn(
+								'px-3 py-1 text-xs rounded-sm transition-colors',
+								transportMode === 'webhook'
+									? 'bg-primary text-primary-foreground'
+									: 'text-muted-foreground hover:text-foreground',
+							)}
+						>
+							Webhook
+						</button>
+						<button
+							type='button'
+							onClick={() => setTransportMode('socket')}
+							className={cn(
+								'px-3 py-1 text-xs rounded-sm transition-colors',
+								transportMode === 'socket'
+									? 'bg-primary text-primary-foreground'
+									: 'text-muted-foreground hover:text-foreground',
+							)}
+						>
+							Socket Mode
+						</button>
+					</div>
+					<p className='text-[11px] text-muted-foreground leading-relaxed'>
+						{isSocket
+							? 'Socket Mode opens an outbound WebSocket to Slack — use this when nao runs in a private VPC or air-gapped environment.'
+							: 'Webhook mode (default) requires nao to be reachable from the internet.'}
+					</p>
+				</div>
 
 				{/* Mention name */}
 				<div className='grid gap-2'>
@@ -144,19 +195,52 @@ export function SlackForm({ webhookUrl, hasProjectConfig, onSubmit, onCancel, is
 				{/* Step 3 */}
 				<div className='grid gap-3'>
 					<p className='text-xs font-medium text-foreground'>3. Enter your app credentials</p>
-					<p className='text-[11px] text-muted-foreground leading-relaxed'>
-						After creating the app, install it. Then find these in your Slack App settings under{' '}
-						<strong>OAuth &amp; Permissions</strong> (Bot Token) and <strong>Basic Information</strong>{' '}
-						(Signing Secret).
-					</p>
-					<PasswordField
-						form={form}
-						name='signingSecret'
-						label='Signing Secret'
-						placeholder='Enter your Slack signing secret'
-						required
-					/>
-					<PasswordField form={form} name='botToken' label='Bot Token' placeholder='xoxb-...' required />
+					{isSocket ? (
+						<>
+							<p className='text-[11px] text-muted-foreground leading-relaxed'>
+								After creating the app, install it. Then find the <strong>Bot User OAuth Token</strong>{' '}
+								under <strong>OAuth &amp; Permissions</strong>, and generate an{' '}
+								<strong>App-Level Token</strong> with the <code>connections:write</code> scope under{' '}
+								<strong>Basic Information</strong>.
+							</p>
+							<PasswordField
+								form={form}
+								name='appToken'
+								label='App-Level Token'
+								placeholder='xapp-...'
+								required
+							/>
+							<PasswordField
+								form={form}
+								name='botToken'
+								label='Bot Token'
+								placeholder='xoxb-...'
+								required
+							/>
+						</>
+					) : (
+						<>
+							<p className='text-[11px] text-muted-foreground leading-relaxed'>
+								After creating the app, install it. Then find these in your Slack App settings under{' '}
+								<strong>OAuth &amp; Permissions</strong> (Bot Token) and{' '}
+								<strong>Basic Information</strong> (Signing Secret).
+							</p>
+							<PasswordField
+								form={form}
+								name='signingSecret'
+								label='Signing Secret'
+								placeholder='Enter your Slack signing secret'
+								required
+							/>
+							<PasswordField
+								form={form}
+								name='botToken'
+								label='Bot Token'
+								placeholder='xoxb-...'
+								required
+							/>
+						</>
+					)}
 				</div>
 
 				<div className='flex justify-end gap-2 pt-2'>

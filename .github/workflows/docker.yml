@@ -6,6 +6,8 @@ on:
             - main
             - '**docker'
             - '**cloud'
+        tags:
+            - 'v*'
 
 permissions:
     contents: read
@@ -35,6 +37,9 @@ jobs:
 
         steps:
             - uses: actions/checkout@v4
+              with:
+                  fetch-tags: true
+                  fetch-depth: 0
 
             - name: Get short SHA
               id: sha
@@ -43,6 +48,24 @@ jobs:
             - name: Get build date
               id: build_date
               run: echo "value=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_OUTPUT
+
+            - name: Compute nao-core CLI version
+              id: cli_version
+              run: |
+                  if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+                      VERSION="${GITHUB_REF#refs/tags/v}"
+                  else
+                      # For alpha builds, base = (highest stable vX.Y.Z tag) + 1 patch
+                      LATEST_TAG=$(git tag -l 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1)
+                      if [[ "$LATEST_TAG" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+                          BASE="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.$((BASH_REMATCH[3] + 1))"
+                      else
+                          BASE="0.0.1"
+                      fi
+                      VERSION="${BASE}+alpha.${GITHUB_SHA::7}"
+                  fi
+                  echo "version=$VERSION" >> $GITHUB_OUTPUT
+                  echo "Computed nao-core CLI version: $VERSION"
 
             - name: Set up Docker Buildx
               uses: docker/setup-buildx-action@v3
@@ -81,6 +104,7 @@ jobs:
                       APP_VERSION=${{ github.ref_name }}
                       APP_COMMIT=${{ steps.sha.outputs.short_sha }}
                       APP_BUILD_DATE=${{ steps.build_date.outputs.value }}
+                      NAO_CLI_VERSION=${{ steps.cli_version.outputs.version }}
                   secrets: |
                       GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}
 
@@ -134,8 +158,11 @@ jobs:
               uses: docker/metadata-action@v5
               with:
                   images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+                  flavor: |
+                      latest=false
                   tags: |
-                      type=raw,value=latest,enable={{is_default_branch}}
+                      type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+                      type=raw,value=alpha,enable=${{ github.ref == 'refs/heads/main' }}
                       type=ref,event=branch
                       type=semver,pattern={{version}}
                       type=semver,pattern={{major}}.{{minor}}
@@ -160,7 +187,7 @@ jobs:
         name: Deploy to GCP instance
         runs-on: ubuntu-latest
         needs: merge
-        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || endsWith(github.ref, 'docker'))
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || endsWith(github.ref, 'docker'))
 
         steps:
             - name: Deploy with remote ssh commands using ssh key
@@ -192,7 +219,7 @@ jobs:
         name: Deploy Cloud
         runs-on: ubuntu-latest
         needs: merge
-        if: github.event_name == 'push' && (github.ref == 'refs/heads/main'|| github.ref == 'refs/heads/cloud' || endsWith(github.ref, 'cloud'))
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/cloud' || endsWith(github.ref, 'cloud'))
 
         steps:
             - name: Deploy to cloud server

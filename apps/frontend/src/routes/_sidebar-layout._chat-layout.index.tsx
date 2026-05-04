@@ -34,13 +34,10 @@ function HomePage() {
 	const username = session?.user?.name;
 	const { messages } = useAgentContext();
 	const queryClient = useQueryClient();
-	const project = useQuery({
-		...trpc.project.getCurrent.queryOptions(),
-		retry: false,
-	});
+	const project = useQuery(trpc.project.getCurrent.queryOptions());
 	const projects = useQuery(trpc.project.listForCurrentUser.queryOptions());
 	const isInMultipleProjects = (projects.data?.length ?? 0) > 1;
-	const showProjectSetupCue = project.error?.message === 'No project configured';
+	const showProjectSetupCue = project.isSuccess && project.data === null;
 	const emptyStateTitle = showProjectSetupCue
 		? 'Set up a project to start analyzing data'
 		: `${username ? capitalize(username) : ''}, what do you want to analyze?`;

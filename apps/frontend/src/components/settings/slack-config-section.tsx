@@ -1,12 +1,16 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Pencil, Trash2 } from 'lucide-react';
 import { SlackForm } from './slack-form';
 import { Button } from '@/components/ui/button';
 import { CopyableUrl } from '@/components/ui/copyable-url';
+import { FormError } from '@/components/ui/form-fields';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { LlmProviderIcon } from '@/components/ui/llm-provider-icon';
 import { SettingsCard } from '@/components/ui/settings-card';
+import { SettingsControlRow } from '@/components/ui/settings-toggle-row';
+import { Switch } from '@/components/ui/switch';
+import { Textarea } from '@/components/ui/textarea';
 import { trpc } from '@/main';
 
 interface SlackConfigSectionProps {
@@ -24,6 +28,7 @@ export function SlackConfigSection({ isAdmin }: SlackConfigSectionProps) {
 
 	const projectConfig = slackConfig.data?.projectConfig;
 	const webhookUrl = slackConfig.data?.webhookUrl ?? '';
+	const transportMode = projectConfig?.transportMode ?? 'webhook';
 
 	useEffect(() => {
 		if (!availableModels || availableModels.length === 0) {
@@ -40,7 +45,12 @@ export function SlackConfigSection({ isAdmin }: SlackConfigSectionProps) {
 	const updateSlackModel = useMutation(trpc.project.updateSlackModelConfig.mutationOptions());
 	const deleteSlackConfig = useMutation(trpc.project.deleteSlackConfig.mutationOptions());
 
-	const handleSubmit = async (values: { botToken: string; signingSecret: string }) => {
+	const handleSubmit = async (values: {
+		botToken: string;
+		signingSecret: string;
+		appToken: string;
+		transportMode: 'webhook' | 'socket';
+	}) => {
 		await upsertSlackConfig.mutateAsync({
 			...values,
 			modelProvider: selectedModel?.provider,
@@ -83,12 +93,23 @@ export function SlackConfigSection({ isAdmin }: SlackConfigSectionProps) {
 				{projectConfig ? (
 					<div className='grid gap-1'>
 						<span className='text-sm font-medium text-foreground'>Slack App</span>
+						<span className='text-xs text-muted-foreground'>
+							Transport: {transportMode === 'socket' ? 'Socket Mode' : 'Webhook'}
+						</span>
 						<span className='text-xs font-mono text-muted-foreground'>
 							Bot Token: {projectConfig.botTokenPreview}
 						</span>
-						<span className='text-xs font-mono text-muted-foreground'>
-							Signing Secret: {projectConfig.signingSecretPreview}
-						</span>
+						{transportMode === 'socket' ? (
+							projectConfig.appTokenPreview && (
+								<span className='text-xs font-mono text-muted-foreground'>
+									App Token: {projectConfig.appTokenPreview}
+								</span>
+							)
+						) : (
+							<span className='text-xs font-mono text-muted-foreground'>
+								Signing Secret: {projectConfig.signingSecretPreview}
+							</span>
+						)}
 					</div>
 				) : (
 					<p className='text-sm text-muted-foreground'>
@@ -119,12 +140,23 @@ export function SlackConfigSection({ isAdmin }: SlackConfigSectionProps) {
 				<div className='flex items-center gap-4'>
 					<div className='flex-1 grid gap-1'>
 						<span className='text-sm font-medium text-foreground'>Slack App</span>
+						<span className='text-xs text-muted-foreground'>
+							Transport: {transportMode === 'socket' ? 'Socket Mode' : 'Webhook'}
+						</span>
 						<span className='text-xs font-mono text-muted-foreground'>
 							Bot Token: {projectConfig.botTokenPreview}
 						</span>
-						<span className='text-xs font-mono text-muted-foreground'>
-							Signing Secret: {projectConfig.signingSecretPreview}
-						</span>
+						{transportMode === 'socket' ? (
+							projectConfig.appTokenPreview && (
+								<span className='text-xs font-mono text-muted-foreground'>
+									App Token: {projectConfig.appTokenPreview}
+								</span>
+							)
+						) : (
+							<span className='text-xs font-mono text-muted-foreground'>
+								Signing Secret: {projectConfig.signingSecretPreview}
+							</span>
+						)}
 					</div>
 					<div className='flex gap-1'>
 						<Button variant='ghost' size='icon-sm' onClick={handleStartEditing}>
@@ -142,9 +174,21 @@ export function SlackConfigSection({ isAdmin }: SlackConfigSectionProps) {
 				</div>
 			</SettingsCard>
 
-			{webhookUrl && (
+			{transportMode === 'webhook' && webhookUrl && (
 				<SettingsCard title='Webhook' description='Register this URL in your Slack app settings'>
 					<CopyableUrl url={webhookUrl} />
+				</SettingsCard>
+			)}
+
+			{transportMode === 'socket' && (
+				<SettingsCard
+					title='Socket Mode'
+					description='nao maintains an outbound WebSocket connection to Slack — no public webhook URL is required.'
+				>
+					<p className='text-xs text-muted-foreground'>
+						Make sure Socket Mode is enabled in your Slack app settings and that the App-Level Token has the{' '}
+						<code>connections:write</code> scope.
+					</p>
 				</SettingsCard>
 			)}
 
@@ -190,6 +234,123 @@ export function SlackConfigSection({ isAdmin }: SlackConfigSectionProps) {
 					)}
 				</div>
 			</SettingsCard>
+
+			<AutoCreateUsersCard
+				enabled={projectConfig.autoCreateUsersEnabled ?? false}
+				domains={projectConfig.autoCreateUsersDomains ?? []}
+			/>
 		</div>
 	);
+}
+
+interface AutoCreateUsersCardProps {
+	enabled: boolean;
+	domains: string[];
+}
+
+function AutoCreateUsersCard({ enabled: initialEnabled, domains: initialDomains }: AutoCreateUsersCardProps) {
+	const queryClient = useQueryClient();
+	const [enabled, setEnabled] = useState(initialEnabled);
+	const [domainsText, setDomainsText] = useState(initialDomains.join(', '));
+	const [error, setError] = useState<string | null>(null);
+
+	useEffect(() => {
+		setEnabled(initialEnabled);
+		setDomainsText(initialDomains.join(', '));
+	}, [initialEnabled, initialDomains]);
+
+	const parsedDomains = useMemo(() => parseDomains(domainsText), [domainsText]);
+
+	const hasChanges = useMemo(() => {
+		if (enabled !== initialEnabled) {
+			return true;
+		}
+		if (parsedDomains.length !== initialDomains.length) {
+			return true;
+		}
+		return parsedDomains.some((d, i) => d !== initialDomains[i]);
+	}, [enabled, initialEnabled, parsedDomains, initialDomains]);
+
+	const updateMutation = useMutation(
+		trpc.project.updateSlackAutoCreateUsers.mutationOptions({
+			onSuccess: () => {
+				setError(null);
+				queryClient.invalidateQueries(trpc.project.getSlackConfig.queryOptions());
+			},
+			onError: (err) => {
+				setError(err.message);
+			},
+		}),
+	);
+
+	const handleSave = () => {
+		if (enabled && parsedDomains.length === 0) {
+			setError('Add at least one allowed domain to enable auto-creation.');
+			return;
+		}
+		updateMutation.mutate({ enabled, domains: parsedDomains });
+	};
+
+	return (
+		<SettingsCard
+			title='Auto-create users from Slack'
+			description='Automatically provision a nao account for senders whose email domain is allowed.'
+		>
+			<SettingsControlRow
+				id='slack-auto-create-users'
+				label='Enable auto-creation'
+				description='New users receive an email with a temporary password and are added to this project only.'
+				control={
+					<Switch
+						id='slack-auto-create-users'
+						checked={enabled}
+						onCheckedChange={(value) => {
+							setEnabled(value);
+							setError(null);
+						}}
+						disabled={updateMutation.isPending}
+					/>
+				}
+			/>
+			<div className='grid gap-2'>
+				<label htmlFor='slack-auto-create-domains' className='text-sm font-medium text-foreground'>
+					Allowed email domains
+				</label>
+				<p className='text-xs text-muted-foreground'>
+					Comma-separated list (e.g. <code>example.com, company.org</code>). Only Slack users with these
+					domains are auto-provisioned.
+				</p>
+				<Textarea
+					id='slack-auto-create-domains'
+					value={domainsText}
+					onChange={(e) => {
+						setDomainsText(e.target.value);
+						setError(null);
+					}}
+					placeholder='example.com, company.org'
+					rows={2}
+					disabled={!enabled || updateMutation.isPending}
+				/>
+			</div>
+			<FormError error={error ?? undefined} />
+			<div className='flex justify-end'>
+				<Button size='sm' onClick={handleSave} disabled={!hasChanges || updateMutation.isPending}>
+					{updateMutation.isPending ? 'Saving…' : 'Save'}
+				</Button>
+			</div>
+		</SettingsCard>
+	);
+}
+
+function parseDomains(raw: string): string[] {
+	const seen = new Set<string>();
+	const result: string[] = [];
+	for (const entry of raw.split(/[\s,]+/)) {
+		const trimmed = entry.trim().toLowerCase();
+		if (trimmed && !seen.has(trimmed)) {
+			seen.add(trimmed);
+			result.push(trimmed);
+		}
+	}
+	return result;
 }

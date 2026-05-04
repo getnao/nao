@@ -17,7 +17,7 @@ export const slackRoutes = async (app: App) => {
 			throw new Error('Slack configuration not found');
 		}
 
-		const webhooks = slackService.getWebhooks(slackConfig);
+		const webhooks = await slackService.getWebhooks(slackConfig);
 		if (!webhooks) {
 			throw new Error('Failed to initialize Slack webhooks');
 		}

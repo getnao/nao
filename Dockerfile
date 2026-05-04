@@ -43,6 +43,11 @@ RUN npm run build
 # STAGE 4: Python/FastAPI builder
 # =============================================================================
 FROM python:3.12-slim AS python-builder
+
+# Optional CLI version override. When set, both pyproject.toml and __init__.py
+# are rewritten so the installed nao-core package reports this version.
+ARG NAO_CLI_VERSION=
+
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -58,6 +63,13 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 COPY cli ./cli
 
 WORKDIR /app/cli
+
+RUN if [ -n "$NAO_CLI_VERSION" ]; then \
+        sed -i "s/^version = \".*\"/version = \"$NAO_CLI_VERSION\"/" pyproject.toml && \
+        sed -i "s/^__version__ = \".*\"/__version__ = \"$NAO_CLI_VERSION\"/" nao_core/__init__.py && \
+        echo "Set nao-core version to $NAO_CLI_VERSION"; \
+    fi
+
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --system '.[all]'
 

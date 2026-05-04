@@ -2398,7 +2398,7 @@ wheels = [
 
 [[package]]
 name = "nao-core"
-version = "0.0.36"
+version = "0.1.9"
 source = { editable = "." }
 dependencies = [
     { name = "apscheduler" },

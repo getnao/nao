@@ -5,6 +5,7 @@ import s, { DBProject } from '../db/abstractSchema';
 import { db } from '../db/db';
 import { env } from '../env';
 import { llmProviderSchema } from '../types/llm';
+import { SlackTransportMode } from '../types/messaging-provider';
 import { takeFirstOrThrow } from '../utils/queries';
 
 function toLlmSelectedModel(
@@ -22,16 +23,29 @@ export const getProjectSlackConfig = async (projectId: string): Promise<SlackCon
 	const [project] = await db.select().from(s.project).where(eq(s.project.id, projectId)).execute();
 	const settings = project?.slackSettings;
 
-	if (!settings?.slackBotToken || !settings?.slackSigningSecret) {
+	if (!settings?.slackBotToken) {
+		return null;
+	}
+
+	const transportMode: SlackTransportMode = settings.slackTransportMode === 'socket' ? 'socket' : 'webhook';
+
+	if (transportMode === 'webhook' && !settings.slackSigningSecret) {
+		return null;
+	}
+	if (transportMode === 'socket' && !settings.slackAppToken) {
 		return null;
 	}
 
 	return {
 		projectId,
 		botToken: settings.slackBotToken,
-		signingSecret: settings.slackSigningSecret,
+		signingSecret: settings.slackSigningSecret ?? '',
 		redirectUrl: env.BETTER_AUTH_URL || 'http://localhost:3000/',
 		modelSelection: toLlmSelectedModel(settings.slackllmProvider, settings.slackllmModelId),
+		autoCreateUsersEnabled: settings.autoCreateUsersEnabled ?? false,
+		autoCreateUsersDomains: settings.autoCreateUsersDomains ?? [],
+		transportMode,
+		appToken: settings.slackAppToken ?? '',
 	};
 };
 
@@ -39,34 +53,52 @@ export const upsertProjectSlackConfig = async (data: {
 	projectId: string;
 	botToken: string;
 	signingSecret: string;
+	transportMode: SlackTransportMode;
+	appToken?: string;
 	modelProvider?: LlmProvider;
 	modelId?: string;
 }): Promise<{
 	botToken: string;
 	signingSecret: string;
+	transportMode: SlackTransportMode;
+	appToken: string;
 	modelSelection?: LlmSelectedModel;
 }> => {
-	const updated = await takeFirstOrThrow(
-		db
-			.update(s.project)
-			.set({
-				slackSettings: {
-					slackBotToken: data.botToken,
-					slackSigningSecret: data.signingSecret,
-					slackllmProvider: data.modelProvider ?? '',
-					slackllmModelId: data.modelId ?? '',
-				},
-			})
-			.where(eq(s.project.id, data.projectId))
-			.returning()
-			.execute(),
-		`Project not found: ${data.projectId}`,
-	);
+	const updated = await db.transaction(async (tx) => {
+		const project = await takeFirstOrThrow(
+			tx.select().from(s.project).where(eq(s.project.id, data.projectId)).execute(),
+			`Project not found: ${data.projectId}`,
+		);
+		const existing = project.slackSettings;
+
+		return takeFirstOrThrow(
+			tx
+				.update(s.project)
+				.set({
+					slackSettings: {
+						slackBotToken: data.botToken,
+						slackSigningSecret: data.signingSecret,
+						slackllmProvider: data.modelProvider ?? '',
+						slackllmModelId: data.modelId ?? '',
+						autoCreateUsersEnabled: existing?.autoCreateUsersEnabled ?? false,
+						autoCreateUsersDomains: existing?.autoCreateUsersDomains ?? [],
+						slackTransportMode: data.transportMode,
+						slackAppToken: data.appToken ?? '',
+					},
+				})
+				.where(eq(s.project.id, data.projectId))
+				.returning()
+				.execute(),
+			`Project not found: ${data.projectId}`,
+		);
+	});
 
 	const settings = updated.slackSettings;
 	return {
 		botToken: settings?.slackBotToken || '',
 		signingSecret: settings?.slackSigningSecret || '',
+		transportMode: settings?.slackTransportMode === 'socket' ? 'socket' : 'webhook',
+		appToken: settings?.slackAppToken || '',
 		modelSelection: toLlmSelectedModel(settings?.slackllmProvider, settings?.slackllmModelId),
 	};
 };
@@ -91,6 +123,39 @@ export const updateProjectSlackModel = async (
 					slackSigningSecret: existing?.slackSigningSecret ?? '',
 					slackllmProvider: modelProvider ?? '',
 					slackllmModelId: modelId ?? '',
+					autoCreateUsersEnabled: existing?.autoCreateUsersEnabled ?? false,
+					autoCreateUsersDomains: existing?.autoCreateUsersDomains ?? [],
+					slackTransportMode: existing?.slackTransportMode ?? 'webhook',
+					slackAppToken: existing?.slackAppToken ?? '',
+				},
+			})
+			.where(eq(s.project.id, projectId))
+			.execute();
+	});
+};
+
+export const updateProjectSlackAutoCreateUsers = async (
+	projectId: string,
+	enabled: boolean,
+	domains: string[],
+): Promise<void> => {
+	await db.transaction(async (tx) => {
+		const project = await takeFirstOrThrow(
+			tx.select().from(s.project).where(eq(s.project.id, projectId)).execute(),
+			`Project not found: ${projectId}`,
+		);
+		const existing = project.slackSettings;
+		if (!existing) {
+			throw new Error(`Slack is not configured for project ${projectId}`);
+		}
+
+		await tx
+			.update(s.project)
+			.set({
+				slackSettings: {
+					...existing,
+					autoCreateUsersEnabled: enabled,
+					autoCreateUsersDomains: domains,
 				},
 			})
 			.where(eq(s.project.id, projectId))
@@ -108,7 +173,34 @@ export interface SlackConfig {
 	signingSecret: string;
 	redirectUrl: string;
 	modelSelection?: LlmSelectedModel;
+	autoCreateUsersEnabled: boolean;
+	autoCreateUsersDomains: string[];
+	transportMode: SlackTransportMode;
+	appToken: string;
 }
+
+export const listSocketModeSlackConfigs = async (): Promise<SlackConfig[]> => {
+	const projects = await db.select().from(s.project).execute();
+	const configs: SlackConfig[] = [];
+	for (const project of projects) {
+		const settings = project.slackSettings;
+		if (!settings?.slackBotToken || settings.slackTransportMode !== 'socket' || !settings.slackAppToken) {
+			continue;
+		}
+		configs.push({
+			projectId: project.id,
+			botToken: settings.slackBotToken,
+			signingSecret: settings.slackSigningSecret ?? '',
+			redirectUrl: env.BETTER_AUTH_URL || 'http://localhost:3000/',
+			modelSelection: toLlmSelectedModel(settings.slackllmProvider, settings.slackllmModelId),
+			autoCreateUsersEnabled: settings.autoCreateUsersEnabled ?? false,
+			autoCreateUsersDomains: settings.autoCreateUsersDomains ?? [],
+			transportMode: 'socket',
+			appToken: settings.slackAppToken,
+		});
+	}
+	return configs;
+};
 
 // Re-export DBProject for backward compatibility where needed
 export type { DBProject };
