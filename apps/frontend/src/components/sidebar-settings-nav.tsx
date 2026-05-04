@@ -44,8 +44,7 @@ const settingsNavItems: NavItem[] = [
 	{
 		label: 'Project',
 		to: '/settings/project',
-		visible: ({ isInMultipleProjects }) => isInMultipleProjects,
-		disabled: ({ isViewer }) => isViewer,
+		visible: ({ isViewer, isInMultipleProjects }) => !isViewer || isInMultipleProjects,
 	},
 	{
 		label: 'Observability',
