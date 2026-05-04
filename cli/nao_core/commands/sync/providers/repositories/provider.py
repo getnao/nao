@@ -18,53 +18,37 @@ console = Console()
 
 
 def clone_or_pull_repo(repo: RepoConfig, base_path: Path) -> bool:
-    """Clone a repository if it doesn't exist, or pull latest changes if it does."""
+    """Clone a repository and strip .git/ so files are tracked as regular content."""
     repo_path = base_path / repo.name
 
     try:
         if repo_path.exists():
-            console.print(f"  [dim]Pulling latest changes for[/dim] {repo.name}")
-
-            result = subprocess.run(
-                ["git", "pull"],
-                cwd=repo_path,
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-
-            if result.returncode != 0:
-                console.print(f"  [yellow]⚠[/yellow] Failed to pull {repo.name}: {result.stderr.strip()}")
-                return False
-
-            if repo.branch:
-                subprocess.run(
-                    ["git", "checkout", repo.branch],
-                    cwd=repo_path,
-                    capture_output=True,
-                    text=True,
-                    check=False,
-                )
-
+            console.print(f"  [dim]Re-cloning[/dim] {repo.name}")
+            shutil.rmtree(repo_path)
         else:
             console.print(f"  [dim]Cloning[/dim] {repo.name}")
 
-            cmd = ["git", "clone"]
-            if repo.branch:
-                cmd.extend(["-b", repo.branch])
-            if repo.url:
-                cmd.extend([repo.url, str(repo_path)])
+        cmd = ["git", "clone"]
+        if repo.branch:
+            cmd.extend(["-b", repo.branch])
+        if repo.url:
+            cmd.extend([repo.url, str(repo_path)])
 
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                check=False,
-            )
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
 
-            if result.returncode != 0:
-                console.print(f"  [yellow]⚠[/yellow] Failed to clone {repo.name}: {result.stderr.strip()}")
-                return False
+        if result.returncode != 0:
+            console.print(f"  [yellow]⚠[/yellow] Failed to clone {repo.name}: {result.stderr.strip()}")
+            return False
+
+        # Strip .git/ so parent repo tracks files as regular content, not a gitlink
+        git_dir = repo_path / ".git"
+        if git_dir.exists():
+            shutil.rmtree(git_dir)
 
         return True
 
