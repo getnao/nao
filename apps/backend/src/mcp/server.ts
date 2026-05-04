@@ -12,6 +12,7 @@ export interface McpSession {
 	transport: StreamableHTTPServerTransport;
 	server: McpServer;
 	userId: string;
+	projectId: string;
 	lastAccess: number;
 }
 
@@ -49,10 +50,32 @@ export function createMcpServer(userId: string, projectId: string, settings: Mcp
 	const server = new McpServer({ name: 'nao', version: '0.1.0' }, { capabilities: { tools: {} } });
 	const ctx = { userId, projectId, settings };
 
-	registerAgentTools(server, ctx);
-	registerDataTools(server, ctx);
-	registerFileTools(server, ctx);
-	registerStoryTools(server, ctx);
+	if (settings.agentModeEnabled) {
+		registerAgentTools(server, ctx);
+	}
+	if (settings.toolsModeEnabled) {
+		registerDataTools(server, ctx);
+		registerFileTools(server, ctx);
+	}
+	if (settings.objectsModeEnabled) {
+		registerStoryTools(server, ctx);
+	}
 
 	return server;
+}
+
+export async function closeProjectSessions(projectId: string): Promise<void> {
+	const targets: McpSession[] = [];
+	for (const [id, session] of sessions) {
+		if (session.projectId === projectId) {
+			targets.push(session);
+			sessions.delete(id);
+		}
+	}
+	await Promise.all(
+		targets.map(async (session) => {
+			await session.transport.close().catch(() => {});
+			await session.server.close().catch(() => {});
+		}),
+	);
 }
