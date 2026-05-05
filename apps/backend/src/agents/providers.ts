@@ -11,7 +11,7 @@ import type { LlmProvider } from '@nao/shared/types';
 import { createOpenRouter, LanguageModelV3 } from '@openrouter/ai-sdk-provider';
 import { createOllama } from 'ai-sdk-ollama';
 
-import type { LlmProvidersType, ProviderConfigMap, ProviderSettings } from '../types/llm';
+import type { LlmProvidersType, ProviderConfigMap, ProviderOptions, ProviderSettings } from '../types/llm';
 import { PROVIDER_META } from './provider-meta';
 
 export {
@@ -131,6 +131,20 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 			}
 			return createVertex(config)(modelId);
 		},
+		getProviderOptions: (modelId) => {
+			if (modelId.startsWith('claude-')) {
+				return {
+					anthropic: {
+						thinking: { type: 'adaptive', display: 'summarized', budget_tokens: 10000 },
+					}
+				};
+			}
+			return {
+				vertex: {
+					thinkingConfig: { includeThoughts: true },
+				}
+			};
+		},
 	},
 	azure: {
 		...PROVIDER_META.azure,
@@ -154,7 +168,7 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 
 export type ProviderModelResult = {
 	model: LanguageModelV3;
-	providerOptions: Partial<{ [P in LlmProvider]: ProviderConfigMap[P] }>;
+	providerOptions: Partial<ProviderOptions>;
 	contextWindow: number;
 };
 
@@ -165,15 +179,22 @@ export function createProviderModel(
 	modelId: string,
 ): ProviderModelResult {
 	const providerConfig = LLM_PROVIDERS[provider];
-	const defaultOptions = providerConfig.defaultOptions ?? {};
-	const modelConfig = getProviderModelConfig(provider, modelId);
 	const contextWindow = providerConfig.models.find((m) => m.id === modelId)?.contextWindow ?? 200_000;
+	const providerOptions = providerConfig.getProviderOptions
+		? providerConfig.getProviderOptions(modelId)
+		: (() => {
+			// Fallback: merge defaultOptions and modelConfig under the provider key
+			const defaultOptions = providerConfig.defaultOptions ?? {};
+			const modelConfig = getProviderModelConfig(provider, modelId);
+
+			return {
+				[provider]: { ...defaultOptions, ...modelConfig },
+			}
+		})();
 
 	return {
 		model: providerConfig.create(settings, modelId),
-		providerOptions: {
-			[provider]: { ...defaultOptions, ...modelConfig },
-		},
+		providerOptions,
 		contextWindow,
 	};
 }

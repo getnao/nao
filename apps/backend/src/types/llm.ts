@@ -89,10 +89,15 @@ export type ProviderMetaMap = {
 	[P in LlmProvider]: ProviderMeta<P>;
 };
 
+export type ProviderOptions = {
+	[P in LlmProvider]: ProviderConfigMap[P];
+};
+
 /** Full provider configuration with SDK create function (backend-only) */
 type ProviderConfig<P extends LlmProvider> = ProviderMeta<P> & {
 	create: (settings: ProviderSettings, modelId: string) => LanguageModelV3;
 	defaultOptions?: ProviderConfigMap[P];
+	getProviderOptions?: (modelId: string) => Partial<ProviderOptions>;
 };
 
 /** Full providers type - each key gets its own config type */
