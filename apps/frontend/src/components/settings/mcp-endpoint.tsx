@@ -85,7 +85,7 @@ export function McpEndpointSettings({ isAdmin }: Props) {
 				<SettingsToggleRow
 					id='mcp-tools-mode'
 					label='Tools mode'
-					description='Run SQL queries.'
+					description='Run SQL, build charts, browse files.'
 					checked={settings?.toolsModeEnabled ?? true}
 					onCheckedChange={(v) => toggle('toolsModeEnabled', v)}
 					disabled={!isAdmin || !enabled || pending}
