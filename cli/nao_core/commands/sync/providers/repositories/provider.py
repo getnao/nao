@@ -20,17 +20,16 @@ console = Console()
 def clone_or_pull_repo(repo: RepoConfig, base_path: Path) -> bool:
     """Clone a repository and strip .git/ so files are tracked as regular content."""
     repo_path = base_path / repo.name
-
-    # Guard against path traversal via malicious repo.name (e.g. "../other")
-    resolved_repo_path = repo_path.resolve()
-    if not resolved_repo_path.is_relative_to(base_path.resolve()):
-        console.print(f"  [yellow]⚠[/yellow] Invalid repo path: {repo.name}")
-        return False
-
     tmp_path = base_path / f"{repo.name}.tmp"
 
     try:
-        console.print(f"  [dim]{'Re-cloning' if repo_path.exists() else 'Cloning'}[/dim] {repo.name}")
+        # Guard against path traversal via malicious repo.name (e.g. "../other")
+        if not repo_path.resolve().is_relative_to(base_path.resolve()):
+            console.print(f"  [yellow]⚠[/yellow] Invalid repo path: {repo.name}")
+            return False
+
+        action = "Re-cloning" if repo_path.exists() else "Cloning"
+        console.print(f"  [dim]{action}[/dim] {repo.name}")
 
         if tmp_path.exists():
             shutil.rmtree(tmp_path)
