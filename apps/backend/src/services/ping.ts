@@ -1,10 +1,15 @@
 import { env } from '../env';
+import { getLicense } from './license.service';
+import { LICENSES_STARTUP_PING_URL } from './license-endpoints';
 
-const LICENSES_STARTUP_PING_URL = 'https://licenses.getnao.io/ping';
 const STARTUP_PING_TIMEOUT_MS = 3_000;
 
 export async function pingLicensesServer(): Promise<void> {
 	if (env.MODE !== 'prod') {
+		return;
+	}
+	const license = await getLicense();
+	if (license?.isOffline) {
 		return;
 	}
 

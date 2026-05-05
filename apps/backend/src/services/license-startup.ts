@@ -36,15 +36,18 @@ export async function logLicenseStatus(): Promise<void> {
 	}
 
 	const features = license.features.length > 0 ? license.features.join(', ') : 'none';
-	const trial = license.isTrial ? ' (trial)' : '';
-	logger.info(`Licensed to ${companyName}${trial}; sub ${subscriptionId}; expires ${expiry}; features: ${features}`, {
-		source: 'system',
-		context: {
-			companyName,
-			subscriptionId,
-			isTrial: license.isTrial,
-			expiresAt: license.expiresAt,
-			features: license.features,
+	const mode = license.isOffline ? 'offline' : 'online';
+	logger.info(
+		`Licensed to ${companyName}; sub ${subscriptionId}; expires ${expiry}; mode: ${mode}; features: ${features}`,
+		{
+			source: 'system',
+			context: {
+				companyName,
+				subscriptionId,
+				isOffline: license.isOffline,
+				expiresAt: license.expiresAt,
+				features: license.features,
+			},
 		},
-	});
+	);
 }

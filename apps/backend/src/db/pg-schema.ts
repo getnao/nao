@@ -662,3 +662,31 @@ export const log = pgTable(
 		index('log_projectId_idx').on(t.projectId),
 	],
 );
+
+export const scheduledJob = pgTable(
+	'scheduled_job',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		name: text('name').notNull(),
+		payload: jsonb('payload').$type<Record<string, unknown>>(),
+		runAt: timestamp('run_at').notNull(),
+		cron: text('cron'),
+		status: text('status', { enum: ['pending', 'running', 'failed'] })
+			.notNull()
+			.default('pending'),
+		attempts: integer('attempts').notNull().default(0),
+		maxAttempts: integer('max_attempts').notNull().default(5),
+		lastError: text('last_error'),
+		lockedAt: timestamp('locked_at'),
+		lockedBy: text('locked_by'),
+		uniqueKey: text('unique_key').unique(),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [index('scheduled_job_status_runAt_idx').on(t.status, t.runAt), index('scheduled_job_name_idx').on(t.name)],
+);

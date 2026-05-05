@@ -29,7 +29,7 @@ export const licenseRoutes = {
 		return {
 			companyName: license.companyName,
 			subscriptionId: license.subscriptionId,
-			isTrial: license.isTrial,
+			isOffline: license.isOffline,
 			expiresAt: license.expiresAt,
 			features: license.features,
 		};

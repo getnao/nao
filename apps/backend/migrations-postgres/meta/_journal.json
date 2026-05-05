@@ -267,6 +267,13 @@
       "when": 1776332134291,
       "tag": "0037_add_citation_column",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1777983477674,
+      "tag": "0038_scheduling_table",
+      "breakpoints": true
     }
   ]
 }
