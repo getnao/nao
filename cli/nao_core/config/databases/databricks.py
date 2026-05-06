@@ -153,9 +153,6 @@ class DatabricksConfig(DatabaseConfig):
         if self.catalog:
             kwargs["catalog"] = self.catalog
 
-        if self.schema_name:
-            kwargs["schema"] = self.schema_name
-
         return ibis.databricks.connect(**kwargs)
 
     def get_database_name(self) -> str:
@@ -188,7 +185,7 @@ class DatabricksConfig(DatabaseConfig):
         try:
             conn = self.connect()
             if self.schema_name:
-                tables = conn.list_tables()
+                tables = conn.list_tables(database=self.schema_name)
                 return True, f"Connected successfully ({len(tables)} tables found)"
             if list_databases := getattr(conn, "list_databases", None):
                 schemas = list_databases()
