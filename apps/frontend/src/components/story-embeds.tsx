@@ -5,6 +5,7 @@ import type { ParsedChartBlock, ParsedTableBlock } from '@nao/shared/story-segme
 import type { displayChart } from '@nao/shared/tools';
 
 import { ChartDisplay } from '@/components/tool-calls/display-chart';
+import { ChartDataCsvExportButton } from '@/components/chart-data-csv-export-button';
 import { TableDisplay } from '@/components/tool-calls/display-table';
 
 export type QueryDataMap = Record<string, { data: Record<string, unknown>[]; columns: string[] }>;
@@ -54,9 +55,11 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({
 }) {
 	const noCacheFetch = useLiveQueryData(chart.queryId, liveQuery);
 
-	const resolvedData = liveQuery
-		? (noCacheFetch.data as { data: Record<string, unknown>[]; columns: string[] } | undefined)?.data
-		: queryData?.[chart.queryId]?.data;
+	const resolvedResult = liveQuery
+		? (noCacheFetch.data as { data: Record<string, unknown>[]; columns: string[] } | undefined)
+		: queryData?.[chart.queryId];
+
+	const resolvedData = resolvedResult?.data;
 
 	if (liveQuery && noCacheFetch.isLoading) {
 		return <EmbedLoading />;
@@ -71,15 +74,20 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({
 	}
 
 	return (
-		<div className={`my-2 ${chart.chartType !== 'kpi_card' ? 'aspect-3/2' : ''}`}>
-			<ChartDisplay
-				data={resolvedData}
-				chartType={chart.chartType as displayChart.ChartType}
-				xAxisKey={chart.xAxisKey}
-				xAxisType={chart.xAxisType === 'number' ? 'number' : 'category'}
-				series={chart.series}
-				title={chart.title}
-			/>
+		<div className='my-2 flex flex-col gap-2'>
+			<div className='flex w-full justify-end'>
+				<ChartDataCsvExportButton columns={resolvedResult?.columns} data={resolvedData} title={chart.title} />
+			</div>
+			<div className={chart.chartType !== 'kpi_card' ? 'aspect-3/2' : ''}>
+				<ChartDisplay
+					data={resolvedData}
+					chartType={chart.chartType as displayChart.ChartType}
+					xAxisKey={chart.xAxisKey}
+					xAxisType={chart.xAxisType === 'number' ? 'number' : 'category'}
+					series={chart.series}
+					title={chart.title}
+				/>
+			</div>
 		</div>
 	);
 });

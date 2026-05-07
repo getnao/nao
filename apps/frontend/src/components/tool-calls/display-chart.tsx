@@ -20,6 +20,7 @@ import { useChatId } from '@/hooks/use-chat-id';
 import { useSidePanel } from '@/contexts/side-panel';
 import { StoryViewer } from '@/components/side-panel/story-viewer';
 import { trpc } from '@/main';
+import { ChartDataCsvExportButton } from '@/components/chart-data-csv-export-button';
 
 const Colors = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)', 'var(--chart-5)'];
 const EMPTY_MESSAGES: UIMessage[] = [];
@@ -208,6 +209,11 @@ export const DisplayChartToolCall = ({
 							onRangeSelected={(range) => setDataRange(range)}
 						/>
 					)}
+					<ChartDataCsvExportButton
+						columns={sourceData.columns}
+						data={filteredData as Record<string, unknown>[]}
+						title={config.title}
+					/>
 					{config.chart_type != 'kpi_card' && (
 						<Button
 							variant='ghost-muted'
