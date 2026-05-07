@@ -5,6 +5,9 @@ export interface ParsedChartBlock {
 	xAxisType: string | null;
 	series: Array<{ data_key: string; color: string; label?: string }>;
 	title: string;
+	filterStateTypes?: string[];
+	filterStateNames?: string[];
+	dateLocale?: string;
 }
 
 export interface ParsedTableBlock {
@@ -32,6 +35,18 @@ export function parseChartAttributes(attrString: string): Record<string, string>
 	return attrs;
 }
 
+function tryParseStringArray(raw: string | undefined): string[] | undefined {
+	if (!raw?.trim()) {
+		return undefined;
+	}
+	try {
+		const parsed = JSON.parse(raw);
+		return Array.isArray(parsed) ? parsed.map(String) : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
 export function parseChartBlock(attrString: string): ParsedChartBlock | null {
 	const attrs = parseChartAttributes(attrString);
 	if (!attrs.query_id || !attrs.chart_type || !attrs.x_axis_key) {
@@ -52,6 +67,10 @@ export function parseChartBlock(attrString: string): ParsedChartBlock | null {
 		});
 	}
 
+	const filterStateTypes = tryParseStringArray(attrs.filter_state_types);
+	const filterStateNames = tryParseStringArray(attrs.filter_state_names);
+	const dateLocale = attrs.date_locale?.trim() || undefined;
+
 	return {
 		queryId: attrs.query_id,
 		chartType: attrs.chart_type,
@@ -59,6 +78,9 @@ export function parseChartBlock(attrString: string): ParsedChartBlock | null {
 		xAxisType: attrs.x_axis_type || null,
 		series,
 		title: attrs.title || '',
+		filterStateTypes: filterStateTypes?.length ? filterStateTypes : undefined,
+		filterStateNames: filterStateNames?.length ? filterStateNames : undefined,
+		dateLocale,
 	};
 }
 

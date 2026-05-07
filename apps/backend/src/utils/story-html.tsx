@@ -1,4 +1,4 @@
-import { defaultColorFor, labelize } from '@nao/shared';
+import { defaultColorFor, filterChartRowsByStateDimensions, labelize } from '@nao/shared';
 import type { ParsedChartBlock, ParsedTableBlock, Segment } from '@nao/shared/story-segments';
 import { splitCodeIntoSegments } from '@nao/shared/story-segments';
 import { formatCellValue, isNumericColumn } from '@nao/shared/story-table-utils';
@@ -48,7 +48,7 @@ function StoryDocument({ title, children }: { title: string; children: React.Rea
 }
 
 function StoryFooter() {
-	const date = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+	const date = new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
 	return (
 		<footer
 			style={{ marginTop: 48, paddingTop: 16, borderTop: '1px solid #e5e7eb', fontSize: 12, color: '#9ca3af' }}
@@ -115,24 +115,33 @@ function ChartBlock({ chart, queryData }: { chart: ParsedChartBlock; queryData: 
 		return <Placeholder label={chart.title || 'Chart'} message='Data unavailable' />;
 	}
 
+	const filteredRows = filterChartRowsByStateDimensions(rows, {
+		filterStateTypes: chart.filterStateTypes,
+		filterStateNames: chart.filterStateNames,
+	});
+	if (!filteredRows.length) {
+		return <Placeholder label={chart.title || 'Chart'} message='Data unavailable after filters.' />;
+	}
+
 	if (chart.chartType === 'kpi_card') {
-		return <KpiCards chart={chart} rows={rows} />;
+		return <KpiCards chart={chart} rows={filteredRows} />;
 	}
 
 	try {
 		const svg = renderChartToSvg({
 			config: toChartConfig(chart),
-			data: rows,
+			data: filteredRows,
 			width: CHART_WIDTH,
 			height: CHART_HEIGHT,
 			margin: { top: 0, right: 0, bottom: 0, left: 0 },
 			includeLegend: false,
 		});
 		const chartData = JSON.stringify({
-			data: rows,
+			data: filteredRows,
 			xAxisKey: chart.xAxisKey,
 			series: chart.series,
 			chartType: chart.chartType,
+			dateLocale: chart.dateLocale ?? null,
 		});
 		return (
 			<div style={{ margin: '16px 0' }}>
@@ -142,7 +151,7 @@ function ChartBlock({ chart, queryData }: { chart: ParsedChartBlock; queryData: 
 					data-chart={chartData}
 					dangerouslySetInnerHTML={{ __html: svg }}
 				/>
-				{chart.chartType !== 'pie' && <ChartLegend series={chart.series} />}
+				{chart.chartType !== 'pie' && <ChartLegend series={chart.series} chart={chart} />}
 			</div>
 		);
 	} catch {
@@ -150,7 +159,7 @@ function ChartBlock({ chart, queryData }: { chart: ParsedChartBlock; queryData: 
 	}
 }
 
-function ChartLegend({ series }: { series: ParsedChartBlock['series'] }) {
+function ChartLegend({ series, chart }: { series: ParsedChartBlock['series']; chart: ParsedChartBlock }) {
 	return (
 		<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 16, paddingTop: 12 }}>
 			{series.map((s, i) => {
@@ -161,7 +170,7 @@ function ChartLegend({ series }: { series: ParsedChartBlock['series'] }) {
 						style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#6b7280', fontSize: 12 }}
 					>
 						<div style={{ width: 8, height: 8, borderRadius: 2, flexShrink: 0, background: color }} />
-						{s.label || labelize(s.data_key)}
+						{s.label || labelize(s.data_key, chart.dateLocale)}
 					</div>
 				);
 			})}
@@ -306,6 +315,9 @@ function toChartConfig(chart: ParsedChartBlock) {
 		x_axis_type: chart.xAxisType as displayChart.XAxisType | null,
 		series: chart.series,
 		title: chart.title,
+		filter_state_types: chart.filterStateTypes,
+		filter_state_names: chart.filterStateNames,
+		date_locale: chart.dateLocale,
 	};
 }
 
@@ -345,9 +357,10 @@ const TOOLTIP_SCRIPT = `
 (function(){
 	var PIE_COLORS=['#104e64','#f54900','#009689','#ffb900','#fe9a00'];
 	function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;')}
-	function labelize(s){
+	function labelize(s,loc){
 		var str=String(s);
-		if(/^\\d{4}-\\d{2}-\\d{2}/.test(str)){var d=new Date(str);if(!isNaN(d.getTime()))return escHtml(d.toLocaleDateString('en-US',{timeZone:'UTC'}))}
+		var lc=loc||undefined;
+		if(/^\\d{4}-\\d{2}-\\d{2}/.test(str)){var d=new Date(str);if(!isNaN(d.getTime()))return escHtml(d.toLocaleDateString(lc,{timeZone:'UTC'}))}
 		return escHtml(str.replace(/_/g,' ').replace(/\\b\\w/g,function(c){return c.toUpperCase()}))
 	}
 	function formatVal(v){return escHtml(typeof v==='number'?v.toLocaleString():String(v!=null?v:''))}
@@ -416,7 +429,8 @@ const TOOLTIP_SCRIPT = `
 		function showTip(e,row){
 			var label=row[cfg.xAxisKey];
 			var isPie=!!pieColorMap;
-			var html='<div class="nao-tooltip-label">'+(isPie?labelize(cfg.series[0]&&(cfg.series[0].label||cfg.series[0].data_key)||''):labelize(label!=null?label:''))+'</div>';
+			var loc=cfg.dateLocale||undefined;
+			var html='<div class="nao-tooltip-label">'+(isPie?labelize(cfg.series[0]&&(cfg.series[0].label||cfg.series[0].data_key)||'',loc):labelize(label!=null?label:'',loc))+'</div>';
 			html+='<div class="nao-tooltip-rows">';
 			var numericValues=[];
 			cfg.series.forEach(function(s){
@@ -429,7 +443,7 @@ const TOOLTIP_SCRIPT = `
 				}
 				var val=row[s.data_key];
 				if(typeof val==='number')numericValues.push(val);
-				var rowName=isPie?labelize(label!=null?label:''):labelize(s.label||s.data_key);
+				var rowName=isPie?labelize(label!=null?label:'',loc):labelize(s.label||s.data_key,loc);
 				html+='<div class="nao-tooltip-row">'
 					+'<span class="nao-tooltip-swatch" style="background:'+escHtml(color)+'"></span>'
 					+'<span class="nao-tooltip-name">'+rowName+'</span>'

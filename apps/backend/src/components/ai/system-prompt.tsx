@@ -95,6 +95,14 @@ export function SystemPrompt({ memories = [], userRules, connections = [], skill
 					any non-ISO-date strings.
 				</ListItem>
 				<ListItem>
+					For display_chart on pipeline or task run data: if the SQL result includes{' '}
+					<Italic>state_type</Italic> and/or <Italic>state_name</Italic> columns, pass{' '}
+					<Italic>filter_state_types</Italic> and/or <Italic>filter_state_names</Italic> (each a non-empty array
+					of strings) so only matching rows are plotted; when both are set, rows must satisfy both. Optional{' '}
+					<Italic>date_locale</Italic> (BCP 47 tag, e.g. en-GB) controls how ISO date axis values are
+					formatted.
+				</ListItem>
+				<ListItem>
 					For display_chart chart_type: use "scatter" for correlations between two numeric variables (set
 					x_axis_type to "number"). Use "radar" for comparing multiple metrics across a fixed set of
 					categories on a spider/web chart. Use "area" for time-series trends where filled area emphasis is

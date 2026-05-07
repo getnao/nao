@@ -25,12 +25,12 @@ export const DEFAULT_COLORS = ['#104e64', '#f54900', '#009689', '#ffb900', '#fe9
 
 const AXIS_TICK = { fontSize: 12 };
 
-export function labelize(key: unknown): string {
+export function labelize(key: unknown, dateLocale?: string): string {
 	const str = String(key);
 	if (/^\d{4}-\d{2}-\d{2}/.test(str)) {
 		const date = new Date(str);
 		if (!isNaN(date.getTime())) {
-			return date.toLocaleDateString('en-US', { timeZone: 'UTC' });
+			return date.toLocaleDateString(dateLocale, { timeZone: 'UTC' });
 		}
 	}
 	return str.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
@@ -67,6 +67,8 @@ export interface BuildChartProps {
 	margin?: { top?: number; right?: number; bottom?: number; left?: number };
 	title?: string;
 	maxXAxisTicks?: number;
+	/** BCP 47 locale for ISO date axis labels; forwarded to labelize when no custom labelFormatter */
+	dateLocale?: string;
 }
 
 /**
@@ -98,7 +100,8 @@ export function buildChart(props: BuildChartProps) {
 
 function buildResolved(props: BuildChartProps) {
 	const colorFor = props.colorFor ?? defaultColorFor;
-	const labelFormatter = props.labelFormatter ?? ((v: string) => labelize(v));
+	const dateLc = props.dateLocale;
+	const labelFormatter = props.labelFormatter ?? ((v: string) => labelize(v, dateLc));
 
 	const titleChild = props.title ? (
 		<Customized

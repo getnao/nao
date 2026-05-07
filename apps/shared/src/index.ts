@@ -1,4 +1,5 @@
 export * from './chart-builder';
+export * from './chart-row-filters';
 export * from './citation';
 export * from './date';
 export * from './mcp';

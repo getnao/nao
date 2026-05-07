@@ -1,5 +1,5 @@
 import { memo, useCallback, useMemo, useState } from 'react';
-import { buildChart, labelize } from '@nao/shared';
+import { buildChart, filterChartRowsByStateDimensions, labelize } from '@nao/shared';
 import { Download, FilePlus } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useOptionalAgentContext } from '../../contexts/agent.provider';
@@ -93,10 +93,14 @@ export const DisplayChartToolCall = ({
 		if (!sourceData?.data || !config) {
 			return [];
 		}
+		const rows = filterChartRowsByStateDimensions(sourceData.data as Record<string, unknown>[], {
+			filterStateTypes: config.filter_state_types,
+			filterStateNames: config.filter_state_names,
+		});
 		if (config.x_axis_type !== 'date') {
-			return sourceData.data;
+			return rows;
 		}
-		const sorted = sortByDateKey(sourceData.data, config.x_axis_key);
+		const sorted = sortByDateKey(rows, config.x_axis_key);
 		return filterByDateRange(sorted, config.x_axis_key, dataRange);
 	}, [sourceData?.data, config, dataRange]);
 
@@ -143,6 +147,20 @@ export const DisplayChartToolCall = ({
 		);
 	}
 
+	if (filteredData.length === 0) {
+		const hasFilters =
+			(config.filter_state_types?.length ?? 0) > 0 || (config.filter_state_names?.length ?? 0) > 0;
+		return (
+			<div className='my-2 text-foreground/50 text-sm'>
+				{hasFilters
+					? 'Could not display the chart because no rows matched the requested state filters.'
+					: config.x_axis_type === 'date' && dataRange !== 'all'
+						? 'Could not display the chart because no rows matched the selected date range.'
+						: 'Could not display the chart because there is nothing to plot.'}
+			</div>
+		);
+	}
+
 	const handleAddToStory = async () => {
 		const latestStoryId = storyIds[storyIds.length - 1];
 		// Prefer the currently-visible story slug, but only if it's a real story
@@ -166,7 +184,18 @@ export const DisplayChartToolCall = ({
 		}
 
 		const seriesJson = JSON.stringify(config.series);
-		const chartBlock = `<chart query_id="${escapeDoubleQuotedAttr(config.query_id)}" chart_type="${escapeDoubleQuotedAttr(config.chart_type)}" x_axis_key="${escapeDoubleQuotedAttr(config.x_axis_key)}" x_axis_type="${escapeDoubleQuotedAttr(config.x_axis_type ?? '')}" series='${escapeSingleQuotedAttr(seriesJson)}' title="${escapeDoubleQuotedAttr(config.title ?? '')}" />`;
+		const extraAttrs: string[] = [];
+		if (config.filter_state_types?.length) {
+			extraAttrs.push(`filter_state_types='${escapeSingleQuotedAttr(JSON.stringify(config.filter_state_types))}'`);
+		}
+		if (config.filter_state_names?.length) {
+			extraAttrs.push(`filter_state_names='${escapeSingleQuotedAttr(JSON.stringify(config.filter_state_names))}'`);
+		}
+		if (config.date_locale?.trim()) {
+			extraAttrs.push(`date_locale="${escapeDoubleQuotedAttr(config.date_locale.trim())}"`);
+		}
+		const tail = extraAttrs.length ? ` ${extraAttrs.join(' ')}` : '';
+		const chartBlock = `<chart query_id="${escapeDoubleQuotedAttr(config.query_id)}" chart_type="${escapeDoubleQuotedAttr(config.chart_type)}" x_axis_key="${escapeDoubleQuotedAttr(config.x_axis_key)}" x_axis_type="${escapeDoubleQuotedAttr(config.x_axis_type ?? '')}" series='${escapeSingleQuotedAttr(seriesJson)}' title="${escapeDoubleQuotedAttr(config.title ?? '')}"${tail} />`;
 		const newCode = latest.code.trimEnd() + '\n\n' + chartBlock;
 
 		addToStoryMutation.mutate({
@@ -229,6 +258,7 @@ export const DisplayChartToolCall = ({
 				series={config.series}
 				xAxisType={config.x_axis_type === 'number' ? 'number' : 'category'}
 				title={config.title}
+				chartDateLocale={config.date_locale}
 			/>
 		</div>
 	);
@@ -243,6 +273,7 @@ export interface ChartDisplayProps {
 	series: displayChart.SeriesConfig[];
 	title?: string;
 	showGrid?: boolean;
+	chartDateLocale?: string;
 }
 
 export const ChartDisplay = memo(function ChartDisplay({
@@ -254,6 +285,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 	series,
 	title,
 	showGrid = true,
+	chartDateLocale,
 }: ChartDisplayProps) {
 	const { visibleSeries, hiddenSeriesKeys, handleToggleSeriesVisibility } = useSeriesVisibility(series);
 
@@ -263,14 +295,14 @@ export const ChartDisplay = memo(function ChartDisplay({
 			return [...values].reduce(
 				(acc, v, index) => {
 					acc[toKey(v)] = {
-						label: labelize(v),
+						label: labelize(v, chartDateLocale),
 						color: Colors[index % Colors.length],
 					};
 					return acc;
 				},
 				{
 					[xAxisKey]: {
-						label: labelize(xAxisKey),
+						label: labelize(xAxisKey, chartDateLocale),
 					},
 				} as ChartConfig,
 			);
@@ -278,12 +310,12 @@ export const ChartDisplay = memo(function ChartDisplay({
 
 		return series.reduce((acc, s, idx) => {
 			acc[s.data_key] = {
-				label: s.label || labelize(s.data_key),
+				label: s.label || labelize(s.data_key, chartDateLocale),
 				color: s.color || Colors[idx % Colors.length],
 			};
 			return acc;
 		}, {} as ChartConfig);
-	}, [series, xAxisKey, data, chartType]);
+	}, [series, xAxisKey, data, chartType, chartDateLocale]);
 
 	const colorFor = useMemo(
 		() =>
@@ -296,12 +328,12 @@ export const ChartDisplay = memo(function ChartDisplay({
 	const legendPayload = useMemo(
 		() =>
 			series.map((s, idx) => ({
-				value: s.label || labelize(s.data_key),
+				value: s.label || labelize(s.data_key, chartDateLocale),
 				dataKey: s.data_key,
 				color: s.color || Colors[idx % Colors.length],
 				isHidden: hiddenSeriesKeys.has(s.data_key),
 			})),
-		[series, hiddenSeriesKeys],
+		[series, hiddenSeriesKeys, chartDateLocale],
 	);
 
 	const chartElement = useMemo(
@@ -314,6 +346,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 				series: visibleSeries,
 				colorFor,
 				labelFormatter: xAxisLabelFormatter,
+				dateLocale: chartDateLocale,
 				showGrid,
 				margin: { top: 0, right: 0, bottom: 0, left: 0 },
 				children: [
@@ -322,7 +355,9 @@ export const ChartDisplay = memo(function ChartDisplay({
 						animationDuration={150}
 						animationEasing='linear'
 						allowEscapeViewBox={{ y: true, x: false }}
-						content={<ChartTooltipContent labelFormatter={(value) => labelize(value)} />}
+						content={
+							<ChartTooltipContent labelFormatter={(value) => labelize(value, chartDateLocale)} />
+						}
 					/>,
 					chartType !== 'pie' && (
 						<ChartLegend
@@ -346,6 +381,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 			legendPayload,
 			handleToggleSeriesVisibility,
 			title,
+			chartDateLocale,
 		],
 	);
 

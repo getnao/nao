@@ -36,6 +36,24 @@ export const InputSchema = z.object({
 		.describe(
 			'A concise and descriptive title of what the chart shows. Do not include the type of chart in the title or other chart configurations.',
 		),
+	filter_state_types: z
+		.array(z.string())
+		.optional()
+		.describe(
+			'When set and non-empty, only rows whose `state_type` column equals one of these values are plotted (flow/pipeline/task run dashboards). Omit if the result has no state_type.',
+		),
+	filter_state_names: z
+		.array(z.string())
+		.optional()
+		.describe(
+			'When set and non-empty, only rows whose `state_name` column equals one of these values are plotted. Omit if the result has no state_name.',
+		),
+	date_locale: z
+		.string()
+		.optional()
+		.describe(
+			'BCP 47 locale for formatting ISO dates on axes (e.g. "en-GB"). Omit for the viewer default locale.',
+		),
 });
 
 export const OutputSchema = z.object({
