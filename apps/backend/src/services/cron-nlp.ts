@@ -2,9 +2,8 @@ import { generateText, Output } from 'ai';
 import { CronExpressionParser } from 'cron-parser';
 import { z } from 'zod';
 
-import { LLM_PROVIDERS, type ProviderModelResult } from '../agents/providers';
-import * as llmConfigQueries from '../queries/project-llm-config.queries';
-import { resolveProviderModel } from '../utils/llm';
+import { LLM_PROVIDERS } from '../agents/providers';
+import { resolveFirstProjectModel } from '../utils/llm';
 
 export async function naturalLanguageToCron(projectId: string, text: string): Promise<string | null> {
 	const modelConfig = await resolveModelForProject(projectId);
@@ -48,12 +47,6 @@ export async function naturalLanguageToCron(projectId: string, text: string): Pr
 	}
 }
 
-async function resolveModelForProject(projectId: string): Promise<ProviderModelResult | null> {
-	const provider = await llmConfigQueries.getProjectModelProvider(projectId);
-	if (!provider) {
-		return null;
-	}
-
-	const extractorModelId = LLM_PROVIDERS[provider].extractorModelId;
-	return resolveProviderModel(projectId, provider, extractorModelId);
+async function resolveModelForProject(projectId: string) {
+	return resolveFirstProjectModel(projectId, (provider) => LLM_PROVIDERS[provider].extractorModelId);
 }

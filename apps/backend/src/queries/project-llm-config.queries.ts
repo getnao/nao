@@ -3,7 +3,7 @@ import { and, eq } from 'drizzle-orm';
 
 import s, { DBProjectLlmConfig, NewProjectLlmConfig } from '../db/abstractSchema';
 import { db } from '../db/db';
-import { getDefaultEnvProvider, getDefaultModelId } from '../utils/llm';
+import { getDefaultModelId } from '../utils/llm';
 
 export const getProjectLlmConfigs = async (projectId: string): Promise<DBProjectLlmConfig[]> => {
 	return db.select().from(s.projectLlmConfig).where(eq(s.projectLlmConfig.projectId, projectId)).execute();
@@ -54,25 +54,6 @@ export const deleteProjectLlmConfig = async (projectId: string, provider: LlmPro
 		.delete(s.projectLlmConfig)
 		.where(and(eq(s.projectLlmConfig.projectId, projectId), eq(s.projectLlmConfig.provider, provider)))
 		.execute();
-};
-
-/** Get the provider for a project (for display purposes) */
-export const getProjectModelProvider = async (projectId: string): Promise<LlmProvider | undefined> => {
-	const configs = await getProjectLlmConfigs(projectId);
-
-	// Return first configured provider, preferring anthropic
-	const anthropicConfig = configs.find((c) => c.provider === 'anthropic');
-	if (anthropicConfig) {
-		return 'anthropic';
-	}
-
-	const openaiConfig = configs.find((c) => c.provider === 'openai');
-	if (openaiConfig) {
-		return 'openai';
-	}
-
-	// Fall back to env providers
-	return getDefaultEnvProvider();
 };
 
 /** Get the config to use for a specific model selection */

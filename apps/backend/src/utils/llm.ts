@@ -47,15 +47,9 @@ export function getEnvBaseUrls(): Record<string, string> {
 	);
 }
 
-/** Get the first available provider from env (preferring anthropic) */
+/** Get the first available provider from env */
 export function getDefaultEnvProvider(): LlmProvider | undefined {
-	if (hasEnvApiKey('anthropic')) {
-		return 'anthropic';
-	}
-	if (hasEnvApiKey('openai')) {
-		return 'openai';
-	}
-	return undefined;
+	return getEnvProviders()[0];
 }
 
 /** Check if a model ID is known for a provider */
@@ -137,6 +131,48 @@ export async function resolveProviderModel(
 
 	if (hasEnvApiKey(provider)) {
 		return createProviderModel(provider, { apiKey: '' }, modelId);
+	}
+
+	return null;
+}
+
+/**
+ * Resolves the first available working model for a project.
+ * Tries DB-configured providers first, then env-configured fallback.
+ * Skips providers where selectModelId returns an empty string.
+ */
+export async function resolveFirstProjectModel(
+	projectId: string,
+	selectModelId: (provider: LlmProvider) => string,
+): Promise<ProviderModelResult | null> {
+	const configs = await projectLlmConfigQueries.getProjectLlmConfigs(projectId);
+
+	for (const config of configs) {
+		const provider = config.provider as LlmProvider;
+		const modelId = selectModelId(provider);
+		if (!modelId) {
+			continue;
+		}
+		const result = await resolveProviderModel(projectId, provider, modelId);
+		if (result) {
+			return result;
+		}
+	}
+
+	const configuredProviders = new Set(configs.map((c) => c.provider));
+
+	for (const provider of getEnvProviders()) {
+		if (configuredProviders.has(provider)) {
+			continue;
+		}
+		const modelId = selectModelId(provider);
+		if (!modelId) {
+			continue;
+		}
+		const result = await resolveProviderModel(projectId, provider, modelId);
+		if (result) {
+			return result;
+		}
 	}
 
 	return null;
