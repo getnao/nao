@@ -1,8 +1,12 @@
 """Unit tests for sync providers base classes and utilities."""
 
+import pytest
+
 from nao_core.commands.sync.providers import (
     SyncResult,
     get_all_providers,
+    get_providers_by_names,
+    parse_provider_arg,
 )
 from nao_core.commands.sync.providers.databases.provider import DatabaseSyncProvider
 from nao_core.commands.sync.providers.notion.provider import NotionSyncProvider
@@ -57,3 +61,35 @@ class TestGetAllProviders:
         providers2 = get_all_providers()
 
         assert providers1 is not providers2
+
+
+class TestParseProviderArg:
+    def test_canonical_name(self):
+        selection = parse_provider_arg("repositories")
+        assert isinstance(selection.provider, RepositorySyncProvider)
+        assert selection.connection_name is None
+
+    @pytest.mark.parametrize("alias", ["repo", "repos", "repository", "REPO", "Repos"])
+    def test_repository_aliases(self, alias: str):
+        selection = parse_provider_arg(alias)
+        assert isinstance(selection.provider, RepositorySyncProvider)
+
+    @pytest.mark.parametrize("alias", ["db", "dbs", "database", "DB", "Database"])
+    def test_database_aliases(self, alias: str):
+        selection = parse_provider_arg(alias)
+        assert isinstance(selection.provider, DatabaseSyncProvider)
+
+    def test_alias_with_connection_name(self):
+        selection = parse_provider_arg("db:my-conn")
+        assert isinstance(selection.provider, DatabaseSyncProvider)
+        assert selection.connection_name == "my-conn"
+
+    def test_unknown_provider_raises(self):
+        with pytest.raises(ValueError, match="Unknown provider"):
+            parse_provider_arg("unknown")
+
+    def test_get_providers_by_names_with_aliases(self):
+        selections = get_providers_by_names(["repo", "db"])
+        assert len(selections) == 2
+        assert isinstance(selections[0].provider, RepositorySyncProvider)
+        assert isinstance(selections[1].provider, DatabaseSyncProvider)
