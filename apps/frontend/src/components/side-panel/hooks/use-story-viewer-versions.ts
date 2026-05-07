@@ -30,10 +30,13 @@ export const useStoryViewerVersions = ({
 		if (previousRunningRef.current && !isAgentRunning) {
 			void refetch();
 			void queryClient.invalidateQueries({ queryKey: trpc.story.listAll.queryKey() });
+			void queryClient.invalidateQueries({
+				queryKey: trpc.story.getLatest.queryKey({ chatId, storySlug }),
+			});
 		}
 
 		previousRunningRef.current = isAgentRunning;
-	}, [isAgentRunning, queryClient, refetch]);
+	}, [isAgentRunning, chatId, storySlug, queryClient, refetch]);
 
 	useEffect(() => {
 		setSelectedVersionIndex(versions.length - 1);
