@@ -62,7 +62,7 @@ function EnterprisePage() {
 						<LicenseDetailsCard
 							companyName={details.data.companyName}
 							subscriptionId={details.data.subscriptionId}
-							isTrial={details.data.isTrial}
+							isOffline={details.data.isOffline}
 							expiresAt={details.data.expiresAt}
 							status={license.data.status}
 						/>
@@ -146,13 +146,13 @@ const STATUS_CONFIG: Record<
 function LicenseDetailsCard({
 	companyName,
 	subscriptionId,
-	isTrial,
+	isOffline,
 	expiresAt,
 	status,
 }: {
 	companyName: string;
 	subscriptionId: string;
-	isTrial: boolean;
+	isOffline: boolean;
 	expiresAt: string | Date;
 	status: LicenseStatus;
 }) {
@@ -165,17 +165,11 @@ function LicenseDetailsCard({
 			<DetailRow label='Company' value={companyName} />
 			<DetailRow label='Subscription ID' value={<code className='font-mono text-xs'>{subscriptionId}</code>} />
 			<DetailRow
-				label='Plan'
+				label='Mode'
 				value={
-					isTrial ? (
-						<Badge variant='ghost' className='bg-blue-500/10 text-blue-500'>
-							Trial
-						</Badge>
-					) : (
-						<Badge variant='ghost' className='bg-primary/10 text-primary'>
-							Standard
-						</Badge>
-					)
+					<Badge variant='ghost' className={isOffline ? 'bg-purple-500/10 text-purple-500' : 'bg-muted'}>
+						{isOffline ? 'Offline' : 'Online'}
+					</Badge>
 				}
 			/>
 			<DetailRow

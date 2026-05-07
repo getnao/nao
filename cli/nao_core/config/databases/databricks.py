@@ -154,14 +154,11 @@ class DatabricksConfig(DatabaseConfig):
         if self.catalog:
             kwargs["catalog"] = self.catalog
 
-        if self.schema_name:
-            kwargs["schema"] = self.schema_name
-
         # Ibis names its temporary UC memtable volume after the OS username, which
         # breaks when the username contains dots (interpreted as UC path separators).
         # Use the connection name instead — already user-controlled and safe.
         kwargs["memtable_volume"] = f"{re.sub(r'[^a-zA-Z0-9_-]', '_', self.name)}-{os.getpid()}"
-
+        
         return ibis.databricks.connect(**kwargs)
 
     def get_database_name(self) -> str:
@@ -194,7 +191,7 @@ class DatabricksConfig(DatabaseConfig):
         try:
             conn = self.connect()
             if self.schema_name:
-                tables = conn.list_tables()
+                tables = conn.list_tables(database=self.schema_name)
                 return True, f"Connected successfully ({len(tables)} tables found)"
             if list_databases := getattr(conn, "list_databases", None):
                 schemas = list_databases()

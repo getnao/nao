@@ -642,6 +642,46 @@ export const getProjectIdByQueryId = async (queryId: string): Promise<string | u
 	return result?.projectId;
 };
 
+/**
+ * Loads a persisted `execute_sql` tool output from the chat's message history
+ * and returns just the columns/data, or `null` if no matching query exists.
+ * Used to rehydrate query results across agent runs in the same chat.
+ */
+export const getQueryResultByQueryId = async (
+	chatId: string,
+	queryId: string,
+): Promise<{ columns: string[]; data: Record<string, unknown>[] } | null> => {
+	const jsonIdFilter =
+		dbConfig.dialect === Dialect.Postgres
+			? sql`${s.messagePart.toolOutput}->>'id' = ${queryId}`
+			: sql`json_extract(${s.messagePart.toolOutput}, '$.id') = ${queryId}`;
+
+	const [result] = await db
+		.select({ toolOutput: s.messagePart.toolOutput })
+		.from(s.messagePart)
+		.innerJoin(s.chatMessage, eq(s.messagePart.messageId, s.chatMessage.id))
+		.where(
+			and(
+				eq(s.chatMessage.chatId, chatId),
+				isNull(s.chatMessage.supersededAt),
+				eq(s.messagePart.toolName, 'execute_sql'),
+				jsonIdFilter,
+			),
+		)
+		.limit(1)
+		.execute();
+
+	const output = result?.toolOutput as { columns?: unknown; data?: unknown } | null | undefined;
+	if (!output || !Array.isArray(output.columns) || !Array.isArray(output.data)) {
+		return null;
+	}
+
+	return {
+		columns: output.columns as string[],
+		data: output.data as Record<string, unknown>[],
+	};
+};
+
 export async function getChatInfo(
 	chatId: string,
 ): Promise<{ projectId: string; userId: string; title: string } | null> {

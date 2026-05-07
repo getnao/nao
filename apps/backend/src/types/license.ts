@@ -28,7 +28,7 @@ export type LicenseStatus = (typeof LICENSE_STATUSES)[number];
 export interface NaoLicense {
 	subscriptionId: string;
 	companyName: string;
-	isTrial: boolean;
+	isOffline: boolean;
 	expiresAt: Date;
 	issuedAt: Date;
 	features: LicenseFeature[];

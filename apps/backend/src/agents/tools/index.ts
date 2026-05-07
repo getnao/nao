@@ -10,6 +10,7 @@ import executeSql from './execute-sql';
 import grep from './grep';
 import list from './list';
 import read from './read';
+import readQueryResult from './read-query-result';
 import search from './search';
 import story from './story';
 import suggestFollowUps from './suggest-follow-ups';
@@ -20,6 +21,7 @@ export const tools = {
 	...(executePython && { execute_python: executePython }),
 	...(executeSandboxedCode && { execute_sandboxed_code: executeSandboxedCode }),
 	execute_sql: executeSql,
+	read_query_result: readQueryResult,
 	grep,
 	list,
 	read,

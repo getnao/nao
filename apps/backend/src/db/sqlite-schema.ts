@@ -708,3 +708,33 @@ export const log = sqliteTable(
 		index('log_projectId_idx').on(t.projectId),
 	],
 );
+
+export const scheduledJob = sqliteTable(
+	'scheduled_job',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		name: text('name').notNull(),
+		payload: text('payload', { mode: 'json' }).$type<Record<string, unknown>>(),
+		runAt: integer('run_at', { mode: 'timestamp_ms' }).notNull(),
+		cron: text('cron'),
+		status: text('status', { enum: ['pending', 'running', 'failed'] })
+			.notNull()
+			.default('pending'),
+		attempts: integer('attempts').notNull().default(0),
+		maxAttempts: integer('max_attempts').notNull().default(5),
+		lastError: text('last_error'),
+		lockedAt: integer('locked_at', { mode: 'timestamp_ms' }),
+		lockedBy: text('locked_by'),
+		uniqueKey: text('unique_key').unique(),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+		updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [index('scheduled_job_status_runAt_idx').on(t.status, t.runAt), index('scheduled_job_name_idx').on(t.name)],
+);

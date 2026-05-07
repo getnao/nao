@@ -16,6 +16,11 @@ export interface ToolContext {
 	 * open-source edition.
 	 */
 	azureAccessToken: string | null;
-	/** Mutable store for query results shared across tool calls within a single agent run. */
+	/**
+	 * In-memory cache for query results within a single agent run.
+	 * For queries from earlier turns in the same chat, prefer
+	 * `services/query-result.service#getQueryResult`, which falls back
+	 * to message history and caches the result back into this map.
+	 */
 	queryResults: Map<string, QueryResult>;
 }
