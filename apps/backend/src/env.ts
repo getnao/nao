@@ -114,6 +114,9 @@ export function __reloadEnvForTesting(): void {
 export const isCloud = env.NAO_MODE === 'cloud';
 export const isSelfHosted = env.NAO_MODE === 'self-hosted';
 
+const normalizedBaseUrl = env.BETTER_AUTH_URL.replace(/\/+$/, '');
+export const MCP_SERVER_URL = `${normalizedBaseUrl}/mcp`;
+
 export function noProjectMessage(): string {
 	return isCloud
 		? 'No project configured. Create a project or ask your organization admin to add you to one.'

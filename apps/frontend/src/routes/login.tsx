@@ -13,12 +13,12 @@ export const Route = createFileRoute('/login')({
 	component: Login,
 });
 
-function buildMcpAuthorizeUrl() {
+function buildOAuthAuthorizeUrl() {
 	const params = new URLSearchParams(window.location.search);
 	if (!params.has('client_id')) {
 		return null;
 	}
-	return `/api/auth/mcp/authorize${window.location.search}`;
+	return `/api/auth/oauth2/authorize${window.location.search}`;
 }
 
 function Login() {
@@ -29,7 +29,7 @@ function Login() {
 	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
 	const isCloud = config.data?.naoMode === 'cloud';
 
-	const mcpAuthorizeUrl = buildMcpAuthorizeUrl();
+	const oauthAuthorizeUrl = buildOAuthAuthorizeUrl();
 
 	const form = useForm({
 		defaultValues: { email: '', password: '' },
@@ -37,8 +37,8 @@ function Login() {
 			setServerError(undefined);
 			await signIn.email(value, {
 				onSuccess: () => {
-					if (mcpAuthorizeUrl) {
-						window.location.href = mcpAuthorizeUrl;
+					if (oauthAuthorizeUrl) {
+						window.location.href = oauthAuthorizeUrl;
 					} else {
 						navigate({ to: '/' });
 					}
@@ -55,7 +55,7 @@ function Login() {
 			submitText='Log In'
 			serverError={serverError}
 			displaySocialProviders={true}
-			socialCallbackUrl={mcpAuthorizeUrl ?? undefined}
+			socialCallbackUrl={oauthAuthorizeUrl ?? undefined}
 			footer={
 				isCloud ? (
 					<>

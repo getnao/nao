@@ -15,7 +15,7 @@ export type ToolContent = { type: 'text'; text: string } | { type: 'image'; data
 export type ToolResult = {
 	content: ToolContent[];
 	isError?: boolean;
-	toolOutput?: unknown;
+	structuredContent?: Record<string, unknown>;
 };
 
 export type ToolExtra = RequestHandlerExtra<ServerRequest, ServerNotification>;
@@ -24,7 +24,6 @@ export type ToolHandler<T> = (args: T, extra: ToolExtra) => Promise<ToolResult>;
 export const TOOL_MODE_MAP: Record<string, keyof McpEndpointSettings> = {
 	ask_nao: 'agentModeEnabled',
 	execute_sql: 'toolsModeEnabled',
-	build_chart: 'toolsModeEnabled',
 	grep: 'toolsModeEnabled',
 	ls: 'toolsModeEnabled',
 	list_stories: 'objectsModeEnabled',
@@ -65,8 +64,23 @@ export function withLogging<T>(toolName: string, ctx: McpContext, handler: ToolH
 				durationMs: Date.now() - start,
 				success,
 				toolInput: args as unknown,
-				toolOutput: result?.toolOutput,
+				toolOutput: extractLoggableOutput(result),
 			}).catch(() => {});
 		}
 	};
+}
+
+function extractLoggableOutput(result: ToolResult | undefined): unknown {
+	if (!result) {
+		return undefined;
+	}
+	const text = result.content
+		.filter((part): part is { type: 'text'; text: string } => part.type === 'text')
+		.map((part) => part.text)
+		.join('\n');
+	try {
+		return JSON.parse(text);
+	} catch {
+		return text;
+	}
 }

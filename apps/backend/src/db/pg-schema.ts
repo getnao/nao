@@ -732,29 +732,74 @@ export const mcpCallLog = pgTable(
 	],
 );
 
-export const oauthApplication = pgTable(
-	'oauth_application',
+export const oauthClient = pgTable(
+	'oauth_client',
 	{
 		id: text('id')
 			.$defaultFn(() => crypto.randomUUID())
 			.primaryKey(),
-		name: text('name'),
-		icon: text('icon'),
-		metadata: text('metadata'),
 		clientId: text('client_id').notNull().unique(),
 		clientSecret: text('client_secret'),
-		redirectUrls: text('redirect_urls').notNull(),
-		type: text('type').notNull(),
-		authenticationScheme: text('authentication_scheme'),
 		disabled: boolean('disabled').default(false),
+		skipConsent: boolean('skip_consent'),
+		enableEndSession: boolean('enable_end_session'),
+		subjectType: text('subject_type'),
+		scopes: jsonb('scopes').$type<string[]>(),
 		userId: text('user_id').references(() => user.id, { onDelete: 'cascade' }),
+		name: text('name'),
+		uri: text('uri'),
+		icon: text('icon'),
+		contacts: jsonb('contacts').$type<string[]>(),
+		tos: text('tos'),
+		policy: text('policy'),
+		softwareId: text('software_id'),
+		softwareVersion: text('software_version'),
+		softwareStatement: text('software_statement'),
+		redirectUris: jsonb('redirect_uris').$type<string[]>().notNull(),
+		postLogoutRedirectUris: jsonb('post_logout_redirect_uris').$type<string[]>(),
+		tokenEndpointAuthMethod: text('token_endpoint_auth_method'),
+		grantTypes: jsonb('grant_types').$type<string[]>(),
+		responseTypes: jsonb('response_types').$type<string[]>(),
+		public: boolean('public'),
+		type: text('type'),
+		requirePKCE: boolean('require_pkce'),
+		referenceId: text('reference_id'),
+		metadata: jsonb('metadata').$type<Record<string, unknown>>(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()
 			.$onUpdate(() => new Date())
 			.notNull(),
 	},
-	(t) => [index('oauth_application_userId_idx').on(t.userId)],
+	(t) => [index('oauth_client_userId_idx').on(t.userId)],
+);
+
+export const oauthRefreshToken = pgTable(
+	'oauth_refresh_token',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		token: text('token').notNull().unique(),
+		clientId: text('client_id')
+			.notNull()
+			.references(() => oauthClient.clientId, { onDelete: 'cascade' }),
+		sessionId: text('session_id').references(() => session.id, { onDelete: 'set null' }),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		referenceId: text('reference_id'),
+		expiresAt: timestamp('expires_at').notNull(),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		revoked: timestamp('revoked'),
+		authTime: timestamp('auth_time'),
+		scopes: jsonb('scopes').$type<string[]>().notNull(),
+	},
+	(t) => [
+		index('oauth_refresh_token_clientId_idx').on(t.clientId),
+		index('oauth_refresh_token_userId_idx').on(t.userId),
+		index('oauth_refresh_token_sessionId_idx').on(t.sessionId),
+	],
 );
 
 export const oauthAccessToken = pgTable(
@@ -763,24 +808,22 @@ export const oauthAccessToken = pgTable(
 		id: text('id')
 			.$defaultFn(() => crypto.randomUUID())
 			.primaryKey(),
-		accessToken: text('access_token').notNull().unique(),
-		refreshToken: text('refresh_token').notNull().unique(),
-		accessTokenExpiresAt: timestamp('access_token_expires_at').notNull(),
-		refreshTokenExpiresAt: timestamp('refresh_token_expires_at').notNull(),
+		token: text('token').notNull().unique(),
 		clientId: text('client_id')
 			.notNull()
-			.references(() => oauthApplication.clientId, { onDelete: 'cascade' }),
+			.references(() => oauthClient.clientId, { onDelete: 'cascade' }),
+		sessionId: text('session_id').references(() => session.id, { onDelete: 'set null' }),
 		userId: text('user_id').references(() => user.id, { onDelete: 'cascade' }),
-		scopes: text('scopes').notNull(),
+		referenceId: text('reference_id'),
+		refreshId: text('refresh_id').references(() => oauthRefreshToken.id, { onDelete: 'cascade' }),
+		expiresAt: timestamp('expires_at').notNull(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
-		updatedAt: timestamp('updated_at')
-			.defaultNow()
-			.$onUpdate(() => new Date())
-			.notNull(),
+		scopes: jsonb('scopes').$type<string[]>().notNull(),
 	},
 	(t) => [
 		index('oauth_access_token_clientId_idx').on(t.clientId),
 		index('oauth_access_token_userId_idx').on(t.userId),
+		index('oauth_access_token_refreshId_idx').on(t.refreshId),
 	],
 );
 
@@ -792,12 +835,10 @@ export const oauthConsent = pgTable(
 			.primaryKey(),
 		clientId: text('client_id')
 			.notNull()
-			.references(() => oauthApplication.clientId, { onDelete: 'cascade' }),
-		userId: text('user_id')
-			.notNull()
-			.references(() => user.id, { onDelete: 'cascade' }),
-		scopes: text('scopes').notNull(),
-		consentGiven: boolean('consent_given').notNull(),
+			.references(() => oauthClient.clientId, { onDelete: 'cascade' }),
+		userId: text('user_id').references(() => user.id, { onDelete: 'cascade' }),
+		referenceId: text('reference_id'),
+		scopes: jsonb('scopes').$type<string[]>().notNull(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()
@@ -806,3 +847,13 @@ export const oauthConsent = pgTable(
 	},
 	(t) => [index('oauth_consent_clientId_idx').on(t.clientId), index('oauth_consent_userId_idx').on(t.userId)],
 );
+
+export const jwks = pgTable('jwks', {
+	id: text('id')
+		.$defaultFn(() => crypto.randomUUID())
+		.primaryKey(),
+	publicKey: text('public_key').notNull(),
+	privateKey: text('private_key').notNull(),
+	createdAt: timestamp('created_at').defaultNow().notNull(),
+	expiresAt: timestamp('expires_at'),
+});

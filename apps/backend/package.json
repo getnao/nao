@@ -49,6 +49,7 @@
 		"@ai-sdk/openai": "^3.0.1",
 		"@aws-sdk/credential-providers": "^3.1030.0",
 		"@azure/identity": "^4.13.0",
+		"@better-auth/oauth-provider": "^1.6.3",
 		"@chat-adapter/slack": "^4.15.0",
 		"@chat-adapter/state-memory": "^4.15.0",
 		"@chat-adapter/state-redis": "^4.23.0",

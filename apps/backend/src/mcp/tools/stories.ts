@@ -37,7 +37,7 @@ export function registerStoryTools(server: McpServer, ctx: McpContext): void {
 					url: storyUrl(story),
 					chatUrl: storyChatUrl(story),
 				}));
-				return { content: [{ type: 'text' as const, text: JSON.stringify(result) }], toolOutput: result };
+				return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
 				logger.error(`MCP list_stories error: ${message}`, { source: 'tool', context: { userId: ctx.userId } });
@@ -76,10 +76,7 @@ export function registerStoryTools(server: McpServer, ctx: McpContext): void {
 					url: storyUrl(story),
 					chatUrl: storyChatUrl(story),
 				};
-				return {
-					content: [{ type: 'text' as const, text: JSON.stringify(output) }],
-					toolOutput: output,
-				};
+				return { content: [{ type: 'text' as const, text: JSON.stringify(output) }] };
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
 				logger.error(`MCP get_story error: ${message}`, {
@@ -96,7 +93,7 @@ export function registerStoryTools(server: McpServer, ctx: McpContext): void {
 		{
 			title: 'Create Story',
 			description:
-				'Create a new analytics story. Stories are markdown documents with embedded chart/table components rendered by the Nao UI.\n\nWorkflow for stories with charts:\n1. execute_sql → get rows + query_id\n2. build_chart → get a `<chart .../>` block string\n3. create_story → embed the block in `content`; pass SQL rows in `query_data`\n\nSupported blocks:\n- Charts: use `build_chart` to generate the correct `<chart>` block — do NOT write these manually.\n- Tables: `<table query_id="..." title="..." />`\n- Grids: `<grid cols="2">...blocks...</grid>` (1–4 columns)\n\nOmit `content` to create an empty story.\n\nPass `chat_id` to attach the story to an existing chat (e.g. one returned by `ask_nao`). Omit it to create a standalone story listed at the project level.\n\nReturns a `url` that opens the rendered story in the Nao UI and a `chatUrl` that opens the underlying chat (null for standalone stories) — surface the relevant link to the user as a clickable link in your reply.',
+				'Create a new analytics story. Stories are markdown documents with embedded chart/table components rendered by the Nao UI.\n\nWorkflow for stories with charts:\n1. `execute_sql` → get rows + `query_id`\n2. `create_story` → embed `<chart>` / `<table>` blocks in `content`; pass the SQL rows keyed by `query_id` in `query_data`\n\nSupported blocks (write them inline in `content`):\n- Charts: `<chart query_id="..." chart_type="bar|stacked_bar|line|area|stacked_area|pie|kpi_card|scatter|radar" x_axis_key="..." x_axis_type="date|number|category" series=\'[{"data_key":"...","color":"...","label":"..."}]\' title="..." />` — `series` is JSON inside single quotes; `x_axis_type` is optional; `kpi_card` and `pie` accept omitted/null `x_axis_type`.\n- Tables: `<table query_id="..." title="..." />`\n- Grids: `<grid cols="2">...blocks...</grid>` (1–4 columns)\n\nOmit `content` to create an empty story.\n\nPass `chat_id` to attach the story to an existing chat (e.g. one returned by `ask_nao`). Omit it to create a standalone story listed at the project level.\n\nReturns a `url` that opens the rendered story in the Nao UI and a `chatUrl` that opens the underlying chat (null for standalone stories) — surface the relevant link to the user as a clickable link in your reply.',
 			inputSchema: {
 				title: z.string().describe('Story title'),
 				content: z
@@ -151,10 +148,7 @@ export function registerStoryTools(server: McpServer, ctx: McpContext): void {
 					url: storyUrl(storyForUrl),
 					chatUrl: storyChatUrl(storyForUrl),
 				};
-				return {
-					content: [{ type: 'text' as const, text: JSON.stringify(output) }],
-					toolOutput: output,
-				};
+				return { content: [{ type: 'text' as const, text: JSON.stringify(output) }] };
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
 				logger.error(`MCP create_story error: ${message}`, {
@@ -171,7 +165,7 @@ export function registerStoryTools(server: McpServer, ctx: McpContext): void {
 		{
 			title: 'Update Story',
 			description:
-				'Update a story title and/or content. Omit fields to keep their current values.\n\nWhen adding or replacing charts, use `build_chart` first to generate the correct `<chart>` block, then pass it in `content`. Include the SQL rows for any new query_ids in `query_data`.\n\nReturns a `url` that opens the rendered story in the Nao UI and a `chatUrl` that opens the underlying chat (null for standalone stories) — surface the relevant link to the user as a clickable link in your reply.',
+				'Update a story title and/or content. Omit fields to keep their current values.\n\nWhen adding or replacing charts, write the `<chart>` block directly in `content` (see `create_story` for the full chart syntax) and include the SQL rows for any new `query_id`s in `query_data`.\n\nReturns a `url` that opens the rendered story in the Nao UI and a `chatUrl` that opens the underlying chat (null for standalone stories) — surface the relevant link to the user as a clickable link in your reply.',
 			inputSchema: {
 				story_id: z.string().describe('The story ID to update'),
 				title: z.string().optional().describe('New title (omit to keep current)'),
@@ -217,7 +211,7 @@ export function registerStoryTools(server: McpServer, ctx: McpContext): void {
 						await storyQueries.upsertStoryDataCacheByStoryId(storyForCache.id, mergedQueryData);
 					}
 				}
-				return { content: [{ type: 'text' as const, text: JSON.stringify(output) }], toolOutput: output };
+				return { content: [{ type: 'text' as const, text: JSON.stringify(output) }] };
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
 				logger.error(`MCP update_story error: ${message}`, {
@@ -244,7 +238,6 @@ export function registerStoryTools(server: McpServer, ctx: McpContext): void {
 				await storyQueries.archiveByStoryId(story.id);
 				return {
 					content: [{ type: 'text' as const, text: JSON.stringify({ id: story.id, archived: true }) }],
-					toolOutput: { id: story.id, archived: true },
 				};
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
@@ -273,7 +266,6 @@ export function registerStoryTools(server: McpServer, ctx: McpContext): void {
 				await storyQueries.deleteStory(story.id);
 				return {
 					content: [{ type: 'text' as const, text: JSON.stringify({ id: story.id, deleted: true }) }],
-					toolOutput: { id: story.id, deleted: true },
 				};
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);

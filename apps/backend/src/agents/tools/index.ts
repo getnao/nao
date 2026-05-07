@@ -29,24 +29,16 @@ export const tools = {
 	suggest_follow_ups: suggestFollowUps,
 };
 
-export const getTools = (
-	agentSettings: AgentSettings | null,
-	extraTools?: Record<string, unknown>,
-	excludeTools?: readonly string[],
-) => {
+export const getTools = (agentSettings: AgentSettings | null, extraTools?: Record<string, unknown>) => {
 	const mcpTools = mcpService.getMcpTools();
+
 	const { execute_python, execute_sandboxed_code, ...baseTools } = tools;
-	const include = (key: string) => !excludeTools?.includes(key);
 
 	return {
-		...Object.fromEntries(Object.entries(baseTools).filter(([k]) => include(k))),
-		...Object.fromEntries(Object.entries(mcpTools).filter(([k]) => include(k))),
-		...(agentSettings?.experimental?.pythonSandboxing &&
-			execute_python &&
-			include('execute_python') && { execute_python }),
-		...(agentSettings?.experimental?.sandboxes &&
-			execute_sandboxed_code &&
-			include('execute_sandboxed_code') && { execute_sandboxed_code }),
-		...Object.fromEntries(Object.entries(extraTools ?? {}).filter(([k]) => include(k))),
+		...baseTools,
+		...mcpTools,
+		...(agentSettings?.experimental?.pythonSandboxing && execute_python && { execute_python }),
+		...(agentSettings?.experimental?.sandboxes && execute_sandboxed_code && { execute_sandboxed_code }),
+		...extraTools,
 	};
 };

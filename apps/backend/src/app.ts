@@ -2,7 +2,7 @@ import formbody from '@fastify/formbody';
 import multipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
 import { fastifyTRPCPlugin, FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
-import fastify from 'fastify';
+import fastify, { FastifyReply } from 'fastify';
 import fastifyRawBody from 'fastify-raw-body';
 import { serializerCompiler, validatorCompiler, ZodTypeProvider } from 'fastify-type-provider-zod';
 import { existsSync } from 'fs';
@@ -181,28 +181,45 @@ app.register(mcpServerRoutes, {
 	prefix: '/mcp',
 });
 
-async function proxyToBetterAuth(url: string, request: { headers: Record<string, string | string[] | undefined> }) {
-	const auth = await (await import('./auth')).getAuth();
-	const headers = (await import('./utils/utils')).convertHeaders(request.headers);
-	const req = new Request(url, { method: 'GET', headers });
-	return auth.handler(req);
+app.get('/.well-known/oauth-protected-resource', async (_request, reply) => {
+	const { buildProtectedResourceMetadata } = await import('./auth');
+	const { MCP_SERVER_URL } = await import('./env');
+	const metadata = await buildProtectedResourceMetadata({ resource: MCP_SERVER_URL });
+	reply
+		.status(200)
+		.header('Content-Type', 'application/json')
+		.header('Cache-Control', 'public, max-age=15, stale-while-revalidate=15, stale-if-error=86400')
+		.send(metadata);
+});
+
+async function relayWebResponse(
+	handler: (req: Request) => Promise<Response>,
+	request: { url: string; headers: Record<string, string | string[] | undefined> },
+	reply: FastifyReply,
+) {
+	const url = new URL(request.url, env.BETTER_AUTH_URL);
+	const { convertHeaders } = await import('./utils/utils');
+	const response = await handler(new Request(url, { method: 'GET', headers: convertHeaders(request.headers) }));
+	reply.status(response.status);
+	response.headers.forEach((value, key) => reply.header(key, value));
+	reply.send(await response.text());
 }
 
-app.get('/.well-known/oauth-protected-resource', async (request, reply) => {
-	const url = new URL('/api/auth/.well-known/oauth-protected-resource', env.BETTER_AUTH_URL);
-	const response = await proxyToBetterAuth(url.toString(), request);
-	reply.status(response.status);
-	response.headers.forEach((value, key) => reply.header(key, value));
-	reply.send(await response.text());
-});
+async function relayAuthServerMetadata(request: Parameters<typeof relayWebResponse>[1], reply: FastifyReply) {
+	const { getAuthServerMetadataHandler } = await import('./auth');
+	const handler = await getAuthServerMetadataHandler();
+	await relayWebResponse(handler, request, reply);
+}
 
-app.get('/.well-known/oauth-authorization-server', async (request, reply) => {
-	const url = new URL('/api/auth/.well-known/oauth-authorization-server', env.BETTER_AUTH_URL);
-	const response = await proxyToBetterAuth(url.toString(), request);
-	reply.status(response.status);
-	response.headers.forEach((value, key) => reply.header(key, value));
-	reply.send(await response.text());
-});
+async function relayOpenIdConfigMetadata(request: Parameters<typeof relayWebResponse>[1], reply: FastifyReply) {
+	const { getOpenIdConfigMetadataHandler } = await import('./auth');
+	const handler = await getOpenIdConfigMetadataHandler();
+	await relayWebResponse(handler, request, reply);
+}
+
+app.get('/.well-known/oauth-authorization-server/api/auth', relayAuthServerMetadata);
+app.get('/.well-known/openid-configuration/api/auth', relayOpenIdConfigMetadata);
+app.get('/api/auth/.well-known/openid-configuration', relayOpenIdConfigMetadata);
 
 /**
  * Tests the API connection

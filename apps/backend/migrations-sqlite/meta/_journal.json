@@ -274,6 +274,13 @@
       "when": 1777983465688,
       "tag": "0038_scheduling_table",
       "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "6",
+      "when": 1778071303698,
+      "tag": "0039_mcp_endpoint",
+      "breakpoints": true
     }
   ]
 }
