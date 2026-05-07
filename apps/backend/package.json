@@ -73,7 +73,7 @@
 		"@vscode/ripgrep": "^1.17.0",
 		"ai": "^6.0.97",
 		"ai-sdk-ollama": "^3.7.1",
-		"better-auth": "^1.4.10",
+		"better-auth": "^1.6.3",
 		"better-sqlite3": "^12.5.0",
 		"chat": "^4.15.0",
 		"cheerio": "^1.2.0",
