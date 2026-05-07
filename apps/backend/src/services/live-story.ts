@@ -7,10 +7,9 @@ import { env } from '../env';
 import { renderToMarkdown } from '../lib/markdown';
 import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
-import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import { getQueryDataFromCode } from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
-import { getDefaultModelId, resolveProviderModel } from '../utils/llm';
+import { getDefaultModelId, resolveFirstProjectModel } from '../utils/llm';
 import { MAX_OUTPUT_TOKENS } from './agent';
 const MAX_RENDERED_ROWS = 60;
 
@@ -166,12 +165,7 @@ async function generateDynamicStoryCode(
 	originalCode: string,
 	queryData: Record<string, { data: unknown[]; columns: string[] }>,
 ): Promise<string | null> {
-	const provider = await llmConfigQueries.getProjectModelProvider(projectId);
-	if (!provider) {
-		return null;
-	}
-
-	const model = await resolveProviderModel(projectId, provider, getDefaultModelId(provider));
+	const model = await resolveFirstProjectModel(projectId, (provider) => getDefaultModelId(provider));
 	if (!model) {
 		return null;
 	}
