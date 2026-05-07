@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Literal
+import re
+from typing import TYPE_CHECKING, Any, Literal, NoReturn
 
 from pydantic import Field
 
@@ -12,6 +13,39 @@ if TYPE_CHECKING:
 
 from .base import DatabaseConfig
 from .context import DatabaseContext
+
+_PGJDBC_VERSION_RE = re.compile(r"\b42\.\d+\.\d+\b", re.IGNORECASE)
+
+
+def _postgres_connection_hint(message: str) -> str | None:
+    """Add context when failures look like JDBC/OAuth issues or mixed driver stacks."""
+    lower = message.lower()
+    if "no valid code" in lower:
+        return (
+            "This message usually comes from an OAuth or identity-provider flow (for example Azure AD "
+            "with Amazon Redshift), not from nao's PostgreSQL client. nao uses psycopg (libpq). "
+            "Retry the browser login, or use the database username and password your nao project is configured for."
+        )
+    has_jdbc_context = "jdbc" in lower or "pgjdbc" in lower or "org.postgresql" in lower or "postgresql.jdbc" in lower
+    if has_jdbc_context or (_PGJDBC_VERSION_RE.search(message) is not None and "driver" in lower):
+        return (
+            "nao connects to PostgreSQL with psycopg (libpq), not the Java JDBC driver. "
+            "If you see JDBC or pgjdbc version text, another tool on the system is likely loading a different "
+            "PostgreSQL JDBC JAR. Remove duplicate drivers on the classpath or standardize on one JDBC version "
+            "for that tool; nao's Python dependencies do not use JDBC."
+        )
+    return None
+
+
+def _raise_postgres_with_hint(exc: BaseException) -> NoReturn:
+    hint = _postgres_connection_hint(str(exc))
+    if not hint:
+        raise exc
+    text = f"{exc}\n\n{hint}"
+    try:
+        raise type(exc)(text) from exc
+    except TypeError:
+        raise ConnectionError(text) from exc
 
 
 class PostgresDatabaseContext(DatabaseContext):
@@ -117,9 +151,10 @@ class PostgresConfig(DatabaseConfig):
         if self.schema_name:
             kwargs["schema"] = self.schema_name
 
-        return ibis.postgres.connect(
-            **kwargs,
-        )
+        try:
+            return ibis.postgres.connect(**kwargs)
+        except Exception as e:
+            _raise_postgres_with_hint(e)
 
     def get_database_name(self) -> str:
         """Get the database name for Postgres."""
