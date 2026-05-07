@@ -266,7 +266,7 @@ class RedshiftConfig(DatabaseConfig):
 
         from nao_core.deps import require_database_backend
 
-        require_database_backend("postgres")
+        require_database_backend("postgres", extra="redshift", database_type="redshift")
         import ibis
 
         connect_host = self.host
