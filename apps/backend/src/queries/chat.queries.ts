@@ -1,5 +1,11 @@
-import type { LlmProvider } from '@nao/shared/types';
-import { and, asc, desc, eq, gte, isNull, like, sql } from 'drizzle-orm';
+import type {
+	ChatFilterType,
+	ChatGroupBy,
+	CitationData,
+	GroupedChatListResponse,
+	LlmProvider,
+} from '@nao/shared/types';
+import { and, asc, desc, eq, gte, isNotNull, isNull, like, ne, or, sql } from 'drizzle-orm';
 
 import s, {
 	DBChat,
@@ -11,43 +17,120 @@ import s, {
 } from '../db/abstractSchema';
 import { db } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
-import {
-	ForkMetadata,
-	ListChatResponse,
-	StopReason,
-	TokenUsage,
-	UIChat,
-	UIMessage,
-	UIMessagePart,
-} from '../types/chat';
+import { ForkMetadata, StopReason, TokenUsage, UIChat, UIMessage, UIMessagePart } from '../types/chat';
+import { applyChatFilters, buildChatGroups, type EnrichedChat, type SourcePlatform } from '../utils/chat-list';
 import { convertDBPartToUIPart, mapUIPartsToDBParts } from '../utils/chat-message-part-mappings';
 import { getErrorMessage } from '../utils/utils';
 
-export const checkChatExists = async (chatId: string): Promise<boolean> => {
-	const result = await db.select().from(s.chat).where(eq(s.chat.id, chatId)).execute();
-	return result.length > 0;
+const chatCreatedAtMs =
+	dbConfig.dialect === Dialect.Postgres
+		? sql<number>`(extract(epoch from ${s.chat.createdAt}) * 1000)`
+		: sql<number>`${s.chat.createdAt}`;
+
+const chatUpdatedAtMs =
+	dbConfig.dialect === Dialect.Postgres
+		? sql<number>`(extract(epoch from ${s.chat.updatedAt}) * 1000)`
+		: sql<number>`${s.chat.updatedAt}`;
+
+const sqlFalse = dbConfig.dialect === Dialect.Postgres ? sql<boolean>`false` : sql<boolean>`0`;
+
+const sourcePlatformExpr = sql<SourcePlatform>`case
+	when ${s.chat.slackThreadId} is not null then 'Slack'
+	when ${s.chat.teamsThreadId} is not null then 'Teams'
+	when ${s.chat.whatsappThreadId} is not null then 'WhatsApp'
+	when ${s.chat.telegramThreadId} is not null then 'Telegram'
+	else 'Web'
+end`;
+
+export const listGroupedChats = async (
+	userId: string,
+	groupBy: ChatGroupBy,
+	filters: ChatFilterType[],
+): Promise<GroupedChatListResponse> => {
+	const effective = filters.length === 0 || filters.includes('all') ? (['all'] as ChatFilterType[]) : filters;
+	const needsShared = effective.includes('all') || effective.includes('shared_with_me') || groupBy === 'ownership';
+
+	const [ownItems, sharedItems] = await Promise.all([
+		listOwnChats(userId),
+		needsShared ? listSharedWithMeChats(userId) : Promise.resolve([]),
+	]);
+
+	const allItems = [...ownItems, ...sharedItems];
+	const filtered = applyChatFilters(allItems, effective);
+	return { groups: buildChatGroups(filtered, groupBy) };
 };
 
-export const listUserChats = async (userId: string): Promise<ListChatResponse> => {
-	const chats = await db
-		.select()
+async function listOwnChats(userId: string): Promise<EnrichedChat[]> {
+	const rows = await db
+		.select({
+			id: s.chat.id,
+			title: s.chat.title,
+			isStarred: s.chat.isStarred,
+			createdAt: chatCreatedAtMs,
+			updatedAt: chatUpdatedAtMs,
+			kind: sql<'own'>`'own'`,
+			projectId: s.chat.projectId,
+			projectName: s.project.name,
+			isSharedByMe: sql<boolean>`exists(select 1 from ${s.sharedChat} where ${s.sharedChat.chatId} = ${s.chat.id})`,
+			ownerName: s.user.name,
+			sourcePlatform: sourcePlatformExpr,
+		})
 		.from(s.chat)
+		.innerJoin(s.project, eq(s.project.id, s.chat.projectId))
+		.innerJoin(s.user, eq(s.user.id, s.chat.userId))
 		.where(and(eq(s.chat.userId, userId), isNull(s.chat.deletedAt)))
 		.orderBy(desc(s.chat.updatedAt))
 		.execute();
-	return {
-		chats: chats.map((chat) => ({
-			id: chat.id,
-			title: chat.title,
-			isStarred: chat.isStarred,
-			createdAt: chat.createdAt.getTime(),
-			updatedAt: chat.updatedAt.getTime(),
-		})),
-	};
-};
+	return rows satisfies EnrichedChat[];
+}
+
+async function listSharedWithMeChats(userId: string): Promise<EnrichedChat[]> {
+	const rows = await db
+		.select({
+			id: s.sharedChat.chatId,
+			title: s.chat.title,
+			isStarred: sqlFalse,
+			createdAt: chatCreatedAtMs,
+			updatedAt: chatUpdatedAtMs,
+			kind: sql<'shared'>`'shared'`,
+			shareId: s.sharedChat.id,
+			projectId: s.chat.projectId,
+			projectName: s.project.name,
+			isSharedByMe: sqlFalse,
+			ownerName: s.user.name,
+			sourcePlatform: sourcePlatformExpr,
+		})
+		.from(s.sharedChat)
+		.innerJoin(s.chat, eq(s.sharedChat.chatId, s.chat.id))
+		.innerJoin(s.project, eq(s.project.id, s.chat.projectId))
+		.innerJoin(s.user, eq(s.user.id, s.chat.userId))
+		.leftJoin(
+			s.sharedChatAccess,
+			and(eq(s.sharedChatAccess.sharedChatId, s.sharedChat.id), eq(s.sharedChatAccess.userId, userId)),
+		)
+		.where(
+			and(
+				isNull(s.chat.deletedAt),
+				ne(s.chat.userId, userId),
+				or(
+					and(
+						eq(s.sharedChat.visibility, 'project'),
+						or(
+							sql`exists(select 1 from ${s.projectMember} where ${s.projectMember.projectId} = ${s.chat.projectId} and ${s.projectMember.userId} = ${userId})`,
+							sql`exists(select 1 from ${s.orgMember} where ${s.orgMember.orgId} = ${s.project.orgId} and ${s.orgMember.userId} = ${userId})`,
+						),
+					),
+					and(eq(s.sharedChat.visibility, 'specific'), isNotNull(s.sharedChatAccess.userId)),
+				),
+			),
+		)
+		.orderBy(desc(s.chat.updatedAt))
+		.execute();
+	return rows satisfies EnrichedChat[];
+}
 
 /** Return the chat with its messages as well as the user id for ownership check. */
-export const loadChat = async (
+export const getChat = async (
 	chatId: string,
 	opts: {
 		includeFeedback?: boolean;
@@ -77,6 +160,7 @@ export const loadChat = async (
 	return [
 		{
 			id: chatId,
+			projectId: chat.projectId,
 			title: chat.title,
 			isStarred: chat.isStarred,
 			createdAt: chat.createdAt.getTime(),
@@ -113,6 +197,7 @@ const aggregateChatMessagParts = (
 					feedback: row.message_feedback ?? undefined,
 					source: row.chat_message.source ?? undefined,
 					isForked: row.chat_message.isForked ?? undefined,
+					citation: row.chat_message.citation ?? undefined,
 				};
 			}
 			return acc;
@@ -123,7 +208,7 @@ const aggregateChatMessagParts = (
 	return Object.values(messagesMap);
 };
 
-export const loadChatMessages = async (chatId: string): Promise<UIMessage[]> => {
+export const getChatMessages = async (chatId: string): Promise<UIMessage[]> => {
 	const result = await db
 		.select()
 		.from(s.chatMessage)
@@ -178,6 +263,7 @@ export const createChat = async (
 	newUserMessage: {
 		text: string;
 		source?: 'slack' | 'teams' | 'telegram' | 'whatsapp' | 'web';
+		citation?: CitationData;
 	},
 	additionalParts: UIMessagePart[] = [],
 ): Promise<[DBChat, DBChatMessage]> => {
@@ -190,6 +276,7 @@ export const createChat = async (
 				chatId: savedChat.id,
 				role: 'user',
 				source: newUserMessage.source,
+				citation: newUserMessage.citation ?? null,
 			})
 			.returning()
 			.execute();
@@ -270,6 +357,7 @@ export const upsertMessage = async (
 				llmModelId: message.llmModelId,
 				source: message.source,
 				isForked: message.isForked,
+				citation: message.citation ?? null,
 				...message.tokenUsage,
 			})
 			.onConflictDoNothing({ target: s.chatMessage.id })
@@ -552,6 +640,46 @@ export const getProjectIdByQueryId = async (queryId: string): Promise<string | u
 		.execute();
 
 	return result?.projectId;
+};
+
+/**
+ * Loads a persisted `execute_sql` tool output from the chat's message history
+ * and returns just the columns/data, or `null` if no matching query exists.
+ * Used to rehydrate query results across agent runs in the same chat.
+ */
+export const getQueryResultByQueryId = async (
+	chatId: string,
+	queryId: string,
+): Promise<{ columns: string[]; data: Record<string, unknown>[] } | null> => {
+	const jsonIdFilter =
+		dbConfig.dialect === Dialect.Postgres
+			? sql`${s.messagePart.toolOutput}->>'id' = ${queryId}`
+			: sql`json_extract(${s.messagePart.toolOutput}, '$.id') = ${queryId}`;
+
+	const [result] = await db
+		.select({ toolOutput: s.messagePart.toolOutput })
+		.from(s.messagePart)
+		.innerJoin(s.chatMessage, eq(s.messagePart.messageId, s.chatMessage.id))
+		.where(
+			and(
+				eq(s.chatMessage.chatId, chatId),
+				isNull(s.chatMessage.supersededAt),
+				eq(s.messagePart.toolName, 'execute_sql'),
+				jsonIdFilter,
+			),
+		)
+		.limit(1)
+		.execute();
+
+	const output = result?.toolOutput as { columns?: unknown; data?: unknown } | null | undefined;
+	if (!output || !Array.isArray(output.columns) || !Array.isArray(output.data)) {
+		return null;
+	}
+
+	return {
+		columns: output.columns as string[],
+		data: output.data as Record<string, unknown>[],
+	};
 };
 
 export async function getChatInfo(

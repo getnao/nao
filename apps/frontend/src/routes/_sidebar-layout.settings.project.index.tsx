@@ -7,6 +7,7 @@ import { GoogleConfigSection } from '@/components/settings/google-credentials-se
 import { SettingsCard } from '@/components/ui/settings-card';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
+import { usePermissions } from '@/hooks/use-permissions';
 import { trpc } from '@/main';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/project/')({
@@ -15,7 +16,7 @@ export const Route = createFileRoute('/_sidebar-layout/settings/project/')({
 
 function ProjectTabPage() {
 	const project = useQuery(trpc.project.getCurrent.queryOptions());
-	const isAdmin = project.data?.userRole === 'admin';
+	const { isAdmin } = usePermissions();
 
 	return (
 		<>

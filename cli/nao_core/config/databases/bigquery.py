@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import Field, PrivateAttr, field_validator
@@ -28,6 +28,7 @@ class TablePartitionMetadata:
     last_partition_id: str | None  # e.g. "20260310" for DATE partitions
     total_rows: int | None  # from INFORMATION_SCHEMA.PARTITIONS
     require_partition_filter: bool = False
+    clustering_columns: list[str] = field(default_factory=list)
 
 
 def _bq_escape_quoted_identifier(name: object) -> str:
@@ -70,10 +71,15 @@ class BigQueryDatabaseContext(DatabaseContext):
         if self._partition_metadata is not None and self._partition_metadata.partition_column is not None:
             return [self._partition_metadata.partition_column]
         try:
-            return _get_bq_partition_columns(self._conn, self._schema, self._table_name)
+            return _get_bq_partition_columns(self._conn, self._project_id, self._schema, self._table_name)
         except Exception:
             logger.debug("Failed to fetch partition columns for %s.%s", self._schema, self._table_name)
             return []
+
+    def clustering_columns(self) -> list[str]:
+        if self._partition_metadata is not None:
+            return self._partition_metadata.clustering_columns
+        return []
 
     def description(self) -> str | None:
         try:
@@ -274,9 +280,35 @@ class BigQueryDatabaseContext(DatabaseContext):
 
     def _partition_filter(self) -> str:
         cols = self.partition_columns()
-        if cols:
-            return f"`{cols[0]}` >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)"
-        return ""
+        if not cols:
+            return ""
+        col = cols[0]
+        col_type = self._resolve_partition_column_type(col)
+        if "TIMESTAMP" in col_type:
+            return f"`{col}` >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 DAY)"
+        if "DATETIME" in col_type:
+            return f"`{col}` >= DATETIME_SUB(CURRENT_DATETIME(), INTERVAL 30 DAY)"
+        return f"`{col}` >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)"
+
+    def _resolve_partition_column_type(self, col_name: str) -> str:
+        """Return the uppercase data type of the partition column."""
+        if self._partition_metadata and self._partition_metadata.partition_column_type:
+            return self._partition_metadata.partition_column_type.upper()
+        try:
+            table_literal = _bq_string_literal(self._table_name)
+            col_literal = _bq_string_literal(col_name)
+            info_path = _bq_path(self._project_id, self._schema, "INFORMATION_SCHEMA", "COLUMNS")
+            query = f"""
+                SELECT data_type FROM {info_path}
+                WHERE table_name = {table_literal} AND column_name = {col_literal}
+                LIMIT 1
+            """
+            row = next(iter(self._conn.raw_sql(query)), None)  # type: ignore[union-attr]
+            if row:
+                return str(row[0]).upper()
+        except Exception:
+            logger.debug("Failed to resolve partition column type for %s.%s", self._schema, self._table_name)
+        return "DATE"
 
     def _array_unnest_join(self, table_sql: str, col_sql: str, alias: str) -> str:
         return f"{table_sql}, UNNEST({col_sql}) AS {alias}"
@@ -317,8 +349,12 @@ def _coerce(val: Any) -> Any:
     return val
 
 
-def _get_bq_partition_columns(conn: BaseBackend, schema: str, table: str) -> list[str]:
-    schema_info_path = _bq_path(schema, "INFORMATION_SCHEMA", "COLUMNS")
+def _get_bq_partition_columns(conn: BaseBackend, project_id: str, schema: str, table: str) -> list[str]:
+    """Per-context fallback when batch metadata is unavailable.
+
+    Returns partition columns first, then clustering columns (deduplicated).
+    """
+    schema_info_path = _bq_path(project_id, schema, "INFORMATION_SCHEMA", "COLUMNS")
     table_name_literal = _bq_string_literal(table)
     partition_query = f"""
         SELECT column_name
@@ -332,10 +368,8 @@ def _get_bq_partition_columns(conn: BaseBackend, schema: str, table: str) -> lis
         ORDER BY clustering_ordinal_position
     """
     columns: list[str] = []
-
     columns.extend(row[0] for row in conn.raw_sql(partition_query))  # type: ignore[union-attr]
     columns.extend(row[0] for row in conn.raw_sql(clustering_query) if row[0] not in columns)  # type: ignore[union-attr]
-
     return columns
 
 
@@ -532,7 +566,7 @@ class BigQueryConfig(DatabaseConfig):
             f"AND error_result IS NULL "
             f"AND statement_type IN ('SELECT') "
             f"ORDER BY creation_time DESC "
-            f"LIMIT 10000"
+            f"LIMIT 50000"
         )
 
     def check_connection(self) -> tuple[bool, str]:
@@ -557,11 +591,12 @@ class BigQueryConfig(DatabaseConfig):
 def _fetch_schema_partition_metadata(
     conn: BaseBackend, project_id: str, schema: str
 ) -> dict[str, TablePartitionMetadata]:
-    """Fetch partition metadata for all tables in a schema in three batch queries."""
+    """Fetch partition and clustering metadata for all tables in a schema in batch queries."""
     partition_columns: dict[str, tuple[str, str]] = {}  # table -> (column_name, column_type)
     last_partition_ids: dict[str, str] = {}
     total_rows_map: dict[str, int] = {}
     require_filter_tables: set[str] = set()
+    clustering_map: dict[str, list[str]] = {}
 
     try:
         column_query = f"""
@@ -606,7 +641,19 @@ def _fetch_schema_partition_metadata(
     except Exception:
         logger.debug("Failed to fetch require_partition_filter flags for schema %s", schema)
 
-    all_tables = set(partition_columns) | set(last_partition_ids)
+    try:
+        clustering_query = f"""
+            SELECT table_name, column_name
+            FROM `{project_id}.{schema}.INFORMATION_SCHEMA.COLUMNS`
+            WHERE clustering_ordinal_position IS NOT NULL
+            ORDER BY table_name, clustering_ordinal_position
+        """
+        for row in conn.raw_sql(clustering_query):  # type: ignore[union-attr]
+            clustering_map.setdefault(row[0], []).append(row[1])
+    except Exception:
+        logger.debug("Failed to fetch clustering columns for schema %s", schema)
+
+    all_tables = set(partition_columns) | set(last_partition_ids) | set(clustering_map)
     result: dict[str, TablePartitionMetadata] = {}
     for table in all_tables:
         col_info = partition_columns.get(table)
@@ -616,5 +663,6 @@ def _fetch_schema_partition_metadata(
             last_partition_id=last_partition_ids.get(table),
             total_rows=total_rows_map.get(table),
             require_partition_filter=table in require_filter_tables,
+            clustering_columns=clustering_map.get(table, []),
         )
     return result

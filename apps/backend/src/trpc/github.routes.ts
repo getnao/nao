@@ -101,7 +101,7 @@ export const githubRoutes = {
 				orgId,
 			});
 
-			const orgMembers = await orgQueries.getOrgMembersWithUsers(orgId);
+			const orgMembers = await orgQueries.listOrgMembersWithUsers(orgId);
 			for (const member of orgMembers) {
 				await projectQueries.addProjectMember({
 					projectId: project.id,

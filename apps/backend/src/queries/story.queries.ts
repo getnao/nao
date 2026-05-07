@@ -33,7 +33,7 @@ export async function getOrCreateStory(data: { chatId: string; slug: string; tit
 	return row;
 }
 
-export async function createVersion(data: {
+export async function createStoryVersion(data: {
 	chatId: string;
 	slug: string;
 	title: string;
@@ -145,7 +145,7 @@ export async function getVersionByNumber(
 	return row ?? null;
 }
 
-export async function listVersions(chatId: string, slug: string): Promise<DBStoryVersion[]> {
+export async function listStoryVersions(chatId: string, slug: string): Promise<DBStoryVersion[]> {
 	return db
 		.select({
 			id: s.storyVersion.id,
@@ -228,7 +228,7 @@ export async function archiveStory(chatId: string, slug: string): Promise<void> 
 		.execute();
 }
 
-export async function archiveMany(stories: { chatId: string; slug: string }[]): Promise<void> {
+export async function archiveManyStories(stories: { chatId: string; slug: string }[]): Promise<void> {
 	if (stories.length === 0) {
 		return;
 	}
@@ -250,7 +250,7 @@ export async function unarchiveStory(chatId: string, slug: string): Promise<void
 		.execute();
 }
 
-export async function updateLiveSettings(
+export async function updateStoryLiveSettings(
 	chatId: string,
 	slug: string,
 	settings: {
@@ -329,7 +329,7 @@ export async function updateLatestVersionCode(chatId: string, slug: string, code
 		.execute();
 }
 
-export async function collectSqlQueries(
+export async function getSqlQueriesFromCode(
 	chatId: string,
 	code: string,
 ): Promise<Record<string, { sqlQuery: string; databaseId?: string }>> {
@@ -344,18 +344,18 @@ export async function collectSqlQueries(
 		return {};
 	}
 
-	return findSqlQueriesByIds(chatId, queryIds);
+	return getSqlQueriesByIds(chatId, queryIds);
 }
 
-export async function findSqlQueryById(
+export async function getSqlQueryById(
 	chatId: string,
 	queryId: string,
 ): Promise<{ sqlQuery: string; databaseId?: string } | null> {
-	const result = await findSqlQueriesByIds(chatId, new Set([queryId]));
+	const result = await getSqlQueriesByIds(chatId, new Set([queryId]));
 	return result[queryId] ?? null;
 }
 
-async function findSqlQueriesByIds(
+async function getSqlQueriesByIds(
 	chatId: string,
 	queryIds: Set<string>,
 ): Promise<Record<string, { sqlQuery: string; databaseId?: string }>> {

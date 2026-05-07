@@ -3,6 +3,8 @@ import { createUIMessageStreamResponse } from 'ai';
 import type { App } from '../app';
 import { handleAgentRoute } from '../handlers/agent';
 import { authMiddleware } from '../middleware/auth';
+import * as chatQueries from '../queries/chat.queries';
+import * as projectQueries from '../queries/project.queries';
 import { posthog, PostHogEvent } from '../services/posthog';
 import { AgentRequestSchema } from '../types/chat';
 
@@ -11,8 +13,16 @@ const DEBUG_CHUNKS = false;
 export const agentRoutes = async (app: App) => {
 	app.addHook('preHandler', authMiddleware);
 
-	app.post('/', { schema: { body: AgentRequestSchema } }, async ({ user, project, body, headers }) => {
-		const projectId = project?.id;
+	app.post('/', { schema: { body: AgentRequestSchema } }, async (request, reply) => {
+		const { user, project, body, headers } = request;
+		const projectId = body.chatId ? await chatQueries.getChatProjectId(body.chatId) : project?.id;
+
+		if (projectId) {
+			const userRole = await projectQueries.getUserRoleInProject(projectId, user.id);
+			if (!userRole || userRole === 'viewer') {
+				return reply.status(403).send({ error: 'Viewers cannot send messages' });
+			}
+		}
 
 		const result = await handleAgentRoute({
 			userId: user.id,

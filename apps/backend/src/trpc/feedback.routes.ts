@@ -50,6 +50,6 @@ export const feedbackRoutes = {
 	getRecent: adminProtectedProcedure
 		.input(z.object({ limit: z.number().min(1).max(50).optional() }).optional())
 		.query(async ({ ctx, input }) => {
-			return feedbackQueries.getRecentFeedbacks(ctx.project.id, input?.limit ?? 10);
+			return feedbackQueries.listRecentFeedbacks(ctx.project.id, input?.limit ?? 10);
 		}),
 };

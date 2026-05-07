@@ -63,6 +63,51 @@ export const projectProtectedProcedure = protectedProcedure.use(async ({ ctx, ne
 	return next({ ctx: { project, userRole } });
 });
 
+export const canSendProcedure = projectProtectedProcedure.use(async ({ ctx, next }) => {
+	if (ctx.userRole !== 'admin' && ctx.userRole !== 'user') {
+		throw new TRPCError({ code: 'FORBIDDEN', message: 'Viewers cannot perform this action' });
+	}
+
+	return next({ ctx });
+});
+
+export function resourceProjectProcedure<T extends { projectId: string }>(
+	inputField: string,
+	fetch: (id: string) => Promise<T | null>,
+	label: string,
+	checkAccess?: (resource: T, userId: string) => Promise<boolean>,
+) {
+	return protectedProcedure.use(async ({ ctx, getRawInput, next }) => {
+		const rawInput = (await getRawInput()) as Record<string, unknown>;
+		const resourceId = rawInput[inputField];
+		if (typeof resourceId !== 'string') {
+			throw new TRPCError({ code: 'BAD_REQUEST', message: `${inputField} is required.` });
+		}
+
+		const resource = await fetch(resourceId);
+		if (!resource) {
+			throw new TRPCError({ code: 'NOT_FOUND', message: `${label} not found.` });
+		}
+
+		const userRole: UserRole | null = await projectQueries.getUserRoleInProject(resource.projectId, ctx.user.id);
+		if (!userRole) {
+			throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this project.' });
+		}
+
+		if (checkAccess) {
+			const canAccess = await checkAccess(resource, ctx.user.id);
+			if (!canAccess) {
+				throw new TRPCError({
+					code: 'FORBIDDEN',
+					message: `You do not have access to this ${label.toLowerCase()}.`,
+				});
+			}
+		}
+
+		return next({ ctx: { resource, userRole } });
+	});
+}
+
 export const adminProtectedProcedure = projectProtectedProcedure.use(async ({ ctx, next }) => {
 	if (ctx.userRole !== 'admin') {
 		throw new TRPCError({ code: 'FORBIDDEN', message: 'Only admins can perform this action' });

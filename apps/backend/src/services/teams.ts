@@ -14,7 +14,7 @@ import * as chatQueries from '../queries/chat.queries';
 import * as feedbackQueries from '../queries/feedback.queries';
 import * as projectQueries from '../queries/project.queries';
 import { TeamsConfig } from '../queries/project-teams-config.queries';
-import { get as getUser } from '../queries/user.queries';
+import { getUser } from '../queries/user.queries';
 import { UIChat, UIMessage, UIMessagePart } from '../types/chat';
 import { ConversationContext, StreamState, ToolCallEntry } from '../types/messaging-provider';
 import { createChatTitle } from '../utils/ai';
@@ -158,7 +158,7 @@ class TeamsService {
 			ctx.convMessage = await ctx.thread.post('✨ nao is answering...');
 			await this._saveOrUpdateUserMessage(ctx);
 
-			const [chat] = await chatQueries.loadChat(ctx.chatId);
+			const [chat] = await chatQueries.getChat(ctx.chatId);
 			if (!chat) {
 				throw new Error('Chat not found after saving message');
 			}

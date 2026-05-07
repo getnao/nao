@@ -23,19 +23,19 @@ export async function getChatContextUsage(opts: {
 	}
 	const agentSettings = await projectQueries.getAgentSettings(projectId);
 	const tools = getTools(agentSettings);
-	const messages = await loadChatAsModelMessages({ ...opts, projectId, tools });
+	const messages = await getChatAsModelMessages({ ...opts, projectId, tools });
 	const messageTokens = tokenCounter.estimateMessages(messages);
 	const toolTokens = await tokenCounter.estimateTools(tools);
 	return { tokensUsed: messageTokens + toolTokens, contextWindow: opts.model ? getContextWindow(opts.model) : null };
 }
 
-export async function loadChatAsModelMessages(opts: {
+export async function getChatAsModelMessages(opts: {
 	chatId: string;
 	userId: string;
 	projectId: string;
 	tools: Record<string, Tool>;
 }): Promise<ModelMessage[]> {
-	const uiMessages = await chatQueries.loadChatMessages(opts.chatId);
+	const uiMessages = await chatQueries.getChatMessages(opts.chatId);
 	const uiMessagesWithCompaction = compactionService.useLastCompaction(uiMessages);
 	const memories = await memoryService.safeGetUserMemories(opts.userId, opts.projectId, opts.chatId);
 	const systemPrompt = renderToMarkdown(SystemPrompt({ memories }));

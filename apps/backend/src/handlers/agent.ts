@@ -51,7 +51,7 @@ export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<H
 		newMessageId = messageId;
 	}
 
-	const [chat] = await chatQueries.loadChat(chatId);
+	const [chat] = await chatQueries.getChat(chatId);
 	if (!chat) {
 		throw new HandlerError('NOT_FOUND', `Chat with id ${chatId} not found.`);
 	}
@@ -61,13 +61,19 @@ export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<H
 
 	const agent = await agentService.create({ ...chat, userId, projectId }, model);
 
+	const isForkedFirstMessage =
+		!isNewChat && !!chat.forkMetadata && chat.messages.filter((m) => m.role === 'user' && !m.isForked).length === 1;
+
+	const shouldEmitNewChat = isNewChat || isForkedFirstMessage;
+
 	const stream = agent.stream(chat.messages, {
 		mentions,
 		timezone: opts.timezone,
 		events: {
-			newChat: isNewChat
+			newChat: shouldEmitNewChat
 				? {
 						id: chatId,
+						projectId,
 						title: chat.title,
 						isStarred: chat.isStarred,
 						createdAt: chat.createdAt,
@@ -106,7 +112,11 @@ const createChat = async (
 	imageParts: UIMessagePart[],
 ) => {
 	const title = createChatTitle(message);
-	return await chatQueries.createChat({ title, userId, projectId }, message, imageParts);
+	return await chatQueries.createChat(
+		{ title, userId, projectId },
+		{ text: message.text, citation: message.citation },
+		imageParts,
+	);
 };
 
 /** Insert a message into a chat or supersede an existing message when it is edited. */
@@ -135,5 +145,6 @@ const insertOrSupersedeMessage = async (opts: {
 		parts: [{ type: 'text', text: message.text }, ...imageParts],
 		chatId,
 		source: 'web',
+		citation: message.citation,
 	});
 };

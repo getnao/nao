@@ -10,7 +10,7 @@ import * as chatQueries from '../queries/chat.queries';
 import * as feedbackQueries from '../queries/feedback.queries';
 import * as projectQueries from '../queries/project.queries';
 import { TelegramConfig } from '../queries/project-telegram-config.queries';
-import { get as getUser, getByMessagingProviderCode } from '../queries/user.queries';
+import { getUser, getUserByMessagingProviderCode } from '../queries/user.queries';
 import { UIChat, UIMessage, UIMessagePart } from '../types/chat';
 import { ConversationContext, StreamState, ToolCallEntry } from '../types/messaging-provider';
 import { createChatTitle } from '../utils/ai';
@@ -142,7 +142,7 @@ class TelegramService {
 			ctx.convMessage = await ctx.thread.post('✨ nao is answering...');
 			await this._saveOrUpdateUserMessage(ctx);
 
-			const [chat] = await chatQueries.loadChat(ctx.chatId);
+			const [chat] = await chatQueries.getChat(ctx.chatId);
 			if (!chat) {
 				throw new Error('Chat not found after saving message');
 			}
@@ -176,7 +176,7 @@ class TelegramService {
 			return;
 		}
 
-		const user = await getByMessagingProviderCode(code);
+		const user = await getUserByMessagingProviderCode(code);
 		if (!user) {
 			await thread.post('❌ Invalid linking code. Check your code in the project settings.');
 			return;

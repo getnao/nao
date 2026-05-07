@@ -1,35 +1,35 @@
-import { Ellipsis, Pencil, StarIcon, StarOffIcon, TrashIcon, Upload } from 'lucide-react';
-import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
-import { Link } from './ui/link';
+import { Ellipsis, Pencil, StarIcon, StarOffIcon, TrashIcon, Upload } from 'lucide-react';
+import { useState } from 'react';
+import { ShareChatDialog } from './share-dialog.chat';
 import {
 	DropdownMenu,
-	DropdownMenuItem,
-	DropdownMenuGroup,
 	DropdownMenuContent,
+	DropdownMenuGroup,
+	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from './ui/dropdown-menu';
 import { InputEdit } from './ui/input-edit';
-import { ShareChatDialog } from './share-dialog.chat';
+import { Link } from './ui/link';
 import { Spinner } from './ui/spinner';
 import type { ComponentProps } from 'react';
 
-import type { ChatListItem } from '@nao/backend/chat';
+import type { GroupedChatItem } from '@nao/shared/types';
 import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
-import { useTimeAgo } from '@/hooks/use-time-ago';
 import { useChatActivity } from '@/hooks/use-chat-activity';
+import { useTimeAgo } from '@/hooks/use-time-ago';
 import { useToggleStarred } from '@/hooks/use-toggle-starred';
+import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
 export interface Props extends Omit<ComponentProps<'div'>, 'children'> {
-	chat: ChatListItem;
+	chat: GroupedChatItem;
 }
 
 export function ChatListItem({ chat }: Props) {
 	const navigate = useNavigate();
-	const timeAgo = useTimeAgo(chat.createdAt);
+	const timeAgo = useTimeAgo(chat.updatedAt);
 	const activity = useChatActivity(chat.id);
 	const toggleStarred = useToggleStarred();
 	const [title, setTitle] = useState(chat.title);
@@ -38,17 +38,9 @@ export function ChatListItem({ chat }: Props) {
 
 	const deleteChat = useMutation(
 		trpc.chat.delete.mutationOptions({
-			onSuccess: (_data, vars, _res, ctx) => {
+			onSuccess: (_data, _vars, _res, ctx) => {
 				navigate({ to: '/' });
-				ctx.client.setQueryData(trpc.chat.list.queryKey(), (prev) => {
-					if (!prev) {
-						return prev;
-					}
-					return {
-						...prev,
-						chats: prev.chats.filter((c) => c.id !== vars.chatId),
-					};
-				});
+				ctx.client.invalidateQueries({ queryKey: [['chat', 'listGrouped']] });
 			},
 		}),
 	);
@@ -56,21 +48,13 @@ export function ChatListItem({ chat }: Props) {
 	const renameChat = useMutation(
 		trpc.chat.rename.mutationOptions({
 			onSuccess: (_data, vars, _res, ctx) => {
-				ctx.client.setQueryData(trpc.chat.list.queryKey(), (prev) => {
-					if (!prev) {
-						return prev;
-					}
-					return {
-						...prev,
-						chats: prev.chats.map((c) => (c.id === vars.chatId ? { ...c, title: vars.title } : c)),
-					};
-				});
 				ctx.client.setQueryData(trpc.chat.get.queryKey({ chatId: vars.chatId }), (prev) => {
 					if (!prev) {
 						return prev;
 					}
 					return { ...prev, title: vars.title };
 				});
+				ctx.client.invalidateQueries({ queryKey: [['chat', 'listGrouped']] });
 			},
 			onSettled: () => {
 				setIsRenaming(false);

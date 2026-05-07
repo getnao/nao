@@ -1,4 +1,4 @@
-import { and, desc, eq, max } from 'drizzle-orm';
+import { and, desc, eq, inArray, max, sql } from 'drizzle-orm';
 
 import s, { type DBSharedStory } from '../db/abstractSchema';
 import { db } from '../db/db';
@@ -75,7 +75,11 @@ export async function canUserAccessSharedStory(sharedStoryId: string, userId: st
 	return !!row;
 }
 
-export async function listProjectSharedStories(projectId: string, userId: string): Promise<SharedStoryWithLatest[]> {
+export async function listUserSharedStories(projectIds: string[], userId: string): Promise<SharedStoryWithLatest[]> {
+	if (projectIds.length === 0) {
+		return [];
+	}
+
 	const latestVersions = db
 		.select({
 			storyId: s.storyVersion.storyId,
@@ -85,7 +89,7 @@ export async function listProjectSharedStories(projectId: string, userId: string
 		.groupBy(s.storyVersion.storyId)
 		.as('latest');
 
-	const allStories = await db
+	return db
 		.select({
 			id: s.sharedStory.id,
 			storyId: s.sharedStory.storyId,
@@ -107,38 +111,21 @@ export async function listProjectSharedStories(projectId: string, userId: string
 			s.storyVersion,
 			and(eq(s.storyVersion.storyId, s.story.id), eq(s.storyVersion.version, latestVersions.maxVersion)),
 		)
-		.where(eq(s.sharedStory.projectId, projectId))
+		.leftJoin(
+			s.sharedStoryAccess,
+			and(eq(s.sharedStoryAccess.sharedStoryId, s.sharedStory.id), eq(s.sharedStoryAccess.userId, userId)),
+		)
+		.where(
+			and(
+				inArray(s.sharedStory.projectId, projectIds),
+				sql`(${s.sharedStory.visibility} = 'project' OR ${s.sharedStory.userId} = ${userId} OR ${s.sharedStoryAccess.userId} IS NOT NULL)`,
+			),
+		)
 		.orderBy(desc(s.sharedStory.createdAt))
 		.execute();
-
-	const specificStoryIds = allStories
-		.filter((story) => story.visibility === 'specific' && story.userId !== userId)
-		.map((story) => story.id);
-
-	if (specificStoryIds.length === 0) {
-		return allStories;
-	}
-
-	const accessRows = await db
-		.select({ sharedStoryId: s.sharedStoryAccess.sharedStoryId })
-		.from(s.sharedStoryAccess)
-		.where(eq(s.sharedStoryAccess.userId, userId))
-		.execute();
-
-	const accessibleIds = new Set(accessRows.map((r) => r.sharedStoryId));
-
-	return allStories.filter((story) => {
-		if (story.visibility === 'project') {
-			return true;
-		}
-		if (story.userId === userId) {
-			return true;
-		}
-		return accessibleIds.has(story.id);
-	});
 }
 
-export async function collectQueryData(
+export async function getQueryDataFromCode(
 	chatId: string,
 	code: string,
 ): Promise<Record<string, { data: unknown[]; columns: string[] }> | null> {
@@ -174,30 +161,14 @@ export async function collectQueryData(
 	return Object.keys(data).length > 0 ? data : null;
 }
 
-export async function findByStory(storyId: string, userId: string): Promise<{ id: string; visibility: string } | null> {
+export async function getSharedStoryInfo(
+	storyId: string,
+	userId: string,
+): Promise<{ id: string; visibility: string } | null> {
 	const [row] = await db
 		.select({ id: s.sharedStory.id, visibility: s.sharedStory.visibility })
 		.from(s.sharedStory)
 		.where(and(eq(s.sharedStory.storyId, storyId), eq(s.sharedStory.userId, userId)))
-		.orderBy(desc(s.sharedStory.createdAt))
-		.limit(1)
-		.execute();
-
-	return row ?? null;
-}
-
-export async function findShareForStory(
-	storyId: string,
-	projectId: string,
-): Promise<{ id: string; visibility: string; userId: string } | null> {
-	const [row] = await db
-		.select({
-			id: s.sharedStory.id,
-			visibility: s.sharedStory.visibility,
-			userId: s.sharedStory.userId,
-		})
-		.from(s.sharedStory)
-		.where(and(eq(s.sharedStory.storyId, storyId), eq(s.sharedStory.projectId, projectId)))
 		.orderBy(desc(s.sharedStory.createdAt))
 		.limit(1)
 		.execute();
@@ -215,7 +186,7 @@ export async function getSharedStoryAllowedUserIds(sharedStoryId: string): Promi
 	return rows.map((r) => r.userId);
 }
 
-export async function updateAllowedUsers(sharedStoryId: string, userIds: string[]): Promise<void> {
+export async function updateSharedStoryAllowedUsers(sharedStoryId: string, userIds: string[]): Promise<void> {
 	await db.delete(s.sharedStoryAccess).where(eq(s.sharedStoryAccess.sharedStoryId, sharedStoryId)).execute();
 
 	if (userIds.length > 0) {

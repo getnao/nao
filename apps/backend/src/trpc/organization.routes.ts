@@ -35,11 +35,11 @@ export const organizationRoutes = {
 	})),
 
 	getProjects: orgAdminProcedure.query(async ({ ctx }) => {
-		return orgQueries.getOrgProjectsWithAccess(ctx.org.id, ctx.user.id);
+		return orgQueries.listOrgProjectsWithAccess(ctx.org.id, ctx.user.id);
 	}),
 
 	getMembers: orgAdminProcedure.query(async ({ ctx }) => {
-		return orgQueries.getOrgMembersWithUsers(ctx.org.id);
+		return orgQueries.listOrgMembersWithUsers(ctx.org.id);
 	}),
 
 	updateMemberRole: orgAdminOnlyProcedure
@@ -102,9 +102,9 @@ export const organizationRoutes = {
 			}
 
 			if (input.name) {
-				const previousName = await userQueries.getName(input.userId);
+				const previousName = await userQueries.getUserName(input.userId);
 				if (input.name !== previousName) {
-					await userQueries.modify(input.userId, input.name);
+					await userQueries.updateUser(input.userId, input.name);
 				}
 			}
 		}),
@@ -129,7 +129,7 @@ export const organizationRoutes = {
 			const hashedPassword = await hashPassword(password);
 			await accountQueries.updateAccountPassword(account.id, hashedPassword, input.userId);
 
-			const user = await userQueries.get({ id: input.userId });
+			const user = await userQueries.getUser({ id: input.userId });
 			if (user) {
 				await emailService.sendEmail(user.email, buildResetPasswordEmail(user, ctx.org.name, password));
 			}

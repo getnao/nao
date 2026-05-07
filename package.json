@@ -39,6 +39,8 @@
 	},
 	"dependencies": {
 		"@boxlite-ai/boxlite": "^0.3.0",
+		"@emnapi/core": "^1.9.2",
+		"@emnapi/runtime": "^1.9.2",
 		"@pydantic/monty": "^0.0.7",
 		"depd": "^2.0.0"
 	}

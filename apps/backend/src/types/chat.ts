@@ -1,4 +1,4 @@
-import { ALLOWED_IMAGE_MEDIA_TYPES } from '@nao/shared/types';
+import { ALLOWED_IMAGE_MEDIA_TYPES, type CitationData } from '@nao/shared/types';
 import {
 	DynamicToolUIPart,
 	FinishReason,
@@ -25,6 +25,7 @@ export interface ForkMetadata {
 
 export interface UIChat {
 	id: string;
+	projectId: string;
 	title: string;
 	isStarred: boolean;
 	createdAt: number;
@@ -33,12 +34,9 @@ export interface UIChat {
 	forkMetadata?: ForkMetadata;
 }
 
-export interface ListChatResponse {
-	chats: ChatListItem[];
-}
-
 export interface ChatListItem {
 	id: string;
+	projectId: string;
 	title: string;
 	isStarred: boolean;
 	createdAt: number;
@@ -49,6 +47,7 @@ export type UIMessage = UIGenericMessage<unknown, MessageCustomDataParts, UITool
 	feedback?: MessageFeedback;
 	source?: 'slack' | 'teams' | 'telegram' | 'whatsapp' | 'web';
 	isForked?: boolean;
+	citation?: CitationData;
 };
 
 export type UITools = InferUITools<typeof tools>;
@@ -133,10 +132,18 @@ export const AgentRequestImageSchema = z.object({
 	data: z.string().min(1),
 });
 
+const CitationDataSchema = z.object({
+	start: z.number(),
+	end: z.number(),
+	text: z.string(),
+	storySlug: z.string().optional(),
+});
+
 export type AgentRequestUserMessage = z.infer<typeof AgentRequestUserMessageSchema>;
 export const AgentRequestUserMessageSchema = z.object({
 	text: z.string(),
 	images: z.array(AgentRequestImageSchema).optional(),
+	citation: CitationDataSchema.optional(),
 });
 
 export type AgentRequest = z.infer<typeof AgentRequestSchema>;

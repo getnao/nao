@@ -105,7 +105,7 @@ export const getOrCreateDefaultOrganization = async (): Promise<DBOrganization> 
  * All operations are wrapped in a transaction.
  */
 export const initializeDefaultOrganizationForFirstUser = async (userId: string): Promise<void> => {
-	const userCount = await userQueries.countAll();
+	const userCount = await userQueries.countUsers();
 	if (userCount !== 1) {
 		return;
 	}
@@ -193,7 +193,7 @@ export const initializePersonalOrganization = async (userId: string): Promise<vo
 		return;
 	}
 
-	const user = await userQueries.get({ id: userId });
+	const user = await userQueries.getUser({ id: userId });
 	const orgName = user ? `${user.name}'s Organization` : 'Personal Organization';
 	const orgSlug = `org-${userId.replace(/-/g, '').slice(0, 16)}`;
 
@@ -211,7 +211,7 @@ export const initializePersonalOrganization = async (userId: string): Promise<vo
  * - If NAO_DEFAULT_PROJECT_PATH is set, ensures a project exists for that path
  */
 export const ensureOrganizationSetup = async (): Promise<void> => {
-	const firstUser = await userQueries.getFirst();
+	const firstUser = await userQueries.getFirstUser();
 	if (!firstUser) {
 		return; // No users yet, nothing to do
 	}
@@ -266,7 +266,7 @@ export interface OrgProjectWithAccess {
 	updatedAt: Date;
 }
 
-export const getOrgMembersWithUsers = async (orgId: string): Promise<OrgMemberWithUser[]> => {
+export const listOrgMembersWithUsers = async (orgId: string): Promise<OrgMemberWithUser[]> => {
 	const rows = await db
 		.select({
 			id: s.orgMember.userId,
@@ -281,7 +281,7 @@ export const getOrgMembersWithUsers = async (orgId: string): Promise<OrgMemberWi
 	return rows;
 };
 
-export const getOrgProjectsWithAccess = async (orgId: string, userId: string): Promise<OrgProjectWithAccess[]> => {
+export const listOrgProjectsWithAccess = async (orgId: string, userId: string): Promise<OrgProjectWithAccess[]> => {
 	const rows = await db
 		.select({
 			id: s.project.id,

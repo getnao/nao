@@ -91,12 +91,11 @@ class DatabaseConfig(BaseModel, ABC):
             DatabaseTemplate.COLUMNS,
             DatabaseTemplate.HOW_TO_USE,
             DatabaseTemplate.PREVIEW,
-            DatabaseTemplate.PROFILING,
         ],
         description=(
             "Which default templates to render per table "
-            "(e.g., ['columns', 'how_to_use', 'ai_summary']). "
-            "Defaults to ['columns', 'how_to_use', 'preview', 'profiling']."
+            "(e.g., ['columns', 'how_to_use', 'profiling', 'ai_summary']). "
+            "Defaults to ['columns', 'how_to_use', 'preview']."
         ),
     )
     query_history_days: int | None = Field(
@@ -223,6 +222,10 @@ class DatabaseConfig(BaseModel, ABC):
         from nao_core.config.databases.context import DatabaseContext
 
         return DatabaseContext(conn, schema, table_name)
+
+    def get_semantic_views(self, conn: "BaseBackend", schema: str) -> list[dict[str, str]]:
+        """Fetch semantic views for a schema. Override in subclasses that support semantic views."""
+        return []
 
     def get_query_history_sql(self, days: int) -> str | None:
         """Return SQL to fetch query history for the last N days.

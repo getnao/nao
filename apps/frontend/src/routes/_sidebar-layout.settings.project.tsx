@@ -1,28 +1,31 @@
 import { useState } from 'react';
-import { createFileRoute, Outlet } from '@tanstack/react-router';
+import { createFileRoute, Outlet, redirect } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { Github } from 'lucide-react';
 import { GitHubRepoPicker } from '@/components/settings/github-repo-picker';
 import { OrgApiKeys } from '@/components/settings/org-api-keys';
 import { SettingsProjectNav } from '@/components/settings/project-nav';
-import { trpc } from '@/main';
+import { usePermissions } from '@/hooks/use-permissions';
+import { queryClient, trpc } from '@/main';
 import { Button } from '@/components/ui/button';
 import { SettingsCard, SettingsPageWrapper } from '@/components/ui/settings-card';
 import { Empty } from '@/components/ui/empty';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/project')({
+	beforeLoad: async () => {
+		const project = await queryClient.ensureQueryData(trpc.project.getCurrent.queryOptions());
+		if (project?.userRole === 'viewer') {
+			throw redirect({ to: '/settings/account' });
+		}
+	},
 	component: ProjectPage,
 });
 
 function ProjectPage() {
 	const project = useQuery(trpc.project.getCurrent.queryOptions());
 	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
-	const org = useQuery({
-		...trpc.organization.get.queryOptions(),
-		enabled: !project.data,
-	});
+	const { isOrgAdmin } = usePermissions();
 	const isCloud = config.data?.naoMode === 'cloud';
-	const isOrgAdmin = org.data?.role === 'admin';
 	const isProjectlessCloud = !project.data && isCloud;
 
 	const emptyMessage = isCloud

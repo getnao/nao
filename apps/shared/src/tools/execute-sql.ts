@@ -1,5 +1,7 @@
 import z from 'zod/v3';
 
+import { QueryIdSchema } from './query-id';
+
 export const InputSchema = z.object({
 	sql_query: z.string().describe('The SQL query to execute'),
 	database_id: z
@@ -15,7 +17,7 @@ export const OutputSchema = z.object({
 	row_count: z.number(),
 	columns: z.array(z.string()),
 	/** The id of the query result. May be referenced by the `display_chart` tool call. */
-	id: z.custom<`query_${string}`>(),
+	id: QueryIdSchema,
 	dialect: z.string().optional(),
 });
 

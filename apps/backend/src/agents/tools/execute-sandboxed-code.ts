@@ -5,7 +5,8 @@ import os from 'os';
 import path from 'path';
 
 import { ChatImage, getImagesByChatId } from '../../queries/image.queries';
-import { QueryResult } from '../../types/tools';
+import { getQueryResult } from '../../services/query-result.service';
+import { QueryResult, ToolContext } from '../../types/tools';
 import { createTool, shouldExcludeEntry } from '../../utils/tools';
 
 let boxliteModule: typeof import('@boxlite-ai/boxlite') | null = null;
@@ -180,10 +181,9 @@ async function copyChatImagesToSandbox(box: CodeBox, images: ChatImage[], tmpDir
 
 async function executeSandboxedCode(
 	{ sandbox_id, code, language, image, vm_size, packages, data_files }: schemas.Input,
-	queryResults: Map<string, QueryResult>,
-	projectFolder: string,
-	chatId: string,
+	context: ToolContext,
 ): Promise<schemas.Output> {
+	const { projectFolder, chatId } = context;
 	if (!boxliteModule) {
 		throw new Error('Sandbox execution is not available on this platform');
 	}
@@ -227,7 +227,7 @@ async function executeSandboxedCode(
 
 		if (data_files?.length) {
 			for (const { query_id, filename } of data_files) {
-				const result = queryResults.get(query_id);
+				const result = await getQueryResult(context, query_id);
 				if (!result) {
 					return {
 						sandbox_id: id,
@@ -291,7 +291,7 @@ export default boxliteModule
 			inputSchema: schemas.inputSchema,
 			outputSchema: schemas.outputSchema,
 			execute: async (input, context) => {
-				return executeSandboxedCode(input, context.queryResults, context.projectFolder, context.chatId);
+				return executeSandboxedCode(input, context);
 			},
 		})
 	: null;

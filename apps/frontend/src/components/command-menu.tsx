@@ -16,6 +16,7 @@ import { useTheme } from '@/contexts/theme.provider';
 import { useRegisterCommandMenuCallback } from '@/contexts/command-menu-callback';
 import { useSearchChatsQuery } from '@/queries/use-search-chats-query';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
+import { usePermissions } from '@/hooks/use-permissions';
 import { TextShimmer } from '@/components/ui/text-shimmer';
 
 type CommandConfig = {
@@ -34,6 +35,7 @@ export function CommandMenu() {
 	const debouncedSearch = useDebouncedValue(searchValue, 300);
 	const navigate = useNavigate();
 	const { theme, setTheme } = useTheme();
+	const { canStartNewChat } = usePermissions();
 
 	const toggleOpen = useCallback(() => setOpen((prev) => !prev), []);
 	useRegisterCommandMenuCallback(toggleOpen, [toggleOpen]);
@@ -55,6 +57,7 @@ export function CommandMenu() {
 				action: () => navigate({ to: '/' }),
 				shortcut: '⇧⌘O',
 				group: 'Jump to',
+				visible: canStartNewChat,
 			},
 			{
 				id: 'open-settings',
@@ -73,10 +76,13 @@ export function CommandMenu() {
 				group: 'Actions',
 			},
 		],
-		[navigate, theme, setTheme],
+		[navigate, theme, setTheme, canStartNewChat],
 	);
 
-	const jumpToCommands = useMemo(() => commands.filter((cmd) => cmd.group === 'Jump to'), [commands]);
+	const jumpToCommands = useMemo(
+		() => commands.filter((cmd) => cmd.group === 'Jump to' && (cmd.visible ?? true)),
+		[commands],
+	);
 	const actionCommands = useMemo(() => commands.filter((cmd) => cmd.group === 'Actions'), [commands]);
 
 	useEffect(() => {

@@ -6,6 +6,7 @@ bun.lock
 cli/
 example/
 .pytest_cache/
+LICENSE
 
 # Backend
 migrations-sqlite/

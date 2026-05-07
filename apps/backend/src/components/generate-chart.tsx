@@ -31,6 +31,8 @@ export function renderChartToSvg(input: RenderChartInput): string {
 		return series?.color || defaultColorFor(key, index);
 	};
 
+	const maxLabelWidth = estimateMaxLabelWidth(data, config.x_axis_key);
+
 	const chart = buildChart({
 		data,
 		chartType: config.chart_type,
@@ -41,6 +43,7 @@ export function renderChartToSvg(input: RenderChartInput): string {
 		showGrid: true,
 		margin,
 		title: config.title,
+		maxXAxisTicks: Math.floor(width / maxLabelWidth),
 	});
 
 	const html = renderToString(React.cloneElement(chart, { width, height }));
@@ -54,4 +57,16 @@ export function renderChartToSvg(input: RenderChartInput): string {
 		: [];
 
 	return createSvg(html, width, height, legend);
+}
+
+const CHAR_WIDTH_PX = 7;
+const TICK_PADDING_PX = 16;
+const MIN_TICK_WIDTH_PX = 40;
+
+function estimateMaxLabelWidth(data: Record<string, unknown>[], xAxisKey: string): number {
+	const maxCharCount = data.reduce((max, row) => {
+		const formatted = labelize(String(row[xAxisKey] ?? ''));
+		return Math.max(max, formatted.length);
+	}, 0);
+	return Math.max(maxCharCount * CHAR_WIDTH_PX + TICK_PADDING_PX, MIN_TICK_WIDTH_PX);
 }

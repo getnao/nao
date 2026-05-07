@@ -22,8 +22,15 @@ export function hasEnvApiKey(provider: LlmProvider): boolean {
 	if (getEnvApiKey(provider)) {
 		return true;
 	}
-	const { alternativeEnvVars } = LLM_PROVIDERS[provider].auth;
-	return alternativeEnvVars?.every((v) => process.env[v]) ?? false;
+	const { alternativeEnvVars, extraFields, apiKey } = LLM_PROVIDERS[provider].auth;
+	if (alternativeEnvVars?.every((v) => process.env[v])) {
+		return true;
+	}
+	// For providers that don't require an API key (e.g. Vertex), check if any extra field env var is set
+	if (apiKey === 'none' && extraFields?.some((f) => process.env[f.envVar])) {
+		return true;
+	}
+	return false;
 }
 
 /** Get all providers that have API keys configured via environment */

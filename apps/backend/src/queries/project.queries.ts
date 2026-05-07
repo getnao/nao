@@ -128,7 +128,7 @@ export const getUserRoleInProject = async (
 	return orgMember ? 'viewer' : null;
 };
 
-export const getAllUsersWithRoles = async (projectId: string): Promise<UserWithRole[]> => {
+export const listAllUsersWithRoles = async (projectId: string): Promise<UserWithRole[]> => {
 	const results = await db
 		.select({
 			id: s.user.id,
@@ -180,7 +180,7 @@ export const getProjectByUserId = async (
 };
 
 export const checkProjectHasMoreThanOneAdmin = async (projectId: string): Promise<boolean> => {
-	const userWithRoles = await getAllUsersWithRoles(projectId);
+	const userWithRoles = await listAllUsersWithRoles(projectId);
 	const nbAdmin = userWithRoles.filter((u) => u.role === 'admin').length;
 	return nbAdmin > 1;
 };

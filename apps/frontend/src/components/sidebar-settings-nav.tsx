@@ -1,23 +1,29 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
 import Fuse from 'fuse.js';
-import { Search, X } from 'lucide-react';
+import { Folder, Search, X } from 'lucide-react';
 
 import type { FuseResult } from 'fuse.js';
+import type { ProjectOption } from '@/components/project-selector';
 import type { SettingsSearchEntry } from '@/components/settings-search-index';
 
+import { ProjectSelector } from '@/components/project-selector';
 import { settingsSearchIndex } from '@/components/settings-search-index';
 import { cn, hideIf } from '@/lib/utils';
 
 interface NavContext {
 	isAdmin: boolean;
 	isCloud: boolean;
+	hasLicense: boolean;
+	isViewer: boolean;
+	isInMultipleProjects: boolean;
 }
 
 interface NavItem {
 	label: string;
 	to?: string;
 	visible?: (ctx: NavContext) => boolean;
+	disabled?: (ctx: NavContext) => boolean;
 	type?: 'divider' | 'item';
 }
 
@@ -33,10 +39,12 @@ const settingsNavItems: NavItem[] = [
 	{
 		label: 'Organization',
 		to: '/settings/organization',
+		visible: ({ isViewer }) => !isViewer,
 	},
 	{
 		label: 'Project',
 		to: '/settings/project',
+		visible: ({ isViewer, isInMultipleProjects }) => !isViewer || isInMultipleProjects,
 	},
 	{
 		label: 'Observability',
@@ -59,12 +67,24 @@ const settingsNavItems: NavItem[] = [
 		visible: ({ isAdmin, isCloud }) => isAdmin && !isCloud,
 	},
 	{
+		label: 'Enterprise',
+		type: 'divider',
+		visible: ({ isAdmin, isCloud, hasLicense }) => isAdmin && !isCloud && hasLicense,
+	},
+	{
+		label: 'License',
+		to: '/settings/enterprise',
+		visible: ({ isAdmin, isCloud, hasLicense }) => isAdmin && !isCloud && hasLicense,
+	},
+	{
 		label: 'Context',
 		type: 'divider',
+		visible: ({ isViewer }) => !isViewer,
 	},
 	{
 		label: 'Memory',
 		to: '/settings/memory',
+		visible: ({ isViewer }) => !isViewer,
 	},
 	{
 		label: 'File Explorer',
@@ -76,7 +96,12 @@ const settingsNavItems: NavItem[] = [
 interface SidebarSettingsNavProps {
 	isCollapsed: boolean;
 	isAdmin: boolean;
+	isViewer: boolean;
 	isCloud: boolean;
+	hasLicense: boolean;
+	projects: ProjectOption[];
+	currentProjectId?: string;
+	onProjectChange: (projectId: string) => void;
 }
 
 function dedupeByPage(results: FuseResult<SettingsSearchEntry>[]) {
@@ -90,16 +115,30 @@ function dedupeByPage(results: FuseResult<SettingsSearchEntry>[]) {
 	});
 }
 
-export function SidebarSettingsNav({ isCollapsed, isAdmin, isCloud }: SidebarSettingsNavProps) {
+export function SidebarSettingsNav({
+	isCollapsed,
+	isAdmin,
+	isViewer,
+	isCloud,
+	hasLicense,
+	projects,
+	currentProjectId,
+	onProjectChange,
+}: SidebarSettingsNavProps) {
 	const navigate = useNavigate();
 	const inputRef = useRef<HTMLInputElement>(null);
 	const [query, setQuery] = useState('');
 
-	const navItems = settingsNavItems.filter((item) => item.visible?.({ isAdmin, isCloud }) ?? true);
+	const navItems = settingsNavItems.filter(
+		(item) =>
+			item.visible?.({ isAdmin, isCloud, isViewer, isInMultipleProjects: projects.length > 1, hasLicense }) ??
+			true,
+	);
+	const canSwitchProjects = projects.length > 1 && !!currentProjectId;
 
 	useEffect(() => {
 		const handleSlashKey = (e: KeyboardEvent) => {
-			if (e.key !== '/' || isCollapsed) {
+			if (e.key !== '/' || isCollapsed || isViewer) {
 				return;
 			}
 			const tag = (e.target as HTMLElement)?.tagName;
@@ -111,10 +150,12 @@ export function SidebarSettingsNav({ isCollapsed, isAdmin, isCloud }: SidebarSet
 		};
 		document.addEventListener('keydown', handleSlashKey);
 		return () => document.removeEventListener('keydown', handleSlashKey);
-	}, [isCollapsed]);
+	}, [isCollapsed, isViewer]);
 
 	const fuse = useMemo(() => {
-		const entries = settingsSearchIndex.filter((e) => (!e.adminOnly || isAdmin) && (!e.cloudHidden || !isCloud));
+		const entries = settingsSearchIndex.filter(
+			(e) => (!e.adminOnly || isAdmin) && (!e.cloudHidden || !isCloud) && (!e.licenseRequired || hasLicense),
+		);
 		return new Fuse(entries, {
 			keys: [
 				{ name: 'title', weight: 0.4 },
@@ -125,7 +166,7 @@ export function SidebarSettingsNav({ isCollapsed, isAdmin, isCloud }: SidebarSet
 			threshold: 0.4,
 			includeScore: true,
 		});
-	}, [isAdmin, isCloud]);
+	}, [isAdmin, isCloud, hasLicense]);
 
 	const results = useMemo(() => {
 		if (query.length < 2) {
@@ -148,42 +189,44 @@ export function SidebarSettingsNav({ isCollapsed, isAdmin, isCloud }: SidebarSet
 
 	return (
 		<div className={cn('flex flex-col gap-1', hideIf(isCollapsed))}>
-			<div className='px-2 pt-2'>
-				<div className='relative'>
-					<Search className='absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground pointer-events-none' />
-					<input
-						ref={inputRef}
-						type='text'
-						placeholder='Search settings...'
-						value={query}
-						onChange={(e) => setQuery(e.target.value)}
-						onKeyDown={handleKeyDown}
-						className={cn(
-							'w-full rounded-lg border border-input bg-transparent py-1.5 pl-8 pr-8 text-sm',
-							'placeholder:text-muted-foreground',
-							'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+			{!isViewer && (
+				<div className='px-2 pt-2'>
+					<div className='relative'>
+						<Search className='absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground pointer-events-none' />
+						<input
+							ref={inputRef}
+							type='text'
+							placeholder='Search settings...'
+							value={query}
+							onChange={(e) => setQuery(e.target.value)}
+							onKeyDown={handleKeyDown}
+							className={cn(
+								'w-full rounded-lg border border-input bg-transparent py-1.5 pl-8 pr-8 text-sm',
+								'placeholder:text-muted-foreground',
+								'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+							)}
+						/>
+						{query ? (
+							<button
+								type='button'
+								onClick={() => {
+									setQuery('');
+									inputRef.current?.focus();
+								}}
+								className='absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground'
+							>
+								<X className='size-3.5' />
+							</button>
+						) : (
+							<kbd className='absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-[10px] font-mono text-muted-foreground border border-border rounded px-1'>
+								/
+							</kbd>
 						)}
-					/>
-					{query ? (
-						<button
-							type='button'
-							onClick={() => {
-								setQuery('');
-								inputRef.current?.focus();
-							}}
-							className='absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground'
-						>
-							<X className='size-3.5' />
-						</button>
-					) : (
-						<kbd className='absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-[10px] font-mono text-muted-foreground border border-border rounded px-1'>
-							/
-						</kbd>
-					)}
+					</div>
 				</div>
-			</div>
+			)}
 
-			{isSearching ? (
+			{isSearching && !isViewer ? (
 				<div className='flex flex-col gap-0.5 px-2 pt-1'>
 					{results.length === 0 ? (
 						<div className='px-3 py-4 text-xs text-muted-foreground text-center'>No results found</div>
@@ -221,26 +264,80 @@ export function SidebarSettingsNav({ isCollapsed, isAdmin, isCloud }: SidebarSet
 							);
 						}
 
+						const isProjectItem = item.to === '/settings/project';
+						const isDisabled =
+							item.disabled?.({
+								isAdmin,
+								isCloud,
+								isViewer,
+								isInMultipleProjects: projects.length > 1,
+								hasLicense,
+							}) ?? false;
+
 						return (
-							<Link
-								key={item.to}
-								to={item.to}
-								className={cn(
-									'flex items-center gap-3 px-3 py-2 text-sm rounded-md transition-colors whitespace-nowrap',
+							<div key={item.to} className='flex flex-col'>
+								{isDisabled ? (
+									<span
+										className='flex items-center gap-3 px-3 py-2 text-sm rounded-md whitespace-nowrap cursor-not-allowed'
+										aria-disabled='true'
+									>
+										{item.label}
+									</span>
+								) : (
+									<Link
+										to={item.to}
+										className={cn(
+											'flex items-center gap-3 px-3 py-2 text-sm rounded-md transition-colors whitespace-nowrap',
+										)}
+										activeProps={{
+											className: cn('bg-sidebar-accent text-foreground font-medium'),
+										}}
+										inactiveProps={{
+											className: cn('hover:bg-sidebar-accent hover:text-foreground'),
+										}}
+									>
+										{item.label}
+									</Link>
 								)}
-								activeProps={{
-									className: cn('bg-sidebar-accent text-foreground font-medium'),
-								}}
-								inactiveProps={{
-									className: cn('hover:bg-sidebar-accent hover:text-foreground'),
-								}}
-							>
-								{item.label}
-							</Link>
+								{isProjectItem && canSwitchProjects && currentProjectId && (
+									<ProjectSwitcherSubItem
+										projects={projects}
+										currentProjectId={currentProjectId}
+										onChange={onProjectChange}
+									/>
+								)}
+							</div>
 						);
 					})}
 				</nav>
 			)}
+		</div>
+	);
+}
+
+function ProjectSwitcherSubItem({
+	projects,
+	currentProjectId,
+	onChange,
+}: {
+	projects: ProjectOption[];
+	currentProjectId: string;
+	onChange: (projectId: string) => void;
+}) {
+	return (
+		<div className='ml-3 mt-1 pl-3 border-l border-sidebar-border'>
+			<div className='px-1 pb-1 text-[10px] uppercase tracking-wider text-muted-foreground'>Switch project</div>
+			<ProjectSelector
+				projects={projects}
+				currentProjectId={currentProjectId}
+				onChange={onChange}
+				triggerVariant='ghost'
+				triggerIcon={<Folder className='size-3.5 shrink-0' />}
+				triggerClassName={cn(
+					'w-full h-auto py-1.5 px-2 text-sm rounded-md',
+					'bg-sidebar-accent/40 hover:bg-sidebar-accent hover:text-foreground',
+				)}
+			/>
 		</div>
 	);
 }

@@ -25,6 +25,9 @@ import { parseBudgetError } from '@/lib/ai';
 import { cn } from '@/lib/utils';
 import { useChatId } from '@/hooks/use-chat-id';
 import { messageQueueStore } from '@/stores/chat-message-queue';
+import { chatPendingCitationStore } from '@/stores/chat-pending-citation';
+import { useChatPendingCitation } from '@/hooks/use-chat-pending-citation';
+import { SelectionCitationBanner } from '@/components/selection-citation-banner';
 
 type ChatInputBaseProps = {
 	promptRef: React.RefObject<PromptHandle | null>;
@@ -49,8 +52,10 @@ export function ChatInput() {
 
 	useRegisterSetChatInputCallback((text) => {
 		promptRef.current?.clear();
-		promptRef.current?.insertText(text);
-		promptRef.current?.focus();
+		if (text) {
+			promptRef.current?.insertText(text);
+		}
+		requestAnimationFrame(() => promptRef.current?.focus());
 	});
 
 	return <ChatInputBase promptRef={promptRef} onSubmitMessage={queueOrSendMessage} allowQueueing />;
@@ -174,7 +179,10 @@ function ChatInputBase({
 	const submitMessage = useCallback(
 		async (text: string, currentMentions: SelectedMention[] = []) => {
 			const trimmedInput = text.trim();
-			if (!trimmedInput && !imageUpload.hasImages) {
+			const citationSnapshot = chatPendingCitationStore.getSnapshot();
+			const hasCitation = !!citationSnapshot && citationSnapshot.chatId === chatId;
+
+			if (!trimmedInput && !imageUpload.hasImages && !hasCitation) {
 				if (isRunning && allowQueueing) {
 					const queue = messageQueueStore.getSnapshot(chatId);
 					if (queue?.length) {
@@ -188,6 +196,18 @@ function ChatInputBase({
 				return;
 			}
 
+			const citation = hasCitation
+				? {
+						start: citationSnapshot.start,
+						end: citationSnapshot.end,
+						text: citationSnapshot.text,
+						storySlug: citationSnapshot.storySlug,
+					}
+				: undefined;
+			if (hasCitation) {
+				chatPendingCitationStore.clear();
+			}
+
 			setMentions(currentMentions.map((m) => ({ id: m.id, label: m.label, trigger: m.trigger })));
 			promptRef.current?.clear();
 			setInputText('');
@@ -198,6 +218,7 @@ function ChatInputBase({
 			await onSubmitMessage({
 				text: trimmedInput || (images.length > 0 ? 'Describe this image' : ''),
 				images: images.length > 0 ? images : undefined,
+				citation,
 			});
 		},
 		[
@@ -236,7 +257,8 @@ function ChatInputBase({
 		const mentions = promptRef.current?.getMentions() ?? [];
 		await submitMessage(inputText, mentions);
 	};
-	const isInputEmpty = !inputText.trim() && !imageUpload.hasImages;
+	const pendingCitation = useChatPendingCitation(chatId);
+	const isInputEmpty = !inputText.trim() && !imageUpload.hasImages && !pendingCitation;
 
 	const skills = useQuery(trpc.skill.list.queryOptions());
 	const databaseObjects = useQuery(trpc.project.getDatabaseObjects.queryOptions());
@@ -263,6 +285,7 @@ function ChatInputBase({
 	return (
 		<div ref={dropZoneRef} className={cn('px-3 pb-3 pt-0 md:px-4 md:pb-4 max-w-3xl w-full mx-auto', className)}>
 			<ChatInputMessageQueue onEditMessage={handleEditQueuedMessage} onSubmitNow={submitQueuedMessageNow} />
+			<SelectionCitationBanner />
 			<BudgetBanner />
 
 			<form onSubmit={handleSubmitMessage} className='mx-auto relative'>

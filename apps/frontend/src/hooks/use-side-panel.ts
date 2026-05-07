@@ -131,6 +131,7 @@ export const useSidePanel = ({
 
 	const close = useCallback(() => {
 		setIsVisible(false);
+		setCurrentStorySlug(null);
 		if (isMobile) {
 			setContent(null);
 		} else {

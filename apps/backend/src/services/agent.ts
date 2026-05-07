@@ -54,7 +54,9 @@ import {
 import { logger } from '../utils/logger';
 import { truncateMiddle } from '../utils/utils';
 import { compactionService } from './compaction';
+import { hasFeature, LICENSE_FEATURES } from './license.service';
 import { memoryService } from './memory';
+import { getAzureAccessTokenForUser } from './microsoft-auth.service';
 import { skillService } from './skill';
 
 export interface AgentRunResult {
@@ -91,7 +93,7 @@ export class AgentService {
 		await assertBudgetNotExceeded(chat.projectId, resolvedLlmSelectedModel.provider);
 		const modelConfig = await this._getModelConfig(chat.projectId, resolvedLlmSelectedModel);
 		const agentSettings = await projectQueries.getAgentSettings(chat.projectId);
-		const toolContext = await this._getToolContext(chat.projectId, chat.id, agentSettings);
+		const toolContext = await this._getToolContext(chat.projectId, chat.id, chat.userId, agentSettings);
 		const webTools = await this._resolveWebTools(chat.projectId, resolvedLlmSelectedModel.provider, agentSettings);
 		const agentTools = getTools(agentSettings, webTools ?? undefined);
 		const agent = new AgentManager(
@@ -137,6 +139,7 @@ export class AgentService {
 	private async _getToolContext(
 		projectId: string,
 		chatId: string,
+		userId: string,
 		agentSettings: AgentSettings | null,
 	): Promise<ToolContext> {
 		const project = await projectQueries.retrieveProjectById(projectId);
@@ -144,11 +147,15 @@ export class AgentService {
 			throw new HandlerError('BAD_REQUEST', 'Project path does not exist.');
 		}
 		const envVars = await projectQueries.getEnvVars(projectId);
+		const azureAccessToken = (await hasFeature(LICENSE_FEATURES.sso))
+			? await getAzureAccessTokenForUser(userId)
+			: null;
 		return {
 			projectFolder: project.path ?? '',
 			chatId,
 			agentSettings,
 			envVars,
+			azureAccessToken,
 			queryResults: new Map(),
 		};
 	}
@@ -342,7 +349,8 @@ class AgentManager {
 		const uiMessagesWithStories = await this._syncStoryToolOutputs(uiMessages);
 		const uiMessagesWithStoryMode = this._addStoryMode(uiMessagesWithStories, mentions);
 		const uiMessagesWithSkills = this._addSkills(uiMessagesWithStoryMode, mentions);
-		const uiMessagesWithDbContext = this._addDatabaseContext(uiMessagesWithSkills, mentions);
+		const uiMessagesWithCitation = this._addCitationContext(uiMessagesWithSkills);
+		const uiMessagesWithDbContext = this._addDatabaseContext(uiMessagesWithCitation, mentions);
 		const uiMessagesWithCompaction = compactionService.useLastCompaction(uiMessagesWithDbContext);
 		const uiMessagesWithResolvedImages = await resolveImageUrls(uiMessagesWithCompaction);
 
@@ -554,6 +562,17 @@ class AgentManager {
 
 	stop(): void {
 		this._abortController.abort();
+	}
+
+	private _addCitationContext(messages: UIMessage[]): UIMessage[] {
+		const [lastUserMessage] = findLastUserMessage(messages);
+		if (!lastUserMessage?.citation) {
+			return messages;
+		}
+
+		const { start, end, text: citationText } = lastUserMessage.citation;
+		const context = `[The user is referring to the following text selection (chars ${start}–${end}):\n"${citationText}"]`;
+		return this._transformLastUserMessageText(messages, (text) => (text ? `${context}\n\n${text}` : context));
 	}
 
 	private _addStoryMode(messages: UIMessage[], mentions?: Mention[]): UIMessage[] {

@@ -11,8 +11,10 @@ import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { useIsEditingMessage } from '@/hooks/use-is-editing-message-store';
 import { useClickOutside } from '@/hooks/use-click-outside';
 import { ChatInputInline } from '@/components/chat-input';
+import { ChatMessagesCitationChip } from '@/components/chat-messages/chat-messages-citation-chip';
 import { ImageLightbox } from '@/components/image-lightbox';
 import { getMessageText, getMessageImages } from '@/lib/ai';
+import { parseChatMessageCitation } from '@/lib/chat-messages-citation-parser';
 import { Button } from '@/components/ui/button';
 import { editedMessageIdStore } from '@/stores/chat-edited-message';
 import { trpc } from '@/main';
@@ -93,14 +95,26 @@ function useMentionConfigs(): MessageMentionConfig[] {
 }
 
 export const UserMessageBubble = memo(({ message }: { message: UIMessage }) => {
-	const text = useMemo(() => getMessageText(message), [message]);
+	const rawText = useMemo(() => getMessageText(message), [message]);
 	const images = useMemo(() => getMessageImages(message), [message]);
 	const mentionConfigs = useMentionConfigs();
 	const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
 
+	const legacyCitation = useMemo(() => parseChatMessageCitation(rawText), [rawText]);
+	const citation = message.citation ?? legacyCitation;
+	const displayText = legacyCitation ? legacyCitation.question : rawText;
+
 	return (
 		<div className='rounded-2xl px-3 py-2 bg-card text-card-foreground ml-auto max-w-xl'>
 			<MessageSourceBadge source={message.source} />
+			{citation && (
+				<ChatMessagesCitationChip
+					start={citation.start}
+					end={citation.end}
+					text={citation.text}
+					storySlug={citation.storySlug}
+				/>
+			)}
 			{images.length > 0 && (
 				<div className='flex gap-2 flex-wrap mb-2'>
 					{images.map((img, idx) => (
@@ -115,9 +129,9 @@ export const UserMessageBubble = memo(({ message }: { message: UIMessage }) => {
 					))}
 				</div>
 			)}
-			{text && (
+			{displayText && (
 				<Message
-					value={text}
+					value={displayText}
 					mentionConfigs={mentionConfigs}
 					theme={messageTheme}
 					className='flex items-center justify-end'

@@ -1,10 +1,12 @@
 """Database sync provider implementation."""
 
+from __future__ import annotations
+
 import re
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from rich.console import Console
 from rich.progress import (
@@ -27,9 +29,13 @@ from nao_core.commands.sync.providers.databases.query_history import TableUsageS
 from nao_core.config import AnyDatabaseConfig, NaoConfig
 from nao_core.config.databases.base import DatabaseConfig, DatabaseTemplate, ProfilingRefreshPolicy
 from nao_core.config.llm import LLMConfig
+from nao_core.templates.context import NaoContext, create_nao_context
 from nao_core.templates.engine import get_template_engine
 
 from ..base import SyncProvider, SyncResult
+
+if TYPE_CHECKING:
+    from ibis import BaseBackend
 
 console = Console()
 
@@ -53,8 +59,13 @@ def _fmt_duration(seconds: float) -> str:
     return f"{minutes}m{secs:.0f}s"
 
 
-def _fetch_query_history(db_config: DatabaseConfig) -> list[str]:
-    """Fetch query history from the database if how_to_use is enabled and supported."""
+def _fetch_query_history(db_config: DatabaseConfig, conn: BaseBackend) -> list[str]:
+    """Fetch query history over the already-open sync connection.
+
+    Reusing the sync connection keeps history fetching on the same credentials
+    that sync uses for context (important for auth modes where runtime
+    execution uses different credentials, e.g. Redshift Azure Entra ID).
+    """
     days = db_config.query_history_days or 30
     history_sql = db_config.get_query_history_sql(days)
     if not history_sql:
@@ -62,14 +73,47 @@ def _fetch_query_history(db_config: DatabaseConfig) -> list[str]:
         return []
 
     try:
-        df = db_config.execute_sql(history_sql)
-        col = "query_text" if "query_text" in df.columns else df.columns[0]
-        queries = df[col].dropna().astype(str).tolist()
+        cursor = conn.raw_sql(history_sql)  # type: ignore[union-attr]
+        queries = _extract_query_texts(cursor)
         console.print(f"  [dim]Fetched[/dim] [bold]{len(queries)}[/bold] [dim]queries for history analysis[/dim]")
         return queries
     except Exception as e:
         console.print(f"  [yellow]⚠[/yellow] [dim]Failed to fetch query history:[/dim] {e}")
         return []
+
+
+def _extract_query_texts(cursor: Any) -> list[str]:
+    """Extract query_text column values from a backend cursor or result object."""
+    df = _cursor_to_dataframe(cursor)
+    if df is not None:
+        col = "query_text" if "query_text" in df.columns else df.columns[0]
+        return df[col].dropna().astype(str).tolist()
+
+    if hasattr(cursor, "result_rows") and hasattr(cursor, "column_names"):
+        columns = list(cursor.column_names)
+        return _pick_query_texts(columns, cursor.result_rows)
+
+    if hasattr(cursor, "description") and cursor.description is not None and hasattr(cursor, "fetchall"):
+        columns = [desc[0] for desc in cursor.description]
+        return _pick_query_texts(columns, cursor.fetchall())
+
+    raise TypeError(f"Unsupported raw_sql result type: {type(cursor).__name__}")
+
+
+def _cursor_to_dataframe(cursor: Any):
+    """Return a pandas DataFrame from backends that expose a native converter, else None."""
+    if hasattr(cursor, "fetchdf"):
+        return cursor.fetchdf()
+    if hasattr(cursor, "to_dataframe"):
+        return cursor.to_dataframe()
+    if hasattr(cursor, "to_pandas"):
+        return cursor.to_pandas()
+    return None
+
+
+def _pick_query_texts(columns: list[str], rows: Any) -> list[str]:
+    idx = columns.index("query_text") if "query_text" in columns else 0
+    return [str(row[idx]) for row in rows if row[idx] is not None]
 
 
 def _should_refresh_profiling(
@@ -107,15 +151,13 @@ def sync_database(
     project_path: Path | None = None,
     llm_config: LLMConfig | None = None,
     db_folder: str | None = None,
+    nao_ctx: NaoContext | None = None,
 ) -> DatabaseSyncState:
     """Sync a single database by rendering all database templates for each table."""
     engine = get_template_engine(project_path, llm_config=llm_config)
     templates = _filter_templates_by_config(engine.list_templates(TEMPLATE_PREFIX), db_config)
 
     has_how_to_use = DatabaseTemplate.HOW_TO_USE in db_config.templates
-    raw_queries: list[str] = []
-    if has_how_to_use:
-        raw_queries = _fetch_query_history(db_config)
 
     t_connect = time.monotonic()
     conn = db_config.connect()
@@ -124,6 +166,10 @@ def sync_database(
             f"  [dim]Connected to[/dim] [bold]{db_config.name}[/bold] "
             f"[dim]({_fmt_duration(time.monotonic() - t_connect)})[/dim]"
         )
+
+        raw_queries: list[str] = []
+        if has_how_to_use:
+            raw_queries = _fetch_query_history(db_config, conn)
 
         if db_folder is None:
             db_folder = f"database={db_config.get_database_name()}"
@@ -157,15 +203,12 @@ def sync_database(
 
             tables = [t for t in all_tables if db_config.matches_pattern(schema, t)]
 
-            if not tables:
-                progress.update(schema_task, advance=1)
-                continue
-
-            list_dur = _fmt_duration(time.monotonic() - t_list)
-            console.print(
-                f"  [cyan]▸ {schema}[/cyan] [dim]— {len(tables)} tables "
-                f"(of {len(all_tables)} total, listed in {list_dur})[/dim]"
-            )
+            if tables:
+                list_dur = _fmt_duration(time.monotonic() - t_list)
+                console.print(
+                    f"  [cyan]▸ {schema}[/cyan] [dim]— {len(tables)} tables "
+                    f"(of {len(all_tables)} total, listed in {list_dur})[/dim]"
+                )
             schema_tables[schema] = tables
 
         selected_tables = [(schema, t) for schema, tables in schema_tables.items() for t in tables]
@@ -176,10 +219,17 @@ def sync_database(
             usage_stats = compute_table_usage(raw_queries, selected_tables, dialect=dialect)
 
         for schema, tables in schema_tables.items():
+            semantic_views = db_config.get_semantic_views(conn, schema)
+            semantic_views = [sv for sv in semantic_views if db_config.matches_pattern(schema, sv["name"])]
+
+            if not tables and not semantic_views:
+                progress.update(schema_task, advance=1)
+                continue
+
             schema_path = db_path / f"schema={schema}"
             schema_path.mkdir(parents=True, exist_ok=True)
-            state.add_schema(schema)
 
+            state.add_schema(schema)
             table_task = progress.add_task(
                 f"    [cyan]{schema}[/cyan]",
                 total=len(tables),
@@ -219,7 +269,14 @@ def sync_database(
 
                     t_render = time.monotonic()
                     try:
-                        content = engine.render(template_name, db=ctx, table_name=table, dataset=schema, **extra_ctx)
+                        content = engine.render(
+                            template_name,
+                            db=ctx,
+                            table_name=table,
+                            dataset=schema,
+                            **({"nao": nao_ctx} if nao_ctx else {}),
+                            **extra_ctx,
+                        )
                         render_dur = time.monotonic() - t_render
                         if render_dur > 5:
                             console.print(
@@ -247,11 +304,29 @@ def sync_database(
                 table_task,
                 description=f"    [cyan]{schema}[/cyan]",
             )
-            schema_dur = _fmt_duration(time.monotonic() - schema_start)
-            error_suffix = f" [red]({schema_errors} errors)[/red]" if schema_errors else ""
-            console.print(
-                f"  [green]✓ {schema}[/green] [dim]— {len(tables)} tables synced in {schema_dur}{error_suffix}[/dim]"
-            )
+            if tables:
+                schema_dur = _fmt_duration(time.monotonic() - schema_start)
+                error_suffix = f" [red]({schema_errors} errors)[/red]" if schema_errors else ""
+                console.print(
+                    f"  [green]✓ {schema}[/green] [dim]— {len(tables)} tables synced in {schema_dur}{error_suffix}[/dim]"
+                )
+
+            if semantic_views:
+                for sv in semantic_views:
+                    sv_path = schema_path / f"semantic_view={sv['name']}"
+                    sv_path.mkdir(parents=True, exist_ok=True)
+                    content_parts = [f"# {sv['name']}\n"]
+                    content_parts.append(
+                        "This is a Snowflake **semantic view** — use this to understand the intended way to query and aggregate data.\n"
+                    )
+                    if sv.get("comment"):
+                        content_parts.append(f"{sv['comment']}\n")
+                    if sv.get("definition"):
+                        content_parts.append("## Definition\n")
+                        content_parts.append(f"```sql\n{sv['definition']}\n```\n")
+                    (sv_path / "definition.md").write_text("\n".join(content_parts))
+                    state.add_table(schema, sv["name"])
+                console.print(f"  [green]✓ {schema}[/green] [dim]— {len(semantic_views)} semantic views synced[/dim]")
 
             progress.update(schema_task, advance=1)
 
@@ -267,7 +342,7 @@ class DatabaseSyncProvider(SyncProvider):
     """Provider for syncing database schemas to markdown documentation."""
 
     def __init__(self) -> None:
-        self._llm_config: LLMConfig | None = None
+        self._nao_config: NaoConfig | None = None
 
     @property
     def name(self) -> str:
@@ -282,7 +357,7 @@ class DatabaseSyncProvider(SyncProvider):
         return "databases"
 
     def pre_sync(self, config: NaoConfig, output_path: Path) -> None:
-        self._llm_config = config.llm
+        self._nao_config = config
         cleanup_stale_databases(config.databases, output_path, verbose=True)
 
     def get_items(self, config: NaoConfig) -> list[AnyDatabaseConfig]:
@@ -297,6 +372,9 @@ class DatabaseSyncProvider(SyncProvider):
         total_tables = 0
         total_removed = 0
         sync_states: list[DatabaseSyncState] = []
+
+        nao_ctx = create_nao_context(self._nao_config, project_path=project_path) if self._nao_config else None
+        llm_config = self._nao_config.llm if self._nao_config else None
 
         console.print(f"\n[bold cyan]{self.emoji}  Syncing {self.name}[/bold cyan]")
         console.print(f"[dim]Location:[/dim] {output_path.absolute()}")
@@ -326,8 +404,9 @@ class DatabaseSyncProvider(SyncProvider):
                         output_path,
                         progress,
                         project_path,
-                        self._llm_config,
+                        llm_config,
                         db_folder=db_folder,
+                        nao_ctx=nao_ctx,
                     )
                     sync_states.append(state)
                     total_datasets += state.schemas_synced

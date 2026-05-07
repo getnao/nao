@@ -9,7 +9,7 @@ export const insertLog = async (record: NewLog): Promise<void> => {
 	await db.insert(s.log).values(record).execute();
 };
 
-export const getLogs = async (projectId: string, filter: LogFilter) => {
+export const listLogs = async (projectId: string, filter: LogFilter) => {
 	const conditions: SQL[] = [or(eq(s.log.projectId, projectId), isNull(s.log.projectId))!];
 
 	if (filter.level) {

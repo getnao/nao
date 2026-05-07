@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import type { UserRole } from '@nao/shared/types';
 
@@ -8,6 +8,7 @@ import { EditMemberDialog } from '@/components/settings/team';
 import { signOut, useSession } from '@/lib/auth-client';
 import { SettingsVersionInfo } from '@/components/settings/version-info';
 import { useAuthRoute } from '@/hooks/use-auth-route';
+import { usePermissions } from '@/hooks/use-permissions';
 import { UserProfileCard } from '@/components/settings/profile-card';
 import { useLocalStorage } from '@/hooks/use-local-storage';
 import { soundNotificationStorage } from '@/hooks/use-stream-end-sound';
@@ -26,10 +27,9 @@ function GeneralPage() {
 	const { data: session, refetch } = useSession();
 	const user = session?.user;
 	const queryClient = useQueryClient();
-	const project = useQuery(trpc.project.getCurrent.queryOptions());
+	const { isAdmin, isViewer, role } = usePermissions();
 	const [soundEnabled, setSoundEnabled] = useLocalStorage(soundNotificationStorage);
 
-	const isAdmin = project.data?.userRole === 'admin';
 	const navigation = useAuthRoute();
 
 	const [editOpen, setEditOpen] = useState(false);
@@ -42,14 +42,14 @@ function GeneralPage() {
 					id: user.id,
 					name: user.name,
 					email: user.email,
-					role: project.data?.userRole ?? 'user',
+					role: role ?? 'user',
 				}
 			: null;
 
 	const handleEdit = async (data: { userId: string; name?: string; newRole?: UserRole }) => {
 		await modifyUser.mutateAsync(data);
 		await Promise.all([
-			queryClient.invalidateQueries({ queryKey: trpc.project.getAllUsersWithRoles.queryKey() }),
+			queryClient.invalidateQueries({ queryKey: trpc.project.listAllUsersWithRoles.queryKey() }),
 			queryClient.invalidateQueries({ queryKey: trpc.project.getCurrent.queryKey() }),
 		]);
 		await refetch();
@@ -94,7 +94,7 @@ function GeneralPage() {
 				<SettingsControlRow label='Theme' description='Choose how nao looks.' control={<ThemeSelector />} />
 			</SettingsCard>
 
-			<DangerZone />
+			{!isViewer && <DangerZone />}
 
 			{isAdmin && <SettingsVersionInfo />}
 		</SettingsPageWrapper>

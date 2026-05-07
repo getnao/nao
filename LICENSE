@@ -1,3 +1,6 @@
+This project is mostly licensed under the Apache License 2.0 as described below. However, certain files within this project are licensed under a different commercial license. These files are clearly marked with the following comment at the top of the file: /* @license Enterprise */
+Files with this comment are not licensed under the Apache License 2.0, but instead are subject to the commercial license terms defined later in this file.
+
                                  Apache License
                            Version 2.0, January 2004
                         http://www.apache.org/licenses/
@@ -206,3 +209,43 @@
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
    See the License for the specific language governing permissions and
    limitations under the License.
+
+------------------------------------
+
+The nao Labs Commercial License (the “Commercial License”)
+                    Copyright (c) 2026-present nao Labs, Inc.
+
+With regard to nao Labs' Software:
+
+This part of the software and associated documentation files (the "Software") may only be
+used in production, if you (and any entity that you represent) have agreed to,
+and are in compliance with, the Terms available
+at https://getnao.io/security/terms-and-conditions/, or other agreements governing
+the use of the Software, as mutually agreed by you and nao Labs, Inc ("nao Labs"),
+and otherwise have a valid nao Labs Enterprise Edition subscription
+for the correct number of hosts and seats as defined in the Commercial Terms.
+Subject to the foregoing sentence,
+you are free to modify this Software and publish patches to the Software. You agree
+that nao Labs and/or its licensors (as applicable) retain all right, title and interest in
+and to all such modifications and/or patches, and all such modifications and/or
+patches may only be used, copied, modified, displayed, distributed, or otherwise
+exploited with a valid Commercial Subscription for the correct number of hosts and seats.
+Notwithstanding the foregoing, you may copy and modify the Software for development
+and testing purposes, without requiring a subscription. You agree that nao Labs and/or
+its licensors (as applicable) retain all right, title and interest in and to all such
+modifications. You are not granted any other rights beyond what is expressly stated herein.
+Subject to the foregoing, it is forbidden to copy, merge, publish, distribute, sublicense,
+and/or sell the Software.
+
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+For all third party components incorporated into the nao Labs Software, those
+components are licensed under the original license provided by the owner of the
+applicable component.

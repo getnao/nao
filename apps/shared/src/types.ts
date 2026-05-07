@@ -104,3 +104,39 @@ export type ProjectChatListItem = {
 export type DownloadFormat = 'pdf' | 'html';
 
 export const DOWNLOAD_FORMATS = ['pdf', 'html'] as const satisfies readonly DownloadFormat[];
+
+export interface CitationData {
+	start: number;
+	end: number;
+	text: string;
+	storySlug?: string;
+}
+
+export type MessageBubble = { role: 'user' | 'assistant'; charCount: number };
+
+export const CHAT_GROUP_BY_OPTIONS = ['star', 'date', 'project', 'ownership', 'sourcePlatform', 'none'];
+export const CHAT_FILTER_OPTIONS = ['all', 'mine', 'starred', 'shared', 'shared_with_me'];
+
+export type ChatGroupBy = (typeof CHAT_GROUP_BY_OPTIONS)[number];
+export type ChatFilterType = (typeof CHAT_FILTER_OPTIONS)[number];
+
+export interface GroupedChatItem {
+	id: string;
+	projectId: string;
+	title: string;
+	isStarred: boolean;
+	createdAt: number;
+	updatedAt: number;
+	kind: 'own' | 'shared';
+	shareId?: string;
+	ownerName: string;
+}
+
+export interface ChatGroup {
+	label: string;
+	chats: GroupedChatItem[];
+}
+
+export interface GroupedChatListResponse {
+	groups: ChatGroup[];
+}

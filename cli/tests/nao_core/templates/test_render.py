@@ -2,24 +2,25 @@
 
 import json
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from nao_core.templates.render import render_template
 
 
-class TestRenderTemplateToJsonFilter:
-    """Tests for the to_json filter inside render_template."""
+def _make_mock_nao(attrs: dict) -> MagicMock:
+    mock = MagicMock()
+    for k, v in attrs.items():
+        setattr(mock, k, v)
+    return mock
 
+
+class TestRenderTemplateToJsonFilter:
     def test_to_json_preserves_non_ascii(self, tmp_path: Path):
-        """to_json filter in render_template preserves non-ASCII characters."""
         template = tmp_path / "test.md.j2"
         template.write_text("{{ nao.data | to_json }}")
 
-        mock_context = {"data": {"name": "テスト", "emoji": "🎉"}}
-
         with patch("nao_core.templates.render.create_nao_context") as mock_create:
-            mock_nao = type("Nao", (), mock_context)()
-            mock_create.return_value = mock_nao
+            mock_create.return_value = _make_mock_nao({"data": {"name": "テスト", "emoji": "🎉"}})
 
             output_path = render_template(
                 template_path=Path("test.md.j2"),
@@ -35,7 +36,6 @@ class TestRenderTemplateToJsonFilter:
         assert parsed == {"name": "テスト", "emoji": "🎉"}
 
     def test_to_json_non_ascii_roundtrips(self, tmp_path: Path):
-        """Non-ASCII data round-trips through to_json correctly."""
         template = tmp_path / "test.md.j2"
         template.write_text("{{ nao.rows | to_json(indent=2) }}")
 
@@ -44,11 +44,9 @@ class TestRenderTemplateToJsonFilter:
             {"id": 2, "city": "서울"},
             {"id": 3, "city": "القاهرة"},
         ]
-        mock_context = {"rows": rows}
 
         with patch("nao_core.templates.render.create_nao_context") as mock_create:
-            mock_nao = type("Nao", (), mock_context)()
-            mock_create.return_value = mock_nao
+            mock_create.return_value = _make_mock_nao({"rows": rows})
 
             output_path = render_template(
                 template_path=Path("test.md.j2"),

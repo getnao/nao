@@ -1,69 +1,61 @@
-import { useRef } from 'react';
 import { MessageCircle } from 'lucide-react';
 import { createPortal } from 'react-dom';
-import { useMutation } from '@tanstack/react-query';
 
 import { Button } from './ui/button';
-import { Spinner } from './ui/spinner';
 import { useSelection } from '@/contexts/text-selection';
-import { trpc } from '@/main';
+import { useForkSelectionAsk } from '@/hooks/use-fork-selection-ask';
+import { useTrackedBubbleRect } from '@/hooks/use-tracked-bubble-rect';
 
-export interface HighlightBubbleProps {
-	shareId: string;
-	contentType: 'chat' | 'story';
+export interface SelectionData {
+	start: number;
+	end: number;
+	text: string;
+	range: Range;
 }
 
-export const HighlightBubble = ({ shareId, contentType }: HighlightBubbleProps) => {
+export interface HighlightBubbleProps {
+	onAsk: (data: SelectionData) => void;
+	disabled?: boolean;
+}
+
+export function ForkBubble({ shareId, contentType }: { shareId: string; contentType: 'chat' | 'story' }) {
+	const handleAsk = useForkSelectionAsk(shareId, contentType);
+	return <HighlightBubble onAsk={handleAsk} />;
+}
+
+export const HighlightBubble = ({ onAsk, disabled }: HighlightBubbleProps) => {
 	const { selection } = useSelection();
 
-	if (!selection) {
+	if (!selection || disabled) {
 		return null;
 	}
 
-	return createPortal(<BubbleContent shareId={shareId} contentType={contentType} />, document.body);
+	return createPortal(<BubbleContent onAsk={onAsk} />, document.body);
 };
 
-function BubbleContent({ shareId, contentType }: { shareId: string; contentType: 'chat' | 'story' }) {
-	const { selection, clearSelection, addAnchor, openAnchor } = useSelection();
-	const capturedSelection = useRef(selection);
-
-	const forkMutation = useMutation(
-		trpc.chatFork.fork.mutationOptions({
-			onSuccess: ({ chatId }) => {
-				const sel = capturedSelection.current;
-				if (!sel) {
-					return;
-				}
-				addAnchor(chatId, sel.start, sel.end, sel.rect, sel.containerLeft);
-				openAnchor(chatId);
-				clearSelection();
-				window.getSelection()?.removeAllRanges();
-			},
-		}),
-	);
+function BubbleContent({ onAsk }: { onAsk: (data: SelectionData) => void }) {
+	const { selection, clearSelection } = useSelection();
+	const position = useTrackedBubbleRect();
 
 	const handleAsk = () => {
 		if (!selection) {
 			return;
 		}
-		capturedSelection.current = selection;
-		const sel = { start: selection.start, end: selection.end, text: selection.text };
-		forkMutation.mutate({ shareId, type: contentType, selection: sel });
+		onAsk({ start: selection.start, end: selection.end, text: selection.text, range: selection.range });
+		clearSelection();
+		window.getSelection()?.removeAllRanges();
 	};
 
-	if (!selection) {
+	if (!selection || !position) {
 		return null;
 	}
-
-	const centerX = selection.rect.left + selection.rect.width / 2;
-	const top = selection.rect.top - 6;
 
 	return (
 		<div
 			style={{
 				position: 'fixed',
-				left: centerX,
-				top,
+				left: position.centerX,
+				top: position.top,
 				transform: 'translateX(-50%) translateY(-100%)',
 				zIndex: 50,
 			}}
@@ -72,10 +64,9 @@ function BubbleContent({ shareId, contentType }: { shareId: string; contentType:
 			<Button
 				type='button'
 				onClick={handleAsk}
-				disabled={forkMutation.isPending}
 				className='inline-flex items-center gap-1.5 rounded-lg border border-border bg-popover px-3 py-1.5 text-xs font-medium text-popover-foreground shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground'
 			>
-				{forkMutation.isPending ? <Spinner className='size-3.5' /> : <MessageCircle className='size-3.5' />}
+				<MessageCircle className='size-3.5' />
 				Ask
 			</Button>
 		</div>

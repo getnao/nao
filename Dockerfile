@@ -43,6 +43,11 @@ RUN npm run build
 # STAGE 4: Python/FastAPI builder
 # =============================================================================
 FROM python:3.12-slim AS python-builder
+
+# Optional CLI version override. When set, both pyproject.toml and __init__.py
+# are rewritten so the installed nao-core package reports this version.
+ARG NAO_CLI_VERSION=
+
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -58,6 +63,13 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 COPY cli ./cli
 
 WORKDIR /app/cli
+
+RUN if [ -n "$NAO_CLI_VERSION" ]; then \
+        sed -i "s/^version = \".*\"/version = \"$NAO_CLI_VERSION\"/" pyproject.toml && \
+        sed -i "s/^__version__ = \".*\"/__version__ = \"$NAO_CLI_VERSION\"/" nao_core/__init__.py && \
+        echo "Set nao-core version to $NAO_CLI_VERSION"; \
+    fi
+
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --system '.[all]'
 
@@ -80,6 +92,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-dejavu-core \
     git \
     libpq5 \
+    openssh-client \
     supervisor \
     unixodbc \
     && rm -rf /var/lib/apt/lists/*
@@ -110,6 +123,12 @@ COPY --from=deps --chown=nao:nao /app/node_modules ./node_modules
 # Copy backend and shared source (no build needed — Bun runs TS directly)
 COPY --chown=nao:nao apps/backend ./apps/backend
 COPY --chown=nao:nao apps/shared ./apps/shared
+
+# Lock down the license public key for production: strip the dev override
+# branch from apps/backend/src/services/license-public-key.ts so the
+# NAO_LICENSE_PUBLIC_KEY env var is a no-op in production images.
+RUN --mount=type=bind,source=docker/lock-license-key.mjs,target=/tmp/lock-license-key.mjs \
+    node /tmp/lock-license-key.mjs apps/backend/src/services/license-public-key.ts
 
 # Copy frontend build output
 COPY --from=frontend-builder --chown=nao:nao /app/apps/frontend/dist ./apps/frontend/dist

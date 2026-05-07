@@ -1,15 +1,13 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { useQuery } from '@tanstack/react-query';
 import { TeamsConfigSection } from '@/components/settings/teams-config-section';
-import { trpc } from '@/main';
+import { usePermissions } from '@/hooks/use-permissions';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/project/teams')({
 	component: ProjectTeamsTabPage,
 });
 
 function ProjectTeamsTabPage() {
-	const project = useQuery(trpc.project.getCurrent.queryOptions());
-	const isAdmin = project.data?.userRole === 'admin';
+	const { isAdmin } = usePermissions();
 
 	return <TeamsConfigSection isAdmin={isAdmin} />;
 }

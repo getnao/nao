@@ -100,7 +100,8 @@ def render_template(
     Raises:
         TemplateError: If template rendering fails.
     """
-    # Create Jinja environment with project as the loader path
+    import json
+
     env = Environment(
         loader=FileSystemLoader(str(project_path)),
         autoescape=False,
@@ -109,25 +110,15 @@ def render_template(
         keep_trailing_newline=True,
     )
 
-    # Register custom filters
-    import json
-
+    nao = create_nao_context(config, project_path=project_path)
     env.filters["to_json"] = lambda v, indent=None: json.dumps(v, indent=indent, default=str, ensure_ascii=False)
+    nao.file.register_filters(env)
 
-    # Create the nao context
-    nao = create_nao_context(config)
-
-    # Load and render the template
     template = env.get_template(str(template_path))
     rendered = template.render(nao=nao)
 
-    # Determine output path (remove .j2 extension)
-    output_path = project_path / str(template_path)[:-3]  # Remove .j2
-
-    # Ensure parent directory exists
+    output_path = project_path / str(template_path)[:-3]
     output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    # Write rendered content
     output_path.write_text(rendered)
 
     return output_path

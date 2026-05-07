@@ -8,7 +8,7 @@ import { renderToMarkdown } from '../lib/markdown';
 import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
-import { collectQueryData } from '../queries/shared-story.queries';
+import { getQueryDataFromCode } from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
 import { getDefaultModelId, resolveProviderModel } from '../utils/llm';
 import { MAX_OUTPUT_TOKENS } from './agent';
@@ -18,7 +18,7 @@ export async function executeLiveQuery(
 	chatId: string,
 	queryId: string,
 ): Promise<{ data: unknown[]; columns: string[] }> {
-	const query = await storyQueries.findSqlQueryById(chatId, queryId);
+	const query = await storyQueries.getSqlQueryById(chatId, queryId);
 	if (!query) {
 		throw new Error(`Query ${queryId} not found in chat ${chatId}`);
 	}
@@ -47,7 +47,7 @@ export async function refreshStoryData(chatId: string, slug: string): Promise<Re
 		throw new Error('Story not found');
 	}
 
-	const sqlQueries = await storyQueries.collectSqlQueries(chatId, version.code);
+	const sqlQueries = await storyQueries.getSqlQueriesFromCode(chatId, version.code);
 	if (Object.keys(sqlQueries).length === 0) {
 		return { queryData: {} };
 	}
@@ -97,7 +97,7 @@ export async function getStoryQueryData(
 	cacheSchedule: string | null,
 ): Promise<StoryQueryDataResult> {
 	if (!isLive) {
-		return { queryData: await collectQueryData(chatId, code), cachedAt: null };
+		return { queryData: await getQueryDataFromCode(chatId, code), cachedAt: null };
 	}
 
 	const cache = await storyQueries.getStoryDataCache(chatId, slug);
@@ -116,7 +116,7 @@ export async function getStoryQueryData(
 		if (cache) {
 			return { queryData: cache.queryData, cachedAt: cache.cachedAt };
 		}
-		return { queryData: await collectQueryData(chatId, code), cachedAt: null };
+		return { queryData: await getQueryDataFromCode(chatId, code), cachedAt: null };
 	}
 }
 

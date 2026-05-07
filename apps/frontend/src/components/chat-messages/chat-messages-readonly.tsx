@@ -2,6 +2,7 @@ import { memo, useMemo } from 'react';
 import { ThumbsDown, ThumbsUp } from 'lucide-react';
 import { UserMessageBubble } from './user-message';
 import type { ForkMetadata, UIMessage } from '@nao/backend/chat';
+import { SelectionCitationExcerpt } from '@/components/selection-citation-excerpt';
 import { checkAssistantMessageHasContent, groupMessages, groupToolCalls } from '@/lib/ai';
 import { cn } from '@/lib/utils';
 import {
@@ -154,12 +155,7 @@ const AssistantMessageReadonly = memo(({ message }: { message: UIMessage }) => {
 const CitationBlockReadonly = ({ citation }: { citation: { id: string; citation: string; text: string } }) => {
 	return (
 		<div className='px-4 py-3 border border-border bg-background shrink-0 rounded-xl'>
-			<div className='flex items-center justify-between mb-1.5'>
-				<p className='text-[11px] text-muted-foreground font-mono tracking-tight'>{citation.citation}</p>
-			</div>
-			<blockquote className='text-xs text-foreground/80 italic leading-relaxed line-clamp-3 border-l-2 border-primary/50 pl-3'>
-				&ldquo;{citation.text}&rdquo;
-			</blockquote>
+			<SelectionCitationExcerpt label={citation.citation} text={citation.text} maxLength={0} />
 		</div>
 	);
 };

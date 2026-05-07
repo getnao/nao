@@ -14,7 +14,7 @@ import * as imageQueries from '../queries/image.queries';
 import * as projectQueries from '../queries/project.queries';
 import { WhatsappConfig } from '../queries/project-whatsapp-config.queries';
 import * as projectWhatsappLinkQueries from '../queries/project-whatsapp-link.queries';
-import { get as getUser, getByMessagingProviderCode } from '../queries/user.queries';
+import { getUser, getUserByMessagingProviderCode } from '../queries/user.queries';
 import { UIChat, UIMessage, UIMessagePart } from '../types/chat';
 import { ConversationContext, StreamState, ToolCallEntry } from '../types/messaging-provider';
 import { createChatTitle } from '../utils/ai';
@@ -124,7 +124,7 @@ class WhatsappService {
 			await this._validateUserAccess(ctx);
 			await this._saveOrUpdateUserMessage(ctx);
 
-			const [chat] = await chatQueries.loadChat(ctx.chatId);
+			const [chat] = await chatQueries.getChat(ctx.chatId);
 			if (!chat) {
 				throw new Error('Chat not found after saving message');
 			}
@@ -168,7 +168,7 @@ class WhatsappService {
 			return;
 		}
 
-		const user = await getByMessagingProviderCode(code);
+		const user = await getUserByMessagingProviderCode(code);
 		if (!user) {
 			await thread.post(
 				'❌ Invalid linking code. Copy the latest Linking Code from Settings > Project > WhatsApp and send `/login <your-linking-code>` again.',

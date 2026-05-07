@@ -1,0 +1,83 @@
+# semantics/semantic.yaml
+#
+# Single source of truth for the project's dimensions and metrics. The nao agent
+# reads this file to resolve any metric or dimension reference. Keep everything
+# here — do not split into per-metric files.
+
+dimensions:
+    - name: date
+      type: date
+      description: Calendar date. Use this for any time-based slicing.
+
+    - name: plan
+      type: categorical
+      description: Subscription plan tier.
+      values: [free, pro, enterprise]
+
+    - name: country
+      type: categorical
+      description: User's billing country (ISO 3166-1 alpha-2).
+
+    - name: signup_week
+      type: date
+      description: ISO week of the user's signup. Used by cohort-based metrics.
+
+    - name: acquisition_channel
+      type: categorical
+      description: How the user first reached the product.
+      values: [organic, paid_search, paid_social, referral, direct, other]
+
+    # Add one block per project dimension.
+
+metrics:
+    - name: mrr
+      definition: Monthly Recurring Revenue from active paying subscriptions, in USD.
+      source:
+          table: fct_stripe_mrr
+          column: mrr_amount
+          aggregation: SUM # SUM | COUNT | COUNT_DISTINCT | AVG | MIN | MAX
+      grain: month # day | week | month | quarter | year
+      dimensions: [date, plan, country]
+      filters:
+          - "status = 'active'"
+      notes: |
+          - Always query at month grain or above; daily MRR is not meaningful.
+          - Excludes one-time payments, refunds, and trial revenue.
+
+    - name: active_users
+      definition: Distinct users with at least one event in the period.
+      source:
+          table: fct_users_activity_daily
+          column: user_id
+          aggregation: COUNT_DISTINCT
+      grain: day
+      dimensions: [date, plan, country]
+
+    # ---- Advanced example: a derived, cohort-scoped metric with a custom formula.
+    - name: conversion_rate_signup_to_paid
+      definition: |
+          Share of users who signed up in the period and became paying within 30 days.
+          Cohort-based: each user is counted in the period of their signup, not their
+          conversion.
+      type: derived # simple (single source aggregation) | derived (custom formula) | window (rolling)
+      source:
+          table: fct_signup_funnel
+          filters:
+              - 'signed_up_at IS NOT NULL'
+      formula: |
+          COUNT(DISTINCT IF(
+            converted_at IS NOT NULL
+            AND DATE_DIFF(converted_at, signed_up_at, DAY) <= 30,
+            user_id, NULL
+          ))
+          / NULLIF(COUNT(DISTINCT user_id), 0)
+      grain: week
+      cohort_anchor: signed_up_at # which date defines the cohort window
+      dimensions: [signup_week, plan, country, acquisition_channel]
+      notes: |
+          - Cohort is based on `signed_up_at` week, never `converted_at`.
+          - 30-day conversion window is fixed. If the user asks for a different window,
+            flag the deviation in the answer rather than silently changing it.
+          - Always returned as a 0.0-1.0 float, not a 0-100 percentage.
+
+    # Add one block per project metric.

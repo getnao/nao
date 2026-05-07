@@ -1,22 +1,19 @@
-import { useNavigate, useParams } from '@tanstack/react-router';
-import { useMutation } from '@tanstack/react-query';
-import { useMemo, useEffect, useCallback, useRef } from 'react';
 import { Chat as Agent, useChat } from '@ai-sdk/react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useNavigate, useParams } from '@tanstack/react-router';
 import { DefaultChatTransport } from 'ai';
-import { useMemoObject } from './useMemoObject';
-import { usePrevRef } from './use-prev';
-import { useLocalStorage } from './use-local-storage';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useChatId } from './use-chat-id';
-import type { FileUIPart, InferUIMessageChunk } from 'ai';
+import { useLocalStorage } from './use-local-storage';
+import { usePrevRef } from './use-prev';
+import { useMemoObject } from './useMemoObject';
 import type { UseChatHelpers } from '@ai-sdk/react';
 import type { UIMessage } from '@nao/backend/chat';
+import type { CitationData, ImageUploadData, LlmSelectedModel } from '@nao/shared/types';
+import type { FileUIPart, InferUIMessageChunk } from 'ai';
 import type { MentionOption } from 'prompt-mentions';
-import type { ImageUploadData, LlmSelectedModel } from '@nao/shared/types';
-import { messageQueueStore } from '@/stores/chat-message-queue';
-import { chatActivityStore } from '@/stores/chat-activity';
-import { useChatQuery, useSetChat } from '@/queries/use-chat-query';
-import { trpc } from '@/main';
-import { agentService } from '@/services/agents';
+
+import { getActiveProjectId } from '@/lib/active-project';
 import {
 	checkIsAgentRunning,
 	extractImagesFromMessage,
@@ -25,9 +22,12 @@ import {
 	NEW_CHAT_ID,
 	parseBudgetError,
 } from '@/lib/ai';
-import { useSetChatList } from '@/queries/use-chat-list-query';
 import { createLocalStorage } from '@/lib/local-storage';
-import { getActiveProjectId } from '@/lib/active-project';
+import { trpc } from '@/main';
+import { useChatQuery, useSetChat } from '@/queries/use-chat-query';
+import { agentService } from '@/services/agents';
+import { chatActivityStore } from '@/stores/chat-activity';
+import { messageQueueStore } from '@/stores/chat-message-queue';
 
 export interface AgentHelpers {
 	chatId: string | undefined;
@@ -50,9 +50,12 @@ export interface AgentHelpers {
 export interface SendMessageArgs {
 	text: string;
 	images?: ImageUploadData[];
+	citation?: CitationData;
 }
 
 export const selectedModelStorage = createLocalStorage<LlmSelectedModel>('nao-selected-model');
+
+const agentCitationStore = new WeakMap<Agent<UIMessage>, CitationData | undefined>();
 
 export const useAgent = ({ disableNavigation = false }: { disableNavigation?: boolean } = {}): AgentHelpers => {
 	const navigate = useNavigate();
@@ -61,7 +64,7 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 
 	const [selectedModel, setSelectedModel] = useLocalStorage(selectedModelStorage);
 	const setChat = useSetChat();
-	const setChatList = useSetChatList();
+	const queryClient = useQueryClient();
 
 	const chatIdRef = useRef(chatId);
 	chatIdRef.current = chatId;
@@ -86,31 +89,33 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 		const handleAgentDataPart = (dataPart: InferUIMessageChunk<UIMessage>, agent: Agent<UIMessage>) => {
 			if (dataPart.type === 'data-newChat') {
 				const newChat = dataPart.data;
-				messageQueueStore.moveQueue(agentId, newChat.id);
-				agentService.moveAgent(agentId, newChat.id);
-				agentId = newChat.id;
-				setChat({ chatId: newChat.id }, { ...newChat, messages: [] });
-				setChatList((old) => ({ chats: [newChat, ...(old?.chats || [])] }));
-				if (!disableNavigation) {
-					navigate({ to: '/$chatId', params: { chatId: newChat.id }, state: { fromMessageSend: true } });
+				if (agentId !== newChat.id) {
+					messageQueueStore.moveQueue(agentId, newChat.id);
+					agentService.moveAgent(agentId, newChat.id);
+					agentId = newChat.id;
+					setChat({ chatId: newChat.id }, { ...newChat, messages: [] });
+					if (!disableNavigation) {
+						navigate({ to: '/$chatId', params: { chatId: newChat.id }, state: { fromMessageSend: true } });
+					}
 				}
+				queryClient.invalidateQueries({ queryKey: [['chat', 'listGrouped']] });
 				return;
 			}
 
 			if (dataPart.type === 'data-chatTitleUpdate') {
 				const { title } = dataPart.data;
 				setChat({ chatId: agentId }, (prev) => (prev ? { ...prev, title } : prev));
-				setChatList((old) => ({
-					chats: (old?.chats ?? []).map((c) => (c.id === agentId ? { ...c, title } : c)),
-				}));
+				queryClient.invalidateQueries({ queryKey: [['chat', 'listGrouped']] });
 				return;
 			}
 
 			if (dataPart.type === 'data-newUserMessage') {
 				const { newId } = dataPart.data;
+				const citation = agentCitationStore.get(newAgent);
+				agentCitationStore.delete(newAgent);
 				const lastUserMessageIndex = getLastUserMessageIdx(agent.messages);
 				agent.messages = agent.messages.map((message, idx) =>
-					idx === lastUserMessageIndex ? { ...message, id: newId } : message,
+					idx === lastUserMessageIndex ? { ...message, id: newId, ...(citation && { citation }) } : message,
 				);
 			}
 		};
@@ -126,6 +131,7 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 
 					const mentions = mentionsRef.current;
 					mentionsRef.current = [];
+					const citation = agentCitationStore.get(newAgent);
 					const images = extractImagesFromMessage(messageToSend);
 					return {
 						headers: getActiveProjectId() ? { 'x-nao-project-id': getActiveProjectId()! } : undefined,
@@ -135,6 +141,7 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 							message: {
 								text: getTextFromUserMessageOrThrow(messageToSend),
 								images: images.length > 0 ? images : undefined,
+								citation,
 							},
 							model: selectedModelRef.current ?? undefined,
 							mentions: mentions.length > 0 ? mentions : undefined,
@@ -169,7 +176,7 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 		}
 
 		return agentService.registerAgent(agentId, newAgent);
-	}, [chatId, disableNavigation, navigate, setChat, setChatList]);
+	}, [chatId, disableNavigation, navigate, setChat, queryClient]);
 
 	const { status, error, clearError, sendMessage, setMessages, messages } = useChat({ chat: agentInstance });
 
@@ -220,15 +227,16 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 	);
 
 	const queueOrSendMessage = useCallback(
-		async ({ text, images }: SendMessageArgs) => {
+		async ({ text, images, citation }: SendMessageArgs) => {
 			if (!text.trim() && !images?.length) {
 				return;
 			}
 
 			if (!isRunning) {
+				agentCitationStore.set(agentInstance, citation);
 				const files = imagesToFileUIParts(images);
 				return handleSendMessage({
-					text: text || 'Describe this image',
+					text: text || (images?.length ? 'Describe this image' : ''),
 					files: files.length > 0 ? files : undefined,
 				});
 			}
@@ -242,7 +250,7 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 				images,
 			});
 		},
-		[isRunning, handleSendMessage],
+		[isRunning, handleSendMessage, agentInstance],
 	);
 
 	const submitQueuedMessageNow = useCallback(

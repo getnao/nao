@@ -7,6 +7,7 @@ export interface SettingsSearchEntry {
 	keywords?: string[];
 	adminOnly?: boolean;
 	cloudHidden?: boolean;
+	licenseRequired?: boolean;
 }
 
 export const settingsSearchIndex: SettingsSearchEntry[] = [
@@ -197,6 +198,30 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		keywords: ['slack bot', 'slack app', 'slack webhook', 'messaging'],
 		adminOnly: true,
 	},
+	{
+		page: '/settings/project/slack',
+		pageLabel: 'Slack',
+		title: 'Auto-create users from Slack',
+		description: 'Automatically provision nao accounts for Slack senders whose email domain is in the allowlist.',
+		keywords: ['sign up', 'provision', 'onboarding', 'domain', 'allowlist', 'whitelist', 'auto create'],
+		adminOnly: true,
+	},
+	{
+		page: '/settings/project/slack',
+		pageLabel: 'Slack',
+		title: 'Slack transport mode',
+		description: 'Switch between Webhook and Socket Mode for Slack delivery.',
+		keywords: [
+			'slack socket mode',
+			'slack websocket',
+			'private vpc',
+			'air-gapped',
+			'firewall',
+			'app token',
+			'xapp',
+		],
+		adminOnly: true,
+	},
 
 	// ── Project > Microsoft Teams ────────────────────────────
 	{
@@ -306,6 +331,29 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		keywords: ['error', 'warn', 'debug', 'info', 'terminal', 'console'],
 		adminOnly: true,
 		cloudHidden: true,
+	},
+
+	// ── Enterprise ───────────────────────────────────────────
+	{
+		page: '/settings/enterprise',
+		pageLabel: 'Enterprise',
+		title: 'License',
+		description: 'View the status of your nao Enterprise license.',
+		keywords: ['enterprise', 'license', 'subscription', 'activation', 'sso', 'nao_license', 'ee'],
+		adminOnly: true,
+		cloudHidden: true,
+		licenseRequired: true,
+	},
+	{
+		page: '/settings/enterprise',
+		pageLabel: 'Enterprise',
+		section: 'Features',
+		title: 'Enterprise features',
+		description: 'Enterprise capabilities enabled by your license.',
+		keywords: ['features', 'sso', 'enterprise', 'plan'],
+		adminOnly: true,
+		cloudHidden: true,
+		licenseRequired: true,
 	},
 
 	// ── Memory (user-level) ──────────────────────────────────

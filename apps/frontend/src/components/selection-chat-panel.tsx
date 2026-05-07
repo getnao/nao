@@ -6,6 +6,7 @@ import { useMutation } from '@tanstack/react-query';
 import type React from 'react';
 
 import type { SelectionAnchor } from '@/contexts/text-selection';
+import { SelectionCitationExcerpt } from '@/components/selection-citation-excerpt';
 import { AgentProvider } from '@/contexts/agent.provider';
 import { useChatQuery } from '@/queries/use-chat-query';
 import { Button } from '@/components/ui/button';
@@ -291,7 +292,6 @@ export function PanelHeader({
 	const chat = useChatQuery({ chatId: anchor.chatId });
 	const forkMetadata = chat.data?.forkMetadata;
 	const selectionText = forkMetadata?.selectionText ?? '';
-	const displayed = selectionText.length > 220 ? `${selectionText.slice(0, 220)}\u2026` : selectionText;
 
 	return (
 		<div className='flex flex-col w-full'>
@@ -323,14 +323,7 @@ export function PanelHeader({
 			</div>
 			<div className='px-4 mt-1'>
 				<div className='px-4 py-3 border border-border bg-background rounded-xl'>
-					<p className='text-[11px] text-muted-foreground font-mono tracking-tight mb-1.5'>
-						@chars {anchor.start}–{anchor.end}
-					</p>
-					{displayed && (
-						<blockquote className='text-xs text-foreground/80 italic leading-relaxed line-clamp-3 border-l-2 border-primary/50 pl-3'>
-							“{displayed}”
-						</blockquote>
-					)}
+					<SelectionCitationExcerpt start={anchor.start} end={anchor.end} text={selectionText} />
 				</div>
 			</div>
 		</div>

@@ -17,6 +17,7 @@ import { SettingsCard } from '@/components/ui/settings-card';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useSession } from '@/lib/auth-client';
 import { trpc } from '@/main';
 
@@ -27,9 +28,8 @@ export const Route = createFileRoute('/_sidebar-layout/settings/project/team')({
 function ProjectTeamTabPage() {
 	const { data: session } = useSession();
 	const queryClient = useQueryClient();
-	const project = useQuery(trpc.project.getCurrent.queryOptions());
-	const usersWithRoles = useQuery(trpc.project.getAllUsersWithRoles.queryOptions());
-	const isAdmin = project.data?.userRole === 'admin';
+	const usersWithRoles = useQuery(trpc.project.listAllUsersWithRoles.queryOptions());
+	const { isAdmin } = usePermissions();
 
 	const [isAddOpen, setIsAddOpen] = useState(false);
 	const [editMember, setEditMember] = useState<TeamMember | null>(null);
@@ -51,7 +51,7 @@ function ProjectTeamTabPage() {
 	const resetPassword = useMutation(trpc.account.resetPassword.mutationOptions());
 
 	const invalidateMembers = useCallback(() => {
-		queryClient.invalidateQueries({ queryKey: trpc.project.getAllUsersWithRoles.queryKey() });
+		queryClient.invalidateQueries({ queryKey: trpc.project.listAllUsersWithRoles.queryKey() });
 	}, [queryClient]);
 
 	const handleAdd = async (data: { email: string; name?: string }) => {

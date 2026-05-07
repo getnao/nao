@@ -21,10 +21,13 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useSession } from '@/lib/auth-client';
+import { requireNonViewer } from '@/lib/require-admin';
 import { trpc } from '@/main';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/organization')({
+	beforeLoad: requireNonViewer,
 	component: OrganizationPage,
 });
 
@@ -34,7 +37,7 @@ function OrganizationPage() {
 	const org = useQuery(trpc.organization.get.queryOptions());
 	const projectsQuery = useQuery(trpc.organization.getProjects.queryOptions());
 	const membersQuery = useQuery(trpc.organization.getMembers.queryOptions());
-	const isAdmin = org.data?.role === 'admin';
+	const { isOrgAdmin } = usePermissions();
 
 	const githubAvailable = useQuery(trpc.github.isAvailable.queryOptions());
 	const githubStatus = useQuery({
@@ -137,7 +140,7 @@ function OrganizationPage() {
 					title='Members'
 					divide
 					action={
-						isAdmin ? (
+						isOrgAdmin ? (
 							<Button variant='secondary' size='sm' onClick={() => setIsAddOpen(true)}>
 								<Plus />
 								Add Member
@@ -151,7 +154,7 @@ function OrganizationPage() {
 						<TeamMembersList
 							members={members}
 							currentUserId={session?.user?.id}
-							isAdmin={isAdmin}
+							isAdmin={isOrgAdmin}
 							onEdit={setEditMember}
 							onRemove={setRemoveMember}
 							extraActions={(member) => (
@@ -191,7 +194,7 @@ function OrganizationPage() {
 						</div>
 					)}
 				</SettingsCard>
-				<OrgApiKeys isAdmin={isAdmin} />
+				<OrgApiKeys isAdmin={isOrgAdmin} />
 			</div>
 
 			<AddMemberDialog
@@ -205,7 +208,7 @@ function OrganizationPage() {
 				open={!!editMember}
 				onOpenChange={(open) => !open && setEditMember(null)}
 				member={editMember}
-				isAdmin={isAdmin}
+				isAdmin={isOrgAdmin}
 				availableRoles={USER_ROLES}
 				onSubmit={handleEdit}
 			/>

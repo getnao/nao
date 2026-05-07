@@ -1,20 +1,21 @@
+import { CHAT_FILTER_OPTIONS, CHAT_GROUP_BY_OPTIONS, type GroupedChatListResponse } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
+import type { SearchChatResult } from '../queries/chat.queries';
 import * as chatQueries from '../queries/chat.queries';
-import { type SearchChatResult } from '../queries/chat.queries';
 import { agentService } from '../services/agent';
 import { posthog, PostHogEvent } from '../services/posthog';
-import { type ContextUsage, type ForkMetadata, type ListChatResponse, type UIChat } from '../types/chat';
+import type { ContextUsage, ForkMetadata, UIChat } from '../types/chat';
 import { llmProviderSchema } from '../types/llm';
 import { getChatContextUsage } from '../utils/chat-context-usage';
-import { ownedResourceProcedure, protectedProcedure } from './trpc';
+import { ownedResourceProcedure, projectProtectedProcedure, protectedProcedure } from './trpc';
 
 const chatOwnerProcedure = ownedResourceProcedure(chatQueries.getChatOwnerId, 'chat');
 
 export const chatRoutes = {
 	get: protectedProcedure.input(z.object({ chatId: z.string() })).query(async ({ input, ctx }): Promise<UIChat> => {
-		const [chat, userId] = await chatQueries.loadChat(input.chatId, { includeFeedback: true });
+		const [chat, userId] = await chatQueries.getChat(input.chatId, { includeFeedback: true });
 		if (!chat) {
 			throw new TRPCError({ code: 'NOT_FOUND', message: `Chat with id ${input.chatId} not found.` });
 		}
@@ -24,9 +25,16 @@ export const chatRoutes = {
 		return chat;
 	}),
 
-	list: protectedProcedure.query(async ({ ctx }): Promise<ListChatResponse> => {
-		return chatQueries.listUserChats(ctx.user.id);
-	}),
+	listGrouped: projectProtectedProcedure
+		.input(
+			z.object({
+				groupBy: z.enum(CHAT_GROUP_BY_OPTIONS).default('none'),
+				filters: z.array(z.enum(CHAT_FILTER_OPTIONS)).default(['all']),
+			}),
+		)
+		.query(async ({ input, ctx }): Promise<GroupedChatListResponse> => {
+			return chatQueries.listGroupedChats(ctx.user.id, input.groupBy, input.filters);
+		}),
 
 	search: protectedProcedure
 		.input(z.object({ query: z.string().min(1).max(255), limit: z.number().min(1).max(50).optional() }))

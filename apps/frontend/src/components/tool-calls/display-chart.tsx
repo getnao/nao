@@ -2,7 +2,6 @@ import { memo, useCallback, useMemo, useState } from 'react';
 import { buildChart, labelize } from '@nao/shared';
 import { Download, FilePlus } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useParams } from '@tanstack/react-router';
 import { useOptionalAgentContext } from '../../contexts/agent.provider';
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from '../ui/chart';
 import { TextShimmer } from '../ui/text-shimmer';
@@ -17,6 +16,7 @@ import type { UIMessage } from '@nao/backend/chat';
 import type { DateRange } from '@/lib/charts.utils';
 import { filterByDateRange, sortByDateKey, DATE_RANGE_OPTIONS, toKey } from '@/lib/charts.utils';
 import { findStoryIds } from '@/lib/story.utils';
+import { useChatId } from '@/hooks/use-chat-id';
 import { useSidePanel } from '@/contexts/side-panel';
 import { StoryViewer } from '@/components/side-panel/story-viewer';
 import { trpc } from '@/main';
@@ -32,7 +32,7 @@ export const DisplayChartToolCall = ({
 }: ToolCallComponentProps<'display_chart'>) => {
 	const agent = useOptionalAgentContext();
 	const messages = agent?.messages ?? EMPTY_MESSAGES;
-	const { chatId } = useParams({ strict: false });
+	const chatId = useChatId();
 	const queryClient = useQueryClient();
 	const { open: openSidePanel, currentStorySlug, isVisible } = useSidePanel();
 	const config = state !== 'input-streaming' ? input : undefined;
@@ -144,14 +144,22 @@ export const DisplayChartToolCall = ({
 	}
 
 	const handleAddToStory = async () => {
-		const targetId = isVisible && currentStorySlug ? currentStorySlug : storyIds[storyIds.length - 1];
+		const latestStoryId = storyIds[storyIds.length - 1];
+		// Prefer the currently-visible story slug, but only if it's a real story
+		// from this chat — the side panel's currentStorySlug can lag behind (e.g.
+		// it was set from a partial streamed slug during the story tool's
+		// input-streaming phase) and would otherwise point to a non-existent
+		// story.
+		const targetId =
+			isVisible && currentStorySlug && storyIds.includes(currentStorySlug) ? currentStorySlug : latestStoryId;
 		if (!targetId || !config || !chatId) {
 			return;
 		}
 
-		const data = await queryClient.fetchQuery(
-			trpc.story.listVersions.queryOptions({ chatId, storySlug: targetId }),
-		);
+		const data = await queryClient.fetchQuery({
+			...trpc.story.listVersions.queryOptions({ chatId, storySlug: targetId }),
+			staleTime: 0,
+		});
 		const latest = data.versions.at(-1);
 		if (!latest) {
 			return;

@@ -10,10 +10,16 @@ async function loadTools(variant: 'posix' | 'win32') {
 	const pathModule = await import('path');
 	const impl = pathModule[variant];
 	vi.doMock('path', () => ({ ...impl, default: impl }));
+	const statSync = () => {
+		const err = new Error('ENOENT') as NodeJS.ErrnoException;
+		err.code = 'ENOENT';
+		throw err;
+	};
 	vi.doMock('fs', () => ({
-		default: { existsSync: () => false, readFileSync: () => '' },
+		default: { existsSync: () => false, readFileSync: () => '', statSync },
 		existsSync: () => false,
 		readFileSync: () => '',
+		statSync,
 	}));
 
 	const tools = await import('../src/utils/tools');
@@ -264,5 +270,78 @@ describe('isWithinProjectFolder', () => {
 				false,
 			);
 		});
+	});
+});
+
+// ---------------------------------------------------------------------------
+// loadNaoignorePatterns cache invalidation
+// ---------------------------------------------------------------------------
+
+describe('loadNaoignorePatterns cache invalidation', () => {
+	async function loadToolsWithFs(files: { content: string; mtimeMs: number; size?: number }[]) {
+		vi.resetModules();
+
+		const pathModule = await import('path');
+		const impl = pathModule.posix;
+		vi.doMock('path', () => ({ ...impl, default: impl }));
+
+		let callIndex = 0;
+		const nextFile = () => {
+			const file = files[Math.min(callIndex, files.length - 1)];
+			callIndex += 1;
+			return file;
+		};
+
+		const statSync = () => {
+			const file = nextFile();
+			return { mtimeMs: file.mtimeMs, size: file.size ?? file.content.length };
+		};
+		const readFileSync = () => nextFile().content;
+
+		vi.doMock('fs', () => ({
+			default: { existsSync: () => true, readFileSync, statSync },
+			existsSync: () => true,
+			readFileSync,
+			statSync,
+		}));
+
+		const tools = await import('../src/utils/tools');
+		tools.clearNaoignoreCache();
+		return tools;
+	}
+
+	it('returns cached patterns when the file signature is unchanged', async () => {
+		const { loadNaoignorePatterns } = await loadToolsWithFs([
+			{ content: 'templates/\n', mtimeMs: 1000 },
+			{ content: 'templates/\n', mtimeMs: 1000 },
+			{ content: 'templates/\n', mtimeMs: 1000 },
+		]);
+
+		expect(loadNaoignorePatterns('/project')).toEqual(['templates/']);
+		expect(loadNaoignorePatterns('/project')).toEqual(['templates/']);
+	});
+
+	it('reloads patterns when the file mtime changes', async () => {
+		const { loadNaoignorePatterns } = await loadToolsWithFs([
+			{ content: 'templates/\n', mtimeMs: 1000 },
+			{ content: 'templates/\n', mtimeMs: 1000 },
+			{ content: '*.j2\ntests/\n', mtimeMs: 2000 },
+			{ content: '*.j2\ntests/\n', mtimeMs: 2000 },
+		]);
+
+		expect(loadNaoignorePatterns('/project')).toEqual(['templates/']);
+		expect(loadNaoignorePatterns('/project')).toEqual(['*.j2', 'tests/']);
+	});
+
+	it('reloads patterns when the file size changes', async () => {
+		const { loadNaoignorePatterns } = await loadToolsWithFs([
+			{ content: 'templates/\n', mtimeMs: 1000, size: 11 },
+			{ content: 'templates/\n', mtimeMs: 1000, size: 11 },
+			{ content: 'tests/\n', mtimeMs: 1000, size: 7 },
+			{ content: 'tests/\n', mtimeMs: 1000, size: 7 },
+		]);
+
+		expect(loadNaoignorePatterns('/project')).toEqual(['templates/']);
+		expect(loadNaoignorePatterns('/project')).toEqual(['tests/']);
 	});
 });

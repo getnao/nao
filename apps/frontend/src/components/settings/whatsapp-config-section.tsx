@@ -16,7 +16,7 @@ interface WhatsappConfigSectionProps {
 export function WhatsappConfigSection({ isAdmin }: WhatsappConfigSectionProps) {
 	const queryClient = useQueryClient();
 	const whatsappConfig = useQuery(trpc.project.getWhatsappConfig.queryOptions());
-	const { data: availableModels } = useQuery(trpc.project.getAvailableModels.queryOptions());
+	const { data: availableModels } = useQuery(trpc.project.listAvailableTranscribeModels.queryOptions());
 
 	const [isEditing, setIsEditing] = useState(false);
 	type AvailableModel = NonNullable<typeof availableModels>[number];

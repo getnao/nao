@@ -22,6 +22,7 @@ export interface SelectionState {
 	text: string;
 	start: number;
 	end: number;
+	range: Range;
 	rect: DOMRect;
 	containerLeft: number;
 }
@@ -129,7 +130,7 @@ export const SelectionProvider = ({
 		const rect = getSelectionBoundingRect(range) ?? range.getBoundingClientRect();
 		const containerLeft = getContainerLeft(range);
 
-		setSelection({ text, start, end, rect, containerLeft });
+		setSelection({ text, start, end, range, rect, containerLeft });
 	}, []);
 
 	const addAnchor = useCallback(

@@ -64,7 +64,7 @@ export const storyRoutes = {
 				};
 			}
 
-			const versions = await storyQueries.listVersions(input.chatId, input.storySlug);
+			const versions = await storyQueries.listStoryVersions(input.chatId, input.storySlug);
 			return {
 				title: story.title,
 				isLive: story.isLive,
@@ -92,7 +92,7 @@ export const storyRoutes = {
 			}),
 		)
 		.mutation(async ({ input }) => {
-			return storyQueries.createVersion({
+			return storyQueries.createStoryVersion({
 				chatId: input.chatId,
 				slug: input.storySlug,
 				title: input.title,
@@ -114,7 +114,7 @@ export const storyRoutes = {
 			}),
 		)
 		.mutation(async ({ input }) => {
-			await storyQueries.updateLiveSettings(input.chatId, input.storySlug, {
+			await storyQueries.updateStoryLiveSettings(input.chatId, input.storySlug, {
 				isLive: input.isLive,
 				isLiveTextDynamic: input.isLiveTextDynamic,
 				cacheSchedule: input.cacheSchedule,
@@ -166,7 +166,7 @@ export const storyRoutes = {
 					}
 				}),
 			);
-			await storyQueries.archiveMany(input.stories.map((s) => ({ chatId: s.chatId, slug: s.storySlug })));
+			await storyQueries.archiveManyStories(input.stories.map((s) => ({ chatId: s.chatId, slug: s.storySlug })));
 		}),
 
 	download: chatOwnerProcedure

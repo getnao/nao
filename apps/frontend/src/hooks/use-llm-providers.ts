@@ -46,7 +46,9 @@ export function useLlmProviders() {
 	const invalidateQueries = async () => {
 		await Promise.all([
 			queryClient.invalidateQueries({ queryKey: trpc.project.getLlmConfigs.queryOptions().queryKey }),
-			queryClient.invalidateQueries({ queryKey: trpc.project.getAvailableModels.queryOptions().queryKey }),
+			queryClient.invalidateQueries({
+				queryKey: trpc.project.listAvailableTranscribeModels.queryOptions().queryKey,
+			}),
 			queryClient.invalidateQueries({ queryKey: trpc.project.getKnownTranscribeModels.queryOptions().queryKey }),
 		]);
 	};

@@ -31,6 +31,6 @@ export const transcribeRoutes = {
 		}),
 
 	getModels: projectProtectedProcedure.query(async ({ ctx }) => {
-		return transcribeService.getAvailableModels(ctx.project.id);
+		return transcribeService.listAvailableTranscribeModels(ctx.project.id);
 	}),
 };

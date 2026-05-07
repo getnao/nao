@@ -22,12 +22,7 @@ export function DangerZone() {
 	const deleteAllNonStarred = useMutation(
 		trpc.chat.deleteAllNonStarred.mutationOptions({
 			onSuccess: (_data, _, __, ctx) => {
-				ctx.client.setQueryData(trpc.chat.list.queryKey(), (prev) => {
-					if (!prev) {
-						return prev;
-					}
-					return { ...prev, chats: prev.chats.filter((c) => c.isStarred) };
-				});
+				ctx.client.invalidateQueries({ queryKey: [['chat', 'listGrouped']] });
 				setIsOpen(false);
 				navigate({ to: '/' });
 			},

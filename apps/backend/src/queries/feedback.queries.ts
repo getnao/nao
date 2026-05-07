@@ -21,7 +21,7 @@ export const upsertFeedback = async (feedback: NewMessageFeedback): Promise<Mess
 	return result;
 };
 
-export const getRecentFeedbacks = async (projectId: string, limit = 10): Promise<FeedbackWithDetails[]> => {
+export const listRecentFeedbacks = async (projectId: string, limit = 10): Promise<FeedbackWithDetails[]> => {
 	// Aggregate text parts per message to avoid row duplication from the join
 	const aggregatedTextExpr =
 		dbConfig.dialect === Dialect.Postgres

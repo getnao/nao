@@ -1,0 +1,27 @@
+# tests/<test_name>.yaml
+#
+# One test per file. Files live directly under tests/ (flat, not subfoldered).
+#
+# Two authoring rules (see SKILL.md):
+#   1. The prompt reproduces real user behavior — short, vague, no table/column/
+#      method hints. Don't leak the answer in the question.
+#   2. Output column names in the SQL encode the expected FORMAT / UNIT, never
+#      the source. `churn_rate_float_0_1` not `churn_rate_from_fct_subscriptions`.
+
+name: churn_rate_last_quarter
+prompt: How's churn looking this quarter?
+sql: |
+    SELECT
+      SAFE_DIVIDE(churned, total) AS churn_rate_float_0_1
+    FROM (
+      SELECT
+        COUNTIF(churned_at IS NOT NULL) AS churned,
+        COUNT(*) AS total
+      FROM <project>.<schema>.fct_subscriptions
+      WHERE started_at < DATE_TRUNC(CURRENT_DATE, QUARTER)
+    );
+
+# Optional fields:
+# category: revenue | activity | conversion | churn | retention | ...
+# difficulty: easy | medium | hard
+# notes: why this test matters / what failure mode it catches

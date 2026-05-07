@@ -12,7 +12,10 @@
 		"./providers": "./src/agents/providers.ts",
 		"./log": "./src/types/log.ts",
 		"./provider-meta": "./src/agents/provider-meta.ts",
-		"./shared-chat": "./src/queries/shared-chat.queries.ts"
+		"./shared-chat": "./src/queries/shared-chat.queries.ts",
+		"./db": "./src/db/db.ts",
+		"./schema": "./src/db/abstractSchema.ts",
+		"./license-types": "./src/types/license.ts"
 	},
 	"scripts": {
 		"dev": "bun --watch src/index.ts",
@@ -62,6 +65,7 @@
 		"@openrouter/ai-sdk-provider": "^2.2.3",
 		"@pydantic/monty": "^0.0.7",
 		"@resvg/resvg-js": "^2.6.2",
+		"@slack/socket-mode": "^2.0.6",
 		"@slack/web-api": "^7.13.0",
 		"@trpc/server": "^11.8.1",
 		"@types/nodemailer": "^7.0.9",
@@ -81,6 +85,7 @@
 		"fastify-raw-body": "^5.0.0",
 		"fastify-type-provider-zod": "^6.1.0",
 		"gray-matter": "^4.0.3",
+		"jose": "^6.2.2",
 		"js-yaml": "^4.1.1",
 		"mcporter": "^0.7.3",
 		"minimatch": "^10.1.1",

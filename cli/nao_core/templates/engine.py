@@ -77,6 +77,12 @@ class TemplateEngine:
         self.env.filters["to_json"] = to_json
         self.env.filters["truncate_middle"] = truncate_middle
 
+        if self.project_path:
+            from .context import FileProvider
+
+            self._file_provider = FileProvider(self.project_path)
+            self._file_provider.register_filters(self.env)
+
     def _register_globals(self) -> None:
         """Register template global helper functions."""
         self.env.globals["prompt"] = self._prompt  # type: ignore[assignment]
@@ -123,6 +129,8 @@ class TemplateEngine:
                 return self._generate_ollama(model, prompt_text)
             if self.llm_config.provider == LLMProvider.BEDROCK:
                 return self._generate_bedrock(model, prompt_text)
+            if self.llm_config.provider == LLMProvider.VERTEX:
+                return self._generate_vertex(model, prompt_text)
         except ImportError as e:
             raise RuntimeError(
                 f"Provider '{self.llm_config.provider.value}' is not available in this environment: {e}"
@@ -171,6 +179,10 @@ class TemplateEngine:
             raise RuntimeError("Missing API key for Anthropic.")
 
         client = Anthropic(api_key=self.llm_config.api_key)
+        return self._run_anthropic_messages(client, model, prompt_text)
+
+    def _run_anthropic_messages(self, client: Any, model: str, prompt_text: str) -> str:
+        """Invoke an Anthropic-compatible client (direct or Vertex) and return the text."""
         response = client.messages.create(
             model=model,
             max_tokens=1024,
@@ -214,16 +226,28 @@ class TemplateEngine:
 
     def _generate_gemini(self, model: str, prompt_text: str) -> str:
         """Generate text via Google Gemini API."""
-        from nao_core.deps import require_dependency
-
-        require_dependency("google.genai", "gemini", "for Google Gemini LLM provider")
-        from google import genai
-        from google.genai import types
-
         if not self.llm_config or not self.llm_config.api_key:
             raise RuntimeError("Missing API key for Gemini.")
 
-        client = genai.Client(api_key=self.llm_config.api_key)
+        return self._run_genai_client(
+            {"api_key": self.llm_config.api_key},
+            model,
+            prompt_text,
+            extra="gemini",
+            purpose="for Google Gemini LLM provider",
+        )
+
+    def _run_genai_client(
+        self, client_kwargs: dict[str, Any], model: str, prompt_text: str, *, extra: str, purpose: str
+    ) -> str:
+        """Build a google-genai client (direct or Vertex) and return the generated text."""
+        from nao_core.deps import require_dependency
+
+        require_dependency("google.genai", extra, purpose)
+        from google import genai
+        from google.genai import types
+
+        client = genai.Client(**client_kwargs)
         response = client.models.generate_content(
             model=model,
             contents=prompt_text,
@@ -231,9 +255,9 @@ class TemplateEngine:
         )
 
         content = getattr(response, "text", None)
-        if content:
-            return str(content).strip()
-        raise RuntimeError("Empty response from model.")
+        if not content:
+            raise RuntimeError("Empty response from model.")
+        return str(content).strip()
 
     def _generate_ollama(self, model: str, prompt_text: str) -> str:
         """Generate text via local Ollama chat API."""
@@ -284,6 +308,94 @@ class TemplateEngine:
         if not content:
             raise RuntimeError("Empty response from model.")
         return content
+
+    def _generate_vertex(self, model: str, prompt_text: str) -> str:
+        """Generate text via Google Vertex AI (Gemini or Claude models)."""
+        if not self.llm_config:
+            raise RuntimeError("Missing LLM config for Vertex.")
+
+        project = self.llm_config.gcp_project or os.environ.get("GOOGLE_VERTEX_PROJECT")
+        location = self.llm_config.gcp_location or os.environ.get("GOOGLE_VERTEX_LOCATION") or "us-central1"
+
+        if not project:
+            raise RuntimeError(
+                "Missing GCP project for Vertex. Set `llm.gcp_project` in nao_config.yaml "
+                "or the GOOGLE_VERTEX_PROJECT env var."
+            )
+
+        credentials = self._build_vertex_credentials()
+
+        # Claude family on Vertex → Anthropic SDK.
+        if model.startswith("claude-"):
+            return self._generate_vertex_anthropic(model, prompt_text, project, location, credentials)
+
+        # Everything else (Gemini family) → google-genai.
+        return self._generate_vertex_gemini(model, prompt_text, project, location, credentials)
+
+    def _generate_vertex_gemini(
+        self, model: str, prompt_text: str, project: str, location: str, credentials: Any
+    ) -> str:
+        """Generate text via Gemini on Vertex AI using google-genai."""
+        client_kwargs: dict[str, Any] = {"vertexai": True, "project": project, "location": location}
+        if credentials is not None:
+            client_kwargs["credentials"] = credentials
+
+        return self._run_genai_client(
+            client_kwargs,
+            model,
+            prompt_text,
+            extra="gemini",
+            purpose="for Gemini models on Vertex AI",
+        )
+
+    def _generate_vertex_anthropic(
+        self, model: str, prompt_text: str, project: str, location: str, credentials: Any
+    ) -> str:
+        """Generate text via Claude on Vertex AI using the Anthropic SDK."""
+        from nao_core.deps import require_dependency
+
+        require_dependency("anthropic", "anthropic", "for Claude models on Vertex AI")
+        from anthropic import AnthropicVertex
+
+        client_kwargs: dict[str, Any] = {"project_id": project, "region": location}
+        if credentials is not None:
+            client_kwargs["credentials"] = credentials
+
+        client = AnthropicVertex(**client_kwargs)
+        return self._run_anthropic_messages(client, model, prompt_text)
+
+    def _build_vertex_credentials(self) -> Any:
+        """Build explicit GCP credentials from inline JSON or a key file.
+
+        Returns None when no credentials are configured, in which case the
+        Google libraries fall back to Application Default Credentials (ADC).
+        """
+        if not self.llm_config:
+            return None
+
+        json_str = self.llm_config.service_account_json
+        key_file = self.llm_config.key_file
+
+        if not json_str and not key_file:
+            return None
+
+        from nao_core.deps import require_dependency
+
+        require_dependency("google.oauth2", "gemini", "for Vertex AI authentication")
+        from google.oauth2 import service_account
+
+        scopes = ["https://www.googleapis.com/auth/cloud-platform"]
+
+        if json_str:
+            import json as json_lib
+
+            try:
+                info = json_lib.loads(json_str)
+            except json_lib.JSONDecodeError as e:
+                raise RuntimeError(f"Invalid `llm.service_account_json`: {e}") from e
+            return service_account.Credentials.from_service_account_info(info, scopes=scopes)
+
+        return service_account.Credentials.from_service_account_file(key_file, scopes=scopes)
 
     def render(self, template_name: str, **context: Any) -> str:
         """Render a template with the given context.

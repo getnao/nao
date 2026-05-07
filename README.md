@@ -179,6 +179,18 @@ See the [DockerHub page](https://hub.docker.com/r/getnao/nao) for more details.
 
 For end-to-end self-hosted deployment (for example on Cloud Run with PostgreSQL), see the [Deployment Guide](https://docs.getnao.io/nao-agent/self-hosting/deployment-guide).
 
+## 🧩 Skills
+
+Use nao skills to create your nao project and context with your favourite agent.
+
+Install the nao skill pack:
+
+```bash
+npx skills add getnao/nao
+```
+
+Docs on nao skills: https://docs.getnao.io/nao-agent/context-engineering/skills
+
 ## 👩🏻‍💻 Development
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, commands, and guidelines.

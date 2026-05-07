@@ -66,7 +66,7 @@ export const StoryPreview = memo(function StoryPreview({
 	);
 
 	return (
-		<div className='p-6 flex flex-col gap-4'>
+		<div data-story-content className='p-6 flex flex-col gap-4'>
 			<SegmentList
 				segments={segments}
 				versionKey={versionKey}

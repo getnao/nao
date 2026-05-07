@@ -34,4 +34,4 @@ const handleGithubSignIn = async () => {
 	});
 };
 
-export { handleGoogleSignIn, handleGithubSignIn };
+export { handleGithubSignIn, handleGoogleSignIn };

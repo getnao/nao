@@ -40,7 +40,7 @@ export const accountRoutes = {
 
 			await accountQueries.updateAccountPassword(account.id, hashedPassword, input.userId);
 
-			const user = await userQueries.get({ id: input.userId });
+			const user = await userQueries.getUser({ id: input.userId });
 
 			if (user) {
 				await emailService.sendEmail(user.email, buildResetPasswordEmail(user, userProject?.name, password));

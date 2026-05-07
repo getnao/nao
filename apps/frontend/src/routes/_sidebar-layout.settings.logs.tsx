@@ -45,7 +45,7 @@ function LogsPage() {
 	const terminalRef = useRef<HTMLDivElement>(null);
 
 	const logs = useQuery({
-		...trpc.log.getLogs.queryOptions({
+		...trpc.log.listLogs.queryOptions({
 			level: level === 'all' ? undefined : level,
 			source: source === 'all' ? undefined : source,
 			limit: 200,

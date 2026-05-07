@@ -1,0 +1,13 @@
+# GitHub handles approved to bypass contribution auto-close
+# Format: <username> <capability>
+# capability:
+#   issue  future issues stay open
+#   pr     future issues and PRs stay open
+
+d-axel-b pr
+
+h30s issue
+
+mktemba issue
+
+jeannicolasfine pr

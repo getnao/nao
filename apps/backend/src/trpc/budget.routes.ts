@@ -34,6 +34,6 @@ export const budgetRoutes = {
 		}),
 
 	setBudgets: adminProtectedProcedure.input(setBudgetsInputSchema).mutation(async ({ ctx, input }) => {
-		return budgetQueries.setBudgets(ctx.project.id, input.budgets);
+		return budgetQueries.setProjectProviderBudgets(ctx.project.id, input.budgets);
 	}),
 };

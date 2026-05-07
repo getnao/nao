@@ -26,19 +26,58 @@ if [ "$NAO_CONTEXT_SOURCE" = "git" ]; then
     fi
     
     NAO_CONTEXT_GIT_BRANCH="${NAO_CONTEXT_GIT_BRANCH:-main}"
+    NAO_CONTEXT_GIT_SUBPATH="${NAO_CONTEXT_GIT_SUBPATH#/}"
+    NAO_CONTEXT_GIT_SUBPATH="${NAO_CONTEXT_GIT_SUBPATH%/}"
     
-    # Build auth URL if token provided
+    # Pick auth scheme from URL: SSH (deploy key) vs HTTPS (PAT or anonymous)
     GIT_URL="$NAO_CONTEXT_GIT_URL"
-    if [ -n "$NAO_CONTEXT_GIT_TOKEN" ]; then
-        # Inject token into HTTPS URL
-        GIT_URL=$(echo "$NAO_CONTEXT_GIT_URL" | sed "s|https://|https://${NAO_CONTEXT_GIT_TOKEN}@|")
-        echo "Using authenticated git URL"
-    fi
+    case "$NAO_CONTEXT_GIT_URL" in
+        git@*|ssh://*)
+            if [ -z "$NAO_CONTEXT_GIT_SSH_KEY" ]; then
+                echo "ERROR: SSH git URL requires NAO_CONTEXT_GIT_SSH_KEY"
+                exit 1
+            fi
+            
+            SSH_DIR="/tmp/.nao-ssh"
+            mkdir -p "$SSH_DIR"
+            chmod 700 "$SSH_DIR"
+            
+            SSH_KEY_FILE="$SSH_DIR/id_deploy"
+            printf '%s\n' "$NAO_CONTEXT_GIT_SSH_KEY" > "$SSH_KEY_FILE"
+            chmod 600 "$SSH_KEY_FILE"
+            
+            # Pre-pin GitHub host keys (sourced from https://api.github.com/meta)
+            KNOWN_HOSTS_FILE="$SSH_DIR/known_hosts"
+            cat > "$KNOWN_HOSTS_FILE" <<'EOF'
+github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
+github.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg=
+github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk=
+EOF
+            chmod 644 "$KNOWN_HOSTS_FILE"
+            
+            export GIT_SSH_COMMAND="ssh -i $SSH_KEY_FILE -o IdentitiesOnly=yes -o UserKnownHostsFile=$KNOWN_HOSTS_FILE -o StrictHostKeyChecking=yes"
+            echo "Using SSH deploy key authentication"
+            ;;
+        https://*|http://*)
+            if [ -n "$NAO_CONTEXT_GIT_TOKEN" ]; then
+                GIT_URL=$(echo "$NAO_CONTEXT_GIT_URL" | sed "s|https://|https://${NAO_CONTEXT_GIT_TOKEN}@|")
+                echo "Using HTTPS token authentication"
+            fi
+            ;;
+        *)
+            echo "ERROR: Unsupported NAO_CONTEXT_GIT_URL scheme: $NAO_CONTEXT_GIT_URL"
+            echo "Use https://… (with optional NAO_CONTEXT_GIT_TOKEN) or git@…/ssh://… (with NAO_CONTEXT_GIT_SSH_KEY)"
+            exit 1
+            ;;
+    esac
     
     # Clone or pull
     if [ -d "$NAO_DEFAULT_PROJECT_PATH/.git" ]; then
         echo "Repository exists, pulling latest..."
         cd "$NAO_DEFAULT_PROJECT_PATH"
+        if [ -n "$NAO_CONTEXT_GIT_SUBPATH" ]; then
+            git sparse-checkout set "$NAO_CONTEXT_GIT_SUBPATH"
+        fi
         git fetch "$GIT_URL" "$NAO_CONTEXT_GIT_BRANCH" --depth=1
         git reset --hard FETCH_HEAD
         echo "✓ Context updated"
@@ -52,13 +91,26 @@ if [ "$NAO_CONTEXT_SOURCE" = "git" ]; then
             rm -rf "$NAO_DEFAULT_PROJECT_PATH"
         fi
         
-        git clone --branch "$NAO_CONTEXT_GIT_BRANCH" --depth 1 --single-branch "$GIT_URL" "$NAO_DEFAULT_PROJECT_PATH"
+        if [ -n "$NAO_CONTEXT_GIT_SUBPATH" ]; then
+            echo "Sparse checkout: only fetching '$NAO_CONTEXT_GIT_SUBPATH'"
+            git clone --branch "$NAO_CONTEXT_GIT_BRANCH" --depth 1 --single-branch \
+                --filter=blob:none --sparse "$GIT_URL" "$NAO_DEFAULT_PROJECT_PATH"
+            cd "$NAO_DEFAULT_PROJECT_PATH"
+            git sparse-checkout set "$NAO_CONTEXT_GIT_SUBPATH"
+        else
+            git clone --branch "$NAO_CONTEXT_GIT_BRANCH" --depth 1 --single-branch "$GIT_URL" "$NAO_DEFAULT_PROJECT_PATH"
+        fi
         echo "✓ Context cloned"
+    fi
+    
+    # Resolve project path (subpath if set, else repo root)
+    if [ -n "$NAO_CONTEXT_GIT_SUBPATH" ]; then
+        NAO_DEFAULT_PROJECT_PATH="$NAO_DEFAULT_PROJECT_PATH/$NAO_CONTEXT_GIT_SUBPATH"
     fi
     
     # Validate context
     if [ ! -f "$NAO_DEFAULT_PROJECT_PATH/nao_config.yaml" ]; then
-        echo "ERROR: nao_config.yaml not found in cloned repository"
+        echo "ERROR: nao_config.yaml not found in $NAO_DEFAULT_PROJECT_PATH"
         exit 1
     fi
     

@@ -4,7 +4,7 @@ import s, { DBProjectSavedPrompt, NewProjectSavedPrompt } from '../db/abstractSc
 import { db } from '../db/db';
 import { SavedPrompt } from '../types/saved-prompt';
 
-export const getAll = async (projectId: string): Promise<SavedPrompt[]> => {
+export const listSavedPrompts = async (projectId: string): Promise<SavedPrompt[]> => {
 	return db
 		.select({
 			id: s.projectSavedPrompt.id,
@@ -19,12 +19,12 @@ export const getAll = async (projectId: string): Promise<SavedPrompt[]> => {
 		.execute();
 };
 
-export const create = async (data: NewProjectSavedPrompt): Promise<DBProjectSavedPrompt> => {
+export const createSavedPrompt = async (data: NewProjectSavedPrompt): Promise<DBProjectSavedPrompt> => {
 	const [created] = await db.insert(s.projectSavedPrompt).values(data).returning().execute();
 	return created;
 };
 
-export const update = async (
+export const updateSavedPrompt = async (
 	projectId: string,
 	promptId: string,
 	data: Partial<Pick<NewProjectSavedPrompt, 'title' | 'prompt'>>,
@@ -38,7 +38,7 @@ export const update = async (
 	return updated ?? null;
 };
 
-export const remove = async (projectId: string, promptId: string): Promise<void> => {
+export const deleteSavedPrompt = async (projectId: string, promptId: string): Promise<void> => {
 	await db
 		.delete(s.projectSavedPrompt)
 		.where(and(eq(s.projectSavedPrompt.id, promptId), eq(s.projectSavedPrompt.projectId, projectId)))

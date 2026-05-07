@@ -10,6 +10,17 @@ export interface ToolContext {
 	chatId: string;
 	agentSettings: AgentSettings | null;
 	envVars: Record<string, string>;
-	/** Mutable store for query results shared across tool calls within a single agent run. */
+	/**
+	 * Database federation access token. Populated by the EE Microsoft/Azure AD
+	 * integration when the user signs in via Microsoft; always null in the
+	 * open-source edition.
+	 */
+	azureAccessToken: string | null;
+	/**
+	 * In-memory cache for query results within a single agent run.
+	 * For queries from earlier turns in the same chat, prefer
+	 * `services/query-result.service#getQueryResult`, which falls back
+	 * to message history and caches the result back into this map.
+	 */
 	queryResults: Map<string, QueryResult>;
 }
