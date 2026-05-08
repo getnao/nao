@@ -37,7 +37,7 @@ COPY apps/backend ./apps/backend
 COPY apps/shared ./apps/shared
 
 WORKDIR /app/apps/frontend
-RUN NODE_OPTIONS="--max-old-space-size=6144" npm run build
+RUN npx vite build
 
 # =============================================================================
 # STAGE 4: Python/FastAPI builder
