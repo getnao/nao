@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from rich.console import Console
+from rich.markup import escape
 from rich.progress import (
     BarColumn,
     MofNCompleteColumn,
@@ -59,6 +60,11 @@ def _fmt_duration(seconds: float) -> str:
     return f"{minutes}m{secs:.0f}s"
 
 
+def _fmt_error(error: Exception) -> str:
+    """Escape exception text before passing it through Rich markup rendering."""
+    return escape(str(error))
+
+
 def _fetch_query_history(db_config: DatabaseConfig, conn: BaseBackend) -> list[str]:
     """Fetch query history over the already-open sync connection.
 
@@ -78,7 +84,7 @@ def _fetch_query_history(db_config: DatabaseConfig, conn: BaseBackend) -> list[s
         console.print(f"  [dim]Fetched[/dim] [bold]{len(queries)}[/bold] [dim]queries for history analysis[/dim]")
         return queries
     except Exception as e:
-        console.print(f"  [yellow]⚠[/yellow] [dim]Failed to fetch query history:[/dim] {e}")
+        console.print(f"  [yellow]⚠[/yellow] [dim]Failed to fetch query history:[/dim] {_fmt_error(e)}")
         return []
 
 
@@ -197,7 +203,7 @@ def sync_database(
                 t_list = time.monotonic()
                 all_tables = conn.list_tables(database=schema)
             except Exception as e:
-                console.print(f"  [yellow]⚠[/yellow] [dim]Skipping schema[/dim] {schema}: {e}")
+                console.print(f"  [yellow]⚠[/yellow] [dim]Skipping schema[/dim] {schema}: {_fmt_error(e)}")
                 progress.update(schema_task, advance=1)
                 continue
 
@@ -290,7 +296,7 @@ def sync_database(
                         console.print(
                             f"    [bold red]✗[/bold red] [dim]{schema}.{table}[/dim] "
                             f"[red]{tpl_name}[/red] [dim]failed after "
-                            f"{_fmt_duration(render_dur)}:[/dim] {e}"
+                            f"{_fmt_duration(render_dur)}:[/dim] {_fmt_error(e)}"
                         )
                         content = f"# {table}\n\nError generating content: {e}"
 
@@ -412,7 +418,7 @@ class DatabaseSyncProvider(SyncProvider):
                     total_datasets += state.schemas_synced
                     total_tables += state.tables_synced
                 except Exception as e:
-                    console.print(f"[bold red]✗[/bold red] Failed to sync {db.name}: {e}")
+                    console.print(f"[bold red]✗[/bold red] Failed to sync {db.name}: {_fmt_error(e)}")
 
         for state in sync_states:
             removed = cleanup_stale_paths(state, verbose=True)

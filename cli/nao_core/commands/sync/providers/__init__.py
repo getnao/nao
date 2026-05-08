@@ -14,6 +14,16 @@ PROVIDER_REGISTRY: dict[str, SyncProvider] = {
     "databases": DatabaseSyncProvider(),
 }
 
+# Aliases mapping shortcut names to canonical provider names
+PROVIDER_ALIASES: dict[str, str] = {
+    "repo": "repositories",
+    "repos": "repositories",
+    "repository": "repositories",
+    "db": "databases",
+    "dbs": "databases",
+    "database": "databases",
+}
+
 # Default providers in order of execution
 DEFAULT_PROVIDERS: list[SyncProvider] = list(PROVIDER_REGISTRY.values())
 
@@ -47,12 +57,13 @@ def parse_provider_arg(arg: str) -> ProviderSelection:
         connection_name = None
 
     provider_name_lower = provider_name.lower()
-    if provider_name_lower not in PROVIDER_REGISTRY:
+    canonical_name = PROVIDER_ALIASES.get(provider_name_lower, provider_name_lower)
+    if canonical_name not in PROVIDER_REGISTRY:
         valid = ", ".join(PROVIDER_CHOICES)
         raise ValueError(f"Unknown provider '{provider_name}'. Valid options: {valid}")
 
     return ProviderSelection(
-        provider=PROVIDER_REGISTRY[provider_name_lower],
+        provider=PROVIDER_REGISTRY[canonical_name],
         connection_name=connection_name,
     )
 
@@ -75,6 +86,7 @@ __all__ = [
     "DatabaseSyncProvider",
     "RepositorySyncProvider",
     "PROVIDER_REGISTRY",
+    "PROVIDER_ALIASES",
     "PROVIDER_CHOICES",
     "DEFAULT_PROVIDERS",
     "get_all_providers",

@@ -221,10 +221,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, commands, and guid
 
 nao Labs is a proud Y Combinator company!
 
-<a href="https://ycombinator.com/">
-    <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/b/b2/Y_Combinator_logo.svg/1200px-Y_Combinator_logo.svg.png" alt="YCombinator" style="padding: 10px" width="70px">
-</a>
-
 ## 📄 License
 
 This project is licensed under the Apache 2.0 License - see the [LICENSE](LICENSE) file for details.

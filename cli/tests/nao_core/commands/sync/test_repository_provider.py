@@ -134,19 +134,28 @@ class TestRepositorySyncProvider:
         assert provider.should_sync(mock_config) is False
 
 
+def git_clone_stub(base_path: Path, repo_name: str):
+    """subprocess.run side_effect that simulates git clone by creating the .tmp target directory."""
+
+    def _run(*_args, **_kwargs):
+        (base_path / f"{repo_name}.tmp").mkdir(exist_ok=True)
+        return MagicMock(returncode=0)
+
+    return _run
+
+
 class TestCloneOrPullRepo:
     @patch("nao_core.commands.sync.providers.repositories.provider.subprocess.run")
     @patch("nao_core.commands.sync.providers.repositories.provider.console")
     def test_clones_new_repo(self, mock_console, mock_run, tmp_path: Path):
         repo = RepoConfig(name="new-repo", url="https://github.com/test/new-repo")
-        mock_run.return_value = MagicMock(returncode=0)
+        mock_run.side_effect = git_clone_stub(tmp_path, "new-repo")
 
         result = clone_or_pull_repo(repo, tmp_path)
 
         assert result is True
         mock_run.assert_called_once()
-        call_args = mock_run.call_args
-        assert "clone" in call_args[0][0]
+        assert "clone" in mock_run.call_args[0][0]
 
     @patch("nao_core.commands.sync.providers.repositories.provider.subprocess.run")
     @patch("nao_core.commands.sync.providers.repositories.provider.console")
@@ -156,7 +165,7 @@ class TestCloneOrPullRepo:
             url="https://github.com/test/new-repo",
             branch="develop",
         )
-        mock_run.return_value = MagicMock(returncode=0)
+        mock_run.side_effect = git_clone_stub(tmp_path, "new-repo")
 
         result = clone_or_pull_repo(repo, tmp_path)
 
@@ -167,36 +176,69 @@ class TestCloneOrPullRepo:
 
     @patch("nao_core.commands.sync.providers.repositories.provider.subprocess.run")
     @patch("nao_core.commands.sync.providers.repositories.provider.console")
-    def test_pulls_existing_repo(self, mock_console, mock_run, tmp_path: Path):
-        repo_path = tmp_path / "existing-repo"
-        repo_path.mkdir()
-
+    def test_reclones_existing_repo(self, mock_console, mock_run, tmp_path: Path):
+        """Re-sync always re-clones fresh rather than pulling in-place."""
+        (tmp_path / "existing-repo").mkdir()
         repo = RepoConfig(name="existing-repo", url="https://github.com/test/existing-repo")
-        mock_run.return_value = MagicMock(returncode=0)
+        mock_run.side_effect = git_clone_stub(tmp_path, "existing-repo")
 
         result = clone_or_pull_repo(repo, tmp_path)
 
         assert result is True
-        call_args = mock_run.call_args[0][0]
-        assert "pull" in call_args
+        assert mock_run.call_count == 1
+        assert "clone" in mock_run.call_args[0][0]
 
     @patch("nao_core.commands.sync.providers.repositories.provider.subprocess.run")
     @patch("nao_core.commands.sync.providers.repositories.provider.console")
-    def test_pulls_and_checkouts_branch(self, mock_console, mock_run, tmp_path: Path):
-        repo_path = tmp_path / "existing-repo"
-        repo_path.mkdir()
-
+    def test_reclones_existing_repo_with_branch(self, mock_console, mock_run, tmp_path: Path):
+        """Re-sync with branch uses a single clone -b, not pull + checkout."""
+        (tmp_path / "existing-repo").mkdir()
         repo = RepoConfig(
             name="existing-repo",
             url="https://github.com/test/existing-repo",
             branch="feature",
         )
-        mock_run.return_value = MagicMock(returncode=0)
+        mock_run.side_effect = git_clone_stub(tmp_path, "existing-repo")
 
         result = clone_or_pull_repo(repo, tmp_path)
 
         assert result is True
-        assert mock_run.call_count == 2
+        assert mock_run.call_count == 1
+        call_args = mock_run.call_args[0][0]
+        assert "-b" in call_args
+        assert "feature" in call_args
+
+    @patch("nao_core.commands.sync.providers.repositories.provider.subprocess.run")
+    @patch("nao_core.commands.sync.providers.repositories.provider.console")
+    def test_strips_git_directory_after_clone(self, mock_console, mock_run, tmp_path: Path):
+        """Core fix: .git/ must be removed so parent repo tracks files, not a gitlink."""
+        repo = RepoConfig(name="my-repo", url="https://github.com/test/my-repo")
+
+        def fake_clone_with_git_dir(*args, **kwargs):
+            cloned = tmp_path / "my-repo.tmp"
+            cloned.mkdir(exist_ok=True)
+            (cloned / ".git").mkdir()
+            (cloned / "README.md").write_text("hello")
+            return MagicMock(returncode=0)
+
+        mock_run.side_effect = fake_clone_with_git_dir
+
+        result = clone_or_pull_repo(repo, tmp_path)
+
+        assert result is True
+        assert not (tmp_path / "my-repo" / ".git").exists()
+        assert (tmp_path / "my-repo" / "README.md").exists()
+
+    @patch("nao_core.commands.sync.providers.repositories.provider.subprocess.run")
+    @patch("nao_core.commands.sync.providers.repositories.provider.console")
+    def test_rejects_path_traversal_repo_name(self, mock_console, mock_run, tmp_path: Path):
+        """Security: repo.name like '../evil' must be rejected before any git call."""
+        repo = RepoConfig(name="../evil", url="https://github.com/test/evil")
+
+        result = clone_or_pull_repo(repo, tmp_path)
+
+        assert result is False
+        mock_run.assert_not_called()
 
     @patch("nao_core.commands.sync.providers.repositories.provider.subprocess.run")
     @patch("nao_core.commands.sync.providers.repositories.provider.console")
@@ -210,12 +252,10 @@ class TestCloneOrPullRepo:
 
     @patch("nao_core.commands.sync.providers.repositories.provider.subprocess.run")
     @patch("nao_core.commands.sync.providers.repositories.provider.console")
-    def test_returns_false_on_pull_failure(self, mock_console, mock_run, tmp_path: Path):
-        repo_path = tmp_path / "existing-repo"
-        repo_path.mkdir()
-
+    def test_returns_false_on_reclone_failure(self, mock_console, mock_run, tmp_path: Path):
+        (tmp_path / "existing-repo").mkdir()
         repo = RepoConfig(name="existing-repo", url="https://github.com/test/existing-repo")
-        mock_run.return_value = MagicMock(returncode=1, stderr="Error pulling")
+        mock_run.return_value = MagicMock(returncode=1, stderr="Error cloning")
 
         result = clone_or_pull_repo(repo, tmp_path)
 
