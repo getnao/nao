@@ -1,4 +1,4 @@
-import { defaultColorFor, labelize } from '@nao/shared';
+import { defaultColorFor, formatCompactNumber, labelize } from '@nao/shared';
 import type { ParsedChartBlock, ParsedTableBlock, Segment } from '@nao/shared/story-segments';
 import { splitCodeIntoSegments } from '@nao/shared/story-segments';
 import { formatCellValue, isNumericColumn } from '@nao/shared/story-table-utils';
@@ -184,7 +184,7 @@ function KpiCards({ chart, rows }: { chart: ParsedChartBlock; rows: Record<strin
 		>
 			{chart.series.map((s) => {
 				const raw = firstRow[s.data_key];
-				const value = typeof raw === 'number' ? raw.toLocaleString() : String(raw ?? '');
+				const value = typeof raw === 'number' ? formatCompactNumber(raw) : String(raw ?? '');
 				const label = s.label ?? s.data_key;
 				return (
 					<div key={s.data_key} style={{ minWidth: 160 }}>
@@ -350,7 +350,8 @@ const TOOLTIP_SCRIPT = `
 		if(/^\\d{4}-\\d{2}-\\d{2}/.test(str)){var d=new Date(str);if(!isNaN(d.getTime()))return escHtml(d.toLocaleDateString('en-US',{timeZone:'UTC'}))}
 		return escHtml(str.replace(/_/g,' ').replace(/\\b\\w/g,function(c){return c.toUpperCase()}))
 	}
-	function formatVal(v){return escHtml(typeof v==='number'?v.toLocaleString():String(v!=null?v:''))}
+	function formatCompact(v){var a=Math.abs(v);if(a>=1e9)return (v/1e9).toFixed(1).replace(/[.]0$/,'')+'B';if(a>=1e6)return (v/1e6).toFixed(1).replace(/[.]0$/,'')+'M';if(a>=1e4)return (v/1e3).toFixed(1).replace(/[.]0$/,'')+'K';return v.toLocaleString()}
+	function formatVal(v){return escHtml(typeof v==='number'?formatCompact(v):String(v!=null?v:''))}
 
 	document.querySelectorAll('.nao-chart').forEach(function(container){
 		var raw=container.getAttribute('data-chart');
@@ -440,7 +441,7 @@ const TOOLTIP_SCRIPT = `
 				var total=numericValues.reduce(function(a,b){return a+b},0);
 				html+='<div class="nao-tooltip-total">'
 					+'<span class="nao-tooltip-name">Total</span>'
-					+'<span class="nao-tooltip-value">'+escHtml(total.toLocaleString())+'</span>'
+					+'<span class="nao-tooltip-value">'+escHtml(formatCompact(total))+'</span>'
 					+'</div>';
 			}
 			html+='</div>';

@@ -1,5 +1,6 @@
 import * as React from 'react';
 import * as RechartsPrimitive from 'recharts';
+import { formatCompactNumber } from '@nao/shared';
 
 import type { Payload } from 'recharts/types/component/DefaultLegendContent';
 import { cn } from '@/lib/utils';
@@ -213,7 +214,9 @@ function ChartTooltipContent({
 										</div>
 										{item.value && (
 											<span className='text-foreground font-mono font-medium tabular-nums'>
-												{item.value.toLocaleString()}
+												{typeof item.value === 'number'
+													? formatCompactNumber(item.value)
+													: item.value.toLocaleString()}
 											</span>
 										)}
 									</div>
@@ -227,7 +230,7 @@ function ChartTooltipContent({
 						<div className='flex flex-1 justify-between leading-none gap-2 items-center'>
 							<span className='text-muted-foreground font-medium'>Total</span>
 							<span className='text-foreground font-mono font-medium tabular-nums'>
-								{total.toLocaleString()}
+								{formatCompactNumber(total)}
 							</span>
 						</div>
 					</div>
