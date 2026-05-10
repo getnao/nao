@@ -87,22 +87,35 @@ class TestCreateEmptyStructure:
         assert rules_file.is_file()
 
     def test_creates_naoignore_file(self, tmp_path: Path):
-        """Creates .naoignore file with templates/ entry."""
+        """Creates .naoignore file with ignored generated paths."""
         folders, files = create_empty_structure(tmp_path)
 
         naoignore_file = tmp_path / ".naoignore"
         assert naoignore_file.exists()
         content = naoignore_file.read_text()
         assert "templates/" in content
+        assert "tests/" in content
+
+    def test_creates_sample_test_file(self, tmp_path: Path):
+        """Creates a sample test users can run as a starting point."""
+        folders, files = create_empty_structure(tmp_path)
+
+        sample_test = tmp_path / "tests" / "test_example.yml"
+        assert sample_test.exists()
+        content = sample_test.read_text()
+        assert "name: test_example" in content
+        assert "prompt: What is the result of 1+1?" in content
+        assert "SELECT 2 AS answer_integer" in content
 
     def test_returns_created_files_list(self, tmp_path: Path):
         """Returns list of created files."""
         folders, files = create_empty_structure(tmp_path)
 
-        assert len(files) >= 2
+        assert len(files) >= 3
         file_paths = [f.path for f in files]
         assert Path("RULES.md") in file_paths
         assert Path(".naoignore") in file_paths
+        assert Path("tests/test_example.yml") in file_paths
 
     def test_creates_nested_folders(self, tmp_path: Path):
         """Creates nested folder structures like agent/tools."""
