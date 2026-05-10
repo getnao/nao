@@ -47,6 +47,7 @@ export function withLogging<T>(toolName: string, ctx: McpContext, handler: ToolH
 		const start = Date.now();
 		let success = true;
 		let result: ToolResult | undefined;
+		let thrownError: unknown;
 		try {
 			result = await handler(args, extra);
 			if (result?.isError) {
@@ -55,6 +56,7 @@ export function withLogging<T>(toolName: string, ctx: McpContext, handler: ToolH
 			return result;
 		} catch (error) {
 			success = false;
+			thrownError = error;
 			throw error;
 		} finally {
 			insertMcpCallLog({
@@ -64,7 +66,7 @@ export function withLogging<T>(toolName: string, ctx: McpContext, handler: ToolH
 				durationMs: Date.now() - start,
 				success,
 				toolInput: args as unknown,
-				toolOutput: extractLoggableOutput(result),
+				toolOutput: thrownError ? formatThrownError(thrownError) : extractLoggableOutput(result),
 			}).catch(() => {});
 		}
 	};
@@ -83,4 +85,11 @@ function extractLoggableOutput(result: ToolResult | undefined): unknown {
 	} catch {
 		return text;
 	}
+}
+
+function formatThrownError(error: unknown): { error: string } {
+	if (error instanceof Error) {
+		return { error: error.message };
+	}
+	return { error: String(error) };
 }

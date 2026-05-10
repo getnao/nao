@@ -41,6 +41,8 @@ export async function getRecentMcpCallLogs(projectId: string, limit = 50) {
 			toolName: s.mcpCallLog.toolName,
 			durationMs: s.mcpCallLog.durationMs,
 			success: s.mcpCallLog.success,
+			toolInput: s.mcpCallLog.toolInput,
+			toolOutput: s.mcpCallLog.toolOutput,
 			calledAt: s.mcpCallLog.calledAt,
 		})
 		.from(s.mcpCallLog)

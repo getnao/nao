@@ -1,11 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, ChevronLeft, ChevronRight, Copy } from 'lucide-react';
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { SettingsCard } from '@/components/ui/settings-card';
 import { SettingsToggleRow } from '@/components/ui/settings-toggle-row';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
 interface ProjectItem {
@@ -61,12 +62,12 @@ export function McpEndpointSettings({ isAdmin }: Props) {
 		<>
 			<SettingsCard
 				title='MCP Server'
-				description='Allow external AI clients (Claude, Cursor, Codex) to connect.'
+				description='Allow external AI clients (Claude, Cursor, Codex, etc.) to connect.'
 			>
 				<SettingsToggleRow
 					id='mcp-enabled'
 					label='Enable MCP endpoint'
-					description='Disable to reject all connections.'
+					description=''
 					checked={enabled}
 					onCheckedChange={(v) => toggle('enabled', v)}
 					disabled={!isAdmin || pending}
@@ -76,24 +77,24 @@ export function McpEndpointSettings({ isAdmin }: Props) {
 			<SettingsCard title='MCP Modes' description='Control exposed capabilities.'>
 				<SettingsToggleRow
 					id='mcp-agent-mode'
-					label='Agent mode'
-					description='Analytics queries.'
+					label='Sub-agent mode'
+					description='External agents use nao as a subagent to answer analytics questions like "How many users do we have?".'
 					checked={settings?.agentModeEnabled ?? true}
 					onCheckedChange={(v) => toggle('agentModeEnabled', v)}
 					disabled={!isAdmin || !enabled || pending}
 				/>
 				<SettingsToggleRow
 					id='mcp-tools-mode'
-					label='Tools mode'
-					description='Run SQL, build charts, browse files.'
+					label='Context-layer mode'
+					description='External agents use nao as a context-layer to browse nao filesystem, execute SQL, create charts, etc.'
 					checked={settings?.toolsModeEnabled ?? true}
 					onCheckedChange={(v) => toggle('toolsModeEnabled', v)}
 					disabled={!isAdmin || !enabled || pending}
 				/>
 				<SettingsToggleRow
 					id='mcp-objects-mode'
-					label='Objects mode'
-					description='Manage stories.'
+					label='Story mode'
+					description='Manage nao stories (create, read, update, archive, etc.). Useful to migrate from other BI tools to nao.'
 					checked={settings?.objectsModeEnabled ?? true}
 					onCheckedChange={(v) => toggle('objectsModeEnabled', v)}
 					disabled={!isAdmin || !enabled || pending}
@@ -385,10 +386,16 @@ type CallLog = {
 	toolName: string;
 	durationMs: number | null;
 	success: boolean;
+	toolInput: unknown;
+	toolOutput: unknown;
 	calledAt: Date;
 };
 
 function CallLogsCard({ logs, isLoading, isError }: { logs: CallLog[]; isLoading: boolean; isError: boolean }) {
+	const [expandedId, setExpandedId] = useState<string | null>(null);
+
+	const toggle = (id: string) => setExpandedId((current) => (current === id ? null : id));
+
 	return (
 		<SettingsCard title='Recent MCP calls' description='Last 50 calls from external clients.'>
 			{isLoading ? (
@@ -401,6 +408,7 @@ function CallLogsCard({ logs, isLoading, isError }: { logs: CallLog[]; isLoading
 				<Table>
 					<TableHeader>
 						<TableRow>
+							<TableHead className='w-8' />
 							<TableHead>Time</TableHead>
 							<TableHead>User</TableHead>
 							<TableHead>Tool</TableHead>
@@ -408,27 +416,104 @@ function CallLogsCard({ logs, isLoading, isError }: { logs: CallLog[]; isLoading
 						</TableRow>
 					</TableHeader>
 					<TableBody>
-						{logs.map((log) => (
-							<TableRow key={log.id}>
-								<TableCell className='text-xs text-muted-foreground whitespace-nowrap'>
-									{formatRelativeTime(log.calledAt)}
-								</TableCell>
-								<TableCell className='text-sm'>{log.userName ?? 'Unknown'}</TableCell>
-								<TableCell>
-									<code className='text-xs'>{log.toolName}</code>
-								</TableCell>
-								<TableCell>
-									<Badge variant={log.success ? 'outline' : 'destructive'}>
-										{log.success ? 'OK' : 'Error'}
-									</Badge>
-								</TableCell>
-							</TableRow>
-						))}
+						{logs.map((log) => {
+							const isExpanded = expandedId === log.id;
+							return (
+								<Fragment key={log.id}>
+									<TableRow className='cursor-pointer' onClick={() => toggle(log.id)}>
+										<TableCell className='text-muted-foreground'>
+											<ChevronRight
+												className={cn(
+													'size-3.5 transition-transform',
+													isExpanded && 'rotate-90',
+												)}
+											/>
+										</TableCell>
+										<TableCell className='text-xs text-muted-foreground whitespace-nowrap'>
+											{formatRelativeTime(log.calledAt)}
+										</TableCell>
+										<TableCell className='text-sm'>{log.userName ?? 'Unknown'}</TableCell>
+										<TableCell>
+											<code className='text-xs'>{log.toolName}</code>
+										</TableCell>
+										<TableCell>
+											<Badge variant={log.success ? 'outline' : 'destructive'}>
+												{log.success ? 'OK' : 'Error'}
+											</Badge>
+										</TableCell>
+									</TableRow>
+									{isExpanded && (
+										<TableRow className='bg-muted/30 hover:bg-muted/30'>
+											<TableCell colSpan={5} className='whitespace-normal py-3'>
+												<CallLogDetails log={log} />
+											</TableCell>
+										</TableRow>
+									)}
+								</Fragment>
+							);
+						})}
 					</TableBody>
 				</Table>
 			)}
 		</SettingsCard>
 	);
+}
+
+function CallLogDetails({ log }: { log: CallLog }) {
+	return (
+		<div className='flex flex-col gap-3'>
+			<DetailBlock label='Input'>{formatJson(log.toolInput)}</DetailBlock>
+			{!log.success && (
+				<DetailBlock label='Error' tone='destructive'>
+					{formatJson(log.toolOutput)}
+				</DetailBlock>
+			)}
+			{log.durationMs !== null && (
+				<p className='text-[0.7rem] text-muted-foreground'>Duration: {log.durationMs}ms</p>
+			)}
+		</div>
+	);
+}
+
+function DetailBlock({
+	label,
+	tone = 'default',
+	children,
+}: {
+	label: string;
+	tone?: 'default' | 'destructive';
+	children: string;
+}) {
+	const isError = tone === 'destructive';
+	return (
+		<div>
+			<p className={cn('text-[0.7rem] font-medium mb-1', isError ? 'text-destructive' : 'text-muted-foreground')}>
+				{label}
+			</p>
+			<pre
+				className={cn(
+					'text-xs rounded p-2 overflow-x-auto whitespace-pre-wrap break-words',
+					isError ? 'bg-destructive/10 text-destructive' : 'bg-muted',
+				)}
+			>
+				<code>{children}</code>
+			</pre>
+		</div>
+	);
+}
+
+function formatJson(value: unknown): string {
+	if (value === undefined || value === null) {
+		return '—';
+	}
+	if (typeof value === 'string') {
+		return value;
+	}
+	try {
+		return JSON.stringify(value, null, 2);
+	} catch {
+		return String(value);
+	}
 }
 
 function formatRelativeTime(date: Date): string {

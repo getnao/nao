@@ -6,7 +6,7 @@ export interface McpEndpointSettings {
 }
 
 export const DEFAULT_MCP_ENDPOINT_SETTINGS: McpEndpointSettings = {
-	enabled: true,
+	enabled: false,
 	agentModeEnabled: true,
 	toolsModeEnabled: true,
 	objectsModeEnabled: true,
