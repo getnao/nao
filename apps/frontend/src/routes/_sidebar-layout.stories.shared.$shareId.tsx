@@ -1,5 +1,5 @@
 import { splitCodeIntoSegments } from '@nao/shared/story-segments';
-import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { Activity, Loader2, MessageSquare, RefreshCw } from 'lucide-react';
 import { useCallback, useMemo, useRef } from 'react';
@@ -31,8 +31,7 @@ function SharedStoryPage() {
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
 
-	const { data: story, isLoading } = useSuspenseQuery(trpc.storyShare.get.queryOptions({ shareId }));
-	const isViewer = story?.userRole === 'viewer';
+	const storyQuery = useQuery(trpc.storyShare.get.queryOptions({ shareId }));
 
 	const containerRef = useRef<HTMLDivElement>(null);
 	const sidePanelRef = useRef<HTMLDivElement>(null);
@@ -56,14 +55,29 @@ function SharedStoryPage() {
 		}),
 	);
 
-	if (isLoading) {
+	if (storyQuery.isPending) {
 		return (
-			<div className='flex flex-1 items-center justify-center'>
-				<Spinner />
+			<div className='flex flex-col flex-1 h-full overflow-hidden bg-panel min-w-0'>
+				<div className='flex flex-1 flex-col items-center justify-center gap-3 px-4'>
+					<Spinner />
+					<p className='text-sm text-muted-foreground text-center'>Loading story…</p>
+				</div>
 			</div>
 		);
 	}
 
+	if (storyQuery.isError) {
+		return (
+			<div className='flex flex-col flex-1 h-full overflow-hidden bg-panel min-w-0'>
+				<div className='flex flex-1 items-center justify-center px-4'>
+					<p className='text-sm text-muted-foreground text-center'>Could not load this story.</p>
+				</div>
+			</div>
+		);
+	}
+
+	const story = storyQuery.data;
+	const isViewer = story.userRole === 'viewer';
 	const isOwner = session?.user?.id === story.userId;
 	const cachedAt = story.cachedAt ? new Date(story.cachedAt as unknown as string) : null;
 
