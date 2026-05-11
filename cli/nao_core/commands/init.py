@@ -1,4 +1,5 @@
 import os
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated
@@ -32,7 +33,7 @@ class CreatedFile:
     content: str | None
 
 
-def setup_project_name(force: bool = False) -> tuple[str, Path, NaoConfig | None]:
+def setup_project_name(force: bool = False) -> tuple[str, Path, NaoConfig | None, bool]:
     """Setup the project name. Returns existing config if found and user wants to extend."""
     # Check if we're in a directory with an existing nao_config.yaml
     current_dir = Path.cwd()
@@ -53,7 +54,7 @@ def setup_project_name(force: bool = False) -> tuple[str, Path, NaoConfig | None
         UI.print(f"[dim]Project: {existing_config.project_name}[/dim]\n")
 
         if force or ask_confirm("Update this project configuration?", default=True):
-            return existing_config.project_name, current_dir, existing_config
+            return existing_config.project_name, current_dir, existing_config, False
 
         raise InitError("Initialization cancelled.")
 
@@ -68,9 +69,22 @@ def setup_project_name(force: bool = False) -> tuple[str, Path, NaoConfig | None
     if project_path.exists() and not force:
         raise ProjectExistsError(project_name)
 
+    project_created = not project_path.exists()
     project_path.mkdir(parents=True, exist_ok=True)
 
-    return project_name, project_path, None
+    return project_name, project_path, None, project_created
+
+
+def cleanup_aborted_project(project_path: Path | None, project_created: bool) -> None:
+    """Remove project folder created during this init run."""
+    if project_path is None:
+        return
+    if not project_created:
+        return
+    if not project_path.exists():
+        return
+
+    shutil.rmtree(project_path)
 
 
 def create_empty_structure(project_path: Path) -> tuple[list[str], list[CreatedFile]]:
@@ -155,9 +169,11 @@ def init(
         Force re-initialization even if the folder already exists.
     """
     UI.info("\n🚀 nao project initialization\n")
+    project_path: Path | None = None
+    project_created = False
 
     try:
-        project_name, project_path, existing_config = setup_project_name(force=force)
+        project_name, project_path, existing_config, project_created = setup_project_name(force=force)
         config = NaoConfig.promptConfig(project_name, existing=existing_config)
         config.save(project_path)
 
@@ -225,6 +241,14 @@ def init(
         UI.panel(help_content, title="🚀 Get Started")
         UI.print()
 
+    except KeyboardInterrupt as e:
+        cleanup_aborted_project(project_path, project_created)
+        UI.error("Initialization cancelled by user.")
+        raise SystemExit(1) from e
     except InitError as e:
         UI.error(str(e))
+        raise SystemExit(1) from e
+    except Exception as e:
+        cleanup_aborted_project(project_path, project_created)
+        UI.error(f"Initialization failed: {e}")
         raise SystemExit(1) from e
