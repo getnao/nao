@@ -650,14 +650,18 @@ class AgentManager {
 
 	/**
 	 * Add Anthropic cache breakpoints to messages.
-	 * No-op for non-Anthropic providers.
+	 * Applies to the `anthropic` provider and to Claude models accessed via `vertex`
+	 * (which uses @ai-sdk/google-vertex/anthropic and reads the same `anthropic` provider options).
 	 *
 	 * Cache strategy:
 	 * - System message: 1h TTL (instructions rarely change)
 	 * - Last message: 5m TTL (current step's leaf for agentic caching)
 	 */
 	private _addCache(messages: ModelMessage[]): ModelMessage[] {
-		if (messages.length === 0 || this._modelSelection.provider !== 'anthropic') {
+		const { provider, modelId } = this._modelSelection;
+		const isAnthropicCompatible =
+			provider === 'anthropic' || (provider === 'vertex' && modelId.startsWith('claude-'));
+		if (messages.length === 0 || !isAnthropicCompatible) {
 			return messages;
 		}
 
