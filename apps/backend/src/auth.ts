@@ -146,11 +146,9 @@ async function createAuthInstance(googleConfig: GoogleConfig) {
 		],
 		trustedOrigins: env.BETTER_AUTH_URL ? [env.BETTER_AUTH_URL] : undefined,
 		emailAndPassword: {
-			enabled: true,
+			enabled: env.ENABLE_USER_LOGIN === true,
+			allowSignUp: env.ENABLE_USER_SIGNUP === true,
 			sendResetPassword: async ({ user, url }) => {
-				if (!emailService.isEnabled()) {
-					return;
-				}
 				emailService.sendEmail(user.email, buildForgotPasswordEmail(user, url));
 			},
 		},

@@ -215,6 +215,7 @@ jobs:
                         -e "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" \
                         -e "ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}" \
                         -e "BETTER_AUTH_SECRET=${{ secrets.BETTER_AUTH_SECRET }}" \
+                        -e "ENABLE_USER_SIGNUP=false" \
                         --device /dev/kvm \
                         --name nao-chat \
                         -d getnao/nao:${{ needs.merge.outputs.image-tag }}
@@ -257,6 +258,8 @@ jobs:
                           -e "SMTP_PORT=${{ secrets.SMTP_PORT }}" \
                           -e "SMTP_MAIL_FROM=${{ secrets.SMTP_MAIL_FROM }}" \
                           -e "SMTP_SSL=${{ secrets.SMTP_SSL }}" \
+                          -e "ENABLE_USER_LOGIN=true" \
+                          -e "ENABLE_USER_SIGNUP=true" \
                           getnao/nao:${{ needs.merge.outputs.image-tag }}
 
                       echo "Waiting for container to start..."

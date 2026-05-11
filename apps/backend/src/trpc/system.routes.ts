@@ -5,6 +5,8 @@ import { adminProtectedProcedure, publicProcedure } from './trpc';
 export const systemRoutes = {
 	getPublicConfig: publicProcedure.query(() => ({
 		naoMode: env.NAO_MODE,
+		enableUserLogin: env.ENABLE_USER_LOGIN,
+		enableUserSignup: env.ENABLE_USER_SIGNUP,
 	})),
 
 	version: adminProtectedProcedure.query(() => ({
