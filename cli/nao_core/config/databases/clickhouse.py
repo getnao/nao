@@ -576,11 +576,18 @@ class ClickHouseConfig(DatabaseConfig):
 
     type: Literal["clickhouse"] = "clickhouse"
     host: str = Field(description="ClickHouse server host")
-    port: int | None = Field(default=None, description="HTTP port (8123 plain, 8443 secure)")
+    connection_mode: Literal["http", "tcp"] = Field(
+        default="http",
+        description="Connection mode: http (8123/8443) or tcp (native protocol, typically 9000)",
+    )
+    port: int | None = Field(
+        default=None,
+        description="Port number. Defaults to 8123/8443 for http and 9000 for tcp when empty.",
+    )
     database: str = Field(description="Database name")
     user: str = Field(description="Username")
     password: str = Field(default="", description="Password")
-    secure: bool = Field(default=False, description="Use HTTPS")
+    secure: bool = Field(default=False, description="Use TLS (HTTPS for http mode)")
     connect_timeout: int | None = Field(
         default=None,
         description="Connection timeout in seconds (passed to ibis.clickhouse.connect).",
@@ -601,20 +608,32 @@ class ClickHouseConfig(DatabaseConfig):
         """Interactively prompt the user for ClickHouse configuration."""
         name = ask_text("Connection name:", default="clickhouse-prod") or "clickhouse-prod"
         host = ask_text("Host:", default="localhost") or "localhost"
-        port_str = ask_text(
-            "Port (empty = default 8123/8443):",
-            default="8123",
-        )
+        mode_str = ask_text("Connection mode (http/tcp):", default="http") or "http"
+        connection_mode: Literal["http", "tcp"]
+        if mode_str.lower() in ("http", "https"):
+            connection_mode = "http"
+        elif mode_str.lower() in ("tcp", "native"):
+            connection_mode = "tcp"
+        else:
+            raise InitError("Connection mode must be 'http' or 'tcp'.")
+
+        default_port = "8123" if connection_mode == "http" else "9000"
+        port_str = ask_text(f"Port (empty = default {default_port}):", default=default_port)
         if port_str and not port_str.isdigit():
             raise InitError("Port must be a valid integer or empty.")
         port = int(port_str) if port_str and port_str.isdigit() else None
         database = ask_text("Database name:", default="default") or "default"
         user = ask_text("Username:", default="default") or "default"
         password = ask_text("Password:", password=True) or ""
-        secure_str = ask_text("Use HTTPS (y/n):", default="n")
+        secure_default = "n" if connection_mode == "tcp" else "n"
+        secure_str = ask_text("Use TLS (y/n):", default=secure_default)
         secure = bool(secure_str and str(secure_str).lower().startswith("y"))
+
         if port is None:
-            port = 8443 if secure else 8123
+            if connection_mode == "tcp":
+                port = 9000
+            else:
+                port = 8443 if secure else 8123
 
         return ClickHouseConfig(
             name=name,
@@ -624,6 +643,7 @@ class ClickHouseConfig(DatabaseConfig):
             user=user,
             password=password,
             secure=secure,
+            connection_mode=connection_mode,
         )
 
     def connect(self) -> BaseBackend:
@@ -640,6 +660,9 @@ class ClickHouseConfig(DatabaseConfig):
             "password": self.password,
             "secure": self.secure,
         }
+        if self.connection_mode == "tcp":
+            # ibis clickhouse backend uses clickhouse-connect under the hood; "native" enables TCP protocol.
+            kwargs["protocol"] = "native"
         if self.port is not None:
             kwargs["port"] = self.port
         if self.connect_timeout is not None:
