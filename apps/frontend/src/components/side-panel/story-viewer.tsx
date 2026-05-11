@@ -67,7 +67,13 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp }:
 		goToPreviousVersion,
 		goToNextVersion,
 	} = useStoryViewerVersions({ chatId, storySlug: resolvedStorySlug, isAgentRunning, isReadonlyMode });
-	const { storyTitle, storyCode, queryData, cachedAt, isLoading: isContentLoading } = useStoryViewerContent({
+	const {
+		storyTitle,
+		storyCode,
+		queryData,
+		cachedAt,
+		isLoading: isContentLoading,
+	} = useStoryViewerContent({
 		storySlug,
 		resolvedStorySlug,
 		chatId,
