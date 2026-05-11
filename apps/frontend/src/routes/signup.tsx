@@ -37,7 +37,11 @@ function SignUp() {
 		}
 	}, [config.data, isUserSignupEnabled, navigate]);
 
-	if (!isUserSignupEnabled) {
+	if (config.isLoading) {
+		return null;
+	}
+
+	if (config.data && !isUserSignupEnabled) {
 		return null;
 	}
 
