@@ -1,3 +1,6 @@
+import tomllib
+from pathlib import Path
+
 import pytest
 
 from nao_core.deps import MissingDependencyError, require_database_backend
@@ -17,3 +20,13 @@ def test_require_database_backend_uses_public_extra_for_shared_ibis_backend(monk
     assert "to connect to redshift databases" in message
     assert "pip install 'nao-core[redshift]'" in message
     assert "uv pip install 'nao-core[redshift]'" in message
+
+
+def test_snowflake_extra_does_not_pin_connector_directly():
+    pyproject_path = Path(__file__).resolve().parents[2] / "pyproject.toml"
+    pyproject = tomllib.loads(pyproject_path.read_text())
+
+    snowflake_extra = pyproject["project"]["optional-dependencies"]["snowflake"]
+
+    assert any(dep.startswith("ibis-framework[snowflake]") for dep in snowflake_extra)
+    assert all(not dep.startswith("snowflake-connector-python") for dep in snowflake_extra)
