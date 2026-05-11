@@ -48,6 +48,9 @@ export default defineConfig({
 			'/c/': {
 				target: 'http://localhost:5005',
 			},
+			'/branding/': {
+				target: 'http://localhost:5005',
+			},
 		},
 	},
 });

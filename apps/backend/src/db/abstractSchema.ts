@@ -95,4 +95,7 @@ export type DBScheduledJob = typeof sqliteSchema.scheduledJob.$inferSelect;
 export type NewScheduledJob = typeof sqliteSchema.scheduledJob.$inferInsert;
 export type ScheduledJobStatus = DBScheduledJob['status'];
 
+export type DBBrandingConfig = typeof sqliteSchema.brandingConfig.$inferSelect;
+export type NewBrandingConfig = typeof sqliteSchema.brandingConfig.$inferInsert;
+
 export default allSchema as typeof sqliteSchema;

@@ -21,6 +21,7 @@ import { Route as SidebarLayoutStoriesIndexRouteImport } from './routes/_sidebar
 import { Route as SidebarLayoutSettingsIndexRouteImport } from './routes/_sidebar-layout.settings.index'
 import { Route as SidebarLayoutChatLayoutIndexRouteImport } from './routes/_sidebar-layout._chat-layout.index'
 import { Route as SidebarLayoutSharedChatShareIdRouteImport } from './routes/_sidebar-layout.shared-chat.$shareId'
+import { Route as SidebarLayoutSettingsWhiteLabelRouteImport } from './routes/_sidebar-layout.settings.white-label'
 import { Route as SidebarLayoutSettingsUsageRouteImport } from './routes/_sidebar-layout.settings.usage'
 import { Route as SidebarLayoutSettingsProjectRouteImport } from './routes/_sidebar-layout.settings.project'
 import { Route as SidebarLayoutSettingsOrganizationRouteImport } from './routes/_sidebar-layout.settings.organization'
@@ -108,6 +109,12 @@ const SidebarLayoutSharedChatShareIdRoute =
     id: '/shared-chat/$shareId',
     path: '/shared-chat/$shareId',
     getParentRoute: () => SidebarLayoutRoute,
+  } as any)
+const SidebarLayoutSettingsWhiteLabelRoute =
+  SidebarLayoutSettingsWhiteLabelRouteImport.update({
+    id: '/white-label',
+    path: '/white-label',
+    getParentRoute: () => SidebarLayoutSettingsRoute,
   } as any)
 const SidebarLayoutSettingsUsageRoute =
   SidebarLayoutSettingsUsageRouteImport.update({
@@ -279,6 +286,7 @@ export interface FileRoutesByFullPath {
   '/settings/organization': typeof SidebarLayoutSettingsOrganizationRoute
   '/settings/project': typeof SidebarLayoutSettingsProjectRouteWithChildren
   '/settings/usage': typeof SidebarLayoutSettingsUsageRoute
+  '/settings/white-label': typeof SidebarLayoutSettingsWhiteLabelRoute
   '/shared-chat/$shareId': typeof SidebarLayoutSharedChatShareIdRoute
   '/settings/': typeof SidebarLayoutSettingsIndexRoute
   '/stories/': typeof SidebarLayoutStoriesIndexRoute
@@ -314,6 +322,7 @@ export interface FileRoutesByTo {
   '/settings/memory': typeof SidebarLayoutSettingsMemoryRoute
   '/settings/organization': typeof SidebarLayoutSettingsOrganizationRoute
   '/settings/usage': typeof SidebarLayoutSettingsUsageRoute
+  '/settings/white-label': typeof SidebarLayoutSettingsWhiteLabelRoute
   '/shared-chat/$shareId': typeof SidebarLayoutSharedChatShareIdRoute
   '/settings': typeof SidebarLayoutSettingsIndexRoute
   '/stories': typeof SidebarLayoutStoriesIndexRoute
@@ -353,6 +362,7 @@ export interface FileRoutesById {
   '/_sidebar-layout/settings/organization': typeof SidebarLayoutSettingsOrganizationRoute
   '/_sidebar-layout/settings/project': typeof SidebarLayoutSettingsProjectRouteWithChildren
   '/_sidebar-layout/settings/usage': typeof SidebarLayoutSettingsUsageRoute
+  '/_sidebar-layout/settings/white-label': typeof SidebarLayoutSettingsWhiteLabelRoute
   '/_sidebar-layout/shared-chat/$shareId': typeof SidebarLayoutSharedChatShareIdRoute
   '/_sidebar-layout/_chat-layout/': typeof SidebarLayoutChatLayoutIndexRoute
   '/_sidebar-layout/settings/': typeof SidebarLayoutSettingsIndexRoute
@@ -393,6 +403,7 @@ export interface FileRouteTypes {
     | '/settings/organization'
     | '/settings/project'
     | '/settings/usage'
+    | '/settings/white-label'
     | '/shared-chat/$shareId'
     | '/settings/'
     | '/stories/'
@@ -428,6 +439,7 @@ export interface FileRouteTypes {
     | '/settings/memory'
     | '/settings/organization'
     | '/settings/usage'
+    | '/settings/white-label'
     | '/shared-chat/$shareId'
     | '/settings'
     | '/stories'
@@ -466,6 +478,7 @@ export interface FileRouteTypes {
     | '/_sidebar-layout/settings/organization'
     | '/_sidebar-layout/settings/project'
     | '/_sidebar-layout/settings/usage'
+    | '/_sidebar-layout/settings/white-label'
     | '/_sidebar-layout/shared-chat/$shareId'
     | '/_sidebar-layout/_chat-layout/'
     | '/_sidebar-layout/settings/'
@@ -580,6 +593,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/shared-chat/$shareId'
       preLoaderRoute: typeof SidebarLayoutSharedChatShareIdRouteImport
       parentRoute: typeof SidebarLayoutRoute
+    }
+    '/_sidebar-layout/settings/white-label': {
+      id: '/_sidebar-layout/settings/white-label'
+      path: '/white-label'
+      fullPath: '/settings/white-label'
+      preLoaderRoute: typeof SidebarLayoutSettingsWhiteLabelRouteImport
+      parentRoute: typeof SidebarLayoutSettingsRoute
     }
     '/_sidebar-layout/settings/usage': {
       id: '/_sidebar-layout/settings/usage'
@@ -831,6 +851,7 @@ interface SidebarLayoutSettingsRouteChildren {
   SidebarLayoutSettingsOrganizationRoute: typeof SidebarLayoutSettingsOrganizationRoute
   SidebarLayoutSettingsProjectRoute: typeof SidebarLayoutSettingsProjectRouteWithChildren
   SidebarLayoutSettingsUsageRoute: typeof SidebarLayoutSettingsUsageRoute
+  SidebarLayoutSettingsWhiteLabelRoute: typeof SidebarLayoutSettingsWhiteLabelRoute
   SidebarLayoutSettingsIndexRoute: typeof SidebarLayoutSettingsIndexRoute
 }
 
@@ -848,6 +869,7 @@ const SidebarLayoutSettingsRouteChildren: SidebarLayoutSettingsRouteChildren = {
   SidebarLayoutSettingsProjectRoute:
     SidebarLayoutSettingsProjectRouteWithChildren,
   SidebarLayoutSettingsUsageRoute: SidebarLayoutSettingsUsageRoute,
+  SidebarLayoutSettingsWhiteLabelRoute: SidebarLayoutSettingsWhiteLabelRoute,
   SidebarLayoutSettingsIndexRoute: SidebarLayoutSettingsIndexRoute,
 }
 

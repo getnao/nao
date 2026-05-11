@@ -17,6 +17,7 @@ import NaoLogo from '@/components/icons/nao-logo.svg';
 import { Button } from '@/components/ui/button';
 import { useCommandMenuCallback } from '@/contexts/command-menu-callback';
 import { useSidebar } from '@/contexts/sidebar';
+import { brandingAssetUrl, useBranding } from '@/hooks/use-branding';
 import { useChatViewPreferences } from '@/hooks/use-chat-view-preferences';
 import { useTimeAgo } from '@/hooks/use-time-ago';
 import { getActiveProjectId, setActiveProjectId } from '@/lib/active-project';
@@ -34,6 +35,7 @@ export function Sidebar() {
 	const projects = useQuery(trpc.project.listForCurrentUser.queryOptions());
 	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
 	const license = useQuery(trpc.license.getStatus.queryOptions());
+	const branding = useBranding();
 	const { isAdmin, isViewer } = usePermissions();
 	const isCloud = config.data?.naoMode === 'cloud';
 	const { groupBy, filters, setGroupBy, toggleFilter } = useChatViewPreferences();
@@ -166,7 +168,15 @@ export function Sidebar() {
 									hideIf(effectiveIsCollapsed),
 								)}
 							>
-								<NaoLogo className='size-5' />
+								{branding.enabled && branding.hasSidebarLogo ? (
+									<img
+										src={brandingAssetUrl('sidebar-logo', branding.updatedAt)}
+										alt={branding.appName ?? 'Logo'}
+										className='size-5 object-contain'
+									/>
+								) : (
+									<NaoLogo className='size-5' />
+								)}
 							</button>
 
 							{isMobile ? (

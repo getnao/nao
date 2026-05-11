@@ -15,6 +15,7 @@ import { mcpServerRoutes } from './mcp/routes';
 import { ensureOrganizationSetup } from './queries/organization.queries';
 import { agentRoutes } from './routes/agent';
 import { authRoutes } from './routes/auth';
+import { brandingRoutes } from './routes/branding';
 import { chartRoutes } from './routes/chart';
 import { deployRoutes } from './routes/deploy';
 import { githubRoutes } from './routes/github';
@@ -149,6 +150,10 @@ app.register(imageRoutes, {
 	prefix: '/i',
 });
 
+app.register(brandingRoutes, {
+	prefix: '/branding',
+});
+
 app.register(authRoutes, {
 	prefix: '/api',
 });
@@ -248,6 +253,8 @@ const isReservedBackendPath = (url: string) => {
 		pathname.startsWith('/c/') ||
 		pathname === '/i' ||
 		pathname.startsWith('/i/') ||
+		pathname === '/branding' ||
+		pathname.startsWith('/branding/') ||
 		pathname === '/mcp' ||
 		pathname.startsWith('/mcp/') ||
 		pathname.startsWith('/.well-known/')

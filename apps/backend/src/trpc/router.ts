@@ -1,6 +1,7 @@
 import { accountRoutes } from './account.routes';
 import { apiKeyRoutes } from './api-key.routes';
 import { authConfigRoutes } from './auth-config.routes';
+import { brandingRoutes } from './branding.routes';
 import { budgetRoutes } from './budget.routes';
 import { chartRoutes } from './chart.routes';
 import { chatRoutes } from './chat.routes';
@@ -28,6 +29,7 @@ import { usageRoutes } from './usage.routes';
 import { userRoutes } from './user.routes';
 
 export const trpcRouter = router({
+	branding: brandingRoutes,
 	budget: budgetRoutes,
 	chart: chartRoutes,
 	chat: chatRoutes,

@@ -27,6 +27,7 @@ interface NavItem {
 	disabled?: (ctx: NavContext) => boolean;
 	type?: 'divider' | 'item';
 	badge?: string;
+	badgeVariant?: 'new' | 'enterprise';
 }
 
 const settingsNavItems: NavItem[] = [
@@ -53,6 +54,7 @@ const settingsNavItems: NavItem[] = [
 		to: '/settings/mcp-endpoint',
 		visible: ({ isViewer }) => !isViewer,
 		badge: 'New',
+		badgeVariant: 'new',
 	},
 	{
 		label: 'Observability',
@@ -77,12 +79,19 @@ const settingsNavItems: NavItem[] = [
 	{
 		label: 'Enterprise',
 		type: 'divider',
-		visible: ({ isAdmin, isCloud, hasLicense }) => isAdmin && !isCloud && hasLicense,
+		visible: ({ isAdmin, isCloud }) => isAdmin && !isCloud,
 	},
 	{
 		label: 'License',
 		to: '/settings/enterprise',
 		visible: ({ isAdmin, isCloud, hasLicense }) => isAdmin && !isCloud && hasLicense,
+	},
+	{
+		label: 'White-label',
+		to: '/settings/white-label',
+		visible: ({ isAdmin, isCloud }) => isAdmin && !isCloud,
+		badge: 'Enterprise',
+		badgeVariant: 'enterprise',
 	},
 	{
 		label: 'Context',
@@ -284,8 +293,13 @@ export function SidebarSettingsNav({
 
 						const badge = item.badge ? (
 							<Badge
-								variant='secondary'
-								className='ml-auto h-4 px-1.5 py-0 text-[10px] font-medium uppercase tracking-wide'
+								variant='ghost'
+								className={cn(
+									'ml-auto h-4 px-1.5 py-0 text-[10px] font-medium uppercase tracking-wide',
+									item.badgeVariant === 'enterprise'
+										? 'bg-primary/10 text-primary'
+										: 'bg-secondary text-secondary-foreground',
+								)}
 							>
 								{item.badge}
 							</Badge>

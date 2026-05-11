@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import GithubIcon from '@/components/icons/github-icon.svg';
 import GoogleIcon from '@/components/icons/google-icon.svg';
 import NaoLogo from '@/components/icons/nao-full-logo.svg';
+import { brandingAssetUrl, useBranding } from '@/hooks/use-branding';
 import { handleGithubSignIn, handleGoogleSignIn } from '@/lib/auth-client';
 
 interface AuthFormProps {
@@ -36,13 +37,22 @@ export function AuthForm({
 	const isGoogleSetup = useQuery(trpc.authConfig.google.isSetup.queryOptions());
 	const isGithubSetup = useQuery(trpc.authConfig.github.isSetup.queryOptions());
 	const isMicrosoftSetup = useIsMicrosoftSetup();
+	const branding = useBranding();
 
 	const hasAnyProvider = isGoogleSetup.data || isGithubSetup.data || isMicrosoftSetup;
 
 	return (
 		<div className='mx-auto w-full max-w-md p-8 my-auto'>
 			<div className='flex flex-row items-end start mb-8'>
-				<NaoLogo className='w-20 h-auto' />
+				{branding.enabled && branding.hasAuthLogo ? (
+					<img
+						src={brandingAssetUrl('auth-logo', branding.updatedAt)}
+						alt={branding.appName ?? 'Logo'}
+						className='h-10 w-auto max-w-[180px] object-contain'
+					/>
+				) : (
+					<NaoLogo className='w-20 h-auto' />
+				)}
 				<span className='text-muted-foreground text-sm mx-4 border-l-1 border-border h-4'></span>
 				<h1 className='text-md font-semibold uppercase leading-none'>{title}</h1>
 			</div>

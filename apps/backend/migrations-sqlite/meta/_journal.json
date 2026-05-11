@@ -281,6 +281,13 @@
       "when": 1778071303698,
       "tag": "0039_mcp_endpoint",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "6",
+      "when": 1778541532870,
+      "tag": "0040_branding_config",
+      "breakpoints": true
     }
   ]
 }
