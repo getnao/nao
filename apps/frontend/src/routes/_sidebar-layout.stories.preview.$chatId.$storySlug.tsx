@@ -17,9 +17,18 @@ import { StoryDownload } from '@/components/story-download';
 import { SelectionProvider } from '@/contexts/text-selection';
 import { chatPendingCitationStore } from '@/stores/chat-pending-citation';
 import { useChatActivity } from '@/hooks/use-chat-activity';
+import { Spinner } from '@/components/ui/spinner';
 
 export const Route = createFileRoute('/_sidebar-layout/stories/preview/$chatId/$storySlug')({
 	component: StoryPreviewPage,
+	pendingComponent: () => (
+		<div className='flex flex-1 h-full items-center justify-center text-muted-foreground'>
+			<div className='flex flex-col items-center gap-3'>
+				<Spinner />
+				<p className='text-sm'>Loading story content...</p>
+			</div>
+		</div>
+	),
 });
 
 function StoryPreviewPage() {

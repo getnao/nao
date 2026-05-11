@@ -67,7 +67,7 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp }:
 		goToPreviousVersion,
 		goToNextVersion,
 	} = useStoryViewerVersions({ chatId, storySlug: resolvedStorySlug, isAgentRunning, isReadonlyMode });
-	const { storyTitle, storyCode, queryData, cachedAt } = useStoryViewerContent({
+	const { storyTitle, storyCode, queryData, cachedAt, isLoading: isContentLoading } = useStoryViewerContent({
 		storySlug,
 		resolvedStorySlug,
 		chatId,
@@ -170,13 +170,22 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp }:
 
 			<div ref={scrollContainerRef} className='flex-1 min-h-0 overflow-auto'>
 				{viewMode === 'preview' ? (
-					<StoryPreview
-						code={storyCode}
-						cacheSchedule={cacheSchedule}
-						queryData={queryData ?? null}
-						chatId={chatId}
-						versionKey={`${currentVersionNumber}-${cachedAt ?? ''}`}
-					/>
+					isContentLoading ? (
+						<div className='flex h-full items-center justify-center p-6 text-muted-foreground'>
+							<div className='flex flex-col items-center gap-3'>
+								<Spinner />
+								<p className='text-sm'>Loading story content...</p>
+							</div>
+						</div>
+					) : (
+						<StoryPreview
+							code={storyCode}
+							cacheSchedule={cacheSchedule}
+							queryData={queryData ?? null}
+							chatId={chatId}
+							versionKey={`${currentVersionNumber}-${cachedAt ?? ''}`}
+						/>
+					)
 				) : viewMode === 'edit' ? (
 					<StoryEditor code={storyCode} editorRef={tiptapEditorRef} onSave={handleSave} />
 				) : (
