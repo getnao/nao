@@ -36,7 +36,7 @@ function Login() {
 	const form = useForm({
 		defaultValues: { email: '', password: '' },
 		onSubmit: async ({ value }) => {
-			if (!isUserLoginEnabled) {
+			if (isUserLoginEnabled === false) {
 				return;
 			}
 			setServerError(undefined);
