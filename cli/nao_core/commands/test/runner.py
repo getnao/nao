@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
 from datetime import datetime
@@ -18,6 +19,7 @@ from .client import AgentClientError, VerificationResult, get_client
 
 # Default models to test
 DEFAULT_MODELS = ["openai:gpt-4.1"]
+_THOUSANDS_SEPARATORS = (" ", "_", "'", "’", "\u00a0", "\u2007", "\u202f")
 
 
 @dataclass
@@ -107,9 +109,18 @@ def check_dataframe(
                 df[col] = series.round(decimals)
         return df
 
+    def normalize_numeric_strings(df: pd.DataFrame) -> pd.DataFrame:
+        """Convert locale-formatted numeric strings to numeric values."""
+        for col in df.columns:
+            if pd.api.types.is_object_dtype(df[col]) or pd.api.types.is_string_dtype(df[col]):
+                df[col] = df[col].map(_normalize_numeric_string)
+        return df
+
     # Normalize: reset index, infer types, and sort columns consistently
     actual = pd.DataFrame(actual.reset_index(drop=True).infer_objects(copy=False))
     expected = pd.DataFrame(expected.reset_index(drop=True).infer_objects(copy=False))
+    actual = normalize_numeric_strings(actual)
+    expected = normalize_numeric_strings(expected)
 
     # Sort columns alphabetically for consistent comparison
     sorted_cols = sorted(actual.columns)
@@ -169,6 +180,55 @@ def check_dataframe(
         UI.print(f"[dim]  Expected:\n{expected.to_string()}[/dim]")
 
     return False, "values differ", comparison
+
+
+def _normalize_numeric_string(value: object) -> object:
+    """Normalize locale-formatted numeric strings, e.g. '52,123,123' -> 52123123."""
+    if not isinstance(value, str):
+        return value
+
+    text = value.strip()
+    if not text:
+        return value
+
+    for separator in _THOUSANDS_SEPARATORS:
+        text = text.replace(separator, "")
+
+    if not re.fullmatch(r"[+-]?[0-9][0-9.,]*", text):
+        return value
+
+    has_comma = "," in text
+    has_dot = "." in text
+    normalized = text
+
+    if has_comma and has_dot:
+        decimal_char = "," if text.rfind(",") > text.rfind(".") else "."
+        thousands_char = "." if decimal_char == "," else ","
+        normalized = normalized.replace(thousands_char, "")
+        normalized = normalized.replace(decimal_char, ".")
+    elif has_comma:
+        parts = text.split(",")
+        is_decimal = len(parts) == 2 and len(parts[1]) != 3
+        normalized = text.replace(",", "." if is_decimal else "")
+    elif has_dot:
+        parts = text.split(".")
+        is_thousands_only = len(parts) > 1 and all(len(part) == 3 for part in parts[1:])
+        if is_thousands_only:
+            normalized = text.replace(".", "")
+
+    if not re.fullmatch(r"[+-]?[0-9]+(\.[0-9]+)?", normalized):
+        return value
+
+    if "." not in normalized:
+        try:
+            return int(normalized)
+        except ValueError:
+            return value
+
+    try:
+        return float(normalized)
+    except ValueError:
+        return value
 
 
 def run_test(

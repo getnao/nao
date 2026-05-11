@@ -21,6 +21,48 @@ def test_check_dataframe_rounds_to_two_decimals():
     assert comparison is None
 
 
+def test_check_dataframe_matches_comma_formatted_integers():
+    verification = VerificationResult(
+        data=[{"value": "52,123,123", "label": "a"}],
+        expectedData=[{"value": 52123123, "label": "a"}],
+        expectedColumns=["value", "label"],
+    )
+
+    passed, msg, comparison = check_dataframe(verification)
+
+    assert passed is True
+    assert msg in {"match", "match (approximate)"}
+    assert comparison is None
+
+
+def test_check_dataframe_matches_dot_formatted_integers():
+    verification = VerificationResult(
+        data=[{"value": "52.123.123", "label": "a"}],
+        expectedData=[{"value": 52123123, "label": "a"}],
+        expectedColumns=["value", "label"],
+    )
+
+    passed, msg, comparison = check_dataframe(verification)
+
+    assert passed is True
+    assert msg in {"match", "match (approximate)"}
+    assert comparison is None
+
+
+def test_check_dataframe_matches_comma_decimal_locale_values():
+    verification = VerificationResult(
+        data=[{"value": "1.234,56", "label": "a"}],
+        expectedData=[{"value": 1234.56, "label": "a"}],
+        expectedColumns=["value", "label"],
+    )
+
+    passed, msg, comparison = check_dataframe(verification)
+
+    assert passed is True
+    assert msg in {"match", "match (approximate)"}
+    assert comparison is None
+
+
 def test_filter_test_cases_by_name():
     test_cases = [
         TestCase(name="orders", prompt="p1", file_path=Path("tests/orders.yml"), sql="select 1"),
