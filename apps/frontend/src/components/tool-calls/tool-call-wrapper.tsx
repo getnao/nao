@@ -10,6 +10,7 @@ interface ActionButton {
 	id: string;
 	label: ReactNode;
 	isActive?: boolean;
+	disabled?: boolean;
 	onClick: () => void;
 	expandOnClick?: boolean;
 }
@@ -63,8 +64,12 @@ export const ToolCallWrapper = ({
 						variant='ghost-muted'
 						size='icon-xs'
 						key={action.id}
+						disabled={action.disabled}
 						onClick={(e) => {
 							e.stopPropagation();
+							if (action.disabled) {
+								return;
+							}
 							if (action.expandOnClick && !isExpanded) {
 								setIsExpanded(true);
 							}

@@ -1,12 +1,17 @@
+import { executeSql } from '@nao/shared/tools';
 import { CHAT_FILTER_OPTIONS, CHAT_GROUP_BY_OPTIONS, type GroupedChatListResponse } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
+import { executeQuery } from '../agents/tools/execute-sql';
 import type { SearchChatResult } from '../queries/chat.queries';
 import * as chatQueries from '../queries/chat.queries';
+import * as projectQueries from '../queries/project.queries';
 import { agentService } from '../services/agent';
+import { hasFeature, LICENSE_FEATURES } from '../services/license.service';
+import { getAzureAccessTokenForUser } from '../services/microsoft-auth.service';
 import { posthog, PostHogEvent } from '../services/posthog';
-import type { ContextUsage, ForkMetadata, UIChat } from '../types/chat';
+import type { ContextUsage, ForkMetadata, UIChat, UIMessagePart } from '../types/chat';
 import { llmProviderSchema } from '../types/llm';
 import { getChatContextUsage } from '../utils/chat-context-usage';
 import { ownedResourceProcedure, projectProtectedProcedure, protectedProcedure } from './trpc';
@@ -63,6 +68,67 @@ export const chatRoutes = {
 		const projectId = await chatQueries.getChatProjectId(input.chatId);
 		posthog.capture(ctx.user.id, PostHogEvent.AgentStopped, { project_id: projectId, chat_id: input.chatId });
 	}),
+
+	rerunExecuteSqlToolCall: protectedProcedure
+		.input(z.object({ toolCallId: z.string() }))
+		.mutation(async ({ input, ctx }): Promise<{ chatId: string; messageId: string }> => {
+			const toolCall = await chatQueries.getToolCallForRerun(input.toolCallId);
+			if (!toolCall) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: 'Tool call not found.' });
+			}
+			if (toolCall.userId !== ctx.user.id) {
+				throw new TRPCError({ code: 'FORBIDDEN', message: 'You are not authorized to modify this chat.' });
+			}
+			if (toolCall.toolName !== 'execute_sql') {
+				throw new TRPCError({ code: 'BAD_REQUEST', message: 'Only execute_sql tool calls can be rerun.' });
+			}
+			if (toolCall.toolState !== 'output-available') {
+				throw new TRPCError({ code: 'BAD_REQUEST', message: 'Only successful tool calls can be rerun.' });
+			}
+
+			const userRole = await projectQueries.getUserRoleInProject(toolCall.projectId, ctx.user.id);
+			if (userRole !== 'admin' && userRole !== 'user') {
+				throw new TRPCError({ code: 'FORBIDDEN', message: 'Viewers cannot rerun tool calls.' });
+			}
+
+			const parsedInput = executeSql.InputSchema.safeParse(toolCall.toolInput);
+			if (!parsedInput.success) {
+				throw new TRPCError({ code: 'BAD_REQUEST', message: 'Stored SQL tool input is invalid.' });
+			}
+
+			const [project, agentSettings, envVars, azureAccessToken] = await Promise.all([
+				projectQueries.retrieveProjectById(toolCall.projectId),
+				projectQueries.getAgentSettings(toolCall.projectId),
+				projectQueries.getEnvVars(toolCall.projectId),
+				hasFeature(LICENSE_FEATURES.sso).then((enabled) =>
+					enabled ? getAzureAccessTokenForUser(ctx.user.id) : null,
+				),
+			]);
+
+			const output = await executeQuery(parsedInput.data, {
+				projectFolder: project.path ?? '',
+				chatId: toolCall.chatId,
+				agentSettings,
+				envVars,
+				azureAccessToken,
+				queryResults: new Map(),
+			});
+
+			const toolPart: UIMessagePart = {
+				type: 'tool-execute_sql',
+				toolCallId: crypto.randomUUID(),
+				state: 'output-available',
+				input: parsedInput.data,
+				output,
+			};
+			const { messageId } = await chatQueries.upsertMessage({
+				chatId: toolCall.chatId,
+				role: 'assistant',
+				parts: [toolPart],
+			});
+
+			return { chatId: toolCall.chatId, messageId };
+		}),
 
 	rename: chatOwnerProcedure
 		.input(z.object({ chatId: z.string(), title: z.string().min(1).max(255) }))

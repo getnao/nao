@@ -1,21 +1,49 @@
 import { useState } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Streamdown } from 'streamdown';
-import { ArrowUpRight, Code, Copy, Table as TableIcon } from 'lucide-react';
+import { ArrowUpRight, Code, Copy, RefreshCw, Table as TableIcon } from 'lucide-react';
 import { ToolCallWrapper } from './tool-call-wrapper';
 import { TableDisplay } from './display-table';
 import type { ToolCallComponentProps } from '.';
 import { useSidePanel } from '@/contexts/side-panel';
 import { useToolCallContext } from '@/contexts/tool-call';
 import { SidePanelContent } from '@/components/side-panel/sql-editor';
+import { trpc } from '@/main';
 
 type ViewMode = 'results' | 'query';
 
-export const ExecuteSqlToolCall = ({ toolPart: { output, input, state } }: ToolCallComponentProps<'execute_sql'>) => {
+export const ExecuteSqlToolCall = ({
+	toolPart: { output, input, state, toolCallId },
+}: ToolCallComponentProps<'execute_sql'>) => {
 	const [viewMode, setViewMode] = useState<ViewMode>('results');
 	const { isSettled } = useToolCallContext();
 	const { open: openSidePanel } = useSidePanel();
+	const queryClient = useQueryClient();
+	const rerunMutation = useMutation(
+		trpc.chat.rerunExecuteSqlToolCall.mutationOptions({
+			onSuccess: async (result) => {
+				await Promise.all([
+					queryClient.invalidateQueries({ queryKey: trpc.chat.get.queryKey({ chatId: result.chatId }) }),
+					queryClient.invalidateQueries({ queryKey: [['chat', 'listGrouped']] }),
+				]);
+			},
+		}),
+	);
+	const canRerun = isSettled && state === 'output-available' && !!toolCallId;
 
 	const actions = [
+		...(canRerun
+			? [
+					{
+						id: 'rerun',
+						label: <RefreshCw className='size-3' />,
+						disabled: rerunMutation.isPending,
+						onClick: () => {
+							rerunMutation.mutate({ toolCallId });
+						},
+					},
+				]
+			: []),
 		{
 			id: 'results',
 			label: <TableIcon className='size-3' />,

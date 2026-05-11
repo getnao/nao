@@ -17,7 +17,7 @@ import s, {
 } from '../db/abstractSchema';
 import { db } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
-import { ForkMetadata, StopReason, TokenUsage, UIChat, UIMessage, UIMessagePart } from '../types/chat';
+import { ForkMetadata, StopReason, TokenUsage, ToolState, UIChat, UIMessage, UIMessagePart } from '../types/chat';
 import { applyChatFilters, buildChatGroups, type EnrichedChat, type SourcePlatform } from '../utils/chat-list';
 import { convertDBPartToUIPart, mapUIPartsToDBParts } from '../utils/chat-message-part-mappings';
 import { getErrorMessage } from '../utils/utils';
@@ -442,6 +442,37 @@ export const getLastAssistantMessageId = async (chatId: string): Promise<string 
 		.limit(1)
 		.execute();
 	return result?.id ?? null;
+};
+
+export const getToolCallForRerun = async (
+	toolCallId: string,
+): Promise<{
+	chatId: string;
+	projectId: string;
+	userId: string;
+	toolName: string | null;
+	toolState: ToolState | null;
+	toolInput: unknown;
+} | null> => {
+	const [result] = await db
+		.select({
+			chatId: s.chat.id,
+			projectId: s.chat.projectId,
+			userId: s.chat.userId,
+			toolName: s.messagePart.toolName,
+			toolState: s.messagePart.toolState,
+			toolInput: s.messagePart.toolInput,
+		})
+		.from(s.messagePart)
+		.innerJoin(s.chatMessage, eq(s.messagePart.messageId, s.chatMessage.id))
+		.innerJoin(s.chat, eq(s.chatMessage.chatId, s.chat.id))
+		.where(
+			and(eq(s.messagePart.toolCallId, toolCallId), isNull(s.chatMessage.supersededAt), isNull(s.chat.deletedAt)),
+		)
+		.limit(1)
+		.execute();
+
+	return result ?? null;
 };
 
 export const getChatBySlackThread = async (threadId: string): Promise<{ id: string; title: string } | null> => {
