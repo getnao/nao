@@ -18,16 +18,17 @@ export const useStoryViewerAgentState = (
 	const allStories = useMemo(() => findStories(effectiveMessages), [effectiveMessages]);
 	const draftStory = useMemo(() => findStoryDraft(effectiveMessages, storySlug), [effectiveMessages, storySlug]);
 
-	const isStoryStreaming = useMemo(
+	const isStoryToolStreaming = useMemo(
 		() => isLatestRelevantStoryPartStreaming(effectiveMessages, storySlug),
 		[effectiveMessages, storySlug],
 	);
 
-	const isAgentRunningFromContext =
-		messages === undefined && (agent?.status === 'streaming' || agent?.status === 'submitted');
-	const isStoryStreamingRelevant =
-		isStoryStreaming && (messages === undefined ? isAgentRunningFromContext : isChatAgentRunning);
-	const isAgentRunning = isAgentRunningFromContext || isStoryStreamingRelevant;
+	// Do not treat `submitted` as running: it can stick while the story is already persisted.
+	// Stale `chatActivityStore` for a chat must not block edit when this story is not streaming.
+	const isSameChatAgentStreaming = messages === undefined && agent?.status === 'streaming';
+	const isAgentRunning =
+		isSameChatAgentStreaming ||
+		(isStoryToolStreaming && (messages === undefined || isChatAgentRunning));
 
 	return {
 		allStories,
