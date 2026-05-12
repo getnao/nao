@@ -14,23 +14,31 @@ export const useSessionOrNavigateToIndexPage = () => {
 	const navigation = useAuthRoute();
 	const pathname = useRouterState({ select: (s) => s.location.pathname });
 	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
-	const isCloud = config.data?.naoMode === 'cloud';
+	const isUserSignupEnabled = config.data?.enableUserSignup === true;
 
 	useEffect(() => {
-		if (session.isPending) {
+		if (session.isPending || config.isPending) {
 			return;
 		}
 
-		const canStayUnauthenticated = AUTH_ROUTES.includes(pathname) || (pathname === '/signup' && isCloud);
+		const canStayUnauthenticated =
+			AUTH_ROUTES.includes(pathname) || (pathname === '/signup' && isUserSignupEnabled);
 
 		if (!session.data && !canStayUnauthenticated) {
-			navigate({ to: navigation });
+			if (pathname === '/signup') {
+				navigate({ to: '/login', search: { error: 'Sign up is disabled.' } });
+			} else {
+				navigate({ to: navigation });
+			}
 		}
 
 		if (session.data && (AUTH_ROUTES.includes(pathname) || pathname === '/signup')) {
 			navigate({ to: '/' });
 		}
-	}, [session.isPending, session.data, navigate, navigation, pathname, isCloud]);
+	}, [session.isPending, session.data, config.isPending, navigate, navigation, pathname, isUserSignupEnabled]);
 
-	return session;
+	return {
+		...session,
+		isPending: session.isPending || config.isPending,
+	};
 };

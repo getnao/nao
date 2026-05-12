@@ -28,12 +28,17 @@ function Login() {
 	const isSmtpSetup = useQuery(trpc.authConfig.smtp.isSetup.queryOptions());
 	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
 	const isCloud = config.data?.naoMode === 'cloud';
+	const isUserLoginEnabled = config.data?.enableUserLogin;
+	const isUserSignupEnabled = config.data?.enableUserSignup;
 
 	const oauthAuthorizeUrl = buildOAuthAuthorizeUrl();
 
 	const form = useForm({
 		defaultValues: { email: '', password: '' },
 		onSubmit: async ({ value }) => {
+			if (isUserLoginEnabled === false) {
+				return;
+			}
 			setServerError(undefined);
 			await signIn.email(value, {
 				onSuccess: () => {
@@ -56,8 +61,10 @@ function Login() {
 			serverError={serverError}
 			displaySocialProviders={true}
 			socialCallbackUrl={oauthAuthorizeUrl ?? undefined}
+			displayEmailPasswordForm={isUserLoginEnabled}
+			emailPasswordDisabledMessage='Email and password login is disabled. Use a configured sign-in provider to continue.'
 			footer={
-				isCloud ? (
+				isCloud && isUserSignupEnabled ? (
 					<>
 						Don&apos;t have an account?{' '}
 						<Link
@@ -73,7 +80,7 @@ function Login() {
 		>
 			<FormTextField form={form} name='email' type='email' placeholder='Email' />
 			<FormTextField form={form} name='password' type='password' placeholder='Password' />
-			{isSmtpSetup.data && (
+			{isUserLoginEnabled && isSmtpSetup.data && (
 				<div className='text-right'>
 					<Link to='/forgot-password' className='text-sm underline underline-offset-4'>
 						Forgot password?

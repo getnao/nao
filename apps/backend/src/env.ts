@@ -41,6 +41,17 @@ const envSchema = z.object({
 	AZURE_AD_CLIENT_SECRET: z.string().optional(),
 	AZURE_AD_TENANT_ID: z.string().optional(),
 
+	ENABLE_USER_LOGIN: z
+		.enum(['true', 'false'])
+		.optional()
+		.default('true')
+		.transform((val) => val === 'true'),
+	ENABLE_USER_SIGNUP: z
+		.enum(['true', 'false'])
+		.optional()
+		.default('false')
+		.transform((val) => val === 'true'),
+
 	CLOUD_GITHUB_CLIENT_ID: z.string().optional(),
 	CLOUD_GITHUB_CLIENT_SECRET: z.string().optional(),
 	DEFAULT_USER_ROLE: z.enum(['admin', 'user']).default('user'),

@@ -16,6 +16,8 @@ interface AuthFormProps {
 	serverError?: string;
 	displaySocialProviders?: boolean;
 	socialCallbackUrl?: string;
+	displayEmailPasswordForm?: boolean;
+	emailPasswordDisabledMessage?: string;
 	footer?: React.ReactNode;
 }
 
@@ -27,6 +29,8 @@ export function AuthForm({
 	serverError,
 	displaySocialProviders,
 	socialCallbackUrl,
+	displayEmailPasswordForm = true,
+	emailPasswordDisabledMessage,
 	footer,
 }: AuthFormProps) {
 	const isGoogleSetup = useQuery(trpc.authConfig.google.isSetup.queryOptions());
@@ -71,36 +75,44 @@ export function AuthForm({
 						{isMicrosoftSetup && <MicrosoftSignInButton callbackUrl={socialCallbackUrl} />}
 					</div>
 
-					<div className='relative'>
-						<div className='absolute inset-0 flex items-center'>
-							<div className='w-full border-t' />
+					{displayEmailPasswordForm && (
+						<div className='relative'>
+							<div className='absolute inset-0 flex items-center'>
+								<div className='w-full border-t' />
+							</div>
+							<div className='relative flex justify-center text-xs uppercase'>
+								<span className='px-2 bg-background text-muted-foreground'>Or</span>
+							</div>
 						</div>
-						<div className='relative flex justify-center text-xs uppercase'>
-							<span className='px-2 bg-background text-muted-foreground'>Or</span>
-						</div>
-					</div>
+					)}
 				</div>
 			)}
 
-			<form
-				onSubmit={(e) => {
-					e.preventDefault();
-					form.handleSubmit();
-				}}
-				className='space-y-4'
-			>
-				{children}
+			{serverError && <p className='text-red-500 text-center text-sm mb-4'>{serverError}</p>}
 
-				{serverError && <p className='text-red-500 text-center text-sm'>{serverError}</p>}
+			{displayEmailPasswordForm ? (
+				<form
+					onSubmit={(e) => {
+						e.preventDefault();
+						form.handleSubmit();
+					}}
+					className='space-y-4'
+				>
+					{children}
 
-				<form.Subscribe selector={(state: { canSubmit: boolean }) => state.canSubmit}>
-					{(canSubmit: boolean) => (
-						<Button type='submit' className='w-full h-11' disabled={!canSubmit}>
-							{submitText}
-						</Button>
-					)}
-				</form.Subscribe>
-			</form>
+					<form.Subscribe selector={(state: { canSubmit: boolean }) => state.canSubmit}>
+						{(canSubmit: boolean) => (
+							<Button type='submit' className='w-full h-11' disabled={!canSubmit}>
+								{submitText}
+							</Button>
+						)}
+					</form.Subscribe>
+				</form>
+			) : (
+				emailPasswordDisabledMessage && (
+					<p className='text-center text-sm text-muted-foreground'>{emailPasswordDisabledMessage}</p>
+				)
+			)}
 
 			{footer && <div className='mt-6 text-center text-sm text-muted-foreground'>{footer}</div>}
 		</div>
