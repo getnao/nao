@@ -35,7 +35,8 @@ _EXTRAS: dict[str, list[str]] = {
     # LLM providers
     "openai": ["openai"],
     "anthropic": ["anthropic"],
-    "mistral": ["mistralai"],
+    # Note: 'mistral' has no extra here because mistralai is currently
+    # quarantined on PyPI; users must `pip install mistralai` manually.
     "gemini": ["google.genai"],
     "ollama": ["ollama"],
     # Integrations

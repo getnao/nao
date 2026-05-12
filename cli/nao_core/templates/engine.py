@@ -203,11 +203,18 @@ class TemplateEngine:
 
     def _generate_mistral(self, model: str, prompt_text: str) -> str:
         """Generate text via Mistral chat completion API."""
-        from nao_core.deps import require_dependency
-
-        require_dependency("mistralai", "mistral", "for Mistral LLM provider")
-        from mistralai import Mistral
-        from mistralai.models.chatcompletionrequest import MessagesTypedDict
+        try:
+            from mistralai import Mistral
+            from mistralai.models.chatcompletionrequest import MessagesTypedDict
+        except ImportError as exc:
+            raise ImportError(
+                "The 'mistralai' package is required for the Mistral LLM provider.\n"
+                "It is currently unavailable as a nao-core extra because PyPI has\n"
+                "quarantined the package; install it manually with:\n"
+                "  pip install mistralai\n"
+                "or:\n"
+                "  uv pip install mistralai"
+            ) from exc
 
         if not self.llm_config or not self.llm_config.api_key:
             raise RuntimeError("Missing API key for Mistral.")
