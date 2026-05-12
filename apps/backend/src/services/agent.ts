@@ -20,7 +20,7 @@ import { z } from 'zod';
 import { CACHE_1H, CACHE_5M, LLM_PROVIDERS, ProviderModelResult } from '../agents/providers';
 import { getTools } from '../agents/tools';
 import { createWebSearchTools } from '../agents/tools/web-search';
-import { getConnections, getTableColumnsContent, getUserRules } from '../agents/user-rules';
+import { getConnections, getPromptOverride, getTableColumnsContent, getUserRules } from '../agents/user-rules';
 import { ChatForkContextPrompt, MessagingProviderSystemPrompt, SystemPrompt } from '../components/ai';
 import { DBChat } from '../db/abstractSchema';
 import { renderToMarkdown } from '../lib/markdown';
@@ -359,9 +359,13 @@ class AgentManager {
 
 		const memories = await memoryService.safeGetUserMemories(this.chat.userId, this.chat.projectId, this.chat.id);
 		const userRules = getUserRules(this._toolContext.projectFolder);
+		const surface = provider ? `${provider}_bot` : 'nao_bot';
+		const surfaceOverride = getPromptOverride(this._toolContext.projectFolder, surface);
 		const connections = getConnections(this._toolContext.projectFolder);
 		const skills = skillService.getSkills();
-		const basePrompt = renderToMarkdown(SystemPrompt({ memories, userRules, connections, skills, timezone }));
+		const basePrompt = renderToMarkdown(
+			SystemPrompt({ memories, userRules, surfaceOverride, connections, skills, timezone }),
+		);
 		const renderedPrompt = provider
 			? renderToMarkdown(MessagingProviderSystemPrompt({ basePrompt, provider, chatUrl }))
 			: basePrompt;

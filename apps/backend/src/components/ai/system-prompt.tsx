@@ -14,6 +14,7 @@ type Connection = {
 type SystemPromptProps = {
 	memories?: UserMemory[];
 	userRules?: string;
+	surfaceOverride?: string;
 	connections?: Connection[];
 	skills?: Skill[];
 	timezone?: string;
@@ -21,7 +22,14 @@ type SystemPromptProps = {
 
 export const MEMORY_TOKEN_LIMIT = 1000;
 
-export function SystemPrompt({ memories = [], userRules, connections = [], skills = [], timezone }: SystemPromptProps) {
+export function SystemPrompt({
+	memories = [],
+	userRules,
+	surfaceOverride,
+	connections = [],
+	skills = [],
+	timezone,
+}: SystemPromptProps) {
 	const visibleMemories = getMemoriesInTokenRange(memories, MEMORY_TOKEN_LIMIT);
 	const hasClickHouse = connections.some((connection) => connection.type.toLowerCase() === 'clickhouse');
 	const hasTSQL = connections.some((connection) => ['mssql', 'fabric'].includes(connection.type.toLowerCase()));
@@ -180,6 +188,12 @@ export function SystemPrompt({ memories = [], userRules, connections = [], skill
 				<ListItem>The Query ID is shown in the execute_sql tool output (e.g., Query ID: query_a1b2).</ListItem>
 			</List>
 			<Block separator={'\n\n---\n\n'}>
+				{surfaceOverride && (
+					<Block>
+						<Title level={2}>Bot Configuration</Title>
+						{surfaceOverride}
+					</Block>
+				)}
 				{userRules && (
 					<Block>
 						<Title level={2}>User Rules</Title>

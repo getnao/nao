@@ -19,6 +19,21 @@ export function getUserRules(projectFolder: string): string | undefined {
 	}
 }
 
+export function getPromptOverride(projectFolder: string, surface: string): string | undefined {
+	const promptPath = join(projectFolder, 'prompts', `${surface}.md`);
+
+	if (!existsSync(promptPath)) {
+		return undefined;
+	}
+
+	try {
+		return readFileSync(promptPath, 'utf-8');
+	} catch (error) {
+		console.error(`Error reading prompts/${surface}.md:`, error);
+		return undefined;
+	}
+}
+
 type Connection = {
 	type: string;
 	database: string;
