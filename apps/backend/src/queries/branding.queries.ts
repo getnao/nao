@@ -7,7 +7,7 @@ import { db } from '../db/db';
 
 const SINGLETON_ID = 'default';
 
-export type BrandingAssetKind = 'sidebarLogo' | 'authLogo' | 'favicon';
+export type BrandingAssetKind = 'logo' | 'favicon';
 
 export interface BrandingAsset {
 	data: string;
@@ -17,8 +17,7 @@ export interface BrandingAsset {
 export interface BrandingSummary {
 	appName: string | null;
 	tabTitle: string | null;
-	sidebarLogo: { mediaType: string } | null;
-	authLogo: { mediaType: string } | null;
+	logo: { mediaType: string } | null;
 	favicon: { mediaType: string } | null;
 	updatedAt: Date;
 }
@@ -26,14 +25,12 @@ export interface BrandingSummary {
 export interface BrandingUpdate {
 	appName?: string | null;
 	tabTitle?: string | null;
-	sidebarLogo?: BrandingAsset | null;
-	authLogo?: BrandingAsset | null;
+	logo?: BrandingAsset | null;
 	favicon?: BrandingAsset | null;
 }
 
 const ASSET_COLUMNS: Record<BrandingAssetKind, { data: keyof DBBrandingConfig; mediaType: keyof DBBrandingConfig }> = {
-	sidebarLogo: { data: 'sidebarLogoData', mediaType: 'sidebarLogoMediaType' },
-	authLogo: { data: 'authLogoData', mediaType: 'authLogoMediaType' },
+	logo: { data: 'logoData', mediaType: 'logoMediaType' },
 	favicon: { data: 'faviconData', mediaType: 'faviconMediaType' },
 };
 
@@ -50,8 +47,7 @@ export async function getBrandingSummary(): Promise<BrandingSummary | null> {
 	return {
 		appName: row.appName ?? null,
 		tabTitle: row.tabTitle ?? null,
-		sidebarLogo: row.sidebarLogoMediaType ? { mediaType: row.sidebarLogoMediaType } : null,
-		authLogo: row.authLogoMediaType ? { mediaType: row.authLogoMediaType } : null,
+		logo: row.logoMediaType ? { mediaType: row.logoMediaType } : null,
 		favicon: row.faviconMediaType ? { mediaType: row.faviconMediaType } : null,
 		updatedAt: row.updatedAt,
 	};
@@ -72,7 +68,6 @@ export async function getBrandingAsset(kind: BrandingAssetKind): Promise<Brandin
 }
 
 export async function upsertBranding(update: BrandingUpdate): Promise<void> {
-	const existing = await getBrandingRow();
 	const partial: Partial<NewBrandingConfig> = {};
 
 	if (update.appName !== undefined) {
@@ -81,27 +76,26 @@ export async function upsertBranding(update: BrandingUpdate): Promise<void> {
 	if (update.tabTitle !== undefined) {
 		partial.tabTitle = update.tabTitle;
 	}
-	if (update.sidebarLogo !== undefined) {
-		partial.sidebarLogoData = update.sidebarLogo?.data ?? null;
-		partial.sidebarLogoMediaType = update.sidebarLogo?.mediaType ?? null;
-	}
-	if (update.authLogo !== undefined) {
-		partial.authLogoData = update.authLogo?.data ?? null;
-		partial.authLogoMediaType = update.authLogo?.mediaType ?? null;
+	if (update.logo !== undefined) {
+		partial.logoData = update.logo?.data ?? null;
+		partial.logoMediaType = update.logo?.mediaType ?? null;
 	}
 	if (update.favicon !== undefined) {
 		partial.faviconData = update.favicon?.data ?? null;
 		partial.faviconMediaType = update.favicon?.mediaType ?? null;
 	}
 
-	if (existing) {
-		await db.update(s.brandingConfig).set(partial).where(eq(s.brandingConfig.id, SINGLETON_ID)).execute();
+	if (Object.keys(partial).length === 0) {
 		return;
 	}
 
 	await db
 		.insert(s.brandingConfig)
 		.values({ id: SINGLETON_ID, ...partial })
+		.onConflictDoUpdate({
+			target: s.brandingConfig.id,
+			set: { ...partial, updatedAt: new Date() },
+		})
 		.execute();
 }
 

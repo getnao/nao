@@ -3,7 +3,7 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Lock, Sparkles, Upload, X } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -22,7 +22,7 @@ export const Route = createFileRoute('/_sidebar-layout/settings/white-label')({
 const MAX_BYTES = 512 * 1024;
 const ACCEPTED_TYPES = 'image/png,image/jpeg,image/svg+xml,image/webp,image/gif,image/x-icon,image/vnd.microsoft.icon';
 
-type AssetKind = 'sidebarLogo' | 'authLogo' | 'favicon';
+type AssetKind = 'logo' | 'favicon';
 
 interface PendingAsset {
 	data: string;
@@ -41,17 +41,27 @@ function WhiteLabelPage() {
 	const [pending, setPending] = useState<Partial<Record<AssetKind, PendingAsset | null>>>({});
 	const [error, setError] = useState<string | null>(null);
 	const [success, setSuccess] = useState(false);
+	const lastSyncedNamesRef = useRef({ appName: '', tabTitle: '' });
 
 	useEffect(() => {
-		setAppName(branding.appName ?? '');
-		setTabTitle(branding.tabTitle ?? '');
+		const previousNames = lastSyncedNamesRef.current;
+		const nextNames = {
+			appName: branding.appName ?? '',
+			tabTitle: branding.tabTitle ?? '',
+		};
+
+		setAppName((current) => (current === previousNames.appName ? nextNames.appName : current));
+		setTabTitle((current) => (current === previousNames.tabTitle ? nextNames.tabTitle : current));
+		lastSyncedNamesRef.current = nextNames;
 	}, [branding.appName, branding.tabTitle]);
 
 	const updateMutation = useMutation({
 		...trpc.branding.update.mutationOptions(),
-		onSuccess: async () => {
+		onSuccess: async (_data, variables) => {
 			setError(null);
 			setSuccess(true);
+			setAppName(variables.appName ?? '');
+			setTabTitle(variables.tabTitle ?? '');
 			setPending({});
 			await queryClient.invalidateQueries({ queryKey: trpc.branding.getPublic.queryKey() });
 		},
@@ -84,18 +94,9 @@ function WhiteLabelPage() {
 		updateMutation.mutate({
 			appName: appName.trim() ? appName.trim() : null,
 			tabTitle: tabTitle.trim() ? tabTitle.trim() : null,
-			...(pending.sidebarLogo !== undefined
+			...(pending.logo !== undefined
 				? {
-						sidebarLogo: pending.sidebarLogo
-							? { data: pending.sidebarLogo.data, mediaType: pending.sidebarLogo.mediaType }
-							: null,
-					}
-				: {}),
-			...(pending.authLogo !== undefined
-				? {
-						authLogo: pending.authLogo
-							? { data: pending.authLogo.data, mediaType: pending.authLogo.mediaType }
-							: null,
+						logo: pending.logo ? { data: pending.logo.data, mediaType: pending.logo.mediaType } : null,
 					}
 				: {}),
 			...(pending.favicon !== undefined
@@ -111,8 +112,7 @@ function WhiteLabelPage() {
 	const hasChanges =
 		appName !== (branding.appName ?? '') ||
 		tabTitle !== (branding.tabTitle ?? '') ||
-		pending.sidebarLogo !== undefined ||
-		pending.authLogo !== undefined ||
+		pending.logo !== undefined ||
 		pending.favicon !== undefined;
 
 	const disabled = !isWhiteLabelEnabled;
@@ -123,14 +123,13 @@ function WhiteLabelPage() {
 				<div>
 					<div className='flex items-center gap-2'>
 						<h1 className='text-lg font-semibold text-foreground'>White-label</h1>
-						<Badge variant='ghost' className='bg-primary/10 text-primary uppercase text-[10px]'>
-							<Sparkles className='size-3' />
+						<Badge variant='ghost' className='bg-primary/5 text-primary uppercase text-[6px] px-1 py-0.5'>
 							Enterprise
 						</Badge>
 					</div>
 					<p className='text-sm text-muted-foreground mt-1'>
-						Replace the nao name, logos and favicon with your own branding. Visible to every user of this
-						workspace.
+						Replace the nao name, logo and favicon with your own branding. Visible to every user of this
+						instance.
 					</p>
 				</div>
 
@@ -156,27 +155,15 @@ function WhiteLabelPage() {
 
 				<SettingsCard title='Logos & favicon' description='PNG, JPG, SVG, WebP or ICO up to 512KB.'>
 					<AssetUpload
-						label='Sidebar logo'
-						helper='Shown in the top-left of the sidebar (rendered at 20×20).'
+						label='Logo'
+						helper='Shown in the sidebar and on the login and sign-up pages.'
 						accept={ACCEPTED_TYPES}
-						current={branding.hasSidebarLogo ? brandingAssetUrl('sidebar-logo', branding.updatedAt) : null}
-						pending={pending.sidebarLogo ?? null}
-						pendingSet={pending.sidebarLogo !== undefined}
-						onPick={(f) => handleFile('sidebarLogo', f)}
-						onClearPending={() => clearPending('sidebarLogo')}
-						onReset={() => setPending((p) => ({ ...p, sidebarLogo: null }))}
-						disabled={disabled}
-					/>
-					<AssetUpload
-						label='Sign-up / login logo'
-						helper='Shown on the login and sign-up pages.'
-						accept={ACCEPTED_TYPES}
-						current={branding.hasAuthLogo ? brandingAssetUrl('auth-logo', branding.updatedAt) : null}
-						pending={pending.authLogo ?? null}
-						pendingSet={pending.authLogo !== undefined}
-						onPick={(f) => handleFile('authLogo', f)}
-						onClearPending={() => clearPending('authLogo')}
-						onReset={() => setPending((p) => ({ ...p, authLogo: null }))}
+						current={branding.hasLogo ? brandingAssetUrl('logo', branding.updatedAt) : null}
+						pending={pending.logo ?? null}
+						pendingSet={pending.logo !== undefined}
+						onPick={(f) => handleFile('logo', f)}
+						onClearPending={() => clearPending('logo')}
+						onReset={() => setPending((p) => ({ ...p, logo: null }))}
 						disabled={disabled}
 					/>
 					<AssetUpload
@@ -244,8 +231,8 @@ function EnterpriseNudge() {
 					</Badge>
 				</div>
 				<p className='text-sm text-muted-foreground'>
-					Customize your tab title, sidebar logo, favicon and sign-up page logo with your own branding.
-					Activate a nao Enterprise license with the <code>white-label</code> feature to enable this page.
+					Customize your tab title, logo and favicon with your own branding. Activate a nao Enterprise license
+					with the <code>white-label</code> feature to enable this page.
 				</p>
 			</div>
 		</div>

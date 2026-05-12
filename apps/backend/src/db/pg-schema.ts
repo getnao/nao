@@ -852,10 +852,8 @@ export const brandingConfig = pgTable('branding_config', {
 	id: text('id').primaryKey(),
 	appName: text('app_name'),
 	tabTitle: text('tab_title'),
-	sidebarLogoData: text('sidebar_logo_data'),
-	sidebarLogoMediaType: text('sidebar_logo_media_type'),
-	authLogoData: text('auth_logo_data'),
-	authLogoMediaType: text('auth_logo_media_type'),
+	logoData: text('logo_data'),
+	logoMediaType: text('logo_media_type'),
 	faviconData: text('favicon_data'),
 	faviconMediaType: text('favicon_media_type'),
 	updatedAt: timestamp('updated_at')

@@ -90,8 +90,6 @@ const settingsNavItems: NavItem[] = [
 		label: 'White-label',
 		to: '/settings/white-label',
 		visible: ({ isAdmin, isCloud }) => isAdmin && !isCloud,
-		badge: 'Enterprise',
-		badgeVariant: 'enterprise',
 	},
 	{
 		label: 'Context',

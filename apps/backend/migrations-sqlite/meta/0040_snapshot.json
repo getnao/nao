@@ -261,29 +261,15 @@
           "notNull": false,
           "autoincrement": false
         },
-        "sidebar_logo_data": {
-          "name": "sidebar_logo_data",
+        "logo_data": {
+          "name": "logo_data",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
         },
-        "sidebar_logo_media_type": {
-          "name": "sidebar_logo_media_type",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "auth_logo_data": {
-          "name": "auth_logo_data",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "auth_logo_media_type": {
-          "name": "auth_logo_media_type",
+        "logo_media_type": {
+          "name": "logo_media_type",
           "type": "text",
           "primaryKey": false,
           "notNull": false,

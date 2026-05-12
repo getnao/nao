@@ -7,12 +7,11 @@ import { getActiveBrandingAsset } from '../services/branding.service';
 import { HandlerError } from '../utils/error';
 
 const paramsSchema = z.object({
-	kind: z.enum(['sidebar-logo', 'auth-logo', 'favicon']),
+	kind: z.enum(['logo', 'favicon']),
 });
 
 const KIND_MAP = {
-	'sidebar-logo': 'sidebarLogo',
-	'auth-logo': 'authLogo',
+	logo: 'logo',
 	favicon: 'favicon',
 } as const;
 

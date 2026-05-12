@@ -25,12 +25,11 @@ const assetSchema = z
 const updateSchema = z.object({
 	appName: z.string().trim().max(64).nullable().optional(),
 	tabTitle: z.string().trim().max(64).nullable().optional(),
-	sidebarLogo: assetSchema.optional(),
-	authLogo: assetSchema.optional(),
+	logo: assetSchema.optional(),
 	favicon: assetSchema.optional(),
 });
 
-const assetKindSchema = z.enum(['sidebarLogo', 'authLogo', 'favicon']);
+const assetKindSchema = z.enum(['logo', 'favicon']);
 
 function assertAssetSize(b64: string) {
 	const approxBytes = Math.ceil((b64.length * 3) / 4);
@@ -50,8 +49,7 @@ export const brandingRoutes = {
 			enabled,
 			appName: branding?.appName ?? null,
 			tabTitle: branding?.tabTitle ?? null,
-			hasSidebarLogo: Boolean(branding?.sidebarLogo),
-			hasAuthLogo: Boolean(branding?.authLogo),
+			hasLogo: Boolean(branding?.logo),
 			hasFavicon: Boolean(branding?.favicon),
 			updatedAt: branding?.updatedAt?.getTime() ?? null,
 		};
@@ -64,7 +62,7 @@ export const brandingRoutes = {
 				message: 'White-label customization requires the Enterprise white-label feature.',
 			});
 		}
-		for (const asset of [input.sidebarLogo, input.authLogo, input.favicon]) {
+		for (const asset of [input.logo, input.favicon]) {
 			if (asset) {
 				assertAssetSize(asset.data);
 			}

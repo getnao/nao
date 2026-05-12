@@ -44,9 +44,9 @@ export function AuthForm({
 	return (
 		<div className='mx-auto w-full max-w-md p-8 my-auto'>
 			<div className='flex flex-row items-end start mb-8'>
-				{branding.enabled && branding.hasAuthLogo ? (
+				{branding.enabled && branding.hasLogo ? (
 					<img
-						src={brandingAssetUrl('auth-logo', branding.updatedAt)}
+						src={brandingAssetUrl('logo', branding.updatedAt)}
 						alt={branding.appName ?? 'Logo'}
 						className='h-10 w-auto max-w-[180px] object-contain'
 					/>

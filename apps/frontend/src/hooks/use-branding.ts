@@ -8,8 +8,7 @@ export interface BrandingState {
 	enabled: boolean;
 	appName: string | null;
 	tabTitle: string | null;
-	hasSidebarLogo: boolean;
-	hasAuthLogo: boolean;
+	hasLogo: boolean;
 	hasFavicon: boolean;
 	updatedAt: number | null;
 }
@@ -24,15 +23,14 @@ export function useBranding(): BrandingState {
 			enabled: false,
 			appName: null,
 			tabTitle: null,
-			hasSidebarLogo: false,
-			hasAuthLogo: false,
+			hasLogo: false,
 			hasFavicon: false,
 			updatedAt: null,
 		}
 	);
 }
 
-export function brandingAssetUrl(kind: 'sidebar-logo' | 'auth-logo' | 'favicon', version: number | null): string {
+export function brandingAssetUrl(kind: 'logo' | 'favicon', version: number | null): string {
 	const v = version ?? 0;
 	return `/branding/${kind}?v=${v}`;
 }

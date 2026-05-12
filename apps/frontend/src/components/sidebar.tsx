@@ -164,15 +164,16 @@ export function Sidebar() {
 								onClick={handleNavigateHome}
 								aria-label={isViewer ? 'View shared items' : 'New chat'}
 								className={cn(
-									'flex items-center justify-center p-2 mr-auto absolute left-0 z-0 rounded-md cursor-pointer hover:bg-sidebar-accent transition-[opacity,visibility,background-color] duration-300',
+									'flex items-center justify-center mr-auto absolute left-0 z-0 rounded-md cursor-pointer hover:bg-sidebar-accent transition-[opacity,visibility,background-color] duration-300',
+									branding.enabled && branding.hasLogo ? 'p-1' : 'p-2',
 									hideIf(effectiveIsCollapsed),
 								)}
 							>
-								{branding.enabled && branding.hasSidebarLogo ? (
+								{branding.enabled && branding.hasLogo ? (
 									<img
-										src={brandingAssetUrl('sidebar-logo', branding.updatedAt)}
+										src={brandingAssetUrl('logo', branding.updatedAt)}
 										alt={branding.appName ?? 'Logo'}
-										className='size-5 object-contain'
+										className='h-7 w-auto max-w-[9rem] object-contain'
 									/>
 								) : (
 									<NaoLogo className='size-5' />
