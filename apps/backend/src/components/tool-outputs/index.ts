@@ -8,6 +8,7 @@ export { ExecuteSqlOutput } from './execute-sql';
 export { GrepOutput } from './grep';
 export { ListOutput } from './list';
 export { ReadOutput } from './read';
+export { ReadQueryResultOutput } from './read-query-result';
 export { SearchOutput } from './search';
 export { StoryOutput } from './story';
 

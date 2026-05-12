@@ -17,29 +17,32 @@ export type StoryItem = {
 	title: string;
 	createdAt: Date;
 	author: string;
-	kind: 'own' | 'shared-with-me' | 'shared-project';
+	kind: 'own' | 'own-standalone' | 'shared-with-me' | 'shared-project';
 	chatId?: string;
 	storySlug?: string;
 	summary: StorySummary;
 	link:
 		| { to: '/stories/preview/$chatId/$storySlug'; params: { chatId: string; storySlug: string } }
-		| { to: '/stories/shared/$shareId'; params: { shareId: string } };
+		| { to: '/stories/shared/$shareId'; params: { shareId: string } }
+		| { to: '/stories/standalone/$storyId'; params: { storyId: string } };
 };
 
 export type StoryGroup = { label: string; items: StoryItem[] };
 
 export type OwnStoryListItem = {
-	chatId: string;
+	id?: string;
+	chatId?: string | null;
 	storySlug: string;
 	title: string;
 	createdAt: Date | string;
 	summary: StorySummary;
+	isStandalone?: boolean;
 };
 
 export type SharedStoryListItem = {
 	id: string;
 	userId: string;
-	chatId: string;
+	chatId: string | null;
 	storySlug: string;
 	title: string;
 	createdAt: Date | string;
@@ -55,18 +58,20 @@ export function getStoredSetting<T extends string>(key: string, allowed: T[], fa
 
 export function buildStoryItems({
 	userStories,
+	standaloneStories,
 	sharedStories,
 	currentUserId,
 	currentUserName,
 }: {
 	userStories: OwnStoryListItem[];
+	standaloneStories?: OwnStoryListItem[];
 	sharedStories: SharedStoryListItem[];
 	currentUserId?: string;
 	currentUserName: string;
 }): StoryItem[] {
 	const ownShareMap = new Map<string, string>();
 	for (const story of sharedStories) {
-		if (story.userId === currentUserId) {
+		if (story.userId === currentUserId && story.chatId) {
 			const key = `${story.chatId}-${story.storySlug}`;
 			if (!ownShareMap.has(key)) {
 				ownShareMap.set(key, story.id);
@@ -75,24 +80,36 @@ export function buildStoryItems({
 	}
 
 	const ownItems: StoryItem[] = userStories.map((story) => {
-		const shareId = ownShareMap.get(`${story.chatId}-${story.storySlug}`);
+		const chatId = story.chatId!;
+		const shareId = ownShareMap.get(`${chatId}-${story.storySlug}`);
 		return {
-			id: `${story.chatId}-${story.storySlug}`,
+			id: `${chatId}-${story.storySlug}`,
 			title: story.title,
 			createdAt: new Date(story.createdAt),
 			author: currentUserName,
 			kind: 'own',
-			chatId: story.chatId,
+			chatId,
 			storySlug: story.storySlug,
 			summary: story.summary,
 			link: shareId
 				? { to: '/stories/shared/$shareId', params: { shareId } }
 				: {
 						to: '/stories/preview/$chatId/$storySlug',
-						params: { chatId: story.chatId, storySlug: story.storySlug },
+						params: { chatId, storySlug: story.storySlug },
 					},
 		};
 	});
+
+	const standaloneItems: StoryItem[] = (standaloneStories ?? []).map((story) => ({
+		id: story.id ?? story.storySlug,
+		title: story.title,
+		createdAt: new Date(story.createdAt),
+		author: currentUserName,
+		kind: 'own-standalone',
+		storySlug: story.storySlug,
+		summary: story.summary,
+		link: { to: '/stories/standalone/$storyId', params: { storyId: story.id! } },
+	}));
 
 	const sharedItems: StoryItem[] = sharedStories
 		.filter((story) => story.userId !== currentUserId)
@@ -106,7 +123,7 @@ export function buildStoryItems({
 			link: { to: '/stories/shared/$shareId', params: { shareId: story.id } },
 		}));
 
-	return [...ownItems, ...sharedItems];
+	return [...ownItems, ...standaloneItems, ...sharedItems];
 }
 
 export function filterStories(items: StoryItem[], query: string): StoryItem[] {
@@ -139,22 +156,26 @@ export function groupStories(items: StoryItem[], groupBy: GroupBy): StoryGroup[]
 }
 
 function groupByOwnership(items: StoryItem[]): StoryGroup[] {
-	const own = items.filter((item) => item.kind === 'own');
+	const own = items.filter((item) => item.kind === 'own' || item.kind === 'own-standalone');
 	const sharedWithMe = items.filter((item) => item.kind === 'shared-with-me');
 	const sharedProject = items.filter((item) => item.kind === 'shared-project');
 	const groups: StoryGroup[] = [];
 
 	if (own.length > 0) {
-		groups.push({ label: 'My Stories', items: own });
+		groups.push({ label: 'My Stories', items: sortByCreatedAtDesc(own) });
 	}
 	if (sharedWithMe.length > 0) {
-		groups.push({ label: 'Shared with Me', items: sharedWithMe });
+		groups.push({ label: 'Shared with Me', items: sortByCreatedAtDesc(sharedWithMe) });
 	}
 	if (sharedProject.length > 0) {
-		groups.push({ label: 'Shared with the Project', items: sharedProject });
+		groups.push({ label: 'Shared with the Project', items: sortByCreatedAtDesc(sharedProject) });
 	}
 
 	return groups;
+}
+
+function sortByCreatedAtDesc(items: StoryItem[]): StoryItem[] {
+	return [...items].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 }
 
 function groupByDate(items: StoryItem[]): StoryGroup[] {
@@ -205,7 +226,10 @@ function groupByUser(items: StoryItem[]): StoryGroup[] {
 		}
 	}
 
-	return [...groupedByAuthor.entries()].map(([label, group]) => ({ label, items: group }));
+	return [...groupedByAuthor.entries()].map(([label, group]) => ({
+		label,
+		items: sortByCreatedAtDesc(group),
+	}));
 }
 
 function extractSummaryText(summary: StorySummary): string {

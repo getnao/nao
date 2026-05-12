@@ -6,7 +6,7 @@
  *     --company "Acme Corp" \
  *     --features sso \
  *     --days 30 \
- *     [--trial] \
+ *     [--offline] \
  *     [--subscription-id sub_abc] \
  *     [--output ./license.key] \
  *     [--private-key ./dev-private.pem] \
@@ -32,7 +32,7 @@ async function main() {
 		.map((s) => s.trim())
 		.filter(Boolean);
 	const days = Number(args.get('days') ?? '30');
-	const isTrial = args.has('trial');
+	const isOffline = args.has('offline');
 	const subscriptionId = args.get('subscription-id') ?? `sub_dev_${Date.now()}`;
 	const output = path.resolve(args.get('output') ?? './license.key');
 
@@ -42,7 +42,7 @@ async function main() {
 	const token = await new SignJWT({
 		subscriptionId,
 		companyName: company,
-		isTrial,
+		isOffline,
 		features,
 	})
 		.setProtectedHeader({ alg: ALG })
@@ -56,7 +56,7 @@ async function main() {
 	console.log(`License written to: ${output}`);
 	console.log(`Company:        ${company}`);
 	console.log(`Subscription:   ${subscriptionId}`);
-	console.log(`Trial:          ${isTrial}`);
+	console.log(`Offline:        ${isOffline}`);
 	console.log(`Expires in:     ${days} days`);
 	console.log(`Features:       ${features.join(', ')}`);
 	console.log('');

@@ -94,6 +94,10 @@ def create_empty_structure(project_path: Path) -> tuple[list[str], list[CreatedF
     FILES = [
         CreatedFile(path=Path("RULES.md"), content=None),
         CreatedFile(path=Path(".naoignore"), content="templates/\n*.j2\ntests/\n"),
+        CreatedFile(
+            path=Path("tests/test_example.yml"),
+            content=("name: test_example\nprompt: What is the result of 1+1?\nsql: |\n  SELECT 2 AS answer_integer\n"),
+        ),
     ]
 
     created_folders = []

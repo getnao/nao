@@ -3,15 +3,23 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { exportSPKI, generateKeyPair, SignJWT } from 'jose';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { __reloadEnvForTesting } from '../src/env';
-import { getLicense, hasFeature, LICENSE_FEATURES, resetLicenseCache } from '../src/services/license.service';
+import {
+	getLicense,
+	hasFeature,
+	LICENSE_FEATURES,
+	refreshLicenseOnline,
+	resetLicenseCache,
+	startLicenseHeartbeat,
+	stopLicenseHeartbeat,
+} from '../src/services/license.service';
+import { pingLicensesServer } from '../src/services/ping';
 
 const DEFAULT_CLAIMS = {
 	subscriptionId: 'sub_test_01',
 	companyName: 'Acme Corp',
-	isTrial: false,
 	features: [LICENSE_FEATURES.sso],
 };
 
@@ -25,7 +33,9 @@ describe('license.service', () => {
 	afterEach(() => {
 		process.env = originalEnv;
 		__reloadEnvForTesting();
+		stopLicenseHeartbeat();
 		resetLicenseCache();
+		vi.unstubAllGlobals();
 	});
 
 	it('returns null when NAO_LICENSE is not set', async () => {
@@ -47,6 +57,7 @@ describe('license.service', () => {
 		expect(license).not.toBeNull();
 		expect(license?.subscriptionId).toBe('sub_test_01');
 		expect(license?.companyName).toBe('Acme Corp');
+		expect(license?.isOffline).toBe(false);
 		expect(license?.features).toEqual(['sso']);
 		expect(await hasFeature(LICENSE_FEATURES.sso)).toBe(true);
 	});
@@ -71,9 +82,19 @@ describe('license.service', () => {
 		expect(await getLicense()).toBeNull();
 	});
 
-	it('treats an expired license as unlicensed for feature checks', async () => {
+	it('keeps features enabled within the 7-day grace past expiry', async () => {
 		const { licensePath, publicKeyPem } = await createSignedLicenseFile(DEFAULT_CLAIMS, {
 			expiresInSeconds: -60,
+		});
+		setLicenseEnv({ licensePath, publicKeyPem });
+
+		expect(await hasFeature(LICENSE_FEATURES.sso)).toBe(true);
+	});
+
+	it('disables features once the 7-day grace has elapsed past expiry', async () => {
+		const eightDaysAgoSeconds = -8 * 24 * 60 * 60;
+		const { licensePath, publicKeyPem } = await createSignedLicenseFile(DEFAULT_CLAIMS, {
+			expiresInSeconds: eightDaysAgoSeconds,
 		});
 		setLicenseEnv({ licensePath, publicKeyPem });
 
@@ -89,6 +110,76 @@ describe('license.service', () => {
 
 		const license = await getLicense();
 		expect(license?.features).toEqual(['sso']);
+	});
+
+	it('updates cached features from signed online validation', async () => {
+		const { licensePath, privateKey, publicKeyPem } = await createSignedLicenseFile({
+			...DEFAULT_CLAIMS,
+			features: [],
+		});
+		setLicenseEnv({ licensePath, publicKeyPem });
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => {
+				const token = await createSignedValidateToken(privateKey, {
+					subscriptionId: DEFAULT_CLAIMS.subscriptionId,
+					valid: true,
+					isActive: true,
+					features: [LICENSE_FEATURES.sso],
+				});
+				return new Response(JSON.stringify({ token }));
+			}),
+		);
+
+		expect(await hasFeature(LICENSE_FEATURES.sso)).toBe(false);
+
+		await refreshLicenseOnline();
+
+		expect(await hasFeature(LICENSE_FEATURES.sso)).toBe(true);
+		expect((await getLicense())?.features).toEqual([LICENSE_FEATURES.sso]);
+	});
+
+	it('never checks online for offline licenses', async () => {
+		const { licensePath, publicKeyPem } = await createSignedLicenseFile({
+			...DEFAULT_CLAIMS,
+			isOffline: true,
+		});
+		const fetch = vi.fn();
+		setLicenseEnv({ licensePath, publicKeyPem });
+		vi.stubGlobal('fetch', fetch);
+
+		await startLicenseHeartbeat();
+		await refreshLicenseOnline();
+
+		expect(fetch).not.toHaveBeenCalled();
+	});
+
+	it('skips the startup ping for offline licenses', async () => {
+		const { licensePath, publicKeyPem } = await createSignedLicenseFile({
+			...DEFAULT_CLAIMS,
+			isOffline: true,
+		});
+		const fetch = vi.fn();
+		process.env.MODE = 'prod';
+		setLicenseEnv({ licensePath, publicKeyPem });
+		vi.stubGlobal('fetch', fetch);
+
+		await pingLicensesServer();
+
+		expect(fetch).not.toHaveBeenCalled();
+	});
+
+	it('expires offline licenses strictly at expiresAt', async () => {
+		const { licensePath, publicKeyPem } = await createSignedLicenseFile(
+			{
+				...DEFAULT_CLAIMS,
+				isOffline: true,
+			},
+			{ expiresInSeconds: -60 },
+		);
+		setLicenseEnv({ licensePath, publicKeyPem });
+
+		expect(await hasFeature(LICENSE_FEATURES.sso)).toBe(false);
 	});
 });
 
@@ -112,14 +203,14 @@ function setLicenseEnv({ licensePath, publicKeyPem }: LicenseEnv): void {
 interface LicenseClaims {
 	subscriptionId: string;
 	companyName: string;
-	isTrial: boolean;
+	isOffline?: boolean;
 	features: string[];
 }
 
 async function createSignedLicenseFile(
 	claims: LicenseClaims,
 	options: { expiresInSeconds?: number } = {},
-): Promise<{ licensePath: string; publicKeyPem: string }> {
+): Promise<{ licensePath: string; privateKey: CryptoKey; publicKeyPem: string }> {
 	const { privateKey, publicKeyPem } = await generateKeypairPem();
 	const expiresIn = options.expiresInSeconds ?? 3600;
 	const now = Math.floor(Date.now() / 1000);
@@ -127,7 +218,7 @@ async function createSignedLicenseFile(
 	const token = await new SignJWT({
 		subscriptionId: claims.subscriptionId,
 		companyName: claims.companyName,
-		isTrial: claims.isTrial,
+		isOffline: Boolean(claims.isOffline),
 		features: claims.features,
 	})
 		.setProtectedHeader({ alg: 'EdDSA' })
@@ -140,7 +231,25 @@ async function createSignedLicenseFile(
 	const licensePath = path.join(dir, 'license.key');
 	writeFileSync(licensePath, token);
 
-	return { licensePath, publicKeyPem };
+	return { licensePath, privateKey, publicKeyPem };
+}
+
+async function createSignedValidateToken(
+	privateKey: CryptoKey,
+	claims: {
+		subscriptionId: string;
+		valid: boolean;
+		isActive: boolean;
+		features: string[];
+	},
+): Promise<string> {
+	const now = Math.floor(Date.now() / 1000);
+	return new SignJWT(claims)
+		.setProtectedHeader({ alg: 'EdDSA' })
+		.setIssuer('getnao')
+		.setIssuedAt(now)
+		.setExpirationTime(now + 300)
+		.sign(privateKey);
 }
 
 async function generateKeypairPem(): Promise<{

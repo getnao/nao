@@ -112,7 +112,7 @@ function buildResolved(props: BuildChartProps) {
 					fontSize={14}
 					fontWeight='600'
 					fontFamily='system-ui, sans-serif'
-					fill='#111827'
+					fill='var(--foreground, #111827)'
 				>
 					{props.title}
 				</text>

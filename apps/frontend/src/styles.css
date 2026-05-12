@@ -148,6 +148,12 @@ code.dollar:before {
 	--sidebar-accent-foreground: oklch(0.984 0.003 247.858);
 	--sidebar-border: oklch(1 0 0 / 10%);
 	--sidebar-ring: oklch(0.42 0.012 270);
+
+	--chart-1: oklch(0.62 0.14 227.392);
+	--chart-2: oklch(0.72 0.2 41.116);
+	--chart-3: oklch(0.7 0.14 184.704);
+	--chart-4: oklch(0.88 0.18 84.429);
+	--chart-5: oklch(0.82 0.18 70.08);
 }
 
 @layer base {

@@ -18,3 +18,5 @@ nao-chat-server
 
 rsa_key.*
 apps/backend/projects/
+
+*.code-workspace

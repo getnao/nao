@@ -20,7 +20,7 @@ Send a single message asking for:
     - **Broad** — gold/marts across multiple domains (exec / cross-functional agents).
     - **Deep** — silver + gold for one domain (team-specific agents).
 3. **Extra context** — dbt / ETL / BI repos, Notion, internal docs. Ask for **the SSH git URL** of each repo (e.g. `git@github.com:org/repo.git`) — sync clones them. No local paths.
-4. **LLM** — provider + model. Key comes later (Step 5).
+4. **LLM** — provider and key. The model is selected in the nao UI, not in the config. Key comes later (Step 5).
 
 ## Step 2 — Look up warehouse fields, write `nao_config.yaml`, run `nao init`
 
@@ -30,7 +30,14 @@ Send a single message asking for:
 
 3. **Run `nao init`** — it detects the existing yaml and offers to update; confirm. Folder scaffold gets created. Say "no" to optional providers (skills / MCPs / Notion / Slack); edit the yaml directly afterwards if needed.
 
+    Use this command (unsets leaked env vars from the parent agentic CLI — see Step 5):
+
+    ```bash
+    unset ANTHROPIC_BASE_URL ANTHROPIC_API_KEY && source ~/.zshrc 2>/dev/null; nao init 2>&1
+    ```
+
 4. **Print a summary of `nao_config.yaml` to the user** before going further. Format example:
+
     ```
     nao_config.yaml summary
       • project: <name>
@@ -38,8 +45,11 @@ Send a single message asking for:
       • scope: include=["analytics.fct_*", "analytics.dim_*"], exclude=[]
       • templates: [columns, preview, description]
       • repos: company-dbt (git@github.com:org/company-dbt.git)
-      • llm: anthropic / claude-sonnet-4-7 (key via ${ANTHROPIC_API_KEY})
+      • llm: anthropic (key via ${ANTHROPIC_API_KEY})
     ```
+
+    The model is configured in the nao UI, not in `nao_config.yaml` — don't include a model ID in the summary or the yaml.
+
     Ask the user to confirm before continuing. This is the last cheap chance to catch a wrong project, a misspelled dataset, or a missing repo.
 
 ### Database `templates` field
@@ -85,8 +95,7 @@ Then `nao debug` to confirm.
 If `nao chat` / `nao debug` / `nao test` fails with that error and the URL is `https://api.anthropic.com/messages` (no `/v1/`), the parent agentic CLI (Claude Code, Cursor, Codex) is leaking `ANTHROPIC_BASE_URL` into the child env. Fix:
 
 ```bash
-unset ANTHROPIC_BASE_URL ANTHROPIC_API_KEY
-nao chat   # or debug / test
+unset ANTHROPIC_BASE_URL ANTHROPIC_API_KEY && source ~/.zshrc 2>/dev/null; nao chat 2>&1
 ```
 
 Regular human terminals aren't affected.

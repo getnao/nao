@@ -5,6 +5,7 @@ const TOOL_COLORS: Record<string, string> = {
 	grep: '\x1b[33m', // yellow
 	list: '\x1b[35m', // magenta
 	read: '\x1b[32m', // green
+	read_query_result: '\x1b[36m', // cyan
 	search: '\x1b[34m', // blue
 };
 const RESET = '\x1b[0m';

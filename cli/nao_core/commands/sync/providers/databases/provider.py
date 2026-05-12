@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from rich.console import Console
+from rich.markup import escape
 from rich.progress import (
     BarColumn,
     MofNCompleteColumn,
@@ -59,6 +60,11 @@ def _fmt_duration(seconds: float) -> str:
     return f"{minutes}m{secs:.0f}s"
 
 
+def _fmt_error(error: Exception) -> str:
+    """Escape exception text before passing it through Rich markup rendering."""
+    return escape(str(error))
+
+
 def _fetch_query_history(db_config: DatabaseConfig, conn: BaseBackend) -> list[str]:
     """Fetch query history over the already-open sync connection.
 
@@ -78,7 +84,7 @@ def _fetch_query_history(db_config: DatabaseConfig, conn: BaseBackend) -> list[s
         console.print(f"  [dim]Fetched[/dim] [bold]{len(queries)}[/bold] [dim]queries for history analysis[/dim]")
         return queries
     except Exception as e:
-        console.print(f"  [yellow]⚠[/yellow] [dim]Failed to fetch query history:[/dim] {e}")
+        console.print(f"  [yellow]⚠[/yellow] [dim]Failed to fetch query history:[/dim] {_fmt_error(e)}")
         return []
 
 
@@ -197,21 +203,18 @@ def sync_database(
                 t_list = time.monotonic()
                 all_tables = conn.list_tables(database=schema)
             except Exception as e:
-                console.print(f"  [yellow]⚠[/yellow] [dim]Skipping schema[/dim] {schema}: {e}")
+                console.print(f"  [yellow]⚠[/yellow] [dim]Skipping schema[/dim] {schema}: {_fmt_error(e)}")
                 progress.update(schema_task, advance=1)
                 continue
 
             tables = [t for t in all_tables if db_config.matches_pattern(schema, t)]
 
-            if not tables:
-                progress.update(schema_task, advance=1)
-                continue
-
-            list_dur = _fmt_duration(time.monotonic() - t_list)
-            console.print(
-                f"  [cyan]▸ {schema}[/cyan] [dim]— {len(tables)} tables "
-                f"(of {len(all_tables)} total, listed in {list_dur})[/dim]"
-            )
+            if tables:
+                list_dur = _fmt_duration(time.monotonic() - t_list)
+                console.print(
+                    f"  [cyan]▸ {schema}[/cyan] [dim]— {len(tables)} tables "
+                    f"(of {len(all_tables)} total, listed in {list_dur})[/dim]"
+                )
             schema_tables[schema] = tables
 
         selected_tables = [(schema, t) for schema, tables in schema_tables.items() for t in tables]
@@ -222,10 +225,17 @@ def sync_database(
             usage_stats = compute_table_usage(raw_queries, selected_tables, dialect=dialect)
 
         for schema, tables in schema_tables.items():
+            semantic_views = db_config.get_semantic_views(conn, schema)
+            semantic_views = [sv for sv in semantic_views if db_config.matches_pattern(schema, sv["name"])]
+
+            if not tables and not semantic_views:
+                progress.update(schema_task, advance=1)
+                continue
+
             schema_path = db_path / f"schema={schema}"
             schema_path.mkdir(parents=True, exist_ok=True)
-            state.add_schema(schema)
 
+            state.add_schema(schema)
             table_task = progress.add_task(
                 f"    [cyan]{schema}[/cyan]",
                 total=len(tables),
@@ -286,10 +296,11 @@ def sync_database(
                         console.print(
                             f"    [bold red]✗[/bold red] [dim]{schema}.{table}[/dim] "
                             f"[red]{tpl_name}[/red] [dim]failed after "
-                            f"{_fmt_duration(render_dur)}:[/dim] {e}"
+                            f"{_fmt_duration(render_dur)}:[/dim] {_fmt_error(e)}"
                         )
                         content = f"# {table}\n\nError generating content: {e}"
 
+                    output_file = table_path / output_filename
                     output_file.write_text(content)
 
                 state.add_table(schema, table)
@@ -299,11 +310,29 @@ def sync_database(
                 table_task,
                 description=f"    [cyan]{schema}[/cyan]",
             )
-            schema_dur = _fmt_duration(time.monotonic() - schema_start)
-            error_suffix = f" [red]({schema_errors} errors)[/red]" if schema_errors else ""
-            console.print(
-                f"  [green]✓ {schema}[/green] [dim]— {len(tables)} tables synced in {schema_dur}{error_suffix}[/dim]"
-            )
+            if tables:
+                schema_dur = _fmt_duration(time.monotonic() - schema_start)
+                error_suffix = f" [red]({schema_errors} errors)[/red]" if schema_errors else ""
+                console.print(
+                    f"  [green]✓ {schema}[/green] [dim]— {len(tables)} tables synced in {schema_dur}{error_suffix}[/dim]"
+                )
+
+            if semantic_views:
+                for sv in semantic_views:
+                    sv_path = schema_path / f"semantic_view={sv['name']}"
+                    sv_path.mkdir(parents=True, exist_ok=True)
+                    content_parts = [f"# {sv['name']}\n"]
+                    content_parts.append(
+                        "This is a Snowflake **semantic view** — use this to understand the intended way to query and aggregate data.\n"
+                    )
+                    if sv.get("comment"):
+                        content_parts.append(f"{sv['comment']}\n")
+                    if sv.get("definition"):
+                        content_parts.append("## Definition\n")
+                        content_parts.append(f"```sql\n{sv['definition']}\n```\n")
+                    (sv_path / "definition.md").write_text("\n".join(content_parts))
+                    state.add_table(schema, sv["name"])
+                console.print(f"  [green]✓ {schema}[/green] [dim]— {len(semantic_views)} semantic views synced[/dim]")
 
             progress.update(schema_task, advance=1)
 
@@ -389,7 +418,7 @@ class DatabaseSyncProvider(SyncProvider):
                     total_datasets += state.schemas_synced
                     total_tables += state.tables_synced
                 except Exception as e:
-                    console.print(f"[bold red]✗[/bold red] Failed to sync {db.name}: {e}")
+                    console.print(f"[bold red]✗[/bold red] Failed to sync {db.name}: {_fmt_error(e)}")
 
         for state in sync_states:
             removed = cleanup_stale_paths(state, verbose=True)

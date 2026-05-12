@@ -2,13 +2,14 @@ import { useQuery } from '@tanstack/react-query';
 import { trpc } from '@/main';
 
 export function useAuthRoute(): string {
-	const userCount = useQuery(trpc.user.countAll.queryOptions());
+	const hasUsers = useQuery(trpc.user.hasUsers.queryOptions());
 	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
 
 	const isCloud = config.data?.naoMode === 'cloud';
-	const hasUsers = !!userCount.data;
+	const isUserSignupEnabled = config.data?.enableUserSignup === true;
+	const hasExistingUsers = hasUsers.data ?? true;
 
-	if (isCloud || !hasUsers) {
+	if (isUserSignupEnabled && (isCloud || !hasExistingUsers)) {
 		return '/signup';
 	}
 	return '/login';

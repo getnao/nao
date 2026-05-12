@@ -85,7 +85,7 @@ export function List({ children, ordered, indent = 0 }: { children: ReactNode; o
 					: child;
 
 				return (
-					<Span>
+					<Span key={i}>
 						{'\t'.repeat(indent)}
 						{isListItem ? (ordered ? `${i + 1}. ` : '- ') : null}
 						{rendered}

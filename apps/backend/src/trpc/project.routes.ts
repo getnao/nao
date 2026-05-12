@@ -16,6 +16,7 @@ import * as whatsappConfigQueries from '../queries/project-whatsapp-config.queri
 import * as projectWhatsappLinkQueries from '../queries/project-whatsapp-link.queries';
 import * as userQueries from '../queries/user.queries';
 import { posthog, PostHogEvent } from '../services/posthog';
+import { slackService } from '../services/slack';
 import { listAvailableTranscribeModels as getAvailableTranscribeModels } from '../services/transcribe.service';
 import { AgentSettings } from '../types/agent-settings';
 import { llmConfigSchema, llmProviderSchema } from '../types/llm';
@@ -44,14 +45,13 @@ export const projectRoutes = {
 		}));
 	}),
 
-	getCurrent: projectProtectedProcedure.query(({ ctx }) => {
-		if (!ctx.project) {
+	getCurrent: protectedProcedure.query(async ({ ctx }) => {
+		const project = await projectQueries.getProjectByUserId(ctx.user.id, ctx.selectedProjectId);
+		if (!project) {
 			return null;
 		}
-		return {
-			...ctx.project,
-			userRole: ctx.userRole,
-		};
+		const userRole = await projectQueries.getUserRoleInProject(project.id, ctx.user.id);
+		return { ...project, userRole };
 	}),
 
 	getDatabaseObjects: projectProtectedProcedure
@@ -196,8 +196,16 @@ export const projectRoutes = {
 		const projectConfig = config
 			? {
 					botTokenPreview: config.botToken.slice(0, 4) + '...' + config.botToken.slice(-4),
-					signingSecretPreview: config.signingSecret.slice(0, 4) + '...' + config.signingSecret.slice(-4),
+					signingSecretPreview: config.signingSecret
+						? config.signingSecret.slice(0, 4) + '...' + config.signingSecret.slice(-4)
+						: '',
+					appTokenPreview: config.appToken
+						? config.appToken.slice(0, 4) + '...' + config.appToken.slice(-4)
+						: '',
+					transportMode: config.transportMode,
 					modelSelection: config.modelSelection,
+					autoCreateUsersEnabled: config.autoCreateUsersEnabled,
+					autoCreateUsersDomains: config.autoCreateUsersDomains,
 				}
 			: null;
 
@@ -210,18 +218,31 @@ export const projectRoutes = {
 
 	upsertSlackConfig: adminProtectedProcedure
 		.input(
-			z.object({
-				botToken: z.string().min(1),
-				signingSecret: z.string().min(1),
-				modelProvider: llmProviderSchema.optional(),
-				modelId: z.string().optional(),
-			}),
+			z
+				.object({
+					botToken: z.string().min(1),
+					signingSecret: z.string().default(''),
+					appToken: z.string().default(''),
+					transportMode: z.enum(['webhook', 'socket']).default('webhook'),
+					modelProvider: llmProviderSchema.optional(),
+					modelId: z.string().optional(),
+				})
+				.refine(
+					(value) =>
+						value.transportMode === 'socket' ? value.appToken.length > 0 : value.signingSecret.length > 0,
+					{
+						message:
+							'Webhook mode requires a signing secret; Socket Mode requires an app-level token (xapp-...).',
+					},
+				),
 		)
 		.mutation(async ({ ctx, input }) => {
 			const config = await slackConfigQueries.upsertProjectSlackConfig({
 				projectId: ctx.project.id,
 				botToken: input.botToken,
 				signingSecret: input.signingSecret,
+				appToken: input.appToken,
+				transportMode: input.transportMode,
 				modelProvider: input.modelProvider,
 				modelId: input.modelId,
 			});
@@ -230,11 +251,19 @@ export const projectRoutes = {
 				project_id: ctx.project.id,
 				modelProvider: input.modelProvider,
 				modelId: input.modelId,
+				transport_mode: input.transportMode,
 			});
+
+			const refreshedConfig = await slackConfigQueries.getProjectSlackConfig(ctx.project.id);
+			await slackService.syncProjectSocketMode(refreshedConfig, ctx.project.id);
 
 			return {
 				botTokenPreview: config.botToken.slice(0, 4) + '...' + config.botToken.slice(-4),
-				signingSecretPreview: config.signingSecret.slice(0, 4) + '...' + config.signingSecret.slice(-4),
+				signingSecretPreview: config.signingSecret
+					? config.signingSecret.slice(0, 4) + '...' + config.signingSecret.slice(-4)
+					: '',
+				appTokenPreview: config.appToken ? config.appToken.slice(0, 4) + '...' + config.appToken.slice(-4) : '',
+				transportMode: config.transportMode,
 				modelSelection: config.modelSelection,
 			};
 		}),
@@ -252,10 +281,34 @@ export const projectRoutes = {
 				input.modelProvider ?? null,
 				input.modelId ?? null,
 			);
+			const refreshedConfig = await slackConfigQueries.getProjectSlackConfig(ctx.project.id);
+			await slackService.syncProjectSocketMode(refreshedConfig, ctx.project.id);
+		}),
+
+	updateSlackAutoCreateUsers: adminProtectedProcedure
+		.input(
+			z.object({
+				enabled: z.boolean(),
+				domains: z.array(z.string().trim().toLowerCase()).default([]),
+			}),
+		)
+		.mutation(async ({ ctx, input }) => {
+			const cleanedDomains = [...new Set(input.domains.map((d) => d.trim()).filter((d) => d.length > 0))];
+			if (input.enabled && cleanedDomains.length === 0) {
+				throw new TRPCError({
+					code: 'BAD_REQUEST',
+					message: 'At least one allowed domain is required to auto-create users from Slack.',
+				});
+			}
+			await slackConfigQueries.updateProjectSlackAutoCreateUsers(ctx.project.id, input.enabled, cleanedDomains);
+			const refreshedConfig = await slackConfigQueries.getProjectSlackConfig(ctx.project.id);
+			await slackService.syncProjectSocketMode(refreshedConfig, ctx.project.id);
+			return { enabled: input.enabled, domains: cleanedDomains };
 		}),
 
 	deleteSlackConfig: adminProtectedProcedure.mutation(async ({ ctx }) => {
 		await slackConfigQueries.deleteProjectSlackConfig(ctx.project.id);
+		await slackService.stopProject(ctx.project.id);
 		return { success: true };
 	}),
 

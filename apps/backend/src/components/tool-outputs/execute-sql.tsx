@@ -1,10 +1,10 @@
 import { pluralize } from '@nao/shared';
 import type { executeSql } from '@nao/shared/tools';
 
-import { Block, CodeBlock, ListItem, Span, Title, TitledList } from '../../lib/markdown';
-import { truncateMiddle } from '../../utils/utils';
+import { Block, ListItem, Span, Title, TitledList } from '../../lib/markdown';
+import { QueryRows } from './query-rows';
 
-const MAX_ROWS = 20;
+const MAX_ROWS = 40;
 
 export const ExecuteSqlOutput = ({ output, maxRows = MAX_ROWS }: { output: executeSql.Output; maxRows?: number }) => {
 	if (output.data.length === 0) {
@@ -29,27 +29,14 @@ export const ExecuteSqlOutput = ({ output, maxRows = MAX_ROWS }: { output: execu
 				{pluralize('Row', output.row_count)} ({output.row_count})
 			</Title>
 
-			<Block>
-				{visibleRows.map((row, i) => (
-					<CodeBlock header={`#${i + 1}`}>
-						<Block separator={'\n'}>
-							{Object.entries(row).map(([key, value]) => `${key}: ${formatRowValue(value)}`)}
-						</Block>
-					</CodeBlock>
-				))}
-			</Block>
+			<QueryRows rows={visibleRows} />
 
-			{remainingRows > 0 && <Span>...({remainingRows} more)</Span>}
+			{remainingRows > 0 && (
+				<Span>
+					...({remainingRows} more — call read_query_result with query_id "{output.id}" and offset {maxRows}{' '}
+					to see more)
+				</Span>
+			)}
 		</Block>
 	);
-};
-
-const formatRowValue = (value: unknown) => {
-	let strValue = '';
-	if (typeof value === 'object') {
-		strValue = JSON.stringify(value);
-	} else {
-		strValue = String(value);
-	}
-	return truncateMiddle(strValue, 255);
 };

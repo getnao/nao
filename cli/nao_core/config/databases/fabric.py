@@ -202,7 +202,7 @@ class FabricConfig(DatabaseConfig):
         """
         from nao_core.deps import require_database_backend, require_dependency
 
-        require_database_backend("mssql")
+        require_database_backend("mssql", extra="fabric", database_type="fabric")
 
         if self.auth_mode == FabricAuthMode.AZURE_CLI:
             require_dependency("azure.identity", "fabric", "for Azure authentication")

@@ -5,7 +5,7 @@ import { db } from '../db/db';
 
 export type SharedStoryWithLatest = DBSharedStory & {
 	authorName: string;
-	chatId: string;
+	chatId: string | null;
 	slug: string;
 	title: string;
 	code: string;

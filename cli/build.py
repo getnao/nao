@@ -357,7 +357,7 @@ def build_server(project_root: Path, output_dir: Path) -> None:
 
     # Step 2: Build frontend
     print("\n🎨 Building frontend...")
-    run(["npm", "run", "build"], cwd=frontend_dir)
+    run(["npx", "vite", "build"], cwd=frontend_dir)
 
     # Step 3: Copy frontend dist to backend public folder
     print("\n📁 Copying frontend assets to backend...")

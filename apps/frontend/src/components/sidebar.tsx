@@ -7,6 +7,7 @@ import { ChatListItem } from './sidebar-chat-list-item';
 import { SidebarCommunity } from './sidebar-community';
 import { SidebarSettingsNav } from './sidebar-settings-nav';
 import { SidebarUserMenu } from './sidebar-user-menu';
+import { SidebarVersionNotice } from './sidebar-version-notice';
 import { Spinner } from './ui/spinner';
 import StoryIcon from './ui/story-icon';
 import type { ChatFilterType, ChatGroup, ChatGroupBy, GroupedChatItem } from '@nao/shared/types';
@@ -242,6 +243,7 @@ export function Sidebar() {
 
 			<div className={cn('mt-auto transition-[padding] duration-300', effectiveIsCollapsed ? 'p-1' : 'p-2')}>
 				{isInSettings && <SidebarCommunity isCollapsed={effectiveIsCollapsed} />}
+				{isAdmin && <SidebarVersionNotice isCollapsed={effectiveIsCollapsed} />}
 				<SidebarUserMenu
 					isCollapsed={effectiveIsCollapsed}
 					chatFilterMenu={

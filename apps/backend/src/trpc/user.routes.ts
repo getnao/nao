@@ -9,8 +9,8 @@ import { buildUserAddedEmail } from '../utils/email-builders';
 import { adminProtectedProcedure, projectProtectedProcedure, protectedProcedure, publicProcedure } from './trpc';
 
 export const userRoutes = {
-	countAll: publicProcedure.query(() => {
-		return userQueries.countUsers();
+	hasUsers: publicProcedure.query(async () => {
+		return (await userQueries.countUsers()) > 0;
 	}),
 
 	get: projectProtectedProcedure.input(z.object({ userId: z.string() })).query(async ({ input, ctx }) => {

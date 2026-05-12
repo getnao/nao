@@ -1,3 +1,5 @@
+import { randomBytes } from 'node:crypto';
+
 import { createSlackAdapter } from '@chat-adapter/slack';
 import { createMemoryState } from '@chat-adapter/state-memory';
 import { CITATION_TAG_REGEX } from '@nao/shared';
@@ -11,11 +13,12 @@ import * as chartImageQueries from '../queries/chart-image';
 import * as chatQueries from '../queries/chat.queries';
 import * as feedbackQueries from '../queries/feedback.queries';
 import * as projectQueries from '../queries/project.queries';
-import { SlackConfig } from '../queries/project-slack-config.queries';
+import { listSocketModeSlackConfigs, SlackConfig } from '../queries/project-slack-config.queries';
 import { getUser } from '../queries/user.queries';
 import { UIChat, UIMessage, UIMessagePart } from '../types/chat';
 import { ConversationContext, StreamState, ToolCallEntry } from '../types/messaging-provider';
 import { createChatTitle } from '../utils/ai';
+import { buildUserAddedEmail } from '../utils/email-builders';
 import { logger } from '../utils/logger';
 import {
 	createCompletionCard,
@@ -30,8 +33,11 @@ import {
 	FEEDBACK_MODAL_CALLBACK_ID,
 	formatMessagingError,
 } from '../utils/messaging-provider';
+import { isEmailDomainAllowed } from '../utils/utils';
 import { agentService } from './agent';
 import { posthog, PostHogEvent } from './posthog';
+import { SlackSocketBridge } from './slack-socket-bridge';
+import { ensureMessagingProviderUser } from './team-member';
 
 const UPDATE_INTERVAL_MS = 200;
 
@@ -39,56 +45,86 @@ const SLACK_MENTION_REGEX = /(?:<@|@)([A-Z0-9]+)(?:\|[^>]+)?>?\s*/g;
 
 type SlackReplyMessage = NonNullable<Awaited<ReturnType<WebClient['conversations']['replies']>>['messages']>[number];
 
-class SlackService {
-	private _bot: Chat | null = null;
-	private _slackClient: WebClient | null = null;
-	private _projectId: string = '';
-	private _redirectUrl: string = '';
-	private _currentBotToken: string = '';
-	private _currentSigningSecret: string = '';
-	private _modelSelection: LlmSelectedModel | undefined = undefined;
+type SlackBotWebhooks = NonNullable<Chat['webhooks']>;
+
+class ProjectSlackBot {
+	public readonly projectId: string;
+	private _bot: Chat;
+	private _slackClient: WebClient;
+	private _redirectUrl: string;
+	private _modelSelection: LlmSelectedModel | undefined;
+	private _config: SlackConfig;
+	private _socketBridge: SlackSocketBridge | null = null;
+	private _adapterSigningSecret: string;
+	private _autoCreateUsersEnabled: boolean;
+	private _autoCreateUsersDomains: string[];
 	private _lastCompletionCard: Map<string, { card: SentMessage; chatUrl: string }> = new Map();
 
-	constructor() {}
-
-	public getWebhooks(config: SlackConfig) {
-		if (this._configChanged(config)) {
-			this._initialize(config);
-		}
-		return this._bot?.webhooks;
-	}
-
-	private _configChanged(config: SlackConfig): boolean {
-		return (
-			this._currentBotToken !== config.botToken ||
-			this._currentSigningSecret !== config.signingSecret ||
-			this._projectId !== config.projectId ||
-			this._redirectUrl !== config.redirectUrl ||
-			this._modelSelection?.provider !== config.modelSelection?.provider ||
-			this._modelSelection?.modelId !== config.modelSelection?.modelId
-		);
-	}
-
-	private _initialize(config: SlackConfig): void {
-		this._currentBotToken = config.botToken;
-		this._currentSigningSecret = config.signingSecret;
-
-		this._projectId = config.projectId;
+	constructor(config: SlackConfig) {
+		this.projectId = config.projectId;
+		this._config = config;
+		this._autoCreateUsersEnabled = config.autoCreateUsersEnabled;
+		this._autoCreateUsersDomains = config.autoCreateUsersDomains;
 		this._redirectUrl = config.redirectUrl;
 		this._modelSelection = config.modelSelection;
 		this._slackClient = new WebClient(config.botToken);
+
+		this._adapterSigningSecret =
+			config.transportMode === 'socket' && !config.signingSecret
+				? randomBytes(32).toString('hex')
+				: config.signingSecret;
 
 		this._bot = new Chat({
 			userName: 'nao',
 			adapters: {
 				slack: createSlackAdapter({
 					botToken: config.botToken,
-					signingSecret: config.signingSecret,
+					signingSecret: this._adapterSigningSecret,
 				}),
 			},
 			state: createMemoryState(),
 		});
 
+		this._registerHandlers();
+	}
+
+	public get webhooks() {
+		return this._bot.webhooks;
+	}
+
+	public get config(): SlackConfig {
+		return this._config;
+	}
+
+	public async startSocketMode(): Promise<void> {
+		if (this._config.transportMode !== 'socket' || !this._config.appToken) {
+			return;
+		}
+		if (this._socketBridge) {
+			return;
+		}
+		this._socketBridge = new SlackSocketBridge({
+			projectId: this.projectId,
+			appToken: this._config.appToken,
+			signingSecret: this._adapterSigningSecret,
+			webhooks: this._bot.webhooks,
+		});
+		await this._socketBridge.start();
+	}
+
+	public async stopSocketMode(): Promise<void> {
+		if (!this._socketBridge) {
+			return;
+		}
+		await this._socketBridge.stop();
+		this._socketBridge = null;
+	}
+
+	public async dispose(): Promise<void> {
+		await this.stopSocketMode();
+	}
+
+	private _registerHandlers(): void {
 		this._bot.onNewMention(async (thread, message) => {
 			const startsThread = await this._isThreadStarter(thread.id);
 			if (startsThread) {
@@ -234,11 +270,6 @@ class SlackService {
 	}
 
 	private async _validateUserAccess(ctx: ConversationContext): Promise<void> {
-		await this._getUser(ctx);
-		await this._checkUserBelongsToProject(ctx);
-	}
-
-	private async _getUser(ctx: ConversationContext): Promise<void> {
 		const slackUserId = ctx.userMessage.author.userId;
 		const slackUser = await this._getSlackUser(slackUserId);
 		const email = slackUser?.profile?.email?.toLowerCase() || null;
@@ -247,6 +278,34 @@ class SlackService {
 			throw new Error('Could not retrieve user email from Slack');
 		}
 
+		ctx.timezone = slackUser?.tz || undefined;
+
+		if (this._canAutoProvision(email)) {
+			const project = await projectQueries.getProjectById(this.projectId);
+			const projectName = project?.name ?? 'nao';
+			const displayName = slackUser?.real_name || slackUser?.name || email.split('@')[0];
+			ctx.user = await ensureMessagingProviderUser({
+				email,
+				name: displayName,
+				projectId: this.projectId,
+				buildEmail: (user, temporaryPassword) =>
+					buildUserAddedEmail(user, projectName, 'project', temporaryPassword),
+			});
+			return;
+		}
+
+		await this._resolveExistingUser(ctx, email);
+		await this._checkUserBelongsToProject(ctx);
+	}
+
+	private _canAutoProvision(email: string): boolean {
+		if (!this._autoCreateUsersEnabled || this._autoCreateUsersDomains.length === 0) {
+			return false;
+		}
+		return isEmailDomainAllowed(email, this._autoCreateUsersDomains.join(','));
+	}
+
+	private async _resolveExistingUser(ctx: ConversationContext, email: string): Promise<void> {
 		const user = await getUser({ email });
 		if (!user) {
 			await ctx.thread.post(
@@ -255,16 +314,15 @@ class SlackService {
 			throw new Error('User not found');
 		}
 		ctx.user = user;
-		ctx.timezone = slackUser?.tz || undefined;
 	}
 
 	private async _getSlackUser(userId: string) {
-		const response = await this._slackClient?.users.info({ user: userId });
+		const response = await this._slackClient.users.info({ user: userId });
 		return response?.user || null;
 	}
 
 	private async _checkUserBelongsToProject(ctx: ConversationContext): Promise<void> {
-		const role = await projectQueries.getUserRoleInProject(this._projectId, ctx.user!.id);
+		const role = await projectQueries.getUserRoleInProject(this.projectId, ctx.user!.id);
 		if (role !== 'admin' && role !== 'user') {
 			await ctx.thread.post(
 				"❌ You don't have permission to use nao in this project. Please contact an administrator.",
@@ -297,7 +355,7 @@ class SlackService {
 
 		const title = createChatTitle({ text });
 		const [createdChat] = await chatQueries.createChat(
-			{ title, userId: ctx.user!.id, projectId: this._projectId, slackThreadId: ctx.thread.id },
+			{ title, userId: ctx.user!.id, projectId: this.projectId, slackThreadId: ctx.thread.id },
 			{ text: messageText, source: 'slack' },
 		);
 		ctx.chatId = createdChat.id;
@@ -311,7 +369,7 @@ class SlackService {
 		}
 
 		try {
-			const result = await this._slackClient?.conversations.replies({
+			const result = await this._slackClient.conversations.replies({
 				channel: channelId,
 				ts: threadTs,
 			});
@@ -383,7 +441,7 @@ class SlackService {
 			return false;
 		}
 		try {
-			const result = await this._slackClient?.conversations.replies({
+			const result = await this._slackClient.conversations.replies({
 				channel: channelId,
 				ts: threadTs,
 				limit: 2,
@@ -414,7 +472,7 @@ class SlackService {
 		this._lastCompletionCard.set(ctx.thread.id, { card, chatUrl });
 
 		posthog.capture(ctx.user!.id, PostHogEvent.MessageSent, {
-			project_id: this._projectId,
+			project_id: this.projectId,
 			chat_id: ctx.chatId,
 			model_id: ctx.modelId,
 			is_new_chat: ctx.isNewChat,
@@ -428,7 +486,7 @@ class SlackService {
 		ctx: ConversationContext,
 	): Promise<ReadableStream<InferUIMessageChunk<UIMessage>>> {
 		const agent = await agentService.create(
-			{ ...chat, userId: ctx.user!.id, projectId: this._projectId },
+			{ ...chat, userId: ctx.user!.id, projectId: this.projectId },
 			this._modelSelection,
 		);
 		ctx.modelId = agent.getModelId();
@@ -511,8 +569,13 @@ class SlackService {
 			const png = generateChartImage({ config: part.input, data: sqlOutput.rows });
 			const chartId = await chartImageQueries.saveChart(part.toolCallId, png.toString('base64'));
 			state.renderedChartIds.add(part.toolCallId);
-			const imageUrl = new URL(`c/${ctx.chatId}/${chartId}.png`, this._redirectUrl).toString();
 
+			if (this._config.transportMode === 'socket') {
+				await this._uploadChartImageFile(png, sqlOutput.name, ctx);
+				return;
+			}
+
+			const imageUrl = new URL(`c/${ctx.chatId}/${chartId}.png`, this._redirectUrl).toString();
 			ctx.textBlockIndex = -1;
 			ctx.blocks.push(createImageBlock(imageUrl));
 			await ctx.convMessage?.edit(Card({ children: ctx.blocks }));
@@ -522,6 +585,17 @@ class SlackService {
 				context: { chatId: ctx.chatId, toolCallId: part.toolCallId },
 			});
 		}
+	}
+
+	private async _uploadChartImageFile(png: Buffer, name: string | null, ctx: ConversationContext): Promise<void> {
+		const [, channelId, threadTs] = ctx.thread.id.split(':');
+		const filename = name ? `${name.toLowerCase().replace(/\s+/g, '_')}.png` : 'chart.png';
+		await this._slackClient.files.uploadV2({
+			channel_id: channelId,
+			thread_ts: threadTs,
+			filename,
+			file: png,
+		});
 	}
 
 	private async _handleCollapsibleToolPart(
@@ -595,7 +669,7 @@ class SlackService {
 		const filename = name ? `${name.toLowerCase().replace(/\s+/g, '_')}.csv` : 'data.csv';
 
 		const [, channelId, threadTs] = ctx.thread.id.split(':');
-		await this._slackClient?.files.uploadV2({
+		await this._slackClient.files.uploadV2({
 			channel_id: channelId,
 			thread_ts: threadTs,
 			filename,
@@ -609,6 +683,98 @@ class SlackService {
 			return null;
 		}
 		return chatQueries.getLastAssistantMessageId(chat.id);
+	}
+}
+
+class SlackService {
+	private _bots: Map<string, ProjectSlackBot> = new Map();
+
+	constructor() {}
+
+	public async getWebhooks(config: SlackConfig): Promise<SlackBotWebhooks | undefined> {
+		const bot = await this._getOrCreateBot(config);
+		return bot.webhooks;
+	}
+
+	public async startSocketModeForAllProjects(): Promise<void> {
+		try {
+			const configs = await listSocketModeSlackConfigs();
+			for (const config of configs) {
+				try {
+					const bot = await this._getOrCreateBot(config);
+					await bot.startSocketMode();
+				} catch (error) {
+					logger.error(
+						`Failed to start Slack socket mode for project ${config.projectId}: ${String(error)}`,
+						{
+							source: 'system',
+							context: { projectId: config.projectId },
+						},
+					);
+				}
+			}
+		} catch (error) {
+			logger.error(`Failed to enumerate Slack socket mode projects: ${String(error)}`, {
+				source: 'system',
+			});
+		}
+	}
+
+	public async syncProjectSocketMode(config: SlackConfig | null, projectId: string): Promise<void> {
+		const existing = this._bots.get(projectId);
+		if (!config || config.transportMode !== 'socket') {
+			if (existing) {
+				await existing.stopSocketMode();
+			}
+			return;
+		}
+		const bot = await this._getOrCreateBot(config);
+		await bot.stopSocketMode();
+		await bot.startSocketMode();
+	}
+
+	public async stopProject(projectId: string): Promise<void> {
+		const existing = this._bots.get(projectId);
+		if (!existing) {
+			return;
+		}
+		await existing.dispose();
+		this._bots.delete(projectId);
+	}
+
+	private async _getOrCreateBot(config: SlackConfig): Promise<ProjectSlackBot> {
+		const existing = this._bots.get(config.projectId);
+		if (existing && !this._configChanged(existing.config, config)) {
+			return existing;
+		}
+		if (existing) {
+			this._bots.delete(config.projectId);
+			try {
+				await existing.dispose();
+			} catch (error) {
+				logger.warn(`Failed to dispose previous Slack bot for project ${config.projectId}: ${String(error)}`, {
+					source: 'system',
+					context: { projectId: config.projectId },
+				});
+			}
+		}
+		const bot = new ProjectSlackBot(config);
+		this._bots.set(config.projectId, bot);
+		return bot;
+	}
+
+	private _configChanged(previous: SlackConfig, next: SlackConfig): boolean {
+		return (
+			previous.botToken !== next.botToken ||
+			previous.signingSecret !== next.signingSecret ||
+			previous.redirectUrl !== next.redirectUrl ||
+			previous.transportMode !== next.transportMode ||
+			previous.appToken !== next.appToken ||
+			previous.autoCreateUsersEnabled !== next.autoCreateUsersEnabled ||
+			previous.autoCreateUsersDomains.join('\0') !== next.autoCreateUsersDomains.join('\0') ||
+			previous.modelSelection?.provider !== next.modelSelection?.provider ||
+			previous.modelSelection?.modelId !== next.modelSelection?.modelId
+		);
 	}
 }
 

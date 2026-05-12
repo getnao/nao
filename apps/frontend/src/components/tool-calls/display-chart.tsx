@@ -188,7 +188,7 @@ export const DisplayChartToolCall = ({
 		>
 			<div className='flex w-full items-center justify-between'>
 				{config.chart_type != 'kpi_card' ? (
-					<span className='text-sm font-medium flex-1'>{config.title}</span>
+					<span className='text-sm font-medium text-foreground flex-1'>{config.title}</span>
 				) : (
 					<div></div>
 				)}

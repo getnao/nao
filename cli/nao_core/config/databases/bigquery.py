@@ -70,7 +70,11 @@ class BigQueryDatabaseContext(DatabaseContext):
     def partition_columns(self) -> list[str]:
         if self._partition_metadata is not None and self._partition_metadata.partition_column is not None:
             return [self._partition_metadata.partition_column]
-        return []
+        try:
+            return _get_bq_partition_columns(self._conn, self._project_id, self._schema, self._table_name)
+        except Exception:
+            logger.debug("Failed to fetch partition columns for %s.%s", self._schema, self._table_name)
+            return []
 
     def clustering_columns(self) -> list[str]:
         if self._partition_metadata is not None:
@@ -343,6 +347,30 @@ def _coerce(val: Any) -> Any:
     if val is not None and not isinstance(val, (str, int, float, bool, list, dict)):
         return str(val)
     return val
+
+
+def _get_bq_partition_columns(conn: BaseBackend, project_id: str, schema: str, table: str) -> list[str]:
+    """Per-context fallback when batch metadata is unavailable.
+
+    Returns partition columns first, then clustering columns (deduplicated).
+    """
+    schema_info_path = _bq_path(project_id, schema, "INFORMATION_SCHEMA", "COLUMNS")
+    table_name_literal = _bq_string_literal(table)
+    partition_query = f"""
+        SELECT column_name
+        FROM {schema_info_path}
+        WHERE table_name = {table_name_literal} AND is_partitioning_column = 'YES'
+    """
+    clustering_query = f"""
+        SELECT column_name
+        FROM {schema_info_path}
+        WHERE table_name = {table_name_literal} AND clustering_ordinal_position IS NOT NULL
+        ORDER BY clustering_ordinal_position
+    """
+    columns: list[str] = []
+    columns.extend(row[0] for row in conn.raw_sql(partition_query))  # type: ignore[union-attr]
+    columns.extend(row[0] for row in conn.raw_sql(clustering_query) if row[0] not in columns)  # type: ignore[union-attr]
+    return columns
 
 
 class BigQueryConfig(DatabaseConfig):

@@ -42,7 +42,7 @@ export interface RefreshResult {
 }
 
 export async function refreshStoryData(chatId: string, slug: string): Promise<RefreshResult> {
-	const version = await storyQueries.getLatestVersion(chatId, slug);
+	const version = await storyQueries.getLatestVersionByChatAndSlug(chatId, slug);
 	if (!version) {
 		throw new Error('Story not found');
 	}
@@ -100,7 +100,7 @@ export async function getStoryQueryData(
 		return { queryData: await getQueryDataFromCode(chatId, code), cachedAt: null };
 	}
 
-	const cache = await storyQueries.getStoryDataCache(chatId, slug);
+	const cache = await storyQueries.getStoryDataCacheByChatAndSlug(chatId, slug);
 
 	if (cache && !isCacheExpired(cache.cachedAt, cacheSchedule)) {
 		return { queryData: cache.queryData, cachedAt: cache.cachedAt };

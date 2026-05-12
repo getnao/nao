@@ -5,7 +5,7 @@ import { Actions, Button, Card, CardText, Image, LinkButton } from 'chat';
 import { ToolCallEntry } from '../types/messaging-provider';
 import { BudgetExceededError } from './error';
 
-export const EXCLUDED_TOOLS = ['tool-suggest_follow_ups', 'tool-display_chart'];
+export const EXCLUDED_TOOLS = ['tool-suggest_follow_ups', 'tool-display_chart', 'tool-clarification'];
 
 export const createLiveToolCall = (toolGroup: Map<string, ToolCallEntry>): CardChild => {
 	const parts = [...countToolsByNoun(toolGroup).entries()].map(
@@ -101,7 +101,8 @@ export const createTelegramCompletionCard = (chatUrl: string, vote?: 'up' | 'dow
 	});
 
 export const createTextBlock = (text: string): CardChild => {
-	return CardText(mdToMrkdwn(text));
+	const rendered = mdToMrkdwn(text);
+	return CardText(rendered || text);
 };
 
 export const createImageBlock = (url: string): CardChild => {

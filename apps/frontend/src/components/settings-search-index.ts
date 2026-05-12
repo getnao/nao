@@ -189,6 +189,40 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		adminOnly: true,
 	},
 
+	// ── MCP Endpoint ────────────────────────────────────────
+	{
+		page: '/settings/mcp-endpoint',
+		pageLabel: 'MCP Endpoint',
+		title: 'MCP Server Endpoint',
+		description: 'Allow external AI clients to connect to this workspace via MCP.',
+		keywords: ['model context protocol', 'claude desktop', 'cursor', 'external', 'api', 'bearer'],
+	},
+	{
+		page: '/settings/mcp-endpoint',
+		pageLabel: 'MCP Endpoint',
+		section: 'MCP Modes',
+		title: 'Sub-agent mode',
+		description:
+			'External agents use nao as a subagent to answer analytics questions like "How many users do we have?".',
+		keywords: ['ask_nao', 'agent', 'analytics'],
+	},
+	{
+		page: '/settings/mcp-endpoint',
+		pageLabel: 'MCP Endpoint',
+		section: 'MCP Modes',
+		title: 'Context-layer mode',
+		description: 'Let agents use nao as a context-layer to browse nao filesystem, execute SQL, create charts, etc.',
+		keywords: ['execute_sql', 'sql', 'query'],
+	},
+	{
+		page: '/settings/mcp-endpoint',
+		pageLabel: 'MCP Endpoint',
+		section: 'MCP Modes',
+		title: 'Story mode',
+		description: 'Let external agents create and manage nao stories (create, read, update, archive, etc.).',
+		keywords: ['stories', 'dashboard', 'report', 'crud'],
+	},
+
 	// ── Project > Slack ──────────────────────────────────────
 	{
 		page: '/settings/project/slack',
@@ -196,6 +230,30 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		title: 'Slack Integration',
 		description: 'Configure Slack app credentials, webhook, and bot behavior.',
 		keywords: ['slack bot', 'slack app', 'slack webhook', 'messaging'],
+		adminOnly: true,
+	},
+	{
+		page: '/settings/project/slack',
+		pageLabel: 'Slack',
+		title: 'Auto-create users from Slack',
+		description: 'Automatically provision nao accounts for Slack senders whose email domain is in the allowlist.',
+		keywords: ['sign up', 'provision', 'onboarding', 'domain', 'allowlist', 'whitelist', 'auto create'],
+		adminOnly: true,
+	},
+	{
+		page: '/settings/project/slack',
+		pageLabel: 'Slack',
+		title: 'Slack transport mode',
+		description: 'Switch between Webhook and Socket Mode for Slack delivery.',
+		keywords: [
+			'slack socket mode',
+			'slack websocket',
+			'private vpc',
+			'air-gapped',
+			'firewall',
+			'app token',
+			'xapp',
+		],
 		adminOnly: true,
 	},
 

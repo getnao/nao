@@ -29,7 +29,7 @@ def sync(
         list[str] | None,
         Parameter(
             name=["-p", "--provider", "--providers"],
-            help=f"Provider(s) to sync. Use `-p provider:name` to sync a specific connection (e.g. databases:my-db). Or just `-p databases` to sync all connections. Options: {', '.join(PROVIDER_CHOICES)}",
+            help=f"Provider(s) to sync. Use `-p provider:name` to sync a specific connection (e.g. databases:my-db). Or just `-p databases` to sync all connections. Options: {', '.join(PROVIDER_CHOICES)} (aliases: repo/repos/repository, db/dbs/database).",
         ),
     ] = None,
     output_dirs: Annotated[dict[str, str] | None, Parameter(show=False)] = None,

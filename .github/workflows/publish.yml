@@ -96,6 +96,7 @@ jobs:
               working-directory: cli
               run: python build.py --force
               env:
+                  NODE_OPTIONS: --max-old-space-size=4096
                   PYTHONUTF8: '1'
 
             - name: Rename wheel with platform tag

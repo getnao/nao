@@ -2,7 +2,7 @@ import formbody from '@fastify/formbody';
 import multipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
 import { fastifyTRPCPlugin, FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
-import fastify from 'fastify';
+import fastify, { FastifyReply } from 'fastify';
 import fastifyRawBody from 'fastify-raw-body';
 import { serializerCompiler, validatorCompiler, ZodTypeProvider } from 'fastify-type-provider-zod';
 import { existsSync } from 'fs';
@@ -10,6 +10,8 @@ import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 
 import { env, isCloud } from './env';
+import { LOG_CLEANUP_JOB_NAME, logCleanupHandler, runLogCleanup } from './handlers/log-cleanup.handler';
+import { mcpServerRoutes } from './mcp/routes';
 import { ensureOrganizationSetup } from './queries/organization.queries';
 import { agentRoutes } from './routes/agent';
 import { authRoutes } from './routes/auth';
@@ -22,12 +24,15 @@ import { teamsRoutes } from './routes/teams';
 import { telegramRoutes } from './routes/telegram';
 import { testRoutes } from './routes/test';
 import { whatsappRoutes } from './routes/whatsapp';
+import { startLicenseHeartbeat } from './services/license.service';
 import { logLicenseStatus } from './services/license-startup';
+import { pingLicensesServer } from './services/ping';
 import { posthog, PostHogEvent } from './services/posthog';
+import { ensureRecurring, registerJob, startScheduler } from './services/scheduler.service';
+import { slackService } from './services/slack';
 import { TrpcRouter, trpcRouter } from './trpc/router';
 import { createContext } from './trpc/trpc';
 import { BudgetExceededError, HandlerError } from './utils/error';
-import { startLogCleanup } from './utils/log-cleanup';
 import { logger } from './utils/logger';
 
 // Get the directory of the current module (works in both dev and compiled)
@@ -55,6 +60,7 @@ const app = fastify({
 			: true,
 	bodyLimit: 35 * 1024 * 1024, // ~25 MB audio * 4/3 base64 overhead + JSON envelope
 	routerOptions: { maxParamLength: 2048 },
+	trustProxy: true,
 }).withTypeProvider<ZodTypeProvider>();
 export type App = typeof app;
 
@@ -171,6 +177,50 @@ app.register(githubRoutes, {
 	prefix: '/api/github',
 });
 
+app.register(mcpServerRoutes, {
+	prefix: '/mcp',
+});
+
+app.get('/.well-known/oauth-protected-resource', async (_request, reply) => {
+	const { buildProtectedResourceMetadata } = await import('./auth');
+	const { MCP_SERVER_URL } = await import('./env');
+	const metadata = await buildProtectedResourceMetadata({ resource: MCP_SERVER_URL });
+	reply
+		.status(200)
+		.header('Content-Type', 'application/json')
+		.header('Cache-Control', 'public, max-age=15, stale-while-revalidate=15, stale-if-error=86400')
+		.send(metadata);
+});
+
+async function relayWebResponse(
+	handler: (req: Request) => Promise<Response>,
+	request: { url: string; headers: Record<string, string | string[] | undefined> },
+	reply: FastifyReply,
+) {
+	const url = new URL(request.url, env.BETTER_AUTH_URL);
+	const { convertHeaders } = await import('./utils/utils');
+	const response = await handler(new Request(url, { method: 'GET', headers: convertHeaders(request.headers) }));
+	reply.status(response.status);
+	response.headers.forEach((value, key) => reply.header(key, value));
+	reply.send(await response.text());
+}
+
+async function relayAuthServerMetadata(request: Parameters<typeof relayWebResponse>[1], reply: FastifyReply) {
+	const { getAuthServerMetadataHandler } = await import('./auth');
+	const handler = await getAuthServerMetadataHandler();
+	await relayWebResponse(handler, request, reply);
+}
+
+async function relayOpenIdConfigMetadata(request: Parameters<typeof relayWebResponse>[1], reply: FastifyReply) {
+	const { getOpenIdConfigMetadataHandler } = await import('./auth');
+	const handler = await getOpenIdConfigMetadataHandler();
+	await relayWebResponse(handler, request, reply);
+}
+
+app.get('/.well-known/oauth-authorization-server/api/auth', relayAuthServerMetadata);
+app.get('/.well-known/openid-configuration/api/auth', relayOpenIdConfigMetadata);
+app.get('/api/auth/.well-known/openid-configuration', relayOpenIdConfigMetadata);
+
 /**
  * Tests the API connection
  */
@@ -197,7 +247,10 @@ const isReservedBackendPath = (url: string) => {
 		pathname === '/c' ||
 		pathname.startsWith('/c/') ||
 		pathname === '/i' ||
-		pathname.startsWith('/i/')
+		pathname.startsWith('/i/') ||
+		pathname === '/mcp' ||
+		pathname.startsWith('/mcp/') ||
+		pathname.startsWith('/.well-known/')
 	);
 };
 
@@ -227,10 +280,20 @@ export const startServer = async (opts: { port: number; host: string }) => {
 		await ensureOrganizationSetup();
 	}
 	await logLicenseStatus();
-	startLogCleanup();
+
+	void runLogCleanup().catch((err) => {
+		logger.error(`Log cleanup failed: ${err instanceof Error ? err.message : String(err)}`, { source: 'system' });
+	});
+	registerJob(LOG_CLEANUP_JOB_NAME, logCleanupHandler);
+	await ensureRecurring({ name: LOG_CLEANUP_JOB_NAME, cron: '0 3 * * *', uniqueKey: LOG_CLEANUP_JOB_NAME });
+	startScheduler();
+	await startLicenseHeartbeat();
 
 	const address = await app.listen({ host: opts.host, port: opts.port });
 	app.log.info(`Server is running on ${address}`);
+
+	void pingLicensesServer();
+	void slackService.startSocketModeForAllProjects();
 
 	posthog.capture(undefined, PostHogEvent.ServerStarted, { ...opts, address });
 

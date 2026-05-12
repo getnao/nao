@@ -9,6 +9,7 @@ import type { SettingsSearchEntry } from '@/components/settings-search-index';
 
 import { ProjectSelector } from '@/components/project-selector';
 import { settingsSearchIndex } from '@/components/settings-search-index';
+import { Badge } from '@/components/ui/badge';
 import { cn, hideIf } from '@/lib/utils';
 
 interface NavContext {
@@ -25,6 +26,7 @@ interface NavItem {
 	visible?: (ctx: NavContext) => boolean;
 	disabled?: (ctx: NavContext) => boolean;
 	type?: 'divider' | 'item';
+	badge?: string;
 }
 
 const settingsNavItems: NavItem[] = [
@@ -44,8 +46,13 @@ const settingsNavItems: NavItem[] = [
 	{
 		label: 'Project',
 		to: '/settings/project',
-		visible: ({ isInMultipleProjects }) => isInMultipleProjects,
-		disabled: ({ isViewer }) => isViewer,
+		visible: ({ isViewer, isInMultipleProjects }) => !isViewer || isInMultipleProjects,
+	},
+	{
+		label: 'MCP Endpoint',
+		to: '/settings/mcp-endpoint',
+		visible: ({ isViewer }) => !isViewer,
+		badge: 'New',
 	},
 	{
 		label: 'Observability',
@@ -275,20 +282,30 @@ export function SidebarSettingsNav({
 								hasLicense,
 							}) ?? false;
 
+						const badge = item.badge ? (
+							<Badge
+								variant='secondary'
+								className='ml-auto h-4 px-1.5 py-0 text-[10px] font-medium uppercase tracking-wide'
+							>
+								{item.badge}
+							</Badge>
+						) : null;
+
 						return (
 							<div key={item.to} className='flex flex-col'>
 								{isDisabled ? (
 									<span
-										className='flex items-center gap-3 px-3 py-2 text-sm rounded-md whitespace-nowrap cursor-not-allowed'
+										className='flex items-center gap-2 px-3 py-2 text-sm rounded-md whitespace-nowrap cursor-not-allowed'
 										aria-disabled='true'
 									>
 										{item.label}
+										{badge}
 									</span>
 								) : (
 									<Link
 										to={item.to}
 										className={cn(
-											'flex items-center gap-3 px-3 py-2 text-sm rounded-md transition-colors whitespace-nowrap',
+											'flex items-center gap-2 px-3 py-2 text-sm rounded-md transition-colors whitespace-nowrap',
 										)}
 										activeProps={{
 											className: cn('bg-sidebar-accent text-foreground font-medium'),
@@ -298,6 +315,7 @@ export function SidebarSettingsNav({
 										}}
 									>
 										{item.label}
+										{badge}
 									</Link>
 								)}
 								{isProjectItem && canSwitchProjects && currentProjectId && (

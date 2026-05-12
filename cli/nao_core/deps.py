@@ -80,16 +80,17 @@ def require_dependency(package: str, extra: str, purpose: str = "") -> None:
         raise MissingDependencyError(package, extra, purpose) from None
 
 
-def require_database_backend(backend: str) -> None:
+def require_database_backend(backend: str, *, extra: str | None = None, database_type: str | None = None) -> None:
     """Verify that the ibis backend for *backend* is importable."""
-    extra = _PROVIDER_ALIASES.get(backend, backend)
+    install_extra = extra or _PROVIDER_ALIASES.get(backend, backend)
+    display_type = database_type or backend
     try:
         importlib.import_module(f"ibis.backends.{backend}")
     except (ImportError, ModuleNotFoundError):
         raise MissingDependencyError(
             f"ibis-framework[{backend}]",
-            extra,
-            f"to connect to {backend} databases",
+            install_extra,
+            f"to connect to {display_type} databases",
         ) from None
 
 

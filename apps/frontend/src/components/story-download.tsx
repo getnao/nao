@@ -14,17 +14,25 @@ import {
 import { trpcClient } from '@/main';
 
 interface StoryDownloadOptions {
-	chatId: string;
-	storySlug: string;
+	storyId?: string;
+	chatId?: string;
+	storySlug?: string;
 	shareId?: string;
 	isOwner?: boolean;
 	versionNumber?: number;
 }
 
-function useStoryDownload({ chatId, storySlug, shareId, isOwner = true, versionNumber }: StoryDownloadOptions) {
+function useStoryDownload({
+	storyId,
+	chatId,
+	storySlug,
+	shareId,
+	isOwner = true,
+	versionNumber,
+}: StoryDownloadOptions) {
 	const [isDownloading, setIsDownloading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
-	const canDownload = isOwner || !!shareId;
+	const canDownload = isOwner || !!shareId || !!storyId;
 
 	const handleDownload = async (format: DownloadFormat) => {
 		if (!canDownload) {
@@ -33,9 +41,19 @@ function useStoryDownload({ chatId, storySlug, shareId, isOwner = true, versionN
 		setIsDownloading(true);
 		setError(null);
 		try {
-			const result = isOwner
-				? await trpcClient.story.download.query({ chatId, storySlug, format, versionNumber })
-				: await trpcClient.storyShare.download.query({ shareId: shareId!, format, versionNumber });
+			let result;
+			if (storyId) {
+				result = await trpcClient.story.downloadStandalone.query({ storyId, format });
+			} else if (isOwner) {
+				result = await trpcClient.story.download.query({
+					chatId: chatId!,
+					storySlug: storySlug!,
+					format,
+					versionNumber,
+				});
+			} else {
+				result = await trpcClient.storyShare.download.query({ shareId: shareId!, format, versionNumber });
+			}
 			const bytes = Uint8Array.from(atob(result.data), (c) => c.charCodeAt(0));
 			const blob = new Blob([bytes], { type: result.mimeType });
 			const url = URL.createObjectURL(blob);

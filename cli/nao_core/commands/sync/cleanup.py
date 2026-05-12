@@ -172,6 +172,9 @@ def cleanup_stale_databases(active_databases: List, base_path: Path, verbose: bo
 def cleanup_stale_repos(config_repos: list, base_path: Path, verbose: bool = False) -> None:
     """Remove repositories that are not present in the config file."""
 
+    if not base_path.exists():
+        return
+
     repo_names = {repo.name for repo in config_repos}
     for repo_dir in base_path.iterdir():
         if repo_dir.is_dir() and repo_dir.name not in repo_names:

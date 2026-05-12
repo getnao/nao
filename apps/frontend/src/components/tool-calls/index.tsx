@@ -1,5 +1,6 @@
 import { memo } from 'react';
 import { StoryToolCall } from './story';
+import { ClarificationToolCall } from './clarification';
 import { DefaultToolCall } from './default';
 import { DisplayChartToolCall } from './display-chart';
 import { ExecutePythonToolCall } from './execute-python';
@@ -9,6 +10,7 @@ import { GrepToolCall } from './grep';
 import { ListToolCall } from './list';
 import { McpToolCall } from './mcp';
 import { ReadToolCall } from './read';
+import { ReadQueryResultToolCall } from './read-query-result';
 import { SearchToolCall } from './search';
 import { WebFetchToolCall } from './web-fetch';
 import { WebSearchToolCall } from './web-search';
@@ -26,6 +28,7 @@ const toolComponents: Partial<{
 	[TToolName in StaticToolName]: React.ComponentType<ToolCallComponentProps<TToolName>>;
 }> = {
 	story: StoryToolCall,
+	clarification: ClarificationToolCall,
 	display_chart: DisplayChartToolCall,
 	execute_python: ExecutePythonToolCall,
 	execute_sandboxed_code: ExecuteSandboxedCodeToolCall,
@@ -33,6 +36,7 @@ const toolComponents: Partial<{
 	grep: GrepToolCall,
 	list: ListToolCall,
 	read: ReadToolCall,
+	read_query_result: ReadQueryResultToolCall,
 	search: SearchToolCall,
 };
 

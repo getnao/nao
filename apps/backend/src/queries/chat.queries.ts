@@ -39,6 +39,11 @@ const sourcePlatformExpr = sql<SourcePlatform>`case
 	when ${s.chat.teamsThreadId} is not null then 'Teams'
 	when ${s.chat.whatsappThreadId} is not null then 'WhatsApp'
 	when ${s.chat.telegramThreadId} is not null then 'Telegram'
+	when exists(
+		select 1 from ${s.chatMessage}
+		where ${s.chatMessage.chatId} = ${s.chat.id}
+		and ${s.chatMessage.source} = 'mcp'
+	) then 'MCP'
 	else 'Web'
 end`;
 
@@ -198,6 +203,7 @@ const aggregateChatMessagParts = (
 					source: row.chat_message.source ?? undefined,
 					isForked: row.chat_message.isForked ?? undefined,
 					citation: row.chat_message.citation ?? undefined,
+					stopReason: row.chat_message.stopReason ?? undefined,
 				};
 			}
 			return acc;
@@ -262,7 +268,7 @@ export const createChat = async (
 	newChat: NewChat,
 	newUserMessage: {
 		text: string;
-		source?: 'slack' | 'teams' | 'telegram' | 'whatsapp' | 'web';
+		source?: UIMessage['source'];
 		citation?: CitationData;
 	},
 	additionalParts: UIMessagePart[] = [],
@@ -640,6 +646,46 @@ export const getProjectIdByQueryId = async (queryId: string): Promise<string | u
 		.execute();
 
 	return result?.projectId;
+};
+
+/**
+ * Loads a persisted `execute_sql` tool output from the chat's message history
+ * and returns just the columns/data, or `null` if no matching query exists.
+ * Used to rehydrate query results across agent runs in the same chat.
+ */
+export const getQueryResultByQueryId = async (
+	chatId: string,
+	queryId: string,
+): Promise<{ columns: string[]; data: Record<string, unknown>[] } | null> => {
+	const jsonIdFilter =
+		dbConfig.dialect === Dialect.Postgres
+			? sql`${s.messagePart.toolOutput}->>'id' = ${queryId}`
+			: sql`json_extract(${s.messagePart.toolOutput}, '$.id') = ${queryId}`;
+
+	const [result] = await db
+		.select({ toolOutput: s.messagePart.toolOutput })
+		.from(s.messagePart)
+		.innerJoin(s.chatMessage, eq(s.messagePart.messageId, s.chatMessage.id))
+		.where(
+			and(
+				eq(s.chatMessage.chatId, chatId),
+				isNull(s.chatMessage.supersededAt),
+				eq(s.messagePart.toolName, 'execute_sql'),
+				jsonIdFilter,
+			),
+		)
+		.limit(1)
+		.execute();
+
+	const output = result?.toolOutput as { columns?: unknown; data?: unknown } | null | undefined;
+	if (!output || !Array.isArray(output.columns) || !Array.isArray(output.data)) {
+		return null;
+	}
+
+	return {
+		columns: output.columns as string[],
+		data: output.data as Record<string, unknown>[],
+	};
 };
 
 export async function getChatInfo(

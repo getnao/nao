@@ -1,11 +1,15 @@
 """Unit tests for the database sync provider."""
 
+from io import StringIO
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+
+from rich.console import Console
 
 from nao_core.commands.sync.cleanup import DatabaseSyncState
 from nao_core.commands.sync.providers.databases.provider import DatabaseSyncProvider
 from nao_core.config.base import NaoConfig
+from nao_core.deps import MissingDependencyError
 
 
 class TestDatabaseSyncProvider:
@@ -91,3 +95,30 @@ class TestDatabaseSyncProvider:
             "database=clickhouse-last",
             "database=clickhouse-numia",
         ]
+
+    @patch(
+        "nao_core.commands.sync.providers.databases.provider.get_database_folder_names", return_value=["database=dev"]
+    )
+    @patch("nao_core.commands.sync.providers.databases.provider.sync_database")
+    def test_sync_escapes_missing_dependency_error_markup(
+        self, mock_sync_database, _mock_get_database_folder_names, tmp_path: Path
+    ):
+        provider = DatabaseSyncProvider()
+        output = StringIO()
+        console = Console(file=output, force_terminal=False)
+
+        db = MagicMock()
+        db.name = "redshift"
+        db.templates = [MagicMock(value="columns")]
+        mock_sync_database.side_effect = MissingDependencyError(
+            "ibis-framework[postgres]",
+            "redshift",
+            "to connect to redshift databases",
+        )
+
+        with patch("nao_core.commands.sync.providers.databases.provider.console", console):
+            provider.sync([db], tmp_path)
+
+        text = output.getvalue()
+        assert "ibis-framework[postgres]" in text
+        assert "nao-core[redshift]" in text
