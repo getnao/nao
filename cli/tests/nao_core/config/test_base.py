@@ -221,3 +221,92 @@ def test_prompt_enable_profiling_returns_false_when_declined(mock_confirm):
 def test_prompt_enable_profiling_returns_false_without_databases():
     """Profiling prompt should return False when no databases are configured."""
     assert NaoConfig._prompt_enable_profiling([]) is False
+
+
+def test_query_history_exclude_patterns_default_is_empty():
+    db = DuckDBConfig(name="test-db", path=":memory:")
+    assert db.query_history_exclude_patterns == []
+    assert db.query_history_sql is None
+
+
+def test_query_history_exclude_patterns_filters_matching_queries():
+    db = DuckDBConfig(
+        name="test-db",
+        path=":memory:",
+        query_history_exclude_patterns=[r"SYSTEM\$", r"CURRENT_SESSION\(\)"],
+    )
+    queries = [
+        "SELECT * FROM users",
+        "CALL SYSTEM$GET_RECENT_IN_APP_NOTIFICATIONS()",
+        "SELECT CURRENT_SESSION()",
+        "select current_session()",
+        "SELECT id FROM orders",
+    ]
+    assert db.filter_query_history(queries) == [
+        "SELECT * FROM users",
+        "SELECT id FROM orders",
+    ]
+
+
+def test_filter_query_history_returns_input_when_no_patterns():
+    db = DuckDBConfig(name="test-db", path=":memory:")
+    queries = ["SELECT 1", "SELECT 2"]
+    assert db.filter_query_history(queries) == queries
+
+
+def test_custom_query_history_sql_overrides_default():
+    from nao_core.config.databases.snowflake import SnowflakeConfig
+
+    db = SnowflakeConfig(
+        name="snow",
+        username="u",
+        account_id="a",
+        database="d",
+        password="p",
+        query_history_sql="SELECT regexp_replace(query_text, '-- .*$', '') AS query_text FROM custom WHERE ts > current_timestamp - interval '{days} days'",
+    )
+    sql = db.get_query_history_sql(7)
+    assert sql is not None
+    assert "FROM custom" in sql
+    assert "interval '7 days'" in sql
+    assert "ACCOUNT_USAGE.QUERY_HISTORY" not in sql
+
+
+def test_custom_query_history_sql_without_days_placeholder_is_passthrough():
+    db = DuckDBConfig(
+        name="duck",
+        path=":memory:",
+        query_history_sql="SELECT q AS query_text FROM my_logs",
+    )
+    assert db.get_query_history_sql(30) == "SELECT q AS query_text FROM my_logs"
+
+
+def test_default_query_history_sql_used_when_no_override():
+    from nao_core.config.databases.postgres import PostgresConfig
+
+    db = PostgresConfig(name="pg", host="h", port=5432, database="d", user="u", password="p")
+    sql = db.get_query_history_sql(30)
+    assert sql is not None
+    assert "pg_stat_statements" in sql
+
+
+def test_query_history_sql_unsupported_database_returns_none_when_no_override():
+    db = DuckDBConfig(name="duck", path=":memory:")
+    assert db.get_query_history_sql(30) is None
+
+
+def test_query_history_fields_loaded_from_yaml_dict():
+    db = DuckDBConfig.model_validate(
+        {
+            "type": "duckdb",
+            "name": "test-db",
+            "path": ":memory:",
+            "templates": ["columns", "how_to_use"],
+            "query_history_days": 7,
+            "query_history_sql": "SELECT q AS query_text FROM log WHERE ts > now() - interval '{days} days'",
+            "query_history_exclude_patterns": [r"SYSTEM\$", r"CURRENT_SESSION"],
+        }
+    )
+    assert db.query_history_days == 7
+    assert db.query_history_exclude_patterns == [r"SYSTEM\$", r"CURRENT_SESSION"]
+    assert db.get_query_history_sql(7) == "SELECT q AS query_text FROM log WHERE ts > now() - interval '7 days'"

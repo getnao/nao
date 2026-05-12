@@ -174,7 +174,7 @@ class DatabricksConfig(DatabaseConfig):
     def create_context(self, conn: BaseBackend, schema: str, table_name: str) -> DatabricksDatabaseContext:
         return DatabricksDatabaseContext(conn, schema, table_name)
 
-    def get_query_history_sql(self, days: int) -> str | None:
+    def _default_query_history_sql(self, days: int) -> str | None:
         return (
             f"SELECT statement AS query_text "
             f"FROM system.query.history "

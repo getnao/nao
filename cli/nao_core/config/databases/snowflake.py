@@ -303,7 +303,7 @@ class SnowflakeConfig(DatabaseConfig):
             logger.debug("Failed to fetch semantic views for schema %s (feature may not be available)", schema)
             return []
 
-    def get_query_history_sql(self, days: int) -> str | None:
+    def _default_query_history_sql(self, days: int) -> str | None:
         return (
             f"SELECT query_text AS query_text "
             f"FROM SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY "

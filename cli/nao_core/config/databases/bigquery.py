@@ -556,7 +556,7 @@ class BigQueryConfig(DatabaseConfig):
             self._schema_metadata[schema] = _fetch_schema_partition_metadata(conn, self.project_id, schema)
         return self._schema_metadata[schema].get(table_name)
 
-    def get_query_history_sql(self, days: int) -> str | None:
+    def _default_query_history_sql(self, days: int) -> str | None:
         region = f"region-{self.location}" if self.location else "region-us"
         return (
             f"SELECT query "

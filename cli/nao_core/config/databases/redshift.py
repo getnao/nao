@@ -401,7 +401,7 @@ class RedshiftConfig(DatabaseConfig):
         """Create a Redshift-specific database context that avoids pg_enum queries."""
         return RedshiftDatabaseContext(conn, schema, table_name)
 
-    def get_query_history_sql(self, days: int) -> str | None:
+    def _default_query_history_sql(self, days: int) -> str | None:
         return (
             f"SELECT querytxt AS query_text "
             f"FROM stl_query "
