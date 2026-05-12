@@ -44,7 +44,7 @@ def _check_available_models(llm_config) -> Tuple[bool, str]:
         models = client.models.list()
     elif provider == "mistral":
         try:
-            from mistralai import Mistral
+            from mistralai import Mistral  # type: ignore[import-not-found]
         except ImportError as exc:
             raise ImportError(
                 "The 'mistralai' package is required for the Mistral LLM provider.\n"

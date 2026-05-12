@@ -105,6 +105,7 @@ class TestLLMConnection:
             assert "Invalid API key" in message
 
     def test_mistral_connection_success(self):
+        pytest.importorskip("mistralai", reason="mistralai is no longer a nao-core extra")
         config = LLMConfig(provider=LLMProvider.MISTRAL, api_key="test-mistral-key")
 
         with patch("mistralai.Mistral") as mock_mistral_class:
@@ -122,6 +123,7 @@ class TestLLMConnection:
 
     def test_mistral_exception_returns_failure(self):
         """API exception should return False with error message."""
+        pytest.importorskip("mistralai", reason="mistralai is no longer a nao-core extra")
         config = LLMConfig(provider=LLMProvider.MISTRAL, api_key="invalid")
 
         with patch("mistralai.Mistral") as mock_class:
@@ -131,6 +133,17 @@ class TestLLMConnection:
 
             assert success is False
             assert "Unauthorized" in message
+
+    def test_mistral_missing_dependency_returns_actionable_error(self):
+        """When mistralai is not installed, check_llm_connection returns a clear hint."""
+        import sys
+
+        config = LLMConfig(provider=LLMProvider.MISTRAL, api_key="test")
+        with patch.dict(sys.modules, {"mistralai": None}):
+            success, message = check_llm_connection(config)
+
+        assert success is False
+        assert "pip install mistralai" in message
 
     def test_openrouter_connection_success(self):
         config = LLMConfig(provider=LLMProvider.OPENROUTER, api_key="sk-test-api-key")
