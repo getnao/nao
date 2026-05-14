@@ -2,12 +2,13 @@ import type { CitationData, LlmProvider } from '@nao/shared/types';
 import { BUDGET_PERIODS, SHARE_VISIBILITY, USER_ROLES } from '@nao/shared/types';
 import { type ProviderMetadata } from 'ai';
 import { sql } from 'drizzle-orm';
-import { check, index, integer, primaryKey, sqliteTable, text, unique } from 'drizzle-orm/sqlite-core';
+import { check, index, integer, primaryKey, sqliteTable, text, unique, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 import { AgentSettings } from '../types/agent-settings';
 import { ForkMetadata, StopReason, ToolState, UIMessagePartType } from '../types/chat';
 import { LLM_INFERENCE_TYPES } from '../types/llm';
 import { LOG_LEVELS, LOG_SOURCES } from '../types/log';
+import { McpEndpointSettings } from '../types/mcp-endpoint';
 import { MEMORY_CATEGORIES } from '../types/memory';
 import { SlackSettings, TeamsSettings, TelegramSettings, WhatsappSettings } from '../types/messaging-provider';
 import { ORG_ROLES } from '../types/organization';
@@ -157,6 +158,7 @@ export const project = sqliteTable(
 		teamsSettings: text('teams_settings', { mode: 'json' }).$type<TeamsSettings>(),
 		telegramSettings: text('telegram_settings', { mode: 'json' }).$type<TelegramSettings>(),
 		whatsappSettings: text('whatsapp_settings', { mode: 'json' }).$type<WhatsappSettings>(),
+		mcpEndpointSettings: text('mcp_endpoint_settings', { mode: 'json' }).$type<McpEndpointSettings>(),
 
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
@@ -249,7 +251,7 @@ export const chatMessage = sqliteTable(
 		llmProvider: text('llm_provider').$type<LlmProvider>(),
 		llmModelId: text('llm_model_id'),
 		supersededAt: integer('superseded_at', { mode: 'timestamp_ms' }),
-		source: text('source', { enum: ['slack', 'teams', 'telegram', 'whatsapp', 'web'] }),
+		source: text('source', { enum: ['slack', 'teams', 'telegram', 'whatsapp', 'web', 'mcp'] }),
 		isForked: integer('isForked', { mode: 'boolean' }),
 		citation: text('citation', { mode: 'json' }).$type<CitationData>(),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
@@ -518,9 +520,9 @@ export const story = sqliteTable(
 		id: text('id')
 			.$defaultFn(() => crypto.randomUUID())
 			.primaryKey(),
-		chatId: text('chat_id')
-			.notNull()
-			.references(() => chat.id, { onDelete: 'cascade' }),
+		chatId: text('chat_id').references(() => chat.id, { onDelete: 'cascade' }),
+		projectId: text('project_id').references(() => project.id, { onDelete: 'cascade' }),
+		userId: text('user_id').references(() => user.id, { onDelete: 'cascade' }),
 		slug: text('slug').notNull(),
 		title: text('title').notNull(),
 		isLive: integer('is_live', { mode: 'boolean' }).default(false).notNull(),
@@ -536,7 +538,16 @@ export const story = sqliteTable(
 			.$onUpdate(() => new Date())
 			.notNull(),
 	},
-	(t) => [unique('story_chat_slug_unique').on(t.chatId, t.slug), index('story_chatId_idx').on(t.chatId)],
+	(t) => [
+		unique('story_chat_slug_unique').on(t.chatId, t.slug),
+		uniqueIndex('story_standalone_slug_unique')
+			.on(t.projectId, t.userId, t.slug)
+			.where(sql`chat_id IS NULL`),
+		check('story_owner_required', sql`chat_id IS NOT NULL OR (project_id IS NOT NULL AND user_id IS NOT NULL)`),
+		index('story_chatId_idx').on(t.chatId),
+		index('story_projectId_idx').on(t.projectId),
+		index('story_userId_idx').on(t.userId),
+	],
 );
 
 export const storyVersion = sqliteTable(
@@ -738,3 +749,181 @@ export const scheduledJob = sqliteTable(
 	},
 	(t) => [index('scheduled_job_status_runAt_idx').on(t.status, t.runAt), index('scheduled_job_name_idx').on(t.name)],
 );
+
+export const mcpCallLog = sqliteTable(
+	'mcp_call_log',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		toolName: text('tool_name').notNull(),
+		durationMs: integer('duration_ms'),
+		success: integer('success', { mode: 'boolean' }).notNull(),
+		toolInput: text('tool_input', { mode: 'json' }).$type<unknown>(),
+		toolOutput: text('tool_output', { mode: 'json' }).$type<unknown>(),
+		calledAt: integer('called_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+	},
+	(t) => [
+		index('mcp_call_log_projectId_idx').on(t.projectId),
+		index('mcp_call_log_userId_idx').on(t.userId),
+		index('mcp_call_log_calledAt_idx').on(t.calledAt),
+	],
+);
+
+export const oauthClient = sqliteTable(
+	'oauth_client',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		clientId: text('client_id').notNull().unique(),
+		clientSecret: text('client_secret'),
+		disabled: integer('disabled', { mode: 'boolean' }).default(false),
+		skipConsent: integer('skip_consent', { mode: 'boolean' }),
+		enableEndSession: integer('enable_end_session', { mode: 'boolean' }),
+		subjectType: text('subject_type'),
+		scopes: text('scopes', { mode: 'json' }).$type<string[]>(),
+		userId: text('user_id').references(() => user.id, { onDelete: 'cascade' }),
+		name: text('name'),
+		uri: text('uri'),
+		icon: text('icon'),
+		contacts: text('contacts', { mode: 'json' }).$type<string[]>(),
+		tos: text('tos'),
+		policy: text('policy'),
+		softwareId: text('software_id'),
+		softwareVersion: text('software_version'),
+		softwareStatement: text('software_statement'),
+		redirectUris: text('redirect_uris', { mode: 'json' }).$type<string[]>().notNull(),
+		postLogoutRedirectUris: text('post_logout_redirect_uris', { mode: 'json' }).$type<string[]>(),
+		tokenEndpointAuthMethod: text('token_endpoint_auth_method'),
+		grantTypes: text('grant_types', { mode: 'json' }).$type<string[]>(),
+		responseTypes: text('response_types', { mode: 'json' }).$type<string[]>(),
+		public: integer('public', { mode: 'boolean' }),
+		type: text('type'),
+		requirePKCE: integer('require_pkce', { mode: 'boolean' }),
+		referenceId: text('reference_id'),
+		metadata: text('metadata', { mode: 'json' }).$type<Record<string, unknown>>(),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+		updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [index('oauth_client_userId_idx').on(t.userId)],
+);
+
+export const oauthRefreshToken = sqliteTable(
+	'oauth_refresh_token',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		token: text('token').notNull().unique(),
+		clientId: text('client_id')
+			.notNull()
+			.references(() => oauthClient.clientId, { onDelete: 'cascade' }),
+		sessionId: text('session_id').references(() => session.id, { onDelete: 'set null' }),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		referenceId: text('reference_id'),
+		expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+		revoked: integer('revoked', { mode: 'timestamp_ms' }),
+		authTime: integer('auth_time', { mode: 'timestamp_ms' }),
+		scopes: text('scopes', { mode: 'json' }).$type<string[]>().notNull(),
+	},
+	(t) => [
+		index('oauth_refresh_token_clientId_idx').on(t.clientId),
+		index('oauth_refresh_token_userId_idx').on(t.userId),
+		index('oauth_refresh_token_sessionId_idx').on(t.sessionId),
+	],
+);
+
+export const oauthAccessToken = sqliteTable(
+	'oauth_access_token',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		token: text('token').notNull().unique(),
+		clientId: text('client_id')
+			.notNull()
+			.references(() => oauthClient.clientId, { onDelete: 'cascade' }),
+		sessionId: text('session_id').references(() => session.id, { onDelete: 'set null' }),
+		userId: text('user_id').references(() => user.id, { onDelete: 'cascade' }),
+		referenceId: text('reference_id'),
+		refreshId: text('refresh_id').references(() => oauthRefreshToken.id, { onDelete: 'cascade' }),
+		expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+		scopes: text('scopes', { mode: 'json' }).$type<string[]>().notNull(),
+	},
+	(t) => [
+		index('oauth_access_token_clientId_idx').on(t.clientId),
+		index('oauth_access_token_userId_idx').on(t.userId),
+		index('oauth_access_token_refreshId_idx').on(t.refreshId),
+	],
+);
+
+export const oauthConsent = sqliteTable(
+	'oauth_consent',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		clientId: text('client_id')
+			.notNull()
+			.references(() => oauthClient.clientId, { onDelete: 'cascade' }),
+		userId: text('user_id').references(() => user.id, { onDelete: 'cascade' }),
+		referenceId: text('reference_id'),
+		scopes: text('scopes', { mode: 'json' }).$type<string[]>().notNull(),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+		updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [index('oauth_consent_clientId_idx').on(t.clientId), index('oauth_consent_userId_idx').on(t.userId)],
+);
+
+export const brandingConfig = sqliteTable('branding_config', {
+	id: text('id').primaryKey(),
+	appName: text('app_name'),
+	tabTitle: text('tab_title'),
+	logoData: text('logo_data'),
+	logoMediaType: text('logo_media_type'),
+	faviconData: text('favicon_data'),
+	faviconMediaType: text('favicon_media_type'),
+	updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+		.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+		.$onUpdate(() => /* @__PURE__ */ new Date())
+		.notNull(),
+});
+
+export const jwks = sqliteTable('jwks', {
+	id: text('id')
+		.$defaultFn(() => crypto.randomUUID())
+		.primaryKey(),
+	publicKey: text('public_key').notNull(),
+	privateKey: text('private_key').notNull(),
+	createdAt: integer('created_at', { mode: 'timestamp_ms' })
+		.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+		.notNull(),
+	expiresAt: integer('expires_at', { mode: 'timestamp_ms' }),
+});

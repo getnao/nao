@@ -38,6 +38,7 @@ import {
 	TokenCost,
 	TokenUsage,
 	UIMessage,
+	UIMessagePart,
 } from '../types/chat';
 import { Provider } from '../types/messaging-provider';
 import { ToolContext } from '../types/tools';
@@ -73,6 +74,8 @@ export interface AgentRunResult {
 		toolCalls: ReadonlyArray<{ toolName: string; toolCallId: string; input: unknown }>;
 		toolResults: ReadonlyArray<{ toolCallId: string; output?: unknown }>;
 	}>;
+	/** All message parts (step-starts, tool calls, text) for persisting to the DB */
+	responseParts: UIMessagePart[];
 }
 
 export type AgentChat = Pick<DBChat, 'id' | 'projectId' | 'userId'> & {
@@ -218,7 +221,7 @@ class AgentManager {
 			tools: this._agentTools,
 			maxOutputTokens: MAX_OUTPUT_TOKENS,
 			prepareStep: async ({ messages }) => this._prepareStep(messages),
-			stopWhen: [hasToolCall('suggest_follow_ups')],
+			stopWhen: [hasToolCall('suggest_follow_ups'), hasToolCall('clarification')],
 			experimental_context: this._toolContext,
 		});
 	}
@@ -407,10 +410,16 @@ class AgentManager {
 		}
 
 		try {
-			const latestVersions = new Map<string, Awaited<ReturnType<typeof storyQueries.getLatestVersion>>>();
+			const latestVersions = new Map<
+				string,
+				Awaited<ReturnType<typeof storyQueries.getLatestVersionByChatAndSlug>>
+			>();
 			await Promise.all(
 				[...lastToolCallByStory.keys()].map(async (storyId) => {
-					latestVersions.set(storyId, await storyQueries.getLatestVersion(this.chat.id, storyId));
+					latestVersions.set(
+						storyId,
+						await storyQueries.getLatestVersionByChatAndSlug(this.chat.id, storyId),
+					);
 				}),
 			);
 
@@ -550,6 +559,7 @@ class AgentManager {
 				durationMs,
 				responseMessages: result.response.messages,
 				steps: result.steps as AgentRunResult['steps'],
+				responseParts: [],
 			};
 		} finally {
 			this._onDispose();

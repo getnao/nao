@@ -44,7 +44,11 @@ async function fetchLatestVersion(): Promise<string | null> {
 }
 
 function isNewerVersion(current: string, latest: string): boolean {
-	if (current === 'dev' || current === 'unknown') {
+	if (current === 'dev' || current === 'main') {
+		return false;
+	}
+
+	if (current === 'unknown') {
 		return true;
 	}
 

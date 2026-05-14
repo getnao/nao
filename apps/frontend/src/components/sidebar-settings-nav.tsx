@@ -9,6 +9,7 @@ import type { SettingsSearchEntry } from '@/components/settings-search-index';
 
 import { ProjectSelector } from '@/components/project-selector';
 import { settingsSearchIndex } from '@/components/settings-search-index';
+import { Badge } from '@/components/ui/badge';
 import { cn, hideIf } from '@/lib/utils';
 
 interface NavContext {
@@ -25,6 +26,8 @@ interface NavItem {
 	visible?: (ctx: NavContext) => boolean;
 	disabled?: (ctx: NavContext) => boolean;
 	type?: 'divider' | 'item';
+	badge?: string;
+	badgeVariant?: 'new' | 'enterprise';
 }
 
 const settingsNavItems: NavItem[] = [
@@ -45,6 +48,13 @@ const settingsNavItems: NavItem[] = [
 		label: 'Project',
 		to: '/settings/project',
 		visible: ({ isViewer, isInMultipleProjects }) => !isViewer || isInMultipleProjects,
+	},
+	{
+		label: 'MCP Endpoint',
+		to: '/settings/mcp-endpoint',
+		visible: ({ isViewer }) => !isViewer,
+		badge: 'New',
+		badgeVariant: 'new',
 	},
 	{
 		label: 'Observability',
@@ -69,12 +79,17 @@ const settingsNavItems: NavItem[] = [
 	{
 		label: 'Enterprise',
 		type: 'divider',
-		visible: ({ isAdmin, isCloud, hasLicense }) => isAdmin && !isCloud && hasLicense,
+		visible: ({ isAdmin, isCloud }) => isAdmin && !isCloud,
 	},
 	{
 		label: 'License',
 		to: '/settings/enterprise',
 		visible: ({ isAdmin, isCloud, hasLicense }) => isAdmin && !isCloud && hasLicense,
+	},
+	{
+		label: 'White-label',
+		to: '/settings/white-label',
+		visible: ({ isAdmin, isCloud }) => isAdmin && !isCloud,
 	},
 	{
 		label: 'Context',
@@ -274,20 +289,35 @@ export function SidebarSettingsNav({
 								hasLicense,
 							}) ?? false;
 
+						const badge = item.badge ? (
+							<Badge
+								variant='ghost'
+								className={cn(
+									'ml-auto h-4 px-1.5 py-0 text-[10px] font-medium uppercase tracking-wide',
+									item.badgeVariant === 'enterprise'
+										? 'bg-primary/10 text-primary'
+										: 'bg-secondary text-secondary-foreground',
+								)}
+							>
+								{item.badge}
+							</Badge>
+						) : null;
+
 						return (
 							<div key={item.to} className='flex flex-col'>
 								{isDisabled ? (
 									<span
-										className='flex items-center gap-3 px-3 py-2 text-sm rounded-md whitespace-nowrap cursor-not-allowed'
+										className='flex items-center gap-2 px-3 py-2 text-sm rounded-md whitespace-nowrap cursor-not-allowed'
 										aria-disabled='true'
 									>
 										{item.label}
+										{badge}
 									</span>
 								) : (
 									<Link
 										to={item.to}
 										className={cn(
-											'flex items-center gap-3 px-3 py-2 text-sm rounded-md transition-colors whitespace-nowrap',
+											'flex items-center gap-2 px-3 py-2 text-sm rounded-md transition-colors whitespace-nowrap',
 										)}
 										activeProps={{
 											className: cn('bg-sidebar-accent text-foreground font-medium'),
@@ -297,6 +327,7 @@ export function SidebarSettingsNav({
 										}}
 									>
 										{item.label}
+										{badge}
 									</Link>
 								)}
 								{isProjectItem && canSwitchProjects && currentProjectId && (

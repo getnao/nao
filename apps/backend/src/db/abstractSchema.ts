@@ -82,6 +82,9 @@ export type NewLlmInference = typeof sqliteSchema.llmInference.$inferInsert;
 export type DBLog = typeof sqliteSchema.log.$inferSelect;
 export type NewLog = typeof sqliteSchema.log.$inferInsert;
 
+export type DBMcpCallLog = typeof sqliteSchema.mcpCallLog.$inferSelect;
+export type NewMcpCallLog = typeof sqliteSchema.mcpCallLog.$inferInsert;
+
 export type DBMessageImage = typeof sqliteSchema.messageImage.$inferSelect;
 export type NewMessageImage = typeof sqliteSchema.messageImage.$inferInsert;
 
@@ -91,5 +94,8 @@ export type NewApiKey = typeof sqliteSchema.apiKey.$inferInsert;
 export type DBScheduledJob = typeof sqliteSchema.scheduledJob.$inferSelect;
 export type NewScheduledJob = typeof sqliteSchema.scheduledJob.$inferInsert;
 export type ScheduledJobStatus = DBScheduledJob['status'];
+
+export type DBBrandingConfig = typeof sqliteSchema.brandingConfig.$inferSelect;
+export type NewBrandingConfig = typeof sqliteSchema.brandingConfig.$inferInsert;
 
 export default allSchema as typeof sqliteSchema;

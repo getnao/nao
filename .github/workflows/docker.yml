@@ -49,6 +49,10 @@ jobs:
               id: build_date
               run: echo "value=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_OUTPUT
 
+            - name: Get app version
+              id: app_version
+              run: echo "version=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+
             - name: Compute nao-core CLI version
               id: cli_version
               run: |
@@ -101,7 +105,7 @@ jobs:
                   cache-from: type=registry,ref=${{ env.CACHE_REGISTRY }}/${{ env.CACHE_IMAGE }}:${{ matrix.platform == 'linux/amd64' && 'amd64' || 'arm64' }}
                   cache-to: type=registry,ref=${{ env.CACHE_REGISTRY }}/${{ env.CACHE_IMAGE }}:${{ matrix.platform == 'linux/amd64' && 'amd64' || 'arm64' }},mode=max
                   build-args: |
-                      APP_VERSION=${{ github.ref_name }}
+                      APP_VERSION=${{ steps.app_version.outputs.version }}
                       APP_COMMIT=${{ steps.sha.outputs.short_sha }}
                       APP_BUILD_DATE=${{ steps.build_date.outputs.value }}
                       NAO_CLI_VERSION=${{ steps.cli_version.outputs.version }}
@@ -211,6 +215,7 @@ jobs:
                         -e "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" \
                         -e "ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}" \
                         -e "BETTER_AUTH_SECRET=${{ secrets.BETTER_AUTH_SECRET }}" \
+                        -e "ENABLE_USER_SIGNUP=false" \
                         --device /dev/kvm \
                         --name nao-chat \
                         -d getnao/nao:${{ needs.merge.outputs.image-tag }}
@@ -253,6 +258,8 @@ jobs:
                           -e "SMTP_PORT=${{ secrets.SMTP_PORT }}" \
                           -e "SMTP_MAIL_FROM=${{ secrets.SMTP_MAIL_FROM }}" \
                           -e "SMTP_SSL=${{ secrets.SMTP_SSL }}" \
+                          -e "ENABLE_USER_LOGIN=true" \
+                          -e "ENABLE_USER_SIGNUP=true" \
                           getnao/nao:${{ needs.merge.outputs.image-tag }}
 
                       echo "Waiting for container to start..."

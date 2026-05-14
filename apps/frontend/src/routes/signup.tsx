@@ -1,8 +1,10 @@
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { useForm } from '@tanstack/react-form';
-import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
 import { signUp } from '@/lib/auth-client';
 import { AuthForm, FormTextField } from '@/components/auth-form';
+import { trpc } from '@/main';
 
 export const Route = createFileRoute('/signup')({
 	validateSearch: (search: Record<string, unknown>) => ({
@@ -15,6 +17,8 @@ function SignUp() {
 	const navigate = useNavigate();
 	const { error: oauthError } = Route.useSearch();
 	const [serverError, setServerError] = useState<string | undefined>(oauthError);
+	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
+	const isUserSignupEnabled = config.data?.enableUserSignup === true;
 
 	const form = useForm({
 		defaultValues: { name: '', email: '', password: '', requiresPasswordReset: false, messagingProviderCode: '' },
@@ -26,6 +30,20 @@ function SignUp() {
 			});
 		},
 	});
+
+	useEffect(() => {
+		if (config.data && !isUserSignupEnabled) {
+			navigate({ to: '/login', search: { error: 'Sign up is disabled.' }, replace: true });
+		}
+	}, [config.data, isUserSignupEnabled, navigate]);
+
+	if (config.isLoading) {
+		return null;
+	}
+
+	if (config.data && !isUserSignupEnabled) {
+		return null;
+	}
 
 	return (
 		<AuthForm

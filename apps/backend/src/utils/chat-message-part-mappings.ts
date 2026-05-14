@@ -92,25 +92,7 @@ export const mapDBPartsToUIParts = (parts: DBMessagePart[]): UIMessagePart[] => 
 
 export const convertDBPartToUIPart = (part: DBMessagePart): UIMessagePart | undefined => {
 	if (isToolDBPart(part)) {
-		return {
-			type: part.type,
-			toolName: part.toolName!,
-			toolCallId: part.toolCallId!,
-			state: part.toolState as any,
-			input: part.toolInput as any,
-			rawInput: part.toolRawInput as any,
-			output: part.toolOutput as any,
-			errorText: part.toolErrorText as any,
-			providerExecuted: PROVIDER_EXECUTED_TOOLS.has(part.toolName!),
-			approval: part.toolApprovalId
-				? {
-						id: part.toolApprovalId!,
-						approved: part.toolApprovalApproved!,
-						reason: part.toolApprovalReason!,
-					}
-				: undefined,
-			callProviderMetadata: part.toolProviderMetadata ?? undefined,
-		};
+		return convertDBToolPartToUIPart(part);
 	}
 
 	switch (part.type) {
@@ -153,6 +135,30 @@ export const convertDBPartToUIPart = (part: DBMessagePart): UIMessagePart | unde
 
 const isToolDBPart = (part: DBMessagePart): part is DBMessagePart & { type: UIToolPart['type'] } => {
 	return part.type.startsWith('tool-') || part.type === 'dynamic-tool';
+};
+
+const convertDBToolPartToUIPart = (part: DBMessagePart & { type: UIToolPart['type'] }): UIToolPart => {
+	const toolPart = {
+		type: part.type,
+		toolName: part.toolName!,
+		toolCallId: part.toolCallId!,
+		state: part.toolState as any,
+		input: part.toolInput as any,
+		rawInput: part.toolRawInput as any,
+		output: part.toolOutput as any,
+		errorText: part.toolErrorText as any,
+		providerExecuted: PROVIDER_EXECUTED_TOOLS.has(part.toolName!),
+		approval: part.toolApprovalId
+			? {
+					id: part.toolApprovalId!,
+					approved: part.toolApprovalApproved!,
+					reason: part.toolApprovalReason!,
+				}
+			: undefined,
+		callProviderMetadata: part.toolProviderMetadata ?? undefined,
+	};
+
+	return toolPart as UIToolPart;
 };
 
 const IMAGE_URL_PATTERN = /^\/i\/([a-f0-9-]+)$/;

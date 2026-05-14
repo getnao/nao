@@ -1,4 +1,5 @@
 import { createRootRoute, Outlet } from '@tanstack/react-router';
+import { BrandingHead } from '../components/branding-head';
 import { ModifyPassword } from '../components/modify-password';
 import { useDisposeInactiveAgents } from '@/hooks/use-agent';
 import { useSessionOrNavigateToIndexPage } from '@/hooks/use-session-or-navigate-to-index-page';
@@ -24,6 +25,7 @@ function RootComponent() {
 
 	return (
 		<div className='flex h-screen'>
+			<BrandingHead />
 			<Outlet />
 		</div>
 	);

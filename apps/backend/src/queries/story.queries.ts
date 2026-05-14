@@ -1,7 +1,24 @@
-import { and, asc, desc, eq, isNull, max, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull, max, or, type SQL, sql } from 'drizzle-orm';
 
 import s, { type DBStory, type DBStoryDataCache, type DBStoryVersion } from '../db/abstractSchema';
 import { db } from '../db/db';
+
+export type UserStoryRow = Pick<
+	DBStory,
+	| 'id'
+	| 'chatId'
+	| 'projectId'
+	| 'userId'
+	| 'slug'
+	| 'title'
+	| 'isLive'
+	| 'isLiveTextDynamic'
+	| 'cacheSchedule'
+	| 'cacheScheduleDescription'
+	| 'archivedAt'
+	| 'createdAt'
+	| 'updatedAt'
+> & { code: string };
 
 export async function getStoryByChatAndSlug(chatId: string, slug: string): Promise<DBStory | null> {
 	const [row] = await db
@@ -14,23 +31,133 @@ export async function getStoryByChatAndSlug(chatId: string, slug: string): Promi
 	return row ?? null;
 }
 
-export async function getOrCreateStory(data: { chatId: string; slug: string; title: string }): Promise<DBStory> {
-	const existing = await getStoryByChatAndSlug(data.chatId, data.slug);
-	if (existing) {
-		return existing;
-	}
-
-	await db
-		.insert(s.story)
-		.values({ chatId: data.chatId, slug: data.slug, title: data.title })
-		.onConflictDoNothing({ target: [s.story.chatId, s.story.slug] })
+export async function getStoryOwnerId(storyId: string): Promise<string | undefined> {
+	const [row] = await db
+		.select({
+			storyUserId: s.story.userId,
+			chatUserId: s.chat.userId,
+		})
+		.from(s.story)
+		.leftJoin(s.chat, eq(s.story.chatId, s.chat.id))
+		.where(eq(s.story.id, storyId))
+		.limit(1)
 		.execute();
 
-	const row = await getStoryByChatAndSlug(data.chatId, data.slug);
-	if (!row) {
-		throw new Error(`Failed to create or retrieve story: ${data.chatId}/${data.slug}`);
-	}
-	return row;
+	return row?.chatUserId ?? row?.storyUserId ?? undefined;
+}
+
+export async function getStoryByIdForUser(storyId: string, userId: string): Promise<UserStoryRow | null> {
+	const latestVersions = latestVersionsSubquery();
+
+	const [row] = await db
+		.select({
+			id: s.story.id,
+			chatId: s.story.chatId,
+			projectId: s.story.projectId,
+			userId: s.story.userId,
+			slug: s.story.slug,
+			title: s.story.title,
+			isLive: s.story.isLive,
+			isLiveTextDynamic: s.story.isLiveTextDynamic,
+			cacheSchedule: s.story.cacheSchedule,
+			cacheScheduleDescription: s.story.cacheScheduleDescription,
+			archivedAt: s.story.archivedAt,
+			createdAt: s.story.createdAt,
+			updatedAt: s.story.updatedAt,
+			code: s.storyVersion.code,
+		})
+		.from(s.story)
+		.leftJoin(s.chat, eq(s.story.chatId, s.chat.id))
+		.innerJoin(latestVersions, eq(s.story.id, latestVersions.storyId))
+		.innerJoin(
+			s.storyVersion,
+			and(eq(s.storyVersion.storyId, s.story.id), eq(s.storyVersion.version, latestVersions.maxVersion)),
+		)
+		.where(
+			and(
+				eq(s.story.id, storyId),
+				or(eq(s.chat.userId, userId), and(isNull(s.story.chatId), eq(s.story.userId, userId))),
+			),
+		)
+		.limit(1)
+		.execute();
+
+	return row ?? null;
+}
+
+export async function getStandaloneStoryByUserAndSlug(
+	userId: string,
+	projectId: string,
+	slug: string,
+): Promise<DBStory | null> {
+	const [row] = await db
+		.select()
+		.from(s.story)
+		.where(
+			and(
+				eq(s.story.projectId, projectId),
+				eq(s.story.userId, userId),
+				eq(s.story.slug, slug),
+				isNull(s.story.chatId),
+			),
+		)
+		.limit(1)
+		.execute();
+
+	return row ?? null;
+}
+
+export function listUserChatStories(userId: string, options?: { archived?: boolean }): Promise<UserStoryRow[]> {
+	return queryStoriesWithLatestVersion(eq(s.chat.userId, userId), options);
+}
+
+export function listUserStandaloneStories(
+	userId: string,
+	projectId: string,
+	options?: { archived?: boolean; limit?: number },
+): Promise<UserStoryRow[]> {
+	const limit = Math.min(options?.limit ?? 50, 200);
+	return queryStoriesWithLatestVersion(
+		and(eq(s.story.projectId, projectId), eq(s.story.userId, userId), isNull(s.story.chatId))!,
+		{ ...options, limit },
+	);
+}
+
+export function listAllUserStoriesInProject(
+	userId: string,
+	projectId: string,
+	options?: { archived?: boolean; limit?: number },
+): Promise<UserStoryRow[]> {
+	const limit = Math.min(options?.limit ?? 20, 100);
+	return queryStoriesWithLatestVersion(
+		or(
+			and(eq(s.chat.projectId, projectId), eq(s.chat.userId, userId)),
+			and(eq(s.story.projectId, projectId), eq(s.story.userId, userId), isNull(s.story.chatId)),
+		)!,
+		{ ...options, limit },
+	);
+}
+
+export async function listStoriesInChat(
+	chatId: string,
+): Promise<{ slug: string; title: string; latestVersion: number }[]> {
+	const stories = await db
+		.select({
+			slug: s.story.slug,
+			title: s.story.title,
+			latestVersion: max(s.storyVersion.version).as('latest_version'),
+		})
+		.from(s.story)
+		.innerJoin(s.storyVersion, eq(s.storyVersion.storyId, s.story.id))
+		.where(eq(s.story.chatId, chatId))
+		.groupBy(s.story.id)
+		.execute();
+
+	return stories.map((row) => ({
+		slug: row.slug,
+		title: row.title,
+		latestVersion: row.latestVersion ?? 1,
+	}));
 }
 
 export async function createStoryVersion(data: {
@@ -41,8 +168,44 @@ export async function createStoryVersion(data: {
 	action: 'create' | 'update' | 'replace';
 	source: 'assistant' | 'user';
 }): Promise<DBStoryVersion & { title: string }> {
-	const story = await getOrCreateStory({
-		chatId: data.chatId,
+	const story = await getOrCreateStory({ chatId: data.chatId, slug: data.slug, title: data.title });
+
+	if (story.title !== data.title) {
+		await db.update(s.story).set({ title: data.title }).where(eq(s.story.id, story.id)).execute();
+	}
+
+	const nextVersion = db
+		.select({ v: sql<number>`coalesce(max(${s.storyVersion.version}), 0) + 1` })
+		.from(s.storyVersion)
+		.where(eq(s.storyVersion.storyId, story.id));
+
+	const [created] = await db
+		.insert(s.storyVersion)
+		.values({
+			storyId: story.id,
+			code: data.code,
+			action: data.action,
+			source: data.source,
+			version: sql`(${nextVersion})`,
+		})
+		.returning()
+		.execute();
+
+	return { ...created, title: data.title };
+}
+
+export async function createStandaloneVersion(data: {
+	userId: string;
+	projectId: string;
+	slug: string;
+	title: string;
+	code: string;
+	action: 'create' | 'update' | 'replace';
+	source: 'assistant' | 'user';
+}): Promise<DBStoryVersion & { title: string }> {
+	const story = await getOrCreateStandaloneStory({
+		userId: data.userId,
+		projectId: data.projectId,
 		slug: data.slug,
 		title: data.title,
 	});
@@ -71,153 +234,59 @@ export async function createStoryVersion(data: {
 	return { ...created, title: data.title };
 }
 
-export async function getLatestVersion(
-	chatId: string,
-	slug: string,
-): Promise<
-	| (DBStoryVersion &
-			Pick<
-				DBStory,
-				'title' | 'isLive' | 'isLiveTextDynamic' | 'cacheSchedule' | 'cacheScheduleDescription' | 'archivedAt'
-			>)
-	| null
-> {
-	const [row] = await db
-		.select({
-			id: s.storyVersion.id,
-			storyId: s.storyVersion.storyId,
-			version: s.storyVersion.version,
-			code: s.storyVersion.code,
-			action: s.storyVersion.action,
-			source: s.storyVersion.source,
-			createdAt: s.storyVersion.createdAt,
-			title: s.story.title,
-			isLive: s.story.isLive,
-			isLiveTextDynamic: s.story.isLiveTextDynamic,
-			cacheSchedule: s.story.cacheSchedule,
-			cacheScheduleDescription: s.story.cacheScheduleDescription,
-			archivedAt: s.story.archivedAt,
-		})
-		.from(s.storyVersion)
-		.innerJoin(s.story, eq(s.storyVersion.storyId, s.story.id))
-		.where(and(eq(s.story.chatId, chatId), eq(s.story.slug, slug)))
-		.orderBy(desc(s.storyVersion.version))
-		.limit(1)
-		.execute();
+export async function createStandaloneStory(data: {
+	userId: string;
+	projectId: string;
+	slug: string;
+	title: string;
+	code: string;
+	source: 'assistant' | 'user';
+}): Promise<{ id: string; slug: string; title: string; createdAt: Date; version: number } | null> {
+	return db.transaction(async (tx) => {
+		const [story] = await tx
+			.insert(s.story)
+			.values({
+				projectId: data.projectId,
+				userId: data.userId,
+				slug: data.slug,
+				title: data.title,
+			})
+			.onConflictDoNothing()
+			.returning()
+			.execute();
 
-	return row ?? null;
+		if (!story) {
+			return null;
+		}
+
+		const [version] = await tx
+			.insert(s.storyVersion)
+			.values({
+				storyId: story.id,
+				code: data.code,
+				action: 'create',
+				source: data.source,
+				version: 1,
+			})
+			.returning()
+			.execute();
+
+		return {
+			id: story.id,
+			slug: story.slug,
+			title: story.title,
+			createdAt: story.createdAt,
+			version: version.version,
+		};
+	});
 }
 
-export async function getVersionByNumber(
-	chatId: string,
-	slug: string,
-	versionNumber: number,
-): Promise<
-	| (DBStoryVersion &
-			Pick<
-				DBStory,
-				'title' | 'isLive' | 'isLiveTextDynamic' | 'cacheSchedule' | 'cacheScheduleDescription' | 'archivedAt'
-			>)
-	| null
-> {
-	const [row] = await db
-		.select({
-			id: s.storyVersion.id,
-			storyId: s.storyVersion.storyId,
-			version: s.storyVersion.version,
-			code: s.storyVersion.code,
-			action: s.storyVersion.action,
-			source: s.storyVersion.source,
-			createdAt: s.storyVersion.createdAt,
-			title: s.story.title,
-			isLive: s.story.isLive,
-			isLiveTextDynamic: s.story.isLiveTextDynamic,
-			cacheSchedule: s.story.cacheSchedule,
-			cacheScheduleDescription: s.story.cacheScheduleDescription,
-			archivedAt: s.story.archivedAt,
-		})
-		.from(s.storyVersion)
-		.innerJoin(s.story, eq(s.storyVersion.storyId, s.story.id))
-		.where(and(eq(s.story.chatId, chatId), eq(s.story.slug, slug), eq(s.storyVersion.version, versionNumber)))
-		.limit(1)
-		.execute();
-
-	return row ?? null;
+export async function deleteStory(storyId: string): Promise<void> {
+	await db.delete(s.story).where(eq(s.story.id, storyId)).execute();
 }
 
-export async function listStoryVersions(chatId: string, slug: string): Promise<DBStoryVersion[]> {
-	return db
-		.select({
-			id: s.storyVersion.id,
-			storyId: s.storyVersion.storyId,
-			version: s.storyVersion.version,
-			code: s.storyVersion.code,
-			action: s.storyVersion.action,
-			source: s.storyVersion.source,
-			createdAt: s.storyVersion.createdAt,
-		})
-		.from(s.storyVersion)
-		.innerJoin(s.story, eq(s.storyVersion.storyId, s.story.id))
-		.where(and(eq(s.story.chatId, chatId), eq(s.story.slug, slug)))
-		.orderBy(asc(s.storyVersion.version))
-		.execute();
-}
-
-export async function listStoriesInChat(
-	chatId: string,
-): Promise<{ slug: string; title: string; latestVersion: number }[]> {
-	const stories = await db
-		.select({
-			slug: s.story.slug,
-			title: s.story.title,
-			latestVersion: max(s.storyVersion.version).as('latest_version'),
-		})
-		.from(s.story)
-		.innerJoin(s.storyVersion, eq(s.storyVersion.storyId, s.story.id))
-		.where(eq(s.story.chatId, chatId))
-		.groupBy(s.story.id)
-		.execute();
-
-	return stories.map((row) => ({
-		slug: row.slug,
-		title: row.title,
-		latestVersion: row.latestVersion ?? 1,
-	}));
-}
-
-export async function listUserStories(
-	userId: string,
-	options?: { archived?: boolean },
-): Promise<{ slug: string; chatId: string; title: string; code: string; createdAt: Date }[]> {
-	const latestVersions = db
-		.select({
-			storyId: s.storyVersion.storyId,
-			maxVersion: max(s.storyVersion.version).as('max_version'),
-		})
-		.from(s.storyVersion)
-		.groupBy(s.storyVersion.storyId)
-		.as('latest');
-
-	const archivedFilter = options?.archived ? sql`${s.story.archivedAt} IS NOT NULL` : isNull(s.story.archivedAt);
-
-	return db
-		.select({
-			slug: s.story.slug,
-			chatId: s.story.chatId,
-			title: s.story.title,
-			code: s.storyVersion.code,
-			createdAt: s.story.createdAt,
-		})
-		.from(s.story)
-		.innerJoin(s.chat, eq(s.story.chatId, s.chat.id))
-		.innerJoin(latestVersions, eq(s.story.id, latestVersions.storyId))
-		.innerJoin(
-			s.storyVersion,
-			and(eq(s.storyVersion.storyId, s.story.id), eq(s.storyVersion.version, latestVersions.maxVersion)),
-		)
-		.where(and(eq(s.chat.userId, userId), archivedFilter))
-		.orderBy(desc(s.story.createdAt))
-		.execute();
+export async function assignChatToStory(storyId: string, chatId: string): Promise<void> {
+	await db.update(s.story).set({ chatId }).where(eq(s.story.id, storyId)).execute();
 }
 
 export async function archiveStory(chatId: string, slug: string): Promise<void> {
@@ -250,6 +319,14 @@ export async function unarchiveStory(chatId: string, slug: string): Promise<void
 		.execute();
 }
 
+export async function archiveByStoryId(storyId: string): Promise<void> {
+	await db.update(s.story).set({ archivedAt: new Date() }).where(eq(s.story.id, storyId)).execute();
+}
+
+export async function unarchiveByStoryId(storyId: string): Promise<void> {
+	await db.update(s.story).set({ archivedAt: null }).where(eq(s.story.id, storyId)).execute();
+}
+
 export async function updateStoryLiveSettings(
 	chatId: string,
 	slug: string,
@@ -267,20 +344,67 @@ export async function updateStoryLiveSettings(
 		.execute();
 }
 
-export async function getStoryDataCache(chatId: string, slug: string): Promise<DBStoryDataCache | null> {
-	const [row] = await db
-		.select({
-			storyId: s.storyDataCache.storyId,
-			queryData: s.storyDataCache.queryData,
-			analysisResults: s.storyDataCache.analysisResults,
-			cachedAt: s.storyDataCache.cachedAt,
-		})
-		.from(s.storyDataCache)
-		.innerJoin(s.story, eq(s.storyDataCache.storyId, s.story.id))
-		.where(and(eq(s.story.chatId, chatId), eq(s.story.slug, slug)))
-		.execute();
+type StoryVersionWithStory = DBStoryVersion &
+	Pick<
+		DBStory,
+		'title' | 'isLive' | 'isLiveTextDynamic' | 'cacheSchedule' | 'cacheScheduleDescription' | 'archivedAt'
+	>;
 
-	return row ?? null;
+export function getLatestVersionByChatAndSlug(chatId: string, slug: string): Promise<StoryVersionWithStory | null> {
+	return getStoryVersion(and(eq(s.story.chatId, chatId), eq(s.story.slug, slug))!, { latest: true });
+}
+
+export function getLatestVersionByStoryId(storyId: string): Promise<StoryVersionWithStory | null> {
+	return getStoryVersion(eq(s.story.id, storyId), { latest: true });
+}
+
+export function getVersionByNumber(
+	chatId: string,
+	slug: string,
+	versionNumber: number,
+): Promise<StoryVersionWithStory | null> {
+	return getStoryVersion(
+		and(eq(s.story.chatId, chatId), eq(s.story.slug, slug), eq(s.storyVersion.version, versionNumber))!,
+	);
+}
+
+export async function listStoryVersions(chatId: string, slug: string): Promise<DBStoryVersion[]> {
+	return db
+		.select({
+			id: s.storyVersion.id,
+			storyId: s.storyVersion.storyId,
+			version: s.storyVersion.version,
+			code: s.storyVersion.code,
+			action: s.storyVersion.action,
+			source: s.storyVersion.source,
+			createdAt: s.storyVersion.createdAt,
+		})
+		.from(s.storyVersion)
+		.innerJoin(s.story, eq(s.storyVersion.storyId, s.story.id))
+		.where(and(eq(s.story.chatId, chatId), eq(s.story.slug, slug)))
+		.orderBy(asc(s.storyVersion.version))
+		.execute();
+}
+
+export async function updateLatestVersionCode(chatId: string, slug: string, code: string): Promise<void> {
+	const latest = await getLatestVersionByChatAndSlug(chatId, slug);
+	if (!latest) {
+		return;
+	}
+
+	await db
+		.update(s.storyVersion)
+		.set({ code })
+		.where(and(eq(s.storyVersion.storyId, latest.storyId), eq(s.storyVersion.version, latest.version)))
+		.execute();
+}
+
+export function getStoryDataCacheByChatAndSlug(chatId: string, slug: string): Promise<DBStoryDataCache | null> {
+	return getStoryDataCache(and(eq(s.story.chatId, chatId), eq(s.story.slug, slug))!);
+}
+
+export function getStoryDataCacheByStoryId(storyId: string): Promise<DBStoryDataCache | null> {
+	return getStoryDataCache(eq(s.story.id, storyId));
 }
 
 export async function upsertStoryDataCache(
@@ -316,16 +440,17 @@ export async function upsertStoryDataCache(
 	return row;
 }
 
-export async function updateLatestVersionCode(chatId: string, slug: string, code: string): Promise<void> {
-	const latest = await getLatestVersion(chatId, slug);
-	if (!latest) {
-		return;
-	}
-
+export async function upsertStoryDataCacheByStoryId(
+	storyId: string,
+	queryData: Record<string, { data: unknown[]; columns: string[] }>,
+): Promise<void> {
 	await db
-		.update(s.storyVersion)
-		.set({ code })
-		.where(and(eq(s.storyVersion.storyId, latest.storyId), eq(s.storyVersion.version, latest.version)))
+		.insert(s.storyDataCache)
+		.values({ storyId, queryData, cachedAt: new Date() })
+		.onConflictDoUpdate({
+			target: s.storyDataCache.storyId,
+			set: { queryData, cachedAt: new Date() },
+		})
 		.execute();
 }
 
@@ -355,6 +480,88 @@ export async function getSqlQueryById(
 	return result[queryId] ?? null;
 }
 
+async function queryStoriesWithLatestVersion(
+	whereCondition: SQL,
+	options?: { archived?: boolean; limit?: number },
+): Promise<UserStoryRow[]> {
+	const latestVersions = latestVersionsSubquery();
+
+	const query = db
+		.select({
+			id: s.story.id,
+			chatId: s.story.chatId,
+			projectId: s.story.projectId,
+			userId: s.story.userId,
+			slug: s.story.slug,
+			title: s.story.title,
+			isLive: s.story.isLive,
+			isLiveTextDynamic: s.story.isLiveTextDynamic,
+			cacheSchedule: s.story.cacheSchedule,
+			cacheScheduleDescription: s.story.cacheScheduleDescription,
+			archivedAt: s.story.archivedAt,
+			createdAt: s.story.createdAt,
+			updatedAt: s.story.updatedAt,
+			code: s.storyVersion.code,
+		})
+		.from(s.story)
+		.leftJoin(s.chat, eq(s.story.chatId, s.chat.id))
+		.innerJoin(latestVersions, eq(s.story.id, latestVersions.storyId))
+		.innerJoin(
+			s.storyVersion,
+			and(eq(s.storyVersion.storyId, s.story.id), eq(s.storyVersion.version, latestVersions.maxVersion)),
+		)
+		.where(and(whereCondition, archivedStoryFilter(options?.archived)))
+		.orderBy(desc(s.story.createdAt));
+
+	if (options?.limit !== undefined) {
+		return query.limit(options.limit).execute();
+	}
+	return query.execute();
+}
+
+async function getOrCreateStory(data: { chatId: string; slug: string; title: string }): Promise<DBStory> {
+	const existing = await getStoryByChatAndSlug(data.chatId, data.slug);
+	if (existing) {
+		return existing;
+	}
+
+	await db
+		.insert(s.story)
+		.values({ chatId: data.chatId, slug: data.slug, title: data.title })
+		.onConflictDoNothing({ target: [s.story.chatId, s.story.slug] })
+		.execute();
+
+	const row = await getStoryByChatAndSlug(data.chatId, data.slug);
+	if (!row) {
+		throw new Error(`Failed to create or retrieve story: ${data.chatId}/${data.slug}`);
+	}
+	return row;
+}
+
+async function getOrCreateStandaloneStory(data: {
+	userId: string;
+	projectId: string;
+	slug: string;
+	title: string;
+}): Promise<DBStory> {
+	const existing = await getStandaloneStoryByUserAndSlug(data.userId, data.projectId, data.slug);
+	if (existing) {
+		return existing;
+	}
+
+	await db
+		.insert(s.story)
+		.values({ projectId: data.projectId, userId: data.userId, slug: data.slug, title: data.title })
+		.onConflictDoNothing()
+		.execute();
+
+	const row = await getStandaloneStoryByUserAndSlug(data.userId, data.projectId, data.slug);
+	if (!row) {
+		throw new Error(`Failed to create or retrieve standalone story: ${data.userId}/${data.projectId}/${data.slug}`);
+	}
+	return row;
+}
+
 async function getSqlQueriesByIds(
 	chatId: string,
 	queryIds: Set<string>,
@@ -379,4 +586,65 @@ async function getSqlQueriesByIds(
 	}
 
 	return queries;
+}
+
+async function getStoryVersion(
+	whereCondition: SQL,
+	options?: { latest?: boolean },
+): Promise<StoryVersionWithStory | null> {
+	const query = db
+		.select({
+			id: s.storyVersion.id,
+			storyId: s.storyVersion.storyId,
+			version: s.storyVersion.version,
+			code: s.storyVersion.code,
+			action: s.storyVersion.action,
+			source: s.storyVersion.source,
+			createdAt: s.storyVersion.createdAt,
+			title: s.story.title,
+			isLive: s.story.isLive,
+			isLiveTextDynamic: s.story.isLiveTextDynamic,
+			cacheSchedule: s.story.cacheSchedule,
+			cacheScheduleDescription: s.story.cacheScheduleDescription,
+			archivedAt: s.story.archivedAt,
+		})
+		.from(s.storyVersion)
+		.innerJoin(s.story, eq(s.storyVersion.storyId, s.story.id))
+		.where(whereCondition);
+
+	const ordered = options?.latest ? query.orderBy(desc(s.storyVersion.version)) : query;
+	const [row] = await ordered.limit(1).execute();
+
+	return row ?? null;
+}
+
+async function getStoryDataCache(whereCondition: SQL): Promise<DBStoryDataCache | null> {
+	const [row] = await db
+		.select({
+			storyId: s.storyDataCache.storyId,
+			queryData: s.storyDataCache.queryData,
+			analysisResults: s.storyDataCache.analysisResults,
+			cachedAt: s.storyDataCache.cachedAt,
+		})
+		.from(s.storyDataCache)
+		.innerJoin(s.story, eq(s.storyDataCache.storyId, s.story.id))
+		.where(whereCondition)
+		.execute();
+
+	return row ?? null;
+}
+
+function latestVersionsSubquery() {
+	return db
+		.select({
+			storyId: s.storyVersion.storyId,
+			maxVersion: max(s.storyVersion.version).as('max_version'),
+		})
+		.from(s.storyVersion)
+		.groupBy(s.storyVersion.storyId)
+		.as('latest');
+}
+
+function archivedStoryFilter(archived: boolean | undefined): SQL {
+	return archived ? sql`${s.story.archivedAt} IS NOT NULL` : isNull(s.story.archivedAt);
 }

@@ -28,6 +28,12 @@ def _is_excluded_schema(value: object) -> bool:
     return not schema or schema in {"none", "null"} or schema in EXCLUDED_SCHEMAS or schema.startswith("pg_")
 
 
+def _build_basic_auth(user: str, password: str):
+    from trino.auth import BasicAuthentication
+
+    return BasicAuthentication(user, password)
+
+
 class TrinoDatabaseContext(DatabaseContext):
     def _array_unnest_join(self, table_sql: str, col_sql: str, alias: str) -> str:
         return f"{table_sql} CROSS JOIN UNNEST({col_sql}) AS t({alias})"
@@ -123,7 +129,7 @@ class TrinoConfig(DatabaseConfig):
             kwargs["schema"] = self.schema_name
 
         if self.password:
-            kwargs["password"] = self.password
+            kwargs["auth"] = _build_basic_auth(self.user, self.password)
 
         return ibis.trino.connect(**kwargs)
 

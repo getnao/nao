@@ -1,10 +1,13 @@
 import { env } from '../env';
+import * as userQueries from '../queries/user.queries';
 import { checkForUpdate } from '../services/version-check.service';
 import { adminProtectedProcedure, publicProcedure } from './trpc';
 
 export const systemRoutes = {
-	getPublicConfig: publicProcedure.query(() => ({
+	getPublicConfig: publicProcedure.query(async () => ({
 		naoMode: env.NAO_MODE,
+		enableUserLogin: env.ENABLE_USER_LOGIN,
+		enableUserSignup: await isUserSignupAvailable(),
 	})),
 
 	version: adminProtectedProcedure.query(() => ({
@@ -22,3 +25,11 @@ export const systemRoutes = {
 		};
 	}),
 };
+
+async function isUserSignupAvailable(): Promise<boolean> {
+	if (env.ENABLE_USER_SIGNUP) {
+		return true;
+	}
+
+	return (await userQueries.countUsers()) === 0;
+}

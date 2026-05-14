@@ -45,9 +45,10 @@ export interface ChatListItem {
 
 export type UIMessage = UIGenericMessage<unknown, MessageCustomDataParts, UITools> & {
 	feedback?: MessageFeedback;
-	source?: 'slack' | 'teams' | 'telegram' | 'whatsapp' | 'web';
+	source?: 'slack' | 'teams' | 'telegram' | 'whatsapp' | 'web' | 'mcp';
 	isForked?: boolean;
 	citation?: CitationData;
+	stopReason?: StopReason;
 };
 
 export type UITools = InferUITools<typeof tools>;

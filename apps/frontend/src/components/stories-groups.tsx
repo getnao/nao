@@ -117,7 +117,9 @@ function StoryCard({
 	displayMode: DisplayMode;
 	showArchived: boolean;
 }) {
-	if (item.kind !== 'own' || !item.chatId || !item.storySlug) {
+	const actionMenu = renderActionMenuForItem(item, displayMode, showArchived);
+
+	if (!actionMenu) {
 		return (
 			<Link {...item.link} className={storyCardClass(displayMode)}>
 				<StoryCardContent item={item} displayMode={displayMode} />
@@ -128,17 +130,29 @@ function StoryCard({
 	return (
 		<Link {...item.link} className={cn(storyCardClass(displayMode), 'relative')}>
 			<StoryCardContent item={item} displayMode={displayMode} />
-			<StoryActionMenu
+			{actionMenu}
+		</Link>
+	);
+}
+
+function renderActionMenuForItem(item: StoryItem, displayMode: DisplayMode, showArchived: boolean) {
+	if (item.kind === 'own' && item.chatId && item.storySlug) {
+		return (
+			<OwnStoryActionMenu
 				chatId={item.chatId}
 				storySlug={item.storySlug}
 				displayMode={displayMode}
 				showArchived={showArchived}
 			/>
-		</Link>
-	);
+		);
+	}
+	if (item.kind === 'own-standalone') {
+		return <StandaloneStoryActionMenu storyId={item.id} displayMode={displayMode} showArchived={showArchived} />;
+	}
+	return null;
 }
 
-function StoryActionMenu({
+function OwnStoryActionMenu({
 	chatId,
 	storySlug,
 	displayMode,
@@ -168,8 +182,6 @@ function StoryActionMenu({
 		}),
 	);
 
-	const pending = archiveMutation.isPending || unarchiveMutation.isPending;
-
 	function handleSelect() {
 		if (showArchived) {
 			unarchiveMutation.mutate({ chatId, storySlug });
@@ -178,6 +190,74 @@ function StoryActionMenu({
 		}
 	}
 
+	return (
+		<ArchiveActionMenu
+			displayMode={displayMode}
+			showArchived={showArchived}
+			pending={archiveMutation.isPending || unarchiveMutation.isPending}
+			onSelect={handleSelect}
+		/>
+	);
+}
+
+function StandaloneStoryActionMenu({
+	storyId,
+	displayMode,
+	showArchived,
+}: {
+	storyId: string;
+	displayMode: DisplayMode;
+	showArchived: boolean;
+}) {
+	const queryClient = useQueryClient();
+
+	const archiveMutation = useMutation(
+		trpc.story.archiveStandalone.mutationOptions({
+			onSuccess: () => {
+				queryClient.invalidateQueries({ queryKey: trpc.story.listStandalone.queryKey() });
+				queryClient.invalidateQueries({ queryKey: trpc.story.listStandaloneArchived.queryKey() });
+			},
+		}),
+	);
+
+	const unarchiveMutation = useMutation(
+		trpc.story.unarchiveStandalone.mutationOptions({
+			onSuccess: () => {
+				queryClient.invalidateQueries({ queryKey: trpc.story.listStandalone.queryKey() });
+				queryClient.invalidateQueries({ queryKey: trpc.story.listStandaloneArchived.queryKey() });
+			},
+		}),
+	);
+
+	function handleSelect() {
+		if (showArchived) {
+			unarchiveMutation.mutate({ storyId });
+		} else {
+			archiveMutation.mutate({ storyId });
+		}
+	}
+
+	return (
+		<ArchiveActionMenu
+			displayMode={displayMode}
+			showArchived={showArchived}
+			pending={archiveMutation.isPending || unarchiveMutation.isPending}
+			onSelect={handleSelect}
+		/>
+	);
+}
+
+function ArchiveActionMenu({
+	displayMode,
+	showArchived,
+	pending,
+	onSelect,
+}: {
+	displayMode: DisplayMode;
+	showArchived: boolean;
+	pending: boolean;
+	onSelect: () => void;
+}) {
 	return (
 		<DropdownMenu>
 			<DropdownMenuTrigger asChild>
@@ -198,7 +278,7 @@ function StoryActionMenu({
 			</DropdownMenuTrigger>
 			<DropdownMenuContent onClick={(e) => e.stopPropagation()}>
 				<DropdownMenuGroup>
-					<DropdownMenuItem onSelect={handleSelect} disabled={pending}>
+					<DropdownMenuItem onSelect={onSelect} disabled={pending}>
 						{showArchived ? <ArchiveRestoreIcon /> : <ArchiveIcon />}
 						{showArchived ? 'Unarchive' : 'Archive'}
 					</DropdownMenuItem>

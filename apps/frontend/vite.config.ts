@@ -36,10 +36,19 @@ export default defineConfig({
 			'/api': {
 				target: 'http://localhost:5005',
 			},
+			'/mcp': {
+				target: 'http://localhost:5005',
+			},
+			'/.well-known': {
+				target: 'http://localhost:5005',
+			},
 			'/i/': {
 				target: 'http://localhost:5005',
 			},
 			'/c/': {
+				target: 'http://localhost:5005',
+			},
+			'/branding/': {
 				target: 'http://localhost:5005',
 			},
 		},

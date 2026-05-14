@@ -1,6 +1,7 @@
 import { accountRoutes } from './account.routes';
 import { apiKeyRoutes } from './api-key.routes';
 import { authConfigRoutes } from './auth-config.routes';
+import { brandingRoutes } from './branding.routes';
 import { budgetRoutes } from './budget.routes';
 import { chartRoutes } from './chart.routes';
 import { chatRoutes } from './chat.routes';
@@ -12,6 +13,7 @@ import { githubRoutes } from './github.routes';
 import { licenseRoutes } from './license.routes';
 import { logRoutes } from './log.routes';
 import { mcpRoutes } from './mcp.routes';
+import { mcpEndpointRoutes } from './mcp-endpoint.routes';
 import { memoryRoutes } from './memory.routes';
 import { organizationRoutes } from './organization.routes';
 import { posthogRoutes } from './posthog.routes';
@@ -27,6 +29,7 @@ import { usageRoutes } from './usage.routes';
 import { userRoutes } from './user.routes';
 
 export const trpcRouter = router({
+	branding: brandingRoutes,
 	budget: budgetRoutes,
 	chart: chartRoutes,
 	chat: chatRoutes,
@@ -50,6 +53,7 @@ export const trpcRouter = router({
 	account: accountRoutes,
 	apiKey: apiKeyRoutes,
 	mcp: mcpRoutes,
+	mcpEndpoint: mcpEndpointRoutes,
 	system: systemRoutes,
 	skill: skillRoutes,
 	transcribe: transcribeRoutes,

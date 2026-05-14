@@ -13,6 +13,14 @@ export const Route = createFileRoute('/login')({
 	component: Login,
 });
 
+function buildOAuthAuthorizeUrl() {
+	const params = new URLSearchParams(window.location.search);
+	if (!params.has('client_id')) {
+		return null;
+	}
+	return `/api/auth/oauth2/authorize${window.location.search}`;
+}
+
 function Login() {
 	const navigate = useNavigate();
 	const { error: oauthError } = Route.useSearch();
@@ -20,13 +28,26 @@ function Login() {
 	const isSmtpSetup = useQuery(trpc.authConfig.smtp.isSetup.queryOptions());
 	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
 	const isCloud = config.data?.naoMode === 'cloud';
+	const isUserLoginEnabled = config.data?.enableUserLogin;
+	const isUserSignupEnabled = config.data?.enableUserSignup;
+
+	const oauthAuthorizeUrl = buildOAuthAuthorizeUrl();
 
 	const form = useForm({
 		defaultValues: { email: '', password: '' },
 		onSubmit: async ({ value }) => {
+			if (isUserLoginEnabled === false) {
+				return;
+			}
 			setServerError(undefined);
 			await signIn.email(value, {
-				onSuccess: () => navigate({ to: '/' }),
+				onSuccess: () => {
+					if (oauthAuthorizeUrl) {
+						window.location.href = oauthAuthorizeUrl;
+					} else {
+						navigate({ to: '/' });
+					}
+				},
 				onError: (err) => setServerError(err.error.message),
 			});
 		},
@@ -39,8 +60,11 @@ function Login() {
 			submitText='Log In'
 			serverError={serverError}
 			displaySocialProviders={true}
+			socialCallbackUrl={oauthAuthorizeUrl ?? undefined}
+			displayEmailPasswordForm={isUserLoginEnabled}
+			emailPasswordDisabledMessage='Email and password login is disabled. Use a configured sign-in provider to continue.'
 			footer={
-				isCloud ? (
+				isCloud && isUserSignupEnabled ? (
 					<>
 						Don&apos;t have an account?{' '}
 						<Link
@@ -56,7 +80,7 @@ function Login() {
 		>
 			<FormTextField form={form} name='email' type='email' placeholder='Email' />
 			<FormTextField form={form} name='password' type='password' placeholder='Password' />
-			{isSmtpSetup.data && (
+			{isUserLoginEnabled && isSmtpSetup.data && (
 				<div className='text-right'>
 					<Link to='/forgot-password' className='text-sm underline underline-offset-4'>
 						Forgot password?

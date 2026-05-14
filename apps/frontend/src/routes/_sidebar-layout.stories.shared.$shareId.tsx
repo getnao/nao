@@ -121,8 +121,13 @@ function SharedStoryPage() {
 						</div>
 					)}
 					<div className='ml-auto flex items-center gap-1.5 shrink-0'>
-						<StoryDownload chatId={story.chatId} storySlug={story.slug} shareId={shareId} isOwner={false} />
-						{isOwner ? (
+						<StoryDownload
+							chatId={story.chatId!}
+							storySlug={story.slug}
+							shareId={shareId}
+							isOwner={false}
+						/>
+						{isOwner && story.chatId ? (
 							<Button variant='outline' size='sm' className='gap-1.5 shrink-0' asChild>
 								<Link
 									to='/$chatId'
@@ -132,6 +137,21 @@ function SharedStoryPage() {
 									<MessageSquare className='size-3.5' />
 									<span>Open chat</span>
 								</Link>
+							</Button>
+						) : isOwner ? (
+							<Button
+								variant='outline'
+								size='sm'
+								className='gap-1.5 shrink-0'
+								onClick={() => forkMutation.mutate({ shareId, type: 'story' })}
+								disabled={forkMutation.isPending}
+							>
+								{forkMutation.isPending ? (
+									<Loader2 className='size-3.5 animate-spin' />
+								) : (
+									<MessageSquare className='size-3.5' />
+								)}
+								<span>Discuss story</span>
 							</Button>
 						) : (
 							!isViewer && (
@@ -162,7 +182,7 @@ function SharedStoryPage() {
 							<SharedStoryContent
 								code={story.code}
 								queryData={story.queryData as QueryDataMap | null}
-								chatId={story.chatId}
+								chatId={story.chatId!}
 								cacheSchedule={story.cacheSchedule}
 							/>
 						</div>

@@ -77,15 +77,14 @@ export const sharedStoryRoutes = {
 
 	get: shareAccessProcedure.input(z.object({ shareId: z.string() })).query(async ({ ctx }) => {
 		const shared = ctx.resource;
-
-		const storyRow = await storyQueries.getStoryByChatAndSlug(shared.chatId, shared.slug);
+		const storyRow = await storyQueries.getStoryByChatAndSlug(shared.chatId!, shared.slug);
 		const isLive = storyRow?.isLive ?? false;
 		const isLiveTextDynamic = storyRow?.isLiveTextDynamic ?? false;
 		const cacheSchedule = storyRow?.cacheSchedule ?? null;
 		const cacheScheduleDescription = storyRow?.cacheScheduleDescription ?? null;
 
 		const { queryData, cachedAt } = await getStoryQueryData(
-			shared.chatId,
+			shared.chatId!,
 			shared.slug,
 			shared.code,
 			isLive,
@@ -113,7 +112,7 @@ export const sharedStoryRoutes = {
 
 	refreshData: shareAccessProcedure.input(z.object({ shareId: z.string() })).mutation(async ({ ctx }) => {
 		const shared = ctx.resource;
-		const { queryData } = await refreshStoryData(shared.chatId, shared.slug);
+		const { queryData } = await refreshStoryData(shared.chatId!, shared.slug);
 		return { queryData, cachedAt: new Date() };
 	}),
 
@@ -183,14 +182,14 @@ export const sharedStoryRoutes = {
 			const shared = ctx.resource;
 
 			const version = input.versionNumber
-				? await storyQueries.getVersionByNumber(shared.chatId, shared.slug, input.versionNumber)
-				: await storyQueries.getLatestVersion(shared.chatId, shared.slug);
+				? await storyQueries.getVersionByNumber(shared.chatId!, shared.slug, input.versionNumber)
+				: await storyQueries.getLatestVersionByChatAndSlug(shared.chatId!, shared.slug);
 			if (!version) {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story version not found.' });
 			}
 
 			const { queryData } = await getStoryQueryData(
-				shared.chatId,
+				shared.chatId!,
 				shared.slug,
 				version.code,
 				version.isLive,

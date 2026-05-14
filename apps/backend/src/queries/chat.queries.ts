@@ -39,6 +39,11 @@ const sourcePlatformExpr = sql<SourcePlatform>`case
 	when ${s.chat.teamsThreadId} is not null then 'Teams'
 	when ${s.chat.whatsappThreadId} is not null then 'WhatsApp'
 	when ${s.chat.telegramThreadId} is not null then 'Telegram'
+	when exists(
+		select 1 from ${s.chatMessage}
+		where ${s.chatMessage.chatId} = ${s.chat.id}
+		and ${s.chatMessage.source} = 'mcp'
+	) then 'MCP'
 	else 'Web'
 end`;
 
@@ -198,6 +203,7 @@ const aggregateChatMessagParts = (
 					source: row.chat_message.source ?? undefined,
 					isForked: row.chat_message.isForked ?? undefined,
 					citation: row.chat_message.citation ?? undefined,
+					stopReason: row.chat_message.stopReason ?? undefined,
 				};
 			}
 			return acc;
@@ -262,7 +268,7 @@ export const createChat = async (
 	newChat: NewChat,
 	newUserMessage: {
 		text: string;
-		source?: 'slack' | 'teams' | 'telegram' | 'whatsapp' | 'web';
+		source?: UIMessage['source'];
 		citation?: CitationData;
 	},
 	additionalParts: UIMessagePart[] = [],

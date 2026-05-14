@@ -189,6 +189,40 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		adminOnly: true,
 	},
 
+	// ── MCP Endpoint ────────────────────────────────────────
+	{
+		page: '/settings/mcp-endpoint',
+		pageLabel: 'MCP Endpoint',
+		title: 'MCP Server Endpoint',
+		description: 'Allow external AI clients to connect to this workspace via MCP.',
+		keywords: ['model context protocol', 'claude desktop', 'cursor', 'external', 'api', 'bearer'],
+	},
+	{
+		page: '/settings/mcp-endpoint',
+		pageLabel: 'MCP Endpoint',
+		section: 'MCP Modes',
+		title: 'Sub-agent mode',
+		description:
+			'External agents use nao as a subagent to answer analytics questions like "How many users do we have?".',
+		keywords: ['ask_nao', 'agent', 'analytics'],
+	},
+	{
+		page: '/settings/mcp-endpoint',
+		pageLabel: 'MCP Endpoint',
+		section: 'MCP Modes',
+		title: 'Context-layer mode',
+		description: 'Let agents use nao as a context-layer to browse nao filesystem, execute SQL, create charts, etc.',
+		keywords: ['execute_sql', 'sql', 'query'],
+	},
+	{
+		page: '/settings/mcp-endpoint',
+		pageLabel: 'MCP Endpoint',
+		section: 'MCP Modes',
+		title: 'Story mode',
+		description: 'Let external agents create and manage nao stories (create, read, update, archive, etc.).',
+		keywords: ['stories', 'dashboard', 'report', 'crud'],
+	},
+
 	// ── Project > Slack ──────────────────────────────────────
 	{
 		page: '/settings/project/slack',
@@ -354,6 +388,57 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		adminOnly: true,
 		cloudHidden: true,
 		licenseRequired: true,
+	},
+	{
+		page: '/settings/white-label',
+		pageLabel: 'White-label',
+		title: 'White-label branding',
+		description: 'Replace the nao name, logo and favicon with your own branding. Enterprise feature.',
+		keywords: [
+			'white label',
+			'whitelabel',
+			'branding',
+			'logo',
+			'favicon',
+			'tab',
+			'title',
+			'customize',
+			'signup',
+			'login',
+			'enterprise',
+		],
+		adminOnly: true,
+		cloudHidden: true,
+	},
+	{
+		page: '/settings/white-label',
+		pageLabel: 'White-label',
+		section: 'Logos & favicon',
+		title: 'Logo',
+		description: 'Replace the logo shown in the sidebar and on the login and sign-up pages.',
+		keywords: ['logo', 'sidebar', 'login logo', 'signup logo', 'auth', 'brand', 'enterprise'],
+		adminOnly: true,
+		cloudHidden: true,
+	},
+	{
+		page: '/settings/white-label',
+		pageLabel: 'White-label',
+		section: 'Logos & favicon',
+		title: 'Favicon',
+		description: 'Replace the favicon shown in the browser tab.',
+		keywords: ['favicon', 'icon', 'tab', 'enterprise'],
+		adminOnly: true,
+		cloudHidden: true,
+	},
+	{
+		page: '/settings/white-label',
+		pageLabel: 'White-label',
+		section: 'Names',
+		title: 'Browser tab title',
+		description: 'Rename the browser tab shown to your users.',
+		keywords: ['tab title', 'page title', 'name', 'enterprise'],
+		adminOnly: true,
+		cloudHidden: true,
 	},
 
 	// ── Memory (user-level) ──────────────────────────────────
