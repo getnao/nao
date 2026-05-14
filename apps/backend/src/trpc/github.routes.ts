@@ -111,7 +111,11 @@ export const githubRoutes = {
 					orgId,
 				});
 			} finally {
-				fs.rmSync(cloneDir, { recursive: true, force: true });
+				try {
+					fs.rmSync(cloneDir, { recursive: true, force: true });
+				} catch {
+					// best-effort cleanup
+				}
 			}
 		}),
 
