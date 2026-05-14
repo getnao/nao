@@ -151,8 +151,14 @@ async function searchRepos(
 
 export function cloneRepo(token: string, fullName: string, targetDir: string): void {
 	const cloneUrl = `https://x-access-token:${token}@github.com/${fullName}.git`;
+	const cleanUrl = `https://github.com/${fullName}.git`;
 	execFileSync('git', ['clone', '--depth', '1', cloneUrl, targetDir], {
 		timeout: 120_000,
+		stdio: 'pipe',
+	});
+	execFileSync('git', ['remote', 'set-url', 'origin', cleanUrl], {
+		cwd: targetDir,
+		timeout: 5_000,
 		stdio: 'pipe',
 	});
 }
