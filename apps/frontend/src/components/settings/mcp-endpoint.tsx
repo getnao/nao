@@ -78,7 +78,7 @@ export function McpEndpointSettings({ isAdmin }: Props) {
 				<SettingsToggleRow
 					id='mcp-agent-mode'
 					label='Sub-agent mode'
-					description='External agents use nao as a subagent to answer analytics questions like "How many users do we have?".'
+					description='External agents ask analytics questions via ask_nao. Nao can create and update stories inside that chat.'
 					checked={settings?.agentModeEnabled ?? true}
 					onCheckedChange={(v) => toggle('agentModeEnabled', v)}
 					disabled={!isAdmin || !enabled || pending}
@@ -86,15 +86,15 @@ export function McpEndpointSettings({ isAdmin }: Props) {
 				<SettingsToggleRow
 					id='mcp-tools-mode'
 					label='Context-layer mode'
-					description='External agents use nao as a context-layer to browse nao filesystem, execute SQL, create charts, etc.'
+					description='Direct tools to browse project context (ls, grep), run SQL, build charts, and author stories — no sub-agent required.'
 					checked={settings?.toolsModeEnabled ?? true}
 					onCheckedChange={(v) => toggle('toolsModeEnabled', v)}
 					disabled={!isAdmin || !enabled || pending}
 				/>
 				<SettingsToggleRow
 					id='mcp-objects-mode'
-					label='Story mode'
-					description='Manage nao stories (create, read, update, archive, etc.). Useful to migrate from other BI tools to nao.'
+					label='Story management'
+					description='List, search, and archive existing nao stories.'
 					checked={settings?.objectsModeEnabled ?? true}
 					onCheckedChange={(v) => toggle('objectsModeEnabled', v)}
 					disabled={!isAdmin || !enabled || pending}

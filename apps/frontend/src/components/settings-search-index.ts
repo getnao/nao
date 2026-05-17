@@ -203,24 +203,24 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		section: 'MCP Modes',
 		title: 'Sub-agent mode',
 		description:
-			'External agents use nao as a subagent to answer analytics questions like "How many users do we have?".',
-		keywords: ['ask_nao', 'agent', 'analytics'],
+			'External agents ask analytics questions via ask_nao. Nao can create and update stories inside that chat.',
+		keywords: ['ask_nao', 'agent', 'analytics', 'subagent'],
 	},
 	{
 		page: '/settings/mcp-endpoint',
 		pageLabel: 'MCP Endpoint',
 		section: 'MCP Modes',
 		title: 'Context-layer mode',
-		description: 'Let agents use nao as a context-layer to browse nao filesystem, execute SQL, create charts, etc.',
-		keywords: ['execute_sql', 'sql', 'query'],
+		description: 'Direct tools to browse project context (ls, grep), run SQL, build charts, and author stories.',
+		keywords: ['execute_sql', 'sql', 'grep', 'ls', 'build_chart', 'create_story', 'update_story', 'RULES.md'],
 	},
 	{
 		page: '/settings/mcp-endpoint',
 		pageLabel: 'MCP Endpoint',
 		section: 'MCP Modes',
-		title: 'Story mode',
-		description: 'Let external agents create and manage nao stories (create, read, update, archive, etc.).',
-		keywords: ['stories', 'dashboard', 'report', 'crud'],
+		title: 'Story management',
+		description: 'List, search, and archive existing nao stories.',
+		keywords: ['stories', 'list_stories', 'search_stories', 'archive_story', 'dashboard', 'report'],
 	},
 
 	// ── Project > Slack ──────────────────────────────────────
