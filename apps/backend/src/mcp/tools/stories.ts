@@ -10,90 +10,49 @@ import type { McpContext } from '../logging';
 import { withLogging } from '../logging';
 import { storyChatUrl, storyUrl } from '../urls';
 
-export function registerStoryTools(server: McpServer, ctx: McpContext): void {
-	server.registerTool(
-		'list_stories',
-		{
-			title: 'List Stories',
-			description:
-				'List analytics stories (dashboards/reports) in the current project. Each story includes a `url` that opens the rendered story in the Nao UI, and a `chatUrl` that opens the underlying chat conversation (null for standalone stories).',
-			inputSchema: {
-				limit: z.number().optional().default(20).describe('Max stories to return (default 20, max 100)'),
-				archived: z.boolean().optional().default(false).describe('Include archived stories'),
-			},
-		},
-		withLogging('list_stories', ctx, async ({ limit, archived }) => {
-			try {
-				const stories = await storyQueries.listAllUserStoriesInProject(ctx.userId, ctx.projectId, {
-					archived,
-					limit,
-				});
-				const result = stories.map((story) => ({
-					id: story.id,
-					title: story.title,
-					createdAt: story.createdAt,
-					updatedAt: story.updatedAt,
-					archived: story.archivedAt !== null,
-					url: storyUrl(story),
-					chatUrl: storyChatUrl(story),
-				}));
-				return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
-			} catch (error) {
-				const message = error instanceof Error ? error.message : String(error);
-				logger.error(`MCP list_stories error: ${message}`, { source: 'tool', context: { userId: ctx.userId } });
-				return { content: [{ type: 'text' as const, text: `Error: ${message}` }], isError: true };
-			}
-		}),
-	);
+const CHART_BLOCK_SYNTAX =
+	'Supported blocks (write them inline in `content`):\n' +
+	'- Charts: `<chart query_id="..." chart_type="bar|stacked_bar|line|area|stacked_area|pie|kpi_card|scatter|radar" x_axis_key="..." x_axis_type="date|number|category" series=\'[{"data_key":"...","color":"...","label":"..."}]\' title="..." />` — `series` is JSON inside single quotes; `x_axis_type` is optional; `kpi_card` and `pie` accept omitted/null `x_axis_type`.\n' +
+	'- Tables: `<table query_id="..." title="..." />`\n' +
+	'- Grids: `<grid cols="2">...blocks...</grid>` (1-4 columns)';
 
-	server.registerTool(
-		'get_story',
-		{
-			title: 'Get Story',
-			description:
-				'Retrieve a full story including its latest content/code. Returns a `url` that opens the rendered story in the Nao UI, and a `chatUrl` that opens the underlying chat conversation (null for standalone stories).',
-			inputSchema: {
-				story_id: z.string().describe('The story ID to retrieve'),
-			},
-		},
-		withLogging('get_story', ctx, async ({ story_id }) => {
-			try {
-				const story = await resolveStory(story_id, ctx);
-				const version = await fetchLatestVersion(story);
+const CREATE_STORY_DESCRIPTION =
+	'Create a new analytics story. Stories are markdown documents with embedded chart/table components rendered by the Nao UI.\n\n' +
+	'Typical workflow:\n' +
+	'1. `ls` / `grep` - read `RULES.md` and explore `databases/` for schema context\n' +
+	'2. `execute_sql` - get rows + `query_id`\n' +
+	'3. Optional: `build_chart` - validated `<chart />` block\n' +
+	'4. `create_story` - set `content` with chart/table blocks; pass SQL rows keyed by `query_id` in `query_data`\n\n' +
+	`${CHART_BLOCK_SYNTAX}\n\n` +
+	'Omit `content` to create an empty story.\n\n' +
+	'Pass `chat_id` to attach the story to an existing chat. Omit it for a standalone project-level story.\n\n' +
+	'Returns a `url` that opens the rendered story in the Nao UI and a `chatUrl` for the underlying chat (null for standalone stories).';
 
-				const output = {
-					id: story.id,
-					title: story.title,
-					slug: story.slug,
-					chatId: story.chatId,
-					projectId: story.projectId,
-					code: version?.code ?? null,
-					version: version?.version ?? null,
-					isLive: story.isLive,
-					archived: story.archivedAt !== null,
-					createdAt: story.createdAt,
-					updatedAt: story.updatedAt,
-					url: storyUrl(story),
-					chatUrl: storyChatUrl(story),
-				};
-				return { content: [{ type: 'text' as const, text: JSON.stringify(output) }] };
-			} catch (error) {
-				const message = error instanceof Error ? error.message : String(error);
-				logger.error(`MCP get_story error: ${message}`, {
-					source: 'tool',
-					context: { story_id, userId: ctx.userId },
-				});
-				return { content: [{ type: 'text' as const, text: `Error: ${message}` }], isError: true };
-			}
-		}),
-	);
+const UPDATE_STORY_DESCRIPTION =
+	'Update a story title and/or content. Omit fields to keep their current values.\n\n' +
+	'When adding charts, run `execute_sql` first, optionally use `build_chart`, then include blocks in `content` and pass new `query_id` rows in `query_data`.\n\n' +
+	`${CHART_BLOCK_SYNTAX}\n\n` +
+	'Returns a `url` that opens the rendered story in the Nao UI and a `chatUrl` for the underlying chat (null for standalone stories).';
 
+function mapStorySummary(story: UserStoryRow) {
+	return {
+		id: story.id,
+		title: story.title,
+		slug: story.slug,
+		createdAt: story.createdAt,
+		updatedAt: story.updatedAt,
+		archived: story.archivedAt !== null,
+		url: storyUrl(story),
+		chatUrl: storyChatUrl(story),
+	};
+}
+
+export function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
 	server.registerTool(
 		'create_story',
 		{
 			title: 'Create Story',
-			description:
-				'Create a new analytics story. Stories are markdown documents with embedded chart/table components rendered by the Nao UI.\n\nWorkflow for stories with charts:\n1. `execute_sql` → get rows + `query_id`\n2. `create_story` → embed `<chart>` / `<table>` blocks in `content`; pass the SQL rows keyed by `query_id` in `query_data`\n\nSupported blocks (write them inline in `content`):\n- Charts: `<chart query_id="..." chart_type="bar|stacked_bar|line|area|stacked_area|pie|kpi_card|scatter|radar" x_axis_key="..." x_axis_type="date|number|category" series=\'[{"data_key":"...","color":"...","label":"..."}]\' title="..." />` — `series` is JSON inside single quotes; `x_axis_type` is optional; `kpi_card` and `pie` accept omitted/null `x_axis_type`.\n- Tables: `<table query_id="..." title="..." />`\n- Grids: `<grid cols="2">...blocks...</grid>` (1–4 columns)\n\nOmit `content` to create an empty story.\n\nPass `chat_id` to attach the story to an existing chat (e.g. one returned by `ask_nao`). Omit it to create a standalone story listed at the project level.\n\nReturns a `url` that opens the rendered story in the Nao UI and a `chatUrl` that opens the underlying chat (null for standalone stories) — surface the relevant link to the user as a clickable link in your reply.',
+			description: CREATE_STORY_DESCRIPTION,
 			inputSchema: {
 				title: z.string().describe('Story title'),
 				content: z
@@ -115,9 +74,7 @@ export function registerStoryTools(server: McpServer, ctx: McpContext): void {
 					.string()
 					.optional()
 					.describe(
-						'Attach the story to an existing chat (e.g. the chat ID returned by `ask_nao`). ' +
-							'Omit to create a standalone story listed at the project level. ' +
-							'When provided, the chat must belong to the current user.',
+						'UUID of an existing chat to attach this story to. Omit for a standalone project-level story. The chat must belong to the current user.',
 					),
 			},
 		},
@@ -164,8 +121,7 @@ export function registerStoryTools(server: McpServer, ctx: McpContext): void {
 		'update_story',
 		{
 			title: 'Update Story',
-			description:
-				'Update a story title and/or content. Omit fields to keep their current values.\n\nWhen adding or replacing charts, write the `<chart>` block directly in `content` (see `create_story` for the full chart syntax) and include the SQL rows for any new `query_id`s in `query_data`.\n\nReturns a `url` that opens the rendered story in the Nao UI and a `chatUrl` that opens the underlying chat (null for standalone stories) — surface the relevant link to the user as a clickable link in your reply.',
+			description: UPDATE_STORY_DESCRIPTION,
 			inputSchema: {
 				story_id: z.string().describe('The story ID to update'),
 				title: z.string().optional().describe('New title (omit to keep current)'),
@@ -222,12 +178,82 @@ export function registerStoryTools(server: McpServer, ctx: McpContext): void {
 			}
 		}),
 	);
+}
+
+export function registerStoryManagementTools(server: McpServer, ctx: McpContext): void {
+	server.registerTool(
+		'list_stories',
+		{
+			title: 'List Stories',
+			description:
+				'List analytics stories (dashboards/reports) in the current project. Returns metadata including `url` (rendered story) and `chatUrl` (underlying chat, null for standalone stories). Use `search_stories` to filter by title.',
+			inputSchema: {
+				limit: z.number().optional().default(20).describe('Max stories to return (default 20, max 100)'),
+				archived: z.boolean().optional().default(false).describe('Include archived stories'),
+			},
+		},
+		withLogging('list_stories', ctx, async ({ limit, archived }) => {
+			try {
+				const stories = await storyQueries.listAllUserStoriesInProject(ctx.userId, ctx.projectId, {
+					archived,
+					limit,
+				});
+				const result = stories.map(mapStorySummary);
+				return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				logger.error(`MCP list_stories error: ${message}`, { source: 'tool', context: { userId: ctx.userId } });
+				return { content: [{ type: 'text' as const, text: `Error: ${message}` }], isError: true };
+			}
+		}),
+	);
+
+	server.registerTool(
+		'search_stories',
+		{
+			title: 'Search Stories',
+			description:
+				'Search stories by title or slug (case-insensitive). Returns the same fields as `list_stories`. Use `archive_story` to soft-delete a story.',
+			inputSchema: {
+				query: z.string().describe('Search text matched against story title and slug'),
+				limit: z.number().optional().default(20).describe('Max stories to return (default 20, max 100)'),
+				archived: z.boolean().optional().default(false).describe('Include archived stories'),
+			},
+		},
+		withLogging('search_stories', ctx, async ({ query, limit, archived }) => {
+			try {
+				const stories = await storyQueries.listAllUserStoriesInProject(ctx.userId, ctx.projectId, {
+					archived,
+					limit: 100,
+				});
+				const lowerQuery = query.toLowerCase().trim();
+				const filtered = lowerQuery
+					? stories.filter(
+							(story) =>
+								story.title.toLowerCase().includes(lowerQuery) ||
+								story.slug.toLowerCase().includes(lowerQuery),
+						)
+					: stories;
+				const capped = filtered.slice(0, Math.min(limit, 100));
+				const result = capped.map(mapStorySummary);
+				return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				logger.error(`MCP search_stories error: ${message}`, {
+					source: 'tool',
+					context: { query, userId: ctx.userId },
+				});
+				return { content: [{ type: 'text' as const, text: `Error: ${message}` }], isError: true };
+			}
+		}),
+	);
 
 	server.registerTool(
 		'archive_story',
 		{
 			title: 'Archive Story',
-			description: 'Soft-delete a story by archiving it. The story can be restored later.',
+			description:
+				'Soft-delete a story by archiving it. Archived stories can be listed with `archived: true` on `list_stories` or `search_stories`.',
 			inputSchema: {
 				story_id: z.string().describe('The story ID to archive'),
 			},
@@ -242,34 +268,6 @@ export function registerStoryTools(server: McpServer, ctx: McpContext): void {
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
 				logger.error(`MCP archive_story error: ${message}`, {
-					source: 'tool',
-					context: { story_id, userId: ctx.userId },
-				});
-				return { content: [{ type: 'text' as const, text: `Error: ${message}` }], isError: true };
-			}
-		}),
-	);
-
-	server.registerTool(
-		'delete_story',
-		{
-			title: 'Delete Story',
-			description:
-				'Permanently delete a story and all its versions. This cannot be undone. Use archive_story if you want a recoverable soft-delete.',
-			inputSchema: {
-				story_id: z.string().describe('The story ID to permanently delete'),
-			},
-		},
-		withLogging('delete_story', ctx, async ({ story_id }) => {
-			try {
-				const story = await resolveStory(story_id, ctx);
-				await storyQueries.deleteStory(story.id);
-				return {
-					content: [{ type: 'text' as const, text: JSON.stringify({ id: story.id, deleted: true }) }],
-				};
-			} catch (error) {
-				const message = error instanceof Error ? error.message : String(error);
-				logger.error(`MCP delete_story error: ${message}`, {
 					source: 'tool',
 					context: { story_id, userId: ctx.userId },
 				});
