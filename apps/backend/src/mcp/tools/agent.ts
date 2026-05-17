@@ -13,12 +13,11 @@ import { withLogging } from '../logging';
 import { chatUrl } from '../urls';
 
 const ASK_NAO_DESCRIPTION =
-	'Ask nao an analytics question in natural language. Creates a chat that is visible in the UI.\n\n' +
-	'Use this for ad-hoc data exploration and Q&A. ' +
-	'To create a persistent Nao Story (markdown dashboard with embedded charts/tables), do NOT ask nao in natural language — call `create_story` directly with the SQL results from `execute_sql`. ' +
-	'To browse or update existing stories, use `list_stories` / `get_story` / `update_story`.\n\n' +
-	'Returns `chatId` and a `url` that opens the chat in the Nao UI — surface the URL to the user as a clickable link so they can jump to the conversation (and any rendered charts/tables). ' +
-	'The returned `chatId` can also be passed to `create_story` as `chat_id` to attach a follow-up story to this conversation.';
+	'Ask nao an analytics question in natural language. Creates a chat that is visible in the Nao UI.\n\n' +
+	'Use this for ad-hoc data exploration and Q&A. Nao runs SQL, charts, and other tools internally to answer. ' +
+	'You can also ask Nao to create or update stories (markdown dashboards with embedded charts/tables) in that chat, ' +
+	'E.g. "turn this analysis into a dashboard" or "update the revenue chart in my story".\n\n' +
+	'Returns `chatId` and a `url` that opens the chat in the Nao UI, surface the URL to the user as a clickable link.';
 
 export function registerAgentTools(server: McpServer, ctx: McpContext): void {
 	server.registerTool(
