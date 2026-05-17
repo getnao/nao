@@ -26,12 +26,12 @@ export const TOOL_MODE_MAP: Record<string, keyof McpEndpointSettings> = {
 	execute_sql: 'toolsModeEnabled',
 	grep: 'toolsModeEnabled',
 	ls: 'toolsModeEnabled',
+	build_chart: 'toolsModeEnabled',
+	create_story: 'toolsModeEnabled',
+	update_story: 'toolsModeEnabled',
 	list_stories: 'objectsModeEnabled',
-	get_story: 'objectsModeEnabled',
-	create_story: 'objectsModeEnabled',
-	update_story: 'objectsModeEnabled',
+	search_stories: 'objectsModeEnabled',
 	archive_story: 'objectsModeEnabled',
-	delete_story: 'objectsModeEnabled',
 };
 
 export function withLogging<T>(toolName: string, ctx: McpContext, handler: ToolHandler<T>): ToolHandler<T> {

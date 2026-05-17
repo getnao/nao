@@ -4,9 +4,10 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { listUserProjects } from '../queries/project.queries';
 import type { McpEndpointSettings } from '../types/mcp-endpoint';
 import { registerAgentTools } from './tools/agent';
+import { registerChartTools } from './tools/chart';
 import { registerDataTools } from './tools/data';
 import { registerFileTools } from './tools/files';
-import { registerStoryTools } from './tools/stories';
+import { registerContextStoryTools, registerStoryManagementTools } from './tools/stories';
 
 export interface McpSession {
 	transport: StreamableHTTPServerTransport;
@@ -54,11 +55,13 @@ export function createMcpServer(userId: string, projectId: string, settings: Mcp
 		registerAgentTools(server, ctx);
 	}
 	if (settings.toolsModeEnabled) {
-		registerDataTools(server, ctx);
 		registerFileTools(server, ctx);
+		registerDataTools(server, ctx);
+		registerChartTools(server, ctx);
+		registerContextStoryTools(server, ctx);
 	}
 	if (settings.objectsModeEnabled) {
-		registerStoryTools(server, ctx);
+		registerStoryManagementTools(server, ctx);
 	}
 
 	return server;
