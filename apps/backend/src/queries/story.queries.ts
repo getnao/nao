@@ -377,6 +377,14 @@ type StoryVersionWithStory = DBStoryVersion &
 		| 'cacheSchedule'
 		| 'cacheScheduleDescription'
 		| 'archivedAt'
+		| 'title'
+		| 'slug'
+		| 'chatId'
+		| 'isLive'
+		| 'isLiveTextDynamic'
+		| 'cacheSchedule'
+		| 'cacheScheduleDescription'
+		| 'archivedAt'
 	>;
 
 export function getLatestVersionByChatAndSlug(chatId: string, slug: string): Promise<StoryVersionWithStory | null> {
@@ -631,6 +639,8 @@ async function getStoryVersion(
 			source: s.storyVersion.source,
 			createdAt: s.storyVersion.createdAt,
 			title: s.story.title,
+			slug: s.story.slug,
+			chatId: s.story.chatId,
 			slug: s.story.slug,
 			chatId: s.story.chatId,
 			isLive: s.story.isLive,
