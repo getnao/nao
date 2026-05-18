@@ -5,6 +5,7 @@ import type { App } from '../app';
 import { env } from '../env';
 import { getMcpEndpointSettings } from '../queries/mcp-endpoint.queries';
 import { resolveUserId } from './auth';
+import { getMcpAppsBundle, MCP_APPS_SCRIPT_PATH } from './embed/mcp-apps-bundle';
 import { createMcpServer, resolveProjectId, sessions } from './server';
 
 declare module 'fastify' {
@@ -14,19 +15,28 @@ declare module 'fastify' {
 }
 
 export const mcpServerRoutes = async (app: App) => {
-	app.addHook('preHandler', requireAuthenticatedMcpUser);
-
-	app.get('/', (request, reply) => handleExistingSession(request, reply));
-
-	app.post('/', async (request, reply) => {
-		const existingSessionId = request.headers['mcp-session-id'] as string | undefined;
-		if (existingSessionId) {
-			return handleExistingSession(request, reply, request.body);
-		}
-		return initializeSession(request, reply);
+	app.get(MCP_APPS_SCRIPT_PATH, async (_request, reply) => {
+		return reply
+			.header('content-type', 'application/javascript; charset=utf-8')
+			.header('cache-control', 'public, max-age=3600, immutable')
+			.send(getMcpAppsBundle());
 	});
 
-	app.delete('/', (request, reply) => handleExistingSession(request, reply));
+	await app.register(async (authenticated) => {
+		authenticated.addHook('preHandler', requireAuthenticatedMcpUser);
+
+		authenticated.get('/', (request, reply) => handleExistingSession(request, reply));
+
+		authenticated.post('/', async (request, reply) => {
+			const existingSessionId = request.headers['mcp-session-id'] as string | undefined;
+			if (existingSessionId) {
+				return handleExistingSession(request, reply, request.body);
+			}
+			return initializeSession(request, reply);
+		});
+
+		authenticated.delete('/', (request, reply) => handleExistingSession(request, reply));
+	});
 };
 
 async function requireAuthenticatedMcpUser(request: FastifyRequest, reply: FastifyReply): Promise<void> {

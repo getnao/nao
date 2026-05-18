@@ -7,16 +7,13 @@ import { agentService } from '../../services/agent';
 import { mcpService } from '../../services/mcp';
 import { skillService } from '../../services/skill';
 import type { UIMessage, UIMessagePart } from '../../types/chat';
-import { logger } from '../../utils/logger';
 import type { McpContext, ToolExtra } from '../logging';
-import { withLogging } from '../logging';
+import { defineMcpHandler } from '../logging';
 import { chatUrl } from '../urls';
 
 const ASK_NAO_DESCRIPTION =
 	'Ask nao an analytics question in natural language. Creates a chat that is visible in the UI.\n\n' +
 	'Use this for ad-hoc data exploration and Q&A. ' +
-	'To create a persistent Nao Story (markdown dashboard with embedded charts/tables), do NOT ask nao in natural language — call `create_story` directly with the SQL results from `execute_sql`. ' +
-	'To browse or update existing stories, use `list_stories` / `get_story` / `update_story`.\n\n' +
 	'Returns `chatId` and a `url` that opens the chat in the Nao UI — surface the URL to the user as a clickable link so they can jump to the conversation (and any rendered charts/tables). ' +
 	'The returned `chatId` can also be passed to `create_story` as `chat_id` to attach a follow-up story to this conversation.';
 
@@ -33,8 +30,8 @@ export function registerAgentTools(server: McpServer, ctx: McpContext): void {
 					.optional()
 					.describe(
 						'UUID of an existing chat to continue. Omit to start a new chat. ' +
-							'Reuse the UUID returned by a previous ask_nao call ONLY when the new question clearly builds on the previous nao exchange (same data, same topic). ' +
-							'If the topic shifts or the prior nao reply was a refusal / off-topic, omit this to start a fresh chat — otherwise the follow-up inherits the prior context and may repeat the refusal.',
+							'Reuse the UUID from a previous ask_nao ONLY when the new question clearly builds on the same data and topic. ' +
+							'If the topic shifts or the prior reply was a refusal, omit it — inheriting that context may cause the follow-up to repeat the refusal.',
 					),
 			},
 			outputSchema: {
@@ -43,8 +40,10 @@ export function registerAgentTools(server: McpServer, ctx: McpContext): void {
 				text: z.string().describe('The assistant final text response.'),
 			},
 		},
-		withLogging('ask_nao', ctx, async ({ question, chatId }, extra) => {
-			try {
+		defineMcpHandler(
+			'ask_nao',
+			ctx,
+			async ({ question, chatId }, extra) => {
 				await mcpService.initializeMcpState(ctx.projectId);
 				await skillService.initializeSkills(ctx.projectId);
 
@@ -55,6 +54,7 @@ export function registerAgentTools(server: McpServer, ctx: McpContext): void {
 				const text = await consumeStreamWithProgress(stream, extra);
 
 				const output = { chatId: chat.id, chatUrl: chatUrl(chat.id), text };
+				ctx.sessionChatRef.lastChatId = chat.id;
 				return {
 					content: [
 						{
@@ -64,18 +64,9 @@ export function registerAgentTools(server: McpServer, ctx: McpContext): void {
 					],
 					structuredContent: output,
 				};
-			} catch (error) {
-				const message = error instanceof Error ? error.message : String(error);
-				logger.error(`MCP ask_nao error: ${message}`, {
-					source: 'tool',
-					context: { question, userId: ctx.userId },
-				});
-				return {
-					content: [{ type: 'text' as const, text: 'Nao agent failed to process the request.' }],
-					isError: true,
-				};
-			}
-		}),
+			},
+			{ errorMessage: () => 'Nao agent failed to process the request.' },
+		),
 	);
 }
 

@@ -11,6 +11,31 @@ body {
 	@apply m-0 h-full overflow-hidden;
 }
 
+html.nao-embed {
+	color-scheme: light;
+	background-color: var(--panel);
+}
+
+html.nao-embed,
+html.nao-embed body {
+	overflow: hidden;
+}
+
+html.nao-embed body {
+	background-color: var(--panel);
+}
+
+html.nao-embed #app {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	min-height: 0;
+	max-width: 100%;
+	overflow-x: auto;
+	overflow-y: hidden;
+	background-color: var(--panel);
+}
+
 * {
 	scrollbar-width: thin;
 	scrollbar-color: var(--border) transparent;

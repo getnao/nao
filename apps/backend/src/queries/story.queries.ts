@@ -31,6 +31,16 @@ export async function getStoryByChatAndSlug(chatId: string, slug: string): Promi
 	return row ?? null;
 }
 
+export async function getStoryProjectId(storyId: string): Promise<string | null> {
+	const [row] = await db
+		.select({ projectId: s.story.projectId })
+		.from(s.story)
+		.where(eq(s.story.id, storyId))
+		.limit(1)
+		.execute();
+	return row?.projectId ?? null;
+}
+
 export async function getStoryOwnerId(storyId: string): Promise<string | undefined> {
 	const [row] = await db
 		.select({
@@ -347,7 +357,14 @@ export async function updateStoryLiveSettings(
 type StoryVersionWithStory = DBStoryVersion &
 	Pick<
 		DBStory,
-		'title' | 'isLive' | 'isLiveTextDynamic' | 'cacheSchedule' | 'cacheScheduleDescription' | 'archivedAt'
+		| 'title'
+		| 'slug'
+		| 'chatId'
+		| 'isLive'
+		| 'isLiveTextDynamic'
+		| 'cacheSchedule'
+		| 'cacheScheduleDescription'
+		| 'archivedAt'
 	>;
 
 export function getLatestVersionByChatAndSlug(chatId: string, slug: string): Promise<StoryVersionWithStory | null> {
@@ -602,6 +619,8 @@ async function getStoryVersion(
 			source: s.storyVersion.source,
 			createdAt: s.storyVersion.createdAt,
 			title: s.story.title,
+			slug: s.story.slug,
+			chatId: s.story.chatId,
 			isLive: s.story.isLive,
 			isLiveTextDynamic: s.story.isLiveTextDynamic,
 			cacheSchedule: s.story.cacheSchedule,

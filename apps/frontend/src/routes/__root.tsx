@@ -1,4 +1,4 @@
-import { createRootRoute, Outlet } from '@tanstack/react-router';
+import { createRootRoute, Outlet, useRouterState } from '@tanstack/react-router';
 import { BrandingHead } from '../components/branding-head';
 import { ModifyPassword } from '../components/modify-password';
 import { useDisposeInactiveAgents } from '@/hooks/use-agent';
@@ -11,6 +11,16 @@ export const Route = createRootRoute({
 });
 
 function RootComponent() {
+	const pathname = useRouterState({ select: (s) => s.location.pathname });
+
+	if (pathname.startsWith('/embed')) {
+		return <Outlet />;
+	}
+
+	return <AuthenticatedRoot />;
+}
+
+function AuthenticatedRoot() {
 	const session = useSessionOrNavigateToIndexPage();
 	useDisposeInactiveAgents();
 	useIdentifyPostHog();

@@ -3,11 +3,13 @@ import type { ServerNotification, ServerRequest } from '@modelcontextprotocol/sd
 
 import { insertMcpCallLog } from '../queries/mcp-endpoint.queries';
 import type { McpEndpointSettings } from '../types/mcp-endpoint';
+import { logger } from '../utils/logger';
 
 export interface McpContext {
 	userId: string;
 	projectId: string;
 	settings: McpEndpointSettings;
+	sessionChatRef: { lastChatId?: string };
 }
 
 export type ToolContent = { type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string };
@@ -16,6 +18,7 @@ export type ToolResult = {
 	content: ToolContent[];
 	isError?: boolean;
 	structuredContent?: Record<string, unknown>;
+	_meta?: Record<string, unknown>;
 };
 
 export type ToolExtra = RequestHandlerExtra<ServerRequest, ServerNotification>;
@@ -24,6 +27,7 @@ export type ToolHandler<T> = (args: T, extra: ToolExtra) => Promise<ToolResult>;
 export const TOOL_MODE_MAP: Record<string, keyof McpEndpointSettings> = {
 	ask_nao: 'agentModeEnabled',
 	execute_sql: 'toolsModeEnabled',
+	display_chart: 'toolsModeEnabled',
 	grep: 'toolsModeEnabled',
 	ls: 'toolsModeEnabled',
 	list_stories: 'objectsModeEnabled',
@@ -66,7 +70,7 @@ export function withLogging<T>(toolName: string, ctx: McpContext, handler: ToolH
 				durationMs: Date.now() - start,
 				success,
 				toolInput: args as unknown,
-				toolOutput: thrownError ? formatThrownError(thrownError) : extractLoggableOutput(result),
+				toolOutput: thrownError !== undefined ? formatThrownError(thrownError) : extractLoggableOutput(result),
 			}).catch(() => {});
 		}
 	};
@@ -92,4 +96,30 @@ function formatThrownError(error: unknown): { error: string } {
 		return { error: error.message };
 	}
 	return { error: String(error) };
+}
+
+export interface DefineMcpHandlerOptions {
+	errorMessage?: (error: unknown) => string;
+}
+
+export function defineMcpHandler<T>(
+	name: string,
+	ctx: McpContext,
+	fn: ToolHandler<T>,
+	opts?: DefineMcpHandlerOptions,
+): ToolHandler<T> {
+	const handler: ToolHandler<T> = async (input, extra) => {
+		try {
+			return await fn(input, extra);
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			logger.error(`MCP ${name} error: ${message}`, {
+				source: 'tool',
+				context: { input, userId: ctx.userId },
+			});
+			const text = opts?.errorMessage ? opts.errorMessage(error) : `${name} error: ${message}`;
+			return { content: [{ type: 'text' as const, text }], isError: true };
+		}
+	};
+	return withLogging(name, ctx, handler);
 }
