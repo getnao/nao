@@ -11,6 +11,7 @@ interface ProviderCardProps {
 	baseUrl?: string | null;
 	envBaseUrl?: string;
 	enabledModels?: string[] | null;
+	maxOutputTokensByModel?: Record<string, number> | null;
 	isEnvProvider: boolean;
 	isAdmin: boolean;
 	isFormActive: boolean;
@@ -27,6 +28,7 @@ export function ProviderCard({
 	baseUrl,
 	envBaseUrl,
 	enabledModels,
+	maxOutputTokensByModel,
 	isEnvProvider,
 	isAdmin,
 	isFormActive,
@@ -118,6 +120,21 @@ export function ProviderCard({
 					</>
 				) : (
 					<span className='text-xs text-muted-foreground'>Default model: {getDefaultModelId(provider)}</span>
+				)}
+				{maxOutputTokensByModel && Object.keys(maxOutputTokensByModel).length > 0 && (
+					<div className='mt-2'>
+						<span className='text-xs text-muted-foreground'>Max output tokens:</span>
+						<div className='flex flex-wrap gap-1.5 mt-1.5'>
+							{Object.entries(maxOutputTokensByModel).map(([modelId, value]) => (
+								<span
+									key={modelId}
+									className='px-2 py-0.5 text-xs rounded bg-secondary text-muted-foreground'
+								>
+									{getModelDisplayName(provider, modelId)}: {value}
+								</span>
+							))}
+						</div>
+					</div>
 				)}
 			</div>
 		</div>

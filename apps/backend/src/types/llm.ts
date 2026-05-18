@@ -26,6 +26,7 @@ export const llmConfigSchema = z.object({
 	apiKeyPreview: z.string().nullable(),
 	credentialPreviews: z.record(z.string(), z.string()).nullable(),
 	enabledModels: z.array(z.string()).nullable(),
+	maxOutputTokensByModel: z.record(z.string(), z.number().int().positive()).nullable(),
 	baseUrl: z.string().url().nullable(),
 	createdAt: z.date(),
 	updatedAt: z.date(),

@@ -195,6 +195,14 @@ export const updateAgentSettings = async (projectId: string, settings: AgentSett
 	const next: AgentSettings = {
 		...current,
 		...settings,
+		llm: {
+			...current.llm,
+			...settings.llm,
+			maxOutputTokensByProviderModel: {
+				...current.llm?.maxOutputTokensByProviderModel,
+				...settings.llm?.maxOutputTokensByProviderModel,
+			},
+		},
 		experimental: {
 			...current.experimental,
 			...settings.experimental,

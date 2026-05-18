@@ -15,6 +15,7 @@ export interface LlmProviderFormProps {
 	initialValues?: {
 		enabledModels: string[];
 		baseUrl: string;
+		maxOutputTokensByModel: Record<string, number>;
 	};
 	currentModels: readonly { id: string; name: string; default?: boolean }[];
 	onSubmit: (values: {
@@ -22,6 +23,7 @@ export interface LlmProviderFormProps {
 		credentials?: Record<string, string>;
 		enabledModels: string[];
 		baseUrl?: string;
+		maxOutputTokensByModel?: Record<string, number>;
 	}) => Promise<void>;
 	onCancel: () => void;
 	isPending: boolean;
@@ -59,6 +61,7 @@ export function LlmProviderForm({
 			credentials: defaultCredentials,
 			enabledModels: initialValues?.enabledModels ?? [],
 			baseUrl: initialValues?.baseUrl ?? '',
+			maxOutputTokensByModel: initialValues?.maxOutputTokensByModel ?? {},
 		},
 		onSubmit: async ({ value }) => {
 			const filledCredentials = Object.fromEntries(Object.entries(value.credentials).filter(([, v]) => v));
@@ -68,6 +71,7 @@ export function LlmProviderForm({
 				credentials: Object.keys(filledCredentials).length > 0 ? filledCredentials : undefined,
 				enabledModels: value.enabledModels,
 				baseUrl: value.baseUrl || undefined,
+				maxOutputTokensByModel: value.maxOutputTokensByModel,
 			});
 		},
 	});
@@ -241,6 +245,72 @@ export function LlmProviderForm({
 									<Plus className='size-4' />
 								</Button>
 							</div>
+							<form.Field name='maxOutputTokensByModel'>
+								{(tokenField) => {
+									const configuredModelIds = new Set<string>([
+										...currentModels.map((m) => m.id),
+										...enabledModels,
+									]);
+									if (configuredModelIds.size === 0) {
+										configuredModelIds.add(getDefaultModelId(provider));
+									}
+
+									const sortedModelIds = [...configuredModelIds].sort((a, b) => a.localeCompare(b));
+
+									return (
+										<div className='grid gap-2 mt-2'>
+											<label className='text-sm font-medium text-foreground'>
+												Max output tokens per model
+												<span className='text-muted-foreground font-normal ml-1'>
+													(default 16000)
+												</span>
+											</label>
+											<div className='grid gap-2'>
+												{sortedModelIds.map((modelId) => {
+													const currentValue = tokenField.state.value[modelId];
+													return (
+														<div
+															key={modelId}
+															className='grid grid-cols-[1fr_140px] gap-2 items-center'
+														>
+															<span
+																className='text-xs text-muted-foreground truncate'
+																title={modelId}
+															>
+																{modelId}
+															</span>
+															<Input
+																type='number'
+																min={1}
+																step={1}
+																value={currentValue ?? ''}
+																onChange={(e) => {
+																	const raw = e.target.value.trim();
+																	if (!raw) {
+																		const next = { ...tokenField.state.value };
+																		delete next[modelId];
+																		tokenField.handleChange(next);
+																		return;
+																	}
+																	const parsed = Number(raw);
+																	if (!Number.isFinite(parsed) || parsed <= 0) {
+																		return;
+																	}
+																	tokenField.handleChange({
+																		...tokenField.state.value,
+																		[modelId]: Math.floor(parsed),
+																	});
+																}}
+																placeholder='16000'
+															/>
+														</div>
+													);
+												})}
+											</div>
+										</div>
+									);
+								}}
+							</form.Field>
 						</div>
 					);
 				}}

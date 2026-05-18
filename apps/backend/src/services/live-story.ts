@@ -10,7 +10,7 @@ import * as projectQueries from '../queries/project.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import { getQueryDataFromCode } from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
-import { getDefaultModelId, resolveProviderModel } from '../utils/llm';
+import { getDefaultModelId, resolveMaxOutputTokens, resolveProviderModel } from '../utils/llm';
 import { MAX_OUTPUT_TOKENS } from './agent';
 const MAX_RENDERED_ROWS = 60;
 
@@ -171,10 +171,12 @@ async function generateDynamicStoryCode(
 		return null;
 	}
 
-	const model = await resolveProviderModel(projectId, provider, getDefaultModelId(provider));
+	const modelId = getDefaultModelId(provider);
+	const model = await resolveProviderModel(projectId, provider, modelId);
 	if (!model) {
 		return null;
 	}
+	const maxOutputTokens = await resolveMaxOutputTokens(projectId, provider, modelId, MAX_OUTPUT_TOKENS);
 
 	try {
 		const querySummaries = buildQueryDataSummary(queryData);
@@ -189,7 +191,7 @@ async function generateDynamicStoryCode(
 					code: z.string().min(1),
 				}),
 			}),
-			maxOutputTokens: MAX_OUTPUT_TOKENS,
+			maxOutputTokens,
 		});
 
 		const candidate = stripCodeFence(output.code.trim());

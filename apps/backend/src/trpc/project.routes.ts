@@ -21,7 +21,13 @@ import { listAvailableTranscribeModels as getAvailableTranscribeModels } from '.
 import { AgentSettings } from '../types/agent-settings';
 import { llmConfigSchema, llmProviderSchema } from '../types/llm';
 import { isValidIsoDateString } from '../utils/date';
-import { getEnvApiKey, getEnvBaseUrls, getEnvProviders, getProjectAvailableModels } from '../utils/llm';
+import {
+	getEnvApiKey,
+	getEnvBaseUrls,
+	getEnvProviders,
+	getProjectAvailableModels,
+	getProviderModelKey,
+} from '../utils/llm';
 import { extractRequiredEnvVars } from '../utils/nao-config';
 import { buildCredentialPreviews } from '../utils/utils';
 import { adminProtectedProcedure, projectProtectedProcedure, protectedProcedure, publicProcedure } from './trpc';
@@ -87,6 +93,8 @@ export const projectRoutes = {
 			}
 
 			const configs = await llmConfigQueries.getProjectLlmConfigs(ctx.project.id);
+			const settings = await projectQueries.getAgentSettings(ctx.project.id);
+			const maxOutputTokensByProviderModel = settings?.llm?.maxOutputTokensByProviderModel ?? {};
 
 			const projectConfigs = configs.map((c) => ({
 				id: c.id,
@@ -94,6 +102,11 @@ export const projectRoutes = {
 				apiKeyPreview: c.apiKey ? c.apiKey.slice(0, 8) + '...' + c.apiKey.slice(-4) : null,
 				credentialPreviews: buildCredentialPreviews(c.credentials),
 				enabledModels: c.enabledModels ?? [],
+				maxOutputTokensByModel: Object.fromEntries(
+					Object.entries(maxOutputTokensByProviderModel)
+						.filter(([key]) => key.startsWith(`${c.provider}:`))
+						.map(([key, value]) => [key.slice(c.provider.length + 1), value]),
+				),
 				baseUrl: c.baseUrl ?? null,
 				createdAt: c.createdAt,
 				updatedAt: c.updatedAt,
@@ -130,6 +143,7 @@ export const projectRoutes = {
 				apiKey: z.string().min(1).optional(),
 				credentials: z.record(z.string(), z.string()).optional(),
 				enabledModels: z.array(z.string()).optional(),
+				maxOutputTokensByModel: z.record(z.string(), z.number().int().positive()).optional(),
 				baseUrl: z.string().url().optional().or(z.literal('')),
 			}),
 		)
@@ -168,12 +182,36 @@ export const projectRoutes = {
 				baseUrl: input.baseUrl || null,
 			} as Parameters<typeof llmConfigQueries.upsertProjectLlmConfig>[0]);
 
+			if (input.maxOutputTokensByModel) {
+				const currentSettings = (await projectQueries.getAgentSettings(ctx.project.id)) ?? {};
+				const existingMap = currentSettings.llm?.maxOutputTokensByProviderModel ?? {};
+				const withoutCurrentProvider = Object.fromEntries(
+					Object.entries(existingMap).filter(([key]) => !key.startsWith(`${input.provider}:`)),
+				);
+				const nextProviderEntries = Object.entries(input.maxOutputTokensByModel)
+					.filter(([, value]) => Number.isFinite(value) && value > 0)
+					.map(
+						([modelId, value]) =>
+							[getProviderModelKey(input.provider, modelId), Math.floor(value)] as const,
+					);
+
+				await projectQueries.updateAgentSettings(ctx.project.id, {
+					llm: {
+						maxOutputTokensByProviderModel: {
+							...withoutCurrentProvider,
+							...Object.fromEntries(nextProviderEntries),
+						},
+					},
+				});
+			}
+
 			return {
 				id: config.id,
 				provider: config.provider as LlmProvider,
 				apiKeyPreview: config.apiKey ? config.apiKey.slice(0, 8) + '...' + config.apiKey.slice(-4) : null,
 				credentialPreviews: buildCredentialPreviews(config.credentials),
 				enabledModels: config.enabledModels ?? [],
+				maxOutputTokensByModel: input.maxOutputTokensByModel ?? null,
 				baseUrl: config.baseUrl ?? null,
 			};
 		}),

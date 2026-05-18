@@ -46,8 +46,10 @@ import { convertToCost, convertToTokenUsage, findLastUserMessage, getLastUserMes
 import { assertBudgetNotExceeded } from '../utils/budget';
 import { HandlerError } from '../utils/error';
 import {
+	DEFAULT_MAX_OUTPUT_TOKENS,
 	getDefaultModelId,
 	getEnvModelSelections,
+	resolveMaxOutputTokens,
 	resolveAnnotationModelId,
 	resolveProviderModel,
 	resolveProviderSettings,
@@ -95,6 +97,12 @@ export class AgentService {
 		const resolvedLlmSelectedModel = await this._getResolvedLlmSelectedModel(chat.projectId, modelSelection);
 		await assertBudgetNotExceeded(chat.projectId, resolvedLlmSelectedModel.provider);
 		const modelConfig = await this._getModelConfig(chat.projectId, resolvedLlmSelectedModel);
+		const maxOutputTokens = await resolveMaxOutputTokens(
+			chat.projectId,
+			resolvedLlmSelectedModel.provider,
+			resolvedLlmSelectedModel.modelId,
+			MAX_OUTPUT_TOKENS,
+		);
 		const agentSettings = await projectQueries.getAgentSettings(chat.projectId);
 		const toolContext = await this._getToolContext(chat.projectId, chat.id, chat.userId, agentSettings);
 		const webTools = await this._resolveWebTools(chat.projectId, resolvedLlmSelectedModel.provider, agentSettings);
@@ -102,6 +110,7 @@ export class AgentService {
 		const agent = new AgentManager(
 			chat,
 			modelConfig,
+			maxOutputTokens,
 			resolvedLlmSelectedModel,
 			() => this._agents.delete(chat.id),
 			new AbortController(),
@@ -200,7 +209,7 @@ export class AgentService {
 	}
 }
 
-export const MAX_OUTPUT_TOKENS = 16_000;
+export const MAX_OUTPUT_TOKENS = DEFAULT_MAX_OUTPUT_TOKENS;
 
 class AgentManager {
 	private readonly _agent: ToolLoopAgent<never, AgentTools, never>;
@@ -209,6 +218,7 @@ class AgentManager {
 	constructor(
 		readonly chat: AgentChat,
 		private readonly _modelConfig: ProviderModelResult,
+		private readonly _maxOutputTokens: number,
 		private readonly _modelSelection: LlmSelectedModel,
 		private readonly _onDispose: () => void,
 		private readonly _abortController: AbortController,
@@ -219,7 +229,7 @@ class AgentManager {
 			model: this._modelConfig.model,
 			providerOptions: this._modelConfig.providerOptions,
 			tools: this._agentTools,
-			maxOutputTokens: MAX_OUTPUT_TOKENS,
+			maxOutputTokens: this._maxOutputTokens,
 			prepareStep: async ({ messages }) => this._prepareStep(messages),
 			stopWhen: [hasToolCall('suggest_follow_ups'), hasToolCall('clarification')],
 			experimental_context: this._toolContext,
@@ -232,7 +242,7 @@ class AgentManager {
 		// 	provider: this._modelSelection.provider,
 		// 	messages,
 		// 	tools: this._agentTools,
-		// 	maxOutputTokens: MAX_OUTPUT_TOKENS,
+		// 	maxOutputTokens: this._maxOutputTokens,
 		// 	contextWindow: this._modelConfig.contextWindow,
 		// 	onCompactionStarted: () => {
 		// 		this._streamWriter?.write({

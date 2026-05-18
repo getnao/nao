@@ -2,9 +2,15 @@ import type { LlmProvider, LlmSelectedModel } from '@nao/shared/types';
 
 import { createProviderModel, getDefaultModelId, LLM_PROVIDERS, type ProviderModelResult } from '../agents/providers';
 import * as projectLlmConfigQueries from '../queries/project-llm-config.queries';
+import * as projectQueries from '../queries/project.queries';
 import type { ProviderSettings } from '../types/llm';
 
 export { getDefaultModelId };
+export const DEFAULT_MAX_OUTPUT_TOKENS = 16_000;
+
+export function getProviderModelKey(provider: LlmProvider, modelId: string): string {
+	return `${provider}:${modelId}`;
+}
 
 /** Get the API key from environment for a provider */
 export function getEnvApiKey(provider: LlmProvider): string | undefined {
@@ -197,3 +203,18 @@ export const getProjectAvailableModels = async (
 
 const getModelName = (provider: LlmProvider, modelId: string): string =>
 	LLM_PROVIDERS[provider].models.find((m) => m.id === modelId)?.name ?? modelId;
+
+export async function resolveMaxOutputTokens(
+	projectId: string,
+	provider: LlmProvider,
+	modelId: string,
+	defaultValue: number = DEFAULT_MAX_OUTPUT_TOKENS,
+): Promise<number> {
+	const settings = await projectQueries.getAgentSettings(projectId);
+	const byModel = settings?.llm?.maxOutputTokensByProviderModel ?? {};
+	const value = byModel[getProviderModelKey(provider, modelId)];
+	if (!Number.isFinite(value) || value <= 0) {
+		return defaultValue;
+	}
+	return Math.floor(value);
+}
