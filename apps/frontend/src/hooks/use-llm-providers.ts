@@ -11,6 +11,7 @@ export interface EditingState {
 	initialValues?: {
 		enabledModels: string[];
 		baseUrl: string;
+		maxOutputTokensByModel: Record<string, number>;
 	};
 }
 
@@ -58,6 +59,7 @@ export function useLlmProviders() {
 		credentials?: Record<string, string>;
 		enabledModels: string[];
 		baseUrl?: string;
+		maxOutputTokensByModel?: Record<string, number>;
 	}) => {
 		if (!editingState?.provider) {
 			return;
@@ -69,6 +71,7 @@ export function useLlmProviders() {
 			credentials: values.credentials,
 			enabledModels: values.enabledModels,
 			baseUrl: values.baseUrl,
+			maxOutputTokensByModel: values.maxOutputTokensByModel,
 		});
 		await invalidateQueries();
 		setEditingState(null);
@@ -88,6 +91,7 @@ export function useLlmProviders() {
 			initialValues: {
 				enabledModels: config.enabledModels ?? [],
 				baseUrl: config.baseUrl ?? '',
+				maxOutputTokensByModel: config.maxOutputTokensByModel ?? {},
 			},
 		});
 	};

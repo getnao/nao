@@ -89,6 +89,7 @@ export function LlmProvidersSection({ isAdmin }: LlmProvidersSectionProps) {
 						baseUrl={config.baseUrl}
 						envBaseUrl={envBaseUrls[config.provider]}
 						enabledModels={config.enabledModels}
+						maxOutputTokensByModel={config.maxOutputTokensByModel}
 						isEnvProvider={envProviders.includes(config.provider)}
 						isAdmin={isAdmin}
 						isFormActive={!!editingState}
