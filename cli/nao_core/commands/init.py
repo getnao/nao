@@ -32,9 +32,19 @@ class CreatedFile:
     content: str | None
 
 
-def setup_project_name(force: bool = False) -> tuple[str, Path, NaoConfig | None]:
-    """Setup the project name. Returns existing config if found and user wants to extend."""
-    # Check if we're in a directory with an existing nao_config.yaml
+def setup_project_name(
+    force: bool = False,
+    name: str | None = None,
+    no_tty: bool = False,
+) -> tuple[str, Path, NaoConfig | None]:
+    """Setup the project name. Returns existing config if found and user wants to extend.
+
+    In non-interactive (no_tty) mode:
+    - If a `nao_config.yaml` exists in the current directory, the existing config is reused
+      (no confirmation prompt) and the project is initialized in place.
+    - Otherwise the project name is taken from `name` if provided, falling back to the
+      current directory name, and the project is initialized in the current directory.
+    """
     current_dir = Path.cwd()
     config_file = current_dir / "nao_config.yaml"
 
@@ -52,16 +62,24 @@ def setup_project_name(force: bool = False) -> tuple[str, Path, NaoConfig | None
         UI.title("Found existing nao_config.yaml")
         UI.print(f"[dim]Project: {existing_config.project_name}[/dim]\n")
 
-        if force or ask_confirm("Update this project configuration?", default=True):
+        if force or no_tty or ask_confirm("Update this project configuration?", default=True):
             return existing_config.project_name, current_dir, existing_config
 
         raise InitError("Initialization cancelled.")
 
-    # Normal flow: prompt for project name
-    project_name = ask_text("Enter your project name:", required_field=True)
+    if no_tty:
+        project_name = name or current_dir.name
+    elif name:
+        project_name = name
+    else:
+        project_name = ask_text("Enter your project name:", required_field=True)
 
     if not project_name:
         raise EmptyProjectNameError()
+
+    if no_tty and not name:
+        # Initialize in the current directory when no explicit name is given
+        return project_name, current_dir, None
 
     project_path = Path(project_name)
 
@@ -140,10 +158,24 @@ def _install_with_progress(extras: list[str]) -> bool:
     return False
 
 
+def _build_no_tty_config(project_name: str, existing_config: NaoConfig | None) -> NaoConfig:
+    """Return a config to save in non-interactive mode.
+
+    Keeps any existing config as-is so an agent can pre-write `nao_config.yaml`
+    and have `nao init` only scaffold folders. Otherwise creates a minimal
+    config with just the project name.
+    """
+    if existing_config:
+        return existing_config
+    return NaoConfig(project_name=project_name)
+
+
 @track_command("init")
 def init(
     *,
     force: Annotated[bool, Parameter(name=["-f", "--force"])] = False,
+    yes: Annotated[bool, Parameter(name=["-y", "--yes", "--no-tty"])] = False,
+    name: Annotated[str | None, Parameter(name=["-n", "--name"])] = None,
 ):
     """Initialize a new nao project.
 
@@ -153,12 +185,26 @@ def init(
     ----------
     force : bool
         Force re-initialization even if the folder already exists.
+    yes : bool
+        Run non-interactively (no TTY). Skips all prompts and uses sensible defaults.
+        Useful for AI agents and automation scripts. When combined with a pre-written
+        `nao_config.yaml`, only scaffolds the folder structure.
+    name : str
+        Project name. When set without an existing `nao_config.yaml`, this is used
+        as the project name (and folder). In non-interactive mode without an existing
+        config and without `--name`, the current directory name is used and the
+        project is initialized in place.
     """
     UI.info("\n🚀 nao project initialization\n")
 
     try:
-        project_name, project_path, existing_config = setup_project_name(force=force)
-        config = NaoConfig.promptConfig(project_name, existing=existing_config)
+        project_name, project_path, existing_config = setup_project_name(force=force, name=name, no_tty=yes)
+
+        if yes:
+            config = _build_no_tty_config(project_name, existing_config)
+        else:
+            config = NaoConfig.promptConfig(project_name, existing=existing_config)
+
         config.save(project_path)
 
         # Create project folder structure
@@ -182,7 +228,8 @@ def init(
             UI.title("Installing provider dependencies")
             UI.print(f"[dim]Extras: {extras_label}[/dim]\n")
 
-            if ask_confirm("Install the required provider dependencies now?", default=True):
+            should_install = yes or ask_confirm("Install the required provider dependencies now?", default=True)
+            if should_install:
                 UI.print()
                 deps_ready = _install_with_progress(missing)
             else:

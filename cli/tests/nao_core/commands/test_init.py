@@ -9,6 +9,7 @@ from nao_core.commands.init import (
     CreatedFile,
     EmptyProjectNameError,
     ProjectExistsError,
+    _build_no_tty_config,
     create_empty_structure,
     setup_project_name,
 )
@@ -630,3 +631,173 @@ class TestInitCommand:
         mock_ui.error.assert_called()
         calls = [str(c) for c in mock_ui.error.call_args_list]
         assert any("cannot be empty" in c for c in calls)
+
+
+class TestSetupProjectNameNoTty:
+    """Tests for setup_project_name in non-interactive (no_tty) mode."""
+
+    @patch("nao_core.commands.init.ask_text")
+    def test_no_tty_uses_current_dir_name_when_no_name_given(self, mock_ask_text, tmp_path: Path, monkeypatch):
+        """In no-tty mode without --name, uses current directory name and inits in place."""
+        project_dir = tmp_path / "my-agent-project"
+        project_dir.mkdir()
+        monkeypatch.chdir(project_dir)
+
+        name, path, existing = setup_project_name(no_tty=True)
+
+        assert name == "my-agent-project"
+        assert path == project_dir
+        assert existing is None
+        mock_ask_text.assert_not_called()
+
+    @patch("nao_core.commands.init.ask_text")
+    def test_no_tty_uses_explicit_name_and_creates_subfolder(self, mock_ask_text, tmp_path: Path, monkeypatch):
+        """In no-tty mode with --name, creates a subfolder for the project."""
+        monkeypatch.chdir(tmp_path)
+
+        name, path, existing = setup_project_name(no_tty=True, name="explicit-name")
+
+        assert name == "explicit-name"
+        assert path == Path("explicit-name")
+        assert path.exists()
+        assert existing is None
+        mock_ask_text.assert_not_called()
+
+    @patch("nao_core.commands.init.ask_confirm")
+    @patch("nao_core.commands.init.NaoConfig.try_load")
+    def test_no_tty_skips_update_confirmation_for_existing_config(
+        self, mock_try_load, mock_confirm, tmp_path: Path, monkeypatch
+    ):
+        """In no-tty mode with existing config, skips the update confirmation prompt."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "nao_config.yaml").write_text("project_name: existing\n")
+
+        mock_config = MagicMock()
+        mock_config.project_name = "existing"
+        mock_try_load.return_value = mock_config
+
+        name, path, existing = setup_project_name(no_tty=True)
+
+        assert name == "existing"
+        assert path == tmp_path
+        assert existing == mock_config
+        mock_confirm.assert_not_called()
+
+    @patch("nao_core.commands.init.ask_text")
+    def test_explicit_name_skips_text_prompt(self, mock_ask_text, tmp_path: Path, monkeypatch):
+        """Passing --name without --yes still skips the project name prompt."""
+        monkeypatch.chdir(tmp_path)
+
+        name, path, existing = setup_project_name(name="cli-named-project")
+
+        assert name == "cli-named-project"
+        assert path == Path("cli-named-project")
+        assert path.exists()
+        assert existing is None
+        mock_ask_text.assert_not_called()
+
+
+class TestBuildNoTtyConfig:
+    """Tests for _build_no_tty_config helper."""
+
+    def test_returns_existing_config_when_present(self):
+        """Reuses existing config without modification."""
+        from nao_core.config import NaoConfig
+
+        existing = NaoConfig(project_name="kept-as-is")
+        result = _build_no_tty_config("ignored-name", existing)
+
+        assert result is existing
+        assert result.project_name == "kept-as-is"
+
+    def test_creates_minimal_config_when_no_existing(self):
+        """Builds a minimal config with just the project name."""
+        result = _build_no_tty_config("brand-new", None)
+
+        assert result.project_name == "brand-new"
+        assert result.databases == []
+        assert result.repos == []
+        assert result.llm is None
+        assert result.slack is None
+        assert result.notion is None
+        assert result.mcp is None
+        assert result.skills is None
+
+
+class TestInitCommandNoTty:
+    """Tests for the init command in non-interactive (--yes / --no-tty) mode."""
+
+    @patch("nao_core.commands.init.NaoConfig.promptConfig")
+    @patch("nao_core.commands.init.UI")
+    def test_yes_does_not_prompt_for_config(
+        self,
+        mock_ui,
+        mock_prompt_config,
+        tmp_path: Path,
+        monkeypatch,
+    ):
+        """`--yes` skips the interactive promptConfig flow entirely."""
+        from nao_core.commands.init import init
+
+        project_dir = tmp_path / "no-tty-project"
+        project_dir.mkdir()
+        monkeypatch.chdir(project_dir)
+
+        init(yes=True)
+
+        mock_prompt_config.assert_not_called()
+        config_file = project_dir / "nao_config.yaml"
+        assert config_file.exists()
+        content = config_file.read_text()
+        assert "project_name: no-tty-project" in content
+
+    @patch("nao_core.commands.init.NaoConfig.promptConfig")
+    @patch("nao_core.commands.init.UI")
+    def test_yes_with_explicit_name_creates_subfolder(
+        self,
+        mock_ui,
+        mock_prompt_config,
+        tmp_path: Path,
+        monkeypatch,
+    ):
+        """`--yes --name foo` creates a subfolder named foo with a minimal config."""
+        from nao_core.commands.init import init
+
+        monkeypatch.chdir(tmp_path)
+
+        init(yes=True, name="my-agent")
+
+        project_path = tmp_path / "my-agent"
+        assert project_path.exists()
+        assert (project_path / "nao_config.yaml").exists()
+        assert (project_path / "RULES.md").exists()
+        assert (project_path / "databases").is_dir()
+        mock_prompt_config.assert_not_called()
+
+    @patch("nao_core.commands.init.NaoConfig.promptConfig")
+    @patch("nao_core.commands.init.UI")
+    def test_yes_preserves_pre_written_config(
+        self,
+        mock_ui,
+        mock_prompt_config,
+        tmp_path: Path,
+        monkeypatch,
+    ):
+        """`--yes` reuses an existing nao_config.yaml without prompting to update."""
+        from nao_core.commands.init import init
+
+        project_dir = tmp_path / "pre-written"
+        project_dir.mkdir()
+        monkeypatch.chdir(project_dir)
+
+        config_yaml = project_dir / "nao_config.yaml"
+        config_yaml.write_text("project_name: pre-written\n")
+
+        init(yes=True)
+
+        mock_prompt_config.assert_not_called()
+        # Folder structure is still scaffolded
+        assert (project_dir / "RULES.md").exists()
+        assert (project_dir / "databases").is_dir()
+        # The config still names the existing project
+        assert "project_name: pre-written" in config_yaml.read_text()
