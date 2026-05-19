@@ -80,6 +80,7 @@ export interface AgentRunResult {
 
 export type AgentChat = Pick<DBChat, 'id' | 'projectId' | 'userId'> & {
 	forkMetadata?: ForkMetadata | null;
+	testMode?: boolean;
 };
 
 export class AgentService {
@@ -98,7 +99,7 @@ export class AgentService {
 		const agentSettings = await projectQueries.getAgentSettings(chat.projectId);
 		const toolContext = await this._getToolContext(chat.projectId, chat.id, chat.userId, agentSettings);
 		const webTools = await this._resolveWebTools(chat.projectId, resolvedLlmSelectedModel.provider, agentSettings);
-		const agentTools = getTools(agentSettings, webTools ?? undefined);
+		const agentTools = getTools(agentSettings, webTools ?? undefined, { testMode: chat.testMode });
 		const agent = new AgentManager(
 			chat,
 			modelConfig,
@@ -215,13 +216,17 @@ class AgentManager {
 		private readonly _agentTools: AgentTools,
 		private readonly _toolContext: ToolContext,
 	) {
+		const stopConditions = chat.testMode
+			? [hasToolCall('suggest_follow_ups')]
+			: [hasToolCall('suggest_follow_ups'), hasToolCall('clarification')];
+
 		this._agent = new ToolLoopAgent({
 			model: this._modelConfig.model,
 			providerOptions: this._modelConfig.providerOptions,
 			tools: this._agentTools,
 			maxOutputTokens: MAX_OUTPUT_TOKENS,
 			prepareStep: async ({ messages }) => this._prepareStep(messages),
-			stopWhen: [hasToolCall('suggest_follow_ups'), hasToolCall('clarification')],
+			stopWhen: stopConditions,
 			experimental_context: this._toolContext,
 		});
 	}
@@ -361,7 +366,9 @@ class AgentManager {
 		const userRules = getUserRules(this._toolContext.projectFolder);
 		const connections = getConnections(this._toolContext.projectFolder);
 		const skills = skillService.getSkills();
-		const basePrompt = renderToMarkdown(SystemPrompt({ memories, userRules, connections, skills, timezone }));
+		const basePrompt = renderToMarkdown(
+			SystemPrompt({ memories, userRules, connections, skills, timezone, testMode: this.chat.testMode }),
+		);
 		const renderedPrompt = provider
 			? renderToMarkdown(MessagingProviderSystemPrompt({ basePrompt, provider, chatUrl }))
 			: basePrompt;

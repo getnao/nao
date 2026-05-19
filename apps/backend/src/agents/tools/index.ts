@@ -31,13 +31,18 @@ export const tools = {
 	suggest_follow_ups: suggestFollowUps,
 };
 
-export const getTools = (agentSettings: AgentSettings | null, extraTools?: Record<string, unknown>) => {
+export const getTools = (
+	agentSettings: AgentSettings | null,
+	extraTools?: Record<string, unknown>,
+	opts?: { testMode?: boolean },
+) => {
 	const mcpTools = mcpService.getMcpTools();
 
-	const { execute_python, execute_sandboxed_code, ...baseTools } = tools;
+	const { execute_python, execute_sandboxed_code, clarification: clarificationTool, ...baseTools } = tools;
 
 	return {
 		...baseTools,
+		...(!opts?.testMode && { clarification: clarificationTool }),
 		...mcpTools,
 		...(agentSettings?.experimental?.pythonSandboxing && execute_python && { execute_python }),
 		...(agentSettings?.experimental?.sandboxes && execute_sandboxed_code && { execute_sandboxed_code }),
