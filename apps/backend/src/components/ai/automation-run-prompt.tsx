@@ -1,3 +1,5 @@
+import { Fragment } from 'react';
+
 import { Block, Code, List, ListItem, renderToMarkdown, Span, Title } from '../../lib/markdown';
 import {
 	type AutomationIntegrationToolName,
@@ -76,7 +78,7 @@ function AutomationIntegrationsList({ integrations }: { integrations: Automation
 	return (
 		<List>
 			{toolDescriptions.map((tool) => (
-				<ListItem>
+				<ListItem key={tool.name}>
 					<Code>{tool.name}</Code> - {tool.description}
 				</ListItem>
 			))}
@@ -95,10 +97,10 @@ function FormattedToolList({ tools }: { tools: AutomationIntegrationToolName[] }
 	return (
 		<Span>
 			{leadingTools.map((tool, index) => (
-				<>
+				<Fragment key={tool}>
 					{index > 0 ? ', ' : ''}
 					<Code>{tool}</Code>
-				</>
+				</Fragment>
 			))}{' '}
 			and <Code>{lastTool}</Code>
 		</Span>

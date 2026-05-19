@@ -244,13 +244,15 @@ export function Sidebar() {
 							isCollapsed={effectiveIsCollapsed}
 							onClick={handleNavigateStories}
 						/>
-						<SidebarMenuButton
-							icon={TimerIcon as unknown as LucideIcon}
-							label='Automations'
-							shortcut=''
-							isCollapsed={effectiveIsCollapsed}
-							onClick={handleNavigateAutomations}
-						/>
+						{!isViewer && (
+							<SidebarMenuButton
+								icon={TimerIcon as unknown as LucideIcon}
+								label='Automations'
+								shortcut=''
+								isCollapsed={effectiveIsCollapsed}
+								onClick={handleNavigateAutomations}
+							/>
+						)}
 					</>
 				)}
 			</div>

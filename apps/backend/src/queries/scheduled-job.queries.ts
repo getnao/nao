@@ -37,7 +37,7 @@ export const upsertRecurringJob = async (input: UpsertRecurringInput): Promise<D
 	if (input.status) {
 		updateValues.status = input.status;
 	}
-	if (input.maxAttempts) {
+	if (input.maxAttempts !== undefined) {
 		updateValues.maxAttempts = input.maxAttempts;
 	}
 	if (input.resetRunAtOnConflict) {

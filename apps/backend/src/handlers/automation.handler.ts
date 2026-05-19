@@ -173,12 +173,21 @@ async function finishAutomationRun(automation: AutomationWithSchedule, run: DBAu
 		return { ...run, chatId: chat.id, status: 'completed', completedAt: new Date() };
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
-		await automationQueries.failAutomationRun(run.id, message);
 		logger.error(`Automation run failed: ${message}`, {
 			source: 'system',
 			projectId: automation.projectId,
 			context: { automationId, runId: run.id },
 		});
+		try {
+			await automationQueries.failAutomationRun(run.id, message);
+		} catch (failErr) {
+			const failMessage = failErr instanceof Error ? failErr.message : String(failErr);
+			logger.error(`Failed to mark automation run as failed: ${failMessage}`, {
+				source: 'system',
+				projectId: automation.projectId,
+				context: { automationId, runId: run.id },
+			});
+		}
 		throw err;
 	}
 }
