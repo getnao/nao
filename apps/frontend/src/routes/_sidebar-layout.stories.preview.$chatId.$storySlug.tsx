@@ -57,6 +57,7 @@ function StoryPreviewPage() {
 	);
 
 	const cachedAt = story.cachedAt ? new Date(story.cachedAt as unknown as string) : null;
+	const canEditCharts = !story.archivedAt;
 
 	return (
 		<div className='flex flex-col flex-1 h-full overflow-hidden bg-panel min-w-0'>
@@ -130,21 +131,39 @@ function StoryPreviewPage() {
 
 			<SelectionProvider key={storySlug}>
 				<HighlightBubble onAsk={handleSelectionAsk} disabled={isChatRunning} />
-				<StoryChartEditProvider
-					chatId={chatId}
-					storySlug={storySlug}
-					storyTitle={story.title}
-					storyCode={story.code}
-				>
+				{renderWithChartEditProvider(
+					canEditCharts,
+					{ chatId, storySlug, storyTitle: story.title, storyCode: story.code },
 					<PreviewContent
 						code={story.code}
 						queryData={story.queryData as QueryDataMap | null}
 						chatId={chatId}
 						cacheSchedule={story.cacheSchedule}
-					/>
-				</StoryChartEditProvider>
+					/>,
+				)}
 			</SelectionProvider>
 		</div>
+	);
+}
+
+function renderWithChartEditProvider(
+	enabled: boolean,
+	params: { chatId: string; storySlug: string; storyTitle: string; storyCode: string },
+	children: React.ReactNode,
+) {
+	if (!enabled) {
+		return children;
+	}
+
+	return (
+		<StoryChartEditProvider
+			chatId={params.chatId}
+			storySlug={params.storySlug}
+			storyTitle={params.storyTitle}
+			storyCode={params.storyCode}
+		>
+			{children}
+		</StoryChartEditProvider>
 	);
 }
 

@@ -98,8 +98,14 @@ export function ChartConfigEditDialog({
 
 	const addSeries = () => {
 		const used = new Set(draft.series.map((s) => s.data_key));
-		const fallback =
-			availableColumns.find((c) => c !== draft.x_axis_key && !used.has(c)) ?? availableColumns[0] ?? '';
+		const selectableColumns = getSelectableColumns(availableColumns);
+		const fallback = selectableColumns.find((c) => c !== draft.x_axis_key && !used.has(c)) ?? selectableColumns[0];
+		if (!fallback) {
+			setError('No columns are available to add as a series.');
+			return;
+		}
+
+		setError(null);
 		setDraft((prev) => ({
 			...prev,
 			series: [...prev.series, { data_key: fallback }],
@@ -303,9 +309,10 @@ interface ColumnSelectProps {
 }
 
 function ColumnSelect({ value, columns, onChange }: ColumnSelectProps) {
-	const items = columns.includes(value) ? columns : [value, ...columns];
+	const columnsWithValues = getSelectableColumns(columns);
+	const items = value && !columnsWithValues.includes(value) ? [value, ...columnsWithValues] : columnsWithValues;
 	return (
-		<Select value={value} onValueChange={onChange}>
+		<Select value={value} onValueChange={onChange} disabled={items.length === 0}>
 			<SelectTrigger className='w-full'>
 				<SelectValue placeholder='Select column' />
 			</SelectTrigger>
@@ -318,6 +325,10 @@ function ColumnSelect({ value, columns, onChange }: ColumnSelectProps) {
 			</SelectContent>
 		</Select>
 	);
+}
+
+function getSelectableColumns(columns: string[]): string[] {
+	return Array.from(new Set(columns.filter((column) => column.length > 0)));
 }
 
 const HEX_RE = /^#[0-9a-fA-F]{6}$/;

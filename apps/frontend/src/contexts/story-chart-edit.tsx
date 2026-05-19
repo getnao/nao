@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useMemo } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { buildChartTag } from '@nao/shared/story-segments';
+import { replaceUniqueChartTag } from './story-chart-edit-utils';
 import type { displayChart } from '@nao/shared/tools';
 import { trpc } from '@/main';
 
@@ -70,11 +71,8 @@ export function StoryChartEditProvider({
 
 	const saveChart = useCallback(
 		async (rawTag: string, config: displayChart.Input) => {
-			if (!storyCode.includes(rawTag)) {
-				throw new Error('Could not locate the chart in the current story version.');
-			}
 			const nextTag = buildChartTag(config);
-			const nextCode = storyCode.replace(rawTag, nextTag);
+			const nextCode = replaceUniqueChartTag(storyCode, rawTag, nextTag);
 			if (nextCode === storyCode) {
 				return;
 			}
