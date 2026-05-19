@@ -576,18 +576,38 @@ class ClickHouseConfig(DatabaseConfig):
 
     type: Literal["clickhouse"] = "clickhouse"
     host: str = Field(description="ClickHouse server host")
-    port: int | None = Field(default=None, description="HTTP port (8123 plain, 8443 secure)")
+    protocol: Literal["http", "native"] = Field(
+        default="http",
+        description=(
+            "Wire protocol to use: 'http' (default, port 8123/8443 via clickhouse-connect/Ibis) "
+            "or 'native' (TCP, port 9000/9440 via clickhouse-driver). Use 'native' for ClickHouse "
+            "instances that do not expose the HTTP interface."
+        ),
+    )
+    port: int | None = Field(
+        default=None,
+        description=(
+            "Server port. Defaults to 8123 (HTTP) / 8443 (HTTPS) for protocol='http' and "
+            "9000 (TCP) / 9440 (TCP+TLS) for protocol='native'."
+        ),
+    )
     database: str = Field(description="Database name")
     user: str = Field(description="Username")
     password: str = Field(default="", description="Password")
-    secure: bool = Field(default=False, description="Use HTTPS")
+    secure: bool = Field(
+        default=False, description="Use HTTPS for protocol='http' or TLS over TCP for protocol='native'"
+    )
     connect_timeout: int | None = Field(
         default=None,
-        description="Connection timeout in seconds (passed to ibis.clickhouse.connect).",
+        description="Connection timeout in seconds (passed to the underlying ClickHouse client).",
     )
     send_receive_timeout: int | None = Field(
         default=None,
-        description="Send/receive timeout in seconds (passed to ibis.clickhouse.connect).",
+        description="Send/receive timeout in seconds (passed to the underlying ClickHouse client).",
+    )
+    verify: bool = Field(
+        default=True,
+        description="Verify TLS certificates when using protocol='native' with secure=True.",
     )
     # System databases are skipped by default unless explicitly included.
     _SYSTEM_DATABASES = frozenset(("INFORMATION_SCHEMA", "information_schema", "system"))
@@ -601,9 +621,18 @@ class ClickHouseConfig(DatabaseConfig):
         """Interactively prompt the user for ClickHouse configuration."""
         name = ask_text("Connection name:", default="clickhouse-prod") or "clickhouse-prod"
         host = ask_text("Host:", default="localhost") or "localhost"
+        protocol_str = ask_text(
+            "Protocol (http / native):",
+            default="http",
+        )
+        protocol = (protocol_str or "http").strip().lower()
+        if protocol not in ("http", "native"):
+            raise InitError("Protocol must be 'http' or 'native'.")
+
+        default_port = "8123" if protocol == "http" else "9000"
         port_str = ask_text(
-            "Port (empty = default 8123/8443):",
-            default="8123",
+            f"Port (empty = default {default_port}):",
+            default=default_port,
         )
         if port_str and not port_str.isdigit():
             raise InitError("Port must be a valid integer or empty.")
@@ -611,14 +640,19 @@ class ClickHouseConfig(DatabaseConfig):
         database = ask_text("Database name:", default="default") or "default"
         user = ask_text("Username:", default="default") or "default"
         password = ask_text("Password:", password=True) or ""
-        secure_str = ask_text("Use HTTPS (y/n):", default="n")
+        secure_prompt = "Use HTTPS (y/n):" if protocol == "http" else "Use TLS (y/n):"
+        secure_str = ask_text(secure_prompt, default="n")
         secure = bool(secure_str and str(secure_str).lower().startswith("y"))
         if port is None:
-            port = 8443 if secure else 8123
+            if protocol == "http":
+                port = 8443 if secure else 8123
+            else:
+                port = 9440 if secure else 9000
 
         return ClickHouseConfig(
             name=name,
             host=host,
+            protocol=protocol,  # type: ignore[arg-type]
             port=port,
             database=database,
             user=user,
@@ -627,7 +661,18 @@ class ClickHouseConfig(DatabaseConfig):
         )
 
     def connect(self) -> BaseBackend:
-        """Create an Ibis ClickHouse connection."""
+        """Create a ClickHouse connection.
+
+        ``protocol='http'`` returns an ``ibis`` HTTP backend (via clickhouse-connect).
+        ``protocol='native'`` returns an Ibis-compatible shim backed by
+        ``clickhouse-driver`` so that nao can talk to ClickHouse instances that
+        only expose the native TCP protocol (port 9000 by default).
+        """
+        if self.protocol == "native":
+            return self._connect_native()
+        return self._connect_http()
+
+    def _connect_http(self) -> BaseBackend:
         from nao_core.deps import require_database_backend
 
         require_database_backend("clickhouse")
@@ -652,6 +697,29 @@ class ClickHouseConfig(DatabaseConfig):
         if self.send_receive_timeout is not None:
             kwargs["send_receive_timeout"] = self.send_receive_timeout
         return ibis.clickhouse.connect(**kwargs)
+
+    def _connect_native(self) -> BaseBackend:
+        from nao_core.deps import require_dependency
+
+        require_dependency(
+            "clickhouse_driver",
+            "clickhouse",
+            purpose="to connect to ClickHouse over the native TCP protocol",
+        )
+
+        from ._clickhouse_native import NativeClickHouseBackend
+
+        return NativeClickHouseBackend(  # type: ignore[return-value]
+            host=self.host,
+            port=self.port,
+            database=self.database,
+            user=self.user,
+            password=self.password,
+            secure=self.secure,
+            connect_timeout=self.connect_timeout,
+            send_receive_timeout=self.send_receive_timeout,
+            verify=self.verify,
+        )
 
     def get_database_name(self) -> str:
         """Get the database name for ClickHouse."""
