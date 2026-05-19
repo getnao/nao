@@ -48,5 +48,5 @@ export const useStoryViewerContent = ({
 	const queryData = latestStoryQuery.data?.queryData as QueryDataMap | null | undefined;
 	const cachedAt = latestStoryQuery.data?.cachedAt as string | null | undefined;
 
-	return { storyTitle, storyCode, queryData, cachedAt };
+	return { storyTitle, storyCode, queryData, cachedAt, isLoading: latestStoryQuery.isLoading };
 };

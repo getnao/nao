@@ -13,6 +13,7 @@ import { SegmentList } from '@/components/story-rendering';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { trpc } from '@/main';
+import { StoryContentLoading } from '@/components/side-panel/story-content-loading';
 import { StoryDownload } from '@/components/story-download';
 import { SelectionProvider } from '@/contexts/text-selection';
 import { StoryChartEditProvider } from '@/contexts/story-chart-edit';
@@ -21,6 +22,7 @@ import { useChatActivity } from '@/hooks/use-chat-activity';
 
 export const Route = createFileRoute('/_sidebar-layout/stories/preview/$chatId/$storySlug')({
 	component: StoryPreviewPage,
+	pendingComponent: StoryContentLoading,
 });
 
 function StoryPreviewPage() {

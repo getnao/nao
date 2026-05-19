@@ -4,6 +4,7 @@ import { ShareStoryDialog } from '../share-dialog.story';
 import { StoryEditor } from './story-editor';
 import { LiveStorySettingsDialog } from './live-story-settings-dialog';
 import { ArchivedBanner } from './story-archived-banner';
+import { StoryContentLoading } from './story-content-loading';
 import { StoryHeader } from './story-header';
 import { StoryPreview } from './story-preview';
 import { StoryCodeView } from './story-code-view';
@@ -72,7 +73,13 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp }:
 		goToPreviousVersion,
 		goToNextVersion,
 	} = useStoryViewerVersions({ chatId, storySlug: resolvedStorySlug, isAgentRunning, isReadonlyMode });
-	const { storyTitle, storyCode, queryData, cachedAt } = useStoryViewerContent({
+	const {
+		storyTitle,
+		storyCode,
+		queryData,
+		cachedAt,
+		isLoading: isContentLoading,
+	} = useStoryViewerContent({
 		storySlug,
 		resolvedStorySlug,
 		chatId,
@@ -194,13 +201,17 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp }:
 						storyCode,
 					},
 					viewMode === 'preview' ? (
-						<StoryPreview
-							code={storyCode}
-							cacheSchedule={cacheSchedule}
-							queryData={queryData ?? null}
-							chatId={chatId}
-							versionKey={`${currentVersionNumber}-${cachedAt ?? ''}`}
-						/>
+						isContentLoading ? (
+							<StoryContentLoading />
+						) : (
+							<StoryPreview
+								code={storyCode}
+								cacheSchedule={cacheSchedule}
+								queryData={queryData ?? null}
+								chatId={chatId}
+								versionKey={`${currentVersionNumber}-${cachedAt ?? ''}`}
+							/>
+						)
 					) : viewMode === 'edit' ? (
 						<StoryEditor code={storyCode} editorRef={tiptapEditorRef} onSave={handleSave} />
 					) : (
