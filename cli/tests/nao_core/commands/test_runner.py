@@ -7,6 +7,33 @@ from nao_core.commands.test.client import VerificationResult
 from nao_core.commands.test.runner import check_dataframe, filter_test_cases
 
 
+def test_check_dataframe_treats_comma_formatted_numbers_as_equal():
+    verification = VerificationResult(
+        data=[{"total": "52,123,123"}],
+        expectedData=[{"total": 52123123}],
+        expectedColumns=["total"],
+    )
+
+    passed, msg, comparison = check_dataframe(verification)
+
+    assert passed is True
+    assert msg in {"match", "match (approximate)"}
+    assert comparison is None
+
+
+def test_check_dataframe_comma_formatted_numbers_still_detect_mismatch():
+    verification = VerificationResult(
+        data=[{"total": "52,000,000"}],
+        expectedData=[{"total": 52123123}],
+        expectedColumns=["total"],
+    )
+
+    passed, msg, comparison = check_dataframe(verification)
+
+    assert passed is False
+    assert msg == "values differ"
+
+
 def test_check_dataframe_rounds_to_two_decimals():
     verification = VerificationResult(
         data=[{"value": 1.234, "label": "a"}],

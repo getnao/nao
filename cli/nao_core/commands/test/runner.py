@@ -15,6 +15,7 @@ from nao_core.ui import UI
 
 from .case import TESTS_FOLDER, TestCase, discover_tests
 from .client import AgentClientError, VerificationResult, get_client
+from .compare import normalize_dataframe_numbers
 
 # Default models to test
 DEFAULT_MODELS = ["openai:gpt-4.1"]
@@ -96,6 +97,9 @@ def check_dataframe(
 
     if len(actual) != len(expected):
         return False, f"row count: {len(actual)} vs {len(expected)}", None
+
+    actual = normalize_dataframe_numbers(actual)
+    expected = normalize_dataframe_numbers(expected)
 
     def round_numeric(df: pd.DataFrame, decimals: int = 2) -> pd.DataFrame:
         """Round float-like columns to the given number of decimals for stable comparisons."""
