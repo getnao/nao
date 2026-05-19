@@ -366,7 +366,9 @@ class AgentManager {
 		const userRules = getUserRules(this._toolContext.projectFolder);
 		const connections = getConnections(this._toolContext.projectFolder);
 		const skills = skillService.getSkills();
-		const basePrompt = renderToMarkdown(SystemPrompt({ memories, userRules, connections, skills, timezone }));
+		const basePrompt = renderToMarkdown(
+			SystemPrompt({ memories, userRules, connections, skills, timezone, testMode: this.chat.testMode }),
+		);
 		const renderedPrompt = provider
 			? renderToMarkdown(MessagingProviderSystemPrompt({ basePrompt, provider, chatUrl }))
 			: basePrompt;
