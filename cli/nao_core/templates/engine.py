@@ -204,8 +204,8 @@ class TemplateEngine:
     def _generate_mistral(self, model: str, prompt_text: str) -> str:
         """Generate text via Mistral chat completion API."""
         try:
-            from mistralai import Mistral  # type: ignore[import-not-found]
-            from mistralai.models.chatcompletionrequest import MessagesTypedDict  # type: ignore[import-not-found]
+            from mistralai import Mistral
+            from mistralai.models.chatcompletionrequest import MessagesTypedDict
         except ImportError as exc:
             raise ImportError(
                 "The 'mistralai' package is required for the Mistral LLM provider.\n"
