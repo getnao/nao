@@ -52,6 +52,7 @@ export function uiToolMeta(resourceUri: string): Record<string, unknown> {
 function buildResourceUiMeta(): Record<string, unknown> {
 	const naoOrigin = new URL(env.BETTER_AUTH_URL).origin;
 	return {
+		domain: naoOrigin,
 		csp: {
 			connectDomains: [naoOrigin],
 			frameDomains: [naoOrigin],

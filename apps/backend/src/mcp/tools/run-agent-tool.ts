@@ -8,7 +8,8 @@ export async function runAgentTool<I, O>(tool: Tool<I, O>, input: I, ctx: McpCon
 	if (!tool.execute) {
 		throw new Error(`Agent tool has no execute function`);
 	}
-	const toolContext = await buildToolContext({ projectId: ctx.projectId, userId: ctx.userId, chatId: '' });
+	const chatId = ctx.sessionChatRef.lastChatId ?? '';
+	const toolContext = await buildToolContext({ projectId: ctx.projectId, userId: ctx.userId, chatId });
 	return tool.execute(input, makeExecutionOptions(toolContext)) as Promise<O>;
 }
 

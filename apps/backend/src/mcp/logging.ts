@@ -115,9 +115,9 @@ export function defineMcpHandler<T>(
 			const message = error instanceof Error ? error.message : String(error);
 			logger.error(`MCP ${name} error: ${message}`, {
 				source: 'tool',
-				context: { input, userId: ctx.userId },
+				context: { userId: ctx.userId, hasInput: input !== undefined },
 			});
-			const text = opts?.errorMessage ? opts.errorMessage(error) : `${name} error: ${message}`;
+			const text = opts?.errorMessage ? opts.errorMessage(error) : `${name} failed. Please try again.`;
 			return { content: [{ type: 'text' as const, text }], isError: true };
 		}
 	};

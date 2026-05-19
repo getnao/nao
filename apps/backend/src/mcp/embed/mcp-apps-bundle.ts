@@ -22,7 +22,7 @@ export function getMcpAppsBundle(): string {
 	const bundlePath = join(dirname(pkgJsonPath), 'dist/src/app-with-deps.js');
 	const raw = readFileSync(bundlePath, 'utf8');
 
-	const transformed = raw.replace(/export\s*\{([\s\S]*?)\}\s*;?\s*$/m, (_match, body: string) => {
+	const transformed = raw.replace(/export\s*\{([\s\S]*?)\}\s*;?\s*$/, (_match, body: string) => {
 		const assigns = body
 			.split(',')
 			.map((s) => s.trim())

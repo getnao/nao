@@ -1,5 +1,5 @@
 import type { McpChartEmbedStoredConfig } from '@nao/shared';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
@@ -10,17 +10,31 @@ export async function insertMcpChartEmbed(params: {
 	projectId: string;
 	chartConfig: McpChartEmbedStoredConfig;
 	sourceChatId: string | null;
-}): Promise<void> {
-	await db
-		.insert(s.mcpChartEmbed)
-		.values({
-			chartEmbedId: params.chartEmbedId,
-			queryId: params.queryId,
-			projectId: params.projectId,
-			chartConfig: params.chartConfig,
-			sourceChatId: params.sourceChatId,
-		})
-		.execute();
+}): Promise<boolean> {
+	return await db.transaction(async (tx) => {
+		const [match] = await tx
+			.select({ queryId: s.mcpQueryData.queryId })
+			.from(s.mcpQueryData)
+			.where(and(eq(s.mcpQueryData.queryId, params.queryId), eq(s.mcpQueryData.projectId, params.projectId)))
+			.limit(1)
+			.execute();
+
+		if (!match) {
+			return false;
+		}
+
+		await tx
+			.insert(s.mcpChartEmbed)
+			.values({
+				chartEmbedId: params.chartEmbedId,
+				queryId: params.queryId,
+				chartConfig: params.chartConfig,
+				sourceChatId: params.sourceChatId,
+			})
+			.execute();
+
+		return true;
+	});
 }
 
 export async function getMcpChartEmbedById(chartEmbedId: string): Promise<{
@@ -31,12 +45,13 @@ export async function getMcpChartEmbedById(chartEmbedId: string): Promise<{
 } | null> {
 	const [row] = await db
 		.select({
-			projectId: s.mcpChartEmbed.projectId,
+			projectId: s.mcpQueryData.projectId,
 			queryId: s.mcpChartEmbed.queryId,
 			chartConfig: s.mcpChartEmbed.chartConfig,
 			sourceChatId: s.mcpChartEmbed.sourceChatId,
 		})
 		.from(s.mcpChartEmbed)
+		.innerJoin(s.mcpQueryData, eq(s.mcpChartEmbed.queryId, s.mcpQueryData.queryId))
 		.where(eq(s.mcpChartEmbed.chartEmbedId, chartEmbedId))
 		.limit(1)
 		.execute();

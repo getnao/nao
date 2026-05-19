@@ -1,9 +1,11 @@
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import type { UserRole } from '@nao/shared/types';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 
 import type { App } from '../app';
 import { env } from '../env';
 import { getMcpEndpointSettings } from '../queries/mcp-endpoint.queries';
+import { getUserRoleInProject } from '../queries/project.queries';
 import { resolveUserId } from './auth';
 import { getMcpAppsBundle, MCP_APPS_SCRIPT_PATH } from './embed/mcp-apps-bundle';
 import { createMcpServer, resolveProjectId, sessions } from './server';
@@ -11,6 +13,8 @@ import { createMcpServer, resolveProjectId, sessions } from './server';
 declare module 'fastify' {
 	interface FastifyRequest {
 		mcpUserId: string;
+		mcpProjectId: string;
+		mcpRole: Exclude<UserRole, 'viewer'>;
 	}
 }
 
@@ -45,12 +49,21 @@ async function requireAuthenticatedMcpUser(request: FastifyRequest, reply: Fasti
 		replyUnauthorized(reply);
 		return;
 	}
+	const projectId = await resolveProjectId(userId);
+	const role = await getUserRoleInProject(projectId, userId);
+	if (!role || role === 'viewer') {
+		reply.status(403).send({ error: 'You do not have access to this MCP endpoint.' });
+		return;
+	}
+
 	request.mcpUserId = userId;
+	request.mcpProjectId = projectId;
+	request.mcpRole = role;
 }
 
 async function initializeSession(request: FastifyRequest, reply: FastifyReply): Promise<void> {
 	const userId = request.mcpUserId;
-	const projectId = await resolveProjectId(userId);
+	const projectId = request.mcpProjectId;
 	const settings = await getMcpEndpointSettings(projectId);
 	if (!settings.enabled) {
 		reply.status(503).send({ error: 'MCP is disabled for this workspace.' });

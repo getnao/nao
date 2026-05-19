@@ -665,16 +665,13 @@ export const mcpChartEmbed = sqliteTable(
 		queryId: text('query_id')
 			.notNull()
 			.references(() => mcpQueryData.queryId, { onDelete: 'cascade' }),
-		projectId: text('project_id')
-			.notNull()
-			.references(() => project.id, { onDelete: 'cascade' }),
 		chartConfig: text('chart_config', { mode: 'json' }).$type<McpChartEmbedStoredConfig>().notNull(),
 		sourceChatId: text('source_chat_id'),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull(),
 	},
-	(t) => [index('mcp_chart_embed_project_id_idx').on(t.projectId)],
+	(t) => [index('mcp_chart_embed_query_id_idx').on(t.queryId)],
 );
 
 export const storyDataCache = sqliteTable('story_data_cache', {

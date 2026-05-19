@@ -630,14 +630,11 @@ export const mcpChartEmbed = pgTable(
 		queryId: text('query_id')
 			.notNull()
 			.references(() => mcpQueryData.queryId, { onDelete: 'cascade' }),
-		projectId: text('project_id')
-			.notNull()
-			.references(() => project.id, { onDelete: 'cascade' }),
 		chartConfig: jsonb('chart_config').$type<McpChartEmbedStoredConfig>().notNull(),
 		sourceChatId: text('source_chat_id'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 	},
-	(t) => [index('mcp_chart_embed_project_id_idx').on(t.projectId)],
+	(t) => [index('mcp_chart_embed_query_id_idx').on(t.queryId)],
 );
 
 export const storyDataCache = pgTable('story_data_cache', {
