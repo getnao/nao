@@ -63,9 +63,7 @@ fabric = ["ibis-framework[mssql]>=9.0.0", "azure-identity>=1.19.0"]
 # LLM providers
 openai = ["openai>=1.0.0"]
 anthropic = ["anthropic>=0.76.0"]
-# Note: mistralai must be installed manually (`pip install mistralai`) because
-# PyPI has quarantined the package; reintroduce a `mistral` extra here once it
-# is restored.
+mistral = ["mistralai>=1.11.1,<2.0.0"]
 gemini = ["google-genai>=1.61.0"]
 ollama = ["ollama>=0.4.0"]
 
@@ -76,7 +74,7 @@ notion = ["notion-client>=2.7.0", "notion2md>=2.9.0"]
 all-databases = [
     "nao-core[postgres,bigquery,snowflake,duckdb,clickhouse,databricks,mysql,mssql,athena,trino,redshift,fabric]",
 ]
-all-llms = ["nao-core[openai,anthropic,gemini,ollama]"]
+all-llms = ["nao-core[openai,anthropic,mistral,gemini,ollama]"]
 all = ["nao-core[all-databases,all-llms,notion]"]
 dev = ["pytest-cov", "pytest-timeout>=2.3.0"]
 

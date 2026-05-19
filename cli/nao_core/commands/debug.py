@@ -43,14 +43,8 @@ def _check_available_models(llm_config) -> Tuple[bool, str]:
         client = genai.Client(api_key=api_key)
         models = client.models.list()
     elif provider == "mistral":
-        try:
-            from mistralai import Mistral
-        except ImportError as exc:
-            raise ImportError(
-                "The 'mistralai' package is required for the Mistral LLM provider.\n"
-                "It is currently unavailable as a nao-core extra because PyPI has\n"
-                "quarantined the package; install it manually with `pip install mistralai`."
-            ) from exc
+        require_dependency("mistralai", "mistral", "for Mistral LLM provider")
+        from mistralai import Mistral
 
         client = Mistral(api_key=api_key)
         models = client.models.list()

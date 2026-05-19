@@ -30,8 +30,7 @@ pip install 'nao-core[fabric]'
 # LLM providers
 pip install 'nao-core[openai]'
 pip install 'nao-core[anthropic]'
-# Mistral: install mistralai directly (the package is currently quarantined on PyPI;
-# nao-core does not expose a [mistral] extra until it is restored).
+pip install 'nao-core[mistral]'
 pip install 'nao-core[gemini]'
 pip install 'nao-core[ollama]'
 
