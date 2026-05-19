@@ -124,7 +124,7 @@ export function registerDataTools(server: McpServer, ctx: McpContext): void {
 			let embedUrl: string | null = null;
 			try {
 				const id = randomUUID();
-				await insertMcpChartEmbed({
+				const inserted = await insertMcpChartEmbed({
 					chartEmbedId: id,
 					queryId: query_id,
 					projectId: ctx.projectId,
@@ -137,6 +137,9 @@ export function registerDataTools(server: McpServer, ctx: McpContext): void {
 					},
 					sourceChatId: validatedChatId ?? null,
 				});
+				if (!inserted) {
+					throw new Error(`no mcp_query_data row for query_id=${query_id} project_id=${ctx.projectId}`);
+				}
 				chartEmbedId = id;
 				embedUrl = chartEmbedUrl(id, ctx.projectId);
 			} catch (dbErr) {

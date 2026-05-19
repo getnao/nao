@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import { registerAppResource, RESOURCE_MIME_TYPE } from '@modelcontextprotocol/ext-apps/server';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
@@ -12,14 +14,14 @@ export function registerNaoMcpApps(server: McpServer): void {
 		server,
 		'Nao Story App',
 		STORY_APP_URI,
-		{ title: 'Nao Story App', _meta: { ui: buildResourceUiMeta() } },
+		{ title: 'Nao Story App', _meta: { ui: buildListingUiMeta() } },
 		async () => ({
 			contents: [
 				{
 					uri: STORY_APP_URI,
 					mimeType: RESOURCE_MIME_TYPE,
 					text: buildAppShellHtml('Nao Story'),
-					_meta: { ui: buildResourceUiMeta() },
+					_meta: { ui: buildContentUiMeta(server) },
 				},
 			],
 		}),
@@ -29,14 +31,14 @@ export function registerNaoMcpApps(server: McpServer): void {
 		server,
 		'Nao Chart App',
 		CHART_APP_URI,
-		{ title: 'Nao Chart App', _meta: { ui: buildResourceUiMeta() } },
+		{ title: 'Nao Chart App', _meta: { ui: buildListingUiMeta() } },
 		async () => ({
 			contents: [
 				{
 					uri: CHART_APP_URI,
 					mimeType: RESOURCE_MIME_TYPE,
 					text: buildAppShellHtml('Nao Chart'),
-					_meta: { ui: buildResourceUiMeta() },
+					_meta: { ui: buildContentUiMeta(server) },
 				},
 			],
 		}),
@@ -49,17 +51,61 @@ export function uiToolMeta(resourceUri: string): Record<string, unknown> {
 	};
 }
 
-function buildResourceUiMeta(): Record<string, unknown> {
+function buildListingUiMeta(): Record<string, unknown> {
 	const naoOrigin = new URL(env.BETTER_AUTH_URL).origin;
 	return {
-		domain: naoOrigin,
-		csp: {
-			connectDomains: [naoOrigin],
-			frameDomains: [naoOrigin],
-			resourceDomains: [naoOrigin],
-		},
+		csp: buildCsp(naoOrigin),
 		permissions: { clipboardWrite: {} },
 	};
+}
+
+function buildContentUiMeta(server: McpServer): Record<string, unknown> {
+	const naoOrigin = new URL(env.BETTER_AUTH_URL).origin;
+	const meta: Record<string, unknown> = {
+		csp: buildCsp(naoOrigin),
+		permissions: { clipboardWrite: {} },
+	};
+	const domain = resolveSandboxDomain(server, naoOrigin);
+	if (domain) {
+		meta.domain = domain;
+	}
+	return meta;
+}
+
+function buildCsp(origin: string) {
+	return {
+		connectDomains: [origin],
+		frameDomains: [origin],
+		resourceDomains: [origin],
+	};
+}
+
+function resolveSandboxDomain(server: McpServer, naoOrigin: string): string | null {
+	const clientName = readClientName(server);
+	if (!clientName) {
+		return null;
+	}
+	if (clientName.includes('claude')) {
+		return computeClaudeSandboxDomain(`${naoOrigin}/mcp`);
+	}
+	if (clientName.includes('chatgpt') || clientName.includes('openai')) {
+		return naoOrigin;
+	}
+	return null;
+}
+
+function readClientName(server: McpServer): string | null {
+	try {
+		const info = server.server.getClientVersion();
+		return info?.name ? info.name.toLowerCase() : null;
+	} catch {
+		return null;
+	}
+}
+
+function computeClaudeSandboxDomain(mcpServerUrl: string): string {
+	const hash = createHash('sha256').update(mcpServerUrl).digest('hex').slice(0, 32);
+	return `${hash}.claudemcpcontent.com`;
 }
 
 function buildAppShellHtml(documentTitle: string): string {

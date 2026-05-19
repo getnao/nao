@@ -33,12 +33,19 @@ export async function getStoryByChatAndSlug(chatId: string, slug: string): Promi
 
 export async function getStoryProjectId(storyId: string): Promise<string | null> {
 	const [row] = await db
-		.select({ projectId: s.story.projectId })
+		.select({
+			storyProjectId: s.story.projectId,
+			chatProjectId: s.chat.projectId,
+		})
 		.from(s.story)
+		.leftJoin(s.chat, eq(s.story.chatId, s.chat.id))
 		.where(eq(s.story.id, storyId))
 		.limit(1)
 		.execute();
-	return row?.projectId ?? null;
+	if (!row) {
+		return null;
+	}
+	return row.chatProjectId ?? row.storyProjectId ?? null;
 }
 
 export async function getStoryOwnerId(storyId: string): Promise<string | undefined> {
