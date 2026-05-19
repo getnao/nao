@@ -267,9 +267,20 @@ def spec(temp_database):
     )
 
 
-@pytest.mark.timeout(120)
-class TestClickHouseSyncIntegration(BaseSyncIntegrationTests):
-    """Verify the sync pipeline produces correct output against a live ClickHouse database."""
+class _ClickHouseSyncMixin(BaseSyncIntegrationTests):
+    """Provider-specific assertions shared by both HTTP and native protocol test suites.
+
+    Both ``TestClickHouseSyncIntegration`` (HTTP via Ibis) and
+    ``TestClickHouseNativeSyncIntegration`` (TCP via clickhouse-driver) must
+    produce identical sync output, so every override below is reused as-is.
+
+    Subclasses inherit the shared assertions and helpers via this mixin alone
+    (no need to also list ``BaseSyncIntegrationTests``).
+    """
+
+    # ``__test__ = False`` keeps pytest from collecting the mixin itself; only
+    # the concrete subclasses below should run.
+    __test__ = False
 
     def test_creates_expected_directory_tree(self, synced, spec):
         """Override base expectation: ClickHouse also generates ai_summary.md."""
@@ -449,3 +460,10 @@ class TestClickHouseSyncIntegration(BaseSyncIntegrationTests):
         assert spec.users_table in state.synced_tables[spec.primary_schema]
         assert spec.orders_table in state.synced_tables[spec.primary_schema]
         assert spec.another_table in state.synced_tables[spec.another_schema]
+
+
+@pytest.mark.timeout(120)
+class TestClickHouseSyncIntegration(_ClickHouseSyncMixin):
+    """Verify the sync pipeline produces correct output against ClickHouse over HTTP."""
+
+    __test__ = True
