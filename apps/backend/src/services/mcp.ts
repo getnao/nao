@@ -79,17 +79,19 @@ export class McpService {
 		}
 	}
 
-	public getMcpTools(): Record<string, Tool> {
+	public getMcpTools(serverNames?: string[] | null): Record<string, Tool> {
 		const enabledToolNames = new Set(
 			Object.values(this.cachedMcpState)
 				.flatMap((server) => server.tools)
 				.filter((tool) => tool.enabled)
 				.map((tool) => tool.name),
 		);
+		const serverNameSet = Array.isArray(serverNames) ? new Set(serverNames) : null;
 
 		return Object.fromEntries(
 			Object.entries(this._mcpTools)
 				.filter(([name]) => enabledToolNames.has(name))
+				.filter(([name]) => !serverNameSet || serverNameSet.has(this._toolsToServer.get(name) ?? ''))
 				.map(([name, tool]) => [name, this._sanitizeTool(tool)]),
 		);
 	}

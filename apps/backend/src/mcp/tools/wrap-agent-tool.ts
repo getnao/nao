@@ -59,6 +59,7 @@ async function buildMcpToolContext(ctx: McpContext): Promise<ToolContext> {
 		envVars,
 		azureAccessToken,
 		queryResults: new Map(),
+		generatedArtifacts: { charts: [], stories: [] },
 	};
 }
 

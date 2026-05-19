@@ -51,6 +51,7 @@ export const testRoutes = async (app: App) => {
 							envVars: {},
 							azureAccessToken: null,
 							queryResults: new Map(),
+							generatedArtifacts: { charts: [], stories: [] },
 						},
 					);
 					const { data } = await testAgentService.runVerification(

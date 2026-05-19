@@ -26,6 +26,7 @@ import { useHeight } from '@/hooks/use-height';
 import { useDebounceValue } from '@/hooks/use-debounce-value';
 import { useScrollToBottomOnNewUserMessage } from '@/hooks/use-scroll-to-bottom-on-new-user-message';
 import { useChatId } from '@/hooks/use-chat-id';
+import { useChatQuery } from '@/queries/use-chat-query';
 import { trpc } from '@/main';
 
 const DEBUG_MESSAGES = false;
@@ -59,11 +60,14 @@ export function ChatMessages() {
 export const ChatMessagesContent = memo(() => {
 	const chatId = useChatId();
 	const { messages, isRunning } = useAgentContext();
-	const isAgentGenerating = isRunning && checkIsLastMessageStreaming(messages);
-	const someToolsExectuting = isRunning && checkIsSomeToolsExecuting(messages);
+	const chat = useChatQuery({ chatId });
+	const isAutomationRunning = chat.data?.automationRun?.status === 'running';
+	const effectiveIsRunning = isRunning || isAutomationRunning;
+	const isAgentGenerating = effectiveIsRunning && checkIsLastMessageStreaming(messages);
+	const someToolsExectuting = effectiveIsRunning && checkIsSomeToolsExecuting(messages);
 
 	// Debounce when the agent is running but not generating content yet to prevent flickering
-	const showThinkingLoader = useDebounceValue(isRunning && !isAgentGenerating && !someToolsExectuting, {
+	const showThinkingLoader = useDebounceValue(effectiveIsRunning && !isAgentGenerating && !someToolsExectuting, {
 		delay: 50,
 		skipDebounce: (value) => !value, // Skip debounce if the value equals `false` to immediately remove the loader
 	});
@@ -97,7 +101,7 @@ export const ChatMessagesContent = memo(() => {
 						assistantMessages={group.assistantMessages}
 						showLoader={showThinkingLoader && isLast(group, messageGroups)}
 						isLastMessage={(messageId) => messageId === visibleMessages.at(-1)?.id}
-						isRunning={isRunning}
+						isRunning={effectiveIsRunning}
 						storyIntroMessageId={storyIntroMessageId}
 					/>
 				))

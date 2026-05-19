@@ -1,6 +1,7 @@
 import { accountRoutes } from './account.routes';
 import { apiKeyRoutes } from './api-key.routes';
 import { authConfigRoutes } from './auth-config.routes';
+import { automationRoutes } from './automation.routes';
 import { brandingRoutes } from './branding.routes';
 import { budgetRoutes } from './budget.routes';
 import { chartRoutes } from './chart.routes';
@@ -34,6 +35,7 @@ export const trpcRouter = router({
 	chart: chartRoutes,
 	chat: chatRoutes,
 	sharedChat: sharedChatRoutes,
+	automation: automationRoutes,
 	chatFork: chatForkRoutes,
 	citation: citationRoutes,
 	contextExplorer: contextExplorerRoutes,

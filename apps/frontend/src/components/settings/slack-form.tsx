@@ -57,6 +57,7 @@ function buildSlackManifest(webhookUrl: string, mentionName: string, transportMo
 					'users:read',
 					'users:read.email',
 					'chat:write',
+					'chat:write.public',
 					'files:write',
 				],
 			},

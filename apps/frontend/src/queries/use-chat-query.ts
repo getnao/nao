@@ -8,6 +8,7 @@ export const useChatQuery = ({ chatId }: { chatId?: string }) => {
 			{ chatId: chatId ?? '' },
 			{
 				enabled: !!chatId,
+				refetchInterval: (query) => (query.state.data?.automationRun?.status === 'running' ? 1_500 : false),
 			},
 		),
 	);

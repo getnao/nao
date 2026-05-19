@@ -1,8 +1,15 @@
+import type { displayChart } from '@nao/shared/tools';
+
 import { AgentSettings } from './agent-settings';
 
 export interface QueryResult {
 	columns: string[];
 	data: Record<string, unknown>[];
+}
+
+export interface GeneratedArtifacts {
+	charts: displayChart.Input[];
+	stories: { id: string; title: string }[];
 }
 
 export interface ToolContext {
@@ -23,4 +30,5 @@ export interface ToolContext {
 	 * to message history and caches the result back into this map.
 	 */
 	queryResults: Map<string, QueryResult>;
+	generatedArtifacts: GeneratedArtifacts;
 }

@@ -288,6 +288,13 @@
       "when": 1778541532870,
       "tag": "0040_branding_config",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "6",
+      "when": 1779179529694,
+      "tag": "0041_automations",
+      "breakpoints": true
     }
   ]
 }

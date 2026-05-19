@@ -45,6 +45,11 @@ export type NewOrgMember = typeof sqliteSchema.orgMember.$inferInsert;
 export type DBProjectSavedPrompt = typeof sqliteSchema.projectSavedPrompt.$inferSelect;
 export type NewProjectSavedPrompt = typeof sqliteSchema.projectSavedPrompt.$inferInsert;
 
+export type DBAutomation = typeof sqliteSchema.automation.$inferSelect;
+export type NewAutomation = typeof sqliteSchema.automation.$inferInsert;
+export type DBAutomationRun = typeof sqliteSchema.automationRun.$inferSelect;
+export type NewAutomationRun = typeof sqliteSchema.automationRun.$inferInsert;
+
 export type DBMemory = typeof sqliteSchema.memories.$inferSelect;
 export type DBNewMemory = typeof sqliteSchema.memories.$inferInsert;
 

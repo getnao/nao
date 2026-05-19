@@ -10,7 +10,7 @@ import {
 import z from 'zod/v4';
 
 import { getTools, tools } from '../agents/tools';
-import { MessageFeedback } from '../db/abstractSchema';
+import { DBAutomationRun, MessageFeedback } from '../db/abstractSchema';
 import { llmSelectedModelSchema } from './llm';
 
 export interface ForkMetadata {
@@ -32,6 +32,10 @@ export interface UIChat {
 	updatedAt: number;
 	messages: UIMessage[];
 	forkMetadata?: ForkMetadata;
+	automationRun?: Pick<
+		DBAutomationRun,
+		'id' | 'automationId' | 'status' | 'startedAt' | 'completedAt' | 'errorMessage'
+	>;
 }
 
 export interface ChatListItem {

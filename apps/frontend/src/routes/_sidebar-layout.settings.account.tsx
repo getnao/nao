@@ -1,5 +1,6 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Github } from 'lucide-react';
 import { useState } from 'react';
 import type { UserRole } from '@nao/shared/types';
 
@@ -16,6 +17,7 @@ import { ThemeSelector } from '@/components/settings/theme-selector';
 import { DangerZone } from '@/components/settings/danger-zone';
 import { SettingsCard, SettingsPageWrapper } from '@/components/ui/settings-card';
 import { SettingsControlRow, SettingsToggleRow } from '@/components/ui/settings-toggle-row';
+import { Button } from '@/components/ui/button';
 import { trpc } from '@/main';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/account')({
@@ -35,6 +37,12 @@ function GeneralPage() {
 	const [editOpen, setEditOpen] = useState(false);
 
 	const modifyUser = useMutation(trpc.user.modify.mutationOptions());
+	const githubAvailable = useQuery(trpc.github.isAvailable.queryOptions());
+	const githubStatus = useQuery({
+		...trpc.github.getStatus.queryOptions(),
+		enabled: githubAvailable.data === true,
+	});
+	const disconnectGithub = useMutation(trpc.github.disconnect.mutationOptions());
 
 	const editMember: TeamMember | null =
 		user && editOpen
@@ -66,6 +74,11 @@ function GeneralPage() {
 		});
 	};
 
+	const handleDisconnectGithub = async () => {
+		await disconnectGithub.mutateAsync();
+		await githubStatus.refetch();
+	};
+
 	return (
 		<SettingsPageWrapper>
 			<UserProfileCard
@@ -93,6 +106,50 @@ function GeneralPage() {
 				/>
 				<SettingsControlRow label='Theme' description='Choose how nao looks.' control={<ThemeSelector />} />
 			</SettingsCard>
+
+			{githubAvailable.data === true && (
+				<SettingsCard
+					title='GitHub'
+					description='Connect the GitHub account automations can use for proactive actions.'
+					icon={<Github className='size-4' />}
+				>
+					{githubStatus.data?.connected ? (
+						<div className='flex items-center justify-between gap-4'>
+							<div className='flex items-center gap-3 min-w-0'>
+								{githubStatus.data.user.avatarUrl && (
+									<img
+										src={githubStatus.data.user.avatarUrl}
+										alt=''
+										className='size-8 rounded-full'
+									/>
+								)}
+								<div className='min-w-0'>
+									<div className='text-sm font-medium truncate'>{githubStatus.data.user.login}</div>
+									<div className='text-xs text-muted-foreground'>Connected</div>
+								</div>
+							</div>
+							<Button
+								variant='secondary'
+								size='sm'
+								onClick={handleDisconnectGithub}
+								disabled={disconnectGithub.isPending}
+							>
+								Disconnect
+							</Button>
+						</div>
+					) : (
+						<div className='flex items-center justify-between gap-4'>
+							<p className='text-sm text-muted-foreground'>GitHub is not connected yet.</p>
+							<Button variant='secondary' size='sm' asChild>
+								<a href='/api/github/connect?returnTo=/settings/account'>
+									<Github className='size-3.5' />
+									Connect GitHub
+								</a>
+							</Button>
+						</div>
+					)}
+				</SettingsCard>
+			)}
 
 			{!isViewer && <DangerZone />}
 

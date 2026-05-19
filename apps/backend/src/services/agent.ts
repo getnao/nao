@@ -11,6 +11,8 @@ import {
 	ModelMessage,
 	Output,
 	pruneMessages,
+	stepCountIs,
+	type StopCondition,
 	StreamTextResult,
 	ToolLoopAgent,
 	UIMessageStreamWriter,
@@ -91,7 +93,22 @@ export class AgentService {
 		await assertBudgetNotExceeded(projectId, resolved.provider);
 	}
 
-	async create(chat: AgentChat, modelSelection?: LlmSelectedModel): Promise<AgentManager> {
+	async create(
+		chat: AgentChat,
+		modelSelection?: LlmSelectedModel,
+		options: {
+			extraTools?: Record<string, unknown>;
+			mcpEnabled?: boolean;
+			mcpServers?: string[] | null;
+			/**
+			 * Removes `suggest_follow_ups` and switches the loop's stop condition
+			 * to a step counter. Used by non-interactive runs (e.g. automations)
+			 * where suggesting follow-ups would prematurely end the loop
+			 * before outbound integration tools fire.
+			 */
+			excludeFollowUps?: boolean;
+		} = {},
+	): Promise<AgentManager> {
 		this._disposeAgent(chat.id);
 		const resolvedLlmSelectedModel = await this._getResolvedLlmSelectedModel(chat.projectId, modelSelection);
 		await assertBudgetNotExceeded(chat.projectId, resolvedLlmSelectedModel.provider);
@@ -99,7 +116,18 @@ export class AgentService {
 		const agentSettings = await projectQueries.getAgentSettings(chat.projectId);
 		const toolContext = await this._getToolContext(chat.projectId, chat.id, chat.userId, agentSettings);
 		const webTools = await this._resolveWebTools(chat.projectId, resolvedLlmSelectedModel.provider, agentSettings);
-		const agentTools = getTools(agentSettings, webTools ?? undefined, { testMode: chat.testMode });
+		const extraTools = { ...(webTools ?? {}), ...(options.extraTools ?? {}) };
+		const agentTools = getTools(agentSettings, extraTools, {
+			testMode: chat.testMode,
+			mcpEnabled: options.mcpEnabled,
+			mcpServers: options.mcpServers,
+			excludeFollowUps: options.excludeFollowUps,
+		});
+		const stopWhen: StopCondition<AgentTools>[] = options.excludeFollowUps
+			? [stepCountIs(20)]
+			: chat.testMode
+				? [hasToolCall('suggest_follow_ups')]
+				: [hasToolCall('suggest_follow_ups'), hasToolCall('clarification')];
 		const agent = new AgentManager(
 			chat,
 			modelConfig,
@@ -108,6 +136,7 @@ export class AgentService {
 			new AbortController(),
 			agentTools,
 			toolContext,
+			stopWhen,
 		);
 		this._agents.set(chat.id, agent);
 		return agent;
@@ -161,6 +190,7 @@ export class AgentService {
 			envVars,
 			azureAccessToken,
 			queryResults: new Map(),
+			generatedArtifacts: { charts: [], stories: [] },
 		};
 	}
 
@@ -215,18 +245,15 @@ class AgentManager {
 		private readonly _abortController: AbortController,
 		private readonly _agentTools: AgentTools,
 		private readonly _toolContext: ToolContext,
+		stopWhen: StopCondition<AgentTools>[] = [hasToolCall('suggest_follow_ups'), hasToolCall('clarification')],
 	) {
-		const stopConditions = chat.testMode
-			? [hasToolCall('suggest_follow_ups')]
-			: [hasToolCall('suggest_follow_ups'), hasToolCall('clarification')];
-
 		this._agent = new ToolLoopAgent({
 			model: this._modelConfig.model,
 			providerOptions: this._modelConfig.providerOptions,
 			tools: this._agentTools,
 			maxOutputTokens: MAX_OUTPUT_TOKENS,
 			prepareStep: async ({ messages }) => this._prepareStep(messages),
-			stopWhen: stopConditions,
+			stopWhen,
 			experimental_context: this._toolContext,
 		});
 	}
@@ -544,9 +571,22 @@ class AgentManager {
 		}
 	}
 
-	async generate(uiMessages: UIMessage[]): Promise<AgentRunResult> {
+	async generate(
+		uiMessages: UIMessage[],
+		opts: {
+			provider?: Provider;
+			timezone?: string;
+			chatUrl?: string;
+		} = {},
+	): Promise<AgentRunResult> {
 		const startTime = performance.now();
-		const messages = await this._buildModelMessages(uiMessages);
+		const messages = await this._buildModelMessages(
+			uiMessages,
+			undefined,
+			opts.provider,
+			opts.timezone,
+			opts.chatUrl,
+		);
 		try {
 			const result = await this._agent.generate({
 				messages,

@@ -1,6 +1,15 @@
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useMatchRoute, useNavigate, useRouterState } from '@tanstack/react-router';
-import { ArrowLeft, ArrowLeftFromLine, ArrowRightToLine, ChevronRight, PlusIcon, SearchIcon, X } from 'lucide-react';
+import {
+	ArrowLeft,
+	ArrowLeftFromLine,
+	ArrowRightToLine,
+	ChevronRight,
+	PlusIcon,
+	SearchIcon,
+	TimerIcon,
+	X,
+} from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { ChatFilterMenu } from './sidebar-chat-filter-menu';
 import { ChatListItem } from './sidebar-chat-list-item';
@@ -60,6 +69,13 @@ export function Sidebar() {
 
 	const handleNavigateStories = useCallback(() => {
 		navigate({ to: '/stories' });
+		if (isMobile) {
+			closeMobile();
+		}
+	}, [navigate, isMobile, closeMobile]);
+
+	const handleNavigateAutomations = useCallback(() => {
+		navigate({ to: '/automations' });
 		if (isMobile) {
 			closeMobile();
 		}
@@ -228,6 +244,13 @@ export function Sidebar() {
 							isCollapsed={effectiveIsCollapsed}
 							onClick={handleNavigateStories}
 						/>
+						<SidebarMenuButton
+							icon={TimerIcon as unknown as LucideIcon}
+							label='Automations'
+							shortcut=''
+							isCollapsed={effectiveIsCollapsed}
+							onClick={handleNavigateAutomations}
+						/>
 					</>
 				)}
 			</div>
@@ -339,6 +362,10 @@ function SidebarNav({
 		...trpc.chat.listGrouped.queryOptions({ groupBy, filters }),
 		placeholderData: keepPreviousData,
 	});
+	const automations = useQuery({
+		...trpc.automation.list.queryOptions(),
+		enabled: !isViewer,
+	});
 	const groups = groupedChats.data?.groups;
 	const isEmpty = groups?.every((group) => group.chats.length === 0);
 	return (
@@ -348,6 +375,8 @@ function SidebarNav({
 				hideIf(isCollapsed),
 			)}
 		>
+			{!isViewer && <AutomationsSection items={automations.data ?? []} />}
+
 			{groups?.map((group) => (
 				<GroupSection key={group.label} group={group} groupBy={groupBy} />
 			))}
@@ -366,6 +395,71 @@ function SidebarNav({
 				</p>
 			)}
 		</div>
+	);
+}
+
+function AutomationsSection({
+	items,
+}: {
+	items: Array<{
+		id: string;
+		title: string;
+		enabled: boolean;
+		updatedAt: Date;
+	}>;
+}) {
+	const [isOpen, setIsOpen] = useState(true);
+
+	if (items.length === 0) {
+		return null;
+	}
+
+	return (
+		<>
+			<div className='px-2 space-y-0.5'>
+				<SidebarSectionHeader label='Automations' isOpen={isOpen} onToggle={() => setIsOpen((p) => !p)} />
+			</div>
+			{isOpen && (
+				<div className='px-2 space-y-1'>
+					{items.map((item) => (
+						<AutomationListItem key={item.id} item={item} />
+					))}
+				</div>
+			)}
+		</>
+	);
+}
+
+function AutomationListItem({
+	item,
+}: {
+	item: {
+		id: string;
+		title: string;
+		enabled: boolean;
+		updatedAt: Date;
+	};
+}) {
+	const timeAgo = useTimeAgo(new Date(item.updatedAt).getTime());
+
+	return (
+		<Link
+			params={{ automationId: item.id }}
+			to='/automations/$automationId'
+			className='group relative w-full rounded-md px-3 py-2 transition-[background-color,padding,opacity] min-w-0 flex-1 flex gap-2 items-center'
+			inactiveProps={{ className: 'text-sidebar-foreground hover:bg-sidebar-accent opacity-75' }}
+			activeProps={{ className: 'text-foreground bg-sidebar-accent font-medium' }}
+		>
+			<div className='truncate text-sm mr-auto'>{item.title}</div>
+			<div
+				className={cn(
+					'text-xs whitespace-nowrap',
+					item.enabled ? 'text-muted-foreground' : 'text-muted-foreground/60',
+				)}
+			>
+				{item.enabled ? timeAgo.humanReadable : 'paused'}
+			</div>
+		</Link>
 	);
 }
 

@@ -10,6 +10,7 @@ import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 
 import { env, isCloud } from './env';
+import { AUTOMATION_JOB_NAME, automationHandler } from './handlers/automation.handler';
 import { LOG_CLEANUP_JOB_NAME, logCleanupHandler, runLogCleanup } from './handlers/log-cleanup.handler';
 import { mcpServerRoutes } from './mcp/routes';
 import { ensureOrganizationSetup } from './queries/organization.queries';
@@ -292,6 +293,7 @@ export const startServer = async (opts: { port: number; host: string }) => {
 		logger.error(`Log cleanup failed: ${err instanceof Error ? err.message : String(err)}`, { source: 'system' });
 	});
 	registerJob(LOG_CLEANUP_JOB_NAME, logCleanupHandler);
+	registerJob(AUTOMATION_JOB_NAME, automationHandler);
 	await ensureRecurring({ name: LOG_CLEANUP_JOB_NAME, cron: '0 3 * * *', uniqueKey: LOG_CLEANUP_JOB_NAME });
 	startScheduler();
 	await startLicenseHeartbeat();

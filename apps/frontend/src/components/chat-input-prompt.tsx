@@ -23,8 +23,10 @@ const storyMentionOption: MentionOption = {
 type ChatPromptProps = {
 	promptRef: RefObject<PromptHandle | null>;
 	placeholder: string;
-	onChange: (value: string) => void;
-	onEnter: (value: string, mentions: SelectedMention[]) => void;
+	initialValue?: string;
+	minHeight?: string;
+	onChange: (value: string, mentions: SelectedMention[]) => void;
+	onEnter?: (value: string, mentions: SelectedMention[]) => void;
 };
 
 const theme: PromptTheme = {
@@ -66,13 +68,15 @@ function buildDatabaseObjectOptions(
 	}));
 }
 
-export function ChatPrompt({ promptRef, placeholder, onChange, onEnter }: ChatPromptProps) {
+export function ChatPrompt({ promptRef, placeholder, initialValue, minHeight, onChange, onEnter }: ChatPromptProps) {
 	const { data: skills } = useQuery(trpc.skill.list.queryOptions());
 	const { data: databaseObjects } = useQuery(trpc.project.getDatabaseObjects.queryOptions());
+	const promptTheme = minHeight ? { ...theme, minHeight } : theme;
 
 	return (
 		<Prompt
 			ref={promptRef}
+			initialValue={initialValue}
 			placeholder={placeholder}
 			mentionConfigs={[
 				{
@@ -101,7 +105,7 @@ export function ChatPrompt({ promptRef, placeholder, onChange, onEnter }: ChatPr
 			onChange={onChange}
 			onEnter={onEnter}
 			className='w-full nao-input'
-			theme={theme}
+			theme={promptTheme}
 		/>
 	);
 }

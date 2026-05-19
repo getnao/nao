@@ -23,7 +23,10 @@ export const githubRoutes = async (app: App) => {
 			return reply.status(401).send({ error: 'Unauthorized' });
 		}
 
-		const payload = Buffer.from(JSON.stringify({ userId: session.user.id })).toString('base64url');
+		const { returnTo } = request.query as { returnTo?: string };
+		const payload = Buffer.from(
+			JSON.stringify({ userId: session.user.id, returnTo: normalizeReturnTo(returnTo) }),
+		).toString('base64url');
 		const signature = signState(payload);
 		const state = `${payload}.${signature}`;
 		const url = githubService.buildAuthorizationUrl(state);
@@ -43,6 +46,7 @@ export const githubRoutes = async (app: App) => {
 		}
 
 		let userId: string;
+		let returnTo = '/settings/organization';
 		try {
 			const [payload, signature] = state.split('.');
 			if (!payload || !signature) {
@@ -54,6 +58,7 @@ export const githubRoutes = async (app: App) => {
 			}
 			const decoded = JSON.parse(Buffer.from(payload, 'base64url').toString());
 			userId = decoded.userId;
+			returnTo = normalizeReturnTo(decoded.returnTo);
 		} catch {
 			return reply.redirect('/settings/organization?github=error&reason=invalid_state');
 		}
@@ -65,9 +70,16 @@ export const githubRoutes = async (app: App) => {
 		try {
 			const token = await githubService.exchangeCodeForToken(code);
 			await userQueries.updateGithubToken(userId, token);
-			return reply.redirect('/settings/organization?github=connected');
+			return reply.redirect(`${returnTo}?github=connected`);
 		} catch {
-			return reply.redirect('/settings/organization?github=error&reason=exchange_failed');
+			return reply.redirect(`${returnTo}?github=error&reason=exchange_failed`);
 		}
 	});
 };
+
+function normalizeReturnTo(value: unknown): string {
+	if (typeof value !== 'string' || !value.startsWith('/settings/')) {
+		return '/settings/organization';
+	}
+	return value.split('?', 1)[0];
+}

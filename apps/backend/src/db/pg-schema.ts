@@ -17,6 +17,7 @@ import {
 } from 'drizzle-orm/pg-core';
 
 import { AgentSettings } from '../types/agent-settings';
+import { AUTOMATION_RUN_STATUSES, AutomationIntegrationConfig, AutomationIntegrationResult } from '../types/automation';
 import { ForkMetadata, StopReason, ToolState, UIMessagePartType } from '../types/chat';
 import { LLM_INFERENCE_TYPES } from '../types/llm';
 import { LOG_LEVELS, LOG_SOURCES } from '../types/log';
@@ -486,6 +487,64 @@ export const projectSavedPrompt = pgTable(
 	(t) => [index('project_saved_prompt_projectId_idx').on(t.projectId)],
 );
 
+export const automation = pgTable(
+	'automation',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		scheduledJobId: text('scheduled_job_id').references(() => scheduledJob.id, { onDelete: 'set null' }),
+		title: text('title').notNull(),
+		prompt: text('prompt').notNull(),
+		scheduleDescription: text('schedule_description'),
+		timezone: text('timezone'),
+		modelProvider: text('model_provider').$type<LlmProvider>(),
+		modelId: text('model_id'),
+		mcpEnabled: boolean('mcp_enabled').default(true).notNull(),
+		mcpServers: jsonb('mcp_servers').$type<string[]>(),
+		integrations: jsonb('integrations').$type<AutomationIntegrationConfig>().notNull().default({}),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [
+		index('automation_projectId_idx').on(t.projectId),
+		index('automation_userId_idx').on(t.userId),
+		index('automation_scheduledJobId_idx').on(t.scheduledJobId),
+	],
+);
+
+export const automationRun = pgTable(
+	'automation_run',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		automationId: text('automation_id')
+			.notNull()
+			.references(() => automation.id, { onDelete: 'cascade' }),
+		chatId: text('chat_id').references(() => chat.id, { onDelete: 'set null' }),
+		status: text('status', { enum: AUTOMATION_RUN_STATUSES }).notNull().default('running'),
+		startedAt: timestamp('started_at').defaultNow().notNull(),
+		completedAt: timestamp('completed_at'),
+		errorMessage: text('error_message'),
+		integrationResults: jsonb('integration_results').$type<AutomationIntegrationResult[]>().notNull().default([]),
+	},
+	(t) => [
+		index('automation_run_automationId_idx').on(t.automationId),
+		index('automation_run_chatId_idx').on(t.chatId),
+		index('automation_run_status_idx').on(t.status),
+	],
+);
+
 export const STORY_ACTIONS = ['create', 'update', 'replace'] as const;
 export const STORY_SOURCES = ['assistant', 'user'] as const;
 
@@ -688,7 +747,7 @@ export const scheduledJob = pgTable(
 		payload: jsonb('payload').$type<Record<string, unknown>>(),
 		runAt: timestamp('run_at').notNull(),
 		cron: text('cron'),
-		status: text('status', { enum: ['pending', 'running', 'failed'] })
+		status: text('status', { enum: ['pending', 'running', 'failed', 'paused'] })
 			.notNull()
 			.default('pending'),
 		attempts: integer('attempts').notNull().default(0),

@@ -34,15 +34,27 @@ export const tools = {
 export const getTools = (
 	agentSettings: AgentSettings | null,
 	extraTools?: Record<string, unknown>,
-	opts?: { testMode?: boolean },
+	options: {
+		testMode?: boolean;
+		mcpEnabled?: boolean;
+		mcpServers?: string[] | null;
+		excludeFollowUps?: boolean;
+	} = {},
 ) => {
-	const mcpTools = mcpService.getMcpTools();
+	const mcpTools = options.mcpEnabled === false ? {} : mcpService.getMcpTools(options.mcpServers);
 
-	const { execute_python, execute_sandboxed_code, clarification: clarificationTool, ...baseTools } = tools;
+	const {
+		execute_python,
+		execute_sandboxed_code,
+		clarification: clarificationTool,
+		suggest_follow_ups,
+		...rest
+	} = tools;
+	const baseTools = options.excludeFollowUps ? rest : { ...rest, suggest_follow_ups };
 
 	return {
 		...baseTools,
-		...(!opts?.testMode && { clarification: clarificationTool }),
+		...(!options.testMode && { clarification: clarificationTool }),
 		...mcpTools,
 		...(agentSettings?.experimental?.pythonSandboxing && execute_python && { execute_python }),
 		...(agentSettings?.experimental?.sandboxes && execute_sandboxed_code && { execute_sandboxed_code }),
