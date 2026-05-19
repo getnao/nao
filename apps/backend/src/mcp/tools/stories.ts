@@ -127,7 +127,13 @@ export function registerStoryTools(server: McpServer, ctx: McpContext): void {
 				return { content: [{ type: 'text' as const, text: `Error: ${story.error}` }], isError: true };
 			}
 
-			await cacheStoryQueryData(story.id, code, query_data as StoryQueryDataMap | undefined, chat_id);
+			await cacheStoryQueryData(
+				story.id,
+				code,
+				query_data as StoryQueryDataMap | undefined,
+				chat_id,
+				ctx.projectId,
+			);
 			const storyForUrl = { id: story.id, slug: story.slug, chatId: story.chatId };
 			const embedUrl = storyEmbedUrl(story.id, ctx.projectId);
 			const output: StoryMcpToolPayload = {
@@ -171,7 +177,13 @@ export function registerStoryTools(server: McpServer, ctx: McpContext): void {
 			const newCode = content ?? latestVersion?.code ?? `# ${newTitle}\n`;
 			const updated = await saveNewVersion(story, ctx, newTitle, newCode);
 			const embedUrl = storyEmbedUrl(story.id, ctx.projectId);
-			await cacheStoryQueryData(story.id, newCode, query_data as StoryQueryDataMap | undefined, story.chatId);
+			await cacheStoryQueryData(
+				story.id,
+				newCode,
+				query_data as StoryQueryDataMap | undefined,
+				story.chatId,
+				ctx.projectId,
+			);
 			const output: StoryMcpToolPayload = {
 				embedUrl,
 				...updated,
@@ -225,6 +237,7 @@ async function cacheStoryQueryData(
 	code: string,
 	queryData: StoryQueryDataMap | undefined,
 	chatId: string | null | undefined,
+	projectId: string,
 ): Promise<void> {
 	const existingCache = await storyQueries.getStoryDataCacheByStoryId(storyId);
 	const seededQueryData: StoryQueryDataMap = {
@@ -234,6 +247,7 @@ async function cacheStoryQueryData(
 	const resolvedQueryData = await resolveStoryQueryData(
 		code,
 		Object.keys(seededQueryData).length > 0 ? seededQueryData : null,
+		projectId,
 	);
 	if (!resolvedQueryData) {
 		return;

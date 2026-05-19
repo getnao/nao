@@ -25,6 +25,7 @@ export async function upsertMcpQueryData(
 
 export async function getMcpQueryData(
 	queryId: string,
+	projectId: string,
 ): Promise<{ columns: string[]; data: Record<string, unknown>[]; sourceChatId: string | null } | null> {
 	const [row] = await db
 		.select({
@@ -33,7 +34,13 @@ export async function getMcpQueryData(
 			sourceChatId: s.mcpQueryData.sourceChatId,
 		})
 		.from(s.mcpQueryData)
-		.where(and(eq(s.mcpQueryData.queryId, queryId), gt(s.mcpQueryData.expiresAt, new Date())))
+		.where(
+			and(
+				eq(s.mcpQueryData.queryId, queryId),
+				eq(s.mcpQueryData.projectId, projectId),
+				gt(s.mcpQueryData.expiresAt, new Date()),
+			),
+		)
 		.execute();
 
 	if (!row) {

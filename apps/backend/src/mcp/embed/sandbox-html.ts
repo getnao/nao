@@ -30,6 +30,7 @@ export async function buildStorySandboxHtml(params: {
 	const queryData = await resolveStoryQueryDataForSandbox(params.code, {
 		storyId: params.storyId,
 		chatId: params.chatId,
+		projectId: params.projectId,
 	});
 	const inner = wrapStoryBodyForMcpHeightMeasure(
 		generateStoryHtml({ title: params.title, code: params.code }, (queryData as QueryDataMap | null) ?? null),

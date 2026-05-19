@@ -45,7 +45,7 @@ export const embedRoutes = router({
 			throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Embed token does not match this chart.' });
 		}
 
-		const queryData = await getMcpQueryData(embed.queryId);
+		const queryData = await getMcpQueryData(embed.queryId, embed.projectId);
 		if (!queryData) {
 			throw new TRPCError({ code: 'NOT_FOUND', message: 'Query data not found or expired.' });
 		}

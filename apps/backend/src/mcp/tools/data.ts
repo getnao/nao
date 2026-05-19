@@ -103,7 +103,7 @@ export function registerDataTools(server: McpServer, ctx: McpContext): void {
 				title,
 			});
 
-			const queryData = await getMcpQueryData(query_id);
+			const queryData = await getMcpQueryData(query_id, ctx.projectId);
 			const chatFallback = queryData?.sourceChatId?.trim() || ctx.sessionChatRef.lastChatId;
 			const effectiveChatId = resolveEffectiveChatId(chat_id, chatFallback);
 			const validatedChatId = await resolveChartChatId(effectiveChatId, ctx.userId);

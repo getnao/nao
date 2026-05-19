@@ -41,6 +41,7 @@ export async function loadEmbedStoryContent(storyId: string, token: string): Pro
 	const queryData = await resolveStoryQueryDataForSandbox(version.code, {
 		storyId,
 		chatId: version.chatId,
+		projectId,
 	});
 
 	return {

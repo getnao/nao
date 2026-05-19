@@ -6,7 +6,7 @@ export type StoryQueryDataMap = Record<string, { data: unknown[]; columns: strin
 
 export async function resolveStoryQueryDataForSandbox(
 	code: string,
-	opts: { storyId?: string; chatId?: string | null },
+	opts: { storyId?: string; chatId?: string | null; projectId: string },
 ): Promise<StoryQueryDataMap | null> {
 	const seed: StoryQueryDataMap = {};
 	if (opts.storyId) {
@@ -23,12 +23,13 @@ export async function resolveStoryQueryDataForSandbox(
 		}
 	}
 	const seeded = Object.keys(seed).length > 0 ? seed : null;
-	return resolveStoryQueryData(code, seeded);
+	return resolveStoryQueryData(code, seeded, opts.projectId);
 }
 
 export async function resolveStoryQueryData(
 	code: string,
 	cachedQueryData: StoryQueryDataMap | null,
+	projectId: string,
 ): Promise<StoryQueryDataMap | null> {
 	const referencedIds = extractQueryIdsFromStoryCode(code);
 	if (referencedIds.size === 0) {
@@ -41,7 +42,7 @@ export async function resolveStoryQueryData(
 		return merged;
 	}
 
-	const fetched = await Promise.all(missing.map((id) => getMcpQueryData(id)));
+	const fetched = await Promise.all(missing.map((id) => getMcpQueryData(id, projectId)));
 	missing.forEach((id, idx) => {
 		const row = fetched[idx];
 		if (row) {

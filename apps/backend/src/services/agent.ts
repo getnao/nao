@@ -85,6 +85,33 @@ export type AgentChat = Pick<DBChat, 'id' | 'projectId' | 'userId'> & {
 	testMode?: boolean;
 };
 
+export async function buildToolContext(opts: {
+	projectId: string;
+	userId: string;
+	chatId: string;
+	agentSettings?: AgentSettings | null;
+}): Promise<ToolContext> {
+	const project = await projectQueries.retrieveProjectById(opts.projectId);
+	if (!project.path) {
+		throw new HandlerError('BAD_REQUEST', 'Project path does not exist.');
+	}
+	const agentSettings =
+		opts.agentSettings !== undefined ? opts.agentSettings : await projectQueries.getAgentSettings(opts.projectId);
+	const [envVars, azureAccessToken] = await Promise.all([
+		projectQueries.getEnvVars(opts.projectId),
+		hasFeature(LICENSE_FEATURES.sso).then((has) => (has ? getAzureAccessTokenForUser(opts.userId) : null)),
+	]);
+	return {
+		projectFolder: project.path,
+		chatId: opts.chatId,
+		agentSettings,
+		envVars,
+		azureAccessToken,
+		queryResults: new Map(),
+		generatedArtifacts: { charts: [], stories: [] },
+	};
+}
+
 export class AgentService {
 	private _agents = new Map<string, AgentManager>();
 
@@ -175,23 +202,7 @@ export class AgentService {
 		userId: string,
 		agentSettings: AgentSettings | null,
 	): Promise<ToolContext> {
-		const project = await projectQueries.retrieveProjectById(projectId);
-		if (!project.path) {
-			throw new HandlerError('BAD_REQUEST', 'Project path does not exist.');
-		}
-		const envVars = await projectQueries.getEnvVars(projectId);
-		const azureAccessToken = (await hasFeature(LICENSE_FEATURES.sso))
-			? await getAzureAccessTokenForUser(userId)
-			: null;
-		return {
-			projectFolder: project.path ?? '',
-			chatId,
-			agentSettings,
-			envVars,
-			azureAccessToken,
-			queryResults: new Map(),
-			generatedArtifacts: { charts: [], stories: [] },
-		};
+		return buildToolContext({ projectId, userId, chatId, agentSettings });
 	}
 
 	private _disposeAgent(chatId: string): void {
