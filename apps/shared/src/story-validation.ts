@@ -217,7 +217,9 @@ function validateTableBlocks(code: string): StoryValidationError[] {
 function isMarkdownTable(code: string, index: number): boolean {
 	const lineStart = code.lastIndexOf('\n', index - 1) + 1;
 	const linePrefix = code.slice(lineStart, index);
-	return /^\s*\|/.test(linePrefix) || /\|\s*$/.test(linePrefix);
+	const lineEnd = code.indexOf('\n', index);
+	const currentLine = code.slice(lineStart, lineEnd === -1 ? code.length : lineEnd);
+	return /^\s*\|/.test(linePrefix) || (/\|\s*$/.test(linePrefix) && /\|/.test(currentLine.slice(index - lineStart)));
 }
 
 function validateGridBlocks(code: string): StoryValidationError[] {
