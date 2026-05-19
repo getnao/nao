@@ -19,6 +19,7 @@ export function OpenInNaoButton({ url }: OpenInNaoButtonProps) {
 }
 
 function openLinkViaHost(_event: MouseEvent<HTMLAnchorElement>, url: string) {
+function openLinkViaHost(_event: MouseEvent<HTMLAnchorElement>, url: string) {
 	if (window.parent !== window) {
 		window.parent.postMessage({ type: 'nao-open-link', url }, window.location.origin);
 	}
