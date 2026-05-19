@@ -152,7 +152,7 @@ export const getProviderPeriodCosts = async (
 	const weekStart = getCurrentPeriodStart('week');
 	const monthStart = getCurrentPeriodStart('month');
 
-	const toParam = (d: Date) => (isPostgres ? d.toISOString() : d.getTime());
+	const toParam = (d: Date) => (isPostgres ? sql`${d.toISOString()}::timestamp` : sql`${d.getTime()}`);
 	const periodStartExpr = sql`CASE ${s.projectProviderBudget.period}
 		WHEN 'day' THEN ${toParam(dayStart)}
 		WHEN 'week' THEN ${toParam(weekStart)}
