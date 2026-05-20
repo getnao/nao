@@ -4,6 +4,8 @@ import { MCP_EMBED_TOKEN_TTL_MS } from '@nao/shared';
 import type { EmbedTokenPayload, McpEmbedKind } from '@nao/shared/types';
 
 import { env } from '../env';
+import { getMcpEndpointSettings } from '../queries/mcp-endpoint.queries';
+import { HandlerError } from './error';
 
 const SEPARATOR = '.';
 
@@ -44,4 +46,11 @@ export function verifyEmbedToken(token: string): EmbedTokenPayload | null {
 		return null;
 	}
 	return payload;
+}
+
+export async function assertProjectMcpEnabled(projectId: string): Promise<void> {
+	const settings = await getMcpEndpointSettings(projectId);
+	if (!settings.enabled) {
+		throw new HandlerError('FORBIDDEN', 'Embeds are disabled because MCP is turned off for this workspace.');
+	}
 }

@@ -1,5 +1,5 @@
 import * as storyQueries from '../queries/story.queries';
-import { verifyEmbedToken } from './embed-token';
+import { assertProjectMcpEnabled, verifyEmbedToken } from './embed-token';
 import { HandlerError } from './error';
 import { resolveStoryQueryDataForSandbox, type StoryQueryDataMap } from './story-query-data';
 
@@ -32,6 +32,8 @@ export async function loadEmbedStoryContent(storyId: string, token: string): Pro
 	if (projectId !== payload.projectId) {
 		throw new HandlerError('UNAUTHORIZED', 'Embed token does not match this story.');
 	}
+
+	await assertProjectMcpEnabled(projectId);
 
 	const version = await storyQueries.getLatestVersionByStoryId(storyId);
 	if (!version) {

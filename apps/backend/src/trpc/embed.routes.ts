@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { getMcpChartEmbedById } from '../queries/mcp-chart-embed.queries';
 import { getMcpQueryData } from '../queries/mcp-query-data.queries';
 import { embedStoryOpenPath, loadEmbedStoryContent } from '../utils/embed-story';
-import { verifyEmbedToken } from '../utils/embed-token';
+import { assertProjectMcpEnabled, verifyEmbedToken } from '../utils/embed-token';
 import { buildDownloadResponse } from '../utils/story-download';
 import { publicProcedure, router } from './trpc';
 
@@ -44,6 +44,8 @@ export const embedRoutes = router({
 		if (embed.projectId !== payload.projectId) {
 			throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Embed token does not match this chart.' });
 		}
+
+		await assertProjectMcpEnabled(embed.projectId);
 
 		const queryData = await getMcpQueryData(embed.queryId, embed.projectId);
 		if (!queryData) {
