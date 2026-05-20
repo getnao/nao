@@ -13,19 +13,18 @@ Reference: [docs.getnao.io/nao-agent/cloud/deploy](https://docs.getnao.io/nao-ag
 
 ## Prerequisites — confirm in one round
 
-Ask all four at once:
+Ask all three at once:
 
-1. **Remote instance URL** — `https://cloud.nao.com` (nao Cloud) or the self-hosted URL (e.g. `https://nao.your-company.com`). It must be reachable from GitHub-hosted runners.
-2. **Project repo** — the GitHub repo that holds `nao_config.yaml` at its root (or at a known subpath). Confirm it is committed to `main` and pushed.
-3. **`project_name` in `nao_config.yaml`** — required by the deploy endpoint. The remote project is keyed by `(organization, project_name)`; renaming creates a separate project on the next deploy.
-4. **Who creates the API key** — only an org admin can. If the user isn't, stop and ask them to get one from an admin before continuing.
+1. **Remote instance URL** — `https://app.preview.getnao.io/` (nao Cloud, in preview) or the self-hosted URL (e.g. `https://nao.your-company.com`). It must be reachable from GitHub-hosted runners.
+2. **Project repo** — the GitHub/Gitlab repo that holds `nao_config.yaml` at its root (or at a known subpath). Confirm it is committed to `main` and pushed. Most of the time this is the repo in which the CI/CD (Actions or pipeline) will run.
+3. **Who creates the API key** — only an org admin can. If the user isn't, stop and ask them to get one from an admin before continuing.
 
 ## Step 1 — Create the organization API key
 
 In the deployed nao instance:
 
-1. Open **Settings → Organization → API Keys**.
-2. Click **Create key**, name it after the repo (e.g. `gh-actions-<repo>`), copy the value. **It is shown only once** — if it scrolls off, revoke it and create a new one.
+1. Open **Settings → Organization → Organization API keys**.
+2. Click **Generate API key**, name it after the repo (e.g. `gh-actions-<repo>`), copy the value. **It is shown only once** — if it scrolls off, revoke it and create a new one.
 3. Each key is scoped to its organization and can deploy to every project in that org. Use one key per repo so revocations stay surgical.
 
 **Never paste the key into chat, into the workflow file, or into `nao_config.yaml`.**
@@ -34,16 +33,14 @@ In the deployed nao instance:
 
 In the GitHub repo: **Settings → Secrets and variables → Actions → New repository secret**.
 
-| Secret        | Value                              | Notes                                                            |
-| ------------- | ---------------------------------- | ---------------------------------------------------------------- |
-| `NAO_URL`     | `https://cloud.nao.com` (or yours) | Public, but keep as a secret/variable so it's swappable per env. |
-| `NAO_API_KEY` | The key from Step 1                | Required. Never print this in workflow logs.                     |
+| Secret        | Value                                       | Notes                                                            |
+| ------------- | ------------------------------------------- | ---------------------------------------------------------------- |
+| `NAO_URL`     | `https://app.preview.getnao.io/` (or yours) | Public, but keep as a secret/variable so it's swappable per env. |
+| `NAO_API_KEY` | The key from Step 1                         | Required. Never print this in workflow logs.                     |
 
 Optional, only if you want the workflow to also run `nao sync` before deploying (covered in Step 5 below):
 
 - `GCP_SERVICE_ACCOUNT_KEY_JSON`, `SNOWFLAKE_PASSWORD`, `NOTION_API_KEY`, etc. — every env var referenced from `nao_config.yaml` via `{{ env('VAR_NAME') }}`.
-
-If the org has multiple deploy targets (staging vs prod), use **GitHub Environments** (Settings → Environments) and scope `NAO_URL` / `NAO_API_KEY` per environment instead of repo-wide secrets. The workflow then sets `environment: production` on the deploy job and gets approval gates and per-env secret isolation for free.
 
 ## Step 3 — Lock down what gets uploaded
 
