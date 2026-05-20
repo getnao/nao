@@ -117,8 +117,157 @@ jobs:
                   path: cli/dist/*.whl
                   retention-days: 7
 
-    publish:
+    smoke-test:
+        name: Smoke test built wheel (linux-x64, duckdb + openai)
         needs: build
+        runs-on: ubuntu-latest
+        timeout-minutes: 20
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Setup Python
+              uses: actions/setup-python@v5
+              with:
+                  python-version: '3.12'
+
+            - name: Download Linux x64 wheel
+              uses: actions/download-artifact@v4
+              with:
+                  name: wheel-manylinux2014_x86_64
+                  path: dist
+
+            - name: List downloaded wheels
+              run: ls -la dist/
+
+            - name: Install nao-core from wheel (with duckdb + openai extras)
+              run: |
+                  WHEEL=$(ls dist/*.whl | head -n1)
+                  if [ -z "$WHEEL" ]; then
+                    echo "::error::No wheel found in dist/"
+                    exit 1
+                  fi
+                  echo "Installing $WHEEL[duckdb,openai]"
+                  python -m pip install --upgrade pip
+                  python -m pip install "${WHEEL}[duckdb,openai]"
+
+            - name: Verify nao --version
+              run: nao --version
+
+            - name: Prepare smoke-test project
+              run: |
+                  mkdir -p smoke-project
+                  cp example/jaffle_shop.duckdb smoke-project/
+                  mkdir -p smoke-project/tests
+                  cp example/tests/total_revenue.yml smoke-project/tests/
+
+                  cat > smoke-project/nao_config.yaml <<'YAML'
+                  project_name: smoke-project
+                  databases:
+                    - name: duckdb-jaffle-shop
+                      type: duckdb
+                      path: ./jaffle_shop.duckdb
+                      templates:
+                        - columns
+                        - preview
+                      profiling:
+                        refresh_policy: interval
+                        interval_days: 1
+                      include: []
+                      exclude: []
+                  llm:
+                    provider: openai
+                    api_key: "{{ env('OPENAI_API_KEY') }}"
+                  repos: []
+                  notion: null
+                  slack: null
+                  YAML
+
+                  echo "---- nao_config.yaml ----"
+                  cat smoke-project/nao_config.yaml
+
+            - name: nao init (non-interactive)
+              working-directory: smoke-project
+              env:
+                  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+              run: nao init --yes
+
+            - name: nao sync
+              working-directory: smoke-project
+              env:
+                  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+              run: nao sync
+
+            - name: Start nao chat in background
+              working-directory: smoke-project
+              env:
+                  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+                  ENABLE_USER_LOGIN: 'true'
+                  ENABLE_USER_SIGNUP: 'true'
+                  BETTER_AUTH_URL: 'http://localhost:5005'
+                  BROWSER: 'none'
+              run: |
+                  set -euo pipefail
+                  nohup nao chat > chat.log 2>&1 &
+                  echo $! > chat.pid
+                  echo "Started nao chat (pid $(cat chat.pid))"
+
+                  echo "Waiting for chat server on http://localhost:5005/api ..."
+                  for i in $(seq 1 90); do
+                    if curl -fsS http://localhost:5005/api > /dev/null 2>&1; then
+                      echo "Chat server is up after ${i}s"
+                      exit 0
+                    fi
+                    sleep 1
+                  done
+
+                  echo "::error::Chat server failed to come up within 90s"
+                  echo "---- chat.log ----"
+                  cat chat.log || true
+                  exit 1
+
+            - name: Sign up admin user
+              run: |
+                  set -euo pipefail
+                  curl -fsS -X POST http://localhost:5005/api/auth/sign-up/email \
+                    -H 'Content-Type: application/json' \
+                    -d '{"name":"Smoke Test","email":"smoke@nao.test","password":"smoke-password-1234"}' \
+                    -o signup.json
+                  echo "---- signup response ----"
+                  cat signup.json
+
+            - name: nao test (openai:gpt-4.1-mini against DuckDB jaffle_shop)
+              working-directory: smoke-project
+              env:
+                  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+                  NAO_USERNAME: smoke@nao.test
+                  NAO_PASSWORD: smoke-password-1234
+                  BACKEND_URL: 'http://localhost:5005'
+              run: nao test -m openai:gpt-4.1-mini -s total_revenue
+
+            - name: Dump chat.log on failure
+              if: failure()
+              working-directory: smoke-project
+              run: |
+                  echo "---- chat.log ----"
+                  cat chat.log || true
+
+            - name: Stop nao chat
+              if: always()
+              working-directory: smoke-project
+              run: |
+                  if [ -f chat.pid ]; then
+                    PID=$(cat chat.pid)
+                    if kill -0 "$PID" 2>/dev/null; then
+                      kill "$PID" || true
+                      sleep 2
+                      kill -9 "$PID" 2>/dev/null || true
+                    fi
+                  fi
+
+    publish:
+        needs: [build, smoke-test]
         runs-on: ubuntu-latest
         environment: pypi
         permissions:
