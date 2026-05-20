@@ -16,7 +16,7 @@ Reference: [docs.getnao.io/nao-agent/cloud/deploy](https://docs.getnao.io/nao-ag
 Ask all three at once:
 
 1. **Remote instance URL** — `https://app.preview.getnao.io/` (nao Cloud, in preview) or the self-hosted URL (e.g. `https://nao.your-company.com`). It must be reachable from GitHub-hosted runners.
-2. **Project repo** — the GitHub/Gitlab repo that holds `nao_config.yaml` at its root (or at a known subpath). Confirm it is committed to `main` and pushed. Most of the time this is the repo in which the CI/CD (Actions or pipeline) will run.
+2. **Project repo** — the GitHub repo that holds `nao_config.yaml` at its root (or at a known subpath). Confirm it is committed to `main` and pushed. Most of the time this is the repo in which the CI/CD (GitHub Actions) will run.
 3. **Who creates the API key** — only an org admin can. If the user isn't, stop and ask them to get one from an admin before continuing.
 
 ## Step 1 — Create the organization API key
