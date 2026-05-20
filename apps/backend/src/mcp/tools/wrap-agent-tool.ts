@@ -15,7 +15,7 @@ export interface WrapAgentToolOptions<TAgentInput, TOutput, TMcpInput = TAgentIn
 	outputSchema?: unknown;
 	_meta?: Record<string, unknown>;
 	mapInput?: (input: TMcpInput) => TAgentInput;
-	formatResult?: (args: { input: TMcpInput; output: TOutput }) => Promise<ToolResult> | ToolResult;
+	formatResult?: (args: { input: TMcpInput; output: TOutput; callLogId: string }) => Promise<ToolResult> | ToolResult;
 }
 
 export function registerAgentToolAsMcp<TAgentInput, TOutput, TMcpInput = TAgentInput>(
@@ -25,11 +25,11 @@ export function registerAgentToolAsMcp<TAgentInput, TOutput, TMcpInput = TAgentI
 ): void {
 	const { name, agentTool, title, description, inputSchema, outputSchema, _meta, mapInput, formatResult } = options;
 
-	const handler = defineMcpHandler<TMcpInput>(name, ctx, async (input) => {
+	const handler = defineMcpHandler<TMcpInput>(name, ctx, async (input, _extra, callLogId) => {
 		const agentInput = mapInput ? mapInput(input) : (input as unknown as TAgentInput);
 		const output = await runAgentTool(agentTool, agentInput, ctx);
 		if (formatResult) {
-			return formatResult({ input, output });
+			return formatResult({ input, output, callLogId });
 		}
 		return { content: [{ type: 'text' as const, text: JSON.stringify(output) }] };
 	});

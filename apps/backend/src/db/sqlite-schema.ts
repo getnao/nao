@@ -644,6 +644,7 @@ export const mcpQueryData = sqliteTable(
 	'mcp_query_data',
 	{
 		queryId: text('query_id').primaryKey(),
+		callLogId: text('call_log_id'),
 		projectId: text('project_id')
 			.notNull()
 			.references(() => project.id, { onDelete: 'cascade' }),
@@ -655,7 +656,10 @@ export const mcpQueryData = sqliteTable(
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull(),
 	},
-	(t) => [index('mcp_query_data_project_id_idx').on(t.projectId)],
+	(t) => [
+		index('mcp_query_data_project_id_idx').on(t.projectId),
+		index('mcp_query_data_callLogId_idx').on(t.callLogId),
+	],
 );
 
 export const mcpChartEmbed = sqliteTable(

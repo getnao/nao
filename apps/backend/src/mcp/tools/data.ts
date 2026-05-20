@@ -60,12 +60,12 @@ export function registerDataTools(server: McpServer, ctx: McpContext): void {
 		description: EXECUTE_SQL_DESCRIPTION,
 		inputSchema: EXECUTE_SQL_INPUT_SCHEMA,
 		mapInput: ({ chat_id: _chatId, ...input }) => input,
-		formatResult: async ({ input, output }) => {
+		formatResult: async ({ input, output, callLogId }) => {
 			const queryId = output.id;
 			const effectiveChatId = resolveEffectiveChatId(input.chat_id, ctx.sessionChatRef.lastChatId);
 			const validatedSourceChat = await resolveChartChatId(effectiveChatId, ctx.userId);
 
-			await upsertMcpQueryData(queryId, ctx.projectId, output.columns, output.data, {
+			await upsertMcpQueryData(queryId, callLogId, ctx.projectId, output.columns, output.data, {
 				sourceChatId: validatedSourceChat ?? null,
 			});
 

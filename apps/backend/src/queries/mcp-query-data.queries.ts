@@ -6,6 +6,7 @@ import { db } from '../db/db';
 
 export async function upsertMcpQueryData(
 	queryId: string,
+	callLogId: string,
 	projectId: string,
 	columns: string[],
 	data: Record<string, unknown>[],
@@ -15,10 +16,10 @@ export async function upsertMcpQueryData(
 	const sourceChatId = options?.sourceChatId ?? null;
 	await db
 		.insert(s.mcpQueryData)
-		.values({ queryId, projectId, columns, data, expiresAt, sourceChatId })
+		.values({ queryId, callLogId, projectId, columns, data, expiresAt, sourceChatId })
 		.onConflictDoUpdate({
 			target: s.mcpQueryData.queryId,
-			set: { columns, data, expiresAt, sourceChatId },
+			set: { callLogId, columns, data, expiresAt, sourceChatId },
 		})
 		.execute();
 }

@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import type { RequestHandlerExtra } from '@modelcontextprotocol/sdk/shared/protocol.js';
 import type { ServerNotification, ServerRequest } from '@modelcontextprotocol/sdk/types.js';
 
@@ -23,6 +25,7 @@ export type ToolResult = {
 
 export type ToolExtra = RequestHandlerExtra<ServerRequest, ServerNotification>;
 export type ToolHandler<T> = (args: T, extra: ToolExtra) => Promise<ToolResult>;
+export type LoggedToolHandler<T> = (args: T, extra: ToolExtra, callLogId: string) => Promise<ToolResult>;
 
 export const TOOL_MODE_MAP: Record<string, keyof McpEndpointSettings> = {
 	ask_nao: 'agentModeEnabled',
@@ -38,7 +41,7 @@ export const TOOL_MODE_MAP: Record<string, keyof McpEndpointSettings> = {
 	delete_story: 'objectsModeEnabled',
 };
 
-export function withLogging<T>(toolName: string, ctx: McpContext, handler: ToolHandler<T>): ToolHandler<T> {
+export function withLogging<T>(toolName: string, ctx: McpContext, handler: LoggedToolHandler<T>): ToolHandler<T> {
 	return async (args: T, extra: ToolExtra) => {
 		const modeKey = TOOL_MODE_MAP[toolName];
 		if (modeKey && !ctx.settings[modeKey]) {
@@ -48,12 +51,13 @@ export function withLogging<T>(toolName: string, ctx: McpContext, handler: ToolH
 			};
 		}
 
+		const callLogId = randomUUID();
 		const start = Date.now();
 		let success = true;
 		let result: ToolResult | undefined;
 		let thrownError: unknown;
 		try {
-			result = await handler(args, extra);
+			result = await handler(args, extra, callLogId);
 			if (result?.isError) {
 				success = false;
 			}
@@ -64,6 +68,7 @@ export function withLogging<T>(toolName: string, ctx: McpContext, handler: ToolH
 			throw error;
 		} finally {
 			insertMcpCallLog({
+				id: callLogId,
 				projectId: ctx.projectId,
 				userId: ctx.userId,
 				toolName,
@@ -105,12 +110,12 @@ export interface DefineMcpHandlerOptions {
 export function defineMcpHandler<T>(
 	name: string,
 	ctx: McpContext,
-	fn: ToolHandler<T>,
+	fn: LoggedToolHandler<T>,
 	opts?: DefineMcpHandlerOptions,
 ): ToolHandler<T> {
-	const handler: ToolHandler<T> = async (input, extra) => {
+	const handler: LoggedToolHandler<T> = async (input, extra, callLogId) => {
 		try {
-			return await fn(input, extra);
+			return await fn(input, extra, callLogId);
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
 			logger.error(`MCP ${name} error: ${message}`, {
