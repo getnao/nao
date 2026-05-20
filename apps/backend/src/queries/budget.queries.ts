@@ -146,7 +146,7 @@ export const getProviderPeriodCosts = async (
 	projectId: string,
 	provider?: LlmProvider,
 ): Promise<Record<string, number>> => {
-	const costLookup = createCostLookup();
+	const costLookup = await createCostLookup(projectId);
 	const isPostgres = dbConfig.dialect === Dialect.Postgres;
 	const dayStart = getCurrentPeriodStart('day');
 	const weekStart = getCurrentPeriodStart('week');

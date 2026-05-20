@@ -7,6 +7,7 @@ import { db } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
 import type { Granularity, UsageFilter, UsageRecord } from '../types/usage';
 import { fillMissingDates, getLookbackTimestamp } from '../utils/date';
+import * as projectLlmConfigQueries from './project-llm-config.queries';
 
 const COST_COLS = [
 	'provider',
@@ -16,6 +17,15 @@ const COST_COLS = [
 	'input_cache_write',
 	'output',
 ] as const;
+
+type CostLookupTuple = readonly [
+	provider: string,
+	modelId: string,
+	inputNoCache: number,
+	inputCacheRead: number,
+	inputCacheWrite: number,
+	output: number,
+];
 
 const sqliteFormats = {
 	hour: '%Y-%m-%d %H:00',
@@ -38,8 +48,8 @@ const COST_EXPR = {
 
 export const TOTAL_COST_EXPR = sql<number>`${COST_EXPR.inputNoCache} + ${COST_EXPR.inputCacheRead} + ${COST_EXPR.inputCacheWrite} + ${COST_EXPR.output}`;
 
-export function createCostLookup() {
-	const table = buildCostValuesTable();
+export async function createCostLookup(projectId: string) {
+	const table = await buildCostValuesTable(projectId);
 	const joinCondition = sql`cost_lookup.provider = ${s.chatMessage.llmProvider} AND cost_lookup.model_id = ${s.chatMessage.llmModelId}`;
 	return { table, joinCondition };
 }
@@ -58,7 +68,7 @@ export const getMessagesUsage = async (projectId: string, filter: UsageFilter): 
 		whereConditions.push(eq(s.chatMessage.llmProvider, provider));
 	}
 
-	const costLookup = createCostLookup();
+	const costLookup = await createCostLookup(projectId);
 
 	const rows = await db
 		.select({
@@ -134,9 +144,23 @@ function getDateExpr(field: SQLWrapper, granularity: Granularity): SQL<string> {
 	}
 }
 
-/** Build a SQL VALUES table with cost-per-million for each (provider, modelId) */
-function buildCostValuesTable(): SQL {
-	const tuples = Object.entries(LLM_PROVIDERS).flatMap(([provider, config]) =>
+/** Build a SQL values table with cost-per-million for each (provider, modelId). */
+async function buildCostValuesTable(projectId: string): Promise<SQL> {
+	const tuples = await getCostLookupTuples(projectId);
+
+	if (dbConfig.dialect === Dialect.Postgres) {
+		const rows = tuples.map(tupleToValuesRow);
+		return sql`(VALUES ${sql.join(rows, sql`, `)}) AS cost_lookup(${sql.raw(COST_COLS.join(', '))})`;
+	} else {
+		const [first, ...rest] = tuples;
+		const firstRow = tupleToSelectRow(first, true);
+		const restRows = rest.map((t) => tupleToSelectRow(t, false));
+		return sql`(${sql.join([firstRow, ...restRows], sql` UNION ALL `)}) AS cost_lookup`;
+	}
+}
+
+async function getCostLookupTuples(projectId: string): Promise<CostLookupTuple[]> {
+	const knownModelTuples = Object.entries(LLM_PROVIDERS).flatMap(([provider, config]) =>
 		config.models.map((model) => {
 			const cost = model.costPerM ?? {};
 			return [
@@ -146,19 +170,36 @@ function buildCostValuesTable(): SQL {
 				cost.inputCacheRead ?? 0,
 				cost.inputCacheWrite ?? 0,
 				cost.output ?? 0,
-			] as const;
+			] satisfies CostLookupTuple;
 		}),
 	);
 
-	const toRow = (t: (typeof tuples)[0]) => `'${t[0]}', '${t[1]}', ${t[2]}, ${t[3]}, ${t[4]}, ${t[5]}`;
+	const configs = await projectLlmConfigQueries.getProjectLlmConfigs(projectId);
+	const customModelTuples = configs.flatMap((config) =>
+		(config.customModels ?? []).map((model) => {
+			const cost = model.costPerM ?? {};
+			return [
+				config.provider,
+				model.id,
+				cost.inputNoCache ?? 0,
+				cost.inputCacheRead ?? 0,
+				cost.inputCacheWrite ?? 0,
+				cost.output ?? 0,
+			] satisfies CostLookupTuple;
+		}),
+	);
 
-	if (dbConfig.dialect === Dialect.Postgres) {
-		const rows = tuples.map((t) => `(${toRow(t)})`).join(', ');
-		return sql.raw(`(VALUES ${rows}) AS cost_lookup(${COST_COLS.join(', ')})`);
-	} else {
-		const [first, ...rest] = tuples;
-		const firstRow = `SELECT ${first.map((v, i) => `${typeof v === 'string' ? `'${v}'` : v} AS ${COST_COLS[i]}`).join(', ')}`;
-		const restRows = rest.map((t) => `SELECT ${toRow(t)}`);
-		return sql.raw(`(${[firstRow, ...restRows].join(' UNION ALL ')}) AS cost_lookup`);
+	return [...knownModelTuples, ...customModelTuples];
+}
+
+function tupleToValuesRow(tuple: CostLookupTuple): SQL {
+	return sql`(${tuple[0]}, ${tuple[1]}, ${tuple[2]}, ${tuple[3]}, ${tuple[4]}, ${tuple[5]})`;
+}
+
+function tupleToSelectRow(tuple: CostLookupTuple, withAliases: boolean): SQL {
+	if (!withAliases) {
+		return sql`SELECT ${tuple[0]}, ${tuple[1]}, ${tuple[2]}, ${tuple[3]}, ${tuple[4]}, ${tuple[5]}`;
 	}
+
+	return sql`SELECT ${tuple[0]} AS provider, ${tuple[1]} AS model_id, ${tuple[2]} AS input_no_cache, ${tuple[3]} AS input_cache_read, ${tuple[4]} AS input_cache_write, ${tuple[5]} AS output`;
 }

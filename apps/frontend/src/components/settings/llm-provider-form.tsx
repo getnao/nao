@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { useForm } from '@tanstack/react-form';
-import { Check, ChevronDown, Plus, X } from 'lucide-react';
+import { Check, ChevronDown, MoreHorizontal, Plus, X } from 'lucide-react';
 import { getDefaultModelId, getProviderAuth } from '@nao/backend/provider-meta';
+import { CustomModelDialog } from './custom-model-dialog';
+import type { CustomModelMetadata } from '@nao/backend/llm';
 import type { LlmProvider } from '@nao/shared/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -14,6 +16,7 @@ export interface LlmProviderFormProps {
 	usesEnvKey: boolean;
 	initialValues?: {
 		enabledModels: string[];
+		customModels: CustomModelMetadata[];
 		baseUrl: string;
 	};
 	currentModels: readonly { id: string; name: string; default?: boolean }[];
@@ -21,6 +24,7 @@ export interface LlmProviderFormProps {
 		apiKey?: string;
 		credentials?: Record<string, string>;
 		enabledModels: string[];
+		customModels: CustomModelMetadata[];
 		baseUrl?: string;
 	}) => Promise<void>;
 	onCancel: () => void;
@@ -47,6 +51,7 @@ export function LlmProviderForm({
 }: LlmProviderFormProps) {
 	const [showAdvanced, setShowAdvanced] = useState(!!initialValues?.baseUrl);
 	const [customModelInput, setCustomModelInput] = useState('');
+	const [editingCustomModelId, setEditingCustomModelId] = useState<string | null>(null);
 	const providerAuth = getProviderAuth(provider);
 	const showApiKey = providerAuth.apiKey !== 'none';
 	const extraFields = providerAuth.extraFields ?? [];
@@ -58,6 +63,7 @@ export function LlmProviderForm({
 			apiKey: '',
 			credentials: defaultCredentials,
 			enabledModels: initialValues?.enabledModels ?? [],
+			customModels: initialValues?.customModels ?? ([] as CustomModelMetadata[]),
 			baseUrl: initialValues?.baseUrl ?? '',
 		},
 		onSubmit: async ({ value }) => {
@@ -67,6 +73,7 @@ export function LlmProviderForm({
 				apiKey: value.apiKey || undefined,
 				credentials: Object.keys(filledCredentials).length > 0 ? filledCredentials : undefined,
 				enabledModels: value.enabledModels,
+				customModels: value.customModels,
 				baseUrl: value.baseUrl || undefined,
 			});
 		},
@@ -205,17 +212,43 @@ export function LlmProviderForm({
 										</button>
 									);
 								})}
-								{enabledModels.filter(isCustomModel).map((modelId) => (
-									<button
-										key={modelId}
-										type='button'
-										onClick={() => toggleModel(modelId)}
-										className='flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm transition-all cursor-pointer bg-primary text-primary-foreground'
-									>
-										<X className='size-2.5' />
-										{modelId}
-									</button>
-								))}
+								<form.Field name='customModels'>
+									{(customModelsField) => {
+										const customModels = customModelsField.state.value;
+										return (
+											<>
+												{enabledModels.filter(isCustomModel).map((modelId) => {
+													const metadata = customModels.find((m) => m.id === modelId);
+													const label = metadata?.displayName?.trim() || modelId;
+													return (
+														<div
+															key={modelId}
+															className='flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-md text-sm bg-primary text-primary-foreground'
+														>
+															<button
+																type='button'
+																onClick={() => toggleModel(modelId)}
+																className='cursor-pointer hover:opacity-80 transition-opacity'
+																aria-label={`Remove ${modelId}`}
+															>
+																<X className='size-2.5' />
+															</button>
+															<span title={modelId}>{label}</span>
+															<button
+																type='button'
+																onClick={() => setEditingCustomModelId(modelId)}
+																className='ml-1 p-0.5 rounded hover:bg-primary-foreground/20 transition-colors cursor-pointer'
+																aria-label={`Edit ${modelId}`}
+															>
+																<MoreHorizontal className='size-3.5' />
+															</button>
+														</div>
+													);
+												})}
+											</>
+										);
+									}}
+								</form.Field>
 							</div>
 							<div className='flex gap-2 mt-1'>
 								<Input
@@ -300,9 +333,40 @@ export function LlmProviderForm({
 		</form>
 	);
 
+	const customModelDialog = (
+		<form.Field name='customModels'>
+			{(field) => (
+				<CustomModelDialog
+					open={editingCustomModelId !== null}
+					onOpenChange={(open) => {
+						if (!open) {
+							setEditingCustomModelId(null);
+						}
+					}}
+					modelId={editingCustomModelId ?? ''}
+					value={field.state.value.find((m) => m.id === editingCustomModelId)}
+					onSave={(metadata) => {
+						const next = field.state.value.filter((m) => m.id !== metadata.id);
+						field.handleChange([...next, metadata]);
+					}}
+				/>
+			)}
+		</form.Field>
+	);
+
 	if (noWrapper) {
-		return content;
+		return (
+			<>
+				{content}
+				{customModelDialog}
+			</>
+		);
 	}
 
-	return <div className='flex flex-col gap-3 p-4 rounded-lg border border-primary/50 bg-muted/30'>{content}</div>;
+	return (
+		<>
+			<div className='flex flex-col gap-3 p-4 rounded-lg border border-primary/50 bg-muted/30'>{content}</div>
+			{customModelDialog}
+		</>
+	);
 }

@@ -379,6 +379,21 @@ export const projectLlmConfig = sqliteTable(
 		apiKey: text('api_key').notNull(),
 		credentials: text('credentials', { mode: 'json' }).$type<Record<string, string>>(),
 		enabledModels: text('enabled_models', { mode: 'json' }).$type<string[]>().default([]).notNull(),
+		customModels: text('custom_models', { mode: 'json' })
+			.$type<
+				{
+					id: string;
+					displayName?: string;
+					costPerM?: {
+						inputNoCache?: number;
+						inputCacheRead?: number;
+						inputCacheWrite?: number;
+						output?: number;
+					};
+				}[]
+			>()
+			.default([])
+			.notNull(),
 		baseUrl: text('base_url'),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)

@@ -366,6 +366,21 @@ export const projectLlmConfig = pgTable(
 		apiKey: text('api_key').notNull(),
 		credentials: jsonb('credentials').$type<Record<string, string>>(),
 		enabledModels: jsonb('enabled_models').$type<string[]>().default([]).notNull(),
+		customModels: jsonb('custom_models')
+			.$type<
+				{
+					id: string;
+					displayName?: string;
+					costPerM?: {
+						inputNoCache?: number;
+						inputCacheRead?: number;
+						inputCacheWrite?: number;
+						output?: number;
+					};
+				}[]
+			>()
+			.default([])
+			.notNull(),
 		baseUrl: text('base_url'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')

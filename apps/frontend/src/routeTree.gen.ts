@@ -322,9 +322,9 @@ export interface FileRoutesByFullPath {
   '/settings/usage': typeof SidebarLayoutSettingsUsageRoute
   '/settings/white-label': typeof SidebarLayoutSettingsWhiteLabelRoute
   '/shared-chat/$shareId': typeof SidebarLayoutSharedChatShareIdRoute
-  '/automations/': typeof SidebarLayoutAutomationsIndexRoute
   '/embed/chart/$chartEmbedId': typeof EmbedChartChartEmbedIdRoute
   '/embed/story/$storyId': typeof EmbedStoryStoryIdRoute
+  '/automations/': typeof SidebarLayoutAutomationsIndexRoute
   '/settings/': typeof SidebarLayoutSettingsIndexRoute
   '/stories/': typeof SidebarLayoutStoriesIndexRoute
   '/settings/project/agent': typeof SidebarLayoutSettingsProjectAgentRoute
@@ -363,9 +363,9 @@ export interface FileRoutesByTo {
   '/settings/usage': typeof SidebarLayoutSettingsUsageRoute
   '/settings/white-label': typeof SidebarLayoutSettingsWhiteLabelRoute
   '/shared-chat/$shareId': typeof SidebarLayoutSharedChatShareIdRoute
-  '/automations': typeof SidebarLayoutAutomationsIndexRoute
   '/embed/chart/$chartEmbedId': typeof EmbedChartChartEmbedIdRoute
   '/embed/story/$storyId': typeof EmbedStoryStoryIdRoute
+  '/automations': typeof SidebarLayoutAutomationsIndexRoute
   '/settings': typeof SidebarLayoutSettingsIndexRoute
   '/stories': typeof SidebarLayoutStoriesIndexRoute
   '/settings/project/agent': typeof SidebarLayoutSettingsProjectAgentRoute
@@ -454,9 +454,9 @@ export interface FileRouteTypes {
     | '/settings/usage'
     | '/settings/white-label'
     | '/shared-chat/$shareId'
-    | '/automations/'
     | '/embed/chart/$chartEmbedId'
     | '/embed/story/$storyId'
+    | '/automations/'
     | '/settings/'
     | '/stories/'
     | '/settings/project/agent'
@@ -495,9 +495,9 @@ export interface FileRouteTypes {
     | '/settings/usage'
     | '/settings/white-label'
     | '/shared-chat/$shareId'
-    | '/automations'
     | '/embed/chart/$chartEmbedId'
     | '/embed/story/$storyId'
+    | '/automations'
     | '/settings'
     | '/stories'
     | '/settings/project/agent'

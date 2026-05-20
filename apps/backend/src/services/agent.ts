@@ -606,7 +606,15 @@ class AgentManager {
 			const durationMs = Math.round(performance.now() - startTime);
 
 			const usage = convertToTokenUsage(result.totalUsage);
-			const cost = convertToCost(usage, this._modelSelection.provider, this._modelSelection.modelId);
+			const customModels = await llmConfigQueries
+				.getProjectLlmConfigByProvider(this.chat.projectId, this._modelSelection.provider)
+				.then((c) => c?.customModels ?? []);
+			const cost = convertToCost(
+				usage,
+				this._modelSelection.provider,
+				this._modelSelection.modelId,
+				customModels,
+			);
 			const finishReason = result.finishReason ?? 'stop';
 
 			return {

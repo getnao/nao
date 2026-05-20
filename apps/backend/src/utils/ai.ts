@@ -4,6 +4,7 @@ import { LanguageModelUsage, ModelMessage } from 'ai';
 import { LLM_PROVIDERS } from '../agents/providers';
 import { type ITokenCounter, tokenCounter } from '../services/token-counter';
 import { CompactionPart, TokenCost, TokenUsage, UIMessage } from '../types/chat';
+import type { CustomModelMetadata } from '../types/llm';
 
 export const convertToTokenUsage = (usage: LanguageModelUsage): TokenUsage => ({
 	inputTotalTokens: usage.inputTokens,
@@ -17,8 +18,15 @@ export const convertToTokenUsage = (usage: LanguageModelUsage): TokenUsage => ({
 	totalTokens: usage.totalTokens,
 });
 
-export const convertToCost = (usage: TokenUsage, provider: LlmProvider, modelId: string): TokenCost => {
-	const costPerM = LLM_PROVIDERS[provider].models.find((model) => model.id === modelId)?.costPerM;
+export const convertToCost = (
+	usage: TokenUsage,
+	provider: LlmProvider,
+	modelId: string,
+	customModels: CustomModelMetadata[] = [],
+): TokenCost => {
+	const costPerM =
+		LLM_PROVIDERS[provider].models.find((model) => model.id === modelId)?.costPerM ??
+		customModels.find((m) => m.id === modelId)?.costPerM;
 
 	if (!costPerM) {
 		return {

@@ -20,12 +20,28 @@ export const llmSelectedModelSchema = z.object({
 
 export type ProviderSettings = { apiKey: string; baseURL?: string; credentials?: Record<string, string> };
 
+export const customModelCostSchema = z.object({
+	inputNoCache: z.number().min(0).optional(),
+	inputCacheRead: z.number().min(0).optional(),
+	inputCacheWrite: z.number().min(0).optional(),
+	output: z.number().min(0).optional(),
+});
+
+export const customModelMetadataSchema = z.object({
+	id: z.string().min(1),
+	displayName: z.string().optional(),
+	costPerM: customModelCostSchema.optional(),
+});
+
+export type CustomModelMetadata = z.infer<typeof customModelMetadataSchema>;
+
 export const llmConfigSchema = z.object({
 	id: z.string(),
 	provider: llmProviderSchema,
 	apiKeyPreview: z.string().nullable(),
 	credentialPreviews: z.record(z.string(), z.string()).nullable(),
 	enabledModels: z.array(z.string()).nullable(),
+	customModels: z.array(customModelMetadataSchema),
 	baseUrl: z.string().url().nullable(),
 	createdAt: z.date(),
 	updatedAt: z.date(),
