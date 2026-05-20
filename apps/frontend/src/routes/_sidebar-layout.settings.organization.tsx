@@ -69,11 +69,12 @@ function OrganizationPage() {
 			role: m.role as UserRole,
 		})) ?? [];
 
-	const handleAdd = async (data: { email: string; name?: string }) => {
+	const handleAdd = async (data: { email: string; name?: string; role: UserRole }) => {
 		try {
 			const result = await addMember.mutateAsync({
 				email: data.email,
 				name: data.name,
+				role: data.role,
 			});
 			invalidateMembers();
 			if (result.password) {
@@ -201,6 +202,7 @@ function OrganizationPage() {
 				open={isAddOpen}
 				onOpenChange={setIsAddOpen}
 				title='Add Member to Organization'
+				availableRoles={USER_ROLES}
 				onSubmit={handleAdd}
 			/>
 

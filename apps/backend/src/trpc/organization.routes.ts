@@ -59,7 +59,13 @@ export const organizationRoutes = {
 		}),
 
 	addMember: orgAdminOnlyProcedure
-		.input(z.object({ email: z.string().min(1), name: z.string().min(1).optional() }))
+		.input(
+			z.object({
+				email: z.string().min(1),
+				name: z.string().min(1).optional(),
+				role: z.enum(ORG_ROLES).default('user'),
+			}),
+		)
 		.mutation(async ({ input, ctx }) => {
 			const orgId = ctx.org.id;
 
@@ -68,7 +74,7 @@ export const organizationRoutes = {
 				name: input.name,
 				checkExisting: async (userId) => !!(await orgQueries.getOrgMember(orgId, userId)),
 				addMember: async (userId) => {
-					await orgQueries.addOrgMember({ orgId, userId, role: 'user' });
+					await orgQueries.addOrgMember({ orgId, userId, role: input.role });
 				},
 				buildEmail: (user, password) => buildUserAddedEmail(user, ctx.org.name, 'organization', password),
 			});

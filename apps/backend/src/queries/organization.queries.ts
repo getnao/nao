@@ -33,6 +33,7 @@ export const getOrgMember = async (orgId: string, userId: string): Promise<DBOrg
 
 export const addOrgMember = async (member: NewOrgMember): Promise<DBOrgMember> => {
 	const [created] = await db.insert(s.orgMember).values(member).returning().execute();
+	await syncUserProjectMembershipInOrg(member.orgId, member.userId, member.role);
 	return created;
 };
 
@@ -249,6 +250,11 @@ export const ensureOrganizationSetup = async (): Promise<void> => {
 
 	// Ensure a project exists for the current NAO_DEFAULT_PROJECT_PATH
 	await ensureDefaultProject(org);
+
+	const orgMembers = await db.select().from(s.orgMember).where(eq(s.orgMember.orgId, org.id)).execute();
+	for (const member of orgMembers) {
+		await syncUserProjectMembershipInOrg(org.id, member.userId, member.role);
+	}
 };
 
 export interface OrgMemberWithUser {
@@ -305,6 +311,20 @@ export const updateOrgMemberRole = async (orgId: string, userId: string, role: O
 		.set({ role })
 		.where(and(eq(s.orgMember.orgId, orgId), eq(s.orgMember.userId, userId)))
 		.execute();
+	await syncUserProjectMembershipInOrg(orgId, userId, role);
+};
+
+export const syncUserProjectMembershipInOrg = async (orgId: string, userId: string, role: OrgRole): Promise<void> => {
+	const projects = await db.select({ id: s.project.id }).from(s.project).where(eq(s.project.orgId, orgId)).execute();
+
+	for (const project of projects) {
+		const existing = await projectQueries.getProjectMember(project.id, userId);
+		if (existing) {
+			await projectQueries.updateProjectMemberRole(project.id, userId, role);
+		} else {
+			await projectQueries.addProjectMember({ projectId: project.id, userId, role });
+		}
+	}
 };
 
 export const removeOrgMember = async (orgId: string, userId: string): Promise<void> => {
