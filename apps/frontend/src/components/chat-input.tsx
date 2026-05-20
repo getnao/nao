@@ -19,7 +19,9 @@ import { InputGroup, InputGroupAddon } from '@/components/ui/input-group';
 import { trpc } from '@/main';
 import { useAgentContext } from '@/contexts/agent.provider';
 import { useRegisterSetChatInputCallback } from '@/contexts/set-chat-input-callback';
+import { useLiveVoice } from '@/hooks/use-live-voice';
 import { useTranscribe } from '@/hooks/use-transcribe';
+import { LiveVoiceButton } from '@/components/live-voice-button';
 import { useImageUpload } from '@/hooks/use-image-upload';
 import { parseBudgetError } from '@/lib/ai';
 import { cn } from '@/lib/utils';
@@ -105,6 +107,7 @@ function ChatInputBase({
 	const isBudgetExceeded = !!parseBudgetError(error) || budgetStatus.data?.level === 'exceeded';
 
 	const [micWarning, setMicWarning] = useState(false);
+	const [liveVoiceActive, setLiveVoiceActive] = useState(false);
 	const micWarningTimer = useRef(0);
 	const dropZoneRef = useRef<HTMLDivElement>(null);
 	const [isDragging, setIsDragging] = useState(false);
@@ -242,6 +245,27 @@ function ChatInputBase({
 		analyserRef,
 	} = useTranscribe({ onTranscribed: submitMessage });
 
+	const liveVoice = useLiveVoice({
+		active: liveVoiceActive && isTranscribeReady,
+		paused: isRunning,
+		onUtterance: submitMessage,
+	});
+
+	const toggleLiveVoice = useCallback(() => {
+		if (!isTranscribeReady) {
+			showMicWarning();
+			return;
+		}
+		if (isRecording) {
+			toggleRecording();
+		}
+		setLiveVoiceActive((on) => !on);
+	}, [isTranscribeReady, isRecording, toggleRecording, showMicWarning]);
+
+	useEffect(() => {
+		setLiveVoiceActive(false);
+	}, [chatId]);
+
 	useEffect(() => {
 		if (typeof initialText !== 'string') {
 			return;
@@ -287,6 +311,14 @@ function ChatInputBase({
 			<ChatInputMessageQueue onEditMessage={handleEditQueuedMessage} onSubmitNow={submitQueuedMessageNow} />
 			<SelectionCitationBanner />
 			<BudgetBanner />
+			{liveVoiceActive && liveVoice.errorMessage && (
+				<div className='mb-2 rounded-2xl border border-input/50 bg-muted/50 px-3 py-2 text-sm text-muted-foreground'>
+					{liveVoice.errorMessage}
+				</div>
+			)}
+			{liveVoice.isListening && (
+				<div className='mb-2 text-xs text-muted-foreground'>Live voice — speak, then wait for a written reply</div>
+			)}
 
 			<form onSubmit={handleSubmitMessage} className='mx-auto relative'>
 				<InputGroup
@@ -311,9 +343,12 @@ function ChatInputBase({
 					/>
 
 					<InputGroupAddon align='block-end'>
-						{(!isTranscribeReady || (!isRecording && !isTranscribing)) && <ChatInputModelSelect />}
+						{(!isTranscribeReady || (!isRecording && !isTranscribing && !liveVoice.isListening)) && (
+							<ChatInputModelSelect />
+						)}
 
 						{isTranscribeReady && isRecording && <SlidingWaveform analyserRef={analyserRef} />}
+						{liveVoice.isListening && <SlidingWaveform analyserRef={liveVoice.analyserRef} />}
 
 						<div className='flex items-center gap-1.5 md:gap-2 ml-auto relative'>
 							<ChatInputPlusMenu
@@ -340,10 +375,16 @@ function ChatInputBase({
 							<ContextWindowRing />
 
 							{isTranscribeReady && isRecording && <RecordingTimer />}
+							<LiveVoiceButton
+								active={liveVoiceActive}
+								status={liveVoice.status}
+								disabled={(isRunning && !allowQueueing) || isTranscribing}
+								onClick={toggleLiveVoice}
+							/>
 							<MicButton
 								state={isTranscribeReady ? transcribeState : 'idle'}
 								onClick={isTranscribeReady ? toggleRecording : showMicWarning}
-								disabled={isRunning && !allowQueueing}
+								disabled={liveVoiceActive || (isRunning && !allowQueueing)}
 							/>
 							{micWarning && <MicWarningBanner onDismiss={() => setMicWarning(false)} />}
 
