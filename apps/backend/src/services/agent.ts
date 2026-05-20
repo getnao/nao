@@ -608,7 +608,8 @@ class AgentManager {
 			const usage = convertToTokenUsage(result.totalUsage);
 			const customModels = await llmConfigQueries
 				.getProjectLlmConfigByProvider(this.chat.projectId, this._modelSelection.provider)
-				.then((c) => c?.customModels ?? []);
+				.then((c) => c?.customModels ?? [])
+				.catch(() => []);
 			const cost = convertToCost(
 				usage,
 				this._modelSelection.provider,
