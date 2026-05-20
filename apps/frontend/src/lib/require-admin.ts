@@ -30,3 +30,10 @@ export async function requireNonViewer() {
 		throw redirect({ to: '/settings/account' });
 	}
 }
+
+export async function requireAutomationsEnabled() {
+	const config = await queryClient.ensureQueryData(trpc.system.getPublicConfig.queryOptions());
+	if (!config.betaAutomationsEnabled) {
+		throw redirect({ to: '/' });
+	}
+}

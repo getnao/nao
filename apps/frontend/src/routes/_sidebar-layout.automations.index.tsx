@@ -9,9 +9,11 @@ import { AutomationForm } from '@/components/automations-form';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { SettingsCard } from '@/components/ui/settings-card';
+import { requireAutomationsEnabled } from '@/lib/require-admin';
 import { trpc } from '@/main';
 
 export const Route = createFileRoute('/_sidebar-layout/automations/')({
+	beforeLoad: requireAutomationsEnabled,
 	component: AutomationsPage,
 });
 
