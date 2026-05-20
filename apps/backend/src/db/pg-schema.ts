@@ -1,3 +1,4 @@
+import type { McpChartEmbedStoredConfig } from '@nao/shared';
 import type { CitationData, LlmProvider } from '@nao/shared/types';
 import { BUDGET_PERIODS, SHARE_VISIBILITY, USER_ROLES } from '@nao/shared/types';
 import { type ProviderMetadata } from 'ai';
@@ -604,6 +605,40 @@ export const storyVersion = pgTable(
 		index('story_version_storyId_idx').on(t.storyId),
 		unique('story_version_story_version_unique').on(t.storyId, t.version),
 	],
+);
+
+export const mcpQueryData = pgTable(
+	'mcp_query_data',
+	{
+		queryId: text('query_id').primaryKey(),
+		callLogId: text('call_log_id'),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		sourceChatId: text('source_chat_id'),
+		columns: jsonb('columns').$type<string[]>().notNull(),
+		data: jsonb('data').$type<Record<string, unknown>[]>().notNull(),
+		expiresAt: timestamp('expires_at').notNull(),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+	},
+	(t) => [
+		index('mcp_query_data_project_id_idx').on(t.projectId),
+		index('mcp_query_data_callLogId_idx').on(t.callLogId),
+	],
+);
+
+export const mcpChartEmbed = pgTable(
+	'mcp_chart_embed',
+	{
+		chartEmbedId: text('chart_embed_id').primaryKey(),
+		queryId: text('query_id')
+			.notNull()
+			.references(() => mcpQueryData.queryId, { onDelete: 'cascade' }),
+		chartConfig: jsonb('chart_config').$type<McpChartEmbedStoredConfig>().notNull(),
+		sourceChatId: text('source_chat_id'),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+	},
+	(t) => [index('mcp_chart_embed_query_id_idx').on(t.queryId)],
 );
 
 export const storyDataCache = pgTable('story_data_cache', {

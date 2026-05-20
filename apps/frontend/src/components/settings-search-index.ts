@@ -219,7 +219,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		section: 'MCP Modes',
 		title: 'Context-layer mode',
 		description: 'Let agents use nao as a context-layer to browse nao filesystem, execute SQL, create charts, etc.',
-		keywords: ['execute_sql', 'sql', 'query'],
+		keywords: ['execute_sql', 'display_chart', 'sql', 'query', 'chart', 'mcp app', 'embed'],
 	},
 	{
 		page: '/settings/mcp-endpoint',

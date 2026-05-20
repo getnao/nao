@@ -1,4 +1,4 @@
-import { defaultColorFor, formatCompactNumber, labelize } from '@nao/shared';
+import { DEFAULT_COLORS, defaultColorFor, formatCompactNumber, labelize } from '@nao/shared';
 import type { ParsedChartBlock, ParsedTableBlock, Segment } from '@nao/shared/story-segments';
 import { splitCodeIntoSegments } from '@nao/shared/story-segments';
 import { formatCellValue, isNumericColumn } from '@nao/shared/story-table-utils';
@@ -343,7 +343,7 @@ img{max-width:100%;height:auto;border-radius:4px;margin:8px 0}
 
 const TOOLTIP_SCRIPT = `
 (function(){
-	var PIE_COLORS=['#104e64','#f54900','#009689','#ffb900','#fe9a00'];
+	var PIE_COLORS=${JSON.stringify(DEFAULT_COLORS)};
 	function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;')}
 	function labelize(s){
 		var str=String(s);
@@ -420,13 +420,14 @@ const TOOLTIP_SCRIPT = `
 			var html='<div class="nao-tooltip-label">'+(isPie?labelize(cfg.series[0]&&(cfg.series[0].label||cfg.series[0].data_key)||''):labelize(label!=null?label:''))+'</div>';
 			html+='<div class="nao-tooltip-rows">';
 			var numericValues=[];
-			cfg.series.forEach(function(s){
+			cfg.series.forEach(function(s, si){
 				var color;
 				if(isPie){
 					color=pieColorMap[String(label!=null?label:'')]||PIE_COLORS[0];
 				}else{
-					color=s.color||'#2563eb';
-					if(color.startsWith('var('))color='#2563eb';
+					var fb=PIE_COLORS[si % PIE_COLORS.length];
+					color=s.color||fb;
+					if(!color||String(color).startsWith('var('))color=fb;
 				}
 				var val=row[s.data_key];
 				if(typeof val==='number')numericValues.push(val);

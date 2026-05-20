@@ -1,6 +1,8 @@
+import { TRPCError } from '@trpc/server';
 import { CronExpressionParser } from 'cron-parser';
 import { z } from 'zod/v4';
 
+import { env } from '../env';
 import { AUTOMATION_JOB_NAME, startAutomationRun } from '../handlers/automation.handler';
 import type { AutomationWithSchedule } from '../queries/automation.queries';
 import * as automationQueries from '../queries/automation.queries';
@@ -9,6 +11,22 @@ import { naturalLanguageToCron } from '../services/cron-nlp';
 import { nextCronTick } from '../services/scheduler.service';
 import { llmProviderSchema } from '../types/llm';
 import { canSendProcedure, projectProtectedProcedure } from './trpc';
+
+function assertAutomationsEnabled() {
+	if (!env.BETA_AUTOMATIONS_ENABLED) {
+		throw new TRPCError({ code: 'FORBIDDEN', message: 'Automations are disabled on this instance.' });
+	}
+}
+
+const automationProcedure = canSendProcedure.use(async ({ next }) => {
+	assertAutomationsEnabled();
+	return next();
+});
+
+const automationReadProcedure = projectProtectedProcedure.use(async ({ next }) => {
+	assertAutomationsEnabled();
+	return next();
+});
 
 const integrationSchema = z
 	.object({
@@ -49,11 +67,11 @@ const writeAutomationSchema = z.object({
 });
 
 export const automationRoutes = {
-	list: projectProtectedProcedure.query(async ({ ctx }) => {
+	list: automationReadProcedure.query(async ({ ctx }) => {
 		return automationQueries.listAutomations(ctx.project.id, ctx.user.id);
 	}),
 
-	get: canSendProcedure.input(z.object({ id: z.string() })).query(async ({ ctx, input }) => {
+	get: automationProcedure.input(z.object({ id: z.string() })).query(async ({ ctx, input }) => {
 		const automation = await automationQueries.getAutomation(ctx.project.id, ctx.user.id, input.id);
 		if (!automation) {
 			return null;
@@ -62,7 +80,7 @@ export const automationRoutes = {
 		return { automation, runs };
 	}),
 
-	create: canSendProcedure.input(writeAutomationSchema).mutation(async ({ ctx, input }) => {
+	create: automationProcedure.input(writeAutomationSchema).mutation(async ({ ctx, input }) => {
 		assertValidCron(input.cron);
 		const { cron, enabled, ...promptInput } = input;
 		const automation = await automationQueries.createAutomation({
@@ -78,7 +96,7 @@ export const automationRoutes = {
 		return syncAutomationJob(automation, cron, enabled);
 	}),
 
-	update: canSendProcedure
+	update: automationProcedure
 		.input(writeAutomationSchema.extend({ id: z.string() }))
 		.mutation(async ({ ctx, input }) => {
 			assertValidCron(input.cron);
@@ -97,7 +115,7 @@ export const automationRoutes = {
 			return syncAutomationJob(automation, cron, enabled);
 		}),
 
-	setEnabled: canSendProcedure
+	setEnabled: automationProcedure
 		.input(z.object({ id: z.string(), enabled: z.boolean() }))
 		.mutation(async ({ ctx, input }) => {
 			const automation = await automationQueries.getAutomation(ctx.project.id, ctx.user.id, input.id);
@@ -107,7 +125,7 @@ export const automationRoutes = {
 			return syncAutomationJob(automation, automation.cron, input.enabled);
 		}),
 
-	delete: canSendProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
+	delete: automationProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
 		const automation = await automationQueries.getAutomation(ctx.project.id, ctx.user.id, input.id);
 		if (!automation) {
 			return { success: true };
@@ -119,7 +137,7 @@ export const automationRoutes = {
 		return { success: true };
 	}),
 
-	runNow: canSendProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
+	runNow: automationProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
 		const automation = await automationQueries.getAutomation(ctx.project.id, ctx.user.id, input.id);
 		if (!automation) {
 			return null;
@@ -127,7 +145,7 @@ export const automationRoutes = {
 		return startAutomationRun(input.id, { requireEnabled: false });
 	}),
 
-	parseCronFromText: projectProtectedProcedure
+	parseCronFromText: automationReadProcedure
 		.input(z.object({ text: z.string().min(1) }))
 		.mutation(async ({ ctx, input }) => {
 			const cron = await naturalLanguageToCron(ctx.project.id, input.text);

@@ -62,7 +62,7 @@ export function McpEndpointSettings({ isAdmin }: Props) {
 		<>
 			<SettingsCard
 				title='MCP Server'
-				description='Allow external AI clients (Claude, Cursor, Codex, etc.) to connect.'
+				description='Allow external AI clients (Claude, Cursor, Codex, ChatGPT, etc.) to connect.'
 			>
 				<SettingsToggleRow
 					id='mcp-enabled'
@@ -140,6 +140,8 @@ function ConnectionCard() {
 		2,
 	);
 
+	const vscodeConfig = JSON.stringify({ servers: { nao: { type: 'http', url: endpointUrl } }, inputs: [] }, null, 2);
+
 	const manualTokenConfig = JSON.stringify(
 		{
 			mcpServers: {
@@ -181,7 +183,50 @@ function ConnectionCard() {
 						'Authenticate in your browser when prompted.',
 					],
 					config: endpointUrl,
-					configLabel: 'Endpoint URL',
+					configLabel: 'MCP Endpoint URL',
+				},
+			],
+		},
+		{
+			id: 'chatgpt',
+			label: 'ChatGPT',
+			methods: [
+				{
+					steps: [
+						'Open {Settings > Apps > Advanced settings}.',
+						'Activate `Developer mode` if not already enabled.',
+						'Click `Create app` and paste the URL below into the `MCP Server URL` field.',
+						'Keep authentication as `OAuth` and click `Create`.',
+						'Authenticate in your browser when prompted.',
+					],
+					config: endpointUrl,
+					configLabel: 'MCP Endpoint URL',
+				},
+			],
+		},
+		{
+			id: 'copilot',
+			label: 'Copilot (VS Code)',
+			methods: [
+				{
+					label: 'Via Settings UI',
+					steps: [
+						'Open {Settings > MCP Servers > +}.',
+						'Paste the URL below into the `MCP Endpoint URL` field, then save.',
+						'Authenticate in your browser when prompted.',
+					],
+					config: endpointUrl,
+					configLabel: 'MCP Endpoint URL',
+				},
+				{
+					label: 'Via config file',
+					steps: [
+						'Open `<your_project>/.vscode/mcp.json` (create it if missing).',
+						'Paste the JSON below.',
+						'Authenticate in your browser when prompted.',
+					],
+					config: vscodeConfig,
+					configLabel: 'JSON config',
 				},
 			],
 		},
@@ -208,7 +253,7 @@ function ConnectionCard() {
 						'Enable the connector and authenticate in your browser.',
 					],
 					config: endpointUrl,
-					configLabel: 'Endpoint URL',
+					configLabel: 'MCP Endpoint URL',
 				},
 				{
 					label: 'Via config file',
@@ -224,7 +269,7 @@ function ConnectionCard() {
 		},
 		{
 			id: 'cli',
-			label: 'CLI / Scripts',
+			label: 'CLI',
 			methods: [
 				{
 					steps: ['Use the config below in your MCP client.'],

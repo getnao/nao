@@ -1,68 +1,53 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import type { Tool, ToolExecutionOptions } from 'ai';
+import type { Tool } from 'ai';
 import type { AnyZodObject } from 'zod/v3';
 
-import { getEnvVars, retrieveProjectById } from '../../queries/project.queries';
-import { hasFeature, LICENSE_FEATURES } from '../../services/license.service';
-import { getAzureAccessTokenForUser } from '../../services/microsoft-auth.service';
-import type { ToolContext } from '../../types/tools';
-import { logger } from '../../utils/logger';
-import type { McpContext, ToolHandler } from '../logging';
-import { withLogging } from '../logging';
+import type { McpContext, ToolResult } from '../logging';
+import { defineMcpHandler } from '../logging';
+import { runAgentTool } from './run-agent-tool';
 
-export interface WrapAgentToolOptions<TInput, TOutput> {
+export interface WrapAgentToolOptions<TAgentInput, TOutput, TMcpInput = TAgentInput> {
 	name: string;
-	agentTool: Tool<TInput, TOutput>;
+	agentTool: Tool<TAgentInput, TOutput>;
 	title?: string;
 	description?: string;
+	inputSchema?: unknown;
+	outputSchema?: unknown;
+	_meta?: Record<string, unknown>;
+	mapInput?: (input: TMcpInput) => TAgentInput;
+	formatResult?: (args: { input: TMcpInput; output: TOutput; callLogId: string }) => Promise<ToolResult> | ToolResult;
 }
 
-export function registerAgentToolAsMcp<TInput, TOutput>(
+export function registerAgentToolAsMcp<TAgentInput, TOutput, TMcpInput = TAgentInput>(
 	server: McpServer,
 	ctx: McpContext,
-	options: WrapAgentToolOptions<TInput, TOutput>,
+	options: WrapAgentToolOptions<TAgentInput, TOutput, TMcpInput>,
 ): void {
-	const { name, agentTool, title, description = agentTool.description } = options;
+	const { name, agentTool, title, description, inputSchema, outputSchema, _meta, mapInput, formatResult } = options;
 
-	const handler: ToolHandler<TInput> = async (input) => {
-		try {
-			const toolContext = await buildMcpToolContext(ctx);
-			const output = await agentTool.execute!(input, makeExecutionOptions(toolContext));
-			return { content: [{ type: 'text' as const, text: JSON.stringify(output) }] };
-		} catch (error) {
-			const message = error instanceof Error ? error.message : String(error);
-			logger.error(`MCP ${name} error: ${message}`, {
-				source: 'tool',
-				context: { input, userId: ctx.userId },
-			});
-			return { content: [{ type: 'text' as const, text: `${name} error: ${message}` }], isError: true };
+	const handler = defineMcpHandler<TMcpInput>(name, ctx, async (input, _extra, callLogId) => {
+		const agentInput = mapInput ? mapInput(input) : (input as unknown as TAgentInput);
+		const output = await runAgentTool(agentTool, agentInput, ctx);
+		if (formatResult) {
+			return formatResult({ input, output, callLogId });
 		}
-	};
+		return { content: [{ type: 'text' as const, text: JSON.stringify(output) }] };
+	});
 
 	server.registerTool(
 		name,
-		{ title, description, inputSchema: agentTool.inputSchema as unknown as AnyZodObject },
-		withLogging(name, ctx, handler) as Parameters<McpServer['registerTool']>[2],
+		{
+			title,
+			description: description ?? agentTool.description,
+			inputSchema: toMcpSchema(inputSchema ?? agentTool.inputSchema),
+			outputSchema: toMcpSchema(outputSchema),
+			_meta,
+		},
+		handler as Parameters<McpServer['registerTool']>[2],
 	);
 }
 
-async function buildMcpToolContext(ctx: McpContext): Promise<ToolContext> {
-	const project = await retrieveProjectById(ctx.projectId);
-	const envVars = await getEnvVars(ctx.projectId);
-	const azureAccessToken = (await hasFeature(LICENSE_FEATURES.sso))
-		? await getAzureAccessTokenForUser(ctx.userId)
-		: null;
-	return {
-		projectFolder: project.path ?? '',
-		chatId: '',
-		agentSettings: null,
-		envVars,
-		azureAccessToken,
-		queryResults: new Map(),
-		generatedArtifacts: { charts: [], stories: [] },
-	};
-}
-
-function makeExecutionOptions(toolContext: ToolContext): ToolExecutionOptions & { experimental_context: ToolContext } {
-	return { toolCallId: '', messages: [], experimental_context: toolContext };
+/** Casts any Zod schema to the AnyZodObject the MCP SDK expects. */
+function toMcpSchema(schema: unknown): AnyZodObject | undefined {
+	return schema as AnyZodObject | undefined;
 }

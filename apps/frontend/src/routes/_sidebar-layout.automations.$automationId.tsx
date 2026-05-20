@@ -11,10 +11,12 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { requireAutomationsEnabled } from '@/lib/require-admin';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
 export const Route = createFileRoute('/_sidebar-layout/automations/$automationId')({
+	beforeLoad: requireAutomationsEnabled,
 	component: AutomationDetailPage,
 });
 

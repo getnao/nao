@@ -3,6 +3,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 
 import { listUserProjects } from '../queries/project.queries';
 import type { McpEndpointSettings } from '../types/mcp-endpoint';
+import { registerNaoMcpApps } from './embed/ui-resources';
 import { registerAgentTools } from './tools/agent';
 import { registerDataTools } from './tools/data';
 import { registerFileTools } from './tools/files';
@@ -47,8 +48,9 @@ export async function resolveProjectId(userId: string): Promise<string> {
 }
 
 export function createMcpServer(userId: string, projectId: string, settings: McpEndpointSettings): McpServer {
-	const server = new McpServer({ name: 'nao', version: '0.1.0' }, { capabilities: { tools: {} } });
-	const ctx = { userId, projectId, settings };
+	const server = new McpServer({ name: 'nao', version: '0.1.0' }, { capabilities: { tools: {}, resources: {} } });
+	const sessionChatRef: { lastChatId?: string } = {};
+	const ctx = { userId, projectId, settings, sessionChatRef };
 
 	if (settings.agentModeEnabled) {
 		registerAgentTools(server, ctx);
@@ -59,6 +61,10 @@ export function createMcpServer(userId: string, projectId: string, settings: Mcp
 	}
 	if (settings.objectsModeEnabled) {
 		registerStoryTools(server, ctx);
+	}
+
+	if (settings.toolsModeEnabled || settings.objectsModeEnabled) {
+		registerNaoMcpApps(server);
 	}
 
 	return server;

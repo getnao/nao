@@ -9,6 +9,7 @@ import { chatRoutes } from './chat.routes';
 import { chatForkRoutes } from './chat-fork.routes';
 import { citationRoutes } from './citation.routes';
 import { contextExplorerRoutes } from './context-explorer.routes';
+import { embedRoutes } from './embed.routes';
 import { feedbackRoutes } from './feedback.routes';
 import { githubRoutes } from './github.routes';
 import { licenseRoutes } from './license.routes';
@@ -32,6 +33,7 @@ import { userRoutes } from './user.routes';
 export const trpcRouter = router({
 	branding: brandingRoutes,
 	budget: budgetRoutes,
+	embed: embedRoutes,
 	chart: chartRoutes,
 	chat: chatRoutes,
 	sharedChat: sharedChatRoutes,

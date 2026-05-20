@@ -6,7 +6,7 @@ Names are short verb-noun phrases (Anthropic convention: `analyze`, `write-query
 
 ## Available skills
 
-The five skills below cover the full context-engineering lifecycle for a nao agent. Each is independently invokable.
+The skills below cover the full context-engineering lifecycle for a nao agent. Each is independently invokable.
 
 | Skill                                          | Purpose                                                                                                                                                                                                                                  | When to use                                                                                           |
 | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
@@ -15,8 +15,9 @@ The five skills below cover the full context-engineering lifecycle for a nao age
 | [create-context-tests](./create-context-tests) | Generate or extend a test suite (one test per key metric), then run it via `nao test`.                                                                                                                                                   | Establishing or extending the reliability benchmark.                                                  |
 | [audit-context](./audit-context)               | Diagnose gaps, MECE violations, test failure root causes, modularization needs.                                                                                                                                                          | At any stage — right after setup, mid-build, before a release, or whenever the agent gets surprising. |
 | [add-semantic-layer](./add-semantic-layer)     | Wire in dbt MetricFlow, Snowflake views, an in-house YAML semantic layer, or another tool via MCP.                                                                                                                                       | After tests show the agent struggling with metric reliability — not before.                           |
+| [deploy-context](./deploy-context)             | Set up `nao deploy` from GitHub Actions so every push to `main` ships the context folder to a remote nao instance, with secrets handled via GitHub Secrets.                                                                              | After the local project is stable in Git and the team's deployed instance should track `main`.        |
 
-**Typical lifecycle:** `setup-context` → `write-context-rules` → `create-context-tests` → `audit-context` (anytime) → `add-semantic-layer` (only after test failures show metric-reliability gaps) → back to `write-context-rules` to refine.
+**Typical lifecycle:** `setup-context` → `write-context-rules` → `create-context-tests` → `audit-context` (anytime) → `add-semantic-layer` (only after test failures show metric-reliability gaps) → back to `write-context-rules` to refine → `deploy-context` once the project is committed to Git and ready to ship to the team's deployed instance.
 
 ## Distribution
 

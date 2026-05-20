@@ -28,6 +28,7 @@ import { useCommandMenuCallback } from '@/contexts/command-menu-callback';
 import { useSidebar } from '@/contexts/sidebar';
 import { brandingAssetUrl, useBranding } from '@/hooks/use-branding';
 import { useChatViewPreferences } from '@/hooks/use-chat-view-preferences';
+import { useSidebarSectionOpen } from '@/hooks/use-sidebar-section-open';
 import { useTimeAgo } from '@/hooks/use-time-ago';
 import { getActiveProjectId, setActiveProjectId } from '@/lib/active-project';
 import { cn, hideIf } from '@/lib/utils';
@@ -47,6 +48,7 @@ export function Sidebar() {
 	const branding = useBranding();
 	const { isAdmin, isViewer } = usePermissions();
 	const isCloud = config.data?.naoMode === 'cloud';
+	const betaAutomationsEnabled = config.data?.betaAutomationsEnabled === true;
 	const { groupBy, filters, setGroupBy, toggleFilter } = useChatViewPreferences();
 	const hasLicense = license.data?.tokenProvided === true;
 
@@ -244,7 +246,7 @@ export function Sidebar() {
 							isCollapsed={effectiveIsCollapsed}
 							onClick={handleNavigateStories}
 						/>
-						{!isViewer && (
+						{!isViewer && betaAutomationsEnabled && (
 							<SidebarMenuButton
 								icon={TimerIcon as unknown as LucideIcon}
 								label='Automations'
@@ -274,6 +276,7 @@ export function Sidebar() {
 					groupBy={groupBy}
 					filters={filters}
 					isViewer={isViewer}
+					showAutomations={betaAutomationsEnabled}
 				/>
 			)}
 
@@ -354,11 +357,13 @@ function SidebarNav({
 	groupBy,
 	filters,
 	isViewer,
+	showAutomations,
 }: {
 	isCollapsed: boolean;
 	groupBy: ChatGroupBy;
 	filters: ChatFilterType[];
 	isViewer: boolean;
+	showAutomations: boolean;
 }) {
 	const groupedChats = useQuery({
 		...trpc.chat.listGrouped.queryOptions({ groupBy, filters }),
@@ -366,7 +371,7 @@ function SidebarNav({
 	});
 	const automations = useQuery({
 		...trpc.automation.list.queryOptions(),
-		enabled: !isViewer,
+		enabled: !isViewer && showAutomations,
 	});
 	const groups = groupedChats.data?.groups;
 	const isEmpty = groups?.every((group) => group.chats.length === 0);
@@ -377,7 +382,7 @@ function SidebarNav({
 				hideIf(isCollapsed),
 			)}
 		>
-			{!isViewer && <AutomationsSection items={automations.data ?? []} />}
+			{!isViewer && showAutomations && <AutomationsSection items={automations.data ?? []} />}
 
 			{groups?.map((group) => (
 				<GroupSection key={group.label} group={group} groupBy={groupBy} />
@@ -410,7 +415,7 @@ function AutomationsSection({
 		updatedAt: Date;
 	}>;
 }) {
-	const [isOpen, setIsOpen] = useState(true);
+	const { isOpen, toggle } = useSidebarSectionOpen('section:automations');
 
 	if (items.length === 0) {
 		return null;
@@ -419,7 +424,7 @@ function AutomationsSection({
 	return (
 		<>
 			<div className='px-2 space-y-0.5'>
-				<SidebarSectionHeader label='Automations' isOpen={isOpen} onToggle={() => setIsOpen((p) => !p)} />
+				<SidebarSectionHeader label='Automations' isOpen={isOpen} onToggle={toggle} />
 			</div>
 			{isOpen && (
 				<div className='px-2 space-y-1'>
@@ -468,7 +473,7 @@ function AutomationListItem({
 const GROUP_INITIAL_COUNT = 10;
 
 function GroupSection({ group, groupBy }: { group: ChatGroup; groupBy: ChatGroupBy }) {
-	const [isOpen, setIsOpen] = useState(true);
+	const { isOpen, toggle } = useSidebarSectionOpen(`section:chat-group:${group.label}`);
 	const [expanded, setExpanded] = useState(false);
 	const hasMore = group.chats.length > GROUP_INITIAL_COUNT;
 	const visibleChats = expanded ? group.chats : group.chats.slice(0, GROUP_INITIAL_COUNT);
@@ -480,7 +485,7 @@ function GroupSection({ group, groupBy }: { group: ChatGroup; groupBy: ChatGroup
 	return (
 		<>
 			<div className='px-2 space-y-0.5'>
-				<SidebarSectionHeader label={group.label} isOpen={isOpen} onToggle={() => setIsOpen((p) => !p)} />
+				<SidebarSectionHeader label={group.label} isOpen={isOpen} onToggle={toggle} />
 			</div>
 
 			{isOpen && (

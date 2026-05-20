@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useMemo } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { buildChartTag } from '@nao/shared/story-segments';
+import { buildStoryChartBlock } from '@nao/shared';
 import { replaceUniqueChartTag } from './story-chart-edit-utils';
 import type { displayChart } from '@nao/shared/tools';
 import { trpc } from '@/main';
@@ -71,7 +71,7 @@ export function StoryChartEditProvider({
 
 	const saveChart = useCallback(
 		async (rawTag: string, config: displayChart.Input) => {
-			const nextTag = buildChartTag(config);
+			const nextTag = buildStoryChartBlock(config);
 			const nextCode = replaceUniqueChartTag(storyCode, rawTag, nextTag);
 			if (nextCode === storyCode) {
 				return;

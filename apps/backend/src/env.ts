@@ -83,6 +83,12 @@ const envSchema = z.object({
 		.enum(['true', 'false'])
 		.optional()
 		.transform((val) => val === 'true'),
+
+	BETA_AUTOMATIONS_ENABLED: z
+		.enum(['true', 'false'])
+		.optional()
+		.default('false')
+		.transform((val) => val === 'true'),
 });
 
 const result = envSchema.safeParse(process.env);

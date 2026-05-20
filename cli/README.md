@@ -112,6 +112,32 @@ The resulting project structure looks like:
 Options:
 
 - `--force` / `-f`: Force re-initialization even if the project already exists
+- `--yes` / `-y` / `--no-tty`: Run non-interactively. Skips all prompts and uses sensible defaults — useful for AI agents and automation scripts. When combined with a pre-written `nao_config.yaml` (e.g. written by an agent skill), only scaffolds the folder structure.
+- `--name` / `-n`: Project name. When set without an existing `nao_config.yaml`, this is used as the project name (and folder). In `--yes` mode without `--name`, the current directory name is used and the project is initialized in place.
+
+#### Non-interactive (agent-friendly) mode
+
+For LLM agents and automation, run `nao init` without any prompts:
+
+```bash
+# Initialize the current directory as a nao project (uses the directory name)
+nao init --yes
+
+# Or create a new sub-folder named "my-project"
+nao init --yes --name my-project
+
+# Pre-write nao_config.yaml then scaffold folders without prompting
+cat > nao_config.yaml <<'YAML'
+project_name: my-project
+databases:
+  - type: duckdb
+    name: local
+    path: ":memory:"
+YAML
+nao init --yes
+```
+
+In non-interactive mode, `nao init` never asks for input. Configure databases, LLM provider, and integrations by editing `nao_config.yaml` directly (or by pre-writing it before `nao init`).
 
 ### Start the nao chat UI
 

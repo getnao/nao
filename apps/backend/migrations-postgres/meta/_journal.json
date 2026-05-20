@@ -295,6 +295,13 @@
       "when": 1779201882027,
       "tag": "0041_automations",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1779270688350,
+      "tag": "0042_mcp_query_data_and_chart_embed",
+      "breakpoints": true
     }
   ]
 }

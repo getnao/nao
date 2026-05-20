@@ -15,19 +15,32 @@ const MIME_TYPES: Record<DownloadFormat, string> = {
 	html: 'text/html',
 };
 
+export async function buildStoryDownloadFile(
+	format: DownloadFormat,
+	title: string,
+	code: string,
+	queryData: QueryDataMap | null,
+): Promise<{ buffer: Buffer; filename: string; mimeType: string }> {
+	const story = { title, code };
+	const buffer = await generateStoryBuffer(format, story, queryData);
+	return {
+		buffer,
+		filename: formatDownloadFilename(title, format),
+		mimeType: MIME_TYPES[format],
+	};
+}
+
 export async function buildDownloadResponse(
 	format: DownloadFormat,
 	title: string,
 	code: string,
 	queryData: QueryDataMap | null,
 ): Promise<{ data: string; filename: string; mimeType: string }> {
-	const story = { title, code };
-	const buffer = await generateStoryBuffer(format, story, queryData);
-
+	const { buffer, filename, mimeType } = await buildStoryDownloadFile(format, title, code, queryData);
 	return {
 		data: buffer.toString('base64'),
-		filename: formatDownloadFilename(title, format),
-		mimeType: MIME_TYPES[format],
+		filename,
+		mimeType,
 	};
 }
 

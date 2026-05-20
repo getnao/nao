@@ -1,3 +1,4 @@
+import type { McpChartEmbedStoredConfig } from '@nao/shared';
 import type { CitationData, LlmProvider } from '@nao/shared/types';
 import { BUDGET_PERIODS, SHARE_VISIBILITY, USER_ROLES } from '@nao/shared/types';
 import { type ProviderMetadata } from 'ai';
@@ -637,6 +638,44 @@ export const storyVersion = sqliteTable(
 		index('story_version_storyId_idx').on(t.storyId),
 		unique('story_version_story_version_unique').on(t.storyId, t.version),
 	],
+);
+
+export const mcpQueryData = sqliteTable(
+	'mcp_query_data',
+	{
+		queryId: text('query_id').primaryKey(),
+		callLogId: text('call_log_id'),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		sourceChatId: text('source_chat_id'),
+		columns: text('columns', { mode: 'json' }).$type<string[]>().notNull(),
+		data: text('data', { mode: 'json' }).$type<Record<string, unknown>[]>().notNull(),
+		expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+	},
+	(t) => [
+		index('mcp_query_data_project_id_idx').on(t.projectId),
+		index('mcp_query_data_callLogId_idx').on(t.callLogId),
+	],
+);
+
+export const mcpChartEmbed = sqliteTable(
+	'mcp_chart_embed',
+	{
+		chartEmbedId: text('chart_embed_id').primaryKey(),
+		queryId: text('query_id')
+			.notNull()
+			.references(() => mcpQueryData.queryId, { onDelete: 'cascade' }),
+		chartConfig: text('chart_config', { mode: 'json' }).$type<McpChartEmbedStoredConfig>().notNull(),
+		sourceChatId: text('source_chat_id'),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+	},
+	(t) => [index('mcp_chart_embed_query_id_idx').on(t.queryId)],
 );
 
 export const storyDataCache = sqliteTable('story_data_cache', {
