@@ -54,15 +54,15 @@ function ProjectTeamTabPage() {
 		queryClient.invalidateQueries({ queryKey: trpc.project.listAllUsersWithRoles.queryKey() });
 	}, [queryClient]);
 
-	const handleAdd = async (data: { email: string; name?: string }) => {
+	const handleAdd = async ({ email, name }: { email: string; name?: string; role: UserRole }) => {
 		try {
 			const result = await addUser.mutateAsync({
-				email: data.email,
-				name: data.name,
+				email,
+				name,
 			});
 			invalidateMembers();
 			if (result.password) {
-				setCredentials({ email: data.email, password: result.password });
+				setCredentials({ email, password: result.password });
 			}
 			return {};
 		} catch (err: any) {

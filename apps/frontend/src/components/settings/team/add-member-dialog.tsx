@@ -1,23 +1,42 @@
 import { useState } from 'react';
 import { useForm } from '@tanstack/react-form';
+import { ChevronDown } from 'lucide-react';
+import { USER_ROLES } from '@nao/shared/types';
+import type { UserRole } from '@nao/shared/types';
 
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import {
+	DropdownMenu,
+	DropdownMenuItem,
+	DropdownMenuContent,
+	DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 interface AddMemberDialogProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	title?: string;
-	onSubmit: (data: { email: string; name?: string }) => Promise<{ needsName?: boolean }>;
+	availableRoles?: readonly UserRole[];
+	defaultRole?: UserRole;
+	onSubmit: (data: { email: string; name?: string; role: UserRole }) => Promise<{ needsName?: boolean }>;
 }
 
-export function AddMemberDialog({ open, onOpenChange, title = 'Add Member', onSubmit }: AddMemberDialogProps) {
+export function AddMemberDialog({
+	open,
+	onOpenChange,
+	title = 'Add Member',
+	availableRoles,
+	defaultRole = 'user',
+	onSubmit,
+}: AddMemberDialogProps) {
 	const [error, setError] = useState('');
 	const [needsName, setNeedsName] = useState(false);
+	const showRolePicker = availableRoles !== undefined && availableRoles.length > 0;
 
 	const form = useForm({
-		defaultValues: { email: '', name: '' },
+		defaultValues: { email: '', name: '', role: defaultRole },
 		onSubmit: async ({ value }) => {
 			setError('');
 			if (needsName && !value.name.trim()) {
@@ -28,6 +47,7 @@ export function AddMemberDialog({ open, onOpenChange, title = 'Add Member', onSu
 				const result = await onSubmit({
 					email: value.email,
 					name: needsName ? value.name : undefined,
+					role: value.role,
 				});
 				if (result.needsName) {
 					setNeedsName(true);
@@ -46,6 +66,8 @@ export function AddMemberDialog({ open, onOpenChange, title = 'Add Member', onSu
 		setNeedsName(false);
 		form.reset();
 	};
+
+	const roles = availableRoles ?? USER_ROLES;
 
 	return (
 		<Dialog open={open} onOpenChange={handleClose}>
@@ -77,6 +99,42 @@ export function AddMemberDialog({ open, onOpenChange, title = 'Add Member', onSu
 							</div>
 						)}
 					</form.Field>
+
+					{showRolePicker && (
+						<form.Field name='role'>
+							{(field) => (
+								<div className='flex flex-col gap-2'>
+									<label htmlFor='member-role' className='text-sm font-medium'>
+										Role
+									</label>
+									<DropdownMenu>
+										<DropdownMenuTrigger asChild>
+											<Button
+												type='button'
+												id='member-role'
+												variant='outline'
+												className='w-full justify-between'
+											>
+												<span className='capitalize'>{field.state.value}</span>
+												<ChevronDown className='h-4 w-4 opacity-50' />
+											</Button>
+										</DropdownMenuTrigger>
+										<DropdownMenuContent align='start' className='w-full'>
+											{roles.map((role) => (
+												<DropdownMenuItem
+													key={role}
+													onClick={() => field.handleChange(role)}
+													className={field.state.value === role ? 'bg-accent' : ''}
+												>
+													<span className='capitalize'>{role}</span>
+												</DropdownMenuItem>
+											))}
+										</DropdownMenuContent>
+									</DropdownMenu>
+								</div>
+							)}
+						</form.Field>
+					)}
 
 					{needsName && (
 						<>

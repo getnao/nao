@@ -33,6 +33,7 @@ export const getOrgMember = async (orgId: string, userId: string): Promise<DBOrg
 
 export const addOrgMember = async (member: NewOrgMember): Promise<DBOrgMember> => {
 	const [created] = await db.insert(s.orgMember).values(member).returning().execute();
+	await syncUserProjectMembershipInOrg(member.orgId, member.userId, member.role);
 	return created;
 };
 
@@ -249,6 +250,8 @@ export const ensureOrganizationSetup = async (): Promise<void> => {
 
 	// Ensure a project exists for the current NAO_DEFAULT_PROJECT_PATH
 	await ensureDefaultProject(org);
+
+	await backfillMissingOrgProjectMembership(org.id);
 };
 
 export interface OrgMemberWithUser {
@@ -304,6 +307,50 @@ export const updateOrgMemberRole = async (orgId: string, userId: string, role: O
 		.update(s.orgMember)
 		.set({ role })
 		.where(and(eq(s.orgMember.orgId, orgId), eq(s.orgMember.userId, userId)))
+		.execute();
+	await syncUserProjectMembershipInOrg(orgId, userId, role);
+};
+
+export const syncUserProjectMembershipInOrg = async (orgId: string, userId: string, role: OrgRole): Promise<void> => {
+	const projects = await db.select({ id: s.project.id }).from(s.project).where(eq(s.project.orgId, orgId)).execute();
+	if (projects.length === 0) {
+		return;
+	}
+
+	await db
+		.insert(s.projectMember)
+		.values(projects.map((project) => ({ projectId: project.id, userId, role })))
+		.onConflictDoUpdate({
+			target: [s.projectMember.projectId, s.projectMember.userId],
+			set: { role },
+		})
+		.execute();
+};
+
+const backfillMissingOrgProjectMembership = async (orgId: string): Promise<void> => {
+	const missing = await db
+		.select({
+			projectId: s.project.id,
+			userId: s.orgMember.userId,
+			role: s.orgMember.role,
+		})
+		.from(s.orgMember)
+		.innerJoin(s.project, eq(s.project.orgId, s.orgMember.orgId))
+		.leftJoin(
+			s.projectMember,
+			and(eq(s.projectMember.projectId, s.project.id), eq(s.projectMember.userId, s.orgMember.userId)),
+		)
+		.where(and(eq(s.orgMember.orgId, orgId), isNull(s.projectMember.userId)))
+		.execute();
+
+	if (missing.length === 0) {
+		return;
+	}
+
+	await db
+		.insert(s.projectMember)
+		.values(missing)
+		.onConflictDoNothing({ target: [s.projectMember.projectId, s.projectMember.userId] })
 		.execute();
 };
 
