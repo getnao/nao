@@ -37,10 +37,10 @@ const handleGithubSignIn = async (callbackURL = '/') => {
 	});
 };
 
-const handleOidcSignIn = async (providerId: string) => {
+const handleOidcSignIn = async (providerId: string, callbackURL = '/') => {
 	await authClient.signIn.oauth2({
 		providerId,
-		callbackURL: '/',
+		callbackURL,
 		errorCallbackURL: '/login',
 	});
 };

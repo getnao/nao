@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockEnv: Record<string, unknown> = {};
+let mockSsoEnabled = true;
 
 vi.mock('../src/env', () => ({
 	get env() {
@@ -25,11 +26,17 @@ vi.mock('../src/services/email', () => ({
 	emailService: { isEnabled: () => false },
 }));
 
+vi.mock('../src/services/license.service', () => ({
+	hasFeature: vi.fn().mockImplementation(() => Promise.resolve(mockSsoEnabled)),
+	LICENSE_FEATURES: { sso: 'sso' },
+}));
+
 vi.mock('../src/db/db', () => ({ db: {} }));
 
 describe('authConfigRoutes.oidc.getConfig', () => {
 	beforeEach(() => {
 		Object.keys(mockEnv).forEach((key) => delete mockEnv[key]);
+		mockSsoEnabled = true;
 	});
 
 	it('returns null when OIDC_CLIENT_ID is missing', async () => {
@@ -66,6 +73,16 @@ describe('authConfigRoutes.oidc.getConfig', () => {
 			providerId: 'oidc',
 			providerName: 'SSO',
 		});
+	});
+
+	it('returns null when SSO license feature is not enabled', async () => {
+		mockSsoEnabled = false;
+		mockEnv.OIDC_CLIENT_ID = 'client-id';
+		mockEnv.OIDC_CLIENT_SECRET = 'secret';
+		mockEnv.OIDC_DISCOVERY_URL = 'https://example.com/.well-known/openid-configuration';
+
+		const result = await callGetConfig();
+		expect(result).toBeNull();
 	});
 
 	it('returns custom provider ID and name when set', async () => {

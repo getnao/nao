@@ -91,7 +91,7 @@ export function AuthForm({
 								type='button'
 								variant='outline'
 								className='w-full h-11'
-								onClick={() => handleOidcSignIn(oidcConfig.data!.providerId)}
+								onClick={() => handleOidcSignIn(oidcConfig.data!.providerId, socialCallbackUrl)}
 							>
 								<LockKeyholeIcon className='w-5 h-5' />
 								Continue with {oidcConfig.data.providerName}

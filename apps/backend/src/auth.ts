@@ -4,12 +4,12 @@ import {
 	oauthProviderAuthServerMetadata,
 	oauthProviderOpenIdConfigMetadata,
 } from '@better-auth/oauth-provider';
+import type { BetterAuthPlugin } from 'better-auth';
 import { APIError, betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { verifyAccessToken } from 'better-auth/oauth2';
 import { jwt } from 'better-auth/plugins';
 import { bearer } from 'better-auth/plugins/bearer';
-import { genericOAuth } from 'better-auth/plugins/generic-oauth';
 import type { JWTPayload } from 'jose';
 
 import { db } from './db/db';
@@ -20,10 +20,16 @@ import * as userQueries from './queries/user.queries';
 import { emailService } from './services/email';
 import { hasFeature, LICENSE_FEATURES } from './services/license.service';
 import {
-	augmentSocialProviders,
-	getTrustedProviders,
-	isSocialProvider as isMicrosoftProvider,
+	augmentSocialProvidersWithMicrosoft,
+	getTrustedProvidersForMicrosoft,
+	isSocialProviderMicrosoft,
 } from './services/microsoft-auth.service';
+import {
+	augmentPluginsWithOidc,
+	getOidcProviderId,
+	getTrustedProvidersForOidc,
+	isSocialProviderOidc,
+} from './services/oidc-auth.service';
 import { buildForgotPasswordEmail } from './utils/email-builders';
 import { buildGithubAllowlist, isEmailDomainAllowed } from './utils/utils';
 
@@ -81,6 +87,8 @@ async function createAuthInstance(googleConfig: GoogleConfig) {
 	const githubAllowlist = buildGithubAllowlist(env.GITHUB_ALLOWED_USERS);
 	const disableEmailSignUp = await shouldDisableEmailSignUp();
 
+	const ssoPlugins: BetterAuthPlugin[] = [];
+
 	const socialProviders: Parameters<typeof betterAuth>[0]['socialProviders'] = {
 		google: {
 			prompt: 'select_account',
@@ -121,31 +129,15 @@ async function createAuthInstance(googleConfig: GoogleConfig) {
 
 	const ssoEnabled = await hasFeature(LICENSE_FEATURES.sso);
 	if (ssoEnabled) {
-		augmentSocialProviders(socialProviders);
+		augmentSocialProvidersWithMicrosoft(socialProviders);
+		augmentPluginsWithOidc(ssoPlugins);
 	}
 
-	const oidcProviderId = env.OIDC_PROVIDER_ID ?? 'oidc';
-
-	const oidcPlugins = [];
-	if (env.OIDC_CLIENT_ID && env.OIDC_CLIENT_SECRET && env.OIDC_DISCOVERY_URL) {
-		oidcPlugins.push(
-			genericOAuth({
-				config: [
-					{
-						providerId: oidcProviderId,
-						discoveryUrl: env.OIDC_DISCOVERY_URL,
-						clientId: env.OIDC_CLIENT_ID,
-						clientSecret: env.OIDC_CLIENT_SECRET,
-						scopes: env.OIDC_SCOPES?.split(',').map((s) => s.trim()) ?? ['openid', 'profile', 'email'],
-						pkce: env.OIDC_PKCE !== 'false',
-						prompt: 'select_account',
-					},
-				],
-			}),
-		);
-	}
-
-	const trustedProviders = ['google', 'github', ...(ssoEnabled ? getTrustedProviders() : [])];
+	const trustedProviders = [
+		'google',
+		'github',
+		...(ssoEnabled ? [...getTrustedProvidersForMicrosoft(), ...getTrustedProvidersForOidc()] : []),
+	];
 
 	return betterAuth({
 		secret: env.BETTER_AUTH_SECRET,
@@ -167,7 +159,7 @@ async function createAuthInstance(googleConfig: GoogleConfig) {
 				allowUnauthenticatedClientRegistration: true,
 				validAudiences: [env.BETTER_AUTH_URL, MCP_SERVER_URL],
 			}),
-			...oidcPlugins,
+			...ssoPlugins,
 		],
 		trustedOrigins: env.BETTER_AUTH_URL ? [env.BETTER_AUTH_URL] : undefined,
 		emailAndPassword: {
@@ -195,7 +187,7 @@ async function createAuthInstance(googleConfig: GoogleConfig) {
 							});
 						}
 
-						const isOidc = ctx?.params?.id === oidcProviderId;
+						const isOidc = ssoEnabled && ctx?.params?.id === getOidcProviderId();
 						if (isOidc && !isEmailDomainAllowed(user.email, env.OIDC_AUTH_DOMAINS ?? '')) {
 							throw new APIError('FORBIDDEN', {
 								message: 'This email domain is not authorized to access this application.',
@@ -209,8 +201,7 @@ async function createAuthInstance(googleConfig: GoogleConfig) {
 						const isSocial =
 							providerId === 'google' ||
 							providerId === 'github' ||
-							providerId === oidcProviderId ||
-							(ssoEnabled && isMicrosoftProvider(providerId));
+							(ssoEnabled && (isSocialProviderMicrosoft(providerId) || isSocialProviderOidc(providerId)));
 
 						if (isCloud) {
 							await orgQueries.initializePersonalOrganization(user.id);

@@ -15,7 +15,7 @@ interface AzureAdConfig {
 	tenantId: string;
 }
 
-export function augmentSocialProviders(providers: SocialProviders): void {
+export function augmentSocialProvidersWithMicrosoft(providers: SocialProviders): void {
 	const config = azureAdEnv();
 	if (!config) {
 		return;
@@ -27,11 +27,11 @@ export function augmentSocialProviders(providers: SocialProviders): void {
 	};
 }
 
-export function getTrustedProviders(): string[] {
+export function getTrustedProvidersForMicrosoft(): string[] {
 	return ['microsoft'];
 }
 
-export function isSocialProvider(providerId: string | undefined): boolean {
+export function isSocialProviderMicrosoft(providerId: string | undefined): boolean {
 	return providerId === 'microsoft';
 }
 

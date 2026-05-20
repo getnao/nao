@@ -7,6 +7,7 @@ import * as orgQueries from '../queries/organization.queries';
 import { emailService } from '../services/email';
 import { hasFeature, LICENSE_FEATURES } from '../services/license.service';
 import { isMicrosoftConfigured } from '../services/microsoft-auth.service';
+import { getOidcProviderId, isOidcConfigured } from '../services/oidc-auth.service';
 import { adminProtectedProcedure, publicProcedure } from './trpc';
 
 export const authConfigRoutes = {
@@ -58,12 +59,15 @@ export const authConfigRoutes = {
 		}),
 	},
 	oidc: {
-		getConfig: publicProcedure.query(() => {
-			if (!env.OIDC_CLIENT_ID || !env.OIDC_CLIENT_SECRET || !env.OIDC_DISCOVERY_URL) {
+		getConfig: publicProcedure.query(async () => {
+			if (!(await hasFeature(LICENSE_FEATURES.sso))) {
+				return null;
+			}
+			if (!isOidcConfigured()) {
 				return null;
 			}
 			return {
-				providerId: env.OIDC_PROVIDER_ID ?? 'oidc',
+				providerId: getOidcProviderId(),
 				providerName: env.OIDC_PROVIDER_NAME ?? 'SSO',
 			};
 		}),

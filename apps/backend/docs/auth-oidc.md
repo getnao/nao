@@ -2,6 +2,10 @@
 
 nao supports single sign-on (SSO) via any OIDC-compliant identity provider using the standard OpenID Connect Discovery protocol. This includes — but is not limited to — Okta, Auth0, Keycloak, and OneLogin.
 
+## Prerequisites
+
+OIDC authentication requires an **Enterprise Edition license** with the `sso` feature enabled. Without a valid license, the OIDC login button will not appear even if the environment variables are configured.
+
 ## How It Works
 
 nao uses better-auth's `genericOAuth` plugin with OIDC Discovery. You provide a discovery URL (the provider's `/.well-known/openid-configuration` endpoint), and the plugin auto-configures:
@@ -134,11 +138,11 @@ OIDC_SCOPES=openid,profile,email,groups
 
 ## Troubleshooting
 
-| Symptom                                    | Likely cause                                                                                                                |
-| ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
-| SSO button not visible                     | One or more of `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `OIDC_DISCOVERY_URL` is not set                                      |
-| 404 on discovery URL                       | Incorrect discovery URL — verify it returns JSON when opened in a browser                                                   |
-| "redirect_uri_mismatch" error              | The redirect URI registered in your IdP does not match `https://<host>/api/auth/oauth2/callback/{OIDC_PROVIDER_ID}` exactly |
-| "invalid_scope" error                      | Your provider doesn't support one of the requested scopes — check `OIDC_SCOPES`                                             |
-| "This email domain is not authorized"      | The user's email domain is not in `OIDC_AUTH_DOMAINS`                                                                       |
-| Login succeeds but user can't see projects | Expected — an admin needs to add the user to a project after their first login                                              |
+| Symptom                                    | Likely cause                                                                                                                     |
+| ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| SSO button not visible                     | Missing EE license with `sso` feature, or one or more of `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `OIDC_DISCOVERY_URL` is not set |
+| 404 on discovery URL                       | Incorrect discovery URL — verify it returns JSON when opened in a browser                                                        |
+| "redirect_uri_mismatch" error              | The redirect URI registered in your IdP does not match `https://<host>/api/auth/oauth2/callback/{OIDC_PROVIDER_ID}` exactly      |
+| "invalid_scope" error                      | Your provider doesn't support one of the requested scopes — check `OIDC_SCOPES`                                                  |
+| "This email domain is not authorized"      | The user's email domain is not in `OIDC_AUTH_DOMAINS`                                                                            |
+| Login succeeds but user can't see projects | Expected — an admin needs to add the user to a project after their first login                                                   |
