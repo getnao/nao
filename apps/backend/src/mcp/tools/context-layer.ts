@@ -140,7 +140,7 @@ function registerDataTools(server: McpServer, ctx: McpContext): void {
 		resolveChatId: (input) => input.chat_id ?? null,
 		formatResult: async ({ input, output, callLogId }) => {
 			const queryId = output.id;
-			const validatedSourceChat = await resolveChartChatId(input.chat_id, ctx.userId);
+			const validatedSourceChat = await resolveChartChatId(input.chat_id, ctx);
 
 			await upsertMcpQueryData(queryId, callLogId, ctx.projectId, output.columns, output.data, {
 				sourceChatId: validatedSourceChat ?? null,
@@ -174,7 +174,7 @@ function registerDataTools(server: McpServer, ctx: McpContext): void {
 
 			const block = buildStoryChartBlock({ query_id, chart_type, x_axis_key, x_axis_type, series, title });
 
-			const validatedChatId = await resolveChartChatId(chat_id, ctx.userId);
+			const validatedChatId = await resolveChartChatId(chat_id, ctx);
 
 			let queryData = await getMcpQueryData(query_id, ctx.projectId);
 			if (!queryData && validatedChatId) {
@@ -348,7 +348,7 @@ function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
 			const newCode = content ?? latestVersion?.code ?? `# ${newTitle}\n`;
 			const updated = await saveNewVersion(story, ctx, newTitle, newCode);
 			const embedUrl = storyEmbedUrl(story.id, ctx.projectId);
-			const validatedChatId = await resolveChartChatId(chat_id, ctx.userId);
+			const validatedChatId = await resolveChartChatId(chat_id, ctx);
 			const effectiveChatId = validatedChatId ?? story.chatId ?? undefined;
 			await cacheStoryQueryData(story.id, newCode, query_data, effectiveChatId, ctx.projectId);
 			const output: StoryMcpToolPayload = {
@@ -362,13 +362,18 @@ function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
 	);
 }
 
-async function resolveChartChatId(chatId: string | undefined, userId: string): Promise<string | undefined> {
+async function resolveChartChatId(chatId: string | undefined, ctx: McpContext): Promise<string | undefined> {
 	if (!chatId) {
 		return undefined;
 	}
 	const ownerId = await chatQueries.getChatOwnerId(chatId);
-	if (ownerId !== userId) {
-		logger.warn(`MCP: chat_id ${chatId} does not belong to user ${userId}, ignoring`, { source: 'tool' });
+	if (ownerId !== ctx.userId) {
+		logger.warn(`MCP: chat_id ${chatId} does not belong to user ${ctx.userId}, ignoring`, { source: 'tool' });
+		return undefined;
+	}
+	const chatProjectId = await chatQueries.getChatProjectId(chatId);
+	if (chatProjectId !== ctx.projectId) {
+		logger.warn(`MCP: chat_id ${chatId} is outside project ${ctx.projectId}, ignoring`, { source: 'tool' });
 		return undefined;
 	}
 	return chatId;
