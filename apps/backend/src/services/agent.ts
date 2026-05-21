@@ -42,6 +42,7 @@ import {
 	UIMessage,
 	UIMessagePart,
 } from '../types/chat';
+import type { ModelCosts } from '../types/llm';
 import { Provider } from '../types/messaging-provider';
 import { ToolContext } from '../types/tools';
 import { convertToCost, convertToTokenUsage, findLastUserMessage, getLastUserMessageText } from '../utils/ai';
@@ -588,6 +589,7 @@ class AgentManager {
 			provider?: Provider;
 			timezone?: string;
 			chatUrl?: string;
+			costs?: ModelCosts;
 		} = {},
 	): Promise<AgentRunResult> {
 		const startTime = performance.now();
@@ -615,6 +617,7 @@ class AgentManager {
 				this._modelSelection.provider,
 				this._modelSelection.modelId,
 				customModels,
+				opts.costs,
 			);
 			const finishReason = result.finishReason ?? 'stop';
 

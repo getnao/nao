@@ -33,6 +33,7 @@ export const customModelMetadataSchema = z.object({
 	costPerM: customModelCostSchema.optional(),
 });
 
+export type ModelCosts = z.infer<typeof customModelCostSchema>;
 export type CustomModelMetadata = z.infer<typeof customModelMetadataSchema>;
 
 export const llmConfigSchema = z.object({

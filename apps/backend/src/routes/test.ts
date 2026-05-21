@@ -7,7 +7,7 @@ import { noProjectMessage } from '../env';
 import { authMiddleware } from '../middleware/auth';
 import { retrieveProjectById } from '../queries/project.queries';
 import { TestAgentService, testAgentService } from '../services/test-agent.service';
-import { llmSelectedModelSchema } from '../types/llm';
+import { customModelCostSchema, llmSelectedModelSchema } from '../types/llm';
 
 export const testRoutes = async (app: App) => {
 	app.addHook('preHandler', authMiddleware);
@@ -24,12 +24,19 @@ export const testRoutes = async (app: App) => {
 					prompt: z.string(),
 					model: llmSelectedModelSchema,
 					sql: z.string(),
+					meta: z
+						.object({
+							costs: customModelCostSchema,
+						})
+						.optional(),
 				}),
 			},
 		},
 		async (request, reply) => {
 			const projectId = request.project?.id;
-			const { prompt, model, sql } = request.body;
+			const { prompt, model, sql, meta } = request.body;
+
+			const costs = meta?.costs;
 
 			if (!projectId) {
 				return reply.status(400).send({ error: noProjectMessage() });
@@ -37,7 +44,7 @@ export const testRoutes = async (app: App) => {
 
 			try {
 				const modelSelection = model as LlmSelectedModel | undefined;
-				const result = await testAgentService.runTest(projectId, prompt, modelSelection);
+				const result = await testAgentService.runTest(projectId, prompt, modelSelection, costs);
 				const project = await retrieveProjectById(projectId);
 
 				let verification;

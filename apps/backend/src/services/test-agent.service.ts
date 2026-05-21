@@ -3,6 +3,7 @@ import { generateText, ModelMessage, Output } from 'ai';
 import { z } from 'zod/v4';
 
 import type { UIMessage } from '../types/chat';
+import type { ModelCosts } from '../types/llm';
 import { AgentRunResult, AgentService } from './agent';
 
 type VerificationData = Record<string, string | number | boolean | null>[] | null;
@@ -19,7 +20,12 @@ export class TestAgentService extends AgentService {
 	 * Run a single prompt without persisting to a chat.
 	 * Used for testing/evaluation purposes.
 	 */
-	async runTest(projectId: string, prompt: string, modelSelection?: LlmSelectedModel): Promise<AgentRunResult> {
+	async runTest(
+		projectId: string,
+		prompt: string,
+		modelSelection?: LlmSelectedModel,
+		costs?: ModelCosts,
+	): Promise<AgentRunResult> {
 		const userMessage = TestAgentService._buildUserMessage(prompt);
 
 		const tempChat = {
@@ -34,7 +40,7 @@ export class TestAgentService extends AgentService {
 		};
 
 		const agent = await this.create(tempChat, modelSelection);
-		return agent.generate([userMessage]);
+		return agent.generate([userMessage], { costs });
 	}
 
 	/**
