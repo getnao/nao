@@ -641,8 +641,6 @@ async function getStoryVersion(
 			title: s.story.title,
 			slug: s.story.slug,
 			chatId: s.story.chatId,
-			slug: s.story.slug,
-			chatId: s.story.chatId,
 			isLive: s.story.isLive,
 			isLiveTextDynamic: s.story.isLiveTextDynamic,
 			cacheSchedule: s.story.cacheSchedule,
