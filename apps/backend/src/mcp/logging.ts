@@ -11,7 +11,6 @@ export interface McpContext {
 	userId: string;
 	projectId: string;
 	settings: McpEndpointSettings;
-	sessionChatRef: { lastChatId?: string };
 }
 
 export type ToolContent = { type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string };
@@ -28,17 +27,13 @@ export type ToolHandler<T> = (args: T, extra: ToolExtra) => Promise<ToolResult>;
 export type LoggedToolHandler<T> = (args: T, extra: ToolExtra, callLogId: string) => Promise<ToolResult>;
 
 export const TOOL_MODE_MAP: Record<string, keyof McpEndpointSettings> = {
-	ask_nao: 'agentModeEnabled',
-	execute_sql: 'toolsModeEnabled',
-	display_chart: 'toolsModeEnabled',
-	grep: 'toolsModeEnabled',
-	ls: 'toolsModeEnabled',
-	list_stories: 'objectsModeEnabled',
-	get_story: 'objectsModeEnabled',
-	create_story: 'objectsModeEnabled',
-	update_story: 'objectsModeEnabled',
-	archive_story: 'objectsModeEnabled',
-	delete_story: 'objectsModeEnabled',
+	ask_nao: 'subAgentModeEnabled',
+	execute_sql: 'contextLayerModeEnabled',
+	display_chart: 'contextLayerModeEnabled',
+	grep: 'contextLayerModeEnabled',
+	ls: 'contextLayerModeEnabled',
+	create_story: 'contextLayerModeEnabled',
+	update_story: 'contextLayerModeEnabled',
 };
 
 export function withLogging<T>(toolName: string, ctx: McpContext, handler: LoggedToolHandler<T>): ToolHandler<T> {

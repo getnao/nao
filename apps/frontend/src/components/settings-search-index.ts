@@ -210,24 +210,17 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		section: 'MCP Modes',
 		title: 'Sub-agent mode',
 		description:
-			'External agents use nao as a subagent to answer analytics questions like "How many users do we have?".',
-		keywords: ['ask_nao', 'agent', 'analytics'],
+			"Exposes ask_nao — delegates the full analytics task to nao's agent. The reasoning trace is saved as a chat in the nao UI.",
+		keywords: ['ask_nao', 'agent', 'analytics', 'delegate', 'sub-agent'],
 	},
 	{
 		page: '/settings/mcp-endpoint',
 		pageLabel: 'MCP Endpoint',
 		section: 'MCP Modes',
 		title: 'Context-layer mode',
-		description: 'Let agents use nao as a context-layer to browse nao filesystem, execute SQL, create charts, etc.',
-		keywords: ['execute_sql', 'display_chart', 'sql', 'query', 'chart', 'mcp app', 'embed'],
-	},
-	{
-		page: '/settings/mcp-endpoint',
-		pageLabel: 'MCP Endpoint',
-		section: 'MCP Modes',
-		title: 'Story mode',
-		description: 'Let external agents create and manage nao stories (create, read, update, archive, etc.).',
-		keywords: ['stories', 'dashboard', 'report', 'crud'],
+		description:
+			'Exposes ls, grep, execute_sql, display_chart, create_story, update_story — the client MCP drives the workflow step by step.',
+		keywords: ['execute_sql', 'display_chart', 'ls', 'grep', 'sql', 'query', 'chart', 'story', 'context', 'embed'],
 	},
 
 	// ── Project > Slack ──────────────────────────────────────

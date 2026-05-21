@@ -1,18 +1,26 @@
 import type { Tool, ToolExecutionOptions } from 'ai';
 
-import { buildToolContext } from '../../services/agent';
-import type { ToolContext } from '../../types/tools';
+import { buildMcpToolContext, buildToolContext } from '../../services/agent';
+import type { McpToolContext, ToolContext } from '../../types/tools';
 import type { McpContext } from '../logging';
 
-export async function runAgentTool<I, O>(tool: Tool<I, O>, input: I, ctx: McpContext): Promise<O> {
+export async function runAgentTool<I, O>(
+	tool: Tool<I, O>,
+	input: I,
+	ctx: McpContext,
+	chatId?: string | null,
+): Promise<O> {
 	if (!tool.execute) {
 		throw new Error(`Agent tool has no execute function`);
 	}
-	const chatId = ctx.sessionChatRef.lastChatId ?? '';
-	const toolContext = await buildToolContext({ projectId: ctx.projectId, userId: ctx.userId, chatId });
+	const toolContext = chatId
+		? await buildToolContext({ projectId: ctx.projectId, userId: ctx.userId, chatId })
+		: await buildMcpToolContext({ projectId: ctx.projectId, userId: ctx.userId });
 	return tool.execute(input, makeExecutionOptions(toolContext)) as Promise<O>;
 }
 
-function makeExecutionOptions(toolContext: ToolContext): ToolExecutionOptions & { experimental_context: ToolContext } {
+function makeExecutionOptions(
+	toolContext: ToolContext | McpToolContext,
+): ToolExecutionOptions & { experimental_context: ToolContext | McpToolContext } {
 	return { toolCallId: '', messages: [], experimental_context: toolContext };
 }

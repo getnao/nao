@@ -14,9 +14,8 @@ export const mcpEndpointRoutes = router({
 		.input(
 			z.object({
 				enabled: z.boolean().optional(),
-				agentModeEnabled: z.boolean().optional(),
-				toolsModeEnabled: z.boolean().optional(),
-				objectsModeEnabled: z.boolean().optional(),
+				subAgentModeEnabled: z.boolean().optional(),
+				contextLayerModeEnabled: z.boolean().optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {

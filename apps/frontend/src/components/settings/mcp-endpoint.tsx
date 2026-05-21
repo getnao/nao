@@ -74,29 +74,21 @@ export function McpEndpointSettings({ isAdmin }: Props) {
 				/>
 			</SettingsCard>
 
-			<SettingsCard title='MCP Modes' description='Control exposed capabilities.'>
+			<SettingsCard title='MCP Modes' description='Control which capabilities are exposed.'>
 				<SettingsToggleRow
-					id='mcp-agent-mode'
+					id='mcp-sub-agent-mode'
 					label='Sub-agent mode'
-					description='External agents use nao as a subagent to answer analytics questions like "How many users do we have?".'
-					checked={settings?.agentModeEnabled ?? true}
-					onCheckedChange={(v) => toggle('agentModeEnabled', v)}
+					description="Exposes ask_nao — delegates analytics tasks to nao's agent. The full reasoning trace is saved as a chat visible in the nao UI."
+					checked={settings?.subAgentModeEnabled ?? true}
+					onCheckedChange={(v) => toggle('subAgentModeEnabled', v)}
 					disabled={!isAdmin || !enabled || pending}
 				/>
 				<SettingsToggleRow
-					id='mcp-tools-mode'
+					id='mcp-context-layer-mode'
 					label='Context-layer mode'
-					description='External agents use nao as a context-layer to browse nao filesystem, execute SQL, create charts, etc.'
-					checked={settings?.toolsModeEnabled ?? true}
-					onCheckedChange={(v) => toggle('toolsModeEnabled', v)}
-					disabled={!isAdmin || !enabled || pending}
-				/>
-				<SettingsToggleRow
-					id='mcp-objects-mode'
-					label='Story mode'
-					description='Manage nao stories (create, read, update, archive, etc.). Useful to migrate from other BI tools to nao.'
-					checked={settings?.objectsModeEnabled ?? true}
-					onCheckedChange={(v) => toggle('objectsModeEnabled', v)}
+					description='Exposes ls, grep, execute_sql, display_chart, create_story, update_story — the client MCP drives the workflow step by step.'
+					checked={settings?.contextLayerModeEnabled ?? true}
+					onCheckedChange={(v) => toggle('contextLayerModeEnabled', v)}
 					disabled={!isAdmin || !enabled || pending}
 				/>
 			</SettingsCard>

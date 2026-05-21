@@ -44,7 +44,7 @@ import {
 } from '../types/chat';
 import type { ModelCosts } from '../types/llm';
 import { Provider } from '../types/messaging-provider';
-import { ToolContext } from '../types/tools';
+import { McpToolContext, ToolContext } from '../types/tools';
 import {
 	convertToCost,
 	convertToTokenUsage,
@@ -98,6 +98,24 @@ export async function buildToolContext(opts: {
 	chatId: string;
 	agentSettings?: AgentSettings | null;
 }): Promise<ToolContext> {
+	const base = await _buildContextBase(opts);
+	return { ...base, chatId: opts.chatId };
+}
+
+export async function buildMcpToolContext(opts: {
+	projectId: string;
+	userId: string;
+	agentSettings?: AgentSettings | null;
+}): Promise<McpToolContext> {
+	const base = await _buildContextBase(opts);
+	return { ...base, chatId: null };
+}
+
+async function _buildContextBase(opts: {
+	projectId: string;
+	userId: string;
+	agentSettings?: AgentSettings | null;
+}): Promise<Omit<ToolContext, 'chatId'>> {
 	const project = await projectQueries.retrieveProjectById(opts.projectId);
 	if (!project.path) {
 		throw new HandlerError('BAD_REQUEST', 'Project path does not exist.');
@@ -110,7 +128,6 @@ export async function buildToolContext(opts: {
 	]);
 	return {
 		projectFolder: project.path,
-		chatId: opts.chatId,
 		agentSettings,
 		envVars,
 		azureAccessToken,
@@ -299,6 +316,10 @@ class AgentManager {
 		// });
 
 		return { messages: this._addCache(this._pruneMessages(messages)) };
+	}
+
+	get generatedArtifacts(): ToolContext['generatedArtifacts'] {
+		return this._toolContext.generatedArtifacts;
 	}
 
 	stream(

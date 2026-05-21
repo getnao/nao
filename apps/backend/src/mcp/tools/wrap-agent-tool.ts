@@ -15,6 +15,7 @@ export interface WrapAgentToolOptions<TAgentInput, TOutput, TMcpInput = TAgentIn
 	outputSchema?: unknown;
 	_meta?: Record<string, unknown>;
 	mapInput?: (input: TMcpInput) => TAgentInput;
+	resolveChatId?: (input: TMcpInput) => string | null;
 	formatResult?: (args: { input: TMcpInput; output: TOutput; callLogId: string }) => Promise<ToolResult> | ToolResult;
 }
 
@@ -23,11 +24,23 @@ export function registerAgentToolAsMcp<TAgentInput, TOutput, TMcpInput = TAgentI
 	ctx: McpContext,
 	options: WrapAgentToolOptions<TAgentInput, TOutput, TMcpInput>,
 ): void {
-	const { name, agentTool, title, description, inputSchema, outputSchema, _meta, mapInput, formatResult } = options;
+	const {
+		name,
+		agentTool,
+		title,
+		description,
+		inputSchema,
+		outputSchema,
+		_meta,
+		mapInput,
+		resolveChatId,
+		formatResult,
+	} = options;
 
 	const handler = defineMcpHandler<TMcpInput>(name, ctx, async (input, _extra, callLogId) => {
 		const agentInput = mapInput ? mapInput(input) : (input as unknown as TAgentInput);
-		const output = await runAgentTool(agentTool, agentInput, ctx);
+		const chatId = resolveChatId ? resolveChatId(input) : undefined;
+		const output = await runAgentTool(agentTool, agentInput, ctx, chatId);
 		if (formatResult) {
 			return formatResult({ input, output, callLogId });
 		}

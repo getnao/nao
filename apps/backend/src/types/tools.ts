@@ -32,3 +32,5 @@ export interface ToolContext {
 	queryResults: Map<string, QueryResult>;
 	generatedArtifacts: GeneratedArtifacts;
 }
+
+export type McpToolContext = Omit<ToolContext, 'chatId'> & { chatId: null };
