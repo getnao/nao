@@ -26,20 +26,24 @@ export type ToolExtra = RequestHandlerExtra<ServerRequest, ServerNotification>;
 export type ToolHandler<T> = (args: T, extra: ToolExtra) => Promise<ToolResult>;
 export type LoggedToolHandler<T> = (args: T, extra: ToolExtra, callLogId: string) => Promise<ToolResult>;
 
-export const TOOL_MODE_MAP: Record<string, keyof McpEndpointSettings> = {
-	ask_nao: 'subAgentModeEnabled',
-	execute_sql: 'contextLayerModeEnabled',
-	display_chart: 'contextLayerModeEnabled',
-	grep: 'contextLayerModeEnabled',
-	ls: 'contextLayerModeEnabled',
-	create_story: 'contextLayerModeEnabled',
-	update_story: 'contextLayerModeEnabled',
+export const TOOL_MODE_MAP: Record<string, (keyof McpEndpointSettings)[]> = {
+	ask_nao: ['subAgentModeEnabled'],
+	execute_sql: ['contextLayerModeEnabled'],
+	display_chart: ['contextLayerModeEnabled'],
+	grep: ['contextLayerModeEnabled'],
+	ls: ['contextLayerModeEnabled'],
+	list_stories: ['subAgentModeEnabled', 'contextLayerModeEnabled'],
+	get_story: ['subAgentModeEnabled', 'contextLayerModeEnabled'],
+	create_story: ['contextLayerModeEnabled'],
+	update_story: ['contextLayerModeEnabled'],
+	archive_story: ['subAgentModeEnabled', 'contextLayerModeEnabled'],
+	delete_story: ['subAgentModeEnabled', 'contextLayerModeEnabled'],
 };
 
 export function withLogging<T>(toolName: string, ctx: McpContext, handler: LoggedToolHandler<T>): ToolHandler<T> {
 	return async (args: T, extra: ToolExtra) => {
-		const modeKey = TOOL_MODE_MAP[toolName];
-		if (modeKey && !ctx.settings[modeKey]) {
+		const modeKeys = TOOL_MODE_MAP[toolName];
+		if (modeKeys && !modeKeys.some((key) => ctx.settings[key])) {
 			return {
 				content: [{ type: 'text' as const, text: 'This MCP mode is disabled by your admin.' }],
 				isError: true,

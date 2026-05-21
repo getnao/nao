@@ -41,7 +41,14 @@ export function registerStoryManagementTools(server: McpServer, ctx: McpContext)
 			title: 'List Stories',
 			description: LIST_STORIES_DESCRIPTION,
 			inputSchema: {
-				limit: z.number().optional().default(20).describe('Max stories to return (default 20, max 100).'),
+				limit: z
+					.number()
+					.int()
+					.positive()
+					.max(100)
+					.optional()
+					.default(20)
+					.describe('Max stories to return (default 20, max 100).'),
 				archived: z.boolean().optional().default(false).describe('Set to true to include archived stories.'),
 			},
 		},
@@ -167,6 +174,10 @@ async function buildStoryMcpResultWithSandbox(
 async function resolveStory(storyId: string, ctx: McpContext): Promise<UserStoryRow> {
 	const story = await storyQueries.getStoryByIdForUser(storyId, ctx.userId);
 	if (!story) {
+		throw new Error(`Story not found: ${storyId}`);
+	}
+	const storyProjectId = await storyQueries.getStoryProjectId(storyId);
+	if (storyProjectId !== ctx.projectId) {
 		throw new Error(`Story not found: ${storyId}`);
 	}
 	return story;

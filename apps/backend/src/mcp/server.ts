@@ -57,7 +57,10 @@ export function createMcpServer(userId: string, projectId: string, settings: Mcp
 		registerContextLayerTools(server, ctx);
 	}
 
-	registerStoryManagementTools(server, ctx);
+	if (settings.subAgentModeEnabled || settings.contextLayerModeEnabled) {
+		registerStoryManagementTools(server, ctx);
+	}
+
 	registerNaoMcpApps(server);
 
 	return server;

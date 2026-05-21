@@ -348,7 +348,8 @@ function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
 			const newCode = content ?? latestVersion?.code ?? `# ${newTitle}\n`;
 			const updated = await saveNewVersion(story, ctx, newTitle, newCode);
 			const embedUrl = storyEmbedUrl(story.id, ctx.projectId);
-			const effectiveChatId = chat_id ?? story.chatId ?? undefined;
+			const validatedChatId = await resolveChartChatId(chat_id, ctx.userId);
+			const effectiveChatId = validatedChatId ?? story.chatId ?? undefined;
 			await cacheStoryQueryData(story.id, newCode, query_data, effectiveChatId, ctx.projectId);
 			const output: StoryMcpToolPayload = {
 				embedUrl,
@@ -515,6 +516,10 @@ async function buildStoryMcpResultWithSandbox(
 async function resolveStory(storyId: string, ctx: McpContext): Promise<UserStoryRow> {
 	const story = await storyQueries.getStoryByIdForUser(storyId, ctx.userId);
 	if (!story) {
+		throw new Error(`Story not found: ${storyId}`);
+	}
+	const storyProjectId = await storyQueries.getStoryProjectId(storyId);
+	if (storyProjectId !== ctx.projectId) {
 		throw new Error(`Story not found: ${storyId}`);
 	}
 	return story;
