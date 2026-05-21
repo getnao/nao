@@ -80,10 +80,10 @@ DEFAULT_ANNOTATION_MODELS: dict[LLMProvider, str] = {
 
 
 class ModelCosts(BaseModel):
-    input_no_cache: float
-    input_cache_read: float
-    input_cache_write: float
-    output: float
+    input_no_cache: float = Field(ge=0)
+    input_cache_read: float = Field(ge=0)
+    input_cache_write: float = Field(ge=0)
+    output: float = Field(ge=0)
 
 
 class LLMConfigMeta(BaseModel):
