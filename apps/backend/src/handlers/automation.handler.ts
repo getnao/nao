@@ -14,6 +14,7 @@ import {
 	createAutomationTools,
 	getAutomationIntegrationToolNames,
 } from '../services/automation-tools';
+import { customToolService } from '../services/custom-tool';
 import { mcpService } from '../services/mcp';
 import { skillService } from '../services/skill';
 import type { AutomationIntegrationResult } from '../types/automation';
@@ -111,6 +112,7 @@ async function finishAutomationRun(automation: AutomationWithSchedule, run: DBAu
 			await mcpService.initializeMcpState(automation.projectId);
 		}
 		await skillService.initializeSkills(automation.projectId);
+		await customToolService.initialize(automation.projectId);
 
 		const githubToken = await userQueries.getGithubToken(automation.userId);
 		const expectedTools = getAutomationIntegrationToolNames(automation.integrations);

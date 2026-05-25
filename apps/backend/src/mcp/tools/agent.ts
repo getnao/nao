@@ -4,6 +4,7 @@ import { z } from 'zod';
 
 import * as chatQueries from '../../queries/chat.queries';
 import { agentService } from '../../services/agent';
+import { customToolService } from '../../services/custom-tool';
 import { mcpService } from '../../services/mcp';
 import { skillService } from '../../services/skill';
 import type { UIMessage, UIMessagePart } from '../../types/chat';
@@ -46,6 +47,7 @@ export function registerAgentTools(server: McpServer, ctx: McpContext): void {
 			async ({ question, chatId }, extra) => {
 				await mcpService.initializeMcpState(ctx.projectId);
 				await skillService.initializeSkills(ctx.projectId);
+				await customToolService.initialize(ctx.projectId);
 
 				const { chat, uiMessages } = await buildChatContext(ctx.projectId, ctx.userId, question, chatId);
 

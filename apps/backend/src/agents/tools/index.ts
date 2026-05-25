@@ -1,6 +1,7 @@
 export { isPythonAvailable } from './execute-python';
 export { isSandboxAvailable } from './execute-sandboxed-code';
 
+import { customToolService } from '../../services/custom-tool';
 import { mcpService } from '../../services/mcp';
 import { AgentSettings } from '../../types/agent-settings';
 import clarification from './clarification';
@@ -42,6 +43,7 @@ export const getTools = (
 	} = {},
 ) => {
 	const mcpTools = options.mcpEnabled === false ? {} : mcpService.getMcpTools(options.mcpServers);
+	const customTools = customToolService.getTools();
 
 	const {
 		execute_python,
@@ -56,6 +58,7 @@ export const getTools = (
 		...baseTools,
 		...(!options.testMode && { clarification: clarificationTool }),
 		...mcpTools,
+		...customTools,
 		...(agentSettings?.experimental?.pythonSandboxing && execute_python && { execute_python }),
 		...(agentSettings?.experimental?.sandboxes && execute_sandboxed_code && { execute_sandboxed_code }),
 		...extraTools,

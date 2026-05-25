@@ -4,6 +4,7 @@ import { noProjectMessage } from '../env';
 import * as chatQueries from '../queries/chat.queries';
 import * as imageQueries from '../queries/image.queries';
 import { agentService } from '../services/agent';
+import { customToolService } from '../services/custom-tool';
 import { mcpService } from '../services/mcp';
 import { skillService } from '../services/skill';
 import { AgentRequest, AgentRequestUserMessage, UIMessagePart } from '../types/chat';
@@ -58,6 +59,7 @@ export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<H
 
 	await mcpService.initializeMcpState(projectId);
 	await skillService.initializeSkills(projectId);
+	await customToolService.initialize(projectId);
 
 	const agent = await agentService.create({ ...chat, userId, projectId }, model);
 
