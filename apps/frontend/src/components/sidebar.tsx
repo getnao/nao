@@ -8,7 +8,6 @@ import {
 	NewspaperIcon,
 	PlusIcon,
 	SearchIcon,
-	TimerIcon,
 	X,
 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
