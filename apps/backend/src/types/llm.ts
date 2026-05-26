@@ -86,7 +86,15 @@ export type AuthField = {
 /** Describes how a provider authenticates */
 export type ProviderAuth = {
 	apiKey: 'required' | 'optional' | 'none';
-	alternativeEnvVars?: string[];
+	/**
+	 * Alternative ways to authenticate via the environment. Each inner array is a
+	 * bundle: every var in a bundle must be set, and any single satisfied bundle is
+	 * enough to consider the provider env-configured. Use multi-var bundles for
+	 * paired credentials (e.g. access key + secret) and single-var bundles for
+	 * ambient signals where the SDK resolves the secret itself (AWS task role,
+	 * IRSA, named profile, …).
+	 */
+	alternativeEnvVars?: string[][];
 	hint?: string;
 	extraFields?: AuthField[];
 };

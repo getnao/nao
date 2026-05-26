@@ -195,8 +195,21 @@ export const PROVIDER_META: ProviderMetaMap = {
 	bedrock: {
 		auth: {
 			apiKey: 'optional',
-			alternativeEnvVars: ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY'],
-			hint: 'Optional — uses AWS credentials from environment if not provided',
+			// Any one satisfied bundle is enough. First bundle is static IAM creds
+			// (access key + secret, both required). The rest are ambient signals
+			// resolved by the AWS SDK chain: ECS task role, EKS IRSA, named profile,
+			// or an explicit AWS_USE_INSTANCE_CREDENTIALS=1 opt-in for EC2 instance
+			// profiles / default shared-credentials profile (no env footprint).
+			alternativeEnvVars: [
+				['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY'],
+				['AWS_PROFILE'],
+				['AWS_CONTAINER_CREDENTIALS_RELATIVE_URI'],
+				['AWS_CONTAINER_CREDENTIALS_FULL_URI'],
+				['AWS_WEB_IDENTITY_TOKEN_FILE'],
+				['AWS_SDK_LOAD_CONFIG'],
+				['AWS_USE_INSTANCE_CREDENTIALS'],
+			],
+			hint: 'Optional — leave empty to use AWS credentials from environment, IAM task role, IRSA, or instance profile',
 			extraFields: [
 				{ name: 'region', label: 'AWS Region', envVar: 'AWS_REGION', placeholder: 'us-east-1' },
 				{ name: 'accessKeyId', label: 'Access Key ID', envVar: 'AWS_ACCESS_KEY_ID' },
