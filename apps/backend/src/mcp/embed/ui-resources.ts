@@ -524,6 +524,16 @@ body.is-loading{min-height:160px}
 	wireHostToolBridge();
 	connectToHost();
 
+	function safeHttpUrl(url) {
+		try {
+			var parsed = new URL(url, window.location.href);
+			if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+			return parsed.toString();
+		} catch (e) {
+			return null;
+		}
+	}
+
 	function fallbackOpenInNewTab(url) {
 		try {
 			window.open(url, '_blank', 'noopener,noreferrer');
@@ -551,7 +561,9 @@ body.is-loading{min-height:160px}
 		var msg = event.data;
 		if (!msg || typeof msg !== 'object') return;
 		if (msg.type === 'nao-open-link' && typeof msg.url === 'string') {
-			openLinkViaHost(msg.url);
+			var safeUrl = safeHttpUrl(msg.url);
+			if (!safeUrl) return;
+			openLinkViaHost(safeUrl);
 		}
 	});
 })();
