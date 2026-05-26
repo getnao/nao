@@ -1,4 +1,4 @@
-export const AUTOMATION_RUN_STATUSES = ['running', 'completed', 'failed'] as const;
+export const AUTOMATION_RUN_STATUSES = ['running', 'completed', 'failed', 'cancelled'] as const;
 
 export type AutomationRunStatus = (typeof AUTOMATION_RUN_STATUSES)[number];
 

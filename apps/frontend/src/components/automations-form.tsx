@@ -1,17 +1,30 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Separator } from './ui/separator';
+import { Calendar, Github, Mail, Plus, Trash2 } from 'lucide-react';
 import type { McpState } from '@nao/shared';
 import type { LlmProvider } from '@nao/shared/types';
 import type { FormEvent, ReactNode, RefObject } from 'react';
 import type { PromptHandle } from 'prompt-mentions';
+import McpIcon from '@/components/icons/model-context-protocol.svg';
+import SlackIcon from '@/components/icons/slack.svg';
 import { ChatPrompt, DATABASE_MENTION_TRIGGER, SKILL_MENTION_TRIGGER } from '@/components/chat-input-prompt';
 import { Button } from '@/components/ui/button';
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuLabel,
+	DropdownMenuSeparator,
+	DropdownMenuSub,
+	DropdownMenuSubContent,
+	DropdownMenuSubTrigger,
+	DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { ErrorMessage } from '@/components/ui/error-message';
 import { Input } from '@/components/ui/input';
 import { LlmProviderIcon } from '@/components/ui/llm-provider-icon';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Switch } from '@/components/ui/switch';
+import { cn } from '@/lib/utils';
 import { useSession } from '@/lib/auth-client';
 import { trpc } from '@/main';
 
@@ -73,14 +86,23 @@ type SchedulePreset = {
 	description: string;
 };
 
+type AvailableModel = {
+	provider: LlmProvider;
+	modelId: string;
+	name: string;
+};
+
 const defaultModelValue = 'default';
 const MODE_MENTION_TRIGGER = '#';
+const DEFAULT_SCHEDULE_CRON = '0 9 * * 1';
+const DEFAULT_SCHEDULE_DESCRIPTION = 'Every Monday at 9am';
+const CUSTOM_SCHEDULE_DESCRIPTION = 'Custom schedule';
 
 const defaultValue: AutomationFormValue = {
 	title: '',
 	prompt: '',
-	cron: '0 9 * * 1',
-	scheduleDescription: 'Every Monday at 9am',
+	cron: '',
+	scheduleDescription: undefined,
 	modelProvider: undefined,
 	modelId: undefined,
 	enabled: true,
@@ -93,7 +115,7 @@ const schedulePresets: SchedulePreset[] = [
 	{ value: 'hourly', label: 'Hourly', cron: '0 * * * *', description: 'Hourly' },
 	{ value: 'daily', label: 'Daily', cron: '0 9 * * *', description: 'Daily at 9am' },
 	{ value: 'weekdays', label: 'Weekdays', cron: '0 9 * * 1-5', description: 'Weekdays at 9am' },
-	{ value: 'weekly', label: 'Weekly', cron: '0 9 * * 1', description: 'Weekly on Monday at 9am' },
+	{ value: 'weekly', label: 'Weekly', cron: DEFAULT_SCHEDULE_CRON, description: DEFAULT_SCHEDULE_DESCRIPTION },
 	{ value: 'monthly', label: 'Monthly', cron: '0 9 1 * *', description: 'Monthly on the 1st at 9am' },
 ];
 
@@ -119,125 +141,87 @@ export function AutomationForm({
 		onSubmit,
 	});
 
+	const hasSidebar = Boolean(details || aside);
+
 	return (
 		<form
 			ref={form.formRef}
 			id={id}
 			onSubmit={form.handleSubmit}
-			className='grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px] 2xl:grid-cols-[minmax(0,1fr)_380px]'
+			className={cn(
+				'grid gap-6',
+				hasSidebar && 'xl:grid-cols-[minmax(0,1fr)_340px] 2xl:grid-cols-[minmax(0,1fr)_380px]',
+			)}
 		>
-			<div className='grid content-start gap-5'>
-				<div className='grid gap-2'>
-					<label className='text-sm font-medium'>Title</label>
-					<Input value={form.value.title} onChange={(event) => form.setTitle(event.target.value)} required />
-				</div>
+			<div className='grid content-start gap-6'>
+				<AutomationTitleField
+					value={form.value.title}
+					onChange={form.setTitle}
+					placeholder={form.titlePlaceholder}
+				/>
 
-				<div className='grid gap-2'>
-					<label className='text-sm font-medium'>Prompt</label>
-					<AutomationPromptInput
-						promptRef={form.promptRef}
-						value={form.value.prompt}
-						hasError={form.promptError}
-						onChange={form.handlePromptChange}
-					/>
-					<PromptMentionHints email={form.userEmail} onInsertTrigger={form.handleInsertPromptTrigger} />
-				</div>
-			</div>
+				<TriggersSection
+					cron={form.value.cron}
+					scheduleOption={form.scheduleOption}
+					onScheduleOptionChange={form.handleScheduleOptionChange}
+					onCustomCronChange={form.setCustomCron}
+					onAddSchedule={form.handleAddSchedule}
+					onRemoveSchedule={form.handleRemoveSchedule}
+					hasError={form.triggerError}
+					disabled={form.controlsDisabled}
+				/>
 
-			<div className='grid content-start gap-4'>
-				<AutomationSidebarSection title='Details'>
-					{details && <AutomationDetailSummary details={details} />}
+				<AgentInstructionsSection
+					promptRef={form.promptRef}
+					promptValue={form.value.prompt}
+					promptHasError={form.promptError}
+					onPromptChange={form.handlePromptChange}
+					modelValue={form.selectedModelValue}
+					modelName={form.selectedModelName}
+					modelProvider={form.value.modelProvider}
+					availableModels={form.availableModels}
+					onModelChange={form.handleModelChange}
+					email={form.userEmail}
+					onInsertPromptTrigger={form.handleInsertPromptTrigger}
+				/>
 
-					<Separator className='my-4 border-1/2' />
+				<ToolsSection
+					value={form.value}
+					mcpState={form.mcpState}
+					emailRecipientsError={form.emailRecipientsError}
+					onClearEmailRecipientsError={form.clearEmailRecipientsError}
+					onChange={form.handleValueChange}
+					onAutoSaveChange={form.handleControlValueChange}
+					disabled={form.controlsDisabled}
+				/>
 
-					<div className='flex items-center justify-between gap-3'>
-						<label className='text-sm text-muted-foreground'>Schedule</label>
-						<Select
-							value={form.scheduleOption}
-							onValueChange={(option) => form.handleScheduleOptionChange(option as ScheduleOption)}
-							disabled={form.controlsDisabled}
-						>
-							<SelectTrigger variant='ghost' className='min-w-0 max-w-40 justify-end px-0 text-right'>
-								<SelectValue />
-							</SelectTrigger>
-							<SelectContent>
-								{schedulePresets.map((preset) => (
-									<SelectItem key={preset.value} value={preset.value}>
-										{preset.label}
-									</SelectItem>
-								))}
-								<SelectItem value='custom'>Custom</SelectItem>
-							</SelectContent>
-						</Select>
-					</div>
-
-					{form.scheduleOption === 'custom' && (
-						<div className='grid gap-2'>
-							<label className='text-xs font-medium text-muted-foreground'>Crontab syntax</label>
-							<Input
-								value={form.value.cron}
-								onChange={(event) => form.setCustomCron(event.target.value)}
-								placeholder='0 9 * * 1'
-								required
-							/>
-						</div>
-					)}
-
-					<div className='flex items-center justify-between gap-3'>
-						<label className='text-sm text-muted-foreground'>Model</label>
-						<Select
-							value={form.selectedModelValue}
-							onValueChange={form.handleModelChange}
-							disabled={form.controlsDisabled}
-						>
-							<SelectTrigger variant='ghost' className='min-w-0 max-w-48 justify-end px-0 text-right'>
-								<SelectValue>
-									<div className='flex min-w-0 items-center justify-end gap-2'>
-										{form.value.modelProvider && (
-											<LlmProviderIcon provider={form.value.modelProvider} className='size-4' />
-										)}
-										<span className='truncate'>{form.selectedModelName ?? 'Default model'}</span>
-									</div>
-								</SelectValue>
-							</SelectTrigger>
-							<SelectContent>
-								<SelectItem value={defaultModelValue}>Default model</SelectItem>
-								{form.availableModels?.map((model) => (
-									<SelectItem
-										key={`${model.provider}-${model.modelId}`}
-										value={`${model.provider}:${model.modelId}`}
-									>
-										<LlmProviderIcon provider={model.provider} className='size-4' />
-										{model.name}
-									</SelectItem>
-								))}
-							</SelectContent>
-						</Select>
-					</div>
-				</AutomationSidebarSection>
-
-				<AutomationSidebarSection title='Integrations'>
-					<IntegrationFields
-						value={form.value}
-						mcpState={form.mcpState}
-						emailRecipientsError={form.emailRecipientsError}
-						onClearEmailRecipientsError={form.clearEmailRecipientsError}
-						onChange={form.handleValueChange}
-						onAutoSaveChange={form.handleControlValueChange}
-						disabled={form.controlsDisabled}
-					/>
-				</AutomationSidebarSection>
-
-				{aside}
-
-				{form.submitError && <ErrorMessage message={form.submitError} />}
-
-				{showSubmitButton && (
-					<Button type='submit' disabled={isPending} className='w-full'>
+				{!hasSidebar && form.submitError && <ErrorMessage message={form.submitError} />}
+				{!hasSidebar && showSubmitButton && (
+					<Button type='submit' disabled={isPending} className='justify-self-start'>
 						{isPending ? 'Saving...' : submitLabel}
 					</Button>
 				)}
 			</div>
+
+			{hasSidebar && (
+				<div className='grid content-start gap-4'>
+					{details && (
+						<AutomationSidebarSection title='Details'>
+							<AutomationDetailSummary details={details} />
+						</AutomationSidebarSection>
+					)}
+
+					{aside}
+
+					{form.submitError && <ErrorMessage message={form.submitError} />}
+
+					{showSubmitButton && (
+						<Button type='submit' disabled={isPending} className='w-full'>
+							{isPending ? 'Saving...' : submitLabel}
+						</Button>
+					)}
+				</div>
+			)}
 		</form>
 	);
 }
@@ -260,6 +244,7 @@ function useAutomationFormController({
 	const [value, setValue] = useState<AutomationFormValue>(savedValue);
 	const [scheduleOption, setScheduleOption] = useState<ScheduleOption>(() => inferScheduleOption(savedValue));
 	const [promptError, setPromptError] = useState(false);
+	const [triggerError, setTriggerError] = useState(false);
 	const [emailRecipientsError, setEmailRecipientsError] = useState<string | null>(null);
 	const [submitError, setSubmitError] = useState<string | null>(null);
 	const [isAutoSaving, setIsAutoSaving] = useState(false);
@@ -277,6 +262,8 @@ function useAutomationFormController({
 		availableModels.data?.find((model) => model.provider === value.modelProvider && model.modelId === value.modelId)
 			?.name ?? value.modelId;
 	const controlsDisabled = isPending || isAutoSaving;
+	const titlePlaceholder =
+		value.prompt.trim().length > 0 ? 'A title will be generated from your prompt' : 'Untitled automation';
 
 	useEffect(() => {
 		const nextValue = deserializeAutomationValue(initialValueSnapshot);
@@ -284,6 +271,7 @@ function useAutomationFormController({
 		setValue(nextValue);
 		setScheduleOption(inferScheduleOption(nextValue));
 		setPromptError(false);
+		setTriggerError(false);
 		setEmailRecipientsError(null);
 		setSubmitError(null);
 	}, [initialValueSnapshot]);
@@ -338,7 +326,7 @@ function useAutomationFormController({
 		setValue({
 			...value,
 			cron,
-			scheduleDescription: 'Custom schedule',
+			scheduleDescription: CUSTOM_SCHEDULE_DESCRIPTION,
 		});
 	}
 
@@ -389,6 +377,11 @@ function useAutomationFormController({
 			return false;
 		}
 
+		if (!nextValue.cron.trim()) {
+			setTriggerError(true);
+			return false;
+		}
+
 		const nextEmailRecipientsError = getEmailRecipientsError(nextValue.integrations.email);
 		if (nextEmailRecipientsError) {
 			setEmailRecipientsError(nextEmailRecipientsError);
@@ -407,10 +400,30 @@ function useAutomationFormController({
 		requestAnimationFrame(() => promptRef.current?.focus());
 	}
 
+	function handleAddSchedule() {
+		setTriggerError(false);
+		setScheduleOption('weekly');
+		handleControlValueChange({
+			...value,
+			cron: DEFAULT_SCHEDULE_CRON,
+			scheduleDescription: DEFAULT_SCHEDULE_DESCRIPTION,
+		});
+	}
+
+	function handleRemoveSchedule() {
+		setScheduleOption('custom');
+		handleControlValueChange({
+			...value,
+			cron: '',
+			scheduleDescription: undefined,
+		});
+	}
+
 	function handleScheduleOptionChange(option: ScheduleOption) {
+		setTriggerError(false);
 		setScheduleOption(option);
 		if (option === 'custom') {
-			handleControlValueChange({ ...value, scheduleDescription: 'Custom schedule' });
+			handleControlValueChange({ ...value, scheduleDescription: CUSTOM_SCHEDULE_DESCRIPTION });
 			return;
 		}
 
@@ -440,10 +453,12 @@ function useAutomationFormController({
 		controlsDisabled,
 		emailRecipientsError,
 		formRef,
+		handleAddSchedule,
 		handleControlValueChange,
 		handleInsertPromptTrigger,
 		handleModelChange,
 		handlePromptChange,
+		handleRemoveSchedule,
 		handleScheduleOptionChange,
 		handleSubmit,
 		handleValueChange,
@@ -456,35 +471,216 @@ function useAutomationFormController({
 		setCustomCron,
 		setTitle,
 		submitError,
+		titlePlaceholder,
+		triggerError,
 		userEmail,
 		value,
 	};
 }
 
-function AutomationDetailSummary({ details }: { details: AutomationDetails }) {
+function AutomationTitleField({
+	value,
+	onChange,
+	placeholder,
+}: {
+	value: string;
+	onChange: (value: string) => void;
+	placeholder: string;
+}) {
 	return (
-		<div className='grid gap-2 rounded-lg'>
-			<DetailRow label='Status' value={details.enabled ? 'Enabled' : 'Paused'} />
-			<DetailRow label='Next run' value={details.enabled ? formatDateTime(details.nextRunAt) : '-'} />
-			<DetailRow label='Last run' value={formatDateTime(details.lastRunAt)} />
+		<input
+			type='text'
+			value={value}
+			onChange={(event) => onChange(event.target.value)}
+			placeholder={placeholder}
+			aria-label='Automation title'
+			className='w-full border-none bg-transparent px-0 text-lg font-semibold tracking-tight outline-none placeholder:text-muted-foreground/60 focus:outline-none'
+		/>
+	);
+}
+
+function TriggersSection({
+	cron,
+	scheduleOption,
+	onScheduleOptionChange,
+	onCustomCronChange,
+	onAddSchedule,
+	onRemoveSchedule,
+	hasError,
+	disabled,
+}: {
+	cron: string;
+	scheduleOption: ScheduleOption;
+	onScheduleOptionChange: (option: ScheduleOption) => void;
+	onCustomCronChange: (cron: string) => void;
+	onAddSchedule: () => void;
+	onRemoveSchedule: () => void;
+	hasError: boolean;
+	disabled: boolean;
+}) {
+	const hasSchedule = cron.trim().length > 0;
+
+	return (
+		<section className='grid gap-1.5'>
+			<label className='text-sm font-medium'>Triggers</label>
+			<div
+				className={cn(
+					'grid gap-1 rounded-xl border bg-background/60 p-1',
+					hasError && 'border-destructive ring-1 ring-destructive/20',
+				)}
+			>
+				{hasSchedule && (
+					<ScheduleTriggerRow
+						cron={cron}
+						scheduleOption={scheduleOption}
+						onScheduleOptionChange={onScheduleOptionChange}
+						onCustomCronChange={onCustomCronChange}
+						onRemove={onRemoveSchedule}
+						disabled={disabled}
+					/>
+				)}
+				{!hasSchedule && <AddTriggerMenu onAddSchedule={onAddSchedule} disabled={disabled} />}
+			</div>
+			{hasError && <p className='text-sm text-destructive'>Add at least one trigger.</p>}
+		</section>
+	);
+}
+
+function ScheduleTriggerRow({
+	cron,
+	scheduleOption,
+	onScheduleOptionChange,
+	onCustomCronChange,
+	onRemove,
+	disabled,
+}: {
+	cron: string;
+	scheduleOption: ScheduleOption;
+	onScheduleOptionChange: (option: ScheduleOption) => void;
+	onCustomCronChange: (cron: string) => void;
+	onRemove: () => void;
+	disabled: boolean;
+}) {
+	return (
+		<div className='grid gap-1.5 rounded-lg px-2 py-1.5'>
+			<div className='flex items-center justify-between gap-3'>
+				<div className='flex min-w-0 items-center gap-2'>
+					<Calendar className='size-4 shrink-0 text-muted-foreground' />
+					<span className='text-sm font-medium'>On schedule</span>
+				</div>
+				<div className='flex items-center gap-1'>
+					<Select
+						value={scheduleOption}
+						onValueChange={(option) => onScheduleOptionChange(option as ScheduleOption)}
+						disabled={disabled}
+					>
+						<SelectTrigger
+							variant='ghost'
+							size='sm'
+							className='min-w-0 max-w-40 justify-end px-2 text-right'
+						>
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							{schedulePresets.map((preset) => (
+								<SelectItem key={preset.value} value={preset.value}>
+									{preset.label}
+								</SelectItem>
+							))}
+							<SelectItem value='custom'>Custom</SelectItem>
+						</SelectContent>
+					</Select>
+					<button
+						type='button'
+						onClick={onRemove}
+						disabled={disabled}
+						aria-label='Remove schedule trigger'
+						className='inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50'
+					>
+						<Trash2 className='size-3.5' />
+					</button>
+				</div>
+			</div>
+
+			{scheduleOption === 'custom' && (
+				<Input
+					value={cron}
+					onChange={(event) => onCustomCronChange(event.target.value)}
+					placeholder='0 9 * * 1'
+					className='h-8'
+				/>
+			)}
 		</div>
 	);
 }
 
-function DetailRow({ label, value }: { label: string; value: string }) {
+function AddTriggerMenu({ onAddSchedule, disabled }: { onAddSchedule: () => void; disabled: boolean }) {
 	return (
-		<div className='flex items-center justify-between gap-3 text-sm'>
-			<span className='text-muted-foreground'>{label}</span>
-			<span className='text-right font-medium'>{value}</span>
-		</div>
+		<DropdownMenu>
+			<DropdownMenuTrigger asChild>
+				<button
+					type='button'
+					disabled={disabled}
+					className='inline-flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground disabled:opacity-50'
+				>
+					<Plus className='size-4' />
+					<span>Add Trigger</span>
+				</button>
+			</DropdownMenuTrigger>
+			<DropdownMenuContent align='start' className='min-w-56'>
+				<DropdownMenuItem onSelect={onAddSchedule}>
+					<Calendar className='size-4' />
+					<span>On schedule</span>
+				</DropdownMenuItem>
+			</DropdownMenuContent>
+		</DropdownMenu>
 	);
 }
 
-function AutomationSidebarSection({ title, children }: { title: string; children: ReactNode }) {
+function AgentInstructionsSection({
+	promptRef,
+	promptValue,
+	promptHasError,
+	onPromptChange,
+	modelValue,
+	modelName,
+	modelProvider,
+	availableModels,
+	onModelChange,
+	email,
+	onInsertPromptTrigger,
+}: {
+	promptRef: RefObject<PromptHandle | null>;
+	promptValue: string;
+	promptHasError: boolean;
+	onPromptChange: (value: string) => void;
+	modelValue: string;
+	modelName: string | undefined;
+	modelProvider: LlmProvider | undefined;
+	availableModels: AvailableModel[] | undefined;
+	onModelChange: (modelValue: string) => void;
+	email?: string;
+	onInsertPromptTrigger: (trigger: string) => void;
+}) {
 	return (
-		<section className='grid gap-4 rounded-xl border bg-background/60 p-4'>
-			<h2 className='text-sm font-medium'>{title}</h2>
-			<div className='grid'>{children}</div>
+		<section className='grid gap-2'>
+			<label className='text-sm font-medium'>Agent instructions</label>
+			<AutomationPromptInput
+				promptRef={promptRef}
+				value={promptValue}
+				hasError={promptHasError}
+				onChange={onPromptChange}
+				footer={
+					<AutomationModelSelect
+						value={modelValue}
+						modelName={modelName}
+						provider={modelProvider}
+						availableModels={availableModels}
+						onChange={onModelChange}
+					/>
+				}
+			/>
+			<PromptMentionHints email={email} onInsertTrigger={onInsertPromptTrigger} />
 		</section>
 	);
 }
@@ -494,11 +690,13 @@ function AutomationPromptInput({
 	value,
 	hasError,
 	onChange,
+	footer,
 }: {
 	promptRef: RefObject<PromptHandle | null>;
 	value: string;
 	hasError: boolean;
 	onChange: (value: string) => void;
+	footer?: ReactNode;
 }) {
 	const lastPromptValueRef = useRef(value);
 
@@ -525,18 +723,62 @@ function AutomationPromptInput({
 		<>
 			<div
 				aria-invalid={hasError}
-				className={`border-input bg-card dark:bg-input/30 rounded-md border shadow-sm transition-[color,box-shadow,border-color] focus-within:border-ring focus-within:ring-ring/50 focus-within:ring-[3px] ${hasError ? 'border-destructive ring-1 ring-destructive/20 dark:ring-destructive/40' : ''}`}
+				className={cn(
+					'rounded-xl border bg-background/60',
+					hasError && 'border-destructive ring-1 ring-destructive/20',
+				)}
 			>
 				<ChatPrompt
 					promptRef={promptRef}
 					initialValue={value}
-					placeholder='Describe what the automation should do. Use mentions to add skills, story mode, or database context.'
-					minHeight='12rem'
+					placeholder='Type @ for tools, / for commands...'
+					minHeight='10rem'
 					onChange={handleChange}
 				/>
+				{footer && <div className='flex items-center justify-between gap-2 px-3 pb-2.5'>{footer}</div>}
 			</div>
 			{hasError && <p className='text-sm text-destructive'>Prompt is required.</p>}
 		</>
+	);
+}
+
+function AutomationModelSelect({
+	value,
+	modelName,
+	provider,
+	availableModels,
+	onChange,
+}: {
+	value: string;
+	modelName: string | undefined;
+	provider: LlmProvider | undefined;
+	availableModels: AvailableModel[] | undefined;
+	onChange: (modelValue: string) => void;
+}) {
+	return (
+		<Select value={value} onValueChange={onChange}>
+			<SelectTrigger
+				variant='ghost'
+				size='sm'
+				className='h-7 min-w-0 max-w-48 gap-1.5 px-1.5 text-xs font-normal text-muted-foreground hover:text-foreground'
+			>
+				<SelectValue>
+					<div className='flex min-w-0 items-center gap-1.5'>
+						{provider && <LlmProviderIcon provider={provider} className='size-3.5' />}
+						<span className='truncate'>{modelName ?? 'Default model'}</span>
+					</div>
+				</SelectValue>
+			</SelectTrigger>
+			<SelectContent align='start'>
+				<SelectItem value={defaultModelValue}>Default model</SelectItem>
+				{availableModels?.map((model) => (
+					<SelectItem key={`${model.provider}-${model.modelId}`} value={`${model.provider}:${model.modelId}`}>
+						<LlmProviderIcon provider={model.provider} className='size-4' />
+						{model.name}
+					</SelectItem>
+				))}
+			</SelectContent>
+		</Select>
 	);
 }
 
@@ -590,7 +832,7 @@ function PromptTriggerButton({
 	);
 }
 
-function IntegrationFields({
+function ToolsSection({
 	value,
 	mcpState,
 	emailRecipientsError,
@@ -610,197 +852,421 @@ function IntegrationFields({
 	const email = value.integrations.email ?? { enabled: false, recipients: [] };
 	const slack = value.integrations.slack ?? { enabled: false, channelId: '' };
 	const github = value.integrations.github ?? { enabled: false, repositories: [] };
-	const mcpServers = mcpState ? Object.entries(mcpState) : [];
-	const selectedMcpServers = value.mcpServers ?? mcpServers.map(([serverName]) => serverName);
-	const githubIntegration = useGithubIntegration({
-		github,
-		value,
-		onAutoSaveChange,
-	});
+	const mcpServerEntries = mcpState ? Object.entries(mcpState) : [];
+	const selectedMcpServers = value.mcpEnabled ? (value.mcpServers ?? mcpServerEntries.map(([name]) => name)) : [];
+
+	const githubIntegration = useGithubIntegration({ github, value, onAutoSaveChange });
+
+	const addedTools: AddedTool[] = [];
+	if (email.enabled) {
+		addedTools.push({ key: 'email', kind: 'integration', type: 'email' });
+	}
+	if (slack.enabled) {
+		addedTools.push({ key: 'slack', kind: 'integration', type: 'slack' });
+	}
+	if (github.enabled) {
+		addedTools.push({ key: 'github', kind: 'integration', type: 'github' });
+	}
+	if (value.mcpEnabled) {
+		for (const [serverName] of mcpServerEntries) {
+			if (selectedMcpServers.includes(serverName)) {
+				addedTools.push({ key: `mcp:${serverName}`, kind: 'mcp', serverName });
+			}
+		}
+	}
+
+	function setEmailEnabled(enabled: boolean) {
+		onClearEmailRecipientsError();
+		onAutoSaveChange({
+			...value,
+			integrations: { ...value.integrations, email: { ...email, enabled } },
+		});
+	}
+
+	function setSlackEnabled(enabled: boolean) {
+		onAutoSaveChange({
+			...value,
+			integrations: { ...value.integrations, slack: { ...slack, enabled } },
+		});
+	}
+
+	function addMcpServer(serverName: string) {
+		const nextServers = [...new Set([...selectedMcpServers, serverName])];
+		onAutoSaveChange({ ...value, mcpEnabled: true, mcpServers: nextServers });
+	}
+
+	function removeMcpServer(serverName: string) {
+		const nextServers = selectedMcpServers.filter((name) => name !== serverName);
+		onAutoSaveChange({
+			...value,
+			mcpEnabled: nextServers.length > 0,
+			mcpServers: nextServers,
+		});
+	}
 
 	return (
-		<div className='grid gap-4'>
-			<div className='grid gap-3'>
-				<ToggleRow
-					label='Email'
-					description='Allow the agent to send emails.'
-					checked={email.enabled}
-					onCheckedChange={(enabled) => {
-						onClearEmailRecipientsError();
-						onAutoSaveChange({
-							...value,
-							integrations: { ...value.integrations, email: { ...email, enabled } },
-						});
-					}}
+		<section className='grid gap-1.5'>
+			<label className='text-sm font-medium'>Tools</label>
+			<div className='grid gap-1 rounded-xl border bg-background/60 p-1'>
+				{addedTools.map((tool) => (
+					<ToolRow
+						key={tool.key}
+						tool={tool}
+						value={value}
+						emailRecipientsError={emailRecipientsError}
+						onClearEmailRecipientsError={onClearEmailRecipientsError}
+						onChange={onChange}
+						onRemoveEmail={() => setEmailEnabled(false)}
+						onRemoveSlack={() => setSlackEnabled(false)}
+						onRemoveGithub={() => githubIntegration.onEnabledChange(false)}
+						onRemoveMcpServer={removeMcpServer}
+						githubDescription={githubIntegration.description}
+						disabled={disabled}
+					/>
+				))}
+				<AddToolMenu
+					emailEnabled={email.enabled}
+					slackEnabled={slack.enabled}
+					githubEnabled={github.enabled}
+					canEnableGithub={githubIntegration.canEnable}
+					mcpServerEntries={mcpServerEntries}
+					selectedMcpServers={selectedMcpServers}
+					onAddEmail={() => setEmailEnabled(true)}
+					onAddSlack={() => setSlackEnabled(true)}
+					onAddGithub={() => githubIntegration.onEnabledChange(true)}
+					onAddMcpServer={addMcpServer}
 					disabled={disabled}
 				/>
-				{email.enabled && (
-					<div className='grid gap-2 pl-4'>
-						<Input
-							placeholder='Additional recipients, comma separated'
-							value={email.recipients.join(', ')}
-							aria-invalid={Boolean(emailRecipientsError)}
-							aria-describedby={emailRecipientsError ? 'automation-email-recipients-error' : undefined}
-							onChange={(event) => {
-								onClearEmailRecipientsError();
-								onChange({
-									...value,
-									integrations: {
-										...value.integrations,
-										email: { ...email, recipients: splitCommaList(event.target.value) },
-									},
-								});
-							}}
-						/>
-						{emailRecipientsError && (
-							<p id='automation-email-recipients-error' className='text-xs text-destructive'>
-								{emailRecipientsError}
-							</p>
-						)}
-						<Input
-							placeholder='Override subject'
-							value={email.subject ?? ''}
-							onChange={(event) =>
-								onChange({
-									...value,
-									integrations: {
-										...value.integrations,
-										email: { ...email, subject: event.target.value },
-									},
-								})
-							}
-						/>
-					</div>
-				)}
 			</div>
+		</section>
+	);
+}
 
-			<div className='grid gap-3'>
-				<ToggleRow
-					label='Slack'
-					description='Post proactive messages to a Slack channel ID.'
-					checked={slack.enabled}
-					onCheckedChange={(enabled) =>
-						onAutoSaveChange({
+type AddedTool =
+	| { key: string; kind: 'integration'; type: 'email' | 'slack' | 'github' }
+	| { key: string; kind: 'mcp'; serverName: string };
+
+function ToolRow({
+	tool,
+	value,
+	emailRecipientsError,
+	onClearEmailRecipientsError,
+	onChange,
+	onRemoveEmail,
+	onRemoveSlack,
+	onRemoveGithub,
+	onRemoveMcpServer,
+	githubDescription,
+	disabled,
+}: {
+	tool: AddedTool;
+	value: AutomationFormValue;
+	emailRecipientsError: string | null;
+	onClearEmailRecipientsError: () => void;
+	onChange: (value: AutomationFormValue) => void;
+	onRemoveEmail: () => void;
+	onRemoveSlack: () => void;
+	onRemoveGithub: () => void;
+	onRemoveMcpServer: (serverName: string) => void;
+	githubDescription: ReactNode;
+	disabled: boolean;
+}) {
+	if (tool.kind === 'mcp') {
+		return (
+			<ToolRowShell
+				icon={<McpIcon className='size-4' />}
+				title={tool.serverName}
+				onRemove={() => onRemoveMcpServer(tool.serverName)}
+				disabled={disabled}
+			/>
+		);
+	}
+
+	if (tool.type === 'email') {
+		const email = value.integrations.email ?? { enabled: false, recipients: [] };
+		return (
+			<ToolRowShell
+				icon={<Mail className='size-4 text-muted-foreground' />}
+				title='Email'
+				onRemove={onRemoveEmail}
+				disabled={disabled}
+			>
+				<div className='grid gap-1.5'>
+					<Input
+						className='h-8'
+						placeholder='Additional recipients, comma separated'
+						value={email.recipients.join(', ')}
+						aria-invalid={Boolean(emailRecipientsError)}
+						aria-describedby={emailRecipientsError ? 'automation-email-recipients-error' : undefined}
+						onChange={(event) => {
+							onClearEmailRecipientsError();
+							onChange({
+								...value,
+								integrations: {
+									...value.integrations,
+									email: { ...email, recipients: splitCommaList(event.target.value) },
+								},
+							});
+						}}
+					/>
+					{emailRecipientsError && (
+						<p id='automation-email-recipients-error' className='text-xs text-destructive'>
+							{emailRecipientsError}
+						</p>
+					)}
+					<Input
+						className='h-8'
+						placeholder='Override subject'
+						value={email.subject ?? ''}
+						onChange={(event) =>
+							onChange({
+								...value,
+								integrations: {
+									...value.integrations,
+									email: { ...email, subject: event.target.value },
+								},
+							})
+						}
+					/>
+				</div>
+			</ToolRowShell>
+		);
+	}
+
+	if (tool.type === 'slack') {
+		const slack = value.integrations.slack ?? { enabled: false, channelId: '' };
+		return (
+			<ToolRowShell
+				icon={<SlackIcon className='size-4' />}
+				title='Slack'
+				onRemove={onRemoveSlack}
+				disabled={disabled}
+			>
+				<Input
+					className='h-8'
+					placeholder='Slack channel ID, for example C0123456789'
+					value={slack.channelId}
+					onChange={(event) =>
+						onChange({
 							...value,
-							integrations: { ...value.integrations, slack: { ...slack, enabled } },
+							integrations: {
+								...value.integrations,
+								slack: { ...slack, channelId: event.target.value },
+							},
 						})
 					}
+				/>
+			</ToolRowShell>
+		);
+	}
+
+	const github = value.integrations.github ?? { enabled: false, repositories: [] };
+	return (
+		<ToolRowShell
+			icon={<Github className='size-4 text-muted-foreground' />}
+			title='GitHub'
+			description={githubDescription}
+			onRemove={onRemoveGithub}
+			disabled={disabled}
+		>
+			<Input
+				className='h-8'
+				placeholder='Allowed repos, comma separated. Leave empty to allow all connected repos.'
+				value={github.repositories.join(', ')}
+				onChange={(event) =>
+					onChange({
+						...value,
+						integrations: {
+							...value.integrations,
+							github: { ...github, repositories: splitCommaList(event.target.value) },
+						},
+					})
+				}
+			/>
+		</ToolRowShell>
+	);
+}
+
+function ToolRowShell({
+	icon,
+	title,
+	description,
+	onRemove,
+	disabled,
+	children,
+}: {
+	icon: ReactNode;
+	title: string;
+	description?: ReactNode;
+	onRemove: () => void;
+	disabled: boolean;
+	children?: ReactNode;
+}) {
+	return (
+		<div className='grid gap-1 rounded-lg px-2 py-1.5'>
+			<div className='flex items-center justify-between gap-3'>
+				<div className='flex min-w-0 items-center gap-2'>
+					{icon}
+					<span className='truncate text-sm font-medium'>{title}</span>
+				</div>
+				<button
+					type='button'
+					onClick={onRemove}
 					disabled={disabled}
-				/>
-				{slack.enabled && (
-					<Input
-						className='ml-4 w-[calc(100%-1rem)]'
-						placeholder='Slack channel ID, for example C0123456789'
-						value={slack.channelId}
-						onChange={(event) =>
-							onChange({
-								...value,
-								integrations: {
-									...value.integrations,
-									slack: { ...slack, channelId: event.target.value },
-								},
-							})
-						}
-					/>
-				)}
+					aria-label={`Remove ${title}`}
+					className='inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50'
+				>
+					<Trash2 className='size-3.5' />
+				</button>
 			</div>
-
-			<div className='grid gap-3'>
-				<ToggleRow
-					label='GitHub'
-					description={githubIntegration.description}
-					checked={github.enabled}
-					onCheckedChange={githubIntegration.onEnabledChange}
-					disabled={disabled || (!github.enabled && !githubIntegration.canEnable)}
-				/>
-				{github.enabled && (
-					<Input
-						className='ml-4 w-[calc(100%-1rem)]'
-						placeholder='Allowed repos, comma separated. Leave empty to allow all connected repos.'
-						value={github.repositories.join(', ')}
-						onChange={(event) =>
-							onChange({
-								...value,
-								integrations: {
-									...value.integrations,
-									github: { ...github, repositories: splitCommaList(event.target.value) },
-								},
-							})
-						}
-					/>
-				)}
-			</div>
-
-			<div className='grid gap-3'>
-				<ToggleRow
-					label='MCP'
-					description='Allow selected MCP servers during this automation run.'
-					checked={value.mcpEnabled}
-					onCheckedChange={(mcpEnabled) => onAutoSaveChange({ ...value, mcpEnabled })}
-					disabled={disabled}
-				/>
-				{value.mcpEnabled && (
-					<div className='grid gap-2 pl-4'>
-						{mcpState === undefined && (
-							<p className='text-xs text-muted-foreground'>Loading MCP servers...</p>
-						)}
-						{mcpState && mcpServers.length === 0 && (
-							<p className='text-xs text-muted-foreground'>No MCP servers connected.</p>
-						)}
-						{mcpServers.map(([serverName, server]) => {
-							const enabledToolCount = server.tools.filter((tool) => tool.enabled).length;
-							const isSelected = selectedMcpServers.includes(serverName);
-
-							return (
-								<ToggleRow
-									key={serverName}
-									label={serverName}
-									description={
-										server.error
-											? 'Connection error'
-											: `${enabledToolCount} enabled ${enabledToolCount === 1 ? 'tool' : 'tools'}`
-									}
-									checked={isSelected}
-									onCheckedChange={(checked) =>
-										onAutoSaveChange({
-											...value,
-											mcpServers: checked
-												? [...new Set([...selectedMcpServers, serverName])]
-												: selectedMcpServers.filter((name) => name !== serverName),
-										})
-									}
-									disabled={disabled}
-								/>
-							);
-						})}
-					</div>
-				)}
-			</div>
+			{description && <div className='text-xs text-muted-foreground'>{description}</div>}
+			{children}
 		</div>
 	);
 }
 
-function ToggleRow({
-	label,
-	description,
-	checked,
-	onCheckedChange,
+function AddToolMenu({
+	emailEnabled,
+	slackEnabled,
+	githubEnabled,
+	canEnableGithub,
+	mcpServerEntries,
+	selectedMcpServers,
+	onAddEmail,
+	onAddSlack,
+	onAddGithub,
+	onAddMcpServer,
 	disabled,
 }: {
-	label: string;
-	description: ReactNode;
-	checked: boolean;
-	onCheckedChange: (checked: boolean) => void;
-	disabled?: boolean;
+	emailEnabled: boolean;
+	slackEnabled: boolean;
+	githubEnabled: boolean;
+	canEnableGithub: boolean;
+	mcpServerEntries: [string, McpState[string]][];
+	selectedMcpServers: string[];
+	onAddEmail: () => void;
+	onAddSlack: () => void;
+	onAddGithub: () => void;
+	onAddMcpServer: (serverName: string) => void;
+	disabled: boolean;
 }) {
 	return (
-		<div className='flex items-center justify-between gap-4'>
-			<div>
-				<div className='text-sm font-medium'>{label}</div>
-				<div className='text-xs text-muted-foreground'>{description}</div>
-			</div>
-			<Switch checked={checked} onCheckedChange={onCheckedChange} disabled={disabled} />
+		<DropdownMenu>
+			<DropdownMenuTrigger asChild>
+				<button
+					type='button'
+					disabled={disabled}
+					className='inline-flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground disabled:opacity-50'
+				>
+					<Plus className='size-4' />
+					<span>Add Tool or MCP</span>
+				</button>
+			</DropdownMenuTrigger>
+			<DropdownMenuContent align='start' className='min-w-56'>
+				<DropdownMenuLabel>Messaging</DropdownMenuLabel>
+				<DropdownMenuItem onSelect={onAddEmail} disabled={emailEnabled}>
+					<Mail className='size-4' />
+					<span>Email</span>
+					{emailEnabled && <span className='ml-auto text-xs text-muted-foreground'>Added</span>}
+				</DropdownMenuItem>
+				<DropdownMenuItem onSelect={onAddSlack} disabled={slackEnabled}>
+					<SlackIcon className='size-4' />
+					<span>Slack</span>
+					{slackEnabled && <span className='ml-auto text-xs text-muted-foreground'>Added</span>}
+				</DropdownMenuItem>
+
+				<DropdownMenuSeparator />
+				<DropdownMenuLabel>Code</DropdownMenuLabel>
+				<DropdownMenuItem onSelect={onAddGithub} disabled={githubEnabled || !canEnableGithub}>
+					<Github className='size-4' />
+					<span>GitHub</span>
+					{githubEnabled ? (
+						<span className='ml-auto text-xs text-muted-foreground'>Added</span>
+					) : !canEnableGithub ? (
+						<span className='ml-auto text-xs text-muted-foreground'>Not connected</span>
+					) : null}
+				</DropdownMenuItem>
+
+				<DropdownMenuSeparator />
+				<DropdownMenuLabel>MCP</DropdownMenuLabel>
+				<McpSubMenu
+					mcpServerEntries={mcpServerEntries}
+					selectedMcpServers={selectedMcpServers}
+					onAddMcpServer={onAddMcpServer}
+				/>
+			</DropdownMenuContent>
+		</DropdownMenu>
+	);
+}
+
+function McpSubMenu({
+	mcpServerEntries,
+	selectedMcpServers,
+	onAddMcpServer,
+}: {
+	mcpServerEntries: [string, McpState[string]][];
+	selectedMcpServers: string[];
+	onAddMcpServer: (serverName: string) => void;
+}) {
+	return (
+		<DropdownMenuSub>
+			<DropdownMenuSubTrigger>
+				<McpIcon className='size-4' />
+				<span>MCP server</span>
+			</DropdownMenuSubTrigger>
+			<DropdownMenuSubContent className='min-w-56'>
+				{mcpServerEntries.length === 0 && (
+					<DropdownMenuItem disabled>
+						<span className='text-xs text-muted-foreground'>No MCP servers connected</span>
+					</DropdownMenuItem>
+				)}
+				{mcpServerEntries.map(([name, server]) => {
+					const isAdded = selectedMcpServers.includes(name);
+					const enabledToolCount = server.tools.filter((tool) => tool.enabled).length;
+					return (
+						<DropdownMenuItem key={name} onSelect={() => onAddMcpServer(name)} disabled={isAdded}>
+							<McpIcon className='size-4' />
+							<span className='truncate'>{name}</span>
+							<span className='ml-auto text-xs text-muted-foreground'>
+								{isAdded
+									? 'Added'
+									: server.error
+										? 'Error'
+										: `${enabledToolCount} ${enabledToolCount === 1 ? 'tool' : 'tools'}`}
+							</span>
+						</DropdownMenuItem>
+					);
+				})}
+			</DropdownMenuSubContent>
+		</DropdownMenuSub>
+	);
+}
+
+function AutomationDetailSummary({ details }: { details: AutomationDetails }) {
+	return (
+		<div className='grid gap-2 rounded-lg'>
+			<DetailRow label='Status' value={details.enabled ? 'Enabled' : 'Paused'} />
+			<DetailRow label='Next run' value={details.enabled ? formatDateTime(details.nextRunAt) : '-'} />
+			<DetailRow label='Last run' value={formatDateTime(details.lastRunAt)} />
 		</div>
+	);
+}
+
+function DetailRow({ label, value }: { label: string; value: string }) {
+	return (
+		<div className='flex items-center justify-between gap-3 text-sm'>
+			<span className='text-muted-foreground'>{label}</span>
+			<span className='text-right font-medium'>{value}</span>
+		</div>
+	);
+}
+
+function AutomationSidebarSection({ title, children }: { title: string; children: ReactNode }) {
+	return (
+		<section className='grid gap-4 rounded-xl border bg-background/60 p-4'>
+			<h2 className='text-sm font-medium'>{title}</h2>
+			<div className='grid'>{children}</div>
+		</section>
 	);
 }
 
@@ -912,7 +1378,10 @@ function getScheduleOption(cron: string): ScheduleOption {
 }
 
 function inferScheduleOption(value: AutomationFormValue): ScheduleOption {
-	return value.scheduleDescription === 'Custom schedule' ? 'custom' : getScheduleOption(value.cron);
+	if (!value.cron) {
+		return 'weekly';
+	}
+	return value.scheduleDescription === CUSTOM_SCHEDULE_DESCRIPTION ? 'custom' : getScheduleOption(value.cron);
 }
 
 function getSchedulePreset(value: Exclude<ScheduleOption, 'custom'>): SchedulePreset {

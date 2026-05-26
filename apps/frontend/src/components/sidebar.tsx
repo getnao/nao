@@ -5,6 +5,7 @@ import {
 	ArrowLeftFromLine,
 	ArrowRightToLine,
 	ChevronRight,
+	NewspaperIcon,
 	PlusIcon,
 	SearchIcon,
 	TimerIcon,
@@ -248,8 +249,8 @@ export function Sidebar() {
 						/>
 						{!isViewer && betaAutomationsEnabled && (
 							<SidebarMenuButton
-								icon={TimerIcon as unknown as LucideIcon}
-								label='Automations'
+								icon={NewspaperIcon as unknown as LucideIcon}
+								label='Feed'
 								shortcut=''
 								isCollapsed={effectiveIsCollapsed}
 								onClick={handleNavigateAutomations}

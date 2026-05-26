@@ -26,7 +26,9 @@ function AutomationRunPrompt({ prompt, integrations, userEmail }: AutomationRunP
 			<Span>[Automation run]</Span>
 			<Span>
 				This is an automation run, not an interactive chat. There is NO human reading the chat output. The only
-				way for your work to reach a human is by calling one of the outbound tools listed below.
+				way for your work to reach a human is by calling one of the outbound tools listed below. Nonetheless the
+				automation will be added in a feed with all the other automation runs so output a 2-3 well formatted
+				(use markdown) sentences to summarize the result, the run and the tools used.
 			</Span>
 
 			<Title>Requesting user</Title>

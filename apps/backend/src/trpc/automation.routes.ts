@@ -7,6 +7,8 @@ import { AUTOMATION_JOB_NAME, startAutomationRun } from '../handlers/automation.
 import type { AutomationWithSchedule } from '../queries/automation.queries';
 import * as automationQueries from '../queries/automation.queries';
 import * as scheduledJobQueries from '../queries/scheduled-job.queries';
+import { agentService } from '../services/agent';
+import { inferAutomationTitle } from '../services/automation-title';
 import { naturalLanguageToCron } from '../services/cron-nlp';
 import { nextCronTick } from '../services/scheduler.service';
 import { llmProviderSchema } from '../types/llm';
@@ -66,10 +68,20 @@ const writeAutomationSchema = z.object({
 	integrations: integrationSchema,
 });
 
+const createAutomationSchema = writeAutomationSchema.extend({
+	title: z.string().trim().max(255).optional(),
+});
+
 export const automationRoutes = {
 	list: automationReadProcedure.query(async ({ ctx }) => {
 		return automationQueries.listAutomations(ctx.project.id, ctx.user.id);
 	}),
+
+	feed: automationReadProcedure
+		.input(z.object({ limit: z.number().int().min(1).max(100).default(50) }))
+		.query(async ({ ctx, input }) => {
+			return automationQueries.listAutomationFeedRuns(ctx.project.id, ctx.user.id, input.limit);
+		}),
 
 	get: automationProcedure.input(z.object({ id: z.string() })).query(async ({ ctx, input }) => {
 		const automation = await automationQueries.getAutomation(ctx.project.id, ctx.user.id, input.id);
@@ -80,11 +92,13 @@ export const automationRoutes = {
 		return { automation, runs };
 	}),
 
-	create: automationProcedure.input(writeAutomationSchema).mutation(async ({ ctx, input }) => {
+	create: automationProcedure.input(createAutomationSchema).mutation(async ({ ctx, input }) => {
 		assertValidCron(input.cron);
-		const { cron, enabled, ...promptInput } = input;
+		const { cron, enabled, title, ...promptInput } = input;
+		const resolvedTitle = title?.trim() || (await inferAutomationTitle(ctx.project.id, input.prompt));
 		const automation = await automationQueries.createAutomation({
 			...promptInput,
+			title: resolvedTitle,
 			projectId: ctx.project.id,
 			userId: ctx.user.id,
 			scheduleDescription: input.scheduleDescription || null,
@@ -143,6 +157,32 @@ export const automationRoutes = {
 			return null;
 		}
 		return startAutomationRun(input.id, { requireEnabled: false });
+	}),
+
+	/**
+	 * Cancels an in-flight automation run. Aborts the agent stream when it's
+	 * still alive on this process, and always force-flips the DB row from
+	 * `running` to `cancelled` — so runs left dangling by a server restart
+	 * (or any other status mismatch) can be unstuck from the UI.
+	 */
+	cancelRun: automationProcedure.input(z.object({ runId: z.string() })).mutation(async ({ ctx, input }) => {
+		const run = await automationQueries.getAutomationRunForUser(ctx.project.id, ctx.user.id, input.runId);
+		if (!run) {
+			throw new TRPCError({ code: 'NOT_FOUND', message: `Automation run not found: ${input.runId}` });
+		}
+		if (run.status !== 'running') {
+			return { ...run, alreadyTerminal: true as const };
+		}
+
+		if (run.chatId) {
+			agentService.get(run.chatId)?.stop();
+		}
+		const updated = await automationQueries.cancelAutomationRun(input.runId);
+		return {
+			...run,
+			status: 'cancelled' as const,
+			alreadyTerminal: !updated,
+		};
 	}),
 
 	parseCronFromText: automationReadProcedure

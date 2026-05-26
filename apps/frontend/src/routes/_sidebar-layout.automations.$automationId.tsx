@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
-import { ArrowLeft, Github, Mail, Play, Trash } from 'lucide-react';
+import { ArrowLeft, Github, Loader2, Mail, Play, Trash, X } from 'lucide-react';
 import { useState } from 'react';
 
 import type { AutomationFormValue } from '@/components/automations-form';
@@ -38,6 +38,7 @@ function AutomationDetailPage() {
 	const setAutomationEnabled = useMutation(trpc.automation.setEnabled.mutationOptions());
 	const deleteAutomation = useMutation(trpc.automation.delete.mutationOptions());
 	const runNow = useMutation(trpc.automation.runNow.mutationOptions());
+	const cancelRun = useMutation(trpc.automation.cancelRun.mutationOptions());
 
 	async function handleUpdate(value: AutomationFormValue) {
 		await updateAutomation.mutateAsync({
@@ -73,8 +74,14 @@ function AutomationDetailPage() {
 		]);
 	}
 
+	async function handleCancelRun(runId: string) {
+		await cancelRun.mutateAsync({ runId });
+		await queryClient.invalidateQueries({ queryKey: trpc.automation.get.queryKey({ id: automationId }) });
+	}
+
 	const automation = detail.data?.automation;
 	const runs = detail.data?.runs ?? [];
+	const cancellingRunId = cancelRun.isPending ? (cancelRun.variables?.runId ?? null) : null;
 	const automationFormId = `automation-form-${automationId}`;
 	const saveShortcutLabel = getSaveShortcutLabel();
 
@@ -161,7 +168,9 @@ function AutomationDetailPage() {
 						}}
 						submitLabel='Save changes'
 						isPending={updateAutomation.isPending}
-						aside={<PreviousRuns runs={runs} />}
+						aside={
+							<PreviousRuns runs={runs} onCancelRun={handleCancelRun} cancellingRunId={cancellingRunId} />
+						}
 						showSubmitButton={false}
 						autoSaveControls
 						saveShortcut
@@ -196,7 +205,15 @@ type AutomationRun = {
 	}[];
 };
 
-function PreviousRuns({ runs }: { runs: AutomationRun[] }) {
+function PreviousRuns({
+	runs,
+	onCancelRun,
+	cancellingRunId,
+}: {
+	runs: AutomationRun[];
+	onCancelRun: (runId: string) => void;
+	cancellingRunId: string | null;
+}) {
 	return (
 		<section className='grid gap-2 rounded-xl border bg-background/60 p-4'>
 			<div className='flex items-center justify-between gap-3'>
@@ -206,16 +223,30 @@ function PreviousRuns({ runs }: { runs: AutomationRun[] }) {
 			<div className='grid max-h-[18rem] overflow-auto pr-1'>
 				{runs.length === 0 && <p className='text-sm text-muted-foreground'>No runs yet.</p>}
 				{runs.map((run) => (
-					<PreviousRunRow key={run.id} run={run} />
+					<PreviousRunRow
+						key={run.id}
+						run={run}
+						onCancelRun={onCancelRun}
+						isCancelling={cancellingRunId === run.id}
+					/>
 				))}
 			</div>
 		</section>
 	);
 }
 
-function PreviousRunRow({ run }: { run: AutomationRun }) {
+function PreviousRunRow({
+	run,
+	onCancelRun,
+	isCancelling,
+}: {
+	run: AutomationRun;
+	onCancelRun: (runId: string) => void;
+	isCancelling: boolean;
+}) {
 	const navigate = useNavigate();
 	const canOpenChat = Boolean(run.chatId);
+	const isRunning = run.status === 'running';
 
 	function openChat() {
 		if (run.chatId) {
@@ -227,12 +258,27 @@ function PreviousRunRow({ run }: { run: AutomationRun }) {
 		<>
 			<div className='flex items-center justify-between gap-2 text-xs'>
 				<div className='min-w-0 truncate text-muted-foreground'>{new Date(run.startedAt).toLocaleString()}</div>
-				<Badge
-					variant={run.status === 'failed' ? 'destructive' : 'secondary'}
-					className='px-1.5 py-0 text-[10px]'
-				>
-					{run.status}
-				</Badge>
+				<div className='flex items-center gap-1.5'>
+					{isRunning && (
+						<Button
+							type='button'
+							variant='ghost'
+							size='sm'
+							className='h-6 gap-1 px-1.5 text-[10px] text-muted-foreground hover:text-destructive'
+							disabled={isCancelling}
+							onClick={(event) => {
+								event.stopPropagation();
+								onCancelRun(run.id);
+							}}
+						>
+							{isCancelling ? <Loader2 className='size-3 animate-spin' /> : <X className='size-3' />}
+							<span>{isCancelling ? 'Cancelling…' : 'Cancel'}</span>
+						</Button>
+					)}
+					<Badge variant={getRunStatusBadgeVariant(run.status)} className='px-1.5 py-0 text-[10px]'>
+						{run.status}
+					</Badge>
+				</div>
 			</div>
 			{run.errorMessage && <p className='mt-2 text-xs text-destructive'>{run.errorMessage}</p>}
 			{run.integrationResults.length > 0 && (
@@ -263,6 +309,16 @@ function PreviousRunRow({ run }: { run: AutomationRun }) {
 			{content}
 		</div>
 	);
+}
+
+function getRunStatusBadgeVariant(status: string): 'default' | 'secondary' | 'destructive' | 'outline' {
+	if (status === 'failed') {
+		return 'destructive';
+	}
+	if (status === 'cancelled') {
+		return 'outline';
+	}
+	return 'secondary';
 }
 
 function IntegrationResultIcons({ runId, results }: { runId: string; results: AutomationRun['integrationResults'] }) {

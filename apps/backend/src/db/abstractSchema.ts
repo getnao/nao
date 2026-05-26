@@ -78,6 +78,12 @@ export type NewStoryVersion = typeof sqliteSchema.storyVersion.$inferInsert;
 export type DBStoryDataCache = typeof sqliteSchema.storyDataCache.$inferSelect;
 export type NewStoryDataCache = typeof sqliteSchema.storyDataCache.$inferInsert;
 
+export type DBActivity = typeof sqliteSchema.activity.$inferSelect;
+export type NewActivity = typeof sqliteSchema.activity.$inferInsert;
+export type ActivityType = DBActivity['type'];
+export type ActivityStatus = DBActivity['status'];
+export type ActivityTrigger = DBActivity['trigger'];
+
 export type DBProjectProviderBudget = typeof sqliteSchema.projectProviderBudget.$inferSelect;
 export type NewProjectProviderBudget = typeof sqliteSchema.projectProviderBudget.$inferInsert;
 

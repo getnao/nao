@@ -31,6 +31,11 @@ export async function getStoryByChatAndSlug(chatId: string, slug: string): Promi
 	return row ?? null;
 }
 
+export async function getStoryById(storyId: string): Promise<DBStory | null> {
+	const [row] = await db.select().from(s.story).where(eq(s.story.id, storyId)).limit(1).execute();
+	return row ?? null;
+}
+
 export async function getStoryProjectId(storyId: string): Promise<string | null> {
 	const [row] = await db
 		.select({

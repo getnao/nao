@@ -1,18 +1,26 @@
-import { and, desc, eq, lte } from 'drizzle-orm';
+import { displayChart, executeSql } from '@nao/shared/tools';
+import { and, asc, desc, eq, isNull, lte } from 'drizzle-orm';
 
 import s, {
+	type ActivityTrigger,
+	type ChatVisibility,
+	type DBActivity,
 	type DBAutomation,
 	type DBAutomationRun,
+	type DBMessagePart,
 	type DBScheduledJob,
 	type NewAutomation,
 	type NewAutomationRun,
+	type StoryVisibility,
 } from '../db/abstractSchema';
 import { db } from '../db/db';
 import type { AutomationIntegrationResult } from '../types/automation';
+import { type ListActivityRow, listRecentActivities } from './activity.queries';
 
 export const automationJobUniqueKey = (automationId: string): string => `automation:${automationId}`;
 const AUTOMATION_RUN_STALE_MS = 30 * 60 * 1_000;
 const AUTOMATION_RUN_STALE_MESSAGE = 'Automation run did not finish before the timeout.';
+const AUTOMATION_RUN_CANCELLED_MESSAGE = 'Cancelled by user.';
 
 export type AutomationWithSchedule = DBAutomation & {
 	cron: string;
@@ -219,6 +227,37 @@ export const failAutomationRun = async (runId: string, errorMessage: string): Pr
 		.execute();
 };
 
+export const getAutomationRunForUser = async (
+	projectId: string,
+	userId: string,
+	runId: string,
+): Promise<DBAutomationRun | null> => {
+	const [row] = await db
+		.select({ run: s.automationRun })
+		.from(s.automationRun)
+		.innerJoin(s.automation, eq(s.automation.id, s.automationRun.automationId))
+		.where(
+			and(eq(s.automationRun.id, runId), eq(s.automation.projectId, projectId), eq(s.automation.userId, userId)),
+		)
+		.execute();
+	return row?.run ?? null;
+};
+
+/**
+ * Flips a running automation run to `cancelled`. Guarded by `status = 'running'`
+ * so it's idempotent and safely no-ops on already-terminal runs (including
+ * those completed concurrently by the agent loop).
+ */
+export const cancelAutomationRun = async (runId: string): Promise<boolean> => {
+	const rows = await db
+		.update(s.automationRun)
+		.set({ status: 'cancelled', completedAt: new Date(), errorMessage: AUTOMATION_RUN_CANCELLED_MESSAGE })
+		.where(and(eq(s.automationRun.id, runId), eq(s.automationRun.status, 'running')))
+		.returning({ id: s.automationRun.id })
+		.execute();
+	return rows.length > 0;
+};
+
 export const failStaleAutomationRuns = async (): Promise<number> => {
 	const cutoff = new Date(Date.now() - AUTOMATION_RUN_STALE_MS);
 	const rows = await db
@@ -239,5 +278,343 @@ function mapAutomationWithSchedule(
 		cron: scheduledJob?.cron ?? '',
 		enabled: scheduledJob ? scheduledJob.status !== 'paused' : false,
 		scheduledJob,
+	};
+}
+
+export type AutomationFeedChart = {
+	toolCallId: string;
+	config: displayChart.Input;
+	data: unknown[];
+};
+
+export type AutomationFeedOutput = {
+	text: string | null;
+	charts: AutomationFeedChart[];
+};
+
+export type AutomationFeedAutomationItem = {
+	kind: 'automation';
+	id: string;
+	startedAt: Date;
+	run: Pick<
+		DBAutomationRun,
+		| 'id'
+		| 'automationId'
+		| 'status'
+		| 'startedAt'
+		| 'completedAt'
+		| 'errorMessage'
+		| 'chatId'
+		| 'integrationResults'
+	>;
+	automation: Pick<DBAutomation, 'id' | 'title' | 'scheduleDescription'> & { cron: string };
+	output: AutomationFeedOutput;
+};
+
+type BaseActivityFields = {
+	id: string;
+	status: DBActivity['status'];
+	trigger: ActivityTrigger;
+	startedAt: Date;
+	completedAt: Date | null;
+	errorMessage: string | null;
+};
+
+export type ActivityFeedStoryRefreshItem = {
+	kind: 'activity';
+	id: string;
+	startedAt: Date;
+	activity: BaseActivityFields & {
+		type: 'story.refreshed';
+		queriesRefreshed: number;
+	};
+	story: {
+		id: string;
+		slug: string;
+		title: string;
+		chatId: string | null;
+		cacheSchedule: string | null;
+		cacheScheduleDescription: string | null;
+	};
+};
+
+export type ActivityFeedStorySharedItem = {
+	kind: 'activity';
+	id: string;
+	startedAt: Date;
+	activity: BaseActivityFields & {
+		type: 'story.shared';
+	};
+	story: {
+		id: string;
+		slug: string;
+		title: string;
+		chatId: string | null;
+	};
+	share: {
+		id: string;
+		visibility: StoryVisibility;
+	};
+	actorName: string | null;
+};
+
+export type ActivityFeedChatSharedItem = {
+	kind: 'activity';
+	id: string;
+	startedAt: Date;
+	activity: BaseActivityFields & {
+		type: 'chat.shared';
+	};
+	chat: {
+		id: string;
+		title: string;
+	};
+	share: {
+		id: string;
+		visibility: ChatVisibility;
+	};
+	actorName: string | null;
+};
+
+export type ActivityFeedItem = ActivityFeedStoryRefreshItem | ActivityFeedStorySharedItem | ActivityFeedChatSharedItem;
+
+export type AutomationFeedItem = AutomationFeedAutomationItem | ActivityFeedItem;
+
+export const listAutomationFeedRuns = async (
+	projectId: string,
+	userId: string,
+	limit: number,
+): Promise<AutomationFeedItem[]> => {
+	const [automationItems, activityItems] = await Promise.all([
+		listAutomationRunFeedItems(projectId, userId, limit),
+		listActivityFeedItems(projectId, userId, limit),
+	]);
+
+	const merged: AutomationFeedItem[] = [...automationItems, ...activityItems];
+	merged.sort((a, b) => b.startedAt.getTime() - a.startedAt.getTime());
+	return merged.slice(0, limit);
+};
+
+async function listAutomationRunFeedItems(
+	projectId: string,
+	userId: string,
+	limit: number,
+): Promise<AutomationFeedAutomationItem[]> {
+	await failStaleAutomationRuns();
+	const rows = await db
+		.select({
+			run: s.automationRun,
+			automation: s.automation,
+			scheduledJob: s.scheduledJob,
+		})
+		.from(s.automationRun)
+		.innerJoin(s.automation, eq(s.automation.id, s.automationRun.automationId))
+		.leftJoin(s.scheduledJob, eq(s.scheduledJob.id, s.automation.scheduledJobId))
+		.where(and(eq(s.automation.projectId, projectId), eq(s.automation.userId, userId)))
+		.orderBy(desc(s.automationRun.startedAt))
+		.limit(limit)
+		.execute();
+
+	return Promise.all(
+		rows.map(({ run, automation, scheduledJob }) => buildAutomationFeedItem(run, automation, scheduledJob)),
+	);
+}
+
+async function listActivityFeedItems(projectId: string, userId: string, limit: number): Promise<ActivityFeedItem[]> {
+	const rows = await listRecentActivities(projectId, userId, limit, [
+		'story.refreshed',
+		'story.shared',
+		'chat.shared',
+	]);
+	return rows.map((row) => buildActivityFeedItem(row)).filter((item): item is ActivityFeedItem => item !== null);
+}
+
+function buildActivityFeedItem(row: ListActivityRow): ActivityFeedItem | null {
+	const base = {
+		id: row.activity.id,
+		status: row.activity.status,
+		trigger: row.activity.trigger,
+		startedAt: row.activity.startedAt,
+		completedAt: row.activity.completedAt,
+		errorMessage: row.activity.errorMessage,
+	};
+	if (row.activity.type === 'story.refreshed') {
+		if (!row.story) {
+			return null;
+		}
+		return {
+			kind: 'activity',
+			id: row.activity.id,
+			startedAt: row.activity.startedAt,
+			activity: {
+				...base,
+				type: 'story.refreshed',
+				queriesRefreshed: readNumber(row.activity.payload, 'queriesRefreshed') ?? 0,
+			},
+			story: row.story,
+		};
+	}
+	if (row.activity.type === 'story.shared') {
+		if (!row.story || !row.storyShare) {
+			return null;
+		}
+		return {
+			kind: 'activity',
+			id: row.activity.id,
+			startedAt: row.activity.startedAt,
+			activity: { ...base, type: 'story.shared' },
+			story: {
+				id: row.story.id,
+				slug: row.story.slug,
+				title: row.story.title,
+				chatId: row.story.chatId,
+			},
+			share: row.storyShare,
+			actorName: row.actorName,
+		};
+	}
+	if (row.activity.type === 'chat.shared') {
+		if (!row.chat || !row.chatShare) {
+			return null;
+		}
+		return {
+			kind: 'activity',
+			id: row.activity.id,
+			startedAt: row.activity.startedAt,
+			activity: { ...base, type: 'chat.shared' },
+			chat: row.chat,
+			share: row.chatShare,
+			actorName: row.actorName,
+		};
+	}
+	return null;
+}
+
+function readNumber(payload: Record<string, unknown> | null, key: string): number | null {
+	if (!payload) {
+		return null;
+	}
+	const value = payload[key];
+	return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+async function buildAutomationFeedItem(
+	run: DBAutomationRun,
+	automation: DBAutomation,
+	scheduledJob: DBScheduledJob | null,
+): Promise<AutomationFeedAutomationItem> {
+	const output = run.chatId ? await loadAutomationRunOutput(run.chatId) : { text: null, charts: [] };
+	return {
+		kind: 'automation',
+		id: run.id,
+		startedAt: run.startedAt,
+		run: {
+			id: run.id,
+			automationId: run.automationId,
+			status: run.status,
+			startedAt: run.startedAt,
+			completedAt: run.completedAt,
+			errorMessage: run.errorMessage,
+			chatId: run.chatId,
+			integrationResults: run.integrationResults,
+		},
+		automation: {
+			id: automation.id,
+			title: automation.title,
+			scheduleDescription: automation.scheduleDescription,
+			cron: scheduledJob?.cron ?? '',
+		},
+		output,
+	};
+}
+
+async function loadAutomationRunOutput(chatId: string): Promise<AutomationFeedOutput> {
+	const [message] = await db
+		.select({ id: s.chatMessage.id })
+		.from(s.chatMessage)
+		.where(
+			and(
+				eq(s.chatMessage.chatId, chatId),
+				eq(s.chatMessage.role, 'assistant'),
+				isNull(s.chatMessage.supersededAt),
+			),
+		)
+		.orderBy(desc(s.chatMessage.createdAt))
+		.limit(1)
+		.execute();
+
+	if (!message) {
+		return { text: null, charts: [] };
+	}
+
+	const parts = await db
+		.select()
+		.from(s.messagePart)
+		.where(eq(s.messagePart.messageId, message.id))
+		.orderBy(asc(s.messagePart.order))
+		.execute();
+
+	return extractAutomationFeedOutput(parts);
+}
+
+function extractAutomationFeedOutput(parts: DBMessagePart[]): AutomationFeedOutput {
+	const text = parts
+		.filter((part) => part.type === 'text' && part.text)
+		.map((part) => part.text as string)
+		.join('\n\n')
+		.trim();
+
+	const charts = collectChartsFromParts(parts);
+
+	return { text: text.length > 0 ? text : null, charts };
+}
+
+function collectChartsFromParts(parts: DBMessagePart[]): AutomationFeedChart[] {
+	const sqlOutputsByQueryId = indexSqlOutputsByQueryId(parts);
+	const charts: AutomationFeedChart[] = [];
+
+	for (const part of parts) {
+		const chart = parseChartPart(part, sqlOutputsByQueryId);
+		if (chart) {
+			charts.push(chart);
+		}
+	}
+
+	return charts;
+}
+
+function indexSqlOutputsByQueryId(parts: DBMessagePart[]): Map<string, executeSql.Output> {
+	const outputs = new Map<string, executeSql.Output>();
+	for (const part of parts) {
+		if (part.type !== 'tool-execute_sql' || part.toolState !== 'output-available' || !part.toolOutput) {
+			continue;
+		}
+		const parsed = executeSql.OutputSchema.safeParse(part.toolOutput);
+		if (parsed.success) {
+			outputs.set(parsed.data.id, parsed.data);
+		}
+	}
+	return outputs;
+}
+
+function parseChartPart(
+	part: DBMessagePart,
+	sqlOutputsByQueryId: Map<string, executeSql.Output>,
+): AutomationFeedChart | null {
+	if (part.type !== 'tool-display_chart' || part.toolState !== 'output-available' || !part.toolCallId) {
+		return null;
+	}
+	const config = displayChart.InputSchema.safeParse(part.toolInput);
+	if (!config.success) {
+		return null;
+	}
+	const sqlOutput = sqlOutputsByQueryId.get(config.data.query_id);
+	if (!sqlOutput || sqlOutput.data.length === 0) {
+		return null;
+	}
+	return {
+		toolCallId: part.toolCallId,
+		config: config.data,
+		data: sqlOutput.data,
 	};
 }

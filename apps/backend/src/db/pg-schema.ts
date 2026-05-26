@@ -579,6 +579,7 @@ export const story = pgTable(
 		isLiveTextDynamic: boolean('is_live_text_dynamic').default(true).notNull(),
 		cacheSchedule: text('cache_schedule'),
 		cacheScheduleDescription: text('cache_schedule_description'),
+		scheduledJobId: text('scheduled_job_id').references(() => scheduledJob.id, { onDelete: 'set null' }),
 		archivedAt: timestamp('archived_at'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
@@ -598,6 +599,7 @@ export const story = pgTable(
 		index('story_chatId_idx').on(t.chatId),
 		index('story_projectId_idx').on(t.projectId),
 		index('story_userId_idx').on(t.userId),
+		index('story_scheduledJobId_idx').on(t.scheduledJobId),
 	],
 );
 
@@ -665,6 +667,52 @@ export const storyDataCache = pgTable('story_data_cache', {
 	analysisResults: jsonb('analysis_results').$type<Record<string, string>>(),
 	cachedAt: timestamp('cached_at').defaultNow().notNull(),
 });
+
+export const ACTIVITY_TYPES = [
+	'story.refreshed',
+	'story.shared',
+	'story.pinned',
+	'chat.shared',
+	'chat.pinned',
+] as const;
+
+export const ACTIVITY_STATUSES = ['running', 'completed', 'failed', 'cancelled'] as const;
+
+export const ACTIVITY_TRIGGERS = ['schedule', 'manual', 'system'] as const;
+
+export const activity = pgTable(
+	'activity',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		userId: text('user_id').references(() => user.id, { onDelete: 'set null' }),
+		type: text('type', { enum: ACTIVITY_TYPES }).notNull(),
+		status: text('status', { enum: ACTIVITY_STATUSES }).notNull().default('completed'),
+		trigger: text('trigger', { enum: ACTIVITY_TRIGGERS }).notNull().default('system'),
+		storyId: text('story_id').references(() => story.id, { onDelete: 'cascade' }),
+		chatId: text('chat_id').references(() => chat.id, { onDelete: 'cascade' }),
+		sharedStoryId: text('shared_story_id').references(() => sharedStory.id, { onDelete: 'cascade' }),
+		sharedChatId: text('shared_chat_id').references(() => sharedChat.id, { onDelete: 'cascade' }),
+		payload: jsonb('payload').$type<Record<string, unknown>>(),
+		errorMessage: text('error_message'),
+		startedAt: timestamp('started_at').defaultNow().notNull(),
+		completedAt: timestamp('completed_at'),
+	},
+	(t) => [
+		index('activity_projectId_idx').on(t.projectId),
+		index('activity_userId_idx').on(t.userId),
+		index('activity_type_idx').on(t.type),
+		index('activity_storyId_idx').on(t.storyId),
+		index('activity_chatId_idx').on(t.chatId),
+		index('activity_sharedStoryId_idx').on(t.sharedStoryId),
+		index('activity_sharedChatId_idx').on(t.sharedChatId),
+		index('activity_startedAt_idx').on(t.startedAt),
+	],
+);
 
 export const memories = pgTable(
 	'memories',
