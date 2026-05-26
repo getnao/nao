@@ -23,8 +23,11 @@ const EXECUTE_SQL_DESCRIPTION =
 	'Run a single SQL query against the connected warehouse. Read-only unless the workspace admin ' +
 	'has enabled write permissions.\n\n' +
 	'USE WHEN: you already know the SQL (or have a precise question that maps to one query).\n' +
-	"SKIP WHEN: you'd need to discover available tables/metrics first → call `ls` + `grep` to read " +
-	'RULES.md and columns docs, or delegate the whole task to `ask_nao`.\n\n' +
+	"SKIP WHEN: you'd need to discover available tables/metrics first → call `ls_nao_context` + " +
+	'`read_nao_context_files` on RULES.md, or delegate the whole task to `ask_nao`.\n\n' +
+	'BEFORE RUNNING: if you have not yet read RULES.md in this session, call ' +
+	'`read_nao_context_files` on `RULES.md` (or `grep_nao_context`) first to learn the schema, ' +
+	'naming conventions, and business rules. Skip this step only if `ask_nao` already ran the query.\n\n' +
 	'Returns rows as JSON and a `query_id` you can feed into `display_chart` or embed in a story ' +
 	'as `<table query_id="..." />`. Optional `chat_id` attaches the query to a chat (e.g. from ' +
 	'`ask_nao`) so its embeds can link back.';
@@ -60,7 +63,10 @@ const CREATE_STORY_DESCRIPTION =
 	'SKIP WHEN: a single chart embed is enough → use `display_chart` alone.\n\n' +
 	'Typical flow: `execute_sql` → `display_chart` → paste the returned `<chart>` block into `content`. ' +
 	'Pass `chat_id` to attach the story to a chat (e.g. from `ask_nao`); omit it for a standalone ' +
-	'project-level story. The chat must belong to the calling user.';
+	'project-level story. The chat must belong to the calling user.\n\n' +
+	'IMPORTANT: once `create_story` returns, present its output directly to the user. Do NOT call ' +
+	'`display_chart` again for charts already embedded in the story content — the story embed renders ' +
+	'them automatically and re-calling `display_chart` would duplicate the output.';
 
 const UPDATE_STORY_DESCRIPTION =
 	"Update a story's title and/or full content. Creates a new version; omit a field to keep its " +
@@ -104,7 +110,7 @@ function registerFileTools(server: McpServer, ctx: McpContext): void {
 	});
 
 	registerAgentToolAsMcp(server, ctx, {
-		name: 'read_nao_context_files',
+		name: 'read_nao_context',
 		agentTool: readTool,
 		title: 'Read File',
 		description: READ_DESCRIPTION,

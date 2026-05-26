@@ -24,7 +24,9 @@ const DISPLAY_CHART_DESCRIPTION =
 	'`ask_nao` in its `queries` array — and want a shareable embed URL or a `<chart>` block to drop ' +
 	'into a story.\n' +
 	"SKIP WHEN: you don't have data yet → run `execute_sql` first, or `ask_nao` to let nao handle " +
-	'both the SQL and the chart in one shot.\n\n' +
+	'both the SQL and the chart in one shot. Also skip when you just called `create_story` or ' +
+	'`update_story` — the story embed already renders all its `<chart>` blocks; calling ' +
+	'`display_chart` again would duplicate them.\n\n' +
 	'`x_axis_key` and every `series[].data_key` MUST be a column name from the query result — ' +
 	'i.e. one of `execute_sql.columns` or `ask_nao.queries[].columns` (same contract on both). ' +
 	'Passing a key that does not exist in the data will be rejected with the list of valid columns.\n\n' +

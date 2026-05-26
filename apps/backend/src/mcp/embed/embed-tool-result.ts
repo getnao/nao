@@ -81,12 +81,11 @@ function buildEmbedToolResult(options: {
 		missingQueryMessage: options.missingQueryMessage,
 	});
 
-	const textPayload = attachSandboxToAppPayload(options.jsonPayload, options.sandboxHtml, options.kind);
 	const structuredContent = attachSandboxToAppPayload(options.structuredBase, options.sandboxHtml, options.kind);
 
 	return {
 		content: [
-			{ type: 'text', text: JSON.stringify(textPayload) },
+			{ type: 'text', text: JSON.stringify(options.jsonPayload) },
 			{ type: 'text', text: fallbackText },
 		],
 		structuredContent,

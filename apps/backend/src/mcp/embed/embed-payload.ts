@@ -1,6 +1,6 @@
 import { MCP_EMBED_SANDBOX_HTML_FIELD, type McpEmbedKind } from '@nao/shared/types';
 
-export const MAX_SANDBOX_MCP_BYTES = 48 * 1024;
+export const MAX_SANDBOX_MCP_BYTES = 130 * 1024;
 
 export const MAX_SANDBOX_HTML_CHARS = 220_000;
 

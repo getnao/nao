@@ -13,15 +13,17 @@ import { chatUrl } from '../urls';
 import { registerMcpTool } from './register-mcp-tool';
 
 const ASK_NAO_DESCRIPTION =
-	"Delegate an analytics task to nao's sub-agent — it runs the full reasoning loop " +
-	'(reads project rules/context, writes SQL, builds charts, drafts stories) and the whole ' +
-	'conversation is persisted as a chat visible in the nao UI (replayable, shareable, forkable ' +
-	'by the end user).\n\n' +
-	'USE WHEN: you want to hand off the whole task and produce a user-facing trace in nao — ' +
-	'the thinking process itself matters as much as the final answer.\n' +
-	"SKIP WHEN: you'd rather drive the workflow yourself by chaining `ls` / `grep` / `read` / " +
-	'`execute_sql` / `display_chart` / `create_story` step by step — those run as plain tool calls, ' +
-	'leave no chat in the UI, and give you full control over each step.\n\n' +
+	'Default tool for any analytics question or story-creation request. ' +
+	"Delegates the full reasoning loop to nao's sub-agent — it reads project rules/context, " +
+	'writes SQL, builds charts, drafts stories — and the whole conversation is persisted as a ' +
+	'chat visible in the nao UI (replayable, shareable, forkable by the end user).\n\n' +
+	'USE WHEN: the user asks an analytics question, wants a chart, or wants a story created. ' +
+	'Default to this tool; only fall back to `execute_sql` / `display_chart` / `create_story` ' +
+	'when you explicitly need step-by-step control or `ask_nao` cannot handle the request.\n' +
+	"SKIP WHEN: you'd rather drive the workflow yourself by chaining `ls_nao_context` / " +
+	'`grep_nao_context` / `read_nao_context_files` / `execute_sql` / `display_chart` / ' +
+	'`create_story` step by step — those run as plain tool calls, leave no chat in the UI, ' +
+	'and give you full control over each step.\n\n' +
 	'Returns the assistant text plus `chatId`, `chatUrl`, `queries` and `story_ids` produced during the run. ' +
 	'Each entry in `queries` has the same shape as `execute_sql` output (`id`, `columns`, `row_count`, `preview`). ' +
 	'Forward each `queries[].id` directly to `display_chart` as `query_id` — never call `execute_sql` again for a query the agent already ran. ' +
