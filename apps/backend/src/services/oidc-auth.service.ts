@@ -1,3 +1,5 @@
+/* @license Enterprise */
+
 import type { BetterAuthPlugin } from 'better-auth';
 import { genericOAuth } from 'better-auth/plugins/generic-oauth';
 

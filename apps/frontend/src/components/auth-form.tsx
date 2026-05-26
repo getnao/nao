@@ -1,15 +1,15 @@
 import { useQuery } from '@tanstack/react-query';
-import { LockKeyholeIcon } from 'lucide-react';
 
 import { trpc } from '../main';
 import { MicrosoftSignInButton, useIsMicrosoftSetup } from '@/components/auth-microsoft-button';
 import GithubIcon from '@/components/icons/github-icon.svg';
 import GoogleIcon from '@/components/icons/google-icon.svg';
 import NaoLogo from '@/components/icons/nao-full-logo.svg';
+import { OidcSignInButton } from '@/components/auth-oidc-button';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { brandingAssetUrl, useBranding } from '@/hooks/use-branding';
-import { handleGithubSignIn, handleGoogleSignIn, handleOidcSignIn } from '@/lib/auth-client';
+import { handleGithubSignIn, handleGoogleSignIn } from '@/lib/auth-client';
 
 interface AuthFormProps {
 	form: any;
@@ -87,15 +87,11 @@ export function AuthForm({
 						)}
 						{isMicrosoftSetup && <MicrosoftSignInButton callbackUrl={socialCallbackUrl} />}
 						{oidcConfig.data && (
-							<Button
-								type='button'
-								variant='outline'
-								className='w-full h-11'
-								onClick={() => handleOidcSignIn(oidcConfig.data!.providerId, socialCallbackUrl)}
-							>
-								<LockKeyholeIcon className='w-5 h-5' />
-								Continue with {oidcConfig.data.providerName}
-							</Button>
+							<OidcSignInButton
+								providerId={oidcConfig.data.providerId}
+								providerName={oidcConfig.data.providerName}
+								callbackUrl={socialCallbackUrl}
+							/>
 						)}
 					</div>
 
