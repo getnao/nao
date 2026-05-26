@@ -531,40 +531,18 @@ body.is-loading{min-height:160px}
 	}
 
 	var openLinkViaHost = function (url) {
-		setStatus('[diag] open-link received: ' + url);
-		if (!mcpApp) {
-			setStatus('[diag] mcpApp is null (mcp-apps.js not loaded?) — falling back to window.open', true);
+		if (!mcpApp || typeof mcpApp.openLink !== 'function') {
 			fallbackOpenInNewTab(url);
 			return;
 		}
-		var caps = null;
-		try { caps = mcpApp.getHostCapabilities(); } catch (e) {}
-		var capsJson = '';
-		try { capsJson = JSON.stringify(caps); } catch (e2) { capsJson = String(caps); }
-		if (!caps || !caps.openLinks) {
-			setStatus('[diag] Host does NOT advertise openLinks. Caps: ' + capsJson, true);
-		} else {
-			setStatus('[diag] openLinks capability OK. Caps: ' + capsJson);
-		}
-		if (typeof mcpApp.openLink !== 'function') {
-			setStatus('[diag] mcpApp.openLink is not a function — falling back to window.open', true);
-			fallbackOpenInNewTab(url);
-			return;
-		}
-		setStatus('[diag] Calling mcpApp.openLink…');
 		mcpApp.openLink({ url: url })
 			.then(function (res) {
-				var resJson = '';
-				try { resJson = JSON.stringify(res); } catch (e3) { resJson = String(res); }
 				if (res && res.isError) {
-					setStatus('[diag] openLink resolved with isError=true. Result: ' + resJson, true);
 					fallbackOpenInNewTab(url);
-				} else {
-					setStatus('[diag] openLink resolved OK. Result: ' + resJson);
 				}
 			})
 			.catch(function (err) {
-				setStatus('[diag] openLink rejected: ' + (err && err.message || String(err)), true);
+				setStatus('Could not open link: ' + (err && err.message || err), true);
 				fallbackOpenInNewTab(url);
 			});
 	};
