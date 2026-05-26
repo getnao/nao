@@ -524,10 +524,17 @@ body.is-loading{min-height:160px}
 	wireHostToolBridge();
 	connectToHost();
 
+	function fallbackOpenInNewTab(url) {
+		try {
+			window.open(url, '_blank', 'noopener,noreferrer');
+		} catch (e) {}
+	}
+
 	var openLinkViaHost = function (url) {
 		setStatus('[diag] open-link received: ' + url);
 		if (!mcpApp) {
-			setStatus('[diag] mcpApp is null (mcp-apps.js not loaded?)', true);
+			setStatus('[diag] mcpApp is null (mcp-apps.js not loaded?) — falling back to window.open', true);
+			fallbackOpenInNewTab(url);
 			return;
 		}
 		var caps = null;
@@ -540,7 +547,8 @@ body.is-loading{min-height:160px}
 			setStatus('[diag] openLinks capability OK. Caps: ' + capsJson);
 		}
 		if (typeof mcpApp.openLink !== 'function') {
-			setStatus('[diag] mcpApp.openLink is not a function', true);
+			setStatus('[diag] mcpApp.openLink is not a function — falling back to window.open', true);
+			fallbackOpenInNewTab(url);
 			return;
 		}
 		setStatus('[diag] Calling mcpApp.openLink…');
@@ -550,12 +558,14 @@ body.is-loading{min-height:160px}
 				try { resJson = JSON.stringify(res); } catch (e3) { resJson = String(res); }
 				if (res && res.isError) {
 					setStatus('[diag] openLink resolved with isError=true. Result: ' + resJson, true);
+					fallbackOpenInNewTab(url);
 				} else {
 					setStatus('[diag] openLink resolved OK. Result: ' + resJson);
 				}
 			})
 			.catch(function (err) {
 				setStatus('[diag] openLink rejected: ' + (err && err.message || String(err)), true);
+				fallbackOpenInNewTab(url);
 			});
 	};
 

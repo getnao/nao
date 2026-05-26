@@ -219,8 +219,19 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		section: 'MCP Modes',
 		title: 'Context-layer mode',
 		description:
-			'Exposes ls, grep, execute_sql, display_chart, create_story, update_story — the client MCP drives the workflow step by step.',
-		keywords: ['execute_sql', 'display_chart', 'ls', 'grep', 'sql', 'query', 'chart', 'story', 'context', 'embed'],
+			'Exposes ls_nao_context, grep_nao_context, read_nao_context, execute_sql, create_story, update_story — the client MCP drives the workflow step by step.',
+		keywords: [
+			'ls_nao_context',
+			'grep_nao_context',
+			'read_nao_context',
+			'execute_sql',
+			'create_story',
+			'update_story',
+			'sql',
+			'query',
+			'story',
+			'context',
+		],
 	},
 
 	// ── Project > Slack ──────────────────────────────────────
