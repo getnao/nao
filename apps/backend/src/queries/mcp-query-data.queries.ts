@@ -27,22 +27,30 @@ export async function upsertMcpQueryData(
 export async function getMcpQueryData(
 	queryId: string,
 	projectId: string,
+	options?: { userId?: string },
 ): Promise<{ columns: string[]; data: Record<string, unknown>[]; sourceChatId: string | null } | null> {
-	const [row] = await db
+	const baseQuery = db
 		.select({
 			columns: s.mcpQueryData.columns,
 			data: s.mcpQueryData.data,
 			sourceChatId: s.mcpQueryData.sourceChatId,
 		})
 		.from(s.mcpQueryData)
-		.where(
-			and(
-				eq(s.mcpQueryData.queryId, queryId),
-				eq(s.mcpQueryData.projectId, projectId),
-				gt(s.mcpQueryData.expiresAt, new Date()),
-			),
-		)
-		.execute();
+		.$dynamic();
+
+	const conditions = [
+		eq(s.mcpQueryData.queryId, queryId),
+		eq(s.mcpQueryData.projectId, projectId),
+		gt(s.mcpQueryData.expiresAt, new Date()),
+	];
+
+	const query = options?.userId
+		? baseQuery
+				.innerJoin(s.mcpCallLog, eq(s.mcpCallLog.id, s.mcpQueryData.callLogId))
+				.where(and(...conditions, eq(s.mcpCallLog.userId, options.userId)))
+		: baseQuery.where(and(...conditions));
+
+	const [row] = await query.execute();
 
 	if (!row) {
 		return null;

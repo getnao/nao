@@ -70,6 +70,7 @@ export async function buildStoryMcpResultWithSandbox(
 				projectId: ctx.projectId,
 				openInNaoUrl,
 				chatId: chatId ?? (typeof output.chatId === 'string' ? output.chatId : null),
+				userId: ctx.userId,
 			});
 		} catch (err) {
 			logger.warn(`MCP story sandbox HTML failed: ${String(err)}`, { source: 'tool', context: { storyId } });
@@ -90,7 +91,7 @@ export async function resolveChartQueryData(args: {
 }): Promise<ChartQueryData | null> {
 	const { queryId, ctx, callLogId, validatedChatId } = args;
 
-	const cached = await getMcpQueryData(queryId, ctx.projectId);
+	const cached = await getMcpQueryData(queryId, ctx.projectId, { userId: ctx.userId });
 	if (cached) {
 		return cached;
 	}
@@ -239,6 +240,7 @@ export async function buildStoryEmbedFromArtifact(
 				projectId: ctx.projectId,
 				openInNaoUrl,
 				chatId: story.chatId,
+				userId: ctx.userId,
 			});
 		} catch (err) {
 			logger.warn(`MCP story sandbox HTML failed: ${String(err)}`, {

@@ -89,7 +89,7 @@ export function McpEndpointSettings({ isAdmin }: Props) {
 					id='mcp-context-layer-mode'
 					label='Context-layer mode'
 					description={renderInline(
-						'Exposes `ls_nao_context`, `grep_nao_context`, `read_nao_context_files`, `execute_sql`, `create_story`, `update_story` — the client MCP drives the workflow step by step.',
+						'Exposes `ls_nao_context`, `grep_nao_context`, `read_nao_context`, `execute_sql`, `create_story`, `update_story` — the client MCP drives the workflow step by step.',
 					)}
 					checked={settings?.contextLayerModeEnabled ?? true}
 					onCheckedChange={(v) => toggle('contextLayerModeEnabled', v)}

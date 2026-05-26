@@ -193,7 +193,11 @@ body.is-loading{min-height:160px}
 		statusEl.hidden = false;
 		try { console.log('[nao-mcp-app]', isError ? 'ERROR' : 'INFO', text); } catch (e) {}
 	}
-	function hideStatus() { statusEl.hidden = true; statusEl.textContent = ''; }
+	function hideStatus() {
+		if (statusEl.className === 'error') return;
+		statusEl.hidden = true;
+		statusEl.textContent = '';
+	}
 
 	function setSrc(url, options) {
 		options = options || {};
@@ -521,15 +525,38 @@ body.is-loading{min-height:160px}
 	connectToHost();
 
 	var openLinkViaHost = function (url) {
-		if (mcpApp && typeof mcpApp.openLink === 'function') {
-			mcpApp.openLink({ url: url }).catch(function (err) {
-				setStatus('Could not open link: ' + (err && err.message || err), true);
-			});
+		setStatus('[diag] open-link received: ' + url);
+		if (!mcpApp) {
+			setStatus('[diag] mcpApp is null (mcp-apps.js not loaded?)', true);
 			return;
 		}
-		try {
-			window.open(url, '_blank', 'noopener,noreferrer');
-		} catch (e) {}
+		var caps = null;
+		try { caps = mcpApp.getHostCapabilities(); } catch (e) {}
+		var capsJson = '';
+		try { capsJson = JSON.stringify(caps); } catch (e2) { capsJson = String(caps); }
+		if (!caps || !caps.openLinks) {
+			setStatus('[diag] Host does NOT advertise openLinks. Caps: ' + capsJson, true);
+		} else {
+			setStatus('[diag] openLinks capability OK. Caps: ' + capsJson);
+		}
+		if (typeof mcpApp.openLink !== 'function') {
+			setStatus('[diag] mcpApp.openLink is not a function', true);
+			return;
+		}
+		setStatus('[diag] Calling mcpApp.openLink…');
+		mcpApp.openLink({ url: url })
+			.then(function (res) {
+				var resJson = '';
+				try { resJson = JSON.stringify(res); } catch (e3) { resJson = String(res); }
+				if (res && res.isError) {
+					setStatus('[diag] openLink resolved with isError=true. Result: ' + resJson, true);
+				} else {
+					setStatus('[diag] openLink resolved OK. Result: ' + resJson);
+				}
+			})
+			.catch(function (err) {
+				setStatus('[diag] openLink rejected: ' + (err && err.message || String(err)), true);
+			});
 	};
 
 	window.addEventListener('message', function (event) {

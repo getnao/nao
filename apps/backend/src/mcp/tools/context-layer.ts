@@ -24,9 +24,9 @@ const EXECUTE_SQL_DESCRIPTION =
 	'has enabled write permissions.\n\n' +
 	'USE WHEN: you already know the SQL (or have a precise question that maps to one query).\n' +
 	"SKIP WHEN: you'd need to discover available tables/metrics first → call `ls_nao_context` + " +
-	'`read_nao_context_files` on RULES.md, or delegate the whole task to `ask_nao`.\n\n' +
+	'`read_nao_context` on RULES.md, or delegate the whole task to `ask_nao`.\n\n' +
 	'BEFORE RUNNING: if you have not yet read RULES.md in this session, call ' +
-	'`read_nao_context_files` on `RULES.md` (or `grep_nao_context`) first to learn the schema, ' +
+	'`read_nao_context` on `RULES.md` (or `grep_nao_context`) first to learn the schema, ' +
 	'naming conventions, and business rules. Skip this step only if `ask_nao` already ran the query.\n\n' +
 	'Returns rows as JSON and a `query_id` you can feed into `display_chart` or embed in a story ' +
 	'as `<table query_id="..." />`. Optional `chat_id` attaches the query to a chat (e.g. from ' +
@@ -185,7 +185,7 @@ function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
 				return { content: [{ type: 'text' as const, text: `Error: ${story.error}` }], isError: true };
 			}
 
-			await cacheStoryQueryData(story.id, code, query_data, chat_id, ctx.projectId);
+			await cacheStoryQueryData(story.id, code, query_data, chat_id, ctx);
 
 			const storyForUrl = { id: story.id, slug: story.slug, chatId: story.chatId };
 			const embedUrl = storyEmbedUrl(story.id, ctx.projectId);
@@ -247,7 +247,7 @@ function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
 			const embedUrl = storyEmbedUrl(story.id, ctx.projectId);
 			const validatedChatId = await resolveChartChatId(chat_id, ctx);
 			const effectiveChatId = validatedChatId ?? story.chatId ?? undefined;
-			await cacheStoryQueryData(story.id, newCode, query_data, effectiveChatId, ctx.projectId);
+			await cacheStoryQueryData(story.id, newCode, query_data, effectiveChatId, ctx);
 			const output: StoryMcpToolPayload = {
 				embedUrl,
 				...updated,
@@ -264,7 +264,7 @@ async function cacheStoryQueryData(
 	code: string,
 	queryData: StoryQueryDataMap | undefined,
 	chatId: string | null | undefined,
-	projectId: string,
+	ctx: McpContext,
 ): Promise<void> {
 	const existingCache = await storyQueries.getStoryDataCacheByStoryId(storyId);
 	const seededQueryData: StoryQueryDataMap = {
@@ -274,7 +274,8 @@ async function cacheStoryQueryData(
 	const resolvedQueryData = await resolveStoryQueryData(
 		code,
 		Object.keys(seededQueryData).length > 0 ? seededQueryData : null,
-		projectId,
+		ctx.projectId,
+		ctx.userId,
 	);
 	if (!resolvedQueryData) {
 		return;
@@ -329,6 +330,10 @@ async function createChatLinkedStory(args: {
 }): Promise<CreateStoryResult> {
 	const ownerId = await chatQueries.getChatOwnerId(args.chatId);
 	if (ownerId !== args.ctx.userId) {
+		return { error: `Chat not found: ${args.chatId}` };
+	}
+	const chatProjectId = await chatQueries.getChatProjectId(args.chatId);
+	if (chatProjectId !== args.ctx.projectId) {
 		return { error: `Chat not found: ${args.chatId}` };
 	}
 

@@ -26,11 +26,13 @@ export async function buildStorySandboxHtml(params: {
 	storyId: string;
 	projectId: string;
 	chatId?: string | null;
+	userId?: string;
 }): Promise<string | null> {
 	const queryData = await resolveStoryQueryDataForSandbox(params.code, {
 		storyId: params.storyId,
 		chatId: params.chatId,
 		projectId: params.projectId,
+		userId: params.userId,
 	});
 	const inner = wrapStoryBodyForMcpHeightMeasure(
 		generateStoryHtml({ title: params.title, code: params.code }, (queryData as QueryDataMap | null) ?? null),

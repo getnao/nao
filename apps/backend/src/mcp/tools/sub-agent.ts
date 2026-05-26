@@ -21,7 +21,7 @@ const ASK_NAO_DESCRIPTION =
 	'Default to this tool; only fall back to `execute_sql` / `display_chart` / `create_story` ' +
 	'when you explicitly need step-by-step control or `ask_nao` cannot handle the request.\n' +
 	"SKIP WHEN: you'd rather drive the workflow yourself by chaining `ls_nao_context` / " +
-	'`grep_nao_context` / `read_nao_context_files` / `execute_sql` / `display_chart` / ' +
+	'`grep_nao_context` / `read_nao_context` / `execute_sql` / `display_chart` / ' +
 	'`create_story` step by step — those run as plain tool calls, leave no chat in the UI, ' +
 	'and give you full control over each step.\n\n' +
 	'Returns the assistant text plus `chatId`, `chatUrl`, `queries` and `story_ids` produced during the run. ' +
@@ -140,7 +140,8 @@ async function buildChatContext(
 
 	if (chatId) {
 		const ownerId = await chatQueries.getChatOwnerId(chatId);
-		if (ownerId === userId) {
+		const chatProjectId = ownerId === userId ? await chatQueries.getChatProjectId(chatId) : undefined;
+		if (ownerId === userId && chatProjectId === projectId) {
 			const history = await chatQueries.getChatMessages(chatId);
 			await chatQueries.upsertMessage({ ...userMessage, chatId: chatId });
 			return {
