@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { isEmailDomainAllowed } from '../src/utils/utils';
+import { isEmailDomainAllowed, resolveProviderId } from '../src/utils/utils';
 
 describe('OIDC domain allowlist via isEmailDomainAllowed', () => {
 	it('allows when email domain is in the allowlist', () => {
@@ -42,5 +42,31 @@ describe('OIDC domain allowlist via isEmailDomainAllowed', () => {
 
 	it('does not match subdomains', () => {
 		expect(isEmailDomainAllowed('user@sub.allowed.com', 'allowed.com')).toBe(false);
+	});
+});
+
+describe('resolveProviderId', () => {
+	it('returns params.id for social providers', () => {
+		expect(resolveProviderId({ params: { id: 'google' } })).toBe('google');
+	});
+
+	it('returns params.providerId for genericOAuth (OIDC)', () => {
+		expect(resolveProviderId({ params: { providerId: 'okta' } })).toBe('okta');
+	});
+
+	it('prefers params.id over params.providerId when both are present', () => {
+		expect(resolveProviderId({ params: { id: 'github', providerId: 'okta' } })).toBe('github');
+	});
+
+	it('returns undefined when ctx is undefined', () => {
+		expect(resolveProviderId(undefined)).toBeUndefined();
+	});
+
+	it('returns undefined when ctx is null', () => {
+		expect(resolveProviderId(null)).toBeUndefined();
+	});
+
+	it('returns undefined when params is empty', () => {
+		expect(resolveProviderId({ params: {} })).toBeUndefined();
 	});
 });

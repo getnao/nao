@@ -31,7 +31,7 @@ import {
 	isSocialProviderOidc,
 } from './services/oidc-auth.service';
 import { buildForgotPasswordEmail } from './utils/email-builders';
-import { buildGithubAllowlist, isEmailDomainAllowed } from './utils/utils';
+import { buildGithubAllowlist, isEmailDomainAllowed, resolveProviderId } from './utils/utils';
 
 type GoogleConfig = Awaited<ReturnType<typeof orgQueries.getGoogleConfig>>;
 type MetadataHandler = (request: Request) => Promise<Response>;
@@ -180,15 +180,19 @@ async function createAuthInstance(googleConfig: GoogleConfig) {
 			user: {
 				create: {
 					before: async (user, ctx) => {
-						const isGoogle = ctx?.params?.id === 'google';
-						if (isGoogle && !isEmailDomainAllowed(user.email, googleConfig.authDomains)) {
+						const providerId = resolveProviderId(ctx);
+
+						if (providerId === 'google' && !isEmailDomainAllowed(user.email, googleConfig.authDomains)) {
 							throw new APIError('FORBIDDEN', {
 								message: 'This email domain is not authorized to access this application.',
 							});
 						}
 
-						const isOidc = ssoEnabled && ctx?.params?.id === getOidcProviderId();
-						if (isOidc && !isEmailDomainAllowed(user.email, env.OIDC_AUTH_DOMAINS ?? '')) {
+						if (
+							ssoEnabled &&
+							providerId === getOidcProviderId() &&
+							!isEmailDomainAllowed(user.email, env.OIDC_AUTH_DOMAINS ?? '')
+						) {
 							throw new APIError('FORBIDDEN', {
 								message: 'This email domain is not authorized to access this application.',
 							});
@@ -197,7 +201,7 @@ async function createAuthInstance(googleConfig: GoogleConfig) {
 						return true;
 					},
 					async after(user, ctx) {
-						const providerId = ctx?.params?.id;
+						const providerId = resolveProviderId(ctx);
 						const isSocial =
 							providerId === 'google' ||
 							providerId === 'github' ||
