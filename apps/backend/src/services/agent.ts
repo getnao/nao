@@ -322,6 +322,20 @@ class AgentManager {
 		return this._toolContext.generatedArtifacts;
 	}
 
+	get queryResultsSummary(): {
+		id: string;
+		columns: string[];
+		row_count: number;
+		preview: Record<string, unknown>[];
+	}[] {
+		return [...this._toolContext.queryResults.entries()].map(([id, result]) => ({
+			id,
+			columns: result.columns,
+			row_count: result.data.length,
+			preview: result.data.slice(0, 3),
+		}));
+	}
+
 	stream(
 		uiMessages: UIMessage[],
 		opts: {

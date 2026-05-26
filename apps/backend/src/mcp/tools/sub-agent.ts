@@ -1,16 +1,16 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { buildStoryChartBlock } from '@nao/shared';
 import { type InferUIMessageChunk, readUIMessageStream } from 'ai';
 import { z } from 'zod';
 
 import * as chatQueries from '../../queries/chat.queries';
+import * as storyQueries from '../../queries/story.queries';
 import { agentService } from '../../services/agent';
 import { mcpService } from '../../services/mcp';
 import { skillService } from '../../services/skill';
 import type { UIMessage, UIMessagePart } from '../../types/chat';
 import type { McpContext, ToolExtra } from '../logging';
-import { defineMcpHandler } from '../logging';
 import { chatUrl } from '../urls';
+import { registerMcpTool } from './register-mcp-tool';
 
 const ASK_NAO_DESCRIPTION =
 	"Delegate an analytics task to nao's sub-agent — it runs the full reasoning loop " +
@@ -19,94 +19,108 @@ const ASK_NAO_DESCRIPTION =
 	'by the end user).\n\n' +
 	'USE WHEN: you want to hand off the whole task and produce a user-facing trace in nao — ' +
 	'the thinking process itself matters as much as the final answer.\n' +
-	"SKIP WHEN: you'd rather drive the workflow yourself by chaining `ls` / `grep` / `execute_sql` / " +
-	'`display_chart` / `create_story` step by step — those run as plain tool calls, leave no chat ' +
-	'in the UI, and give you full control over each step.\n\n' +
-	'Returns the assistant text plus `chatId`, `chatUrl`, and arrays `charts` / `stories` produced ' +
-	'during the run. Chain `charts[].queryId` + `chatId` into `display_chart`, or pass `chatId` to ' +
-	'`create_story` to attach a follow-up document. Side effect: creates a chat row.';
+	"SKIP WHEN: you'd rather drive the workflow yourself by chaining `ls` / `grep` / `read` / " +
+	'`execute_sql` / `display_chart` / `create_story` step by step — those run as plain tool calls, ' +
+	'leave no chat in the UI, and give you full control over each step.\n\n' +
+	'Returns the assistant text plus `chatId`, `chatUrl`, `queries` and `story_ids` produced during the run. ' +
+	'Each entry in `queries` has the same shape as `execute_sql` output (`id`, `columns`, `row_count`, `preview`). ' +
+	'Forward each `queries[].id` directly to `display_chart` as `query_id` — never call `execute_sql` again for a query the agent already ran. ' +
+	'Pick `x_axis_key` / `series[].data_key` strictly from `queries[].columns` (same contract as `execute_sql.columns`). ' +
+	'Forward each `story_ids[]` entry directly to `get_story` / `update_story` / `archive_story`. ' +
+	'Pass `chatId` to `create_story` to attach a follow-up document. Side effect: creates a chat row.';
 
 export function registerSubAgentTools(server: McpServer, ctx: McpContext): void {
-	server.registerTool(
-		'ask_nao',
-		{
-			title: 'Ask Nao',
-			description: ASK_NAO_DESCRIPTION,
-			inputSchema: {
-				question: z
-					.string()
-					.describe(
-						'Natural-language analytics question or task. The agent reads project context ' +
-							'(rules, columns, semantic layer) to decide what to query — no need to mention SQL or table names.',
-					),
-				chatId: z
-					.uuid()
-					.optional()
-					.describe(
-						'UUID of an existing chat to continue. Omit to start a new chat. ' +
-							'Reuse only when the new question clearly builds on the same topic. ' +
-							'If the topic shifts or the prior reply was a refusal, omit it.',
-					),
-			},
-			outputSchema: {
-				chatId: z
-					.string()
-					.describe(
-						'UUID of the chat that holds this run. Pass to `display_chart` / `create_story` / `update_story` to attach further work.',
-					),
-				chatUrl: z.url().describe('URL to open the chat in the nao UI.'),
-				text: z.string().describe('The assistant final text response.'),
-				charts: z
-					.array(
-						z.object({
-							queryId: z.string().describe('`query_id` produced by the agent — pass to `display_chart`.'),
-							chartType: z.string(),
-							title: z.string().optional(),
-							block: z.string().describe('`<chart>` block ready to paste into a story `content` field.'),
-						}),
-					)
-					.describe('Charts produced during this run. Chain with `display_chart` using `chatId`.'),
-				stories: z
-					.array(z.object({ id: z.string(), title: z.string() }))
-					.describe('Stories created or updated during this run.'),
-			},
+	registerMcpTool(server, ctx, {
+		name: 'ask_nao',
+		title: 'Ask Nao',
+		description: ASK_NAO_DESCRIPTION,
+		inputSchema: {
+			question: z
+				.string()
+				.describe(
+					'Natural-language analytics question or task. The agent reads project context ' +
+						'(rules, columns, semantic layer) to decide what to query — no need to mention SQL or table names.',
+				),
+			chatId: z
+				.uuid()
+				.optional()
+				.describe(
+					'UUID of an existing chat to continue. Omit to start a new chat. ' +
+						'Reuse only when the new question clearly builds on the same topic. ' +
+						'If the topic shifts or the prior reply was a refusal, omit it.',
+				),
 		},
-		defineMcpHandler(
-			'ask_nao',
-			ctx,
-			async ({ question, chatId }, extra) => {
-				await mcpService.initializeMcpState(ctx.projectId);
-				await skillService.initializeSkills(ctx.projectId);
+		outputSchema: {
+			chatId: z
+				.string()
+				.describe(
+					'UUID of the chat that holds this run. Pass to `create_story` / `update_story` to attach further work.',
+				),
+			chatUrl: z.url().describe('URL to open the chat in the nao UI.'),
+			text: z.string().describe('The assistant final text response.'),
+			queries: z
+				.array(
+					z.object({
+						id: z.string().describe('`query_id` to pass to `display_chart`.'),
+						columns: z
+							.array(z.string())
+							.describe(
+								'Column names in the result — use these for `x_axis_key` and `series[].data_key`.',
+							),
+						row_count: z.number().describe('Total number of rows returned.'),
+						preview: z
+							.array(z.record(z.string(), z.unknown()))
+							.describe('First 3 rows — useful to infer x_axis_type and chart_type.'),
+					}),
+				)
+				.describe(
+					'Every query the sub-agent executed, with schema metadata. Same shape as `execute_sql` output. ' +
+						'Forward `id` to `display_chart` as `query_id`; pick `x_axis_key` / `series[].data_key` from `columns`.',
+				),
+			story_ids: z
+				.array(z.string())
+				.describe(
+					'UUIDs of stories the sub-agent created or updated. Forward each one to `get_story` / `update_story` / `archive_story` / `delete_story`.',
+				),
+		},
+		errorMessage: () => 'Nao agent failed to process the request.',
+		handler: async ({ question, chatId }, extra) => {
+			await mcpService.initializeMcpState(ctx.projectId);
+			await skillService.initializeSkills(ctx.projectId);
 
-				const { chat, uiMessages } = await buildChatContext(ctx.projectId, ctx.userId, question, chatId);
+			const { chat, uiMessages } = await buildChatContext(ctx.projectId, ctx.userId, question, chatId);
 
-				const agent = await agentService.create(chat);
-				const stream = agent.stream(uiMessages);
-				const text = await consumeStreamWithProgress(stream, extra);
+			const agent = await agentService.create(chat);
+			const stream = agent.stream(uiMessages);
+			const text = await consumeStreamWithProgress(stream, extra);
 
-				const artifacts = agent.generatedArtifacts;
-				const charts = artifacts.charts.map((c) => ({
-					queryId: c.query_id,
-					chartType: c.chart_type,
-					title: c.title,
-					block: buildStoryChartBlock(c),
-				}));
-				const stories = artifacts.stories;
+			const queries = agent.queryResultsSummary;
+			const story_ids = await resolveStoryIds(agent.generatedArtifacts.stories, chat.id);
 
-				const output = { chatId: chat.id, chatUrl: chatUrl(chat.id), text, charts, stories };
-				return {
-					content: [
-						{
-							type: 'text' as const,
-							text: `${text}\n\n[chatId: ${output.chatId}]\n[chatUrl: ${output.chatUrl}]`,
-						},
-					],
-					structuredContent: output,
-				};
-			},
-			{ errorMessage: () => 'Nao agent failed to process the request.' },
-		),
+			const naoChatUrl = chatUrl(chat.id);
+			const output = { chatId: chat.id, chatUrl: naoChatUrl, text, queries, story_ids };
+			return {
+				content: [
+					{ type: 'text' as const, text: `${text}\n\n[chatId: ${chat.id}]\n[chatUrl: ${naoChatUrl}]` },
+					{ type: 'text' as const, text: JSON.stringify({ queries, story_ids }) },
+				],
+				structuredContent: output,
+			};
+		},
+	});
+}
+
+async function resolveStoryIds(stories: { id: string; title: string }[], chatId: string): Promise<string[]> {
+	if (stories.length === 0) {
+		return [];
+	}
+	const resolved = await Promise.all(
+		stories.map(async (story) => {
+			const row = await storyQueries.getStoryByChatAndSlug(chatId, story.id);
+			return row ? row.id : null;
+		}),
 	);
+	return resolved.filter((id): id is string => id !== null);
 }
 
 async function buildChatContext(

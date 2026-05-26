@@ -78,7 +78,9 @@ export function McpEndpointSettings({ isAdmin }: Props) {
 				<SettingsToggleRow
 					id='mcp-sub-agent-mode'
 					label='Sub-agent mode'
-					description="Exposes ask_nao — delegates analytics tasks to nao's agent. The full reasoning trace is saved as a chat visible in the nao UI."
+					description={renderInline(
+						"Exposes `ask_nao` — delegates analytics tasks to nao's agent. The full reasoning trace is saved as a chat visible in the nao UI.",
+					)}
 					checked={settings?.subAgentModeEnabled ?? true}
 					onCheckedChange={(v) => toggle('subAgentModeEnabled', v)}
 					disabled={!isAdmin || !enabled || pending}
@@ -86,7 +88,9 @@ export function McpEndpointSettings({ isAdmin }: Props) {
 				<SettingsToggleRow
 					id='mcp-context-layer-mode'
 					label='Context-layer mode'
-					description='Exposes ls, grep, execute_sql, display_chart, create_story, update_story — the client MCP drives the workflow step by step.'
+					description={renderInline(
+						'Exposes `ls_nao_context`, `grep_nao_context`, `read_nao_context_files`, `execute_sql`, `create_story`, `update_story` — the client MCP drives the workflow step by step.',
+					)}
 					checked={settings?.contextLayerModeEnabled ?? true}
 					onCheckedChange={(v) => toggle('contextLayerModeEnabled', v)}
 					disabled={!isAdmin || !enabled || pending}

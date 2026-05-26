@@ -4,8 +4,8 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { listUserProjects } from '../queries/project.queries';
 import type { McpEndpointSettings } from '../types/mcp-endpoint';
 import { registerNaoMcpApps } from './embed/ui-resources';
+import { registerAssetTools } from './tools/asset-tools';
 import { registerContextLayerTools } from './tools/context-layer';
-import { registerStoryManagementTools } from './tools/story-management';
 import { registerSubAgentTools } from './tools/sub-agent';
 
 export interface McpSession {
@@ -58,7 +58,7 @@ export function createMcpServer(userId: string, projectId: string, settings: Mcp
 	}
 
 	if (settings.subAgentModeEnabled || settings.contextLayerModeEnabled) {
-		registerStoryManagementTools(server, ctx);
+		registerAssetTools(server, ctx);
 	}
 
 	registerNaoMcpApps(server);

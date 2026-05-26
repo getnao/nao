@@ -1,34 +1,23 @@
-import { randomUUID } from 'node:crypto';
-
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { buildStoryChartBlock } from '@nao/shared';
-import { displayChart, executeSql } from '@nao/shared/tools';
+import { executeSql } from '@nao/shared/tools';
 import { z } from 'zod';
 import zodV3 from 'zod/v3';
 
-import displayChartTool from '../../agents/tools/display-chart';
 import executeSqlTool from '../../agents/tools/execute-sql';
 import grepTool from '../../agents/tools/grep';
 import listTool from '../../agents/tools/list';
+import readTool from '../../agents/tools/read';
 import * as chatQueries from '../../queries/chat.queries';
-import { insertMcpChartEmbed } from '../../queries/mcp-chart-embed.queries';
-import { getMcpQueryData, upsertMcpQueryData } from '../../queries/mcp-query-data.queries';
-import type { UserStoryRow } from '../../queries/story.queries';
+import { upsertMcpQueryData } from '../../queries/mcp-query-data.queries';
 import * as storyQueries from '../../queries/story.queries';
 import { pinQueryDataToChat, pinStoryMessageToChat } from '../../utils/chat-message-story';
-import { logger } from '../../utils/logger';
 import { resolveStoryQueryData, type StoryQueryDataMap } from '../../utils/story-query-data';
-import {
-	buildChartToolResult,
-	buildStoryToolResult,
-	type ChartToolPayload,
-	type StoryMcpToolPayload,
-} from '../embed/embed-tool-result';
-import { buildChartSandboxHtml, buildStorySandboxHtml } from '../embed/sandbox-html';
-import { CHART_APP_URI, STORY_APP_URI, uiToolMeta } from '../embed/ui-resources';
-import { defineMcpHandler, type McpContext, type ToolResult } from '../logging';
-import { chartEmbedUrl, chatUrl, storyChatUrl, storyEmbedUrl, storyUrl } from '../urls';
-import { registerAgentToolAsMcp } from './wrap-agent-tool';
+import { type StoryMcpToolPayload } from '../embed/embed-tool-result';
+import { STORY_APP_URI, uiToolMeta } from '../embed/ui-resources';
+import type { McpContext } from '../logging';
+import { storyChatUrl, storyEmbedUrl, storyUrl } from '../urls';
+import { buildStoryMcpResultWithSandbox, fetchLatestStoryVersion, resolveChartChatId, resolveStory } from './helpers';
+import { registerAgentToolAsMcp, registerMcpTool } from './register-mcp-tool';
 
 const EXECUTE_SQL_DESCRIPTION =
 	'Run a single SQL query against the connected warehouse. Read-only unless the workspace admin ' +
@@ -39,17 +28,6 @@ const EXECUTE_SQL_DESCRIPTION =
 	'Returns rows as JSON and a `query_id` you can feed into `display_chart` or embed in a story ' +
 	'as `<table query_id="..." />`. Optional `chat_id` attaches the query to a chat (e.g. from ' +
 	'`ask_nao`) so its embeds can link back.';
-
-const DISPLAY_CHART_DESCRIPTION =
-	'Render an interactive chart embed from a previously executed query.\n\n' +
-	'USE WHEN: you have a `query_id` — either fresh from `execute_sql` or returned by a prior ' +
-	'`ask_nao` in its `charts` array — and want a shareable embed URL or a `<chart>` block to drop ' +
-	'into a story.\n' +
-	"SKIP WHEN: you don't have data yet → run `execute_sql` first, or `ask_nao` to let nao handle " +
-	'both the SQL and the chart in one shot.\n\n' +
-	"If the `query_id` comes from an `ask_nao` chat, pass that chat's `chat_id` so nao loads the rows " +
-	'from history (no need to re-run the SQL) and caches them for the embed.\n\n' +
-	'Returns the embed URL, the `<chart>` block ready to paste into a story, and a sandbox HTML preview.';
 
 const GREP_DESCRIPTION =
 	'Search a regex across the nao project context files (RULES.md, columns/*.md, semantic layer, ' +
@@ -62,9 +40,17 @@ const LS_DESCRIPTION =
 	'List files and folders in the nao project context at a given path.\n\n' +
 	'USE WHEN: exploring the project structure for the first time, locating RULES.md, or finding ' +
 	'available columns/metrics docs.\n' +
-	'SKIP WHEN: you already know the file you want to search inside → use `grep`.\n\n' +
-	'Best practice: start with `ls .` and read RULES.md before any `execute_sql` — it documents the ' +
-	'data model, naming conventions, and business definitions.';
+	'SKIP WHEN: you already know the file you want to search inside → use `grep`. You already know ' +
+	'the exact file to inspect → use `read`.\n\n' +
+	'Best practice: start with `ls .` and `read` RULES.md before any `execute_sql` — it documents ' +
+	'the data model, naming conventions, and business definitions.';
+
+const READ_DESCRIPTION =
+	'Read the full contents of a file in the nao project context (RULES.md, columns/*.md, ' +
+	'semantic layer, docs). Respects .naoignore.\n\n' +
+	'USE WHEN: you have a specific path (typically located via `ls` or `grep`) and need the whole ' +
+	'file — e.g. read RULES.md before writing SQL, or columns.md to confirm column names and types.\n' +
+	'SKIP WHEN: matching lines are enough → use `grep`. You want to browse a folder → use `ls`.';
 
 const CREATE_STORY_DESCRIPTION =
 	'Create a new analytics story — a markdown document with embedded `<chart>` / `<table>` / `<grid>` ' +
@@ -85,7 +71,6 @@ const UPDATE_STORY_DESCRIPTION =
 	'stays valid.';
 
 type ExecuteSqlMcpInput = executeSql.Input & { chat_id?: string };
-type DisplayChartMcpInput = displayChart.Input & { chat_id?: string };
 
 const EXECUTE_SQL_INPUT_SCHEMA = executeSql.InputSchema.extend({
 	chat_id: zodV3
@@ -97,39 +82,36 @@ const EXECUTE_SQL_INPUT_SCHEMA = executeSql.InputSchema.extend({
 		),
 });
 
-const DISPLAY_CHART_INPUT_SCHEMA = displayChart.InputSchema.extend({
-	chat_id: zodV3
-		.string()
-		.optional()
-		.describe(
-			'Chat UUID the chart belongs to (e.g. `chatId` from `ask_nao`). ' +
-				'Required when `query_id` was produced by an `ask_nao` — nao then loads the rows from chat history and the embed links back to that chat.',
-		),
-});
-
 export function registerContextLayerTools(server: McpServer, ctx: McpContext): void {
 	registerFileTools(server, ctx);
-	registerDataTools(server, ctx);
+	registerExecuteSql(server, ctx);
 	registerContextStoryTools(server, ctx);
 }
 
 function registerFileTools(server: McpServer, ctx: McpContext): void {
 	registerAgentToolAsMcp(server, ctx, {
-		name: 'ls',
+		name: 'ls_nao_context',
 		agentTool: listTool,
 		title: 'List Files',
 		description: LS_DESCRIPTION,
 	});
 
 	registerAgentToolAsMcp(server, ctx, {
-		name: 'grep',
+		name: 'grep_nao_context',
 		agentTool: grepTool,
 		title: 'Search Files',
 		description: GREP_DESCRIPTION,
 	});
+
+	registerAgentToolAsMcp(server, ctx, {
+		name: 'read_nao_context_files',
+		agentTool: readTool,
+		title: 'Read File',
+		description: READ_DESCRIPTION,
+	});
 }
 
-function registerDataTools(server: McpServer, ctx: McpContext): void {
+function registerExecuteSql(server: McpServer, ctx: McpContext): void {
 	registerAgentToolAsMcp<executeSql.Input, executeSql.Output, ExecuteSqlMcpInput>(server, ctx, {
 		name: 'execute_sql',
 		agentTool: executeSqlTool,
@@ -153,133 +135,40 @@ function registerDataTools(server: McpServer, ctx: McpContext): void {
 			};
 		},
 	});
-
-	registerAgentToolAsMcp<displayChart.Input, displayChart.Output, DisplayChartMcpInput>(server, ctx, {
-		name: 'display_chart',
-		agentTool: displayChartTool,
-		title: 'Display Chart',
-		description: DISPLAY_CHART_DESCRIPTION,
-		inputSchema: DISPLAY_CHART_INPUT_SCHEMA,
-		_meta: uiToolMeta(CHART_APP_URI),
-		mapInput: ({ chat_id: _chatId, ...input }) => input,
-		resolveChatId: (input) => input.chat_id ?? null,
-		formatResult: async ({ input, output, callLogId }) => {
-			const { query_id, chart_type, x_axis_key, x_axis_type, series, title, chat_id } = input;
-			if (!output.success) {
-				return {
-					content: [{ type: 'text' as const, text: output.error ?? 'Chart config is invalid.' }],
-					isError: true,
-				};
-			}
-
-			const block = buildStoryChartBlock({ query_id, chart_type, x_axis_key, x_axis_type, series, title });
-
-			const validatedChatId = await resolveChartChatId(chat_id, ctx);
-
-			let queryData = await getMcpQueryData(query_id, ctx.projectId);
-			if (!queryData && validatedChatId) {
-				const fromChat = await chatQueries.getQueryResultByQueryId(validatedChatId, query_id);
-				if (fromChat) {
-					await upsertMcpQueryData(query_id, callLogId, ctx.projectId, fromChat.columns, fromChat.data, {
-						sourceChatId: validatedChatId,
-					});
-					queryData = { ...fromChat, sourceChatId: validatedChatId };
-				}
-			}
-
-			if (!queryData) {
-				const errorMsg =
-					`query_id "${query_id}" not found in cache. ` +
-					(chat_id
-						? `No matching execute_sql result found in chat ${chat_id}.`
-						: 'Pass `chat_id` if the query was produced by a prior `ask_nao` call.');
-				return {
-					content: [{ type: 'text' as const, text: errorMsg }],
-					isError: true,
-				};
-			}
-
-			let chartEmbedId: string | null = null;
-			let embedUrl: string | null = null;
-			try {
-				const id = randomUUID();
-				const inserted = await insertMcpChartEmbed({
-					chartEmbedId: id,
-					queryId: query_id,
-					projectId: ctx.projectId,
-					chartConfig: { chartType: chart_type, xAxisKey: x_axis_key, xAxisType: x_axis_type, series, title },
-					sourceChatId: validatedChatId ?? null,
-				});
-				if (inserted) {
-					chartEmbedId = id;
-					embedUrl = chartEmbedUrl(id, ctx.projectId);
-				}
-			} catch (dbErr) {
-				logger.warn(`MCP display_chart: chart embed persistence failed: ${String(dbErr)}`, { source: 'tool' });
-			}
-
-			const naoChatUrl = validatedChatId ? chatUrl(validatedChatId) : null;
-			let sandboxChartHtml: string | null = null;
-			try {
-				sandboxChartHtml = buildChartSandboxHtml({
-					title,
-					chartBlock: block,
-					queryId: query_id,
-					columns: queryData.columns,
-					data: queryData.data,
-					naoChatUrl,
-				});
-			} catch (sandboxErr) {
-				logger.warn(`MCP display_chart: sandbox HTML failed: ${String(sandboxErr)}`, { source: 'tool' });
-			}
-
-			const chartOutput: ChartToolPayload = {
-				embedUrl,
-				chartEmbedId,
-				block,
-				queryId: query_id,
-				title,
-				chatId: validatedChatId ?? null,
-			};
-			return buildChartToolResult(chartOutput, { sandboxChartHtml });
-		},
-	});
 }
 
 function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
-	server.registerTool(
-		'create_story',
-		{
-			title: 'Create Story',
-			description: CREATE_STORY_DESCRIPTION,
-			inputSchema: {
-				title: z.string().describe('Story title.'),
-				content: z
-					.string()
-					.optional()
-					.describe(
-						'Full nao story markdown (with `<chart>`, `<table>`, `<grid>` blocks). Omit to start from a title-only stub.',
-					),
-				query_data: z
-					.record(
-						z.string(),
-						z.object({ columns: z.array(z.string()), data: z.array(z.record(z.string(), z.unknown())) }),
-					)
-					.optional()
-					.describe(
-						"Pre-fetched rows keyed by `query_id`, used to seed the story's embedded `<chart>` / `<table>` blocks. " +
-							'Provide entries for `query_id`s coming from `ask_nao`; `query_id`s from MCP `execute_sql` are already cached.',
-					),
-				chat_id: z
-					.string()
-					.optional()
-					.describe(
-						'Attach the story to a chat (e.g. `chatId` from `ask_nao`). Omit for a standalone story. The chat must belong to the calling user.',
-					),
-			},
-			_meta: uiToolMeta(STORY_APP_URI),
+	registerMcpTool(server, ctx, {
+		name: 'create_story',
+		title: 'Create Story',
+		description: CREATE_STORY_DESCRIPTION,
+		inputSchema: {
+			title: z.string().describe('Story title.'),
+			content: z
+				.string()
+				.optional()
+				.describe(
+					'Full nao story markdown (with `<chart>`, `<table>`, `<grid>` blocks). Omit to start from a title-only stub.',
+				),
+			query_data: z
+				.record(
+					z.string(),
+					z.object({ columns: z.array(z.string()), data: z.array(z.record(z.string(), z.unknown())) }),
+				)
+				.optional()
+				.describe(
+					"Pre-fetched rows keyed by `query_id`, used to seed the story's embedded `<chart>` / `<table>` blocks. " +
+						'Provide entries for `query_id`s coming from `ask_nao`; `query_id`s from MCP `execute_sql` are already cached.',
+				),
+			chat_id: z
+				.string()
+				.optional()
+				.describe(
+					'Attach the story to a chat (e.g. `chatId` from `ask_nao`). Omit for a standalone story. The chat must belong to the calling user.',
+				),
 		},
-		defineMcpHandler('create_story', ctx, async ({ title, content, query_data, chat_id }) => {
+		_meta: uiToolMeta(STORY_APP_URI),
+		handler: async ({ title, content, query_data, chat_id }) => {
 			const slug = generateSlug(title);
 			const code = content ?? `# ${title}\n`;
 			const story = chat_id
@@ -303,47 +192,49 @@ function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
 				chatUrl: storyChatUrl(storyForUrl),
 			};
 			return buildStoryMcpResultWithSandbox(output, ctx, code, story.chatId);
-		}),
-	);
-
-	server.registerTool(
-		'update_story',
-		{
-			title: 'Update Story',
-			description: UPDATE_STORY_DESCRIPTION,
-			inputSchema: {
-				story_id: z.string().describe('Story ID (from `list_stories` or a prior `create_story`).'),
-				title: z.string().optional().describe('New title. Omit to keep current.'),
-				content: z
-					.string()
-					.optional()
-					.describe(
-						'Full markdown replacement (with `<chart>`, `<table>`, `<grid>` blocks). ' +
-							'Omit to keep the current content — partial diffs are not supported.',
-					),
-				query_data: z
-					.record(
-						z.string(),
-						z.object({ columns: z.array(z.string()), data: z.array(z.record(z.string(), z.unknown())) }),
-					)
-					.optional()
-					.describe(
-						'Pre-fetched rows keyed by `query_id`, used to seed any new `<chart>` / `<table>` blocks introduced by this revision. ' +
-							'Provide entries for `query_id`s coming from `ask_nao`; `query_id`s from MCP `execute_sql` are already cached.',
-					),
-				chat_id: z
-					.string()
-					.optional()
-					.describe(
-						'Chat UUID to associate this revision with (e.g. `chatId` from `ask_nao`). ' +
-							"Sets the 'Open in nao' button on the story's embedded charts.",
-					),
-			},
-			_meta: uiToolMeta(STORY_APP_URI),
 		},
-		defineMcpHandler('update_story', ctx, async ({ story_id, title, content, query_data, chat_id }) => {
+	});
+
+	registerMcpTool(server, ctx, {
+		name: 'update_story',
+		title: 'Update Story',
+		description: UPDATE_STORY_DESCRIPTION,
+		inputSchema: {
+			story_id: z
+				.string()
+				.describe(
+					'Story UUID (from `list_stories.id`, `ask_nao.stories[].id`, or a prior `create_story`). Not the slug.',
+				),
+			title: z.string().optional().describe('New title. Omit to keep current.'),
+			content: z
+				.string()
+				.optional()
+				.describe(
+					'Full markdown replacement (with `<chart>`, `<table>`, `<grid>` blocks). ' +
+						'Omit to keep the current content — partial diffs are not supported.',
+				),
+			query_data: z
+				.record(
+					z.string(),
+					z.object({ columns: z.array(z.string()), data: z.array(z.record(z.string(), z.unknown())) }),
+				)
+				.optional()
+				.describe(
+					'Pre-fetched rows keyed by `query_id`, used to seed any new `<chart>` / `<table>` blocks introduced by this revision. ' +
+						'Provide entries for `query_id`s coming from `ask_nao`; `query_id`s from MCP `execute_sql` are already cached.',
+				),
+			chat_id: z
+				.string()
+				.optional()
+				.describe(
+					'Chat UUID to associate this revision with (e.g. `chatId` from `ask_nao`). ' +
+						"Sets the 'Open in nao' button on the story's embedded charts.",
+				),
+		},
+		_meta: uiToolMeta(STORY_APP_URI),
+		handler: async ({ story_id, title, content, query_data, chat_id }) => {
 			const story = await resolveStory(story_id, ctx);
-			const latestVersion = await fetchLatestVersion(story);
+			const latestVersion = await fetchLatestStoryVersion(story);
 			const newTitle = title ?? story.title;
 			const newCode = content ?? latestVersion?.code ?? `# ${newTitle}\n`;
 			const updated = await saveNewVersion(story, ctx, newTitle, newCode);
@@ -358,25 +249,8 @@ function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
 				chatUrl: storyChatUrl(story),
 			};
 			return buildStoryMcpResultWithSandbox(output, ctx, newCode, effectiveChatId);
-		}),
-	);
-}
-
-async function resolveChartChatId(chatId: string | undefined, ctx: McpContext): Promise<string | undefined> {
-	if (!chatId) {
-		return undefined;
-	}
-	const ownerId = await chatQueries.getChatOwnerId(chatId);
-	if (ownerId !== ctx.userId) {
-		logger.warn(`MCP: chat_id ${chatId} does not belong to user ${ctx.userId}, ignoring`, { source: 'tool' });
-		return undefined;
-	}
-	const chatProjectId = await chatQueries.getChatProjectId(chatId);
-	if (chatProjectId !== ctx.projectId) {
-		logger.warn(`MCP: chat_id ${chatId} is outside project ${ctx.projectId}, ignoring`, { source: 'tool' });
-		return undefined;
-	}
-	return chatId;
+		},
+	});
 }
 
 async function cacheStoryQueryData(
@@ -489,55 +363,8 @@ async function createChatLinkedStory(args: {
 	};
 }
 
-async function buildStoryMcpResultWithSandbox(
-	output: StoryMcpToolPayload,
-	ctx: McpContext,
-	code: string | null | undefined,
-	chatId?: string | null,
-): Promise<ToolResult> {
-	const storyId = String(output.id);
-	const title = typeof output.title === 'string' ? output.title : 'Story';
-	const openInNaoUrl =
-		typeof output.url === 'string' ? output.url : storyUrl({ id: storyId, slug: '', chatId: chatId ?? null });
-
-	let sandboxStoryHtml: string | null = null;
-	if (code && code.trim().length > 0) {
-		try {
-			sandboxStoryHtml = await buildStorySandboxHtml({
-				title,
-				code,
-				storyId,
-				projectId: ctx.projectId,
-				openInNaoUrl,
-				chatId: chatId ?? (typeof output.chatId === 'string' ? output.chatId : null),
-			});
-		} catch (err) {
-			logger.warn(`MCP story sandbox HTML failed: ${String(err)}`, { source: 'tool', context: { storyId } });
-		}
-	}
-	return buildStoryToolResult(output, { sandboxStoryHtml });
-}
-
-async function resolveStory(storyId: string, ctx: McpContext): Promise<UserStoryRow> {
-	const story = await storyQueries.getStoryByIdForUser(storyId, ctx.userId);
-	if (!story) {
-		throw new Error(`Story not found: ${storyId}`);
-	}
-	const storyProjectId = await storyQueries.getStoryProjectId(storyId);
-	if (storyProjectId !== ctx.projectId) {
-		throw new Error(`Story not found: ${storyId}`);
-	}
-	return story;
-}
-
-async function fetchLatestVersion(story: UserStoryRow) {
-	return story.chatId
-		? storyQueries.getLatestVersionByChatAndSlug(story.chatId, story.slug)
-		: storyQueries.getLatestVersionByStoryId(story.id);
-}
-
 async function saveNewVersion(
-	story: UserStoryRow,
+	story: { id: string; slug: string; chatId: string | null },
 	ctx: McpContext,
 	title: string,
 	code: string,

@@ -686,10 +686,7 @@ export const getQueryResultByQueryId = async (
 	chatId: string,
 	queryId: string,
 ): Promise<{ columns: string[]; data: Record<string, unknown>[] } | null> => {
-	const jsonIdFilter =
-		dbConfig.dialect === Dialect.Postgres
-			? sql`${s.messagePart.toolOutput}->>'id' = ${queryId}`
-			: sql`json_extract(${s.messagePart.toolOutput}, '$.id') = ${queryId}`;
+	const jsonIdFilter = buildQueryIdJsonFilter(queryId);
 
 	const [result] = await db
 		.select({ toolOutput: s.messagePart.toolOutput })
@@ -706,7 +703,50 @@ export const getQueryResultByQueryId = async (
 		.limit(1)
 		.execute();
 
-	const output = result?.toolOutput as { columns?: unknown; data?: unknown } | null | undefined;
+	return extractQueryResultFromToolOutput(result?.toolOutput);
+};
+
+export const getQueryResultByQueryIdInProject = async (
+	projectId: string,
+	userId: string,
+	queryId: string,
+): Promise<{ columns: string[]; data: Record<string, unknown>[]; chatId: string } | null> => {
+	const jsonIdFilter = buildQueryIdJsonFilter(queryId);
+
+	const [result] = await db
+		.select({ toolOutput: s.messagePart.toolOutput, chatId: s.chat.id })
+		.from(s.messagePart)
+		.innerJoin(s.chatMessage, eq(s.messagePart.messageId, s.chatMessage.id))
+		.innerJoin(s.chat, eq(s.chatMessage.chatId, s.chat.id))
+		.where(
+			and(
+				eq(s.chat.projectId, projectId),
+				eq(s.chat.userId, userId),
+				isNull(s.chatMessage.supersededAt),
+				eq(s.messagePart.toolName, 'execute_sql'),
+				jsonIdFilter,
+			),
+		)
+		.limit(1)
+		.execute();
+
+	const extracted = extractQueryResultFromToolOutput(result?.toolOutput);
+	if (!extracted || !result?.chatId) {
+		return null;
+	}
+	return { ...extracted, chatId: result.chatId };
+};
+
+function buildQueryIdJsonFilter(queryId: string) {
+	return dbConfig.dialect === Dialect.Postgres
+		? sql`${s.messagePart.toolOutput}->>'id' = ${queryId}`
+		: sql`json_extract(${s.messagePart.toolOutput}, '$.id') = ${queryId}`;
+}
+
+function extractQueryResultFromToolOutput(
+	toolOutput: unknown,
+): { columns: string[]; data: Record<string, unknown>[] } | null {
+	const output = toolOutput as { columns?: unknown; data?: unknown } | null | undefined;
 	if (!output || !Array.isArray(output.columns) || !Array.isArray(output.data)) {
 		return null;
 	}
@@ -715,7 +755,7 @@ export const getQueryResultByQueryId = async (
 		columns: output.columns as string[],
 		data: output.data as Record<string, unknown>[],
 	};
-};
+}
 
 export async function getChatInfo(
 	chatId: string,

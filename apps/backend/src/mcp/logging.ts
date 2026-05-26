@@ -5,7 +5,6 @@ import type { ServerNotification, ServerRequest } from '@modelcontextprotocol/sd
 
 import { insertMcpCallLog } from '../queries/mcp-endpoint.queries';
 import type { McpEndpointSettings } from '../types/mcp-endpoint';
-import { logger } from '../utils/logger';
 
 export interface McpContext {
 	userId: string;
@@ -29,13 +28,13 @@ export type LoggedToolHandler<T> = (args: T, extra: ToolExtra, callLogId: string
 export const TOOL_MODE_MAP: Record<string, (keyof McpEndpointSettings)[]> = {
 	ask_nao: ['subAgentModeEnabled'],
 	execute_sql: ['contextLayerModeEnabled'],
-	display_chart: ['contextLayerModeEnabled'],
 	grep: ['contextLayerModeEnabled'],
 	ls: ['contextLayerModeEnabled'],
-	list_stories: ['subAgentModeEnabled', 'contextLayerModeEnabled'],
-	get_story: ['subAgentModeEnabled', 'contextLayerModeEnabled'],
 	create_story: ['contextLayerModeEnabled'],
 	update_story: ['contextLayerModeEnabled'],
+	display_chart: ['subAgentModeEnabled', 'contextLayerModeEnabled'],
+	list_stories: ['subAgentModeEnabled', 'contextLayerModeEnabled'],
+	get_story: ['subAgentModeEnabled', 'contextLayerModeEnabled'],
 	archive_story: ['subAgentModeEnabled', 'contextLayerModeEnabled'],
 	delete_story: ['subAgentModeEnabled', 'contextLayerModeEnabled'],
 };
@@ -100,30 +99,4 @@ function formatThrownError(error: unknown): { error: string } {
 		return { error: error.message };
 	}
 	return { error: String(error) };
-}
-
-export interface DefineMcpHandlerOptions {
-	errorMessage?: (error: unknown) => string;
-}
-
-export function defineMcpHandler<T>(
-	name: string,
-	ctx: McpContext,
-	fn: LoggedToolHandler<T>,
-	opts?: DefineMcpHandlerOptions,
-): ToolHandler<T> {
-	const handler: LoggedToolHandler<T> = async (input, extra, callLogId) => {
-		try {
-			return await fn(input, extra, callLogId);
-		} catch (error) {
-			const message = error instanceof Error ? error.message : String(error);
-			logger.error(`MCP ${name} error: ${message}`, {
-				source: 'tool',
-				context: { userId: ctx.userId, hasInput: input !== undefined },
-			});
-			const text = opts?.errorMessage ? opts.errorMessage(error) : `${name} failed. Please try again.`;
-			return { content: [{ type: 'text' as const, text }], isError: true };
-		}
-	};
-	return withLogging(name, ctx, handler);
 }

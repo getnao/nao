@@ -370,7 +370,34 @@ body.is-loading{min-height:160px}
 	}
 
 	function ingestToolResult(raw) {
-		return applyToolPayload(raw);
+		if (applyToolPayload(raw)) {
+			return true;
+		}
+		var errorText = extractErrorText(raw);
+		if (errorText) {
+			setStatus(errorText, true);
+			hasRenderedPreview = true;
+			return true;
+		}
+		return false;
+	}
+
+	function extractErrorText(raw) {
+		if (!raw || typeof raw !== 'object') return '';
+		if (raw.result && typeof raw.result === 'object' && !Array.isArray(raw.result)) {
+			var fromResult = extractErrorText(raw.result);
+			if (fromResult) return fromResult;
+		}
+		if (!raw.isError) return '';
+		if (!Array.isArray(raw.content)) return '';
+		var parts = [];
+		for (var i = 0; i < raw.content.length; i++) {
+			var block = raw.content[i];
+			if (block && block.type === 'text' && typeof block.text === 'string') {
+				parts.push(block.text);
+			}
+		}
+		return parts.join('\\n').trim();
 	}
 
 	var mcpApp = null;
@@ -389,8 +416,14 @@ body.is-loading{min-height:160px}
 
 	function handleHostToolResult(params) {
 		if (ingestToolResult(params)) {
-			hideStatus();
+			if (!hasErrorRendered()) {
+				hideStatus();
+			}
 		}
+	}
+
+	function hasErrorRendered() {
+		return statusEl && statusEl.className === 'error' && !statusEl.hidden;
 	}
 
 	function wireHostToolBridge() {
