@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, max, sql } from 'drizzle-orm';
+import { and, count, desc, eq, inArray, max, sql } from 'drizzle-orm';
 
 import s, { type DBSharedStory } from '../db/abstractSchema';
 import { db } from '../db/db';
@@ -9,13 +9,23 @@ export type SharedStoryWithLatest = DBSharedStory & {
 	slug: string;
 	title: string;
 	code: string;
+	sharedWithCount: number;
 };
 
 export async function createSharedStory(
 	data: Pick<DBSharedStory, 'storyId' | 'projectId' | 'userId' | 'visibility'>,
 	allowedUserIds?: string[],
+	options?: { pinned?: boolean },
 ): Promise<DBSharedStory> {
-	const [created] = await db.insert(s.sharedStory).values(data).returning().execute();
+	const pinned = options?.pinned === true;
+	const [created] = await db
+		.insert(s.sharedStory)
+		.values({
+			...data,
+			isPinned: pinned,
+		})
+		.returning()
+		.execute();
 
 	if (data.visibility === 'specific' && allowedUserIds && allowedUserIds.length > 0) {
 		const accessRows = allowedUserIds.map((userId) => ({
@@ -38,6 +48,15 @@ export async function getSharedStory(id: string): Promise<SharedStoryWithLatest 
 		.groupBy(s.storyVersion.storyId)
 		.as('latest');
 
+	const accessCounts = db
+		.select({
+			sharedStoryId: s.sharedStoryAccess.sharedStoryId,
+			cnt: count(s.sharedStoryAccess.userId).as('cnt'),
+		})
+		.from(s.sharedStoryAccess)
+		.groupBy(s.sharedStoryAccess.sharedStoryId)
+		.as('access_counts');
+
 	const [row] = await db
 		.select({
 			id: s.sharedStory.id,
@@ -45,12 +64,14 @@ export async function getSharedStory(id: string): Promise<SharedStoryWithLatest 
 			projectId: s.sharedStory.projectId,
 			userId: s.sharedStory.userId,
 			visibility: s.sharedStory.visibility,
+			isPinned: s.sharedStory.isPinned,
 			createdAt: s.sharedStory.createdAt,
 			authorName: s.user.name,
 			chatId: s.story.chatId,
 			slug: s.story.slug,
 			title: s.story.title,
 			code: s.storyVersion.code,
+			sharedWithCount: sql<number>`coalesce(${accessCounts.cnt}, 0)`,
 		})
 		.from(s.sharedStory)
 		.innerJoin(s.story, eq(s.sharedStory.storyId, s.story.id))
@@ -60,6 +81,7 @@ export async function getSharedStory(id: string): Promise<SharedStoryWithLatest 
 			s.storyVersion,
 			and(eq(s.storyVersion.storyId, s.story.id), eq(s.storyVersion.version, latestVersions.maxVersion)),
 		)
+		.leftJoin(accessCounts, eq(accessCounts.sharedStoryId, s.sharedStory.id))
 		.where(eq(s.sharedStory.id, id))
 		.execute();
 
@@ -75,7 +97,11 @@ export async function canUserAccessSharedStory(sharedStoryId: string, userId: st
 	return !!row;
 }
 
-export async function listUserSharedStories(projectIds: string[], userId: string): Promise<SharedStoryWithLatest[]> {
+export async function listUserSharedStories(
+	projectIds: string[],
+	userId: string,
+	options?: { projectId?: string },
+): Promise<SharedStoryWithLatest[]> {
 	if (projectIds.length === 0) {
 		return [];
 	}
@@ -89,6 +115,23 @@ export async function listUserSharedStories(projectIds: string[], userId: string
 		.groupBy(s.storyVersion.storyId)
 		.as('latest');
 
+	const accessCounts = db
+		.select({
+			sharedStoryId: s.sharedStoryAccess.sharedStoryId,
+			cnt: count(s.sharedStoryAccess.userId).as('cnt'),
+		})
+		.from(s.sharedStoryAccess)
+		.groupBy(s.sharedStoryAccess.sharedStoryId)
+		.as('access_counts');
+
+	const userAccessAlias = db
+		.select({ sharedStoryId: s.sharedStoryAccess.sharedStoryId, userId: s.sharedStoryAccess.userId })
+		.from(s.sharedStoryAccess)
+		.where(eq(s.sharedStoryAccess.userId, userId))
+		.as('user_access');
+
+	const effectiveProjectIds = options?.projectId ? [options.projectId] : projectIds;
+
 	return db
 		.select({
 			id: s.sharedStory.id,
@@ -96,12 +139,14 @@ export async function listUserSharedStories(projectIds: string[], userId: string
 			projectId: s.sharedStory.projectId,
 			userId: s.sharedStory.userId,
 			visibility: s.sharedStory.visibility,
+			isPinned: s.sharedStory.isPinned,
 			createdAt: s.sharedStory.createdAt,
 			authorName: s.user.name,
 			chatId: s.story.chatId,
 			slug: s.story.slug,
 			title: s.story.title,
 			code: s.storyVersion.code,
+			sharedWithCount: sql<number>`coalesce(${accessCounts.cnt}, 0)`,
 		})
 		.from(s.sharedStory)
 		.innerJoin(s.story, eq(s.sharedStory.storyId, s.story.id))
@@ -111,17 +156,35 @@ export async function listUserSharedStories(projectIds: string[], userId: string
 			s.storyVersion,
 			and(eq(s.storyVersion.storyId, s.story.id), eq(s.storyVersion.version, latestVersions.maxVersion)),
 		)
-		.leftJoin(
-			s.sharedStoryAccess,
-			and(eq(s.sharedStoryAccess.sharedStoryId, s.sharedStory.id), eq(s.sharedStoryAccess.userId, userId)),
-		)
+		.leftJoin(userAccessAlias, eq(userAccessAlias.sharedStoryId, s.sharedStory.id))
+		.leftJoin(accessCounts, eq(accessCounts.sharedStoryId, s.sharedStory.id))
 		.where(
 			and(
-				inArray(s.sharedStory.projectId, projectIds),
-				sql`(${s.sharedStory.visibility} = 'project' OR ${s.sharedStory.userId} = ${userId} OR ${s.sharedStoryAccess.userId} IS NOT NULL)`,
+				inArray(s.sharedStory.projectId, effectiveProjectIds),
+				sql`(${s.sharedStory.visibility} = 'project' OR ${s.sharedStory.userId} = ${userId} OR ${userAccessAlias.userId} IS NOT NULL)`,
 			),
 		)
 		.orderBy(desc(s.sharedStory.createdAt))
+		.execute();
+}
+
+export async function toggleSharedStoryPin(sharedStoryId: string): Promise<void> {
+	const [existing] = await db
+		.select({ isPinned: s.sharedStory.isPinned })
+		.from(s.sharedStory)
+		.where(eq(s.sharedStory.id, sharedStoryId))
+		.limit(1)
+		.execute();
+
+	if (!existing) {
+		return;
+	}
+
+	const newPinned = !existing.isPinned;
+	await db
+		.update(s.sharedStory)
+		.set({ isPinned: newPinned })
+		.where(eq(s.sharedStory.id, sharedStoryId))
 		.execute();
 }
 

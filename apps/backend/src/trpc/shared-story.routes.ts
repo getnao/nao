@@ -12,7 +12,7 @@ import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../servic
 import { notifySharedItemRecipients } from '../utils/email';
 import { buildDownloadResponse } from '../utils/story-download';
 import { extractStorySummary } from '../utils/story-summary';
-import { canSendProcedure, projectProtectedProcedure, protectedProcedure, resourceProjectProcedure } from './trpc';
+import { adminProtectedProcedure, canSendProcedure, projectProtectedProcedure, protectedProcedure, resourceProjectProcedure } from './trpc';
 
 const chatProcedure = resourceProjectProcedure('chatId', chatQueries.getChatInfo, 'Chat');
 const shareProcedure = resourceProjectProcedure('shareId', sharedStoryQueries.getSharedStory, 'Shared story');
@@ -27,16 +27,25 @@ const shareAccessProcedure = resourceProjectProcedure(
 );
 
 export const sharedStoryRoutes = {
-	list: protectedProcedure.query(async ({ ctx }) => {
-		const projects = await projectQueries.listUserProjects(ctx.user.id);
-		const projectIds = projects.map((p) => p.id);
-		const stories = await sharedStoryQueries.listUserSharedStories(projectIds, ctx.user.id);
-		return stories.map((story) => ({
-			...story,
-			storySlug: story.slug,
-			summary: extractStorySummary(story.code),
-		}));
-	}),
+	list: protectedProcedure
+		.input(z.object({ projectId: z.string().optional() }).optional())
+		.query(async ({ input, ctx }) => {
+			const projects = await projectQueries.listUserProjects(ctx.user.id);
+			const projectIds = projects.map((p) => p.id);
+			const stories = await sharedStoryQueries.listUserSharedStories(projectIds, ctx.user.id, {
+				projectId: input?.projectId,
+			});
+			return stories.map((story) => ({
+				...story,
+				storySlug: story.slug,
+				summary: extractStorySummary(story.code),
+				sharing: {
+					visibility: story.visibility,
+					sharedWithCount: story.sharedWithCount,
+					isPinned: story.isPinned,
+				},
+			}));
+		}),
 
 	create: canSendProcedure
 		.input(
@@ -45,9 +54,14 @@ export const sharedStoryRoutes = {
 				storySlug: z.string(),
 				visibility: z.enum(['project', 'specific']).default('project'),
 				allowedUserIds: z.array(z.string()).optional(),
+				pinAfterCreate: z.boolean().optional(),
 			}),
 		)
 		.mutation(async ({ input, ctx }) => {
+			if (input.pinAfterCreate && ctx.userRole !== 'admin') {
+				throw new TRPCError({ code: 'FORBIDDEN', message: 'Only admins can pin stories.' });
+			}
+
 			const story = await storyQueries.getStoryByChatAndSlug(input.chatId, input.storySlug);
 			if (!story) {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
@@ -61,6 +75,7 @@ export const sharedStoryRoutes = {
 					visibility: input.visibility,
 				},
 				input.allowedUserIds,
+				{ pinned: input.pinAfterCreate === true },
 			);
 
 			await logActivity({
@@ -194,6 +209,19 @@ export const sharedStoryRoutes = {
 					allowedUserIds: newlyAddedUserIds,
 				});
 			}
+		}),
+
+	togglePin: adminProtectedProcedure
+		.input(z.object({ sharedStoryId: z.string() }))
+		.mutation(async ({ input, ctx }) => {
+			const share = await sharedStoryQueries.getSharedStory(input.sharedStoryId);
+			if (!share) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: 'Shared story not found.' });
+			}
+			if (share.projectId !== ctx.project.id) {
+				throw new TRPCError({ code: 'FORBIDDEN', message: 'This story does not belong to the current project.' });
+			}
+			await sharedStoryQueries.toggleSharedStoryPin(input.sharedStoryId);
 		}),
 
 	delete: shareProcedure.input(z.object({ shareId: z.string() })).mutation(async ({ input, ctx }) => {

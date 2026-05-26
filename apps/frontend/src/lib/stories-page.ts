@@ -12,8 +12,14 @@ export const GROUP_BY_LABELS: Record<GroupBy, string> = {
 	user: 'User',
 };
 
+export type StorySharingInfo = {
+	visibility: 'project' | 'specific';
+	sharedWithCount: number;
+} | null;
+
 export type StoryItem = {
 	id: string;
+	storyId: string;
 	title: string;
 	createdAt: Date;
 	author: string;
@@ -21,6 +27,12 @@ export type StoryItem = {
 	chatId?: string;
 	storySlug?: string;
 	summary: StorySummary;
+	isLive: boolean;
+	isPinned: boolean;
+	isFavorited: boolean;
+	sharing: StorySharingInfo;
+	shareId?: string;
+	sharedStoryId?: string;
 	link:
 		| { to: '/stories/preview/$chatId/$storySlug'; params: { chatId: string; storySlug: string } }
 		| { to: '/stories/shared/$shareId'; params: { shareId: string } }
@@ -37,10 +49,13 @@ export type OwnStoryListItem = {
 	createdAt: Date | string;
 	summary: StorySummary;
 	isStandalone?: boolean;
+	isLive?: boolean;
+	sharing?: StorySharingInfo;
 };
 
 export type SharedStoryListItem = {
 	id: string;
+	storyId: string;
 	userId: string;
 	chatId: string | null;
 	storySlug: string;
@@ -49,6 +64,9 @@ export type SharedStoryListItem = {
 	authorName: string;
 	visibility: 'specific' | 'project' | string;
 	summary: StorySummary;
+	isLive?: boolean;
+	isPinned?: boolean;
+	sharing?: StorySharingInfo;
 };
 
 export function getStoredSetting<T extends string>(key: string, allowed: T[], fallback: T): T {
@@ -62,28 +80,34 @@ export function buildStoryItems({
 	sharedStories,
 	currentUserId,
 	currentUserName,
+	favoriteStoryIds,
 }: {
 	userStories: OwnStoryListItem[];
 	standaloneStories?: OwnStoryListItem[];
 	sharedStories: SharedStoryListItem[];
 	currentUserId?: string;
 	currentUserName: string;
+	favoriteStoryIds?: string[];
 }): StoryItem[] {
-	const ownShareMap = new Map<string, string>();
+	const favoriteSet = new Set(favoriteStoryIds ?? []);
+
+	const ownShareMap = new Map<string, SharedStoryListItem>();
 	for (const story of sharedStories) {
 		if (story.userId === currentUserId && story.chatId) {
 			const key = `${story.chatId}-${story.storySlug}`;
 			if (!ownShareMap.has(key)) {
-				ownShareMap.set(key, story.id);
+				ownShareMap.set(key, story);
 			}
 		}
 	}
 
 	const ownItems: StoryItem[] = userStories.map((story) => {
 		const chatId = story.chatId!;
-		const shareId = ownShareMap.get(`${chatId}-${story.storySlug}`);
+		const sharedEntry = ownShareMap.get(`${chatId}-${story.storySlug}`);
+		const shareId = sharedEntry?.id;
 		return {
 			id: `${chatId}-${story.storySlug}`,
+			storyId: story.id ?? `${chatId}-${story.storySlug}`,
 			title: story.title,
 			createdAt: new Date(story.createdAt),
 			author: currentUserName,
@@ -91,6 +115,12 @@ export function buildStoryItems({
 			chatId,
 			storySlug: story.storySlug,
 			summary: story.summary,
+			isLive: story.isLive ?? false,
+			isPinned: sharedEntry?.isPinned ?? false,
+			isFavorited: story.id ? favoriteSet.has(story.id) : false,
+			sharing: story.sharing ?? null,
+			shareId,
+			sharedStoryId: shareId,
 			link: shareId
 				? { to: '/stories/shared/$shareId', params: { shareId } }
 				: {
@@ -102,12 +132,17 @@ export function buildStoryItems({
 
 	const standaloneItems: StoryItem[] = (standaloneStories ?? []).map((story) => ({
 		id: story.id ?? story.storySlug,
+		storyId: story.id ?? story.storySlug,
 		title: story.title,
 		createdAt: new Date(story.createdAt),
 		author: currentUserName,
 		kind: 'own-standalone',
 		storySlug: story.storySlug,
 		summary: story.summary,
+		isLive: story.isLive ?? false,
+		isPinned: false,
+		isFavorited: story.id ? favoriteSet.has(story.id) : false,
+		sharing: story.sharing ?? null,
 		link: { to: '/stories/standalone/$storyId', params: { storyId: story.id! } },
 	}));
 
@@ -115,11 +150,17 @@ export function buildStoryItems({
 		.filter((story) => story.userId !== currentUserId)
 		.map((story) => ({
 			id: story.id,
+			storyId: story.storyId,
 			title: story.title,
 			createdAt: new Date(story.createdAt),
 			author: story.authorName,
-			kind: story.visibility === 'specific' ? 'shared-with-me' : 'shared-project',
+			kind: story.visibility === 'specific' ? 'shared-with-me' : ('shared-project' as const),
 			summary: story.summary,
+			isLive: story.isLive ?? false,
+			isPinned: story.isPinned ?? false,
+			isFavorited: favoriteSet.has(story.storyId),
+			sharing: story.sharing ?? null,
+			sharedStoryId: story.id,
 			link: { to: '/stories/shared/$shareId', params: { shareId: story.id } },
 		}));
 

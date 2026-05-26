@@ -1097,3 +1097,20 @@ export const jwks = sqliteTable('jwks', {
 		.notNull(),
 	expiresAt: integer('expires_at', { mode: 'timestamp_ms' }),
 });
+
+export const storyFavorite = sqliteTable(
+	'story_favorite',
+	{
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		storyId: text('story_id')
+			.notNull()
+			.references(() => story.id, { onDelete: 'cascade' }),
+	},
+	(t) => [
+		primaryKey({ columns: [t.userId, t.storyId] }),
+		index('story_favorite_userId_idx').on(t.userId),
+		index('story_favorite_storyId_idx').on(t.storyId),
+	],
+);

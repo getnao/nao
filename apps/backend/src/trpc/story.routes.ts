@@ -19,23 +19,34 @@ const chatOwnerProcedure = ownedResourceProcedure(chatQueries.getChatOwnerId, 'c
 const storyOwnerProcedure = ownedResourceProcedure(storyQueries.getStoryOwnerId, 'story');
 
 export const storyRoutes = {
-	listAll: protectedProcedure.query(async ({ ctx }) => {
-		const stories = await storyQueries.listUserChatStories(ctx.user.id);
-		return stories.map(({ code, ...rest }) => ({
-			...rest,
-			storySlug: rest.slug,
-			summary: extractStorySummary(code),
-		}));
-	}),
+	listAll: protectedProcedure
+		.input(z.object({ projectId: z.string().optional() }).optional())
+		.query(async ({ input, ctx }) => {
+			const stories = await storyQueries.listUserChatStories(ctx.user.id, { projectId: input?.projectId });
+			const sharingByStoryId = await storyQueries.getStorySharingInfo(stories.map((s) => s.id));
+			return stories.map(({ code, ...rest }) => ({
+				...rest,
+				storySlug: rest.slug,
+				summary: extractStorySummary(code),
+				sharing: sharingByStoryId.get(rest.id) ?? null,
+			}));
+		}),
 
-	listArchived: protectedProcedure.query(async ({ ctx }) => {
-		const stories = await storyQueries.listUserChatStories(ctx.user.id, { archived: true });
-		return stories.map(({ code, ...rest }) => ({
-			...rest,
-			storySlug: rest.slug,
-			summary: extractStorySummary(code),
-		}));
-	}),
+	listArchived: protectedProcedure
+		.input(z.object({ projectId: z.string().optional() }).optional())
+		.query(async ({ input, ctx }) => {
+			const stories = await storyQueries.listUserChatStories(ctx.user.id, {
+				archived: true,
+				projectId: input?.projectId,
+			});
+			const sharingByStoryId = await storyQueries.getStorySharingInfo(stories.map((s) => s.id));
+			return stories.map(({ code, ...rest }) => ({
+				...rest,
+				storySlug: rest.slug,
+				summary: extractStorySummary(code),
+				sharing: sharingByStoryId.get(rest.id) ?? null,
+			}));
+		}),
 
 	listStandalone: projectProtectedProcedure.query(async ({ ctx }) => {
 		const stories = await storyQueries.listUserStandaloneStories(ctx.user.id, ctx.project.id);
@@ -221,6 +232,24 @@ export const storyRoutes = {
 	unarchiveStandalone: storyOwnerProcedure.input(z.object({ storyId: z.string() })).mutation(async ({ input }) => {
 		await storyQueries.unarchiveByStoryId(input.storyId);
 	}),
+
+	toggleFavorite: protectedProcedure.input(z.object({ storyId: z.string() })).mutation(async ({ input, ctx }) => {
+		const canAccess = await storyQueries.canUserAccessStory(input.storyId, ctx.user.id);
+		if (!canAccess) {
+			throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this story.' });
+		}
+		const isFavorited = await storyQueries.toggleStoryFavorite(ctx.user.id, input.storyId);
+		return { isFavorited };
+	}),
+
+	listFavorites: protectedProcedure
+		.input(z.object({ projectId: z.string().optional() }).optional())
+		.query(async ({ input, ctx }) => {
+			const storyIds = await storyQueries.listUserFavoriteStoryIds(ctx.user.id, {
+				projectId: input?.projectId,
+			});
+			return storyIds;
+		}),
 
 	archiveMany: protectedProcedure
 		.input(z.object({ stories: z.array(z.object({ chatId: z.string(), storySlug: z.string() })).min(1) }))

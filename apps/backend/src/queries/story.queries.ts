@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNull, max, or, type SQL, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, max, or, type SQL, sql } from 'drizzle-orm';
 
 import s, { type DBStory, type DBStoryDataCache, type DBStoryVersion } from '../db/abstractSchema';
 import { db } from '../db/db';
@@ -129,8 +129,15 @@ export async function getStandaloneStoryByUserAndSlug(
 	return row ?? null;
 }
 
-export function listUserChatStories(userId: string, options?: { archived?: boolean }): Promise<UserStoryRow[]> {
-	return queryStoriesWithLatestVersion(eq(s.chat.userId, userId), options);
+export function listUserChatStories(
+	userId: string,
+	options?: { archived?: boolean; projectId?: string },
+): Promise<UserStoryRow[]> {
+	const condition =
+		options?.projectId !== undefined
+			? and(eq(s.chat.userId, userId), eq(s.chat.projectId, options.projectId))!
+			: eq(s.chat.userId, userId);
+	return queryStoriesWithLatestVersion(condition, options);
 }
 
 export function listUserStandaloneStories(
@@ -347,6 +354,98 @@ export async function archiveByStoryId(storyId: string): Promise<void> {
 
 export async function unarchiveByStoryId(storyId: string): Promise<void> {
 	await db.update(s.story).set({ archivedAt: null }).where(eq(s.story.id, storyId)).execute();
+}
+
+export async function toggleStoryFavorite(userId: string, storyId: string): Promise<boolean> {
+	const [existing] = await db
+		.select({ storyId: s.storyFavorite.storyId })
+		.from(s.storyFavorite)
+		.where(and(eq(s.storyFavorite.userId, userId), eq(s.storyFavorite.storyId, storyId)))
+		.limit(1)
+		.execute();
+
+	if (existing) {
+		await db
+			.delete(s.storyFavorite)
+			.where(and(eq(s.storyFavorite.userId, userId), eq(s.storyFavorite.storyId, storyId)))
+			.execute();
+		return false;
+	}
+
+	await db.insert(s.storyFavorite).values({ userId, storyId }).execute();
+	return true;
+}
+
+export async function listUserFavoriteStoryIds(
+	userId: string,
+	options?: { projectId?: string },
+): Promise<string[]> {
+	if (!options?.projectId) {
+		const rows = await db
+			.select({ storyId: s.storyFavorite.storyId })
+			.from(s.storyFavorite)
+			.where(eq(s.storyFavorite.userId, userId))
+			.execute();
+		return rows.map((r) => r.storyId);
+	}
+
+	const rows = await db
+		.select({ storyId: s.storyFavorite.storyId })
+		.from(s.storyFavorite)
+		.innerJoin(s.story, eq(s.storyFavorite.storyId, s.story.id))
+		.leftJoin(s.chat, eq(s.story.chatId, s.chat.id))
+		.where(
+			and(
+				eq(s.storyFavorite.userId, userId),
+				or(
+					eq(s.chat.projectId, options.projectId),
+					and(isNull(s.story.chatId), eq(s.story.projectId, options.projectId)),
+				),
+			),
+		)
+		.execute();
+	return rows.map((r) => r.storyId);
+}
+
+export async function canUserAccessStory(storyId: string, userId: string): Promise<boolean> {
+	const [owned] = await db
+		.select({ id: s.story.id })
+		.from(s.story)
+		.leftJoin(s.chat, eq(s.story.chatId, s.chat.id))
+		.where(
+			and(
+				eq(s.story.id, storyId),
+				or(eq(s.chat.userId, userId), and(isNull(s.story.chatId), eq(s.story.userId, userId))),
+			),
+		)
+		.limit(1)
+		.execute();
+
+	if (owned) {
+		return true;
+	}
+
+	const [shared] = await db
+		.select({ id: s.sharedStory.id })
+		.from(s.sharedStory)
+		.leftJoin(
+			s.sharedStoryAccess,
+			and(eq(s.sharedStoryAccess.sharedStoryId, s.sharedStory.id), eq(s.sharedStoryAccess.userId, userId)),
+		)
+		.where(
+			and(
+				eq(s.sharedStory.storyId, storyId),
+				or(
+					eq(s.sharedStory.userId, userId),
+					eq(s.sharedStory.visibility, 'project'),
+					sql`${s.sharedStoryAccess.userId} IS NOT NULL`,
+				),
+			),
+		)
+		.limit(1)
+		.execute();
+
+	return !!shared;
 }
 
 export async function updateStoryLiveSettings(
@@ -671,6 +770,41 @@ async function getStoryDataCache(whereCondition: SQL): Promise<DBStoryDataCache 
 		.execute();
 
 	return row ?? null;
+}
+
+export type StorySharingInfo = {
+	visibility: 'project' | 'specific';
+	sharedWithCount: number;
+	isPinned: boolean;
+};
+
+export async function getStorySharingInfo(storyIds: string[]): Promise<Map<string, StorySharingInfo>> {
+	if (storyIds.length === 0) {
+		return new Map();
+	}
+
+	const rows = await db
+		.select({
+			storyId: s.sharedStory.storyId,
+			visibility: s.sharedStory.visibility,
+			isPinned: s.sharedStory.isPinned,
+			sharedWithCount: sql<number>`count(${s.sharedStoryAccess.userId})`,
+		})
+		.from(s.sharedStory)
+		.leftJoin(s.sharedStoryAccess, eq(s.sharedStoryAccess.sharedStoryId, s.sharedStory.id))
+		.where(inArray(s.sharedStory.storyId, storyIds))
+		.groupBy(s.sharedStory.id)
+		.execute();
+
+	const result = new Map<string, StorySharingInfo>();
+	for (const row of rows) {
+		result.set(row.storyId, {
+			visibility: row.visibility as 'project' | 'specific',
+			sharedWithCount: row.sharedWithCount,
+			isPinned: row.isPinned,
+		});
+	}
+	return result;
 }
 
 function latestVersionsSubquery() {
