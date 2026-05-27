@@ -261,6 +261,76 @@ class TestTemplateEngine:
         with pytest.raises(RuntimeError, match="Bedrock configuration is incomplete"):
             engine._generate_bedrock("anthropic.claude-3-5-sonnet-20241022-v2:0", "summarize this")
 
+    def test_generate_anthropic_forwards_base_url(self, tmp_path: Path, monkeypatch):
+        """Anthropic client should receive base_url when configured."""
+        llm_config = LLMConfig(
+            provider=LLMProvider.ANTHROPIC,
+            api_key="sk-ant-test",
+            base_url="https://custom-endpoint.example.com/anthropic/v1",
+            annotation_model="claude-3-5-sonnet-latest",
+        )
+        engine = TemplateEngine(project_path=tmp_path, llm_config=llm_config)
+
+        fake_anthropic_cls = MagicMock()
+        fake_client = MagicMock()
+        fake_client.messages.create.return_value = MagicMock(content=[MagicMock(text="summary")])
+        fake_anthropic_cls.return_value = fake_client
+        fake_module = MagicMock()
+        fake_module.Anthropic = fake_anthropic_cls
+        monkeypatch.setitem(sys.modules, "anthropic", fake_module)
+
+        result = engine._generate_anthropic("claude-3-5-sonnet-latest", "summarize this")
+
+        assert result == "summary"
+        fake_anthropic_cls.assert_called_once_with(
+            api_key="sk-ant-test",
+            base_url="https://custom-endpoint.example.com/anthropic/v1",
+        )
+
+    def test_generate_anthropic_no_base_url(self, tmp_path: Path, monkeypatch):
+        """Anthropic client should use default base_url when not configured."""
+        llm_config = LLMConfig(
+            provider=LLMProvider.ANTHROPIC,
+            api_key="sk-ant-test",
+            annotation_model="claude-3-5-sonnet-latest",
+        )
+        engine = TemplateEngine(project_path=tmp_path, llm_config=llm_config)
+
+        fake_anthropic_cls = MagicMock()
+        fake_client = MagicMock()
+        fake_client.messages.create.return_value = MagicMock(content=[MagicMock(text="summary")])
+        fake_anthropic_cls.return_value = fake_client
+        fake_module = MagicMock()
+        fake_module.Anthropic = fake_anthropic_cls
+        monkeypatch.setitem(sys.modules, "anthropic", fake_module)
+
+        engine._generate_anthropic("claude-3-5-sonnet-latest", "summarize this")
+
+        fake_anthropic_cls.assert_called_once_with(
+            api_key="sk-ant-test",
+            base_url=None,
+        )
+
+    def test_prompt_helper_anthropic_with_base_url(self, tmp_path: Path):
+        """prompt helper should pass through to _generate_anthropic when provider is anthropic."""
+        templates_dir = tmp_path / "templates"
+        templates_dir.mkdir()
+        (templates_dir / "test.j2").write_text("{{ prompt('hello world') }}")
+
+        llm_config = LLMConfig(
+            provider=LLMProvider.ANTHROPIC,
+            api_key="sk-ant-test",
+            base_url="https://custom-endpoint.example.com/v1",
+            annotation_model="claude-3-5-sonnet-latest",
+        )
+        engine = TemplateEngine(project_path=tmp_path, llm_config=llm_config)
+
+        with patch.object(engine, "_generate_anthropic", return_value="AI output") as mock_gen:
+            rendered = engine.render("test.j2")
+
+        assert rendered == "AI output"
+        mock_gen.assert_called_once_with("claude-3-5-sonnet-latest", "hello world")
+
 
 class TestTemplateFilters:
     """Tests for custom Jinja2 filters."""

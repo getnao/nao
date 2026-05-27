@@ -178,7 +178,10 @@ class TemplateEngine:
         if not self.llm_config or not self.llm_config.api_key:
             raise RuntimeError("Missing API key for Anthropic.")
 
-        client = Anthropic(api_key=self.llm_config.api_key)
+        client = Anthropic(
+            api_key=self.llm_config.api_key,
+            base_url=self.llm_config.base_url,
+        )
         return self._run_anthropic_messages(client, model, prompt_text)
 
     def _run_anthropic_messages(self, client: Any, model: str, prompt_text: str) -> str:
