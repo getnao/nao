@@ -92,8 +92,8 @@ export const PROVIDER_META: ProviderMetaMap = {
 		summaryModelId: 'gemini-2.5-flash',
 		models: [
 			{
-				id: 'gemini-3-pro-preview',
-				name: 'Gemini 3 Pro',
+				id: 'gemini-3.1-pro-preview',
+				name: 'Gemini 3.1 Pro',
 				default: true,
 				contextWindow: 1_000_000,
 				costPerM: { inputNoCache: 2, inputCacheRead: 0.2, inputCacheWrite: 0, output: 12 },
