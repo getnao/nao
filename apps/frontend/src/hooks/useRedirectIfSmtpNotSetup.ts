@@ -9,7 +9,7 @@ export function useRedirectIfSmtpNotSetup() {
 
 	useEffect(() => {
 		if (isSmtpSetup.data === false) {
-			navigate({ to: '/login', search: { error: undefined } });
+			navigate({ to: '/login', search: { error: undefined, redirect: undefined } });
 		}
 	}, [isSmtpSetup.data, navigate]);
 
