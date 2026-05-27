@@ -12,7 +12,7 @@ import { db } from '../db/db';
 
 export const storyRefreshJobUniqueKey = (storyId: string): string => `story-refresh:${storyId}`;
 
-const ACTIVITY_RUN_STALE_MS = 5 * 60 * 1_000;
+const ACTIVITY_RUN_STALE_MS = 30 * 60 * 1_000;
 const ACTIVITY_RUN_STALE_MESSAGE = 'Activity did not finish before the timeout.';
 
 export interface CreateActivityInput {
