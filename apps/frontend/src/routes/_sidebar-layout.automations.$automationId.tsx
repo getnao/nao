@@ -55,7 +55,7 @@ function AutomationDetailPage() {
 	async function handleDelete() {
 		await deleteAutomation.mutateAsync({ id: automationId });
 		await queryClient.invalidateQueries({ queryKey: trpc.automation.list.queryKey() });
-		navigate({ to: '/automations' });
+		navigate({ to: '/feed' });
 	}
 
 	async function handleRunNow() {
@@ -91,7 +91,7 @@ function AutomationDetailPage() {
 			<div className='mx-auto w-full max-w-7xl px-4 py-6 md:px-8 md:py-8'>
 				<div className='mb-6 flex items-center justify-between gap-3 flex-wrap'>
 					<Button variant='ghost' size='sm' asChild>
-						<Link to='/automations'>
+						<Link to='/feed'>
 							<ArrowLeft className='size-4' />
 							Automations
 						</Link>
@@ -269,6 +269,9 @@ function PreviousRunRow({
 							onClick={(event) => {
 								event.stopPropagation();
 								onCancelRun(run.id);
+							}}
+							onKeyDown={(event) => {
+								event.stopPropagation();
 							}}
 						>
 							{isCancelling ? <Loader2 className='size-3 animate-spin' /> : <X className='size-3' />}

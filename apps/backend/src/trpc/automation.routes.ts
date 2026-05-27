@@ -178,11 +178,11 @@ export const automationRoutes = {
 			agentService.get(run.chatId)?.stop();
 		}
 		const updated = await automationQueries.cancelAutomationRun(input.runId);
-		return {
-			...run,
-			status: 'cancelled' as const,
-			alreadyTerminal: !updated,
-		};
+		const fresh = await automationQueries.getAutomationRunForUser(ctx.project.id, ctx.user.id, input.runId);
+		if (!fresh) {
+			throw new TRPCError({ code: 'NOT_FOUND', message: `Automation run not found: ${input.runId}` });
+		}
+		return { ...fresh, alreadyTerminal: !updated };
 	}),
 
 	parseCronFromText: automationReadProcedure

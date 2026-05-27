@@ -1,5 +1,5 @@
 import { displayChart, executeSql } from '@nao/shared/tools';
-import { and, asc, desc, eq, isNull, lte } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, lte } from 'drizzle-orm';
 
 import s, {
 	type ActivityTrigger,
@@ -18,7 +18,7 @@ import type { AutomationIntegrationResult } from '../types/automation';
 import { type ListActivityRow, listRecentActivities } from './activity.queries';
 
 export const automationJobUniqueKey = (automationId: string): string => `automation:${automationId}`;
-const AUTOMATION_RUN_STALE_MS = 30 * 60 * 1_000;
+const AUTOMATION_RUN_STALE_MS = 5 * 60 * 1_000;
 const AUTOMATION_RUN_STALE_MESSAGE = 'Automation run did not finish before the timeout.';
 const AUTOMATION_RUN_CANCELLED_MESSAGE = 'Cancelled by user.';
 
@@ -415,8 +415,14 @@ async function listAutomationRunFeedItems(
 		.limit(limit)
 		.execute();
 
-	return Promise.all(
-		rows.map(({ run, automation, scheduledJob }) => buildAutomationFeedItem(run, automation, scheduledJob)),
+	const outputsByRunId = await loadAutomationRunOutputs(rows.map(({ run }) => run));
+	return rows.map(({ run, automation, scheduledJob }) =>
+		buildAutomationFeedItem(
+			run,
+			automation,
+			scheduledJob,
+			outputsByRunId.get(run.id) ?? { text: null, charts: [] },
+		),
 	);
 }
 
@@ -498,12 +504,12 @@ function readNumber(payload: Record<string, unknown> | null, key: string): numbe
 	return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
-async function buildAutomationFeedItem(
+function buildAutomationFeedItem(
 	run: DBAutomationRun,
 	automation: DBAutomation,
 	scheduledJob: DBScheduledJob | null,
-): Promise<AutomationFeedAutomationItem> {
-	const output = run.chatId ? await loadAutomationRunOutput(run.chatId) : { text: null, charts: [] };
+	output: AutomationFeedOutput,
+): AutomationFeedAutomationItem {
 	return {
 		kind: 'automation',
 		id: run.id,
@@ -528,33 +534,72 @@ async function buildAutomationFeedItem(
 	};
 }
 
-async function loadAutomationRunOutput(chatId: string): Promise<AutomationFeedOutput> {
-	const [message] = await db
-		.select({ id: s.chatMessage.id })
+/**
+ * Resolves each run's output in two batched queries (one for the run's
+ * assistant message, one for that message's parts) so the feed avoids the
+ * `1 + 2*N` query pattern. The run's output is the *earliest* assistant
+ * message in its chat, not the latest — automations create a fresh chat per
+ * run, but users can later send follow-ups in that chat, so anchoring on the
+ * first assistant message keeps historical runs showing their own reply.
+ */
+async function loadAutomationRunOutputs(runs: DBAutomationRun[]): Promise<Map<string, AutomationFeedOutput>> {
+	const outputs = new Map<string, AutomationFeedOutput>();
+	const chatIds = [...new Set(runs.map((run) => run.chatId).filter((id): id is string => id !== null))];
+	if (chatIds.length === 0) {
+		return outputs;
+	}
+
+	const messages = await db
+		.select({ id: s.chatMessage.id, chatId: s.chatMessage.chatId, createdAt: s.chatMessage.createdAt })
 		.from(s.chatMessage)
 		.where(
 			and(
-				eq(s.chatMessage.chatId, chatId),
+				inArray(s.chatMessage.chatId, chatIds),
 				eq(s.chatMessage.role, 'assistant'),
 				isNull(s.chatMessage.supersededAt),
 			),
 		)
-		.orderBy(desc(s.chatMessage.createdAt))
-		.limit(1)
+		.orderBy(asc(s.chatMessage.createdAt))
 		.execute();
 
-	if (!message) {
-		return { text: null, charts: [] };
+	const firstAssistantByChat = new Map<string, string>();
+	for (const message of messages) {
+		if (!firstAssistantByChat.has(message.chatId)) {
+			firstAssistantByChat.set(message.chatId, message.id);
+		}
+	}
+
+	const messageIds = [...firstAssistantByChat.values()];
+	if (messageIds.length === 0) {
+		return outputs;
 	}
 
 	const parts = await db
 		.select()
 		.from(s.messagePart)
-		.where(eq(s.messagePart.messageId, message.id))
+		.where(inArray(s.messagePart.messageId, messageIds))
 		.orderBy(asc(s.messagePart.order))
 		.execute();
 
-	return extractAutomationFeedOutput(parts);
+	const partsByMessageId = new Map<string, DBMessagePart[]>();
+	for (const part of parts) {
+		const list = partsByMessageId.get(part.messageId) ?? [];
+		list.push(part);
+		partsByMessageId.set(part.messageId, list);
+	}
+
+	for (const run of runs) {
+		if (!run.chatId) {
+			continue;
+		}
+		const messageId = firstAssistantByChat.get(run.chatId);
+		if (!messageId) {
+			continue;
+		}
+		outputs.set(run.id, extractAutomationFeedOutput(partsByMessageId.get(messageId) ?? []));
+	}
+
+	return outputs;
 }
 
 function extractAutomationFeedOutput(parts: DBMessagePart[]): AutomationFeedOutput {

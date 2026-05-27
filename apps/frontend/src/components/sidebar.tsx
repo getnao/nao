@@ -76,8 +76,8 @@ export function Sidebar() {
 		}
 	}, [navigate, isMobile, closeMobile]);
 
-	const handleNavigateAutomations = useCallback(() => {
-		navigate({ to: '/automations' });
+	const handleNavigateFeed = useCallback(() => {
+		navigate({ to: '/feed' });
 		if (isMobile) {
 			closeMobile();
 		}
@@ -252,7 +252,7 @@ export function Sidebar() {
 								label='Feed'
 								shortcut=''
 								isCollapsed={effectiveIsCollapsed}
-								onClick={handleNavigateAutomations}
+								onClick={handleNavigateFeed}
 							/>
 						)}
 					</>
@@ -276,7 +276,7 @@ export function Sidebar() {
 					groupBy={groupBy}
 					filters={filters}
 					isViewer={isViewer}
-					showAutomations={betaAutomationsEnabled}
+					showFeed={betaAutomationsEnabled}
 				/>
 			)}
 
@@ -357,13 +357,13 @@ function SidebarNav({
 	groupBy,
 	filters,
 	isViewer,
-	showAutomations,
+	showFeed,
 }: {
 	isCollapsed: boolean;
 	groupBy: ChatGroupBy;
 	filters: ChatFilterType[];
 	isViewer: boolean;
-	showAutomations: boolean;
+	showFeed: boolean;
 }) {
 	const groupedChats = useQuery({
 		...trpc.chat.listGrouped.queryOptions({ groupBy, filters }),
@@ -371,7 +371,7 @@ function SidebarNav({
 	});
 	const automations = useQuery({
 		...trpc.automation.list.queryOptions(),
-		enabled: !isViewer && showAutomations,
+		enabled: !isViewer && showFeed,
 	});
 	const groups = groupedChats.data?.groups;
 	const isEmpty = groups?.every((group) => group.chats.length === 0);
@@ -382,7 +382,7 @@ function SidebarNav({
 				hideIf(isCollapsed),
 			)}
 		>
-			{!isViewer && showAutomations && <AutomationsSection items={automations.data ?? []} />}
+			{!isViewer && showFeed && <AutomationsSection items={automations.data ?? []} />}
 
 			{groups?.map((group) => (
 				<GroupSection key={group.label} group={group} groupBy={groupBy} />

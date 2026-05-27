@@ -147,6 +147,7 @@ export const storyRoutes = {
 			}),
 		)
 		.mutation(async ({ input }) => {
+			assertValidRefreshSchedule(input.isLive, input.cacheSchedule);
 			await storyQueries.updateStoryLiveSettings(input.chatId, input.storySlug, {
 				isLive: input.isLive,
 				isLiveTextDynamic: input.isLiveTextDynamic,
@@ -275,6 +276,22 @@ export const storyRoutes = {
 			return buildDownloadResponse(input.format, version.title, version.code, queryData);
 		}),
 };
+
+/**
+ * Validates the refresh schedule before touching the database so an invalid
+ * cron cannot be persisted on the story row.
+ */
+function assertValidRefreshSchedule(isLive: boolean, cacheSchedule: string | null): void {
+	if (!isLive || cacheSchedule === null || cacheSchedule === NO_CACHE_SCHEDULE) {
+		return;
+	}
+	if (!nextCronTick(cacheSchedule, new Date())) {
+		throw new TRPCError({
+			code: 'BAD_REQUEST',
+			message: `Invalid cron expression for refresh schedule: ${cacheSchedule}`,
+		});
+	}
+}
 
 /**
  * Idempotently aligns the scheduled job for a live story with its current cache

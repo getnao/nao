@@ -20,7 +20,7 @@ import { Route as SidebarLayoutSettingsRouteImport } from './routes/_sidebar-lay
 import { Route as SidebarLayoutChatLayoutRouteImport } from './routes/_sidebar-layout._chat-layout'
 import { Route as SidebarLayoutStoriesIndexRouteImport } from './routes/_sidebar-layout.stories.index'
 import { Route as SidebarLayoutSettingsIndexRouteImport } from './routes/_sidebar-layout.settings.index'
-import { Route as SidebarLayoutAutomationsIndexRouteImport } from './routes/_sidebar-layout.automations.index'
+import { Route as SidebarLayoutFeedIndexRouteImport } from './routes/_sidebar-layout.feed.index'
 import { Route as SidebarLayoutChatLayoutIndexRouteImport } from './routes/_sidebar-layout._chat-layout.index'
 import { Route as EmbedStoryStoryIdRouteImport } from './routes/embed.story.$storyId'
 import { Route as EmbedChartChartEmbedIdRouteImport } from './routes/embed.chart.$chartEmbedId'
@@ -108,12 +108,11 @@ const SidebarLayoutSettingsIndexRoute =
     path: '/',
     getParentRoute: () => SidebarLayoutSettingsRoute,
   } as any)
-const SidebarLayoutAutomationsIndexRoute =
-  SidebarLayoutAutomationsIndexRouteImport.update({
-    id: '/automations/',
-    path: '/automations/',
-    getParentRoute: () => SidebarLayoutRoute,
-  } as any)
+const SidebarLayoutFeedIndexRoute = SidebarLayoutFeedIndexRouteImport.update({
+  id: '/feed/',
+  path: '/feed/',
+  getParentRoute: () => SidebarLayoutRoute,
+} as any)
 const SidebarLayoutChatLayoutIndexRoute =
   SidebarLayoutChatLayoutIndexRouteImport.update({
     id: '/',
@@ -324,7 +323,7 @@ export interface FileRoutesByFullPath {
   '/shared-chat/$shareId': typeof SidebarLayoutSharedChatShareIdRoute
   '/embed/chart/$chartEmbedId': typeof EmbedChartChartEmbedIdRoute
   '/embed/story/$storyId': typeof EmbedStoryStoryIdRoute
-  '/automations/': typeof SidebarLayoutAutomationsIndexRoute
+  '/feed/': typeof SidebarLayoutFeedIndexRoute
   '/settings/': typeof SidebarLayoutSettingsIndexRoute
   '/stories/': typeof SidebarLayoutStoriesIndexRoute
   '/settings/project/agent': typeof SidebarLayoutSettingsProjectAgentRoute
@@ -365,7 +364,7 @@ export interface FileRoutesByTo {
   '/shared-chat/$shareId': typeof SidebarLayoutSharedChatShareIdRoute
   '/embed/chart/$chartEmbedId': typeof EmbedChartChartEmbedIdRoute
   '/embed/story/$storyId': typeof EmbedStoryStoryIdRoute
-  '/automations': typeof SidebarLayoutAutomationsIndexRoute
+  '/feed': typeof SidebarLayoutFeedIndexRoute
   '/settings': typeof SidebarLayoutSettingsIndexRoute
   '/stories': typeof SidebarLayoutStoriesIndexRoute
   '/settings/project/agent': typeof SidebarLayoutSettingsProjectAgentRoute
@@ -411,7 +410,7 @@ export interface FileRoutesById {
   '/embed/chart/$chartEmbedId': typeof EmbedChartChartEmbedIdRoute
   '/embed/story/$storyId': typeof EmbedStoryStoryIdRoute
   '/_sidebar-layout/_chat-layout/': typeof SidebarLayoutChatLayoutIndexRoute
-  '/_sidebar-layout/automations/': typeof SidebarLayoutAutomationsIndexRoute
+  '/_sidebar-layout/feed/': typeof SidebarLayoutFeedIndexRoute
   '/_sidebar-layout/settings/': typeof SidebarLayoutSettingsIndexRoute
   '/_sidebar-layout/stories/': typeof SidebarLayoutStoriesIndexRoute
   '/_sidebar-layout/settings/project/agent': typeof SidebarLayoutSettingsProjectAgentRoute
@@ -456,7 +455,7 @@ export interface FileRouteTypes {
     | '/shared-chat/$shareId'
     | '/embed/chart/$chartEmbedId'
     | '/embed/story/$storyId'
-    | '/automations/'
+    | '/feed/'
     | '/settings/'
     | '/stories/'
     | '/settings/project/agent'
@@ -497,7 +496,7 @@ export interface FileRouteTypes {
     | '/shared-chat/$shareId'
     | '/embed/chart/$chartEmbedId'
     | '/embed/story/$storyId'
-    | '/automations'
+    | '/feed'
     | '/settings'
     | '/stories'
     | '/settings/project/agent'
@@ -542,7 +541,7 @@ export interface FileRouteTypes {
     | '/embed/chart/$chartEmbedId'
     | '/embed/story/$storyId'
     | '/_sidebar-layout/_chat-layout/'
-    | '/_sidebar-layout/automations/'
+    | '/_sidebar-layout/feed/'
     | '/_sidebar-layout/settings/'
     | '/_sidebar-layout/stories/'
     | '/_sidebar-layout/settings/project/agent'
@@ -650,11 +649,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SidebarLayoutSettingsIndexRouteImport
       parentRoute: typeof SidebarLayoutSettingsRoute
     }
-    '/_sidebar-layout/automations/': {
-      id: '/_sidebar-layout/automations/'
-      path: '/automations'
-      fullPath: '/automations/'
-      preLoaderRoute: typeof SidebarLayoutAutomationsIndexRouteImport
+    '/_sidebar-layout/feed/': {
+      id: '/_sidebar-layout/feed/'
+      path: '/feed'
+      fullPath: '/feed/'
+      preLoaderRoute: typeof SidebarLayoutFeedIndexRouteImport
       parentRoute: typeof SidebarLayoutRoute
     }
     '/_sidebar-layout/_chat-layout/': {
@@ -981,7 +980,7 @@ interface SidebarLayoutRouteChildren {
   SidebarLayoutSettingsRoute: typeof SidebarLayoutSettingsRouteWithChildren
   SidebarLayoutAutomationsAutomationIdRoute: typeof SidebarLayoutAutomationsAutomationIdRoute
   SidebarLayoutSharedChatShareIdRoute: typeof SidebarLayoutSharedChatShareIdRoute
-  SidebarLayoutAutomationsIndexRoute: typeof SidebarLayoutAutomationsIndexRoute
+  SidebarLayoutFeedIndexRoute: typeof SidebarLayoutFeedIndexRoute
   SidebarLayoutStoriesIndexRoute: typeof SidebarLayoutStoriesIndexRoute
   SidebarLayoutStoriesSharedShareIdRoute: typeof SidebarLayoutStoriesSharedShareIdRoute
   SidebarLayoutStoriesStandaloneStoryIdRoute: typeof SidebarLayoutStoriesStandaloneStoryIdRoute
@@ -994,7 +993,7 @@ const SidebarLayoutRouteChildren: SidebarLayoutRouteChildren = {
   SidebarLayoutAutomationsAutomationIdRoute:
     SidebarLayoutAutomationsAutomationIdRoute,
   SidebarLayoutSharedChatShareIdRoute: SidebarLayoutSharedChatShareIdRoute,
-  SidebarLayoutAutomationsIndexRoute: SidebarLayoutAutomationsIndexRoute,
+  SidebarLayoutFeedIndexRoute: SidebarLayoutFeedIndexRoute,
   SidebarLayoutStoriesIndexRoute: SidebarLayoutStoriesIndexRoute,
   SidebarLayoutStoriesSharedShareIdRoute:
     SidebarLayoutStoriesSharedShareIdRoute,

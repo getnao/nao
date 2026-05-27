@@ -328,7 +328,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "set null",
           "onUpdate": "no action"
         },
         "activity_chat_id_chat_id_fk": {
@@ -341,7 +341,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "set null",
           "onUpdate": "no action"
         },
         "activity_shared_story_id_shared_story_id_fk": {
@@ -354,7 +354,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "set null",
           "onUpdate": "no action"
         },
         "activity_shared_chat_id_shared_chat_id_fk": {
@@ -367,7 +367,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },

@@ -31,7 +31,7 @@ export async function inferAutomationTitle(projectId: string, prompt: string): P
 			maxOutputTokens: 60,
 		});
 
-		const inferred = output?.title.trim();
+		const inferred = output?.title?.trim();
 		return inferred && inferred.length > 0 ? inferred.slice(0, 255) : fallbackTitleFromPrompt(trimmedPrompt);
 	} catch {
 		return fallbackTitleFromPrompt(trimmedPrompt);

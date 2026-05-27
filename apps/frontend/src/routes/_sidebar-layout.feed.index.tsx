@@ -17,7 +17,7 @@ import { requireAutomationsEnabled } from '@/lib/require-admin';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
-export const Route = createFileRoute('/_sidebar-layout/automations/')({
+export const Route = createFileRoute('/_sidebar-layout/feed/')({
 	beforeLoad: requireAutomationsEnabled,
 	component: AutomationsPage,
 });
@@ -61,8 +61,10 @@ function AutomationsPage() {
 			<div className='mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-6 md:px-8 md:py-10'>
 				<header className='flex items-center justify-between gap-3 flex-wrap'>
 					<div>
-						<h1 className='text-xl font-semibold tracking-tight'>Automations feed</h1>
-						<p className='text-sm text-muted-foreground'>Catch up on every automation run. Latest first.</p>
+						<h1 className='text-xl font-semibold tracking-tight'>Feed</h1>
+						<p className='text-sm text-muted-foreground'>
+							Catch up on all your activity (automations, stories). Latest first.
+						</p>
 					</div>
 					<Button onClick={() => setIsCreating((value) => !value)}>
 						{isCreating ? <X className='size-4' /> : <Plus className='size-4' />}

@@ -12,7 +12,7 @@ import { db } from '../db/db';
 
 export const storyRefreshJobUniqueKey = (storyId: string): string => `story-refresh:${storyId}`;
 
-const ACTIVITY_RUN_STALE_MS = 30 * 60 * 1_000;
+const ACTIVITY_RUN_STALE_MS = 5 * 60 * 1_000;
 const ACTIVITY_RUN_STALE_MESSAGE = 'Activity did not finish before the timeout.';
 
 export interface CreateActivityInput {
@@ -215,15 +215,24 @@ export const listRecentActivities = async (
 };
 
 /**
- * Builds the per-type audience predicate used by `listRecentActivities`. The
- * actor is always considered part of the audience for `story.refreshed`
- * (owners want to see their own refreshes); share events are surfaced only to
- * recipients so the sharer is excluded from their own share row.
+ * Builds the per-type audience predicate used by `listRecentActivities`.
+ *
+ *   - `story.refreshed`: the recorded actor (the story owner, set by both the
+ *     scheduled and manual paths) plus anyone the story is shared with
+ *     (project-wide or per-user). Story ownership is resolved through the
+ *     story row and, for chat-based stories where `story.user_id` is null,
+ *     through the underlying chat owner.
+ *   - `story.shared` / `chat.shared`: the recipients of the share, excluding
+ *     the sharer themselves.
  */
 function visibleToUser(projectId: string, userId: string) {
+	const userIsActor = eq(s.activity.userId, userId);
+
 	const userOwnsStory = sql`EXISTS (
 		SELECT 1 FROM ${s.story} st
-		WHERE st.id = ${s.activity.storyId} AND st.user_id = ${userId}
+		LEFT JOIN ${s.chat} c ON c.id = st.chat_id
+		WHERE st.id = ${s.activity.storyId}
+			AND (st.user_id = ${userId} OR c.user_id = ${userId})
 	)`;
 	const storySharedWithUser = or(
 		sql`EXISTS (
@@ -269,7 +278,7 @@ function visibleToUser(projectId: string, userId: string) {
 	);
 
 	return or(
-		and(eq(s.activity.type, 'story.refreshed'), or(userOwnsStory, storySharedWithUser)),
+		and(eq(s.activity.type, 'story.refreshed'), or(userIsActor, userOwnsStory, storySharedWithUser)),
 		and(eq(s.activity.type, 'story.shared'), ne(s.activity.userId, userId), storyShareIncludesUser),
 		and(eq(s.activity.type, 'chat.shared'), ne(s.activity.userId, userId), chatShareIncludesUser),
 	);

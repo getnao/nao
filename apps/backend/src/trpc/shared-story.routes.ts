@@ -123,15 +123,17 @@ export const sharedStoryRoutes = {
 	refreshData: shareAccessProcedure.input(z.object({ shareId: z.string() })).mutation(async ({ ctx }) => {
 		const shared = ctx.resource;
 		const story = await storyQueries.getStoryByChatAndSlug(shared.chatId!, shared.slug);
-		const activity = story
-			? await activityQueries.startStoryRefreshActivity({
-					projectId: shared.projectId,
-					userId: shared.userId,
-					storyId: story.id,
-					chatId: story.chatId,
-					trigger: 'manual',
-				})
-			: null;
+		const storyOwnerId = story ? await storyQueries.getStoryOwnerId(story.id) : undefined;
+		const activity =
+			story && storyOwnerId
+				? await activityQueries.startStoryRefreshActivity({
+						projectId: shared.projectId,
+						userId: storyOwnerId,
+						storyId: story.id,
+						chatId: story.chatId,
+						trigger: 'manual',
+					})
+				: null;
 		try {
 			const { queryData } = await refreshStoryData(shared.chatId!, shared.slug);
 			if (activity) {

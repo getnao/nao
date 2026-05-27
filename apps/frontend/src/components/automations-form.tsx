@@ -162,6 +162,7 @@ export function AutomationForm({
 
 				<TriggersSection
 					cron={form.value.cron}
+					hasSchedule={form.hasSchedule}
 					scheduleOption={form.scheduleOption}
 					onScheduleOptionChange={form.handleScheduleOptionChange}
 					onCustomCronChange={form.setCustomCron}
@@ -181,6 +182,7 @@ export function AutomationForm({
 					modelProvider={form.value.modelProvider}
 					availableModels={form.availableModels}
 					onModelChange={form.handleModelChange}
+					modelDisabled={form.controlsDisabled}
 					email={form.userEmail}
 					onInsertPromptTrigger={form.handleInsertPromptTrigger}
 				/>
@@ -243,6 +245,7 @@ function useAutomationFormController({
 	);
 	const [value, setValue] = useState<AutomationFormValue>(savedValue);
 	const [scheduleOption, setScheduleOption] = useState<ScheduleOption>(() => inferScheduleOption(savedValue));
+	const [hasSchedule, setHasSchedule] = useState<boolean>(() => savedValue.cron.trim().length > 0);
 	const [promptError, setPromptError] = useState(false);
 	const [triggerError, setTriggerError] = useState(false);
 	const [emailRecipientsError, setEmailRecipientsError] = useState<string | null>(null);
@@ -270,6 +273,7 @@ function useAutomationFormController({
 		setSavedValue(nextValue);
 		setValue(nextValue);
 		setScheduleOption(inferScheduleOption(nextValue));
+		setHasSchedule(nextValue.cron.trim().length > 0);
 		setPromptError(false);
 		setTriggerError(false);
 		setEmailRecipientsError(null);
@@ -403,6 +407,7 @@ function useAutomationFormController({
 	function handleAddSchedule() {
 		setTriggerError(false);
 		setScheduleOption('weekly');
+		setHasSchedule(true);
 		handleControlValueChange({
 			...value,
 			cron: DEFAULT_SCHEDULE_CRON,
@@ -412,6 +417,7 @@ function useAutomationFormController({
 
 	function handleRemoveSchedule() {
 		setScheduleOption('custom');
+		setHasSchedule(false);
 		handleControlValueChange({
 			...value,
 			cron: '',
@@ -462,6 +468,7 @@ function useAutomationFormController({
 		handleScheduleOptionChange,
 		handleSubmit,
 		handleValueChange,
+		hasSchedule,
 		mcpState: mcpState.data,
 		promptError,
 		promptRef,
@@ -501,6 +508,7 @@ function AutomationTitleField({
 
 function TriggersSection({
 	cron,
+	hasSchedule,
 	scheduleOption,
 	onScheduleOptionChange,
 	onCustomCronChange,
@@ -510,6 +518,7 @@ function TriggersSection({
 	disabled,
 }: {
 	cron: string;
+	hasSchedule: boolean;
 	scheduleOption: ScheduleOption;
 	onScheduleOptionChange: (option: ScheduleOption) => void;
 	onCustomCronChange: (cron: string) => void;
@@ -518,8 +527,6 @@ function TriggersSection({
 	hasError: boolean;
 	disabled: boolean;
 }) {
-	const hasSchedule = cron.trim().length > 0;
-
 	return (
 		<section className='grid gap-1.5'>
 			<label className='text-sm font-medium'>Triggers</label>
@@ -647,6 +654,7 @@ function AgentInstructionsSection({
 	modelProvider,
 	availableModels,
 	onModelChange,
+	modelDisabled,
 	email,
 	onInsertPromptTrigger,
 }: {
@@ -659,6 +667,7 @@ function AgentInstructionsSection({
 	modelProvider: LlmProvider | undefined;
 	availableModels: AvailableModel[] | undefined;
 	onModelChange: (modelValue: string) => void;
+	modelDisabled: boolean;
 	email?: string;
 	onInsertPromptTrigger: (trigger: string) => void;
 }) {
@@ -677,6 +686,7 @@ function AgentInstructionsSection({
 						provider={modelProvider}
 						availableModels={availableModels}
 						onChange={onModelChange}
+						disabled={modelDisabled}
 					/>
 				}
 			/>
@@ -748,15 +758,17 @@ function AutomationModelSelect({
 	provider,
 	availableModels,
 	onChange,
+	disabled,
 }: {
 	value: string;
 	modelName: string | undefined;
 	provider: LlmProvider | undefined;
 	availableModels: AvailableModel[] | undefined;
 	onChange: (modelValue: string) => void;
+	disabled: boolean;
 }) {
 	return (
-		<Select value={value} onValueChange={onChange}>
+		<Select value={value} onValueChange={onChange} disabled={disabled}>
 			<SelectTrigger
 				variant='ghost'
 				size='sm'
