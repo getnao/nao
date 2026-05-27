@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull, lt, or, SQL, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, isNull, lt, lte, or, SQL, sql } from 'drizzle-orm';
 
 import s, { NewLog } from '../db/abstractSchema';
 import { db } from '../db/db';
@@ -17,6 +17,15 @@ export const listLogs = async (projectId: string, filter: LogFilter) => {
 	}
 	if (filter.source) {
 		conditions.push(eq(s.log.source, filter.source));
+	}
+	if (filter.before) {
+		conditions.push(lt(s.log.createdAt, filter.before));
+	}
+	if (filter.from) {
+		conditions.push(gte(s.log.createdAt, filter.from));
+	}
+	if (filter.to) {
+		conditions.push(lte(s.log.createdAt, filter.to));
 	}
 
 	return db
