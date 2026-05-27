@@ -67,6 +67,7 @@ function LogsPage() {
 	const terminalRef = useRef<HTMLDivElement>(null);
 	const loadingOlderRef = useRef(false);
 	const prevScrollHeightRef = useRef<number | null>(null);
+	const olderRequestIdRef = useRef(0);
 
 	const filterParams = useMemo(
 		() => ({
@@ -85,6 +86,9 @@ function LogsPage() {
 	});
 
 	useEffect(() => {
+		olderRequestIdRef.current += 1;
+		loadingOlderRef.current = false;
+		setIsLoadingOlder(false);
 		setOlderEntries([]);
 		setHasMoreOlder(true);
 		setExpandedIds(new Set());
@@ -128,6 +132,7 @@ function LogsPage() {
 		const oldest = sortedEntries[0];
 		const before = new Date(oldest.createdAt);
 
+		const requestId = ++olderRequestIdRef.current;
 		loadingOlderRef.current = true;
 		setIsLoadingOlder(true);
 		if (terminalRef.current) {
@@ -138,6 +143,9 @@ function LogsPage() {
 				...filterParams,
 				before,
 			})) as LogEntry[];
+			if (requestId !== olderRequestIdRef.current) {
+				return;
+			}
 			if (!data.length) {
 				setHasMoreOlder(false);
 				return;
@@ -158,8 +166,10 @@ function LogsPage() {
 		} catch {
 			// Keep hasMoreOlder true so the user can retry after a transient failure.
 		} finally {
-			loadingOlderRef.current = false;
-			setIsLoadingOlder(false);
+			if (requestId === olderRequestIdRef.current) {
+				loadingOlderRef.current = false;
+				setIsLoadingOlder(false);
+			}
 		}
 	}, [filterParams, hasMoreOlder, sortedEntries]);
 
