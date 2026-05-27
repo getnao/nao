@@ -18,7 +18,7 @@ import type { AutomationIntegrationResult } from '../types/automation';
 import { type ListActivityRow, listRecentActivities } from './activity.queries';
 
 export const automationJobUniqueKey = (automationId: string): string => `automation:${automationId}`;
-const AUTOMATION_RUN_STALE_MS = 5 * 60 * 1_000;
+const AUTOMATION_RUN_STALE_MS = 30 * 60 * 1_000;
 const AUTOMATION_RUN_STALE_MESSAGE = 'Automation run did not finish before the timeout.';
 const AUTOMATION_RUN_CANCELLED_MESSAGE = 'Cancelled by user.';
 
