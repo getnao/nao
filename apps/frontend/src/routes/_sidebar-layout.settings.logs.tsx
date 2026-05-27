@@ -26,6 +26,7 @@ const POLL_INTERVAL_MS = 5000;
 const MIN_REFRESH_MS = 400;
 const PAGE_SIZE = 200;
 const LOAD_MORE_TRIGGER_PX = 40;
+const DEFAULT_RANGE_MINUTES = 60;
 
 const LEVEL_STYLES: Record<LogLevel, string> = {
 	error: 'bg-red-500/10 text-red-500',
@@ -53,7 +54,9 @@ type LogEntry = {
 function LogsPage() {
 	const [level, setLevel] = useState<LogLevel | 'all'>('all');
 	const [source, setSource] = useState<LogSource | 'all'>('all');
-	const [range, setRange] = useState<LogsDateRange | undefined>(undefined);
+	const [range, setRange] = useState<LogsDateRange | undefined>(() => ({
+		from: new Date(Date.now() - DEFAULT_RANGE_MINUTES * 60 * 1000),
+	}));
 	const [olderEntries, setOlderEntries] = useState<LogEntry[]>([]);
 	const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 	const [isLoadingOlder, setIsLoadingOlder] = useState(false);
