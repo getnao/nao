@@ -1,5 +1,4 @@
 import type { displayChart } from '@nao/shared/tools';
-import { execFile } from 'child_process';
 import { z } from 'zod/v4';
 
 import { generateChartImage } from '../components/generate-chart';
@@ -10,13 +9,20 @@ import type { ToolContext } from '../types/tools';
 import { buildDownloadResponse, type QueryDataMap } from '../utils/story-download';
 import { createTool } from '../utils/tools';
 import { emailService } from './email';
+import {
+	createGithubAutomationTools,
+	getGithubToolDescriptions,
+	getRequiredGithubToolNames,
+	GITHUB_TOOL_NAMES,
+	type GithubToolName,
+} from './github-automation-tools';
 import { getQueryResult } from './query-result.service';
 import { type SlackFileUpload, slackService } from './slack';
 
 export const AUTOMATION_INTEGRATION_TOOL_NAMES = [
 	'send_automation_email',
 	'send_automation_slack_message',
-	'github_cli',
+	...GITHUB_TOOL_NAMES,
 ] as const;
 
 export type AutomationIntegrationToolName = (typeof AUTOMATION_INTEGRATION_TOOL_NAMES)[number];
@@ -24,6 +30,8 @@ export type AutomationIntegrationToolName = (typeof AUTOMATION_INTEGRATION_TOOL_
 export type AutomationIntegrationToolDescription = {
 	name: AutomationIntegrationToolName;
 	description: string;
+	/** True when the agent MUST call this tool for the run to succeed. */
+	required: boolean;
 };
 
 type AutomationToolInput = {
@@ -37,16 +45,23 @@ export function createAutomationTools(input: AutomationToolInput): Record<string
 	return {
 		...createEmailTools(input.integrations),
 		...createSlackTools(input.projectId, input.chatId, input.integrations),
-		...createGithubTools(input.githubToken, input.integrations),
+		...createGithubAutomationTools({
+			githubToken: input.githubToken,
+			config: input.integrations.github ?? { enabled: false, repositories: [] },
+		}),
 	};
 }
 
+/** Tools the agent MUST call for the run to be considered a success. */
 export function getAutomationIntegrationToolNames(
 	integrations: AutomationIntegrationConfig,
 ): AutomationIntegrationToolName[] {
-	return getAutomationIntegrationToolDescriptions(integrations).map((tool) => tool.name);
+	return getAutomationIntegrationToolDescriptions(integrations)
+		.filter((tool) => tool.required)
+		.map((tool) => tool.name);
 }
 
+/** All integration tools advertised to the LLM (required + auxiliary). */
 export function getAutomationIntegrationToolDescriptions(
 	integrations: AutomationIntegrationConfig,
 ): AutomationIntegrationToolDescription[] {
@@ -55,21 +70,30 @@ export function getAutomationIntegrationToolDescriptions(
 		tools.push({
 			name: 'send_automation_email',
 			description: getEmailToolDescription(),
+			required: true,
 		});
 	}
 	if (integrations.slack?.enabled) {
 		tools.push({
 			name: 'send_automation_slack_message',
 			description: getSlackToolDescription(integrations.slack.channelId),
+			required: true,
 		});
 	}
-	if (integrations.github?.enabled) {
-		tools.push({
-			name: 'github_cli',
-			description: getGithubToolDescription(integrations.github.repositories),
-		});
+	for (const github of getGithubToolDescriptions(integrations.github)) {
+		tools.push(github);
 	}
 	return tools;
+}
+
+/** Convenience alias re-exported so callers can detect GitHub tools without importing the inner module. */
+export function isGithubAutomationTool(name: string): name is GithubToolName {
+	return (GITHUB_TOOL_NAMES as readonly string[]).includes(name);
+}
+
+/** Convenience alias re-exported so callers can detect required GitHub tools. */
+export function getRequiredGithubAutomationToolNames(integrations: AutomationIntegrationConfig): GithubToolName[] {
+	return getRequiredGithubToolNames(integrations.github);
 }
 
 function createEmailTools(integrations: AutomationIntegrationConfig): Record<string, unknown> {
@@ -137,180 +161,12 @@ function createSlackTools(
 	};
 }
 
-function createGithubTools(
-	githubToken: string | null,
-	integrations: AutomationIntegrationConfig,
-): Record<string, unknown> {
-	const config = integrations.github;
-	if (!config?.enabled) {
-		return {};
-	}
-
-	return {
-		github_cli: createTool({
-			description: getGithubToolDescription(config.repositories),
-			inputSchema: z.object({
-				command: z
-					.string()
-					.describe(
-						'The gh CLI command to run, without the leading "gh". ' +
-							'Examples: "issue create --repo owner/repo --title Bug --body Details", ' +
-							'"pr list --repo owner/repo --state open --json number,title", ' +
-							'"issue view 42 --repo owner/repo". ' +
-							'Prefer --json for machine-readable output when reading data.',
-					),
-			}),
-			execute: async ({ command }) => {
-				if (!githubToken) {
-					throw new Error('GitHub is not connected for the automation owner.');
-				}
-				const args = parseShellArgs(command);
-				assertCommandSafe(args);
-				assertRepositoryAllowed(extractRepoFromArgs(args), config.repositories);
-				return executeGhCommand(args, githubToken);
-			},
-		}),
-	};
-}
-
 function getEmailToolDescription(): string {
 	return `Send an email to a list of recipients. Provide html (preferred) or text, and optionally a subject. If you generated charts with display_chart, they will be embedded as images. If you generated a story, it will be attached as a PDF.`;
 }
 
 function getSlackToolDescription(channelId: string): string {
 	return `Post a message in the Slack channel ${channelId}. Provide the markdown-friendly text to post. Use @slack-handle to mention a Slack user.`;
-}
-
-function getGithubToolDescription(repositories: string[]): string {
-	const repos =
-		repositories.length > 0 ? repositories.join(', ') : '(any repository the connected GitHub account can access)';
-	return (
-		`Run any GitHub CLI (gh) command against ${repos}. ` +
-		'You can read issues, PRs, repos, search, list, view, create issues, comment, create PRs, etc. ' +
-		'Destructive operations (delete, close, merge, archive) are blocked for safety. ' +
-		'Always pass --repo owner/repo explicitly. Prefer --json for structured output.'
-	);
-}
-
-const BLOCKED_COMMANDS: Array<{ resource: string; subcommand: string }> = [
-	{ resource: 'issue', subcommand: 'close' },
-	{ resource: 'issue', subcommand: 'delete' },
-	{ resource: 'issue', subcommand: 'lock' },
-	{ resource: 'issue', subcommand: 'unpin' },
-	{ resource: 'issue', subcommand: 'transfer' },
-	{ resource: 'pr', subcommand: 'close' },
-	{ resource: 'pr', subcommand: 'merge' },
-	{ resource: 'repo', subcommand: 'delete' },
-	{ resource: 'repo', subcommand: 'archive' },
-	{ resource: 'repo', subcommand: 'rename' },
-	{ resource: 'repo', subcommand: 'unarchive' },
-	{ resource: 'release', subcommand: 'delete' },
-	{ resource: 'label', subcommand: 'delete' },
-	{ resource: 'variable', subcommand: 'delete' },
-	{ resource: 'secret', subcommand: 'delete' },
-	{ resource: 'secret', subcommand: 'set' },
-];
-
-function assertCommandSafe(args: string[]): void {
-	if (args.length === 0) {
-		throw new Error('Empty gh command.');
-	}
-
-	const resource = args[0].toLowerCase();
-	const subcommand = args[1]?.toLowerCase() ?? '';
-
-	if (resource === 'auth') {
-		throw new Error('gh auth commands are not allowed.');
-	}
-
-	if (resource === 'api') {
-		const methodIdx = args.findIndex((a) => a === '-X' || a === '--method');
-		const method = methodIdx >= 0 ? args[methodIdx + 1]?.toUpperCase() : 'GET';
-		if (method === 'DELETE') {
-			throw new Error('DELETE requests via gh api are not allowed.');
-		}
-		return;
-	}
-
-	for (const blocked of BLOCKED_COMMANDS) {
-		if (resource === blocked.resource && subcommand === blocked.subcommand) {
-			throw new Error(`"gh ${resource} ${subcommand}" is blocked for safety.`);
-		}
-	}
-}
-
-function extractRepoFromArgs(args: string[]): string | null {
-	for (let i = 0; i < args.length; i++) {
-		if ((args[i] === '--repo' || args[i] === '-R') && i + 1 < args.length) {
-			return args[i + 1];
-		}
-	}
-	return null;
-}
-
-function assertRepositoryAllowed(repository: string | null, allowedRepositories: string[]): void {
-	if (allowedRepositories.length === 0) {
-		return;
-	}
-	if (!repository) {
-		throw new Error('--repo owner/repo is required when repositories are restricted.');
-	}
-	if (!allowedRepositories.includes(repository)) {
-		throw new Error(`Repository "${repository}" is not enabled for this automation.`);
-	}
-}
-
-function parseShellArgs(command: string): string[] {
-	const args: string[] = [];
-	let current = '';
-	let quote: string | null = null;
-
-	for (const ch of command) {
-		if (quote) {
-			if (ch === quote) {
-				quote = null;
-			} else {
-				current += ch;
-			}
-		} else if (ch === '"' || ch === "'") {
-			quote = ch;
-		} else if (ch === ' ' || ch === '\t') {
-			if (current) {
-				args.push(current);
-				current = '';
-			}
-		} else {
-			current += ch;
-		}
-	}
-	if (current) {
-		args.push(current);
-	}
-	return args;
-}
-
-const GH_TIMEOUT_MS = 30_000;
-
-function executeGhCommand(args: string[], token: string): Promise<{ ok: true; output: string }> {
-	return new Promise((resolve, reject) => {
-		const child = execFile(
-			'gh',
-			args,
-			{
-				timeout: GH_TIMEOUT_MS,
-				maxBuffer: 1024 * 1024,
-				env: { ...process.env, GH_TOKEN: token },
-			},
-			(error, stdout, stderr) => {
-				if (error) {
-					reject(new Error(`gh command failed: ${stderr || error.message}`));
-					return;
-				}
-				resolve({ ok: true, output: stdout.trim() });
-			},
-		);
-		child.stdin?.end();
-	});
 }
 
 type GeneratedArtifactAttachment = Omit<EmailAttachment, 'content'> & {

@@ -100,6 +100,7 @@ jobs:
                           -e "NAO_DEFAULT_PROJECT_PATH=/app/example" \
                           -e "GITHUB_CLIENT_ID=${{ secrets.PREVIEW_GITHUB_CLIENT_ID }}" \
                           -e "GITHUB_CLIENT_SECRET=${{ secrets.PREVIEW_GITHUB_CLIENT_SECRET }}" \
+                          -e "GITHUB_SSO=true" \
                           -e "GITHUB_ALLOWED_USERS=${{ secrets.PREVIEW_GITHUB_ALLOWED_USERS }},${{ github.event.pull_request.user.login }}" \
                           -e "DEFAULT_USER_ROLE=admin" \
                           -e "NOTION_API_KEY=something-random" \

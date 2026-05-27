@@ -15,6 +15,11 @@ export type AutomationIntegrationConfig = {
 	github?: {
 		enabled: boolean;
 		repositories: string[];
+		actions?: {
+			createIssue?: boolean;
+			createPullRequest?: boolean;
+			addComment?: boolean;
+		};
 	};
 };
 

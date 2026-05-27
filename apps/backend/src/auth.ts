@@ -17,6 +17,7 @@ import { env, isCloud, MCP_SERVER_URL } from './env';
 import * as orgQueries from './queries/organization.queries';
 import * as userQueries from './queries/user.queries';
 import { emailService } from './services/email';
+import { githubOAuthConfig } from './services/github';
 import { hasFeature, LICENSE_FEATURES } from './services/license.service';
 import {
 	augmentSocialProviders,
@@ -88,10 +89,11 @@ async function createAuthInstance(googleConfig: GoogleConfig) {
 		},
 	};
 
-	if (env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET) {
+	const githubConfig = env.GITHUB_SSO ? githubOAuthConfig() : null;
+	if (githubConfig) {
 		socialProviders.github = {
-			clientId: env.GITHUB_CLIENT_ID,
-			clientSecret: env.GITHUB_CLIENT_SECRET,
+			clientId: githubConfig.clientId,
+			clientSecret: githubConfig.clientSecret,
 			getUserInfo: async (token) => {
 				const res = await fetch('https://api.github.com/user', {
 					headers: { Authorization: `Bearer ${token.accessToken}`, Accept: 'application/json' },

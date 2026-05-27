@@ -13,6 +13,7 @@ import {
 	type AutomationIntegrationToolName,
 	createAutomationTools,
 	getAutomationIntegrationToolNames,
+	isGithubAutomationTool,
 } from '../services/automation-tools';
 import { mcpService } from '../services/mcp';
 import { skillService } from '../services/skill';
@@ -266,5 +267,8 @@ function integrationTypeFromTool(toolName: AutomationIntegrationToolName): Autom
 	if (toolName === 'send_automation_slack_message') {
 		return 'slack';
 	}
-	return 'github';
+	if (isGithubAutomationTool(toolName)) {
+		return 'github';
+	}
+	throw new Error(`Unknown automation integration tool: ${toolName}`);
 }

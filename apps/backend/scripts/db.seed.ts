@@ -3,6 +3,7 @@ import { hashPassword } from 'better-auth/crypto';
 import s from '../src/db/abstractSchema';
 import { db } from '../src/db/db';
 import { env } from '../src/env';
+import { isGithubSsoEnabled } from '../src/services/github';
 
 const ADMIN_EMAIL = 'test@test.test';
 const ADMIN_PASSWORD = 'test1234';
@@ -12,7 +13,7 @@ const ORG_SLUG = 'test';
 const PROJECT_NAME = 'Test Project';
 const PROJECT_PATH = env.NAO_DEFAULT_PROJECT_PATH ?? './';
 
-const useGithubAuth = !!(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET);
+const useGithubAuth = isGithubSsoEnabled();
 
 /**
  * Seeds the database with an admin user, organization, and project.

@@ -5,6 +5,7 @@ import { updateAuth } from '../auth';
 import { env } from '../env';
 import * as orgQueries from '../queries/organization.queries';
 import { emailService } from '../services/email';
+import { isGithubSsoEnabled } from '../services/github';
 import { hasFeature, LICENSE_FEATURES } from '../services/license.service';
 import { isMicrosoftConfigured } from '../services/microsoft-auth.service';
 import { adminProtectedProcedure, publicProcedure } from './trpc';
@@ -45,9 +46,7 @@ export const authConfigRoutes = {
 			}),
 	},
 	github: {
-		isSetup: publicProcedure.query(() => {
-			return !!(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET);
-		}),
+		isSetup: publicProcedure.query(() => isGithubSsoEnabled()),
 	},
 	microsoft: {
 		isSetup: publicProcedure.query(async () => {

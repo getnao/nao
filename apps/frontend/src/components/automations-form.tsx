@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
+import { useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { Calendar, Github, Mail, Plus, Trash2 } from 'lucide-react';
+import { Calendar, Github, Mail, Plus, Trash2, X } from 'lucide-react';
 import type { McpState } from '@nao/shared';
 import type { LlmProvider } from '@nao/shared/types';
 import type { FormEvent, ReactNode, RefObject } from 'react';
@@ -41,8 +42,46 @@ type IntegrationConfig = {
 	github?: {
 		enabled: boolean;
 		repositories: string[];
+		actions?: GithubActionsConfig;
 	};
 };
+
+type GithubActionsConfig = {
+	createIssue?: boolean;
+	createPullRequest?: boolean;
+	addComment?: boolean;
+};
+
+type GithubActionKey = keyof GithubActionsConfig;
+
+type GithubMenuItemKey = 'read' | GithubActionKey;
+
+const GITHUB_MENU_ITEMS: Array<{ key: GithubMenuItemKey; label: string; description: string }> = [
+	{
+		key: 'read',
+		label: 'Read repos',
+		description: 'Inspect issues, PRs, comments, and files. Always included.',
+	},
+	{
+		key: 'createIssue',
+		label: 'Create issues',
+		description: 'Open new GitHub issues with a title, body, and optional labels.',
+	},
+	{
+		key: 'createPullRequest',
+		label: 'Open pull requests',
+		description: 'Open a PR between two existing branches.',
+	},
+	{
+		key: 'addComment',
+		label: 'Comment on issues/PRs',
+		description: 'Post markdown comments on existing issues or PRs.',
+	},
+];
+
+const GITHUB_ACTION_LABELS: Record<GithubMenuItemKey, string> = Object.fromEntries(
+	GITHUB_MENU_ITEMS.map((item) => [item.key, item.label]),
+) as Record<GithubMenuItemKey, string>;
 
 export type AutomationFormValue = {
 	title: string;
@@ -931,21 +970,23 @@ function ToolsSection({
 						onRemoveEmail={() => setEmailEnabled(false)}
 						onRemoveSlack={() => setSlackEnabled(false)}
 						onRemoveGithub={() => githubIntegration.onEnabledChange(false)}
+						onRemoveGithubAction={githubIntegration.onRemoveAction}
 						onRemoveMcpServer={removeMcpServer}
 						githubDescription={githubIntegration.description}
+						githubActiveItems={githubIntegration.activeItems}
 						disabled={disabled}
 					/>
 				))}
 				<AddToolMenu
 					emailEnabled={email.enabled}
 					slackEnabled={slack.enabled}
-					githubEnabled={github.enabled}
-					canEnableGithub={githubIntegration.canEnable}
+					githubState={githubIntegration.state}
+					githubActiveItems={githubIntegration.activeItems}
 					mcpServerEntries={mcpServerEntries}
 					selectedMcpServers={selectedMcpServers}
 					onAddEmail={() => setEmailEnabled(true)}
 					onAddSlack={() => setSlackEnabled(true)}
-					onAddGithub={() => githubIntegration.onEnabledChange(true)}
+					onAddGithubItem={githubIntegration.onAddItem}
 					onAddMcpServer={addMcpServer}
 					disabled={disabled}
 				/>
@@ -967,8 +1008,10 @@ function ToolRow({
 	onRemoveEmail,
 	onRemoveSlack,
 	onRemoveGithub,
+	onRemoveGithubAction,
 	onRemoveMcpServer,
 	githubDescription,
+	githubActiveItems,
 	disabled,
 }: {
 	tool: AddedTool;
@@ -979,8 +1022,10 @@ function ToolRow({
 	onRemoveEmail: () => void;
 	onRemoveSlack: () => void;
 	onRemoveGithub: () => void;
+	onRemoveGithubAction: (key: GithubActionKey) => void;
 	onRemoveMcpServer: (serverName: string) => void;
 	githubDescription: ReactNode;
+	githubActiveItems: GithubMenuItemKey[];
 	disabled: boolean;
 }) {
 	if (tool.kind === 'mcp') {
@@ -1073,6 +1118,7 @@ function ToolRow({
 	}
 
 	const github = value.integrations.github ?? { enabled: false, repositories: [] };
+
 	return (
 		<ToolRowShell
 			icon={<Github className='size-4 text-muted-foreground' />}
@@ -1081,21 +1127,65 @@ function ToolRow({
 			onRemove={onRemoveGithub}
 			disabled={disabled}
 		>
-			<Input
-				className='h-8'
-				placeholder='Allowed repos, comma separated. Leave empty to allow all connected repos.'
-				value={github.repositories.join(', ')}
-				onChange={(event) =>
-					onChange({
-						...value,
-						integrations: {
-							...value.integrations,
-							github: { ...github, repositories: splitCommaList(event.target.value) },
-						},
-					})
-				}
-			/>
+			<div className='grid gap-2'>
+				<Input
+					className='h-8'
+					placeholder='Allowed repos, comma separated. Leave empty to allow all connected repos.'
+					value={github.repositories.join(', ')}
+					onChange={(event) =>
+						onChange({
+							...value,
+							integrations: {
+								...value.integrations,
+								github: { ...github, repositories: splitCommaList(event.target.value) },
+							},
+						})
+					}
+				/>
+				<GithubActiveItemsList items={githubActiveItems} onRemove={onRemoveGithubAction} disabled={disabled} />
+			</div>
 		</ToolRowShell>
+	);
+}
+
+function GithubActiveItemsList({
+	items,
+	onRemove,
+	disabled,
+}: {
+	items: GithubMenuItemKey[];
+	onRemove: (key: GithubActionKey) => void;
+	disabled: boolean;
+}) {
+	if (items.length === 0) {
+		return null;
+	}
+
+	return (
+		<div className='flex flex-wrap items-center gap-1'>
+			{items.map((key) => {
+				const isRead = key === 'read';
+				return (
+					<span
+						key={key}
+						className='inline-flex items-center gap-1 rounded-md border bg-background px-1.5 py-0.5 text-xs text-foreground'
+					>
+						<span>{GITHUB_ACTION_LABELS[key]}</span>
+						{!isRead && (
+							<button
+								type='button'
+								onClick={() => onRemove(key)}
+								disabled={disabled}
+								aria-label={`Remove ${GITHUB_ACTION_LABELS[key]}`}
+								className='inline-flex size-3.5 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50'
+							>
+								<X className='size-3' />
+							</button>
+						)}
+					</span>
+				);
+			})}
+		</div>
 	);
 }
 
@@ -1140,25 +1230,25 @@ function ToolRowShell({
 function AddToolMenu({
 	emailEnabled,
 	slackEnabled,
-	githubEnabled,
-	canEnableGithub,
+	githubState,
+	githubActiveItems,
 	mcpServerEntries,
 	selectedMcpServers,
 	onAddEmail,
 	onAddSlack,
-	onAddGithub,
+	onAddGithubItem,
 	onAddMcpServer,
 	disabled,
 }: {
 	emailEnabled: boolean;
 	slackEnabled: boolean;
-	githubEnabled: boolean;
-	canEnableGithub: boolean;
+	githubState: GithubMenuState;
+	githubActiveItems: GithubMenuItemKey[];
 	mcpServerEntries: [string, McpState[string]][];
 	selectedMcpServers: string[];
 	onAddEmail: () => void;
 	onAddSlack: () => void;
-	onAddGithub: () => void;
+	onAddGithubItem: (key: GithubMenuItemKey) => void;
 	onAddMcpServer: (serverName: string) => void;
 	disabled: boolean;
 }) {
@@ -1189,15 +1279,7 @@ function AddToolMenu({
 
 				<DropdownMenuSeparator />
 				<DropdownMenuLabel>Code</DropdownMenuLabel>
-				<DropdownMenuItem onSelect={onAddGithub} disabled={githubEnabled || !canEnableGithub}>
-					<Github className='size-4' />
-					<span>GitHub</span>
-					{githubEnabled ? (
-						<span className='ml-auto text-xs text-muted-foreground'>Added</span>
-					) : !canEnableGithub ? (
-						<span className='ml-auto text-xs text-muted-foreground'>Not connected</span>
-					) : null}
-				</DropdownMenuItem>
+				<GithubSubMenu state={githubState} activeItems={githubActiveItems} onAddItem={onAddGithubItem} />
 
 				<DropdownMenuSeparator />
 				<DropdownMenuLabel>MCP</DropdownMenuLabel>
@@ -1209,6 +1291,63 @@ function AddToolMenu({
 			</DropdownMenuContent>
 		</DropdownMenu>
 	);
+}
+
+function GithubSubMenu({
+	state,
+	activeItems,
+	onAddItem,
+}: {
+	state: GithubMenuState;
+	activeItems: GithubMenuItemKey[];
+	onAddItem: (key: GithubMenuItemKey) => void;
+}) {
+	if (state !== 'ready') {
+		return (
+			<DropdownMenuItem onSelect={() => onAddItem('read')} disabled={state !== 'needs-connect'}>
+				<Github className='size-4' />
+				<span>GitHub</span>
+				<GithubMenuItemBadge state={state} />
+			</DropdownMenuItem>
+		);
+	}
+
+	const activeSet = new Set(activeItems);
+	return (
+		<DropdownMenuSub>
+			<DropdownMenuSubTrigger>
+				<Github className='size-4' />
+				<span>GitHub</span>
+			</DropdownMenuSubTrigger>
+			<DropdownMenuSubContent className='min-w-64'>
+				{GITHUB_MENU_ITEMS.map((item) => {
+					const isAdded = activeSet.has(item.key);
+					return (
+						<DropdownMenuItem key={item.key} onSelect={() => onAddItem(item.key)} disabled={isAdded}>
+							<div className='grid gap-0.5'>
+								<span>{item.label}</span>
+								<span className='text-xs text-muted-foreground'>{item.description}</span>
+							</div>
+							{isAdded && <span className='ml-auto text-xs text-muted-foreground'>Added</span>}
+						</DropdownMenuItem>
+					);
+				})}
+			</DropdownMenuSubContent>
+		</DropdownMenuSub>
+	);
+}
+
+function GithubMenuItemBadge({ state }: { state: GithubMenuState }) {
+	if (state === 'unconfigured') {
+		return <span className='ml-auto text-xs text-muted-foreground'>Not configured</span>;
+	}
+	if (state === 'loading') {
+		return <span className='ml-auto text-xs text-muted-foreground'>Checking...</span>;
+	}
+	if (state === 'needs-connect') {
+		return <span className='ml-auto text-xs text-primary'>Connect</span>;
+	}
+	return null;
 }
 
 function McpSubMenu({
@@ -1282,6 +1421,8 @@ function AutomationSidebarSection({ title, children }: { title: string; children
 	);
 }
 
+export type GithubMenuState = 'loading' | 'unconfigured' | 'needs-connect' | 'ready';
+
 function useGithubIntegration({
 	github,
 	value,
@@ -1291,70 +1432,136 @@ function useGithubIntegration({
 	value: AutomationFormValue;
 	onAutoSaveChange: (value: AutomationFormValue) => void;
 }) {
+	const navigate = useNavigate();
 	const githubAvailable = useQuery(trpc.github.isAvailable.queryOptions());
 	const githubStatus = useQuery({
 		...trpc.github.getStatus.queryOptions(),
 		enabled: githubAvailable.data === true,
 	});
-	const githubStatusData = githubStatus.data;
-	const connectedGithubLogin = githubStatusData?.connected === true ? githubStatusData.user.login : undefined;
-	const canEnable = githubAvailable.data === true && Boolean(connectedGithubLogin);
+	const connectedGithubLogin = githubStatus.data?.connected === true ? githubStatus.data.user.login : undefined;
+	const state = resolveGithubMenuState(githubAvailable.data, githubStatus.data);
 	const description = getGithubIntegrationDescription({
-		available: githubAvailable.data,
+		state,
 		connectedLogin: connectedGithubLogin,
-		checkingConnection: githubAvailable.data === true && githubStatusData === undefined,
 		connectHref: getGithubConnectHref(),
 	});
 
 	function handleEnabledChange(enabled: boolean) {
-		if (enabled && !canEnable) {
+		if (enabled && state !== 'ready') {
 			return;
 		}
-
+		const nextGithub = enabled ? { ...github, enabled: true } : { ...github, enabled: false, actions: {} };
 		onAutoSaveChange({
 			...value,
-			integrations: { ...value.integrations, github: { ...github, enabled } },
+			integrations: { ...value.integrations, github: nextGithub },
 		});
 	}
 
+	function handleAddItem(key: GithubMenuItemKey) {
+		if (state === 'needs-connect') {
+			navigate({ to: '/settings/account' });
+			return;
+		}
+		if (state !== 'ready') {
+			return;
+		}
+		const nextActions = key === 'read' ? (github.actions ?? {}) : { ...(github.actions ?? {}), [key]: true };
+		onAutoSaveChange({
+			...value,
+			integrations: {
+				...value.integrations,
+				github: { ...github, enabled: true, actions: nextActions },
+			},
+		});
+	}
+
+	function handleRemoveAction(key: GithubActionKey) {
+		const nextActions = { ...(github.actions ?? {}), [key]: false };
+		onAutoSaveChange({
+			...value,
+			integrations: {
+				...value.integrations,
+				github: { ...github, actions: nextActions },
+			},
+		});
+	}
+
+	const activeItems = getActiveGithubItems(github);
+
 	return {
-		canEnable,
+		state,
 		description,
+		activeItems,
+		onAddItem: handleAddItem,
+		onRemoveAction: handleRemoveAction,
 		onEnabledChange: handleEnabledChange,
 	};
 }
 
+function getActiveGithubItems(github: NonNullable<IntegrationConfig['github']>): GithubMenuItemKey[] {
+	if (!github.enabled) {
+		return [];
+	}
+	const actions = github.actions ?? {};
+	const active: GithubMenuItemKey[] = ['read'];
+	if (actions.createIssue) {
+		active.push('createIssue');
+	}
+	if (actions.createPullRequest) {
+		active.push('createPullRequest');
+	}
+	if (actions.addComment) {
+		active.push('addComment');
+	}
+	return active;
+}
+
+function resolveGithubMenuState(
+	available: boolean | undefined,
+	status: { connected: boolean } | undefined,
+): GithubMenuState {
+	if (available === undefined) {
+		return 'loading';
+	}
+	if (!available) {
+		return 'unconfigured';
+	}
+	if (status === undefined) {
+		return 'loading';
+	}
+	return status.connected ? 'ready' : 'needs-connect';
+}
+
 function getGithubIntegrationDescription({
-	available,
+	state,
 	connectedLogin,
-	checkingConnection,
 	connectHref,
 }: {
-	available: boolean | undefined;
+	state: GithubMenuState;
 	connectedLogin?: string;
-	checkingConnection: boolean;
 	connectHref: string;
 }): ReactNode {
-	if (connectedLogin) {
+	if (state === 'ready' && connectedLogin) {
 		return (
 			<>
-				Allow the agent to create issues, open pull requests, or comment on issues/PRs as{' '}
-				<span className='font-medium text-foreground'>@{connectedLogin}</span>.
+				The agent can read issues, PRs, and files as{' '}
+				<span className='font-medium text-foreground'>@{connectedLogin}</span>. Pick the write actions below to
+				let it act on the repos too.
 			</>
 		);
 	}
 
-	if (available === false) {
+	if (state === 'unconfigured') {
 		return 'GitHub integration is not configured for this workspace.';
 	}
 
-	if (available === undefined || checkingConnection) {
+	if (state === 'loading') {
 		return 'Checking GitHub connection...';
 	}
 
 	return (
 		<>
-			Allow the agent to create issues, open pull requests, or comment on issues/PRs.{' '}
+			Let the agent read issues, PRs, and files, and act on them with the write actions you pick.{' '}
 			<a href={connectHref} className='font-medium text-primary underline underline-offset-2'>
 				Connect
 			</a>{' '}
@@ -1435,9 +1642,18 @@ function normalizeAutomationValue(value: AutomationFormValue): AutomationFormVal
 				? {
 						enabled: value.integrations.github.enabled,
 						repositories: value.integrations.github.repositories,
+						actions: normalizeGithubActions(value.integrations.github.actions),
 					}
 				: undefined,
 		},
+	};
+}
+
+function normalizeGithubActions(actions: GithubActionsConfig | undefined): GithubActionsConfig {
+	return {
+		createIssue: Boolean(actions?.createIssue),
+		createPullRequest: Boolean(actions?.createPullRequest),
+		addComment: Boolean(actions?.addComment),
 	};
 }
 

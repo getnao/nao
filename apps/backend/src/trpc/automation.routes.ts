@@ -49,6 +49,13 @@ const integrationSchema = z
 			.object({
 				enabled: z.boolean().default(false),
 				repositories: z.array(z.string().trim().min(1)).default([]),
+				actions: z
+					.object({
+						createIssue: z.boolean().default(false),
+						createPullRequest: z.boolean().default(false),
+						addComment: z.boolean().default(false),
+					})
+					.optional(),
 			})
 			.optional(),
 	})
