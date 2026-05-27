@@ -378,8 +378,15 @@ function LogRow({ entry, expanded, onToggle, formatTimestamp }: LogRowProps) {
 		if (!el) {
 			return;
 		}
-		setIsTruncated(el.scrollWidth > el.clientWidth + 1);
-	}, [entry.message]);
+		if (expanded) {
+			return;
+		}
+		const measure = () => setIsTruncated(el.scrollWidth > el.clientWidth + 1);
+		measure();
+		const observer = new ResizeObserver(measure);
+		observer.observe(el);
+		return () => observer.disconnect();
+	}, [entry.message, expanded]);
 
 	const handleClick = () => {
 		if (isClickable) {
