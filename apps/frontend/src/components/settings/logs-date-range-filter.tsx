@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import DatePicker from 'react-datepicker';
 import { Calendar } from 'lucide-react';
 
@@ -57,6 +57,19 @@ export function LogsDateRangeFilter({ value, onChange }: LogsDateRangeFilterProp
 	const [customMode, setCustomMode] = useState(false);
 	const [customStart, setCustomStart] = useState<Date | null>(value?.from ?? null);
 	const [customEnd, setCustomEnd] = useState<Date | null>(value?.to ?? null);
+	const prevValueRef = useRef<LogsDateRange | undefined>(value);
+
+	useEffect(() => {
+		const prev = prevValueRef.current;
+		const sameFrom = prev?.from?.getTime() === value?.from?.getTime();
+		const sameTo = prev?.to?.getTime() === value?.to?.getTime();
+		prevValueRef.current = value;
+		if (sameFrom && sameTo) {
+			return;
+		}
+		setCustomStart(value?.from ?? null);
+		setCustomEnd(value?.to ?? null);
+	}, [value]);
 
 	const activePresetId = useMemo(() => {
 		if (!value?.from || value.to) {
