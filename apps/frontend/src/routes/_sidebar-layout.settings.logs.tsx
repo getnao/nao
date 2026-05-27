@@ -156,7 +156,7 @@ function LogsPage() {
 				setHasMoreOlder(false);
 			}
 		} catch {
-			setHasMoreOlder(false);
+			// Keep hasMoreOlder true so the user can retry after a transient failure.
 		} finally {
 			loadingOlderRef.current = false;
 			setIsLoadingOlder(false);
