@@ -1,10 +1,14 @@
 import type { LlmProvider } from '@nao/shared/types';
-import { LanguageModelUsage, ModelMessage } from 'ai';
+import { isToolUIPart, LanguageModelUsage, ModelMessage } from 'ai';
 
 import { LLM_PROVIDERS } from '../agents/providers';
 import { type ITokenCounter, tokenCounter } from '../services/token-counter';
-import { CompactionPart, TokenCost, TokenUsage, UIMessage } from '../types/chat';
+import { CompactionPart, TokenCost, TokenUsage, UIMessage, UIMessagePart } from '../types/chat';
 import type { CustomModelMetadata, ModelCosts } from '../types/llm';
+
+const SETTLED_TOOL_STATES = new Set<string>(['output-available', 'output-error', 'output-denied']);
+
+const INTERRUPTED_TOOL_ERROR_TEXT = 'The tool call was interrupted by the user before it could complete.';
 
 export const convertToTokenUsage = (usage: LanguageModelUsage): TokenUsage => ({
 	inputTotalTokens: usage.inputTokens,
@@ -100,6 +104,28 @@ export const joinAllTextParts = (message: UIMessage, separator: string = '\n'): 
 		.join(separator)
 		.trim();
 };
+
+export function settleInterruptedToolParts(messages: UIMessage[]): UIMessage[] {
+	return messages.map((message) => {
+		if (message.role !== 'assistant') {
+			return message;
+		}
+		let changed = false;
+		const newParts = message.parts.map((part) => {
+			if (!isToolUIPart(part) || SETTLED_TOOL_STATES.has(part.state)) {
+				return part;
+			}
+			changed = true;
+			return {
+				...part,
+				state: 'output-error',
+				input: part.input ?? {},
+				errorText: INTERRUPTED_TOOL_ERROR_TEXT,
+			} as UIMessagePart;
+		});
+		return changed ? { ...message, parts: newParts } : message;
+	});
+}
 
 export function findFirstNonSystemMessageIndex(messages: ModelMessage[]): number {
 	for (let i = 0; i < messages.length; i++) {
