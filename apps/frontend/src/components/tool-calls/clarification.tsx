@@ -79,10 +79,10 @@ export const ClarificationToolCall = memo(({ toolPart }: ToolCallComponentProps<
 								size='sm'
 								disabled={!canSubmit && !isSelected}
 								onClick={() => handleSelect(option)}
-								className='rounded-full'
+								className='rounded-2xl h-auto min-h-7 max-w-full whitespace-normal py-1 text-left'
 							>
-								{isSelected && <Check className='size-3.5' />}
-								<span className='truncate max-w-[28ch]'>{option}</span>
+								{isSelected && <Check className='size-3.5 shrink-0' />}
+								<span className='break-words whitespace-normal'>{option}</span>
 							</Button>
 						);
 					})}
