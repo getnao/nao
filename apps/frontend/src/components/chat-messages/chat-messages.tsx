@@ -188,6 +188,7 @@ const MessageBlock = ({
 			showLoader={showLoader && isLastMessage}
 			isSettled={!isLastMessage || !isRunning}
 			isRunning={isRunning}
+			isLastMessage={isLastMessage}
 			storyIntroMessageId={storyIntroMessageId}
 		/>
 	);
