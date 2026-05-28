@@ -373,10 +373,6 @@ class AgentManager {
 				try {
 					const stopReason = e.isAborted ? 'interrupted' : e.finishReason;
 					const tokenUsage = await this._getTotalUsage(result);
-					// Settle tool parts that never finished executing (e.g. the user
-					// aborted mid-call) as errored so the next turn has paired
-					// `tool_use` + `tool_result` blocks and the model can see it was
-					// interrupted instead of silently losing the context.
 					const [settledMessage] = settleInterruptedToolParts([e.responseMessage]);
 					await chatQueries.upsertMessage({
 						...settledMessage,
@@ -404,10 +400,6 @@ class AgentManager {
 		timezone?: string,
 		chatUrl?: string,
 	): Promise<ModelMessage[]> {
-		// Defense in depth: incremental stream snapshots (e.g. from automation
-		// runs) or pre-fix legacy messages may still hold unsettled tool parts.
-		// Mark them as interrupted so providers never see orphaned tool calls
-		// and the model still has context about what was attempted.
 		const settledUiMessages = settleInterruptedToolParts(uiMessages);
 		const uiMessagesWithStories = await this._syncStoryToolOutputs(settledUiMessages);
 		const uiMessagesWithStoryMode = this._addStoryMode(uiMessagesWithStories, mentions);
