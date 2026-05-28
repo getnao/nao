@@ -190,3 +190,70 @@ def test_connect_includes_schema_when_set(base_config: TrinoConfig) -> None:
         cfg.connect()
 
     assert mock_connect.call_args.kwargs["schema"] == "analytics"
+
+
+def test_connect_defaults_to_http_scheme_without_verify(base_config: TrinoConfig) -> None:
+    """Default scheme is http (backwards-compatible); verify must not be forwarded."""
+    mock_connect = MagicMock()
+    with (
+        patch("nao_core.deps.require_database_backend"),
+        patch("ibis.trino.connect", mock_connect),
+    ):
+        base_config.connect()
+
+    call_kw = mock_connect.call_args.kwargs
+    assert call_kw["http_scheme"] == "http"
+    assert "verify" not in call_kw
+
+
+def test_connect_https_forwards_verify_true_by_default(base_config: TrinoConfig) -> None:
+    mock_connect = MagicMock()
+    cfg = base_config.model_copy(update={"http_scheme": "https"})
+    with (
+        patch("nao_core.deps.require_database_backend"),
+        patch("ibis.trino.connect", mock_connect),
+    ):
+        cfg.connect()
+
+    call_kw = mock_connect.call_args.kwargs
+    assert call_kw["http_scheme"] == "https"
+    assert call_kw["verify"] is True
+
+
+def test_connect_https_with_custom_ca_bundle_path(base_config: TrinoConfig) -> None:
+    mock_connect = MagicMock()
+    cfg = base_config.model_copy(update={"http_scheme": "https", "verify": "/etc/ssl/internal-ca.pem"})
+    with (
+        patch("nao_core.deps.require_database_backend"),
+        patch("ibis.trino.connect", mock_connect),
+    ):
+        cfg.connect()
+
+    assert mock_connect.call_args.kwargs["verify"] == "/etc/ssl/internal-ca.pem"
+
+
+def test_connect_https_with_verify_disabled(base_config: TrinoConfig) -> None:
+    mock_connect = MagicMock()
+    cfg = base_config.model_copy(update={"http_scheme": "https", "verify": False})
+    with (
+        patch("nao_core.deps.require_database_backend"),
+        patch("ibis.trino.connect", mock_connect),
+    ):
+        cfg.connect()
+
+    assert mock_connect.call_args.kwargs["verify"] is False
+
+
+def test_connect_http_ignores_verify_field(base_config: TrinoConfig) -> None:
+    """Setting `verify` while scheme stays 'http' must not leak it into the connect call."""
+    mock_connect = MagicMock()
+    cfg = base_config.model_copy(update={"verify": False})
+    with (
+        patch("nao_core.deps.require_database_backend"),
+        patch("ibis.trino.connect", mock_connect),
+    ):
+        cfg.connect()
+
+    call_kw = mock_connect.call_args.kwargs
+    assert call_kw["http_scheme"] == "http"
+    assert "verify" not in call_kw

@@ -132,16 +132,39 @@ class TrinoConfig(DatabaseConfig):
     user: str = Field(description="Username")
     schema_name: str | None = Field(default=None, description="Default schema (optional)")
     password: str | None = Field(default=None, description="Password (optional)")
+    http_scheme: Literal["http", "https"] = Field(
+        default="http",
+        description="HTTP scheme used to reach the coordinator. Default 'http' preserves prior behaviour.",
+    )
+    verify: bool | str = Field(
+        default=True,
+        description=(
+            "TLS verification when http_scheme='https'. "
+            "True = verify with system CAs, False = disable verification, "
+            "str = path to a CA bundle. Ignored for plain http."
+        ),
+    )
 
     @classmethod
     def promptConfig(cls) -> "TrinoConfig":
         """Interactively prompt the user for Trino configuration."""
         name = ask_text("Connection name:", default="trino-prod") or "trino-prod"
         host = ask_text("Host:", default="localhost") or "localhost"
-        port_str = ask_text("Port:", default="8080") or "8080"
 
+        scheme_str = ask_text("Use HTTPS (y/n):", default="n") or "n"
+        use_https = scheme_str.strip().lower().startswith("y")
+        http_scheme: Literal["http", "https"] = "https" if use_https else "http"
+
+        default_port = "8443" if use_https else "8080"
+        port_str = ask_text("Port:", default=default_port) or default_port
         if not port_str.isdigit():
             raise InitError("Port must be a valid integer.")
+
+        verify: bool | str = True
+        if use_https:
+            ca_path = (ask_text("Custom CA bundle path (leave empty for system CAs):") or "").strip()
+            if ca_path:
+                verify = ca_path
 
         catalog = ask_text("Catalog name:", required_field=True)
         user = ask_text("Username:", required_field=True)
@@ -156,6 +179,8 @@ class TrinoConfig(DatabaseConfig):
             user=user,  # type: ignore[arg-type]
             password=password,
             schema_name=schema_name,
+            http_scheme=http_scheme,
+            verify=verify,
         )
 
     def connect(self) -> BaseBackend:
@@ -170,7 +195,11 @@ class TrinoConfig(DatabaseConfig):
             "port": self.port,
             "user": self.user,
             "database": self.catalog,
+            "http_scheme": self.http_scheme,
         }
+
+        if self.http_scheme == "https":
+            kwargs["verify"] = self.verify
 
         if self.schema_name:
             kwargs["schema"] = self.schema_name
