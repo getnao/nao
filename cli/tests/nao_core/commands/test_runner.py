@@ -93,6 +93,38 @@ def test_filter_test_cases_missing():
         filter_test_cases(test_cases, "missing")
 
 
+def test_filter_test_cases_comma_separated():
+    test_cases = [
+        NaoTestCase(name="orders", prompt="p1", file_path=Path("tests/orders.yml"), sql="select 1"),
+        NaoTestCase(name="users", prompt="p2", file_path=Path("tests/users.yml"), sql="select 1"),
+        NaoTestCase(name="revenue", prompt="p3", file_path=Path("tests/revenue.yml"), sql="select 1"),
+    ]
+
+    filtered = filter_test_cases(test_cases, "orders,revenue")
+
+    assert [tc.name for tc in filtered] == ["orders", "revenue"]
+
+
+def test_filter_test_cases_comma_separated_deduplicates():
+    test_cases = [
+        NaoTestCase(name="orders", prompt="p1", file_path=Path("tests/orders.yml"), sql="select 1"),
+        NaoTestCase(name="users", prompt="p2", file_path=Path("tests/users.yml"), sql="select 1"),
+    ]
+
+    filtered = filter_test_cases(test_cases, "orders, orders ,users")
+
+    assert [tc.name for tc in filtered] == ["orders", "users"]
+
+
+def test_filter_test_cases_comma_separated_missing():
+    test_cases = [
+        NaoTestCase(name="orders", prompt="p1", file_path=Path("tests/orders.yml"), sql="select 1"),
+    ]
+
+    with pytest.raises(ValueError, match="Test not found: missing"):
+        filter_test_cases(test_cases, "orders,missing")
+
+
 def test_serialize_model_costs_uses_backend_field_names():
     costs = ModelCosts(
         input_no_cache=1.0,

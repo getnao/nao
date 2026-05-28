@@ -285,20 +285,30 @@ def save_results(results: list[TestRunResult], output_dir: Path) -> Path:
     return output_file
 
 
-def filter_test_cases(test_cases: list[TestCase], selected_test: str | None) -> list[TestCase]:
-    """Filter test cases to a single selected test, if provided."""
-    if not selected_test:
+def filter_test_cases(test_cases: list[TestCase], selected_tests: str | None) -> list[TestCase]:
+    """Filter test cases to the selected tests, if provided."""
+    if not selected_tests:
         return test_cases
 
-    matches = [tc for tc in test_cases if tc.name == selected_test or tc.file_path.stem == selected_test]
-    if not matches:
-        available = ", ".join(tc.name for tc in test_cases)
-        raise ValueError(f"Test not found: {selected_test}. Available tests: {available}")
-    if len(matches) > 1:
-        names = ", ".join(f"{tc.name} ({tc.file_path.name})" for tc in matches)
-        raise ValueError(f"Multiple tests match '{selected_test}': {names}")
+    selections = [s.strip() for s in selected_tests.split(",") if s.strip()]
 
-    return [matches[0]]
+    selected: list[TestCase] = []
+    seen: set[Path] = set()
+    for selection in selections:
+        matches = [tc for tc in test_cases if tc.name == selection or tc.file_path.stem == selection]
+        if not matches:
+            available = ", ".join(tc.name for tc in test_cases)
+            raise ValueError(f"Test not found: {selection}. Available tests: {available}")
+        if len(matches) > 1:
+            names = ", ".join(f"{tc.name} ({tc.file_path.name})" for tc in matches)
+            raise ValueError(f"Multiple tests match '{selection}': {names}")
+        match = matches[0]
+        if match.file_path in seen:
+            continue
+        seen.add(match.file_path)
+        selected.append(match)
+
+    return selected
 
 
 def test(
@@ -320,7 +330,7 @@ def test(
         str | None,
         Parameter(
             name=["-s", "--select"],
-            help="Run only one test by name or yaml filename stem.",
+            help="Run only the selected tests by name or yaml filename stem. Comma-separated (e.g. '12,13,14').",
         ),
     ] = None,
     username: Annotated[
@@ -346,6 +356,7 @@ def test(
         nao test -m openai:gpt-4.1 -m anthropic:claude-sonnet-4-20250514
         nao test --threads 4
         nao test -s test_name
+        nao test -s 12,13,14
         nao test -u user@example.com --password secret
     """
     email = username or os.environ.get("NAO_USERNAME")
