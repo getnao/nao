@@ -16,7 +16,8 @@ export function getSafeRedirectPath(value: string | undefined | null): string | 
 		return null;
 	}
 	const pathname = value.split(/[?#]/, 1)[0];
-	if (AUTH_PATHS.has(pathname)) {
+	const normalized = pathname.toLowerCase().replace(/\/+$/, '') || '/';
+	if (AUTH_PATHS.has(normalized)) {
 		return null;
 	}
 	return value;
