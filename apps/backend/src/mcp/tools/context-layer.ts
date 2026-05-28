@@ -1,5 +1,5 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { executeSql } from '@nao/shared/tools';
+import { executeSql, grep, list, readFile } from '@nao/shared/tools';
 import { z } from 'zod';
 import zodV3 from 'zod/v3';
 
@@ -12,7 +12,7 @@ import { upsertMcpQueryData } from '../../queries/mcp-query-data.queries';
 import * as storyQueries from '../../queries/story.queries';
 import { pinQueryDataToChat, pinStoryMessageToChat } from '../../utils/chat-message-story';
 import { resolveStoryQueryData, type StoryQueryDataMap } from '../../utils/story-query-data';
-import { type StoryMcpToolPayload } from '../embed/embed-tool-result';
+import { STORY_OUTPUT_SCHEMA, type StoryMcpToolPayload } from '../embed/embed-tool-result';
 import { STORY_APP_URI, uiToolMeta } from '../embed/ui-resources';
 import type { McpContext } from '../logging';
 import { storyChatUrl, storyEmbedUrl, storyUrl } from '../urls';
@@ -27,30 +27,21 @@ const EXECUTE_SQL_DESCRIPTION =
 	'`read_nao_context` on RULES.md, or delegate the whole task to `ask_nao`.\n\n' +
 	'BEFORE RUNNING: if you have not yet read RULES.md in this session, call ' +
 	'`read_nao_context` on `RULES.md` (or `grep_nao_context`) first to learn the schema, ' +
-	'naming conventions, and business rules. Skip this step only if `ask_nao` already ran the query.\n\n' +
-	'Returns rows as JSON and a `query_id` you can feed into `display_chart` or embed in a story ' +
-	'as `<table query_id="..." />`. Optional `chat_id` attaches the query to a chat (e.g. from ' +
-	'`ask_nao`) so its embeds can link back.';
+	'naming conventions, and business rules. Skip this step only if `ask_nao` already ran the query.';
 
 const GREP_DESCRIPTION =
-	'Search a regex across the nao project context files (RULES.md, columns/*.md, semantic layer, ' +
-	'docs). Respects .naoignore.\n\n' +
+	'Search a regex across the nao project context files.\n\n' +
 	'USE WHEN: you need to discover available metrics, tables, or business rules before writing SQL ' +
 	'("find anything about churn", "locate the orders table definition").\n' +
 	'SKIP WHEN: you want to browse a folder rather than match text → use `ls`.';
 
 const LS_DESCRIPTION =
 	'List files and folders in the nao project context at a given path.\n\n' +
-	'USE WHEN: exploring the project structure for the first time, locating RULES.md, or finding ' +
-	'available columns/metrics docs.\n' +
-	'SKIP WHEN: you already know the file you want to search inside → use `grep`. You already know ' +
-	'the exact file to inspect → use `read`.\n\n' +
 	'Best practice: start with `ls .` and `read` RULES.md before any `execute_sql` — it documents ' +
 	'the data model, naming conventions, and business definitions.';
 
 const READ_DESCRIPTION =
-	'Read the full contents of a file in the nao project context (RULES.md, columns/*.md, ' +
-	'semantic layer, docs). Respects .naoignore.\n\n' +
+	'Read the full contents of a file in the nao project context.\n\n' +
 	'USE WHEN: you have a specific path (typically located via `ls` or `grep`) and need the whole ' +
 	'file — e.g. read RULES.md before writing SQL, or columns.md to confirm column names and types.\n' +
 	'SKIP WHEN: matching lines are enough → use `grep`. You want to browse a folder → use `ls`.';
@@ -58,9 +49,6 @@ const READ_DESCRIPTION =
 const CREATE_STORY_DESCRIPTION =
 	'Create a new analytics story — a markdown document with embedded `<chart>` / `<table>` / `<grid>` ' +
 	'blocks rendered by nao (think dashboard or report).\n\n' +
-	'USE WHEN: the user wants a persistent shareable document or to materialise findings beyond ' +
-	'the chat.\n' +
-	'SKIP WHEN: a single chart embed is enough → use `display_chart` alone.\n\n' +
 	'Typical flow: `execute_sql` → `display_chart` → paste the returned `<chart>` block into `content`. ' +
 	'Pass `chat_id` to attach the story to a chat (e.g. from `ask_nao`); omit it for a standalone ' +
 	'project-level story. The chat must belong to the calling user.\n\n' +
@@ -71,8 +59,6 @@ const CREATE_STORY_DESCRIPTION =
 const UPDATE_STORY_DESCRIPTION =
 	"Update a story's title and/or full content. Creates a new version; omit a field to keep its " +
 	'current value.\n\n' +
-	'USE WHEN: editing an existing story you obtained via `list_stories` or `get_story`.\n' +
-	"SKIP WHEN: the story doesn't exist yet → use `create_story`.\n\n" +
 	'When swapping charts, regenerate the `<chart>` block via `display_chart` first so the embed ' +
 	'stays valid.';
 
@@ -100,6 +86,8 @@ function registerFileTools(server: McpServer, ctx: McpContext): void {
 		agentTool: listTool,
 		title: 'List Files',
 		description: LS_DESCRIPTION,
+		inputSchema: list.InputSchema,
+		outputSchema: list.OutputSchema.shape,
 	});
 
 	registerAgentToolAsMcp(server, ctx, {
@@ -107,6 +95,8 @@ function registerFileTools(server: McpServer, ctx: McpContext): void {
 		agentTool: grepTool,
 		title: 'Search Files',
 		description: GREP_DESCRIPTION,
+		inputSchema: grep.InputSchema,
+		outputSchema: grep.OutputSchema.shape,
 	});
 
 	registerAgentToolAsMcp(server, ctx, {
@@ -114,6 +104,8 @@ function registerFileTools(server: McpServer, ctx: McpContext): void {
 		agentTool: readTool,
 		title: 'Read File',
 		description: READ_DESCRIPTION,
+		inputSchema: readFile.InputSchema,
+		outputSchema: readFile.OutputSchema.shape,
 	});
 }
 
@@ -124,6 +116,13 @@ function registerExecuteSql(server: McpServer, ctx: McpContext): void {
 		title: 'Execute SQL',
 		description: EXECUTE_SQL_DESCRIPTION,
 		inputSchema: EXECUTE_SQL_INPUT_SCHEMA,
+		outputSchema: executeSql.OutputSchema.extend({
+			query_id: zodV3
+				.string()
+				.describe(
+					'Reusable query ID — pass to `display_chart` as `query_id`, or embed as `<table query_id="..." />`.',
+				),
+		}).shape,
 		mapInput: ({ chat_id: _chatId, ...input }) => input,
 		resolveChatId: (input) => input.chat_id ?? null,
 		formatResult: async ({ input, output, callLogId }) => {
@@ -173,6 +172,7 @@ function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
 					'Attach the story to a chat (e.g. `chatId` from `ask_nao`). Omit for a standalone story. The chat must belong to the calling user.',
 				),
 		},
+		outputSchema: STORY_OUTPUT_SCHEMA,
 		_meta: uiToolMeta(STORY_APP_URI),
 		handler: async ({ title, content, query_data, chat_id }) => {
 			const slug = generateSlug(title);
@@ -237,6 +237,7 @@ function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
 						"Sets the 'Open in nao' button on the story's embedded charts.",
 				),
 		},
+		outputSchema: STORY_OUTPUT_SCHEMA,
 		_meta: uiToolMeta(STORY_APP_URI),
 		handler: async ({ story_id, title, content, query_data, chat_id }) => {
 			const story = await resolveStory(story_id, ctx);

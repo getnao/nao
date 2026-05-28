@@ -23,13 +23,7 @@ const ASK_NAO_DESCRIPTION =
 	"SKIP WHEN: you'd rather drive the workflow yourself by chaining `ls_nao_context` / " +
 	'`grep_nao_context` / `read_nao_context` / `execute_sql` / `display_chart` / ' +
 	'`create_story` step by step — those run as plain tool calls, leave no chat in the UI, ' +
-	'and give you full control over each step.\n\n' +
-	'Returns the assistant text plus `chatId`, `chatUrl`, `queries` and `story_ids` produced during the run. ' +
-	'Each entry in `queries` has the same shape as `execute_sql` output (`id`, `columns`, `row_count`, `preview`). ' +
-	'Forward each `queries[].id` directly to `display_chart` as `query_id` — never call `execute_sql` again for a query the agent already ran. ' +
-	'Pick `x_axis_key` / `series[].data_key` strictly from `queries[].columns` (same contract as `execute_sql.columns`). ' +
-	'Forward each `story_ids[]` entry directly to `get_story` / `update_story` / `archive_story`. ' +
-	'Pass `chatId` to `create_story` to attach a follow-up document. Side effect: creates a chat row.';
+	'and give you full control over each step.\n\n';
 
 export function registerSubAgentTools(server: McpServer, ctx: McpContext): void {
 	registerMcpTool(server, ctx, {

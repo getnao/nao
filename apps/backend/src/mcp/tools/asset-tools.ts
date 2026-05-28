@@ -5,7 +5,7 @@ import zodV3 from 'zod/v3';
 
 import displayChartTool from '../../agents/tools/display-chart';
 import * as storyQueries from '../../queries/story.queries';
-import { buildChartToolResult, type StoryMcpToolPayload } from '../embed/embed-tool-result';
+import { buildChartToolResult, STORY_OUTPUT_SCHEMA, type StoryMcpToolPayload } from '../embed/embed-tool-result';
 import { CHART_APP_URI, STORY_APP_URI, uiToolMeta } from '../embed/ui-resources';
 import type { McpContext, ToolResult } from '../logging';
 import { storyChatUrl, storyEmbedUrl, storyUrl } from '../urls';
@@ -26,54 +26,34 @@ const DISPLAY_CHART_DESCRIPTION =
 	"SKIP WHEN: you don't have data yet → run `execute_sql` first, or `ask_nao` to let nao handle " +
 	'both the SQL and the chart in one shot. Also skip when you just called `create_story` or ' +
 	'`update_story` — the story embed already renders all its `<chart>` blocks; calling ' +
-	'`display_chart` again would duplicate them.\n\n' +
-	'`x_axis_key` and every `series[].data_key` MUST be a column name from the query result — ' +
-	'i.e. one of `execute_sql.columns` or `ask_nao.queries[].columns` (same contract on both). ' +
-	'Passing a key that does not exist in the data will be rejected with the list of valid columns.\n\n' +
-	'nao auto-resolves the rows from the MCP cache or from any chat in this project you own — no ' +
-	"need to track which chat produced the query. Pass `chat_id` only to wire the embed's " +
-	'`Open in nao` button to a specific chat (e.g. `chatId` from `ask_nao`).\n\n' +
-	'Returns the embed URL, the `<chart>` block ready to paste into a story, and a sandbox HTML preview.';
+	'`display_chart` again would duplicate them.';
 
-const LIST_STORIES_DESCRIPTION =
-	"List analytics stories in the current project. Returns each story's `id`, `title`, `url`, " +
-	'`chatUrl` (null for standalone), `archived` flag, and timestamps.\n\n' +
-	"USE WHEN: surfacing the project's existing dashboards/reports, or finding the `story_id` to " +
-	'pass to `get_story` / `update_story` / `archive_story`.\n\n' +
-	'Pass `archived: true` to include archived ones.';
+const LIST_STORIES_DESCRIPTION = 'List nao stories.';
 
 const GET_STORY_DESCRIPTION =
 	'Fetch a single story with its latest content (`code`), version metadata, `url`, `chatUrl`, ' +
 	'and a rendered HTML embed.\n\n' +
-	'USE WHEN: you need the actual markdown of a story (e.g. before calling `update_story`).\n' +
-	'SKIP WHEN: you only need the list of stories → use `list_stories`.\n\n' +
+	"Useful when you need the actual markdown of a story to get it's latest content and metadata.\n\n" +
 	'`story_id` must be the UUID (returned by `list_stories.id` or `ask_nao.stories[].id`), not the kebab-case slug.';
 
 const ARCHIVE_STORY_DESCRIPTION =
-	'Soft-delete a story — hides it from `list_stories` (unless called with `archived: true`) but ' +
-	'keeps the data on disk.\n\n' +
+	'Archive (soft-delete) a story: it stops appearing in `list_stories` and `ask_nao` results, but ' +
+	'the data and version history are preserved and the user can restore it from the nao UI.\n\n' +
 	'USE WHEN: the user wants to remove a story but keep recovery possible.\n' +
 	'SKIP WHEN: you need a permanent, irreversible delete → use `delete_story`.\n\n' +
 	'`story_id` must be the UUID (from `list_stories` or `ask_nao.stories[].id`), not the slug.';
 
 const DELETE_STORY_DESCRIPTION =
 	'Permanently delete a story and all its versions. Cannot be undone.\n\n' +
-	'USE WHEN: the user explicitly asks for a hard delete (compliance, mistaken story, sensitive data).\n' +
-	'SKIP WHEN: a soft delete would do → use `archive_story` (recoverable).\n\n' +
-	'`story_id` must be the UUID (from `list_stories` or `ask_nao.stories[].id`), not the slug.';
+	'CONFIRM FIRST: ask the user to confirm the permanent deletion and suggest `archive_story` first. ' +
+	'Do not call this tool on ambiguous intent.\n' +
+	'USE WHEN: the user explicitly asks for a hard delete (compliance, mistaken story, sensitive data).\n';
+
+const STORY_ID_INPUT = z
+	.string()
+	.describe('Story UUID (from `list_stories.id` or `ask_nao.stories[].id`). Not the slug.');
 
 type DisplayChartMcpInput = displayChart.Input & { chat_id?: string };
-
-const DISPLAY_CHART_INPUT_SCHEMA = displayChart.InputSchema.extend({
-	chat_id: zodV3
-		.string()
-		.optional()
-		.describe(
-			'Optional chat UUID (e.g. `chatId` from `ask_nao`) to anchor the embed to a chat. ' +
-				"Used for the embed's `Open in nao` link and to track the source chat; " +
-				'nao resolves the rows automatically across the project even without it.',
-		),
-});
 
 export function registerAssetTools(server: McpServer, ctx: McpContext): void {
 	registerDisplayChart(server, ctx);
@@ -86,7 +66,38 @@ function registerDisplayChart(server: McpServer, ctx: McpContext): void {
 		agentTool: displayChartTool,
 		title: 'Display Chart',
 		description: DISPLAY_CHART_DESCRIPTION,
-		inputSchema: DISPLAY_CHART_INPUT_SCHEMA,
+		inputSchema: displayChart.InputSchema.extend({
+			chat_id: zodV3
+				.string()
+				.optional()
+				.describe(
+					'Optional chat UUID (e.g. `chatId` from `ask_nao`) to anchor the embed to a chat. ' +
+						"Used for the embed's `Open in nao` link and to track the source chat; " +
+						'nao resolves the rows automatically across the project even without it.',
+				),
+		}),
+		outputSchema: {
+			queryId: z
+				.string()
+				.describe('`query_id` the chart was built from. Reuse for further `display_chart` calls.'),
+			title: z.string().describe('Chart title.'),
+			block: z
+				.string()
+				.describe('`<chart query_id="..." />` markdown block — drop into a story `content` for embedding.'),
+			embedUrl: z
+				.url()
+				.nullable()
+				.describe('Sandboxed embed URL for the chart, or null if the chart could not be persisted.'),
+			chartEmbedId: z
+				.string()
+				.nullable()
+				.describe('UUID of the persisted chart embed (null if persistence failed).'),
+			chatId: z.string().nullable().describe('Source chat UUID this chart is anchored to, if any.'),
+			sandboxChartHtml: z
+				.string()
+				.optional()
+				.describe('Self-contained HTML for inline rendering when small enough; omitted for large charts.'),
+		},
 		_meta: uiToolMeta(CHART_APP_URI),
 		mapInput: ({ chat_id: _chatId, ...input }) => input,
 		resolveChatId: (input) => input.chat_id ?? null,
@@ -162,6 +173,21 @@ function registerStoryManagementTools(server: McpServer, ctx: McpContext): void 
 				.describe('Max stories to return (default 20, max 100).'),
 			archived: z.boolean().optional().default(false).describe('Set to true to include archived stories.'),
 		},
+		outputSchema: {
+			stories: z
+				.array(
+					z.object({
+						id: z.string().describe('Story UUID.'),
+						title: z.string().describe('Story title.'),
+						url: z.url().describe('URL to open the story in the nao UI.'),
+						chatUrl: z.url().nullable().describe('Source chat URL, or null for standalone stories.'),
+						archived: z.boolean().describe('True if soft-deleted via `archive_story` (still recoverable).'),
+						createdAt: z.string().describe('ISO timestamp of creation.'),
+						updatedAt: z.string().describe('ISO timestamp of last edit.'),
+					}),
+				)
+				.describe('Stories visible to the current user in this project, newest first.'),
+		},
 		handler: async ({ limit, archived }) => {
 			const stories = await storyQueries.listAllUserStoriesInProject(ctx.userId, ctx.projectId, {
 				archived,
@@ -176,7 +202,11 @@ function registerStoryManagementTools(server: McpServer, ctx: McpContext): void 
 				url: storyUrl(story),
 				chatUrl: storyChatUrl(story),
 			}));
-			return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
+			const output = { stories: result };
+			return {
+				content: [{ type: 'text' as const, text: JSON.stringify(output) }],
+				structuredContent: output,
+			};
 		},
 	});
 
@@ -184,11 +214,8 @@ function registerStoryManagementTools(server: McpServer, ctx: McpContext): void 
 		name: 'get_story',
 		title: 'Get Story',
 		description: GET_STORY_DESCRIPTION,
-		inputSchema: {
-			story_id: z
-				.string()
-				.describe('Story UUID (from `list_stories.id` or `ask_nao.stories[].id`). Not the slug.'),
-		},
+		inputSchema: { story_id: STORY_ID_INPUT },
+		outputSchema: STORY_OUTPUT_SCHEMA,
 		_meta: uiToolMeta(STORY_APP_URI),
 		handler: async ({ story_id }) => {
 			const story = await resolveStory(story_id, ctx);
@@ -219,16 +246,18 @@ function registerStoryManagementTools(server: McpServer, ctx: McpContext): void 
 		name: 'archive_story',
 		title: 'Archive Story',
 		description: ARCHIVE_STORY_DESCRIPTION,
-		inputSchema: {
-			story_id: z
-				.string()
-				.describe('Story UUID (from `list_stories.id` or `ask_nao.stories[].id`). Not the slug.'),
+		inputSchema: { story_id: STORY_ID_INPUT },
+		outputSchema: {
+			id: z.string().describe('Story UUID that was archived.'),
+			archived: z.literal(true).describe('Always `true` on success — the story is now archived.'),
 		},
 		handler: async ({ story_id }) => {
 			const story = await resolveStory(story_id, ctx);
 			await storyQueries.archiveByStoryId(story.id);
+			const output = { id: story.id, archived: true as const };
 			return {
-				content: [{ type: 'text' as const, text: JSON.stringify({ id: story.id, archived: true }) }],
+				content: [{ type: 'text' as const, text: JSON.stringify(output) }],
+				structuredContent: output,
 			};
 		},
 	});
@@ -237,16 +266,18 @@ function registerStoryManagementTools(server: McpServer, ctx: McpContext): void 
 		name: 'delete_story',
 		title: 'Delete Story',
 		description: DELETE_STORY_DESCRIPTION,
-		inputSchema: {
-			story_id: z
-				.string()
-				.describe('Story UUID (from `list_stories.id` or `ask_nao.stories[].id`). Not the slug.'),
+		inputSchema: { story_id: STORY_ID_INPUT },
+		outputSchema: {
+			id: z.string().describe('Story UUID that was permanently deleted.'),
+			deleted: z.literal(true).describe('Always `true` on success — the story and all versions are gone.'),
 		},
 		handler: async ({ story_id }) => {
 			const story = await resolveStory(story_id, ctx);
 			await storyQueries.deleteStory(story.id);
+			const output = { id: story.id, deleted: true as const };
 			return {
-				content: [{ type: 'text' as const, text: JSON.stringify({ id: story.id, deleted: true }) }],
+				content: [{ type: 'text' as const, text: JSON.stringify(output) }],
+				structuredContent: output,
 			};
 		},
 	});

@@ -316,6 +316,13 @@
       "when": 1779815381971,
       "tag": "0044_activity",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "6",
+      "when": 1779815381972,
+      "tag": "0045_migrate_mcp_endpoint_settings",
+      "breakpoints": true
     }
   ]
 }

@@ -66,7 +66,10 @@ export function registerAgentToolAsMcp<TAgentInput, TOutput, TMcpInput = TAgentI
 			if (options.formatResult) {
 				return options.formatResult({ input, output, callLogId });
 			}
-			return { content: [{ type: 'text' as const, text: JSON.stringify(output) }] };
+			return {
+				content: [{ type: 'text' as const, text: JSON.stringify(output) }],
+				structuredContent: output as Record<string, unknown>,
+			};
 		},
 	});
 }

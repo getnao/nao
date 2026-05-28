@@ -5,6 +5,7 @@ import {
 	storyAppPayloadFrom,
 } from '@nao/shared';
 import type { McpEmbedKind } from '@nao/shared/types';
+import { z } from 'zod';
 
 import type { ToolResult } from '../logging';
 import { chatUrl } from '../urls';
@@ -13,6 +14,18 @@ import { attachSandboxToAppPayload } from './embed-payload';
 export type StoryMcpToolPayload = Record<string, unknown> & { embedUrl: string };
 
 export type ChartToolPayload = McpChartAppPayload & Record<string, unknown>;
+
+export const STORY_OUTPUT_SCHEMA = {
+	id: z.string().describe('Story UUID.'),
+	title: z.string().describe('Story title.'),
+	url: z.url().describe('URL to open the story in the nao UI.'),
+	chatUrl: z.url().nullable().describe('Source chat URL, or null for standalone stories.'),
+	embedUrl: z.url().describe('Sandboxed embed URL — render this in an iframe to show the story.'),
+	sandboxStoryHtml: z
+		.string()
+		.optional()
+		.describe('Self-contained HTML for inline rendering when small enough; omitted for large stories.'),
+};
 
 export function buildStoryToolResult(
 	output: StoryMcpToolPayload,
