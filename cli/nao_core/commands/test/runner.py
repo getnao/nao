@@ -291,6 +291,9 @@ def filter_test_cases(test_cases: list[TestCase], selected_tests: str | None) ->
         return test_cases
 
     selections = [s.strip() for s in selected_tests.split(",") if s.strip()]
+    if not selections:
+        available = ", ".join(tc.name for tc in test_cases)
+        raise ValueError(f"Test not found: {selected_tests}. Available tests: {available}")
 
     selected: list[TestCase] = []
     seen: set[Path] = set()
