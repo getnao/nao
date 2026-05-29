@@ -323,6 +323,13 @@
       "when": 1779815381972,
       "tag": "0045_migrate_mcp_endpoint_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "6",
+      "when": 1780054933700,
+      "tag": "0046_folder-management",
+      "breakpoints": true
     }
   ]
 }
