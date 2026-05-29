@@ -3,10 +3,10 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 
 import { listUserProjects } from '../queries/project.queries';
 import type { McpEndpointSettings } from '../types/mcp-endpoint';
-import { registerAgentTools } from './tools/agent';
-import { registerDataTools } from './tools/data';
-import { registerFileTools } from './tools/files';
-import { registerStoryTools } from './tools/stories';
+import { registerNaoMcpApps } from './embed/ui-resources';
+import { registerAssetTools } from './tools/asset-tools';
+import { registerContextLayerTools } from './tools/context-layer';
+import { registerSubAgentTools } from './tools/sub-agent';
 
 export interface McpSession {
 	transport: StreamableHTTPServerTransport;
@@ -47,19 +47,21 @@ export async function resolveProjectId(userId: string): Promise<string> {
 }
 
 export function createMcpServer(userId: string, projectId: string, settings: McpEndpointSettings): McpServer {
-	const server = new McpServer({ name: 'nao', version: '0.1.0' }, { capabilities: { tools: {} } });
+	const server = new McpServer({ name: 'nao', version: '0.1.0' }, { capabilities: { tools: {}, resources: {} } });
 	const ctx = { userId, projectId, settings };
 
-	if (settings.agentModeEnabled) {
-		registerAgentTools(server, ctx);
+	if (settings.subAgentModeEnabled) {
+		registerSubAgentTools(server, ctx);
 	}
-	if (settings.toolsModeEnabled) {
-		registerDataTools(server, ctx);
-		registerFileTools(server, ctx);
+	if (settings.contextLayerModeEnabled) {
+		registerContextLayerTools(server, ctx);
 	}
-	if (settings.objectsModeEnabled) {
-		registerStoryTools(server, ctx);
+
+	if (settings.subAgentModeEnabled || settings.contextLayerModeEnabled) {
+		registerAssetTools(server, ctx);
 	}
+
+	registerNaoMcpApps(server);
 
 	return server;
 }

@@ -9,7 +9,9 @@ export interface UpsertRecurringInput {
 	uniqueKey: string;
 	payload?: Record<string, unknown>;
 	runAt: Date;
+	status?: DBScheduledJob['status'];
 	maxAttempts?: number;
+	resetRunAtOnConflict?: boolean;
 }
 
 /**
@@ -24,15 +26,34 @@ export const upsertRecurringJob = async (input: UpsertRecurringInput): Promise<D
 		uniqueKey: input.uniqueKey,
 		payload: input.payload,
 		runAt: input.runAt,
+		status: input.status,
 		maxAttempts: input.maxAttempts,
 	};
+	const updateValues: Partial<NewScheduledJob> = {
+		cron: input.cron,
+		name: input.name,
+		payload: input.payload,
+	};
+	if (input.status) {
+		updateValues.status = input.status;
+	}
+	if (input.maxAttempts !== undefined) {
+		updateValues.maxAttempts = input.maxAttempts;
+	}
+	if (input.resetRunAtOnConflict) {
+		updateValues.runAt = input.runAt;
+		updateValues.attempts = 0;
+		updateValues.lastError = null;
+		updateValues.lockedAt = null;
+		updateValues.lockedBy = null;
+	}
 
 	const [row] = await db
 		.insert(s.scheduledJob)
 		.values(values)
 		.onConflictDoUpdate({
 			target: s.scheduledJob.uniqueKey,
-			set: { cron: input.cron, name: input.name },
+			set: updateValues,
 		})
 		.returning()
 		.execute();
@@ -119,6 +140,10 @@ export const reclaimStaleJobs = async (now: Date, leaseDurationMs: number): Prom
 
 export const deleteJob = async (id: string): Promise<void> => {
 	await db.delete(s.scheduledJob).where(eq(s.scheduledJob.id, id)).execute();
+};
+
+export const deleteJobByUniqueKey = async (uniqueKey: string): Promise<void> => {
+	await db.delete(s.scheduledJob).where(eq(s.scheduledJob.uniqueKey, uniqueKey)).execute();
 };
 
 export const rescheduleJob = async (id: string, runAt: Date): Promise<void> => {

@@ -5,6 +5,7 @@ from typing import Any
 import requests
 
 from nao_core.auth import clear_stored_cookies, get_auth_session, login, prompt_login
+from nao_core.config.llm import ModelCosts
 from nao_core.ui import UI
 
 from .case import TestCase
@@ -114,26 +115,32 @@ class AgentClient:
         test_case: TestCase,
         provider: str = "openai",
         model_id: str = "gpt-4.1",
+        costs: ModelCosts | None = None,
         retry_auth: bool = True,
     ) -> TestResult:
         """Run a test prompt and return the result."""
         session = self._get_session()
+        payload: dict[str, Any] = {
+            "model": {
+                "provider": provider,
+                "modelId": model_id,
+            },
+            "prompt": test_case.prompt,
+            "sql": test_case.sql,
+        }
+
+        cost_payload = serialize_model_costs(costs)
+        if cost_payload is not None:
+            payload["meta"] = {"costs": cost_payload}
 
         response = session.post(
             f"{self.backend_url}/api/test/run",
-            json={
-                "model": {
-                    "provider": provider,
-                    "modelId": model_id,
-                },
-                "prompt": test_case.prompt,
-                "sql": test_case.sql,
-            },
+            json=payload,
         )
 
         if response.status_code == 401:
             if retry_auth and self._handle_auth_retry():
-                return self.run_test(test_case, provider, model_id, retry_auth=False)
+                return self.run_test(test_case, provider, model_id, costs=costs, retry_auth=False)
             raise AgentClientError("Unauthorized. Please check your credentials.")
 
         if response.status_code != 200:
@@ -160,3 +167,16 @@ def get_client(email: str | None = None, password: str | None = None) -> AgentCl
     if _client is None:
         _client = AgentClient(BACKEND_URL, email=email, password=password)
     return _client
+
+
+def serialize_model_costs(costs: ModelCosts | None) -> dict[str, float] | None:
+    """Convert config costs to the backend API shape."""
+    if costs is None:
+        return None
+
+    return {
+        "inputNoCache": costs.input_no_cache,
+        "inputCacheRead": costs.input_cache_read,
+        "inputCacheWrite": costs.input_cache_write,
+        "output": costs.output,
+    }

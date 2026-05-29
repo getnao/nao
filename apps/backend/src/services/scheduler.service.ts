@@ -8,7 +8,7 @@ export type JobHandler<T = unknown> = (payload: T, job: DBScheduledJob) => Promi
 
 const POLL_INTERVAL_MS = 30_000;
 const RECLAIM_INTERVAL_MS = 60_000;
-const LEASE_DURATION_MS = 5 * 60_000;
+const LEASE_DURATION_MS = 10 * 60_000;
 const CLAIM_BATCH_SIZE = 10;
 const RETRY_BACKOFF_MS = [30_000, 60_000, 120_000, 300_000, 600_000];
 
@@ -169,7 +169,7 @@ async function onJobFailure(job: DBScheduledJob, err: unknown): Promise<void> {
 	await scheduledJobQueries.markJobFailed(job.id, message, nextRunAt);
 }
 
-function nextCronTick(cron: string, after: Date): Date | null {
+export function nextCronTick(cron: string, after: Date): Date | null {
 	try {
 		const interval = CronExpressionParser.parse(cron, { currentDate: after });
 		return interval.next().toDate();

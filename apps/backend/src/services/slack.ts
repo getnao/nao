@@ -6,14 +6,18 @@ import { CITATION_TAG_REGEX } from '@nao/shared';
 import type { LlmSelectedModel } from '@nao/shared/types';
 import { WebClient } from '@slack/web-api';
 import { InferUIMessageChunk, readUIMessageStream } from 'ai';
-import { Card, Chat, Message, SentMessage, Thread } from 'chat';
+import { Card, Chat, deriveChannelId, Message, SentMessage, Thread, ThreadImpl } from 'chat';
 
 import { generateChartImage } from '../components/generate-chart';
 import * as chartImageQueries from '../queries/chart-image';
 import * as chatQueries from '../queries/chat.queries';
 import * as feedbackQueries from '../queries/feedback.queries';
 import * as projectQueries from '../queries/project.queries';
-import { listSocketModeSlackConfigs, SlackConfig } from '../queries/project-slack-config.queries';
+import {
+	getProjectSlackConfig,
+	listSocketModeSlackConfigs,
+	SlackConfig,
+} from '../queries/project-slack-config.queries';
 import { getUser } from '../queries/user.queries';
 import { UIChat, UIMessage, UIMessagePart } from '../types/chat';
 import { ConversationContext, StreamState, ToolCallEntry } from '../types/messaging-provider';
@@ -32,6 +36,7 @@ import {
 	EXCLUDED_TOOLS,
 	FEEDBACK_MODAL_CALLBACK_ID,
 	formatMessagingError,
+	formatSlackMessageText,
 } from '../utils/messaging-provider';
 import { isEmailDomainAllowed } from '../utils/utils';
 import { agentService } from './agent';
@@ -42,10 +47,28 @@ import { ensureMessagingProviderUser } from './team-member';
 const UPDATE_INTERVAL_MS = 200;
 
 const SLACK_MENTION_REGEX = /(?:<@|@)([A-Z0-9]+)(?:\|[^>]+)?>?\s*/g;
+const SLACK_USER_MENTION_REGEX = /(^|[^\w<])@([a-zA-Z0-9._-]+)/g;
+const CODE_SPAN_REGEX = /(```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]+`)/;
+const RESERVED_SLACK_MENTIONS = new Set(['channel', 'everyone', 'here']);
 
 type SlackReplyMessage = NonNullable<Awaited<ReturnType<WebClient['conversations']['replies']>>['messages']>[number];
+type SlackUser = NonNullable<Awaited<ReturnType<WebClient['users']['list']>>['members']>[number];
 
 type SlackBotWebhooks = NonNullable<Chat['webhooks']>;
+type SlackPostMessageOptions = {
+	chatId?: string;
+	subscribeThread?: boolean;
+};
+type SlackPostMessageResult = {
+	channel: string;
+	ts: string;
+	threadId: string;
+};
+export type SlackFileUpload = {
+	filename: string;
+	content: Buffer;
+	title?: string;
+};
 
 class ProjectSlackBot {
 	public readonly projectId: string;
@@ -59,6 +82,7 @@ class ProjectSlackBot {
 	private _autoCreateUsersEnabled: boolean;
 	private _autoCreateUsersDomains: string[];
 	private _lastCompletionCard: Map<string, { card: SentMessage; chatUrl: string }> = new Map();
+	private _slackMentionByHandle: Map<string, string> = new Map();
 
 	constructor(config: SlackConfig) {
 		this.projectId = config.projectId;
@@ -124,6 +148,128 @@ class ProjectSlackBot {
 		await this.stopSocketMode();
 	}
 
+	public async postMessage(channelId: string, text: string): Promise<SlackPostMessageResult> {
+		const resolvedText = await this._resolveSlackUserMentions(text);
+		const result = await this._slackClient.chat.postMessage({
+			channel: channelId,
+			text: formatSlackMessageText(resolvedText),
+		});
+
+		if (!result.ok) {
+			throw new Error(result.error ?? 'Failed to post Slack message.');
+		}
+		if (!result.channel || !result.ts) {
+			throw new Error('Slack did not return a channel and timestamp for the posted message.');
+		}
+
+		const threadId = getSlackThreadId(result.channel, result.ts);
+		return { channel: result.channel, ts: result.ts, threadId };
+	}
+
+	public async subscribeThread(threadId: string): Promise<void> {
+		await this._bot.initialize();
+		const adapter = this._bot.getAdapter('slack');
+		const thread = new ThreadImpl({
+			adapter,
+			stateAdapter: this._bot.getState(),
+			id: threadId,
+			channelId: deriveChannelId(adapter, threadId),
+			isDM: false,
+		});
+		await thread.subscribe();
+	}
+
+	private async _resolveSlackUserMentions(text: string): Promise<string> {
+		const handles = extractSlackUserMentionHandles(text);
+		if (handles.length === 0) {
+			return text;
+		}
+
+		const mentionByHandle = await this._getSlackUserMentions(handles);
+		if (mentionByHandle.size === 0) {
+			return text;
+		}
+		return replaceSlackUserMentionHandles(text, mentionByHandle);
+	}
+
+	private async _getSlackUserMentions(handles: string[]): Promise<Map<string, string>> {
+		const mentionByHandle = new Map<string, string>();
+		const unresolvedHandles = new Set<string>();
+
+		for (const handle of handles) {
+			const cachedMention = this._slackMentionByHandle.get(handle);
+			if (cachedMention) {
+				mentionByHandle.set(handle, cachedMention);
+			} else {
+				unresolvedHandles.add(handle);
+			}
+		}
+
+		if (unresolvedHandles.size === 0) {
+			return mentionByHandle;
+		}
+
+		try {
+			const users = await this._listSlackUsers();
+			for (const user of users) {
+				if (!user.id || user.deleted) {
+					continue;
+				}
+
+				const mention = `<@${user.id}>`;
+				for (const candidate of getSlackUserHandleCandidates(user)) {
+					if (!unresolvedHandles.has(candidate)) {
+						continue;
+					}
+					this._slackMentionByHandle.set(candidate, mention);
+					mentionByHandle.set(candidate, mention);
+					unresolvedHandles.delete(candidate);
+				}
+				if (unresolvedHandles.size === 0) {
+					break;
+				}
+			}
+		} catch (error) {
+			logger.warn(`Failed to resolve Slack user mentions: ${String(error)}`, {
+				source: 'system',
+				context: { projectId: this.projectId, handles },
+			});
+		}
+
+		return mentionByHandle;
+	}
+
+	private async _listSlackUsers(): Promise<SlackUser[]> {
+		const users: SlackUser[] = [];
+		let cursor: string | undefined;
+		do {
+			const response = await this._slackClient.users.list({ cursor, limit: 200 });
+			if (!response.ok) {
+				throw new Error(response.error ?? 'Failed to list Slack users.');
+			}
+			users.push(...(response.members ?? []));
+			cursor = response.response_metadata?.next_cursor || undefined;
+		} while (cursor);
+		return users;
+	}
+
+	public async uploadFiles(threadId: string, files: SlackFileUpload[]): Promise<void> {
+		const [, channelId, threadTs] = threadId.split(':');
+		if (!channelId || !threadTs || files.length === 0) {
+			return;
+		}
+
+		for (const file of files) {
+			await this._slackClient.files.uploadV2({
+				channel_id: channelId,
+				thread_ts: threadTs,
+				filename: file.filename,
+				title: file.title,
+				file: file.content,
+			});
+		}
+	}
+
 	private _registerHandlers(): void {
 		this._bot.onNewMention(async (thread, message) => {
 			const startsThread = await this._isThreadStarter(thread.id);
@@ -135,6 +281,18 @@ class ProjectSlackBot {
 
 		this._bot.onSubscribedMessage(async (thread, message) => {
 			await this._handleWorkFlow(thread, message, { fetchUnseenMessages: false });
+		});
+
+		this._bot.onNewMessage(/[\s\S]+/, async (thread, message) => {
+			if (message.isMention || message.author.isMe || message.author.isBot) {
+				return;
+			}
+			const existingChat = await chatQueries.getChatBySlackThread(thread.id);
+			if (!existingChat) {
+				return;
+			}
+			await thread.subscribe();
+			await this._handleWorkFlow(thread, message, { fetchUnseenMessages: true });
 		});
 
 		this._bot.onAction('stop_generation', async (event) => {
@@ -691,6 +849,40 @@ class SlackService {
 
 	constructor() {}
 
+	public async postMessage(
+		projectId: string,
+		channelId: string,
+		text: string,
+		options: SlackPostMessageOptions = {},
+	): Promise<SlackPostMessageResult> {
+		const config = await getProjectSlackConfig(projectId);
+		if (!config) {
+			throw new Error('Slack is not configured for this project.');
+		}
+
+		const bot = await this._getOrCreateBot(config);
+		const result = await bot.postMessage(channelId, text);
+		if (options.chatId) {
+			await chatQueries.attachSlackThread(options.chatId, result.threadId);
+		}
+		if (options.subscribeThread ?? !!options.chatId) {
+			await bot.subscribeThread(result.threadId);
+		}
+		return result;
+	}
+
+	public async uploadFiles(projectId: string, threadId: string, files: SlackFileUpload[]): Promise<void> {
+		if (files.length === 0) {
+			return;
+		}
+		const config = await getProjectSlackConfig(projectId);
+		if (!config) {
+			throw new Error('Slack is not configured for this project.');
+		}
+		const bot = await this._getOrCreateBot(config);
+		await bot.uploadFiles(threadId, files);
+	}
+
 	public async getWebhooks(config: SlackConfig): Promise<SlackBotWebhooks | undefined> {
 		const bot = await this._getOrCreateBot(config);
 		return bot.webhooks;
@@ -776,6 +968,74 @@ class SlackService {
 			previous.modelSelection?.modelId !== next.modelSelection?.modelId
 		);
 	}
+}
+
+function getSlackThreadId(channelId: string, threadTs: string): string {
+	return `slack:${channelId}:${threadTs}`;
+}
+
+function extractSlackUserMentionHandles(text: string): string[] {
+	const handles = new Set<string>();
+	forEachNonCodeText(text, (part) => {
+		part.replace(SLACK_USER_MENTION_REGEX, (_match, _prefix: string, handle: string) => {
+			const normalized = normalizeSlackHandle(handle);
+			if (normalized && !RESERVED_SLACK_MENTIONS.has(normalized)) {
+				handles.add(normalized);
+			}
+			return _match;
+		});
+	});
+	return [...handles];
+}
+
+function replaceSlackUserMentionHandles(text: string, mentionByHandle: Map<string, string>): string {
+	return text
+		.split(CODE_SPAN_REGEX)
+		.map((part, index) => {
+			if (index % 2 === 1) {
+				return part;
+			}
+			return part.replace(SLACK_USER_MENTION_REGEX, (match, prefix: string, handle: string) => {
+				const normalized = normalizeSlackHandle(handle);
+				const mention = normalized ? mentionByHandle.get(normalized) : null;
+				return mention ? `${prefix}${mention}` : match;
+			});
+		})
+		.join('');
+}
+
+function forEachNonCodeText(text: string, callback: (part: string) => void): void {
+	text.split(CODE_SPAN_REGEX).forEach((part, index) => {
+		if (index % 2 === 0) {
+			callback(part);
+		}
+	});
+}
+
+function getSlackUserHandleCandidates(user: SlackUser): string[] {
+	const profile = user.profile as
+		| {
+				display_name?: string;
+				display_name_normalized?: string;
+				real_name?: string;
+				real_name_normalized?: string;
+		  }
+		| undefined;
+
+	return [
+		user.name,
+		profile?.display_name,
+		profile?.display_name_normalized,
+		profile?.real_name,
+		profile?.real_name_normalized,
+	]
+		.map((candidate) => normalizeSlackHandle(candidate))
+		.filter((candidate): candidate is string => !!candidate);
+}
+
+function normalizeSlackHandle(handle: string | null | undefined): string | null {
+	const normalized = handle?.trim().replace(/^@/, '').toLowerCase();
+	return normalized || null;
 }
 
 export const slackService = new SlackService();

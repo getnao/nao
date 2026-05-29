@@ -33,6 +33,7 @@ export const upsertProjectLlmConfig = async (
 				...(config.apiKey !== null && { apiKey: config.apiKey }),
 				...(config.credentials !== undefined && { credentials: config.credentials }),
 				enabledModels: config.enabledModels,
+				customModels: config.customModels,
 				baseUrl: config.baseUrl,
 			})
 			.where(eq(s.projectLlmConfig.id, existing.id))

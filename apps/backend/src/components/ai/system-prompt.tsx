@@ -17,11 +17,19 @@ type SystemPromptProps = {
 	connections?: Connection[];
 	skills?: Skill[];
 	timezone?: string;
+	testMode?: boolean;
 };
 
 export const MEMORY_TOKEN_LIMIT = 1000;
 
-export function SystemPrompt({ memories = [], userRules, connections = [], skills = [], timezone }: SystemPromptProps) {
+export function SystemPrompt({
+	memories = [],
+	userRules,
+	connections = [],
+	skills = [],
+	timezone,
+	testMode,
+}: SystemPromptProps) {
 	const visibleMemories = getMemoriesInTokenRange(memories, MEMORY_TOKEN_LIMIT);
 	const hasClickHouse = connections.some((connection) => connection.type.toLowerCase() === 'clickhouse');
 	const hasTSQL = connections.some((connection) => ['mssql', 'fabric'].includes(connection.type.toLowerCase()));
@@ -89,13 +97,15 @@ export function SystemPrompt({ memories = [], userRules, connections = [], skill
 					researching.
 				</ListItem>
 				<ListItem>If you can execute a SQL query, use the execute_sql tool for it.</ListItem>
-				<ListItem>
-					Use the <Bold>clarification</Bold> tool when the user's request is genuinely ambiguous and
-					proceeding would likely produce the wrong result (e.g. multiple plausible tables, unclear time
-					range, undefined metric). If you need to ask another clarifying question after the user answers,
-					call the <Bold>clarification</Bold> tool again instead of asking in plain text, bullet lists, or
-					examples.
-				</ListItem>
+				{!testMode && (
+					<ListItem>
+						Use the <Bold>clarification</Bold> tool when the user's request is genuinely ambiguous and
+						proceeding would likely produce the wrong result (e.g. multiple plausible tables, unclear time
+						range, undefined metric). If you need to ask another clarifying question after the user answers,
+						call the <Bold>clarification</Bold> tool again instead of asking in plain text, bullet lists, or
+						examples.
+					</ListItem>
+				)}
 				<ListItem>
 					For display_chart x_axis_type: use "date" only when x-axis values are parseable by JavaScript Date
 					(e.g. YYYY-MM-DD). Use "category" for quarter labels (quarter_ending), fiscal periods (FY25-Q1), or

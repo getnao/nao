@@ -62,7 +62,7 @@ export function McpEndpointSettings({ isAdmin }: Props) {
 		<>
 			<SettingsCard
 				title='MCP Server'
-				description='Allow external AI clients (Claude, Cursor, Codex, etc.) to connect.'
+				description='Allow external AI clients (Claude, Cursor, Codex, ChatGPT, etc.) to connect.'
 			>
 				<SettingsToggleRow
 					id='mcp-enabled'
@@ -74,29 +74,25 @@ export function McpEndpointSettings({ isAdmin }: Props) {
 				/>
 			</SettingsCard>
 
-			<SettingsCard title='MCP Modes' description='Control exposed capabilities.'>
+			<SettingsCard title='MCP Modes' description='Control which capabilities are exposed.'>
 				<SettingsToggleRow
-					id='mcp-agent-mode'
+					id='mcp-sub-agent-mode'
 					label='Sub-agent mode'
-					description='External agents use nao as a subagent to answer analytics questions like "How many users do we have?".'
-					checked={settings?.agentModeEnabled ?? true}
-					onCheckedChange={(v) => toggle('agentModeEnabled', v)}
+					description={renderInline(
+						"Exposes `ask_nao` — delegates analytics tasks to nao's agent. The full reasoning trace is saved as a chat visible in the nao UI.",
+					)}
+					checked={settings?.subAgentModeEnabled ?? true}
+					onCheckedChange={(v) => toggle('subAgentModeEnabled', v)}
 					disabled={!isAdmin || !enabled || pending}
 				/>
 				<SettingsToggleRow
-					id='mcp-tools-mode'
+					id='mcp-context-layer-mode'
 					label='Context-layer mode'
-					description='External agents use nao as a context-layer to browse nao filesystem, execute SQL, create charts, etc.'
-					checked={settings?.toolsModeEnabled ?? true}
-					onCheckedChange={(v) => toggle('toolsModeEnabled', v)}
-					disabled={!isAdmin || !enabled || pending}
-				/>
-				<SettingsToggleRow
-					id='mcp-objects-mode'
-					label='Story mode'
-					description='Manage nao stories (create, read, update, archive, etc.). Useful to migrate from other BI tools to nao.'
-					checked={settings?.objectsModeEnabled ?? true}
-					onCheckedChange={(v) => toggle('objectsModeEnabled', v)}
+					description={renderInline(
+						'Exposes `ls_nao_context`, `grep_nao_context`, `read_nao_context`, `execute_sql`, `create_story`, `update_story` — the client MCP drives the workflow step by step.',
+					)}
+					checked={settings?.contextLayerModeEnabled ?? true}
+					onCheckedChange={(v) => toggle('contextLayerModeEnabled', v)}
 					disabled={!isAdmin || !enabled || pending}
 				/>
 			</SettingsCard>
@@ -140,6 +136,8 @@ function ConnectionCard() {
 		2,
 	);
 
+	const vscodeConfig = JSON.stringify({ servers: { nao: { type: 'http', url: endpointUrl } }, inputs: [] }, null, 2);
+
 	const manualTokenConfig = JSON.stringify(
 		{
 			mcpServers: {
@@ -181,7 +179,50 @@ function ConnectionCard() {
 						'Authenticate in your browser when prompted.',
 					],
 					config: endpointUrl,
-					configLabel: 'Endpoint URL',
+					configLabel: 'MCP Endpoint URL',
+				},
+			],
+		},
+		{
+			id: 'chatgpt',
+			label: 'ChatGPT',
+			methods: [
+				{
+					steps: [
+						'Open {Settings > Apps > Advanced settings}.',
+						'Activate `Developer mode` if not already enabled.',
+						'Click `Create app` and paste the URL below into the `MCP Server URL` field.',
+						'Keep authentication as `OAuth` and click `Create`.',
+						'Authenticate in your browser when prompted.',
+					],
+					config: endpointUrl,
+					configLabel: 'MCP Endpoint URL',
+				},
+			],
+		},
+		{
+			id: 'copilot',
+			label: 'Copilot (VS Code)',
+			methods: [
+				{
+					label: 'Via Settings UI',
+					steps: [
+						'Open {Settings > MCP Servers > +}.',
+						'Paste the URL below into the `MCP Endpoint URL` field, then save.',
+						'Authenticate in your browser when prompted.',
+					],
+					config: endpointUrl,
+					configLabel: 'MCP Endpoint URL',
+				},
+				{
+					label: 'Via config file',
+					steps: [
+						'Open `<your_project>/.vscode/mcp.json` (create it if missing).',
+						'Paste the JSON below.',
+						'Authenticate in your browser when prompted.',
+					],
+					config: vscodeConfig,
+					configLabel: 'JSON config',
 				},
 			],
 		},
@@ -208,7 +249,7 @@ function ConnectionCard() {
 						'Enable the connector and authenticate in your browser.',
 					],
 					config: endpointUrl,
-					configLabel: 'Endpoint URL',
+					configLabel: 'MCP Endpoint URL',
 				},
 				{
 					label: 'Via config file',
@@ -224,7 +265,7 @@ function ConnectionCard() {
 		},
 		{
 			id: 'cli',
-			label: 'CLI / Scripts',
+			label: 'CLI',
 			methods: [
 				{
 					steps: ['Use the config below in your MCP client.'],

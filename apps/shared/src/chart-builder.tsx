@@ -36,7 +36,7 @@ export function labelize(key: unknown): string {
 	return str.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-export function formatYAxisTick(value: number): string {
+export function formatCompactNumber(value: number): string {
 	const abs = Math.abs(value);
 	if (abs >= 1_000_000_000) {
 		return `${(value / 1_000_000_000).toFixed(1).replace(/\.0$/, '')}B`;
@@ -47,7 +47,11 @@ export function formatYAxisTick(value: number): string {
 	if (abs >= 10_000) {
 		return `${(value / 1_000).toFixed(1).replace(/\.0$/, '')}K`;
 	}
-	return String(value);
+	return value.toLocaleString();
+}
+
+export function formatYAxisTick(value: number): string {
+	return formatCompactNumber(value);
 }
 
 export function defaultColorFor(_key: string, index: number): string {
@@ -164,7 +168,7 @@ function KpiCard({ value, displayName }: { value: unknown; displayName: string }
 	let formattedValue = '';
 
 	if (typeof value === 'number') {
-		formattedValue = value.toLocaleString();
+		formattedValue = formatCompactNumber(value);
 	} else if (typeof value === 'string') {
 		formattedValue = value;
 	}
@@ -319,7 +323,7 @@ function buildRadarChart(props: ResolvedProps) {
 		<RadarChart data={data} accessibilityLayer margin={margin}>
 			<PolarGrid />
 			<PolarAngleAxis dataKey={xAxisKey} tick={AXIS_TICK} />
-			<PolarRadiusAxis tick={AXIS_TICK} />
+			<PolarRadiusAxis tick={AXIS_TICK} tickFormatter={formatYAxisTick} />
 			{children}
 			{series.map((s, i) => (
 				<Radar
@@ -379,7 +383,7 @@ function renderPieLabel(labelFormatter: (v: string) => string) {
 		textAnchor: 'start' | 'middle' | 'end';
 	}) => (
 		<text x={x} y={y} fill={fill} textAnchor={textAnchor} dominantBaseline='central' fontSize={12}>
-			{`${labelFormatter(String(name))}: ${value}`}
+			{`${labelFormatter(String(name))}: ${formatCompactNumber(value)}`}
 		</text>
 	);
 }

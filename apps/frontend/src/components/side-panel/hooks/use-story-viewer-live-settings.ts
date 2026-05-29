@@ -38,6 +38,9 @@ export const useStoryViewerLiveSettings = ({ chatId, storySlug }: UseStoryViewer
 				void queryClient.invalidateQueries({
 					queryKey: trpc.story.getLatest.queryKey({ chatId, storySlug }),
 				});
+				void queryClient.invalidateQueries({
+					queryKey: trpc.automation.feed.queryKey(),
+				});
 			},
 		}),
 	);

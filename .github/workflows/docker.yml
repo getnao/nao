@@ -216,6 +216,14 @@ jobs:
                         -e "ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}" \
                         -e "BETTER_AUTH_SECRET=${{ secrets.BETTER_AUTH_SECRET }}" \
                         -e "ENABLE_USER_SIGNUP=false" \
+                        -e "BETA_AUTOMATIONS_ENABLED=true" \
+                        -e "SMTP_PASSWORD=${{ secrets.SMTP_PASSWORD }}" \
+                        -e "SMTP_HOST=${{ secrets.SMTP_HOST }}" \
+                        -e "SMTP_PORT=${{ secrets.SMTP_PORT }}" \
+                        -e "SMTP_MAIL_FROM=${{ secrets.SMTP_MAIL_FROM }}" \
+                        -e "SMTP_SSL=${{ secrets.SMTP_SSL }}" \
+                        -e "GITHUB_CLIENT_ID=${{ secrets.MOON_GITHUB_CLIENT_ID }}" \
+                        -e "GITHUB_CLIENT_SECRET=${{ secrets.MOON_GITHUB_CLIENT_SECRET }}" \
                         --device /dev/kvm \
                         --name nao-chat \
                         -d getnao/nao:${{ needs.merge.outputs.image-tag }}
@@ -247,10 +255,9 @@ jobs:
                           -e "DB_SSL=true" \
                           -e "DB_URI=postgres://${{ secrets.POSTGRES_USER }}:${{ secrets.POSTGRES_PASSWORD }}@${{ secrets.POSTGRES_HOST }}:${{ secrets.POSTGRES_PORT }}/app" \
                           -e "NAO_MODE=cloud" \
-                          -e "GITHUB_CLIENT_ID=${{ secrets.PREVIEW_GITHUB_CLIENT_ID }}" \
-                          -e "GITHUB_CLIENT_SECRET=${{ secrets.PREVIEW_GITHUB_CLIENT_SECRET }}" \
-                          -e "CLOUD_GITHUB_CLIENT_ID=${{ secrets.CLOUD_GITHUB_CLIENT_ID }}" \
-                          -e "CLOUD_GITHUB_CLIENT_SECRET=${{ secrets.CLOUD_GITHUB_CLIENT_SECRET }}" \
+                          -e "GITHUB_CLIENT_ID=${{ secrets.CLOUD_GITHUB_CLIENT_ID }}" \
+                          -e "GITHUB_CLIENT_SECRET=${{ secrets.CLOUD_GITHUB_CLIENT_SECRET }}" \
+                          -e "GITHUB_SSO=true" \
                           -e "POSTHOG_DISABLED=true" \
                           -e "NAO_CONTEXT_SOURCE=api" \
                           -e "SMTP_PASSWORD=${{ secrets.SMTP_PASSWORD }}" \
@@ -260,6 +267,7 @@ jobs:
                           -e "SMTP_SSL=${{ secrets.SMTP_SSL }}" \
                           -e "ENABLE_USER_LOGIN=true" \
                           -e "ENABLE_USER_SIGNUP=true" \
+                          -e "BETA_AUTOMATIONS_ENABLED=true" \
                           getnao/nao:${{ needs.merge.outputs.image-tag }}
 
                       echo "Waiting for container to start..."

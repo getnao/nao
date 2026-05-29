@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import type { ParsedChartBlock, ParsedTableBlock } from '@nao/shared/story-segments';
 import type { displayChart } from '@nao/shared/tools';
 
+import { StoryChartEmbedShell } from '@/components/side-panel/story-chart-embed';
 import { ChartDisplay } from '@/components/tool-calls/display-chart';
 import { TableDisplay } from '@/components/tool-calls/display-table';
 
@@ -54,9 +55,11 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({
 }) {
 	const noCacheFetch = useLiveQueryData(chart.queryId, liveQuery);
 
-	const resolvedData = liveQuery
-		? (noCacheFetch.data as { data: Record<string, unknown>[]; columns: string[] } | undefined)?.data
-		: queryData?.[chart.queryId]?.data;
+	const resolved = liveQuery
+		? (noCacheFetch.data as { data: Record<string, unknown>[]; columns: string[] } | undefined)
+		: queryData?.[chart.queryId];
+	const resolvedData = resolved?.data;
+	const resolvedColumns = resolved?.columns ?? [];
 
 	if (liveQuery && noCacheFetch.isLoading) {
 		return <EmbedLoading />;
@@ -71,7 +74,7 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({
 	}
 
 	return (
-		<div className={`my-2 ${chart.chartType !== 'kpi_card' ? 'aspect-3/2' : ''}`}>
+		<StoryChartEmbedShell chart={chart} availableColumns={resolvedColumns}>
 			<ChartDisplay
 				data={resolvedData}
 				chartType={chart.chartType as displayChart.ChartType}
@@ -80,7 +83,7 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({
 				series={chart.series}
 				title={chart.title}
 			/>
-		</div>
+		</StoryChartEmbedShell>
 	);
 });
 

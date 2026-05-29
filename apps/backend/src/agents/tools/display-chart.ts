@@ -1,14 +1,16 @@
 import { displayChart } from '@nao/shared/tools';
-import { tool } from 'ai';
 
 import { DisplayChartOutput, renderToModelOutput } from '../../components/tool-outputs';
+import { createTool } from '../../utils/tools';
 
-export default tool<displayChart.Input, displayChart.Output>({
+export default createTool<displayChart.Input, displayChart.Output>({
 	description: 'Display a chart visualization of the data from a previous `execute_sql` tool call.',
 	inputSchema: displayChart.InputSchema,
 	outputSchema: displayChart.OutputSchema,
 
-	execute: async ({ chart_type: chartType, x_axis_key: xAxisKey, series }) => {
+	execute: async (input, context) => {
+		const { chart_type: chartType, x_axis_key: xAxisKey, series } = input;
+
 		// Validate xAxisKey is provided for cartesian and polar charts
 		if (['bar', 'line', 'area', 'stacked_area', 'scatter', 'radar'].includes(chartType) && !xAxisKey) {
 			return { _version: '1', success: false, error: `xAxisKey is required for ${chartType} charts.` };
@@ -35,6 +37,7 @@ export default tool<displayChart.Input, displayChart.Output>({
 
 		// TODO: check that the chart is displayable and that the data is valid
 
+		context.generatedArtifacts.charts.push(input);
 		return { _version: '1', success: true };
 	},
 

@@ -42,7 +42,11 @@ function ForgotPassword() {
 					If an account exists for that email, we sent a password reset link. Check your spam folder if you
 					don't see it.
 				</p>
-				<Link to='/login' search={{ error: undefined }} className='text-sm underline underline-offset-4'>
+				<Link
+					to='/login'
+					search={{ error: undefined, redirect: undefined }}
+					className='text-sm underline underline-offset-4'
+				>
 					Back to login
 				</Link>
 			</div>
@@ -53,7 +57,11 @@ function ForgotPassword() {
 		<AuthForm form={form} title='Forgot password' submitText='Send reset link' serverError={serverError}>
 			<FormTextField form={form} name='email' type='email' placeholder='Email' />
 			<div className='text-right'>
-				<Link to='/login' search={{ error: undefined }} className='text-sm underline underline-offset-4'>
+				<Link
+					to='/login'
+					search={{ error: undefined, redirect: undefined }}
+					className='text-sm underline underline-offset-4'
+				>
 					Back to login
 				</Link>
 			</div>

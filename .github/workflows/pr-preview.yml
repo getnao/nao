@@ -14,10 +14,79 @@ env:
     IMAGE_NAME: ${{ github.repository }}/preview
 
 jobs:
+    # Security gate: pull_request_target runs with repo secrets, and the deploy
+    # job below checks out the PR head and builds its Dockerfile. Without this
+    # gate, any fork PR could exfiltrate every secret mounted into the build or
+    # the preview container (see PR #849). Only approved contributors and repo
+    # collaborators are allowed to trigger a preview build.
+    gate:
+        name: Check approved contributor
+        runs-on: ubuntu-latest
+        outputs:
+            approved: ${{ steps.check.outputs.approved }}
+        steps:
+            - name: Check if PR author is approved
+              id: check
+              uses: actions/github-script@v7
+              with:
+                  script: |
+                      const APPROVED_FILE = '.github/APPROVED_CONTRIBUTORS';
+                      const prAuthor = context.payload.pull_request.user.login;
+                      const defaultBranch = context.payload.repository.default_branch;
+
+                      function setApproved(value, reason) {
+                          console.log(reason);
+                          core.setOutput('approved', value ? 'true' : 'false');
+                      }
+
+                      if (prAuthor.endsWith('[bot]')) {
+                          return setApproved(false, `Skipping bot author: ${prAuthor}`);
+                      }
+
+                      try {
+                          const { data: permissionLevel } = await github.rest.repos.getCollaboratorPermissionLevel({
+                              owner: context.repo.owner,
+                              repo: context.repo.repo,
+                              username: prAuthor,
+                          });
+                          if (['admin', 'maintain', 'write'].includes(permissionLevel.permission)) {
+                              return setApproved(true, `${prAuthor} is a collaborator with ${permissionLevel.permission} access`);
+                          }
+                      } catch {
+                          // user is not a collaborator; fall through to allowlist
+                      }
+
+                      // Always read the allowlist from the default branch, never from the PR head.
+                      const { data: fileContent } = await github.rest.repos.getContent({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          path: APPROVED_FILE,
+                          ref: defaultBranch,
+                      });
+                      if (!('content' in fileContent) || typeof fileContent.content !== 'string') {
+                          return setApproved(false, `Could not read ${APPROVED_FILE}`);
+                      }
+                      const content = Buffer.from(fileContent.content, 'base64').toString('utf8');
+
+                      for (const rawLine of content.split('\n')) {
+                          const line = rawLine.trim();
+                          if (!line || line.startsWith('#')) continue;
+                          const [username, capability] = line.split(/\s+/);
+                          if (
+                              username?.toLowerCase() === prAuthor.toLowerCase() &&
+                              capability?.toLowerCase() === 'pr'
+                          ) {
+                              return setApproved(true, `${prAuthor} is approved for PRs via ${APPROVED_FILE}`);
+                          }
+                      }
+
+                      return setApproved(false, `${prAuthor} is not approved; preview build skipped`);
+
     deploy:
         name: Deploy Preview
+        needs: gate
         runs-on: ubuntu-latest
-        if: github.event.action != 'closed'
+        if: github.event.action != 'closed' && needs.gate.outputs.approved == 'true'
 
         steps:
             - uses: actions/checkout@v4
@@ -100,6 +169,7 @@ jobs:
                           -e "NAO_DEFAULT_PROJECT_PATH=/app/example" \
                           -e "GITHUB_CLIENT_ID=${{ secrets.PREVIEW_GITHUB_CLIENT_ID }}" \
                           -e "GITHUB_CLIENT_SECRET=${{ secrets.PREVIEW_GITHUB_CLIENT_SECRET }}" \
+                          -e "GITHUB_SSO=true" \
                           -e "GITHUB_ALLOWED_USERS=${{ secrets.PREVIEW_GITHUB_ALLOWED_USERS }},${{ github.event.pull_request.user.login }}" \
                           -e "DEFAULT_USER_ROLE=admin" \
                           -e "NOTION_API_KEY=something-random" \
@@ -111,7 +181,7 @@ jobs:
                       echo "Waiting for container to start..."
                       sleep 10
 
-                      # Run database seed
+                      # Run database seedp
                       echo "Seeding database..."
                       docker exec "nao-preview-${PR_NUMBER}" bun run apps/backend/scripts/db.seed.ts || true
 
@@ -172,8 +242,9 @@ jobs:
 
     cleanup:
         name: Cleanup Preview
+        needs: gate
         runs-on: ubuntu-latest
-        if: github.event.action == 'closed'
+        if: github.event.action == 'closed' && needs.gate.outputs.approved == 'true'
 
         steps:
             - name: Set preview name

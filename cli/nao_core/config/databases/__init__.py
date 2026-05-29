@@ -14,6 +14,7 @@ from .mysql import MysqlConfig
 from .postgres import PostgresConfig
 from .redshift import RedshiftConfig
 from .snowflake import SnowflakeConfig
+from .starrocks import StarRocksConfig
 from .trino import TrinoConfig
 
 # =============================================================================
@@ -33,6 +34,7 @@ AnyDatabaseConfig = Annotated[
         Annotated[MssqlConfig, Tag("mssql")],
         Annotated[PostgresConfig, Tag("postgres")],
         Annotated[RedshiftConfig, Tag("redshift")],
+        Annotated[StarRocksConfig, Tag("starrocks")],
         Annotated[TrinoConfig, Tag("trino")],
     ],
     Discriminator("type"),
@@ -52,6 +54,7 @@ DATABASE_CONFIG_CLASSES: Dict[DatabaseType, Type[object]] = {
     DatabaseType.SNOWFLAKE: SnowflakeConfig,
     DatabaseType.POSTGRES: PostgresConfig,
     DatabaseType.REDSHIFT: RedshiftConfig,
+    DatabaseType.STARROCKS: StarRocksConfig,
     DatabaseType.TRINO: TrinoConfig,
 }
 
@@ -86,6 +89,7 @@ __all__ = [
     "MssqlConfig",
     "MysqlConfig",
     "SnowflakeConfig",
+    "StarRocksConfig",
     "PostgresConfig",
     "RedshiftConfig",
     "TrinoConfig",

@@ -9,7 +9,8 @@
 		"./posthog": "./src/posthog.ts",
 		"./tools": "./src/tools/index.ts",
 		"./story-segments": "./src/story-segments.ts",
-		"./story-table-utils": "./src/story-table-utils.ts"
+		"./story-table-utils": "./src/story-table-utils.ts",
+		"./story-validation": "./src/story-validation.ts"
 	},
 	"scripts": {
 		"test": "vitest run",

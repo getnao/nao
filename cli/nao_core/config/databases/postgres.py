@@ -138,7 +138,7 @@ class PostgresConfig(DatabaseConfig):
     def create_context(self, conn: BaseBackend, schema: str, table_name: str) -> PostgresDatabaseContext:
         return PostgresDatabaseContext(conn, schema, table_name)
 
-    def get_query_history_sql(self, days: int) -> str | None:
+    def _default_query_history_sql(self, days: int) -> str | None:
         return "SELECT query AS query_text FROM pg_stat_statements WHERE calls > 0 LIMIT 10000"
 
     def check_connection(self) -> tuple[bool, str]:

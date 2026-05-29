@@ -7,8 +7,12 @@ from unittest.mock import MagicMock, patch
 from rich.console import Console
 
 from nao_core.commands.sync.cleanup import DatabaseSyncState
-from nao_core.commands.sync.providers.databases.provider import DatabaseSyncProvider
+from nao_core.commands.sync.providers.databases.provider import (
+    DatabaseSyncProvider,
+    _fetch_query_history,
+)
 from nao_core.config.base import NaoConfig
+from nao_core.config.databases.duckdb import DuckDBConfig
 from nao_core.deps import MissingDependencyError
 
 
@@ -122,3 +126,57 @@ class TestDatabaseSyncProvider:
         text = output.getvalue()
         assert "ibis-framework[postgres]" in text
         assert "nao-core[redshift]" in text
+
+
+class TestFetchQueryHistoryFiltering:
+    """Verify that exclude patterns are applied after fetching query history."""
+
+    def _build_cursor(self, queries: list[str]) -> MagicMock:
+        cursor = MagicMock(spec=["description", "fetchall"])
+        cursor.description = [("query_text",)]
+        cursor.fetchall.return_value = [(q,) for q in queries]
+        return cursor
+
+    def test_exclude_patterns_drop_matching_queries(self):
+        db = DuckDBConfig(
+            name="duck",
+            path=":memory:",
+            query_history_sql="SELECT q AS query_text FROM logs",
+            query_history_exclude_patterns=[r"SYSTEM\$", r"^SELECT CURRENT_SESSION"],
+        )
+        conn = MagicMock()
+        conn.raw_sql.return_value = self._build_cursor(
+            [
+                "SELECT * FROM users",
+                "CALL SYSTEM$GET_RECENT_IN_APP_NOTIFICATIONS()",
+                "SELECT CURRENT_SESSION()",
+                "SELECT * FROM orders",
+            ]
+        )
+
+        result = _fetch_query_history(db, conn)
+
+        assert result == ["SELECT * FROM users", "SELECT * FROM orders"]
+        conn.raw_sql.assert_called_once_with("SELECT q AS query_text FROM logs")
+
+    def test_no_exclude_patterns_returns_all_queries(self):
+        db = DuckDBConfig(
+            name="duck",
+            path=":memory:",
+            query_history_sql="SELECT q AS query_text FROM logs",
+        )
+        conn = MagicMock()
+        conn.raw_sql.return_value = self._build_cursor(["SELECT 1", "SELECT 2"])
+
+        result = _fetch_query_history(db, conn)
+
+        assert result == ["SELECT 1", "SELECT 2"]
+
+    def test_returns_empty_when_no_query_history_sql(self):
+        db = DuckDBConfig(name="duck", path=":memory:")
+        conn = MagicMock()
+
+        result = _fetch_query_history(db, conn)
+
+        assert result == []
+        conn.raw_sql.assert_not_called()

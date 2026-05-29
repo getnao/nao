@@ -79,6 +79,17 @@ DEFAULT_ANNOTATION_MODELS: dict[LLMProvider, str] = {
 }
 
 
+class ModelCosts(BaseModel):
+    input_no_cache: float = Field(ge=0)
+    input_cache_read: float = Field(ge=0)
+    input_cache_write: float = Field(ge=0)
+    output: float = Field(ge=0)
+
+
+class LLMConfigMeta(BaseModel):
+    costs: ModelCosts
+
+
 class LLMConfig(BaseModel):
     """LLM configuration."""
 
@@ -99,6 +110,7 @@ class LLMConfig(BaseModel):
         default=None,
         description="Model to use for ai_summary generation via prompt(...) in Jinja templates",
     )
+    meta: LLMConfigMeta | None = Field(default=None, description="Metadata for the LLM")
 
     @property
     def requires_api_key(self) -> bool:

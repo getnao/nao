@@ -1,10 +1,12 @@
 import { displayChart, executeSql } from '@nao/shared/tools';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
 import { takeFirstOrThrow } from '../utils/queries';
+
+const DISPLAY_CHART_TOOL_TYPE = 'tool-display_chart';
 
 export const getChartById = async (id: string): Promise<string> => {
 	const result = await takeFirstOrThrow(
@@ -22,7 +24,7 @@ export const getChartConfigByToolCallId = async (toolCallId: string): Promise<di
 		db
 			.select({ toolInput: s.messagePart.toolInput })
 			.from(s.messagePart)
-			.where(eq(s.messagePart.toolCallId, toolCallId))
+			.where(getDisplayChartToolCallFilter(toolCallId))
 			.execute(),
 	);
 	return displayChart.InputSchema.parse(result.toolInput);
@@ -66,3 +68,36 @@ export const saveChart = async (toolCallId: string, data: string): Promise<strin
 	);
 	return row.id;
 };
+
+/** Returns the project owner of the chat that contains the given chart tool call. */
+export const getChartOwnerInfo = async (toolCallId: string): Promise<{ projectId: string; userId: string } | null> => {
+	const [row] = await db
+		.select({ projectId: s.chat.projectId, userId: s.chat.userId })
+		.from(s.messagePart)
+		.innerJoin(s.chatMessage, eq(s.messagePart.messageId, s.chatMessage.id))
+		.innerJoin(s.chat, eq(s.chatMessage.chatId, s.chat.id))
+		.where(getDisplayChartToolCallFilter(toolCallId))
+		.execute();
+	return row ?? null;
+};
+
+/** Persists an updated `display_chart` config for the given tool call. */
+export const updateChartConfig = async (toolCallId: string, config: displayChart.Input): Promise<void> => {
+	await db.transaction(async (tx) => {
+		await tx
+			.update(s.messagePart)
+			.set({ toolInput: config })
+			.where(getDisplayChartToolCallFilter(toolCallId))
+			.execute();
+
+		// Invalidate any cached PNG so externally-served chart images refresh.
+		await tx
+			.delete(s.message_part_chart_image)
+			.where(eq(s.message_part_chart_image.toolCallId, toolCallId))
+			.execute();
+	});
+};
+
+function getDisplayChartToolCallFilter(toolCallId: string) {
+	return and(eq(s.messagePart.toolCallId, toolCallId), eq(s.messagePart.type, DISPLAY_CHART_TOOL_TYPE));
+}

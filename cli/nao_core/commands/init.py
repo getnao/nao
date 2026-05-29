@@ -1,4 +1,5 @@
 import os
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated
@@ -32,9 +33,23 @@ class CreatedFile:
     content: str | None
 
 
-def setup_project_name(force: bool = False) -> tuple[str, Path, NaoConfig | None]:
-    """Setup the project name. Returns existing config if found and user wants to extend."""
-    # Check if we're in a directory with an existing nao_config.yaml
+def setup_project_name(
+    force: bool = False,
+    name: str | None = None,
+    no_tty: bool = False,
+) -> tuple[str, Path, NaoConfig | None, bool]:
+    """Setup the project name.
+
+    Returns a 4-tuple ``(project_name, project_path, existing_config, created_folder)``
+    where ``created_folder`` is ``True`` when the project folder was freshly created
+    by this call (and is therefore safe to remove if `nao init` aborts later on).
+
+    In non-interactive (no_tty) mode:
+    - If a `nao_config.yaml` exists in the current directory, the existing config is reused
+      (no confirmation prompt) and the project is initialized in place.
+    - Otherwise the project name is taken from `name` if provided, falling back to the
+      current directory name, and the project is initialized in the current directory.
+    """
     current_dir = Path.cwd()
     config_file = current_dir / "nao_config.yaml"
 
@@ -52,25 +67,34 @@ def setup_project_name(force: bool = False) -> tuple[str, Path, NaoConfig | None
         UI.title("Found existing nao_config.yaml")
         UI.print(f"[dim]Project: {existing_config.project_name}[/dim]\n")
 
-        if force or ask_confirm("Update this project configuration?", default=True):
-            return existing_config.project_name, current_dir, existing_config
+        if force or no_tty or ask_confirm("Update this project configuration?", default=True):
+            return existing_config.project_name, current_dir, existing_config, False
 
         raise InitError("Initialization cancelled.")
 
-    # Normal flow: prompt for project name
-    project_name = ask_text("Enter your project name:", required_field=True)
+    if no_tty:
+        project_name = name or current_dir.name
+    elif name:
+        project_name = name
+    else:
+        project_name = ask_text("Enter your project name:", required_field=True)
 
     if not project_name:
         raise EmptyProjectNameError()
 
-    project_path = Path(project_name)
+    if no_tty and not name:
+        # Initialize in the current directory when no explicit name is given
+        return project_name, current_dir, None, False
 
-    if project_path.exists() and not force:
+    project_path = Path(project_name)
+    folder_existed_before = project_path.exists()
+
+    if folder_existed_before and not force:
         raise ProjectExistsError(project_name)
 
     project_path.mkdir(parents=True, exist_ok=True)
 
-    return project_name, project_path, None
+    return project_name, project_path, None, not folder_existed_before
 
 
 def create_empty_structure(project_path: Path) -> tuple[list[str], list[CreatedFile]]:
@@ -118,6 +142,19 @@ def create_empty_structure(project_path: Path) -> tuple[list[str], list[CreatedF
     return created_folders, created_files
 
 
+def _cleanup_partial_project(project_path: Path) -> None:
+    """Remove a freshly-created project folder after an aborted init.
+
+    Failures are swallowed so the original error is not masked, but a warning
+    is surfaced so the user knows whether they need to remove the folder by hand.
+    """
+    try:
+        shutil.rmtree(project_path)
+        UI.info(f"Removed incomplete project folder [dim]{project_path}[/dim].")
+    except Exception as cleanup_error:
+        UI.warn(f"Could not remove incomplete project folder [dim]{project_path}[/dim]: {cleanup_error}")
+
+
 def _install_with_progress(extras: list[str]) -> bool:
     """Run the extras install with a Rich spinner. Returns True on success."""
     from rich.console import Console
@@ -140,10 +177,24 @@ def _install_with_progress(extras: list[str]) -> bool:
     return False
 
 
+def _build_no_tty_config(project_name: str, existing_config: NaoConfig | None) -> NaoConfig:
+    """Return a config to save in non-interactive mode.
+
+    Keeps any existing config as-is so an agent can pre-write `nao_config.yaml`
+    and have `nao init` only scaffold folders. Otherwise creates a minimal
+    config with just the project name.
+    """
+    if existing_config:
+        return existing_config
+    return NaoConfig(project_name=project_name)
+
+
 @track_command("init")
 def init(
     *,
     force: Annotated[bool, Parameter(name=["-f", "--force"])] = False,
+    yes: Annotated[bool, Parameter(name=["-y", "--yes", "--no-tty"])] = False,
+    name: Annotated[str | None, Parameter(name=["-n", "--name"])] = None,
 ):
     """Initialize a new nao project.
 
@@ -153,16 +204,37 @@ def init(
     ----------
     force : bool
         Force re-initialization even if the folder already exists.
+    yes : bool
+        Run non-interactively (no TTY). Skips all prompts and uses sensible defaults.
+        Useful for AI agents and automation scripts. When combined with a pre-written
+        `nao_config.yaml`, only scaffolds the folder structure.
+    name : str
+        Project name. When set without an existing `nao_config.yaml`, this is used
+        as the project name (and folder). In non-interactive mode without an existing
+        config and without `--name`, the current directory name is used and the
+        project is initialized in place.
     """
     UI.info("\n🚀 nao project initialization\n")
 
+    project_path: Path | None = None
+    cleanup_on_abort = False
+
     try:
-        project_name, project_path, existing_config = setup_project_name(force=force)
-        config = NaoConfig.promptConfig(project_name, existing=existing_config)
+        project_name, project_path, existing_config, created_folder = setup_project_name(
+            force=force, name=name, no_tty=yes
+        )
+        cleanup_on_abort = created_folder
+
+        if yes:
+            config = _build_no_tty_config(project_name, existing_config)
+        else:
+            config = NaoConfig.promptConfig(project_name, existing=existing_config)
+
         config.save(project_path)
 
-        # Create project folder structure
         created_folders, created_files = create_empty_structure(project_path)
+
+        cleanup_on_abort = False
 
         UI.print()
         if existing_config:
@@ -182,7 +254,8 @@ def init(
             UI.title("Installing provider dependencies")
             UI.print(f"[dim]Extras: {extras_label}[/dim]\n")
 
-            if ask_confirm("Install the required provider dependencies now?", default=True):
+            should_install = yes or ask_confirm("Install the required provider dependencies now?", default=True)
+            if should_install:
                 UI.print()
                 deps_ready = _install_with_progress(missing)
             else:
@@ -226,5 +299,15 @@ def init(
         UI.print()
 
     except InitError as e:
+        if cleanup_on_abort and project_path is not None:
+            _cleanup_partial_project(project_path)
         UI.error(str(e))
         raise SystemExit(1) from e
+    except KeyboardInterrupt:
+        if cleanup_on_abort and project_path is not None:
+            _cleanup_partial_project(project_path)
+        raise
+    except Exception:
+        if cleanup_on_abort and project_path is not None:
+            _cleanup_partial_project(project_path)
+        raise

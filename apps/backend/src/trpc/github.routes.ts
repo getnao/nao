@@ -2,8 +2,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { TRPCError } from '@trpc/server';
+import yaml from 'js-yaml';
 import { z } from 'zod/v4';
 
+import type { DBProject } from '../db/abstractSchema';
 import { env } from '../env';
 import * as orgQueries from '../queries/organization.queries';
 import * as projectQueries from '../queries/project.queries';
@@ -57,6 +59,7 @@ export const githubRoutes = {
 			z.object({
 				repoFullName: z.string(),
 				projectName: z.string().min(1).optional(),
+				replaceExisting: z.boolean().default(false),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
@@ -70,47 +73,50 @@ export const githubRoutes = {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'You are not a member of any organization' });
 			}
 
-			const orgId = membership.orgId;
-			const projectName = input.projectName || input.repoFullName.split('/').pop()!;
-			const existing = await projectQueries.getProjectByOrgAndName(orgId, projectName);
-			if (existing) {
-				throw new TRPCError({
-					code: 'CONFLICT',
-					message: `A project named "${projectName}" already exists in this organization`,
-				});
-			}
-
-			const projectId = crypto.randomUUID();
-			const projectDir = path.resolve(env.NAO_PROJECTS_DIR, projectId);
-			fs.mkdirSync(projectDir, { recursive: true });
-
+			const cloneDir = createTempProjectDir();
 			try {
-				await githubService.cloneRepo(token, input.repoFullName, projectDir);
-			} catch (err) {
-				fs.rmSync(projectDir, { recursive: true, force: true });
-				throw new TRPCError({
-					code: 'INTERNAL_SERVER_ERROR',
-					message: err instanceof Error ? err.message : 'Failed to clone repository',
+				try {
+					githubService.cloneRepo(token, input.repoFullName, cloneDir);
+				} catch (err) {
+					throw new TRPCError({
+						code: 'INTERNAL_SERVER_ERROR',
+						message: err instanceof Error ? err.message : 'Failed to clone repository',
+					});
+				}
+
+				const orgId = membership.orgId;
+				const projectName =
+					input.projectName ||
+					readProjectNameFromConfig(cloneDir) ||
+					getProjectNameFromRepo(input.repoFullName);
+				const existing = await projectQueries.getProjectByOrgAndName(orgId, projectName);
+				if (existing) {
+					if (!input.replaceExisting) {
+						throw new TRPCError({
+							code: 'CONFLICT',
+							message: `A project named "${projectName}" already exists in this organization. Confirm replacement to import this repository over it.`,
+						});
+					}
+
+					return replaceExistingProjectFromRepo({
+						sourceDir: cloneDir,
+						project: existing,
+						projectName,
+					});
+				}
+
+				return createProjectFromRepo({
+					sourceDir: cloneDir,
+					projectName,
+					orgId,
 				});
+			} finally {
+				try {
+					fs.rmSync(cloneDir, { recursive: true, force: true });
+				} catch {
+					// best-effort cleanup
+				}
 			}
-
-			const project = await projectQueries.createProject({
-				name: projectName,
-				type: 'local',
-				path: projectDir,
-				orgId,
-			});
-
-			const orgMembers = await orgQueries.listOrgMembersWithUsers(orgId);
-			for (const member of orgMembers) {
-				await projectQueries.addProjectMember({
-					projectId: project.id,
-					userId: member.id,
-					role: member.role,
-				});
-			}
-
-			return { projectId: project.id, projectName };
 		}),
 
 	getProjectGitInfo: adminProtectedProcedure.query(({ ctx }) => {
@@ -149,3 +155,121 @@ export const githubRoutes = {
 		}
 	}),
 };
+
+async function createProjectFromRepo({
+	sourceDir,
+	projectName,
+	orgId,
+}: {
+	sourceDir: string;
+	projectName: string;
+	orgId: string;
+}) {
+	const projectId = crypto.randomUUID();
+	const projectDir = path.resolve(env.NAO_PROJECTS_DIR, projectId);
+
+	try {
+		replaceProjectDirectory(sourceDir, projectDir);
+	} catch (err) {
+		fs.rmSync(projectDir, { recursive: true, force: true });
+		throw new TRPCError({
+			code: 'INTERNAL_SERVER_ERROR',
+			message: err instanceof Error ? err.message : 'Failed to import repository',
+		});
+	}
+
+	const project = await projectQueries.createProject({
+		name: projectName,
+		type: 'local',
+		path: projectDir,
+		orgId,
+	});
+
+	const orgMembers = await orgQueries.listOrgMembersWithUsers(orgId);
+	for (const member of orgMembers) {
+		await projectQueries.addProjectMember({
+			projectId: project.id,
+			userId: member.id,
+			role: member.role,
+		});
+	}
+
+	return { projectId: project.id, projectName, status: 'created' as const };
+}
+
+async function replaceExistingProjectFromRepo({
+	sourceDir,
+	project,
+	projectName,
+}: {
+	sourceDir: string;
+	project: DBProject;
+	projectName: string;
+}) {
+	if (!project.path) {
+		throw new TRPCError({ code: 'BAD_REQUEST', message: 'Project path not configured' });
+	}
+
+	try {
+		replaceProjectDirectory(sourceDir, project.path);
+	} catch (err) {
+		throw new TRPCError({
+			code: 'INTERNAL_SERVER_ERROR',
+			message: err instanceof Error ? err.message : 'Failed to replace project from repository',
+		});
+	}
+
+	await projectQueries.touchProjectUpdatedAt(project.id);
+	return { projectId: project.id, projectName, status: 'updated' as const };
+}
+
+function getProjectNameFromRepo(repoFullName: string): string {
+	return repoFullName.split('/').pop()!;
+}
+
+function readProjectNameFromConfig(projectDir: string): string | null {
+	const configPath = path.join(projectDir, 'nao_config.yaml');
+	if (!fs.existsSync(configPath)) {
+		return null;
+	}
+
+	try {
+		const config = yaml.load(fs.readFileSync(configPath, 'utf-8')) as { project_name?: unknown } | null;
+		return typeof config?.project_name === 'string' && config.project_name.trim()
+			? config.project_name.trim()
+			: null;
+	} catch {
+		return null;
+	}
+}
+
+function createTempProjectDir(): string {
+	const dir = path.resolve(env.NAO_PROJECTS_DIR, `.github-import-${crypto.randomUUID()}`);
+	fs.mkdirSync(dir, { recursive: true });
+	return dir;
+}
+
+function replaceProjectDirectory(src: string, dest: string): void {
+	const parentDir = path.dirname(dest);
+	const backupDir = path.join(parentDir, `.github-import-backup-${crypto.randomUUID()}`);
+	let hasBackup = false;
+
+	fs.mkdirSync(parentDir, { recursive: true });
+	if (fs.existsSync(dest)) {
+		fs.renameSync(dest, backupDir);
+		hasBackup = true;
+	}
+
+	try {
+		fs.cpSync(src, dest, { recursive: true });
+		if (hasBackup) {
+			fs.rmSync(backupDir, { recursive: true, force: true });
+		}
+	} catch (err) {
+		fs.rmSync(dest, { recursive: true, force: true });
+		if (hasBackup) {
+			fs.renameSync(backupDir, dest);
+		}
+		throw err;
+	}
+}

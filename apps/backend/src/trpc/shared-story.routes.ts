@@ -2,10 +2,12 @@ import { DOWNLOAD_FORMATS } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
+import * as activityQueries from '../queries/activity.queries';
 import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
+import { logActivity } from '../services/activity';
 import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../services/live-story';
 import { notifySharedItemRecipients } from '../utils/email';
 import { buildDownloadResponse } from '../utils/story-download';
@@ -61,6 +63,14 @@ export const sharedStoryRoutes = {
 				input.allowedUserIds,
 			);
 
+			await logActivity({
+				projectId: ctx.project.id,
+				userId: ctx.user.id,
+				type: 'story.shared',
+				storyId: story.id,
+				sharedStoryId: created.id,
+			});
+
 			notifySharedItemRecipients({
 				projectId: ctx.project.id,
 				sharerId: ctx.user.id,
@@ -112,8 +122,32 @@ export const sharedStoryRoutes = {
 
 	refreshData: shareAccessProcedure.input(z.object({ shareId: z.string() })).mutation(async ({ ctx }) => {
 		const shared = ctx.resource;
-		const { queryData } = await refreshStoryData(shared.chatId!, shared.slug);
-		return { queryData, cachedAt: new Date() };
+		const story = await storyQueries.getStoryByChatAndSlug(shared.chatId!, shared.slug);
+		const storyOwnerId = story ? await storyQueries.getStoryOwnerId(story.id) : undefined;
+		const activity =
+			story && storyOwnerId
+				? await activityQueries.startStoryRefreshActivity({
+						projectId: shared.projectId,
+						userId: storyOwnerId,
+						storyId: story.id,
+						chatId: story.chatId,
+						trigger: 'manual',
+					})
+				: null;
+		try {
+			const { queryData } = await refreshStoryData(shared.chatId!, shared.slug);
+			if (activity) {
+				await activityQueries.completeActivity(activity.id, {
+					queriesRefreshed: Object.keys(queryData).length,
+				});
+			}
+			return { queryData, cachedAt: new Date() };
+		} catch (err) {
+			if (activity) {
+				await activityQueries.failActivity(activity.id, err instanceof Error ? err.message : String(err));
+			}
+			throw err;
+		}
 	}),
 
 	getSharedStoryInfo: projectProtectedProcedure

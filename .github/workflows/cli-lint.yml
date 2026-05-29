@@ -28,7 +28,7 @@ jobs:
               run: uv python install
 
             - name: Install dependencies
-              run: uv sync --dev
+              run: uv sync --dev --extra aws-secrets --extra k8s-secrets
 
             - name: Run pytest
               run: uv run pytest

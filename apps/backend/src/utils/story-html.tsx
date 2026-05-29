@@ -1,4 +1,4 @@
-import { defaultColorFor, labelize } from '@nao/shared';
+import { DEFAULT_COLORS, defaultColorFor, formatCompactNumber, labelize } from '@nao/shared';
 import type { ParsedChartBlock, ParsedTableBlock, Segment } from '@nao/shared/story-segments';
 import { splitCodeIntoSegments } from '@nao/shared/story-segments';
 import { formatCellValue, isNumericColumn } from '@nao/shared/story-table-utils';
@@ -184,7 +184,7 @@ function KpiCards({ chart, rows }: { chart: ParsedChartBlock; rows: Record<strin
 		>
 			{chart.series.map((s) => {
 				const raw = firstRow[s.data_key];
-				const value = typeof raw === 'number' ? raw.toLocaleString() : String(raw ?? '');
+				const value = typeof raw === 'number' ? formatCompactNumber(raw) : String(raw ?? '');
 				const label = s.label ?? s.data_key;
 				return (
 					<div key={s.data_key} style={{ minWidth: 160 }}>
@@ -343,14 +343,15 @@ img{max-width:100%;height:auto;border-radius:4px;margin:8px 0}
 
 const TOOLTIP_SCRIPT = `
 (function(){
-	var PIE_COLORS=['#104e64','#f54900','#009689','#ffb900','#fe9a00'];
+	var PIE_COLORS=${JSON.stringify(DEFAULT_COLORS)};
 	function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;')}
 	function labelize(s){
 		var str=String(s);
 		if(/^\\d{4}-\\d{2}-\\d{2}/.test(str)){var d=new Date(str);if(!isNaN(d.getTime()))return escHtml(d.toLocaleDateString('en-US',{timeZone:'UTC'}))}
 		return escHtml(str.replace(/_/g,' ').replace(/\\b\\w/g,function(c){return c.toUpperCase()}))
 	}
-	function formatVal(v){return escHtml(typeof v==='number'?v.toLocaleString():String(v!=null?v:''))}
+	function formatCompact(v){var a=Math.abs(v);if(a>=1e9)return (v/1e9).toFixed(1).replace(/[.]0$/,'')+'B';if(a>=1e6)return (v/1e6).toFixed(1).replace(/[.]0$/,'')+'M';if(a>=1e4)return (v/1e3).toFixed(1).replace(/[.]0$/,'')+'K';return v.toLocaleString()}
+	function formatVal(v){return escHtml(typeof v==='number'?formatCompact(v):String(v!=null?v:''))}
 
 	document.querySelectorAll('.nao-chart').forEach(function(container){
 		var raw=container.getAttribute('data-chart');
@@ -419,13 +420,14 @@ const TOOLTIP_SCRIPT = `
 			var html='<div class="nao-tooltip-label">'+(isPie?labelize(cfg.series[0]&&(cfg.series[0].label||cfg.series[0].data_key)||''):labelize(label!=null?label:''))+'</div>';
 			html+='<div class="nao-tooltip-rows">';
 			var numericValues=[];
-			cfg.series.forEach(function(s){
+			cfg.series.forEach(function(s, si){
 				var color;
 				if(isPie){
 					color=pieColorMap[String(label!=null?label:'')]||PIE_COLORS[0];
 				}else{
-					color=s.color||'#2563eb';
-					if(color.startsWith('var('))color='#2563eb';
+					var fb=PIE_COLORS[si % PIE_COLORS.length];
+					color=s.color||fb;
+					if(!color||String(color).startsWith('var('))color=fb;
 				}
 				var val=row[s.data_key];
 				if(typeof val==='number')numericValues.push(val);
@@ -440,7 +442,7 @@ const TOOLTIP_SCRIPT = `
 				var total=numericValues.reduce(function(a,b){return a+b},0);
 				html+='<div class="nao-tooltip-total">'
 					+'<span class="nao-tooltip-name">Total</span>'
-					+'<span class="nao-tooltip-value">'+escHtml(total.toLocaleString())+'</span>'
+					+'<span class="nao-tooltip-value">'+escHtml(formatCompact(total))+'</span>'
 					+'</div>';
 			}
 			html+='</div>';

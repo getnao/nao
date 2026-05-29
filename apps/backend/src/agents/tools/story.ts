@@ -2,6 +2,7 @@ import { story } from '@nao/shared/tools';
 
 import { renderToModelOutput, StoryOutput } from '../../components/tool-outputs';
 import * as storyQueries from '../../queries/story.queries';
+import type { ToolContext } from '../../types/tools';
 import { createTool } from '../../utils/tools';
 
 export default createTool<story.Input, story.Output>({
@@ -50,6 +51,7 @@ export default createTool<story.Input, story.Output>({
 				action: 'create',
 				source: 'assistant',
 			});
+			rememberStoryArtifact(context, input.id, version.title);
 
 			return {
 				_version: '1',
@@ -86,6 +88,7 @@ export default createTool<story.Input, story.Output>({
 				action: 'update',
 				source: 'assistant',
 			});
+			rememberStoryArtifact(context, input.id, version.title);
 
 			return {
 				_version: '1',
@@ -110,6 +113,7 @@ export default createTool<story.Input, story.Output>({
 			action: 'replace',
 			source: 'assistant',
 		});
+		rememberStoryArtifact(context, input.id, version.title);
 
 		return {
 			_version: '1',
@@ -123,3 +127,12 @@ export default createTool<story.Input, story.Output>({
 
 	toModelOutput: ({ output }) => renderToModelOutput(StoryOutput({ output }), output),
 });
+
+function rememberStoryArtifact(context: ToolContext, id: string, title: string): void {
+	const existing = context.generatedArtifacts.stories.find((story) => story.id === id);
+	if (existing) {
+		existing.title = title;
+		return;
+	}
+	context.generatedArtifacts.stories.push({ id, title });
+}

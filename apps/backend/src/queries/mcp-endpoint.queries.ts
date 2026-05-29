@@ -28,7 +28,7 @@ export async function updateMcpEndpointSettings(
 	return merged;
 }
 
-export async function insertMcpCallLog(entry: Omit<NewMcpCallLog, 'id' | 'calledAt'>): Promise<void> {
+export async function insertMcpCallLog(entry: Omit<NewMcpCallLog, 'calledAt'>): Promise<void> {
 	await db.insert(s.mcpCallLog).values(entry).execute();
 }
 

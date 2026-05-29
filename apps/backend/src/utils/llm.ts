@@ -23,7 +23,7 @@ export function hasEnvApiKey(provider: LlmProvider): boolean {
 		return true;
 	}
 	const { alternativeEnvVars, extraFields, apiKey } = LLM_PROVIDERS[provider].auth;
-	if (alternativeEnvVars?.every((v) => process.env[v])) {
+	if (alternativeEnvVars?.some((bundle) => bundle.every((v) => process.env[v]))) {
 		return true;
 	}
 	// For providers that don't require an API key (e.g. Vertex), check if any extra field env var is set
@@ -177,6 +177,7 @@ export const getProjectAvailableModels = async (
 	for (const config of configs) {
 		const provider = config.provider as LlmProvider;
 		const enabledModels = config.enabledModels ?? [];
+		const customModels = config.customModels ?? [];
 
 		if (enabledModels.length === 0) {
 			// If no models explicitly enabled, add the default
@@ -184,7 +185,12 @@ export const getProjectAvailableModels = async (
 			models.push({ provider, modelId: defaultModelId, name: getModelName(provider, defaultModelId) });
 		} else {
 			for (const modelId of enabledModels) {
-				models.push({ provider, modelId, name: getModelName(provider, modelId) });
+				const customModel = customModels.find((m) => m.id === modelId);
+				models.push({
+					provider,
+					modelId,
+					name: customModel?.displayName?.trim() || getModelName(provider, modelId),
+				});
 			}
 		}
 	}

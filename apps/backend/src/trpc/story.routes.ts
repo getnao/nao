@@ -1,11 +1,16 @@
+import { NO_CACHE_SCHEDULE } from '@nao/shared';
 import { DOWNLOAD_FORMATS } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
+import { STORY_REFRESH_JOB_NAME } from '../handlers/story-refresh.handler';
+import * as activityQueries from '../queries/activity.queries';
 import * as chatQueries from '../queries/chat.queries';
+import * as scheduledJobQueries from '../queries/scheduled-job.queries';
 import * as storyQueries from '../queries/story.queries';
 import { naturalLanguageToCron } from '../services/cron-nlp';
 import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../services/live-story';
+import { nextCronTick } from '../services/scheduler.service';
 import { buildDownloadResponse } from '../utils/story-download';
 import { extractStorySummary } from '../utils/story-summary';
 import { ownedResourceProcedure, projectProtectedProcedure, protectedProcedure } from './trpc';
@@ -142,19 +147,45 @@ export const storyRoutes = {
 			}),
 		)
 		.mutation(async ({ input }) => {
+			assertValidRefreshSchedule(input.isLive, input.cacheSchedule);
 			await storyQueries.updateStoryLiveSettings(input.chatId, input.storySlug, {
 				isLive: input.isLive,
 				isLiveTextDynamic: input.isLiveTextDynamic,
 				cacheSchedule: input.cacheSchedule,
 				cacheScheduleDescription: input.cacheScheduleDescription,
 			});
+			await syncStoryRefreshJob(input.chatId, input.storySlug, input.isLive, input.cacheSchedule);
 		}),
 
 	refreshData: chatOwnerProcedure
 		.input(z.object({ chatId: z.string(), storySlug: z.string() }))
-		.mutation(async ({ input }) => {
-			const { queryData } = await refreshStoryData(input.chatId, input.storySlug);
-			return { queryData, cachedAt: new Date() };
+		.mutation(async ({ input, ctx }) => {
+			const story = await storyQueries.getStoryByChatAndSlug(input.chatId, input.storySlug);
+			if (!story) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
+			}
+			const projectId = story.projectId ?? (await storyQueries.getStoryProjectId(story.id));
+			if (!projectId) {
+				throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Story has no project.' });
+			}
+			const activity = await activityQueries.startStoryRefreshActivity({
+				projectId,
+				userId: ctx.user.id,
+				storyId: story.id,
+				chatId: story.chatId,
+				trigger: 'manual',
+			});
+			try {
+				const { queryData } = await refreshStoryData(input.chatId, input.storySlug);
+				await activityQueries.completeActivity(activity.id, {
+					queriesRefreshed: Object.keys(queryData).length,
+				});
+				return { queryData, cachedAt: new Date() };
+			} catch (err) {
+				const message = err instanceof Error ? err.message : String(err);
+				await activityQueries.failActivity(activity.id, message);
+				throw err;
+			}
 		}),
 
 	getLiveQueryData: chatOwnerProcedure
@@ -174,6 +205,7 @@ export const storyRoutes = {
 		.input(z.object({ chatId: z.string(), storySlug: z.string() }))
 		.mutation(async ({ input }) => {
 			await storyQueries.archiveStory(input.chatId, input.storySlug);
+			await syncStoryRefreshJob(input.chatId, input.storySlug, false, null);
 		}),
 
 	unarchive: chatOwnerProcedure
@@ -244,3 +276,65 @@ export const storyRoutes = {
 			return buildDownloadResponse(input.format, version.title, version.code, queryData);
 		}),
 };
+
+/**
+ * Validates the refresh schedule before touching the database so an invalid
+ * cron cannot be persisted on the story row.
+ */
+function assertValidRefreshSchedule(isLive: boolean, cacheSchedule: string | null): void {
+	if (!isLive || cacheSchedule === null || cacheSchedule === NO_CACHE_SCHEDULE) {
+		return;
+	}
+	if (!nextCronTick(cacheSchedule, new Date())) {
+		throw new TRPCError({
+			code: 'BAD_REQUEST',
+			message: `Invalid cron expression for refresh schedule: ${cacheSchedule}`,
+		});
+	}
+}
+
+/**
+ * Idempotently aligns the scheduled job for a live story with its current cache
+ * settings. Live stories with a real cron schedule get a recurring job; manual,
+ * no-cache, or disabled stories have their job removed.
+ */
+async function syncStoryRefreshJob(
+	chatId: string,
+	storySlug: string,
+	isLive: boolean,
+	cacheSchedule: string | null,
+): Promise<void> {
+	const story = await storyQueries.getStoryByChatAndSlug(chatId, storySlug);
+	if (!story) {
+		return;
+	}
+
+	const shouldSchedule = isLive && cacheSchedule !== null && cacheSchedule !== NO_CACHE_SCHEDULE;
+
+	if (!shouldSchedule) {
+		if (story.scheduledJobId) {
+			await scheduledJobQueries.deleteJob(story.scheduledJobId);
+			await activityQueries.linkStoryScheduledJob(story.id, null);
+		}
+		return;
+	}
+
+	const runAt = nextCronTick(cacheSchedule!, new Date());
+	if (!runAt) {
+		throw new TRPCError({
+			code: 'BAD_REQUEST',
+			message: `Invalid cron expression for refresh schedule: ${cacheSchedule}`,
+		});
+	}
+
+	const job = await scheduledJobQueries.upsertRecurringJob({
+		name: STORY_REFRESH_JOB_NAME,
+		cron: cacheSchedule!,
+		uniqueKey: activityQueries.storyRefreshJobUniqueKey(story.id),
+		payload: { storyId: story.id },
+		runAt,
+		status: 'pending',
+		resetRunAtOnConflict: true,
+	});
+	await activityQueries.linkStoryScheduledJob(story.id, job.id);
+}

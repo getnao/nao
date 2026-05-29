@@ -81,7 +81,11 @@ def _fetch_query_history(db_config: DatabaseConfig, conn: BaseBackend) -> list[s
     try:
         cursor = conn.raw_sql(history_sql)  # type: ignore[union-attr]
         queries = _extract_query_texts(cursor)
-        console.print(f"  [dim]Fetched[/dim] [bold]{len(queries)}[/bold] [dim]queries for history analysis[/dim]")
+        fetched = len(queries)
+        queries = db_config.filter_query_history(queries)
+        excluded = fetched - len(queries)
+        suffix = f" [dim](excluded {excluded} via query_history_exclude_patterns)[/dim]" if excluded else ""
+        console.print(f"  [dim]Fetched[/dim] [bold]{fetched}[/bold] [dim]queries for history analysis[/dim]{suffix}")
         return queries
     except Exception as e:
         console.print(f"  [yellow]⚠[/yellow] [dim]Failed to fetch query history:[/dim] {_fmt_error(e)}")

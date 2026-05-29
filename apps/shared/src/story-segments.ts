@@ -5,6 +5,8 @@ export interface ParsedChartBlock {
 	xAxisType: string | null;
 	series: Array<{ data_key: string; color: string; label?: string }>;
 	title: string;
+	/** The original `<chart ... />` tag this block was parsed from, when available. */
+	rawTag?: string;
 }
 
 export interface ParsedTableBlock {
@@ -141,7 +143,7 @@ export function splitCodeIntoSegments(code: string): Segment[] {
 		} else if (match[3] !== undefined) {
 			const chart = parseChartBlock(match[3]);
 			if (chart) {
-				segments.push({ type: 'chart', chart });
+				segments.push({ type: 'chart', chart: { ...chart, rawTag: match[0] } });
 			}
 		} else if (match[4] !== undefined) {
 			const table = parseTableBlock(match[4]);

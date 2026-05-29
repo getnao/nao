@@ -36,6 +36,11 @@ const envSchema = z.object({
 	GITHUB_CLIENT_ID: z.string().optional(),
 	GITHUB_CLIENT_SECRET: z.string().optional(),
 	GITHUB_ALLOWED_USERS: z.string().optional(),
+	GITHUB_SSO: z
+		.enum(['true', 'false'])
+		.optional()
+		.default('false')
+		.transform((val) => val === 'true'),
 
 	AZURE_AD_CLIENT_ID: z.string().optional(),
 	AZURE_AD_CLIENT_SECRET: z.string().optional(),
@@ -52,8 +57,6 @@ const envSchema = z.object({
 		.default('false')
 		.transform((val) => val === 'true'),
 
-	CLOUD_GITHUB_CLIENT_ID: z.string().optional(),
-	CLOUD_GITHUB_CLIENT_SECRET: z.string().optional(),
 	DEFAULT_USER_ROLE: z.enum(['admin', 'user']).default('user'),
 
 	SMTP_PASSWORD: z.string().optional(),
@@ -82,6 +85,12 @@ const envSchema = z.object({
 	POSTHOG_DISABLED: z
 		.enum(['true', 'false'])
 		.optional()
+		.transform((val) => val === 'true'),
+
+	BETA_AUTOMATIONS_ENABLED: z
+		.enum(['true', 'false'])
+		.optional()
+		.default('false')
 		.transform((val) => val === 'true'),
 });
 

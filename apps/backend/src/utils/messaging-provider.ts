@@ -1,4 +1,4 @@
-import { pluralize, TOOL_LABELS } from '@nao/shared';
+import { CITATION_TAG_REGEX, pluralize, TOOL_LABELS } from '@nao/shared';
 import type { CardChild, CardElement, ModalElement } from 'chat';
 import { Actions, Button, Card, CardText, Image, LinkButton } from 'chat';
 
@@ -104,6 +104,11 @@ export const createTextBlock = (text: string): CardChild => {
 	const rendered = mdToMrkdwn(text);
 	return CardText(rendered || text);
 };
+
+export function formatSlackMessageText(text: string): string {
+	const sanitized = text.replace(CITATION_TAG_REGEX, '');
+	return mdToMrkdwn(sanitized) || sanitized;
+}
 
 export const createImageBlock = (url: string): CardChild => {
 	return Image({ url, alt: 'image' });

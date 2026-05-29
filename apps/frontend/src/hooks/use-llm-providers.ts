@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { llmProviderSchema } from '@nao/backend/llm';
+import type { CustomModelMetadata } from '@nao/backend/llm';
 import type { LlmProvider } from '@nao/shared/types';
 import { trpc } from '@/main';
 
@@ -10,6 +11,7 @@ export interface EditingState {
 	usesEnvKey: boolean;
 	initialValues?: {
 		enabledModels: string[];
+		customModels: CustomModelMetadata[];
 		baseUrl: string;
 	};
 }
@@ -57,6 +59,7 @@ export function useLlmProviders() {
 		apiKey?: string;
 		credentials?: Record<string, string>;
 		enabledModels: string[];
+		customModels: CustomModelMetadata[];
 		baseUrl?: string;
 	}) => {
 		if (!editingState?.provider) {
@@ -68,6 +71,7 @@ export function useLlmProviders() {
 			apiKey: values.apiKey,
 			credentials: values.credentials,
 			enabledModels: values.enabledModels,
+			customModels: values.customModels,
 			baseUrl: values.baseUrl,
 		});
 		await invalidateQueries();
@@ -87,6 +91,7 @@ export function useLlmProviders() {
 			usesEnvKey: envProviders.includes(config.provider),
 			initialValues: {
 				enabledModels: config.enabledModels ?? [],
+				customModels: config.customModels ?? [],
 				baseUrl: config.baseUrl ?? '',
 			},
 		});
@@ -115,7 +120,14 @@ export function useLlmProviders() {
 
 	const getModelDisplayName = (provider: LlmProvider, modelId: string) => {
 		const models = knownModels.data?.[provider] ?? [];
-		return models.find((m) => m.id === modelId)?.name ?? modelId;
+		const knownName = models.find((m) => m.id === modelId)?.name;
+		if (knownName) {
+			return knownName;
+		}
+		const customModel = projectConfigs
+			.find((c) => c.provider === provider)
+			?.customModels?.find((m) => m.id === modelId);
+		return customModel?.displayName?.trim() || modelId;
 	};
 
 	return {

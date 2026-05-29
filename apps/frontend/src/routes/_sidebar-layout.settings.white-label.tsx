@@ -2,7 +2,7 @@
 
 import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Lock, Sparkles, Upload, X } from 'lucide-react';
+import { Lock, Upload, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';

@@ -45,6 +45,7 @@ export interface AgentHelpers {
 	selectedModel: LlmSelectedModel | null;
 	setSelectedModel: React.Dispatch<React.SetStateAction<LlmSelectedModel | null>>;
 	setMentions: (mentions: MentionOption[]) => void;
+	isReadonly?: boolean;
 }
 
 export interface SendMessageArgs {

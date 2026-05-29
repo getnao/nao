@@ -1,10 +1,19 @@
+import { Link } from '@tanstack/react-router';
 import { PanelLeft } from 'lucide-react';
 import { EditableChatTitle } from '@/components/editable-chat-title';
 import { StoryOpenButton } from '@/components/story-open-button';
 import { Button } from '@/components/ui/button';
 import { useSidebar } from '@/contexts/sidebar';
 
-export function MobileHeader({ chatId, title }: { chatId?: string; title?: string }) {
+export function MobileHeader({
+	chatId,
+	title,
+	automationId,
+}: {
+	chatId?: string;
+	title?: string;
+	automationId?: string;
+}) {
 	const { isMobile, openMobile } = useSidebar();
 
 	if (!isMobile) {
@@ -25,7 +34,14 @@ export function MobileHeader({ chatId, title }: { chatId?: string; title?: strin
 					/>
 				</>
 			)}
-			<div className='ml-auto shrink-0'>
+			<div className='ml-auto flex shrink-0 items-center gap-1'>
+				{automationId && (
+					<Button variant='ghost' size='sm' asChild>
+						<Link to='/automations/$automationId' params={{ automationId }}>
+							Automation
+						</Link>
+					</Button>
+				)}
 				<StoryOpenButton variant='ghost' />
 			</div>
 		</div>

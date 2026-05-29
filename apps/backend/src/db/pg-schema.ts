@@ -1,3 +1,4 @@
+import type { McpChartEmbedStoredConfig } from '@nao/shared';
 import type { CitationData, LlmProvider } from '@nao/shared/types';
 import { BUDGET_PERIODS, SHARE_VISIBILITY, USER_ROLES } from '@nao/shared/types';
 import { type ProviderMetadata } from 'ai';
@@ -17,6 +18,7 @@ import {
 } from 'drizzle-orm/pg-core';
 
 import { AgentSettings } from '../types/agent-settings';
+import { AUTOMATION_RUN_STATUSES, AutomationIntegrationConfig, AutomationIntegrationResult } from '../types/automation';
 import { ForkMetadata, StopReason, ToolState, UIMessagePartType } from '../types/chat';
 import { LLM_INFERENCE_TYPES } from '../types/llm';
 import { LOG_LEVELS, LOG_SOURCES } from '../types/log';
@@ -364,6 +366,21 @@ export const projectLlmConfig = pgTable(
 		apiKey: text('api_key').notNull(),
 		credentials: jsonb('credentials').$type<Record<string, string>>(),
 		enabledModels: jsonb('enabled_models').$type<string[]>().default([]).notNull(),
+		customModels: jsonb('custom_models')
+			.$type<
+				{
+					id: string;
+					displayName?: string;
+					costPerM?: {
+						inputNoCache?: number;
+						inputCacheRead?: number;
+						inputCacheWrite?: number;
+						output?: number;
+					};
+				}[]
+			>()
+			.default([])
+			.notNull(),
 		baseUrl: text('base_url'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
@@ -486,6 +503,64 @@ export const projectSavedPrompt = pgTable(
 	(t) => [index('project_saved_prompt_projectId_idx').on(t.projectId)],
 );
 
+export const automation = pgTable(
+	'automation',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		scheduledJobId: text('scheduled_job_id').references(() => scheduledJob.id, { onDelete: 'set null' }),
+		title: text('title').notNull(),
+		prompt: text('prompt').notNull(),
+		scheduleDescription: text('schedule_description'),
+		timezone: text('timezone'),
+		modelProvider: text('model_provider').$type<LlmProvider>(),
+		modelId: text('model_id'),
+		mcpEnabled: boolean('mcp_enabled').default(true).notNull(),
+		mcpServers: jsonb('mcp_servers').$type<string[]>(),
+		integrations: jsonb('integrations').$type<AutomationIntegrationConfig>().notNull().default({}),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [
+		index('automation_projectId_idx').on(t.projectId),
+		index('automation_userId_idx').on(t.userId),
+		index('automation_scheduledJobId_idx').on(t.scheduledJobId),
+	],
+);
+
+export const automationRun = pgTable(
+	'automation_run',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		automationId: text('automation_id')
+			.notNull()
+			.references(() => automation.id, { onDelete: 'cascade' }),
+		chatId: text('chat_id').references(() => chat.id, { onDelete: 'set null' }),
+		status: text('status', { enum: AUTOMATION_RUN_STATUSES }).notNull().default('running'),
+		startedAt: timestamp('started_at').defaultNow().notNull(),
+		completedAt: timestamp('completed_at'),
+		errorMessage: text('error_message'),
+		integrationResults: jsonb('integration_results').$type<AutomationIntegrationResult[]>().notNull().default([]),
+	},
+	(t) => [
+		index('automation_run_automationId_idx').on(t.automationId),
+		index('automation_run_chatId_idx').on(t.chatId),
+		index('automation_run_status_idx').on(t.status),
+	],
+);
+
 export const STORY_ACTIONS = ['create', 'update', 'replace'] as const;
 export const STORY_SOURCES = ['assistant', 'user'] as const;
 
@@ -504,6 +579,7 @@ export const story = pgTable(
 		isLiveTextDynamic: boolean('is_live_text_dynamic').default(true).notNull(),
 		cacheSchedule: text('cache_schedule'),
 		cacheScheduleDescription: text('cache_schedule_description'),
+		scheduledJobId: text('scheduled_job_id').references(() => scheduledJob.id, { onDelete: 'set null' }),
 		archivedAt: timestamp('archived_at'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
@@ -523,6 +599,7 @@ export const story = pgTable(
 		index('story_chatId_idx').on(t.chatId),
 		index('story_projectId_idx').on(t.projectId),
 		index('story_userId_idx').on(t.userId),
+		index('story_scheduledJobId_idx').on(t.scheduledJobId),
 	],
 );
 
@@ -547,6 +624,40 @@ export const storyVersion = pgTable(
 	],
 );
 
+export const mcpQueryData = pgTable(
+	'mcp_query_data',
+	{
+		queryId: text('query_id').primaryKey(),
+		callLogId: text('call_log_id'),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		sourceChatId: text('source_chat_id'),
+		columns: jsonb('columns').$type<string[]>().notNull(),
+		data: jsonb('data').$type<Record<string, unknown>[]>().notNull(),
+		expiresAt: timestamp('expires_at').notNull(),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+	},
+	(t) => [
+		index('mcp_query_data_project_id_idx').on(t.projectId),
+		index('mcp_query_data_callLogId_idx').on(t.callLogId),
+	],
+);
+
+export const mcpChartEmbed = pgTable(
+	'mcp_chart_embed',
+	{
+		chartEmbedId: text('chart_embed_id').primaryKey(),
+		queryId: text('query_id')
+			.notNull()
+			.references(() => mcpQueryData.queryId, { onDelete: 'cascade' }),
+		chartConfig: jsonb('chart_config').$type<McpChartEmbedStoredConfig>().notNull(),
+		sourceChatId: text('source_chat_id'),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+	},
+	(t) => [index('mcp_chart_embed_query_id_idx').on(t.queryId)],
+);
+
 export const storyDataCache = pgTable('story_data_cache', {
 	storyId: text('story_id')
 		.notNull()
@@ -556,6 +667,52 @@ export const storyDataCache = pgTable('story_data_cache', {
 	analysisResults: jsonb('analysis_results').$type<Record<string, string>>(),
 	cachedAt: timestamp('cached_at').defaultNow().notNull(),
 });
+
+export const ACTIVITY_TYPES = [
+	'story.refreshed',
+	'story.shared',
+	'story.pinned',
+	'chat.shared',
+	'chat.pinned',
+] as const;
+
+export const ACTIVITY_STATUSES = ['running', 'completed', 'failed', 'cancelled'] as const;
+
+export const ACTIVITY_TRIGGERS = ['schedule', 'manual', 'system'] as const;
+
+export const activity = pgTable(
+	'activity',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		userId: text('user_id').references(() => user.id, { onDelete: 'set null' }),
+		type: text('type', { enum: ACTIVITY_TYPES }).notNull(),
+		status: text('status', { enum: ACTIVITY_STATUSES }).notNull().default('completed'),
+		trigger: text('trigger', { enum: ACTIVITY_TRIGGERS }).notNull().default('system'),
+		storyId: text('story_id').references(() => story.id, { onDelete: 'set null' }),
+		chatId: text('chat_id').references(() => chat.id, { onDelete: 'set null' }),
+		sharedStoryId: text('shared_story_id').references(() => sharedStory.id, { onDelete: 'set null' }),
+		sharedChatId: text('shared_chat_id').references(() => sharedChat.id, { onDelete: 'set null' }),
+		payload: jsonb('payload').$type<Record<string, unknown>>(),
+		errorMessage: text('error_message'),
+		startedAt: timestamp('started_at').defaultNow().notNull(),
+		completedAt: timestamp('completed_at'),
+	},
+	(t) => [
+		index('activity_projectId_idx').on(t.projectId),
+		index('activity_userId_idx').on(t.userId),
+		index('activity_type_idx').on(t.type),
+		index('activity_storyId_idx').on(t.storyId),
+		index('activity_chatId_idx').on(t.chatId),
+		index('activity_sharedStoryId_idx').on(t.sharedStoryId),
+		index('activity_sharedChatId_idx').on(t.sharedChatId),
+		index('activity_startedAt_idx').on(t.startedAt),
+	],
+);
 
 export const memories = pgTable(
 	'memories',
@@ -688,7 +845,7 @@ export const scheduledJob = pgTable(
 		payload: jsonb('payload').$type<Record<string, unknown>>(),
 		runAt: timestamp('run_at').notNull(),
 		cron: text('cron'),
-		status: text('status', { enum: ['pending', 'running', 'failed'] })
+		status: text('status', { enum: ['pending', 'running', 'failed', 'paused'] })
 			.notNull()
 			.default('pending'),
 		attempts: integer('attempts').notNull().default(0),

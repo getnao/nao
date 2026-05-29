@@ -132,9 +132,15 @@ class SnowflakeConfig(DatabaseConfig):
         default=None,
         description="Passphrase for the private key if it is encrypted",
     )
-    authenticator: Literal["externalbrowser", "username_password_mfa", "jwt_token", "oauth"] | None = Field(
+    token: str | None = Field(
         default=None,
-        description="Authentication method (e.g., 'externalbrowser' for SSO)",
+        description="Programmatic Access Token (PAT) value — use with authenticator='programmatic_access_token'",
+    )
+    authenticator: (
+        Literal["externalbrowser", "username_password_mfa", "jwt_token", "oauth", "programmatic_access_token"] | None
+    ) = Field(
+        default=None,
+        description="Authentication method (e.g., 'externalbrowser' for SSO, 'programmatic_access_token' for PAT)",
     )
 
     @classmethod
@@ -148,15 +154,27 @@ class SnowflakeConfig(DatabaseConfig):
         schema = ask_text("Default schema (optional):")
 
         use_sso = ask_confirm("Use SSO (external browser) for authentication?", default=False)
-        key_pair_auth = False if use_sso else ask_confirm("Use key-pair authentication?", default=False)
-        authenticator = "externalbrowser" if use_sso else None
+        use_pat = False if use_sso else ask_confirm("Use Programmatic Access Token (PAT)?", default=False)
+        key_pair_auth = False if (use_sso or use_pat) else ask_confirm("Use key-pair authentication?", default=False)
+
+        if use_sso:
+            authenticator = "externalbrowser"
+        elif use_pat:
+            authenticator = "programmatic_access_token"
+        else:
+            authenticator = None
 
         private_key_path = None
         private_key = None
         passphrase = None
         password = None
+        token = None
 
-        if key_pair_auth:
+        if use_pat:
+            token = ask_text("Programmatic Access Token:", password=True, required_field=True)
+            if not token:
+                raise InitError("Token cannot be empty.")
+        elif key_pair_auth:
             use_inline = ask_confirm("Paste the private key directly (instead of a file path)?", default=False)
             if use_inline:
                 private_key = ask_text("PEM-encoded private key (paste full key):", password=True, required_field=True)
@@ -181,6 +199,7 @@ class SnowflakeConfig(DatabaseConfig):
             private_key_path=private_key_path,
             private_key=private_key,
             passphrase=passphrase,
+            token=token,
             authenticator=authenticator,
         )
 
@@ -205,6 +224,9 @@ class SnowflakeConfig(DatabaseConfig):
         if self.authenticator:
             kwargs["authenticator"] = self.authenticator
             UI.info(f"[yellow]Using authenticator: {self.authenticator}[/yellow]")
+
+        if self.token:
+            kwargs["token"] = self.token
 
         pem_data = _resolve_private_key(self.private_key_path, self.private_key)
         if pem_data is not None:
@@ -303,7 +325,7 @@ class SnowflakeConfig(DatabaseConfig):
             logger.debug("Failed to fetch semantic views for schema %s (feature may not be available)", schema)
             return []
 
-    def get_query_history_sql(self, days: int) -> str | None:
+    def _default_query_history_sql(self, days: int) -> str | None:
         return (
             f"SELECT query_text AS query_text "
             f"FROM SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY "

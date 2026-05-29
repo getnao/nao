@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import fnmatch
+import re
 import warnings
 from abc import ABC, abstractmethod
 from enum import Enum
@@ -28,6 +29,7 @@ class DatabaseType(str, Enum):
     MYSQL = "mysql"
     POSTGRES = "postgres"
     REDSHIFT = "redshift"
+    STARROCKS = "starrocks"
     TRINO = "trino"
 
     @classmethod
@@ -101,6 +103,22 @@ class DatabaseConfig(BaseModel, ABC):
     query_history_days: int | None = Field(
         default=None,
         description="Number of days to look back for query history (used by how_to_use template).",
+    )
+    query_history_sql: str | None = Field(
+        default=None,
+        description=(
+            "Custom SQL to fetch query history, overriding the built-in query for this database type. "
+            "The query must return a `query_text` column. The placeholder `{days}` (if present) is "
+            "replaced with the configured `query_history_days` value."
+        ),
+    )
+    query_history_exclude_patterns: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Regex patterns (case-insensitive) used to drop noisy queries fetched from query history. "
+            "Any query whose text matches at least one pattern is excluded from the how_to_use analysis. "
+            "Useful to filter out warehouse system queries (e.g. 'SYSTEM\\$', 'CURRENT_SESSION\\(\\)')."
+        ),
     )
 
     @model_validator(mode="before")
@@ -230,11 +248,39 @@ class DatabaseConfig(BaseModel, ABC):
     def get_query_history_sql(self, days: int) -> str | None:
         """Return SQL to fetch query history for the last N days.
 
-        The query must return rows with at least a `query_text` column.
-        Override in subclasses that support query history introspection.
-        Returns None if query history is not supported.
+        Honors a user-defined ``query_history_sql`` override (with ``{days}``
+        substitution) when set; otherwise delegates to the database-specific
+        default. The query must return rows with at least a ``query_text``
+        column. Returns ``None`` when query history is not supported.
+        """
+        if self.query_history_sql:
+            return self._format_custom_query_history_sql(self.query_history_sql, days)
+        return self._default_query_history_sql(days)
+
+    def _default_query_history_sql(self, days: int) -> str | None:
+        """Built-in query history SQL for this database type.
+
+        Override in subclasses that natively support query history introspection.
         """
         return None
+
+    @staticmethod
+    def _format_custom_query_history_sql(sql: str, days: int) -> str:
+        """Substitute the ``{days}`` placeholder in a user-provided SQL string.
+
+        Other braces in the SQL are preserved as-is so users can write JSON
+        literals or window function calls without escaping every brace.
+        """
+        if "{days}" not in sql:
+            return sql
+        return sql.replace("{days}", str(days))
+
+    def filter_query_history(self, queries: list[str]) -> list[str]:
+        """Drop queries whose text matches any configured exclude pattern."""
+        if not self.query_history_exclude_patterns:
+            return queries
+        compiled = [re.compile(pattern, re.IGNORECASE) for pattern in self.query_history_exclude_patterns]
+        return [q for q in queries if not any(pattern.search(q) for pattern in compiled)]
 
     def _get_empty_credentials(self) -> list[str]:
         """Get list of empty credential fields that typically cause connection failures."""

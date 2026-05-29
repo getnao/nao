@@ -20,12 +20,29 @@ export const llmSelectedModelSchema = z.object({
 
 export type ProviderSettings = { apiKey: string; baseURL?: string; credentials?: Record<string, string> };
 
+export const customModelCostSchema = z.object({
+	inputNoCache: z.number().min(0).optional(),
+	inputCacheRead: z.number().min(0).optional(),
+	inputCacheWrite: z.number().min(0).optional(),
+	output: z.number().min(0).optional(),
+});
+
+export const customModelMetadataSchema = z.object({
+	id: z.string().min(1),
+	displayName: z.string().optional(),
+	costPerM: customModelCostSchema.optional(),
+});
+
+export type ModelCosts = z.infer<typeof customModelCostSchema>;
+export type CustomModelMetadata = z.infer<typeof customModelMetadataSchema>;
+
 export const llmConfigSchema = z.object({
 	id: z.string(),
 	provider: llmProviderSchema,
 	apiKeyPreview: z.string().nullable(),
 	credentialPreviews: z.record(z.string(), z.string()).nullable(),
 	enabledModels: z.array(z.string()).nullable(),
+	customModels: z.array(customModelMetadataSchema),
 	baseUrl: z.string().url().nullable(),
 	createdAt: z.date(),
 	updatedAt: z.date(),
@@ -71,7 +88,15 @@ export type AuthField = {
 /** Describes how a provider authenticates */
 export type ProviderAuth = {
 	apiKey: 'required' | 'optional' | 'none';
-	alternativeEnvVars?: string[];
+	/**
+	 * Alternative ways to authenticate via the environment. Each inner array is a
+	 * bundle: every var in a bundle must be set, and any single satisfied bundle is
+	 * enough to consider the provider env-configured. Use multi-var bundles for
+	 * paired credentials (e.g. access key + secret) and single-var bundles for
+	 * ambient signals where the SDK resolves the secret itself (AWS task role,
+	 * IRSA, named profile, …).
+	 */
+	alternativeEnvVars?: string[][];
 	hint?: string;
 	extraFields?: AuthField[];
 };

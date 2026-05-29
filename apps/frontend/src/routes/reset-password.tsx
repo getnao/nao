@@ -31,7 +31,7 @@ function ResetPassword() {
 			if (error) {
 				setServerError(error.message);
 			} else {
-				navigate({ to: '/login', search: { error: undefined } });
+				navigate({ to: '/login', search: { error: undefined, redirect: undefined } });
 			}
 		},
 	});

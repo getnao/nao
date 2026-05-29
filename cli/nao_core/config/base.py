@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import re
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -21,6 +20,7 @@ from .llm import LLMConfig
 from .mcp import McpConfig
 from .notion import NotionConfig
 from .repos import RepoConfig
+from .secrets import process_secrets
 from .skills import SkillsConfig
 from .slack import SlackConfig
 
@@ -43,7 +43,7 @@ class NaoConfig(BaseModel):
     mcp: McpConfig | None = Field(default=None, description="The MCP configuration")
     skills: SkillsConfig | None = Field(default=None, description="The Skills configuration")
 
-    _missing_env_vars: dict[str, None] = {}
+    _missing_secrets: dict[str, None] = {}
 
     @model_validator(mode="before")
     @classmethod
@@ -301,8 +301,8 @@ class NaoConfig(BaseModel):
         """Load the configuration from a YAML file."""
         config_file = path / "nao_config.yaml"
         content = config_file.read_text()
-        processed_content, env_vars = cls._process_env_vars(content, extra_env=extra_env)
-        cls._missing_env_vars = {k: None for k, v in env_vars.items() if v is None}
+        processed_content, missing = process_secrets(content, extra_env=extra_env)
+        cls._missing_secrets = {k: None for k, v in missing.items() if v is None}
         data = yaml.safe_load(processed_content)
         return cls.model_validate(data)
 
@@ -363,9 +363,9 @@ class NaoConfig(BaseModel):
             msg = f"Failed to load nao_config.yaml:\n  • {main_errors}"
 
             # Add warning about missing env vars if any
-            if cls._missing_env_vars:
+            if cls._missing_secrets:
                 env_var_warnings = "\n  • ".join(
-                    f"{k} (environment variable not set or empty)" for k in cls._missing_env_vars.keys()
+                    f"{k} (environment variable not set or empty)" for k in cls._missing_secrets.keys()
                 )
                 msg += f"\n\nWarning: Missing or empty environment variables:\n  • {env_var_warnings}"
 
@@ -379,31 +379,6 @@ class NaoConfig(BaseModel):
     def json_schema(cls) -> dict:
         """Generate JSON schema for the configuration."""
         return cls.model_json_schema()
-
-    @staticmethod
-    def _process_env_vars(
-        content: str,
-        extra_env: dict[str, str] | None = None,
-    ) -> tuple[str, dict[str, str | None]]:
-        """Support both ${{ env('VAR') }} and {{ env('VAR') }} formats.
-        Returns:
-            Tuple of (processed_content, env_var_status) where env_var_status maps
-            env var names to their values (None if not set or empty)
-        """
-        regex = re.compile(r"\$?\{\{\s*env\(['\"]([^'\"]+)['\"]\)\s*\}\}")
-        env_vars: dict[str, str | None] = {}
-
-        def replacer(match: re.Match[str]) -> str:
-            env_var = match.group(1)
-            if extra_env is not None and env_var in extra_env:
-                value = extra_env[env_var]
-            else:
-                value = os.environ.get(env_var)
-            env_vars[env_var] = value if value else None
-            return value or ""
-
-        processed = regex.sub(replacer, content)
-        return processed, env_vars
 
 
 def resolve_project_path() -> Path:

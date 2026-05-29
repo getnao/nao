@@ -53,6 +53,7 @@ class EmailService {
 				to,
 				subject: email.subject,
 				html: email.html,
+				attachments: email.attachments,
 			});
 		} catch (error) {
 			logger.error(`Failed to send email to ${to}: ${String(error)}`, { source: 'system', context: { to } });

@@ -5,13 +5,14 @@ from unittest.mock import patch
 from nao_core.config.base import NaoConfig
 from nao_core.config.databases.duckdb import DuckDBConfig
 from nao_core.config.llm import LLMConfig, LLMProvider
+from nao_core.config.secrets import process_secrets
 
 
 def test_env_var_replacement():
     """Test replacement of a environment variable."""
     with patch.dict(os.environ, {"TEST_VAR": "test_value"}):
         content = "database: ${{ env('TEST_VAR') }}"
-        result, _ = NaoConfig._process_env_vars(content)
+        result, _ = process_secrets(content)
         assert result == "database: test_value"
 
 
@@ -19,7 +20,7 @@ def test_multiple_env_vars_replacement():
     """Test replacement of multiple environment variables."""
     with patch.dict(os.environ, {"VAR1": "value1", "VAR2": "value2"}):
         content = "host: ${{ env('VAR1') }}, port: ${{ env('VAR2') }}"
-        result, _ = NaoConfig._process_env_vars(content)
+        result, _ = process_secrets(content)
         assert result == "host: value1, port: value2"
 
 
@@ -27,7 +28,7 @@ def test_missing_env_var_returns_empty_string():
     """Test that missing environment variable is replaced with empty string."""
     with patch.dict(os.environ, {}):
         content = "value: ${{ env('NONEXISTENT_VAR') }}"
-        result, _ = NaoConfig._process_env_vars(content)
+        result, _ = process_secrets(content)
         assert result == "value: "
 
 
@@ -35,7 +36,7 @@ def test_same_env_var_multiple_times():
     """Test the same environment variable used multiple times."""
     with patch.dict(os.environ, {"REPEATED": "repeated_value"}):
         content = "${{ env('REPEATED') }} and ${{ env('REPEATED') }} again"
-        result, _ = NaoConfig._process_env_vars(content)
+        result, _ = process_secrets(content)
         assert result == "repeated_value and repeated_value again"
 
 
@@ -43,7 +44,7 @@ def test_env_var_without_dollar_prefix():
     """Test replacement without $ prefix (Jinja2-style syntax)."""
     with patch.dict(os.environ, {"API_KEY": "secret123"}):
         content = "api_key: {{ env('API_KEY') }}"
-        result, _ = NaoConfig._process_env_vars(content)
+        result, _ = process_secrets(content)
         assert result == "api_key: secret123"
 
 
@@ -51,7 +52,7 @@ def test_mixed_dollar_and_no_dollar_syntax():
     """Test that both ${{ }} and {{ }} formats work together."""
     with patch.dict(os.environ, {"VAR1": "value1", "VAR2": "value2"}):
         content = "a: ${{ env('VAR1') }}, b: {{ env('VAR2') }}"
-        result, _ = NaoConfig._process_env_vars(content)
+        result, _ = process_secrets(content)
         assert result == "a: value1, b: value2"
 
 
@@ -221,3 +222,92 @@ def test_prompt_enable_profiling_returns_false_when_declined(mock_confirm):
 def test_prompt_enable_profiling_returns_false_without_databases():
     """Profiling prompt should return False when no databases are configured."""
     assert NaoConfig._prompt_enable_profiling([]) is False
+
+
+def test_query_history_exclude_patterns_default_is_empty():
+    db = DuckDBConfig(name="test-db", path=":memory:")
+    assert db.query_history_exclude_patterns == []
+    assert db.query_history_sql is None
+
+
+def test_query_history_exclude_patterns_filters_matching_queries():
+    db = DuckDBConfig(
+        name="test-db",
+        path=":memory:",
+        query_history_exclude_patterns=[r"SYSTEM\$", r"CURRENT_SESSION\(\)"],
+    )
+    queries = [
+        "SELECT * FROM users",
+        "CALL SYSTEM$GET_RECENT_IN_APP_NOTIFICATIONS()",
+        "SELECT CURRENT_SESSION()",
+        "select current_session()",
+        "SELECT id FROM orders",
+    ]
+    assert db.filter_query_history(queries) == [
+        "SELECT * FROM users",
+        "SELECT id FROM orders",
+    ]
+
+
+def test_filter_query_history_returns_input_when_no_patterns():
+    db = DuckDBConfig(name="test-db", path=":memory:")
+    queries = ["SELECT 1", "SELECT 2"]
+    assert db.filter_query_history(queries) == queries
+
+
+def test_custom_query_history_sql_overrides_default():
+    from nao_core.config.databases.snowflake import SnowflakeConfig
+
+    db = SnowflakeConfig(
+        name="snow",
+        username="u",
+        account_id="a",
+        database="d",
+        password="p",
+        query_history_sql="SELECT regexp_replace(query_text, '-- .*$', '') AS query_text FROM custom WHERE ts > current_timestamp - interval '{days} days'",
+    )
+    sql = db.get_query_history_sql(7)
+    assert sql is not None
+    assert "FROM custom" in sql
+    assert "interval '7 days'" in sql
+    assert "ACCOUNT_USAGE.QUERY_HISTORY" not in sql
+
+
+def test_custom_query_history_sql_without_days_placeholder_is_passthrough():
+    db = DuckDBConfig(
+        name="duck",
+        path=":memory:",
+        query_history_sql="SELECT q AS query_text FROM my_logs",
+    )
+    assert db.get_query_history_sql(30) == "SELECT q AS query_text FROM my_logs"
+
+
+def test_default_query_history_sql_used_when_no_override():
+    from nao_core.config.databases.postgres import PostgresConfig
+
+    db = PostgresConfig(name="pg", host="h", port=5432, database="d", user="u", password="p")
+    sql = db.get_query_history_sql(30)
+    assert sql is not None
+    assert "pg_stat_statements" in sql
+
+
+def test_query_history_sql_unsupported_database_returns_none_when_no_override():
+    db = DuckDBConfig(name="duck", path=":memory:")
+    assert db.get_query_history_sql(30) is None
+
+
+def test_query_history_fields_loaded_from_yaml_dict():
+    db = DuckDBConfig.model_validate(
+        {
+            "type": "duckdb",
+            "name": "test-db",
+            "path": ":memory:",
+            "templates": ["columns", "how_to_use"],
+            "query_history_days": 7,
+            "query_history_sql": "SELECT q AS query_text FROM log WHERE ts > now() - interval '{days} days'",
+            "query_history_exclude_patterns": [r"SYSTEM\$", r"CURRENT_SESSION"],
+        }
+    )
+    assert db.query_history_days == 7
+    assert db.query_history_exclude_patterns == [r"SYSTEM\$", r"CURRENT_SESSION"]
+    assert db.get_query_history_sql(7) == "SELECT q AS query_text FROM log WHERE ts > now() - interval '7 days'"

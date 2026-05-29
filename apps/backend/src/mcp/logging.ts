@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import type { RequestHandlerExtra } from '@modelcontextprotocol/sdk/shared/protocol.js';
 import type { ServerNotification, ServerRequest } from '@modelcontextprotocol/sdk/types.js';
 
@@ -16,40 +18,44 @@ export type ToolResult = {
 	content: ToolContent[];
 	isError?: boolean;
 	structuredContent?: Record<string, unknown>;
+	_meta?: Record<string, unknown>;
 };
 
 export type ToolExtra = RequestHandlerExtra<ServerRequest, ServerNotification>;
 export type ToolHandler<T> = (args: T, extra: ToolExtra) => Promise<ToolResult>;
+export type LoggedToolHandler<T> = (args: T, extra: ToolExtra, callLogId: string) => Promise<ToolResult>;
 
-export const TOOL_MODE_MAP: Record<string, keyof McpEndpointSettings> = {
-	ask_nao: 'agentModeEnabled',
-	execute_sql: 'toolsModeEnabled',
-	grep: 'toolsModeEnabled',
-	ls: 'toolsModeEnabled',
-	list_stories: 'objectsModeEnabled',
-	get_story: 'objectsModeEnabled',
-	create_story: 'objectsModeEnabled',
-	update_story: 'objectsModeEnabled',
-	archive_story: 'objectsModeEnabled',
-	delete_story: 'objectsModeEnabled',
+export const TOOL_MODE_MAP: Record<string, (keyof McpEndpointSettings)[]> = {
+	ask_nao: ['subAgentModeEnabled'],
+	execute_sql: ['contextLayerModeEnabled'],
+	grep: ['contextLayerModeEnabled'],
+	ls: ['contextLayerModeEnabled'],
+	create_story: ['contextLayerModeEnabled'],
+	update_story: ['contextLayerModeEnabled'],
+	display_chart: ['subAgentModeEnabled', 'contextLayerModeEnabled'],
+	list_stories: ['subAgentModeEnabled', 'contextLayerModeEnabled'],
+	get_story: ['subAgentModeEnabled', 'contextLayerModeEnabled'],
+	archive_story: ['subAgentModeEnabled', 'contextLayerModeEnabled'],
+	delete_story: ['subAgentModeEnabled', 'contextLayerModeEnabled'],
 };
 
-export function withLogging<T>(toolName: string, ctx: McpContext, handler: ToolHandler<T>): ToolHandler<T> {
+export function withLogging<T>(toolName: string, ctx: McpContext, handler: LoggedToolHandler<T>): ToolHandler<T> {
 	return async (args: T, extra: ToolExtra) => {
-		const modeKey = TOOL_MODE_MAP[toolName];
-		if (modeKey && !ctx.settings[modeKey]) {
+		const modeKeys = TOOL_MODE_MAP[toolName];
+		if (modeKeys && !modeKeys.some((key) => ctx.settings[key])) {
 			return {
 				content: [{ type: 'text' as const, text: 'This MCP mode is disabled by your admin.' }],
 				isError: true,
 			};
 		}
 
+		const callLogId = randomUUID();
 		const start = Date.now();
 		let success = true;
 		let result: ToolResult | undefined;
 		let thrownError: unknown;
 		try {
-			result = await handler(args, extra);
+			result = await handler(args, extra, callLogId);
 			if (result?.isError) {
 				success = false;
 			}
@@ -60,13 +66,14 @@ export function withLogging<T>(toolName: string, ctx: McpContext, handler: ToolH
 			throw error;
 		} finally {
 			insertMcpCallLog({
+				id: callLogId,
 				projectId: ctx.projectId,
 				userId: ctx.userId,
 				toolName,
 				durationMs: Date.now() - start,
 				success,
 				toolInput: args as unknown,
-				toolOutput: thrownError ? formatThrownError(thrownError) : extractLoggableOutput(result),
+				toolOutput: thrownError !== undefined ? formatThrownError(thrownError) : extractLoggableOutput(result),
 			}).catch(() => {});
 		}
 	};

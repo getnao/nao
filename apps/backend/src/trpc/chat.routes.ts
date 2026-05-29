@@ -2,6 +2,7 @@ import { CHAT_FILTER_OPTIONS, CHAT_GROUP_BY_OPTIONS, type GroupedChatListRespons
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
+import * as automationQueries from '../queries/automation.queries';
 import type { SearchChatResult } from '../queries/chat.queries';
 import * as chatQueries from '../queries/chat.queries';
 import { agentService } from '../services/agent';
@@ -22,7 +23,10 @@ export const chatRoutes = {
 		if (userId !== ctx.user.id) {
 			throw new TRPCError({ code: 'FORBIDDEN', message: `You are not authorized to access this chat.` });
 		}
-		return chat;
+		return {
+			...chat,
+			automationRun: (await automationQueries.getAutomationRunByChatId(input.chatId)) ?? undefined,
+		};
 	}),
 
 	listGrouped: projectProtectedProcedure

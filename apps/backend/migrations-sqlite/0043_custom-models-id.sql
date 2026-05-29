@@ -1,0 +1,1 @@
+ALTER TABLE `project_llm_config` ADD `custom_models` text DEFAULT '[]' NOT NULL;

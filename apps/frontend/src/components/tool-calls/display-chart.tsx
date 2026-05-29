@@ -1,6 +1,6 @@
 import { memo, useCallback, useMemo, useState } from 'react';
-import { buildChart, labelize } from '@nao/shared';
-import { Download, FilePlus } from 'lucide-react';
+import { buildChart, buildStoryChartBlock, labelize } from '@nao/shared';
+import { Download, FilePlus, Pencil } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useOptionalAgentContext } from '../../contexts/agent.provider';
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from '../ui/chart';
@@ -9,6 +9,7 @@ import { Skeleton } from '../ui/skeleton';
 import { Button } from '../ui/button';
 import { ToolCallWrapper } from './tool-call-wrapper';
 import { ChartRangeSelector } from './display-chart-range-selector';
+import { DisplayChartEditDialog } from './display-chart-edit-dialog';
 import type { ToolCallComponentProps } from '.';
 import type { ChartConfig } from '../ui/chart';
 import type { displayChart } from '@nao/shared/tools';
@@ -23,9 +24,6 @@ import { trpc } from '@/main';
 
 const Colors = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)', 'var(--chart-5)'];
 const EMPTY_MESSAGES: UIMessage[] = [];
-
-const escapeDoubleQuotedAttr = (value: string) => value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-const escapeSingleQuotedAttr = (value: string) => value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 
 export const DisplayChartToolCall = ({
 	toolPart: { state, input, output, toolCallId },
@@ -55,6 +53,8 @@ export const DisplayChartToolCall = ({
 	);
 
 	const [isDownloading, setIsDownloading] = useState(false);
+	const [isEditOpen, setIsEditOpen] = useState(false);
+	const isEditable = Boolean(agent && !agent.isReadonly && !agent.isRunning);
 
 	const handleDownload = async () => {
 		if (!config) {
@@ -165,8 +165,7 @@ export const DisplayChartToolCall = ({
 			return;
 		}
 
-		const seriesJson = JSON.stringify(config.series);
-		const chartBlock = `<chart query_id="${escapeDoubleQuotedAttr(config.query_id)}" chart_type="${escapeDoubleQuotedAttr(config.chart_type)}" x_axis_key="${escapeDoubleQuotedAttr(config.x_axis_key)}" x_axis_type="${escapeDoubleQuotedAttr(config.x_axis_type ?? '')}" series='${escapeSingleQuotedAttr(seriesJson)}' title="${escapeDoubleQuotedAttr(config.title ?? '')}" />`;
+		const chartBlock = buildStoryChartBlock(config);
 		const newCode = latest.code.trimEnd() + '\n\n' + chartBlock;
 
 		addToStoryMutation.mutate({
@@ -208,6 +207,16 @@ export const DisplayChartToolCall = ({
 							onRangeSelected={(range) => setDataRange(range)}
 						/>
 					)}
+					{isEditable && (
+						<Button
+							variant='ghost-muted'
+							size='icon-xs'
+							onClick={() => setIsEditOpen(true)}
+							title='Edit chart'
+						>
+							<Pencil className='size-3.5' />
+						</Button>
+					)}
 					{config.chart_type != 'kpi_card' && (
 						<Button
 							variant='ghost-muted'
@@ -221,6 +230,16 @@ export const DisplayChartToolCall = ({
 					)}
 				</div>
 			</div>
+
+			{isEditable && (
+				<DisplayChartEditDialog
+					open={isEditOpen}
+					onOpenChange={setIsEditOpen}
+					toolCallId={toolCallId}
+					config={config}
+					availableColumns={sourceData.columns ?? []}
+				/>
+			)}
 
 			<ChartDisplay
 				data={filteredData}

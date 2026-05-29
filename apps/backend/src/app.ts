@@ -10,14 +10,19 @@ import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 
 import { env, isCloud } from './env';
+import { AUTOMATION_JOB_NAME, automationHandler } from './handlers/automation.handler';
 import { LOG_CLEANUP_JOB_NAME, logCleanupHandler, runLogCleanup } from './handlers/log-cleanup.handler';
+import { MCP_QUERY_DATA_CLEANUP_JOB_NAME, mcpQueryDataCleanupHandler } from './handlers/mcp-query-data-cleanup.handler';
+import { STORY_REFRESH_JOB_NAME, storyRefreshHandler } from './handlers/story-refresh.handler';
 import { mcpServerRoutes } from './mcp/routes';
 import { ensureOrganizationSetup } from './queries/organization.queries';
 import { agentRoutes } from './routes/agent';
 import { authRoutes } from './routes/auth';
+import { authErrorRedirectRoutes } from './routes/auth-error-redirect';
 import { brandingRoutes } from './routes/branding';
 import { chartRoutes } from './routes/chart';
 import { deployRoutes } from './routes/deploy';
+import { embedStoryDownloadRoutes } from './routes/embed-story-download';
 import { githubRoutes } from './routes/github';
 import { imageRoutes } from './routes/image';
 import { slackRoutes } from './routes/slack';
@@ -154,6 +159,14 @@ app.register(brandingRoutes, {
 	prefix: '/branding',
 });
 
+app.register(authErrorRedirectRoutes, {
+	prefix: '/api',
+});
+
+app.register(embedStoryDownloadRoutes, {
+	prefix: '/api/embed',
+});
+
 app.register(authRoutes, {
 	prefix: '/api',
 });
@@ -225,6 +238,8 @@ async function relayOpenIdConfigMetadata(request: Parameters<typeof relayWebResp
 app.get('/.well-known/oauth-authorization-server/api/auth', relayAuthServerMetadata);
 app.get('/.well-known/openid-configuration/api/auth', relayOpenIdConfigMetadata);
 app.get('/api/auth/.well-known/openid-configuration', relayOpenIdConfigMetadata);
+app.get('/.well-known/oauth-authorization-server', relayAuthServerMetadata);
+app.get('/.well-known/openid-configuration', relayOpenIdConfigMetadata);
 
 /**
  * Tests the API connection
@@ -292,7 +307,15 @@ export const startServer = async (opts: { port: number; host: string }) => {
 		logger.error(`Log cleanup failed: ${err instanceof Error ? err.message : String(err)}`, { source: 'system' });
 	});
 	registerJob(LOG_CLEANUP_JOB_NAME, logCleanupHandler);
+	registerJob(AUTOMATION_JOB_NAME, automationHandler);
+	registerJob(STORY_REFRESH_JOB_NAME, storyRefreshHandler);
 	await ensureRecurring({ name: LOG_CLEANUP_JOB_NAME, cron: '0 3 * * *', uniqueKey: LOG_CLEANUP_JOB_NAME });
+	registerJob(MCP_QUERY_DATA_CLEANUP_JOB_NAME, mcpQueryDataCleanupHandler);
+	await ensureRecurring({
+		name: MCP_QUERY_DATA_CLEANUP_JOB_NAME,
+		cron: '0 4 * * *',
+		uniqueKey: MCP_QUERY_DATA_CLEANUP_JOB_NAME,
+	});
 	startScheduler();
 	await startLicenseHeartbeat();
 

@@ -5,7 +5,9 @@ Connection is configured via environment variables:
     For password auth:
         SNOWFLAKE_PASSWORD
     For key-pair auth:
-        SNOWFLAKE_PRIVATE_KEY_PATH, SNOWFLAKE_PASSPHRASE (optional),
+        SNOWFLAKE_PRIVATE_KEY_PATH, SNOWFLAKE_PASSPHRASE (optional)
+    For PAT auth:
+        SNOWFLAKE_TOKEN
     SNOWFLAKE_SCHEMA (default public), SNOWFLAKE_WAREHOUSE (optional).
 
 The test suite is skipped entirely when required env vars are not set.
@@ -29,15 +31,22 @@ SNOWFLAKE_USERNAME = os.environ.get("SNOWFLAKE_USERNAME")
 SNOWFLAKE_PASSWORD = os.environ.get("SNOWFLAKE_PASSWORD")
 SNOWFLAKE_PRIVATE_KEY_PATH = os.environ.get("SNOWFLAKE_PRIVATE_KEY_PATH")
 SNOWFLAKE_PASSPHRASE = os.environ.get("SNOWFLAKE_PASSPHRASE")
+SNOWFLAKE_TOKEN = os.environ.get("SNOWFLAKE_TOKEN")
 SNOWFLAKE_WAREHOUSE = os.environ.get("SNOWFLAKE_WAREHOUSE")
 
 # Default auth method:
 # - Prefer password if available (easier to set up locally)
-# - Otherwise fall back to key-pair
-SNOWFLAKE_AUTH_METHOD = (
-    os.environ.get("SNOWFLAKE_AUTH_METHOD") or ("password" if SNOWFLAKE_PASSWORD else "keypair")
-).lower()
-if SNOWFLAKE_AUTH_METHOD not in {"password", "keypair"}:
+# - Fall back to key-pair, then PAT
+SNOWFLAKE_AUTH_METHOD = os.environ.get("SNOWFLAKE_AUTH_METHOD")
+if not SNOWFLAKE_AUTH_METHOD:
+    if SNOWFLAKE_PASSWORD:
+        SNOWFLAKE_AUTH_METHOD = "password"
+    elif SNOWFLAKE_PRIVATE_KEY_PATH:
+        SNOWFLAKE_AUTH_METHOD = "keypair"
+    else:
+        SNOWFLAKE_AUTH_METHOD = "pat"
+SNOWFLAKE_AUTH_METHOD = SNOWFLAKE_AUTH_METHOD.lower()
+if SNOWFLAKE_AUTH_METHOD not in {"password", "keypair", "pat"}:
     SNOWFLAKE_AUTH_METHOD = "password" if SNOWFLAKE_PASSWORD else "keypair"
 
 _missing_base_env = [
@@ -53,6 +62,9 @@ _missing_auth_env: list[str] = []
 if SNOWFLAKE_AUTH_METHOD == "password":
     if not SNOWFLAKE_PASSWORD:
         _missing_auth_env.append("SNOWFLAKE_PASSWORD")
+elif SNOWFLAKE_AUTH_METHOD == "pat":
+    if not SNOWFLAKE_TOKEN:
+        _missing_auth_env.append("SNOWFLAKE_TOKEN")
 else:
     if not SNOWFLAKE_PRIVATE_KEY_PATH:
         _missing_auth_env.append("SNOWFLAKE_PRIVATE_KEY_PATH")
@@ -102,6 +114,9 @@ def _ibis_connect(*, database: str | None = None):
 
     if SNOWFLAKE_AUTH_METHOD == "password":
         kwargs["password"] = SNOWFLAKE_PASSWORD
+    elif SNOWFLAKE_AUTH_METHOD == "pat":
+        kwargs["authenticator"] = "programmatic_access_token"
+        kwargs["token"] = SNOWFLAKE_TOKEN
     else:
         kwargs["private_key"] = _private_key_bytes_from_env()
 
@@ -160,6 +175,8 @@ def db_config(temp_database):
         password=os.environ.get("SNOWFLAKE_PASSWORD") if SNOWFLAKE_AUTH_METHOD == "password" else None,
         private_key_path=os.environ.get("SNOWFLAKE_PRIVATE_KEY_PATH") if SNOWFLAKE_AUTH_METHOD == "keypair" else None,
         passphrase=os.environ.get("SNOWFLAKE_PASSPHRASE") if SNOWFLAKE_AUTH_METHOD == "keypair" else None,
+        token=os.environ.get("SNOWFLAKE_TOKEN") if SNOWFLAKE_AUTH_METHOD == "pat" else None,
+        authenticator="programmatic_access_token" if SNOWFLAKE_AUTH_METHOD == "pat" else None,
         schema_name="public",
         warehouse=os.environ.get("SNOWFLAKE_WAREHOUSE"),
     )

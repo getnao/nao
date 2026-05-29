@@ -146,13 +146,13 @@ export const getProviderPeriodCosts = async (
 	projectId: string,
 	provider?: LlmProvider,
 ): Promise<Record<string, number>> => {
-	const costLookup = createCostLookup();
+	const costLookup = await createCostLookup(projectId);
 	const isPostgres = dbConfig.dialect === Dialect.Postgres;
 	const dayStart = getCurrentPeriodStart('day');
 	const weekStart = getCurrentPeriodStart('week');
 	const monthStart = getCurrentPeriodStart('month');
 
-	const toParam = (d: Date) => (isPostgres ? d.toISOString() : d.getTime());
+	const toParam = (d: Date) => (isPostgres ? sql`${d.toISOString()}::timestamp` : sql`${d.getTime()}`);
 	const periodStartExpr = sql`CASE ${s.projectProviderBudget.period}
 		WHEN 'day' THEN ${toParam(dayStart)}
 		WHEN 'week' THEN ${toParam(weekStart)}

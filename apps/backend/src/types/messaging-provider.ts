@@ -34,7 +34,7 @@ export type StreamState = {
 	toolGroupBlockIndex: number;
 };
 
-export type Provider = 'slack' | 'teams' | 'telegram' | 'whatsapp';
+export type Provider = 'slack' | 'teams' | 'telegram' | 'whatsapp' | 'automation';
 
 export const SLACK_TRANSPORT_MODES = ['webhook', 'socket'] as const;
 export type SlackTransportMode = (typeof SLACK_TRANSPORT_MODES)[number];

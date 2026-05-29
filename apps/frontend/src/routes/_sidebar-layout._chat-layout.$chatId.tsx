@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
-import { createFileRoute, useRouter } from '@tanstack/react-router';
+import { createFileRoute, Link, useRouter } from '@tanstack/react-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Folder, GitFork, Globe, Upload } from 'lucide-react';
+import { Folder, GitFork, Globe, TimerIcon, Upload } from 'lucide-react';
 import type { ForkMetadata } from '@nao/backend/chat';
 import type { SelectionData } from '@/components/highlight-bubble';
 import { NEW_CHAT_ID } from '@/lib/ai';
@@ -82,6 +82,8 @@ function ChatPage() {
 	const isSelectionFork =
 		chat.data?.forkMetadata?.type === 'chat_selection' || chat.data?.forkMetadata?.type === 'story_selection';
 	const headerCitation = buildHeaderCitation(isSelectionFork ? chat.data?.forkMetadata : undefined);
+	const automationId = chat.data?.automationRun?.automationId;
+	const isAutomationRunning = chat.data?.automationRun?.status === 'running';
 
 	useEffect(() => {
 		const openStorySlug = router.state.location.state.openStorySlug;
@@ -111,7 +113,7 @@ function ChatPage() {
 			<SelectionProvider key={chatId}>
 				<div className='flex-1 flex min-w-0 bg-panel' ref={containerRef}>
 					<div className='flex flex-col h-full flex-1 min-w-0 overflow-hidden justify-center relative'>
-						<MobileHeader chatId={chatId} title={title} />
+						<MobileHeader chatId={chatId} title={title} automationId={automationId} />
 
 						<div className='group/header absolute flex items-center justify-between top-3 inset-x-4 z-10 max-md:hidden'>
 							<div className='min-w-0 max-w-[60%] flex flex-row gap-4'>
@@ -126,6 +128,20 @@ function ChatPage() {
 									<Badge variant='outline' className='gap-1 text-muted-foreground w-fit'>
 										<Folder />
 										<span className='truncate'>{chatProject.name}</span>
+									</Badge>
+								)}
+								{isAutomationRunning && (
+									<Badge variant='secondary' className='gap-1 text-muted-foreground w-fit'>
+										<Spinner className='size-3' />
+										<span>Running...</span>
+									</Badge>
+								)}
+								{automationId && (
+									<Badge variant='outline' className='gap-1 text-muted-foreground w-fit' asChild>
+										<Link to='/automations/$automationId' params={{ automationId }}>
+											<TimerIcon />
+											<span>Automation config</span>
+										</Link>
 									</Badge>
 								)}
 								{chat.data?.forkMetadata && (

@@ -1,20 +1,23 @@
 import json
 import os
+import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, cast
 
 import numpy as np
 import pandas as pd
 from cyclopts import Parameter
 
 from nao_core.config import NaoConfig, resolve_project_path
+from nao_core.config.llm import ModelCosts
 from nao_core.ui import UI
 
 from .case import TESTS_FOLDER, TestCase, discover_tests
 from .client import AgentClientError, VerificationResult, get_client
+from .compare import normalize_dataframe_numbers
 
 # Default models to test
 DEFAULT_MODELS = ["openai:gpt-4.1"]
@@ -92,10 +95,14 @@ def check_dataframe(
         missing = set(cols) - set(actual.columns)
         if missing:
             return False, f"missing columns: {missing}", None
-        actual, expected = actual[cols], expected[cols]
+        actual = cast(pd.DataFrame, actual[cols])
+        expected = cast(pd.DataFrame, expected[cols])
 
     if len(actual) != len(expected):
         return False, f"row count: {len(actual)} vs {len(expected)}", None
+
+    actual = normalize_dataframe_numbers(actual)
+    expected = normalize_dataframe_numbers(expected)
 
     def round_numeric(df: pd.DataFrame, decimals: int = 2) -> pd.DataFrame:
         """Round float-like columns to the given number of decimals for stable comparisons."""
@@ -113,8 +120,8 @@ def check_dataframe(
 
     # Sort columns alphabetically for consistent comparison
     sorted_cols = sorted(actual.columns)
-    actual = actual[sorted_cols]
-    expected = expected[sorted_cols]
+    actual = cast(pd.DataFrame, actual[sorted_cols])
+    expected = cast(pd.DataFrame, expected[sorted_cols])
 
     # Round float-like values to 2 decimals to avoid noisy diffs
     actual = round_numeric(actual, decimals=2)
@@ -131,8 +138,8 @@ def check_dataframe(
     try:
         is_close = True
         for col in actual.columns:
-            actual_series: pd.Series = actual[col]
-            expected_series: pd.Series = expected[col]
+            actual_series = cast(pd.Series, actual[col])
+            expected_series = cast(pd.Series, expected[col])
 
             # Check if both columns are numeric
             if pd.api.types.is_numeric_dtype(actual_series) and pd.api.types.is_numeric_dtype(expected_series):
@@ -176,6 +183,7 @@ def run_test(
     model: ModelConfig,
     email: str | None = None,
     password: str | None = None,
+    costs: ModelCosts | None = None,
 ) -> TestRunResult:
     """Run a single test case with a specific model. Returns TestRunResult."""
     UI.print(f"[bold]Running:[/bold] {test_case.name} [dim]({model})[/dim]")
@@ -184,7 +192,7 @@ def run_test(
     client = get_client(email=email, password=password)
 
     try:
-        result = client.run_test(test_case, provider=model.provider, model_id=model.model_id)
+        result = client.run_test(test_case, provider=model.provider, model_id=model.model_id, costs=costs)
 
         if result.text:
             UI.print(f"[dim]  Response: {result.text[:200]}...[/dim]")
@@ -278,20 +286,33 @@ def save_results(results: list[TestRunResult], output_dir: Path) -> Path:
     return output_file
 
 
-def filter_test_cases(test_cases: list[TestCase], selected_test: str | None) -> list[TestCase]:
-    """Filter test cases to a single selected test, if provided."""
-    if not selected_test:
+def filter_test_cases(test_cases: list[TestCase], selected_tests: str | None) -> list[TestCase]:
+    """Filter test cases to the selected tests, if provided."""
+    if not selected_tests:
         return test_cases
 
-    matches = [tc for tc in test_cases if tc.name == selected_test or tc.file_path.stem == selected_test]
-    if not matches:
+    selections = [s.strip() for s in selected_tests.split(",") if s.strip()]
+    if not selections:
         available = ", ".join(tc.name for tc in test_cases)
-        raise ValueError(f"Test not found: {selected_test}. Available tests: {available}")
-    if len(matches) > 1:
-        names = ", ".join(f"{tc.name} ({tc.file_path.name})" for tc in matches)
-        raise ValueError(f"Multiple tests match '{selected_test}': {names}")
+        raise ValueError(f"Test not found: {selected_tests}. Available tests: {available}")
 
-    return [matches[0]]
+    selected: list[TestCase] = []
+    seen: set[Path] = set()
+    for selection in selections:
+        matches = [tc for tc in test_cases if tc.name == selection or tc.file_path.stem == selection]
+        if not matches:
+            available = ", ".join(tc.name for tc in test_cases)
+            raise ValueError(f"Test not found: {selection}. Available tests: {available}")
+        if len(matches) > 1:
+            names = ", ".join(f"{tc.name} ({tc.file_path.name})" for tc in matches)
+            raise ValueError(f"Multiple tests match '{selection}': {names}")
+        match = matches[0]
+        if match.file_path in seen:
+            continue
+        seen.add(match.file_path)
+        selected.append(match)
+
+    return selected
 
 
 def test(
@@ -313,7 +334,7 @@ def test(
         str | None,
         Parameter(
             name=["-s", "--select"],
-            help="Run only one test by name or yaml filename stem.",
+            help="Run only the selected tests by name or yaml filename stem. Comma-separated (e.g. '12,13,14').",
         ),
     ] = None,
     username: Annotated[
@@ -339,6 +360,7 @@ def test(
         nao test -m openai:gpt-4.1 -m anthropic:claude-sonnet-4-20250514
         nao test --threads 4
         nao test -s test_name
+        nao test -s 12,13,14
         nao test -u user@example.com --password secret
     """
     email = username or os.environ.get("NAO_USERNAME")
@@ -358,6 +380,7 @@ def test(
         return
 
     project_path = Path.cwd()
+    model_costs = config.llm.meta.costs if config.llm and config.llm.meta else None
     UI.print(f"[dim]Project: {config.project_name}[/dim]")
     UI.print(f"[dim]Tests folder: {project_path / TESTS_FOLDER}[/dim]")
     UI.print(f"[dim]Models: {', '.join(str(m) for m in model_configs)}[/dim]\n")
@@ -386,12 +409,15 @@ def test(
     results: list[TestRunResult] = []
     if threads == 1:
         for test_case, model in test_runs:
-            result = run_test(test_case, model, email=email, password=pwd)
+            result = run_test(test_case, model, email=email, password=pwd, costs=model_costs)
             results.append(result)
             UI.print("")
     else:
         with ThreadPoolExecutor(max_workers=threads) as executor:
-            futures = {executor.submit(run_test, tc, m, email=email, password=pwd): (tc, m) for tc, m in test_runs}
+            futures = {
+                executor.submit(run_test, tc, m, email=email, password=pwd, costs=model_costs): (tc, m)
+                for tc, m in test_runs
+            }
             for future in as_completed(futures):
                 result = future.result()
                 results.append(result)
@@ -430,3 +456,4 @@ def test(
         UI.success(f"All {total} test(s) passed")
     else:
         UI.print(f"[green]{passed} passed[/green], [red]{failed} failed[/red], {total} total")
+        sys.exit(1)

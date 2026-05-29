@@ -5,6 +5,7 @@ import { z } from 'zod/v4';
 import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as sharedChatQueries from '../queries/shared-chat.queries';
+import { logActivity } from '../services/activity';
 import { type UIChat } from '../types/chat';
 import { notifySharedItemRecipients } from '../utils/email';
 import { canSendProcedure, protectedProcedure, resourceProjectProcedure } from './trpc';
@@ -55,6 +56,14 @@ export const sharedChatRoutes = {
 				},
 				input.allowedUserIds,
 			);
+
+			await logActivity({
+				projectId: ctx.project.id,
+				userId: ctx.user.id,
+				type: 'chat.shared',
+				chatId: input.chatId,
+				sharedChatId: created.id,
+			});
 
 			notifySharedItemRecipients({
 				projectId: ctx.project.id,
