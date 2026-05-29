@@ -13,6 +13,7 @@ interface AzureAdConfig {
 	clientId: string;
 	clientSecret: string;
 	tenantId: string;
+	tokenScope: string;
 }
 
 export function augmentSocialProviders(providers: SocialProviders): void {
@@ -63,8 +64,6 @@ export async function getAzureAccessTokenForUser(userId: string): Promise<string
 		return null;
 	}
 
-	const scope = `api://${config.clientId}/.default`;
-
 	const tokenResponse = await fetch(`https://login.microsoftonline.com/${config.tenantId}/oauth2/v2.0/token`, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -73,7 +72,7 @@ export async function getAzureAccessTokenForUser(userId: string): Promise<string
 			client_id: config.clientId,
 			client_secret: config.clientSecret,
 			refresh_token: refreshToken,
-			scope,
+			scope: config.tokenScope,
 		}),
 	});
 
@@ -88,7 +87,7 @@ export async function getAzureAccessTokenForUser(userId: string): Promise<string
 }
 
 function azureAdEnv(): AzureAdConfig | null {
-	const { AZURE_AD_CLIENT_ID, AZURE_AD_CLIENT_SECRET, AZURE_AD_TENANT_ID } = env;
+	const { AZURE_AD_CLIENT_ID, AZURE_AD_CLIENT_SECRET, AZURE_AD_TENANT_ID, AZURE_AD_TOKEN_SCOPE } = env;
 
 	if (!AZURE_AD_CLIENT_ID || !AZURE_AD_CLIENT_SECRET || !AZURE_AD_TENANT_ID) {
 		return null;
@@ -98,5 +97,6 @@ function azureAdEnv(): AzureAdConfig | null {
 		clientId: AZURE_AD_CLIENT_ID,
 		clientSecret: AZURE_AD_CLIENT_SECRET,
 		tenantId: AZURE_AD_TENANT_ID,
+		tokenScope: AZURE_AD_TOKEN_SCOPE || `${AZURE_AD_CLIENT_ID}/.default`,
 	};
 }

@@ -45,6 +45,7 @@ const envSchema = z.object({
 	AZURE_AD_CLIENT_ID: z.string().optional(),
 	AZURE_AD_CLIENT_SECRET: z.string().optional(),
 	AZURE_AD_TENANT_ID: z.string().optional(),
+	AZURE_AD_TOKEN_SCOPE: z.string().optional(),
 
 	ENABLE_USER_LOGIN: z
 		.enum(['true', 'false'])
