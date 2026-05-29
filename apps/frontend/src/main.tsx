@@ -1,4 +1,5 @@
 import './styles.css';
+import 'katex/dist/katex.min.css';
 import { StrictMode } from 'react';
 import { createTRPCClient, httpBatchLink, loggerLink } from '@trpc/client';
 import { createTRPCOptionsProxy } from '@trpc/tanstack-react-query';

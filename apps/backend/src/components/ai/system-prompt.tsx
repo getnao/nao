@@ -189,6 +189,14 @@ export function SystemPrompt({
 				</ListItem>
 				<ListItem>The Query ID is shown in the execute_sql tool output (e.g., Query ID: query_a1b2).</ListItem>
 			</List>
+			<Title level={2}>Formatting Rules</Title>
+			<List>
+				<ListItem>
+					For math equations, use KaTeX with dollar delimiters: <Bold>{'$...$'}</Bold> for inline math and{' '}
+					<Bold>{'$$...$$'}</Bold> for block math. Do not use {'\\(...\\)'} or {'\\[...\\]'} delimiters as
+					they are not rendered.
+				</ListItem>
+			</List>
 			<Block separator={'\n\n---\n\n'}>
 				{userRules && (
 					<Block>
