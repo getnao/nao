@@ -71,6 +71,12 @@ export type BudgetPeriod = (typeof BUDGET_PERIODS)[number];
 export const SHARE_VISIBILITY = ['project', 'specific'] as const;
 export type Visibility = (typeof SHARE_VISIBILITY)[number];
 
+export type StorySharingInfo = {
+	visibility: Visibility;
+	sharedWithCount: number;
+	isPinned: boolean;
+};
+
 export type ProjectChatReplayFacets<R extends string = string> = {
 	userNames: string[];
 	userNameCounts: Record<string, number>;
@@ -154,3 +160,5 @@ export type EmbedTokenPayload = {
 	projectId: string;
 	exp: number;
 };
+
+export type StoryPanelDisplayMode = 'grid' | 'lines';

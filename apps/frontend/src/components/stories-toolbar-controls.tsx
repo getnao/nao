@@ -1,17 +1,13 @@
 import { ArchiveIcon, LayoutGrid, List, Search, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
-import type { DisplayMode, GroupBy } from '@/lib/stories-page';
-import { GROUP_BY_LABELS } from '@/lib/stories-page';
+import type { StoryPanelDisplayMode } from '@nao/shared/types';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 export function StoriesToolbarControls({
 	searchQuery,
 	onSearchQueryChange,
-	groupBy,
-	onGroupByChange,
 	displayMode,
 	onDisplayModeChange,
 	showArchived,
@@ -19,10 +15,8 @@ export function StoriesToolbarControls({
 }: {
 	searchQuery: string;
 	onSearchQueryChange: (value: string) => void;
-	groupBy: GroupBy;
-	onGroupByChange: (value: GroupBy) => void;
-	displayMode: DisplayMode;
-	onDisplayModeChange: (value: DisplayMode) => void;
+	displayMode: StoryPanelDisplayMode;
+	onDisplayModeChange: (value: StoryPanelDisplayMode) => void;
 	showArchived: boolean;
 	onShowArchivedChange: (value: boolean) => void;
 }) {
@@ -37,12 +31,7 @@ export function StoriesToolbarControls({
 				<ArchiveIcon className='size-3.5' />
 				<span className='text-xs'>{showArchived ? 'Back to stories' : 'See archives'}</span>
 			</Button>
-			{!showArchived && (
-				<>
-					<SearchInput value={searchQuery} onChange={onSearchQueryChange} />
-					<GroupBySelect value={groupBy} onChange={onGroupByChange} />
-				</>
-			)}
+			{!showArchived && <SearchInput value={searchQuery} onChange={onSearchQueryChange} />}
 			<DisplayModeToggle value={displayMode} onChange={onDisplayModeChange} />
 		</div>
 	);
@@ -96,25 +85,13 @@ function SearchInput({ value, onChange }: { value: string; onChange: (value: str
 	);
 }
 
-function GroupBySelect({ value, onChange }: { value: GroupBy; onChange: (value: GroupBy) => void }) {
-	return (
-		<Select value={value} onValueChange={(nextValue) => onChange(nextValue as GroupBy)}>
-			<SelectTrigger variant='ghost' size='sm'>
-				<span className='text-muted-foreground'>Group by</span>
-				<SelectValue />
-			</SelectTrigger>
-			<SelectContent>
-				{(Object.keys(GROUP_BY_LABELS) as GroupBy[]).map((key) => (
-					<SelectItem key={key} value={key}>
-						{GROUP_BY_LABELS[key]}
-					</SelectItem>
-				))}
-			</SelectContent>
-		</Select>
-	);
-}
-
-function DisplayModeToggle({ value, onChange }: { value: DisplayMode; onChange: (value: DisplayMode) => void }) {
+function DisplayModeToggle({
+	value,
+	onChange,
+}: {
+	value: StoryPanelDisplayMode;
+	onChange: (value: StoryPanelDisplayMode) => void;
+}) {
 	return (
 		<div className='flex items-center gap-0.5 rounded-md border p-0.5'>
 			<Button

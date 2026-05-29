@@ -26,13 +26,7 @@ interface ShareStoryDialogProps {
 	intent?: ShareStoryIntent;
 }
 
-export function ShareStoryDialog({
-	open,
-	onOpenChange,
-	chatId,
-	storySlug,
-	intent = 'share',
-}: ShareStoryDialogProps) {
+export function ShareStoryDialog({ open, onOpenChange, chatId, storySlug, intent = 'share' }: ShareStoryDialogProps) {
 	const shareQuery = useQuery(trpc.storyShare.getSharedStoryInfo.queryOptions({ chatId, storySlug }));
 	const shareData = shareQuery.data;
 	const isShared = !!shareData?.shareId;
@@ -80,13 +74,7 @@ function useInvalidateShareQueries(chatId: string, storySlug: string) {
 	}, [queryClient, chatId, storySlug]);
 }
 
-function CreateShareDialog({
-	open,
-	onOpenChange,
-	chatId,
-	storySlug,
-	intent = 'share',
-}: ShareStoryDialogProps) {
+function CreateShareDialog({ open, onOpenChange, chatId, storySlug, intent = 'share' }: ShareStoryDialogProps) {
 	const { data: session } = useSession();
 	const [visibility, setVisibility] = useState<Visibility>('project');
 	const [isConfirmed, setIsConfirmed] = useState(false);
@@ -135,8 +123,7 @@ function CreateShareDialog({
 
 		if (!isPinIntent) {
 			const blobPromise = promise.then(
-				(data) =>
-					new Blob([`${window.location.origin}/stories/shared/${data.id}`], { type: 'text/plain' }),
+				(data) => new Blob([`${window.location.origin}/stories/shared/${data.id}`], { type: 'text/plain' }),
 			);
 			blobPromise.catch(() => {});
 			navigator.clipboard.write([new ClipboardItem({ 'text/plain': blobPromise })]).catch(() => {});
@@ -160,11 +147,7 @@ function CreateShareDialog({
 	const description = isPinIntent
 		? "Pinning surfaces a story on the project's homepage. Choose who should see it — pinning requires sharing first."
 		: 'Share a link to this story. Recipients will always see the latest version.';
-	const confirmIdleIcon = isPinIntent ? (
-		<Pin className='size-3.5 fill-current' />
-	) : (
-		<LinkIcon className='size-3.5' />
-	);
+	const confirmIdleIcon = isPinIntent ? <Pin className='size-3.5 fill-current' /> : <LinkIcon className='size-3.5' />;
 	const confirmIdleLabel = isPinIntent ? 'Share & pin' : 'Share & copy link';
 	const confirmDoneLabel = isPinIntent ? 'Pinned!' : 'Link copied!';
 
@@ -199,7 +182,11 @@ function CreateShareDialog({
 					<Button variant='outline' onClick={() => onOpenChange(false)}>
 						Cancel
 					</Button>
-					<Button onClick={handleConfirm} disabled={!canConfirm || shareMutation.isPending} className='gap-1.5'>
+					<Button
+						onClick={handleConfirm}
+						disabled={!canConfirm || shareMutation.isPending}
+						className='gap-1.5'
+					>
 						{shareMutation.isPending ? (
 							<Loader2 className='size-3.5 animate-spin' />
 						) : isConfirmed ? (

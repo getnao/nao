@@ -1,6 +1,5 @@
 import type { MessageBubble } from '@nao/shared/types';
 
-export type DisplayMode = 'grid' | 'lines';
 export type GroupBy = 'type' | 'date' | 'author';
 
 export const VIEWER_DISPLAY_KEY = 'viewer-home-display-mode';

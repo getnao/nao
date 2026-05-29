@@ -1039,10 +1039,55 @@ export const storyFavorite = pgTable(
 		storyId: text('story_id')
 			.notNull()
 			.references(() => story.id, { onDelete: 'cascade' }),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
 	},
 	(t) => [
 		primaryKey({ columns: [t.userId, t.storyId] }),
 		index('story_favorite_userId_idx').on(t.userId),
 		index('story_favorite_storyId_idx').on(t.storyId),
 	],
+);
+
+export const storyFolder = pgTable(
+	'story_folder',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		parentId: text('parent_id'),
+		name: text('name').notNull(),
+		favoritedAt: timestamp('favorited_at'),
+		archivedAt: timestamp('archived_at'),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [
+		index('story_folder_userId_projectId_parentId_idx').on(t.userId, t.projectId, t.parentId),
+		index('story_folder_projectId_idx').on(t.projectId),
+	],
+);
+
+export const storyFolderItem = pgTable(
+	'story_folder_item',
+	{
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		storyId: text('story_id')
+			.notNull()
+			.references(() => story.id, { onDelete: 'cascade' }),
+		folderId: text('folder_id')
+			.notNull()
+			.references(() => storyFolder.id, { onDelete: 'cascade' }),
+	},
+	(t) => [primaryKey({ columns: [t.userId, t.storyId] }), index('story_folder_item_folderId_idx').on(t.folderId)],
 );

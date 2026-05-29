@@ -1,89 +1,21 @@
+import { useDraggable } from '@dnd-kit/core';
+import { CSS } from '@dnd-kit/utilities';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { Activity, ArchiveIcon, ArchiveRestoreIcon, Globe, Pin, Star, Users } from 'lucide-react';
+import { Activity, ArchiveIcon, ArchiveRestoreIcon, FolderInput, Globe, Pin, Star, Users } from 'lucide-react';
 import { useState } from 'react';
 import type { MouseEvent, ReactNode } from 'react';
-import type { DisplayMode, StoryGroup, StoryItem } from '@/lib/stories-page';
+import type { StoryPanelDisplayMode } from '@nao/shared/types';
+
+import type { StoryItem } from '@/lib/stories-page';
 import { ShareStoryDialog } from '@/components/share-dialog.story';
 import { StoryThumbnail } from '@/components/story-thumbnail';
 import StoryIcon from '@/components/ui/story-icon';
-import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { usePermissions } from '@/hooks/use-permissions';
 import { formatRelativeDate } from '@/lib/time-ago';
 import { cn } from '@/lib/utils';
-import { usePermissions } from '@/hooks/use-permissions';
 import { trpc } from '@/main';
-
-export function StoriesGroups({
-	groups,
-	displayMode,
-	showArchived,
-}: {
-	groups: StoryGroup[];
-	displayMode: DisplayMode;
-	showArchived: boolean;
-}) {
-	const queryClient = useQueryClient();
-
-	const archiveAllMutation = useMutation(
-		trpc.story.archiveMany.mutationOptions({
-			onSuccess: () => {
-				queryClient.invalidateQueries({ queryKey: trpc.story.listAll.queryKey() });
-				queryClient.invalidateQueries({ queryKey: trpc.story.listArchived.queryKey() });
-			},
-		}),
-	);
-
-	function handleArchiveAll(items: StoryItem[]) {
-		const archivable = items.filter((i) => i.kind === 'own' && i.chatId && i.storySlug);
-		if (archivable.length === 0) {
-			return;
-		}
-		archiveAllMutation.mutate({
-			stories: archivable.map((i) => ({ chatId: i.chatId!, storySlug: i.storySlug! })),
-		});
-	}
-
-	return (
-		<>
-			{groups.map((group, index) => {
-				const showArchiveAll = !showArchived && group.label === 'Older';
-				return (
-					<StoriesSection
-						key={group.label}
-						title={group.label}
-						className={index < groups.length - 1 ? 'mb-10' : undefined}
-						action={
-							showArchiveAll ? (
-								<Button
-									variant='ghost'
-									size='sm'
-									className='text-muted-foreground gap-1.5'
-									onClick={() => handleArchiveAll(group.items)}
-									disabled={archiveAllMutation.isPending}
-								>
-									<ArchiveIcon className='size-3.5' />
-									<span className='text-xs'>Archive all</span>
-								</Button>
-							) : undefined
-						}
-					>
-						<StoriesList displayMode={displayMode}>
-							{group.items.map((item) => (
-								<StoryCard
-									key={item.id}
-									item={item}
-									displayMode={displayMode}
-									showArchived={showArchived}
-								/>
-							))}
-						</StoriesList>
-					</StoriesSection>
-				);
-			})}
-		</>
-	);
-}
 
 export function StoriesNoResults({ query }: { query: string }) {
 	return (
@@ -94,12 +26,15 @@ export function StoriesNoResults({ query }: { query: string }) {
 }
 
 export function StoriesEmptyState() {
+	const isViewer = usePermissions();
 	return (
 		<div className='flex flex-col items-center justify-center py-24 text-center'>
 			<StoryIcon className='size-10 text-muted-foreground/40 mb-4' />
 			<p className='text-muted-foreground text-sm'>No stories yet.</p>
 			<p className='text-muted-foreground/60 text-sm mt-1'>
-				Stories will appear here as they are created in your chats.
+				{isViewer
+					? 'Wait for someone to share a story with you.'
+					: 'Stories will appear here as they are created in your chats.'}
 			</p>
 		</div>
 	);
@@ -109,28 +44,119 @@ export function StoryCard({
 	item,
 	displayMode,
 	showArchived,
+	onMoveToFolder,
 }: {
 	item: StoryItem;
-	displayMode: DisplayMode;
+	displayMode: StoryPanelDisplayMode;
 	showArchived: boolean;
+	onMoveToFolder?: (item: StoryItem) => void;
 }) {
 	const { isAdmin } = usePermissions();
 	const [pinShareDialogOpen, setPinShareDialogOpen] = useState(false);
 
+	const draggableId = `drag-story-${item.storyId}`;
+	const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: draggableId });
+	const style = transform ? { transform: CSS.Translate.toString(transform) } : undefined;
+
 	const canOpenPinShareDialog =
 		isAdmin && !item.sharedStoryId && item.kind === 'own' && !!item.chatId && !!item.storySlug;
 
+	const meta = `${item.author} · ${formatRelativeDate(item.createdAt)}`;
+
+	if (displayMode === 'grid') {
+		return (
+			<>
+				<div
+					ref={setNodeRef}
+					style={style}
+					{...attributes}
+					{...listeners}
+					className={cn(storyCardClass('grid'), isDragging && 'opacity-0')}
+				>
+					<div className='absolute inset-0 pointer-events-none overflow-hidden'>
+						<StoryThumbnail summary={item.summary} />
+					</div>
+
+					<div className='pointer-events-none absolute inset-x-0 bottom-0 h-18 bg-gradient-to-t from-background from-50% to-transparent' />
+
+					<Link
+						{...item.link}
+						onClick={(e) => e.stopPropagation()}
+						className='absolute inset-0 flex flex-col justify-end p-2.5'
+					>
+						<div className='flex items-end gap-1.5'>
+							<div className='flex-1 min-w-0 transition-transform duration-200 ease-out group-hover:-translate-y-0.5'>
+								<span className='block text-xs font-medium truncate'>{item.title}</span>
+								<span className='block text-[11px] text-muted-foreground truncate'>{meta}</span>
+							</div>
+							<div className='shrink-0 mb-0.5'>
+								<StoryBadges item={item} mode='grid' />
+							</div>
+						</div>
+					</Link>
+
+					<div
+						className='absolute top-1.5 left-2 flex items-center z-10'
+						onPointerDown={(e) => e.stopPropagation()}
+					>
+						<StoryQuickActions item={item} onRequestPinShare={() => setPinShareDialogOpen(true)} />
+						<div className='flex items-center max-w-0 overflow-hidden group-hover:max-w-[60px] transition-[max-width] duration-200 ease-out'>
+							{!showArchived && onMoveToFolder && (
+								<StoryMoveToFolderButton item={item} onMoveToFolder={onMoveToFolder} />
+							)}
+							<StoryArchiveButton item={item} showArchived={showArchived} />
+						</div>
+					</div>
+				</div>
+				{canOpenPinShareDialog && item.chatId && item.storySlug && (
+					<ShareStoryDialog
+						open={pinShareDialogOpen}
+						onOpenChange={setPinShareDialogOpen}
+						chatId={item.chatId}
+						storySlug={item.storySlug}
+						intent='pin'
+					/>
+				)}
+			</>
+		);
+	}
+
 	return (
 		<>
-			<Link {...item.link} className={cn(storyCardClass(displayMode), 'relative')}>
-				<StoryCardContent item={item} displayMode={displayMode} />
-				<StoryActions
-					item={item}
-					displayMode={displayMode}
-					showArchived={showArchived}
-					onRequestPinShare={() => setPinShareDialogOpen(true)}
-				/>
-			</Link>
+			<div
+				ref={setNodeRef}
+				style={style}
+				{...attributes}
+				{...listeners}
+				className={cn(storyCardClass('lines'), isDragging && 'opacity-0')}
+			>
+				<Link
+					{...item.link}
+					onClick={(e) => e.stopPropagation()}
+					className='flex items-center gap-3 flex-1 min-w-0'
+				>
+					<div className='flex items-center gap-2 flex-1 min-w-0 pl-1.5'>
+						<span className='text-sm font-medium truncate'>{item.title}</span>
+						<div className='flex items-center gap-1.5 shrink-0'>
+							<StoryBadges item={item} mode='lines' />
+						</div>
+					</div>
+					<div className='hidden md:block w-32 shrink-0 pl-1.5 text-xs text-muted-foreground truncate'>
+						{item.author}
+					</div>
+					<div className='hidden sm:block w-24 shrink-0 pl-1.5 text-xs text-muted-foreground truncate'>
+						{formatRelativeDate(item.createdAt)}
+					</div>
+				</Link>
+				<div className='w-20 shrink-0 flex items-center justify-end'>
+					<StoryActions
+						item={item}
+						showArchived={showArchived}
+						onRequestPinShare={() => setPinShareDialogOpen(true)}
+						onMoveToFolder={onMoveToFolder}
+					/>
+				</div>
+			</div>
 			{canOpenPinShareDialog && item.chatId && item.storySlug && (
 				<ShareStoryDialog
 					open={pinShareDialogOpen}
@@ -144,37 +170,94 @@ export function StoryCard({
 	);
 }
 
-function StoryActions({
-	item,
-	displayMode,
-	showArchived,
-	onRequestPinShare,
+export function StoriesSection({
+	title,
+	className,
+	action,
+	children,
 }: {
-	item: StoryItem;
-	displayMode: DisplayMode;
-	showArchived: boolean;
-	onRequestPinShare: () => void;
+	title: string;
+	className?: string;
+	action?: ReactNode;
+	children: ReactNode;
 }) {
-	const containerClass =
-		displayMode === 'grid'
-			? 'absolute top-1.5 right-1.5 flex items-center gap-0.5 z-10'
-			: 'flex items-center gap-0.5 shrink-0 ml-1';
-
 	return (
-		<div className={containerClass}>
-			<StoryQuickActions item={item} onRequestPinShare={onRequestPinShare} />
-			<StoryArchiveButton item={item} showArchived={showArchived} />
+		<section className={className}>
+			<div className='flex items-center justify-between mb-4'>
+				<h2 className='text-sm font-medium text-muted-foreground'>{title}</h2>
+				{action}
+			</div>
+			{children}
+		</section>
+	);
+}
+
+export function StoriesList({ displayMode, children }: { displayMode: StoryPanelDisplayMode; children: ReactNode }) {
+	return (
+		<div
+			className={cn(
+				displayMode === 'grid' &&
+					'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3',
+				displayMode === 'lines' && 'flex flex-col gap-1',
+			)}
+		>
+			{children}
 		</div>
 	);
 }
 
-function StoryQuickActions({
+function StoryActions({
 	item,
+	showArchived,
 	onRequestPinShare,
+	onMoveToFolder,
 }: {
 	item: StoryItem;
+	showArchived: boolean;
 	onRequestPinShare: () => void;
+	onMoveToFolder?: (item: StoryItem) => void;
 }) {
+	return (
+		<div className='flex items-center' onPointerDown={(e) => e.stopPropagation()}>
+			<StoryQuickActions item={item} onRequestPinShare={onRequestPinShare} />
+			<div className='flex items-center gap-0.5 max-w-0 overflow-hidden group-hover:max-w-[80px] transition-[max-width] duration-200 ease-out'>
+				{!showArchived && onMoveToFolder && (
+					<StoryMoveToFolderButton item={item} onMoveToFolder={onMoveToFolder} />
+				)}
+				<StoryArchiveButton item={item} showArchived={showArchived} />
+			</div>
+		</div>
+	);
+}
+
+function StoryMoveToFolderButton({
+	item,
+	onMoveToFolder,
+}: {
+	item: StoryItem;
+	onMoveToFolder: (item: StoryItem) => void;
+}) {
+	function handleClick(e: MouseEvent<HTMLButtonElement>) {
+		e.preventDefault();
+		e.stopPropagation();
+		onMoveToFolder(item);
+	}
+
+	return (
+		<QuickActionButton
+			active={false}
+			interactive
+			pending={false}
+			onClick={handleClick}
+			tooltip='Move to folder'
+			fillOnHover={false}
+		>
+			<FolderInput className='size-3' />
+		</QuickActionButton>
+	);
+}
+
+function StoryQuickActions({ item, onRequestPinShare }: { item: StoryItem; onRequestPinShare: () => void }) {
 	const queryClient = useQueryClient();
 	const { isAdmin } = usePermissions();
 
@@ -246,7 +329,7 @@ function StoryQuickActions({
 					onClick={handlePin}
 					tooltip={item.isPinned ? 'Unpin for shared members' : 'Pin for shared members'}
 				>
-					<Pin className='size-3.5' />
+					<Pin className='size-3' />
 				</QuickActionButton>
 			)}
 			<QuickActionButton
@@ -256,7 +339,7 @@ function StoryQuickActions({
 				onClick={handleFavorite}
 				tooltip={item.isFavorited ? 'Remove from favorites' : 'Add to favorites'}
 			>
-				<Star className='size-3.5' />
+				<Star className='size-3' />
 			</QuickActionButton>
 		</>
 	);
@@ -291,10 +374,10 @@ function QuickActionButton({
 			onClick={onClick}
 			disabled={pending || !interactive}
 			className={cn(
-				'inline-flex items-center justify-center size-6 transition cursor-pointer disabled:cursor-default',
+				'inline-flex items-center justify-center h-5 transition-all duration-150 cursor-pointer disabled:cursor-default overflow-hidden',
 				active
-					? 'opacity-100 text-primary [&_svg]:fill-current'
-					: 'opacity-0 group-hover:opacity-100 text-muted-foreground',
+					? 'w-5 opacity-100 text-primary [&_svg]:fill-current'
+					: 'w-0 opacity-0 group-hover:w-5 group-hover:opacity-100 text-muted-foreground',
 				interactive && active && 'hover:text-muted-foreground hover:[&_svg]:fill-none',
 				interactive && !active && 'hover:text-primary',
 				interactive && !active && fillOnHover && 'hover:[&_svg]:fill-current',
@@ -321,6 +404,7 @@ function StoryArchiveButton({ item, showArchived }: { item: StoryItem; showArchi
 		trpc.story.archive.mutationOptions({
 			onSuccess: () => {
 				queryClient.invalidateQueries({ queryKey: trpc.story.listAll.queryKey() });
+				queryClient.invalidateQueries({ queryKey: trpc.story.listArchived.queryKey() });
 			},
 		}),
 	);
@@ -352,8 +436,7 @@ function StoryArchiveButton({ item, showArchived }: { item: StoryItem; showArchi
 		}),
 	);
 
-	const canArchive =
-		(item.kind === 'own' && item.chatId && item.storySlug) || item.kind === 'own-standalone';
+	const canArchive = (item.kind === 'own' && item.chatId && item.storySlug) || item.kind === 'own-standalone';
 
 	if (!canArchive) {
 		return null;
@@ -394,84 +477,15 @@ function StoryArchiveButton({ item, showArchived }: { item: StoryItem; showArchi
 			tooltip={showArchived ? 'Unarchive' : 'Archive'}
 			fillOnHover={false}
 		>
-			{showArchived ? <ArchiveRestoreIcon className='size-3.5' /> : <ArchiveIcon className='size-3.5' />}
+			{showArchived ? <ArchiveRestoreIcon className='size-3' /> : <ArchiveIcon className='size-3' />}
 		</QuickActionButton>
 	);
 }
 
-function StoriesSection({
-	title,
-	className,
-	action,
-	children,
-}: {
-	title: string;
-	className?: string;
-	action?: ReactNode;
-	children: ReactNode;
-}) {
-	return (
-		<section className={className}>
-			<div className='flex items-center justify-between mb-4'>
-				<h2 className='text-sm font-medium text-muted-foreground'>{title}</h2>
-				{action}
-			</div>
-			{children}
-		</section>
-	);
-}
-
-function StoriesList({ displayMode, children }: { displayMode: DisplayMode; children: ReactNode }) {
-	return (
-		<div
-			className={cn(
-				displayMode === 'grid' &&
-					'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3',
-				displayMode === 'lines' && 'flex flex-col gap-1',
-			)}
-		>
-			{children}
-		</div>
-	);
-}
-
-function storyCardClass(displayMode: DisplayMode) {
+export function storyCardClass(displayMode: StoryPanelDisplayMode) {
 	return cn(
-		displayMode === 'grid' && 'group relative aspect-[4/3] rounded-lg border bg-background overflow-hidden',
+		displayMode === 'grid' && 'group relative h-[120px] rounded-lg border bg-background overflow-hidden',
 		displayMode === 'lines' && 'group flex items-center gap-3 rounded-md px-3 py-2 hover:bg-sidebar-accent',
-	);
-}
-
-function StoryCardContent({ item, displayMode }: { item: StoryItem; displayMode: DisplayMode }) {
-	const meta = `${item.author} · ${formatRelativeDate(item.createdAt)}`;
-
-	if (displayMode === 'lines') {
-		return (
-			<>
-				<span className='text-sm font-medium truncate'>{item.title}</span>
-				<div className='ml-auto flex items-center gap-1.5 shrink-0'>
-					<StoryBadges item={item} mode='lines' />
-					<span className='text-xs text-muted-foreground whitespace-nowrap'>{meta}</span>
-				</div>
-			</>
-		);
-	}
-
-	return (
-		<>
-			<div className='absolute inset-0 p-3 pb-14'>
-				<StoryThumbnail summary={item.summary} />
-			</div>
-			<div className='absolute inset-x-0 -bottom-2 bg-gradient-to-t from-background from-45% to-transparent px-3 pb-5 pt-8 transition-transform duration-200 ease-out group-hover:-translate-y-1'>
-				<span className='text-sm font-medium leading-snug line-clamp-2'>{item.title}</span>
-				<div className='flex items-center gap-1.5 mt-0.5'>
-					<span className='text-[11px] text-muted-foreground truncate'>{meta}</span>
-					<div className='ml-auto'>
-						<StoryBadges item={item} mode='grid' />
-					</div>
-				</div>
-			</div>
-		</>
 	);
 }
 
@@ -487,12 +501,12 @@ function StoryBadges({ item, mode }: { item: StoryItem; mode: 'grid' | 'lines' }
 			return null;
 		}
 		return (
-			<div className='flex items-center gap-1 shrink-0 mt-0.5'>
+			<div className='flex items-center gap-2 shrink-0'>
 				{item.isLive && (
 					<TooltipProvider>
 						<Tooltip>
 							<TooltipTrigger asChild>
-								<span className='inline-flex items-center text-emerald-600 dark:text-emerald-400'>
+								<span className='inline-flex items-center text-violet'>
 									<Activity className='size-3' />
 								</span>
 							</TooltipTrigger>
@@ -504,7 +518,7 @@ function StoryBadges({ item, mode }: { item: StoryItem; mode: 'grid' | 'lines' }
 					<TooltipProvider>
 						<Tooltip>
 							<TooltipTrigger asChild>
-								<span className='inline-flex items-center text-emerald-600 dark:text-emerald-400'>
+								<span className='inline-flex items-center text-violet'>
 									{item.sharing.visibility === 'project' ? (
 										<Globe className='size-3' />
 									) : (
@@ -526,7 +540,7 @@ function StoryBadges({ item, mode }: { item: StoryItem; mode: 'grid' | 'lines' }
 				<TooltipProvider>
 					<Tooltip>
 						<TooltipTrigger asChild>
-							<span className='inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400'>
+							<span className='inline-flex items-center text-violet'>
 								<Activity className='size-3' />
 							</span>
 						</TooltipTrigger>
@@ -538,7 +552,7 @@ function StoryBadges({ item, mode }: { item: StoryItem; mode: 'grid' | 'lines' }
 				<TooltipProvider>
 					<Tooltip>
 						<TooltipTrigger asChild>
-							<span className='inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400'>
+							<span className='inline-flex items-center text-violet'>
 								{item.sharing.visibility === 'project' ? (
 									<Globe className='size-3' />
 								) : (

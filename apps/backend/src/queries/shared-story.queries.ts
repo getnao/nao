@@ -181,11 +181,7 @@ export async function toggleSharedStoryPin(sharedStoryId: string): Promise<void>
 	}
 
 	const newPinned = !existing.isPinned;
-	await db
-		.update(s.sharedStory)
-		.set({ isPinned: newPinned })
-		.where(eq(s.sharedStory.id, sharedStoryId))
-		.execute();
+	await db.update(s.sharedStory).set({ isPinned: newPinned }).where(eq(s.sharedStory.id, sharedStoryId)).execute();
 }
 
 export async function getQueryDataFromCode(

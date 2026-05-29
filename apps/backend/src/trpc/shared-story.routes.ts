@@ -1,4 +1,4 @@
-import { DOWNLOAD_FORMATS } from '@nao/shared/types';
+import { DOWNLOAD_FORMATS, SHARE_VISIBILITY } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
@@ -12,7 +12,13 @@ import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../servic
 import { notifySharedItemRecipients } from '../utils/email';
 import { buildDownloadResponse } from '../utils/story-download';
 import { extractStorySummary } from '../utils/story-summary';
-import { adminProtectedProcedure, canSendProcedure, projectProtectedProcedure, protectedProcedure, resourceProjectProcedure } from './trpc';
+import {
+	adminProtectedProcedure,
+	canSendProcedure,
+	projectProtectedProcedure,
+	protectedProcedure,
+	resourceProjectProcedure,
+} from './trpc';
 
 const chatProcedure = resourceProjectProcedure('chatId', chatQueries.getChatInfo, 'Chat');
 const shareProcedure = resourceProjectProcedure('shareId', sharedStoryQueries.getSharedStory, 'Shared story');
@@ -52,7 +58,7 @@ export const sharedStoryRoutes = {
 			z.object({
 				chatId: z.string(),
 				storySlug: z.string(),
-				visibility: z.enum(['project', 'specific']).default('project'),
+				visibility: z.enum(SHARE_VISIBILITY).default('project'),
 				allowedUserIds: z.array(z.string()).optional(),
 				pinAfterCreate: z.boolean().optional(),
 			}),
@@ -219,7 +225,10 @@ export const sharedStoryRoutes = {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Shared story not found.' });
 			}
 			if (share.projectId !== ctx.project.id) {
-				throw new TRPCError({ code: 'FORBIDDEN', message: 'This story does not belong to the current project.' });
+				throw new TRPCError({
+					code: 'FORBIDDEN',
+					message: 'This story does not belong to the current project.',
+				});
 			}
 			await sharedStoryQueries.toggleSharedStoryPin(input.sharedStoryId);
 		}),

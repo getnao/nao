@@ -1,130 +1,252 @@
-import { useState } from 'react';
-import { ChevronDown, ChevronRight, Pin, Star } from 'lucide-react';
-import type { DisplayMode, StoryItem } from '@/lib/stories-page';
+import { useEffect, useState } from 'react';
+import { ChevronDown, ChevronRight } from 'lucide-react';
+import type { CSSProperties } from 'react';
+import type { FavoriteEntry, FolderItem, StoryItem } from '@/lib/stories-page';
+import { FolderCard } from '@/components/stories-folder-card';
 import { StoryCard } from '@/components/stories-groups';
 import { cn } from '@/lib/utils';
 
 const PINNED_COLLAPSED_KEY = 'stories-pinned-collapsed';
 const FAVORITES_COLLAPSED_KEY = 'stories-favorites-collapsed';
 
-function getCollapsedState(key: string): boolean {
-	return localStorage.getItem(key) === 'true';
-}
+const GRID_CLASS = 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3';
 
-function setCollapsedState(key: string, value: boolean): void {
-	localStorage.setItem(key, String(value));
-}
+const COLUMN_BREAKPOINTS = [
+	{ query: '(min-width: 1536px)', columns: 6 },
+	{ query: '(min-width: 1280px)', columns: 5 },
+	{ query: '(min-width: 1024px)', columns: 4 },
+	{ query: '(min-width: 640px)', columns: 3 },
+] as const;
 
-export function PinnedSection({
-	items,
-	displayMode,
+const DEFAULT_COLUMNS = 2;
+
+export function PromotedSections({
+	pinned,
+	favorites,
+	currentUserName,
+	onModifyFolder,
+	onMoveFolder,
+	onDeleteFolder,
+	onArchiveFolder,
+	onRestoreFolder,
 	className,
 }: {
-	items: StoryItem[];
-	displayMode: DisplayMode;
+	pinned: StoryItem[];
+	favorites: FavoriteEntry[];
+	currentUserName: string;
+	onModifyFolder: (folder: FolderItem) => void;
+	onMoveFolder: (folder: FolderItem) => void;
+	onDeleteFolder: (folder: FolderItem) => void;
+	onArchiveFolder: (folder: FolderItem) => void;
+	onRestoreFolder: (folder: FolderItem) => void;
 	className?: string;
 }) {
-	const [collapsed, setCollapsed] = useState(() => getCollapsedState(PINNED_COLLAPSED_KEY));
+	const columns = useGridColumns();
+	const [pinnedCollapsed, togglePinned] = useCollapsedState(PINNED_COLLAPSED_KEY);
+	const [favoritesCollapsed, toggleFavorites] = useCollapsedState(FAVORITES_COLLAPSED_KEY);
 
-	function toggle() {
-		const next = !collapsed;
-		setCollapsed(next);
-		setCollapsedState(PINNED_COLLAPSED_KEY, next);
+	const groups = [
+		{ label: 'Pinned', items: storiesToEntries(pinned), collapsed: pinnedCollapsed, onToggle: togglePinned },
+		{ label: 'Favorites', items: favorites, collapsed: favoritesCollapsed, onToggle: toggleFavorites },
+	].filter((g) => g.items.length > 0);
+
+	if (groups.length === 0) {
+		return null;
+	}
+
+	const totalItems = groups.reduce((sum, g) => sum + g.items.length, 0);
+	const sideBySide = groups.length === 2 && totalItems <= columns;
+	const folderHandlers = {
+		onModify: onModifyFolder,
+		onMove: onMoveFolder,
+		onDelete: onDeleteFolder,
+		onArchive: onArchiveFolder,
+		onRestore: onRestoreFolder,
+	};
+
+	if (sideBySide) {
+		return (
+			<section
+				className={cn('grid gap-3', className)}
+				style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
+			>
+				{groups.map((g) => (
+					<PromotedGroup
+						key={g.label}
+						{...g}
+						currentUserName={currentUserName}
+						folderHandlers={folderHandlers}
+						style={{ gridColumn: `span ${g.items.length}` }}
+						gridClassName='grid gap-3'
+						gridStyle={{ gridTemplateColumns: `repeat(${g.items.length}, minmax(0, 1fr))` }}
+					/>
+				))}
+			</section>
+		);
 	}
 
 	return (
-		<PromotedSection
-			icon={<Pin className='size-3.5 fill-current' />}
-			label='Pinned'
-			count={items.length}
-			collapsed={collapsed}
-			onToggle={toggle}
-			items={items}
-			displayMode={displayMode}
-			className={className}
-		/>
+		<>
+			{groups.map((g) => (
+				<PromotedGroup
+					key={g.label}
+					{...g}
+					currentUserName={currentUserName}
+					folderHandlers={folderHandlers}
+					className={cn('mb-6', className)}
+				/>
+			))}
+		</>
 	);
 }
 
-export function FavoritesSection({
-	items,
-	displayMode,
-	className,
-}: {
-	items: StoryItem[];
-	displayMode: DisplayMode;
-	className?: string;
-}) {
-	const [collapsed, setCollapsed] = useState(() => getCollapsedState(FAVORITES_COLLAPSED_KEY));
-
-	function toggle() {
-		const next = !collapsed;
-		setCollapsed(next);
-		setCollapsedState(FAVORITES_COLLAPSED_KEY, next);
-	}
-
-	return (
-		<PromotedSection
-			icon={<Star className='size-3.5 fill-current' />}
-			label='Favorites'
-			count={items.length}
-			collapsed={collapsed}
-			onToggle={toggle}
-			items={items}
-			displayMode={displayMode}
-			className={className}
-		/>
-	);
+function storiesToEntries(stories: StoryItem[]): FavoriteEntry[] {
+	return stories.map((story) => ({ kind: 'story', story, favoritedAt: story.createdAt }));
 }
 
-function PromotedSection({
-	icon,
+type FolderHandlers = {
+	onModify: (folder: FolderItem) => void;
+	onMove: (folder: FolderItem) => void;
+	onDelete: (folder: FolderItem) => void;
+	onArchive: (folder: FolderItem) => void;
+	onRestore: (folder: FolderItem) => void;
+};
+
+function PromotedGroup({
 	label,
-	count,
+	items,
 	collapsed,
 	onToggle,
-	items,
-	displayMode,
+	currentUserName,
+	folderHandlers,
 	className,
+	style,
+	gridClassName,
+	gridStyle,
 }: {
-	icon: React.ReactNode;
 	label: string;
-	count: number;
+	items: FavoriteEntry[];
 	collapsed: boolean;
 	onToggle: () => void;
-	items: StoryItem[];
-	displayMode: DisplayMode;
+	currentUserName: string;
+	folderHandlers: FolderHandlers;
 	className?: string;
+	style?: CSSProperties;
+	gridClassName?: string;
+	gridStyle?: CSSProperties;
 }) {
 	return (
-		<section className={className}>
-			<button
-				type='button'
-				className='flex items-center gap-1.5 mb-3 cursor-pointer'
-				onClick={onToggle}
-			>
-				{collapsed ? (
-					<ChevronRight className='size-3.5 text-muted-foreground' />
-				) : (
-					<ChevronDown className='size-3.5 text-muted-foreground' />
-				)}
-				{icon}
-				<span className='text-sm font-medium text-muted-foreground'>{label}</span>
-				<span className='text-xs text-muted-foreground/60 ml-1'>({count})</span>
-			</button>
+		<section className={className} style={style}>
+			<SectionHeader label={label} collapsed={collapsed} onToggle={onToggle} />
 			{!collapsed && (
-				<div
-					className={cn(
-						displayMode === 'grid' &&
-							'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3',
-						displayMode === 'lines' && 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1',
-					)}
-				>
-					{items.map((item) => (
-						<StoryCard key={item.id} item={item} displayMode={displayMode} showArchived={false} />
+				<div className={gridClassName ?? GRID_CLASS} style={gridStyle}>
+					{items.map((entry) => (
+						<PromotedItem
+							key={entryKey(entry)}
+							entry={entry}
+							currentUserName={currentUserName}
+							folderHandlers={folderHandlers}
+						/>
 					))}
 				</div>
 			)}
 		</section>
 	);
+}
+
+function PromotedItem({
+	entry,
+	currentUserName,
+	folderHandlers,
+}: {
+	entry: FavoriteEntry;
+	currentUserName: string;
+	folderHandlers: FolderHandlers;
+}) {
+	if (entry.kind === 'story') {
+		return <StoryCard item={entry.story} displayMode='grid' showArchived={false} />;
+	}
+	return (
+		<FolderCard
+			folder={entry.folder}
+			displayMode='grid-large'
+			currentUserName={currentUserName}
+			onModify={folderHandlers.onModify}
+			onMove={folderHandlers.onMove}
+			onDelete={folderHandlers.onDelete}
+			onArchive={folderHandlers.onArchive}
+			onRestore={folderHandlers.onRestore}
+		/>
+	);
+}
+
+function entryKey(entry: FavoriteEntry): string {
+	return entry.kind === 'story' ? `story-${entry.story.id}` : `folder-${entry.folder.id}`;
+}
+
+function SectionHeader({ label, collapsed, onToggle }: { label: string; collapsed: boolean; onToggle: () => void }) {
+	return (
+		<button
+			type='button'
+			className='flex items-center gap-1.5 mb-3 cursor-pointer text-muted-foreground'
+			onClick={onToggle}
+		>
+			<span className='inline-flex size-4 items-center justify-center shrink-0'>
+				{collapsed ? <ChevronRight className='size-3.5' /> : <ChevronDown className='size-3.5' />}
+			</span>
+			<span className='text-sm font-medium'>{label}</span>
+		</button>
+	);
+}
+
+function useCollapsedState(key: string): [boolean, () => void] {
+	const [collapsed, setCollapsed] = useState(() => readCollapsed(key));
+
+	function toggle() {
+		setCollapsed((prev) => {
+			const next = !prev;
+			writeCollapsed(key, next);
+			return next;
+		});
+	}
+
+	return [collapsed, toggle];
+}
+
+function readCollapsed(key: string): boolean {
+	if (typeof window === 'undefined') {
+		return false;
+	}
+	return window.localStorage.getItem(key) === 'true';
+}
+
+function writeCollapsed(key: string, value: boolean): void {
+	window.localStorage.setItem(key, String(value));
+}
+
+function useGridColumns(): number {
+	const [columns, setColumns] = useState(getCurrentColumns);
+
+	useEffect(() => {
+		const lists = COLUMN_BREAKPOINTS.map(({ query }) => window.matchMedia(query));
+		function update() {
+			setColumns(getCurrentColumns());
+		}
+		lists.forEach((list) => list.addEventListener('change', update));
+		return () => lists.forEach((list) => list.removeEventListener('change', update));
+	}, []);
+
+	return columns;
+}
+
+function getCurrentColumns(): number {
+	if (typeof window === 'undefined') {
+		return DEFAULT_COLUMNS;
+	}
+	for (const { query, columns } of COLUMN_BREAKPOINTS) {
+		if (window.matchMedia(query).matches) {
+			return columns;
+		}
+	}
+	return DEFAULT_COLUMNS;
 }

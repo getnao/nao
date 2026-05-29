@@ -1,7 +1,8 @@
 import { LayoutGrid, List, Search, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
-import type { DisplayMode, GroupBy } from '@/lib/viewer-home';
+import type { StoryPanelDisplayMode } from '@nao/shared/types';
+import type { GroupBy } from '@/lib/viewer-home';
 import { GROUP_BY_LABELS } from '@/lib/viewer-home';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -19,8 +20,8 @@ export function ViewerToolbarControls({
 	onSearchQueryChange: (value: string) => void;
 	groupBy: GroupBy;
 	onGroupByChange: (value: GroupBy) => void;
-	displayMode: DisplayMode;
-	onDisplayModeChange: (value: DisplayMode) => void;
+	displayMode: StoryPanelDisplayMode;
+	onDisplayModeChange: (value: StoryPanelDisplayMode) => void;
 }) {
 	return (
 		<div className='flex items-center gap-1'>
@@ -97,7 +98,13 @@ function GroupBySelect({ value, onChange }: { value: GroupBy; onChange: (value: 
 	);
 }
 
-function DisplayModeToggle({ value, onChange }: { value: DisplayMode; onChange: (value: DisplayMode) => void }) {
+function DisplayModeToggle({
+	value,
+	onChange,
+}: {
+	value: StoryPanelDisplayMode;
+	onChange: (value: StoryPanelDisplayMode) => void;
+}) {
 	return (
 		<div className='flex items-center gap-0.5 rounded-md border p-0.5'>
 			<Button

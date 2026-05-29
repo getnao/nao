@@ -118,4 +118,10 @@ export type NewBrandingConfig = typeof sqliteSchema.brandingConfig.$inferInsert;
 export type DBStoryFavorite = typeof sqliteSchema.storyFavorite.$inferSelect;
 export type NewStoryFavorite = typeof sqliteSchema.storyFavorite.$inferInsert;
 
+export type DBStoryFolder = typeof sqliteSchema.storyFolder.$inferSelect;
+export type NewStoryFolder = typeof sqliteSchema.storyFolder.$inferInsert;
+
+export type DBStoryFolderItem = typeof sqliteSchema.storyFolderItem.$inferSelect;
+export type NewStoryFolderItem = typeof sqliteSchema.storyFolderItem.$inferInsert;
+
 export default allSchema as typeof sqliteSchema;

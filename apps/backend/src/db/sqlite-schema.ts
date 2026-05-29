@@ -486,6 +486,7 @@ export const sharedStory = sqliteTable(
 			.notNull()
 			.references(() => user.id, { onDelete: 'cascade' }),
 		visibility: text('visibility', { enum: SHARE_VISIBILITY }).default('project').notNull(),
+		isPinned: integer('is_pinned', { mode: 'boolean' }).default(false).notNull(),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull(),
@@ -1107,10 +1108,59 @@ export const storyFavorite = sqliteTable(
 		storyId: text('story_id')
 			.notNull()
 			.references(() => story.id, { onDelete: 'cascade' }),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
 	},
 	(t) => [
 		primaryKey({ columns: [t.userId, t.storyId] }),
 		index('story_favorite_userId_idx').on(t.userId),
 		index('story_favorite_storyId_idx').on(t.storyId),
 	],
+);
+
+export const storyFolder = sqliteTable(
+	'story_folder',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		parentId: text('parent_id'),
+		name: text('name').notNull(),
+		favoritedAt: integer('favorited_at', { mode: 'timestamp_ms' }),
+		archivedAt: integer('archived_at', { mode: 'timestamp_ms' }),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+		updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [
+		index('story_folder_userId_projectId_parentId_idx').on(t.userId, t.projectId, t.parentId),
+		index('story_folder_projectId_idx').on(t.projectId),
+	],
+);
+
+export const storyFolderItem = sqliteTable(
+	'story_folder_item',
+	{
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		storyId: text('story_id')
+			.notNull()
+			.references(() => story.id, { onDelete: 'cascade' }),
+		folderId: text('folder_id')
+			.notNull()
+			.references(() => storyFolder.id, { onDelete: 'cascade' }),
+	},
+	(t) => [primaryKey({ columns: [t.userId, t.storyId] }), index('story_folder_item_folderId_idx').on(t.folderId)],
 );

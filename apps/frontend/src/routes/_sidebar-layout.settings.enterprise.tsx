@@ -167,7 +167,7 @@ function LicenseDetailsCard({
 			<DetailRow
 				label='Mode'
 				value={
-					<Badge variant='ghost' className={isOffline ? 'bg-purple-500/10 text-purple-500' : 'bg-muted'}>
+					<Badge variant='ghost' className={isOffline ? 'bg-violet/10 text-violet' : 'bg-muted'}>
 						{isOffline ? 'Offline' : 'Online'}
 					</Badge>
 				}

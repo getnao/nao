@@ -8,6 +8,7 @@ import * as activityQueries from '../queries/activity.queries';
 import * as chatQueries from '../queries/chat.queries';
 import * as scheduledJobQueries from '../queries/scheduled-job.queries';
 import * as storyQueries from '../queries/story.queries';
+import * as storyFolderQueries from '../queries/story-folder.queries';
 import { naturalLanguageToCron } from '../services/cron-nlp';
 import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../services/live-story';
 import { nextCronTick } from '../services/scheduler.service';
@@ -221,17 +222,24 @@ export const storyRoutes = {
 
 	unarchive: chatOwnerProcedure
 		.input(z.object({ chatId: z.string(), storySlug: z.string() }))
-		.mutation(async ({ input }) => {
+		.mutation(async ({ input, ctx }) => {
 			await storyQueries.unarchiveStory(input.chatId, input.storySlug);
+			const story = await storyQueries.getStoryByChatAndSlug(input.chatId, input.storySlug);
+			if (story) {
+				await storyFolderQueries.clearStoryMembershipIfFolderArchived(ctx.user.id, story.id);
+			}
 		}),
 
 	archiveStandalone: storyOwnerProcedure.input(z.object({ storyId: z.string() })).mutation(async ({ input }) => {
 		await storyQueries.archiveByStoryId(input.storyId);
 	}),
 
-	unarchiveStandalone: storyOwnerProcedure.input(z.object({ storyId: z.string() })).mutation(async ({ input }) => {
-		await storyQueries.unarchiveByStoryId(input.storyId);
-	}),
+	unarchiveStandalone: storyOwnerProcedure
+		.input(z.object({ storyId: z.string() }))
+		.mutation(async ({ input, ctx }) => {
+			await storyQueries.unarchiveByStoryId(input.storyId);
+			await storyFolderQueries.clearStoryMembershipIfFolderArchived(ctx.user.id, input.storyId);
+		}),
 
 	toggleFavorite: protectedProcedure.input(z.object({ storyId: z.string() })).mutation(async ({ input, ctx }) => {
 		const canAccess = await storyQueries.canUserAccessStory(input.storyId, ctx.user.id);
@@ -245,10 +253,9 @@ export const storyRoutes = {
 	listFavorites: protectedProcedure
 		.input(z.object({ projectId: z.string().optional() }).optional())
 		.query(async ({ input, ctx }) => {
-			const storyIds = await storyQueries.listUserFavoriteStoryIds(ctx.user.id, {
+			return storyQueries.listUserFavoriteStories(ctx.user.id, {
 				projectId: input?.projectId,
 			});
-			return storyIds;
 		}),
 
 	archiveMany: protectedProcedure

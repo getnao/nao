@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, useMemo, useCallback } from 'react';
-import type { DisplayMode, GroupBy, SharedItem } from '@/lib/viewer-home';
+import type { StoryPanelDisplayMode } from '@nao/shared/types';
+import type { GroupBy, SharedItem } from '@/lib/viewer-home';
 import { MobileHeader } from '@/components/mobile-header';
 import { ProjectSelector } from '@/components/project-selector';
 import { ViewerToolbarControls } from '@/components/viewer-toolbar-controls';
@@ -17,7 +18,7 @@ export function ViewerHome() {
 	const sharedChats = useQuery(trpc.sharedChat.list.queryOptions());
 	const sharedStories = useQuery(trpc.storyShare.list.queryOptions());
 	const [searchQuery, setSearchQuery] = useState('');
-	const [displayMode, setDisplayMode] = useState<DisplayMode>(() =>
+	const [displayMode, setDisplayMode] = useState<StoryPanelDisplayMode>(() =>
 		getStoredSetting(VIEWER_DISPLAY_KEY, ['grid', 'lines'], 'grid'),
 	);
 	const [groupBy, setGroupBy] = useState<GroupBy>(() =>
@@ -36,7 +37,7 @@ export function ViewerHome() {
 		[project.data, queryClient],
 	);
 
-	function handleDisplayChange(mode: DisplayMode) {
+	function handleDisplayChange(mode: StoryPanelDisplayMode) {
 		setDisplayMode(mode);
 		localStorage.setItem(VIEWER_DISPLAY_KEY, mode);
 	}
@@ -79,7 +80,7 @@ export function ViewerHome() {
 	const isEmpty = allItems.length === 0 && !isLoading;
 
 	const projectSelector = project.data && isInMultipleProjects && (
-		<div className='-ml-2 px-4 pt-3 md:px-8 md:pt-4 max-md:hidden'>
+		<div className='max-md:hidden'>
 			<ProjectSelector
 				projects={projects.data ?? []}
 				currentProjectId={project.data.id}
@@ -114,18 +115,20 @@ export function ViewerHome() {
 	return (
 		<div className='flex flex-col flex-1 h-full overflow-auto bg-panel min-w-72'>
 			<MobileHeader />
-			{projectSelector}
 			<div className='w-full px-4 py-6 md:px-8 md:py-10'>
 				<div className='flex items-center justify-between mb-6 md:mb-8 gap-3 flex-wrap'>
 					<h1 className='text-xl font-semibold tracking-tight'>Shared with me</h1>
-					<ViewerToolbarControls
-						searchQuery={searchQuery}
-						onSearchQueryChange={setSearchQuery}
-						groupBy={groupBy}
-						onGroupByChange={handleGroupChange}
-						displayMode={displayMode}
-						onDisplayModeChange={handleDisplayChange}
-					/>
+					<div className='flex items-center gap-3 min-w-0'>
+						{projectSelector}
+						<ViewerToolbarControls
+							searchQuery={searchQuery}
+							onSearchQueryChange={setSearchQuery}
+							groupBy={groupBy}
+							onGroupByChange={handleGroupChange}
+							displayMode={displayMode}
+							onDisplayModeChange={handleDisplayChange}
+						/>
+					</div>
 				</div>
 
 				{filteredItems.length === 0 && searchQuery.trim() ? (

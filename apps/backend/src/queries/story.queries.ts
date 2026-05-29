@@ -1,3 +1,4 @@
+import { type StorySharingInfo } from '@nao/shared/types';
 import { and, asc, desc, eq, inArray, isNull, max, or, type SQL, sql } from 'drizzle-orm';
 
 import s, { type DBStory, type DBStoryDataCache, type DBStoryVersion } from '../db/abstractSchema';
@@ -376,21 +377,20 @@ export async function toggleStoryFavorite(userId: string, storyId: string): Prom
 	return true;
 }
 
-export async function listUserFavoriteStoryIds(
+export async function listUserFavoriteStories(
 	userId: string,
 	options?: { projectId?: string },
-): Promise<string[]> {
+): Promise<{ storyId: string; createdAt: Date }[]> {
 	if (!options?.projectId) {
-		const rows = await db
-			.select({ storyId: s.storyFavorite.storyId })
+		return db
+			.select({ storyId: s.storyFavorite.storyId, createdAt: s.storyFavorite.createdAt })
 			.from(s.storyFavorite)
 			.where(eq(s.storyFavorite.userId, userId))
 			.execute();
-		return rows.map((r) => r.storyId);
 	}
 
-	const rows = await db
-		.select({ storyId: s.storyFavorite.storyId })
+	return db
+		.select({ storyId: s.storyFavorite.storyId, createdAt: s.storyFavorite.createdAt })
 		.from(s.storyFavorite)
 		.innerJoin(s.story, eq(s.storyFavorite.storyId, s.story.id))
 		.leftJoin(s.chat, eq(s.story.chatId, s.chat.id))
@@ -404,7 +404,6 @@ export async function listUserFavoriteStoryIds(
 			),
 		)
 		.execute();
-	return rows.map((r) => r.storyId);
 }
 
 export async function canUserAccessStory(storyId: string, userId: string): Promise<boolean> {
@@ -772,12 +771,6 @@ async function getStoryDataCache(whereCondition: SQL): Promise<DBStoryDataCache 
 	return row ?? null;
 }
 
-export type StorySharingInfo = {
-	visibility: 'project' | 'specific';
-	sharedWithCount: number;
-	isPinned: boolean;
-};
-
 export async function getStorySharingInfo(storyIds: string[]): Promise<Map<string, StorySharingInfo>> {
 	if (storyIds.length === 0) {
 		return new Map();
@@ -799,7 +792,7 @@ export async function getStorySharingInfo(storyIds: string[]): Promise<Map<strin
 	const result = new Map<string, StorySharingInfo>();
 	for (const row of rows) {
 		result.set(row.storyId, {
-			visibility: row.visibility as 'project' | 'specific',
+			visibility: row.visibility,
 			sharedWithCount: row.sharedWithCount,
 			isPinned: row.isPinned,
 		});

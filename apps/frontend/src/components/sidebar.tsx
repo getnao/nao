@@ -70,7 +70,7 @@ export function Sidebar() {
 	}, [navigate, isMobile, closeMobile]);
 
 	const handleNavigateStories = useCallback(() => {
-		navigate({ to: '/stories' });
+		navigate({ to: '/stories', search: { folderId: null } });
 		if (isMobile) {
 			closeMobile();
 		}
