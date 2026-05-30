@@ -34,6 +34,12 @@ def _build_basic_auth(user: str, password: str):
     return BasicAuthentication(user, password)
 
 
+def _build_jwt_auth(token: str):
+    from trino.auth import JWTAuthentication
+
+    return JWTAuthentication(token)
+
+
 class TrinoDatabaseContext(DatabaseContext):
     """Trino context with table/column comment discovery via information_schema."""
 
@@ -144,6 +150,33 @@ class TrinoConfig(DatabaseConfig):
             "str = path to a CA bundle. Ignored for plain http."
         ),
     )
+    jwt_token: str | None = Field(
+        default=None,
+        description=(
+            "Bearer JWT for Trino's OAuth2/JWT authenticator. When set, takes "
+            "precedence over password and forces http_scheme='https'."
+        ),
+    )
+    jwt_token_file: str | None = Field(
+        default=None,
+        description=(
+            "Path to a file containing the Bearer JWT, re-read on every "
+            "connect(). Lets an external refresher rotate short-lived tokens "
+            "without rewriting the config. Takes precedence over jwt_token."
+        ),
+    )
+
+    def _resolve_jwt(self) -> str | None:
+        """Read the JWT from file (fresh each call) or fall back to the inline token."""
+        if self.jwt_token_file:
+            try:
+                with open(self.jwt_token_file, encoding="utf-8") as fh:
+                    token = fh.read().strip()
+                if token:
+                    return token
+            except OSError:
+                pass
+        return self.jwt_token
 
     @classmethod
     def promptConfig(cls) -> "TrinoConfig":
@@ -190,21 +223,29 @@ class TrinoConfig(DatabaseConfig):
         require_database_backend("trino")
         import ibis
 
+        jwt = self._resolve_jwt()
+        # A JWT requires TLS; force https so a stray http_scheme can't leak the
+        # bearer token over cleartext.
+        http_scheme = "https" if jwt else self.http_scheme
+
         kwargs: dict = {
             "host": self.host,
             "port": self.port,
             "user": self.user,
             "database": self.catalog,
-            "http_scheme": self.http_scheme,
+            "http_scheme": http_scheme,
         }
 
-        if self.http_scheme == "https":
+        if http_scheme == "https":
             kwargs["verify"] = self.verify
 
         if self.schema_name:
             kwargs["schema"] = self.schema_name
 
-        if self.password:
+        # Auth precedence: JWT (OAuth2/JWT authenticator) > basic password.
+        if jwt:
+            kwargs["auth"] = _build_jwt_auth(jwt)
+        elif self.password:
             kwargs["auth"] = _build_basic_auth(self.user, self.password)
 
         return ibis.trino.connect(**kwargs)

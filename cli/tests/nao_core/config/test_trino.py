@@ -257,3 +257,57 @@ def test_connect_http_ignores_verify_field(base_config: TrinoConfig) -> None:
     call_kw = mock_connect.call_args.kwargs
     assert call_kw["http_scheme"] == "http"
     assert "verify" not in call_kw
+
+
+def test_connect_jwt_uses_jwt_auth_and_forces_https(base_config: TrinoConfig) -> None:
+    from trino.auth import JWTAuthentication
+
+    mock_connect = MagicMock()
+    cfg = base_config.model_copy(update={"jwt_token": "eyJhbGciOi.payload.sig"})
+    with (
+        patch("nao_core.deps.require_database_backend"),
+        patch("ibis.trino.connect", mock_connect),
+    ):
+        cfg.connect()
+
+    call_kw = mock_connect.call_args.kwargs
+    assert call_kw["http_scheme"] == "https"  # forced even though base_config is http
+    assert isinstance(call_kw.get("auth"), JWTAuthentication)
+
+
+def test_connect_jwt_takes_precedence_over_password(base_config: TrinoConfig) -> None:
+    from trino.auth import JWTAuthentication
+
+    mock_connect = MagicMock()
+    cfg = base_config.model_copy(update={"jwt_token": "tok", "password": "secret"})
+    with (
+        patch("nao_core.deps.require_database_backend"),
+        patch("ibis.trino.connect", mock_connect),
+    ):
+        cfg.connect()
+
+    assert isinstance(mock_connect.call_args.kwargs.get("auth"), JWTAuthentication)
+
+
+def test_connect_jwt_token_file_is_read_fresh(base_config: TrinoConfig, tmp_path) -> None:
+    from trino.auth import JWTAuthentication
+
+    token_file = tmp_path / "trino-token"
+    token_file.write_text("file-token-123")
+    mock_connect = MagicMock()
+    cfg = base_config.model_copy(update={"jwt_token_file": str(token_file)})
+    with (
+        patch("nao_core.deps.require_database_backend"),
+        patch("ibis.trino.connect", mock_connect),
+    ):
+        cfg.connect()
+
+    assert isinstance(mock_connect.call_args.kwargs.get("auth"), JWTAuthentication)
+    # Rotating the file is picked up on the next connect (fresh read).
+    token_file.write_text("rotated-token-456")
+    with (
+        patch("nao_core.deps.require_database_backend"),
+        patch("ibis.trino.connect", mock_connect),
+    ):
+        cfg.connect()
+    assert mock_connect.call_count == 2
