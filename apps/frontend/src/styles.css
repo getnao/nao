@@ -339,6 +339,12 @@ code.dollar:before {
 	transition: opacity 0.1s ease;
 }
 
+.nao-input .prompt-input {
+	max-height: 200px;
+	overflow-y: auto;
+	overscroll-behavior: contain;
+}
+
 /* Mention menu: match select dropdown styling */
 .prompt-container .mention-menu {
 	border-radius: var(--radius-lg);
