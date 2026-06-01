@@ -1,9 +1,10 @@
-import { and, count, desc, eq, inArray, max, sql } from 'drizzle-orm';
+import { and, count, desc, eq, max, sql } from 'drizzle-orm';
 
 import s, { type DBSharedStory } from '../db/abstractSchema';
 import { db } from '../db/db';
 
 export type SharedStoryWithLatest = DBSharedStory & {
+	updatedAt: Date;
 	authorName: string;
 	chatId: string | null;
 	slug: string;
@@ -66,6 +67,7 @@ export async function getSharedStory(id: string): Promise<SharedStoryWithLatest 
 			visibility: s.sharedStory.visibility,
 			isPinned: s.sharedStory.isPinned,
 			createdAt: s.sharedStory.createdAt,
+			updatedAt: s.story.updatedAt,
 			authorName: s.user.name,
 			chatId: s.story.chatId,
 			slug: s.story.slug,
@@ -100,9 +102,9 @@ export async function canUserAccessSharedStory(sharedStoryId: string, userId: st
 export async function listUserSharedStories(
 	projectIds: string[],
 	userId: string,
-	options?: { projectId?: string },
+	projectId: string,
 ): Promise<SharedStoryWithLatest[]> {
-	if (projectIds.length === 0) {
+	if (!projectIds.includes(projectId)) {
 		return [];
 	}
 
@@ -130,8 +132,6 @@ export async function listUserSharedStories(
 		.where(eq(s.sharedStoryAccess.userId, userId))
 		.as('user_access');
 
-	const effectiveProjectIds = options?.projectId ? [options.projectId] : projectIds;
-
 	return db
 		.select({
 			id: s.sharedStory.id,
@@ -141,6 +141,7 @@ export async function listUserSharedStories(
 			visibility: s.sharedStory.visibility,
 			isPinned: s.sharedStory.isPinned,
 			createdAt: s.sharedStory.createdAt,
+			updatedAt: s.story.updatedAt,
 			authorName: s.user.name,
 			chatId: s.story.chatId,
 			slug: s.story.slug,
@@ -160,7 +161,7 @@ export async function listUserSharedStories(
 		.leftJoin(accessCounts, eq(accessCounts.sharedStoryId, s.sharedStory.id))
 		.where(
 			and(
-				inArray(s.sharedStory.projectId, effectiveProjectIds),
+				eq(s.sharedStory.projectId, projectId),
 				sql`(${s.sharedStory.visibility} = 'project' OR ${s.sharedStory.userId} = ${userId} OR ${userAccessAlias.userId} IS NOT NULL)`,
 			),
 		)

@@ -1,7 +1,17 @@
-import { and, asc, count, eq, inArray, isNotNull, isNull, notInArray, or, sql } from 'drizzle-orm';
+import { and, asc, count, eq, inArray, isNotNull, isNull, notInArray, or, type SQL, sql } from 'drizzle-orm';
 
 import s, { type DBStoryFolder } from '../db/abstractSchema';
 import { db } from '../db/db';
+import dbConfig, { Dialect } from '../db/dbConfig';
+
+type FolderMoveTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+export class MoveFolderCycleError extends Error {
+	constructor() {
+		super('Moving this folder would create a cycle.');
+		this.name = 'MoveFolderCycleError';
+	}
+}
 
 export type StoryFolderWithCount = DBStoryFolder & { storyCount: number };
 
@@ -182,7 +192,7 @@ export async function clearStoryMembershipIfFolderArchived(userId: string, story
 }
 
 async function listDescendantFolderIds(rootFolderId: string): Promise<string[]> {
-	const all: string[] = [rootFolderId];
+	const visited = new Set<string>([rootFolderId]);
 	let frontier: string[] = [rootFolderId];
 
 	while (frontier.length > 0) {
@@ -192,12 +202,17 @@ async function listDescendantFolderIds(rootFolderId: string): Promise<string[]> 
 			.where(inArray(s.storyFolder.parentId, frontier))
 			.execute();
 
-		const nextFrontier = children.map((c) => c.id);
-		all.push(...nextFrontier);
+		const nextFrontier: string[] = [];
+		for (const { id } of children) {
+			if (!visited.has(id)) {
+				visited.add(id);
+				nextFrontier.push(id);
+			}
+		}
 		frontier = nextFrontier;
 	}
 
-	return all;
+	return Array.from(visited);
 }
 
 async function selectOwnStoryIdsInFolders(userId: string, folderIds: string[]): Promise<string[]> {
@@ -222,8 +237,61 @@ async function selectOwnStoryIdsInFolders(userId: string, folderIds: string[]): 
 	return rows.map((r) => r.id);
 }
 
-export async function moveFolder(id: string, newParentId: string | null): Promise<void> {
-	await db.update(s.storyFolder).set({ parentId: newParentId }).where(eq(s.storyFolder.id, id)).execute();
+export async function moveFolder(
+	userId: string,
+	projectId: string,
+	id: string,
+	newParentId: string | null,
+): Promise<void> {
+	await db.transaction(
+		async (tx) => {
+			await serializeFolderMovesInProject(tx, userId, projectId);
+
+			if (newParentId !== null && (await proposedParentChainContains(tx, newParentId, id))) {
+				throw new MoveFolderCycleError();
+			}
+
+			await tx.update(s.storyFolder).set({ parentId: newParentId }).where(eq(s.storyFolder.id, id)).execute();
+		},
+		{ behavior: 'immediate' },
+	);
+}
+
+async function serializeFolderMovesInProject(tx: FolderMoveTx, userId: string, projectId: string): Promise<void> {
+	if (dbConfig.dialect !== Dialect.Postgres) {
+		return;
+	}
+	const lockKey = `story-folder-move:${userId}:${projectId}`;
+	await (tx as unknown as { execute: (q: SQL) => Promise<unknown> }).execute(
+		sql`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`,
+	);
+}
+
+async function proposedParentChainContains(
+	tx: FolderMoveTx,
+	startParentId: string,
+	folderId: string,
+): Promise<boolean> {
+	let currentId: string | null = startParentId;
+	const visited = new Set<string>();
+
+	while (currentId) {
+		if (currentId === folderId || visited.has(currentId)) {
+			return true;
+		}
+		visited.add(currentId);
+
+		const [row] = await tx
+			.select({ parentId: s.storyFolder.parentId })
+			.from(s.storyFolder)
+			.where(eq(s.storyFolder.id, currentId))
+			.limit(1)
+			.execute();
+
+		currentId = row?.parentId ?? null;
+	}
+
+	return false;
 }
 
 export async function moveStoryToFolder(userId: string, storyId: string, folderId: string | null): Promise<void> {
@@ -260,30 +328,4 @@ export async function listFolderItemsForUser(
 		.innerJoin(s.storyFolder, eq(s.storyFolderItem.folderId, s.storyFolder.id))
 		.where(and(eq(s.storyFolderItem.userId, userId), eq(s.storyFolder.projectId, projectId)))
 		.execute();
-}
-
-export async function detectFolderCycle(folderId: string, proposedParentId: string): Promise<boolean> {
-	let currentId: string | null = proposedParentId;
-	const visited = new Set<string>();
-
-	while (currentId) {
-		if (currentId === folderId) {
-			return true;
-		}
-		if (visited.has(currentId)) {
-			return true;
-		}
-		visited.add(currentId);
-
-		const [row] = await db
-			.select({ parentId: s.storyFolder.parentId })
-			.from(s.storyFolder)
-			.where(eq(s.storyFolder.id, currentId))
-			.limit(1)
-			.execute();
-
-		currentId = row?.parentId ?? null;
-	}
-
-	return false;
 }

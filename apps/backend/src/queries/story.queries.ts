@@ -358,23 +358,21 @@ export async function unarchiveByStoryId(storyId: string): Promise<void> {
 }
 
 export async function toggleStoryFavorite(userId: string, storyId: string): Promise<boolean> {
-	const [existing] = await db
-		.select({ storyId: s.storyFavorite.storyId })
-		.from(s.storyFavorite)
-		.where(and(eq(s.storyFavorite.userId, userId), eq(s.storyFavorite.storyId, storyId)))
-		.limit(1)
-		.execute();
+	const inserted = await db
+		.insert(s.storyFavorite)
+		.values({ userId, storyId })
+		.onConflictDoNothing()
+		.returning({ userId: s.storyFavorite.userId });
 
-	if (existing) {
-		await db
-			.delete(s.storyFavorite)
-			.where(and(eq(s.storyFavorite.userId, userId), eq(s.storyFavorite.storyId, storyId)))
-			.execute();
-		return false;
+	if (inserted.length > 0) {
+		return true;
 	}
 
-	await db.insert(s.storyFavorite).values({ userId, storyId }).execute();
-	return true;
+	await db
+		.delete(s.storyFavorite)
+		.where(and(eq(s.storyFavorite.userId, userId), eq(s.storyFavorite.storyId, storyId)))
+		.execute();
+	return false;
 }
 
 export async function listUserFavoriteStories(
@@ -424,9 +422,21 @@ export async function canUserAccessStory(storyId: string, userId: string): Promi
 		return true;
 	}
 
+	const isProjectMember = sql`exists (
+		select 1 from ${s.projectMember}
+		where ${s.projectMember.projectId} = ${s.sharedStory.projectId}
+		  and ${s.projectMember.userId} = ${userId}
+	)`;
+	const isOrgMember = sql`exists (
+		select 1 from ${s.orgMember}
+		where ${s.orgMember.orgId} = ${s.project.orgId}
+		  and ${s.orgMember.userId} = ${userId}
+	)`;
+
 	const [shared] = await db
 		.select({ id: s.sharedStory.id })
 		.from(s.sharedStory)
+		.innerJoin(s.project, eq(s.project.id, s.sharedStory.projectId))
 		.leftJoin(
 			s.sharedStoryAccess,
 			and(eq(s.sharedStoryAccess.sharedStoryId, s.sharedStory.id), eq(s.sharedStoryAccess.userId, userId)),
@@ -436,8 +446,8 @@ export async function canUserAccessStory(storyId: string, userId: string): Promi
 				eq(s.sharedStory.storyId, storyId),
 				or(
 					eq(s.sharedStory.userId, userId),
-					eq(s.sharedStory.visibility, 'project'),
-					sql`${s.sharedStoryAccess.userId} IS NOT NULL`,
+					and(eq(s.sharedStory.visibility, 'project'), or(isProjectMember, isOrgMember)),
+					and(eq(s.sharedStory.visibility, 'specific'), sql`${s.sharedStoryAccess.userId} IS NOT NULL`),
 				),
 			),
 		)

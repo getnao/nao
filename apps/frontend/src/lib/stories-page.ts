@@ -37,6 +37,7 @@ export type StoryItem = {
 	storyId: string;
 	title: string;
 	createdAt: Date;
+	updatedAt: Date;
 	author: string;
 	kind: 'own' | 'own-standalone' | 'shared-with-me' | 'shared-project';
 	chatId?: string;
@@ -113,6 +114,7 @@ export function buildStoryItems({
 			storyId: story.id,
 			title: story.title,
 			createdAt: new Date(story.createdAt),
+			updatedAt: new Date(story.updatedAt),
 			author: currentUserName,
 			kind: 'own',
 			chatId,
@@ -142,6 +144,7 @@ export function buildStoryItems({
 			storyId: story.id,
 			title: story.title,
 			createdAt: new Date(story.createdAt),
+			updatedAt: new Date(story.updatedAt),
 			author: currentUserName,
 			kind: 'own-standalone',
 			storySlug: story.storySlug,
@@ -165,6 +168,7 @@ export function buildStoryItems({
 				storyId: story.storyId,
 				title: story.title,
 				createdAt: new Date(story.createdAt),
+				updatedAt: new Date(story.updatedAt),
 				author: story.authorName,
 				kind: story.visibility === 'specific' ? 'shared-with-me' : ('shared-project' as const),
 				summary: story.summary,
@@ -269,7 +273,7 @@ function getSortValue(entry: ExplorerEntry, field: SortField, currentUserName: s
 	if (field === 'owner') {
 		return entry.kind === 'folder' ? currentUserName : entry.story.author;
 	}
-	return entry.kind === 'folder' ? entry.folder.updatedAt : entry.story.createdAt;
+	return entry.kind === 'folder' ? entry.folder.updatedAt : entry.story.updatedAt;
 }
 
 function getNameFallback(entry: ExplorerEntry): string {

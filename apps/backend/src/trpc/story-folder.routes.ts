@@ -78,22 +78,28 @@ export const storyFolderRoutes = {
 		.input(z.object({ id: z.string(), newParentId: z.string().nullable() }))
 		.mutation(async ({ input, ctx }) => {
 			await assertUserOwnsFolder(input.id, ctx);
-
 			if (input.newParentId) {
 				await assertUserOwnsFolder(input.newParentId, ctx, 'Target folder');
-
-				const hasCycle = await storyFolderQueries.detectFolderCycle(input.id, input.newParentId);
-				if (hasCycle) {
-					throw new TRPCError({ code: 'BAD_REQUEST', message: 'Moving this folder would create a cycle.' });
-				}
 			}
 
-			await storyFolderQueries.moveFolder(input.id, input.newParentId);
+			try {
+				await storyFolderQueries.moveFolder(ctx.user.id, ctx.project.id, input.id, input.newParentId);
+			} catch (err) {
+				if (err instanceof storyFolderQueries.MoveFolderCycleError) {
+					throw new TRPCError({ code: 'BAD_REQUEST', message: err.message });
+				}
+				throw err;
+			}
 		}),
 
 	moveStory: projectProtectedProcedure
 		.input(z.object({ storyId: z.string(), folderId: z.string().nullable() }))
 		.mutation(async ({ input, ctx }) => {
+			const storyProjectId = await storyQueries.getStoryProjectId(input.storyId);
+			if (storyProjectId !== ctx.project.id) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found in this project.' });
+			}
+
 			const canAccess = await storyQueries.canUserAccessStory(input.storyId, ctx.user.id);
 			if (!canAccess) {
 				throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this story.' });

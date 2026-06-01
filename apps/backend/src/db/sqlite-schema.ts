@@ -3,7 +3,18 @@ import type { CitationData, LlmProvider } from '@nao/shared/types';
 import { BUDGET_PERIODS, SHARE_VISIBILITY, USER_ROLES } from '@nao/shared/types';
 import { type ProviderMetadata } from 'ai';
 import { sql } from 'drizzle-orm';
-import { check, index, integer, primaryKey, sqliteTable, text, unique, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import {
+	type AnySQLiteColumn,
+	check,
+	foreignKey,
+	index,
+	integer,
+	primaryKey,
+	sqliteTable,
+	text,
+	unique,
+	uniqueIndex,
+} from 'drizzle-orm/sqlite-core';
 
 import { AgentSettings } from '../types/agent-settings';
 import { AUTOMATION_RUN_STATUSES, AutomationIntegrationConfig, AutomationIntegrationResult } from '../types/automation';
@@ -1131,7 +1142,7 @@ export const storyFolder = sqliteTable(
 		projectId: text('project_id')
 			.notNull()
 			.references(() => project.id, { onDelete: 'cascade' }),
-		parentId: text('parent_id'),
+		parentId: text('parent_id').references((): AnySQLiteColumn => storyFolder.id, { onDelete: 'set null' }),
 		name: text('name').notNull(),
 		favoritedAt: integer('favorited_at', { mode: 'timestamp_ms' }),
 		archivedAt: integer('archived_at', { mode: 'timestamp_ms' }),
@@ -1144,6 +1155,7 @@ export const storyFolder = sqliteTable(
 			.notNull(),
 	},
 	(t) => [
+		unique('story_folder_user_id_id_unique').on(t.userId, t.id),
 		index('story_folder_userId_projectId_parentId_idx').on(t.userId, t.projectId, t.parentId),
 		index('story_folder_projectId_idx').on(t.projectId),
 	],
@@ -1158,9 +1170,15 @@ export const storyFolderItem = sqliteTable(
 		storyId: text('story_id')
 			.notNull()
 			.references(() => story.id, { onDelete: 'cascade' }),
-		folderId: text('folder_id')
-			.notNull()
-			.references(() => storyFolder.id, { onDelete: 'cascade' }),
+		folderId: text('folder_id').notNull(),
 	},
-	(t) => [primaryKey({ columns: [t.userId, t.storyId] }), index('story_folder_item_folderId_idx').on(t.folderId)],
+	(t) => [
+		primaryKey({ columns: [t.userId, t.storyId] }),
+		foreignKey({
+			name: 'story_folder_item_user_id_folder_id_story_folder_fk',
+			columns: [t.userId, t.folderId],
+			foreignColumns: [storyFolder.userId, storyFolder.id],
+		}).onDelete('cascade'),
+		index('story_folder_item_folderId_idx').on(t.folderId),
+	],
 );

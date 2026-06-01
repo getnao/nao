@@ -116,7 +116,10 @@ function StoriesPage() {
 
 	const userStories = useQuery(trpc.story.listAll.queryOptions({ projectId: activeProjectId }));
 	const standaloneStories = useQuery(trpc.story.listStandalone.queryOptions());
-	const sharedStories = useQuery(trpc.storyShare.list.queryOptions({ projectId: activeProjectId }));
+	const sharedStories = useQuery({
+		...trpc.storyShare.list.queryOptions({ projectId: activeProjectId ?? '' }),
+		enabled: !!activeProjectId,
+	});
 	const favoriteStoryIds = useQuery(trpc.story.listFavorites.queryOptions({ projectId: activeProjectId }));
 	const archivedStories = useQuery({
 		...trpc.story.listArchived.queryOptions({ projectId: activeProjectId }),
@@ -251,7 +254,7 @@ function StoriesPage() {
 	const isLoading = showArchived
 		? archivedStories.isLoading || archivedStandaloneStories.isLoading
 		: userStories.isLoading || standaloneStories.isLoading || sharedStories.isLoading;
-	const isEmpty = allItems.length === 0 && !isLoading;
+	const isEmpty = allItems.length === 0 && folders.length === 0 && !isLoading;
 
 	function handleDisplayChange(mode: StoryPanelDisplayMode) {
 		setDisplayMode(mode);
@@ -386,6 +389,7 @@ function StoriesPage() {
 				modifiers={[snapCenterToCursor]}
 				onDragStart={handleDragStart}
 				onDragEnd={handleDragEnd}
+				onDragCancel={() => setActiveId(null)}
 			>
 				<div className='w-full px-4 py-6 md:px-8 md:py-10'>
 					<div className='flex items-center justify-between mb-6 md:mb-8 gap-3 flex-wrap'>

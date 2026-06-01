@@ -4,8 +4,10 @@ import { BUDGET_PERIODS, SHARE_VISIBILITY, USER_ROLES } from '@nao/shared/types'
 import { type ProviderMetadata } from 'ai';
 import { sql } from 'drizzle-orm';
 import {
+	type AnyPgColumn,
 	boolean,
 	check,
+	foreignKey,
 	index,
 	integer,
 	jsonb,
@@ -1060,7 +1062,7 @@ export const storyFolder = pgTable(
 		projectId: text('project_id')
 			.notNull()
 			.references(() => project.id, { onDelete: 'cascade' }),
-		parentId: text('parent_id'),
+		parentId: text('parent_id').references((): AnyPgColumn => storyFolder.id, { onDelete: 'set null' }),
 		name: text('name').notNull(),
 		favoritedAt: timestamp('favorited_at'),
 		archivedAt: timestamp('archived_at'),
@@ -1071,6 +1073,7 @@ export const storyFolder = pgTable(
 			.notNull(),
 	},
 	(t) => [
+		unique('story_folder_user_id_id_unique').on(t.userId, t.id),
 		index('story_folder_userId_projectId_parentId_idx').on(t.userId, t.projectId, t.parentId),
 		index('story_folder_projectId_idx').on(t.projectId),
 	],
@@ -1085,9 +1088,15 @@ export const storyFolderItem = pgTable(
 		storyId: text('story_id')
 			.notNull()
 			.references(() => story.id, { onDelete: 'cascade' }),
-		folderId: text('folder_id')
-			.notNull()
-			.references(() => storyFolder.id, { onDelete: 'cascade' }),
+		folderId: text('folder_id').notNull(),
 	},
-	(t) => [primaryKey({ columns: [t.userId, t.storyId] }), index('story_folder_item_folderId_idx').on(t.folderId)],
+	(t) => [
+		primaryKey({ columns: [t.userId, t.storyId] }),
+		foreignKey({
+			name: 'story_folder_item_user_id_folder_id_story_folder_fk',
+			columns: [t.userId, t.folderId],
+			foreignColumns: [storyFolder.userId, storyFolder.id],
+		}).onDelete('cascade'),
+		index('story_folder_item_folderId_idx').on(t.folderId),
+	],
 );

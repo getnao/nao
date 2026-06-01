@@ -15,8 +15,12 @@ export function ViewerHome() {
 	const queryClient = useQueryClient();
 	const project = useQuery(trpc.project.getCurrent.queryOptions());
 	const projects = useQuery(trpc.project.listForCurrentUser.queryOptions());
+	const projectId = project.data?.id;
 	const sharedChats = useQuery(trpc.sharedChat.list.queryOptions());
-	const sharedStories = useQuery(trpc.storyShare.list.queryOptions());
+	const sharedStories = useQuery({
+		...trpc.storyShare.list.queryOptions({ projectId: projectId ?? '' }),
+		enabled: !!projectId,
+	});
 	const [searchQuery, setSearchQuery] = useState('');
 	const [displayMode, setDisplayMode] = useState<StoryPanelDisplayMode>(() =>
 		getStoredSetting(VIEWER_DISPLAY_KEY, ['grid', 'lines'], 'grid'),
@@ -27,11 +31,11 @@ export function ViewerHome() {
 	const isInMultipleProjects = (projects.data?.length ?? 0) > 1;
 
 	const handleProjectChange = useCallback(
-		async (projectId: string) => {
-			if (!project.data || projectId === project.data.id) {
+		async (newProjectId: string) => {
+			if (!project.data || newProjectId === project.data.id) {
 				return;
 			}
-			setActiveProjectId(projectId);
+			setActiveProjectId(newProjectId);
 			await queryClient.invalidateQueries();
 		},
 		[project.data, queryClient],
@@ -47,19 +51,15 @@ export function ViewerHome() {
 		localStorage.setItem(VIEWER_GROUP_KEY, value);
 	}
 
-	const projectId = project.data?.id;
-
 	const allItems: SharedItem[] = useMemo(() => {
-		const storyItems: SharedItem[] = (sharedStories.data ?? [])
-			.filter((s) => s.projectId === projectId)
-			.map((s) => ({
-				id: s.id,
-				kind: 'story',
-				title: s.title,
-				authorName: s.authorName,
-				createdAt: new Date(s.createdAt),
-				summary: s.summary,
-			}));
+		const storyItems: SharedItem[] = (sharedStories.data ?? []).map((s) => ({
+			id: s.id,
+			kind: 'story',
+			title: s.title,
+			authorName: s.authorName,
+			createdAt: new Date(s.createdAt),
+			summary: s.summary,
+		}));
 		const chatItems: SharedItem[] = (sharedChats.data ?? [])
 			.filter((c) => c.projectId === projectId)
 			.map((c) => ({
@@ -90,11 +90,15 @@ export function ViewerHome() {
 		</div>
 	);
 
+	const standaloneProjectSelector = projectSelector && (
+		<div className='-ml-2 px-4 pt-3 md:px-8 md:pt-4'>{projectSelector}</div>
+	);
+
 	if (isLoading) {
 		return (
 			<div className='flex flex-col flex-1 bg-panel min-w-72 overflow-hidden'>
 				<MobileHeader />
-				{projectSelector}
+				{standaloneProjectSelector}
 				<div className='flex flex-1 items-center justify-center'>
 					<Spinner />
 				</div>
@@ -106,7 +110,7 @@ export function ViewerHome() {
 		return (
 			<div className='flex flex-col flex-1 bg-panel min-w-72 overflow-hidden'>
 				<MobileHeader />
-				{projectSelector}
+				{standaloneProjectSelector}
 				<ViewerEmptyState />
 			</div>
 		);

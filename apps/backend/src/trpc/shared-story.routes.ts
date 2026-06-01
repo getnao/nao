@@ -33,25 +33,21 @@ const shareAccessProcedure = resourceProjectProcedure(
 );
 
 export const sharedStoryRoutes = {
-	list: protectedProcedure
-		.input(z.object({ projectId: z.string().optional() }).optional())
-		.query(async ({ input, ctx }) => {
-			const projects = await projectQueries.listUserProjects(ctx.user.id);
-			const projectIds = projects.map((p) => p.id);
-			const stories = await sharedStoryQueries.listUserSharedStories(projectIds, ctx.user.id, {
-				projectId: input?.projectId,
-			});
-			return stories.map((story) => ({
-				...story,
-				storySlug: story.slug,
-				summary: extractStorySummary(story.code),
-				sharing: {
-					visibility: story.visibility,
-					sharedWithCount: story.sharedWithCount,
-					isPinned: story.isPinned,
-				},
-			}));
-		}),
+	list: protectedProcedure.input(z.object({ projectId: z.string() })).query(async ({ input, ctx }) => {
+		const projects = await projectQueries.listUserProjects(ctx.user.id);
+		const projectIds = projects.map((p) => p.id);
+		const stories = await sharedStoryQueries.listUserSharedStories(projectIds, ctx.user.id, input.projectId);
+		return stories.map((story) => ({
+			...story,
+			storySlug: story.slug,
+			summary: extractStorySummary(story.code),
+			sharing: {
+				visibility: story.visibility,
+				sharedWithCount: story.sharedWithCount,
+				isPinned: story.isPinned,
+			},
+		}));
+	}),
 
 	create: canSendProcedure
 		.input(

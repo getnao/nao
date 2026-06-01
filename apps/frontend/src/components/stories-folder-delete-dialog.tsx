@@ -63,6 +63,7 @@ export function FolderDeleteDialog({
 							e.preventDefault();
 							deleteMutation.mutate({ id: folderId });
 						}}
+						disabled={deleteMutation.isPending}
 					>
 						Delete folder
 					</AlertDialogAction>

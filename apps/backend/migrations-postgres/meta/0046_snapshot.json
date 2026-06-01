@@ -1,6 +1,6 @@
 {
-  "id": "90ef43f0-9c0a-43a0-8247-029bd16f8302",
-  "prevId": "01f316a2-3621-4856-a296-737a811b5e35",
+  "id": "2934ff00-b39d-4123-a5ca-89f996714b2c",
+  "prevId": "50e4e0c9-229c-43cf-a50a-cf5b517ba0f8",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -117,6 +117,306 @@
             "id"
           ],
           "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.activity": {
+      "name": "activity",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "project_id": {
+          "name": "project_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "type": {
+          "name": "type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'completed'"
+        },
+        "trigger": {
+          "name": "trigger",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'system'"
+        },
+        "story_id": {
+          "name": "story_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "chat_id": {
+          "name": "chat_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "shared_story_id": {
+          "name": "shared_story_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "shared_chat_id": {
+          "name": "shared_chat_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "payload": {
+          "name": "payload",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "error_message": {
+          "name": "error_message",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "started_at": {
+          "name": "started_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "completed_at": {
+          "name": "completed_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "activity_projectId_idx": {
+          "name": "activity_projectId_idx",
+          "columns": [
+            {
+              "expression": "project_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "activity_userId_idx": {
+          "name": "activity_userId_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "activity_type_idx": {
+          "name": "activity_type_idx",
+          "columns": [
+            {
+              "expression": "type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "activity_storyId_idx": {
+          "name": "activity_storyId_idx",
+          "columns": [
+            {
+              "expression": "story_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "activity_chatId_idx": {
+          "name": "activity_chatId_idx",
+          "columns": [
+            {
+              "expression": "chat_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "activity_sharedStoryId_idx": {
+          "name": "activity_sharedStoryId_idx",
+          "columns": [
+            {
+              "expression": "shared_story_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "activity_sharedChatId_idx": {
+          "name": "activity_sharedChatId_idx",
+          "columns": [
+            {
+              "expression": "shared_chat_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "activity_startedAt_idx": {
+          "name": "activity_startedAt_idx",
+          "columns": [
+            {
+              "expression": "started_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "activity_project_id_project_id_fk": {
+          "name": "activity_project_id_project_id_fk",
+          "tableFrom": "activity",
+          "tableTo": "project",
+          "columnsFrom": [
+            "project_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "activity_user_id_user_id_fk": {
+          "name": "activity_user_id_user_id_fk",
+          "tableFrom": "activity",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "activity_story_id_story_id_fk": {
+          "name": "activity_story_id_story_id_fk",
+          "tableFrom": "activity",
+          "tableTo": "story",
+          "columnsFrom": [
+            "story_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "activity_chat_id_chat_id_fk": {
+          "name": "activity_chat_id_chat_id_fk",
+          "tableFrom": "activity",
+          "tableTo": "chat",
+          "columnsFrom": [
+            "chat_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "activity_shared_story_id_shared_story_id_fk": {
+          "name": "activity_shared_story_id_shared_story_id_fk",
+          "tableFrom": "activity",
+          "tableTo": "shared_story",
+          "columnsFrom": [
+            "shared_story_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "activity_shared_chat_id_shared_chat_id_fk": {
+          "name": "activity_shared_chat_id_shared_chat_id_fk",
+          "tableFrom": "activity",
+          "tableTo": "shared_chat",
+          "columnsFrom": [
+            "shared_chat_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },
@@ -4341,6 +4641,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "scheduled_job_id": {
+          "name": "scheduled_job_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "archived_at": {
           "name": "archived_at",
           "type": "timestamp",
@@ -4435,6 +4741,21 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "story_scheduledJobId_idx": {
+          "name": "story_scheduledJobId_idx",
+          "columns": [
+            {
+              "expression": "scheduled_job_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -4475,6 +4796,19 @@
             "id"
           ],
           "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "story_scheduled_job_id_scheduled_job_id_fk": {
+          "name": "story_scheduled_job_id_scheduled_job_id_fk",
+          "tableFrom": "story",
+          "tableTo": "scheduled_job",
+          "columnsFrom": [
+            "scheduled_job_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },
@@ -4779,10 +5113,32 @@
           ],
           "onDelete": "cascade",
           "onUpdate": "no action"
+        },
+        "story_folder_parent_id_story_folder_id_fk": {
+          "name": "story_folder_parent_id_story_folder_id_fk",
+          "tableFrom": "story_folder",
+          "tableTo": "story_folder",
+          "columnsFrom": [
+            "parent_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "story_folder_user_id_id_unique": {
+          "name": "story_folder_user_id_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "user_id",
+            "id"
+          ]
+        }
+      },
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -4854,14 +5210,16 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "story_folder_item_folder_id_story_folder_id_fk": {
-          "name": "story_folder_item_folder_id_story_folder_id_fk",
+        "story_folder_item_user_id_folder_id_story_folder_fk": {
+          "name": "story_folder_item_user_id_folder_id_story_folder_fk",
           "tableFrom": "story_folder_item",
           "tableTo": "story_folder",
           "columnsFrom": [
+            "user_id",
             "folder_id"
           ],
           "columnsTo": [
+            "user_id",
             "id"
           ],
           "onDelete": "cascade",
