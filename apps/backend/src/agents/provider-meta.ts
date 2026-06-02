@@ -64,8 +64,8 @@ export const PROVIDER_META: ProviderMetaMap = {
 		summaryModelId: 'gpt-4.1-mini',
 		models: [
 			{
-				id: 'gpt-5.4',
-				name: 'GPT 5.4',
+				id: 'gpt-5.5',
+				name: 'GPT 5.5',
 				default: true,
 				contextWindow: 400_000,
 				costPerM: { inputNoCache: 1.75, inputCacheRead: 0.175, inputCacheWrite: 0, output: 14 },
