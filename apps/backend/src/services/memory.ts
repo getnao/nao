@@ -56,6 +56,10 @@ class MemoryService {
 	}
 
 	private async _extractMemory(opts: MemoryExtractionOptions): Promise<void> {
+		if (this._shouldSkipExtraction(opts)) {
+			return;
+		}
+
 		const isEnabled = await this._isMemoryEnabled(opts.userId, opts.projectId);
 		if (!isEnabled) {
 			return;
@@ -201,6 +205,14 @@ class MemoryService {
 
 	private async _isMemoryEnabled(userId: string, projectId: string): Promise<boolean> {
 		return memoryQueries.getIsMemoryEnabledForUserAndProject(userId, projectId);
+	}
+
+	private _shouldSkipExtraction(opts: MemoryExtractionOptions): boolean {
+		// OpenAI-compatible providers (including vLLM/Qwen in this deployment)
+		// can emit assistant payloads that do not pass the strict Responses
+		// validator used in memory extraction, causing repeated noisy failures.
+		// Skip extraction for this provider path to keep the chat/tool flow stable.
+		return opts.provider === 'openai';
 	}
 }
 

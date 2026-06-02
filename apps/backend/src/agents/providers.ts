@@ -6,9 +6,11 @@ import { createVertex } from '@ai-sdk/google-vertex';
 import { createVertexAnthropic } from '@ai-sdk/google-vertex/anthropic';
 import { createMistral } from '@ai-sdk/mistral';
 import { createOpenAI } from '@ai-sdk/openai';
+import { qwen3CoderToolMiddleware } from '@ai-sdk-tool/parser';
 import { fromNodeProviderChain } from '@aws-sdk/credential-providers';
 import type { LlmProvider } from '@nao/shared/types';
 import { createOpenRouter, LanguageModelV3 } from '@openrouter/ai-sdk-provider';
+import { wrapLanguageModel } from 'ai';
 import { createOllama } from 'ai-sdk-ollama';
 
 import type { LlmProvidersType, ProviderConfigMap, ProviderSettings } from '../types/llm';
@@ -60,7 +62,7 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 	},
 	openai: {
 		...PROVIDER_META.openai,
-		create: (settings, modelId) => createOpenAI(settings).responses(modelId),
+		create: (settings, modelId) => createOpenAIModel(settings, modelId),
 		defaultOptions: { store: false, truncation: 'auto' },
 	},
 	google: {
@@ -169,13 +171,31 @@ export function createProviderModel(
 	const modelConfig = getProviderModelConfig(provider, modelId);
 	const contextWindow = providerConfig.models.find((m) => m.id === modelId)?.contextWindow ?? 200_000;
 
+	const model = providerConfig.create(settings, modelId);
+
 	return {
-		model: providerConfig.create(settings, modelId),
+		model: shouldEnableToolCallMiddleware(provider, modelId)
+			? wrapLanguageModel({ model, middleware: qwen3CoderToolMiddleware })
+			: model,
 		providerOptions: {
-			[provider]: { ...defaultOptions, ...modelConfig },
+			[provider]: shouldUseOpenAIChatPath(provider, modelId) ? modelConfig : { ...defaultOptions, ...modelConfig },
 		},
 		contextWindow,
 	};
+}
+
+function shouldEnableToolCallMiddleware(provider: LlmProvider, modelId: string): boolean {
+	return provider === 'openai' && modelId.toLowerCase().includes('qwen');
+}
+
+function shouldUseOpenAIChatPath(provider: LlmProvider, modelId: string): boolean {
+	return provider === 'openai' && modelId.toLowerCase().includes('qwen');
+}
+
+function createOpenAIModel(settings: ProviderSettings, modelId: string): LanguageModelV3 {
+	const openai = createOpenAI(settings);
+	// vLLM/Qwen is more stable with chat-completions than OpenAI Responses API.
+	return shouldUseOpenAIChatPath('openai', modelId) ? openai.chat(modelId) : openai.responses(modelId);
 }
 
 function getProviderModelConfig<P extends LlmProvider>(provider: P, modelId: string): ProviderConfigMap[P] {
