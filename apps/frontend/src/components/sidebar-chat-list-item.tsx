@@ -101,7 +101,7 @@ export function ChatListItem({ chat }: Props) {
 				params={{ chatId: chat.id }}
 				to={`/$chatId`}
 				className={cn(
-					'group relative w-full rounded-md px-3 py-2 transition-[background-color,padding,opacity] min-w-0 flex-1 flex gap-2 items-center',
+					'group relative w-full rounded-md px-2.5 py-2 transition-[background-color,padding,opacity] min-w-0 flex-1 flex gap-2 items-center',
 					!isRenaming && 'hover:pr-9 has-data-[state=open]:pr-9',
 				)}
 				inactiveProps={{

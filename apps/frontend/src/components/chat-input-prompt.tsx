@@ -105,6 +105,11 @@ export function ChatPrompt({ promptRef, placeholder, initialValue, minHeight, on
 			onChange={onChange}
 			onEnter={onEnter}
 			className='w-full nao-input'
+			style={
+				{
+					'--prompt-min-height': '70px',
+				} as React.CSSProperties
+			}
 			theme={promptTheme}
 		/>
 	);

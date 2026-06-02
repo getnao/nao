@@ -143,7 +143,7 @@ export interface GroupedChatItem {
 }
 
 export interface ChatGroup {
-	label: string;
+	label: string | null;
 	chats: GroupedChatItem[];
 }
 

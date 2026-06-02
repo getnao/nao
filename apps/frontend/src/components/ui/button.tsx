@@ -100,7 +100,9 @@ function ChatSendButton({ showStop, disabled, ...props }: React.ComponentProps<'
 			disabled={disabled}
 			size='icon-sm'
 			className={cn(
-				'rounded-full ml-auto disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100 size-7',
+				'rounded-full ml-auto size-7 border border-transparent',
+				'[background:linear-gradient(180deg,#522BFF_0%,#6441FF_100%)_padding-box,linear-gradient(180deg,#522BFF_0%,#3C1BCD_50.48%,#A591FF_100%)_border-box]',
+				'text-[oklch(0.94_0_0)]',
 			)}
 		>
 			{showStop ? (
@@ -133,7 +135,7 @@ function MicButton({
 			className={`
 				inline-flex items-center justify-center rounded-full size-7 transition-all cursor-pointer
 				disabled:pointer-events-none disabled:opacity-50
-				${isRecording ? 'bg-violet/30 animate-pulse' : 'text-muted-foreground hover:text-foreground hover:bg-accent'}
+				${isRecording ? 'bg-violet/30 animate-pulse' : 'text-primary hover:text-foreground hover:bg-accent'}
 			`}
 		>
 			{isTranscribing ? <Loader2 className='size-3.5 animate-spin' /> : <Mic className='size-3.5' />}

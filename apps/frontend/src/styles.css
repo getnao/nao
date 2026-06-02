@@ -5,6 +5,70 @@
 @source "../../../node_modules/@streamdown/math/dist/*.js";
 @source "../../shared/src/**/*.{ts,tsx}";
 
+@font-face {
+	font-family: 'Borna';
+	src: url('/fonts/Borna/Borna-Regular.otf') format('opentype');
+	font-weight: 400;
+	font-style: normal;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'Borna';
+	src: url('/fonts/Borna/Borna-RegularItalic.otf') format('opentype');
+	font-weight: 400;
+	font-style: italic;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'Borna';
+	src: url('/fonts/Borna/Borna-Medium.otf') format('opentype');
+	font-weight: 500;
+	font-style: normal;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'Borna';
+	src: url('/fonts/Borna/Borna-MediumItalic.otf') format('opentype');
+	font-weight: 500;
+	font-style: italic;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'Borna';
+	src: url('/fonts/Borna/Borna-SemiBold.otf') format('opentype');
+	font-weight: 600;
+	font-style: normal;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'Borna';
+	src: url('/fonts/Borna/Borna-SemiBoldItalic.otf') format('opentype');
+	font-weight: 600;
+	font-style: italic;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'Borna';
+	src: url('/fonts/Borna/Borna-Bold.otf') format('opentype');
+	font-weight: 700;
+	font-style: normal;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'Borna';
+	src: url('/fonts/Borna/Borna-BoldItalic.otf') format('opentype');
+	font-weight: 700;
+	font-style: italic;
+	font-display: swap;
+}
+
 @custom-variant dark (&:is(.dark *));
 
 html,
@@ -44,8 +108,18 @@ html.nao-embed #app {
 
 body {
 	font-family:
-		-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans',
-		'Droid Sans', 'Helvetica Neue', sans-serif;
+		'Borna',
+		-apple-system,
+		BlinkMacSystemFont,
+		'Segoe UI',
+		'Roboto',
+		'Oxygen',
+		'Ubuntu',
+		'Cantarell',
+		'Fira Sans',
+		'Droid Sans',
+		'Helvetica Neue',
+		sans-serif;
 	-webkit-font-smoothing: antialiased;
 	-moz-osx-font-smoothing: grayscale;
 }

@@ -8,6 +8,7 @@ import {
 	NewspaperIcon,
 	PlusIcon,
 	SearchIcon,
+	SlidersVertical,
 	X,
 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
@@ -150,7 +151,7 @@ export function Sidebar() {
 						),
 			)}
 		>
-			<div className='p-2 flex flex-col gap-1'>
+			<div className='p-2 flex flex-col'>
 				{isInSettings ? (
 					<div className='flex items-center relative'>
 						<Link
@@ -231,38 +232,57 @@ export function Sidebar() {
 							)}
 						</div>
 
-						{!isViewer && (
+						<div className='py-4'>
+							{!isViewer && (
+								<SidebarMenuButton
+									icon={PlusIcon}
+									label='New chat'
+									shortcut='⇧⌘O'
+									isCollapsed={effectiveIsCollapsed}
+									onClick={handleNavigateHome}
+								/>
+							)}
 							<SidebarMenuButton
-								icon={PlusIcon}
-								label='New chat'
-								shortcut='⇧⌘O'
+								icon={SearchIcon}
+								label='Search chats'
+								shortcut='⌘K'
 								isCollapsed={effectiveIsCollapsed}
-								onClick={handleNavigateHome}
+								onClick={handleSearchChats}
 							/>
-						)}
-						<SidebarMenuButton
-							icon={SearchIcon}
-							label='Search chats'
-							shortcut='⌘K'
-							isCollapsed={effectiveIsCollapsed}
-							onClick={handleSearchChats}
-						/>
-						<SidebarMenuButton
-							icon={StoryIcon as unknown as LucideIcon}
-							label='Stories'
-							shortcut=''
-							isCollapsed={effectiveIsCollapsed}
-							onClick={handleNavigateStories}
-						/>
-						{!isViewer && betaAutomationsEnabled && (
 							<SidebarMenuButton
-								icon={NewspaperIcon as unknown as LucideIcon}
-								label='Feed'
+								icon={StoryIcon as unknown as LucideIcon}
+								label='Stories'
 								shortcut=''
 								isCollapsed={effectiveIsCollapsed}
-								onClick={handleNavigateFeed}
+								onClick={handleNavigateStories}
 							/>
-						)}
+							{!isViewer && betaAutomationsEnabled && (
+								<SidebarMenuButton
+									icon={NewspaperIcon as unknown as LucideIcon}
+									label='Feed'
+									shortcut=''
+									isCollapsed={effectiveIsCollapsed}
+									onClick={handleNavigateFeed}
+								/>
+							)}
+						</div>
+
+						<div
+							className={cn(
+								'flex items-center justify-between relative group transition-[padding,height,background-color] duration-300 pt-[10px] px-[10px]',
+								isCollapsed ? 'h-9' : '',
+							)}
+						>
+							<div className={cn('transition-[opacity,visibility] duration-300', hideIf(isCollapsed))}>
+								<span className='text-md font-medium'>Chats</span>
+							</div>
+							<ChatFilterMenu
+								groupBy={groupBy}
+								filters={filters}
+								onGroupByChange={setGroupBy}
+								onFilterToggle={toggleFilter}
+							/>
+						</div>
 					</>
 				)}
 			</div>
@@ -293,16 +313,7 @@ export function Sidebar() {
 				{isAdmin && <SidebarVersionNotice isCollapsed={effectiveIsCollapsed} />}
 				<SidebarUserMenu
 					isCollapsed={effectiveIsCollapsed}
-					chatFilterMenu={
-						!isInSettings ? (
-							<ChatFilterMenu
-								groupBy={groupBy}
-								filters={filters}
-								onGroupByChange={setGroupBy}
-								onFilterToggle={toggleFilter}
-							/>
-						) : undefined
-					}
+					settingsMenu={!isInSettings ? <SlidersVertical className='size-4' /> : undefined}
 				/>
 			</div>
 		</div>
@@ -344,7 +355,7 @@ function SidebarMenuButton({
 		<Button
 			variant='ghost'
 			className={cn(
-				'w-full justify-start relative group shadow-none transition-[padding,height,background-color] duration-300 p-[9px_!important]',
+				'w-full justify-start relative group shadow-none transition-[padding,height,background-color] duration-300 p-[10px_!important] gap-4',
 				isCollapsed ? 'h-9' : '',
 			)}
 			onClick={onClick}
@@ -492,9 +503,11 @@ function GroupSection({ group, groupBy }: { group: ChatGroup; groupBy: ChatGroup
 
 	return (
 		<>
-			<div className='px-2 space-y-0.5'>
-				<SidebarSectionHeader label={group.label} isOpen={isOpen} onToggle={toggle} />
-			</div>
+			{group.label && (
+				<div className='px-2'>
+					<SidebarSectionHeader label={group.label} isOpen={isOpen} onToggle={toggle} />
+				</div>
+			)}
 
 			{isOpen && (
 				<div className='px-2 space-y-1'>
@@ -510,7 +523,7 @@ function GroupSection({ group, groupBy }: { group: ChatGroup; groupBy: ChatGroup
 						<button
 							type='button'
 							onClick={() => setExpanded((p) => !p)}
-							className='px-3 py-1 text-xs text-muted-foreground cursor-pointer transition-colors hover:text-foreground'
+							className='px-2 py-1 text-xs text-muted-foreground cursor-pointer transition-colors hover:text-foreground'
 						>
 							{expanded ? 'Show less' : 'Show more'}
 						</button>
@@ -528,7 +541,7 @@ function SharedChatGroupItem({ item, groupBy }: { item: GroupedChatItem; groupBy
 		<Link
 			params={{ shareId: item.shareId! }}
 			to='/shared-chat/$shareId'
-			className='group relative w-full rounded-md px-3 py-2 transition-[background-color,padding,opacity] min-w-0 flex-1 flex gap-2 items-center'
+			className='group relative w-full rounded-md px-2.5 py-2 transition-[background-color,padding,opacity] min-w-0 flex-1 flex gap-2 items-center'
 			inactiveProps={{ className: 'text-sidebar-foreground hover:bg-sidebar-accent opacity-75' }}
 			activeProps={{ className: 'text-foreground bg-sidebar-accent font-medium' }}
 		>
@@ -558,7 +571,7 @@ function SidebarSectionHeader({
 	return (
 		<button
 			onClick={onToggle}
-			className='group relative flex items-center gap-2 px-3 py-1.5 text-sm rounded-md transition-colors w-full text-left text-muted-foreground whitespace-nowrap cursor-pointer'
+			className='group relative flex items-center gap-2 px-2.5 py-1.5 text-sm rounded-md transition-colors w-full text-left text-muted-foreground whitespace-nowrap cursor-pointer'
 		>
 			<span>{label}</span>
 			<ChevronRight

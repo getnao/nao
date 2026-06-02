@@ -291,7 +291,7 @@ function ChatInputBase({
 			<form onSubmit={handleSubmitMessage} className='mx-auto relative'>
 				<InputGroup
 					htmlFor='chat-input'
-					className={cn('dark:bg-muted', isDragging && 'ring-2 ring-primary/50 border-primary')}
+					className={cn('dark:bg-muted shadow-xs', isDragging && 'ring-2 ring-primary/50 border-primary')}
 				>
 					<ChatInputImagePreview images={imageUpload.images} onRemove={imageUpload.removeImage} />
 					<ChatPrompt
@@ -430,7 +430,7 @@ function ChatInputPlusMenu({
 				<button
 					type='button'
 					aria-label='Add context'
-					className='inline-flex items-center justify-center rounded-full size-7 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors cursor-pointer'
+					className='inline-flex items-center justify-center rounded-full size-7 text-primary hover:text-foreground hover:bg-accent transition-colors cursor-pointer'
 				>
 					<Plus className='size-4 transition-transform duration-200 [[data-state=open]_&]:rotate-45' />
 				</button>
