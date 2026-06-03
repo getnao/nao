@@ -46,12 +46,13 @@ export function StoriesExplorer({
 		if (searchQuery.trim()) {
 			return <StoriesNoResults query={searchQuery} />;
 		}
-		if (currentFolderId && !showArchived) {
+		if (!showArchived) {
 			return (
 				<FolderEmptyState
 					onNewFolder={onNewFolder}
 					displayMode={displayMode}
 					canCreateFolder={canCreateFolder}
+					isRoot={!currentFolderId}
 				/>
 			);
 		}
@@ -166,24 +167,33 @@ function FolderEmptyState({
 	onNewFolder,
 	displayMode,
 	canCreateFolder,
+	isRoot,
 }: {
 	onNewFolder: () => void;
 	displayMode: StoryPanelDisplayMode;
 	canCreateFolder: boolean;
+	isRoot: boolean;
 }) {
 	if (!canCreateFolder) {
 		return <StoriesEmptyState />;
 	}
-	if (displayMode === 'grid') {
-		return (
+	const action =
+		displayMode === 'grid' ? (
 			<div className={GRID_CLASS}>
 				<NewFolderCard onClick={onNewFolder} />
 			</div>
+		) : (
+			<div className='flex flex-col gap-1 text-muted-foreground/50'>
+				<NewFolderRow onClick={onNewFolder} />
+			</div>
+		);
+	if (isRoot) {
+		return (
+			<div className='flex flex-col gap-4'>
+				<StoriesEmptyState />
+				{action}
+			</div>
 		);
 	}
-	return (
-		<div className='flex flex-col gap-1 text-muted-foreground/50'>
-			<NewFolderRow onClick={onNewFolder} />
-		</div>
-	);
+	return action;
 }

@@ -2,6 +2,7 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
 import type { DBStoryFolder } from '../db/abstractSchema';
+import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
 import { canSendProcedure, projectProtectedProcedure } from './trpc';
@@ -39,6 +40,33 @@ function assertCanPlaceInDestination(target: DBStoryFolder | null, userId: strin
 	}
 }
 
+function assertCanChangeFolderScope(folder: DBStoryFolder, target: DBStoryFolder | null, userId: string) {
+	const newVisibility = target ? target.visibility : 'public';
+	if (folder.visibility !== newVisibility && folder.ownerId !== userId) {
+		throw new TRPCError({
+			code: 'FORBIDDEN',
+			message: "Only the owner can change a folder's visibility.",
+		});
+	}
+}
+
+async function assertNonOwnerMovePreservesScope(storyId: string, projectId: string, target: DBStoryFolder | null) {
+	if (target && target.visibility !== 'public') {
+		throw new TRPCError({
+			code: 'FORBIDDEN',
+			message: 'Only the story owner can move it into a private folder.',
+		});
+	}
+
+	const sharing = await sharedStoryQueries.getSharedStoryInfo(storyId, projectId);
+	if (sharing?.visibility !== 'project') {
+		throw new TRPCError({
+			code: 'FORBIDDEN',
+			message: 'Only the story owner can change its sharing scope.',
+		});
+	}
+}
+
 export const storyFolderRoutes = {
 	listTree: projectProtectedProcedure
 		.input(z.object({ archived: z.boolean().optional() }).optional())
@@ -50,7 +78,7 @@ export const storyFolderRoutes = {
 		}),
 
 	listItems: projectProtectedProcedure.query(async ({ ctx }) => {
-		return storyFolderQueries.listFolderItemsForProject(ctx.project.id);
+		return storyFolderQueries.listFolderItemsForProject(ctx.user.id, ctx.project.id);
 	}),
 
 	create: canSendProcedure
@@ -61,9 +89,12 @@ export const storyFolderRoutes = {
 			}),
 		)
 		.mutation(async ({ input, ctx }) => {
+			let parent: DBStoryFolder | null = null;
 			if (input.parentId) {
-				await assertFolderInProject(input.parentId, ctx, 'Parent folder');
+				parent = await assertFolderInProject(input.parentId, ctx, 'Parent folder');
+				assertCanReadPrivateFolder(parent, ctx.user.id, 'Parent folder');
 			}
+			assertCanPlaceInDestination(parent, ctx.user.id);
 			return storyFolderQueries.createFolder({
 				ownerId: ctx.user.id,
 				projectId: ctx.project.id,
@@ -115,6 +146,7 @@ export const storyFolderRoutes = {
 				assertCanReadPrivateFolder(target, ctx.user.id, 'Target folder');
 			}
 			assertCanPlaceInDestination(target, ctx.user.id);
+			assertCanChangeFolderScope(folder, target, ctx.user.id);
 
 			try {
 				await storyFolderQueries.moveFolder(ctx.user.id, ctx.project.id, input.id, input.newParentId);
@@ -158,11 +190,8 @@ export const storyFolderRoutes = {
 
 			if (isStoryOwner) {
 				assertCanPlaceInDestination(target, ctx.user.id);
-			} else if (target && target.visibility !== 'public') {
-				throw new TRPCError({
-					code: 'FORBIDDEN',
-					message: 'Only the story owner can move it into a private folder.',
-				});
+			} else {
+				await assertNonOwnerMovePreservesScope(input.storyId, ctx.project.id, target);
 			}
 
 			await storyFolderQueries.moveStoryToFolder(input.storyId, input.folderId, {

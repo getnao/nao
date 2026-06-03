@@ -17,20 +17,20 @@ export async function toggleFavorite(userId: string, target: FavoriteTarget): Pr
 			? and(eq(s.favorite.userId, userId), eq(s.favorite.storyId, target.id))
 			: and(eq(s.favorite.userId, userId), eq(s.favorite.folderId, target.id));
 
-	const [existing] = await db.select({ id: s.favorite.id }).from(s.favorite).where(condition).limit(1).execute();
-
-	if (existing) {
-		await db.delete(s.favorite).where(condition).execute();
-		return false;
-	}
-
 	const values =
 		target.type === 'story'
 			? { userId, storyId: target.id, folderId: null }
 			: { userId, storyId: null, folderId: target.id };
 
-	await db.insert(s.favorite).values(values).onConflictDoNothing().execute();
-	return true;
+	return await db.transaction(async (tx) => {
+		const deleted = await tx.delete(s.favorite).where(condition).returning({ id: s.favorite.id }).execute();
+		if (deleted.length > 0) {
+			return false;
+		}
+
+		await tx.insert(s.favorite).values(values).onConflictDoNothing().execute();
+		return true;
+	});
 }
 
 export async function listFavorites(

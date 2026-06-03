@@ -376,7 +376,7 @@ function StoriesPage() {
 			const storyId = activeStr.replace('drag-story-', '');
 			moveStoryMutation.mutate({ storyId, folderId: targetFolderId });
 		} else if (isFolder) {
-			const folderId = activeStr.replace('drag-folder-', '');
+			const folderId = parseDragFolderId(activeStr);
 			if (targetFolderId === folderId) {
 				return;
 			}
@@ -393,7 +393,7 @@ function StoriesPage() {
 			return allItems.find((i) => i.storyId === storyId) ?? null;
 		}
 		if (activeId.startsWith('drag-folder-')) {
-			const folderId = activeId.replace('drag-folder-', '');
+			const folderId = parseDragFolderId(activeId);
 			return folders.find((f) => f.id === folderId) ?? null;
 		}
 		return null;
@@ -551,6 +551,12 @@ function parseDropFolderId(overStr: string): string | null {
 		return null;
 	}
 	const withoutPrefix = overStr.replace(/^drop-folder-/, '');
+	const match = withoutPrefix.match(/^(?:grid-large|grid|lines)-(.+)$/);
+	return match ? match[1] : withoutPrefix;
+}
+
+function parseDragFolderId(activeStr: string): string {
+	const withoutPrefix = activeStr.replace(/^drag-folder-/, '');
 	const match = withoutPrefix.match(/^(?:grid-large|grid|lines)-(.+)$/);
 	return match ? match[1] : withoutPrefix;
 }

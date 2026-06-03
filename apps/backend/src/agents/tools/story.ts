@@ -54,7 +54,11 @@ export default createTool<story.Input, story.Output>({
 			});
 			rememberStoryArtifact(context, input.id, version.title);
 
-			await storyFolderQueries.placeStoryInPrivateRoot(userId, projectId, version.storyId);
+			try {
+				await storyFolderQueries.placeStoryInPrivateRoot(userId, projectId, version.storyId);
+			} catch (error) {
+				console.error(`Failed to place story "${input.id}" in private root folder:`, error);
+			}
 
 			return {
 				_version: '1',

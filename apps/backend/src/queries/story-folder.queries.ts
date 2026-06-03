@@ -7,6 +7,8 @@ import dbConfig, { Dialect } from '../db/dbConfig';
 
 type FolderMoveTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
+type DBExecutor = typeof db | FolderMoveTx;
+
 export class MoveFolderCycleError extends Error {
 	constructor() {
 		super('Moving this folder would create a cycle.');
@@ -122,8 +124,8 @@ async function countSharedWithMeStories(userId: string, projectId: string): Prom
 	return row?.cnt ?? 0;
 }
 
-export async function getFolderById(id: string): Promise<DBStoryFolder | null> {
-	const [row] = await db.select().from(s.storyFolder).where(eq(s.storyFolder.id, id)).limit(1).execute();
+export async function getFolderById(id: string, executor: DBExecutor = db): Promise<DBStoryFolder | null> {
+	const [row] = await executor.select().from(s.storyFolder).where(eq(s.storyFolder.id, id)).limit(1).execute();
 	return row ?? null;
 }
 
@@ -270,14 +272,14 @@ export async function moveFolder(
 
 	await db.transaction(
 		async (tx) => {
-			await serializeFolderMovesInProject(tx, userId, projectId);
+			await serializeFolderMovesInProject(tx, projectId);
 
 			if (newParentId !== null && (await proposedParentChainContains(tx, newParentId, id))) {
 				throw new MoveFolderCycleError();
 			}
 
-			const newVisibility = await resolveFolderVisibility(newParentId);
-			const oldFolder = await getFolderById(id);
+			const newVisibility = await resolveFolderVisibility(newParentId, tx);
+			const oldFolder = await getFolderById(id, tx);
 			const oldVisibility = oldFolder?.visibility ?? 'public';
 
 			await tx
@@ -287,7 +289,7 @@ export async function moveFolder(
 				.execute();
 
 			if (oldVisibility !== newVisibility) {
-				const descendantIds = await listDescendantFolderIds(id);
+				const descendantIds = await listDescendantFolderIds(id, tx);
 				if (descendantIds.length > 0) {
 					await tx
 						.update(s.storyFolder)
@@ -296,9 +298,9 @@ export async function moveFolder(
 						.execute();
 				}
 
-				const storyIds = await getStoryIdsInFolders([id, ...descendantIds]);
+				const storyIds = await getStoryIdsInFolders([id, ...descendantIds], tx);
 				if (storyIds.length > 0) {
-					await propagateShareChange(storyIds, projectId, userId, newVisibility);
+					await propagateShareChange(storyIds, projectId, userId, newVisibility, tx);
 				}
 			}
 		},
@@ -326,13 +328,14 @@ async function propagateShareChange(
 	projectId: string,
 	ownerId: string,
 	newVisibility: FolderVisibility,
+	executor: DBExecutor = db,
 ): Promise<void> {
 	if (storyIds.length === 0) {
 		return;
 	}
 
 	if (newVisibility === 'public') {
-		const existing = await db
+		const existing = await executor
 			.select({
 				storyId: s.sharedStory.storyId,
 				id: s.sharedStory.id,
@@ -346,21 +349,24 @@ async function propagateShareChange(
 		for (const storyId of storyIds) {
 			const row = byStoryId.get(storyId);
 			if (!row) {
-				await db
+				await executor
 					.insert(s.sharedStory)
 					.values({ storyId, projectId, userId: ownerId, visibility: 'project' })
 					.execute();
 			} else if (row.visibility === 'specific') {
-				await db
+				await executor
 					.update(s.sharedStory)
 					.set({ visibility: 'project' })
 					.where(eq(s.sharedStory.id, row.id))
 					.execute();
-				await db.delete(s.sharedStoryAccess).where(eq(s.sharedStoryAccess.sharedStoryId, row.id)).execute();
+				await executor
+					.delete(s.sharedStoryAccess)
+					.where(eq(s.sharedStoryAccess.sharedStoryId, row.id))
+					.execute();
 			}
 		}
 	} else {
-		await db
+		await executor
 			.delete(s.sharedStory)
 			.where(and(inArray(s.sharedStory.storyId, storyIds), eq(s.sharedStory.visibility, 'project')))
 			.execute();
@@ -377,7 +383,10 @@ export async function getStoryFolderItem(storyId: string): Promise<{ folderId: s
 	return row ?? null;
 }
 
-export async function listFolderItemsForProject(projectId: string): Promise<{ storyId: string; folderId: string }[]> {
+export async function listFolderItemsForProject(
+	userId: string,
+	projectId: string,
+): Promise<{ storyId: string; folderId: string }[]> {
 	return db
 		.select({
 			storyId: s.storyFolderItem.storyId,
@@ -385,15 +394,20 @@ export async function listFolderItemsForProject(projectId: string): Promise<{ st
 		})
 		.from(s.storyFolderItem)
 		.innerJoin(s.storyFolder, eq(s.storyFolderItem.folderId, s.storyFolder.id))
-		.where(eq(s.storyFolder.projectId, projectId))
+		.where(
+			and(
+				eq(s.storyFolder.projectId, projectId),
+				or(eq(s.storyFolder.visibility, 'public'), eq(s.storyFolder.ownerId, userId)),
+			),
+		)
 		.execute();
 }
 
-async function resolveFolderVisibility(folderId: string | null): Promise<FolderVisibility> {
+async function resolveFolderVisibility(folderId: string | null, executor: DBExecutor = db): Promise<FolderVisibility> {
 	if (folderId === null) {
 		return 'public';
 	}
-	const folder = await getFolderById(folderId);
+	const folder = await getFolderById(folderId, executor);
 	return folder?.visibility ?? 'public';
 }
 
@@ -404,12 +418,12 @@ async function assertNotSystemFolder(folderId: string): Promise<void> {
 	}
 }
 
-async function listDescendantFolderIds(rootFolderId: string): Promise<string[]> {
+async function listDescendantFolderIds(rootFolderId: string, executor: DBExecutor = db): Promise<string[]> {
 	const visited = new Set<string>([rootFolderId]);
 	let frontier: string[] = [rootFolderId];
 
 	while (frontier.length > 0) {
-		const children = await db
+		const children = await executor
 			.select({ id: s.storyFolder.id })
 			.from(s.storyFolder)
 			.where(inArray(s.storyFolder.parentId, frontier))
@@ -428,12 +442,12 @@ async function listDescendantFolderIds(rootFolderId: string): Promise<string[]> 
 	return Array.from(visited);
 }
 
-async function getStoryIdsInFolders(folderIds: string[]): Promise<string[]> {
+async function getStoryIdsInFolders(folderIds: string[], executor: DBExecutor = db): Promise<string[]> {
 	if (folderIds.length === 0) {
 		return [];
 	}
 
-	const rows = await db
+	const rows = await executor
 		.select({ storyId: s.storyFolderItem.storyId })
 		.from(s.storyFolderItem)
 		.where(inArray(s.storyFolderItem.folderId, folderIds))
@@ -442,11 +456,11 @@ async function getStoryIdsInFolders(folderIds: string[]): Promise<string[]> {
 	return rows.map((r) => r.storyId);
 }
 
-async function serializeFolderMovesInProject(tx: FolderMoveTx, userId: string, projectId: string): Promise<void> {
+async function serializeFolderMovesInProject(tx: FolderMoveTx, projectId: string): Promise<void> {
 	if (dbConfig.dialect !== Dialect.Postgres) {
 		return;
 	}
-	const lockKey = `story-folder-move:${userId}:${projectId}`;
+	const lockKey = `story-folder-move:${projectId}`;
 	await (tx as unknown as { execute: (q: SQL) => Promise<unknown> }).execute(
 		sql`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`,
 	);

@@ -253,6 +253,7 @@ export const storyRoutes = {
 
 	archiveStandalone: storyOwnerProcedure.input(z.object({ storyId: z.string() })).mutation(async ({ input }) => {
 		await storyQueries.archiveByStoryId(input.storyId);
+		await unscheduleStoryRefreshJob(input.storyId);
 	}),
 
 	unarchiveStandalone: storyOwnerProcedure
@@ -282,6 +283,7 @@ export const storyRoutes = {
 	archiveShared: canSendProcedure.input(z.object({ storyId: z.string() })).mutation(async ({ input, ctx }) => {
 		await assertStoryPublicInProject(input.storyId, ctx.project.id);
 		await storyQueries.archiveByStoryId(input.storyId);
+		await unscheduleStoryRefreshJob(input.storyId);
 	}),
 
 	unarchiveShared: canSendProcedure.input(z.object({ storyId: z.string() })).mutation(async ({ input, ctx }) => {
@@ -303,6 +305,7 @@ export const storyRoutes = {
 				}),
 			);
 			await storyQueries.archiveManyStories(input.stories.map((s) => ({ chatId: s.chatId, slug: s.storySlug })));
+			await Promise.all(input.stories.map((s) => syncStoryRefreshJob(s.chatId, s.storySlug, false, null)));
 		}),
 
 	downloadStandalone: storyOwnerProcedure
@@ -405,4 +408,13 @@ async function syncStoryRefreshJob(
 		resetRunAtOnConflict: true,
 	});
 	await activityQueries.linkStoryScheduledJob(story.id, job.id);
+}
+
+async function unscheduleStoryRefreshJob(storyId: string): Promise<void> {
+	const story = await storyQueries.getStoryById(storyId);
+	if (!story?.scheduledJobId) {
+		return;
+	}
+	await scheduledJobQueries.deleteJob(story.scheduledJobId);
+	await activityQueries.linkStoryScheduledJob(storyId, null);
 }

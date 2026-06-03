@@ -750,7 +750,7 @@ export async function getStorySharingInfo(storyIds: string[]): Promise<Map<strin
 			storyId: s.sharedStory.storyId,
 			visibility: s.sharedStory.visibility,
 			isPinned: s.sharedStory.isPinned,
-			sharedWithCount: sql<number>`count(${s.sharedStoryAccess.userId})`,
+			sharedWithCount: sql<number>`count(${s.sharedStoryAccess.userId})`.mapWith(Number),
 		})
 		.from(s.sharedStory)
 		.leftJoin(s.sharedStoryAccess, eq(s.sharedStoryAccess.sharedStoryId, s.sharedStory.id))

@@ -1,6 +1,7 @@
 import { TRPCError } from '@trpc/server';
 
 import * as favoriteQueries from '../queries/favorite.queries';
+import * as projectQueries from '../queries/project.queries';
 import * as storyQueries from '../queries/story.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
 import { projectProtectedProcedure, protectedProcedure } from './trpc';
@@ -15,6 +16,10 @@ export const favoriteRoutes = {
 		} else {
 			const folder = await storyFolderQueries.getFolderById(input.id);
 			if (!folder || (folder.visibility === 'private' && folder.ownerId !== ctx.user.id)) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: 'Folder not found.' });
+			}
+			const userRole = await projectQueries.getUserRoleInProject(folder.projectId, ctx.user.id);
+			if (!userRole) {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Folder not found.' });
 			}
 		}

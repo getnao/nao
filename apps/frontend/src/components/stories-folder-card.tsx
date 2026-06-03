@@ -53,7 +53,7 @@ export function FolderCard({
 }) {
 	const { isViewer } = usePermissions();
 	const isVirtual = folder.id === '__shared_with_me__';
-	const draggableId = `drag-folder-${folder.id}`;
+	const draggableId = `drag-folder-${displayMode}-${folder.id}`;
 	const droppableId = `drop-folder-${displayMode}-${folder.id}`;
 
 	const { active } = useDndContext();

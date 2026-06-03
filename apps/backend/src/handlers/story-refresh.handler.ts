@@ -30,7 +30,7 @@ export async function runScheduledStoryRefresh(storyId: string): Promise<void> {
 	if (!story.chatId) {
 		throw new Error(`Story has no chat to refresh: ${storyId}`);
 	}
-	if (!story.isLive) {
+	if (!story.isLive || story.archivedAt) {
 		return;
 	}
 

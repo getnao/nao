@@ -70,6 +70,11 @@ export const sharedStoryRoutes = {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
 			}
 
+			const storyProjectId = story.projectId ?? (await storyQueries.getStoryProjectId(story.id));
+			if (storyProjectId !== ctx.project.id) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found in this project.' });
+			}
+
 			if (input.visibility === 'project') {
 				await storyFolderQueries.moveStoryToFolder(story.id, null, {
 					storyOwnerId: ctx.user.id,

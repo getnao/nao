@@ -42,8 +42,53 @@ CREATE INDEX IF NOT EXISTS "story_folder_ownerProjectParent_idx" ON "story_folde
 CREATE INDEX IF NOT EXISTS "story_folder_projectId_idx" ON "story_folder" USING btree ("project_id");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "story_folder_item_folderId_idx" ON "story_folder_item" USING btree ("folder_id");--> statement-breakpoint
 -- Enforce a single publication per (project, story).
--- First, deduplicate existing rows: keep the most "promoted" one
+-- Deduplicate existing rows: keep the most "promoted" one
 -- (pinned > unpinned, then project visibility > specific, then most recent).
+-- Collapsing duplicates must never silently revoke a share, so first migrate the
+-- access grants of the losing rows onto the kept row (shared_story_access cascades
+-- on delete), then promote the kept row to project-wide visibility if any duplicate
+-- was project-wide. Only after that do we delete the duplicates.
+INSERT INTO shared_story_access (shared_story_id, user_id)
+SELECT DISTINCT m.keeper_id, ssa.user_id
+FROM shared_story_access ssa
+JOIN (
+	SELECT
+		id AS loser_id,
+		first_value(id) OVER w AS keeper_id,
+		row_number() OVER w AS rn
+	FROM shared_story
+	WINDOW w AS (
+		PARTITION BY project_id, story_id
+		ORDER BY
+			is_pinned DESC,
+			CASE WHEN visibility = 'project' THEN 0 ELSE 1 END,
+			created_at DESC,
+			id
+	)
+) m ON m.loser_id = ssa.shared_story_id AND m.rn > 1
+ON CONFLICT DO NOTHING;--> statement-breakpoint
+UPDATE shared_story
+SET visibility = 'project'
+WHERE visibility <> 'project'
+	AND id IN (
+		SELECT id FROM (
+			SELECT
+				id,
+				ROW_NUMBER() OVER (
+					PARTITION BY project_id, story_id
+					ORDER BY
+						is_pinned DESC,
+						CASE WHEN visibility = 'project' THEN 0 ELSE 1 END,
+						created_at DESC,
+						id
+				) AS rn,
+				MAX(CASE WHEN visibility = 'project' THEN 1 ELSE 0 END) OVER (
+					PARTITION BY project_id, story_id
+				) AS has_project
+			FROM shared_story
+		) ranked
+		WHERE rn = 1 AND has_project = 1
+	);--> statement-breakpoint
 DELETE FROM shared_story
 WHERE id IN (
 	SELECT id FROM (
