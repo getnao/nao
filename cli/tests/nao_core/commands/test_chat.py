@@ -510,6 +510,121 @@ llm:
         env = chat_server_call.kwargs.get("env", {})
         assert env.get("OPENAI_API_KEY") == "sk-test-key-12345"
 
+    @patch("nao_core.commands.chat.webbrowser.open")
+    @patch("nao_core.commands.chat.wait_for_server")
+    @patch("nao_core.commands.chat.subprocess.Popen")
+    @patch("nao_core.commands.chat.get_fastapi_main_path")
+    @patch("nao_core.commands.chat.get_server_binary_path")
+    @patch("nao_core.commands.chat.console")
+    def test_chat_inherits_bedrock_aws_env_by_default(
+        self,
+        mock_console,
+        mock_binary_path,
+        mock_fastapi_path,
+        mock_popen,
+        mock_wait_for_server,
+        mock_webbrowser,
+        tmp_path: Path,
+        create_config,
+        clean_env,
+        monkeypatch,
+    ):
+        create_config("""\
+project_name: test-project
+llm:
+  provider: bedrock
+""")
+        monkeypatch.setenv("AWS_PROFILE", "ambient-profile")
+        monkeypatch.setenv("AWS_SESSION_TOKEN", "ambient-session-token")
+        monkeypatch.setenv("AWS_REGION", "eu-west-1")
+        monkeypatch.setenv("AWS_BEARER_TOKEN_BEDROCK", "ambient-bearer-token")
+
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        (bin_dir / "nao-chat-server").touch()
+        fastapi_dir = bin_dir / "fastapi"
+        fastapi_dir.mkdir()
+        (fastapi_dir / "main.py").touch()
+
+        mock_binary_path.return_value = bin_dir / "nao-chat-server"
+        mock_fastapi_path.return_value = bin_dir / "fastapi" / "main.py"
+        mock_wait_for_server.return_value = True
+
+        mock_process = MagicMock()
+        mock_process.stdout = iter([])
+        mock_popen.return_value = mock_process
+
+        chat()
+
+        chat_server_call = mock_popen.call_args_list[1]
+        env = chat_server_call.kwargs.get("env", {})
+        assert env.get("AWS_PROFILE") == "ambient-profile"
+        assert env.get("AWS_SESSION_TOKEN") == "ambient-session-token"
+        assert env.get("AWS_REGION") == "eu-west-1"
+        assert env.get("AWS_BEARER_TOKEN_BEDROCK") == "ambient-bearer-token"
+
+    @patch("nao_core.commands.chat.webbrowser.open")
+    @patch("nao_core.commands.chat.wait_for_server")
+    @patch("nao_core.commands.chat.subprocess.Popen")
+    @patch("nao_core.commands.chat.get_fastapi_main_path")
+    @patch("nao_core.commands.chat.get_server_binary_path")
+    @patch("nao_core.commands.chat.console")
+    def test_chat_can_disable_bedrock_aws_env_inheritance(
+        self,
+        mock_console,
+        mock_binary_path,
+        mock_fastapi_path,
+        mock_popen,
+        mock_wait_for_server,
+        mock_webbrowser,
+        tmp_path: Path,
+        create_config,
+        clean_env,
+        monkeypatch,
+    ):
+        create_config("""\
+project_name: test-project
+llm:
+  provider: bedrock
+  access_key: config-access-key
+  secret_key: config-secret-key
+  aws_profile: config-profile
+  aws_region: us-west-2
+""")
+        monkeypatch.setenv("NAO_BEDROCK_INHERIT_AWS_ENV", "false")
+        monkeypatch.setenv("AWS_ACCESS_KEY_ID", "ambient-access-key")
+        monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "ambient-secret-key")
+        monkeypatch.setenv("AWS_SESSION_TOKEN", "ambient-session-token")
+        monkeypatch.setenv("AWS_PROFILE", "ambient-profile")
+        monkeypatch.setenv("AWS_REGION", "eu-west-1")
+        monkeypatch.setenv("AWS_BEARER_TOKEN_BEDROCK", "ambient-bearer-token")
+
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        (bin_dir / "nao-chat-server").touch()
+        fastapi_dir = bin_dir / "fastapi"
+        fastapi_dir.mkdir()
+        (fastapi_dir / "main.py").touch()
+
+        mock_binary_path.return_value = bin_dir / "nao-chat-server"
+        mock_fastapi_path.return_value = bin_dir / "fastapi" / "main.py"
+        mock_wait_for_server.return_value = True
+
+        mock_process = MagicMock()
+        mock_process.stdout = iter([])
+        mock_popen.return_value = mock_process
+
+        chat()
+
+        chat_server_call = mock_popen.call_args_list[1]
+        env = chat_server_call.kwargs.get("env", {})
+        assert env.get("AWS_ACCESS_KEY_ID") == "config-access-key"
+        assert env.get("AWS_SECRET_ACCESS_KEY") == "config-secret-key"
+        assert "AWS_SESSION_TOKEN" not in env
+        assert env.get("AWS_PROFILE") == "config-profile"
+        assert env.get("AWS_REGION") == "us-west-2"
+        assert "AWS_BEARER_TOKEN_BEDROCK" not in env
+
 
 class TestStartNgrokTunnel:
     @patch("nao_core.commands.chat.console")

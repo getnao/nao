@@ -12,7 +12,13 @@ from rich.console import Console
 
 from nao_core import __version__
 from nao_core.config import NaoConfig, resolve_project_path
-from nao_core.config.llm import PROVIDER_AUTH, LLMProvider
+from nao_core.config.llm import (
+    BEDROCK_AWS_ENV_INHERITANCE_VAR,
+    PROVIDER_AUTH,
+    LLMProvider,
+    is_bedrock_aws_env_inheritance_enabled,
+    scrub_bedrock_aws_env,
+)
 from nao_core.mode import MODE
 from nao_core.tracking import track_command
 
@@ -214,6 +220,16 @@ def chat(
             env["BETTER_AUTH_SECRET"] = auth_secret
 
         if config and config.llm:
+            inherit_bedrock_aws_env = True
+            if config.llm.provider == LLMProvider.BEDROCK:
+                inherit_bedrock_aws_env = is_bedrock_aws_env_inheritance_enabled()
+                if not inherit_bedrock_aws_env:
+                    scrub_bedrock_aws_env(env)
+                    console.print(
+                        f"[bold yellow]⚠[/bold yellow] AWS Bedrock environment inheritance disabled by "
+                        f"{BEDROCK_AWS_ENV_INHERITANCE_VAR}"
+                    )
+
             auth = PROVIDER_AUTH[config.llm.provider]
             if config.llm.api_key is not None and auth.api_key != "none":
                 env[auth.env_var] = config.llm.api_key
@@ -229,11 +245,13 @@ def chat(
                 if config.llm.secret_key:
                     env["AWS_SECRET_ACCESS_KEY"] = config.llm.secret_key
                     console.print("[bold green]✓[/bold green] Set AWS_SECRET_ACCESS_KEY from config")
-                aws_profile = config.llm.aws_profile or os.environ.get("AWS_PROFILE")
+                aws_profile = config.llm.aws_profile
+                if inherit_bedrock_aws_env and not aws_profile:
+                    aws_profile = os.environ.get("AWS_PROFILE")
                 if aws_profile:
                     env["AWS_PROFILE"] = aws_profile
                     console.print("[bold green]✓[/bold green] Set AWS_PROFILE from config")
-                session_token = os.environ.get("AWS_SESSION_TOKEN")
+                session_token = os.environ.get("AWS_SESSION_TOKEN") if inherit_bedrock_aws_env else None
                 if session_token:
                     env["AWS_SESSION_TOKEN"] = session_token
                     console.print("[bold green]✓[/bold green] Set AWS_SESSION_TOKEN from environment")

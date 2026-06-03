@@ -1,12 +1,18 @@
 """Template engine for rendering Jinja2 templates with user overrides."""
 
 import os
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-from nao_core.config.llm import LLMConfig, LLMProvider
+from nao_core.config.llm import (
+    LLMConfig,
+    LLMProvider,
+    is_bedrock_aws_env_inheritance_enabled,
+    without_inherited_bedrock_aws_env,
+)
 
 # Path to the default templates shipped with nao
 DEFAULT_TEMPLATES_DIR = Path(__file__).parent / "defaults"
@@ -291,19 +297,25 @@ class TemplateEngine:
 
         import boto3
 
-        region = self.llm_config.aws_region or os.environ.get("AWS_REGION", "us-east-1")
+        inherit_bedrock_aws_env = is_bedrock_aws_env_inheritance_enabled()
+        region = self.llm_config.aws_region
+        if not region and inherit_bedrock_aws_env:
+            region = os.environ.get("AWS_REGION")
+        region = region or "us-east-1"
 
         client_kwargs: dict[str, Any] = {"region_name": region}
         if self.llm_config.access_key and self.llm_config.secret_key:
             client_kwargs["aws_access_key_id"] = self.llm_config.access_key
             client_kwargs["aws_secret_access_key"] = self.llm_config.secret_key
 
-        client = boto3.client("bedrock-runtime", **client_kwargs)
-        response = client.converse(
-            modelId=model,
-            messages=[{"role": "user", "content": [{"text": prompt_text}]}],
-            inferenceConfig={"temperature": 0},
-        )
+        aws_env_context = nullcontext() if inherit_bedrock_aws_env else without_inherited_bedrock_aws_env()
+        with aws_env_context:
+            client = boto3.client("bedrock-runtime", **client_kwargs)
+            response = client.converse(
+                modelId=model,
+                messages=[{"role": "user", "content": [{"text": prompt_text}]}],
+                inferenceConfig={"temperature": 0},
+            )
 
         content_blocks = response.get("output", {}).get("message", {}).get("content", [])
         parts = [str(block.get("text")) for block in content_blocks if isinstance(block, dict) and block.get("text")]

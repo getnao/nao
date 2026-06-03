@@ -1,6 +1,7 @@
 """Unit tests for the template engine."""
 
 import json
+import os
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -260,6 +261,39 @@ class TestTemplateEngine:
 
         with pytest.raises(RuntimeError, match="Bedrock configuration is incomplete"):
             engine._generate_bedrock("anthropic.claude-3-5-sonnet-20241022-v2:0", "summarize this")
+
+    def test_generate_bedrock_can_disable_aws_env_inheritance(self, tmp_path: Path, monkeypatch):
+        llm_config = LLMConfig(
+            provider=LLMProvider.BEDROCK,
+            api_key=None,
+            annotation_model="anthropic.claude-3-5-sonnet-20241022-v2:0",
+        )
+        engine = TemplateEngine(project_path=tmp_path, llm_config=llm_config)
+        monkeypatch.setenv("NAO_BEDROCK_INHERIT_AWS_ENV", "false")
+        monkeypatch.setenv("AWS_ACCESS_KEY_ID", "ambient-access-key")
+        monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "ambient-secret-key")
+        monkeypatch.setenv("AWS_REGION", "eu-west-1")
+
+        fake_client = MagicMock()
+        fake_client.converse.return_value = {"output": {"message": {"content": [{"text": "Bedrock summary"}]}}}
+        fake_boto3 = MagicMock()
+
+        def client_factory(*args, **kwargs):
+            assert "AWS_ACCESS_KEY_ID" not in os.environ
+            assert "AWS_SECRET_ACCESS_KEY" not in os.environ
+            assert "AWS_REGION" not in os.environ
+            return fake_client
+
+        fake_boto3.client.side_effect = client_factory
+        monkeypatch.setitem(sys.modules, "boto3", fake_boto3)
+
+        rendered = engine._generate_bedrock("anthropic.claude-3-5-sonnet-20241022-v2:0", "summarize this")
+
+        assert rendered == "Bedrock summary"
+        fake_boto3.client.assert_called_once_with("bedrock-runtime", region_name="us-east-1")
+        assert os.environ["AWS_ACCESS_KEY_ID"] == "ambient-access-key"
+        assert os.environ["AWS_SECRET_ACCESS_KEY"] == "ambient-secret-key"
+        assert os.environ["AWS_REGION"] == "eu-west-1"
 
     def test_generate_anthropic_forwards_base_url(self, tmp_path: Path, monkeypatch):
         """Anthropic client should receive base_url when configured."""

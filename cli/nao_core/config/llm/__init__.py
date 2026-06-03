@@ -1,3 +1,6 @@
+import os
+from collections.abc import Iterator, MutableMapping
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Literal
@@ -19,6 +22,50 @@ class LLMProvider(str, Enum):
     OLLAMA = "ollama"
     BEDROCK = "bedrock"
     VERTEX = "vertex"
+
+
+BEDROCK_AWS_ENV_INHERITANCE_VAR = "NAO_BEDROCK_INHERIT_AWS_ENV"
+DISABLED_ENV_VALUES = {"0", "false", "no", "off"}
+BEDROCK_AWS_ENV_VARS = (
+    "AWS_ACCESS_KEY_ID",
+    "AWS_SECRET_ACCESS_KEY",
+    "AWS_SESSION_TOKEN",
+    "AWS_PROFILE",
+    "AWS_DEFAULT_PROFILE",
+    "AWS_REGION",
+    "AWS_DEFAULT_REGION",
+    "AWS_BEARER_TOKEN_BEDROCK",
+    "AWS_WEB_IDENTITY_TOKEN_FILE",
+    "AWS_ROLE_ARN",
+    "AWS_ROLE_SESSION_NAME",
+    "AWS_SHARED_CREDENTIALS_FILE",
+    "AWS_CONFIG_FILE",
+)
+
+
+def is_bedrock_aws_env_inheritance_enabled() -> bool:
+    value = os.environ.get(BEDROCK_AWS_ENV_INHERITANCE_VAR)
+    if value is None:
+        return True
+    return value.strip().lower() not in DISABLED_ENV_VALUES
+
+
+def scrub_bedrock_aws_env(env: MutableMapping[str, str]) -> dict[str, str]:
+    removed_env: dict[str, str] = {}
+    for env_var in BEDROCK_AWS_ENV_VARS:
+        value = env.pop(env_var, None)
+        if value is not None:
+            removed_env[env_var] = value
+    return removed_env
+
+
+@contextmanager
+def without_inherited_bedrock_aws_env() -> Iterator[None]:
+    removed_env = scrub_bedrock_aws_env(os.environ)
+    try:
+        yield
+    finally:
+        os.environ.update(removed_env)
 
 
 @dataclass(frozen=True)

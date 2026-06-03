@@ -1,10 +1,12 @@
 import os
+from contextlib import nullcontext
 from typing import Tuple
 
 from rich.console import Console
 from rich.table import Table
 
 from nao_core.config import NaoConfig, resolve_project_path
+from nao_core.config.llm import is_bedrock_aws_env_inheritance_enabled, without_inherited_bedrock_aws_env
 from nao_core.tracking import track_command
 
 console = Console()
@@ -60,16 +62,24 @@ def _check_available_models(llm_config) -> Tuple[bool, str]:
 
         models = ollama.list().models
     elif provider == "bedrock":
-        region = llm_config.aws_region or os.environ.get("AWS_REGION", "us-east-1")
+        inherit_bedrock_aws_env = is_bedrock_aws_env_inheritance_enabled()
+        region = llm_config.aws_region
+        if not region and inherit_bedrock_aws_env:
+            region = os.environ.get("AWS_REGION")
+        region = region or "us-east-1"
         if api_key:
             return True, f"Bearer token configured (region: {region})"
 
         import boto3
 
-        profile = llm_config.aws_profile or os.environ.get("AWS_PROFILE")
-        session = boto3.Session(profile_name=profile, region_name=region)
-        client = session.client("bedrock")
-        response = client.list_foundation_models()
+        profile = llm_config.aws_profile
+        if inherit_bedrock_aws_env and not profile:
+            profile = os.environ.get("AWS_PROFILE")
+        aws_env_context = nullcontext() if inherit_bedrock_aws_env else without_inherited_bedrock_aws_env()
+        with aws_env_context:
+            session = boto3.Session(profile_name=profile, region_name=region)
+            client = session.client("bedrock")
+            response = client.list_foundation_models()
         models = response.get("modelSummaries", [])
     elif provider == "vertex":
         project = llm_config.gcp_project
