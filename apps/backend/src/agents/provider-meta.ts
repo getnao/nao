@@ -68,7 +68,13 @@ export const PROVIDER_META: ProviderMetaMap = {
 				name: 'GPT 5.5',
 				default: true,
 				contextWindow: 400_000,
-				costPerM: { inputNoCache: 1.75, inputCacheRead: 0.175, inputCacheWrite: 0, output: 14 },
+				costPerM: { inputNoCache: 5, inputCacheRead: 0.5, inputCacheWrite: 0, output: 30 },
+			},
+			{
+				id: 'gpt-5.4',
+				name: 'GPT 5.4',
+				contextWindow: 400_000,
+				costPerM: { inputNoCache: 2.5, inputCacheRead: 0.25, inputCacheWrite: 0, output: 15 },
 			},
 			{
 				id: 'gpt-5.2',
