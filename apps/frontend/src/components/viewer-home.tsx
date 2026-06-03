@@ -91,7 +91,7 @@ export function ViewerHome() {
 	);
 
 	const standaloneProjectSelector = projectSelector && (
-		<div className='-ml-2 px-4 pt-3 md:px-8 md:pt-4'>{projectSelector}</div>
+		<div className='-ml-2 px-4 pt-3 md:px-8 md:pt-4 max-md:hidden'>{projectSelector}</div>
 	);
 
 	if (isLoading) {
