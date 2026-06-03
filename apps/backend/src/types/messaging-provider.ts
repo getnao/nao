@@ -39,6 +39,9 @@ export type Provider = 'slack' | 'teams' | 'telegram' | 'whatsapp' | 'automation
 export const SLACK_TRANSPORT_MODES = ['webhook', 'socket'] as const;
 export type SlackTransportMode = (typeof SLACK_TRANSPORT_MODES)[number];
 
+export const SLACK_REPLY_MODES = ['thread', 'mention'] as const;
+export type SlackReplyMode = (typeof SLACK_REPLY_MODES)[number];
+
 export type SlackSettings = {
 	slackBotToken: string;
 	slackSigningSecret: string;
@@ -48,6 +51,7 @@ export type SlackSettings = {
 	autoCreateUsersDomains?: string[];
 	slackTransportMode?: SlackTransportMode;
 	slackAppToken?: string;
+	slackReplyMode?: SlackReplyMode;
 };
 
 export type TeamsSettings = {

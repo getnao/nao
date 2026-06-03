@@ -254,6 +254,15 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/project/slack',
 		pageLabel: 'Slack',
+		title: 'Reply only when mentioned',
+		description:
+			'Control whether nao answers every message in active Slack threads or only messages that tag the bot.',
+		keywords: ['reply mode', 'mentions', 'tagged', 'thread replies', 'bot behavior'],
+		adminOnly: true,
+	},
+	{
+		page: '/settings/project/slack',
+		pageLabel: 'Slack',
 		title: 'Slack transport mode',
 		description: 'Switch between Webhook and Socket Mode for Slack delivery.',
 		keywords: [

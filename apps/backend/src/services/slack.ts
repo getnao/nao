@@ -38,6 +38,7 @@ import {
 	formatMessagingError,
 	formatSlackMessageText,
 } from '../utils/messaging-provider';
+import { shouldReplyToSlackThreadMessage } from '../utils/slack-reply-policy';
 import { isEmailDomainAllowed } from '../utils/utils';
 import { agentService } from './agent';
 import { posthog, PostHogEvent } from './posthog';
@@ -273,18 +274,21 @@ class ProjectSlackBot {
 	private _registerHandlers(): void {
 		this._bot.onNewMention(async (thread, message) => {
 			const startsThread = await this._isThreadStarter(thread.id);
-			if (startsThread) {
+			if (startsThread && this._config.replyMode === 'thread') {
 				await thread.subscribe();
 			}
 			await this._handleWorkFlow(thread, message, { fetchUnseenMessages: true });
 		});
 
 		this._bot.onSubscribedMessage(async (thread, message) => {
+			if (!shouldReplyToSlackThreadMessage(this._config.replyMode, message)) {
+				return;
+			}
 			await this._handleWorkFlow(thread, message, { fetchUnseenMessages: false });
 		});
 
 		this._bot.onNewMessage(/[\s\S]+/, async (thread, message) => {
-			if (message.isMention || message.author.isMe || message.author.isBot) {
+			if (message.isMention || !shouldReplyToSlackThreadMessage(this._config.replyMode, message)) {
 				return;
 			}
 			const existingChat = await chatQueries.getChatBySlackThread(thread.id);
@@ -962,6 +966,7 @@ class SlackService {
 			previous.redirectUrl !== next.redirectUrl ||
 			previous.transportMode !== next.transportMode ||
 			previous.appToken !== next.appToken ||
+			previous.replyMode !== next.replyMode ||
 			previous.autoCreateUsersEnabled !== next.autoCreateUsersEnabled ||
 			previous.autoCreateUsersDomains.join('\0') !== next.autoCreateUsersDomains.join('\0') ||
 			previous.modelSelection?.provider !== next.modelSelection?.provider ||

@@ -213,6 +213,7 @@ export const projectRoutes = {
 					modelSelection: config.modelSelection,
 					autoCreateUsersEnabled: config.autoCreateUsersEnabled,
 					autoCreateUsersDomains: config.autoCreateUsersDomains,
+					replyMode: config.replyMode,
 				}
 			: null;
 
@@ -272,6 +273,7 @@ export const projectRoutes = {
 				appTokenPreview: config.appToken ? config.appToken.slice(0, 4) + '...' + config.appToken.slice(-4) : '',
 				transportMode: config.transportMode,
 				modelSelection: config.modelSelection,
+				replyMode: config.replyMode,
 			};
 		}),
 
@@ -290,6 +292,15 @@ export const projectRoutes = {
 			);
 			const refreshedConfig = await slackConfigQueries.getProjectSlackConfig(ctx.project.id);
 			await slackService.syncProjectSocketMode(refreshedConfig, ctx.project.id);
+		}),
+
+	updateSlackReplyMode: adminProtectedProcedure
+		.input(z.object({ replyMode: z.enum(['thread', 'mention']) }))
+		.mutation(async ({ ctx, input }) => {
+			await slackConfigQueries.updateProjectSlackReplyMode(ctx.project.id, input.replyMode);
+			const refreshedConfig = await slackConfigQueries.getProjectSlackConfig(ctx.project.id);
+			await slackService.syncProjectSocketMode(refreshedConfig, ctx.project.id);
+			return { replyMode: input.replyMode };
 		}),
 
 	updateSlackAutoCreateUsers: adminProtectedProcedure
