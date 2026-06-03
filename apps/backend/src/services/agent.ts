@@ -128,6 +128,8 @@ async function _buildContextBase(opts: {
 	]);
 	return {
 		projectFolder: project.path,
+		userId: opts.userId,
+		projectId: opts.projectId,
 		agentSettings,
 		envVars,
 		azureAccessToken,

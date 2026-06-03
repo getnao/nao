@@ -2,7 +2,7 @@ import { useDraggable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { Activity, ArchiveIcon, ArchiveRestoreIcon, FolderInput, Globe, Pin, Star, Users } from 'lucide-react';
+import { Activity, ArchiveIcon, ArchiveRestoreIcon, FolderInput, Globe, Lock, Pin, Star, Users } from 'lucide-react';
 import { useState } from 'react';
 import type { MouseEvent, ReactNode } from 'react';
 import type { StoryPanelDisplayMode } from '@nao/shared/types';
@@ -51,11 +51,16 @@ export function StoryCard({
 	showArchived: boolean;
 	onMoveToFolder?: (item: StoryItem) => void;
 }) {
-	const { isAdmin } = usePermissions();
+	const { isAdmin, isViewer } = usePermissions();
 	const [pinShareDialogOpen, setPinShareDialogOpen] = useState(false);
 
 	const draggableId = `drag-story-${item.storyId}`;
-	const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: draggableId });
+	const isOwnedByUser = item.kind === 'own' || item.kind === 'own-standalone';
+	const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+		id: draggableId,
+		disabled: isViewer,
+		data: { type: 'story', isOwnedByUser },
+	});
 	const style = transform ? { transform: CSS.Translate.toString(transform) } : undefined;
 
 	const canOpenPinShareDialog =
@@ -262,26 +267,31 @@ function StoryQuickActions({ item, onRequestPinShare }: { item: StoryItem; onReq
 	const { isAdmin } = usePermissions();
 
 	const favoriteMutation = useMutation(
-		trpc.story.toggleFavorite.mutationOptions({
-			onMutate: async ({ storyId }) => {
-				const queryKey = trpc.story.listFavorites.queryKey();
+		trpc.favorite.toggle.mutationOptions({
+			onMutate: async ({ id }) => {
+				const queryKey = trpc.favorite.list.queryKey();
 				await queryClient.cancelQueries({ queryKey });
-				const snapshots = queryClient.getQueriesData<string[]>({ queryKey });
-				queryClient.setQueriesData<string[]>({ queryKey }, (old) => {
+				const previous = queryClient.getQueryData(queryKey);
+				queryClient.setQueryData(queryKey, (old: typeof previous) => {
 					if (!old) {
-						return item.isFavorited ? [] : [storyId];
+						return old;
 					}
-					return item.isFavorited ? old.filter((id) => id !== storyId) : [...old, storyId];
+					const storyIds: string[] = old.storyIds ?? [];
+					const isFav = storyIds.includes(id);
+					return {
+						...old,
+						storyIds: isFav ? storyIds.filter((sid) => sid !== id) : [...storyIds, id],
+					};
 				});
-				return { snapshots };
+				return { previous };
 			},
 			onError: (_err, _vars, context) => {
-				for (const [key, data] of context?.snapshots ?? []) {
-					queryClient.setQueryData(key, data);
+				if (context?.previous !== undefined) {
+					queryClient.setQueryData(trpc.favorite.list.queryKey(), context.previous);
 				}
 			},
 			onSettled: () => {
-				queryClient.invalidateQueries({ queryKey: trpc.story.listFavorites.queryKey() });
+				queryClient.invalidateQueries({ queryKey: trpc.favorite.list.queryKey() });
 			},
 		}),
 	);
@@ -304,7 +314,7 @@ function StoryQuickActions({ item, onRequestPinShare }: { item: StoryItem; onReq
 	function handleFavorite(e: MouseEvent<HTMLButtonElement>) {
 		e.preventDefault();
 		e.stopPropagation();
-		favoriteMutation.mutate({ storyId: item.storyId });
+		favoriteMutation.mutate({ type: 'story', id: item.storyId });
 	}
 
 	function handlePin(e: MouseEvent<HTMLButtonElement>) {
@@ -327,7 +337,13 @@ function StoryQuickActions({ item, onRequestPinShare }: { item: StoryItem; onReq
 					interactive={canInteractWithPin}
 					pending={pinMutation.isPending}
 					onClick={handlePin}
-					tooltip={item.isPinned ? 'Unpin for shared members' : 'Pin for shared members'}
+					tooltip={
+						canInteractWithPin
+							? item.isPinned
+								? 'Unpin for shared members'
+								: 'Pin for shared members'
+							: 'Only admins can un.pin stories'
+					}
 				>
 					<Pin className='size-3' />
 				</QuickActionButton>
@@ -399,46 +415,43 @@ function QuickActionButton({
 
 function StoryArchiveButton({ item, showArchived }: { item: StoryItem; showArchived: boolean }) {
 	const queryClient = useQueryClient();
+	const { isViewer } = usePermissions();
 
-	const archiveChatStory = useMutation(
-		trpc.story.archive.mutationOptions({
-			onSuccess: () => {
-				queryClient.invalidateQueries({ queryKey: trpc.story.listAll.queryKey() });
-				queryClient.invalidateQueries({ queryKey: trpc.story.listArchived.queryKey() });
-			},
-		}),
-	);
+	function invalidateAfterArchive() {
+		queryClient.invalidateQueries({ queryKey: trpc.story.listAll.queryKey() });
+		queryClient.invalidateQueries({ queryKey: trpc.story.listArchived.queryKey() });
+		queryClient.invalidateQueries({ queryKey: trpc.story.listStandalone.queryKey() });
+		queryClient.invalidateQueries({ queryKey: trpc.story.listStandaloneArchived.queryKey() });
+		queryClient.invalidateQueries({ queryKey: trpc.story.listSharedArchived.queryKey() });
+		queryClient.invalidateQueries({ queryKey: trpc.storyShare.list.queryKey() });
+		queryClient.invalidateQueries({ queryKey: trpc.storyFolder.listItems.queryKey() });
+		queryClient.invalidateQueries({ queryKey: trpc.storyFolder.listTree.queryKey() });
+	}
 
-	const unarchiveChatStory = useMutation(
-		trpc.story.unarchive.mutationOptions({
-			onSuccess: () => {
-				queryClient.invalidateQueries({ queryKey: trpc.story.listArchived.queryKey() });
-				queryClient.invalidateQueries({ queryKey: trpc.story.listAll.queryKey() });
-			},
-		}),
-	);
+	const archiveChatStory = useMutation(trpc.story.archive.mutationOptions({ onSuccess: invalidateAfterArchive }));
+
+	const unarchiveChatStory = useMutation(trpc.story.unarchive.mutationOptions({ onSuccess: invalidateAfterArchive }));
 
 	const archiveStandalone = useMutation(
-		trpc.story.archiveStandalone.mutationOptions({
-			onSuccess: () => {
-				queryClient.invalidateQueries({ queryKey: trpc.story.listStandalone.queryKey() });
-				queryClient.invalidateQueries({ queryKey: trpc.story.listStandaloneArchived.queryKey() });
-			},
-		}),
+		trpc.story.archiveStandalone.mutationOptions({ onSuccess: invalidateAfterArchive }),
 	);
 
 	const unarchiveStandalone = useMutation(
-		trpc.story.unarchiveStandalone.mutationOptions({
-			onSuccess: () => {
-				queryClient.invalidateQueries({ queryKey: trpc.story.listStandalone.queryKey() });
-				queryClient.invalidateQueries({ queryKey: trpc.story.listStandaloneArchived.queryKey() });
-			},
-		}),
+		trpc.story.unarchiveStandalone.mutationOptions({ onSuccess: invalidateAfterArchive }),
 	);
 
-	const canArchive = (item.kind === 'own' && item.chatId && item.storySlug) || item.kind === 'own-standalone';
+	const archiveShared = useMutation(trpc.story.archiveShared.mutationOptions({ onSuccess: invalidateAfterArchive }));
 
-	if (!canArchive) {
+	const unarchiveShared = useMutation(
+		trpc.story.unarchiveShared.mutationOptions({ onSuccess: invalidateAfterArchive }),
+	);
+
+	const canArchive =
+		(item.kind === 'own' && item.chatId && item.storySlug) ||
+		item.kind === 'own-standalone' ||
+		item.kind === 'shared-project';
+
+	if (!canArchive || isViewer) {
 		return null;
 	}
 
@@ -446,7 +459,9 @@ function StoryArchiveButton({ item, showArchived }: { item: StoryItem; showArchi
 		archiveChatStory.isPending ||
 		unarchiveChatStory.isPending ||
 		archiveStandalone.isPending ||
-		unarchiveStandalone.isPending;
+		unarchiveStandalone.isPending ||
+		archiveShared.isPending ||
+		unarchiveShared.isPending;
 
 	function handleArchiveToggle(e: MouseEvent<HTMLButtonElement>) {
 		e.preventDefault();
@@ -464,6 +479,14 @@ function StoryArchiveButton({ item, showArchived }: { item: StoryItem; showArchi
 				unarchiveStandalone.mutate({ storyId: item.id });
 			} else {
 				archiveStandalone.mutate({ storyId: item.id });
+			}
+			return;
+		}
+		if (item.kind === 'shared-project') {
+			if (showArchived) {
+				unarchiveShared.mutate({ storyId: item.storyId });
+			} else {
+				archiveShared.mutate({ storyId: item.storyId });
 			}
 		}
 	}
@@ -497,11 +520,23 @@ function StoryBadges({ item, mode }: { item: StoryItem; mode: 'grid' | 'lines' }
 		: null;
 
 	if (mode === 'grid') {
-		if (!item.isLive && !item.sharing) {
+		if (!item.isLive && !item.sharing && !item.isInPrivateContext) {
 			return null;
 		}
 		return (
 			<div className='flex items-center gap-2 shrink-0'>
+				{item.isInPrivateContext && item?.sharing?.visibility !== 'specific' && (
+					<TooltipProvider>
+						<Tooltip>
+							<TooltipTrigger asChild>
+								<span className='inline-flex items-center text-muted-foreground'>
+									<Lock className='size-3' />
+								</span>
+							</TooltipTrigger>
+							<TooltipContent>Private story</TooltipContent>
+						</Tooltip>
+					</TooltipProvider>
+				)}
 				{item.isLive && (
 					<TooltipProvider>
 						<Tooltip>
@@ -536,6 +571,18 @@ function StoryBadges({ item, mode }: { item: StoryItem; mode: 'grid' | 'lines' }
 
 	return (
 		<>
+			{item.isInPrivateContext && (
+				<TooltipProvider>
+					<Tooltip>
+						<TooltipTrigger asChild>
+							<span className='inline-flex items-center text-muted-foreground'>
+								<Lock className='size-3' />
+							</span>
+						</TooltipTrigger>
+						<TooltipContent>Private story</TooltipContent>
+					</Tooltip>
+				</TooltipProvider>
+			)}
 			{item.isLive && (
 				<TooltipProvider>
 					<Tooltip>

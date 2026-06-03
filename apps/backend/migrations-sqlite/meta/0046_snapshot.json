@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "c577c515-3109-4e64-ad41-086e5aee832f",
+  "id": "bc93d810-8f65-4854-99bd-5898b604c27f",
   "prevId": "20b66767-2537-488f-a074-4976d30c5abc",
   "tables": {
     "account": {
@@ -1204,6 +1204,121 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}
+    },
+    "favorite": {
+      "name": "favorite",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "story_id": {
+          "name": "story_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "folder_id": {
+          "name": "folder_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
+        }
+      },
+      "indexes": {
+        "favorite_user_id_idx": {
+          "name": "favorite_user_id_idx",
+          "columns": [
+            "user_id"
+          ],
+          "isUnique": false
+        },
+        "favorite_user_id_story_id_unique": {
+          "name": "favorite_user_id_story_id_unique",
+          "columns": [
+            "user_id",
+            "story_id"
+          ],
+          "isUnique": true
+        },
+        "favorite_user_id_folder_id_unique": {
+          "name": "favorite_user_id_folder_id_unique",
+          "columns": [
+            "user_id",
+            "folder_id"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "favorite_user_id_user_id_fk": {
+          "name": "favorite_user_id_user_id_fk",
+          "tableFrom": "favorite",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "favorite_story_id_story_id_fk": {
+          "name": "favorite_story_id_story_id_fk",
+          "tableFrom": "favorite",
+          "tableTo": "story",
+          "columnsFrom": [
+            "story_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "favorite_folder_id_story_folder_id_fk": {
+          "name": "favorite_folder_id_story_folder_id_fk",
+          "tableFrom": "favorite",
+          "tableTo": "story_folder",
+          "columnsFrom": [
+            "folder_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "favorite_xor_target": {
+          "name": "favorite_xor_target",
+          "value": "(\"favorite\".\"story_id\" IS NOT NULL) + (\"favorite\".\"folder_id\" IS NOT NULL) = 1"
+        }
+      }
     },
     "jwks": {
       "name": "jwks",
@@ -4191,6 +4306,14 @@
             "story_id"
           ],
           "isUnique": false
+        },
+        "shared_story_project_story_unique": {
+          "name": "shared_story_project_story_unique",
+          "columns": [
+            "project_id",
+            "story_id"
+          ],
+          "isUnique": true
         }
       },
       "foreignKeys": {
@@ -4567,88 +4690,6 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "story_favorite": {
-      "name": "story_favorite",
-      "columns": {
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "story_id": {
-          "name": "story_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
-        }
-      },
-      "indexes": {
-        "story_favorite_userId_idx": {
-          "name": "story_favorite_userId_idx",
-          "columns": [
-            "user_id"
-          ],
-          "isUnique": false
-        },
-        "story_favorite_storyId_idx": {
-          "name": "story_favorite_storyId_idx",
-          "columns": [
-            "story_id"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "story_favorite_user_id_user_id_fk": {
-          "name": "story_favorite_user_id_user_id_fk",
-          "tableFrom": "story_favorite",
-          "tableTo": "user",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "story_favorite_story_id_story_id_fk": {
-          "name": "story_favorite_story_id_story_id_fk",
-          "tableFrom": "story_favorite",
-          "tableTo": "story",
-          "columnsFrom": [
-            "story_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "story_favorite_user_id_story_id_pk": {
-          "columns": [
-            "user_id",
-            "story_id"
-          ],
-          "name": "story_favorite_user_id_story_id_pk"
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
     "story_folder": {
       "name": "story_folder",
       "columns": {
@@ -4659,8 +4700,8 @@
           "notNull": true,
           "autoincrement": false
         },
-        "user_id": {
-          "name": "user_id",
+        "owner_id": {
+          "name": "owner_id",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
@@ -4687,9 +4728,17 @@
           "notNull": true,
           "autoincrement": false
         },
-        "favorited_at": {
-          "name": "favorited_at",
-          "type": "integer",
+        "visibility": {
+          "name": "visibility",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'public'"
+        },
+        "system_type": {
+          "name": "system_type",
+          "type": "text",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -4719,10 +4768,19 @@
         }
       },
       "indexes": {
-        "story_folder_userId_projectId_parentId_idx": {
-          "name": "story_folder_userId_projectId_parentId_idx",
+        "story_folder_private_root_unique": {
+          "name": "story_folder_private_root_unique",
           "columns": [
-            "user_id",
+            "project_id",
+            "owner_id"
+          ],
+          "isUnique": true,
+          "where": "\"story_folder\".\"system_type\" = 'private_folder'"
+        },
+        "story_folder_ownerProjectParent_idx": {
+          "name": "story_folder_ownerProjectParent_idx",
+          "columns": [
+            "owner_id",
             "project_id",
             "parent_id"
           ],
@@ -4734,23 +4792,15 @@
             "project_id"
           ],
           "isUnique": false
-        },
-        "story_folder_user_id_id_unique": {
-          "name": "story_folder_user_id_id_unique",
-          "columns": [
-            "user_id",
-            "id"
-          ],
-          "isUnique": true
         }
       },
       "foreignKeys": {
-        "story_folder_user_id_user_id_fk": {
-          "name": "story_folder_user_id_user_id_fk",
+        "story_folder_owner_id_user_id_fk": {
+          "name": "story_folder_owner_id_user_id_fk",
           "tableFrom": "story_folder",
           "tableTo": "user",
           "columnsFrom": [
-            "user_id"
+            "owner_id"
           ],
           "columnsTo": [
             "id"
@@ -4792,17 +4842,10 @@
     "story_folder_item": {
       "name": "story_folder_item",
       "columns": {
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
         "story_id": {
           "name": "story_id",
           "type": "text",
-          "primaryKey": false,
+          "primaryKey": true,
           "notNull": true,
           "autoincrement": false
         },
@@ -4824,19 +4867,6 @@
         }
       },
       "foreignKeys": {
-        "story_folder_item_user_id_user_id_fk": {
-          "name": "story_folder_item_user_id_user_id_fk",
-          "tableFrom": "story_folder_item",
-          "tableTo": "user",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
         "story_folder_item_story_id_story_id_fk": {
           "name": "story_folder_item_story_id_story_id_fk",
           "tableFrom": "story_folder_item",
@@ -4850,31 +4880,21 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "story_folder_item_user_id_folder_id_story_folder_fk": {
-          "name": "story_folder_item_user_id_folder_id_story_folder_fk",
+        "story_folder_item_folder_id_story_folder_id_fk": {
+          "name": "story_folder_item_folder_id_story_folder_id_fk",
           "tableFrom": "story_folder_item",
           "tableTo": "story_folder",
           "columnsFrom": [
-            "user_id",
             "folder_id"
           ],
           "columnsTo": [
-            "user_id",
             "id"
           ],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {
-        "story_folder_item_user_id_story_id_pk": {
-          "columns": [
-            "user_id",
-            "story_id"
-          ],
-          "name": "story_folder_item_user_id_story_id_pk"
-        }
-      },
+      "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}
     },

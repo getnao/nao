@@ -7,6 +7,7 @@ import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
+import * as storyFolderQueries from '../queries/story-folder.queries';
 import { logActivity } from '../services/activity';
 import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../services/live-story';
 import { notifySharedItemRecipients } from '../utils/email';
@@ -67,6 +68,13 @@ export const sharedStoryRoutes = {
 			const story = await storyQueries.getStoryByChatAndSlug(input.chatId, input.storySlug);
 			if (!story) {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
+			}
+
+			if (input.visibility === 'project') {
+				await storyFolderQueries.moveStoryToFolder(story.id, null, {
+					storyOwnerId: ctx.user.id,
+					projectId: ctx.project.id,
+				});
 			}
 
 			const created = await sharedStoryQueries.createSharedStory(
@@ -175,7 +183,7 @@ export const sharedStoryRoutes = {
 				return { shareId: null, visibility: null, allowedUserIds: [] };
 			}
 
-			const share = await sharedStoryQueries.getSharedStoryInfo(story.id, ctx.user.id);
+			const share = await sharedStoryQueries.getSharedStoryInfo(story.id, ctx.project.id);
 			if (!share) {
 				return { shareId: null, visibility: null, allowedUserIds: [] };
 			}

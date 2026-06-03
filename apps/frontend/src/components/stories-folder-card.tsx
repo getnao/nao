@@ -1,11 +1,23 @@
-import { Archive, ArchiveRestore, Folder, FolderInput, MoreHorizontal, Pencil, Star, Trash2 } from 'lucide-react';
-import { Link } from '@tanstack/react-router';
-import { useDraggable, useDroppable } from '@dnd-kit/core';
+import { useDndContext, useDraggable, useDroppable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import type { StoryPanelDisplayMode } from '@nao/shared/types';
+import { Link } from '@tanstack/react-router';
+import {
+	Archive,
+	ArchiveRestore,
+	Folder,
+	FolderInput,
+	FolderLock,
+	Lock,
+	MoreHorizontal,
+	Pencil,
+	Star,
+	Trash2,
+} from 'lucide-react';
 import type { MouseEvent } from 'react';
+import type { StoryPanelDisplayMode } from '@nao/shared/types';
 import type { FolderItem } from '@/lib/stories-page';
+import { isSystemFolder } from '@/lib/stories-page';
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -13,6 +25,7 @@ import {
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { usePermissions } from '@/hooks/use-permissions';
 import { formatRelativeDate } from '@/lib/time-ago';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
@@ -38,11 +51,30 @@ export function FolderCard({
 	onArchive: (folder: FolderItem) => void;
 	onRestore: (folder: FolderItem) => void;
 }) {
+	const { isViewer } = usePermissions();
+	const isVirtual = folder.id === '__shared_with_me__';
 	const draggableId = `drag-folder-${folder.id}`;
 	const droppableId = `drop-folder-${displayMode}-${folder.id}`;
 
-	const { attributes, listeners, setNodeRef: setDragRef, transform, isDragging } = useDraggable({ id: draggableId });
-	const { setNodeRef: setDropRef, isOver } = useDroppable({ id: droppableId });
+	const { active } = useDndContext();
+	const activeData = active?.data.current as { type?: string; isOwnedByUser?: boolean } | undefined;
+	const blockPrivateDrop =
+		folder.visibility === 'private' && activeData?.type === 'story' && activeData?.isOwnedByUser === false;
+
+	const {
+		attributes,
+		listeners,
+		setNodeRef: setDragRef,
+		transform,
+		isDragging,
+	} = useDraggable({
+		id: draggableId,
+		disabled: isVirtual || isSystemFolder(folder) || isViewer,
+	});
+	const { setNodeRef: setDropRef, isOver } = useDroppable({
+		id: droppableId,
+		disabled: isVirtual || blockPrivateDrop,
+	});
 
 	function setRefs(el: HTMLElement | null) {
 		setDragRef(el);
@@ -71,7 +103,7 @@ export function FolderCard({
 					onClick={(e) => e.stopPropagation()}
 				>
 					<div className='flex items-center gap-2 flex-1 min-w-0 pl-1.5'>
-						<Folder className='size-4 shrink-0 text-muted-foreground' />
+						<FolderIcon folder={folder} />
 						<span className='text-sm font-medium truncate'>{folder.name}</span>
 					</div>
 					<div className='hidden md:block w-32 shrink-0 pl-1.5 text-xs text-muted-foreground truncate'>
@@ -82,22 +114,32 @@ export function FolderCard({
 					</div>
 				</Link>
 				<div className='w-20 shrink-0 relative h-6'>
-					<div className='absolute top-1/2 right-0 -translate-y-1/2'>
-						<FolderKebab
-							folder={folder}
-							onModify={onModify}
-							onMove={onMove}
-							onDelete={onDelete}
-							onArchive={onArchive}
-							onRestore={onRestore}
-						/>
-					</div>
-					<div
-						className='absolute top-1/2 right-0 -translate-y-1/2 z-10 transition-transform duration-150 group-hover:-translate-x-5 group-has-data-[state=open]:-translate-x-5'
-						onPointerDown={(e) => e.stopPropagation()}
-					>
-						<FolderFavoriteButton folder={folder} />
-					</div>
+					{!isSystemFolder(folder) && (
+						<>
+							{!isViewer && (
+								<div className='absolute top-1/2 right-0 -translate-y-1/2'>
+									<FolderKebab
+										folder={folder}
+										onModify={onModify}
+										onMove={onMove}
+										onDelete={onDelete}
+										onArchive={onArchive}
+										onRestore={onRestore}
+									/>
+								</div>
+							)}
+							<div
+								className={cn(
+									'absolute top-1/2 right-0 -translate-y-1/2 z-10 transition-transform duration-150',
+									!isViewer &&
+										'group-hover:-translate-x-5 group-has-data-[state=open]:-translate-x-5',
+								)}
+								onPointerDown={(e) => e.stopPropagation()}
+							>
+								<FolderFavoriteButton folder={folder} />
+							</div>
+						</>
+					)}
 				</div>
 			</div>
 		);
@@ -147,43 +189,56 @@ export function FolderCard({
 				<Link
 					to='/stories'
 					search={{ folderId: folder.id }}
-					className='absolute inset-0'
+					className='absolute inset-0 flex flex-col justify-end p-2.5'
 					onClick={(e) => e.stopPropagation()}
 					aria-label={folder.name}
-				/>
-
-				<div className='pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-background from-60% to-transparent' />
-				<Link
-					to='/stories'
-					search={{ folderId: folder.id }}
-					className='absolute inset-x-0 bottom-0 px-2.5 pb-2 flex flex-col'
-					onClick={(e) => e.stopPropagation()}
-					tabIndex={-1}
-					aria-hidden
 				>
-					<span className='text-xs font-medium truncate'>{folder.name}</span>
-					<span className='text-[11px] text-muted-foreground truncate'>
-						{folder.storyCount} {folder.storyCount === 1 ? 'story' : 'stories'}
-					</span>
+					<div className='flex items-end gap-1.5'>
+						<div className='flex-1 min-w-0 items-center gap-1.5 flex-1 min-w-0 transition-transform duration-200 ease-out group-hover:-translate-y-0.5'>
+							<span className='block text-xs font-medium truncate'>{folder.name}</span>
+							<span className='block text-[11px] text-muted-foreground truncate'>
+								{folder.storyCount} {folder.storyCount <= 1 ? 'story' : 'stories'}
+							</span>
+						</div>
+						<div className='flex items-center gap-2 shrink-0 mb-0.5'>
+							{folder.visibility === 'private' && (
+								<TooltipProvider>
+									<Tooltip>
+										<TooltipTrigger asChild>
+											<span className='inline-flex items-center text-muted-foreground shrink-0'>
+												<Lock className='size-3' />
+											</span>
+										</TooltipTrigger>
+										<TooltipContent>Private folder</TooltipContent>
+									</Tooltip>
+								</TooltipProvider>
+							)}
+						</div>
+					</div>
 				</Link>
 
-				<div className='absolute top-1.5 left-2 z-10' onPointerDown={(e) => e.stopPropagation()}>
-					<FolderFavoriteButton folder={folder} />
-				</div>
-
-				<div
-					className='absolute top-1.5 left-2 z-20 transition-transform duration-150 group-hover:translate-x-5 group-has-data-[state=open]:translate-x-5'
-					onPointerDown={(e) => e.stopPropagation()}
-				>
-					<FolderKebab
-						folder={folder}
-						onModify={onModify}
-						onMove={onMove}
-						onDelete={onDelete}
-						onArchive={onArchive}
-						onRestore={onRestore}
-					/>
-				</div>
+				{!isSystemFolder(folder) && (
+					<>
+						<div className='absolute top-1.5 left-2 z-10' onPointerDown={(e) => e.stopPropagation()}>
+							<FolderFavoriteButton folder={folder} />
+						</div>
+						{!isViewer && (
+							<div
+								className='absolute top-1.5 left-2 z-20 transition-transform duration-150 group-hover:translate-x-5 group-has-data-[state=open]:translate-x-5'
+								onPointerDown={(e) => e.stopPropagation()}
+							>
+								<FolderKebab
+									folder={folder}
+									onModify={onModify}
+									onMove={onMove}
+									onDelete={onDelete}
+									onArchive={onArchive}
+									onRestore={onRestore}
+								/>
+							</div>
+						)}
+					</>
+				)}
 			</div>
 		);
 	}
@@ -206,25 +261,34 @@ export function FolderCard({
 				className='absolute inset-0 flex items-center gap-2.5 pl-3 pr-8'
 				onClick={(e) => e.stopPropagation()}
 			>
-				<Folder className='size-4 shrink-0 text-muted-foreground' />
+				<FolderIcon folder={folder} />
 				<span className='text-sm font-medium truncate flex-1 min-w-0'>{folder.name}</span>
 			</Link>
-			<div className='absolute top-1/2 right-1.5 -translate-y-1/2 z-10'>
-				<FolderKebab
-					folder={folder}
-					onModify={onModify}
-					onMove={onMove}
-					onDelete={onDelete}
-					onArchive={onArchive}
-					onRestore={onRestore}
-				/>
-			</div>
-			<div
-				className='absolute top-1/2 right-1.5 -translate-y-1/2 z-20 transition-transform duration-150 group-hover:-translate-x-5 group-has-data-[state=open]:-translate-x-5'
-				onPointerDown={(e) => e.stopPropagation()}
-			>
-				<FolderFavoriteButton folder={folder} />
-			</div>
+			{!isSystemFolder(folder) && (
+				<>
+					{!isViewer && (
+						<div className='absolute top-1/2 right-1.5 -translate-y-1/2 z-10'>
+							<FolderKebab
+								folder={folder}
+								onModify={onModify}
+								onMove={onMove}
+								onDelete={onDelete}
+								onArchive={onArchive}
+								onRestore={onRestore}
+							/>
+						</div>
+					)}
+					<div
+						className={cn(
+							'absolute top-1/2 right-1.5 -translate-y-1/2 z-20 transition-transform duration-150',
+							!isViewer && 'group-hover:-translate-x-5 group-has-data-[state=open]:-translate-x-5',
+						)}
+						onPointerDown={(e) => e.stopPropagation()}
+					>
+						<FolderFavoriteButton folder={folder} />
+					</div>
+				</>
+			)}
 		</div>
 	);
 }
@@ -233,36 +297,42 @@ function FolderFavoriteButton({ folder }: { folder: FolderItem }) {
 	const queryClient = useQueryClient();
 
 	const toggleFavorite = useMutation(
-		trpc.storyFolder.toggleFavorite.mutationOptions({
-			onMutate: async ({ id }) => {
-				const queryKey = trpc.storyFolder.listTree.queryKey();
+		trpc.favorite.toggle.mutationOptions({
+			onMutate: async () => {
+				const queryKey = trpc.favorite.list.queryKey();
 				await queryClient.cancelQueries({ queryKey });
 				const previous = queryClient.getQueryData(queryKey);
 				queryClient.setQueryData(queryKey, (old: typeof previous) => {
-					if (!Array.isArray(old)) {
+					if (!old) {
 						return old;
 					}
-					return old.map((f) => (f.id === id ? { ...f, favoritedAt: f.favoritedAt ? null : new Date() } : f));
+					const folderIds: string[] = old.folderIds ?? [];
+					const isFavorited = folderIds.includes(folder.id);
+					return {
+						...old,
+						folderIds: isFavorited ? folderIds.filter((id) => id !== folder.id) : [...folderIds, folder.id],
+					};
 				});
 				return { previous };
 			},
 			onError: (_err, _vars, ctx) => {
 				if (ctx?.previous !== undefined) {
-					queryClient.setQueryData(trpc.storyFolder.listTree.queryKey(), ctx.previous);
+					queryClient.setQueryData(trpc.favorite.list.queryKey(), ctx.previous);
 				}
 			},
 			onSettled: () => {
-				queryClient.invalidateQueries({ queryKey: trpc.storyFolder.listTree.queryKey() });
+				queryClient.invalidateQueries({ queryKey: trpc.favorite.list.queryKey() });
 			},
 		}),
 	);
 
-	const isFavorited = folder.favoritedAt !== null;
+	const favoriteData = queryClient.getQueryData(trpc.favorite.list.queryKey());
+	const isFavorited = (favoriteData as { folderIds?: string[] } | undefined)?.folderIds?.includes(folder.id) ?? false;
 
 	function handleClick(e: MouseEvent<HTMLButtonElement>) {
 		e.preventDefault();
 		e.stopPropagation();
-		toggleFavorite.mutate({ id: folder.id });
+		toggleFavorite.mutate({ type: 'folder', id: folder.id });
 	}
 
 	const tooltip = isFavorited ? 'Remove from favorites' : 'Add to favorites';
@@ -293,6 +363,13 @@ function FolderFavoriteButton({ folder }: { folder: FolderItem }) {
 			</Tooltip>
 		</TooltipProvider>
 	);
+}
+
+function FolderIcon({ folder }: { folder: FolderItem }) {
+	if (folder.systemType === 'shared_with_me' || folder.visibility === 'private') {
+		return <FolderLock className='size-4 shrink-0 text-muted-foreground' />;
+	}
+	return <Folder className='size-4 shrink-0 text-muted-foreground' />;
 }
 
 function FolderKebab({

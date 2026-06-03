@@ -1,34 +1,59 @@
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
+import type { DBStoryFolder } from '../db/abstractSchema';
 import * as storyQueries from '../queries/story.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
-import { projectProtectedProcedure } from './trpc';
+import { canSendProcedure, projectProtectedProcedure } from './trpc';
 
-async function assertUserOwnsFolder(
+async function assertFolderInProject(
 	folderId: string,
 	ctx: { user: { id: string }; project: { id: string } },
 	label = 'Folder',
 ) {
 	const folder = await storyFolderQueries.getFolderById(folderId);
-	if (!folder || folder.userId !== ctx.user.id || folder.projectId !== ctx.project.id) {
+	if (!folder || folder.projectId !== ctx.project.id) {
 		throw new TRPCError({ code: 'NOT_FOUND', message: `${label} not found.` });
 	}
 	return folder;
+}
+
+function assertCanModifyFolder(folder: DBStoryFolder, userId: string) {
+	if (folder.visibility !== 'public' && folder.ownerId !== userId) {
+		throw new TRPCError({ code: 'FORBIDDEN', message: 'Only the owner can modify a private folder.' });
+	}
+}
+
+function assertCanReadPrivateFolder(folder: DBStoryFolder, userId: string, label = 'Folder') {
+	if (folder.visibility === 'private' && folder.ownerId !== userId) {
+		throw new TRPCError({ code: 'NOT_FOUND', message: `${label} not found.` });
+	}
+}
+
+function assertCanPlaceInDestination(target: DBStoryFolder | null, userId: string) {
+	if (target && target.visibility === 'private' && target.ownerId !== userId) {
+		throw new TRPCError({
+			code: 'FORBIDDEN',
+			message: 'You can only move items into your own private folder.',
+		});
+	}
 }
 
 export const storyFolderRoutes = {
 	listTree: projectProtectedProcedure
 		.input(z.object({ archived: z.boolean().optional() }).optional())
 		.query(async ({ ctx, input }) => {
+			if (!input?.archived && ctx.userRole !== 'viewer') {
+				await storyFolderQueries.ensurePrivateRoot(ctx.user.id, ctx.project.id);
+			}
 			return storyFolderQueries.listFolderTree(ctx.user.id, ctx.project.id, { archived: input?.archived });
 		}),
 
 	listItems: projectProtectedProcedure.query(async ({ ctx }) => {
-		return storyFolderQueries.listFolderItemsForUser(ctx.user.id, ctx.project.id);
+		return storyFolderQueries.listFolderItemsForProject(ctx.project.id);
 	}),
 
-	create: projectProtectedProcedure
+	create: canSendProcedure
 		.input(
 			z.object({
 				name: z.string().min(1).max(100),
@@ -37,17 +62,17 @@ export const storyFolderRoutes = {
 		)
 		.mutation(async ({ input, ctx }) => {
 			if (input.parentId) {
-				await assertUserOwnsFolder(input.parentId, ctx, 'Parent folder');
+				await assertFolderInProject(input.parentId, ctx, 'Parent folder');
 			}
 			return storyFolderQueries.createFolder({
-				userId: ctx.user.id,
+				ownerId: ctx.user.id,
 				projectId: ctx.project.id,
 				name: input.name,
 				parentId: input.parentId ?? null,
 			});
 		}),
 
-	rename: projectProtectedProcedure
+	rename: canSendProcedure
 		.input(
 			z.object({
 				id: z.string(),
@@ -55,32 +80,41 @@ export const storyFolderRoutes = {
 			}),
 		)
 		.mutation(async ({ input, ctx }) => {
-			await assertUserOwnsFolder(input.id, ctx);
+			const folder = await assertFolderInProject(input.id, ctx);
+			assertCanModifyFolder(folder, ctx.user.id);
 			await storyFolderQueries.updateFolder(input.id, { name: input.name });
 		}),
 
-	delete: projectProtectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input, ctx }) => {
-		await assertUserOwnsFolder(input.id, ctx);
+	delete: canSendProcedure.input(z.object({ id: z.string() })).mutation(async ({ input, ctx }) => {
+		const folder = await assertFolderInProject(input.id, ctx);
+		assertCanModifyFolder(folder, ctx.user.id);
 		await storyFolderQueries.deleteFolderMovingContentsToParent(input.id);
 	}),
 
-	archive: projectProtectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input, ctx }) => {
-		await assertUserOwnsFolder(input.id, ctx);
-		await storyFolderQueries.archiveFolder(ctx.user.id, input.id);
+	archive: canSendProcedure.input(z.object({ id: z.string() })).mutation(async ({ input, ctx }) => {
+		const folder = await assertFolderInProject(input.id, ctx);
+		assertCanModifyFolder(folder, ctx.user.id);
+		await storyFolderQueries.archiveFolder(input.id);
 	}),
 
-	unarchive: projectProtectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input, ctx }) => {
-		await assertUserOwnsFolder(input.id, ctx);
-		await storyFolderQueries.unarchiveFolder(ctx.user.id, input.id);
+	unarchive: canSendProcedure.input(z.object({ id: z.string() })).mutation(async ({ input, ctx }) => {
+		const folder = await assertFolderInProject(input.id, ctx);
+		assertCanModifyFolder(folder, ctx.user.id);
+		await storyFolderQueries.unarchiveFolder(ctx.user.id, ctx.project.id, input.id);
 	}),
 
-	move: projectProtectedProcedure
+	move: canSendProcedure
 		.input(z.object({ id: z.string(), newParentId: z.string().nullable() }))
 		.mutation(async ({ input, ctx }) => {
-			await assertUserOwnsFolder(input.id, ctx);
+			const folder = await assertFolderInProject(input.id, ctx);
+			assertCanReadPrivateFolder(folder, ctx.user.id);
+
+			let target: DBStoryFolder | null = null;
 			if (input.newParentId) {
-				await assertUserOwnsFolder(input.newParentId, ctx, 'Target folder');
+				target = await assertFolderInProject(input.newParentId, ctx, 'Target folder');
+				assertCanReadPrivateFolder(target, ctx.user.id, 'Target folder');
 			}
+			assertCanPlaceInDestination(target, ctx.user.id);
 
 			try {
 				await storyFolderQueries.moveFolder(ctx.user.id, ctx.project.id, input.id, input.newParentId);
@@ -88,11 +122,14 @@ export const storyFolderRoutes = {
 				if (err instanceof storyFolderQueries.MoveFolderCycleError) {
 					throw new TRPCError({ code: 'BAD_REQUEST', message: err.message });
 				}
+				if (err instanceof storyFolderQueries.SystemFolderError) {
+					throw new TRPCError({ code: 'FORBIDDEN', message: err.message });
+				}
 				throw err;
 			}
 		}),
 
-	moveStory: projectProtectedProcedure
+	moveStory: canSendProcedure
 		.input(z.object({ storyId: z.string(), folderId: z.string().nullable() }))
 		.mutation(async ({ input, ctx }) => {
 			const storyProjectId = await storyQueries.getStoryProjectId(input.storyId);
@@ -100,21 +137,37 @@ export const storyFolderRoutes = {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found in this project.' });
 			}
 
-			const canAccess = await storyQueries.canUserAccessStory(input.storyId, ctx.user.id);
-			if (!canAccess) {
-				throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this story.' });
+			const storyOwnerId = await storyQueries.getStoryOwnerId(input.storyId);
+			if (!storyOwnerId) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
 			}
 
+			const isStoryOwner = storyOwnerId === ctx.user.id;
+			if (!isStoryOwner) {
+				const canAccess = await storyQueries.canUserAccessStory(input.storyId, ctx.user.id);
+				if (!canAccess) {
+					throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this story.' });
+				}
+			}
+
+			let target: DBStoryFolder | null = null;
 			if (input.folderId) {
-				await assertUserOwnsFolder(input.folderId, ctx);
+				target = await assertFolderInProject(input.folderId, ctx);
+				assertCanReadPrivateFolder(target, ctx.user.id);
 			}
 
-			await storyFolderQueries.moveStoryToFolder(ctx.user.id, input.storyId, input.folderId);
-		}),
+			if (isStoryOwner) {
+				assertCanPlaceInDestination(target, ctx.user.id);
+			} else if (target && target.visibility !== 'public') {
+				throw new TRPCError({
+					code: 'FORBIDDEN',
+					message: 'Only the story owner can move it into a private folder.',
+				});
+			}
 
-	toggleFavorite: projectProtectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input, ctx }) => {
-		await assertUserOwnsFolder(input.id, ctx);
-		const favoritedAt = await storyFolderQueries.toggleFolderFavorite(ctx.user.id, input.id);
-		return { isFavorited: favoritedAt !== null };
-	}),
+			await storyFolderQueries.moveStoryToFolder(input.storyId, input.folderId, {
+				storyOwnerId,
+				projectId: ctx.project.id,
+			});
+		}),
 };

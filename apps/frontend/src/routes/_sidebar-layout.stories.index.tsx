@@ -91,6 +91,8 @@ function invalidateFolderAndStoryCaches(queryClient: ReturnType<typeof useQueryC
 	queryClient.invalidateQueries({ queryKey: trpc.story.listStandalone.queryKey() });
 	queryClient.invalidateQueries({ queryKey: trpc.story.listArchived.queryKey() });
 	queryClient.invalidateQueries({ queryKey: trpc.story.listStandaloneArchived.queryKey() });
+	queryClient.invalidateQueries({ queryKey: trpc.story.listSharedArchived.queryKey() });
+	queryClient.invalidateQueries({ queryKey: trpc.storyShare.list.queryKey() });
 }
 
 function StoriesPage() {
@@ -120,7 +122,7 @@ function StoriesPage() {
 		...trpc.storyShare.list.queryOptions({ projectId: activeProjectId ?? '' }),
 		enabled: !!activeProjectId,
 	});
-	const favoriteStoryIds = useQuery(trpc.story.listFavorites.queryOptions({ projectId: activeProjectId }));
+	const favorites = useQuery({ ...trpc.favorite.list.queryOptions(), enabled: !!activeProjectId });
 	const archivedStories = useQuery({
 		...trpc.story.listArchived.queryOptions({ projectId: activeProjectId }),
 		enabled: showArchived,
@@ -128,6 +130,10 @@ function StoriesPage() {
 	const archivedStandaloneStories = useQuery({
 		...trpc.story.listStandaloneArchived.queryOptions(),
 		enabled: showArchived,
+	});
+	const archivedSharedStories = useQuery({
+		...trpc.story.listSharedArchived.queryOptions(),
+		enabled: showArchived && !!activeProjectId,
 	});
 
 	const folderTree = useQuery(trpc.storyFolder.listTree.queryOptions({ archived: false }));
@@ -138,7 +144,6 @@ function StoriesPage() {
 	const folderItems = useQuery(trpc.storyFolder.listItems.queryOptions());
 
 	const currentUserName = session?.user?.name ?? 'Me';
-	const currentUserId = session?.user?.id;
 
 	const handleProjectChange = useCallback(
 		async (projectId: string) => {
@@ -165,21 +170,21 @@ function StoriesPage() {
 			return buildStoryItems({
 				userStories: archivedStories.data ?? [],
 				standaloneStories: archivedStandaloneStories.data,
-				sharedStories: [],
-				currentUserId,
+				sharedStories: archivedSharedStories.data ?? [],
 				currentUserName,
-				favoriteStoryEntries: favoriteStoryIds.data ?? [],
+				favoriteStoryIds: favorites.data?.storyIds,
 				folderItemMap,
+				folders: folderTree.data ?? [],
 			});
 		}
 		return buildStoryItems({
 			userStories: userStories.data ?? [],
 			standaloneStories: standaloneStories.data,
 			sharedStories: sharedStories.data ?? [],
-			currentUserId,
 			currentUserName,
-			favoriteStoryEntries: favoriteStoryIds.data ?? [],
+			favoriteStoryIds: favorites.data?.storyIds,
 			folderItemMap,
+			folders: folderTree.data ?? [],
 		});
 	}, [
 		showArchived,
@@ -188,10 +193,11 @@ function StoriesPage() {
 		sharedStories.data,
 		archivedStories.data,
 		archivedStandaloneStories.data,
-		currentUserId,
+		archivedSharedStories.data,
 		currentUserName,
-		favoriteStoryIds.data,
+		favorites.data,
 		folderItemMap,
+		folderTree.data,
 	]);
 
 	const filteredItems = useMemo(() => filterStories(allItems, searchQuery), [allItems, searchQuery]);
@@ -212,7 +218,11 @@ function StoriesPage() {
 		}
 	}, [currentFolderId, folderTree.data, archivedFolderTree.data, folders, navigate, showArchived]);
 
-	const { pinned, favorites, entries } = useMemo(() => {
+	const {
+		pinned,
+		favorites: promotedFavorites,
+		entries,
+	} = useMemo(() => {
 		if (showArchived) {
 			const archivedEntries = buildCurrentLevelEntries({
 				items: filteredItems,
@@ -220,6 +230,7 @@ function StoriesPage() {
 				currentFolderId: currentFolderId ?? null,
 				sort,
 				currentUserName,
+				favoriteFolderIds: favorites.data?.folderIds,
 			});
 			return { pinned: [], favorites: [], entries: archivedEntries.entries };
 		}
@@ -229,8 +240,9 @@ function StoriesPage() {
 			currentFolderId: currentFolderId ?? null,
 			sort,
 			currentUserName,
+			favoriteFolderIds: favorites.data?.folderIds,
 		});
-	}, [filteredItems, folders, currentFolderId, sort, currentUserName, showArchived]);
+	}, [filteredItems, folders, currentFolderId, sort, currentUserName, showArchived, favorites.data]);
 
 	const breadcrumbPath = useMemo((): BreadcrumbNode[] => {
 		const root: BreadcrumbNode = { id: null, name: showArchived ? 'Archived' : 'Root' };
@@ -245,8 +257,12 @@ function StoriesPage() {
 			if (!folder) {
 				break;
 			}
-			path.unshift({ id: folder.id, name: folder.name });
-			id = folder.parentId;
+			path.unshift({
+				id: folder.id,
+				name: folder.name,
+				isPrivate: folder.visibility === 'private' || folder.systemType === 'shared_with_me',
+			});
+			id = 'parentId' in folder ? (folder.parentId ?? null) : null;
 		}
 		return [root, ...path];
 	}, [currentFolderId, folders, showArchived]);
@@ -295,6 +311,8 @@ function StoriesPage() {
 			onSettled: () => {
 				queryClient.invalidateQueries({ queryKey: trpc.storyFolder.listItems.queryKey() });
 				queryClient.invalidateQueries({ queryKey: trpc.storyFolder.listTree.queryKey() });
+				queryClient.invalidateQueries({ queryKey: trpc.story.listAll.queryKey() });
+				queryClient.invalidateQueries({ queryKey: trpc.storyShare.list.queryKey() });
 			},
 		}),
 	);
@@ -303,6 +321,9 @@ function StoriesPage() {
 		trpc.storyFolder.move.mutationOptions({
 			onSuccess: () => {
 				queryClient.invalidateQueries({ queryKey: trpc.storyFolder.listTree.queryKey() });
+				queryClient.invalidateQueries({ queryKey: trpc.storyFolder.listItems.queryKey() });
+				queryClient.invalidateQueries({ queryKey: trpc.story.listAll.queryKey() });
+				queryClient.invalidateQueries({ queryKey: trpc.storyShare.list.queryKey() });
 			},
 		}),
 	);
@@ -424,7 +445,7 @@ function StoriesPage() {
 					{!showArchived && (
 						<PromotedSections
 							pinned={pinned}
-							favorites={favorites}
+							favorites={promotedFavorites}
 							currentUserName={currentUserName}
 							onModifyFolder={(folder) => setDialog({ kind: 'modify', folder })}
 							onMoveFolder={(folder) => setDialog({ kind: 'picker-folder', folder })}
@@ -505,6 +526,7 @@ function StoriesPage() {
 						}
 					}}
 					target={{ type: 'story', storyId: dialog.item.storyId }}
+					isOwner={dialog.item.kind === 'own' || dialog.item.kind === 'own-standalone'}
 				/>
 			)}
 
@@ -516,7 +538,8 @@ function StoriesPage() {
 							setDialog(null);
 						}
 					}}
-					target={{ type: 'folder', folderId: dialog.folder.id }}
+					target={{ type: 'folder', folderId: dialog.folder.id, currentVisibility: dialog.folder.visibility }}
+					isOwner={dialog.folder.ownerId === session?.user?.id}
 				/>
 			)}
 		</div>

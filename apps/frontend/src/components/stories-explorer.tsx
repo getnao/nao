@@ -3,6 +3,7 @@ import type { StoryPanelDisplayMode } from '@nao/shared/types';
 import type { ExplorerEntry, FolderItem, StoryItem } from '@/lib/stories-page';
 import { FolderCard } from '@/components/stories-folder-card';
 import { StoryCard, StoriesEmptyState, StoriesNoResults } from '@/components/stories-groups';
+import { usePermissions } from '@/hooks/use-permissions';
 import { cn } from '@/lib/utils';
 
 const GRID_CLASS = 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3';
@@ -36,12 +37,23 @@ export function StoriesExplorer({
 	onRestoreFolder: (folder: FolderItem) => void;
 	onNewFolder: () => void;
 }) {
+	const { isViewer } = usePermissions();
+	const isInSharedWithMe = currentFolderId === '__shared_with_me__';
+	const canCreateFolder = !showArchived && !isViewer && !isInSharedWithMe;
+	const moveToFolderHandler = isViewer || isInSharedWithMe ? undefined : onMoveToFolder;
+
 	if (entries.length === 0) {
 		if (searchQuery.trim()) {
 			return <StoriesNoResults query={searchQuery} />;
 		}
 		if (currentFolderId && !showArchived) {
-			return <FolderEmptyState onNewFolder={onNewFolder} displayMode={displayMode} />;
+			return (
+				<FolderEmptyState
+					onNewFolder={onNewFolder}
+					displayMode={displayMode}
+					canCreateFolder={canCreateFolder}
+				/>
+			);
 		}
 		return <StoriesEmptyState />;
 	}
@@ -74,11 +86,11 @@ export function StoriesExplorer({
 							item={entry.story}
 							displayMode='lines'
 							showArchived={showArchived}
-							onMoveToFolder={onMoveToFolder}
+							onMoveToFolder={moveToFolderHandler}
 						/>
 					);
 				})}
-				{!showArchived && <NewFolderRow onClick={onNewFolder} />}
+				{canCreateFolder && <NewFolderRow onClick={onNewFolder} />}
 			</div>
 		);
 	}
@@ -99,7 +111,7 @@ export function StoriesExplorer({
 						onRestore={onRestoreFolder}
 					/>
 				))}
-				{!showArchived && <NewFolderCard onClick={onNewFolder} />}
+				{canCreateFolder && <NewFolderCard onClick={onNewFolder} />}
 			</div>
 			{stories.length > 0 && (
 				<div className={GRID_CLASS}>
@@ -109,7 +121,7 @@ export function StoriesExplorer({
 							item={entry.story}
 							displayMode='grid'
 							showArchived={showArchived}
-							onMoveToFolder={onMoveToFolder}
+							onMoveToFolder={moveToFolderHandler}
 						/>
 					))}
 				</div>
@@ -153,10 +165,15 @@ function NewFolderRow({ onClick }: { onClick: () => void }) {
 function FolderEmptyState({
 	onNewFolder,
 	displayMode,
+	canCreateFolder,
 }: {
 	onNewFolder: () => void;
 	displayMode: StoryPanelDisplayMode;
+	canCreateFolder: boolean;
 }) {
+	if (!canCreateFolder) {
+		return <StoriesEmptyState />;
+	}
 	if (displayMode === 'grid') {
 		return (
 			<div className={GRID_CLASS}>

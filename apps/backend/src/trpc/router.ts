@@ -10,6 +10,7 @@ import { chatForkRoutes } from './chat-fork.routes';
 import { citationRoutes } from './citation.routes';
 import { contextExplorerRoutes } from './context-explorer.routes';
 import { embedRoutes } from './embed.routes';
+import { favoriteRoutes } from './favorite.routes';
 import { feedbackRoutes } from './feedback.routes';
 import { githubRoutes } from './github.routes';
 import { licenseRoutes } from './license.routes';
@@ -42,6 +43,7 @@ export const trpcRouter = router({
 	chatFork: chatForkRoutes,
 	citation: citationRoutes,
 	contextExplorer: contextExplorerRoutes,
+	favorite: favoriteRoutes,
 	feedback: feedbackRoutes,
 	github: githubRoutes,
 	license: licenseRoutes,

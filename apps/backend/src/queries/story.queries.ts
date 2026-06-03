@@ -320,11 +320,10 @@ export async function assignChatToStory(storyId: string, chatId: string): Promis
 }
 
 export async function archiveStory(chatId: string, slug: string): Promise<void> {
-	await db
-		.update(s.story)
-		.set({ archivedAt: new Date() })
-		.where(and(eq(s.story.chatId, chatId), eq(s.story.slug, slug)))
-		.execute();
+	const matcher = and(eq(s.story.chatId, chatId), eq(s.story.slug, slug));
+	await db.update(s.story).set({ archivedAt: new Date() }).where(matcher).execute();
+	const ids = await db.select({ id: s.story.id }).from(s.story).where(matcher).execute();
+	await detachStoriesFromFolders(ids.map((row) => row.id));
 }
 
 export async function archiveManyStories(stories: { chatId: string; slug: string }[]): Promise<void> {
@@ -333,12 +332,11 @@ export async function archiveManyStories(stories: { chatId: string; slug: string
 	}
 
 	const conditions = stories.map(({ chatId, slug }) => and(eq(s.story.chatId, chatId), eq(s.story.slug, slug)));
+	const matcher = or(...conditions);
 
-	await db
-		.update(s.story)
-		.set({ archivedAt: new Date() })
-		.where(or(...conditions))
-		.execute();
+	await db.update(s.story).set({ archivedAt: new Date() }).where(matcher).execute();
+	const ids = await db.select({ id: s.story.id }).from(s.story).where(matcher).execute();
+	await detachStoriesFromFolders(ids.map((row) => row.id));
 }
 
 export async function unarchiveStory(chatId: string, slug: string): Promise<void> {
@@ -351,57 +349,18 @@ export async function unarchiveStory(chatId: string, slug: string): Promise<void
 
 export async function archiveByStoryId(storyId: string): Promise<void> {
 	await db.update(s.story).set({ archivedAt: new Date() }).where(eq(s.story.id, storyId)).execute();
+	await detachStoriesFromFolders([storyId]);
 }
 
 export async function unarchiveByStoryId(storyId: string): Promise<void> {
 	await db.update(s.story).set({ archivedAt: null }).where(eq(s.story.id, storyId)).execute();
 }
 
-export async function toggleStoryFavorite(userId: string, storyId: string): Promise<boolean> {
-	const inserted = await db
-		.insert(s.storyFavorite)
-		.values({ userId, storyId })
-		.onConflictDoNothing()
-		.returning({ userId: s.storyFavorite.userId });
-
-	if (inserted.length > 0) {
-		return true;
+async function detachStoriesFromFolders(storyIds: string[]): Promise<void> {
+	if (storyIds.length === 0) {
+		return;
 	}
-
-	await db
-		.delete(s.storyFavorite)
-		.where(and(eq(s.storyFavorite.userId, userId), eq(s.storyFavorite.storyId, storyId)))
-		.execute();
-	return false;
-}
-
-export async function listUserFavoriteStories(
-	userId: string,
-	options?: { projectId?: string },
-): Promise<{ storyId: string; createdAt: Date }[]> {
-	if (!options?.projectId) {
-		return db
-			.select({ storyId: s.storyFavorite.storyId, createdAt: s.storyFavorite.createdAt })
-			.from(s.storyFavorite)
-			.where(eq(s.storyFavorite.userId, userId))
-			.execute();
-	}
-
-	return db
-		.select({ storyId: s.storyFavorite.storyId, createdAt: s.storyFavorite.createdAt })
-		.from(s.storyFavorite)
-		.innerJoin(s.story, eq(s.storyFavorite.storyId, s.story.id))
-		.leftJoin(s.chat, eq(s.story.chatId, s.chat.id))
-		.where(
-			and(
-				eq(s.storyFavorite.userId, userId),
-				or(
-					eq(s.chat.projectId, options.projectId),
-					and(isNull(s.story.chatId), eq(s.story.projectId, options.projectId)),
-				),
-			),
-		)
-		.execute();
+	await db.delete(s.storyFolderItem).where(inArray(s.storyFolderItem.storyId, storyIds)).execute();
 }
 
 export async function canUserAccessStory(storyId: string, userId: string): Promise<boolean> {

@@ -2,6 +2,7 @@ import { story } from '@nao/shared/tools';
 
 import { renderToModelOutput, StoryOutput } from '../../components/tool-outputs';
 import * as storyQueries from '../../queries/story.queries';
+import * as storyFolderQueries from '../../queries/story-folder.queries';
 import type { ToolContext } from '../../types/tools';
 import { createTool } from '../../utils/tools';
 
@@ -21,7 +22,7 @@ export default createTool<story.Input, story.Output>({
 	outputSchema: story.OutputSchema,
 
 	execute: async (input, context) => {
-		const { chatId } = context;
+		const { chatId, userId, projectId } = context;
 
 		const fail = (error: string, existing?: { code: string; version: number; title: string }) =>
 			({
@@ -52,6 +53,8 @@ export default createTool<story.Input, story.Output>({
 				source: 'assistant',
 			});
 			rememberStoryArtifact(context, input.id, version.title);
+
+			await storyFolderQueries.placeStoryInPrivateRoot(userId, projectId, version.storyId);
 
 			return {
 				_version: '1',

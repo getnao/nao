@@ -1,13 +1,12 @@
 import type { McpChartEmbedStoredConfig } from '@nao/shared';
 import type { CitationData, LlmProvider } from '@nao/shared/types';
-import { BUDGET_PERIODS, SHARE_VISIBILITY, USER_ROLES } from '@nao/shared/types';
+import { BUDGET_PERIODS, FOLDER_SYSTEM_TYPE, FOLDER_VISIBILITY, SHARE_VISIBILITY, USER_ROLES } from '@nao/shared/types';
 import { type ProviderMetadata } from 'ai';
 import { sql } from 'drizzle-orm';
 import {
 	type AnyPgColumn,
 	boolean,
 	check,
-	foreignKey,
 	index,
 	integer,
 	jsonb,
@@ -470,7 +469,11 @@ export const sharedStory = pgTable(
 		isPinned: boolean('is_pinned').default(false).notNull(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 	},
-	(t) => [index('shared_story_projectId_idx').on(t.projectId), index('shared_story_storyId_idx').on(t.storyId)],
+	(t) => [
+		index('shared_story_projectId_idx').on(t.projectId),
+		index('shared_story_storyId_idx').on(t.storyId),
+		uniqueIndex('shared_story_project_story_unique').on(t.projectId, t.storyId),
+	],
 );
 
 export const sharedStoryAccess = pgTable(
@@ -1032,21 +1035,24 @@ export const jwks = pgTable('jwks', {
 	expiresAt: timestamp('expires_at'),
 });
 
-export const storyFavorite = pgTable(
-	'story_favorite',
+export const favorite = pgTable(
+	'favorite',
 	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
 		userId: text('user_id')
 			.notNull()
 			.references(() => user.id, { onDelete: 'cascade' }),
-		storyId: text('story_id')
-			.notNull()
-			.references(() => story.id, { onDelete: 'cascade' }),
+		storyId: text('story_id').references(() => story.id, { onDelete: 'cascade' }),
+		folderId: text('folder_id').references((): AnyPgColumn => storyFolder.id, { onDelete: 'cascade' }),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 	},
 	(t) => [
-		primaryKey({ columns: [t.userId, t.storyId] }),
-		index('story_favorite_userId_idx').on(t.userId),
-		index('story_favorite_storyId_idx').on(t.storyId),
+		check('favorite_xor_target', sql`(${t.storyId} IS NOT NULL)::int + (${t.folderId} IS NOT NULL)::int = 1`),
+		unique('favorite_user_id_story_id_unique').on(t.userId, t.storyId),
+		unique('favorite_user_id_folder_id_unique').on(t.userId, t.folderId),
+		index('favorite_user_id_idx').on(t.userId),
 	],
 );
 
@@ -1056,7 +1062,7 @@ export const storyFolder = pgTable(
 		id: text('id')
 			.$defaultFn(() => crypto.randomUUID())
 			.primaryKey(),
-		userId: text('user_id')
+		ownerId: text('owner_id')
 			.notNull()
 			.references(() => user.id, { onDelete: 'cascade' }),
 		projectId: text('project_id')
@@ -1064,7 +1070,8 @@ export const storyFolder = pgTable(
 			.references(() => project.id, { onDelete: 'cascade' }),
 		parentId: text('parent_id').references((): AnyPgColumn => storyFolder.id, { onDelete: 'set null' }),
 		name: text('name').notNull(),
-		favoritedAt: timestamp('favorited_at'),
+		visibility: text('visibility', { enum: FOLDER_VISIBILITY }).default('public').notNull(),
+		systemType: text('system_type', { enum: FOLDER_SYSTEM_TYPE }),
 		archivedAt: timestamp('archived_at'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
@@ -1073,8 +1080,10 @@ export const storyFolder = pgTable(
 			.notNull(),
 	},
 	(t) => [
-		unique('story_folder_user_id_id_unique').on(t.userId, t.id),
-		index('story_folder_userId_projectId_parentId_idx').on(t.userId, t.projectId, t.parentId),
+		uniqueIndex('story_folder_private_root_unique')
+			.on(t.projectId, t.ownerId)
+			.where(sql`${t.systemType} = 'private_folder'`),
+		index('story_folder_ownerProjectParent_idx').on(t.ownerId, t.projectId, t.parentId),
 		index('story_folder_projectId_idx').on(t.projectId),
 	],
 );
@@ -1082,21 +1091,13 @@ export const storyFolder = pgTable(
 export const storyFolderItem = pgTable(
 	'story_folder_item',
 	{
-		userId: text('user_id')
-			.notNull()
-			.references(() => user.id, { onDelete: 'cascade' }),
 		storyId: text('story_id')
 			.notNull()
-			.references(() => story.id, { onDelete: 'cascade' }),
-		folderId: text('folder_id').notNull(),
+			.references(() => story.id, { onDelete: 'cascade' })
+			.primaryKey(),
+		folderId: text('folder_id')
+			.notNull()
+			.references(() => storyFolder.id, { onDelete: 'cascade' }),
 	},
-	(t) => [
-		primaryKey({ columns: [t.userId, t.storyId] }),
-		foreignKey({
-			name: 'story_folder_item_user_id_folder_id_story_folder_fk',
-			columns: [t.userId, t.folderId],
-			foreignColumns: [storyFolder.userId, storyFolder.id],
-		}).onDelete('cascade'),
-		index('story_folder_item_folderId_idx').on(t.folderId),
-	],
+	(t) => [index('story_folder_item_folderId_idx').on(t.folderId)],
 );

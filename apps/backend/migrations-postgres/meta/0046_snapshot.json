@@ -1,5 +1,5 @@
 {
-  "id": "2934ff00-b39d-4123-a5ca-89f996714b2c",
+  "id": "03f40113-a8d1-474e-9c29-4f2d00575895",
   "prevId": "50e4e0c9-229c-43cf-a50a-cf5b517ba0f8",
   "version": "7",
   "dialect": "postgresql",
@@ -1321,6 +1321,128 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.favorite": {
+      "name": "favorite",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "story_id": {
+          "name": "story_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "folder_id": {
+          "name": "folder_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "favorite_user_id_idx": {
+          "name": "favorite_user_id_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "favorite_user_id_user_id_fk": {
+          "name": "favorite_user_id_user_id_fk",
+          "tableFrom": "favorite",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "favorite_story_id_story_id_fk": {
+          "name": "favorite_story_id_story_id_fk",
+          "tableFrom": "favorite",
+          "tableTo": "story",
+          "columnsFrom": [
+            "story_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "favorite_folder_id_story_folder_id_fk": {
+          "name": "favorite_folder_id_story_folder_id_fk",
+          "tableFrom": "favorite",
+          "tableTo": "story_folder",
+          "columnsFrom": [
+            "folder_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "favorite_user_id_story_id_unique": {
+          "name": "favorite_user_id_story_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "user_id",
+            "story_id"
+          ]
+        },
+        "favorite_user_id_folder_id_unique": {
+          "name": "favorite_user_id_folder_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "user_id",
+            "folder_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "favorite_xor_target": {
+          "name": "favorite_xor_target",
+          "value": "(\"favorite\".\"story_id\" IS NOT NULL)::int + (\"favorite\".\"folder_id\" IS NOT NULL)::int = 1"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.jwks": {
@@ -4466,6 +4588,27 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "shared_story_project_story_unique": {
+          "name": "shared_story_project_story_unique",
+          "columns": [
+            {
+              "expression": "project_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "story_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -4884,104 +5027,6 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.story_favorite": {
-      "name": "story_favorite",
-      "schema": "",
-      "columns": {
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "story_id": {
-          "name": "story_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "story_favorite_userId_idx": {
-          "name": "story_favorite_userId_idx",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "story_favorite_storyId_idx": {
-          "name": "story_favorite_storyId_idx",
-          "columns": [
-            {
-              "expression": "story_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "story_favorite_user_id_user_id_fk": {
-          "name": "story_favorite_user_id_user_id_fk",
-          "tableFrom": "story_favorite",
-          "tableTo": "user",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "story_favorite_story_id_story_id_fk": {
-          "name": "story_favorite_story_id_story_id_fk",
-          "tableFrom": "story_favorite",
-          "tableTo": "story",
-          "columnsFrom": [
-            "story_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "story_favorite_user_id_story_id_pk": {
-          "name": "story_favorite_user_id_story_id_pk",
-          "columns": [
-            "user_id",
-            "story_id"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
     "public.story_folder": {
       "name": "story_folder",
       "schema": "",
@@ -4992,8 +5037,8 @@
           "primaryKey": true,
           "notNull": true
         },
-        "user_id": {
-          "name": "user_id",
+        "owner_id": {
+          "name": "owner_id",
           "type": "text",
           "primaryKey": false,
           "notNull": true
@@ -5016,9 +5061,16 @@
           "primaryKey": false,
           "notNull": true
         },
-        "favorited_at": {
-          "name": "favorited_at",
-          "type": "timestamp",
+        "visibility": {
+          "name": "visibility",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'public'"
+        },
+        "system_type": {
+          "name": "system_type",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },
@@ -5044,11 +5096,33 @@
         }
       },
       "indexes": {
-        "story_folder_userId_projectId_parentId_idx": {
-          "name": "story_folder_userId_projectId_parentId_idx",
+        "story_folder_private_root_unique": {
+          "name": "story_folder_private_root_unique",
           "columns": [
             {
-              "expression": "user_id",
+              "expression": "project_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "owner_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"story_folder\".\"system_type\" = 'private_folder'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "story_folder_ownerProjectParent_idx": {
+          "name": "story_folder_ownerProjectParent_idx",
+          "columns": [
+            {
+              "expression": "owner_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -5088,12 +5162,12 @@
         }
       },
       "foreignKeys": {
-        "story_folder_user_id_user_id_fk": {
-          "name": "story_folder_user_id_user_id_fk",
+        "story_folder_owner_id_user_id_fk": {
+          "name": "story_folder_owner_id_user_id_fk",
           "tableFrom": "story_folder",
           "tableTo": "user",
           "columnsFrom": [
-            "user_id"
+            "owner_id"
           ],
           "columnsTo": [
             "id"
@@ -5129,16 +5203,7 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "story_folder_user_id_id_unique": {
-          "name": "story_folder_user_id_id_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "user_id",
-            "id"
-          ]
-        }
-      },
+      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -5147,16 +5212,10 @@
       "name": "story_folder_item",
       "schema": "",
       "columns": {
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
         "story_id": {
           "name": "story_id",
           "type": "text",
-          "primaryKey": false,
+          "primaryKey": true,
           "notNull": true
         },
         "folder_id": {
@@ -5184,19 +5243,6 @@
         }
       },
       "foreignKeys": {
-        "story_folder_item_user_id_user_id_fk": {
-          "name": "story_folder_item_user_id_user_id_fk",
-          "tableFrom": "story_folder_item",
-          "tableTo": "user",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
         "story_folder_item_story_id_story_id_fk": {
           "name": "story_folder_item_story_id_story_id_fk",
           "tableFrom": "story_folder_item",
@@ -5210,31 +5256,21 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "story_folder_item_user_id_folder_id_story_folder_fk": {
-          "name": "story_folder_item_user_id_folder_id_story_folder_fk",
+        "story_folder_item_folder_id_story_folder_id_fk": {
+          "name": "story_folder_item_folder_id_story_folder_id_fk",
           "tableFrom": "story_folder_item",
           "tableTo": "story_folder",
           "columnsFrom": [
-            "user_id",
             "folder_id"
           ],
           "columnsTo": [
-            "user_id",
             "id"
           ],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {
-        "story_folder_item_user_id_story_id_pk": {
-          "name": "story_folder_item_user_id_story_id_pk",
-          "columns": [
-            "user_id",
-            "story_id"
-          ]
-        }
-      },
+      "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},

@@ -77,6 +77,12 @@ export type StorySharingInfo = {
 	isPinned: boolean;
 };
 
+export const FOLDER_VISIBILITY = ['private', 'public'] as const;
+export type FolderVisibility = (typeof FOLDER_VISIBILITY)[number];
+
+export const FOLDER_SYSTEM_TYPE = ['private_folder', 'shared_with_me'] as const;
+export type FolderSystemType = (typeof FOLDER_SYSTEM_TYPE)[number];
+
 export type ProjectChatReplayFacets<R extends string = string> = {
 	userNames: string[];
 	userNameCounts: Record<string, number>;

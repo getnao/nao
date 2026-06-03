@@ -1,3 +1,4 @@
+import { FOLDER_SYSTEM_TYPE } from '@nao/shared/types';
 import type { inferRouterOutputs } from '@trpc/server';
 
 import type { TrpcRouter } from '@nao/backend/trpc';
@@ -46,11 +47,11 @@ export type StoryItem = {
 	isLive: boolean;
 	isPinned: boolean;
 	isFavorited: boolean;
-	favoritedAt: Date | null;
 	sharing: StorySharingInfo | null;
 	shareId?: string;
 	sharedStoryId?: string;
 	folderId: string | null;
+	isInPrivateContext: boolean;
 	link:
 		| { to: '/stories/preview/$chatId/$storySlug'; params: { chatId: string; storySlug: string } }
 		| { to: '/stories/shared/$shareId'; params: { shareId: string } }
@@ -74,41 +75,64 @@ export function getStoredSetting<T extends string>(key: string, allowed: T[], fa
 	return allowed.includes(value as T) ? (value as T) : fallback;
 }
 
+export function isSystemFolder(folder: FolderItem): boolean {
+	return folder.systemType != null;
+}
+
+function isPrivateContext(folderId: string | null, folders: FolderItem[]): boolean {
+	if (folderId === null) {
+		return false;
+	}
+	let current: FolderItem | undefined = folders.find((f) => f.id === folderId);
+	const visited = new Set<string>();
+	while (current) {
+		if (visited.has(current.id)) {
+			break;
+		}
+		visited.add(current.id);
+		if (current.visibility === 'private') {
+			return true;
+		}
+		current = current.parentId ? folders.find((f) => f.id === current!.parentId) : undefined;
+	}
+	return false;
+}
+
 export function buildStoryItems({
 	userStories,
 	standaloneStories,
 	sharedStories,
-	currentUserId,
 	currentUserName,
-	favoriteStoryEntries,
+	favoriteStoryIds,
 	folderItemMap,
+	folders,
 }: {
 	userStories: OwnStoryListItem[];
 	standaloneStories?: StandaloneStoryListItem[];
 	sharedStories: SharedStoryListItem[];
-	currentUserId?: string;
 	currentUserName: string;
-	favoriteStoryEntries?: { storyId: string; createdAt: Date }[];
-	folderItemMap?: Map<string, string>;
+	favoriteStoryIds?: string[];
+	folderItemMap: Map<string, string>;
+	folders: FolderItem[];
 }): StoryItem[] {
-	const favoriteMap = new Map<string, Date>((favoriteStoryEntries ?? []).map((e) => [e.storyId, e.createdAt]));
-	const folderMap = folderItemMap ?? new Map<string, string>();
+	const favoriteSet = new Set<string>(favoriteStoryIds ?? []);
 
-	const ownShareMap = new Map<string, SharedStoryListItem>();
-	for (const story of sharedStories) {
-		if (story.userId === currentUserId && story.chatId) {
-			const key = `${story.chatId}-${story.storySlug}`;
-			if (!ownShareMap.has(key)) {
-				ownShareMap.set(key, story);
-			}
-		}
+	const ownStoryIds = new Set<string>([
+		...userStories.map((s) => s.id),
+		...(standaloneStories ?? []).map((s) => s.id),
+	]);
+
+	const sharesByStoryId = new Map<string, SharedStoryListItem>();
+	for (const share of sharedStories) {
+		sharesByStoryId.set(share.storyId, share);
 	}
 
 	const ownItems: StoryItem[] = userStories.map((story) => {
 		const chatId = story.chatId!;
-		const sharedEntry = ownShareMap.get(`${chatId}-${story.storySlug}`);
+		const sharedEntry = sharesByStoryId.get(story.id);
 		const shareId = sharedEntry?.id;
-		const favoritedAt = favoriteMap.get(story.id) ?? null;
+		const folderId = folderItemMap.get(story.id) ?? null;
+		const isFavorited = favoriteSet.has(story.id);
 		return {
 			id: `${chatId}-${story.storySlug}`,
 			storyId: story.id,
@@ -122,12 +146,12 @@ export function buildStoryItems({
 			summary: story.summary,
 			isLive: story.isLive,
 			isPinned: sharedEntry?.isPinned ?? false,
-			isFavorited: favoritedAt !== null,
-			favoritedAt,
+			isFavorited,
 			sharing: story.sharing,
 			shareId,
 			sharedStoryId: shareId,
-			folderId: folderMap.get(story.id) ?? null,
+			folderId,
+			isInPrivateContext: isPrivateContext(folderId, folders),
 			link: shareId
 				? { to: '/stories/shared/$shareId', params: { shareId } }
 				: {
@@ -138,7 +162,8 @@ export function buildStoryItems({
 	});
 
 	const standaloneItems: StoryItem[] = (standaloneStories ?? []).map((story) => {
-		const favoritedAt = favoriteMap.get(story.id) ?? null;
+		const folderId = folderItemMap.get(story.id) ?? null;
+		const isFavorited = favoriteSet.has(story.id);
 		return {
 			id: story.id,
 			storyId: story.id,
@@ -151,18 +176,19 @@ export function buildStoryItems({
 			summary: story.summary,
 			isLive: story.isLive,
 			isPinned: false,
-			isFavorited: favoritedAt !== null,
-			favoritedAt,
+			isFavorited,
 			sharing: null,
-			folderId: folderMap.get(story.id) ?? null,
+			folderId,
+			isInPrivateContext: isPrivateContext(folderId, folders),
 			link: { to: '/stories/standalone/$storyId', params: { storyId: story.id } },
 		};
 	});
 
-	const sharedItems: StoryItem[] = sharedStories
-		.filter((story) => story.userId !== currentUserId)
+	const sharedItems: StoryItem[] = Array.from(sharesByStoryId.values())
+		.filter((share) => !ownStoryIds.has(share.storyId))
 		.map((story) => {
-			const favoritedAt = favoriteMap.get(story.storyId) ?? null;
+			const folderId = folderItemMap.get(story.storyId) ?? null;
+			const isFavorited = favoriteSet.has(story.storyId);
 			return {
 				id: story.id,
 				storyId: story.storyId,
@@ -174,11 +200,11 @@ export function buildStoryItems({
 				summary: story.summary,
 				isLive: false,
 				isPinned: story.isPinned,
-				isFavorited: favoritedAt !== null,
-				favoritedAt,
+				isFavorited,
 				sharing: story.sharing,
 				sharedStoryId: story.id,
-				folderId: folderMap.get(story.storyId) ?? null,
+				folderId,
+				isInPrivateContext: false,
 				link: { to: '/stories/shared/$shareId', params: { shareId: story.id } },
 			};
 		});
@@ -206,38 +232,57 @@ export function buildCurrentLevelEntries({
 	currentFolderId,
 	sort,
 	currentUserName,
+	favoriteFolderIds,
 }: {
 	items: StoryItem[];
 	folders: FolderItem[];
 	currentFolderId: string | null;
 	sort: SortState;
 	currentUserName: string;
+	favoriteFolderIds?: string[];
 }): { pinned: StoryItem[]; favorites: FavoriteEntry[]; entries: ExplorerEntry[] } {
+	const favoriteFolderSet = new Set<string>(favoriteFolderIds ?? []);
+
 	const pinned = items.filter((i) => i.isPinned);
 
 	const favoriteStories: FavoriteEntry[] = items
-		.filter((i) => !i.isPinned && i.isFavorited && i.favoritedAt !== null)
-		.map((story) => ({ kind: 'story' as const, story, favoritedAt: story.favoritedAt! }));
+		.filter((i) => !i.isPinned && i.isFavorited)
+		.map((story) => ({ kind: 'story' as const, story, favoritedAt: story.createdAt }));
 
 	const favoriteFolders: FavoriteEntry[] = folders
-		.filter((f) => f.favoritedAt !== null)
-		.map((folder) => ({ kind: 'folder' as const, folder, favoritedAt: folder.favoritedAt! }));
+		.filter((f) => f.id !== '__shared_with_me__' && favoriteFolderSet.has(f.id))
+		.map((folder) => ({ kind: 'folder' as const, folder, favoritedAt: folder.createdAt }));
 
 	const favorites = [...favoriteStories, ...favoriteFolders].sort(
 		(a, b) => b.favoritedAt.getTime() - a.favoritedAt.getTime(),
 	);
 
-	const rest = items.filter((i) => i.folderId === currentFolderId);
-	const subfolders = folders.filter((f) => f.parentId === currentFolderId);
+	const inSharedWithMe = currentFolderId === '__shared_with_me__';
+	const subfolders = inSharedWithMe ? [] : folders.filter((f) => f.parentId === currentFolderId);
 
-	const entries: ExplorerEntry[] = [
-		...subfolders.map((folder): ExplorerEntry => ({ kind: 'folder', folder })),
+	const rest = inSharedWithMe
+		? items.filter((i) => i.kind === 'shared-with-me')
+		: items.filter((i) => i.folderId === currentFolderId && i.kind !== 'shared-with-me');
+
+	const systemFolders = subfolders.filter(isSystemFolder).sort((a, b) => systemFolderRank(a) - systemFolderRank(b));
+	const regularFolders = subfolders.filter((f) => !isSystemFolder(f));
+
+	const regularEntries: ExplorerEntry[] = [
+		...regularFolders.map((folder): ExplorerEntry => ({ kind: 'folder', folder })),
 		...rest.map((story): ExplorerEntry => ({ kind: 'story', story })),
 	];
+	regularEntries.sort(compareEntries(sort, currentUserName));
 
-	entries.sort(compareEntries(sort, currentUserName));
+	const entries: ExplorerEntry[] = [
+		...systemFolders.map((folder): ExplorerEntry => ({ kind: 'folder', folder })),
+		...regularEntries,
+	];
 
 	return { pinned, favorites, entries };
+}
+
+function systemFolderRank(folder: FolderItem): number {
+	return folder.systemType == null ? 99 : FOLDER_SYSTEM_TYPE.indexOf(folder.systemType);
 }
 
 function compareEntries(sort: SortState, currentUserName: string): (a: ExplorerEntry, b: ExplorerEntry) => number {

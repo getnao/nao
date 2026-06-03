@@ -7,6 +7,7 @@ import { STORY_REFRESH_JOB_NAME } from '../handlers/story-refresh.handler';
 import * as activityQueries from '../queries/activity.queries';
 import * as chatQueries from '../queries/chat.queries';
 import * as scheduledJobQueries from '../queries/scheduled-job.queries';
+import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
 import { naturalLanguageToCron } from '../services/cron-nlp';
@@ -14,10 +15,20 @@ import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../servic
 import { nextCronTick } from '../services/scheduler.service';
 import { buildDownloadResponse } from '../utils/story-download';
 import { extractStorySummary } from '../utils/story-summary';
-import { ownedResourceProcedure, projectProtectedProcedure, protectedProcedure } from './trpc';
+import { canSendProcedure, ownedResourceProcedure, projectProtectedProcedure, protectedProcedure } from './trpc';
 
 const chatOwnerProcedure = ownedResourceProcedure(chatQueries.getChatOwnerId, 'chat');
 const storyOwnerProcedure = ownedResourceProcedure(storyQueries.getStoryOwnerId, 'story');
+
+async function assertStoryPublicInProject(storyId: string, projectId: string): Promise<void> {
+	const share = await sharedStoryQueries.getSharedStoryInfo(storyId, projectId);
+	if (!share || share.visibility !== 'project') {
+		throw new TRPCError({
+			code: 'FORBIDDEN',
+			message: 'Only public stories can be archived by other members.',
+		});
+	}
+}
 
 export const storyRoutes = {
 	listAll: protectedProcedure
@@ -136,8 +147,8 @@ export const storyRoutes = {
 				action: z.enum(['create', 'update', 'replace']),
 			}),
 		)
-		.mutation(async ({ input }) => {
-			return storyQueries.createStoryVersion({
+		.mutation(async ({ input, ctx }) => {
+			const version = await storyQueries.createStoryVersion({
 				chatId: input.chatId,
 				slug: input.storySlug,
 				title: input.title,
@@ -145,6 +156,15 @@ export const storyRoutes = {
 				action: input.action,
 				source: 'user',
 			});
+
+			if (input.action === 'create') {
+				const projectId = await chatQueries.getChatProjectId(input.chatId);
+				if (projectId) {
+					await storyFolderQueries.placeStoryInPrivateRoot(ctx.user.id, projectId, version.storyId);
+				}
+			}
+
+			return version;
 		}),
 
 	updateLiveSettings: chatOwnerProcedure
@@ -225,8 +245,9 @@ export const storyRoutes = {
 		.mutation(async ({ input, ctx }) => {
 			await storyQueries.unarchiveStory(input.chatId, input.storySlug);
 			const story = await storyQueries.getStoryByChatAndSlug(input.chatId, input.storySlug);
-			if (story) {
-				await storyFolderQueries.clearStoryMembershipIfFolderArchived(ctx.user.id, story.id);
+			const projectId = story ? await storyQueries.getStoryProjectId(story.id) : null;
+			if (story && projectId) {
+				await storyFolderQueries.rehomeUnarchivedStory(ctx.user.id, projectId, story.id);
 			}
 		}),
 
@@ -238,25 +259,36 @@ export const storyRoutes = {
 		.input(z.object({ storyId: z.string() }))
 		.mutation(async ({ input, ctx }) => {
 			await storyQueries.unarchiveByStoryId(input.storyId);
-			await storyFolderQueries.clearStoryMembershipIfFolderArchived(ctx.user.id, input.storyId);
+			const projectId = await storyQueries.getStoryProjectId(input.storyId);
+			if (projectId) {
+				await storyFolderQueries.rehomeUnarchivedStory(ctx.user.id, projectId, input.storyId);
+			}
 		}),
 
-	toggleFavorite: protectedProcedure.input(z.object({ storyId: z.string() })).mutation(async ({ input, ctx }) => {
-		const canAccess = await storyQueries.canUserAccessStory(input.storyId, ctx.user.id);
-		if (!canAccess) {
-			throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this story.' });
-		}
-		const isFavorited = await storyQueries.toggleStoryFavorite(ctx.user.id, input.storyId);
-		return { isFavorited };
+	listSharedArchived: projectProtectedProcedure.query(async ({ ctx }) => {
+		const stories = await sharedStoryQueries.listProjectArchivedSharedStories(ctx.project.id);
+		return stories.map((story) => ({
+			...story,
+			storySlug: story.slug,
+			summary: extractStorySummary(story.code),
+			sharing: {
+				visibility: story.visibility,
+				sharedWithCount: story.sharedWithCount,
+				isPinned: story.isPinned,
+			},
+		}));
 	}),
 
-	listFavorites: protectedProcedure
-		.input(z.object({ projectId: z.string().optional() }).optional())
-		.query(async ({ input, ctx }) => {
-			return storyQueries.listUserFavoriteStories(ctx.user.id, {
-				projectId: input?.projectId,
-			});
-		}),
+	archiveShared: canSendProcedure.input(z.object({ storyId: z.string() })).mutation(async ({ input, ctx }) => {
+		await assertStoryPublicInProject(input.storyId, ctx.project.id);
+		await storyQueries.archiveByStoryId(input.storyId);
+	}),
+
+	unarchiveShared: canSendProcedure.input(z.object({ storyId: z.string() })).mutation(async ({ input, ctx }) => {
+		await assertStoryPublicInProject(input.storyId, ctx.project.id);
+		await storyQueries.unarchiveByStoryId(input.storyId);
+		await storyFolderQueries.rehomeUnarchivedStory(ctx.user.id, ctx.project.id, input.storyId);
+	}),
 
 	archiveMany: protectedProcedure
 		.input(z.object({ stories: z.array(z.object({ chatId: z.string(), storySlug: z.string() })).min(1) }))

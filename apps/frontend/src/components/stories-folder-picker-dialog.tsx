@@ -1,23 +1,27 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ChevronRight, Folder, Home } from 'lucide-react';
+import { TriangleAlert } from 'lucide-react';
 import { useState } from 'react';
 
 import type { FolderItem } from '@/lib/stories-page';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { cn } from '@/lib/utils';
+import { FolderTreeSelect, getTargetVisibility } from '@/components/stories-folder-tree-select';
 import { trpc } from '@/main';
 
-type PickerTarget = { type: 'story'; storyId: string } | { type: 'folder'; folderId: string };
+type PickerTarget =
+	| { type: 'story'; storyId: string }
+	| { type: 'folder'; folderId: string; currentVisibility?: string };
 
 export function FolderPickerDialog({
 	open,
 	onOpenChange,
 	target,
+	isOwner,
 }: {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	target: PickerTarget;
+	isOwner: boolean;
 }) {
 	const [selectedId, setSelectedId] = useState<string | null>(null);
 	const queryClient = useQueryClient();
@@ -29,6 +33,8 @@ export function FolderPickerDialog({
 			onSuccess: () => {
 				queryClient.invalidateQueries({ queryKey: trpc.storyFolder.listItems.queryKey() });
 				queryClient.invalidateQueries({ queryKey: trpc.storyFolder.listTree.queryKey() });
+				queryClient.invalidateQueries({ queryKey: trpc.story.listAll.queryKey() });
+				queryClient.invalidateQueries({ queryKey: trpc.storyShare.list.queryKey() });
 				onOpenChange(false);
 			},
 		}),
@@ -39,6 +45,8 @@ export function FolderPickerDialog({
 			onSuccess: () => {
 				queryClient.invalidateQueries({ queryKey: trpc.storyFolder.listTree.queryKey() });
 				queryClient.invalidateQueries({ queryKey: trpc.storyFolder.listItems.queryKey() });
+				queryClient.invalidateQueries({ queryKey: trpc.story.listAll.queryKey() });
+				queryClient.invalidateQueries({ queryKey: trpc.storyShare.list.queryKey() });
 				onOpenChange(false);
 			},
 		}),
@@ -63,6 +71,10 @@ export function FolderPickerDialog({
 
 	const disabledIds = target.type === 'folder' ? getDescendantIds(target.folderId, tree) : new Set<string>();
 
+	const selectedVisibility = getTargetVisibility(selectedId, tree);
+	const sourceVisibility = target.type === 'folder' ? (target.currentVisibility ?? 'public') : null;
+	const visibilityWillChange = sourceVisibility !== null && selectedVisibility !== sourceVisibility;
+
 	function handleMove() {
 		if (target.type === 'story') {
 			moveStoryMutation.mutate({ storyId: target.storyId, folderId: selectedId });
@@ -74,8 +86,6 @@ export function FolderPickerDialog({
 		}
 	}
 
-	const rootSelected = selectedId === null;
-
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
 			<DialogContent className='sm:max-w-sm'>
@@ -83,29 +93,25 @@ export function FolderPickerDialog({
 					<DialogTitle>Move to…</DialogTitle>
 				</DialogHeader>
 
-				<div className='flex flex-col gap-0.5 max-h-64 overflow-y-auto rounded-md border p-1'>
-					<FolderPickerItem
-						label='Root'
-						icon={<Home className='size-3.5' />}
-						selected={rootSelected}
-						disabled={false}
-						depth={0}
-						onSelect={() => setSelectedId(null)}
-					/>
-					{tree
-						.filter((f) => f.parentId === null)
-						.map((f) => (
-							<FolderPickerNode
-								key={f.id}
-								folder={f}
-								allFolders={tree}
-								selectedId={selectedId}
-								disabledIds={disabledIds}
-								depth={1}
-								onSelect={setSelectedId}
-							/>
-						))}
-				</div>
+				<FolderTreeSelect
+					tree={tree}
+					selectedId={selectedId}
+					onSelect={setSelectedId}
+					isDisabled={(folder) =>
+						disabledIds.has(folder.id) ||
+						folder.systemType === 'shared_with_me' ||
+						(!isOwner && folder.visibility === 'private')
+					}
+				/>
+
+				{visibilityWillChange && (
+					<p className='flex items-center gap-1.5 text-xs text-amber-600'>
+						<TriangleAlert className='size-3.5 shrink-0' />
+						{selectedVisibility === 'public'
+							? 'Moving here will make the folder and its stories public.'
+							: 'Moving here will make the folder and its stories private.'}
+					</p>
+				)}
 
 				<DialogFooter>
 					<Button variant='ghost' onClick={() => onOpenChange(false)} disabled={isPending}>
@@ -117,83 +123,5 @@ export function FolderPickerDialog({
 				</DialogFooter>
 			</DialogContent>
 		</Dialog>
-	);
-}
-
-function FolderPickerNode({
-	folder,
-	allFolders,
-	selectedId,
-	disabledIds,
-	depth,
-	onSelect,
-}: {
-	folder: FolderItem;
-	allFolders: FolderItem[];
-	selectedId: string | null;
-	disabledIds: Set<string>;
-	depth: number;
-	onSelect: (id: string | null) => void;
-}) {
-	const children = allFolders.filter((f) => f.parentId === folder.id);
-	const isDisabled = disabledIds.has(folder.id);
-
-	return (
-		<>
-			<FolderPickerItem
-				label={folder.name}
-				icon={<Folder className='size-3.5' />}
-				selected={selectedId === folder.id}
-				disabled={isDisabled}
-				depth={depth}
-				onSelect={() => onSelect(folder.id)}
-			/>
-			{children.map((child) => (
-				<FolderPickerNode
-					key={child.id}
-					folder={child}
-					allFolders={allFolders}
-					selectedId={selectedId}
-					disabledIds={disabledIds}
-					depth={depth + 1}
-					onSelect={onSelect}
-				/>
-			))}
-		</>
-	);
-}
-
-function FolderPickerItem({
-	label,
-	icon,
-	selected,
-	disabled,
-	depth,
-	onSelect,
-}: {
-	label: string;
-	icon: React.ReactNode;
-	selected: boolean;
-	disabled: boolean;
-	depth: number;
-	onSelect: () => void;
-}) {
-	return (
-		<button
-			type='button'
-			disabled={disabled}
-			onClick={onSelect}
-			style={{ paddingLeft: `${(depth - 1) * 16 + 8}px` }}
-			className={cn(
-				'flex items-center gap-2 rounded px-2 py-1.5 text-sm w-full text-left transition-colors',
-				selected && 'bg-accent text-accent-foreground',
-				!selected && !disabled && 'hover:bg-accent/50',
-				disabled && 'opacity-30 cursor-not-allowed',
-			)}
-		>
-			{depth > 1 && <ChevronRight className='size-3 text-muted-foreground/50 shrink-0' />}
-			<span className='text-muted-foreground shrink-0'>{icon}</span>
-			<span className='truncate'>{label}</span>
-		</button>
 	);
 }
