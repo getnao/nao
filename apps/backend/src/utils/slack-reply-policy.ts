@@ -1,10 +1,9 @@
 import type { SlackReplyMode } from '../types/messaging-provider';
 
 interface SlackReplyPolicyMessage {
-	isMention: boolean;
 	author: {
-		isMe: boolean;
-		isBot: boolean;
+		isMe: boolean | string;
+		isBot: boolean | string;
 	};
 }
 
