@@ -26,7 +26,7 @@ export function StoriesNoResults({ query }: { query: string }) {
 }
 
 export function StoriesEmptyState() {
-	const isViewer = usePermissions();
+	const { isViewer } = usePermissions();
 	return (
 		<div className='flex flex-col items-center justify-center py-24 text-center'>
 			<StoryIcon className='size-10 text-muted-foreground/40 mb-4' />
