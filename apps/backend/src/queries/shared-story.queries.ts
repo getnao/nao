@@ -31,7 +31,7 @@ export async function createSharedStory(
 	if (existing) {
 		const [updated] = await db
 			.update(s.sharedStory)
-			.set({ visibility: data.visibility, isPinned: pinned })
+			.set({ visibility: data.visibility, ...(options?.pinned !== undefined ? { isPinned: pinned } : {}) })
 			.where(eq(s.sharedStory.id, existing.id))
 			.returning()
 			.execute();
