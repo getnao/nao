@@ -45,16 +45,18 @@ export function StoryCard({
 	displayMode,
 	showArchived,
 	onMoveToFolder,
+	dragIdPrefix,
 }: {
 	item: StoryItem;
 	displayMode: StoryPanelDisplayMode;
 	showArchived: boolean;
 	onMoveToFolder?: (item: StoryItem) => void;
+	dragIdPrefix?: string;
 }) {
 	const { isAdmin, isViewer } = usePermissions();
 	const [pinShareDialogOpen, setPinShareDialogOpen] = useState(false);
 
-	const draggableId = `drag-story-${item.storyId}`;
+	const draggableId = `drag-story-${dragIdPrefix ? `${dragIdPrefix}-` : ''}${item.storyId}`;
 	const isOwnedByUser = item.kind === 'own' || item.kind === 'own-standalone';
 	const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
 		id: draggableId,

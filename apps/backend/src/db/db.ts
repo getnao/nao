@@ -26,3 +26,7 @@ function createDb() {
 export const db = createDb() as BunSQLiteDatabase<typeof sqliteSchema> & {
 	$client: Sqlite;
 };
+
+export type DBTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+export type DBExecutor = typeof db | DBTransaction;

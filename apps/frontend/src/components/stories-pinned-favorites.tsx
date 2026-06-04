@@ -46,8 +46,20 @@ export function PromotedSections({
 	const [favoritesCollapsed, toggleFavorites] = useCollapsedState(FAVORITES_COLLAPSED_KEY);
 
 	const groups = [
-		{ label: 'Pinned', items: storiesToEntries(pinned), collapsed: pinnedCollapsed, onToggle: togglePinned },
-		{ label: 'Favorites', items: favorites, collapsed: favoritesCollapsed, onToggle: toggleFavorites },
+		{
+			label: 'Pinned',
+			dragIdPrefix: 'pinned',
+			items: storiesToEntries(pinned),
+			collapsed: pinnedCollapsed,
+			onToggle: togglePinned,
+		},
+		{
+			label: 'Favorites',
+			dragIdPrefix: 'favorites',
+			items: favorites,
+			collapsed: favoritesCollapsed,
+			onToggle: toggleFavorites,
+		},
 	].filter((g) => g.items.length > 0);
 
 	if (groups.length === 0) {
@@ -114,6 +126,7 @@ type FolderHandlers = {
 
 function PromotedGroup({
 	label,
+	dragIdPrefix,
 	items,
 	collapsed,
 	onToggle,
@@ -125,6 +138,7 @@ function PromotedGroup({
 	gridStyle,
 }: {
 	label: string;
+	dragIdPrefix: string;
 	items: FavoriteEntry[];
 	collapsed: boolean;
 	onToggle: () => void;
@@ -144,6 +158,7 @@ function PromotedGroup({
 						<PromotedItem
 							key={entryKey(entry)}
 							entry={entry}
+							dragIdPrefix={dragIdPrefix}
 							currentUserName={currentUserName}
 							folderHandlers={folderHandlers}
 						/>
@@ -156,15 +171,17 @@ function PromotedGroup({
 
 function PromotedItem({
 	entry,
+	dragIdPrefix,
 	currentUserName,
 	folderHandlers,
 }: {
 	entry: FavoriteEntry;
+	dragIdPrefix: string;
 	currentUserName: string;
 	folderHandlers: FolderHandlers;
 }) {
 	if (entry.kind === 'story') {
-		return <StoryCard item={entry.story} displayMode='grid' showArchived={false} />;
+		return <StoryCard item={entry.story} displayMode='grid' showArchived={false} dragIdPrefix={dragIdPrefix} />;
 	}
 	return (
 		<FolderCard

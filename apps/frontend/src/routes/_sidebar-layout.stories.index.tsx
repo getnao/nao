@@ -373,7 +373,7 @@ function StoriesPage() {
 		const targetFolderId = parseDropFolderId(overStr);
 
 		if (isStory) {
-			const storyId = activeStr.replace('drag-story-', '');
+			const storyId = parseDragStoryId(activeStr);
 			moveStoryMutation.mutate({ storyId, folderId: targetFolderId });
 		} else if (isFolder) {
 			const folderId = parseDragFolderId(activeStr);
@@ -389,7 +389,7 @@ function StoriesPage() {
 			return null;
 		}
 		if (activeId.startsWith('drag-story-')) {
-			const storyId = activeId.replace('drag-story-', '');
+			const storyId = parseDragStoryId(activeId);
 			return allItems.find((i) => i.storyId === storyId) ?? null;
 		}
 		if (activeId.startsWith('drag-folder-')) {
@@ -558,6 +558,12 @@ function parseDropFolderId(overStr: string): string | null {
 function parseDragFolderId(activeStr: string): string {
 	const withoutPrefix = activeStr.replace(/^drag-folder-/, '');
 	const match = withoutPrefix.match(/^(?:grid-large|grid|lines)-(.+)$/);
+	return match ? match[1] : withoutPrefix;
+}
+
+function parseDragStoryId(activeStr: string): string {
+	const withoutPrefix = activeStr.replace(/^drag-story-/, '');
+	const match = withoutPrefix.match(/^(?:pinned|favorites)-(.+)$/);
 	return match ? match[1] : withoutPrefix;
 }
 

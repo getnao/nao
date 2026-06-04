@@ -2,7 +2,7 @@ import { type StorySharingInfo } from '@nao/shared/types';
 import { and, asc, desc, eq, inArray, isNull, max, or, type SQL, sql } from 'drizzle-orm';
 
 import s, { type DBStory, type DBStoryDataCache, type DBStoryVersion } from '../db/abstractSchema';
-import { db } from '../db/db';
+import { db, type DBExecutor } from '../db/db';
 
 export type UserStoryRow = Pick<
 	DBStory,
@@ -21,8 +21,12 @@ export type UserStoryRow = Pick<
 	| 'updatedAt'
 > & { code: string };
 
-export async function getStoryByChatAndSlug(chatId: string, slug: string): Promise<DBStory | null> {
-	const [row] = await db
+export async function getStoryByChatAndSlug(
+	chatId: string,
+	slug: string,
+	executor: DBExecutor = db,
+): Promise<DBStory | null> {
+	const [row] = await executor
 		.select()
 		.from(s.story)
 		.where(and(eq(s.story.chatId, chatId), eq(s.story.slug, slug)))
@@ -190,26 +194,29 @@ export async function listStoriesInChat(
 	}));
 }
 
-export async function createStoryVersion(data: {
-	chatId: string;
-	slug: string;
-	title: string;
-	code: string;
-	action: 'create' | 'update' | 'replace';
-	source: 'assistant' | 'user';
-}): Promise<DBStoryVersion & { title: string }> {
-	const story = await getOrCreateStory({ chatId: data.chatId, slug: data.slug, title: data.title });
+export async function createStoryVersion(
+	data: {
+		chatId: string;
+		slug: string;
+		title: string;
+		code: string;
+		action: 'create' | 'update' | 'replace';
+		source: 'assistant' | 'user';
+	},
+	executor: DBExecutor = db,
+): Promise<DBStoryVersion & { title: string }> {
+	const story = await getOrCreateStory({ chatId: data.chatId, slug: data.slug, title: data.title }, executor);
 
 	if (story.title !== data.title) {
-		await db.update(s.story).set({ title: data.title }).where(eq(s.story.id, story.id)).execute();
+		await executor.update(s.story).set({ title: data.title }).where(eq(s.story.id, story.id)).execute();
 	}
 
-	const nextVersion = db
+	const nextVersion = executor
 		.select({ v: sql<number>`coalesce(max(${s.storyVersion.version}), 0) + 1` })
 		.from(s.storyVersion)
 		.where(eq(s.storyVersion.storyId, story.id));
 
-	const [created] = await db
+	const [created] = await executor
 		.insert(s.storyVersion)
 		.values({
 			storyId: story.id,
@@ -623,19 +630,22 @@ async function queryStoriesWithLatestVersion(
 	return query.execute();
 }
 
-async function getOrCreateStory(data: { chatId: string; slug: string; title: string }): Promise<DBStory> {
-	const existing = await getStoryByChatAndSlug(data.chatId, data.slug);
+async function getOrCreateStory(
+	data: { chatId: string; slug: string; title: string },
+	executor: DBExecutor = db,
+): Promise<DBStory> {
+	const existing = await getStoryByChatAndSlug(data.chatId, data.slug, executor);
 	if (existing) {
 		return existing;
 	}
 
-	await db
+	await executor
 		.insert(s.story)
 		.values({ chatId: data.chatId, slug: data.slug, title: data.title })
 		.onConflictDoNothing({ target: [s.story.chatId, s.story.slug] })
 		.execute();
 
-	const row = await getStoryByChatAndSlug(data.chatId, data.slug);
+	const row = await getStoryByChatAndSlug(data.chatId, data.slug, executor);
 	if (!row) {
 		throw new Error(`Failed to create or retrieve story: ${data.chatId}/${data.slug}`);
 	}

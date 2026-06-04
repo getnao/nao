@@ -2,12 +2,10 @@ import type { FolderVisibility } from '@nao/shared/types';
 import { and, asc, count, eq, inArray, isNotNull, isNull, or, type SQL, sql } from 'drizzle-orm';
 
 import s, { type DBStoryFolder } from '../db/abstractSchema';
-import { db } from '../db/db';
+import { db, type DBExecutor, type DBTransaction } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
 
-type FolderMoveTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
-
-type DBExecutor = typeof db | FolderMoveTx;
+type FolderMoveTx = DBTransaction;
 
 export class MoveFolderCycleError extends Error {
 	constructor() {
@@ -129,8 +127,8 @@ export async function getFolderById(id: string, executor: DBExecutor = db): Prom
 	return row ?? null;
 }
 
-export async function ensurePrivateRoot(userId: string, projectId: string): Promise<string> {
-	const [folder] = await db
+export async function ensurePrivateRoot(userId: string, projectId: string, executor: DBExecutor = db): Promise<string> {
+	const [folder] = await executor
 		.insert(s.storyFolder)
 		.values({
 			ownerId: userId,
@@ -151,9 +149,14 @@ export async function ensurePrivateRoot(userId: string, projectId: string): Prom
 	return folder!.id;
 }
 
-export async function placeStoryInPrivateRoot(userId: string, projectId: string, storyId: string): Promise<void> {
-	const folderId = await ensurePrivateRoot(userId, projectId);
-	await db.insert(s.storyFolderItem).values({ storyId, folderId }).onConflictDoNothing().execute();
+export async function placeStoryInPrivateRoot(
+	userId: string,
+	projectId: string,
+	storyId: string,
+	executor: DBExecutor = db,
+): Promise<void> {
+	const folderId = await ensurePrivateRoot(userId, projectId, executor);
+	await executor.insert(s.storyFolderItem).values({ storyId, folderId }).onConflictDoNothing().execute();
 }
 
 export async function rehomeUnarchivedStory(userId: string, projectId: string, storyId: string): Promise<void> {
