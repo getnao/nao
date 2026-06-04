@@ -321,7 +321,7 @@ async function createStandaloneStory(args: {
 		};
 	}
 
-	await storyFolderQueries.placeStoryInPrivateRoot(args.ctx.userId, args.ctx.projectId, story.id);
+	await storyFolderQueries.saveStoryInPrivateRoot(args.ctx.userId, args.ctx.projectId, story.id);
 	return { ...story, chatId: null };
 }
 
@@ -361,7 +361,7 @@ async function createChatLinkedStory(args: {
 		throw new Error(`Failed to retrieve created story: ${args.chatId}/${args.slug}`);
 	}
 
-	await storyFolderQueries.placeStoryInPrivateRoot(args.ctx.userId, args.ctx.projectId, created.id);
+	await storyFolderQueries.saveStoryInPrivateRoot(args.ctx.userId, args.ctx.projectId, created.id);
 
 	await pinStoryMessageToChat({
 		chatId: args.chatId,

@@ -4,10 +4,10 @@ import * as favoriteQueries from '../queries/favorite.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as storyQueries from '../queries/story.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
-import { projectProtectedProcedure, protectedProcedure } from './trpc';
+import { projectProtectedProcedure } from './trpc';
 
 export const favoriteRoutes = {
-	toggle: protectedProcedure.input(favoriteQueries.favoriteTargetSchema).mutation(async ({ input, ctx }) => {
+	toggle: projectProtectedProcedure.input(favoriteQueries.favoriteTargetSchema).mutation(async ({ input, ctx }) => {
 		if (input.type === 'story') {
 			const canAccess = await storyQueries.canUserAccessStory(input.id, ctx.user.id);
 			if (!canAccess) {

@@ -236,7 +236,7 @@ async function createStoryInFork(
 	await pinStoryMessageToChat({ chatId, slug, title, code, version: version.version });
 
 	if (context) {
-		await storyFolderQueries.placeStoryInPrivateRoot(context.userId, context.projectId, version.storyId);
+		await storyFolderQueries.saveStoryInPrivateRoot(context.userId, context.projectId, version.storyId);
 	}
 }
 

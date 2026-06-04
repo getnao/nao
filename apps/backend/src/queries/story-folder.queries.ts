@@ -149,7 +149,7 @@ export async function ensurePrivateRoot(userId: string, projectId: string, execu
 	return folder!.id;
 }
 
-export async function placeStoryInPrivateRoot(
+export async function saveStoryInPrivateRoot(
 	userId: string,
 	projectId: string,
 	storyId: string,
@@ -171,7 +171,7 @@ export async function rehomeUnarchivedStory(userId: string, projectId: string, s
 		await db.delete(s.storyFolderItem).where(eq(s.storyFolderItem.storyId, storyId)).execute();
 		return;
 	}
-	await placeStoryInPrivateRoot(userId, projectId, storyId);
+	await saveStoryInPrivateRoot(userId, projectId, storyId);
 }
 
 export async function createFolder(data: {

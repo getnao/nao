@@ -160,7 +160,7 @@ export const storyRoutes = {
 			if (input.action === 'create') {
 				const projectId = await chatQueries.getChatProjectId(input.chatId);
 				if (projectId) {
-					await storyFolderQueries.placeStoryInPrivateRoot(ctx.user.id, projectId, version.storyId);
+					await storyFolderQueries.saveStoryInPrivateRoot(ctx.user.id, projectId, version.storyId);
 				}
 			}
 

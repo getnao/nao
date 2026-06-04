@@ -58,7 +58,7 @@ export default createTool<story.Input, story.Output>({
 					},
 					tx,
 				);
-				await storyFolderQueries.placeStoryInPrivateRoot(userId, projectId, created.storyId, tx);
+				await storyFolderQueries.saveStoryInPrivateRoot(userId, projectId, created.storyId, tx);
 				return created;
 			});
 			rememberStoryArtifact(context, input.id, version.title);
