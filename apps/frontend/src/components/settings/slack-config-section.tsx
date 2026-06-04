@@ -91,8 +91,14 @@ export function SlackConfigSection({ isAdmin }: SlackConfigSectionProps) {
 
 	const handleReplyModeChange = useCallback(
 		async (onlyWhenMentioned: boolean) => {
-			await updateSlackReplyMode.mutateAsync({ replyMode: onlyWhenMentioned ? 'mention' : 'thread' });
-			queryClient.invalidateQueries(trpc.project.getSlackConfig.queryOptions());
+			updateSlackReplyMode.mutate(
+				{ replyMode: onlyWhenMentioned ? 'mention' : 'thread' },
+				{
+					onSuccess: () => {
+						void queryClient.invalidateQueries(trpc.project.getSlackConfig.queryOptions());
+					},
+				},
+			);
 		},
 		[queryClient, updateSlackReplyMode],
 	);
