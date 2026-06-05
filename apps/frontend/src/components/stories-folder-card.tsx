@@ -196,7 +196,7 @@ export function FolderCard({
 					<div className='flex items-end gap-1.5'>
 						<div className='flex-1 min-w-0 items-center gap-1.5 flex-1 min-w-0 transition-transform duration-200 ease-out group-hover:-translate-y-0.5'>
 							<span className='block text-xs font-medium truncate'>{folder.name}</span>
-							<span className='block text-[11px] text-muted-foreground truncate'>
+							<span className='block text-[10px] font-medium text-muted-foreground/60 truncate'>
 								{folder.storyCount} {folder.storyCount <= 1 ? 'story' : 'stories'}
 							</span>
 						</div>

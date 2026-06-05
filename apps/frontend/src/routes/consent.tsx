@@ -128,7 +128,7 @@ function CenteredCard({ children }: { children: React.ReactNode }) {
 	return (
 		<div className='mx-auto w-full max-w-md p-8 my-auto'>
 			<div className='flex flex-row items-end start mb-8'>
-				<NaoLogo className='w-20 h-auto' />
+				<NaoLogo className='w-20 h-auto text-foreground' />
 				<span className='text-muted-foreground text-sm mx-4 border-l-1 border-border h-4'></span>
 				<h1 className='text-md font-semibold uppercase leading-none'>Authorize</h1>
 			</div>

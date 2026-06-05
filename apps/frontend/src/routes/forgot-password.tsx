@@ -45,7 +45,7 @@ function ForgotPassword() {
 				<Link
 					to='/login'
 					search={{ error: undefined, redirect: undefined }}
-					className='text-sm underline underline-offset-4'
+					className='text-xs text-foreground font-medium underline underline-offset-2'
 				>
 					Back to login
 				</Link>
@@ -55,12 +55,19 @@ function ForgotPassword() {
 
 	return (
 		<AuthForm form={form} title='Forgot password' submitText='Send reset link' serverError={serverError}>
-			<FormTextField form={form} name='email' type='email' placeholder='Email' />
-			<div className='text-right'>
+			<FormTextField
+				form={form}
+				name='email'
+				type='email'
+				title='Email'
+				placeholder='joe@gmail.com'
+				className='mb-2'
+			/>
+			<div className='text-right mb-8'>
 				<Link
 					to='/login'
 					search={{ error: undefined, redirect: undefined }}
-					className='text-sm underline underline-offset-4'
+					className='text-xs text-foreground font-medium underline underline-offset-2'
 				>
 					Back to login
 				</Link>

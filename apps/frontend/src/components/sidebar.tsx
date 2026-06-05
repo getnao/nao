@@ -1,14 +1,12 @@
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useMatchRoute, useNavigate, useRouterState } from '@tanstack/react-router';
 import {
-	ArrowLeft,
 	ArrowLeftFromLine,
 	ArrowRightToLine,
 	ChevronRight,
 	NewspaperIcon,
 	PlusIcon,
 	SearchIcon,
-	SlidersVertical,
 	X,
 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
@@ -152,86 +150,54 @@ export function Sidebar() {
 			)}
 		>
 			<div className='p-2 flex flex-col'>
-				{isInSettings ? (
-					<div className='flex items-center relative'>
-						<Link
-							to='/'
-							onClick={() => isMobile && closeMobile()}
-							className={cn(
-								'flex items-center gap-2 text-sm rounded-md transition-all duration-300',
-								'text-muted-foreground hover:bg-sidebar-accent hover:text-foreground whitespace-nowrap',
-								effectiveIsCollapsed
-									? 'w-0 opacity-0 overflow-hidden p-0'
-									: 'flex-1 min-w-0 opacity-100 px-3 py-2',
-							)}
-						>
-							<ArrowLeft className='size-4 shrink-0' />
-							<span className='truncate'>Back to app</span>
-						</Link>
-						{!isMobile && (
-							<Button
-								variant='ghost'
-								size='icon-md'
-								onClick={() => toggleSidebar()}
-								className='text-muted-foreground shrink-0'
-							>
-								{effectiveIsCollapsed ? (
-									<ArrowRightToLine className='size-4' />
-								) : (
-									<ArrowLeftFromLine className='size-4' />
-								)}
-							</Button>
+				<div className='flex items-center relative'>
+					<button
+						type='button'
+						onClick={handleNavigateHome}
+						aria-label={isViewer ? 'View shared items' : 'New chat'}
+						className={cn(
+							'flex items-center justify-center mr-auto absolute left-0 z-0 rounded-md cursor-pointer hover:bg-sidebar-accent transition-[opacity,visibility,background-color] duration-300',
+							branding.enabled && branding.hasLogo ? 'p-1' : 'p-2',
+							hideIf(effectiveIsCollapsed),
 						)}
-					</div>
-				) : (
-					<>
-						<div className='flex items-center relative'>
-							<button
-								type='button'
-								onClick={handleNavigateHome}
-								aria-label={isViewer ? 'View shared items' : 'New chat'}
-								className={cn(
-									'flex items-center justify-center mr-auto absolute left-0 z-0 rounded-md cursor-pointer hover:bg-sidebar-accent transition-[opacity,visibility,background-color] duration-300',
-									branding.enabled && branding.hasLogo ? 'p-1' : 'p-2',
-									hideIf(effectiveIsCollapsed),
-								)}
-							>
-								{branding.enabled && branding.hasLogo ? (
-									<img
-										src={brandingAssetUrl('logo', branding.updatedAt)}
-										alt={branding.appName ?? 'Logo'}
-										className='h-7 w-auto max-w-[9rem] object-contain'
-									/>
-								) : (
-									<NaoLogo className='size-5' />
-								)}
-							</button>
+					>
+						{branding.enabled && branding.hasLogo ? (
+							<img
+								src={brandingAssetUrl('logo', branding.updatedAt)}
+								alt={branding.appName ?? 'Logo'}
+								className='h-7 w-auto max-w-[9rem] object-contain'
+							/>
+						) : (
+							<NaoLogo className='size-5' />
+						)}
+					</button>
 
-							{isMobile ? (
-								<Button
-									variant='ghost'
-									size='icon-md'
-									onClick={closeMobile}
-									className='text-muted-foreground ml-auto z-10'
-								>
-									<X className='size-4' />
-								</Button>
+					{isMobile ? (
+						<Button
+							variant='ghost'
+							size='icon-md'
+							onClick={closeMobile}
+							className='text-muted-foreground ml-auto z-10'
+						>
+							<X className='size-4' />
+						</Button>
+					) : (
+						<Button
+							variant='ghost'
+							size='icon-md'
+							onClick={() => toggleSidebar()}
+							className='text-muted-foreground ml-auto z-10'
+						>
+							{effectiveIsCollapsed ? (
+								<ArrowRightToLine className='size-4' />
 							) : (
-								<Button
-									variant='ghost'
-									size='icon-md'
-									onClick={() => toggleSidebar()}
-									className='text-muted-foreground ml-auto z-10'
-								>
-									{effectiveIsCollapsed ? (
-										<ArrowRightToLine className='size-4' />
-									) : (
-										<ArrowLeftFromLine className='size-4' />
-									)}
-								</Button>
+								<ArrowLeftFromLine className='size-4' />
 							)}
-						</div>
-
+						</Button>
+					)}
+				</div>
+				{!isInSettings && (
+					<>
 						<div className='py-4'>
 							{!isViewer && (
 								<SidebarMenuButton
@@ -269,7 +235,7 @@ export function Sidebar() {
 
 						<div
 							className={cn(
-								'flex items-center justify-between relative group transition-[padding,height,background-color] duration-300 pt-[10px] px-[10px]',
+								'flex items-center justify-between relative group transition-[padding,height,background-color] duration-300 pt-[10px] pl-2 pr-1',
 								isCollapsed ? 'h-9' : '',
 							)}
 						>
@@ -308,13 +274,12 @@ export function Sidebar() {
 				/>
 			)}
 
+			{!isInSettings && <div className='border-b border-sidebar-border mx-2'></div>}
+
 			<div className={cn('mt-auto transition-[padding] duration-300', effectiveIsCollapsed ? 'p-1' : 'p-2')}>
 				{isInSettings && <SidebarCommunity isCollapsed={effectiveIsCollapsed} />}
 				{isAdmin && <SidebarVersionNotice isCollapsed={effectiveIsCollapsed} />}
-				<SidebarUserMenu
-					isCollapsed={effectiveIsCollapsed}
-					settingsMenu={!isInSettings ? <SlidersVertical className='size-4' /> : undefined}
-				/>
+				<SidebarUserMenu isCollapsed={effectiveIsCollapsed} isInSettings={!!isInSettings} />
 			</div>
 		</div>
 	);
@@ -541,7 +506,7 @@ function SharedChatGroupItem({ item, groupBy }: { item: GroupedChatItem; groupBy
 		<Link
 			params={{ shareId: item.shareId! }}
 			to='/shared-chat/$shareId'
-			className='group relative w-full rounded-md px-2.5 py-2 transition-[background-color,padding,opacity] min-w-0 flex-1 flex gap-2 items-center'
+			className='group relative w-full rounded-md px-2 py-2 transition-[background-color,padding,opacity] min-w-0 flex-1 flex gap-2 items-center'
 			inactiveProps={{ className: 'text-sidebar-foreground hover:bg-sidebar-accent opacity-75' }}
 			activeProps={{ className: 'text-foreground bg-sidebar-accent font-medium' }}
 		>
@@ -571,7 +536,7 @@ function SidebarSectionHeader({
 	return (
 		<button
 			onClick={onToggle}
-			className='group relative flex items-center gap-2 px-2.5 py-1.5 text-sm rounded-md transition-colors w-full text-left text-muted-foreground whitespace-nowrap cursor-pointer'
+			className='group relative flex items-center gap-2 px-2 py-1.5 text-sm rounded-md transition-colors w-full text-left text-muted-foreground whitespace-nowrap cursor-pointer'
 		>
 			<span>{label}</span>
 			<ChevronRight

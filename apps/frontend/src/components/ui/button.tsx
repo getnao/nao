@@ -143,4 +143,28 @@ function MicButton({
 	);
 }
 
-export { Button, ButtonConnection, ChatSendButton as ChatButton, MicButton };
+function AuthSocialButton({
+	icon: Icon,
+	label,
+	onClick,
+	className,
+}: {
+	icon: React.FC<React.SVGProps<SVGSVGElement>>;
+	label: string;
+	onClick: () => void;
+	className?: string;
+}) {
+	return (
+		<Button
+			type='button'
+			variant='outline'
+			aria-label={label}
+			className={cn('h-10 w-full rounded-lg', className)}
+			onClick={onClick}
+		>
+			<Icon className='size-4 text-foreground [&_path]:fill-current' />
+		</Button>
+	);
+}
+
+export { Button, ButtonConnection, ChatSendButton as ChatButton, MicButton, AuthSocialButton };

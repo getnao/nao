@@ -1,6 +1,8 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
 @import './styles.animations.css';
+@import url('https://fonts.googleapis.com/css2?family=Geist+Mono:wght@100..900&family=Geist:wght@100..900&display=swap')
+layer(base);
 @source "../../../node_modules/streamdown/dist/*.js";
 @source "../../../node_modules/@streamdown/math/dist/*.js";
 @source "../../shared/src/**/*.{ts,tsx}";
@@ -108,7 +110,7 @@ html.nao-embed #app {
 
 body {
 	font-family:
-		'Borna',
+		'Geist',
 		-apple-system,
 		BlinkMacSystemFont,
 		'Segoe UI',
@@ -178,6 +180,12 @@ code.dollar:before {
 	--color-sidebar-border: var(--sidebar-border);
 	--color-sidebar-ring: var(--sidebar-ring);
 
+	--font-sans:
+		'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans',
+		'Droid Sans', 'Helvetica Neue', sans-serif;
+	--font-borna:
+		'Borna', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans',
+		'Droid Sans', 'Helvetica Neue', sans-serif;
 	--font-mono: source-code-pro, Menlo, Monaco, Consolas, 'Courier New', monospace;
 }
 

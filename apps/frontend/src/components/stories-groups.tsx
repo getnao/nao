@@ -2,7 +2,18 @@ import { useDraggable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { Activity, ArchiveIcon, ArchiveRestoreIcon, FolderInput, Globe, Lock, Pin, Star, Users } from 'lucide-react';
+import {
+	Activity,
+	ArchiveIcon,
+	ArchiveRestoreIcon,
+	Dot,
+	FolderInput,
+	Globe,
+	Lock,
+	Pin,
+	Star,
+	Users,
+} from 'lucide-react';
 import { useState } from 'react';
 import type { MouseEvent, ReactNode } from 'react';
 import type { StoryPanelDisplayMode } from '@nao/shared/types';
@@ -68,8 +79,6 @@ export function StoryCard({
 	const canOpenPinShareDialog =
 		isAdmin && !item.sharedStoryId && item.kind === 'own' && !!item.chatId && !!item.storySlug;
 
-	const meta = `${item.author} · ${formatRelativeDate(item.createdAt)}`;
-
 	if (displayMode === 'grid') {
 		return (
 			<>
@@ -94,7 +103,11 @@ export function StoryCard({
 						<div className='flex items-end gap-1.5'>
 							<div className='flex-1 min-w-0 transition-transform duration-200 ease-out group-hover:-translate-y-0.5'>
 								<span className='block text-xs font-medium truncate'>{item.title}</span>
-								<span className='block text-[11px] text-muted-foreground truncate'>{meta}</span>
+								<span className='flex items-center block text-[10px] font-medium text-muted-foreground/60 truncate'>
+									{item.author}
+									<Dot className='size-5 -my-2 shrink-0' />
+									{formatRelativeDate(item.createdAt)}
+								</span>
 							</div>
 							<div className='shrink-0 mb-0.5'>
 								<StoryBadges item={item} mode='grid' />
@@ -527,18 +540,6 @@ function StoryBadges({ item, mode }: { item: StoryItem; mode: 'grid' | 'lines' }
 		}
 		return (
 			<div className='flex items-center gap-2 shrink-0'>
-				{item.isInPrivateContext && item?.sharing?.visibility !== 'specific' && (
-					<TooltipProvider>
-						<Tooltip>
-							<TooltipTrigger asChild>
-								<span className='inline-flex items-center text-muted-foreground'>
-									<Lock className='size-3' />
-								</span>
-							</TooltipTrigger>
-							<TooltipContent>Private story</TooltipContent>
-						</Tooltip>
-					</TooltipProvider>
-				)}
 				{item.isLive && (
 					<TooltipProvider>
 						<Tooltip>
@@ -548,6 +549,18 @@ function StoryBadges({ item, mode }: { item: StoryItem; mode: 'grid' | 'lines' }
 								</span>
 							</TooltipTrigger>
 							<TooltipContent>Live story</TooltipContent>
+						</Tooltip>
+					</TooltipProvider>
+				)}
+				{item.isInPrivateContext && item?.sharing?.visibility !== 'specific' && (
+					<TooltipProvider>
+						<Tooltip>
+							<TooltipTrigger asChild>
+								<span className='inline-flex items-center text-muted-foreground'>
+									<Lock className='size-3' />
+								</span>
+							</TooltipTrigger>
+							<TooltipContent>Private story</TooltipContent>
 						</Tooltip>
 					</TooltipProvider>
 				)}

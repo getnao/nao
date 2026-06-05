@@ -48,20 +48,35 @@ function HomePage() {
 		: `${username ? capitalize(username) : ''}, what do you want to analyze?`;
 	const theme = useTheme();
 	const stories = useQuery(trpc.story.listAll.queryOptions());
+	const folderItems = useQuery(trpc.storyFolder.listItems.queryOptions());
+	const folderTree = useQuery(trpc.storyFolder.listTree.queryOptions({ archived: false }));
 	const storiesGridRef = useRef<HTMLDivElement>(null);
-	const [storyCols, setStoryCols] = useState(4);
-	useResizeObserver(storiesGridRef, (el) => {
-		setStoryCols(computeStoryCols(el.getBoundingClientRect().width));
-	});
+	const [storyCols, setStoryCols] = useState(STORY_CARD_MAX_COLS);
+	const hasStories = (stories.data?.length ?? 0) > 0;
+	useResizeObserver(
+		storiesGridRef,
+		(el) => {
+			setStoryCols(computeStoryCols(el.getBoundingClientRect().width));
+		},
+		[hasStories],
+	);
+	const folderItemMap = useMemo(() => {
+		const map = new Map<string, string>();
+		for (const item of folderItems.data ?? []) {
+			map.set(item.storyId, item.folderId);
+		}
+		return map;
+	}, [folderItems.data]);
 	const latestStoryItems = useMemo(() => {
 		const items = buildStoryItems({
 			userStories: stories.data ?? [],
 			sharedStories: [],
-			currentUserId: session?.user?.id,
 			currentUserName: session?.user?.name ?? username ?? '',
+			folderItemMap,
+			folders: folderTree.data ?? [],
 		});
 		return [...items].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()).slice(0, storyCols);
-	}, [stories.data, session?.user?.id, session?.user?.name, storyCols, username]);
+	}, [stories.data, session?.user?.name, storyCols, username, folderItemMap, folderTree.data]);
 	const hasMoreStories = (stories.data?.length ?? 0) > storyCols;
 
 	const handleProjectChange = useCallback(
@@ -98,7 +113,7 @@ function HomePage() {
 			) : (
 				<>
 					<div className='relative flex flex-col items-center justify-center gap-4 p-4 mt-30 w-full flex-1'>
-						<div className='relative z-10 text-xl md:text-3xl tracking-tight text-center px-6 mb-6'>
+						<div className='font-borna relative z-10 text-xl md:text-3xl tracking-tight text-center px-6 mb-6'>
 							{emptyStateTitle}
 						</div>
 						{showProjectSetupCue ? (
@@ -143,7 +158,7 @@ function HomePage() {
 											ref={storiesGridRef}
 											className='grid gap-3'
 											style={{
-												gridTemplateColumns: `repeat(${Math.min(storyCols, latestStoryItems.length)}, minmax(0, 1fr))`,
+												gridTemplateColumns: `repeat(${storyCols}, minmax(0, 1fr))`,
 											}}
 										>
 											{latestStoryItems.map((item) => (
@@ -158,7 +173,7 @@ function HomePage() {
 										{hasMoreStories && (
 											<button
 												type='button'
-												onClick={() => navigate({ to: '/stories' })}
+												onClick={() => navigate({ to: '/stories', search: { folderId: null } })}
 												className={cn(
 													'h-9 rounded-lg border border-dashed border-muted-foreground/20 px-3',
 													'flex items-center gap-2 text-muted-foreground/50 bg-panel',
