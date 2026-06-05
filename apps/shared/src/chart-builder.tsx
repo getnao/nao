@@ -154,6 +154,7 @@ export interface BuildChartProps {
 	series: displayChart.SeriesConfig[];
 	colorFor?: (key: string, index: number) => string;
 	labelFormatter?: (value: string) => string;
+	valueFormatter?: (value: number) => string;
 	showGrid?: boolean;
 	children?: React.ReactNode[];
 	margin?: { top?: number; right?: number; bottom?: number; left?: number };
@@ -351,12 +352,17 @@ export function niceAxisMax(dataMax: number, tickCount = 5): number {
 }
 
 function buildKpiCard(props: ResolvedProps) {
-	const { data, series } = props;
+	const { data, series, valueFormatter } = props;
 
 	return (
 		<KpiCardContainer>
 			{series.map((s) => (
-				<KpiCard key={s.data_key} value={data[0]?.[s.data_key]} displayName={s.label ?? s.data_key} />
+				<KpiCard
+					key={s.data_key}
+					value={data[0]?.[s.data_key]}
+					displayName={s.label ?? s.data_key}
+					valueFormatter={valueFormatter}
+				/>
 			))}
 		</KpiCardContainer>
 	);
@@ -366,11 +372,19 @@ function KpiCardContainer({ children }: { children: React.ReactNode }) {
 	return <div className='flex flex-wrap gap-4 w-full justify-start'>{children}</div>;
 }
 
-function KpiCard({ value, displayName }: { value: unknown; displayName: string }) {
+function KpiCard({
+	value,
+	displayName,
+	valueFormatter = formatCompactNumber,
+}: {
+	value: unknown;
+	displayName: string;
+	valueFormatter?: (value: number) => string;
+}) {
 	let formattedValue = '';
 
 	if (typeof value === 'number') {
-		formattedValue = formatCompactNumber(value);
+		formattedValue = valueFormatter(value);
 	} else if (typeof value === 'string') {
 		formattedValue = value;
 	}
@@ -383,7 +397,7 @@ function KpiCard({ value, displayName }: { value: unknown; displayName: string }
 	);
 }
 
-function renderValueYAxis(isPercent = false) {
+function renderValueYAxis(isPercent = false, valueFormatter = formatYAxisTick) {
 	return (
 		<YAxis
 			width={Y_AXIS_WIDTH}
@@ -392,7 +406,7 @@ function renderValueYAxis(isPercent = false) {
 			axisLine={false}
 			minTickGap={12}
 			domain={isPercent ? [0, 1] : undefined}
-			tickFormatter={isPercent ? formatPercentAxisTick : formatYAxisTick}
+			tickFormatter={isPercent ? formatPercentAxisTick : valueFormatter}
 		/>
 	);
 }
@@ -440,6 +454,7 @@ function buildBarChart(props: ResolvedProps) {
 		yAxisMin,
 		yAxisMax,
 		showDataLabels,
+		valueFormatter,
 	} = props;
 	const isStacked = displayChart.isStackedChartType(chartType);
 	const isPercent = displayChart.isPercentStackedChartType(chartType);
@@ -460,7 +475,7 @@ function buildBarChart(props: ResolvedProps) {
 					tickLine={false}
 					axisLine={false}
 					minTickGap={12}
-					tickFormatter={formatYAxisTick}
+					tickFormatter={valueFormatter ?? formatYAxisTick}
 					domain={resolveYAxisDomain(yAxisMin, yAxisMax, axisValues, true)}
 					allowDataOverflow={yAxisMin !== undefined || yAxisMax !== undefined}
 				/>
@@ -542,6 +557,7 @@ function buildAreaChart(props: ResolvedProps) {
 		yAxisMin,
 		yAxisMax,
 		showDataLabels,
+		valueFormatter,
 	} = props;
 	const isStacked = displayChart.isStackedChartType(chartType);
 	const isPercent = displayChart.isPercentStackedChartType(chartType);
@@ -574,7 +590,7 @@ function buildAreaChart(props: ResolvedProps) {
 					tickLine={false}
 					axisLine={false}
 					minTickGap={12}
-					tickFormatter={formatYAxisTick}
+					tickFormatter={valueFormatter ?? formatYAxisTick}
 					domain={resolveYAxisDomain(yAxisMin, yAxisMax, axisValues, zeroBaseline)}
 					allowDataOverflow={yAxisMin !== undefined || yAxisMax !== undefined}
 				/>
@@ -600,7 +616,19 @@ function buildAreaChart(props: ResolvedProps) {
 }
 
 function buildScatterChart(props: ResolvedProps) {
-	const { data, xAxisKey, xAxisType, series, colorFor, showGrid, children, margin, yAxisMin, yAxisMax } = props;
+	const {
+		data,
+		xAxisKey,
+		xAxisType,
+		series,
+		colorFor,
+		showGrid,
+		children,
+		margin,
+		yAxisMin,
+		yAxisMax,
+		valueFormatter,
+	} = props;
 	const axisValues = collectAxisValues(
 		data,
 		series.map((s) => s.data_key),
@@ -622,7 +650,7 @@ function buildScatterChart(props: ResolvedProps) {
 				tickLine={false}
 				axisLine={false}
 				minTickGap={12}
-				tickFormatter={formatYAxisTick}
+				tickFormatter={valueFormatter ?? formatYAxisTick}
 				domain={resolveYAxisDomain(yAxisMin, yAxisMax, axisValues, false)}
 				allowDataOverflow={yAxisMin !== undefined || yAxisMax !== undefined}
 			/>
@@ -640,13 +668,13 @@ function buildScatterChart(props: ResolvedProps) {
 }
 
 function buildRadarChart(props: ResolvedProps) {
-	const { data, xAxisKey, series, colorFor, children, margin } = props;
+	const { data, xAxisKey, series, colorFor, children, margin, valueFormatter } = props;
 
 	return (
 		<RadarChart data={data} accessibilityLayer margin={margin}>
 			<PolarGrid />
 			<PolarAngleAxis dataKey={xAxisKey} tick={AXIS_TICK} />
-			<PolarRadiusAxis tick={AXIS_TICK} tickFormatter={formatYAxisTick} />
+			<PolarRadiusAxis tick={AXIS_TICK} tickFormatter={valueFormatter ?? formatYAxisTick} />
 			{children}
 			{series.map((s, i) => (
 				<Radar

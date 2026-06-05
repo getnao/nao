@@ -73,11 +73,6 @@ const settingsNavItems: NavItem[] = [
 		visible: ({ isAdmin }) => isAdmin,
 	},
 	{
-		label: 'Chats Replay',
-		to: '/settings/chats-replay',
-		visible: ({ isAdmin, isContextAdmin }) => isAdmin || isContextAdmin,
-	},
-	{
 		label: 'Recommendations',
 		to: '/settings/recommendations',
 		visible: ({ isAdmin, isContextAdmin }) => isAdmin || isContextAdmin,

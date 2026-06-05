@@ -8,6 +8,7 @@ export type Granularity = z.infer<typeof granularitySchema>;
 export const usageFilterSchema = z.object({
 	granularity: granularitySchema.default('day'),
 	provider: llmProviderSchema.optional(),
+	userNames: z.array(z.string()).optional(),
 });
 export type UsageFilter = z.infer<typeof usageFilterSchema>;
 
@@ -30,4 +31,9 @@ export interface UsageRecord {
 	inputCacheWriteCost: number;
 	outputCost: number;
 	totalCost: number;
+}
+
+export interface TotalUsageRecord {
+	totalMessages: number;
+	uniqueUsers: number;
 }

@@ -465,6 +465,24 @@ export const listProjectChats = async (
 			if (expr) {
 				filterWhereClauses.push(expr);
 			}
+		} else if (filter.id === 'feedback') {
+			const exprs: SQL<unknown>[] = [];
+			for (const v of filter.values) {
+				if (v === 'noVotes') {
+					const e = and(eq(upvotesExpr, 0), eq(downvotesExpr, 0));
+					if (e) {
+						exprs.push(e);
+					}
+				} else if (v === 'upvotes') {
+					exprs.push(gt(upvotesExpr, 0));
+				} else if (v === 'downvotes') {
+					exprs.push(gt(downvotesExpr, 0));
+				}
+			}
+			const expr = or(...exprs);
+			if (expr) {
+				filterWhereClauses.push(expr);
+			}
 		}
 	}
 

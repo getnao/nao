@@ -1,22 +1,11 @@
-import { CircleAlert, Eye, ThumbsDown, ThumbsUp } from 'lucide-react';
+import { CircleAlert, ThumbsDown, ThumbsUp } from 'lucide-react';
 import { differenceInDays, format, isToday, isYesterday } from 'date-fns';
-import { USER_ROLE_LABELS } from '@nao/shared/types';
 import type { ColumnDef } from '@tanstack/react-table';
 
-import type { ProjectChatListItem, UserRole } from '@nao/shared/types';
+import type { ProjectChatListItem } from '@nao/shared/types';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 
-/** Render a project member role for display, leaving non-role values (e.g. "Former member") untouched. */
-export function formatUserRole(value: string): string {
-	return USER_ROLE_LABELS[value as UserRole] ?? value;
-}
-
-export function getChatsReplayColumns(args: {
-	onOpenChat: (chat: ProjectChatListItem) => void;
-}): ColumnDef<ProjectChatListItem>[] {
-	const { onOpenChat } = args;
-
+export function getChatsReplayColumns(): ColumnDef<ProjectChatListItem>[] {
 	return [
 		{
 			accessorKey: 'updatedAt',
@@ -28,28 +17,20 @@ export function getChatsReplayColumns(args: {
 			},
 		},
 		{
-			accessorKey: 'userName',
-			header: 'User',
-		},
-		{
-			accessorKey: 'userRole',
-			header: 'Role',
-			cell: ({ getValue }) => {
-				const value = getValue<string>();
-				return value ? formatUserRole(value) : '—';
-			},
-		},
-		{
 			accessorKey: 'title',
 			header: 'Title',
 			cell: ({ getValue }) => {
 				const value = getValue<string>() ?? '';
 				return (
-					<span className='block truncate max-w-[200px]' title={value}>
+					<span className='block truncate max-w-[280px]' title={value}>
 						{value}
 					</span>
 				);
 			},
+		},
+		{
+			accessorKey: 'userName',
+			header: 'User',
 		},
 		{ accessorKey: 'numberOfMessages', header: 'Messages' },
 		{ accessorKey: 'totalTokens', header: 'Tokens' },
@@ -104,19 +85,6 @@ export function getChatsReplayColumns(args: {
 							{errors}/{errors + available}
 						</Badge>
 					</div>
-				);
-			},
-		},
-		{
-			id: 'actions',
-			header: '',
-			enableHiding: false,
-			cell: ({ row }) => {
-				const chat = row.original;
-				return (
-					<Button size='sm' variant='outline' onClick={() => onOpenChat(chat)}>
-						<Eye className='size-4' />
-					</Button>
 				);
 			},
 		},

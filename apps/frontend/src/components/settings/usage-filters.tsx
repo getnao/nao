@@ -1,21 +1,38 @@
-import { providerLabels } from '@nao/shared/types';
+import { ThumbsUp, Users, Wrench } from 'lucide-react';
+import { CHAT_REPLAY_FEEDBACK_STATES, CHAT_REPLAY_TOOL_STATES, providerLabels } from '@nao/shared/types';
 import type { Granularity } from '@nao/backend/usage';
-import type { LlmProvider } from '@nao/shared/types';
+import type {
+	ChatReplayFeedbackState,
+	ChatReplayToolState,
+	LlmProvider,
+	ProjectChatReplayFacets,
+} from '@nao/shared/types';
+import type { LucideIcon } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import {
+	DropdownMenu,
+	DropdownMenuCheckboxItem,
+	DropdownMenuContent,
+	DropdownMenuSeparator,
+	DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { cn } from '@/lib/utils';
 
-export type ChartView = 'messages' | 'tokens' | 'cost';
+type UsagePeriod = '24h' | '15d' | '6m';
 
-const granularityOptions: { value: Granularity; label: string }[] = [
-	{ value: 'hour', label: 'Hour' },
-	{ value: 'day', label: 'Day' },
-	{ value: 'month', label: 'Month' },
+const periodOptions: { value: UsagePeriod; label: string; granularity: Granularity }[] = [
+	{ value: '24h', label: 'Last 24 hours', granularity: 'hour' },
+	{ value: '15d', label: 'Last 15 days', granularity: 'day' },
+	{ value: '6m', label: 'Last 6 months', granularity: 'month' },
 ];
 
-const chartViewOptions: { value: ChartView; label: string }[] = [
-	{ value: 'messages', label: 'Messages' },
-	{ value: 'tokens', label: 'Tokens' },
-	{ value: 'cost', label: 'Cost' },
-];
+const periodByGranularity: Record<Granularity, UsagePeriod> = {
+	hour: '24h',
+	day: '15d',
+	month: '6m',
+};
 
 export const dateFormats: Record<Granularity, string> = {
 	hour: 'MMM d, HH:00',
@@ -24,38 +41,52 @@ export const dateFormats: Record<Granularity, string> = {
 };
 
 interface UsageFiltersProps {
-	chartView: ChartView;
-	onChartViewChange: (value: ChartView) => void;
 	provider: LlmProvider | 'all';
 	onProviderChange: (value: LlmProvider | 'all') => void;
 	granularity: Granularity;
 	onGranularityChange: (value: Granularity) => void;
 	availableProviders: LlmProvider[] | undefined;
+	chatFacets: ProjectChatReplayFacets | undefined;
+	selectedUserNames: string[] | undefined;
+	onSelectedUserNamesChange: (value: string[] | undefined) => void;
+	selectedFeedbackStates: ChatReplayFeedbackState[] | undefined;
+	onSelectedFeedbackStatesChange: (value: ChatReplayFeedbackState[] | undefined) => void;
+	selectedToolStates: ChatReplayToolState[] | undefined;
+	onSelectedToolStatesChange: (value: ChatReplayToolState[] | undefined) => void;
 }
 
 export function UsageFilters({
-	chartView,
-	onChartViewChange,
 	provider,
 	onProviderChange,
 	granularity,
 	onGranularityChange,
 	availableProviders,
+	chatFacets,
+	selectedUserNames,
+	onSelectedUserNamesChange,
+	selectedFeedbackStates,
+	onSelectedFeedbackStatesChange,
+	selectedToolStates,
+	onSelectedToolStatesChange,
 }: UsageFiltersProps) {
+	const period = periodByGranularity[granularity];
+	const userOptions = (chatFacets?.userNames ?? []).map((name) => ({
+		value: name,
+		label: name,
+		count: chatFacets?.userNameCounts[name],
+	}));
+	const toolStateOptions = CHAT_REPLAY_TOOL_STATES.map((value) => ({
+		value,
+		label: toolStateLabels[value],
+		count: chatFacets?.toolState[value] ?? 0,
+	})).filter((option) => option.count > 0);
+	const feedbackOptions = CHAT_REPLAY_FEEDBACK_STATES.map((value) => ({
+		value,
+		label: feedbackStateLabels[value],
+	}));
+
 	return (
-		<div className='flex gap-2'>
-			<Select value={chartView} onValueChange={(v) => onChartViewChange(v as ChartView)}>
-				<SelectTrigger className='w-32'>
-					<SelectValue />
-				</SelectTrigger>
-				<SelectContent>
-					{chartViewOptions.map((option) => (
-						<SelectItem key={option.value} value={option.value}>
-							{option.label}
-						</SelectItem>
-					))}
-				</SelectContent>
-			</Select>
+		<div className='flex flex-wrap items-center gap-2'>
 			<Select value={provider} onValueChange={(v) => onProviderChange(v as LlmProvider | 'all')}>
 				<SelectTrigger className='w-36'>
 					<SelectValue />
@@ -69,18 +100,156 @@ export function UsageFilters({
 					))}
 				</SelectContent>
 			</Select>
-			<Select value={granularity} onValueChange={(v) => onGranularityChange(v as Granularity)}>
-				<SelectTrigger className='w-32'>
+			<Select
+				value={period}
+				onValueChange={(value) => {
+					const option = periodOptions.find((o) => o.value === value);
+					if (option) {
+						onGranularityChange(option.granularity);
+					}
+				}}
+			>
+				<SelectTrigger className='w-40'>
 					<SelectValue />
 				</SelectTrigger>
 				<SelectContent>
-					{granularityOptions.map((option) => (
+					{periodOptions.map((option) => (
 						<SelectItem key={option.value} value={option.value}>
 							{option.label}
 						</SelectItem>
 					))}
 				</SelectContent>
 			</Select>
+
+			<MultiSelectFilter
+				label='Users'
+				icon={Users}
+				options={userOptions}
+				selectedValues={selectedUserNames}
+				onChange={onSelectedUserNamesChange}
+			/>
+			<MultiSelectFilter
+				label='Votes'
+				icon={ThumbsUp}
+				options={feedbackOptions}
+				selectedValues={selectedFeedbackStates}
+				onChange={onSelectedFeedbackStatesChange}
+			/>
+			<MultiSelectFilter
+				label='Tool state'
+				icon={Wrench}
+				options={toolStateOptions}
+				selectedValues={selectedToolStates}
+				onChange={onSelectedToolStatesChange}
+			/>
 		</div>
+	);
+}
+
+type FilterOption<T extends string> = {
+	value: T;
+	label: string;
+	count?: number;
+};
+
+type MultiSelectFilterProps<T extends string> = {
+	label: string;
+	icon: LucideIcon;
+	options: FilterOption<T>[];
+	selectedValues: T[] | undefined;
+	onChange: (value: T[] | undefined) => void;
+};
+
+const toolStateLabels: Record<ChatReplayToolState, string> = {
+	noToolsUsed: 'No tools used',
+	toolsNoErrors: 'Tools, no errors',
+	toolsWithErrors: 'Tools with errors',
+};
+
+const feedbackStateLabels: Record<ChatReplayFeedbackState, string> = {
+	noVotes: 'No votes',
+	upvotes: 'Upvotes',
+	downvotes: 'Downvotes',
+};
+
+function MultiSelectFilter<T extends string>({
+	label,
+	icon: Icon,
+	options,
+	selectedValues,
+	onChange,
+}: MultiSelectFilterProps<T>) {
+	const allValues = options.map((option) => option.value);
+	const currentValues = selectedValues ?? allValues;
+	const hasPartialSelection = selectedValues !== undefined && selectedValues.length < allValues.length;
+
+	const updateSelection = (next: T[]) => {
+		onChange(next.length === 0 || next.length === allValues.length ? undefined : next);
+	};
+
+	return (
+		<DropdownMenu>
+			<DropdownMenuTrigger asChild>
+				<Button
+					variant='ghost'
+					size='sm'
+					disabled={options.length === 0}
+					className={cn(hasPartialSelection && 'text-primary')}
+				>
+					<Icon className='size-4' />
+					{label}
+					{hasPartialSelection && (
+						<Badge variant='secondary' className='h-4 px-1 text-xs'>
+							{currentValues.length}
+						</Badge>
+					)}
+				</Button>
+			</DropdownMenuTrigger>
+			<DropdownMenuContent align='start' className='w-56 max-h-64 overflow-y-auto'>
+				<div className='px-2 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide'>
+					{label}
+				</div>
+				<DropdownMenuSeparator />
+				{options.map((option) => (
+					<DropdownMenuCheckboxItem
+						key={option.value}
+						checked={currentValues.includes(option.value)}
+						onSelect={(event) => event.preventDefault()}
+						onCheckedChange={(checked) => {
+							if (!selectedValues) {
+								updateSelection([option.value]);
+								return;
+							}
+
+							const next = checked
+								? Array.from(new Set([...currentValues, option.value]))
+								: currentValues.filter((value) => value !== option.value);
+							updateSelection(next);
+						}}
+					>
+						<div className='flex w-full items-center justify-between gap-2'>
+							<span className='truncate'>{option.label}</span>
+							{typeof option.count === 'number' && (
+								<Badge variant='secondary' className='h-4 px-1 text-xs'>
+									{option.count}
+								</Badge>
+							)}
+						</div>
+					</DropdownMenuCheckboxItem>
+				))}
+				{hasPartialSelection && (
+					<>
+						<DropdownMenuSeparator />
+						<button
+							type='button'
+							className='w-full rounded-sm px-2 py-1.5 text-left text-xs text-muted-foreground hover:text-foreground'
+							onClick={() => onChange(undefined)}
+						>
+							Show all
+						</button>
+					</>
+				)}
+			</DropdownMenuContent>
+		</DropdownMenu>
 	);
 }

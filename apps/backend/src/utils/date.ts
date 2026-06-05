@@ -11,8 +11,8 @@ export function isValidIsoDateString(s: string): boolean {
 
 export const lookbackPeriods = {
 	hour: 24,
-	day: 30,
-	month: 12,
+	day: 15,
+	month: 6,
 };
 
 export function getLookbackTimestamp(granularity: Granularity): number {

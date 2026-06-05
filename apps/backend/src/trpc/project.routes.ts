@@ -837,7 +837,7 @@ export const projectRoutes = {
 				filters: z
 					.array(
 						z.object({
-							id: z.enum(['userName', 'userRole', 'toolState']),
+							id: z.enum(['userName', 'userRole', 'toolState', 'feedback']),
 							values: z.array(z.string()).default([]),
 						}),
 					)
@@ -876,7 +876,12 @@ export const projectRoutes = {
 			}
 
 			const ownerName = ownerId ? await userQueries.getUserName(ownerId) : null;
-			return { ...chat, ownerId: ownerId ?? null, ownerName };
+			return {
+				...chat,
+				ownerId: ownerId ?? null,
+				ownerName,
+				chatOwnerId: ownerId ?? null,
+			};
 		}),
 
 	getEnvVars: adminProtectedProcedure.query(async ({ ctx }) => {

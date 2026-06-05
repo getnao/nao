@@ -27,6 +27,12 @@ export interface UserPreferences {
 
 export type UpdatedAtFilter = { mode: 'single'; value: string } | { mode: 'range'; start: string; end: string };
 
+export const CHAT_REPLAY_TOOL_STATES = ['noToolsUsed', 'toolsNoErrors', 'toolsWithErrors'] as const;
+export type ChatReplayToolState = (typeof CHAT_REPLAY_TOOL_STATES)[number];
+
+export const CHAT_REPLAY_FEEDBACK_STATES = ['noVotes', 'upvotes', 'downvotes'] as const;
+export type ChatReplayFeedbackState = (typeof CHAT_REPLAY_FEEDBACK_STATES)[number];
+
 export const NO_CACHE_SCHEDULE = 'no-cache';
 
 export const LLM_PROVIDERS = [

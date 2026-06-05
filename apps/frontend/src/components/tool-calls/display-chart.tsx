@@ -1,8 +1,8 @@
 import { buildChart, bucketPieData, buildStoryChartBlock, labelize } from '@nao/shared';
 import { displayChart } from '@nao/shared/tools';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Code, Download, FilePlus, Pencil } from 'lucide-react';
-import { memo, useCallback, useMemo, useState } from 'react';
+import { ChevronLeft, ChevronRight, Code, Download, FilePlus, Pencil } from 'lucide-react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useOptionalAgentContext } from '../../contexts/agent.provider';
 import GraphLoaderAnimated from '../icons/graph-loader-animated';
@@ -37,6 +37,7 @@ import { SidePanelContent } from '@/components/side-panel/sql-editor';
 
 const Colors = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)', 'var(--chart-5)'];
 const EMPTY_MESSAGES: UIMessage[] = [];
+const LEGEND_SCROLL_OFFSET = 120;
 
 export const DisplayChartToolCall = ({
 	toolPart: { state, input, output, toolCallId },
@@ -309,12 +310,18 @@ export interface ChartDisplayProps {
 	xAxisKey: string;
 	xAxisType: 'number' | 'category';
 	xAxisLabelFormatter?: (value: string) => string;
+	valueFormatter?: (value: number) => string;
 	series: displayChart.SeriesConfig[];
 	title?: string;
+	titleStyle?: 'default' | 'left';
+	titleAccessory?: React.ReactNode;
 	showGrid?: boolean;
 	yAxisMin?: number;
 	yAxisMax?: number;
 	showDataLabels?: boolean;
+	className?: string;
+	chartContainerClassName?: string;
+	chartContentClassName?: string;
 }
 
 export const ChartDisplay = memo(function ChartDisplay({
@@ -323,12 +330,18 @@ export const ChartDisplay = memo(function ChartDisplay({
 	xAxisKey: xAxisKeyProp,
 	xAxisType,
 	xAxisLabelFormatter,
+	valueFormatter,
 	series: seriesProp,
 	title,
+	titleStyle = 'default',
+	titleAccessory,
 	showGrid = true,
 	yAxisMin,
 	yAxisMax,
 	showDataLabels,
+	className,
+	chartContainerClassName,
+	chartContentClassName,
 }: ChartDisplayProps) {
 	const dateFormat = useDateFormat();
 
@@ -347,6 +360,8 @@ export const ChartDisplay = memo(function ChartDisplay({
 		() => (isPie ? bucketPieData(data, xAxisKey, pieValueKey) : data),
 		[isPie, data, xAxisKey, pieValueKey],
 	);
+	const useInlineHeader = titleStyle === 'left' && Boolean(title) && !isPie;
+	const { scrollRef, canScrollLeft, canScrollRight, scrollLegend } = useHorizontalScrollControls();
 
 	const chartConfig = useMemo((): ChartConfig => {
 		if (isPie) {
@@ -428,6 +443,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 				series: visibleSeries,
 				colorFor,
 				labelFormatter,
+				valueFormatter,
 				showGrid,
 				showDataLabels,
 				margin: { top: 0, right: 0, bottom: 0, left: 0 },
@@ -440,10 +456,14 @@ export const ChartDisplay = memo(function ChartDisplay({
 						animationEasing='linear'
 						allowEscapeViewBox={{ y: true, x: false }}
 						content={
-							<ChartTooltipContent percent={isPercentStacked} labelFormatter={tooltipLabelFormatter} />
+							<ChartTooltipContent
+								percent={isPercentStacked}
+								labelFormatter={tooltipLabelFormatter}
+								valueFormatter={valueFormatter}
+							/>
 						}
 					/>,
-					chartType !== 'kpi_card' && (
+					chartType !== 'kpi_card' && !useInlineHeader && (
 						<ChartLegend
 							key='legend'
 							payload={legendPayload}
@@ -458,8 +478,8 @@ export const ChartDisplay = memo(function ChartDisplay({
 							}
 						/>
 					),
-				],
-				title,
+				].filter(Boolean),
+				title: useInlineHeader ? undefined : title,
 				renderTitle: false,
 			}),
 		[
@@ -472,6 +492,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 			colorFor,
 			labelFormatter,
 			tooltipLabelFormatter,
+			valueFormatter,
 			showGrid,
 			yAxisMin,
 			yAxisMax,
@@ -480,21 +501,129 @@ export const ChartDisplay = memo(function ChartDisplay({
 			handleToggleSeriesVisibility,
 			title,
 			isPercentStacked,
+			useInlineHeader,
 		],
 	);
 
+	const inlineHeader = useInlineHeader ? (
+		<div className='mb-6 flex w-full min-w-0 items-center gap-3'>
+			<div className='min-h-11 shrink-0'>
+				<span className='block text-[15px] font-semibold'>{title}</span>
+				{titleAccessory}
+			</div>
+			{canScrollLeft && (
+				<Button
+					variant='ghost-muted'
+					size='icon-xs'
+					onClick={() => scrollLegend('left')}
+					aria-label='Scroll legend left'
+					className='shrink-0'
+				>
+					<ChevronLeft className='size-3.5' />
+				</Button>
+			)}
+			<div
+				ref={scrollRef}
+				className='min-w-0 flex-1 overflow-x-auto pl-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden'
+			>
+				<ChartLegendContent
+					payload={legendPayload}
+					align='right'
+					onItemClick={handleToggleSeriesVisibility}
+					className='w-max min-w-full gap-3 p-0 text-[10px] [&>*]:shrink-0'
+				/>
+			</div>
+			{canScrollRight && (
+				<Button
+					variant='ghost-muted'
+					size='icon-xs'
+					onClick={() => scrollLegend('right')}
+					aria-label='Scroll legend right'
+					className='shrink-0'
+				>
+					<ChevronRight className='size-3.5' />
+				</Button>
+			)}
+		</div>
+	) : undefined;
+
 	return (
-		<div className='flex flex-col items-stretch gap-2 w-full'>
+		<div className={`flex flex-col items-stretch gap-2 w-full ${className ?? ''}`}>
 			{chartType === 'kpi_card' ? (
 				chartElement
 			) : (
-				<ChartContainer config={chartConfig} className='w-full'>
+				<ChartContainer
+					config={chartConfig}
+					className={`w-full ${chartContainerClassName ?? ''}`}
+					contentClassName={chartContentClassName}
+					header={inlineHeader}
+				>
 					{chartElement}
 				</ChartContainer>
 			)}
 		</div>
 	);
 });
+
+const useHorizontalScrollControls = () => {
+	const scrollRef = useRef<HTMLDivElement>(null);
+	const [scrollState, setScrollState] = useState({
+		canScrollLeft: false,
+		canScrollRight: false,
+	});
+
+	const updateScrollState = useCallback(() => {
+		const element = scrollRef.current;
+		if (!element) {
+			return;
+		}
+
+		const maxScrollLeft = element.scrollWidth - element.clientWidth;
+		setScrollState({
+			canScrollLeft: element.scrollLeft > 1,
+			canScrollRight: element.scrollLeft < maxScrollLeft - 1,
+		});
+	}, []);
+
+	useEffect(() => {
+		const element = scrollRef.current;
+		if (!element) {
+			return;
+		}
+
+		updateScrollState();
+		element.addEventListener('scroll', updateScrollState, { passive: true });
+
+		if (typeof ResizeObserver === 'undefined') {
+			return () => element.removeEventListener('scroll', updateScrollState);
+		}
+
+		const resizeObserver = new ResizeObserver(updateScrollState);
+		resizeObserver.observe(element);
+
+		if (element.firstElementChild) {
+			resizeObserver.observe(element.firstElementChild);
+		}
+
+		return () => {
+			element.removeEventListener('scroll', updateScrollState);
+			resizeObserver.disconnect();
+		};
+	}, [updateScrollState]);
+
+	const scrollLegend = useCallback((direction: 'left' | 'right') => {
+		scrollRef.current?.scrollBy({
+			left: direction === 'left' ? -LEGEND_SCROLL_OFFSET : LEGEND_SCROLL_OFFSET,
+			behavior: 'smooth',
+		});
+	}, []);
+
+	return {
+		...scrollState,
+		scrollRef,
+		scrollLegend,
+	};
+};
 
 /** Manages which series are visible and hidden */
 const useSeriesVisibility = (series: displayChart.SeriesConfig[]) => {
