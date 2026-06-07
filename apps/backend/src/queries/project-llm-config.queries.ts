@@ -35,6 +35,7 @@ export const upsertProjectLlmConfig = async (
 				enabledModels: config.enabledModels,
 				customModels: config.customModels,
 				baseUrl: config.baseUrl,
+				inferenceParams: config.inferenceParams,
 			})
 			.where(eq(s.projectLlmConfig.id, existing.id))
 			.returning()

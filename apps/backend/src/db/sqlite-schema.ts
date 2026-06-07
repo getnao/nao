@@ -405,6 +405,12 @@ export const projectLlmConfig = sqliteTable(
 			.default([])
 			.notNull(),
 		baseUrl: text('base_url'),
+		inferenceParams: text('inference_params', { mode: 'json' }).$type<{
+			temperature?: number;
+			topP?: number;
+			maxTokens?: number;
+			extras?: Record<string, unknown>;
+		}>(),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull(),

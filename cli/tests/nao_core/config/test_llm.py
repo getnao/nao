@@ -54,3 +54,41 @@ def test_prompt_config_prompts_annotation_model_when_enabled(mock_select, mock_t
     assert config.api_key == "sk-test-key"
     assert config.annotation_model == "gpt-4.1"
     assert mock_text.call_count == 2
+
+
+def test_advanced_inference_parameters():
+    """Advanced inference parameters should be properly set and serialized."""
+    config = LLMConfig(
+        provider=LLMProvider.OPENAI,
+        api_key="sk-test",
+        temperature=0.7,
+        top_p=0.9,
+        max_tokens=1000,
+        extras={"custom_param": "custom_value"},
+    )
+    assert config.temperature == 0.7
+    assert config.top_p == 0.9
+    assert config.max_tokens == 1000
+    assert config.extras == {"custom_param": "custom_value"}
+
+    dumped = config.model_dump(exclude_none=True)
+    assert dumped["temperature"] == 0.7
+    assert dumped["top_p"] == 0.9
+    assert dumped["max_tokens"] == 1000
+    assert dumped["extras"] == {"custom_param": "custom_value"}
+
+
+def test_advanced_inference_parameters_none_by_default():
+    """Advanced inference parameters should be None by default and excluded when serialized."""
+    config = LLMConfig(provider=LLMProvider.OPENAI, api_key="sk-test")
+    assert config.temperature is None
+    assert config.top_p is None
+    assert config.max_tokens is None
+    assert config.extras is None
+
+    dumped = config.model_dump(exclude_none=True)
+    assert "temperature" not in dumped
+    assert "top_p" not in dumped
+    assert "max_tokens" not in dumped
+    assert "extras" not in dumped
+

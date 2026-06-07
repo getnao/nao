@@ -19,7 +19,7 @@ import {
 } from 'ai';
 import { z } from 'zod';
 
-import { CACHE_1H, CACHE_5M, LLM_PROVIDERS, ProviderModelResult } from '../agents/providers';
+import { CACHE_1H, CACHE_5M, LLM_PROVIDERS } from '../agents/providers';
 import { getTools } from '../agents/tools';
 import { createWebSearchTools } from '../agents/tools/web-search';
 import { getConnections, getTableColumnsContent, getUserRules } from '../agents/user-rules';
@@ -58,6 +58,7 @@ import {
 	getDefaultModelId,
 	getEnvModelSelections,
 	resolveAnnotationModelId,
+	ResolvedProviderModel,
 	resolveProviderModel,
 	resolveProviderSettings,
 } from '../utils/llm';
@@ -259,7 +260,10 @@ export class AgentService {
 		return createWebSearchTools(provider, settings);
 	}
 
-	protected async _getModelConfig(projectId: string, modelSelection: LlmSelectedModel): Promise<ProviderModelResult> {
+	protected async _getModelConfig(
+		projectId: string,
+		modelSelection: LlmSelectedModel,
+	): Promise<ResolvedProviderModel> {
 		const result = await resolveProviderModel(projectId, modelSelection.provider, modelSelection.modelId);
 		if (!result) {
 			throw new HandlerError('BAD_REQUEST', 'The selected model could not be resolved.');
@@ -276,7 +280,7 @@ class AgentManager {
 
 	constructor(
 		readonly chat: AgentChat,
-		private readonly _modelConfig: ProviderModelResult,
+		private readonly _modelConfig: ResolvedProviderModel,
 		private readonly _modelSelection: LlmSelectedModel,
 		private readonly _onDispose: () => void,
 		private readonly _abortController: AbortController,
@@ -284,11 +288,14 @@ class AgentManager {
 		private readonly _toolContext: ToolContext,
 		stopWhen: StopCondition<AgentTools>[] = [hasToolCall('suggest_follow_ups'), hasToolCall('clarification')],
 	) {
+		const params = this._modelConfig.inferenceParams;
 		this._agent = new ToolLoopAgent({
 			model: this._modelConfig.model,
 			providerOptions: this._modelConfig.providerOptions,
 			tools: this._agentTools,
-			maxOutputTokens: MAX_OUTPUT_TOKENS,
+			maxOutputTokens: params?.maxTokens ?? MAX_OUTPUT_TOKENS,
+			...(params?.temperature !== undefined && { temperature: params.temperature }),
+			...(params?.topP !== undefined && { topP: params.topP }),
 			prepareStep: async ({ messages }) => this._prepareStep(messages),
 			stopWhen,
 			experimental_context: this._toolContext,

@@ -383,6 +383,12 @@ export const projectLlmConfig = pgTable(
 			.default([])
 			.notNull(),
 		baseUrl: text('base_url'),
+		inferenceParams: jsonb('inference_params').$type<{
+			temperature?: number;
+			topP?: number;
+			maxTokens?: number;
+			extras?: Record<string, unknown>;
+		}>(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()

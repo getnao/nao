@@ -2,9 +2,13 @@ import type { LlmProvider, LlmSelectedModel } from '@nao/shared/types';
 
 import { createProviderModel, getDefaultModelId, LLM_PROVIDERS, type ProviderModelResult } from '../agents/providers';
 import * as projectLlmConfigQueries from '../queries/project-llm-config.queries';
-import type { ProviderSettings } from '../types/llm';
+import type { InferenceParams, ProviderSettings } from '../types/llm';
 
 export { getDefaultModelId };
+
+export type ResolvedProviderModel = ProviderModelResult & {
+	inferenceParams?: InferenceParams;
+};
 
 /** Get the API key from environment for a provider */
 export function getEnvApiKey(provider: LlmProvider): string | undefined {
@@ -111,10 +115,10 @@ export async function resolveProviderModel(
 	projectId: string,
 	provider: LlmProvider,
 	modelId: string,
-): Promise<ProviderModelResult | null> {
+): Promise<ResolvedProviderModel | null> {
 	const config = await projectLlmConfigQueries.getProjectLlmConfigByProvider(projectId, provider);
 	if (config) {
-		return createProviderModel(
+		const modelResult = createProviderModel(
 			provider,
 			{
 				apiKey: config.apiKey,
@@ -123,6 +127,10 @@ export async function resolveProviderModel(
 			},
 			modelId,
 		);
+		return {
+			...modelResult,
+			inferenceParams: config.inferenceParams ?? undefined,
+		};
 	}
 
 	const envApiKey = getEnvApiKey(provider);

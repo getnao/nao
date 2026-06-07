@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Literal
+from typing import Any, Literal
 
 import questionary
 from pydantic import BaseModel, Field, model_validator
@@ -111,6 +111,24 @@ class LLMConfig(BaseModel):
         description="Model to use for ai_summary generation via prompt(...) in Jinja templates",
     )
     meta: LLMConfigMeta | None = Field(default=None, description="Metadata for the LLM")
+
+    # Advanced inference parameters
+    temperature: float | None = Field(
+        default=None,
+        description="Sampling temperature (0–2). Lower values make output more deterministic.",
+    )
+    top_p: float | None = Field(
+        default=None,
+        description="Nucleus sampling threshold (0–1). Only tokens comprising the top_p probability mass are considered.",
+    )
+    max_tokens: int | None = Field(
+        default=None,
+        description="Maximum number of output tokens the model may generate.",
+    )
+    extras: dict[str, Any] | None = Field(
+        default=None,
+        description="Additional provider-specific parameters forwarded verbatim to the model API.",
+    )
 
     @property
     def requires_api_key(self) -> bool:

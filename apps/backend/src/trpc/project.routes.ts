@@ -19,7 +19,7 @@ import { posthog, PostHogEvent } from '../services/posthog';
 import { slackService } from '../services/slack';
 import { listAvailableTranscribeModels as getAvailableTranscribeModels } from '../services/transcribe.service';
 import { AgentSettings } from '../types/agent-settings';
-import { customModelMetadataSchema, llmConfigSchema, llmProviderSchema } from '../types/llm';
+import { customModelMetadataSchema, inferenceParamsSchema, llmConfigSchema, llmProviderSchema } from '../types/llm';
 import { isValidIsoDateString } from '../utils/date';
 import { getEnvApiKey, getEnvBaseUrls, getEnvProviders, getProjectAvailableModels } from '../utils/llm';
 import { extractRequiredEnvVars } from '../utils/nao-config';
@@ -96,6 +96,7 @@ export const projectRoutes = {
 				enabledModels: c.enabledModels ?? [],
 				customModels: c.customModels ?? [],
 				baseUrl: c.baseUrl ?? null,
+				inferenceParams: c.inferenceParams ?? null,
 				createdAt: c.createdAt,
 				updatedAt: c.updatedAt,
 			}));
@@ -133,6 +134,7 @@ export const projectRoutes = {
 				enabledModels: z.array(z.string()).optional(),
 				customModels: z.array(customModelMetadataSchema).optional(),
 				baseUrl: z.string().url().optional().or(z.literal('')),
+				inferenceParams: inferenceParamsSchema.optional(),
 			}),
 		)
 		.output(llmConfigSchema.omit({ createdAt: true, updatedAt: true }))
@@ -172,6 +174,7 @@ export const projectRoutes = {
 				enabledModels,
 				customModels,
 				baseUrl: input.baseUrl || null,
+				inferenceParams: input.inferenceParams ?? null,
 			} as Parameters<typeof llmConfigQueries.upsertProjectLlmConfig>[0]);
 
 			return {
@@ -182,6 +185,7 @@ export const projectRoutes = {
 				enabledModels: config.enabledModels ?? [],
 				customModels: config.customModels ?? [],
 				baseUrl: config.baseUrl ?? null,
+				inferenceParams: config.inferenceParams ?? null,
 			};
 		}),
 

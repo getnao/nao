@@ -36,6 +36,14 @@ export const customModelMetadataSchema = z.object({
 export type ModelCosts = z.infer<typeof customModelCostSchema>;
 export type CustomModelMetadata = z.infer<typeof customModelMetadataSchema>;
 
+export const inferenceParamsSchema = z.object({
+	temperature: z.number().min(0).max(2).optional(),
+	topP: z.number().min(0).max(1).optional(),
+	maxTokens: z.number().int().positive().optional(),
+	extras: z.record(z.string(), z.unknown()).optional(),
+});
+export type InferenceParams = z.infer<typeof inferenceParamsSchema>;
+
 export const llmConfigSchema = z.object({
 	id: z.string(),
 	provider: llmProviderSchema,
@@ -44,6 +52,7 @@ export const llmConfigSchema = z.object({
 	enabledModels: z.array(z.string()).nullable(),
 	customModels: z.array(customModelMetadataSchema),
 	baseUrl: z.string().url().nullable(),
+	inferenceParams: inferenceParamsSchema.nullable(),
 	createdAt: z.date(),
 	updatedAt: z.date(),
 });
