@@ -27,7 +27,7 @@ export function SidebarUserMenu({ isCollapsed, isInSettings }: SidebarUserMenuPr
 					to='/settings'
 					inactiveProps={{ className: 'text-foreground' }}
 					activeProps={{ className: 'text-foreground' }}
-					className='flex-1 min-w-0 flex items-center cursor-pointer justify-between'
+					className='flex-1 min-w-0 flex items-center cursor-pointer'
 				>
 					<div className={cn('flex items-center gap-2 min-w-0', hideIf(isCollapsed))}>
 						{!isCollapsed && username && <Avatar username={username} className='shrink-0' />}
@@ -41,16 +41,18 @@ export function SidebarUserMenu({ isCollapsed, isInSettings }: SidebarUserMenuPr
 							<span className='text-xs text-muted-foreground truncate'>{email}</span>
 						</span>
 					</div>
-					<div className={cn('flex items-center gap-2', isCollapsed ? 'p-2' : 'p-0.5')}>
-						{!isInSettings ? (
-							<SlidersVertical className='size-4' />
-						) : (
-							<Link to='/' className='text-muted-foreground hover:text-foreground'>
-								<ArrowLeft className='size-4' />
-							</Link>
-						)}
-					</div>
 				</Link>
+				<div className={cn('flex items-center gap-2', isCollapsed ? 'p-2' : 'p-0.5')}>
+					{!isInSettings ? (
+						<Link to='/settings' className='text-muted-foreground hover:text-foreground'>
+							<SlidersVertical className='size-4' />
+						</Link>
+					) : (
+						<Link to='/' className='text-muted-foreground hover:text-foreground'>
+							<ArrowLeft className='size-4' />
+						</Link>
+					)}
+				</div>
 			</div>
 		</div>
 	);

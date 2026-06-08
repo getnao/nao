@@ -35,7 +35,7 @@ const theme: PromptTheme = {
 	borderColor: 'transparent',
 	focusBorderColor: 'transparent',
 	focusBoxShadow: 'none',
-	minHeight: '60px',
+	minHeight: '70px',
 	color: 'var(--color-foreground)',
 	padding: '12px',
 	fontFamily: 'inherit',
@@ -107,7 +107,7 @@ export function ChatPrompt({ promptRef, placeholder, initialValue, minHeight, on
 			className='w-full nao-input'
 			style={
 				{
-					'--prompt-min-height': '70px',
+					'--prompt-min-height': minHeight || '70px',
 				} as React.CSSProperties
 			}
 			theme={promptTheme}

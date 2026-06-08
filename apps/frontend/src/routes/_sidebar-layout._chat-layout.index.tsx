@@ -47,9 +47,13 @@ function HomePage() {
 		? 'Set up a project to start analyzing data'
 		: `${username ? capitalize(username) : ''}, what do you want to analyze?`;
 	const theme = useTheme();
-	const stories = useQuery(trpc.story.listAll.queryOptions());
-	const folderItems = useQuery(trpc.storyFolder.listItems.queryOptions());
-	const folderTree = useQuery(trpc.storyFolder.listTree.queryOptions({ archived: false }));
+	const isEmptyState = messages.length === 0;
+	const stories = useQuery({ ...trpc.story.listAll.queryOptions(), enabled: isEmptyState });
+	const folderItems = useQuery({ ...trpc.storyFolder.listItems.queryOptions(), enabled: isEmptyState });
+	const folderTree = useQuery({
+		...trpc.storyFolder.listTree.queryOptions({ archived: false }),
+		enabled: isEmptyState,
+	});
 	const storiesGridRef = useRef<HTMLDivElement>(null);
 	const [storyCols, setStoryCols] = useState(STORY_CARD_MAX_COLS);
 	const hasStories = (stories.data?.length ?? 0) > 0;
@@ -90,7 +94,10 @@ function HomePage() {
 		[project.data, queryClient],
 	);
 
-	const logoSrc = theme.theme === 'dark' ? '/darkLogo.svg' : '/lightLogo.svg';
+	const isDark =
+		theme.theme === 'dark' ||
+		(theme.theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+	const logoSrc = isDark ? '/darkLogo.svg' : '/lightLogo.svg';
 
 	return (
 		<div className='relative flex flex-col h-full flex-1 min-w-72 overflow-hidden justify-center'>
@@ -152,11 +159,11 @@ function HomePage() {
 								{latestStoryItems.length > 0 && (
 									<div className='flex flex-col gap-3 w-full px-4 py-6 max-w-3xl mx-auto'>
 										<div className='flex items-center justify-between mb-2'>
-											<span className='text-md text-primary font-medium'>Latest stories</span>
+											<span className='text-md text-foreground font-medium'>Latest stories</span>
 										</div>
 										<div
 											ref={storiesGridRef}
-											className='grid gap-3'
+											className='grid gap-5'
 											style={{
 												gridTemplateColumns: `repeat(${storyCols}, minmax(0, 1fr))`,
 											}}

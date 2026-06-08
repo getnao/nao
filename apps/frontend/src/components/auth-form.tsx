@@ -183,7 +183,7 @@ function AuthSidePanel() {
 					htmlFor='chat-input'
 					className={cn(
 						'flex items-center gap-1.5 md:gap-4 ml-auto relative rounded-lg px-4 py-6 shadow-xs',
-						'dark:bg-muted ring-6 ring-secondary/50 dark:ring-secondary/50',
+						'dark:bg-muted ring-[6px] ring-secondary/50 dark:ring-secondary/50',
 						'before:pointer-events-none before:absolute before:-inset-[7px] before:rounded-[15px] before:p-[0.5px]',
 						'before:[background:linear-gradient(135deg,rgba(255,255,255,0.95),rgba(255,255,255,0)_40%,rgba(255,255,255,0)_60%,rgba(255,255,255,0.55))]',
 						'dark:before:[background:linear-gradient(135deg,color-mix(in_srgb,var(--primary-foreground)_90%,transparent),transparent_40%,transparent_60%,color-mix(in_srgb,var(--primary-foreground)_50%,transparent))]',

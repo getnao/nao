@@ -42,7 +42,7 @@ export type FolderTreeEntry = StoryFolderWithCount | VirtualSharedWithMeFolder;
 export async function listFolderTree(
 	userId: string,
 	projectId: string,
-	options?: { archived?: boolean },
+	options?: { archived?: boolean; isViewer?: boolean },
 ): Promise<FolderTreeEntry[]> {
 	const itemCounts = db
 		.select({
@@ -54,6 +54,10 @@ export async function listFolderTree(
 		.as('item_counts');
 
 	const archivedFilter = options?.archived ? isNotNull(s.storyFolder.archivedAt) : isNull(s.storyFolder.archivedAt);
+
+	const visibilityFilter = options?.isViewer
+		? eq(s.storyFolder.visibility, 'public')
+		: or(eq(s.storyFolder.visibility, 'public'), eq(s.storyFolder.ownerId, userId));
 
 	const folders = await db
 		.select({
@@ -71,13 +75,7 @@ export async function listFolderTree(
 		})
 		.from(s.storyFolder)
 		.leftJoin(itemCounts, eq(itemCounts.folderId, s.storyFolder.id))
-		.where(
-			and(
-				eq(s.storyFolder.projectId, projectId),
-				archivedFilter,
-				or(eq(s.storyFolder.visibility, 'public'), eq(s.storyFolder.ownerId, userId)),
-			),
-		)
+		.where(and(eq(s.storyFolder.projectId, projectId), archivedFilter, visibilityFilter))
 		.orderBy(asc(s.storyFolder.name))
 		.execute();
 
@@ -389,7 +387,12 @@ export async function getStoryFolderItem(storyId: string): Promise<{ folderId: s
 export async function listFolderItemsForProject(
 	userId: string,
 	projectId: string,
+	options?: { isViewer?: boolean },
 ): Promise<{ storyId: string; folderId: string }[]> {
+	const visibilityFilter = options?.isViewer
+		? eq(s.storyFolder.visibility, 'public')
+		: or(eq(s.storyFolder.visibility, 'public'), eq(s.storyFolder.ownerId, userId));
+
 	return db
 		.select({
 			storyId: s.storyFolderItem.storyId,
@@ -397,12 +400,7 @@ export async function listFolderItemsForProject(
 		})
 		.from(s.storyFolderItem)
 		.innerJoin(s.storyFolder, eq(s.storyFolderItem.folderId, s.storyFolder.id))
-		.where(
-			and(
-				eq(s.storyFolder.projectId, projectId),
-				or(eq(s.storyFolder.visibility, 'public'), eq(s.storyFolder.ownerId, userId)),
-			),
-		)
+		.where(and(eq(s.storyFolder.projectId, projectId), visibilityFilter))
 		.execute();
 }
 

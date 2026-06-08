@@ -402,7 +402,7 @@ function StoriesPage() {
 	const showExplorerControls = !showArchived;
 
 	return (
-		<div className='flex flex-col flex-1 h-full overflow-auto bg-panel'>
+		<div className='flex flex-col flex-1 h-full overflow-auto'>
 			<MobileHeader />
 			<DndContext
 				sensors={sensors}

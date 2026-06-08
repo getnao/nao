@@ -236,10 +236,15 @@ export function Sidebar() {
 						<div
 							className={cn(
 								'flex items-center justify-between relative group transition-[padding,height,background-color] duration-300 pt-[10px] pl-2 pr-1',
-								isCollapsed ? 'h-9' : '',
+								effectiveIsCollapsed ? 'h-9' : '',
 							)}
 						>
-							<div className={cn('transition-[opacity,visibility] duration-300', hideIf(isCollapsed))}>
+							<div
+								className={cn(
+									'transition-[opacity,visibility] duration-300',
+									hideIf(effectiveIsCollapsed),
+								)}
+							>
 								<span className='text-md font-medium'>Chats</span>
 							</div>
 							<ChatFilterMenu

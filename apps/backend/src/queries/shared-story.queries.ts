@@ -10,6 +10,7 @@ export type SharedStoryWithLatest = DBSharedStory & {
 	slug: string;
 	title: string;
 	code: string;
+	isLive: boolean;
 	sharedWithCount: number;
 };
 
@@ -216,6 +217,7 @@ function querySharedStories(whereCondition: SQL): Promise<SharedStoryWithLatest[
 			slug: s.story.slug,
 			title: s.story.title,
 			code: s.storyVersion.code,
+			isLive: s.story.isLive,
 			sharedWithCount: sql<number>`coalesce(${accessCounts.cnt}, 0)`,
 		})
 		.from(s.sharedStory)

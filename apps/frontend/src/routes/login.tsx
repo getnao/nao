@@ -92,7 +92,13 @@ function Login() {
 				placeholder='joe@gmail.com'
 				className='mb-6'
 			/>
-			<FormTextField form={form} name='password' type='password' title='Password' className='mb-2' />
+			<FormTextField
+				form={form}
+				name='password'
+				type='password'
+				title='Password'
+				className={isUserLoginEnabled && isSmtpSetup.data ? 'mb-2' : 'mb-10'}
+			/>
 			{isUserLoginEnabled && isSmtpSetup.data && (
 				<div className='text-right mb-8'>
 					<Link

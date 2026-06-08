@@ -71,14 +71,20 @@ export const storyFolderRoutes = {
 	listTree: projectProtectedProcedure
 		.input(z.object({ archived: z.boolean().optional() }).optional())
 		.query(async ({ ctx, input }) => {
-			if (!input?.archived && ctx.userRole !== 'viewer') {
+			const isViewer = ctx.userRole === 'viewer';
+			if (!input?.archived && !isViewer) {
 				await storyFolderQueries.ensurePrivateRoot(ctx.user.id, ctx.project.id);
 			}
-			return storyFolderQueries.listFolderTree(ctx.user.id, ctx.project.id, { archived: input?.archived });
+			return storyFolderQueries.listFolderTree(ctx.user.id, ctx.project.id, {
+				archived: input?.archived,
+				isViewer,
+			});
 		}),
 
 	listItems: projectProtectedProcedure.query(async ({ ctx }) => {
-		return storyFolderQueries.listFolderItemsForProject(ctx.user.id, ctx.project.id);
+		return storyFolderQueries.listFolderItemsForProject(ctx.user.id, ctx.project.id, {
+			isViewer: ctx.userRole === 'viewer',
+		});
 	}),
 
 	create: canSendProcedure
