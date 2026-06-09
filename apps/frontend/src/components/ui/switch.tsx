@@ -18,10 +18,11 @@ export function Switch({ checked, onCheckedChange, disabled, id }: SwitchProps) 
 			disabled={disabled}
 			onClick={() => onCheckedChange(!checked)}
 			className={cn(
-				'relative inline-flex h-5 w-8 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors',
+				'relative inline-flex h-5 w-8 shrink-0 cursor-pointer items-center rounded-full px-0.5 transition-colors',
 				'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+				'shadow-[inset_0_0_0_1px_rgba(0,0,0,0.06)] dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.07)]',
 				'disabled:cursor-not-allowed disabled:opacity-50',
-				checked ? 'bg-primary' : 'bg-muted',
+				checked ? 'bg-brand-gradient' : 'bg-muted',
 			)}
 		>
 			<span

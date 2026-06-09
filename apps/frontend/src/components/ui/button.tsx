@@ -12,6 +12,9 @@ const buttonVariants = cva(
 		variants: {
 			variant: {
 				default: 'bg-primary text-primary-foreground hover:bg-primary/90',
+				'primary-gradient': 'text-[oklch(1_0_0)] bg-brand-gradient hover:bg-brand-gradient-hover',
+				'primary-gradient-border':
+					'border border-transparent text-[oklch(1_0_0)] bg-brand-gradient-border hover:bg-brand-gradient-border-hover',
 				destructive:
 					'bg-destructive/10 text-destructive hover:bg-destructive/15 dark:bg-destructive/60 dark:text-white',
 				'destructive-soft':
@@ -99,11 +102,8 @@ function ChatSendButton({ showStop, disabled, ...props }: React.ComponentProps<'
 			{...props}
 			disabled={disabled}
 			size='icon-sm'
-			className={cn(
-				'rounded-full ml-auto size-7 border border-transparent',
-				'[background:linear-gradient(180deg,#522BFF_0%,#6441FF_100%)_padding-box,linear-gradient(180deg,#522BFF_0%,#3C1BCD_50.48%,#A591FF_100%)_border-box]',
-				'text-[oklch(0.94_0_0)]',
-			)}
+			variant='primary-gradient-border'
+			className='rounded-full ml-auto size-7'
 		>
 			{showStop ? (
 				<SquareIcon fill='currentColor' stroke='currentColor' className='size-3' />

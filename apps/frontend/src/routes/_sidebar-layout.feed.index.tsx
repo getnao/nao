@@ -66,7 +66,7 @@ function AutomationsPage() {
 							Catch up on all your activity (automations, stories). Latest first.
 						</p>
 					</div>
-					<Button onClick={() => setIsCreating((value) => !value)}>
+					<Button variant='primary-gradient' onClick={() => setIsCreating((value) => !value)}>
 						{isCreating ? <X className='size-4' /> : <Plus className='size-4' />}
 						{isCreating ? 'Cancel' : 'New automation'}
 					</Button>

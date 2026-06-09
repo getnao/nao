@@ -305,7 +305,7 @@ function ConnectionCard() {
 						<Button
 							key={p.id}
 							size='sm'
-							variant={i === active ? 'default' : 'outline'}
+							variant={i === active ? 'primary-gradient' : 'outline'}
 							onClick={() => setActive(i)}
 						>
 							{p.label}

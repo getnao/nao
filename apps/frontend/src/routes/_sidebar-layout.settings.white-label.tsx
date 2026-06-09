@@ -206,6 +206,7 @@ function WhiteLabelPage() {
 					</Button>
 					<Button
 						size='sm'
+						variant='primary-gradient'
 						disabled={disabled || !hasChanges || updateMutation.isPending}
 						onClick={handleSave}
 					>

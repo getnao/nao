@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { TriangleAlert } from 'lucide-react';
 
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn, hideIf } from '@/lib/utils';
 import { trpc } from '@/main';
 
@@ -24,16 +24,14 @@ export function SidebarVersionNotice({ isCollapsed }: SidebarVersionNoticeProps)
 
 	if (isCollapsed) {
 		return (
-			<TooltipProvider>
-				<Tooltip>
-					<TooltipTrigger asChild>
-						<div className='flex items-center justify-center p-2 mb-1 rounded-md text-amber-500'>
-							<TriangleAlert className='size-4' />
-						</div>
-					</TooltipTrigger>
-					<TooltipContent side='right'>{label}</TooltipContent>
-				</Tooltip>
-			</TooltipProvider>
+			<Tooltip>
+				<TooltipTrigger asChild>
+					<div className='flex items-center justify-center p-2 mb-1 rounded-md text-amber-500'>
+						<TriangleAlert className='size-4' />
+					</div>
+				</TooltipTrigger>
+				<TooltipContent side='right'>{label}</TooltipContent>
+			</Tooltip>
 		);
 	}
 

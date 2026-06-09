@@ -14,7 +14,7 @@ import { StoryChartEmbed, StoryTableEmbed } from '@/components/story-embeds';
 import { SegmentList } from '@/components/story-rendering';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { SidePanelProvider } from '@/contexts/side-panel';
 import { SelectionProvider } from '@/contexts/text-selection';
 import { useSidePanel } from '@/hooks/use-side-panel';
@@ -83,41 +83,37 @@ function SharedStoryPage() {
 					<span className='text-sm text-muted-foreground shrink-0'>by {story.authorName}</span>
 					{story.isLive && (
 						<div className='flex items-center gap-1.5'>
-							<TooltipProvider>
-								<Tooltip>
-									<TooltipTrigger asChild>
-										<div className='flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700'>
-											<Activity className='size-3' />
-											<span>Live</span>
-										</div>
-									</TooltipTrigger>
-									<TooltipContent>
-										{cachedAt
-											? `Data cached ${cachedAt.toLocaleString()}`
-											: 'Live story with fresh data'}
-									</TooltipContent>
-								</Tooltip>
-							</TooltipProvider>
-							<TooltipProvider>
-								<Tooltip>
-									<TooltipTrigger asChild>
-										<Button
-											variant='ghost-muted'
-											size='icon-xs'
-											onClick={() => refreshMutation.mutate({ shareId })}
-											disabled={refreshMutation.isPending}
-											aria-label='Refresh data'
-										>
-											{refreshMutation.isPending ? (
-												<Loader2 className='size-3.5 animate-spin' />
-											) : (
-												<RefreshCw className='size-3.5' />
-											)}
-										</Button>
-									</TooltipTrigger>
-									<TooltipContent>Refresh data</TooltipContent>
-								</Tooltip>
-							</TooltipProvider>
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<div className='flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700'>
+										<Activity className='size-3' />
+										<span>Live</span>
+									</div>
+								</TooltipTrigger>
+								<TooltipContent>
+									{cachedAt
+										? `Data cached ${cachedAt.toLocaleString()}`
+										: 'Live story with fresh data'}
+								</TooltipContent>
+							</Tooltip>
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<Button
+										variant='ghost-muted'
+										size='icon-xs'
+										onClick={() => refreshMutation.mutate({ shareId })}
+										disabled={refreshMutation.isPending}
+										aria-label='Refresh data'
+									>
+										{refreshMutation.isPending ? (
+											<Loader2 className='size-3.5 animate-spin' />
+										) : (
+											<RefreshCw className='size-3.5' />
+										)}
+									</Button>
+								</TooltipTrigger>
+								<TooltipContent>Refresh data</TooltipContent>
+							</Tooltip>
 						</div>
 					)}
 					<div className='ml-auto flex items-center gap-1.5 shrink-0'>

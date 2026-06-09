@@ -150,7 +150,8 @@ export function AuthForm({
 								{(canSubmit: boolean) => (
 									<Button
 										type='submit'
-										className={`w-full h-11 rounded-full text-[oklch(0.94_0_0)] ${canSubmit ? 'bg-violet hover:bg-violet/90' : 'bg-muted-foreground/20 text-secondary-foreground'}`}
+										variant={canSubmit ? 'primary-gradient' : 'default'}
+										className={`w-full h-11 rounded-full ${canSubmit ? '' : 'bg-muted-foreground/20 text-secondary-foreground'}`}
 										disabled={!canSubmit}
 									>
 										{submitText}
