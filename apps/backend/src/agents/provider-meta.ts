@@ -12,6 +12,12 @@ export const PROVIDER_META: ProviderMetaMap = {
 		summaryModelId: 'claude-sonnet-4-5',
 		models: [
 			{
+				id: 'claude-fable-5',
+				name: 'Claude Fable 5',
+				contextWindow: 1_000_000,
+				costPerM: { inputNoCache: 10, inputCacheRead: 1, inputCacheWrite: 12.5, output: 50 },
+			},
+			{
 				id: 'claude-opus-4-8',
 				name: 'Claude Opus 4.8',
 				contextWindow: 200_000,
