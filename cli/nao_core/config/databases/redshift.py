@@ -381,13 +381,14 @@ class RedshiftConfig(DatabaseConfig):
         if self.schema_name:
             return [self.schema_name]
 
-        # Query system catalog directly to get all schemas
+        # svv_all_schemas includes schemas shared through Redshift datashares.
         query = """
-            SELECT nspname 
-            FROM pg_catalog.pg_namespace
-            WHERE nspname NOT LIKE 'pg_%' 
-              AND nspname != 'information_schema'
-            ORDER BY nspname
+            SELECT DISTINCT schema_name
+            FROM svv_all_schemas
+            WHERE schema_name NOT LIKE 'pg_%'
+              AND schema_name != 'information_schema'
+              AND database_name = current_database()
+            ORDER BY schema_name
         """
         try:
             result = conn.raw_sql(query).fetchall()  # type: ignore[union-attr]
