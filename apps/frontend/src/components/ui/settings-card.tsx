@@ -2,7 +2,7 @@ import { cn } from '@/lib/utils';
 
 export function SettingsPageWrapper({ children }: { children: React.ReactNode }) {
 	return (
-		<div className='overflow-auto flex-1'>
+		<div className='overflow-auto flex-1 bg-background'>
 			<div className='flex flex-col w-full px-4 py-6 md:p-8 gap-8 md:gap-12 max-w-4xl mx-auto min-h-full'>
 				{children}
 			</div>
@@ -79,7 +79,7 @@ export function SettingsCard({
 
 			<div
 				className={cn(
-					'flex flex-col gap-4 p-4 rounded-xl border border-border bg-card',
+					'flex flex-col gap-4 p-4 rounded-xl border border-border bg-background',
 					divide && 'gap-2 divide-y divide-border *:not-last:pb-2',
 					className,
 				)}

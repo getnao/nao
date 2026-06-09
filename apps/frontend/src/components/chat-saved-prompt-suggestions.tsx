@@ -43,7 +43,7 @@ export function SavedPromptSuggestions() {
 					)}
 				>
 					<CornerDownRight size={14} className='text-foreground' />
-					<span className='line-clamp-2 font-normal text-muted-foreground group-hover:text-primary'>
+					<span className='line-clamp-2 font-normal text-muted-foreground group-hover:text-foreground'>
 						{prompt.title}
 					</span>
 				</Button>

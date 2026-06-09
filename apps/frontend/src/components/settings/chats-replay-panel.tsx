@@ -96,7 +96,7 @@ export function ChatsReplayPanel({ chatInfo, onClose }: ChatsReplayPanelProps) {
 
 			<SettingsCard
 				rootClassName='flex-1 min-h-0'
-				className='flex-1 min-h-0 overflow-hidden bg-muted/30 border p-0'
+				className='flex-1 min-h-0 overflow-hidden bg-background border p-0'
 			>
 				{!chatInfo?.chatId ? (
 					<div className='flex-1 overflow-auto p-4 text-sm text-muted-foreground'>

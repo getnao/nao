@@ -321,7 +321,7 @@ function ConnectionCard() {
 					</div>
 				</div>
 
-				<div className='border rounded-lg p-3 flex flex-col divide-y divide-border'>
+				<div className='rounded-lg p-3 flex flex-col divide-y divide-border'>
 					{selected.methods.map((method, i) => (
 						<div
 							key={i}

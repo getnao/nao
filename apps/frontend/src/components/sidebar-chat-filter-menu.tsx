@@ -76,7 +76,7 @@ export function ChatFilterMenu({ groupBy, filters, onGroupByChange, onFilterTogg
 			<DropdownMenuContent
 				align='end'
 				side='top'
-				className='w-48 overflow-visible'
+				className='w-48 overflow-visible bg-background'
 				onMouseEnter={cancelClose}
 				onMouseLeave={scheduleClose}
 			>
@@ -116,7 +116,7 @@ export function ChatFilterMenu({ groupBy, filters, onGroupByChange, onFilterTogg
 
 					{subOpen && (
 						<div className='absolute bottom-0 left-full pl-1.5 z-50'>
-							<div className='w-48 bg-popover text-popover-foreground rounded-md border p-1 shadow-lg'>
+							<div className='w-48 bg-background text-popover-foreground rounded-md border p-1 shadow-lg'>
 								{FILTER_OPTIONS.map((opt) => (
 									<DropdownMenuItem
 										key={opt.value}

@@ -59,12 +59,12 @@ export function FolderThumbnail() {
 		<div className='pointer-events-none absolute inset-0 overflow-hidden'>
 			<div
 				className={cn(
-					'absolute top-[41%] left-[11%] w-[130%] h-[200%] origin-top-left bg-secondary dark:bg-panel',
+					'absolute top-[41%] left-[11%] w-[130%] h-[200%] origin-top-left bg-secondary dark:bg-sidebar',
 					SHEET_VISUAL,
 				)}
 				style={{ transform: SHEET_TRANSFORM }}
 			>
-				<div className='absolute -top-[5%] left-[5%] h-[9%] w-[32%] rounded-t-[3px] bg-secondary dark:bg-panel' />
+				<div className='absolute -top-[5%] left-[5%] h-[9%] w-[32%] rounded-t-[3px] bg-secondary dark:bg-sidebar' />
 			</div>
 
 			<div
@@ -94,12 +94,12 @@ export function FolderThumbnail() {
 
 			<div
 				className={cn(
-					'absolute top-[40%] left-[12%] w-[50%] h-[200%] origin-top-left bg-panel dark:bg-background rounded-sm rounded-b-none',
+					'absolute top-[40%] left-[12%] w-[50%] h-[200%] origin-top-left bg-sidebar dark:bg-background rounded-sm rounded-b-none',
 				)}
 				style={{ transform: SHEET_TRANSFORM }}
 			>
 				<div
-					className='pointer-events-none absolute inset-0 rounded-sm rounded-b-none border-t-2 border-r-2 border-[oklch(0.731_0.151_290.7)] dark:border-[oklch(0.82_0.07_277)]'
+					className='pointer-events-none absolute inset-0 rounded-sm rounded-b-none border-t-2 border-r-2 border-primary'
 					style={{
 						maskImage: 'linear-gradient(to top right, transparent, black)',
 						WebkitMaskImage: 'linear-gradient(to top right, transparent, black)',
@@ -109,12 +109,12 @@ export function FolderThumbnail() {
 
 			<div
 				className={cn(
-					'absolute top-[35%] left-[52.5%] w-[70%] h-[200%] origin-top-left bg-panel dark:bg-background rounded-sm rounded-tl-none',
+					'absolute top-[35%] left-[52.5%] w-[70%] h-[200%] origin-top-left bg-sidebar dark:bg-background rounded-sm rounded-tl-none',
 				)}
 				style={{ transform: `${SHEET_TRANSFORM} rotateY(-1.5deg)` }}
 			>
 				<div
-					className='pointer-events-none absolute inset-0 rounded-sm rounded-tl-none border-t-2 border-[oklch(0.731_0.151_290.7)] dark:border-[oklch(0.82_0.07_277)]'
+					className='pointer-events-none absolute inset-0 rounded-sm rounded-tl-none border-t-2 border-primary'
 					style={{
 						maskImage: 'linear-gradient(to left, transparent, black)',
 						WebkitMaskImage: 'linear-gradient(to left, transparent, black)',
@@ -162,8 +162,8 @@ function lineWidth(line: string): number {
 	return Math.min(100, Math.max(33, Math.round((line.length / 80) * 100)));
 }
 
-const CHART_COLOR = 'text-[var(--violet)] dark:text-[oklch(0.82_0.07_277)]';
-const KPI_COLOR = 'bg-[var(--violet)]/50 dark:bg-[oklch(0.82_0.07_277)]/50';
+const CHART_COLOR = 'text-primary';
+const KPI_COLOR = 'bg-primary/50';
 
 const BAR_HEIGHTS = [0.61, 0.65, 0.3, 0.53, 0.3, 0.26, 0.53, 0.53, 0.65, 0.23, 0.61, 0.68, 0.81, 0.9, 0.81, 0.9];
 

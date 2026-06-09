@@ -140,12 +140,12 @@ export function Sidebar() {
 	const sidebarContent = (
 		<div
 			className={cn(
-				'flex flex-col h-full overflow-hidden',
+				'flex flex-col h-full overflow-hidden bg-sidebar dark:bg-background',
 				isMobile
-					? 'w-72 bg-sidebar'
+					? 'w-72'
 					: cn(
 							'border-r border-sidebar-border transition-[width,background-color] duration-300',
-							effectiveIsCollapsed ? 'w-13 bg-panel' : 'w-72 bg-sidebar',
+							effectiveIsCollapsed ? 'w-13' : 'w-72',
 						),
 			)}
 		>

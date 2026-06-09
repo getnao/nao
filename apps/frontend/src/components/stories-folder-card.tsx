@@ -156,7 +156,7 @@ export function FolderCard({
 				{...listeners}
 				className={cn(GRID_CARD_CLASS, isOver && 'ring-2 ring-primary/50', isDragging && 'opacity-0')}
 			>
-				<div className='absolute top-1 left-1 right-1 bottom-14 overflow-hidden rounded-md bg-panel dark:bg-background'>
+				<div className='absolute top-1 left-1 right-1 bottom-14 overflow-hidden rounded-md bg-sidebar dark:bg-background'>
 					<FolderThumbnail />
 				</div>
 
@@ -282,8 +282,8 @@ function FolderFavoriteButton({ folder }: { folder: FolderItem }) {
 				className={cn(
 					'inline-flex items-center justify-center size-5 transition-all duration-150 cursor-pointer disabled:cursor-default',
 					isFavorited
-						? 'opacity-100 text-primary [&_svg]:fill-current'
-						: 'opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-has-data-[state=open]:opacity-100 group-has-data-[state=open]:pointer-events-auto text-muted-foreground hover:text-primary hover:[&_svg]:fill-current',
+						? 'opacity-100 text-foreground [&_svg]:fill-current'
+						: 'opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-has-data-[state=open]:opacity-100 group-has-data-[state=open]:pointer-events-auto text-muted-foreground hover:text-foreground hover:[&_svg]:fill-current',
 				)}
 			>
 				<Star className='size-3' />

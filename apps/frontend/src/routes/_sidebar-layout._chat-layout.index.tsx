@@ -183,7 +183,7 @@ function HomePage() {
 												onClick={() => navigate({ to: '/stories', search: { folderId: null } })}
 												className={cn(
 													'h-9 rounded-lg border border-dashed border-muted-foreground/20 px-3',
-													'flex items-center gap-2 text-muted-foreground/50 bg-panel',
+													'flex items-center gap-2 text-muted-foreground/50 bg-sidebar dark:bg-background',
 													'hover:border-muted-foreground/40 hover:text-muted-foreground transition-colors cursor-pointer',
 												)}
 											>
@@ -205,7 +205,7 @@ function HomePage() {
 }
 
 const STORY_CARD_MIN_WIDTH = 170;
-const STORY_CARD_GAP = 12;
+const STORY_CARD_GAP = 20;
 const STORY_CARD_MAX_COLS = 3;
 
 function computeStoryCols(containerWidth: number) {

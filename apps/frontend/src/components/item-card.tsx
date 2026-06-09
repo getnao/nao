@@ -5,12 +5,13 @@ import { SimpleTooltip } from '@/components/ui/tooltip';
 import { formatRelativeDate } from '@/lib/time-ago';
 import { cn } from '@/lib/utils';
 
-export const GRID_CARD_CLASS = 'group relative h-[150px] rounded-lg border bg-background dark:bg-panel overflow-hidden';
+export const GRID_CARD_CLASS =
+	'group relative h-[150px] rounded-lg border bg-background dark:bg-background overflow-hidden';
 
 export const LINES_CARD_CLASS = 'group flex items-center gap-3 rounded-md px-3 py-2 hover:bg-sidebar-accent';
 
 export const GRID_THUMBNAIL_CLASS =
-	'absolute top-0 left-0 right-0 bottom-12 pointer-events-none overflow-hidden bg-panel dark:bg-background mx-1 mt-1 mb-2 rounded-lg';
+	'absolute top-0 left-0 right-0 bottom-12 pointer-events-none overflow-hidden bg-sidebar dark:bg-background mx-1 mt-1 mb-2 rounded-lg';
 
 export function CardsSection({
 	title,
@@ -80,7 +81,7 @@ export function NoResults({ query }: { query: string }) {
 export function LiveBadge() {
 	return (
 		<SimpleTooltip content='Live story'>
-			<span className='inline-flex items-center text-violet gap-1'>
+			<span className='inline-flex items-center text-primary gap-1'>
 				<Activity className='size-3' />
 				<span className='text-[11px] font-medium truncate'>Live</span>
 			</span>
@@ -108,7 +109,7 @@ export function SharingBadge({ visibility, sharedWithCount }: { visibility: Visi
 
 	return (
 		<SimpleTooltip content={tooltip}>
-			<span className='inline-flex items-center text-violet'>
+			<span className='inline-flex items-center text-primary'>
 				{visibility === 'project' ? <Globe className='size-3' /> : <Users className='size-3' />}
 			</span>
 		</SimpleTooltip>

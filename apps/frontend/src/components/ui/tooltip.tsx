@@ -46,14 +46,12 @@ function SimpleTooltip({
 	align?: React.ComponentProps<typeof TooltipContent>['align'];
 }) {
 	return (
-		<TooltipProvider>
-			<Tooltip>
-				<TooltipTrigger asChild>{children}</TooltipTrigger>
-				<TooltipContent side={side} align={align}>
-					{content}
-				</TooltipContent>
-			</Tooltip>
-		</TooltipProvider>
+		<Tooltip>
+			<TooltipTrigger asChild>{children}</TooltipTrigger>
+			<TooltipContent side={side} align={align}>
+				{content}
+			</TooltipContent>
+		</Tooltip>
 	);
 }
 

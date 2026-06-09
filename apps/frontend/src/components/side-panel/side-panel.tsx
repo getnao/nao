@@ -38,7 +38,7 @@ export const SidePanel = memo(function SidePanel({
 	}
 
 	return (
-		<div ref={sidePanelRef} className={cn('h-full bg-panel', className)}>
+		<div ref={sidePanelRef} className={cn('h-full bg-background', className)}>
 			<div className='h-full min-w-72 relative flex py-4'>
 				<div className='h-full relative flex items-center justify-center py-4 w-0 z-20'>
 					<Button variant='outline' size='icon-xs' className='ml-auto absolute top-8' onClick={onClose}>

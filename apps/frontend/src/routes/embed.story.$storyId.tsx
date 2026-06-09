@@ -55,7 +55,7 @@ function StoryEmbedPage() {
 	}
 
 	return (
-		<div {...{ [NAO_MCP_EMBED_MEASURE_ATTR]: '' }} className='flex min-h-0 min-w-0 flex-1 flex-col bg-panel'>
+		<div {...{ [NAO_MCP_EMBED_MEASURE_ATTR]: '' }} className='flex min-h-0 min-w-0 flex-1 flex-col bg-background'>
 			{inner}
 		</div>
 	);

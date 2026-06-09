@@ -10,6 +10,7 @@ import superjson from 'superjson';
 import { PostHogProvider } from './contexts/posthog.provider';
 import { ThemeProvider } from './contexts/theme.provider';
 import { McpProvider } from './contexts/mcp';
+import { TooltipProvider } from './components/ui/tooltip';
 import { getActiveProjectId } from './lib/active-project';
 import { routeTree } from './routeTree.gen';
 import reportWebVitals from './reportWebVitals';
@@ -77,7 +78,9 @@ if (!rootElement.innerHTML) {
 				<QueryClientProvider client={queryClient}>
 					<McpProvider>
 						<PostHogProvider>
-							<RouterProvider router={router} />
+							<TooltipProvider>
+								<RouterProvider router={router} />
+							</TooltipProvider>
 						</PostHogProvider>
 					</McpProvider>
 				</QueryClientProvider>

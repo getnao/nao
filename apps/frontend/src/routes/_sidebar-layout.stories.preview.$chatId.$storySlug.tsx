@@ -62,7 +62,7 @@ function StoryPreviewPage() {
 	const canEditCharts = !story.archivedAt;
 
 	return (
-		<div className='flex flex-col flex-1 h-full overflow-hidden bg-panel min-w-0'>
+		<div className='flex flex-col flex-1 h-full overflow-hidden bg-background min-w-0'>
 			<header className='flex items-center gap-3 border-b px-4 py-3 md:px-6 md:py-4 shrink-0 bg-background'>
 				<h1 className='text-base font-medium truncate'>{story.title}</h1>
 				{story.isLive && (

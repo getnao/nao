@@ -111,7 +111,7 @@ function ChatPage() {
 			close={sidePanel.close}
 		>
 			<SelectionProvider key={chatId}>
-				<div className='flex-1 flex min-w-0 bg-panel' ref={containerRef}>
+				<div className='flex-1 flex min-w-0 bg-background' ref={containerRef}>
 					<div className='flex flex-col h-full flex-1 min-w-0 overflow-hidden justify-center relative'>
 						<MobileHeader chatId={chatId} title={title} automationId={automationId} />
 
@@ -182,8 +182,8 @@ function ChatPage() {
 						</div>
 
 						<div className='absolute inset-x-0 top-0 z-[5] pointer-events-none max-md:hidden'>
-							<div className='h-10 bg-panel' />
-							<div className='h-3 bg-gradient-to-b from-panel to-transparent' />
+							<div className='h-10 bg-background' />
+							<div className='h-3 bg-gradient-to-b from-background to-transparent' />
 						</div>
 
 						{isLoadingMessages ? (

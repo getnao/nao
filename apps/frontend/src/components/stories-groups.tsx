@@ -338,10 +338,10 @@ function QuickActionButton({
 				className={cn(
 					'inline-flex items-center justify-center h-5 transition-all duration-150 cursor-pointer disabled:cursor-default overflow-hidden',
 					active
-						? 'w-5 opacity-100 text-primary [&_svg]:fill-current'
+						? 'w-5 opacity-100 text-foreground [&_svg]:fill-current'
 						: 'w-0 opacity-0 group-hover:w-5 group-hover:opacity-100 text-muted-foreground',
 					interactive && active && 'hover:text-muted-foreground hover:[&_svg]:fill-none',
-					interactive && !active && 'hover:text-primary',
+					interactive && !active && 'hover:text-foreground',
 					interactive && !active && fillOnHover && 'hover:[&_svg]:fill-current',
 				)}
 			>

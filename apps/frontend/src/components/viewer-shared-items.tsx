@@ -166,8 +166,8 @@ function ChatBubbles({ bubbles }: { bubbles: MessageBubble[] }) {
 	);
 }
 
-const USER_BUBBLE_BORDER = 'border-[var(--violet)]/40 dark:border-[oklch(0.82_0.07_277)]/50';
-const USER_BUBBLE_LINE = 'bg-[var(--violet)]/40 dark:bg-[oklch(0.82_0.07_277)]/50';
+const USER_BUBBLE_BORDER = 'border-primary/40';
+const USER_BUBBLE_LINE = 'bg-primary/40';
 const USER_BUBBLE_LINE_WIDTHS = ['w-full', 'w-4/5', 'w-3/5'];
 
 function UserBubble({ charCount, maxChars }: { charCount: number; maxChars: number }) {
