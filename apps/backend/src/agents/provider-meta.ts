@@ -14,7 +14,7 @@ export const PROVIDER_META: ProviderMetaMap = {
 			{
 				id: 'claude-fable-5',
 				name: 'Claude Fable 5',
-				contextWindow: 1_000_000,
+				contextWindow: 300_000,
 				costPerM: { inputNoCache: 10, inputCacheRead: 1, inputCacheWrite: 12.5, output: 50 },
 			},
 			{
