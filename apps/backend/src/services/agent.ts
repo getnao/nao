@@ -19,7 +19,7 @@ import {
 } from 'ai';
 import { z } from 'zod';
 
-import { CACHE_1H, CACHE_5M, LLM_PROVIDERS, ProviderModelResult } from '../agents/providers';
+import { LLM_PROVIDERS, ProviderModelResult } from '../agents/providers';
 import { getTools } from '../agents/tools';
 import { createWebSearchTools } from '../agents/tools/web-search';
 import { getConnections, getTableColumnsContent, getUserRules } from '../agents/user-rules';
@@ -62,6 +62,7 @@ import {
 	resolveProviderSettings,
 } from '../utils/llm';
 import { logger } from '../utils/logger';
+import { addPromptCache } from '../utils/prompt-cache';
 import { truncateMiddle } from '../utils/utils';
 import { compactionService } from './compaction';
 import { hasFeature, LICENSE_FEATURES } from './license.service';
@@ -765,37 +766,14 @@ class AgentManager {
 
 	/**
 	 * Add Anthropic cache breakpoints to messages.
-	 * Applies to the `anthropic` provider and to Claude models accessed via `vertex`
-	 * (which uses @ai-sdk/google-vertex/anthropic and reads the same `anthropic` provider options).
+	 * Applies to direct Anthropic, Vertex Claude, and Bedrock Anthropic models.
 	 *
 	 * Cache strategy:
 	 * - System message: 1h TTL (instructions rarely change)
 	 * - Last message: 5m TTL (current step's leaf for agentic caching)
 	 */
 	private _addCache(messages: ModelMessage[]): ModelMessage[] {
-		const { provider, modelId } = this._modelSelection;
-		const isAnthropicCompatible =
-			provider === 'anthropic' || (provider === 'vertex' && modelId.startsWith('claude-'));
-		if (messages.length === 0 || !isAnthropicCompatible) {
-			return messages;
-		}
-
-		const withCache = (msg: ModelMessage, cache: typeof CACHE_1H | typeof CACHE_5M): ModelMessage => ({
-			...msg,
-			providerOptions: {
-				...msg.providerOptions,
-				anthropic: { ...msg.providerOptions?.anthropic, cacheControl: cache },
-			},
-		});
-
-		const lastIndex = messages.length - 1;
-		if (messages[0].role === 'system') {
-			messages[0] = withCache(messages[0], CACHE_1H);
-		}
-		if (messages.length > 1) {
-			messages[lastIndex] = withCache(messages[lastIndex], CACHE_5M);
-		}
-		return messages;
+		return addPromptCache(messages, this._modelSelection);
 	}
 
 	/**
