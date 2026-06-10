@@ -174,6 +174,8 @@ export function AuthForm({
 }
 
 function AuthSidePanel() {
+	const [value, setValue] = useState('');
+
 	return (
 		<div
 			className='flex flex-col items-center justify-center hidden overflow-hidden lg:flex lg:w-1/2 m-4 rounded-lg'
@@ -193,7 +195,13 @@ function AuthSidePanel() {
 						'before:[-webkit-mask-composite:xor] before:[mask-composite:exclude]',
 					)}
 				>
-					<span className='text-sm font-medium text-muted-foreground'>Ask anything about your data...</span>
+					<NakedInput
+						id='chat-input'
+						value={value}
+						onChange={(e) => setValue(e.target.value)}
+						placeholder='Ask anything about your data...'
+						className='flex-1 text-sm font-normal caret-primary placeholder:font-medium placeholder:text-muted-foreground'
+					/>
 					<ChatButton showStop={false} type='button' />
 				</InputGroup>
 			</div>
