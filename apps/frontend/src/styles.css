@@ -640,7 +640,7 @@ code.dollar:before {
 	stroke-dasharray: 18 82;
 	animation:
 		chat-input-border-comet 2s cubic-bezier(0.4, 0, 0.2, 1) forwards,
-		chat-input-border-fill 1.5s linear 0.5s forwards;
+		chat-input-border-fill 1.2s linear forwards;
 }
 
 .chat-input-border-stop {

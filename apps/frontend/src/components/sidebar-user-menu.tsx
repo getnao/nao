@@ -44,7 +44,10 @@ export function SidebarUserMenu({ isCollapsed, isInSettings }: SidebarUserMenuPr
 				</Link>
 				<div className={cn('flex items-center gap-2', isCollapsed ? 'p-2' : 'p-0.5')}>
 					{!isInSettings ? (
-						<Link to='/settings' className='text-muted-foreground hover:text-foreground'>
+						<Link
+							to='/settings'
+							className='text-muted-foreground group-hover/user:text-foreground hover:text-foreground'
+						>
 							<SlidersVertical className='size-4' />
 						</Link>
 					) : (

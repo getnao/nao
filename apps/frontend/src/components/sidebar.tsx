@@ -235,7 +235,7 @@ export function Sidebar() {
 
 						<div
 							className={cn(
-								'flex items-center justify-between relative group transition-[padding,height,background-color] duration-300 pt-[10px] pl-2 pr-1',
+								'flex items-center justify-between relative group transition-[padding,height,background-color] duration-300 pt-[10px] pl-2',
 								effectiveIsCollapsed ? 'h-9' : '',
 							)}
 						>

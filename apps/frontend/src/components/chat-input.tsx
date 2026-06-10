@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useId } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useId } from 'react';
 import { Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { Plus, PencilRuler, Database, Image as ImageIcon, AlertTriangle } from 'lucide-react';
@@ -383,7 +383,7 @@ function ChatInputAnimatedBorder() {
 	const [{ width, height }, setSize] = useState({ width: 0, height: 0 });
 	const [isFocused, setIsFocused] = useState(false);
 
-	useEffect(() => {
+	useLayoutEffect(() => {
 		const element = containerRef.current;
 		if (!element) {
 			return;

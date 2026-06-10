@@ -64,11 +64,7 @@ export function ChatFilterMenu({ groupBy, filters, onGroupByChange, onFilterTogg
 	return (
 		<DropdownMenu open={open} onOpenChange={handleOpenChange}>
 			<DropdownMenuTrigger asChild>
-				<Button
-					variant='ghost-no-hover'
-					size='icon-sm'
-					className='shrink-0 text-muted-foreground hover:text-foreground'
-				>
+				<Button variant='ghost' size='icon-md' className='shrink-0 text-muted-foreground hover:text-foreground'>
 					<ListFilter className='size-4' />
 				</Button>
 			</DropdownMenuTrigger>
