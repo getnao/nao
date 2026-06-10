@@ -203,7 +203,7 @@ export function SidebarSettingsNav({
 	};
 
 	return (
-		<div className={cn('flex flex-col gap-1', hideIf(isCollapsed))}>
+		<div className={cn('flex flex-1 min-h-0 flex-col gap-1 overflow-y-auto', hideIf(isCollapsed))}>
 			{!isViewer && (
 				<div className='px-2 pt-2'>
 					<div className='relative'>
