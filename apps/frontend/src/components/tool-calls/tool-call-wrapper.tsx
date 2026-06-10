@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils';
 import { Spinner } from '@/components/ui/spinner';
 import { Expandable } from '@/components/ui/expandable';
 import { useToolCallContext } from '@/contexts/tool-call';
+import { useIsInToolGroup } from '@/contexts/tool-group';
 
 interface ActionButton {
 	id: string;
@@ -32,19 +33,23 @@ export const ToolCallWrapper = ({
 	overrideError = false,
 }: ToolCallWrapperProps) => {
 	const { toolPart, isSettled } = useToolCallContext();
+	const isInToolGroup = useIsInToolGroup();
 	const [isExpanded, setIsExpanded] = useState(false);
 	const [isHovering, setIsHovering] = useState(false);
 	const canExpand = Boolean(children || toolPart.errorText || toolPart.output);
 	const hasInitialized = useRef(false);
 
-	const isBordered = !!actions;
+	const hasActions = !!actions;
+	// Inside a tool group, bordered tools render without border/padding to avoid overflowing the group container.
+	const isBordered = hasActions && !isInToolGroup;
+	const variant = isBordered ? 'bordered' : hasActions ? 'plain' : 'inline';
 
 	useEffect(() => {
-		if (isBordered && !hasInitialized.current && canExpand && defaultExpanded) {
+		if (hasActions && !hasInitialized.current && canExpand && defaultExpanded) {
 			setIsExpanded(true);
 			hasInitialized.current = true;
 		}
-	}, [isBordered, canExpand, defaultExpanded, setIsExpanded]);
+	}, [hasActions, canExpand, defaultExpanded, setIsExpanded]);
 
 	const hasError = !!toolPart.errorText;
 	const showChevron = isSettled && (!hasError || isHovering);
@@ -106,7 +111,7 @@ export const ToolCallWrapper = ({
 				disabled={!canExpand}
 				isLoading={!isSettled}
 				leadingIcon={statusIcon}
-				variant={isBordered ? 'bordered' : 'inline'}
+				variant={variant}
 				trailingContent={actionsContent}
 			>
 				{contentToShow}

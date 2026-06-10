@@ -4,6 +4,7 @@ import type { GroupablePart } from '@/types/ai';
 import { Expandable } from '@/components/ui/expandable';
 import { AssistantReasoning } from '@/components/chat-messages/assistant-reasoning';
 import { useChatView } from '@/contexts/chat-view';
+import { ToolGroupProvider } from '@/contexts/tool-group';
 import { isReasoningPart } from '@/lib/ai';
 import { useToolGroupSummaryTitle } from '@/hooks/use-tool-group-summary-title';
 
@@ -33,16 +34,22 @@ export const ToolCallsGroup = memo(({ parts, isSettled }: Props) => {
 			isLoading={isLoading}
 			variant='inline'
 		>
-			<div className='flex flex-col gap-2'>
-				{parts.map((part, index) => {
-					if (isReasoningPart(part)) {
-						return (
-							<AssistantReasoning key={index} text={part.text} isStreaming={part.state === 'streaming'} />
-						);
-					}
-					return <ToolCall key={index} toolPart={part} />;
-				})}
-			</div>
+			<ToolGroupProvider>
+				<div className='flex flex-col gap-2'>
+					{parts.map((part, index) => {
+						if (isReasoningPart(part)) {
+							return (
+								<AssistantReasoning
+									key={index}
+									text={part.text}
+									isStreaming={part.state === 'streaming'}
+								/>
+							);
+						}
+						return <ToolCall key={index} toolPart={part} />;
+					})}
+				</div>
+			</ToolGroupProvider>
 		</Expandable>
 	);
 });

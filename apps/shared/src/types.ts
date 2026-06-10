@@ -2,6 +2,15 @@ export type UserRole = 'admin' | 'user' | 'viewer';
 
 export const USER_ROLES = ['admin', 'user', 'viewer'] as const satisfies readonly UserRole[];
 
+export const TOOL_CALL_DENSITIES = ['compact', 'detailed'] as const;
+
+/** How much detail to show for tool calls in the chat. */
+export type ToolCallDensity = (typeof TOOL_CALL_DENSITIES)[number];
+
+export interface UserPreferences {
+	toolCallDensity?: ToolCallDensity;
+}
+
 export type UpdatedAtFilter = { mode: 'single'; value: string } | { mode: 'range'; start: string; end: string };
 
 export const NO_CACHE_SCHEDULE = 'no-cache';

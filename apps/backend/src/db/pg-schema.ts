@@ -1,5 +1,5 @@
 import type { McpChartEmbedStoredConfig } from '@nao/shared';
-import type { CitationData, LlmProvider } from '@nao/shared/types';
+import type { CitationData, LlmProvider, UserPreferences } from '@nao/shared/types';
 import { BUDGET_PERIODS, FOLDER_SYSTEM_TYPE, FOLDER_VISIBILITY, SHARE_VISIBILITY, USER_ROLES } from '@nao/shared/types';
 import { type ProviderMetadata } from 'ai';
 import { sql } from 'drizzle-orm';
@@ -38,6 +38,18 @@ export const user = pgTable('user', {
 	memoryEnabled: boolean('memory_enabled').default(true).notNull(),
 	messagingProviderCode: text('messaging_provider_code').unique(),
 	githubAccessToken: text('github_access_token'),
+	createdAt: timestamp('created_at').defaultNow().notNull(),
+	updatedAt: timestamp('updated_at')
+		.defaultNow()
+		.$onUpdate(() => /* @__PURE__ */ new Date())
+		.notNull(),
+});
+
+export const userPreference = pgTable('user_preference', {
+	userId: text('user_id')
+		.primaryKey()
+		.references(() => user.id, { onDelete: 'cascade' }),
+	preferences: jsonb('preferences').$type<UserPreferences>().notNull().default({}),
 	createdAt: timestamp('created_at').defaultNow().notNull(),
 	updatedAt: timestamp('updated_at')
 		.defaultNow()

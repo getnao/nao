@@ -13,7 +13,9 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { UserProfileCard } from '@/components/settings/profile-card';
 import { useLocalStorage } from '@/hooks/use-local-storage';
 import { soundNotificationStorage } from '@/hooks/use-stream-end-sound';
+import { useToolCallDensity } from '@/hooks/use-tool-call-density';
 import { ThemeSelector } from '@/components/settings/theme-selector';
+import { ToolCallDensitySlider } from '@/components/settings/tool-call-density-slider';
 import { DangerZone } from '@/components/settings/danger-zone';
 import { SettingsCard, SettingsPageWrapper } from '@/components/ui/settings-card';
 import { SettingsControlRow, SettingsToggleRow } from '@/components/ui/settings-toggle-row';
@@ -31,6 +33,7 @@ function GeneralPage() {
 	const queryClient = useQueryClient();
 	const { isAdmin, isViewer, role } = usePermissions();
 	const [soundEnabled, setSoundEnabled] = useLocalStorage(soundNotificationStorage);
+	const [toolCallDensity, setToolCallDensity] = useToolCallDensity();
 
 	const navigation = useAuthRoute();
 
@@ -103,6 +106,11 @@ function GeneralPage() {
 					description='Play a sound when the agent finishes responding.'
 					checked={soundEnabled}
 					onCheckedChange={setSoundEnabled}
+				/>
+				<SettingsControlRow
+					label='Tool Call Density'
+					description='Adjust how much detail is shown for tool calls.'
+					control={<ToolCallDensitySlider value={toolCallDensity} onValueChange={setToolCallDensity} />}
 				/>
 				<SettingsControlRow label='Theme' description='Choose how nao looks.' control={<ThemeSelector />} />
 			</SettingsCard>

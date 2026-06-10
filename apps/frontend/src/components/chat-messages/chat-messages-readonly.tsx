@@ -14,6 +14,7 @@ import {
 import { AssistantCompaction } from '@/components/chat-messages/assistant-compaction';
 import { AssistantMessageProvider } from '@/contexts/assistant-message';
 import { MessageParts } from '@/components/chat-messages/assistant-message';
+import { useToolCallDensity } from '@/hooks/use-tool-call-density';
 
 export function ChatMessagesReadonly({
 	messages,
@@ -110,7 +111,11 @@ const UserMessageReadonly = memo(({ message }: { message: UIMessage }) => {
 });
 
 const AssistantMessageReadonly = memo(({ message }: { message: UIMessage }) => {
-	const messageParts = useMemo(() => groupToolCalls(message.parts), [message.parts]);
+	const [toolCallDensity] = useToolCallDensity();
+	const messageParts = useMemo(
+		() => groupToolCalls(message.parts, toolCallDensity),
+		[message.parts, toolCallDensity],
+	);
 	const hasContent = useMemo(() => checkAssistantMessageHasContent(message), [message]);
 	const isCompacting = message.parts.at(-1)?.type === 'data-compactionSummaryStarted';
 

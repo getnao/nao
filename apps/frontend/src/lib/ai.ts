@@ -7,6 +7,7 @@ import {
 import type { ReasoningUIPart, ToolUIPart } from 'ai';
 import type { UseChatHelpers } from '@ai-sdk/react';
 import type { UITools, UIToolPart, UIMessage, UIMessagePart, StaticToolName } from '@nao/backend/chat';
+import type { ToolCallDensity } from '@nao/shared/types';
 import type { GroupablePart, ToolGroupPart, GroupedMessagePart, MessageGroup } from '@/types/ai';
 
 /** The ID used for new chats not yet persisted to the db. */
@@ -69,16 +70,19 @@ export const checkIsAgentRunning = (agent: Pick<UseChatHelpers<UIMessage>, 'stat
 	return agent.status === 'streaming' || agent.status === 'submitted';
 };
 
-/** Tools that should NOT be collapsed (important UI elements) */
-export const NON_COLLAPSIBLE_TOOLS: StaticToolName[] = [
-	'story',
-	'execute_sql',
-	'display_chart',
-	'suggest_follow_ups',
-	'clarification',
-	'execute_python',
-	'execute_sandboxed_code',
-];
+/** Tools that should NOT be collapsed (important UI elements), per density setting. */
+const NON_COLLAPSIBLE_TOOLS_BY_DENSITY: Record<ToolCallDensity, StaticToolName[]> = {
+	compact: ['story', 'display_chart', 'suggest_follow_ups', 'clarification'],
+	detailed: [
+		'story',
+		'execute_sql',
+		'display_chart',
+		'suggest_follow_ups',
+		'clarification',
+		'execute_python',
+		'execute_sandboxed_code',
+	],
+};
 
 /** Check if a part is a reasoning part */
 export const isReasoningPart = (part: UIMessagePart): part is ReasoningUIPart => {
@@ -91,9 +95,9 @@ export const isToolGroupPart = (part: GroupedMessagePart): part is ToolGroupPart
 
 /**
  * Groups consecutive collapsible parts (tools and reasoning) into 'tool-group' parts.
- * Non-collapsible tools (execute_sql, display_chart) and other message parts are returned as-is.
+ * Non-collapsible tools (depending on the density setting) and other message parts are returned as-is.
  */
-export const groupToolCalls = (parts: UIMessagePart[]): GroupedMessagePart[] => {
+export const groupToolCalls = (parts: UIMessagePart[], density: ToolCallDensity = 'detailed'): GroupedMessagePart[] => {
 	const result: GroupedMessagePart[] = [];
 	let currentGroup: GroupablePart[] = [];
 
@@ -110,7 +114,7 @@ export const groupToolCalls = (parts: UIMessagePart[]): GroupedMessagePart[] => 
 	};
 
 	for (const part of parts) {
-		if (isPartGroupable(part)) {
+		if (isPartGroupable(part, density)) {
 			currentGroup.push(part);
 		} else if (
 			part.type === 'text' ||
@@ -128,13 +132,13 @@ export const groupToolCalls = (parts: UIMessagePart[]): GroupedMessagePart[] => 
 };
 
 /** Check if a message part should be collapsed (tool or reasoning) */
-export const isPartGroupable = (part: UIMessagePart): part is GroupablePart => {
+export const isPartGroupable = (part: UIMessagePart, density: ToolCallDensity = 'detailed'): part is GroupablePart => {
 	if (isReasoningPart(part)) {
 		return true;
 	}
 	if (isToolUIPart(part)) {
 		const toolName = getToolName(part);
-		return !NON_COLLAPSIBLE_TOOLS.includes(toolName as StaticToolName);
+		return !NON_COLLAPSIBLE_TOOLS_BY_DENSITY[density].includes(toolName as StaticToolName);
 	}
 	return false;
 };
