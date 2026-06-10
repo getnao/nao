@@ -49,6 +49,7 @@ function HomePage() {
 	const theme = useTheme();
 	const isEmptyState = messages.length === 0;
 	const stories = useQuery({ ...trpc.story.listAll.queryOptions(), enabled: isEmptyState });
+	const favorites = useQuery({ ...trpc.favorite.list.queryOptions(), enabled: isEmptyState });
 	const folderItems = useQuery({ ...trpc.storyFolder.listItems.queryOptions(), enabled: isEmptyState });
 	const folderTree = useQuery({
 		...trpc.storyFolder.listTree.queryOptions({ archived: false }),
@@ -76,11 +77,12 @@ function HomePage() {
 			userStories: stories.data ?? [],
 			sharedStories: [],
 			currentUserName: session?.user?.name ?? username ?? '',
+			favoriteStoryIds: favorites.data?.storyIds,
 			folderItemMap,
 			folders: folderTree.data ?? [],
 		});
 		return [...items].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()).slice(0, storyCols);
-	}, [stories.data, session?.user?.name, storyCols, username, folderItemMap, folderTree.data]);
+	}, [stories.data, session?.user?.name, storyCols, username, favorites.data, folderItemMap, folderTree.data]);
 	const hasMoreStories = (stories.data?.length ?? 0) > storyCols;
 
 	const handleProjectChange = useCallback(
@@ -119,7 +121,12 @@ function HomePage() {
 				</>
 			) : (
 				<>
-					<div className='relative flex flex-col items-center justify-center gap-4 p-4 mt-30 w-full flex-1'>
+					<div
+						className={cn(
+							'relative flex flex-col items-center justify-center gap-4 p-4 w-full flex-1',
+							latestStoryItems.length > 0 ? 'mt-30' : '-mt-30',
+						)}
+					>
 						<div className='font-borna relative z-10 text-xl md:text-3xl tracking-tight text-center px-6 mb-6'>
 							{emptyStateTitle}
 						</div>

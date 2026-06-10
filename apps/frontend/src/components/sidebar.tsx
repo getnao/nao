@@ -471,6 +471,8 @@ function GroupSection({ group, groupBy }: { group: ChatGroup; groupBy: ChatGroup
 		return null;
 	}
 
+	const showChats = group.label ? isOpen : true;
+
 	return (
 		<>
 			{group.label && (
@@ -479,7 +481,7 @@ function GroupSection({ group, groupBy }: { group: ChatGroup; groupBy: ChatGroup
 				</div>
 			)}
 
-			{isOpen && (
+			{showChats && (
 				<div className='px-2 space-y-1'>
 					{visibleChats.map((item) =>
 						item.kind === 'shared' ? (

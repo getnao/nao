@@ -618,7 +618,7 @@ code.dollar:before {
 	opacity: 0.9;
 }
 
-@keyframes chat-input-border-comet {
+@keyframes chat-input-border-draw {
 	from {
 		stroke-dashoffset: 100;
 	}
@@ -627,20 +627,10 @@ code.dollar:before {
 	}
 }
 
-@keyframes chat-input-border-fill {
-	from {
-		stroke-dasharray: 18 82;
-	}
-	to {
-		stroke-dasharray: 100 0;
-	}
-}
-
 .chat-input-border-path {
-	stroke-dasharray: 18 82;
-	animation:
-		chat-input-border-comet 2s cubic-bezier(0.4, 0, 0.2, 1) forwards,
-		chat-input-border-fill 1.2s linear forwards;
+	stroke-dasharray: 100;
+	stroke-dashoffset: 100;
+	animation: chat-input-border-draw 1.2s cubic-bezier(0.4, 0, 0.2, 1) forwards;
 }
 
 .chat-input-border-stop {
