@@ -47,7 +47,10 @@ function ResetPassword() {
 				<p className='text-muted-foreground mb-6'>
 					This password reset link is no longer valid. Please request a new one.
 				</p>
-				<Link to='/forgot-password' className='text-sm underline underline-offset-4'>
+				<Link
+					to='/forgot-password'
+					className='text-xs text-foreground font-medium underline underline-offset-2'
+				>
 					Request a new link
 				</Link>
 			</div>
@@ -56,8 +59,14 @@ function ResetPassword() {
 
 	return (
 		<AuthForm form={form} title='Reset password' submitText='Set new password' serverError={serverError}>
-			<FormTextField form={form} name='newPassword' type='password' placeholder='New password' />
-			<FormTextField form={form} name='confirmPassword' type='password' placeholder='Confirm new password' />
+			<FormTextField form={form} name='newPassword' type='password' title='New password' className='mb-6' />
+			<FormTextField
+				form={form}
+				name='confirmPassword'
+				type='password'
+				title='Confirm new password'
+				className='mb-10'
+			/>
 		</AuthForm>
 	);
 }

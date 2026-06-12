@@ -6,6 +6,7 @@ import * as projectQueries from '../queries/project.queries';
 import * as sharedChatQueries from '../queries/shared-chat.queries';
 import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
+import * as storyFolderQueries from '../queries/story-folder.queries';
 import { compactionService } from '../services/compaction';
 import type { ForkMetadata, UIMessage } from '../types/chat';
 import { buildQueryDataParts, pinStoryMessageToChat } from '../utils/chat-message-story';
@@ -136,7 +137,7 @@ async function forkSharedStoryItem(
 
 	const chat = await chatQueries.createForkedChat({ projectId, userId, title: share.title, forkMetadata }, messages);
 
-	await createStoryInFork(chat.id, share.slug, share.title, share.code);
+	await createStoryInFork(chat.id, share.slug, share.title, share.code, { userId, projectId });
 	return { chatId: chat.id };
 }
 
@@ -216,7 +217,13 @@ function buildQueryDataMessages(
 	return [{ role: 'assistant', isForked: true, parts }];
 }
 
-async function createStoryInFork(chatId: string, slug: string, title: string, code: string): Promise<void> {
+async function createStoryInFork(
+	chatId: string,
+	slug: string,
+	title: string,
+	code: string,
+	context?: { userId: string; projectId: string },
+): Promise<void> {
 	const version = await storyQueries.createStoryVersion({
 		chatId,
 		slug,
@@ -227,6 +234,10 @@ async function createStoryInFork(chatId: string, slug: string, title: string, co
 	});
 
 	await pinStoryMessageToChat({ chatId, slug, title, code, version: version.version });
+
+	if (context) {
+		await storyFolderQueries.saveStoryInPrivateRoot(context.userId, context.projectId, version.storyId);
+	}
 }
 
 async function copyStoriesToFork(sourceChatId: string, forkChatId: string): Promise<void> {

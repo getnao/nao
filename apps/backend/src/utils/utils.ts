@@ -50,6 +50,14 @@ export const isEmailDomainAllowed = (userEmail: string, authDomains?: string) =>
 	return true;
 };
 
+/**
+ * Resolve the auth provider ID from the better-auth callback context.
+ * Social providers use `params.id`, the genericOAuth plugin (OIDC) uses `params.providerId`.
+ */
+export function resolveProviderId(ctx?: { params?: Record<string, string> } | null): string | undefined {
+	return ctx?.params?.id ?? ctx?.params?.providerId;
+}
+
 export const regexPassword = /^(?=.*?[A-Z])(?=.*?[a-z])(?=.*?[0-9])(?=.*?[#?!@$%^&*-]).{8,}$/;
 
 export const replaceEnvVars = (fileContent: string) => {

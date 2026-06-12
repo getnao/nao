@@ -453,7 +453,7 @@ class ClickHouseDatabaseContext(DatabaseContext):
     def columns(self) -> list[dict[str, Any]]:
         """Return column metadata; for stream-like engines use system.columns (no SELECT from table)."""
         if self._direct_select_disallowed:
-            return _columns_from_system(self._conn, self._schema, self._table_name)
+            return self._filter_excluded_columns(_columns_from_system(self._conn, self._schema, self._table_name))
         try:
             schema = self.table.schema()
             cols = [
@@ -492,9 +492,9 @@ class ClickHouseDatabaseContext(DatabaseContext):
                         col["type"] = native_type
                 if meta := defaults.get(name):
                     col.update(meta)
-            return cols
+            return self._filter_excluded_columns(cols)
         except Exception:
-            return _columns_from_system(self._conn, self._schema, self._table_name)
+            return self._filter_excluded_columns(_columns_from_system(self._conn, self._schema, self._table_name))
 
     def _fetchone(self, result) -> tuple | None:
         """Normalise clickhouse-connect QueryResult objects for profiling queries."""
@@ -554,7 +554,7 @@ class ClickHouseDatabaseContext(DatabaseContext):
         try:
             cursor = self._conn.raw_sql(sql)  # type: ignore[union-attr]
             rows = _raw_sql_to_rows(cursor)
-            return [_normalize_row(r) for r in rows]
+            return [self._filter_excluded_row(_normalize_row(r)) for r in rows]
         except Exception as e:
             logger.debug(
                 "ClickHouse preview query failed for %s.%s: %s; returning empty list",

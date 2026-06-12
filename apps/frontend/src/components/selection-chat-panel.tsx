@@ -257,7 +257,7 @@ function ChatPanelContent({
 	return (
 		<div
 			style={{ right: rightOffset }}
-			className='flex flex-col bg-panel border border-border shadow-xl rounded-2xl
+			className='flex flex-col bg-background border border-border shadow-xl rounded-2xl
 					fixed top-20 bottom-15 w-[400px] z-50 overflow-hidden'
 			onMouseDown={(e) => e.stopPropagation()}
 		>
@@ -322,7 +322,7 @@ export function PanelHeader({
 				</div>
 			</div>
 			<div className='px-4 mt-1'>
-				<div className='px-4 py-3 border border-border bg-background rounded-xl'>
+				<div className='px-4 py-3 border border-border bg-sidebar rounded-xl'>
 					<SelectionCitationExcerpt start={anchor.start} end={anchor.end} text={selectionText} />
 				</div>
 			</div>

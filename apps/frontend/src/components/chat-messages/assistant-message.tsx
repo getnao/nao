@@ -34,6 +34,7 @@ export const AssistantMessage = memo(
 		const hasContent = useMemo(() => checkAssistantMessageHasContent(message), [message]);
 		const isCompacting = message.parts.at(-1)?.type === 'data-compactionSummaryStarted';
 		const showActions = message.id !== storyIntroMessageId;
+		const hasFeedback = message.feedback != null;
 
 		if (!message.parts.length && isSettled) {
 			return null;
@@ -60,7 +61,9 @@ export const AssistantMessage = memo(
 									? isRunning
 										? 'hidden'
 										: 'opacity-100'
-									: 'opacity-0 group-hover:opacity-100',
+									: hasFeedback
+										? 'opacity-100'
+										: 'opacity-0 group-hover:opacity-100',
 							)}
 						/>
 					)}

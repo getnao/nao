@@ -27,7 +27,9 @@ class DatabricksDatabaseContext(DatabaseContext):
 
     def partition_columns(self) -> list[str]:
         try:
-            return _get_databricks_partition_columns(self._conn, self._schema, self._table_name)
+            return self._filter_excluded_names(
+                _get_databricks_partition_columns(self._conn, self._schema, self._table_name)
+            )
         except Exception:
             logger.debug("Failed to fetch partition columns for %s.%s", self._schema, self._table_name)
             return []
@@ -117,6 +119,10 @@ class DatabricksConfig(DatabaseConfig):
         default=None,
         description="Default schema (optional)",
     )
+    temp_schema: str | None = Field(
+        default=None,
+        description="A schema you have write access to, used for temporary storage during queries (optional)",
+    )
 
     @classmethod
     def promptConfig(cls) -> "DatabricksConfig":
@@ -127,6 +133,9 @@ class DatabricksConfig(DatabaseConfig):
         access_token = ask_text("Access token:", password=True, required_field=True)
         catalog = ask_text("Unity Catalog name (optional):")
         schema = ask_text("Default schema (optional):")
+        temp_schema = ask_text(
+            "Schema with write access for temporary storage (optional, needed if your default schema is read-only):"
+        )
 
         return DatabricksConfig(
             name=name,
@@ -135,6 +144,7 @@ class DatabricksConfig(DatabaseConfig):
             access_token=access_token,  # type: ignore
             catalog=catalog,
             schema_name=schema,
+            temp_schema=temp_schema,
         )
 
     def connect(self) -> BaseBackend:
@@ -153,6 +163,11 @@ class DatabricksConfig(DatabaseConfig):
 
         if self.catalog:
             kwargs["catalog"] = self.catalog
+
+        if self.temp_schema:
+            kwargs["schema"] = self.temp_schema
+        elif self.schema_name:
+            kwargs["schema"] = self.schema_name
 
         # Ibis names its temporary UC memtable volume after the OS username, which
         # breaks when the username contains dots (interpreted as UC path separators).

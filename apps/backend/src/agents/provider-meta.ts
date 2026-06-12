@@ -12,6 +12,12 @@ export const PROVIDER_META: ProviderMetaMap = {
 		summaryModelId: 'claude-sonnet-4-5',
 		models: [
 			{
+				id: 'claude-fable-5',
+				name: 'Claude Fable 5',
+				contextWindow: 300_000,
+				costPerM: { inputNoCache: 10, inputCacheRead: 1, inputCacheWrite: 12.5, output: 50 },
+			},
+			{
 				id: 'claude-opus-4-8',
 				name: 'Claude Opus 4.8',
 				contextWindow: 200_000,
@@ -64,11 +70,17 @@ export const PROVIDER_META: ProviderMetaMap = {
 		summaryModelId: 'gpt-4.1-mini',
 		models: [
 			{
-				id: 'gpt-5.4',
-				name: 'GPT 5.4',
+				id: 'gpt-5.5',
+				name: 'GPT 5.5',
 				default: true,
 				contextWindow: 400_000,
-				costPerM: { inputNoCache: 1.75, inputCacheRead: 0.175, inputCacheWrite: 0, output: 14 },
+				costPerM: { inputNoCache: 5, inputCacheRead: 0.5, inputCacheWrite: 0, output: 30 },
+			},
+			{
+				id: 'gpt-5.4',
+				name: 'GPT 5.4',
+				contextWindow: 400_000,
+				costPerM: { inputNoCache: 2.5, inputCacheRead: 0.25, inputCacheWrite: 0, output: 15 },
 			},
 			{
 				id: 'gpt-5.2',

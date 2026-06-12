@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, Link as LinkIcon, Loader2 } from 'lucide-react';
+import { Check, Link as LinkIcon, Loader2, Pin } from 'lucide-react';
 import type { Visibility } from '@nao/shared/types';
 import {
 	hasAccessChanges,
@@ -16,24 +16,41 @@ import { useSession } from '@/lib/auth-client';
 import { trpc } from '@/main';
 import { useMemberPicker, useCopyWithFeedback } from '@/hooks/use-share-dialog';
 
+export type ShareStoryIntent = 'share' | 'pin';
+
 interface ShareStoryDialogProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	chatId: string;
 	storySlug: string;
+	intent?: ShareStoryIntent;
 }
 
-export function ShareStoryDialog({ open, onOpenChange, chatId, storySlug }: ShareStoryDialogProps) {
+export function ShareStoryDialog({ open, onOpenChange, chatId, storySlug, intent = 'share' }: ShareStoryDialogProps) {
 	const shareQuery = useQuery(trpc.storyShare.getSharedStoryInfo.queryOptions({ chatId, storySlug }));
 	const shareData = shareQuery.data;
 	const isShared = !!shareData?.shareId;
 
 	if (shareQuery.isLoading && !shareData) {
-		return <ShareLoadingDialog open={open} onOpenChange={onOpenChange} title='Share Story' />;
+		return (
+			<ShareLoadingDialog
+				open={open}
+				onOpenChange={onOpenChange}
+				title={intent === 'pin' ? 'Pin Story' : 'Share Story'}
+			/>
+		);
 	}
 
 	if (!isShared) {
-		return <CreateShareDialog open={open} onOpenChange={onOpenChange} chatId={chatId} storySlug={storySlug} />;
+		return (
+			<CreateShareDialog
+				open={open}
+				onOpenChange={onOpenChange}
+				chatId={chatId}
+				storySlug={storySlug}
+				intent={intent}
+			/>
+		);
 	}
 
 	return (
@@ -57,12 +74,13 @@ function useInvalidateShareQueries(chatId: string, storySlug: string) {
 	}, [queryClient, chatId, storySlug]);
 }
 
-function CreateShareDialog({ open, onOpenChange, chatId, storySlug }: ShareStoryDialogProps) {
+function CreateShareDialog({ open, onOpenChange, chatId, storySlug, intent = 'share' }: ShareStoryDialogProps) {
 	const { data: session } = useSession();
 	const [visibility, setVisibility] = useState<Visibility>('project');
-	const [isCopied, setIsCopied] = useState(false);
+	const [isConfirmed, setIsConfirmed] = useState(false);
 	const timeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 	const invalidateShareQueries = useInvalidateShareQueries(chatId, storySlug);
+	const isPinIntent = intent === 'pin';
 
 	useEffect(() => () => clearTimeout(timeoutRef.current), []);
 
@@ -77,48 +95,76 @@ function CreateShareDialog({ open, onOpenChange, chatId, storySlug }: ShareStory
 		if (open) {
 			setVisibility('project');
 			reset();
-			setIsCopied(false);
+			setIsConfirmed(false);
 		}
 	}, [open, reset]);
 
 	const shareMutation = useMutation(trpc.storyShare.create.mutationOptions());
 
-	const handleShare = useCallback(() => {
-		const blobPromise = shareMutation
+	const handleConfirm = useCallback(() => {
+		const promise = shareMutation
 			.mutateAsync({
 				chatId,
 				storySlug,
 				visibility,
 				allowedUserIds: visibility === 'specific' ? [...selectedUserIds] : undefined,
+				pinAfterCreate: isPinIntent,
 			})
 			.then((data) => {
 				invalidateShareQueries();
-				setIsCopied(true);
+				setIsConfirmed(true);
 				clearTimeout(timeoutRef.current);
 				timeoutRef.current = setTimeout(() => {
-					setIsCopied(false);
+					setIsConfirmed(false);
 					onOpenChange(false);
 				}, 1500);
-				return new Blob([`${window.location.origin}/stories/shared/${data.id}`], { type: 'text/plain' });
+				return data;
 			});
 
-		blobPromise.catch(() => {});
-		navigator.clipboard.write([new ClipboardItem({ 'text/plain': blobPromise })]).catch(() => {});
-	}, [chatId, storySlug, visibility, selectedUserIds, shareMutation, invalidateShareQueries, onOpenChange]);
+		if (!isPinIntent) {
+			const blobPromise = promise.then(
+				(data) => new Blob([`${window.location.origin}/stories/shared/${data.id}`], { type: 'text/plain' }),
+			);
+			blobPromise.catch(() => {});
+			navigator.clipboard.write([new ClipboardItem({ 'text/plain': blobPromise })]).catch(() => {});
+		}
 
-	const canShare = visibility === 'project' || selectedUserIds.size > 0;
+		promise.catch(() => {});
+	}, [
+		chatId,
+		storySlug,
+		visibility,
+		selectedUserIds,
+		shareMutation,
+		invalidateShareQueries,
+		onOpenChange,
+		isPinIntent,
+	]);
+
+	const canConfirm = visibility === 'project' || selectedUserIds.size > 0;
+
+	const title = isPinIntent ? 'Pin Story' : 'Share Story';
+	const description = isPinIntent
+		? "Pinning surfaces a story on the project's homepage. Choose who should see it — pinning requires sharing first."
+		: 'Share a link to this story. Recipients will always see the latest version.';
+	const confirmIdleIcon = isPinIntent ? <Pin className='size-3.5 fill-current' /> : <LinkIcon className='size-3.5' />;
+	const confirmIdleLabel = isPinIntent ? 'Share & pin' : 'Share & copy link';
+	const confirmDoneLabel = isPinIntent ? 'Pinned!' : 'Link copied!';
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
 			<DialogContent className='sm:max-w-md'>
 				<DialogHeader>
-					<DialogTitle>Share Story</DialogTitle>
-					<DialogDescription>
-						Share a link to this story. Recipients will always see the latest version.
-					</DialogDescription>
+					<DialogTitle>{title}</DialogTitle>
+					<DialogDescription>{description}</DialogDescription>
 				</DialogHeader>
 
 				<div className='flex flex-col gap-4'>
+					{isPinIntent && (
+						<div className='rounded-md bg-muted/60 px-3 py-2 text-xs text-muted-foreground'>
+							Once shared, this story will be pinned for the selected audience.
+						</div>
+					)}
 					<VisibilityPicker visibility={visibility} onChange={setVisibility} />
 					{visibility === 'specific' && (
 						<MemberPicker
@@ -136,15 +182,19 @@ function CreateShareDialog({ open, onOpenChange, chatId, storySlug }: ShareStory
 					<Button variant='outline' onClick={() => onOpenChange(false)}>
 						Cancel
 					</Button>
-					<Button onClick={handleShare} disabled={!canShare || shareMutation.isPending} className='gap-1.5'>
+					<Button
+						onClick={handleConfirm}
+						disabled={!canConfirm || shareMutation.isPending}
+						className='gap-1.5'
+					>
 						{shareMutation.isPending ? (
 							<Loader2 className='size-3.5 animate-spin' />
-						) : isCopied ? (
+						) : isConfirmed ? (
 							<Check className='size-3.5' />
 						) : (
-							<LinkIcon className='size-3.5' />
+							confirmIdleIcon
 						)}
-						<span>{isCopied ? 'Link copied!' : 'Share & copy link'}</span>
+						<span>{isConfirmed ? confirmDoneLabel : confirmIdleLabel}</span>
 					</Button>
 				</div>
 			</DialogContent>

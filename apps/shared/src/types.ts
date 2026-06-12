@@ -41,7 +41,7 @@ export type LlmSelectedModel = {
 
 export type SummarySegment =
 	| { type: 'text'; content: string }
-	| { type: 'chart'; chartType: string; title: string }
+	| { type: 'chart'; chartType: string; title: string; kpiCount?: number }
 	| { type: 'table'; title: string }
 	| { type: 'grid'; cols: number; children: SummarySegment[] };
 
@@ -72,6 +72,18 @@ export type BudgetPeriod = (typeof BUDGET_PERIODS)[number];
 
 export const SHARE_VISIBILITY = ['project', 'specific'] as const;
 export type Visibility = (typeof SHARE_VISIBILITY)[number];
+
+export type StorySharingInfo = {
+	visibility: Visibility;
+	sharedWithCount: number;
+	isPinned: boolean;
+};
+
+export const FOLDER_VISIBILITY = ['private', 'public'] as const;
+export type FolderVisibility = (typeof FOLDER_VISIBILITY)[number];
+
+export const FOLDER_SYSTEM_TYPE = ['private_folder', 'shared_with_me'] as const;
+export type FolderSystemType = (typeof FOLDER_SYSTEM_TYPE)[number];
 
 export type ProjectChatReplayFacets<R extends string = string> = {
 	userNames: string[];
@@ -133,7 +145,7 @@ export interface GroupedChatItem {
 }
 
 export interface ChatGroup {
-	label: string;
+	label: string | null;
 	chats: GroupedChatItem[];
 }
 
@@ -156,3 +168,5 @@ export type EmbedTokenPayload = {
 	projectId: string;
 	exp: number;
 };
+
+export type StoryPanelDisplayMode = 'grid' | 'lines';

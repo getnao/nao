@@ -88,6 +88,14 @@ class DatabaseConfig(BaseModel, ABC):
         default_factory=list,
         description="Glob patterns for schemas/tables to exclude (e.g., 'temp_*.*', '*.backup_*')",
     )
+    exclude_columns: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Glob patterns for columns to exclude. Patterns are matched against the "
+            "fully-qualified 'schema.table.column' name (e.g., '*.version', '*._peerdb_*', "
+            "'analytics.events.*_id'). Empty means no columns are excluded."
+        ),
+    )
     templates: list[DatabaseTemplate] = Field(
         default_factory=lambda: [
             DatabaseTemplate.COLUMNS,
@@ -210,6 +218,18 @@ class DatabaseConfig(BaseModel, ABC):
 
         return True
 
+    def column_matches_pattern(self, schema: str, table: str, column: str) -> bool:
+        """Check if a column should be included given the exclude_columns patterns.
+
+        Patterns are matched against the fully-qualified ``schema.table.column``
+        name using shell-style globs (``fnmatch``). Returns ``True`` when the
+        column should be kept, ``False`` when it should be excluded.
+        """
+        if not self.exclude_columns:
+            return True
+        full_name = f"{schema}.{table}.{column}"
+        return not any(fnmatch.fnmatch(full_name, pattern) for pattern in self.exclude_columns)
+
     @abstractmethod
     def get_database_name(self) -> str:
         """Get the database name for this database type."""
@@ -239,7 +259,7 @@ class DatabaseConfig(BaseModel, ABC):
         """Create a DatabaseContext for this table. Override in subclasses for custom metadata."""
         from nao_core.config.databases.context import DatabaseContext
 
-        return DatabaseContext(conn, schema, table_name)
+        return DatabaseContext(conn, schema, table_name, exclude_columns=self.exclude_columns)
 
     def get_semantic_views(self, conn: "BaseBackend", schema: str) -> list[dict[str, str]]:
         """Fetch semantic views for a schema. Override in subclasses that support semantic views."""

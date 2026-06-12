@@ -47,9 +47,21 @@ export interface ChatListItem {
 	updatedAt: number;
 }
 
+export const MESSAGE_SOURCES = [
+	'slack',
+	'teams',
+	'telegram',
+	'whatsapp',
+	'web',
+	'mcp',
+	'contextRecommendations',
+] as const;
+
+export type MessageSource = (typeof MESSAGE_SOURCES)[number];
+
 export type UIMessage = UIGenericMessage<unknown, MessageCustomDataParts, UITools> & {
 	feedback?: MessageFeedback;
-	source?: 'slack' | 'teams' | 'telegram' | 'whatsapp' | 'web' | 'mcp';
+	source?: MessageSource;
 	isForked?: boolean;
 	citation?: CitationData;
 	stopReason?: StopReason;

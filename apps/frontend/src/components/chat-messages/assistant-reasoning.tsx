@@ -2,6 +2,7 @@ import { memo, useEffect, useRef, useState } from 'react';
 import { Streamdown } from 'streamdown';
 import { Conversation, ConversationContent } from '../ui/conversation';
 import { Expandable } from '@/components/ui/expandable';
+import { markdownPlugins } from '@/lib/markdown';
 
 export const AssistantReasoning = memo(({ text, isStreaming }: { text: string; isStreaming: boolean }) => {
 	const [isExpanded, setIsExpanded] = useState(isStreaming);
@@ -26,7 +27,11 @@ export const AssistantReasoning = memo(({ text, isStreaming }: { text: string; i
 			<div className='text-muted-foreground markdown-small'>
 				<Conversation className='p-0'>
 					<ConversationContent className='p-0 max-h-[200px]'>
-						<Streamdown isAnimating={isStreaming} mode={isStreaming ? 'streaming' : 'static'}>
+						<Streamdown
+							isAnimating={isStreaming}
+							mode={isStreaming ? 'streaming' : 'static'}
+							plugins={markdownPlugins}
+						>
 							{text}
 						</Streamdown>
 					</ConversationContent>

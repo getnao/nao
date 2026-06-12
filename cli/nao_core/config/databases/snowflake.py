@@ -24,7 +24,9 @@ class SnowflakeDatabaseContext(DatabaseContext):
 
     def partition_columns(self) -> list[str]:
         try:
-            return _get_snowflake_clustering_columns(self._conn, self._schema, self._table_name)
+            return self._filter_excluded_names(
+                _get_snowflake_clustering_columns(self._conn, self._schema, self._table_name)
+            )
         except Exception:
             logger.debug("Failed to fetch clustering keys for %s.%s", self._schema, self._table_name)
             return []

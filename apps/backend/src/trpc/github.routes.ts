@@ -7,6 +7,7 @@ import { z } from 'zod/v4';
 
 import type { DBProject } from '../db/abstractSchema';
 import { env } from '../env';
+import { ensureContextRecommendationsScheduleForNewProject } from '../handlers/context-recommendations.handler';
 import * as orgQueries from '../queries/organization.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as userQueries from '../queries/user.queries';
@@ -126,6 +127,27 @@ export const githubRoutes = {
 		return githubService.getGitInfo(ctx.project.path);
 	}),
 
+	unlinkProject: adminProtectedProcedure.mutation(async ({ ctx }) => {
+		if (!ctx.project.path) {
+			throw new TRPCError({ code: 'BAD_REQUEST', message: 'Project path not configured' });
+		}
+
+		const gitInfo = githubService.getGitInfo(ctx.project.path);
+		if (!gitInfo.isGithub) {
+			throw new TRPCError({ code: 'BAD_REQUEST', message: 'This project is not linked to a GitHub repository' });
+		}
+
+		try {
+			githubService.removeOriginRemote(ctx.project.path);
+			return githubService.getGitInfo(ctx.project.path);
+		} catch (err) {
+			throw new TRPCError({
+				code: 'INTERNAL_SERVER_ERROR',
+				message: err instanceof Error ? err.message : 'Failed to unlink repository',
+			});
+		}
+	}),
+
 	pullProject: adminProtectedProcedure.mutation(async ({ ctx }) => {
 		if (!ctx.project.path) {
 			throw new TRPCError({ code: 'BAD_REQUEST', message: 'Project path not configured' });
@@ -193,6 +215,7 @@ async function createProjectFromRepo({
 			role: member.role,
 		});
 	}
+	await ensureContextRecommendationsScheduleForNewProject(project.id);
 
 	return { projectId: project.id, projectName, status: 'created' as const };
 }

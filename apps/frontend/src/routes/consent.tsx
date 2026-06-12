@@ -1,5 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
+import { CheckCircle2, XCircle } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -84,9 +85,32 @@ function Consent() {
 	const clientLabel = client.client_name ?? client.client_id;
 	const requestedScopes = (scope ?? '').split(/\s+/).filter(Boolean);
 
+	if (decision.isSuccess) {
+		const accepted = decision.variables;
+		return (
+			<CenteredCard>
+				<div className='flex flex-col items-center gap-4 text-center'>
+					{accepted ? (
+						<CheckCircle2 className='size-10 text-violet' />
+					) : (
+						<XCircle className='size-10 text-muted-foreground' />
+					)}
+					<div className='space-y-2'>
+						<h2 className='text-lg font-semibold'>{accepted ? 'Access granted' : 'Access denied'}</h2>
+						<p className='text-sm text-muted-foreground'>
+							{accepted
+								? `You have authorized ${clientLabel} to access your nao account. You can close this window.`
+								: `You have denied ${clientLabel} access to your nao account. You can close this window.`}
+						</p>
+					</div>
+				</div>
+			</CenteredCard>
+		);
+	}
+
 	return (
 		<CenteredCard>
-			<Card>
+			<Card className='bg-background'>
 				<CardHeader>
 					<CardTitle>Authorize {clientLabel}</CardTitle>
 					<CardDescription>{clientLabel} is requesting access to your nao account.</CardDescription>
@@ -115,7 +139,11 @@ function Consent() {
 					<Button variant='outline' onClick={() => decision.mutate(false)} disabled={decision.isPending}>
 						Deny
 					</Button>
-					<Button onClick={() => decision.mutate(true)} isLoading={decision.isPending}>
+					<Button
+						variant='primary-gradient'
+						onClick={() => decision.mutate(true)}
+						isLoading={decision.isPending}
+					>
 						Allow
 					</Button>
 				</CardFooter>
@@ -127,10 +155,9 @@ function Consent() {
 function CenteredCard({ children }: { children: React.ReactNode }) {
 	return (
 		<div className='mx-auto w-full max-w-md p-8 my-auto'>
-			<div className='flex flex-row items-end start mb-8'>
-				<NaoLogo className='w-20 h-auto' />
-				<span className='text-muted-foreground text-sm mx-4 border-l-1 border-border h-4'></span>
-				<h1 className='text-md font-semibold uppercase leading-none'>Authorize</h1>
+			<div className='flex flex-col items-center gap-8 mb-10 pb-2'>
+				<NaoLogo className='w-20 h-auto text-foreground' />
+				<h1 className='font-borna text-2xl font-medium text-center'>Authorize</h1>
 			</div>
 			{children}
 		</div>

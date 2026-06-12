@@ -10,6 +10,7 @@ import readTool from '../../agents/tools/read';
 import * as chatQueries from '../../queries/chat.queries';
 import { upsertMcpQueryData } from '../../queries/mcp-query-data.queries';
 import * as storyQueries from '../../queries/story.queries';
+import * as storyFolderQueries from '../../queries/story-folder.queries';
 import { pinQueryDataToChat, pinStoryMessageToChat } from '../../utils/chat-message-story';
 import { resolveStoryQueryData, type StoryQueryDataMap } from '../../utils/story-query-data';
 import { STORY_OUTPUT_SCHEMA, type StoryMcpToolPayload } from '../embed/embed-tool-result';
@@ -319,6 +320,8 @@ async function createStandaloneStory(args: {
 			error: `A story with title "${args.title}" already exists. Pick a different title or use update_story.`,
 		};
 	}
+
+	await storyFolderQueries.saveStoryInPrivateRoot(args.ctx.userId, args.ctx.projectId, story.id);
 	return { ...story, chatId: null };
 }
 
@@ -357,6 +360,8 @@ async function createChatLinkedStory(args: {
 	if (!created) {
 		throw new Error(`Failed to retrieve created story: ${args.chatId}/${args.slug}`);
 	}
+
+	await storyFolderQueries.saveStoryInPrivateRoot(args.ctx.userId, args.ctx.projectId, created.id);
 
 	await pinStoryMessageToChat({
 		chatId: args.chatId,

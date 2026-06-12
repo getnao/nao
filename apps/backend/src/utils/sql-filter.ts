@@ -30,6 +30,97 @@ function isStatementReadOnly(statement: string): boolean {
 	return false;
 }
 
+/**
+ * Detect a row-count limit applied by the outermost query (`LIMIT`, `TOP`,
+ * or `FETCH FIRST ... ROWS`). Returns the maximum number of rows the query is
+ * allowed to return, or `null` when no top-level limit is present.
+ *
+ * This is a heuristic used to warn the model that a result set may be truncated
+ * by its own SQL — it deliberately ignores limits inside subqueries/CTEs.
+ */
+export function detectQueryRowLimit(sql: string): number | null {
+	const masked = maskQuotedStrings(stripComments(sql));
+	const topLevel = extractTopLevelSql(masked);
+
+	const limitOffsetComma = /\bLIMIT\s+\d+\s*,\s*(\d+)/i.exec(topLevel);
+	if (limitOffsetComma) {
+		return Number.parseInt(limitOffsetComma[1], 10);
+	}
+
+	const limit = /\bLIMIT\s+(\d+)/i.exec(topLevel);
+	if (limit) {
+		return Number.parseInt(limit[1], 10);
+	}
+
+	const fetchFirst = /\bFETCH\s+(?:FIRST|NEXT)\s+(\d+)\s+ROWS?\b/i.exec(topLevel);
+	if (fetchFirst) {
+		return Number.parseInt(fetchFirst[1], 10);
+	}
+
+	// TOP keeps its row count inside its own parentheses (TOP (20)), so detect it
+	// against the paren-preserving masked SQL. The `row_count >= applied_limit`
+	// guard at render time prevents false warnings from limits in subqueries.
+	const top = /\bTOP\s*\(?\s*(\d+)\s*\)?\s*(PERCENT)?/i.exec(masked);
+	if (top && !top[2]) {
+		return Number.parseInt(top[1], 10);
+	}
+
+	return null;
+}
+
+/** Replace the contents of string literals (and their quotes) with spaces. */
+function maskQuotedStrings(sql: string): string {
+	let result = '';
+	let quote: string | null = null;
+
+	for (let i = 0; i < sql.length; i++) {
+		const ch = sql[i];
+
+		if (quote) {
+			if (ch === quote && sql[i - 1] !== '\\') {
+				quote = null;
+			}
+			result += ' ';
+			continue;
+		}
+
+		if (ch === "'" || ch === '"' || ch === '`') {
+			quote = ch;
+			result += ' ';
+		} else {
+			result += ch;
+		}
+	}
+
+	return result;
+}
+
+/**
+ * Replace everything inside parentheses with spaces so limit detection only
+ * sees clauses that belong to the outermost query. Expects string literals to
+ * already be masked.
+ */
+function extractTopLevelSql(sql: string): string {
+	let result = '';
+	let depth = 0;
+
+	for (const ch of sql) {
+		if (ch === '(') {
+			depth++;
+			result += ' ';
+		} else if (ch === ')') {
+			if (depth > 0) {
+				depth--;
+			}
+			result += ' ';
+		} else {
+			result += depth === 0 ? ch : ' ';
+		}
+	}
+
+	return result;
+}
+
 function stripComments(sql: string): string {
 	return sql.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/--[^\n]*/g, ' ');
 }

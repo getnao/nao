@@ -62,8 +62,8 @@ function Login() {
 	return (
 		<AuthForm
 			form={form}
-			title='Log In'
-			submitText='Log In'
+			title='Log in'
+			submitText='Log in'
 			serverError={serverError}
 			displaySocialProviders={true}
 			socialCallbackUrl={oauthAuthorizeUrl ?? safeRedirect ?? undefined}
@@ -76,20 +76,36 @@ function Login() {
 						<Link
 							to='/signup'
 							search={{ error: undefined, redirect: safeRedirect ?? undefined }}
-							className='text-foreground underline underline-offset-4'
+							className='text-violet underline underline-offset-2'
 						>
-							Sign up
+							Create an account
 						</Link>
 					</>
 				) : undefined
 			}
 		>
-			<FormTextField form={form} name='email' type='email' placeholder='Email' />
-			<FormTextField form={form} name='password' type='password' placeholder='Password' />
+			<FormTextField
+				form={form}
+				name='email'
+				type='email'
+				title='Email'
+				placeholder='joe@gmail.com'
+				className='mb-6'
+			/>
+			<FormTextField
+				form={form}
+				name='password'
+				type='password'
+				title='Password'
+				className={isUserLoginEnabled && isSmtpSetup.data ? 'mb-2' : 'mb-10'}
+			/>
 			{isUserLoginEnabled && isSmtpSetup.data && (
-				<div className='text-right'>
-					<Link to='/forgot-password' className='text-sm underline underline-offset-4'>
-						Forgot password?
+				<div className='text-right mb-8'>
+					<Link
+						to='/forgot-password'
+						className='text-xs text-foreground font-medium underline underline-offset-2'
+					>
+						Forgot password
 					</Link>
 				</div>
 			)}

@@ -13,7 +13,7 @@ from nao_core.config.databases.base import ProfilingConfig, ProfilingRefreshPoli
 
 
 class TestDatabaseContext:
-    def _make_context(self):
+    def _make_context(self, exclude_columns: list[str] | None = None):
         mock_conn = MagicMock()
         mock_table = MagicMock()
         mock_schema = MagicMock()
@@ -25,7 +25,8 @@ class TestDatabaseContext:
         mock_schema.__len__ = lambda s: len(schema_items)
         mock_table.schema.return_value = mock_schema
         mock_conn.table.return_value = mock_table
-        return DatabaseContext(mock_conn, "my_schema", "my_table"), mock_table
+        ctx = DatabaseContext(mock_conn, "my_schema", "my_table", exclude_columns=exclude_columns)
+        return ctx, mock_table
 
     def test_columns_returns_metadata(self):
         ctx, _ = self._make_context()
@@ -124,3 +125,64 @@ class TestDatabaseContext:
                 refresh_policy=ProfilingRefreshPolicy.INTERVAL,
                 interval_days=0,  # interdit par ge=1
             )
+
+    def test_columns_filters_out_excluded_columns(self):
+        ctx, _ = self._make_context(exclude_columns=["*.name"])
+        columns = ctx.columns()
+
+        assert [c["name"] for c in columns] == ["id"]
+
+    def test_columns_returns_all_when_pattern_does_not_match(self):
+        ctx, _ = self._make_context(exclude_columns=["*.something_else"])
+        columns = ctx.columns()
+
+        assert [c["name"] for c in columns] == ["id", "name"]
+
+    def test_columns_supports_schema_table_column_pattern(self):
+        ctx, _ = self._make_context(exclude_columns=["my_schema.my_table.id"])
+        columns = ctx.columns()
+
+        assert [c["name"] for c in columns] == ["name"]
+
+    def test_columns_supports_wildcard_table_segment(self):
+        ctx, _ = self._make_context(exclude_columns=["*.*.id"])
+        columns = ctx.columns()
+
+        assert [c["name"] for c in columns] == ["name"]
+
+    def test_preview_filters_out_excluded_columns(self):
+        ctx, mock_table = self._make_context(exclude_columns=["*._peerdb_*", "*.name"])
+        df = pd.DataFrame(
+            {
+                "id": [1, 2],
+                "name": ["Alice", "Bob"],
+                "_peerdb_version": [1, 1],
+            }
+        )
+        mock_table.limit.return_value.execute.return_value = df
+
+        rows = ctx.preview(limit=2)
+
+        assert len(rows) == 2
+        assert rows[0] == {"id": 1}
+        assert rows[1] == {"id": 2}
+
+    def test_set_exclude_columns_overrides_constructor_value(self):
+        ctx, _ = self._make_context()
+        ctx.set_exclude_columns(["*.name"])
+
+        columns = ctx.columns()
+
+        assert [c["name"] for c in columns] == ["id"]
+
+    def test_set_exclude_columns_with_none_clears_filter(self):
+        ctx, _ = self._make_context(exclude_columns=["*.name"])
+        ctx.set_exclude_columns(None)
+
+        columns = ctx.columns()
+
+        assert [c["name"] for c in columns] == ["id", "name"]
+
+    def test_column_count_uses_filtered_columns(self):
+        ctx, _ = self._make_context(exclude_columns=["*.name"])
+        assert ctx.column_count() == 1

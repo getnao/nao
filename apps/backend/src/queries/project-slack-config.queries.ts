@@ -5,7 +5,7 @@ import s, { DBProject } from '../db/abstractSchema';
 import { db } from '../db/db';
 import { env } from '../env';
 import { llmProviderSchema } from '../types/llm';
-import { SlackTransportMode } from '../types/messaging-provider';
+import { SlackReplyMode, SlackTransportMode } from '../types/messaging-provider';
 import { takeFirstOrThrow } from '../utils/queries';
 
 function toLlmSelectedModel(
@@ -46,6 +46,7 @@ export const getProjectSlackConfig = async (projectId: string): Promise<SlackCon
 		autoCreateUsersDomains: settings.autoCreateUsersDomains ?? [],
 		transportMode,
 		appToken: settings.slackAppToken ?? '',
+		replyMode: toSlackReplyMode(settings.slackReplyMode),
 	};
 };
 
@@ -63,6 +64,7 @@ export const upsertProjectSlackConfig = async (data: {
 	transportMode: SlackTransportMode;
 	appToken: string;
 	modelSelection?: LlmSelectedModel;
+	replyMode: SlackReplyMode;
 }> => {
 	const updated = await db.transaction(async (tx) => {
 		const project = await takeFirstOrThrow(
@@ -84,6 +86,7 @@ export const upsertProjectSlackConfig = async (data: {
 						autoCreateUsersDomains: existing?.autoCreateUsersDomains ?? [],
 						slackTransportMode: data.transportMode,
 						slackAppToken: data.appToken ?? '',
+						slackReplyMode: toSlackReplyMode(existing?.slackReplyMode),
 					},
 				})
 				.where(eq(s.project.id, data.projectId))
@@ -100,6 +103,7 @@ export const upsertProjectSlackConfig = async (data: {
 		transportMode: settings?.slackTransportMode === 'socket' ? 'socket' : 'webhook',
 		appToken: settings?.slackAppToken || '',
 		modelSelection: toLlmSelectedModel(settings?.slackllmProvider, settings?.slackllmModelId),
+		replyMode: toSlackReplyMode(settings?.slackReplyMode),
 	};
 };
 
@@ -127,6 +131,31 @@ export const updateProjectSlackModel = async (
 					autoCreateUsersDomains: existing?.autoCreateUsersDomains ?? [],
 					slackTransportMode: existing?.slackTransportMode ?? 'webhook',
 					slackAppToken: existing?.slackAppToken ?? '',
+					slackReplyMode: toSlackReplyMode(existing?.slackReplyMode),
+				},
+			})
+			.where(eq(s.project.id, projectId))
+			.execute();
+	});
+};
+
+export const updateProjectSlackReplyMode = async (projectId: string, replyMode: SlackReplyMode): Promise<void> => {
+	await db.transaction(async (tx) => {
+		const project = await takeFirstOrThrow(
+			tx.select().from(s.project).where(eq(s.project.id, projectId)).execute(),
+			`Project not found: ${projectId}`,
+		);
+		const existing = project.slackSettings;
+		if (!existing) {
+			throw new Error(`Slack is not configured for project ${projectId}`);
+		}
+
+		await tx
+			.update(s.project)
+			.set({
+				slackSettings: {
+					...existing,
+					slackReplyMode: replyMode,
 				},
 			})
 			.where(eq(s.project.id, projectId))
@@ -177,6 +206,7 @@ export interface SlackConfig {
 	autoCreateUsersDomains: string[];
 	transportMode: SlackTransportMode;
 	appToken: string;
+	replyMode: SlackReplyMode;
 }
 
 export const listSocketModeSlackConfigs = async (): Promise<SlackConfig[]> => {
@@ -197,10 +227,15 @@ export const listSocketModeSlackConfigs = async (): Promise<SlackConfig[]> => {
 			autoCreateUsersDomains: settings.autoCreateUsersDomains ?? [],
 			transportMode: 'socket',
 			appToken: settings.slackAppToken,
+			replyMode: toSlackReplyMode(settings.slackReplyMode),
 		});
 	}
 	return configs;
 };
+
+function toSlackReplyMode(replyMode: string | null | undefined): SlackReplyMode {
+	return replyMode === 'mention' ? 'mention' : 'thread';
+}
 
 // Re-export DBProject for backward compatibility where needed
 export type { DBProject };

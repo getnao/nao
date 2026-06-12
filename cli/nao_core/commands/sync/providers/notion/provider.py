@@ -1,4 +1,5 @@
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, cast
 
@@ -138,13 +139,21 @@ class NotionSyncProvider(SyncProvider):
     def get_items(self, config: NaoConfig) -> list[NotionConfig]:
         return [config.notion] if config.notion else []
 
-    def sync(self, items: list[NotionConfig], output_path: Path, project_path: Path | None = None) -> SyncResult:
+    def sync(
+        self,
+        items: list[NotionConfig],
+        output_path: Path,
+        project_path: Path | None = None,
+        *,
+        threads: int = 1,
+    ) -> SyncResult:
         """Sync Notion pages to local filesystem as markdown files.
 
         Args:
             items: Notion configuration with pages to sync.
             output_path: Path where synced markdown files should be written.
             project_path: Path to the nao project root.
+            threads: Number of worker threads to use.
 
         Returns:
             SyncResult with statistics about what was synced.
@@ -161,9 +170,18 @@ class NotionSyncProvider(SyncProvider):
 
         console.print(f"\n[bold cyan]{self.emoji}  Syncing {self.name}[/bold cyan]")
         console.print(f"[dim]Location:[/dim] {output_path.absolute()}\n")
+        if threads > 1 and len(notion_config.pages) > 1:
+            console.print(f"[dim]Threads:[/dim] {threads}\n")
 
         api_key = notion_config.api_key
         total_pages = len(notion_config.pages)
+
+        def sync_page(page_url: str) -> tuple[str, str]:
+            title, markdown = get_page_as_markdown(page_url, api_key)
+            safe_title = re.sub(r"[^\w\s-]", "", title).strip().replace(" ", "-").lower()
+            filename = f"{safe_title}.md"
+            (output_path / filename).write_text(markdown)
+            return title, filename
 
         with Progress(
             SpinnerColumn(style="dim"),
@@ -175,24 +193,31 @@ class NotionSyncProvider(SyncProvider):
         ) as progress:
             task = progress.add_task("Syncing pages", total=total_pages)
 
-            for page_url in notion_config.pages:
-                try:
-                    title, markdown = get_page_as_markdown(page_url, api_key)
-
-                    # Sanitize title for filename
-                    safe_title = re.sub(r"[^\w\s-]", "", title).strip().replace(" ", "-").lower()
-                    filename = f"{safe_title}.md"
-
-                    with open(output_path / filename, "w") as f:
-                        f.write(markdown)
-
-                    pages_synced += 1
-                    synced_pages.append(title)
-                    synced_files.add(filename)
-                    progress.update(task, advance=1, description=f"Synced: {title}")
-                except Exception as e:
-                    console.print(f"[bold red]✗[/bold red] Failed to sync page {page_url}: {e}")
-                    progress.update(task, advance=1)
+            if threads <= 1 or len(notion_config.pages) == 1:
+                for page_url in notion_config.pages:
+                    try:
+                        title, filename = sync_page(page_url)
+                        pages_synced += 1
+                        synced_pages.append(title)
+                        synced_files.add(filename)
+                        progress.update(task, advance=1, description=f"Synced: {title}")
+                    except Exception as e:
+                        console.print(f"[bold red]✗[/bold red] Failed to sync page {page_url}: {e}")
+                        progress.update(task, advance=1)
+            else:
+                with ThreadPoolExecutor(max_workers=min(threads, len(notion_config.pages))) as executor:
+                    futures = {executor.submit(sync_page, page_url): page_url for page_url in notion_config.pages}
+                    for future in as_completed(futures):
+                        page_url = futures[future]
+                        try:
+                            title, filename = future.result()
+                            pages_synced += 1
+                            synced_pages.append(title)
+                            synced_files.add(filename)
+                            progress.update(task, advance=1, description=f"Synced: {title}")
+                        except Exception as e:
+                            console.print(f"[bold red]✗[/bold red] Failed to sync page {page_url}: {e}")
+                            progress.update(task, advance=1)
 
         # Clean up stale pages
         removed_count = cleanup_stale_pages(synced_files, output_path, verbose=True)

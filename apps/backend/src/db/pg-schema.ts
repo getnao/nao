@@ -1,11 +1,13 @@
 import type { McpChartEmbedStoredConfig } from '@nao/shared';
 import type { CitationData, LlmProvider } from '@nao/shared/types';
-import { BUDGET_PERIODS, SHARE_VISIBILITY, USER_ROLES } from '@nao/shared/types';
+import { BUDGET_PERIODS, FOLDER_SYSTEM_TYPE, FOLDER_VISIBILITY, SHARE_VISIBILITY, USER_ROLES } from '@nao/shared/types';
 import { type ProviderMetadata } from 'ai';
 import { sql } from 'drizzle-orm';
 import {
+	type AnyPgColumn,
 	boolean,
 	check,
+	foreignKey,
 	index,
 	integer,
 	jsonb,
@@ -19,7 +21,18 @@ import {
 
 import { AgentSettings } from '../types/agent-settings';
 import { AUTOMATION_RUN_STATUSES, AutomationIntegrationConfig, AutomationIntegrationResult } from '../types/automation';
-import { ForkMetadata, StopReason, ToolState, UIMessagePartType } from '../types/chat';
+import { ForkMetadata, MESSAGE_SOURCES, StopReason, ToolState, UIMessagePartType } from '../types/chat';
+import {
+	CONTEXT_RECOMMENDATION_FIX_KINDS,
+	CONTEXT_RECOMMENDATION_FREQUENCIES,
+	CONTEXT_RECOMMENDATION_RUN_STATUSES,
+	CONTEXT_RECOMMENDATION_RUN_TRIGGERS,
+	CONTEXT_RECOMMENDATION_SEVERITIES,
+	CONTEXT_RECOMMENDATION_STATUSES,
+	ProposedEdit,
+	RecommendationImpact,
+	RecommendationInsight,
+} from '../types/context-recommendation';
 import { LLM_INFERENCE_TYPES } from '../types/llm';
 import { LOG_LEVELS, LOG_SOURCES } from '../types/log';
 import { McpEndpointSettings } from '../types/mcp-endpoint';
@@ -243,7 +256,7 @@ export const chatMessage = pgTable(
 		llmProvider: text('llm_provider').$type<LlmProvider>(),
 		llmModelId: text('llm_model_id'),
 		supersededAt: timestamp('superseded_at'),
-		source: text('source', { enum: ['slack', 'teams', 'telegram', 'whatsapp', 'web', 'mcp'] }),
+		source: text('source', { enum: MESSAGE_SOURCES }),
 		isForked: boolean('isForked'),
 		citation: jsonb('citation').$type<CitationData>(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -465,9 +478,14 @@ export const sharedStory = pgTable(
 			.notNull()
 			.references(() => user.id, { onDelete: 'cascade' }),
 		visibility: text('visibility', { enum: SHARE_VISIBILITY }).default('project').notNull(),
+		isPinned: boolean('is_pinned').default(false).notNull(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 	},
-	(t) => [index('shared_story_projectId_idx').on(t.projectId), index('shared_story_storyId_idx').on(t.storyId)],
+	(t) => [
+		index('shared_story_projectId_idx').on(t.projectId),
+		index('shared_story_storyId_idx').on(t.storyId),
+		uniqueIndex('shared_story_project_story_unique').on(t.projectId, t.storyId),
+	],
 );
 
 export const sharedStoryAccess = pgTable(
@@ -558,6 +576,107 @@ export const automationRun = pgTable(
 		index('automation_run_automationId_idx').on(t.automationId),
 		index('automation_run_chatId_idx').on(t.chatId),
 		index('automation_run_status_idx').on(t.status),
+	],
+);
+
+export const contextRecommendationRun = pgTable(
+	'context_recommendation_run',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		chatId: text('chat_id').references(() => chat.id, { onDelete: 'set null' }),
+		trigger: text('trigger', { enum: CONTEXT_RECOMMENDATION_RUN_TRIGGERS }).notNull().default('schedule'),
+		status: text('status', { enum: CONTEXT_RECOMMENDATION_RUN_STATUSES }).notNull().default('running'),
+		windowStart: timestamp('window_start'),
+		windowEnd: timestamp('window_end'),
+		startedAt: timestamp('started_at').defaultNow().notNull(),
+		completedAt: timestamp('completed_at'),
+		errorMessage: text('error_message'),
+		llmProvider: text('llm_provider').$type<LlmProvider>(),
+		llmModelId: text('llm_model_id'),
+		inputTotalTokens: integer('input_total_tokens'),
+		outputTotalTokens: integer('output_total_tokens'),
+		totalTokens: integer('total_tokens'),
+	},
+	(t) => [
+		index('context_recommendation_run_projectId_idx').on(t.projectId),
+		index('context_recommendation_run_chatId_idx').on(t.chatId),
+		index('context_recommendation_run_status_idx').on(t.status),
+		unique('context_recommendation_run_id_project_unique').on(t.id, t.projectId),
+	],
+);
+
+export const contextRecommendationConfig = pgTable('context_recommendation_config', {
+	projectId: text('project_id')
+		.primaryKey()
+		.references(() => project.id, { onDelete: 'cascade' }),
+	modelProvider: text('model_provider').$type<LlmProvider>(),
+	modelId: text('model_id'),
+	frequency: text('frequency', { enum: CONTEXT_RECOMMENDATION_FREQUENCIES }),
+	customSystemPromptInstructions: text('custom_system_prompt_instructions'),
+	repoFullName: text('repo_full_name'),
+	autoCreatePrs: boolean('auto_create_prs'),
+	maxAutoPrsPerRun: integer('max_auto_prs_per_run'),
+	createdAt: timestamp('created_at').defaultNow().notNull(),
+	updatedAt: timestamp('updated_at')
+		.defaultNow()
+		.$onUpdate(() => new Date())
+		.notNull(),
+});
+
+export const contextRecommendation = pgTable(
+	'context_recommendation',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		runId: text('run_id').notNull(),
+		fingerprint: text('fingerprint').notNull(),
+		suggestedFile: text('suggested_file').notNull(),
+		subjectKey: text('subject_key').notNull(),
+		status: text('status', { enum: CONTEXT_RECOMMENDATION_STATUSES }).notNull().default('open'),
+		snoozedUntil: timestamp('snoozed_until'),
+		severity: text('severity', { enum: CONTEXT_RECOMMENDATION_SEVERITIES }).notNull().default('medium'),
+		impactScore: integer('impact_score').notNull().default(0),
+		impact: jsonb('impact').$type<RecommendationImpact>(),
+		insights: jsonb('insights').$type<RecommendationInsight[]>().notNull().default([]),
+		title: text('title').notNull(),
+		summary: text('summary').notNull(),
+		suggestedAction: text('suggested_action').notNull(),
+		fixKind: text('fix_kind', { enum: CONTEXT_RECOMMENDATION_FIX_KINDS }),
+		proposedEdits: jsonb('proposed_edits').$type<ProposedEdit[]>(),
+		fixGuidance: text('fix_guidance'),
+		fixPrompt: text('fix_prompt'),
+		prUrl: text('pr_url'),
+		prBranch: text('pr_branch'),
+		prCreatedAt: timestamp('pr_created_at'),
+		llmProvider: text('llm_provider').$type<LlmProvider>(),
+		llmModelId: text('llm_model_id'),
+		firstSeenAt: timestamp('first_seen_at').defaultNow().notNull(),
+		lastSeenAt: timestamp('last_seen_at').defaultNow().notNull(),
+		occurrenceCount: integer('occurrence_count').notNull().default(1),
+		statusChangedAt: timestamp('status_changed_at'),
+		statusChangedBy: text('status_changed_by').references(() => user.id, { onDelete: 'set null' }),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+	},
+	(t) => [
+		uniqueIndex('context_recommendation_project_fingerprint_unique').on(t.projectId, t.fingerprint),
+		index('context_recommendation_projectId_status_idx').on(t.projectId, t.status),
+		index('context_recommendation_runId_idx').on(t.runId),
+		// run_id is a soft link to the run that last touched this rec; recommendations
+		// outlive runs, so a still-referenced run cannot be deleted (no cascade).
+		foreignKey({
+			columns: [t.runId, t.projectId],
+			foreignColumns: [contextRecommendationRun.id, contextRecommendationRun.projectId],
+			name: 'context_recommendation_run_fk',
+		}),
 	],
 );
 
@@ -1028,3 +1147,70 @@ export const jwks = pgTable('jwks', {
 	createdAt: timestamp('created_at').defaultNow().notNull(),
 	expiresAt: timestamp('expires_at'),
 });
+
+export const favorite = pgTable(
+	'favorite',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		storyId: text('story_id').references(() => story.id, { onDelete: 'cascade' }),
+		folderId: text('folder_id').references((): AnyPgColumn => storyFolder.id, { onDelete: 'cascade' }),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+	},
+	(t) => [
+		check('favorite_xor_target', sql`(${t.storyId} IS NOT NULL)::int + (${t.folderId} IS NOT NULL)::int = 1`),
+		unique('favorite_user_id_story_id_unique').on(t.userId, t.storyId),
+		unique('favorite_user_id_folder_id_unique').on(t.userId, t.folderId),
+		index('favorite_user_id_idx').on(t.userId),
+	],
+);
+
+export const storyFolder = pgTable(
+	'story_folder',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		ownerId: text('owner_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		parentId: text('parent_id').references((): AnyPgColumn => storyFolder.id, { onDelete: 'set null' }),
+		name: text('name').notNull(),
+		visibility: text('visibility', { enum: FOLDER_VISIBILITY }).default('public').notNull(),
+		systemType: text('system_type', { enum: FOLDER_SYSTEM_TYPE }),
+		archivedAt: timestamp('archived_at'),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [
+		uniqueIndex('story_folder_private_root_unique')
+			.on(t.projectId, t.ownerId)
+			.where(sql`${t.systemType} = 'private_folder'`),
+		index('story_folder_ownerProjectParent_idx').on(t.ownerId, t.projectId, t.parentId),
+		index('story_folder_projectId_idx').on(t.projectId),
+	],
+);
+
+export const storyFolderItem = pgTable(
+	'story_folder_item',
+	{
+		storyId: text('story_id')
+			.notNull()
+			.references(() => story.id, { onDelete: 'cascade' })
+			.primaryKey(),
+		folderId: text('folder_id')
+			.notNull()
+			.references(() => storyFolder.id, { onDelete: 'cascade' }),
+	},
+	(t) => [index('story_folder_item_folderId_idx').on(t.folderId)],
+);

@@ -32,6 +32,13 @@ def sync(
             help=f"Provider(s) to sync. Use `-p provider:name` to sync a specific connection (e.g. databases:my-db). Or just `-p databases` to sync all connections. Options: {', '.join(PROVIDER_CHOICES)} (aliases: repo/repos/repository, db/dbs/database).",
         ),
     ] = None,
+    threads: Annotated[
+        int | None,
+        Parameter(
+            name=["-t", "--threads"],
+            help="Number of worker threads to use for sync. Overrides `threads` in nao_config.yaml.",
+        ),
+    ] = None,
     output_dirs: Annotated[dict[str, str] | None, Parameter(show=False)] = None,
     _providers: Annotated[list[ProviderSelection] | None, Parameter(show=False)] = None,
     render_templates: bool = True,
@@ -54,6 +61,12 @@ def sync(
     project_path = Path.cwd()
 
     console.print(f"[dim]Project:[/dim] {config.project_name}")
+
+    resolved_threads = threads if threads is not None else config.threads or 1
+    if resolved_threads < 1:
+        console.print("[red]Error:[/red] threads must be greater than or equal to 1")
+        sys.exit(1)
+    console.print(f"[dim]Threads:[/dim] {resolved_threads}")
 
     # Resolve providers: CLI names > programmatic providers > all providers
     if provider:
@@ -95,7 +108,7 @@ def sync(
                     )
                     continue
 
-            result = sync_provider.sync(items, output_path, project_path=project_path)
+            result = sync_provider.sync(items, output_path, project_path=project_path, threads=resolved_threads)
             results.append(result)
         except Exception as e:
             # Capture error but continue with other providers

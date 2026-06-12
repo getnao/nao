@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useId } from 'react';
 import { Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { Plus, PencilRuler, Database, Image as ImageIcon, AlertTriangle } from 'lucide-react';
@@ -291,8 +291,12 @@ function ChatInputBase({
 			<form onSubmit={handleSubmitMessage} className='mx-auto relative'>
 				<InputGroup
 					htmlFor='chat-input'
-					className={cn('dark:bg-muted', isDragging && 'ring-2 ring-primary/50 border-primary')}
+					className={cn(
+						'bg-background dark:bg-background shadow-xs border-none',
+						isDragging && 'ring-2 ring-primary/50 border-primary',
+					)}
 				>
+					<ChatInputAnimatedBorder />
 					<ChatInputImagePreview images={imageUpload.images} onRemove={imageUpload.removeImage} />
 					<ChatPrompt
 						promptRef={promptRef}
@@ -370,6 +374,90 @@ function ChatInputBase({
 	);
 }
 
+const CHAT_INPUT_BORDER_RADIUS = 18;
+const CHAT_INPUT_BORDER_STROKE = 1;
+
+function ChatInputAnimatedBorder() {
+	const containerRef = useRef<HTMLSpanElement>(null);
+	const gradientId = useId();
+	const [{ width, height }, setSize] = useState({ width: 0, height: 0 });
+	const [isFocused, setIsFocused] = useState(false);
+
+	useLayoutEffect(() => {
+		const element = containerRef.current;
+		if (!element) {
+			return;
+		}
+		const updateSize = () => setSize({ width: element.clientWidth, height: element.clientHeight });
+		updateSize();
+		const observer = new ResizeObserver(updateSize);
+		observer.observe(element);
+		return () => observer.disconnect();
+	}, []);
+
+	useEffect(() => {
+		const parent = containerRef.current?.parentElement;
+		if (!parent) {
+			return;
+		}
+		const handleFocusIn = () => setIsFocused(true);
+		const handleFocusOut = (event: FocusEvent) => {
+			const nextTarget = event.relatedTarget as Node | null;
+			if (nextTarget && parent.contains(nextTarget)) {
+				return;
+			}
+			setIsFocused(false);
+		};
+		setIsFocused(parent.contains(document.activeElement));
+		parent.addEventListener('focusin', handleFocusIn);
+		parent.addEventListener('focusout', handleFocusOut);
+		return () => {
+			parent.removeEventListener('focusin', handleFocusIn);
+			parent.removeEventListener('focusout', handleFocusOut);
+		};
+	}, []);
+
+	const hasSize = width > 0 && height > 0;
+	const inset = CHAT_INPUT_BORDER_STROKE / 2;
+	const strokeColor = isFocused ? 'var(--primary)' : 'var(--muted-foreground)';
+
+	return (
+		<span ref={containerRef} aria-hidden='true' className='pointer-events-none absolute inset-0 z-10'>
+			{hasSize && (
+				<svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} fill='none'>
+					<defs>
+						<linearGradient id={gradientId} x1='0%' y1='0%' x2='0%' y2='100%'>
+							<stop
+								className='chat-input-border-stop'
+								offset='0%'
+								style={{ stopColor: strokeColor, stopOpacity: isFocused ? 0.35 : 0.25 }}
+							/>
+							<stop
+								className='chat-input-border-stop'
+								offset='100%'
+								style={{ stopColor: strokeColor, stopOpacity: isFocused ? 1 : 0.4 }}
+							/>
+						</linearGradient>
+					</defs>
+					<rect
+						className='chat-input-border-path'
+						x={inset}
+						y={inset}
+						width={width - CHAT_INPUT_BORDER_STROKE}
+						height={height - CHAT_INPUT_BORDER_STROKE}
+						rx={CHAT_INPUT_BORDER_RADIUS}
+						ry={CHAT_INPUT_BORDER_RADIUS}
+						pathLength={100}
+						stroke={`url(#${gradientId})`}
+						strokeWidth={CHAT_INPUT_BORDER_STROKE}
+						strokeLinecap='round'
+					/>
+				</svg>
+			)}
+		</span>
+	);
+}
+
 function BudgetBanner() {
 	const { error, clearError, selectedModel } = useAgentContext();
 	const prevProviderRef = useRef(selectedModel?.provider);
@@ -430,7 +518,7 @@ function ChatInputPlusMenu({
 				<button
 					type='button'
 					aria-label='Add context'
-					className='inline-flex items-center justify-center rounded-full size-7 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors cursor-pointer'
+					className='inline-flex items-center justify-center rounded-full size-7 text-foreground hover:text-foreground hover:bg-accent transition-colors cursor-pointer'
 				>
 					<Plus className='size-4 transition-transform duration-200 [[data-state=open]_&]:rotate-45' />
 				</button>

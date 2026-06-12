@@ -15,6 +15,8 @@ export interface GeneratedArtifacts {
 export interface ToolContext {
 	projectFolder: string;
 	chatId: string;
+	userId: string;
+	projectId: string;
 	agentSettings: AgentSettings | null;
 	envVars: Record<string, string>;
 	/**

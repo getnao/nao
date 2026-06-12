@@ -1,6 +1,5 @@
-import type { MessageBubble } from '@nao/shared/types';
+import type { MessageBubble, Visibility } from '@nao/shared/types';
 
-export type DisplayMode = 'grid' | 'lines';
 export type GroupBy = 'type' | 'date' | 'author';
 
 export const VIEWER_DISPLAY_KEY = 'viewer-home-display-mode';
@@ -18,6 +17,9 @@ export type SharedItem = {
 	title: string;
 	authorName: string;
 	createdAt: Date;
+	visibility?: Visibility;
+	sharedWithCount?: number;
+	isLive?: boolean;
 	summary?: unknown;
 	messageBubbles?: MessageBubble[];
 };

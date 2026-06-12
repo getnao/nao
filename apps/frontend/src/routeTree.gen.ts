@@ -27,6 +27,7 @@ import { Route as EmbedChartChartEmbedIdRouteImport } from './routes/embed.chart
 import { Route as SidebarLayoutSharedChatShareIdRouteImport } from './routes/_sidebar-layout.shared-chat.$shareId'
 import { Route as SidebarLayoutSettingsWhiteLabelRouteImport } from './routes/_sidebar-layout.settings.white-label'
 import { Route as SidebarLayoutSettingsUsageRouteImport } from './routes/_sidebar-layout.settings.usage'
+import { Route as SidebarLayoutSettingsRecommendationsRouteImport } from './routes/_sidebar-layout.settings.recommendations'
 import { Route as SidebarLayoutSettingsProjectRouteImport } from './routes/_sidebar-layout.settings.project'
 import { Route as SidebarLayoutSettingsOrganizationRouteImport } from './routes/_sidebar-layout.settings.organization'
 import { Route as SidebarLayoutSettingsMemoryRouteImport } from './routes/_sidebar-layout.settings.memory'
@@ -145,6 +146,12 @@ const SidebarLayoutSettingsUsageRoute =
   SidebarLayoutSettingsUsageRouteImport.update({
     id: '/usage',
     path: '/usage',
+    getParentRoute: () => SidebarLayoutSettingsRoute,
+  } as any)
+const SidebarLayoutSettingsRecommendationsRoute =
+  SidebarLayoutSettingsRecommendationsRouteImport.update({
+    id: '/recommendations',
+    path: '/recommendations',
     getParentRoute: () => SidebarLayoutSettingsRoute,
   } as any)
 const SidebarLayoutSettingsProjectRoute =
@@ -318,6 +325,7 @@ export interface FileRoutesByFullPath {
   '/settings/memory': typeof SidebarLayoutSettingsMemoryRoute
   '/settings/organization': typeof SidebarLayoutSettingsOrganizationRoute
   '/settings/project': typeof SidebarLayoutSettingsProjectRouteWithChildren
+  '/settings/recommendations': typeof SidebarLayoutSettingsRecommendationsRoute
   '/settings/usage': typeof SidebarLayoutSettingsUsageRoute
   '/settings/white-label': typeof SidebarLayoutSettingsWhiteLabelRoute
   '/shared-chat/$shareId': typeof SidebarLayoutSharedChatShareIdRoute
@@ -359,6 +367,7 @@ export interface FileRoutesByTo {
   '/settings/mcp-endpoint': typeof SidebarLayoutSettingsMcpEndpointRoute
   '/settings/memory': typeof SidebarLayoutSettingsMemoryRoute
   '/settings/organization': typeof SidebarLayoutSettingsOrganizationRoute
+  '/settings/recommendations': typeof SidebarLayoutSettingsRecommendationsRoute
   '/settings/usage': typeof SidebarLayoutSettingsUsageRoute
   '/settings/white-label': typeof SidebarLayoutSettingsWhiteLabelRoute
   '/shared-chat/$shareId': typeof SidebarLayoutSharedChatShareIdRoute
@@ -404,6 +413,7 @@ export interface FileRoutesById {
   '/_sidebar-layout/settings/memory': typeof SidebarLayoutSettingsMemoryRoute
   '/_sidebar-layout/settings/organization': typeof SidebarLayoutSettingsOrganizationRoute
   '/_sidebar-layout/settings/project': typeof SidebarLayoutSettingsProjectRouteWithChildren
+  '/_sidebar-layout/settings/recommendations': typeof SidebarLayoutSettingsRecommendationsRoute
   '/_sidebar-layout/settings/usage': typeof SidebarLayoutSettingsUsageRoute
   '/_sidebar-layout/settings/white-label': typeof SidebarLayoutSettingsWhiteLabelRoute
   '/_sidebar-layout/shared-chat/$shareId': typeof SidebarLayoutSharedChatShareIdRoute
@@ -450,6 +460,7 @@ export interface FileRouteTypes {
     | '/settings/memory'
     | '/settings/organization'
     | '/settings/project'
+    | '/settings/recommendations'
     | '/settings/usage'
     | '/settings/white-label'
     | '/shared-chat/$shareId'
@@ -491,6 +502,7 @@ export interface FileRouteTypes {
     | '/settings/mcp-endpoint'
     | '/settings/memory'
     | '/settings/organization'
+    | '/settings/recommendations'
     | '/settings/usage'
     | '/settings/white-label'
     | '/shared-chat/$shareId'
@@ -535,6 +547,7 @@ export interface FileRouteTypes {
     | '/_sidebar-layout/settings/memory'
     | '/_sidebar-layout/settings/organization'
     | '/_sidebar-layout/settings/project'
+    | '/_sidebar-layout/settings/recommendations'
     | '/_sidebar-layout/settings/usage'
     | '/_sidebar-layout/settings/white-label'
     | '/_sidebar-layout/shared-chat/$shareId'
@@ -696,6 +709,13 @@ declare module '@tanstack/react-router' {
       path: '/usage'
       fullPath: '/settings/usage'
       preLoaderRoute: typeof SidebarLayoutSettingsUsageRouteImport
+      parentRoute: typeof SidebarLayoutSettingsRoute
+    }
+    '/_sidebar-layout/settings/recommendations': {
+      id: '/_sidebar-layout/settings/recommendations'
+      path: '/recommendations'
+      fullPath: '/settings/recommendations'
+      preLoaderRoute: typeof SidebarLayoutSettingsRecommendationsRouteImport
       parentRoute: typeof SidebarLayoutSettingsRoute
     }
     '/_sidebar-layout/settings/project': {
@@ -947,6 +967,7 @@ interface SidebarLayoutSettingsRouteChildren {
   SidebarLayoutSettingsMemoryRoute: typeof SidebarLayoutSettingsMemoryRoute
   SidebarLayoutSettingsOrganizationRoute: typeof SidebarLayoutSettingsOrganizationRoute
   SidebarLayoutSettingsProjectRoute: typeof SidebarLayoutSettingsProjectRouteWithChildren
+  SidebarLayoutSettingsRecommendationsRoute: typeof SidebarLayoutSettingsRecommendationsRoute
   SidebarLayoutSettingsUsageRoute: typeof SidebarLayoutSettingsUsageRoute
   SidebarLayoutSettingsWhiteLabelRoute: typeof SidebarLayoutSettingsWhiteLabelRoute
   SidebarLayoutSettingsIndexRoute: typeof SidebarLayoutSettingsIndexRoute
@@ -965,6 +986,8 @@ const SidebarLayoutSettingsRouteChildren: SidebarLayoutSettingsRouteChildren = {
     SidebarLayoutSettingsOrganizationRoute,
   SidebarLayoutSettingsProjectRoute:
     SidebarLayoutSettingsProjectRouteWithChildren,
+  SidebarLayoutSettingsRecommendationsRoute:
+    SidebarLayoutSettingsRecommendationsRoute,
   SidebarLayoutSettingsUsageRoute: SidebarLayoutSettingsUsageRoute,
   SidebarLayoutSettingsWhiteLabelRoute: SidebarLayoutSettingsWhiteLabelRoute,
   SidebarLayoutSettingsIndexRoute: SidebarLayoutSettingsIndexRoute,

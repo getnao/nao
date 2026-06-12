@@ -4,6 +4,7 @@ import {
 	oauthProviderAuthServerMetadata,
 	oauthProviderOpenIdConfigMetadata,
 } from '@better-auth/oauth-provider';
+import type { BetterAuthPlugin } from 'better-auth';
 import { APIError, betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { verifyAccessToken } from 'better-auth/oauth2';
@@ -20,12 +21,18 @@ import { emailService } from './services/email';
 import { githubOAuthConfig } from './services/github';
 import { hasFeature, LICENSE_FEATURES } from './services/license.service';
 import {
-	augmentSocialProviders,
-	getTrustedProviders,
-	isSocialProvider as isMicrosoftProvider,
+	augmentSocialProvidersWithMicrosoft,
+	getTrustedProvidersForMicrosoft,
+	isSocialProviderMicrosoft,
 } from './services/microsoft-auth.service';
+import {
+	augmentPluginsWithOidc,
+	getOidcProviderId,
+	getTrustedProvidersForOidc,
+	isSocialProviderOidc,
+} from './services/oidc-auth.service';
 import { buildForgotPasswordEmail } from './utils/email-builders';
-import { buildGithubAllowlist, isEmailDomainAllowed } from './utils/utils';
+import { buildGithubAllowlist, isEmailDomainAllowed, resolveProviderId } from './utils/utils';
 
 type GoogleConfig = Awaited<ReturnType<typeof orgQueries.getGoogleConfig>>;
 type MetadataHandler = (request: Request) => Promise<Response>;
@@ -81,6 +88,8 @@ async function createAuthInstance(googleConfig: GoogleConfig) {
 	const githubAllowlist = buildGithubAllowlist(env.GITHUB_ALLOWED_USERS);
 	const disableEmailSignUp = await shouldDisableEmailSignUp();
 
+	const ssoPlugins: BetterAuthPlugin[] = [];
+
 	const socialProviders: Parameters<typeof betterAuth>[0]['socialProviders'] = {
 		google: {
 			prompt: 'select_account',
@@ -122,10 +131,15 @@ async function createAuthInstance(googleConfig: GoogleConfig) {
 
 	const ssoEnabled = await hasFeature(LICENSE_FEATURES.sso);
 	if (ssoEnabled) {
-		augmentSocialProviders(socialProviders);
+		augmentSocialProvidersWithMicrosoft(socialProviders);
+		augmentPluginsWithOidc(ssoPlugins);
 	}
 
-	const trustedProviders = ['google', 'github', ...(ssoEnabled ? getTrustedProviders() : [])];
+	const trustedProviders = [
+		'google',
+		'github',
+		...(ssoEnabled ? [...getTrustedProvidersForMicrosoft(), ...getTrustedProvidersForOidc()] : []),
+	];
 
 	return betterAuth({
 		secret: env.BETTER_AUTH_SECRET,
@@ -147,6 +161,7 @@ async function createAuthInstance(googleConfig: GoogleConfig) {
 				allowUnauthenticatedClientRegistration: true,
 				validAudiences: [env.BETTER_AUTH_URL, MCP_SERVER_URL],
 			}),
+			...ssoPlugins,
 		],
 		trustedOrigins: env.BETTER_AUTH_URL ? [env.BETTER_AUTH_URL] : undefined,
 		emailAndPassword: {
@@ -167,20 +182,32 @@ async function createAuthInstance(googleConfig: GoogleConfig) {
 			user: {
 				create: {
 					before: async (user, ctx) => {
-						const isGoogle = ctx?.params?.id === 'google';
-						if (isGoogle && !isEmailDomainAllowed(user.email, googleConfig.authDomains)) {
+						const providerId = resolveProviderId(ctx);
+
+						if (providerId === 'google' && !isEmailDomainAllowed(user.email, googleConfig.authDomains)) {
 							throw new APIError('FORBIDDEN', {
 								message: 'This email domain is not authorized to access this application.',
 							});
 						}
+
+						if (
+							ssoEnabled &&
+							providerId === getOidcProviderId() &&
+							!isEmailDomainAllowed(user.email, env.OIDC_AUTH_DOMAINS ?? '')
+						) {
+							throw new APIError('FORBIDDEN', {
+								message: 'This email domain is not authorized to access this application.',
+							});
+						}
+
 						return true;
 					},
 					async after(user, ctx) {
-						const providerId = ctx?.params?.id;
+						const providerId = resolveProviderId(ctx);
 						const isSocial =
 							providerId === 'google' ||
 							providerId === 'github' ||
-							(ssoEnabled && isMicrosoftProvider(providerId));
+							(ssoEnabled && (isSocialProviderMicrosoft(providerId) || isSocialProviderOidc(providerId)));
 
 						if (isCloud) {
 							await orgQueries.initializePersonalOrganization(user.id);

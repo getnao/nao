@@ -45,6 +45,7 @@ const envSchema = z.object({
 	AZURE_AD_CLIENT_ID: z.string().optional(),
 	AZURE_AD_CLIENT_SECRET: z.string().optional(),
 	AZURE_AD_TENANT_ID: z.string().optional(),
+	AZURE_AD_TOKEN_SCOPE: z.string().optional(),
 
 	ENABLE_USER_LOGIN: z
 		.enum(['true', 'false'])
@@ -58,6 +59,15 @@ const envSchema = z.object({
 		.transform((val) => val === 'true'),
 
 	DEFAULT_USER_ROLE: z.enum(['admin', 'user']).default('user'),
+
+	OIDC_PROVIDER_ID: z.string().optional(),
+	OIDC_PROVIDER_NAME: z.string().optional(),
+	OIDC_DISCOVERY_URL: z.string().optional(),
+	OIDC_CLIENT_ID: z.string().optional(),
+	OIDC_CLIENT_SECRET: z.string().optional(),
+	OIDC_SCOPES: z.string().optional(),
+	OIDC_AUTH_DOMAINS: z.string().optional(),
+	OIDC_PKCE: z.string().optional(),
 
 	SMTP_PASSWORD: z.string().optional(),
 	SMTP_HOST: z.string().optional(),
@@ -88,6 +98,12 @@ const envSchema = z.object({
 		.transform((val) => val === 'true'),
 
 	BETA_AUTOMATIONS_ENABLED: z
+		.enum(['true', 'false'])
+		.optional()
+		.default('true')
+		.transform((val) => val === 'true'),
+
+	BETA_CONTEXT_RECOMMENDATIONS_ENABLED: z
 		.enum(['true', 'false'])
 		.optional()
 		.default('false')

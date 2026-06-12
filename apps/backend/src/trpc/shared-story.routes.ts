@@ -1,4 +1,4 @@
-import { DOWNLOAD_FORMATS } from '@nao/shared/types';
+import { DOWNLOAD_FORMATS, SHARE_VISIBILITY } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
@@ -7,12 +7,19 @@ import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
+import * as storyFolderQueries from '../queries/story-folder.queries';
 import { logActivity } from '../services/activity';
 import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../services/live-story';
 import { notifySharedItemRecipients } from '../utils/email';
 import { buildDownloadResponse } from '../utils/story-download';
 import { extractStorySummary } from '../utils/story-summary';
-import { canSendProcedure, projectProtectedProcedure, protectedProcedure, resourceProjectProcedure } from './trpc';
+import {
+	adminProtectedProcedure,
+	canSendProcedure,
+	projectProtectedProcedure,
+	protectedProcedure,
+	resourceProjectProcedure,
+} from './trpc';
 
 const chatProcedure = resourceProjectProcedure('chatId', chatQueries.getChatInfo, 'Chat');
 const shareProcedure = resourceProjectProcedure('shareId', sharedStoryQueries.getSharedStory, 'Shared story');
@@ -27,14 +34,19 @@ const shareAccessProcedure = resourceProjectProcedure(
 );
 
 export const sharedStoryRoutes = {
-	list: protectedProcedure.query(async ({ ctx }) => {
+	list: protectedProcedure.input(z.object({ projectId: z.string() })).query(async ({ input, ctx }) => {
 		const projects = await projectQueries.listUserProjects(ctx.user.id);
 		const projectIds = projects.map((p) => p.id);
-		const stories = await sharedStoryQueries.listUserSharedStories(projectIds, ctx.user.id);
+		const stories = await sharedStoryQueries.listUserSharedStories(projectIds, ctx.user.id, input.projectId);
 		return stories.map((story) => ({
 			...story,
 			storySlug: story.slug,
 			summary: extractStorySummary(story.code),
+			sharing: {
+				visibility: story.visibility,
+				sharedWithCount: story.sharedWithCount,
+				isPinned: story.isPinned,
+			},
 		}));
 	}),
 
@@ -43,14 +55,31 @@ export const sharedStoryRoutes = {
 			z.object({
 				chatId: z.string(),
 				storySlug: z.string(),
-				visibility: z.enum(['project', 'specific']).default('project'),
+				visibility: z.enum(SHARE_VISIBILITY).default('project'),
 				allowedUserIds: z.array(z.string()).optional(),
+				pinAfterCreate: z.boolean().optional(),
 			}),
 		)
 		.mutation(async ({ input, ctx }) => {
+			if (input.pinAfterCreate && ctx.userRole !== 'admin') {
+				throw new TRPCError({ code: 'FORBIDDEN', message: 'Only admins can pin stories.' });
+			}
+
 			const story = await storyQueries.getStoryByChatAndSlug(input.chatId, input.storySlug);
 			if (!story) {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
+			}
+
+			const storyProjectId = story.projectId ?? (await storyQueries.getStoryProjectId(story.id));
+			if (storyProjectId !== ctx.project.id) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found in this project.' });
+			}
+
+			if (input.visibility === 'project') {
+				await storyFolderQueries.moveStoryToFolder(story.id, null, {
+					storyOwnerId: ctx.user.id,
+					projectId: ctx.project.id,
+				});
 			}
 
 			const created = await sharedStoryQueries.createSharedStory(
@@ -61,6 +90,7 @@ export const sharedStoryRoutes = {
 					visibility: input.visibility,
 				},
 				input.allowedUserIds,
+				{ pinned: input.pinAfterCreate === true },
 			);
 
 			await logActivity({
@@ -158,7 +188,7 @@ export const sharedStoryRoutes = {
 				return { shareId: null, visibility: null, allowedUserIds: [] };
 			}
 
-			const share = await sharedStoryQueries.getSharedStoryInfo(story.id, ctx.user.id);
+			const share = await sharedStoryQueries.getSharedStoryInfo(story.id, ctx.project.id);
 			if (!share) {
 				return { shareId: null, visibility: null, allowedUserIds: [] };
 			}
@@ -194,6 +224,22 @@ export const sharedStoryRoutes = {
 					allowedUserIds: newlyAddedUserIds,
 				});
 			}
+		}),
+
+	togglePin: adminProtectedProcedure
+		.input(z.object({ sharedStoryId: z.string() }))
+		.mutation(async ({ input, ctx }) => {
+			const share = await sharedStoryQueries.getSharedStory(input.sharedStoryId);
+			if (!share) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: 'Shared story not found.' });
+			}
+			if (share.projectId !== ctx.project.id) {
+				throw new TRPCError({
+					code: 'FORBIDDEN',
+					message: 'This story does not belong to the current project.',
+				});
+			}
+			await sharedStoryQueries.toggleSharedStoryPin(input.sharedStoryId);
 		}),
 
 	delete: shareProcedure.input(z.object({ shareId: z.string() })).mutation(async ({ input, ctx }) => {

@@ -16,13 +16,24 @@ type ParsedError = {
 function parseError(error: Error): ParsedError {
 	try {
 		const parsed = JSON.parse(error.message);
+		const nested = parsed?.error;
+		if (nested && typeof nested === 'object') {
+			return {
+				error: asString(nested.code) ?? asString(nested.type),
+				message: asString(nested.message) ?? asString(parsed.message) ?? error.message,
+			};
+		}
 		return {
-			error: parsed.error,
-			message: parsed.message,
+			error: asString(nested),
+			message: asString(parsed?.message),
 		};
 	} catch {
 		return { message: error.message };
 	}
+}
+
+function asString(value: unknown): string | undefined {
+	return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
 export function ChatError({ className }: Props) {

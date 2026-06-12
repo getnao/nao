@@ -100,6 +100,36 @@ class TestDatabaseSyncProvider:
             "database=clickhouse-numia",
         ]
 
+    @patch("nao_core.commands.sync.providers.databases.provider.cleanup_stale_paths", return_value=0)
+    @patch("nao_core.commands.sync.providers.databases.provider.sync_database")
+    def test_sync_runs_databases_with_threads(self, mock_sync_database, _mock_cleanup_stale_paths, tmp_path: Path):
+        provider = DatabaseSyncProvider()
+
+        db1 = MagicMock()
+        db1.name = "db1"
+        db1.type = "duckdb"
+        db1.templates = [MagicMock(value="columns")]
+        db1.get_database_name.return_value = "db1"
+
+        db2 = MagicMock()
+        db2.name = "db2"
+        db2.type = "duckdb"
+        db2.templates = [MagicMock(value="columns")]
+        db2.get_database_name.return_value = "db2"
+
+        def _sync_database(db, *_args, **_kwargs):
+            state = DatabaseSyncState(db_path=tmp_path / db.name)
+            state.add_schema("main")
+            state.add_table("main", "orders")
+            return state
+
+        mock_sync_database.side_effect = _sync_database
+
+        result = provider.sync([db1, db2], tmp_path, threads=2)
+
+        assert result.details == {"datasets": 2, "tables": 2, "removed": 0}
+        assert mock_sync_database.call_count == 2
+
     @patch(
         "nao_core.commands.sync.providers.databases.provider.get_database_folder_names", return_value=["database=dev"]
     )

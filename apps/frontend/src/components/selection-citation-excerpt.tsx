@@ -27,7 +27,7 @@ export function SelectionCitationExcerpt({
 			{displayed && (
 				<blockquote
 					className={cn(
-						'text-xs text-foreground/80 italic leading-relaxed border-l-2 border-primary/50 pl-3',
+						'text-xs text-foreground/80 italic leading-relaxed border-l-2 border-primary pl-3',
 						lineClamp === 2 ? 'line-clamp-2' : 'line-clamp-3',
 					)}
 				>

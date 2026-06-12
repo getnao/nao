@@ -157,7 +157,7 @@ def _load_k8s_data(namespace: str, secret_name: str, cache: SecretCache | None) 
         return cache[key]
 
     require_dependency("kubernetes", "k8s-secrets", "for Kubernetes Secret resolution")
-    from kubernetes import client as kube_client
+    from kubernetes import client as kube_client  # ty: ignore[unresolved-import]
 
     _load_kube_config()
     try:
@@ -174,7 +174,7 @@ def _load_k8s_data(namespace: str, secret_name: str, cache: SecretCache | None) 
 def _extract_scalar(payload: dict[str, Any], path: str, *, source: str) -> str:
     """Extract a scalar value from *payload* via a glom dot-path."""
     require_dependency("glom", "aws-secrets", "for nested AWS secret field extraction")
-    from glom import Coalesce, glom
+    from glom import Coalesce, glom  # ty: ignore[unresolved-import]
 
     sentinel = object()
     value = glom(payload, Coalesce(path, default=sentinel))
@@ -232,7 +232,7 @@ def _pod_namespace() -> str:
 
 
 def _load_kube_config() -> None:
-    from kubernetes import config as kube_config
+    from kubernetes import config as kube_config  # ty: ignore[unresolved-import]
 
     try:
         kube_config.load_incluster_config()

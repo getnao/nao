@@ -7,35 +7,58 @@ import { STORY_REFRESH_JOB_NAME } from '../handlers/story-refresh.handler';
 import * as activityQueries from '../queries/activity.queries';
 import * as chatQueries from '../queries/chat.queries';
 import * as scheduledJobQueries from '../queries/scheduled-job.queries';
+import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
+import * as storyFolderQueries from '../queries/story-folder.queries';
 import { naturalLanguageToCron } from '../services/cron-nlp';
 import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../services/live-story';
 import { nextCronTick } from '../services/scheduler.service';
 import { buildDownloadResponse } from '../utils/story-download';
 import { extractStorySummary } from '../utils/story-summary';
-import { ownedResourceProcedure, projectProtectedProcedure, protectedProcedure } from './trpc';
+import { canSendProcedure, ownedResourceProcedure, projectProtectedProcedure, protectedProcedure } from './trpc';
 
 const chatOwnerProcedure = ownedResourceProcedure(chatQueries.getChatOwnerId, 'chat');
 const storyOwnerProcedure = ownedResourceProcedure(storyQueries.getStoryOwnerId, 'story');
 
-export const storyRoutes = {
-	listAll: protectedProcedure.query(async ({ ctx }) => {
-		const stories = await storyQueries.listUserChatStories(ctx.user.id);
-		return stories.map(({ code, ...rest }) => ({
-			...rest,
-			storySlug: rest.slug,
-			summary: extractStorySummary(code),
-		}));
-	}),
+async function assertStoryPublicInProject(storyId: string, projectId: string): Promise<void> {
+	const share = await sharedStoryQueries.getSharedStoryInfo(storyId, projectId);
+	if (!share || share.visibility !== 'project') {
+		throw new TRPCError({
+			code: 'FORBIDDEN',
+			message: 'Only public stories can be archived by other members.',
+		});
+	}
+}
 
-	listArchived: protectedProcedure.query(async ({ ctx }) => {
-		const stories = await storyQueries.listUserChatStories(ctx.user.id, { archived: true });
-		return stories.map(({ code, ...rest }) => ({
-			...rest,
-			storySlug: rest.slug,
-			summary: extractStorySummary(code),
-		}));
-	}),
+export const storyRoutes = {
+	listAll: protectedProcedure
+		.input(z.object({ projectId: z.string().optional() }).optional())
+		.query(async ({ input, ctx }) => {
+			const stories = await storyQueries.listUserChatStories(ctx.user.id, { projectId: input?.projectId });
+			const sharingByStoryId = await storyQueries.getStorySharingInfo(stories.map((s) => s.id));
+			return stories.map(({ code, ...rest }) => ({
+				...rest,
+				storySlug: rest.slug,
+				summary: extractStorySummary(code),
+				sharing: sharingByStoryId.get(rest.id) ?? null,
+			}));
+		}),
+
+	listArchived: protectedProcedure
+		.input(z.object({ projectId: z.string().optional() }).optional())
+		.query(async ({ input, ctx }) => {
+			const stories = await storyQueries.listUserChatStories(ctx.user.id, {
+				archived: true,
+				projectId: input?.projectId,
+			});
+			const sharingByStoryId = await storyQueries.getStorySharingInfo(stories.map((s) => s.id));
+			return stories.map(({ code, ...rest }) => ({
+				...rest,
+				storySlug: rest.slug,
+				summary: extractStorySummary(code),
+				sharing: sharingByStoryId.get(rest.id) ?? null,
+			}));
+		}),
 
 	listStandalone: projectProtectedProcedure.query(async ({ ctx }) => {
 		const stories = await storyQueries.listUserStandaloneStories(ctx.user.id, ctx.project.id);
@@ -124,8 +147,8 @@ export const storyRoutes = {
 				action: z.enum(['create', 'update', 'replace']),
 			}),
 		)
-		.mutation(async ({ input }) => {
-			return storyQueries.createStoryVersion({
+		.mutation(async ({ input, ctx }) => {
+			const version = await storyQueries.createStoryVersion({
 				chatId: input.chatId,
 				slug: input.storySlug,
 				title: input.title,
@@ -133,6 +156,15 @@ export const storyRoutes = {
 				action: input.action,
 				source: 'user',
 			});
+
+			if (input.action === 'create') {
+				const projectId = await chatQueries.getChatProjectId(input.chatId);
+				if (projectId) {
+					await storyFolderQueries.saveStoryInPrivateRoot(ctx.user.id, projectId, version.storyId);
+				}
+			}
+
+			return version;
 		}),
 
 	updateLiveSettings: chatOwnerProcedure
@@ -210,16 +242,54 @@ export const storyRoutes = {
 
 	unarchive: chatOwnerProcedure
 		.input(z.object({ chatId: z.string(), storySlug: z.string() }))
-		.mutation(async ({ input }) => {
+		.mutation(async ({ input, ctx }) => {
 			await storyQueries.unarchiveStory(input.chatId, input.storySlug);
+			const story = await storyQueries.getStoryByChatAndSlug(input.chatId, input.storySlug);
+			const projectId = story ? await storyQueries.getStoryProjectId(story.id) : null;
+			if (story && projectId) {
+				await storyFolderQueries.rehomeUnarchivedStory(ctx.user.id, projectId, story.id);
+			}
 		}),
 
 	archiveStandalone: storyOwnerProcedure.input(z.object({ storyId: z.string() })).mutation(async ({ input }) => {
 		await storyQueries.archiveByStoryId(input.storyId);
+		await unscheduleStoryRefreshJob(input.storyId);
 	}),
 
-	unarchiveStandalone: storyOwnerProcedure.input(z.object({ storyId: z.string() })).mutation(async ({ input }) => {
+	unarchiveStandalone: storyOwnerProcedure
+		.input(z.object({ storyId: z.string() }))
+		.mutation(async ({ input, ctx }) => {
+			await storyQueries.unarchiveByStoryId(input.storyId);
+			const projectId = await storyQueries.getStoryProjectId(input.storyId);
+			if (projectId) {
+				await storyFolderQueries.rehomeUnarchivedStory(ctx.user.id, projectId, input.storyId);
+			}
+		}),
+
+	listSharedArchived: projectProtectedProcedure.query(async ({ ctx }) => {
+		const stories = await sharedStoryQueries.listProjectArchivedSharedStories(ctx.project.id);
+		return stories.map((story) => ({
+			...story,
+			storySlug: story.slug,
+			summary: extractStorySummary(story.code),
+			sharing: {
+				visibility: story.visibility,
+				sharedWithCount: story.sharedWithCount,
+				isPinned: story.isPinned,
+			},
+		}));
+	}),
+
+	archiveShared: canSendProcedure.input(z.object({ storyId: z.string() })).mutation(async ({ input, ctx }) => {
+		await assertStoryPublicInProject(input.storyId, ctx.project.id);
+		await storyQueries.archiveByStoryId(input.storyId);
+		await unscheduleStoryRefreshJob(input.storyId);
+	}),
+
+	unarchiveShared: canSendProcedure.input(z.object({ storyId: z.string() })).mutation(async ({ input, ctx }) => {
+		await assertStoryPublicInProject(input.storyId, ctx.project.id);
 		await storyQueries.unarchiveByStoryId(input.storyId);
+		await storyFolderQueries.rehomeUnarchivedStory(ctx.user.id, ctx.project.id, input.storyId);
 	}),
 
 	archiveMany: protectedProcedure
@@ -235,6 +305,7 @@ export const storyRoutes = {
 				}),
 			);
 			await storyQueries.archiveManyStories(input.stories.map((s) => ({ chatId: s.chatId, slug: s.storySlug })));
+			await Promise.all(input.stories.map((s) => syncStoryRefreshJob(s.chatId, s.storySlug, false, null)));
 		}),
 
 	downloadStandalone: storyOwnerProcedure
@@ -337,4 +408,13 @@ async function syncStoryRefreshJob(
 		resetRunAtOnConflict: true,
 	});
 	await activityQueries.linkStoryScheduledJob(story.id, job.id);
+}
+
+async function unscheduleStoryRefreshJob(storyId: string): Promise<void> {
+	const story = await storyQueries.getStoryById(storyId);
+	if (!story?.scheduledJobId) {
+		return;
+	}
+	await scheduledJobQueries.deleteJob(story.scheduledJobId);
+	await activityQueries.linkStoryScheduledJob(storyId, null);
 }

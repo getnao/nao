@@ -78,6 +78,40 @@ created_at: 2025-03-10T09:15:00Z
 		expect(result).toBe('The query was successfully executed and returned no rows.');
 	});
 
+	it('warns when the row count equals the applied LIMIT', () => {
+		const result = renderToMarkdown(
+			<ExecuteSqlOutput
+				output={{
+					id: 'query_limit',
+					columns: ['game_name'],
+					row_count: 2,
+					applied_limit: 2,
+					data: [{ game_name: 'Alpha' }, { game_name: 'Beta' }],
+				}}
+			/>,
+		);
+		printOutput('execute_sql', 'limit reached', result);
+
+		expect(result).toContain('returned exactly 2 rows');
+		expect(result).toContain('COUNT(*)');
+	});
+
+	it('does not warn when the row count is below the applied LIMIT', () => {
+		const result = renderToMarkdown(
+			<ExecuteSqlOutput
+				output={{
+					id: 'query_under_limit',
+					columns: ['game_name'],
+					row_count: 1,
+					applied_limit: 20,
+					data: [{ game_name: 'Alpha' }],
+				}}
+			/>,
+		);
+
+		expect(result).not.toContain('Warning:');
+	});
+
 	it('truncates rows with maxRows', () => {
 		const result = renderToMarkdown(
 			<ExecuteSqlOutput

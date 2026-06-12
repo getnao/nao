@@ -1,7 +1,9 @@
 import { story } from '@nao/shared/tools';
 
 import { renderToModelOutput, StoryOutput } from '../../components/tool-outputs';
+import { db } from '../../db/db';
 import * as storyQueries from '../../queries/story.queries';
+import * as storyFolderQueries from '../../queries/story-folder.queries';
 import type { ToolContext } from '../../types/tools';
 import { createTool } from '../../utils/tools';
 
@@ -21,7 +23,7 @@ export default createTool<story.Input, story.Output>({
 	outputSchema: story.OutputSchema,
 
 	execute: async (input, context) => {
-		const { chatId } = context;
+		const { chatId, userId, projectId } = context;
 
 		const fail = (error: string, existing?: { code: string; version: number; title: string }) =>
 			({
@@ -38,18 +40,26 @@ export default createTool<story.Input, story.Output>({
 			if (!input.code || !input.title) {
 				return fail('"code" and "title" are required for the "create" action.');
 			}
+			const { code, title } = input;
 			const existingStory = await storyQueries.getStoryByChatAndSlug(chatId, input.id);
 			if (existingStory) {
 				return fail(`Story "${input.id}" already exists. Use "update" or "replace" instead.`);
 			}
 
-			const version = await storyQueries.createStoryVersion({
-				chatId,
-				slug: input.id,
-				title: input.title,
-				code: input.code,
-				action: 'create',
-				source: 'assistant',
+			const version = await db.transaction(async (tx) => {
+				const created = await storyQueries.createStoryVersion(
+					{
+						chatId,
+						slug: input.id,
+						title,
+						code,
+						action: 'create',
+						source: 'assistant',
+					},
+					tx,
+				);
+				await storyFolderQueries.saveStoryInPrivateRoot(userId, projectId, created.storyId, tx);
+				return created;
 			});
 			rememberStoryArtifact(context, input.id, version.title);
 

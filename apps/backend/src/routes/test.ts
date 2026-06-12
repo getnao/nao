@@ -34,6 +34,7 @@ export const testRoutes = async (app: App) => {
 		},
 		async (request, reply) => {
 			const projectId = request.project?.id;
+			const userId = request.user.id;
 			const { prompt, model, sql, meta } = request.body;
 
 			const costs = meta?.costs;
@@ -54,6 +55,8 @@ export const testRoutes = async (app: App) => {
 						{
 							projectFolder: project.path!,
 							chatId: '',
+							userId,
+							projectId: projectId,
 							agentSettings: null,
 							envVars: {},
 							azureAccessToken: null,

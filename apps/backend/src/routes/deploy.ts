@@ -7,6 +7,7 @@ import yaml from 'js-yaml';
 
 import type { App } from '../app';
 import { env } from '../env';
+import { ensureContextRecommendationsScheduleForNewProject } from '../handlers/context-recommendations.handler';
 import * as orgQueries from '../queries/organization.queries';
 import * as projectQueries from '../queries/project.queries';
 import { validateApiKey } from '../services/api-key.service';
@@ -91,6 +92,7 @@ export const deployRoutes = async (app: App) => {
 						role: member.role,
 					});
 				}
+				await ensureContextRecommendationsScheduleForNewProject(projectId);
 			}
 
 			return reply.send({ projectId, projectName, status });

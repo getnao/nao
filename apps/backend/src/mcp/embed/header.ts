@@ -114,7 +114,7 @@ export const SANDBOX_APP_HEADER_CSS = `
 export const SANDBOX_EMBED_PANEL_BODY_CSS = `
 html{margin:0 !important;color-scheme:light}
 body{
-  background:oklch(0.98 0 0) !important;
+  background:oklch(1 0 0) !important;
   margin-top:0 !important;
   padding-top:0 !important;
 }

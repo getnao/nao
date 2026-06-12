@@ -27,7 +27,7 @@ interface StoryAppViewProps {
 
 export function StoryAppView({ title, code, queryData, naoUrl, onDownload }: StoryAppViewProps) {
 	return (
-		<div className='flex min-h-0 min-w-0 w-full flex-1 flex-col overflow-hidden bg-panel text-foreground'>
+		<div className='flex min-h-0 min-w-0 w-full flex-1 flex-col overflow-hidden bg-background text-foreground'>
 			<McpAppHeader title={title}>
 				{onDownload ? <StoryDownloadButton onDownload={onDownload} /> : null}
 				{naoUrl ? <OpenInNaoButton url={naoUrl} /> : null}

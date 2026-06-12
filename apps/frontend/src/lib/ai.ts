@@ -8,6 +8,7 @@ import type { ReasoningUIPart, ToolUIPart } from 'ai';
 import type { UseChatHelpers } from '@ai-sdk/react';
 import type { UITools, UIToolPart, UIMessage, UIMessagePart, StaticToolName } from '@nao/backend/chat';
 import type { GroupablePart, ToolGroupPart, GroupedMessagePart, MessageGroup } from '@/types/ai';
+import type { DynamicToolName } from '@/components/tool-calls';
 
 /** The ID used for new chats not yet persisted to the db. */
 export const NEW_CHAT_ID = 'new-chat';
@@ -70,9 +71,11 @@ export const checkIsAgentRunning = (agent: Pick<UseChatHelpers<UIMessage>, 'stat
 };
 
 /** Tools that should NOT be collapsed (important UI elements) */
-export const NON_COLLAPSIBLE_TOOLS: StaticToolName[] = [
+export const NON_COLLAPSIBLE_TOOLS: (StaticToolName | DynamicToolName)[] = [
 	'story',
 	'execute_sql',
+	'query_app_db',
+	'record_recommendation',
 	'display_chart',
 	'suggest_follow_ups',
 	'clarification',
@@ -134,7 +137,7 @@ export const isPartGroupable = (part: UIMessagePart): part is GroupablePart => {
 	}
 	if (isToolUIPart(part)) {
 		const toolName = getToolName(part);
-		return !NON_COLLAPSIBLE_TOOLS.includes(toolName as StaticToolName);
+		return !NON_COLLAPSIBLE_TOOLS.includes(toolName as StaticToolName | DynamicToolName);
 	}
 	return false;
 };

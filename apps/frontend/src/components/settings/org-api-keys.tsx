@@ -95,6 +95,7 @@ export function OrgApiKeys({
 						aria-label='API key name'
 					/>
 					<Button
+						variant='primary-gradient'
 						onClick={() => handleCreate().catch(console.error)}
 						disabled={!name.trim()}
 						isLoading={createApiKey.isPending}

@@ -117,6 +117,21 @@ class TestRepositorySyncProvider:
 
         assert result.items_synced == 2
 
+    @patch("nao_core.commands.sync.providers.repositories.provider.sync_repo", return_value=True)
+    @patch("nao_core.commands.sync.providers.repositories.provider.console")
+    def test_sync_runs_repos_with_threads(self, mock_console, mock_sync, tmp_path: Path):
+        provider = RepositorySyncProvider()
+        repos = [
+            RepoConfig(name="repo1", url="https://github.com/test/repo1"),
+            RepoConfig(name="repo2", url="https://github.com/test/repo2"),
+            RepoConfig(name="repo3", url="https://github.com/test/repo3"),
+        ]
+
+        result = provider.sync(repos, tmp_path, threads=2)
+
+        assert result.items_synced == 3
+        assert mock_sync.call_count == 3
+
     def test_should_sync_returns_true_when_repos_exist(self):
         provider = RepositorySyncProvider()
         mock_config = MagicMock(spec=NaoConfig)

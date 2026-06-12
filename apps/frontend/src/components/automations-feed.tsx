@@ -21,7 +21,7 @@ import SlackIcon from '@/components/icons/slack.svg';
 import { ChartDisplay } from '@/components/tool-calls/display-chart';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useTimeAgo } from '@/hooks/use-time-ago';
 import { cn } from '@/lib/utils';
 
@@ -799,13 +799,11 @@ function IntegrationResultIcons({ results }: { results: AutomationFeedIntegratio
 		return <div />;
 	}
 	return (
-		<TooltipProvider delayDuration={150}>
-			<div className='flex flex-wrap gap-1.5'>
-				{distinct.map((result) => (
-					<IntegrationResultIcon key={result.type} result={result} />
-				))}
-			</div>
-		</TooltipProvider>
+		<div className='flex flex-wrap gap-1.5'>
+			{distinct.map((result) => (
+				<IntegrationResultIcon key={result.type} result={result} />
+			))}
+		</div>
 	);
 }
 
@@ -833,7 +831,7 @@ function IntegrationResultIcon({ result }: { result: AutomationFeedIntegrationRe
 		);
 
 	return (
-		<Tooltip>
+		<Tooltip delayDuration={150}>
 			<TooltipTrigger asChild>{trigger}</TooltipTrigger>
 			<TooltipContent>
 				{result.ok ? `${config.label} sent successfully` : result.message || `${config.label} has failed`}

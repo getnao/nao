@@ -107,7 +107,7 @@ export const UserMessageBubble = memo(({ message }: { message: UIMessage }) => {
 	const displayText = legacyCitation ? legacyCitation.question : rawText;
 
 	return (
-		<div className='rounded-2xl px-3 py-2 bg-card text-card-foreground ml-auto max-w-xl'>
+		<div className='rounded-2xl px-3 py-2 bg-panel text-card-foreground ml-auto max-w-xl'>
 			<MessageSourceBadge source={message.source} />
 			{citation && (
 				<ChatMessagesCitationChip

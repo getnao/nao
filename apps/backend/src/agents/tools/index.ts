@@ -39,6 +39,13 @@ export const getTools = (
 		mcpEnabled?: boolean;
 		mcpServers?: string[] | null;
 		excludeFollowUps?: boolean;
+		/**
+		 * Restricts the built-in tools to this allowlist (by tool name). MCP, python,
+		 * sandboxing and clarification tools are dropped entirely. `extraTools` are
+		 * always kept. Used by focused runs (e.g. context recommendations) that should
+		 * only discover context, not query the warehouse or render charts.
+		 */
+		builtinToolAllowlist?: string[];
 	} = {},
 ) => {
 	const mcpTools = options.mcpEnabled === false ? {} : mcpService.getMcpTools(options.mcpServers);
@@ -52,7 +59,7 @@ export const getTools = (
 	} = tools;
 	const baseTools = options.excludeFollowUps ? rest : { ...rest, suggest_follow_ups };
 
-	return {
+	const allTools = {
 		...baseTools,
 		...(!options.testMode && { clarification: clarificationTool }),
 		...mcpTools,
@@ -60,4 +67,11 @@ export const getTools = (
 		...(agentSettings?.experimental?.sandboxes && execute_sandboxed_code && { execute_sandboxed_code }),
 		...extraTools,
 	};
+
+	if (options.builtinToolAllowlist) {
+		const allowed = new Set([...options.builtinToolAllowlist, ...Object.keys(extraTools ?? {})]);
+		return Object.fromEntries(Object.entries(allTools).filter(([name]) => allowed.has(name))) as typeof allTools;
+	}
+
+	return allTools;
 };

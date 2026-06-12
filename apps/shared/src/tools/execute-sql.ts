@@ -19,6 +19,12 @@ export const OutputSchema = z.object({
 	/** The id of the query result. May be referenced by the `display_chart` tool call. */
 	id: QueryIdSchema,
 	dialect: z.string().optional(),
+	/**
+	 * The row limit applied by the outermost query (LIMIT/TOP/FETCH FIRST), if any.
+	 * When `row_count` equals this value the result is likely truncated and does not
+	 * represent the total number of matching rows.
+	 */
+	applied_limit: z.number().optional(),
 });
 
 export type Input = z.infer<typeof InputSchema>;

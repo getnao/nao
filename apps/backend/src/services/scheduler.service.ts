@@ -29,6 +29,8 @@ export interface EnsureRecurringInput {
 	uniqueKey: string;
 	payload?: Record<string, unknown>;
 	maxAttempts?: number;
+	/** When the job already exists, reset its `runAt` to the next cron tick. */
+	resetRunAtOnConflict?: boolean;
 }
 
 /**
@@ -48,6 +50,7 @@ export async function ensureRecurring(input: EnsureRecurringInput): Promise<void
 		payload: input.payload,
 		runAt,
 		maxAttempts: input.maxAttempts,
+		resetRunAtOnConflict: input.resetRunAtOnConflict,
 	});
 }
 

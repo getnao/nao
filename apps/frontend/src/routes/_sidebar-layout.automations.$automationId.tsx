@@ -10,7 +10,7 @@ import SlackIcon from '@/components/icons/slack.svg';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { requireAutomationsEnabled } from '@/lib/require-admin';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
@@ -328,13 +328,11 @@ function IntegrationResultIcons({ runId, results }: { runId: string; results: Au
 	const distinctResults = getDistinctIntegrationResults(results);
 
 	return (
-		<TooltipProvider delayDuration={150}>
-			<div className='mt-2 flex flex-wrap gap-1.5'>
-				{distinctResults.map((result) => (
-					<IntegrationResultIcon key={`${runId}-${result.type}`} result={result} />
-				))}
-			</div>
-		</TooltipProvider>
+		<div className='mt-2 flex flex-wrap gap-1.5'>
+			{distinctResults.map((result) => (
+				<IntegrationResultIcon key={`${runId}-${result.type}`} result={result} />
+			))}
+		</div>
 	);
 }
 
@@ -368,7 +366,7 @@ function IntegrationResultIcon({ result }: { result: AutomationRun['integrationR
 		);
 
 	return (
-		<Tooltip>
+		<Tooltip delayDuration={150}>
 			<TooltipTrigger asChild>{trigger}</TooltipTrigger>
 			<TooltipContent>
 				{result.ok ? `${config.label} sent successfully` : result.message || `${config.label} has failed`}

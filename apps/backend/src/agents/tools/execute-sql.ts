@@ -4,7 +4,7 @@ import { executeSql as schemas } from '@nao/shared/tools';
 import { ExecuteSqlOutput, renderToModelOutput } from '../../components/tool-outputs';
 import { env } from '../../env';
 import { ToolContext } from '../../types/tools';
-import { isReadOnlySqlQuery } from '../../utils/sql-filter';
+import { detectQueryRowLimit, isReadOnlySqlQuery } from '../../utils/sql-filter';
 import { createTool } from '../../utils/tools';
 
 export async function executeQuery(
@@ -46,10 +46,13 @@ export async function executeQuery(
 
 	context.queryResults.set(id, { columns: data.columns, data: data.data });
 
+	const appliedLimit = detectQueryRowLimit(sql_query);
+
 	return {
 		_version: '1',
 		...data,
 		id,
+		...(appliedLimit !== null && { applied_limit: appliedLimit }),
 	};
 }
 
