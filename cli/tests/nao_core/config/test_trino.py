@@ -302,12 +302,18 @@ def test_connect_jwt_token_file_is_read_fresh(base_config: TrinoConfig, tmp_path
     ):
         cfg.connect()
 
-    assert isinstance(mock_connect.call_args.kwargs.get("auth"), JWTAuthentication)
-    # Rotating the file is picked up on the next connect (fresh read).
+    first_auth = mock_connect.call_args.kwargs.get("auth")
+    assert isinstance(first_auth, JWTAuthentication)
+    assert first_auth.token == "file-token-123"
+
+    # Rotating the file must be picked up on the next connect — assert the
+    # bearer token actually changed, so a "read once and cache" bug fails.
     token_file.write_text("rotated-token-456")
     with (
         patch("nao_core.deps.require_database_backend"),
         patch("ibis.trino.connect", mock_connect),
     ):
         cfg.connect()
-    assert mock_connect.call_count == 2
+    second_auth = mock_connect.call_args.kwargs.get("auth")
+    assert isinstance(second_auth, JWTAuthentication)
+    assert second_auth.token == "rotated-token-456"
