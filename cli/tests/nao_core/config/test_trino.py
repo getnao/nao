@@ -275,6 +275,24 @@ def test_connect_jwt_uses_jwt_auth_and_forces_https(base_config: TrinoConfig) ->
     assert isinstance(call_kw.get("auth"), JWTAuthentication)
 
 
+def test_connect_blank_jwt_token_is_ignored(base_config: TrinoConfig) -> None:
+    """A whitespace-only inline jwt_token must not force https, enable JWT auth,
+    or block the password fallback."""
+    from trino.auth import BasicAuthentication
+
+    mock_connect = MagicMock()
+    cfg = base_config.model_copy(update={"jwt_token": "   \n", "password": "secret"})
+    with (
+        patch("nao_core.deps.require_database_backend"),
+        patch("ibis.trino.connect", mock_connect),
+    ):
+        cfg.connect()
+
+    call_kw = mock_connect.call_args.kwargs
+    assert call_kw["http_scheme"] == "http"  # not forced to https by a blank token
+    assert isinstance(call_kw.get("auth"), BasicAuthentication)  # password fallback intact
+
+
 def test_connect_jwt_takes_precedence_over_password(base_config: TrinoConfig) -> None:
     from trino.auth import JWTAuthentication
 

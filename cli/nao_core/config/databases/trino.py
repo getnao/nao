@@ -167,7 +167,12 @@ class TrinoConfig(DatabaseConfig):
     )
 
     def _resolve_jwt(self) -> str | None:
-        """Read the JWT from file (fresh each call) or fall back to the inline token."""
+        """Read the JWT from file (fresh each call) or fall back to the inline token.
+
+        Both sources are stripped; a blank or whitespace-only value resolves to
+        None so it can't spuriously force https, enable JWT auth, or block the
+        password fallback.
+        """
         if self.jwt_token_file:
             try:
                 with open(self.jwt_token_file, encoding="utf-8") as fh:
@@ -176,7 +181,11 @@ class TrinoConfig(DatabaseConfig):
                     return token
             except OSError:
                 pass
-        return self.jwt_token
+        if self.jwt_token:
+            token = self.jwt_token.strip()
+            if token:
+                return token
+        return None
 
     @classmethod
     def promptConfig(cls) -> "TrinoConfig":
