@@ -163,6 +163,8 @@ function AutomationDetailPage() {
 						}}
 						details={{
 							enabled: automation.enabled,
+							scheduleDescription: automation.scheduleDescription,
+							cron: automation.cron,
 							nextRunAt: automation.scheduledJob?.runAt,
 							lastRunAt: runs[0]?.startedAt,
 						}}
