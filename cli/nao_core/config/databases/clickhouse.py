@@ -640,6 +640,11 @@ class ClickHouseConfig(DatabaseConfig):
             "password": self.password,
             "secure": self.secure,
         }
+        # ibis only uses `secure` to pick the default port; it never forwards it to
+        # clickhouse_connect, so the client falls back to plain HTTP on TLS-only ports.
+        # Force the HTTPS interface explicitly via **kwargs, which ibis does forward.
+        if self.secure:
+            kwargs["interface"] = "https"
         if self.port is not None:
             kwargs["port"] = self.port
         if self.connect_timeout is not None:
