@@ -141,7 +141,9 @@ export const isPartGroupable = (part: UIMessagePart, density: ToolCallDensity = 
 	}
 	if (isToolUIPart(part)) {
 		const toolName = getToolName(part);
-		return !NON_COLLAPSIBLE_TOOLS_BY_DENSITY[density].includes(toolName as StaticToolName | DynamicToolName);
+		const nonCollapsibleTools =
+			NON_COLLAPSIBLE_TOOLS_BY_DENSITY[density] ?? NON_COLLAPSIBLE_TOOLS_BY_DENSITY.detailed;
+		return !nonCollapsibleTools.includes(toolName as StaticToolName);
 	}
 	return false;
 };
