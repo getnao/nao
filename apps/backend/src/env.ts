@@ -58,12 +58,6 @@ const envSchema = z.object({
 		.default('false')
 		.transform((val) => val === 'true'),
 
-	MCP_ENABLE_JSON_RESPONSE: z
-		.enum(['true', 'false'])
-		.optional()
-		.default('false')
-		.transform((val) => val === 'true'),
-
 	DEFAULT_USER_ROLE: z.enum(['admin', 'user', 'viewer']).default('user'),
 
 	OIDC_PROVIDER_ID: z.string().optional(),

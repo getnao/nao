@@ -210,8 +210,8 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		section: 'MCP Modes',
 		title: 'Sub-agent mode',
 		description:
-			"Exposes ask_nao — delegates the full analytics task to nao's agent. The reasoning trace is saved as a chat in the nao UI.",
-		keywords: ['ask_nao', 'agent', 'analytics', 'delegate', 'sub-agent'],
+			"Exposes ask_nao and get_nao_answer — delegates the full analytics task to nao's agent. The reasoning trace is saved as a chat in the nao UI.",
+		keywords: ['ask_nao', 'get_nao_answer', 'agent', 'analytics', 'delegate', 'sub-agent'],
 	},
 	{
 		page: '/settings/mcp-endpoint',
