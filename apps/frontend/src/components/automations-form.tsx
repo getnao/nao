@@ -1406,7 +1406,7 @@ function AutomationDetailSummary({ details }: { details: AutomationDetails }) {
 			<DetailRow label='Status' value={details.enabled ? 'Enabled' : 'Paused'} />
 			<DetailRow
 				label='Schedule (server time)'
-				value={details.scheduleDescription ?? details.cron ?? 'Custom schedule'}
+				value={details.scheduleDescription || details.cron || 'Custom schedule'}
 			/>
 			<DetailRow label='Next run (your time)' value={details.enabled ? formatDateTime(details.nextRunAt) : '-'} />
 			<DetailRow label='Last run (your time)' value={formatDateTime(details.lastRunAt)} />
