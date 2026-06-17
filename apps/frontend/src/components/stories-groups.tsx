@@ -2,16 +2,27 @@ import { useDraggable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { Activity, ArchiveIcon, ArchiveRestoreIcon, FolderInput, Globe, Lock, Pin, Star, Users } from 'lucide-react';
+import { ArchiveIcon, ArchiveRestoreIcon, FolderInput, Pin, Star } from 'lucide-react';
 import { useState } from 'react';
 import type { MouseEvent, ReactNode } from 'react';
 import type { StoryPanelDisplayMode } from '@nao/shared/types';
 
 import type { StoryItem } from '@/lib/stories-page';
+import {
+	AuthorDateLabel,
+	GRID_CARD_CLASS,
+	GRID_THUMBNAIL_CLASS,
+	GridCardFooter,
+	LINES_CARD_CLASS,
+	LiveBadge,
+	PrivateBadge,
+	SharingBadge,
+} from '@/components/item-card';
 import { ShareStoryDialog } from '@/components/share-dialog.story';
 import { StoryThumbnail } from '@/components/story-thumbnail';
 import StoryIcon from '@/components/ui/story-icon';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { SimpleTooltip } from '@/components/ui/tooltip';
+import { useToggleFavorite } from '@/hooks/use-toggle-favorite';
 import { usePermissions } from '@/hooks/use-permissions';
 import { formatRelativeDate } from '@/lib/time-ago';
 import { cn } from '@/lib/utils';
@@ -68,8 +79,6 @@ export function StoryCard({
 	const canOpenPinShareDialog =
 		isAdmin && !item.sharedStoryId && item.kind === 'own' && !!item.chatId && !!item.storySlug;
 
-	const meta = `${item.author} · ${formatRelativeDate(item.createdAt)}`;
-
 	if (displayMode === 'grid') {
 		return (
 			<>
@@ -78,13 +87,11 @@ export function StoryCard({
 					style={style}
 					{...attributes}
 					{...listeners}
-					className={cn(storyCardClass('grid'), isDragging && 'opacity-0')}
+					className={cn(GRID_CARD_CLASS, isDragging && 'opacity-0')}
 				>
-					<div className='absolute inset-0 pointer-events-none overflow-hidden'>
+					<div className={GRID_THUMBNAIL_CLASS}>
 						<StoryThumbnail summary={item.summary} />
 					</div>
-
-					<div className='pointer-events-none absolute inset-x-0 bottom-0 h-18 bg-gradient-to-t from-background from-50% to-transparent' />
 
 					<Link
 						{...item.link}
@@ -92,11 +99,11 @@ export function StoryCard({
 						className='absolute inset-0 flex flex-col justify-end p-2.5'
 					>
 						<div className='flex items-end gap-1.5'>
-							<div className='flex-1 min-w-0 transition-transform duration-200 ease-out group-hover:-translate-y-0.5'>
-								<span className='block text-xs font-medium truncate'>{item.title}</span>
-								<span className='block text-[11px] text-muted-foreground truncate'>{meta}</span>
-							</div>
-							<div className='shrink-0 mb-0.5'>
+							<GridCardFooter
+								title={item.title}
+								subtitle={<AuthorDateLabel author={item.author} createdAt={item.createdAt} />}
+							/>
+							<div className='shrink-0'>
 								<StoryBadges item={item} mode='grid' />
 							</div>
 						</div>
@@ -135,7 +142,7 @@ export function StoryCard({
 				style={style}
 				{...attributes}
 				{...listeners}
-				className={cn(storyCardClass('lines'), isDragging && 'opacity-0')}
+				className={cn(LINES_CARD_CLASS, isDragging && 'opacity-0')}
 			>
 				<Link
 					{...item.link}
@@ -174,42 +181,6 @@ export function StoryCard({
 				/>
 			)}
 		</>
-	);
-}
-
-export function StoriesSection({
-	title,
-	className,
-	action,
-	children,
-}: {
-	title: string;
-	className?: string;
-	action?: ReactNode;
-	children: ReactNode;
-}) {
-	return (
-		<section className={className}>
-			<div className='flex items-center justify-between mb-4'>
-				<h2 className='text-sm font-medium text-muted-foreground'>{title}</h2>
-				{action}
-			</div>
-			{children}
-		</section>
-	);
-}
-
-export function StoriesList({ displayMode, children }: { displayMode: StoryPanelDisplayMode; children: ReactNode }) {
-	return (
-		<div
-			className={cn(
-				displayMode === 'grid' &&
-					'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3',
-				displayMode === 'lines' && 'flex flex-col gap-1',
-			)}
-		>
-			{children}
-		</div>
 	);
 }
 
@@ -268,35 +239,7 @@ function StoryQuickActions({ item, onRequestPinShare }: { item: StoryItem; onReq
 	const queryClient = useQueryClient();
 	const { isAdmin } = usePermissions();
 
-	const favoriteMutation = useMutation(
-		trpc.favorite.toggle.mutationOptions({
-			onMutate: async ({ id }) => {
-				const queryKey = trpc.favorite.list.queryKey();
-				await queryClient.cancelQueries({ queryKey });
-				const previous = queryClient.getQueryData(queryKey);
-				queryClient.setQueryData(queryKey, (old: typeof previous) => {
-					if (!old) {
-						return old;
-					}
-					const storyIds: string[] = old.storyIds ?? [];
-					const isFav = storyIds.includes(id);
-					return {
-						...old,
-						storyIds: isFav ? storyIds.filter((sid) => sid !== id) : [...storyIds, id],
-					};
-				});
-				return { previous };
-			},
-			onError: (_err, _vars, context) => {
-				if (context?.previous !== undefined) {
-					queryClient.setQueryData(trpc.favorite.list.queryKey(), context.previous);
-				}
-			},
-			onSettled: () => {
-				queryClient.invalidateQueries({ queryKey: trpc.favorite.list.queryKey() });
-			},
-		}),
-	);
+	const favorite = useToggleFavorite('story');
 
 	const pinMutation = useMutation(
 		trpc.storyShare.togglePin.mutationOptions({
@@ -316,7 +259,7 @@ function StoryQuickActions({ item, onRequestPinShare }: { item: StoryItem; onReq
 	function handleFavorite(e: MouseEvent<HTMLButtonElement>) {
 		e.preventDefault();
 		e.stopPropagation();
-		favoriteMutation.mutate({ type: 'story', id: item.storyId });
+		favorite.toggle(item.storyId);
 	}
 
 	function handlePin(e: MouseEvent<HTMLButtonElement>) {
@@ -353,7 +296,7 @@ function StoryQuickActions({ item, onRequestPinShare }: { item: StoryItem; onReq
 			<QuickActionButton
 				active={item.isFavorited}
 				interactive
-				pending={favoriteMutation.isPending}
+				pending={favorite.isPending}
 				onClick={handleFavorite}
 				tooltip={item.isFavorited ? 'Remove from favorites' : 'Add to favorites'}
 			>
@@ -384,34 +327,27 @@ function QuickActionButton({
 		return null;
 	}
 
-	const button = (
-		<button
-			type='button'
-			aria-label={tooltip}
-			aria-pressed={active}
-			onClick={onClick}
-			disabled={pending || !interactive}
-			className={cn(
-				'inline-flex items-center justify-center h-5 transition-all duration-150 cursor-pointer disabled:cursor-default overflow-hidden',
-				active
-					? 'w-5 opacity-100 text-primary [&_svg]:fill-current'
-					: 'w-0 opacity-0 group-hover:w-5 group-hover:opacity-100 text-muted-foreground',
-				interactive && active && 'hover:text-muted-foreground hover:[&_svg]:fill-none',
-				interactive && !active && 'hover:text-primary',
-				interactive && !active && fillOnHover && 'hover:[&_svg]:fill-current',
-			)}
-		>
-			{children}
-		</button>
-	);
-
 	return (
-		<TooltipProvider>
-			<Tooltip>
-				<TooltipTrigger asChild>{button}</TooltipTrigger>
-				<TooltipContent>{tooltip}</TooltipContent>
-			</Tooltip>
-		</TooltipProvider>
+		<SimpleTooltip content={tooltip}>
+			<button
+				type='button'
+				aria-label={tooltip}
+				aria-pressed={active}
+				onClick={onClick}
+				disabled={pending || !interactive}
+				className={cn(
+					'inline-flex items-center justify-center h-5 transition-all duration-150 cursor-pointer disabled:cursor-default overflow-hidden',
+					active
+						? 'w-5 opacity-100 text-foreground [&_svg]:fill-current'
+						: 'w-0 opacity-0 group-hover:w-5 group-hover:opacity-100 text-muted-foreground',
+					interactive && active && 'hover:text-muted-foreground hover:[&_svg]:fill-none',
+					interactive && !active && 'hover:text-foreground',
+					interactive && !active && fillOnHover && 'hover:[&_svg]:fill-current',
+				)}
+			>
+				{children}
+			</button>
+		</SimpleTooltip>
 	);
 }
 
@@ -507,112 +443,31 @@ function StoryArchiveButton({ item, showArchived }: { item: StoryItem; showArchi
 	);
 }
 
-export function storyCardClass(displayMode: StoryPanelDisplayMode) {
-	return cn(
-		displayMode === 'grid' && 'group relative h-[120px] rounded-lg border bg-background overflow-hidden',
-		displayMode === 'lines' && 'group flex items-center gap-3 rounded-md px-3 py-2 hover:bg-sidebar-accent',
-	);
-}
-
 function StoryBadges({ item, mode }: { item: StoryItem; mode: 'grid' | 'lines' }) {
-	const sharingTooltip = item.sharing
-		? item.sharing.visibility === 'project'
-			? 'Shared with the project'
-			: `Shared with ${item.sharing.sharedWithCount} user${item.sharing.sharedWithCount !== 1 ? 's' : ''}`
-		: null;
+	const live = item.isLive ? <LiveBadge /> : null;
+	const sharing = item.sharing ? (
+		<SharingBadge visibility={item.sharing.visibility} sharedWithCount={item.sharing.sharedWithCount} />
+	) : null;
 
 	if (mode === 'grid') {
-		if (!item.isLive && !item.sharing && !item.isInPrivateContext) {
+		const showPrivate = item.isInPrivateContext && item.sharing?.visibility !== 'specific';
+		if (!live && !sharing && !showPrivate) {
 			return null;
 		}
 		return (
 			<div className='flex items-center gap-2 shrink-0'>
-				{item.isInPrivateContext && item?.sharing?.visibility !== 'specific' && (
-					<TooltipProvider>
-						<Tooltip>
-							<TooltipTrigger asChild>
-								<span className='inline-flex items-center text-muted-foreground'>
-									<Lock className='size-3' />
-								</span>
-							</TooltipTrigger>
-							<TooltipContent>Private story</TooltipContent>
-						</Tooltip>
-					</TooltipProvider>
-				)}
-				{item.isLive && (
-					<TooltipProvider>
-						<Tooltip>
-							<TooltipTrigger asChild>
-								<span className='inline-flex items-center text-violet'>
-									<Activity className='size-3' />
-								</span>
-							</TooltipTrigger>
-							<TooltipContent>Live story</TooltipContent>
-						</Tooltip>
-					</TooltipProvider>
-				)}
-				{item.sharing && (
-					<TooltipProvider>
-						<Tooltip>
-							<TooltipTrigger asChild>
-								<span className='inline-flex items-center text-violet'>
-									{item.sharing.visibility === 'project' ? (
-										<Globe className='size-3' />
-									) : (
-										<Users className='size-3' />
-									)}
-								</span>
-							</TooltipTrigger>
-							<TooltipContent>{sharingTooltip}</TooltipContent>
-						</Tooltip>
-					</TooltipProvider>
-				)}
+				{live}
+				{showPrivate && <PrivateBadge />}
+				{sharing}
 			</div>
 		);
 	}
 
 	return (
 		<>
-			{item.isInPrivateContext && (
-				<TooltipProvider>
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<span className='inline-flex items-center text-muted-foreground'>
-								<Lock className='size-3' />
-							</span>
-						</TooltipTrigger>
-						<TooltipContent>Private story</TooltipContent>
-					</Tooltip>
-				</TooltipProvider>
-			)}
-			{item.isLive && (
-				<TooltipProvider>
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<span className='inline-flex items-center text-violet'>
-								<Activity className='size-3' />
-							</span>
-						</TooltipTrigger>
-						<TooltipContent>Live story</TooltipContent>
-					</Tooltip>
-				</TooltipProvider>
-			)}
-			{item.sharing && (
-				<TooltipProvider>
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<span className='inline-flex items-center text-violet'>
-								{item.sharing.visibility === 'project' ? (
-									<Globe className='size-3' />
-								) : (
-									<Users className='size-3' />
-								)}
-							</span>
-						</TooltipTrigger>
-						<TooltipContent>{sharingTooltip}</TooltipContent>
-					</Tooltip>
-				</TooltipProvider>
-			)}
+			{item.isInPrivateContext && <PrivateBadge />}
+			{live}
+			{sharing}
 		</>
 	);
 }

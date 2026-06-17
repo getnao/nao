@@ -61,7 +61,7 @@ export const ChartAppView = memo(function ChartAppView({ config, data, naoUrl }:
 	}
 
 	return (
-		<div className='flex min-h-0 min-w-0 w-full flex-1 flex-col overflow-hidden bg-panel text-foreground'>
+		<div className='flex min-h-0 min-w-0 w-full flex-1 flex-col overflow-hidden bg-background text-foreground'>
 			<McpAppHeader title={config.title}>{naoUrl ? <OpenInNaoButton url={naoUrl} /> : null}</McpAppHeader>
 			<div className='min-h-0 flex-1 overflow-auto'>
 				<div className='mx-auto flex w-full min-w-0 max-w-5xl flex-col p-4 md:p-8'>{body}</div>

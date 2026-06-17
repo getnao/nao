@@ -60,6 +60,10 @@ class SyncTestSpec:
     # When partition filter is required, the table name of the partition filter table (BigQuery only)
     events_table: str = "events"
 
+    # Column name expected to exist on the users table that exercises exclude_columns.
+    # Set to None to skip the exclude_columns integration test for this provider.
+    excluded_column_name: str | None = "email"
+
     @property
     def effective_filter_schema(self) -> str:
         return self.filter_schema or self.primary_schema
@@ -271,6 +275,28 @@ class BaseSyncIntegrationTests:
         assert (base / f"table={spec.users_table}").is_dir()
         assert not (base / f"table={spec.orders_table}").exists()
         assert state.tables_synced == spec.primary_table_count - 1
+
+    def test_exclude_columns_filter(self, tmp_path_factory, db_config, spec):
+        """Columns matching exclude_columns patterns should be hidden from output."""
+        if not spec.excluded_column_name:
+            pytest.skip("Provider spec does not declare a column to exclude")
+
+        config = db_config.model_copy(update={"exclude_columns": [f"*.*.{spec.excluded_column_name}"]})
+
+        output = tmp_path_factory.mktemp(f"{spec.db_type}_exclude_columns")
+        with Progress(transient=True) as progress:
+            sync_database(config, output, progress)
+
+        users_columns = self._read_table_file(output, config, spec, spec.users_table, "columns.md")
+        assert f"- {spec.excluded_column_name} (" not in users_columns
+
+        preview_content = self._read_table_file(output, config, spec, spec.users_table, "preview.md")
+        for row in self._parse_preview_rows(preview_content):
+            assert spec.excluded_column_name not in row
+
+        profiling_content = self._read_table_file(output, config, spec, spec.users_table, "profiling.md")
+        for row in self._parse_preview_rows(profiling_content):
+            assert row.get("column") != spec.excluded_column_name
 
     # ── check_connection ──────────────────────────────────────────────
 

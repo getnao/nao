@@ -2,6 +2,9 @@ import os
 import warnings
 from unittest.mock import patch
 
+import pytest
+from pydantic import ValidationError
+
 from nao_core.config.base import NaoConfig
 from nao_core.config.databases.duckdb import DuckDBConfig
 from nao_core.config.llm import LLMConfig, LLMProvider
@@ -54,6 +57,20 @@ def test_mixed_dollar_and_no_dollar_syntax():
         content = "a: ${{ env('VAR1') }}, b: {{ env('VAR2') }}"
         result, _ = process_secrets(content)
         assert result == "a: value1, b: value2"
+
+
+def test_threads_can_be_loaded_from_config(tmp_path):
+    config_file = tmp_path / "nao_config.yaml"
+    config_file.write_text("project_name: test-project\nthreads: 4\n")
+
+    config = NaoConfig.load(tmp_path)
+
+    assert config.threads == 4
+
+
+def test_threads_must_be_positive():
+    with pytest.raises(ValidationError):
+        NaoConfig.model_validate({"project_name": "test-project", "threads": 0})
 
 
 @patch("nao_core.config.base.ask_confirm")
@@ -294,6 +311,45 @@ def test_default_query_history_sql_used_when_no_override():
 def test_query_history_sql_unsupported_database_returns_none_when_no_override():
     db = DuckDBConfig(name="duck", path=":memory:")
     assert db.get_query_history_sql(30) is None
+
+
+def test_exclude_columns_default_is_empty():
+    db = DuckDBConfig(name="test-db", path=":memory:")
+    assert db.exclude_columns == []
+
+
+def test_exclude_columns_matches_against_schema_table_column():
+    db = DuckDBConfig(
+        name="test-db",
+        path=":memory:",
+        exclude_columns=["*.version", "analytics.events.*_id"],
+    )
+    assert db.column_matches_pattern("analytics", "users", "name") is True
+    assert db.column_matches_pattern("analytics", "users", "version") is False
+    assert db.column_matches_pattern("analytics", "events", "user_id") is False
+    assert db.column_matches_pattern("staging", "events", "user_id") is True
+
+
+def test_exclude_columns_supports_glob_in_column_name():
+    db = DuckDBConfig(
+        name="test-db",
+        path=":memory:",
+        exclude_columns=["*._peerdb_*"],
+    )
+    assert db.column_matches_pattern("analytics", "users", "_peerdb_version") is False
+    assert db.column_matches_pattern("analytics", "users", "name") is True
+
+
+def test_exclude_columns_loaded_from_yaml_dict():
+    db = DuckDBConfig.model_validate(
+        {
+            "type": "duckdb",
+            "name": "test-db",
+            "path": ":memory:",
+            "exclude_columns": ["*._peerdb_*", "*.sign", "*.version"],
+        }
+    )
+    assert db.exclude_columns == ["*._peerdb_*", "*.sign", "*.version"]
 
 
 def test_query_history_fields_loaded_from_yaml_dict():

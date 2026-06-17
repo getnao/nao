@@ -16,7 +16,7 @@ const GROUP_STRATEGIES: Record<ChatGroupBy, (items: EnrichedChat[]) => ChatGroup
 	project: groupByProject,
 	ownership: groupByOwnership,
 	sourcePlatform: groupBySourcePlatform,
-	none: (items) => [{ label: 'Chats', chats: toGroupedItems(items) }],
+	none: (items) => [{ label: null, chats: toGroupedItems(items) }],
 };
 
 export type SourcePlatform = 'Web' | 'MCP' | 'Slack' | 'Teams' | 'WhatsApp' | 'Telegram';

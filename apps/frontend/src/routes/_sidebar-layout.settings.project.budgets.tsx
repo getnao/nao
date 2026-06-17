@@ -235,7 +235,12 @@ function RouteComponent() {
 					<Button variant='ghost' size='sm' onClick={resetForm} disabled={!isDirty}>
 						Cancel
 					</Button>
-					<Button size='sm' onClick={handleSave} disabled={!isDirty || setBudgetsMutation.isPending}>
+					<Button
+						size='sm'
+						variant='primary-gradient'
+						onClick={handleSave}
+						disabled={!isDirty || setBudgetsMutation.isPending}
+					>
 						{setBudgetsMutation.isPending ? 'Saving...' : 'Save Changes'}
 					</Button>
 				</div>

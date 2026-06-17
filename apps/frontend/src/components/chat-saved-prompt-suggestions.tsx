@@ -16,13 +16,18 @@ export function SavedPromptSuggestions() {
 	const { data: savedPrompts } = useSavedPromptsQuery();
 	const { displayedPrompts, animationKey, hidePrompts, pause, resume } = usePromptRotation(savedPrompts, 3);
 
+	if (displayedPrompts.length === 0) {
+		return null;
+	}
+
 	return (
 		<div
-			className='flex flex-col gap-1 max-w-3xl mx-auto w-full px-3 md:px-6 h-32'
+			className='flex flex-col max-w-3xl mx-auto w-full px-1'
 			key={animationKey}
 			onMouseEnter={pause}
 			onMouseLeave={resume}
 		>
+			<span className='text-foreground font-medium px-3 mb-2'>Suggested ideas based on your data set</span>
 			{displayedPrompts.map((prompt, index) => (
 				<Button
 					key={index}
@@ -33,12 +38,14 @@ export function SavedPromptSuggestions() {
 						animationDuration: `${ANIMATION_DURATION}ms`,
 					}}
 					className={cn(
-						'justify-start gap-2 px-3 py-2 text-left rounded-lg',
+						'group h-auto justify-start px-3 py-1 text-left rounded-lg hover:bg-transparent dark:hover:bg-transparent',
 						hidePrompts ? 'animate-fade-out' : 'animate-fade-in',
 					)}
 				>
-					<CornerDownRight size={14} className='text-muted-foreground opacity-50' />
-					<span className='line-clamp-2'>{prompt.title}</span>
+					<CornerDownRight size={14} className='text-foreground' />
+					<span className='line-clamp-2 font-normal text-muted-foreground group-hover:text-foreground'>
+						{prompt.title}
+					</span>
 				</Button>
 			))}
 		</div>

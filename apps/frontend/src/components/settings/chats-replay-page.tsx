@@ -95,7 +95,7 @@ export function ChatsReplayPage() {
 	});
 
 	return (
-		<div className='flex w-full h-full min-h-0'>
+		<div className='flex w-full h-full min-h-0 bg-background'>
 			{!isPanelOpen ? (
 				<div className={cn('w-full h-full min-w-0 min-h-0 flex flex-col transition-all duration-200 p-4')}>
 					<div className='flex flex-col md:p-4 max-w-4xl'>

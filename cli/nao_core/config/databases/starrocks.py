@@ -176,11 +176,11 @@ class StarRocksDatabaseContext(DatabaseContext):
         try:
             columns = self._columns_from_information_schema()
             if columns:
-                return columns
+                return self._filter_excluded_columns(columns)
         except Exception:
             pass
         try:
-            return self._columns_from_show_full_columns()
+            return self._filter_excluded_columns(self._columns_from_show_full_columns())
         except Exception:
             return []
 
@@ -202,7 +202,7 @@ class StarRocksDatabaseContext(DatabaseContext):
             for key, value in record.items():
                 if value is not None and not isinstance(value, (str, int, float, bool, list, dict)):
                     record[key] = str(value)
-            out.append(record)
+            out.append(self._filter_excluded_row(record))
         return out
 
     def _build_profiling_query(self, col: dict) -> str:

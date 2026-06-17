@@ -238,7 +238,12 @@ export function AutomationForm({
 
 				{!hasSidebar && form.submitError && <ErrorMessage message={form.submitError} />}
 				{!hasSidebar && showSubmitButton && (
-					<Button type='submit' disabled={isPending} className='justify-self-start'>
+					<Button
+						type='submit'
+						variant='primary-gradient'
+						disabled={isPending}
+						className='justify-self-start'
+					>
 						{isPending ? 'Saving...' : submitLabel}
 					</Button>
 				)}
@@ -257,7 +262,7 @@ export function AutomationForm({
 					{form.submitError && <ErrorMessage message={form.submitError} />}
 
 					{showSubmitButton && (
-						<Button type='submit' disabled={isPending} className='w-full'>
+						<Button type='submit' variant='primary-gradient' disabled={isPending} className='w-full'>
 							{isPending ? 'Saving...' : submitLabel}
 						</Button>
 					)}

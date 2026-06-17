@@ -48,7 +48,7 @@ export type LlmSelectedModel = {
 
 export type SummarySegment =
 	| { type: 'text'; content: string }
-	| { type: 'chart'; chartType: string; title: string }
+	| { type: 'chart'; chartType: string; title: string; kpiCount?: number }
 	| { type: 'table'; title: string }
 	| { type: 'grid'; cols: number; children: SummarySegment[] };
 
@@ -152,7 +152,7 @@ export interface GroupedChatItem {
 }
 
 export interface ChatGroup {
-	label: string;
+	label: string | null;
 	chats: GroupedChatItem[];
 }
 

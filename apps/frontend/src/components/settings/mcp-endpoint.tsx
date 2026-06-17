@@ -305,7 +305,7 @@ function ConnectionCard() {
 						<Button
 							key={p.id}
 							size='sm'
-							variant={i === active ? 'default' : 'outline'}
+							variant={i === active ? 'primary-gradient' : 'outline'}
 							onClick={() => setActive(i)}
 						>
 							{p.label}
@@ -321,7 +321,7 @@ function ConnectionCard() {
 					</div>
 				</div>
 
-				<div className='border rounded-lg p-3 flex flex-col divide-y divide-border'>
+				<div className='rounded-lg p-3 flex flex-col divide-y divide-border'>
 					{selected.methods.map((method, i) => (
 						<div
 							key={i}

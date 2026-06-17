@@ -58,7 +58,7 @@ const envSchema = z.object({
 		.default('false')
 		.transform((val) => val === 'true'),
 
-	DEFAULT_USER_ROLE: z.enum(['admin', 'user']).default('user'),
+	DEFAULT_USER_ROLE: z.enum(['admin', 'user', 'viewer']).default('user'),
 
 	OIDC_PROVIDER_ID: z.string().optional(),
 	OIDC_PROVIDER_NAME: z.string().optional(),
@@ -98,6 +98,12 @@ const envSchema = z.object({
 		.transform((val) => val === 'true'),
 
 	BETA_AUTOMATIONS_ENABLED: z
+		.enum(['true', 'false'])
+		.optional()
+		.default('true')
+		.transform((val) => val === 'true'),
+
+	BETA_CONTEXT_RECOMMENDATIONS_ENABLED: z
 		.enum(['true', 'false'])
 		.optional()
 		.default('false')

@@ -27,7 +27,9 @@ class DatabricksDatabaseContext(DatabaseContext):
 
     def partition_columns(self) -> list[str]:
         try:
-            return _get_databricks_partition_columns(self._conn, self._schema, self._table_name)
+            return self._filter_excluded_names(
+                _get_databricks_partition_columns(self._conn, self._schema, self._table_name)
+            )
         except Exception:
             logger.debug("Failed to fetch partition columns for %s.%s", self._schema, self._table_name)
             return []

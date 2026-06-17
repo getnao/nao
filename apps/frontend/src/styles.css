@@ -1,9 +1,76 @@
+@layer theme, base, components, utilities;
+@import url('https://fonts.googleapis.com/css2?family=Geist+Mono:wght@100..900&family=Geist:wght@100..900&display=swap')
+layer(base);
 @import 'tailwindcss';
 @import 'tw-animate-css';
 @import './styles.animations.css';
 @source "../../../node_modules/streamdown/dist/*.js";
 @source "../../../node_modules/@streamdown/math/dist/*.js";
 @source "../../shared/src/**/*.{ts,tsx}";
+
+@font-face {
+	font-family: 'Borna';
+	src: url('/fonts/Borna/Borna-Regular.otf') format('opentype');
+	font-weight: 400;
+	font-style: normal;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'Borna';
+	src: url('/fonts/Borna/Borna-RegularItalic.otf') format('opentype');
+	font-weight: 400;
+	font-style: italic;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'Borna';
+	src: url('/fonts/Borna/Borna-Medium.otf') format('opentype');
+	font-weight: 500;
+	font-style: normal;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'Borna';
+	src: url('/fonts/Borna/Borna-MediumItalic.otf') format('opentype');
+	font-weight: 500;
+	font-style: italic;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'Borna';
+	src: url('/fonts/Borna/Borna-SemiBold.otf') format('opentype');
+	font-weight: 600;
+	font-style: normal;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'Borna';
+	src: url('/fonts/Borna/Borna-SemiBoldItalic.otf') format('opentype');
+	font-weight: 600;
+	font-style: italic;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'Borna';
+	src: url('/fonts/Borna/Borna-Bold.otf') format('opentype');
+	font-weight: 700;
+	font-style: normal;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'Borna';
+	src: url('/fonts/Borna/Borna-BoldItalic.otf') format('opentype');
+	font-weight: 700;
+	font-style: italic;
+	font-display: swap;
+}
 
 @custom-variant dark (&:is(.dark *));
 
@@ -44,8 +111,18 @@ html.nao-embed #app {
 
 body {
 	font-family:
-		-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans',
-		'Droid Sans', 'Helvetica Neue', sans-serif;
+		'Geist',
+		-apple-system,
+		BlinkMacSystemFont,
+		'Segoe UI',
+		'Roboto',
+		'Oxygen',
+		'Ubuntu',
+		'Cantarell',
+		'Fira Sans',
+		'Droid Sans',
+		'Helvetica Neue',
+		sans-serif;
 	-webkit-font-smoothing: antialiased;
 	-moz-osx-font-smoothing: grayscale;
 }
@@ -54,7 +131,6 @@ code {
 	font-family: var(--font-mono);
 	font-size: 0.75rem;
 	background-color: var(--color-muted);
-	padding: 0.15rem 0.35rem;
 	border-radius: var(--radius-sm);
 }
 
@@ -104,6 +180,12 @@ code.dollar:before {
 	--color-sidebar-border: var(--sidebar-border);
 	--color-sidebar-ring: var(--sidebar-ring);
 
+	--font-sans:
+		'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans',
+		'Droid Sans', 'Helvetica Neue', sans-serif;
+	--font-borna:
+		'Borna', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans',
+		'Droid Sans', 'Helvetica Neue', sans-serif;
 	--font-mono: source-code-pro, Menlo, Monaco, Consolas, 'Courier New', monospace;
 }
 
@@ -116,7 +198,7 @@ code.dollar:before {
 	--card-foreground: oklch(0 0 0 / 0.85);
 	--popover: oklch(1 0 0);
 	--popover-foreground: oklch(0.129 0.042 264.695);
-	--primary: oklch(0.208 0.042 265.755);
+	--primary: oklch(0.5077 0.281 277.89);
 	--primary-foreground: oklch(0.984 0.003 247.858);
 	--secondary: oklch(0.94 0 0);
 	--secondary-foreground: oklch(0.208 0.042 265.755);
@@ -129,6 +211,10 @@ code.dollar:before {
 	--input: oklch(0 0 0 / 0.1);
 	--ring: oklch(0 0 0 / 0.2);
 	--violet: oklch(0.5077 0.281 277.89);
+
+	--gradient-brand: linear-gradient(180deg, #522bff 0%, #6441ff 100%);
+	--gradient-brand-hover: linear-gradient(180deg, #6441ff 0%, #7858ff 100%);
+	--gradient-brand-border: linear-gradient(180deg, #522bff 0%, #3c1bcd 50.48%, #a591ff 100%);
 
 	--chart-1: oklch(0.398 0.07 227.392);
 	--chart-2: oklch(0.646 0.222 41.116);
@@ -154,7 +240,7 @@ code.dollar:before {
 	--card-foreground: oklch(0.984 0.003 247.858);
 	--popover: oklch(0.21 0.008 270);
 	--popover-foreground: oklch(0.984 0.003 247.858);
-	--primary: oklch(0.929 0.013 255.508);
+	--primary: oklch(0.721 0.157 290.2);
 	--primary-foreground: oklch(0.21 0.008 270);
 	--secondary: oklch(0.27 0.012 270);
 	--secondary-foreground: oklch(0.984 0.003 247.858);
@@ -196,6 +282,28 @@ code.dollar:before {
 @utility markdown-small {
 	@apply **:[code]:text-[12px]! **:[pre]:text-[12px]! **:text-sm!;
 	--spacing: 1px;
+}
+
+/* Brand gradient (re-usable in buttons, switches, etc.) */
+
+@utility bg-brand-gradient {
+	background: var(--gradient-brand), var(--gradient-brand-border);
+}
+
+@utility bg-brand-gradient-hover {
+	background: var(--gradient-brand-hover), var(--gradient-brand-border);
+}
+
+@utility bg-brand-gradient-border {
+	background:
+		var(--gradient-brand) padding-box,
+		var(--gradient-brand-border) border-box;
+}
+
+@utility bg-brand-gradient-border-hover {
+	background:
+		var(--gradient-brand-hover) padding-box,
+		var(--gradient-brand-border) border-box;
 }
 
 [data-streamdown='heading-1'],
@@ -507,4 +615,33 @@ code.dollar:before {
 	background-color: var(--primary);
 	color: var(--primary-foreground);
 	opacity: 0.9;
+}
+
+@keyframes chat-input-border-draw {
+	from {
+		stroke-dashoffset: 100;
+	}
+	to {
+		stroke-dashoffset: 0;
+	}
+}
+
+.chat-input-border-path {
+	stroke-dasharray: 100;
+	stroke-dashoffset: 100;
+	animation: chat-input-border-draw 1.2s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+.chat-input-border-stop {
+	transition:
+		stop-color 0.3s ease,
+		stop-opacity 0.3s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.chat-input-border-path {
+		animation: none;
+		stroke-dasharray: none;
+		stroke-dashoffset: 0;
+	}
 }

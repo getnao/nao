@@ -9,8 +9,10 @@ import { ExecuteSqlToolCall } from './execute-sql';
 import { GrepToolCall } from './grep';
 import { ListToolCall } from './list';
 import { McpToolCall } from './mcp';
+import { QueryAppDbToolCall } from './query-app-db';
 import { ReadToolCall } from './read';
 import { ReadQueryResultToolCall } from './read-query-result';
+import { RecordRecommendationToolCall } from './record-recommendation';
 import { SearchToolCall } from './search';
 import { WebFetchToolCall } from './web-fetch';
 import { WebSearchToolCall } from './web-search';
@@ -40,11 +42,15 @@ const toolComponents: Partial<{
 	search: SearchToolCall,
 };
 
-const dynamicToolComponents: Record<string, React.ComponentType<ToolCallComponentProps>> = {
+export const dynamicToolComponents = {
 	web_search: WebSearchToolCall,
 	web_fetch: WebFetchToolCall,
 	google_search: WebSearchToolCall,
-};
+	query_app_db: QueryAppDbToolCall,
+	record_recommendation: RecordRecommendationToolCall,
+} satisfies Record<string, React.ComponentType<ToolCallComponentProps>>;
+
+export type DynamicToolName = keyof typeof dynamicToolComponents;
 
 export const ToolCall = memo(({ toolPart }: { toolPart: UIToolPart }) => {
 	const { isSettled: isMessageSettled } = useAssistantMessage();
@@ -60,7 +66,7 @@ export const ToolCall = memo(({ toolPart }: { toolPart: UIToolPart }) => {
 
 	const Component =
 		(toolComponents[toolName as StaticToolName] as React.ComponentType<ToolCallComponentProps> | undefined) ??
-		dynamicToolComponents[toolName];
+		dynamicToolComponents[toolName as DynamicToolName];
 
 	const Rendered = Component ? (
 		<Component toolPart={toolPart} />

@@ -70,6 +70,35 @@ class TestSyncCommand:
         call_args = selection.provider.sync.call_args
         assert str(call_args[0][1]) == custom_output
 
+    def test_sync_uses_threads_from_config(self, create_config):
+        create_config("project_name: test-project\nthreads: 3\n")
+        selection = _make_provider(items=["item1"], items_synced=1)
+
+        with patch("nao_core.commands.sync.console"):
+            sync(_providers=[selection])
+
+        assert selection.provider.sync.call_args.kwargs["threads"] == 3
+
+    def test_sync_cli_threads_override_config(self, create_config):
+        create_config("project_name: test-project\nthreads: 3\n")
+        selection = _make_provider(items=["item1"], items_synced=1)
+
+        with patch("nao_core.commands.sync.console"):
+            sync(threads=5, _providers=[selection])
+
+        assert selection.provider.sync.call_args.kwargs["threads"] == 5
+
+    def test_sync_rejects_invalid_cli_threads(self, create_config):
+        create_config()
+        selection = _make_provider(items=["item1"], items_synced=1)
+
+        with patch("nao_core.commands.sync.console"):
+            with pytest.raises(SystemExit) as exc_info:
+                sync(threads=0, _providers=[selection])
+
+        assert exc_info.value.code == 1
+        selection.provider.sync.assert_not_called()
+
     def test_sync_skips_provider_when_should_sync_false(self, create_config):
         create_config()
         selection = _make_provider(should_sync=False)

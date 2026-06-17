@@ -3,7 +3,18 @@ import { Link } from '@tanstack/react-router';
 import type { ReactNode } from 'react';
 import type { SharedGroup, SharedItem } from '@/lib/viewer-home';
 import type { MessageBubble, StoryPanelDisplayMode } from '@nao/shared/types';
-import { StoryThumbnail } from '@/components/story-thumbnail';
+import {
+	AuthorDateLabel,
+	CardsGrid,
+	CardsSection,
+	GRID_CARD_CLASS,
+	GRID_THUMBNAIL_CLASS,
+	GridCardFooter,
+	LINES_CARD_CLASS,
+	LiveBadge,
+	SharingBadge,
+} from '@/components/item-card';
+import { PaperSheet, StoryThumbnail } from '@/components/story-thumbnail';
 import StoryIcon from '@/components/ui/story-icon';
 import { formatRelativeDate } from '@/lib/time-ago';
 import { cn } from '@/lib/utils';
@@ -12,12 +23,12 @@ export function ViewerGroups({ groups, displayMode }: { groups: SharedGroup[]; d
 	return (
 		<>
 			{groups.map((group, index) => (
-				<ViewerSection
+				<CardsSection
 					key={group.label}
 					title={group.label}
 					className={index < groups.length - 1 ? 'mb-10' : undefined}
 				>
-					<ViewerItemsList displayMode={displayMode}>
+					<CardsGrid displayMode={displayMode}>
 						{group.items.map((item) =>
 							item.kind === 'story' ? (
 								<SharedStoryCard key={item.id} item={item} displayMode={displayMode} />
@@ -25,8 +36,8 @@ export function ViewerGroups({ groups, displayMode }: { groups: SharedGroup[]; d
 								<SharedChatCard key={item.id} item={item} displayMode={displayMode} />
 							),
 						)}
-					</ViewerItemsList>
-				</ViewerSection>
+					</CardsGrid>
+				</CardsSection>
 			))}
 		</>
 	);
@@ -42,126 +53,100 @@ export function ViewerEmptyState() {
 	);
 }
 
-export function ViewerNoResults({ query }: { query: string }) {
-	return (
-		<p className='text-muted-foreground text-sm py-12 text-center'>
-			No results matching &ldquo;{query.trim()}&rdquo;
-		</p>
-	);
-}
-
-function ViewerSection({ title, className, children }: { title: string; className?: string; children: ReactNode }) {
-	return (
-		<section className={className}>
-			<div className='flex items-center justify-between mb-4'>
-				<h2 className='text-sm font-medium text-muted-foreground'>{title}</h2>
-			</div>
-			{children}
-		</section>
-	);
-}
-
-function ViewerItemsList({ displayMode, children }: { displayMode: StoryPanelDisplayMode; children: ReactNode }) {
-	return (
-		<div
-			className={cn(
-				displayMode === 'grid' &&
-					'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3',
-				displayMode === 'lines' && 'flex flex-col gap-1',
-			)}
-		>
-			{children}
-		</div>
-	);
-}
-
 function SharedStoryCard({ item, displayMode }: { item: SharedItem; displayMode: StoryPanelDisplayMode }) {
-	const meta = `${item.authorName} · ${formatRelativeDate(item.createdAt)}`;
-
 	if (displayMode === 'lines') {
 		return (
-			<Link
-				to='/stories/shared/$shareId'
-				params={{ shareId: item.id }}
-				className='group flex items-center gap-3 rounded-md px-3 py-2 hover:bg-sidebar-accent'
-			>
-				<StoryIcon className='size-3.5 text-muted-foreground shrink-0' />
-				<span className='text-sm font-medium truncate'>{item.title}</span>
-				<span className='ml-auto text-xs text-muted-foreground whitespace-nowrap'>{meta}</span>
+			<Link to='/stories/shared/$shareId' params={{ shareId: item.id }} className={LINES_CARD_CLASS}>
+				<SharedItemLine item={item} icon={<StoryIcon className='size-3.5 text-muted-foreground shrink-0' />} />
 			</Link>
 		);
 	}
 
 	return (
-		<Link
-			to='/stories/shared/$shareId'
-			params={{ shareId: item.id }}
-			className='group relative aspect-[3/4] rounded-lg border bg-background overflow-hidden'
-		>
-			<div className='absolute inset-0 overflow-hidden'>
-				<StoryThumbnail summary={item.summary as Parameters<typeof StoryThumbnail>[0]['summary']} />
-			</div>
-			<div className='absolute inset-x-0 -bottom-2 bg-gradient-to-t from-background from-45% to-transparent px-3 pb-5 pt-8 transition-transform duration-200 ease-out group-hover:-translate-y-1'>
-				<span className='text-sm font-medium leading-snug line-clamp-2'>{item.title}</span>
-				<span className='block text-[11px] text-muted-foreground mt-0.5 truncate'>{meta}</span>
-			</div>
+		<Link to='/stories/shared/$shareId' params={{ shareId: item.id }} className={GRID_CARD_CLASS}>
+			<SharedItemGrid
+				item={item}
+				thumbnail={<StoryThumbnail summary={item.summary as StoryThumbnailSummary} />}
+			/>
 		</Link>
 	);
 }
 
 function SharedChatCard({ item, displayMode }: { item: SharedItem; displayMode: StoryPanelDisplayMode }) {
-	const meta = `${item.authorName} · ${formatRelativeDate(item.createdAt)}`;
-
 	if (displayMode === 'lines') {
 		return (
-			<Link
-				to='/shared-chat/$shareId'
-				params={{ shareId: item.id }}
-				className='group flex items-center gap-3 rounded-md px-3 py-2 hover:bg-sidebar-accent'
-			>
-				<MessageSquare className='size-3.5 text-muted-foreground shrink-0' />
-				<span className='text-sm font-medium truncate'>{item.title}</span>
-				<span className='ml-auto text-xs text-muted-foreground whitespace-nowrap'>{meta}</span>
+			<Link to='/shared-chat/$shareId' params={{ shareId: item.id }} className={LINES_CARD_CLASS}>
+				<SharedItemLine
+					item={item}
+					icon={<MessageSquare className='size-3.5 text-muted-foreground shrink-0' />}
+				/>
 			</Link>
 		);
 	}
 
 	return (
-		<Link
-			to='/shared-chat/$shareId'
-			params={{ shareId: item.id }}
-			className='group relative aspect-[3/4] rounded-lg border bg-background overflow-hidden'
-		>
-			<div className='absolute inset-0 overflow-hidden'>
-				<ChatPaperThumbnail bubbles={item.messageBubbles} />
-			</div>
-			<div className='absolute inset-x-0 -bottom-2 bg-gradient-to-t from-background from-45% to-transparent px-3 pb-5 pt-8 transition-transform duration-200 ease-out group-hover:-translate-y-1'>
-				<span className='text-sm font-medium leading-snug line-clamp-2'>{item.title}</span>
-				<span className='block text-[11px] text-muted-foreground mt-0.5 truncate'>{meta}</span>
-			</div>
+		<Link to='/shared-chat/$shareId' params={{ shareId: item.id }} className={GRID_CARD_CLASS}>
+			<SharedItemGrid item={item} thumbnail={<ChatThumbnail bubbles={item.messageBubbles} />} />
 		</Link>
 	);
 }
 
-function ChatPaperThumbnail({ bubbles }: { bubbles?: MessageBubble[] }) {
+type StoryThumbnailSummary = Parameters<typeof StoryThumbnail>[0]['summary'];
+
+function SharedItemLine({ item, icon }: { item: SharedItem; icon: ReactNode }) {
 	return (
-		<div className='absolute inset-0 overflow-hidden'>
-			<div
-				className='absolute top-[20%] left-[8%] w-[90%] h-[200%] origin-top-left bg-card
-				           shadow-[0_8px_24px_-8px_rgba(0,0,0,0.18)] ring-1 ring-border rounded-xs'
-				style={{ transform: 'perspective(900px) rotateX(12deg) rotateY(-8deg) rotateZ(-20deg)' }}
-			>
-				<div className='flex flex-col gap-[5px] p-[8%] overflow-hidden'>
-					{!bubbles || bubbles.length === 0 ? (
-						<div className='flex items-center justify-center pt-[30%]'>
-							<MessageSquare className='size-8 text-foreground/20' strokeWidth={1} />
-						</div>
-					) : (
-						<ChatBubbles bubbles={bubbles} />
-					)}
+		<>
+			{icon}
+			<span className='text-sm font-medium truncate'>{item.title}</span>
+			<SharedItemBadges item={item} />
+			<span className='ml-auto text-xs text-muted-foreground whitespace-nowrap'>
+				{`${item.authorName} · ${formatRelativeDate(item.createdAt)}`}
+			</span>
+		</>
+	);
+}
+
+function SharedItemGrid({ item, thumbnail }: { item: SharedItem; thumbnail: ReactNode }) {
+	return (
+		<>
+			<div className={GRID_THUMBNAIL_CLASS}>{thumbnail}</div>
+			<div className='absolute inset-0 flex flex-col justify-end p-2.5'>
+				<div className='flex items-end gap-1.5'>
+					<GridCardFooter
+						title={item.title}
+						subtitle={<AuthorDateLabel author={item.authorName} createdAt={item.createdAt} />}
+					/>
+					<SharedItemBadges item={item} />
 				</div>
 			</div>
+		</>
+	);
+}
+
+function SharedItemBadges({ item }: { item: SharedItem }) {
+	if (!item.isLive && !item.visibility) {
+		return null;
+	}
+
+	return (
+		<div className='flex items-center gap-2 shrink-0'>
+			{item.isLive && <LiveBadge />}
+			{item.visibility && <SharingBadge visibility={item.visibility} sharedWithCount={item.sharedWithCount} />}
 		</div>
+	);
+}
+
+function ChatThumbnail({ bubbles, className }: { bubbles?: MessageBubble[]; className?: string }) {
+	return (
+		<PaperSheet className={className}>
+			{!bubbles || bubbles.length === 0 ? (
+				<div className='flex items-center justify-center pt-[30%]'>
+					<MessageSquare className='size-8 text-foreground/20' strokeWidth={1} />
+				</div>
+			) : (
+				<ChatBubbles bubbles={bubbles} />
+			)}
+		</PaperSheet>
 	);
 }
 
@@ -181,19 +166,34 @@ function ChatBubbles({ bubbles }: { bubbles: MessageBubble[] }) {
 	);
 }
 
+const USER_BUBBLE_BORDER = 'border-primary/40';
+const USER_BUBBLE_LINE = 'bg-primary/40';
+const USER_BUBBLE_LINE_WIDTHS = ['w-full', 'w-4/5', 'w-3/5'];
+
 function UserBubble({ charCount, maxChars }: { charCount: number; maxChars: number }) {
 	const ratio = Math.max(charCount / maxChars, 0.15);
-	const widthPercent = 30 + ratio * 65;
-	const heightPx = 14 + Math.min(charCount / 80, 5) * 10;
+	const widthPercent = 35 + ratio * 55;
+	const lineCount = Math.max(1, Math.min(Math.round(charCount / 60), 3));
 
 	return (
 		<div
-			className='self-end rounded-md bg-foreground/12 shrink-0'
-			style={{
-				width: `${Math.round(widthPercent)}%`,
-				height: `${Math.round(heightPx)}px`,
-			}}
-		/>
+			className={cn(
+				'self-end shrink-0 flex flex-col gap-[3px] rounded-md border px-[6px] py-[5px]',
+				USER_BUBBLE_BORDER,
+			)}
+			style={{ width: `${Math.round(widthPercent)}%` }}
+		>
+			{Array.from({ length: lineCount }, (_, i) => (
+				<div
+					key={i}
+					className={cn(
+						'h-[1px] rounded-full',
+						USER_BUBBLE_LINE,
+						USER_BUBBLE_LINE_WIDTHS[i % USER_BUBBLE_LINE_WIDTHS.length],
+					)}
+				/>
+			))}
+		</div>
 	);
 }
 
@@ -208,7 +208,7 @@ function AssistantResponseLines({ charCount }: { charCount: number }) {
 				<div
 					key={i}
 					className={cn(
-						'h-[3px] rounded-full bg-foreground/15',
+						'h-[1px] rounded-full bg-foreground/15',
 						ASSISTANT_LINE_WIDTHS[i % ASSISTANT_LINE_WIDTHS.length],
 					)}
 				/>

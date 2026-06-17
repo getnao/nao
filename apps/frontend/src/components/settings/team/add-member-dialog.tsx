@@ -104,7 +104,9 @@ export function AddMemberDialog({ open, onOpenChange, title = 'Add Member', onSu
 
 					{error && <p className='text-red-500 text-center text-sm'>{error}</p>}
 					<div className='flex justify-end'>
-						<Button type='submit'>Add member</Button>
+						<Button type='submit' variant='primary-gradient'>
+							Add member
+						</Button>
 					</div>
 				</form>
 			</DialogContent>

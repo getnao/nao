@@ -156,7 +156,11 @@ export function ChatsReplayToolbar<TData>({
 
 				<DropdownMenu>
 					<DropdownMenuTrigger asChild>
-						<Button variant='ghost' size='sm' className={cn(someUsersUnchecked && 'text-primary')}>
+						<Button
+							variant='ghost'
+							size='sm'
+							className={cn(someUsersUnchecked ? 'text-foreground' : 'text-muted-foreground')}
+						>
 							<Users className='size-4 mr-1' />
 							Users
 							<Badge variant='secondary' className='ml-1 h-4 px-1 text-xs'>
@@ -213,7 +217,11 @@ export function ChatsReplayToolbar<TData>({
 
 				<DropdownMenu>
 					<DropdownMenuTrigger asChild>
-						<Button variant='ghost' size='sm' className={cn(hiddenCount > 0 && 'text-primary')}>
+						<Button
+							variant='ghost'
+							size='sm'
+							className={cn(hiddenCount > 0 ? 'text-foreground' : 'text-muted-foreground')}
+						>
 							<Columns2 className='size-4 mr-1' />
 							Columns
 							<Badge variant='secondary' className='ml-1 h-4 px-1 text-xs'>
@@ -253,7 +261,11 @@ export function ChatsReplayToolbar<TData>({
 
 				<DropdownMenu>
 					<DropdownMenuTrigger asChild>
-						<Button variant='ghost' size='sm' className={cn(activeFilters.length > 0 && 'text-primary')}>
+						<Button
+							variant='ghost'
+							size='sm'
+							className={cn(activeFilters.length > 0 ? 'text-foreground' : 'text-muted-foreground')}
+						>
 							<Filter className='size-4 mr-1' />
 							Filter
 							<Badge variant='secondary' className='ml-1 h-4 px-1 text-xs'>

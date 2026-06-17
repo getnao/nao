@@ -12,6 +12,9 @@ const buttonVariants = cva(
 		variants: {
 			variant: {
 				default: 'bg-primary text-primary-foreground hover:bg-primary/90',
+				'primary-gradient': 'text-[oklch(1_0_0)] bg-brand-gradient hover:bg-brand-gradient-hover',
+				'primary-gradient-border':
+					'border border-transparent text-[oklch(1_0_0)] bg-brand-gradient-border hover:bg-brand-gradient-border-hover',
 				destructive:
 					'bg-destructive/10 text-destructive hover:bg-destructive/15 dark:bg-destructive/60 dark:text-white',
 				'destructive-soft':
@@ -99,9 +102,8 @@ function ChatSendButton({ showStop, disabled, ...props }: React.ComponentProps<'
 			{...props}
 			disabled={disabled}
 			size='icon-sm'
-			className={cn(
-				'rounded-full ml-auto disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100 size-7',
-			)}
+			variant='primary-gradient-border'
+			className='rounded-full ml-auto size-7'
 		>
 			{showStop ? (
 				<SquareIcon fill='currentColor' stroke='currentColor' className='size-3' />
@@ -133,7 +135,7 @@ function MicButton({
 			className={`
 				inline-flex items-center justify-center rounded-full size-7 transition-all cursor-pointer
 				disabled:pointer-events-none disabled:opacity-50
-				${isRecording ? 'bg-violet/30 animate-pulse' : 'text-muted-foreground hover:text-foreground hover:bg-accent'}
+				${isRecording ? 'bg-violet/30 animate-pulse' : 'text-foreground hover:text-foreground hover:bg-accent'}
 			`}
 		>
 			{isTranscribing ? <Loader2 className='size-3.5 animate-spin' /> : <Mic className='size-3.5' />}
@@ -141,4 +143,28 @@ function MicButton({
 	);
 }
 
-export { Button, ButtonConnection, ChatSendButton as ChatButton, MicButton };
+function AuthSocialButton({
+	icon: Icon,
+	label,
+	onClick,
+	className,
+}: {
+	icon: React.FC<React.SVGProps<SVGSVGElement>>;
+	label: string;
+	onClick: () => void;
+	className?: string;
+}) {
+	return (
+		<Button
+			type='button'
+			variant='outline'
+			aria-label={label}
+			className={cn('h-10 w-full rounded-lg', className)}
+			onClick={onClick}
+		>
+			<Icon className='size-4 text-foreground [&_path]:fill-current' />
+		</Button>
+	);
+}
+
+export { Button, ButtonConnection, ChatSendButton as ChatButton, MicButton, AuthSocialButton };

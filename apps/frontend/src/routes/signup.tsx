@@ -62,8 +62,8 @@ function SignUp() {
 	return (
 		<AuthForm
 			form={form}
-			title='Sign Up'
-			submitText='Sign Up'
+			title='Sign up'
+			submitText='Sign up'
 			serverError={serverError}
 			displaySocialProviders={true}
 			socialCallbackUrl={safeRedirect ?? undefined}
@@ -73,16 +73,23 @@ function SignUp() {
 					<Link
 						to='/login'
 						search={{ error: undefined, redirect: safeRedirect ?? undefined }}
-						className='text-foreground underline underline-offset-4'
+						className='text-violet underline underline-offset-2'
 					>
 						Log in
 					</Link>
 				</>
 			}
 		>
-			<FormTextField form={form} name='name' placeholder='Name' />
-			<FormTextField form={form} name='email' type='email' placeholder='Email' />
-			<FormTextField form={form} name='password' type='password' placeholder='Password' />
+			<FormTextField form={form} name='name' title='Name' placeholder='Joe' className='mb-6' />
+			<FormTextField
+				form={form}
+				name='email'
+				type='email'
+				title='Email'
+				placeholder='joe@gmail.com'
+				className='mb-6'
+			/>
+			<FormTextField form={form} name='password' type='password' title='Password' className='mb-10' />
 		</AuthForm>
 	);
 }

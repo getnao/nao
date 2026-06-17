@@ -24,7 +24,7 @@ export function ViewerToolbarControls({
 	onDisplayModeChange: (value: StoryPanelDisplayMode) => void;
 }) {
 	return (
-		<div className='flex items-center gap-1'>
+		<div className='flex items-center gap-3'>
 			<SearchInput value={searchQuery} onChange={onSearchQueryChange} />
 			<GroupBySelect value={groupBy} onChange={onGroupByChange} />
 			<DisplayModeToggle value={displayMode} onChange={onDisplayModeChange} />
@@ -55,15 +55,21 @@ function SearchInput({ value, onChange }: { value: string; onChange: (value: str
 
 	if (!open) {
 		return (
-			<Button variant='ghost' size='icon-xs' onClick={() => setOpen(true)} aria-label='Search shared content'>
-				<Search className='size-4' strokeWidth={1.5} />
+			<Button
+				variant='ghost'
+				size='icon-xs'
+				className='rounded-full hover:rounded-full'
+				onClick={() => setOpen(true)}
+				aria-label='Search shared content'
+			>
+				<Search className='size-4' />
 			</Button>
 		);
 	}
 
 	return (
-		<div className='flex items-center gap-1 rounded-md border px-2 py-0.5'>
-			<Search className='size-3.5 text-muted-foreground shrink-0' />
+		<div className='flex items-center gap-1.5 rounded-full border px-2 py-0.5 pt-1.5 pb-1.5'>
+			<Search className='size-4 text-foreground shrink-0' />
 			<input
 				ref={inputRef}
 				type='text'
@@ -71,10 +77,10 @@ function SearchInput({ value, onChange }: { value: string; onChange: (value: str
 				onChange={(event) => onChange(event.target.value)}
 				onKeyDown={handleKeyDown}
 				placeholder='Search...'
-				className='bg-transparent text-sm outline-none placeholder:text-muted-foreground w-40'
+				className='bg-transparent text-xs outline-none placeholder:text-muted-foreground w-40'
 			/>
 			<button type='button' onClick={handleClose} className='text-muted-foreground hover:text-foreground'>
-				<X className='size-3.5' />
+				<X className='size-4' />
 			</button>
 		</div>
 	);
@@ -83,7 +89,7 @@ function SearchInput({ value, onChange }: { value: string; onChange: (value: str
 function GroupBySelect({ value, onChange }: { value: GroupBy; onChange: (value: GroupBy) => void }) {
 	return (
 		<Select value={value} onValueChange={(v) => onChange(v as GroupBy)}>
-			<SelectTrigger variant='ghost' size='sm'>
+			<SelectTrigger variant='ghost' size='sm' className='*:data-[slot=select-value]:text-foreground'>
 				<span className='text-muted-foreground'>Group by</span>
 				<SelectValue />
 			</SelectTrigger>
@@ -106,21 +112,21 @@ function DisplayModeToggle({
 	onChange: (value: StoryPanelDisplayMode) => void;
 }) {
 	return (
-		<div className='flex items-center gap-0.5 rounded-md border p-0.5'>
+		<div className='flex items-center gap-0.5 rounded-full border p-0.5'>
 			<Button
-				variant={value === 'grid' ? 'ghost' : 'ghost-muted'}
+				variant='ghost'
 				size='icon-xs'
 				onClick={() => onChange('grid')}
-				className={cn(value === 'grid' && 'bg-accent')}
+				className={cn(value === 'grid' && 'bg-accent rounded-full', 'hover:rounded-full')}
 				aria-label='Grid view'
 			>
 				<LayoutGrid />
 			</Button>
 			<Button
-				variant={value === 'lines' ? 'ghost' : 'ghost-muted'}
+				variant='ghost'
 				size='icon-xs'
 				onClick={() => onChange('lines')}
-				className={cn(value === 'lines' && 'bg-accent')}
+				className={cn(value === 'lines' && 'bg-accent rounded-full', 'hover:rounded-full')}
 				aria-label='List view'
 			>
 				<List />

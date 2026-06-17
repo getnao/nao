@@ -56,7 +56,7 @@ function AutomationsPage() {
 	const lastSeenAt = useFeedLastSeen(feedItems);
 
 	return (
-		<div className='flex flex-col flex-1 h-full overflow-auto bg-panel'>
+		<div className='flex flex-col flex-1 h-full overflow-auto bg-background'>
 			<MobileHeader />
 			<div className='mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-6 md:px-8 md:py-10'>
 				<header className='flex items-center justify-between gap-3 flex-wrap'>
@@ -66,7 +66,7 @@ function AutomationsPage() {
 							Catch up on all your activity (automations, stories). Latest first.
 						</p>
 					</div>
-					<Button onClick={() => setIsCreating((value) => !value)}>
+					<Button variant='primary-gradient' onClick={() => setIsCreating((value) => !value)}>
 						{isCreating ? <X className='size-4' /> : <Plus className='size-4' />}
 						{isCreating ? 'Cancel' : 'New automation'}
 					</Button>

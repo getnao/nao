@@ -35,6 +35,7 @@ class NaoConfig(BaseModel):
     """nao project configuration."""
 
     project_name: str = Field(description="The name of the nao project")
+    threads: int | None = Field(default=None, ge=1, description="Default worker threads to use for sync")
     databases: list[AnyDatabaseConfig] = Field(default_factory=list, description="The databases to use")
     repos: list[RepoConfig] = Field(default_factory=list, description="The repositories to use")
     notion: NotionConfig | None = Field(default=None, description="The Notion configurations")

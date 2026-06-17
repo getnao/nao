@@ -330,6 +330,13 @@
       "when": 1780404033287,
       "tag": "0046_folder-management",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1781092652332,
+      "tag": "0047_recommendations",
+      "breakpoints": true
     }
   ]
 }

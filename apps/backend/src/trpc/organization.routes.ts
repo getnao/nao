@@ -7,6 +7,7 @@ import * as orgQueries from '../queries/organization.queries';
 import * as userQueries from '../queries/user.queries';
 import { emailService } from '../services/email';
 import { addTeamMember } from '../services/team-member';
+import { env } from '../env';
 import { ORG_ROLES } from '../types/organization';
 import { buildResetPasswordEmail, buildUserAddedEmail } from '../utils/email-builders';
 import { protectedProcedure } from './trpc';
@@ -68,7 +69,7 @@ export const organizationRoutes = {
 				name: input.name,
 				checkExisting: async (userId) => !!(await orgQueries.getOrgMember(orgId, userId)),
 				addMember: async (userId) => {
-					await orgQueries.addOrgMember({ orgId, userId, role: 'user' });
+					await orgQueries.addOrgMember({ orgId, userId, role: env.DEFAULT_USER_ROLE });
 				},
 				buildEmail: (user, password) => buildUserAddedEmail(user, ctx.org.name, 'organization', password),
 			});

@@ -66,8 +66,9 @@ export function ChatFilterMenu({ groupBy, filters, onGroupByChange, onFilterTogg
 			<DropdownMenuTrigger asChild>
 				<Button
 					variant='ghost'
-					size='icon-sm'
-					className='shrink-0 text-muted-foreground hover:text-foreground hover:bg-transparent'
+					size='icon-md'
+					aria-label='Open chat filters'
+					className='shrink-0 text-muted-foreground hover:text-foreground'
 				>
 					<ListFilter className='size-4' />
 				</Button>
@@ -76,7 +77,7 @@ export function ChatFilterMenu({ groupBy, filters, onGroupByChange, onFilterTogg
 			<DropdownMenuContent
 				align='end'
 				side='top'
-				className='w-48 overflow-visible'
+				className='w-48 overflow-visible bg-background'
 				onMouseEnter={cancelClose}
 				onMouseLeave={scheduleClose}
 			>
@@ -116,7 +117,7 @@ export function ChatFilterMenu({ groupBy, filters, onGroupByChange, onFilterTogg
 
 					{subOpen && (
 						<div className='absolute bottom-0 left-full pl-1.5 z-50'>
-							<div className='w-48 bg-popover text-popover-foreground rounded-md border p-1 shadow-lg'>
+							<div className='w-48 bg-background text-popover-foreground rounded-md border p-1 shadow-lg'>
 								{FILTER_OPTIONS.map((opt) => (
 									<DropdownMenuItem
 										key={opt.value}

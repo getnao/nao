@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -258,6 +259,7 @@ def sync_database(
                 )
 
                 ctx = db_config.create_context(conn, schema, table)
+                ctx.set_exclude_columns(db_config.exclude_columns)
                 table_usage = usage_stats.get(f"{schema}.{table}", TableUsageStats())
 
                 for template_name in templates:
@@ -373,7 +375,14 @@ class DatabaseSyncProvider(SyncProvider):
     def get_items(self, config: NaoConfig) -> list[AnyDatabaseConfig]:
         return config.databases
 
-    def sync(self, items: list[Any], output_path: Path, project_path: Path | None = None) -> SyncResult:
+    def sync(
+        self,
+        items: list[Any],
+        output_path: Path,
+        project_path: Path | None = None,
+        *,
+        threads: int = 1,
+    ) -> SyncResult:
         if not items:
             console.print("\n[dim]No databases configured[/dim]")
             return SyncResult(provider_name=self.name, items_synced=0)
@@ -392,6 +401,8 @@ class DatabaseSyncProvider(SyncProvider):
         for db in items:
             template_names = [t.value for t in db.templates]
             console.print(f"[dim]{db.name}:[/dim] {', '.join(template_names)}")
+        if threads > 1 and len(items) > 1:
+            console.print(f"[dim]Threads:[/dim] {threads}")
         console.print()
 
         sync_start = time.monotonic()
@@ -407,22 +418,47 @@ class DatabaseSyncProvider(SyncProvider):
             transient=False,
         ) as progress:
             db_folders = get_database_folder_names(items)
-            for db, db_folder in zip(items, db_folders, strict=False):
-                try:
-                    state = sync_database(
-                        db,
-                        output_path,
-                        progress,
-                        project_path,
-                        llm_config,
-                        db_folder=db_folder,
-                        nao_ctx=nao_ctx,
-                    )
-                    sync_states.append(state)
-                    total_datasets += state.schemas_synced
-                    total_tables += state.tables_synced
-                except Exception as e:
-                    console.print(f"[bold red]✗[/bold red] Failed to sync {db.name}: {_fmt_error(e)}")
+            if threads <= 1 or len(items) == 1:
+                for db, db_folder in zip(items, db_folders, strict=False):
+                    try:
+                        state = sync_database(
+                            db,
+                            output_path,
+                            progress,
+                            project_path,
+                            llm_config,
+                            db_folder=db_folder,
+                            nao_ctx=nao_ctx,
+                        )
+                        sync_states.append(state)
+                        total_datasets += state.schemas_synced
+                        total_tables += state.tables_synced
+                    except Exception as e:
+                        console.print(f"[bold red]✗[/bold red] Failed to sync {db.name}: {_fmt_error(e)}")
+            else:
+                with ThreadPoolExecutor(max_workers=min(threads, len(items))) as executor:
+                    futures = {
+                        executor.submit(
+                            sync_database,
+                            db,
+                            output_path,
+                            progress,
+                            project_path,
+                            llm_config,
+                            db_folder=db_folder,
+                            nao_ctx=nao_ctx,
+                        ): db
+                        for db, db_folder in zip(items, db_folders, strict=False)
+                    }
+                    for future in as_completed(futures):
+                        db = futures[future]
+                        try:
+                            state = future.result()
+                            sync_states.append(state)
+                            total_datasets += state.schemas_synced
+                            total_tables += state.tables_synced
+                        except Exception as e:
+                            console.print(f"[bold red]✗[/bold red] Failed to sync {db.name}: {_fmt_error(e)}")
 
         for state in sync_states:
             removed = cleanup_stale_paths(state, verbose=True)

@@ -76,7 +76,7 @@ export function ChatInputModelSelect() {
 				<SelectValue>
 					<div className='flex items-center gap-2'>
 						{selectedModel && <LlmProviderIcon provider={selectedModel.provider} className='size-4' />}
-						{selectedModelName}
+						<span className='leading-none'>{selectedModelName}</span>
 					</div>
 				</SelectValue>
 			</SelectTrigger>

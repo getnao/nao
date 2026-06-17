@@ -47,7 +47,7 @@ class RedshiftDatabaseContext(DatabaseContext):
                 }
                 for row in result
             ]
-        return self._columns_cache
+        return self._filter_excluded_columns(self._columns_cache)
 
     def row_count(self) -> int:
         if self._row_count_cache is None:
@@ -98,9 +98,11 @@ class RedshiftDatabaseContext(DatabaseContext):
         query = f"SELECT * FROM {schema_sql}.{table_sql} LIMIT {limit}"
         result = self._conn.raw_sql(query).fetchall()  # type: ignore[union-attr]
 
-        # Get column names from the columns metadata
-        columns = self.columns()
-        col_names = [col["name"] for col in columns]
+        # Use the unfiltered column metadata so row indices stay aligned with
+        # SELECT * output; the excluded columns are dropped after the dict is built.
+        if self._columns_cache is None:
+            self.columns()
+        col_names = [col["name"] for col in (self._columns_cache or [])]
 
         rows = []
         for row in result:
@@ -111,7 +113,7 @@ class RedshiftDatabaseContext(DatabaseContext):
                     row_dict[col_name] = str(val)
                 else:
                     row_dict[col_name] = val
-            rows.append(row_dict)
+            rows.append(self._filter_excluded_row(row_dict))
         return rows
 
     def _fetch_column_descriptions(self) -> dict[str, str]:

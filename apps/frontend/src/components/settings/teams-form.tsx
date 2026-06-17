@@ -96,7 +96,7 @@ export function TeamsForm({ hasProjectConfig, onSubmit, onCancel, isPending, tea
 	});
 
 	return (
-		<div className='flex flex-col gap-4 p-4 rounded-lg border border-primary/50 bg-muted/30'>
+		<div className='flex flex-col gap-4 p-4 rounded-lg border border-violet bg-background'>
 			<form
 				onSubmit={(e) => {
 					e.preventDefault();
@@ -152,7 +152,12 @@ export function TeamsForm({ hasProjectConfig, onSubmit, onCancel, isPending, tea
 					</Button>
 					<form.Subscribe selector={(state: { canSubmit: boolean }) => state.canSubmit}>
 						{(canSubmit: boolean) => (
-							<Button size='sm' type='submit' disabled={!canSubmit || isPending}>
+							<Button
+								size='sm'
+								type='submit'
+								variant='primary-gradient'
+								disabled={!canSubmit || isPending}
+							>
 								{hasProjectConfig ? 'Update' : 'Save'}
 							</Button>
 						)}

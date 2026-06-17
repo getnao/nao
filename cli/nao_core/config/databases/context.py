@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import fnmatch
 from datetime import date, datetime, timezone
 from typing import TYPE_CHECKING, Any
 
@@ -19,13 +20,53 @@ class DatabaseContext:
     to fetch warehouse-specific metadata (e.g. BigQuery partition info).
     """
 
-    def __init__(self, conn: BaseBackend, schema: str, table_name: str):
+    def __init__(
+        self,
+        conn: BaseBackend,
+        schema: str,
+        table_name: str,
+        exclude_columns: list[str] | None = None,
+    ):
         self._conn = conn
         self._schema = schema
         self._table_name = table_name
+        self._exclude_columns = list(exclude_columns) if exclude_columns else []
         self._table_ref = None
         self._columns_cache: list[dict[str, Any]] | None = None
         self._row_count_cache: int | None = None
+
+    def set_exclude_columns(self, patterns: list[str] | None) -> None:
+        """Set the list of glob patterns used to hide columns from the agent.
+
+        Patterns are matched against the fully-qualified ``schema.table.column``
+        name. Subclasses build their own column metadata; calling this lets the
+        sync provider thread the user-configured ``exclude_columns`` into any
+        context implementation without changing per-database constructors.
+        """
+        self._exclude_columns = list(patterns) if patterns else []
+
+    def _is_column_excluded(self, column_name: str) -> bool:
+        """Return True when the column should be hidden based on ``exclude_columns``.
+
+        Patterns are matched against the fully-qualified ``schema.table.column``
+        name using shell-style globs.
+        """
+        if not self._exclude_columns:
+            return False
+        full_name = f"{self._schema}.{self._table_name}.{column_name}"
+        return any(fnmatch.fnmatch(full_name, pattern) for pattern in self._exclude_columns)
+
+    def _filter_excluded_columns(self, cols: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Drop columns whose name matches an ``exclude_columns`` pattern."""
+        if not self._exclude_columns:
+            return cols
+        return [col for col in cols if not self._is_column_excluded(str(col.get("name", "")))]
+
+    def _filter_excluded_names(self, names: list[str]) -> list[str]:
+        """Drop column names that match an ``exclude_columns`` pattern."""
+        if not self._exclude_columns:
+            return names
+        return [name for name in names if not self._is_column_excluded(name)]
 
     @property
     def table(self):
@@ -45,7 +86,7 @@ class DatabaseContext:
                 }
                 for name, dtype in schema.items()
             ]
-        return self._columns_cache
+        return self._filter_excluded_columns(self._columns_cache)
 
     def row_count(self) -> int:
         if self._row_count_cache is None:
@@ -64,8 +105,14 @@ class DatabaseContext:
             for key, val in row_dict.items():
                 if val is not None and not isinstance(val, (str, int, float, bool, list, dict)):
                     row_dict[key] = str(val)
-            rows.append(row_dict)
+            rows.append(self._filter_excluded_row(row_dict))
         return rows
+
+    def _filter_excluded_row(self, row: dict[str, Any]) -> dict[str, Any]:
+        """Drop keys from a preview row that match an ``exclude_columns`` pattern."""
+        if not self._exclude_columns:
+            return row
+        return {key: val for key, val in row.items() if not self._is_column_excluded(str(key))}
 
     def partition_columns(self) -> list[str]:
         """Return partition column names if available."""

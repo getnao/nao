@@ -384,6 +384,35 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		adminOnly: true,
 	},
 
+	// ── Context Recommendations ──────────────────────────────
+	{
+		page: '/settings/recommendations',
+		pageLabel: 'Recommendations',
+		title: 'Context Recommendations',
+		description: 'Review and act on context recommendations for your project.',
+		keywords: [
+			'context',
+			'recommendations',
+			'acknowledge',
+			'snooze',
+			'dismiss',
+			'insights',
+			'frequency',
+			'schedule',
+			'daily',
+			'weekly',
+			'monthly',
+			'repository',
+			'github',
+			'pull request',
+			'yolo',
+			'auto',
+			'automatic',
+			'pr',
+		],
+		adminOnly: true,
+	},
+
 	// ── Logs ─────────────────────────────────────────────────
 	{
 		page: '/settings/logs',

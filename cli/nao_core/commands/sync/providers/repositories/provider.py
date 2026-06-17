@@ -3,6 +3,7 @@
 import re
 import shutil
 import subprocess
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -200,7 +201,14 @@ class RepositorySyncProvider(SyncProvider):
     def get_items(self, config: NaoConfig) -> list[RepoConfig]:
         return config.repos
 
-    def sync(self, items: list[Any], output_path: Path, project_path: Path | None = None) -> SyncResult:
+    def sync(
+        self,
+        items: list[Any],
+        output_path: Path,
+        project_path: Path | None = None,
+        *,
+        threads: int = 1,
+    ) -> SyncResult:
         if not items:
             return SyncResult(provider_name=self.name, items_synced=0)
 
@@ -210,9 +218,22 @@ class RepositorySyncProvider(SyncProvider):
         console.print(f"\n[bold cyan]{self.emoji} Syncing {self.name}[/bold cyan]")
         console.print(f"[dim]Location:[/dim] {output_path.absolute()}\n")
 
-        for repo in items:
-            if sync_repo(repo, output_path):
-                success_count += 1
-                console.print(f"  [green]✓[/green] {repo.name}")
+        if threads <= 1 or len(items) == 1:
+            for repo in items:
+                if sync_repo(repo, output_path):
+                    success_count += 1
+                    console.print(f"  [green]✓[/green] {repo.name}")
+        else:
+            console.print(f"[dim]Threads:[/dim] {threads}\n")
+            with ThreadPoolExecutor(max_workers=min(threads, len(items))) as executor:
+                futures = {executor.submit(sync_repo, repo, output_path): repo for repo in items}
+                for future in as_completed(futures):
+                    repo = futures[future]
+                    try:
+                        if future.result():
+                            success_count += 1
+                            console.print(f"  [green]✓[/green] {repo.name}")
+                    except Exception as e:
+                        console.print(f"  [yellow]⚠[/yellow] Error syncing {repo.name}: {e}")
 
         return SyncResult(provider_name=self.name, items_synced=success_count)

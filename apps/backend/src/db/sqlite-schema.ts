@@ -6,6 +6,7 @@ import { sql } from 'drizzle-orm';
 import {
 	type AnySQLiteColumn,
 	check,
+	foreignKey,
 	index,
 	integer,
 	primaryKey,
@@ -17,7 +18,18 @@ import {
 
 import { AgentSettings } from '../types/agent-settings';
 import { AUTOMATION_RUN_STATUSES, AutomationIntegrationConfig, AutomationIntegrationResult } from '../types/automation';
-import { ForkMetadata, StopReason, ToolState, UIMessagePartType } from '../types/chat';
+import { ForkMetadata, MESSAGE_SOURCES, StopReason, ToolState, UIMessagePartType } from '../types/chat';
+import {
+	CONTEXT_RECOMMENDATION_FIX_KINDS,
+	CONTEXT_RECOMMENDATION_FREQUENCIES,
+	CONTEXT_RECOMMENDATION_RUN_STATUSES,
+	CONTEXT_RECOMMENDATION_RUN_TRIGGERS,
+	CONTEXT_RECOMMENDATION_SEVERITIES,
+	CONTEXT_RECOMMENDATION_STATUSES,
+	ProposedEdit,
+	RecommendationImpact,
+	RecommendationInsight,
+} from '../types/context-recommendation';
 import { LLM_INFERENCE_TYPES } from '../types/llm';
 import { LOG_LEVELS, LOG_SOURCES } from '../types/log';
 import { McpEndpointSettings } from '../types/mcp-endpoint';
@@ -277,7 +289,7 @@ export const chatMessage = sqliteTable(
 		llmProvider: text('llm_provider').$type<LlmProvider>(),
 		llmModelId: text('llm_model_id'),
 		supersededAt: integer('superseded_at', { mode: 'timestamp_ms' }),
-		source: text('source', { enum: ['slack', 'teams', 'telegram', 'whatsapp', 'web', 'mcp'] }),
+		source: text('source', { enum: MESSAGE_SOURCES }),
 		isForked: integer('isForked', { mode: 'boolean' }),
 		citation: text('citation', { mode: 'json' }).$type<CitationData>(),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
@@ -619,6 +631,117 @@ export const automationRun = sqliteTable(
 		index('automation_run_automationId_idx').on(t.automationId),
 		index('automation_run_chatId_idx').on(t.chatId),
 		index('automation_run_status_idx').on(t.status),
+	],
+);
+
+export const contextRecommendationRun = sqliteTable(
+	'context_recommendation_run',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		chatId: text('chat_id').references(() => chat.id, { onDelete: 'set null' }),
+		trigger: text('trigger', { enum: CONTEXT_RECOMMENDATION_RUN_TRIGGERS }).notNull().default('schedule'),
+		status: text('status', { enum: CONTEXT_RECOMMENDATION_RUN_STATUSES }).notNull().default('running'),
+		windowStart: integer('window_start', { mode: 'timestamp_ms' }),
+		windowEnd: integer('window_end', { mode: 'timestamp_ms' }),
+		startedAt: integer('started_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+		completedAt: integer('completed_at', { mode: 'timestamp_ms' }),
+		errorMessage: text('error_message'),
+		llmProvider: text('llm_provider').$type<LlmProvider>(),
+		llmModelId: text('llm_model_id'),
+		inputTotalTokens: integer('input_total_tokens'),
+		outputTotalTokens: integer('output_total_tokens'),
+		totalTokens: integer('total_tokens'),
+	},
+	(t) => [
+		index('context_recommendation_run_projectId_idx').on(t.projectId),
+		index('context_recommendation_run_chatId_idx').on(t.chatId),
+		index('context_recommendation_run_status_idx').on(t.status),
+		unique('context_recommendation_run_id_project_unique').on(t.id, t.projectId),
+	],
+);
+
+export const contextRecommendationConfig = sqliteTable('context_recommendation_config', {
+	projectId: text('project_id')
+		.primaryKey()
+		.references(() => project.id, { onDelete: 'cascade' }),
+	modelProvider: text('model_provider').$type<LlmProvider>(),
+	modelId: text('model_id'),
+	frequency: text('frequency', { enum: CONTEXT_RECOMMENDATION_FREQUENCIES }),
+	customSystemPromptInstructions: text('custom_system_prompt_instructions'),
+	repoFullName: text('repo_full_name'),
+	autoCreatePrs: integer('auto_create_prs', { mode: 'boolean' }),
+	maxAutoPrsPerRun: integer('max_auto_prs_per_run'),
+	createdAt: integer('created_at', { mode: 'timestamp_ms' })
+		.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+		.notNull(),
+	updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+		.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+		.$onUpdate(() => new Date())
+		.notNull(),
+});
+
+export const contextRecommendation = sqliteTable(
+	'context_recommendation',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		runId: text('run_id').notNull(),
+		fingerprint: text('fingerprint').notNull(),
+		suggestedFile: text('suggested_file').notNull(),
+		subjectKey: text('subject_key').notNull(),
+		status: text('status', { enum: CONTEXT_RECOMMENDATION_STATUSES }).notNull().default('open'),
+		snoozedUntil: integer('snoozed_until', { mode: 'timestamp_ms' }),
+		severity: text('severity', { enum: CONTEXT_RECOMMENDATION_SEVERITIES }).notNull().default('medium'),
+		impactScore: integer('impact_score').notNull().default(0),
+		impact: text('impact', { mode: 'json' }).$type<RecommendationImpact>(),
+		insights: text('insights', { mode: 'json' }).$type<RecommendationInsight[]>().notNull().default([]),
+		title: text('title').notNull(),
+		summary: text('summary').notNull(),
+		suggestedAction: text('suggested_action').notNull(),
+		fixKind: text('fix_kind', { enum: CONTEXT_RECOMMENDATION_FIX_KINDS }),
+		proposedEdits: text('proposed_edits', { mode: 'json' }).$type<ProposedEdit[]>(),
+		fixGuidance: text('fix_guidance'),
+		fixPrompt: text('fix_prompt'),
+		prUrl: text('pr_url'),
+		prBranch: text('pr_branch'),
+		prCreatedAt: integer('pr_created_at', { mode: 'timestamp_ms' }),
+		llmProvider: text('llm_provider').$type<LlmProvider>(),
+		llmModelId: text('llm_model_id'),
+		firstSeenAt: integer('first_seen_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+		lastSeenAt: integer('last_seen_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+		occurrenceCount: integer('occurrence_count').notNull().default(1),
+		statusChangedAt: integer('status_changed_at', { mode: 'timestamp_ms' }),
+		statusChangedBy: text('status_changed_by').references(() => user.id, { onDelete: 'set null' }),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+	},
+	(t) => [
+		uniqueIndex('context_recommendation_project_fingerprint_unique').on(t.projectId, t.fingerprint),
+		index('context_recommendation_projectId_status_idx').on(t.projectId, t.status),
+		index('context_recommendation_runId_idx').on(t.runId),
+		// run_id is a soft link to the run that last touched this rec; recommendations
+		// outlive runs, so a still-referenced run cannot be deleted (no cascade).
+		foreignKey({
+			columns: [t.runId, t.projectId],
+			foreignColumns: [contextRecommendationRun.id, contextRecommendationRun.projectId],
+			name: 'context_recommendation_run_fk',
+		}),
 	],
 );
 

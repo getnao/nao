@@ -3,7 +3,7 @@
 import { useQuery } from '@tanstack/react-query';
 
 import MicrosoftIcon from '@/components/icons/microsoft-icon.svg';
-import { Button } from '@/components/ui/button';
+import { AuthSocialButton } from '@/components/ui/button';
 import { handleMicrosoftSignIn } from '@/lib/microsoft-auth';
 import { trpc } from '@/main';
 
@@ -14,18 +14,16 @@ export function useIsMicrosoftSetup(): boolean {
 
 interface MicrosoftSignInButtonProps {
 	callbackUrl?: string;
+	className?: string;
 }
 
-export function MicrosoftSignInButton({ callbackUrl }: MicrosoftSignInButtonProps = {}) {
+export function MicrosoftSignInButton({ callbackUrl, className }: MicrosoftSignInButtonProps = {}) {
 	return (
-		<Button
-			type='button'
-			variant='outline'
-			className='w-full h-11'
+		<AuthSocialButton
+			icon={MicrosoftIcon}
+			label='Continue with Microsoft'
 			onClick={() => void handleMicrosoftSignIn(callbackUrl)}
-		>
-			<MicrosoftIcon className='w-5 h-5' />
-			Continue with Microsoft
-		</Button>
+			className={className}
+		/>
 	);
 }

@@ -56,7 +56,10 @@ function ChatPage() {
 	const { chatId } = Route.useParams();
 	const chat = useChatQuery({ chatId });
 	const title = chat.data?.title;
-	const shareQuery = useQuery(trpc.sharedChat.getShareOptionsByChatId.queryOptions({ chatId: chatId ?? '' }));
+	const shareQuery = useQuery({
+		...trpc.sharedChat.getShareOptionsByChatId.queryOptions({ chatId }),
+		enabled: chat.isSuccess,
+	});
 	const isShared = !!shareQuery.data?.shareId;
 	const projects = useQuery(trpc.project.listForCurrentUser.queryOptions());
 	const isInMultipleProjects = (projects.data?.length ?? 0) > 1;
@@ -87,7 +90,7 @@ function ChatPage() {
 
 	useEffect(() => {
 		const openStorySlug = router.state.location.state.openStorySlug;
-		if (!openStorySlug || isLoadingMessages) {
+		if (chat.isError || !openStorySlug || isLoadingMessages) {
 			return;
 		}
 
@@ -100,7 +103,11 @@ function ChatPage() {
 			});
 		});
 		return () => clearTimeout(timer);
-	}, [isLoadingMessages]); // eslint-disable-line react-hooks/exhaustive-deps
+	}, [chat.isError, isLoadingMessages]); // eslint-disable-line react-hooks/exhaustive-deps
+
+	if (chat.isError) {
+		return <ChatNotFoundState />;
+	}
 
 	return (
 		<SidePanelProvider
@@ -111,7 +118,7 @@ function ChatPage() {
 			close={sidePanel.close}
 		>
 			<SelectionProvider key={chatId}>
-				<div className='flex-1 flex min-w-0 bg-panel' ref={containerRef}>
+				<div className='flex-1 flex min-w-0 bg-background' ref={containerRef}>
 					<div className='flex flex-col h-full flex-1 min-w-0 overflow-hidden justify-center relative'>
 						<MobileHeader chatId={chatId} title={title} automationId={automationId} />
 
@@ -182,8 +189,8 @@ function ChatPage() {
 						</div>
 
 						<div className='absolute inset-x-0 top-0 z-[5] pointer-events-none max-md:hidden'>
-							<div className='h-10 bg-panel' />
-							<div className='h-3 bg-gradient-to-b from-panel to-transparent' />
+							<div className='h-10 bg-background' />
+							<div className='h-3 bg-gradient-to-b from-background to-transparent' />
 						</div>
 
 						{isLoadingMessages ? (
@@ -215,6 +222,27 @@ function ChatPage() {
 			</SelectionProvider>
 			<ShareChatDialog open={isShareDialogOpen} onOpenChange={setIsShareDialogOpen} chatId={chatId} />
 		</SidePanelProvider>
+	);
+}
+
+function ChatNotFoundState() {
+	return (
+		<div className='flex h-full flex-1 flex-col min-w-0 overflow-hidden justify-center bg-panel'>
+			<MobileHeader />
+			<div className='flex flex-1 items-center justify-center p-6'>
+				<div className='flex max-w-sm flex-col items-center gap-4 text-center'>
+					<div className='space-y-2'>
+						<h1 className='text-lg font-medium tracking-tight'>Chat not found</h1>
+						<p className='text-sm text-muted-foreground'>
+							This chat may have been deleted, moved, or you may not have access to it.
+						</p>
+					</div>
+					<Button asChild variant='secondary'>
+						<Link to='/'>Start a new chat</Link>
+					</Button>
+				</div>
+			</div>
+		</div>
 	);
 }
 

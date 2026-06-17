@@ -21,9 +21,11 @@ export interface GitHubRepo {
 }
 
 export interface GitHubUser {
+	id: number;
 	login: string;
 	avatar_url: string;
 	name: string | null;
+	email: string | null;
 }
 
 interface GithubOAuthConfig {
@@ -174,9 +176,17 @@ async function searchRepos(
 	};
 }
 
+function authenticatedRepoUrl(token: string, repoFullName: string): string {
+	return `https://x-access-token:${token}@github.com/${repoFullName}.git`;
+}
+
+function publicRepoUrl(repoFullName: string): string {
+	return `https://github.com/${repoFullName}.git`;
+}
+
 export function cloneRepo(token: string, fullName: string, targetDir: string): void {
-	const cloneUrl = `https://x-access-token:${token}@github.com/${fullName}.git`;
-	const cleanUrl = `https://github.com/${fullName}.git`;
+	const cloneUrl = authenticatedRepoUrl(token, fullName);
+	const cleanUrl = publicRepoUrl(fullName);
 	execFileSync('git', ['clone', '--depth', '1', cloneUrl, targetDir], {
 		timeout: 120_000,
 		stdio: 'pipe',
@@ -230,11 +240,18 @@ export function getGitInfo(projectDir: string): GitInfo {
 	}
 }
 
+export function removeOriginRemote(projectDir: string): void {
+	execFileSync('git', ['remote', 'remove', 'origin'], {
+		cwd: projectDir,
+		stdio: 'pipe',
+		timeout: 5_000,
+	});
+}
+
 export function pullRepo(token: string, repoFullName: string, projectDir: string): string {
 	const opts = { cwd: projectDir, stdio: 'pipe' as const, timeout: 120_000 };
 
-	const authenticatedUrl = `https://x-access-token:${token}@github.com/${repoFullName}.git`;
-	execFileSync('git', ['remote', 'set-url', 'origin', authenticatedUrl], opts);
+	execFileSync('git', ['remote', 'set-url', 'origin', authenticatedRepoUrl(token, repoFullName)], opts);
 
 	try {
 		execFileSync('git', ['fetch', '--depth', '1', 'origin'], opts);
@@ -244,9 +261,64 @@ export function pullRepo(token: string, repoFullName: string, projectDir: string
 			.trim();
 		return output;
 	} finally {
-		const cleanUrl = `https://github.com/${repoFullName}.git`;
-		execFileSync('git', ['remote', 'set-url', 'origin', cleanUrl], { ...opts, timeout: 5_000 });
+		execFileSync('git', ['remote', 'set-url', 'origin', publicRepoUrl(repoFullName)], { ...opts, timeout: 5_000 });
 	}
+}
+
+export interface GitIdentity {
+	name: string;
+	email: string;
+}
+
+/** nao's identity, added as a commit co-author so the contribution is credited to nao. */
+export const NAO_CO_AUTHOR: GitIdentity = {
+	name: 'nao',
+	email: 'naoagent@getnao.io',
+};
+
+export async function getUserGitIdentity(token: string): Promise<GitIdentity> {
+	const user = await getUser(token);
+	return {
+		name: user.name ?? user.login,
+		email: `${user.id}+${user.login}@users.noreply.github.com`,
+	};
+}
+
+export function commitAllAndPushBranch(args: {
+	token: string;
+	repoFullName: string;
+	dir: string;
+	branch: string;
+	message: string;
+	author: GitIdentity;
+	coAuthors?: GitIdentity[];
+}): void {
+	const { token, repoFullName, dir, branch, message, author, coAuthors = [] } = args;
+	const opts = { cwd: dir, stdio: 'pipe' as const, timeout: 120_000 };
+
+	const identity = {
+		GIT_AUTHOR_NAME: author.name,
+		GIT_AUTHOR_EMAIL: author.email,
+		GIT_COMMITTER_NAME: author.name,
+		GIT_COMMITTER_EMAIL: author.email,
+	};
+
+	execFileSync('git', ['checkout', '-b', branch], opts);
+	execFileSync('git', ['add', '-A'], opts);
+	execFileSync('git', ['commit', '-m', withCoAuthors(message, coAuthors)], {
+		...opts,
+		env: { ...process.env, ...identity },
+	});
+
+	execFileSync('git', ['push', authenticatedRepoUrl(token, repoFullName), `HEAD:refs/heads/${branch}`], opts);
+}
+
+function withCoAuthors(message: string, coAuthors: GitIdentity[]): string {
+	if (coAuthors.length === 0) {
+		return message;
+	}
+	const trailers = coAuthors.map((c) => `Co-authored-by: ${c.name} <${c.email}>`).join('\n');
+	return `${message.trimEnd()}\n\n${trailers}`;
 }
 
 const GITHUB_API_TIMEOUT_MS = 20_000;
@@ -508,6 +580,15 @@ export async function createIssue(
 		body: JSON.stringify(input),
 	});
 	return { number: data.number, html_url: data.html_url };
+}
+
+/** Extracts the `owner/repo` and PR number from a GitHub pull request URL. */
+export function parsePullRequestUrl(url: string): { repo: string; number: number } | null {
+	const match = url.match(/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/);
+	if (!match) {
+		return null;
+	}
+	return { repo: match[1], number: Number(match[2]) };
 }
 
 export async function createPullRequest(

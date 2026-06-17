@@ -2,6 +2,7 @@ import { TRPCError } from '@trpc/server';
 import { hashPassword } from 'better-auth/crypto';
 
 import type { User } from '../db/abstractSchema';
+import { env } from '../env';
 import * as projectQueries from '../queries/project.queries';
 import * as userQueries from '../queries/user.queries';
 import type { CreatedEmail } from '../types/email';
@@ -49,7 +50,7 @@ export async function addTeamMember({
 		await emailService.sendEmail(newUser.email, buildEmail(newUser, password));
 
 		return {
-			newUser: { id: newUser.id, name: newUser.name, email: newUser.email, role: 'user' },
+			newUser: { id: newUser.id, name: newUser.name, email: newUser.email, role: env.DEFAULT_USER_ROLE },
 			password,
 		};
 	}
@@ -63,7 +64,7 @@ export async function addTeamMember({
 	await emailService.sendEmail(user.email, buildEmail(user));
 
 	return {
-		newUser: { id: user.id, name: user.name, email: user.email, role: 'user' },
+		newUser: { id: user.id, name: user.name, email: user.email, role: env.DEFAULT_USER_ROLE },
 	};
 }
 
@@ -95,7 +96,7 @@ export async function ensureMessagingProviderUser({
 
 	const projectMember = await projectQueries.getProjectMember(projectId, user.id);
 	if (!projectMember) {
-		await projectQueries.addProjectMember({ projectId, userId: user.id, role: 'user' });
+		await projectQueries.addProjectMember({ projectId, userId: user.id, role: env.DEFAULT_USER_ROLE });
 	}
 
 	const alreadyHadAccess = !!existingUser && !!projectMember;

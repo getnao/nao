@@ -71,7 +71,7 @@ function SharedChatPage() {
 				open={sidePanel.open}
 				close={sidePanel.close}
 			>
-				<div className='flex flex-col flex-1 min-w-0 bg-panel' ref={containerRef}>
+				<div className='flex flex-col flex-1 min-w-0 bg-background' ref={containerRef}>
 					<header className='flex items-center gap-3 border-b px-4 py-3 md:px-6 md:py-4 shrink-0 bg-background'>
 						<h1 className='text-base font-medium truncate'>{share.title}</h1>
 						<span className='text-sm text-muted-foreground shrink-0'>by {share.authorName}</span>

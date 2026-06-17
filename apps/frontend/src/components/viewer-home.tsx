@@ -5,7 +5,8 @@ import type { GroupBy, SharedItem } from '@/lib/viewer-home';
 import { MobileHeader } from '@/components/mobile-header';
 import { ProjectSelector } from '@/components/project-selector';
 import { ViewerToolbarControls } from '@/components/viewer-toolbar-controls';
-import { ViewerEmptyState, ViewerGroups, ViewerNoResults } from '@/components/viewer-shared-items';
+import { NoResults } from '@/components/item-card';
+import { ViewerEmptyState, ViewerGroups } from '@/components/viewer-shared-items';
 import { Spinner } from '@/components/ui/spinner';
 import { VIEWER_DISPLAY_KEY, VIEWER_GROUP_KEY, filterItems, getStoredSetting, groupItems } from '@/lib/viewer-home';
 import { setActiveProjectId } from '@/lib/active-project';
@@ -58,6 +59,9 @@ export function ViewerHome() {
 			title: s.title,
 			authorName: s.authorName,
 			createdAt: new Date(s.createdAt),
+			visibility: s.sharing.visibility,
+			sharedWithCount: s.sharing.sharedWithCount,
+			isLive: s.isLive,
 			summary: s.summary,
 		}));
 		const chatItems: SharedItem[] = (sharedChats.data ?? [])
@@ -68,6 +72,7 @@ export function ViewerHome() {
 				title: c.title,
 				authorName: c.authorName,
 				createdAt: new Date(c.createdAt),
+				visibility: c.visibility,
 				messageBubbles: c.messageBubbles,
 			}));
 		return [...storyItems, ...chatItems];
@@ -96,7 +101,7 @@ export function ViewerHome() {
 
 	if (isLoading) {
 		return (
-			<div className='flex flex-col flex-1 bg-panel min-w-72 overflow-hidden'>
+			<div className='flex flex-col flex-1 min-w-72 overflow-hidden'>
 				<MobileHeader />
 				{standaloneProjectSelector}
 				<div className='flex flex-1 items-center justify-center'>
@@ -108,7 +113,7 @@ export function ViewerHome() {
 
 	if (isEmpty) {
 		return (
-			<div className='flex flex-col flex-1 bg-panel min-w-72 overflow-hidden'>
+			<div className='flex flex-col flex-1 min-w-72 overflow-hidden'>
 				<MobileHeader />
 				{standaloneProjectSelector}
 				<ViewerEmptyState />
@@ -117,7 +122,7 @@ export function ViewerHome() {
 	}
 
 	return (
-		<div className='flex flex-col flex-1 h-full overflow-auto bg-panel min-w-72'>
+		<div className='flex flex-col flex-1 h-full overflow-auto min-w-72'>
 			<MobileHeader />
 			<div className='w-full px-4 py-6 md:px-8 md:py-10'>
 				<div className='flex items-center justify-between mb-6 md:mb-8 gap-3 flex-wrap'>
@@ -136,7 +141,7 @@ export function ViewerHome() {
 				</div>
 
 				{filteredItems.length === 0 && searchQuery.trim() ? (
-					<ViewerNoResults query={searchQuery} />
+					<NoResults query={searchQuery} />
 				) : (
 					<ViewerGroups groups={groups} displayMode={displayMode} />
 				)}

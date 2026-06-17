@@ -15,7 +15,7 @@ Reference: [docs.getnao.io/nao-agent/cloud/deploy](https://docs.getnao.io/nao-ag
 
 Ask all three at once:
 
-1. **Remote instance URL** — `https://app.preview.getnao.io/` (nao Cloud, in preview) or the self-hosted URL (e.g. `https://nao.your-company.com`). It must be reachable from GitHub-hosted runners.
+1. **Remote instance URL** — `https://app.getnao.io/` (nao Cloud) or the self-hosted URL (e.g. `https://nao.your-company.com`). It must be reachable from GitHub-hosted runners.
 2. **Project repo** — the GitHub repo that holds `nao_config.yaml` at its root (or at a known subpath). Confirm it is committed to `main` and pushed. Most of the time this is the repo in which the CI/CD (GitHub Actions) will run.
 3. **Who creates the API key** — only an org admin can. If the user isn't, stop and ask them to get one from an admin before continuing.
 
@@ -33,10 +33,10 @@ In the deployed nao instance:
 
 In the GitHub repo: **Settings → Secrets and variables → Actions → New repository secret**.
 
-| Secret        | Value                                       | Notes                                                            |
-| ------------- | ------------------------------------------- | ---------------------------------------------------------------- |
-| `NAO_URL`     | `https://app.preview.getnao.io/` (or yours) | Public, but keep as a secret/variable so it's swappable per env. |
-| `NAO_API_KEY` | The key from Step 1                         | Required. Never print this in workflow logs.                     |
+| Secret        | Value                               | Notes                                                            |
+| ------------- | ----------------------------------- | ---------------------------------------------------------------- |
+| `NAO_URL`     | `https://app.getnao.io/` (or yours) | Public, but keep as a secret/variable so it's swappable per env. |
+| `NAO_API_KEY` | The key from Step 1                 | Required. Never print this in workflow logs.                     |
 
 Optional, only if you want the workflow to also run `nao sync` before deploying (covered in Step 5 below):
 

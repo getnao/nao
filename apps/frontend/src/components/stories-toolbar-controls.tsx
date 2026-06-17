@@ -21,17 +21,17 @@ export function StoriesToolbarControls({
 	onShowArchivedChange: (value: boolean) => void;
 }) {
 	return (
-		<div className='flex items-center gap-1'>
+		<div className='flex items-center gap-3'>
+			{!showArchived && <SearchInput value={searchQuery} onChange={onSearchQueryChange} />}
 			<Button
 				variant='ghost'
 				size='sm'
 				onClick={() => onShowArchivedChange(!showArchived)}
-				className='text-muted-foreground gap-1.5'
+				className='text-foreground gap-1.5 rounded-full border'
 			>
-				<ArchiveIcon className='size-3.5' />
+				<ArchiveIcon className='size-4' />
 				<span className='text-xs'>{showArchived ? 'Back to stories' : 'See archives'}</span>
 			</Button>
-			{!showArchived && <SearchInput value={searchQuery} onChange={onSearchQueryChange} />}
 			<DisplayModeToggle value={displayMode} onChange={onDisplayModeChange} />
 		</div>
 	);
@@ -60,15 +60,21 @@ function SearchInput({ value, onChange }: { value: string; onChange: (value: str
 
 	if (!open) {
 		return (
-			<Button variant='ghost' size='icon-xs' onClick={() => setOpen(true)} aria-label='Search stories'>
-				<Search className='size-4' strokeWidth={1.5} />
+			<Button
+				variant='ghost'
+				size='icon-xs'
+				className='rounded-full hover:rounded-full'
+				onClick={() => setOpen(true)}
+				aria-label='Search stories'
+			>
+				<Search className='size-4' />
 			</Button>
 		);
 	}
 
 	return (
-		<div className='flex items-center gap-1 rounded-md border px-2 py-0.5'>
-			<Search className='size-3.5 text-muted-foreground shrink-0' />
+		<div className='flex items-center gap-1.5 rounded-full border px-2 py-0.5 pt-1.5 pb-1.5'>
+			<Search className='size-4 text-foreground shrink-0' />
 			<input
 				ref={inputRef}
 				type='text'
@@ -76,10 +82,10 @@ function SearchInput({ value, onChange }: { value: string; onChange: (value: str
 				onChange={(event) => onChange(event.target.value)}
 				onKeyDown={handleKeyDown}
 				placeholder='Search stories...'
-				className='bg-transparent text-sm outline-none placeholder:text-muted-foreground w-40'
+				className='bg-transparent text-xs outline-none placeholder:text-muted-foreground w-40'
 			/>
 			<button type='button' onClick={handleClose} className='text-muted-foreground hover:text-foreground'>
-				<X className='size-3.5' />
+				<X className='size-4' />
 			</button>
 		</div>
 	);
@@ -93,21 +99,21 @@ function DisplayModeToggle({
 	onChange: (value: StoryPanelDisplayMode) => void;
 }) {
 	return (
-		<div className='flex items-center gap-0.5 rounded-md border p-0.5'>
+		<div className='flex items-center gap-0.5 rounded-full border p-0.5'>
 			<Button
-				variant={value === 'grid' ? 'ghost' : 'ghost-muted'}
+				variant='ghost'
 				size='icon-xs'
 				onClick={() => onChange('grid')}
-				className={cn(value === 'grid' && 'bg-accent')}
+				className={cn(value === 'grid' && 'bg-accent rounded-full', 'hover:rounded-full')}
 				aria-label='Grid view'
 			>
 				<LayoutGrid />
 			</Button>
 			<Button
-				variant={value === 'lines' ? 'ghost' : 'ghost-muted'}
+				variant='ghost'
 				size='icon-xs'
 				onClick={() => onChange('lines')}
-				className={cn(value === 'lines' && 'bg-accent')}
+				className={cn(value === 'lines' && 'bg-accent rounded-full', 'hover:rounded-full')}
 				aria-label='List view'
 			>
 				<List />

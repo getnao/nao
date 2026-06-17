@@ -1,6 +1,5 @@
 import { useDndContext, useDraggable, useDroppable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import {
 	Archive,
@@ -18,17 +17,19 @@ import type { MouseEvent } from 'react';
 import type { StoryPanelDisplayMode } from '@nao/shared/types';
 import type { FolderItem } from '@/lib/stories-page';
 import { isSystemFolder } from '@/lib/stories-page';
+import { GRID_CARD_CLASS, GridCardFooter, LINES_CARD_CLASS } from '@/components/item-card';
+import { FolderThumbnail } from '@/components/story-thumbnail';
 import {
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { SimpleTooltip } from '@/components/ui/tooltip';
+import { useToggleFavorite } from '@/hooks/use-toggle-favorite';
 import { usePermissions } from '@/hooks/use-permissions';
 import { formatRelativeDate } from '@/lib/time-ago';
 import { cn } from '@/lib/utils';
-import { trpc } from '@/main';
 
 export type FolderDisplayMode = StoryPanelDisplayMode | 'grid-large';
 
@@ -91,7 +92,8 @@ export function FolderCard({
 				{...attributes}
 				{...listeners}
 				className={cn(
-					'group flex items-center gap-3 rounded-md px-3 py-2 hover:bg-sidebar-accent relative',
+					LINES_CARD_CLASS,
+					'relative',
 					isOver && 'ring-2 ring-primary/50 bg-primary/5',
 					isDragging && 'opacity-0',
 				)}
@@ -152,38 +154,10 @@ export function FolderCard({
 				style={style}
 				{...attributes}
 				{...listeners}
-				className={cn(
-					'group relative h-[120px] rounded-lg border bg-background overflow-hidden',
-					isOver && 'ring-2 ring-primary/50',
-					isDragging && 'opacity-0',
-				)}
+				className={cn(GRID_CARD_CLASS, isOver && 'ring-2 ring-primary/50', isDragging && 'opacity-0')}
 			>
-				<div
-					className='pointer-events-none absolute'
-					style={{ top: 20, left: '38%', width: '27%', height: 38 }}
-				>
-					<div
-						className='absolute inset-0 bg-card rounded-xs ring-1 ring-border shadow-[0_6px_16px_-4px_rgba(0,0,0,0.22)]'
-						style={{ transform: 'rotate(-8deg) translate(-6px, -5px)' }}
-					/>
-					<div
-						className='absolute inset-0 bg-card rounded-xs ring-1 ring-border shadow-[0_6px_16px_-4px_rgba(0,0,0,0.22)]'
-						style={{ transform: 'rotate(8deg) translate(0px, -5px)' }}
-					/>
-				</div>
-
-				<div
-					className='pointer-events-none absolute text-violet-500'
-					style={{ opacity: 1, top: 28, left: '6%', right: '6%', height: 48 }}
-				>
-					<svg viewBox='0 0 100 62' width='100%' height='100%' overflow='visible'>
-						<path
-							d='M4 0 L36 0 Q40 0 43 4 L48 10 L96 10 Q100 10 100 14 L100 58 Q100 62 96 62 L4 62 Q0 62 0 58 L0 4 Q0 0 4 0 Z'
-							className='fill-background stroke-current'
-							strokeWidth='2'
-							strokeLinejoin='round'
-						/>
-					</svg>
+				<div className='absolute top-1 left-1 right-1 bottom-14 overflow-hidden rounded-md bg-sidebar dark:bg-background'>
+					<FolderThumbnail />
 				</div>
 
 				<Link
@@ -194,24 +168,17 @@ export function FolderCard({
 					aria-label={folder.name}
 				>
 					<div className='flex items-end gap-1.5'>
-						<div className='flex-1 min-w-0 items-center gap-1.5 flex-1 min-w-0 transition-transform duration-200 ease-out group-hover:-translate-y-0.5'>
-							<span className='block text-xs font-medium truncate'>{folder.name}</span>
-							<span className='block text-[11px] text-muted-foreground truncate'>
-								{folder.storyCount} {folder.storyCount <= 1 ? 'story' : 'stories'}
-							</span>
-						</div>
+						<GridCardFooter
+							title={folder.name}
+							subtitle={`${folder.storyCount} ${folder.storyCount <= 1 ? 'story' : 'stories'}`}
+						/>
 						<div className='flex items-center gap-2 shrink-0 mb-0.5'>
 							{folder.visibility === 'private' && (
-								<TooltipProvider>
-									<Tooltip>
-										<TooltipTrigger asChild>
-											<span className='inline-flex items-center text-muted-foreground shrink-0'>
-												<Lock className='size-3' />
-											</span>
-										</TooltipTrigger>
-										<TooltipContent>Private folder</TooltipContent>
-									</Tooltip>
-								</TooltipProvider>
+								<SimpleTooltip content='Private folder'>
+									<span className='inline-flex items-center text-muted-foreground shrink-0'>
+										<Lock className='size-3' />
+									</span>
+								</SimpleTooltip>
 							)}
 						</div>
 					</div>
@@ -294,74 +261,34 @@ export function FolderCard({
 }
 
 function FolderFavoriteButton({ folder }: { folder: FolderItem }) {
-	const queryClient = useQueryClient();
-
-	const toggleFavorite = useMutation(
-		trpc.favorite.toggle.mutationOptions({
-			onMutate: async () => {
-				const queryKey = trpc.favorite.list.queryKey();
-				await queryClient.cancelQueries({ queryKey });
-				const previous = queryClient.getQueryData(queryKey);
-				queryClient.setQueryData(queryKey, (old: typeof previous) => {
-					if (!old) {
-						return old;
-					}
-					const folderIds: string[] = old.folderIds ?? [];
-					const isFavorited = folderIds.includes(folder.id);
-					return {
-						...old,
-						folderIds: isFavorited ? folderIds.filter((id) => id !== folder.id) : [...folderIds, folder.id],
-					};
-				});
-				return { previous };
-			},
-			onError: (_err, _vars, ctx) => {
-				if (ctx?.previous !== undefined) {
-					queryClient.setQueryData(trpc.favorite.list.queryKey(), ctx.previous);
-				}
-			},
-			onSettled: () => {
-				queryClient.invalidateQueries({ queryKey: trpc.favorite.list.queryKey() });
-			},
-		}),
-	);
-
-	const favoriteData = queryClient.getQueryData(trpc.favorite.list.queryKey());
-	const isFavorited = (favoriteData as { folderIds?: string[] } | undefined)?.folderIds?.includes(folder.id) ?? false;
+	const favorite = useToggleFavorite('folder');
+	const isFavorited = favorite.isFavorited(folder.id);
+	const tooltip = isFavorited ? 'Remove from favorites' : 'Add to favorites';
 
 	function handleClick(e: MouseEvent<HTMLButtonElement>) {
 		e.preventDefault();
 		e.stopPropagation();
-		toggleFavorite.mutate({ type: 'folder', id: folder.id });
+		favorite.toggle(folder.id);
 	}
 
-	const tooltip = isFavorited ? 'Remove from favorites' : 'Add to favorites';
-
-	const button = (
-		<button
-			type='button'
-			aria-label={tooltip}
-			aria-pressed={isFavorited}
-			onClick={handleClick}
-			disabled={toggleFavorite.isPending}
-			className={cn(
-				'inline-flex items-center justify-center size-5 transition-all duration-150 cursor-pointer disabled:cursor-default',
-				isFavorited
-					? 'opacity-100 text-primary [&_svg]:fill-current'
-					: 'opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-has-data-[state=open]:opacity-100 group-has-data-[state=open]:pointer-events-auto text-muted-foreground hover:text-primary hover:[&_svg]:fill-current',
-			)}
-		>
-			<Star className='size-3' />
-		</button>
-	);
-
 	return (
-		<TooltipProvider>
-			<Tooltip>
-				<TooltipTrigger asChild>{button}</TooltipTrigger>
-				<TooltipContent>{tooltip}</TooltipContent>
-			</Tooltip>
-		</TooltipProvider>
+		<SimpleTooltip content={tooltip}>
+			<button
+				type='button'
+				aria-label={tooltip}
+				aria-pressed={isFavorited}
+				onClick={handleClick}
+				disabled={favorite.isPending}
+				className={cn(
+					'inline-flex items-center justify-center size-5 transition-all duration-150 cursor-pointer disabled:cursor-default',
+					isFavorited
+						? 'opacity-100 text-foreground [&_svg]:fill-current'
+						: 'opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-has-data-[state=open]:opacity-100 group-has-data-[state=open]:pointer-events-auto text-muted-foreground hover:text-foreground hover:[&_svg]:fill-current',
+				)}
+			>
+				<Star className='size-3' />
+			</button>
+		</SimpleTooltip>
 	);
 }
 

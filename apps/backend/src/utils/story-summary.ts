@@ -30,6 +30,7 @@ function extractSegments(code: string): SummarySegment[] {
 					type: 'chart',
 					chartType: attrs.chart_type,
 					title: attrs.title || '',
+					...(attrs.chart_type === 'kpi_card' ? { kpiCount: countSeries(attrs.series) } : {}),
 				});
 			}
 		} else if (match[4] !== undefined) {
@@ -51,6 +52,21 @@ function extractSegments(code: string): SummarySegment[] {
 	}
 
 	return segments;
+}
+
+function countSeries(series: string | undefined): number {
+	if (!series) {
+		return 1;
+	}
+	try {
+		const parsed = JSON.parse(series);
+		if (Array.isArray(parsed) && parsed.length > 0) {
+			return parsed.length;
+		}
+	} catch {
+		// ignore malformed series
+	}
+	return 1;
 }
 
 function truncateText(raw: string): string {

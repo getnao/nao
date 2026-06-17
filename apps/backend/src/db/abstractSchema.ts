@@ -93,6 +93,15 @@ export type NewProjectProviderBudget = typeof sqliteSchema.projectProviderBudget
 export type DBLlmInference = typeof sqliteSchema.llmInference.$inferSelect;
 export type NewLlmInference = typeof sqliteSchema.llmInference.$inferInsert;
 
+export type DBContextRecommendationRun = typeof sqliteSchema.contextRecommendationRun.$inferSelect;
+export type NewContextRecommendationRun = typeof sqliteSchema.contextRecommendationRun.$inferInsert;
+
+export type DBContextRecommendationConfig = typeof sqliteSchema.contextRecommendationConfig.$inferSelect;
+export type NewContextRecommendationConfig = typeof sqliteSchema.contextRecommendationConfig.$inferInsert;
+
+export type DBContextRecommendation = typeof sqliteSchema.contextRecommendation.$inferSelect;
+export type NewContextRecommendation = typeof sqliteSchema.contextRecommendation.$inferInsert;
+
 export type DBLog = typeof sqliteSchema.log.$inferSelect;
 export type NewLog = typeof sqliteSchema.log.$inferInsert;
 

@@ -1,6 +1,7 @@
 import type { InferUIMessageChunk } from 'ai';
 import { getToolName, isToolUIPart, readUIMessageStream } from 'ai';
 
+import { getTools } from '../agents/tools';
 import { renderAutomationRunPrompt } from '../components/ai/automation-run-prompt';
 import type { DBAutomationRun, DBScheduledJob } from '../db/abstractSchema';
 import type { AutomationWithSchedule } from '../queries/automation.queries';
@@ -121,15 +122,26 @@ async function finishAutomationRun(automation: AutomationWithSchedule, run: DBAu
 				? { provider: automation.modelProvider, modelId: automation.modelId }
 				: undefined,
 			{
-				mcpEnabled: automation.mcpEnabled,
-				mcpServers: automation.mcpServers,
 				excludeFollowUps: true,
-				extraTools: createAutomationTools({
-					projectId: automation.projectId,
-					chatId: chat.id,
-					githubToken,
-					integrations: automation.integrations,
-				}),
+				tools: ({ chat: agentChat, agentSettings, webTools }) =>
+					getTools(
+						agentSettings,
+						{
+							...(webTools ?? {}),
+							...createAutomationTools({
+								projectId: automation.projectId,
+								chatId: chat.id,
+								githubToken,
+								integrations: automation.integrations,
+							}),
+						},
+						{
+							testMode: agentChat.testMode,
+							mcpEnabled: automation.mcpEnabled,
+							mcpServers: automation.mcpServers,
+							excludeFollowUps: true,
+						},
+					),
 			},
 		);
 
