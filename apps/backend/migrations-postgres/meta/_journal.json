@@ -337,6 +337,13 @@
       "when": 1781092652332,
       "tag": "0047_recommendations",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1781709786441,
+      "tag": "0048_user_preferences",
+      "breakpoints": true
     }
   ]
 }
