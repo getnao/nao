@@ -3,9 +3,13 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from nao_core.ui import UI, ask_confirm
+from nao_core.ui import UI, ask_select
 
-from .template import generate_default_template, generate_metabase_template
+from .template import (
+    generate_default_template,
+    generate_metabase_template,
+    generate_mixpanel_template,
+)
 
 
 class McpConfig(BaseModel):
@@ -36,11 +40,17 @@ class McpConfig(BaseModel):
             # Create parent directory if needed
             absolute_path.parent.mkdir(parents=True, exist_ok=True)
 
-            if ask_confirm(
-                "Create file with Metabase MCP config example?",
-                default=True,
-            ):
-                # Generate and write template with Metabase example
+            choice = ask_select(
+                "Create an MCP config example?",
+                choices=[
+                    "Metabase (API key)",
+                    "Mixpanel (OAuth)",
+                    "Empty config",
+                ],
+                default="Metabase (API key)",
+            )
+
+            if choice.startswith("Metabase"):
                 template = generate_metabase_template()
                 absolute_path.write_text(json.dumps(template, indent=2) + "\n")
 
@@ -48,8 +58,14 @@ class McpConfig(BaseModel):
                 UI.info("Remember to set these environment variables:")
                 UI.info("  - METABASE_URL")
                 UI.info("  - METABASE_API_KEY")
+            elif choice.startswith("Mixpanel"):
+                template = generate_mixpanel_template()
+                absolute_path.write_text(json.dumps(template, indent=2) + "\n")
+
+                UI.success(f"Created MCP config file: {absolute_path}")
+                UI.info("Mixpanel uses per-user OAuth — each user connects from the chat UI.")
+                UI.info("If the server requires a pre-registered client, set 'oauth.clientId'.")
             else:
-                # Create default MCP configuration
                 template = generate_default_template()
                 absolute_path.write_text(json.dumps(template, indent=2) + "\n")
 

@@ -10,6 +10,16 @@ export interface McpServerConfig {
 	command?: string;
 	args?: string[];
 	env?: Record<string, string>;
+
+	// For OAuth-protected HTTP servers (connected outside mcporter, per-user)
+	oauth?: McpOAuthConfig;
+}
+
+export interface McpOAuthConfig {
+	clientId?: string;
+	clientSecretEnv?: string;
+	scopes?: string[];
+	dynamicRegistration?: boolean;
 }
 
 export interface McpServerState {
@@ -39,6 +49,14 @@ export const mcpJsonSchema = z.object({
 			command: z.string().optional(),
 			args: z.array(z.string()).optional(),
 			env: z.record(z.string(), z.string()).optional(),
+			oauth: z
+				.object({
+					clientId: z.string().optional(),
+					clientSecretEnv: z.string().optional(),
+					scopes: z.array(z.string()).optional(),
+					dynamicRegistration: z.boolean().optional(),
+				})
+				.optional(),
 		}),
 	),
 });

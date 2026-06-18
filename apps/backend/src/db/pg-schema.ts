@@ -36,6 +36,7 @@ import {
 import { LLM_INFERENCE_TYPES } from '../types/llm';
 import { LOG_LEVELS, LOG_SOURCES } from '../types/log';
 import { McpEndpointSettings } from '../types/mcp-endpoint';
+import { McpOAuthClientInfo } from '../types/mcp-oauth';
 import { MEMORY_CATEGORIES } from '../types/memory';
 import { SlackSettings, TeamsSettings, TelegramSettings, WhatsappSettings } from '../types/messaging-provider';
 import { ORG_ROLES } from '../types/organization';
@@ -214,6 +215,34 @@ export const projectWhatsappLink = pgTable(
 	(t) => [
 		primaryKey({ columns: [t.projectId, t.whatsappUserId] }),
 		index('project_whatsapp_link_userId_idx').on(t.userId),
+	],
+);
+
+export const mcpOauthToken = pgTable(
+	'mcp_oauth_token',
+	{
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		serverName: text('server_name').notNull(),
+		accessToken: text('access_token'),
+		refreshToken: text('refresh_token'),
+		accessTokenExpiresAt: timestamp('access_token_expires_at'),
+		refreshTokenExpiresAt: timestamp('refresh_token_expires_at'),
+		scope: text('scope'),
+		clientInfo: jsonb('client_info').$type<McpOAuthClientInfo>(),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [
+		primaryKey({ columns: [t.userId, t.projectId, t.serverName] }),
+		index('mcp_oauth_token_projectId_idx').on(t.projectId),
 	],
 );
 

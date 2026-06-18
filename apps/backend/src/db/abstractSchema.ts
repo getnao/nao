@@ -36,6 +36,9 @@ export type NewProjectMember = typeof sqliteSchema.projectMember.$inferInsert;
 export type DBProjectWhatsappLink = typeof sqliteSchema.projectWhatsappLink.$inferSelect;
 export type NewProjectWhatsappLink = typeof sqliteSchema.projectWhatsappLink.$inferInsert;
 
+export type DBMcpOauthToken = typeof sqliteSchema.mcpOauthToken.$inferSelect;
+export type NewMcpOauthToken = typeof sqliteSchema.mcpOauthToken.$inferInsert;
+
 export type DBProjectLlmConfig = typeof sqliteSchema.projectLlmConfig.$inferSelect;
 export type NewProjectLlmConfig = typeof sqliteSchema.projectLlmConfig.$inferInsert;
 
