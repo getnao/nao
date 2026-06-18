@@ -203,6 +203,14 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		keywords: ['model context protocol', 'tool', 'integration', 'extension'],
 		adminOnly: true,
 	},
+	{
+		page: '/settings/project/mcp-servers',
+		pageLabel: 'MCP Servers',
+		section: 'OAuth connection',
+		title: 'Connect OAuth MCP server',
+		description: 'Connect your account to an OAuth-protected MCP server (e.g. Mixpanel) to use its tools.',
+		keywords: ['oauth', 'connect', 'disconnect', 'mixpanel', 'authorize', 'sign in', 'token', 'per-user'],
+	},
 
 	// ── MCP Endpoint ────────────────────────────────────────
 	{

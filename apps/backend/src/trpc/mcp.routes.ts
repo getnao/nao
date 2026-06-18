@@ -1,5 +1,6 @@
 import { z } from 'zod/v4';
 
+import { deleteMcpOauthToken, getMcpOauthToken } from '../queries/mcp-oauth.queries';
 import * as mcpConfigQueries from '../queries/project.queries';
 import { mcpService } from '../services/mcp';
 import { adminProtectedProcedure, projectProtectedProcedure, router } from './trpc';
@@ -16,6 +17,7 @@ const applyEnabledToolsUpdate = async (projectId: string, updater: (current: str
 export const mcpRoutes = router({
 	getState: projectProtectedProcedure.query(async ({ ctx }) => {
 		await mcpService.initializeMcpState(ctx.project.id);
+		await mcpService.connectUserOAuthServers(ctx.user.id, ctx.project.id);
 		return mcpService.cachedMcpState;
 	}),
 
@@ -44,5 +46,24 @@ export const mcpRoutes = router({
 					? [...new Set([...current, ...serverTools])]
 					: current.filter((t) => !serverTools.includes(t)),
 			);
+		}),
+
+	oauthStatus: projectProtectedProcedure.query(async ({ ctx }) => {
+		await mcpService.initializeMcpState(ctx.project.id);
+		const serverNames = mcpService.getOAuthServerNames();
+		return Promise.all(
+			serverNames.map(async (serverName) => {
+				const token = await getMcpOauthToken({ userId: ctx.user.id, projectId: ctx.project.id, serverName });
+				return { serverName, connected: Boolean(token?.accessToken) };
+			}),
+		);
+	}),
+
+	disconnectOAuth: projectProtectedProcedure
+		.input(z.object({ serverName: z.string() }))
+		.mutation(async ({ ctx, input }) => {
+			await deleteMcpOauthToken({ userId: ctx.user.id, projectId: ctx.project.id, serverName: input.serverName });
+			await mcpService.disconnectUserOAuthServer(ctx.user.id, input.serverName);
+			return { success: true };
 		}),
 });

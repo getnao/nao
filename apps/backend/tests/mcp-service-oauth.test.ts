@@ -80,6 +80,7 @@ describe('McpService OAuth routing', () => {
 		]);
 		mocks.mgrListTools.mockResolvedValue(null);
 		mocks.mgrCloseAll.mockResolvedValue(undefined);
+		mocks.mgrDisconnect.mockResolvedValue(undefined);
 		mocks.getEnabledToolsAndKnownServers.mockResolvedValue({ enabledTools: [], knownServers: [] });
 		mocks.updateEnabledToolsAndKnownServers.mockResolvedValue(undefined);
 		mocks.retrieveProjectById.mockResolvedValue({ path: '/projects/p1' });
@@ -157,5 +158,25 @@ describe('McpService OAuth routing', () => {
 		await service.connectUserOAuthServers('user-1', 'project-1');
 
 		expect(mocks.mgrListTools).not.toHaveBeenCalled();
+	});
+
+	it('exposes the configured OAuth server names', async () => {
+		const service = await initService();
+
+		expect(service.getOAuthServerNames()).toEqual(['mixpanel']);
+	});
+
+	it('drops a user’s OAuth tools and connection on disconnect', async () => {
+		mocks.mgrListTools.mockResolvedValue([
+			{ name: 'run_query', description: 'Runs', inputSchema: { type: 'object' } },
+		]);
+		const service = await initService();
+		await service.connectUserOAuthServers('user-1', 'project-1');
+		expect(Object.keys(service.getMcpTools(null, 'user-1'))).toContain('mixpanel__run_query');
+
+		await service.disconnectUserOAuthServer('user-1', 'mixpanel');
+
+		expect(mocks.mgrDisconnect).toHaveBeenCalledWith('user-1', 'mixpanel');
+		expect(Object.keys(service.getMcpTools(null, 'user-1'))).not.toContain('mixpanel__run_query');
 	});
 });

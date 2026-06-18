@@ -1,4 +1,4 @@
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { SettingsCard } from '../ui/settings-card';
@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { useMcpContext } from '@/contexts/mcp';
+import { getActiveProjectId } from '@/lib/active-project';
 
 interface Props {
 	isAdmin: boolean;
@@ -70,6 +71,69 @@ export function McpSettings({ isAdmin }: Props) {
 		setAllServerToolsMutation.mutate({ serverName, enabled });
 	};
 
+	const oauthStatusQuery = useQuery(trpc.mcp.oauthStatus.queryOptions());
+	const oauthByServer = new Map((oauthStatusQuery.data ?? []).map((status) => [status.serverName, status.connected]));
+	const [connectingServer, setConnectingServer] = useState<string | null>(null);
+	const [oauthError, setOauthError] = useState<string | null>(null);
+
+	const disconnectOAuthMutation = useMutation(
+		trpc.mcp.disconnectOAuth.mutationOptions({
+			onSuccess: () => {
+				oauthStatusQuery.refetch();
+				fetchMcpState();
+			},
+		}),
+	);
+
+	const handleConnectOAuth = async (serverName: string) => {
+		const projectId = getActiveProjectId();
+		if (!projectId) {
+			return;
+		}
+		setConnectingServer(serverName);
+		setOauthError(null);
+		try {
+			const returnTo = '/settings/project/mcp-servers';
+			const response = await fetch(
+				`/api/mcp-oauth/connect/${projectId}/${encodeURIComponent(serverName)}?returnTo=${encodeURIComponent(returnTo)}`,
+				{ credentials: 'include' },
+			);
+			if (!response.ok) {
+				throw new Error('request failed');
+			}
+			const result = (await response.json()) as { status: string; authorizationUrl?: string };
+			if (result.status === 'redirect' && result.authorizationUrl) {
+				window.location.href = result.authorizationUrl;
+				return;
+			}
+			await oauthStatusQuery.refetch();
+		} catch {
+			setOauthError(`Could not start the connection for ${serverName}.`);
+		} finally {
+			setConnectingServer(null);
+		}
+	};
+
+	const handleDisconnectOAuth = (serverName: string) => {
+		disconnectOAuthMutation.mutate({ serverName });
+	};
+
+	useEffect(() => {
+		const params = new URLSearchParams(window.location.search);
+		const status = params.get('mcp');
+		if (!status) {
+			return;
+		}
+		if (status === 'error') {
+			setOauthError(`Connection failed: ${params.get('reason') ?? 'unknown error'}.`);
+		}
+		oauthStatusQuery.refetch();
+		['mcp', 'server', 'reason'].forEach((key) => params.delete(key));
+		const search = params.toString();
+		window.history.replaceState({}, '', `${window.location.pathname}${search ? `?${search}` : ''}`);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, []);
+
 	const mcpEntries = mcpState ? Object.entries(mcpState) : [];
 
 	return (
@@ -90,6 +154,7 @@ export function McpSettings({ isAdmin }: Props) {
 				)
 			}
 		>
+			{oauthError && <div className='mb-3 text-sm text-red-500'>{oauthError}</div>}
 			{mcpState === undefined ? (
 				<div className='text-sm text-muted-foreground'>Loading MCP servers...</div>
 			) : mcpEntries.length === 0 ? (
@@ -118,6 +183,8 @@ export function McpSettings({ isAdmin }: Props) {
 								const isExpanded = expandedServers.includes(name);
 								const enabledCount = state.tools.filter((t) => t.enabled).length;
 								const totalCount = state.tools.length;
+								const isOAuth = oauthByServer.has(name);
+								const isOAuthConnected = oauthByServer.get(name) === true;
 
 								return (
 									<>
@@ -125,25 +192,61 @@ export function McpSettings({ isAdmin }: Props) {
 											<TableCell className='font-medium'>{name}</TableCell>
 											<TableCell>
 												<div className='flex items-center gap-2'>
-													<div
-														className={cn(isConnected ? 'text-green-700' : 'text-red-700')}
-													>
-														{isConnected ? 'Running' : 'Error'}
-													</div>
+													{isOAuth ? (
+														<div
+															className={cn(
+																isOAuthConnected
+																	? 'text-green-700'
+																	: 'text-muted-foreground',
+															)}
+														>
+															{isOAuthConnected ? 'Connected' : 'Not connected'}
+														</div>
+													) : (
+														<div
+															className={cn(
+																isConnected ? 'text-green-700' : 'text-red-700',
+															)}
+														>
+															{isConnected ? 'Running' : 'Error'}
+														</div>
+													)}
 												</div>
 											</TableCell>
 											<TableCell className='w-0'>
-												<Button
-													variant='ghost'
-													size='icon-sm'
-													onClick={() => handleExpand(name)}
-												>
-													{isExpanded ? (
-														<ChevronUp className='size-4' />
-													) : (
-														<ChevronDown className='size-4' />
-													)}
-												</Button>
+												<div className='flex items-center justify-end gap-2'>
+													{isOAuth &&
+														(isOAuthConnected ? (
+															<Button
+																variant='ghost'
+																size='sm'
+																onClick={() => handleDisconnectOAuth(name)}
+																disabled={disconnectOAuthMutation.isPending}
+															>
+																Disconnect
+															</Button>
+														) : (
+															<Button
+																variant='secondary'
+																size='sm'
+																onClick={() => handleConnectOAuth(name)}
+																isLoading={connectingServer === name}
+															>
+																Connect
+															</Button>
+														))}
+													<Button
+														variant='ghost'
+														size='icon-sm'
+														onClick={() => handleExpand(name)}
+													>
+														{isExpanded ? (
+															<ChevronUp className='size-4' />
+														) : (
+															<ChevronDown className='size-4' />
+														)}
+													</Button>
+												</div>
 											</TableCell>
 										</TableRow>
 										{isExpanded && (

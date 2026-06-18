@@ -164,6 +164,26 @@ export class McpService {
 		}
 	}
 
+	/** Names of the configured OAuth-protected MCP servers, which require a per-user connection. */
+	public getOAuthServerNames(): string[] {
+		return [...this._oauthServers.keys()];
+	}
+
+	/** Tears down a user's connection to an OAuth server and drops their cached tools for it. */
+	public async disconnectUserOAuthServer(userId: string, serverName: string): Promise<void> {
+		await this._userConnections.disconnect(userId, serverName);
+
+		const userTools = this._userOAuthTools.get(userId);
+		if (!userTools) {
+			return;
+		}
+		for (const toolName of Object.keys(userTools)) {
+			if (this._toolsToServer.get(toolName) === serverName) {
+				delete userTools[toolName];
+			}
+		}
+	}
+
 	public async refreshToolAvailability(projectId: string): Promise<void> {
 		this._projectId = projectId;
 		await this._cacheMcpState();
