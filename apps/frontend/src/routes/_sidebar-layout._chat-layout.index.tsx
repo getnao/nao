@@ -44,9 +44,7 @@ function HomePage() {
 	const projects = useQuery(trpc.project.listForCurrentUser.queryOptions());
 	const isInMultipleProjects = (projects.data?.length ?? 0) > 1;
 	const showProjectSetupCue = project.isSuccess && project.data === null;
-	const emptyStateTitle = showProjectSetupCue
-		? 'Set up a project to start analyzing data'
-		: `${username ? capitalize(username) : ''}, what do you want to analyze?`;
+	const stateTitle = `${username ? capitalize(username) : ''}, what do you want to analyze?`;
 	const theme = useTheme();
 	const isEmptyState = messages.length === 0;
 	const stories = useQuery({ ...trpc.story.listAll.queryOptions(), enabled: isEmptyState });
@@ -147,35 +145,35 @@ function HomePage() {
 					<div
 						className={cn(
 							'relative flex flex-col items-center justify-center gap-4 p-4 w-full flex-1',
-							latestStoryItems.length > 0 ? 'mt-30' : '-mt-30',
+							showProjectSetupCue ? '' : latestStoryItems.length > 0 ? 'mt-30' : '-mt-30',
 						)}
 					>
-						<div className='font-borna relative z-10 text-xl md:text-3xl tracking-tight text-center px-6 mb-6'>
-							{emptyStateTitle}
-						</div>
 						{showProjectSetupCue ? (
-							<Card className='w-full max-w-2xl border-amber-500/30 bg-amber-500/5 shadow-none'>
+							<Card className='w-full max-w-xl border shadow-none'>
 								<CardContent className='flex flex-col gap-4 px-5 py-5'>
-									<div className='flex items-start gap-3 text-left'>
-										<div className='mt-0.5 rounded-full bg-amber-500/10 p-2 text-amber-600 dark:text-amber-400'>
-											<Settings className='size-4' />
+									<div className='flex flex-col items-center gap-8 text-left'>
+										<div className='mt-0.5 rounded-full bg-amber-500/10 p-6 text-amber-600 dark:text-amber-400'>
+											<Settings className='size-8' strokeWidth={1.5} />
 										</div>
-										<div className='space-y-1'>
-											<p className='font-medium text-foreground'>No project is configured yet</p>
-											<p className='text-sm text-muted-foreground'>
+										<div className='gap-3 flex flex-col items-center'>
+											<p className='font-medium text-foreground'>
+												Set up a project to start analyzing data
+											</p>
+											<p className='text-sm text-foreground'>
 												Open project settings to connect a project before starting a chat.
 											</p>
 										</div>
-									</div>
-									<div className='flex justify-start'>
-										<Button asChild variant='secondary'>
-											<Link to='/settings/project'>Open project settings</Link>
+										<Button asChild variant='ghost' className='border rounded-full bg-panel/50'>
+											<Link to='/settings/project'>Get started</Link>
 										</Button>
 									</div>
 								</CardContent>
 							</Card>
 						) : (
 							<>
+								<div className='font-borna relative z-10 text-xl md:text-3xl tracking-tight text-center px-6 mb-6'>
+									{stateTitle}
+								</div>
 								<div className='relative flex w-full max-w-3xl mx-auto flex-col gap-4'>
 									<img
 										src={logoSrc}
