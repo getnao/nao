@@ -38,6 +38,8 @@ export const getTools = (
 		testMode?: boolean;
 		mcpEnabled?: boolean;
 		mcpServers?: string[] | null;
+		/** Includes the user's OAuth-protected MCP tools, executed under their own credentials. */
+		userId?: string | null;
 		excludeFollowUps?: boolean;
 		/**
 		 * Restricts the built-in tools to this allowlist (by tool name). MCP, python,
@@ -48,7 +50,7 @@ export const getTools = (
 		builtinToolAllowlist?: string[];
 	} = {},
 ) => {
-	const mcpTools = options.mcpEnabled === false ? {} : mcpService.getMcpTools(options.mcpServers);
+	const mcpTools = options.mcpEnabled === false ? {} : mcpService.getMcpTools(options.mcpServers, options.userId);
 
 	const {
 		execute_python,

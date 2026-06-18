@@ -11,8 +11,20 @@ import { retrieveProjectById } from '../queries/project.queries';
 import { logger } from '../utils/logger';
 import { prefixToolName, removePrefixToolName, sanitizeTools } from '../utils/tools';
 import { replaceEnvVars } from '../utils/utils';
+import {
+	type ListedMcpTool,
+	type McpConnectionTarget,
+	type McpOAuthServer,
+	McpUserConnections,
+} from './mcp-user-connection';
 
 const HTTP_TRANSPORTS = ['streamable-http', 'sse', 'http'];
+
+interface McpToolDescriptor {
+	name: string;
+	description?: string;
+	input_schema: unknown;
+}
 
 export class McpService {
 	private _mcpJsonFilePath: string;
@@ -25,6 +37,10 @@ export class McpService {
 	private _failedConnections: Record<string, string> = {};
 	private _toolsToServer: Map<string, string> = new Map();
 	private _projectId: string | null = null;
+	private _oauthServers: Map<string, McpOAuthServer> = new Map();
+	private _oauthServerTools: Map<string, McpToolDescriptor[]> = new Map();
+	private _userOAuthTools: Map<string, Record<string, Tool>> = new Map();
+	private _userConnections = new McpUserConnections();
 	public cachedMcpState: Record<string, McpServerState> = {};
 
 	constructor() {
@@ -79,7 +95,7 @@ export class McpService {
 		}
 	}
 
-	public getMcpTools(serverNames?: string[] | null): Record<string, Tool> {
+	public getMcpTools(serverNames?: string[] | null, userId?: string | null): Record<string, Tool> {
 		const enabledToolNames = new Set(
 			Object.values(this.cachedMcpState)
 				.flatMap((server) => server.tools)
@@ -87,13 +103,65 @@ export class McpService {
 				.map((tool) => tool.name),
 		);
 		const serverNameSet = Array.isArray(serverNames) ? new Set(serverNames) : null;
+		const isAllowed = (name: string): boolean =>
+			enabledToolNames.has(name) && (!serverNameSet || serverNameSet.has(this._toolsToServer.get(name) ?? ''));
+
+		const userOAuthTools = userId ? (this._userOAuthTools.get(userId) ?? {}) : {};
 
 		return Object.fromEntries(
-			Object.entries(this._mcpTools)
-				.filter(([name]) => enabledToolNames.has(name))
-				.filter(([name]) => !serverNameSet || serverNameSet.has(this._toolsToServer.get(name) ?? ''))
+			[...Object.entries(this._mcpTools), ...Object.entries(userOAuthTools)]
+				.filter(([name]) => isAllowed(name))
 				.map(([name, tool]) => [name, this._sanitizeTool(tool)]),
 		);
+	}
+
+	/**
+	 * Opens (and caches) the calling user's connections to OAuth-protected MCP servers and folds
+	 * their tool schemas into the shared project state. Tools execute under the user's own tokens;
+	 * servers the user has not yet authorized contribute nothing until they complete the OAuth flow.
+	 */
+	public async connectUserOAuthServers(userId: string, projectId: string): Promise<void> {
+		if (this._oauthServers.size === 0) {
+			return;
+		}
+
+		const userTools: Record<string, Tool> = {};
+		let discoveredNewServer = false;
+
+		for (const [serverName, server] of this._oauthServers) {
+			const target: McpConnectionTarget = { userId, projectId, serverName, server };
+			try {
+				const listed = await this._userConnections.listTools(target);
+				if (!listed) {
+					continue;
+				}
+				for (const tool of listed) {
+					const toolName = this._prefixedName(serverName, tool.name);
+					userTools[toolName] = this._buildOAuthTool(target, toolName, tool);
+					this._toolsToServer.set(toolName, serverName);
+				}
+				if (!this._oauthServerTools.has(serverName)) {
+					this._oauthServerTools.set(
+						serverName,
+						listed.map((tool) => this._toDescriptor(serverName, tool)),
+					);
+					discoveredNewServer = true;
+				}
+			} catch (error) {
+				const errorMessage = (error as Error).message;
+				this._failedConnections[serverName] = errorMessage;
+				logger.error(`MCP OAuth server connection failed: ${serverName}`, {
+					source: 'tool',
+					projectId,
+					context: { serverName, error: errorMessage },
+				});
+			}
+		}
+
+		this._userOAuthTools.set(userId, userTools);
+		if (discoveredNewServer) {
+			await this._cacheMcpState();
+		}
 	}
 
 	public async refreshToolAvailability(projectId: string): Promise<void> {
@@ -113,6 +181,46 @@ export class McpService {
 			} as Tool;
 		}
 		return { ...tool, inputSchema: sanitizeTools(inputSchema) } as Tool;
+	}
+
+	private _isOAuthServer(config: McpServerConfig): boolean {
+		return Boolean(config.oauth && config.url);
+	}
+
+	private _prefixedName(serverName: string, toolName: string): string {
+		return toolName.startsWith(serverName) ? toolName : prefixToolName(serverName, toolName);
+	}
+
+	private _buildOAuthTool(target: McpConnectionTarget, toolName: string, tool: ListedMcpTool): Tool {
+		return {
+			description: tool.description,
+			inputSchema: jsonSchema(tool.inputSchema as JSONSchema7) as unknown as Tool['inputSchema'],
+			execute: async (toolArgs: Record<string, unknown>) =>
+				this._userConnections.callTool(target, removePrefixToolName(toolName), toolArgs),
+		};
+	}
+
+	private _toDescriptor(serverName: string, tool: ListedMcpTool): McpToolDescriptor {
+		return {
+			name: this._prefixedName(serverName, tool.name),
+			description: tool.description,
+			input_schema: jsonSchema(tool.inputSchema as JSONSchema7),
+		};
+	}
+
+	/** Tool descriptors for a server, sourced from the discovered OAuth schemas or the mcporter runtime. */
+	private _serverToolDescriptors(serverName: string): McpToolDescriptor[] {
+		const oauthTools = this._oauthServerTools.get(serverName);
+		if (oauthTools) {
+			return oauthTools;
+		}
+
+		return Object.entries(this._mcpTools)
+			.filter(([toolName]) => this._toolsToServer.get(toolName) === serverName)
+			.map(([toolName]) => {
+				const tool = this._mcpTools[toolName];
+				return { name: toolName, description: tool?.description, input_schema: tool?.inputSchema };
+			});
 	}
 
 	private async _loadMcpServerFromFile(): Promise<void> {
@@ -145,9 +253,17 @@ export class McpService {
 		this._mcpTools = {};
 		this._failedConnections = {};
 		this._toolsToServer = new Map();
+		this._oauthServers = new Map();
+		this._oauthServerTools = new Map();
+		this._userOAuthTools = new Map();
+		await this._userConnections.closeAll();
 		this._runtime = await createRuntime();
 
 		const connectionPromises = Object.entries(this._mcpServers).map(async ([serverName, serverConfig]) => {
+			if (this._isOAuthServer(serverConfig)) {
+				this._oauthServers.set(serverName, { url: serverConfig.url!, oauth: serverConfig.oauth! });
+				return;
+			}
 			try {
 				if (!this._runtime) {
 					throw new Error('Runtime not initialized');
@@ -269,9 +385,8 @@ export class McpService {
 		const newlyEnabledTools: string[] = [];
 
 		for (const serverName of Object.keys(this._mcpServers)) {
-			const serverToolNames = Object.entries(this._mcpTools)
-				.filter(([toolName]) => this._toolsToServer.get(toolName) === serverName)
-				.map(([toolName]) => toolName);
+			const descriptors = this._serverToolDescriptors(serverName);
+			const serverToolNames = descriptors.map((descriptor) => descriptor.name);
 
 			if (!knownServersSet.has(serverName)) {
 				newlyKnownServers.push(serverName);
@@ -279,15 +394,12 @@ export class McpService {
 				serverToolNames.forEach((t) => enabledToolsSet.add(t));
 			}
 
-			const serverTools = serverToolNames.map((toolName) => {
-				const tool = this._mcpTools[toolName];
-				return {
-					name: toolName,
-					description: tool?.description,
-					input_schema: tool?.inputSchema,
-					enabled: enabledToolsSet.has(toolName),
-				};
-			});
+			const serverTools = descriptors.map((descriptor) => ({
+				name: descriptor.name,
+				description: descriptor.description,
+				input_schema: descriptor.input_schema,
+				enabled: enabledToolsSet.has(descriptor.name),
+			}));
 
 			this.cachedMcpState[serverName] = {
 				tools: serverTools,

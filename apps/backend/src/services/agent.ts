@@ -66,6 +66,7 @@ import { addPromptCache } from '../utils/prompt-cache';
 import { truncateMiddle } from '../utils/utils';
 import { compactionService } from './compaction';
 import { hasFeature, LICENSE_FEATURES } from './license.service';
+import { mcpService } from './mcp';
 import { memoryService } from './memory';
 import { getAzureAccessTokenForUser } from './microsoft-auth.service';
 import { skillService } from './skill';
@@ -106,8 +107,10 @@ export interface AgentToolsContext {
 export type AgentToolsResolver = (context: AgentToolsContext) => AgentTools | Promise<AgentTools>;
 
 /** Default tool set for interactive runs: all built-ins, MCP tools and web search. */
-export const defaultAgentTools: AgentToolsResolver = ({ chat, agentSettings, webTools }) =>
-	getTools(agentSettings, webTools ?? {}, { testMode: chat.testMode });
+export const defaultAgentTools: AgentToolsResolver = async ({ chat, agentSettings, toolContext, webTools }) => {
+	await mcpService.connectUserOAuthServers(toolContext.userId, toolContext.projectId);
+	return getTools(agentSettings, webTools ?? {}, { testMode: chat.testMode, userId: toolContext.userId });
+};
 
 export async function buildToolContext(opts: {
 	projectId: string;
