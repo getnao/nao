@@ -351,6 +351,13 @@
       "when": 1781768860096,
       "tag": "0049_mcp_oauth_token",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "6",
+      "when": 1781770696163,
+      "tag": "0050_mcp_oauth_flow",
+      "breakpoints": true
     }
   ]
 }

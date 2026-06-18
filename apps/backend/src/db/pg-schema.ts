@@ -246,6 +246,25 @@ export const mcpOauthToken = pgTable(
 	],
 );
 
+export const mcpOauthFlow = pgTable(
+	'mcp_oauth_flow',
+	{
+		state: text('state').primaryKey(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		serverName: text('server_name').notNull(),
+		codeVerifier: text('code_verifier').notNull(),
+		returnTo: text('return_to'),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		expiresAt: timestamp('expires_at').notNull(),
+	},
+	(t) => [index('mcp_oauth_flow_expiresAt_idx').on(t.expiresAt)],
+);
+
 export const chat = pgTable(
 	'chat',
 	{

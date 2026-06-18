@@ -267,6 +267,27 @@ export const mcpOauthToken = sqliteTable(
 	],
 );
 
+export const mcpOauthFlow = sqliteTable(
+	'mcp_oauth_flow',
+	{
+		state: text('state').primaryKey(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		serverName: text('server_name').notNull(),
+		codeVerifier: text('code_verifier').notNull(),
+		returnTo: text('return_to'),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+		expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
+	},
+	(t) => [index('mcp_oauth_flow_expiresAt_idx').on(t.expiresAt)],
+);
+
 export const chat = sqliteTable(
 	'chat',
 	{

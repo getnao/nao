@@ -39,6 +39,9 @@ export type NewProjectWhatsappLink = typeof sqliteSchema.projectWhatsappLink.$in
 export type DBMcpOauthToken = typeof sqliteSchema.mcpOauthToken.$inferSelect;
 export type NewMcpOauthToken = typeof sqliteSchema.mcpOauthToken.$inferInsert;
 
+export type DBMcpOauthFlow = typeof sqliteSchema.mcpOauthFlow.$inferSelect;
+export type NewMcpOauthFlow = typeof sqliteSchema.mcpOauthFlow.$inferInsert;
+
 export type DBProjectLlmConfig = typeof sqliteSchema.projectLlmConfig.$inferSelect;
 export type NewProjectLlmConfig = typeof sqliteSchema.projectLlmConfig.$inferInsert;
 
