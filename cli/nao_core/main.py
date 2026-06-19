@@ -5,7 +5,18 @@ load_dotenv()
 from cyclopts import App  # noqa: E402
 
 from nao_core import __version__  # noqa: E402
-from nao_core.commands import chat, debug, deploy, docs, init, skills, sync, test, upgrade  # noqa: E402
+from nao_core.commands import (  # noqa: E402
+    chat,
+    debug,
+    deploy,
+    docs,
+    init,
+    reset_password,
+    skills,
+    sync,
+    test,
+    upgrade,
+)
 from nao_core.version import check_for_updates  # noqa: E402
 
 app = App(version=__version__)
@@ -15,6 +26,7 @@ app.command(debug)
 app.command(deploy)
 app.command(docs)
 app.command(init)
+app.command(reset_password)
 app.command(skills)
 app.command(sync)
 app.command(test)
