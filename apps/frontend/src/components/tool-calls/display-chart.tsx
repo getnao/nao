@@ -1,6 +1,6 @@
 import { memo, useCallback, useMemo, useState } from 'react';
 import { buildChart, buildStoryChartBlock, labelize } from '@nao/shared';
-import { Download, FilePlus, Pencil } from 'lucide-react';
+import { Code, Download, FilePlus, Pencil } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useOptionalAgentContext } from '../../contexts/agent.provider';
 import GraphLoaderAnimated from '../icons/graph-loader-animated';
@@ -13,7 +13,7 @@ import { ChartRangeSelector } from './display-chart-range-selector';
 import { DisplayChartEditDialog } from './display-chart-edit-dialog';
 import type { ToolCallComponentProps } from '.';
 import type { ChartConfig } from '../ui/chart';
-import type { displayChart } from '@nao/shared/tools';
+import type { displayChart, executeSql } from '@nao/shared/tools';
 import type { UIMessage } from '@nao/backend/chat';
 import type { DateRange } from '@/lib/charts.utils';
 import { filterByDateRange, sortByDateKey, DATE_RANGE_OPTIONS, toKey } from '@/lib/charts.utils';
@@ -21,6 +21,7 @@ import { findStoryIds } from '@/lib/story.utils';
 import { useChatId } from '@/hooks/use-chat-id';
 import { useSidePanel } from '@/contexts/side-panel';
 import { StoryViewer } from '@/components/side-panel/story-viewer';
+import { SidePanelContent } from '@/components/side-panel/sql-editor';
 import { trpc } from '@/main';
 
 const Colors = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)', 'var(--chart-5)'];
@@ -75,7 +76,7 @@ export const DisplayChartToolCall = ({
 		}
 	};
 
-	const sourceData = useMemo(() => {
+	const sourceQuery = useMemo<{ input?: executeSql.Input; output: executeSql.Output } | null>(() => {
 		if (!config?.query_id) {
 			return null;
 		}
@@ -83,12 +84,21 @@ export const DisplayChartToolCall = ({
 		for (const message of messages) {
 			for (const part of message.parts) {
 				if (part.type === 'tool-execute_sql' && part.output && part.output.id === config.query_id) {
-					return part.output;
+					return { input: part.input, output: part.output };
 				}
 			}
 		}
 		return null;
 	}, [messages, config?.query_id]);
+
+	const sourceData = sourceQuery?.output ?? null;
+
+	const handleViewQuery = useCallback(() => {
+		if (!sourceQuery?.input || !sourceQuery.output) {
+			return;
+		}
+		openSidePanel(<SidePanelContent input={sourceQuery.input} output={sourceQuery.output} />);
+	}, [openSidePanel, sourceQuery]);
 
 	const filteredData = useMemo(() => {
 		if (!sourceData?.data || !config) {
@@ -211,6 +221,17 @@ export const DisplayChartToolCall = ({
 							selectedRange={dataRange}
 							onRangeSelected={(range) => setDataRange(range)}
 						/>
+					)}
+					{sourceQuery?.input && (
+						<Button
+							variant='ghost'
+							size='icon-xs'
+							className='hover:rounded-full'
+							onClick={handleViewQuery}
+							title='View SQL query and data'
+						>
+							<Code className='size-4' />
+						</Button>
 					)}
 					{config.chart_type != 'kpi_card' && (
 						<Button
