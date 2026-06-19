@@ -46,6 +46,14 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/account',
 		pageLabel: 'Account',
+		section: 'General Settings',
+		title: 'Newsletter',
+		description: 'Subscribe to nao product updates, release notes, and analytics agent tips.',
+		keywords: ['email', 'mail', 'subscribe', 'updates', 'release notes'],
+	},
+	{
+		page: '/settings/account',
+		pageLabel: 'Account',
 		title: 'GitHub',
 		description: 'Connect your GitHub account for automations.',
 		keywords: ['github', 'automations', 'automation', 'issue', 'pull request'],
