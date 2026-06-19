@@ -243,7 +243,7 @@ async function runResetPassword(options: Record<string, string>): Promise<void> 
 		process.exit(1);
 	}
 
-	const temporaryPassword = crypto.randomUUID().slice(0, 8);
+	const temporaryPassword = crypto.randomBytes(12).toString('base64url');
 	const hashedPassword = await hashPassword(temporaryPassword);
 	await accountQueries.updateAccountPassword(account.id, hashedPassword, user.id);
 
