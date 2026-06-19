@@ -78,7 +78,7 @@ export async function runContextRecommendations(
 					linkedRepos,
 					contextRepoConnected: !!contextRepo,
 				}),
-				source: 'contextRecommendations',
+				source: 'context_recommendation',
 			},
 		);
 		await crQueries.setRunChat(run.id, chat.id);

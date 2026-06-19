@@ -54,7 +54,7 @@ export const MESSAGE_SOURCES = [
 	'whatsapp',
 	'web',
 	'mcp',
-	'contextRecommendations',
+	'context_recommendation',
 ] as const;
 
 export type MessageSource = (typeof MESSAGE_SOURCES)[number];
