@@ -19,9 +19,13 @@ const mocks = vi.hoisted(() => ({
 	transaction: vi.fn(),
 }));
 
-vi.mock('ai', () => ({
-	readUIMessageStream: vi.fn(async function* () {}),
-}));
+vi.mock('ai', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('ai')>();
+	return {
+		...actual,
+		readUIMessageStream: vi.fn(async function* () {}),
+	};
+});
 
 vi.mock('../src/db/db', () => ({
 	db: {
