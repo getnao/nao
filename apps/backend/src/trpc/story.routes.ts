@@ -110,6 +110,7 @@ export const storyRoutes = {
 			const story = await storyQueries.getStoryByChatAndSlug(input.chatId, input.storySlug);
 			if (!story) {
 				return {
+					id: null as string | null,
 					title: input.storySlug,
 					isLive: false,
 					isLiveTextDynamic: false,
@@ -122,6 +123,7 @@ export const storyRoutes = {
 
 			const versions = await storyQueries.listStoryVersions(input.chatId, input.storySlug);
 			return {
+				id: story.id as string | null,
 				title: story.title,
 				isLive: story.isLive,
 				isLiveTextDynamic: story.isLiveTextDynamic,

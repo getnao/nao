@@ -3,6 +3,7 @@ import { useMemo, useState } from 'react';
 import type { MouseEvent } from 'react';
 
 import type { DiffLine, LineDiff } from '@/lib/line-diff';
+import { SidePanelHeader } from '@/components/side-panel/side-panel-header';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { computeLineDiff } from '@/lib/line-diff';
 import { cn } from '@/lib/utils';
@@ -39,12 +40,7 @@ export function RecommendationDiffPanel({ title, edits }: RecommendationDiffPane
 
 	return (
 		<div className='flex h-full min-h-0 flex-col bg-background'>
-			<div className='shrink-0 border-b px-4 py-3'>
-				<div className='text-xs font-medium text-muted-foreground'>Proposed changes</div>
-				<div className='truncate text-sm font-semibold' title={title}>
-					{title}
-				</div>
-			</div>
+			<SidePanelHeader label='Proposed changes' title={title} />
 
 			<div className='min-h-0 flex-1 overflow-auto p-4'>
 				<Accordion

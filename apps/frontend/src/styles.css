@@ -154,6 +154,7 @@ code.dollar:before {
 	--color-popover: var(--popover);
 	--color-popover-foreground: var(--popover-foreground);
 	--color-primary: var(--primary);
+	--color-primary-muted: var(--primary-muted);
 	--color-primary-foreground: var(--primary-foreground);
 	--color-secondary: var(--secondary);
 	--color-secondary-foreground: var(--secondary-foreground);
@@ -199,6 +200,7 @@ code.dollar:before {
 	--popover: oklch(1 0 0);
 	--popover-foreground: oklch(0.129 0.042 264.695);
 	--primary: oklch(0.5077 0.281 277.89);
+	--primary-muted: oklch(0.721 0.157 290.2);
 	--primary-foreground: oklch(0.984 0.003 247.858);
 	--secondary: oklch(0.94 0 0);
 	--secondary-foreground: oklch(0.208 0.042 265.755);
@@ -241,6 +243,7 @@ code.dollar:before {
 	--popover: oklch(0.21 0.008 270);
 	--popover-foreground: oklch(0.984 0.003 247.858);
 	--primary: oklch(0.721 0.157 290.2);
+	--primary-muted: oklch(0.721 0.157 290.2);
 	--primary-foreground: oklch(0.21 0.008 270);
 	--secondary: oklch(0.27 0.012 270);
 	--secondary-foreground: oklch(0.984 0.003 247.858);
@@ -318,21 +321,98 @@ code.dollar:before {
 	font-size: 18px;
 }
 
-[data-streamdown='code-block'],
-[data-streamdown='code-block-header'],
 [data-streamdown='table-header'],
 [data-streamdown='table-body'] {
 	background-color: var(--background);
 }
 
-.hide-code-header [data-streamdown='code-block-header'] {
+/* Tables: single thin border instead of the nested double-border frame */
+[data-streamdown='table-wrapper'] {
+	gap: 0.25rem;
+	padding: 0.375rem;
+	background-color: var(--background);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-md);
+}
+
+[data-streamdown='table-wrapper'] > div:has(> [data-streamdown='table']) {
+	border: none;
+	border-radius: 0;
+}
+
+[data-streamdown='code-block'] {
+	position: relative;
+	gap: 0;
+	padding: 0;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-md);
+}
+
+[data-streamdown='code-block-header'] {
 	display: none;
 }
 
-.hide-code-header [data-streamdown='code-block'],
+[data-streamdown='code-block-body'] {
+	border: none;
+	border-radius: inherit;
+	padding: 0.625rem 0rem;
+}
+
+/* More breathing room between the line number gutter and the code */
+[data-streamdown='code-block-body'] code > span::before {
+	margin-right: 1.25rem;
+	padding-right: 0.5rem;
+}
+
+[data-streamdown='code-block'] > div:has(> [data-streamdown='code-block-actions']) {
+	position: absolute;
+	top: 0.25rem;
+	right: 0;
+	margin-top: 0;
+}
+
+[data-streamdown='code-block-actions'] {
+	gap: 0.25rem;
+	padding-right: 0.75rem;
+	background-color: var(--background);
+	border: none;
+}
+
+[data-streamdown='code-block-actions'] button {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 1.5rem;
+	height: 1.5rem;
+	padding: 0;
+	border-radius: 9999px;
+	color: color-mix(in oklab, var(--muted-foreground) 70%, transparent);
+	transition: background-color 0.15s ease;
+}
+
+[data-streamdown='code-block-actions'] button svg {
+	width: 0.75rem;
+	height: 0.75rem;
+}
+
+[data-streamdown='code-block-actions'] button:hover {
+	background-color: color-mix(in oklab, var(--accent) 70%, transparent);
+	color: color-mix(in oklab, var(--muted-foreground) 70%, transparent);
+}
+
+.hide-code-header [data-streamdown='code-block'] {
+	border: none;
+	border-radius: 0;
+}
+
 .hide-code-header pre {
 	border: none;
 	border-radius: 0;
+}
+
+.hide-code-header [data-streamdown='code-block-body'] {
+	border: none;
+	padding: 0;
 }
 
 /* Tiptap story editor */
@@ -451,6 +531,34 @@ code.dollar:before {
 	max-height: 200px;
 	overflow-y: auto;
 	overscroll-behavior: contain;
+}
+
+/* Mention pills: outlined chip, matching the "Share chat" button */
+.prompt-container .mention-pill,
+.message-container .mention-pill {
+	border: 1px solid var(--border);
+	background: var(--background);
+	font-size: 0.825rem;
+	font-weight: 470;
+	line-height: 1.2;
+	padding: 0.375rem 0.5rem;
+	box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+}
+
+.prompt-container .mention-pill-with-icon,
+.message-container .mention-pill-with-icon {
+	padding-left: 1.75rem;
+}
+
+.prompt-container .mention-pill .mention-pill-icon,
+.message-container .mention-pill .mention-pill-icon {
+	left: 0.5rem;
+	width: 0.75rem;
+	height: 0.75rem;
+}
+
+.dark .mention-pill {
+	border-color: var(--input);
 }
 
 /* Mention menu: match select dropdown styling */

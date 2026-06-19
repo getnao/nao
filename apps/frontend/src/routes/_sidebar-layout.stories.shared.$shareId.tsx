@@ -1,23 +1,26 @@
 import { splitCodeIntoSegments } from '@nao/shared/story-segments';
 import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
-import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
-import { Activity, Loader2, MessageSquare, RefreshCw } from 'lucide-react';
-import { useCallback, useMemo, useRef } from 'react';
+import { createFileRoute, useNavigate } from '@tanstack/react-router';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import type { ParsedChartBlock, ParsedTableBlock } from '@nao/shared/story-segments';
 
 import type { QueryDataMap } from '@/components/story-embeds';
+import type { StoryPageHeaderProps } from '@/components/story-page-header';
 import { ForkBubble } from '@/components/highlight-bubble';
 import { SelectionChatPanel } from '@/components/selection-chat-panel';
 import { SidePanel } from '@/components/side-panel/side-panel';
-import { StoryDownload } from '@/components/story-download';
+import { LiveStorySettingsDialog } from '@/components/side-panel/live-story-settings-dialog';
+import { useStoryViewerLiveSettings } from '@/components/side-panel/hooks/use-story-viewer-live-settings';
+import { ShareStoryDialog } from '@/components/share-dialog.story';
+import { StoryPageBody } from '@/components/story-page-body';
+import { StoryPageHeader } from '@/components/story-page-header';
 import { StoryChartEmbed, StoryTableEmbed } from '@/components/story-embeds';
 import { SegmentList } from '@/components/story-rendering';
-import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { SidePanelProvider } from '@/contexts/side-panel';
 import { SelectionProvider } from '@/contexts/text-selection';
 import { useSidePanel } from '@/hooks/use-side-panel';
+import { useStoryPageEditor } from '@/hooks/use-story-page-editor';
 import { useSession } from '@/lib/auth-client';
 import { trpc } from '@/main';
 
@@ -56,6 +59,16 @@ function SharedStoryPage() {
 		}),
 	);
 
+	const isOwner = Boolean(session?.user?.id) && session?.user?.id === story?.userId;
+
+	const editor = useStoryPageEditor({
+		chatId: story?.chatId ?? '',
+		storySlug: story?.slug ?? '',
+		storyTitle: story?.title ?? '',
+		latestCode: story?.code ?? '',
+		isReadonlyMode: !isOwner,
+	});
+
 	if (isLoading) {
 		return (
 			<div className='flex flex-1 items-center justify-center'>
@@ -64,8 +77,59 @@ function SharedStoryPage() {
 		);
 	}
 
-	const isOwner = session?.user?.id === story.userId;
-	const cachedAt = story.cachedAt ? new Date(story.cachedAt as unknown as string) : null;
+	const isEditing = isOwner && Boolean(story.chatId) && editor.viewMode !== 'preview';
+
+	const header =
+		isOwner && story.chatId ? (
+			<SharedStoryOwnerHeader
+				title={story.title}
+				authorName={story.authorName}
+				storyId={story.storyId}
+				chatId={story.chatId}
+				storySlug={story.slug}
+				onOpenChat={() =>
+					navigate({
+						to: '/$chatId',
+						params: { chatId: story.chatId! },
+						state: { openStorySlug: story.slug },
+					})
+				}
+				viewModeControls={{
+					viewMode: editor.viewMode,
+					onViewModeChange: editor.setViewMode,
+					canEdit: true,
+					isCodeDirty: editor.isCodeDirty,
+					isCodeValid: editor.isCodeValid,
+					onSave: editor.handleSave,
+				}}
+				versionControls={{
+					currentVersion: editor.versionNav.currentVersion,
+					totalVersions: editor.versionNav.totalVersions,
+					isViewingLatest: editor.versionNav.isViewingLatest,
+					onPrevious: editor.versionNav.goToPrevious,
+					onNext: editor.versionNav.goToNext,
+					onRestore: editor.handleRestore,
+				}}
+			/>
+		) : (
+			<StoryPageHeader
+				title={story.title}
+				authorName={story.authorName}
+				openChatLabel='Discuss story'
+				onOpenChat={isViewer ? undefined : () => forkMutation.mutate({ shareId, type: 'story' })}
+				isOpeningChat={forkMutation.isPending}
+				live={
+					story.isLive
+						? {
+								isLive: true,
+								isRefreshing: refreshMutation.isPending,
+								onRefresh: () => refreshMutation.mutate({ shareId }),
+							}
+						: undefined
+				}
+				download={{ chatId: story.chatId!, storySlug: story.slug, shareId, isOwner: false }}
+			/>
+		);
 
 	return (
 		<SidePanelProvider
@@ -78,108 +142,25 @@ function SharedStoryPage() {
 			close={sidePanel.close}
 		>
 			<div className='flex flex-col flex-1 h-full overflow-hidden bg-background min-w-0' ref={containerRef}>
-				<header className='flex items-center gap-3 border-b px-4 py-3 md:px-6 md:py-4 shrink-0 bg-background'>
-					<h1 className='text-base font-medium truncate'>{story.title}</h1>
-					<span className='text-sm text-muted-foreground shrink-0'>by {story.authorName}</span>
-					{story.isLive && (
-						<div className='flex items-center gap-1.5'>
-							<Tooltip>
-								<TooltipTrigger asChild>
-									<div className='flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700'>
-										<Activity className='size-3' />
-										<span>Live</span>
-									</div>
-								</TooltipTrigger>
-								<TooltipContent>
-									{cachedAt
-										? `Data cached ${cachedAt.toLocaleString()}`
-										: 'Live story with fresh data'}
-								</TooltipContent>
-							</Tooltip>
-							<Tooltip>
-								<TooltipTrigger asChild>
-									<Button
-										variant='ghost-muted'
-										size='icon-xs'
-										onClick={() => refreshMutation.mutate({ shareId })}
-										disabled={refreshMutation.isPending}
-										aria-label='Refresh data'
-									>
-										{refreshMutation.isPending ? (
-											<Loader2 className='size-3.5 animate-spin' />
-										) : (
-											<RefreshCw className='size-3.5' />
-										)}
-									</Button>
-								</TooltipTrigger>
-								<TooltipContent>Refresh data</TooltipContent>
-							</Tooltip>
-						</div>
-					)}
-					<div className='ml-auto flex items-center gap-1.5 shrink-0'>
-						<StoryDownload
-							chatId={story.chatId!}
-							storySlug={story.slug}
-							shareId={shareId}
-							isOwner={false}
-						/>
-						{isOwner && story.chatId ? (
-							<Button variant='outline' size='sm' className='gap-1.5 shrink-0' asChild>
-								<Link
-									to='/$chatId'
-									params={{ chatId: story.chatId }}
-									state={{ openStorySlug: story.slug }}
-								>
-									<MessageSquare className='size-3.5' />
-									<span>Open chat</span>
-								</Link>
-							</Button>
-						) : isOwner ? (
-							<Button
-								variant='outline'
-								size='sm'
-								className='gap-1.5 shrink-0'
-								onClick={() => forkMutation.mutate({ shareId, type: 'story' })}
-								disabled={forkMutation.isPending}
-							>
-								{forkMutation.isPending ? (
-									<Loader2 className='size-3.5 animate-spin' />
-								) : (
-									<MessageSquare className='size-3.5' />
-								)}
-								<span>Discuss story</span>
-							</Button>
-						) : (
-							!isViewer && (
-								<Button
-									variant='outline'
-									size='sm'
-									className='ml-auto gap-1.5 shrink-0'
-									onClick={() => forkMutation.mutate({ shareId, type: 'story' })}
-									disabled={forkMutation.isPending}
-								>
-									{forkMutation.isPending ? (
-										<Loader2 className='size-3.5 animate-spin' />
-									) : (
-										<MessageSquare className='size-3.5' />
-									)}
-									<span>Discuss story</span>
-								</Button>
-							)
-						)}
-					</div>
-				</header>
+				{header}
 
 				<SelectionProvider key={shareId} persistenceConfig={{ shareId, contentType: 'story' }}>
-					{!isViewer && <ForkBubble shareId={shareId} contentType='story' />}
-					{!isViewer && <SelectionChatPanel contentAreaRef={contentAreaRef} />}
+					{!isViewer && !isEditing && <ForkBubble shareId={shareId} contentType='story' />}
+					{!isViewer && !isEditing && <SelectionChatPanel contentAreaRef={contentAreaRef} />}
 					<div className='flex flex-1 min-h-0 min-w-0'>
 						<div ref={contentAreaRef} className='flex flex-col flex-1 min-w-0 min-h-0'>
-							<SharedStoryContent
-								code={story.code}
+							<StoryPageBody
+								code={editor.code}
+								editor={editor}
 								queryData={story.queryData as QueryDataMap | null}
-								chatId={story.chatId!}
-								cacheSchedule={story.cacheSchedule}
+								preview={
+									<SharedStoryContent
+										code={editor.code}
+										queryData={story.queryData as QueryDataMap | null}
+										chatId={story.chatId!}
+										cacheSchedule={story.cacheSchedule}
+									/>
+								}
 							/>
 						</div>
 
@@ -189,7 +170,6 @@ function SharedStoryPage() {
 								isAnimating={sidePanel.isAnimating}
 								sidePanelRef={sidePanelRef}
 								resizeHandleRef={sidePanel.resizeHandleRef}
-								onClose={sidePanel.close}
 							>
 								{sidePanel.content}
 							</SidePanel>
@@ -198,6 +178,82 @@ function SharedStoryPage() {
 				</SelectionProvider>
 			</div>
 		</SidePanelProvider>
+	);
+}
+
+interface SharedStoryOwnerHeaderProps {
+	title: string;
+	authorName: string;
+	storyId: string | null;
+	chatId: string;
+	storySlug: string;
+	onOpenChat: () => void;
+	viewModeControls: StoryPageHeaderProps['viewModeControls'];
+	versionControls: StoryPageHeaderProps['versionControls'];
+}
+
+function SharedStoryOwnerHeader({
+	title,
+	authorName,
+	storyId,
+	chatId,
+	storySlug,
+	onOpenChat,
+	viewModeControls,
+	versionControls,
+}: SharedStoryOwnerHeaderProps) {
+	const [isLiveSettingsOpen, setIsLiveSettingsOpen] = useState(false);
+	const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
+
+	const {
+		isLive,
+		isLiveTextDynamic,
+		cacheSchedule,
+		cacheScheduleDescription,
+		isUpdating,
+		isRefreshing,
+		handleSaveSettings,
+		handleRefreshData,
+	} = useStoryViewerLiveSettings({ chatId, storySlug });
+
+	return (
+		<>
+			<StoryPageHeader
+				title={title}
+				authorName={authorName}
+				onOpenChat={onOpenChat}
+				live={{
+					isLive,
+					isRefreshing,
+					onRefresh: () => handleRefreshData(),
+					onOpenSettings: () => setIsLiveSettingsOpen(true),
+				}}
+				download={{ chatId, storySlug, isOwner: true }}
+				storyId={storyId}
+				isShared
+				onShare={() => setIsShareDialogOpen(true)}
+				viewModeControls={viewModeControls}
+				versionControls={versionControls}
+			/>
+
+			<LiveStorySettingsDialog
+				open={isLiveSettingsOpen}
+				onOpenChange={setIsLiveSettingsOpen}
+				isLive={isLive}
+				isLiveTextDynamic={isLiveTextDynamic}
+				cacheSchedule={cacheSchedule}
+				cacheScheduleDescription={cacheScheduleDescription}
+				isUpdating={isUpdating}
+				onSaveSettings={handleSaveSettings}
+			/>
+
+			<ShareStoryDialog
+				open={isShareDialogOpen}
+				onOpenChange={setIsShareDialogOpen}
+				chatId={chatId}
+				storySlug={storySlug}
+			/>
+		</>
 	);
 }
 

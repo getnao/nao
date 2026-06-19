@@ -1,7 +1,7 @@
-import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
-import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
-import { Activity, ArchiveRestoreIcon, Loader2, MessageSquare, RefreshCw } from 'lucide-react';
-import { useCallback, useMemo } from 'react';
+import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
+import { createFileRoute, useNavigate } from '@tanstack/react-router';
+import { ArchiveRestoreIcon } from 'lucide-react';
+import { useCallback, useMemo, useState } from 'react';
 
 import { splitCodeIntoSegments } from '@nao/shared/story-segments';
 import type { ParsedChartBlock, ParsedTableBlock } from '@nao/shared/story-segments';
@@ -11,14 +11,18 @@ import { StoryChartEmbed, StoryTableEmbed } from '@/components/story-embeds';
 import { HighlightBubble } from '@/components/highlight-bubble';
 import { SegmentList } from '@/components/story-rendering';
 import { Button } from '@/components/ui/button';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { trpc } from '@/main';
 import { StoryContentLoading } from '@/components/side-panel/story-content-loading';
-import { StoryDownload } from '@/components/story-download';
+import { LiveStorySettingsDialog } from '@/components/side-panel/live-story-settings-dialog';
+import { useStoryViewerLiveSettings } from '@/components/side-panel/hooks/use-story-viewer-live-settings';
+import { ShareStoryDialog } from '@/components/share-dialog.story';
+import { StoryPageBody } from '@/components/story-page-body';
+import { StoryPageHeader } from '@/components/story-page-header';
 import { SelectionProvider } from '@/contexts/text-selection';
 import { StoryChartEditProvider } from '@/contexts/story-chart-edit';
 import { chatPendingCitationStore } from '@/stores/chat-pending-citation';
 import { useChatActivity } from '@/hooks/use-chat-activity';
+import { useStoryPageEditor } from '@/hooks/use-story-page-editor';
 
 export const Route = createFileRoute('/_sidebar-layout/stories/preview/$chatId/$storySlug')({
 	component: StoryPreviewPage,
@@ -31,6 +35,31 @@ function StoryPreviewPage() {
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
 	const { running: isChatRunning } = useChatActivity(chatId);
+	const [isLiveSettingsOpen, setIsLiveSettingsOpen] = useState(false);
+	const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
+
+	const {
+		storyId,
+		isLive,
+		isLiveTextDynamic,
+		cacheSchedule: liveCacheSchedule,
+		cacheScheduleDescription,
+		isUpdating,
+		isRefreshing,
+		handleSaveSettings,
+		handleRefreshData,
+	} = useStoryViewerLiveSettings({ chatId, storySlug });
+
+	const shareQuery = useQuery(trpc.storyShare.getSharedStoryInfo.queryOptions({ chatId, storySlug }));
+	const isShared = Boolean(shareQuery.data?.shareId);
+
+	const editor = useStoryPageEditor({
+		chatId,
+		storySlug,
+		storyTitle: story.title,
+		latestCode: story.code,
+		isAgentRunning: isChatRunning,
+	});
 
 	const handleSelectionAsk = useCallback(
 		(data: SelectionData) => {
@@ -39,6 +68,10 @@ function StoryPreviewPage() {
 		},
 		[navigate, chatId, storySlug],
 	);
+
+	const handleOpenChat = useCallback(() => {
+		navigate({ to: '/$chatId', params: { chatId }, state: { openStorySlug: storySlug } });
+	}, [navigate, chatId, storySlug]);
 
 	const unarchiveMutation = useMutation(
 		trpc.story.unarchive.mutationOptions({
@@ -50,64 +83,41 @@ function StoryPreviewPage() {
 		}),
 	);
 
-	const refreshMutation = useMutation(
-		trpc.story.refreshData.mutationOptions({
-			onSuccess: () => {
-				queryClient.invalidateQueries({ queryKey: trpc.story.getLatest.queryKey({ chatId, storySlug }) });
-			},
-		}),
-	);
-
-	const cachedAt = story.cachedAt ? new Date(story.cachedAt as unknown as string) : null;
 	const canEditCharts = !story.archivedAt;
 
 	return (
 		<div className='flex flex-col flex-1 h-full overflow-hidden bg-background min-w-0'>
-			<header className='flex items-center gap-3 border-b px-4 py-3 md:px-6 md:py-4 shrink-0 bg-background'>
-				<h1 className='text-base font-medium truncate'>{story.title}</h1>
-				{story.isLive && (
-					<div className='flex items-center gap-1.5'>
-						<Tooltip>
-							<TooltipTrigger asChild>
-								<div className='flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700'>
-									<Activity className='size-3' />
-									<span>Live</span>
-								</div>
-							</TooltipTrigger>
-							<TooltipContent>
-								{cachedAt ? `Data cached ${cachedAt.toLocaleString()}` : 'Live story with fresh data'}
-							</TooltipContent>
-						</Tooltip>
-						<Tooltip>
-							<TooltipTrigger asChild>
-								<Button
-									variant='ghost-muted'
-									size='icon-xs'
-									onClick={() => refreshMutation.mutate({ chatId, storySlug })}
-									disabled={refreshMutation.isPending}
-									aria-label='Refresh data'
-								>
-									{refreshMutation.isPending ? (
-										<Loader2 className='size-3.5 animate-spin' />
-									) : (
-										<RefreshCw className='size-3.5' />
-									)}
-								</Button>
-							</TooltipTrigger>
-							<TooltipContent>Refresh data</TooltipContent>
-						</Tooltip>
-					</div>
-				)}
-				<div className='ml-auto flex items-center gap-1.5 shrink-0'>
-					<StoryDownload chatId={chatId} storySlug={storySlug} isOwner={true} />
-					<Button variant='outline' size='sm' className='gap-1.5' asChild>
-						<Link to='/$chatId' params={{ chatId }} state={{ openStorySlug: storySlug }}>
-							<MessageSquare className='size-3.5' />
-							<span>Open chat</span>
-						</Link>
-					</Button>
-				</div>
-			</header>
+			<StoryPageHeader
+				title={story.title}
+				onOpenChat={handleOpenChat}
+				live={{
+					isLive,
+					isRefreshing,
+					onRefresh: () => handleRefreshData(),
+					onOpenSettings: () => setIsLiveSettingsOpen(true),
+				}}
+				download={{ chatId, storySlug, isOwner: true }}
+				storyId={storyId}
+				isShared={isShared}
+				onShare={() => setIsShareDialogOpen(true)}
+				viewModeControls={{
+					viewMode: editor.viewMode,
+					onViewModeChange: editor.setViewMode,
+					canEdit: canEditCharts,
+					isAgentRunning: isChatRunning,
+					isCodeDirty: editor.isCodeDirty,
+					isCodeValid: editor.isCodeValid,
+					onSave: editor.handleSave,
+				}}
+				versionControls={{
+					currentVersion: editor.versionNav.currentVersion,
+					totalVersions: editor.versionNav.totalVersions,
+					isViewingLatest: editor.versionNav.isViewingLatest,
+					onPrevious: editor.versionNav.goToPrevious,
+					onNext: editor.versionNav.goToNext,
+					onRestore: editor.handleRestore,
+				}}
+			/>
 
 			{story.archivedAt && (
 				<div className='flex items-center justify-between gap-3 border-b bg-muted/50 px-4 py-2 md:px-6'>
@@ -125,19 +135,44 @@ function StoryPreviewPage() {
 				</div>
 			)}
 
-			<SelectionProvider key={storySlug}>
-				<HighlightBubble onAsk={handleSelectionAsk} disabled={isChatRunning} />
-				{renderWithChartEditProvider(
-					canEditCharts,
-					{ chatId, storySlug, storyTitle: story.title, storyCode: story.code },
-					<PreviewContent
-						code={story.code}
-						queryData={story.queryData as QueryDataMap | null}
-						chatId={chatId}
-						cacheSchedule={story.cacheSchedule}
-					/>,
-				)}
-			</SelectionProvider>
+			<StoryPageBody
+				code={editor.code}
+				editor={editor}
+				queryData={story.queryData as QueryDataMap | null}
+				preview={
+					<SelectionProvider key={storySlug}>
+						<HighlightBubble onAsk={handleSelectionAsk} disabled={isChatRunning} />
+						{renderWithChartEditProvider(
+							canEditCharts && editor.versionNav.isViewingLatest,
+							{ chatId, storySlug, storyTitle: story.title, storyCode: editor.code },
+							<PreviewContent
+								code={editor.code}
+								queryData={story.queryData as QueryDataMap | null}
+								chatId={chatId}
+								cacheSchedule={story.cacheSchedule}
+							/>,
+						)}
+					</SelectionProvider>
+				}
+			/>
+
+			<LiveStorySettingsDialog
+				open={isLiveSettingsOpen}
+				onOpenChange={setIsLiveSettingsOpen}
+				isLive={isLive}
+				isLiveTextDynamic={isLiveTextDynamic}
+				cacheSchedule={liveCacheSchedule}
+				cacheScheduleDescription={cacheScheduleDescription}
+				isUpdating={isUpdating}
+				onSaveSettings={handleSaveSettings}
+			/>
+
+			<ShareStoryDialog
+				open={isShareDialogOpen}
+				onOpenChange={setIsShareDialogOpen}
+				chatId={chatId}
+				storySlug={storySlug}
+			/>
 		</div>
 	);
 }

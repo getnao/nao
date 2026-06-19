@@ -24,8 +24,15 @@ export function StoryOpenButton({ variant = 'outline' }: { variant?: 'outline' |
 
 	if (stories.length === 1) {
 		return (
-			<Button variant={variant} size='icon-sm' onClick={() => openStory(stories[0].id)} title={stories[0].title}>
-				<StoryIcon className='size-4 text-muted-foreground' strokeWidth={1.5} />
+			<Button
+				variant={variant}
+				size='icon-sm'
+				className='rounded-full hover:rounded-full border w-auto px-2'
+				onClick={() => openStory(stories[0].id)}
+				title={stories[0].title}
+			>
+				<StoryIcon className='size-3 text-foreground' strokeWidth={2.25} />
+				<span className='text-xs'>Open Story</span>
 			</Button>
 		);
 	}
@@ -33,8 +40,14 @@ export function StoryOpenButton({ variant = 'outline' }: { variant?: 'outline' |
 	return (
 		<DropdownMenu>
 			<DropdownMenuTrigger asChild>
-				<Button variant={variant} size='icon-sm' title='Open stories'>
-					<StoryIcon className='size-4 text-muted-foreground' strokeWidth={1.5} />
+				<Button
+					variant={variant}
+					size='icon-sm'
+					className='rounded-full hover:rounded-full border w-auto px-2'
+					title='Open Stories'
+				>
+					<StoryIcon className='size-3 text-foreground' strokeWidth={2.25} />
+					<span className='text-xs'>Open Stories</span>
 				</Button>
 			</DropdownMenuTrigger>
 

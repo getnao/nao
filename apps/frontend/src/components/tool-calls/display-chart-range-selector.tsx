@@ -10,11 +10,11 @@ interface Props<T extends RangeOptions> {
 export function ChartRangeSelector<T extends RangeOptions>({ options, selectedRange, onRangeSelected }: Props<T>) {
 	return (
 		<Select value={selectedRange as string} onValueChange={(v) => onRangeSelected(v as keyof T)}>
-			<SelectTrigger className='border-none'>
+			<SelectTrigger className='border-none dark:bg-transparent dark:hover:bg-transparent'>
 				<SelectValue>{options[selectedRange].label}</SelectValue>
 			</SelectTrigger>
 
-			<SelectContent align='center' position='item-aligned'>
+			<SelectContent align='center' position='item-aligned' className='border-none dark:bg-background'>
 				{Object.entries(options).map(([key, value]) => (
 					<SelectItem key={key} value={key}>
 						{value.label}

@@ -120,7 +120,6 @@ function SharedChatPage() {
 									isAnimating={sidePanel.isAnimating}
 									sidePanelRef={sidePanelRef}
 									resizeHandleRef={sidePanel.resizeHandleRef}
-									onClose={sidePanel.close}
 								>
 									{sidePanel.content}
 								</SidePanel>

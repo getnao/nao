@@ -1,6 +1,7 @@
 import { formatCellValue, isNumericColumn } from '@nao/shared/story-table-utils';
 import { useEffect, useMemo, useState } from 'react';
 import { TablePagination } from '@/components/ui/table-pagination';
+import { TablePaginationCompact } from '@/components/ui/table-pagination-compact';
 import { cn } from '@/lib/utils';
 
 type TableRow = Record<string, unknown>;
@@ -14,6 +15,7 @@ interface TableDisplayProps {
 	emptyLabel?: string;
 	showRowCount?: boolean;
 	maxRowsBeforePagination?: number;
+	compactFooter?: boolean;
 }
 
 export function TableDisplay({
@@ -25,11 +27,12 @@ export function TableDisplay({
 	emptyLabel = 'No rows returned',
 	showRowCount = true,
 	maxRowsBeforePagination = 100,
+	compactFooter = false,
 }: TableDisplayProps) {
 	const resolvedColumns = columns && columns.length > 0 ? columns : inferColumns(data);
 	const numericColumns = new Set(resolvedColumns.filter((column) => isNumericColumn(data, column)));
 	const hasRows = data.length > 0;
-	const needsPagination = data.length > maxRowsBeforePagination;
+	const showPagination = hasRows && data.length > maxRowsBeforePagination;
 
 	const [pageIndex, setPageIndex] = useState(0);
 	const [pageSize, setPageSize] = useState(maxRowsBeforePagination);
@@ -38,23 +41,26 @@ export function TableDisplay({
 
 	const pageCount = Math.ceil(data.length / pageSize);
 	const pageData = useMemo(
-		() => (needsPagination ? data.slice(pageIndex * pageSize, (pageIndex + 1) * pageSize) : data),
-		[data, pageIndex, pageSize, needsPagination],
+		() => (showPagination ? data.slice(pageIndex * pageSize, (pageIndex + 1) * pageSize) : data),
+		[data, pageIndex, pageSize, showPagination],
 	);
 
 	return (
-		<div className={cn('flex min-h-0 flex-col gap-2', className)}>
+		<div className={cn('flex min-h-0 flex-col', className)}>
 			{title ? <span className='text-sm font-medium'>{title}</span> : null}
 
-			<div className={cn('overflow-auto rounded-lg border bg-card/50 min-h-0', tableContainerClassName)}>
+			<div className={cn('overflow-auto border-t bg-background min-h-0', tableContainerClassName)}>
 				<table className='w-full min-w-max border-collapse text-xs'>
 					<thead className='sticky top-0 z-10 border-b bg-panel'>
 						<tr>
+							<th className='shadow-[inset_-1px_0_0_0_var(--border)] last:shadow-none px-3 py-2 text-center font-medium whitespace-nowrap text-foreground w-4'>
+								1
+							</th>
 							{resolvedColumns.map((column) => (
 								<th
 									key={column}
 									className={cn(
-										'px-3 py-2 text-left font-medium whitespace-nowrap text-muted-foreground last:border-r-0',
+										'shadow-[inset_-1px_0_0_0_var(--border)] last:shadow-none px-3 py-2 text-left font-medium whitespace-nowrap text-foreground',
 										numericColumns.has(column) && 'text-right tabular-nums',
 									)}
 								>
@@ -71,6 +77,11 @@ export function TableDisplay({
 									key={rowIndex}
 									className='border-b last:border-b-0 border-border/50 bg-background  hover:bg-accent/30'
 								>
+									<td className='shadow-[inset_-1px_0_0_0_var(--border)] last:shadow-none px-3 py-1 align-top font-mono text-[11px] leading-5 whitespace-nowrap text-center w-4 bg-panel'>
+										<span className='px-1 py-2 font-[Geist] font-medium text-foreground'>
+											{pageIndex * pageSize + rowIndex + 2}
+										</span>
+									</td>
 									{resolvedColumns.map((column) => {
 										const value = row[column];
 										const isNull = value === null || value === undefined;
@@ -78,7 +89,7 @@ export function TableDisplay({
 											<td
 												key={`${rowIndex}-${column}`}
 												className={cn(
-													'border-border/40 px-3 py-1 align-top font-mono text-[11px] leading-5 whitespace-nowrap last:border-r-0',
+													'shadow-[inset_-1px_0_0_0_var(--border)] last:shadow-none px-3 py-1 align-top font-mono text-[11px] leading-5 whitespace-nowrap',
 													numericColumns.has(column) && 'text-right tabular-nums',
 												)}
 											>
@@ -95,7 +106,7 @@ export function TableDisplay({
 						) : (
 							<tr>
 								<td
-									colSpan={Math.max(resolvedColumns.length, 1)}
+									colSpan={resolvedColumns.length + 1}
 									className='px-3 py-6 text-center text-sm text-muted-foreground'
 								>
 									{emptyLabel}
@@ -106,21 +117,37 @@ export function TableDisplay({
 				</table>
 			</div>
 
-			{needsPagination ? (
-				<TablePagination
-					totalRows={data.length}
-					pageIndex={pageIndex}
-					pageSize={pageSize}
-					pageCount={pageCount}
-					onPageChange={setPageIndex}
-					onPageSizeChange={(size) => {
-						setPageSize(size);
-						setPageIndex(0);
-					}}
-				/>
+			{showPagination ? (
+				compactFooter ? (
+					<TablePaginationCompact
+						totalRows={data.length}
+						pageIndex={pageIndex}
+						pageSize={pageSize}
+						pageCount={pageCount}
+						onPageChange={setPageIndex}
+						onPageSizeChange={(size) => {
+							setPageSize(size);
+							setPageIndex(0);
+						}}
+					/>
+				) : (
+					<TablePagination
+						totalRows={data.length}
+						pageIndex={pageIndex}
+						pageSize={pageSize}
+						pageCount={pageCount}
+						onPageChange={setPageIndex}
+						onPageSizeChange={(size) => {
+							setPageSize(size);
+							setPageIndex(0);
+						}}
+					/>
+				)
 			) : showRowCount ? (
-				<div className='flex justify-end px-2'>
-					<span className='text-sm text-muted-foreground'>{data.length} rows</span>
+				<div className={cn('flex px-4 py-2 border-t', compactFooter ? 'justify-start' : 'justify-end')}>
+					<span className={cn('text-muted-foreground', compactFooter ? 'text-xs' : 'text-sm')}>
+						{data.length} rows
+					</span>
 				</div>
 			) : null}
 		</div>

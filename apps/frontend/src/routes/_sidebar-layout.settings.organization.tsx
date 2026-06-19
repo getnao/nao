@@ -24,11 +24,9 @@ import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useSession } from '@/lib/auth-client';
-import { requireNonViewer } from '@/lib/require-admin';
 import { trpc } from '@/main';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/organization')({
-	beforeLoad: requireNonViewer,
 	component: OrganizationPage,
 });
 

@@ -17,7 +17,7 @@ const storyMentionOption: MentionOption = {
 	id: STORY_MENTION_ID,
 	label: 'Story mode',
 	labelRight: 'Create a new story',
-	icon: <StoryIcon className='size-4' />,
+	icon: <StoryIcon className='size-4' strokeWidth={2.25} />,
 };
 
 type ChatPromptProps = {
@@ -48,10 +48,10 @@ const theme: PromptTheme = {
 		itemHoverColor: 'var(--accent)',
 	},
 	pill: {
-		backgroundColor: 'var(--accent)',
-		color: 'var(--accent-foreground)',
-		padding: 'calc(var(--spacing) * 0.4) calc(var(--spacing) * 1.2)',
-		borderRadius: 'var(--radius-sm)',
+		backgroundColor: 'var(--background)',
+		color: 'var(--foreground)',
+		padding: 'calc(var(--spacing) * 1) calc(var(--spacing) * 2.5)',
+		borderRadius: '9999px',
 	},
 };
 

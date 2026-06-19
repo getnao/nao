@@ -24,22 +24,25 @@ export const ExecuteSandboxedCodeToolCall = ({
 	const actions = [
 		{
 			id: 'output',
-			label: <Terminal size={12} />,
+			label: <Terminal className='size-3 text-muted-foreground/70' strokeWidth={2.25} />,
 			isActive: viewMode === 'output',
 			onClick: () => setViewMode('output'),
+			title: 'View output',
 		},
 		{
 			id: 'code',
-			label: <Code size={12} />,
+			label: <Code className='size-3 text-muted-foreground/70' strokeWidth={2.25} />,
 			isActive: viewMode === 'code',
 			onClick: () => setViewMode('code'),
+			title: 'View code',
 		},
 		{
 			id: 'copy',
-			label: <Copy size={12} />,
+			label: <Copy className='size-3 text-muted-foreground/70' strokeWidth={2.25} />,
 			onClick: () => {
 				navigator.clipboard.writeText(input?.code ?? '');
 			},
+			title: 'Copy code',
 		},
 	];
 

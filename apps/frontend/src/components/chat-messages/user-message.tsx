@@ -37,10 +37,10 @@ const messageTheme: PromptTheme = {
 	padding: '0',
 	minHeight: 'auto',
 	pill: {
-		backgroundColor: 'var(--accent)',
-		color: 'var(--accent-foreground)',
-		padding: 'calc(var(--spacing) * 0.4) calc(var(--spacing) * 1.2)',
-		borderRadius: 'var(--radius-sm)',
+		backgroundColor: 'var(--background)',
+		color: 'var(--foreground)',
+		padding: 'calc(var(--spacing) * 1) calc(var(--spacing) * 2.5)',
+		borderRadius: '9999px',
 	},
 };
 
@@ -85,7 +85,7 @@ function useMentionConfigs(): MessageMentionConfig[] {
 		}));
 
 		const storyOptions: MentionOption[] = [
-			{ id: STORY_MENTION_ID, label: 'Story mode', icon: <StoryIcon className='size-4' /> },
+			{ id: STORY_MENTION_ID, label: 'Story mode', icon: <StoryIcon className='size-4' strokeWidth={2.25} /> },
 		];
 
 		return [
@@ -191,11 +191,17 @@ export const UserMessage = memo(({ message }: { message: UIMessage }) => {
 					<Button
 						variant='ghost-muted'
 						size='icon-sm'
+						className='hover:rounded-full'
 						onClick={() => editedMessageIdStore.setEditingId(message.id)}
 					>
 						<Pencil />
 					</Button>
-					<Button variant='ghost-muted' size='icon-sm' onClick={() => copy(getMessageText(message))}>
+					<Button
+						variant='ghost-muted'
+						size='icon-sm'
+						className='hover:rounded-full'
+						onClick={() => copy(getMessageText(message))}
+					>
 						{isCopied ? <Check className='size-4' /> : <Copy />}
 					</Button>
 				</div>

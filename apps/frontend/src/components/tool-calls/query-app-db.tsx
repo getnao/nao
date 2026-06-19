@@ -28,24 +28,27 @@ export const QueryAppDbToolCall = ({ toolPart }: ToolCallComponentProps) => {
 	const actions = [
 		{
 			id: 'results',
-			label: <TableIcon className='size-3' />,
+			label: <TableIcon className='size-3 text-muted-foreground/70' strokeWidth={2.25} />,
 			expandOnClick: true,
 			isActive: viewMode === 'results',
 			onClick: () => setViewMode('results'),
+			title: 'View results',
 		},
 		{
 			id: 'query',
-			label: <Code className='size-3' />,
+			label: <Code className='size-3 text-muted-foreground/70' strokeWidth={2.25} />,
 			expandOnClick: true,
 			isActive: viewMode === 'query',
 			onClick: () => setViewMode('query'),
+			title: 'View query',
 		},
 		{
 			id: 'copy',
-			label: <Copy className='size-3' />,
+			label: <Copy className='size-3 text-muted-foreground/70' strokeWidth={2.25} />,
 			onClick: () => {
 				navigator.clipboard.writeText(input?.sql ?? '');
 			},
+			title: 'Copy query',
 		},
 	];
 

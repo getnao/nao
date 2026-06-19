@@ -13,6 +13,7 @@ interface ActionButton {
 	isActive?: boolean;
 	onClick: () => void;
 	expandOnClick?: boolean;
+	title: string;
 }
 
 interface ToolCallWrapperProps {
@@ -61,7 +62,7 @@ export const ToolCallWrapper = ({
 	);
 
 	const actionsContent =
-		isHovering && actions && actions.length > 0 ? (
+		(isHovering || isExpanded) && actions && actions.length > 0 ? (
 			<div className={cn('flex items-center gap-1 shrink-0 -my-1')}>
 				{actions.map((action) => (
 					<Button
@@ -75,7 +76,8 @@ export const ToolCallWrapper = ({
 							}
 							action.onClick();
 						}}
-						className={cn(action.isActive ? 'bg-accent' : '')}
+						title={action.title}
+						className={cn('rounded-full hover:bg-accent/70', action.isActive ? 'bg-accent/70' : '')}
 					>
 						{action.label}
 					</Button>

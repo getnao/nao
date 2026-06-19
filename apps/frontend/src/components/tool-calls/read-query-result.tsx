@@ -39,7 +39,7 @@ export const ReadQueryResultToolCall = ({
 				<TableDisplay
 					data={output.data as Record<string, unknown>[]}
 					columns={output.columns}
-					tableContainerClassName='max-h-80 rounded-none border-0 bg-transparent'
+					tableContainerClassName='max-h-80 rounded-lg border bg-transparent'
 					showRowCount={false}
 				/>
 			)}

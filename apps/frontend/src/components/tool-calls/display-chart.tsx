@@ -3,6 +3,7 @@ import { buildChart, buildStoryChartBlock, labelize } from '@nao/shared';
 import { Download, FilePlus, Pencil } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useOptionalAgentContext } from '../../contexts/agent.provider';
+import GraphLoaderAnimated from '../icons/graph-loader-animated';
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from '../ui/chart';
 import { TextShimmer } from '../ui/text-shimmer';
 import { Skeleton } from '../ui/skeleton';
@@ -112,7 +113,8 @@ export const DisplayChartToolCall = ({
 		return (
 			<div className='my-4 flex flex-col gap-2 items-center aspect-3/2'>
 				<Skeleton className='w-1/2 h-4' />
-				<Skeleton className='w-full flex-1 flex items-center justify-center gap-2'>
+				<Skeleton className='w-full flex-1 flex flex-col items-center justify-center gap-3'>
+					<GraphLoaderAnimated className='w-96 h-64 text-muted-foreground' />
 					<TextShimmer text='Loading chart' />
 				</Skeleton>
 			</div>
@@ -185,21 +187,24 @@ export const DisplayChartToolCall = ({
 		<div
 			className={`flex flex-col items-center my-4 gap-2 ${config.chart_type !== 'kpi_card' && !normalSize ? 'aspect-3/2' : ''}`}
 		>
-			<div className='flex w-full items-center justify-between'>
+			<div className='flex w-full items-center justify-between gap-2'>
 				{config.chart_type != 'kpi_card' ? (
 					<span className='text-sm font-medium text-foreground flex-1'>{config.title}</span>
 				) : (
 					<div></div>
 				)}
-				{storyIds.length > 0 && (
-					<Button variant='ghost-muted' size='sm' onClick={handleAddToStory} className='gap-1'>
-						<FilePlus className='size-3' />
-						<span className='text-xs'>Add to story</span>
-					</Button>
-				)}
-			</div>
-			<div className='relative w-full flex justify-end'>
 				<div className='flex items-center gap-1'>
+					{storyIds.length > 0 && (
+						<Button
+							variant='outline'
+							className='rounded-full border gap-2 dark:bg-transparent'
+							size='sm'
+							onClick={handleAddToStory}
+						>
+							<FilePlus className='size-3' />
+							<span className='text-xs'>Add to story</span>
+						</Button>
+					)}
 					{config.chart_type !== 'pie' && config.x_axis_type === 'date' && (
 						<ChartRangeSelector
 							options={DATE_RANGE_OPTIONS}
@@ -207,25 +212,27 @@ export const DisplayChartToolCall = ({
 							onRangeSelected={(range) => setDataRange(range)}
 						/>
 					)}
-					{isEditable && (
-						<Button
-							variant='ghost-muted'
-							size='icon-xs'
-							onClick={() => setIsEditOpen(true)}
-							title='Edit chart'
-						>
-							<Pencil className='size-3.5' />
-						</Button>
-					)}
 					{config.chart_type != 'kpi_card' && (
 						<Button
-							variant='ghost-muted'
+							variant='ghost'
 							size='icon-xs'
+							className='hover:rounded-full'
 							onClick={handleDownload}
 							disabled={isDownloading}
 							title='Download as PNG'
 						>
-							<Download className='size-3.5' />
+							<Download className='size-4' />
+						</Button>
+					)}
+					{isEditable && (
+						<Button
+							variant='ghost'
+							size='icon-xs'
+							className='hover:rounded-full'
+							onClick={() => setIsEditOpen(true)}
+							title='Edit chart'
+						>
+							<Pencil className='size-4' />
 						</Button>
 					)}
 				</div>

@@ -73,7 +73,10 @@ export function AssistantMessageActions({
 					size='icon-sm'
 					onClick={handlePositiveFeedback}
 					disabled={submitFeedback.isPending}
-					className={cn(message.feedback?.vote === 'up' ? 'text-primary' : 'opacity-50 hover:opacity-100')}
+					className={cn(
+						'hover:rounded-full',
+						message.feedback?.vote === 'up' ? 'text-primary' : 'opacity-50 hover:opacity-100',
+					)}
 					aria-label='Good response'
 				>
 					<ThumbsUp className='size-4' />
@@ -84,7 +87,10 @@ export function AssistantMessageActions({
 					size='icon-sm'
 					onClick={handleNegativeFeedbackClick}
 					disabled={submitFeedback.isPending}
-					className={cn(message.feedback?.vote === 'down' ? 'text-primary' : 'opacity-50 hover:opacity-100')}
+					className={cn(
+						'hover:rounded-full',
+						message.feedback?.vote === 'down' ? 'text-primary' : 'opacity-50 hover:opacity-100',
+					)}
 					aria-label='Bad response'
 				>
 					<ThumbsDown className='size-4' />
@@ -94,7 +100,7 @@ export function AssistantMessageActions({
 					variant='ghost'
 					size='icon-sm'
 					onClick={() => copy(getMessageText(message))}
-					className='opacity-50 hover:opacity-100'
+					className='opacity-50 hover:opacity-100 hover:rounded-full'
 					aria-label='Copy message'
 				>
 					{isCopied ? <Check className='size-4' /> : <Copy className='size-4' />}
@@ -139,7 +145,7 @@ function NegativeFeedbackDialog({ open, onOpenChange, onSubmit, isPending }: Neg
 			<DialogContent showCloseButton>
 				<DialogHeader>
 					<DialogTitle>What went wrong?</DialogTitle>
-					<DialogDescription>
+					<DialogDescription className='text-sm text-muted-foreground font-medium'>
 						Help us improve by explaining what was wrong with this response.
 					</DialogDescription>
 				</DialogHeader>
@@ -151,10 +157,10 @@ function NegativeFeedbackDialog({ open, onOpenChange, onSubmit, isPending }: Neg
 						onKeyDown={handleKeyDown}
 						onChange={(e) => setExplanation(e.target.value)}
 						rows={4}
-						className='resize-none'
+						className='resize-none bg-panel'
 					/>
 
-					<Button type='submit' disabled={isPending}>
+					<Button variant='primary-gradient' className='rounded-full' type='submit' disabled={isPending}>
 						Submit
 					</Button>
 				</form>

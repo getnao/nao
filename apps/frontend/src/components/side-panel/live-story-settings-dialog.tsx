@@ -1,7 +1,7 @@
 import { NO_CACHE_SCHEDULE } from '@nao/shared';
 import { useCallback, useEffect, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { Activity, Loader2, Type, Wand2 } from 'lucide-react';
+import { Activity, Loader2, RefreshCw, Wand2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
 	Dialog,
@@ -136,9 +136,9 @@ export function LiveStorySettingsDialog({
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
 			<DialogContent className='sm:max-w-md'>
-				<DialogHeader>
+				<DialogHeader className='gap-4'>
 					<DialogTitle>Live Story Settings</DialogTitle>
-					<DialogDescription>
+					<DialogDescription className='text-sm text-muted-foreground font-medium'>
 						A live story refreshes its data from the database instead of showing a static version.
 					</DialogDescription>
 				</DialogHeader>
@@ -146,11 +146,11 @@ export function LiveStorySettingsDialog({
 				<div className='flex flex-col gap-5'>
 					<div className='flex items-center justify-between gap-4'>
 						<div className='flex items-center gap-2.5'>
-							<div className='flex size-8 items-center justify-center rounded-full bg-emerald-100 text-emerald-600'>
+							<div className='flex size-8 items-center justify-center rounded-full'>
 								<Activity className='size-4' />
 							</div>
-							<div>
-								<p className='text-sm font-medium'>Live mode</p>
+							<div className='flex flex-col gap-1'>
+								<p className='text-sm font-semibold'>Live mode</p>
 								<p className='text-xs text-muted-foreground'>Re-run queries to refresh data</p>
 							</div>
 						</div>
@@ -160,16 +160,16 @@ export function LiveStorySettingsDialog({
 					{localIsLive && (
 						<>
 							<div className='flex flex-col gap-2'>
-								<label className='text-sm font-medium'>Refresh schedule</label>
-								<p className='text-xs text-muted-foreground'>
+								<label className='text-sm font-semibold'>Refresh schedule</label>
+								<p className='text-sm text-muted-foreground font-medium'>
 									How often the data should be automatically refreshed. You can always refresh
 									manually using the refresh button.
 								</p>
 								<Select value={localPreset} onValueChange={handlePresetChange}>
-									<SelectTrigger className='w-full'>
+									<SelectTrigger className='w-full bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
 										<SelectValue />
 									</SelectTrigger>
-									<SelectContent>
+									<SelectContent className='bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
 										{SCHEDULE_PRESETS.map((opt) => (
 											<SelectItem key={opt.value} value={opt.value}>
 												{opt.label}
@@ -182,7 +182,7 @@ export function LiveStorySettingsDialog({
 							{localPreset === 'custom' && (
 								<div className='flex flex-col gap-3'>
 									<div className='flex flex-col gap-1.5'>
-										<label className='text-xs font-medium text-muted-foreground'>
+										<label className='text-sm font-medium text-muted-foreground'>
 											Describe in plain English
 										</label>
 										<div className='flex gap-2'>
@@ -196,7 +196,7 @@ export function LiveStorySettingsDialog({
 													}
 												}}
 												placeholder='e.g. every weekday at 9am'
-												className='h-8 text-sm flex-1'
+												className='h-8 text-sm flex-1 bg-panel'
 												onKeyDown={(e) => {
 													if (e.key === 'Enter') {
 														handleNlConvert();
@@ -206,7 +206,7 @@ export function LiveStorySettingsDialog({
 											<Button
 												variant='outline'
 												size='sm'
-												className='gap-1 shrink-0 h-8'
+												className='gap-1 shrink-0 h-8 rounded-full'
 												onClick={handleNlConvert}
 												disabled={!nlInput.trim() || cronNlpMutation.isPending}
 											>
@@ -233,14 +233,14 @@ export function LiveStorySettingsDialog({
 									</div>
 
 									<div className='flex flex-col gap-1.5'>
-										<label className='text-xs font-medium text-muted-foreground'>
+										<label className='text-sm font-medium text-muted-foreground'>
 											Or enter a cron expression
 										</label>
 										<Input
 											value={localCustomCron}
 											onChange={(e) => setLocalCustomCron(e.target.value)}
 											placeholder='*/5 * * * *'
-											className='h-8 text-sm font-mono'
+											className='h-8 text-sm font-mono bg-panel'
 										/>
 										<p className='text-[11px] text-muted-foreground'>
 											Format: minute hour day-of-month month day-of-week
@@ -251,11 +251,11 @@ export function LiveStorySettingsDialog({
 
 							<div className='flex items-center justify-between gap-4'>
 								<div className='flex items-center gap-2.5'>
-									<div className='flex size-8 shrink-0 items-center justify-center rounded-full bg-yellow-100 text-yellow-600'>
-										<Type className='size-4' />
+									<div className='flex size-8 shrink-0 items-center justify-center rounded-full'>
+										<RefreshCw className='size-4' />
 									</div>
-									<div>
-										<p className='text-sm font-medium'>Regenerate the narrative</p>
+									<div className='flex flex-col gap-1'>
+										<p className='text-sm font-semibold'>Regenerate the narrative</p>
 										<p className='text-xs text-muted-foreground'>
 											Refresh the story text with updated numbers while keeping the current
 											structure, charts, tables, and titles
@@ -269,10 +269,15 @@ export function LiveStorySettingsDialog({
 				</div>
 
 				<DialogFooter>
-					<Button variant='outline' onClick={() => onOpenChange(false)}>
+					<Button variant='outline' className='rounded-full' onClick={() => onOpenChange(false)}>
 						Cancel
 					</Button>
-					<Button onClick={handleSave} disabled={!hasChanges || isUpdating}>
+					<Button
+						variant='primary-gradient'
+						className='rounded-full'
+						onClick={handleSave}
+						disabled={!hasChanges || isUpdating}
+					>
 						Save
 					</Button>
 				</DialogFooter>

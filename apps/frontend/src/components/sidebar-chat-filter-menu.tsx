@@ -77,11 +77,11 @@ export function ChatFilterMenu({ groupBy, filters, onGroupByChange, onFilterTogg
 			<DropdownMenuContent
 				align='end'
 				side='top'
-				className='w-48 overflow-visible bg-background'
+				className='w-auto overflow-visible bg-background'
 				onMouseEnter={cancelClose}
 				onMouseLeave={scheduleClose}
 			>
-				<DropdownMenuLabel>Group by</DropdownMenuLabel>
+				<DropdownMenuLabel className='text-xs'>Group by</DropdownMenuLabel>
 
 				{GROUP_BY_OPTIONS.map((opt) => (
 					<DropdownMenuItem
@@ -94,7 +94,7 @@ export function ChatFilterMenu({ groupBy, filters, onGroupByChange, onFilterTogg
 						{opt.label}
 						{groupBy === opt.value && (
 							<span className='absolute right-2 flex items-center'>
-								<CircleIcon className='size-2 fill-current' />
+								<CircleIcon className='size-2 fill-current text-primary' />
 							</span>
 						)}
 					</DropdownMenuItem>
@@ -105,19 +105,19 @@ export function ChatFilterMenu({ groupBy, filters, onGroupByChange, onFilterTogg
 				<div className='relative' onMouseEnter={() => setSubOpen(true)} onMouseLeave={() => setSubOpen(false)}>
 					<div
 						className={cn(
-							'flex w-full items-center gap-2 rounded-sm py-1 pr-2 pl-2 text-sm cursor-pointer select-none',
+							'flex w-full items-center gap-2 rounded-sm py-1 pr-2 pl-2 text-sm cursor-pointer select-none text-foreground text-xs font-medium',
 							subOpen
 								? 'bg-accent text-accent-foreground'
 								: 'hover:bg-accent hover:text-accent-foreground',
 						)}
 					>
 						Filter
-						<ChevronRight className='ml-auto size-4 text-muted-foreground' />
+						<ChevronRight className='ml-auto size-4 text-foreground' />
 					</div>
 
 					{subOpen && (
 						<div className='absolute bottom-0 left-full pl-1.5 z-50'>
-							<div className='w-48 bg-background text-popover-foreground rounded-md border p-1 shadow-lg'>
+							<div className='w-auto min-w-36 bg-background text-popover-foreground rounded-md border p-1 shadow-lg'>
 								{FILTER_OPTIONS.map((opt) => (
 									<DropdownMenuItem
 										key={opt.value}
