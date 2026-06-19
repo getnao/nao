@@ -630,9 +630,13 @@ class ClickHouseConfig(DatabaseConfig):
             raise InitError("Protocol must be 'http' or 'native'.")
 
         default_port = "8123" if protocol == "http" else "9000"
+        secure_port = "8443" if protocol == "http" else "9440"
+        # Leave the input empty by default so the secure-aware resolution below
+        # can pick the right port once the user answers the TLS prompt. Pre-filling
+        # a value would lock in the non-secure port even when secure mode is chosen.
         port_str = ask_text(
-            f"Port (empty = default {default_port}):",
-            default=default_port,
+            f"Port (empty = default {default_port}, or {secure_port} when secure):",
+            default="",
         )
         if port_str and not port_str.isdigit():
             raise InitError("Port must be a valid integer or empty.")

@@ -9,7 +9,16 @@ from nao_core.config.databases._clickhouse_native import (
     _NativeColumnType,
     _NativeRawSQLResult,
     _NativeSchema,
+    _quote_identifier,
 )
+
+
+class TestQuoteIdentifier:
+    def test_plain_identifier_is_backtick_wrapped(self) -> None:
+        assert _quote_identifier("users") == "`users`"
+
+    def test_embedded_backticks_are_doubled(self) -> None:
+        assert _quote_identifier("we`ird") == "`we``ird`"
 
 
 class TestNativeColumnType:
@@ -142,6 +151,20 @@ class TestNativeClickHouseBackend:
         client.execute.return_value = []
         backend = self._backend(client)
         assert backend.table("users").count().execute() == 0
+
+    def test_table_schema_escapes_backticks_in_identifiers(self) -> None:
+        client = MagicMock()
+        client.execute.return_value = ([], [])
+        backend = self._backend(client)
+        backend.table("we`ird", database="da`ta").schema()
+        client.execute.assert_called_with("DESCRIBE TABLE `da``ta`.`we``ird`", with_column_types=True)
+
+    def test_table_count_escapes_backticks_in_identifiers(self) -> None:
+        client = MagicMock()
+        client.execute.return_value = [(7,)]
+        backend = self._backend(client)
+        assert backend.table("we`ird", database="da`ta").count().execute() == 7
+        client.execute.assert_called_with("SELECT count() FROM `da``ta`.`we``ird`")
 
     def test_disconnect_is_idempotent_on_errors(self) -> None:
         client = MagicMock()

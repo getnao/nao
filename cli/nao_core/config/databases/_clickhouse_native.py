@@ -28,6 +28,12 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _quote_identifier(value: str) -> str:
+    """Quote a ClickHouse identifier, escaping embedded backticks by doubling."""
+    escaped = value.replace("`", "``")
+    return f"`{escaped}`"
+
+
 class _NativeColumnType:
     """Lightweight stand-in for an ``ibis.DataType``.
 
@@ -122,14 +128,17 @@ class _NativeTable:
 
     def schema(self) -> _NativeSchema:
         rows, _ = self._client.execute(
-            f"DESCRIBE TABLE `{self._database}`.`{self._name}`",
+            f"DESCRIBE TABLE {self._qualified_name()}",
             with_column_types=True,
         )
         # DESCRIBE returns: name, type, default_type, default_expression, comment, codec_expression, ttl_expression
         return _NativeSchema([(row[0], row[1]) for row in rows])
 
     def count(self) -> _NativeCountExpr:
-        return _NativeCountExpr(self._client, f"`{self._database}`.`{self._name}`")
+        return _NativeCountExpr(self._client, self._qualified_name())
+
+    def _qualified_name(self) -> str:
+        return f"{_quote_identifier(self._database)}.{_quote_identifier(self._name)}"
 
 
 class NativeClickHouseBackend:
