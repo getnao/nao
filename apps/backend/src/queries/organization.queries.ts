@@ -42,11 +42,7 @@ export const addOrgMember = async (member: NewOrgMember): Promise<DBOrgMember> =
 };
 
 export const addOrgMemberIfMissing = async (member: NewOrgMember): Promise<void> => {
-	const existingMember = await getOrgMember(member.orgId, member.userId);
-	if (existingMember) {
-		return;
-	}
-	await addOrgMember(member);
+	await db.insert(s.orgMember).values(member).onConflictDoNothing().execute();
 };
 
 export const getUserOrgMembership = async (
