@@ -19,7 +19,7 @@ const GROUP_STRATEGIES: Record<ChatGroupBy, (items: EnrichedChat[]) => ChatGroup
 	none: (items) => [{ label: null, chats: toGroupedItems(items) }],
 };
 
-export type SourcePlatform = 'Web' | 'MCP' | 'Slack' | 'Teams' | 'WhatsApp' | 'Telegram';
+export type SourcePlatform = 'Web' | 'MCP' | 'Context recommendations' | 'Slack' | 'Teams' | 'WhatsApp' | 'Telegram';
 
 export function deriveSourcePlatform(threadIds: {
 	slackThreadId?: string | null;
@@ -120,7 +120,15 @@ function groupByOwnership(items: EnrichedChat[]) {
 	return groupByKey(items, (i) => i.ownerName);
 }
 
-const SOURCE_PLATFORM_ORDER: SourcePlatform[] = ['Web', 'MCP', 'Slack', 'Teams', 'WhatsApp', 'Telegram'];
+const SOURCE_PLATFORM_ORDER: SourcePlatform[] = [
+	'Web',
+	'MCP',
+	'Context recommendations',
+	'Slack',
+	'Teams',
+	'WhatsApp',
+	'Telegram',
+];
 
 function groupBySourcePlatform(items: EnrichedChat[]): ChatGroup[] {
 	const groups = new Map<SourcePlatform, EnrichedChat[]>();

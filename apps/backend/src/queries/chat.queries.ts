@@ -44,6 +44,11 @@ const sourcePlatformExpr = sql<SourcePlatform>`case
 		where ${s.chatMessage.chatId} = ${s.chat.id}
 		and ${s.chatMessage.source} = 'mcp'
 	) then 'MCP'
+	when exists(
+		select 1 from ${s.chatMessage}
+		where ${s.chatMessage.chatId} = ${s.chat.id}
+		and ${s.chatMessage.source} in ('contextRecommendations', 'context_recommendation')
+	) then 'Context recommendations'
 	else 'Web'
 end`;
 
