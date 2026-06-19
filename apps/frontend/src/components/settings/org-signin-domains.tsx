@@ -25,35 +25,43 @@ export function OrgSignInDomains({ isAdmin }: OrgSignInDomainsProps) {
 		setDomains(savedDomains);
 	}, [savedDomains]);
 
-	const hasChanges = useMemo(() => domains.join(',') !== savedDomains.join(','), [domains, savedDomains]);
+	const save = async (nextDomains: string[]) => {
+		setDomains(nextDomains);
+		try {
+			const saved = await updateDomains.mutateAsync({ domains: nextDomains });
+			setDomains(saved.domains);
+			await queryClient.invalidateQueries({
+				queryKey: trpc.organization.getSignInDomains.queryOptions().queryKey,
+			});
+		} catch {
+			setDomains(savedDomains);
+		}
+	};
 
 	const addDraft = () => {
 		const next = draft.trim().toLowerCase().replace(/^@/, '');
-		if (next && !domains.includes(next)) {
-			setDomains([...domains, next]);
-		}
 		setDraft('');
+		if (next && !domains.includes(next)) {
+			void save([...domains, next]);
+		}
 	};
 
 	const removeDomain = (domain: string) => {
-		setDomains(domains.filter((d) => d !== domain));
-	};
-
-	const handleSave = async () => {
-		const saved = await updateDomains.mutateAsync({ domains });
-		setDomains(saved.domains);
-		await queryClient.invalidateQueries({ queryKey: trpc.organization.getSignInDomains.queryOptions().queryKey });
+		void save(domains.filter((d) => d !== domain));
 	};
 
 	return (
 		<SettingsCard
 			title='Sign-in domains'
-			description='Anyone who signs in with Google using one of these email domains automatically joins this organization.'
+			description='Anyone who signs in with Google using one of these email domains automatically joins this organization. You can only add a domain once this organization has a verified member using it, and each domain can belong to a single organization.'
 		>
 			{!isAdmin ? (
 				<p className='text-sm text-muted-foreground'>Contact your admin to manage sign-in domains.</p>
 			) : (
 				<div className='flex flex-col gap-4'>
+					{updateDomains.error ? (
+						<p className='text-sm text-destructive'>{updateDomains.error.message}</p>
+					) : null}
 					<div className='flex items-center gap-2'>
 						<Input
 							value={draft}
@@ -66,13 +74,16 @@ export function OrgSignInDomains({ isAdmin }: OrgSignInDomainsProps) {
 							}}
 							placeholder='company.com'
 							className='flex-1'
+							disabled={updateDomains.isPending}
 						/>
-						<Button variant='secondary' type='button' onClick={addDraft} disabled={!draft.trim()}>
+						<Button
+							variant='secondary'
+							type='button'
+							onClick={addDraft}
+							disabled={!draft.trim() || updateDomains.isPending}
+						>
 							<Plus className='size-4' />
 							Add
-						</Button>
-						<Button type='button' onClick={handleSave} disabled={!hasChanges || updateDomains.isPending}>
-							{updateDomains.isPending ? 'Saving…' : 'Save changes'}
 						</Button>
 					</div>
 
@@ -89,7 +100,8 @@ export function OrgSignInDomains({ isAdmin }: OrgSignInDomainsProps) {
 									<button
 										type='button'
 										onClick={() => removeDomain(domain)}
-										className='rounded-full p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground'
+										disabled={updateDomains.isPending}
+										className='rounded-full p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50'
 										aria-label={`Remove ${domain}`}
 									>
 										<X className='size-3.5' />

@@ -120,6 +120,35 @@ export const updateOrganizationEmailDomains = async (orgId: string, domains: str
 	await db.update(s.organization).set({ googleAuthDomains: domains }).where(eq(s.organization.id, orgId)).execute();
 };
 
+/**
+ * Cloud mode: the set of email domains the organization can prove it owns,
+ * derived from its members that have a verified email address.
+ */
+export const getVerifiedMemberEmailDomains = async (orgId: string): Promise<Set<string>> => {
+	const rows = await db
+		.select({ email: s.user.email })
+		.from(s.orgMember)
+		.innerJoin(s.user, eq(s.orgMember.userId, s.user.id))
+		.where(and(eq(s.orgMember.orgId, orgId), eq(s.user.emailVerified, true)))
+		.execute();
+
+	const domains = new Set<string>();
+	for (const { email } of rows) {
+		const domain = email.split('@').at(1)?.trim().toLowerCase();
+		if (domain) {
+			domains.add(domain);
+		}
+	}
+	return domains;
+};
+
+/** Cloud mode: whether another organization has already claimed the given email domain. */
+export const isEmailDomainClaimedByAnotherOrg = async (domain: string, orgId: string): Promise<boolean> => {
+	const normalized = domain.trim().toLowerCase();
+	const orgs = await db.select().from(s.organization).where(isNotNull(s.organization.googleAuthDomains)).execute();
+	return orgs.some((org) => org.id !== orgId && parseEmailDomains(org.googleAuthDomains).includes(normalized));
+};
+
 function parseEmailDomains(domains: string | null): string[] {
 	if (!domains) {
 		return [];

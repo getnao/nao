@@ -86,8 +86,8 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		pageLabel: 'Organization',
 		title: 'Sign-in domains',
 		description:
-			'Users who sign in with Google using one of these email domains automatically join this organization.',
-		keywords: ['sso', 'google', 'domain', 'email domain', 'allowlist', 'auto join', 'workspace'],
+			'Users who sign in with Google using one of these verified email domains automatically join this organization.',
+		keywords: ['sso', 'google', 'domain', 'email domain', 'allowlist', 'auto join', 'workspace', 'verified'],
 		cloudOnly: true,
 	},
 	{

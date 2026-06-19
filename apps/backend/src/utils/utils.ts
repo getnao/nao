@@ -49,6 +49,50 @@ export const normalizeEmailDomains = (raw: string): string[] => {
 	return [...seen];
 };
 
+export const getEmailDomain = (email: string): string | null => {
+	return email.split('@').at(1)?.trim().toLowerCase() || null;
+};
+
+/**
+ * Free / consumer email providers. These can never be claimed for organization
+ * sign-in routing, since anyone can hold an address on them.
+ */
+const PUBLIC_EMAIL_DOMAINS = new Set<string>([
+	'gmail.com',
+	'googlemail.com',
+	'outlook.com',
+	'hotmail.com',
+	'hotmail.co.uk',
+	'live.com',
+	'msn.com',
+	'yahoo.com',
+	'yahoo.co.uk',
+	'ymail.com',
+	'icloud.com',
+	'me.com',
+	'mac.com',
+	'aol.com',
+	'proton.me',
+	'protonmail.com',
+	'pm.me',
+	'gmx.com',
+	'gmx.net',
+	'gmx.de',
+	'mail.com',
+	'zoho.com',
+	'yandex.com',
+	'yandex.ru',
+	'qq.com',
+	'163.com',
+	'126.com',
+	'fastmail.com',
+	'hey.com',
+]);
+
+export const isPublicEmailDomain = (domain: string): boolean => {
+	return PUBLIC_EMAIL_DOMAINS.has(domain.trim().toLowerCase());
+};
+
 export const isEmailDomainAllowed = (userEmail: string, authDomains?: string) => {
 	if (authDomains) {
 		const allowedDomains = authDomains.split(',').map((domain) => domain.trim().toLowerCase());
