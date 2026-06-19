@@ -107,7 +107,12 @@ export const findOrganizationByEmailDomain = async (email: string): Promise<DBOr
 		return null;
 	}
 
-	const orgs = await db.select().from(s.organization).where(isNotNull(s.organization.googleAuthDomains)).orderBy(asc(s.organization.createdAt)).execute();
+	const orgs = await db
+		.select()
+		.from(s.organization)
+		.where(isNotNull(s.organization.googleAuthDomains))
+		.orderBy(asc(s.organization.createdAt))
+		.execute();
 
 	return orgs.find((org) => parseEmailDomains(org.googleAuthDomains).includes(domain)) ?? null;
 };
