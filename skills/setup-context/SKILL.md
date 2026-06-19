@@ -28,12 +28,12 @@ Send a single message asking for:
 
 2. **Write `nao_config.yaml`** from the answers (skeleton in appendix below).
 
-3. **Run `nao init`** — it detects the existing yaml and offers to update; confirm. Folder scaffold gets created. Say "no" to optional providers (skills / MCPs / Notion / Slack); edit the yaml directly afterwards if needed.
+3. **Run `nao init --no-tty`** — it detects the pre-written yaml, skips all prompts, scaffolds the folder structure, and auto-installs missing dependencies. No interactive confirmation needed.
 
     Use this command (unsets leaked env vars from the parent agentic CLI — see Step 5):
 
     ```bash
-    unset ANTHROPIC_BASE_URL ANTHROPIC_API_KEY && source ~/.zshrc 2>/dev/null; nao init 2>&1
+    unset ANTHROPIC_BASE_URL ANTHROPIC_API_KEY && source ~/.zshrc 2>/dev/null; nao init --no-tty 2>&1
     ```
 
 4. **Print a summary of `nao_config.yaml` to the user** before going further. Format example:
@@ -111,7 +111,7 @@ Regular human terminals aren't affected.
 - **`cd` into the project directory before any `nao` command.**
 - **Cap at ~100 tables.**
 - **One batch of questions.** Look up warehouse-specific fields from the docs, don't keep pinging the user.
-- **Run `nao init` non-interactively** with the yaml pre-written.
+- **Run `nao init --no-tty`** with the yaml pre-written — never run `nao init` without the flag.
 - **Use `templates: [columns, preview, description]`.** Don't use `accessors`.
 - **Repos: SSH git URLs only.** No local paths in the `repos:` block.
 - **Print the `nao_config.yaml` summary** and get user confirmation before `nao sync`.

@@ -120,13 +120,13 @@ export const getUserRoleInProject = async (
 	}
 
 	const [orgMember] = await db
-		.select({ userId: s.orgMember.userId })
+		.select({ userId: s.orgMember.userId, role: s.orgMember.role })
 		.from(s.orgMember)
 		.where(and(eq(s.orgMember.orgId, project.orgId), eq(s.orgMember.userId, userId)))
 		.limit(1)
 		.execute();
 
-	return orgMember ? 'viewer' : null;
+	return orgMember ? orgMember.role : null;
 };
 
 export const listAllUsersWithRoles = async (projectId: string): Promise<UserWithRole[]> => {

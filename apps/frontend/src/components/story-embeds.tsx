@@ -6,7 +6,7 @@ import type { displayChart } from '@nao/shared/tools';
 
 import { StoryChartEmbedShell } from '@/components/side-panel/story-chart-embed';
 import { ChartDisplay } from '@/components/tool-calls/display-chart';
-import { TableDisplay } from '@/components/tool-calls/display-table';
+import { DataTableCard } from '@/components/data-table-card';
 
 export type QueryDataMap = Record<string, { data: Record<string, unknown>[]; columns: string[] }>;
 
@@ -110,12 +110,5 @@ export const StoryTableEmbed = memo(function StoryTableEmbed({
 		return <EmbedPlaceholder>Table data unavailable</EmbedPlaceholder>;
 	}
 
-	return (
-		<TableDisplay
-			data={resolvedResult.data}
-			columns={resolvedResult.columns}
-			title={table.title}
-			tableContainerClassName='max-h-[28rem]'
-		/>
-	);
+	return <DataTableCard data={resolvedResult.data} columns={resolvedResult.columns ?? []} title={table.title} />;
 });

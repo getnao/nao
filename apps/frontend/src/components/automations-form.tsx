@@ -112,6 +112,8 @@ type AutomationFormProps = {
 
 type AutomationDetails = {
 	enabled: boolean;
+	scheduleDescription?: string | null;
+	cron?: string | null;
 	nextRunAt?: Date | string | null;
 	lastRunAt?: Date | string | null;
 };
@@ -1402,8 +1404,12 @@ function AutomationDetailSummary({ details }: { details: AutomationDetails }) {
 	return (
 		<div className='grid gap-2 rounded-lg'>
 			<DetailRow label='Status' value={details.enabled ? 'Enabled' : 'Paused'} />
-			<DetailRow label='Next run' value={details.enabled ? formatDateTime(details.nextRunAt) : '-'} />
-			<DetailRow label='Last run' value={formatDateTime(details.lastRunAt)} />
+			<DetailRow
+				label='Schedule (server time)'
+				value={details.scheduleDescription || details.cron || 'Custom schedule'}
+			/>
+			<DetailRow label='Next run (your time)' value={details.enabled ? formatDateTime(details.nextRunAt) : '-'} />
+			<DetailRow label='Last run (your time)' value={formatDateTime(details.lastRunAt)} />
 		</div>
 	);
 }

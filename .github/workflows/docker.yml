@@ -270,6 +270,8 @@ jobs:
                           -e "ENABLE_USER_SIGNUP=true" \
                           -e "BETA_AUTOMATIONS_ENABLED=true" \
                           -e "BETA_CONTEXT_RECOMMENDATIONS_ENABLED=true" \
+                          -e "GOOGLE_CLIENT_ID=${{ secrets.NAOCLOUD_GOOGLE_CLIENT_ID }}" \
+                          -e "GOOGLE_CLIENT_SECRET=${{ secrets.NAOCLOUD_GOOGLE_CLIENT_SECRET }}" \
                           getnao/nao:${{ needs.merge.outputs.image-tag }}
 
                       echo "Waiting for container to start..."

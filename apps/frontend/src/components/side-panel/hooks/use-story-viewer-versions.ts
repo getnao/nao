@@ -21,6 +21,7 @@ export const useStoryViewerVersions = ({
 		enabled: !isReadonlyMode,
 	});
 	const versions = useMemo(() => data?.versions ?? [], [data?.versions]);
+	const storyId = data?.id ?? null;
 	const storyTitle = data?.title;
 	const archivedAt = data?.archivedAt;
 	const [selectedVersionIndex, setSelectedVersionIndex] = useState(-1);
@@ -57,6 +58,7 @@ export const useStoryViewerVersions = ({
 
 	return {
 		versions,
+		storyId,
 		storyTitle,
 		archivedAt,
 		currentVersion,

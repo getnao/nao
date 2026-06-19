@@ -19,7 +19,7 @@ function AccordionItem({ className, ...props }: React.ComponentProps<typeof Acco
 
 function AccordionTrigger({ className, children, ...props }: React.ComponentProps<typeof AccordionPrimitive.Trigger>) {
 	return (
-		<AccordionPrimitive.Header className='flex min-w-0 overflow-hidden'>
+		<AccordionPrimitive.Header className='flex min-w-0 overflow-hidden w-full'>
 			<AccordionPrimitive.Trigger
 				data-slot='accordion-trigger'
 				className={cn(

@@ -169,6 +169,51 @@ describe('license.service', () => {
 		expect(fetch).not.toHaveBeenCalled();
 	});
 
+	it('includes instance configuration in the startup ping additional info', async () => {
+		const fetch = vi.fn(async () => new Response(null, { status: 201 }));
+		process.env.MODE = 'prod';
+		process.env.BETTER_AUTH_URL = 'https://chat.example.com';
+		process.env.APP_VERSION = '1.2.3';
+		process.env.NAO_MODE = 'self-hosted';
+		process.env.BETA_AUTOMATIONS_ENABLED = 'false';
+		process.env.BETA_CONTEXT_RECOMMENDATIONS_ENABLED = 'true';
+		process.env.SMTP_HOST = 'smtp.example.com';
+		process.env.SMTP_MAIL_FROM = 'hello@example.com';
+		process.env.SMTP_PASSWORD = 'secret';
+		process.env.GITHUB_SSO = 'true';
+		process.env.GITHUB_CLIENT_ID = 'github-client';
+		process.env.GITHUB_CLIENT_SECRET = 'github-secret';
+		process.env.AZURE_AD_CLIENT_ID = 'azure-client';
+		process.env.AZURE_AD_CLIENT_SECRET = 'azure-secret';
+		process.env.AZURE_AD_TENANT_ID = 'azure-tenant';
+		process.env.OIDC_CLIENT_ID = 'oidc-client';
+		process.env.OIDC_CLIENT_SECRET = 'oidc-secret';
+		process.env.OIDC_DISCOVERY_URL = 'https://oidc.example.com/.well-known/openid-configuration';
+		setLicenseEnv({ licensePath: undefined });
+		vi.stubGlobal('fetch', fetch);
+
+		await pingLicensesServer();
+
+		const [, init] = fetch.mock.calls[0] as [string, RequestInit];
+		const body = JSON.parse(String(init.body));
+		expect(body).toEqual({
+			betterAuthUrl: 'https://chat.example.com',
+			naoVersion: '1.2.3',
+			additionalInfo: expect.objectContaining({
+				betaAutomationsEnabled: false,
+				betaContextRecommendationsEnabled: true,
+				smtpConfigured: true,
+				loginModesConfigured: {
+					google: false,
+					github: true,
+					azure: true,
+					oidc: true,
+				},
+			}),
+		});
+		expect(body.additionalInfo.userCount === null || typeof body.additionalInfo.userCount === 'number').toBe(true);
+	});
+
 	it('expires offline licenses strictly at expiresAt', async () => {
 		const { licensePath, publicKeyPem } = await createSignedLicenseFile(
 			{

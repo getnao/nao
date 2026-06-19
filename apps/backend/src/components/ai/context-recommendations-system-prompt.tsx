@@ -1,5 +1,5 @@
 import { APP_DB_VIEW_COLUMNS } from '../../db/app-db-views';
-import { Block, Bold, Br, Code, List, ListItem, renderToMarkdown, Span, Title } from '../../lib/markdown';
+import { Block, Bold, Br, Code, CodeBlock, List, ListItem, renderToMarkdown, Span, Title } from '../../lib/markdown';
 import type { LinkedContextRepo } from '../../types/context-recommendation';
 import { ALLOWED_APP_DB_VIEWS } from '../../utils/app-db-allowlist';
 import { NaoContextStructure } from './nao-context-structure';
@@ -191,8 +191,44 @@ function ProposeFixesSection({
 					<Code>suggestedFile</Code> values.
 				</ListItem>
 			</List>
+			<SkillsSection />
 			<Span>
 				Keep edits minimal and focused on the recorded finding. Do not propose a fix you cannot substantiate.
+			</Span>
+		</Block>
+	);
+}
+
+const SKILL_TEMPLATE = `---
+name: <skill-name>
+description: <the situation in which the agent should load and use this skill>
+---
+
+<the reusable steps, conventions, and examples that capture this practice>`;
+
+function SkillsSection() {
+	return (
+		<Block separator={'\n'}>
+			<Title level={3}>Factor recurring practices into skills</Title>
+			<Span>
+				When the signals reveal a recurring <Bold>practice</Bold> — a repeatable workflow, a sequence of steps,
+				or a set of conventions the agent (or users) re-derive across many chats — propose capturing it once as
+				a reusable <Bold>skill</Bold> instead of scattering the same guidance across <Code>RULES.md</Code>.
+				Skills live under <Code>agent/skills/&lt;skill-name&gt;.md</Code> and are loaded on demand in chat via
+				the <Code>/</Code> trigger, so they keep <Code>RULES.md</Code> lean while staying available when
+				relevant.
+			</Span>
+			<Span>
+				Treat a new skill like any other human-written context file (see above): record the finding with{' '}
+				<Code>suggestedFile</Code> set to the new <Code>agent/skills/&lt;skill-name&gt;.md</Code> path, then
+				propose its creation the same way. The file must start with YAML frontmatter — a short <Code>name</Code>{' '}
+				and a <Code>description</Code> stating when to use it — followed by the factored steps:
+			</Span>
+			<CodeBlock header='markdown'>{SKILL_TEMPLATE}</CodeBlock>
+			<Span>
+				The <Code>description</Code> is what the agent reads to decide whether to pull the skill in, so make it
+				specific about the triggering situation. Only propose a skill when the practice is genuinely reused; a
+				one-off belongs in <Code>RULES.md</Code> or <Code>semantics/**</Code>.
 			</Span>
 		</Block>
 	);

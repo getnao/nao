@@ -143,10 +143,15 @@ function CreateShareDialog({ open, onOpenChange, chatId }: ShareChatDialogProps)
 				</div>
 
 				<div className='flex justify-end gap-2'>
-					<Button variant='outline' onClick={() => onOpenChange(false)}>
+					<Button variant='outline' className='rounded-full border' onClick={() => onOpenChange(false)}>
 						Cancel
 					</Button>
-					<Button onClick={handleShare} disabled={!canShare || shareMutation.isPending} className='gap-1.5'>
+					<Button
+						variant='primary-gradient'
+						className='rounded-full gap-1.5'
+						onClick={handleShare}
+						disabled={!canShare || shareMutation.isPending}
+					>
 						{shareMutation.isPending ? (
 							<Loader2 className='size-3.5 animate-spin' />
 						) : isCopied ? (

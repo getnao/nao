@@ -117,16 +117,19 @@ export function ChartConfigEditDialog({
 			<DialogContent className='sm:max-w-xl max-h-[90vh] overflow-y-auto'>
 				<DialogHeader>
 					<DialogTitle>Edit chart</DialogTitle>
-					<DialogDescription>{description}</DialogDescription>
+					<DialogDescription className='text-sm text-muted-foreground font-medium'>
+						{description}
+					</DialogDescription>
 				</DialogHeader>
 
 				<form onSubmit={handleSubmit} className='flex flex-col gap-4'>
 					<div className='grid gap-2'>
-						<label htmlFor='chart-title' className='text-xs font-medium text-foreground'>
+						<label htmlFor='chart-title' className='text-sm font-semibold text-foreground'>
 							Title
 						</label>
 						<Input
 							id='chart-title'
+							className='h-8 bg-panel'
 							value={draft.title}
 							onChange={(e) => setDraft((prev) => ({ ...prev, title: e.target.value }))}
 							placeholder='Chart title'
@@ -135,17 +138,17 @@ export function ChartConfigEditDialog({
 
 					<div className='grid grid-cols-1 sm:grid-cols-2 gap-3'>
 						<div className='grid gap-2'>
-							<span className='text-xs font-medium text-foreground'>Chart type</span>
+							<span className='text-sm font-semibold text-foreground'>Chart type</span>
 							<Select
 								value={draft.chart_type}
 								onValueChange={(value) =>
 									setDraft((prev) => ({ ...prev, chart_type: value as displayChart.ChartType }))
 								}
 							>
-								<SelectTrigger className='w-full'>
+								<SelectTrigger className='w-full bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
 									<SelectValue />
 								</SelectTrigger>
-								<SelectContent>
+								<SelectContent className='border-none bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
 									{CHART_TYPE_OPTIONS.map((option) => (
 										<SelectItem key={option.value} value={option.value}>
 											{option.label}
@@ -156,7 +159,7 @@ export function ChartConfigEditDialog({
 						</div>
 
 						<div className='grid gap-2'>
-							<span className='text-xs font-medium text-foreground'>X-axis type</span>
+							<span className='text-sm font-semibold text-foreground'>X-axis type</span>
 							<Select
 								value={draft.x_axis_type ?? 'auto'}
 								onValueChange={(value) =>
@@ -166,10 +169,10 @@ export function ChartConfigEditDialog({
 									}))
 								}
 							>
-								<SelectTrigger className='w-full'>
+								<SelectTrigger className='w-full bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
 									<SelectValue />
 								</SelectTrigger>
-								<SelectContent>
+								<SelectContent className='border-none bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
 									{X_AXIS_TYPE_OPTIONS.map((option) => (
 										<SelectItem key={option.value} value={option.value}>
 											{option.label}
@@ -181,7 +184,7 @@ export function ChartConfigEditDialog({
 					</div>
 
 					<div className='grid gap-2'>
-						<span className='text-xs font-medium text-foreground'>X-axis column</span>
+						<span className='text-sm font-semibold text-foreground'>X-axis column</span>
 						<ColumnSelect
 							value={draft.x_axis_key}
 							columns={xAxisOptions}
@@ -190,9 +193,15 @@ export function ChartConfigEditDialog({
 					</div>
 
 					<div className='grid gap-2'>
-						<div className='flex items-center justify-between'>
-							<span className='text-xs font-medium text-foreground'>Series</span>
-							<Button type='button' size='sm' variant='outline' onClick={addSeries}>
+						<div className='flex items-center justify-between py-2'>
+							<span className='text-sm font-semibold text-foreground'>Series</span>
+							<Button
+								type='button'
+								size='sm'
+								variant='outline'
+								className='rounded-full text-xs'
+								onClick={addSeries}
+							>
 								<Plus className='size-3.5' /> Add series
 							</Button>
 						</div>
@@ -200,7 +209,7 @@ export function ChartConfigEditDialog({
 							{draft.series.map((series, index) => (
 								<div
 									key={index}
-									className='grid grid-cols-[1fr_1fr_auto_auto] gap-2 items-center rounded-md border border-border/60 p-2'
+									className='grid grid-cols-[1fr_1fr_auto_auto] gap-2 items-center rounded-md'
 								>
 									<ColumnSelect
 										value={series.data_key}
@@ -211,24 +220,25 @@ export function ChartConfigEditDialog({
 										value={series.label ?? ''}
 										onChange={(e) => updateSeriesAt(index, { label: e.target.value || undefined })}
 										placeholder='Label (optional)'
-										className='h-9 text-sm'
+										className='h-8 rounded-lg text-sm bg-panel'
 									/>
 									<input
 										type='color'
 										aria-label='Series color'
 										value={normalizeHexColor(series.color)}
 										onChange={(e) => updateSeriesAt(index, { color: e.target.value })}
-										className='h-9 w-9 cursor-pointer rounded-md border border-input bg-transparent p-0.5'
+										className='h-8 w-8 cursor-pointer overflow-hidden rounded-lg border-none bg-transparent p-0 [&::-moz-color-swatch]:rounded-lg [&::-moz-color-swatch]:border-none [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded-lg [&::-webkit-color-swatch]:border-none'
 									/>
 									<Button
 										type='button'
 										size='icon-sm'
 										variant='ghost-muted'
+										className='size-8'
 										onClick={() => removeSeriesAt(index)}
 										disabled={draft.series.length <= 1}
 										title='Remove series'
 									>
-										<Trash2 className='size-3.5' />
+										<Trash2 className='size-4' />
 									</Button>
 								</div>
 							))}
@@ -238,10 +248,21 @@ export function ChartConfigEditDialog({
 					{error && <p className='text-xs text-destructive'>{error}</p>}
 
 					<DialogFooter>
-						<Button type='button' variant='ghost' onClick={() => onOpenChange(false)}>
+						<Button
+							type='button'
+							variant='ghost'
+							className='rounded-full border'
+							onClick={() => onOpenChange(false)}
+						>
 							Cancel
 						</Button>
-						<Button type='submit' isLoading={isSaving} disabled={isSaving}>
+						<Button
+							variant='primary-gradient'
+							type='submit'
+							className='rounded-full'
+							isLoading={isSaving}
+							disabled={isSaving}
+						>
 							Save
 						</Button>
 					</DialogFooter>
@@ -313,10 +334,10 @@ function ColumnSelect({ value, columns, onChange }: ColumnSelectProps) {
 	const items = value && !columnsWithValues.includes(value) ? [value, ...columnsWithValues] : columnsWithValues;
 	return (
 		<Select value={value} onValueChange={onChange} disabled={items.length === 0}>
-			<SelectTrigger className='w-full'>
+			<SelectTrigger className='w-full text-sm bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
 				<SelectValue placeholder='Select column' />
 			</SelectTrigger>
-			<SelectContent>
+			<SelectContent className='bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
 				{items.map((column) => (
 					<SelectItem key={column} value={column}>
 						{column}

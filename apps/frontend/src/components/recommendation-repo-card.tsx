@@ -301,10 +301,15 @@ function RepoPickerDialog({ open, onOpenChange, onConfirm, isPending, error }: R
 				{error && <p className='text-sm text-destructive'>{error}</p>}
 
 				<DialogFooter>
-					<Button variant='outline' onClick={() => onOpenChange(false)}>
+					<Button variant='outline' className='rounded-full border' onClick={() => onOpenChange(false)}>
 						Cancel
 					</Button>
-					<Button onClick={() => selected && onConfirm(selected)} disabled={!selected || isPending}>
+					<Button
+						variant='primary-gradient'
+						className='rounded-full'
+						onClick={() => selected && onConfirm(selected)}
+						disabled={!selected || isPending}
+					>
 						{isPending && <Spinner className='size-4' />}
 						Use repository
 					</Button>

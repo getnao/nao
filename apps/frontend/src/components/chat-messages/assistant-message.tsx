@@ -54,7 +54,7 @@ export const AssistantMessage = memo(
 						<div className='text-muted-foreground italic text-sm'>No response</div>
 					)}
 
-					{isCompacting ? <AssistantCompaction /> : showLoader && <TextShimmer />}
+					{isCompacting ? <AssistantCompaction /> : showLoader && <TextShimmer showLogo />}
 
 					{chatId && showActions && (
 						<AssistantMessageActions

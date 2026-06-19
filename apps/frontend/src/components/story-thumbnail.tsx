@@ -13,7 +13,15 @@ export const SHEET_TRANSFORM = 'perspective(400px) rotateX(30deg) rotateY(20deg)
 export const SHEET_SURFACE =
 	'bg-gradient-to-b from-card to-panel dark:from-[oklch(0.20_0.008_270)] dark:to-[oklch(0.17_0.006_270)] dark:to-[40%]';
 
-export function PaperSheet({ children, className }: { children: ReactNode; className?: string }) {
+export function PaperSheet({
+	children,
+	className,
+	isToolPart = false,
+}: {
+	children: ReactNode;
+	className?: string;
+	isToolPart?: boolean;
+}) {
 	return (
 		<div className={cn('absolute inset-0 overflow-hidden', className)}>
 			<div
@@ -25,9 +33,10 @@ export function PaperSheet({ children, className }: { children: ReactNode; class
 			/>
 			<div
 				className={cn(
-					'pr-5 absolute top-[26%] left-[16%] w-[130%] h-[200%] origin-top-left',
+					'absolute top-[26%] left-[16%] w-[130%] h-[200%] origin-top-left',
 					SHEET_SURFACE,
 					SHEET_VISUAL,
+					isToolPart ? 'border-t border-r' : 'pr-5',
 				)}
 				style={{ transform: SHEET_TRANSFORM }}
 			>
@@ -37,11 +46,19 @@ export function PaperSheet({ children, className }: { children: ReactNode; class
 	);
 }
 
-export function StoryThumbnail({ summary, className }: { summary: StorySummary; className?: string }) {
+export function StoryThumbnail({
+	summary,
+	className,
+	isToolPart = false,
+}: {
+	summary: StorySummary;
+	className?: string;
+	isToolPart?: boolean;
+}) {
 	const segments = summary.segments.slice(0, 6);
 
 	return (
-		<PaperSheet className={className}>
+		<PaperSheet className={className} isToolPart={isToolPart}>
 			{segments.map((seg, i) => (
 				<SegmentSilhouette key={i} segment={seg} />
 			))}

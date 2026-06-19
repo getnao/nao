@@ -53,7 +53,7 @@ export const ClarificationToolCall = memo(({ toolPart }: ToolCallComponentProps<
 	return (
 		<div
 			className={cn(
-				'flex flex-col gap-3 rounded-xl border border-border bg-muted/30 px-4 py-3 animate-fade-in-up',
+				'flex flex-col gap-3 rounded-xl border border-border bg-muted/30 -mx-3 px-4 py-3 animate-fade-in-up',
 				isAnswered && 'bg-muted/10',
 			)}
 		>
@@ -124,7 +124,7 @@ function getAnsweredStateForToolCall(messages: UIMessage[], toolCallId: string):
 }
 
 const ClarificationSkeleton = () => (
-	<div className='flex flex-col gap-3 rounded-xl border border-border bg-muted/30 px-4 py-3 animate-fade-in-up'>
+	<div className='flex flex-col gap-3 rounded-xl border border-border bg-muted/30 -mx-3 px-4 py-3 animate-fade-in-up'>
 		<div className='flex items-start gap-2'>
 			<HelpCircle size={16} className='mt-0.5 shrink-0 text-muted-foreground opacity-50' />
 			<div className='flex flex-col gap-1.5 w-full'>

@@ -20,7 +20,7 @@ const buttonVariants = cva(
 				'destructive-soft':
 					'bg-accent/50 text-destructive hover:bg-destructive/10 dark:bg-destructive/60 dark:text-white',
 				outline:
-					'border bg-background hover:bg-accent hover:text-accent-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50',
+					'border bg-background hover:bg-accent hover:text-accent-foreground dark:bg-background dark:border-input dark:hover:bg-accent/50',
 				secondary: 'bg-secondary text-secondary-foreground hover:bg-secondary/80',
 				'ghost-muted':
 					'hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50 text-muted-foreground',
@@ -163,6 +163,7 @@ function AuthSocialButton({
 			onClick={onClick}
 		>
 			<Icon className='size-4 text-foreground [&_path]:fill-current' />
+			<span>{label}</span>
 		</Button>
 	);
 }

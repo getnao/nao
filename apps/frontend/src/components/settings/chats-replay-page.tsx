@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from 'react';
 
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { getRouteApi } from '@tanstack/react-router';
 import { getCoreRowModel, useReactTable } from '@tanstack/react-table';
 import type { ColumnFiltersState, PaginationState, SortingState, VisibilityState } from '@tanstack/react-table';
 
@@ -12,6 +13,8 @@ import { ChatsReplayToolbar } from '@/components/settings/chats-replay-toolbar';
 import { SettingsCard } from '@/components/ui/settings-card';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
+
+const routeApi = getRouteApi('/_sidebar-layout/settings/chats-replay');
 
 export function ChatsReplayPage() {
 	const [sorting, setSorting] = useState<SortingState>([]);
@@ -25,8 +28,15 @@ export function ChatsReplayPage() {
 		pageIndex: 0,
 		pageSize: 30,
 	});
+	const { chatId: deepLinkChatId } = routeApi.useSearch();
+	const navigate = routeApi.useNavigate();
 	const [selectedChat, setSelectedChat] = useState<ProjectChatListItem | null>(null);
 	const [isPanelOpen, setIsPanelOpen] = useState(false);
+
+	const deepLinkChatQuery = useQuery({
+		...trpc.project.getChatReplay.queryOptions({ chatId: deepLinkChatId ?? '' }),
+		enabled: !!deepLinkChatId,
+	});
 
 	const openChatPanel = useCallback((chat: ProjectChatListItem) => {
 		setSelectedChat(chat);
@@ -36,7 +46,10 @@ export function ChatsReplayPage() {
 	const closeChatPanel = useCallback(() => {
 		setIsPanelOpen(false);
 		setSelectedChat(null);
-	}, []);
+		if (deepLinkChatId) {
+			navigate({ search: (prev) => ({ ...prev, chatId: undefined }) });
+		}
+	}, [deepLinkChatId, navigate]);
 
 	const columns = useMemo(() => getChatsReplayColumns({ onOpenChat: openChatPanel }), [openChatPanel]);
 
@@ -94,9 +107,34 @@ export function ChatsReplayPage() {
 		pageCount: Math.ceil(total / pagination.pageSize),
 	});
 
+	const selectedChatInfo = selectedChat
+		? {
+				chatId: selectedChat.id,
+				chatOwnerId: selectedChat.userId,
+				userName: selectedChat.userName,
+				updatedAt: selectedChat.updatedAt,
+				feedbackCount: selectedChat.upvotes + selectedChat.downvotes,
+				feedbackText: selectedChat.feedbackText,
+				toolErrorCount: selectedChat.toolErrorCount,
+			}
+		: null;
+	const deepLinkChatInfo = deepLinkChatId
+		? {
+				chatId: deepLinkChatId,
+				chatOwnerId: deepLinkChatQuery.data?.ownerId ?? '',
+				userName: deepLinkChatQuery.data?.ownerName ?? '—',
+				updatedAt: deepLinkChatQuery.data?.updatedAt ?? Date.now(),
+				feedbackCount: 0,
+				feedbackText: '',
+				toolErrorCount: 0,
+			}
+		: null;
+	const panelChatInfo = selectedChatInfo ?? deepLinkChatInfo;
+	const isPanelVisible = isPanelOpen || !!deepLinkChatId;
+
 	return (
 		<div className='flex w-full h-full min-h-0 bg-background'>
-			{!isPanelOpen ? (
+			{!isPanelVisible ? (
 				<div className={cn('w-full h-full min-w-0 min-h-0 flex flex-col transition-all duration-200 p-4')}>
 					<div className='flex flex-col md:p-4 max-w-4xl'>
 						<h2 className='text-foreground font-semibold text-xl'>Chats Replay</h2>
@@ -120,22 +158,7 @@ export function ChatsReplayPage() {
 					</SettingsCard>
 				</div>
 			) : (
-				<ChatsReplayPanel
-					chatInfo={
-						selectedChat
-							? {
-									chatId: selectedChat.id,
-									chatOwnerId: selectedChat.userId,
-									userName: selectedChat.userName,
-									updatedAt: selectedChat.updatedAt,
-									feedbackCount: selectedChat.upvotes + selectedChat.downvotes,
-									feedbackText: selectedChat.feedbackText,
-									toolErrorCount: selectedChat.toolErrorCount,
-								}
-							: null
-					}
-					onClose={closeChatPanel}
-				/>
+				<ChatsReplayPanel chatInfo={panelChatInfo} onClose={closeChatPanel} />
 			)}
 		</div>
 	);

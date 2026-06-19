@@ -1,4 +1,4 @@
-import { and, asc, count, eq, isNull, sql } from 'drizzle-orm';
+import { and, asc, count, eq, isNotNull, isNull, sql } from 'drizzle-orm';
 
 import s, { DBOrganization, DBOrgMember, NewOrganization, NewOrgMember } from '../db/abstractSchema';
 import { db } from '../db/db';
@@ -9,6 +9,11 @@ import * as userQueries from './user.queries';
 
 export const getOrganizationById = async (id: string): Promise<DBOrganization | null> => {
 	const [org] = await db.select().from(s.organization).where(eq(s.organization.id, id)).execute();
+	return org ?? null;
+};
+
+export const getOrganizationBySlug = async (slug: string): Promise<DBOrganization | null> => {
+	const [org] = await db.select().from(s.organization).where(eq(s.organization.slug, slug)).execute();
 	return org ?? null;
 };
 
@@ -34,6 +39,10 @@ export const getOrgMember = async (orgId: string, userId: string): Promise<DBOrg
 export const addOrgMember = async (member: NewOrgMember): Promise<DBOrgMember> => {
 	const [created] = await db.insert(s.orgMember).values(member).returning().execute();
 	return created;
+};
+
+export const addOrgMemberIfMissing = async (member: NewOrgMember): Promise<void> => {
+	await db.insert(s.orgMember).values(member).onConflictDoNothing().execute();
 };
 
 export const getUserOrgMembership = async (
@@ -79,13 +88,91 @@ export const updateGoogleSettings = async (
 
 export const getGoogleConfig = async () => {
 	const org = await getFirstOrganization();
+	return buildGoogleConfig(org, true);
+};
+
+export const getGoogleConfigForOrganization = async (orgId: string, includeEnvFallback = false) => {
+	const org = await getOrganizationById(orgId);
+	return buildGoogleConfig(org, includeEnvFallback);
+};
+
+/**
+ * Cloud mode: find the organization that claims a user's email domain.
+ * Domains are stored per-organization as a comma-separated list in `googleAuthDomains`.
+ * The first organization whose list contains the domain wins.
+ */
+export const findOrganizationByEmailDomain = async (email: string): Promise<DBOrganization | null> => {
+	const domain = email.split('@').at(1)?.trim().toLowerCase();
+	if (!domain) {
+		return null;
+	}
+
+	const orgs = await db
+		.select()
+		.from(s.organization)
+		.where(isNotNull(s.organization.googleAuthDomains))
+		.orderBy(asc(s.organization.createdAt))
+		.execute();
+
+	return orgs.find((org) => parseEmailDomains(org.googleAuthDomains).includes(domain)) ?? null;
+};
+
+export const updateOrganizationEmailDomains = async (orgId: string, domains: string | null): Promise<void> => {
+	await db.update(s.organization).set({ googleAuthDomains: domains }).where(eq(s.organization.id, orgId)).execute();
+};
+
+/**
+ * Cloud mode: the set of email domains the organization can prove it owns,
+ * derived from its members that have a verified email address.
+ */
+export const getVerifiedMemberEmailDomains = async (orgId: string): Promise<Set<string>> => {
+	const rows = await db
+		.select({ email: s.user.email })
+		.from(s.orgMember)
+		.innerJoin(s.user, eq(s.orgMember.userId, s.user.id))
+		.where(and(eq(s.orgMember.orgId, orgId), eq(s.user.emailVerified, true)))
+		.execute();
+
+	const domains = new Set<string>();
+	for (const { email } of rows) {
+		const domain = email.split('@').at(1)?.trim().toLowerCase();
+		if (domain) {
+			domains.add(domain);
+		}
+	}
+	return domains;
+};
+
+/** Cloud mode: whether another organization has already claimed the given email domain. */
+export const isEmailDomainClaimedByAnotherOrg = async (domain: string, orgId: string): Promise<boolean> => {
+	const normalized = domain.trim().toLowerCase();
+	const orgs = await db.select().from(s.organization).where(isNotNull(s.organization.googleAuthDomains)).execute();
+	return orgs.some((org) => org.id !== orgId && parseEmailDomains(org.googleAuthDomains).includes(normalized));
+};
+
+function parseEmailDomains(domains: string | null): string[] {
+	if (!domains) {
+		return [];
+	}
+	return domains
+		.split(',')
+		.map((domain) => domain.trim().toLowerCase())
+		.filter(Boolean);
+}
+
+function buildGoogleConfig(org: DBOrganization | null, includeEnvFallback: boolean) {
+	const envClientId = includeEnvFallback ? env.GOOGLE_CLIENT_ID : undefined;
+	const envClientSecret = includeEnvFallback ? env.GOOGLE_CLIENT_SECRET : undefined;
+	const envAuthDomains = includeEnvFallback ? env.GOOGLE_AUTH_DOMAINS : undefined;
+
 	return {
-		clientId: org?.googleClientId || env.GOOGLE_CLIENT_ID || '',
-		clientSecret: org?.googleClientSecret || env.GOOGLE_CLIENT_SECRET || '',
-		authDomains: org?.googleAuthDomains || env.GOOGLE_AUTH_DOMAINS || '',
+		orgId: org?.id,
+		clientId: org?.googleClientId || envClientId || '',
+		clientSecret: org?.googleClientSecret || envClientSecret || '',
+		authDomains: org?.googleAuthDomains || envAuthDomains || '',
 		usingDbOverride: !!(org?.googleClientId && org?.googleClientSecret),
 	};
-};
+}
 
 export const getOrCreateDefaultOrganization = async (): Promise<DBOrganization> => {
 	const existing = await getFirstOrganization();

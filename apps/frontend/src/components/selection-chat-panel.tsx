@@ -300,11 +300,11 @@ export function PanelHeader({
 				<div className='flex items-center -mr-1'>
 					<DropdownMenu>
 						<DropdownMenuTrigger asChild>
-							<Button variant='ghost' size='icon-xs'>
+							<Button variant='ghost' size='icon-xs' className='rounded-full'>
 								<MoreHorizontal />
 							</Button>
 						</DropdownMenuTrigger>
-						<DropdownMenuContent align='end'>
+						<DropdownMenuContent align='end' className='w-auto min-w-20'>
 							<DropdownMenuItem
 								onSelect={() => navigate({ to: '/$chatId', params: { chatId: anchor.chatId } })}
 							>
@@ -316,7 +316,7 @@ export function PanelHeader({
 							</DropdownMenuItem>
 						</DropdownMenuContent>
 					</DropdownMenu>
-					<Button variant='ghost' size='icon-xs' onClick={onClose}>
+					<Button variant='ghost' size='icon-xs' onClick={onClose} className='rounded-full'>
 						<X />
 					</Button>
 				</div>

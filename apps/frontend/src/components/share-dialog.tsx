@@ -1,4 +1,4 @@
-import { Check, Globe, Link as LinkIcon, Loader2, Unlink, Users } from 'lucide-react';
+import { Check, Globe, Link as LinkIcon, Loader2, SearchIcon, Unlink, Users } from 'lucide-react';
 
 import type { Visibility } from '@nao/shared/types';
 
@@ -78,17 +78,17 @@ export function VisibilityPicker({
 	onChange: (v: Visibility) => void;
 }) {
 	return (
-		<div className='flex gap-2'>
+		<div className='flex gap-3'>
 			<VisibilityOption
 				active={visibility === 'project'}
-				icon={<Globe className='size-4' />}
+				icon={<Globe className='size-5' />}
 				label='Entire project'
 				description='All project members'
 				onClick={() => onChange('project')}
 			/>
 			<VisibilityOption
 				active={visibility === 'specific'}
-				icon={<Users className='size-4' />}
+				icon={<Users className='size-5' />}
 				label='Specific people'
 				description='Choose who can view'
 				onClick={() => onChange('specific')}
@@ -107,24 +107,24 @@ export function VisibilitySummary({
 	itemLabel: string;
 }) {
 	return (
-		<div className='flex items-center gap-3 rounded-lg border bg-muted/30 p-3'>
+		<div className='flex items-center gap-3 rounded-lg border p-3'>
 			{visibility === 'project' ? (
 				<>
-					<div className='flex size-8 items-center justify-center rounded-full bg-emerald-100 text-emerald-600'>
+					<div className='flex size-8 items-center justify-center rounded-full'>
 						<Globe className='size-4' />
 					</div>
 					<div className='flex-1 min-w-0'>
-						<p className='text-sm font-medium'>Shared with entire project</p>
+						<p className='text-md font-medium'>Shared with entire project</p>
 						<p className='text-xs text-muted-foreground'>All project members can view this {itemLabel}</p>
 					</div>
 				</>
 			) : (
 				<>
-					<div className='flex size-8 items-center justify-center rounded-full bg-blue-100 text-blue-600'>
+					<div className='flex size-8 items-center justify-center rounded-full'>
 						<Users className='size-4' />
 					</div>
 					<div className='flex-1 min-w-0'>
-						<p className='text-sm font-medium'>
+						<p className='text-md font-medium'>
 							Shared with {selectedUserIds.size} {selectedUserIds.size === 1 ? 'person' : 'people'}
 						</p>
 						<p className='text-xs text-muted-foreground'>Only selected members can view this {itemLabel}</p>
@@ -162,7 +162,7 @@ export function ManageShareFooter({
 				variant='outline'
 				onClick={onUnshare}
 				disabled={isBusy}
-				className='gap-1.5 text-destructive hover:text-destructive'
+				className='gap-1.5 text-destructive hover:text-destructive rounded-full'
 			>
 				{isDeletePending ? <Loader2 className='size-3.5 animate-spin' /> : <Unlink className='size-3.5' />}
 				<span>Unshare</span>
@@ -178,7 +178,7 @@ export function ManageShareFooter({
 						<span>Save</span>
 					</Button>
 				)}
-				<Button variant='outline' onClick={onCopyLink} className='gap-1.5'>
+				<Button variant='outline' onClick={onCopyLink} className='gap-1.5 rounded-full'>
 					{isCopied ? <Check className='size-3.5' /> : <LinkIcon className='size-3.5' />}
 					<span>{isCopied ? 'Copied!' : 'Copy link'}</span>
 				</Button>
@@ -205,14 +205,12 @@ export function VisibilityOption({
 			type='button'
 			onClick={onClick}
 			className={cn(
-				'flex-1 flex flex-col items-center gap-1.5 rounded-lg border-2 p-3 transition-colors cursor-pointer',
-				active
-					? 'border-primary bg-primary/5'
-					: 'border-border hover:border-muted-foreground/30 hover:bg-muted/50',
+				'flex-1 flex flex-col items-center gap-1.5 rounded-lg border pt-3 pb-3 shadow-xs transition-colors cursor-pointer',
+				active ? 'border-primary' : 'border-border hover:border-muted-foreground/30 hover:bg-muted/50',
 			)}
 		>
-			<div className={cn('text-muted-foreground', active && 'text-primary')}>{icon}</div>
-			<span className={cn('text-sm font-medium', active && 'text-primary')}>{label}</span>
+			<div className='text-foreground'>{icon}</div>
+			<span className='text-md font-medium text-foreground'>{label}</span>
 			<span className='text-xs text-muted-foreground'>{description}</span>
 		</button>
 	);
@@ -234,14 +232,16 @@ export function MemberPicker({
 	onToggleUser: (userId: string) => void;
 }) {
 	return (
-		<div className='flex flex-col gap-2'>
+		<div className='flex flex-col gap-2 relative'>
+			<SearchIcon className='absolute translate-x-2 translate-y-2 size-4' />
 			<Input
+				type='search'
 				placeholder='Search members...'
 				value={search}
 				onChange={(e) => onSearchChange(e.target.value)}
-				className='h-8 text-sm'
+				className='h-8 text-sm bg-panel pl-8'
 			/>
-			<div className='max-h-48 overflow-y-auto rounded-md border'>
+			<div className='max-h-48 overflow-y-auto'>
 				{isLoading ? (
 					<div className='flex items-center justify-center py-6'>
 						<Loader2 className='size-4 animate-spin text-muted-foreground' />
@@ -288,9 +288,8 @@ export function MemberRow({
 			onClick={onClick}
 			aria-pressed={selected}
 			className={cn(
-				'flex w-full items-center gap-3 px-3 py-2 text-left transition-colors cursor-pointer',
+				'flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors cursor-pointer',
 				'hover:bg-muted/50',
-				selected && 'bg-primary/5',
 			)}
 		>
 			<Avatar username={name} size='sm' />
@@ -300,7 +299,7 @@ export function MemberRow({
 			</div>
 			<div
 				className={cn(
-					'flex size-5 shrink-0 items-center justify-center rounded-md border transition-colors',
+					'flex size-5 shrink-0 items-center justify-center rounded-full border transition-colors',
 					selected ? 'border-primary bg-primary text-white' : 'border-muted-foreground/30',
 				)}
 			>

@@ -4,6 +4,7 @@ import type { UIMessage } from '@nao/backend/chat';
 import type { displayChart } from '@nao/shared/tools';
 import { Button } from '@/components/ui/button';
 import { useOptionalAgentContext } from '@/contexts/agent.provider';
+import { useStoryEmbedData } from '@/contexts/story-embed-data';
 import { useStoryChartEdit } from '@/contexts/story-chart-edit';
 import { ChartDisplay } from '@/components/tool-calls/display-chart';
 import { ChartConfigEditDialog } from '@/components/tool-calls/display-chart-edit-dialog';
@@ -21,8 +22,14 @@ interface ChartBlock {
 
 export const StoryChartEmbed = memo(function StoryChartEmbed({ chart }: { chart: ChartBlock }) {
 	const agent = useOptionalAgentContext();
+	const embedData = useStoryEmbedData();
 
 	const sourceData = useMemo(() => {
+		const fromEmbedData = embedData?.[chart.queryId];
+		if (fromEmbedData) {
+			return fromEmbedData;
+		}
+
 		const findInMessages = (messages: UIMessage[]) => {
 			for (const message of messages) {
 				for (const part of message.parts) {
@@ -35,7 +42,7 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({ chart }: { chart:
 		};
 
 		return findInMessages(agent?.messages ?? []);
-	}, [agent?.messages, chart.queryId]);
+	}, [embedData, agent?.messages, chart.queryId]);
 
 	const data = useMemo(
 		() =>
@@ -116,7 +123,7 @@ export function StoryChartEmbedShell({ chart, availableColumns, children }: Stor
 					size='icon-xs'
 					onClick={() => setIsEditOpen(true)}
 					title='Edit chart'
-					className='absolute top-1 right-1 z-10 bg-background/80 backdrop-blur hover:bg-accent'
+					className='absolute top-1 right-1 z-10 bg-background/80 backdrop-blur hover:bg-accent hover:rounded-full'
 				>
 					<Pencil className='size-3.5' />
 				</Button>

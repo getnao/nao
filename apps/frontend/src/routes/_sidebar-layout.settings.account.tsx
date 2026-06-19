@@ -6,6 +6,7 @@ import type { UserRole } from '@nao/shared/types';
 
 import type { TeamMember } from '@/components/settings/team';
 import { EditMemberDialog } from '@/components/settings/team';
+import { NewsletterSubscribeInlineForm } from '@/components/newsletter-subscribe';
 import { signOut, useSession } from '@/lib/auth-client';
 import { SettingsVersionInfo } from '@/components/settings/version-info';
 import { useAuthRoute } from '@/hooks/use-auth-route';
@@ -113,6 +114,11 @@ function GeneralPage() {
 					control={<ToolCallDensitySlider value={toolCallDensity} onValueChange={setToolCallDensity} />}
 				/>
 				<SettingsControlRow label='Theme' description='Choose how nao looks.' control={<ThemeSelector />} />
+				<SettingsControlRow
+					label='Newsletter'
+					description='Get product updates, release notes, and analytics agent tips.'
+					control={<NewsletterSubscribeInlineForm initialEmail={user?.email} />}
+				/>
 			</SettingsCard>
 
 			{githubAvailable.data === true && (

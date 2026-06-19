@@ -23,6 +23,7 @@ import type { StoryCodeViewHandle } from './story-code-view';
 import { useSidePanel } from '@/contexts/side-panel';
 import { ReadonlyAgentMessagesProvider, useOptionalAgentContext } from '@/contexts/agent.provider';
 import { StoryChartEditProvider } from '@/contexts/story-chart-edit';
+import { StoryEmbedDataProvider } from '@/contexts/story-embed-data';
 import { Spinner } from '@/components/ui/spinner';
 import { chatActivityStore } from '@/stores/chat-activity';
 import { trpc } from '@/main';
@@ -65,6 +66,7 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp }:
 	const resolvedStorySlug = draftStory?.id ?? storySlug;
 	const {
 		versions,
+		storyId,
 		storyTitle: storedTitle,
 		archivedAt,
 		currentVersion,
@@ -162,6 +164,7 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp }:
 				title={storyTitle}
 				chatId={chatId}
 				storySlug={resolvedStorySlug}
+				storyId={storyId}
 				shareId={shareId}
 				allStories={allStories}
 				onSwitchStory={switchStory}
@@ -213,7 +216,9 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp }:
 							/>
 						)
 					) : viewMode === 'edit' ? (
-						<StoryEditor code={storyCode} editorRef={tiptapEditorRef} onSave={handleSave} />
+						<StoryEmbedDataProvider value={queryData ?? null}>
+							<StoryEditor code={storyCode} editorRef={tiptapEditorRef} onSave={handleSave} />
+						</StoryEmbedDataProvider>
 					) : (
 						<StoryCodeView
 							code={storyCode}

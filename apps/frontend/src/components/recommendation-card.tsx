@@ -32,6 +32,7 @@ import {
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useSidePanel } from '@/contexts/side-panel';
 import { useRecommendationCollapsed } from '@/hooks/use-recommendation-collapsed';
+import { useTimeAgo } from '@/hooks/use-time-ago';
 import { computeLineDiff } from '@/lib/line-diff';
 import { SEVERITY_BADGE_VARIANT } from '@/lib/recommendation-severity';
 import { cn } from '@/lib/utils';
@@ -77,6 +78,7 @@ export function RecommendationCard({
 	const sidePanel = useSidePanel();
 	const [collapsed, setCollapsed] = useRecommendationCollapsed(rec.id, defaultCollapsed);
 	const [expanded, setExpanded] = useState(false);
+	const createdAgo = useTimeAgo(new Date(rec.createdAt).getTime());
 
 	const createPr = useMutation(
 		trpc.contextRecommendation.createPullRequest.mutationOptions({
@@ -205,8 +207,17 @@ export function RecommendationCard({
 							{expanded ? 'Show less' : 'Show more'}
 						</button>
 						<div className='flex flex-wrap items-center gap-x-1 text-xs text-muted-foreground'>
+							<TooltipProvider delayDuration={150}>
+								<Tooltip>
+									<TooltipTrigger asChild>
+										<span className='cursor-default'>Created {createdAgo.humanReadable}</span>
+									</TooltipTrigger>
+									<TooltipContent>{new Date(rec.createdAt).toLocaleString()}</TooltipContent>
+								</Tooltip>
+							</TooltipProvider>
+							{rec.llmModelId && <span aria-hidden>•</span>}
 							{rec.llmModelId && <span>Proposed by {rec.llmModelId}</span>}
-							{rec.llmModelId && chatIds.length > 0 && <span aria-hidden>•</span>}
+							{chatIds.length > 0 && <span aria-hidden>•</span>}
 							{chatIds.length > 0 && (
 								<span className='flex flex-wrap items-center gap-2 text-xs'>
 									<span className='text-muted-foreground'>
@@ -215,8 +226,8 @@ export function RecommendationCard({
 									{chatIds.slice(0, 5).map((chatId) => (
 										<Link
 											key={chatId}
-											to='/$chatId'
-											params={{ chatId }}
+											to='/settings/chats-replay'
+											search={{ chatId }}
 											className='text-primary underline-offset-4 hover:underline'
 										>
 											{chatId.slice(0, 8)}

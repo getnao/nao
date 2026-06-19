@@ -837,12 +837,13 @@ export const projectRoutes = {
 			throw new TRPCError({ code: 'NOT_FOUND', message: `Chat with id ${input.chatId} not found.` });
 		}
 
-		const [chat] = await chatQueries.getChat(input.chatId, { includeFeedback: true });
+		const [chat, ownerId] = await chatQueries.getChat(input.chatId, { includeFeedback: true });
 		if (!chat) {
 			throw new TRPCError({ code: 'NOT_FOUND', message: `Chat with id ${input.chatId} not found.` });
 		}
 
-		return chat;
+		const ownerName = ownerId ? await userQueries.getUserName(ownerId) : null;
+		return { ...chat, ownerId: ownerId ?? null, ownerName };
 	}),
 
 	getEnvVars: adminProtectedProcedure.query(async ({ ctx }) => {

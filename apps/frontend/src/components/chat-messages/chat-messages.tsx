@@ -145,7 +145,7 @@ const MessageGroup = ({
 				/>
 			))}
 
-			{showLoader && !assistantMessages.length && <TextShimmer className='px-3' />}
+			{showLoader && !assistantMessages.length && <TextShimmer showLogo className='px-3' />}
 		</div>
 	);
 };

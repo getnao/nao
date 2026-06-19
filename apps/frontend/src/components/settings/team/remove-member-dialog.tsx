@@ -39,10 +39,10 @@ export function RemoveMemberDialog({
 				<p className='text-sm text-muted-foreground'>{description}</p>
 				{error && <p className='text-red-500 text-center text-sm'>{error}</p>}
 				<div className='flex justify-end gap-2'>
-					<Button variant='outline' onClick={() => onOpenChange(false)}>
+					<Button variant='outline' className='rounded-full border' onClick={() => onOpenChange(false)}>
 						Cancel
 					</Button>
-					<Button variant='destructive' onClick={handleConfirm}>
+					<Button variant='destructive' className='rounded-full' onClick={handleConfirm}>
 						Remove
 					</Button>
 				</div>

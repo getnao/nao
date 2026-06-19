@@ -170,21 +170,28 @@ function ChatPage() {
 									</Badge>
 								)}
 							</div>
-							<div className='flex items-center gap-2'>
-								<StoryOpenButton variant='ghost' />
+							<div className='flex items-center justify-end gap-2'>
 								<Button
-									variant='ghost'
+									variant='outline'
 									size='icon-sm'
+									className='rounded-full hover:rounded-full border w-auto px-2'
 									onClick={() => setIsShareDialogOpen(true)}
 									disabled={isRunning}
 									aria-label='Share Chat'
 								>
 									{!isRunning && isShared ? (
-										<Globe className='size-3 text-emerald-600' />
+										<>
+											<Globe className='size-3 text-primary' />
+											<span className='text-xs'>Chat shared</span>
+										</>
 									) : (
-										<Upload className='size-3' />
+										<>
+											<Upload className='size-3' strokeWidth={2.25} />
+											<span className='text-xs'>Share chat</span>
+										</>
 									)}
 								</Button>
+								<StoryOpenButton variant='outline' />
 							</div>
 						</div>
 
@@ -213,7 +220,6 @@ function ChatPage() {
 							isAnimating={sidePanel.isAnimating}
 							sidePanelRef={sidePanelRef}
 							resizeHandleRef={sidePanel.resizeHandleRef}
-							onClose={sidePanel.close}
 						>
 							{sidePanel.content}
 						</SidePanel>

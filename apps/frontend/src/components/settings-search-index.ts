@@ -7,6 +7,7 @@ export interface SettingsSearchEntry {
 	keywords?: string[];
 	adminOnly?: boolean;
 	cloudHidden?: boolean;
+	cloudOnly?: boolean;
 	licenseRequired?: boolean;
 }
 
@@ -46,6 +47,14 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/account',
 		pageLabel: 'Account',
+		section: 'General Settings',
+		title: 'Newsletter',
+		description: 'Subscribe to nao product updates, release notes, and analytics agent tips.',
+		keywords: ['email', 'mail', 'subscribe', 'updates', 'release notes'],
+	},
+	{
+		page: '/settings/account',
+		pageLabel: 'Account',
 		title: 'GitHub',
 		description: 'Connect your GitHub account for automations.',
 		keywords: ['github', 'automations', 'automation', 'issue', 'pull request'],
@@ -79,6 +88,15 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		title: 'Import from GitHub',
 		description: 'Connect your GitHub account and import a repository as a project.',
 		keywords: ['github', 'repository', 'repo', 'import', 'git', 'integration', 'clone'],
+	},
+	{
+		page: '/settings/organization',
+		pageLabel: 'Organization',
+		title: 'Sign-in domains',
+		description:
+			'Users who sign in with Google using one of these verified email domains automatically join this organization.',
+		keywords: ['sso', 'google', 'domain', 'email domain', 'allowlist', 'auto join', 'workspace', 'verified'],
+		cloudOnly: true,
 	},
 	{
 		page: '/settings/organization',
@@ -237,8 +255,8 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		section: 'MCP Modes',
 		title: 'Sub-agent mode',
 		description:
-			"Exposes ask_nao — delegates the full analytics task to nao's agent. The reasoning trace is saved as a chat in the nao UI.",
-		keywords: ['ask_nao', 'agent', 'analytics', 'delegate', 'sub-agent'],
+			"Exposes ask_nao and get_nao_answer — delegates the full analytics task to nao's agent. The reasoning trace is saved as a chat in the nao UI.",
+		keywords: ['ask_nao', 'get_nao_answer', 'agent', 'analytics', 'delegate', 'sub-agent'],
 	},
 	{
 		page: '/settings/mcp-endpoint',

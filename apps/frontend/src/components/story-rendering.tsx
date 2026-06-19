@@ -1,8 +1,14 @@
 import { getGridClass } from '@nao/shared/story-segments';
 import { Fragment, memo, useMemo } from 'react';
 import { Streamdown } from 'streamdown';
-
 import type { ParsedChartBlock, ParsedTableBlock, Segment } from '@nao/shared/story-segments';
+
+import { MarkdownTable } from '@/components/chat-messages/markdown-table';
+import { markdownPlugins } from '@/lib/markdown';
+
+const markdownComponents = {
+	table: ({ node, className }: any) => <MarkdownTable node={node} className={className} />,
+};
 
 interface SegmentRendererProps {
 	segments: Segment[];
@@ -24,7 +30,12 @@ export const SegmentList = memo(function SegmentList({
 				switch (segment.type) {
 					case 'markdown':
 						return (
-							<Streamdown key={key} mode='static'>
+							<Streamdown
+								key={key}
+								mode='static'
+								plugins={markdownPlugins}
+								components={markdownComponents}
+							>
 								{segment.content}
 							</Streamdown>
 						);
@@ -67,7 +78,9 @@ const StoryGrid = memo(function StoryGrid({
 				{children.map((segment, i) => (
 					<div key={i} className='min-w-0'>
 						{segment.type === 'markdown' ? (
-							<Streamdown mode='static'>{segment.content}</Streamdown>
+							<Streamdown mode='static' plugins={markdownPlugins} components={markdownComponents}>
+								{segment.content}
+							</Streamdown>
 						) : segment.type === 'chart' ? (
 							renderChart(segment.chart, i)
 						) : segment.type === 'table' ? (

@@ -15,6 +15,7 @@ import {
 } from '@/components/settings/team';
 import { GitHubRepoPicker } from '@/components/settings/github-repo-picker';
 import { OrgApiKeys } from '@/components/settings/org-api-keys';
+import { OrgSignInDomains } from '@/components/settings/org-signin-domains';
 import { Badge } from '@/components/ui/badge';
 import { SettingsCard, SettingsPageWrapper } from '@/components/ui/settings-card';
 import { Button } from '@/components/ui/button';
@@ -23,11 +24,9 @@ import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useSession } from '@/lib/auth-client';
-import { requireNonViewer } from '@/lib/require-admin';
 import { trpc } from '@/main';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/organization')({
-	beforeLoad: requireNonViewer,
 	component: OrganizationPage,
 });
 
@@ -37,7 +36,9 @@ function OrganizationPage() {
 	const org = useQuery(trpc.organization.get.queryOptions());
 	const projectsQuery = useQuery(trpc.organization.getProjects.queryOptions());
 	const membersQuery = useQuery(trpc.organization.getMembers.queryOptions());
+	const systemConfig = useQuery(trpc.system.getPublicConfig.queryOptions());
 	const { isOrgAdmin } = usePermissions();
+	const isCloud = systemConfig.data?.naoMode === 'cloud';
 
 	const githubAvailable = useQuery(trpc.github.isAvailable.queryOptions());
 	const githubStatus = useQuery({
@@ -194,6 +195,7 @@ function OrganizationPage() {
 						</div>
 					)}
 				</SettingsCard>
+				{isCloud && <OrgSignInDomains isAdmin={isOrgAdmin} />}
 				<OrgApiKeys isAdmin={isOrgAdmin} />
 			</div>
 

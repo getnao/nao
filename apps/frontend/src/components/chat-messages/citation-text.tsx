@@ -4,6 +4,7 @@ import { Streamdown } from 'streamdown';
 import { CITATION_TAG_REGEX } from '@nao/shared';
 
 import { CitationPopover } from '@/components/citation-popover';
+import { MarkdownTable } from '@/components/chat-messages/markdown-table';
 import { markdownPlugins } from '@/lib/markdown';
 
 const CLOBBER_PREFIX = 'user-content-';
@@ -16,7 +17,14 @@ export const AssistantTextWithCitation = memo(({ text, isStreaming }: { text: st
 	if (isStreaming) {
 		const strippedText = text.replace(CITATION_TAG_REGEX, '');
 		return (
-			<Streamdown isAnimating mode='streaming' plugins={markdownPlugins}>
+			<Streamdown
+				isAnimating
+				mode='streaming'
+				plugins={markdownPlugins}
+				components={{
+					table: ({ node, className }: any) => <MarkdownTable node={node} className={className} />,
+				}}
+			>
 				{strippedText}
 			</Streamdown>
 		);
@@ -30,6 +38,7 @@ export const AssistantTextWithCitation = memo(({ text, isStreaming }: { text: st
 			}}
 			literalTagContent={['citation-number']}
 			components={{
+				table: ({ node, className }: any) => <MarkdownTable node={node} className={className} />,
 				'citation-number': ({ id, column, children }: any) => {
 					return (
 						<span className='inline-block align-baseline mx-1'>

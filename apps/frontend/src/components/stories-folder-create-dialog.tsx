@@ -132,10 +132,20 @@ export function FolderCreateDialog({
 					</p>
 				)}
 				<DialogFooter>
-					<Button variant='ghost' onClick={() => onOpenChange(false)} disabled={isPending}>
+					<Button
+						variant='ghost'
+						className='rounded-full border'
+						onClick={() => onOpenChange(false)}
+						disabled={isPending}
+					>
 						Cancel
 					</Button>
-					<Button onClick={handleSubmit} disabled={!trimmed || isPending}>
+					<Button
+						variant='primary-gradient'
+						className='rounded-full'
+						onClick={handleSubmit}
+						disabled={!trimmed || isPending}
+					>
 						{mode === 'create' ? 'Create' : 'Save'}
 					</Button>
 				</DialogFooter>

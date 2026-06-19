@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils';
 import { formatSQL } from '@/lib/sql-formatter';
 import { trpc } from '@/main';
 import { useSidePanel } from '@/contexts/side-panel';
+import { SidePanelHeader } from '@/components/side-panel/side-panel-header';
 
 const HOVER_DELAY_MS = 500;
 const POPOVER_MAX_HEIGHT = 400;
@@ -125,33 +126,36 @@ const PopoverContent = memo(
 
 function CitationSidePanel({ data }: { data: CitationPayload }) {
 	return (
-		<div className='h-full space-y-4 overflow-y-auto p-4'>
-			<CitationSection title='SQL Query'>
-				<pre className='overflow-x-auto rounded bg-muted p-3 font-mono text-xs leading-relaxed whitespace-pre-wrap'>
-					{formatSQL(data.sql_query)}
-				</pre>
-			</CitationSection>
-
-			<div>
-				<p className='font-medium text-muted-foreground'>Database origin</p>
-				<p className='font-mono'>{data.database_id}</p>
-			</div>
-
-			{data.tables.length > 0 && (
-				<CitationSection title='Tables'>
-					<div className='flex flex-wrap gap-1.5'>
-						{data.tables.map((table) => (
-							<span key={table.name} className='rounded bg-muted px-1.5 py-0.5 font-mono text-xs'>
-								{table.name}
-							</span>
-						))}
-					</div>
+		<div className='flex h-full min-h-0 flex-col bg-background'>
+			<SidePanelHeader title='Citation' label='Column lineage' />
+			<div className='flex-1 space-y-4 overflow-y-auto p-4'>
+				<CitationSection title='SQL Query'>
+					<pre className='overflow-x-auto rounded bg-muted p-3 font-mono text-xs leading-relaxed whitespace-pre-wrap'>
+						{formatSQL(data.sql_query)}
+					</pre>
 				</CitationSection>
-			)}
 
-			<CitationSection title='Column Lineage'>
-				<LineageTree node={data.column_lineage} depth={0} />
-			</CitationSection>
+				<div>
+					<p className='font-medium text-muted-foreground'>Database origin</p>
+					<p className='font-mono'>{data.database_id}</p>
+				</div>
+
+				{data.tables.length > 0 && (
+					<CitationSection title='Tables'>
+						<div className='flex flex-wrap gap-1.5'>
+							{data.tables.map((table) => (
+								<span key={table.name} className='rounded bg-muted px-1.5 py-0.5 font-mono text-xs'>
+									{table.name}
+								</span>
+							))}
+						</div>
+					</CitationSection>
+				)}
+
+				<CitationSection title='Column Lineage'>
+					<LineageTree node={data.column_lineage} depth={0} />
+				</CitationSection>
+			</div>
 		</div>
 	);
 }

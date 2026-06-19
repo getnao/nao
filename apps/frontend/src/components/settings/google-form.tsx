@@ -44,7 +44,7 @@ export function GoogleForm({
 				className='flex flex-col gap-3'
 			>
 				<div className='flex items-center justify-between'>
-					<span className='text-sm font-medium text-foreground'>Google OAuth</span>
+					<span className='text-sm font-medium text-foreground'>Google SSO</span>
 					<Button variant='ghost' size='icon-sm' type='button' onClick={onCancel}>
 						<X className='size-4' />
 					</Button>

@@ -34,6 +34,12 @@ def _build_basic_auth(user: str, password: str):
     return BasicAuthentication(user, password)
 
 
+def _build_jwt_auth(token: str):
+    from trino.auth import JWTAuthentication
+
+    return JWTAuthentication(token)
+
+
 class TrinoDatabaseContext(DatabaseContext):
     """Trino context with table/column comment discovery via information_schema."""
 
@@ -132,16 +138,75 @@ class TrinoConfig(DatabaseConfig):
     user: str = Field(description="Username")
     schema_name: str | None = Field(default=None, description="Default schema (optional)")
     password: str | None = Field(default=None, description="Password (optional)")
+    http_scheme: Literal["http", "https"] = Field(
+        default="http",
+        description="HTTP scheme used to reach the coordinator. Default 'http' preserves prior behaviour.",
+    )
+    verify: bool | str = Field(
+        default=True,
+        description=(
+            "TLS verification when http_scheme='https'. "
+            "True = verify with system CAs, False = disable verification, "
+            "str = path to a CA bundle. Ignored for plain http."
+        ),
+    )
+    jwt_token: str | None = Field(
+        default=None,
+        description=(
+            "Bearer JWT for Trino's OAuth2/JWT authenticator. When set, takes "
+            "precedence over password and forces http_scheme='https'."
+        ),
+    )
+    jwt_token_file: str | None = Field(
+        default=None,
+        description=(
+            "Path to a file containing the Bearer JWT, re-read on every "
+            "connect(). Lets an external refresher rotate short-lived tokens "
+            "without rewriting the config. Takes precedence over jwt_token."
+        ),
+    )
+
+    def _resolve_jwt(self) -> str | None:
+        """Read the JWT from file (fresh each call) or fall back to the inline token.
+
+        Both sources are stripped; a blank or whitespace-only value resolves to
+        None so it can't spuriously force https, enable JWT auth, or block the
+        password fallback.
+        """
+        if self.jwt_token_file:
+            try:
+                with open(self.jwt_token_file, encoding="utf-8") as fh:
+                    token = fh.read().strip()
+                if token:
+                    return token
+            except OSError:
+                pass
+        if self.jwt_token:
+            token = self.jwt_token.strip()
+            if token:
+                return token
+        return None
 
     @classmethod
     def promptConfig(cls) -> "TrinoConfig":
         """Interactively prompt the user for Trino configuration."""
         name = ask_text("Connection name:", default="trino-prod") or "trino-prod"
         host = ask_text("Host:", default="localhost") or "localhost"
-        port_str = ask_text("Port:", default="8080") or "8080"
 
+        scheme_str = ask_text("Use HTTPS (y/n):", default="n") or "n"
+        use_https = scheme_str.strip().lower().startswith("y")
+        http_scheme: Literal["http", "https"] = "https" if use_https else "http"
+
+        default_port = "8443" if use_https else "8080"
+        port_str = ask_text("Port:", default=default_port) or default_port
         if not port_str.isdigit():
             raise InitError("Port must be a valid integer.")
+
+        verify: bool | str = True
+        if use_https:
+            ca_path = (ask_text("Custom CA bundle path (leave empty for system CAs):") or "").strip()
+            if ca_path:
+                verify = ca_path
 
         catalog = ask_text("Catalog name:", required_field=True)
         user = ask_text("Username:", required_field=True)
@@ -156,6 +221,8 @@ class TrinoConfig(DatabaseConfig):
             user=user,  # type: ignore[arg-type]
             password=password,
             schema_name=schema_name,
+            http_scheme=http_scheme,
+            verify=verify,
         )
 
     def connect(self) -> BaseBackend:
@@ -165,17 +232,29 @@ class TrinoConfig(DatabaseConfig):
         require_database_backend("trino")
         import ibis
 
+        jwt = self._resolve_jwt()
+        # A JWT requires TLS; force https so a stray http_scheme can't leak the
+        # bearer token over cleartext.
+        http_scheme = "https" if jwt else self.http_scheme
+
         kwargs: dict = {
             "host": self.host,
             "port": self.port,
             "user": self.user,
             "database": self.catalog,
+            "http_scheme": http_scheme,
         }
+
+        if http_scheme == "https":
+            kwargs["verify"] = self.verify
 
         if self.schema_name:
             kwargs["schema"] = self.schema_name
 
-        if self.password:
+        # Auth precedence: JWT (OAuth2/JWT authenticator) > basic password.
+        if jwt:
+            kwargs["auth"] = _build_jwt_auth(jwt)
+        elif self.password:
             kwargs["auth"] = _build_basic_auth(self.user, self.password)
 
         return ibis.trino.connect(**kwargs)

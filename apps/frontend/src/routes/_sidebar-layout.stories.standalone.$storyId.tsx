@@ -1,20 +1,23 @@
 import { splitCodeIntoSegments } from '@nao/shared/story-segments';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
-import { MessageSquare, Loader2 } from 'lucide-react';
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import type { ParsedChartBlock, ParsedTableBlock } from '@nao/shared/story-segments';
 
 import type { SelectionData } from '@/components/highlight-bubble';
 import type { QueryDataMap } from '@/components/story-embeds';
 import { HighlightBubble } from '@/components/highlight-bubble';
-import { StoryDownload } from '@/components/story-download';
 import { StoryChartEmbed, StoryTableEmbed } from '@/components/story-embeds';
 import { SegmentList } from '@/components/story-rendering';
-import { Button } from '@/components/ui/button';
+import { StoryPageHeader } from '@/components/story-page-header';
+import { LiveStorySettingsDialog } from '@/components/side-panel/live-story-settings-dialog';
+import { useStoryViewerLiveSettings } from '@/components/side-panel/hooks/use-story-viewer-live-settings';
+import { ShareStoryDialog } from '@/components/share-dialog.story';
+import { StoryPageBody } from '@/components/story-page-body';
 import { Spinner } from '@/components/ui/spinner';
 import { SelectionProvider } from '@/contexts/text-selection';
 import { chatPendingCitationStore } from '@/stores/chat-pending-citation';
+import { useStoryPageEditor } from '@/hooks/use-story-page-editor';
 import { trpc } from '@/main';
 
 export const Route = createFileRoute('/_sidebar-layout/stories/standalone/$storyId')({
@@ -73,32 +76,151 @@ function StandaloneStoryPage() {
 		return <div>Not Found</div>;
 	}
 
+	if (story.chatId) {
+		return (
+			<StandaloneEditableStory
+				title={story.title}
+				code={story.code}
+				storyId={storyId}
+				chatId={story.chatId}
+				storySlug={story.slug}
+				queryData={story.queryData as QueryDataMap | null}
+				onOpenChat={handleOpenChat}
+				isOpeningChat={openStandaloneMutation.isPending}
+			/>
+		);
+	}
+
 	return (
 		<div className='flex flex-col flex-1 h-full overflow-hidden bg-background min-w-0'>
-			<header className='flex items-center gap-3 border-b px-4 py-3 md:px-6 md:py-4 shrink-0 bg-background'>
-				<h1 className='text-base font-medium truncate'>{story.title}</h1>
-				<div className='ml-auto flex items-center gap-1.5 shrink-0'>
-					<StoryDownload storyId={storyId} isOwner={true} />
-					<Button
-						variant='outline'
-						size='sm'
-						className='gap-1.5'
-						onClick={handleOpenChat}
-						disabled={openStandaloneMutation.isPending}
-					>
-						{openStandaloneMutation.isPending ? (
-							<Loader2 className='size-3.5 animate-spin' />
-						) : (
-							<MessageSquare className='size-3.5' />
-						)}
-						<span>Open chat</span>
-					</Button>
-				</div>
-			</header>
+			<StoryPageHeader
+				title={story.title}
+				onOpenChat={handleOpenChat}
+				isOpeningChat={openStandaloneMutation.isPending}
+				download={{ storyId, isOwner: true }}
+				storyId={storyId}
+				live={story.isLive ? { isLive: true } : undefined}
+			/>
 			<SelectionProvider key={storyId}>
-				<HighlightBubble onAsk={handleSelectionAsk} disabled={!story.chatId} />
+				<HighlightBubble onAsk={handleSelectionAsk} disabled />
 				<StandaloneStoryContent code={story.code} queryData={story.queryData as QueryDataMap | null} />
 			</SelectionProvider>
+		</div>
+	);
+}
+
+interface StandaloneEditableStoryProps {
+	title: string;
+	code: string;
+	storyId: string;
+	chatId: string;
+	storySlug: string;
+	queryData: QueryDataMap | null;
+	onOpenChat: () => void;
+	isOpeningChat: boolean;
+}
+
+function StandaloneEditableStory({
+	title,
+	code,
+	storyId,
+	chatId,
+	storySlug,
+	queryData,
+	onOpenChat,
+	isOpeningChat,
+}: StandaloneEditableStoryProps) {
+	const navigate = useNavigate();
+	const [isLiveSettingsOpen, setIsLiveSettingsOpen] = useState(false);
+	const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
+
+	const {
+		isLive,
+		isLiveTextDynamic,
+		cacheSchedule,
+		cacheScheduleDescription,
+		isUpdating,
+		isRefreshing,
+		handleSaveSettings,
+		handleRefreshData,
+	} = useStoryViewerLiveSettings({ chatId, storySlug });
+
+	const shareQuery = useQuery(trpc.storyShare.getSharedStoryInfo.queryOptions({ chatId, storySlug }));
+	const isShared = Boolean(shareQuery.data?.shareId);
+
+	const editor = useStoryPageEditor({ chatId, storySlug, storyTitle: title, latestCode: code });
+
+	const handleSelectionAsk = useCallback(
+		(data: SelectionData) => {
+			chatPendingCitationStore.set({ chatId, storySlug, ...data });
+			navigate({ to: '/$chatId', params: { chatId } });
+		},
+		[navigate, chatId, storySlug],
+	);
+
+	return (
+		<div className='flex flex-col flex-1 h-full overflow-hidden bg-background min-w-0'>
+			<StoryPageHeader
+				title={title}
+				onOpenChat={onOpenChat}
+				isOpeningChat={isOpeningChat}
+				live={{
+					isLive,
+					isRefreshing,
+					onRefresh: () => handleRefreshData(),
+					onOpenSettings: () => setIsLiveSettingsOpen(true),
+				}}
+				download={{ storyId, isOwner: true }}
+				storyId={storyId}
+				isShared={isShared}
+				onShare={() => setIsShareDialogOpen(true)}
+				viewModeControls={{
+					viewMode: editor.viewMode,
+					onViewModeChange: editor.setViewMode,
+					canEdit: true,
+					isCodeDirty: editor.isCodeDirty,
+					isCodeValid: editor.isCodeValid,
+					onSave: editor.handleSave,
+				}}
+				versionControls={{
+					currentVersion: editor.versionNav.currentVersion,
+					totalVersions: editor.versionNav.totalVersions,
+					isViewingLatest: editor.versionNav.isViewingLatest,
+					onPrevious: editor.versionNav.goToPrevious,
+					onNext: editor.versionNav.goToNext,
+					onRestore: editor.handleRestore,
+				}}
+			/>
+
+			<StoryPageBody
+				code={editor.code}
+				editor={editor}
+				queryData={queryData}
+				preview={
+					<SelectionProvider key={storySlug}>
+						<HighlightBubble onAsk={handleSelectionAsk} disabled={false} />
+						<StandaloneStoryContent code={editor.code} queryData={queryData} />
+					</SelectionProvider>
+				}
+			/>
+
+			<LiveStorySettingsDialog
+				open={isLiveSettingsOpen}
+				onOpenChange={setIsLiveSettingsOpen}
+				isLive={isLive}
+				isLiveTextDynamic={isLiveTextDynamic}
+				cacheSchedule={cacheSchedule}
+				cacheScheduleDescription={cacheScheduleDescription}
+				isUpdating={isUpdating}
+				onSaveSettings={handleSaveSettings}
+			/>
+
+			<ShareStoryDialog
+				open={isShareDialogOpen}
+				onOpenChange={setIsShareDialogOpen}
+				chatId={chatId}
+				storySlug={storySlug}
+			/>
 		</div>
 	);
 }

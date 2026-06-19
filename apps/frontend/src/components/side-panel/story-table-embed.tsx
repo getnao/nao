@@ -2,13 +2,20 @@ import { memo, useMemo } from 'react';
 import type { UIMessage } from '@nao/backend/chat';
 import type { ParsedTableBlock } from '@nao/shared/story-segments';
 
-import { TableDisplay } from '@/components/tool-calls/display-table';
+import { DataTableCard } from '@/components/data-table-card';
 import { useOptionalAgentContext } from '@/contexts/agent.provider';
+import { useStoryEmbedData } from '@/contexts/story-embed-data';
 
 export const StoryTableEmbed = memo(function StoryTableEmbed({ table }: { table: ParsedTableBlock }) {
 	const agent = useOptionalAgentContext();
+	const embedData = useStoryEmbedData();
 
 	const sourceData = useMemo(() => {
+		const fromEmbedData = embedData?.[table.queryId];
+		if (fromEmbedData) {
+			return fromEmbedData;
+		}
+
 		const findInMessages = (messages: UIMessage[]) => {
 			for (const message of messages) {
 				for (const part of message.parts) {
@@ -21,7 +28,7 @@ export const StoryTableEmbed = memo(function StoryTableEmbed({ table }: { table:
 		};
 
 		return findInMessages(agent?.messages ?? []);
-	}, [agent?.messages, table.queryId]);
+	}, [embedData, agent?.messages, table.queryId]);
 
 	if (!sourceData?.data || !Array.isArray(sourceData.data)) {
 		return (
@@ -32,11 +39,10 @@ export const StoryTableEmbed = memo(function StoryTableEmbed({ table }: { table:
 	}
 
 	return (
-		<TableDisplay
+		<DataTableCard
 			data={sourceData.data as Record<string, unknown>[]}
-			columns={sourceData.columns}
+			columns={sourceData.columns ?? []}
 			title={table.title}
-			tableContainerClassName='max-h-[28rem]'
 		/>
 	);
 });

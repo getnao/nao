@@ -174,7 +174,11 @@ export function SidebarSettingsNav({
 
 	const fuse = useMemo(() => {
 		const entries = settingsSearchIndex.filter(
-			(e) => (!e.adminOnly || isAdmin) && (!e.cloudHidden || !isCloud) && (!e.licenseRequired || hasLicense),
+			(e) =>
+				(!e.adminOnly || isAdmin) &&
+				(!e.cloudHidden || !isCloud) &&
+				(!e.cloudOnly || isCloud) &&
+				(!e.licenseRequired || hasLicense),
 		);
 		return new Fuse(entries, {
 			keys: [

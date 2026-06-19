@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
-import { useEffect, useRef, useState } from 'react';
+import { ArrowDown, ArrowUp } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { LlmProvider } from '@nao/shared/types';
 
@@ -35,6 +36,8 @@ const FREQUENCY_OPTIONS = [
 
 type Frequency = (typeof FREQUENCY_OPTIONS)[number]['value'];
 
+type SortOrder = 'newest' | 'oldest';
+
 const MAX_AUTO_PR_OPTIONS = [1, 2, 3, 5, 10] as const;
 const DEFAULT_MAX_AUTO_PRS = 3;
 const MAX_CUSTOM_SYSTEM_PROMPT_INSTRUCTIONS_LENGTH = 4000;
@@ -46,12 +49,20 @@ function localRunTime(): string {
 	return at.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
 
+function sortByCreatedAt<T extends { createdAt: string | number | Date }>(items: T[], order: SortOrder): T[] {
+	return [...items].sort((a, b) => {
+		const diff = new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+		return order === 'newest' ? diff : -diff;
+	});
+}
+
 function RecommendationsPage() {
 	const queryClient = useQueryClient();
 	const containerRef = useRef<HTMLDivElement>(null);
 	const sidePanelRef = useRef<HTMLDivElement>(null);
 	const [customSystemPromptInstructions, setCustomSystemPromptInstructions] = useState('');
 	const [customSystemPromptInstructionsEnabled, setCustomSystemPromptInstructionsEnabled] = useState(false);
+	const [sortOrder, setSortOrder] = useState<SortOrder>('newest');
 	const sidePanel = useSidePanel({
 		containerRef,
 		sidePanelRef,
@@ -104,8 +115,15 @@ function RecommendationsPage() {
 	};
 
 	const selectedFrequency: Frequency = config.data?.frequency ?? 'weekly';
-	const activeRecommendations = recommendations.data?.filter((rec) => rec.status === 'open') ?? [];
+	const activeRecommendations = useMemo(
+		() => recommendations.data?.filter((rec) => rec.status === 'open') ?? [],
+		[recommendations.data],
+	);
 	const handledRecommendations = recommendations.data?.filter((rec) => rec.status !== 'open') ?? [];
+	const sortedActiveRecommendations = useMemo(
+		() => sortByCreatedAt(activeRecommendations, sortOrder),
+		[activeRecommendations, sortOrder],
+	);
 	const savedCustomSystemPromptInstructions = config.data?.customSystemPromptInstructions ?? '';
 	const hasCustomSystemPromptInstructionsChanges =
 		customSystemPromptInstructions.trim() !== savedCustomSystemPromptInstructions.trim();
@@ -376,6 +394,21 @@ function RecommendationsPage() {
 					<SettingsCard
 						title='Recommendations'
 						description='Ranked by impact. Act on each, then re-run to refresh.'
+						action={
+							<Button
+								size='sm'
+								variant='ghost'
+								className='gap-1 text-xs text-muted-foreground'
+								onClick={() => setSortOrder((order) => (order === 'newest' ? 'oldest' : 'newest'))}
+							>
+								Created at
+								{sortOrder === 'newest' ? (
+									<ArrowDown className='size-3.5' />
+								) : (
+									<ArrowUp className='size-3.5' />
+								)}
+							</Button>
+						}
 					>
 						{recommendations.isLoading ? (
 							<div className='flex justify-center p-4'>
@@ -389,8 +422,8 @@ function RecommendationsPage() {
 							<Empty>No recommendations yet. They appear after the next analysis run.</Empty>
 						) : (
 							<div className='flex flex-col gap-3'>
-								{activeRecommendations.length > 0 ? (
-									activeRecommendations.map((rec) => (
+								{sortedActiveRecommendations.length > 0 ? (
+									sortedActiveRecommendations.map((rec) => (
 										<RecommendationCard
 											key={rec.id}
 											recommendation={rec}
@@ -435,7 +468,6 @@ function RecommendationsPage() {
 						isAnimating={sidePanel.isAnimating}
 						sidePanelRef={sidePanelRef}
 						resizeHandleRef={sidePanel.resizeHandleRef}
-						onClose={sidePanel.close}
 					>
 						{sidePanel.content}
 					</SidePanel>

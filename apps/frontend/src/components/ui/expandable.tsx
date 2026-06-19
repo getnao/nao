@@ -44,7 +44,11 @@ export const Expandable = ({
 	};
 
 	const icon = leadingIcon ?? (
-		<ChevronRight size={12} className={cn('transition-transform duration-200', expanded && 'rotate-90')} />
+		<ChevronRight
+			size={12}
+			className={cn('transition-transform duration-200', expanded && 'rotate-90')}
+			strokeWidth={3.25}
+		/>
 	);
 
 	return (
@@ -55,7 +59,7 @@ export const Expandable = ({
 			onValueChange={handleValueChange}
 			disabled={!canExpand}
 			className={cn(
-				isBordered && 'border border-border rounded-xl overflow-hidden bg-backgroundSecondary/30',
+				isBordered && 'border border-border rounded-lg overflow-hidden bg-backgroundSecondary/30',
 				className,
 			)}
 		>
@@ -72,12 +76,7 @@ export const Expandable = ({
 						<AccordionTrigger
 							className={cn(
 								'flex-1 select-none flex items-baseline gap-2 py-0 overflow-hidden transition-opacity duration-150 hover:no-underline [&>svg:last-child]:hidden',
-								expanded ? 'opacity-100' : isBordered ? 'opacity-70' : 'opacity-50',
-								canExpand && !expanded
-									? 'cursor-pointer hover:opacity-90'
-									: canExpand
-										? 'cursor-pointer'
-										: '',
+								canExpand ? 'cursor-pointer' : '',
 							)}
 						>
 							<div className='size-3 flex items-center justify-center shrink-0 self-center'>{icon}</div>
@@ -90,25 +89,27 @@ export const Expandable = ({
 							>
 								{title}
 							</span>
-							{badge && <span className='text-xs opacity-50 shrink-0'>{badge}</span>}
+							{badge && !expanded && <span className='text-xs opacity-30 ml-auto shrink-0'>{badge}</span>}
 						</AccordionTrigger>
 						{trailingContent}
 					</div>
 				) : (
 					<AccordionTrigger
 						className={cn(
-							'select-none flex items-center gap-2 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap transition-opacity duration-150 py-0 hover:no-underline [&>svg:last-child]:hidden',
-							expanded ? 'opacity-100' : 'opacity-50',
-							canExpand && !expanded
-								? 'cursor-pointer hover:opacity-75'
-								: canExpand
-									? 'cursor-pointer'
-									: '',
+							'select-none flex items-center gap-2 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap transition-colors duration-150 py-0 hover:no-underline [&>svg:last-child]:hidden opacity-100',
+							canExpand ? 'cursor-pointer' : '',
 						)}
 					>
 						<div className='size-3 flex items-center justify-center shrink-0'>{icon}</div>
-						<span className={cn('text-sm', isLoading && 'text-shimmer')}>{title}</span>
-						{badge && <span className='text-xs opacity-50'>{badge}</span>}
+						<span
+							className={cn(
+								'flex-1 text-sm text-foreground font-normal truncate min-w-0',
+								isLoading && 'text-shimmer',
+							)}
+						>
+							{title}
+						</span>
+						{badge && !expanded && <span className='text-xs opacity-50 shrink-0'>{badge}</span>}
 					</AccordionTrigger>
 				)}
 

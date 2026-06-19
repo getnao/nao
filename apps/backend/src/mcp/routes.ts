@@ -73,7 +73,6 @@ async function initializeSession(request: FastifyRequest, reply: FastifyReply): 
 	const server = createMcpServer(userId, projectId, settings);
 	const transport = new StreamableHTTPServerTransport({
 		sessionIdGenerator: () => crypto.randomUUID(),
-		enableJsonResponse: true,
 		onsessioninitialized: (sessionId) => {
 			sessions.set(sessionId, { transport, server, userId, projectId, lastAccess: Date.now() });
 		},
