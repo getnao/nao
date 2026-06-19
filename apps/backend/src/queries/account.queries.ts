@@ -1,13 +1,15 @@
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
+
+const CREDENTIAL_PROVIDER_ID = 'credential';
 
 export const getAccountById = async (userId: string): Promise<{ id: string; password: string | null } | null> => {
 	const [account] = await db
 		.select({ id: s.account.id, password: s.account.password })
 		.from(s.account)
-		.where(eq(s.account.userId, userId))
+		.where(and(eq(s.account.userId, userId), eq(s.account.providerId, CREDENTIAL_PROVIDER_ID)))
 		.execute();
 
 	return account ?? null;
