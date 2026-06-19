@@ -38,6 +38,12 @@ export const authConfigRoutes = {
 				}),
 			)
 			.mutation(async ({ input, ctx }) => {
+				if (isCloud) {
+					throw new TRPCError({
+						code: 'FORBIDDEN',
+						message: 'Google SSO settings are managed at the deployment level in cloud mode.',
+					});
+				}
 				if (!ctx.project.orgId) {
 					throw new TRPCError({ code: 'NOT_FOUND', message: 'No organization found for project' });
 				}
