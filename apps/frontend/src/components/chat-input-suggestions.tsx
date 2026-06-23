@@ -24,25 +24,94 @@ const STORY_SUGGESTION_MESSAGE = 'Create a story from the charts in this convers
 const storyProposalDisabledStorage = createLocalStorage<boolean>('nao-story-proposal-disabled', false);
 
 /**
- * A floating panel that sits above the chat input and surfaces contextual
- * prompts: asking for feedback after a lull, or offering to turn charts into a
- * story once the conversation has produced a few.
+ * A floating panel that sits above the chat input and surfaces a single
+ * contextual prompt. Only one suggestion is shown at a time — the story
+ * suggestion takes priority over the conversation feedback prompt.
  */
 export function ChatInputSuggestions() {
 	const { isReadonly } = useAgentContext();
+	const story = useStorySuggestion();
+	const feedback = useConversationFeedback();
+
 	if (isReadonly) {
 		return null;
 	}
 
-	return (
-		<>
-			<StorySuggestionPrompt />
-			<ConversationFeedbackPrompt />
-		</>
-	);
+	if (story.isVisible) {
+		return (
+			<SuggestionCard
+				icon={<StoryIcon className='size-4 shrink-0 text-primary' />}
+				message='Would you want to create a story?'
+			>
+				<Button variant='primary-gradient' size='sm' className='rounded-full' onClick={story.accept}>
+					Yes
+				</Button>
+				<Button variant='ghost' size='sm' className='rounded-full' onClick={story.dismiss}>
+					No
+				</Button>
+				<Button
+					variant='ghost'
+					size='sm'
+					className='rounded-full text-muted-foreground'
+					onClick={story.neverPropose}
+				>
+					Do not propose again
+				</Button>
+			</SuggestionCard>
+		);
+	}
+
+	if (feedback.showThanks) {
+		return <SuggestionCard message='Thanks for your feedback!' />;
+	}
+
+	if (feedback.isVisible) {
+		return (
+			<SuggestionCard message='How was this conversation?'>
+				<Button
+					variant='ghost'
+					size='icon-sm'
+					className='hover:rounded-full'
+					onClick={() => feedback.vote('up')}
+					disabled={feedback.isPending}
+					aria-label='Good conversation'
+				>
+					<ThumbsUp className='size-4' />
+				</Button>
+				<Button
+					variant='ghost'
+					size='icon-sm'
+					className='hover:rounded-full'
+					onClick={() => feedback.vote('down')}
+					disabled={feedback.isPending}
+					aria-label='Bad conversation'
+				>
+					<ThumbsDown className='size-4' />
+				</Button>
+				<Button
+					variant='ghost'
+					size='icon-sm'
+					className='hover:rounded-full text-muted-foreground'
+					onClick={feedback.dismiss}
+					aria-label='Dismiss'
+				>
+					<X className='size-4' />
+				</Button>
+			</SuggestionCard>
+		);
+	}
+
+	return null;
 }
 
-function StorySuggestionPrompt() {
+interface StorySuggestion {
+	isVisible: boolean;
+	accept: () => void;
+	dismiss: () => void;
+	neverPropose: () => void;
+}
+
+function useStorySuggestion(): StorySuggestion {
 	const { messages, isRunning, queueOrSendMessage } = useAgentContext();
 	const chatId = useChatId();
 
@@ -54,7 +123,7 @@ function StorySuggestionPrompt() {
 
 	const isPersistedChat = !!chatId && chatId !== NEW_CHAT_ID;
 	const isDismissed = !!chatId && dismissedChats.has(chatId);
-	const isEligible =
+	const isVisible =
 		isPersistedChat &&
 		!isRunning &&
 		!neverPropose &&
@@ -62,50 +131,34 @@ function StorySuggestionPrompt() {
 		!isDismissed &&
 		chartCount >= STORY_CHART_THRESHOLD;
 
-	const dismissForChat = useCallback(() => {
+	const dismiss = useCallback(() => {
 		if (chatId) {
 			setDismissedChats((prev) => new Set(prev).add(chatId));
 		}
 	}, [chatId]);
 
-	const handleAccept = useCallback(() => {
+	const accept = useCallback(() => {
 		void queueOrSendMessage({ text: STORY_SUGGESTION_MESSAGE });
-		dismissForChat();
-	}, [queueOrSendMessage, dismissForChat]);
+		dismiss();
+	}, [queueOrSendMessage, dismiss]);
 
 	const handleNeverPropose = useCallback(() => {
 		setNeverPropose(true);
 		storyProposalDisabledStorage.set(true);
 	}, []);
 
-	if (!isEligible) {
-		return null;
-	}
-
-	return (
-		<SuggestionCard
-			icon={<StoryIcon className='size-4 shrink-0 text-primary' />}
-			message='Would you want to create a story?'
-		>
-			<Button variant='primary-gradient' size='sm' className='rounded-full' onClick={handleAccept}>
-				Yes
-			</Button>
-			<Button variant='ghost' size='sm' className='rounded-full' onClick={dismissForChat}>
-				No
-			</Button>
-			<Button
-				variant='ghost'
-				size='sm'
-				className='rounded-full text-muted-foreground'
-				onClick={handleNeverPropose}
-			>
-				Do not propose again
-			</Button>
-		</SuggestionCard>
-	);
+	return { isVisible, accept, dismiss, neverPropose: handleNeverPropose };
 }
 
-function ConversationFeedbackPrompt() {
+interface ConversationFeedback {
+	isVisible: boolean;
+	showThanks: boolean;
+	isPending: boolean;
+	vote: (vote: 'up' | 'down') => void;
+	dismiss: () => void;
+}
+
+function useConversationFeedback(): ConversationFeedback {
 	const { messages, isRunning } = useAgentContext();
 	const chatId = useChatId();
 
@@ -157,64 +210,30 @@ function ConversationFeedbackPrompt() {
 		return () => window.clearTimeout(timer);
 	}, [showThanks, chatId]);
 
-	const submitVote = useCallback(
-		(vote: 'up' | 'down') => {
+	const vote = useCallback(
+		(value: 'up' | 'down') => {
 			if (!chatId || !lastAssistantMessage) {
 				return;
 			}
-			submitFeedback.mutate({ chatId, messageId: lastAssistantMessage.id, vote });
+			submitFeedback.mutate({ chatId, messageId: lastAssistantMessage.id, vote: value });
 			setThanksForChat(chatId);
 		},
 		[chatId, lastAssistantMessage, submitFeedback],
 	);
 
-	const dismissForChat = useCallback(() => {
+	const dismiss = useCallback(() => {
 		if (chatId) {
 			setDismissedChats((prev) => new Set(prev).add(chatId));
 		}
 	}, [chatId]);
 
-	if (showThanks) {
-		return <SuggestionCard message='Thanks for your feedback!' />;
-	}
-
-	if (!isEligible || !isTriggered) {
-		return null;
-	}
-
-	return (
-		<SuggestionCard message='How was this conversation?'>
-			<Button
-				variant='ghost'
-				size='icon-sm'
-				className='hover:rounded-full'
-				onClick={() => submitVote('up')}
-				disabled={submitFeedback.isPending}
-				aria-label='Good conversation'
-			>
-				<ThumbsUp className='size-4' />
-			</Button>
-			<Button
-				variant='ghost'
-				size='icon-sm'
-				className='hover:rounded-full'
-				onClick={() => submitVote('down')}
-				disabled={submitFeedback.isPending}
-				aria-label='Bad conversation'
-			>
-				<ThumbsDown className='size-4' />
-			</Button>
-			<Button
-				variant='ghost'
-				size='icon-sm'
-				className='hover:rounded-full text-muted-foreground'
-				onClick={dismissForChat}
-				aria-label='Dismiss'
-			>
-				<X className='size-4' />
-			</Button>
-		</SuggestionCard>
-	);
+	return {
+		isVisible: isEligible && isTriggered,
+		showThanks,
+		isPending: submitFeedback.isPending,
+		vote,
+		dismiss,
+	};
 }
 
 function SuggestionCard({
