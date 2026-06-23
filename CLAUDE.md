@@ -30,7 +30,7 @@ Write simple, clean, self-explanatory, easy to read and intelligent code.
 - Write **small, focused functions** — each does one thing; extract early rather than inline
 - Use **descriptive names** — code should read like prose; avoid abbreviations
 - **Minimize comments** — only comment complex or ambiguous logic with short JSDocs or python docstring; never describe function inputs/outputs.
-- Important: dont use comments to describe the code inline.
+- Important: don't use comments to describe the code inline.
 - Avoid inline function declarations without braces
 
 ### Backend Migrations (`apps/backend/`)
