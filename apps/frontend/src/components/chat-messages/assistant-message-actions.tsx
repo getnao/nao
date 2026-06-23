@@ -124,7 +124,7 @@ interface NegativeFeedbackDialogProps {
 	isPending: boolean;
 }
 
-function NegativeFeedbackDialog({ open, onOpenChange, onSubmit, isPending }: NegativeFeedbackDialogProps) {
+export function NegativeFeedbackDialog({ open, onOpenChange, onSubmit, isPending }: NegativeFeedbackDialogProps) {
 	const [explanation, setExplanation] = useState('');
 
 	const handleSubmit = (e: FormEvent<HTMLFormElement>) => {

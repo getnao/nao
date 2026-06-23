@@ -28,6 +28,7 @@ import { messageQueueStore } from '@/stores/chat-message-queue';
 import { chatPendingCitationStore } from '@/stores/chat-pending-citation';
 import { useChatPendingCitation } from '@/hooks/use-chat-pending-citation';
 import { SelectionCitationBanner } from '@/components/selection-citation-banner';
+import { ChatInputSuggestions } from '@/components/chat-input-suggestions';
 
 type ChatInputBaseProps = {
 	promptRef: React.RefObject<PromptHandle | null>;
@@ -287,6 +288,7 @@ function ChatInputBase({
 			<ChatInputMessageQueue onEditMessage={handleEditQueuedMessage} onSubmitNow={submitQueuedMessageNow} />
 			<SelectionCitationBanner />
 			<BudgetBanner />
+{allowQueueing && <ChatInputSuggestions />}
 
 			<form onSubmit={handleSubmitMessage} className='mx-auto relative'>
 				<InputGroup
