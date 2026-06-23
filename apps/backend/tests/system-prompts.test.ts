@@ -1,6 +1,6 @@
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, readFileSync, realpathSync } from 'fs';
 import { join } from 'path';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('fs');
 
@@ -8,12 +8,14 @@ import { getSystemPromptOverride, hasNaoPromptPlaceholder, injectNaoPrompt } fro
 
 const mockExistsSync = vi.mocked(existsSync);
 const mockReadFileSync = vi.mocked(readFileSync);
+const mockRealpathSync = vi.mocked(realpathSync);
 
 const ROOT = '/project';
 const promptPath = (filename: string) => join(ROOT, 'agent', 'prompts', filename);
 
 function setupPromptFiles(files: Record<string, string>): void {
 	mockExistsSync.mockImplementation((path) => Object.keys(files).some((name) => path === promptPath(name)));
+	mockRealpathSync.mockImplementation((path) => path as string);
 	mockReadFileSync.mockImplementation((path) => {
 		const match = Object.entries(files).find(([name]) => path === promptPath(name));
 		if (!match) {
@@ -26,6 +28,10 @@ function setupPromptFiles(files: Record<string, string>): void {
 describe('getSystemPromptOverride', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+	});
+
+	afterEach(() => {
+		vi.restoreAllMocks();
 	});
 
 	it('returns undefined when no override files exist', () => {
@@ -65,6 +71,7 @@ describe('getSystemPromptOverride', () => {
 
 	it('returns undefined and logs when reading throws', () => {
 		mockExistsSync.mockImplementation((path) => path === promptPath('system.md'));
+		mockRealpathSync.mockImplementation((path) => path as string);
 		mockReadFileSync.mockImplementation(() => {
 			throw new Error('Permission denied');
 		});
@@ -72,6 +79,20 @@ describe('getSystemPromptOverride', () => {
 
 		expect(getSystemPromptOverride(ROOT)).toBeUndefined();
 		expect(consoleSpy).toHaveBeenCalledWith('Error reading system prompt override system.md:', expect.any(Error));
+	});
+
+	it('refuses to read a prompt that resolves outside the project folder (symlink traversal)', () => {
+		mockExistsSync.mockImplementation((path) => path === promptPath('system.md'));
+		mockRealpathSync.mockImplementation((path) =>
+			path === promptPath('system.md') ? '/etc/passwd' : (path as string),
+		);
+		const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+		expect(getSystemPromptOverride(ROOT)).toBeUndefined();
+		expect(mockReadFileSync).not.toHaveBeenCalled();
+		expect(consoleSpy).toHaveBeenCalledWith(
+			expect.stringContaining('Refusing to read system prompt override outside the project folder'),
+		);
 	});
 });
 

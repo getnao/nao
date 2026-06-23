@@ -1,7 +1,7 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { getSystemPromptOverride, hasNaoPromptPlaceholder, injectNaoPrompt } from '../src/agents/system-prompts';
 
@@ -48,6 +48,24 @@ describe('getSystemPromptOverride (real filesystem)', () => {
 
 		expect(getSystemPromptOverride(projectFolder)).toBeUndefined();
 		expect(getSystemPromptOverride(projectFolder, 'slack')).toBeUndefined();
+	});
+
+	it('refuses to follow a symlink that points outside the project folder', () => {
+		const secretDir = mkdtempSync(join(tmpdir(), 'nao-secret-'));
+		const secretFile = join(secretDir, 'secret.md');
+		writeFileSync(secretFile, 'TOP SECRET HOST FILE', 'utf-8');
+		symlinkSync(secretFile, join(projectFolder, 'agent', 'prompts', 'system.md'));
+		const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+		try {
+			expect(getSystemPromptOverride(projectFolder)).toBeUndefined();
+			expect(consoleSpy).toHaveBeenCalledWith(
+				expect.stringContaining('Refusing to read system prompt override outside the project folder'),
+			);
+		} finally {
+			consoleSpy.mockRestore();
+			rmSync(secretDir, { recursive: true, force: true });
+		}
 	});
 
 	it('composes the default prompt into a file that keeps the {{ nao_prompt }} placeholder', () => {

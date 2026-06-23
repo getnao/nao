@@ -1,5 +1,5 @@
-import { existsSync, readFileSync } from 'fs';
-import { join } from 'path';
+import { existsSync, readFileSync, realpathSync } from 'fs';
+import { isAbsolute, join, relative } from 'path';
 
 import type { Provider } from '../types/messaging-provider';
 
@@ -41,10 +41,20 @@ function readPromptFile(projectFolder: string, filename: string): string | undef
 	}
 
 	try {
-		const content = readFileSync(filePath, 'utf-8').trim();
+		const realFilePath = realpathSync(filePath);
+		if (!isWithinDirectory(realpathSync(projectFolder), realFilePath)) {
+			console.error(`Refusing to read system prompt override outside the project folder: ${filename}`);
+			return undefined;
+		}
+		const content = readFileSync(realFilePath, 'utf-8').trim();
 		return content.length > 0 ? content : undefined;
 	} catch (error) {
 		console.error(`Error reading system prompt override ${filename}:`, error);
 		return undefined;
 	}
+}
+
+function isWithinDirectory(directory: string, target: string): boolean {
+	const rel = relative(directory, target);
+	return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
 }

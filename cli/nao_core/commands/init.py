@@ -84,6 +84,7 @@ _SLACK_PROMPT_EXAMPLE = """<!--
 {{ nao_prompt }}
 """
 
+
 def setup_project_name(
     force: bool = False,
     name: str | None = None,
