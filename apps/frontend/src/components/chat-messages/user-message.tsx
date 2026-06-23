@@ -17,7 +17,7 @@ import { getMessageText, getMessageImages } from '@/lib/ai';
 import { parseChatMessageCitation } from '@/lib/chat-messages-citation-parser';
 import { Button } from '@/components/ui/button';
 import { SimpleTooltip } from '@/components/ui/tooltip';
-import { getTimeAgo } from '@/lib/time-ago';
+import { useTimeAgo } from '@/hooks/use-time-ago';
 import { editedMessageIdStore } from '@/stores/chat-edited-message';
 import { trpc } from '@/main';
 import { STORY_MENTION_ID } from '@/components/chat-input-prompt';
@@ -196,6 +196,7 @@ export const UserMessage = memo(({ message }: { message: UIMessage }) => {
 							variant='ghost-muted'
 							size='icon-sm'
 							className='hover:rounded-full'
+							aria-label='Resend'
 							disabled={isRunning}
 							onClick={() => resendMessage({ messageId: message.id })}
 						>
@@ -207,6 +208,7 @@ export const UserMessage = memo(({ message }: { message: UIMessage }) => {
 							variant='ghost-muted'
 							size='icon-sm'
 							className='hover:rounded-full'
+							aria-label='Edit'
 							onClick={() => editedMessageIdStore.setEditingId(message.id)}
 						>
 							<Pencil />
@@ -217,6 +219,7 @@ export const UserMessage = memo(({ message }: { message: UIMessage }) => {
 							variant='ghost-muted'
 							size='icon-sm'
 							className='hover:rounded-full'
+							aria-label='Copy'
 							onClick={() => copy(getMessageText(message))}
 						>
 							{isCopied ? <Check className='size-4' /> : <Copy />}
@@ -237,7 +240,7 @@ export const UserMessage = memo(({ message }: { message: UIMessage }) => {
 });
 
 function MessageTimestamp({ createdAt }: { createdAt: number }) {
-	const { humanReadable } = getTimeAgo(createdAt);
+	const { humanReadable } = useTimeAgo(createdAt);
 	return (
 		<SimpleTooltip content={new Date(createdAt).toLocaleString()}>
 			<span className='px-1 text-xs text-muted-foreground cursor-default select-none'>{humanReadable}</span>
