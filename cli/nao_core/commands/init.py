@@ -75,15 +75,14 @@ Without `{{ nao_prompt }}`, the file content becomes the entire prompt.
 """
 
 _SLACK_PROMPT_EXAMPLE = """<!--
-  Slack Bot system prompt. {{ nao_prompt }} is replaced at runtime with nao's
-  built-in Slack prompt, so you extend the default instead of replacing it.
-  Add your own instructions around the placeholder, remove it to fully override,
+  Slack Bot system prompt. The placeholder below is replaced at runtime with
+  nao's built-in Slack prompt so you can extend the default instead of replacing
+  it entirely. Add your own instructions around it, remove it to fully override,
   or delete this file to use nao's default Slack prompt unchanged. See README.md.
 -->
 
 {{ nao_prompt }}
 """
-
 
 def setup_project_name(
     force: bool = False,
