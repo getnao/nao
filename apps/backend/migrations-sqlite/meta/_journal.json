@@ -351,6 +351,13 @@
       "when": 1781711312936,
       "tag": "0049_add_display_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "6",
+      "when": 1782226391713,
+      "tag": "0050_add_message_version_group_id",
+      "breakpoints": true
     }
   ]
 }

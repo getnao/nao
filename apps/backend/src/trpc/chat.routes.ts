@@ -87,6 +87,12 @@ export const chatRoutes = {
 			await chatQueries.toggleStarred(input.chatId, input.isStarred);
 		}),
 
+	switchMessageVersion: chatOwnerProcedure
+		.input(z.object({ chatId: z.string(), messageId: z.string() }))
+		.mutation(async ({ input }): Promise<void> => {
+			await chatQueries.switchMessageVersion(input.chatId, input.messageId);
+		}),
+
 	getForkMetadata: chatOwnerProcedure
 		.input(z.object({ chatId: z.string() }))
 		.query(async ({ input }): Promise<ForkMetadata | null> => {

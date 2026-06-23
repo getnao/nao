@@ -1,5 +1,5 @@
 import { memo, useMemo, useRef, useState } from 'react';
-import { Pencil, Check, Copy, Table } from 'lucide-react';
+import { Pencil, Check, Copy, Table, RotateCcw, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Message } from 'prompt-mentions';
 import { useQuery } from '@tanstack/react-query';
 import { createPortal } from 'react-dom';
@@ -16,6 +16,8 @@ import { ImageLightbox } from '@/components/image-lightbox';
 import { getMessageText, getMessageImages } from '@/lib/ai';
 import { parseChatMessageCitation } from '@/lib/chat-messages-citation-parser';
 import { Button } from '@/components/ui/button';
+import { SimpleTooltip } from '@/components/ui/tooltip';
+import { getTimeAgo } from '@/lib/time-ago';
 import { editedMessageIdStore } from '@/stores/chat-edited-message';
 import { trpc } from '@/main';
 import { STORY_MENTION_ID } from '@/components/chat-input-prompt';
@@ -146,7 +148,7 @@ export const UserMessageBubble = memo(({ message }: { message: UIMessage }) => {
 });
 
 export const UserMessage = memo(({ message }: { message: UIMessage }) => {
-	const { isRunning, editMessage } = useAgentContext();
+	const { isRunning, editMessage, resendMessage, switchMessageVersion } = useAgentContext();
 	const { isCopied, copy } = useCopyToClipboard();
 	const isEditing = useIsEditingMessage(message.id);
 	const editContainerRef = useRef<HTMLDivElement>(null);
@@ -181,31 +183,104 @@ export const UserMessage = memo(({ message }: { message: UIMessage }) => {
 		<div className='group flex flex-col gap-2 items-end w-full'>
 			<UserMessageBubble message={message} />
 
-			<div className='flex items-center gap-2'>
+			<div className='flex items-center gap-1'>
+				{message.versionInfo && message.versionInfo.totalVersions > 1 && (
+					<MessageVersionNav
+						versionInfo={message.versionInfo}
+						disabled={isRunning}
+						onSwitch={(messageId) => switchMessageVersion({ messageId })}
+					/>
+				)}
+
 				<div
 					className={cn(
 						'flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200',
 						isRunning && 'group-last:opacity-0 invisible',
 					)}
 				>
-					<Button
-						variant='ghost-muted'
-						size='icon-sm'
-						className='hover:rounded-full'
-						onClick={() => editedMessageIdStore.setEditingId(message.id)}
-					>
-						<Pencil />
-					</Button>
-					<Button
-						variant='ghost-muted'
-						size='icon-sm'
-						className='hover:rounded-full'
-						onClick={() => copy(getMessageText(message))}
-					>
-						{isCopied ? <Check className='size-4' /> : <Copy />}
-					</Button>
+					{message.createdAt && <MessageTimestamp createdAt={message.createdAt} />}
+					<SimpleTooltip content='Resend'>
+						<Button
+							variant='ghost-muted'
+							size='icon-sm'
+							className='hover:rounded-full'
+							disabled={isRunning}
+							onClick={() => resendMessage({ messageId: message.id })}
+						>
+							<RotateCcw />
+						</Button>
+					</SimpleTooltip>
+					<SimpleTooltip content='Edit'>
+						<Button
+							variant='ghost-muted'
+							size='icon-sm'
+							className='hover:rounded-full'
+							onClick={() => editedMessageIdStore.setEditingId(message.id)}
+						>
+							<Pencil />
+						</Button>
+					</SimpleTooltip>
+					<SimpleTooltip content='Copy'>
+						<Button
+							variant='ghost-muted'
+							size='icon-sm'
+							className='hover:rounded-full'
+							onClick={() => copy(getMessageText(message))}
+						>
+							{isCopied ? <Check className='size-4' /> : <Copy />}
+						</Button>
+					</SimpleTooltip>
 				</div>
 			</div>
 		</div>
 	);
 });
+
+function MessageTimestamp({ createdAt }: { createdAt: number }) {
+	const { humanReadable } = getTimeAgo(createdAt);
+	return (
+		<SimpleTooltip content={new Date(createdAt).toLocaleString()}>
+			<span className='px-1 text-xs text-muted-foreground cursor-default select-none'>{humanReadable}</span>
+		</SimpleTooltip>
+	);
+}
+
+function MessageVersionNav({
+	versionInfo,
+	disabled,
+	onSwitch,
+}: {
+	versionInfo: NonNullable<UIMessage['versionInfo']>;
+	disabled: boolean;
+	onSwitch: (messageId: string) => void;
+}) {
+	const { currentVersion, totalVersions, versionIds } = versionInfo;
+	const goToPrevious = () => onSwitch(versionIds[currentVersion - 2]);
+	const goToNext = () => onSwitch(versionIds[currentVersion]);
+
+	return (
+		<div className='flex items-center text-xs text-muted-foreground'>
+			<Button
+				variant='ghost-muted'
+				size='icon-sm'
+				className='hover:rounded-full size-6'
+				disabled={disabled || currentVersion <= 1}
+				onClick={goToPrevious}
+			>
+				<ChevronLeft />
+			</Button>
+			<span className='tabular-nums select-none'>
+				{currentVersion}/{totalVersions}
+			</span>
+			<Button
+				variant='ghost-muted'
+				size='icon-sm'
+				className='hover:rounded-full size-6'
+				disabled={disabled || currentVersion >= totalVersions}
+				onClick={goToNext}
+			>
+				<ChevronRight />
+			</Button>
+		</div>
+	);
+}

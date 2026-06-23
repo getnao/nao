@@ -65,7 +65,19 @@ export type UIMessage = UIGenericMessage<unknown, MessageCustomDataParts, UITool
 	isForked?: boolean;
 	citation?: CitationData;
 	stopReason?: StopReason;
+	/** Epoch milliseconds the message was created at. */
+	createdAt?: number;
+	/** Edit/resend version history for a user message turn. */
+	versionInfo?: MessageVersionInfo;
 };
+
+export interface MessageVersionInfo {
+	/** 1-based index of the active version among all versions of the turn. */
+	currentVersion: number;
+	totalVersions: number;
+	/** Message ids of every version, ordered oldest to newest. */
+	versionIds: string[];
+}
 
 export type UITools = InferUITools<typeof tools>;
 

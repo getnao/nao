@@ -291,6 +291,7 @@ export const chatMessage = sqliteTable(
 		llmProvider: text('llm_provider').$type<LlmProvider>(),
 		llmModelId: text('llm_model_id'),
 		supersededAt: integer('superseded_at', { mode: 'timestamp_ms' }),
+		versionGroupId: text('version_group_id'),
 		source: text('source', { enum: MESSAGE_SOURCES }),
 		isForked: integer('isForked', { mode: 'boolean' }),
 		citation: text('citation', { mode: 'json' }).$type<CitationData>(),
@@ -311,6 +312,7 @@ export const chatMessage = sqliteTable(
 	(table) => [
 		index('chat_message_chatId_idx').on(table.chatId),
 		index('chat_message_createdAt_idx').on(table.createdAt),
+		index('chat_message_versionGroupId_idx').on(table.versionGroupId),
 	],
 );
 

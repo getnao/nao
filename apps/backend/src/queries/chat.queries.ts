@@ -17,7 +17,15 @@ import s, {
 } from '../db/abstractSchema';
 import { db } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
-import { ForkMetadata, StopReason, TokenUsage, UIChat, UIMessage, UIMessagePart } from '../types/chat';
+import {
+	ForkMetadata,
+	MessageVersionInfo,
+	StopReason,
+	TokenUsage,
+	UIChat,
+	UIMessage,
+	UIMessagePart,
+} from '../types/chat';
 import { applyChatFilters, buildChatGroups, type EnrichedChat, type SourcePlatform } from '../utils/chat-list';
 import { convertDBPartToUIPart, mapUIPartsToDBParts } from '../utils/chat-message-part-mappings';
 import { getErrorMessage } from '../utils/utils';
@@ -168,6 +176,10 @@ export const getChat = async (
 	}
 
 	const messages = aggregateChatMessagParts(result);
+	const versionInfoMap = await buildVersionInfoMap(chatId);
+	const messagesWithVersions = messages.map((message) =>
+		versionInfoMap.has(message.id) ? { ...message, versionInfo: versionInfoMap.get(message.id) } : message,
+	);
 	return [
 		{
 			id: chatId,
@@ -176,11 +188,55 @@ export const getChat = async (
 			isStarred: chat.isStarred,
 			createdAt: chat.createdAt.getTime(),
 			updatedAt: chat.updatedAt.getTime(),
-			messages,
+			messages: messagesWithVersions,
 			forkMetadata: chat.forkMetadata ?? undefined,
 		},
 		chat.userId,
 	];
+};
+
+/**
+ * Builds a map from the id of each active (non-superseded) message to its
+ * version history, for message turns that have been edited or resent.
+ */
+const buildVersionInfoMap = async (chatId: string): Promise<Map<string, MessageVersionInfo>> => {
+	const rows = await db
+		.select({
+			id: s.chatMessage.id,
+			versionGroupId: s.chatMessage.versionGroupId,
+			supersededAt: s.chatMessage.supersededAt,
+			createdAt: s.chatMessage.createdAt,
+		})
+		.from(s.chatMessage)
+		.where(and(eq(s.chatMessage.chatId, chatId), isNotNull(s.chatMessage.versionGroupId)))
+		.orderBy(asc(s.chatMessage.createdAt))
+		.execute();
+
+	const groups = new Map<string, typeof rows>();
+	for (const row of rows) {
+		const groupId = row.versionGroupId!;
+		const group = groups.get(groupId) ?? [];
+		group.push(row);
+		groups.set(groupId, group);
+	}
+
+	const versionInfoMap = new Map<string, MessageVersionInfo>();
+	for (const group of groups.values()) {
+		if (group.length <= 1) {
+			continue;
+		}
+		const activeIndex = group.findIndex((row) => row.supersededAt === null);
+		if (activeIndex === -1) {
+			continue;
+		}
+		versionInfoMap.set(group[activeIndex].id, {
+			currentVersion: activeIndex + 1,
+			totalVersions: group.length,
+			versionIds: group.map((row) => row.id),
+		});
+	}
+
+	return versionInfoMap;
 };
 
 /** Aggregate the message parts into a list of UI messages. */
@@ -210,6 +266,7 @@ const aggregateChatMessagParts = (
 					isForked: row.chat_message.isForked ?? undefined,
 					citation: row.chat_message.citation ?? undefined,
 					stopReason: row.chat_message.stopReason ?? undefined,
+					createdAt: row.chat_message.createdAt?.getTime(),
 				};
 			}
 			return acc;
@@ -270,6 +327,89 @@ export const supersedeMessagesFrom = async (chatId: string, fromMessageId: strin
 	});
 };
 
+/**
+ * Returns the version group id to use for an edited/resent message so that the
+ * new message is grouped with the message it supersedes. Backfills the group id
+ * on the edited message when it predates version tracking.
+ */
+export const resolveVersionGroupIdForEdit = async (
+	chatId: string,
+	messageToEditId: string,
+): Promise<string | undefined> => {
+	const [editedMessage] = await db
+		.select({ id: s.chatMessage.id, versionGroupId: s.chatMessage.versionGroupId })
+		.from(s.chatMessage)
+		.where(and(eq(s.chatMessage.id, messageToEditId), eq(s.chatMessage.chatId, chatId)))
+		.execute();
+
+	if (!editedMessage) {
+		return undefined;
+	}
+	if (editedMessage.versionGroupId) {
+		return editedMessage.versionGroupId;
+	}
+
+	await db
+		.update(s.chatMessage)
+		.set({ versionGroupId: editedMessage.id })
+		.where(eq(s.chatMessage.id, editedMessage.id))
+		.execute();
+	return editedMessage.id;
+};
+
+/**
+ * Restores a previously superseded version of a message turn as the active
+ * branch, superseding whatever conversation currently follows the turn.
+ */
+export const switchMessageVersion = async (chatId: string, targetMessageId: string): Promise<void> => {
+	await db.transaction(async (t) => {
+		const [target] = await t
+			.select({
+				versionGroupId: s.chatMessage.versionGroupId,
+				supersededAt: s.chatMessage.supersededAt,
+			})
+			.from(s.chatMessage)
+			.where(and(eq(s.chatMessage.id, targetMessageId), eq(s.chatMessage.chatId, chatId)))
+			.execute();
+
+		if (!target?.versionGroupId || target.supersededAt === null) {
+			return;
+		}
+
+		const groupRows = await t
+			.select({ createdAt: s.chatMessage.createdAt })
+			.from(s.chatMessage)
+			.where(and(eq(s.chatMessage.chatId, chatId), eq(s.chatMessage.versionGroupId, target.versionGroupId)))
+			.execute();
+
+		if (groupRows.length === 0) {
+			return;
+		}
+
+		const forkPoint = new Date(Math.min(...groupRows.map((row) => row.createdAt.getTime())));
+
+		await t
+			.update(s.chatMessage)
+			.set({ supersededAt: new Date() })
+			.where(
+				and(
+					eq(s.chatMessage.chatId, chatId),
+					isNull(s.chatMessage.supersededAt),
+					gte(s.chatMessage.createdAt, forkPoint),
+				),
+			)
+			.execute();
+
+		await t
+			.update(s.chatMessage)
+			.set({ supersededAt: null })
+			.where(and(eq(s.chatMessage.chatId, chatId), eq(s.chatMessage.supersededAt, target.supersededAt)))
+			.execute();
+
+		await t.update(s.chat).set({ updatedAt: new Date() }).where(eq(s.chat.id, chatId)).execute();
+	});
+};
+
 export const createChat = async (
 	newChat: NewChat,
 	newUserMessage: {
@@ -282,13 +422,16 @@ export const createChat = async (
 	return db.transaction(async (t): Promise<[DBChat, DBChatMessage]> => {
 		const [savedChat] = await t.insert(s.chat).values(newChat).returning().execute();
 
+		const messageId = crypto.randomUUID();
 		const [savedMessage] = await t
 			.insert(s.chatMessage)
 			.values({
+				id: messageId,
 				chatId: savedChat.id,
 				role: 'user',
 				source: newUserMessage.source,
 				citation: newUserMessage.citation ?? null,
+				versionGroupId: messageId,
 			})
 			.returning()
 			.execute();
@@ -353,6 +496,7 @@ export const upsertMessage = async (
 		tokenUsage?: TokenUsage;
 		llmProvider?: LlmProvider;
 		llmModelId?: string;
+		versionGroupId?: string;
 	},
 	options: { updateMetadata?: boolean } = {},
 ): Promise<{ messageId: string }> => {
@@ -369,14 +513,16 @@ export const upsertMessage = async (
 			source: message.source,
 			isForked: message.isForked,
 			citation: message.citation ?? null,
+			versionGroupId: message.versionGroupId ?? (message.role === 'user' ? messageId : undefined),
 			...message.tokenUsage,
 		};
 		const insert = t.insert(s.chatMessage).values(messageValues);
 		if (options.updateMetadata === false) {
 			await insert.onConflictDoNothing({ target: s.chatMessage.id }).execute();
 		} else {
-			const { id, ...updateValues } = messageValues;
+			const { id, versionGroupId, ...updateValues } = messageValues;
 			void id;
+			void versionGroupId;
 			await insert
 				.onConflictDoUpdate({
 					target: s.chatMessage.id,

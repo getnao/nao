@@ -18,6 +18,7 @@ import {
 	checkIsAgentRunning,
 	extractImagesFromMessage,
 	getLastUserMessageIdx,
+	getMessageText,
 	getTextFromUserMessageOrThrow,
 	NEW_CHAT_ID,
 	parseBudgetError,
@@ -35,6 +36,8 @@ export interface AgentHelpers {
 	setMessages: UseChatHelpers<UIMessage>['setMessages'];
 	queueOrSendMessage: (args: SendMessageArgs) => Promise<void>;
 	editMessage: (args: { messageId: string; text: string }) => Promise<void | UIMessage>;
+	resendMessage: (args: { messageId: string }) => Promise<void | UIMessage>;
+	switchMessageVersion: (args: { messageId: string }) => Promise<void>;
 	submitQueuedMessageNow: (messageId: string) => Promise<void>;
 	status: UseChatHelpers<UIMessage>['status'];
 	isRunning: boolean;
@@ -161,6 +164,9 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 					newAgent.sendMessage({ text: next.text, files: files.length > 0 ? files : undefined });
 				} else {
 					chatActivityStore.setRunning(agentId, false);
+					if (agentId !== NEW_CHAT_ID) {
+						queryClient.invalidateQueries({ queryKey: trpc.chat.get.queryKey({ chatId: agentId }) });
+					}
 					if (chatIdRef.current !== agentId) {
 						chatActivityStore.setUnread(agentId, true);
 						agentService.disposeAgent(agentId);
@@ -182,6 +188,7 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 	const { status, error, clearError, sendMessage, setMessages, messages } = useChat({ chat: agentInstance });
 
 	const stopAgentMutation = useMutation(trpc.chat.stop.mutationOptions());
+	const switchMessageVersionMutation = useMutation(trpc.chat.switchMessageVersion.mutationOptions());
 	const isRunning = checkIsAgentRunning({ status });
 
 	useEffect(() => {
@@ -285,12 +292,51 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 		[messages, setMessages, isRunning, handleSendMessage],
 	);
 
+	const resendMessage = useCallback(
+		async ({ messageId }: { messageId: string }) => {
+			if (isRunning) {
+				return;
+			}
+
+			const messageIndex = messages.findIndex((message) => message.id === messageId);
+			if (messageIndex === -1) {
+				return;
+			}
+
+			const original = messages[messageIndex];
+			const text = getMessageText(original).trim();
+			if (!text) {
+				return;
+			}
+
+			agentCitationStore.set(agentInstance, original.citation);
+			setMessages(messages.slice(0, messageIndex));
+			return handleSendMessage({ text }, { body: { messageToEditId: messageId } });
+		},
+		[messages, setMessages, isRunning, handleSendMessage, agentInstance],
+	);
+
+	const switchMessageVersion = useCallback(
+		async ({ messageId }: { messageId: string }) => {
+			const targetChatId = chatIdRef.current;
+			if (!targetChatId || isRunning) {
+				return;
+			}
+
+			await switchMessageVersionMutation.mutateAsync({ chatId: targetChatId, messageId });
+			await queryClient.invalidateQueries({ queryKey: trpc.chat.get.queryKey({ chatId: targetChatId }) });
+		},
+		[isRunning, switchMessageVersionMutation, queryClient],
+	);
+
 	return useMemoObject({
 		chatId,
 		messages,
 		setMessages,
 		queueOrSendMessage,
 		editMessage,
+		resendMessage,
+		switchMessageVersion,
 		submitQueuedMessageNow,
 		status,
 		isRunning,

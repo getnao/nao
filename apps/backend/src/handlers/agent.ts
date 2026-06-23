@@ -137,7 +137,9 @@ const insertOrSupersedeMessage = async (opts: {
 
 	const imageParts = await saveAndBuildImageParts(message.images);
 
+	let versionGroupId: string | undefined;
 	if (messageToEditId) {
+		versionGroupId = await chatQueries.resolveVersionGroupIdForEdit(chatId, messageToEditId);
 		await chatQueries.supersedeMessagesFrom(chatId, messageToEditId);
 	}
 	return chatQueries.upsertMessage({
@@ -146,5 +148,6 @@ const insertOrSupersedeMessage = async (opts: {
 		chatId,
 		source: 'web',
 		citation: message.citation,
+		versionGroupId,
 	});
 };

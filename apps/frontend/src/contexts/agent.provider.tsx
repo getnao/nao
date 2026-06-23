@@ -47,6 +47,8 @@ export const ReadonlyAgentMessagesProvider = ({
 			setMessages: noop,
 			queueOrSendMessage: noopPromise,
 			editMessage: noopPromise,
+			resendMessage: noopPromise,
+			switchMessageVersion: noopPromise,
 			submitQueuedMessageNow: noopPromise,
 			status: 'ready',
 			isRunning: false,

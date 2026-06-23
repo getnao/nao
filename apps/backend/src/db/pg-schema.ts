@@ -270,6 +270,7 @@ export const chatMessage = pgTable(
 		llmProvider: text('llm_provider').$type<LlmProvider>(),
 		llmModelId: text('llm_model_id'),
 		supersededAt: timestamp('superseded_at'),
+		versionGroupId: text('version_group_id'),
 		source: text('source', { enum: MESSAGE_SOURCES }),
 		isForked: boolean('isForked'),
 		citation: jsonb('citation').$type<CitationData>(),
@@ -288,6 +289,7 @@ export const chatMessage = pgTable(
 	(table) => [
 		index('chat_message_chatId_idx').on(table.chatId),
 		index('chat_message_createdAt_idx').on(table.createdAt),
+		index('chat_message_versionGroupId_idx').on(table.versionGroupId),
 	],
 );
 
