@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { Check, MessageSquare, ThumbsDown, ThumbsUp, X } from 'lucide-react';
+import { MessageSquare, X, ThumbsDown, ThumbsUp, Check } from 'lucide-react';
+import { NegativeFeedbackDialog } from './chat-messages/assistant-message-actions';
 import { Button } from './ui/button';
 import StoryIcon from './ui/story-icon';
 import type { UIMessage } from '@nao/backend/chat';
@@ -11,7 +12,6 @@ import { checkAssistantMessageHasContent, NEW_CHAT_ID } from '@/lib/ai';
 import { countDisplayCharts } from '@/lib/charts.utils';
 import { createLocalStorage } from '@/lib/local-storage';
 import { findStoryIds } from '@/lib/story.utils';
-import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
 /** Milliseconds of inactivity before we ask the user how the conversation went. */
@@ -40,74 +40,75 @@ export function ChatInputSuggestions() {
 	if (story.isVisible) {
 		return (
 			<SuggestionCard
-				tone='primary'
-				icon={<StoryIcon className='size-4 text-primary' />}
+				icon={<StoryIcon className='size-5 text-primary' />}
 				message='Would you want to create a story?'
 			>
-				<Button variant='primary-gradient' size='sm' className='rounded-full' onClick={story.accept}>
-					Yes
+				<Button
+					variant='ghost'
+					size='sm'
+					className='hidden rounded-full text-muted-foreground group-hover:inline-flex'
+					onClick={story.neverPropose}
+				>
+					Do not propose again
 				</Button>
 				<Button variant='ghost' size='sm' className='rounded-full' onClick={story.dismiss}>
 					No
 				</Button>
-				<Button
-					variant='ghost'
-					size='sm'
-					className='rounded-full text-muted-foreground'
-					onClick={story.neverPropose}
-				>
-					Do not propose again
+				<Button variant='primary-gradient' size='sm' className='rounded-full' onClick={story.accept}>
+					Yes
 				</Button>
 			</SuggestionCard>
 		);
 	}
 
 	if (feedback.showThanks) {
-		return (
-			<SuggestionCard
-				tone='primary'
-				icon={<Check className='size-4 text-primary' />}
-				message='Thanks for your feedback!'
-			/>
-		);
+		return <SuggestionCard icon={<Check className='size-4 text-primary' />} message='Thanks for your feedback!' />;
 	}
 
 	if (feedback.isVisible) {
 		return (
-			<SuggestionCard
-				icon={<MessageSquare className='size-4 text-muted-foreground' />}
-				message='How was this conversation?'
-			>
-				<Button
-					variant='ghost'
-					size='icon-sm'
-					className='hover:rounded-full'
-					onClick={() => feedback.vote('up')}
-					disabled={feedback.isPending}
-					aria-label='Good conversation'
+			<>
+				<SuggestionCard
+					icon={<MessageSquare className='size-4 text-muted-foreground' />}
+					message='How did this conversation go?'
 				>
-					<ThumbsUp className='size-4' />
-				</Button>
-				<Button
-					variant='ghost'
-					size='icon-sm'
-					className='hover:rounded-full'
-					onClick={() => feedback.vote('down')}
-					disabled={feedback.isPending}
-					aria-label='Bad conversation'
-				>
-					<ThumbsDown className='size-4' />
-				</Button>
-				<Button
-					variant='ghost'
-					size='icon-sm'
-					className='hover:rounded-full text-muted-foreground'
-					onClick={feedback.dismiss}
-					aria-label='Dismiss'
-				>
-					<X className='size-4' />
-				</Button>
-			</SuggestionCard>
+					<Button
+						variant='ghost'
+						size='icon-sm'
+						className='hover:rounded-full'
+						onClick={() => feedback.vote('up')}
+						disabled={feedback.isPending}
+						aria-label='Good conversation'
+					>
+						<ThumbsUp className='size-4' />
+					</Button>
+					<Button
+						variant='ghost'
+						size='icon-sm'
+						className='hover:rounded-full'
+						onClick={() => feedback.setFeedbackDialogOpen(true)}
+						disabled={feedback.isPending}
+						aria-label='Bad conversation'
+					>
+						<ThumbsDown className='size-4' />
+					</Button>
+					<Button
+						variant='ghost'
+						size='icon-sm'
+						className='hover:rounded-full text-muted-foreground'
+						onClick={feedback.dismiss}
+						aria-label='Dismiss'
+					>
+						<X className='size-4' />
+					</Button>
+				</SuggestionCard>
+				<NegativeFeedbackDialog
+					open={feedback.feedbackDialogOpen}
+					onOpenChange={feedback.setFeedbackDialogOpen}
+					onSubmit={(explanation) => feedback.vote('down', explanation)}
+					isPending={feedback.isPending}
+				/>
+			</>
 		);
 	}
 
@@ -164,8 +165,10 @@ interface ConversationFeedback {
 	isVisible: boolean;
 	showThanks: boolean;
 	isPending: boolean;
-	vote: (vote: 'up' | 'down') => void;
+	vote: (vote: 'up' | 'down', explanation?: string) => void;
 	dismiss: () => void;
+	feedbackDialogOpen: boolean;
+	setFeedbackDialogOpen: (open: boolean) => void;
 }
 
 function useConversationFeedback(): ConversationFeedback {
@@ -174,6 +177,7 @@ function useConversationFeedback(): ConversationFeedback {
 
 	const [dismissedChats, setDismissedChats] = useState<ReadonlySet<string>>(() => new Set());
 	const [thanksForChat, setThanksForChat] = useState<string | null>(null);
+	const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false);
 
 	const submitFeedback = useMutation(
 		trpc.feedback.submit.mutationOptions({
@@ -221,12 +225,13 @@ function useConversationFeedback(): ConversationFeedback {
 	}, [showThanks, chatId]);
 
 	const vote = useCallback(
-		(value: 'up' | 'down') => {
+		(value: 'up' | 'down', explanation?: string) => {
 			if (!chatId || !lastAssistantMessage) {
 				return;
 			}
-			submitFeedback.mutate({ chatId, messageId: lastAssistantMessage.id, vote: value });
+			submitFeedback.mutate({ chatId, messageId: lastAssistantMessage.id, vote: value, explanation });
 			setThanksForChat(chatId);
+			setFeedbackDialogOpen(false);
 		},
 		[chatId, lastAssistantMessage, submitFeedback],
 	);
@@ -243,34 +248,23 @@ function useConversationFeedback(): ConversationFeedback {
 		isPending: submitFeedback.isPending,
 		vote,
 		dismiss,
+		feedbackDialogOpen,
+		setFeedbackDialogOpen,
 	};
 }
 
 function SuggestionCard({
 	icon,
-	tone = 'muted',
 	message,
 	children,
 }: {
 	icon?: React.ReactNode;
-	tone?: 'muted' | 'primary';
 	message: string;
 	children?: React.ReactNode;
 }) {
 	return (
-		<div className='mb-2 flex items-center gap-3 rounded-lg border bg-background px-3 py-2.5 shadow-xs animate-in fade-in slide-in-from-bottom-2 duration-200'>
-			{icon && (
-				<div
-					className={cn(
-						'flex size-9 shrink-0 items-center justify-center rounded-lg border',
-						tone === 'primary'
-							? 'border-primary/20 bg-gradient-to-br from-primary/15 to-primary/5'
-							: 'border-border bg-muted/50',
-					)}
-				>
-					{icon}
-				</div>
-			)}
+		<div className='group mb-2 flex items-center gap-1 rounded-2xl border border-muted-foreground/25 bg-background p-2 animate-in fade-in slide-in-from-bottom-2 duration-200'>
+			{icon && <div className='flex size-9 shrink-0 items-center justify-center'>{icon}</div>}
 			<p className='min-w-0 flex-1 truncate text-sm font-medium text-foreground'>{message}</p>
 			{children && <div className='flex shrink-0 items-center gap-1'>{children}</div>}
 		</div>
