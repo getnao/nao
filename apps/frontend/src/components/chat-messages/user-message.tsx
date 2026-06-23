@@ -267,6 +267,7 @@ function MessageVersionNav({
 				variant='ghost-muted'
 				size='icon-sm'
 				className='hover:rounded-full size-6'
+				aria-label='Previous version'
 				disabled={disabled || currentVersion <= 1}
 				onClick={goToPrevious}
 			>
@@ -279,6 +280,7 @@ function MessageVersionNav({
 				variant='ghost-muted'
 				size='icon-sm'
 				className='hover:rounded-full size-6'
+				aria-label='Next version'
 				disabled={disabled || currentVersion >= totalVersions}
 				onClick={goToNext}
 			>
