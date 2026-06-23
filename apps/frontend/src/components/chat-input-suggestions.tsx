@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { ThumbsDown, ThumbsUp, X } from 'lucide-react';
+import { Check, MessageSquare, ThumbsDown, ThumbsUp, X } from 'lucide-react';
 import { Button } from './ui/button';
 import StoryIcon from './ui/story-icon';
 import type { UIMessage } from '@nao/backend/chat';
@@ -40,7 +40,8 @@ export function ChatInputSuggestions() {
 	if (story.isVisible) {
 		return (
 			<SuggestionCard
-				icon={<StoryIcon className='size-4 shrink-0 text-primary' />}
+				tone='primary'
+				icon={<StoryIcon className='size-4 text-primary' />}
 				message='Would you want to create a story?'
 			>
 				<Button variant='primary-gradient' size='sm' className='rounded-full' onClick={story.accept}>
@@ -62,12 +63,21 @@ export function ChatInputSuggestions() {
 	}
 
 	if (feedback.showThanks) {
-		return <SuggestionCard message='Thanks for your feedback!' />;
+		return (
+			<SuggestionCard
+				tone='primary'
+				icon={<Check className='size-4 text-primary' />}
+				message='Thanks for your feedback!'
+			/>
+		);
 	}
 
 	if (feedback.isVisible) {
 		return (
-			<SuggestionCard message='How was this conversation?'>
+			<SuggestionCard
+				icon={<MessageSquare className='size-4 text-muted-foreground' />}
+				message='How was this conversation?'
+			>
 				<Button
 					variant='ghost'
 					size='icon-sm'
@@ -238,23 +248,31 @@ function useConversationFeedback(): ConversationFeedback {
 
 function SuggestionCard({
 	icon,
+	tone = 'muted',
 	message,
 	children,
 }: {
 	icon?: React.ReactNode;
+	tone?: 'muted' | 'primary';
 	message: string;
 	children?: React.ReactNode;
 }) {
 	return (
-		<div
-			className={cn(
-				'mb-2 flex items-center gap-2.5 rounded-2xl border border-input/50 bg-muted/50 px-3 py-2 text-sm',
-				'text-muted-foreground animate-in fade-in slide-in-from-bottom-2 duration-200',
+		<div className='mb-2 flex items-center gap-3 rounded-lg border bg-background px-3 py-2.5 shadow-xs animate-in fade-in slide-in-from-bottom-2 duration-200'>
+			{icon && (
+				<div
+					className={cn(
+						'flex size-9 shrink-0 items-center justify-center rounded-lg border',
+						tone === 'primary'
+							? 'border-primary/20 bg-gradient-to-br from-primary/15 to-primary/5'
+							: 'border-border bg-muted/50',
+					)}
+				>
+					{icon}
+				</div>
 			)}
-		>
-			{icon}
-			<p className='flex-1 min-w-0'>{message}</p>
-			{children && <div className='flex items-center gap-1'>{children}</div>}
+			<p className='min-w-0 flex-1 truncate text-sm font-medium text-foreground'>{message}</p>
+			{children && <div className='flex shrink-0 items-center gap-1'>{children}</div>}
 		</div>
 	);
 }
