@@ -1,5 +1,5 @@
 import { displayChart, executeSql } from '@nao/shared/tools';
-import { and, asc, desc, eq, inArray, isNull, lte } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, lte, ne } from 'drizzle-orm';
 
 import s, {
 	type ActivityTrigger,
@@ -174,6 +174,44 @@ export const listAutomationRuns = async (
 		.orderBy(desc(s.automationRun.startedAt))
 		.execute();
 	return rows.map((row) => row.run);
+};
+
+export type AutomationRunHistoryEntry = {
+	id: string;
+	status: DBAutomationRun['status'];
+	startedAt: Date;
+	completedAt: Date | null;
+	errorMessage: string | null;
+	summary: string | null;
+	integrationResults: AutomationIntegrationResult[];
+};
+
+export const getAutomationRunHistory = async (
+	automationId: string,
+	options?: { limit?: number; excludeRunId?: string },
+): Promise<AutomationRunHistoryEntry[]> => {
+	const conditions = [eq(s.automationRun.automationId, automationId)];
+	if (options?.excludeRunId) {
+		conditions.push(ne(s.automationRun.id, options.excludeRunId));
+	}
+	const runs = await db
+		.select()
+		.from(s.automationRun)
+		.where(and(...conditions))
+		.orderBy(desc(s.automationRun.startedAt))
+		.limit(options?.limit ?? 10)
+		.execute();
+
+	const outputs = await loadAutomationRunOutputs(runs);
+	return runs.map((run) => ({
+		id: run.id,
+		status: run.status,
+		startedAt: run.startedAt,
+		completedAt: run.completedAt,
+		errorMessage: run.errorMessage,
+		summary: outputs.get(run.id)?.text ?? null,
+		integrationResults: run.integrationResults,
+	}));
 };
 
 export const getAutomationRunByChatId = async (

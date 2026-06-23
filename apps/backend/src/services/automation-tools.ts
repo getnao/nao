@@ -3,6 +3,7 @@ import type { displayChart } from '@nao/shared/tools';
 import { z } from 'zod/v4';
 
 import { generateChartImage } from '../components/generate-chart';
+import * as automationQueries from '../queries/automation.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as storyQueries from '../queries/story.queries';
 import type { AutomationIntegrationConfig } from '../types/automation';
@@ -41,15 +42,48 @@ type AutomationToolInput = {
 	chatId: string;
 	githubToken: string | null;
 	integrations: AutomationIntegrationConfig;
+	automationId?: string;
+	currentRunId?: string;
 };
 
 export function createAutomationTools(input: AutomationToolInput): Record<string, unknown> {
 	return {
+		...createHistoryTools(input.automationId, input.currentRunId),
 		...createEmailTools(input.projectId, input.integrations),
 		...createSlackTools(input.projectId, input.chatId, input.integrations),
 		...createGithubAutomationTools({
 			githubToken: input.githubToken,
 			config: input.integrations.github ?? { enabled: false, repositories: [] },
+		}),
+	};
+}
+
+function createHistoryTools(automationId?: string, currentRunId?: string): Record<string, unknown> {
+	if (!automationId) {
+		return {};
+	}
+
+	return {
+		get_automation_run_history: createTool({
+			description: [
+				'Look up what previous runs of THIS automation already did, so you avoid repeating work',
+				'If the user asks for the history, review it before deciding what is new and worth reporting.',
+			].join(' '),
+			inputSchema: z.object({
+				limit: z
+					.number()
+					.int()
+					.min(1)
+					.max(50)
+					.default(10)
+					.describe('How many of the most recent past runs to return.'),
+			}),
+			execute: async ({ limit }) => ({
+				runs: await automationQueries.getAutomationRunHistory(automationId, {
+					limit,
+					excludeRunId: currentRunId,
+				}),
+			}),
 		}),
 	};
 }

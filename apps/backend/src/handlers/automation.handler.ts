@@ -129,6 +129,8 @@ async function finishAutomationRun(automation: AutomationWithSchedule, run: DBAu
 						{
 							...(webTools ?? {}),
 							...createAutomationTools({
+								automationId: automation.id,
+								currentRunId: run.id,
 								projectId: automation.projectId,
 								chatId: chat.id,
 								githubToken,

@@ -45,6 +45,10 @@ function AutomationRunPrompt({ prompt, integrations, userEmail }: AutomationRunP
 			<Title>Required behaviour</Title>
 			<List ordered>
 				<ListItem>
+					Call <Code>get_automation_run_history</Code> if you need to see previous runs, and focus on what is
+					new since then.
+				</ListItem>
+				<ListItem>
 					Investigate the request below using the data tools (execute_sql, list, read, search, MCP tools,
 					etc.).
 				</ListItem>
