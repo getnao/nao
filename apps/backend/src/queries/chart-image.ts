@@ -69,10 +69,12 @@ export const saveChart = async (toolCallId: string, data: string): Promise<strin
 	return row.id;
 };
 
-/** Returns the project owner of the chat that contains the given chart tool call. */
-export const getChartOwnerInfo = async (toolCallId: string): Promise<{ projectId: string; userId: string } | null> => {
+/** Returns the project owner and parent chat of the chat that contains the given chart tool call. */
+export const getChartOwnerInfo = async (
+	toolCallId: string,
+): Promise<{ projectId: string; userId: string; chatId: string } | null> => {
 	const [row] = await db
-		.select({ projectId: s.chat.projectId, userId: s.chat.userId })
+		.select({ projectId: s.chat.projectId, userId: s.chat.userId, chatId: s.chat.id })
 		.from(s.messagePart)
 		.innerJoin(s.chatMessage, eq(s.messagePart.messageId, s.chatMessage.id))
 		.innerJoin(s.chat, eq(s.chatMessage.chatId, s.chat.id))

@@ -10,6 +10,7 @@ import * as storyQueries from '../queries/story.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
 import { logActivity } from '../services/activity';
 import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../services/live-story';
+import { logAnalyticsEvent } from '../utils/analytics-event';
 import { notifySharedItemRecipients } from '../utils/email';
 import { buildDownloadResponse } from '../utils/story-download';
 import { extractStorySummary } from '../utils/story-summary';
@@ -134,6 +135,18 @@ export const sharedStoryRoutes = {
 			cacheSchedule,
 		);
 
+		if (ctx.user.id !== shared.userId) {
+			logAnalyticsEvent({
+				projectId: shared.projectId,
+				type: 'page_view',
+				assetType: 'story',
+				actorUserId: ctx.user.id,
+				storyId: shared.storyId,
+				chatId: shared.chatId,
+				sharedStoryId: shared.id,
+			});
+		}
+
 		return {
 			...shared,
 			storyId: shared.storyId,
@@ -174,6 +187,16 @@ export const sharedStoryRoutes = {
 					queriesRefreshed: Object.keys(queryData).length,
 				});
 			}
+			logAnalyticsEvent({
+				projectId: shared.projectId,
+				type: 'refresh',
+				assetType: 'story',
+				actorUserId: ctx.user.id,
+				storyId: story?.id ?? null,
+				chatId: shared.chatId,
+				sharedStoryId: shared.id,
+				metadata: { type: 'refresh', trigger: 'manual', queriesRefreshed: Object.keys(queryData).length },
+			});
 			return { queryData, cachedAt: new Date() };
 		} catch (err) {
 			if (activity) {
@@ -278,6 +301,22 @@ export const sharedStoryRoutes = {
 				version.isLive,
 				version.cacheSchedule,
 			);
+
+			logAnalyticsEvent({
+				projectId: shared.projectId,
+				type: 'download',
+				assetType: 'story',
+				actorUserId: ctx.user.id,
+				storyId: shared.storyId,
+				chatId: shared.chatId,
+				sharedStoryId: shared.id,
+				metadata: {
+					type: 'download',
+					format: input.format,
+					versionNumber: version.version,
+					title: version.title,
+				},
+			});
 
 			const displaySettings = shared.projectId ? await projectQueries.getDisplaySettings(shared.projectId) : null;
 

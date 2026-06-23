@@ -16,6 +16,7 @@ interface StoryDownloadOptions {
 	chatId?: string;
 	storySlug?: string;
 	shareId?: string;
+	shareType?: 'chat' | 'story';
 	isOwner?: boolean;
 	versionNumber?: number;
 }
@@ -25,6 +26,7 @@ function useStoryDownload({
 	chatId,
 	storySlug,
 	shareId,
+	shareType = 'story',
 	isOwner = true,
 	versionNumber,
 }: StoryDownloadOptions) {
@@ -45,6 +47,13 @@ function useStoryDownload({
 			} else if (isOwner) {
 				result = await trpcClient.story.download.query({
 					chatId: chatId!,
+					storySlug: storySlug!,
+					format,
+					versionNumber,
+				});
+			} else if (shareType === 'chat') {
+				result = await trpcClient.sharedChat.downloadStory.query({
+					shareId: shareId!,
 					storySlug: storySlug!,
 					format,
 					versionNumber,

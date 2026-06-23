@@ -22,6 +22,7 @@ import { STORY_REFRESH_JOB_NAME, storyRefreshHandler } from './handlers/story-re
 import { mcpServerRoutes } from './mcp/routes';
 import { ensureOrganizationSetup } from './queries/organization.queries';
 import { agentRoutes } from './routes/agent';
+import { analyticsRoutes } from './routes/analytics';
 import { authRoutes } from './routes/auth';
 import { authErrorRedirectRoutes } from './routes/auth-error-redirect';
 import { brandingRoutes } from './routes/branding';
@@ -146,6 +147,10 @@ app.register(fastifyTRPCPlugin, {
 
 app.register(agentRoutes, {
 	prefix: '/api/agent',
+});
+
+app.register(analyticsRoutes, {
+	prefix: '/api/analytics',
 });
 
 app.register(testRoutes, {

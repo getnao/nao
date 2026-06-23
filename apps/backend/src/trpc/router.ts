@@ -1,4 +1,5 @@
 import { accountRoutes } from './account.routes';
+import { analyticsEventRoutes } from './analytics-event.routes';
 import { apiKeyRoutes } from './api-key.routes';
 import { authConfigRoutes } from './auth-config.routes';
 import { automationRoutes } from './automation.routes';
@@ -34,6 +35,7 @@ import { usageRoutes } from './usage.routes';
 import { userRoutes } from './user.routes';
 
 export const trpcRouter = router({
+	analyticsEvent: analyticsEventRoutes,
 	branding: brandingRoutes,
 	budget: budgetRoutes,
 	embed: embedRoutes,

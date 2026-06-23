@@ -1,10 +1,12 @@
 import { useState } from 'react';
+import { useMutation } from '@tanstack/react-query';
 import { Copy, Download, Maximize2 } from 'lucide-react';
 import { TableDisplay } from '@/components/tool-calls/display-table';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { downloadCsv, tableToCsv, tableToTsv } from '@/lib/table-export';
 import { cn } from '@/lib/utils';
+import { trpc } from '@/main';
 
 interface DataTableCardProps {
 	columns: string[];
@@ -13,6 +15,7 @@ interface DataTableCardProps {
 	className?: string;
 	tableContainerClassName?: string;
 	maxRowsBeforePagination?: number;
+	chatId?: string;
 }
 
 export function DataTableCard({
@@ -22,8 +25,10 @@ export function DataTableCard({
 	className,
 	tableContainerClassName,
 	maxRowsBeforePagination = 10,
+	chatId,
 }: DataTableCardProps) {
 	const [isFullscreen, setIsFullscreen] = useState(false);
+	const logDownload = useMutation(trpc.analyticsEvent.logChatDownload.mutationOptions());
 
 	const resolvedColumns = columns.length > 0 ? columns : inferColumns(data);
 
@@ -32,7 +37,12 @@ export function DataTableCard({
 	}
 
 	const handleCopy = () => navigator.clipboard.writeText(tableToTsv(resolvedColumns, data));
-	const handleDownload = () => downloadCsv('table.csv', tableToCsv(resolvedColumns, data));
+	const handleDownload = () => {
+		downloadCsv('table.csv', tableToCsv(resolvedColumns, data));
+		if (chatId) {
+			logDownload.mutate({ chatId, format: 'csv', title });
+		}
+	};
 
 	return (
 		<div className={cn('flex flex-col gap-2 border rounded-lg pt-2', className)}>

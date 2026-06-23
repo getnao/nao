@@ -121,7 +121,7 @@ export const StoryToolCall = ({ toolPart }: ToolCallComponentProps<'story'>) => 
 			</div>
 
 			{canOpen && (
-				<Button variant='ghost-muted' size='icon-xs' asChild>
+				<Button variant='ghost-muted' size='icon-xs' className='hover:bg-transparent' asChild>
 					<span>
 						<ArrowUpRight className='size-3.5' />
 					</span>

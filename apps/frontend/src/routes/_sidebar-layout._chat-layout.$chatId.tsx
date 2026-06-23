@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, Link, useRouter } from '@tanstack/react-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Folder, GitFork, Globe, TimerIcon, Upload } from 'lucide-react';
+import { Folder, GitFork, Globe, ScanText, TimerIcon, Upload } from 'lucide-react';
 import type { ForkMetadata } from '@nao/backend/chat';
 import type { SelectionData } from '@/components/highlight-bubble';
 import { NEW_CHAT_ID } from '@/lib/ai';
@@ -20,12 +20,14 @@ import { useSidePanel } from '@/hooks/use-side-panel';
 import { SidePanelProvider } from '@/contexts/side-panel';
 import { EditableChatTitle } from '@/components/editable-chat-title';
 import { useChatQuery } from '@/queries/use-chat-query';
+import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
 import { ShareChatDialog } from '@/components/share-dialog.chat';
 import { usePermissions } from '@/hooks/use-permissions';
 import { trpc } from '@/main';
 import { SelectionProvider } from '@/contexts/text-selection';
 import { chatPendingCitationStore } from '@/stores/chat-pending-citation';
 import { useSetChatInputCallback } from '@/contexts/set-chat-input-callback';
+import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
 import { getTextOffset } from '@/lib/selection-dom.utils';
 
 export const Route = createFileRoute('/_sidebar-layout/_chat-layout/$chatId')({
@@ -70,7 +72,10 @@ function ChatPage() {
 
 	const sidePanel = useSidePanel({ containerRef, sidePanelRef });
 	const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
+	const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
 	const chatInputCallback = useSetChatInputCallback();
+
+	useTrackViewDuration({ assetType: 'chat', chatId });
 
 	const handleSelectionAsk = useCallback(
 		(data: SelectionData) => {
@@ -172,6 +177,16 @@ function ChatPage() {
 							</div>
 							<div className='flex items-center justify-end gap-2'>
 								<Button
+									variant='ghost'
+									size='icon-sm'
+									className='hover:rounded-full'
+									onClick={() => setIsAnalyticsOpen(true)}
+									disabled={isRunning}
+									aria-label='Analytics'
+								>
+									<ScanText className='size-3' />
+								</Button>
+								<Button
 									variant='outline'
 									size='icon-sm'
 									className='rounded-full hover:rounded-full border w-auto px-2'
@@ -227,6 +242,12 @@ function ChatPage() {
 				</div>
 			</SelectionProvider>
 			<ShareChatDialog open={isShareDialogOpen} onOpenChange={setIsShareDialogOpen} chatId={chatId} />
+			<AssetAnalyticsDialog
+				open={isAnalyticsOpen}
+				onOpenChange={setIsAnalyticsOpen}
+				assetType='chat'
+				chatId={chatId}
+			/>
 		</SidePanelProvider>
 	);
 }

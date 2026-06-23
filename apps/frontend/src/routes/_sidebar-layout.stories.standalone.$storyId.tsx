@@ -6,6 +6,7 @@ import type { ParsedChartBlock, ParsedTableBlock } from '@nao/shared/story-segme
 
 import type { SelectionData } from '@/components/highlight-bubble';
 import type { QueryDataMap } from '@/components/story-embeds';
+import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
 import { HighlightBubble } from '@/components/highlight-bubble';
 import { StoryChartEmbed, StoryTableEmbed } from '@/components/story-embeds';
 import { SegmentList } from '@/components/story-rendering';
@@ -18,6 +19,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { SelectionProvider } from '@/contexts/text-selection';
 import { chatPendingCitationStore } from '@/stores/chat-pending-citation';
 import { useStoryPageEditor } from '@/hooks/use-story-page-editor';
+import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
 import { trpc } from '@/main';
 
 export const Route = createFileRoute('/_sidebar-layout/stories/standalone/$storyId')({
@@ -27,10 +29,13 @@ export const Route = createFileRoute('/_sidebar-layout/stories/standalone/$story
 function StandaloneStoryPage() {
 	const { storyId } = Route.useParams();
 	const navigate = useNavigate();
+	const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
 	const queryClient = useQueryClient();
 
 	const storyQuery = useQuery(trpc.story.getStandalone.queryOptions({ storyId }));
 	const story = storyQuery.data;
+
+	useTrackViewDuration({ assetType: 'story', storyId, versionNumber: story?.version });
 
 	const openStandaloneMutation = useMutation(
 		trpc.chatFork.openStandalone.mutationOptions({
@@ -100,11 +105,19 @@ function StandaloneStoryPage() {
 				download={{ storyId, isOwner: true }}
 				storyId={storyId}
 				live={story.isLive ? { isLive: true } : undefined}
+				onOpenAnalytics={() => setIsAnalyticsOpen(true)}
 			/>
 			<SelectionProvider key={storyId}>
 				<HighlightBubble onAsk={handleSelectionAsk} disabled />
 				<StandaloneStoryContent code={story.code} queryData={story.queryData as QueryDataMap | null} />
 			</SelectionProvider>
+
+			<AssetAnalyticsDialog
+				open={isAnalyticsOpen}
+				onOpenChange={setIsAnalyticsOpen}
+				assetType='story'
+				storyId={storyId}
+			/>
 		</div>
 	);
 }
@@ -133,6 +146,7 @@ function StandaloneEditableStory({
 	const navigate = useNavigate();
 	const [isLiveSettingsOpen, setIsLiveSettingsOpen] = useState(false);
 	const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
+	const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
 
 	const {
 		isLive,
@@ -174,6 +188,7 @@ function StandaloneEditableStory({
 				storyId={storyId}
 				isShared={isShared}
 				onShare={() => setIsShareDialogOpen(true)}
+				onOpenAnalytics={() => setIsAnalyticsOpen(true)}
 				viewModeControls={{
 					viewMode: editor.viewMode,
 					onViewModeChange: editor.setViewMode,
@@ -220,6 +235,13 @@ function StandaloneEditableStory({
 				onOpenChange={setIsShareDialogOpen}
 				chatId={chatId}
 				storySlug={storySlug}
+			/>
+
+			<AssetAnalyticsDialog
+				open={isAnalyticsOpen}
+				onOpenChange={setIsAnalyticsOpen}
+				assetType='story'
+				storyId={storyId}
 			/>
 		</div>
 	);

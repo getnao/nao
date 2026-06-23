@@ -12,6 +12,7 @@ import { SidePanel } from '@/components/side-panel/side-panel';
 import { LiveStorySettingsDialog } from '@/components/side-panel/live-story-settings-dialog';
 import { useStoryViewerLiveSettings } from '@/components/side-panel/hooks/use-story-viewer-live-settings';
 import { ShareStoryDialog } from '@/components/share-dialog.story';
+import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
 import { StoryPageBody } from '@/components/story-page-body';
 import { StoryPageHeader } from '@/components/story-page-header';
 import { StoryChartEmbed, StoryTableEmbed } from '@/components/story-embeds';
@@ -21,6 +22,7 @@ import { SidePanelProvider } from '@/contexts/side-panel';
 import { SelectionProvider } from '@/contexts/text-selection';
 import { useSidePanel } from '@/hooks/use-side-panel';
 import { useStoryPageEditor } from '@/hooks/use-story-page-editor';
+import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
 import { useSession } from '@/lib/auth-client';
 import { trpc } from '@/main';
 
@@ -60,6 +62,14 @@ function SharedStoryPage() {
 	);
 
 	const isOwner = Boolean(session?.user?.id) && session?.user?.id === story?.userId;
+
+	useTrackViewDuration({
+		assetType: 'story',
+		storyId: story?.storyId ?? undefined,
+		chatId: story?.chatId ?? undefined,
+		storySlug: story?.slug,
+		enabled: !isOwner,
+	});
 
 	const editor = useStoryPageEditor({
 		chatId: story?.chatId ?? '',
@@ -137,6 +147,7 @@ function SharedStoryPage() {
 			currentStorySlug={sidePanel.currentStorySlug}
 			chatId={story.chatId}
 			shareId={shareId}
+			shareType='story'
 			isReadonlyMode={!isOwner}
 			open={sidePanel.open}
 			close={sidePanel.close}
@@ -204,6 +215,7 @@ function SharedStoryOwnerHeader({
 }: SharedStoryOwnerHeaderProps) {
 	const [isLiveSettingsOpen, setIsLiveSettingsOpen] = useState(false);
 	const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
+	const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
 
 	const {
 		isLive,
@@ -232,6 +244,7 @@ function SharedStoryOwnerHeader({
 				storyId={storyId}
 				isShared
 				onShare={() => setIsShareDialogOpen(true)}
+				onOpenAnalytics={() => setIsAnalyticsOpen(true)}
 				viewModeControls={viewModeControls}
 				versionControls={versionControls}
 			/>
@@ -252,6 +265,14 @@ function SharedStoryOwnerHeader({
 				onOpenChange={setIsShareDialogOpen}
 				chatId={chatId}
 				storySlug={storySlug}
+			/>
+
+			<AssetAnalyticsDialog
+				open={isAnalyticsOpen}
+				onOpenChange={setIsAnalyticsOpen}
+				assetType='story'
+				storyId={storyId ?? undefined}
+				chatId={chatId}
 			/>
 		</>
 	);

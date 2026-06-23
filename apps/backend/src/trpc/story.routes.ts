@@ -14,6 +14,7 @@ import * as storyFolderQueries from '../queries/story-folder.queries';
 import { naturalLanguageToCron } from '../services/cron-nlp';
 import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../services/live-story';
 import { nextCronTick } from '../services/scheduler.service';
+import { logAnalyticsEvent } from '../utils/analytics-event';
 import { buildDownloadResponse } from '../utils/story-download';
 import { extractStorySummary } from '../utils/story-summary';
 import { canSendProcedure, ownedResourceProcedure, projectProtectedProcedure, protectedProcedure } from './trpc';
@@ -85,12 +86,24 @@ export const storyRoutes = {
 			throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
 		}
 		const cache = await storyQueries.getStoryDataCacheByStoryId(input.storyId);
+
+		if (story.projectId) {
+			logAnalyticsEvent({
+				projectId: story.projectId,
+				type: 'page_view',
+				assetType: 'story',
+				actorUserId: ctx.user.id,
+				storyId: input.storyId,
+				metadata: { type: 'page_view', versionNumber: story.version },
+			});
+		}
+
 		return { ...story, queryData: cache?.queryData ?? null };
 	}),
 
 	getLatest: chatOwnerProcedure
 		.input(z.object({ chatId: z.string(), storySlug: z.string() }))
-		.query(async ({ input }) => {
+		.query(async ({ input, ctx }) => {
 			const version = await storyQueries.getLatestVersionByChatAndSlug(input.chatId, input.storySlug);
 			if (!version) {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
@@ -102,6 +115,20 @@ export const storyRoutes = {
 				version.isLive,
 				version.cacheSchedule,
 			);
+
+			const projectId = await chatQueries.getChatProjectId(input.chatId);
+			if (projectId) {
+				logAnalyticsEvent({
+					projectId,
+					type: 'page_view',
+					assetType: 'story',
+					actorUserId: ctx.user.id,
+					storyId: version.storyId,
+					chatId: input.chatId,
+					metadata: { type: 'page_view', versionNumber: version.version },
+				});
+			}
+
 			return { ...version, queryData, cachedAt };
 		}),
 
@@ -215,6 +242,15 @@ export const storyRoutes = {
 				await activityQueries.completeActivity(activity.id, {
 					queriesRefreshed: Object.keys(queryData).length,
 				});
+				logAnalyticsEvent({
+					projectId,
+					type: 'refresh',
+					assetType: 'story',
+					actorUserId: ctx.user.id,
+					storyId: story.id,
+					chatId: story.chatId,
+					metadata: { type: 'refresh', trigger: 'manual', queriesRefreshed: Object.keys(queryData).length },
+				});
 				return { queryData, cachedAt: new Date() };
 			} catch (err) {
 				const message = err instanceof Error ? err.message : String(err);
@@ -319,6 +355,23 @@ export const storyRoutes = {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
 			}
 			const cache = await storyQueries.getStoryDataCacheByStoryId(input.storyId);
+
+			if (story.projectId) {
+				logAnalyticsEvent({
+					projectId: story.projectId,
+					type: 'download',
+					assetType: 'story',
+					actorUserId: ctx.user.id,
+					storyId: input.storyId,
+					metadata: {
+						type: 'download',
+						format: input.format,
+						versionNumber: story.version,
+						title: story.title,
+					},
+				});
+			}
+
 			const displaySettings = story.projectId ? await projectQueries.getDisplaySettings(story.projectId) : null;
 			return buildDownloadResponse(
 				input.format,
@@ -338,7 +391,7 @@ export const storyRoutes = {
 				versionNumber: z.number().int().positive().optional(),
 			}),
 		)
-		.query(async ({ input }) => {
+		.query(async ({ input, ctx }) => {
 			const version = input.versionNumber
 				? await storyQueries.getVersionByNumber(input.chatId, input.storySlug, input.versionNumber)
 				: await storyQueries.getLatestVersionByChatAndSlug(input.chatId, input.storySlug);
@@ -353,6 +406,44 @@ export const storyRoutes = {
 				version.isLive,
 				version.cacheSchedule,
 			);
+
+			chatQueries.getChatInfo(input.chatId).then((chatInfo) => {
+				if (chatInfo) {
+					logAnalyticsEvent({
+						projectId: chatInfo.projectId,
+						type: 'download',
+						assetType: 'story',
+						actorUserId: ctx.user.id,
+						storyId: version.storyId,
+						chatId: input.chatId,
+						metadata: {
+							type: 'download',
+							format: input.format,
+							versionNumber: version.version,
+							title: version.title,
+						},
+					});
+				}
+			});
+
+			chatQueries.getChatInfo(input.chatId).then((chatInfo) => {
+				if (chatInfo) {
+					logAnalyticsEvent({
+						projectId: chatInfo.projectId,
+						type: 'download',
+						assetType: 'story',
+						actorUserId: ctx.user.id,
+						storyId: version.storyId,
+						chatId: input.chatId,
+						metadata: {
+							type: 'download',
+							format: input.format,
+							versionNumber: version.version,
+							title: version.title,
+						},
+					});
+				}
+			});
 
 			const projectId = await chatQueries.getChatProjectId(input.chatId);
 			const displaySettings = projectId ? await projectQueries.getDisplaySettings(projectId) : null;

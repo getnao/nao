@@ -1,20 +1,27 @@
 import { useState } from 'react';
+import { useMutation } from '@tanstack/react-query';
 import { Streamdown } from 'streamdown';
 import { ArrowUpRight, Code, Copy, Download, Table as TableIcon } from 'lucide-react';
 import { ToolCallWrapper } from './tool-call-wrapper';
 import { TableDisplay } from './display-table';
 import type { ToolCallComponentProps } from '.';
+import { useOptionalAgentContext } from '@/contexts/agent.provider';
 import { useSidePanel } from '@/contexts/side-panel';
 import { useToolCallContext } from '@/contexts/tool-call';
 import { SidePanelContent } from '@/components/side-panel/sql-editor';
 import { downloadCsv, tableToCsv } from '@/lib/table-export';
+import { trpc } from '@/main';
 
 type ViewMode = 'results' | 'query';
 
-export const ExecuteSqlToolCall = ({ toolPart: { output, input, state } }: ToolCallComponentProps<'execute_sql'>) => {
+export const ExecuteSqlToolCall = ({
+	toolPart: { output, input, state, toolCallId },
+}: ToolCallComponentProps<'execute_sql'>) => {
 	const [viewMode, setViewMode] = useState<ViewMode>('results');
 	const { isSettled } = useToolCallContext();
 	const { open: openSidePanel } = useSidePanel();
+	const chatId = useOptionalAgentContext()?.chatId;
+	const logDownload = useMutation(trpc.analyticsEvent.logChatDownload.mutationOptions());
 
 	const actions = [
 		{
@@ -52,6 +59,9 @@ export const ExecuteSqlToolCall = ({ toolPart: { output, input, state } }: ToolC
 					`${input?.name || 'query'}.csv`,
 					tableToCsv(output.columns, output.data as Record<string, unknown>[]),
 				);
+				if (chatId) {
+					logDownload.mutate({ chatId, format: 'csv', queryId: toolCallId, title: input?.name });
+				}
 			},
 			title: 'Download results as CSV',
 		},

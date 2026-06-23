@@ -10,6 +10,7 @@ import type { SelectionData } from '@/components/highlight-bubble';
 import { StoryChartEmbed, StoryTableEmbed } from '@/components/story-embeds';
 import { HighlightBubble } from '@/components/highlight-bubble';
 import { SegmentList } from '@/components/story-rendering';
+import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
 import { Button } from '@/components/ui/button';
 import { trpc } from '@/main';
 import { StoryContentLoading } from '@/components/side-panel/story-content-loading';
@@ -23,6 +24,7 @@ import { StoryChartEditProvider } from '@/contexts/story-chart-edit';
 import { chatPendingCitationStore } from '@/stores/chat-pending-citation';
 import { useChatActivity } from '@/hooks/use-chat-activity';
 import { useStoryPageEditor } from '@/hooks/use-story-page-editor';
+import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
 
 export const Route = createFileRoute('/_sidebar-layout/stories/preview/$chatId/$storySlug')({
 	component: StoryPreviewPage,
@@ -37,6 +39,7 @@ function StoryPreviewPage() {
 	const { running: isChatRunning } = useChatActivity(chatId);
 	const [isLiveSettingsOpen, setIsLiveSettingsOpen] = useState(false);
 	const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
+	const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
 
 	const {
 		storyId,
@@ -52,6 +55,8 @@ function StoryPreviewPage() {
 
 	const shareQuery = useQuery(trpc.storyShare.getSharedStoryInfo.queryOptions({ chatId, storySlug }));
 	const isShared = Boolean(shareQuery.data?.shareId);
+
+	useTrackViewDuration({ assetType: 'story', storyId, chatId, versionNumber: story.version });
 
 	const editor = useStoryPageEditor({
 		chatId,
@@ -100,6 +105,7 @@ function StoryPreviewPage() {
 				storyId={storyId}
 				isShared={isShared}
 				onShare={() => setIsShareDialogOpen(true)}
+				onOpenAnalytics={() => setIsAnalyticsOpen(true)}
 				viewModeControls={{
 					viewMode: editor.viewMode,
 					onViewModeChange: editor.setViewMode,
@@ -172,6 +178,14 @@ function StoryPreviewPage() {
 				onOpenChange={setIsShareDialogOpen}
 				chatId={chatId}
 				storySlug={storySlug}
+			/>
+
+			<AssetAnalyticsDialog
+				open={isAnalyticsOpen}
+				onOpenChange={setIsAnalyticsOpen}
+				assetType='story'
+				storyId={storyId ?? undefined}
+				chatId={chatId}
 			/>
 		</div>
 	);

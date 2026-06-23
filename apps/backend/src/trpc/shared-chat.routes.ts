@@ -1,13 +1,17 @@
-import type { UserRole } from '@nao/shared/types';
+import { DOWNLOAD_FORMATS, type UserRole } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
 import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as sharedChatQueries from '../queries/shared-chat.queries';
+import * as storyQueries from '../queries/story.queries';
 import { logActivity } from '../services/activity';
+import { getStoryQueryData } from '../services/live-story';
 import { type UIChat } from '../types/chat';
+import { logAnalyticsEvent } from '../utils/analytics-event';
 import { notifySharedItemRecipients } from '../utils/email';
+import { buildDownloadResponse } from '../utils/story-download';
 import { canSendProcedure, protectedProcedure, resourceProjectProcedure } from './trpc';
 
 const chatProcedure = resourceProjectProcedure('chatId', chatQueries.getChatInfo, 'Chat');
@@ -95,6 +99,17 @@ export const sharedChatRoutes = {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Chat not found.' });
 			}
 
+			if (ctx.user.id !== ctx.resource.userId) {
+				logAnalyticsEvent({
+					projectId: ctx.resource.projectId,
+					type: 'page_view',
+					assetType: 'chat',
+					actorUserId: ctx.user.id,
+					chatId: ctx.resource.chatId,
+					sharedChatId: ctx.resource.id,
+				});
+			}
+
 			return { share: ctx.resource, chat, userRole: ctx.userRole };
 		},
 	),
@@ -148,4 +163,50 @@ export const sharedChatRoutes = {
 
 		await sharedChatQueries.deleteSharedChat(input.shareId);
 	}),
+
+	downloadStory: shareAccessProcedure
+		.input(
+			z.object({
+				shareId: z.string(),
+				storySlug: z.string(),
+				format: z.enum(DOWNLOAD_FORMATS),
+				versionNumber: z.number().int().positive().optional(),
+			}),
+		)
+		.query(async ({ input, ctx }) => {
+			const share = ctx.resource;
+
+			const version = input.versionNumber
+				? await storyQueries.getVersionByNumber(share.chatId, input.storySlug, input.versionNumber)
+				: await storyQueries.getLatestVersionByChatAndSlug(share.chatId, input.storySlug);
+			if (!version) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story version not found.' });
+			}
+
+			const { queryData } = await getStoryQueryData(
+				share.chatId,
+				input.storySlug,
+				version.code,
+				version.isLive,
+				version.cacheSchedule,
+			);
+
+			logAnalyticsEvent({
+				projectId: share.projectId,
+				type: 'download',
+				assetType: 'story',
+				actorUserId: ctx.user.id,
+				storyId: version.storyId,
+				chatId: share.chatId,
+				sharedChatId: share.id,
+				metadata: {
+					type: 'download',
+					format: input.format,
+					versionNumber: version.version,
+					title: version.title,
+				},
+			});
+
+			return buildDownloadResponse(input.format, version.title, version.code, queryData);
+		}),
 };

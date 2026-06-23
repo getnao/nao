@@ -12,6 +12,7 @@ import {
 	RefreshCw,
 	RotateCcw,
 	Save,
+	ScanText,
 	Star,
 	Upload,
 } from 'lucide-react';
@@ -79,6 +80,7 @@ export interface StoryPageHeaderProps {
 	storyId?: string | null;
 	isShared?: boolean;
 	onShare?: () => void;
+	onOpenAnalytics?: () => void;
 	viewModeControls?: ViewModeControls;
 	versionControls?: VersionControls;
 }
@@ -94,6 +96,7 @@ export function StoryPageHeader({
 	storyId,
 	isShared = false,
 	onShare,
+	onOpenAnalytics,
 	viewModeControls,
 	versionControls,
 }: StoryPageHeaderProps) {
@@ -132,7 +135,7 @@ export function StoryPageHeader({
 
 						{storyId && <FavoriteButton storyId={storyId} />}
 
-						{onShare && (
+						{(onShare || onOpenAnalytics) && (
 							<DropdownMenu>
 								<DropdownMenuTrigger asChild>
 									<Button
@@ -145,14 +148,22 @@ export function StoryPageHeader({
 									</Button>
 								</DropdownMenuTrigger>
 								<DropdownMenuContent align='end' className='w-auto min-w-20'>
-									<DropdownMenuItem onSelect={onShare}>
-										{isShared ? (
-											<Globe className='text-primary' strokeWidth={2.25} />
-										) : (
-											<Upload strokeWidth={2.25} />
-										)}
-										<span>Share</span>
-									</DropdownMenuItem>
+									{onShare && (
+										<DropdownMenuItem onSelect={onShare}>
+											{isShared ? (
+												<Globe className='text-primary' strokeWidth={2.25} />
+											) : (
+												<Upload strokeWidth={2.25} />
+											)}
+											<span>Share</span>
+										</DropdownMenuItem>
+									)}
+									{onOpenAnalytics && (
+										<DropdownMenuItem onSelect={onOpenAnalytics}>
+											<ScanText className='size-3' />
+											<span>Analytics</span>
+										</DropdownMenuItem>
+									)}
 								</DropdownMenuContent>
 							</DropdownMenu>
 						)}

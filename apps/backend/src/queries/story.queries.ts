@@ -19,7 +19,7 @@ export type UserStoryRow = Pick<
 	| 'archivedAt'
 	| 'createdAt'
 	| 'updatedAt'
-> & { code: string };
+> & { code: string; version: number };
 
 export async function getStoryByChatAndSlug(
 	chatId: string,
@@ -92,6 +92,7 @@ export async function getStoryByIdForUser(storyId: string, userId: string): Prom
 			createdAt: s.story.createdAt,
 			updatedAt: s.story.updatedAt,
 			code: s.storyVersion.code,
+			version: s.storyVersion.version,
 		})
 		.from(s.story)
 		.leftJoin(s.chat, eq(s.story.chatId, s.chat.id))
@@ -613,6 +614,7 @@ async function queryStoriesWithLatestVersion(
 			createdAt: s.story.createdAt,
 			updatedAt: s.story.updatedAt,
 			code: s.storyVersion.code,
+			version: s.storyVersion.version,
 		})
 		.from(s.story)
 		.leftJoin(s.chat, eq(s.story.chatId, s.chat.id))

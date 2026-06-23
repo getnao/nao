@@ -13,6 +13,7 @@ import {
 	RefreshCw,
 	RotateCcw,
 	Save,
+	ScanText,
 	Star,
 	Upload,
 	X,
@@ -42,6 +43,7 @@ export interface StoryHeaderProps {
 	storySlug: string;
 	storyId?: string | null;
 	shareId?: string | null;
+	shareType?: 'chat' | 'story' | null;
 	allStories: StorySummary[];
 	onSwitchStory: (id: string) => void;
 	viewMode: StoryViewMode;
@@ -55,6 +57,7 @@ export interface StoryHeaderProps {
 	onRestore: () => void;
 	onSave: () => void;
 	onShare: () => void;
+	onOpenAnalytics: () => void;
 	onEnlarge: () => void;
 	isShared: boolean;
 	isAgentRunning: boolean;
@@ -74,6 +77,7 @@ export const StoryHeader = memo(function StoryHeader({
 	storySlug,
 	storyId,
 	shareId,
+	shareType,
 	allStories,
 	onSwitchStory,
 	viewMode,
@@ -87,6 +91,7 @@ export const StoryHeader = memo(function StoryHeader({
 	onRestore,
 	onSave,
 	onShare,
+	onOpenAnalytics,
 	onEnlarge,
 	isShared,
 	isAgentRunning,
@@ -195,6 +200,7 @@ export const StoryHeader = memo(function StoryHeader({
 			chatId={chatId}
 			storySlug={storySlug}
 			shareId={shareId ?? undefined}
+			shareType={shareType ?? undefined}
 			isOwner={!isReadonlyMode}
 			isAgentRunning={isAgentRunning}
 			versionNumber={versionNumber}
@@ -230,6 +236,7 @@ export const StoryHeader = memo(function StoryHeader({
 						<Button
 							variant='ghost'
 							size='icon-sm'
+							className='hover:rounded-full'
 							onClick={onRefreshData}
 							disabled={isRefreshing}
 							aria-label='Refresh data'
@@ -268,6 +275,10 @@ export const StoryHeader = memo(function StoryHeader({
 				<DropdownMenuItem onSelect={onShare} disabled={isAgentRunning}>
 					{isShared ? <Globe className='text-primary' strokeWidth={2.25} /> : <Upload strokeWidth={2.25} />}
 					<span>Share</span>
+				</DropdownMenuItem>
+				<DropdownMenuItem onSelect={onOpenAnalytics}>
+					<ScanText className='size-3' />
+					<span>Analytics</span>
 				</DropdownMenuItem>
 				<DropdownMenuItem onSelect={onEnlarge}>
 					<Maximize2 strokeWidth={2.25} />

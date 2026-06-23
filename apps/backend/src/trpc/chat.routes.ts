@@ -9,6 +9,7 @@ import { agentService } from '../services/agent';
 import { posthog, PostHogEvent } from '../services/posthog';
 import type { ContextUsage, ForkMetadata, UIChat } from '../types/chat';
 import { llmProviderSchema } from '../types/llm';
+import { logAnalyticsEvent } from '../utils/analytics-event';
 import { getChatContextUsage } from '../utils/chat-context-usage';
 import { ownedResourceProcedure, projectProtectedProcedure, protectedProcedure } from './trpc';
 
@@ -23,6 +24,17 @@ export const chatRoutes = {
 		if (userId !== ctx.user.id) {
 			throw new TRPCError({ code: 'FORBIDDEN', message: `You are not authorized to access this chat.` });
 		}
+
+		if (chat.projectId) {
+			logAnalyticsEvent({
+				projectId: chat.projectId,
+				type: 'page_view',
+				assetType: 'chat',
+				actorUserId: ctx.user.id,
+				chatId: input.chatId,
+			});
+		}
+
 		return {
 			...chat,
 			automationRun: (await automationQueries.getAutomationRunByChatId(input.chatId)) ?? undefined,

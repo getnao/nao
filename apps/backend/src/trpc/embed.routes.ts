@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 import { getMcpChartEmbedById } from '../queries/mcp-chart-embed.queries';
 import { getMcpQueryData } from '../queries/mcp-query-data.queries';
+import { logAnalyticsEvent } from '../utils/analytics-event';
 import { embedStoryOpenPath, loadEmbedStoryContent } from '../utils/embed-story';
 import { assertProjectMcpEnabled, verifyEmbedToken } from '../utils/embed-token';
 import { buildDownloadResponse } from '../utils/story-download';
@@ -21,6 +22,17 @@ function resolveChartToken(token: string, chartEmbedId: string) {
 export const embedRoutes = router({
 	getStory: publicProcedure.input(tokenInput.extend({ storyId: z.string() })).query(async ({ input }) => {
 		const story = await loadEmbedStoryContent(input.storyId, input.token);
+		const tokenPayload = verifyEmbedToken(input.token);
+		if (tokenPayload) {
+			logAnalyticsEvent({
+				projectId: tokenPayload.projectId,
+				type: 'page_view',
+				assetType: 'story',
+				actorUserId: null,
+				storyId: story.storyId,
+				chatId: story.chatId,
+			});
+		}
 		return {
 			id: story.storyId,
 			title: story.title,
@@ -71,6 +83,18 @@ export const embedRoutes = router({
 		.input(tokenInput.extend({ storyId: z.string(), format: z.enum(['pdf', 'html']) }))
 		.mutation(async ({ input }) => {
 			const story = await loadEmbedStoryContent(input.storyId, input.token);
+			const tokenPayload = verifyEmbedToken(input.token);
+			if (tokenPayload) {
+				logAnalyticsEvent({
+					projectId: tokenPayload.projectId,
+					type: 'download',
+					assetType: 'story',
+					actorUserId: null,
+					storyId: story.storyId,
+					chatId: story.chatId,
+					metadata: { type: 'download', format: input.format, title: story.title },
+				});
+			}
 			return buildDownloadResponse(input.format, story.title, story.code, story.queryData, story.dateFormat);
 		}),
 });

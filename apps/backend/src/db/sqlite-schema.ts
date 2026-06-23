@@ -1,7 +1,15 @@
 import type { McpChartEmbedStoredConfig } from '@nao/shared';
 import type { DisplaySettings } from '@nao/shared/date';
-import type { CitationData, LlmProvider, UserPreferences } from '@nao/shared/types';
-import { BUDGET_PERIODS, FOLDER_SYSTEM_TYPE, FOLDER_VISIBILITY, SHARE_VISIBILITY, USER_ROLES } from '@nao/shared/types';
+import type { AnalyticsEventMetadata, CitationData, LlmProvider, UserPreferences } from '@nao/shared/types';
+import {
+	ANALYTICS_ASSET_TYPES,
+	ANALYTICS_EVENT_TYPES,
+	BUDGET_PERIODS,
+	FOLDER_SYSTEM_TYPE,
+	FOLDER_VISIBILITY,
+	SHARE_VISIBILITY,
+	USER_ROLES,
+} from '@nao/shared/types';
 import { type ProviderMetadata } from 'ai';
 import { sql } from 'drizzle-orm';
 import {
@@ -1323,4 +1331,34 @@ export const storyFolderItem = sqliteTable(
 			.references(() => storyFolder.id, { onDelete: 'cascade' }),
 	},
 	(t) => [index('story_folder_item_folderId_idx').on(t.folderId)],
+);
+
+export const analyticsEvent = sqliteTable(
+	'analytics_event',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		type: text('type', { enum: ANALYTICS_EVENT_TYPES }).notNull(),
+		assetType: text('asset_type', { enum: ANALYTICS_ASSET_TYPES }).notNull(),
+		actorUserId: text('actor_user_id').references(() => user.id, { onDelete: 'set null' }),
+		chatId: text('chat_id').references(() => chat.id, { onDelete: 'cascade' }),
+		storyId: text('story_id').references(() => story.id, { onDelete: 'cascade' }),
+		sharedChatId: text('shared_chat_id').references(() => sharedChat.id, { onDelete: 'set null' }),
+		sharedStoryId: text('shared_story_id').references(() => sharedStory.id, { onDelete: 'set null' }),
+		metadata: text('metadata', { mode: 'json' }).$type<AnalyticsEventMetadata>(),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+	},
+	(t) => [
+		index('analytics_event_projectId_idx').on(t.projectId),
+		index('analytics_event_chatId_idx').on(t.chatId),
+		index('analytics_event_storyId_idx').on(t.storyId),
+		index('analytics_event_actorUserId_idx').on(t.actorUserId),
+		index('analytics_event_type_createdAt_idx').on(t.type, t.createdAt),
+	],
 );
