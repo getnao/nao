@@ -1,4 +1,6 @@
+import { getToolName, isToolUIPart } from './ai';
 import { hashValue } from './hash';
+import type { UIMessage } from '@nao/backend/chat';
 
 export { labelize } from '@nao/shared';
 
@@ -87,3 +89,21 @@ function isValidDate(date: Date): boolean {
 export const toKey = (value: string) => {
 	return hashValue(value);
 };
+
+/** Counts the successfully rendered `display_chart` tool calls across a conversation. */
+export function countDisplayCharts(messages: UIMessage[]): number {
+	let count = 0;
+	for (const message of messages) {
+		for (const part of message.parts) {
+			if (
+				isToolUIPart(part) &&
+				getToolName(part) === 'display_chart' &&
+				part.state === 'output-available' &&
+				!(part.output as { error?: string } | undefined)?.error
+			) {
+				count++;
+			}
+		}
+	}
+	return count;
+}
