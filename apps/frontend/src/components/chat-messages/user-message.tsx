@@ -184,14 +184,6 @@ export const UserMessage = memo(({ message }: { message: UIMessage }) => {
 			<UserMessageBubble message={message} />
 
 			<div className='flex items-center gap-1'>
-				{message.versionInfo && message.versionInfo.totalVersions > 1 && (
-					<MessageVersionNav
-						versionInfo={message.versionInfo}
-						disabled={isRunning}
-						onSwitch={(messageId) => switchMessageVersion({ messageId })}
-					/>
-				)}
-
 				<div
 					className={cn(
 						'flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200',
@@ -231,6 +223,14 @@ export const UserMessage = memo(({ message }: { message: UIMessage }) => {
 						</Button>
 					</SimpleTooltip>
 				</div>
+
+				{message.versionInfo && message.versionInfo.totalVersions > 1 && (
+					<MessageVersionNav
+						versionInfo={message.versionInfo}
+						disabled={isRunning}
+						onSwitch={(messageId) => switchMessageVersion({ messageId })}
+					/>
+				)}
 			</div>
 		</div>
 	);
