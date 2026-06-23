@@ -7,6 +7,16 @@ const PROMPTS_FOLDER = ['agent', 'prompts'];
 
 const DEFAULT_PROMPT_FILE = 'system.md';
 
+const NAO_PROMPT_PATTERN = '\\{\\{\\s*nao_prompt\\s*\\}\\}';
+
+export function hasNaoPromptPlaceholder(content: string): boolean {
+	return new RegExp(NAO_PROMPT_PATTERN).test(content);
+}
+
+export function injectNaoPrompt(override: string, naoPrompt: string): string {
+	return override.replace(new RegExp(NAO_PROMPT_PATTERN, 'g'), naoPrompt);
+}
+
 function getPromptFileCandidates(provider?: Provider): string[] {
 	if (!provider) {
 		return [DEFAULT_PROMPT_FILE];

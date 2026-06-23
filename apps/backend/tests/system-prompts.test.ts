@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('fs');
 
-import { getSystemPromptOverride } from '../src/agents/system-prompts';
+import { getSystemPromptOverride, hasNaoPromptPlaceholder, injectNaoPrompt } from '../src/agents/system-prompts';
 
 const mockExistsSync = vi.mocked(existsSync);
 const mockReadFileSync = vi.mocked(readFileSync);
@@ -72,5 +72,29 @@ describe('getSystemPromptOverride', () => {
 
 		expect(getSystemPromptOverride(ROOT)).toBeUndefined();
 		expect(consoleSpy).toHaveBeenCalledWith('Error reading system prompt override system.md:', expect.any(Error));
+	});
+});
+
+describe('hasNaoPromptPlaceholder', () => {
+	it('detects the placeholder with varying whitespace', () => {
+		expect(hasNaoPromptPlaceholder('before {{ nao_prompt }} after')).toBe(true);
+		expect(hasNaoPromptPlaceholder('{{nao_prompt}}')).toBe(true);
+		expect(hasNaoPromptPlaceholder('{{   nao_prompt   }}')).toBe(true);
+	});
+
+	it('returns false when the placeholder is absent', () => {
+		expect(hasNaoPromptPlaceholder('Just my own prompt')).toBe(false);
+		expect(hasNaoPromptPlaceholder('{{ other_var }}')).toBe(false);
+	});
+});
+
+describe('injectNaoPrompt', () => {
+	it('replaces every placeholder occurrence with the default prompt', () => {
+		const result = injectNaoPrompt('Header\n{{ nao_prompt }}\nFooter {{nao_prompt}}', 'DEFAULT');
+		expect(result).toBe('Header\nDEFAULT\nFooter DEFAULT');
+	});
+
+	it('leaves content unchanged when there is no placeholder', () => {
+		expect(injectNaoPrompt('No placeholder here', 'DEFAULT')).toBe('No placeholder here');
 	});
 });

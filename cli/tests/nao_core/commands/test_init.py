@@ -97,6 +97,16 @@ class TestCreateEmptyStructure:
         content = readme.read_text()
         assert "system.md" in content
         assert "slack.md" in content
+        # Documents the placeholder that keeps nao's default prompt
+        assert "{{ nao_prompt }}" in content
+
+    def test_creates_example_slack_prompt_file(self, tmp_path: Path):
+        """Creates an example agent/prompts/slack.md showcasing the {{ nao_prompt }} placeholder."""
+        folders, files = create_empty_structure(tmp_path)
+
+        slack_prompt = tmp_path / "agent" / "prompts" / "slack.md"
+        assert slack_prompt.exists()
+        assert "{{ nao_prompt }}" in slack_prompt.read_text()
 
     def test_creates_naoignore_file(self, tmp_path: Path):
         """Creates .naoignore file with ignored generated paths."""

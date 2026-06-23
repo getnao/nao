@@ -3,7 +3,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { getSystemPromptOverride } from '../src/agents/system-prompts';
+import { getSystemPromptOverride, hasNaoPromptPlaceholder, injectNaoPrompt } from '../src/agents/system-prompts';
 
 describe('getSystemPromptOverride (real filesystem)', () => {
 	let projectFolder: string;
@@ -48,5 +48,16 @@ describe('getSystemPromptOverride (real filesystem)', () => {
 
 		expect(getSystemPromptOverride(projectFolder)).toBeUndefined();
 		expect(getSystemPromptOverride(projectFolder, 'slack')).toBeUndefined();
+	});
+
+	it('composes the default prompt into a file that keeps the {{ nao_prompt }} placeholder', () => {
+		writePrompt('slack.md', '{{ nao_prompt }}\n\n## House rules\n- Answer in EUR.');
+
+		const override = getSystemPromptOverride(projectFolder, 'slack');
+		expect(override).toBeDefined();
+		expect(hasNaoPromptPlaceholder(override!)).toBe(true);
+
+		const composed = injectNaoPrompt(override!, 'DEFAULT_SLACK_PROMPT');
+		expect(composed).toBe('DEFAULT_SLACK_PROMPT\n\n## House rules\n- Answer in EUR.');
 	});
 });

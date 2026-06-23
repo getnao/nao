@@ -20,7 +20,7 @@ import {
 import { z } from 'zod';
 
 import { LLM_PROVIDERS, ProviderModelResult } from '../agents/providers';
-import { getSystemPromptOverride } from '../agents/system-prompts';
+import { getSystemPromptOverride, hasNaoPromptPlaceholder, injectNaoPrompt } from '../agents/system-prompts';
 import { getTools } from '../agents/tools';
 import { createWebSearchTools } from '../agents/tools/web-search';
 import { getConnections, getTableColumnsContent, getUserRules } from '../agents/user-rules';
@@ -499,13 +499,23 @@ class AgentManager {
 		return modelMessages;
 	}
 
-	/** Builds the standard system prompt (instructions + user rules + memories + connections). */
+	/**
+	 * Resolves the system prompt for a run. A context-repo override in `agent/prompts/`
+	 * replaces the built-in prompt; if it contains the `{{ nao_prompt }}` placeholder,
+	 * the built-in prompt is injected there so the override extends rather than replaces it.
+	 */
 	private async _buildSystemPrompt(provider?: Provider, timezone?: string, chatUrl?: string): Promise<string> {
-		const promptOverride = getSystemPromptOverride(this._toolContext.projectFolder, provider);
-		if (promptOverride) {
-			return promptOverride;
+		const override = getSystemPromptOverride(this._toolContext.projectFolder, provider);
+		if (override && !hasNaoPromptPlaceholder(override)) {
+			return override;
 		}
 
+		const defaultPrompt = await this._buildDefaultSystemPrompt(provider, timezone, chatUrl);
+		return override ? injectNaoPrompt(override, defaultPrompt) : defaultPrompt;
+	}
+
+	/** Builds the standard system prompt (instructions + user rules + memories + connections). */
+	private async _buildDefaultSystemPrompt(provider?: Provider, timezone?: string, chatUrl?: string): Promise<string> {
 		const memories = await memoryService.safeGetUserMemories(this.chat.userId, this.chat.projectId, this.chat.id);
 		const userRules = getUserRules(this._toolContext.projectFolder);
 		const connections = getConnections(this._toolContext.projectFolder);

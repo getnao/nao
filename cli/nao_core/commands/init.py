@@ -35,9 +35,13 @@ class CreatedFile:
 
 _PROMPTS_README = """# System prompts
 
-Override the system prompt nao uses on each bot surface by adding a markdown file
-here. When a file is present its content fully replaces the built-in product
-prompt for that surface; remove the file to fall back to the default.
+Customize the system prompt nao uses on each bot surface by adding a markdown
+file here. These files are versioned with the rest of your context, so prompt
+changes stay reviewable in pull requests just like `RULES.md`.
+
+## Files
+
+One file per surface:
 
 - `system.md` — applies to every surface (nao web Bot, Slack, Teams, …).
 - `slack.md` — Slack Bot only.
@@ -47,8 +51,37 @@ prompt for that surface; remove the file to fall back to the default.
 - `automation.md` — scheduled automations only.
 
 A surface-specific file (e.g. `slack.md`) takes precedence over `system.md`.
-These files are versioned with the rest of your context, so prompt changes are
-reviewable in pull requests just like `RULES.md`.
+Delete a file to fall back to nao's built-in prompt for that surface.
+
+## Replace vs. extend: `{{ nao_prompt }}`
+
+By default a prompt file **fully replaces** nao's built-in prompt for that
+surface. If instead you want to **keep** the default and only add to it, include
+the `{{ nao_prompt }}` placeholder somewhere in the file: it is replaced at
+runtime with nao's default prompt for the corresponding surface (in `slack.md`
+it expands to the default Slack prompt, in `system.md` to the web prompt, …).
+
+Example `slack.md` that extends the default instead of overriding it:
+
+```md
+{{ nao_prompt }}
+
+## House rules
+- Always answer with amounts in EUR.
+- Keep responses to 5 bullet points or fewer.
+```
+
+Without `{{ nao_prompt }}`, the file content becomes the entire prompt.
+"""
+
+_SLACK_PROMPT_EXAMPLE = """<!--
+  Slack Bot system prompt. {{ nao_prompt }} is replaced at runtime with nao's
+  built-in Slack prompt, so you extend the default instead of replacing it.
+  Add your own instructions around the placeholder, remove it to fully override,
+  or delete this file to use nao's default Slack prompt unchanged. See README.md.
+-->
+
+{{ nao_prompt }}
 """
 
 
@@ -138,6 +171,7 @@ def create_empty_structure(project_path: Path) -> tuple[list[str], list[CreatedF
     FILES = [
         CreatedFile(path=Path("RULES.md"), content=None),
         CreatedFile(path=Path("agent/prompts/README.md"), content=_PROMPTS_README),
+        CreatedFile(path=Path("agent/prompts/slack.md"), content=_SLACK_PROMPT_EXAMPLE),
         CreatedFile(path=Path(".naoignore"), content="templates/\n*.j2\ntests/\n"),
         CreatedFile(
             path=Path("tests/test_example.yml"),
