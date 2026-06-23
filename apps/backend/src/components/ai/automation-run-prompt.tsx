@@ -72,8 +72,9 @@ function SlackThreadingGuidance() {
 		<Fragment>
 			<Title>Slack posting structure</Title>
 			<Span>
-				To keep the channel uncluttered, do NOT post the whole report as one or more top-level channel messages.
-				Instead, structure the Slack delivery as a thread:
+				To keep the channel uncluttered, do NOT post the whole report as more than one top-level channel
+				message. Especially if the message is longer than 1000 characters. Instead, structure the Slack delivery
+				as a thread:
 			</Span>
 			<List ordered>
 				<ListItem>

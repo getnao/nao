@@ -59,11 +59,6 @@ type SlackBotWebhooks = NonNullable<Chat['webhooks']>;
 type SlackPostMessageOptions = {
 	chatId?: string;
 	subscribeThread?: boolean;
-	/**
-	 * Thread to reply into. Pass the `threadId` returned by a previous
-	 * `postMessage` call to keep follow-up messages inside the same thread
-	 * instead of cluttering the channel with new top-level messages.
-	 */
 	threadId?: string;
 };
 type SlackPostMessageResult = {
@@ -170,8 +165,6 @@ class ProjectSlackBot {
 			throw new Error('Slack did not return a channel and timestamp for the posted message.');
 		}
 
-		// When replying inside a thread, keep the thread root timestamp so files
-		// and subscriptions stay attached to the original thread rather than the reply.
 		const threadId = getSlackThreadId(result.channel, threadTs ?? result.ts);
 		return { channel: result.channel, ts: result.ts, threadId };
 	}
@@ -882,9 +875,7 @@ class SlackService {
 		const threadTs = options.threadId ? parseSlackThreadTs(options.threadId) : undefined;
 		const result = await bot.postMessage(channelId, text, threadTs);
 
-		// Only link/subscribe when starting a new thread. Replies share the same
-		// thread root, so the chat is already attached and subscribed.
-		if (!options.threadId) {
+		if (!threadTs) {
 			if (options.chatId) {
 				await chatQueries.attachSlackThread(options.chatId, result.threadId);
 			}
@@ -999,7 +990,6 @@ function getSlackThreadId(channelId: string, threadTs: string): string {
 	return `slack:${channelId}:${threadTs}`;
 }
 
-/** Extracts the thread timestamp from a `slack:channelId:threadTs` thread id. */
 function parseSlackThreadTs(threadId: string): string | undefined {
 	const [, , threadTs] = threadId.split(':');
 	return threadTs || undefined;
