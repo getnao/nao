@@ -46,7 +46,7 @@ export function ChatInputSuggestions() {
 				<Button
 					variant='ghost'
 					size='sm'
-					className='hidden rounded-full text-muted-foreground group-hover:inline-flex'
+					className='rounded-full text-muted-foreground'
 					onClick={story.neverPropose}
 				>
 					Do not propose again
