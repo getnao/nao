@@ -5,11 +5,6 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { getSystemPromptOverride } from '../src/agents/system-prompts';
 
-/**
- * Exercises the override reader against the real filesystem to prove it loads
- * prompt files from `agent/prompts/` exactly as a synced context repo would lay
- * them out (no `fs` mock here).
- */
 describe('getSystemPromptOverride (real filesystem)', () => {
 	let projectFolder: string;
 

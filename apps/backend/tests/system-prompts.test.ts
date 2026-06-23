@@ -12,7 +12,6 @@ const mockReadFileSync = vi.mocked(readFileSync);
 const ROOT = '/project';
 const promptPath = (filename: string) => join(ROOT, 'agent', 'prompts', filename);
 
-/** Makes only the listed prompt files "exist" with the given content. */
 function setupPromptFiles(files: Record<string, string>): void {
 	mockExistsSync.mockImplementation((path) => Object.keys(files).some((name) => path === promptPath(name)));
 	mockReadFileSync.mockImplementation((path) => {
