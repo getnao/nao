@@ -95,6 +95,11 @@ export const analyticsEventRoutes = {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Chat not found.' });
 			}
 
+			const canAccess = await chatQueries.canUserAccessChat(input.chatId, ctx.user.id);
+			if (!canAccess) {
+				throw new TRPCError({ code: 'FORBIDDEN', message: 'You are not authorized to access this chat.' });
+			}
+
 			void logAnalyticsEvent({
 				projectId: ctx.project.id,
 				type: 'download',
