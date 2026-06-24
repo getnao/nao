@@ -1,15 +1,17 @@
 /* @license Enterprise */
 
+import { useEffect, useRef, useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Lock, Upload, X } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { ArrowRight, Lock, Upload, X } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { SettingsCard, SettingsPageWrapper } from '@/components/ui/settings-card';
+import { buildBrandVars } from '@/components/brand-color';
 import { requireAdminNonCloud } from '@/lib/require-admin';
+import { useTheme } from '@/contexts/theme.provider';
 import { brandingAssetUrl, useBranding } from '@/hooks/use-branding';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
@@ -38,22 +40,25 @@ function WhiteLabelPage() {
 
 	const [appName, setAppName] = useState('');
 	const [tabTitle, setTabTitle] = useState('');
+	const [brandColor, setBrandColor] = useState<string | null>(null);
 	const [pending, setPending] = useState<Partial<Record<AssetKind, PendingAsset | null>>>({});
 	const [error, setError] = useState<string | null>(null);
 	const [success, setSuccess] = useState(false);
-	const lastSyncedNamesRef = useRef({ appName: '', tabTitle: '' });
+	const lastSyncedRef = useRef({ appName: '', tabTitle: '', brandColor: null as string | null });
 
 	useEffect(() => {
-		const previousNames = lastSyncedNamesRef.current;
-		const nextNames = {
+		const prev = lastSyncedRef.current;
+		const next = {
 			appName: branding.appName ?? '',
 			tabTitle: branding.tabTitle ?? '',
+			brandColor: branding.brandColor ?? null,
 		};
 
-		setAppName((current) => (current === previousNames.appName ? nextNames.appName : current));
-		setTabTitle((current) => (current === previousNames.tabTitle ? nextNames.tabTitle : current));
-		lastSyncedNamesRef.current = nextNames;
-	}, [branding.appName, branding.tabTitle]);
+		setAppName((current) => (current === prev.appName ? next.appName : current));
+		setTabTitle((current) => (current === prev.tabTitle ? next.tabTitle : current));
+		setBrandColor((current) => (current === prev.brandColor ? next.brandColor : current));
+		lastSyncedRef.current = next;
+	}, [branding.appName, branding.tabTitle, branding.brandColor]);
 
 	const updateMutation = useMutation({
 		...trpc.branding.update.mutationOptions(),
@@ -62,6 +67,7 @@ function WhiteLabelPage() {
 			setSuccess(true);
 			setAppName(variables.appName ?? '');
 			setTabTitle(variables.tabTitle ?? '');
+			setBrandColor(variables.brandColor ?? null);
 			setPending({});
 			await queryClient.invalidateQueries({ queryKey: trpc.branding.getPublic.queryKey() });
 		},
@@ -94,6 +100,7 @@ function WhiteLabelPage() {
 		updateMutation.mutate({
 			appName: appName.trim() ? appName.trim() : null,
 			tabTitle: tabTitle.trim() ? tabTitle.trim() : null,
+			brandColor: brandColor ?? null,
 			...(pending.logo !== undefined
 				? {
 						logo: pending.logo ? { data: pending.logo.data, mediaType: pending.logo.mediaType } : null,
@@ -112,6 +119,7 @@ function WhiteLabelPage() {
 	const hasChanges =
 		appName !== (branding.appName ?? '') ||
 		tabTitle !== (branding.tabTitle ?? '') ||
+		brandColor !== (branding.brandColor ?? null) ||
 		pending.logo !== undefined ||
 		pending.favicon !== undefined;
 
@@ -128,8 +136,8 @@ function WhiteLabelPage() {
 						</Badge>
 					</div>
 					<p className='text-sm text-muted-foreground mt-1'>
-						Replace the nao name, logo and favicon with your own branding. Visible to every user of this
-						instance.
+						Replace the nao name, logo, favicon and brand color with your own branding. Visible to every
+						user of this instance.
 					</p>
 				</div>
 
@@ -180,6 +188,13 @@ function WhiteLabelPage() {
 					/>
 				</SettingsCard>
 
+				<SettingsCard
+					title='Brand color'
+					description='Applied to buttons, links and accents across the app. Leave empty to keep the default nao purple.'
+				>
+					<BrandColorPicker value={brandColor} onChange={setBrandColor} disabled={disabled} />
+				</SettingsCard>
+
 				{error && (
 					<div className='text-sm text-destructive bg-destructive/10 px-3 py-2 rounded-md border border-destructive/30'>
 						{error}
@@ -199,6 +214,7 @@ function WhiteLabelPage() {
 						onClick={() => {
 							setAppName(branding.appName ?? '');
 							setTabTitle(branding.tabTitle ?? '');
+							setBrandColor(branding.brandColor ?? null);
 							setPending({});
 						}}
 					>
@@ -232,8 +248,8 @@ function EnterpriseNudge() {
 					</Badge>
 				</div>
 				<p className='text-sm text-muted-foreground'>
-					Customize your tab title, logo and favicon with your own branding. Activate a nao Enterprise license
-					with the <code>white-label</code> feature to enable this page.
+					Customize your tab title, logo, favicon and brand color with your own branding. Activate a nao
+					Enterprise license with the <code>white-label</code> feature to enable this page.
 				</p>
 			</div>
 		</div>
@@ -265,6 +281,105 @@ function LabeledInput({
 				disabled={disabled}
 			/>
 			{helper && <p className='text-xs text-muted-foreground'>{helper}</p>}
+		</div>
+	);
+}
+
+const HEX_RE = /^#[0-9a-fA-F]{6}$/;
+const DEFAULT_BRAND_COLOR = '#522bff';
+
+function BrandColorPicker({
+	value,
+	onChange,
+	disabled,
+}: {
+	value: string | null;
+	onChange: (v: string | null) => void;
+	disabled?: boolean;
+}) {
+	const [draft, setDraft] = useState(value ?? '');
+	const effectiveColor = value ?? DEFAULT_BRAND_COLOR;
+
+	useEffect(() => {
+		setDraft(value ?? '');
+	}, [value]);
+
+	const commitDraft = (raw: string) => {
+		const v = raw.trim();
+		setDraft(raw);
+		if (v === '') {
+			onChange(null);
+		} else if (HEX_RE.test(v)) {
+			onChange(v);
+		}
+	};
+
+	return (
+		<div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4'>
+			<div className='min-w-0 flex flex-1 items-center  gap-3'>
+				<input
+					type='color'
+					aria-label='Brand color'
+					value={effectiveColor}
+					onChange={(e) => onChange(e.target.value)}
+					disabled={disabled}
+					className='h-9 w-9 shrink-0 cursor-pointer overflow-hidden rounded-md bg-transparent p-0 shadow-xs disabled:pointer-events-none disabled:opacity-50 [&::-moz-color-swatch]:rounded-md [&::-moz-color-swatch]:border-none [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded-md [&::-webkit-color-swatch]:border-none'
+				/>
+				<Input
+					value={draft}
+					placeholder={DEFAULT_BRAND_COLOR}
+					onChange={(e) => commitDraft(e.target.value)}
+					onBlur={() => setDraft(value ?? '')}
+					disabled={disabled}
+					className='w-28 font-mono uppercase placeholder:normal-case'
+				/>
+				<BrandColorPreview color={effectiveColor} />
+			</div>
+			<div className='items-end'>
+				{value && (
+					<Button
+						variant='ghost'
+						size='sm'
+						className='h-8 border'
+						onClick={() => onChange(null)}
+						disabled={disabled}
+					>
+						Reset
+					</Button>
+				)}
+			</div>
+		</div>
+	);
+}
+
+function BrandColorPreview({ color }: { color: string }) {
+	const ref = useRef<HTMLDivElement>(null);
+	const { theme } = useTheme();
+
+	useEffect(() => {
+		const el = ref.current;
+		if (!el) {
+			return;
+		}
+		const isDark = theme === 'dark' || (theme === 'system' && document.documentElement.classList.contains('dark'));
+		const vars = buildBrandVars(color, isDark ? 'dark' : 'light');
+		for (const [key, val] of Object.entries(vars)) {
+			el.style.setProperty(key, val);
+		}
+	}, [color, theme]);
+
+	return (
+		<div className='flex items-center gap-2'>
+			<ArrowRight className='size-4' />
+			<div ref={ref} className='flex flex-wrap items-center gap-4 bg-background'>
+				<Button size='sm' variant='primary-gradient'>
+					Button
+				</Button>
+				<Button size='sm' variant='link' className='px-0'>
+					Link
+				</Button>
+				<Badge variant='admin'>Badge</Badge>
+			</div>
 		</div>
 	);
 }

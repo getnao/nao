@@ -1156,6 +1156,7 @@ export const brandingConfig = pgTable('branding_config', {
 	logoMediaType: text('logo_media_type'),
 	faviconData: text('favicon_data'),
 	faviconMediaType: text('favicon_media_type'),
+	brandColor: text('brand_color'),
 	updatedAt: timestamp('updated_at')
 		.defaultNow()
 		.$onUpdate(() => /* @__PURE__ */ new Date())

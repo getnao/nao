@@ -254,7 +254,7 @@ const PromptDialog = ({
 
 								<Button
 									type='submit'
-									variant='default'
+									variant='primary-gradient'
 									size='sm'
 									disabled={!canSubmit || isDefaultValue || isSubmitting}
 									isLoading={isSubmitting}

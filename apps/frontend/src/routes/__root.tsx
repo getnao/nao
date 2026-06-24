@@ -1,4 +1,5 @@
 import { createRootRoute, Outlet, useRouterState } from '@tanstack/react-router';
+import { BrandColor } from '../components/brand-color';
 import { BrandingHead } from '../components/branding-head';
 import { ModifyPassword } from '../components/modify-password';
 import { Spinner } from '@/components/ui/spinner';
@@ -37,6 +38,7 @@ function AuthenticatedRoot() {
 	return (
 		<div className='flex h-screen'>
 			<BrandingHead />
+			<BrandColor />
 			<Outlet />
 		</div>
 	);

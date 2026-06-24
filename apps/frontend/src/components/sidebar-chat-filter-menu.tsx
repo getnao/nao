@@ -77,7 +77,7 @@ export function ChatFilterMenu({ groupBy, filters, onGroupByChange, onFilterTogg
 			<DropdownMenuContent
 				align='end'
 				side='top'
-				className='w-auto overflow-visible bg-background'
+				className='w-auto overflow-visible'
 				onMouseEnter={cancelClose}
 				onMouseLeave={scheduleClose}
 			>

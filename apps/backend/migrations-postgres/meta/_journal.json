@@ -365,6 +365,13 @@
       "when": 1782390613565,
       "tag": "0051_analytics_event",
       "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1782391314716,
+      "tag": "0052_add_brand_color",
+      "breakpoints": true
     }
   ]
 }

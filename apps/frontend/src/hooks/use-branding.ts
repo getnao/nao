@@ -8,6 +8,7 @@ export interface BrandingState {
 	enabled: boolean;
 	appName: string | null;
 	tabTitle: string | null;
+	brandColor: string | null;
 	hasLogo: boolean;
 	hasFavicon: boolean;
 	updatedAt: number | null;
@@ -23,6 +24,7 @@ export function useBranding(): BrandingState {
 			enabled: false,
 			appName: null,
 			tabTitle: null,
+			brandColor: null,
 			hasLogo: false,
 			hasFavicon: false,
 			updatedAt: null,

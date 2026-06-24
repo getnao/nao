@@ -1,0 +1,1 @@
+ALTER TABLE "branding_config" ADD COLUMN "brand_color" text;

@@ -25,6 +25,11 @@ const assetSchema = z
 const updateSchema = z.object({
 	appName: z.string().trim().max(64).nullable().optional(),
 	tabTitle: z.string().trim().max(64).nullable().optional(),
+	brandColor: z
+		.string()
+		.regex(/^#[0-9a-fA-F]{6}$/, 'Brand color must be a 6-digit hex color (e.g. #522bff).')
+		.nullable()
+		.optional(),
 	logo: assetSchema.optional(),
 	favicon: assetSchema.optional(),
 });
@@ -49,6 +54,7 @@ export const brandingRoutes = {
 			enabled,
 			appName: branding?.appName ?? null,
 			tabTitle: branding?.tabTitle ?? null,
+			brandColor: branding?.brandColor ?? null,
 			hasLogo: Boolean(branding?.logo),
 			hasFavicon: Boolean(branding?.favicon),
 			updatedAt: branding?.updatedAt?.getTime() ?? null,
