@@ -4,7 +4,7 @@ import { createSlackAdapter } from '@chat-adapter/slack';
 import { createMemoryState } from '@chat-adapter/state-memory';
 import { CITATION_TAG_REGEX } from '@nao/shared';
 import type { LlmSelectedModel } from '@nao/shared/types';
-import { WebClient } from '@slack/web-api';
+import { type ChatPostMessageArguments, WebClient } from '@slack/web-api';
 import { InferUIMessageChunk, readUIMessageStream } from 'ai';
 import { Card, Chat, deriveChannelId, Message, SentMessage, Thread, ThreadImpl } from 'chat';
 
@@ -25,6 +25,7 @@ import { createChatTitle } from '../utils/ai';
 import { buildUserAddedEmail } from '../utils/email-builders';
 import { logger } from '../utils/logger';
 import {
+	buildSlackTableBlocks,
 	createCompletionCard,
 	createFeedbackModal,
 	createImageBlock,
@@ -32,7 +33,7 @@ import {
 	createStopButtonCard,
 	createSummaryToolCalls,
 	createTextBlock,
-	escapeCsvCell,
+	createTextBlocks,
 	EXCLUDED_TOOLS,
 	FEEDBACK_MODAL_CALLBACK_ID,
 	formatMessagingError,
@@ -152,11 +153,16 @@ class ProjectSlackBot {
 
 	public async postMessage(channelId: string, text: string, threadTs?: string): Promise<SlackPostMessageResult> {
 		const resolvedText = await this._resolveSlackUserMentions(text);
-		const result = await this._slackClient.chat.postMessage({
+		const args: ChatPostMessageArguments = {
 			channel: channelId,
 			text: formatSlackMessageText(resolvedText),
 			thread_ts: threadTs,
-		});
+		};
+		const blocks = buildSlackTableBlocks(resolvedText);
+		if (blocks) {
+			(args as { blocks?: unknown }).blocks = blocks;
+		}
+		const result = await this._slackClient.chat.postMessage(args);
 
 		if (!result.ok) {
 			throw new Error(result.error ?? 'Failed to post Slack message.');
@@ -405,6 +411,7 @@ class ProjectSlackBot {
 			convMessage: null,
 			blocks: [],
 			textBlockIndex: -1,
+			textBlockCount: 0,
 			isNewChat: false,
 			modelId: undefined,
 			timezone: undefined,
@@ -620,16 +627,12 @@ class ProjectSlackBot {
 		const stream = await this._createAgentStream(chat, ctx);
 		const stopCard = await ctx.thread.post(createStopButtonCard());
 
-		let state: StreamState | undefined;
 		try {
-			state = await this._readStreamAndUpdateSlackMessage(stream, ctx);
+			await this._readStreamAndUpdateSlackMessage(stream, ctx);
 		} finally {
 			await stopCard.delete().catch(() => {});
 		}
 
-		if (state) {
-			await this._uploadLastSqlResultAsCsv(state, ctx);
-		}
 		await this._lastCompletionCard.get(ctx.thread.id)?.card.delete();
 		const chatUrl = new URL(ctx.chatId, this._redirectUrl).toString();
 		const card = await ctx.thread.post(createCompletionCard(chatUrl));
@@ -746,6 +749,7 @@ class ProjectSlackBot {
 
 			const imageUrl = new URL(`c/${ctx.chatId}/${chartId}.png`, this._redirectUrl).toString();
 			ctx.textBlockIndex = -1;
+			ctx.textBlockCount = 0;
 			ctx.blocks.push(createImageBlock(imageUrl));
 			await ctx.convMessage?.edit(Card({ children: ctx.blocks }));
 		} catch (error) {
@@ -804,6 +808,8 @@ class ProjectSlackBot {
 		ctx.blocks[state.toolGroupBlockIndex] = createSummaryToolCalls(state.toolGroup);
 		state.toolGroup = new Map();
 		state.toolGroupBlockIndex = -1;
+		ctx.textBlockIndex = -1;
+		ctx.textBlockCount = 0;
 	}
 
 	private async _sendFinalText(ctx: ConversationContext): Promise<void> {
@@ -814,36 +820,17 @@ class ProjectSlackBot {
 	}
 
 	private _updateTextBlock(text: string, ctx: ConversationContext): void {
-		const block = createTextBlock(text.replace(CITATION_TAG_REGEX, ''));
+		const blocks = createTextBlocks(text.replace(CITATION_TAG_REGEX, ''));
+		if (blocks.length === 0) {
+			return;
+		}
 		if (ctx.textBlockIndex === -1) {
 			ctx.textBlockIndex = ctx.blocks.length;
-			ctx.blocks.push(block);
+			ctx.blocks.push(...blocks);
 		} else {
-			ctx.blocks[ctx.textBlockIndex] = block;
+			ctx.blocks.splice(ctx.textBlockIndex, ctx.textBlockCount, ...blocks);
 		}
-	}
-
-	private async _uploadLastSqlResultAsCsv(state: StreamState, ctx: ConversationContext): Promise<void> {
-		if (state.sqlOutputs.size === 0) {
-			return;
-		}
-		const { name, rows } = [...state.sqlOutputs.values()].at(-1)!;
-		if (rows.length === 0) {
-			return;
-		}
-		const columns = Object.keys(rows[0]);
-		const header = columns.join(',');
-		const body = rows.map((row) => columns.map((col) => escapeCsvCell(row[col])).join(',')).join('\n');
-		const csv = `${header}\n${body}`;
-		const filename = name ? `${name.toLowerCase().replace(/\s+/g, '_')}.csv` : 'data.csv';
-
-		const [, channelId, threadTs] = ctx.thread.id.split(':');
-		await this._slackClient.files.uploadV2({
-			channel_id: channelId,
-			thread_ts: threadTs,
-			filename,
-			content: csv,
-		});
+		ctx.textBlockCount = blocks.length;
 	}
 
 	private async _getLastAssistantMessageId(threadId: string): Promise<string | null> {

@@ -1,6 +1,7 @@
+import { cardToBlockKit } from '@chat-adapter/slack';
 import { CITATION_TAG_REGEX, pluralize, TOOL_LABELS } from '@nao/shared';
 import type { CardChild, CardElement, ModalElement } from 'chat';
-import { Actions, Button, Card, CardText, Image, LinkButton } from 'chat';
+import { Actions, Button, Card, CardText, Image, LinkButton, Table } from 'chat';
 
 import { ToolCallEntry } from '../types/messaging-provider';
 import { BudgetExceededError } from './error';
@@ -105,6 +106,30 @@ export const createTextBlock = (text: string): CardChild => {
 	return CardText(rendered || text);
 };
 
+export const createTextBlocks = (text: string): CardChild[] => {
+	const blocks: CardChild[] = [];
+	for (const segment of splitMarkdownSegments(text)) {
+		if (segment.type === 'table') {
+			blocks.push(Table({ headers: segment.headers, rows: segment.rows }));
+			continue;
+		}
+		const rendered = mdToMrkdwn(segment.text).trim();
+		if (rendered) {
+			blocks.push(CardText(rendered));
+		}
+	}
+	return blocks;
+};
+
+export function buildSlackTableBlocks(text: string): ReturnType<typeof cardToBlockKit> | null {
+	const sanitized = text.replace(CITATION_TAG_REGEX, '');
+	const children = createTextBlocks(sanitized);
+	if (!children.some((child) => child.type === 'table')) {
+		return null;
+	}
+	return cardToBlockKit(Card({ children }));
+}
+
 export function formatSlackMessageText(text: string): string {
 	const sanitized = text.replace(CITATION_TAG_REGEX, '');
 	return mdToMrkdwn(sanitized) || sanitized;
@@ -117,6 +142,135 @@ export const createImageBlock = (url: string): CardChild => {
 export const createPlainTextBlock = (text: string): CardChild => {
 	return CardText(stripMarkdown(text));
 };
+
+type MarkdownSegment = { type: 'text'; text: string } | { type: 'table'; headers: string[]; rows: string[][] };
+
+const FENCE_REGEX = /^\s*(```|~~~)/;
+const SEPARATOR_CELL_REGEX = /^:?-+:?$/;
+
+function splitMarkdownSegments(text: string): MarkdownSegment[] {
+	const lines = text.split('\n');
+	const segments: MarkdownSegment[] = [];
+	let textLines: string[] = [];
+	let inFence = false;
+
+	const flushText = (): void => {
+		if (textLines.length > 0) {
+			segments.push({ type: 'text', text: textLines.join('\n') });
+			textLines = [];
+		}
+	};
+
+	for (let i = 0; i < lines.length; i++) {
+		const line = lines[i];
+		if (FENCE_REGEX.test(line)) {
+			inFence = !inFence;
+			textLines.push(line);
+			continue;
+		}
+		const table = inFence ? null : parseTableAt(lines, i);
+		if (table) {
+			flushText();
+			segments.push(table.segment);
+			i = table.nextIndex - 1;
+			continue;
+		}
+		textLines.push(line);
+	}
+
+	flushText();
+	return segments;
+}
+
+function parseTableAt(lines: string[], start: number): { segment: MarkdownSegment; nextIndex: number } | null {
+	const headerLine = lines[start];
+	if (!headerLine.includes('|') || start + 1 >= lines.length) {
+		return null;
+	}
+	const headers = splitTableRow(headerLine);
+	if (tableSeparatorColumns(lines[start + 1]) !== headers.length) {
+		return null;
+	}
+
+	const rows: string[][] = [];
+	let index = start + 2;
+	for (; index < lines.length; index++) {
+		const line = lines[index];
+		if (line.trim() === '' || !line.includes('|') || FENCE_REGEX.test(line)) {
+			break;
+		}
+		rows.push(normalizeRow(splitTableRow(line), headers.length));
+	}
+
+	return {
+		segment: {
+			type: 'table',
+			headers: headers.map(cleanTableCell),
+			rows: rows.map((row) => row.map(cleanTableCell)),
+		},
+		nextIndex: index,
+	};
+}
+
+function tableSeparatorColumns(line: string): number {
+	if (!line.includes('-')) {
+		return -1;
+	}
+	const cells = splitTableRow(line);
+	if (cells.length === 0 || cells.some((cell) => !SEPARATOR_CELL_REGEX.test(cell))) {
+		return -1;
+	}
+	return cells.length;
+}
+
+function splitTableRow(line: string): string[] {
+	let content = line.trim();
+	if (content.startsWith('|')) {
+		content = content.slice(1);
+	}
+	if (content.endsWith('|') && !content.endsWith('\\|')) {
+		content = content.slice(0, -1);
+	}
+
+	const cells: string[] = [];
+	let current = '';
+	for (let i = 0; i < content.length; i++) {
+		const char = content[i];
+		if (char === '\\' && content[i + 1] === '|') {
+			current += '|';
+			i++;
+			continue;
+		}
+		if (char === '|') {
+			cells.push(current.trim());
+			current = '';
+			continue;
+		}
+		current += char;
+	}
+	cells.push(current.trim());
+	return cells;
+}
+
+function normalizeRow(cells: string[], length: number): string[] {
+	const row = cells.slice(0, length);
+	while (row.length < length) {
+		row.push('');
+	}
+	return row;
+}
+
+function cleanTableCell(cell: string): string {
+	return cell
+		.replace(/`([^`]+)`/g, '$1')
+		.replace(/\*\*(.+?)\*\*/g, '$1')
+		.replace(/__(.+?)__/g, '$1')
+		.replace(/\*(.+?)\*/g, '$1')
+		.replace(/~~(.+?)~~/g, '$1')
+		.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+		.replace(/<br\s*\/?>/gi, ' ')
+		.trim();
+}
 
 function mdToMrkdwn(text: string): string {
 	// Split on fenced and inline code spans so we never mutate literal content
@@ -135,12 +289,6 @@ function mdToMrkdwn(text: string): string {
 		})
 		.join('');
 }
-
-export const escapeCsvCell = (value: unknown): string => {
-	const str = value === null || value === undefined ? '' : String(value);
-	const sanitized = /^[=+\-@]/.test(str.trimStart()) ? `'${str}` : str;
-	return /[,"\n]/.test(sanitized) ? `"${sanitized.replace(/"/g, '""')}"` : sanitized;
-};
 
 function stripMarkdown(text: string): string {
 	const newtext = text

@@ -147,6 +147,7 @@ class TeamsService {
 			convMessage: null,
 			blocks: [],
 			textBlockIndex: -1,
+			textBlockCount: 0,
 			isNewChat: false,
 			modelId: undefined,
 			timezone: undefined,

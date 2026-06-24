@@ -10,6 +10,7 @@ export type ConversationContext = {
 	convMessage: SentMessage | null;
 	blocks: CardChild[];
 	textBlockIndex: number;
+	textBlockCount: number;
 	isNewChat: boolean;
 	modelId: string | undefined;
 	timezone: string | undefined;
