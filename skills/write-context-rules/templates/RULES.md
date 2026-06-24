@@ -1,6 +1,6 @@
 # RULES.md
 
-> Included with every message sent to the nao agent. Keep it lean. Per-table detail belongs in `databases/<table>.md`, not here.
+> Included with every message sent to the nao agent. Keep it lean — it points to context, it doesn't copy it. Per-table detail belongs in `databases/<table>/`, metrics in the semantic layer, domain rules in `docs/`.
 
 ## Business overview
 
@@ -11,23 +11,43 @@
 ## Data architecture
 
 **Warehouse:** TODO. (ex: BigQuery (`nao-production`))
-**Data stack:** TODO. (ex: dlt, dbt, no semantic layer)
+**Data stack:** TODO. (ex: dlt, dbt, dbt semantic layer)
 **Data layers:** TODO: describe data layers (ex bronze / silver / gold)
 
 **Data sources:**
 
-- TODO
-  Ex:
-
 1. **App Backend** (`stg_app_backend__*`): data from our app backend with users, events
+   TODO: one line per source
+
+## Context map
+
+> Where context lives. The agent reads from these before answering — this section routes it there.
+
+**Per-table context** — each table folder under `databases/.../table=<name>/` contains:
+
+- `columns.md` — column names, types, descriptions
+- `profiling.md` — distinct counts, min/max, and **`top_values`** (the actual values present in each column). **Read before filtering on any column value.**
+- TODO: list any other synced templates (`description.md`, `how_to_use.md`, `ai_summary.md`, `preview.md`) and one line each.
+
+**Repos:**
+
+- TODO: `repos/<dbt>/` — dbt project. Column docs: `models/<schema>.yml`. Domain decisions: `models/**/*.md`. Semantic layer (metrics): `models/<...>_semantic_layer.yml` (omit if none).
+
+**Docs:**
+
+- TODO: `docs/<file>.md` — one line on contents + when to read it (ex: "CRM funnel statuses and opportunity stages. Read before any sales question.").
+
+**Semantic layer:** TODO: name it and where it lives if one exists; "metrics are defined here — query through it." Otherwise: "none — metric definitions are in `## Key Metrics Reference` below."
 
 ## Core data models
 
 ### Most Used Tables
 
-- `<table>` — TODO: one-line purpose. See `databases/type=*/database=*/schema=*/table=table/` folder.
+- `<table>` — TODO: one-line purpose. See `databases/type=*/database=*/schema=*/table=<table>/`.
 
 ### Tables detail
+
+> ONLY include this section if no richer table docs exist elsewhere (no `how_to_use.md`/`ai_summary.md` per table, no dbt `schema.yml` column docs). If they exist, delete this section — the Most Used pointers + Context map already route there. Otherwise, reserve it for cross-table pitfalls not documented anywhere else.
 
 #### `table`
 
@@ -35,15 +55,16 @@
 **Granularity**: TODO: One row per **granularity**.
 **Key Columns**:
 
-- `col`: TODO: col desc and/or possible values - only for max top 10 most important cols of the table
+- `col`: TODO: col desc and/or possible values — only the top ≤10 most important cols
 
-**Use For**: TODO: use case where table can be relevant (which topic, metric)
+**Use For**: TODO: use case where table is relevant (which topic, metric)
 
 ## Key Metrics Reference
 
-> Source-of-truth pointer per metric. Detailed semantics live in `semantics/<metric>.yaml` if a semantic layer is configured.
+> ONLY include this section if NO semantic layer / metric docs exist elsewhere. If they do, DELETE the category list below and keep only a routing pointer, e.g.:
+> "Metrics are defined in `repos/dbt/models/<...>_semantic_layer.yml`. Use those definitions; query through the semantic layer, don't recompute from raw tables."
 
-**For each key metric, always use the following source-of-truth table:**
+**For each key metric, always use the following source-of-truth definition:**
 
 ### Metric category 1 (ex: Revenue)
 
@@ -74,28 +95,38 @@ TODO
 
 ## Analysis Process
 
-### 1. Understand the Question
+> Adapt steps 2-3 to what exists in this repo (see Context map). Steps 1, 4-7 always apply.
 
-- Identify the metric or insight requested
-- Determine the time period
-- Identify user segments or filters needed
+### 1. Understand the question
 
-### 2. Select the Right Table(s)
+- Identify the metric or insight requested, the time period, and any segments/filters.
 
-- **Question category** → Start with `table`
+### 2. Resolve the metric definition (before picking a table)
 
-### 3. Write Efficient Queries
+- If the metric is in the **semantic layer** → use that definition (and query through the layer).
+- Else if a **doc** defines it (`docs/`, domain `*.md` in repos) → use that.
+- Else → state the definition you'll use and **validate it with the user** before querying.
 
-- Filter early and often (WHERE clauses on dates, user_id, etc.)
-- Aggregate before joining when possible
-- Use CTEs for complex queries to improve readability
+### 3. Read relevant docs
 
-### 4. Validate Results
+- For any topic covered by a file in `docs/` or a repo domain doc, read it before selecting a table.
 
-- Check for NULL values in key fields
-- Verify counts make sense (e.g., user counts shouldn't exceed total users)
+### 4. Select the right table(s)
 
-### 5. Provide Context
+- **Question category** → Start with `table`. TODO: map each major category to its starting table.
 
-- Explain what the numbers mean for the business
-- Highlight trends, anomalies, or notable patterns
+### 5. Check existing values before filtering (ALWAYS)
+
+- Before filtering on any column value (status, category, type, country, …), read that table's `profiling.md` and filter on the **exact values present** (`top_values` / distinct values). Never guess an enum or status string.
+
+### 6. Write efficient queries
+
+- Fully-qualified table names; filter early (WHERE on dates, user_id); aggregate before joining; CTEs for complex queries.
+
+### 7. Validate results
+
+- Check NULLs in key fields; verify counts make sense (e.g. user counts shouldn't exceed total users).
+
+### 8. Provide context
+
+- Explain what the numbers mean for the business; highlight trends, anomalies, notable patterns.
