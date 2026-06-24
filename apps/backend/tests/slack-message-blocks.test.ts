@@ -75,6 +75,23 @@ describe('createTextBlocks', () => {
 		expect(blocks.map((block) => block.type)).toEqual(['text']);
 		expect(tableChild(blocks)).toBeUndefined();
 	});
+
+	it('keeps a mismatched fence marker as literal content inside a code block', () => {
+		const text = ['```', '~~~', '| A | B |', '|---|---|', '| 1 | 2 |', '```'].join('\n');
+		const blocks = createTextBlocks(text);
+		expect(blocks.map((block) => block.type)).toEqual(['text']);
+		expect(tableChild(blocks)).toBeUndefined();
+	});
+
+	it('parses a real table that follows a closed code block', () => {
+		const text = ['```', 'code', '```', '', '| A | B |', '|---|---|', '| 1 | 2 |'].join('\n');
+		const table = tableChild(createTextBlocks(text));
+		expect(table).toEqual({
+			type: 'table',
+			headers: ['A', 'B'],
+			rows: [['1', '2']],
+		});
+	});
 });
 
 describe('buildSlackTableBlocks', () => {

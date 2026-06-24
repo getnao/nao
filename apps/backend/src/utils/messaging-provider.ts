@@ -152,7 +152,7 @@ function splitMarkdownSegments(text: string): MarkdownSegment[] {
 	const lines = text.split('\n');
 	const segments: MarkdownSegment[] = [];
 	let textLines: string[] = [];
-	let inFence = false;
+	let openFenceChar: string | null = null;
 
 	const flushText = (): void => {
 		if (textLines.length > 0) {
@@ -163,12 +163,17 @@ function splitMarkdownSegments(text: string): MarkdownSegment[] {
 
 	for (let i = 0; i < lines.length; i++) {
 		const line = lines[i];
-		if (FENCE_REGEX.test(line)) {
-			inFence = !inFence;
+		const fenceChar = fenceMarker(line);
+		if (fenceChar) {
+			if (openFenceChar === null) {
+				openFenceChar = fenceChar;
+			} else if (fenceChar === openFenceChar) {
+				openFenceChar = null;
+			}
 			textLines.push(line);
 			continue;
 		}
-		const table = inFence ? null : parseTableAt(lines, i);
+		const table = openFenceChar !== null ? null : parseTableAt(lines, i);
 		if (table) {
 			flushText();
 			segments.push(table.segment);
@@ -180,6 +185,11 @@ function splitMarkdownSegments(text: string): MarkdownSegment[] {
 
 	flushText();
 	return segments;
+}
+
+function fenceMarker(line: string): string | null {
+	const match = FENCE_REGEX.exec(line);
+	return match ? match[1][0] : null;
 }
 
 function parseTableAt(lines: string[], start: number): { segment: MarkdownSegment; nextIndex: number } | null {
