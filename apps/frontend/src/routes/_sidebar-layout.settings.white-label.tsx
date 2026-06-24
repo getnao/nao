@@ -335,7 +335,7 @@ function BrandColorPicker({
 				/>
 				<BrandColorPreview color={effectiveColor} />
 			</div>
-			<div className='items-end'>
+			<div className='self-end'>
 				{value && (
 					<Button
 						variant='ghost'
