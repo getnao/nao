@@ -13,6 +13,7 @@ import {
 	DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 
 export function ShareLoadingDialog({
@@ -93,6 +94,28 @@ export function VisibilityPicker({
 				description='Choose who can view'
 				onClick={() => onChange('specific')}
 			/>
+		</div>
+	);
+}
+
+export function NotifyPeopleToggle({
+	checked,
+	onCheckedChange,
+	itemLabel,
+}: {
+	checked: boolean;
+	onCheckedChange: (checked: boolean) => void;
+	itemLabel: string;
+}) {
+	return (
+		<div className='flex items-center justify-between gap-3 rounded-lg border p-3'>
+			<div className='flex flex-col'>
+				<label htmlFor='notify-people' className='text-md font-medium'>
+					Notify people
+				</label>
+				<p className='text-xs text-muted-foreground'>Send an email letting them know about this {itemLabel}</p>
+			</div>
+			<Switch id='notify-people' checked={checked} onCheckedChange={onCheckedChange} />
 		</div>
 	);
 }

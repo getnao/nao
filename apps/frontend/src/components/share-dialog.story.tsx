@@ -6,6 +6,7 @@ import {
 	hasAccessChanges,
 	ManageShareFooter,
 	MemberPicker,
+	NotifyPeopleToggle,
 	ShareLoadingDialog,
 	VisibilityPicker,
 	VisibilitySummary,
@@ -77,10 +78,13 @@ function useInvalidateShareQueries(chatId: string, storySlug: string) {
 function CreateShareDialog({ open, onOpenChange, chatId, storySlug, intent = 'share' }: ShareStoryDialogProps) {
 	const { data: session } = useSession();
 	const [visibility, setVisibility] = useState<Visibility>('project');
+	const [notify, setNotify] = useState(false);
 	const [isConfirmed, setIsConfirmed] = useState(false);
 	const timeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 	const invalidateShareQueries = useInvalidateShareQueries(chatId, storySlug);
 	const isPinIntent = intent === 'pin';
+	const smtpQuery = useQuery(trpc.authConfig.smtp.isSetup.queryOptions());
+	const isSmtpEnabled = smtpQuery.data === true;
 
 	useEffect(() => () => clearTimeout(timeoutRef.current), []);
 
@@ -94,6 +98,7 @@ function CreateShareDialog({ open, onOpenChange, chatId, storySlug, intent = 'sh
 	useEffect(() => {
 		if (open) {
 			setVisibility('project');
+			setNotify(false);
 			reset();
 			setIsConfirmed(false);
 		}
@@ -109,6 +114,7 @@ function CreateShareDialog({ open, onOpenChange, chatId, storySlug, intent = 'sh
 				visibility,
 				allowedUserIds: visibility === 'specific' ? [...selectedUserIds] : undefined,
 				pinAfterCreate: isPinIntent,
+				notify: isSmtpEnabled && notify,
 			})
 			.then((data) => {
 				invalidateShareQueries();
@@ -135,6 +141,8 @@ function CreateShareDialog({ open, onOpenChange, chatId, storySlug, intent = 'sh
 		storySlug,
 		visibility,
 		selectedUserIds,
+		notify,
+		isSmtpEnabled,
 		shareMutation,
 		invalidateShareQueries,
 		onOpenChange,
@@ -166,6 +174,9 @@ function CreateShareDialog({ open, onOpenChange, chatId, storySlug, intent = 'sh
 						</div>
 					)}
 					<VisibilityPicker visibility={visibility} onChange={setVisibility} />
+					{isSmtpEnabled && (
+						<NotifyPeopleToggle checked={notify} onCheckedChange={setNotify} itemLabel='story' />
+					)}
 					{visibility === 'specific' && (
 						<MemberPicker
 							members={filteredMembers}

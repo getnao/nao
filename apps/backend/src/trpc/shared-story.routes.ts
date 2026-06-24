@@ -58,6 +58,7 @@ export const sharedStoryRoutes = {
 				visibility: z.enum(SHARE_VISIBILITY).default('project'),
 				allowedUserIds: z.array(z.string()).optional(),
 				pinAfterCreate: z.boolean().optional(),
+				notify: z.boolean().default(false),
 			}),
 		)
 		.mutation(async ({ input, ctx }) => {
@@ -101,16 +102,18 @@ export const sharedStoryRoutes = {
 				sharedStoryId: created.id,
 			});
 
-			notifySharedItemRecipients({
-				projectId: ctx.project.id,
-				sharerId: ctx.user.id,
-				sharerName: ctx.user.name,
-				shareId: created.id,
-				itemLabel: 'story',
-				itemTitle: story.title,
-				visibility: input.visibility,
-				allowedUserIds: input.allowedUserIds,
-			}).catch((err) => console.error('Failed to notify shared story recipients', err));
+			if (input.notify) {
+				notifySharedItemRecipients({
+					projectId: ctx.project.id,
+					sharerId: ctx.user.id,
+					sharerName: ctx.user.name,
+					shareId: created.id,
+					itemLabel: 'story',
+					itemTitle: story.title,
+					visibility: input.visibility,
+					allowedUserIds: input.allowedUserIds,
+				}).catch((err) => console.error('Failed to notify shared story recipients', err));
+			}
 
 			return created;
 		}),

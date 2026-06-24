@@ -6,6 +6,7 @@ import {
 	hasAccessChanges,
 	ManageShareFooter,
 	MemberPicker,
+	NotifyPeopleToggle,
 	ShareErrorDialog,
 	ShareLoadingDialog,
 	VisibilityPicker,
@@ -73,9 +74,12 @@ function useInvalidateShareQueries(chatId: string) {
 function CreateShareDialog({ open, onOpenChange, chatId }: ShareChatDialogProps) {
 	const { data: session } = useSession();
 	const [visibility, setVisibility] = useState<Visibility>('project');
+	const [notify, setNotify] = useState(false);
 	const [isCopied, setIsCopied] = useState(false);
 	const timeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 	const invalidateShareQueries = useInvalidateShareQueries(chatId);
+	const smtpQuery = useQuery(trpc.authConfig.smtp.isSetup.queryOptions());
+	const isSmtpEnabled = smtpQuery.data === true;
 
 	useEffect(() => () => clearTimeout(timeoutRef.current), []);
 
@@ -89,6 +93,7 @@ function CreateShareDialog({ open, onOpenChange, chatId }: ShareChatDialogProps)
 	useEffect(() => {
 		if (open) {
 			setVisibility('project');
+			setNotify(false);
 			reset();
 			setIsCopied(false);
 		}
@@ -102,6 +107,7 @@ function CreateShareDialog({ open, onOpenChange, chatId }: ShareChatDialogProps)
 				chatId,
 				visibility,
 				allowedUserIds: visibility === 'specific' ? [...selectedUserIds] : undefined,
+				notify: isSmtpEnabled && notify,
 			})
 			.then((data) => {
 				invalidateShareQueries();
@@ -116,7 +122,16 @@ function CreateShareDialog({ open, onOpenChange, chatId }: ShareChatDialogProps)
 
 		blobPromise.catch(() => {});
 		navigator.clipboard.write([new ClipboardItem({ 'text/plain': blobPromise })]).catch(() => {});
-	}, [chatId, visibility, selectedUserIds, shareMutation, invalidateShareQueries, onOpenChange]);
+	}, [
+		chatId,
+		visibility,
+		selectedUserIds,
+		notify,
+		isSmtpEnabled,
+		shareMutation,
+		invalidateShareQueries,
+		onOpenChange,
+	]);
 
 	const canShare = visibility === 'project' || selectedUserIds.size > 0;
 
@@ -130,6 +145,9 @@ function CreateShareDialog({ open, onOpenChange, chatId }: ShareChatDialogProps)
 
 				<div className='flex flex-col gap-4'>
 					<VisibilityPicker visibility={visibility} onChange={setVisibility} />
+					{isSmtpEnabled && (
+						<NotifyPeopleToggle checked={notify} onCheckedChange={setNotify} itemLabel='chat' />
+					)}
 					{visibility === 'specific' && (
 						<MemberPicker
 							members={filteredMembers}

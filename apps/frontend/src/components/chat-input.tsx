@@ -288,7 +288,7 @@ function ChatInputBase({
 			<ChatInputMessageQueue onEditMessage={handleEditQueuedMessage} onSubmitNow={submitQueuedMessageNow} />
 			<SelectionCitationBanner />
 			<BudgetBanner />
-{allowQueueing && <ChatInputSuggestions />}
+			{allowQueueing && <ChatInputSuggestions />}
 
 			<form onSubmit={handleSubmitMessage} className='mx-auto relative'>
 				<InputGroup

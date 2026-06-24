@@ -38,6 +38,7 @@ export const sharedChatRoutes = {
 				chatId: z.string(),
 				visibility: z.enum(['project', 'specific']).default('project'),
 				allowedUserIds: z.array(z.string()).optional(),
+				notify: z.boolean().default(false),
 			}),
 		)
 		.mutation(async ({ input, ctx }) => {
@@ -65,16 +66,18 @@ export const sharedChatRoutes = {
 				sharedChatId: created.id,
 			});
 
-			notifySharedItemRecipients({
-				projectId: ctx.project.id,
-				sharerId: ctx.user.id,
-				sharerName: ctx.user.name,
-				shareId: created.id,
-				itemLabel: 'chat',
-				itemTitle: chatInfo.title,
-				visibility: input.visibility,
-				allowedUserIds: input.allowedUserIds,
-			}).catch((err) => console.error('Failed to notify shared chat recipients', err));
+			if (input.notify) {
+				notifySharedItemRecipients({
+					projectId: ctx.project.id,
+					sharerId: ctx.user.id,
+					sharerName: ctx.user.name,
+					shareId: created.id,
+					itemLabel: 'chat',
+					itemTitle: chatInfo.title,
+					visibility: input.visibility,
+					allowedUserIds: input.allowedUserIds,
+				}).catch((err) => console.error('Failed to notify shared chat recipients', err));
+			}
 
 			return created;
 		}),
