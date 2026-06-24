@@ -918,3 +918,50 @@ export async function getChatInfo(
 		.execute();
 	return row ?? null;
 }
+
+export async function canUserAccessChat(chatId: string, userId: string): Promise<boolean> {
+	const [owned] = await db
+		.select({ id: s.chat.id })
+		.from(s.chat)
+		.where(and(eq(s.chat.id, chatId), eq(s.chat.userId, userId)))
+		.limit(1)
+		.execute();
+
+	if (owned) {
+		return true;
+	}
+
+	const isProjectMember = sql`exists (
+		select 1 from ${s.projectMember}
+		where ${s.projectMember.projectId} = ${s.chat.projectId}
+		  and ${s.projectMember.userId} = ${userId}
+	)`;
+	const isOrgMember = sql`exists (
+		select 1 from ${s.orgMember}
+		where ${s.orgMember.orgId} = ${s.project.orgId}
+		  and ${s.orgMember.userId} = ${userId}
+	)`;
+
+	const [shared] = await db
+		.select({ id: s.sharedChat.id })
+		.from(s.sharedChat)
+		.innerJoin(s.chat, eq(s.chat.id, s.sharedChat.chatId))
+		.innerJoin(s.project, eq(s.project.id, s.chat.projectId))
+		.leftJoin(
+			s.sharedChatAccess,
+			and(eq(s.sharedChatAccess.sharedChatId, s.sharedChat.id), eq(s.sharedChatAccess.userId, userId)),
+		)
+		.where(
+			and(
+				eq(s.sharedChat.chatId, chatId),
+				or(
+					and(eq(s.sharedChat.visibility, 'project'), or(isProjectMember, isOrgMember)),
+					and(eq(s.sharedChat.visibility, 'specific'), sql`${s.sharedChatAccess.userId} IS NOT NULL`),
+				),
+			),
+		)
+		.limit(1)
+		.execute();
+
+	return !!shared;
+}

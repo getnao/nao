@@ -1,4 +1,6 @@
 import type { AnalyticsAssetType, AnalyticsEventMetadata, AnalyticsEventType } from '@nao/shared/types';
+import { ANALYTICS_ASSET_TYPES } from '@nao/shared/types';
+import { z } from 'zod/v4';
 
 import * as analyticsEventQueries from '../queries/analytics-event.queries';
 import { logger } from './logger';
@@ -15,8 +17,18 @@ export interface LogAnalyticsEventInput {
 	metadata?: AnalyticsEventMetadata | null;
 }
 
+const assetIdConsistencySchema = z
+	.object({
+		assetType: z.enum(ANALYTICS_ASSET_TYPES),
+		chatId: z.string().nullish(),
+		storyId: z.string().nullish(),
+	})
+	.refine((input) => (input.assetType === 'chat' ? input.chatId != null : input.storyId != null), {
+		message: "assetType 'chat' requires chatId and assetType 'story' requires storyId",
+	});
+
 async function isThrottled(input: LogAnalyticsEventInput): Promise<boolean> {
-	if (input.type !== 'page_view') {
+	if (input.type !== 'page_view' || !input.actorUserId) {
 		return false;
 	}
 
@@ -33,6 +45,16 @@ async function isThrottled(input: LogAnalyticsEventInput): Promise<boolean> {
 
 export async function logAnalyticsEvent(input: LogAnalyticsEventInput): Promise<void> {
 	try {
+		const consistency = assetIdConsistencySchema.safeParse(input);
+		if (!consistency.success) {
+			logger.error(`Skipped inconsistent analytics event '${input.type}': ${consistency.error.message}`, {
+				source: 'system',
+				projectId: input.projectId,
+				context: { type: input.type, assetType: input.assetType, chatId: input.chatId, storyId: input.storyId },
+			});
+			return;
+		}
+
 		if (await isThrottled(input)) {
 			return;
 		}

@@ -407,45 +407,24 @@ export const storyRoutes = {
 				version.cacheSchedule,
 			);
 
-			chatQueries.getChatInfo(input.chatId).then((chatInfo) => {
-				if (chatInfo) {
-					logAnalyticsEvent({
-						projectId: chatInfo.projectId,
-						type: 'download',
-						assetType: 'story',
-						actorUserId: ctx.user.id,
-						storyId: version.storyId,
-						chatId: input.chatId,
-						metadata: {
-							type: 'download',
-							format: input.format,
-							versionNumber: version.version,
-							title: version.title,
-						},
-					});
-				}
-			});
-
-			chatQueries.getChatInfo(input.chatId).then((chatInfo) => {
-				if (chatInfo) {
-					logAnalyticsEvent({
-						projectId: chatInfo.projectId,
-						type: 'download',
-						assetType: 'story',
-						actorUserId: ctx.user.id,
-						storyId: version.storyId,
-						chatId: input.chatId,
-						metadata: {
-							type: 'download',
-							format: input.format,
-							versionNumber: version.version,
-							title: version.title,
-						},
-					});
-				}
-			});
-
 			const projectId = await chatQueries.getChatProjectId(input.chatId);
+			if (projectId) {
+				logAnalyticsEvent({
+					projectId,
+					type: 'download',
+					assetType: 'story',
+					actorUserId: ctx.user.id,
+					storyId: version.storyId,
+					chatId: input.chatId,
+					metadata: {
+						type: 'download',
+						format: input.format,
+						versionNumber: version.version,
+						title: version.title,
+					},
+				});
+			}
+
 			const displaySettings = projectId ? await projectQueries.getDisplaySettings(projectId) : null;
 
 			return buildDownloadResponse(

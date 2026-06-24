@@ -11,6 +11,7 @@ import {
 } from '../queries/chart-image';
 import { getDisplaySettings } from '../queries/project.queries';
 import { logAnalyticsEvent } from '../utils/analytics-event';
+import { logger } from '../utils/logger';
 import { projectProtectedProcedure, protectedProcedure } from './trpc';
 
 export const chartRoutes = {
@@ -26,15 +27,24 @@ export const chartRoutes = {
 			const displaySettings = await getDisplaySettings(ctx.project.id);
 			const png = generateChartImage({ config, data, dateFormat: displaySettings.dateFormat });
 
-			const owner = await getChartOwnerInfo(input.toolCallId);
-			logAnalyticsEvent({
-				projectId: ctx.project.id,
-				type: 'download',
-				assetType: 'chat',
-				actorUserId: ctx.user.id,
-				chatId: owner?.chatId ?? null,
-				metadata: { type: 'download', format: 'png', queryId: input.toolCallId, title: config.title },
-			});
+			try {
+				const owner = await getChartOwnerInfo(input.toolCallId);
+				if (owner?.chatId) {
+					logAnalyticsEvent({
+						projectId: ctx.project.id,
+						type: 'download',
+						assetType: 'chat',
+						actorUserId: ctx.user.id,
+						chatId: owner.chatId,
+						metadata: { type: 'download', format: 'png', queryId: input.toolCallId, title: config.title },
+					});
+				}
+			} catch (error) {
+				logger.error(`Failed to log chart download analytics for ${input.toolCallId}: ${String(error)}`, {
+					source: 'agent',
+					projectId: ctx.project.id,
+				});
+			}
 
 			return png.toString('base64');
 		}),

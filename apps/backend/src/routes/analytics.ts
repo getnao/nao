@@ -43,6 +43,7 @@ export const analyticsRoutes = async (app: App) => {
 			return reply.status(204).send();
 		}
 
+		const userId = session.user.id;
 		let projectId: string | null | undefined;
 		let resolvedStoryId: string | null = null;
 
@@ -65,11 +66,20 @@ export const analyticsRoutes = async (app: App) => {
 			return reply.status(404).send({ error: 'Asset not found' });
 		}
 
+		const canAccess =
+			assetType === 'chat'
+				? typeof chatId === 'string' && (await chatQueries.canUserAccessChat(chatId, userId))
+				: resolvedStoryId !== null && (await storyQueries.canUserAccessStory(resolvedStoryId, userId));
+
+		if (!canAccess) {
+			return reply.status(403).send({ error: 'Forbidden' });
+		}
+
 		logAnalyticsEvent({
 			projectId,
 			type: 'view_duration',
 			assetType,
-			actorUserId: session.user.id,
+			actorUserId: userId,
 			chatId: typeof chatId === 'string' ? chatId : null,
 			storyId: resolvedStoryId,
 			metadata: { type: 'view_duration', durationMs, startedAt, versionNumber },

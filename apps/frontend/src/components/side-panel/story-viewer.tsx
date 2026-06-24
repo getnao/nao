@@ -97,7 +97,7 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp }:
 		chatId,
 		storySlug: resolvedStorySlug,
 		storyId,
-		versionNumber: currentVersionNumber,
+		versionNumber: currentVersionNumber > 0 ? currentVersionNumber : undefined,
 	});
 
 	const { handleSave, handleRestore } = useStoryViewerVersionActions({
@@ -258,7 +258,7 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp }:
 				onOpenChange={setIsAnalyticsOpen}
 				assetType='story'
 				chatId={chatId}
-				storyId={currentVersion?.storyId}
+				storyId={storyId ?? undefined}
 			/>
 
 			<LiveStorySettingsDialog

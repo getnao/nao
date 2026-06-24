@@ -187,16 +187,18 @@ export const sharedStoryRoutes = {
 					queriesRefreshed: Object.keys(queryData).length,
 				});
 			}
-			logAnalyticsEvent({
-				projectId: shared.projectId,
-				type: 'refresh',
-				assetType: 'story',
-				actorUserId: ctx.user.id,
-				storyId: story?.id ?? null,
-				chatId: shared.chatId,
-				sharedStoryId: shared.id,
-				metadata: { type: 'refresh', trigger: 'manual', queriesRefreshed: Object.keys(queryData).length },
-			});
+			if (story?.id) {
+				logAnalyticsEvent({
+					projectId: shared.projectId,
+					type: 'refresh',
+					assetType: 'story',
+					actorUserId: ctx.user.id,
+					storyId: story.id,
+					chatId: shared.chatId,
+					sharedStoryId: shared.id,
+					metadata: { type: 'refresh', trigger: 'manual', queriesRefreshed: Object.keys(queryData).length },
+				});
+			}
 			return { queryData, cachedAt: new Date() };
 		} catch (err) {
 			if (activity) {

@@ -8,6 +8,7 @@ import { resolveStoryQueryDataForSandbox, type StoryQueryDataMap } from './story
 
 export type EmbedStoryContent = {
 	storyId: string;
+	projectId: string;
 	title: string;
 	code: string;
 	slug: string;
@@ -55,6 +56,7 @@ export async function loadEmbedStoryContent(storyId: string, token: string): Pro
 
 	return {
 		storyId: version.storyId,
+		projectId,
 		title: version.title,
 		code: version.code,
 		slug: version.slug,

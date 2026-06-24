@@ -1262,7 +1262,13 @@ export const analyticsEvent = pgTable(
 		index('analytics_event_projectId_idx').on(t.projectId),
 		index('analytics_event_chatId_idx').on(t.chatId),
 		index('analytics_event_storyId_idx').on(t.storyId),
+		index('analytics_event_sharedChatId_idx').on(t.sharedChatId),
+		index('analytics_event_sharedStoryId_idx').on(t.sharedStoryId),
 		index('analytics_event_actorUserId_idx').on(t.actorUserId),
 		index('analytics_event_type_createdAt_idx').on(t.type, t.createdAt),
+		check(
+			'analytics_event_asset_id_required',
+			sql`CASE WHEN ${t.assetType} = 'chat' THEN ${t.chatId} IS NOT NULL WHEN ${t.assetType} = 'story' THEN ${t.storyId} IS NOT NULL ELSE TRUE END`,
+		),
 	],
 );

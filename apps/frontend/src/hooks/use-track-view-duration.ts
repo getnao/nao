@@ -37,9 +37,6 @@ export function useTrackViewDuration({
 	const viewKey = buildViewKey({ assetType, chatId, storyId, storySlug });
 	const isEnabled = enabled && viewKey !== null;
 
-	const latestRef = useRef({ assetType, chatId, storyId, storySlug, versionNumber });
-	latestRef.current = { assetType, chatId, storyId, storySlug, versionNumber };
-
 	const accumulatedMs = useRef(0);
 	const visibleSince = useRef<number | null>(null);
 	const segmentStartedAt = useRef<number | null>(null);
@@ -48,6 +45,8 @@ export function useTrackViewDuration({
 		if (!isEnabled) {
 			return;
 		}
+
+		const segmentMeta = { assetType, chatId, storyId, storySlug, versionNumber };
 
 		const now = Date.now();
 		accumulatedMs.current = 0;
@@ -95,7 +94,7 @@ export function useTrackViewDuration({
 				return;
 			}
 
-			const { assetType: at, chatId: cid, storyId: sid, storySlug: slug, versionNumber: ver } = latestRef.current;
+			const { assetType: at, chatId: cid, storyId: sid, storySlug: slug, versionNumber: ver } = segmentMeta;
 			const payload = JSON.stringify({
 				assetType: at,
 				chatId: cid ?? undefined,
@@ -111,5 +110,5 @@ export function useTrackViewDuration({
 			accumulatedMs.current = 0;
 			segmentStartedAt.current = null;
 		}
-	}, [viewKey, isEnabled]);
+	}, [viewKey, isEnabled, assetType, chatId, storyId, storySlug, versionNumber]);
 }

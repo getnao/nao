@@ -13,14 +13,18 @@ async function assertAssetOwnerOrAdmin(
 	assetType: AnalyticsAssetType,
 	chatId: string | null | undefined,
 	storyId: string | null | undefined,
+	projectId: string,
 	userId: string,
 	userRole: string | null,
 ): Promise<void> {
-	if (userRole === 'admin') {
-		return;
-	}
-
 	if (assetType === 'chat' && chatId) {
+		const assetProjectId = await chatQueries.getChatProjectId(chatId);
+		if (assetProjectId !== projectId) {
+			throw new TRPCError({ code: 'NOT_FOUND', message: 'Chat not found.' });
+		}
+		if (userRole === 'admin') {
+			return;
+		}
 		const ownerId = await chatQueries.getChatOwnerId(chatId);
 		if (ownerId !== userId) {
 			throw new TRPCError({ code: 'FORBIDDEN', message: 'You are not authorized to view these analytics.' });
@@ -29,6 +33,13 @@ async function assertAssetOwnerOrAdmin(
 	}
 
 	if (assetType === 'story' && storyId) {
+		const assetProjectId = await storyQueries.getStoryProjectId(storyId);
+		if (assetProjectId !== projectId) {
+			throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
+		}
+		if (userRole === 'admin') {
+			return;
+		}
 		const ownerId = await storyQueries.getStoryOwnerId(storyId);
 		if (ownerId !== userId) {
 			throw new TRPCError({ code: 'FORBIDDEN', message: 'You are not authorized to view these analytics.' });
@@ -50,7 +61,14 @@ export const analyticsEventRoutes = {
 			}),
 		)
 		.query(async ({ input, ctx }) => {
-			await assertAssetOwnerOrAdmin(input.assetType, input.chatId, input.storyId, ctx.user.id, ctx.userRole);
+			await assertAssetOwnerOrAdmin(
+				input.assetType,
+				input.chatId,
+				input.storyId,
+				ctx.project.id,
+				ctx.user.id,
+				ctx.userRole,
+			);
 
 			const rows = await analyticsEventQueries.listEventsForAsset({
 				assetType: input.assetType,
