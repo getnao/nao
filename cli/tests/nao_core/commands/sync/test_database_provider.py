@@ -179,6 +179,20 @@ class TestMatchesSelection:
         assert _matches_selection("staging", "anything", select) is True
         assert _matches_selection("analytics", "customers", select) is False
 
+    def test_matching_is_case_insensitive(self):
+        # Snowflake-style uppercased identifiers should match lowercase patterns.
+        assert _matches_selection("ANALYTICS", "ORDERS", ["analytics.orders"]) is True
+        assert _matches_selection("ANALYTICS", "ORDERS", ["analytics"]) is True
+        assert _matches_selection("analytics", "orders", ["ANALYTICS.ORDERS"]) is True
+
+    def test_catalog_qualified_schema_is_supported(self):
+        # Some databases (e.g. StarRocks) qualify schemas with a catalog prefix.
+        assert _matches_selection("catalog.analytics", "orders", ["catalog.analytics"]) is True
+        assert _matches_selection("catalog.analytics", "orders", ["catalog.analytics.orders"]) is True
+        assert _matches_selection("catalog.analytics", "orders", ["catalog.analytics.customers"]) is False
+        # A bare schema name without the catalog prefix does not match.
+        assert _matches_selection("catalog.analytics", "orders", ["analytics"]) is False
+
 
 class TestSelectSkipsCleanup:
     @patch("nao_core.commands.sync.providers.databases.provider.cleanup_stale_paths", return_value=3)

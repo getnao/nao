@@ -54,14 +54,19 @@ def _filter_templates_by_config(templates: list[str], db_config: AnyDatabaseConf
 def _matches_selection(schema: str, table: str, select: list[str]) -> bool:
     """Check if a schema.table matches any of the `--select` patterns.
 
-    A pattern without a dot selects a whole schema (e.g. `analytics` matches
-    every table in `analytics`). Patterns support shell-style glob wildcards,
-    so `staging.dim_*` selects every `dim_*` table in `staging`.
+    A pattern selects a single table when it matches the full `schema.table`
+    name, or a whole schema when it matches every table beneath it (so
+    `analytics` selects `analytics.*`). Matching is case-insensitive (database
+    identifiers like Snowflake's are returned uppercased) and supports glob
+    wildcards, so `staging.dim_*` selects every `dim_*` table in `staging`.
+
+    Use the schema name as it appears in the sync output, including any catalog
+    prefix (e.g. `catalog.analytics`) for databases that qualify schemas.
     """
-    full_name = f"{schema}.{table}"
+    full_name = f"{schema}.{table}".lower()
     for pattern in select:
-        table_pattern = pattern if "." in pattern else f"{pattern}.*"
-        if fnmatch.fnmatch(full_name, table_pattern):
+        pattern = pattern.lower()
+        if fnmatch.fnmatch(full_name, pattern) or fnmatch.fnmatch(full_name, f"{pattern}.*"):
             return True
     return False
 
