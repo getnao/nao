@@ -17,17 +17,20 @@ export const agentRoutes = async (app: App) => {
 		const { user, project, body, headers } = request;
 		const projectId = body.chatId ? await chatQueries.getChatProjectId(body.chatId) : project?.id;
 
+		let isProjectAdmin = false;
 		if (projectId) {
 			const userRole = await projectQueries.getUserRoleInProject(projectId, user.id);
 			if (!userRole || userRole === 'viewer') {
 				return reply.status(403).send({ error: 'Viewers cannot send messages' });
 			}
+			isProjectAdmin = userRole === 'admin';
 		}
 
 		const result = await handleAgentRoute({
 			userId: user.id,
 			projectId,
 			...body,
+			adminMode: body.adminMode && isProjectAdmin,
 		});
 
 		posthog.capture(user.id, PostHogEvent.MessageSent, {
@@ -35,7 +38,7 @@ export const agentRoutes = async (app: App) => {
 			chat_id: result.chatId,
 			model_id: result.modelId,
 			is_new_chat: result.isNewChat,
-			source: 'web',
+			source: body.adminMode && isProjectAdmin ? 'admin' : 'web',
 			domain_host: headers['x-forwarded-host'] || headers.host,
 		});
 

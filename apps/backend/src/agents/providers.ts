@@ -61,7 +61,7 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 	openai: {
 		...PROVIDER_META.openai,
 		create: (settings, modelId) => createOpenAI(settings).responses(modelId),
-		defaultOptions: { store: false, truncation: 'auto' },
+		defaultOptions: { store: false, truncation: 'auto', reasoningSummary: 'auto' },
 	},
 	google: {
 		...PROVIDER_META.google,
@@ -148,7 +148,7 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 				...(useDeploymentBasedUrls && { useDeploymentBasedUrls }),
 			})(modelId);
 		},
-		defaultOptions: { store: false },
+		defaultOptions: { store: false, reasoningSummary: 'auto' },
 	},
 };
 

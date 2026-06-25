@@ -2,7 +2,7 @@ import { Chat as Agent, useChat } from '@ai-sdk/react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from '@tanstack/react-router';
 import { DefaultChatTransport } from 'ai';
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useChatId } from './use-chat-id';
 import { useLocalStorage } from './use-local-storage';
 import { usePrevRef } from './use-prev';
@@ -48,6 +48,7 @@ export interface AgentHelpers {
 	selectedModel: LlmSelectedModel | null;
 	setSelectedModel: React.Dispatch<React.SetStateAction<LlmSelectedModel | null>>;
 	setMentions: (mentions: MentionOption[]) => void;
+	adminMode: boolean;
 	setAdminMode: (enabled: boolean) => void;
 	isReadonly?: boolean;
 }
@@ -76,7 +77,10 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 	const selectedModelRef = useRef<LlmSelectedModel | null>(null);
 	selectedModelRef.current = selectedModel;
 	const mentionsRef = useRef<MentionOption[]>([]);
+	const [adminMode, setAdminModeState] = useState(false);
 	const adminModeRef = useRef(false);
+	/** Set to the server id of a chat that was just created, so the upcoming chatId change is treated as the same conversation continuing rather than opening a different chat. */
+	const continuationChatIdRef = useRef<string | undefined>(undefined);
 
 	const setMentions = useCallback((mentions: MentionOption[]) => {
 		mentionsRef.current = mentions;
@@ -84,6 +88,7 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 
 	const setAdminMode = useCallback((enabled: boolean) => {
 		adminModeRef.current = enabled;
+		setAdminModeState(enabled);
 	}, []);
 
 	const agentInstance = useMemo(() => {
@@ -103,6 +108,7 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 					messageQueueStore.moveQueue(agentId, newChat.id);
 					agentService.moveAgent(agentId, newChat.id);
 					agentId = newChat.id;
+					continuationChatIdRef.current = newChat.id;
 					setChat({ chatId: newChat.id }, { ...newChat, messages: [] });
 					if (!disableNavigation) {
 						navigate({ to: '/$chatId', params: { chatId: newChat.id }, state: { fromMessageSend: true } });
@@ -125,7 +131,14 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 				agentCitationStore.delete(newAgent);
 				const lastUserMessageIndex = getLastUserMessageIdx(agent.messages);
 				agent.messages = agent.messages.map((message, idx) =>
-					idx === lastUserMessageIndex ? { ...message, id: newId, ...(citation && { citation }) } : message,
+					idx === lastUserMessageIndex
+						? {
+								...message,
+								id: newId,
+								...(citation && { citation }),
+								...(adminModeRef.current && { source: 'admin' as const }),
+							}
+						: message,
 				);
 			}
 		};
@@ -223,6 +236,29 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 			}
 		}
 	}, [error]); // eslint-disable-line react-hooks/exhaustive-deps
+
+	// Carry admin mode across an admin conversation: enable it for chats whose first or
+	// last user message was sent from admin mode, and disable it for normal chats. A
+	// freshly created chat keeps its current mode so follow-ups stay in admin mode.
+	const syncedAdminChatRef = useRef<string | undefined>(undefined);
+	useEffect(() => {
+		if (!chatId) {
+			syncedAdminChatRef.current = undefined;
+			return;
+		}
+		if (continuationChatIdRef.current === chatId) {
+			continuationChatIdRef.current = undefined;
+			syncedAdminChatRef.current = chatId;
+			return;
+		}
+		if (chat.isLoading || messages.length === 0 || syncedAdminChatRef.current === chatId) {
+			return;
+		}
+		syncedAdminChatRef.current = chatId;
+		const userMessages = messages.filter((m) => m.role === 'user');
+		const conversationIsAdmin = userMessages.at(0)?.source === 'admin' || userMessages.at(-1)?.source === 'admin';
+		setAdminMode(conversationIsAdmin);
+	}, [chatId, chat.isLoading, messages, setAdminMode]);
 
 	const stopAgent = useCallback(async () => {
 		if (!chatId) {
@@ -354,6 +390,7 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 		selectedModel,
 		setSelectedModel,
 		setMentions,
+		adminMode,
 		setAdminMode,
 	});
 };

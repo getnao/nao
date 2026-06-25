@@ -59,6 +59,7 @@ export const ReadonlyAgentMessagesProvider = ({
 			selectedModel: null,
 			setSelectedModel: noop,
 			setMentions: noop,
+			adminMode: false,
 			setAdminMode: noop,
 			isReadonly: true,
 		}),

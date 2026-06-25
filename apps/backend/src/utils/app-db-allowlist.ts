@@ -8,6 +8,7 @@ export const ALLOWED_APP_DB_VIEWS = [
 	'v_llm_inference',
 	'v_mcp_call_log',
 	'v_project',
+	'v_analytics_event',
 ] as const;
 
 export interface SqlValidationResult {

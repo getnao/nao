@@ -55,6 +55,7 @@ export const MESSAGE_SOURCES = [
 	'web',
 	'mcp',
 	'contextRecommendations',
+	'admin',
 ] as const;
 
 export type MessageSource = (typeof MESSAGE_SOURCES)[number];
@@ -183,4 +184,6 @@ export const AgentRequestSchema = z.object({
 	model: llmSelectedModelSchema.optional(),
 	mentions: z.array(MentionSchema).optional(),
 	timezone: z.string().optional(),
+	/** When true, the message runs in admin mode: it queries nao's own usage database instead of the warehouse. */
+	adminMode: z.boolean().optional(),
 });

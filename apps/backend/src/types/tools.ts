@@ -33,6 +33,11 @@ export interface ToolContext {
 	 */
 	queryResults: Map<string, QueryResult>;
 	generatedArtifacts: GeneratedArtifacts;
+	/**
+	 * Admin mode: when true, `execute_sql` runs read-only SQL over nao's own
+	 * project-scoped app-database views instead of the user's warehouse.
+	 */
+	adminMode?: boolean;
 }
 
 export type McpToolContext = Omit<ToolContext, 'chatId'> & { chatId: null };

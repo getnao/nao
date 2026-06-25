@@ -110,14 +110,27 @@ export type AgentToolsResolver = (context: AgentToolsContext) => AgentTools | Pr
 export const defaultAgentTools: AgentToolsResolver = ({ chat, agentSettings, webTools }) =>
 	getTools(agentSettings, webTools ?? {}, { testMode: chat.testMode });
 
+/**
+ * Admin-mode tool set: the same `execute_sql` tool the chat already uses (it
+ * runs against nao's own app database when `ToolContext.adminMode` is set),
+ * plus charting and follow-ups. Excludes the filesystem context tools.
+ */
+export const adminAgentTools: AgentToolsResolver = ({ agentSettings }) =>
+	getTools(
+		agentSettings,
+		{},
+		{ builtinToolAllowlist: ['execute_sql', 'display_chart', 'suggest_follow_ups', 'story', 'clarification'] },
+	);
+
 export async function buildToolContext(opts: {
 	projectId: string;
 	userId: string;
 	chatId: string;
 	agentSettings?: AgentSettings | null;
+	adminMode?: boolean;
 }): Promise<ToolContext> {
 	const base = await _buildContextBase(opts);
-	return { ...base, chatId: opts.chatId };
+	return { ...base, chatId: opts.chatId, adminMode: opts.adminMode ?? false };
 }
 
 export async function buildMcpToolContext(opts: {
@@ -199,6 +212,11 @@ export class AgentService {
 			 * authoritative guidance (e.g. context recommendations).
 			 */
 			systemPrompt?: string;
+			/**
+			 * Admin mode: routes `execute_sql` to nao's own app-database views instead
+			 * of the user's warehouse (see `ToolContext.adminMode`).
+			 */
+			adminMode?: boolean;
 		} = {},
 	): Promise<AgentManager> {
 		this._disposeAgent(chat.id);
@@ -206,7 +224,13 @@ export class AgentService {
 		await assertBudgetNotExceeded(chat.projectId, resolvedLlmSelectedModel.provider);
 		const modelConfig = await this._getModelConfig(chat.projectId, resolvedLlmSelectedModel);
 		const agentSettings = await projectQueries.getAgentSettings(chat.projectId);
-		const toolContext = await this._getToolContext(chat.projectId, chat.id, chat.userId, agentSettings);
+		const toolContext = await this._getToolContext(
+			chat.projectId,
+			chat.id,
+			chat.userId,
+			agentSettings,
+			options.adminMode,
+		);
 		const webTools = await this._resolveWebTools(chat.projectId, resolvedLlmSelectedModel.provider, agentSettings);
 		const resolveTools = options.tools ?? defaultAgentTools;
 		const agentTools = await resolveTools({ chat, agentSettings, toolContext, webTools });
@@ -262,8 +286,9 @@ export class AgentService {
 		chatId: string,
 		userId: string,
 		agentSettings: AgentSettings | null,
+		adminMode?: boolean,
 	): Promise<ToolContext> {
-		return buildToolContext({ projectId, userId, chatId, agentSettings });
+		return buildToolContext({ projectId, userId, chatId, agentSettings, adminMode });
 	}
 
 	private _disposeAgent(chatId: string): void {

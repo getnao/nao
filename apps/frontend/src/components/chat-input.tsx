@@ -98,16 +98,18 @@ function ChatInputBase({
 		isRunning,
 		stopAgent,
 		isLoadingMessages,
-		setMentions,
+		adminMode,
 		setAdminMode,
+		setMentions,
 		submitQueuedMessageNow,
 		error,
 		selectedModel,
 	} = useAgentContext();
 	const { isAdmin } = usePermissions();
-	const [isAdminMode, setIsAdminMode] = useState(false);
 	const { admin: adminSearch } = useSearch({ strict: false }) as { admin?: boolean };
 	const chatId = useChatId();
+
+	const isAdminMode = isAdmin && adminMode;
 	const imageUpload = useImageUpload();
 	const effectivePlaceholder = isRunning && allowQueueing ? 'Add a follow-up...' : placeholder;
 
@@ -133,15 +135,9 @@ function ChatInputBase({
 
 	useEffect(() => {
 		if (isAdmin && adminSearch) {
-			setIsAdminMode(true);
+			setAdminMode(true);
 		}
-	}, [isAdmin, adminSearch]);
-
-	useEffect(() => {
-		if (allowQueueing) {
-			setAdminMode(isAdmin && isAdminMode);
-		}
-	}, [allowQueueing, isAdmin, isAdminMode, setAdminMode]);
+	}, [isAdmin, adminSearch, setAdminMode]);
 
 	useEffect(() => {
 		const el = dropZoneRef.current;
@@ -360,7 +356,7 @@ function ChatInputBase({
 								hasSkills={hasSkills}
 								isAdmin={isAdmin}
 								isAdminMode={isAdminMode}
-								onToggleAdminMode={() => setIsAdminMode((prev) => !prev)}
+								onToggleAdminMode={() => setAdminMode(!isAdminMode)}
 								onAddImage={imageUpload.openFilePicker}
 								onAddStory={() => {
 									promptRef.current?.appendMention(
