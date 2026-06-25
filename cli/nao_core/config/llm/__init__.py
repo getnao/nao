@@ -17,6 +17,7 @@ class LLMProvider(str, Enum):
     MISTRAL = "mistral"
     GEMINI = "gemini"
     OPENROUTER = "openrouter"
+    REQUESTY = "requesty"
     OLLAMA = "ollama"
     BEDROCK = "bedrock"
     VERTEX = "vertex"
@@ -55,6 +56,9 @@ PROVIDER_AUTH: dict[LLMProvider, ProviderAuthConfig] = {
         api_key="required",
         base_url_env_var="OPENROUTER_BASE_URL",
         default_base_url="https://openrouter.ai/api/v1",
+    ),
+    LLMProvider.REQUESTY: ProviderAuthConfig(
+        env_var="REQUESTY_API_KEY", api_key="required", base_url_env_var="REQUESTY_BASE_URL"
     ),
     LLMProvider.OLLAMA: ProviderAuthConfig(
         env_var="OLLAMA_API_KEY", api_key="none", base_url_env_var="OLLAMA_BASE_URL"
@@ -124,6 +128,7 @@ DEFAULT_ANNOTATION_MODELS: dict[LLMProvider, str] = {
     LLMProvider.MISTRAL: "mistral-small-latest",
     LLMProvider.GEMINI: "gemini-2.0-flash",
     LLMProvider.OPENROUTER: "openai/gpt-4.1-mini",
+    LLMProvider.REQUESTY: "openai/gpt-4o-mini",
     LLMProvider.OLLAMA: "llama3.2",
     LLMProvider.BEDROCK: "anthropic.claude-3-5-sonnet-20241022-v2:0",
     LLMProvider.VERTEX: "gemini-2.5-flash",
@@ -337,6 +342,7 @@ class ProviderConfig(BaseModel):
             questionary.Choice("Mistral", value="mistral"),
             questionary.Choice("Google Gemini", value="gemini"),
             questionary.Choice("OpenRouter (Kimi, DeepSeek, etc.)", value="openrouter"),
+            questionary.Choice("Requesty", value="requesty"),
             questionary.Choice("Ollama", value="ollama"),
             questionary.Choice("AWS Bedrock (Claude, Nova, etc)", value="bedrock"),
             questionary.Choice("Google Vertex AI (Claude, Gemini)", value="vertex"),
