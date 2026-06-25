@@ -1,3 +1,4 @@
+import { BULK_ITEMS_LIMIT } from '@nao/shared';
 import { ArchiveIcon, ArchiveRestoreIcon, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -32,7 +33,11 @@ export function StoriesSelectionBar({
 			)}
 		>
 			<span className='text-sm font-medium text-foreground tabular-nums'>{selectedCount} selected</span>
-			{limitReached && <span className='text-xs text-muted-foreground'>Max 100 reached</span>}
+			{limitReached && (
+				<span className='text-xs text-muted-foreground'>
+					Please select max {BULK_ITEMS_LIMIT} stories and {BULK_ITEMS_LIMIT} folders
+				</span>
+			)}
 			<div className='w-px h-4 bg-border' />
 			{showArchived ? (
 				<Button
