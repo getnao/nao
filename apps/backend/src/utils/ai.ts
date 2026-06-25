@@ -150,7 +150,7 @@ export function findLastCompactionPart(
 ): [CompactionPart, messageIdx: number] | [undefined, undefined] {
 	for (let i = messages.length - 1; i >= 0; i--) {
 		for (const part of messages[i].parts) {
-			if (part.type === 'data-compaction') {
+			if (part.type === 'data-compaction' && part.data.summary.trim()) {
 				return [part.data, i];
 			}
 		}

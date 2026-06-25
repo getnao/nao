@@ -169,4 +169,23 @@ describe('compactionService.useLastCompaction', () => {
 		expect(result[3]).toEqual(messages[4]);
 		expect(result).toHaveLength(4);
 	});
+
+	it('returns messages unchanged when the only compaction entry has a blank summary (failed compaction)', () => {
+		// Regression test for issue #950:
+		// When compaction fails, summary: '' is persisted to the DB.
+		// Re-hydrating that blank summary creates { type: 'text', text: '' } in the assistant message,
+		// which Anthropic rejects with "text content blocks must be non-empty".
+		const messages: UIMessage[] = [
+			{ id: '1', role: 'user', parts: [{ type: 'text', text: 'Hello' }] },
+			{
+				id: '2',
+				role: 'assistant',
+				parts: [{ type: 'data-compaction', data: { summary: '', error: 'LLM error' } }],
+			},
+			{ id: '3', role: 'user', parts: [{ type: 'text', text: 'Follow-up' }] },
+		];
+
+		const result = compactionService.useLastCompaction(messages);
+		expect(result).toBe(messages);
+	});
 });
