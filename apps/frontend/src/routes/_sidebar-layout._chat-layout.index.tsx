@@ -23,6 +23,9 @@ import { StoryCard } from '@/components/stories-groups';
 import { useResizeObserver } from '@/hooks/use-resize-observer';
 
 export const Route = createFileRoute('/_sidebar-layout/_chat-layout/')({
+	validateSearch: (search: Record<string, unknown>): { admin?: boolean } => ({
+		admin: search.admin === true || search.admin === 'true' ? true : undefined,
+	}),
 	component: RouteComponent,
 });
 

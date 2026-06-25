@@ -23,6 +23,7 @@ interface NavContext {
 interface NavItem {
 	label: string;
 	to?: string;
+	search?: { admin?: boolean };
 	visible?: (ctx: NavContext) => boolean;
 	disabled?: (ctx: NavContext) => boolean;
 	type?: 'divider' | 'item';
@@ -57,6 +58,12 @@ const settingsNavItems: NavItem[] = [
 	{
 		label: 'Observability',
 		type: 'divider',
+		visible: ({ isAdmin }) => isAdmin,
+	},
+	{
+		label: 'Chat with nao',
+		to: '/',
+		search: { admin: true },
 		visible: ({ isAdmin }) => isAdmin,
 	},
 	{
@@ -322,6 +329,23 @@ export function SidebarSettingsNav({
 										{item.label}
 										{badge}
 									</span>
+								) : item.search ? (
+									<Link
+										to='/'
+										search={item.search}
+										className={cn(
+											'flex items-center gap-2 px-3 py-2 text-sm rounded-md transition-colors whitespace-nowrap',
+										)}
+										activeProps={{
+											className: cn('bg-sidebar-accent text-foreground font-medium'),
+										}}
+										inactiveProps={{
+											className: cn('hover:bg-sidebar-accent hover:text-foreground'),
+										}}
+									>
+										{item.label}
+										{badge}
+									</Link>
 								) : (
 									<Link
 										to={item.to}

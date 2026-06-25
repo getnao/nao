@@ -48,6 +48,7 @@ export interface AgentHelpers {
 	selectedModel: LlmSelectedModel | null;
 	setSelectedModel: React.Dispatch<React.SetStateAction<LlmSelectedModel | null>>;
 	setMentions: (mentions: MentionOption[]) => void;
+	setAdminMode: (enabled: boolean) => void;
 	isReadonly?: boolean;
 }
 
@@ -75,9 +76,14 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 	const selectedModelRef = useRef<LlmSelectedModel | null>(null);
 	selectedModelRef.current = selectedModel;
 	const mentionsRef = useRef<MentionOption[]>([]);
+	const adminModeRef = useRef(false);
 
 	const setMentions = useCallback((mentions: MentionOption[]) => {
 		mentionsRef.current = mentions;
+	}, []);
+
+	const setAdminMode = useCallback((enabled: boolean) => {
+		adminModeRef.current = enabled;
 	}, []);
 
 	const agentInstance = useMemo(() => {
@@ -150,6 +156,7 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 							model: selectedModelRef.current ?? undefined,
 							mentions: mentions.length > 0 ? mentions : undefined,
 							timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+							adminMode: adminModeRef.current || undefined,
 						},
 					};
 				},
@@ -347,6 +354,7 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 		selectedModel,
 		setSelectedModel,
 		setMentions,
+		setAdminMode,
 	});
 };
 

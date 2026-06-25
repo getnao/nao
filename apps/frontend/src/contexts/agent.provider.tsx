@@ -59,6 +59,7 @@ export const ReadonlyAgentMessagesProvider = ({
 			selectedModel: null,
 			setSelectedModel: noop,
 			setMentions: noop,
+			setAdminMode: noop,
 			isReadonly: true,
 		}),
 		[chatId, messages],
