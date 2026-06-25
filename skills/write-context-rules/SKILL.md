@@ -16,13 +16,13 @@ Anything else (per-table schema, full metric semantics, domain-specific rules) b
 
 `nao sync` populates these. The content of `RULES.md` depends on which are present, so **inventory them first** (Step 0):
 
-| Location | What's in it | Implication for `RULES.md` |
-| --- | --- | --- |
-| `databases/type=*/database=*/schema=*/table=*/` | Per-table files synced from the warehouse: `columns.md`, `description.md`, `preview.md`, and (if enabled in `nao_config.yaml` `templates:`) `how_to_use.md`, `ai_summary.md`, `profiling.md` | If rich per-table docs exist here, **don't restate columns** in `RULES.md` — point to the folder. |
-| `repos/<name>/` | Synced git repos (dbt, ETL, BI). A dbt repo has `models/**/schema.yml` (or `*.yml`) column docs, `*.md` model docs, and possibly a **semantic layer / MetricFlow** file (`semantic_models:` + `metrics:`). | Map the key files in the Context Map. If dbt schema docs cover columns, point there. If a semantic layer exists, **don't write a Key Metrics section** — route to it. |
-| `docs/` | Free-text business docs (Notion exports, CRM definitions, analytics decisions). | Note they exist, what's in each, and when to read them. If a doc defines a metric/segment, point to it instead of redefining. |
-| `semantics/` | nao YAML semantic layer (from `add-semantic-layer`). | Same as a dbt semantic layer — route metrics to it, don't redefine. |
-| `profiling.md` (per table) | Distinct counts, min/max, and **`top_values` for categorical columns** — the actual values present in each column. | The agent must read it **before filtering on any column value** (Analysis Process). |
+| Location                                        | What's in it                                                                                                                                                                                               | Implication for `RULES.md`                                                                                                                                            |
+| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `databases/type=*/database=*/schema=*/table=*/` | Per-table files synced from the warehouse: `columns.md`, `description.md`, `preview.md`, and (if enabled in `nao_config.yaml` `templates:`) `how_to_use.md`, `ai_summary.md`, `profiling.md`               | If rich per-table docs exist here, **don't restate columns** in `RULES.md` — point to the folder.                                                                     |
+| `repos/<name>/`                                 | Synced git repos (dbt, ETL, BI). A dbt repo has `models/**/schema.yml` (or `*.yml`) column docs, `*.md` model docs, and possibly a **semantic layer / MetricFlow** file (`semantic_models:` + `metrics:`). | Map the key files in the Context Map. If dbt schema docs cover columns, point there. If a semantic layer exists, **don't write a Key Metrics section** — route to it. |
+| `docs/`                                         | Free-text business docs (Notion exports, CRM definitions, analytics decisions).                                                                                                                            | Note they exist, what's in each, and when to read them. If a doc defines a metric/segment, point to it instead of redefining.                                         |
+| `semantics/`                                    | nao YAML semantic layer (from `add-semantic-layer`).                                                                                                                                                       | Same as a dbt semantic layer — route metrics to it, don't redefine.                                                                                                   |
+| `profiling.md` (per table)                      | Distinct counts, min/max, and **`top_values` for categorical columns** — the actual values present in each column.                                                                                         | The agent must read it **before filtering on any column value** (Analysis Process).                                                                                   |
 
 ## Standard sections (see `templates/RULES.md`)
 
@@ -99,7 +99,7 @@ The orchestrator's index of where context lives. Built from Step 0. Cover:
     - **MRR** → `fct_stripe_mrr.mrr_amount`, `SUM(mrr_amount) WHERE status='active'`
     ```
 
-If only *some* metrics are covered by a semantic layer, route those and write formulas only for the gaps — note which is which.
+If only _some_ metrics are covered by a semantic layer, route those and write formulas only for the gaps — note which is which.
 
 ### Step 6 — `## Date filtering` (placeholder until Step 9)
 
@@ -116,7 +116,7 @@ Use the template's adaptive process. It must branch on what the inventory found.
     - Else → state the definition you'll use and **validate it with the user** before querying.
 3. **Read relevant docs** (`docs/`, domain `*.md` in repos) for any topic they cover, before selecting a table.
 4. **Select the right table(s)** — map each major question category to its starting table.
-5. **Before filtering on any column value, read that table's `profiling.md`** to use the exact values present (`top_values`, distinct values). Never guess an enum/status/category string. *(This rule is unconditional whenever `profiling` is in the synced templates.)*
+5. **Before filtering on any column value, read that table's `profiling.md`** to use the exact values present (`top_values`, distinct values). Never guess an enum/status/category string. _(This rule is unconditional whenever `profiling` is in the synced templates.)_
 6. **Write the query** — qualified names, filter early, CTEs.
 7. **Validate** — NULLs, sane counts.
 8. **Context** — what the numbers mean, trends, anomalies.
