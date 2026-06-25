@@ -33,6 +33,7 @@ export interface SelectionAnchor {
 	end: number;
 	rect: DOMRect;
 	containerLeft: number;
+	pending?: boolean;
 }
 
 interface SelectionContextValue {
@@ -41,7 +42,15 @@ interface SelectionContextValue {
 	containerRef: React.RefObject<HTMLDivElement | null>;
 	anchors: SelectionAnchor[];
 	openAnchorChatId: string | null;
-	addAnchor: (chatId: string, start: number, end: number, rect: DOMRect, containerLeft: number) => void;
+	addAnchor: (
+		chatId: string,
+		start: number,
+		end: number,
+		rect: DOMRect,
+		containerLeft: number,
+		pending?: boolean,
+	) => void;
+	resolveAnchor: (pendingId: string, realChatId: string) => void;
 	removeAnchor: (chatId: string) => void;
 	openAnchor: (chatId: string) => void;
 	closePanel: () => void;
@@ -134,16 +143,23 @@ export const SelectionProvider = ({
 	}, []);
 
 	const addAnchor = useCallback(
-		(chatId: string, start: number, end: number, rect: DOMRect, containerLeft: number) => {
+		(chatId: string, start: number, end: number, rect: DOMRect, containerLeft: number, pending?: boolean) => {
 			setAnchors((prev) => {
 				if (prev.some((a) => a.chatId === chatId)) {
 					return prev;
 				}
-				return [...prev, { chatId, start, end, rect, containerLeft }];
+				return [...prev, { chatId, start, end, rect, containerLeft, pending }];
 			});
 		},
 		[],
 	);
+
+	const resolveAnchor = useCallback((pendingId: string, realChatId: string) => {
+		setAnchors((prev) =>
+			prev.map((a) => (a.chatId === pendingId ? { ...a, chatId: realChatId, pending: false } : a)),
+		);
+		setOpenAnchorChatId((prev) => (prev === pendingId ? realChatId : prev));
+	}, []);
 
 	const removeAnchor = useCallback((chatId: string) => {
 		setAnchors((prev) => prev.filter((a) => a.chatId !== chatId));
@@ -174,6 +190,7 @@ export const SelectionProvider = ({
 				anchors,
 				openAnchorChatId,
 				addAnchor,
+				resolveAnchor,
 				removeAnchor,
 				openAnchor,
 				closePanel,

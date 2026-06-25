@@ -448,25 +448,27 @@ export const createForkedChat = async (newChat: NewChat, messages: Array<Omit<UI
 	return db.transaction(async (t) => {
 		const [savedChat] = await t.insert(s.chat).values(newChat).returning().execute();
 
-		const baseTime = Date.now();
-		for (let i = 0; i < messages.length; i++) {
-			const message = messages[i];
-			const messageId = crypto.randomUUID();
-			await t
-				.insert(s.chatMessage)
-				.values({
-					id: messageId,
-					chatId: savedChat.id,
-					role: message.role,
-					isForked: true,
-					createdAt: new Date(baseTime + i),
-				})
-				.execute();
+		if (messages.length === 0) {
+			return savedChat;
+		}
 
-			const dbParts = remapToolCallIds(mapUIPartsToDBParts(message.parts, messageId));
-			if (dbParts.length > 0) {
-				await t.insert(s.messagePart).values(dbParts).execute();
-			}
+		const baseTime = Date.now();
+		const messageRows = messages.map((message, i) => ({
+			id: crypto.randomUUID(),
+			chatId: savedChat.id,
+			role: message.role,
+			isForked: true,
+			createdAt: new Date(baseTime + i),
+		}));
+
+		await t.insert(s.chatMessage).values(messageRows).execute();
+
+		const allParts = messages.flatMap((message, i) =>
+			remapToolCallIds(mapUIPartsToDBParts(message.parts, messageRows[i].id)),
+		);
+
+		if (allParts.length > 0) {
+			await t.insert(s.messagePart).values(allParts).execute();
 		}
 
 		return savedChat;
