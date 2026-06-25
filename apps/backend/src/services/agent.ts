@@ -840,6 +840,10 @@ class AgentManager {
 	getModelId(): string {
 		return this._modelSelection.modelId;
 	}
+
+	getModel(): LlmSelectedModel {
+		return this._modelSelection;
+	}
 }
 
 const IMAGE_URL_PATTERN = /^\/i\/([a-f0-9-]+)$/;

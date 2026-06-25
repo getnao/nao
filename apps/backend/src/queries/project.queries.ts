@@ -25,6 +25,21 @@ export const getProjectById = async (id: string): Promise<DBProject | null> => {
 	return project ?? null;
 };
 
+export const listProjectsByOrg = async (orgId: string): Promise<DBProject[]> => {
+	return db.select().from(s.project).where(eq(s.project.orgId, orgId)).orderBy(asc(s.project.name)).execute();
+};
+
+export const getFirstProjectByOrg = async (orgId: string): Promise<DBProject | null> => {
+	const [project] = await db
+		.select()
+		.from(s.project)
+		.where(eq(s.project.orgId, orgId))
+		.orderBy(asc(s.project.name))
+		.limit(1)
+		.execute();
+	return project ?? null;
+};
+
 export const getProjectByOrgAndName = async (orgId: string, name: string): Promise<DBProject | null> => {
 	const [project] = await db
 		.select()

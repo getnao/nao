@@ -1,0 +1,21 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "nao-sdk"
+version = "0.1.0"
+description = "Official Python SDK for the nao analytics agent"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "nao" }]
+keywords = ["nao", "analytics", "agent", "sdk", "llm"]
+dependencies = ["requests>=2.28"]
+
+[project.urls]
+Homepage = "https://github.com/getnao/nao"
+Source = "https://github.com/getnao/nao"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/nao_sdk"]

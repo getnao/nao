@@ -1,4 +1,4 @@
-import type { ImageUploadData } from '@nao/shared/types';
+import type { ImageUploadData, LlmSelectedModel } from '@nao/shared/types';
 
 import { noProjectMessage } from '../env';
 import * as chatQueries from '../queries/chat.queries';
@@ -20,6 +20,7 @@ interface HandleAgentMessageResult {
 	chatId: string;
 	isNewChat: boolean;
 	modelId: string;
+	model: LlmSelectedModel;
 	stream: ReadableStream;
 }
 
@@ -88,6 +89,7 @@ export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<H
 		chatId,
 		isNewChat,
 		modelId: agent.getModelId(),
+		model: agent.getModel(),
 		stream,
 	};
 };

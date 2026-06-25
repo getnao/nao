@@ -34,6 +34,7 @@ import { slackRoutes } from './routes/slack';
 import { teamsRoutes } from './routes/teams';
 import { telegramRoutes } from './routes/telegram';
 import { testRoutes } from './routes/test';
+import { v1Routes } from './routes/v1';
 import { whatsappRoutes } from './routes/whatsapp';
 import { startLicenseHeartbeat } from './services/license.service';
 import { logLicenseStatus } from './services/license-startup';
@@ -146,6 +147,10 @@ app.register(fastifyTRPCPlugin, {
 
 app.register(agentRoutes, {
 	prefix: '/api/agent',
+});
+
+app.register(v1Routes, {
+	prefix: '/api/v1',
 });
 
 app.register(testRoutes, {
