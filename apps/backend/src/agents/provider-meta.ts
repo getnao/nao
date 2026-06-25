@@ -198,6 +198,31 @@ export const PROVIDER_META: ProviderMetaMap = {
 			},
 		],
 	},
+	requesty: {
+		auth: { apiKey: 'required' },
+		envVar: 'REQUESTY_API_KEY',
+		baseUrlEnvVar: 'REQUESTY_BASE_URL',
+		extractorModelId: 'anthropic/claude-haiku-4.5',
+		summaryModelId: 'anthropic/claude-haiku-4.5',
+		models: [
+			{
+				id: 'openai/gpt-4o-mini',
+				name: 'GPT-4o mini',
+				default: true,
+				contextWindow: 128_000,
+			},
+			{
+				id: 'deepseek/deepseek-chat',
+				name: 'DeepSeek Chat',
+				contextWindow: 128_000,
+			},
+			{
+				id: 'anthropic/claude-sonnet-4.5',
+				name: 'Claude Sonnet 4.5 (Requesty)',
+				contextWindow: 1_000_000,
+			},
+		],
+	},
 	ollama: {
 		auth: { apiKey: 'none' },
 		envVar: 'OLLAMA_API_KEY',

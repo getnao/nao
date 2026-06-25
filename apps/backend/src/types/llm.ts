@@ -58,6 +58,7 @@ export type ProviderConfigMap = {
 	anthropic: AnthropicProviderOptions;
 	mistral: MistralLanguageModelOptions;
 	openrouter: OpenRouterProviderOptions;
+	requesty: OpenRouterProviderOptions;
 	ollama: Flatten<OllamaChatProviderOptions>;
 	bedrock: AmazonBedrockLanguageModelOptions;
 	vertex: GoogleGenerativeAIProviderOptions;

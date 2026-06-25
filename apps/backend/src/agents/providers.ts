@@ -75,6 +75,16 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 		...PROVIDER_META.openrouter,
 		create: (settings, modelId) => createOpenRouter(settings).chat(modelId),
 	},
+	requesty: {
+		...PROVIDER_META.requesty,
+		// Requesty is an OpenAI-compatible gateway; the OpenRouter AI-SDK provider
+		// is a thin OpenAI-compatible client, so we reuse it with Requesty's base URL.
+		create: (settings, modelId) =>
+			createOpenRouter({
+				...settings,
+				baseURL: settings.baseURL ?? 'https://router.requesty.ai/v1',
+			}).chat(modelId),
+	},
 	ollama: {
 		...PROVIDER_META.ollama,
 		create: (settings, modelId) => createOllama(settings).chat(modelId),
