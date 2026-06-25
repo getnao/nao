@@ -222,7 +222,7 @@ function PanelContainer({
 			className='fixed top-20 bottom-10 w-[400px] z-50 flex flex-col items-center'
 		>
 			{anchor.pending ? (
-				<PendingPanelContent anchor={anchor} onClose={onClose} />
+				<PendingPanelContent anchor={anchor} rightOffset={rightOffset} onClose={onClose} />
 			) : (
 				<ChatPanelContent
 					key={anchor.chatId}
@@ -271,9 +271,17 @@ function SelectionExcerptCard({ anchor, text }: { anchor: SelectionAnchor; text:
 	);
 }
 
-function PendingPanelContent({ anchor, onClose }: { anchor: SelectionAnchor; onClose: () => void }) {
+function PendingPanelContent({
+	anchor,
+	rightOffset,
+	onClose,
+}: {
+	anchor: SelectionAnchor;
+	rightOffset: number;
+	onClose: () => void;
+}) {
 	return (
-		<PanelShell>
+		<PanelShell style={{ right: rightOffset }}>
 			<div className='flex items-center justify-between w-full mt-2 px-4'>
 				<p className='text-sm font-medium'>Ask a question</p>
 				<Button variant='ghost' size='icon-xs' onClick={onClose} className='rounded-full -mr-1'>
