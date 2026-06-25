@@ -14,6 +14,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { Archive, Folder, Home } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { BULK_ITEMS_LIMIT } from '@nao/shared';
 import type { BulkStoryItem, StoryPanelDisplayMode } from '@nao/shared/types';
 import type { CollisionDetection, DragEndEvent, DragStartEvent, Modifier } from '@dnd-kit/core';
 
@@ -305,12 +306,32 @@ function StoriesPage() {
 		setSelectedFolderIds(new Set());
 	}
 
+	function deselectStoryIds(storyIds: string[]) {
+		setSelectedStoryIds((prev) => {
+			const next = new Set(prev);
+			for (const id of storyIds) {
+				next.delete(id);
+			}
+			return next;
+		});
+	}
+
+	function deselectFolderIds(folderIds: string[]) {
+		setSelectedFolderIds((prev) => {
+			const next = new Set(prev);
+			for (const id of folderIds) {
+				next.delete(id);
+			}
+			return next;
+		});
+	}
+
 	function toggleStorySelection(storyId: string) {
 		setSelectedStoryIds((prev) => {
 			const next = new Set(prev);
 			if (next.has(storyId)) {
 				next.delete(storyId);
-			} else {
+			} else if (next.size < BULK_ITEMS_LIMIT) {
 				next.add(storyId);
 			}
 			return next;
@@ -322,7 +343,7 @@ function StoriesPage() {
 			const next = new Set(prev);
 			if (next.has(folderId)) {
 				next.delete(folderId);
-			} else {
+			} else if (next.size < BULK_ITEMS_LIMIT) {
 				next.add(folderId);
 			}
 			return next;
@@ -388,36 +409,36 @@ function StoriesPage() {
 
 	const bulkArchiveStoryMutation = useMutation(
 		trpc.story.bulkArchive.mutationOptions({
-			onSuccess: () => {
+			onSuccess: (_data, variables) => {
 				invalidateFolderAndStoryCaches(queryClient);
-				clearSelection();
+				deselectStoryIds(variables.items.map((item) => item.storyId));
 			},
 		}),
 	);
 
 	const bulkUnarchiveStoryMutation = useMutation(
 		trpc.story.bulkUnarchive.mutationOptions({
-			onSuccess: () => {
+			onSuccess: (_data, variables) => {
 				invalidateFolderAndStoryCaches(queryClient);
-				clearSelection();
+				deselectStoryIds(variables.items.map((item) => item.storyId));
 			},
 		}),
 	);
 
 	const bulkArchiveFolderMutation = useMutation(
 		trpc.storyFolder.bulkArchive.mutationOptions({
-			onSuccess: () => {
+			onSuccess: (_data, variables) => {
 				invalidateFolderAndStoryCaches(queryClient);
-				clearSelection();
+				deselectFolderIds(variables.ids);
 			},
 		}),
 	);
 
 	const bulkUnarchiveFolderMutation = useMutation(
 		trpc.storyFolder.bulkUnarchive.mutationOptions({
-			onSuccess: () => {
+			onSuccess: (_data, variables) => {
 				invalidateFolderAndStoryCaches(queryClient);
-				clearSelection();
+				deselectFolderIds(variables.ids);
 			},
 		}),
 	);
@@ -615,6 +636,7 @@ function StoriesPage() {
 
 			<StoriesSelectionBar
 				selectedCount={selectedStoryIds.size + selectedFolderIds.size}
+				limitReached={selectedStoryIds.size >= BULK_ITEMS_LIMIT || selectedFolderIds.size >= BULK_ITEMS_LIMIT}
 				showArchived={showArchived}
 				isPending={isBulkPending}
 				onArchive={handleBulkArchive}

@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils';
 
 export function StoriesSelectionBar({
 	selectedCount,
+	limitReached = false,
 	showArchived,
 	isPending,
 	onArchive,
@@ -11,6 +12,7 @@ export function StoriesSelectionBar({
 	onCancel,
 }: {
 	selectedCount: number;
+	limitReached?: boolean;
 	showArchived: boolean;
 	isPending: boolean;
 	onArchive: () => void;
@@ -30,6 +32,7 @@ export function StoriesSelectionBar({
 			)}
 		>
 			<span className='text-sm font-medium text-foreground tabular-nums'>{selectedCount} selected</span>
+			{limitReached && <span className='text-xs text-muted-foreground'>Max 100 reached</span>}
 			<div className='w-px h-4 bg-border' />
 			{showArchived ? (
 				<Button

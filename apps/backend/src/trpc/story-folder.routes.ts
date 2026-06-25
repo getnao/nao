@@ -1,8 +1,11 @@
 import type { UserRole } from '@nao/shared/types';
+import { BULK_ITEMS_LIMIT } from '@nao/shared';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
 import type { DBStoryFolder } from '../db/abstractSchema';
+import { db } from '../db/db';
+import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
 import { canSendProcedure, projectProtectedProcedure } from './trpc';
@@ -128,27 +131,31 @@ export const storyFolderRoutes = {
 	}),
 
 	bulkArchive: canSendProcedure
-		.input(z.object({ ids: z.array(z.string()).min(1) }))
+		.input(z.object({ ids: z.array(z.string()).min(1).max(BULK_ITEMS_LIMIT) }))
 		.mutation(async ({ input, ctx }) => {
-			await Promise.all(
-				input.ids.map(async (id) => {
-					const folder = await assertFolderInProject(id, ctx);
-					assertCanModifyFolder(folder, ctx.user.id);
-					await storyFolderQueries.archiveFolder(id);
-				}),
-			);
+			for (const id of input.ids) {
+				const folder = await assertFolderInProject(id, ctx);
+				assertCanModifyFolder(folder, ctx.user.id, ctx.userRole);
+			}
+			await db.transaction(async (tx) => {
+				for (const id of input.ids) {
+					await storyFolderQueries.archiveFolder(id, tx);
+				}
+			});
 		}),
 
 	bulkUnarchive: canSendProcedure
-		.input(z.object({ ids: z.array(z.string()).min(1) }))
+		.input(z.object({ ids: z.array(z.string()).min(1).max(BULK_ITEMS_LIMIT) }))
 		.mutation(async ({ input, ctx }) => {
-			await Promise.all(
-				input.ids.map(async (id) => {
-					const folder = await assertFolderInProject(id, ctx);
-					assertCanModifyFolder(folder, ctx.user.id);
-					await storyFolderQueries.unarchiveFolder(ctx.user.id, ctx.project.id, id);
-				}),
-			);
+			for (const id of input.ids) {
+				const folder = await assertFolderInProject(id, ctx);
+				assertCanModifyFolder(folder, ctx.user.id, ctx.userRole);
+			}
+			await db.transaction(async (tx) => {
+				for (const id of input.ids) {
+					await storyFolderQueries.unarchiveFolder(ctx.user.id, ctx.project.id, id, tx);
+				}
+			});
 		}),
 
 	move: canSendProcedure

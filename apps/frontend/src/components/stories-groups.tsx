@@ -111,6 +111,16 @@ export function StoryCard({
 		}
 	}
 
+	function handleLinkClick(e: MouseEvent<HTMLAnchorElement>) {
+		if (canSelect && onToggleSelect && (e.metaKey || e.ctrlKey || selectionActive)) {
+			e.preventDefault();
+			e.stopPropagation();
+			onToggleSelect(item.storyId);
+			return;
+		}
+		e.stopPropagation();
+	}
+
 	if (displayMode === 'grid') {
 		return (
 			<>
@@ -129,7 +139,7 @@ export function StoryCard({
 					{!selectionActive && (
 						<Link
 							{...item.link}
-							onClick={(e) => e.stopPropagation()}
+							onClick={handleLinkClick}
 							className='absolute inset-0 flex flex-col justify-end p-2.5'
 						>
 							<div className='flex items-end gap-1.5'>
@@ -215,16 +225,7 @@ export function StoryCard({
 							/>
 						</div>
 					)}
-					<Link
-						{...item.link}
-						onClick={(e) => {
-							if (selectionActive) {
-								e.preventDefault();
-							}
-							e.stopPropagation();
-						}}
-						className='flex items-center gap-3 flex-1 min-w-0'
-					>
+					<Link {...item.link} onClick={handleLinkClick} className='flex items-center gap-3 flex-1 min-w-0'>
 						<div className='flex items-center gap-2 flex-1 min-w-0 pl-1.5'>
 							<span className='text-sm font-medium truncate'>{item.title}</span>
 							<div className='flex items-center gap-1.5 shrink-0'>

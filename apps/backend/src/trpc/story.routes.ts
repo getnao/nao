@@ -1,4 +1,4 @@
-import { NO_CACHE_SCHEDULE } from '@nao/shared';
+import { BULK_ITEMS_LIMIT, NO_CACHE_SCHEDULE } from '@nao/shared';
 import type { BulkStoryItem, UserRole } from '@nao/shared/types';
 import { DOWNLOAD_FORMATS } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
@@ -31,7 +31,8 @@ const bulkStoryItemsInput = z.object({
 				z.object({ kind: z.literal('shared-project'), storyId: z.string() }),
 			]),
 		)
-		.min(1),
+		.min(1)
+		.max(BULK_ITEMS_LIMIT),
 });
 
 async function assertCanArchiveSharedStory(
