@@ -334,19 +334,6 @@ export async function archiveStory(chatId: string, slug: string): Promise<void> 
 	await detachStoriesFromFolders(ids.map((row) => row.id));
 }
 
-export async function archiveManyStories(stories: { chatId: string; slug: string }[]): Promise<void> {
-	if (stories.length === 0) {
-		return;
-	}
-
-	const conditions = stories.map(({ chatId, slug }) => and(eq(s.story.chatId, chatId), eq(s.story.slug, slug)));
-	const matcher = or(...conditions);
-
-	await db.update(s.story).set({ archivedAt: new Date() }).where(matcher).execute();
-	const ids = await db.select({ id: s.story.id }).from(s.story).where(matcher).execute();
-	await detachStoriesFromFolders(ids.map((row) => row.id));
-}
-
 export async function unarchiveStory(chatId: string, slug: string): Promise<void> {
 	await db
 		.update(s.story)

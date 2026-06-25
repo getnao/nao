@@ -127,6 +127,30 @@ export const storyFolderRoutes = {
 		await storyFolderQueries.unarchiveFolder(ctx.user.id, ctx.project.id, input.id);
 	}),
 
+	bulkArchive: canSendProcedure
+		.input(z.object({ ids: z.array(z.string()).min(1) }))
+		.mutation(async ({ input, ctx }) => {
+			await Promise.all(
+				input.ids.map(async (id) => {
+					const folder = await assertFolderInProject(id, ctx);
+					assertCanModifyFolder(folder, ctx.user.id);
+					await storyFolderQueries.archiveFolder(id);
+				}),
+			);
+		}),
+
+	bulkUnarchive: canSendProcedure
+		.input(z.object({ ids: z.array(z.string()).min(1) }))
+		.mutation(async ({ input, ctx }) => {
+			await Promise.all(
+				input.ids.map(async (id) => {
+					const folder = await assertFolderInProject(id, ctx);
+					assertCanModifyFolder(folder, ctx.user.id);
+					await storyFolderQueries.unarchiveFolder(ctx.user.id, ctx.project.id, id);
+				}),
+			);
+		}),
+
 	move: canSendProcedure
 		.input(z.object({ id: z.string(), newParentId: z.string().nullable() }))
 		.mutation(async ({ input, ctx }) => {

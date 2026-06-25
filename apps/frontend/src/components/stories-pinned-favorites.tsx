@@ -30,6 +30,10 @@ export function PromotedSections({
 	onArchiveFolder,
 	onRestoreFolder,
 	className,
+	selectedStoryIds,
+	selectedFolderIds,
+	onToggleStory,
+	onToggleFolder,
 }: {
 	pinned: StoryItem[];
 	favorites: FavoriteEntry[];
@@ -40,10 +44,16 @@ export function PromotedSections({
 	onArchiveFolder: (folder: FolderItem) => void;
 	onRestoreFolder: (folder: FolderItem) => void;
 	className?: string;
+	selectedStoryIds?: Set<string>;
+	selectedFolderIds?: Set<string>;
+	onToggleStory?: (storyId: string) => void;
+	onToggleFolder?: (folderId: string) => void;
 }) {
 	const columns = useGridColumns();
 	const [pinnedCollapsed, togglePinned] = useCollapsedState(PINNED_COLLAPSED_KEY);
 	const [favoritesCollapsed, toggleFavorites] = useCollapsedState(FAVORITES_COLLAPSED_KEY);
+
+	const selectionActive = (selectedStoryIds?.size ?? 0) + (selectedFolderIds?.size ?? 0) > 0;
 
 	const groups = [
 		{
@@ -76,6 +86,8 @@ export function PromotedSections({
 		onRestore: onRestoreFolder,
 	};
 
+	const selectionHandlers = { selectedStoryIds, selectedFolderIds, selectionActive, onToggleStory, onToggleFolder };
+
 	if (sideBySide) {
 		return (
 			<section
@@ -88,6 +100,7 @@ export function PromotedSections({
 						{...g}
 						currentUserName={currentUserName}
 						folderHandlers={folderHandlers}
+						selectionHandlers={selectionHandlers}
 						style={{ gridColumn: `span ${g.items.length}` }}
 						gridClassName='grid gap-3'
 						gridStyle={{ gridTemplateColumns: `repeat(${g.items.length}, minmax(0, 1fr))` }}
@@ -105,6 +118,7 @@ export function PromotedSections({
 					{...g}
 					currentUserName={currentUserName}
 					folderHandlers={folderHandlers}
+					selectionHandlers={selectionHandlers}
 					className={cn('mb-6', className)}
 				/>
 			))}
@@ -124,6 +138,14 @@ type FolderHandlers = {
 	onRestore: (folder: FolderItem) => void;
 };
 
+type SelectionHandlers = {
+	selectedStoryIds?: Set<string>;
+	selectedFolderIds?: Set<string>;
+	selectionActive: boolean;
+	onToggleStory?: (storyId: string) => void;
+	onToggleFolder?: (folderId: string) => void;
+};
+
 function PromotedGroup({
 	label,
 	dragIdPrefix,
@@ -132,6 +154,7 @@ function PromotedGroup({
 	onToggle,
 	currentUserName,
 	folderHandlers,
+	selectionHandlers,
 	className,
 	style,
 	gridClassName,
@@ -144,6 +167,7 @@ function PromotedGroup({
 	onToggle: () => void;
 	currentUserName: string;
 	folderHandlers: FolderHandlers;
+	selectionHandlers: SelectionHandlers;
 	className?: string;
 	style?: CSSProperties;
 	gridClassName?: string;
@@ -161,6 +185,7 @@ function PromotedGroup({
 							dragIdPrefix={dragIdPrefix}
 							currentUserName={currentUserName}
 							folderHandlers={folderHandlers}
+							selectionHandlers={selectionHandlers}
 						/>
 					))}
 				</div>
@@ -174,14 +199,26 @@ function PromotedItem({
 	dragIdPrefix,
 	currentUserName,
 	folderHandlers,
+	selectionHandlers,
 }: {
 	entry: FavoriteEntry;
 	dragIdPrefix: string;
 	currentUserName: string;
 	folderHandlers: FolderHandlers;
+	selectionHandlers: SelectionHandlers;
 }) {
 	if (entry.kind === 'story') {
-		return <StoryCard item={entry.story} displayMode='grid' showArchived={false} dragIdPrefix={dragIdPrefix} />;
+		return (
+			<StoryCard
+				item={entry.story}
+				displayMode='grid'
+				showArchived={false}
+				dragIdPrefix={dragIdPrefix}
+				selected={selectionHandlers.selectedStoryIds?.has(entry.story.storyId)}
+				selectionActive={selectionHandlers.selectionActive}
+				onToggleSelect={selectionHandlers.onToggleStory}
+			/>
+		);
 	}
 	return (
 		<FolderCard
@@ -193,6 +230,9 @@ function PromotedItem({
 			onDelete={folderHandlers.onDelete}
 			onArchive={folderHandlers.onArchive}
 			onRestore={folderHandlers.onRestore}
+			selected={selectionHandlers.selectedFolderIds?.has(entry.folder.id)}
+			selectionActive={selectionHandlers.selectionActive}
+			onToggleSelect={selectionHandlers.onToggleFolder}
 		/>
 	);
 }

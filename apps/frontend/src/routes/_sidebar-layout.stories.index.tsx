@@ -14,12 +14,13 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { Archive, Folder, Home } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { StoryPanelDisplayMode } from '@nao/shared/types';
+import type { BulkStoryItem, StoryPanelDisplayMode } from '@nao/shared/types';
 import type { CollisionDetection, DragEndEvent, DragStartEvent, Modifier } from '@dnd-kit/core';
 
-import type { BreadcrumbNode } from '@/components/stories-folder-breadcrumb';
 import type { FolderItem, SortState, StoryItem } from '@/lib/stories-page';
+import type { BreadcrumbNode } from '@/components/stories-folder-breadcrumb';
 import { FolderBreadcrumb } from '@/components/stories-folder-breadcrumb';
+import { StoriesSelectionBar } from '@/components/stories-selection-bar';
 import { FolderCreateDialog } from '@/components/stories-folder-create-dialog';
 import { FolderDeleteDialog } from '@/components/stories-folder-delete-dialog';
 import { FolderPickerDialog } from '@/components/stories-folder-picker-dialog';
@@ -110,6 +111,9 @@ function StoriesPage() {
 	const [showArchived, setShowArchived] = useState(false);
 	const [dialog, setDialog] = useState<DialogState>(null);
 	const [activeId, setActiveId] = useState<string | null>(null);
+
+	const [selectedStoryIds, setSelectedStoryIds] = useState<Set<string>>(new Set());
+	const [selectedFolderIds, setSelectedFolderIds] = useState<Set<string>>(new Set());
 
 	const project = useQuery(trpc.project.getCurrent.queryOptions());
 	const projects = useQuery(trpc.project.listForCurrentUser.queryOptions());
@@ -218,6 +222,10 @@ function StoriesPage() {
 		}
 	}, [currentFolderId, folderTree.data, archivedFolderTree.data, folders, navigate, showArchived]);
 
+	useEffect(() => {
+		clearSelection();
+	}, [currentFolderId, activeProjectId]);
+
 	const {
 		pinned,
 		favorites: promotedFavorites,
@@ -286,9 +294,39 @@ function StoriesPage() {
 	function handleShowArchivedChange(value: boolean) {
 		setShowArchived(value);
 		setSearchQuery('');
+		clearSelection();
 		if (value) {
 			navigate({ to: '/stories', search: { folderId: null } });
 		}
+	}
+
+	function clearSelection() {
+		setSelectedStoryIds(new Set());
+		setSelectedFolderIds(new Set());
+	}
+
+	function toggleStorySelection(storyId: string) {
+		setSelectedStoryIds((prev) => {
+			const next = new Set(prev);
+			if (next.has(storyId)) {
+				next.delete(storyId);
+			} else {
+				next.add(storyId);
+			}
+			return next;
+		});
+	}
+
+	function toggleFolderSelection(folderId: string) {
+		setSelectedFolderIds((prev) => {
+			const next = new Set(prev);
+			if (next.has(folderId)) {
+				next.delete(folderId);
+			} else {
+				next.add(folderId);
+			}
+			return next;
+		});
 	}
 
 	const moveStoryMutation = useMutation(
@@ -347,6 +385,91 @@ function StoriesPage() {
 	function handleRestoreFolder(folder: FolderItem) {
 		unarchiveFolderMutation.mutate({ id: folder.id });
 	}
+
+	const bulkArchiveStoryMutation = useMutation(
+		trpc.story.bulkArchive.mutationOptions({
+			onSuccess: () => {
+				invalidateFolderAndStoryCaches(queryClient);
+				clearSelection();
+			},
+		}),
+	);
+
+	const bulkUnarchiveStoryMutation = useMutation(
+		trpc.story.bulkUnarchive.mutationOptions({
+			onSuccess: () => {
+				invalidateFolderAndStoryCaches(queryClient);
+				clearSelection();
+			},
+		}),
+	);
+
+	const bulkArchiveFolderMutation = useMutation(
+		trpc.storyFolder.bulkArchive.mutationOptions({
+			onSuccess: () => {
+				invalidateFolderAndStoryCaches(queryClient);
+				clearSelection();
+			},
+		}),
+	);
+
+	const bulkUnarchiveFolderMutation = useMutation(
+		trpc.storyFolder.bulkUnarchive.mutationOptions({
+			onSuccess: () => {
+				invalidateFolderAndStoryCaches(queryClient);
+				clearSelection();
+			},
+		}),
+	);
+
+	function buildBulkStoryItems(): BulkStoryItem[] {
+		const storyItems = allItems.filter((item) => selectedStoryIds.has(item.storyId));
+		const result: BulkStoryItem[] = [];
+		for (const item of storyItems) {
+			if (item.kind === 'own' || item.kind === 'own-standalone') {
+				result.push({ kind: 'own', storyId: item.storyId });
+			} else if (item.kind === 'shared-project') {
+				result.push({ kind: 'shared-project', storyId: item.storyId });
+			}
+		}
+		return result;
+	}
+
+	function handleBulkArchive() {
+		const bulkItems = buildBulkStoryItems();
+		const folderIds = [...selectedFolderIds];
+
+		if (bulkItems.length > 0) {
+			bulkArchiveStoryMutation.mutate({ items: bulkItems });
+		}
+		if (folderIds.length > 0) {
+			bulkArchiveFolderMutation.mutate({ ids: folderIds });
+		}
+		if (bulkItems.length === 0 && folderIds.length === 0) {
+			clearSelection();
+		}
+	}
+
+	function handleBulkUnarchive() {
+		const bulkItems = buildBulkStoryItems();
+		const folderIds = [...selectedFolderIds];
+
+		if (bulkItems.length > 0) {
+			bulkUnarchiveStoryMutation.mutate({ items: bulkItems });
+		}
+		if (folderIds.length > 0) {
+			bulkUnarchiveFolderMutation.mutate({ ids: folderIds });
+		}
+		if (bulkItems.length === 0 && folderIds.length === 0) {
+			clearSelection();
+		}
+	}
+
+	const isBulkPending =
+		bulkArchiveStoryMutation.isPending ||
+		bulkUnarchiveStoryMutation.isPending ||
+		bulkArchiveFolderMutation.isPending ||
+		bulkUnarchiveFolderMutation.isPending;
 
 	const sensors = useSensors(
 		useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -453,6 +576,10 @@ function StoriesPage() {
 							onArchiveFolder={handleArchiveFolder}
 							onRestoreFolder={handleRestoreFolder}
 							className='mb-6'
+							selectedStoryIds={selectedStoryIds}
+							selectedFolderIds={selectedFolderIds}
+							onToggleStory={toggleStorySelection}
+							onToggleFolder={toggleFolderSelection}
 						/>
 					)}
 
@@ -476,11 +603,24 @@ function StoriesPage() {
 						onArchiveFolder={handleArchiveFolder}
 						onRestoreFolder={handleRestoreFolder}
 						onNewFolder={() => setDialog({ kind: 'create' })}
+						selectedStoryIds={selectedStoryIds}
+						selectedFolderIds={selectedFolderIds}
+						onToggleStory={toggleStorySelection}
+						onToggleFolder={toggleFolderSelection}
 					/>
 
 					<DragOverlay>{activeDragItem && <DragOverlayCard item={activeDragItem} />}</DragOverlay>
 				</div>
 			</DndContext>
+
+			<StoriesSelectionBar
+				selectedCount={selectedStoryIds.size + selectedFolderIds.size}
+				showArchived={showArchived}
+				isPending={isBulkPending}
+				onArchive={handleBulkArchive}
+				onUnarchive={handleBulkUnarchive}
+				onCancel={clearSelection}
+			/>
 
 			<FolderCreateDialog
 				open={dialog?.kind === 'create' || dialog?.kind === 'modify'}

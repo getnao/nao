@@ -205,3 +205,5 @@ export type EmbedTokenPayload = {
 };
 
 export type StoryPanelDisplayMode = 'grid' | 'lines';
+
+export type BulkStoryItem = { kind: 'own'; storyId: string } | { kind: 'shared-project'; storyId: string };
