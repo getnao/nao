@@ -45,7 +45,8 @@ def sync(
             name=["-s", "--select"],
             help="Sync only the given schemas/tables without deleting the rest. "
             "Use `schema` to select a whole schema or `schema.table` for one table "
-            "(glob wildcards allowed, e.g. `analytics.dim_*`). Applied on top of include/exclude.",
+            "(glob wildcards allowed, e.g. `analytics.dim_*`). Applied on top of include/exclude. "
+            "Combine with `-p databases:my-db` to also skip connecting to your other databases.",
         ),
     ] = None,
     output_dirs: Annotated[dict[str, str] | None, Parameter(show=False)] = None,
@@ -64,6 +65,9 @@ def sync(
 
     Use `--select schema` or `--select schema.table` to refresh only part of a
     database without deleting previously-synced tables outside the selection.
+    Pair it with `--provider databases:my-db` to scope the run to one connection:
+
+      nao sync -p databases:my-warehouse -s analytics.orders
     """
     console.print("\n[bold cyan]🔄 nao sync[/bold cyan]\n")
 
