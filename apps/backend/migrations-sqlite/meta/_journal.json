@@ -372,6 +372,20 @@
       "when": 1782391309531,
       "tag": "0052_add_brand_color",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "6",
+      "when": 1782487400732,
+      "tag": "0053_add_disabled_mcp_servers",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "6",
+      "when": 1782487927309,
+      "tag": "0054_add_disabled_mcp_tools",
+      "breakpoints": true
     }
   ]
 }

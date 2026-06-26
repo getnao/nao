@@ -145,9 +145,17 @@ const McpOutputContent = ({ text }: { text: string }) => {
 	);
 };
 
+const getMcpTitle = (toolPart: UIToolPart, fallback: string): string => {
+	const input = (toolPart as { input?: { server?: string; tool?: string } }).input;
+	if (input?.server && input?.tool) {
+		return `${input.server} / ${input.tool}`;
+	}
+	return fallback;
+};
+
 export const McpToolCall = ({ toolPart }: ToolCallComponentProps) => {
 	const { isSettled } = useToolCallContext();
-	const toolName = getToolName(toolPart);
+	const title = getMcpTitle(toolPart, getToolName(toolPart));
 
 	if (isSettled) {
 		const chartBlock = extractChartBlock(toolPart.output);
@@ -157,5 +165,5 @@ export const McpToolCall = ({ toolPart }: ToolCallComponentProps) => {
 	}
 
 	const text = isSettled ? extractText(toolPart.output) : null;
-	return <ToolCallWrapper title={toolName}>{text !== null && <McpOutputContent text={text} />}</ToolCallWrapper>;
+	return <ToolCallWrapper title={title}>{text !== null && <McpOutputContent text={text} />}</ToolCallWrapper>;
 };

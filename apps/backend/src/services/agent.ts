@@ -67,6 +67,7 @@ import { addPromptCache } from '../utils/prompt-cache';
 import { truncateMiddle } from '../utils/utils';
 import { compactionService } from './compaction';
 import { hasFeature, LICENSE_FEATURES } from './license.service';
+import { mcpService } from './mcp';
 import { memoryService } from './memory';
 import { getAzureAccessTokenForUser } from './microsoft-auth.service';
 import { skillService } from './skill';
@@ -549,8 +550,17 @@ class AgentManager {
 		const userRules = getUserRules(this._toolContext.projectFolder);
 		const connections = getConnections(this._toolContext.projectFolder);
 		const skills = skillService.getSkills();
+		const mcpServers = await mcpService.getEnabledServers(this.chat.projectId);
 		const basePrompt = renderToMarkdown(
-			SystemPrompt({ memories, userRules, connections, skills, timezone, testMode: this.chat.testMode }),
+			SystemPrompt({
+				memories,
+				userRules,
+				connections,
+				skills,
+				mcpServers,
+				timezone,
+				testMode: this.chat.testMode,
+			}),
 		);
 		const renderedPrompt = provider
 			? renderToMarkdown(MessagingProviderSystemPrompt({ basePrompt, provider, chatUrl }))

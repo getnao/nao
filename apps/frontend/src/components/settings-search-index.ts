@@ -238,8 +238,9 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		page: '/settings/project/mcp-servers',
 		pageLabel: 'MCP Servers',
 		title: 'MCP Servers',
-		description: 'Integrate MCP servers to extend the capabilities of nao.',
-		keywords: ['model context protocol', 'tool', 'integration', 'extension'],
+		description:
+			'Configure MCP servers in agent/mcps/mcp.json. nao discovers their tools into OpenAPI specs the agent explores on demand.',
+		keywords: ['model context protocol', 'tool', 'integration', 'extension', 'discover', 'openapi', 'spec'],
 		adminOnly: true,
 	},
 

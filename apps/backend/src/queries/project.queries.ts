@@ -206,30 +206,46 @@ export const updateAgentSettings = async (projectId: string, settings: AgentSett
 	return next;
 };
 
-export const getEnabledToolsAndKnownServers = async (
-	projectId: string,
-): Promise<{ enabledTools: string[]; knownServers: string[] }> => {
+export const getDisabledMcpServers = async (projectId: string): Promise<string[]> => {
 	const project = await getProjectById(projectId);
-	return {
-		enabledTools: project?.enabledMcpTools ?? [],
-		knownServers: project?.knownMcpServers ?? [],
-	};
+	return project?.disabledMcpServers ?? [];
 };
 
-export const updateEnabledToolsAndKnownServers = async (
+export const setMcpServerEnabled = async (
 	projectId: string,
-	updater: (current: { enabledTools: string[]; knownServers: string[] }) => {
-		enabledTools: string[];
-		knownServers: string[];
-	},
-): Promise<void> => {
-	const current = await getEnabledToolsAndKnownServers(projectId);
-	const next = updater(current);
-	await db
-		.update(s.project)
-		.set({ enabledMcpTools: next.enabledTools, knownMcpServers: next.knownServers })
-		.where(eq(s.project.id, projectId))
-		.execute();
+	serverName: string,
+	enabled: boolean,
+): Promise<string[]> => {
+	const current = await getDisabledMcpServers(projectId);
+	const next = enabled ? current.filter((name) => name !== serverName) : [...new Set([...current, serverName])];
+	await db.update(s.project).set({ disabledMcpServers: next }).where(eq(s.project.id, projectId)).execute();
+	return next;
+};
+
+export const getDisabledMcpTools = async (projectId: string): Promise<string[]> => {
+	const project = await getProjectById(projectId);
+	return project?.disabledMcpTools ?? [];
+};
+
+/** `toolKey` is `${serverName}/${toolName}`. */
+export const setMcpToolEnabled = async (projectId: string, toolKey: string, enabled: boolean): Promise<string[]> => {
+	const current = await getDisabledMcpTools(projectId);
+	const next = enabled ? current.filter((key) => key !== toolKey) : [...new Set([...current, toolKey])];
+	await db.update(s.project).set({ disabledMcpTools: next }).where(eq(s.project.id, projectId)).execute();
+	return next;
+};
+
+/** Bulk variant of `setMcpToolEnabled`. Each `toolKey` is `${serverName}/${toolName}`. */
+export const setMcpToolsEnabled = async (
+	projectId: string,
+	toolKeys: string[],
+	enabled: boolean,
+): Promise<string[]> => {
+	const current = await getDisabledMcpTools(projectId);
+	const keys = new Set(toolKeys);
+	const next = enabled ? current.filter((key) => !keys.has(key)) : [...new Set([...current, ...toolKeys])];
+	await db.update(s.project).set({ disabledMcpTools: next }).where(eq(s.project.id, projectId)).execute();
+	return next;
 };
 
 export const getDisplaySettings = async (projectId: string): Promise<DisplaySettings> => {

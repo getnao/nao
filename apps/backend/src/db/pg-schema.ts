@@ -183,6 +183,8 @@ export const project = pgTable(
 		agentSettings: jsonb('agent_settings').$type<AgentSettings>(),
 		enabledMcpTools: jsonb('enabled_tools').$type<string[]>().notNull().default([]),
 		knownMcpServers: jsonb('known_mcp_servers').$type<string[]>().notNull().default([]),
+		disabledMcpServers: jsonb('disabled_mcp_servers').$type<string[]>().notNull().default([]),
+		disabledMcpTools: jsonb('disabled_mcp_tools').$type<string[]>().notNull().default([]),
 
 		envVars: jsonb('env_vars').$type<Record<string, string>>().notNull().default({}),
 
