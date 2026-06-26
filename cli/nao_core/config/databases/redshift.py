@@ -133,7 +133,7 @@ class RedshiftDatabaseContext(DatabaseContext):
                 JOIN pg_catalog.pg_class c ON c.oid = d.objoid
                 JOIN pg_catalog.pg_attribute a ON a.attrelid = c.oid AND a.attnum = d.objsubid
                 JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-                WHERE n.nspname = '{self._schema}' AND c.relname = '{self._table_name}' AND d.objsubid > 0
+                WHERE n.nspname = '{_quote_literal(self._schema)}' AND c.relname = '{_quote_literal(self._table_name)}' AND d.objsubid > 0
             """
             rows = self._conn.raw_sql(query).fetchall()  # type: ignore[union-attr]
             return {row[0]: str(row[1]) for row in rows if row[1]}
@@ -148,7 +148,7 @@ class RedshiftDatabaseContext(DatabaseContext):
                 FROM pg_catalog.pg_description d
                 JOIN pg_catalog.pg_class c ON c.oid = d.objoid
                 JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-                WHERE n.nspname = '{self._schema}' AND c.relname = '{self._table_name}' AND d.objsubid = 0
+                WHERE n.nspname = '{_quote_literal(self._schema)}' AND c.relname = '{_quote_literal(self._table_name)}' AND d.objsubid = 0
             """
             row = self._conn.raw_sql(query).fetchone()  # type: ignore[union-attr]
             if row and row[0]:
@@ -164,15 +164,22 @@ class RedshiftDatabaseContext(DatabaseContext):
         return f"JSON_SERIALIZE({col_sql})"
 
 
+def _quote_literal(value: str) -> str:
+    """Escape a value for safe use inside a SQL string literal."""
+    return value.replace("'", "''")
+
+
 def _get_redshift_sortkey_columns(conn: BaseBackend, schema: str, table: str) -> list[str]:
     """Return SORTKEY columns for a Redshift table, ordered by sort position."""
+    schema_literal = _quote_literal(schema)
+    table_literal = _quote_literal(table)
     query = f"""
         SELECT a.attname
         FROM pg_attribute a
         JOIN pg_class c ON c.oid = a.attrelid
         JOIN pg_namespace n ON n.oid = c.relnamespace
-        WHERE n.nspname = '{schema}'
-          AND c.relname = '{table}'
+        WHERE n.nspname = '{schema_literal}'
+          AND c.relname = '{table_literal}'
           AND a.attsortkeyord > 0
         ORDER BY a.attsortkeyord
     """

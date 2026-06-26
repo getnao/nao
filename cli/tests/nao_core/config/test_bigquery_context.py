@@ -917,11 +917,31 @@ class TestClusteredOnlyTable:
             clustering_columns=["user_id", "event_type"],
         )
         ctx, mock_conn = _make_context(partition_metadata=meta)
+        mock_conn.raw_sql.return_value = []
 
         cols = ctx.partition_columns()
 
         assert cols == []
-        mock_conn.raw_sql.assert_not_called()
+        sql = mock_conn.raw_sql.call_args[0][0]
+        assert "is_partitioning_column" in sql
+        assert "clustering_ordinal_position" not in sql
+
+    def test_partition_columns_fallback_recovers_partition_on_partial_metadata(self):
+        meta = TablePartitionMetadata(
+            partition_column=None,
+            partition_column_type=None,
+            last_partition_id=None,
+            total_rows=None,
+            clustering_columns=["user_id"],
+        )
+        ctx, mock_conn = _make_context(partition_metadata=meta)
+        mock_conn.raw_sql.return_value = [("event_date",)]
+
+        cols = ctx.partition_columns()
+
+        assert cols == ["event_date"]
+        sql = mock_conn.raw_sql.call_args[0][0]
+        assert "is_partitioning_column" in sql
 
     def test_partition_filter_empty_for_clustered_only_table(self):
         meta = TablePartitionMetadata(
@@ -931,7 +951,8 @@ class TestClusteredOnlyTable:
             total_rows=None,
             clustering_columns=["user_id"],
         )
-        ctx, _ = _make_context(partition_metadata=meta)
+        ctx, mock_conn = _make_context(partition_metadata=meta)
+        mock_conn.raw_sql.return_value = []
 
         assert ctx._partition_filter() == ""
 

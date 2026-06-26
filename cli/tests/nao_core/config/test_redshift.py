@@ -77,3 +77,16 @@ class TestRedshiftClusteringColumns:
         conn.raw_sql.side_effect = Exception("permission denied")
 
         assert ctx.clustering_columns() == []
+
+    def test_escapes_single_quotes_in_identifiers(self):
+        conn = MagicMock()
+        ctx = RedshiftDatabaseContext(conn, "pub'lic", "or'ders")
+        cursor = MagicMock()
+        cursor.fetchall.return_value = []
+        conn.raw_sql.return_value = cursor
+
+        ctx.clustering_columns()
+
+        sql = conn.raw_sql.call_args[0][0]
+        assert "'pub''lic'" in sql
+        assert "'or''ders'" in sql

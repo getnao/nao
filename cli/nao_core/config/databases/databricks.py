@@ -22,8 +22,7 @@ class DatabricksDatabaseContext(DatabaseContext):
     """Databricks context with partition and description discovery."""
 
     def _quote_ident(self, name: object) -> str:
-        escaped = str(name).replace("`", "``")
-        return f"`{escaped}`"
+        return _quote_ident(name)
 
     def partition_columns(self) -> list[str]:
         try:
@@ -105,9 +104,15 @@ def _get_databricks_partition_columns(conn: BaseBackend, schema: str, table: str
     return [row[0] for row in result]
 
 
+def _quote_ident(name: object) -> str:
+    """Escape and backtick-quote an identifier for safe use in Databricks SQL."""
+    escaped = str(name).replace("`", "``")
+    return f"`{escaped}`"
+
+
 def _get_databricks_liquid_clustering_columns(conn: BaseBackend, schema: str, table: str) -> list[str]:
     """Return liquid clustering columns from DESCRIBE DETAIL, if any."""
-    query = f"DESCRIBE DETAIL `{schema}`.`{table}`"
+    query = f"DESCRIBE DETAIL {_quote_ident(schema)}.{_quote_ident(table)}"
     cursor = conn.raw_sql(query)  # type: ignore[union-attr]
     try:
         idx = next(

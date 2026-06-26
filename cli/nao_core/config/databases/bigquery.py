@@ -68,9 +68,7 @@ class BigQueryDatabaseContext(DatabaseContext):
         self._custom_partition_filter = custom_partition_filter
 
     def partition_columns(self) -> list[str]:
-        if self._partition_metadata is not None:
-            if self._partition_metadata.partition_column is None:
-                return []
+        if self._partition_metadata is not None and self._partition_metadata.partition_column is not None:
             return self._filter_excluded_names([self._partition_metadata.partition_column])
         try:
             return self._filter_excluded_names(
