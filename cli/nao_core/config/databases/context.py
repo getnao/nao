@@ -166,8 +166,15 @@ class DatabaseContext:
             except Exception:
                 continue
 
+        clustering_columns = []
+        try:
+            clustering_columns = self.clustering_columns()
+        except Exception:
+            pass
+
         return {
             "computed_at": datetime.now(timezone.utc).isoformat(),
+            "clustering_columns": clustering_columns,
             "columns": profiles,
         }
 
