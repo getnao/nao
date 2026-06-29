@@ -25,6 +25,7 @@ import { agentRoutes } from './routes/agent';
 import { analyticsRoutes } from './routes/analytics';
 import { authRoutes } from './routes/auth';
 import { authErrorRedirectRoutes } from './routes/auth-error-redirect';
+import { automationWebhookRoutes } from './routes/automation-webhook';
 import { brandingRoutes } from './routes/branding';
 import { chartRoutes } from './routes/chart';
 import { deployRoutes } from './routes/deploy';
@@ -198,6 +199,10 @@ app.register(whatsappRoutes, {
 });
 
 app.register(deployRoutes, {
+	prefix: '/api',
+});
+
+app.register(automationWebhookRoutes, {
 	prefix: '/api',
 });
 

@@ -567,6 +567,7 @@ export const automation = pgTable(
 		mcpEnabled: boolean('mcp_enabled').default(true).notNull(),
 		mcpServers: jsonb('mcp_servers').$type<string[]>(),
 		integrations: jsonb('integrations').$type<AutomationIntegrationConfig>().notNull().default({}),
+		webhookEnabled: boolean('webhook_enabled').default(false).notNull(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()

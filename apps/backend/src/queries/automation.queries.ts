@@ -100,7 +100,7 @@ export const createAutomation = async (data: NewAutomation): Promise<DBAutomatio
 	return created;
 };
 
-export const linkAutomationJob = async (id: string, scheduledJobId: string): Promise<void> => {
+export const linkAutomationJob = async (id: string, scheduledJobId: string | null): Promise<void> => {
 	await db.update(s.automation).set({ scheduledJobId }).where(eq(s.automation.id, id)).execute();
 };
 
@@ -120,6 +120,7 @@ export const updateAutomation = async (
 			| 'mcpEnabled'
 			| 'mcpServers'
 			| 'integrations'
+			| 'webhookEnabled'
 		>
 	>,
 ): Promise<DBAutomation | null> => {
