@@ -401,6 +401,8 @@ function AutomationsSection({
 		id: string;
 		title: string;
 		enabled: boolean;
+		cron: string;
+		webhookEnabled: boolean;
 		updatedAt: Date;
 	}>;
 }) {
@@ -433,10 +435,15 @@ function AutomationListItem({
 		id: string;
 		title: string;
 		enabled: boolean;
+		cron: string;
+		webhookEnabled: boolean;
 		updatedAt: Date;
 	};
 }) {
 	const timeAgo = useTimeAgo(new Date(item.updatedAt).getTime());
+	const hasSchedule = Boolean(item.cron);
+	const isActive = hasSchedule ? item.enabled : item.webhookEnabled;
+	const statusLabel = hasSchedule ? (item.enabled ? timeAgo.humanReadable : 'paused') : 'webhook';
 
 	return (
 		<Link
@@ -450,10 +457,10 @@ function AutomationListItem({
 			<div
 				className={cn(
 					'text-xs whitespace-nowrap',
-					item.enabled ? 'text-muted-foreground' : 'text-muted-foreground/60',
+					isActive ? 'text-muted-foreground' : 'text-muted-foreground/60',
 				)}
 			>
-				{item.enabled ? timeAgo.humanReadable : 'paused'}
+				{statusLabel}
 			</div>
 		</Link>
 	);
