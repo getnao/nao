@@ -7,6 +7,7 @@ import GoogleIcon from '@/components/icons/google.svg';
 import MistralIcon from '@/components/icons/mistral.svg';
 import OpenAIIcon from '@/components/icons/openai.svg';
 import OpenRouterIcon from '@/components/icons/openrouter.svg';
+import RequestyIcon from '@/components/icons/requesty.svg';
 import OllamaIcon from '@/components/icons/ollama.svg';
 import BedrockIcon from '@/components/icons/bedrock.svg';
 import GoogleVertexIcon from '@/components/icons/google-vertex.svg';
@@ -37,6 +38,8 @@ export function LlmProviderIcon({ provider, baseUrl, className: customClassName 
 			return <GoogleIcon className={className} />;
 		case 'openrouter':
 			return <OpenRouterIcon className={className} />;
+		case 'requesty':
+			return <RequestyIcon className={className} />;
 		case 'ollama':
 			return <OllamaIcon className={className} />;
 		case 'bedrock':
