@@ -5,6 +5,7 @@ import type { UserMemory } from '../../types/memory';
 import { MEMORY_CATEGORIES, MemoryCategory } from '../../types/memory';
 import { formatCurrentDate } from '../../utils/date';
 import { groupBy } from '../../utils/utils';
+import { getDialectSqlQueryRules, getDialectToolCallRules } from './dialect-rules';
 import { NaoContextStructure } from './nao-context-structure';
 
 type Connection = {
@@ -32,10 +33,8 @@ export function SystemPrompt({
 	testMode,
 }: SystemPromptProps) {
 	const visibleMemories = getMemoriesInTokenRange(memories, MEMORY_TOKEN_LIMIT);
-	const hasClickHouse = connections.some((connection) => connection.type.toLowerCase() === 'clickhouse');
-	const hasTSQL = connections.some((connection) => ['mssql', 'fabric'].includes(connection.type.toLowerCase()));
-	const hasBigQuery = connections.some((connection) => connection.type.toLowerCase() === 'bigquery');
-	const hasMySQL = connections.some((connection) => connection.type.toLowerCase() === 'mysql');
+	const dialectToolCallRules = getDialectToolCallRules(connections);
+	const dialectSqlQueryRules = getDialectSqlQueryRules(connections);
 
 	return (
 		<Block>
@@ -75,86 +74,53 @@ export function SystemPrompt({
 			</List>
 			<Title level={2}>Tool Calls</Title>
 			<List>
-				<ListItem>
-					Be efficient with tool calls and prefer calling multiple tools in parallel, especially when
-					researching.
-				</ListItem>
-				<ListItem>If you can execute a SQL query, use the execute_sql tool for it.</ListItem>
-				{!testMode && (
+				{[
 					<ListItem>
-						Use the <Bold>clarification</Bold> tool when the user's request is genuinely ambiguous and
-						proceeding would likely produce the wrong result (e.g. multiple plausible tables, unclear time
-						range, undefined metric). If you need to ask another clarifying question after the user answers,
-						call the <Bold>clarification</Bold> tool again instead of asking in plain text, bullet lists, or
-						examples.
-					</ListItem>
-				)}
-				<ListItem>
-					For display_chart x_axis_type: use "date" only when x-axis values are parseable by JavaScript Date
-					(e.g. YYYY-MM-DD). Use "category" for quarter labels (quarter_ending), fiscal periods (FY25-Q1), or
-					any non-ISO-date strings.
-				</ListItem>
-				<ListItem>
-					For display_chart chart_type: use "scatter" for correlations between two numeric variables (set
-					x_axis_type to "number"). Use "radar" for comparing multiple metrics across a fixed set of
-					categories on a spider/web chart. Use "area" for time-series trends where filled area emphasis is
-					desired (similar to "line"). Use "stacked_area" to show how multiple series compose a total over
-					time (e.g. revenue by payment method, users by plan) — requires 2+ series and pivoted data.
-				</ListItem>
-				{hasClickHouse && (
+						Be efficient with tool calls and prefer calling multiple tools in parallel, especially when
+						researching.
+					</ListItem>,
+					<ListItem>If you can execute a SQL query, use the execute_sql tool for it.</ListItem>,
+					!testMode && (
+						<ListItem>
+							Use the <Bold>clarification</Bold> tool when the user's request is genuinely ambiguous and
+							proceeding would likely produce the wrong result (e.g. multiple plausible tables, unclear
+							time range, undefined metric). If you need to ask another clarifying question after the user
+							answers, call the <Bold>clarification</Bold> tool again instead of asking in plain text,
+							bullet lists, or examples.
+						</ListItem>
+					),
 					<ListItem>
-						When available, use indexes.md to see how the table is ordered and indexed (ORDER BY, PRIMARY
-						KEY, PARTITION BY) so you can write efficient queries.
-					</ListItem>
-				)}
+						For display_chart x_axis_type: use "date" only when x-axis values are parseable by JavaScript
+						Date (e.g. YYYY-MM-DD). Use "category" for quarter labels (quarter_ending), fiscal periods
+						(FY25-Q1), or any non-ISO-date strings.
+					</ListItem>,
+					<ListItem>
+						For display_chart chart_type: use "scatter" for correlations between two numeric variables (set
+						x_axis_type to "number"). Use "radar" for comparing multiple metrics across a fixed set of
+						categories on a spider/web chart. Use "area" for time-series trends where filled area emphasis
+						is desired (similar to "line"). Use "stacked_area" to show how multiple series compose a total
+						over time (e.g. revenue by payment method, users by plan) — requires 2+ series and pivoted data.
+					</ListItem>,
+					...dialectToolCallRules,
+				]}
 			</List>
 			<Title level={2}>SQL Query Rules</Title>
 			<List>
-				<ListItem>
-					If you get an error, loop until you fix the error, search for the correct name using the list or
-					search tools.
-				</ListItem>
-				<ListItem>
-					Never assume columns names, if available, use the columns.md file to get the column names.
-				</ListItem>
-				<ListItem>
-					A LIMIT/TOP clause caps how many rows are returned, not how many exist. Never state a total or an
-					"exact" count based on the number of rows a limited query returned. To count rows, run a separate
-					query using COUNT(*) (or COUNT over a subquery) without a LIMIT/TOP clause.
-				</ListItem>
-				{hasTSQL && (
-					<>
-						<ListItem>
-							<Bold>T-SQL dialect (Fabric/MSSQL):</Bold> Use TOP N instead of LIMIT N (e.g. SELECT TOP 10
-							* FROM table).
-						</ListItem>
-						<ListItem>
-							Do not use GROUP BY ALL — explicitly list all non-aggregated columns in the GROUP BY clause.
-						</ListItem>
-						<ListItem>
-							Use T-SQL date functions (DATEADD, DATEDIFF, CONVERT, FORMAT) instead of PostgreSQL-style
-							intervals or TO_CHAR.
-						</ListItem>
-						<ListItem>Use ISNULL() instead of COALESCE() when there are only two arguments.</ListItem>
-					</>
-				)}
-				{hasBigQuery && (
-					<>
-						<ListItem>
-							<Bold>BigQuery dialect:</Bold> Use backtick-quoted identifiers (e.g.{' '}
-							{`\`project.dataset.table\``}).
-						</ListItem>
-						<ListItem>Use SAFE_DIVIDE for division to avoid division-by-zero errors.</ListItem>
-					</>
-				)}
-				{hasMySQL && (
-					<>
-						<ListItem>
-							<Bold>MySQL dialect:</Bold> Use backtick-quoted identifiers for column and table names.
-						</ListItem>
-						<ListItem>Use IFNULL() instead of COALESCE() when there are only two arguments.</ListItem>
-					</>
-				)}
+				{[
+					<ListItem>
+						If you get an error, loop until you fix the error, search for the correct name using the list or
+						search tools.
+					</ListItem>,
+					<ListItem>
+						Never assume columns names, if available, use the columns.md file to get the column names.
+					</ListItem>,
+					<ListItem>
+						A LIMIT/TOP clause caps how many rows are returned, not how many exist. Never state a total or
+						an "exact" count based on the number of rows a limited query returned. To count rows, run a
+						separate query using COUNT(*) (or COUNT over a subquery) without a LIMIT/TOP clause.
+					</ListItem>,
+					...dialectSqlQueryRules,
+				]}
 			</List>
 			<Title level={2}>Citations Rules</Title>
 			<List>
