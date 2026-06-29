@@ -10,7 +10,7 @@ dotenv.config({
 	path: path.join(process.cwd(), '..', '..', '.env'),
 });
 
-const { SMTP_HOST, SMTP_PORT, SMTP_SSL, SMTP_MAIL_FROM, SMTP_PASSWORD } = process.env;
+const { SMTP_HOST, SMTP_PORT, SMTP_SSL, SMTP_USER, SMTP_MAIL_FROM, SMTP_PASSWORD } = process.env;
 
 const to = process.argv[2] || SMTP_MAIL_FROM;
 
@@ -35,7 +35,7 @@ const transporter = nodemailer.createTransport({
 	port: Number(SMTP_PORT) || 587,
 	secure: SMTP_SSL === 'true',
 	auth: {
-		user: SMTP_MAIL_FROM,
+		user: SMTP_USER || SMTP_MAIL_FROM,
 		pass: SMTP_PASSWORD,
 	},
 });
