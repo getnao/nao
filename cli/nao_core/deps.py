@@ -49,6 +49,7 @@ _EXTRAS: dict[str, list[str]] = {
 # Providers whose extra name differs from their config value.
 _PROVIDER_ALIASES: dict[str, str] = {
     "openrouter": "openai",
+    "requesty": "openai",
     "vertex": "gemini",
 }
 

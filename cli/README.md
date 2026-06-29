@@ -86,7 +86,7 @@ This will create a new nao project in the current directory. It will prompt you 
 
 - **Database connections** (BigQuery, DuckDB, Databricks, Snowflake, PostgreSQL, Redshift, MSSQL, Trino, StarRocks)
 - **Git repositories** to sync
-- **LLM provider** (OpenAI, Anthropic, Mistral, Gemini, OpenRouter, Ollama)
+- **LLM provider** (OpenAI, Anthropic, Mistral, Gemini, OpenRouter, Requesty, Ollama)
 - **`ai_summary` template + model** (prompted only when you enable `ai_summary` for databases)
 - **Slack integration**
 - **Notion integration**
