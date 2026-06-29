@@ -114,7 +114,7 @@ function AutomationDetailPage() {
 								)}
 							</Button>
 						)}
-						{automation && (
+						{automation && automation.cron && (
 							<div className='flex items-center gap-2 rounded-md border bg-background/60 px-2.5 py-1.75'>
 								<Switch
 									checked={automation.enabled}
@@ -149,6 +149,7 @@ function AutomationDetailPage() {
 				{automation && (
 					<AutomationForm
 						id={automationFormId}
+						automationId={automationId}
 						initialValue={{
 							title: automation.title,
 							prompt: automation.prompt,
@@ -160,11 +161,13 @@ function AutomationDetailPage() {
 							mcpEnabled: automation.mcpEnabled,
 							mcpServers: automation.mcpServers ?? undefined,
 							integrations: automation.integrations,
+							webhookEnabled: automation.webhookEnabled,
 						}}
 						details={{
 							enabled: automation.enabled,
 							scheduleDescription: automation.scheduleDescription,
 							cron: automation.cron,
+							webhookEnabled: automation.webhookEnabled,
 							nextRunAt: automation.scheduledJob?.runAt,
 							lastRunAt: runs[0]?.startedAt,
 						}}
