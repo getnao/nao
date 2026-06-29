@@ -332,26 +332,26 @@ class AgentManager {
 	}
 
 	private async _prepareStep(messages: ModelMessage[]): Promise<{ messages: ModelMessage[] }> {
-		// await compactionService.compactConversationIfNeeded({
-		// 	chat: this.chat,
-		// 	provider: this._modelSelection.provider,
-		// 	messages,
-		// 	tools: this._agentTools,
-		// 	maxOutputTokens: MAX_OUTPUT_TOKENS,
-		// 	contextWindow: this._modelConfig.contextWindow,
-		// 	onCompactionStarted: () => {
-		// 		this._streamWriter?.write({
-		// 			type: 'data-compactionSummaryStarted',
-		// 			data: undefined,
-		// 		});
-		// 	},
-		// 	onCompactionFinished: (result) => {
-		// 		this._streamWriter?.write({
-		// 			type: 'data-compaction',
-		// 			data: result,
-		// 		});
-		// 	},
-		// });
+		await compactionService.compactConversationIfNeeded({
+			chat: this.chat,
+			provider: this._modelSelection.provider,
+			messages,
+			tools: this._agentTools,
+			maxOutputTokens: MAX_OUTPUT_TOKENS,
+			contextWindow: this._modelConfig.contextWindow,
+			onCompactionStarted: () => {
+				this._streamWriter?.write({
+					type: 'data-compactionSummaryStarted',
+					data: undefined,
+				});
+			},
+			onCompactionFinished: (result) => {
+				this._streamWriter?.write({
+					type: 'data-compaction',
+					data: result,
+				});
+			},
+		});
 
 		return { messages: this._addCache(this._pruneMessages(messages)) };
 	}
@@ -893,7 +893,6 @@ async function resolveImageUrls<T extends MessageLike>(messages: T[]): Promise<T
 				return part;
 			}
 			const base64Data = imageDataMap.get(match[1]);
-			console.log(`[debug] base64Data for ${match[1]}: ${base64Data}`);
 			if (!base64Data) {
 				return part;
 			}
