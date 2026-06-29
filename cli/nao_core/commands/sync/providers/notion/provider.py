@@ -146,7 +146,6 @@ class NotionSyncProvider(SyncProvider):
         project_path: Path | None = None,
         *,
         threads: int = 1,
-        select: list[str] | None = None,
     ) -> SyncResult:
         """Sync Notion pages to local filesystem as markdown files.
 

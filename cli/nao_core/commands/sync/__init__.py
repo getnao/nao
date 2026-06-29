@@ -2,7 +2,7 @@
 
 import sys
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 from cyclopts import Parameter
 from rich.console import Console
@@ -13,6 +13,7 @@ from nao_core.tracking import track_command
 
 from .providers import (
     PROVIDER_CHOICES,
+    DatabaseSyncProvider,
     ProviderSelection,
     SyncResult,
     get_all_providers,
@@ -96,6 +97,9 @@ def sync(
     else:
         active_providers = get_all_providers()
 
+    if select and not any(isinstance(s.provider, DatabaseSyncProvider) for s in active_providers):
+        console.print("[yellow]Warning:[/yellow] --select only applies to the databases provider; ignoring it here.")
+
     output_dirs = output_dirs or {}
 
     # Run each provider
@@ -124,9 +128,11 @@ def sync(
                     )
                     continue
 
-            result = sync_provider.sync(
-                items, output_path, project_path=project_path, threads=resolved_threads, select=select
-            )
+            sync_kwargs: dict[str, Any] = {"project_path": project_path, "threads": resolved_threads}
+            if isinstance(sync_provider, DatabaseSyncProvider):
+                sync_kwargs["select"] = select
+
+            result = sync_provider.sync(items, output_path, **sync_kwargs)
             results.append(result)
         except Exception as e:
             # Capture error but continue with other providers
