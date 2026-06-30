@@ -25,6 +25,7 @@ type ChatPromptProps = {
 	placeholder: string;
 	initialValue?: string;
 	minHeight?: string;
+	submitOnEnter?: boolean;
 	onChange: (value: string, mentions: SelectedMention[]) => void;
 	onEnter?: (value: string, mentions: SelectedMention[]) => void;
 };
@@ -68,7 +69,15 @@ function buildDatabaseObjectOptions(
 	}));
 }
 
-export function ChatPrompt({ promptRef, placeholder, initialValue, minHeight, onChange, onEnter }: ChatPromptProps) {
+export function ChatPrompt({
+	promptRef,
+	placeholder,
+	initialValue,
+	minHeight,
+	submitOnEnter = true,
+	onChange,
+	onEnter,
+}: ChatPromptProps) {
 	const { data: skills } = useQuery(trpc.skill.list.queryOptions());
 	const { data: databaseObjects } = useQuery(trpc.project.getDatabaseObjects.queryOptions());
 	const promptTheme = minHeight ? { ...theme, minHeight } : theme;
@@ -104,6 +113,7 @@ export function ChatPrompt({ promptRef, placeholder, initialValue, minHeight, on
 			]}
 			onChange={onChange}
 			onEnter={onEnter}
+			submitOnEnter={submitOnEnter}
 			className='w-full nao-input'
 			style={
 				{

@@ -789,6 +789,7 @@ function AutomationPromptInput({
 					initialValue={value}
 					placeholder='Type @ for tools, / for commands...'
 					minHeight='10rem'
+					submitOnEnter={false}
 					onChange={handleChange}
 				/>
 				{footer && <div className='flex items-center justify-between gap-2 px-3 pb-2.5'>{footer}</div>}
