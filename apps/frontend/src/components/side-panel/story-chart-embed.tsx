@@ -15,7 +15,7 @@ interface ChartBlock {
 	chartType: string;
 	xAxisKey: string;
 	xAxisType: string | null;
-	series: Array<{ data_key: string; color: string; label?: string }>;
+	series: Array<{ data_key: string; color: string; label?: string; is_total?: boolean }>;
 	title: string;
 	rawTag?: string;
 }
@@ -109,6 +109,7 @@ export function StoryChartEmbedShell({ chart, availableColumns, children }: Stor
 				data_key: s.data_key,
 				color: s.color || undefined,
 				label: s.label,
+				is_total: s.is_total,
 			})),
 			title: chart.title,
 		}),

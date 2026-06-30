@@ -484,6 +484,7 @@ const TOOLTIP_SCRIPT_TEMPLATE = `
 			var html='<div class="nao-tooltip-label">'+(isPie?labelize(cfg.series[0]&&(cfg.series[0].label||cfg.series[0].data_key)||''):labelize(label!=null?label:''))+'</div>';
 			html+='<div class="nao-tooltip-rows">';
 			var numericValues=[];
+			var hasTotalSeries=false;
 			cfg.series.forEach(function(s, si){
 				var color;
 				if(isPie){
@@ -495,6 +496,7 @@ const TOOLTIP_SCRIPT_TEMPLATE = `
 				}
 				var val=row[s.data_key];
 				if(typeof val==='number')numericValues.push(val);
+				if(s.is_total)hasTotalSeries=true;
 				var rowName=isPie?labelize(label!=null?label:''):labelize(s.label||s.data_key);
 				html+='<div class="nao-tooltip-row">'
 					+'<span class="nao-tooltip-swatch" style="background:'+escHtml(color)+'"></span>'
@@ -502,7 +504,7 @@ const TOOLTIP_SCRIPT_TEMPLATE = `
 					+'<span class="nao-tooltip-value">'+formatVal(val)+'</span>'
 					+'</div>';
 			});
-			if(numericValues.length>1){
+			if(numericValues.length>1 && !hasTotalSeries){
 				var total=numericValues.reduce(function(a,b){return a+b},0);
 				html+='<div class="nao-tooltip-total">'
 					+'<span class="nao-tooltip-name">Total</span>'

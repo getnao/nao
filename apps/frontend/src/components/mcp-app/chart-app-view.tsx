@@ -26,6 +26,7 @@ export const ChartAppView = memo(function ChartAppView({ config, data, naoUrl }:
 				data_key: s.data_key,
 				color: s.color ?? `var(--chart-${(i % 5) + 1})`,
 				label: s.label,
+				is_total: s.is_total,
 			})),
 		[config.series],
 	);

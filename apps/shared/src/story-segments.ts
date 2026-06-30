@@ -3,7 +3,7 @@ export interface ParsedChartBlock {
 	chartType: string;
 	xAxisKey: string;
 	xAxisType: string | null;
-	series: Array<{ data_key: string; color: string; label?: string }>;
+	series: Array<{ data_key: string; color: string; label?: string; is_total?: boolean }>;
 	title: string;
 	/** The original `<chart ... />` tag this block was parsed from, when available. */
 	rawTag?: string;
