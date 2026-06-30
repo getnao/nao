@@ -61,6 +61,7 @@ function AdminSystemPrompt({ timezone }: { timezone?: string }) {
 				{ALLOWED_APP_DB_VIEWS.map((view) => (
 					<Span key={view}>
 						<Code>{view}</Code> — {VIEW_DESCRIPTIONS[view] ?? ''} Columns:
+						<Br />
 						<List>
 							{(APP_DB_VIEW_COLUMNS[view] ?? []).map((column) => (
 								<ListItem key={column}>{column}</ListItem>

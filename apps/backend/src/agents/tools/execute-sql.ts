@@ -64,12 +64,14 @@ async function executeAppDbQuery(sqlQuery: string, context: ToolContext): Promis
 	const { columns, rows } = await queryAppDb(context.projectId, sqlQuery);
 	const id = `query_${crypto.randomUUID().slice(0, 8)}` as const;
 	context.queryResults.set(id, { columns, data: rows });
+	const appliedLimit = detectQueryRowLimit(sqlQuery);
 	return {
 		_version: '1',
 		data: rows,
 		row_count: rows.length,
 		columns,
 		id,
+		...(appliedLimit !== null && { applied_limit: appliedLimit }),
 	};
 }
 

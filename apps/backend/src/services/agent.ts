@@ -115,11 +115,21 @@ export const defaultAgentTools: AgentToolsResolver = ({ chat, agentSettings, web
  * runs against nao's own app database when `ToolContext.adminMode` is set),
  * plus charting and follow-ups. Excludes the filesystem context tools.
  */
-export const adminAgentTools: AgentToolsResolver = ({ agentSettings }) =>
+export const adminAgentTools: AgentToolsResolver = ({ chat, agentSettings }) =>
 	getTools(
 		agentSettings,
 		{},
-		{ builtinToolAllowlist: ['execute_sql', 'display_chart', 'suggest_follow_ups', 'story', 'clarification'] },
+		{
+			testMode: chat.testMode,
+			builtinToolAllowlist: [
+				'execute_sql',
+				'read_query_result',
+				'display_chart',
+				'suggest_follow_ups',
+				'story',
+				'clarification',
+			],
+		},
 	);
 
 export async function buildToolContext(opts: {

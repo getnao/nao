@@ -134,10 +134,11 @@ function ChatInputBase({
 	useEffect(() => promptRef.current?.focus(), [chatId, promptRef]);
 
 	useEffect(() => {
-		if (isAdmin && adminSearch) {
-			setAdminMode(true);
+		if (!isAdmin || chatId) {
+			return;
 		}
-	}, [isAdmin, adminSearch, setAdminMode]);
+		setAdminMode(!!adminSearch);
+	}, [isAdmin, chatId, adminSearch, setAdminMode]);
 
 	useEffect(() => {
 		const el = dropZoneRef.current;

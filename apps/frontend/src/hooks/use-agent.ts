@@ -62,6 +62,8 @@ export interface SendMessageArgs {
 export const selectedModelStorage = createLocalStorage<LlmSelectedModel>('nao-selected-model');
 
 const agentCitationStore = new WeakMap<Agent<UIMessage>, CitationData | undefined>();
+/** Admin mode captured at send time, so an ack-time toggle cannot mislabel the message. */
+const agentAdminModeStore = new WeakMap<Agent<UIMessage>, boolean>();
 
 export const useAgent = ({ disableNavigation = false }: { disableNavigation?: boolean } = {}): AgentHelpers => {
 	const navigate = useNavigate();
@@ -129,6 +131,7 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 				const { newId } = dataPart.data;
 				const citation = agentCitationStore.get(newAgent);
 				agentCitationStore.delete(newAgent);
+				const sentInAdminMode = agentAdminModeStore.get(newAgent) ?? false;
 				const lastUserMessageIndex = getLastUserMessageIdx(agent.messages);
 				agent.messages = agent.messages.map((message, idx) =>
 					idx === lastUserMessageIndex
@@ -136,7 +139,7 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 								...message,
 								id: newId,
 								...(citation && { citation }),
-								...(adminModeRef.current && { source: 'admin' as const }),
+								...(sentInAdminMode && { source: 'admin' as const }),
 							}
 						: message,
 				);
@@ -156,6 +159,8 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 					mentionsRef.current = [];
 					const citation = agentCitationStore.get(newAgent);
 					const images = extractImagesFromMessage(messageToSend);
+					const adminModeAtSend = adminModeRef.current;
+					agentAdminModeStore.set(newAgent, adminModeAtSend);
 					return {
 						headers: getActiveProjectId() ? { 'x-nao-project-id': getActiveProjectId()! } : undefined,
 						body: {
@@ -169,7 +174,7 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 							model: selectedModelRef.current ?? undefined,
 							mentions: mentions.length > 0 ? mentions : undefined,
 							timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-							adminMode: adminModeRef.current || undefined,
+							adminMode: adminModeAtSend || undefined,
 						},
 					};
 				},
