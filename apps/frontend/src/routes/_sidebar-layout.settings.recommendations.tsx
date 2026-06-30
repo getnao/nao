@@ -18,11 +18,11 @@ import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { SidePanelProvider } from '@/contexts/side-panel';
 import { useSidePanel } from '@/hooks/use-side-panel';
-import { requireAdmin } from '@/lib/require-admin';
+import { requireContextAdminOrAdmin } from '@/lib/require-admin';
 import { trpc } from '@/main';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/recommendations')({
-	beforeLoad: requireAdmin,
+	beforeLoad: requireContextAdminOrAdmin,
 	component: RecommendationsPage,
 });
 

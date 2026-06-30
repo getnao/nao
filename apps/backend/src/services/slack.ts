@@ -494,7 +494,7 @@ class ProjectSlackBot {
 
 	private async _checkUserBelongsToProject(ctx: ConversationContext): Promise<void> {
 		const role = await projectQueries.getUserRoleInProject(this.projectId, ctx.user!.id);
-		if (role !== 'admin' && role !== 'user') {
+		if (role !== 'admin' && role !== 'user' && role !== 'context_admin') {
 			await ctx.thread.post(
 				"❌ You don't have permission to use nao in this project. Please contact an administrator.",
 			);

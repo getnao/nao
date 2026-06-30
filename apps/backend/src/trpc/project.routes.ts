@@ -25,7 +25,13 @@ import { isValidIsoDateString } from '../utils/date';
 import { getEnvApiKey, getEnvBaseUrls, getEnvProviders, getProjectAvailableModels } from '../utils/llm';
 import { extractRequiredEnvVars } from '../utils/nao-config';
 import { buildCredentialPreviews } from '../utils/utils';
-import { adminProtectedProcedure, projectProtectedProcedure, protectedProcedure, publicProcedure } from './trpc';
+import {
+	adminProtectedProcedure,
+	contextAdminProtectedProcedure,
+	projectProtectedProcedure,
+	protectedProcedure,
+	publicProcedure,
+} from './trpc';
 
 const isoDateString = z.string().refine(isValidIsoDateString, {
 	message: 'Must be a valid YYYY-MM-DD date',
@@ -797,7 +803,7 @@ export const projectRoutes = {
 			return next;
 		}),
 
-	getProjectChats: adminProtectedProcedure
+	getProjectChats: contextAdminProtectedProcedure
 		.input(
 			z.object({
 				page: z.number().int().min(0).default(0),
@@ -831,20 +837,22 @@ export const projectRoutes = {
 			return projectQueries.listProjectChats(ctx.project.id, input);
 		}),
 
-	getChatReplay: adminProtectedProcedure.input(z.object({ chatId: z.string() })).query(async ({ ctx, input }) => {
-		const projectId = await chatQueries.getChatProjectId(input.chatId);
-		if (!projectId || projectId !== ctx.project.id) {
-			throw new TRPCError({ code: 'NOT_FOUND', message: `Chat with id ${input.chatId} not found.` });
-		}
+	getChatReplay: contextAdminProtectedProcedure
+		.input(z.object({ chatId: z.string() }))
+		.query(async ({ ctx, input }) => {
+			const projectId = await chatQueries.getChatProjectId(input.chatId);
+			if (!projectId || projectId !== ctx.project.id) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: `Chat with id ${input.chatId} not found.` });
+			}
 
-		const [chat, ownerId] = await chatQueries.getChat(input.chatId, { includeFeedback: true });
-		if (!chat) {
-			throw new TRPCError({ code: 'NOT_FOUND', message: `Chat with id ${input.chatId} not found.` });
-		}
+			const [chat, ownerId] = await chatQueries.getChat(input.chatId, { includeFeedback: true });
+			if (!chat) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: `Chat with id ${input.chatId} not found.` });
+			}
 
-		const ownerName = ownerId ? await userQueries.getUserName(ownerId) : null;
-		return { ...chat, ownerId: ownerId ?? null, ownerName };
-	}),
+			const ownerName = ownerId ? await userQueries.getUserName(ownerId) : null;
+			return { ...chat, ownerId: ownerId ?? null, ownerName };
+		}),
 
 	getEnvVars: adminProtectedProcedure.query(async ({ ctx }) => {
 		const requiredVars = ctx.project.path ? extractRequiredEnvVars(ctx.project.path) : [];

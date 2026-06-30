@@ -18,11 +18,11 @@ import {
 import { getProjectAvailableModels } from '../utils/llm';
 import { logger } from '../utils/logger';
 import { extractConfiguredRepos } from '../utils/nao-config';
-import { adminProtectedProcedure } from './trpc';
+import { contextAdminProtectedProcedure } from './trpc';
 
 const MAX_CUSTOM_SYSTEM_PROMPT_INSTRUCTIONS_LENGTH = 4000;
 
-const recommendationsProcedure = adminProtectedProcedure.use(async ({ next }) => {
+const recommendationsProcedure = contextAdminProtectedProcedure.use(async ({ next }) => {
 	if (!env.BETA_CONTEXT_RECOMMENDATIONS_ENABLED) {
 		throw new TRPCError({ code: 'FORBIDDEN', message: 'Context recommendations are disabled on this instance.' });
 	}

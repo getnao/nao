@@ -20,6 +20,7 @@ const badgeVariants = cva(
 				admin: 'bg-primary/10 text-primary',
 				user: 'bg-blue-500/10 text-blue-500',
 				viewer: 'bg-muted text-muted-foreground',
+				context_admin: 'bg-amber-500/10 text-amber-600 dark:text-amber-500',
 			},
 		},
 		defaultVariants: {

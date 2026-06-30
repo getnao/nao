@@ -6,6 +6,8 @@ export interface SettingsSearchEntry {
 	description?: string;
 	keywords?: string[];
 	adminOnly?: boolean;
+	/** Visible to admins and context admins (observability surfaces). */
+	adminOrContextAdmin?: boolean;
 	cloudHidden?: boolean;
 	cloudOnly?: boolean;
 	licenseRequired?: boolean;
@@ -418,7 +420,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		title: 'Chats Replay',
 		description: 'Replay and review past chat conversations.',
 		keywords: ['history', 'conversation', 'replay', 'review'],
-		adminOnly: true,
+		adminOrContextAdmin: true,
 	},
 
 	// ── Context Recommendations ──────────────────────────────
@@ -447,7 +449,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 			'automatic',
 			'pr',
 		],
-		adminOnly: true,
+		adminOrContextAdmin: true,
 	},
 
 	// ── Logs ─────────────────────────────────────────────────

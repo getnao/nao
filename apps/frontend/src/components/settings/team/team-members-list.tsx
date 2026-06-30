@@ -1,5 +1,7 @@
 import { EllipsisVertical } from 'lucide-react';
 
+import { USER_ROLE_LABELS } from '@nao/shared/types';
+
 import type { TeamMember } from './types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -56,7 +58,7 @@ export function TeamMembersList({
 							</TableCell>
 							<TableCell className='font-mono text-muted-foreground'>{member.email}</TableCell>
 							<TableCell>
-								<Badge variant={member.role}>{member.role}</Badge>
+								<Badge variant={member.role}>{USER_ROLE_LABELS[member.role]}</Badge>
 							</TableCell>
 							{hasActions && (
 								<TableCell className='w-0'>

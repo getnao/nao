@@ -45,7 +45,7 @@ export function Sidebar() {
 	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
 	const license = useQuery(trpc.license.getStatus.queryOptions());
 	const branding = useBranding();
-	const { isAdmin, isViewer } = usePermissions();
+	const { isAdmin, isContextAdmin, isViewer } = usePermissions();
 	const isCloud = config.data?.naoMode === 'cloud';
 	const betaAutomationsEnabled = config.data?.betaAutomationsEnabled === true;
 	const { groupBy, filters, setGroupBy, toggleFilter } = useChatViewPreferences();
@@ -262,6 +262,7 @@ export function Sidebar() {
 				<SidebarSettingsNav
 					isCollapsed={effectiveIsCollapsed}
 					isAdmin={isAdmin}
+					isContextAdmin={isContextAdmin}
 					isViewer={isViewer}
 					isCloud={isCloud}
 					hasLicense={hasLicense}

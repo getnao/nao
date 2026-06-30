@@ -1,3 +1,6 @@
+import { USER_ROLE_LABELS } from '@nao/shared/types';
+import type { UserRole } from '@nao/shared/types';
+
 import {
 	Select,
 	SelectContent,
@@ -12,7 +15,7 @@ import { cn } from '@/lib/utils';
 export type ProjectOption = {
 	id: string;
 	name: string;
-	userRole: 'admin' | 'user' | 'viewer';
+	userRole: UserRole;
 };
 
 export function ProjectSelector({
@@ -51,8 +54,8 @@ export function ProjectSelector({
 							<SelectItem key={project.id} value={project.id}>
 								<span className='flex min-w-0 items-center justify-between gap-3'>
 									<span className='truncate'>{project.name}</span>
-									<span className='shrink-0 text-xs capitalize text-muted-foreground'>
-										{project.userRole}
+									<span className='shrink-0 text-xs text-muted-foreground'>
+										{USER_ROLE_LABELS[project.userRole]}
 									</span>
 								</span>
 							</SelectItem>

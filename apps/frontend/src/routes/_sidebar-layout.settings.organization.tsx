@@ -2,7 +2,7 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, useCallback } from 'react';
 import { Github, Plus } from 'lucide-react';
-import { USER_ROLES } from '@nao/shared/types';
+import { ORG_MEMBER_ROLES, USER_ROLE_LABELS } from '@nao/shared/types';
 import type { UserRole } from '@nao/shared/types';
 
 import type { TeamMember } from '@/components/settings/team';
@@ -90,7 +90,10 @@ function OrganizationPage() {
 	};
 
 	const handleEdit = async (data: { userId: string; name?: string; newRole?: UserRole }) => {
-		await modifyMember.mutateAsync(data);
+		await modifyMember.mutateAsync({
+			...data,
+			newRole: data.newRole as (typeof ORG_MEMBER_ROLES)[number] | undefined,
+		});
 		invalidateMembers();
 		if (session?.user) {
 			await queryClient.invalidateQueries({ queryKey: ['session'] });
@@ -180,7 +183,7 @@ function OrganizationPage() {
 									<TableRow key={project.id}>
 										<TableCell className='font-medium'>{project.name}</TableCell>
 										<TableCell>
-											<Badge variant={project.role}>{project.role}</Badge>
+											<Badge variant={project.role}>{USER_ROLE_LABELS[project.role]}</Badge>
 										</TableCell>
 									</TableRow>
 								))}
@@ -211,7 +214,7 @@ function OrganizationPage() {
 				onOpenChange={(open) => !open && setEditMember(null)}
 				member={editMember}
 				isAdmin={isOrgAdmin}
-				availableRoles={USER_ROLES}
+				availableRoles={ORG_MEMBER_ROLES}
 				onSubmit={handleEdit}
 			/>
 

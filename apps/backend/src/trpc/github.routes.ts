@@ -12,7 +12,7 @@ import * as orgQueries from '../queries/organization.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as userQueries from '../queries/user.queries';
 import * as githubService from '../services/github';
-import { adminProtectedProcedure, protectedProcedure } from './trpc';
+import { adminProtectedProcedure, contextAdminProtectedProcedure, protectedProcedure } from './trpc';
 
 export const githubRoutes = {
 	isAvailable: protectedProcedure.query(() => {
@@ -120,14 +120,14 @@ export const githubRoutes = {
 			}
 		}),
 
-	getProjectGitInfo: adminProtectedProcedure.query(({ ctx }) => {
+	getProjectGitInfo: contextAdminProtectedProcedure.query(({ ctx }) => {
 		if (!ctx.project.path) {
 			return null;
 		}
 		return githubService.getGitInfo(ctx.project.path);
 	}),
 
-	unlinkProject: adminProtectedProcedure.mutation(async ({ ctx }) => {
+	unlinkProject: contextAdminProtectedProcedure.mutation(async ({ ctx }) => {
 		if (!ctx.project.path) {
 			throw new TRPCError({ code: 'BAD_REQUEST', message: 'Project path not configured' });
 		}

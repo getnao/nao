@@ -14,6 +14,7 @@ import { cn, hideIf } from '@/lib/utils';
 
 interface NavContext {
 	isAdmin: boolean;
+	isContextAdmin: boolean;
 	isCloud: boolean;
 	hasLicense: boolean;
 	isViewer: boolean;
@@ -57,7 +58,7 @@ const settingsNavItems: NavItem[] = [
 	{
 		label: 'Observability',
 		type: 'divider',
-		visible: ({ isAdmin }) => isAdmin,
+		visible: ({ isAdmin, isContextAdmin }) => isAdmin || isContextAdmin,
 	},
 	{
 		label: 'Usage & costs',
@@ -67,12 +68,12 @@ const settingsNavItems: NavItem[] = [
 	{
 		label: 'Chats Replay',
 		to: '/settings/chats-replay',
-		visible: ({ isAdmin }) => isAdmin,
+		visible: ({ isAdmin, isContextAdmin }) => isAdmin || isContextAdmin,
 	},
 	{
 		label: 'Recommendations',
 		to: '/settings/recommendations',
-		visible: ({ isAdmin }) => isAdmin,
+		visible: ({ isAdmin, isContextAdmin }) => isAdmin || isContextAdmin,
 		badge: 'Beta',
 		badgeVariant: 'new',
 	},
@@ -116,6 +117,7 @@ const settingsNavItems: NavItem[] = [
 interface SidebarSettingsNavProps {
 	isCollapsed: boolean;
 	isAdmin: boolean;
+	isContextAdmin: boolean;
 	isViewer: boolean;
 	isCloud: boolean;
 	hasLicense: boolean;
@@ -138,6 +140,7 @@ function dedupeByPage(results: FuseResult<SettingsSearchEntry>[]) {
 export function SidebarSettingsNav({
 	isCollapsed,
 	isAdmin,
+	isContextAdmin,
 	isViewer,
 	isCloud,
 	hasLicense,
@@ -151,8 +154,14 @@ export function SidebarSettingsNav({
 
 	const navItems = settingsNavItems.filter(
 		(item) =>
-			item.visible?.({ isAdmin, isCloud, isViewer, isInMultipleProjects: projects.length > 1, hasLicense }) ??
-			true,
+			item.visible?.({
+				isAdmin,
+				isContextAdmin,
+				isCloud,
+				isViewer,
+				isInMultipleProjects: projects.length > 1,
+				hasLicense,
+			}) ?? true,
 	);
 	const canSwitchProjects = projects.length > 1 && !!currentProjectId;
 
@@ -176,6 +185,7 @@ export function SidebarSettingsNav({
 		const entries = settingsSearchIndex.filter(
 			(e) =>
 				(!e.adminOnly || isAdmin) &&
+				(!e.adminOrContextAdmin || isAdmin || isContextAdmin) &&
 				(!e.cloudHidden || !isCloud) &&
 				(!e.cloudOnly || isCloud) &&
 				(!e.licenseRequired || hasLicense),
@@ -190,7 +200,7 @@ export function SidebarSettingsNav({
 			threshold: 0.4,
 			includeScore: true,
 		});
-	}, [isAdmin, isCloud, hasLicense]);
+	}, [isAdmin, isContextAdmin, isCloud, hasLicense]);
 
 	const results = useMemo(() => {
 		if (query.length < 2) {
@@ -292,6 +302,7 @@ export function SidebarSettingsNav({
 						const isDisabled =
 							item.disabled?.({
 								isAdmin,
+								isContextAdmin,
 								isCloud,
 								isViewer,
 								isInMultipleProjects: projects.length > 1,

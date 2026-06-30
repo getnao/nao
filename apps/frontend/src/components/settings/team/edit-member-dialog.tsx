@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useForm } from '@tanstack/react-form';
 import { ChevronDown } from 'lucide-react';
-import { USER_ROLES } from '@nao/shared/types';
+import { USER_ROLE_LABELS, USER_ROLES } from '@nao/shared/types';
 import type { UserRole } from '@nao/shared/types';
 
 import type { TeamMember } from './types';
@@ -106,7 +106,7 @@ export function EditMemberDialog({
 									<DropdownMenu>
 										<DropdownMenuTrigger asChild>
 											<Button variant='outline' className='w-full justify-between'>
-												<span className='capitalize'>{field.state.value}</span>
+												<span>{USER_ROLE_LABELS[field.state.value]}</span>
 												<ChevronDown className='h-4 w-4 opacity-50' />
 											</Button>
 										</DropdownMenuTrigger>
@@ -117,7 +117,7 @@ export function EditMemberDialog({
 													onClick={() => field.handleChange(role)}
 													className={field.state.value === role ? 'bg-accent' : ''}
 												>
-													<span className='capitalize'>{role}</span>
+													<span>{USER_ROLE_LABELS[role]}</span>
 												</DropdownMenuItem>
 											))}
 										</DropdownMenuContent>
