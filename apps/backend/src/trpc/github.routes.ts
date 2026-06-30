@@ -127,7 +127,7 @@ export const githubRoutes = {
 		return githubService.getGitInfo(ctx.project.path);
 	}),
 
-	unlinkProject: contextAdminProtectedProcedure.mutation(async ({ ctx }) => {
+	unlinkProject: adminProtectedProcedure.mutation(async ({ ctx }) => {
 		if (!ctx.project.path) {
 			throw new TRPCError({ code: 'BAD_REQUEST', message: 'Project path not configured' });
 		}
