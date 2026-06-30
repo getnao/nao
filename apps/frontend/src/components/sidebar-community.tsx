@@ -40,7 +40,7 @@ export function SidebarCommunity({ isCollapsed }: SidebarCommunityProps) {
 					target='_blank'
 					rel='noopener noreferrer'
 					className={cn(
-						'p-1.5 rounded-md text-muted-foreground/40 hover:text-muted-foreground hover:bg-sidebar-accent transition-colors',
+						'p-1.5 rounded-full text-muted-foreground/40 hover:text-muted-foreground hover:bg-sidebar-accent transition-colors',
 					)}
 					title='GitHub'
 				>
@@ -51,7 +51,7 @@ export function SidebarCommunity({ isCollapsed }: SidebarCommunityProps) {
 					target='_blank'
 					rel='noopener noreferrer'
 					className={cn(
-						'p-1.5 rounded-md text-muted-foreground/40 hover:text-muted-foreground hover:bg-sidebar-accent transition-colors',
+						'p-1.5 rounded-full text-muted-foreground/40 hover:text-muted-foreground hover:bg-sidebar-accent transition-colors',
 					)}
 					title='Join Slack'
 				>
@@ -61,7 +61,7 @@ export function SidebarCommunity({ isCollapsed }: SidebarCommunityProps) {
 					type='button'
 					onClick={handleNewsletterClick}
 					className={cn(
-						'relative p-1.5 rounded-md text-muted-foreground/40 hover:text-muted-foreground hover:bg-sidebar-accent transition-colors',
+						'relative p-1.5 rounded-full text-muted-foreground/40 hover:text-muted-foreground hover:bg-sidebar-accent transition-colors',
 					)}
 					title='Subscribe to newsletter'
 					aria-label='Subscribe to newsletter'

@@ -12,6 +12,7 @@ export type ChartConfig = {
 	[k in string]: {
 		label?: React.ReactNode;
 		icon?: React.ComponentType;
+		isTotal?: boolean;
 	} & ({ color?: string; theme?: never } | { color?: never; theme: Record<keyof typeof THEMES, string> });
 };
 
@@ -144,10 +145,14 @@ function ChartTooltipContent({
 
 	const nestLabel = payload.length === 1 && indicator !== 'dot';
 
-	// Calculate total if there are multiple numeric values that can be summed
+	// Calculate total if there are multiple numeric values that can be summed and no total column.
 	const visiblePayload = payload.filter((item) => item.type !== 'none');
 	const numericValues = visiblePayload.map((item) => item.value).filter((v): v is number => typeof v === 'number');
-	const showTotal = numericValues.length > 1;
+	const hasTotalSeries = visiblePayload.some((item) => {
+		const key = `${nameKey || item.name || item.dataKey || 'value'}`;
+		return getPayloadConfigFromPayload(config, item, key)?.isTotal === true;
+	});
+	const showTotal = numericValues.length > 1 && !hasTotalSeries;
 	const total = showTotal ? numericValues.reduce((sum, v) => sum + v, 0) : 0;
 
 	return (

@@ -329,6 +329,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 			acc[s.data_key] = {
 				label: s.label || labelize(s.data_key, dateFormat),
 				color: s.color || Colors[idx % Colors.length],
+				isTotal: s.is_total,
 			};
 			return acc;
 		}, {} as ChartConfig);
