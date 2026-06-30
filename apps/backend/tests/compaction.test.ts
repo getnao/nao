@@ -8,11 +8,13 @@ import type { AgentTools, UIMessage } from '../src/types/chat';
 const mocks = vi.hoisted(() => ({
 	compactMock: vi.fn(),
 	resolveProviderModelMock: vi.fn(),
+	resolveAnnotationModelIdMock: vi.fn(),
 	scheduleSaveMock: vi.fn(),
 }));
 
 vi.mock('../src/utils/llm', () => ({
 	resolveProviderModel: mocks.resolveProviderModelMock,
+	resolveAnnotationModelId: mocks.resolveAnnotationModelIdMock,
 }));
 
 vi.mock('../src/utils/schedule-task', () => ({
@@ -43,6 +45,7 @@ describe('compactionService.compactConversationIfNeeded', () => {
 			tokenCounter,
 		});
 		mocks.resolveProviderModelMock.mockResolvedValue({ model: {} });
+		mocks.resolveAnnotationModelIdMock.mockResolvedValue('gpt-4.1-mini');
 		mocks.compactMock.mockResolvedValue({
 			summary: 'Conversation summary',
 			usage: { totalTokens: 123 },
