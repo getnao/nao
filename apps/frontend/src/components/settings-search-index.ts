@@ -559,6 +559,15 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		cloudHidden: true,
 	},
 
+	// ── Rules (user-level) ───────────────────────────────────
+	{
+		page: '/settings/rules',
+		pageLabel: 'Rules',
+		title: 'Rules',
+		description: 'Personal rules added to every system prompt and layered on top of global project rules.',
+		keywords: ['rules', 'instructions', 'preferences', 'system prompt', 'personal rules', 'guidelines'],
+	},
+
 	// ── Memory (user-level) ──────────────────────────────────
 	{
 		page: '/settings/memory',

@@ -4,10 +4,13 @@ import { z } from 'zod/v4';
 import { DBMemory } from '../db/abstractSchema';
 import { UIMessage } from './chat';
 
-/** Categories of memories that can be extracted from user messages. Ordered by priority. */
-export const MEMORY_CATEGORIES = ['global_rule', 'personal_fact'] as const;
+/** Categories of memories. Ordered by priority for system prompt injection. */
+export const MEMORY_CATEGORIES = ['personal_rule', 'global_rule', 'personal_fact'] as const;
 
 export type MemoryCategory = (typeof MEMORY_CATEGORIES)[number];
+
+/** User-authored rules managed from settings (not extracted from conversations). */
+export const PERSONAL_RULE_CATEGORY = 'personal_rule' satisfies MemoryCategory;
 
 export interface UserMemory {
 	category: MemoryCategory;

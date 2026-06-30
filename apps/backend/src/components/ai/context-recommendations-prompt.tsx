@@ -50,6 +50,11 @@ function ContextRecommendationsPrompt({
 						Repeated corrections: v_memories where category = &quot;global_rule&quot; — each is a rule users
 						had to teach; it likely belongs in RULES.md or semantics/*.md.
 					</ListItem>
+					<ListItem>
+						De-facto rules: v_memories where category = &quot;personal_rule&quot; — these are personal rules
+						users defined for themselves. Cluster by user_id and content; when several users independently
+						defined a similar rule, it is a strong candidate to promote into RULES.md as shared context.
+					</ListItem>
 					<ListItem>Downvote themes: v_messages where vote = &quot;down&quot; (+ explanation).</ListItem>
 					<ListItem>Regeneration / friction: v_messages where superseded_at is not null.</ListItem>
 					<ListItem>

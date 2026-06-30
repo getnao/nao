@@ -30,7 +30,7 @@ class MemoryService {
 			if (!isEnabled) {
 				return [];
 			}
-			const memories = await memoryQueries.getUserMemories(userId, excludeChatId);
+			const memories = await memoryQueries.getUserMemoriesForPrompt(userId, projectId, excludeChatId);
 			return memories.map((memory) => ({
 				category: memory.category,
 				content: memory.content,

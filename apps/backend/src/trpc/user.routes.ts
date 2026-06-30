@@ -99,6 +99,6 @@ export const userRoutes = {
 	}),
 
 	getMemories: protectedProcedure.query(async ({ ctx }) => {
-		return memoryQueries.getUserMemories(ctx.user.id);
+		return memoryQueries.getUserSavedMemories(ctx.user.id);
 	}),
 };

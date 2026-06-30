@@ -31,7 +31,9 @@ export function SystemPrompt({
 	timezone,
 	testMode,
 }: SystemPromptProps) {
-	const visibleMemories = getMemoriesInTokenRange(memories, MEMORY_TOKEN_LIMIT);
+	const personalRules = memories.filter((memory) => memory.category === 'personal_rule');
+	const otherMemories = memories.filter((memory) => memory.category !== 'personal_rule');
+	const visibleMemories = getMemoriesInTokenRange(otherMemories, MEMORY_TOKEN_LIMIT);
 	const hasClickHouse = connections.some((connection) => connection.type.toLowerCase() === 'clickhouse');
 	const hasTSQL = connections.some((connection) => ['mssql', 'fabric'].includes(connection.type.toLowerCase()));
 	const hasBigQuery = connections.some((connection) => connection.type.toLowerCase() === 'bigquery');
@@ -186,10 +188,21 @@ export function SystemPrompt({
 				</ListItem>
 			</List>
 			<Block separator={'\n\n---\n\n'}>
-				{userRules && (
+				{(userRules || personalRules.length > 0) && (
 					<Block>
 						<Title level={2}>User Rules</Title>
 						{userRules}
+						{personalRules.length > 0 && (
+							<>
+								<Title level={3}>Personal Rules</Title>
+								<Span>These rules were defined by the user in their settings. Always follow them.</Span>
+								<List>
+									{personalRules.map((rule) => (
+										<ListItem>{rule.content}</ListItem>
+									))}
+								</List>
+							</>
+						)}
 					</Block>
 				)}
 
@@ -249,6 +262,7 @@ function getMemoriesInTokenRange(memories: UserMemory[], limit: number): UserMem
 }
 
 const CATEGORY_LABEL: Record<MemoryCategory, string> = {
+	personal_rule: 'Personal Rules',
 	global_rule: 'Global User Rules',
 	personal_fact: 'User Profile',
 };

@@ -1,4 +1,4 @@
-import { asc, eq, inArray } from 'drizzle-orm';
+import { asc, eq, inArray, or } from 'drizzle-orm';
 import { pgTable, QueryBuilder as PgQueryBuilder, text as pgText } from 'drizzle-orm/pg-core';
 import { QueryBuilder as SqliteQueryBuilder, sqliteTable, text as sqliteText } from 'drizzle-orm/sqlite-core';
 
@@ -77,6 +77,7 @@ function buildScopedViews(schema: ViewSchema, scope: ScopeTable, qb: SqliteQuery
 		content: memories.content,
 		category: memories.category,
 		chat_id: memories.chatId,
+		project_id: memories.projectId,
 		superseded_by: memories.supersededBy,
 		created_at: memories.createdAt,
 	};
@@ -118,9 +119,12 @@ function buildScopedViews(schema: ViewSchema, scope: ScopeTable, qb: SqliteQuery
 				.select(memoriesSelection)
 				.from(memories)
 				.where(
-					inArray(
-						memories.chatId,
-						qb.select({ id: chat.id }).from(chat).where(inArray(chat.projectId, scopedProjectIds())),
+					or(
+						inArray(
+							memories.chatId,
+							qb.select({ id: chat.id }).from(chat).where(inArray(chat.projectId, scopedProjectIds())),
+						),
+						inArray(memories.projectId, scopedProjectIds()),
 					),
 				),
 		),

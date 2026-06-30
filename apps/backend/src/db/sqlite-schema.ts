@@ -940,11 +940,13 @@ export const memories = sqliteTable(
 			.$onUpdate(() => new Date())
 			.notNull(),
 		chatId: text('chat_id').references(() => chat.id, { onDelete: 'set null' }),
+		projectId: text('project_id').references(() => project.id, { onDelete: 'cascade' }),
 		supersededBy: text('superseded_by'),
 	},
 	(t) => [
 		index('memories_userId_idx').on(t.userId),
 		index('memories_chatId_idx').on(t.chatId),
+		index('memories_projectId_idx').on(t.projectId),
 		index('memories_supersededBy_idx').on(t.supersededBy),
 	],
 );

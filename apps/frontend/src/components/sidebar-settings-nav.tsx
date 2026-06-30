@@ -102,6 +102,11 @@ const settingsNavItems: NavItem[] = [
 		visible: ({ isViewer }) => !isViewer,
 	},
 	{
+		label: 'Rules',
+		to: '/settings/rules',
+		visible: ({ isViewer }) => !isViewer,
+	},
+	{
 		label: 'Memory',
 		to: '/settings/memory',
 		visible: ({ isViewer }) => !isViewer,
