@@ -1560,6 +1560,7 @@ function McpSubMenu({
 
 function AutomationDetailSummary({ details }: { details: AutomationDetails }) {
 	const hasSchedule = Boolean(details.cron);
+	const isPaused = hasSchedule && !details.enabled;
 
 	return (
 		<div className='grid gap-2 rounded-lg'>
@@ -1574,10 +1575,17 @@ function AutomationDetailSummary({ details }: { details: AutomationDetails }) {
 					value={details.enabled ? formatDateTime(details.nextRunAt) : '-'}
 				/>
 			)}
-			<DetailRow label='Webhook trigger' value={details.webhookEnabled ? 'Enabled' : 'Disabled'} />
+			<DetailRow label='Webhook trigger' value={webhookTriggerLabel(details.webhookEnabled, isPaused)} />
 			<DetailRow label='Last run (your time)' value={formatDateTime(details.lastRunAt)} />
 		</div>
 	);
+}
+
+function webhookTriggerLabel(webhookEnabled: boolean | undefined, isPaused: boolean): string {
+	if (!webhookEnabled) {
+		return 'Disabled';
+	}
+	return isPaused ? 'Paused' : 'Enabled';
 }
 
 function DetailRow({ label, value }: { label: string; value: string }) {

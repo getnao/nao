@@ -443,7 +443,13 @@ function AutomationListItem({
 	const timeAgo = useTimeAgo(new Date(item.updatedAt).getTime());
 	const hasSchedule = Boolean(item.cron);
 	const isActive = hasSchedule ? item.enabled : item.webhookEnabled;
-	const statusLabel = hasSchedule ? (item.enabled ? timeAgo.humanReadable : 'paused') : 'webhook';
+	const statusLabel = hasSchedule
+		? item.enabled
+			? timeAgo.humanReadable
+			: 'paused'
+		: item.webhookEnabled
+			? 'webhook'
+			: 'paused';
 
 	return (
 		<Link
