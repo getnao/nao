@@ -115,6 +115,8 @@ function StoriesPage() {
 
 	const [selectedStoryIds, setSelectedStoryIds] = useState<Set<string>>(new Set());
 	const [selectedFolderIds, setSelectedFolderIds] = useState<Set<string>>(new Set());
+	const [selectionMode, setSelectionMode] = useState(false);
+	const selectionActive = selectionMode || selectedStoryIds.size + selectedFolderIds.size > 0;
 
 	const project = useQuery(trpc.project.getCurrent.queryOptions());
 	const projects = useQuery(trpc.project.listForCurrentUser.queryOptions());
@@ -304,6 +306,15 @@ function StoriesPage() {
 	function clearSelection() {
 		setSelectedStoryIds(new Set());
 		setSelectedFolderIds(new Set());
+		setSelectionMode(false);
+	}
+
+	function toggleSelectionMode() {
+		if (selectionActive) {
+			clearSelection();
+		} else {
+			setSelectionMode(true);
+		}
 	}
 
 	function deselectStoryIds(storyIds: string[]) {
@@ -581,6 +592,8 @@ function StoriesPage() {
 									onDisplayModeChange={handleDisplayChange}
 									showArchived={showArchived}
 									onShowArchivedChange={handleShowArchivedChange}
+									selectionActive={selectionActive}
+									onToggleSelection={toggleSelectionMode}
 								/>
 							)}
 						</div>
@@ -601,6 +614,7 @@ function StoriesPage() {
 							selectedFolderIds={selectedFolderIds}
 							onToggleStory={toggleStorySelection}
 							onToggleFolder={toggleFolderSelection}
+							selectionMode={selectionMode}
 						/>
 					)}
 
@@ -628,6 +642,7 @@ function StoriesPage() {
 						selectedFolderIds={selectedFolderIds}
 						onToggleStory={toggleStorySelection}
 						onToggleFolder={toggleFolderSelection}
+						selectionMode={selectionMode}
 					/>
 
 					<DragOverlay>{activeDragItem && <DragOverlayCard item={activeDragItem} />}</DragOverlay>

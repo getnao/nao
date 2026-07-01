@@ -26,6 +26,7 @@ export function StoriesExplorer({
 	selectedFolderIds,
 	onToggleStory,
 	onToggleFolder,
+	selectionMode = false,
 }: {
 	entries: ExplorerEntry[];
 	displayMode: StoryPanelDisplayMode;
@@ -44,12 +45,13 @@ export function StoriesExplorer({
 	selectedFolderIds: Set<string>;
 	onToggleStory: (storyId: string) => void;
 	onToggleFolder: (folderId: string) => void;
+	selectionMode?: boolean;
 }) {
 	const { isViewer } = usePermissions();
 	const isInSharedWithMe = currentFolderId === '__shared_with_me__';
 	const canCreateFolder = !showArchived && !isViewer && !isInSharedWithMe;
 	const moveToFolderHandler = isViewer || isInSharedWithMe ? undefined : onMoveToFolder;
-	const selectionActive = selectedStoryIds.size + selectedFolderIds.size > 0;
+	const selectionActive = selectionMode || selectedStoryIds.size + selectedFolderIds.size > 0;
 
 	if (entries.length === 0) {
 		if (searchQuery.trim()) {

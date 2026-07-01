@@ -34,6 +34,7 @@ export function PromotedSections({
 	selectedFolderIds,
 	onToggleStory,
 	onToggleFolder,
+	selectionMode = false,
 }: {
 	pinned: StoryItem[];
 	favorites: FavoriteEntry[];
@@ -48,12 +49,13 @@ export function PromotedSections({
 	selectedFolderIds?: Set<string>;
 	onToggleStory?: (storyId: string) => void;
 	onToggleFolder?: (folderId: string) => void;
+	selectionMode?: boolean;
 }) {
 	const columns = useGridColumns();
 	const [pinnedCollapsed, togglePinned] = useCollapsedState(PINNED_COLLAPSED_KEY);
 	const [favoritesCollapsed, toggleFavorites] = useCollapsedState(FAVORITES_COLLAPSED_KEY);
 
-	const selectionActive = (selectedStoryIds?.size ?? 0) + (selectedFolderIds?.size ?? 0) > 0;
+	const selectionActive = selectionMode || (selectedStoryIds?.size ?? 0) + (selectedFolderIds?.size ?? 0) > 0;
 
 	const groups = [
 		{

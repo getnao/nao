@@ -81,7 +81,7 @@ export function FolderCard({
 		isDragging,
 	} = useDraggable({
 		id: draggableId,
-		disabled: isVirtual || isSystemFolder(folder) || isViewer || !canManage,
+		disabled: isVirtual || isSystemFolder(folder) || isViewer || !canManage || selectionActive,
 	});
 	const { setNodeRef: setDropRef, isOver } = useDroppable({
 		id: droppableId,
@@ -102,6 +102,14 @@ export function FolderCard({
 		if (canSelect && onToggleSelect) {
 			onToggleSelect(folder.id);
 		}
+	}
+
+	function handleLinkClick(e: MouseEvent<HTMLElement>) {
+		if (selectionActive && canSelect) {
+			handleToggleSelect(e);
+			return;
+		}
+		e.stopPropagation();
 	}
 
 	if (displayMode === 'lines') {
@@ -134,12 +142,7 @@ export function FolderCard({
 						to='/stories'
 						search={{ folderId: folder.id }}
 						className='flex items-center gap-3 flex-1 min-w-0'
-						onClick={(e) => {
-							if (selectionActive) {
-								e.preventDefault();
-							}
-							e.stopPropagation();
-						}}
+						onClick={handleLinkClick}
 					>
 						<div className='flex items-center gap-2 flex-1 min-w-0 pl-1.5'>
 							<FolderIcon folder={folder} />
@@ -200,6 +203,7 @@ export function FolderCard({
 					isDragging && 'opacity-0',
 					selected && 'ring-2 ring-primary',
 				)}
+				onClick={selectionActive && canSelect ? handleToggleSelect : undefined}
 			>
 				<div className='absolute top-1 left-1 right-1 bottom-14 overflow-hidden rounded-md bg-sidebar dark:bg-background'>
 					<FolderThumbnail />
@@ -209,7 +213,7 @@ export function FolderCard({
 					to='/stories'
 					search={{ folderId: folder.id }}
 					className='absolute inset-0 flex flex-col justify-end p-2.5'
-					onClick={(e) => e.stopPropagation()}
+					onClick={handleLinkClick}
 					aria-label={folder.name}
 				>
 					<div className='flex items-end gap-1.5'>
@@ -264,6 +268,7 @@ export function FolderCard({
 	}
 
 	const contentLeftPadding = !canSelect ? 'pl-3' : selected || selectionActive ? 'pl-9' : 'pl-3 group-hover:pl-9';
+	const contentRightPadding = selectionActive ? 'pr-3' : 'pr-8 group-hover:pr-14 group-has-data-[state=open]:pr-14';
 
 	return (
 		<div
@@ -277,12 +282,14 @@ export function FolderCard({
 				isDragging && 'opacity-0',
 				selected && 'ring-2 ring-primary',
 			)}
+			onClick={selectionActive && canSelect ? handleToggleSelect : undefined}
 		>
 			{selectionActive ? (
 				<div
 					className={cn(
-						'absolute inset-0 flex items-center gap-2.5 pr-8 transition-[padding] duration-150',
+						'absolute inset-0 flex items-center gap-2.5 transition-[padding] duration-150',
 						contentLeftPadding,
+						contentRightPadding,
 					)}
 				>
 					<FolderIcon folder={folder} />
@@ -293,10 +300,11 @@ export function FolderCard({
 					to='/stories'
 					search={{ folderId: folder.id }}
 					className={cn(
-						'absolute inset-0 flex items-center gap-2.5 pr-8 transition-[padding] duration-150',
+						'absolute inset-0 flex items-center gap-2.5 transition-[padding] duration-150',
 						contentLeftPadding,
+						contentRightPadding,
 					)}
-					onClick={(e) => e.stopPropagation()}
+					onClick={handleLinkClick}
 				>
 					<FolderIcon folder={folder} />
 					<span className='text-sm font-medium truncate flex-1 min-w-0'>{folder.name}</span>
