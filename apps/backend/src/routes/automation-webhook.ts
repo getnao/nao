@@ -39,6 +39,13 @@ export const automationWebhookRoutes = async (app: App) => {
 			return reply.status(403).send({ error: 'Webhook trigger is not enabled for this automation' });
 		}
 
+		// A paused automation stops answering all of its triggers, including the
+		// webhook. Pausing only applies to automations with a schedule — the
+		// derived `enabled` flag is always false when there is no scheduled job.
+		if (automation.scheduledJob && !automation.enabled) {
+			return reply.status(409).send({ error: 'Automation is paused' });
+		}
+
 		const run = await startAutomationRun(automationId, { requireEnabled: false });
 		logger.info('Automation webhook triggered run', {
 			source: 'http',

@@ -80,6 +80,17 @@ describe('automation webhook route', () => {
 		expect(vi.mocked(startAutomationRun)).not.toHaveBeenCalled();
 	});
 
+	it('returns 409 when the automation is paused', async () => {
+		vi.mocked(validateApiKey).mockResolvedValue(ORG as never);
+		vi.mocked(automationQueries.getAutomationById).mockResolvedValue(
+			buildAutomation({ scheduledJob: { status: 'paused' }, enabled: false }) as never,
+		);
+		vi.mocked(projectQueries.getProjectById).mockResolvedValue({ id: 'project-1', orgId: ORG.id } as never);
+		const res = await post(app, { authorization: 'Bearer nao_valid' });
+		expect(res.statusCode).toBe(409);
+		expect(vi.mocked(startAutomationRun)).not.toHaveBeenCalled();
+	});
+
 	it('triggers a run for a valid, authorized webhook request', async () => {
 		vi.mocked(validateApiKey).mockResolvedValue(ORG as never);
 		vi.mocked(automationQueries.getAutomationById).mockResolvedValue(buildAutomation() as never);
@@ -90,6 +101,20 @@ describe('automation webhook route', () => {
 
 		expect(res.statusCode).toBe(202);
 		expect(res.json()).toEqual({ runId: 'run-1', automationId: AUTOMATION_ID, status: 'running' });
+		expect(vi.mocked(startAutomationRun)).toHaveBeenCalledWith(AUTOMATION_ID, { requireEnabled: false });
+	});
+
+	it('triggers a run for an enabled scheduled automation', async () => {
+		vi.mocked(validateApiKey).mockResolvedValue(ORG as never);
+		vi.mocked(automationQueries.getAutomationById).mockResolvedValue(
+			buildAutomation({ scheduledJob: { status: 'pending' }, enabled: true }) as never,
+		);
+		vi.mocked(projectQueries.getProjectById).mockResolvedValue({ id: 'project-1', orgId: ORG.id } as never);
+		vi.mocked(startAutomationRun).mockResolvedValue({ id: 'run-2', status: 'running' } as never);
+
+		const res = await post(app, { authorization: 'Bearer nao_valid' });
+
+		expect(res.statusCode).toBe(202);
 		expect(vi.mocked(startAutomationRun)).toHaveBeenCalledWith(AUTOMATION_ID, { requireEnabled: false });
 	});
 });
