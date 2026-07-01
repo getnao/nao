@@ -132,6 +132,7 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 				const citation = agentCitationStore.get(newAgent);
 				agentCitationStore.delete(newAgent);
 				const sentInAdminMode = agentAdminModeStore.get(newAgent) ?? false;
+				agentAdminModeStore.delete(newAgent);
 				const lastUserMessageIndex = getLastUserMessageIdx(agent.messages);
 				agent.messages = agent.messages.map((message, idx) =>
 					idx === lastUserMessageIndex
