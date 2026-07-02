@@ -65,6 +65,22 @@ const agentCitationStore = new WeakMap<Agent<UIMessage>, CitationData | undefine
 /** Admin mode captured at send time, so an ack-time toggle cannot mislabel the message. */
 const agentAdminModeStore = new WeakMap<Agent<UIMessage>, boolean>();
 
+/**
+ * Live send-time refs of the hook instance currently driving each agent. Agents are
+ * cached in `agentService` across `AgentProvider` remounts (e.g. leaving the chat for
+ * settings and returning via "Chat with nao"), so a cached agent's
+ * `prepareSendMessagesRequest` closure would otherwise read stale refs from the mount
+ * that first created it — silently dropping admin mode, model and mention selections
+ * made after the remount. The active hook refreshes these on every render so requests
+ * always reflect the current UI state.
+ */
+interface AgentSendRefs {
+	adminModeRef: { current: boolean };
+	selectedModelRef: { current: LlmSelectedModel | null };
+	mentionsRef: { current: MentionOption[] };
+}
+const agentSendRefsStore = new WeakMap<Agent<UIMessage>, AgentSendRefs>();
+
 export const useAgent = ({ disableNavigation = false }: { disableNavigation?: boolean } = {}): AgentHelpers => {
 	const navigate = useNavigate();
 	const chatId = useChatId();
@@ -156,11 +172,16 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 						throw new Error('No message to send.');
 					}
 
-					const mentions = mentionsRef.current;
-					mentionsRef.current = [];
+					const liveRefs = agentSendRefsStore.get(newAgent);
+					const activeMentionsRef = liveRefs?.mentionsRef ?? mentionsRef;
+					const activeSelectedModelRef = liveRefs?.selectedModelRef ?? selectedModelRef;
+					const activeAdminModeRef = liveRefs?.adminModeRef ?? adminModeRef;
+
+					const mentions = activeMentionsRef.current;
+					activeMentionsRef.current = [];
 					const citation = agentCitationStore.get(newAgent);
 					const images = extractImagesFromMessage(messageToSend);
-					const adminModeAtSend = adminModeRef.current;
+					const adminModeAtSend = activeAdminModeRef.current;
 					agentAdminModeStore.set(newAgent, adminModeAtSend);
 					return {
 						headers: getActiveProjectId() ? { 'x-nao-project-id': getActiveProjectId()! } : undefined,
@@ -172,7 +193,7 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 								images: images.length > 0 ? images : undefined,
 								citation,
 							},
-							model: selectedModelRef.current ?? undefined,
+							model: activeSelectedModelRef.current ?? undefined,
 							mentions: mentions.length > 0 ? mentions : undefined,
 							timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
 							adminMode: adminModeAtSend || undefined,
@@ -210,6 +231,10 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 
 		return agentService.registerAgent(agentId, newAgent);
 	}, [chatId, disableNavigation, navigate, setChat, queryClient]);
+
+	// Point the agent (which may be a cached instance from an earlier mount) at this
+	// hook's current refs so `prepareSendMessagesRequest` never reads stale send config.
+	agentSendRefsStore.set(agentInstance, { adminModeRef, selectedModelRef, mentionsRef });
 
 	const { status, error, clearError, sendMessage, setMessages, messages } = useChat({ chat: agentInstance });
 
