@@ -190,7 +190,7 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 					newAgent.sendMessage({ text: next.text, files: files.length > 0 ? files : undefined });
 				} else {
 					chatActivityStore.setRunning(agentId, false);
-					if (agentId !== NEW_CHAT_ID) {
+					if (agentId !== NEW_CHAT_ID && !isAbort) {
 						queryClient.invalidateQueries({ queryKey: trpc.chat.get.queryKey({ chatId: agentId }) });
 					}
 					if (chatIdRef.current !== agentId) {
