@@ -101,24 +101,28 @@ export const storyFolderRoutes = {
 		)
 		.mutation(async ({ input, ctx }) => {
 			const folder = await assertFolderInProject(input.id, ctx);
+			assertCanReadPrivateFolder(folder, ctx.user.id);
 			assertCanModifyFolder(folder, ctx.user.id, ctx.userRole);
 			await storyFolderQueries.updateFolder(input.id, { name: input.name });
 		}),
 
 	delete: canSendProcedure.input(z.object({ id: z.string() })).mutation(async ({ input, ctx }) => {
 		const folder = await assertFolderInProject(input.id, ctx);
+		assertCanReadPrivateFolder(folder, ctx.user.id);
 		assertCanModifyFolder(folder, ctx.user.id, ctx.userRole);
 		await storyFolderQueries.deleteFolderMovingContentsToParent(input.id);
 	}),
 
 	archive: canSendProcedure.input(z.object({ id: z.string() })).mutation(async ({ input, ctx }) => {
 		const folder = await assertFolderInProject(input.id, ctx);
+		assertCanReadPrivateFolder(folder, ctx.user.id);
 		assertCanModifyFolder(folder, ctx.user.id, ctx.userRole);
 		await storyFolderQueries.archiveFolder(input.id);
 	}),
 
 	unarchive: canSendProcedure.input(z.object({ id: z.string() })).mutation(async ({ input, ctx }) => {
 		const folder = await assertFolderInProject(input.id, ctx);
+		assertCanReadPrivateFolder(folder, ctx.user.id);
 		assertCanModifyFolder(folder, ctx.user.id, ctx.userRole);
 		await storyFolderQueries.unarchiveFolder(ctx.user.id, ctx.project.id, input.id);
 	}),

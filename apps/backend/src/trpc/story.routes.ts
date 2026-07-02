@@ -25,10 +25,14 @@ const storyOwnerProcedure = ownedResourceProcedure(storyQueries.getStoryOwnerId,
 
 async function assertCanArchiveSharedStory(
 	storyId: string,
-	ctx: { user: { id: string }; userRole: UserRole | null },
+	ctx: { user: { id: string }; userRole: UserRole | null; project: { id: string } },
 ): Promise<void> {
 	const ownerId = await storyQueries.getStoryOwnerId(storyId);
 	if (!ownerId) {
+		throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
+	}
+	const storyProjectId = await storyQueries.getStoryProjectId(storyId);
+	if (storyProjectId !== ctx.project.id) {
 		throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
 	}
 	if (ownerId !== ctx.user.id && ctx.userRole !== 'admin') {
