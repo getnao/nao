@@ -69,12 +69,14 @@ export function StoryCard({
 
 	const draggableId = `drag-story-${dragIdPrefix ? `${dragIdPrefix}-` : ''}${item.storyId}`;
 	const isOwnedByUser = item.kind === 'own' || item.kind === 'own-standalone';
+	const canMove = isOwnedByUser || isAdmin;
 	const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
 		id: draggableId,
-		disabled: isViewer,
+		disabled: isViewer || !canMove,
 		data: { type: 'story', isOwnedByUser },
 	});
 	const style = transform ? { transform: CSS.Translate.toString(transform) } : undefined;
+	const moveHandler = canMove ? onMoveToFolder : undefined;
 
 	const canOpenPinShareDialog =
 		isAdmin && !item.sharedStoryId && item.kind === 'own' && !!item.chatId && !!item.storySlug;
@@ -115,8 +117,8 @@ export function StoryCard({
 					>
 						<StoryQuickActions item={item} onRequestPinShare={() => setPinShareDialogOpen(true)} />
 						<div className='flex items-center max-w-0 overflow-hidden group-hover:max-w-[60px] transition-[max-width] duration-200 ease-out'>
-							{!showArchived && onMoveToFolder && (
-								<StoryMoveToFolderButton item={item} onMoveToFolder={onMoveToFolder} />
+							{!showArchived && moveHandler && (
+								<StoryMoveToFolderButton item={item} onMoveToFolder={moveHandler} />
 							)}
 							<StoryArchiveButton item={item} showArchived={showArchived} />
 						</div>
@@ -167,7 +169,7 @@ export function StoryCard({
 						item={item}
 						showArchived={showArchived}
 						onRequestPinShare={() => setPinShareDialogOpen(true)}
-						onMoveToFolder={onMoveToFolder}
+						onMoveToFolder={moveHandler}
 					/>
 				</div>
 			</div>
@@ -353,7 +355,7 @@ function QuickActionButton({
 
 function StoryArchiveButton({ item, showArchived }: { item: StoryItem; showArchived: boolean }) {
 	const queryClient = useQueryClient();
-	const { isViewer } = usePermissions();
+	const { isViewer, isAdmin } = usePermissions();
 
 	function invalidateAfterArchive() {
 		queryClient.invalidateQueries({ queryKey: trpc.story.listAll.queryKey() });
@@ -387,7 +389,7 @@ function StoryArchiveButton({ item, showArchived }: { item: StoryItem; showArchi
 	const canArchive =
 		(item.kind === 'own' && item.chatId && item.storySlug) ||
 		item.kind === 'own-standalone' ||
-		item.kind === 'shared-project';
+		(item.kind === 'shared-project' && isAdmin);
 
 	if (!canArchive || isViewer) {
 		return null;

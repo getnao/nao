@@ -1,4 +1,5 @@
 import { NO_CACHE_SCHEDULE } from '@nao/shared';
+import type { UserRole } from '@nao/shared/types';
 import { DOWNLOAD_FORMATS } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
@@ -22,12 +23,18 @@ import { canSendProcedure, ownedResourceProcedure, projectProtectedProcedure, pr
 const chatOwnerProcedure = ownedResourceProcedure(chatQueries.getChatOwnerId, 'chat');
 const storyOwnerProcedure = ownedResourceProcedure(storyQueries.getStoryOwnerId, 'story');
 
-async function assertStoryPublicInProject(storyId: string, projectId: string): Promise<void> {
-	const share = await sharedStoryQueries.getSharedStoryInfo(storyId, projectId);
-	if (!share || share.visibility !== 'project') {
+async function assertCanArchiveSharedStory(
+	storyId: string,
+	ctx: { user: { id: string }; userRole: UserRole | null },
+): Promise<void> {
+	const ownerId = await storyQueries.getStoryOwnerId(storyId);
+	if (!ownerId) {
+		throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
+	}
+	if (ownerId !== ctx.user.id && ctx.userRole !== 'admin') {
 		throw new TRPCError({
 			code: 'FORBIDDEN',
-			message: 'Only public stories can be archived by other members.',
+			message: 'Only the owner or an admin can archive this story.',
 		});
 	}
 }
@@ -320,13 +327,13 @@ export const storyRoutes = {
 	}),
 
 	archiveShared: canSendProcedure.input(z.object({ storyId: z.string() })).mutation(async ({ input, ctx }) => {
-		await assertStoryPublicInProject(input.storyId, ctx.project.id);
+		await assertCanArchiveSharedStory(input.storyId, ctx);
 		await storyQueries.archiveByStoryId(input.storyId);
 		await unscheduleStoryRefreshJob(input.storyId);
 	}),
 
 	unarchiveShared: canSendProcedure.input(z.object({ storyId: z.string() })).mutation(async ({ input, ctx }) => {
-		await assertStoryPublicInProject(input.storyId, ctx.project.id);
+		await assertCanArchiveSharedStory(input.storyId, ctx);
 		await storyQueries.unarchiveByStoryId(input.storyId);
 		await storyFolderQueries.rehomeUnarchivedStory(ctx.user.id, ctx.project.id, input.storyId);
 	}),

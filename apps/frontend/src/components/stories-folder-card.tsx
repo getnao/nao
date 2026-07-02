@@ -28,6 +28,7 @@ import {
 import { SimpleTooltip } from '@/components/ui/tooltip';
 import { useToggleFavorite } from '@/hooks/use-toggle-favorite';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useSession } from '@/lib/auth-client';
 import { formatRelativeDate } from '@/lib/time-ago';
 import { cn } from '@/lib/utils';
 
@@ -52,7 +53,9 @@ export function FolderCard({
 	onArchive: (folder: FolderItem) => void;
 	onRestore: (folder: FolderItem) => void;
 }) {
-	const { isViewer } = usePermissions();
+	const { isViewer, isAdmin } = usePermissions();
+	const { data: session } = useSession();
+	const canManage = isAdmin || folder.ownerId === session?.user?.id;
 	const isVirtual = folder.id === '__shared_with_me__';
 	const draggableId = `drag-folder-${displayMode}-${folder.id}`;
 	const droppableId = `drop-folder-${displayMode}-${folder.id}`;
@@ -70,7 +73,7 @@ export function FolderCard({
 		isDragging,
 	} = useDraggable({
 		id: draggableId,
-		disabled: isVirtual || isSystemFolder(folder) || isViewer,
+		disabled: isVirtual || isSystemFolder(folder) || isViewer || !canManage,
 	});
 	const { setNodeRef: setDropRef, isOver } = useDroppable({
 		id: droppableId,
@@ -122,6 +125,7 @@ export function FolderCard({
 								<div className='absolute top-1/2 right-0 -translate-y-1/2'>
 									<FolderKebab
 										folder={folder}
+										canManage={canManage}
 										onModify={onModify}
 										onMove={onMove}
 										onDelete={onDelete}
@@ -134,6 +138,7 @@ export function FolderCard({
 								className={cn(
 									'absolute top-1/2 right-0 -translate-y-1/2 z-10 transition-transform duration-150',
 									!isViewer &&
+										canManage &&
 										'group-hover:-translate-x-5 group-has-data-[state=open]:-translate-x-5',
 								)}
 								onPointerDown={(e) => e.stopPropagation()}
@@ -196,6 +201,7 @@ export function FolderCard({
 							>
 								<FolderKebab
 									folder={folder}
+									canManage={canManage}
 									onModify={onModify}
 									onMove={onMove}
 									onDelete={onDelete}
@@ -237,6 +243,7 @@ export function FolderCard({
 						<div className='absolute top-1/2 right-1.5 -translate-y-1/2 z-10'>
 							<FolderKebab
 								folder={folder}
+								canManage={canManage}
 								onModify={onModify}
 								onMove={onMove}
 								onDelete={onDelete}
@@ -248,7 +255,9 @@ export function FolderCard({
 					<div
 						className={cn(
 							'absolute top-1/2 right-1.5 -translate-y-1/2 z-20 transition-transform duration-150',
-							!isViewer && 'group-hover:-translate-x-5 group-has-data-[state=open]:-translate-x-5',
+							!isViewer &&
+								canManage &&
+								'group-hover:-translate-x-5 group-has-data-[state=open]:-translate-x-5',
 						)}
 						onPointerDown={(e) => e.stopPropagation()}
 					>
@@ -301,6 +310,7 @@ function FolderIcon({ folder }: { folder: FolderItem }) {
 
 function FolderKebab({
 	folder,
+	canManage,
 	onModify,
 	onMove,
 	onDelete,
@@ -308,6 +318,7 @@ function FolderKebab({
 	onRestore,
 }: {
 	folder: FolderItem;
+	canManage: boolean;
 	onModify: (folder: FolderItem) => void;
 	onMove: (folder: FolderItem) => void;
 	onDelete: (folder: FolderItem) => void;
@@ -315,6 +326,10 @@ function FolderKebab({
 	onRestore: (folder: FolderItem) => void;
 }) {
 	const isArchived = folder.archivedAt !== null;
+
+	if (!canManage) {
+		return null;
+	}
 
 	function stop(e: MouseEvent) {
 		e.preventDefault();
