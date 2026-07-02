@@ -5,7 +5,6 @@ import { z } from 'zod/v4';
 
 import type { DBStoryFolder } from '../db/abstractSchema';
 import { db } from '../db/db';
-import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
 import { canSendProcedure, projectProtectedProcedure } from './trpc';
@@ -135,6 +134,7 @@ export const storyFolderRoutes = {
 		.mutation(async ({ input, ctx }) => {
 			for (const id of input.ids) {
 				const folder = await assertFolderInProject(id, ctx);
+				assertCanReadPrivateFolder(folder, ctx.user.id);
 				assertCanModifyFolder(folder, ctx.user.id, ctx.userRole);
 			}
 			await db.transaction(async (tx) => {
@@ -149,6 +149,7 @@ export const storyFolderRoutes = {
 		.mutation(async ({ input, ctx }) => {
 			for (const id of input.ids) {
 				const folder = await assertFolderInProject(id, ctx);
+				assertCanReadPrivateFolder(folder, ctx.user.id);
 				assertCanModifyFolder(folder, ctx.user.id, ctx.userRole);
 			}
 			await db.transaction(async (tx) => {
