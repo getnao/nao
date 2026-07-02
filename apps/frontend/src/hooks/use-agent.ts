@@ -65,15 +65,6 @@ const agentCitationStore = new WeakMap<Agent<UIMessage>, CitationData | undefine
 /** Admin mode captured at send time, so an ack-time toggle cannot mislabel the message. */
 const agentAdminModeStore = new WeakMap<Agent<UIMessage>, boolean>();
 
-/**
- * Live send-time refs of the hook instance currently driving each agent. Agents are
- * cached in `agentService` across `AgentProvider` remounts (e.g. leaving the chat for
- * settings and returning via "Chat with nao"), so a cached agent's
- * `prepareSendMessagesRequest` closure would otherwise read stale refs from the mount
- * that first created it — silently dropping admin mode, model and mention selections
- * made after the remount. The active hook refreshes these on every render so requests
- * always reflect the current UI state.
- */
 interface AgentSendRefs {
 	adminModeRef: { current: boolean };
 	selectedModelRef: { current: LlmSelectedModel | null };
@@ -232,8 +223,6 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 		return agentService.registerAgent(agentId, newAgent);
 	}, [chatId, disableNavigation, navigate, setChat, queryClient]);
 
-	// Point the agent (which may be a cached instance from an earlier mount) at this
-	// hook's current refs so `prepareSendMessagesRequest` never reads stale send config.
 	agentSendRefsStore.set(agentInstance, { adminModeRef, selectedModelRef, mentionsRef });
 
 	const { status, error, clearError, sendMessage, setMessages, messages } = useChat({ chat: agentInstance });
