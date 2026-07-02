@@ -263,7 +263,10 @@ function SuggestionCard({
 	children?: React.ReactNode;
 }) {
 	return (
-		<div className='group mb-2 flex items-center gap-1 rounded-2xl border border-muted-foreground/25 bg-background p-2 animate-in fade-in slide-in-from-bottom-2 duration-200'>
+		<div
+			data-selection-ignore
+			className='group mb-2 flex items-center gap-1 rounded-2xl border border-muted-foreground/25 bg-background p-2 animate-in fade-in slide-in-from-bottom-2 duration-200'
+		>
 			{icon && <div className='flex size-9 shrink-0 items-center justify-center'>{icon}</div>}
 			<p className='min-w-0 flex-1 truncate text-sm font-medium text-foreground'>{message}</p>
 			{children && <div className='flex shrink-0 items-center gap-1'>{children}</div>}

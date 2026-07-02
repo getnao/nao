@@ -7,6 +7,7 @@ import {
 	getContainerLeft,
 	getSelectionBoundingRect,
 	getTextOffset,
+	isRangeInIgnoredRegion,
 	measureRangePosition,
 } from '@/lib/selection-dom.utils';
 import { trpc } from '@/main';
@@ -122,6 +123,10 @@ export const SelectionProvider = ({
 		const range = sel.getRangeAt(0);
 		const text = sel.toString().trim();
 		if (!text || !containerRef.current.contains(range.commonAncestorContainer)) {
+			return;
+		}
+
+		if (isRangeInIgnoredRegion(range)) {
 			return;
 		}
 
