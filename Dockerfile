@@ -27,8 +27,8 @@ COPY apps/shared/package.json ./apps/shared/
 RUN --mount=type=cache,target=/root/.npm \
     --mount=type=secret,id=GITHUB_TOKEN \
     npm ci --ignore-scripts \
-    && GITHUB_TOKEN="$(cat /run/secrets/GITHUB_TOKEN 2>/dev/null || true)" \
-    cd node_modules/@vscode/ripgrep && npm run postinstall
+    && cd node_modules/@vscode/ripgrep \
+    && GITHUB_TOKEN="$(cat /run/secrets/GITHUB_TOKEN 2>/dev/null || true)" npm run postinstall
 
 # =============================================================================
 # STAGE 3: Frontend builder
