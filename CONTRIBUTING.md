@@ -120,4 +120,4 @@ PRs against EE-marked files just like the rest of the codebase.
 
 ## Questions?
 
-- Ask on [Slack](https://join.slack.com/t/naolabs/shared_invite/zt-3cgdql4up-Az9FxGkTb8Qr34z2Dxp9TQ)
+- Ask on [Slack](https://join.slack.com/t/naolabs/shared_invite/zt-4080jlm79-nm52x5nZhG2N1ben8zwpiQ)

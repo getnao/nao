@@ -14,7 +14,7 @@
 </h3>
 
 <p align="center">
-  🌐 <a href="https://getnao.io">Website</a> · 📚 <a href="https://docs.getnao.io">Documentation</a> · 💬 <a href="https://join.slack.com/t/naolabs/shared_invite/zt-3cgdql4up-Az9FxGkTb8Qr34z2Dxp9TQ">Slack</a>
+  🌐 <a href="https://getnao.io">Website</a> · 📚 <a href="https://docs.getnao.io">Documentation</a> · 💬 <a href="https://join.slack.com/t/naolabs/shared_invite/zt-4080jlm79-nm52x5nZhG2N1ben8zwpiQ">Slack</a>
 </p>
 
 <br/>
@@ -214,7 +214,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, commands, and guid
 - Star the repo
 - Subscribe to releases (Watch → Custom → Releases)
 - Follow us on [LinkedIn](https://www.linkedin.com/company/getnao)
-- Join our [Slack](https://join.slack.com/t/naolabs/shared_invite/zt-3cgdql4up-Az9FxGkTb8Qr34z2Dxp9TQ)
+- Join our [Slack](https://join.slack.com/t/naolabs/shared_invite/zt-4080jlm79-nm52x5nZhG2N1ben8zwpiQ)
 - Contribute to the repo!
 
 ## 🫰🏻 Partners

@@ -2,7 +2,7 @@
 
 nao is a framework to build and deploy analytics agents. Create context for your analytics agent with the nao-core CLI, then deploy a chat UI for anyone to interact with your data.
 
-🌐 [Website](https://getnao.io) · 📚 [Documentation](https://docs.getnao.io) · 💬 [Slack](https://join.slack.com/t/naolabs/shared_invite/zt-3cgdql4up-Az9FxGkTb8Qr34z2Dxp9TQ) · 🐙 [GitHub](https://github.com/getnao/nao)
+🌐 [Website](https://getnao.io) · 📚 [Documentation](https://docs.getnao.io) · 💬 [Slack](https://join.slack.com/t/naolabs/shared_invite/zt-4080jlm79-nm52x5nZhG2N1ben8zwpiQ) · 🐙 [GitHub](https://github.com/getnao/nao)
 
 ## Docker
 
