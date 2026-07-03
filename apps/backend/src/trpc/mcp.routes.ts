@@ -5,11 +5,11 @@ import { mcpService } from '../services/mcp';
 import { adminProtectedProcedure, projectProtectedProcedure, router } from './trpc';
 
 export const mcpRoutes = router({
-	getServers: projectProtectedProcedure.query(({ ctx }) => mcpService.getServersStatus(ctx.project.id)),
+	getServers: projectProtectedProcedure.query(({ ctx }) => mcpService.getServersStatus(ctx.project.id, ctx.user.id)),
 
 	discover: adminProtectedProcedure.mutation(async ({ ctx }) => {
 		await mcpService.discover(ctx.project.id);
-		return mcpService.getServersStatus(ctx.project.id);
+		return mcpService.getServersStatus(ctx.project.id, ctx.user.id);
 	}),
 
 	setServerEnabled: adminProtectedProcedure
@@ -17,7 +17,7 @@ export const mcpRoutes = router({
 		.mutation(async ({ ctx, input }) => {
 			await setMcpServerEnabled(ctx.project.id, input.serverName, input.enabled);
 			await mcpService.applyEnablement(ctx.project.id, input.serverName);
-			return mcpService.getServersStatus(ctx.project.id);
+			return mcpService.getServersStatus(ctx.project.id, ctx.user.id);
 		}),
 
 	setToolEnabled: adminProtectedProcedure
@@ -25,7 +25,7 @@ export const mcpRoutes = router({
 		.mutation(async ({ ctx, input }) => {
 			await setMcpToolEnabled(ctx.project.id, `${input.serverName}/${input.toolName}`, input.enabled);
 			await mcpService.applyEnablement(ctx.project.id, input.serverName);
-			return mcpService.getServersStatus(ctx.project.id);
+			return mcpService.getServersStatus(ctx.project.id, ctx.user.id);
 		}),
 
 	setToolsEnabled: adminProtectedProcedure
@@ -34,6 +34,6 @@ export const mcpRoutes = router({
 			const keys = input.toolNames.map((toolName) => `${input.serverName}/${toolName}`);
 			await setMcpToolsEnabled(ctx.project.id, keys, input.enabled);
 			await mcpService.applyEnablement(ctx.project.id, input.serverName);
-			return mcpService.getServersStatus(ctx.project.id);
+			return mcpService.getServersStatus(ctx.project.id, ctx.user.id);
 		}),
 });

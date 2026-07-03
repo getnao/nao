@@ -153,11 +153,30 @@ const getMcpTitle = (toolPart: UIToolPart, fallback: string): string => {
 	return fallback;
 };
 
+const getAuthRequiredServer = (output: unknown): string | null => {
+	if (output && typeof output === 'object' && (output as { mcpAuthRequired?: boolean }).mcpAuthRequired) {
+		const server = (output as { server?: string }).server;
+		return typeof server === 'string' ? server : null;
+	}
+	return null;
+};
+
 export const McpToolCall = ({ toolPart }: ToolCallComponentProps) => {
 	const { isSettled } = useToolCallContext();
 	const title = getMcpTitle(toolPart, getToolName(toolPart));
 
 	if (isSettled) {
+		const authServer = getAuthRequiredServer(toolPart.output);
+		if (authServer) {
+			return (
+				<ToolCallWrapper title={title}>
+					<div className='px-3 py-2 text-sm text-muted-foreground'>
+						Waiting for you to connect to <span className='font-medium text-foreground'>{authServer}</span>.
+					</div>
+				</ToolCallWrapper>
+			);
+		}
+
 		const chartBlock = extractChartBlock(toolPart.output);
 		if (chartBlock) {
 			return <McpChartOutput chartBlock={chartBlock} />;

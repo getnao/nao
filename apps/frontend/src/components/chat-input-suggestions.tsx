@@ -1,16 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { MessageSquare, X, ThumbsDown, ThumbsUp, Check } from 'lucide-react';
+import { MessageSquare, X, ThumbsDown, ThumbsUp, Check, Plug } from 'lucide-react';
 import { NegativeFeedbackDialog } from './chat-messages/assistant-message-actions';
 import { Button } from './ui/button';
 import StoryIcon from './ui/story-icon';
-import type { UIMessage } from '@nao/backend/chat';
+import type { UIMessage, UIToolPart } from '@nao/backend/chat';
 import { useAgentContext } from '@/contexts/agent.provider';
 import { useChatId } from '@/hooks/use-chat-id';
 import { useInactivityTrigger } from '@/hooks/use-inactivity-trigger';
-import { checkAssistantMessageHasContent, NEW_CHAT_ID } from '@/lib/ai';
+import { checkAssistantMessageHasContent, getToolName, NEW_CHAT_ID } from '@/lib/ai';
 import { countDisplayCharts } from '@/lib/charts.utils';
 import { createLocalStorage } from '@/lib/local-storage';
+import { openMcpConnectPopup } from '@/lib/mcp-oauth';
 import { findStoryIds } from '@/lib/story.utils';
 import { trpc } from '@/main';
 
@@ -30,11 +31,39 @@ const storyProposalDisabledStorage = createLocalStorage<boolean>('nao-story-prop
  */
 export function ChatInputSuggestions() {
 	const { isReadonly } = useAgentContext();
+	const mcpAuth = useMcpAuthSuggestion();
 	const story = useStorySuggestion();
 	const feedback = useConversationFeedback();
 
 	if (isReadonly) {
 		return null;
+	}
+
+	if (mcpAuth.isVisible && mcpAuth.server) {
+		return (
+			<SuggestionCard
+				icon={<Plug className='size-4 text-primary' />}
+				message={`Connect your account to "${mcpAuth.server}" to continue`}
+			>
+				<Button
+					variant='ghost'
+					size='sm'
+					className='rounded-full text-muted-foreground'
+					onClick={mcpAuth.dismiss}
+				>
+					Not now
+				</Button>
+				<Button
+					variant='primary-gradient'
+					size='sm'
+					className='rounded-full'
+					onClick={mcpAuth.connect}
+					disabled={mcpAuth.connecting}
+				>
+					{mcpAuth.connecting ? 'Connecting…' : 'Connect'}
+				</Button>
+			</SuggestionCard>
+		);
 	}
 
 	if (story.isVisible) {
@@ -112,6 +141,98 @@ export function ChatInputSuggestions() {
 		);
 	}
 
+	return null;
+}
+
+interface McpAuthSuggestion {
+	isVisible: boolean;
+	server: string | null;
+	connecting: boolean;
+	connect: () => void;
+	dismiss: () => void;
+}
+
+/**
+ * Detects when the agent attempted an MCP tool that needs the current user to connect their
+ * account, and offers an inline Connect action. On success it re-sends the user's last request.
+ */
+function useMcpAuthSuggestion(): McpAuthSuggestion {
+	const { messages, isRunning, queueOrSendMessage } = useAgentContext();
+	const chatId = useChatId();
+
+	const [connecting, setConnecting] = useState(false);
+	const [resolved, setResolved] = useState<ReadonlySet<string>>(() => new Set());
+
+	useEffect(() => {
+		setResolved(new Set());
+	}, [chatId]);
+
+	const server = useMemo(() => findPendingAuthServer(messages), [messages]);
+	const pendingServer = server && !resolved.has(server) ? server : null;
+
+	const connect = useCallback(async () => {
+		if (!pendingServer) {
+			return;
+		}
+		setConnecting(true);
+		const connected = await openMcpConnectPopup(pendingServer);
+		setConnecting(false);
+		setResolved((prev) => new Set(prev).add(pendingServer));
+		if (connected) {
+			const text = lastUserMessageText(messages);
+			if (text) {
+				void queueOrSendMessage({ text });
+			}
+		}
+	}, [pendingServer, messages, queueOrSendMessage]);
+
+	const dismiss = useCallback(() => {
+		if (pendingServer) {
+			setResolved((prev) => new Set(prev).add(pendingServer));
+		}
+	}, [pendingServer]);
+
+	return { isVisible: !!pendingServer && !isRunning, server: pendingServer, connecting, connect, dismiss };
+}
+
+/** Returns the server from the most recent `mcp_call` that reported it needs the user to connect. */
+function findPendingAuthServer(messages: UIMessage[]): string | null {
+	for (let i = messages.length - 1; i >= 0; i--) {
+		const message = messages[i];
+		if (message.role !== 'assistant') {
+			continue;
+		}
+		for (let j = message.parts.length - 1; j >= 0; j--) {
+			const part = message.parts[j];
+			const type = (part as { type: string }).type;
+			if (type !== 'dynamic-tool' && !type.startsWith('tool-')) {
+				continue;
+			}
+			if (getToolName(part as UIToolPart) !== 'mcp_call') {
+				continue;
+			}
+			const output = (part as UIToolPart).output as { mcpAuthRequired?: boolean; server?: string } | undefined;
+			if (output?.mcpAuthRequired && output.server) {
+				return output.server;
+			}
+		}
+	}
+	return null;
+}
+
+function lastUserMessageText(messages: UIMessage[]): string | null {
+	for (let i = messages.length - 1; i >= 0; i--) {
+		const message = messages[i];
+		if (message.role !== 'user') {
+			continue;
+		}
+		const text = message.parts
+			.filter((part) => part.type === 'text')
+			.map((part) => (part as { text: string }).text)
+			.join('\n')
+			.trim();
+		return text || null;
+	}
 	return null;
 }
 

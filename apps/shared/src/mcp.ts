@@ -35,6 +35,10 @@ export interface McpServerStatus {
 	discovered: boolean;
 	/** Whether the last connection attempt succeeded. */
 	connectionOk: boolean;
+	/** Whether the server requires per-user OAuth (admin connects for discovery, users connect to call). */
+	oauth: boolean;
+	/** Whether the requesting user has connected their account for this OAuth server. */
+	oauthConnected: boolean;
 	toolCount: number;
 	enabledToolCount: number;
 	tools: McpToolSummary[];

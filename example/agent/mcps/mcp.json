@@ -10,6 +10,10 @@
         "METABASE_URL": "${METABASE_URL}",
         "METABASE_API_KEY": "${METABASE_API_KEY}"
       }
-    }
+    },
+    "notion": {
+			"transport": "streamable-http",
+			"url": "https://mcp.notion.com/mcp"
+		}
   }
 }

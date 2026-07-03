@@ -213,6 +213,10 @@ function McpServersBlock({ servers }: { servers: string[] }) {
 				To use a tool: list the server folder to see which tools exist, read (or grep) the relevant tool file to
 				get its operationId and request body schema, then invoke it with the <Bold>mcp_call</Bold> tool — pass
 				the operationId as <Bold>tool</Bold> and an <Bold>arguments</Bold> object matching that schema.
+				<Br />
+				Some servers require the user to connect their own account first. If a call returns an{' '}
+				<Bold>AUTH_REQUIRED</Bold> result, stop and ask the user to connect — a Connect button is shown to them
+				automatically. Do not retry until they have connected.
 			</Span>
 			<List>
 				{servers.map((server) => (

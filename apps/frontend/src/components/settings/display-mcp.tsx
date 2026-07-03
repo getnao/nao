@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { useMcpContext } from '@/contexts/mcp';
+import { openMcpConnectPopup } from '@/lib/mcp-oauth';
 
 interface Props {
 	isAdmin: boolean;
@@ -88,6 +89,7 @@ const WRITE_VERBS = new Set([
 	'generate',
 	'register',
 	'submit',
+	'duplicate',
 ]);
 
 const DELETE_VERBS = new Set([
@@ -140,6 +142,41 @@ const groupToolsByCategory = (tools: McpToolSummary[]): { category: ToolCategory
 		tools: groups.get(category)!.sort((a, b) => a.name.localeCompare(b.name)),
 	}));
 };
+
+function McpOAuthConnect({
+	server,
+	isAdmin,
+	onConnected,
+}: {
+	server: McpServerStatus;
+	isAdmin: boolean;
+	onConnected: () => void;
+}) {
+	const [connecting, setConnecting] = useState(false);
+
+	const handleConnect = async () => {
+		setConnecting(true);
+		const ok = await openMcpConnectPopup(server.name);
+		setConnecting(false);
+		if (ok) {
+			onConnected();
+		}
+	};
+
+	if (server.oauthConnected) {
+		return <Badge className='bg-green-500/10 text-green-600'>OAuth connected</Badge>;
+	}
+
+	if (!isAdmin) {
+		return <Badge className='bg-amber-500/10 text-amber-600'>OAuth required</Badge>;
+	}
+
+	return (
+		<Button variant='secondary' size='sm' onClick={handleConnect} disabled={connecting} isLoading={connecting}>
+			Connect
+		</Button>
+	);
+}
 
 const connectionLabel = (server: McpServerStatus): { label: string; className: string } => {
 	if (server.error) {
@@ -246,7 +283,16 @@ export function McpSettings({ isAdmin }: Props) {
 											<span className='text-xs text-muted-foreground'>{server.transport}</span>
 										</TableCell>
 										<TableCell>
-											<span className={connection.className}>{connection.label}</span>
+											<div className='flex items-center gap-2'>
+												<span className={connection.className}>{connection.label}</span>
+												{server.oauth && (
+													<McpOAuthConnect
+														server={server}
+														isAdmin={isAdmin}
+														onConnected={refresh}
+													/>
+												)}
+											</div>
 										</TableCell>
 										<TableCell className='text-sm text-muted-foreground'>
 											{server.enabledToolCount}/{server.toolCount}

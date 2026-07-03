@@ -386,6 +386,13 @@
       "when": 1782487927980,
       "tag": "0054_add_disabled_mcp_tools",
       "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1783067284081,
+      "tag": "0055_new_mcp",
+      "breakpoints": true
     }
   ]
 }

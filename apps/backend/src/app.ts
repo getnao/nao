@@ -31,6 +31,7 @@ import { deployRoutes } from './routes/deploy';
 import { embedStoryDownloadRoutes } from './routes/embed-story-download';
 import { githubRoutes } from './routes/github';
 import { imageRoutes } from './routes/image';
+import { mcpOAuthRoutes } from './routes/mcp-oauth';
 import { slackRoutes } from './routes/slack';
 import { teamsRoutes } from './routes/teams';
 import { telegramRoutes } from './routes/telegram';
@@ -203,6 +204,10 @@ app.register(deployRoutes, {
 
 app.register(githubRoutes, {
 	prefix: '/api/github',
+});
+
+app.register(mcpOAuthRoutes, {
+	prefix: '/api/mcp-oauth',
 });
 
 app.register(mcpServerRoutes, {

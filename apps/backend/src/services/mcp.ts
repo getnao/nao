@@ -1,3 +1,6 @@
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { McpServerConfig, McpServerStatus, McpToolSummary, McpTransport } from '@nao/shared';
 import { debounce } from '@nao/shared';
 import { mcpJsonSchema } from '@nao/shared';
@@ -6,9 +9,11 @@ import { mkdir, readdir, readFile, unlink, writeFile } from 'fs/promises';
 import { createRuntime, type Runtime, ServerDefinition } from 'mcporter';
 import { join } from 'path';
 
+import { deleteMcpUserToken, getMcpOAuthClient, hasMcpUserToken } from '../queries/mcp-oauth.queries';
 import { getDisabledMcpServers, getDisabledMcpTools, retrieveProjectById } from '../queries/project.queries';
 import { logger } from '../utils/logger';
 import { replaceEnvVars } from '../utils/utils';
+import { getValidAccessToken, isOAuthServer, isUnauthorizedError, McpAuthRequiredError } from './mcp-oauth';
 import { buildMcpOpenApiDocument, extractToolsFromOpenApi, type McpToolDefinition } from './mcp-openapi';
 
 const HTTP_TRANSPORTS = ['streamable-http', 'sse', 'http'];
@@ -22,7 +27,8 @@ type DisabledSets = { servers: Set<string>; tools: Set<string> };
  * into the agent context window, it discovers each server's tools and writes the enabled
  * ones as per-tool OpenAPI specs on disk (`agent/mcps/<server>/<tool>.json`). The agent
  * explores those specs with the file tools and invokes a tool on demand through the
- * `mcp_call` tool. The generated specs are runtime artifacts and are gitignored.
+ * `mcp_call` tool. OAuth-protected servers are scoped per user: discovery uses the admin's
+ * token and each runtime call uses the calling user's token.
  */
 export class McpService {
 	private _projectId: string | null = null;
@@ -33,6 +39,8 @@ export class McpService {
 	private _registered = new Set<string>();
 	/** Full tool list per server from the last successful discovery this session. */
 	private _discovered: Record<string, McpToolDefinition[]> = {};
+	/** Cached per-server flag for whether the server is OAuth-protected. */
+	private _oauth: Record<string, boolean> = {};
 	private _failedConnections: Record<string, string> = {};
 	private _fileWatcher: ReturnType<typeof watch> | null = null;
 	private _debouncedReload: () => void;
@@ -73,7 +81,17 @@ export class McpService {
 		return this.getConfiguredServerNames().filter((name) => !disabled.has(name));
 	}
 
-	public async getServersStatus(projectId: string): Promise<McpServerStatus[]> {
+	/** The configured URL for an HTTP server, or null if not an HTTP server. */
+	public async getServerUrl(projectId: string, server: string): Promise<string | null> {
+		await this.initializeMcpState(projectId);
+		const config = this._mcpServers[server];
+		if (!config || this._transportOf(config) !== 'http' || !config.url) {
+			return null;
+		}
+		return config.url.toString();
+	}
+
+	public async getServersStatus(projectId: string, userId?: string): Promise<McpServerStatus[]> {
 		await this.initializeMcpState(projectId);
 		const disabled = await this._loadDisabled();
 
@@ -81,12 +99,16 @@ export class McpService {
 			Object.entries(this._mcpServers).map(async ([name, config]) => {
 				const tools = await this._serverToolSummaries(name, disabled);
 				const discovered = this._discovered[name] !== undefined || existsSync(this._serverDir(name));
+				const oauth = await this._ensureOAuthFlag(name, config);
+				const oauthConnected = oauth && userId ? await hasMcpUserToken(userId, projectId, name) : false;
 				return {
 					name,
 					transport: this._transportOf(config),
 					enabled: !disabled.servers.has(name),
 					discovered,
 					connectionOk: this._discovered[name] !== undefined && !this._failedConnections[name],
+					oauth,
+					oauthConnected,
 					toolCount: tools.length,
 					enabledToolCount: tools.filter((tool) => tool.enabled).length,
 					tools,
@@ -105,6 +127,13 @@ export class McpService {
 		await this._discoverAll();
 	}
 
+	/** Re-discovers a single server (used after an admin connects an OAuth server). */
+	public async discoverServer(projectId: string, server: string): Promise<void> {
+		await this.initializeMcpState(projectId);
+		const disabled = await this._loadDisabled();
+		await this._discoverServer(server, disabled);
+	}
+
 	/** Rewrites the on-disk specs to reflect the current enablement (after an admin toggle). */
 	public async applyEnablement(projectId: string, serverName?: string): Promise<void> {
 		await this.initializeMcpState(projectId);
@@ -121,15 +150,17 @@ export class McpService {
 
 	public async callTool(opts: {
 		projectId: string;
+		userId: string;
 		server: string;
 		tool: string;
 		args: Record<string, unknown>;
 		allowedServers?: string[] | null;
 	}): Promise<unknown> {
-		const { projectId, server, tool, args, allowedServers } = opts;
+		const { projectId, userId, server, tool, args, allowedServers } = opts;
 		await this.initializeMcpState(projectId);
 
-		if (!this._mcpServers[server]) {
+		const config = this._mcpServers[server];
+		if (!config) {
 			const configured = this.getConfiguredServerNames().join(', ') || '(none)';
 			throw new Error(`MCP server "${server}" is not configured. Configured servers: ${configured}.`);
 		}
@@ -144,19 +175,56 @@ export class McpService {
 			throw new Error(`MCP tool "${tool}" on server "${server}" is disabled by the project admin.`);
 		}
 
-		await this._ensureRegistered(server);
-		if (!this._runtime) {
-			throw new Error('MCP runtime not initialized');
-		}
-
 		try {
-			return await this._runtime.callTool(server, tool, { args });
+			if (await this._ensureOAuthFlag(server, config)) {
+				return await this._callToolOAuth({ projectId, userId, server, tool, args, config });
+			}
+			return await this._callToolMcporter(server, tool, args);
 		} catch (error) {
+			if (error instanceof McpAuthRequiredError) {
+				throw error;
+			}
 			logger.error(`MCP tool call failed: ${server}/${tool}`, {
 				source: 'tool',
 				projectId,
 				context: { server, tool, error: String(error) },
 			});
+			throw error;
+		}
+	}
+
+	private async _callToolMcporter(server: string, tool: string, args: Record<string, unknown>): Promise<unknown> {
+		await this._ensureRegistered(server);
+		if (!this._runtime) {
+			throw new Error('MCP runtime not initialized');
+		}
+		return this._runtime.callTool(server, tool, { args });
+	}
+
+	private async _callToolOAuth(opts: {
+		projectId: string;
+		userId: string;
+		server: string;
+		tool: string;
+		args: Record<string, unknown>;
+		config: McpServerConfig;
+	}): Promise<unknown> {
+		const { projectId, userId, server, tool, args, config } = opts;
+		const url = config.url!.toString();
+		const token = await getValidAccessToken({ userId, projectId, server, serverUrl: url });
+		if (!token) {
+			throw new McpAuthRequiredError(server);
+		}
+
+		try {
+			return await this._withHttpClient(config, this._httpHeaders(config, token), (client) =>
+				client.callTool({ name: tool, arguments: args }),
+			);
+		} catch (error) {
+			if (isUnauthorizedError(error)) {
+				await deleteMcpUserToken(userId, projectId, server);
+				throw new McpAuthRequiredError(server);
+			}
 			throw error;
 		}
 	}
@@ -188,6 +256,7 @@ export class McpService {
 	private _resetRuntime(): void {
 		this._runtime = null;
 		this._registered = new Set();
+		this._oauth = {};
 	}
 
 	private async _loadConfig(): Promise<void> {
@@ -236,30 +305,116 @@ export class McpService {
 		}
 
 		try {
-			await this._ensureRegistered(name);
-			if (!this._runtime) {
-				throw new Error('MCP runtime not initialized');
-			}
-
-			const tools = await this._runtime.listTools(name, { includeSchema: true });
-			this._discovered[name] = tools.map((tool) => ({
-				name: tool.name,
-				description: tool.description,
-				inputSchema: tool.inputSchema,
-			}));
+			this._discovered[name] = await this._listTools(name, config);
 			delete this._failedConnections[name];
 		} catch (error) {
-			const message = (error as Error).message;
-			this._failedConnections[name] = message;
+			if (error instanceof McpAuthRequiredError) {
+				this._failedConnections[name] = 'OAuth connection required — an admin must connect this server.';
+			} else {
+				if (isUnauthorizedError(error) && !this._hasStaticAuth(config)) {
+					this._oauth[name] = true;
+				}
+				this._failedConnections[name] = (error as Error).message;
+				logger.error(`MCP discovery failed: ${name}`, {
+					source: 'tool',
+					projectId: this._projectId ?? undefined,
+					context: { server: name, error: (error as Error).message },
+				});
+			}
 			this._discovered[name] = this._discovered[name] ?? [];
-			logger.error(`MCP discovery failed: ${name}`, {
-				source: 'tool',
-				projectId: this._projectId ?? undefined,
-				context: { server: name, error: message },
-			});
 		}
 
 		await this._writeEnabledSpecs(name, disabled);
+	}
+
+	/** Lists the tools of a server, using the admin's OAuth token for OAuth-protected servers. */
+	private async _listTools(name: string, config: McpServerConfig): Promise<McpToolDefinition[]> {
+		if (await this._ensureOAuthFlag(name, config)) {
+			const url = config.url!.toString();
+			const token = await this._discoveryToken(name, url);
+			if (!token) {
+				throw new McpAuthRequiredError(name);
+			}
+			return this._withHttpClient(config, this._httpHeaders(config, token), async (client) => {
+				const result = await client.listTools();
+				return result.tools.map((tool) => ({
+					name: tool.name,
+					description: tool.description,
+					inputSchema: tool.inputSchema,
+				}));
+			});
+		}
+
+		await this._ensureRegistered(name);
+		if (!this._runtime) {
+			throw new Error('MCP runtime not initialized');
+		}
+		const tools = await this._runtime.listTools(name, { includeSchema: true });
+		return tools.map((tool) => ({ name: tool.name, description: tool.description, inputSchema: tool.inputSchema }));
+	}
+
+	private async _discoveryToken(server: string, serverUrl: string): Promise<string | null> {
+		if (!this._projectId) {
+			return null;
+		}
+		const client = await getMcpOAuthClient(this._projectId, server);
+		if (!client?.discoveryUserId) {
+			return null;
+		}
+		return getValidAccessToken({
+			userId: client.discoveryUserId,
+			projectId: this._projectId,
+			server,
+			serverUrl,
+		});
+	}
+
+	/**
+	 * Resolves and caches whether a server needs per-user OAuth. A server that already carries a
+	 * static credential in `mcp.json` (e.g. an `Authorization` or `x-api-key` header) is treated as
+	 * pre-authenticated for everyone — no per-user token is required even if it advertises OAuth.
+	 */
+	private async _ensureOAuthFlag(name: string, config: McpServerConfig): Promise<boolean> {
+		if (this._oauth[name] !== undefined) {
+			return this._oauth[name];
+		}
+		if (this._transportOf(config) !== 'http' || !config.url || this._hasStaticAuth(config)) {
+			this._oauth[name] = false;
+			return false;
+		}
+		this._oauth[name] = await isOAuthServer(config.url.toString());
+		return this._oauth[name];
+	}
+
+	/** Whether the server config supplies its own credential, removing the need for per-user OAuth. */
+	private _hasStaticAuth(config: McpServerConfig): boolean {
+		return Object.keys(config.headers ?? {}).some((key) => {
+			const name = key.toLowerCase();
+			return name === 'authorization' || name === 'x-api-key' || name === 'api-key' || name.includes('token');
+		});
+	}
+
+	private async _withHttpClient<T>(
+		config: McpServerConfig,
+		headers: Record<string, string>,
+		fn: (client: Client) => Promise<T>,
+	): Promise<T> {
+		const url = new URL(config.url!.toString());
+		const transport =
+			config.transport === 'sse'
+				? new SSEClientTransport(url, { requestInit: { headers } })
+				: new StreamableHTTPClientTransport(url, { requestInit: { headers } });
+		const client = new Client({ name: 'nao', version: '1.0.0' }, { capabilities: {} });
+		await client.connect(transport);
+		try {
+			return await fn(client);
+		} finally {
+			await client.close().catch(() => undefined);
+		}
+	}
+
+	private _httpHeaders(config: McpServerConfig, token: string): Record<string, string> {
+		return { ...(config.headers ?? {}), Authorization: `Bearer ${token}` };
 	}
 
 	/** Writes one OpenAPI spec file per enabled tool, removing any stale spec files. */
@@ -360,7 +515,6 @@ export class McpService {
 		if (this._transportOf(config) === 'http') {
 			return {
 				name,
-				auth: 'oauth',
 				command: {
 					kind: 'http',
 					url: config.url!,
