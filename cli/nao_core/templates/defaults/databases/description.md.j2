@@ -11,13 +11,6 @@
 
 **Dataset:** `{{ dataset }}`
 
-## Table Metadata
-
-| Property | Value |
-|----------|-------|
-| **Row Count** | {{ "{:,}".format(db.row_count()) }} |
-| **Column Count** | {{ db.column_count() }} |
-
 {% set partitions = db.partition_columns() %}
 {% if partitions %}
 ## Partitioning
@@ -33,13 +26,6 @@
 | **Active Filter** | `{{ active_filter }}` |
 {% endif %}
 
-{% endif %}
-## Description
-
-{% if db.description() %}
-{{ db.description() }}
-{% else %}
-_No description available._
 {% endif %}
 
 {% set partitions = db.partition_columns() %}

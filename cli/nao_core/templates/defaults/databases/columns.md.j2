@@ -17,6 +17,21 @@
 
 **Dataset:** `{{ dataset }}`
 
+## Table Metadata
+
+| Property | Value |
+|----------|-------|
+| **Row Count** | {{ db.row_count() }} |
+| **Column Count** | {{ db.column_count() }} |
+
+## Description
+
+{% if db.description() %}
+{{ db.description() }}
+{% else %}
+_No description available._
+{% endif %}
+
 ## Columns ({{ columns | length }})
 
 {% for col in columns %}

@@ -27,7 +27,7 @@
 
 - `columns.md` — column names, types, descriptions
 - `profiling.md` — distinct counts, min/max, and **`top_values`** (the actual values present in each column). **Read before filtering on any column value.**
-- TODO: list any other synced templates (`description.md`, `how_to_use.md`, `ai_summary.md`, `preview.md`) and one line each.
+- TODO: list any other synced templates (`description.md`, `query_history.md`, `ai_summary.md`, `preview.md`) and one line each.
 
 **Repos:**
 
@@ -47,7 +47,7 @@
 
 ### Tables detail
 
-> ONLY include this section if no richer table docs exist elsewhere (no `how_to_use.md`/`ai_summary.md` per table, no dbt `schema.yml` column docs). If they exist, delete this section — the Most Used pointers + Context map already route there. Otherwise, reserve it for cross-table pitfalls not documented anywhere else.
+> ONLY include this section if no richer table docs exist elsewhere (no `query_history.md`/`ai_summary.md` per table, no dbt `schema.yml` column docs). If they exist, delete this section — the Most Used pointers + Context map already route there. Otherwise, reserve it for cross-table pitfalls not documented anywhere else.
 
 #### `table`
 

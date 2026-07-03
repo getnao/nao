@@ -18,7 +18,7 @@ Anything else (per-table schema, full metric semantics, domain-specific rules) b
 
 | Location                                        | What's in it                                                                                                                                                                                               | Implication for `RULES.md`                                                                                                                                            |
 | ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `databases/type=*/database=*/schema=*/table=*/` | Per-table files synced from the warehouse: `columns.md`, `description.md`, `preview.md`, and (if enabled in `nao_config.yaml` `templates:`) `how_to_use.md`, `ai_summary.md`, `profiling.md`               | If rich per-table docs exist here, **don't restate columns** in `RULES.md` — point to the folder.                                                                     |
+| `databases/type=*/database=*/schema=*/table=*/` | Per-table files synced from the warehouse: `columns.md`, `description.md`, `preview.md`, and (if enabled in `nao_config.yaml` `templates:`) `query_history.md`, `ai_summary.md`, `profiling.md`            | If rich per-table docs exist here, **don't restate columns** in `RULES.md` — point to the folder.                                                                     |
 | `repos/<name>/`                                 | Synced git repos (dbt, ETL, BI). A dbt repo has `models/**/schema.yml` (or `*.yml`) column docs, `*.md` model docs, and possibly a **semantic layer / MetricFlow** file (`semantic_models:` + `metrics:`). | Map the key files in the Context Map. If dbt schema docs cover columns, point there. If a semantic layer exists, **don't write a Key Metrics section** — route to it. |
 | `docs/`                                         | Free-text business docs (Notion exports, CRM definitions, analytics decisions).                                                                                                                            | Note they exist, what's in each, and when to read them. If a doc defines a metric/segment, point to it instead of redefining.                                         |
 | `semantics/`                                    | nao YAML semantic layer (from `add-semantic-layer`).                                                                                                                                                       | Same as a dbt semantic layer — route metrics to it, don't redefine.                                                                                                   |
@@ -64,7 +64,7 @@ From `databases/` and `repos/<dbt>/`: Warehouse type/project/dataset, Data stack
 
 The orchestrator's index of where context lives. Built from Step 0. Cover:
 
-- **Per-table context** — what each table folder under `databases/` contains (e.g. `columns.md`, `how_to_use.md`, `ai_summary.md`, `profiling.md`) and one line on what each is for.
+- **Per-table context** — what each table folder under `databases/` contains (e.g. `columns.md`, `query_history.md`, `ai_summary.md`, `profiling.md`) and one line on what each is for.
 - **Repos** — per repo, the key files and what they hold:
     ```
     - `repos/dbt/` — dbt project. Column docs: `models/silver.yml`. Domain decisions: `models/silver/*_ANALYTICS_DECISIONS.md`. Semantic layer (metrics): `models/silver_semantic_layer.yml`.
@@ -83,7 +83,7 @@ The orchestrator's index of where context lives. Built from Step 0. Cover:
 - `dim_users` — user dimension. See `databases/.../table=dim_users/`.
 ```
 
-**`### Tables detail`** — **conditional.** Only write per-table blocks (Purpose / Granularity / Key Columns ≤10 / Use For) **when no richer table documentation exists elsewhere** (no `how_to_use.md`/`ai_summary.md` per table, no dbt `schema.yml` column docs). If those exist, **do not restate columns** — the Most Used pointer + Context map already route there. Reserve `### Tables detail` for the few cross-table nuances/pitfalls not captured anywhere else (e.g. "weekly table has no `n_active_users` column").
+**`### Tables detail`** — **conditional.** Only write per-table blocks (Purpose / Granularity / Key Columns ≤10 / Use For) **when no richer table documentation exists elsewhere** (no `query_history.md`/`ai_summary.md` per table, no dbt `schema.yml` column docs). If those exist, **do not restate columns** — the Most Used pointer + Context map already route there. Reserve `### Tables detail` for the few cross-table nuances/pitfalls not captured anywhere else (e.g. "weekly table has no `n_active_users` column").
 
 ### Step 5 — `## Key Metrics Reference`
 
