@@ -75,7 +75,7 @@ async function handleMcpRequest(request: FastifyRequest, reply: FastifyReply): P
 }
 
 function replyMethodNotAllowed(reply: FastifyReply) {
-	return reply.status(405).send({
+	return reply.status(405).header('Allow', 'POST').send({
 		jsonrpc: '2.0',
 		error: { code: -32000, message: 'Method not allowed in stateless mode.' },
 		id: null,
