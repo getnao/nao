@@ -27,7 +27,7 @@
 
 - `columns.md` — column names, types, descriptions
 - `profiling.md` — distinct counts, min/max, and **`top_values`** (the actual values present in each column). **Read before filtering on any column value.**
-- TODO: list any other synced templates (`description.md`, `query_history.md`, `ai_summary.md`, `preview.md`) and one line each.
+- TODO: list any other synced templates (`query_history.md`, `ai_summary.md`, `preview.md`) and one line each.
 
 **Repos:**
 

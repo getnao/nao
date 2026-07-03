@@ -11,8 +11,18 @@
         - db.row_count() -> int
         - db.column_count() -> int
         - db.description() -> str or None
+        - db.partition_columns()
+        - db.requires_partition_filter()
+        - db.active_partition_filter()
+        - db.clustering_columns()
+        - db.indexes()
 #}
 {% set columns = db.columns() %}
+{% set description = db.description() %}
+{% set partitions = db.partition_columns() %}
+{% set clustering = db.clustering_columns() %}
+{% set indexes = db.indexes() %}
+
 # {{ table_name }}
 
 **Dataset:** `{{ dataset }}`
@@ -26,10 +36,61 @@
 
 ## Description
 
-{% if db.description() %}
-{{ db.description() }}
+{% if description %}
+{{ description }}
 {% else %}
 _No description available._
+{% endif %}
+
+{% if partitions %}
+## Partitioning
+
+| Property | Value |
+|----------|-------|
+| **Partition Column** | `{{ partitions[0] }}` |
+{% if db.requires_partition_filter() %}
+| **Requires Partition Filter** | Yes |
+{% endif %}
+{% set active_filter = db.active_partition_filter() %}
+{% if active_filter %}
+| **Active Filter** | `{{ active_filter }}` |
+{% endif %}
+
+## Partition columns
+
+{% for col in partitions %}
+- {{ col }}
+{% endfor %}
+
+> When querying this table, always filter on {% for col in partitions %}{{ col }}{% if not loop.last %}, {% endif %}{% endfor %} for best performance.
+
+{% endif %}
+
+
+{% if clustering %}
+## Clustering Columns
+
+{% for col in clustering %}
+- {{ col }}
+{% endfor %}
+
+> Filtering or ordering by {% for col in clustering %}{{ col }}{% if not loop.last %}, {% endif %}{% endfor %} improves query performance.
+
+{% endif %}
+
+{% if indexes %}
+## Indexes and Table Definition
+
+{% if db.__class__.__name__ == "ClickHouseDatabaseContext" %}
+Use this when writing queries: filter using the most selective `ORDER BY`, `PARTITION BY`, `PROJECTIONS`, or `PRIMARY KEY` columns to minimize scanned data and improve performance.
+{% else %}
+Use this when writing queries: filter on key/indexed columns whenever possible for best performance.
+{% endif %}
+
+```
+{{ indexes }}
+```
+
 {% endif %}
 
 ## Columns ({{ columns | length }})

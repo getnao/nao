@@ -39,7 +39,7 @@ function ContextRecommendationsPrompt({
 				<List ordered>
 					<ListItem>
 						Tool errors: v_messages where tool_state = &quot;output-error&quot; — cluster by the failing
-						table/column. Cross-reference databases/**/columns.md and description.md.
+						table/column. Cross-reference databases/**/columns.md.
 					</ListItem>
 					<ListItem>
 						Source-code context: if a warehouse gap traces back to SQL, dbt, docs, or application code in{' '}

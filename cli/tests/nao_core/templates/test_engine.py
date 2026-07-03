@@ -52,7 +52,6 @@ class TestTemplateEngine:
         expected_templates = [
             "databases/columns.md.j2",
             "databases/preview.md.j2",
-            "databases/description.md.j2",
             "databases/query_history.md.j2",
             "databases/ai_summary.md.j2",
         ]
@@ -582,7 +581,6 @@ class TestDefaultTemplatesDir:
         expected_files = [
             "columns.md.j2",
             "preview.md.j2",
-            "description.md.j2",
             "ai_summary.md.j2",
         ]
 
