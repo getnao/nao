@@ -2,8 +2,10 @@ import { resolve } from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { createMcpCallTool } from '../src/agents/tools/mcp-call';
+vi.mock('../src/db/db', () => ({ db: {} }));
+
 import { getTools } from '../src/agents/tools';
+import { createMcpCallTool } from '../src/agents/tools/mcp-call';
 import { normalizeReturnTo, resultPage } from '../src/routes/mcp-oauth';
 import { McpArgsValidationError, McpService, mcpService } from '../src/services/mcp';
 import { extractToolsFromOpenApi } from '../src/services/mcp-openapi';

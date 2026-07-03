@@ -49,7 +49,10 @@ function formatSchemaError(error: ErrorObject): string {
 
 function isWithinDirectory(base: string, target: string): boolean {
 	const relativePath = relative(base, target);
-	return relativePath === '' || (!!relativePath && !relativePath.startsWith('..') && !isAbsolute(relativePath));
+	return (
+		relativePath === '' ||
+		(!!relativePath && relativePath !== '..' && !relativePath.startsWith(`..${sep}`) && !isAbsolute(relativePath))
+	);
 }
 
 /**

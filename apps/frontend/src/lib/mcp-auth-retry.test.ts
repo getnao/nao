@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import type { UIMessage } from '@nao/backend/chat';
 import { lastUserMessagePayload } from './mcp-auth-retry';
+import type { UIMessage } from '@nao/backend/chat';
 
 const userMessage = (parts: UIMessage['parts'], extra: Partial<UIMessage> = {}): UIMessage =>
 	({ id: 'user', role: 'user', parts, ...extra }) as UIMessage;
@@ -12,11 +12,11 @@ describe('lastUserMessagePayload', () => {
 			userMessage([{ type: 'text', text: 'older' }]),
 			{ id: 'assistant', role: 'assistant', parts: [] } as unknown as UIMessage,
 			userMessage([{ type: 'text', text: ' latest ' }], {
-				citation: { url: 'https://example.com' },
-			} as Partial<UIMessage>),
+				citation: { start: 0, end: 6, text: 'latest' },
+			}),
 		]);
 
-		expect(payload).toEqual({ text: 'latest', citation: { url: 'https://example.com' } });
+		expect(payload).toEqual({ text: 'latest', citation: { start: 0, end: 6, text: 'latest' } });
 	});
 
 	it('reconstructs image-only payloads from file parts', () => {

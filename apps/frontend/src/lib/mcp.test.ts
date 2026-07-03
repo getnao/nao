@@ -1,16 +1,17 @@
 import { describe, expect, it } from 'vitest';
 
-import type { GroupablePart } from '@/types/ai';
 import { groupMcpToolCalls } from './mcp';
+import type { GroupablePart } from '@/types/ai';
 
 const mcpCall = (toolCallId: string, server: string): GroupablePart =>
 	({
-		type: 'tool-mcp_call',
+		type: 'dynamic-tool',
+		toolName: 'mcp_call',
 		toolCallId,
 		state: 'output-available',
 		input: { server, tool: 'search', arguments: {} },
 		output: {},
-	}) as GroupablePart;
+	}) as unknown as GroupablePart;
 
 describe('groupMcpToolCalls', () => {
 	it('uses the first tool call id as the stable MCP subgroup id', () => {
