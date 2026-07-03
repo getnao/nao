@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { useMcpContext } from '@/contexts/mcp';
+import { McpServerIcon } from '@/components/mcp-server-icon';
 import { openMcpConnectPopup } from '@/lib/mcp-oauth';
 
 interface Props {
@@ -278,7 +279,12 @@ export function McpSettings({ isAdmin }: Props) {
 							return (
 								<>
 									<TableRow key={server.name}>
-										<TableCell className='font-medium'>{server.name}</TableCell>
+										<TableCell className='font-medium'>
+											<div className='flex items-center gap-2'>
+												<McpServerIcon server={server.name} className='size-4' />
+												{server.name}
+											</div>
+										</TableCell>
 										<TableCell>
 											<span className='text-xs text-muted-foreground'>{server.transport}</span>
 										</TableCell>

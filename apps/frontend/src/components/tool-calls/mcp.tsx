@@ -3,6 +3,8 @@ import { parseChartBlock } from '@nao/shared/story-segments';
 import { ChartDisplay } from './display-chart';
 import { TableDisplay } from './display-table';
 import { ToolCallWrapper } from './tool-call-wrapper';
+import { McpTitle } from './mcp-title';
+import type { ReactNode } from 'react';
 import type { ToolCallComponentProps } from '.';
 import type { displayChart } from '@nao/shared/tools';
 import type { UIMessage, UIToolPart } from '@nao/backend/chat';
@@ -145,10 +147,14 @@ const McpOutputContent = ({ text }: { text: string }) => {
 	);
 };
 
-const getMcpTitle = (toolPart: UIToolPart, fallback: string): string => {
+const getMcpTitle = (toolPart: UIToolPart, fallback: string): ReactNode | string => {
 	const input = (toolPart as { input?: { server?: string; tool?: string } }).input;
 	if (input?.server && input?.tool) {
-		return `${input.server} / ${input.tool}`;
+		return (
+			<McpTitle server={input.server}>
+				Using <em>{input.tool}</em> from {input.server}
+			</McpTitle>
+		);
 	}
 	return fallback;
 };

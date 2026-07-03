@@ -29,6 +29,8 @@ export interface McpToolSummary {
 export interface McpServerStatus {
 	name: string;
 	transport: McpTransport;
+	/** Origin of the server URL for HTTP servers (used to display the server favicon). */
+	url?: string;
 	/** Whether the server is enabled (a disabled server turns all its tools off). */
 	enabled: boolean;
 	/** Whether tool specs exist on disk (or tools were discovered this session). */

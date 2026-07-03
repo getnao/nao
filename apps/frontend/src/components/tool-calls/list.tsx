@@ -1,6 +1,9 @@
 import { File, Folder, Link } from 'lucide-react';
 import { ToolCallWrapper } from './tool-call-wrapper';
+import { McpTitle } from './mcp-title';
 import type { ToolCallComponentProps } from '.';
+import type { McpTarget } from '@/lib/mcp';
+import { getMcpTarget } from '@/lib/mcp';
 import { formatBytes } from '@/lib/utils';
 import { useToolCallContext } from '@/contexts/tool-call';
 
@@ -15,20 +18,33 @@ const getIcon = (type?: string) => {
 	}
 };
 
+const McpListTitle = ({ target, isSettled }: { target: McpTarget; isSettled: boolean }) => (
+	<McpTitle server={target.server}>
+		{isSettled ? 'Listed' : 'Listing...'} {target.server ? `${target.server} MCP tools` : 'MCP servers'}
+	</McpTitle>
+);
+
 export const ListToolCall = ({ toolPart }: ToolCallComponentProps<'list'>) => {
 	const { isSettled } = useToolCallContext();
 	const output = toolPart.output;
 	const input = toolPart.input;
 	const entries = Array.isArray(output) ? output : output?.entries || [];
+	const mcpTarget = getMcpTarget(input?.path);
 
 	if (!isSettled) {
 		return (
 			<ToolCallWrapper
 				title={
-					<>
-						Listing...{' '}
-						<code className='text-xs font-[Geist]! bg-accent/70! px-0.5 py-0.5 rounded'>{input?.path}</code>
-					</>
+					mcpTarget ? (
+						<McpListTitle target={mcpTarget} isSettled={false} />
+					) : (
+						<>
+							Listing...{' '}
+							<code className='text-xs font-[Geist]! bg-accent/70! px-0.5 py-0.5 rounded'>
+								{input?.path}
+							</code>
+						</>
+					)
 				}
 				children={<div className='p-4 text-center text-foreground/50 text-sm'>Listing...</div>}
 			/>
@@ -38,10 +54,14 @@ export const ListToolCall = ({ toolPart }: ToolCallComponentProps<'list'>) => {
 	return (
 		<ToolCallWrapper
 			title={
-				<>
-					Listed{' '}
-					<code className='text-xs font-[Geist]! bg-accent/70! px-1 py-0.5 rounded'>{input?.path}</code>
-				</>
+				mcpTarget ? (
+					<McpListTitle target={mcpTarget} isSettled={true} />
+				) : (
+					<>
+						Listed{' '}
+						<code className='text-xs font-[Geist]! bg-accent/70! px-1 py-0.5 rounded'>{input?.path}</code>
+					</>
+				)
 			}
 			badge={entries && `${entries.length} items`}
 		>

@@ -4,6 +4,8 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import type { McpServerConfig, McpServerStatus, McpToolSummary, McpTransport } from '@nao/shared';
 import { debounce } from '@nao/shared';
 import { mcpJsonSchema } from '@nao/shared';
+import type { ErrorObject, ValidateFunction } from 'ajv';
+import Ajv2020 from 'ajv/dist/2020';
 import { existsSync, watch } from 'fs';
 import { mkdir, readdir, readFile, unlink, writeFile } from 'fs/promises';
 import { createRuntime, type Runtime, ServerDefinition } from 'mcporter';
@@ -21,6 +23,29 @@ const MCPS_DIR = ['agent', 'mcps'];
 const GITIGNORE_CONTENT = '# nao: discovered MCP tool specs (generated at runtime)\n*/\n';
 
 type DisabledSets = { servers: Set<string>; tools: Set<string> };
+
+/** Thrown when `mcp_call` arguments do not match the target tool's discovered input schema. */
+export class McpArgsValidationError extends Error {
+	constructor(
+		public readonly server: string,
+		public readonly tool: string,
+		public readonly issues: string[],
+	) {
+		super(`Invalid arguments for MCP tool "${tool}" on server "${server}": ${issues.join('; ')}`);
+		this.name = 'McpArgsValidationError';
+	}
+}
+
+/** Turns an Ajv validation error into a short, model-readable sentence. */
+function formatSchemaError(error: ErrorObject): string {
+	const path = error.instancePath ? error.instancePath.replace(/^\//, '').replaceAll('/', '.') : '';
+	const where = path ? `\`${path}\`` : 'arguments';
+	const extra =
+		error.keyword === 'additionalProperties' && 'additionalProperty' in error.params
+			? ` (\`${error.params.additionalProperty}\`)`
+			: '';
+	return `${where} ${error.message ?? 'is invalid'}${extra}`;
+}
 
 /**
  * Manages MCP servers declared in `agent/mcps/mcp.json`. Instead of loading every tool
@@ -41,6 +66,9 @@ export class McpService {
 	private _discovered: Record<string, McpToolDefinition[]> = {};
 	/** Cached per-server flag for whether the server is OAuth-protected. */
 	private _oauth: Record<string, boolean> = {};
+	/** Compiled argument validators keyed by `server/tool`, rebuilt when a server is rediscovered. */
+	private _validators = new Map<string, ValidateFunction>();
+	private _ajv: Ajv2020 | null = null;
 	private _failedConnections: Record<string, string> = {};
 	private _fileWatcher: ReturnType<typeof watch> | null = null;
 	private _debouncedReload: () => void;
@@ -104,6 +132,7 @@ export class McpService {
 				return {
 					name,
 					transport: this._transportOf(config),
+					url: this._serverOrigin(config),
 					enabled: !disabled.servers.has(name),
 					discovered,
 					connectionOk: this._discovered[name] !== undefined && !this._failedConnections[name],
@@ -175,6 +204,8 @@ export class McpService {
 			throw new Error(`MCP tool "${tool}" on server "${server}" is disabled by the project admin.`);
 		}
 
+		await this._validateArgs(server, tool, args);
+
 		try {
 			if (await this._ensureOAuthFlag(server, config)) {
 				return await this._callToolOAuth({ projectId, userId, server, tool, args, config });
@@ -229,6 +260,89 @@ export class McpService {
 		}
 	}
 
+	/**
+	 * Validates the call arguments against the tool's discovered JSON Schema before dispatching.
+	 * When no schema is known (e.g. a server that failed discovery) the call proceeds unvalidated
+	 * so the remote server stays the ultimate authority.
+	 */
+	private async _validateArgs(server: string, tool: string, args: Record<string, unknown>): Promise<void> {
+		const schema = await this._toolInputSchema(server, tool);
+		if (!schema) {
+			return;
+		}
+		const validate = this._getValidator(server, tool, schema);
+		if (!validate || validate(args)) {
+			return;
+		}
+		const issues = (validate.errors ?? []).map(formatSchemaError);
+		throw new McpArgsValidationError(
+			server,
+			tool,
+			issues.length ? issues : ['arguments do not match the tool schema'],
+		);
+	}
+
+	/** Resolves a tool's input schema from this session's discovery, falling back to the on-disk spec. */
+	private async _toolInputSchema(server: string, tool: string): Promise<Record<string, unknown> | null> {
+		const discovered = this._discovered[server]?.find((entry) => entry.name === tool);
+		if (discovered?.inputSchema && typeof discovered.inputSchema === 'object') {
+			return discovered.inputSchema as Record<string, unknown>;
+		}
+		return this._readToolSchemaFromDisk(server, tool);
+	}
+
+	private async _readToolSchemaFromDisk(server: string, tool: string): Promise<Record<string, unknown> | null> {
+		const file = this._toolFilePath(server, tool);
+		if (!existsSync(file)) {
+			return null;
+		}
+		try {
+			const doc = JSON.parse(await readFile(file, 'utf8'));
+			const schema = doc?.paths?.[`/tools/${tool}`]?.post?.requestBody?.content?.['application/json']?.schema;
+			return schema && typeof schema === 'object' ? (schema as Record<string, unknown>) : null;
+		} catch {
+			return null;
+		}
+	}
+
+	/** Compiles and caches a validator for a tool schema, or null if the schema cannot be compiled. */
+	private _getValidator(server: string, tool: string, schema: Record<string, unknown>): ValidateFunction | null {
+		const key = this._toolKey(server, tool);
+		const cached = this._validators.get(key);
+		if (cached) {
+			return cached;
+		}
+		try {
+			const { $id: _id, ...schemaWithoutId } = schema;
+			const validate = this._getAjv().compile(schemaWithoutId);
+			this._validators.set(key, validate);
+			return validate;
+		} catch (error) {
+			logger.warn(`MCP tool schema not validatable: ${server}/${tool}`, {
+				source: 'tool',
+				projectId: this._projectId ?? undefined,
+				context: { server, tool, error: String(error) },
+			});
+			return null;
+		}
+	}
+
+	private _getAjv(): Ajv2020 {
+		if (!this._ajv) {
+			this._ajv = new Ajv2020({ strict: false, allErrors: true, allowUnionTypes: true, validateFormats: false });
+		}
+		return this._ajv;
+	}
+
+	private _clearValidators(server: string): void {
+		const prefix = `${server}/`;
+		for (const key of this._validators.keys()) {
+			if (key.startsWith(prefix)) {
+				this._validators.delete(key);
+			}
+		}
+	}
+
 	private async _initialize(projectId: string): Promise<void> {
 		const project = await retrieveProjectById(projectId);
 		this._projectPath = project.path || '';
@@ -257,6 +371,7 @@ export class McpService {
 		this._runtime = null;
 		this._registered = new Set();
 		this._oauth = {};
+		this._validators.clear();
 	}
 
 	private async _loadConfig(): Promise<void> {
@@ -303,6 +418,8 @@ export class McpService {
 		if (!config) {
 			return;
 		}
+
+		this._clearValidators(name);
 
 		try {
 			this._discovered[name] = await this._listTools(name, config);
@@ -534,6 +651,13 @@ export class McpService {
 			},
 			env: config.env,
 		};
+	}
+
+	private _serverOrigin(config: McpServerConfig): string | undefined {
+		if (this._transportOf(config) !== 'http' || !config.url) {
+			return undefined;
+		}
+		return new URL(config.url.toString()).origin;
 	}
 
 	private _transportOf(config: McpServerConfig): McpTransport {

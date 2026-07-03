@@ -1,6 +1,6 @@
 import { mcpCall } from '@nao/shared/tools';
 
-import { mcpService } from '../../services/mcp';
+import { McpArgsValidationError, mcpService } from '../../services/mcp';
 import { McpAuthRequiredError } from '../../services/mcp-oauth';
 import { createTool } from '../../utils/tools';
 
@@ -12,6 +12,9 @@ const DESCRIPTION = [
 	'need: list the server folder, then read (or grep) the relevant tool file (use the list, read and',
 	"grep tools). Then call it here: set `tool` to the operation's operationId and `arguments` to an",
 	"object that matches that operation's request body schema.",
+	'',
+	'`arguments` are validated against that schema before the call runs. A VALIDATION_ERROR result',
+	'means the arguments are malformed — read the reported issues, fix them, and call again.',
 	'',
 	'Some servers require the user to connect their account first. If a call returns an AUTH_REQUIRED',
 	'result, stop and ask the user to connect — a Connect button is shown to them automatically.',
@@ -25,8 +28,19 @@ export interface McpAuthRequiredOutput {
 	server: string;
 }
 
+/** Output shape returned when the call arguments fail schema validation before dispatch. */
+export interface McpValidationErrorOutput {
+	mcpValidationError: true;
+	server: string;
+	tool: string;
+	issues: string[];
+}
+
 const isAuthRequired = (output: unknown): output is McpAuthRequiredOutput =>
 	!!output && typeof output === 'object' && (output as McpAuthRequiredOutput).mcpAuthRequired === true;
+
+const isValidationError = (output: unknown): output is McpValidationErrorOutput =>
+	!!output && typeof output === 'object' && (output as McpValidationErrorOutput).mcpValidationError === true;
 
 const extractText = (output: unknown): string => {
 	if (isAuthRequired(output)) {
@@ -35,6 +49,14 @@ const extractText = (output: unknown): string => {
 			'Stop and ask the user to connect using the Connect button shown below the conversation.',
 			'Do not retry this tool until they have connected.',
 		].join(' ');
+	}
+
+	if (isValidationError(output)) {
+		return [
+			`VALIDATION_ERROR: The arguments for tool "${output.tool}" on server "${output.server}" do not match its schema:`,
+			...output.issues.map((issue) => `- ${issue}`),
+			`Fix the arguments to match the tool spec (/agent/mcps/${output.server}/${output.tool}.json) and call again.`,
+		].join('\n');
 	}
 
 	if (typeof output === 'string') {
@@ -73,6 +95,14 @@ export const createMcpCallTool = (allowedServers: string[] | null) =>
 			} catch (error) {
 				if (error instanceof McpAuthRequiredError) {
 					return { mcpAuthRequired: true, server: error.server } satisfies McpAuthRequiredOutput;
+				}
+				if (error instanceof McpArgsValidationError) {
+					return {
+						mcpValidationError: true,
+						server: error.server,
+						tool: error.tool,
+						issues: error.issues,
+					} satisfies McpValidationErrorOutput;
 				}
 				throw error;
 			}
