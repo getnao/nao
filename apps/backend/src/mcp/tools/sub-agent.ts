@@ -10,7 +10,7 @@ import { skillService } from '../../services/skill';
 import type { UIMessage, UIMessagePart } from '../../types/chat';
 import type { McpContext, ToolResult } from '../logging';
 import { chatUrl } from '../urls';
-import { type AskNaoResult, askNaoRuns } from './ask-nao-runs';
+import { type AskNaoClarification, type AskNaoResult, askNaoRuns } from './ask-nao-runs';
 import { registerMcpTool } from './register-mcp-tool';
 
 type Agent = Awaited<ReturnType<typeof agentService.create>>;
@@ -37,7 +37,10 @@ const ASK_NAO_DESCRIPTION =
 	'LONG RUNS: the agent runs in the background. If it does not finish quickly this returns ' +
 	"`status: 'running'` with a `chatId` instead of the answer. When that happens, call " +
 	'`get_nao_answer` with that `chatId` (polling every few seconds) until it returns ' +
-	"`status: 'complete'`.";
+	"`status: 'complete'`.\n\n" +
+	"CLARIFICATIONS: if the question is ambiguous, this returns `status: 'needs_clarification'` " +
+	'with a `clarification.question` (and optional `clarification.options`). Relay the question to the user, ' +
+	'then call `ask_nao` again with the SAME `chatId` and their answer as `question`.';
 
 const GET_NAO_ANSWER_DESCRIPTION =
 	'Fetch the result of an `ask_nao` run that is still in progress. ' +
@@ -63,6 +66,16 @@ const ASK_NAO_QUERIES_SCHEMA = z
 			'Forward `id` to `display_chart` as `query_id`; pick `x_axis_key` / `series[].data_key` from `columns`.',
 	);
 
+const ASK_NAO_CLARIFICATION_SCHEMA = z
+	.object({
+		question: z.string(),
+		options: z.array(z.string()).optional(),
+	})
+	.optional()
+	.describe(
+		'Present when `status` is `needs_clarification`: the question nao needs answered, with optional one-click answer choices.',
+	);
+
 export function registerSubAgentTools(server: McpServer, ctx: McpContext): void {
 	registerMcpTool(server, ctx, {
 		name: 'ask_nao',
@@ -86,8 +99,12 @@ export function registerSubAgentTools(server: McpServer, ctx: McpContext): void 
 		},
 		outputSchema: {
 			status: z
-				.enum(['running', 'complete'])
-				.describe('`complete` carries the answer; `running` means poll `get_nao_answer` with `chatId`.'),
+				.enum(['running', 'complete', 'needs_clarification'])
+				.describe(
+					'`complete` carries the answer; `running` means poll `get_nao_answer` with `chatId`; ' +
+						'`needs_clarification` means nao asked a clarifying question — relay it to the user, ' +
+						"then call `ask_nao` again with the same `chatId` and the user's answer.",
+				),
 			chatId: z
 				.string()
 				.describe(
@@ -96,6 +113,7 @@ export function registerSubAgentTools(server: McpServer, ctx: McpContext): void 
 				),
 			chatUrl: z.url().describe('URL to open the chat in the nao UI.'),
 			text: z.string().describe('The assistant final text response. Empty while `status` is `running`.'),
+			clarification: ASK_NAO_CLARIFICATION_SCHEMA,
 			queries: ASK_NAO_QUERIES_SCHEMA,
 			story_ids: z
 				.array(z.string())
@@ -134,10 +152,11 @@ export function registerSubAgentTools(server: McpServer, ctx: McpContext): void 
 			chatId: z.uuid().describe("UUID returned by an `ask_nao` call that responded with `status: 'running'`."),
 		},
 		outputSchema: {
-			status: z.enum(['running', 'complete', 'error']),
+			status: z.enum(['running', 'complete', 'needs_clarification', 'error']),
 			chatId: z.string(),
 			chatUrl: z.url(),
 			text: z.string().describe('The assistant final text response. Empty unless `status` is `complete`.'),
+			clarification: ASK_NAO_CLARIFICATION_SCHEMA,
 			queries: ASK_NAO_QUERIES_SCHEMA,
 			story_ids: z.array(z.string()),
 			error: z.string().optional().describe('Failure reason when `status` is `error`.'),
@@ -161,11 +180,12 @@ async function runAskNaoInBackground(
 	naoChatUrl: string,
 ): Promise<AskNaoResult> {
 	try {
-		const text = await drainStream(agent.stream(uiMessages));
+		const { text, clarification } = await drainStream(agent.stream(uiMessages));
 		const result: AskNaoResult = {
 			chatId,
 			chatUrl: naoChatUrl,
 			text,
+			...(clarification ? { clarification } : {}),
 			queries: agent.queryResultsSummary,
 			story_ids: await resolveStoryIds(agent.generatedArtifacts.stories, chatId),
 		};
@@ -218,10 +238,12 @@ async function resolveAnswerPayload(chatId: string): Promise<ToolResult> {
 async function reconstructAnswerFromDb(chatId: string): Promise<ToolResult> {
 	const messages = await chatQueries.getChatMessages(chatId);
 	const lastAssistant = [...messages].reverse().find((message) => message.role === 'assistant') ?? null;
+	const clarification = extractClarification(lastAssistant);
 	return answerCompletePayload({
 		chatId,
 		chatUrl: chatUrl(chatId),
 		text: extractFinalText(lastAssistant),
+		...(clarification ? { clarification } : {}),
 		queries: [],
 		story_ids: [],
 	});
@@ -251,6 +273,10 @@ function runningPayload(chatId: string, naoChatUrl: string): ToolResult {
 }
 
 function answerCompletePayload(result: AskNaoResult): ToolResult {
+	if (result.clarification) {
+		return clarificationPayload(result, result.clarification);
+	}
+
 	return {
 		content: [
 			{
@@ -260,6 +286,37 @@ function answerCompletePayload(result: AskNaoResult): ToolResult {
 			{ type: 'text' as const, text: JSON.stringify({ queries: result.queries, story_ids: result.story_ids }) },
 		],
 		structuredContent: { status: 'complete', ...result },
+	};
+}
+
+function clarificationPayload(result: AskNaoResult, clarification: AskNaoClarification): ToolResult {
+	const optionsText = clarification.options?.length
+		? `\nSuggested answers:\n${clarification.options.map((option) => `- ${option}`).join('\n')}`
+		: '';
+	const structuredClarification = {
+		question: clarification.question,
+		...(clarification.options?.length ? { options: clarification.options } : {}),
+	};
+
+	return {
+		content: [
+			{
+				type: 'text' as const,
+				text:
+					`nao needs clarification before it can answer: "${clarification.question}"` +
+					optionsText +
+					`\nAsk the user, then call ask_nao again with the SAME chatId (${result.chatId}) and the user's answer as the question.`,
+			},
+		],
+		structuredContent: {
+			status: 'needs_clarification',
+			chatId: result.chatId,
+			chatUrl: result.chatUrl,
+			text: result.text,
+			clarification: structuredClarification,
+			queries: result.queries,
+			story_ids: result.story_ids,
+		},
 	};
 }
 
@@ -343,12 +400,32 @@ async function buildChatContext(
 	};
 }
 
-async function drainStream(stream: ReadableStream<InferUIMessageChunk<UIMessage>>): Promise<string> {
+async function drainStream(
+	stream: ReadableStream<InferUIMessageChunk<UIMessage>>,
+): Promise<{ text: string; clarification?: AskNaoClarification }> {
 	let lastMessage: UIMessage | null = null;
 	for await (const message of readUIMessageStream<UIMessage>({ stream })) {
 		lastMessage = message;
 	}
-	return extractFinalText(lastMessage);
+	const clarification = extractClarification(lastMessage);
+	return {
+		text: extractFinalText(lastMessage),
+		...(clarification ? { clarification } : {}),
+	};
+}
+
+function extractClarification(message: UIMessage | null): AskNaoClarification | undefined {
+	if (!message) {
+		return undefined;
+	}
+	const part = message.parts.find((part) => part.type === 'tool-clarification');
+	const input = part && 'input' in part ? part.input : undefined;
+	if (!isRecord(input) || typeof input.question !== 'string' || input.question.trim().length === 0) {
+		return undefined;
+	}
+
+	const options = extractClarificationOptions(input);
+	return options ? { question: input.question, options } : { question: input.question };
 }
 
 function extractFinalText(message: UIMessage | null): string {
@@ -359,4 +436,19 @@ function extractFinalText(message: UIMessage | null): string {
 		.filter((p): p is Extract<UIMessagePart, { type: 'text' }> => p.type === 'text')
 		.map((p) => p.text)
 		.join('\n\n');
+}
+
+function extractClarificationOptions(input: Record<string, unknown>): string[] | undefined {
+	const options = input.options;
+	if (!Array.isArray(options) || options.length === 0) {
+		return undefined;
+	}
+	if (!options.every((option): option is string => typeof option === 'string')) {
+		return undefined;
+	}
+	return options;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== null;
 }

@@ -5,10 +5,16 @@ export interface AskNaoQuery {
 	preview: Record<string, unknown>[];
 }
 
+export interface AskNaoClarification {
+	question: string;
+	options?: string[];
+}
+
 export interface AskNaoResult {
 	chatId: string;
 	chatUrl: string;
 	text: string;
+	clarification?: AskNaoClarification;
 	queries: AskNaoQuery[];
 	story_ids: string[];
 }
