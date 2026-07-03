@@ -1,5 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useId } from 'react';
-import { Link, useSearch } from '@tanstack/react-router';
+import { Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { Plus, PencilRuler, Database, Image as ImageIcon, AlertTriangle, Shield, Check } from 'lucide-react';
 import { Button, ChatButton, MicButton } from './ui/button';
@@ -106,7 +106,6 @@ function ChatInputBase({
 		selectedModel,
 	} = useAgentContext();
 	const { isAdmin } = usePermissions();
-	const { admin: adminSearch } = useSearch({ strict: false }) as { admin?: boolean };
 	const chatId = useChatId();
 
 	const isAdminMode = isAdmin && adminMode;
@@ -132,13 +131,6 @@ function ChatInputBase({
 	const [isDragging, setIsDragging] = useState(false);
 
 	useEffect(() => promptRef.current?.focus(), [chatId, promptRef]);
-
-	useEffect(() => {
-		if (!isAdmin || chatId) {
-			return;
-		}
-		setAdminMode(!!adminSearch);
-	}, [isAdmin, chatId, adminSearch, setAdminMode]);
 
 	useEffect(() => {
 		const el = dropZoneRef.current;

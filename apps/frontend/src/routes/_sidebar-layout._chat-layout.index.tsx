@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, createFileRoute, useNavigate } from '@tanstack/react-router';
 import { PlusIcon, Settings } from 'lucide-react';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { StoryItem } from '@/lib/stories-page';
 import { buildStoryItems } from '@/lib/stories-page';
 import { useSession } from '@/lib/auth-client';
@@ -40,9 +40,19 @@ function RouteComponent() {
 function HomePage() {
 	const { data: session } = useSession();
 	const username = session?.user?.name;
-	const { messages } = useAgentContext();
+	const { messages, setAdminMode } = useAgentContext();
+	const { isAdmin } = usePermissions();
+	const { admin: adminSearch } = Route.useSearch();
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
+
+	useEffect(() => {
+		if (!isAdmin) {
+			return;
+		}
+		setAdminMode(adminSearch === true);
+	}, [isAdmin, adminSearch, setAdminMode]);
+
 	const project = useQuery(trpc.project.getCurrent.queryOptions());
 	const projects = useQuery(trpc.project.listForCurrentUser.queryOptions());
 	const isInMultipleProjects = (projects.data?.length ?? 0) > 1;
