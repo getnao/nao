@@ -11,6 +11,7 @@ import { useInactivityTrigger } from '@/hooks/use-inactivity-trigger';
 import { checkAssistantMessageHasContent, getToolName, NEW_CHAT_ID } from '@/lib/ai';
 import { countDisplayCharts } from '@/lib/charts.utils';
 import { createLocalStorage } from '@/lib/local-storage';
+import { lastUserMessagePayload } from '@/lib/mcp-auth-retry';
 import { openMcpConnectPopup } from '@/lib/mcp-oauth';
 import { findStoryIds } from '@/lib/story.utils';
 import { trpc } from '@/main';
@@ -177,11 +178,11 @@ function useMcpAuthSuggestion(): McpAuthSuggestion {
 		setConnecting(true);
 		const connected = await openMcpConnectPopup(pendingServer);
 		setConnecting(false);
-		setResolved((prev) => new Set(prev).add(pendingServer));
 		if (connected) {
-			const text = lastUserMessageText(messages);
-			if (text) {
-				void queueOrSendMessage({ text });
+			setResolved((prev) => new Set(prev).add(pendingServer));
+			const payload = lastUserMessagePayload(messages);
+			if (payload) {
+				void queueOrSendMessage(payload);
 			}
 		}
 	}, [pendingServer, messages, queueOrSendMessage]);
@@ -216,22 +217,6 @@ function findPendingAuthServer(messages: UIMessage[]): string | null {
 				return output.server;
 			}
 		}
-	}
-	return null;
-}
-
-function lastUserMessageText(messages: UIMessage[]): string | null {
-	for (let i = messages.length - 1; i >= 0; i--) {
-		const message = messages[i];
-		if (message.role !== 'user') {
-			continue;
-		}
-		const text = message.parts
-			.filter((part) => part.type === 'text')
-			.map((part) => (part as { text: string }).text)
-			.join('\n')
-			.trim();
-		return text || null;
 	}
 	return null;
 }

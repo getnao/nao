@@ -220,7 +220,7 @@ function McpServersBlock({ servers }: { servers: string[] }) {
 			</Span>
 			<List>
 				{servers.map((server) => (
-					<ListItem>{server}</ListItem>
+					<ListItem key={server}>{server}</ListItem>
 				))}
 			</List>
 		</Block>

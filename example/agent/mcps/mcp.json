@@ -7,8 +7,8 @@
         "@getnao/metabase-mcp-server@latest"
       ],
       "env": {
-        "METABASE_URL": "https://pink-haven.metabaseapp.com/",
-        "METABASE_API_KEY": "mb_C2bvAFwlVJWmqce8AaHT3Ri0M4prn8PlvNXUciuXe6M="
+        "METABASE_URL": "${METABASE_URL}",
+        "METABASE_API_KEY": "${METABASE_API_KEY}"
       }
     },
     "notion": {

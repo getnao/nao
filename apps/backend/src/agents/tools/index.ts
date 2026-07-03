@@ -51,7 +51,12 @@ export const getTools = (
 		builtinToolAllowlist?: string[];
 	} = {},
 ) => {
-	const includeMcp = options.mcpEnabled !== false && mcpService.getConfiguredServerNames().length > 0;
+	const configuredServers = new Set(mcpService.getConfiguredServerNames());
+	const includeMcp =
+		options.mcpEnabled !== false &&
+		(options.mcpServers == null
+			? configuredServers.size > 0
+			: options.mcpServers.some((server) => configuredServers.has(server)));
 	const mcpTools: Record<string, Tool> = includeMcp
 		? { mcp_call: createMcpCallTool(options.mcpServers ?? null) }
 		: {};

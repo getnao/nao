@@ -91,7 +91,10 @@ export function extractToolsFromOpenApi(doc: unknown): OpenApiToolInfo[] {
 	}
 
 	const tools: OpenApiToolInfo[] = [];
-	for (const operation of Object.values(paths)) {
+	for (const [path, operation] of Object.entries(paths)) {
+		if (!path.startsWith('/tools/')) {
+			continue;
+		}
 		const post = (operation as { post?: { operationId?: string; description?: string } })?.post;
 		if (post?.operationId) {
 			tools.push({ name: post.operationId, description: post.description || undefined });

@@ -42,7 +42,7 @@ export const ToolCallsGroup = memo(({ parts, isSettled }: Props) => {
 				<div className='flex flex-col gap-2'>
 					{groupedParts.map((part, index) => {
 						if (part.type === 'mcp-sub-group') {
-							return <McpToolCallsSubGroup key={index} group={part} isSettled={isSettled} />;
+							return <McpToolCallsSubGroup key={part.id} group={part} isSettled={isSettled} />;
 						}
 						if (isReasoningPart(part)) {
 							return (

@@ -1397,7 +1397,7 @@ function McpSubMenu({
 									? 'Added'
 									: server.error
 										? 'Error'
-										: `${server.toolCount} ${server.toolCount === 1 ? 'tool' : 'tools'}`}
+										: `${server.enabledToolCount} ${server.enabledToolCount === 1 ? 'tool' : 'tools'}`}
 							</span>
 						</DropdownMenuItem>
 					);

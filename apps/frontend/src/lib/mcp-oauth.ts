@@ -43,7 +43,7 @@ export function openMcpConnectPopup(server: string): Promise<boolean> {
 		};
 
 		const onMessage = (event: MessageEvent) => {
-			if (event.origin !== window.location.origin || !isOAuthMessage(event.data)) {
+			if (event.source !== popup || event.origin !== window.location.origin || !isOAuthMessage(event.data)) {
 				return;
 			}
 			if (event.data.server === server) {

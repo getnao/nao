@@ -8,7 +8,7 @@ export type GroupablePart = UIToolPart | ReasoningUIPart;
 export type ToolGroupPart = { type: 'tool-group'; parts: GroupablePart[] };
 
 /** A nested group of consecutive MCP parts targeting the same server. */
-export type McpSubGroupPart = { type: 'mcp-sub-group'; server: string; parts: GroupablePart[] };
+export type McpSubGroupPart = { type: 'mcp-sub-group'; id: string; server: string; parts: GroupablePart[] };
 
 /** A groupable part or a nested MCP sub-group, as rendered inside a tool group. */
 export type McpGroupedPart = GroupablePart | McpSubGroupPart;

@@ -21,11 +21,13 @@ const DESCRIPTION = [
 ].join('\n');
 
 type McpContentBlock = { type: string; text?: string };
+const MCP_AUTH_REQUIRED_MARKER = Symbol('nao.mcp.authRequired');
 
 /** Output shape returned when the calling user must connect their account to an OAuth MCP server. */
 export interface McpAuthRequiredOutput {
 	mcpAuthRequired: true;
 	server: string;
+	[MCP_AUTH_REQUIRED_MARKER]: true;
 }
 
 /** Output shape returned when the call arguments fail schema validation before dispatch. */
@@ -36,8 +38,16 @@ export interface McpValidationErrorOutput {
 	issues: string[];
 }
 
+const authRequiredOutput = (server: string): McpAuthRequiredOutput => ({
+	mcpAuthRequired: true,
+	server,
+	[MCP_AUTH_REQUIRED_MARKER]: true,
+});
+
 const isAuthRequired = (output: unknown): output is McpAuthRequiredOutput =>
-	!!output && typeof output === 'object' && (output as McpAuthRequiredOutput).mcpAuthRequired === true;
+	!!output &&
+	typeof output === 'object' &&
+	(output as Partial<McpAuthRequiredOutput>)[MCP_AUTH_REQUIRED_MARKER] === true;
 
 const isValidationError = (output: unknown): output is McpValidationErrorOutput =>
 	!!output && typeof output === 'object' && (output as McpValidationErrorOutput).mcpValidationError === true;
@@ -94,7 +104,7 @@ export const createMcpCallTool = (allowedServers: string[] | null) =>
 				});
 			} catch (error) {
 				if (error instanceof McpAuthRequiredError) {
-					return { mcpAuthRequired: true, server: error.server } satisfies McpAuthRequiredOutput;
+					return authRequiredOutput(error.server);
 				}
 				if (error instanceof McpArgsValidationError) {
 					return {

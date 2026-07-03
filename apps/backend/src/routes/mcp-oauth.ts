@@ -47,14 +47,25 @@ function decodeState(state: string): StatePayload | null {
 	}
 }
 
-function normalizeReturnTo(value: unknown): string {
-	return typeof value === 'string' && value.startsWith('/') ? value.split('?', 1)[0] : '/';
+export function normalizeReturnTo(value: unknown): string {
+	if (typeof value !== 'string') {
+		return '/';
+	}
+	const path = value.split(/[?#]/, 1)[0];
+	return /^\/[A-Za-z0-9/_-]*$/.test(path) && !path.startsWith('//') ? path : '/';
+}
+
+function jsonForInlineScript(value: unknown): string {
+	return JSON.stringify(value)
+		.replace(/</g, '\\u003c')
+		.replace(/\u2028/g, '\\u2028')
+		.replace(/\u2029/g, '\\u2029');
 }
 
 /** Page shown in the OAuth popup: notifies the chat window and closes itself. */
-function resultPage(status: 'connected' | 'error', server: string, returnTo: string): string {
-	const payload = JSON.stringify({ type: 'nao-mcp-oauth', status, server });
-	const target = JSON.stringify(`${returnTo}?mcp=${status}`);
+export function resultPage(status: 'connected' | 'error', server: string, returnTo: string): string {
+	const payload = jsonForInlineScript({ type: 'nao-mcp-oauth', status, server });
+	const target = jsonForInlineScript(`${returnTo}?mcp=${status}`);
 	return `<!doctype html><html><head><meta charset="utf-8"><title>nao</title></head><body style="font-family:system-ui;padding:24px">
 <p>${status === 'connected' ? 'Connected. You can close this window.' : 'Connection failed. You can close this window.'}</p>
 <script>
@@ -138,6 +149,11 @@ export const mcpOAuthRoutes = async (app: App) => {
 		}
 
 		try {
+			const role = await projectQueries.getUserRoleInProject(decoded.projectId, decoded.userId);
+			if (!role) {
+				throw new Error('User no longer has access to the project');
+			}
+
 			const serverUrl = await mcpService.getServerUrl(decoded.projectId, decoded.server);
 			if (!serverUrl) {
 				throw new Error('Server is no longer configured as HTTP');
@@ -152,7 +168,6 @@ export const mcpOAuthRoutes = async (app: App) => {
 				code,
 			});
 
-			const role = await projectQueries.getUserRoleInProject(decoded.projectId, decoded.userId);
 			if (role === 'admin') {
 				await setMcpDiscoveryUser(decoded.projectId, decoded.server, decoded.userId);
 				await mcpService.discoverServer(decoded.projectId, decoded.server);

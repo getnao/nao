@@ -9,7 +9,7 @@ import Ajv2020 from 'ajv/dist/2020';
 import { existsSync, watch } from 'fs';
 import { mkdir, readdir, readFile, unlink, writeFile } from 'fs/promises';
 import { createRuntime, type Runtime, ServerDefinition } from 'mcporter';
-import { join } from 'path';
+import { isAbsolute, join, relative, resolve, sep } from 'path';
 
 import { deleteMcpUserToken, getMcpOAuthClient, hasMcpUserToken } from '../queries/mcp-oauth.queries';
 import { getDisabledMcpServers, getDisabledMcpTools, retrieveProjectById } from '../queries/project.queries';
@@ -45,6 +45,11 @@ function formatSchemaError(error: ErrorObject): string {
 			? ` (\`${error.params.additionalProperty}\`)`
 			: '';
 	return `${where} ${error.message ?? 'is invalid'}${extra}`;
+}
+
+function isWithinDirectory(base: string, target: string): boolean {
+	const relativePath = relative(base, target);
+	return relativePath === '' || (!!relativePath && !relativePath.startsWith('..') && !isAbsolute(relativePath));
 }
 
 /**
@@ -271,7 +276,21 @@ export class McpService {
 			return;
 		}
 		const validate = this._getValidator(server, tool, schema);
-		if (!validate || validate(args)) {
+		if (!validate) {
+			return;
+		}
+		try {
+			if (await validate(args)) {
+				return;
+			}
+		} catch (error) {
+			const issues = ((error as { errors?: ErrorObject[] }).errors ?? []).map(formatSchemaError);
+			if (issues.length) {
+				throw new McpArgsValidationError(server, tool, issues);
+			}
+			throw error;
+		}
+		if (validate.errors?.length === 0) {
 			return;
 		}
 		const issues = (validate.errors ?? []).map(formatSchemaError);
@@ -671,15 +690,37 @@ export class McpService {
 	}
 
 	private _serverDir(name: string): string {
-		return join(this._projectPath, ...MCPS_DIR, name);
+		return this._containedPath(this._mcpsDir(), name);
 	}
 
 	private _toolFilePath(name: string, tool: string): string {
-		return join(this._serverDir(name), `${tool}.json`);
+		return this._containedPath(this._serverDir(name), `${this._toolSpecFileName(tool)}.json`);
 	}
 
 	private _virtualServerDir(name: string): string {
 		return `/${[...MCPS_DIR, name].join('/')}`;
+	}
+
+	private _mcpsDir(): string {
+		return join(this._projectPath, ...MCPS_DIR);
+	}
+
+	private _toolSpecFileName(tool: string): string {
+		const name = tool || 'tool';
+		try {
+			return encodeURIComponent(name);
+		} catch {
+			return Buffer.from(name).toString('base64url');
+		}
+	}
+
+	private _containedPath(base: string, ...segments: string[]): string {
+		const resolvedBase = resolve(base);
+		const target = resolve(resolvedBase, ...segments);
+		if (!isWithinDirectory(resolvedBase, target)) {
+			throw new Error(`Resolved MCP path escapes ${resolvedBase}${sep}`);
+		}
+		return target;
 	}
 
 	private async _ensureGitignore(): Promise<void> {

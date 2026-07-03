@@ -85,7 +85,7 @@ export async function getValidAccessToken(opts: {
 		return accessToken;
 	}
 	if (!row.refreshToken) {
-		return accessToken;
+		return null;
 	}
 
 	try {
@@ -151,7 +151,7 @@ async function persistTokens(userId: string, projectId: string, server: string, 
 	await saveMcpUserTokens(userId, projectId, server, {
 		accessToken: encryptSecret(tokens.access_token),
 		refreshToken: tokens.refresh_token ? encryptSecret(tokens.refresh_token) : null,
-		expiresAt: tokens.expires_in ? new Date(Date.now() + tokens.expires_in * 1000) : null,
+		expiresAt: tokens.expires_in !== undefined ? new Date(Date.now() + tokens.expires_in * 1000) : null,
 		scope: tokens.scope ?? null,
 	});
 }

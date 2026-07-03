@@ -70,8 +70,12 @@ export const groupMcpToolCalls = (parts: GroupablePart[]): McpGroupedPart[] => {
 		}
 
 		if (currentRun.parts.length >= 2) {
+			const firstToolCallId = (
+				currentRun.parts.find((part) => !isReasoningPart(part)) as { toolCallId?: string } | undefined
+			)?.toolCallId;
 			const subGroup: McpSubGroupPart = {
 				type: 'mcp-sub-group',
+				id: `${currentRun.server}:${firstToolCallId ?? currentRun.parts.length}`,
 				server: currentRun.server,
 				parts: currentRun.parts,
 			};
