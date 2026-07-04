@@ -103,7 +103,8 @@ function RecommendationsPage() {
 		return () => clearInterval(interval);
 	}, [runningRun]);
 
-	const canCancelRun = runningRun !== null && nowMs - new Date(runningRun.startedAt).getTime() >= RUN_CANCEL_THRESHOLD_MS;
+	const canCancelRun =
+		runningRun !== null && nowMs - new Date(runningRun.startedAt).getTime() >= RUN_CANCEL_THRESHOLD_MS;
 
 	const handleRun = async () => {
 		await run.mutateAsync();

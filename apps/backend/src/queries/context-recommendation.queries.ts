@@ -123,7 +123,11 @@ export async function failRun(runId: string, errorMessage: string): Promise<void
 export async function cancelRun(runId: string): Promise<boolean> {
 	const rows = await db
 		.update(s.contextRecommendationRun)
-		.set({ status: 'cancelled', completedAt: new Date(), errorMessage: CONTEXT_RECOMMENDATION_RUN_CANCELLED_MESSAGE })
+		.set({
+			status: 'cancelled',
+			completedAt: new Date(),
+			errorMessage: CONTEXT_RECOMMENDATION_RUN_CANCELLED_MESSAGE,
+		})
 		.where(and(eq(s.contextRecommendationRun.id, runId), eq(s.contextRecommendationRun.status, 'running')))
 		.returning({ id: s.contextRecommendationRun.id })
 		.execute();
