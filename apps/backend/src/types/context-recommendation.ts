@@ -1,4 +1,4 @@
-export const CONTEXT_RECOMMENDATION_RUN_STATUSES = ['running', 'completed', 'failed'] as const;
+export const CONTEXT_RECOMMENDATION_RUN_STATUSES = ['running', 'completed', 'failed', 'cancelled'] as const;
 export type ContextRecommendationRunStatus = (typeof CONTEXT_RECOMMENDATION_RUN_STATUSES)[number];
 
 export const CONTEXT_RECOMMENDATION_RUN_TRIGGERS = ['schedule', 'manual'] as const;
