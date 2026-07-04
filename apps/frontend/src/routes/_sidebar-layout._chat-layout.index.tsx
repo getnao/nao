@@ -203,7 +203,12 @@ function HomePage() {
 										{hasMoreStories && (
 											<button
 												type='button'
-												onClick={() => navigate({ to: '/stories', search: { folderId: null } })}
+												onClick={() =>
+													navigate({
+														to: '/stories',
+														search: { folderId: null, archived: false },
+													})
+												}
 												className={cn(
 													'h-9 rounded-lg border border-dashed border-muted-foreground/20 px-3',
 													'flex items-center gap-2 text-muted-foreground/50 bg-sidebar dark:bg-background',

@@ -72,7 +72,7 @@ function DroppableCrumb({
 	}
 
 	return (
-		<Link to='/stories' search={{ folderId: node.id }}>
+		<Link to='/stories' search={{ folderId: node.id, archived: false }}>
 			{inner}
 		</Link>
 	);

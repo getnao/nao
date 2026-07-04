@@ -47,6 +47,7 @@ import { trpc } from '@/main';
 export const Route = createFileRoute('/_sidebar-layout/stories/')({
 	validateSearch: (search: Record<string, unknown>) => ({
 		folderId: typeof search.folderId === 'string' ? search.folderId : null,
+		archived: search.archived === true || search.archived === 'true',
 	}),
 	component: StoriesPage,
 });
@@ -100,14 +101,13 @@ function StoriesPage() {
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
 
-	const { folderId: currentFolderId } = Route.useSearch();
+	const { folderId: currentFolderId, archived: showArchived } = Route.useSearch();
 
 	const [displayMode, setDisplayMode] = useState<StoryPanelDisplayMode>(() =>
 		getStoredSetting(STORIES_DISPLAY_KEY, ['grid', 'lines'], 'grid'),
 	);
 	const [sort, setSort] = useState<SortState>(() => readStoredSort());
 	const [searchQuery, setSearchQuery] = useState('');
-	const [showArchived, setShowArchived] = useState(false);
 	const [dialog, setDialog] = useState<DialogState>(null);
 	const [activeId, setActiveId] = useState<string | null>(null);
 
@@ -152,7 +152,7 @@ function StoriesPage() {
 			}
 			setActiveProjectId(projectId);
 			await queryClient.invalidateQueries();
-			navigate({ to: '/stories', search: { folderId: null } });
+			navigate({ to: '/stories', search: { folderId: null, archived: false } });
 		},
 		[activeProjectId, queryClient, navigate],
 	);
@@ -214,7 +214,7 @@ function StoriesPage() {
 		}
 		const exists = folders.some((f) => f.id === currentFolderId);
 		if (!exists) {
-			navigate({ to: '/stories', search: { folderId: null }, replace: true });
+			navigate({ to: '/stories', search: { folderId: null, archived: false }, replace: true });
 		}
 	}, [currentFolderId, folderTree.data, archivedFolderTree.data, folders, navigate, showArchived]);
 
@@ -284,11 +284,15 @@ function StoriesPage() {
 	}
 
 	function handleShowArchivedChange(value: boolean) {
-		setShowArchived(value);
 		setSearchQuery('');
-		if (value) {
-			navigate({ to: '/stories', search: { folderId: null } });
-		}
+
+		navigate({
+			to: '/stories',
+			search: {
+				folderId: null,
+				archived: value,
+			},
+		});
 	}
 
 	const moveStoryMutation = useMutation(

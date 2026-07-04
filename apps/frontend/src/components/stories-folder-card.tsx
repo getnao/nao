@@ -100,7 +100,7 @@ export function FolderCard({
 			>
 				<Link
 					to='/stories'
-					search={{ folderId: folder.id }}
+					search={{ folderId: folder.id, archived: false }}
 					className='flex items-center gap-3 flex-1 min-w-0'
 					onClick={(e) => e.stopPropagation()}
 				>
@@ -162,7 +162,7 @@ export function FolderCard({
 
 				<Link
 					to='/stories'
-					search={{ folderId: folder.id }}
+					search={{ folderId: folder.id, archived: false }}
 					className='absolute inset-0 flex flex-col justify-end p-2.5'
 					onClick={(e) => e.stopPropagation()}
 					aria-label={folder.name}
@@ -224,7 +224,7 @@ export function FolderCard({
 		>
 			<Link
 				to='/stories'
-				search={{ folderId: folder.id }}
+				search={{ folderId: folder.id, archived: false }}
 				className='absolute inset-0 flex items-center gap-2.5 pl-3 pr-8'
 				onClick={(e) => e.stopPropagation()}
 			>
