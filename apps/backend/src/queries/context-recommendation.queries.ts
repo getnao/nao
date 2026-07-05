@@ -103,7 +103,7 @@ export async function completeRun(
 	await executor
 		.update(s.contextRecommendationRun)
 		.set({ status: 'completed', completedAt: new Date(), ...patch })
-		.where(eq(s.contextRecommendationRun.id, runId))
+		.where(and(eq(s.contextRecommendationRun.id, runId), eq(s.contextRecommendationRun.status, 'running')))
 		.execute();
 }
 
@@ -111,7 +111,7 @@ export async function failRun(runId: string, errorMessage: string): Promise<void
 	await db
 		.update(s.contextRecommendationRun)
 		.set({ status: 'failed', completedAt: new Date(), errorMessage })
-		.where(eq(s.contextRecommendationRun.id, runId))
+		.where(and(eq(s.contextRecommendationRun.id, runId), eq(s.contextRecommendationRun.status, 'running')))
 		.execute();
 }
 
@@ -134,12 +134,18 @@ export async function cancelRun(runId: string): Promise<boolean> {
 	return rows.length > 0;
 }
 
-export async function failStaleRuns(): Promise<number> {
+export async function failStaleRuns(projectId: string): Promise<number> {
 	const cutoff = new Date(Date.now() - CONTEXT_RECOMMENDATION_RUN_STALE_MS);
 	const rows = await db
 		.update(s.contextRecommendationRun)
 		.set({ status: 'failed', completedAt: new Date(), errorMessage: CONTEXT_RECOMMENDATION_RUN_STALE_MESSAGE })
-		.where(and(eq(s.contextRecommendationRun.status, 'running'), lte(s.contextRecommendationRun.startedAt, cutoff)))
+		.where(
+			and(
+				eq(s.contextRecommendationRun.projectId, projectId),
+				eq(s.contextRecommendationRun.status, 'running'),
+				lte(s.contextRecommendationRun.startedAt, cutoff),
+			),
+		)
 		.returning({ id: s.contextRecommendationRun.id })
 		.execute();
 	return rows.length;
@@ -224,7 +230,7 @@ export async function setRecommendationPr(
 }
 
 export async function getLatestRun(projectId: string): Promise<DBContextRecommendationRun | null> {
-	await failStaleRuns();
+	await failStaleRuns(projectId);
 	const [run] = await db
 		.select()
 		.from(s.contextRecommendationRun)
