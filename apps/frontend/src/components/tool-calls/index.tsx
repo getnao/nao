@@ -20,7 +20,6 @@ import type { StaticToolName, UIToolPart } from '@nao/backend/chat';
 import { getToolName, isToolSettled } from '@/lib/ai';
 import { ToolCallProvider } from '@/contexts/tool-call';
 import { useAssistantMessage } from '@/contexts/assistant-message';
-import { useMcpContext } from '@/contexts/mcp';
 
 export type ToolCallComponentProps<TToolName extends StaticToolName | undefined = undefined> = {
 	toolPart: UIToolPart<TToolName>;
@@ -48,33 +47,25 @@ export const dynamicToolComponents = {
 	google_search: WebSearchToolCall,
 	query_app_db: QueryAppDbToolCall,
 	record_recommendation: RecordRecommendationToolCall,
+	mcp_call: McpToolCall,
 } satisfies Record<string, React.ComponentType<ToolCallComponentProps>>;
 
 export type DynamicToolName = keyof typeof dynamicToolComponents;
 
 export const ToolCall = memo(({ toolPart }: { toolPart: UIToolPart }) => {
 	const { isSettled: isMessageSettled } = useAssistantMessage();
-	const { mcpState } = useMcpContext();
-	const mcpServerNames = mcpState ? Object.keys(mcpState) : [];
 
 	if (toolPart.type === 'tool-suggest_follow_ups') {
 		return null;
 	}
 
 	const toolName = getToolName(toolPart);
-	const isMcpTool = mcpServerNames.some((server) => toolName.startsWith(`${server}`));
 
 	const Component =
 		(toolComponents[toolName as StaticToolName] as React.ComponentType<ToolCallComponentProps> | undefined) ??
 		dynamicToolComponents[toolName as DynamicToolName];
 
-	const Rendered = Component ? (
-		<Component toolPart={toolPart} />
-	) : isMcpTool ? (
-		<McpToolCall toolPart={toolPart} />
-	) : (
-		<DefaultToolCall toolPart={toolPart} />
-	);
+	const Rendered = Component ? <Component toolPart={toolPart} /> : <DefaultToolCall toolPart={toolPart} />;
 
 	return (
 		<ToolCallProvider

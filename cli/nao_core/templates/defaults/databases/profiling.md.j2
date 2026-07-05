@@ -16,6 +16,11 @@
 
 **Columns:** {{ result.columns | length }}
 
+{% if result.clustering_columns %}
+**Clustering:** {% for c in result.clustering_columns %}`{{ c }}`{% if not loop.last %}, {% endif %}{% endfor %}
+
+
+{% endif %}
 ## Column Profiles (JSONL)
 
 {% for col in result.columns %}

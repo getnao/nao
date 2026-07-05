@@ -10,6 +10,7 @@ from nao_core.commands.sync.cleanup import DatabaseSyncState
 from nao_core.commands.sync.providers.databases.provider import (
     DatabaseSyncProvider,
     _fetch_query_history,
+    _matches_selection,
 )
 from nao_core.config.base import NaoConfig
 from nao_core.config.databases.duckdb import DuckDBConfig
@@ -156,6 +157,79 @@ class TestDatabaseSyncProvider:
         text = output.getvalue()
         assert "ibis-framework[postgres]" in text
         assert "nao-core[redshift]" in text
+
+
+class TestMatchesSelection:
+    def test_schema_only_pattern_selects_whole_schema(self):
+        assert _matches_selection("analytics", "orders", ["analytics"]) is True
+        assert _matches_selection("analytics", "customers", ["analytics"]) is True
+        assert _matches_selection("staging", "orders", ["analytics"]) is False
+
+    def test_schema_table_pattern_selects_single_table(self):
+        assert _matches_selection("analytics", "orders", ["analytics.orders"]) is True
+        assert _matches_selection("analytics", "customers", ["analytics.orders"]) is False
+
+    def test_glob_patterns_are_supported(self):
+        assert _matches_selection("staging", "dim_users", ["staging.dim_*"]) is True
+        assert _matches_selection("staging", "fct_orders", ["staging.dim_*"]) is False
+
+    def test_any_pattern_matches(self):
+        select = ["analytics.orders", "staging"]
+        assert _matches_selection("analytics", "orders", select) is True
+        assert _matches_selection("staging", "anything", select) is True
+        assert _matches_selection("analytics", "customers", select) is False
+
+    def test_matching_is_case_insensitive(self):
+        # Snowflake-style uppercased identifiers should match lowercase patterns.
+        assert _matches_selection("ANALYTICS", "ORDERS", ["analytics.orders"]) is True
+        assert _matches_selection("ANALYTICS", "ORDERS", ["analytics"]) is True
+        assert _matches_selection("analytics", "orders", ["ANALYTICS.ORDERS"]) is True
+
+    def test_catalog_qualified_schema_is_supported(self):
+        # Some databases (e.g. StarRocks) qualify schemas with a catalog prefix.
+        assert _matches_selection("catalog.analytics", "orders", ["catalog.analytics"]) is True
+        assert _matches_selection("catalog.analytics", "orders", ["catalog.analytics.orders"]) is True
+        assert _matches_selection("catalog.analytics", "orders", ["catalog.analytics.customers"]) is False
+        # A bare schema name without the catalog prefix does not match.
+        assert _matches_selection("catalog.analytics", "orders", ["analytics"]) is False
+
+
+class TestSelectSkipsCleanup:
+    @patch("nao_core.commands.sync.providers.databases.provider.cleanup_stale_paths", return_value=3)
+    @patch("nao_core.commands.sync.providers.databases.provider.sync_database")
+    def test_cleanup_runs_without_select(self, mock_sync_database, mock_cleanup, tmp_path: Path):
+        provider = DatabaseSyncProvider()
+        db = MagicMock()
+        db.name = "db1"
+        db.type = "duckdb"
+        db.templates = [MagicMock(value="columns")]
+        db.get_database_name.return_value = "db1"
+        mock_sync_database.return_value = DatabaseSyncState(db_path=tmp_path / "db1")
+
+        result = provider.sync([db], tmp_path)
+
+        mock_cleanup.assert_called_once()
+        assert result.details is not None
+        assert result.details["removed"] == 3
+        assert mock_sync_database.call_args.kwargs.get("select") is None
+
+    @patch("nao_core.commands.sync.providers.databases.provider.cleanup_stale_paths", return_value=3)
+    @patch("nao_core.commands.sync.providers.databases.provider.sync_database")
+    def test_cleanup_skipped_with_select(self, mock_sync_database, mock_cleanup, tmp_path: Path):
+        provider = DatabaseSyncProvider()
+        db = MagicMock()
+        db.name = "db1"
+        db.type = "duckdb"
+        db.templates = [MagicMock(value="columns")]
+        db.get_database_name.return_value = "db1"
+        mock_sync_database.return_value = DatabaseSyncState(db_path=tmp_path / "db1")
+
+        result = provider.sync([db], tmp_path, select=["analytics.orders"])
+
+        mock_cleanup.assert_not_called()
+        assert result.details is not None
+        assert result.details["removed"] == 0
+        assert mock_sync_database.call_args.kwargs.get("select") == ["analytics.orders"]
 
 
 class TestFetchQueryHistoryFiltering:

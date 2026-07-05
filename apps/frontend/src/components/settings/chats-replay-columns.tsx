@@ -1,10 +1,16 @@
 import { CircleAlert, Eye, ThumbsDown, ThumbsUp } from 'lucide-react';
 import { differenceInDays, format, isToday, isYesterday } from 'date-fns';
+import { USER_ROLE_LABELS } from '@nao/shared/types';
 import type { ColumnDef } from '@tanstack/react-table';
 
-import type { ProjectChatListItem } from '@nao/shared/types';
+import type { ProjectChatListItem, UserRole } from '@nao/shared/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+
+/** Render a project member role for display, leaving non-role values (e.g. "Former member") untouched. */
+export function formatUserRole(value: string): string {
+	return USER_ROLE_LABELS[value as UserRole] ?? value;
+}
 
 export function getChatsReplayColumns(args: {
 	onOpenChat: (chat: ProjectChatListItem) => void;
@@ -28,6 +34,10 @@ export function getChatsReplayColumns(args: {
 		{
 			accessorKey: 'userRole',
 			header: 'Role',
+			cell: ({ getValue }) => {
+				const value = getValue<string>();
+				return value ? formatUserRole(value) : '—';
+			},
 		},
 		{
 			accessorKey: 'title',

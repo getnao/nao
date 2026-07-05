@@ -372,6 +372,13 @@
       "when": 1782391309531,
       "tag": "0052_add_brand_color",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "6",
+      "when": 1783082672684,
+      "tag": "0053_new_mcp",
+      "breakpoints": true
     }
   ]
 }

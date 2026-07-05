@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { Calendar, Check, Copy, Github, Mail, Plus, Trash2, Webhook, X } from 'lucide-react';
-import type { McpState } from '@nao/shared';
+import type { McpServerStatus } from '@nao/shared';
 import type { LlmProvider } from '@nao/shared/types';
 import type { FormEvent, ReactNode, RefObject } from 'react';
 import type { PromptHandle } from 'prompt-mentions';
@@ -241,7 +241,7 @@ export function AutomationForm({
 
 				<ToolsSection
 					value={form.value}
-					mcpState={form.mcpState}
+					mcpServers={form.mcpServers}
 					emailRecipientsError={form.emailRecipientsError}
 					onClearEmailRecipientsError={form.clearEmailRecipientsError}
 					onChange={form.handleValueChange}
@@ -313,7 +313,7 @@ function useAutomationFormController({
 	const autoSaveInFlightRef = useRef(false);
 	const { data: session } = useSession();
 	const availableModels = useQuery(trpc.project.listAvailableTranscribeModels.queryOptions());
-	const mcpState = useQuery(trpc.mcp.getState.queryOptions());
+	const mcpServersQuery = useQuery(trpc.mcp.getServers.queryOptions());
 	const isDirty = !areAutomationValuesEqual(value, savedValue);
 	const userEmail = session?.user?.email;
 	const selectedModelValue =
@@ -537,7 +537,7 @@ function useAutomationFormController({
 		handleSubmit,
 		handleValueChange,
 		hasSchedule,
-		mcpState: mcpState.data,
+		mcpServers: mcpServersQuery.data,
 		promptError,
 		promptRef,
 		scheduleOption,
@@ -944,6 +944,7 @@ function AutomationPromptInput({
 					initialValue={value}
 					placeholder='Type @ for tools, / for commands...'
 					minHeight='10rem'
+					submitOnEnter={false}
 					onChange={handleChange}
 				/>
 				{footer && <div className='flex items-center justify-between gap-2 px-3 pb-2.5'>{footer}</div>}
@@ -1050,7 +1051,7 @@ function PromptTriggerButton({
 
 function ToolsSection({
 	value,
-	mcpState,
+	mcpServers,
 	emailRecipientsError,
 	onClearEmailRecipientsError,
 	onChange,
@@ -1058,7 +1059,7 @@ function ToolsSection({
 	disabled,
 }: {
 	value: AutomationFormValue;
-	mcpState: McpState | undefined;
+	mcpServers: McpServerStatus[] | undefined;
 	emailRecipientsError: string | null;
 	onClearEmailRecipientsError: () => void;
 	onChange: (value: AutomationFormValue) => void;
@@ -1068,8 +1069,8 @@ function ToolsSection({
 	const email = value.integrations.email ?? { enabled: false, recipients: [] };
 	const slack = value.integrations.slack ?? { enabled: false, channelId: '' };
 	const github = value.integrations.github ?? { enabled: false, repositories: [] };
-	const mcpServerEntries = mcpState ? Object.entries(mcpState) : [];
-	const selectedMcpServers = value.mcpEnabled ? (value.mcpServers ?? mcpServerEntries.map(([name]) => name)) : [];
+	const availableServers = mcpServers ?? [];
+	const selectedMcpServers = value.mcpEnabled ? (value.mcpServers ?? availableServers.map((s) => s.name)) : [];
 
 	const githubIntegration = useGithubIntegration({ github, value, onAutoSaveChange });
 
@@ -1084,9 +1085,9 @@ function ToolsSection({
 		addedTools.push({ key: 'github', kind: 'integration', type: 'github' });
 	}
 	if (value.mcpEnabled) {
-		for (const [serverName] of mcpServerEntries) {
-			if (selectedMcpServers.includes(serverName)) {
-				addedTools.push({ key: `mcp:${serverName}`, kind: 'mcp', serverName });
+		for (const server of availableServers) {
+			if (selectedMcpServers.includes(server.name)) {
+				addedTools.push({ key: `mcp:${server.name}`, kind: 'mcp', serverName: server.name });
 			}
 		}
 	}
@@ -1147,7 +1148,7 @@ function ToolsSection({
 					slackEnabled={slack.enabled}
 					githubState={githubIntegration.state}
 					githubActiveItems={githubIntegration.activeItems}
-					mcpServerEntries={mcpServerEntries}
+					mcpServers={availableServers}
 					selectedMcpServers={selectedMcpServers}
 					onAddEmail={() => setEmailEnabled(true)}
 					onAddSlack={() => setSlackEnabled(true)}
@@ -1397,7 +1398,7 @@ function AddToolMenu({
 	slackEnabled,
 	githubState,
 	githubActiveItems,
-	mcpServerEntries,
+	mcpServers,
 	selectedMcpServers,
 	onAddEmail,
 	onAddSlack,
@@ -1409,7 +1410,7 @@ function AddToolMenu({
 	slackEnabled: boolean;
 	githubState: GithubMenuState;
 	githubActiveItems: GithubMenuItemKey[];
-	mcpServerEntries: [string, McpState[string]][];
+	mcpServers: McpServerStatus[];
 	selectedMcpServers: string[];
 	onAddEmail: () => void;
 	onAddSlack: () => void;
@@ -1449,7 +1450,7 @@ function AddToolMenu({
 				<DropdownMenuSeparator />
 				<DropdownMenuLabel>MCP</DropdownMenuLabel>
 				<McpSubMenu
-					mcpServerEntries={mcpServerEntries}
+					mcpServers={mcpServers}
 					selectedMcpServers={selectedMcpServers}
 					onAddMcpServer={onAddMcpServer}
 				/>
@@ -1516,11 +1517,11 @@ function GithubMenuItemBadge({ state }: { state: GithubMenuState }) {
 }
 
 function McpSubMenu({
-	mcpServerEntries,
+	mcpServers,
 	selectedMcpServers,
 	onAddMcpServer,
 }: {
-	mcpServerEntries: [string, McpState[string]][];
+	mcpServers: McpServerStatus[];
 	selectedMcpServers: string[];
 	onAddMcpServer: (serverName: string) => void;
 }) {
@@ -1531,24 +1532,27 @@ function McpSubMenu({
 				<span>MCP server</span>
 			</DropdownMenuSubTrigger>
 			<DropdownMenuSubContent className='min-w-56'>
-				{mcpServerEntries.length === 0 && (
+				{mcpServers.length === 0 && (
 					<DropdownMenuItem disabled>
-						<span className='text-xs text-muted-foreground'>No MCP servers connected</span>
+						<span className='text-xs text-muted-foreground'>No MCP servers configured</span>
 					</DropdownMenuItem>
 				)}
-				{mcpServerEntries.map(([name, server]) => {
-					const isAdded = selectedMcpServers.includes(name);
-					const enabledToolCount = server.tools.filter((tool) => tool.enabled).length;
+				{mcpServers.map((server) => {
+					const isAdded = selectedMcpServers.includes(server.name);
 					return (
-						<DropdownMenuItem key={name} onSelect={() => onAddMcpServer(name)} disabled={isAdded}>
+						<DropdownMenuItem
+							key={server.name}
+							onSelect={() => onAddMcpServer(server.name)}
+							disabled={isAdded}
+						>
 							<McpIcon className='size-4' />
-							<span className='truncate'>{name}</span>
+							<span className='truncate'>{server.name}</span>
 							<span className='ml-auto text-xs text-muted-foreground'>
 								{isAdded
 									? 'Added'
 									: server.error
 										? 'Error'
-										: `${enabledToolCount} ${enabledToolCount === 1 ? 'tool' : 'tools'}`}
+										: `${server.enabledToolCount} ${server.enabledToolCount === 1 ? 'tool' : 'tools'}`}
 							</span>
 						</DropdownMenuItem>
 					);

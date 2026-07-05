@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, inArray, isNotNull, lt, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNotNull, lt, lte, sql } from 'drizzle-orm';
 
 import s, {
 	DBContextRecommendation,
@@ -9,6 +9,10 @@ import s, {
 } from '../db/abstractSchema';
 import { db, type DBExecutor } from '../db/db';
 import { WindowTotals } from '../types/context-recommendation';
+
+const CONTEXT_RECOMMENDATION_RUN_STALE_MS = 10 * 60 * 1_000;
+const CONTEXT_RECOMMENDATION_RUN_STALE_MESSAGE = 'Context recommendations run did not finish before the timeout.';
+const CONTEXT_RECOMMENDATION_RUN_CANCELLED_MESSAGE = 'Cancelled by user.';
 
 /**
  * Statuses the reconciler must see, i.e. everything except `dismissed` (handled
@@ -99,7 +103,7 @@ export async function completeRun(
 	await executor
 		.update(s.contextRecommendationRun)
 		.set({ status: 'completed', completedAt: new Date(), ...patch })
-		.where(eq(s.contextRecommendationRun.id, runId))
+		.where(and(eq(s.contextRecommendationRun.id, runId), eq(s.contextRecommendationRun.status, 'running')))
 		.execute();
 }
 
@@ -107,8 +111,44 @@ export async function failRun(runId: string, errorMessage: string): Promise<void
 	await db
 		.update(s.contextRecommendationRun)
 		.set({ status: 'failed', completedAt: new Date(), errorMessage })
-		.where(eq(s.contextRecommendationRun.id, runId))
+		.where(and(eq(s.contextRecommendationRun.id, runId), eq(s.contextRecommendationRun.status, 'running')))
 		.execute();
+}
+
+/**
+ * Flips a running context recommendations run to `cancelled`. Guarded by
+ * `status = 'running'` so it's idempotent and safely no-ops on already-terminal
+ * runs (including those completed concurrently by the agent loop).
+ */
+export async function cancelRun(runId: string): Promise<boolean> {
+	const rows = await db
+		.update(s.contextRecommendationRun)
+		.set({
+			status: 'cancelled',
+			completedAt: new Date(),
+			errorMessage: CONTEXT_RECOMMENDATION_RUN_CANCELLED_MESSAGE,
+		})
+		.where(and(eq(s.contextRecommendationRun.id, runId), eq(s.contextRecommendationRun.status, 'running')))
+		.returning({ id: s.contextRecommendationRun.id })
+		.execute();
+	return rows.length > 0;
+}
+
+export async function failStaleRuns(projectId: string): Promise<number> {
+	const cutoff = new Date(Date.now() - CONTEXT_RECOMMENDATION_RUN_STALE_MS);
+	const rows = await db
+		.update(s.contextRecommendationRun)
+		.set({ status: 'failed', completedAt: new Date(), errorMessage: CONTEXT_RECOMMENDATION_RUN_STALE_MESSAGE })
+		.where(
+			and(
+				eq(s.contextRecommendationRun.projectId, projectId),
+				eq(s.contextRecommendationRun.status, 'running'),
+				lte(s.contextRecommendationRun.startedAt, cutoff),
+			),
+		)
+		.returning({ id: s.contextRecommendationRun.id })
+		.execute();
+	return rows.length;
 }
 
 export async function getReconcilableRecommendations(projectId: string): Promise<DBContextRecommendation[]> {
@@ -190,11 +230,22 @@ export async function setRecommendationPr(
 }
 
 export async function getLatestRun(projectId: string): Promise<DBContextRecommendationRun | null> {
+	await failStaleRuns(projectId);
 	const [run] = await db
 		.select()
 		.from(s.contextRecommendationRun)
 		.where(eq(s.contextRecommendationRun.projectId, projectId))
 		.orderBy(desc(s.contextRecommendationRun.startedAt))
+		.limit(1)
+		.execute();
+	return run ?? null;
+}
+
+export async function getRunById(projectId: string, runId: string): Promise<DBContextRecommendationRun | null> {
+	const [run] = await db
+		.select()
+		.from(s.contextRecommendationRun)
+		.where(and(eq(s.contextRecommendationRun.id, runId), eq(s.contextRecommendationRun.projectId, projectId)))
 		.limit(1)
 		.execute();
 	return run ?? null;

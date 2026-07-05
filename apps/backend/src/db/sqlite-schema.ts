@@ -198,6 +198,8 @@ export const project = sqliteTable(
 		agentSettings: text('agent_settings', { mode: 'json' }).$type<AgentSettings>(),
 		enabledMcpTools: text('enabled_tools', { mode: 'json' }).$type<string[]>().notNull().default([]),
 		knownMcpServers: text('known_mcp_servers', { mode: 'json' }).$type<string[]>().notNull().default([]),
+		disabledMcpServers: text('disabled_mcp_servers', { mode: 'json' }).$type<string[]>().notNull().default([]),
+		disabledMcpTools: text('disabled_mcp_tools', { mode: 'json' }).$type<string[]>().notNull().default([]),
 
 		envVars: text('env_vars', { mode: 'json' }).$type<Record<string, string>>().notNull().default({}),
 
@@ -1368,5 +1370,54 @@ export const analyticsEvent = sqliteTable(
 			'analytics_event_asset_id_required',
 			sql`CASE WHEN asset_type = 'chat' THEN chat_id IS NOT NULL WHEN asset_type = 'story' THEN story_id IS NOT NULL ELSE TRUE END`,
 		),
+	],
+);
+
+export const mcpOAuthClient = sqliteTable(
+	'mcp_oauth_client',
+	{
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		serverName: text('server_name').notNull(),
+		clientId: text('client_id').notNull(),
+		clientSecret: text('client_secret'),
+		clientData: text('client_data'),
+		discoveryUserId: text('discovery_user_id').references(() => user.id, { onDelete: 'set null' }),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+		updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+	},
+	(t) => [primaryKey({ columns: [t.projectId, t.serverName] })],
+);
+
+export const mcpUserToken = sqliteTable(
+	'mcp_user_token',
+	{
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		serverName: text('server_name').notNull(),
+		accessToken: text('access_token'),
+		refreshToken: text('refresh_token'),
+		expiresAt: integer('expires_at', { mode: 'timestamp_ms' }),
+		scope: text('scope'),
+		codeVerifier: text('code_verifier'),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+		updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+	},
+	(t) => [
+		primaryKey({ columns: [t.userId, t.projectId, t.serverName] }),
+		index('mcp_user_token_project_server_idx').on(t.projectId, t.serverName),
 	],
 );

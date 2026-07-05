@@ -67,6 +67,7 @@ import { addPromptCache } from '../utils/prompt-cache';
 import { truncateMiddle } from '../utils/utils';
 import { compactionService } from './compaction';
 import { hasFeature, LICENSE_FEATURES } from './license.service';
+import { mcpService } from './mcp';
 import { memoryService } from './memory';
 import { getAzureAccessTokenForUser } from './microsoft-auth.service';
 import { skillService } from './skill';
@@ -110,14 +111,37 @@ export type AgentToolsResolver = (context: AgentToolsContext) => AgentTools | Pr
 export const defaultAgentTools: AgentToolsResolver = ({ chat, agentSettings, webTools }) =>
 	getTools(agentSettings, webTools ?? {}, { testMode: chat.testMode });
 
+/**
+ * Admin-mode tool set: the same `execute_sql` tool the chat already uses (it
+ * runs against nao's own app database when `ToolContext.adminMode` is set),
+ * plus charting and follow-ups. Excludes the filesystem context tools.
+ */
+export const adminAgentTools: AgentToolsResolver = ({ chat, agentSettings }) =>
+	getTools(
+		agentSettings,
+		{},
+		{
+			testMode: chat.testMode,
+			builtinToolAllowlist: [
+				'execute_sql',
+				'read_query_result',
+				'display_chart',
+				'suggest_follow_ups',
+				'story',
+				'clarification',
+			],
+		},
+	);
+
 export async function buildToolContext(opts: {
 	projectId: string;
 	userId: string;
 	chatId: string;
 	agentSettings?: AgentSettings | null;
+	adminMode?: boolean;
 }): Promise<ToolContext> {
 	const base = await _buildContextBase(opts);
-	return { ...base, chatId: opts.chatId };
+	return { ...base, chatId: opts.chatId, adminMode: opts.adminMode ?? false };
 }
 
 export async function buildMcpToolContext(opts: {
@@ -199,6 +223,11 @@ export class AgentService {
 			 * authoritative guidance (e.g. context recommendations).
 			 */
 			systemPrompt?: string;
+			/**
+			 * Admin mode: routes `execute_sql` to nao's own app-database views instead
+			 * of the user's warehouse (see `ToolContext.adminMode`).
+			 */
+			adminMode?: boolean;
 		} = {},
 	): Promise<AgentManager> {
 		this._disposeAgent(chat.id);
@@ -206,7 +235,13 @@ export class AgentService {
 		await assertBudgetNotExceeded(chat.projectId, resolvedLlmSelectedModel.provider);
 		const modelConfig = await this._getModelConfig(chat.projectId, resolvedLlmSelectedModel);
 		const agentSettings = await projectQueries.getAgentSettings(chat.projectId);
-		const toolContext = await this._getToolContext(chat.projectId, chat.id, chat.userId, agentSettings);
+		const toolContext = await this._getToolContext(
+			chat.projectId,
+			chat.id,
+			chat.userId,
+			agentSettings,
+			options.adminMode,
+		);
 		const webTools = await this._resolveWebTools(chat.projectId, resolvedLlmSelectedModel.provider, agentSettings);
 		const resolveTools = options.tools ?? defaultAgentTools;
 		const agentTools = await resolveTools({ chat, agentSettings, toolContext, webTools });
@@ -262,8 +297,9 @@ export class AgentService {
 		chatId: string,
 		userId: string,
 		agentSettings: AgentSettings | null,
+		adminMode?: boolean,
 	): Promise<ToolContext> {
-		return buildToolContext({ projectId, userId, chatId, agentSettings });
+		return buildToolContext({ projectId, userId, chatId, agentSettings, adminMode });
 	}
 
 	private _disposeAgent(chatId: string): void {
@@ -332,26 +368,26 @@ class AgentManager {
 	}
 
 	private async _prepareStep(messages: ModelMessage[]): Promise<{ messages: ModelMessage[] }> {
-		// await compactionService.compactConversationIfNeeded({
-		// 	chat: this.chat,
-		// 	provider: this._modelSelection.provider,
-		// 	messages,
-		// 	tools: this._agentTools,
-		// 	maxOutputTokens: MAX_OUTPUT_TOKENS,
-		// 	contextWindow: this._modelConfig.contextWindow,
-		// 	onCompactionStarted: () => {
-		// 		this._streamWriter?.write({
-		// 			type: 'data-compactionSummaryStarted',
-		// 			data: undefined,
-		// 		});
-		// 	},
-		// 	onCompactionFinished: (result) => {
-		// 		this._streamWriter?.write({
-		// 			type: 'data-compaction',
-		// 			data: result,
-		// 		});
-		// 	},
-		// });
+		await compactionService.compactConversationIfNeeded({
+			chat: this.chat,
+			provider: this._modelSelection.provider,
+			messages,
+			tools: this._agentTools,
+			maxOutputTokens: MAX_OUTPUT_TOKENS,
+			contextWindow: this._modelConfig.contextWindow,
+			onCompactionStarted: () => {
+				this._streamWriter?.write({
+					type: 'data-compactionSummaryStarted',
+					data: undefined,
+				});
+			},
+			onCompactionFinished: (result) => {
+				this._streamWriter?.write({
+					type: 'data-compaction',
+					data: result,
+				});
+			},
+		});
 
 		return { messages: this._addCache(this._pruneMessages(messages)) };
 	}
@@ -514,8 +550,17 @@ class AgentManager {
 		const userRules = getUserRules(this._toolContext.projectFolder);
 		const connections = getConnections(this._toolContext.projectFolder);
 		const skills = skillService.getSkills();
+		const mcpServers = await mcpService.getEnabledServers(this.chat.projectId);
 		const basePrompt = renderToMarkdown(
-			SystemPrompt({ memories, userRules, connections, skills, timezone, testMode: this.chat.testMode }),
+			SystemPrompt({
+				memories,
+				userRules,
+				connections,
+				skills,
+				mcpServers,
+				timezone,
+				testMode: this.chat.testMode,
+			}),
 		);
 		const renderedPrompt = provider
 			? renderToMarkdown(MessagingProviderSystemPrompt({ basePrompt, provider, chatUrl }))
@@ -893,7 +938,6 @@ async function resolveImageUrls<T extends MessageLike>(messages: T[]): Promise<T
 				return part;
 			}
 			const base64Data = imageDataMap.get(match[1]);
-			console.log(`[debug] base64Data for ${match[1]}: ${base64Data}`);
 			if (!base64Data) {
 				return part;
 			}

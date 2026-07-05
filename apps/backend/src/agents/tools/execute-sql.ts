@@ -6,13 +6,12 @@ import { env } from '../../env';
 import { ToolContext } from '../../types/tools';
 import { detectQueryRowLimit, isReadOnlySqlQuery } from '../../utils/sql-filter';
 import { createTool } from '../../utils/tools';
+import { queryAppDb } from './query-app-db';
 
 export async function executeQuery(
 	{ sql_query, database_id }: executeSql.Input,
 	context: ToolContext,
 ): Promise<executeSql.Output> {
-	const naoProjectFolder = context.projectFolder;
-
 	const writePermEnabled = context.agentSettings?.sql?.dangerouslyWritePermEnabled ?? false;
 	if (!writePermEnabled && !(await isReadOnlySqlQuery(sql_query))) {
 		throw new Error(
@@ -21,6 +20,11 @@ export async function executeQuery(
 		);
 	}
 
+	if (context.adminMode) {
+		return executeAppDbQuery(sql_query, context);
+	}
+
+	const naoProjectFolder = context.projectFolder;
 	const envVars = context.envVars;
 	const response = await fetch(`http://localhost:${env.FASTAPI_PORT}/execute_sql`, {
 		method: 'POST',
@@ -51,6 +55,21 @@ export async function executeQuery(
 	return {
 		_version: '1',
 		...data,
+		id,
+		...(appliedLimit !== null && { applied_limit: appliedLimit }),
+	};
+}
+
+async function executeAppDbQuery(sqlQuery: string, context: ToolContext): Promise<executeSql.Output> {
+	const { columns, rows } = await queryAppDb(context.projectId, sqlQuery);
+	const id = `query_${crypto.randomUUID().slice(0, 8)}` as const;
+	context.queryResults.set(id, { columns, data: rows });
+	const appliedLimit = detectQueryRowLimit(sqlQuery);
+	return {
+		_version: '1',
+		data: rows,
+		row_count: rows.length,
+		columns,
 		id,
 		...(appliedLimit !== null && { applied_limit: appliedLimit }),
 	};

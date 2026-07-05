@@ -15,6 +15,7 @@ import { ChatMessagesContent } from '@/components/chat-messages/chat-messages';
 import { Conversation, ConversationContent, ConversationScrollButton } from '@/components/ui/conversation';
 import { SetChatInputCallbackProvider } from '@/contexts/set-chat-input-callback';
 import { useSelection } from '@/contexts/text-selection';
+import { Skeleton } from '@/components/ui/skeleton';
 import { trpc } from '@/main';
 import { ChatIdContext } from '@/hooks/use-chat-id';
 import {
@@ -220,13 +221,17 @@ function PanelContainer({
 			style={{ right: rightOffset }}
 			className='fixed top-20 bottom-10 w-[400px] z-50 flex flex-col items-center'
 		>
-			<ChatPanelContent
-				key={anchor.chatId}
-				anchor={anchor}
-				rightOffset={rightOffset}
-				handleDelete={handleDelete}
-				onClose={onClose}
-			/>
+			{anchor.pending ? (
+				<PendingPanelContent anchor={anchor} rightOffset={rightOffset} onClose={onClose} />
+			) : (
+				<ChatPanelContent
+					key={anchor.chatId}
+					anchor={anchor}
+					rightOffset={rightOffset}
+					handleDelete={handleDelete}
+					onClose={onClose}
+				/>
+			)}
 			<Button
 				onClick={onClose}
 				variant='ghost-no-hover'
@@ -243,6 +248,56 @@ function PanelContainer({
 	);
 }
 
+function PanelShell({ style, children }: { style?: React.CSSProperties; children: React.ReactNode }) {
+	return (
+		<div
+			style={style}
+			className='flex flex-col bg-background border border-border shadow-xl rounded-2xl
+					fixed top-20 bottom-15 w-[400px] z-50 overflow-hidden'
+			onMouseDown={(e) => e.stopPropagation()}
+		>
+			{children}
+		</div>
+	);
+}
+
+function SelectionExcerptCard({ anchor, text }: { anchor: SelectionAnchor; text: string }) {
+	return (
+		<div className='px-4 mt-1'>
+			<div className='px-4 py-3 border border-border bg-sidebar rounded-xl'>
+				<SelectionCitationExcerpt start={anchor.start} end={anchor.end} text={text} />
+			</div>
+		</div>
+	);
+}
+
+function PendingPanelContent({
+	anchor,
+	rightOffset,
+	onClose,
+}: {
+	anchor: SelectionAnchor;
+	rightOffset: number;
+	onClose: () => void;
+}) {
+	return (
+		<PanelShell style={{ right: rightOffset }}>
+			<div className='flex items-center justify-between w-full mt-2 px-4'>
+				<p className='text-sm font-medium'>Ask a question</p>
+				<Button variant='ghost' size='icon-xs' onClick={onClose} className='rounded-full -mr-1'>
+					<X />
+				</Button>
+			</div>
+			<SelectionExcerptCard anchor={anchor} text='' />
+			<div className='flex flex-col gap-3 p-4 mt-2'>
+				<Skeleton className='h-4 w-3/4' />
+				<Skeleton className='h-4 w-1/2' />
+				<Skeleton className='h-4 w-2/3' />
+			</div>
+		</PanelShell>
+	);
+}
+
 function ChatPanelContent({
 	anchor,
 	rightOffset,
@@ -255,12 +310,7 @@ function ChatPanelContent({
 	onClose: () => void;
 }) {
 	return (
-		<div
-			style={{ right: rightOffset }}
-			className='flex flex-col bg-background border border-border shadow-xl rounded-2xl
-					fixed top-20 bottom-15 w-[400px] z-50 overflow-hidden'
-			onMouseDown={(e) => e.stopPropagation()}
-		>
+		<PanelShell style={{ right: rightOffset }}>
 			<PanelHeader anchor={anchor} handleDelete={handleDelete} onClose={onClose} />
 			<SetChatInputCallbackProvider>
 				<ChatIdContext.Provider value={anchor.chatId}>
@@ -275,7 +325,7 @@ function ChatPanelContent({
 					</AgentProvider>
 				</ChatIdContext.Provider>
 			</SetChatInputCallbackProvider>
-		</div>
+		</PanelShell>
 	);
 }
 
@@ -321,11 +371,7 @@ export function PanelHeader({
 					</Button>
 				</div>
 			</div>
-			<div className='px-4 mt-1'>
-				<div className='px-4 py-3 border border-border bg-sidebar rounded-xl'>
-					<SelectionCitationExcerpt start={anchor.start} end={anchor.end} text={selectionText} />
-				</div>
-			</div>
+			<SelectionExcerptCard anchor={anchor} text={selectionText} />
 		</div>
 	);
 }

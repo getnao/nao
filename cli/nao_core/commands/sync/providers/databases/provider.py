@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import fnmatch
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -48,6 +49,26 @@ def _filter_templates_by_config(templates: list[str], db_config: AnyDatabaseConf
     """Keep only templates whose stem matches the configured templates."""
     allowed = {a.value for a in db_config.templates}
     return [t for t in templates if Path(t).stem.replace(".md", "") in allowed]
+
+
+def _matches_selection(schema: str, table: str, select: list[str]) -> bool:
+    """Check if a schema.table matches any of the `--select` patterns.
+
+    A pattern selects a single table when it matches the full `schema.table`
+    name, or a whole schema when it matches every table beneath it (so
+    `analytics` selects `analytics.*`). Matching is case-insensitive (database
+    identifiers like Snowflake's are returned uppercased) and supports glob
+    wildcards, so `staging.dim_*` selects every `dim_*` table in `staging`.
+
+    Use the schema name as it appears in the sync output, including any catalog
+    prefix (e.g. `catalog.analytics`) for databases that qualify schemas.
+    """
+    full_name = f"{schema}.{table}".lower()
+    for pattern in select:
+        pattern = pattern.lower()
+        if fnmatch.fnmatch(full_name, pattern) or fnmatch.fnmatch(full_name, f"{pattern}.*"):
+            return True
+    return False
 
 
 def _fmt_duration(seconds: float) -> str:
@@ -163,8 +184,13 @@ def sync_database(
     llm_config: LLMConfig | None = None,
     db_folder: str | None = None,
     nao_ctx: NaoContext | None = None,
+    select: list[str] | None = None,
 ) -> DatabaseSyncState:
-    """Sync a single database by rendering all database templates for each table."""
+    """Sync a single database by rendering all database templates for each table.
+
+    When `select` is provided, only schemas/tables matching the patterns are
+    synced (applied on top of the config include/exclude filters).
+    """
     engine = get_template_engine(project_path, llm_config=llm_config)
     templates = _filter_templates_by_config(engine.list_templates(TEMPLATE_PREFIX), db_config)
 
@@ -212,7 +238,11 @@ def sync_database(
                 progress.update(schema_task, advance=1)
                 continue
 
-            tables = [t for t in all_tables if db_config.matches_pattern(schema, t)]
+            tables = [
+                t
+                for t in all_tables
+                if db_config.matches_pattern(schema, t) and (not select or _matches_selection(schema, t, select))
+            ]
 
             if tables:
                 list_dur = _fmt_duration(time.monotonic() - t_list)
@@ -231,7 +261,12 @@ def sync_database(
 
         for schema, tables in schema_tables.items():
             semantic_views = db_config.get_semantic_views(conn, schema)
-            semantic_views = [sv for sv in semantic_views if db_config.matches_pattern(schema, sv["name"])]
+            semantic_views = [
+                sv
+                for sv in semantic_views
+                if db_config.matches_pattern(schema, sv["name"])
+                and (not select or _matches_selection(schema, sv["name"], select))
+            ]
 
             if not tables and not semantic_views:
                 progress.update(schema_task, advance=1)
@@ -382,6 +417,7 @@ class DatabaseSyncProvider(SyncProvider):
         project_path: Path | None = None,
         *,
         threads: int = 1,
+        select: list[str] | None = None,
     ) -> SyncResult:
         if not items:
             console.print("\n[dim]No databases configured[/dim]")
@@ -403,6 +439,8 @@ class DatabaseSyncProvider(SyncProvider):
             console.print(f"[dim]{db.name}:[/dim] {', '.join(template_names)}")
         if threads > 1 and len(items) > 1:
             console.print(f"[dim]Threads:[/dim] {threads}")
+        if select:
+            console.print(f"[dim]Select:[/dim] {', '.join(select)} [dim](stale cleanup skipped)[/dim]")
         console.print()
 
         sync_start = time.monotonic()
@@ -429,6 +467,7 @@ class DatabaseSyncProvider(SyncProvider):
                             llm_config,
                             db_folder=db_folder,
                             nao_ctx=nao_ctx,
+                            select=select,
                         )
                         sync_states.append(state)
                         total_datasets += state.schemas_synced
@@ -447,6 +486,7 @@ class DatabaseSyncProvider(SyncProvider):
                             llm_config,
                             db_folder=db_folder,
                             nao_ctx=nao_ctx,
+                            select=select,
                         ): db
                         for db, db_folder in zip(items, db_folders, strict=False)
                     }
@@ -460,9 +500,10 @@ class DatabaseSyncProvider(SyncProvider):
                         except Exception as e:
                             console.print(f"[bold red]✗[/bold red] Failed to sync {db.name}: {_fmt_error(e)}")
 
-        for state in sync_states:
-            removed = cleanup_stale_paths(state, verbose=True)
-            total_removed += removed
+        if not select:
+            for state in sync_states:
+                removed = cleanup_stale_paths(state, verbose=True)
+                total_removed += removed
 
         total_dur = _fmt_duration(time.monotonic() - sync_start)
         summary = f"{total_tables} tables across {total_datasets} datasets in {total_dur}"

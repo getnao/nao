@@ -22,8 +22,7 @@ class DatabricksDatabaseContext(DatabaseContext):
     """Databricks context with partition and description discovery."""
 
     def _quote_ident(self, name: object) -> str:
-        escaped = str(name).replace("`", "``")
-        return f"`{escaped}`"
+        return _quote_ident(name)
 
     def partition_columns(self) -> list[str]:
         try:
@@ -32,6 +31,15 @@ class DatabricksDatabaseContext(DatabaseContext):
             )
         except Exception:
             logger.debug("Failed to fetch partition columns for %s.%s", self._schema, self._table_name)
+            return []
+
+    def clustering_columns(self) -> list[str]:
+        try:
+            return self._filter_excluded_names(
+                _get_databricks_liquid_clustering_columns(self._conn, self._schema, self._table_name)
+            )
+        except Exception:
+            logger.debug("Failed to fetch liquid clustering columns for %s.%s", self._schema, self._table_name)
             return []
 
     def description(self) -> str | None:
@@ -94,6 +102,36 @@ def _get_databricks_partition_columns(conn: BaseBackend, schema: str, table: str
     """
     result = conn.raw_sql(query).fetchall()  # type: ignore[union-attr]
     return [row[0] for row in result]
+
+
+def _quote_ident(name: object) -> str:
+    """Escape and backtick-quote an identifier for safe use in Databricks SQL."""
+    escaped = str(name).replace("`", "``")
+    return f"`{escaped}`"
+
+
+def _get_databricks_liquid_clustering_columns(conn: BaseBackend, schema: str, table: str) -> list[str]:
+    """Return liquid clustering columns from DESCRIBE DETAIL, if any."""
+    query = f"DESCRIBE DETAIL {_quote_ident(schema)}.{_quote_ident(table)}"
+    cursor = conn.raw_sql(query)  # type: ignore[union-attr]
+    try:
+        idx = next(
+            (i for i, d in enumerate(cursor.description) if d[0].lower() == "clusteringcolumns"),
+            None,
+        )
+    except Exception:
+        idx = None
+    if idx is None:
+        return []
+    row = cursor.fetchone()
+    if not row:
+        return []
+    value = row[idx]
+    if not value:
+        return []
+    if isinstance(value, list):
+        return [str(c) for c in value]
+    return []
 
 
 def _ensure_ssl_cert_env() -> None:

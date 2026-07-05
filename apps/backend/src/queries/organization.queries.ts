@@ -1,3 +1,4 @@
+import type { UserRole } from '@nao/shared/types';
 import { and, asc, count, eq, isNotNull, isNull, sql } from 'drizzle-orm';
 
 import s, { DBOrganization, DBOrgMember, NewOrganization, NewOrgMember } from '../db/abstractSchema';
@@ -348,7 +349,7 @@ export interface OrgMemberWithUser {
 export interface OrgProjectWithAccess {
 	id: string;
 	name: string;
-	role: OrgRole;
+	role: UserRole;
 	createdAt: Date;
 	updatedAt: Date;
 }
@@ -373,7 +374,7 @@ export const listOrgProjectsWithAccess = async (orgId: string, userId: string): 
 		.select({
 			id: s.project.id,
 			name: s.project.name,
-			role: sql<OrgRole>`coalesce(${s.projectMember.role}, 'viewer')`,
+			role: sql<UserRole>`coalesce(${s.projectMember.role}, 'viewer')`,
 			createdAt: s.project.createdAt,
 			updatedAt: s.project.updatedAt,
 		})

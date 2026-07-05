@@ -18,6 +18,12 @@ export const SeriesConfigSchema = z.object({
 	data_key: z.string().describe('Column name from SQL result to plot.'),
 	color: z.string().describe('CSS color (defaults to theme colors).').optional(),
 	label: z.string().describe('Label to display in the legend.').optional(),
+	is_total: z
+		.boolean()
+		.describe(
+			'Set to true when this series is an already-aggregated total of the other series (e.g. a grand total, rollup, subtotal, or sum-of-parts column), so the tooltip must not sum it again. Decide this from the meaning of the column, not its name — it applies in any language.',
+		)
+		.optional(),
 });
 
 export const InputSchema = z.object({

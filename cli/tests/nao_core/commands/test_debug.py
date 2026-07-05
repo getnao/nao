@@ -27,6 +27,18 @@ class TestLLMConnection:
             assert "3 models available" in message
             mock_openai_class.assert_called_once_with(api_key="sk-test-api-key")
 
+    def test_openai_exception_returns_failure(self):
+        """API exception should return False with error message."""
+        config = LLMConfig(provider=LLMProvider.OPENAI, api_key="invalid")
+
+        with patch("openai.OpenAI") as mock_class:
+            mock_class.return_value.models.list.side_effect = Exception("Invalid API key")
+
+            success, message = check_llm_connection(config)
+
+            assert success is False
+            assert "Invalid API key" in message
+
     def test_anthropic_connection_success(self):
         config = LLMConfig(provider=LLMProvider.ANTHROPIC, api_key="sk-test-api-key")
 
@@ -41,29 +53,6 @@ class TestLLMConnection:
             assert "Connected successfully" in message
             assert "3 models available" in message
             mock_anthropic_class.assert_called_once_with(api_key="sk-test-api-key")
-
-    def test_unknown_provider_returns_failure(self):
-        """Unknown provider should return False with error message."""
-        config = MagicMock()
-        config.provider.value = "super big model"
-
-        success, message = check_llm_connection(config)
-
-        assert success is False
-        assert "Unknown provider" in message
-        assert "super big model" in message
-
-    def test_openai_exception_returns_failure(self):
-        """API exception should return False with error message."""
-        config = LLMConfig(provider=LLMProvider.OPENAI, api_key="invalid")
-
-        with patch("openai.OpenAI") as mock_class:
-            mock_class.return_value.models.list.side_effect = Exception("Invalid API key")
-
-            success, message = check_llm_connection(config)
-
-            assert success is False
-            assert "Invalid API key" in message
 
     def test_anthropic_exception_returns_failure(self):
         """API exception should return False with error message."""
@@ -157,6 +146,143 @@ class TestLLMConnection:
 
             assert success is False
             assert "Invalid API key" in message
+
+    def test_ollama_connection_success(self):
+        config = LLMConfig(provider=LLMProvider.OLLAMA)
+
+        with patch("ollama.list") as mock_list:
+            mock_list.return_value.models = [MagicMock(), MagicMock(), MagicMock()]
+
+            success, message = check_llm_connection(config)
+
+            assert success is True
+            assert "Connected successfully" in message
+            assert "3 models available" in message
+            mock_list.assert_called_once_with()
+
+    def test_ollama_exception_returns_failure(self):
+        """API exception should return False with error message."""
+        config = LLMConfig(provider=LLMProvider.OLLAMA)
+
+        with patch("ollama.list") as mock_list:
+            mock_list.side_effect = Exception("Connection refused")
+
+            success, message = check_llm_connection(config)
+
+            assert success is False
+            assert "Connection refused" in message
+
+    def test_bedrock_bearer_token_success(self):
+        """A configured bearer token short-circuits without calling AWS."""
+        config = LLMConfig(provider=LLMProvider.BEDROCK, api_key="bearer-token", aws_region="us-west-2")
+
+        success, message = check_llm_connection(config)
+
+        assert success is True
+        assert "Bearer token configured" in message
+        assert "us-west-2" in message
+
+    def test_bedrock_connection_success(self):
+        config = LLMConfig(provider=LLMProvider.BEDROCK, aws_region="us-east-1")
+
+        with patch("boto3.Session") as mock_session_class:
+            mock_client = MagicMock()
+            mock_client.list_foundation_models.return_value = {
+                "modelSummaries": [MagicMock(), MagicMock(), MagicMock()]
+            }
+            mock_session_class.return_value.client.return_value = mock_client
+
+            success, message = check_llm_connection(config)
+
+            assert success is True
+            assert "Connected successfully" in message
+            assert "3 models available" in message
+            mock_session_class.return_value.client.assert_called_once_with("bedrock")
+            mock_client.list_foundation_models.assert_called_once_with()
+
+    def test_bedrock_exception_returns_failure(self):
+        """API exception should return False with error message."""
+        config = LLMConfig(provider=LLMProvider.BEDROCK, aws_region="us-east-1")
+
+        with patch("boto3.Session") as mock_session_class:
+            mock_session_class.return_value.client.return_value.list_foundation_models.side_effect = Exception(
+                "Could not connect to the endpoint URL"
+            )
+
+            success, message = check_llm_connection(config)
+
+            assert success is False
+            assert "Could not connect to the endpoint URL" in message
+
+    def test_vertex_service_account_json_success(self):
+        config = LLMConfig(
+            provider=LLMProvider.VERTEX,
+            gcp_project="my-project",
+            gcp_location="us-east5",
+            service_account_json='{"type": "service_account"}',
+        )
+
+        with patch("google.oauth2.service_account.Credentials.from_service_account_info") as mock_creds:
+            success, message = check_llm_connection(config)
+
+            assert success is True
+            assert "Service account configured" in message
+            assert "my-project" in message
+            mock_creds.assert_called_once_with(
+                {"type": "service_account"},
+                scopes=["https://www.googleapis.com/auth/cloud-platform"],
+            )
+
+    def test_vertex_key_file_success(self):
+        config = LLMConfig(
+            provider=LLMProvider.VERTEX,
+            gcp_project="my-project",
+            key_file="/path/to/key.json",
+        )
+
+        with patch("google.oauth2.service_account.Credentials.from_service_account_file") as mock_creds:
+            success, message = check_llm_connection(config)
+
+            assert success is True
+            assert "Key file configured" in message
+            assert "my-project" in message
+            mock_creds.assert_called_once_with(
+                "/path/to/key.json",
+                scopes=["https://www.googleapis.com/auth/cloud-platform"],
+            )
+
+    def test_vertex_adc_success(self):
+        config = LLMConfig(provider=LLMProvider.VERTEX, gcp_project="my-project")
+
+        with patch("google.auth.default", return_value=(MagicMock(), "my-project")) as mock_default:
+            success, message = check_llm_connection(config)
+
+            assert success is True
+            assert "ADC configured" in message
+            assert "my-project" in message
+            mock_default.assert_called_once_with(
+                scopes=["https://www.googleapis.com/auth/cloud-platform"],
+            )
+
+    def test_vertex_missing_project_returns_failure(self):
+        """Vertex without a gcp_project should return False."""
+        config = LLMConfig(provider=LLMProvider.VERTEX)
+
+        success, message = check_llm_connection(config)
+
+        assert success is False
+        assert "gcp_project is not set" in message
+
+    def test_unknown_provider_returns_failure(self):
+        """Unknown provider should return False with error message."""
+        config = MagicMock()
+        config.provider.value = "super big model"
+
+        success, message = check_llm_connection(config)
+
+        assert success is False
+        assert "Unknown provider" in message
+        assert "super big model" in message
 
 
 class TestDatabaseConnection:

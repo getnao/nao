@@ -2,7 +2,7 @@ import { useDraggable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { ArchiveIcon, ArchiveRestoreIcon, FolderInput, Pin, Star } from 'lucide-react';
+import { ArchiveIcon, ArchiveRestoreIcon, Circle, CircleCheck, FolderInput, Pin, Star } from 'lucide-react';
 import { useState } from 'react';
 import type { MouseEvent, ReactNode } from 'react';
 import type { StoryPanelDisplayMode } from '@nao/shared/types';
@@ -57,27 +57,69 @@ export function StoryCard({
 	showArchived,
 	onMoveToFolder,
 	dragIdPrefix,
+	selected = false,
+	selectionActive = false,
+	onToggleSelect,
 }: {
 	item: StoryItem;
 	displayMode: StoryPanelDisplayMode;
 	showArchived: boolean;
 	onMoveToFolder?: (item: StoryItem) => void;
 	dragIdPrefix?: string;
+	selected?: boolean;
+	selectionActive?: boolean;
+	onToggleSelect?: (storyId: string) => void;
 }) {
 	const { isAdmin, isViewer } = usePermissions();
 	const [pinShareDialogOpen, setPinShareDialogOpen] = useState(false);
 
 	const draggableId = `drag-story-${dragIdPrefix ? `${dragIdPrefix}-` : ''}${item.storyId}`;
 	const isOwnedByUser = item.kind === 'own' || item.kind === 'own-standalone';
+	const canMove = isOwnedByUser || isAdmin;
 	const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
 		id: draggableId,
-		disabled: isViewer,
+		disabled: isViewer || selectionActive || !canMove,
 		data: { type: 'story', isOwnedByUser },
 	});
 	const style = transform ? { transform: CSS.Translate.toString(transform) } : undefined;
+	const moveHandler = canMove ? onMoveToFolder : undefined;
 
 	const canOpenPinShareDialog =
 		isAdmin && !item.sharedStoryId && item.kind === 'own' && !!item.chatId && !!item.storySlug;
+
+	const canSelect =
+		!isViewer &&
+		((item.kind === 'own' && !!item.chatId && !!item.storySlug) ||
+			item.kind === 'own-standalone' ||
+			item.kind === 'shared-project');
+
+	function handleCardClick(e: MouseEvent<HTMLDivElement>) {
+		if (!canSelect || !onToggleSelect) {
+			return;
+		}
+		if (e.metaKey || e.ctrlKey || selectionActive) {
+			e.preventDefault();
+			onToggleSelect(item.storyId);
+		}
+	}
+
+	function handleCheckboxClick(e: MouseEvent<HTMLButtonElement>) {
+		e.preventDefault();
+		e.stopPropagation();
+		if (canSelect && onToggleSelect) {
+			onToggleSelect(item.storyId);
+		}
+	}
+
+	function handleLinkClick(e: MouseEvent<HTMLAnchorElement>) {
+		if (canSelect && onToggleSelect && (e.metaKey || e.ctrlKey || selectionActive)) {
+			e.preventDefault();
+			e.stopPropagation();
+			onToggleSelect(item.storyId);
+			return;
+		}
+		e.stopPropagation();
+	}
 
 	if (displayMode === 'grid') {
 		return (
@@ -87,39 +129,67 @@ export function StoryCard({
 					style={style}
 					{...attributes}
 					{...listeners}
-					className={cn(GRID_CARD_CLASS, isDragging && 'opacity-0')}
+					className={cn(GRID_CARD_CLASS, isDragging && 'opacity-0', selected && 'ring-2 ring-primary')}
+					onClick={handleCardClick}
 				>
 					<div className={GRID_THUMBNAIL_CLASS}>
 						<StoryThumbnail summary={item.summary} />
 					</div>
 
-					<Link
-						{...item.link}
-						onClick={(e) => e.stopPropagation()}
-						className='absolute inset-0 flex flex-col justify-end p-2.5'
-					>
-						<div className='flex items-end gap-1.5'>
-							<GridCardFooter
-								title={item.title}
-								subtitle={<AuthorDateLabel author={item.author} createdAt={item.createdAt} />}
-							/>
-							<div className='shrink-0'>
-								<StoryBadges item={item} mode='grid' />
+					{!selectionActive && (
+						<Link
+							{...item.link}
+							onClick={handleLinkClick}
+							className='absolute inset-0 flex flex-col justify-end p-2.5'
+						>
+							<div className='flex items-end gap-1.5'>
+								<GridCardFooter
+									title={item.title}
+									subtitle={<AuthorDateLabel author={item.author} createdAt={item.createdAt} />}
+								/>
+								<div className='shrink-0'>
+									<StoryBadges item={item} mode='grid' />
+								</div>
+							</div>
+						</Link>
+					)}
+
+					{selectionActive && (
+						<div className='absolute inset-0 flex flex-col justify-end p-2.5 pointer-events-none'>
+							<div className='flex items-end gap-1.5'>
+								<GridCardFooter
+									title={item.title}
+									subtitle={<AuthorDateLabel author={item.author} createdAt={item.createdAt} />}
+								/>
+								<div className='shrink-0'>
+									<StoryBadges item={item} mode='grid' />
+								</div>
 							</div>
 						</div>
-					</Link>
+					)}
 
 					<div
 						className='absolute top-1.5 left-2 flex items-center z-10'
 						onPointerDown={(e) => e.stopPropagation()}
 					>
-						<StoryQuickActions item={item} onRequestPinShare={() => setPinShareDialogOpen(true)} />
-						<div className='flex items-center max-w-0 overflow-hidden group-hover:max-w-[60px] transition-[max-width] duration-200 ease-out'>
-							{!showArchived && onMoveToFolder && (
-								<StoryMoveToFolderButton item={item} onMoveToFolder={onMoveToFolder} />
-							)}
-							<StoryArchiveButton item={item} showArchived={showArchived} />
-						</div>
+						{canSelect && (
+							<StoryCheckbox
+								selected={selected}
+								visible={selected || selectionActive}
+								onClick={handleCheckboxClick}
+							/>
+						)}
+						{!selectionActive && (
+							<>
+								<StoryQuickActions item={item} onRequestPinShare={() => setPinShareDialogOpen(true)} />
+								<div className='flex items-center max-w-0 overflow-hidden group-hover:max-w-[60px] transition-[max-width] duration-200 ease-out'>
+									{!showArchived && moveHandler && (
+										<StoryMoveToFolderButton item={item} onMoveToFolder={moveHandler} />
+									)}
+									<StoryArchiveButton item={item} showArchived={showArchived} />
+								</div>
+							</>
+						)}
 					</div>
 				</div>
 				{canOpenPinShareDialog && item.chatId && item.storySlug && (
@@ -142,33 +212,46 @@ export function StoryCard({
 				style={style}
 				{...attributes}
 				{...listeners}
-				className={cn(LINES_CARD_CLASS, isDragging && 'opacity-0')}
+				className={cn(LINES_CARD_CLASS, isDragging && 'opacity-0', selected && 'bg-accent')}
+				onClick={handleCardClick}
 			>
-				<Link
-					{...item.link}
-					onClick={(e) => e.stopPropagation()}
-					className='flex items-center gap-3 flex-1 min-w-0'
-				>
-					<div className='flex items-center gap-2 flex-1 min-w-0 pl-1.5'>
-						<span className='text-sm font-medium truncate'>{item.title}</span>
-						<div className='flex items-center gap-1.5 shrink-0'>
-							<StoryBadges item={item} mode='lines' />
+				<div className='flex items-center flex-1 min-w-0'>
+					{canSelect && (
+						<div className='shrink-0' onPointerDown={(e) => e.stopPropagation()}>
+							<StoryCheckbox
+								selected={selected}
+								visible={selected || selectionActive}
+								onClick={handleCheckboxClick}
+							/>
 						</div>
-					</div>
-					<div className='hidden md:block w-32 shrink-0 pl-1.5 text-xs text-muted-foreground truncate'>
-						{item.author}
-					</div>
-					<div className='hidden sm:block w-24 shrink-0 pl-1.5 text-xs text-muted-foreground truncate'>
-						{formatRelativeDate(item.createdAt)}
-					</div>
-				</Link>
-				<div className='w-20 shrink-0 flex items-center justify-end'>
-					<StoryActions
-						item={item}
-						showArchived={showArchived}
-						onRequestPinShare={() => setPinShareDialogOpen(true)}
-						onMoveToFolder={onMoveToFolder}
-					/>
+					)}
+					<Link {...item.link} onClick={handleLinkClick} className='flex items-center gap-3 flex-1 min-w-0'>
+						<div className='flex items-center gap-2 flex-1 min-w-0 pl-1.5'>
+							<span className='text-sm font-medium truncate'>{item.title}</span>
+							<div className='flex items-center gap-1.5 shrink-0'>
+								<StoryBadges item={item} mode='lines' />
+							</div>
+						</div>
+						<div className='hidden md:block w-32 shrink-0 pl-1.5 text-xs text-muted-foreground truncate'>
+							{item.author}
+						</div>
+						<div className='hidden sm:block w-24 shrink-0 pl-1.5 text-xs text-muted-foreground truncate'>
+							{formatRelativeDate(item.createdAt)}
+						</div>
+					</Link>
+				</div>
+				<div
+					className='w-20 shrink-0 flex items-center justify-end overflow-hidden'
+					onPointerDown={(e) => e.stopPropagation()}
+				>
+					{!selectionActive && (
+						<StoryActions
+							item={item}
+							showArchived={showArchived}
+							onRequestPinShare={() => setPinShareDialogOpen(true)}
+							onMoveToFolder={moveHandler}
+						/>
+					)}
 				</div>
 			</div>
 			{canOpenPinShareDialog && item.chatId && item.storySlug && (
@@ -181,6 +264,33 @@ export function StoryCard({
 				/>
 			)}
 		</>
+	);
+}
+
+function StoryCheckbox({
+	selected,
+	visible,
+	onClick,
+}: {
+	selected: boolean;
+	visible: boolean;
+	onClick: (e: MouseEvent<HTMLButtonElement>) => void;
+}) {
+	return (
+		<button
+			type='button'
+			aria-label={selected ? 'Deselect story' : 'Select story'}
+			aria-pressed={selected}
+			onClick={onClick}
+			className={cn(
+				'inline-flex items-center justify-center size-5 transition-all duration-150 cursor-pointer rounded shrink-0',
+				'text-muted-foreground hover:text-foreground',
+				visible ? 'w-5 opacity-100' : 'w-0 opacity-0 overflow-hidden group-hover:w-5 group-hover:opacity-100',
+				selected && 'text-primary',
+			)}
+		>
+			{selected ? <CircleCheck className='size-3' /> : <Circle className='size-3' />}
+		</button>
 	);
 }
 
@@ -353,7 +463,7 @@ function QuickActionButton({
 
 function StoryArchiveButton({ item, showArchived }: { item: StoryItem; showArchived: boolean }) {
 	const queryClient = useQueryClient();
-	const { isViewer } = usePermissions();
+	const { isViewer, isAdmin } = usePermissions();
 
 	function invalidateAfterArchive() {
 		queryClient.invalidateQueries({ queryKey: trpc.story.listAll.queryKey() });
@@ -387,7 +497,7 @@ function StoryArchiveButton({ item, showArchived }: { item: StoryItem; showArchi
 	const canArchive =
 		(item.kind === 'own' && item.chatId && item.storySlug) ||
 		item.kind === 'own-standalone' ||
-		item.kind === 'shared-project';
+		(item.kind === 'shared-project' && isAdmin);
 
 	if (!canArchive || isViewer) {
 		return null;

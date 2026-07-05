@@ -183,6 +183,8 @@ export const project = pgTable(
 		agentSettings: jsonb('agent_settings').$type<AgentSettings>(),
 		enabledMcpTools: jsonb('enabled_tools').$type<string[]>().notNull().default([]),
 		knownMcpServers: jsonb('known_mcp_servers').$type<string[]>().notNull().default([]),
+		disabledMcpServers: jsonb('disabled_mcp_servers').$type<string[]>().notNull().default([]),
+		disabledMcpTools: jsonb('disabled_mcp_tools').$type<string[]>().notNull().default([]),
 
 		envVars: jsonb('env_vars').$type<Record<string, string>>().notNull().default({}),
 
@@ -1272,5 +1274,52 @@ export const analyticsEvent = pgTable(
 			'analytics_event_asset_id_required',
 			sql`CASE WHEN ${t.assetType} = 'chat' THEN ${t.chatId} IS NOT NULL WHEN ${t.assetType} = 'story' THEN ${t.storyId} IS NOT NULL ELSE TRUE END`,
 		),
+	],
+);
+
+export const mcpOAuthClient = pgTable(
+	'mcp_oauth_client',
+	{
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		serverName: text('server_name').notNull(),
+		clientId: text('client_id').notNull(),
+		clientSecret: text('client_secret'),
+		clientData: text('client_data'),
+		discoveryUserId: text('discovery_user_id').references(() => user.id, { onDelete: 'set null' }),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.notNull()
+			.$onUpdate(() => /* @__PURE__ */ new Date()),
+	},
+	(t) => [primaryKey({ columns: [t.projectId, t.serverName] })],
+);
+
+export const mcpUserToken = pgTable(
+	'mcp_user_token',
+	{
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		serverName: text('server_name').notNull(),
+		accessToken: text('access_token'),
+		refreshToken: text('refresh_token'),
+		expiresAt: timestamp('expires_at'),
+		scope: text('scope'),
+		codeVerifier: text('code_verifier'),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.notNull()
+			.$onUpdate(() => /* @__PURE__ */ new Date()),
+	},
+	(t) => [
+		primaryKey({ columns: [t.userId, t.projectId, t.serverName] }),
+		index('mcp_user_token_project_server_idx').on(t.projectId, t.serverName),
 	],
 );

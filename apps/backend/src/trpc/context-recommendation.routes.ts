@@ -6,6 +6,7 @@ import { env } from '../env';
 import { ensureContextRecommendationsSchedule } from '../handlers/context-recommendations.handler';
 import * as crQueries from '../queries/context-recommendation.queries';
 import * as userQueries from '../queries/user.queries';
+import { agentService } from '../services/agent';
 import { createRecommendationPullRequest, resolveRecommendationRepo } from '../services/context-pr.service';
 import { runContextRecommendations } from '../services/context-recommendations.service';
 import * as github from '../services/github';
@@ -18,11 +19,11 @@ import {
 import { getProjectAvailableModels } from '../utils/llm';
 import { logger } from '../utils/logger';
 import { extractConfiguredRepos } from '../utils/nao-config';
-import { adminProtectedProcedure } from './trpc';
+import { contextAdminProtectedProcedure } from './trpc';
 
 const MAX_CUSTOM_SYSTEM_PROMPT_INSTRUCTIONS_LENGTH = 4000;
 
-const recommendationsProcedure = adminProtectedProcedure.use(async ({ next }) => {
+const recommendationsProcedure = contextAdminProtectedProcedure.use(async ({ next }) => {
 	if (!env.BETA_CONTEXT_RECOMMENDATIONS_ENABLED) {
 		throw new TRPCError({ code: 'FORBIDDEN', message: 'Context recommendations are disabled on this instance.' });
 	}
@@ -45,6 +46,25 @@ export const contextRecommendationRoutes = {
 			logger.error(`Manual context recommendations run failed: ${String(err)}`, { source: 'agent' });
 		});
 		return { started: true };
+	}),
+
+	cancelRun: recommendationsProcedure.input(z.object({ runId: z.string() })).mutation(async ({ ctx, input }) => {
+		const run = await crQueries.getRunById(ctx.project.id, input.runId);
+		if (!run) {
+			throw new TRPCError({ code: 'NOT_FOUND', message: `Recommendations run not found: ${input.runId}` });
+		}
+		if (run.status !== 'running') {
+			return { ...run, alreadyTerminal: true as const };
+		}
+		if (run.chatId) {
+			agentService.get(run.chatId)?.stop();
+		}
+		const cancelled = await crQueries.cancelRun(input.runId);
+		const fresh = await crQueries.getRunById(ctx.project.id, input.runId);
+		if (!fresh) {
+			throw new TRPCError({ code: 'NOT_FOUND', message: `Recommendations run not found: ${input.runId}` });
+		}
+		return { ...fresh, alreadyTerminal: !cancelled };
 	}),
 
 	listAvailableModels: recommendationsProcedure.query(async ({ ctx }) => getProjectAvailableModels(ctx.project.id)),

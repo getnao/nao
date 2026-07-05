@@ -5,6 +5,13 @@ import { getJsonSchema } from '../utils/tools';
 
 const ESTIMATED_TOKENS_PER_IMAGE = 1000;
 
+function isImagePart(part: Record<string, unknown>): boolean {
+	if (typeof part.data === 'string' && part.data.startsWith('data:')) {
+		return true;
+	}
+	return typeof part.mediaType === 'string' && part.mediaType.startsWith('image/');
+}
+
 export interface ITokenCounter {
 	estimateMessages(messages: ModelMessage[]): number;
 	estimateTools(tools: Record<string, Tool>): Promise<number>;
@@ -32,7 +39,7 @@ export class TokenCounter implements ITokenCounter {
 
 		let imageCount = 0;
 		const sanitizedContent = (message.content as Record<string, unknown>[]).map((part) => {
-			if (part.type === 'file' && typeof part.data === 'string' && part.data.startsWith('data:')) {
+			if (part.type === 'file' && typeof part.data === 'string' && isImagePart(part)) {
 				imageCount++;
 				return { ...part, data: '[image]' };
 			}

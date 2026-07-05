@@ -1,5 +1,6 @@
 import { Columns2, Filter, Users, X } from 'lucide-react';
 import { ChatsReplayDateFilter } from './chats-replay-date-filter';
+import { formatUserRole } from './chats-replay-columns';
 import type { ColumnFiltersState, Table } from '@tanstack/react-table';
 
 import type { ProjectChatReplayFacets, UpdatedAtFilter } from '@nao/shared/types';
@@ -122,6 +123,7 @@ export function ChatsReplayToolbar<TData>({
 			id: 'userRole',
 			label: 'Role',
 			values: facets.userRoles,
+			valueLabels: Object.fromEntries(facets.userRoles.map((role) => [role, formatUserRole(role)])),
 			valueCounts: facets.userRoles.reduce<Record<string, number>>((acc, role) => {
 				acc[role] = facets.userRoleCounts?.[role] ?? 0;
 				return acc;
@@ -329,9 +331,7 @@ export function ChatsReplayToolbar<TData>({
 													>
 														<div className='flex w-full items-center justify-between'>
 															<span className='text-sm'>
-																{cfg.id === 'toolState' && cfg.valueLabels?.[value]
-																	? cfg.valueLabels[value]
-																	: value}
+																{cfg.valueLabels?.[value] ?? value}
 															</span>
 															{typeof cfg.valueCounts?.[value] === 'number' &&
 																cfg.valueCounts[value] > 0 && (
@@ -418,8 +418,7 @@ export function ChatsReplayToolbar<TData>({
 						.filter((f) => f.id !== 'updatedAt')
 						.flatMap((filter) => {
 							const cfg = filterConfigs.find((c) => c.id === filter.id);
-							const getLabel = (val: string) =>
-								cfg && cfg.id === 'toolState' && cfg.valueLabels?.[val] ? cfg.valueLabels[val] : val;
+							const getLabel = (val: string) => cfg?.valueLabels?.[val] ?? val;
 							return (filter.value as string[]).map((val) => (
 								<Badge
 									key={`${filter.id}-${val}`}

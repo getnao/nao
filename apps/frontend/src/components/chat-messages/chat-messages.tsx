@@ -107,7 +107,7 @@ export const ChatMessagesContent = memo(() => {
 				))
 			)}
 
-			<div className='flex flex-col gap-4' ref={extraComponentsRef}>
+			<div className='flex flex-col gap-4' ref={extraComponentsRef} data-selection-ignore>
 				{followUpSuggestionsToolCall && <FollowUpSuggestions toolPart={followUpSuggestionsToolCall} />}
 
 				<ChatError className='mt-4' />

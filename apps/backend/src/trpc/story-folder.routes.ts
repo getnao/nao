@@ -1,8 +1,10 @@
+import { BULK_ITEMS_LIMIT } from '@nao/shared';
+import type { UserRole } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
 import type { DBStoryFolder } from '../db/abstractSchema';
-import * as sharedStoryQueries from '../queries/shared-story.queries';
+import { db } from '../db/db';
 import * as storyQueries from '../queries/story.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
 import { canSendProcedure, projectProtectedProcedure } from './trpc';
@@ -19,9 +21,9 @@ async function assertFolderInProject(
 	return folder;
 }
 
-function assertCanModifyFolder(folder: DBStoryFolder, userId: string) {
-	if (folder.visibility !== 'public' && folder.ownerId !== userId) {
-		throw new TRPCError({ code: 'FORBIDDEN', message: 'Only the owner can modify a private folder.' });
+function assertCanModifyFolder(folder: DBStoryFolder, userId: string, userRole: UserRole | null) {
+	if (folder.ownerId !== userId && userRole !== 'admin') {
+		throw new TRPCError({ code: 'FORBIDDEN', message: 'Only the owner or an admin can modify this folder.' });
 	}
 }
 
@@ -46,23 +48,6 @@ function assertCanChangeFolderScope(folder: DBStoryFolder, target: DBStoryFolder
 		throw new TRPCError({
 			code: 'FORBIDDEN',
 			message: "Only the owner can change a folder's visibility.",
-		});
-	}
-}
-
-async function assertNonOwnerMovePreservesScope(storyId: string, projectId: string, target: DBStoryFolder | null) {
-	if (target && target.visibility !== 'public') {
-		throw new TRPCError({
-			code: 'FORBIDDEN',
-			message: 'Only the story owner can move it into a private folder.',
-		});
-	}
-
-	const sharing = await sharedStoryQueries.getSharedStoryInfo(storyId, projectId);
-	if (sharing?.visibility !== 'project') {
-		throw new TRPCError({
-			code: 'FORBIDDEN',
-			message: 'Only the story owner can change its sharing scope.',
 		});
 	}
 }
@@ -118,33 +103,68 @@ export const storyFolderRoutes = {
 		)
 		.mutation(async ({ input, ctx }) => {
 			const folder = await assertFolderInProject(input.id, ctx);
-			assertCanModifyFolder(folder, ctx.user.id);
+			assertCanReadPrivateFolder(folder, ctx.user.id);
+			assertCanModifyFolder(folder, ctx.user.id, ctx.userRole);
 			await storyFolderQueries.updateFolder(input.id, { name: input.name });
 		}),
 
 	delete: canSendProcedure.input(z.object({ id: z.string() })).mutation(async ({ input, ctx }) => {
 		const folder = await assertFolderInProject(input.id, ctx);
-		assertCanModifyFolder(folder, ctx.user.id);
+		assertCanReadPrivateFolder(folder, ctx.user.id);
+		assertCanModifyFolder(folder, ctx.user.id, ctx.userRole);
 		await storyFolderQueries.deleteFolderMovingContentsToParent(input.id);
 	}),
 
 	archive: canSendProcedure.input(z.object({ id: z.string() })).mutation(async ({ input, ctx }) => {
 		const folder = await assertFolderInProject(input.id, ctx);
-		assertCanModifyFolder(folder, ctx.user.id);
+		assertCanReadPrivateFolder(folder, ctx.user.id);
+		assertCanModifyFolder(folder, ctx.user.id, ctx.userRole);
 		await storyFolderQueries.archiveFolder(input.id);
 	}),
 
 	unarchive: canSendProcedure.input(z.object({ id: z.string() })).mutation(async ({ input, ctx }) => {
 		const folder = await assertFolderInProject(input.id, ctx);
-		assertCanModifyFolder(folder, ctx.user.id);
+		assertCanReadPrivateFolder(folder, ctx.user.id);
+		assertCanModifyFolder(folder, ctx.user.id, ctx.userRole);
 		await storyFolderQueries.unarchiveFolder(ctx.user.id, ctx.project.id, input.id);
 	}),
+
+	bulkArchive: canSendProcedure
+		.input(z.object({ ids: z.array(z.string()).min(1).max(BULK_ITEMS_LIMIT) }))
+		.mutation(async ({ input, ctx }) => {
+			for (const id of input.ids) {
+				const folder = await assertFolderInProject(id, ctx);
+				assertCanReadPrivateFolder(folder, ctx.user.id);
+				assertCanModifyFolder(folder, ctx.user.id, ctx.userRole);
+			}
+			await db.transaction(async (tx) => {
+				for (const id of input.ids) {
+					await storyFolderQueries.archiveFolder(id, tx);
+				}
+			});
+		}),
+
+	bulkUnarchive: canSendProcedure
+		.input(z.object({ ids: z.array(z.string()).min(1).max(BULK_ITEMS_LIMIT) }))
+		.mutation(async ({ input, ctx }) => {
+			for (const id of input.ids) {
+				const folder = await assertFolderInProject(id, ctx);
+				assertCanReadPrivateFolder(folder, ctx.user.id);
+				assertCanModifyFolder(folder, ctx.user.id, ctx.userRole);
+			}
+			await db.transaction(async (tx) => {
+				for (const id of input.ids) {
+					await storyFolderQueries.unarchiveFolder(ctx.user.id, ctx.project.id, id, tx);
+				}
+			});
+		}),
 
 	move: canSendProcedure
 		.input(z.object({ id: z.string(), newParentId: z.string().nullable() }))
 		.mutation(async ({ input, ctx }) => {
 			const folder = await assertFolderInProject(input.id, ctx);
 			assertCanReadPrivateFolder(folder, ctx.user.id);
+			assertCanModifyFolder(folder, ctx.user.id, ctx.userRole);
 
 			let target: DBStoryFolder | null = null;
 			if (input.newParentId) {
@@ -180,12 +200,8 @@ export const storyFolderRoutes = {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
 			}
 
-			const isStoryOwner = storyOwnerId === ctx.user.id;
-			if (!isStoryOwner) {
-				const canAccess = await storyQueries.canUserAccessStory(input.storyId, ctx.user.id);
-				if (!canAccess) {
-					throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this story.' });
-				}
+			if (storyOwnerId !== ctx.user.id && ctx.userRole !== 'admin') {
+				throw new TRPCError({ code: 'FORBIDDEN', message: 'Only the owner or an admin can move this story.' });
 			}
 
 			let target: DBStoryFolder | null = null;
@@ -194,11 +210,7 @@ export const storyFolderRoutes = {
 				assertCanReadPrivateFolder(target, ctx.user.id);
 			}
 
-			if (isStoryOwner) {
-				assertCanPlaceInDestination(target, ctx.user.id);
-			} else {
-				await assertNonOwnerMovePreservesScope(input.storyId, ctx.project.id, target);
-			}
+			assertCanPlaceInDestination(target, ctx.user.id);
 
 			await storyFolderQueries.moveStoryToFolder(input.storyId, input.folderId, {
 				storyOwnerId,

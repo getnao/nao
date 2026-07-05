@@ -1,10 +1,11 @@
-import { asc, eq, inArray } from 'drizzle-orm';
+import { asc, eq, inArray, sql } from 'drizzle-orm';
 import { pgTable, QueryBuilder as PgQueryBuilder, text as pgText } from 'drizzle-orm/pg-core';
 import { QueryBuilder as SqliteQueryBuilder, sqliteTable, text as sqliteText } from 'drizzle-orm/sqlite-core';
 
 import dbConfig, { Dialect } from './dbConfig';
 import * as pgSchema from './pg-schema';
 import * as sqliteSchema from './sqlite-schema';
+import { user } from './sqlite-schema';
 
 export interface ScopedView {
 	name: string;
@@ -46,11 +47,23 @@ export const APP_DB_VIEW_COLUMNS: Record<string, string[]> = Object.fromEntries(
 );
 
 function buildScopedViews(schema: ViewSchema, scope: ScopeTable, qb: SqliteQueryBuilder): ScopedView[] {
-	const { chat, chatMessage, messagePart, messageFeedback, memories, llmInference, mcpCallLog, project } = schema;
+	const {
+		chat,
+		chatMessage,
+		messagePart,
+		messageFeedback,
+		memories,
+		llmInference,
+		mcpCallLog,
+		project,
+		analyticsEvent,
+	} = schema;
 	const scopedProjectIds = () => qb.select({ projectId: scope.projectId }).from(scope);
 
 	const messages = {
 		chat_id: chatMessage.chatId,
+		user_id: chat.userId,
+		user_name: sql<string>`${user.name}`.as('user_name'),
 		title: chat.title,
 		role: chatMessage.role,
 		type: messagePart.type,
@@ -98,6 +111,20 @@ function buildScopedViews(schema: ViewSchema, scope: ScopeTable, qb: SqliteQuery
 
 	const projectSelection = { id: project.id, name: project.name };
 
+	const analyticsEventSelection = {
+		id: analyticsEvent.id,
+		type: analyticsEvent.type,
+		asset_type: analyticsEvent.assetType,
+		actor_user_id: analyticsEvent.actorUserId,
+		actor_user_name: sql<string>`${user.name}`.as('actor_user_name'),
+		chat_id: analyticsEvent.chatId,
+		story_id: analyticsEvent.storyId,
+		shared_chat_id: analyticsEvent.sharedChatId,
+		shared_story_id: analyticsEvent.sharedStoryId,
+		metadata: analyticsEvent.metadata,
+		created_at: analyticsEvent.createdAt,
+	};
+
 	return [
 		toView(
 			'v_messages',
@@ -108,6 +135,7 @@ function buildScopedViews(schema: ViewSchema, scope: ScopeTable, qb: SqliteQuery
 				.leftJoin(messageFeedback, eq(messagePart.messageId, messageFeedback.messageId))
 				.leftJoin(chatMessage, eq(messagePart.messageId, chatMessage.id))
 				.leftJoin(chat, eq(chat.id, chatMessage.chatId))
+				.leftJoin(user, eq(user.id, chat.userId))
 				.where(inArray(chat.projectId, scopedProjectIds()))
 				.orderBy(chatMessage.chatId, asc(messagePart.createdAt)),
 		),
@@ -141,6 +169,15 @@ function buildScopedViews(schema: ViewSchema, scope: ScopeTable, qb: SqliteQuery
 			'v_project',
 			projectSelection,
 			qb.select(projectSelection).from(project).where(inArray(project.id, scopedProjectIds())),
+		),
+		toView(
+			'v_analytics_event',
+			analyticsEventSelection,
+			qb
+				.select(analyticsEventSelection)
+				.from(analyticsEvent)
+				.leftJoin(user, eq(user.id, analyticsEvent.actorUserId))
+				.where(inArray(analyticsEvent.projectId, scopedProjectIds())),
 		),
 	];
 }

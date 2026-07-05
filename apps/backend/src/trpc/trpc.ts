@@ -64,7 +64,7 @@ export const projectProtectedProcedure = protectedProcedure.use(async ({ ctx, ne
 });
 
 export const canSendProcedure = projectProtectedProcedure.use(async ({ ctx, next }) => {
-	if (ctx.userRole !== 'admin' && ctx.userRole !== 'user') {
+	if (ctx.userRole !== 'admin' && ctx.userRole !== 'user' && ctx.userRole !== 'context_admin') {
 		throw new TRPCError({ code: 'FORBIDDEN', message: 'Viewers cannot perform this action' });
 	}
 
@@ -111,6 +111,18 @@ export function resourceProjectProcedure<T extends { projectId: string }>(
 export const adminProtectedProcedure = projectProtectedProcedure.use(async ({ ctx, next }) => {
 	if (ctx.userRole !== 'admin') {
 		throw new TRPCError({ code: 'FORBIDDEN', message: 'Only admins can perform this action' });
+	}
+
+	return next({ ctx: { project: ctx.project, userRole: ctx.userRole } });
+});
+
+/**
+ * Grants access to admins and context admins. Context admins use nao like regular users but
+ * additionally manage observability surfaces: chat replay and context recommendations.
+ */
+export const contextAdminProtectedProcedure = projectProtectedProcedure.use(async ({ ctx, next }) => {
+	if (ctx.userRole !== 'admin' && ctx.userRole !== 'context_admin') {
+		throw new TRPCError({ code: 'FORBIDDEN', message: 'Only admins or context admins can perform this action' });
 	}
 
 	return next({ ctx: { project: ctx.project, userRole: ctx.userRole } });

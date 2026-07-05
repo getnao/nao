@@ -2,7 +2,7 @@
 
 import sys
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 from cyclopts import Parameter
 from rich.console import Console
@@ -13,6 +13,7 @@ from nao_core.tracking import track_command
 
 from .providers import (
     PROVIDER_CHOICES,
+    DatabaseSyncProvider,
     ProviderSelection,
     SyncResult,
     get_all_providers,
@@ -39,6 +40,16 @@ def sync(
             help="Number of worker threads to use for sync. Overrides `threads` in nao_config.yaml.",
         ),
     ] = None,
+    select: Annotated[
+        list[str] | None,
+        Parameter(
+            name=["-s", "--select"],
+            help="Sync only the given schemas/tables without deleting the rest. "
+            "Use `schema` to select a whole schema or `schema.table` for one table "
+            "(glob wildcards allowed, e.g. `analytics.dim_*`). Applied on top of include/exclude. "
+            "Combine with `-p databases:my-db` to also skip connecting to your other databases.",
+        ),
+    ] = None,
     output_dirs: Annotated[dict[str, str] | None, Parameter(show=False)] = None,
     _providers: Annotated[list[ProviderSelection] | None, Parameter(show=False)] = None,
     render_templates: bool = True,
@@ -52,6 +63,12 @@ def sync(
     After syncing providers, renders any Jinja templates (*.j2 files) found in
     the project directory, making the `nao` context object available for
     accessing provider data.
+
+    Use `--select schema` or `--select schema.table` to refresh only part of a
+    database without deleting previously-synced tables outside the selection.
+    Pair it with `--provider databases:my-db` to scope the run to one connection:
+
+      nao sync -p databases:my-warehouse -s analytics.orders
     """
     console.print("\n[bold cyan]🔄 nao sync[/bold cyan]\n")
 
@@ -79,6 +96,9 @@ def sync(
         active_providers = _providers
     else:
         active_providers = get_all_providers()
+
+    if select and not any(isinstance(s.provider, DatabaseSyncProvider) for s in active_providers):
+        console.print("[yellow]Warning:[/yellow] --select only applies to the databases provider; ignoring it here.")
 
     output_dirs = output_dirs or {}
 
@@ -108,7 +128,11 @@ def sync(
                     )
                     continue
 
-            result = sync_provider.sync(items, output_path, project_path=project_path, threads=resolved_threads)
+            sync_kwargs: dict[str, Any] = {"project_path": project_path, "threads": resolved_threads}
+            if isinstance(sync_provider, DatabaseSyncProvider):
+                sync_kwargs["select"] = select
+
+            result = sync_provider.sync(items, output_path, **sync_kwargs)
             results.append(result)
         except Exception as e:
             # Capture error but continue with other providers

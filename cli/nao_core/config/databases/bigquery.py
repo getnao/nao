@@ -72,7 +72,7 @@ class BigQueryDatabaseContext(DatabaseContext):
             return self._filter_excluded_names([self._partition_metadata.partition_column])
         try:
             return self._filter_excluded_names(
-                _get_bq_partition_columns(self._conn, self._project_id, self._schema, self._table_name)
+                _get_bq_partition_only_columns(self._conn, self._project_id, self._schema, self._table_name)
             )
         except Exception:
             logger.debug("Failed to fetch partition columns for %s.%s", self._schema, self._table_name)
@@ -81,7 +81,13 @@ class BigQueryDatabaseContext(DatabaseContext):
     def clustering_columns(self) -> list[str]:
         if self._partition_metadata is not None:
             return self._filter_excluded_names(list(self._partition_metadata.clustering_columns))
-        return []
+        try:
+            return self._filter_excluded_names(
+                _get_bq_clustering_only_columns(self._conn, self._project_id, self._schema, self._table_name)
+            )
+        except Exception:
+            logger.debug("Failed to fetch clustering columns for %s.%s", self._schema, self._table_name)
+            return []
 
     def description(self) -> str | None:
         try:
@@ -353,28 +359,29 @@ def _coerce(val: Any) -> Any:
     return val
 
 
-def _get_bq_partition_columns(conn: BaseBackend, project_id: str, schema: str, table: str) -> list[str]:
-    """Per-context fallback when batch metadata is unavailable.
-
-    Returns partition columns first, then clustering columns (deduplicated).
-    """
+def _get_bq_partition_only_columns(conn: BaseBackend, project_id: str, schema: str, table: str) -> list[str]:
+    """Per-context fallback: return only true partition columns (not clustering)."""
     schema_info_path = _bq_path(project_id, schema, "INFORMATION_SCHEMA", "COLUMNS")
     table_name_literal = _bq_string_literal(table)
-    partition_query = f"""
+    query = f"""
         SELECT column_name
         FROM {schema_info_path}
         WHERE table_name = {table_name_literal} AND is_partitioning_column = 'YES'
     """
-    clustering_query = f"""
+    return [row[0] for row in conn.raw_sql(query)]  # type: ignore[union-attr]
+
+
+def _get_bq_clustering_only_columns(conn: BaseBackend, project_id: str, schema: str, table: str) -> list[str]:
+    """Per-context fallback: return clustering columns ordered by position."""
+    schema_info_path = _bq_path(project_id, schema, "INFORMATION_SCHEMA", "COLUMNS")
+    table_name_literal = _bq_string_literal(table)
+    query = f"""
         SELECT column_name
         FROM {schema_info_path}
         WHERE table_name = {table_name_literal} AND clustering_ordinal_position IS NOT NULL
         ORDER BY clustering_ordinal_position
     """
-    columns: list[str] = []
-    columns.extend(row[0] for row in conn.raw_sql(partition_query))  # type: ignore[union-attr]
-    columns.extend(row[0] for row in conn.raw_sql(clustering_query) if row[0] not in columns)  # type: ignore[union-attr]
-    return columns
+    return [row[0] for row in conn.raw_sql(query)]  # type: ignore[union-attr]
 
 
 class BigQueryConfig(DatabaseConfig):

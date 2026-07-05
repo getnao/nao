@@ -1,9 +1,10 @@
-import { ArchiveIcon, LayoutGrid, List, Search, X } from 'lucide-react';
+import { ArchiveIcon, LayoutGrid, List, ListChecks, Search, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import type { StoryPanelDisplayMode } from '@nao/shared/types';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { usePermissions } from '@/hooks/use-permissions';
 
 export function StoriesToolbarControls({
 	searchQuery,
@@ -12,6 +13,8 @@ export function StoriesToolbarControls({
 	onDisplayModeChange,
 	showArchived,
 	onShowArchivedChange,
+	selectionActive,
+	onToggleSelection,
 }: {
 	searchQuery: string;
 	onSearchQueryChange: (value: string) => void;
@@ -19,10 +22,14 @@ export function StoriesToolbarControls({
 	onDisplayModeChange: (value: StoryPanelDisplayMode) => void;
 	showArchived: boolean;
 	onShowArchivedChange: (value: boolean) => void;
+	selectionActive: boolean;
+	onToggleSelection: () => void;
 }) {
+	const { isViewer } = usePermissions();
 	return (
 		<div className='flex items-center gap-3'>
 			{!showArchived && <SearchInput value={searchQuery} onChange={onSearchQueryChange} />}
+			{!isViewer && <SelectionToggle active={selectionActive} onToggle={onToggleSelection} />}
 			<Button
 				variant='ghost'
 				size='sm'
@@ -34,6 +41,21 @@ export function StoriesToolbarControls({
 			</Button>
 			<DisplayModeToggle value={displayMode} onChange={onDisplayModeChange} />
 		</div>
+	);
+}
+
+function SelectionToggle({ active, onToggle }: { active: boolean; onToggle: () => void }) {
+	return (
+		<Button
+			variant='ghost'
+			size='sm'
+			onClick={onToggle}
+			aria-pressed={active}
+			className={cn('text-foreground gap-1.5 rounded-full border', active && 'bg-accent')}
+		>
+			{active ? <X className='size-4' /> : <ListChecks className='size-4' />}
+			<span className='text-xs'>{active ? 'Cancel' : 'Select'}</span>
+		</Button>
 	);
 }
 

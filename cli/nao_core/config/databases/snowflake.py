@@ -23,6 +23,9 @@ class SnowflakeDatabaseContext(DatabaseContext):
     """Snowflake context with clustering key and description discovery."""
 
     def partition_columns(self) -> list[str]:
+        return []
+
+    def clustering_columns(self) -> list[str]:
         try:
             return self._filter_excluded_names(
                 _get_snowflake_clustering_columns(self._conn, self._schema, self._table_name)
@@ -71,7 +74,7 @@ class SnowflakeDatabaseContext(DatabaseContext):
         return f"TO_JSON({col_sql})::VARCHAR"
 
     def _partition_filter(self) -> str:
-        cols = self.partition_columns()
+        cols = self.clustering_columns()
         if cols:
             return f'"{cols[0]}" >= DATEADD(day, -30, CURRENT_DATE())'
         return ""

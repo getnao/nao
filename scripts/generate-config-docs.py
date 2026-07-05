@@ -34,9 +34,16 @@ from nao_core.config.databases import (  # noqa: E402
     SnowflakeConfig,
     TrinoConfig,
 )
-from nao_core.config.databases.base import DatabaseAccessor, DatabaseConfig  # noqa: E402
+from nao_core.config.databases.base import (  # noqa: E402
+    DatabaseAccessor,
+    DatabaseConfig,
+)
 from nao_core.config.databases.redshift import RedshiftSSHTunnelConfig  # noqa: E402
-from nao_core.config.llm import DEFAULT_ANNOTATION_MODELS, LLMConfig, LLMProvider  # noqa: E402
+from nao_core.config.llm import (  # noqa: E402
+    DEFAULT_ANNOTATION_MODELS,
+    LLMConfig,
+    LLMProvider,
+)
 from nao_core.config.mcp import McpConfig  # noqa: E402
 from nao_core.config.notion import NotionConfig  # noqa: E402
 from nao_core.config.repos.base import RepoConfig  # noqa: E402

@@ -6,7 +6,12 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from nao_core.commands.sync import sync
-from nao_core.commands.sync.providers import ProviderSelection, SyncProvider, SyncResult
+from nao_core.commands.sync.providers import (
+    DatabaseSyncProvider,
+    ProviderSelection,
+    SyncProvider,
+    SyncResult,
+)
 
 
 def _make_provider(
@@ -78,6 +83,33 @@ class TestSyncCommand:
             sync(_providers=[selection])
 
         assert selection.provider.sync.call_args.kwargs["threads"] == 3
+
+    def test_sync_forwards_select_to_database_provider(self, create_config):
+        create_config()
+        provider = MagicMock(spec=DatabaseSyncProvider)
+        provider.should_sync.return_value = True
+        provider.name = "Databases"
+        provider.default_output_dir = "databases"
+        provider.get_items.return_value = []
+        provider.sync.return_value = SyncResult(provider_name="Databases", items_synced=0)
+        selection = ProviderSelection(provider)
+
+        with patch("nao_core.commands.sync.console"):
+            sync(_providers=[selection], select=["analytics.orders"], render_templates=False)
+
+        assert provider.sync.call_args.kwargs.get("select") == ["analytics.orders"]
+
+    def test_sync_warns_and_skips_select_for_non_database_provider(self, create_config):
+        create_config()
+        selection = _make_provider(items=["item1"], items_synced=1)
+
+        with patch("nao_core.commands.sync.console") as mock_console:
+            sync(_providers=[selection], select=["analytics.orders"], render_templates=False)
+
+        mock_console.print.assert_any_call(
+            "[yellow]Warning:[/yellow] --select only applies to the databases provider; ignoring it here."
+        )
+        assert "select" not in selection.provider.sync.call_args.kwargs
 
     def test_sync_cli_threads_override_config(self, create_config):
         create_config("project_name: test-project\nthreads: 3\n")

@@ -3,6 +3,8 @@ import { parseChartBlock } from '@nao/shared/story-segments';
 import { ChartDisplay } from './display-chart';
 import { TableDisplay } from './display-table';
 import { ToolCallWrapper } from './tool-call-wrapper';
+import { McpTitle } from './mcp-title';
+import type { ReactNode } from 'react';
 import type { ToolCallComponentProps } from '.';
 import type { displayChart } from '@nao/shared/tools';
 import type { UIMessage, UIToolPart } from '@nao/backend/chat';
@@ -145,11 +147,42 @@ const McpOutputContent = ({ text }: { text: string }) => {
 	);
 };
 
+const getMcpTitle = (toolPart: UIToolPart, fallback: string): ReactNode | string => {
+	const input = (toolPart as { input?: { server?: string; tool?: string } }).input;
+	if (input?.server && input?.tool) {
+		return (
+			<McpTitle server={input.server}>
+				Using <em>{input.tool}</em> from {input.server}
+			</McpTitle>
+		);
+	}
+	return fallback;
+};
+
+const getAuthRequiredServer = (output: unknown): string | null => {
+	if (output && typeof output === 'object' && (output as { mcpAuthRequired?: boolean }).mcpAuthRequired) {
+		const server = (output as { server?: string }).server;
+		return typeof server === 'string' ? server : null;
+	}
+	return null;
+};
+
 export const McpToolCall = ({ toolPart }: ToolCallComponentProps) => {
 	const { isSettled } = useToolCallContext();
-	const toolName = getToolName(toolPart);
+	const title = getMcpTitle(toolPart, getToolName(toolPart));
 
 	if (isSettled) {
+		const authServer = getAuthRequiredServer(toolPart.output);
+		if (authServer) {
+			return (
+				<ToolCallWrapper title={title}>
+					<div className='px-3 py-2 text-sm text-muted-foreground'>
+						Waiting for you to connect to <span className='font-medium text-foreground'>{authServer}</span>.
+					</div>
+				</ToolCallWrapper>
+			);
+		}
+
 		const chartBlock = extractChartBlock(toolPart.output);
 		if (chartBlock) {
 			return <McpChartOutput chartBlock={chartBlock} />;
@@ -157,5 +190,5 @@ export const McpToolCall = ({ toolPart }: ToolCallComponentProps) => {
 	}
 
 	const text = isSettled ? extractText(toolPart.output) : null;
-	return <ToolCallWrapper title={toolName}>{text !== null && <McpOutputContent text={text} />}</ToolCallWrapper>;
+	return <ToolCallWrapper title={title}>{text !== null && <McpOutputContent text={text} />}</ToolCallWrapper>;
 };

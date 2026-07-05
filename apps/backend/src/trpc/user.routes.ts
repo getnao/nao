@@ -33,7 +33,7 @@ export const userRoutes = {
 			z.object({
 				userId: z.string(),
 				name: z.string().optional(),
-				newRole: z.enum(['user', 'viewer', 'admin']).optional(),
+				newRole: z.enum(['user', 'viewer', 'admin', 'context_admin']).optional(),
 			}),
 		)
 		.mutation(async ({ input, ctx }) => {

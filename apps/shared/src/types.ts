@@ -1,6 +1,16 @@
-export type UserRole = 'admin' | 'user' | 'viewer';
+export type UserRole = 'admin' | 'user' | 'viewer' | 'context_admin';
 
-export const USER_ROLES = ['admin', 'user', 'viewer'] as const satisfies readonly UserRole[];
+export const USER_ROLES = ['admin', 'user', 'viewer', 'context_admin'] as const satisfies readonly UserRole[];
+
+/** Project roles available when editing organization members (org roles never include context_admin). */
+export const ORG_MEMBER_ROLES = ['admin', 'user', 'viewer'] as const satisfies readonly UserRole[];
+
+export const USER_ROLE_LABELS: Record<UserRole, string> = {
+	admin: 'Admin',
+	user: 'User',
+	viewer: 'Viewer',
+	context_admin: 'Context Admin',
+};
 
 export const TOOL_CALL_DENSITIES = ['compact', 'detailed'] as const;
 
@@ -195,3 +205,7 @@ export type EmbedTokenPayload = {
 };
 
 export type StoryPanelDisplayMode = 'grid' | 'lines';
+
+export type BulkStoryItem = { kind: 'own'; storyId: string } | { kind: 'shared-project'; storyId: string };
+
+export const BULK_ITEMS_LIMIT = 100;

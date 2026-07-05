@@ -1,19 +1,26 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useId } from 'react';
 import { Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { Plus, PencilRuler, Database, Image as ImageIcon, AlertTriangle } from 'lucide-react';
+import { Plus, PencilRuler, Database, Image as ImageIcon, AlertTriangle, Shield, Check } from 'lucide-react';
 import { Button, ChatButton, MicButton } from './ui/button';
 import { SlidingWaveform } from './chat-input-sliding-waveform';
 import { ChatPrompt, STORY_MENTION_ID, DATABASE_MENTION_TRIGGER } from './chat-input-prompt';
 import { ChatInputModelSelect } from './chat-input-model-select';
 import { ChatInputMessageQueue } from './chat-input-message-queue';
 import { ChatInputImagePreview } from './chat-input-image-preview';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './ui/dropdown-menu';
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuSeparator,
+	DropdownMenuTrigger,
+} from './ui/dropdown-menu';
 import StoryIcon from './ui/story-icon';
 import type { PromptHandle, SelectedMention } from 'prompt-mentions';
 import type { FormEvent } from 'react';
 import type { AgentHelpers } from '@/hooks/use-agent';
 import { ContextWindowRing } from '@/components/ui/chat-input-context-window-ring';
+import { SimpleTooltip } from '@/components/ui/tooltip';
 
 import { InputGroup, InputGroupAddon } from '@/components/ui/input-group';
 import { trpc } from '@/main';
@@ -24,6 +31,7 @@ import { useImageUpload } from '@/hooks/use-image-upload';
 import { parseBudgetError } from '@/lib/ai';
 import { cn } from '@/lib/utils';
 import { useChatId } from '@/hooks/use-chat-id';
+import { usePermissions } from '@/hooks/use-permissions';
 import { messageQueueStore } from '@/stores/chat-message-queue';
 import { chatPendingCitationStore } from '@/stores/chat-pending-citation';
 import { useChatPendingCitation } from '@/hooks/use-chat-pending-citation';
@@ -86,9 +94,21 @@ function ChatInputBase({
 	allowQueueing,
 }: ChatInputBaseProps) {
 	const [inputText, setInputText] = useState('');
-	const { isRunning, stopAgent, isLoadingMessages, setMentions, submitQueuedMessageNow, error, selectedModel } =
-		useAgentContext();
+	const {
+		isRunning,
+		stopAgent,
+		isLoadingMessages,
+		adminMode,
+		setAdminMode,
+		setMentions,
+		submitQueuedMessageNow,
+		error,
+		selectedModel,
+	} = useAgentContext();
+	const { isAdmin } = usePermissions();
 	const chatId = useChatId();
+
+	const isAdminMode = isAdmin && adminMode;
 	const imageUpload = useImageUpload();
 	const effectivePlaceholder = isRunning && allowQueueing ? 'Add a follow-up...' : placeholder;
 
@@ -288,7 +308,8 @@ function ChatInputBase({
 			<ChatInputMessageQueue onEditMessage={handleEditQueuedMessage} onSubmitNow={submitQueuedMessageNow} />
 			<SelectionCitationBanner />
 			<BudgetBanner />
-			{allowQueueing && <ChatInputSuggestions />}
+			{allowQueueing && !isAdminMode && <ChatInputSuggestions isHidden={inputText.trim().length > 0} />}
+			{isAdminMode && <ChatInputAdminBadge />}
 
 			<form onSubmit={handleSubmitMessage} className='mx-auto relative'>
 				<InputGroup
@@ -296,9 +317,10 @@ function ChatInputBase({
 					className={cn(
 						'bg-background dark:bg-background shadow-xs border-none',
 						isDragging && 'ring-2 ring-primary/50 border-primary',
+						isAdminMode && 'ring-4 ring-amber-500/60',
 					)}
 				>
-					<ChatInputAnimatedBorder />
+					{!isAdminMode && <ChatInputAnimatedBorder />}
 					<ChatInputImagePreview images={imageUpload.images} onRemove={imageUpload.removeImage} />
 					<ChatPrompt
 						promptRef={promptRef}
@@ -325,6 +347,9 @@ function ChatInputBase({
 							<ChatInputPlusMenu
 								hasDatabases={hasDatabases}
 								hasSkills={hasSkills}
+								isAdmin={isAdmin}
+								isAdminMode={isAdminMode}
+								onToggleAdminMode={() => setAdminMode(!isAdminMode)}
 								onAddImage={imageUpload.openFilePicker}
 								onAddStory={() => {
 									promptRef.current?.appendMention(
@@ -460,6 +485,30 @@ function ChatInputAnimatedBorder() {
 	);
 }
 
+function ChatInputAdminBadge() {
+	return (
+		<div className='flex justify-end pr-4'>
+			<SimpleTooltip
+				side='top'
+				align='end'
+				content='Chat with your internal nao data to understand what users are doing.'
+			>
+				<span
+					className={cn(
+						'flex w-fit cursor-help items-center gap-1 mb-1',
+						'rounded-t-lg px-2 py-0.5',
+						'text-[10px] font-medium text-amber-700 dark:text-amber-300',
+						'bg-amber-500/60',
+					)}
+				>
+					<Shield className='size-3' />
+					Admin Mode
+				</span>
+			</SimpleTooltip>
+		</div>
+	);
+}
+
 function BudgetBanner() {
 	const { error, clearError, selectedModel } = useAgentContext();
 	const prevProviderRef = useRef(selectedModel?.provider);
@@ -500,6 +549,9 @@ function BudgetBanner() {
 function ChatInputPlusMenu({
 	hasDatabases,
 	hasSkills,
+	isAdmin,
+	isAdminMode,
+	onToggleAdminMode,
 	onAddImage,
 	onAddStory,
 	onOpenSkills,
@@ -508,6 +560,9 @@ function ChatInputPlusMenu({
 }: {
 	hasDatabases: boolean;
 	hasSkills: boolean;
+	isAdmin: boolean;
+	isAdminMode: boolean;
+	onToggleAdminMode: () => void;
 	onAddImage: () => void;
 	onAddStory: () => void;
 	onOpenSkills: () => void;
@@ -554,6 +609,16 @@ function ChatInputPlusMenu({
 						<PencilRuler className='size-4' />
 						<span>Skills</span>
 					</DropdownMenuItem>
+				)}
+				{isAdmin && (
+					<>
+						<DropdownMenuSeparator />
+						<DropdownMenuItem onSelect={onToggleAdminMode}>
+							<Shield className='size-4' />
+							<span>Admin mode</span>
+							{isAdminMode && <Check className='size-4 ml-auto' />}
+						</DropdownMenuItem>
+					</>
 				)}
 			</DropdownMenuContent>
 		</DropdownMenu>

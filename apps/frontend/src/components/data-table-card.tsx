@@ -88,7 +88,7 @@ export function DataTableCard({
 			/>
 
 			<Dialog open={isFullscreen} onOpenChange={setIsFullscreen}>
-				<DialogContent className='w-[95vw] max-w-[95vw] gap-2'>
+				<DialogContent className='flex max-h-[90vh] w-fit min-w-[32rem] max-w-[95vw] flex-col gap-2 sm:max-w-[95vw]'>
 					<DialogTitle className='sr-only'>{title ?? 'Table'}</DialogTitle>
 					<div className='flex flex-row justify-end gap-1 -my-1 px-5'>
 						<Button
@@ -113,7 +113,7 @@ export function DataTableCard({
 					<TableDisplay
 						data={data}
 						columns={resolvedColumns}
-						className='min-w-0 overflow-hidden rounded-lg border'
+						className='min-h-0 min-w-0 overflow-hidden rounded-lg border'
 						tableContainerClassName='max-h-[75vh] border-t-0'
 						maxRowsBeforePagination={maxRowsBeforePagination}
 						compactFooter={true}

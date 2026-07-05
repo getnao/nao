@@ -1,12 +1,13 @@
 import type { ImageUploadData } from '@nao/shared/types';
 
+import { renderAdminSystemPrompt } from '../components/ai';
 import { noProjectMessage } from '../env';
 import * as chatQueries from '../queries/chat.queries';
 import * as imageQueries from '../queries/image.queries';
-import { agentService } from '../services/agent';
+import { adminAgentTools, agentService } from '../services/agent';
 import { mcpService } from '../services/mcp';
 import { skillService } from '../services/skill';
-import { AgentRequest, AgentRequestUserMessage, UIMessagePart } from '../types/chat';
+import { AgentRequest, AgentRequestUserMessage, MessageSource, UIMessagePart } from '../types/chat';
 import { createChatTitle } from '../utils/ai';
 import { HandlerError } from '../utils/error';
 import { buildImageUrl } from '../utils/image';
@@ -24,7 +25,7 @@ interface HandleAgentMessageResult {
 }
 
 export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<HandleAgentMessageResult> => {
-	const { userId, message, messageToEditId, model, mentions, projectId } = opts;
+	const { userId, message, messageToEditId, model, mentions, projectId, adminMode } = opts;
 
 	if (!projectId) {
 		throw new HandlerError('BAD_REQUEST', noProjectMessage());
@@ -32,13 +33,14 @@ export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<H
 
 	await agentService.assertBudget(projectId, model);
 
+	const source: MessageSource = adminMode ? 'admin' : 'web';
 	let chatId = opts.chatId;
 	const isNewChat = !chatId;
 	let newMessageId: string;
 
 	if (!chatId) {
 		const imageParts = await saveAndBuildImageParts(message.images);
-		const [createdChat, createdMessage] = await createChat(userId, projectId, message, imageParts);
+		const [createdChat, createdMessage] = await createChat(userId, projectId, message, imageParts, source);
 		chatId = createdChat.id;
 		newMessageId = createdMessage.id;
 	} else {
@@ -47,6 +49,7 @@ export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<H
 			chatId,
 			message,
 			messageToEditId,
+			source,
 		});
 		newMessageId = messageId;
 	}
@@ -59,7 +62,17 @@ export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<H
 	await mcpService.initializeMcpState(projectId);
 	await skillService.initializeSkills(projectId);
 
-	const agent = await agentService.create({ ...chat, userId, projectId }, model);
+	const agent = await agentService.create(
+		{ ...chat, userId, projectId },
+		model,
+		adminMode
+			? {
+					tools: adminAgentTools,
+					systemPrompt: renderAdminSystemPrompt({ timezone: opts.timezone }),
+					adminMode: true,
+				}
+			: undefined,
+	);
 
 	const isForkedFirstMessage =
 		!isNewChat && !!chat.forkMetadata && chat.messages.filter((m) => m.role === 'user' && !m.isForked).length === 1;
@@ -110,11 +123,12 @@ const createChat = async (
 	projectId: string,
 	message: AgentRequestUserMessage,
 	imageParts: UIMessagePart[],
+	source: MessageSource,
 ) => {
 	const title = createChatTitle(message);
 	return await chatQueries.createChat(
 		{ title, userId, projectId },
-		{ text: message.text, citation: message.citation },
+		{ text: message.text, citation: message.citation, source },
 		imageParts,
 	);
 };
@@ -125,8 +139,9 @@ const insertOrSupersedeMessage = async (opts: {
 	chatId: string;
 	message: AgentRequestUserMessage;
 	messageToEditId?: string;
+	source: MessageSource;
 }) => {
-	const { userId, chatId, message, messageToEditId } = opts;
+	const { userId, chatId, message, messageToEditId, source } = opts;
 	const ownerId = await chatQueries.getChatOwnerId(chatId);
 	if (!ownerId) {
 		throw new HandlerError('NOT_FOUND', `Chat with id ${chatId} not found.`);
@@ -146,7 +161,7 @@ const insertOrSupersedeMessage = async (opts: {
 		role: 'user',
 		parts: [{ type: 'text', text: message.text }, ...imageParts],
 		chatId,
-		source: 'web',
+		source,
 		citation: message.citation,
 		versionGroupId,
 	});

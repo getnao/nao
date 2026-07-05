@@ -160,8 +160,11 @@ function ChatPage() {
 									<Badge variant='outline' className='gap-1 text-muted-foreground w-fit'>
 										<GitFork />
 										<span className='truncate'>
-											{chat.data.forkMetadata.type === 'story' ? 'Story' : 'Chat'} thread
-											from{' '}
+											{chat.data.forkMetadata.type === 'story' ||
+											chat.data.forkMetadata.type === 'story_selection'
+												? 'Story'
+												: 'Chat'}{' '}
+											thread from{' '}
 										</span>
 										<span className='text-xs text-foreground'>
 											{chat.data.forkMetadata.authorName}
