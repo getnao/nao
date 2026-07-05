@@ -1,1 +1,0 @@
-ALTER TABLE `automation` ADD `webhook_enabled` integer DEFAULT false NOT NULL;
