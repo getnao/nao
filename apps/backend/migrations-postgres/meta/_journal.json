@@ -379,6 +379,13 @@
       "when": 1783082678974,
       "tag": "0053_new_mcp",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1783278710830,
+      "tag": "0054_webhooks",
+      "breakpoints": true
     }
   ]
 }
