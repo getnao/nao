@@ -30,4 +30,4 @@
 - `mysqlclient` Python package (pulled by `nao-core[all]`) requires `libmysqlclient-dev` system package to build. The VM snapshot has this pre-installed.
 - The `npm run dev` combined command uses `npm-run-all -lp` — if any sub-process exits non-zero the entire group stops. Start services individually to isolate failures.
 - Backend uses `bun` as runtime (not Node); make sure `bun` is installed globally (`npm install -g bun`).
-- Node.js version is pinned in `.nvmrc` (v24.18.0, ships npm 11.16.0). Python version is pinned in `cli/.python-version` (3.13).
+- Node.js version is pinned in `.nvmrc` (v22.14.0). Python version is pinned in `cli/.python-version` (3.13).

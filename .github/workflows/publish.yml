@@ -70,11 +70,8 @@ jobs:
             - name: Install Python build dependencies
               run: uv pip install --system cyclopts
 
-            - name: Pin npm
-              run: npm install -g npm@11.11.0
-
             - name: Install npm dependencies
-              run: npm ci
+              run: bun install
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
