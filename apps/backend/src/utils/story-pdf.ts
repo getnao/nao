@@ -49,11 +49,16 @@ async function getBrowser(): Promise<Browser> {
 		await browser.close().catch(() => {});
 	}
 	const puppeteer = await loadPuppeteer();
-	browserPromise = puppeteer.default.launch({
-		headless: true,
-		executablePath: findChromePath(),
-		args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu'],
-	});
+	browserPromise = puppeteer.default
+		.launch({
+			headless: true,
+			executablePath: findChromePath(),
+			args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu', '--disable-dev-shm-usage'],
+		})
+		.catch((error) => {
+			browserPromise = null;
+			throw error;
+		});
 	return browserPromise;
 }
 
