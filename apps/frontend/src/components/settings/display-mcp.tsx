@@ -179,7 +179,6 @@ function McpOAuthConnect({
 	);
 }
 
-/** A server that failed only because it still needs an OAuth connection, not a real error. */
 const isWaitingForConnection = (server: McpServerStatus): boolean =>
 	!!server.error && /connection required/i.test(server.error);
 
@@ -348,8 +347,7 @@ export function McpSettings({ isAdmin }: Props) {
 														}
 														disabled={
 															discoverServerMutation.isPending &&
-															discoverServerMutation.variables?.serverName ===
-																server.name
+															discoverServerMutation.variables?.serverName === server.name
 														}
 													>
 														<RefreshCw
@@ -486,8 +484,7 @@ export function McpSettings({ isAdmin }: Props) {
 													) : (
 														!server.error && (
 															<div className='text-sm text-muted-foreground'>
-																No tools discovered yet. Click Connect all MCP
-																servers.
+																No tools discovered yet. Click Connect all MCP servers.
 															</div>
 														)
 													)}
