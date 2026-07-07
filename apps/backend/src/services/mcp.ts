@@ -78,6 +78,8 @@ export class McpService {
 	private _validators = new Map<string, ValidateFunction>();
 	private _ajv: Ajv2020 | null = null;
 	private _failedConnections: Record<string, string> = {};
+	/** Error from the last attempt to read/parse `agent/mcps/mcp.json`, if any. */
+	private _configError: string | null = null;
 	private _fileWatcher: ReturnType<typeof watch> | null = null;
 	private _debouncedReload: () => void;
 	private _initPromise: Promise<void> | null = null;
@@ -108,6 +110,11 @@ export class McpService {
 
 	public getConfiguredServerNames(): string[] {
 		return Object.keys(this._mcpServers);
+	}
+
+	public async getConfigError(projectId: string): Promise<string | null> {
+		await this.initializeMcpState(projectId);
+		return this._configError;
 	}
 
 	/** Configured servers the agent is currently allowed to call (not disabled by admin). */
@@ -399,6 +406,7 @@ export class McpService {
 	private async _loadConfig(): Promise<void> {
 		if (!this._mcpJsonFilePath || !existsSync(this._mcpJsonFilePath)) {
 			this._mcpServers = {};
+			this._configError = null;
 			return;
 		}
 
@@ -407,7 +415,9 @@ export class McpService {
 			const resolved = replaceEnvVars(fileContent);
 			const parsed = mcpJsonSchema.parse(JSON.parse(resolved));
 			this._mcpServers = parsed.mcpServers;
+			this._configError = null;
 		} catch (error) {
+			this._configError = this._formatConfigError(error);
 			logger.error(`MCP config parse failed: ${this._mcpJsonFilePath}`, {
 				source: 'tool',
 				projectId: this._projectId ?? undefined,
@@ -415,6 +425,16 @@ export class McpService {
 			});
 			this._mcpServers = {};
 		}
+	}
+
+	private _formatConfigError(error: unknown): string {
+		if (error instanceof SyntaxError) {
+			return `Invalid JSON in agent/mcps/mcp.json: ${error.message}`;
+		}
+		if (error instanceof Error) {
+			return `Invalid agent/mcps/mcp.json: ${error.message}`;
+		}
+		return `Invalid agent/mcps/mcp.json: ${String(error)}`;
 	}
 
 	/** Discovers servers that don't yet have a specs folder on disk, leaving existing ones intact. */

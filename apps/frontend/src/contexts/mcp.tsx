@@ -5,6 +5,7 @@ import { trpcClient } from '@/main';
 
 interface McpContextValue {
 	servers: McpServerStatus[] | undefined;
+	configError: string | null;
 	refresh: () => Promise<void>;
 }
 
@@ -12,17 +13,22 @@ const McpContext = createContext<McpContextValue | null>(null);
 
 export function McpProvider({ children }: { children: ReactNode }) {
 	const [servers, setServers] = useState<McpServerStatus[] | undefined>(undefined);
+	const [configError, setConfigError] = useState<string | null>(null);
 
 	const refresh = useCallback(async () => {
-		const data = await trpcClient.mcp.getServers.query();
+		const [data, error] = await Promise.all([
+			trpcClient.mcp.getServers.query(),
+			trpcClient.mcp.getConfigError.query(),
+		]);
 		setServers(data);
+		setConfigError(error);
 	}, []);
 
 	useEffect(() => {
 		refresh();
 	}, [refresh]);
 
-	return <McpContext.Provider value={{ servers, refresh }}>{children}</McpContext.Provider>;
+	return <McpContext.Provider value={{ servers, configError, refresh }}>{children}</McpContext.Provider>;
 }
 
 export function useMcpContext() {

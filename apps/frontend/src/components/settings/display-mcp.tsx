@@ -1,5 +1,5 @@
 import { useMutation } from '@tanstack/react-query';
-import { ChevronDown, ChevronUp } from 'lucide-react';
+import { ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { SettingsCard } from '../ui/settings-card';
 import type { McpServerStatus, McpToolSummary } from '@nao/shared';
@@ -179,7 +179,14 @@ function McpOAuthConnect({
 	);
 }
 
+/** A server that failed only because it still needs an OAuth connection, not a real error. */
+const isWaitingForConnection = (server: McpServerStatus): boolean =>
+	!!server.error && /connection required/i.test(server.error);
+
 const connectionLabel = (server: McpServerStatus): { label: string; className: string } => {
+	if (isWaitingForConnection(server)) {
+		return { label: 'Waiting for connection', className: 'text-orange-500' };
+	}
 	if (server.error) {
 		return { label: 'Error', className: 'text-red-700' };
 	}
@@ -193,7 +200,7 @@ const connectionLabel = (server: McpServerStatus): { label: string; className: s
 };
 
 export function McpSettings({ isAdmin }: Props) {
-	const { servers, refresh } = useMcpContext();
+	const { servers, configError, refresh } = useMcpContext();
 	const [expandedServers, setExpandedServers] = useState<string[]>([]);
 
 	useEffect(() => {
@@ -202,6 +209,12 @@ export function McpSettings({ isAdmin }: Props) {
 
 	const discoverMutation = useMutation(
 		trpc.mcp.discover.mutationOptions({
+			onSuccess: () => refresh(),
+		}),
+	);
+
+	const discoverServerMutation = useMutation(
+		trpc.mcp.discoverServer.mutationOptions({
 			onSuccess: () => refresh(),
 		}),
 	);
@@ -243,22 +256,30 @@ export function McpSettings({ isAdmin }: Props) {
 						variant='secondary'
 						size='sm'
 					>
-						Test connection
+						Connect all MCP servers
 					</Button>
 				)
 			}
 		>
+			{configError && (
+				<div className='mb-4 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-600'>
+					<p className='font-medium'>Could not read agent/mcps/mcp.json</p>
+					<p className='mt-1 break-words font-mono text-xs'>{configError}</p>
+				</div>
+			)}
 			{servers === undefined ? (
 				<div className='text-sm text-muted-foreground'>Loading MCP servers...</div>
 			) : servers.length === 0 ? (
-				<div className='text-sm text-muted-foreground py-4 text-center'>
-					<p className='text-lg font-medium mb-2'>No MCP Servers Configured</p>
-					<p>
-						Add a <code className='bg-muted px-1 py-0.5 rounded'>mcp.json</code> file in your project's
-						context folder at <code className='bg-muted px-1 py-0.5 rounded'>/agent/mcps/</code>, then click
-						Test connection.
-					</p>
-				</div>
+				!configError && (
+					<div className='text-sm text-muted-foreground py-4 text-center'>
+						<p className='text-lg font-medium mb-2'>No MCP Servers Configured</p>
+						<p>
+							Add a <code className='bg-muted px-1 py-0.5 rounded'>mcp.json</code> file in your project's
+							context folder at <code className='bg-muted px-1 py-0.5 rounded'>/agent/mcps/</code>, then
+							click Connect all MCP servers.
+						</p>
+					</div>
+				)
 			) : (
 				<Table>
 					<TableHeader>
@@ -316,17 +337,44 @@ export function McpSettings({ isAdmin }: Props) {
 											/>
 										</TableCell>
 										<TableCell className='w-0'>
-											<Button
-												variant='ghost'
-												size='icon-sm'
-												onClick={() => handleExpand(server.name)}
-											>
-												{isExpanded ? (
-													<ChevronUp className='size-4' />
-												) : (
-													<ChevronDown className='size-4' />
+											<div className='flex items-center gap-1'>
+												{isAdmin && (
+													<Button
+														variant='ghost'
+														size='icon-sm'
+														title='Connect this server'
+														onClick={() =>
+															discoverServerMutation.mutate({ serverName: server.name })
+														}
+														disabled={
+															discoverServerMutation.isPending &&
+															discoverServerMutation.variables?.serverName ===
+																server.name
+														}
+													>
+														<RefreshCw
+															className={
+																discoverServerMutation.isPending &&
+																discoverServerMutation.variables?.serverName ===
+																	server.name
+																	? 'size-4 animate-spin'
+																	: 'size-4'
+															}
+														/>
+													</Button>
 												)}
-											</Button>
+												<Button
+													variant='ghost'
+													size='icon-sm'
+													onClick={() => handleExpand(server.name)}
+												>
+													{isExpanded ? (
+														<ChevronUp className='size-4' />
+													) : (
+														<ChevronDown className='size-4' />
+													)}
+												</Button>
+											</div>
 										</TableCell>
 									</TableRow>
 									{isExpanded && (
@@ -334,7 +382,15 @@ export function McpSettings({ isAdmin }: Props) {
 											<TableCell colSpan={6} className='bg-muted/50 whitespace-normal'>
 												<div className='py-2 flex flex-col gap-3'>
 													{server.error && (
-														<div className='text-sm text-red-500'>{server.error}</div>
+														<div
+															className={
+																isWaitingForConnection(server)
+																	? 'text-sm text-orange-500'
+																	: 'text-sm text-red-500'
+															}
+														>
+															{server.error}
+														</div>
 													)}
 													<div className='text-xs text-muted-foreground'>
 														Specs:{' '}
@@ -430,7 +486,8 @@ export function McpSettings({ isAdmin }: Props) {
 													) : (
 														!server.error && (
 															<div className='text-sm text-muted-foreground'>
-																No tools discovered yet. Click Test connection.
+																No tools discovered yet. Click Connect all MCP
+																servers.
 															</div>
 														)
 													)}
