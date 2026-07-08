@@ -125,7 +125,6 @@ projectsPersistence:
 | `secrets.anthropicApiKey` | `""` | Anthropic API key |
 | `secrets.dbUri` | `""` | Database URI (overridden when `postgresql.enabled=true`) |
 | `secrets.contextGitToken` | `""` | Git token for private repos |
-| `secrets.contextGitToken` | `""` | Git token for private repos |
 | `service.type` | `ClusterIP` | Kubernetes service type |
 | `service.port` | `80` | Service port |
 | `resources.requests.cpu` | `500m` | CPU request |
