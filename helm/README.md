@@ -50,7 +50,6 @@ helm install nao ./helm \
   --namespace nao --create-namespace \
   --set secrets.betterAuthSecret="$(openssl rand -base64 32)" \
   --set secrets.openaiApiKey="" \
-  --set config.betterAuthUrl="https://nao.example.com"
 ```
 
 ## Context modes
