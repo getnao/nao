@@ -5,7 +5,16 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "nao.labels" . | nindent 4 }}
+  {{- $ann := dict }}
+  {{- with include "nao.annotations" . }}
+    {{- with . }}
+      {{- $ann = merge $ann (fromYaml .) }}
+    {{- end }}
+  {{- end }}
   {{- with .Values.service.annotations }}
+    {{- $ann = merge $ann . }}
+  {{- end }}
+  {{- with $ann }}
   annotations:
     {{- toYaml . | nindent 4 }}
   {{- end }}
