@@ -36,27 +36,6 @@ spec:
       initContainers:
         - name: git-sync
           image: {{ .Values.config.gitSync.image | quote }}
-          command:
-            - sh
-            - -c
-            - |
-              set -eu
-              if [ -n "${GIT_TOKEN:-}" ]; then
-                AUTH_URL=$(echo "${GIT_URL}" | sed "s#https://#https://oauth2:${GIT_TOKEN}@#")
-              else
-                AUTH_URL="${GIT_URL}"
-              fi
-              if [ -d "{{ .Values.config.contextPath }}/.git" ]; then
-                echo "Existing checkout found, pulling latest..."
-                cd "{{ .Values.config.contextPath }}"
-                git remote set-url origin "${AUTH_URL}"
-                git fetch --depth 1 origin "${GIT_BRANCH}"
-                git reset --hard "origin/${GIT_BRANCH}"
-              else
-                echo "No checkout found, cloning..."
-                rm -rf "{{ .Values.config.contextPath }}"/*
-                git clone --depth 1 --branch "${GIT_BRANCH}" "${AUTH_URL}" "{{ .Values.config.contextPath }}"
-              fi
           env:
             - name: GIT_BRANCH
               value: {{ .Values.config.gitSync.branch | quote }}
@@ -68,7 +47,28 @@ spec:
                 secretKeyRef:
                   name: {{ include "nao.fullname" . }}
                   key: NAO_CONTEXT_GIT_TOKEN
+            - name: GIT_ASKPASS
+              value: /bin/true
+            - name: GIT_TERMINAL_PROMPT
+              value: '0'
             {{- end }}
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              rm -rf {{ .Values.config.contextPath }}/*
+              # Configure credential helper so the token is never embedded in .git/config
+              if [ -n "${GIT_TOKEN:-}" ]; then
+                git config --global credential.helper '!f() { echo "username=oauth2"; echo "password='"${GIT_TOKEN}"'"; }; f'
+              fi
+              # Clone using GIT_ASKPASS so the token is never stored in .git/config
+              git clone --depth 1 --branch "${GIT_BRANCH}" "${GIT_URL}" {{ .Values.config.contextPath }}
+              cd {{ .Values.config.contextPath }}
+              echo "Checkout found, pulling latest..."
+              git remote set-url origin "${GIT_URL}"
+              git fetch --depth 1 origin "${GIT_BRANCH}"
+              git reset --hard "origin/${GIT_BRANCH}"
           volumeMounts:
             - name: context
               mountPath: {{ .Values.config.contextPath }}
