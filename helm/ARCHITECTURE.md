@@ -279,9 +279,16 @@ These values are rendered into the `ConfigMap` and injected as environment varia
 | `config.refreshSchedule` | `""` | `NAO_REFRESH_SCHEDULE` | Cron expression for periodic git pulls, e.g. `"0 * * * *"`. Empty = disabled. |
 | `config.gitSync.url` | `""` | — | HTTPS URL of the context repo (initContainer git-sync, `local` mode only) |
 | `config.gitSync.branch` | `"main"` | — | Branch to sync (initContainer git-sync) |
+| `config.gitSync.image` | `"alpine/git:latest"` | — | Container image for the git-sync initContainer |
 | `config.posthogKey` | `""` | `POSTHOG_KEY` | PostHog project API key (optional usage analytics) |
 | `config.posthogHost` | `"https://eu.i.posthog.com"` | `POSTHOG_HOST` | PostHog ingest endpoint |
 | `config.posthogDisabled` | `"false"` | `POSTHOG_DISABLED` | Set to `"true"` to opt out of usage analytics entirely (recommended for on-prem deployments to prevent outbound connections to external analytics) |
+| `config.openaiBaseUrl` | `""` | `OPENAI_BASE_URL` | Custom OpenAI API base URL (e.g. for proxy or self-hosted models) |
+| `config.anthropicBaseUrl` | `""` | `ANTHROPIC_BASE_URL` | Custom Anthropic API base URL |
+| `config.geminiBaseUrl` | `""` | `GEMINI_BASE_URL` | Custom Gemini API base URL |
+| `config.mistralBaseUrl` | `""` | `MISTRAL_BASE_URL` | Custom Mistral API base URL |
+| `config.openrouterBaseUrl` | `""` | `OPENROUTER_BASE_URL` | Custom OpenRouter API base URL |
+| `config.ollamaBaseUrl` | `""` | `OLLAMA_BASE_URL` | Custom Ollama API base URL |
 
 ### Secrets
 
