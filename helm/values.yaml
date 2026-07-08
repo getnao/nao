@@ -263,7 +263,7 @@ affinity: {}
 # Populated at pod startup by the gitSync initContainer.
 # =============================================================================
 persistence:
-  enabled: true
+  enabled: false
   storageClass: ""
   accessMode: ReadWriteOnce
   size: 1Gi
