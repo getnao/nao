@@ -319,8 +319,6 @@ All values under `secrets` are stored in a Kubernetes `Secret` object. In produc
 | Key | Env var | Description |
 |-----|---------|-------------|
 | `secrets.contextGitToken` | `NAO_CONTEXT_GIT_TOKEN` | Personal access token or deploy key for cloning a private git repository (`git` mode) |
-| `secrets.naoLicense` | `NAO_LICENSE` | Enterprise license key or path to license file. Unlocks EE-only features (SSO, etc.). Leave empty for OSS mode. |
-
 #### Email — SMTP (optional)
 
 | Key | Env var | Description |

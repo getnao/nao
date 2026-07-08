@@ -4,8 +4,6 @@ Helm chart for deploying [nao](https://github.com/mfournioux/nao) — an open-so
 
 ## Prerequisites
 
-- Kubernetes **1.24+**
-- Helm **3.10+**
 - (Optional) A running PostgreSQL instance, or enable the bundled bitnami/postgresql subchart
 
 ## Chart structure
@@ -51,7 +49,7 @@ helm dependency update ./helm
 helm install nao ./helm \
   --namespace nao --create-namespace \
   --set secrets.betterAuthSecret="$(openssl rand -base64 32)" \
-  --set secrets.openaiApiKey="sk-..." \
+  --set secrets.openaiApiKey="" \
   --set config.betterAuthUrl="https://nao.example.com"
 ```
 
@@ -128,7 +126,7 @@ projectsPersistence:
 | `secrets.anthropicApiKey` | `""` | Anthropic API key |
 | `secrets.dbUri` | `""` | Database URI (overridden when `postgresql.enabled=true`) |
 | `secrets.contextGitToken` | `""` | Git token for private repos |
-| `secrets.naoLicense` | `""` | Enterprise license key (EE only) |
+| `secrets.contextGitToken` | `""` | Git token for private repos |
 | `service.type` | `ClusterIP` | Kubernetes service type |
 | `service.port` | `80` | Service port |
 | `resources.requests.cpu` | `500m` | CPU request |
@@ -171,13 +169,6 @@ postgresql:
 
 secrets:
   dbUri: "sqlite:./db.sqlite"
-```
-
-## Exposing nao with an Ingress
-
-```yaml
-config:
-  betterAuthUrl: https://nao.example.com
 ```
 
 ## Upgrade

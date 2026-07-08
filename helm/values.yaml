@@ -81,8 +81,6 @@ config:
   serverPort: "5005"
   # -- Internal FastAPI sidecar port (not exposed externally)
   fastapiPort: "8005"
-  # -- Public URL of the app — used for auth callbacks and trusted origins.
-  betterAuthUrl: ""
   # -- Node environment
   nodeEnv: "production"
 
@@ -175,8 +173,6 @@ secrets:
   #    level or a dedicated service account), then paste the value below.
   contextGitToken: ""
 
-  # -- Enterprise license key or path to license file (EE features only)
-  naoLicense: ""
 
   # -- SMTP credentials (optional)
   smtpHost: ""
