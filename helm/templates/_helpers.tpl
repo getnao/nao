@@ -87,18 +87,22 @@ otherwise falls back to a user-supplied host embedded in secrets.dbUri.
 {{- printf "%s-postgresql" (include "nao.fullname" .) -}}
 {{- end -}}
 {{- end }}
-
 {{/*
 Build the DB_URI from subchart values when postgresql.enabled=true.
+Does not support auth.existingSecret — when using existingSecret,
+set secrets.dbUri manually with the full connection string.
 */}}
 {{- define "nao.dbUri" -}}
 {{- if .Values.postgresql.enabled -}}
-{{- $password := required "postgresql.auth.password must be set when postgresql.enabled=true" .Values.postgresql.auth.password -}}
+{{- if not .Values.postgresql.auth.existingSecret }}
 {{- printf "postgres://%s:%s@%s:5432/%s"
     .Values.postgresql.auth.username
-    $password
+    .Values.postgresql.auth.password
     (include "nao.postgresqlHost" .)
     .Values.postgresql.auth.database -}}
+{{- else }}
+{{- .Values.secrets.dbUri }}
+{{- end }}
 {{- else -}}
 {{- .Values.secrets.dbUri -}}
 {{- end -}}
