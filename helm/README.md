@@ -49,7 +49,7 @@ helm dependency update ./helm
 helm install nao ./helm \
   --namespace nao --create-namespace \
   --set secrets.betterAuthSecret="$(openssl rand -base64 32)" \
-  --set secrets.openaiApiKey="" \
+  --set secrets.openaiApiKey=""
 ```
 
 ## Context modes
