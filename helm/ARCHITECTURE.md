@@ -224,7 +224,7 @@ Environment variables are split between a `ConfigMap` (non-sensitive) and a `Sec
 - `BETTER_AUTH_SECRET`
 - `DB_URI` (auto-built from subchart values when `postgresql.enabled=true`)
 - All LLM provider keys: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, Azure, AWS Bedrock
-- `NAO_CONTEXT_GIT_TOKEN`, `NAO_LICENSE`
+- `NAO_CONTEXT_GIT_TOKEN`
 - SMTP credentials, OAuth client secrets (Google, GitHub)
 - `NOTION_API_KEY`
 
