@@ -83,6 +83,10 @@ config:
   fastapiPort: "8005"
   # -- Node environment
   nodeEnv: "production"
+  # -- Public URL of the app — used for auth callbacks and trusted origins.
+  #    Matches the backend default (zod validation fallback).
+  #    Override with the URL users access in their browser.
+  betterAuthUrl: "http://localhost:5005"
 
   # contextSource: local => project mounted as a volume at contextPath,
   # populated by the gitSync initContainer (see gitSync below).

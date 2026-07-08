@@ -270,7 +270,7 @@ These values are rendered into the `ConfigMap` and injected as environment varia
 |-----|---------|---------|-------------|
 | `config.serverPort` | `"5005"` | `SERVER_PORT` | Fastify backend listening port |
 | `config.fastapiPort` | `"8005"` | `FASTAPI_PORT` | Internal FastAPI sidecar port — not exposed outside the pod |
-| `config.betterAuthUrl` | `""` | `BETTER_AUTH_URL` | **Public URL** of the app. Must match the URL users access. Used for OAuth callbacks and trusted-origin checks. |
+| `config.betterAuthUrl` | `"http://localhost:5005"` | `BETTER_AUTH_URL` | **Public URL** of the app. Must match the URL users access. Used for OAuth callbacks and trusted-origin checks. |
 | `config.nodeEnv` | `"production"` | `NODE_ENV` | Node.js environment |
 | `config.contextSource` | `"local"` | `NAO_CONTEXT_SOURCE` | Context loading mode: `local` \| `git` \| `api` |
 | `config.contextPath` | `"/app/project"` | `NAO_DEFAULT_PROJECT_PATH` | Absolute path inside the container where the nao project is mounted or cloned |
