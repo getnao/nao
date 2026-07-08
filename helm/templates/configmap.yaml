@@ -17,7 +17,9 @@ data:
   DOCKER: "1"
   BETTER_AUTH_URL: {{ .Values.config.betterAuthUrl | quote }}
   NAO_CONTEXT_SOURCE: {{ .Values.config.contextSource | quote }}
-  {{- if ne .Values.config.contextSource "api" }}
+  {{- if eq .Values.config.contextSource "api" }}
+  NAO_PROJECTS_DIR: /app/projects
+  {{- else }}
   NAO_DEFAULT_PROJECT_PATH: {{ .Values.config.contextPath | quote }}
   {{- end }}
   {{- if eq .Values.config.contextSource "git" }}
