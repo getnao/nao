@@ -69,6 +69,8 @@ spec:
               git remote set-url origin "${GIT_URL}"
               git fetch --depth 1 origin "${GIT_BRANCH}"
               git reset --hard "origin/${GIT_BRANCH}"
+              # Remove untracked files (e.g., leftover from previous revisions)
+              git clean -fdx
           volumeMounts:
             - name: context
               mountPath: {{ .Values.config.contextPath }}
