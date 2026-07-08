@@ -93,9 +93,10 @@ Build the DB_URI from subchart values when postgresql.enabled=true.
 */}}
 {{- define "nao.dbUri" -}}
 {{- if .Values.postgresql.enabled -}}
+{{- $password := required "postgresql.auth.password must be set when postgresql.enabled=true" .Values.postgresql.auth.password -}}
 {{- printf "postgres://%s:%s@%s:5432/%s"
     .Values.postgresql.auth.username
-    .Values.postgresql.auth.password
+    $password
     (include "nao.postgresqlHost" .)
     .Values.postgresql.auth.database -}}
 {{- else -}}
