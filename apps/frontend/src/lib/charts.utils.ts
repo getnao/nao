@@ -90,6 +90,17 @@ export const toKey = (value: string) => {
 	return hashValue(value);
 };
 
+/** Resolves a config key to the matching key in the data, ignoring case. Falls back to the original key. */
+export function resolveDataKey(data: Record<string, unknown>[], key: string): string {
+	const row = data[0];
+	if (!row || key in row) {
+		return key;
+	}
+	const lower = key.toLowerCase();
+	const match = Object.keys(row).find((dataKey) => dataKey.toLowerCase() === lower);
+	return match ?? key;
+}
+
 /** Counts the successfully rendered `display_chart` tool calls across a conversation. */
 export function countDisplayCharts(messages: UIMessage[]): number {
 	let count = 0;
