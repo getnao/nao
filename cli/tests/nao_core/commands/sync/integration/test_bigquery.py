@@ -147,7 +147,7 @@ def spec(db_config, temp_datasets):
         users_profiling_rows=[
             {
                 "column": "id",
-                "type": "int32",
+                "type": "int64",
                 "total_count": 3,
                 "null_count": 0,
                 "null_percentage": 0.0,
@@ -195,7 +195,7 @@ def spec(db_config, temp_datasets):
         orders_profiling_rows=[
             {
                 "column": "id",
-                "type": "int32",
+                "type": "int64",
                 "total_count": 2,
                 "null_count": 0,
                 "null_percentage": 0.0,
@@ -207,7 +207,7 @@ def spec(db_config, temp_datasets):
             },
             {
                 "column": "user_id",
-                "type": "int32",
+                "type": "int64",
                 "total_count": 2,
                 "null_count": 0,
                 "null_percentage": 0.0,
