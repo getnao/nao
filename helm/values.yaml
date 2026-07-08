@@ -26,6 +26,9 @@
 #    Safe here: same tag/image, just a different Docker Hub repository.
 global:
   security:
+    # Required: bitnamilegacy/postgresql is an archived image (see values.yaml:303).
+    # Set to false and update image.repository to the official postgres image
+    # when the chart migrates away from the Bitnami postgresql subchart.
     allowInsecureImages: true
 
 # -- Override chart name
@@ -295,11 +298,10 @@ postgresql:
   #    This resolves the Kyverno error on the nao-postgresql StatefulSet.
   commonAnnotations: {}
   # -- Bitnami migrated their versioned images from docker.io/bitnami to
-  #    docker.io/bitnamilegacy (October 2025): older tags are no longer
-  #    accessible on the free "bitnami" repo. Same tag, just a different repo.
-  #    bitnamilegacy no longer receives security patches — migrate to a
-  #    long-term solution (paid Secure Images, or the official postgres image)
-  #    as soon as possible.
+  #    docker.io/bitnamilegacy (October 2025). Same tag/image, just a
+  #    different repository. This will be replaced with the official
+  #    postgres image or a paid Secure Images subscription in the next
+  #    major chart version. See TODO-POSTGRESQL-MIGRATION.md for details.
   image:
     repository: bitnamilegacy/postgresql
     tag: 17.5.0-debian-12-r12
