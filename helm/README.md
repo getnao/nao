@@ -1,6 +1,6 @@
 # nao Helm Chart
 
-Helm chart for deploying [nao](https://github.com/mfournioux/nao) — an open-source analytics agent that transforms natural language into SQL queries — on Kubernetes.
+Helm chart for deploying nao — an open-source analytics agent that transforms natural language into SQL queries — on Kubernetes.
 
 ## Prerequisites
 
