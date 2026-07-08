@@ -60,7 +60,7 @@ spec:
             - |
               set -eu
               rm -rf "{{ .Values.config.contextPath }}"/*
-              rm -rf "{{ .Values.config.contextPath }}"/.[!.]* "{{ .Values.config.contextPath }}"/..?* 2>/dev/null || true
+              rm -rf "{{ .Values.config.contextPath }}"/.[!.]* "{{ .Values.config.contextPath }}"/..?*
               # Configure credential helper so the token is never embedded in .git/config
               if [ -n "${GIT_TOKEN:-}" ]; then
                 git config --global credential.helper '!f() { echo "username=oauth2"; echo "password='"${GIT_TOKEN}"'"; }; f'
