@@ -1,0 +1,60 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "nao.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "nao.labels" . | nindent 4 }}
+  {{- with (include "nao.annotations" .) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
+data:
+  SERVER_PORT: {{ .Values.config.serverPort | quote }}
+  FASTAPI_PORT: {{ .Values.config.fastapiPort | quote }}
+  NODE_ENV: {{ .Values.config.nodeEnv | quote }}
+  MODE: "prod"
+  DOCKER: "1"
+  BETTER_AUTH_URL: {{ .Values.config.betterAuthUrl | quote }}
+  NAO_CONTEXT_SOURCE: {{ .Values.config.contextSource | quote }}
+  {{- if ne .Values.config.contextSource "api" }}
+  NAO_DEFAULT_PROJECT_PATH: {{ .Values.config.contextPath | quote }}
+  {{- end }}
+  {{- if eq .Values.config.contextSource "git" }}
+  NAO_CONTEXT_GIT_URL: {{ .Values.config.contextGitUrl | quote }}
+  NAO_CONTEXT_GIT_BRANCH: {{ .Values.config.contextGitBranch | quote }}
+  {{- end }}
+  {{- if .Values.config.refreshSchedule }}
+  NAO_REFRESH_SCHEDULE: {{ .Values.config.refreshSchedule | quote }}
+  {{- end }}
+  {{- if .Values.config.posthogKey }}
+  POSTHOG_KEY: {{ .Values.config.posthogKey | quote }}
+  POSTHOG_HOST: {{ .Values.config.posthogHost | quote }}
+  {{- end }}
+          {{- /*
+            NAO falls back to the editors' own public PostHog key/host when
+            POSTHOG_KEY is unset (see apps/shared/src/posthog.ts) — so this needs
+            to be sent unconditionally, not just when posthogKey is provided,
+            otherwise analytics tracking silently fires toward eu.i.posthog.com
+            even with no key configured here, which fails on networks without
+            direct internet egress (FailedToOpenSocket).
+          */}}
+  POSTHOG_DISABLED: {{ .Values.config.posthogDisabled | quote }}
+  {{- if .Values.config.openaiBaseUrl }}
+  OPENAI_BASE_URL: {{ .Values.config.openaiBaseUrl | quote }}
+  {{- end }}
+  {{- if .Values.config.anthropicBaseUrl }}
+  ANTHROPIC_BASE_URL: {{ .Values.config.anthropicBaseUrl | quote }}
+  {{- end }}
+  {{- if .Values.config.geminiBaseUrl }}
+  GEMINI_BASE_URL: {{ .Values.config.geminiBaseUrl | quote }}
+  {{- end }}
+  {{- if .Values.config.mistralBaseUrl }}
+  MISTRAL_BASE_URL: {{ .Values.config.mistralBaseUrl | quote }}
+  {{- end }}
+  {{- if .Values.config.openrouterBaseUrl }}
+  OPENROUTER_BASE_URL: {{ .Values.config.openrouterBaseUrl | quote }}
+  {{- end }}
+  {{- if .Values.config.ollamaBaseUrl }}
+  OLLAMA_BASE_URL: {{ .Values.config.ollamaBaseUrl | quote }}
+  {{- end }}

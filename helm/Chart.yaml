@@ -1,0 +1,29 @@
+apiVersion: v2
+name: nao
+description: Helm chart for nao — an open-source analytics agent that transforms natural language into SQL queries.
+type: application
+version: 0.1.0
+appVersion: "latest"
+
+keywords:
+  - analytics
+  - ai
+  - sql
+  - text-to-sql
+  - agent
+
+home: https://github.com/mfournioux/nao
+sources:
+  - https://github.com/mfournioux/nao
+
+maintainers:
+  - name: Maxime FOURNIOUX
+    url: https://github.com/mfournioux/nao
+
+kubeVersion: ">=1.24.0"
+
+dependencies:
+  - name: postgresql
+    version: "16.7.14"
+    repository: "https://charts.bitnami.com/bitnami"
+    condition: postgresql.enabled
