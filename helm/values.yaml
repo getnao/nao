@@ -301,7 +301,7 @@ postgresql:
   #    docker.io/bitnamilegacy (October 2025). Same tag/image, just a
   #    different repository. This will be replaced with the official
   #    postgres image or a paid Secure Images subscription in the next
-  #    major chart version. See TODO-POSTGRESQL-MIGRATION.md for details.
+  #    major chart version.
   image:
     repository: bitnamilegacy/postgresql
     tag: 17.5.0-debian-12-r12
