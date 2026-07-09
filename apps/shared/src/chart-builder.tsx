@@ -102,6 +102,26 @@ function buildResolved(props: BuildChartProps) {
 	const colorFor = props.colorFor ?? defaultColorFor;
 	const labelFormatter = props.labelFormatter ?? ((v: string) => labelize(v));
 
+	const sanitizedData = props.data.map((item) => {
+		if (!item || typeof item !== 'object') {
+			return item;
+		}
+		const newItem = { ...item };
+		for (const s of props.series || []) {
+			if (!s || !s.data_key) {
+				continue;
+			}
+			const val = item[s.data_key];
+			if (typeof val === 'string') {
+				const num = Number(val);
+				if (!isNaN(num)) {
+					newItem[s.data_key] = num;
+				}
+			}
+		}
+		return newItem;
+	});
+
 	const titleChild = props.title ? (
 		<Customized
 			key='chart-title'
@@ -129,6 +149,7 @@ function buildResolved(props: BuildChartProps) {
 
 	const resolved: ResolvedProps = {
 		...props,
+		data: sanitizedData,
 		colorFor,
 		labelFormatter,
 		xAxisInterval,
