@@ -278,7 +278,7 @@ class BigQueryDatabaseContext(DatabaseContext):
     def _fetch_column_metadata(self) -> tuple[dict[str, str], dict[str, str]]:
         """Return native BigQuery types and descriptions per column from INFORMATION_SCHEMA.
 
-        Types come only from top-level rows (``field_path = column_name``); ibis normalises
+        Only top-level rows (``field_path = column_name``) are read; ibis normalises
         BigQuery DATETIME/TIMESTAMP into a single timestamp type, so the native ``data_type``
         is what the generated docs must show for the agent to write valid SQL.
         """
@@ -287,13 +287,15 @@ class BigQueryDatabaseContext(DatabaseContext):
         query = f"""
             SELECT column_name, field_path, data_type, description
             FROM {column_paths}
-            WHERE table_name = {table_name_literal}
+            WHERE table_name = {table_name_literal} AND field_path = column_name
         """
         native_types: dict[str, str] = {}
         descriptions: dict[str, str] = {}
         for row in self._conn.raw_sql(query):  # type: ignore[union-attr]
             column_name, field_path, data_type, description = row[0], row[1], row[2], row[3]
-            if field_path == column_name and data_type:
+            if field_path != column_name:
+                continue
+            if data_type:
                 native_types[column_name] = str(data_type)
             if description:
                 descriptions[column_name] = str(description)

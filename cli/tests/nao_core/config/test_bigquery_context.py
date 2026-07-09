@@ -992,7 +992,7 @@ class TestColumnsNativeTypes:
 
         assert names == ["id"]
 
-    def test_nested_field_paths_are_ignored_for_types(self):
+    def test_nested_field_paths_are_ignored(self):
         ctx, mock_conn = self._make_context_with_schema([("payload", self._dtype("struct<name: string>"))])
         mock_conn.raw_sql.return_value = [
             ("payload", "payload", "STRUCT<name STRING>", None),
@@ -1002,7 +1002,20 @@ class TestColumnsNativeTypes:
         cols = ctx.columns()
 
         assert cols[0]["type"] == "STRUCT<name STRING>"
-        assert cols[0]["description"] == "Nested name"
+        assert cols[0]["description"] is None
+        query = mock_conn.raw_sql.call_args[0][0]
+        assert "field_path = column_name" in query
+
+    def test_struct_column_keeps_its_own_description(self):
+        ctx, mock_conn = self._make_context_with_schema([("payload", self._dtype("struct<name: string>"))])
+        mock_conn.raw_sql.return_value = [
+            ("payload", "payload", "STRUCT<name STRING>", "Event payload"),
+            ("payload", "payload.name", "STRING", "Nested name"),
+        ]
+
+        cols = ctx.columns()
+
+        assert cols[0]["description"] == "Event payload"
 
 
 class TestClusteredOnlyTable:
