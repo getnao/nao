@@ -56,8 +56,20 @@ function ChatPage() {
 	const { isLoadingMessages, isRunning } = useAgentContext();
 	const router = useRouter();
 	const { chatId } = Route.useParams();
+	const { role, canViewChatReplay } = usePermissions();
 	const chat = useChatQuery({ chatId });
 	const title = chat.data?.title;
+
+	const isForbidden = chat.isError && isForbiddenError(chat.error);
+	const shouldRedirectToReplay = isForbidden && canViewChatReplay;
+	const isResolvingReplayRedirect = isForbidden && role === undefined;
+
+	useEffect(() => {
+		if (shouldRedirectToReplay) {
+			router.navigate({ to: '/settings/chats-replay', search: { chatId } });
+		}
+	}, [shouldRedirectToReplay, chatId, router]);
+
 	const shareQuery = useQuery({
 		...trpc.sharedChat.getShareOptionsByChatId.queryOptions({ chatId }),
 		enabled: chat.isSuccess,
@@ -111,6 +123,9 @@ function ChatPage() {
 	}, [chat.isError, isLoadingMessages]); // eslint-disable-line react-hooks/exhaustive-deps
 
 	if (chat.isError) {
+		if (shouldRedirectToReplay || isResolvingReplayRedirect) {
+			return null;
+		}
 		return <ChatNotFoundState />;
 	}
 
@@ -296,6 +311,14 @@ function resolveStoryCitationMeta(
 	}
 
 	return { storySlug: currentStorySlug, start, end };
+}
+
+function isForbiddenError(error: unknown): boolean {
+	if (typeof error !== 'object' || error === null || !('data' in error)) {
+		return false;
+	}
+	const { data } = error as { data?: { code?: string } | null };
+	return data?.code === 'FORBIDDEN';
 }
 
 function buildHeaderCitation(meta: ForkMetadata | undefined): { citation: string; text: string } | null {
