@@ -116,7 +116,9 @@ class BigQueryDatabaseContext(DatabaseContext):
                 if desc := descriptions.get(col["name"]):
                     col["description"] = desc
         except Exception:
-            pass
+            logger.debug(
+                "Failed to fetch column metadata for %s.%s — keeping ibis types", self._schema, self._table_name
+            )
         return cols
 
     def preview(self, limit: int = 10) -> list[dict[str, Any]]:
