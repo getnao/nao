@@ -549,7 +549,7 @@ class AgentManager {
 		const memories = await memoryService.safeGetUserMemories(this.chat.userId, this.chat.projectId, this.chat.id);
 		const userRules = getUserRules(this._toolContext.projectFolder);
 		const connections = getConnections(this._toolContext.projectFolder);
-		const skills = skillService.getSkills();
+		const skills = skillService.getSkills(this.chat.projectId);
 		const mcpServers = await mcpService.getEnabledServers(this.chat.projectId);
 		const basePrompt = renderToMarkdown(
 			SystemPrompt({
@@ -807,7 +807,9 @@ class AgentManager {
 
 	private _addSkills(messages: UIMessage[], mentions?: Mention[]): UIMessage[] {
 		const skillMention = mentions?.find((m) => m.trigger === '/');
-		const skillContent = skillMention ? skillService.getSkillContent(skillMention.id) : undefined;
+		const skillContent = skillMention
+			? skillService.getSkillContent(this.chat.projectId, skillMention.id)
+			: undefined;
 		if (!skillContent) {
 			return messages;
 		}
