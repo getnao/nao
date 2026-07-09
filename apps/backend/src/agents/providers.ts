@@ -150,6 +150,15 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 		},
 		defaultOptions: { store: false, reasoningSummary: 'auto' },
 	},
+	minimax: {
+		...PROVIDER_META.minimax,
+		create: (settings, modelId) =>
+			createOpenAI({
+				...settings,
+				baseURL: settings.baseURL || 'https://api.minimax.io/v1',
+			}).responses(modelId),
+		defaultOptions: { store: false, reasoningSummary: 'auto' },
+	},
 };
 
 export type ProviderModelResult = {

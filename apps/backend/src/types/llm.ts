@@ -62,6 +62,7 @@ export type ProviderConfigMap = {
 	bedrock: AmazonBedrockLanguageModelOptions;
 	vertex: GoogleGenerativeAIProviderOptions;
 	azure: AzureOpenAIResponsesProviderOptions;
+	minimax: OpenAIResponsesProviderOptions;
 };
 
 /** Model definition with provider-specific config type */

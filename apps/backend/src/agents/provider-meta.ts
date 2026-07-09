@@ -339,6 +339,22 @@ export const PROVIDER_META: ProviderMetaMap = {
 		summaryModelId: '',
 		models: [],
 	},
+	minimax: {
+		auth: { apiKey: 'required' },
+		envVar: 'MINIMAX_API_KEY',
+		baseUrlEnvVar: 'MINIMAX_BASE_URL',
+		extractorModelId: 'MiniMax-M3',
+		summaryModelId: 'MiniMax-M3',
+		models: [
+			{
+				id: 'MiniMax-M3',
+				name: 'MiniMax M3',
+				default: true,
+				contextWindow: 1_000_000,
+				costPerM: { inputNoCache: 0.6, inputCacheRead: 0.12, inputCacheWrite: 0, output: 2.4 },
+			},
+		],
+	},
 };
 
 export function getDefaultModelId(provider: LlmProvider): string {
