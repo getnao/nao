@@ -52,6 +52,7 @@ export const MESSAGE_SOURCES = [
 	'teams',
 	'telegram',
 	'whatsapp',
+	'mattermost',
 	'web',
 	'mcp',
 	'contextRecommendations',

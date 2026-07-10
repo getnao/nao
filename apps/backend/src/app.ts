@@ -39,6 +39,7 @@ import { imageRoutes } from './routes/image';
 import { mcpOAuthRoutes } from './routes/mcp-oauth';
 import { slackRoutes } from './routes/slack';
 import { teamsRoutes } from './routes/teams';
+import { mattermostRoutes } from './routes/mattermost';
 import { telegramRoutes } from './routes/telegram';
 import { testRoutes } from './routes/test';
 import { whatsappRoutes } from './routes/whatsapp';
@@ -47,6 +48,7 @@ import { logLicenseStatus } from './services/license-startup';
 import { pingLicensesServer } from './services/ping';
 import { posthog, PostHogEvent } from './services/posthog';
 import { ensureRecurring, registerJob, startScheduler } from './services/scheduler.service';
+import { mattermostService } from './services/mattermost';
 import { slackService } from './services/slack';
 import { TrpcRouter, trpcRouter } from './trpc/router';
 import { createContext } from './trpc/trpc';
@@ -193,6 +195,10 @@ app.register(slackRoutes, {
 
 app.register(teamsRoutes, {
 	prefix: '/api/webhooks/teams',
+});
+
+app.register(mattermostRoutes, {
+	prefix: '/api/webhooks/mattermost',
 });
 
 app.register(telegramRoutes, {
@@ -373,6 +379,7 @@ export const startServer = async (opts: { port: number; host: string }) => {
 
 	void pingLicensesServer();
 	void slackService.startSocketModeForAllProjects();
+	void mattermostService.startForAllProjects();
 
 	posthog.capture(undefined, PostHogEvent.ServerStarted, { ...opts, address });
 

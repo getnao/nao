@@ -685,6 +685,16 @@ export const getChatByTelegramThread = async (threadId: string): Promise<{ id: s
 	return result.at(0) || null;
 };
 
+export const getChatByMattermostThread = async (threadId: string): Promise<{ id: string; title: string } | null> => {
+	const result = await db
+		.select({ id: s.chat.id, title: s.chat.title })
+		.from(s.chat)
+		.where(eq(s.chat.mattermostThreadId, threadId))
+		.limit(1)
+		.execute();
+	return result.at(0) || null;
+};
+
 export const getChatByWhatsappThread = async (threadId: string): Promise<{ id: string; title: string } | null> => {
 	const result = await db
 		.select({ id: s.chat.id, title: s.chat.title })

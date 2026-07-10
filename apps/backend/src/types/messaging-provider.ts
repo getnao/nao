@@ -35,7 +35,7 @@ export type StreamState = {
 	toolGroupBlockIndex: number;
 };
 
-export type Provider = 'slack' | 'teams' | 'telegram' | 'whatsapp' | 'automation';
+export type Provider = 'slack' | 'teams' | 'telegram' | 'whatsapp' | 'mattermost' | 'automation';
 
 export const SLACK_TRANSPORT_MODES = ['webhook', 'socket'] as const;
 export type SlackTransportMode = (typeof SLACK_TRANSPORT_MODES)[number];
@@ -77,3 +77,13 @@ export type WhatsappSettings = {
 	whatsappLlmProvider: string;
 	whatsappLlmModelId: string;
 };
+
+export type MattermostSettings = {
+	mattermostBaseUrl: string;
+	mattermostBotToken: string;
+	mattermostLlmProvider: string;
+	mattermostLlmModelId: string;
+};
+
+export const MATTERMOST_REPLY_MODES = ['thread', 'mention'] as const;
+export type MatterMostReplyMode = (typeof MATTERMOST_REPLY_MODES)[number];

@@ -1,0 +1,5 @@
+<svg width="256" height="56" viewBox="0 0 256 56" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <path d="M28.5 0C12.8 0 0 12.8 0 28.5S12.8 57 28.5 57 57 44.2 57 28.5 44.2 0 28.5 0zm18.2 42.3l-3.9 3.9-5.8-5.8c-2.3 1.6-5.1 2.5-8.1 2.5-7.8 0-14.2-6.4-14.2-14.2s6.4-14.2 14.2-14.2 14.2 6.4 14.2 14.2c0 3.4-1.2 6.6-3.2 9.1l5.8 5.8-3.1 2.7z" fill="#2389D7"/>
+  <path d="M35.5 28.5c0-3.9-3.1-7-7-7s-7 3.1-7 7 3.1 7 7 7 7-3.1 7-7z" fill="#fff"/>
+  <text x="70" y="38" font-family="Arial,sans-serif" font-size="28" font-weight="bold" fill="#2389D7">Mattermost</text>
+</svg>

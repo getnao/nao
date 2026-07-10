@@ -387,6 +387,23 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		keywords: ['link', 'login', 'telegram'],
 	},
 
+	// ── Project > Mattermost ─────────────────────────────────
+	{
+		page: '/settings/project/mattermost',
+		pageLabel: 'Mattermost',
+		title: 'Mattermost Integration',
+		description: 'Configure Mattermost bot credentials, webhook, and bot behavior.',
+		keywords: ['mattermost bot', 'mattermost webhook', 'messaging'],
+		adminOnly: true,
+	},
+	{
+		page: '/settings/project/mattermost',
+		pageLabel: 'Mattermost',
+		title: 'Linking Code',
+		description: 'Send /login <code> to the Mattermost bot you want to link.',
+		keywords: ['link', 'login', 'mattermost'],
+	},
+
 	// ── Project > WhatsApp ───────────────────────────────────
 	{
 		page: '/settings/project/whatsapp',

@@ -52,7 +52,7 @@ import { LLM_INFERENCE_TYPES, type ModelSettingsMap } from '../types/llm';
 import { LOG_LEVELS, LOG_SOURCES } from '../types/log';
 import { McpEndpointSettings } from '../types/mcp-endpoint';
 import { MEMORY_CATEGORIES } from '../types/memory';
-import { SlackSettings, TeamsSettings, TelegramSettings, WhatsappSettings } from '../types/messaging-provider';
+import { MattermostSettings, SlackSettings, TeamsSettings, TelegramSettings, WhatsappSettings } from '../types/messaging-provider';
 import { ORG_ROLES } from '../types/organization';
 
 export const user = pgTable('user', {
@@ -199,6 +199,7 @@ export const project = pgTable(
 		teamsSettings: jsonb('teams_settings').$type<TeamsSettings>(),
 		telegramSettings: jsonb('telegram_settings').$type<TelegramSettings>(),
 		whatsappSettings: jsonb('whatsapp_settings').$type<WhatsappSettings>(),
+		mattermostSettings: jsonb('mattermost_settings').$type<MattermostSettings>(),
 		mcpEndpointSettings: jsonb('mcp_endpoint_settings').$type<McpEndpointSettings>(),
 		displaySettings: jsonb('display_settings').$type<DisplaySettings>(),
 
@@ -255,6 +256,7 @@ export const chat = pgTable(
 		teamsThreadId: text('teams_thread_id'),
 		telegramThreadId: text('telegram_thread_id'),
 		whatsappThreadId: text('whatsapp_thread_id'),
+		mattermostThreadId: text('mattermost_thread_id'),
 		forkMetadata: jsonb('fork_metadata').$type<ForkMetadata>(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
@@ -269,6 +271,7 @@ export const chat = pgTable(
 		index('chat_teams_thread_idx').on(table.teamsThreadId),
 		index('chat_telegram_thread_idx').on(table.telegramThreadId),
 		index('chat_whatsapp_thread_idx').on(table.whatsappThreadId),
+		index('chat_mattermost_thread_idx').on(table.mattermostThreadId),
 	],
 );
 

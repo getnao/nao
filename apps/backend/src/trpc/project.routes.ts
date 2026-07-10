@@ -10,6 +10,8 @@ import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import * as savedPromptQueries from '../queries/project-saved-prompt.queries';
+import * as mattermostConfigQueries from '../queries/project-mattermost-config.queries';
+import { mattermostService } from '../services/mattermost';
 import * as slackConfigQueries from '../queries/project-slack-config.queries';
 import * as teamsConfigQueries from '../queries/project-teams-config.queries';
 import * as telegramConfigQueries from '../queries/project-telegram-config.queries';
@@ -601,6 +603,90 @@ export const projectRoutes = {
 
 	deleteWhatsappConfig: adminProtectedProcedure.mutation(async ({ ctx }) => {
 		await whatsappConfigQueries.deleteProjectWhatsappConfig(ctx.project.id);
+		return { success: true };
+	}),
+
+	getMattermostConfig: projectProtectedProcedure.query(async ({ ctx }) => {
+		if (!ctx.project) {
+			return { projectConfig: null, projectId: '' };
+		}
+
+		const config = await mattermostConfigQueries.getProjectMattermostConfig(ctx.project.id);
+
+		const projectConfig = config
+			? {
+					baseUrlPreview: config.baseUrl.slice(0, 4) + '...' + config.baseUrl.slice(-4),
+					botTokenPreview: config.botToken.slice(0, 4) + '...' + config.botToken.slice(-4),
+					modelSelection: config.modelSelection,
+				}
+			: null;
+
+		const baseUrl = env.BETTER_AUTH_URL || 'http://localhost:3000';
+		return {
+			projectConfig,
+			projectId: ctx.project.id,
+			webhookUrl: `${baseUrl}/api/webhooks/mattermost/${ctx.project.id}`,
+		};
+	}),
+
+	upsertMattermostConfig: adminProtectedProcedure
+		.input(
+			z.object({
+				baseUrl: z.string().min(1),
+				botToken: z.string().min(1),
+				modelProvider: llmProviderSchema.optional(),
+				modelId: z.string().optional(),
+			}),
+		)
+		.mutation(async ({ ctx, input }) => {
+			const result = await mattermostConfigQueries.upsertProjectMattermostConfig({
+				projectId: ctx.project.id,
+				baseUrl: input.baseUrl,
+				botToken: input.botToken,
+				modelProvider: input.modelProvider,
+				modelId: input.modelId,
+			});
+
+			const fullConfig = await mattermostConfigQueries.getProjectMattermostConfig(ctx.project.id);
+			if (fullConfig) {
+				await mattermostService.startProject(fullConfig);
+			}
+
+			posthog.capture(ctx.user.id, PostHogEvent.MattermostConfigured, {
+				project_id: ctx.project.id,
+				modelProvider: input.modelProvider,
+				modelId: input.modelId,
+			});
+
+			return {
+				baseUrlPreview: result.baseUrl.slice(0, 4) + '...' + result.baseUrl.slice(-4),
+				botTokenPreview: result.botToken.slice(0, 4) + '...' + result.botToken.slice(-4),
+				modelSelection: result.modelSelection,
+			};
+		}),
+
+	updateMattermostModelConfig: adminProtectedProcedure
+		.input(
+			z.object({
+				modelProvider: llmProviderSchema.optional(),
+				modelId: z.string().optional(),
+			}),
+		)
+		.mutation(async ({ ctx, input }) => {
+			await mattermostConfigQueries.updateProjectMattermostModel(
+				ctx.project.id,
+				input.modelProvider ?? null,
+				input.modelId ?? null,
+			);
+			const fullConfig = await mattermostConfigQueries.getProjectMattermostConfig(ctx.project.id);
+			if (fullConfig) {
+				await mattermostService.startProject(fullConfig);
+			}
+		}),
+
+	deleteMattermostConfig: adminProtectedProcedure.mutation(async ({ ctx }) => {
+		await mattermostConfigQueries.deleteProjectMattermostConfig(ctx.project.id);
+		await mattermostService.stopProject(ctx.project.id);
 		return { success: true };
 	}),
 

@@ -39,6 +39,7 @@ export enum PostHogEvent {
 	TeamsConfigured = 'teams_configured',
 	TelegramConfigured = 'telegram_configured',
 	WhatsappConfigured = 'whatsapp_configured',
+	MattermostConfigured = 'mattermost_configured',
 }
 
 /**
