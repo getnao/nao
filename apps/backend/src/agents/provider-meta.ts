@@ -23,6 +23,42 @@ const GEMINI_FLASH_EFFORTS: ReasoningEffort[] = ['off', 'minimal', 'low', 'mediu
 /** Custom/unlisted Gemini models: only low/high are accepted by every thinking-level model. */
 const GEMINI_CUSTOM_EFFORTS: ReasoningEffort[] = ['off', 'low', 'high'];
 
+export type ActiveEffort = Exclude<ReasoningEffort, 'off'>;
+
+export const EFFORT_TO_OPENAI: Record<ActiveEffort, string> = {
+	minimal: 'minimal',
+	low: 'low',
+	medium: 'medium',
+	high: 'high',
+	max: 'xhigh',
+};
+
+export const EFFORT_TO_ANTHROPIC: Record<ActiveEffort, string> = {
+	minimal: 'low',
+	low: 'low',
+	medium: 'medium',
+	high: 'high',
+	max: 'max',
+};
+
+export const EFFORT_TO_GEMINI_LEVEL: Record<ActiveEffort, string> = {
+	minimal: 'minimal',
+	low: 'low',
+	medium: 'medium',
+	high: 'high',
+	max: 'high',
+};
+
+export const EFFORT_TO_BEDROCK: Record<ActiveEffort, string> = {
+	minimal: 'low',
+	low: 'low',
+	medium: 'medium',
+	high: 'high',
+	max: 'max',
+};
+
+export const EFFORT_OPTIONS: ReasoningEffort[] = ['off', 'minimal', 'low', 'medium', 'high', 'max'];
+
 const OPENAI_TIERS: ServiceTier[] = ['auto', 'default', 'flex', 'priority'];
 const GOOGLE_TIERS: ServiceTier[] = ['standard', 'flex', 'priority'];
 const BEDROCK_TIERS: ServiceTier[] = ['default', 'reserved', 'priority', 'flex'];
@@ -640,8 +676,6 @@ export function getModelCapabilities(provider: LlmProvider, modelId: string): Mo
 			return undefined;
 	}
 }
-
-const EFFORT_OPTIONS: ReasoningEffort[] = ['off', 'minimal', 'low', 'medium', 'high', 'max'];
 
 /** Temperature upper bound when a model's capabilities don't declare one. */
 export const DEFAULT_TEMPERATURE_MAX = 2;

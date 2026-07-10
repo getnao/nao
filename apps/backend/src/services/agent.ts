@@ -344,7 +344,6 @@ export const MAX_OUTPUT_TOKENS = 16_000;
 class AgentManager {
 	private readonly _agent: ToolLoopAgent<never, AgentTools, never>;
 	private _streamWriter?: UIMessageStreamWriter<UIMessage>;
-	private readonly _maxOutputTokens: number;
 
 	constructor(
 		readonly chat: AgentChat,
@@ -358,14 +357,7 @@ class AgentManager {
 		private readonly _systemPromptOverride?: string,
 	) {
 		const callSettings = this._modelConfig.callSettings ?? {};
-		this._maxOutputTokens = callSettings.maxOutputTokens ?? MAX_OUTPUT_TOKENS;
 		const provider = this._modelSelection.provider;
-		// Sampling params (temperature/topP/topK/maxOutputTokens) also surface as
-		// gen_ai.request.* on the LLM span, but provider options (Anthropic
-		// thinking/effort) are not emitted by the AI SDK — so we attach the full
-		// resolved customization here to make it visible in the Langfuse trace.
-		// providerOptions has a single entry keyed by the SDK provider key (which
-		// can differ from our provider name, e.g. anthropic for Claude-on-Vertex).
 		const providerOptions = fitThinkingBudget(this._modelConfig.providerOptions, this._maxOutputTokens);
 		const providerParams = Object.values(providerOptions)[0];
 		this._agent = new ToolLoopAgent({
@@ -393,6 +385,10 @@ class AgentManager {
 					Object.keys(providerParams).length > 0 && { providerOptions: JSON.stringify(providerParams) }),
 			}),
 		});
+	}
+
+	private get _maxOutputTokens(): number {
+		return this._modelConfig.callSettings?.maxOutputTokens ?? MAX_OUTPUT_TOKENS;
 	}
 
 	private async _prepareStep(messages: ModelMessage[]): Promise<{ messages: ModelMessage[] }> {

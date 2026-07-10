@@ -1,17 +1,18 @@
 import { LangfuseSpanProcessor } from '@langfuse/otel';
 import { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
 
+import { env } from './env';
+
 /**
  * Langfuse tracing is opt-in and requires an explicit destination: it only
  * activates when LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY and LANGFUSE_BASE_URL
  * are all set. Without the explicit base URL the SDK would default to
  * cloud.langfuse.com, silently exporting prompts and responses to a third
  * party — a misconfigured self-hosted deployment must fail closed instead.
- * This module must be imported after `./env` (which loads the .env file) and
- * before any AI SDK call is made.
+ * This module must be imported before any AI SDK call is made.
  */
-const keysPresent = Boolean(process.env.LANGFUSE_PUBLIC_KEY && process.env.LANGFUSE_SECRET_KEY);
-const baseUrl = process.env.LANGFUSE_BASE_URL;
+const keysPresent = Boolean(env.LANGFUSE_PUBLIC_KEY && env.LANGFUSE_SECRET_KEY);
+const baseUrl = env.LANGFUSE_BASE_URL;
 
 export const langfuseSpanProcessor = keysPresent && baseUrl ? new LangfuseSpanProcessor({ baseUrl }) : undefined;
 

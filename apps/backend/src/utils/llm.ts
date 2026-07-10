@@ -111,6 +111,7 @@ export async function resolveProviderModel(
 	projectId: string,
 	provider: LlmProvider,
 	modelId: string,
+	applyUserSettings = true,
 ): Promise<ProviderModelResult | null> {
 	const config = await projectLlmConfigQueries.getProjectLlmConfigByProvider(projectId, provider);
 	if (config) {
@@ -122,7 +123,7 @@ export async function resolveProviderModel(
 				...(config.credentials && { credentials: config.credentials }),
 			},
 			modelId,
-			config.modelSettings?.[modelId],
+			applyUserSettings ? config.modelSettings?.[modelId] : undefined,
 		);
 	}
 

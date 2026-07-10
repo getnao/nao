@@ -9,7 +9,7 @@ import { ExtractorOutputSchema } from '../../types/memory';
 import { convertToTokenUsage, findLastUserMessage, getLastUserMessageText, joinAllTextParts } from '../../utils/ai';
 import { debugMemory } from '../../utils/debug';
 import { truncateMiddle } from '../../utils/utils';
-import { fitThinkingBudget, type ProviderModelResult } from '../providers';
+import { type ProviderModelResult } from '../providers';
 import { llmTelemetry } from '../telemetry';
 
 interface MemoryExtractorResult {
@@ -41,7 +41,6 @@ export class MemoryExtractorLLM {
 
 		const { output, usage } = await generateText({
 			...this.model,
-			providerOptions: fitThinkingBudget(this.model.providerOptions, MAX_OUTPUT_TOKENS),
 			output: Output.object({ schema: ExtractorOutputSchema }),
 			messages: modelMessages,
 			maxOutputTokens: MAX_OUTPUT_TOKENS,

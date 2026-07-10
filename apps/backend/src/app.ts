@@ -1,4 +1,3 @@
-import './env';
 import './instrumentation';
 
 import formbody from '@fastify/formbody';

@@ -68,37 +68,21 @@ export const modelInferenceSettingsSchema = z.object({
 	topP: z.number().min(0).max(1).optional(),
 	topK: z.number().int().min(1).optional(),
 	maxOutputTokens: z.number().int().min(1).optional(),
-	/** Adaptive-thinking effort level (modern Claude, OpenAI reasoning, ...). */
 	reasoningEffort: reasoningEffortSchema.optional(),
-	/** Legacy budget-based thinking token budget (older Claude models). */
 	thinkingBudgetTokens: z.number().int().min(1024).optional(),
-	/** OpenAI/Azure: response length/verbosity hint. */
 	textVerbosity: z.enum(['low', 'medium', 'high']).optional(),
-	/** OpenAI/Azure: reasoning summary detail level. */
 	reasoningSummary: z.enum(['auto', 'detailed']).optional(),
-	/** OpenAI/Azure/Mistral: allow parallel tool calls (Anthropic: inverse of disableParallelToolUse). */
 	parallelToolCalls: z.boolean().optional(),
-	/** OpenAI/Azure: cap on built-in tool calls per response. */
 	maxToolCalls: z.number().int().min(1).optional(),
-	/** OpenAI/Azure, Google/Vertex, Bedrock: processing tier (allowed values vary per provider). */
 	serviceTier: serviceTierSchema.optional(),
-	/** Anthropic: output speed mode (fast mode trades cost for latency). */
 	speed: z.enum(['standard', 'fast']).optional(),
-	/** Anthropic: inference geography / data residency. */
 	inferenceGeo: z.enum(['us', 'global']).optional(),
-	/** Anthropic: send previous reasoning blocks back to the model. */
 	sendReasoning: z.boolean().optional(),
-	/** Google/Vertex Gemini: include thought summaries in the response. */
 	includeThoughts: z.boolean().optional(),
-	/** Google/Vertex Gemini: harm-block threshold applied to all safety categories. */
 	safetyThreshold: safetyThresholdSchema.optional(),
-	/** Google/Vertex Gemini: resolution used for media inputs. */
 	mediaResolution: mediaResolutionSchema.optional(),
-	/** Mistral: inject the safety guardrail prompt. */
 	safePrompt: z.boolean().optional(),
-	/** Mistral: max images processed per document. */
 	documentImageLimit: z.number().int().min(1).optional(),
-	/** Mistral: max pages processed per document. */
 	documentPageLimit: z.number().int().min(1).optional(),
 });
 export type ModelInferenceSettings = z.infer<typeof modelInferenceSettingsSchema>;
@@ -139,28 +123,15 @@ export type ExtraParamKey = Exclude<
 /** Declares which tunable inference parameters a model supports, driving both UI and translation. */
 export type ModelCapabilities = {
 	thinking: ModelThinkingMode;
-	/** Supports temperature / topP sampling params. */
 	sampling: boolean;
-	/** Supports the topK sampling param (deprecated on newer Claude models). */
 	topK: boolean;
-	/** Supports an explicit max output token limit. */
 	maxOutputTokens: boolean;
-	/** Restrict the exposed reasoning-effort options (e.g. Mistral only supports off/high). */
 	effortOptions?: ReasoningEffort[];
-	/** Highest temperature the provider accepts (defaults to 2); drives the UI bound and a request-time clamp. */
 	temperatureMax?: number;
-	/** Additional provider-specific per-call options this model supports. */
 	extraParams?: ExtraParamKey[];
-	/** Allowed service tiers, when `extraParams` includes `serviceTier` (values vary per provider). */
 	serviceTierOptions?: ServiceTier[];
-	/**
-	 * Provider-enforced physical max output tokens per request. For budget-thinking Claude the
-	 * SDK sends `max_tokens = maxOutputTokens + budgetTokens` capped at this limit, and the API
-	 * rejects the request when the budget is not strictly below the final max_tokens — so stored
-	 * budgets are clamped under this cap at request-build time.
-	 */
+	/** Provider physical max output tokens; budget-thinking Claude clamps budgets under this since the SDK sends max_tokens = maxOutputTokens + budgetTokens. */
 	maxOutputCap?: number;
-	/** Budget-thinking Gemini: the thinkingBudget range the API accepts (out-of-range values are rejected). */
 	thinkingBudgetRange?: { min: number; max: number };
 };
 
@@ -175,13 +146,9 @@ export type ParamControl =
 			step: number;
 			min?: number;
 			max?: number;
-			/** The stored-settings schema only accepts whole numbers for this param. */
 			integer?: boolean;
-			/** Sampling controls are disabled while thinking is active. */
 			group?: 'sampling';
-			/** Disabled when the referenced param has a value (mutually exclusive settings). */
 			exclusiveWith?: NumberParamKey;
-			/** When both are set, this value must stay strictly below the referenced param's value. */
 			lessThan?: NumberParamKey;
 	  }
 	| { key: SelectParamKey; kind: 'select'; label: string; options: readonly string[] }

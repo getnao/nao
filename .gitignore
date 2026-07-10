@@ -20,3 +20,5 @@ rsa_key.*
 apps/backend/projects/
 
 *.code-workspace
+
+.cursor/

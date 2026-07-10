@@ -19,7 +19,18 @@ import type {
 	ProviderSettings,
 	ReasoningEffort,
 } from '../types/llm';
-import { DEFAULT_TEMPERATURE_MAX, getModelCapabilities, isAnthropicApiModel, PROVIDER_META } from './provider-meta';
+import {
+	type ActiveEffort,
+	DEFAULT_TEMPERATURE_MAX,
+	EFFORT_OPTIONS,
+	EFFORT_TO_ANTHROPIC,
+	EFFORT_TO_BEDROCK,
+	EFFORT_TO_GEMINI_LEVEL,
+	EFFORT_TO_OPENAI,
+	getModelCapabilities,
+	isAnthropicApiModel,
+	PROVIDER_META,
+} from './provider-meta';
 
 export {
 	getDefaultModelId,
@@ -29,11 +40,9 @@ export {
 	PROVIDER_META,
 } from './provider-meta';
 
-// See: https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching
 export const CACHE_1H = { type: 'ephemeral', ttl: '1h' } as const;
 export const CACHE_5M = { type: 'ephemeral' } as const;
 
-/** Provider configuration with env var names and known models */
 export const LLM_PROVIDERS: LlmProvidersType = {
 	anthropic: {
 		...PROVIDER_META.anthropic,
@@ -159,7 +168,6 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 	},
 };
 
-/** Standard AI SDK call settings resolved from admin-tuned per-model parameters. */
 export type ModelCallSettings = {
 	temperature?: number;
 	topP?: number;
@@ -171,11 +179,9 @@ export type ProviderModelResult = {
 	model: LanguageModelV3;
 	providerOptions: Partial<{ [P in LlmProvider]: ProviderConfigMap[P] }>;
 	contextWindow: number;
-	/** Call settings resolved from admin per-model inference parameters, applied at the call site. */
 	callSettings?: ModelCallSettings;
 };
 
-/** Create a language model instance with merged provider options */
 export function createProviderModel(
 	provider: LlmProvider,
 	settings: ProviderSettings,
@@ -189,8 +195,7 @@ export function createProviderModel(
 
 	const { callSettings, providerOverrides } = resolveInferenceOptions(provider, modelId, inferenceSettings);
 
-	// Claude-on-Vertex reads provider options under the `anthropic` key (Gemini-on-Vertex reads
-	// `vertex`); everything else keys options under its own provider id.
+	// Claude-on-Vertex keys provider options under `anthropic`, not `vertex`.
 	const optionKey: LlmProvider = provider === 'vertex' && modelId.startsWith('claude-') ? 'anthropic' : provider;
 
 	return {
@@ -203,12 +208,6 @@ export function createProviderModel(
 	};
 }
 
-/**
- * Translate normalized per-model inference settings into AI SDK call settings and
- * provider-specific option overrides, based on the model's declared capabilities.
- * Sampling params (temperature/topP/topK) are dropped for Claude when thinking is active
- * So we hide these options for models that don't support sampling.
- */
 function resolveInferenceOptions(
 	provider: LlmProvider,
 	modelId: string,
@@ -233,8 +232,6 @@ function resolveInferenceOptions(
 	// Claude's Messages API rejects sampling params while thinking is active.
 	const dropSampling = claudeApi && thinkingActive;
 	if (capabilities?.sampling !== false && !dropSampling) {
-		// Clamp to the provider bound so a stale stored value (e.g. 1.5 saved for a Claude
-		// model that caps temperature at 1) degrades gracefully instead of failing the request.
 		if (settings.temperature !== undefined) {
 			const temperatureMax = capabilities?.temperatureMax ?? DEFAULT_TEMPERATURE_MAX;
 			callSettings.temperature = clampNumber(settings.temperature, 0, temperatureMax);
@@ -242,15 +239,12 @@ function resolveInferenceOptions(
 		if (settings.topP !== undefined) {
 			callSettings.topP = clampNumber(settings.topP, 0, 1);
 		}
-		// topK is deprecated on newer models (e.g. Claude Opus 4.8); only send it when the
-		// model declares support, so a stale stored value can't trigger an API error.
 		if (settings.topK !== undefined && capabilities?.topK !== false) {
 			callSettings.topK = settings.topK;
 		}
 	}
 
-	// Claude silently ignores topP when temperature is set; drop it here so the sent params
-	// (and their Langfuse trace) reflect what the model actually receives.
+	// Claude ignores topP when temperature is set, so drop it to match what's actually sent.
 	if (claudeApi && callSettings.temperature !== undefined && callSettings.topP !== undefined) {
 		delete callSettings.topP;
 	}
@@ -265,14 +259,9 @@ function clampNumber(value: number, min: number, max: number): number {
 	return Math.min(Math.max(value, min), max);
 }
 
-/** Anthropic's minimum extended-thinking budget; below this the API rejects the request. */
+/** Anthropic's minimum thinking budget; the API rejects anything lower. */
 const MIN_THINKING_BUDGET = 1024;
-/**
- * Output tokens reserved for the visible answer when fitting a thinking budget under a limit.
- * One SDK-minimum-budget worth (1024) keeps `budget_tokens` strictly below the final
- * `max_tokens` after the SDK clamps the summed value to the model's physical cap, while
- * interfering as little as possible with the admin's stored budget.
- */
+/** Output tokens reserved for the visible answer when fitting a thinking budget under a limit. */
 const THINKING_OUTPUT_RESERVE = 1024;
 
 function fitBudget(budget: number, limit: number | undefined): number | undefined {
@@ -283,14 +272,7 @@ function fitBudget(budget: number, limit: number | undefined): number | undefine
 	return fitted >= MIN_THINKING_BUDGET ? fitted : undefined;
 }
 
-/**
- * Refit a resolved Claude thinking budget against the effective max output tokens of a specific
- * call. The Anthropic and Bedrock SDKs send `max_tokens = maxOutputTokens + budgetTokens`, so
- * call sites that override maxOutputTokens after model resolution (chat loop, memory extraction,
- * compaction) apply this to keep the summed request within provider limits: the budget is
- * clamped to leave `THINKING_OUTPUT_RESERVE` visible-output tokens under the call's max, and
- * thinking is dropped entirely when the clamped budget would fall below Anthropic's minimum.
- */
+/** Anthropic/Bedrock SDKs send max_tokens = maxOutputTokens + budgetTokens, so refit the budget under the call's max (dropping thinking if it would fall below the minimum). */
 export function fitThinkingBudget(
 	providerOptions: ProviderModelResult['providerOptions'],
 	maxOutputTokens: number,
@@ -324,51 +306,7 @@ type ThinkingResult = { providerOverrides?: Record<string, unknown>; thinkingAct
 
 const THINKING_INACTIVE: ThinkingResult = { thinkingActive: false };
 
-/** An effort that actually activates thinking; `off` always means "send nothing" and never translates. */
-type ActiveEffort = Exclude<ReasoningEffort, 'off'>;
-
-/** nao effort → OpenAI/Azure & OpenRouter reasoning-effort vocabulary. */
-const EFFORT_TO_OPENAI: Record<ActiveEffort, string> = {
-	minimal: 'minimal',
-	low: 'low',
-	medium: 'medium',
-	high: 'high',
-	max: 'xhigh',
-};
-
-/** nao effort → Anthropic adaptive effort (no `minimal` in Anthropic's vocabulary). */
-const EFFORT_TO_ANTHROPIC: Record<ActiveEffort, string> = {
-	minimal: 'low',
-	low: 'low',
-	medium: 'medium',
-	high: 'high',
-	max: 'max',
-};
-
-/** nao effort → Gemini 3 thinking level. */
-const EFFORT_TO_GEMINI_LEVEL: Record<ActiveEffort, string> = {
-	minimal: 'minimal',
-	low: 'low',
-	medium: 'medium',
-	high: 'high',
-	max: 'high',
-};
-
-/** nao effort → Bedrock adaptive max reasoning effort. */
-const EFFORT_TO_BEDROCK: Record<ActiveEffort, string> = {
-	minimal: 'low',
-	low: 'low',
-	medium: 'medium',
-	high: 'high',
-	max: 'max',
-};
-
-const EFFORT_ORDER: ReasoningEffort[] = ['off', 'minimal', 'low', 'medium', 'high', 'max'];
-
-/**
- * Snap a stored effort to the nearest option the model declares, so a stale setting (e.g.
- * `minimal` saved for a Gemini Pro model that rejects it) can never produce an API error.
- */
+/** Snap a stored effort to the nearest option the model declares, so a stale setting can't error. */
 function clampEffort(effort: ActiveEffort, options: ReasoningEffort[] | undefined): ActiveEffort {
 	if (!options || options.includes(effort)) {
 		return effort;
@@ -377,19 +315,14 @@ function clampEffort(effort: ActiveEffort, options: ReasoningEffort[] | undefine
 	if (candidates.length === 0) {
 		return effort;
 	}
-	const target = EFFORT_ORDER.indexOf(effort);
+	const target = EFFORT_OPTIONS.indexOf(effort);
 	return candidates.reduce((best, candidate) => {
-		const bestDistance = Math.abs(EFFORT_ORDER.indexOf(best) - target);
-		const candidateDistance = Math.abs(EFFORT_ORDER.indexOf(candidate) - target);
+		const bestDistance = Math.abs(EFFORT_OPTIONS.indexOf(best) - target);
+		const candidateDistance = Math.abs(EFFORT_OPTIONS.indexOf(candidate) - target);
 		return candidateDistance < bestDistance ? candidate : best;
 	});
 }
 
-/**
- * Map the normalized thinking settings onto the provider-specific thinking API the given model
- * supports. Each provider exposes reasoning differently (Anthropic `thinking`, OpenAI
- * `reasoningEffort`, Gemini `thinkingConfig`, OpenRouter `reasoning`, Bedrock `reasoningConfig`).
- */
 function resolveThinking(
 	provider: LlmProvider,
 	modelId: string,
@@ -406,8 +339,20 @@ function resolveThinking(
 
 	if (isAnthropicApiModel(provider, modelId)) {
 		return provider === 'bedrock'
-			? resolveBedrockThinking(capabilities, effort, settings)
-			: resolveAnthropicThinking(capabilities, effort, settings);
+			? resolveClaudeThinking(
+					capabilities,
+					effort,
+					settings,
+					(e) => ({ reasoningConfig: { type: 'adaptive', maxReasoningEffort: EFFORT_TO_BEDROCK[e] } }),
+					(b) => ({ reasoningConfig: { type: 'enabled', budgetTokens: b } }),
+				)
+			: resolveClaudeThinking(
+					capabilities,
+					effort,
+					settings,
+					(e) => ({ thinking: { type: 'adaptive' }, effort: EFFORT_TO_ANTHROPIC[e] }),
+					(b) => ({ thinking: { type: 'enabled', budgetTokens: b } }),
+				);
 	}
 
 	switch (provider) {
@@ -426,52 +371,22 @@ function resolveThinking(
 	}
 }
 
-function resolveAnthropicThinking(
+function resolveClaudeThinking(
 	capabilities: ModelCapabilities | undefined,
 	effort: ActiveEffort | undefined,
 	settings: ModelInferenceSettings,
+	adaptiveOverride: (effort: ActiveEffort) => Record<string, unknown>,
+	budgetOverride: (budget: number) => Record<string, unknown>,
 ): ThinkingResult {
 	if (capabilities?.thinking === 'adaptive' && effort) {
-		return {
-			providerOverrides: { thinking: { type: 'adaptive' }, effort: EFFORT_TO_ANTHROPIC[effort] },
-			thinkingActive: true,
-		};
+		return { providerOverrides: adaptiveOverride(effort), thinkingActive: true };
 	}
 	if (capabilities?.thinking === 'budget' && settings.thinkingBudgetTokens !== undefined) {
 		const budget = fitBudget(settings.thinkingBudgetTokens, capabilities.maxOutputCap);
 		if (budget === undefined) {
 			return THINKING_INACTIVE;
 		}
-		return {
-			providerOverrides: { thinking: { type: 'enabled', budgetTokens: budget } },
-			thinkingActive: true,
-		};
-	}
-	return THINKING_INACTIVE;
-}
-
-function resolveBedrockThinking(
-	capabilities: ModelCapabilities | undefined,
-	effort: ActiveEffort | undefined,
-	settings: ModelInferenceSettings,
-): ThinkingResult {
-	if (capabilities?.thinking === 'adaptive' && effort) {
-		return {
-			providerOverrides: {
-				reasoningConfig: { type: 'adaptive', maxReasoningEffort: EFFORT_TO_BEDROCK[effort] },
-			},
-			thinkingActive: true,
-		};
-	}
-	if (capabilities?.thinking === 'budget' && settings.thinkingBudgetTokens !== undefined) {
-		const budget = fitBudget(settings.thinkingBudgetTokens, capabilities.maxOutputCap);
-		if (budget === undefined) {
-			return THINKING_INACTIVE;
-		}
-		return {
-			providerOverrides: { reasoningConfig: { type: 'enabled', budgetTokens: budget } },
-			thinkingActive: true,
-		};
+		return { providerOverrides: budgetOverride(budget), thinkingActive: true };
 	}
 	return THINKING_INACTIVE;
 }
@@ -500,7 +415,6 @@ function resolveGeminiThinking(
 	return THINKING_INACTIVE;
 }
 
-/** Shared adaptive-effort translator: emits the given override only when a non-off effort is set. */
 function resolveEffortThinking(
 	effort: ActiveEffort | undefined,
 	toOverrides: (effort: ActiveEffort) => Record<string, unknown>,
@@ -511,14 +425,6 @@ function resolveEffortThinking(
 	return { providerOverrides: toOverrides(effort), thinkingActive: true };
 }
 
-/**
- * Translate the extra provider-specific settings a model declares via `extraParams` into
- * provider option overrides. Values for params the model doesn't declare are ignored, so a
- * stale stored value can never reach a provider that rejects it. Most keys map 1:1 onto the
- * provider option of the same name; the exceptions are Anthropic's inverted
- * `disableParallelToolUse`, Gemini's nested `thinkingConfig.includeThoughts` and its
- * top-level safety `threshold`.
- */
 function resolveExtraOptions(
 	provider: LlmProvider,
 	modelId: string,
@@ -549,7 +455,6 @@ function resolveExtraOptions(
 	return Object.keys(overrides).length > 0 ? overrides : undefined;
 }
 
-/** Shallow merge of provider overrides, deep-merging the nested Gemini `thinkingConfig`. */
 function mergeProviderOverrides(
 	thinkingOverrides?: Record<string, unknown>,
 	extraOverrides?: Record<string, unknown>,
@@ -571,7 +476,6 @@ function getProviderModelConfig<P extends LlmProvider>(provider: P, modelId: str
 	return (model?.config ?? {}) as ProviderConfigMap[P];
 }
 
-/** Build googleAuthOptions from service account JSON, key file path, or env vars */
 function buildVertexAuthOptions(creds?: Record<string, string>) {
 	const json = creds?.serviceAccountJson || process.env.VERTEX_GOOGLE_SERVICE_ACCOUNT_JSON;
 	if (json) {
@@ -601,7 +505,6 @@ function getBedrockRegionPrefix(region: string): string {
 	return BEDROCK_REGION_PREFIXES.has(geo) ? geo : 'us';
 }
 
-/** Ensure cross-region inference models use the correct geographic prefix for the target region. */
 function resolveBedrockModelId(modelId: string, region: string): string {
 	const prefix = getBedrockRegionPrefix(region);
 	const firstSegment = modelId.split('.')[0];

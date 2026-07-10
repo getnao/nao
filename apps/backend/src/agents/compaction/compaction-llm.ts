@@ -7,7 +7,7 @@ import { CompactionResult, ICompactionLLM } from '../../types/compaction';
 import { convertToTokenUsage, selectMessagesInBudget } from '../../utils/ai';
 import { debugCompaction } from '../../utils/debug';
 import { stripImageParts } from '../../utils/model-message';
-import { fitThinkingBudget, type ProviderModelResult } from '../providers';
+import { type ProviderModelResult } from '../providers';
 import { llmTelemetry } from '../telemetry';
 
 export const MAX_OUTPUT_TOKENS = 16_000;
@@ -29,7 +29,6 @@ export class CompactionLLM implements ICompactionLLM {
 
 		const { text, usage } = await generateText({
 			...this._model,
-			providerOptions: fitThinkingBudget(this._model.providerOptions, MAX_OUTPUT_TOKENS),
 			messages: modelMessages,
 			maxOutputTokens: MAX_OUTPUT_TOKENS,
 			experimental_telemetry: llmTelemetry('nao-compaction'),
