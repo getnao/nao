@@ -18,6 +18,8 @@ type SystemPromptProps = {
 	userRules?: string;
 	connections?: Connection[];
 	skills?: Skill[];
+	/** Names of MCP servers the agent is allowed to call (tools discovered as on-disk specs). */
+	mcpServers?: string[];
 	timezone?: string;
 	testMode?: boolean;
 };
@@ -29,6 +31,7 @@ export function SystemPrompt({
 	userRules,
 	connections = [],
 	skills = [],
+	mcpServers = [],
 	timezone,
 	testMode,
 }: SystemPromptProps) {
@@ -190,8 +193,36 @@ export function SystemPrompt({
 					</Block>
 				)}
 
+				{mcpServers.length > 0 && <McpServersBlock servers={mcpServers} />}
+
 				{visibleMemories.length > 0 && <MemoryBlock memories={visibleMemories} />}
 			</Block>
+		</Block>
+	);
+}
+
+function McpServersBlock({ servers }: { servers: string[] }) {
+	return (
+		<Block>
+			<Title level={2}>MCP Servers</Title>
+			<Span>
+				You can call tools from the configured MCP servers below, but their tools are <Bold>not</Bold> preloaded
+				here. Each server has a folder <Bold>/agent/mcps/{'<server>'}/</Bold> containing one OpenAPI JSON file
+				per available tool (the file name is the tool name).
+				<Br />
+				To use a tool: list the server folder to see which tools exist, read (or grep) the relevant tool file to
+				get its operationId and request body schema, then invoke it with the <Bold>mcp_call</Bold> tool — pass
+				the operationId as <Bold>tool</Bold> and an <Bold>arguments</Bold> object matching that schema.
+				<Br />
+				Some servers require the user to connect their own account first. If a call returns an{' '}
+				<Bold>AUTH_REQUIRED</Bold> result, stop and ask the user to connect — a Connect button is shown to them
+				automatically. Do not retry until they have connected.
+			</Span>
+			<List>
+				{servers.map((server) => (
+					<ListItem key={server}>{server}</ListItem>
+				))}
+			</List>
 		</Block>
 	);
 }

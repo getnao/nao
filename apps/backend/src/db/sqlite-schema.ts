@@ -1,6 +1,12 @@
 import type { McpChartEmbedStoredConfig } from '@nao/shared';
 import type { DisplaySettings } from '@nao/shared/date';
-import type { AnalyticsEventMetadata, CitationData, LlmProvider, UserPreferences } from '@nao/shared/types';
+import type {
+	AnalyticsEventMetadata,
+	CitationData,
+	LlmProvider,
+	RepoProvider,
+	UserPreferences,
+} from '@nao/shared/types';
 import {
 	ANALYTICS_ASSET_TYPES,
 	ANALYTICS_EVENT_TYPES,
@@ -56,6 +62,7 @@ export const user = sqliteTable('user', {
 	memoryEnabled: integer('memory_enabled', { mode: 'boolean' }).default(true).notNull(),
 	messagingProviderCode: text('messaging_provider_code').unique(),
 	githubAccessToken: text('github_access_token'),
+	gitlabAccessToken: text('gitlab_access_token'),
 	createdAt: integer('created_at', { mode: 'timestamp_ms' })
 		.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 		.notNull(),
@@ -198,6 +205,8 @@ export const project = sqliteTable(
 		agentSettings: text('agent_settings', { mode: 'json' }).$type<AgentSettings>(),
 		enabledMcpTools: text('enabled_tools', { mode: 'json' }).$type<string[]>().notNull().default([]),
 		knownMcpServers: text('known_mcp_servers', { mode: 'json' }).$type<string[]>().notNull().default([]),
+		disabledMcpServers: text('disabled_mcp_servers', { mode: 'json' }).$type<string[]>().notNull().default([]),
+		disabledMcpTools: text('disabled_mcp_tools', { mode: 'json' }).$type<string[]>().notNull().default([]),
 
 		envVars: text('env_vars', { mode: 'json' }).$type<Record<string, string>>().notNull().default({}),
 
@@ -604,6 +613,7 @@ export const automation = sqliteTable(
 		mcpEnabled: integer('mcp_enabled', { mode: 'boolean' }).default(true).notNull(),
 		mcpServers: text('mcp_servers', { mode: 'json' }).$type<string[]>(),
 		integrations: text('integrations', { mode: 'json' }).$type<AutomationIntegrationConfig>().notNull().default({}),
+		webhookEnabled: integer('webhook_enabled', { mode: 'boolean' }).default(false).notNull(),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull(),
@@ -689,6 +699,7 @@ export const contextRecommendationConfig = sqliteTable('context_recommendation_c
 	frequency: text('frequency', { enum: CONTEXT_RECOMMENDATION_FREQUENCIES }),
 	customSystemPromptInstructions: text('custom_system_prompt_instructions'),
 	repoFullName: text('repo_full_name'),
+	repoProvider: text('repo_provider').$type<RepoProvider>(),
 	autoCreatePrs: integer('auto_create_prs', { mode: 'boolean' }),
 	maxAutoPrsPerRun: integer('max_auto_prs_per_run'),
 	createdAt: integer('created_at', { mode: 'timestamp_ms' })
@@ -1368,5 +1379,54 @@ export const analyticsEvent = sqliteTable(
 			'analytics_event_asset_id_required',
 			sql`CASE WHEN asset_type = 'chat' THEN chat_id IS NOT NULL WHEN asset_type = 'story' THEN story_id IS NOT NULL ELSE TRUE END`,
 		),
+	],
+);
+
+export const mcpOAuthClient = sqliteTable(
+	'mcp_oauth_client',
+	{
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		serverName: text('server_name').notNull(),
+		clientId: text('client_id').notNull(),
+		clientSecret: text('client_secret'),
+		clientData: text('client_data'),
+		discoveryUserId: text('discovery_user_id').references(() => user.id, { onDelete: 'set null' }),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+		updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+	},
+	(t) => [primaryKey({ columns: [t.projectId, t.serverName] })],
+);
+
+export const mcpUserToken = sqliteTable(
+	'mcp_user_token',
+	{
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		serverName: text('server_name').notNull(),
+		accessToken: text('access_token'),
+		refreshToken: text('refresh_token'),
+		expiresAt: integer('expires_at', { mode: 'timestamp_ms' }),
+		scope: text('scope'),
+		codeVerifier: text('code_verifier'),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+		updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+	},
+	(t) => [
+		primaryKey({ columns: [t.userId, t.projectId, t.serverName] }),
+		index('mcp_user_token_project_server_idx').on(t.projectId, t.serverName),
 	],
 );

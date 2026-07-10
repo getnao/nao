@@ -328,7 +328,7 @@ def _columns_from_system(conn: BaseBackend, database: str, table_name: str) -> l
         d = database.replace("\\", "\\\\").replace("'", "''")
         t = table_name.replace("\\", "\\\\").replace("'", "''")
         sql = (
-            "SELECT name, type, default_kind, default_expression "
+            "SELECT name, type, default_kind, default_expression, comment "
             f"FROM system.columns WHERE database = '{d}' AND table = '{t}' ORDER BY position"
         )
         cursor = conn.raw_sql(sql)  # type: ignore[union-attr]
@@ -338,7 +338,7 @@ def _columns_from_system(conn: BaseBackend, database: str, table_name: str) -> l
                 "name": r["name"],
                 "type": str(r.get("type", "")),
                 "nullable": "Nullable" in str(r.get("type", "")),
-                "description": None,
+                "description": str(r.get("comment", "")).strip() or None,
                 "default_kind": str(r.get("default_kind", "")).strip() or None,
                 "default_expression": str(r.get("default_expression", "")).strip() or None,
             }
@@ -479,6 +479,9 @@ class ClickHouseDatabaseContext(DatabaseContext):
                 for col in system_columns
                 if isinstance(col.get("name"), str)
             }
+            descriptions = {
+                col["name"]: col.get("description") for col in system_columns if isinstance(col.get("name"), str)
+            }
             for col in cols:
                 name = col.get("name")
                 if not isinstance(name, str):
@@ -492,6 +495,8 @@ class ClickHouseDatabaseContext(DatabaseContext):
                         col["type"] = native_type
                 if meta := defaults.get(name):
                     col.update(meta)
+                if description := descriptions.get(name):
+                    col["description"] = description
             return self._filter_excluded_columns(cols)
         except Exception:
             return self._filter_excluded_columns(_columns_from_system(self._conn, self._schema, self._table_name))

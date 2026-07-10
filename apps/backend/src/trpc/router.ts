@@ -15,6 +15,7 @@ import { embedRoutes } from './embed.routes';
 import { favoriteRoutes } from './favorite.routes';
 import { feedbackRoutes } from './feedback.routes';
 import { githubRoutes } from './github.routes';
+import { gitlabRoutes } from './gitlab.routes';
 import { licenseRoutes } from './license.routes';
 import { logRoutes } from './log.routes';
 import { mcpRoutes } from './mcp.routes';
@@ -50,6 +51,7 @@ export const trpcRouter = router({
 	favorite: favoriteRoutes,
 	feedback: feedbackRoutes,
 	github: githubRoutes,
+	gitlab: gitlabRoutes,
 	license: licenseRoutes,
 	log: logRoutes,
 	posthog: posthogRoutes,

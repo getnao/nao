@@ -52,6 +52,7 @@
 		"date-fns": "^4.1.0",
 		"fuse.js": "^7.3.0",
 		"jszip": "^3.10.1",
+		"katex": "^0.16.45",
 		"lucide-react": "^0.562.0",
 		"posthog-js": "^1.336.4",
 		"prompt-mentions": "^0.0.37",

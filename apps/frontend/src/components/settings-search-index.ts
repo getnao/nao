@@ -64,6 +64,13 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/account',
 		pageLabel: 'Account',
+		title: 'GitLab',
+		description: 'Connect your GitLab account for automations.',
+		keywords: ['gitlab', 'automations', 'automation', 'merge request'],
+	},
+	{
+		page: '/settings/account',
+		pageLabel: 'Account',
 		title: 'Danger Zone',
 		description: 'Delete your account or perform other destructive actions.',
 		keywords: ['delete account', 'remove'],
@@ -90,6 +97,13 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		title: 'Import from GitHub',
 		description: 'Connect your GitHub account and import a repository as a project.',
 		keywords: ['github', 'repository', 'repo', 'import', 'git', 'integration', 'clone'],
+	},
+	{
+		page: '/settings/organization',
+		pageLabel: 'Organization',
+		title: 'Import from GitLab',
+		description: 'Connect your GitLab account and import a project as a nao project.',
+		keywords: ['gitlab', 'repository', 'repo', 'import', 'git', 'integration', 'clone', 'merge request'],
 	},
 	{
 		page: '/settings/organization',
@@ -259,8 +273,9 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		page: '/settings/project/mcp-servers',
 		pageLabel: 'MCP Servers',
 		title: 'MCP Servers',
-		description: 'Integrate MCP servers to extend the capabilities of nao.',
-		keywords: ['model context protocol', 'tool', 'integration', 'extension'],
+		description:
+			'Configure MCP servers in agent/mcps/mcp.json. nao discovers their tools into OpenAPI specs the agent explores on demand.',
+		keywords: ['model context protocol', 'tool', 'integration', 'extension', 'discover', 'openapi', 'spec'],
 		adminOnly: true,
 	},
 

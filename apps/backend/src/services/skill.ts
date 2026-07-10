@@ -12,78 +12,110 @@ export interface Skill {
 	location: string;
 }
 
-class SkillService {
-	private _projectPath: string = '';
-	private _skillsFolderPath: string;
-	private _skills: Skill[] = [];
-	private _fileWatcher: ReturnType<typeof watch> | null = null;
-	private _debouncedReload: () => void;
-	private _initialized = false;
+interface ProjectSkills {
+	projectPath: string;
+	skillsFolderPath: string;
+	skills: Skill[];
+	fileWatcher: ReturnType<typeof watch> | null;
+	debouncedReload: () => void;
+}
 
-	constructor() {
-		this._skillsFolderPath = '';
-		this._debouncedReload = debounce(() => {
-			this.loadSkills();
-		}, 2000);
-	}
+class SkillService {
+	private _projects = new Map<string, ProjectSkills>();
+	private _initPromises = new Map<string, Promise<void>>();
 
 	public async initializeSkills(projectId: string): Promise<void> {
-		if (this._initialized) {
+		if (this._projects.has(projectId)) {
 			return;
 		}
-		this._initialized = true;
 
-		const project = await projectQueries.retrieveProjectById(projectId);
-		this._projectPath = project.path || '';
-		this._skillsFolderPath = join(this._projectPath, 'agent', 'skills');
-
-		this.loadSkills();
-		this._setupFileWatcher();
-	}
-
-	public loadSkills(): void {
-		try {
-			if (!existsSync(this._skillsFolderPath)) {
-				logger.warn(`Skills folder not found: ${this._skillsFolderPath}`, { source: 'agent' });
-				this._skills = [];
-				return;
-			}
-
-			if (!statSync(this._skillsFolderPath).isDirectory()) {
-				logger.error(`Skills path is not a directory: ${this._skillsFolderPath}`, { source: 'agent' });
-				this._skills = [];
-				return;
-			}
-
-			const files = readdirSync(this._skillsFolderPath).filter((f) => f.endsWith('.md'));
-			this._readSkills(files);
-		} catch (error) {
-			logger.error(`Failed to load skills: ${String(error)}`, { source: 'agent' });
-			this._skills = [];
+		let initPromise = this._initPromises.get(projectId);
+		if (!initPromise) {
+			initPromise = this._initialize(projectId).catch((err) => {
+				this._initPromises.delete(projectId);
+				throw err;
+			});
+			this._initPromises.set(projectId, initPromise);
 		}
+
+		return initPromise;
 	}
 
-	public getSkills(): Skill[] {
-		return this._skills;
+	public getSkills(projectId: string): Skill[] {
+		return this._projects.get(projectId)?.skills ?? [];
 	}
 
-	public getSkillContent(skillName: string): string | null {
-		const skill = this._skills.find((s) => s.name === skillName);
+	public getSkillContent(projectId: string, skillName: string): string | null {
+		const entry = this._projects.get(projectId);
+		if (!entry) {
+			return null;
+		}
+
+		const skill = entry.skills.find((s) => s.name === skillName);
 		if (!skill) {
 			return null;
 		}
 
 		try {
-			return readFileSync(join(this._projectPath, skill.location), 'utf8');
+			return readFileSync(join(entry.projectPath, skill.location), 'utf8');
 		} catch (error) {
 			logger.error(`Failed to read skill content for ${skillName}: ${String(error)}`, { source: 'agent' });
 			return null;
 		}
 	}
 
-	private _readSkills(files: string[]): void {
-		this._skills = files.map((file) => {
-			const filePath = join(this._skillsFolderPath, file);
+	private async _initialize(projectId: string): Promise<void> {
+		const project = await projectQueries.retrieveProjectById(projectId);
+		const projectPath = project.path || '';
+		const skillsFolderPath = join(projectPath, 'agent', 'skills');
+
+		this._projects.set(projectId, {
+			projectPath,
+			skillsFolderPath,
+			skills: [],
+			fileWatcher: null,
+			debouncedReload: debounce(() => this._loadSkills(projectId), 2000),
+		});
+
+		this._loadSkills(projectId);
+		this._setupFileWatcher(projectId);
+	}
+
+	private _loadSkills(projectId: string): void {
+		const entry = this._projects.get(projectId);
+		if (!entry) {
+			return;
+		}
+
+		try {
+			if (!existsSync(entry.skillsFolderPath)) {
+				logger.warn(`Skills folder not found: ${entry.skillsFolderPath}`, { source: 'agent' });
+				entry.skills = [];
+				return;
+			}
+
+			if (!statSync(entry.skillsFolderPath).isDirectory()) {
+				logger.error(`Skills path is not a directory: ${entry.skillsFolderPath}`, { source: 'agent' });
+				entry.skills = [];
+				return;
+			}
+
+			const files = readdirSync(entry.skillsFolderPath).filter((f) => f.endsWith('.md'));
+			this._readSkills(projectId, files);
+		} catch (error) {
+			logger.error(`Failed to load skills: ${String(error)}`, { source: 'agent' });
+			entry.skills = [];
+		}
+	}
+
+	private _readSkills(projectId: string, files: string[]): void {
+		const entry = this._projects.get(projectId);
+		if (!entry) {
+			return;
+		}
+
+		entry.skills = files.map((file) => {
+			const filePath = join(entry.skillsFolderPath, file);
 
 			const fileContent = readFileSync(filePath, 'utf8');
 			const { data } = matter(fileContent);
@@ -91,20 +123,21 @@ class SkillService {
 			return {
 				name: data.name || file.replace('.md', ''),
 				description: data.description || '',
-				location: '/' + relative(this._projectPath, filePath),
+				location: '/' + relative(entry.projectPath, filePath),
 			};
 		});
 	}
 
-	private _setupFileWatcher(): void {
-		if (!this._skillsFolderPath || !existsSync(this._skillsFolderPath)) {
+	private _setupFileWatcher(projectId: string): void {
+		const entry = this._projects.get(projectId);
+		if (!entry || !existsSync(entry.skillsFolderPath)) {
 			return;
 		}
 
 		try {
-			this._fileWatcher = watch(this._skillsFolderPath, { recursive: true }, (eventType) => {
+			entry.fileWatcher = watch(entry.skillsFolderPath, { recursive: true }, (eventType) => {
 				if (eventType === 'change' || eventType === 'rename') {
-					this._debouncedReload();
+					entry.debouncedReload();
 				}
 			});
 		} catch (error) {

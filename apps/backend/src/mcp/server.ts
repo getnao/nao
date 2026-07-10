@@ -1,5 +1,4 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 
 import { listUserProjects } from '../queries/project.queries';
 import type { McpEndpointSettings } from '../types/mcp-endpoint';
@@ -7,31 +6,6 @@ import { registerNaoMcpApps } from './embed/ui-resources';
 import { registerAssetTools } from './tools/asset-tools';
 import { registerContextLayerTools } from './tools/context-layer';
 import { registerSubAgentTools } from './tools/sub-agent';
-
-export interface McpSession {
-	transport: StreamableHTTPServerTransport;
-	server: McpServer;
-	userId: string;
-	projectId: string;
-	lastAccess: number;
-}
-
-export const sessions = new Map<string, McpSession>();
-
-const SESSION_TTL_MS = 30 * 60 * 1000;
-
-setInterval(
-	() => {
-		const now = Date.now();
-		for (const [id, session] of sessions) {
-			if (now - session.lastAccess > SESSION_TTL_MS) {
-				session.server.close().catch(() => {});
-				sessions.delete(id);
-			}
-		}
-	},
-	5 * 60 * 1000,
-).unref();
 
 export async function resolveProjectId(userId: string): Promise<string> {
 	const projects = await listUserProjects(userId);
@@ -64,20 +38,4 @@ export function createMcpServer(userId: string, projectId: string, settings: Mcp
 	registerNaoMcpApps(server);
 
 	return server;
-}
-
-export async function closeProjectSessions(projectId: string): Promise<void> {
-	const targets: McpSession[] = [];
-	for (const [id, session] of sessions) {
-		if (session.projectId === projectId) {
-			targets.push(session);
-			sessions.delete(id);
-		}
-	}
-	await Promise.all(
-		targets.map(async (session) => {
-			await session.transport.close().catch(() => {});
-			await session.server.close().catch(() => {});
-		}),
-	);
 }

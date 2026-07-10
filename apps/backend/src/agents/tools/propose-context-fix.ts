@@ -187,9 +187,9 @@ function resolveEditTarget(
 				'Encode the fix in a human-written file (RULES.md or semantics/**) or call propose_manual_fix instead.',
 		);
 	}
-	if (!linkedRepo.repoFullName) {
+	if (!linkedRepo.repoFullName || !linkedRepo.provider) {
 		throw new Error(
-			`"${filePath}" belongs to "${linkedRepo.contextPath}", which is not linked to a GitHub repository. ` +
+			`"${filePath}" belongs to "${linkedRepo.contextPath}", which is not linked to a GitHub or GitLab repository. ` +
 				'Call propose_manual_fix with guidance for the upstream source instead.',
 		);
 	}
@@ -204,6 +204,7 @@ function resolveEditTarget(
 			repoFullName: linkedRepo.repoFullName,
 			branch: linkedRepo.branch,
 			path: targetPath,
+			provider: linkedRepo.provider,
 		},
 	};
 }

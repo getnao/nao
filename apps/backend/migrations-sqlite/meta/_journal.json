@@ -372,6 +372,27 @@
       "when": 1782391309531,
       "tag": "0052_add_brand_color",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "6",
+      "when": 1783082672684,
+      "tag": "0053_new_mcp",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "6",
+      "when": 1783278706989,
+      "tag": "0054_webhooks",
+      "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "6",
+      "when": 1783321426739,
+      "tag": "0055_add_gitlab_token",
+      "breakpoints": true
     }
   ]
 }

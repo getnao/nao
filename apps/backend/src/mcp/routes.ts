@@ -8,7 +8,7 @@ import { getMcpEndpointSettings } from '../queries/mcp-endpoint.queries';
 import { getUserRoleInProject } from '../queries/project.queries';
 import { resolveUserId } from './auth';
 import { getMcpAppsBundle, MCP_APPS_SCRIPT_PATH } from './embed/mcp-apps-bundle';
-import { createMcpServer, resolveProjectId, sessions } from './server';
+import { createMcpServer, resolveProjectId } from './server';
 
 declare module 'fastify' {
 	interface FastifyRequest {
@@ -29,17 +29,10 @@ export const mcpServerRoutes = async (app: App) => {
 	await app.register(async (authenticated) => {
 		authenticated.addHook('preHandler', requireAuthenticatedMcpUser);
 
-		authenticated.get('/', (request, reply) => handleExistingSession(request, reply));
+		authenticated.post('/', (request, reply) => handleMcpRequest(request, reply));
 
-		authenticated.post('/', async (request, reply) => {
-			const existingSessionId = request.headers['mcp-session-id'] as string | undefined;
-			if (existingSessionId) {
-				return handleExistingSession(request, reply, request.body);
-			}
-			return initializeSession(request, reply);
-		});
-
-		authenticated.delete('/', (request, reply) => handleExistingSession(request, reply));
+		authenticated.get('/', (_request, reply) => replyMethodNotAllowed(reply));
+		authenticated.delete('/', (_request, reply) => replyMethodNotAllowed(reply));
 	});
 };
 
@@ -61,25 +54,19 @@ async function requireAuthenticatedMcpUser(request: FastifyRequest, reply: Fasti
 	request.mcpRole = role;
 }
 
-async function initializeSession(request: FastifyRequest, reply: FastifyReply): Promise<void> {
-	const userId = request.mcpUserId;
-	const projectId = request.mcpProjectId;
-	const settings = await getMcpEndpointSettings(projectId);
+async function handleMcpRequest(request: FastifyRequest, reply: FastifyReply): Promise<void> {
+	const settings = await getMcpEndpointSettings(request.mcpProjectId);
 	if (!settings.enabled) {
 		reply.status(503).send({ error: 'MCP is disabled for this workspace.' });
 		return;
 	}
 
-	const server = createMcpServer(userId, projectId, settings);
-	const transport = new StreamableHTTPServerTransport({
-		sessionIdGenerator: () => crypto.randomUUID(),
-		onsessioninitialized: (sessionId) => {
-			sessions.set(sessionId, { transport, server, userId, projectId, lastAccess: Date.now() });
-		},
-		onsessionclosed: (sessionId) => {
-			sessions.delete(sessionId);
-			server.close().catch(() => {});
-		},
+	const server = createMcpServer(request.mcpUserId, request.mcpProjectId, settings);
+	const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+
+	reply.raw.on('close', () => {
+		transport.close().catch(() => {});
+		server.close().catch(() => {});
 	});
 
 	await server.connect(transport);
@@ -87,31 +74,15 @@ async function initializeSession(request: FastifyRequest, reply: FastifyReply): 
 	reply.hijack();
 }
 
-async function handleExistingSession(request: FastifyRequest, reply: FastifyReply, body?: unknown): Promise<void> {
-	const sessionId = request.headers['mcp-session-id'] as string | undefined;
-	if (!sessionId) {
-		reply.status(400).send({ error: 'Missing Mcp-Session-Id header.' });
-		return;
-	}
-
-	const session = sessions.get(sessionId);
-	if (!session || session.userId !== request.mcpUserId) {
-		reply.status(404).send({ error: 'Session not found or expired. Please reinitialize.' });
-		return;
-	}
-
-	const settings = await getMcpEndpointSettings(session.projectId);
-	if (!settings.enabled) {
-		sessions.delete(sessionId);
-		await session.transport.close().catch(() => {});
-		await session.server.close().catch(() => {});
-		reply.status(503).send({ error: 'MCP is disabled for this workspace.' });
-		return;
-	}
-
-	session.lastAccess = Date.now();
-	await session.transport.handleRequest(request.raw, reply.raw, body as Record<string, unknown> | undefined);
-	reply.hijack();
+function replyMethodNotAllowed(reply: FastifyReply) {
+	return reply
+		.status(405)
+		.header('Allow', 'POST')
+		.send({
+			jsonrpc: '2.0',
+			error: { code: -32000, message: 'Method not allowed in stateless mode.' },
+			id: null,
+		});
 }
 
 function replyUnauthorized(reply: FastifyReply) {

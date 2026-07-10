@@ -80,7 +80,7 @@ all-databases = [
     "nao-core[postgres,bigquery,snowflake,duckdb,clickhouse,databricks,mysql,mssql,athena,trino,redshift,fabric,starrocks]",
 ]
 all-llms = ["nao-core[openai,anthropic,mistral,gemini,ollama]"]
-all = ["nao-core[all-databases,all-llms,notion]"]
+all = ["nao-core[all-databases,all-llms,notion,aws-secrets,k8s-secrets]"]
 dev = ["pytest-cov", "pytest-timeout>=2.3.0"]
 
 [project.scripts]

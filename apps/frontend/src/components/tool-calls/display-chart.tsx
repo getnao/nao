@@ -16,7 +16,7 @@ import type { ChartConfig } from '../ui/chart';
 import type { displayChart, executeSql } from '@nao/shared/tools';
 import type { UIMessage } from '@nao/backend/chat';
 import type { DateRange } from '@/lib/charts.utils';
-import { filterByDateRange, sortByDateKey, DATE_RANGE_OPTIONS, toKey } from '@/lib/charts.utils';
+import { filterByDateRange, sortByDateKey, DATE_RANGE_OPTIONS, toKey, resolveDataKey } from '@/lib/charts.utils';
 import { findStoryIds } from '@/lib/story.utils';
 import { useChatId } from '@/hooks/use-chat-id';
 import { useDateFormat } from '@/hooks/use-date-format';
@@ -108,8 +108,9 @@ export const DisplayChartToolCall = ({
 		if (config.x_axis_type !== 'date') {
 			return sourceData.data;
 		}
-		const sorted = sortByDateKey(sourceData.data, config.x_axis_key);
-		return filterByDateRange(sorted, config.x_axis_key, dataRange);
+		const xAxisKey = resolveDataKey(sourceData.data, config.x_axis_key);
+		const sorted = sortByDateKey(sourceData.data, xAxisKey);
+		return filterByDateRange(sorted, xAxisKey, dataRange);
 	}, [sourceData?.data, config, dataRange]);
 
 	if (output && output.error) {
@@ -296,15 +297,22 @@ export interface ChartDisplayProps {
 export const ChartDisplay = memo(function ChartDisplay({
 	data,
 	chartType,
-	xAxisKey,
+	xAxisKey: xAxisKeyProp,
 	xAxisType,
 	xAxisLabelFormatter,
-	series,
+	series: seriesProp,
 	title,
 	showGrid = true,
 }: ChartDisplayProps) {
-	const { visibleSeries, hiddenSeriesKeys, handleToggleSeriesVisibility } = useSeriesVisibility(series);
 	const dateFormat = useDateFormat();
+
+	const xAxisKey = useMemo(() => resolveDataKey(data, xAxisKeyProp), [data, xAxisKeyProp]);
+	const series = useMemo(
+		() => seriesProp.map((s) => ({ ...s, data_key: resolveDataKey(data, s.data_key) })),
+		[data, seriesProp],
+	);
+
+	const { visibleSeries, hiddenSeriesKeys, handleToggleSeriesVisibility } = useSeriesVisibility(series);
 
 	const chartConfig = useMemo((): ChartConfig => {
 		if (chartType === 'pie') {

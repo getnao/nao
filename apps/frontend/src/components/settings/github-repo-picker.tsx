@@ -64,7 +64,7 @@ export function GitHubRepoPicker({ open, onOpenChange }: GitHubRepoPickerProps) 
 			return;
 		}
 		const existingProject = getExistingProjectForRepo(selected, projects.data);
-		const conflictProjectName = getConflictProjectName(createProject.error?.message);
+		const conflictProjectName = createProject.error?.data?.conflictingProjectName;
 		const projectNameToReplace = existingProject?.name ?? conflictProjectName;
 		if (projectNameToReplace) {
 			setRepoToReplace({ repoFullName: selected, projectName: projectNameToReplace });
@@ -85,13 +85,22 @@ export function GitHubRepoPicker({ open, onOpenChange }: GitHubRepoPickerProps) 
 	};
 
 	const selectedExistingProject = selected ? getExistingProjectForRepo(selected, projects.data) : null;
-	const selectedConflictProjectName = selected ? getConflictProjectName(createProject.error?.message) : null;
+	const selectedConflictProjectName = selected ? createProject.error?.data?.conflictingProjectName : null;
 	const selectedReplacementProjectName = selectedExistingProject?.name ?? selectedConflictProjectName;
 	const isImportDisabled = !selected || createProject.isPending || (projects.isLoading && !projects.data);
 
+	const handleOpenChange = (nextOpen: boolean) => {
+		onOpenChange(nextOpen);
+		if (!nextOpen) {
+			setSelected(null);
+			setRepoToReplace(null);
+			createProject.reset();
+		}
+	};
+
 	return (
 		<>
-			<Dialog open={open} onOpenChange={onOpenChange}>
+			<Dialog open={open} onOpenChange={handleOpenChange}>
 				<DialogContent className='sm:max-w-lg'>
 					<DialogHeader>
 						<DialogTitle className='flex items-center gap-2'>
@@ -121,7 +130,7 @@ export function GitHubRepoPicker({ open, onOpenChange }: GitHubRepoPickerProps) 
 					{createProject.error && <p className='text-sm text-destructive'>{createProject.error.message}</p>}
 
 					<DialogFooter>
-						<Button variant='outline' onClick={() => onOpenChange(false)}>
+						<Button variant='outline' onClick={() => handleOpenChange(false)}>
 							Cancel
 						</Button>
 						<Button onClick={handleImport} disabled={isImportDisabled}>
@@ -163,8 +172,4 @@ function getExistingProjectForRepo(
 ): { name: string } | undefined {
 	const projectName = repoFullName.split('/').pop();
 	return projects?.find((project) => project.name === projectName);
-}
-
-function getConflictProjectName(message: string | undefined): string | null {
-	return message?.match(/A project named "([^"]+)"/)?.[1] ?? null;
 }

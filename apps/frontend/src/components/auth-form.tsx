@@ -8,10 +8,11 @@ import { MicrosoftSignInButton, useIsMicrosoftSetup } from '@/components/auth-mi
 import { OidcSignInButton } from '@/components/auth-oidc-button';
 import { Button, ChatButton, AuthSocialButton } from '@/components/ui/button';
 import GithubIcon from '@/components/icons/github-icon.svg';
+import GitlabIcon from '@/components/icons/gitlab-icon.svg';
 import GoogleIcon from '@/components/icons/google-icon.svg';
 import NaoLogo from '@/components/icons/nao-full-logo.svg';
 import { brandingAssetUrl, useBranding } from '@/hooks/use-branding';
-import { handleGithubSignIn, handleGoogleSignIn } from '@/lib/auth-client';
+import { handleGithubSignIn, handleGitlabSignIn, handleGoogleSignIn } from '@/lib/auth-client';
 import { cn } from '@/lib/utils';
 
 interface AuthFormProps {
@@ -41,6 +42,7 @@ export function AuthForm({
 }: AuthFormProps) {
 	const isGoogleSetup = useQuery(trpc.authConfig.google.isSetup.queryOptions());
 	const isGithubSetup = useQuery(trpc.authConfig.github.isSetup.queryOptions());
+	const isGitlabSetup = useQuery(trpc.authConfig.gitlab.isSetup.queryOptions());
 	const isMicrosoftSetup = useIsMicrosoftSetup();
 	const oidcConfig = useQuery(trpc.authConfig.oidc.getConfig.queryOptions());
 	const branding = useBranding();
@@ -63,6 +65,16 @@ export function AuthForm({
 					icon={GithubIcon}
 					label='Continue with GitHub'
 					onClick={() => handleGithubSignIn(socialCallbackUrl)}
+					className={className}
+				/>
+			)),
+		isGitlabSetup.data &&
+			((className?: string) => (
+				<AuthSocialButton
+					key='gitlab'
+					icon={GitlabIcon}
+					label='Continue with GitLab'
+					onClick={() => handleGitlabSignIn(socialCallbackUrl)}
 					className={className}
 				/>
 			)),

@@ -170,6 +170,7 @@ type AutomationSummary = {
 	enabled: boolean;
 	scheduleDescription: string | null;
 	cron: string;
+	webhookEnabled: boolean;
 	lastRunStartedAt: Date | string | null;
 };
 
@@ -199,6 +200,8 @@ function AutomationSidePanelRow({ item }: { item: AutomationSummary }) {
 	const lastRunMs = item.lastRunStartedAt ? new Date(item.lastRunStartedAt).getTime() : 0;
 	const lastRunAgo = useTimeAgo(lastRunMs);
 	const lastRunLabel = item.lastRunStartedAt ? lastRunAgo.humanReadable : 'Never run';
+	const hasSchedule = Boolean(item.cron);
+	const triggerLabel = buildTriggerLabel(item);
 
 	return (
 		<li>
@@ -209,22 +212,58 @@ function AutomationSidePanelRow({ item }: { item: AutomationSummary }) {
 			>
 				<div className='flex items-center justify-between gap-2'>
 					<span className='truncate text-sm font-medium'>{item.title}</span>
-					<Badge
-						variant={item.enabled ? 'default' : 'secondary'}
-						className='shrink-0 px-1.5 py-0 text-[10px]'
-					>
-						{item.enabled ? 'On' : 'Paused'}
-					</Badge>
+					<AutomationStatusBadge
+						enabled={item.enabled}
+						hasSchedule={hasSchedule}
+						webhookEnabled={item.webhookEnabled}
+					/>
 				</div>
-				<span className='truncate text-xs text-muted-foreground'>
-					{item.scheduleDescription || item.cron || 'Custom schedule'}
-				</span>
+				<span className='truncate text-xs text-muted-foreground'>{triggerLabel}</span>
 				<span className={cn('text-[11px] text-muted-foreground/80', !item.lastRunStartedAt && 'italic')}>
 					{lastRunLabel}
 				</span>
 			</Link>
 		</li>
 	);
+}
+
+function AutomationStatusBadge({
+	enabled,
+	hasSchedule,
+	webhookEnabled,
+}: {
+	enabled: boolean;
+	hasSchedule: boolean;
+	webhookEnabled: boolean;
+}) {
+	if (!hasSchedule) {
+		if (!webhookEnabled) {
+			return null;
+		}
+		return (
+			<Badge variant='secondary' className='shrink-0 px-1.5 py-0 text-[10px]'>
+				Webhook
+			</Badge>
+		);
+	}
+	return (
+		<Badge variant={enabled ? 'default' : 'secondary'} className='shrink-0 px-1.5 py-0 text-[10px]'>
+			{enabled ? 'On' : 'Paused'}
+		</Badge>
+	);
+}
+
+/**
+ * Surfaces every active trigger so a paused schedule badge is not mistaken for
+ * the automation having no webhook. A paused automation stops all triggers,
+ * including the webhook.
+ */
+function buildTriggerLabel(item: AutomationSummary): string {
+	if (item.cron) {
+		const scheduleText = item.scheduleDescription || item.cron;
+		return item.webhookEnabled ? `${scheduleText} · webhook` : scheduleText;
+	}
+	return item.webhookEnabled ? 'Triggered by webhook' : 'Custom schedule';
 }
 
 function SidePanelSkeleton() {

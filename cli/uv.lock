@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.10"
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
@@ -2607,11 +2607,14 @@ dependencies = [
 all = [
     { name = "anthropic" },
     { name = "azure-identity" },
+    { name = "boto3" },
     { name = "certifi" },
     { name = "clickhouse-driver" },
+    { name = "glom" },
     { name = "google-cloud" },
     { name = "google-genai" },
     { name = "ibis-framework", extra = ["athena", "bigquery", "clickhouse", "databricks", "duckdb", "mssql", "mysql", "postgres", "snowflake", "trino"] },
+    { name = "kubernetes" },
     { name = "mistralai" },
     { name = "mysql-connector-python" },
     { name = "notion-client" },
@@ -2710,7 +2713,6 @@ snowflake = [
     { name = "ibis-framework", extra = ["snowflake"] },
     { name = "snowflake-connector-python", extra = ["secure-local-storage"] },
 ]
-
 starrocks = [
     { name = "mysql-connector-python" },
 ]
@@ -2758,7 +2760,7 @@ requires-dist = [
     { name = "kubernetes", marker = "extra == 'k8s-secrets'", specifier = ">=29.0.0" },
     { name = "mistralai", marker = "extra == 'mistral'", specifier = ">=1.11.1,<2.0.0" },
     { name = "mysql-connector-python", marker = "extra == 'starrocks'", specifier = "==9.5.0" },
-    { name = "nao-core", extras = ["all-databases", "all-llms", "notion"], marker = "extra == 'all'" },
+    { name = "nao-core", extras = ["all-databases", "all-llms", "notion", "aws-secrets", "k8s-secrets"], marker = "extra == 'all'" },
     { name = "nao-core", extras = ["openai", "anthropic", "mistral", "gemini", "ollama"], marker = "extra == 'all-llms'" },
     { name = "nao-core", extras = ["postgres", "bigquery", "snowflake", "duckdb", "clickhouse", "databricks", "mysql", "mssql", "athena", "trino", "redshift", "fabric", "starrocks"], marker = "extra == 'all-databases'" },
     { name = "notion-client", marker = "extra == 'notion'", specifier = ">=2.7.0" },
@@ -2784,7 +2786,6 @@ requires-dist = [
     { name = "sshtunnel", marker = "extra == 'redshift'", specifier = ">=0.4.0" },
     { name = "uvicorn", specifier = ">=0.40.0" },
 ]
-
 provides-extras = ["postgres", "bigquery", "snowflake", "duckdb", "clickhouse", "databricks", "mysql", "mssql", "athena", "trino", "redshift", "fabric", "starrocks", "openai", "anthropic", "mistral", "gemini", "ollama", "notion", "aws-secrets", "k8s-secrets", "all-databases", "all-llms", "all", "dev"]
 
 [package.metadata.requires-dev]

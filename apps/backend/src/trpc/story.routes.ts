@@ -1,5 +1,5 @@
-import { NO_CACHE_SCHEDULE } from '@nao/shared';
-import type { UserRole } from '@nao/shared/types';
+import { BULK_ITEMS_LIMIT, NO_CACHE_SCHEDULE } from '@nao/shared';
+import type { BulkStoryItem, UserRole } from '@nao/shared/types';
 import { DOWNLOAD_FORMATS } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
@@ -22,6 +22,18 @@ import { canSendProcedure, ownedResourceProcedure, projectProtectedProcedure, pr
 
 const chatOwnerProcedure = ownedResourceProcedure(chatQueries.getChatOwnerId, 'chat');
 const storyOwnerProcedure = ownedResourceProcedure(storyQueries.getStoryOwnerId, 'story');
+
+const bulkStoryItemsInput = z.object({
+	items: z
+		.array(
+			z.discriminatedUnion('kind', [
+				z.object({ kind: z.literal('own'), storyId: z.string() }),
+				z.object({ kind: z.literal('shared-project'), storyId: z.string() }),
+			]),
+		)
+		.min(1)
+		.max(BULK_ITEMS_LIMIT),
+});
 
 async function assertCanArchiveSharedStory(
 	storyId: string,
@@ -342,21 +354,28 @@ export const storyRoutes = {
 		await storyFolderQueries.rehomeUnarchivedStory(ctx.user.id, ctx.project.id, input.storyId);
 	}),
 
-	archiveMany: protectedProcedure
-		.input(z.object({ stories: z.array(z.object({ chatId: z.string(), storySlug: z.string() })).min(1) }))
-		.mutation(async ({ input, ctx }) => {
-			const chatIds = [...new Set(input.stories.map((s) => s.chatId))];
-			await Promise.all(
-				chatIds.map(async (chatId) => {
-					const ownerId = await chatQueries.getChatOwnerId(chatId);
-					if (ownerId !== ctx.user.id) {
-						throw new TRPCError({ code: 'FORBIDDEN', message: 'You can only archive your own stories.' });
-					}
-				}),
-			);
-			await storyQueries.archiveManyStories(input.stories.map((s) => ({ chatId: s.chatId, slug: s.storySlug })));
-			await Promise.all(input.stories.map((s) => syncStoryRefreshJob(s.chatId, s.storySlug, false, null)));
-		}),
+	bulkArchive: canSendProcedure.input(bulkStoryItemsInput).mutation(async ({ input, ctx }) => {
+		await assertBulkItemsOwnership(input.items, ctx.user.id, ctx, 'archive');
+		await Promise.all(
+			input.items.map(async (item) => {
+				await storyQueries.archiveByStoryId(item.storyId);
+				await unscheduleStoryRefreshJob(item.storyId);
+			}),
+		);
+	}),
+
+	bulkUnarchive: canSendProcedure.input(bulkStoryItemsInput).mutation(async ({ input, ctx }) => {
+		await assertBulkItemsOwnership(input.items, ctx.user.id, ctx, 'unarchive');
+		await Promise.all(
+			input.items.map(async (item) => {
+				await storyQueries.unarchiveByStoryId(item.storyId);
+				const projectId = await storyQueries.getStoryProjectId(item.storyId);
+				if (projectId) {
+					await storyFolderQueries.rehomeUnarchivedStory(ctx.user.id, projectId, item.storyId);
+				}
+			}),
+		);
+	}),
 
 	downloadStandalone: storyOwnerProcedure
 		.input(z.object({ storyId: z.string(), format: z.enum(DOWNLOAD_FORMATS) }))
@@ -517,4 +536,26 @@ async function unscheduleStoryRefreshJob(storyId: string): Promise<void> {
 	}
 	await scheduledJobQueries.deleteJob(story.scheduledJobId);
 	await activityQueries.linkStoryScheduledJob(storyId, null);
+}
+
+async function assertBulkItemsOwnership(
+	items: BulkStoryItem[],
+	userId: string,
+	ctx: { user: { id: string }; userRole: UserRole | null; project: { id: string } },
+	action: 'archive' | 'unarchive',
+): Promise<void> {
+	const ownedIds = items.filter((i) => i.kind === 'own').map((i) => i.storyId);
+	const sharedIds = items.filter((i) => i.kind === 'shared-project').map((i) => i.storyId);
+
+	await Promise.all([
+		...ownedIds.map(async (storyId) => {
+			const story = await storyQueries.getStoryByIdForUser(storyId, userId);
+			if (!story) {
+				throw new TRPCError({ code: 'FORBIDDEN', message: `You can only ${action} your own stories.` });
+			}
+		}),
+		...sharedIds.map(async (storyId) => {
+			await assertCanArchiveSharedStory(storyId, ctx);
+		}),
+	]);
 }

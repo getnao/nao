@@ -68,6 +68,7 @@ import { addPromptCache } from '../utils/prompt-cache';
 import { truncateMiddle } from '../utils/utils';
 import { compactionService } from './compaction';
 import { hasFeature, LICENSE_FEATURES } from './license.service';
+import { mcpService } from './mcp';
 import { memoryService } from './memory';
 import { getAzureAccessTokenForUser } from './microsoft-auth.service';
 import { skillService } from './skill';
@@ -573,9 +574,18 @@ class AgentManager {
 		const memories = await memoryService.safeGetUserMemories(this.chat.userId, this.chat.projectId, this.chat.id);
 		const userRules = getUserRules(this._toolContext.projectFolder);
 		const connections = getConnections(this._toolContext.projectFolder);
-		const skills = skillService.getSkills();
+		const skills = skillService.getSkills(this.chat.projectId);
+		const mcpServers = await mcpService.getEnabledServers(this.chat.projectId);
 		const basePrompt = renderToMarkdown(
-			SystemPrompt({ memories, userRules, connections, skills, timezone, testMode: this.chat.testMode }),
+			SystemPrompt({
+				memories,
+				userRules,
+				connections,
+				skills,
+				mcpServers,
+				timezone,
+				testMode: this.chat.testMode,
+			}),
 		);
 		const renderedPrompt = provider
 			? renderToMarkdown(MessagingProviderSystemPrompt({ basePrompt, provider, chatUrl }))
@@ -827,7 +837,9 @@ class AgentManager {
 
 	private _addSkills(messages: UIMessage[], mentions?: Mention[]): UIMessage[] {
 		const skillMention = mentions?.find((m) => m.trigger === '/');
-		const skillContent = skillMention ? skillService.getSkillContent(skillMention.id) : undefined;
+		const skillContent = skillMention
+			? skillService.getSkillContent(this.chat.projectId, skillMention.id)
+			: undefined;
 		if (!skillContent) {
 			return messages;
 		}

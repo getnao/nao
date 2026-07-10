@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { Calendar, Github, Mail, Plus, Trash2, X } from 'lucide-react';
-import type { McpState } from '@nao/shared';
+import { Calendar, Check, Copy, Github, Mail, Plus, Trash2, Webhook, X } from 'lucide-react';
+import type { McpServerStatus } from '@nao/shared';
 import type { LlmProvider } from '@nao/shared/types';
 import type { FormEvent, ReactNode, RefObject } from 'react';
 import type { PromptHandle } from 'prompt-mentions';
@@ -26,6 +26,7 @@ import { Input } from '@/components/ui/input';
 import { LlmProviderIcon } from '@/components/ui/llm-provider-icon';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
+import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { useSession } from '@/lib/auth-client';
 import { trpc } from '@/main';
 
@@ -94,10 +95,12 @@ export type AutomationFormValue = {
 	mcpEnabled: boolean;
 	mcpServers?: string[];
 	integrations: IntegrationConfig;
+	webhookEnabled: boolean;
 };
 
 type AutomationFormProps = {
 	id?: string;
+	automationId?: string;
 	initialValue?: Partial<AutomationFormValue>;
 	details?: AutomationDetails;
 	submitLabel: string;
@@ -114,6 +117,7 @@ type AutomationDetails = {
 	enabled: boolean;
 	scheduleDescription?: string | null;
 	cron?: string | null;
+	webhookEnabled?: boolean;
 	nextRunAt?: Date | string | null;
 	lastRunAt?: Date | string | null;
 };
@@ -150,6 +154,7 @@ const defaultValue: AutomationFormValue = {
 	mcpEnabled: false,
 	mcpServers: undefined,
 	integrations: {},
+	webhookEnabled: false,
 };
 
 const schedulePresets: SchedulePreset[] = [
@@ -162,6 +167,7 @@ const schedulePresets: SchedulePreset[] = [
 
 export function AutomationForm({
 	id,
+	automationId,
 	initialValue,
 	details,
 	submitLabel,
@@ -183,6 +189,7 @@ export function AutomationForm({
 	});
 
 	const hasSidebar = Boolean(details || aside);
+	const webhookUrl = buildWebhookUrl(automationId);
 
 	return (
 		<form
@@ -209,6 +216,10 @@ export function AutomationForm({
 					onCustomCronChange={form.setCustomCron}
 					onAddSchedule={form.handleAddSchedule}
 					onRemoveSchedule={form.handleRemoveSchedule}
+					webhookEnabled={form.value.webhookEnabled}
+					webhookUrl={webhookUrl}
+					onAddWebhook={form.handleAddWebhook}
+					onRemoveWebhook={form.handleRemoveWebhook}
 					hasError={form.triggerError}
 					disabled={form.controlsDisabled}
 				/>
@@ -230,7 +241,7 @@ export function AutomationForm({
 
 				<ToolsSection
 					value={form.value}
-					mcpState={form.mcpState}
+					mcpServers={form.mcpServers}
 					emailRecipientsError={form.emailRecipientsError}
 					onClearEmailRecipientsError={form.clearEmailRecipientsError}
 					onChange={form.handleValueChange}
@@ -302,7 +313,7 @@ function useAutomationFormController({
 	const autoSaveInFlightRef = useRef(false);
 	const { data: session } = useSession();
 	const availableModels = useQuery(trpc.project.listAvailableTranscribeModels.queryOptions());
-	const mcpState = useQuery(trpc.mcp.getState.queryOptions());
+	const mcpServersQuery = useQuery(trpc.mcp.getServers.queryOptions());
 	const isDirty = !areAutomationValuesEqual(value, savedValue);
 	const userEmail = session?.user?.email;
 	const selectedModelValue =
@@ -427,7 +438,7 @@ function useAutomationFormController({
 			return false;
 		}
 
-		if (!nextValue.cron.trim()) {
+		if (!nextValue.cron.trim() && !nextValue.webhookEnabled) {
 			setTriggerError(true);
 			return false;
 		}
@@ -471,6 +482,15 @@ function useAutomationFormController({
 		});
 	}
 
+	function handleAddWebhook() {
+		setTriggerError(false);
+		handleControlValueChange({ ...value, webhookEnabled: true });
+	}
+
+	function handleRemoveWebhook() {
+		handleControlValueChange({ ...value, webhookEnabled: false });
+	}
+
 	function handleScheduleOptionChange(option: ScheduleOption) {
 		setTriggerError(false);
 		setScheduleOption(option);
@@ -506,16 +526,18 @@ function useAutomationFormController({
 		emailRecipientsError,
 		formRef,
 		handleAddSchedule,
+		handleAddWebhook,
 		handleControlValueChange,
 		handleInsertPromptTrigger,
 		handleModelChange,
 		handlePromptChange,
 		handleRemoveSchedule,
+		handleRemoveWebhook,
 		handleScheduleOptionChange,
 		handleSubmit,
 		handleValueChange,
 		hasSchedule,
-		mcpState: mcpState.data,
+		mcpServers: mcpServersQuery.data,
 		promptError,
 		promptRef,
 		scheduleOption,
@@ -560,6 +582,10 @@ function TriggersSection({
 	onCustomCronChange,
 	onAddSchedule,
 	onRemoveSchedule,
+	webhookEnabled,
+	webhookUrl,
+	onAddWebhook,
+	onRemoveWebhook,
 	hasError,
 	disabled,
 }: {
@@ -570,9 +596,15 @@ function TriggersSection({
 	onCustomCronChange: (cron: string) => void;
 	onAddSchedule: () => void;
 	onRemoveSchedule: () => void;
+	webhookEnabled: boolean;
+	webhookUrl: string | null;
+	onAddWebhook: () => void;
+	onRemoveWebhook: () => void;
 	hasError: boolean;
 	disabled: boolean;
 }) {
+	const canAddTrigger = !hasSchedule || !webhookEnabled;
+
 	return (
 		<section className='grid gap-1.5'>
 			<label className='text-sm font-medium'>Triggers</label>
@@ -592,7 +624,18 @@ function TriggersSection({
 						disabled={disabled}
 					/>
 				)}
-				{!hasSchedule && <AddTriggerMenu onAddSchedule={onAddSchedule} disabled={disabled} />}
+				{webhookEnabled && (
+					<WebhookTriggerRow url={webhookUrl} onRemove={onRemoveWebhook} disabled={disabled} />
+				)}
+				{canAddTrigger && (
+					<AddTriggerMenu
+						scheduleAdded={hasSchedule}
+						webhookAdded={webhookEnabled}
+						onAddSchedule={onAddSchedule}
+						onAddWebhook={onAddWebhook}
+						disabled={disabled}
+					/>
+				)}
 			</div>
 			{hasError && <p className='text-sm text-destructive'>Add at least one trigger.</p>}
 		</section>
@@ -667,7 +710,113 @@ function ScheduleTriggerRow({
 	);
 }
 
-function AddTriggerMenu({ onAddSchedule, disabled }: { onAddSchedule: () => void; disabled: boolean }) {
+function WebhookTriggerRow({
+	url,
+	onRemove,
+	disabled,
+}: {
+	url: string | null;
+	onRemove: () => void;
+	disabled: boolean;
+}) {
+	return (
+		<div className='grid gap-1.5 rounded-lg px-2 py-1.5'>
+			<div className='flex items-center justify-between gap-3'>
+				<div className='flex min-w-0 items-center gap-2'>
+					<Webhook className='size-4 shrink-0 text-muted-foreground' />
+					<span className='text-sm font-medium'>Via webhook</span>
+				</div>
+				<button
+					type='button'
+					onClick={onRemove}
+					disabled={disabled}
+					aria-label='Remove webhook trigger'
+					className='inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50'
+				>
+					<Trash2 className='size-3.5' />
+				</button>
+			</div>
+			{url ? (
+				<WebhookDetails url={url} />
+			) : (
+				<p className='text-xs text-muted-foreground'>
+					Save the automation to get its webhook URL and an example request.
+				</p>
+			)}
+		</div>
+	);
+}
+
+function WebhookDetails({ url }: { url: string }) {
+	const curlCommand = `curl -X POST ${url} \\\n  -H "Authorization: Bearer <your-api-key>"`;
+
+	return (
+		<div className='grid gap-2'>
+			<CopyableField label='POST endpoint' value={url} ariaLabel='Webhook URL' />
+			<CopyableField label='Example request' value={curlCommand} ariaLabel='Webhook example request' multiline />
+			<p className='text-xs text-muted-foreground'>
+				Send a POST request with an organization API key. Create one under{' '}
+				<a href='/settings/organization' className='font-medium text-primary underline underline-offset-2'>
+					Settings → Organization
+				</a>
+				.
+			</p>
+		</div>
+	);
+}
+
+function CopyableField({
+	label,
+	value,
+	ariaLabel,
+	multiline = false,
+}: {
+	label: string;
+	value: string;
+	ariaLabel: string;
+	multiline?: boolean;
+}) {
+	const { isCopied, copy } = useCopyToClipboard();
+
+	return (
+		<div className='rounded-md border border-border overflow-hidden bg-muted'>
+			<div className='flex items-center justify-between gap-2 border-b border-border bg-muted/60 px-2 py-1'>
+				<span className='text-[0.7rem] text-muted-foreground'>{label}</span>
+				<button
+					type='button'
+					onClick={() => copy(value).catch(() => undefined)}
+					aria-label={`Copy ${ariaLabel}`}
+					className='inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[0.7rem] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground'
+				>
+					{isCopied ? <Check className='size-3 text-green-500' /> : <Copy className='size-3' />}
+					{isCopied ? 'Copied' : 'Copy'}
+				</button>
+			</div>
+			<pre
+				className={cn(
+					'overflow-x-auto px-2 py-1.5 text-xs',
+					multiline ? 'whitespace-pre' : 'whitespace-nowrap',
+				)}
+			>
+				<code>{value}</code>
+			</pre>
+		</div>
+	);
+}
+
+function AddTriggerMenu({
+	scheduleAdded,
+	webhookAdded,
+	onAddSchedule,
+	onAddWebhook,
+	disabled,
+}: {
+	scheduleAdded: boolean;
+	webhookAdded: boolean;
+	onAddSchedule: () => void;
+	onAddWebhook: () => void;
+	disabled: boolean;
+}) {
 	return (
 		<DropdownMenu>
 			<DropdownMenuTrigger asChild>
@@ -681,9 +830,15 @@ function AddTriggerMenu({ onAddSchedule, disabled }: { onAddSchedule: () => void
 				</button>
 			</DropdownMenuTrigger>
 			<DropdownMenuContent align='start' className='min-w-56'>
-				<DropdownMenuItem onSelect={onAddSchedule}>
+				<DropdownMenuItem onSelect={onAddSchedule} disabled={scheduleAdded}>
 					<Calendar className='size-4' />
 					<span>On schedule</span>
+					{scheduleAdded && <span className='ml-auto text-xs text-muted-foreground'>Added</span>}
+				</DropdownMenuItem>
+				<DropdownMenuItem onSelect={onAddWebhook} disabled={webhookAdded}>
+					<Webhook className='size-4' />
+					<span>Via webhook</span>
+					{webhookAdded && <span className='ml-auto text-xs text-muted-foreground'>Added</span>}
 				</DropdownMenuItem>
 			</DropdownMenuContent>
 		</DropdownMenu>
@@ -896,7 +1051,7 @@ function PromptTriggerButton({
 
 function ToolsSection({
 	value,
-	mcpState,
+	mcpServers,
 	emailRecipientsError,
 	onClearEmailRecipientsError,
 	onChange,
@@ -904,7 +1059,7 @@ function ToolsSection({
 	disabled,
 }: {
 	value: AutomationFormValue;
-	mcpState: McpState | undefined;
+	mcpServers: McpServerStatus[] | undefined;
 	emailRecipientsError: string | null;
 	onClearEmailRecipientsError: () => void;
 	onChange: (value: AutomationFormValue) => void;
@@ -914,8 +1069,8 @@ function ToolsSection({
 	const email = value.integrations.email ?? { enabled: false, recipients: [] };
 	const slack = value.integrations.slack ?? { enabled: false, channelId: '' };
 	const github = value.integrations.github ?? { enabled: false, repositories: [] };
-	const mcpServerEntries = mcpState ? Object.entries(mcpState) : [];
-	const selectedMcpServers = value.mcpEnabled ? (value.mcpServers ?? mcpServerEntries.map(([name]) => name)) : [];
+	const availableServers = mcpServers ?? [];
+	const selectedMcpServers = value.mcpEnabled ? (value.mcpServers ?? availableServers.map((s) => s.name)) : [];
 
 	const githubIntegration = useGithubIntegration({ github, value, onAutoSaveChange });
 
@@ -930,9 +1085,9 @@ function ToolsSection({
 		addedTools.push({ key: 'github', kind: 'integration', type: 'github' });
 	}
 	if (value.mcpEnabled) {
-		for (const [serverName] of mcpServerEntries) {
-			if (selectedMcpServers.includes(serverName)) {
-				addedTools.push({ key: `mcp:${serverName}`, kind: 'mcp', serverName });
+		for (const server of availableServers) {
+			if (selectedMcpServers.includes(server.name)) {
+				addedTools.push({ key: `mcp:${server.name}`, kind: 'mcp', serverName: server.name });
 			}
 		}
 	}
@@ -993,7 +1148,7 @@ function ToolsSection({
 					slackEnabled={slack.enabled}
 					githubState={githubIntegration.state}
 					githubActiveItems={githubIntegration.activeItems}
-					mcpServerEntries={mcpServerEntries}
+					mcpServers={availableServers}
 					selectedMcpServers={selectedMcpServers}
 					onAddEmail={() => setEmailEnabled(true)}
 					onAddSlack={() => setSlackEnabled(true)}
@@ -1243,7 +1398,7 @@ function AddToolMenu({
 	slackEnabled,
 	githubState,
 	githubActiveItems,
-	mcpServerEntries,
+	mcpServers,
 	selectedMcpServers,
 	onAddEmail,
 	onAddSlack,
@@ -1255,7 +1410,7 @@ function AddToolMenu({
 	slackEnabled: boolean;
 	githubState: GithubMenuState;
 	githubActiveItems: GithubMenuItemKey[];
-	mcpServerEntries: [string, McpState[string]][];
+	mcpServers: McpServerStatus[];
 	selectedMcpServers: string[];
 	onAddEmail: () => void;
 	onAddSlack: () => void;
@@ -1295,7 +1450,7 @@ function AddToolMenu({
 				<DropdownMenuSeparator />
 				<DropdownMenuLabel>MCP</DropdownMenuLabel>
 				<McpSubMenu
-					mcpServerEntries={mcpServerEntries}
+					mcpServers={mcpServers}
 					selectedMcpServers={selectedMcpServers}
 					onAddMcpServer={onAddMcpServer}
 				/>
@@ -1362,11 +1517,11 @@ function GithubMenuItemBadge({ state }: { state: GithubMenuState }) {
 }
 
 function McpSubMenu({
-	mcpServerEntries,
+	mcpServers,
 	selectedMcpServers,
 	onAddMcpServer,
 }: {
-	mcpServerEntries: [string, McpState[string]][];
+	mcpServers: McpServerStatus[];
 	selectedMcpServers: string[];
 	onAddMcpServer: (serverName: string) => void;
 }) {
@@ -1377,24 +1532,27 @@ function McpSubMenu({
 				<span>MCP server</span>
 			</DropdownMenuSubTrigger>
 			<DropdownMenuSubContent className='min-w-56'>
-				{mcpServerEntries.length === 0 && (
+				{mcpServers.length === 0 && (
 					<DropdownMenuItem disabled>
-						<span className='text-xs text-muted-foreground'>No MCP servers connected</span>
+						<span className='text-xs text-muted-foreground'>No MCP servers configured</span>
 					</DropdownMenuItem>
 				)}
-				{mcpServerEntries.map(([name, server]) => {
-					const isAdded = selectedMcpServers.includes(name);
-					const enabledToolCount = server.tools.filter((tool) => tool.enabled).length;
+				{mcpServers.map((server) => {
+					const isAdded = selectedMcpServers.includes(server.name);
 					return (
-						<DropdownMenuItem key={name} onSelect={() => onAddMcpServer(name)} disabled={isAdded}>
+						<DropdownMenuItem
+							key={server.name}
+							onSelect={() => onAddMcpServer(server.name)}
+							disabled={isAdded}
+						>
 							<McpIcon className='size-4' />
-							<span className='truncate'>{name}</span>
+							<span className='truncate'>{server.name}</span>
 							<span className='ml-auto text-xs text-muted-foreground'>
 								{isAdded
 									? 'Added'
 									: server.error
 										? 'Error'
-										: `${enabledToolCount} ${enabledToolCount === 1 ? 'tool' : 'tools'}`}
+										: `${server.enabledToolCount} ${server.enabledToolCount === 1 ? 'tool' : 'tools'}`}
 							</span>
 						</DropdownMenuItem>
 					);
@@ -1405,17 +1563,33 @@ function McpSubMenu({
 }
 
 function AutomationDetailSummary({ details }: { details: AutomationDetails }) {
+	const hasSchedule = Boolean(details.cron);
+	const isPaused = hasSchedule && !details.enabled;
+
 	return (
 		<div className='grid gap-2 rounded-lg'>
-			<DetailRow label='Status' value={details.enabled ? 'Enabled' : 'Paused'} />
+			{hasSchedule && <DetailRow label='Status' value={details.enabled ? 'Enabled' : 'Paused'} />}
 			<DetailRow
 				label='Schedule (server time)'
-				value={details.scheduleDescription || details.cron || 'Custom schedule'}
+				value={hasSchedule ? details.scheduleDescription || details.cron || 'Custom schedule' : 'No schedule'}
 			/>
-			<DetailRow label='Next run (your time)' value={details.enabled ? formatDateTime(details.nextRunAt) : '-'} />
+			{hasSchedule && (
+				<DetailRow
+					label='Next run (your time)'
+					value={details.enabled ? formatDateTime(details.nextRunAt) : '-'}
+				/>
+			)}
+			<DetailRow label='Webhook trigger' value={webhookTriggerLabel(details.webhookEnabled, isPaused)} />
 			<DetailRow label='Last run (your time)' value={formatDateTime(details.lastRunAt)} />
 		</div>
 	);
+}
+
+function webhookTriggerLabel(webhookEnabled: boolean | undefined, isPaused: boolean): string {
+	if (!webhookEnabled) {
+		return 'Disabled';
+	}
+	return isPaused ? 'Paused' : 'Enabled';
 }
 
 function DetailRow({ label, value }: { label: string; value: string }) {
@@ -1587,6 +1761,13 @@ function getGithubIntegrationDescription({
 
 function getGithubConnectHref(): string {
 	return `/api/github/connect?returnTo=${encodeURIComponent('/settings/account')}`;
+}
+
+function buildWebhookUrl(automationId: string | undefined): string | null {
+	if (!automationId || typeof window === 'undefined') {
+		return null;
+	}
+	return `${window.location.origin}/api/automations/${automationId}/run`;
 }
 
 function formatDateTime(value: Date | string | null | undefined): string {

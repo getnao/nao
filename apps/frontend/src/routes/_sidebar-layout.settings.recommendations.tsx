@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
-import { ArrowDown, ArrowUp } from 'lucide-react';
+import { ArrowDown, ArrowUp, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { LlmProvider } from '@nao/shared/types';
@@ -27,6 +27,9 @@ export const Route = createFileRoute('/_sidebar-layout/settings/recommendations'
 });
 
 const SNOOZE_MS = 30 * 24 * 60 * 60 * 1000;
+
+/** How long a run must be in progress before the cancel escape hatch appears. */
+const RUN_CANCEL_THRESHOLD_MS = 60 * 1000;
 
 const FREQUENCY_OPTIONS = [
 	{ value: 'daily', label: 'Daily' },
@@ -86,11 +89,33 @@ function RecommendationsPage() {
 	const setConfig = useMutation(trpc.contextRecommendation.setConfig.mutationOptions());
 	const setStatus = useMutation(trpc.contextRecommendation.setStatus.mutationOptions());
 	const run = useMutation(trpc.contextRecommendation.run.mutationOptions());
+	const cancelRun = useMutation(trpc.contextRecommendation.cancelRun.mutationOptions());
 
-	const isRunning = run.isPending || latestRun.data?.status === 'running';
+	const runningRun = latestRun.data?.status === 'running' ? latestRun.data : null;
+	const isRunning = run.isPending || runningRun !== null;
+
+	const [nowMs, setNowMs] = useState(() => Date.now());
+	useEffect(() => {
+		if (!runningRun) {
+			return;
+		}
+		const interval = setInterval(() => setNowMs(Date.now()), 1000);
+		return () => clearInterval(interval);
+	}, [runningRun]);
+
+	const canCancelRun =
+		runningRun !== null && nowMs - new Date(runningRun.startedAt).getTime() >= RUN_CANCEL_THRESHOLD_MS;
 
 	const handleRun = async () => {
 		await run.mutateAsync();
+		queryClient.invalidateQueries({ queryKey: trpc.contextRecommendation.latestRun.queryKey() });
+	};
+
+	const handleCancelRun = async () => {
+		if (!runningRun) {
+			return;
+		}
+		await cancelRun.mutateAsync({ runId: runningRun.id });
 		queryClient.invalidateQueries({ queryKey: trpc.contextRecommendation.latestRun.queryKey() });
 	};
 
@@ -228,10 +253,28 @@ function RecommendationsPage() {
 						description="Diagnostic suggestions for improving this project's context, mined from real usage."
 						action={
 							<div className='flex flex-col items-end gap-1'>
-								<Button size='sm' onClick={handleRun} disabled={isRunning}>
-									{isRunning && <Spinner className='size-4' />}
-									{isRunning ? 'Running…' : 'Run now'}
-								</Button>
+								<div className='flex items-center gap-2'>
+									{canCancelRun && (
+										<Button
+											size='sm'
+											variant='ghost'
+											className='gap-1.5 text-muted-foreground hover:text-destructive'
+											onClick={handleCancelRun}
+											disabled={cancelRun.isPending}
+										>
+											{cancelRun.isPending ? (
+												<Spinner className='size-4' />
+											) : (
+												<X className='size-4' />
+											)}
+											{cancelRun.isPending ? 'Cancelling…' : 'Cancel'}
+										</Button>
+									)}
+									<Button size='sm' onClick={handleRun} disabled={isRunning}>
+										{isRunning && <Spinner className='size-4' />}
+										{isRunning ? 'Running…' : 'Run now'}
+									</Button>
+								</div>
 								{latestRun.data ? (
 									<span className='text-xs text-muted-foreground italic'>
 										Latest {new Date(latestRun.data.startedAt).toLocaleString()}

@@ -25,11 +25,12 @@ export const getErrorMessage = (error: unknown): string | null => {
 	return String(error);
 };
 
-export const buildGithubAllowlist = (allowedUsers?: string): Set<string> => {
+/** GitHub and GitLab usernames are case-insensitive, so entries are normalized to lowercase. */
+export const buildUsernameAllowlist = (allowedUsers?: string): Set<string> => {
 	const allowed = new Set<string>();
 	if (allowedUsers) {
-		for (const login of allowedUsers.split(',')) {
-			const trimmed = login.trim();
+		for (const username of allowedUsers.split(',')) {
+			const trimmed = username.trim().toLowerCase();
 			if (trimmed) {
 				allowed.add(trimmed);
 			}
@@ -102,7 +103,7 @@ export const isEmailDomainAllowed = (userEmail: string, authDomains?: string) =>
 		}
 		return allowedDomains.includes(userEmailDomain);
 	}
-	return false;
+	return true;
 };
 
 /**

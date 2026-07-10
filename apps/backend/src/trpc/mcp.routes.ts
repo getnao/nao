@@ -1,48 +1,48 @@
 import { z } from 'zod/v4';
 
-import * as mcpConfigQueries from '../queries/project.queries';
+import { setMcpServerEnabled, setMcpToolEnabled, setMcpToolsEnabled } from '../queries/project.queries';
 import { mcpService } from '../services/mcp';
 import { adminProtectedProcedure, projectProtectedProcedure, router } from './trpc';
 
-const applyEnabledToolsUpdate = async (projectId: string, updater: (current: string[]) => string[]) => {
-	await mcpConfigQueries.updateEnabledToolsAndKnownServers(projectId, ({ enabledTools, knownServers }) => ({
-		enabledTools: updater(enabledTools),
-		knownServers,
-	}));
-	await mcpService.refreshToolAvailability(projectId);
-	return mcpService.cachedMcpState;
-};
-
 export const mcpRoutes = router({
-	getState: projectProtectedProcedure.query(async ({ ctx }) => {
-		await mcpService.initializeMcpState(ctx.project.id);
-		return mcpService.cachedMcpState;
+	getServers: projectProtectedProcedure.query(({ ctx }) => mcpService.getServersStatus(ctx.project.id, ctx.user.id)),
+
+	getConfigError: projectProtectedProcedure.query(({ ctx }) => mcpService.getConfigError(ctx.project.id)),
+
+	discover: adminProtectedProcedure.mutation(async ({ ctx }) => {
+		await mcpService.discover(ctx.project.id);
+		return mcpService.getServersStatus(ctx.project.id, ctx.user.id);
 	}),
 
-	reconnect: adminProtectedProcedure.mutation(async ({ ctx }) => {
-		await mcpService.initializeMcpState(ctx.project.id);
-		await mcpService.loadMcpState();
-		return mcpService.cachedMcpState;
-	}),
+	discoverServer: adminProtectedProcedure
+		.input(z.object({ serverName: z.string() }))
+		.mutation(async ({ ctx, input }) => {
+			await mcpService.discoverServer(ctx.project.id, input.serverName);
+			return mcpService.getServersStatus(ctx.project.id, ctx.user.id);
+		}),
 
-	toggleTool: adminProtectedProcedure
-		.input(z.object({ toolName: z.string(), enabled: z.boolean() }))
-		.mutation(({ ctx, input }) =>
-			applyEnabledToolsUpdate(ctx.project.id, (current) =>
-				input.enabled
-					? [...new Set([...current, input.toolName])]
-					: current.filter((t) => t !== input.toolName),
-			),
-		),
-
-	setAllServerTools: adminProtectedProcedure
+	setServerEnabled: adminProtectedProcedure
 		.input(z.object({ serverName: z.string(), enabled: z.boolean() }))
-		.mutation(({ ctx, input }) => {
-			const serverTools = mcpService.cachedMcpState[input.serverName]?.tools.map((t) => t.name) ?? [];
-			return applyEnabledToolsUpdate(ctx.project.id, (current) =>
-				input.enabled
-					? [...new Set([...current, ...serverTools])]
-					: current.filter((t) => !serverTools.includes(t)),
-			);
+		.mutation(async ({ ctx, input }) => {
+			await setMcpServerEnabled(ctx.project.id, input.serverName, input.enabled);
+			await mcpService.applyEnablement(ctx.project.id, input.serverName);
+			return mcpService.getServersStatus(ctx.project.id, ctx.user.id);
+		}),
+
+	setToolEnabled: adminProtectedProcedure
+		.input(z.object({ serverName: z.string(), toolName: z.string(), enabled: z.boolean() }))
+		.mutation(async ({ ctx, input }) => {
+			await setMcpToolEnabled(ctx.project.id, `${input.serverName}/${input.toolName}`, input.enabled);
+			await mcpService.applyEnablement(ctx.project.id, input.serverName);
+			return mcpService.getServersStatus(ctx.project.id, ctx.user.id);
+		}),
+
+	setToolsEnabled: adminProtectedProcedure
+		.input(z.object({ serverName: z.string(), toolNames: z.array(z.string()), enabled: z.boolean() }))
+		.mutation(async ({ ctx, input }) => {
+			const keys = input.toolNames.map((toolName) => `${input.serverName}/${toolName}`);
+			await setMcpToolsEnabled(ctx.project.id, keys, input.enabled);
+			await mcpService.applyEnablement(ctx.project.id, input.serverName);
+			return mcpService.getServersStatus(ctx.project.id, ctx.user.id);
 		}),
 });

@@ -47,7 +47,7 @@ export function SidebarCommunity({ isCollapsed }: SidebarCommunityProps) {
 					<GithubIcon className='size-3.5' />
 				</a>
 				<a
-					href='https://join.slack.com/t/naolabs/shared_invite/zt-3cgdql4up-Az9FxGkTb8Qr34z2Dxp9TQ'
+					href='https://join.slack.com/t/naolabs/shared_invite/zt-4080jlm79-nm52x5nZhG2N1ben8zwpiQ'
 					target='_blank'
 					rel='noopener noreferrer'
 					className={cn(

@@ -1,4 +1,6 @@
-export const CONTEXT_RECOMMENDATION_RUN_STATUSES = ['running', 'completed', 'failed'] as const;
+import type { RepoProvider } from '@nao/shared/types';
+
+export const CONTEXT_RECOMMENDATION_RUN_STATUSES = ['running', 'completed', 'failed', 'cancelled'] as const;
 export type ContextRecommendationRunStatus = (typeof CONTEXT_RECOMMENDATION_RUN_STATUSES)[number];
 
 export const CONTEXT_RECOMMENDATION_RUN_TRIGGERS = ['schedule', 'manual'] as const;
@@ -55,11 +57,12 @@ export interface RecommendationImpact {
 export const CONTEXT_RECOMMENDATION_FIX_KINDS = ['patch', 'manual'] as const;
 export type ContextRecommendationFixKind = (typeof CONTEXT_RECOMMENDATION_FIX_KINDS)[number];
 
-/** Set when an edit targets a linked GitHub repo instead of the context repo. */
+/** Set when an edit targets a linked GitHub or GitLab repo instead of the context repo. */
 export interface ProposedEditTargetRepo {
 	repoFullName: string;
 	branch: string | null;
 	path: string;
+	provider: RepoProvider;
 }
 
 export interface ProposedEdit {
@@ -83,4 +86,6 @@ export interface LinkedContextRepo {
 	branch: string | null;
 	localPath: string | null;
 	repoFullName: string | null;
+	/** Only set when `repoFullName` is resolved from a recognized GitHub or GitLab URL. */
+	provider: RepoProvider | null;
 }

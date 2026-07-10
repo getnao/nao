@@ -584,7 +584,17 @@ export async function createIssue(
 
 /** Extracts the `owner/repo` and PR number from a GitHub pull request URL. */
 export function parsePullRequestUrl(url: string): { repo: string; number: number } | null {
-	const match = url.match(/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/);
+	let parsedUrl: URL;
+	try {
+		parsedUrl = new URL(url);
+	} catch {
+		return null;
+	}
+	if (parsedUrl.hostname !== 'github.com') {
+		return null;
+	}
+
+	const match = parsedUrl.pathname.match(/^\/([^/]+\/[^/]+)\/pull\/(\d+)$/);
 	if (!match) {
 		return null;
 	}

@@ -14,6 +14,8 @@ import {
 	NewCredentialsDialog,
 } from '@/components/settings/team';
 import { GitHubRepoPicker } from '@/components/settings/github-repo-picker';
+import { GitLabRepoPicker } from '@/components/settings/gitlab-repo-picker';
+import GitlabIcon from '@/components/icons/gitlab-icon.svg';
 import { OrgApiKeys } from '@/components/settings/org-api-keys';
 import { OrgSignInDomains } from '@/components/settings/org-signin-domains';
 import { Badge } from '@/components/ui/badge';
@@ -46,8 +48,15 @@ function OrganizationPage() {
 		enabled: githubAvailable.data === true,
 	});
 
+	const gitlabAvailable = useQuery(trpc.gitlab.isAvailable.queryOptions());
+	const gitlabStatus = useQuery({
+		...trpc.gitlab.getStatus.queryOptions(),
+		enabled: gitlabAvailable.data === true,
+	});
+
 	const [isAddOpen, setIsAddOpen] = useState(false);
 	const [repoPickerOpen, setRepoPickerOpen] = useState(false);
+	const [gitlabPickerOpen, setGitlabPickerOpen] = useState(false);
 	const [editMember, setEditMember] = useState<TeamMember | null>(null);
 	const [removeMember, setRemoveMember] = useState<TeamMember | null>(null);
 	const [resetPasswordMember, setResetPasswordMember] = useState<TeamMember | null>(null);
@@ -119,22 +128,42 @@ function OrganizationPage() {
 
 	const isGithubConnected = githubStatus.data?.connected === true;
 	const showGithubImport = githubAvailable.data === true;
+	const isGitlabConnected = gitlabStatus.data?.connected === true;
+	const showGitlabImport = gitlabAvailable.data === true;
 
-	const projectsAction = showGithubImport ? (
-		isGithubConnected ? (
-			<Button variant='secondary' size='sm' onClick={() => setRepoPickerOpen(true)}>
-				<Github className='size-3.5' />
-				Import from GitHub
-			</Button>
-		) : (
-			<Button variant='secondary' size='sm' asChild>
-				<a href='/api/github/connect'>
-					<Github className='size-3.5' />
-					Import from GitHub
-				</a>
-			</Button>
-		)
-	) : undefined;
+	const projectsAction =
+		showGithubImport || showGitlabImport ? (
+			<div className='flex flex-wrap gap-2'>
+				{showGithubImport &&
+					(isGithubConnected ? (
+						<Button variant='secondary' size='sm' onClick={() => setRepoPickerOpen(true)}>
+							<Github className='size-3.5' />
+							Import from GitHub
+						</Button>
+					) : (
+						<Button variant='secondary' size='sm' asChild>
+							<a href='/api/github/connect'>
+								<Github className='size-3.5' />
+								Import from GitHub
+							</a>
+						</Button>
+					))}
+				{showGitlabImport &&
+					(isGitlabConnected ? (
+						<Button variant='secondary' size='sm' onClick={() => setGitlabPickerOpen(true)}>
+							<GitlabIcon className='size-3.5' />
+							Import from GitLab
+						</Button>
+					) : (
+						<Button variant='secondary' size='sm' asChild>
+							<a href='/api/gitlab/connect'>
+								<GitlabIcon className='size-3.5' />
+								Import from GitLab
+							</a>
+						</Button>
+					))}
+			</div>
+		) : undefined;
 
 	return (
 		<SettingsPageWrapper>
@@ -250,6 +279,7 @@ function OrganizationPage() {
 			/>
 
 			<GitHubRepoPicker open={repoPickerOpen} onOpenChange={setRepoPickerOpen} />
+			<GitLabRepoPicker open={gitlabPickerOpen} onOpenChange={setGitlabPickerOpen} />
 		</SettingsPageWrapper>
 	);
 }

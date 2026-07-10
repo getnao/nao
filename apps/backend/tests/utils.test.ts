@@ -2,7 +2,26 @@ import { describe, expect, it } from 'vitest';
 
 import type { UIMessage, UIMessagePart } from '../src/types/chat';
 import { settleInterruptedToolParts } from '../src/utils/ai';
-import { truncateMiddle } from '../src/utils/utils';
+import { buildUsernameAllowlist, truncateMiddle } from '../src/utils/utils';
+
+describe('buildUsernameAllowlist', () => {
+	it('returns an empty set when unset', () => {
+		expect(buildUsernameAllowlist(undefined).size).toBe(0);
+	});
+
+	it('normalizes entries to lowercase so matching is case-insensitive', () => {
+		const allowlist = buildUsernameAllowlist('Alice, BOB , charlie');
+		expect(allowlist.has('alice')).toBe(true);
+		expect(allowlist.has('Alice')).toBe(false);
+		expect(allowlist.has('bob')).toBe(true);
+		expect(allowlist.has('charlie')).toBe(true);
+	});
+
+	it('drops empty entries produced by stray commas', () => {
+		const allowlist = buildUsernameAllowlist('alice,, ,bob');
+		expect(allowlist.size).toBe(2);
+	});
+});
 
 describe('truncateMiddle', () => {
 	it('returns the string unchanged when shorter than maxLength', () => {

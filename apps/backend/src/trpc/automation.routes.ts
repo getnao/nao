@@ -64,7 +64,7 @@ const integrationSchema = z
 const writeAutomationSchema = z.object({
 	title: z.string().trim().min(1).max(255),
 	prompt: z.string().trim().min(1).max(20_000),
-	cron: z.string().trim().min(1),
+	cron: z.string().trim().default(''),
 	scheduleDescription: z.string().trim().max(255).optional(),
 	timezone: z.string().trim().max(100).optional(),
 	modelProvider: llmProviderSchema.optional(),
@@ -73,6 +73,7 @@ const writeAutomationSchema = z.object({
 	mcpEnabled: z.boolean().default(true),
 	mcpServers: z.array(z.string().trim().min(1)).optional(),
 	integrations: integrationSchema,
+	webhookEnabled: z.boolean().default(false),
 });
 
 const createAutomationSchema = writeAutomationSchema.extend({
@@ -100,7 +101,7 @@ export const automationRoutes = {
 	}),
 
 	create: automationProcedure.input(createAutomationSchema).mutation(async ({ ctx, input }) => {
-		assertValidCron(input.cron);
+		assertTriggers(input.cron, input.webhookEnabled);
 		const { cron, enabled, title, ...promptInput } = input;
 		const resolvedTitle = title?.trim() || (await inferAutomationTitle(ctx.project.id, input.prompt));
 		const automation = await automationQueries.createAutomation({
@@ -120,7 +121,7 @@ export const automationRoutes = {
 	update: automationProcedure
 		.input(writeAutomationSchema.extend({ id: z.string() }))
 		.mutation(async ({ ctx, input }) => {
-			assertValidCron(input.cron);
+			assertTriggers(input.cron, input.webhookEnabled);
 			const { id, cron, enabled, ...data } = input;
 			const automation = await automationQueries.updateAutomation(ctx.project.id, ctx.user.id, id, {
 				...data,
@@ -200,20 +201,31 @@ export const automationRoutes = {
 		}),
 };
 
+/**
+ * Reconciles an automation's schedule trigger with its linked scheduled job.
+ * An empty cron means the automation has no schedule trigger (e.g. it only
+ * runs via webhook), so any existing job is removed and the link cleared.
+ */
 async function syncAutomationJob(
 	automation: Pick<AutomationWithSchedule, 'id'>,
 	cron: string,
 	enabled: boolean,
 ): Promise<AutomationWithSchedule> {
+	const trimmedCron = cron.trim();
+	if (!trimmedCron) {
+		return removeAutomationSchedule(automation.id);
+	}
+
+	assertValidCron(trimmedCron);
 	const uniqueKey = automationQueries.automationJobUniqueKey(automation.id);
-	const runAt = nextCronTick(cron, new Date());
+	const runAt = nextCronTick(trimmedCron, new Date());
 	if (!runAt) {
-		throw new Error(`Invalid cron expression: ${cron}`);
+		throw new Error(`Invalid cron expression: ${trimmedCron}`);
 	}
 
 	const job = await scheduledJobQueries.upsertRecurringJob({
 		name: AUTOMATION_JOB_NAME,
-		cron,
+		cron: trimmedCron,
 		uniqueKey,
 		payload: { automationId: automation.id },
 		runAt,
@@ -227,6 +239,28 @@ async function syncAutomationJob(
 		throw new Error(`Automation not found after scheduling: ${automation.id}`);
 	}
 	return linked;
+}
+
+async function removeAutomationSchedule(automationId: string): Promise<AutomationWithSchedule> {
+	const current = await automationQueries.getAutomationById(automationId);
+	if (current?.scheduledJobId) {
+		await scheduledJobQueries.deleteJob(current.scheduledJobId);
+		await automationQueries.linkAutomationJob(automationId, null);
+	}
+	const cleared = await automationQueries.getAutomationById(automationId);
+	if (!cleared) {
+		throw new Error(`Automation not found after scheduling: ${automationId}`);
+	}
+	return cleared;
+}
+
+function assertTriggers(cron: string, webhookEnabled: boolean): void {
+	if (!cron.trim() && !webhookEnabled) {
+		throw new TRPCError({ code: 'BAD_REQUEST', message: 'Add at least one trigger.' });
+	}
+	if (cron.trim()) {
+		assertValidCron(cron.trim());
+	}
 }
 
 function assertValidCron(cron: string): void {

@@ -139,4 +139,10 @@ export type NewStoryFolder = typeof sqliteSchema.storyFolder.$inferInsert;
 export type DBStoryFolderItem = typeof sqliteSchema.storyFolderItem.$inferSelect;
 export type NewStoryFolderItem = typeof sqliteSchema.storyFolderItem.$inferInsert;
 
+export type DBMcpOAuthClient = typeof sqliteSchema.mcpOAuthClient.$inferSelect;
+export type NewMcpOAuthClient = typeof sqliteSchema.mcpOAuthClient.$inferInsert;
+
+export type DBMcpUserToken = typeof sqliteSchema.mcpUserToken.$inferSelect;
+export type NewMcpUserToken = typeof sqliteSchema.mcpUserToken.$inferInsert;
+
 export default allSchema as typeof sqliteSchema;

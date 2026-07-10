@@ -12,17 +12,43 @@ export interface McpServerConfig {
 	env?: Record<string, string>;
 }
 
-export interface McpServerState {
-	tools: Array<{
-		name: string;
-		description?: string;
-		input_schema: unknown;
-		enabled: boolean;
-	}>;
-	error?: string;
+export type McpTransport = 'http' | 'stdio';
+
+export interface McpToolSummary {
+	name: string;
+	description?: string;
+	/** Whether the agent is allowed to use this tool (server enabled and tool not disabled). */
+	enabled: boolean;
 }
 
-export type McpState = Record<string, McpServerState>;
+/**
+ * Status of a single MCP server configured in `agent/mcps/mcp.json`. Tools are no
+ * longer loaded into the agent context window — each enabled tool is discovered into a
+ * per-tool OpenAPI spec on disk and invoked on demand via the `mcp_call` tool.
+ */
+export interface McpServerStatus {
+	name: string;
+	transport: McpTransport;
+	/** Origin of the server URL for HTTP servers (used to display the server favicon). */
+	url?: string;
+	/** Whether the server is enabled (a disabled server turns all its tools off). */
+	enabled: boolean;
+	/** Whether tool specs exist on disk (or tools were discovered this session). */
+	discovered: boolean;
+	/** Whether the last connection attempt succeeded. */
+	connectionOk: boolean;
+	/** Whether the server requires per-user OAuth (admin connects for discovery, users connect to call). */
+	oauth: boolean;
+	/** Whether the requesting user has connected their account for this OAuth server. */
+	oauthConnected: boolean;
+	toolCount: number;
+	enabledToolCount: number;
+	tools: McpToolSummary[];
+	/** Virtual path (project-relative) of the server's generated specs folder. */
+	specPath: string;
+	/** Last connection error for this server, if any. */
+	error?: string;
+}
 
 export const mcpJsonSchema = z.object({
 	mcpServers: z.record(

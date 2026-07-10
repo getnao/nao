@@ -62,7 +62,7 @@ const settingsNavItems: NavItem[] = [
 		visible: ({ isAdmin, isContextAdmin }) => isAdmin || isContextAdmin,
 	},
 	{
-		label: 'Chat with nao',
+		label: 'Chat with nao data',
 		to: '/',
 		search: { admin: true },
 		visible: ({ isAdmin }) => isAdmin,

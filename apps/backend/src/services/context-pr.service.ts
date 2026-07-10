@@ -2,14 +2,81 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+import type { RepoProvider } from '@nao/shared/types';
+
 import type { DBContextRecommendation } from '../db/abstractSchema';
 import * as crQueries from '../queries/context-recommendation.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as userQueries from '../queries/user.queries';
-import { ProposedEdit } from '../types/context-recommendation';
+import { ProposedEdit, ProposedEditTargetRepo } from '../types/context-recommendation';
 import { logger } from '../utils/logger';
 import { isHumanWritableContextPath } from '../utils/nao-context-paths';
 import * as github from './github';
+import * as gitlab from './gitlab';
+
+/** Git commit author/co-author identity. Defined here since it's a provider-agnostic concept, not owned by either. */
+interface GitIdentity {
+	name: string;
+	email: string;
+}
+
+/** Provider-specific glue for `createReviewRequest` — everything else about opening a PR/MR is identical. */
+interface ReviewRequestProvider {
+	getToken: (userId: string) => Promise<string | null>;
+	notConnectedMessage: string;
+	cloneRepo: (token: string, repoFullName: string, dir: string) => void;
+	getGitInfo: (dir: string) => { branch: string | null };
+	getUserGitIdentity: (token: string) => Promise<GitIdentity>;
+	coAuthor: GitIdentity;
+	commitAllAndPushBranch: (args: {
+		token: string;
+		repoFullName: string;
+		dir: string;
+		branch: string;
+		message: string;
+		author: GitIdentity;
+		coAuthors?: GitIdentity[];
+	}) => void;
+	openReviewRequest: (
+		token: string,
+		repoFullName: string,
+		args: { title: string; head: string; base: string; body: string },
+	) => Promise<{ url: string }>;
+}
+
+const REVIEW_REQUEST_PROVIDERS: Record<RepoProvider, ReviewRequestProvider> = {
+	github: {
+		getToken: userQueries.getGithubToken,
+		notConnectedMessage: 'GitHub is not connected. Connect your GitHub account first.',
+		cloneRepo: github.cloneRepo,
+		getGitInfo: github.getGitInfo,
+		getUserGitIdentity: github.getUserGitIdentity,
+		coAuthor: github.NAO_CO_AUTHOR,
+		commitAllAndPushBranch: github.commitAllAndPushBranch,
+		openReviewRequest: async (token, repoFullName, { title, head, base, body }) => {
+			const pr = await github.createPullRequest(token, repoFullName, { title, head, base, body });
+			return { url: pr.html_url };
+		},
+	},
+	gitlab: {
+		getToken: userQueries.getGitlabToken,
+		notConnectedMessage: 'GitLab is not connected. Connect your GitLab account first.',
+		cloneRepo: gitlab.cloneRepo,
+		getGitInfo: gitlab.getGitInfo,
+		getUserGitIdentity: gitlab.getUserGitIdentity,
+		coAuthor: gitlab.NAO_CO_AUTHOR,
+		commitAllAndPushBranch: gitlab.commitAllAndPushBranch,
+		openReviewRequest: async (token, repoFullName, { title, head, base, body }) => {
+			const mr = await gitlab.createMergeRequest(token, repoFullName, {
+				title,
+				source_branch: head,
+				target_branch: base,
+				description: body,
+			});
+			return { url: mr.web_url };
+		},
+	},
+};
 
 export interface CreatePullRequestResult {
 	url: string;
@@ -20,27 +87,57 @@ export interface RecommendationRepo {
 	repoFullName: string;
 	branch: string | null;
 	source: 'project' | 'settings' | 'linked';
+	provider: RepoProvider;
+	webUrl: string;
+}
+
+function buildRepoWebUrl(provider: RepoProvider, repoFullName: string): string {
+	const base = provider === 'gitlab' ? gitlab.gitlabBaseUrl() : 'https://github.com';
+	return `${base}/${repoFullName}`;
 }
 
 /**
- * Resolves the GitHub repository used for context pull requests. The project's own
- * git remote wins when it points at GitHub; otherwise we fall back to the repository
- * configured on the recommendations settings page (for projects deployed via
- * `nao deploy` or a mounted volume, where the folder is not a GitHub clone).
+ * Resolves the Git repository (GitHub or GitLab) used for context pull/merge requests.
+ * The project's own git remote wins when it points at GitHub or GitLab; otherwise we fall
+ * back to the repository configured on the recommendations settings page.
  */
 export async function resolveRecommendationRepo(projectId: string): Promise<RecommendationRepo | null> {
 	const project = await projectQueries.getProjectById(projectId);
 	if (project?.path) {
-		const gitInfo = github.getGitInfo(project.path);
-		if (gitInfo.isGithub && gitInfo.repoFullName) {
-			return { repoFullName: gitInfo.repoFullName, branch: gitInfo.branch, source: 'project' };
+		const githubInfo = github.getGitInfo(project.path);
+		if (githubInfo.isGithub && githubInfo.repoFullName) {
+			return {
+				repoFullName: githubInfo.repoFullName,
+				branch: githubInfo.branch,
+				source: 'project',
+				provider: 'github',
+				webUrl: buildRepoWebUrl('github', githubInfo.repoFullName),
+			};
+		}
+
+		const gitlabInfo = gitlab.getGitInfo(project.path);
+		if (gitlabInfo.isGitlab && gitlabInfo.repoFullName) {
+			return {
+				repoFullName: gitlabInfo.repoFullName,
+				branch: gitlabInfo.branch,
+				source: 'project',
+				provider: 'gitlab',
+				webUrl: buildRepoWebUrl('gitlab', gitlabInfo.repoFullName),
+			};
 		}
 	}
 
 	const config = await crQueries.getConfig(projectId);
 	const configured = config?.repoFullName;
 	if (configured) {
-		return { repoFullName: configured, branch: null, source: 'settings' };
+		const provider = config.repoProvider ?? 'github';
+		return {
+			repoFullName: configured,
+			branch: null,
+			source: 'settings',
+			provider,
+			webUrl: buildRepoWebUrl(provider, configured),
+		};
 	}
 	return null;
 }
@@ -110,13 +207,8 @@ export async function createRecommendationPullRequest(
 	const repo = await resolvePullRequestRepo(projectId, rec.proposedEdits);
 	if (!repo) {
 		throw new Error(
-			'No GitHub repository is configured for this project. Select one in Settings → Recommendations.',
+			'No GitHub or GitLab repository is configured for this project. Select one in Settings → Recommendations.',
 		);
-	}
-
-	const token = await userQueries.getGithubToken(userId);
-	if (!token) {
-		throw new Error('GitHub is not connected. Connect your GitHub account first.');
 	}
 
 	const edits = filterPullRequestEdits(rec.proposedEdits);
@@ -129,32 +221,20 @@ export async function createRecommendationPullRequest(
 	const workdir = fs.mkdtempSync(path.join(os.tmpdir(), 'nao-context-pr-'));
 
 	try {
-		github.cloneRepo(token, repoFullName, workdir);
-		const base = repo.branch ?? github.getGitInfo(workdir).branch ?? 'main';
-
-		applyEdits(workdir, edits);
-
-		const author = await github.getUserGitIdentity(token);
-		github.commitAllAndPushBranch({
-			token,
+		const { url } = await createReviewRequest({
+			provider: REVIEW_REQUEST_PROVIDERS[repo.provider],
+			userId,
 			repoFullName,
-			dir: workdir,
+			workdir,
 			branch,
-			message: commitMessage(rec),
-			author,
-			coAuthors: [github.NAO_CO_AUTHOR],
-		});
-
-		const pr = await github.createPullRequest(token, repoFullName, {
-			title: prTitle(rec),
-			head: branch,
-			base,
-			body: prBody(rec, edits),
+			configuredBase: repo.branch,
+			rec,
+			edits,
 		});
 
 		const prCreatedAt = new Date();
-		await crQueries.setRecommendationPr(rec.id, { prUrl: pr.html_url, prBranch: branch, prCreatedAt });
-		return { url: pr.html_url, branch };
+		await crQueries.setRecommendationPr(rec.id, { prUrl: url, prBranch: branch, prCreatedAt });
+		return { url, branch };
 	} finally {
 		try {
 			fs.rmSync(workdir, { recursive: true, force: true });
@@ -162,6 +242,52 @@ export async function createRecommendationPullRequest(
 			logger.error(`Failed to clean up PR workdir ${workdir}: ${String(err)}`, { source: 'agent' });
 		}
 	}
+}
+
+/**
+ * Clones the repo, applies the edits as a commit on a new branch, pushes it, and opens the
+ * review request. Identical across providers except for the token lookup and how the review
+ * request itself is created — both captured by `provider`.
+ */
+async function createReviewRequest(args: {
+	provider: ReviewRequestProvider;
+	userId: string;
+	repoFullName: string;
+	workdir: string;
+	branch: string;
+	configuredBase: string | null;
+	rec: DBContextRecommendation;
+	edits: ProposedEdit[];
+}): Promise<{ url: string }> {
+	const { provider, userId, repoFullName, workdir, branch, configuredBase, rec, edits } = args;
+
+	const token = await provider.getToken(userId);
+	if (!token) {
+		throw new Error(provider.notConnectedMessage);
+	}
+
+	provider.cloneRepo(token, repoFullName, workdir);
+	const base = configuredBase ?? provider.getGitInfo(workdir).branch ?? 'main';
+
+	applyEdits(workdir, edits);
+
+	const author = await provider.getUserGitIdentity(token);
+	provider.commitAllAndPushBranch({
+		token,
+		repoFullName,
+		dir: workdir,
+		branch,
+		message: commitMessage(rec),
+		author,
+		coAuthors: [provider.coAuthor],
+	});
+
+	return provider.openReviewRequest(token, repoFullName, {
+		title: prTitle(rec),
+		head: branch,
+		base,
+		body: prBody(rec, edits),
+	});
 }
 
 /**
@@ -175,10 +301,10 @@ function canOpenPullRequest(edits: ProposedEdit[], contextRepo: RecommendationRe
 }
 
 function resolvePullRequestRepo(projectId: string, edits: ProposedEdit[]): Promise<RecommendationRepo | null> {
-	const targetRepos = new Map<string, string | null>();
+	const targetRepos = new Map<string, ProposedEditTargetRepo>();
 	for (const edit of edits) {
 		if (edit.targetRepo) {
-			targetRepos.set(edit.targetRepo.repoFullName, edit.targetRepo.branch);
+			targetRepos.set(edit.targetRepo.repoFullName, edit.targetRepo);
 		}
 	}
 
@@ -192,8 +318,14 @@ function resolvePullRequestRepo(projectId: string, edits: ProposedEdit[]): Promi
 		throw new Error('A recommendation cannot mix context repository edits with linked repository edits.');
 	}
 
-	const [[repoFullName, branch]] = targetRepos;
-	return Promise.resolve({ repoFullName, branch, source: 'linked' });
+	const [target] = targetRepos.values();
+	return Promise.resolve({
+		repoFullName: target.repoFullName,
+		branch: target.branch,
+		source: 'linked',
+		provider: target.provider,
+		webUrl: buildRepoWebUrl(target.provider, target.repoFullName),
+	});
 }
 
 function filterPullRequestEdits(edits: ProposedEdit[]): ProposedEdit[] {

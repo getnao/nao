@@ -34,6 +34,7 @@ vi.mock('../src/queries/project.queries', () => ({
 
 vi.mock('../src/queries/user.queries', () => ({
 	getGithubToken: mocks.getGithubToken,
+	getGitlabToken: vi.fn(),
 }));
 
 vi.mock('../src/utils/logger', () => ({
@@ -55,7 +56,7 @@ vi.mock('../src/services/github', () => ({
 
 describe('createRecommendationPullRequest', () => {
 	beforeEach(() => {
-		vi.clearAllMocks();
+		vi.resetAllMocks();
 		mocks.getProjectById.mockResolvedValue({ path: null });
 		mocks.getConfig.mockResolvedValue({ repoFullName: 'nao/context' });
 		mocks.getGithubToken.mockResolvedValue('github-token');
@@ -91,7 +92,12 @@ describe('createRecommendationPullRequest', () => {
 			recommendation([
 				edit({
 					path: 'repos/dbt-models/models/orders.sql',
-					targetRepo: { repoFullName: 'nao/dbt-models', branch: 'main', path: 'models/orders.sql' },
+					targetRepo: {
+						repoFullName: 'nao/dbt-models',
+						branch: 'main',
+						path: 'models/orders.sql',
+						provider: 'github',
+					},
 				}),
 			]),
 		);
@@ -121,7 +127,12 @@ describe('createRecommendationPullRequest', () => {
 				edit(),
 				edit({
 					path: 'repos/dbt-models/models/orders.sql',
-					targetRepo: { repoFullName: 'nao/dbt-models', branch: null, path: 'models/orders.sql' },
+					targetRepo: {
+						repoFullName: 'nao/dbt-models',
+						branch: null,
+						path: 'models/orders.sql',
+						provider: 'github',
+					},
 				}),
 			]),
 		);

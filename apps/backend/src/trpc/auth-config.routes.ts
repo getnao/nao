@@ -6,6 +6,7 @@ import { env, isCloud } from '../env';
 import * as orgQueries from '../queries/organization.queries';
 import { emailService } from '../services/email';
 import { isGithubSsoEnabled } from '../services/github';
+import { isGitlabSsoEnabled } from '../services/gitlab';
 import { hasFeature, LICENSE_FEATURES } from '../services/license.service';
 import { isMicrosoftConfigured } from '../services/microsoft-auth.service';
 import { getOidcProviderId, isOidcConfigured } from '../services/oidc-auth.service';
@@ -62,6 +63,9 @@ export const authConfigRoutes = {
 	},
 	github: {
 		isSetup: publicProcedure.query(() => isGithubSsoEnabled()),
+	},
+	gitlab: {
+		isSetup: publicProcedure.query(() => isGitlabSsoEnabled()),
 	},
 	microsoft: {
 		isSetup: publicProcedure.query(async () => {

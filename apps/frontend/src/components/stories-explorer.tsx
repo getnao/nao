@@ -22,6 +22,11 @@ export function StoriesExplorer({
 	onArchiveFolder,
 	onRestoreFolder,
 	onNewFolder,
+	selectedStoryIds,
+	selectedFolderIds,
+	onToggleStory,
+	onToggleFolder,
+	selectionMode = false,
 }: {
 	entries: ExplorerEntry[];
 	displayMode: StoryPanelDisplayMode;
@@ -36,11 +41,17 @@ export function StoriesExplorer({
 	onArchiveFolder: (folder: FolderItem) => void;
 	onRestoreFolder: (folder: FolderItem) => void;
 	onNewFolder: () => void;
+	selectedStoryIds: Set<string>;
+	selectedFolderIds: Set<string>;
+	onToggleStory: (storyId: string) => void;
+	onToggleFolder: (folderId: string) => void;
+	selectionMode?: boolean;
 }) {
 	const { isViewer } = usePermissions();
 	const isInSharedWithMe = currentFolderId === '__shared_with_me__';
 	const canCreateFolder = !showArchived && !isViewer && !isInSharedWithMe;
 	const moveToFolderHandler = isViewer || isInSharedWithMe ? undefined : onMoveToFolder;
+	const selectionActive = selectionMode || selectedStoryIds.size + selectedFolderIds.size > 0;
 
 	if (entries.length === 0) {
 		if (searchQuery.trim()) {
@@ -78,6 +89,9 @@ export function StoriesExplorer({
 								onDelete={onDeleteFolder}
 								onArchive={onArchiveFolder}
 								onRestore={onRestoreFolder}
+								selected={selectedFolderIds.has(entry.folder.id)}
+								selectionActive={selectionActive}
+								onToggleSelect={onToggleFolder}
 							/>
 						);
 					}
@@ -88,6 +102,9 @@ export function StoriesExplorer({
 							displayMode='lines'
 							showArchived={showArchived}
 							onMoveToFolder={moveToFolderHandler}
+							selected={selectedStoryIds.has(entry.story.storyId)}
+							selectionActive={selectionActive}
+							onToggleSelect={onToggleStory}
 						/>
 					);
 				})}
@@ -110,6 +127,9 @@ export function StoriesExplorer({
 						onDelete={onDeleteFolder}
 						onArchive={onArchiveFolder}
 						onRestore={onRestoreFolder}
+						selected={selectedFolderIds.has(entry.folder.id)}
+						selectionActive={selectionActive}
+						onToggleSelect={onToggleFolder}
 					/>
 				))}
 				{canCreateFolder && <NewFolderCard onClick={onNewFolder} />}
@@ -123,6 +143,9 @@ export function StoriesExplorer({
 							displayMode='grid'
 							showArchived={showArchived}
 							onMoveToFolder={moveToFolderHandler}
+							selected={selectedStoryIds.has(entry.story.storyId)}
+							selectionActive={selectionActive}
+							onToggleSelect={onToggleStory}
 						/>
 					))}
 				</div>

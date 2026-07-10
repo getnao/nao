@@ -1,8 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import type { RepoProvider } from '@nao/shared/types';
 import yaml from 'js-yaml';
 
+import { escapeRegExp, gitlabBaseUrl } from '../services/gitlab';
 import type { LinkedContextRepo } from '../types/context-recommendation';
 import { logger } from './logger';
 
@@ -44,6 +46,7 @@ export function extractConfiguredRepos(projectFolder: string): LinkedContextRepo
 		const branch = typeof repo.branch === 'string' && repo.branch.trim() !== '' ? repo.branch.trim() : null;
 		const localPath =
 			typeof repo.local_path === 'string' && repo.local_path.trim() !== '' ? repo.local_path.trim() : null;
+		const parsed = url ? parseRepoFullName(url) : null;
 
 		return [
 			{
@@ -52,7 +55,8 @@ export function extractConfiguredRepos(projectFolder: string): LinkedContextRepo
 				url,
 				branch,
 				localPath,
-				repoFullName: url ? parseGithubRepoFullName(url) : null,
+				repoFullName: parsed?.repoFullName ?? null,
+				provider: parsed?.provider ?? null,
 			},
 		];
 	});
@@ -73,10 +77,27 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+function parseRepoFullName(url: string): { repoFullName: string; provider: RepoProvider } | null {
+	const githubRepoFullName = parseGithubRepoFullName(url);
+	if (githubRepoFullName) {
+		return { repoFullName: githubRepoFullName, provider: 'github' };
+	}
+
+	const gitlabRepoFullName = parseGitlabRepoFullName(url);
+	if (gitlabRepoFullName) {
+		return { repoFullName: gitlabRepoFullName, provider: 'gitlab' };
+	}
+
+	return null;
+}
+
 function parseGithubRepoFullName(url: string): string | null {
 	const match = url.match(/github\.com[:/]([^/\s]+)\/([^/\s#?]+?)(?:\.git)?(?:[#?].*)?$/i);
-	if (!match) {
-		return null;
-	}
-	return `${match[1]}/${match[2].replace(/\.git$/i, '')}`;
+	return match ? `${match[1]}/${match[2]}` : null;
+}
+
+function parseGitlabRepoFullName(url: string): string | null {
+	const host = gitlabBaseUrl().replace(/^https?:\/\//, '');
+	const match = url.match(new RegExp(`${escapeRegExp(host)}[:/](.+?)(?:\\.git)?(?:[#?].*)?$`, 'i'));
+	return match ? match[1] : null;
 }

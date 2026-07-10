@@ -186,3 +186,18 @@ class TestDatabaseContext:
     def test_column_count_uses_filtered_columns(self):
         ctx, _ = self._make_context(exclude_columns=["*.name"])
         assert ctx.column_count() == 1
+
+
+class TestNormalizeType:
+    def test_strips_not_null_suffix(self):
+        assert DatabaseContext._normalize_type("int64 NOT NULL") == "int64"
+
+    def test_int64_is_reported_as_is(self):
+        assert DatabaseContext._normalize_type("int64") == "int64"
+
+    def test_parameterized_string_collapses_to_string(self):
+        assert DatabaseContext._normalize_type("String(255)") == "string"
+
+    def test_other_types_pass_through(self):
+        assert DatabaseContext._normalize_type("Int64") == "Int64"
+        assert DatabaseContext._normalize_type("timestamp('UTC')") == "timestamp('UTC')"

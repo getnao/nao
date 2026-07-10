@@ -1,6 +1,8 @@
 export { isPythonAvailable } from './execute-python';
 export { isSandboxAvailable } from './execute-sandboxed-code';
 
+import type { Tool } from 'ai';
+
 import { mcpService } from '../../services/mcp';
 import { AgentSettings } from '../../types/agent-settings';
 import clarification from './clarification';
@@ -10,6 +12,7 @@ import executeSandboxedCode from './execute-sandboxed-code';
 import executeSql from './execute-sql';
 import grep from './grep';
 import list from './list';
+import { createMcpCallTool } from './mcp-call';
 import read from './read';
 import readQueryResult from './read-query-result';
 import search from './search';
@@ -48,7 +51,15 @@ export const getTools = (
 		builtinToolAllowlist?: string[];
 	} = {},
 ) => {
-	const mcpTools = options.mcpEnabled === false ? {} : mcpService.getMcpTools(options.mcpServers);
+	const configuredServers = new Set(mcpService.getConfiguredServerNames());
+	const includeMcp =
+		options.mcpEnabled !== false &&
+		(options.mcpServers == null
+			? configuredServers.size > 0
+			: options.mcpServers.some((server) => configuredServers.has(server)));
+	const mcpTools: Record<string, Tool> = includeMcp
+		? { mcp_call: createMcpCallTool(options.mcpServers ?? null) }
+		: {};
 
 	const {
 		execute_python,

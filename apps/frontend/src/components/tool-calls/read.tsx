@@ -1,6 +1,9 @@
 import { Streamdown } from 'streamdown';
 import { ToolCallWrapper } from './tool-call-wrapper';
+import { McpTitle } from './mcp-title';
 import type { ToolCallComponentProps } from '.';
+import type { McpTarget } from '@/lib/mcp';
+import { getMcpTarget } from '@/lib/mcp';
 import { useToolCallContext } from '@/contexts/tool-call';
 import { markdownPlugins } from '@/lib/markdown';
 
@@ -9,6 +12,7 @@ export const ReadToolCall = ({ toolPart: { output, input } }: ToolCallComponentP
 
 	const filePath = input?.file_path;
 	const fileName = filePath?.split('/').pop() ?? filePath;
+	const mcpTarget = getMcpTarget(filePath);
 	const contextLabel = getReadContextLabel(filePath);
 	const titleContext = contextLabel ? (
 		<>
@@ -21,11 +25,15 @@ export const ReadToolCall = ({ toolPart: { output, input } }: ToolCallComponentP
 		return (
 			<ToolCallWrapper
 				title={
-					<>
-						Reading...{' '}
-						<code className='text-xs font-[Geist]! bg-accent/70! px-1 py-0.5 rounded'>{fileName}</code>
-						{titleContext}
-					</>
+					mcpTarget ? (
+						<McpReadTitle target={mcpTarget} isSettled={false} />
+					) : (
+						<>
+							Reading...{' '}
+							<code className='text-xs font-[Geist]! bg-accent/70! px-1 py-0.5 rounded'>{fileName}</code>
+							{titleContext}
+						</>
+					)
 				}
 			/>
 		);
@@ -34,10 +42,14 @@ export const ReadToolCall = ({ toolPart: { output, input } }: ToolCallComponentP
 	return (
 		<ToolCallWrapper
 			title={
-				<>
-					Read <code className='text-xs font-[Geist]! bg-accent/70! px-1 py-0.5 rounded'>{fileName}</code>
-					{titleContext}
-				</>
+				mcpTarget ? (
+					<McpReadTitle target={mcpTarget} isSettled={true} />
+				) : (
+					<>
+						Read <code className='text-xs font-[Geist]! bg-accent/70! px-1 py-0.5 rounded'>{fileName}</code>
+						{titleContext}
+					</>
+				)
 			}
 			badge={output && `${output.numberOfTotalLines} lines`}
 		>
@@ -48,8 +60,8 @@ export const ReadToolCall = ({ toolPart: { output, input } }: ToolCallComponentP
 							<FilePathBreadcrumb filePath={input.file_path} />
 						</div>
 					)}
-					<div className='overflow-auto max-h-200 px-12 py-6 markdown-small'>
-						<Streamdown mode='static' controls={false} plugins={markdownPlugins}>
+					<div className='overflow-auto max-h-200 hide-code-header markdown-small'>
+						<Streamdown mode='static' controls={false} plugins={markdownPlugins} className='py-10 px-24'>
 							{toMarkdown(output.content, filePath)}
 						</Streamdown>
 					</div>
@@ -58,6 +70,19 @@ export const ReadToolCall = ({ toolPart: { output, input } }: ToolCallComponentP
 		</ToolCallWrapper>
 	);
 };
+
+const McpReadTitle = ({ target, isSettled }: { target: McpTarget; isSettled: boolean }) => (
+	<McpTitle server={target.server}>
+		{isSettled ? 'Loaded' : 'Loading...'}{' '}
+		{target.tool ? (
+			<>
+				<em>{target.tool}</em> from {target.server}
+			</>
+		) : (
+			(target.server ?? 'MCP servers')
+		)}
+	</McpTitle>
+);
 
 const MARKDOWN_EXTENSIONS = new Set(['md', 'mdx', 'markdown']);
 

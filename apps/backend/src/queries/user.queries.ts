@@ -72,6 +72,19 @@ export const updateGithubToken = async (userId: string, token: string | null): P
 	await db.update(s.user).set({ githubAccessToken: token }).where(eq(s.user.id, userId)).execute();
 };
 
+export const getGitlabToken = async (userId: string): Promise<string | null> => {
+	const [user] = await db
+		.select({ gitlabAccessToken: s.user.gitlabAccessToken })
+		.from(s.user)
+		.where(eq(s.user.id, userId))
+		.execute();
+	return user?.gitlabAccessToken ?? null;
+};
+
+export const updateGitlabToken = async (userId: string, token: string | null): Promise<void> => {
+	await db.update(s.user).set({ gitlabAccessToken: token }).where(eq(s.user.id, userId)).execute();
+};
+
 export const createUser = async (user: NewUser, account: NewAccount): Promise<User> => {
 	return await db.transaction(async (tx) => {
 		user.messagingProviderCode = createMessagingProviderCode();

@@ -27,6 +27,18 @@ export const createContext = async (opts: CreateFastifyContextOptions) => {
  */
 const t = initTRPC.context<Context>().create({
 	transformer: superjson,
+	errorFormatter({ shape, error }) {
+		const cause = error.cause as (Error & Record<string, unknown>) | undefined;
+		const conflictingProjectName =
+			typeof cause?.conflictingProjectName === 'string' ? cause.conflictingProjectName : undefined;
+		return {
+			...shape,
+			data: {
+				...shape.data,
+				...(conflictingProjectName ? { conflictingProjectName } : {}),
+			},
+		};
+	},
 });
 
 export const router = t.router;
