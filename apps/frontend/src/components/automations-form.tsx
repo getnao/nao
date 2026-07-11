@@ -682,57 +682,65 @@ function ScheduleTriggerRow({
 
 	return (
 		<div className='grid gap-1.5 rounded-lg px-2 py-1.5'>
-			<div className='flex items-center justify-between gap-3'>
-				<div className='flex min-w-0 items-center gap-2'>
+			<div className='flex items-start justify-between gap-3'>
+				<div className='flex min-w-0 flex-1 flex-wrap items-center gap-2'>
 					<Calendar className='size-4 shrink-0 text-muted-foreground' />
 					<span className='text-sm font-medium'>On schedule</span>
-				</div>
-				<div className='flex items-center gap-1'>
-					<Select
+					<ScheduleFrequencySelect
 						value={selectValue}
-						onValueChange={(option) => onScheduleSelectChange(option as ScheduleSelectOption)}
+						onChange={onScheduleSelectChange}
 						disabled={disabled}
-					>
-						<SelectTrigger
-							variant='ghost'
-							size='sm'
-							className='min-w-0 max-w-40 justify-end px-2 text-right'
-						>
-							<SelectValue />
-						</SelectTrigger>
-						<SelectContent>
-							{scheduleFrequencyOptions.map((option) => (
-								<SelectItem key={option.value} value={option.value}>
-									{option.label}
-								</SelectItem>
-							))}
-							<SelectItem value='advanced'>Advanced (cron)</SelectItem>
-						</SelectContent>
-					</Select>
-					<button
-						type='button'
-						onClick={onRemove}
-						disabled={disabled}
-						aria-label='Remove schedule trigger'
-						className='inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50'
-					>
-						<Trash2 className='size-3.5' />
-					</button>
+					/>
+					{scheduleMode === 'advanced' ? (
+						<AdvancedScheduleInput cron={cron} onChange={onCustomCronChange} disabled={disabled} />
+					) : (
+						<FriendlyScheduleControls
+							config={scheduleConfig}
+							onChange={onScheduleConfigChange}
+							disabled={disabled}
+						/>
+					)}
 				</div>
+				<button
+					type='button'
+					onClick={onRemove}
+					disabled={disabled}
+					aria-label='Remove schedule trigger'
+					className='inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50'
+				>
+					<Trash2 className='size-3.5' />
+				</button>
 			</div>
 
-			{scheduleMode === 'advanced' ? (
-				<AdvancedScheduleField cron={cron} onChange={onCustomCronChange} disabled={disabled} />
-			) : (
-				<FriendlyScheduleControls
-					config={scheduleConfig}
-					onChange={onScheduleConfigChange}
-					disabled={disabled}
-				/>
-			)}
-
+			{scheduleMode === 'advanced' && <p className='text-xs text-muted-foreground'>{describeCron(cron)}</p>}
 			<p className='text-xs text-muted-foreground'>Times run in the server timezone.</p>
 		</div>
+	);
+}
+
+function ScheduleFrequencySelect({
+	value,
+	onChange,
+	disabled,
+}: {
+	value: ScheduleSelectOption;
+	onChange: (option: ScheduleSelectOption) => void;
+	disabled: boolean;
+}) {
+	return (
+		<Select value={value} onValueChange={(next) => onChange(next as ScheduleSelectOption)} disabled={disabled}>
+			<SelectTrigger variant='ghost' size='sm' className='h-8 w-32'>
+				<SelectValue />
+			</SelectTrigger>
+			<SelectContent>
+				{scheduleFrequencyOptions.map((option) => (
+					<SelectItem key={option.value} value={option.value}>
+						{option.label}
+					</SelectItem>
+				))}
+				<SelectItem value='advanced'>Advanced (cron)</SelectItem>
+			</SelectContent>
+		</Select>
 	);
 }
 
@@ -747,32 +755,38 @@ function FriendlyScheduleControls({
 }) {
 	if (config.frequency === 'hourly') {
 		return (
-			<div className='flex flex-wrap items-center gap-2'>
+			<>
 				<span className='text-sm text-muted-foreground'>at minute</span>
 				<MinuteSelect
 					minute={config.minute}
 					onChange={(minute) => onChange({ ...config, minute })}
 					disabled={disabled}
 				/>
-			</div>
+			</>
 		);
 	}
 
 	return (
-		<div className='flex flex-wrap items-center gap-2'>
+		<>
 			{config.frequency === 'weekly' && (
-				<DayOfWeekSelect
-					dayOfWeek={config.dayOfWeek}
-					onChange={(dayOfWeek) => onChange({ ...config, dayOfWeek })}
-					disabled={disabled}
-				/>
+				<>
+					<span className='text-sm text-muted-foreground'>on</span>
+					<DayOfWeekSelect
+						dayOfWeek={config.dayOfWeek}
+						onChange={(dayOfWeek) => onChange({ ...config, dayOfWeek })}
+						disabled={disabled}
+					/>
+				</>
 			)}
 			{config.frequency === 'monthly' && (
-				<DayOfMonthSelect
-					dayOfMonth={config.dayOfMonth}
-					onChange={(dayOfMonth) => onChange({ ...config, dayOfMonth })}
-					disabled={disabled}
-				/>
+				<>
+					<span className='text-sm text-muted-foreground'>on day</span>
+					<DayOfMonthSelect
+						dayOfMonth={config.dayOfMonth}
+						onChange={(dayOfMonth) => onChange({ ...config, dayOfMonth })}
+						disabled={disabled}
+					/>
+				</>
 			)}
 			<span className='text-sm text-muted-foreground'>at</span>
 			<TimeField
@@ -781,7 +795,7 @@ function FriendlyScheduleControls({
 				onChange={(hour, minute) => onChange({ ...config, hour, minute })}
 				disabled={disabled}
 			/>
-		</div>
+		</>
 	);
 }
 
@@ -878,13 +892,13 @@ function DayOfMonthSelect({
 }) {
 	return (
 		<Select value={String(dayOfMonth)} onValueChange={(next) => onChange(Number(next))} disabled={disabled}>
-			<SelectTrigger variant='ghost' size='sm' className='h-8 w-28'>
+			<SelectTrigger variant='ghost' size='sm' className='h-8 w-20'>
 				<SelectValue />
 			</SelectTrigger>
 			<SelectContent>
 				{dayOfMonthOptions.map((day) => (
 					<SelectItem key={day} value={String(day)}>
-						Day {day}
+						{day}
 					</SelectItem>
 				))}
 			</SelectContent>
@@ -892,7 +906,7 @@ function DayOfMonthSelect({
 	);
 }
 
-function AdvancedScheduleField({
+function AdvancedScheduleInput({
 	cron,
 	onChange,
 	disabled,
@@ -902,17 +916,14 @@ function AdvancedScheduleField({
 	disabled: boolean;
 }) {
 	return (
-		<div className='grid gap-1'>
-			<Input
-				value={cron}
-				onChange={(event) => onChange(event.target.value)}
-				placeholder='0 9 * * 1'
-				className='h-8 font-mono'
-				disabled={disabled}
-				aria-label='Cron expression'
-			/>
-			<p className='text-xs text-muted-foreground'>{describeCron(cron)}</p>
-		</div>
+		<Input
+			value={cron}
+			onChange={(event) => onChange(event.target.value)}
+			placeholder='0 9 * * 1'
+			className='h-8 w-44 font-mono'
+			disabled={disabled}
+			aria-label='Cron expression'
+		/>
 	);
 }
 
