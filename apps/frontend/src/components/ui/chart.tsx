@@ -157,7 +157,8 @@ function ChartTooltipContent({
 	const seriesTotal = numericValues.reduce((sum, v) => sum + v, 0);
 	// In 100% stacked mode every category totals 100%, so ignore already-aggregated total series.
 	const showTotal = numericValues.length > 1 && (percent || !hasTotalSeries);
-	const formatValue = (value: number) => (percent ? formatPercentShare(value, seriesTotal) : formatCompactNumber(value));
+	const formatValue = (value: number) =>
+		percent ? formatPercentShare(value, seriesTotal) : formatCompactNumber(value);
 
 	return (
 		<div

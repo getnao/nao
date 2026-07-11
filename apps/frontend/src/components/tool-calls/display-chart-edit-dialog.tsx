@@ -170,7 +170,10 @@ export function ChartConfigEditDialog({
 										const keepPercent =
 											displayChart.isPercentStackedChartType(prev.chart_type) &&
 											displayChart.isStackedChartType(nextBase);
-										return { ...prev, chart_type: keepPercent ? percentChartType(nextBase) : nextBase };
+										return {
+											...prev,
+											chart_type: keepPercent ? percentChartType(nextBase) : nextBase,
+										};
 									})
 								}
 							>

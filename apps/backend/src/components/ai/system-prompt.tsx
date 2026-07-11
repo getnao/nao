@@ -103,9 +103,9 @@ export function SystemPrompt({
 						categories on a spider/web chart. Use "area" for time-series trends where filled area emphasis
 						is desired (similar to "line"). Use "stacked_area" to show how multiple series compose a total
 						over time (e.g. revenue by payment method, users by plan) — requires 2+ series and pivoted data.
-						Use "stacked_bar_100" or "stacked_area_100" for 100% stacked charts that normalize each
-						category to its share of the total (axis runs 0–100%) — use these when the composition
-						matters more than the absolute totals.
+						Use "stacked_bar_100" or "stacked_area_100" for 100% stacked charts that normalize each category
+						to its share of the total (axis runs 0–100%) — use these when the composition matters more than
+						the absolute totals.
 					</ListItem>,
 					...dialectToolCallRules,
 				]}
