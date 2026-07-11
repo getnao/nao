@@ -9,9 +9,12 @@ export interface ParsedChartBlock {
 	rawTag?: string;
 }
 
+import type { ColumnConditionalFormats } from './conditional-formatting';
+
 export interface ParsedTableBlock {
 	queryId: string;
 	title: string;
+	conditionalFormats?: ColumnConditionalFormats;
 }
 
 export type Segment =
@@ -73,7 +76,22 @@ export function parseTableBlock(attrString: string): ParsedTableBlock | null {
 	return {
 		queryId: attrs.query_id,
 		title: attrs.title || '',
+		conditionalFormats: parseConditionalFormats(attrs.formatting),
 	};
+}
+
+function parseConditionalFormats(value: string | undefined): ColumnConditionalFormats | undefined {
+	if (!value) {
+		return undefined;
+	}
+	try {
+		const parsed = JSON.parse(value);
+		return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+			? (parsed as ColumnConditionalFormats)
+			: undefined;
+	} catch {
+		return undefined;
+	}
 }
 
 export const GRID_CLASSES: Record<number, string> = {

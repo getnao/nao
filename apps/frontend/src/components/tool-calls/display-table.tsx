@@ -1,5 +1,14 @@
+import { computeColumnRange, DEFAULT_THRESHOLD_COLOR, resolveCellBackground } from '@nao/shared/conditional-formatting';
 import { formatCellValue, isNumericColumn } from '@nao/shared/story-table-utils';
+import { Ban, Palette, SlidersHorizontal } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import type { ColumnConditionalFormats, ColumnRange, ConditionalFormatRule } from '@nao/shared/conditional-formatting';
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { TablePagination } from '@/components/ui/table-pagination';
 import { useDateFormat } from '@/hooks/use-date-format';
 import { TablePaginationCompact } from '@/components/ui/table-pagination-compact';
@@ -17,6 +26,8 @@ interface TableDisplayProps {
 	showRowCount?: boolean;
 	maxRowsBeforePagination?: number;
 	compactFooter?: boolean;
+	conditionalFormats?: ColumnConditionalFormats;
+	onConditionalFormatsChange?: (formats: ColumnConditionalFormats) => void;
 }
 
 export function TableDisplay({
@@ -29,12 +40,20 @@ export function TableDisplay({
 	showRowCount = true,
 	maxRowsBeforePagination = 100,
 	compactFooter = false,
+	conditionalFormats,
+	onConditionalFormatsChange,
 }: TableDisplayProps) {
 	const dateFormat = useDateFormat();
 	const resolvedColumns = columns && columns.length > 0 ? columns : inferColumns(data);
 	const numericColumns = new Set(resolvedColumns.filter((column) => isNumericColumn(data, column)));
 	const hasRows = data.length > 0;
 	const showPagination = hasRows && data.length > maxRowsBeforePagination;
+	const isEditable = Boolean(onConditionalFormatsChange);
+
+	const columnRanges = useMemo(
+		() => computeFormattedColumnRanges(data, conditionalFormats),
+		[data, conditionalFormats],
+	);
 
 	const [pageIndex, setPageIndex] = useState(0);
 	const [pageSize, setPageSize] = useState(maxRowsBeforePagination);
@@ -66,7 +85,26 @@ export function TableDisplay({
 										numericColumns.has(column) && 'text-right tabular-nums',
 									)}
 								>
-									{column}
+									<span className='group inline-flex items-center gap-1'>
+										{column}
+										{isEditable && numericColumns.has(column) ? (
+											<ColumnFormatMenu
+												column={column}
+												data={data}
+												isActive={Boolean(conditionalFormats?.[column])}
+												onApply={(rule) =>
+													onConditionalFormatsChange?.(
+														upsertColumnFormat(conditionalFormats, column, rule),
+													)
+												}
+												onClear={() =>
+													onConditionalFormatsChange?.(
+														removeColumnFormat(conditionalFormats, column),
+													)
+												}
+											/>
+										) : null}
+									</span>
 								</th>
 							))}
 						</tr>
@@ -87,9 +125,15 @@ export function TableDisplay({
 									{resolvedColumns.map((column) => {
 										const value = row[column];
 										const isNull = value === null || value === undefined;
+										const background = resolveColumnCellBackground(
+											conditionalFormats?.[column],
+											value,
+											columnRanges[column] ?? null,
+										);
 										return (
 											<td
 												key={`${rowIndex}-${column}`}
+												style={background ? { backgroundColor: background } : undefined}
 												className={cn(
 													'shadow-[inset_-1px_0_0_0_var(--border)] last:shadow-none px-3 py-1 align-top font-mono text-[11px] leading-5 whitespace-nowrap',
 													numericColumns.has(column) && 'text-right tabular-nums',
@@ -154,6 +198,95 @@ export function TableDisplay({
 			) : null}
 		</div>
 	);
+}
+
+function ColumnFormatMenu({
+	column,
+	data,
+	isActive,
+	onApply,
+	onClear,
+}: {
+	column: string;
+	data: TableRow[];
+	isActive: boolean;
+	onApply: (rule: ConditionalFormatRule) => void;
+	onClear: () => void;
+}) {
+	return (
+		<DropdownMenu>
+			<DropdownMenuTrigger
+				aria-label={`Conditional formatting for ${column}`}
+				className={cn(
+					'rounded p-0.5 text-muted-foreground/50 opacity-0 transition group-hover:opacity-100 hover:bg-accent hover:text-foreground focus:opacity-100 data-[state=open]:opacity-100',
+					isActive && 'text-foreground opacity-100',
+				)}
+			>
+				<SlidersHorizontal className='size-3' />
+			</DropdownMenuTrigger>
+			<DropdownMenuContent align='end' className='min-w-44'>
+				<DropdownMenuItem onSelect={() => onApply({ type: 'color-scale' })}>
+					<Palette className='size-3.5' />
+					Color scale
+				</DropdownMenuItem>
+				<DropdownMenuItem onSelect={() => onApply(buildAboveAverageRule(data, column))}>
+					<SlidersHorizontal className='size-3.5' />
+					Highlight above average
+				</DropdownMenuItem>
+				<DropdownMenuItem variant='destructive' disabled={!isActive} onSelect={() => onClear()}>
+					<Ban className='size-3.5' />
+					Clear formatting
+				</DropdownMenuItem>
+			</DropdownMenuContent>
+		</DropdownMenu>
+	);
+}
+
+function buildAboveAverageRule(data: TableRow[], column: string): ConditionalFormatRule {
+	const values = data
+		.map((row) => row[column])
+		.filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
+	const average = values.length > 0 ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
+	return { type: 'threshold', operator: '>=', value: average, color: DEFAULT_THRESHOLD_COLOR };
+}
+
+function computeFormattedColumnRanges(
+	data: TableRow[],
+	conditionalFormats?: ColumnConditionalFormats,
+): Record<string, ColumnRange | null> {
+	if (!conditionalFormats) {
+		return {};
+	}
+
+	const ranges: Record<string, ColumnRange | null> = {};
+	for (const [column, rule] of Object.entries(conditionalFormats)) {
+		if (rule.type === 'color-scale') {
+			ranges[column] = computeColumnRange(data, column);
+		}
+	}
+	return ranges;
+}
+
+function resolveColumnCellBackground(
+	rule: ConditionalFormatRule | undefined,
+	value: unknown,
+	range: ColumnRange | null,
+): string | undefined {
+	return rule ? resolveCellBackground(rule, value, range) : undefined;
+}
+
+function upsertColumnFormat(
+	formats: ColumnConditionalFormats | undefined,
+	column: string,
+	rule: ConditionalFormatRule,
+): ColumnConditionalFormats {
+	return { ...(formats ?? {}), [column]: rule };
+}
+
+function removeColumnFormat(formats: ColumnConditionalFormats | undefined, column: string): ColumnConditionalFormats {
+	const next = { ...(formats ?? {}) };
+	delete next[column];
+	return next;
 }
 
 function inferColumns(data: TableRow[]): string[] {

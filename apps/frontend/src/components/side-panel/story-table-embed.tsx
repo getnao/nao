@@ -43,6 +43,7 @@ export const StoryTableEmbed = memo(function StoryTableEmbed({ table }: { table:
 			data={sourceData.data as Record<string, unknown>[]}
 			columns={sourceData.columns ?? []}
 			title={table.title}
+			conditionalFormats={table.conditionalFormats}
 		/>
 	);
 });

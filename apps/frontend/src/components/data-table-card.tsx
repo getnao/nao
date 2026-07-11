@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Copy, Download, Maximize2 } from 'lucide-react';
+import type { ColumnConditionalFormats } from '@nao/shared/conditional-formatting';
 import { TableDisplay } from '@/components/tool-calls/display-table';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
@@ -16,6 +17,7 @@ interface DataTableCardProps {
 	tableContainerClassName?: string;
 	maxRowsBeforePagination?: number;
 	chatId?: string;
+	conditionalFormats?: ColumnConditionalFormats;
 }
 
 export function DataTableCard({
@@ -26,8 +28,12 @@ export function DataTableCard({
 	tableContainerClassName,
 	maxRowsBeforePagination = 10,
 	chatId,
+	conditionalFormats: initialConditionalFormats,
 }: DataTableCardProps) {
 	const [isFullscreen, setIsFullscreen] = useState(false);
+	const [conditionalFormats, setConditionalFormats] = useState<ColumnConditionalFormats>(
+		initialConditionalFormats ?? {},
+	);
 	const logDownload = useMutation(trpc.analyticsEvent.logChatDownload.mutationOptions());
 
 	const resolvedColumns = columns.length > 0 ? columns : inferColumns(data);
@@ -85,6 +91,8 @@ export function DataTableCard({
 				tableContainerClassName={tableContainerClassName}
 				maxRowsBeforePagination={maxRowsBeforePagination}
 				compactFooter={true}
+				conditionalFormats={conditionalFormats}
+				onConditionalFormatsChange={setConditionalFormats}
 			/>
 
 			<Dialog open={isFullscreen} onOpenChange={setIsFullscreen}>
@@ -117,6 +125,8 @@ export function DataTableCard({
 						tableContainerClassName='max-h-[75vh] border-t-0'
 						maxRowsBeforePagination={maxRowsBeforePagination}
 						compactFooter={true}
+						conditionalFormats={conditionalFormats}
+						onConditionalFormatsChange={setConditionalFormats}
 					/>
 				</DialogContent>
 			</Dialog>

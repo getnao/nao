@@ -110,5 +110,12 @@ export const StoryTableEmbed = memo(function StoryTableEmbed({
 		return <EmbedPlaceholder>Table data unavailable</EmbedPlaceholder>;
 	}
 
-	return <DataTableCard data={resolvedResult.data} columns={resolvedResult.columns ?? []} title={table.title} />;
+	return (
+		<DataTableCard
+			data={resolvedResult.data}
+			columns={resolvedResult.columns ?? []}
+			title={table.title}
+			conditionalFormats={table.conditionalFormats}
+		/>
+	);
 });
