@@ -246,6 +246,81 @@ class TestCloneOrPullRepo:
 
     @patch("nao_core.commands.sync.providers.repositories.provider.subprocess.run")
     @patch("nao_core.commands.sync.providers.repositories.provider.console")
+    def test_respects_include_patterns(self, mock_console, mock_run, tmp_path: Path):
+        """include globs must be applied to url repos, not only local_path repos."""
+        repo = RepoConfig(
+            name="filtered-repo",
+            url="https://github.com/test/filtered-repo",
+            include=["models/*.sql"],
+        )
+
+        def fake_clone(*args, **kwargs):
+            cloned = tmp_path / "filtered-repo.tmp"
+            (cloned / "models").mkdir(parents=True, exist_ok=True)
+            (cloned / "models" / "dim.sql").write_text("SELECT 1")
+            (cloned / "models" / "schema.yml").write_text("version: 2")
+            (cloned / "readme.md").write_text("docs")
+            return MagicMock(returncode=0)
+
+        mock_run.side_effect = fake_clone
+
+        result = clone_or_pull_repo(repo, tmp_path)
+
+        assert result is True
+        assert (tmp_path / "filtered-repo" / "models" / "dim.sql").exists()
+        assert not (tmp_path / "filtered-repo" / "models" / "schema.yml").exists()
+        assert not (tmp_path / "filtered-repo" / "readme.md").exists()
+
+    @patch("nao_core.commands.sync.providers.repositories.provider.subprocess.run")
+    @patch("nao_core.commands.sync.providers.repositories.provider.console")
+    def test_respects_exclude_patterns(self, mock_console, mock_run, tmp_path: Path):
+        """exclude globs must be applied to url repos, pruning emptied directories."""
+        repo = RepoConfig(
+            name="excluded-repo",
+            url="https://github.com/test/excluded-repo",
+            exclude=["**/*.pyc", "cache/**"],
+        )
+
+        def fake_clone(*args, **kwargs):
+            cloned = tmp_path / "excluded-repo.tmp"
+            cloned.mkdir(exist_ok=True)
+            (cloned / "model.sql").write_text("SELECT 1")
+            (cloned / "build.pyc").write_text("bytecode")
+            (cloned / "cache").mkdir()
+            (cloned / "cache" / "data.bin").write_text("junk")
+            return MagicMock(returncode=0)
+
+        mock_run.side_effect = fake_clone
+
+        result = clone_or_pull_repo(repo, tmp_path)
+
+        assert result is True
+        assert (tmp_path / "excluded-repo" / "model.sql").exists()
+        assert not (tmp_path / "excluded-repo" / "build.pyc").exists()
+        assert not (tmp_path / "excluded-repo" / "cache").exists()
+
+    @patch("nao_core.commands.sync.providers.repositories.provider.subprocess.run")
+    @patch("nao_core.commands.sync.providers.repositories.provider.console")
+    def test_no_filters_keeps_all_files(self, mock_console, mock_run, tmp_path: Path):
+        repo = RepoConfig(name="full-repo", url="https://github.com/test/full-repo")
+
+        def fake_clone(*args, **kwargs):
+            cloned = tmp_path / "full-repo.tmp"
+            cloned.mkdir(exist_ok=True)
+            (cloned / "a.sql").write_text("SELECT 1")
+            (cloned / "b.md").write_text("docs")
+            return MagicMock(returncode=0)
+
+        mock_run.side_effect = fake_clone
+
+        result = clone_or_pull_repo(repo, tmp_path)
+
+        assert result is True
+        assert (tmp_path / "full-repo" / "a.sql").exists()
+        assert (tmp_path / "full-repo" / "b.md").exists()
+
+    @patch("nao_core.commands.sync.providers.repositories.provider.subprocess.run")
+    @patch("nao_core.commands.sync.providers.repositories.provider.console")
     def test_rejects_path_traversal_repo_name(self, mock_console, mock_run, tmp_path: Path):
         """Security: repo.name like '../evil' must be rejected before any git call."""
         repo = RepoConfig(name="../evil", url="https://github.com/test/evil")
