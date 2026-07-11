@@ -12,7 +12,7 @@ export default createTool<displayChart.Input, displayChart.Output>({
 		const { chart_type: chartType, x_axis_key: xAxisKey, series } = input;
 
 		// Validate xAxisKey is provided for cartesian and polar charts
-		if (['bar', 'line', 'area', 'stacked_area', 'scatter', 'radar'].includes(chartType) && !xAxisKey) {
+		if (['bar', 'line', 'area', 'stacked_area', 'stacked_area_100', 'scatter', 'radar'].includes(chartType) && !xAxisKey) {
 			return { _version: '1', success: false, error: `xAxisKey is required for ${chartType} charts.` };
 		}
 
@@ -27,11 +27,11 @@ export default createTool<displayChart.Input, displayChart.Output>({
 		}
 
 		// Stacked charts require at least two series
-		if ((chartType === 'stacked_bar' || chartType === 'stacked_area') && series.length < 2) {
+		if (displayChart.isStackedChartType(chartType) && series.length < 2) {
 			return {
 				_version: '1',
 				success: false,
-				error: `Stacked ${chartType === 'stacked_bar' ? 'bar' : 'area'} chart requires at least two series. You may need to pivot the data to create a series for each stack.`,
+				error: `Stacked ${chartType.includes('bar') ? 'bar' : 'area'} chart requires at least two series. You may need to pivot the data to create a series for each stack.`,
 			};
 		}
 

@@ -1,5 +1,6 @@
 import { memo, useCallback, useMemo, useState } from 'react';
 import { buildChart, buildStoryChartBlock, labelize } from '@nao/shared';
+import { displayChart } from '@nao/shared/tools';
 import { Code, Download, FilePlus, Pencil } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useOptionalAgentContext } from '../../contexts/agent.provider';
@@ -13,7 +14,7 @@ import { ChartRangeSelector } from './display-chart-range-selector';
 import { DisplayChartEditDialog } from './display-chart-edit-dialog';
 import type { ToolCallComponentProps } from '.';
 import type { ChartConfig } from '../ui/chart';
-import type { displayChart, executeSql } from '@nao/shared/tools';
+import type { executeSql } from '@nao/shared/tools';
 import type { UIMessage } from '@nao/backend/chat';
 import type { DateRange } from '@/lib/charts.utils';
 import { filterByDateRange, sortByDateKey, DATE_RANGE_OPTIONS, toKey, resolveDataKey } from '@/lib/charts.utils';
@@ -313,6 +314,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 	);
 
 	const { visibleSeries, hiddenSeriesKeys, handleToggleSeriesVisibility } = useSeriesVisibility(series);
+	const isPercentStacked = displayChart.isPercentStackedChartType(chartType);
 
 	const chartConfig = useMemo((): ChartConfig => {
 		if (chartType === 'pie') {
@@ -385,7 +387,12 @@ export const ChartDisplay = memo(function ChartDisplay({
 						animationDuration={150}
 						animationEasing='linear'
 						allowEscapeViewBox={{ y: true, x: false }}
-						content={<ChartTooltipContent labelFormatter={(value) => labelize(value, dateFormat)} />}
+						content={
+							<ChartTooltipContent
+								percent={isPercentStacked}
+								labelFormatter={(value) => labelize(value, dateFormat)}
+							/>
+						}
 					/>,
 					chartType !== 'pie' && (
 						<ChartLegend
@@ -410,6 +417,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 			handleToggleSeriesVisibility,
 			title,
 			dateFormat,
+			isPercentStacked,
 		],
 	);
 

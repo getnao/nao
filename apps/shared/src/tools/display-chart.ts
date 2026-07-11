@@ -3,9 +3,11 @@ import z from 'zod/v3';
 export const ChartTypeEnum = z.enum([
 	'bar',
 	'stacked_bar',
+	'stacked_bar_100',
 	'line',
 	'area',
 	'stacked_area',
+	'stacked_area_100',
 	'pie',
 	'kpi_card',
 	'scatter',
@@ -55,3 +57,16 @@ export type XAxisType = z.infer<typeof XAxisTypeEnum>;
 export type SeriesConfig = z.infer<typeof SeriesConfigSchema>;
 export type Input = z.infer<typeof InputSchema>;
 export type Output = z.infer<typeof OutputSchema>;
+
+const STACKED_CHART_TYPES = new Set<ChartType>(['stacked_bar', 'stacked_bar_100', 'stacked_area', 'stacked_area_100']);
+const PERCENT_STACKED_CHART_TYPES = new Set<ChartType>(['stacked_bar_100', 'stacked_area_100']);
+
+/** Whether a chart type stacks its series (absolute or normalized). */
+export function isStackedChartType(type: ChartType): boolean {
+	return STACKED_CHART_TYPES.has(type);
+}
+
+/** Whether a chart type is a 100% (normalized) stacked chart. */
+export function isPercentStackedChartType(type: ChartType): boolean {
+	return PERCENT_STACKED_CHART_TYPES.has(type);
+}

@@ -483,6 +483,10 @@ const TOOLTIP_SCRIPT_TEMPLATE = `
 			var isPie=!!pieColorMap;
 			var html='<div class="nao-tooltip-label">'+(isPie?labelize(cfg.series[0]&&(cfg.series[0].label||cfg.series[0].data_key)||''):labelize(label!=null?label:''))+'</div>';
 			html+='<div class="nao-tooltip-rows">';
+			var isPercent=cfg.chartType==='stacked_bar_100'||cfg.chartType==='stacked_area_100';
+			var seriesTotal=0;
+			cfg.series.forEach(function(s){var sv=row[s.data_key];if(typeof sv==='number')seriesTotal+=sv;});
+			function pctShare(v){if(typeof v!=='number'||!seriesTotal)return '0%';var sh=Math.round(v/seriesTotal*1000)/10;return (sh%1===0?sh:sh.toFixed(1))+'%';}
 			var numericValues=[];
 			var hasTotalSeries=false;
 			cfg.series.forEach(function(s, si){
@@ -501,14 +505,14 @@ const TOOLTIP_SCRIPT_TEMPLATE = `
 				html+='<div class="nao-tooltip-row">'
 					+'<span class="nao-tooltip-swatch" style="background:'+escHtml(color)+'"></span>'
 					+'<span class="nao-tooltip-name">'+rowName+'</span>'
-					+'<span class="nao-tooltip-value">'+formatVal(val)+'</span>'
+					+'<span class="nao-tooltip-value">'+(isPercent?pctShare(val):formatVal(val))+'</span>'
 					+'</div>';
 			});
-			if(numericValues.length>1 && !hasTotalSeries){
+			if(numericValues.length>1 && (isPercent || !hasTotalSeries)){
 				var total=numericValues.reduce(function(a,b){return a+b},0);
 				html+='<div class="nao-tooltip-total">'
 					+'<span class="nao-tooltip-name">Total</span>'
-					+'<span class="nao-tooltip-value">'+escHtml(formatCompact(total))+'</span>'
+					+'<span class="nao-tooltip-value">'+(isPercent?'100%':escHtml(formatCompact(total)))+'</span>'
 					+'</div>';
 			}
 			html+='</div>';

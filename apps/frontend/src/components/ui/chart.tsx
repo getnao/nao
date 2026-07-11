@@ -1,6 +1,6 @@
 import * as React from 'react';
 import * as RechartsPrimitive from 'recharts';
-import { formatCompactNumber } from '@nao/shared';
+import { formatCompactNumber, formatPercentShare } from '@nao/shared';
 
 import type { Payload } from 'recharts/types/component/DefaultLegendContent';
 import { cn } from '@/lib/utils';
@@ -108,6 +108,7 @@ function ChartTooltipContent({
 	color,
 	nameKey,
 	labelKey,
+	percent = false,
 }: React.ComponentProps<typeof RechartsPrimitive.Tooltip> &
 	React.ComponentProps<'div'> & {
 		hideLabel?: boolean;
@@ -115,6 +116,7 @@ function ChartTooltipContent({
 		indicator?: 'line' | 'dot' | 'dashed';
 		nameKey?: string;
 		labelKey?: string;
+		percent?: boolean;
 	}) {
 	const { config } = useChart();
 
@@ -152,8 +154,10 @@ function ChartTooltipContent({
 		const key = `${nameKey || item.name || item.dataKey || 'value'}`;
 		return getPayloadConfigFromPayload(config, item, key)?.isTotal === true;
 	});
-	const showTotal = numericValues.length > 1 && !hasTotalSeries;
-	const total = showTotal ? numericValues.reduce((sum, v) => sum + v, 0) : 0;
+	const seriesTotal = numericValues.reduce((sum, v) => sum + v, 0);
+	// In 100% stacked mode every category totals 100%, so ignore already-aggregated total series.
+	const showTotal = numericValues.length > 1 && (percent || !hasTotalSeries);
+	const formatValue = (value: number) => (percent ? formatPercentShare(value, seriesTotal) : formatCompactNumber(value));
 
 	return (
 		<div
@@ -220,7 +224,7 @@ function ChartTooltipContent({
 										{item.value && (
 											<span className='text-foreground font-mono font-medium tabular-nums'>
 												{typeof item.value === 'number'
-													? formatCompactNumber(item.value)
+													? formatValue(item.value)
 													: item.value.toLocaleString()}
 											</span>
 										)}
@@ -235,7 +239,7 @@ function ChartTooltipContent({
 						<div className='flex flex-1 justify-between leading-none gap-2 items-center'>
 							<span className='text-muted-foreground font-medium'>Total</span>
 							<span className='text-foreground font-mono font-medium tabular-nums'>
-								{formatCompactNumber(total)}
+								{percent ? '100%' : formatCompactNumber(seriesTotal)}
 							</span>
 						</div>
 					</div>

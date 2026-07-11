@@ -13,9 +13,11 @@ const REQUIRED_TABLE_ATTRS = ['query_id'] as const;
 const VALID_CHART_TYPES = new Set([
 	'bar',
 	'stacked_bar',
+	'stacked_bar_100',
 	'line',
 	'area',
 	'stacked_area',
+	'stacked_area_100',
 	'pie',
 	'kpi_card',
 	'scatter',

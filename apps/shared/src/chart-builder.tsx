@@ -52,6 +52,21 @@ export function formatYAxisTick(value: number): string {
 	return formatCompactNumber(value);
 }
 
+/** Formats a 0–1 stack ratio (from Recharts `stackOffset="expand"`) as a whole-number percentage. */
+export function formatPercentAxisTick(value: number): string {
+	return `${Math.round(value * 100)}%`;
+}
+
+/** Formats a single value as its share of `total`, e.g. `42.5%`. Used for 100% stacked tooltips. */
+export function formatPercentShare(value: number, total: number): string {
+	if (!total) {
+		return '0%';
+	}
+	const share = (value / total) * 100;
+	const rounded = Math.round(share * 10) / 10;
+	return `${Number.isInteger(rounded) ? rounded : rounded.toFixed(1)}%`;
+}
+
 export function defaultColorFor(_key: string, index: number): string {
 	return DEFAULT_COLORS[index % DEFAULT_COLORS.length];
 }
@@ -86,7 +101,12 @@ export function buildChart(props: BuildChartProps) {
 	if (resolved.chartType === 'pie') {
 		return buildPieChart(resolved);
 	}
-	if (resolved.chartType === 'line' || resolved.chartType === 'area' || resolved.chartType === 'stacked_area') {
+	if (
+		resolved.chartType === 'line' ||
+		resolved.chartType === 'area' ||
+		resolved.chartType === 'stacked_area' ||
+		resolved.chartType === 'stacked_area_100'
+	) {
 		return buildAreaChart(resolved);
 	}
 	if (resolved.chartType === 'scatter') {
@@ -193,12 +213,20 @@ function buildBarChart(props: ResolvedProps) {
 		margin,
 		xAxisInterval,
 	} = props;
-	const isStacked = chartType === 'stacked_bar';
+	const isStacked = displayChart.isStackedChartType(chartType);
+	const isPercent = displayChart.isPercentStackedChartType(chartType);
 
 	return (
-		<BarChart data={data} accessibilityLayer margin={margin}>
+		<BarChart data={data} accessibilityLayer margin={margin} stackOffset={isPercent ? 'expand' : undefined}>
 			{showGrid && <CartesianGrid horizontal vertical={false} strokeDasharray='3 3' />}
-			<YAxis tick={AXIS_TICK} tickLine={false} axisLine={false} minTickGap={12} tickFormatter={formatYAxisTick} />
+			<YAxis
+				tick={AXIS_TICK}
+				tickLine={false}
+				axisLine={false}
+				minTickGap={12}
+				domain={isPercent ? [0, 1] : undefined}
+				tickFormatter={isPercent ? formatPercentAxisTick : formatYAxisTick}
+			/>
 			<XAxis
 				dataKey={xAxisKey}
 				type={xAxisType}
@@ -240,10 +268,11 @@ function buildAreaChart(props: ResolvedProps) {
 		margin,
 		xAxisInterval,
 	} = props;
-	const isStacked = chartType === 'stacked_area';
+	const isStacked = displayChart.isStackedChartType(chartType);
+	const isPercent = displayChart.isPercentStackedChartType(chartType);
 
 	return (
-		<AreaChart data={data} accessibilityLayer margin={margin}>
+		<AreaChart data={data} accessibilityLayer margin={margin} stackOffset={isPercent ? 'expand' : undefined}>
 			<defs>
 				{series.map((s, i) => {
 					const color = colorFor(s.data_key, i);
@@ -257,7 +286,14 @@ function buildAreaChart(props: ResolvedProps) {
 				})}
 			</defs>
 			{showGrid && <CartesianGrid horizontal vertical={false} strokeDasharray='3 3' />}
-			<YAxis tick={AXIS_TICK} tickLine={false} axisLine={false} minTickGap={12} tickFormatter={formatYAxisTick} />
+			<YAxis
+				tick={AXIS_TICK}
+				tickLine={false}
+				axisLine={false}
+				minTickGap={12}
+				domain={isPercent ? [0, 1] : undefined}
+				tickFormatter={isPercent ? formatPercentAxisTick : formatYAxisTick}
+			/>
 			<XAxis
 				dataKey={xAxisKey}
 				type={xAxisType}
