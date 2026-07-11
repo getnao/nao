@@ -138,7 +138,7 @@ export function StoryChartEmbedShell({ chart, availableColumns, children }: Stor
 					availableColumns={availableColumns}
 					isSaving={edit.isSaving}
 					onSave={(next) => edit.saveChart(chart.rawTag!, next)}
-					description='Tweak the chart parameters. Changes are saved to the story as a new version.'
+					description={edit.saveDescription}
 				/>
 			)}
 		</div>

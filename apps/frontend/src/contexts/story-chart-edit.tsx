@@ -14,11 +14,47 @@ export interface StoryChartEditHandlers {
 	saveChart: (rawTag: string, config: displayChart.Input) => Promise<void>;
 	/** Whether a save is currently in flight. */
 	isSaving: boolean;
+	/** Human-readable hint describing how the edit is persisted, shown in the edit dialog. */
+	saveDescription: string;
 }
+
+const VERSION_SAVE_DESCRIPTION = 'Tweak the chart parameters. Changes are saved to the story as a new version.';
+const EDITOR_SAVE_DESCRIPTION =
+	'Tweak the chart parameters. Changes apply to the story you are editing and are saved when you save the story.';
 
 const StoryChartEditContext = createContext<StoryChartEditHandlers | null>(null);
 
 export const useStoryChartEdit = () => useContext(StoryChartEditContext);
+
+interface EditorStoryChartEditProviderProps {
+	/**
+	 * Applies an edited chart tag to the live editor buffer, given the chart's
+	 * original `<chart ... />` tag and its replacement.
+	 */
+	onReplaceTag: (rawTag: string, nextTag: string) => void;
+	children: React.ReactNode;
+}
+
+/**
+ * Provides a `saveChart` handler for charts rendered inside the story EDIT-mode
+ * editor. Unlike {@link StoryChartEditProvider}, it does not create a new story
+ * version; it mutates the editor buffer in place so the change is persisted with
+ * the rest of the user's edits when they save the story.
+ */
+export function EditorStoryChartEditProvider({ onReplaceTag, children }: EditorStoryChartEditProviderProps) {
+	const value = useMemo<StoryChartEditHandlers>(
+		() => ({
+			saveChart: async (rawTag, config) => {
+				onReplaceTag(rawTag, buildStoryChartBlock(config));
+			},
+			isSaving: false,
+			saveDescription: EDITOR_SAVE_DESCRIPTION,
+		}),
+		[onReplaceTag],
+	);
+
+	return <StoryChartEditContext.Provider value={value}>{children}</StoryChartEditContext.Provider>;
+}
 
 interface StoryChartEditProviderProps {
 	chatId: string;
@@ -88,7 +124,7 @@ export function StoryChartEditProvider({
 	);
 
 	const value = useMemo<StoryChartEditHandlers>(
-		() => ({ saveChart, isSaving: createVersionMutation.isPending }),
+		() => ({ saveChart, isSaving: createVersionMutation.isPending, saveDescription: VERSION_SAVE_DESCRIPTION }),
 		[saveChart, createVersionMutation.isPending],
 	);
 
