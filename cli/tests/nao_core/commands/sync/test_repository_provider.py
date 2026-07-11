@@ -7,6 +7,7 @@ import pytest
 
 from nao_core.commands.sync.providers.repositories.provider import (
     RepositorySyncProvider,
+    _filter_repo_files,
     _matches_patterns,
     clone_or_pull_repo,
     sync_local_repo,
@@ -14,6 +15,16 @@ from nao_core.commands.sync.providers.repositories.provider import (
 )
 from nao_core.config.base import NaoConfig
 from nao_core.config.repos import RepoConfig
+
+
+def _supports_symlinks(tmp_path: Path) -> bool:
+    probe = tmp_path / ".symlink_probe"
+    try:
+        probe.symlink_to(tmp_path)
+    except (OSError, NotImplementedError):
+        return False
+    probe.unlink()
+    return True
 
 
 class TestRepoConfig:
@@ -387,6 +398,46 @@ class TestMatchesPatterns:
         assert _matches_patterns("docs/guide.md", ["docs/**"], []) is True
         assert _matches_patterns("docs/api/ref.md", ["docs/**"], []) is True
         assert _matches_patterns("src/main.py", ["docs/**"], []) is False
+
+
+class TestFilterRepoFilesSymlinks:
+    def test_removes_excluded_symlink(self, tmp_path: Path):
+        if not _supports_symlinks(tmp_path):
+            pytest.skip("platform does not support symlinks")
+
+        repo_dir = tmp_path / "repo"
+        repo_dir.mkdir()
+        (repo_dir / "keep.sql").write_text("SELECT 1")
+        target = tmp_path / "outside.env"
+        target.write_text("SECRET")
+        (repo_dir / "secret.env").symlink_to(target)
+
+        _filter_repo_files(repo_dir, include=[], exclude=["*.env"])
+
+        assert (repo_dir / "keep.sql").exists()
+        assert not (repo_dir / "secret.env").is_symlink()
+        assert not (repo_dir / "secret.env").exists()
+        assert target.exists()
+
+    def test_prune_does_not_crash_on_surviving_directory_symlink(self, tmp_path: Path):
+        """A directory symlink that passes the filters must not make prune raise NotADirectoryError."""
+        if not _supports_symlinks(tmp_path):
+            pytest.skip("platform does not support symlinks")
+
+        repo_dir = tmp_path / "repo"
+        repo_dir.mkdir()
+        (repo_dir / "cache.pyc").write_text("bytecode")
+        real_dir = tmp_path / "real"
+        real_dir.mkdir()
+        (real_dir / "inner.txt").write_text("data")
+        (repo_dir / "linked").symlink_to(real_dir)
+
+        _filter_repo_files(repo_dir, include=[], exclude=["*.pyc"])
+
+        assert not (repo_dir / "cache.pyc").exists()
+        assert (repo_dir / "linked").is_symlink()
+        assert real_dir.exists()
+        assert (real_dir / "inner.txt").exists()
 
 
 class TestSyncLocalRepo:

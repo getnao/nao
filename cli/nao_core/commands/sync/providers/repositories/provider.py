@@ -138,13 +138,14 @@ def _filter_repo_files(repo_dir: Path, include: list[str], exclude: list[str]) -
     if not include and not exclude:
         return
 
-    for file_path in repo_dir.rglob("*"):
-        if not file_path.is_file():
+    for entry in repo_dir.rglob("*"):
+        # Match symlinks against the link itself; never follow them.
+        if not entry.is_symlink() and not entry.is_file():
             continue
 
-        relative = PurePosixPath(file_path.relative_to(repo_dir)).as_posix()
+        relative = PurePosixPath(entry.relative_to(repo_dir)).as_posix()
         if not _matches_patterns(relative, include, exclude):
-            file_path.unlink()
+            entry.unlink()
 
     _prune_empty_dirs(repo_dir)
 
@@ -152,7 +153,7 @@ def _filter_repo_files(repo_dir: Path, include: list[str], exclude: list[str]) -
 def _prune_empty_dirs(root: Path) -> None:
     """Remove empty directories under root, deepest first, keeping root itself."""
     for dir_path in sorted(
-        (p for p in root.rglob("*") if p.is_dir()),
+        (p for p in root.rglob("*") if p.is_dir() and not p.is_symlink()),
         key=lambda p: len(p.parts),
         reverse=True,
     ):
