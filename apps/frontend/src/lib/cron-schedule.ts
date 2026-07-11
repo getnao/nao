@@ -81,7 +81,13 @@ export function parseScheduleCron(cron: string): ScheduleConfig | null {
 		if (dayOfWeek === null) {
 			return null;
 		}
-		return { ...defaultScheduleConfig, frequency: 'weekly', minute, hour, dayOfWeek: dayOfWeek === 7 ? 0 : dayOfWeek };
+		return {
+			...defaultScheduleConfig,
+			frequency: 'weekly',
+			minute,
+			hour,
+			dayOfWeek: dayOfWeek === 7 ? 0 : dayOfWeek,
+		};
 	}
 
 	if (dayOfWeekField === '*') {

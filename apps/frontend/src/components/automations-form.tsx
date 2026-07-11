@@ -724,7 +724,11 @@ function ScheduleTriggerRow({
 			{scheduleMode === 'advanced' ? (
 				<AdvancedScheduleField cron={cron} onChange={onCustomCronChange} disabled={disabled} />
 			) : (
-				<FriendlyScheduleControls config={scheduleConfig} onChange={onScheduleConfigChange} disabled={disabled} />
+				<FriendlyScheduleControls
+					config={scheduleConfig}
+					onChange={onScheduleConfigChange}
+					disabled={disabled}
+				/>
 			)}
 
 			<p className='text-xs text-muted-foreground'>Times run in the server timezone.</p>
