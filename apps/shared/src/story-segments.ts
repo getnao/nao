@@ -87,13 +87,31 @@ export function getGridClass(cols: number): string {
 	return GRID_CLASSES[Math.min(cols, 4)] ?? GRID_CLASSES[2];
 }
 
-function tryParseSeriesJson(value: string): ParsedChartBlock['series'] | null {
+/**
+ * Parses a chart `series` JSON array. When the first parse fails, it retries after
+ * escaping stray backslashes — a single `\` that should have been written as `\\`.
+ * Hand-authored chart blocks routinely contain such labels (e.g. `Disc\Rebate`),
+ * which would otherwise make the whole array unparseable and hide the chart.
+ */
+export function parseSeriesJsonArray(value: string): unknown[] | null {
+	const parsed = tryJsonParse(value) ?? tryJsonParse(escapeStrayBackslashes(value));
+	return Array.isArray(parsed) ? parsed : null;
+}
+
+function tryJsonParse(value: string): unknown {
 	try {
-		const parsed = JSON.parse(value);
-		return Array.isArray(parsed) ? parsed : null;
+		return JSON.parse(value);
 	} catch {
 		return null;
 	}
+}
+
+function escapeStrayBackslashes(value: string): string {
+	return value.replace(/\\(?!["\\/bfnrtu])/g, '\\\\');
+}
+
+function tryParseSeriesJson(value: string): ParsedChartBlock['series'] | null {
+	return parseSeriesJsonArray(value) as ParsedChartBlock['series'] | null;
 }
 
 function extractSeriesFromRawAttrs(attrString: string): ParsedChartBlock['series'] | null {

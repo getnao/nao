@@ -1,4 +1,4 @@
-import { parseChartAttributes } from './story-segments';
+import { parseChartAttributes, parseSeriesJsonArray } from './story-segments';
 
 export interface StoryValidationError {
 	message: string;
@@ -89,7 +89,7 @@ function validateChartBlocks(code: string): StoryValidationError[] {
 			});
 		}
 
-		const seriesError = validateChartSeries(attrs, attrString ?? '', position, fullMatch.length);
+		const seriesError = validateChartSeries(attrs, position, fullMatch.length);
 		if (seriesError) {
 			errors.push(seriesError);
 		}
@@ -100,7 +100,6 @@ function validateChartBlocks(code: string): StoryValidationError[] {
 
 function validateChartSeries(
 	attrs: Record<string, string>,
-	attrString: string,
 	position: { line: number; column: number },
 	length: number,
 ): StoryValidationError | null {
@@ -117,13 +116,9 @@ function validateChartSeries(
 		return null;
 	}
 
-	const rawSeries = extractRawSeriesBracket(attrString);
-	const jsonSource = rawSeries ?? attrs.series;
+	const parsed = parseSeriesJsonArray(attrs.series);
 
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(jsonSource);
-	} catch {
+	if (parsed === null) {
 		return {
 			message: 'Chart `series` attribute must be a valid JSON array.',
 			line: position.line,
@@ -132,7 +127,7 @@ function validateChartSeries(
 		};
 	}
 
-	if (!Array.isArray(parsed) || parsed.length === 0) {
+	if (parsed.length === 0) {
 		return {
 			message: 'Chart `series` attribute must be a non-empty JSON array.',
 			line: position.line,
@@ -152,29 +147,6 @@ function validateChartSeries(
 		}
 	}
 
-	return null;
-}
-
-function extractRawSeriesBracket(attrString: string): string | null {
-	const seriesIdx = attrString.search(/\bseries\s*=/);
-	if (seriesIdx === -1) {
-		return null;
-	}
-	const bracketStart = attrString.indexOf('[', seriesIdx);
-	if (bracketStart === -1) {
-		return null;
-	}
-	let depth = 0;
-	for (let i = bracketStart; i < attrString.length; i++) {
-		if (attrString[i] === '[') {
-			depth++;
-		} else if (attrString[i] === ']') {
-			depth--;
-			if (depth === 0) {
-				return attrString.slice(bracketStart, i + 1);
-			}
-		}
-	}
 	return null;
 }
 
