@@ -490,6 +490,8 @@ const TOOLTIP_SCRIPT_TEMPLATE = `
 			var numericValues=[];
 			var hasTotalSeries=false;
 			cfg.series.forEach(function(s, si){
+				// A total series is dropped from 100% stacked rendering, so hide its tooltip row too.
+				if(isPercent&&s.is_total)return;
 				var color;
 				if(isPie){
 					color=pieColorMap[String(label!=null?label:'')]||PIE_COLORS[0];

@@ -155,11 +155,16 @@ function buildResolved(props: BuildChartProps) {
 			? Math.ceil(props.data.length / props.maxXAxisTicks) - 1
 			: undefined;
 
+	const isPercent = displayChart.isPercentStackedChartType(props.chartType);
+	// A total series is meaningless in a 100% stack (it would be its own 100%), so drop it
+	// from both rendering and normalization to keep the drawn bars and tooltip shares in sync.
+	const series = isPercent ? percentStackSeries(props.series) : props.series;
+	const data = isPercent ? clampNegativeSeriesValues(props.data, series) : props.data;
+
 	const resolved: ResolvedProps = {
 		...props,
-		data: displayChart.isPercentStackedChartType(props.chartType)
-			? clampNegativeSeriesValues(props.data, props.series)
-			: props.data,
+		series,
+		data,
 		colorFor,
 		labelFormatter,
 		xAxisInterval,
@@ -169,13 +174,19 @@ function buildResolved(props: BuildChartProps) {
 	return resolved;
 }
 
+/** Series that participate in a 100% stack — already-aggregated total series are excluded. */
+export function percentStackSeries(series: displayChart.SeriesConfig[]): displayChart.SeriesConfig[] {
+	return series.filter((s) => !s.is_total);
+}
+
 /**
  * Recharts `stackOffset="expand"` can produce ratios outside 0–1 when a stack mixes
  * positive and negative values, which breaks the fixed 0–100% axis. 100% stacked charts
  * describe part-of-whole compositions, so we treat negative shares as 0 rather than
- * attempting a signed normalization.
+ * attempting a signed normalization. Only the series `data_key`s are clamped, so a
+ * numeric x-axis or other non-series column is never modified.
  */
-function clampNegativeSeriesValues(
+export function clampNegativeSeriesValues(
 	data: Record<string, unknown>[],
 	series: displayChart.SeriesConfig[],
 ): Record<string, unknown>[] {

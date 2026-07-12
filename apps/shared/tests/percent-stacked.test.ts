@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { formatPercentAxisTick, formatPercentShare, sumPercentStackBase } from '../src/chart-builder';
+import {
+	clampNegativeSeriesValues,
+	formatPercentAxisTick,
+	formatPercentShare,
+	percentStackSeries,
+	sumPercentStackBase,
+} from '../src/chart-builder';
 import { chartTypeRequiresXAxisKey, isPercentStackedChartType, isStackedChartType } from '../src/tools/display-chart';
 
 describe('isStackedChartType', () => {
@@ -51,6 +57,37 @@ describe('sumPercentStackBase', () => {
 		// Each part is measured against the non-total base, so shares sum to 100%.
 		expect(formatPercentShare(10, base)).toBe('33.3%');
 		expect(formatPercentShare(20, base)).toBe('66.7%');
+	});
+});
+
+describe('percentStackSeries', () => {
+	it('excludes total series so rendering matches the tooltip shares', () => {
+		const series = [{ data_key: 'a' }, { data_key: 'b' }, { data_key: 'total', is_total: true }];
+		const rendered = percentStackSeries(series);
+		expect(rendered.map((s) => s.data_key)).toEqual(['a', 'b']);
+	});
+
+	it('renders the non-total series whose shares sum to 100%', () => {
+		const series = [{ data_key: 'a' }, { data_key: 'b' }, { data_key: 'total', is_total: true }];
+		const row = { a: 10, b: 20, total: 30 };
+		const rendered = percentStackSeries(series);
+		const base = sumPercentStackBase(rendered.map((s) => ({ value: row[s.data_key as keyof typeof row] })));
+		const shares = rendered.map((s) => formatPercentShare(row[s.data_key as keyof typeof row], base));
+		expect(shares).toEqual(['33.3%', '66.7%']);
+	});
+});
+
+describe('clampNegativeSeriesValues', () => {
+	it('zeroes negative series values but leaves a negative non-series value untouched', () => {
+		const data = [{ month: -1, revenue: -5, cost: 20 }];
+		const clamped = clampNegativeSeriesValues(data, [{ data_key: 'revenue' }, { data_key: 'cost' }]);
+		expect(clamped[0]).toEqual({ month: -1, revenue: 0, cost: 20 });
+	});
+
+	it('returns the original data untouched when no series value is negative', () => {
+		const data = [{ month: -1, revenue: 5, cost: 20 }];
+		const clamped = clampNegativeSeriesValues(data, [{ data_key: 'revenue' }, { data_key: 'cost' }]);
+		expect(clamped).toBe(data);
 	});
 });
 
