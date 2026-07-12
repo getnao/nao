@@ -28,6 +28,27 @@ describe('splitCodeIntoSegments chart series', () => {
 		expect(seriesOf(code)).toEqual([{ data_key: 'rev', label: 'Disc\\Rebate' }]);
 	});
 
+	it('recovers a hand-authored series with a malformed unicode escape', () => {
+		const code =
+			'<chart query_id="q1" chart_type="bar" x_axis_key="month" series=\'[{"data_key":"rev","label":"A\\uZZZZ"}]\' />';
+
+		expect(seriesOf(code)).toEqual([{ data_key: 'rev', label: 'A\\uZZZZ' }]);
+	});
+
+	it('recovers a hand-authored series with a truncated unicode escape', () => {
+		const code =
+			'<chart query_id="q1" chart_type="bar" x_axis_key="month" series=\'[{"data_key":"rev","label":"A\\u00"}]\' />';
+
+		expect(seriesOf(code)).toEqual([{ data_key: 'rev', label: 'A\\u00' }]);
+	});
+
+	it('preserves a well-formed unicode escape', () => {
+		const code =
+			'<chart query_id="q1" chart_type="bar" x_axis_key="month" series=\'[{"data_key":"rev","label":"A\\u0041"}]\' />';
+
+		expect(seriesOf(code)).toEqual([{ data_key: 'rev', label: 'AA' }]);
+	});
+
 	it('round-trips a label containing a double quote', () => {
 		const code = buildStoryChartBlock({
 			query_id: 'q1',

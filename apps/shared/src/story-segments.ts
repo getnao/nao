@@ -107,7 +107,7 @@ function tryJsonParse(value: string): unknown {
 }
 
 function escapeStrayBackslashes(value: string): string {
-	return value.replace(/\\(?!["\\/bfnrtu])/g, '\\\\');
+	return value.replace(/\\(?!(?:["\\/bfnrt]|u[0-9a-fA-F]{4}))/g, '\\\\');
 }
 
 function tryParseSeriesJson(value: string): ParsedChartBlock['series'] | null {
