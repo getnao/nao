@@ -1,7 +1,7 @@
-import type { UIMessage } from '@nao/backend/chat';
-import type { displayChart } from '@nao/shared/tools';
 import { Pencil } from 'lucide-react';
 import { memo, useMemo, useState } from 'react';
+import type { UIMessage } from '@nao/backend/chat';
+import type { displayChart } from '@nao/shared/tools';
 
 import { ChartDisplay } from '@/components/tool-calls/display-chart';
 import { ChartConfigEditDialog } from '@/components/tool-calls/display-chart-edit-dialog';
