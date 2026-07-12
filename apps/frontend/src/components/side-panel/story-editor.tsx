@@ -1,3 +1,4 @@
+import type { Segment } from '@nao/shared/story-segments';
 import {
 	getGridClass,
 	parseChartAttributes,
@@ -5,23 +6,23 @@ import {
 	parseTableBlock,
 	splitCodeIntoSegments,
 } from '@nao/shared/story-segments';
+import type { Editor as CoreEditor } from '@tiptap/core';
 import { Extension, mergeAttributes, Node } from '@tiptap/core';
 import { DragHandle } from '@tiptap/extension-drag-handle-react';
 import { TableKit } from '@tiptap/extension-table';
 import { Markdown } from '@tiptap/markdown';
+import type { Editor, ReactNodeViewProps } from '@tiptap/react';
 import { EditorContent, NodeViewWrapper, ReactNodeViewRenderer, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { GripVertical } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
 import { Streamdown } from 'streamdown';
 
-import { StoryChartEmbed } from './story-chart-embed';
-import { StoryTableEmbed } from './story-table-embed';
 import { EditorStoryChartEditProvider } from '@/contexts/story-chart-edit';
 import { replaceUniqueChartTag } from '@/contexts/story-chart-edit-utils';
-import type { Segment } from '@nao/shared/story-segments';
-import type { Editor as CoreEditor } from '@tiptap/core';
-import type { Editor, ReactNodeViewProps } from '@tiptap/react';
+
+import { StoryChartEmbed } from './story-chart-embed';
+import { StoryTableEmbed } from './story-table-embed';
 
 // ---------------------------------------------------------------------------
 // Encoding helpers for data-raw attributes
