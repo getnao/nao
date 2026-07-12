@@ -15,7 +15,6 @@ import { GripVertical } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
 import { Streamdown } from 'streamdown';
 
-
 import { StoryChartEmbed } from './story-chart-embed';
 import { StoryTableEmbed } from './story-table-embed';
 import type { Editor, ReactNodeViewProps } from '@tiptap/react';
