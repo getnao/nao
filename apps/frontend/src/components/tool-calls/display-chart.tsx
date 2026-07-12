@@ -1,32 +1,32 @@
-import type { UIMessage } from '@nao/backend/chat';
 import { buildChart, buildStoryChartBlock, labelize } from '@nao/shared';
-import type { executeSql } from '@nao/shared/tools';
 import { displayChart } from '@nao/shared/tools';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Code, Download, FilePlus, Pencil } from 'lucide-react';
 import { memo, useCallback, useMemo, useState } from 'react';
 
-import { SidePanelContent } from '@/components/side-panel/sql-editor';
-import { StoryViewer } from '@/components/side-panel/story-viewer';
-import { useSidePanel } from '@/contexts/side-panel';
-import { useChatId } from '@/hooks/use-chat-id';
-import { useDateFormat } from '@/hooks/use-date-format';
-import type { DateRange } from '@/lib/charts.utils';
-import { DATE_RANGE_OPTIONS, filterByDateRange, resolveDataKey, sortByDateKey, toKey } from '@/lib/charts.utils';
-import { findStoryIds } from '@/lib/story.utils';
-import { trpc } from '@/main';
 
 import { useOptionalAgentContext } from '../../contexts/agent.provider';
 import GraphLoaderAnimated from '../icons/graph-loader-animated';
 import { Button } from '../ui/button';
-import type { ChartConfig } from '../ui/chart';
 import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent } from '../ui/chart';
 import { Skeleton } from '../ui/skeleton';
 import { TextShimmer } from '../ui/text-shimmer';
-import type { ToolCallComponentProps } from '.';
 import { DisplayChartEditDialog } from './display-chart-edit-dialog';
 import { ChartRangeSelector } from './display-chart-range-selector';
 import { ToolCallWrapper } from './tool-call-wrapper';
+import type { ToolCallComponentProps } from '.';
+import type { ChartConfig } from '../ui/chart';
+import type { DateRange } from '@/lib/charts.utils';
+import type { executeSql } from '@nao/shared/tools';
+import type { UIMessage } from '@nao/backend/chat';
+import { trpc } from '@/main';
+import { findStoryIds } from '@/lib/story.utils';
+import { DATE_RANGE_OPTIONS, filterByDateRange, resolveDataKey, sortByDateKey, toKey } from '@/lib/charts.utils';
+import { useDateFormat } from '@/hooks/use-date-format';
+import { useChatId } from '@/hooks/use-chat-id';
+import { useSidePanel } from '@/contexts/side-panel';
+import { StoryViewer } from '@/components/side-panel/story-viewer';
+import { SidePanelContent } from '@/components/side-panel/sql-editor';
 
 const Colors = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)', 'var(--chart-5)'];
 const EMPTY_MESSAGES: UIMessage[] = [];

@@ -1,17 +1,17 @@
-import type { UIMessage, UIToolPart } from '@nao/backend/chat';
 import { displayChart } from '@nao/shared/tools';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
-import { useAgentContext } from '@/contexts/agent.provider';
-import { trpc } from '@/main';
 
 import { Button } from '../ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Input } from '../ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Switch } from '../ui/switch';
+import type { UIMessage, UIToolPart } from '@nao/backend/chat';
+import { trpc } from '@/main';
+import { useAgentContext } from '@/contexts/agent.provider';
 
 const CHART_TYPE_OPTIONS: { value: displayChart.ChartType; label: string }[] = [
 	{ value: 'bar', label: 'Bar' },
