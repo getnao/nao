@@ -36,6 +36,45 @@ export const DEFAULT_SCALE_MIN_COLOR = 'rgba(59, 130, 246, 0.04)';
 export const DEFAULT_SCALE_MAX_COLOR = 'rgba(59, 130, 246, 0.55)';
 export const DEFAULT_THRESHOLD_COLOR = 'rgba(34, 197, 94, 0.32)';
 
+const THRESHOLD_OPERATORS: readonly ThresholdOperator[] = ['>=', '>', '<=', '<', '='];
+
+export function isConditionalFormatRule(value: unknown): value is ConditionalFormatRule {
+	if (!value || typeof value !== 'object') {
+		return false;
+	}
+	const rule = value as Record<string, unknown>;
+	if (rule.type === 'color-scale') {
+		return true;
+	}
+	if (rule.type === 'threshold') {
+		return (
+			THRESHOLD_OPERATORS.includes(rule.operator as ThresholdOperator) &&
+			typeof rule.value === 'number' &&
+			Number.isFinite(rule.value) &&
+			typeof rule.color === 'string'
+		);
+	}
+	return false;
+}
+
+/**
+ * Keeps only well-formed rules from untrusted input (e.g. LLM-supplied
+ * formatting), so malformed entries are skipped instead of crashing render.
+ */
+export function sanitizeConditionalFormats(input: unknown): ColumnConditionalFormats | undefined {
+	if (!input || typeof input !== 'object' || Array.isArray(input)) {
+		return undefined;
+	}
+
+	const result: ColumnConditionalFormats = {};
+	for (const [column, rule] of Object.entries(input as Record<string, unknown>)) {
+		if (isConditionalFormatRule(rule)) {
+			result[column] = rule;
+		}
+	}
+	return Object.keys(result).length > 0 ? result : undefined;
+}
+
 export function computeColumnRange(rows: Record<string, unknown>[], column: string): ColumnRange | null {
 	let min = Number.POSITIVE_INFINITY;
 	let max = Number.NEGATIVE_INFINITY;
@@ -144,16 +183,16 @@ function parseHexColor(value: string): Rgba | null {
 			.map((char) => char + char)
 			.join('');
 	}
-	if (hex.length !== 6) {
+	if ((hex.length !== 6 && hex.length !== 8) || !/^[0-9a-fA-F]+$/.test(hex)) {
 		return null;
 	}
 
-	const int = Number.parseInt(hex, 16);
-	if (Number.isNaN(int)) {
-		return null;
-	}
-
-	return { r: (int >> 16) & 255, g: (int >> 8) & 255, b: int & 255, a: 1 };
+	return {
+		r: Number.parseInt(hex.slice(0, 2), 16),
+		g: Number.parseInt(hex.slice(2, 4), 16),
+		b: Number.parseInt(hex.slice(4, 6), 16),
+		a: hex.length === 8 ? roundAlpha(Number.parseInt(hex.slice(6, 8), 16) / 255) : 1,
+	};
 }
 
 function clamp01(value: number): number {

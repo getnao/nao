@@ -6,6 +6,7 @@ import {
 	DEFAULT_SCALE_MAX_COLOR,
 	DEFAULT_SCALE_MIN_COLOR,
 	resolveCellBackground,
+	sanitizeConditionalFormats,
 	type ThresholdRule,
 } from '../src/conditional-formatting';
 
@@ -77,6 +78,65 @@ describe('resolveCellBackground - threshold', () => {
 		const lt: ThresholdRule = { type: 'threshold', operator: '<', value: 0, color: 'red' };
 		expect(resolveCellBackground(lt, -1, null)).toBe('red');
 		expect(resolveCellBackground(lt, 0, null)).toBeUndefined();
+	});
+
+	it('supports the strict greater-than operator', () => {
+		const gt: ThresholdRule = { type: 'threshold', operator: '>', value: 10, color: 'red' };
+		expect(resolveCellBackground(gt, 11, null)).toBe('red');
+		expect(resolveCellBackground(gt, 10, null)).toBeUndefined();
+	});
+
+	it('supports the less-than-or-equal operator', () => {
+		const lte: ThresholdRule = { type: 'threshold', operator: '<=', value: 10, color: 'red' };
+		expect(resolveCellBackground(lte, 10, null)).toBe('red');
+		expect(resolveCellBackground(lte, 11, null)).toBeUndefined();
+	});
+
+	it('supports the equals operator', () => {
+		const eq: ThresholdRule = { type: 'threshold', operator: '=', value: 10, color: 'red' };
+		expect(resolveCellBackground(eq, 10, null)).toBe('red');
+		expect(resolveCellBackground(eq, 9, null)).toBeUndefined();
+	});
+});
+
+describe('parseHexColor via color-scale endpoints', () => {
+	const range = { min: 0, max: 100 };
+
+	it('parses 8-digit #RRGGBBAA hex with alpha', () => {
+		const rule: ColorScaleRule = { type: 'color-scale', minColor: '#00000080', maxColor: '#00000080' };
+		expect(resolveCellBackground(rule, 50, range)).toBe('rgba(0, 0, 0, 0.5)');
+	});
+
+	it('parses 3-digit shorthand hex', () => {
+		const rule: ColorScaleRule = { type: 'color-scale', minColor: '#fff', maxColor: '#fff' };
+		expect(resolveCellBackground(rule, 50, range)).toBe('rgba(255, 255, 255, 1)');
+	});
+
+	it('yields no background for malformed hex endpoints', () => {
+		const rule: ColorScaleRule = { type: 'color-scale', minColor: '#12xyz6', maxColor: '#123456' };
+		expect(resolveCellBackground(rule, 50, range)).toBeUndefined();
+	});
+});
+
+describe('sanitizeConditionalFormats', () => {
+	it('keeps valid rules and drops malformed entries', () => {
+		const input = {
+			good: { type: 'color-scale' },
+			badNull: null,
+			badType: { type: 'formula' },
+			badThreshold: { type: 'threshold', operator: '!!', value: 1, color: 'red' },
+			goodThreshold: { type: 'threshold', operator: '>=', value: 1, color: 'red' },
+		};
+		expect(sanitizeConditionalFormats(input)).toEqual({
+			good: { type: 'color-scale' },
+			goodThreshold: { type: 'threshold', operator: '>=', value: 1, color: 'red' },
+		});
+	});
+
+	it('returns undefined for non-object or fully-invalid input', () => {
+		expect(sanitizeConditionalFormats(null)).toBeUndefined();
+		expect(sanitizeConditionalFormats([{ type: 'color-scale' }])).toBeUndefined();
+		expect(sanitizeConditionalFormats({ bad: { type: 'nope' } })).toBeUndefined();
 	});
 });
 

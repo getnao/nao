@@ -1,3 +1,5 @@
+import { type ColumnConditionalFormats, sanitizeConditionalFormats } from './conditional-formatting';
+
 export interface ParsedChartBlock {
 	queryId: string;
 	chartType: string;
@@ -8,8 +10,6 @@ export interface ParsedChartBlock {
 	/** The original `<chart ... />` tag this block was parsed from, when available. */
 	rawTag?: string;
 }
-
-import type { ColumnConditionalFormats } from './conditional-formatting';
 
 export interface ParsedTableBlock {
 	queryId: string;
@@ -85,10 +85,7 @@ function parseConditionalFormats(value: string | undefined): ColumnConditionalFo
 		return undefined;
 	}
 	try {
-		const parsed = JSON.parse(value);
-		return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-			? (parsed as ColumnConditionalFormats)
-			: undefined;
+		return sanitizeConditionalFormats(JSON.parse(value));
 	} catch {
 		return undefined;
 	}

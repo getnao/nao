@@ -1,4 +1,9 @@
-import { computeColumnRange, DEFAULT_THRESHOLD_COLOR, resolveCellBackground } from '@nao/shared/conditional-formatting';
+import {
+	computeColumnRange,
+	DEFAULT_THRESHOLD_COLOR,
+	isConditionalFormatRule,
+	resolveCellBackground,
+} from '@nao/shared/conditional-formatting';
 import { formatCellValue, isNumericColumn } from '@nao/shared/story-table-utils';
 import { Ban, Palette, SlidersHorizontal } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
@@ -260,7 +265,7 @@ function computeFormattedColumnRanges(
 
 	const ranges: Record<string, ColumnRange | null> = {};
 	for (const [column, rule] of Object.entries(conditionalFormats)) {
-		if (rule.type === 'color-scale') {
+		if (isConditionalFormatRule(rule) && rule.type === 'color-scale') {
 			ranges[column] = computeColumnRange(data, column);
 		}
 	}
@@ -272,7 +277,7 @@ function resolveColumnCellBackground(
 	value: unknown,
 	range: ColumnRange | null,
 ): string | undefined {
-	return rule ? resolveCellBackground(rule, value, range) : undefined;
+	return isConditionalFormatRule(rule) ? resolveCellBackground(rule, value, range) : undefined;
 }
 
 function upsertColumnFormat(
