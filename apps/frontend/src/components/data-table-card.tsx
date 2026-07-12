@@ -85,6 +85,7 @@ export function DataTableCard({
 				tableContainerClassName={tableContainerClassName}
 				maxRowsBeforePagination={maxRowsBeforePagination}
 				compactFooter={true}
+				humanizeColumnLabels={true}
 			/>
 
 			<Dialog open={isFullscreen} onOpenChange={setIsFullscreen}>
@@ -117,6 +118,7 @@ export function DataTableCard({
 						tableContainerClassName='max-h-[75vh] border-t-0'
 						maxRowsBeforePagination={maxRowsBeforePagination}
 						compactFooter={true}
+						humanizeColumnLabels={true}
 					/>
 				</DialogContent>
 			</Dialog>
