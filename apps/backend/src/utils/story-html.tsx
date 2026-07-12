@@ -485,7 +485,7 @@ const TOOLTIP_SCRIPT_TEMPLATE = `
 			html+='<div class="nao-tooltip-rows">';
 			var isPercent=cfg.chartType==='stacked_bar_100'||cfg.chartType==='stacked_area_100';
 			var seriesTotal=0;
-			cfg.series.forEach(function(s){var sv=row[s.data_key];if(typeof sv==='number')seriesTotal+=sv;});
+			cfg.series.forEach(function(s){var sv=row[s.data_key];if(typeof sv==='number'&&!s.is_total)seriesTotal+=sv;});
 			function pctShare(v){if(typeof v!=='number'||!seriesTotal)return '0%';var sh=Math.round(v/seriesTotal*1000)/10;return (sh%1===0?sh:sh.toFixed(1))+'%';}
 			var numericValues=[];
 			var hasTotalSeries=false;

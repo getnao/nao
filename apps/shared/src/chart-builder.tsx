@@ -57,6 +57,14 @@ export function formatPercentAxisTick(value: number): string {
 	return `${Math.round(value * 100)}%`;
 }
 
+/**
+ * Denominator for 100% stacked shares: the sum of the stacked (non-total) series values.
+ * Already-aggregated total series are excluded so the parts sum to exactly 100%.
+ */
+export function sumPercentStackBase(entries: { value: number; isTotal?: boolean }[]): number {
+	return entries.reduce((sum, entry) => (entry.isTotal ? sum : sum + entry.value), 0);
+}
+
 /** Formats a single value as its share of `total`, e.g. `42.5%`. Used for 100% stacked tooltips. */
 export function formatPercentShare(value: number, total: number): string {
 	if (!total) {
@@ -149,6 +157,9 @@ function buildResolved(props: BuildChartProps) {
 
 	const resolved: ResolvedProps = {
 		...props,
+		data: displayChart.isPercentStackedChartType(props.chartType)
+			? clampNegativeSeriesValues(props.data, props.series)
+			: props.data,
 		colorFor,
 		labelFormatter,
 		xAxisInterval,
@@ -156,6 +167,34 @@ function buildResolved(props: BuildChartProps) {
 		children: titleChild ? [titleChild, ...(props.children ?? [])] : props.children,
 	};
 	return resolved;
+}
+
+/**
+ * Recharts `stackOffset="expand"` can produce ratios outside 0–1 when a stack mixes
+ * positive and negative values, which breaks the fixed 0–100% axis. 100% stacked charts
+ * describe part-of-whole compositions, so we treat negative shares as 0 rather than
+ * attempting a signed normalization.
+ */
+function clampNegativeSeriesValues(
+	data: Record<string, unknown>[],
+	series: displayChart.SeriesConfig[],
+): Record<string, unknown>[] {
+	const keys = series.map((s) => s.data_key);
+	const hasNegative = data.some((row) =>
+		keys.some((key) => typeof row[key] === 'number' && (row[key] as number) < 0),
+	);
+	if (!hasNegative) {
+		return data;
+	}
+	return data.map((row) => {
+		const next = { ...row };
+		for (const key of keys) {
+			if (typeof next[key] === 'number' && (next[key] as number) < 0) {
+				next[key] = 0;
+			}
+		}
+		return next;
+	});
 }
 
 type ResolvedProps = BuildChartProps &

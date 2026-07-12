@@ -1,8 +1,8 @@
+import { formatCompactNumber, formatPercentShare, sumPercentStackBase } from '@nao/shared';
 import * as React from 'react';
 import * as RechartsPrimitive from 'recharts';
-import { formatCompactNumber, formatPercentShare } from '@nao/shared';
-
 import type { Payload } from 'recharts/types/component/DefaultLegendContent';
+
 import { cn } from '@/lib/utils';
 
 // Format: { THEME_NAME: CSS_SELECTOR }
@@ -149,16 +149,23 @@ function ChartTooltipContent({
 
 	// Calculate total if there are multiple numeric values that can be summed and no total column.
 	const visiblePayload = payload.filter((item) => item.type !== 'none');
-	const numericValues = visiblePayload.map((item) => item.value).filter((v): v is number => typeof v === 'number');
-	const hasTotalSeries = visiblePayload.some((item) => {
+	const isTotalItem = (item: (typeof visiblePayload)[number]) => {
 		const key = `${nameKey || item.name || item.dataKey || 'value'}`;
 		return getPayloadConfigFromPayload(config, item, key)?.isTotal === true;
-	});
+	};
+	const numericValues = visiblePayload.map((item) => item.value).filter((v): v is number => typeof v === 'number');
+	const hasTotalSeries = visiblePayload.some(isTotalItem);
 	const seriesTotal = numericValues.reduce((sum, v) => sum + v, 0);
+	// 100% shares are relative to the stacked (non-total) series only, so each category sums to 100%.
+	const shareBase = sumPercentStackBase(
+		visiblePayload
+			.filter((item) => typeof item.value === 'number')
+			.map((item) => ({ value: item.value as number, isTotal: isTotalItem(item) })),
+	);
 	// In 100% stacked mode every category totals 100%, so ignore already-aggregated total series.
 	const showTotal = numericValues.length > 1 && (percent || !hasTotalSeries);
 	const formatValue = (value: number) =>
-		percent ? formatPercentShare(value, seriesTotal) : formatCompactNumber(value);
+		percent ? formatPercentShare(value, shareBase) : formatCompactNumber(value);
 
 	return (
 		<div
@@ -341,4 +348,4 @@ function getPayloadConfigFromPayload(config: ChartConfig, payload: unknown, key:
 	return configLabelKey in config ? config[configLabelKey] : config[key];
 }
 
-export { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent, ChartStyle };
+export { ChartContainer, ChartLegend, ChartLegendContent, ChartStyle, ChartTooltip, ChartTooltipContent };

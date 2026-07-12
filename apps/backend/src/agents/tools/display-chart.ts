@@ -12,10 +12,7 @@ export default createTool<displayChart.Input, displayChart.Output>({
 		const { chart_type: chartType, x_axis_key: xAxisKey, series } = input;
 
 		// Validate xAxisKey is provided for cartesian and polar charts
-		if (
-			['bar', 'line', 'area', 'stacked_area', 'stacked_area_100', 'scatter', 'radar'].includes(chartType) &&
-			!xAxisKey
-		) {
+		if (displayChart.chartTypeRequiresXAxisKey(chartType) && !xAxisKey) {
 			return { _version: '1', success: false, error: `xAxisKey is required for ${chartType} charts.` };
 		}
 

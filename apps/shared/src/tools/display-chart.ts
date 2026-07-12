@@ -60,6 +60,16 @@ export type Output = z.infer<typeof OutputSchema>;
 
 const STACKED_CHART_TYPES = new Set<ChartType>(['stacked_bar', 'stacked_bar_100', 'stacked_area', 'stacked_area_100']);
 const PERCENT_STACKED_CHART_TYPES = new Set<ChartType>(['stacked_bar_100', 'stacked_area_100']);
+const X_AXIS_REQUIRED_CHART_TYPES = new Set<ChartType>([
+	'bar',
+	'line',
+	'area',
+	'stacked_area',
+	'stacked_area_100',
+	'stacked_bar_100',
+	'scatter',
+	'radar',
+]);
 
 /** Whether a chart type stacks its series (absolute or normalized). */
 export function isStackedChartType(type: ChartType): boolean {
@@ -69,4 +79,9 @@ export function isStackedChartType(type: ChartType): boolean {
 /** Whether a chart type is a 100% (normalized) stacked chart. */
 export function isPercentStackedChartType(type: ChartType): boolean {
 	return PERCENT_STACKED_CHART_TYPES.has(type);
+}
+
+/** Whether a chart type requires an x-axis key (cartesian and polar charts). */
+export function chartTypeRequiresXAxisKey(type: ChartType): boolean {
+	return X_AXIS_REQUIRED_CHART_TYPES.has(type);
 }

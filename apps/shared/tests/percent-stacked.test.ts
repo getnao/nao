@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { formatPercentAxisTick, formatPercentShare } from '../src/chart-builder';
-import { isPercentStackedChartType, isStackedChartType } from '../src/tools/display-chart';
+import { formatPercentAxisTick, formatPercentShare, sumPercentStackBase } from '../src/chart-builder';
+import { chartTypeRequiresXAxisKey, isPercentStackedChartType, isStackedChartType } from '../src/tools/display-chart';
 
 describe('isStackedChartType', () => {
 	it('recognises absolute and normalized stacked types', () => {
@@ -25,6 +25,32 @@ describe('isPercentStackedChartType', () => {
 		expect(isPercentStackedChartType('stacked_bar')).toBe(false);
 		expect(isPercentStackedChartType('stacked_area')).toBe(false);
 		expect(isPercentStackedChartType('bar')).toBe(false);
+	});
+});
+
+describe('chartTypeRequiresXAxisKey', () => {
+	it('requires an x-axis key for both 100% stacked variants', () => {
+		expect(chartTypeRequiresXAxisKey('stacked_bar_100')).toBe(true);
+		expect(chartTypeRequiresXAxisKey('stacked_area_100')).toBe(true);
+	});
+
+	it('does not require one for pie or kpi cards', () => {
+		expect(chartTypeRequiresXAxisKey('pie')).toBe(false);
+		expect(chartTypeRequiresXAxisKey('kpi_card')).toBe(false);
+	});
+});
+
+describe('sumPercentStackBase', () => {
+	it('sums the stacked series values', () => {
+		expect(sumPercentStackBase([{ value: 10 }, { value: 20 }])).toBe(30);
+	});
+
+	it('excludes an already-aggregated total series from the denominator', () => {
+		const base = sumPercentStackBase([{ value: 10 }, { value: 20 }, { value: 30, isTotal: true }]);
+		expect(base).toBe(30);
+		// Each part is measured against the non-total base, so shares sum to 100%.
+		expect(formatPercentShare(10, base)).toBe('33.3%');
+		expect(formatPercentShare(20, base)).toBe('66.7%');
 	});
 });
 
