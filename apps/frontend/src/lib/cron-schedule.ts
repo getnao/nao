@@ -4,7 +4,7 @@ export type ScheduleConfig = {
 	frequency: ScheduleFrequency;
 	minute: number;
 	hour: number;
-	dayOfWeek: number;
+	daysOfWeek: number[];
 	dayOfMonth: number;
 };
 
@@ -14,7 +14,7 @@ export const defaultScheduleConfig: ScheduleConfig = {
 	frequency: 'weekly',
 	minute: 0,
 	hour: 9,
-	dayOfWeek: 1,
+	daysOfWeek: [1],
 	dayOfMonth: 1,
 };
 
@@ -30,7 +30,7 @@ export function buildScheduleCron(config: ScheduleConfig): string {
 		case 'weekdays':
 			return `${minute} ${hour} * * 1-5`;
 		case 'weekly':
-			return `${minute} ${hour} * * ${clamp(config.dayOfWeek, 0, 6)}`;
+			return `${minute} ${hour} * * ${formatDaysOfWeek(config.daysOfWeek)}`;
 		case 'monthly':
 			return `${minute} ${hour} ${clamp(config.dayOfMonth, 1, 31)} * *`;
 	}
@@ -77,17 +77,11 @@ export function parseScheduleCron(cron: string): ScheduleConfig | null {
 	}
 
 	if (dayOfMonthField === '*') {
-		const dayOfWeek = parseNumericField(dayOfWeekField, 0, 7);
-		if (dayOfWeek === null) {
+		const daysOfWeek = parseDaysOfWeek(dayOfWeekField);
+		if (daysOfWeek === null) {
 			return null;
 		}
-		return {
-			...defaultScheduleConfig,
-			frequency: 'weekly',
-			minute,
-			hour,
-			dayOfWeek: dayOfWeek === 7 ? 0 : dayOfWeek,
-		};
+		return { ...defaultScheduleConfig, frequency: 'weekly', minute, hour, daysOfWeek };
 	}
 
 	if (dayOfWeekField === '*') {
@@ -112,7 +106,7 @@ export function describeSchedule(config: ScheduleConfig): string {
 		case 'weekdays':
 			return `Weekdays at ${time}`;
 		case 'weekly':
-			return `Every ${DAY_OF_WEEK_LABELS[config.dayOfWeek] ?? 'day'} at ${time}`;
+			return `${describeDaysOfWeek(config.daysOfWeek)} at ${time}`;
 		case 'monthly':
 			return `Monthly on the ${formatOrdinal(config.dayOfMonth)} at ${time}`;
 	}
@@ -125,6 +119,43 @@ export function describeCron(cron: string): string {
 
 export function formatTime(hour: number, minute: number): string {
 	return `${padTwo(hour)}:${padTwo(minute)}`;
+}
+
+export function normalizeDaysOfWeek(days: number[]): number[] {
+	const unique = new Set(days.map((day) => (day === 7 ? 0 : day)).filter((day) => day >= 0 && day <= 6));
+	return [...unique].sort((left, right) => left - right);
+}
+
+function formatDaysOfWeek(days: number[]): string {
+	const normalized = normalizeDaysOfWeek(days);
+	return (normalized.length > 0 ? normalized : defaultScheduleConfig.daysOfWeek).join(',');
+}
+
+function parseDaysOfWeek(field: string): number[] | null {
+	const tokens = field.split(',');
+	const days = new Set<number>();
+	for (const token of tokens) {
+		const value = parseNumericField(token, 0, 7);
+		if (value === null) {
+			return null;
+		}
+		days.add(value === 7 ? 0 : value);
+	}
+	return [...days].sort((left, right) => left - right);
+}
+
+function describeDaysOfWeek(days: number[]): string {
+	const normalized = normalizeDaysOfWeek(days);
+	if (normalized.length === 0) {
+		return 'Weekly';
+	}
+	if (normalized.length === 7) {
+		return 'Every day';
+	}
+	if (normalized.length === 1) {
+		return `Every ${DAY_OF_WEEK_LABELS[normalized[0]]}`;
+	}
+	return `Every ${normalized.map((day) => DAY_OF_WEEK_LABELS[day].slice(0, 3)).join(', ')}`;
 }
 
 function parseNumericField(field: string, min: number, max: number): number | null {

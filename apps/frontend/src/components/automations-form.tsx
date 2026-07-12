@@ -166,8 +166,11 @@ const scheduleFrequencyOptions: Array<{ value: ScheduleFrequency; label: string 
 	{ value: 'monthly', label: 'Monthly' },
 ];
 
-const hourlyMinuteOptions = Array.from({ length: 12 }, (_, index) => index * 5);
 const dayOfMonthOptions = Array.from({ length: 31 }, (_, index) => index + 1);
+const weekdayToggleOptions: Array<{ value: number; label: string }> = [1, 2, 3, 4, 5, 6, 0].map((value) => ({
+	value,
+	label: DAY_OF_WEEK_LABELS[value].charAt(0),
+}));
 
 export function AutomationForm({
 	id,
@@ -757,7 +760,7 @@ function FriendlyScheduleControls({
 		return (
 			<>
 				<span className='text-sm text-muted-foreground'>at minute</span>
-				<MinuteSelect
+				<MinuteInput
 					minute={config.minute}
 					onChange={(minute) => onChange({ ...config, minute })}
 					disabled={disabled}
@@ -771,9 +774,9 @@ function FriendlyScheduleControls({
 			{config.frequency === 'weekly' && (
 				<>
 					<span className='text-sm text-muted-foreground'>on</span>
-					<DayOfWeekSelect
-						dayOfWeek={config.dayOfWeek}
-						onChange={(dayOfWeek) => onChange({ ...config, dayOfWeek })}
+					<DaysOfWeekToggle
+						daysOfWeek={config.daysOfWeek}
+						onChange={(daysOfWeek) => onChange({ ...config, daysOfWeek })}
 						disabled={disabled}
 					/>
 				</>
@@ -827,7 +830,7 @@ function TimeField({
 	);
 }
 
-function MinuteSelect({
+function MinuteInput({
 	minute,
 	onChange,
 	disabled,
@@ -836,48 +839,74 @@ function MinuteSelect({
 	onChange: (minute: number) => void;
 	disabled: boolean;
 }) {
-	const options = hourlyMinuteOptions.includes(minute)
-		? hourlyMinuteOptions
-		: [...hourlyMinuteOptions, minute].sort((left, right) => left - right);
-
 	return (
-		<Select value={String(minute)} onValueChange={(next) => onChange(Number(next))} disabled={disabled}>
-			<SelectTrigger variant='ghost' size='sm' className='h-8 w-20'>
-				<SelectValue />
-			</SelectTrigger>
-			<SelectContent>
-				{options.map((option) => (
-					<SelectItem key={option} value={String(option)}>
-						:{padTwo(option)}
-					</SelectItem>
-				))}
-			</SelectContent>
-		</Select>
+		<Input
+			type='number'
+			min={0}
+			max={59}
+			className='h-8 w-16'
+			value={String(minute)}
+			disabled={disabled}
+			aria-label='Minute past the hour'
+			onChange={(event) => {
+				const parsed = Number.parseInt(event.target.value, 10);
+				if (!Number.isNaN(parsed)) {
+					onChange(Math.min(Math.max(parsed, 0), 59));
+				}
+			}}
+		/>
 	);
 }
 
-function DayOfWeekSelect({
-	dayOfWeek,
+function DaysOfWeekToggle({
+	daysOfWeek,
 	onChange,
 	disabled,
 }: {
-	dayOfWeek: number;
-	onChange: (dayOfWeek: number) => void;
+	daysOfWeek: number[];
+	onChange: (daysOfWeek: number[]) => void;
 	disabled: boolean;
 }) {
+	const selected = new Set(daysOfWeek);
+
+	function toggleDay(day: number) {
+		const next = new Set(selected);
+		if (next.has(day)) {
+			if (next.size === 1) {
+				return;
+			}
+			next.delete(day);
+		} else {
+			next.add(day);
+		}
+		onChange([...next].sort((left, right) => left - right));
+	}
+
 	return (
-		<Select value={String(dayOfWeek)} onValueChange={(next) => onChange(Number(next))} disabled={disabled}>
-			<SelectTrigger variant='ghost' size='sm' className='h-8 w-32'>
-				<SelectValue />
-			</SelectTrigger>
-			<SelectContent>
-				{DAY_OF_WEEK_LABELS.map((label, index) => (
-					<SelectItem key={label} value={String(index)}>
-						{label}
-					</SelectItem>
-				))}
-			</SelectContent>
-		</Select>
+		<div className='flex items-center gap-1'>
+			{weekdayToggleOptions.map((option) => {
+				const isSelected = selected.has(option.value);
+				return (
+					<button
+						key={option.value}
+						type='button'
+						onClick={() => toggleDay(option.value)}
+						disabled={disabled}
+						aria-pressed={isSelected}
+						aria-label={DAY_OF_WEEK_LABELS[option.value]}
+						title={DAY_OF_WEEK_LABELS[option.value]}
+						className={cn(
+							'inline-flex size-7 items-center justify-center rounded-md border text-xs font-medium transition-colors disabled:opacity-50',
+							isSelected
+								? 'border-primary bg-primary text-primary-foreground'
+								: 'border-input bg-background text-muted-foreground hover:bg-muted hover:text-foreground',
+						)}
+					>
+						{option.label}
+					</button>
+				);
+			})}
+		</div>
 	);
 }
 
