@@ -16,7 +16,14 @@ import type { ChartConfig } from '../ui/chart';
 import type { displayChart, executeSql } from '@nao/shared/tools';
 import type { UIMessage } from '@nao/backend/chat';
 import type { DateRange } from '@/lib/charts.utils';
-import { filterByDateRange, sortByDateKey, DATE_RANGE_OPTIONS, toKey, resolveDataKey } from '@/lib/charts.utils';
+import {
+	filterByDateRange,
+	sortByDateKey,
+	DATE_RANGE_OPTIONS,
+	toKey,
+	resolveDataKey,
+	resolvePieTooltipLabel,
+} from '@/lib/charts.utils';
 import { findStoryIds } from '@/lib/story.utils';
 import { useChatId } from '@/hooks/use-chat-id';
 import { useDateFormat } from '@/hooks/use-date-format';
@@ -367,6 +374,14 @@ export const ChartDisplay = memo(function ChartDisplay({
 		[xAxisLabelFormatter, dateFormat],
 	);
 
+	const tooltipLabelFormatter = useMemo(
+		() => (value: unknown, items: unknown) =>
+			chartType === 'pie'
+				? labelize(resolvePieTooltipLabel(items as { name?: unknown }[]), dateFormat)
+				: labelize(value as string, dateFormat),
+		[chartType, dateFormat],
+	);
+
 	const chartElement = useMemo(
 		() =>
 			buildChart({
@@ -385,7 +400,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 						animationDuration={150}
 						animationEasing='linear'
 						allowEscapeViewBox={{ y: true, x: false }}
-						content={<ChartTooltipContent labelFormatter={(value) => labelize(value, dateFormat)} />}
+						content={<ChartTooltipContent labelFormatter={tooltipLabelFormatter} />}
 					/>,
 					chartType !== 'pie' && (
 						<ChartLegend
@@ -405,11 +420,11 @@ export const ChartDisplay = memo(function ChartDisplay({
 			visibleSeries,
 			colorFor,
 			labelFormatter,
+			tooltipLabelFormatter,
 			showGrid,
 			legendPayload,
 			handleToggleSeriesVisibility,
 			title,
-			dateFormat,
 		],
 	);
 
