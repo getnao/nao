@@ -44,7 +44,12 @@ export function isConditionalFormatRule(value: unknown): value is ConditionalFor
 	}
 	const rule = value as Record<string, unknown>;
 	if (rule.type === 'color-scale') {
-		return true;
+		return (
+			isOptionalString(rule.minColor) &&
+			isOptionalString(rule.maxColor) &&
+			isOptionalFiniteNumber(rule.min) &&
+			isOptionalFiniteNumber(rule.max)
+		);
 	}
 	if (rule.type === 'threshold') {
 		return (
@@ -55,6 +60,14 @@ export function isConditionalFormatRule(value: unknown): value is ConditionalFor
 		);
 	}
 	return false;
+}
+
+function isOptionalString(value: unknown): boolean {
+	return value === undefined || typeof value === 'string';
+}
+
+function isOptionalFiniteNumber(value: unknown): boolean {
+	return value === undefined || (typeof value === 'number' && Number.isFinite(value));
 }
 
 /**

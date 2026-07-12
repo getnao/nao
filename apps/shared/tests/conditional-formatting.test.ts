@@ -138,6 +138,21 @@ describe('sanitizeConditionalFormats', () => {
 		expect(sanitizeConditionalFormats([{ type: 'color-scale' }])).toBeUndefined();
 		expect(sanitizeConditionalFormats({ bad: { type: 'nope' } })).toBeUndefined();
 	});
+
+	it('rejects color-scale rules with a non-string color', () => {
+		expect(sanitizeConditionalFormats({ bad: { type: 'color-scale', minColor: {} } })).toBeUndefined();
+		expect(sanitizeConditionalFormats({ bad: { type: 'color-scale', maxColor: 5 } })).toBeUndefined();
+	});
+
+	it('rejects color-scale rules with a non-finite numeric bound', () => {
+		expect(sanitizeConditionalFormats({ bad: { type: 'color-scale', min: 'low' } })).toBeUndefined();
+		expect(sanitizeConditionalFormats({ bad: { type: 'color-scale', max: Number.NaN } })).toBeUndefined();
+	});
+
+	it('keeps a fully-specified valid color-scale rule', () => {
+		const valid = { type: 'color-scale', minColor: '#000', maxColor: '#fff', min: 0, max: 100 };
+		expect(sanitizeConditionalFormats({ ok: valid })).toEqual({ ok: valid });
+	});
 });
 
 function rgbaFrom(color: string): string {
