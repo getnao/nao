@@ -167,7 +167,7 @@ const scheduleFrequencyOptions: Array<{ value: ScheduleFrequency; label: string 
 ];
 
 const hourlyMinuteOptions = Array.from({ length: 12 }, (_, index) => index * 5);
-const dayOfMonthOptions = Array.from({ length: 28 }, (_, index) => index + 1);
+const dayOfMonthOptions = Array.from({ length: 31 }, (_, index) => index + 1);
 
 export function AutomationForm({
 	id,

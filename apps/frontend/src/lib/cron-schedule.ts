@@ -32,7 +32,7 @@ export function buildScheduleCron(config: ScheduleConfig): string {
 		case 'weekly':
 			return `${minute} ${hour} * * ${clamp(config.dayOfWeek, 0, 6)}`;
 		case 'monthly':
-			return `${minute} ${hour} ${clamp(config.dayOfMonth, 1, 28)} * *`;
+			return `${minute} ${hour} ${clamp(config.dayOfMonth, 1, 31)} * *`;
 	}
 }
 
@@ -91,7 +91,7 @@ export function parseScheduleCron(cron: string): ScheduleConfig | null {
 	}
 
 	if (dayOfWeekField === '*') {
-		const dayOfMonth = parseNumericField(dayOfMonthField, 1, 28);
+		const dayOfMonth = parseNumericField(dayOfMonthField, 1, 31);
 		if (dayOfMonth === null) {
 			return null;
 		}

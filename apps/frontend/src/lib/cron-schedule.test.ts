@@ -18,17 +18,31 @@ describe('buildScheduleCron', () => {
 });
 
 describe('parseScheduleCron', () => {
-	it('round-trips friendly cron expressions', () => {
-		for (const config of [
-			{ ...base, frequency: 'hourly', minute: 30 } as const,
-			{ ...base, frequency: 'daily', hour: 14, minute: 45 } as const,
-			{ ...base, frequency: 'weekdays', hour: 6, minute: 0 } as const,
-			{ ...base, frequency: 'weekly', hour: 8, minute: 0, dayOfWeek: 5 } as const,
-			{ ...base, frequency: 'monthly', hour: 9, minute: 0, dayOfMonth: 15 } as const,
-		]) {
+	it('round-trips friendly cron expressions across every relevant field', () => {
+		const cases: Array<{ config: ScheduleConfig; fields: Array<keyof ScheduleConfig> }> = [
+			{ config: { ...base, frequency: 'hourly', minute: 30 }, fields: ['frequency', 'minute'] },
+			{ config: { ...base, frequency: 'daily', hour: 14, minute: 45 }, fields: ['frequency', 'hour', 'minute'] },
+			{ config: { ...base, frequency: 'weekdays', hour: 6, minute: 0 }, fields: ['frequency', 'hour', 'minute'] },
+			{
+				config: { ...base, frequency: 'weekly', hour: 8, minute: 0, dayOfWeek: 5 },
+				fields: ['frequency', 'hour', 'minute', 'dayOfWeek'],
+			},
+			{
+				config: { ...base, frequency: 'monthly', hour: 9, minute: 0, dayOfMonth: 15 },
+				fields: ['frequency', 'hour', 'minute', 'dayOfMonth'],
+			},
+			{
+				config: { ...base, frequency: 'monthly', hour: 23, minute: 5, dayOfMonth: 31 },
+				fields: ['frequency', 'hour', 'minute', 'dayOfMonth'],
+			},
+		];
+
+		for (const { config, fields } of cases) {
 			const parsed = parseScheduleCron(buildScheduleCron(config));
-			expect(parsed?.frequency).toBe(config.frequency);
-			expect(parsed?.minute).toBe(config.minute);
+			expect(parsed).not.toBeNull();
+			for (const field of fields) {
+				expect(parsed?.[field]).toBe(config[field]);
+			}
 		}
 	});
 
