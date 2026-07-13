@@ -27,7 +27,7 @@ export const DEFAULT_COLORS = ['#104e64', '#f54900', '#009689', '#ffb900', '#fe9
 
 const AXIS_TICK = { fontSize: 12 };
 
-const STACK_SEPARATOR_WIDTH = 2;
+const STACK_SEPARATOR_WIDTH = 1;
 /**
  * Thin separator drawn between stacked segments. Using the chart background color makes the
  * outer edges blend into the background while the boundary between two segments reads as a gap,
@@ -36,9 +36,6 @@ const STACK_SEPARATOR_WIDTH = 2;
  * passes an explicit `backgroundColor` and CSS vars do not resolve.
  */
 const DEFAULT_BACKGROUND_COLOR = 'var(--background, #ffffff)';
-
-/** Stacked area bands use a near-solid series-color fill so each band clearly reads as its stroke color. */
-const STACKED_AREA_FILL_OPACITY = 0.85;
 
 export function labelize(key: unknown, dateFormat?: DateFormatSettings | null): string {
 	const str = String(key);
@@ -419,11 +416,9 @@ function buildAreaChart(props: ResolvedProps) {
 				<Area
 					key={s.data_key}
 					dataKey={s.data_key}
-					// Linear (not monotone) so stacked cumulative boundaries never overshoot and cross.
-					type={isStacked ? 'linear' : 'monotone'}
+					type='monotone'
 					stroke={colorFor(s.data_key, i)}
-					fill={isStacked ? colorFor(s.data_key, i) : `url(#grad-${i})`}
-					fillOpacity={isStacked ? STACKED_AREA_FILL_OPACITY : undefined}
+					fill={`url(#grad-${i})`}
 					stackId={isStacked ? 'stack' : undefined}
 					isAnimationActive={false}
 				/>
