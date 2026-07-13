@@ -22,22 +22,7 @@ import {
 import { type DateFormatSettings, formatDateValue, isIsoDateLike } from './date';
 import * as displayChart from './tools/display-chart';
 
-export const DEFAULT_COLORS = ['#7B5CFF', '#3B82F6', '#2FBE6E', '#FF9F43', '#F368A0', '#22C3C9'];
-
-/**
- * Single-hue purple ramp (light → deep) for part-to-whole charts (pie / donut),
- * where the slices are one metric rather than distinct series. Keeps single-series
- * breakdowns on-brand instead of spreading them across the categorical palette.
- */
-export const PIE_COLORS = ['#C9BEFF', '#8C73FF', '#6E4EFF', '#522BFF', '#300CCE'];
-
-export function sequentialColorFor(index: number, count: number): string {
-	if (count <= 1) {
-		return '#522BFF';
-	}
-	const position = (index / (count - 1)) * (PIE_COLORS.length - 1);
-	return PIE_COLORS[Math.round(position)];
-}
+export const DEFAULT_COLORS = ['#A896FF', '#83ACF3', '#8AE4DD', '#8BD1A1', '#FFD591', '#FF84BF', '#BAAAFD'];
 
 const AXIS_TICK = { fontSize: 12 };
 
@@ -353,11 +338,11 @@ function buildRadarChart(props: ResolvedProps) {
 }
 
 function buildPieChart(props: ResolvedProps) {
-	const { data, xAxisKey, series, labelFormatter, children, margin } = props;
+	const { data, xAxisKey, series, colorFor, labelFormatter, children, margin } = props;
 	const dataKey = series[0].data_key;
 
 	const uniqueValues = [...new Set(data.map((d) => String(d[xAxisKey])))];
-	const colorMap = new Map(uniqueValues.map((v, i) => [v, sequentialColorFor(i, uniqueValues.length)]));
+	const colorMap = new Map(uniqueValues.map((v, i) => [v, colorFor(v, i)]));
 
 	const dataWithColors = data.map((item) => ({
 		...item,

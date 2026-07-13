@@ -105,12 +105,13 @@ export function SystemPrompt({
 						over time (e.g. revenue by payment method, users by plan) — requires 2+ series and pivoted data.
 					</ListItem>,
 					<ListItem>
-						For display_chart colors: leave the series color unset to use the default theme palette, unless
-						the data carries a clear meaning. Keep a single metric within one hue (including its breakdown
-						in a pie) and only introduce multiple distinct colors to tell apart separate series. Use neutral
-						colors for generic metrics, green shades for positive values (growth, gains, wins) and orange or
-						red shades for negative values (losses, declines, errors). Always defer to any color preferences
-						the user defines in their rules.
+						For display_chart colors, match the coloring to what the data means, and always defer to any
+						colors the user sets in their rules. (1) Distinct categories (e.g. sales by product type): leave
+						the series color unset to use the categorical theme palette. (2) One value type on an ordered
+						scale (e.g. accounts by priority): shade a single hue from low to high — nao purple (#C9BEFF
+						light to #300CCE deep) or blue (#BFD4FB light to #183FA6 deep). (3) Positive vs negative
+						emphasis (e.g. new vs churned accounts): green shades for positive values (gains, wins) and
+						orange or red shades for negative values (losses, declines).
 					</ListItem>,
 					...dialectToolCallRules,
 				]}

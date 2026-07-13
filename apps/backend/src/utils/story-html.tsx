@@ -1,4 +1,4 @@
-import { DEFAULT_COLORS, defaultColorFor, formatCompactNumber, labelize, PIE_COLORS } from '@nao/shared';
+import { DEFAULT_COLORS, defaultColorFor, formatCompactNumber, labelize } from '@nao/shared';
 import {
 	type DateFormatSettings,
 	DEFAULT_DATE_FORMAT_SETTINGS,
@@ -381,9 +381,7 @@ function renderTooltipScript(datePattern: string): string {
 
 const TOOLTIP_SCRIPT_TEMPLATE = `
 (function(){
-	var SERIES_COLORS=${JSON.stringify(DEFAULT_COLORS)};
-	var PIE_COLORS=${JSON.stringify(PIE_COLORS)};
-	function pieColorAt(i,n){if(n<=1)return '#522BFF';return PIE_COLORS[Math.round((i/(n-1))*(PIE_COLORS.length-1))]}
+	var PIE_COLORS=${JSON.stringify(DEFAULT_COLORS)};
 	var DATE_PATTERN=__DATE_PATTERN__;
 	var MONTHS_LONG=['January','February','March','April','May','June','July','August','September','October','November','December'];
 	var MONTHS_SHORT=MONTHS_LONG.map(function(m){return m.slice(0,3)});
@@ -426,12 +424,11 @@ const TOOLTIP_SCRIPT_TEMPLATE = `
 
 		var pieColorMap=null;
 		if(cfg.chartType==='pie'){
-			pieColorMap={};var uniq=[];var seen={};
+			pieColorMap={};var ci=0;var seen={};
 			cfg.data.forEach(function(d){
 				var v=String(d[cfg.xAxisKey]!=null?d[cfg.xAxisKey]:'');
-				if(!seen[v]){seen[v]=true;uniq.push(v)}
+				if(!seen[v]){seen[v]=true;pieColorMap[v]=PIE_COLORS[ci%PIE_COLORS.length];ci++}
 			});
-			uniq.forEach(function(v,i){pieColorMap[v]=pieColorAt(i,uniq.length)});
 		}
 
 		var tip=document.createElement('div');
@@ -493,7 +490,7 @@ const TOOLTIP_SCRIPT_TEMPLATE = `
 				if(isPie){
 					color=pieColorMap[String(label!=null?label:'')]||PIE_COLORS[0];
 				}else{
-					var fb=SERIES_COLORS[si % SERIES_COLORS.length];
+					var fb=PIE_COLORS[si % PIE_COLORS.length];
 					color=s.color||fb;
 					if(!color||String(color).startsWith('var('))color=fb;
 				}

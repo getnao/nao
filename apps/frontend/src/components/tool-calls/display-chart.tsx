@@ -1,5 +1,5 @@
 import { memo, useCallback, useMemo, useState } from 'react';
-import { buildChart, buildStoryChartBlock, labelize, sequentialColorFor } from '@nao/shared';
+import { buildChart, buildStoryChartBlock, labelize } from '@nao/shared';
 import { Code, Download, FilePlus, Pencil } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useOptionalAgentContext } from '../../contexts/agent.provider';
@@ -32,6 +32,7 @@ const Colors = [
 	'var(--chart-4)',
 	'var(--chart-5)',
 	'var(--chart-6)',
+	'var(--chart-7)',
 ];
 const EMPTY_MESSAGES: UIMessage[] = [];
 
@@ -328,7 +329,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 				(acc, v, index) => {
 					acc[toKey(v)] = {
 						label: labelize(v, dateFormat),
-						color: sequentialColorFor(index, values.size),
+						color: Colors[index % Colors.length],
 					};
 					return acc;
 				},
