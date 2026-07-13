@@ -173,8 +173,6 @@ code.dollar:before {
 	--color-chart-4: var(--chart-4);
 	--color-chart-5: var(--chart-5);
 	--color-chart-6: var(--chart-6);
-	--color-chart-7: var(--chart-7);
-	--color-chart-8: var(--chart-8);
 	--color-sidebar: var(--sidebar);
 	--color-sidebar-foreground: var(--sidebar-foreground);
 	--color-sidebar-primary: var(--sidebar-primary);
@@ -221,14 +219,12 @@ code.dollar:before {
 	--gradient-brand-hover: linear-gradient(180deg, #6441ff 0%, #7858ff 100%);
 	--gradient-brand-border: linear-gradient(180deg, #522bff 0%, #3c1bcd 50.48%, #a591ff 100%);
 
-	--chart-1: #522bff;
-	--chart-2: #0dc368;
-	--chart-3: #3662ff;
-	--chart-4: #ff612c;
-	--chart-5: #9f8aff;
-	--chart-6: #57d093;
-	--chart-7: #557aff;
-	--chart-8: #ff845b;
+	--chart-1: #7b5cff;
+	--chart-2: #3b82f6;
+	--chart-3: #2fbe6e;
+	--chart-4: #ff9f43;
+	--chart-5: #f368a0;
+	--chart-6: #22c3c9;
 
 	--sidebar: oklch(0.99 0 0);
 	--sidebar-foreground: oklch(0.129 0.042 264.695);
@@ -270,14 +266,12 @@ code.dollar:before {
 	--sidebar-border: oklch(1 0 0 / 10%);
 	--sidebar-ring: oklch(0.42 0.012 270);
 
-	--chart-1: #522bff;
-	--chart-2: #0dc368;
-	--chart-3: #3662ff;
-	--chart-4: #ff612c;
-	--chart-5: #9f8aff;
-	--chart-6: #57d093;
-	--chart-7: #557aff;
-	--chart-8: #ff845b;
+	--chart-1: #7b5cff;
+	--chart-2: #3b82f6;
+	--chart-3: #2fbe6e;
+	--chart-4: #ff9f43;
+	--chart-5: #f368a0;
+	--chart-6: #22c3c9;
 }
 
 @layer base {
