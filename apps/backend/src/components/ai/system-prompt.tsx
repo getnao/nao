@@ -106,9 +106,11 @@ export function SystemPrompt({
 					</ListItem>,
 					<ListItem>
 						For display_chart colors: leave the series color unset to use the default theme palette, unless
-						the data carries a clear meaning. Use neutral colors for generic metrics, green shades for
-						positive values (growth, gains, wins) and orange or red shades for negative values (losses,
-						declines, errors). Always defer to any color preferences the user defines in their rules.
+						the data carries a clear meaning. Keep a single metric within one hue (including its breakdown
+						in a pie) and only introduce multiple distinct colors to tell apart separate series. Use neutral
+						colors for generic metrics, green shades for positive values (growth, gains, wins) and orange or
+						red shades for negative values (losses, declines, errors). Always defer to any color preferences
+						the user defines in their rules.
 					</ListItem>,
 					...dialectToolCallRules,
 				]}
