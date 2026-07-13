@@ -48,6 +48,8 @@ export function renderChartToSvg(input: RenderChartInput): string {
 		margin,
 		title: config.title,
 		maxXAxisTicks: Math.floor(width / maxLabelWidth),
+		// resvg cannot resolve CSS vars and the exported chart sits on a white background.
+		backgroundColor: '#ffffff',
 	});
 
 	const html = renderToString(React.cloneElement(chart, { width, height }));

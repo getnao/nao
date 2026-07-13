@@ -27,6 +27,16 @@ export const DEFAULT_COLORS = ['#104e64', '#f54900', '#009689', '#ffb900', '#fe9
 
 const AXIS_TICK = { fontSize: 12 };
 
+const STACK_SEPARATOR_WIDTH = 2;
+/**
+ * Thin separator drawn between stacked segments. Using the chart background color makes the
+ * outer edges blend into the background while the boundary between two segments reads as a gap,
+ * so it stays theme-correct (white in light, dark surface in dark mode). The `var()` resolves
+ * in the browser; the concrete fallback covers the backend PNG/HTML export where the backend
+ * passes an explicit `backgroundColor` and CSS vars do not resolve.
+ */
+const DEFAULT_BACKGROUND_COLOR = 'var(--background, #ffffff)';
+
 export function labelize(key: unknown, dateFormat?: DateFormatSettings | null): string {
 	const str = String(key);
 	if (isIsoDateLike(str)) {
@@ -93,6 +103,8 @@ export interface BuildChartProps {
 	margin?: { top?: number; right?: number; bottom?: number; left?: number };
 	title?: string;
 	maxXAxisTicks?: number;
+	/** Chart background color, used as the separator between stacked segments. Pass a concrete color on surfaces where CSS vars do not resolve (backend PNG/HTML export). */
+	backgroundColor?: string;
 }
 
 /**
@@ -267,6 +279,7 @@ function buildBarChart(props: ResolvedProps) {
 	const isStacked = displayChart.isStackedChartType(chartType);
 	const isPercent = displayChart.isPercentStackedChartType(chartType);
 	const seriesKeys = series.map((s) => s.data_key);
+	const separatorColor = props.backgroundColor ?? DEFAULT_BACKGROUND_COLOR;
 
 	return (
 		<BarChart data={data} accessibilityLayer margin={margin} stackOffset={isPercent ? 'expand' : undefined}>
@@ -299,7 +312,7 @@ function buildBarChart(props: ResolvedProps) {
 					fill={colorFor(s.data_key, i)}
 					stackId={isStacked ? 'stack' : undefined}
 					radius={isStacked ? undefined : [4, 4, 4, 4]}
-					shape={isStacked ? renderStackedBarShape(seriesKeys, s.data_key) : undefined}
+					shape={isStacked ? renderStackedBarShape(seriesKeys, s.data_key, separatorColor) : undefined}
 					isAnimationActive={false}
 				/>
 			))}
@@ -327,14 +340,22 @@ type RectangleProps = React.ComponentProps<typeof Rectangle>;
 
 /**
  * Custom `<Bar>` shape that rounds the top corners of only the topmost non-zero segment of
- * each stacked bar, matching the rounded-top convention of non-stacked bars. Recharts applies
- * a single radius per `<Bar>` across all rows, so per-datum rounding needs a shape.
+ * each stacked bar, matching the rounded-top convention of non-stacked bars, and strokes each
+ * segment in the background color so adjacent segments read as separated by a thin gap.
+ * Recharts applies a single radius per `<Bar>` across all rows, so per-datum rounding needs a shape.
  */
-function renderStackedBarShape(seriesKeys: string[], currentKey: string) {
+function renderStackedBarShape(seriesKeys: string[], currentKey: string, separatorColor: string) {
 	return function StackedBarSegment(shapeProps: unknown) {
 		const rectProps = shapeProps as RectangleProps & { payload?: Record<string, unknown> };
 		const rounded = isTopmostStackSegment(rectProps.payload ?? {}, seriesKeys, currentKey);
-		return <Rectangle {...rectProps} radius={rounded ? [4, 4, 0, 0] : [0, 0, 0, 0]} />;
+		return (
+			<Rectangle
+				{...rectProps}
+				radius={rounded ? [4, 4, 0, 0] : [0, 0, 0, 0]}
+				stroke={separatorColor}
+				strokeWidth={STACK_SEPARATOR_WIDTH}
+			/>
+		);
 	};
 }
 
@@ -354,6 +375,7 @@ function buildAreaChart(props: ResolvedProps) {
 	} = props;
 	const isStacked = displayChart.isStackedChartType(chartType);
 	const isPercent = displayChart.isPercentStackedChartType(chartType);
+	const separatorColor = props.backgroundColor ?? DEFAULT_BACKGROUND_COLOR;
 
 	return (
 		<AreaChart data={data} accessibilityLayer margin={margin} stackOffset={isPercent ? 'expand' : undefined}>
@@ -396,7 +418,8 @@ function buildAreaChart(props: ResolvedProps) {
 					key={s.data_key}
 					dataKey={s.data_key}
 					type='monotone'
-					stroke={colorFor(s.data_key, i)}
+					stroke={isStacked ? separatorColor : colorFor(s.data_key, i)}
+					strokeWidth={isStacked ? STACK_SEPARATOR_WIDTH : undefined}
 					fill={`url(#grad-${i})`}
 					stackId={isStacked ? 'stack' : undefined}
 					isAnimationActive={false}
