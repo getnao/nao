@@ -1,4 +1,4 @@
-import { parseChartAttributes, parseSeriesJsonArray } from './story-segments';
+import { parseChartAttributes, parseSeriesJsonArray, TAG_ATTRS } from './story-segments';
 
 export interface StoryValidationError {
 	message: string;
@@ -44,7 +44,7 @@ export function validateStoryCode(code: string): StoryValidationError[] {
 
 function validateChartBlocks(code: string): StoryValidationError[] {
 	const errors: StoryValidationError[] = [];
-	const chartRegex = /<chart\b([^/>]*?)(\/?)>/g;
+	const chartRegex = new RegExp(String.raw`<chart\b(${TAG_ATTRS})(\/?)>`, 'g');
 	let match: RegExpExecArray | null;
 
 	while ((match = chartRegex.exec(code)) !== null) {
@@ -152,7 +152,7 @@ function validateChartSeries(
 
 function validateTableBlocks(code: string): StoryValidationError[] {
 	const errors: StoryValidationError[] = [];
-	const tableRegex = /<table\b([^/>]*?)(\/?)>/g;
+	const tableRegex = new RegExp(String.raw`<table\b(${TAG_ATTRS})(\/?)>`, 'g');
 	let match: RegExpExecArray | null;
 
 	while ((match = tableRegex.exec(code)) !== null) {

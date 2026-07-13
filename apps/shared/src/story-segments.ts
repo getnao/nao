@@ -20,6 +20,37 @@ export type Segment =
 	| { type: 'table'; table: ParsedTableBlock }
 	| { type: 'grid'; cols: number; children: Segment[] };
 
+/**
+ * Regex fragment for a tag's attribute body. Quoted values — single or double,
+ * with backslash escapes — are consumed atomically, so a `/` or `>` inside an
+ * attribute value (e.g. `title="13/07 update"` or a `series='[...]'` JSON payload)
+ * never terminates the tag early. It is lazy, leaving a trailing `/` available for
+ * the `/?>` terminator. All chart/table/grid tag matchers must build on this so the
+ * escaping rules cannot silently diverge across the codebase.
+ */
+export const TAG_ATTRS = String.raw`(?:[^>"']|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')*?`;
+
+/** Fresh regex matching a self-closing `<chart …/>` tag, capturing its attribute body. */
+export function chartTagRegex(flags = ''): RegExp {
+	return new RegExp(String.raw`<chart\s+(${TAG_ATTRS})\/?>`, flags);
+}
+
+/** Fresh regex matching a self-closing `<table …/>` tag, capturing its attribute body. */
+export function tableTagRegex(flags = ''): RegExp {
+	return new RegExp(String.raw`<table\s+(${TAG_ATTRS})\/?>`, flags);
+}
+
+/**
+ * Fresh global regex matching every story block. Capture groups:
+ * 1 = grid attrs, 2 = grid inner content, 3 = chart attrs, 4 = table attrs.
+ */
+export function storyBlockRegex(): RegExp {
+	return new RegExp(
+		String.raw`<grid\s+(${TAG_ATTRS})>([\s\S]*?)<\/grid>|<chart\s+(${TAG_ATTRS})\/?>|<table\s+(${TAG_ATTRS})\/?>`,
+		'g',
+	);
+}
+
 function unescapeAttributeValue(value: string): string {
 	return value.replace(/\\(["'\\])/g, '$1');
 }
@@ -141,7 +172,7 @@ function extractSeriesFromRawAttrs(attrString: string): ParsedChartBlock['series
 
 export function splitCodeIntoSegments(code: string): Segment[] {
 	const segments: Segment[] = [];
-	const blockRegex = /<grid\s+([^>]*)>([\s\S]*?)<\/grid>|<chart\s+([^/>]*)\/?>|<table\s+([^/>]*)\/?>/g;
+	const blockRegex = storyBlockRegex();
 	let match;
 	let lastIndex = 0;
 

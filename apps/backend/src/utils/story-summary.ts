@@ -1,3 +1,4 @@
+import { storyBlockRegex } from '@nao/shared/story-segments';
 import type { StorySummary, SummarySegment } from '@nao/shared/types';
 
 export function extractStorySummary(code: string): StorySummary {
@@ -6,7 +7,7 @@ export function extractStorySummary(code: string): StorySummary {
 
 function extractSegments(code: string): SummarySegment[] {
 	const segments: SummarySegment[] = [];
-	const blockRegex = /<grid\s+([^>]*)>([\s\S]*?)<\/grid>|<chart\s+([^/>]*)\/?>|<table\s+([^/>]*)\/?>/g;
+	const blockRegex = storyBlockRegex();
 	let match;
 	let lastIndex = 0;
 
