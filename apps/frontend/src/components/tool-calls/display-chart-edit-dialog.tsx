@@ -17,6 +17,7 @@ const CHART_TYPE_OPTIONS: { value: displayChart.ChartType; label: string }[] = [
 	{ value: 'area', label: 'Area' },
 	{ value: 'stacked_area', label: 'Stacked area' },
 	{ value: 'pie', label: 'Pie' },
+	{ value: 'donut', label: 'Donut' },
 	{ value: 'kpi_card', label: 'KPI card' },
 	{ value: 'scatter', label: 'Scatter' },
 	{ value: 'radar', label: 'Radar' },

@@ -48,6 +48,7 @@ export function renderChartToSvg(input: RenderChartInput): string {
 		margin,
 		title: config.title,
 		maxXAxisTicks: Math.floor(width / maxLabelWidth),
+		backgroundColor: '#ffffff',
 	});
 
 	const html = renderToString(React.cloneElement(chart, { width, height }));

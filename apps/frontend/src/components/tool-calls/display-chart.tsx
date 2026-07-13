@@ -1,5 +1,6 @@
 import { memo, useCallback, useMemo, useState } from 'react';
-import { buildChart, buildStoryChartBlock, labelize } from '@nao/shared';
+import { buildChart, bucketPieData, buildStoryChartBlock, labelize } from '@nao/shared';
+import { displayChart } from '@nao/shared/tools';
 import { Code, Download, FilePlus, Pencil } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useOptionalAgentContext } from '../../contexts/agent.provider';
@@ -13,7 +14,7 @@ import { ChartRangeSelector } from './display-chart-range-selector';
 import { DisplayChartEditDialog } from './display-chart-edit-dialog';
 import type { ToolCallComponentProps } from '.';
 import type { ChartConfig } from '../ui/chart';
-import type { displayChart, executeSql } from '@nao/shared/tools';
+import type { executeSql } from '@nao/shared/tools';
 import type { UIMessage } from '@nao/backend/chat';
 import type { DateRange } from '@/lib/charts.utils';
 import {
@@ -224,7 +225,7 @@ export const DisplayChartToolCall = ({
 							<span className='text-xs'>Add to story</span>
 						</Button>
 					)}
-					{config.chart_type !== 'pie' && config.x_axis_type === 'date' && (
+					{!displayChart.isPieChart(config.chart_type) && config.x_axis_type === 'date' && (
 						<ChartRangeSelector
 							options={DATE_RANGE_OPTIONS}
 							selectedRange={dataRange}
@@ -321,13 +322,25 @@ export const ChartDisplay = memo(function ChartDisplay({
 
 	const { visibleSeries, hiddenSeriesKeys, handleToggleSeriesVisibility } = useSeriesVisibility(series);
 
+	const isPie = displayChart.isPieChart(chartType);
+	const pieValueKey = series[0]?.data_key ?? '';
+	const pieData = useMemo(
+		() => (isPie ? bucketPieData(data, xAxisKey, pieValueKey) : data),
+		[isPie, data, xAxisKey, pieValueKey],
+	);
+
 	const chartConfig = useMemo((): ChartConfig => {
-		if (chartType === 'pie') {
-			const values = new Set(data.map((item) => String(item[xAxisKey])));
-			return [...values].reduce(
-				(acc, v, index) => {
-					acc[toKey(v)] = {
-						label: labelize(v, dateFormat),
+		if (isPie) {
+			const total = pieData.reduce((sum, item) => sum + toNumericValue(item[pieValueKey]), 0);
+			return pieData.reduce<ChartConfig>(
+				(acc, item, index) => {
+					const category = String(item[xAxisKey]);
+					acc[toKey(category)] = {
+						label: formatPieLegendLabel(
+							labelize(category, dateFormat),
+							toNumericValue(item[pieValueKey]),
+							total,
+						),
 						color: Colors[index % Colors.length],
 					};
 					return acc;
@@ -336,7 +349,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 					[xAxisKey]: {
 						label: labelize(xAxisKey, dateFormat),
 					},
-				} as ChartConfig,
+				},
 			);
 		}
 
@@ -348,26 +361,35 @@ export const ChartDisplay = memo(function ChartDisplay({
 			};
 			return acc;
 		}, {} as ChartConfig);
-	}, [series, xAxisKey, data, chartType, dateFormat]);
+	}, [series, xAxisKey, pieData, isPie, pieValueKey, dateFormat]);
 
 	const colorFor = useMemo(
 		() =>
-			chartType === 'pie'
+			isPie
 				? (value: string, _i: number) => `var(--color-${toKey(value)})`
 				: (dataKey: string, _i: number) => `var(--color-${dataKey})`,
-		[chartType],
+		[isPie],
 	);
 
-	const legendPayload = useMemo(
-		() =>
-			series.map((s, idx) => ({
-				value: s.label || labelize(s.data_key, dateFormat),
-				dataKey: s.data_key,
-				color: s.color || Colors[idx % Colors.length],
-				isHidden: hiddenSeriesKeys.has(s.data_key),
-			})),
-		[series, hiddenSeriesKeys, dateFormat],
-	);
+	const legendPayload = useMemo(() => {
+		if (isPie) {
+			return pieData.map((item, index) => {
+				const category = String(item[xAxisKey]);
+				return {
+					value: category,
+					dataKey: toKey(category),
+					color: Colors[index % Colors.length],
+					isHidden: false,
+				};
+			});
+		}
+		return series.map((s, idx) => ({
+			value: s.label || labelize(s.data_key, dateFormat),
+			dataKey: s.data_key,
+			color: s.color || Colors[idx % Colors.length],
+			isHidden: hiddenSeriesKeys.has(s.data_key),
+		}));
+	}, [isPie, pieData, xAxisKey, series, hiddenSeriesKeys, dateFormat]);
 
 	const labelFormatter = useMemo(
 		() => xAxisLabelFormatter ?? ((value: string) => labelize(value, dateFormat)),
@@ -376,10 +398,10 @@ export const ChartDisplay = memo(function ChartDisplay({
 
 	const tooltipLabelFormatter = useMemo(
 		() => (value: unknown, items: unknown) =>
-			chartType === 'pie'
+			isPie
 				? labelize(resolvePieTooltipLabel(items as { name?: unknown }[]), dateFormat)
 				: labelize(value as string, dateFormat),
-		[chartType, dateFormat],
+		[isPie, dateFormat],
 	);
 
 	const chartElement = useMemo(
@@ -402,11 +424,13 @@ export const ChartDisplay = memo(function ChartDisplay({
 						allowEscapeViewBox={{ y: true, x: false }}
 						content={<ChartTooltipContent labelFormatter={tooltipLabelFormatter} />}
 					/>,
-					chartType !== 'pie' && (
+					chartType !== 'kpi_card' && (
 						<ChartLegend
 							key='legend'
 							payload={legendPayload}
-							content={<ChartLegendContent onItemClick={handleToggleSeriesVisibility} />}
+							content={
+								<ChartLegendContent onItemClick={isPie ? undefined : handleToggleSeriesVisibility} />
+							}
 						/>
 					),
 				],
@@ -415,6 +439,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 		[
 			data,
 			chartType,
+			isPie,
 			xAxisKey,
 			xAxisType,
 			visibleSeries,
@@ -468,3 +493,16 @@ const useSeriesVisibility = (series: displayChart.SeriesConfig[]) => {
 		handleToggleSeriesVisibility,
 	};
 };
+
+/** Formats a pie/donut legend entry as "Category · 44.64%". */
+function formatPieLegendLabel(label: string, value: number, total: number): string {
+	if (total <= 0) {
+		return label;
+	}
+	const percent = ((value / total) * 100).toFixed(2);
+	return `${label} · ${percent}%`;
+}
+
+function toNumericValue(value: unknown): number {
+	return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}

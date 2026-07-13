@@ -16,9 +16,13 @@ export default createTool<displayChart.Input, displayChart.Output>({
 			return { _version: '1', success: false, error: `xAxisKey is required for ${chartType} charts.` };
 		}
 
-		// Validate pie charts have exactly one series
-		if (chartType === 'pie' && series.length !== 1) {
-			return { _version: '1', success: false, error: 'Pie charts require exactly one series.' };
+		// Validate pie and donut charts have exactly one series
+		if (displayChart.isPieChart(chartType) && series.length !== 1) {
+			return {
+				_version: '1',
+				success: false,
+				error: `${chartType === 'donut' ? 'Donut' : 'Pie'} charts require exactly one series.`,
+			};
 		}
 
 		// Validate series is not empty

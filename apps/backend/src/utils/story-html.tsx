@@ -1,4 +1,4 @@
-import { DEFAULT_COLORS, defaultColorFor, formatCompactNumber, labelize } from '@nao/shared';
+import { bucketPieData, DEFAULT_COLORS, defaultColorFor, formatCompactNumber, labelize } from '@nao/shared';
 import {
 	type DateFormatSettings,
 	DEFAULT_DATE_FORMAT_SETTINGS,
@@ -140,6 +140,10 @@ function ChartBlock({ chart, queryData }: { chart: ParsedChartBlock; queryData: 
 		return <KpiCards chart={chart} rows={rows} />;
 	}
 
+	const isPie = chart.chartType === 'pie' || chart.chartType === 'donut';
+	const valueKey = chart.series[0]?.data_key ?? '';
+	const chartRows = isPie ? bucketPieData(rows, chart.xAxisKey, valueKey) : rows;
+
 	try {
 		const svg = renderChartToSvg({
 			config: toChartConfig(chart),
@@ -151,7 +155,7 @@ function ChartBlock({ chart, queryData }: { chart: ParsedChartBlock; queryData: 
 			dateFormat,
 		});
 		const chartData = JSON.stringify({
-			data: rows,
+			data: chartRows,
 			xAxisKey: chart.xAxisKey,
 			series: chart.series,
 			chartType: chart.chartType,
@@ -164,7 +168,11 @@ function ChartBlock({ chart, queryData }: { chart: ParsedChartBlock; queryData: 
 					data-chart={chartData}
 					dangerouslySetInnerHTML={{ __html: svg }}
 				/>
-				{chart.chartType !== 'pie' && <ChartLegend series={chart.series} />}
+				{isPie ? (
+					<PieLegend rows={chartRows} categoryKey={chart.xAxisKey} valueKey={valueKey} />
+				) : (
+					<ChartLegend series={chart.series} />
+				)}
 			</div>
 		);
 	} catch {
@@ -190,6 +198,50 @@ function ChartLegend({ series }: { series: ParsedChartBlock['series'] }) {
 			})}
 		</div>
 	);
+}
+
+function PieLegend({
+	rows,
+	categoryKey,
+	valueKey,
+}: {
+	rows: Record<string, unknown>[];
+	categoryKey: string;
+	valueKey: string;
+}) {
+	const dateFormat = useContext(DateFormatContext);
+	const total = rows.reduce((sum, row) => sum + toNumber(row[valueKey]), 0);
+	return (
+		<div
+			style={{
+				display: 'flex',
+				flexWrap: 'wrap',
+				alignItems: 'center',
+				justifyContent: 'center',
+				gap: 16,
+				paddingTop: 12,
+			}}
+		>
+			{rows.map((row, i) => {
+				const category = String(row[categoryKey]);
+				const percent = total > 0 ? ((toNumber(row[valueKey]) / total) * 100).toFixed(2) : '0.00';
+				const color = DEFAULT_COLORS[i % DEFAULT_COLORS.length];
+				return (
+					<div
+						key={`${category}-${i}`}
+						style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#6b7280', fontSize: 12 }}
+					>
+						<div style={{ width: 8, height: 8, borderRadius: 2, flexShrink: 0, background: color }} />
+						{labelize(category, dateFormat)} · {percent}%
+					</div>
+				);
+			})}
+		</div>
+	);
+}
+
+function toNumber(value: unknown): number {
+	return typeof value === 'number' && Number.isFinite(value) ? value : 0;
 }
 
 function KpiCards({ chart, rows }: { chart: ParsedChartBlock; rows: Record<string, unknown>[] }) {
@@ -423,7 +475,7 @@ const TOOLTIP_SCRIPT_TEMPLATE = `
 		var cfg;try{cfg=JSON.parse(raw.replace(/&#39;/g,"'").replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&amp;/g,'&'))}catch(e){return}
 
 		var pieColorMap=null;
-		if(cfg.chartType==='pie'){
+		if(cfg.chartType==='pie'||cfg.chartType==='donut'){
 			pieColorMap={};var ci=0;var seen={};
 			cfg.data.forEach(function(d){
 				var v=String(d[cfg.xAxisKey]!=null?d[cfg.xAxisKey]:'');
@@ -442,7 +494,7 @@ const TOOLTIP_SCRIPT_TEMPLATE = `
 		var areas=svg.querySelectorAll('.recharts-active-dot, .recharts-dot');
 		var shapes=bars.length?bars:areas;
 
-		if(cfg.chartType==='pie'){
+		if(cfg.chartType==='pie'||cfg.chartType==='donut'){
 			var slices=svg.querySelectorAll('.recharts-pie-sector');
 			slices.forEach(function(el,i){
 				var row=cfg.data[i];
