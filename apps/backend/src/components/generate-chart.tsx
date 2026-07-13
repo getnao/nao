@@ -43,11 +43,24 @@ export function renderChartToSvg(input: RenderChartInput): string {
 	const maxLabelWidth = estimateMaxLabelWidth(data, config.x_axis_key, dateFormat);
 
 	const isPie = config.chart_type === 'pie' || config.chart_type === 'donut';
-	const legendLayout: LegendLayout = isPie ? 'vertical' : 'horizontal';
-	const chartWidth = isPie && includeLegend ? Math.max(width - VERTICAL_LEGEND_WIDTH, 0) : width;
 
 	// Bucket pie/donut once so the slices and the legend share the same set.
 	const chartData = isPie ? bucketPieData(data, config.x_axis_key, config.series[0]?.data_key ?? '') : data;
+
+	let legend: LegendEntry[] = [];
+	if (includeLegend) {
+		legend = isPie
+			? buildPieLegendEntries(chartData, config.x_axis_key, dateFormat)
+			: config.series.map((s, i) => ({
+					label: s.label || labelize(s.data_key, dateFormat),
+					color: colorFor(s.data_key, i),
+				}));
+	}
+
+	// Only reserve the right-hand legend column when a vertical legend is drawn.
+	const hasRightLegend = isPie && legend.length > 0;
+	const legendLayout: LegendLayout = hasRightLegend ? 'vertical' : 'horizontal';
+	const chartWidth = hasRightLegend ? Math.max(width - VERTICAL_LEGEND_WIDTH, 0) : width;
 
 	const chart = buildChart({
 		data: chartData,
@@ -65,16 +78,6 @@ export function renderChartToSvg(input: RenderChartInput): string {
 	});
 
 	const html = renderToString(React.cloneElement(chart, { width: chartWidth, height }));
-
-	let legend: LegendEntry[] = [];
-	if (includeLegend) {
-		legend = isPie
-			? buildPieLegendEntries(chartData, config.x_axis_key, dateFormat)
-			: config.series.map((s, i) => ({
-					label: s.label || labelize(s.data_key, dateFormat),
-					color: colorFor(s.data_key, i),
-				}));
-	}
 
 	return createSvg(html, chartWidth, height, legend, legendLayout);
 }

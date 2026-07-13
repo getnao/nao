@@ -67,7 +67,7 @@ function createSvgWithRightLegend(html: string, width: number, height: number, l
 	$svg.prepend(`<rect width="${totalWidth}" height="${height}" fill="white"/>`);
 
 	if (legend.length > 0) {
-		$svg.append(buildVerticalLegend(legend, width + 12, height));
+		$svg.append(buildVerticalLegend(legend, width + 12, totalWidth, height));
 	}
 
 	return $.xml($svg);
@@ -107,10 +107,15 @@ function buildLegend(entries: LegendEntry[], width: number, centerY: number): st
 	return `<g>${items.join('')}</g>`;
 }
 
-function buildVerticalLegend(entries: LegendEntry[], xOffset: number, height: number): string {
+function buildVerticalLegend(entries: LegendEntry[], xOffset: number, rightEdge: number, height: number): string {
 	const swatchSize = 10;
 	const gap = 6;
 	const lineHeight = 22;
+	const charWidth = 7;
+	const rightPadding = 12;
+
+	const textX = xOffset + swatchSize + gap;
+	const maxChars = Math.max(1, Math.floor((rightEdge - textX - rightPadding) / charWidth));
 
 	const totalHeight = entries.length * lineHeight;
 	let y = (height - totalHeight) / 2 + lineHeight / 2;
@@ -120,7 +125,7 @@ function buildVerticalLegend(entries: LegendEntry[], xOffset: number, height: nu
 		const label = cheerio
 			.load('<text/>', { xmlMode: true })('text')
 			.attr({
-				x: String(xOffset + swatchSize + gap),
+				x: String(textX),
 				y: String(y),
 				'dominant-baseline': 'middle',
 				'font-size': '12',
@@ -128,13 +133,24 @@ function buildVerticalLegend(entries: LegendEntry[], xOffset: number, height: nu
 				'font-family': 'system-ui, sans-serif',
 				fill: '#6b7280',
 			})
-			.text(entry.label)
+			.text(truncateLabel(entry.label, maxChars))
 			.toString();
 		y += lineHeight;
 		return swatch + label;
 	});
 
 	return `<g>${items.join('')}</g>`;
+}
+
+/** Truncates a legend label with an ellipsis so it never overflows the column. */
+function truncateLabel(label: string, maxChars: number): string {
+	if (label.length <= maxChars) {
+		return label;
+	}
+	if (maxChars <= 1) {
+		return '…';
+	}
+	return `${label.slice(0, maxChars - 1)}…`;
 }
 
 export function svgToPng(svg: string): Buffer {
