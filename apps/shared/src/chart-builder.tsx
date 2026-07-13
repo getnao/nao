@@ -22,7 +22,16 @@ import {
 import { type DateFormatSettings, formatDateValue, isIsoDateLike } from './date';
 import * as displayChart from './tools/display-chart';
 
-export const DEFAULT_COLORS = ['#104e64', '#f54900', '#009689', '#ffb900', '#fe9a00'];
+export const DEFAULT_COLORS = [
+	'#522BFF',
+	'#0DC368',
+	'#3662FF',
+	'#FF612C',
+	'#9F8AFF',
+	'#57D093',
+	'#557AFF',
+	'#FF845B',
+];
 
 const AXIS_TICK = { fontSize: 12 };
 

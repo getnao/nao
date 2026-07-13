@@ -104,6 +104,12 @@ export function SystemPrompt({
 						is desired (similar to "line"). Use "stacked_area" to show how multiple series compose a total
 						over time (e.g. revenue by payment method, users by plan) — requires 2+ series and pivoted data.
 					</ListItem>,
+					<ListItem>
+						For display_chart colors: leave the series color unset to use the default theme palette, unless
+						the data carries a clear meaning. Use neutral colors for generic metrics, green shades for
+						positive values (growth, gains, wins) and orange or red shades for negative values (losses,
+						declines, errors). Always defer to any color preferences the user defines in their rules.
+					</ListItem>,
 					...dialectToolCallRules,
 				]}
 			</List>

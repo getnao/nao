@@ -357,7 +357,7 @@ function normalizeHexColor(color?: string): string {
 	if (color && HEX_RE.test(color)) {
 		return color;
 	}
-	return '#104e64';
+	return '#522bff';
 }
 
 function applyChartConfigToMessages(
