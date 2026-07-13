@@ -370,17 +370,22 @@ function renderPieLabel(labelFormatter: (v: string) => string) {
 		y,
 		name,
 		value,
-		fill,
 		textAnchor,
 	}: {
 		x: number;
 		y: number;
 		name: string;
 		value: number;
-		fill: string;
 		textAnchor: 'start' | 'middle' | 'end';
 	}) => (
-		<text x={x} y={y} fill={fill} textAnchor={textAnchor} dominantBaseline='central' fontSize={12}>
+		<text
+			x={x}
+			y={y}
+			fill='var(--foreground, #1f2937)'
+			textAnchor={textAnchor}
+			dominantBaseline='central'
+			fontSize={12}
+		>
 			{`${labelFormatter(String(name))}: ${formatCompactNumber(value)}`}
 		</text>
 	);
