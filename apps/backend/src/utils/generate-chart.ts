@@ -142,15 +142,20 @@ function buildVerticalLegend(entries: LegendEntry[], xOffset: number, rightEdge:
 	return `<g>${items.join('')}</g>`;
 }
 
-/** Truncates a legend label with an ellipsis so it never overflows the column. */
-function truncateLabel(label: string, maxChars: number): string {
-	if (label.length <= maxChars) {
+/**
+ * Truncates a legend label with an ellipsis so it never overflows the column.
+ * Works on code points (not UTF-16 units) so it never splits a surrogate pair
+ * (emoji, CJK extensions) into a lone surrogate that would be invalid in SVG.
+ */
+export function truncateLabel(label: string, maxChars: number): string {
+	const codePoints = Array.from(label);
+	if (codePoints.length <= maxChars) {
 		return label;
 	}
 	if (maxChars <= 1) {
 		return '…';
 	}
-	return `${label.slice(0, maxChars - 1)}…`;
+	return `${codePoints.slice(0, maxChars - 1).join('')}…`;
 }
 
 export function svgToPng(svg: string): Buffer {
