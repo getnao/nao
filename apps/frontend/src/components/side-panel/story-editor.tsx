@@ -4,6 +4,7 @@ import {
 	parseChartBlock,
 	parseTableBlock,
 	splitCodeIntoSegments,
+	TAG_ATTRS,
 } from '@nao/shared/story-segments';
 import { Extension, mergeAttributes, Node } from '@tiptap/core';
 import { DragHandle } from '@tiptap/extension-drag-handle-react';
@@ -45,11 +46,11 @@ export function preprocessForEditor(code: string): string {
 		return `<div><grid-embed data-raw="${encodeForAttr(match)}"></grid-embed></div>\n\n`;
 	});
 
-	result = result.replace(/<chart\s+[^/>]*\/?>/g, (match) => {
+	result = result.replace(new RegExp(`<chart\\s+${TAG_ATTRS}\\/?>`, 'g'), (match) => {
 		return `<div><chart-embed data-raw="${encodeForAttr(match)}"></chart-embed></div>\n\n`;
 	});
 
-	result = result.replace(/<table\s+[^/>]*\/?>/g, (match) => {
+	result = result.replace(new RegExp(`<table\\s+${TAG_ATTRS}\\/?>`, 'g'), (match) => {
 		return `<div><table-embed data-raw="${encodeForAttr(match)}"></table-embed></div>\n\n`;
 	});
 
@@ -64,7 +65,7 @@ function ChartBlockView({ node }: ReactNodeViewProps) {
 	const rawTag = node.attrs.rawTag as string;
 
 	const chart = useMemo(() => {
-		const attrMatch = rawTag.match(/<chart\s+([^/>]*)\/?>/);
+		const attrMatch = rawTag.match(new RegExp(`<chart\\s+(${TAG_ATTRS})\\/?>`));
 		if (!attrMatch) {
 			return null;
 		}
@@ -141,7 +142,7 @@ function TableBlockView({ node }: ReactNodeViewProps) {
 	const rawTag = node.attrs.rawTag as string;
 
 	const table = useMemo(() => {
-		const attrMatch = rawTag.match(/<table\s+([^/>]*)\/?>/);
+		const attrMatch = rawTag.match(new RegExp(`<table\\s+(${TAG_ATTRS})\\/?>`));
 		if (!attrMatch) {
 			return null;
 		}
