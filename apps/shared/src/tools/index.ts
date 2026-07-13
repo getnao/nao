@@ -1,5 +1,6 @@
 export * as clarification from './clarification';
 export * as displayChart from './display-chart';
+export * as displayTable from './display-table';
 export * as executePython from './execute-python';
 export * as executeSandboxedCode from './execute-sandboxed-code';
 export * as executeSql from './execute-sql';

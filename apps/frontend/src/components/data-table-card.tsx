@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Copy, Download, Maximize2 } from 'lucide-react';
+import type { ReactNode } from 'react';
 import type { ColumnConditionalFormats } from '@nao/shared/conditional-formatting';
 import { TableDisplay } from '@/components/tool-calls/display-table';
 import { Button } from '@/components/ui/button';
@@ -18,6 +19,10 @@ interface DataTableCardProps {
 	maxRowsBeforePagination?: number;
 	chatId?: string;
 	conditionalFormats?: ColumnConditionalFormats;
+	/** When provided, formatting is controlled by the parent and each change is forwarded (e.g. to persist). */
+	onConditionalFormatsChange?: (formats: ColumnConditionalFormats) => void;
+	/** Extra toolbar controls rendered before the copy/download/fullscreen actions. */
+	headerActions?: ReactNode;
 }
 
 export function DataTableCard({
@@ -28,12 +33,15 @@ export function DataTableCard({
 	tableContainerClassName,
 	maxRowsBeforePagination = 10,
 	chatId,
-	conditionalFormats: initialConditionalFormats,
+	conditionalFormats: conditionalFormatsProp,
+	onConditionalFormatsChange,
+	headerActions,
 }: DataTableCardProps) {
 	const [isFullscreen, setIsFullscreen] = useState(false);
-	const [conditionalFormats, setConditionalFormats] = useState<ColumnConditionalFormats>(
-		initialConditionalFormats ?? {},
-	);
+	const [internalFormats, setInternalFormats] = useState<ColumnConditionalFormats>(conditionalFormatsProp ?? {});
+	const isControlled = onConditionalFormatsChange !== undefined;
+	const conditionalFormats = isControlled ? (conditionalFormatsProp ?? {}) : internalFormats;
+	const handleConditionalFormatsChange = isControlled ? onConditionalFormatsChange : setInternalFormats;
 	const logDownload = useMutation(trpc.analyticsEvent.logChatDownload.mutationOptions());
 
 	const resolvedColumns = columns.length > 0 ? columns : inferColumns(data);
@@ -55,6 +63,7 @@ export function DataTableCard({
 			<div className={cn('flex items-center gap-1 px-3', title ? 'justify-between' : 'justify-end')}>
 				{title ? <span className='text-sm font-medium truncate'>{title}</span> : null}
 				<div className='flex items-center gap-1'>
+					{headerActions}
 					<Button
 						variant='ghost-muted'
 						size='icon-xs'
@@ -92,7 +101,7 @@ export function DataTableCard({
 				maxRowsBeforePagination={maxRowsBeforePagination}
 				compactFooter={true}
 				conditionalFormats={conditionalFormats}
-				onConditionalFormatsChange={setConditionalFormats}
+				onConditionalFormatsChange={handleConditionalFormatsChange}
 			/>
 
 			<Dialog open={isFullscreen} onOpenChange={setIsFullscreen}>
@@ -126,7 +135,7 @@ export function DataTableCard({
 						maxRowsBeforePagination={maxRowsBeforePagination}
 						compactFooter={true}
 						conditionalFormats={conditionalFormats}
-						onConditionalFormatsChange={setConditionalFormats}
+						onConditionalFormatsChange={handleConditionalFormatsChange}
 					/>
 				</DialogContent>
 			</Dialog>

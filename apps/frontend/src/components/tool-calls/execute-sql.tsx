@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Streamdown } from 'streamdown';
-import { ArrowUpRight, Code, Copy, Download, Table as TableIcon } from 'lucide-react';
+import { ArrowUpRight, Code, Copy, Download, Palette, Table as TableIcon } from 'lucide-react';
 import { ToolCallWrapper } from './tool-call-wrapper';
 import { TableDisplay } from './display-table';
+import { TableFormatEditDialog } from './display-table-edit-dialog';
 import type { ToolCallComponentProps } from '.';
+import type { ColumnConditionalFormats } from '@nao/shared/conditional-formatting';
 import { useOptionalAgentContext } from '@/contexts/agent.provider';
 import { useSidePanel } from '@/contexts/side-panel';
 import { useToolCallContext } from '@/contexts/tool-call';
@@ -18,6 +20,8 @@ export const ExecuteSqlToolCall = ({
 	toolPart: { output, input, state, toolCallId },
 }: ToolCallComponentProps<'execute_sql'>) => {
 	const [viewMode, setViewMode] = useState<ViewMode>('results');
+	const [conditionalFormats, setConditionalFormats] = useState<ColumnConditionalFormats>({});
+	const [isFormatOpen, setIsFormatOpen] = useState(false);
 	const { isSettled } = useToolCallContext();
 	const { open: openSidePanel } = useSidePanel();
 	const chatId = useOptionalAgentContext()?.chatId;
@@ -39,6 +43,18 @@ export const ExecuteSqlToolCall = ({
 			isActive: viewMode === 'query',
 			onClick: () => setViewMode('query'),
 			title: 'View query',
+		},
+		{
+			id: 'format',
+			label: <Palette className='size-3 text-muted-foreground/70' strokeWidth={2.25} />,
+			onClick: () => {
+				if (!output) {
+					return;
+				}
+				setViewMode('results');
+				setIsFormatOpen(true);
+			},
+			title: 'Conditional formatting',
 		},
 		{
 			id: 'copy',
@@ -98,13 +114,25 @@ export const ExecuteSqlToolCall = ({
 					</Streamdown>
 				</div>
 			) : output ? (
-				<TableDisplay
-					data={output.data as Record<string, unknown>[]}
-					columns={output.columns}
-					tableContainerClassName='max-h-80 rounded-none border-0 bg-transparent'
-					maxRowsBeforePagination={10}
-					compactFooter
-				/>
+				<>
+					<TableDisplay
+						data={output.data as Record<string, unknown>[]}
+						columns={output.columns}
+						tableContainerClassName='max-h-80 rounded-none border-0 bg-transparent'
+						maxRowsBeforePagination={10}
+						compactFooter
+						conditionalFormats={conditionalFormats}
+						onConditionalFormatsChange={setConditionalFormats}
+					/>
+					<TableFormatEditDialog
+						open={isFormatOpen}
+						onOpenChange={setIsFormatOpen}
+						columns={output.columns}
+						formats={conditionalFormats}
+						onSave={async (next) => setConditionalFormats(next)}
+						description='Apply conditional formatting to columns of this result.'
+					/>
+				</>
 			) : (
 				<div className='p-4 text-center text-foreground/50 text-sm'>Executing query...</div>
 			)}

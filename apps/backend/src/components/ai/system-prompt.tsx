@@ -104,6 +104,22 @@ export function SystemPrompt({
 						is desired (similar to "line"). Use "stacked_area" to show how multiple series compose a total
 						over time (e.g. revenue by payment method, users by plan) — requires 2+ series and pivoted data.
 					</ListItem>,
+					<ListItem>
+						Use the <Bold>display_table</Bold> tool to present a table from a previous execute_sql result
+						with <Bold>conditional formatting</Bold> on specific columns. Pass <Bold>query_id</Bold>, an
+						optional <Bold>title</Bold>, and <Bold>conditional_formats</Bold>: a map of column name to a
+						rule. Two rule types exist: a color scale {`{ "type": "color-scale" }`} (background gradient
+						from the column min to max), and a threshold{' '}
+						{`{ "type": "threshold", "operator": ">=", "value": 100, "color": "rgba(34,197,94,0.35)" }`}{' '}
+						(operators: {'>='}, {'>'}, {'<='}, {'<'}, =). Example: {'conditional_formats: '}
+						{`{ "revenue": { "type": "color-scale" }, "churn_rate": { "type": "threshold", "operator": ">=", "value": 0.1, "color": "rgba(239,68,68,0.3)" } }`}
+						. When a user asks to conditionally format, color, or highlight cells of a table, use this tool
+						—{' '}
+						<Bold>
+							never fake it with emoji (🟥🟨🟩) or by adding an extra status/label column to the data
+						</Bold>
+						.
+					</ListItem>,
 					...dialectToolCallRules,
 				]}
 			</List>

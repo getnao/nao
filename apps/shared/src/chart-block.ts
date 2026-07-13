@@ -1,4 +1,5 @@
 import type * as displayChart from './tools/display-chart';
+import type * as displayTable from './tools/display-table';
 
 export type { McpChartEmbedStoredConfig } from './mcp-embed';
 
@@ -24,4 +25,16 @@ export function buildStoryChartBlock(input: StoryChartBlockInput): string {
 	const titleAttr =
 		input.title != null && input.title !== '' ? ` title="${escapeDoubleQuotedStoryAttr(input.title)}"` : '';
 	return `<chart query_id="${escapeDoubleQuotedStoryAttr(input.query_id)}" chart_type="${escapeDoubleQuotedStoryAttr(input.chart_type)}" x_axis_key="${escapeDoubleQuotedStoryAttr(input.x_axis_key)}"${xAxisTypeAttr} series='${seriesJson}'${titleAttr} />`;
+}
+
+export type StoryTableBlockInput = Pick<displayTable.Input, 'query_id' | 'title' | 'conditional_formats'>;
+
+export function buildStoryTableBlock(input: StoryTableBlockInput): string {
+	const titleAttr =
+		input.title != null && input.title !== '' ? ` title="${escapeDoubleQuotedStoryAttr(input.title)}"` : '';
+	const formattingAttr =
+		input.conditional_formats && Object.keys(input.conditional_formats).length > 0
+			? ` formatting='${escapeSingleQuotedStoryAttr(JSON.stringify(input.conditional_formats))}'`
+			: '';
+	return `<table query_id="${escapeDoubleQuotedStoryAttr(input.query_id)}"${titleAttr}${formattingAttr} />`;
 }
