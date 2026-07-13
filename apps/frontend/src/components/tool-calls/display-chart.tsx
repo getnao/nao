@@ -200,10 +200,11 @@ export const DisplayChartToolCall = ({
 			className={`flex flex-col items-center my-4 gap-2 ${config.chart_type !== 'kpi_card' && !normalSize ? 'aspect-3/2' : ''}`}
 		>
 			<div className='flex w-full items-center justify-between gap-2'>
-				{/* Title is rendered inside the chart itself (via buildChart), so it is
-				    intentionally omitted here to avoid showing it twice. The empty div
-				    keeps the action buttons right-aligned. */}
-				<div></div>
+				{config.chart_type != 'kpi_card' ? (
+					<span className='text-sm font-medium text-foreground flex-1'>{config.title}</span>
+				) : (
+					<div></div>
+				)}
 				<div className='flex items-center gap-1'>
 					{storyIds.length > 0 && (
 						<Button
@@ -395,6 +396,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 					),
 				],
 				title,
+				renderTitle: false,
 			}),
 		[
 			data,

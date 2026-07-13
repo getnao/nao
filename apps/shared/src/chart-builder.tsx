@@ -68,6 +68,7 @@ export interface BuildChartProps {
 	children?: React.ReactNode[];
 	margin?: { top?: number; right?: number; bottom?: number; left?: number };
 	title?: string;
+	renderTitle?: boolean;
 	maxXAxisTicks?: number;
 }
 
@@ -102,14 +103,16 @@ function buildResolved(props: BuildChartProps) {
 	const colorFor = props.colorFor ?? defaultColorFor;
 	const labelFormatter = props.labelFormatter ?? ((v: string) => labelize(v));
 
-	const titleChild = props.title ? (
+	const showTitle = Boolean(props.title) && props.renderTitle !== false;
+
+	const titleChild = showTitle ? (
 		<Customized
 			key='chart-title'
-			component={({ width = 0 }: { width?: number }) => (
+			component={() => (
 				<text
-					x={width / 2}
+					x={0}
 					y={16}
-					textAnchor='middle'
+					textAnchor='start'
 					dominantBaseline='middle'
 					fontSize={14}
 					fontWeight='600'
@@ -132,7 +135,7 @@ function buildResolved(props: BuildChartProps) {
 		colorFor,
 		labelFormatter,
 		xAxisInterval,
-		margin: props.title ? { ...props.margin, top: (props.margin?.top ?? 0) + 30 } : props.margin,
+		margin: showTitle ? { ...props.margin, top: (props.margin?.top ?? 0) + 30 } : props.margin,
 		children: titleChild ? [titleChild, ...(props.children ?? [])] : props.children,
 	};
 	return resolved;
