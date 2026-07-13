@@ -351,11 +351,12 @@ function buildPieChart(props: ResolvedProps) {
 	const { data, chartType, xAxisKey, series, colorFor, children, margin, backgroundColor } = props;
 	const dataKey = series[0].data_key;
 
-	const bucketed = bucketPieData(data, xAxisKey, dataKey);
-	const uniqueValues = [...new Set(bucketed.map((d) => String(d[xAxisKey])))];
+	// Callers are expected to bucket the data (see `bucketPieData`) so the legend
+	// and slices share one set; the builder does not re-bucket here.
+	const uniqueValues = [...new Set(data.map((d) => String(d[xAxisKey])))];
 	const colorMap = new Map(uniqueValues.map((v, i) => [v, colorFor(v, i)]));
 
-	const dataWithColors = bucketed.map((item) => ({
+	const dataWithColors = data.map((item) => ({
 		...item,
 		fill: colorMap.get(String(item[xAxisKey])) ?? DEFAULT_COLORS[0],
 	}));
@@ -378,10 +379,13 @@ function buildPieChart(props: ResolvedProps) {
 	);
 }
 
+const OTHER_CATEGORY = 'Other';
+
 /**
  * Buckets pie/donut rows so at most `maxSlices` categories are shown: keeps the
  * largest slices by value and sums the remainder into a single "Other" slice.
- * Returns the rows unchanged when they already fit.
+ * Returns the rows unchanged when they already fit. If a real "Other" category
+ * is kept, the aggregate is merged into it so there is never a duplicate slice.
  */
 export function bucketPieData(
 	rows: Record<string, unknown>[],
@@ -398,7 +402,15 @@ export function bucketPieData(
 	const rest = sorted.slice(maxSlices);
 	const otherValue = rest.reduce((sum, row) => sum + toNumericValue(row[valueKey]), 0);
 
-	return [...top, { [categoryKey]: 'Other', [valueKey]: otherValue }];
+	const existingOtherIndex = top.findIndex((row) => String(row[categoryKey]) === OTHER_CATEGORY);
+	if (existingOtherIndex !== -1) {
+		const merged = [...top];
+		const existing = merged[existingOtherIndex];
+		merged[existingOtherIndex] = { ...existing, [valueKey]: toNumericValue(existing[valueKey]) + otherValue };
+		return merged;
+	}
+
+	return [...top, { [categoryKey]: OTHER_CATEGORY, [valueKey]: otherValue }];
 }
 
 function toNumericValue(value: unknown): number {

@@ -38,6 +38,22 @@ describe('bucketPieData', () => {
 		expect(bucketed[bucketed.length - 1].total).toBe(1);
 	});
 
+	it('merges the aggregate into an existing "Other" category instead of duplicating it', () => {
+		const rows = [
+			{ category: 'a', total: 100 },
+			{ category: 'Other', total: 40 },
+			{ category: 'b', total: 5 },
+			{ category: 'c', total: 3 },
+		];
+		const bucketed = bucketPieData(rows, 'category', 'total', 2);
+
+		const others = bucketed.filter((r) => r.category === 'Other');
+		expect(others).toHaveLength(1);
+		// existing Other (40) + bucketed remainder (5 + 3)
+		expect(others[0].total).toBe(48);
+		expect(bucketed.map((r) => r.category)).toEqual(['a', 'Other']);
+	});
+
 	it('treats non-numeric values as zero when summing "Other"', () => {
 		const rows = [
 			{ category: 'a', total: 10 },

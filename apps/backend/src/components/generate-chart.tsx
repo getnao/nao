@@ -46,8 +46,11 @@ export function renderChartToSvg(input: RenderChartInput): string {
 	const legendLayout: LegendLayout = isPie ? 'vertical' : 'horizontal';
 	const chartWidth = isPie && includeLegend ? Math.max(width - VERTICAL_LEGEND_WIDTH, 0) : width;
 
+	// Bucket pie/donut once so the slices and the legend share the same set.
+	const chartData = isPie ? bucketPieData(data, config.x_axis_key, config.series[0]?.data_key ?? '') : data;
+
 	const chart = buildChart({
-		data,
+		data: chartData,
 		chartType: config.chart_type,
 		xAxisKey: config.x_axis_key,
 		xAxisType: config.x_axis_type === 'number' ? 'number' : 'category',
@@ -66,7 +69,7 @@ export function renderChartToSvg(input: RenderChartInput): string {
 	let legend: LegendEntry[] = [];
 	if (includeLegend) {
 		legend = isPie
-			? buildPieLegendEntries(data, config, dateFormat)
+			? buildPieLegendEntries(chartData, config.x_axis_key, dateFormat)
 			: config.series.map((s, i) => ({
 					label: s.label || labelize(s.data_key, dateFormat),
 					color: colorFor(s.data_key, i),
@@ -77,14 +80,12 @@ export function renderChartToSvg(input: RenderChartInput): string {
 }
 
 function buildPieLegendEntries(
-	data: Record<string, unknown>[],
-	config: RenderChartInput['config'],
+	bucketedRows: Record<string, unknown>[],
+	categoryKey: string,
 	dateFormat?: DateFormatSettings | null,
 ): LegendEntry[] {
-	const valueKey = config.series[0]?.data_key ?? '';
-	const bucketed = bucketPieData(data, config.x_axis_key, valueKey);
-	return bucketed.map((row, i) => {
-		const category = String(row[config.x_axis_key]);
+	return bucketedRows.map((row, i) => {
+		const category = String(row[categoryKey]);
 		return { label: labelize(category, dateFormat), color: defaultColorFor(category, i) };
 	});
 }

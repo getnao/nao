@@ -402,7 +402,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 	const chartElement = useMemo(
 		() =>
 			buildChart({
-				data,
+				data: pieData,
 				chartType,
 				xAxisKey,
 				xAxisType,
@@ -438,7 +438,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 				title,
 			}),
 		[
-			data,
+			pieData,
 			chartType,
 			isPie,
 			xAxisKey,

@@ -487,7 +487,7 @@ const TOOLTIP_SCRIPT_TEMPLATE = `
 		function showTip(e,row){
 			var label=row[cfg.xAxisKey];
 			var isPie=!!pieColorMap;
-			var html='<div class="nao-tooltip-label">'+(isPie?labelize(cfg.series[0]&&(cfg.series[0].label||cfg.series[0].data_key)||''):labelize(label!=null?label:''))+'</div>';
+			var html='<div class="nao-tooltip-label">'+labelize(label!=null?label:'')+'</div>';
 			html+='<div class="nao-tooltip-rows">';
 			var numericValues=[];
 			var hasTotalSeries=false;
