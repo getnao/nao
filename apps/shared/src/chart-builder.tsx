@@ -37,6 +37,9 @@ const STACK_SEPARATOR_WIDTH = 2;
  */
 const DEFAULT_BACKGROUND_COLOR = 'var(--background, #ffffff)';
 
+/** Stacked area bands use a near-solid series-color fill so each band clearly reads as its stroke color. */
+const STACKED_AREA_FILL_OPACITY = 0.85;
+
 export function labelize(key: unknown, dateFormat?: DateFormatSettings | null): string {
 	const str = String(key);
 	if (isIsoDateLike(str)) {
@@ -416,9 +419,11 @@ function buildAreaChart(props: ResolvedProps) {
 				<Area
 					key={s.data_key}
 					dataKey={s.data_key}
-					type='monotone'
+					// Linear (not monotone) so stacked cumulative boundaries never overshoot and cross.
+					type={isStacked ? 'linear' : 'monotone'}
 					stroke={colorFor(s.data_key, i)}
-					fill={`url(#grad-${i})`}
+					fill={isStacked ? colorFor(s.data_key, i) : `url(#grad-${i})`}
+					fillOpacity={isStacked ? STACKED_AREA_FILL_OPACITY : undefined}
 					stackId={isStacked ? 'stack' : undefined}
 					isAnimationActive={false}
 				/>
