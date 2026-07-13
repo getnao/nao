@@ -22,6 +22,7 @@ export function ProjectSelector({
 	projects,
 	currentProjectId,
 	onChange,
+	disabledProjectIds,
 	className,
 	triggerClassName,
 	triggerVariant,
@@ -32,6 +33,7 @@ export function ProjectSelector({
 	projects: ProjectOption[];
 	currentProjectId: string;
 	onChange: (projectId: string) => void;
+	disabledProjectIds?: string[];
 	className?: string;
 	triggerClassName?: string;
 	triggerVariant?: 'default' | 'ghost';
@@ -50,16 +52,23 @@ export function ProjectSelector({
 				<SelectContent position='popper' align={align}>
 					<SelectGroup>
 						<SelectLabel>Projects</SelectLabel>
-						{projects.map((project) => (
-							<SelectItem key={project.id} value={project.id}>
-								<span className='flex min-w-0 items-center justify-between gap-3'>
-									<span className='truncate'>{project.name}</span>
-									<span className='shrink-0 text-xs text-muted-foreground'>
-										{USER_ROLE_LABELS[project.userRole]}
+						{projects.map((project) => {
+							const isDisabled = disabledProjectIds?.includes(project.id);
+							return (
+								<SelectItem
+									key={project.id}
+									value={project.id}
+									disabled={isDisabled}
+								>
+									<span className='flex min-w-0 items-center justify-between gap-3'>
+										<span className='truncate'>{project.name}</span>
+										<span className='shrink-0 text-xs text-muted-foreground'>
+											{USER_ROLE_LABELS[project.userRole]}
+										</span>
 									</span>
-								</span>
-							</SelectItem>
-						))}
+								</SelectItem>
+							);
+						})}
 					</SelectGroup>
 				</SelectContent>
 			</Select>

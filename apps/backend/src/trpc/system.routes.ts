@@ -10,6 +10,7 @@ export const systemRoutes = {
 		enableUserSignup: await isUserSignupAvailable(),
 		betaAutomationsEnabled: env.BETA_AUTOMATIONS_ENABLED,
 		betaContextRecommendationsEnabled: env.BETA_CONTEXT_RECOMMENDATIONS_ENABLED,
+		hasDefaultProjectPath: Boolean(env.NAO_DEFAULT_PROJECT_PATH),
 	})),
 
 	version: adminProtectedProcedure.query(() => ({

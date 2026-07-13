@@ -47,6 +47,7 @@ export function Sidebar() {
 	const branding = useBranding();
 	const { isAdmin, isContextAdmin, isViewer } = usePermissions();
 	const isCloud = config.data?.naoMode === 'cloud';
+	const isProjectPinned = !isCloud && config.data?.hasDefaultProjectPath === true;
 	const betaAutomationsEnabled = config.data?.betaAutomationsEnabled === true;
 	const { groupBy, filters, setGroupBy, toggleFilter } = useChatViewPreferences();
 	const hasLicense = license.data?.tokenProvided === true;
@@ -246,6 +247,7 @@ export function Sidebar() {
 					hasLicense={hasLicense}
 					projects={projects.data ?? []}
 					currentProjectId={project.data?.id}
+					isProjectPinned={isProjectPinned}
 					onProjectChange={handleProjectChange}
 				/>
 			) : (

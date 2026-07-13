@@ -130,6 +130,7 @@ interface SidebarSettingsNavProps {
 	hasLicense: boolean;
 	projects: ProjectOption[];
 	currentProjectId?: string;
+	isProjectPinned?: boolean;
 	onProjectChange: (projectId: string) => void;
 }
 
@@ -153,6 +154,7 @@ export function SidebarSettingsNav({
 	hasLicense,
 	projects,
 	currentProjectId,
+	isProjectPinned,
 	onProjectChange,
 }: SidebarSettingsNavProps) {
 	const navigate = useNavigate();
@@ -378,6 +380,7 @@ export function SidebarSettingsNav({
 									<ProjectSwitcherSubItem
 										projects={projects}
 										currentProjectId={currentProjectId}
+										isProjectPinned={isProjectPinned}
 										onChange={onProjectChange}
 									/>
 								)}
@@ -393,12 +396,18 @@ export function SidebarSettingsNav({
 function ProjectSwitcherSubItem({
 	projects,
 	currentProjectId,
+	isProjectPinned,
 	onChange,
 }: {
 	projects: ProjectOption[];
 	currentProjectId: string;
+	isProjectPinned?: boolean;
 	onChange: (projectId: string) => void;
 }) {
+	const disabledProjectIds = isProjectPinned
+		? projects.filter((p) => p.id !== currentProjectId).map((p) => p.id)
+		: undefined;
+
 	return (
 		<div className='ml-3 mt-1 pl-3 border-l border-sidebar-border'>
 			<div className='px-1 pb-1 text-[10px] uppercase tracking-wider text-muted-foreground'>Switch project</div>
@@ -406,6 +415,7 @@ function ProjectSwitcherSubItem({
 				projects={projects}
 				currentProjectId={currentProjectId}
 				onChange={onChange}
+				disabledProjectIds={disabledProjectIds}
 				triggerVariant='ghost'
 				triggerIcon={<Folder className='size-3.5 shrink-0' />}
 				triggerClassName={cn(
