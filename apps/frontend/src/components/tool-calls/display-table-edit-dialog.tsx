@@ -1,4 +1,4 @@
-import { DEFAULT_THRESHOLD_COLOR } from '@nao/shared/conditional-formatting';
+import { colorToHex, DEFAULT_THRESHOLD_COLOR } from '@nao/shared/conditional-formatting';
 import { useEffect, useState } from 'react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -205,7 +205,6 @@ function ColumnRuleRow({ column, rule, onChange }: ColumnRuleRowProps) {
 	);
 }
 
-const HEX_RE = /^#[0-9a-fA-F]{6}$/;
 function toHexColor(color?: string): string {
-	return color && HEX_RE.test(color) ? color : DEFAULT_THRESHOLD_HEX;
+	return (color ? colorToHex(color) : null) ?? DEFAULT_THRESHOLD_HEX;
 }

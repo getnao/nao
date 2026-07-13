@@ -1,3 +1,4 @@
+import { TAG_ATTRS } from '@nao/shared/story-segments';
 import { generateText, Output } from 'ai';
 import { CronExpressionParser } from 'cron-parser';
 import { z } from 'zod';
@@ -293,7 +294,11 @@ function preservesStoryStructure(originalCode: string, candidateCode: string): b
 }
 
 function extractStructureTokens(code: string): string[] {
-	return code.match(/<grid\s+[^>]*>|<\/grid>|<chart\s+[^/>]*\/?>|<table\s+[^/>]*\/?>/g) ?? [];
+	const structureRegex = new RegExp(
+		`<grid\\s+[^>]*>|<\\/grid>|<chart\\s+${TAG_ATTRS}\\/?>|<table\\s+${TAG_ATTRS}\\/?>`,
+		'g',
+	);
+	return code.match(structureRegex) ?? [];
 }
 
 function extractHeadingTokens(code: string): string[] {

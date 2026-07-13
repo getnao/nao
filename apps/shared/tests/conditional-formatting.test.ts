@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
 	type ColorScaleRule,
+	colorToHex,
 	computeColumnRange,
 	DEFAULT_SCALE_MAX_COLOR,
 	DEFAULT_SCALE_MIN_COLOR,
@@ -152,6 +153,28 @@ describe('sanitizeConditionalFormats', () => {
 	it('keeps a fully-specified valid color-scale rule', () => {
 		const valid = { type: 'color-scale', minColor: '#000', maxColor: '#fff', min: 0, max: 100 };
 		expect(sanitizeConditionalFormats({ ok: valid })).toEqual({ ok: valid });
+	});
+});
+
+describe('colorToHex', () => {
+	it('passes through a 6-digit hex', () => {
+		expect(colorToHex('#ff8800')).toBe('#ff8800');
+	});
+
+	it('expands a 3-digit hex', () => {
+		expect(colorToHex('#fff')).toBe('#ffffff');
+	});
+
+	it('converts an rgba color to hex (dropping alpha)', () => {
+		expect(colorToHex('rgba(255, 0, 0, 0.7)')).toBe('#ff0000');
+	});
+
+	it('converts an rgb color to hex', () => {
+		expect(colorToHex('rgb(34, 197, 94)')).toBe('#22c55e');
+	});
+
+	it('returns null for an unparseable color', () => {
+		expect(colorToHex('not-a-color')).toBeNull();
 	});
 });
 

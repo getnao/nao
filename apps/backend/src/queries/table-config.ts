@@ -3,20 +3,8 @@ import { and, eq } from 'drizzle-orm';
 
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
-import { takeFirstOrThrow } from '../utils/queries';
 
 const DISPLAY_TABLE_TOOL_TYPE = 'tool-display_table';
-
-export const getTableConfigByToolCallId = async (toolCallId: string): Promise<displayTable.Input> => {
-	const result = await takeFirstOrThrow(
-		db
-			.select({ toolInput: s.messagePart.toolInput })
-			.from(s.messagePart)
-			.where(getDisplayTableToolCallFilter(toolCallId))
-			.execute(),
-	);
-	return displayTable.InputSchema.parse(result.toolInput);
-};
 
 /** Returns the project owner and parent chat of the chat that contains the given table tool call. */
 export const getTableOwnerInfo = async (

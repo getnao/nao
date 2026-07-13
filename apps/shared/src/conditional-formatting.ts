@@ -156,6 +156,24 @@ interface Rgba {
 	a: number;
 }
 
+/**
+ * Converts any supported color (hex, rgb, rgba) to an opaque `#rrggbb` string
+ * for `<input type="color">`. Alpha is dropped since the picker cannot represent
+ * it. Returns null when the color cannot be parsed.
+ */
+export function colorToHex(color: string): string | null {
+	const rgba = parseColor(color);
+	if (!rgba) {
+		return null;
+	}
+	return `#${channelToHex(rgba.r)}${channelToHex(rgba.g)}${channelToHex(rgba.b)}`;
+}
+
+function channelToHex(value: number): string {
+	const clamped = Math.min(255, Math.max(0, Math.round(value)));
+	return clamped.toString(16).padStart(2, '0');
+}
+
 function interpolateColor(from: string, to: string, ratio: number): string | undefined {
 	const start = parseColor(from);
 	const end = parseColor(to);

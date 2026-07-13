@@ -1,6 +1,7 @@
 import { sanitizeConditionalFormats } from '@nao/shared/conditional-formatting';
 import { buildStoryTableBlock } from '@nao/shared';
-import { useMemo, useState } from 'react';
+import { isNumericColumn } from '@nao/shared/story-table-utils';
+import { useMemo, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { FilePlus, Pencil } from 'lucide-react';
 import { DataTableCard } from '../data-table-card';
@@ -33,6 +34,7 @@ export const DisplayTableToolCall = ({
 
 	const storyIds = useMemo(() => findStoryIds(messages), [messages]);
 	const isEditable = Boolean(agent && !agent.isReadonly && !agent.isRunning);
+	const isPersistingRef = useRef(false);
 
 	const sourceData = useMemo<executeSql.Output | null>(() => {
 		if (!config?.query_id) {
@@ -69,17 +71,22 @@ export const DisplayTableToolCall = ({
 	);
 
 	const persistFormats = async (nextFormats: ColumnConditionalFormats) => {
-		if (!config) {
+		if (!config || isPersistingRef.current) {
 			return;
 		}
-		const nextConfig: displayTable.Input = { ...config, conditional_formats: nextFormats };
+		isPersistingRef.current = true;
 		const previousMessages = messages;
+		const previousConfig = config;
+		const nextConfig: displayTable.Input = { ...config, conditional_formats: nextFormats };
 		agent?.setMessages(applyTableConfigToMessages(previousMessages, toolCallId, nextConfig));
 		try {
 			await updateMutation.mutateAsync({ toolCallId, config: nextConfig });
 		} catch (err) {
-			agent?.setMessages(previousMessages);
+			// Serialized via isPersistingRef, so restoring this edit's prior config cannot clobber a newer one.
+			agent?.setMessages(applyTableConfigToMessages(previousMessages, toolCallId, previousConfig));
 			throw err;
+		} finally {
+			isPersistingRef.current = false;
 		}
 	};
 
@@ -104,6 +111,8 @@ export const DisplayTableToolCall = ({
 	}
 
 	const columns = sourceData.columns ?? [];
+	const rows = sourceData.data as Record<string, unknown>[];
+	const numericColumns = columns.filter((column) => isNumericColumn(rows, column));
 	const conditionalFormats = sanitizeConditionalFormats(config.conditional_formats) ?? {};
 
 	const handleAddToStory = async () => {
@@ -147,6 +156,7 @@ export const DisplayTableToolCall = ({
 					size='icon-xs'
 					className='hover:rounded-full hover:bg-accent/70'
 					onClick={handleAddToStory}
+					disabled={addToStoryMutation.isPending}
 					title='Add to story'
 				>
 					<FilePlus className='size-3 text-muted-foreground/70' />
@@ -172,7 +182,9 @@ export const DisplayTableToolCall = ({
 				title={config.title}
 				chatId={chatId ?? undefined}
 				conditionalFormats={conditionalFormats}
-				onConditionalFormatsChange={isEditable ? (formats) => void persistFormats(formats) : undefined}
+				onConditionalFormatsChange={
+					isEditable && !updateMutation.isPending ? (formats) => void persistFormats(formats) : undefined
+				}
 				headerActions={headerActions}
 			/>
 
@@ -180,11 +192,11 @@ export const DisplayTableToolCall = ({
 				<TableFormatEditDialog
 					open={isEditOpen}
 					onOpenChange={setIsEditOpen}
-					columns={columns}
+					columns={numericColumns}
 					formats={conditionalFormats}
 					onSave={persistFormats}
 					isSaving={updateMutation.isPending}
-					description='Apply conditional formatting to columns. Changes are saved to the chat.'
+					description='Apply conditional formatting to numeric columns. Changes are saved to the chat.'
 				/>
 			)}
 		</div>

@@ -44,6 +44,35 @@ describe('buildStoryTableBlock', () => {
 			amount: { type: 'color-scale' },
 		});
 	});
+
+	it('keeps threshold formatting through splitCodeIntoSegments despite ">" in the operator', () => {
+		const block = buildStoryTableBlock({
+			query_id: 'query_2',
+			title: 'Churn',
+			conditional_formats: {
+				churn: { type: 'threshold', operator: '>=', value: 0.1, color: 'rgba(239,68,68,0.3)' },
+				growth: { type: 'threshold', operator: '>', value: 0, color: '#22c55e' },
+			},
+		});
+
+		const segments = splitCodeIntoSegments(block);
+		const table = segments.find((segment) => segment.type === 'table');
+		expect(table).toBeDefined();
+		expect(table?.type === 'table' && table.table.conditionalFormats).toEqual({
+			churn: { type: 'threshold', operator: '>=', value: 0.1, color: 'rgba(239,68,68,0.3)' },
+			growth: { type: 'threshold', operator: '>', value: 0, color: '#22c55e' },
+		});
+	});
+
+	it('parses a hand-written table tag with ">" inside quoted formatting without truncation', () => {
+		const code = `Intro text\n<table query_id="q1" formatting='{"score":{"type":"threshold","operator":">=","value":90,"color":"green"}}' />\nOutro`;
+		const segments = splitCodeIntoSegments(code);
+		const table = segments.find((segment) => segment.type === 'table');
+		expect(table?.type === 'table' && table.table.conditionalFormats).toEqual({
+			score: { type: 'threshold', operator: '>=', value: 90, color: 'green' },
+		});
+		expect(segments.some((segment) => segment.type === 'markdown' && segment.content === 'Outro')).toBe(true);
+	});
 });
 
 describe('displayTable.InputSchema', () => {

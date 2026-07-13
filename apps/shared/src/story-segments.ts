@@ -1,5 +1,13 @@
 import { type ColumnConditionalFormats, sanitizeConditionalFormats } from './conditional-formatting';
 
+/**
+ * Matches a tag's attribute list while treating single/double-quoted values as
+ * opaque, so `>` and `/` inside a quoted attribute (e.g. a threshold rule's
+ * `">="` operator inside `formatting='{...}'`) do not prematurely terminate the
+ * tag. Kept as a shared constant so every block-tag regex stays consistent.
+ */
+export const TAG_ATTRS = `(?:[^>"']|"(?:[^"\\\\]|\\\\.)*"|'(?:[^'\\\\]|\\\\.)*')*?`;
+
 export interface ParsedChartBlock {
 	queryId: string;
 	chartType: string;
@@ -138,7 +146,10 @@ function extractSeriesFromRawAttrs(attrString: string): ParsedChartBlock['series
 
 export function splitCodeIntoSegments(code: string): Segment[] {
 	const segments: Segment[] = [];
-	const blockRegex = /<grid\s+([^>]*)>([\s\S]*?)<\/grid>|<chart\s+([^/>]*)\/?>|<table\s+([^/>]*)\/?>/g;
+	const blockRegex = new RegExp(
+		`<grid\\s+([^>]*)>([\\s\\S]*?)<\\/grid>|<chart\\s+(${TAG_ATTRS})\\/?>|<table\\s+(${TAG_ATTRS})\\/?>`,
+		'g',
+	);
 	let match;
 	let lastIndex = 0;
 
