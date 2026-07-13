@@ -13,6 +13,7 @@ import {
 	PolarRadiusAxis,
 	Radar,
 	RadarChart,
+	Rectangle,
 	Scatter,
 	ScatterChart,
 	XAxis,
@@ -265,6 +266,7 @@ function buildBarChart(props: ResolvedProps) {
 	} = props;
 	const isStacked = displayChart.isStackedChartType(chartType);
 	const isPercent = displayChart.isPercentStackedChartType(chartType);
+	const seriesKeys = series.map((s) => s.data_key);
 
 	return (
 		<BarChart data={data} accessibilityLayer margin={margin} stackOffset={isPercent ? 'expand' : undefined}>
@@ -296,12 +298,44 @@ function buildBarChart(props: ResolvedProps) {
 					dataKey={s.data_key}
 					fill={colorFor(s.data_key, i)}
 					stackId={isStacked ? 'stack' : undefined}
-					radius={isStacked ? (i === series.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]) : [4, 4, 4, 4]}
+					radius={isStacked ? undefined : [4, 4, 4, 4]}
+					shape={isStacked ? renderStackedBarShape(seriesKeys, s.data_key) : undefined}
 					isAnimationActive={false}
 				/>
 			))}
 		</BarChart>
 	);
+}
+
+/**
+ * Whether `currentKey` is the topmost drawn segment of a stacked bar for a given row —
+ * i.e. the last series (in stack order) with a non-zero value. Used to round only the
+ * visible top of each bar, independent of series order or zero-valued segments.
+ */
+export function isTopmostStackSegment(row: Record<string, unknown>, seriesKeys: string[], currentKey: string): boolean {
+	let topKey: string | null = null;
+	for (const key of seriesKeys) {
+		const value = row[key];
+		if (typeof value === 'number' && value !== 0) {
+			topKey = key;
+		}
+	}
+	return topKey === currentKey;
+}
+
+type RectangleProps = React.ComponentProps<typeof Rectangle>;
+
+/**
+ * Custom `<Bar>` shape that rounds the top corners of only the topmost non-zero segment of
+ * each stacked bar, matching the rounded-top convention of non-stacked bars. Recharts applies
+ * a single radius per `<Bar>` across all rows, so per-datum rounding needs a shape.
+ */
+function renderStackedBarShape(seriesKeys: string[], currentKey: string) {
+	return function StackedBarSegment(shapeProps: unknown) {
+		const rectProps = shapeProps as RectangleProps & { payload?: Record<string, unknown> };
+		const rounded = isTopmostStackSegment(rectProps.payload ?? {}, seriesKeys, currentKey);
+		return <Rectangle {...rectProps} radius={rounded ? [4, 4, 0, 0] : [0, 0, 0, 0]} />;
+	};
 }
 
 function buildAreaChart(props: ResolvedProps) {

@@ -4,6 +4,7 @@ import {
 	clampNegativeSeriesValues,
 	formatPercentAxisTick,
 	formatPercentShare,
+	isTopmostStackSegment,
 	percentStackSeries,
 	sumPercentStackBase,
 } from '../src/chart-builder';
@@ -88,6 +89,41 @@ describe('clampNegativeSeriesValues', () => {
 		const data = [{ month: -1, revenue: 5, cost: 20 }];
 		const clamped = clampNegativeSeriesValues(data, [{ data_key: 'revenue' }, { data_key: 'cost' }]);
 		expect(clamped).toBe(data);
+	});
+});
+
+describe('isTopmostStackSegment', () => {
+	const keys = ['a', 'b', 'c'];
+
+	it('rounds the last non-zero series when all segments are present', () => {
+		const row = { a: 10, b: 20, c: 5 };
+		expect(isTopmostStackSegment(row, keys, 'c')).toBe(true);
+		expect(isTopmostStackSegment(row, keys, 'b')).toBe(false);
+		expect(isTopmostStackSegment(row, keys, 'a')).toBe(false);
+	});
+
+	it('rounds the only visible segment even when it is not the last series', () => {
+		const row = { a: 10, b: 0, c: 0 };
+		expect(isTopmostStackSegment(row, keys, 'a')).toBe(true);
+		expect(isTopmostStackSegment(row, keys, 'b')).toBe(false);
+		expect(isTopmostStackSegment(row, keys, 'c')).toBe(false);
+	});
+
+	it('rounds the topmost non-zero segment when some segments are zero', () => {
+		const row = { a: 10, b: 30, c: 0 };
+		expect(isTopmostStackSegment(row, keys, 'b')).toBe(true);
+		expect(isTopmostStackSegment(row, keys, 'c')).toBe(false);
+	});
+
+	it('rounds nothing when every segment is zero', () => {
+		const row = { a: 0, b: 0, c: 0 };
+		expect(keys.every((key) => !isTopmostStackSegment(row, keys, key))).toBe(true);
+	});
+
+	it('ignores non-numeric values', () => {
+		const row = { a: 'x', b: 5 };
+		expect(isTopmostStackSegment(row, ['a', 'b'], 'b')).toBe(true);
+		expect(isTopmostStackSegment(row, ['a', 'b'], 'a')).toBe(false);
 	});
 });
 
