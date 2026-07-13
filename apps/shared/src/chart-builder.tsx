@@ -375,7 +375,6 @@ function buildAreaChart(props: ResolvedProps) {
 	} = props;
 	const isStacked = displayChart.isStackedChartType(chartType);
 	const isPercent = displayChart.isPercentStackedChartType(chartType);
-	const separatorColor = props.backgroundColor ?? DEFAULT_BACKGROUND_COLOR;
 
 	return (
 		<AreaChart data={data} accessibilityLayer margin={margin} stackOffset={isPercent ? 'expand' : undefined}>
@@ -418,8 +417,7 @@ function buildAreaChart(props: ResolvedProps) {
 					key={s.data_key}
 					dataKey={s.data_key}
 					type='monotone'
-					stroke={isStacked ? separatorColor : colorFor(s.data_key, i)}
-					strokeWidth={isStacked ? STACK_SEPARATOR_WIDTH : undefined}
+					stroke={colorFor(s.data_key, i)}
 					fill={`url(#grad-${i})`}
 					stackId={isStacked ? 'stack' : undefined}
 					isAnimationActive={false}
