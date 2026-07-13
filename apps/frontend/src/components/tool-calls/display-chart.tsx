@@ -331,16 +331,11 @@ export const ChartDisplay = memo(function ChartDisplay({
 
 	const chartConfig = useMemo((): ChartConfig => {
 		if (isPie) {
-			const total = pieData.reduce((sum, item) => sum + toNumericValue(item[pieValueKey]), 0);
 			return pieData.reduce<ChartConfig>(
 				(acc, item, index) => {
 					const category = String(item[xAxisKey]);
 					acc[toKey(category)] = {
-						label: formatPieLegendLabel(
-							labelize(category, dateFormat),
-							toNumericValue(item[pieValueKey]),
-							total,
-						),
+						label: labelize(category, dateFormat),
 						color: Colors[index % Colors.length],
 					};
 					return acc;
@@ -361,7 +356,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 			};
 			return acc;
 		}, {} as ChartConfig);
-	}, [series, xAxisKey, pieData, isPie, pieValueKey, dateFormat]);
+	}, [series, xAxisKey, pieData, isPie, dateFormat]);
 
 	const colorFor = useMemo(
 		() =>
@@ -428,8 +423,14 @@ export const ChartDisplay = memo(function ChartDisplay({
 						<ChartLegend
 							key='legend'
 							payload={legendPayload}
+							layout={isPie ? 'vertical' : 'horizontal'}
+							align={isPie ? 'right' : 'center'}
+							verticalAlign={isPie ? 'middle' : 'bottom'}
 							content={
-								<ChartLegendContent onItemClick={isPie ? undefined : handleToggleSeriesVisibility} />
+								<ChartLegendContent
+									layout={isPie ? 'vertical' : 'horizontal'}
+									onItemClick={isPie ? undefined : handleToggleSeriesVisibility}
+								/>
 							}
 						/>
 					),
@@ -493,16 +494,3 @@ const useSeriesVisibility = (series: displayChart.SeriesConfig[]) => {
 		handleToggleSeriesVisibility,
 	};
 };
-
-/** Formats a pie/donut legend entry as "Category · 44.64%". */
-function formatPieLegendLabel(label: string, value: number, total: number): string {
-	if (total <= 0) {
-		return label;
-	}
-	const percent = ((value / total) * 100).toFixed(2);
-	return `${label} · ${percent}%`;
-}
-
-function toNumericValue(value: unknown): number {
-	return typeof value === 'number' && Number.isFinite(value) ? value : 0;
-}

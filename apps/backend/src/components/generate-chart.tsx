@@ -1,10 +1,16 @@
-import { buildChart, defaultColorFor, labelize } from '@nao/shared';
+import { buildChart, bucketPieData, defaultColorFor, labelize } from '@nao/shared';
 import type { DateFormatSettings } from '@nao/shared/date';
 import type { displayChart } from '@nao/shared/tools';
 import React from 'react';
 import { renderToString } from 'react-dom/server';
 
-import { createSvg, type LegendEntry, svgToPng } from '../utils/generate-chart';
+import {
+	createSvg,
+	type LegendEntry,
+	type LegendLayout,
+	svgToPng,
+	VERTICAL_LEGEND_WIDTH,
+} from '../utils/generate-chart';
 
 export interface RenderChartInput {
 	config: Pick<displayChart.Input, 'chart_type' | 'x_axis_key' | 'x_axis_type' | 'series' | 'title'>;
@@ -36,6 +42,10 @@ export function renderChartToSvg(input: RenderChartInput): string {
 	const labelFormatter = (value: string) => labelize(value, dateFormat);
 	const maxLabelWidth = estimateMaxLabelWidth(data, config.x_axis_key, dateFormat);
 
+	const isPie = config.chart_type === 'pie' || config.chart_type === 'donut';
+	const legendLayout: LegendLayout = isPie ? 'vertical' : 'horizontal';
+	const chartWidth = isPie && includeLegend ? Math.max(width - VERTICAL_LEGEND_WIDTH, 0) : width;
+
 	const chart = buildChart({
 		data,
 		chartType: config.chart_type,
@@ -47,21 +57,36 @@ export function renderChartToSvg(input: RenderChartInput): string {
 		showGrid: true,
 		margin,
 		title: config.title,
-		maxXAxisTicks: Math.floor(width / maxLabelWidth),
+		maxXAxisTicks: Math.floor(chartWidth / maxLabelWidth),
 		backgroundColor: '#ffffff',
 	});
 
-	const html = renderToString(React.cloneElement(chart, { width, height }));
+	const html = renderToString(React.cloneElement(chart, { width: chartWidth, height }));
 
-	const legend: LegendEntry[] = includeLegend
-		? config.series.map((s, i) => ({
-				label: s.label || labelize(s.data_key, dateFormat),
-				dataKey: s.data_key,
-				color: colorFor(s.data_key, i),
-			}))
-		: [];
+	let legend: LegendEntry[] = [];
+	if (includeLegend) {
+		legend = isPie
+			? buildPieLegendEntries(data, config, dateFormat)
+			: config.series.map((s, i) => ({
+					label: s.label || labelize(s.data_key, dateFormat),
+					color: colorFor(s.data_key, i),
+				}));
+	}
 
-	return createSvg(html, width, height, legend);
+	return createSvg(html, chartWidth, height, legend, legendLayout);
+}
+
+function buildPieLegendEntries(
+	data: Record<string, unknown>[],
+	config: RenderChartInput['config'],
+	dateFormat?: DateFormatSettings | null,
+): LegendEntry[] {
+	const valueKey = config.series[0]?.data_key ?? '';
+	const bucketed = bucketPieData(data, config.x_axis_key, valueKey);
+	return bucketed.map((row, i) => {
+		const category = String(row[config.x_axis_key]);
+		return { label: labelize(category, dateFormat), color: defaultColorFor(category, i) };
+	});
 }
 
 const CHAR_WIDTH_PX = 7;

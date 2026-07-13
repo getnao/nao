@@ -145,13 +145,15 @@ function ChartBlock({ chart, queryData }: { chart: ParsedChartBlock; queryData: 
 	const chartRows = isPie ? bucketPieData(rows, chart.xAxisKey, valueKey) : rows;
 
 	try {
+		// Pie/donut render their legend to the right, baked into the SVG; other
+		// chart types keep the HTML legend rendered below.
 		const svg = renderChartToSvg({
 			config: toChartConfig(chart),
 			data: rows,
 			width: CHART_WIDTH,
 			height: CHART_HEIGHT,
 			margin: { top: 0, right: 0, bottom: 0, left: 0 },
-			includeLegend: false,
+			includeLegend: isPie,
 			dateFormat,
 		});
 		const chartData = JSON.stringify({
@@ -168,11 +170,7 @@ function ChartBlock({ chart, queryData }: { chart: ParsedChartBlock; queryData: 
 					data-chart={chartData}
 					dangerouslySetInnerHTML={{ __html: svg }}
 				/>
-				{isPie ? (
-					<PieLegend rows={chartRows} categoryKey={chart.xAxisKey} valueKey={valueKey} />
-				) : (
-					<ChartLegend series={chart.series} />
-				)}
+				{!isPie && <ChartLegend series={chart.series} />}
 			</div>
 		);
 	} catch {
@@ -198,50 +196,6 @@ function ChartLegend({ series }: { series: ParsedChartBlock['series'] }) {
 			})}
 		</div>
 	);
-}
-
-function PieLegend({
-	rows,
-	categoryKey,
-	valueKey,
-}: {
-	rows: Record<string, unknown>[];
-	categoryKey: string;
-	valueKey: string;
-}) {
-	const dateFormat = useContext(DateFormatContext);
-	const total = rows.reduce((sum, row) => sum + toNumber(row[valueKey]), 0);
-	return (
-		<div
-			style={{
-				display: 'flex',
-				flexWrap: 'wrap',
-				alignItems: 'center',
-				justifyContent: 'center',
-				gap: 16,
-				paddingTop: 12,
-			}}
-		>
-			{rows.map((row, i) => {
-				const category = String(row[categoryKey]);
-				const percent = total > 0 ? ((toNumber(row[valueKey]) / total) * 100).toFixed(2) : '0.00';
-				const color = DEFAULT_COLORS[i % DEFAULT_COLORS.length];
-				return (
-					<div
-						key={`${category}-${i}`}
-						style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#6b7280', fontSize: 12 }}
-					>
-						<div style={{ width: 8, height: 8, borderRadius: 2, flexShrink: 0, background: color }} />
-						{labelize(category, dateFormat)} · {percent}%
-					</div>
-				);
-			})}
-		</div>
-	);
-}
-
-function toNumber(value: unknown): number {
-	return typeof value === 'number' && Number.isFinite(value) ? value : 0;
 }
 
 function KpiCards({ chart, rows }: { chart: ParsedChartBlock; rows: Record<string, unknown>[] }) {

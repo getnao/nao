@@ -32,7 +32,7 @@ const DEFAULT_BACKGROUND = 'var(--background, #ffffff)';
 /** Beyond this many slices, pie/donut charts bucket the smallest into a single "Other" slice. */
 const MAX_PIE_SLICES = 10;
 
-const DONUT_INNER_RADIUS = '55%';
+const DONUT_INNER_RADIUS = '45%';
 
 export function labelize(key: unknown, dateFormat?: DateFormatSettings | null): string {
 	const str = String(key);
@@ -370,7 +370,7 @@ function buildPieChart(props: ResolvedProps) {
 				label={false}
 				labelLine={false}
 				stroke={backgroundColor}
-				strokeWidth={2}
+				strokeWidth={1}
 				isAnimationActive={false}
 			/>
 			{children}
