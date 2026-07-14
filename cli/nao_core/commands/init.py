@@ -210,28 +210,6 @@ def _cleanup_partial_project(project_path: Path) -> None:
         UI.warn(f"Could not remove incomplete project folder [dim]{project_path}[/dim]: {cleanup_error}")
 
 
-def _install_with_progress(extras: list[str]) -> bool:
-    """Run the extras install with a Rich spinner. Returns True on success."""
-    from rich.console import Console
-    from rich.status import Status
-
-    from nao_core.deps import install_extras
-
-    console = Console()
-
-    with Status("[bold cyan]Installing dependencies…[/bold cyan]", console=console, spinner="dots"):
-        success = install_extras(extras)
-
-    if success:
-        UI.success("Dependencies installed successfully.")
-        return True
-
-    extras_str = ",".join(extras)
-    UI.error("Automatic installation failed.")
-    UI.print(f"Install manually with: [bold cyan]pip install 'nao-core[{extras_str}]'[/bold cyan]")
-    return False
-
-
 def _build_no_tty_config(project_name: str, existing_config: NaoConfig | None) -> NaoConfig:
     """Return a config to save in non-interactive mode.
 
@@ -300,26 +278,10 @@ def init(
         UI.print()
 
         # Install missing optional dependencies inline
-        from nao_core.deps import get_missing_extras
+        from nao_core.deps import ensure_extras_installed, get_missing_extras
 
         missing = get_missing_extras(config)
-        deps_ready = not missing
-        if missing:
-            extras_label = ", ".join(missing)
-            UI.title("Installing provider dependencies")
-            UI.print(f"[dim]Extras: {extras_label}[/dim]\n")
-
-            should_install = yes or ask_confirm("Install the required provider dependencies now?", default=True)
-            if should_install:
-                UI.print()
-                deps_ready = _install_with_progress(missing)
-            else:
-                extras_str = ",".join(missing)
-                UI.print()
-                UI.warn("Skipped dependency installation.")
-                UI.print(
-                    f"You can install them later with: [bold cyan]pip install 'nao-core[{extras_str}]'[/bold cyan]"
-                )
+        deps_ready = ensure_extras_installed(missing, assume_yes=yes)
 
         UI.print()
         UI.print("[bold green]Done![/bold green] Your nao project is ready. 🎉")

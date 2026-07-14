@@ -8,7 +8,7 @@ when a required package is missing.
 from __future__ import annotations
 
 import importlib
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from nao_core.config.base import NaoConfig
@@ -137,6 +137,47 @@ def get_install_command(config: NaoConfig) -> str | None:
     return f"pip install 'nao-core[{extras_str}]'"
 
 
+def ensure_extras_installed(extras: list[str], *, assume_yes: bool = False) -> bool:
+    """Install missing extras, prompting first unless *assume_yes*.
+
+    Returns True when the extras are ready (nothing missing or install
+    succeeded), False when installation was skipped or failed.
+    """
+    if not extras:
+        return True
+
+    from nao_core.ui import UI, ask_confirm
+
+    extras_label = ", ".join(extras)
+    UI.title("Installing provider dependencies")
+    UI.print(f"[dim]Extras: {extras_label}[/dim]\n")
+
+    should_install = assume_yes or ask_confirm("Install the required provider dependencies now?", default=True)
+    if not should_install:
+        extras_str = ",".join(extras)
+        UI.print()
+        UI.warn("Skipped dependency installation.")
+        UI.print(f"You can install them later with: [bold cyan]pip install 'nao-core[{extras_str}]'[/bold cyan]")
+        return False
+
+    UI.print()
+    return _install_with_progress(extras)
+
+
+def get_missing_extras_for_databases(databases: list[Any]) -> list[str]:
+    """Return the extras needed by the given databases that are not installed yet."""
+    missing: list[str] = []
+    seen: set[str] = set()
+
+    for db in databases:
+        extra = _resolve_extra(db.type)
+        if extra and extra not in seen and not _is_extra_installed(extra):
+            missing.append(extra)
+            seen.add(extra)
+
+    return missing
+
+
 def install_extras(extras: list[str]) -> bool:
     """Install the given nao-core extras using pip or uv.
 
@@ -168,6 +209,28 @@ def install_extras(extras: list[str]) -> bool:
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+
+def _install_with_progress(extras: list[str]) -> bool:
+    """Run the extras install with a Rich spinner. Returns True on success."""
+    from rich.console import Console
+    from rich.status import Status
+
+    from nao_core.ui import UI
+
+    console = Console()
+
+    with Status("[bold cyan]Installing dependencies…[/bold cyan]", console=console, spinner="dots"):
+        success = install_extras(extras)
+
+    if success:
+        UI.success("Dependencies installed successfully.")
+        return True
+
+    extras_str = ",".join(extras)
+    UI.error("Automatic installation failed.")
+    UI.print(f"Install manually with: [bold cyan]pip install 'nao-core[{extras_str}]'[/bold cyan]")
+    return False
 
 
 def _resolve_extra(provider_or_type: str) -> str | None:

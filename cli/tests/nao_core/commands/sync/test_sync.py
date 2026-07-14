@@ -1,6 +1,7 @@
 """Unit tests for the main sync command function."""
 
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -191,6 +192,56 @@ class TestSyncCommand:
         assert any("Sync Completed with Errors" in call for call in calls)
         # Should show error details
         assert any("API error" in call for call in calls)
+
+    def test_sync_auto_installs_missing_database_drivers(self, create_config):
+        """Missing driver extras are installed before providers run, like `nao init`."""
+        create_config()
+        provider = MagicMock(spec=DatabaseSyncProvider)
+        provider.should_sync.return_value = True
+        provider.name = "Databases"
+        provider.default_output_dir = "databases"
+        db_item = SimpleNamespace(type="snowflake", name="my-db")
+        provider.get_items.return_value = [db_item]
+        provider.sync.return_value = SyncResult(provider_name="Databases", items_synced=0)
+        selection = ProviderSelection(provider)
+
+        with patch("nao_core.commands.sync.console"):
+            with patch("nao_core.deps.get_missing_extras_for_databases", return_value=["snowflake"]) as mock_missing:
+                with patch("nao_core.deps.ensure_extras_installed", return_value=True) as mock_install:
+                    sync(_providers=[selection], render_templates=False)
+
+        assert mock_missing.call_args[0][0] == [db_item]
+        assert mock_install.call_args[0][0] == ["snowflake"]
+
+    def test_sync_installs_without_prompt_when_non_interactive(self, create_config):
+        """In a non-interactive session the install runs without prompting (assume_yes)."""
+        create_config()
+        provider = MagicMock(spec=DatabaseSyncProvider)
+        provider.should_sync.return_value = True
+        provider.name = "Databases"
+        provider.default_output_dir = "databases"
+        provider.get_items.return_value = [SimpleNamespace(type="snowflake", name="my-db")]
+        provider.sync.return_value = SyncResult(provider_name="Databases", items_synced=0)
+        selection = ProviderSelection(provider)
+
+        with patch("nao_core.commands.sync.console"):
+            with patch("nao_core.deps.get_missing_extras_for_databases", return_value=["snowflake"]):
+                with patch("nao_core.deps.ensure_extras_installed", return_value=True) as mock_install:
+                    with patch("nao_core.commands.sync.sys.stdin") as mock_stdin:
+                        mock_stdin.isatty.return_value = False
+                        sync(_providers=[selection], render_templates=False)
+
+        assert mock_install.call_args.kwargs["assume_yes"] is True
+
+    def test_sync_does_not_install_for_non_database_providers(self, create_config):
+        create_config()
+        selection = _make_provider(items=["item1"], items_synced=1)
+
+        with patch("nao_core.commands.sync.console"):
+            with patch("nao_core.deps.ensure_extras_installed") as mock_install:
+                sync(_providers=[selection], render_templates=False)
+
+        mock_install.assert_not_called()
 
     def test_sync_shows_failure_when_all_providers_fail(self, create_config):
         """Test that sync shows failure status when all providers fail."""

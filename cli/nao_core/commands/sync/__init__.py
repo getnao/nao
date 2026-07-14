@@ -23,6 +23,36 @@ from .providers import (
 console = Console()
 
 
+def _ensure_database_drivers(active_providers: list[ProviderSelection], config: NaoConfig) -> None:
+    """Auto-install missing database driver extras before connecting, like `nao init`.
+
+    Prompts interactively and installs without prompting in non-interactive
+    sessions (CI) so the sync does not hang. If installation is skipped or fails,
+    the sync proceeds and the connection surfaces the usual missing-extra error.
+    """
+    from nao_core.deps import ensure_extras_installed, get_missing_extras_for_databases
+
+    databases = _collect_databases_to_sync(active_providers, config)
+    missing = get_missing_extras_for_databases(databases)
+    if not missing:
+        return
+
+    ensure_extras_installed(missing, assume_yes=not sys.stdin.isatty())
+
+
+def _collect_databases_to_sync(active_providers: list[ProviderSelection], config: NaoConfig) -> list[Any]:
+    """Return the database configs that the active providers are about to sync."""
+    databases: list[Any] = []
+    for selection in active_providers:
+        if not isinstance(selection.provider, DatabaseSyncProvider):
+            continue
+        items = selection.provider.get_items(config)
+        if selection.connection_name:
+            items = [item for item in items if getattr(item, "name", None) == selection.connection_name]
+        databases.extend(items)
+    return databases
+
+
 @track_command("sync")
 def sync(
     *,
@@ -99,6 +129,8 @@ def sync(
 
     if select and not any(isinstance(s.provider, DatabaseSyncProvider) for s in active_providers):
         console.print("[yellow]Warning:[/yellow] --select only applies to the databases provider; ignoring it here.")
+
+    _ensure_database_drivers(active_providers, config)
 
     output_dirs = output_dirs or {}
 
