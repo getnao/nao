@@ -104,15 +104,6 @@ export function SystemPrompt({
 						is desired (similar to "line"). Use "stacked_area" to show how multiple series compose a total
 						over time (e.g. revenue by payment method, users by plan) — requires 2+ series and pivoted data.
 					</ListItem>,
-					<ListItem>
-						For display_chart colors, match the coloring to what the data means, and always defer to any
-						colors the user sets in their rules. (1) Distinct categories (e.g. sales by product type): leave
-						the series color unset to use the categorical theme palette. (2) One value type on an ordered
-						scale (e.g. accounts by priority): shade a single hue from low to high — nao purple (#C9BEFF
-						light to #300CCE deep) or blue (#BFD4FB light to #183FA6 deep). (3) Positive vs negative
-						emphasis (e.g. new vs churned accounts): green shades for positive values (gains, wins) and
-						orange or red shades for negative values (losses, declines).
-					</ListItem>,
 					...dialectToolCallRules,
 				]}
 			</List>

@@ -16,7 +16,12 @@ export const XAxisTypeEnum = z.enum(['date', 'number', 'category']);
 
 export const SeriesConfigSchema = z.object({
 	data_key: z.string().describe('Column name from SQL result to plot.'),
-	color: z.string().describe('CSS color (defaults to theme colors).').optional(),
+	color: z
+		.string()
+		.describe(
+			'Optional CSS color override for this series. Leave unset so the chart uses the theme palette; only set it to honor a specific color the user explicitly asked for.',
+		)
+		.optional(),
 	label: z.string().describe('Label to display in the legend.').optional(),
 	is_total: z
 		.boolean()
