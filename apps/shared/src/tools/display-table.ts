@@ -5,16 +5,18 @@ export const ColorScaleRuleSchema = z.object({
 	color: z
 		.string()
 		.describe(
-			'Main color of the scale; the gradient runs from a light tint of it (low) to it (high). Use hex, rgb(), rgba(), hsl() or hsla() — named CSS colors are not supported.',
+			'Main color of the scale; the gradient runs from a light tint of it (low) to it (high). Use hex, rgb(), rgba(), hsl(), hsla() or a common CSS color name.',
 		)
 		.optional(),
 	minColor: z
 		.string()
-		.describe('Color for the lowest value (overrides the derived tint). Hex, rgb(), rgba(), hsl() or hsla().')
+		.describe('Color for the lowest value (overrides the derived tint). Hex, rgb(), rgba(), hsl(), hsla() or name.')
 		.optional(),
 	maxColor: z
 		.string()
-		.describe('Color for the highest value (overrides the derived color). Hex, rgb(), rgba(), hsl() or hsla().')
+		.describe(
+			'Color for the highest value (overrides the derived color). Hex, rgb(), rgba(), hsl(), hsla() or name.',
+		)
 		.optional(),
 	min: z.number().describe('Explicit lower bound of the scale; defaults to the column minimum.').optional(),
 	max: z.number().describe('Explicit upper bound of the scale; defaults to the column maximum.').optional(),

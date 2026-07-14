@@ -1,9 +1,7 @@
 import { createContext, useCallback, useContext, useMemo } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { buildStoryTableBlock } from '@nao/shared';
-import { replaceUniqueChartTag } from './story-chart-edit-utils';
+import { useStoryBlockEdit } from './use-story-block-edit';
 import type { StoryTableBlockInput } from '@nao/shared';
-import { trpc } from '@/main';
 
 export interface StoryTableEditHandlers {
 	/**
@@ -38,58 +36,14 @@ export function StoryTableEditProvider({
 	storyCode,
 	children,
 }: StoryTableEditProviderProps) {
-	const queryClient = useQueryClient();
-	const latestStoryQueryKey = trpc.story.getLatest.queryKey({ chatId, storySlug });
-
-	const createVersionMutation = useMutation(
-		trpc.story.createVersion.mutationOptions({
-			onMutate: async (variables) => {
-				await queryClient.cancelQueries({ queryKey: latestStoryQueryKey });
-				const previousLatestStory = queryClient.getQueryData(latestStoryQueryKey);
-				queryClient.setQueryData(latestStoryQueryKey, (latestStory) =>
-					latestStory && typeof latestStory === 'object'
-						? { ...latestStory, code: variables.code }
-						: latestStory,
-				);
-				return { previousLatestStory };
-			},
-			onError: (_error, _variables, context) => {
-				if (context?.previousLatestStory !== undefined) {
-					queryClient.setQueryData(latestStoryQueryKey, context.previousLatestStory);
-				}
-			},
-			onSuccess: () => {
-				void queryClient.invalidateQueries({
-					queryKey: trpc.story.listVersions.queryKey({ chatId, storySlug }),
-				});
-				void queryClient.invalidateQueries({ queryKey: trpc.story.listAll.queryKey() });
-				void queryClient.invalidateQueries({ queryKey: latestStoryQueryKey });
-			},
-		}),
-	);
+	const { replaceBlock, isSaving } = useStoryBlockEdit({ chatId, storySlug, storyTitle, storyCode });
 
 	const saveTable = useCallback(
-		async (rawTag: string, config: StoryTableBlockInput) => {
-			const nextTag = buildStoryTableBlock(config);
-			const nextCode = replaceUniqueChartTag(storyCode, rawTag, nextTag);
-			if (nextCode === storyCode) {
-				return;
-			}
-			await createVersionMutation.mutateAsync({
-				chatId,
-				storySlug,
-				title: storyTitle,
-				code: nextCode,
-				action: 'replace',
-			});
-		},
-		[chatId, storySlug, storyTitle, storyCode, createVersionMutation],
+		(rawTag: string, config: StoryTableBlockInput) => replaceBlock(rawTag, buildStoryTableBlock(config)),
+		[replaceBlock],
 	);
 
-	const value = useMemo<StoryTableEditHandlers>(
-		() => ({ saveTable, isSaving: createVersionMutation.isPending }),
-		[saveTable, createVersionMutation.isPending],
-	);
+	const value = useMemo<StoryTableEditHandlers>(() => ({ saveTable, isSaving }), [saveTable, isSaving]);
 
 	return <StoryTableEditContext.Provider value={value}>{children}</StoryTableEditContext.Provider>;
 }

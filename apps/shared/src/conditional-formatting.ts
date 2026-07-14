@@ -46,6 +46,58 @@ export const DEFAULT_THRESHOLD_COLOR = 'rgba(34, 197, 94, 0.32)';
 const SCALE_MIN_ALPHA = 0.04;
 const SCALE_MAX_ALPHA = 0.55;
 
+/** Common CSS named colors, so an AI-supplied `"red"`/`"green"` renders instead of silently failing. */
+const NAMED_COLORS: Record<string, string> = {
+	black: '#000000',
+	white: '#ffffff',
+	red: '#ff0000',
+	green: '#008000',
+	blue: '#0000ff',
+	yellow: '#ffff00',
+	orange: '#ffa500',
+	purple: '#800080',
+	pink: '#ffc0cb',
+	brown: '#a52a2a',
+	gray: '#808080',
+	grey: '#808080',
+	silver: '#c0c0c0',
+	gold: '#ffd700',
+	cyan: '#00ffff',
+	aqua: '#00ffff',
+	magenta: '#ff00ff',
+	fuchsia: '#ff00ff',
+	lime: '#00ff00',
+	teal: '#008080',
+	navy: '#000080',
+	maroon: '#800000',
+	olive: '#808000',
+	indigo: '#4b0082',
+	violet: '#ee82ee',
+	turquoise: '#40e0d0',
+	salmon: '#fa8072',
+	coral: '#ff7f50',
+	crimson: '#dc143c',
+	khaki: '#f0e68c',
+	lavender: '#e6e6fa',
+	plum: '#dda0dd',
+	orchid: '#da70d6',
+	tan: '#d2b48c',
+	beige: '#f5f5dc',
+	ivory: '#fffff0',
+	azure: '#f0ffff',
+	tomato: '#ff6347',
+	chocolate: '#d2691e',
+	darkgreen: '#006400',
+	lightgreen: '#90ee90',
+	darkblue: '#00008b',
+	lightblue: '#add8e6',
+	darkred: '#8b0000',
+	darkgray: '#a9a9a9',
+	darkgrey: '#a9a9a9',
+	lightgray: '#d3d3d3',
+	lightgrey: '#d3d3d3',
+};
+
 const THRESHOLD_OPERATORS: readonly ThresholdOperator[] = ['>=', '>', '<=', '<', '='];
 
 export function isConditionalFormatRule(value: unknown): value is ConditionalFormatRule {
@@ -242,17 +294,24 @@ function parseColor(input: string): Rgba | null {
 		}
 	}
 
+	const named = NAMED_COLORS[value.toLowerCase()];
+	if (named) {
+		return parseHexColor(named);
+	}
+
 	return null;
 }
 
 function hslToRgb(h: number, s: number, l: number): { r: number; g: number; b: number } {
 	const hue = (((h % 360) + 360) % 360) / 360;
-	if (s === 0) {
-		const value = Math.round(l * 255);
+	const saturation = clamp01(s);
+	const lightness = clamp01(l);
+	if (saturation === 0) {
+		const value = Math.round(lightness * 255);
 		return { r: value, g: value, b: value };
 	}
-	const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
-	const p = 2 * l - q;
+	const q = lightness < 0.5 ? lightness * (1 + saturation) : lightness + saturation - lightness * saturation;
+	const p = 2 * lightness - q;
 	return {
 		r: Math.round(hueToChannel(p, q, hue + 1 / 3) * 255),
 		g: Math.round(hueToChannel(p, q, hue) * 255),

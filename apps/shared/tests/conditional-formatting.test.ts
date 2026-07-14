@@ -116,6 +116,22 @@ describe('resolveCellBackground - color-scale from a main color', () => {
 		const rule: ColorScaleRule = { type: 'color-scale', color: 'hsla(120, 100%, 25%, 1)' };
 		expect(resolveCellBackground(rule, 100, range)).toBe('rgba(0, 128, 0, 0.55)');
 	});
+
+	it('clamps out-of-range HSL saturation/lightness to valid CSS', () => {
+		// hsl(0, 200%, 50%) clamps saturation to 100% → pure red.
+		const rule: ColorScaleRule = { type: 'color-scale', color: 'hsl(0, 200%, 50%)' };
+		expect(resolveCellBackground(rule, 100, range)).toBe('rgba(255, 0, 0, 0.55)');
+		// Lightness above 100% clamps to white.
+		const bright: ColorScaleRule = { type: 'color-scale', color: 'hsl(0, 100%, 150%)' };
+		expect(resolveCellBackground(bright, 100, range)).toBe('rgba(255, 255, 255, 0.55)');
+	});
+
+	it('accepts common named CSS colors', () => {
+		expect(resolveCellBackground({ type: 'color-scale', color: 'red' }, 100, range)).toBe('rgba(255, 0, 0, 0.55)');
+		expect(resolveCellBackground({ type: 'color-scale', color: 'green' }, 100, range)).toBe(
+			'rgba(0, 128, 0, 0.55)',
+		);
+	});
 });
 
 describe('resolveCellBackground - threshold', () => {

@@ -150,7 +150,7 @@ function StoryPreviewPage() {
 					<SelectionProvider key={storySlug}>
 						<HighlightBubble onAsk={handleSelectionAsk} disabled={isChatRunning} />
 						{renderWithChartEditProvider(
-							canEditCharts && editor.versionNav.isViewingLatest,
+							canEditCharts && editor.versionNav.isViewingLatest && !isChatRunning,
 							{ chatId, storySlug, storyTitle: story.title, storyCode: editor.code },
 							<PreviewContent
 								code={editor.code}
