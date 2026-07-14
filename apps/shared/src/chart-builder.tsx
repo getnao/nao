@@ -26,6 +26,13 @@ export const DEFAULT_COLORS = ['#104e64', '#f54900', '#009689', '#ffb900', '#fe9
 
 const AXIS_TICK = { fontSize: 12 };
 
+/**
+ * Reserved width for the Y axis band. Smaller than the Recharts default (60)
+ * so the tick labels sit close to the chart's left edge, aligned under the
+ * title. Y values are abbreviated by `formatYAxisTick` (e.g. `1.2K`).
+ */
+const Y_AXIS_WIDTH = 36;
+
 export function labelize(key: unknown, dateFormat?: DateFormatSettings | null): string {
 	const str = String(key);
 	if (isIsoDateLike(str)) {
@@ -201,7 +208,14 @@ function buildBarChart(props: ResolvedProps) {
 	return (
 		<BarChart data={data} accessibilityLayer margin={margin}>
 			{showGrid && <CartesianGrid horizontal vertical={false} strokeDasharray='3 3' />}
-			<YAxis tick={AXIS_TICK} tickLine={false} axisLine={false} minTickGap={12} tickFormatter={formatYAxisTick} />
+			<YAxis
+				width={Y_AXIS_WIDTH}
+				tick={AXIS_TICK}
+				tickLine={false}
+				axisLine={false}
+				minTickGap={12}
+				tickFormatter={formatYAxisTick}
+			/>
 			<XAxis
 				dataKey={xAxisKey}
 				type={xAxisType}
@@ -260,7 +274,14 @@ function buildAreaChart(props: ResolvedProps) {
 				})}
 			</defs>
 			{showGrid && <CartesianGrid horizontal vertical={false} strokeDasharray='3 3' />}
-			<YAxis tick={AXIS_TICK} tickLine={false} axisLine={false} minTickGap={12} tickFormatter={formatYAxisTick} />
+			<YAxis
+				width={Y_AXIS_WIDTH}
+				tick={AXIS_TICK}
+				tickLine={false}
+				axisLine={false}
+				minTickGap={12}
+				tickFormatter={formatYAxisTick}
+			/>
 			<XAxis
 				dataKey={xAxisKey}
 				type={xAxisType}
@@ -303,7 +324,14 @@ function buildScatterChart(props: ResolvedProps) {
 				axisLine={false}
 				minTickGap={12}
 			/>
-			<YAxis tick={AXIS_TICK} tickLine={false} axisLine={false} minTickGap={12} tickFormatter={formatYAxisTick} />
+			<YAxis
+				width={Y_AXIS_WIDTH}
+				tick={AXIS_TICK}
+				tickLine={false}
+				axisLine={false}
+				minTickGap={12}
+				tickFormatter={formatYAxisTick}
+			/>
 			{children}
 			{series.map((s, i) => (
 				<Scatter
