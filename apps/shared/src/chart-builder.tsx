@@ -381,7 +381,7 @@ function renderPieLabel(labelFormatter: (v: string) => string) {
 		<text
 			x={x}
 			y={y}
-			fill='var(--foreground, #1f2937)'
+			fill='var(--foreground, #111827)'
 			textAnchor={textAnchor}
 			dominantBaseline='central'
 			fontSize={12}
