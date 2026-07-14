@@ -117,24 +117,28 @@ export function StoryChartEmbedShell({ chart, availableColumns, children }: Stor
 	);
 
 	return (
-		<div className='my-2'>
-			{chart.chartType != 'kpi_card' && chart.title && (
-				<span className='text-sm font-medium text-foreground'>{chart.title}</span>
+		<div className='my-2 flex flex-col gap-4'>
+			{(canEdit || (chart.chartType != 'kpi_card' && chart.title)) && (
+				<div className='flex w-full items-center justify-between gap-2'>
+					{chart.chartType != 'kpi_card' && chart.title ? (
+						<span className='text-sm font-medium text-foreground flex-1'>{chart.title}</span>
+					) : (
+						<div className='flex-1' />
+					)}
+					{canEdit && (
+						<Button
+							variant='ghost-muted'
+							size='icon-xs'
+							onClick={() => setIsEditOpen(true)}
+							title='Edit chart'
+							className='hover:bg-accent hover:rounded-full'
+						>
+							<Pencil className='size-3.5' />
+						</Button>
+					)}
+				</div>
 			)}
-			<div className={`relative ${chart.chartType != 'kpi_card' ? 'aspect-3/2' : ''}`}>
-				{canEdit && (
-					<Button
-						variant='ghost-muted'
-						size='icon-xs'
-						onClick={() => setIsEditOpen(true)}
-						title='Edit chart'
-						className='absolute top-1 right-1 z-10 bg-background/80 backdrop-blur hover:bg-accent hover:rounded-full'
-					>
-						<Pencil className='size-3.5' />
-					</Button>
-				)}
-				{children}
-			</div>
+			<div className={`relative ${chart.chartType != 'kpi_card' ? 'aspect-3/2' : ''}`}>{children}</div>
 			{canEdit && edit && chart.rawTag && (
 				<ChartConfigEditDialog
 					open={isEditOpen}
