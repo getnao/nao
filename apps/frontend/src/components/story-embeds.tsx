@@ -5,6 +5,7 @@ import type { ParsedChartBlock, ParsedTableBlock } from '@nao/shared/story-segme
 import type { displayChart } from '@nao/shared/tools';
 
 import { StoryChartEmbedShell } from '@/components/side-panel/story-chart-embed';
+import { StoryTableEditControls } from '@/components/side-panel/story-table-embed';
 import { ChartDisplay } from '@/components/tool-calls/display-chart';
 import { DataTableCard } from '@/components/data-table-card';
 
@@ -110,12 +111,14 @@ export const StoryTableEmbed = memo(function StoryTableEmbed({
 		return <EmbedPlaceholder>Table data unavailable</EmbedPlaceholder>;
 	}
 
+	const columns = resolvedResult.columns ?? [];
 	return (
 		<DataTableCard
 			data={resolvedResult.data}
-			columns={resolvedResult.columns ?? []}
+			columns={columns}
 			title={table.title}
 			conditionalFormats={table.conditionalFormats}
+			headerActions={<StoryTableEditControls table={table} data={resolvedResult.data} columns={columns} />}
 		/>
 	);
 });

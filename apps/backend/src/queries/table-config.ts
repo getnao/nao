@@ -1,3 +1,4 @@
+import type { ColumnConditionalFormats } from '@nao/shared/conditional-formatting';
 import { displayTable } from '@nao/shared/tools';
 import { and, eq } from 'drizzle-orm';
 
@@ -27,6 +28,34 @@ export const updateTableConfig = async (toolCallId: string, config: displayTable
 		.set({ toolInput: config })
 		.where(getDisplayTableToolCallFilter(toolCallId))
 		.execute();
+};
+
+/**
+ * Maps each `display_table` query_id in a chat to its stored conditional
+ * formatting, so a `<table query_id="…" />` block can inherit it deterministically.
+ */
+export const getDisplayTableFormatsForChat = async (
+	chatId: string,
+): Promise<Record<string, ColumnConditionalFormats>> => {
+	const rows = await db
+		.select({ toolInput: s.messagePart.toolInput })
+		.from(s.messagePart)
+		.innerJoin(s.chatMessage, eq(s.messagePart.messageId, s.chatMessage.id))
+		.where(and(eq(s.chatMessage.chatId, chatId), eq(s.messagePart.type, DISPLAY_TABLE_TOOL_TYPE)))
+		.execute();
+
+	const formatsByQueryId: Record<string, ColumnConditionalFormats> = {};
+	for (const row of rows) {
+		const parsed = displayTable.InputSchema.safeParse(row.toolInput);
+		if (!parsed.success) {
+			continue;
+		}
+		const { query_id: queryId, conditional_formats: conditionalFormats } = parsed.data;
+		if (conditionalFormats && Object.keys(conditionalFormats).length > 0) {
+			formatsByQueryId[queryId] = conditionalFormats;
+		}
+	}
+	return formatsByQueryId;
 };
 
 function getDisplayTableToolCallFilter(toolCallId: string) {

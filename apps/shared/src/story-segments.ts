@@ -1,3 +1,4 @@
+import { buildStoryTableBlock } from './chart-block';
 import { type ColumnConditionalFormats, sanitizeConditionalFormats } from './conditional-formatting';
 
 /**
@@ -23,6 +24,8 @@ export interface ParsedTableBlock {
 	queryId: string;
 	title: string;
 	conditionalFormats?: ColumnConditionalFormats;
+	/** The original `<table ... />` tag this block was parsed from, when available. */
+	rawTag?: string;
 }
 
 export type Segment =
@@ -97,6 +100,41 @@ function parseConditionalFormats(value: string | undefined): ColumnConditionalFo
 	} catch {
 		return undefined;
 	}
+}
+
+/**
+ * Injects `formatting='…'` into every `<table query_id="…" />` block that lacks
+ * an explicit `formatting` attribute, using `formatsByQueryId`. Tables that
+ * already declare formatting are left untouched, so agent-authored formatting
+ * always wins over the carried-over defaults.
+ */
+export function injectTableFormatting(
+	code: string,
+	formatsByQueryId: Record<string, ColumnConditionalFormats>,
+): string {
+	if (Object.keys(formatsByQueryId).length === 0) {
+		return code;
+	}
+
+	const tableRegex = new RegExp(`<table\\s+${TAG_ATTRS}\\/?>`, 'g');
+	return code.replace(tableRegex, (fullTag) => {
+		const attrString = fullTag.replace(/^<table\s+/, '').replace(/\/?>$/, '');
+		const attrs = parseChartAttributes(attrString);
+		if (!attrs.query_id || attrs.formatting) {
+			return fullTag;
+		}
+
+		const conditionalFormats = formatsByQueryId[attrs.query_id];
+		if (!conditionalFormats || Object.keys(conditionalFormats).length === 0) {
+			return fullTag;
+		}
+
+		return buildStoryTableBlock({
+			query_id: attrs.query_id,
+			title: attrs.title || undefined,
+			conditional_formats: conditionalFormats,
+		});
+	});
 }
 
 export const GRID_CLASSES: Record<number, string> = {
@@ -174,7 +212,7 @@ export function splitCodeIntoSegments(code: string): Segment[] {
 		} else if (match[4] !== undefined) {
 			const table = parseTableBlock(match[4]);
 			if (table) {
-				segments.push({ type: 'table', table });
+				segments.push({ type: 'table', table: { ...table, rawTag: match[0] } });
 			}
 		}
 

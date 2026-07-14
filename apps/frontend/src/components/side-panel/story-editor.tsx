@@ -146,7 +146,8 @@ function TableBlockView({ node }: ReactNodeViewProps) {
 		if (!attrMatch) {
 			return null;
 		}
-		return parseTableBlock(attrMatch[1]);
+		const parsed = parseTableBlock(attrMatch[1]);
+		return parsed ? { ...parsed, rawTag } : null;
 	}, [rawTag]);
 
 	if (!table) {
