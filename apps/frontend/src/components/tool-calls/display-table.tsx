@@ -55,9 +55,7 @@ export function TableDisplay({
 				<table className='w-full min-w-max border-collapse text-xs'>
 					<thead className='sticky top-0 z-10 border-b bg-panel'>
 						<tr>
-							<th className='shadow-[inset_-1px_0_0_0_var(--border)] last:shadow-none px-3 py-2 text-center font-medium whitespace-nowrap text-foreground w-4'>
-								1
-							</th>
+							<th className='shadow-[inset_-1px_0_0_0_var(--border)] last:shadow-none px-3 py-2 text-center font-medium whitespace-nowrap text-foreground w-4' />
 							{resolvedColumns.map((column) => (
 								<th
 									key={column}
@@ -81,7 +79,7 @@ export function TableDisplay({
 								>
 									<td className='shadow-[inset_-1px_0_0_0_var(--border)] last:shadow-none px-3 py-1 align-top font-mono text-[11px] leading-5 whitespace-nowrap text-center w-4 bg-panel'>
 										<span className='px-1 py-2 font-[Geist] font-medium text-foreground'>
-											{pageIndex * pageSize + rowIndex + 2}
+											{pageIndex * pageSize + rowIndex + 1}
 										</span>
 									</td>
 									{resolvedColumns.map((column) => {
