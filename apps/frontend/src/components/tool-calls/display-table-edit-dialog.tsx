@@ -174,8 +174,8 @@ function ColumnRuleRow({ column, rule, onChange }: ColumnRuleRowProps) {
 					<span className='text-xs text-muted-foreground'>Color</span>
 					<ColorSwatch
 						ariaLabel={`Color scale color for ${column}`}
-						value={toHexColor(rule.color, DEFAULT_SCALE_HEX)}
-						onChange={(color) => onChange({ ...rule, color })}
+						value={toHexColor(rule.color ?? rule.maxColor ?? rule.minColor, DEFAULT_SCALE_HEX)}
+						onChange={(color) => onChange({ type: 'color-scale', color, min: rule.min, max: rule.max })}
 					/>
 				</div>
 			)}

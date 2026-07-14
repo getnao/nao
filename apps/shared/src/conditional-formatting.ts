@@ -162,29 +162,21 @@ function resolveColorScale(rule: ColorScaleRule, value: number, range: ColumnRan
 }
 
 /**
- * Resolves the low/high gradient endpoints. Explicit `minColor`/`maxColor` win;
- * otherwise a single `color` yields a light-tint → color gradient; otherwise the
- * default blue scale is used.
+ * Resolves the low/high gradient endpoints independently. For each end: an
+ * explicit `minColor`/`maxColor` wins; otherwise the end is derived from the
+ * main `color` (low tint / high); otherwise it falls back to the default scale.
+ * So `color` + a single explicit endpoint keeps the `color`-derived other end.
  */
 function scaleEndpoints(rule: ColorScaleRule): { minColor: string; maxColor: string } {
-	if (rule.minColor || rule.maxColor) {
-		return {
-			minColor: rule.minColor ?? DEFAULT_SCALE_MIN_COLOR,
-			maxColor: rule.maxColor ?? DEFAULT_SCALE_MAX_COLOR,
-		};
-	}
+	const derived = rule.color ? parseColor(rule.color) : null;
+	return {
+		minColor: rule.minColor ?? (derived ? toRgbaString(derived, SCALE_MIN_ALPHA) : DEFAULT_SCALE_MIN_COLOR),
+		maxColor: rule.maxColor ?? (derived ? toRgbaString(derived, SCALE_MAX_ALPHA) : DEFAULT_SCALE_MAX_COLOR),
+	};
+}
 
-	if (rule.color) {
-		const rgba = parseColor(rule.color);
-		if (rgba) {
-			return {
-				minColor: `rgba(${rgba.r}, ${rgba.g}, ${rgba.b}, ${SCALE_MIN_ALPHA})`,
-				maxColor: `rgba(${rgba.r}, ${rgba.g}, ${rgba.b}, ${SCALE_MAX_ALPHA})`,
-			};
-		}
-	}
-
-	return { minColor: DEFAULT_SCALE_MIN_COLOR, maxColor: DEFAULT_SCALE_MAX_COLOR };
+function toRgbaString(rgba: Rgba, alpha: number): string {
+	return `rgba(${rgba.r}, ${rgba.g}, ${rgba.b}, ${alpha})`;
 }
 
 interface Rgba {
@@ -241,7 +233,51 @@ function parseColor(input: string): Rgba | null {
 		}
 	}
 
+	const hslMatch = value.match(/^hsla?\(([^)]+)\)$/i);
+	if (hslMatch) {
+		const parts = hslMatch[1].split(',').map((part) => Number.parseFloat(part.trim()));
+		const [h, s, l, a] = parts;
+		if (parts.length >= 3 && [h, s, l].every(Number.isFinite)) {
+			return { ...hslToRgb(h, s / 100, l / 100), a: Number.isFinite(a) ? a : 1 };
+		}
+	}
+
 	return null;
+}
+
+function hslToRgb(h: number, s: number, l: number): { r: number; g: number; b: number } {
+	const hue = (((h % 360) + 360) % 360) / 360;
+	if (s === 0) {
+		const value = Math.round(l * 255);
+		return { r: value, g: value, b: value };
+	}
+	const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+	const p = 2 * l - q;
+	return {
+		r: Math.round(hueToChannel(p, q, hue + 1 / 3) * 255),
+		g: Math.round(hueToChannel(p, q, hue) * 255),
+		b: Math.round(hueToChannel(p, q, hue - 1 / 3) * 255),
+	};
+}
+
+function hueToChannel(p: number, q: number, t: number): number {
+	let tt = t;
+	if (tt < 0) {
+		tt += 1;
+	}
+	if (tt > 1) {
+		tt -= 1;
+	}
+	if (tt < 1 / 6) {
+		return p + (q - p) * 6 * tt;
+	}
+	if (tt < 1 / 2) {
+		return q;
+	}
+	if (tt < 2 / 3) {
+		return p + (q - p) * (2 / 3 - tt) * 6;
+	}
+	return p;
 }
 
 function parseHexColor(value: string): Rgba | null {

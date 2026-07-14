@@ -93,6 +93,29 @@ describe('resolveCellBackground - color-scale from a main color', () => {
 		const rule: ColorScaleRule = { type: 'color-scale', color: 'not-a-color' };
 		expect(resolveCellBackground(rule, 100, range)).toBe(rgbaFrom(DEFAULT_SCALE_MAX_COLOR));
 	});
+
+	it('derives the low end from color when only maxColor is explicit', () => {
+		const rule: ColorScaleRule = { type: 'color-scale', color: '#ff0000', maxColor: '#00ff00' };
+		// Low end derived from the main color (not the default blue), high end explicit.
+		expect(resolveCellBackground(rule, 0, range)).toBe('rgba(255, 0, 0, 0.04)');
+		expect(resolveCellBackground(rule, 100, range)).toBe('rgba(0, 255, 0, 1)');
+	});
+
+	it('derives the high end from color when only minColor is explicit', () => {
+		const rule: ColorScaleRule = { type: 'color-scale', color: '#ff0000', minColor: '#0000ff' };
+		expect(resolveCellBackground(rule, 0, range)).toBe('rgba(0, 0, 255, 1)');
+		expect(resolveCellBackground(rule, 100, range)).toBe('rgba(255, 0, 0, 0.55)');
+	});
+
+	it('accepts an hsl main color', () => {
+		const rule: ColorScaleRule = { type: 'color-scale', color: 'hsl(0, 100%, 50%)' };
+		expect(resolveCellBackground(rule, 100, range)).toBe('rgba(255, 0, 0, 0.55)');
+	});
+
+	it('accepts an hsla main color', () => {
+		const rule: ColorScaleRule = { type: 'color-scale', color: 'hsla(120, 100%, 25%, 1)' };
+		expect(resolveCellBackground(rule, 100, range)).toBe('rgba(0, 128, 0, 0.55)');
+	});
 });
 
 describe('resolveCellBackground - threshold', () => {
@@ -209,6 +232,10 @@ describe('colorToHex', () => {
 
 	it('converts an rgb color to hex', () => {
 		expect(colorToHex('rgb(34, 197, 94)')).toBe('#22c55e');
+	});
+
+	it('converts an hsl color to hex', () => {
+		expect(colorToHex('hsl(0, 100%, 50%)')).toBe('#ff0000');
 	});
 
 	it('returns null for an unparseable color', () => {
