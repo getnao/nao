@@ -123,7 +123,6 @@ export const ExecuteSqlToolCall = ({
 						maxRowsBeforePagination={10}
 						compactFooter
 						conditionalFormats={conditionalFormats}
-						onConditionalFormatsChange={setConditionalFormats}
 					/>
 					<TableFormatEditDialog
 						open={isFormatOpen}

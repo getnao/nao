@@ -182,9 +182,6 @@ export const DisplayTableToolCall = ({
 				title={config.title}
 				chatId={chatId ?? undefined}
 				conditionalFormats={conditionalFormats}
-				onConditionalFormatsChange={
-					isEditable && !updateMutation.isPending ? (formats) => void persistFormats(formats) : undefined
-				}
 				headerActions={headerActions}
 			/>
 

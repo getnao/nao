@@ -19,8 +19,6 @@ interface DataTableCardProps {
 	maxRowsBeforePagination?: number;
 	chatId?: string;
 	conditionalFormats?: ColumnConditionalFormats;
-	/** When provided, formatting is controlled by the parent and each change is forwarded (e.g. to persist). */
-	onConditionalFormatsChange?: (formats: ColumnConditionalFormats) => void;
 	/** Extra toolbar controls rendered before the copy/download/fullscreen actions. */
 	headerActions?: ReactNode;
 }
@@ -33,15 +31,10 @@ export function DataTableCard({
 	tableContainerClassName,
 	maxRowsBeforePagination = 10,
 	chatId,
-	conditionalFormats: conditionalFormatsProp,
-	onConditionalFormatsChange,
+	conditionalFormats,
 	headerActions,
 }: DataTableCardProps) {
 	const [isFullscreen, setIsFullscreen] = useState(false);
-	const [internalFormats, setInternalFormats] = useState<ColumnConditionalFormats>(conditionalFormatsProp ?? {});
-	const isControlled = onConditionalFormatsChange !== undefined;
-	const conditionalFormats = isControlled ? (conditionalFormatsProp ?? {}) : internalFormats;
-	const handleConditionalFormatsChange = isControlled ? onConditionalFormatsChange : setInternalFormats;
 	const logDownload = useMutation(trpc.analyticsEvent.logChatDownload.mutationOptions());
 
 	const resolvedColumns = columns.length > 0 ? columns : inferColumns(data);
@@ -101,7 +94,6 @@ export function DataTableCard({
 				maxRowsBeforePagination={maxRowsBeforePagination}
 				compactFooter={true}
 				conditionalFormats={conditionalFormats}
-				onConditionalFormatsChange={handleConditionalFormatsChange}
 			/>
 
 			<Dialog open={isFullscreen} onOpenChange={setIsFullscreen}>
@@ -135,7 +127,6 @@ export function DataTableCard({
 						maxRowsBeforePagination={maxRowsBeforePagination}
 						compactFooter={true}
 						conditionalFormats={conditionalFormats}
-						onConditionalFormatsChange={handleConditionalFormatsChange}
 					/>
 				</DialogContent>
 			</Dialog>

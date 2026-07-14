@@ -2,8 +2,12 @@ import z from 'zod/v3';
 
 export const ColorScaleRuleSchema = z.object({
 	type: z.literal('color-scale'),
-	minColor: z.string().describe('CSS color for the lowest value (defaults to a light theme color).').optional(),
-	maxColor: z.string().describe('CSS color for the highest value (defaults to a saturated theme color).').optional(),
+	color: z
+		.string()
+		.describe('Main CSS color of the scale; the gradient runs from a light tint of it (low) to it (high).')
+		.optional(),
+	minColor: z.string().describe('CSS color for the lowest value (overrides the derived tint).').optional(),
+	maxColor: z.string().describe('CSS color for the highest value (overrides the derived color).').optional(),
 	min: z.number().describe('Explicit lower bound of the scale; defaults to the column minimum.').optional(),
 	max: z.number().describe('Explicit upper bound of the scale; defaults to the column maximum.').optional(),
 });

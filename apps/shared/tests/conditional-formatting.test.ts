@@ -64,6 +64,37 @@ describe('resolveCellBackground - color-scale', () => {
 	});
 });
 
+describe('resolveCellBackground - color-scale from a main color', () => {
+	const range = { min: 0, max: 100 };
+
+	it('derives a light-tint → color gradient from the main color', () => {
+		const rule: ColorScaleRule = { type: 'color-scale', color: '#ff0000' };
+		expect(resolveCellBackground(rule, 0, range)).toBe('rgba(255, 0, 0, 0.04)');
+		expect(resolveCellBackground(rule, 100, range)).toBe('rgba(255, 0, 0, 0.55)');
+		expect(resolveCellBackground(rule, 50, range)).toBe('rgba(255, 0, 0, 0.3)');
+	});
+
+	it('accepts an rgb main color', () => {
+		const rule: ColorScaleRule = { type: 'color-scale', color: 'rgb(0, 128, 0)' };
+		expect(resolveCellBackground(rule, 100, range)).toBe('rgba(0, 128, 0, 0.55)');
+	});
+
+	it('lets explicit min/max colors override the main color', () => {
+		const rule: ColorScaleRule = {
+			type: 'color-scale',
+			color: '#ff0000',
+			minColor: '#000000',
+			maxColor: '#ffffff',
+		};
+		expect(resolveCellBackground(rule, 50, range)).toBe('rgba(128, 128, 128, 1)');
+	});
+
+	it('falls back to the default scale when the main color is unparseable', () => {
+		const rule: ColorScaleRule = { type: 'color-scale', color: 'not-a-color' };
+		expect(resolveCellBackground(rule, 100, range)).toBe(rgbaFrom(DEFAULT_SCALE_MAX_COLOR));
+	});
+});
+
 describe('resolveCellBackground - threshold', () => {
 	const rule: ThresholdRule = { type: 'threshold', operator: '>=', value: 100, color: 'rgba(1, 2, 3, 0.5)' };
 
@@ -153,6 +184,13 @@ describe('sanitizeConditionalFormats', () => {
 	it('keeps a fully-specified valid color-scale rule', () => {
 		const valid = { type: 'color-scale', minColor: '#000', maxColor: '#fff', min: 0, max: 100 };
 		expect(sanitizeConditionalFormats({ ok: valid })).toEqual({ ok: valid });
+	});
+
+	it('keeps a color-scale rule with a main color and rejects a non-string one', () => {
+		expect(sanitizeConditionalFormats({ ok: { type: 'color-scale', color: '#ff0000' } })).toEqual({
+			ok: { type: 'color-scale', color: '#ff0000' },
+		});
+		expect(sanitizeConditionalFormats({ bad: { type: 'color-scale', color: 123 } })).toBeUndefined();
 	});
 });
 

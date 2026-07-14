@@ -27,6 +27,7 @@ const OPERATOR_OPTIONS: { value: ThresholdOperator; label: string }[] = [
 ];
 
 const DEFAULT_THRESHOLD_HEX = '#22c55e';
+const DEFAULT_SCALE_HEX = '#3b82f6';
 
 interface TableFormatEditDialogProps {
 	open: boolean;
@@ -151,9 +152,9 @@ function ColumnRuleRow({ column, rule, onChange }: ColumnRuleRowProps) {
 	};
 
 	return (
-		<div className='grid grid-cols-[1fr_auto] items-center gap-2'>
-			<span className='truncate text-sm font-medium text-foreground'>{column}</span>
-			<div className='flex items-center gap-2'>
+		<div className='flex flex-col gap-2 rounded-md border border-border/60 p-2'>
+			<div className='grid grid-cols-[1fr_auto] items-center gap-2'>
+				<span className='truncate text-sm font-medium text-foreground'>{column}</span>
 				<Select value={kind} onValueChange={(value) => handleKindChange(value as RuleKind)}>
 					<SelectTrigger className='w-36 bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
 						<SelectValue />
@@ -166,45 +167,74 @@ function ColumnRuleRow({ column, rule, onChange }: ColumnRuleRowProps) {
 						))}
 					</SelectContent>
 				</Select>
-
-				{rule?.type === 'threshold' && (
-					<>
-						<Select
-							value={rule.operator}
-							onValueChange={(operator) => onChange({ ...rule, operator: operator as ThresholdOperator })}
-						>
-							<SelectTrigger className='w-16 bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
-								<SelectValue />
-							</SelectTrigger>
-							<SelectContent className='bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
-								{OPERATOR_OPTIONS.map((option) => (
-									<SelectItem key={option.value} value={option.value}>
-										{option.label}
-									</SelectItem>
-								))}
-							</SelectContent>
-						</Select>
-						<Input
-							type='number'
-							value={Number.isFinite(rule.value) ? rule.value : 0}
-							onChange={(e) => onChange({ ...rule, value: Number(e.target.value) })}
-							className='h-8 w-24 bg-panel'
-							aria-label={`Threshold value for ${column}`}
-						/>
-						<input
-							type='color'
-							aria-label={`Threshold color for ${column}`}
-							value={toHexColor(rule.color)}
-							onChange={(e) => onChange({ ...rule, color: e.target.value })}
-							className='h-8 w-8 cursor-pointer overflow-hidden rounded-lg border-none bg-transparent p-0 [&::-moz-color-swatch]:rounded-lg [&::-moz-color-swatch]:border-none [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded-lg [&::-webkit-color-swatch]:border-none'
-						/>
-					</>
-				)}
 			</div>
+
+			{rule?.type === 'color-scale' && (
+				<div className='flex items-center gap-2 pl-0.5'>
+					<span className='text-xs text-muted-foreground'>Color</span>
+					<ColorSwatch
+						ariaLabel={`Color scale color for ${column}`}
+						value={toHexColor(rule.color, DEFAULT_SCALE_HEX)}
+						onChange={(color) => onChange({ ...rule, color })}
+					/>
+				</div>
+			)}
+
+			{rule?.type === 'threshold' && (
+				<div className='flex items-center gap-2 pl-0.5'>
+					<Select
+						value={rule.operator}
+						onValueChange={(operator) => onChange({ ...rule, operator: operator as ThresholdOperator })}
+					>
+						<SelectTrigger className='w-16 bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent className='bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
+							{OPERATOR_OPTIONS.map((option) => (
+								<SelectItem key={option.value} value={option.value}>
+									{option.label}
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
+					<Input
+						type='number'
+						value={Number.isFinite(rule.value) ? rule.value : 0}
+						onChange={(e) => onChange({ ...rule, value: Number(e.target.value) })}
+						className='h-8 w-24 bg-panel'
+						aria-label={`Threshold value for ${column}`}
+					/>
+					<ColorSwatch
+						ariaLabel={`Threshold color for ${column}`}
+						value={toHexColor(rule.color, DEFAULT_THRESHOLD_HEX)}
+						onChange={(color) => onChange({ ...rule, color })}
+					/>
+				</div>
+			)}
 		</div>
 	);
 }
 
-function toHexColor(color?: string): string {
-	return (color ? colorToHex(color) : null) ?? DEFAULT_THRESHOLD_HEX;
+function ColorSwatch({
+	ariaLabel,
+	value,
+	onChange,
+}: {
+	ariaLabel: string;
+	value: string;
+	onChange: (color: string) => void;
+}) {
+	return (
+		<input
+			type='color'
+			aria-label={ariaLabel}
+			value={value}
+			onChange={(e) => onChange(e.target.value)}
+			className='h-8 w-8 cursor-pointer overflow-hidden rounded-lg border-none bg-transparent p-0 [&::-moz-color-swatch]:rounded-lg [&::-moz-color-swatch]:border-none [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded-lg [&::-webkit-color-swatch]:border-none'
+		/>
+	);
+}
+
+function toHexColor(color: string | undefined, fallback: string): string {
+	return (color ? colorToHex(color) : null) ?? fallback;
 }

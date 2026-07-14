@@ -7,6 +7,12 @@
 
 export interface ColorScaleRule {
 	type: 'color-scale';
+	/**
+	 * Main/base color of the scale. The gradient runs from a light tint of this
+	 * color (low) to the color itself (high). Explicit `minColor`/`maxColor`
+	 * take precedence when set. Falls back to the default blue scale when absent.
+	 */
+	color?: string;
 	minColor?: string;
 	maxColor?: string;
 	/** Optional explicit domain; falls back to the column's own min/max. */
@@ -36,6 +42,10 @@ export const DEFAULT_SCALE_MIN_COLOR = 'rgba(59, 130, 246, 0.04)';
 export const DEFAULT_SCALE_MAX_COLOR = 'rgba(59, 130, 246, 0.55)';
 export const DEFAULT_THRESHOLD_COLOR = 'rgba(34, 197, 94, 0.32)';
 
+/** Alpha applied to the low/high ends when deriving a scale from a single main color. */
+const SCALE_MIN_ALPHA = 0.04;
+const SCALE_MAX_ALPHA = 0.55;
+
 const THRESHOLD_OPERATORS: readonly ThresholdOperator[] = ['>=', '>', '<=', '<', '='];
 
 export function isConditionalFormatRule(value: unknown): value is ConditionalFormatRule {
@@ -45,6 +55,7 @@ export function isConditionalFormatRule(value: unknown): value is ConditionalFor
 	const rule = value as Record<string, unknown>;
 	if (rule.type === 'color-scale') {
 		return (
+			isOptionalString(rule.color) &&
 			isOptionalString(rule.minColor) &&
 			isOptionalString(rule.maxColor) &&
 			isOptionalFiniteNumber(rule.min) &&
@@ -146,7 +157,34 @@ function resolveColorScale(rule: ColorScaleRule, value: number, range: ColumnRan
 	}
 
 	const ratio = max === min ? 1 : clamp01((value - min) / (max - min));
-	return interpolateColor(rule.minColor ?? DEFAULT_SCALE_MIN_COLOR, rule.maxColor ?? DEFAULT_SCALE_MAX_COLOR, ratio);
+	const { minColor, maxColor } = scaleEndpoints(rule);
+	return interpolateColor(minColor, maxColor, ratio);
+}
+
+/**
+ * Resolves the low/high gradient endpoints. Explicit `minColor`/`maxColor` win;
+ * otherwise a single `color` yields a light-tint → color gradient; otherwise the
+ * default blue scale is used.
+ */
+function scaleEndpoints(rule: ColorScaleRule): { minColor: string; maxColor: string } {
+	if (rule.minColor || rule.maxColor) {
+		return {
+			minColor: rule.minColor ?? DEFAULT_SCALE_MIN_COLOR,
+			maxColor: rule.maxColor ?? DEFAULT_SCALE_MAX_COLOR,
+		};
+	}
+
+	if (rule.color) {
+		const rgba = parseColor(rule.color);
+		if (rgba) {
+			return {
+				minColor: `rgba(${rgba.r}, ${rgba.g}, ${rgba.b}, ${SCALE_MIN_ALPHA})`,
+				maxColor: `rgba(${rgba.r}, ${rgba.g}, ${rgba.b}, ${SCALE_MAX_ALPHA})`,
+			};
+		}
+	}
+
+	return { minColor: DEFAULT_SCALE_MIN_COLOR, maxColor: DEFAULT_SCALE_MAX_COLOR };
 }
 
 interface Rgba {
