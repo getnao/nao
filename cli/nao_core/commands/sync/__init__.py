@@ -23,7 +23,19 @@ from .providers import (
 console = Console()
 
 
-def _ensure_database_drivers(active_providers: list[ProviderSelection], config: NaoConfig) -> None:
+def _filter_items_for_selection(selection: ProviderSelection, config: NaoConfig) -> list[Any]:
+    """Return the items a selection will sync, applying its connection filter.
+
+    Single source of truth for "which items are being synced" so dependency
+    detection and provider execution can never target different connections.
+    """
+    items = selection.provider.get_items(config)
+    if selection.connection_name:
+        items = [item for item in items if getattr(item, "name", None) == selection.connection_name]
+    return items
+
+
+def _ensure_database_drivers(planned_syncs: list[tuple[ProviderSelection, list[Any]]]) -> None:
     """Auto-install missing database driver extras before connecting, like `nao init`.
 
     Prompts interactively and installs without prompting in non-interactive
@@ -32,25 +44,17 @@ def _ensure_database_drivers(active_providers: list[ProviderSelection], config: 
     """
     from nao_core.deps import ensure_extras_installed, get_missing_extras_for_databases
 
-    databases = _collect_databases_to_sync(active_providers, config)
+    databases = [
+        item
+        for selection, items in planned_syncs
+        if isinstance(selection.provider, DatabaseSyncProvider)
+        for item in items
+    ]
     missing = get_missing_extras_for_databases(databases)
     if not missing:
         return
 
     ensure_extras_installed(missing, assume_yes=not sys.stdin.isatty())
-
-
-def _collect_databases_to_sync(active_providers: list[ProviderSelection], config: NaoConfig) -> list[Any]:
-    """Return the database configs that the active providers are about to sync."""
-    databases: list[Any] = []
-    for selection in active_providers:
-        if not isinstance(selection.provider, DatabaseSyncProvider):
-            continue
-        items = selection.provider.get_items(config)
-        if selection.connection_name:
-            items = [item for item in items if getattr(item, "name", None) == selection.connection_name]
-        databases.extend(items)
-    return databases
 
 
 @track_command("sync")
@@ -130,13 +134,17 @@ def sync(
     if select and not any(isinstance(s.provider, DatabaseSyncProvider) for s in active_providers):
         console.print("[yellow]Warning:[/yellow] --select only applies to the databases provider; ignoring it here.")
 
-    _ensure_database_drivers(active_providers, config)
+    # Resolve the items each selection will sync once, then reuse for both
+    # driver-extra detection and provider execution.
+    planned_syncs = [(selection, _filter_items_for_selection(selection, config)) for selection in active_providers]
+
+    _ensure_database_drivers(planned_syncs)
 
     output_dirs = output_dirs or {}
 
     # Run each provider
     results: list[SyncResult] = []
-    for selection in active_providers:
+    for selection, items in planned_syncs:
         sync_provider = selection.provider
         connection_filter = selection.connection_name
 
@@ -150,15 +158,11 @@ def sync(
             if not sync_provider.should_sync(config):
                 continue
 
-            # Get items and filter by connection name if specified
-            items = sync_provider.get_items(config)
-            if connection_filter:
-                items = [item for item in items if getattr(item, "name", None) == connection_filter]
-                if not items:
-                    console.print(
-                        f"[yellow]Warning:[/yellow] No connection named '{connection_filter}' found for {sync_provider.name}"
-                    )
-                    continue
+            if connection_filter and not items:
+                console.print(
+                    f"[yellow]Warning:[/yellow] No connection named '{connection_filter}' found for {sync_provider.name}"
+                )
+                continue
 
             sync_kwargs: dict[str, Any] = {"project_path": project_path, "threads": resolved_threads}
             if isinstance(sync_provider, DatabaseSyncProvider):
