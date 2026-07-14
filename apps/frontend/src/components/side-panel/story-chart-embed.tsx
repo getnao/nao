@@ -121,7 +121,9 @@ export function StoryChartEmbedShell({ chart, availableColumns, children }: Stor
 			{(canEdit || (chart.chartType != 'kpi_card' && chart.title)) && (
 				<div className='flex w-full items-center justify-between gap-2'>
 					{chart.chartType != 'kpi_card' && chart.title ? (
-						<span className='text-sm font-medium text-foreground flex-1'>{chart.title}</span>
+						<span className='text-sm font-medium text-foreground flex-1 min-w-0 truncate'>
+							{chart.title}
+						</span>
 					) : (
 						<div className='flex-1' />
 					)}
@@ -131,7 +133,7 @@ export function StoryChartEmbedShell({ chart, availableColumns, children }: Stor
 							size='icon-xs'
 							onClick={() => setIsEditOpen(true)}
 							title='Edit chart'
-							className='hover:bg-accent hover:rounded-full'
+							className='shrink-0 hover:bg-accent hover:rounded-full'
 						>
 							<Pencil className='size-3.5' />
 						</Button>
