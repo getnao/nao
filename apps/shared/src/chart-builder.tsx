@@ -57,9 +57,11 @@ export function formatCompactNumber(value: number): string {
 
 /**
  * Formats a Y axis tick so it stays short enough for the narrow axis band
- * ({@link Y_AXIS_WIDTH}px). Abbreviates by absolute value while preserving the
- * sign (`-1234` → `-1.2K`, `-1_500_000` → `-1.5M`) and caps fractional values
- * to two decimals so they never render un-abbreviated and wide.
+ * ({@link Y_AXIS_WIDTH}px) without losing meaningful precision. Abbreviates by
+ * absolute value while preserving the sign (`1020` → `1.02K`, `-1_500_000` →
+ * `-1.5M`) with a 2-decimal mantissa so near-boundary ticks stay distinct.
+ * Sub-integer magnitudes keep two significant digits (`0.004` → `0.004`) rather
+ * than rounding to `0`.
  */
 export function formatYAxisTick(value: number): string {
 	const abs = Math.abs(value);
@@ -73,11 +75,14 @@ export function formatYAxisTick(value: number): string {
 	if (abs >= 1_000) {
 		return `${sign}${abbreviate(abs, 1_000)}K`;
 	}
-	return String(Number.isInteger(value) ? value : Number(value.toFixed(2)));
+	if (Number.isInteger(value)) {
+		return String(value);
+	}
+	return String(Number(abs < 1 ? value.toPrecision(2) : value.toFixed(2)));
 }
 
 function abbreviate(abs: number, unit: number): string {
-	return (abs / unit).toFixed(1).replace(/\.0$/, '');
+	return String(Number((abs / unit).toFixed(2)));
 }
 
 export function defaultColorFor(_key: string, index: number): string {
