@@ -55,8 +55,29 @@ export function formatCompactNumber(value: number): string {
 	return value.toLocaleString();
 }
 
+/**
+ * Formats a Y axis tick so it stays short enough for the narrow axis band
+ * ({@link Y_AXIS_WIDTH}px). Abbreviates by absolute value while preserving the
+ * sign (`-1234` → `-1.2K`, `-1_500_000` → `-1.5M`) and caps fractional values
+ * to two decimals so they never render un-abbreviated and wide.
+ */
 export function formatYAxisTick(value: number): string {
-	return formatCompactNumber(value);
+	const abs = Math.abs(value);
+	const sign = value < 0 ? '-' : '';
+	if (abs >= 1_000_000_000) {
+		return `${sign}${abbreviate(abs, 1_000_000_000)}B`;
+	}
+	if (abs >= 1_000_000) {
+		return `${sign}${abbreviate(abs, 1_000_000)}M`;
+	}
+	if (abs >= 1_000) {
+		return `${sign}${abbreviate(abs, 1_000)}K`;
+	}
+	return String(Number.isInteger(value) ? value : Number(value.toFixed(2)));
+}
+
+function abbreviate(abs: number, unit: number): string {
+	return (abs / unit).toFixed(1).replace(/\.0$/, '');
 }
 
 export function defaultColorFor(_key: string, index: number): string {
