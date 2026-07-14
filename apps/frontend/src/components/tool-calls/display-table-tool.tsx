@@ -183,6 +183,7 @@ export const DisplayTableToolCall = ({
 				chatId={chatId ?? undefined}
 				conditionalFormats={conditionalFormats}
 				headerActions={headerActions}
+				className='-mx-3'
 			/>
 
 			{isEditable && (
