@@ -102,7 +102,7 @@ class BaseSyncIntegrationTests:
             table_dir = base / f"table={table}"
             assert table_dir.is_dir()
             files = sorted(f.name for f in table_dir.iterdir())
-            expected_files = ["columns.md", "how_to_use.md", "preview.md", "profiling.md"]
+            expected_files = ["annotations.md", "columns.md", "how_to_use.md", "preview.md", "profiling.md"]
             assert files == sorted(expected_files)
 
         # "another" schema was NOT synced (only when provider has one)
@@ -360,7 +360,7 @@ class BaseSyncIntegrationTests:
         assert (primary_base / f"table={spec.users_table}").is_dir()
         assert (primary_base / f"table={spec.orders_table}").is_dir()
 
-        expected_files = ["columns.md", "how_to_use.md", "preview.md", "profiling.md"]
+        expected_files = ["annotations.md", "columns.md", "how_to_use.md", "preview.md", "profiling.md"]
 
         for table in (spec.users_table, spec.orders_table):
             files = sorted(f.name for f in (primary_base / f"table={table}").iterdir())

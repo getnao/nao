@@ -28,6 +28,7 @@ from nao_core.commands.sync.cleanup import (
     cleanup_stale_paths,
     get_database_folder_names,
 )
+from nao_core.commands.sync.markers import ensure_annotations_file, with_generated_marker
 from nao_core.commands.sync.providers.databases.query_history import TableUsageStats, compute_table_usage
 from nao_core.config import AnyDatabaseConfig, NaoConfig
 from nao_core.config.databases.base import DatabaseConfig, DatabaseTemplate, ProfilingRefreshPolicy
@@ -287,6 +288,7 @@ def sync_database(
             for table in tables:
                 table_path = schema_path / f"table={table}"
                 table_path.mkdir(parents=True, exist_ok=True)
+                ensure_annotations_file(table_path)
 
                 progress.update(
                     table_task,
@@ -342,7 +344,7 @@ def sync_database(
                         content = f"# {table}\n\nError generating content: {e}"
 
                     output_file = table_path / output_filename
-                    output_file.write_text(content)
+                    output_file.write_text(with_generated_marker(content))
 
                 state.add_table(schema, table)
                 progress.update(table_task, advance=1)
@@ -371,7 +373,7 @@ def sync_database(
                     if sv.get("definition"):
                         content_parts.append("## Definition\n")
                         content_parts.append(f"```sql\n{sv['definition']}\n```\n")
-                    (sv_path / "definition.md").write_text("\n".join(content_parts))
+                    (sv_path / "definition.md").write_text(with_generated_marker("\n".join(content_parts)))
                     state.add_table(schema, sv["name"])
                 console.print(f"  [green]✓ {schema}[/green] [dim]— {len(semantic_views)} semantic views synced[/dim]")
 
