@@ -7,6 +7,7 @@ import { mcpService } from '../../services/mcp';
 import { AgentSettings } from '../../types/agent-settings';
 import clarification from './clarification';
 import displayChart from './display-chart';
+import displayMap from './display-map';
 import executePython from './execute-python';
 import executeSandboxedCode from './execute-sandboxed-code';
 import executeSql from './execute-sql';
@@ -19,10 +20,19 @@ import search from './search';
 import story from './story';
 import suggestFollowUps from './suggest-follow-ups';
 
+/**
+ * Tools whose output only the web chat can render — excluded from automations, MCP sub-agent and
+ * WhatsApp runs. Slack, Teams and Telegram keep them and degrade to an "open in nao" link card.
+ * TODO: WhatsApp has no block UI for a link card yet — post a plain-text chat link instead of
+ * excluding the tool.
+ */
+export const WEB_CHAT_ONLY_TOOLS = ['display_map'];
+
 export const tools = {
 	story,
 	clarification,
 	display_chart: displayChart,
+	display_map: displayMap,
 	...(executePython && { execute_python: executePython }),
 	...(executeSandboxedCode && { execute_sandboxed_code: executeSandboxedCode }),
 	execute_sql: executeSql,
@@ -49,6 +59,12 @@ export const getTools = (
 		 * only discover context, not query the warehouse or render charts.
 		 */
 		builtinToolAllowlist?: string[];
+		/**
+		 * Drops these built-in tools from the returned set. Used by runs whose
+		 * surface cannot render a tool's output (e.g. `display_map` outside the
+		 * web chat: automations, MCP sub-agent, WhatsApp).
+		 */
+		excludeBuiltinTools?: string[];
 	} = {},
 ) => {
 	const configuredServers = new Set(mcpService.getConfiguredServerNames());
@@ -79,10 +95,18 @@ export const getTools = (
 		...extraTools,
 	};
 
+	let result = allTools;
 	if (options.builtinToolAllowlist) {
 		const allowed = new Set([...options.builtinToolAllowlist, ...Object.keys(extraTools ?? {})]);
-		return Object.fromEntries(Object.entries(allTools).filter(([name]) => allowed.has(name))) as typeof allTools;
+		result = Object.fromEntries(Object.entries(result).filter(([name]) => allowed.has(name))) as typeof allTools;
+	}
+	if (options.excludeBuiltinTools) {
+		const excluded = new Set(options.excludeBuiltinTools);
+		const extraToolNames = new Set(Object.keys(extraTools ?? {}));
+		result = Object.fromEntries(
+			Object.entries(result).filter(([name]) => !excluded.has(name) || extraToolNames.has(name)),
+		) as typeof allTools;
 	}
 
-	return allTools;
+	return result;
 };

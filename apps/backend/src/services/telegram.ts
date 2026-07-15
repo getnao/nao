@@ -19,6 +19,7 @@ import {
 	createPlainTextBlock,
 	createSummaryToolCalls,
 	createTelegramCompletionCard,
+	createTelegramMapLinkCard,
 	createTelegramStopButtonCard,
 	EXCLUDED_TOOLS,
 	formatMessagingError,
@@ -288,7 +289,7 @@ class TelegramService {
 		ctx: ConversationContext,
 	): Promise<StreamState & { lastMessage: UIMessage | null }> {
 		const state: StreamState = {
-			renderedChartIds: new Set(),
+			renderedToolCallIds: new Set(),
 			sqlOutputs: new Map(),
 			lastUpdateAt: Date.now(),
 			toolGroup: new Map(),
@@ -316,6 +317,8 @@ class TelegramService {
 				this._handleSqlPart(part, state);
 			} else if (part.type === 'tool-display_chart') {
 				await this._handleChartPart(part, state, ctx);
+			} else if (part.type === 'tool-display_map') {
+				await this._handleMapPart(part, state, ctx);
 			}
 			lastMessage = uiMessage;
 		}
@@ -367,7 +370,7 @@ class TelegramService {
 		state: StreamState,
 		ctx: ConversationContext,
 	): Promise<void> {
-		if (part.state !== 'output-available' || state.renderedChartIds.has(part.toolCallId)) {
+		if (part.state !== 'output-available' || state.renderedToolCallIds.has(part.toolCallId)) {
 			return;
 		}
 		if (part.input.chart_type === 'table') {
@@ -384,7 +387,7 @@ class TelegramService {
 				data: sqlOutput.rows,
 				dateFormat: displaySettings.dateFormat,
 			});
-			state.renderedChartIds.add(part.toolCallId);
+			state.renderedToolCallIds.add(part.toolCallId);
 			ctx.textBlockIndex = -1;
 
 			await ctx.thread.post({
@@ -397,6 +400,27 @@ class TelegramService {
 			}
 		} catch (error) {
 			console.error('Error generating chart image:', error);
+		}
+	}
+
+	private async _handleMapPart(
+		part: Extract<UIMessagePart, { type: 'tool-display_map' }>,
+		state: StreamState,
+		ctx: ConversationContext,
+	): Promise<void> {
+		if (
+			part.state !== 'output-available' ||
+			!part.output.success ||
+			state.renderedToolCallIds.has(part.toolCallId)
+		) {
+			return;
+		}
+		state.renderedToolCallIds.add(part.toolCallId);
+		const chatUrl = new URL(ctx.chatId, this._redirectUrl).toString();
+		ctx.textBlockIndex = -1;
+		ctx.blocks.push(...createTelegramMapLinkCard(part.input.title, chatUrl));
+		if (ctx.convMessage) {
+			await this._safeEdit(ctx.convMessage, Card({ children: ctx.blocks }));
 		}
 	}
 

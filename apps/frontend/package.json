@@ -55,6 +55,7 @@
 		"jszip": "^3.10.1",
 		"katex": "^0.16.45",
 		"lucide-react": "^0.562.0",
+		"maplibre-gl": "^5.24.0",
 		"posthog-js": "^1.336.4",
 		"prompt-mentions": "^0.0.37",
 		"proxy-from-env": "^1.1.0",

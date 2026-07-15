@@ -1,4 +1,4 @@
-import { buildChart, bucketPieData, buildStoryChartBlock, labelize } from '@nao/shared';
+import { buildChart, bucketPieData, buildStoryChartBlock, labelize, resolveDataKey } from '@nao/shared';
 import { appendBlockToStoryCode } from '@nao/shared/story-tabs';
 import { displayChart } from '@nao/shared/tools';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -28,7 +28,6 @@ import { SqlResultDisplay } from './sql-result-display';
 import { ToolCallWrapper } from './tool-call-wrapper';
 import type { ToolCallComponentProps } from '.';
 import type { ChartConfig } from '../ui/chart';
-import type { executeSql } from '@nao/shared/tools';
 import type { UIMessage } from '@nao/backend/chat';
 import type { DateRange } from '@/lib/charts.utils';
 import type { DataExportFormat } from '@/components/export-data-menu';
@@ -37,7 +36,6 @@ import { findStoryIds } from '@/lib/story.utils';
 import {
 	DATE_RANGE_OPTIONS,
 	filterByDateRange,
-	resolveDataKey,
 	resolvePieTooltipLabel,
 	sortByDateKey,
 	toKey,
@@ -49,8 +47,8 @@ import { useSidePanel } from '@/contexts/side-panel';
 import { useToolCallContext } from '@/contexts/tool-call';
 import { StoryViewer } from '@/components/side-panel/story-viewer';
 import { cn } from '@/lib/utils';
-import { findLatestExecuteSqlInMessages } from '@/lib/execute-sql-messages';
 import { ExportDataMenu } from '@/components/export-data-menu';
+import { useSourceQuery } from '@/hooks/use-source-query';
 
 const Colors = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)', 'var(--chart-5)'];
 const EMPTY_MESSAGES: UIMessage[] = [];
@@ -104,14 +102,7 @@ export const DisplayChartToolCall = ({
 	const [isEditOpen, setIsEditOpen] = useState(false);
 	const isEditable = Boolean(agent && !agent.isReadonly && !agent.isRunning);
 
-	const sourceQuery = useMemo<{ input?: executeSql.Input; output: executeSql.Output } | null>(() => {
-		if (!chartConfig?.query_id) {
-			return null;
-		}
-		return findLatestExecuteSqlInMessages(messages, chartConfig.query_id);
-	}, [messages, chartConfig?.query_id]);
-
-	const sourceData = sourceQuery?.output ?? null;
+	const { sourceQuery, sourceData } = useSourceQuery(chartConfig?.query_id);
 	const sqlQuery = sourceQuery?.input?.sql_query;
 
 	const handleDownloadPng = async () => {

@@ -6,6 +6,7 @@ import type { LlmSelectedModel } from '@nao/shared/types';
 import { InferUIMessageChunk, readUIMessageStream } from 'ai';
 import { Attachment, Chat, Message, Thread } from 'chat';
 
+import { WEB_CHAT_ONLY_TOOLS } from '../agents/tools';
 import { generateChartImage } from '../components/generate-chart';
 import { env } from '../env';
 import * as chartImageQueries from '../queries/chart-image';
@@ -21,7 +22,7 @@ import { createChatTitle } from '../utils/ai';
 import { buildImageUrl } from '../utils/image';
 import { logger } from '../utils/logger';
 import { EXCLUDED_TOOLS, formatMessagingError } from '../utils/messaging-provider';
-import { agentService } from './agent';
+import { agentService, defaultAgentToolsExcluding } from './agent';
 import { posthog, PostHogEvent } from './posthog';
 import * as transcribeService from './transcribe.service';
 
@@ -463,6 +464,7 @@ class WhatsappService {
 		const agent = await agentService.create(
 			{ ...chat, userId: ctx.user!.id, projectId: this._projectId },
 			this._modelSelection,
+			{ tools: defaultAgentToolsExcluding(WEB_CHAT_ONLY_TOOLS) },
 		);
 		ctx.modelId = agent.getModelId();
 		return agent.stream(chat.messages, { provider: 'whatsapp', timezone: ctx.timezone, chatUrl });
@@ -473,7 +475,7 @@ class WhatsappService {
 		ctx: ConversationContext,
 	): Promise<{ finalText: string; chartUrls: string[] }> {
 		const state: StreamState = {
-			renderedChartIds: new Set(),
+			renderedToolCallIds: new Set(),
 			sqlOutputs: new Map(),
 			lastUpdateAt: Date.now(),
 			toolGroup: new Map(),
@@ -515,7 +517,7 @@ class WhatsappService {
 		state: StreamState,
 		ctx: ConversationContext,
 	): Promise<string | null> {
-		if (part.state !== 'output-available' || state.renderedChartIds.has(part.toolCallId)) {
+		if (part.state !== 'output-available' || state.renderedToolCallIds.has(part.toolCallId)) {
 			return null;
 		}
 		if (part.input.chart_type === 'table') {
@@ -533,7 +535,7 @@ class WhatsappService {
 				dateFormat: displaySettings.dateFormat,
 			});
 			const chartId = await chartImageQueries.saveChart(part.toolCallId, png.toString('base64'));
-			state.renderedChartIds.add(part.toolCallId);
+			state.renderedToolCallIds.add(part.toolCallId);
 			return new URL(`c/${ctx.chatId}/${chartId}.png`, this._redirectUrl).toString();
 		} catch (error) {
 			logger.error(`Chart image generation failed: ${String(error)}`, {

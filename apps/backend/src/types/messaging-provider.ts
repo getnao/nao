@@ -28,7 +28,7 @@ export type ToolCallEntry = {
 };
 
 export type StreamState = {
-	renderedChartIds: Set<string>;
+	renderedToolCallIds: Set<string>;
 	sqlOutputs: Map<string, SqlOutput>;
 	lastUpdateAt: number;
 	toolGroup: Map<string, ToolCallEntry>;

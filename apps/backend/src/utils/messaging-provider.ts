@@ -6,7 +6,12 @@ import { Actions, Button, Card, CardText, Image, LinkButton, Table } from 'chat'
 import { ToolCallEntry } from '../types/messaging-provider';
 import { BudgetExceededError } from './error';
 
-export const EXCLUDED_TOOLS = ['tool-suggest_follow_ups', 'tool-display_chart', 'tool-clarification'];
+export const EXCLUDED_TOOLS = [
+	'tool-suggest_follow_ups',
+	'tool-display_chart',
+	'tool-display_map',
+	'tool-clarification',
+];
 
 export const createLiveToolCall = (toolGroup: Map<string, ToolCallEntry>): CardChild => {
 	const parts = [...countToolsByNoun(toolGroup).entries()].map(
@@ -138,6 +143,17 @@ export function formatSlackMessageText(text: string): string {
 export const createImageBlock = (url: string): CardChild => {
 	return Image({ url, alt: 'image' });
 };
+
+/** Interactive maps cannot be rendered by messaging providers, so they degrade to a link to the nao chat. */
+export const createMapLinkCard = (title: string, chatUrl: string): CardChild[] => [
+	CardText(`🗺️ **${title}**`),
+	Actions([LinkButton({ url: chatUrl, label: 'View interactive map in nao' })]),
+];
+
+export const createTelegramMapLinkCard = (title: string, chatUrl: string): CardChild[] => [
+	createPlainTextBlock(`🗺️ ${title}`),
+	Actions([LinkButton({ url: chatUrl, label: 'View interactive map in nao' })]),
+];
 
 export const createPlainTextBlock = (text: string): CardChild => {
 	return CardText(stripMarkdown(text));

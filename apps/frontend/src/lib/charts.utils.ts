@@ -1,3 +1,4 @@
+import { resolveDataKey } from '@nao/shared';
 import { getToolName, isToolUIPart } from './ai';
 import { hashValue } from './hash';
 import type { UIMessage } from '@nao/backend/chat';
@@ -99,20 +100,6 @@ export const toKey = (value: string) => {
 export function resolvePieTooltipLabel(payload?: readonly { name?: unknown }[]): string {
 	const name = payload?.[0]?.name;
 	return name == null ? '' : String(name);
-}
-
-/** Resolves a config key to the matching key in the data, ignoring case. Falls back to the original key. */
-export function resolveDataKey(data: Record<string, unknown>[], key: string | undefined): string {
-	if (key === undefined) {
-		return '';
-	}
-	const row = data[0];
-	if (!row || key in row) {
-		return key;
-	}
-	const lower = key.toLowerCase();
-	const match = Object.keys(row).find((dataKey) => dataKey.toLowerCase() === lower);
-	return match ?? key;
 }
 
 /**

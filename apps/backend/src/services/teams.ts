@@ -23,6 +23,7 @@ import {
 	createCompletionCard,
 	createImageBlock,
 	createLiveToolCall,
+	createMapLinkCard,
 	createStopButtonCard,
 	createSummaryToolCalls,
 	createTextBlock,
@@ -291,7 +292,7 @@ class TeamsService {
 		ctx: ConversationContext,
 	): Promise<StreamState & { lastMessage: UIMessage | null }> {
 		const state: StreamState = {
-			renderedChartIds: new Set(),
+			renderedToolCallIds: new Set(),
 			sqlOutputs: new Map(),
 			lastUpdateAt: Date.now(),
 			toolGroup: new Map(),
@@ -319,6 +320,8 @@ class TeamsService {
 				this._handleSqlPart(part, state);
 			} else if (part.type === 'tool-display_chart') {
 				await this._handleChartPart(part, state, ctx);
+			} else if (part.type === 'tool-display_map') {
+				await this._handleMapPart(part, state, ctx);
 			}
 			lastMessage = uiMessage;
 		}
@@ -354,7 +357,7 @@ class TeamsService {
 		state: StreamState,
 		ctx: ConversationContext,
 	): Promise<void> {
-		if (part.state !== 'output-available' || state.renderedChartIds.has(part.toolCallId)) {
+		if (part.state !== 'output-available' || state.renderedToolCallIds.has(part.toolCallId)) {
 			return;
 		}
 		if (part.input.chart_type === 'table') {
@@ -371,7 +374,7 @@ class TeamsService {
 				data: sqlOutput.rows,
 				dateFormat: displaySettings.dateFormat,
 			});
-			state.renderedChartIds.add(part.toolCallId);
+			state.renderedToolCallIds.add(part.toolCallId);
 
 			const chartId = await chartImageQueries.saveChart(part.toolCallId, png.toString('base64'));
 			const imageUrl = new URL(`c/${ctx.chatId}/${chartId}.png`, this._redirectUrl).toString();
@@ -380,6 +383,32 @@ class TeamsService {
 			await ctx.convMessage?.edit(Card({ children: ctx.blocks }));
 		} catch (error) {
 			logger.error(`Chart image generation failed: ${String(error)}`, {
+				source: 'system',
+				context: { chatId: ctx.chatId, toolCallId: part.toolCallId },
+			});
+		}
+	}
+
+	private async _handleMapPart(
+		part: Extract<UIMessagePart, { type: 'tool-display_map' }>,
+		state: StreamState,
+		ctx: ConversationContext,
+	): Promise<void> {
+		if (
+			part.state !== 'output-available' ||
+			!part.output.success ||
+			state.renderedToolCallIds.has(part.toolCallId)
+		) {
+			return;
+		}
+		state.renderedToolCallIds.add(part.toolCallId);
+		try {
+			const chatUrl = new URL(ctx.chatId, this._redirectUrl).toString();
+			ctx.textBlockIndex = -1;
+			ctx.blocks.push(...createMapLinkCard(part.input.title, chatUrl));
+			await ctx.convMessage?.edit(Card({ children: ctx.blocks }));
+		} catch (error) {
+			logger.error(`Map link card failed: ${String(error)}`, {
 				source: 'system',
 				context: { chatId: ctx.chatId, toolCallId: part.toolCallId },
 			});

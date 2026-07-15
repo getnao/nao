@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { alignChartDataToBaselineX, resolveDataKey, resolvePieTooltipLabel } from './charts.utils';
+import { resolveDataKey } from '@nao/shared';
+import { alignChartDataToBaselineX, resolvePieTooltipLabel } from './charts.utils';
 
 describe('resolveDataKey', () => {
 	it('returns an empty string when the key is undefined (kpi cards have no x-axis)', () => {
