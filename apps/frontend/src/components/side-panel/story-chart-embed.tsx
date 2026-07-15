@@ -17,6 +17,7 @@ interface ChartBlock {
 	xAxisType: string | null;
 	series: Array<{ data_key: string; color: string; label?: string; is_total?: boolean }>;
 	title: string;
+	showDataLabels?: boolean;
 	rawTag?: string;
 }
 
@@ -79,6 +80,7 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({ chart }: { chart:
 				xAxisType={xAxisType}
 				series={chart.series}
 				title={chart.title}
+				showDataLabels={chart.showDataLabels}
 			/>
 		</StoryChartEmbedShell>
 	);
@@ -112,6 +114,7 @@ export function StoryChartEmbedShell({ chart, availableColumns, children }: Stor
 				is_total: s.is_total,
 			})),
 			title: chart.title,
+			show_data_labels: chart.showDataLabels,
 		}),
 		[chart],
 	);

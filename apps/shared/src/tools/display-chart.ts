@@ -42,6 +42,12 @@ export const InputSchema = z.object({
 		.describe(
 			'A concise and descriptive title of what the chart shows. Do not include the type of chart in the title or other chart configurations.',
 		),
+	show_data_labels: z
+		.boolean()
+		.describe(
+			'Show the numeric value of each data point directly on the chart. Set to true when the user asks to display values/data labels on the chart.',
+		)
+		.optional(),
 });
 
 export const OutputSchema = z.object({

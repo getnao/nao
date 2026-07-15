@@ -6,6 +6,7 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import { Switch } from '../ui/switch';
 import type { UIMessage, UIToolPart } from '@nao/backend/chat';
 import { useAgentContext } from '@/contexts/agent.provider';
 import { trpc } from '@/main';
@@ -242,6 +243,20 @@ export function ChartConfigEditDialog({
 									</Button>
 								</div>
 							))}
+						</div>
+					</div>
+
+					<div className='grid gap-2'>
+						<span className='text-sm font-semibold text-foreground'>Options</span>
+						<div className='flex h-8 items-center justify-between'>
+							<label htmlFor='show-data-labels' className='text-sm text-foreground'>
+								Show data labels
+							</label>
+							<Switch
+								id='show-data-labels'
+								checked={Boolean(draft.show_data_labels)}
+								onCheckedChange={(v) => setDraft((prev) => ({ ...prev, show_data_labels: v }))}
+							/>
 						</div>
 					</div>
 

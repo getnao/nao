@@ -330,6 +330,7 @@ function toChartConfig(chart: ParsedChartBlock) {
 		x_axis_type: chart.xAxisType as displayChart.XAxisType | null,
 		series: chart.series,
 		title: chart.title,
+		show_data_labels: chart.showDataLabels,
 	};
 }
 

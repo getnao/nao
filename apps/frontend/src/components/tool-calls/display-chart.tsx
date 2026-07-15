@@ -278,6 +278,7 @@ export const DisplayChartToolCall = ({
 				series={config.series}
 				xAxisType={config.x_axis_type === 'number' ? 'number' : 'category'}
 				title={config.title}
+				showDataLabels={config.show_data_labels}
 			/>
 		</div>
 	);
@@ -292,6 +293,7 @@ export interface ChartDisplayProps {
 	series: displayChart.SeriesConfig[];
 	title?: string;
 	showGrid?: boolean;
+	showDataLabels?: boolean;
 }
 
 export const ChartDisplay = memo(function ChartDisplay({
@@ -303,6 +305,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 	series: seriesProp,
 	title,
 	showGrid = true,
+	showDataLabels,
 }: ChartDisplayProps) {
 	const dateFormat = useDateFormat();
 
@@ -378,6 +381,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 				colorFor,
 				labelFormatter,
 				showGrid,
+				showDataLabels,
 				margin: { top: 0, right: 0, bottom: 0, left: 0 },
 				children: [
 					<ChartTooltip
@@ -406,6 +410,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 			colorFor,
 			labelFormatter,
 			showGrid,
+			showDataLabels,
 			legendPayload,
 			handleToggleSeriesVisibility,
 			title,
