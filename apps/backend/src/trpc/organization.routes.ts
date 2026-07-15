@@ -5,6 +5,7 @@ import { z } from 'zod/v4';
 import { env, isCloud } from '../env';
 import * as accountQueries from '../queries/account.queries';
 import * as orgQueries from '../queries/organization.queries';
+import * as projectQueries from '../queries/project.queries';
 import * as userQueries from '../queries/user.queries';
 import { emailService } from '../services/email';
 import { addTeamMember } from '../services/team-member';
@@ -39,6 +40,40 @@ export const organizationRoutes = {
 	getProjects: orgAdminProcedure.query(async ({ ctx }) => {
 		return orgQueries.listOrgProjectsWithAccess(ctx.org.id, ctx.user.id);
 	}),
+
+	getDefaultProject: orgAdminProcedure.query(async ({ ctx }) => {
+		if (!ctx.org.defaultProjectId) {
+			return null;
+		}
+		return projectQueries.getProjectById(ctx.org.defaultProjectId);
+	}),
+
+	setDefaultProject: orgAdminOnlyProcedure
+		.input(z.object({ projectId: z.string().nullable() }))
+		.mutation(async ({ input, ctx }) => {
+			if (!isCloud && env.NAO_DEFAULT_PROJECT_PATH) {
+				throw new TRPCError({
+					code: 'BAD_REQUEST',
+					message:
+						'Default project is managed via the NAO_DEFAULT_PROJECT_PATH environment variable in self-hosted mode.',
+				});
+			}
+
+			if (input.projectId) {
+				const project = await projectQueries.getProjectById(input.projectId);
+				if (!project || project.orgId !== ctx.org.id) {
+					throw new TRPCError({
+						code: 'BAD_REQUEST',
+						message: 'Project not found or does not belong to this organization.',
+					});
+				}
+			}
+			await orgQueries.setOrgDefaultProject(ctx.org.id, input.projectId);
+			if (input.projectId) {
+				await orgQueries.ensureAllOrgMembersInDefaultProject(ctx.org.id);
+			}
+			return { projectId: input.projectId };
+		}),
 
 	getMembers: orgAdminProcedure.query(async ({ ctx }) => {
 		return orgQueries.listOrgMembersWithUsers(ctx.org.id);
@@ -84,7 +119,7 @@ export const organizationRoutes = {
 			await orgQueries.updateOrgMemberRole(ctx.org.id, input.userId, input.role);
 		}),
 
-	addMember: orgAdminOnlyProcedure
+		addMember: orgAdminOnlyProcedure
 		.input(z.object({ email: z.string().min(1), name: z.string().min(1).optional() }))
 		.mutation(async ({ input, ctx }) => {
 			const orgId = ctx.org.id;
@@ -95,6 +130,7 @@ export const organizationRoutes = {
 				checkExisting: async (userId) => !!(await orgQueries.getOrgMember(orgId, userId)),
 				addMember: async (userId) => {
 					await orgQueries.addOrgMember({ orgId, userId, role: env.DEFAULT_USER_ROLE });
+					await orgQueries.ensureUserInDefaultProject(orgId, userId);
 				},
 				buildEmail: (user, password) => buildUserAddedEmail(user, ctx.org.name, 'organization', password),
 			});

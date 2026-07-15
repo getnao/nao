@@ -1,0 +1,1 @@
+ALTER TABLE `organization` ADD `default_project_id` text;

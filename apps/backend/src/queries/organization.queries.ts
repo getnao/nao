@@ -1,7 +1,7 @@
 import type { UserRole } from '@nao/shared/types';
 import { and, asc, count, eq, isNotNull, isNull, sql } from 'drizzle-orm';
 
-import s, { DBOrganization, DBOrgMember, NewOrganization, NewOrgMember } from '../db/abstractSchema';
+import s, { DBOrganization, DBOrgMember, DBProject, NewOrganization, NewOrgMember } from '../db/abstractSchema';
 import { db } from '../db/db';
 import { env } from '../env';
 import { OrgRole } from '../types/organization';
@@ -231,24 +231,25 @@ export const initializeDefaultOrganizationForFirstUser = async (userId: string):
 					.execute();
 
 				await tx.insert(s.projectMember).values({ projectId: project.id, userId, role: 'admin' }).execute();
+
+				await tx
+					.update(s.organization)
+					.set({ defaultProjectId: project.id })
+					.where(eq(s.organization.id, org.id))
+					.execute();
 			}
 		}
 	});
 };
 
 /**
- * Add a user to the default organization and project if they don't already exist.
+ * Add a user to the default organization and its default project.
  * Called when a new user signs up.
  * Idempotent: safe to call multiple times for the same user.
  */
 export const addUserToDefaultProjectIfExists = async (userId: string): Promise<void> => {
 	const org = await getFirstOrganization();
 	if (!org) {
-		return;
-	}
-
-	const project = await projectQueries.getDefaultProject();
-	if (!project) {
 		return;
 	}
 
@@ -262,11 +263,13 @@ export const addUserToDefaultProjectIfExists = async (userId: string): Promise<v
 			await tx.insert(s.orgMember).values({ orgId: org.id, userId, role }).execute();
 		}
 
-		const existingProjectMember = await tx.query.projectMember.findFirst({
-			where: and(eq(s.projectMember.projectId, project.id), eq(s.projectMember.userId, userId)),
-		});
-		if (!existingProjectMember) {
-			await tx.insert(s.projectMember).values({ projectId: project.id, userId, role }).execute();
+		if (org.defaultProjectId) {
+			const existingProjectMember = await tx.query.projectMember.findFirst({
+				where: and(eq(s.projectMember.projectId, org.defaultProjectId), eq(s.projectMember.userId, userId)),
+			});
+			if (!existingProjectMember) {
+				await tx.insert(s.projectMember).values({ projectId: org.defaultProjectId, userId, role }).execute();
+			}
 		}
 	});
 };
@@ -395,6 +398,45 @@ export const updateOrgMemberRole = async (orgId: string, userId: string, role: O
 		.execute();
 };
 
+export const setOrgDefaultProject = async (orgId: string, projectId: string | null): Promise<void> => {
+	await db.update(s.organization).set({ defaultProjectId: projectId }).where(eq(s.organization.id, orgId)).execute();
+};
+
+export const ensureUserInDefaultProject = async (orgId: string, userId: string): Promise<void> => {
+	const org = await getOrganizationById(orgId);
+	if (!org?.defaultProjectId) {
+		return;
+	}
+
+	const existingMember = await projectQueries.getProjectMember(org.defaultProjectId, userId);
+	if (!existingMember) {
+		await projectQueries.addProjectMember({
+			projectId: org.defaultProjectId,
+			userId,
+			role: env.DEFAULT_USER_ROLE,
+		});
+	}
+};
+
+export const ensureAllOrgMembersInDefaultProject = async (orgId: string): Promise<void> => {
+	const org = await getOrganizationById(orgId);
+	if (!org?.defaultProjectId) {
+		return;
+	}
+
+	const members = await db.select().from(s.orgMember).where(eq(s.orgMember.orgId, orgId)).execute();
+	for (const member of members) {
+		const existingMember = await projectQueries.getProjectMember(org.defaultProjectId, member.userId);
+		if (!existingMember) {
+			await projectQueries.addProjectMember({
+				projectId: org.defaultProjectId,
+				userId: member.userId,
+				role: member.role,
+			});
+		}
+	}
+};
+
 export const removeOrgMember = async (orgId: string, userId: string): Promise<void> => {
 	await db
 		.delete(s.orgMember)
@@ -420,7 +462,8 @@ export const countOrgAdmins = async (orgId: string): Promise<number> => {
 };
 
 /**
- * Ensures a project exists for the current NAO_DEFAULT_PROJECT_PATH.
+ * Ensures a project exists for the current NAO_DEFAULT_PROJECT_PATH
+ * and sets it as the org's default project with all members enrolled.
  * When users change the project path and restart, the DB may not have a record for the new path.
  */
 const ensureDefaultProject = async (org: DBOrganization): Promise<void> => {
@@ -430,25 +473,32 @@ const ensureDefaultProject = async (org: DBOrganization): Promise<void> => {
 	}
 
 	const existing = await projectQueries.getProjectByPath(projectPath);
-	if (existing) {
-		return;
+	let project: DBProject | null = existing;
+
+	if (!existing) {
+		const projectName = projectPath.split('/').pop() || 'Default Project';
+		project = await projectQueries.createProject({
+			name: projectName,
+			type: 'local',
+			path: projectPath,
+			orgId: org.id,
+		});
+
+		// Add all org members to the new project
+		const orgMembers = await db.select().from(s.orgMember).where(eq(s.orgMember.orgId, org.id)).execute();
+		for (const member of orgMembers) {
+			await projectQueries.addProjectMember({
+				projectId: project.id,
+				userId: member.userId,
+				role: member.role,
+			});
+		}
 	}
 
-	const projectName = projectPath.split('/').pop() || 'Default Project';
-	const project = await projectQueries.createProject({
-		name: projectName,
-		type: 'local',
-		path: projectPath,
-		orgId: org.id,
-	});
-
-	// Add all org members to the new project
-	const orgMembers = await db.select().from(s.orgMember).where(eq(s.orgMember.orgId, org.id)).execute();
-	for (const member of orgMembers) {
-		await projectQueries.addProjectMember({
-			projectId: project.id,
-			userId: member.userId,
-			role: member.role,
-		});
+	// Set as org's default project (idempotent — safe even if already set)
+	if (project) {
+		await setOrgDefaultProject(org.id, project.id);
+		// Backfill: ensure all existing org members have access
+		await ensureAllOrgMembersInDefaultProject(org.id);
 	}
 };

@@ -24,13 +24,11 @@ import { hasFeature, LICENSE_FEATURES } from './services/license.service';
 import {
 	augmentSocialProvidersWithMicrosoft,
 	getTrustedProvidersForMicrosoft,
-	isSocialProviderMicrosoft,
 } from './services/microsoft-auth.service';
 import {
 	augmentPluginsWithOidc,
 	getOidcProviderId,
 	getTrustedProvidersForOidc,
-	isSocialProviderOidc,
 } from './services/oidc-auth.service';
 import { buildForgotPasswordEmail } from './utils/email-builders';
 import { logger, serializeError } from './utils/logger';
@@ -256,11 +254,6 @@ async function createAuthInstance(baseURL: string) {
 					},
 					async after(user, ctx) {
 						const providerId = resolveProviderId(ctx);
-						const isSocial =
-							providerId === 'google' ||
-							providerId === 'github' ||
-							providerId === 'gitlab' ||
-							(ssoEnabled && (isSocialProviderMicrosoft(providerId) || isSocialProviderOidc(providerId)));
 
 						try {
 							if (isCloud) {
@@ -279,9 +272,7 @@ async function createAuthInstance(baseURL: string) {
 								}
 							} else {
 								await orgQueries.initializeDefaultOrganizationForFirstUser(user.id);
-								if (isSocial) {
-									await orgQueries.addUserToDefaultProjectIfExists(user.id);
-								}
+								await orgQueries.addUserToDefaultProjectIfExists(user.id);
 							}
 							await refreshAuthAfterInitialSelfHostedSignup();
 						} catch (err) {

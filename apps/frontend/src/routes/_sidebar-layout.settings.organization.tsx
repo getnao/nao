@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, useCallback } from 'react';
-import { Github, Plus } from 'lucide-react';
+import { Check, Github, Plus } from 'lucide-react';
 import { ORG_MEMBER_ROLES, USER_ROLE_LABELS } from '@nao/shared/types';
 import type { UserRole } from '@nao/shared/types';
 
@@ -41,6 +41,7 @@ function OrganizationPage() {
 	const systemConfig = useQuery(trpc.system.getPublicConfig.queryOptions());
 	const { isOrgAdmin } = usePermissions();
 	const isCloud = systemConfig.data?.naoMode === 'cloud';
+	const hasDefaultProjectPath = systemConfig.data?.hasDefaultProjectPath === true;
 
 	const githubAvailable = useQuery(trpc.github.isAvailable.queryOptions());
 	const githubStatus = useQuery({
@@ -61,6 +62,10 @@ function OrganizationPage() {
 	const [removeMember, setRemoveMember] = useState<TeamMember | null>(null);
 	const [resetPasswordMember, setResetPasswordMember] = useState<TeamMember | null>(null);
 	const [credentials, setCredentials] = useState<{ email: string; password: string } | null>(null);
+	const [defaultProjectDialogOpen, setDefaultProjectDialogOpen] = useState(false);
+
+	const defaultProjectQuery = useQuery(trpc.organization.getDefaultProject.queryOptions());
+	const setDefaultProject = useMutation(trpc.organization.setDefaultProject.mutationOptions());
 
 	const invalidateMembers = useCallback(() => {
 		queryClient.invalidateQueries({ queryKey: trpc.organization.getMembers.queryKey() });
@@ -227,6 +232,28 @@ function OrganizationPage() {
 						</div>
 					)}
 				</SettingsCard>
+				<SettingsCard
+					title='Default Project'
+					action={
+						isOrgAdmin && (isCloud || !hasDefaultProjectPath) ? (
+							<Button variant='secondary' size='sm' onClick={() => setDefaultProjectDialogOpen(true)}>
+								Change
+							</Button>
+						) : undefined
+					}
+				>
+					{!isCloud && hasDefaultProjectPath ? (
+						<div className='text-sm text-muted-foreground'>
+							Managed via the NAO_DEFAULT_PROJECT_PATH environment variable.
+						</div>
+					) : defaultProjectQuery.isLoading ? (
+						<div className='text-sm text-muted-foreground'>Loading...</div>
+					) : defaultProjectQuery.data ? (
+						<div className='text-sm'>{defaultProjectQuery.data.name}</div>
+					) : (
+						<div className='text-sm text-muted-foreground'>No default project set.</div>
+					)}
+				</SettingsCard>
 				{isCloud && <OrgSignInDomains isAdmin={isOrgAdmin} />}
 				<OrgApiKeys isAdmin={isOrgAdmin} />
 			</div>
@@ -280,6 +307,47 @@ function OrganizationPage() {
 
 			<GitHubRepoPicker open={repoPickerOpen} onOpenChange={setRepoPickerOpen} />
 			<GitLabRepoPicker open={gitlabPickerOpen} onOpenChange={setGitlabPickerOpen} />
+
+			<Dialog open={defaultProjectDialogOpen} onOpenChange={setDefaultProjectDialogOpen}>
+				<DialogContent>
+					<DialogHeader>
+						<DialogTitle>Default Project</DialogTitle>
+					</DialogHeader>
+					<div className='flex flex-col gap-1'>
+						{projectsQuery.data?.map((project) => (
+							<button
+								key={project.id}
+								className='flex w-full items-center justify-between rounded-md px-3 py-2 text-sm hover:bg-accent'
+								onClick={async () => {
+									await setDefaultProject.mutateAsync({ projectId: project.id });
+									queryClient.invalidateQueries({ queryKey: trpc.organization.getDefaultProject.queryKey() });
+									setDefaultProjectDialogOpen(false);
+								}}
+							>
+								<span>{project.name}</span>
+								{defaultProjectQuery.data?.id === project.id && <Check className='size-4 text-primary' />}
+							</button>
+						))}
+						{defaultProjectQuery.data && (
+							<>
+								<hr className='my-1' />
+								<button
+									className='flex w-full items-center rounded-md px-3 py-2 text-sm text-muted-foreground hover:bg-accent'
+									onClick={async () => {
+										await setDefaultProject.mutateAsync({ projectId: null });
+										queryClient.invalidateQueries({
+											queryKey: trpc.organization.getDefaultProject.queryKey(),
+										});
+										setDefaultProjectDialogOpen(false);
+									}}
+								>
+									Clear default project
+								</button>
+							</>
+						)}
+					</div>
+				</DialogContent>
+			</Dialog>
 		</SettingsPageWrapper>
 	);
 }
