@@ -188,8 +188,8 @@ def test_query_history_template_variant():
     assert not [warning for warning in caught if issubclass(warning.category, FutureWarning)]
 
 
-def test_legacy_how_to_use_maps_to_query_history():
-    """The legacy how_to_use template maps to query_history with a warning."""
+def test_legacy_description_removed_and_how_to_use_maps_to_query_history():
+    """Legacy templates are migrated with warnings."""
     from nao_core.config.databases.base import DatabaseTemplate
 
     with warnings.catch_warnings(record=True) as caught:
@@ -199,16 +199,16 @@ def test_legacy_how_to_use_maps_to_query_history():
                 "type": "duckdb",
                 "name": "test-db",
                 "path": ":memory:",
-                "templates": ["columns", "how_to_use"],
+                "templates": ["columns", "description", "how_to_use"],
             }
         )
 
-    assert DatabaseTemplate.QUERY_HISTORY in db.templates
-    assert all(template.value != "how_to_use" for template in db.templates)
+    assert db.templates == [DatabaseTemplate.COLUMNS, DatabaseTemplate.QUERY_HISTORY]
     deprecation_warnings = [warning for warning in caught if issubclass(warning.category, FutureWarning)]
-    assert len(deprecation_warnings) == 1
-    assert "how_to_use" in str(deprecation_warnings[0].message)
-    assert "query_history" in str(deprecation_warnings[0].message)
+    assert len(deprecation_warnings) == 2
+    warning_messages = [str(warning.message) for warning in deprecation_warnings]
+    assert any("description" in message and "columns.md" in message for message in warning_messages)
+    assert any("how_to_use" in message and "query_history" in message for message in warning_messages)
 
 
 def test_default_templates_exclude_profiling():

@@ -143,6 +143,14 @@ class DatabaseConfig(BaseModel, ABC):
             data["templates"] = data.pop("accessors")
         if isinstance(data, dict) and "templates" in data:
             templates = data["templates"]
+            if "description" in templates:
+                warnings.warn(
+                    "The 'description' database template is deprecated and will be removed in a future version. "
+                    "The table description now lives in 'columns.md'. Please remove 'description' from "
+                    "'templates' in your nao.yaml.",
+                    FutureWarning,
+                    stacklevel=2,
+                )
             if "how_to_use" in templates:
                 warnings.warn(
                     "The 'how_to_use' database template is deprecated and will be removed in a future version. "
@@ -150,7 +158,11 @@ class DatabaseConfig(BaseModel, ABC):
                     FutureWarning,
                     stacklevel=2,
                 )
-            migrated_templates = ["query_history" if template == "how_to_use" else template for template in templates]
+            migrated_templates = [
+                "query_history" if template == "how_to_use" else template
+                for template in templates
+                if template != "description"
+            ]
             data["templates"] = list(dict.fromkeys(migrated_templates))
         return data
 

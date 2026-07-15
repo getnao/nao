@@ -11,14 +11,15 @@
         - db.description() -> str or None
 #}
 {% set columns = db.columns() %}
+{% set description = db.description() %}
 # {{ table_name }}
 
 **Dataset:** `{{ dataset }}`
 
 ## Description
 
-{% if db.description() %}
-{{ db.description() }}
+{% if description %}
+{{ description }}
 {% else %}
 _No description available._
 {% endif %}
