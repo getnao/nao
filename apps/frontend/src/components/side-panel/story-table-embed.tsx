@@ -1,5 +1,4 @@
 import { sanitizeConditionalFormats } from '@nao/shared/conditional-formatting';
-import { isNumericColumn } from '@nao/shared/story-table-utils';
 import { Pencil } from 'lucide-react';
 import { memo, useMemo, useState } from 'react';
 import type { UIMessage } from '@nao/backend/chat';
@@ -74,7 +73,6 @@ export function StoryTableEditControls({
 }) {
 	const edit = useStoryTableEdit();
 	const [isEditOpen, setIsEditOpen] = useState(false);
-	const numericColumns = useMemo(() => columns.filter((column) => isNumericColumn(data, column)), [columns, data]);
 
 	const rawTag = table.rawTag;
 	if (!edit || !rawTag) {
@@ -97,7 +95,8 @@ export function StoryTableEditControls({
 			<TableFormatEditDialog
 				open={isEditOpen}
 				onOpenChange={setIsEditOpen}
-				columns={numericColumns}
+				columns={columns}
+				data={data}
 				formats={formats}
 				onSave={(next) =>
 					edit.saveTable(rawTag, {

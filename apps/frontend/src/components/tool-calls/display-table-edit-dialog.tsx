@@ -1,5 +1,6 @@
 import { colorToHex, DEFAULT_THRESHOLD_COLOR } from '@nao/shared/conditional-formatting';
-import { useEffect, useState } from 'react';
+import { getFormattableColumnType } from '@nao/shared/story-table-utils';
+import { useEffect, useMemo, useState } from 'react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
@@ -7,16 +8,26 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import type {
 	ColumnConditionalFormats,
 	ConditionalFormatRule,
+	StringOperator,
+	StringRule,
 	ThresholdOperator,
 } from '@nao/shared/conditional-formatting';
+import type { FormattableColumnType } from '@nao/shared/story-table-utils';
 
-type RuleKind = 'none' | 'color-scale' | 'threshold';
+type RuleKind = 'none' | 'color-scale' | 'threshold' | 'boolean' | 'string';
 
-const RULE_KIND_OPTIONS: { value: RuleKind; label: string }[] = [
-	{ value: 'none', label: 'None' },
-	{ value: 'color-scale', label: 'Color scale' },
-	{ value: 'threshold', label: 'Threshold' },
-];
+const RULE_KIND_LABELS: Record<Exclude<RuleKind, 'none'>, string> = {
+	'color-scale': 'Color scale',
+	threshold: 'Threshold',
+	boolean: 'Boolean',
+	string: 'String',
+};
+
+const RULE_KINDS_BY_TYPE: Record<FormattableColumnType, Exclude<RuleKind, 'none'>[]> = {
+	numeric: ['color-scale', 'threshold'],
+	boolean: ['boolean'],
+	string: ['string'],
+};
 
 const OPERATOR_OPTIONS: { value: ThresholdOperator; label: string }[] = [
 	{ value: '>=', label: '≥' },
@@ -26,13 +37,24 @@ const OPERATOR_OPTIONS: { value: ThresholdOperator; label: string }[] = [
 	{ value: '=', label: '=' },
 ];
 
+const STRING_OPERATOR_OPTIONS: { value: StringOperator; label: string }[] = [
+	{ value: 'equals', label: 'equals' },
+	{ value: 'in', label: 'in list' },
+	{ value: 'like', label: 'contains' },
+];
+
 const DEFAULT_THRESHOLD_HEX = '#22c55e';
 const DEFAULT_SCALE_HEX = '#3b82f6';
+const DEFAULT_TRUE_COLOR = 'rgba(34, 197, 94, 0.32)';
+const DEFAULT_FALSE_COLOR = 'rgba(239, 68, 68, 0.32)';
+const DEFAULT_TRUE_HEX = '#22c55e';
+const DEFAULT_FALSE_HEX = '#ef4444';
 
 interface TableFormatEditDialogProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	columns: string[];
+	data: Record<string, unknown>[];
 	formats: ColumnConditionalFormats;
 	onSave: (next: ColumnConditionalFormats) => Promise<void>;
 	isSaving?: boolean;
@@ -44,6 +66,7 @@ export function TableFormatEditDialog({
 	open,
 	onOpenChange,
 	columns,
+	data,
 	formats,
 	onSave,
 	isSaving = false,
@@ -51,6 +74,14 @@ export function TableFormatEditDialog({
 }: TableFormatEditDialogProps) {
 	const [draft, setDraft] = useState<ColumnConditionalFormats>(formats);
 	const [error, setError] = useState<string | null>(null);
+
+	const formattableColumns = useMemo(
+		() =>
+			columns
+				.map((column) => ({ column, type: getFormattableColumnType(data, column) }))
+				.filter((entry): entry is { column: string; type: FormattableColumnType } => entry.type !== null),
+		[columns, data],
+	);
 
 	useEffect(() => {
 		if (open) {
@@ -92,13 +123,14 @@ export function TableFormatEditDialog({
 				</DialogHeader>
 
 				<form onSubmit={handleSubmit} className='flex flex-col gap-3'>
-					{columns.length === 0 ? (
+					{formattableColumns.length === 0 ? (
 						<p className='text-sm text-muted-foreground'>No columns available to format.</p>
 					) : (
-						columns.map((column) => (
+						formattableColumns.map(({ column, type }) => (
 							<ColumnRuleRow
 								key={column}
 								column={column}
+								columnType={type}
 								rule={draft[column]}
 								onChange={(rule) => setColumnRule(column, rule)}
 							/>
@@ -134,21 +166,17 @@ export function TableFormatEditDialog({
 
 interface ColumnRuleRowProps {
 	column: string;
+	columnType: FormattableColumnType;
 	rule: ConditionalFormatRule | undefined;
 	onChange: (rule: ConditionalFormatRule | undefined) => void;
 }
 
-function ColumnRuleRow({ column, rule, onChange }: ColumnRuleRowProps) {
+function ColumnRuleRow({ column, columnType, rule, onChange }: ColumnRuleRowProps) {
 	const kind: RuleKind = rule?.type ?? 'none';
+	const availableKinds = RULE_KINDS_BY_TYPE[columnType];
 
 	const handleKindChange = (value: RuleKind) => {
-		if (value === 'none') {
-			onChange(undefined);
-		} else if (value === 'color-scale') {
-			onChange({ type: 'color-scale' });
-		} else {
-			onChange({ type: 'threshold', operator: '>=', value: 0, color: DEFAULT_THRESHOLD_COLOR });
-		}
+		onChange(defaultRuleForKind(value));
 	};
 
 	return (
@@ -160,9 +188,10 @@ function ColumnRuleRow({ column, rule, onChange }: ColumnRuleRowProps) {
 						<SelectValue />
 					</SelectTrigger>
 					<SelectContent className='bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
-						{RULE_KIND_OPTIONS.map((option) => (
-							<SelectItem key={option.value} value={option.value}>
-								{option.label}
+						<SelectItem value='none'>None</SelectItem>
+						{availableKinds.map((option) => (
+							<SelectItem key={option} value={option}>
+								{RULE_KIND_LABELS[option]}
 							</SelectItem>
 						))}
 					</SelectContent>
@@ -211,8 +240,99 @@ function ColumnRuleRow({ column, rule, onChange }: ColumnRuleRowProps) {
 					/>
 				</div>
 			)}
+
+			{rule?.type === 'boolean' && (
+				<div className='flex items-center gap-4 pl-0.5'>
+					<label className='flex items-center gap-2 text-xs text-muted-foreground'>
+						True
+						<ColorSwatch
+							ariaLabel={`True color for ${column}`}
+							value={toHexColor(rule.trueColor, DEFAULT_TRUE_HEX)}
+							onChange={(color) => onChange({ ...rule, trueColor: color })}
+						/>
+					</label>
+					<label className='flex items-center gap-2 text-xs text-muted-foreground'>
+						False
+						<ColorSwatch
+							ariaLabel={`False color for ${column}`}
+							value={toHexColor(rule.falseColor, DEFAULT_FALSE_HEX)}
+							onChange={(color) => onChange({ ...rule, falseColor: color })}
+						/>
+					</label>
+				</div>
+			)}
+
+			{rule?.type === 'string' && (
+				<div className='flex items-center gap-2 pl-0.5'>
+					<Select
+						value={rule.operator}
+						onValueChange={(operator) => onChange(withStringOperator(rule, operator as StringOperator))}
+					>
+						<SelectTrigger className='w-28 bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent className='bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
+							{STRING_OPERATOR_OPTIONS.map((option) => (
+								<SelectItem key={option.value} value={option.value}>
+									{option.label}
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
+					<Input
+						value={stringValueToText(rule.value)}
+						onChange={(e) => onChange({ ...rule, value: textToStringValue(rule.operator, e.target.value) })}
+						placeholder={rule.operator === 'in' ? 'value1, value2' : 'value'}
+						className='h-8 flex-1 bg-panel'
+						aria-label={`Match value for ${column}`}
+					/>
+					<ColorSwatch
+						ariaLabel={`String color for ${column}`}
+						value={toHexColor(rule.color, DEFAULT_THRESHOLD_HEX)}
+						onChange={(color) => onChange({ ...rule, color })}
+					/>
+				</div>
+			)}
 		</div>
 	);
+}
+
+function defaultRuleForKind(kind: RuleKind): ConditionalFormatRule | undefined {
+	switch (kind) {
+		case 'none':
+			return undefined;
+		case 'color-scale':
+			return { type: 'color-scale' };
+		case 'threshold':
+			return { type: 'threshold', operator: '>=', value: 0, color: DEFAULT_THRESHOLD_COLOR };
+		case 'boolean':
+			return { type: 'boolean', trueColor: DEFAULT_TRUE_COLOR, falseColor: DEFAULT_FALSE_COLOR };
+		case 'string':
+			return { type: 'string', operator: 'equals', value: '', color: DEFAULT_THRESHOLD_COLOR };
+	}
+}
+
+function withStringOperator(rule: StringRule, operator: StringOperator): StringRule {
+	if (operator === 'in') {
+		const value = Array.isArray(rule.value) ? rule.value : textToStringValue('in', String(rule.value ?? ''));
+		return { ...rule, operator, value };
+	}
+	const value = Array.isArray(rule.value) ? rule.value.join(', ') : rule.value;
+	return { ...rule, operator, value };
+}
+
+function stringValueToText(value: string | string[]): string {
+	return Array.isArray(value) ? value.join(', ') : value;
+}
+
+function textToStringValue(operator: StringOperator, text: string): string | string[] {
+	if (operator !== 'in') {
+		return text;
+	}
+	return text
+		.split(',')
+		.map((entry) => entry.trim())
+		.filter((entry) => entry.length > 0);
 }
 
 function ColorSwatch({

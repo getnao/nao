@@ -29,7 +29,25 @@ export interface ThresholdRule {
 	color: string;
 }
 
-export type ConditionalFormatRule = ColorScaleRule | ThresholdRule;
+export interface BooleanRule {
+	type: 'boolean';
+	/** Background for truthy cells; unset means no background for true. */
+	trueColor?: string;
+	/** Background for falsy cells; unset means no background for false. */
+	falseColor?: string;
+}
+
+export type StringOperator = 'equals' | 'in' | 'like';
+
+export interface StringRule {
+	type: 'string';
+	operator: StringOperator;
+	/** A single value for `equals`/`like`, or a list of values for `in`. */
+	value: string | string[];
+	color: string;
+}
+
+export type ConditionalFormatRule = ColorScaleRule | ThresholdRule | BooleanRule | StringRule;
 
 export type ColumnConditionalFormats = Record<string, ConditionalFormatRule>;
 
@@ -99,6 +117,7 @@ const NAMED_COLORS: Record<string, string> = {
 };
 
 const THRESHOLD_OPERATORS: readonly ThresholdOperator[] = ['>=', '>', '<=', '<', '='];
+const STRING_OPERATORS: readonly StringOperator[] = ['equals', 'in', 'like'];
 
 export function isConditionalFormatRule(value: unknown): value is ConditionalFormatRule {
 	if (!value || typeof value !== 'object') {
@@ -121,6 +140,17 @@ export function isConditionalFormatRule(value: unknown): value is ConditionalFor
 			Number.isFinite(rule.value) &&
 			typeof rule.color === 'string'
 		);
+	}
+	if (rule.type === 'boolean') {
+		return isOptionalString(rule.trueColor) && isOptionalString(rule.falseColor);
+	}
+	if (rule.type === 'string') {
+		if (!STRING_OPERATORS.includes(rule.operator as StringOperator) || typeof rule.color !== 'string') {
+			return false;
+		}
+		return rule.operator === 'in'
+			? Array.isArray(rule.value) && rule.value.every((entry) => typeof entry === 'string')
+			: typeof rule.value === 'string';
 	}
 	return false;
 }
@@ -175,15 +205,72 @@ export function resolveCellBackground(
 	value: unknown,
 	range: ColumnRange | null,
 ): string | undefined {
-	if (typeof value !== 'number' || !Number.isFinite(value)) {
+	switch (rule.type) {
+		case 'color-scale':
+			return isFiniteNumber(value) ? resolveColorScale(rule, value, range) : undefined;
+		case 'threshold':
+			return isFiniteNumber(value) && matchesThreshold(rule, value) ? rule.color : undefined;
+		case 'boolean':
+			return resolveBoolean(rule, value);
+		case 'string':
+			return resolveString(rule, value);
+	}
+}
+
+function isFiniteNumber(value: unknown): value is number {
+	return typeof value === 'number' && Number.isFinite(value);
+}
+
+function resolveBoolean(rule: BooleanRule, value: unknown): string | undefined {
+	const asBoolean = coerceBoolean(value);
+	if (asBoolean === undefined) {
 		return undefined;
 	}
+	return asBoolean ? rule.trueColor : rule.falseColor;
+}
 
-	if (rule.type === 'threshold') {
-		return matchesThreshold(rule, value) ? rule.color : undefined;
+/** Normalizes real booleans plus their common string/number representations. */
+function coerceBoolean(value: unknown): boolean | undefined {
+	if (typeof value === 'boolean') {
+		return value;
 	}
+	if (typeof value === 'number') {
+		if (value === 1) {
+			return true;
+		}
+		if (value === 0) {
+			return false;
+		}
+		return undefined;
+	}
+	if (typeof value === 'string') {
+		const normalized = value.trim().toLowerCase();
+		if (normalized === 'true' || normalized === 't' || normalized === 'yes' || normalized === '1') {
+			return true;
+		}
+		if (normalized === 'false' || normalized === 'f' || normalized === 'no' || normalized === '0') {
+			return false;
+		}
+	}
+	return undefined;
+}
 
-	return resolveColorScale(rule, value, range);
+function resolveString(rule: StringRule, value: unknown): string | undefined {
+	if (value === null || value === undefined) {
+		return undefined;
+	}
+	return matchesString(rule, String(value)) ? rule.color : undefined;
+}
+
+function matchesString(rule: StringRule, cell: string): boolean {
+	switch (rule.operator) {
+		case 'equals':
+			return typeof rule.value === 'string' && cell === rule.value;
+		case 'in':
+			return Array.isArray(rule.value) && rule.value.includes(cell);
+		case 'like':
+			return typeof rule.value === 'string' && cell.toLowerCase().includes(rule.value.toLowerCase());
+	}
 }
 
 function matchesThreshold(rule: ThresholdRule, value: number): boolean {

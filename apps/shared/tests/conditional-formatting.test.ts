@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+	type BooleanRule,
 	type ColorScaleRule,
 	colorToHex,
 	computeColumnRange,
@@ -8,6 +9,7 @@ import {
 	DEFAULT_SCALE_MIN_COLOR,
 	resolveCellBackground,
 	sanitizeConditionalFormats,
+	type StringRule,
 	type ThresholdRule,
 } from '../src/conditional-formatting';
 
@@ -170,6 +172,66 @@ describe('resolveCellBackground - threshold', () => {
 	});
 });
 
+describe('resolveCellBackground - boolean', () => {
+	const rule: BooleanRule = { type: 'boolean', trueColor: 'green', falseColor: 'red' };
+
+	it('applies the true/false colors for real booleans', () => {
+		expect(resolveCellBackground(rule, true, null)).toBe('green');
+		expect(resolveCellBackground(rule, false, null)).toBe('red');
+	});
+
+	it('returns undefined when the matching color is unset', () => {
+		expect(resolveCellBackground({ type: 'boolean', trueColor: 'green' }, false, null)).toBeUndefined();
+		expect(resolveCellBackground({ type: 'boolean', falseColor: 'red' }, true, null)).toBeUndefined();
+	});
+
+	it('coerces common string/number boolean representations', () => {
+		expect(resolveCellBackground(rule, 'true', null)).toBe('green');
+		expect(resolveCellBackground(rule, 'FALSE', null)).toBe('red');
+		expect(resolveCellBackground(rule, 1, null)).toBe('green');
+		expect(resolveCellBackground(rule, 0, null)).toBe('red');
+	});
+
+	it('returns undefined for non-boolean-like values', () => {
+		expect(resolveCellBackground(rule, 'maybe', null)).toBeUndefined();
+		expect(resolveCellBackground(rule, 5, null)).toBeUndefined();
+		expect(resolveCellBackground(rule, null, null)).toBeUndefined();
+	});
+});
+
+describe('resolveCellBackground - string', () => {
+	it('matches with the equals operator', () => {
+		const rule: StringRule = { type: 'string', operator: 'equals', value: 'Active', color: 'green' };
+		expect(resolveCellBackground(rule, 'Active', null)).toBe('green');
+		expect(resolveCellBackground(rule, 'active', null)).toBeUndefined();
+		expect(resolveCellBackground(rule, 'Inactive', null)).toBeUndefined();
+	});
+
+	it('matches with the in operator', () => {
+		const rule: StringRule = { type: 'string', operator: 'in', value: ['A', 'B'], color: 'green' };
+		expect(resolveCellBackground(rule, 'A', null)).toBe('green');
+		expect(resolveCellBackground(rule, 'B', null)).toBe('green');
+		expect(resolveCellBackground(rule, 'C', null)).toBeUndefined();
+	});
+
+	it('matches with the like operator (case-insensitive contains)', () => {
+		const rule: StringRule = { type: 'string', operator: 'like', value: 'err', color: 'red' };
+		expect(resolveCellBackground(rule, 'Server Error', null)).toBe('red');
+		expect(resolveCellBackground(rule, 'ok', null)).toBeUndefined();
+	});
+
+	it('stringifies non-string cell values before matching', () => {
+		const rule: StringRule = { type: 'string', operator: 'equals', value: '42', color: 'blue' };
+		expect(resolveCellBackground(rule, 42, null)).toBe('blue');
+	});
+
+	it('returns undefined for nullish cells', () => {
+		const rule: StringRule = { type: 'string', operator: 'like', value: 'x', color: 'red' };
+		expect(resolveCellBackground(rule, null, null)).toBeUndefined();
+		expect(resolveCellBackground(rule, undefined, null)).toBeUndefined();
+	});
+});
+
 describe('parseHexColor via color-scale endpoints', () => {
 	const range = { min: 0, max: 100 };
 
@@ -230,6 +292,34 @@ describe('sanitizeConditionalFormats', () => {
 			ok: { type: 'color-scale', color: '#ff0000' },
 		});
 		expect(sanitizeConditionalFormats({ bad: { type: 'color-scale', color: 123 } })).toBeUndefined();
+	});
+
+	it('keeps valid boolean rules and drops malformed ones', () => {
+		const valid = { type: 'boolean', trueColor: 'green', falseColor: 'red' };
+		expect(sanitizeConditionalFormats({ ok: valid })).toEqual({ ok: valid });
+		// Empty boolean rule (both colors optional) is still structurally valid.
+		expect(sanitizeConditionalFormats({ ok: { type: 'boolean' } })).toEqual({ ok: { type: 'boolean' } });
+		expect(sanitizeConditionalFormats({ bad: { type: 'boolean', trueColor: 5 } })).toBeUndefined();
+	});
+
+	it('keeps valid string rules and drops malformed ones', () => {
+		const equals = { type: 'string', operator: 'equals', value: 'A', color: 'green' };
+		const inList = { type: 'string', operator: 'in', value: ['A', 'B'], color: 'green' };
+		expect(sanitizeConditionalFormats({ ok: equals })).toEqual({ ok: equals });
+		expect(sanitizeConditionalFormats({ ok: inList })).toEqual({ ok: inList });
+		// "in" requires an array value.
+		expect(
+			sanitizeConditionalFormats({ bad: { type: 'string', operator: 'in', value: 'A', color: 'green' } }),
+		).toBeUndefined();
+		// "equals" requires a string value.
+		expect(
+			sanitizeConditionalFormats({ bad: { type: 'string', operator: 'equals', value: ['A'], color: 'green' } }),
+		).toBeUndefined();
+		// Missing color / bad operator.
+		expect(sanitizeConditionalFormats({ bad: { type: 'string', operator: 'equals', value: 'A' } })).toBeUndefined();
+		expect(
+			sanitizeConditionalFormats({ bad: { type: 'string', operator: 'nope', value: 'A', color: 'green' } }),
+		).toBeUndefined();
 	});
 });
 

@@ -108,11 +108,16 @@ export function SystemPrompt({
 						Use the <Bold>display_table</Bold> tool to present a table from a previous execute_sql result
 						with <Bold>conditional formatting</Bold> on specific columns. Pass <Bold>query_id</Bold>, an
 						optional <Bold>title</Bold>, and <Bold>conditional_formats</Bold>: a map of column name to a
-						rule. Two rule types exist: a color scale {`{ "type": "color-scale" }`} (background gradient
-						from the column min to max), and a threshold{' '}
+						rule. Rule types by column data type — numeric: a color scale {`{ "type": "color-scale" }`}{' '}
+						(gradient from the column min to max) or a threshold{' '}
 						{`{ "type": "threshold", "operator": ">=", "value": 100, "color": "rgba(34,197,94,0.35)" }`}{' '}
-						(operators: {'>='}, {'>'}, {'<='}, {'<'}, =). Example: {'conditional_formats: '}
-						{`{ "revenue": { "type": "color-scale" }, "churn_rate": { "type": "threshold", "operator": ">=", "value": 0.1, "color": "rgba(239,68,68,0.3)" } }`}
+						(operators {'>='}, {'>'}, {'<='}, {'<'}, =); boolean:{' '}
+						{`{ "type": "boolean", "trueColor": "rgba(34,197,94,0.3)", "falseColor": "rgba(239,68,68,0.3)" }`}{' '}
+						(either color optional); string:{' '}
+						{`{ "type": "string", "operator": "equals"|"in"|"like", "value": "Active" or ["A","B"], "color": "rgba(34,197,94,0.3)" }`}{' '}
+						("in" takes an array; "like" is a case-insensitive substring match). Example:{' '}
+						{'conditional_formats: '}
+						{`{ "revenue": { "type": "color-scale" }, "is_active": { "type": "boolean", "trueColor": "rgba(34,197,94,0.3)" }, "status": { "type": "string", "operator": "equals", "value": "churned", "color": "rgba(239,68,68,0.3)" } }`}
 						. When a user asks to conditionally format, color, or highlight cells of a table, use this tool
 						—{' '}
 						<Bold>

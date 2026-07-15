@@ -1,6 +1,5 @@
 import { sanitizeConditionalFormats } from '@nao/shared/conditional-formatting';
 import { buildStoryTableBlock } from '@nao/shared';
-import { isNumericColumn } from '@nao/shared/story-table-utils';
 import { useMemo, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { FilePlus, Pencil } from 'lucide-react';
@@ -112,7 +111,6 @@ export const DisplayTableToolCall = ({
 
 	const columns = sourceData.columns ?? [];
 	const rows = sourceData.data as Record<string, unknown>[];
-	const numericColumns = columns.filter((column) => isNumericColumn(rows, column));
 	const conditionalFormats = sanitizeConditionalFormats(config.conditional_formats) ?? {};
 
 	const handleAddToStory = async () => {
@@ -190,11 +188,12 @@ export const DisplayTableToolCall = ({
 				<TableFormatEditDialog
 					open={isEditOpen}
 					onOpenChange={setIsEditOpen}
-					columns={numericColumns}
+					columns={columns}
+					data={rows}
 					formats={conditionalFormats}
 					onSave={persistFormats}
 					isSaving={updateMutation.isPending}
-					description='Apply conditional formatting to numeric columns. Changes are saved to the chat.'
+					description='Apply conditional formatting to columns. Changes are saved to the chat.'
 				/>
 			)}
 		</div>

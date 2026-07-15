@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Streamdown } from 'streamdown';
 import { ArrowUpRight, Code, Copy, Download, Palette, Table as TableIcon } from 'lucide-react';
-import { isNumericColumn } from '@nao/shared/story-table-utils';
 import { ToolCallWrapper } from './tool-call-wrapper';
 import { TableDisplay } from './display-table';
 import { TableFormatEditDialog } from './display-table-edit-dialog';
@@ -127,12 +126,11 @@ export const ExecuteSqlToolCall = ({
 					<TableFormatEditDialog
 						open={isFormatOpen}
 						onOpenChange={setIsFormatOpen}
-						columns={output.columns.filter((column) =>
-							isNumericColumn(output.data as Record<string, unknown>[], column),
-						)}
+						columns={output.columns}
+						data={output.data as Record<string, unknown>[]}
 						formats={conditionalFormats}
 						onSave={async (next) => setConditionalFormats(next)}
-						description='Apply conditional formatting to numeric columns of this result.'
+						description='Apply conditional formatting to columns of this result.'
 					/>
 				</>
 			) : (

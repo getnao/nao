@@ -29,7 +29,29 @@ export const ThresholdRuleSchema = z.object({
 	color: z.string().describe('CSS background color applied when the comparison passes.'),
 });
 
-export const ConditionalFormatRuleSchema = z.discriminatedUnion('type', [ColorScaleRuleSchema, ThresholdRuleSchema]);
+export const BooleanRuleSchema = z.object({
+	type: z.literal('boolean'),
+	trueColor: z.string().describe('Background color for true cells (omit for none).').optional(),
+	falseColor: z.string().describe('Background color for false cells (omit for none).').optional(),
+});
+
+export const StringRuleSchema = z.object({
+	type: z.literal('string'),
+	operator: z
+		.enum(['equals', 'in', 'like'])
+		.describe('"equals": exact match; "in": value is one of a list; "like": case-insensitive substring.'),
+	value: z
+		.union([z.string(), z.array(z.string())])
+		.describe('A single string for "equals"/"like", or an array of strings for "in".'),
+	color: z.string().describe('CSS background color applied when the cell matches.'),
+});
+
+export const ConditionalFormatRuleSchema = z.discriminatedUnion('type', [
+	ColorScaleRuleSchema,
+	ThresholdRuleSchema,
+	BooleanRuleSchema,
+	StringRuleSchema,
+]);
 
 export const ColumnConditionalFormatsSchema = z
 	.record(z.string(), ConditionalFormatRuleSchema)
@@ -49,6 +71,8 @@ export const OutputSchema = z.object({
 
 export type ColorScaleRule = z.infer<typeof ColorScaleRuleSchema>;
 export type ThresholdRule = z.infer<typeof ThresholdRuleSchema>;
+export type BooleanRule = z.infer<typeof BooleanRuleSchema>;
+export type StringRule = z.infer<typeof StringRuleSchema>;
 export type ConditionalFormatRule = z.infer<typeof ConditionalFormatRuleSchema>;
 export type ColumnConditionalFormats = z.infer<typeof ColumnConditionalFormatsSchema>;
 export type Input = z.infer<typeof InputSchema>;
