@@ -9,7 +9,8 @@
 {% set columns = db.columns() %}
 {% set table_description = db.description() %}
 {% set profiling = profiling if profiling is defined else db.profiling() %}
-{% set computed_at = computed_at if computed_at is defined else (profiling.computed_at if profiling else "") %}
+{% set has_profiling = profiling and profiling.columns %}
+{% set computed_at = computed_at if computed_at is defined else (profiling.computed_at if has_profiling else "") %}
 {% set preview_rows = db.preview(limit=10) %}
 {% set instruction -%}
 You are generating short data documentation for analysts.
@@ -17,7 +18,7 @@ Write a concise markdown summary for table {{ dataset }}.{{ table_name }}.
 
 Include:
 1. What this table appears to represent.
-{% if profiling %}
+{% if has_profiling %}
 2. Data-quality and distribution notes grounded only in the profiling statistics.
 {% else %}
 Skip data-quality and distribution claims entirely because profiling statistics are unavailable. Do not guess.
@@ -35,7 +36,7 @@ Columns:
 Preview (a tiny, non-representative sample of up to 10 rows — do NOT infer data quality, null-rates, volume, or value distributions from these rows):
 {{ preview_rows | to_json(indent=2) }}
 
-{% if profiling %}
+{% if has_profiling %}
 Profiling statistics (JSON):
 Use these statistics for data-quality and distribution observations, including nulls, distinct counts, min/max, and top values.
 {{ profiling | to_json(indent=2) }}

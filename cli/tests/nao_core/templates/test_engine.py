@@ -189,6 +189,38 @@ class TestTemplateEngine:
         assert "# customers - AI Summary" in result
         mock_db.profiling.assert_not_called()
 
+    def test_ai_summary_skips_quality_claims_with_empty_profiling_columns(self):
+        llm_config = LLMConfig(
+            provider=LLMProvider.OPENAI,
+            api_key="sk-test",
+            annotation_model="gpt-4.1-mini",
+        )
+        engine = TemplateEngine(llm_config=llm_config)
+        mock_db = MagicMock()
+        mock_db.columns.return_value = []
+        mock_db.description.return_value = None
+        mock_db.preview.return_value = []
+        profiling = {
+            "computed_at": "2026-07-15T12:00:00+00:00",
+            "clustering_columns": [],
+            "columns": [],
+        }
+
+        with patch.object(engine, "_generate_openai_compatible", return_value="Generated summary") as mock_generate:
+            result = engine.render(
+                "databases/ai_summary.md.j2",
+                table_name="customers",
+                dataset="main",
+                db=mock_db,
+                profiling=profiling,
+            )
+
+        instruction = mock_generate.call_args.args[1]
+        assert "Skip data-quality and distribution claims entirely" in instruction
+        assert "Profiling statistics (JSON)" not in instruction
+        assert "# customers - AI Summary" in result
+        mock_db.profiling.assert_not_called()
+
     def test_user_override_takes_precedence(self, tmp_path: Path):
         """User templates override default templates."""
         templates_dir = tmp_path / "templates" / "databases"
