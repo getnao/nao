@@ -30,7 +30,12 @@ from nao_core.commands.sync.cleanup import (
 )
 from nao_core.commands.sync.providers.databases.query_history import TableUsageStats, compute_table_usage
 from nao_core.config import AnyDatabaseConfig, NaoConfig
-from nao_core.config.databases.base import DatabaseConfig, DatabaseTemplate, ProfilingRefreshPolicy
+from nao_core.config.databases.base import (
+    DatabaseConfig,
+    DatabaseTemplate,
+    ProfilingRefreshPolicy,
+    RefreshConfig,
+)
 from nao_core.config.llm import LLMConfig
 from nao_core.templates.context import NaoContext, create_nao_context
 from nao_core.templates.engine import get_template_engine
@@ -148,13 +153,13 @@ def _pick_query_texts(columns: list[str], rows: Any) -> list[str]:
     return [str(row[idx]) for row in rows if row[idx] is not None]
 
 
-def _should_refresh_profiling(
+def _should_refresh(
     output_file: Path,
-    profiling_config,
+    refresh_config: RefreshConfig,
 ) -> bool:
-    """Decide whether profiling should be recomputed based on refresh policy."""
+    """Decide whether a template should be refreshed based on its policy."""
 
-    policy = profiling_config.refresh_policy
+    policy = refresh_config.refresh_policy
     if not output_file.exists() or policy == ProfilingRefreshPolicy.ALWAYS:
         return True
     if policy == ProfilingRefreshPolicy.ONCE:
@@ -169,7 +174,7 @@ def _should_refresh_profiling(
                 if computed_at.tzinfo is None:
                     computed_at = computed_at.replace(tzinfo=timezone.utc)
                 age = datetime.now(timezone.utc) - computed_at
-                return age > timedelta(days=profiling_config.interval_days)
+                return age > timedelta(days=refresh_config.interval_days)
         except Exception:
             return True
 
@@ -296,23 +301,44 @@ def sync_database(
                 ctx = db_config.create_context(conn, schema, table)
                 ctx.set_exclude_columns(db_config.exclude_columns)
                 table_usage = usage_stats.get(f"{schema}.{table}", TableUsageStats())
+                has_profiling = DatabaseTemplate.PROFILING in db_config.templates
+                has_ai_summary = DatabaseTemplate.AI_SUMMARY in db_config.templates
+                profiling_due = has_profiling and _should_refresh(
+                    table_path / "profiling.md",
+                    db_config.profiling,
+                )
+                summary_due = has_ai_summary and _should_refresh(
+                    table_path / "ai_summary.md",
+                    db_config.ai_summary,
+                )
+                profiling_data = ctx.profiling() if profiling_due or summary_due else None
 
                 for template_name in templates:
                     output_filename = Path(template_name).stem
                     tpl_name = output_filename.replace(".md", "")
+                    output_file = table_path / output_filename
 
                     extra_ctx: dict[str, Any] = {}
                     if tpl_name == "how_to_use":
                         extra_ctx["usage_stats"] = table_usage
-                    output_file = table_path / output_filename
 
-                    if tpl_name == "profiling" and hasattr(db_config, "profiling"):
-                        if not _should_refresh_profiling(output_file, db_config.profiling):
+                    if tpl_name == "profiling":
+                        if not profiling_due:
                             console.print(
                                 f"    [dim]⏭ {schema}.{table} profiling skipped "
                                 f"(policy: {db_config.profiling.refresh_policy.value})[/dim]"
                             )
                             continue
+                        extra_ctx["profiling"] = profiling_data
+                    if tpl_name == "ai_summary":
+                        if not summary_due:
+                            console.print(
+                                f"    [dim]⏭ {schema}.{table} ai_summary skipped "
+                                f"(policy: {db_config.ai_summary.refresh_policy.value})[/dim]"
+                            )
+                            continue
+                        extra_ctx["profiling"] = profiling_data
+                        extra_ctx["computed_at"] = datetime.now(timezone.utc).isoformat()
 
                     t_render = time.monotonic()
                     try:

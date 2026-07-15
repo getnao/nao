@@ -6,6 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from nao_core.config.base import NaoConfig
+from nao_core.config.databases.base import ProfilingRefreshPolicy
 from nao_core.config.databases.duckdb import DuckDBConfig
 from nao_core.config.llm import LLMConfig, LLMProvider
 from nao_core.config.secrets import process_secrets
@@ -190,6 +191,31 @@ def test_default_templates_exclude_profiling():
 
     db = DuckDBConfig(name="test-db", path=":memory:")
     assert DatabaseTemplate.PROFILING not in db.templates
+
+
+def test_ai_summary_refresh_config_defaults_to_always():
+    db = DuckDBConfig(name="test-db", path=":memory:")
+
+    assert db.ai_summary.refresh_policy == ProfilingRefreshPolicy.ALWAYS
+    assert db.ai_summary.interval_days == 7
+
+
+@pytest.mark.parametrize("refresh_policy", ["once", "interval"])
+def test_ai_summary_refresh_config_accepts_policy_and_interval(refresh_policy):
+    db = DuckDBConfig.model_validate(
+        {
+            "type": "duckdb",
+            "name": "test-db",
+            "path": ":memory:",
+            "ai_summary": {
+                "refresh_policy": refresh_policy,
+                "interval_days": 14,
+            },
+        }
+    )
+
+    assert db.ai_summary.refresh_policy == ProfilingRefreshPolicy(refresh_policy)
+    assert db.ai_summary.interval_days == 14
 
 
 def test_configure_profiling_templates_adds_profiling_when_enabled():

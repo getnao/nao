@@ -126,6 +126,69 @@ class TestTemplateEngine:
         assert '"id": 1' in result
         assert '"amount": 100.5' in result
 
+    def test_ai_summary_uses_profiling_and_non_representative_preview(self):
+        llm_config = LLMConfig(
+            provider=LLMProvider.OPENAI,
+            api_key="sk-test",
+            annotation_model="gpt-4.1-mini",
+        )
+        engine = TemplateEngine(llm_config=llm_config)
+        mock_db = MagicMock()
+        mock_db.columns.return_value = [{"name": "id", "type": "int64", "description": None}]
+        mock_db.description.return_value = "Customer records"
+        mock_db.preview.return_value = [{"id": 1}]
+        profiling = {
+            "computed_at": "2026-07-15T12:00:00+00:00",
+            "clustering_columns": [],
+            "columns": [{"name": "id", "null_count": 0, "distinct_count": 100}],
+        }
+
+        with patch.object(engine, "_generate_openai_compatible", return_value="Generated summary") as mock_generate:
+            result = engine.render(
+                "databases/ai_summary.md.j2",
+                table_name="customers",
+                dataset="main",
+                db=mock_db,
+                profiling=profiling,
+                computed_at="2026-07-15T13:00:00+00:00",
+            )
+
+        instruction = mock_generate.call_args.args[1]
+        assert "tiny, non-representative sample of up to 10 rows" in instruction
+        assert "do NOT infer data quality" in instruction
+        assert "Profiling statistics (JSON)" in instruction
+        assert '"distinct_count": 100' in instruction
+        assert "**Computed at:** `2026-07-15T13:00:00+00:00`" in result
+        mock_db.preview.assert_called_once_with(limit=10)
+        mock_db.profiling.assert_not_called()
+
+    def test_ai_summary_skips_quality_claims_without_profiling(self):
+        llm_config = LLMConfig(
+            provider=LLMProvider.OPENAI,
+            api_key="sk-test",
+            annotation_model="gpt-4.1-mini",
+        )
+        engine = TemplateEngine(llm_config=llm_config)
+        mock_db = MagicMock()
+        mock_db.columns.return_value = []
+        mock_db.description.return_value = None
+        mock_db.preview.return_value = []
+
+        with patch.object(engine, "_generate_openai_compatible", return_value="Generated summary") as mock_generate:
+            result = engine.render(
+                "databases/ai_summary.md.j2",
+                table_name="customers",
+                dataset="main",
+                db=mock_db,
+                profiling=None,
+            )
+
+        instruction = mock_generate.call_args.args[1]
+        assert "Skip data-quality and distribution claims entirely" in instruction
+        assert "Profiling statistics (JSON)" not in instruction
+        assert "# customers - AI Summary" in result
+        mock_db.profiling.assert_not_called()
+
     def test_user_override_takes_precedence(self, tmp_path: Path):
         """User templates override default templates."""
         templates_dir = tmp_path / "templates" / "databases"

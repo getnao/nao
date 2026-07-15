@@ -58,18 +58,22 @@ class ProfilingRefreshPolicy(str, Enum):
     ONCE = "once"
 
 
-class ProfilingConfig(BaseModel):
-    """Configuration for profiling refresh policy."""
+class RefreshConfig(BaseModel):
+    """Configuration for template refresh policy."""
 
     refresh_policy: ProfilingRefreshPolicy = Field(
         default=ProfilingRefreshPolicy.ALWAYS,
-        description="When to recompute profiling: always, interval, or once",
+        description="When to refresh the template: always, interval, or once",
     )
     interval_days: int = Field(
         default=7,
-        ge=1,  # strictly positive
-        description="Number of days between profiling runs (only used when refresh_policy=interval)",
+        ge=1,
+        description="Number of days between refreshes (only used when refresh_policy=interval)",
     )
+
+
+class ProfilingConfig(RefreshConfig):
+    """Configuration for profiling refresh policy."""
 
 
 class DatabaseConfig(BaseModel, ABC):
@@ -148,6 +152,10 @@ class DatabaseConfig(BaseModel, ABC):
     profiling: ProfilingConfig = Field(
         default_factory=ProfilingConfig,
         description="Profiling refresh policy configuration",
+    )
+    ai_summary: RefreshConfig = Field(
+        default_factory=RefreshConfig,
+        description="AI summary refresh policy configuration",
     )
 
     @classmethod
