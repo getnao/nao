@@ -163,7 +163,7 @@ nao sync
 
 Syncs configured resources to local files:
 
-- **Databases** - generates markdown docs (`columns.md`, `preview.md`, `description.md`) for each table into `databases/`
+- **Databases** - generates markdown docs (`columns.md` with table schema and description, `query_history.md`, and `preview.md`) for each table into `databases/`
 - **Git repositories** — clones or pulls repos into `repos/`
 - **Notion pages** — exports pages as markdown into `docs/notion/`
 

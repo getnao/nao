@@ -52,8 +52,7 @@ class TestTemplateEngine:
         expected_templates = [
             "databases/columns.md.j2",
             "databases/preview.md.j2",
-            "databases/description.md.j2",
-            "databases/how_to_use.md.j2",
+            "databases/query_history.md.j2",
             "databases/ai_summary.md.j2",
         ]
 
@@ -89,6 +88,11 @@ class TestTemplateEngine:
             {"name": "id", "type": "int64", "nullable": False, "description": None},
             {"name": "email", "type": "string", "nullable": True, "description": "User email"},
         ]
+        mock_db.description.return_value = None
+        mock_db.row_count.return_value = 2
+        mock_db.partition_columns.return_value = []
+        mock_db.clustering_columns.return_value = []
+        mock_db.indexes.return_value = None
 
         result = engine.render(
             "databases/columns.md.j2",
@@ -582,7 +586,7 @@ class TestDefaultTemplatesDir:
         expected_files = [
             "columns.md.j2",
             "preview.md.j2",
-            "description.md.j2",
+            "query_history.md.j2",
             "ai_summary.md.j2",
         ]
 

@@ -1,4 +1,4 @@
-"""Query history extraction and analysis for the how_to_use template."""
+"""Query history extraction and analysis for the query_history template."""
 
 from __future__ import annotations
 

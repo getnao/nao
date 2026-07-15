@@ -194,7 +194,7 @@ def sync_database(
     engine = get_template_engine(project_path, llm_config=llm_config)
     templates = _filter_templates_by_config(engine.list_templates(TEMPLATE_PREFIX), db_config)
 
-    has_how_to_use = DatabaseTemplate.HOW_TO_USE in db_config.templates
+    has_query_history = DatabaseTemplate.QUERY_HISTORY in db_config.templates
 
     t_connect = time.monotonic()
     conn = db_config.connect()
@@ -205,7 +205,7 @@ def sync_database(
         )
 
         raw_queries: list[str] = []
-        if has_how_to_use:
+        if has_query_history:
             raw_queries = _fetch_query_history(db_config, conn)
 
         if db_folder is None:
@@ -255,7 +255,7 @@ def sync_database(
         selected_tables = [(schema, t) for schema, tables in schema_tables.items() for t in tables]
 
         usage_stats: dict[str, TableUsageStats] = {}
-        if has_how_to_use and raw_queries and selected_tables:
+        if has_query_history and raw_queries and selected_tables:
             dialect = db_config.type if db_config.type != "duckdb" else None
             usage_stats = compute_table_usage(raw_queries, selected_tables, dialect=dialect)
 
@@ -302,7 +302,7 @@ def sync_database(
                     tpl_name = output_filename.replace(".md", "")
 
                     extra_ctx: dict[str, Any] = {}
-                    if tpl_name == "how_to_use":
+                    if tpl_name == "query_history":
                         extra_ctx["usage_stats"] = table_usage
                     output_file = table_path / output_filename
 

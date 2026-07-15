@@ -1,0 +1,44 @@
+{#
+  Template: query_history.md.j2
+  Description: Generates table usage context from query history
+
+  Available context:
+    - table_name (str): Name of the table
+    - dataset (str): Schema/dataset name
+    - usage_stats (TableUsageStats): Query history statistics
+        - usage_stats.usage_count -> int
+        - usage_stats.common_joins -> list of (table_name, count) tuples
+        - usage_stats.top_queries -> list of (sql, count) tuples
+#}
+# {{ table_name }}
+
+**Dataset:** `{{ dataset }}`
+
+## Usage
+
+{% if usage_stats.usage_count == 0 %}
+_No query history found for this table._
+{% else %}
+This table was referenced in **{{ usage_stats.usage_count }}** {% if usage_stats.usage_count == 1 %}query{% else %}queries{% endif %}.
+
+{% if usage_stats.common_joins %}
+## Common Joins
+
+{% for joined_table, count in usage_stats.common_joins %}
+- `{{ joined_table }}` ({{ count }} {% if count == 1 %}query{% else %}queries{% endif %})
+{% endfor %}
+{% endif %}
+
+{% if usage_stats.top_queries %}
+## Top Queries
+
+{% for sql, count in usage_stats.top_queries %}
+### Query (used {{ count }}x)
+
+```sql
+{{ sql }}
+```
+
+{% endfor %}
+{% endif %}
+{% endif %}

@@ -45,7 +45,7 @@ class DatabaseTemplate(str, Enum):
     PREVIEW = "preview"
     PROFILING = "profiling"
     AI_SUMMARY = "ai_summary"
-    HOW_TO_USE = "how_to_use"
+    QUERY_HISTORY = "query_history"
 
 
 # Backward-compatible alias
@@ -99,18 +99,18 @@ class DatabaseConfig(BaseModel, ABC):
     templates: list[DatabaseTemplate] = Field(
         default_factory=lambda: [
             DatabaseTemplate.COLUMNS,
-            DatabaseTemplate.HOW_TO_USE,
+            DatabaseTemplate.QUERY_HISTORY,
             DatabaseTemplate.PREVIEW,
         ],
         description=(
             "Which default templates to render per table "
-            "(e.g., ['columns', 'how_to_use', 'profiling', 'ai_summary']). "
-            "Defaults to ['columns', 'how_to_use', 'preview']."
+            "(e.g., ['columns', 'query_history', 'profiling', 'ai_summary']). "
+            "Defaults to ['columns', 'query_history', 'preview']."
         ),
     )
     query_history_days: int | None = Field(
         default=None,
-        description="Number of days to look back for query history (used by how_to_use template).",
+        description="Number of days to look back for query history (used by query_history template).",
     )
     query_history_sql: str | None = Field(
         default=None,
@@ -124,7 +124,7 @@ class DatabaseConfig(BaseModel, ABC):
         default_factory=list,
         description=(
             "Regex patterns (case-insensitive) used to drop noisy queries fetched from query history. "
-            "Any query whose text matches at least one pattern is excluded from the how_to_use analysis. "
+            "Any query whose text matches at least one pattern is excluded from the query_history analysis. "
             "Useful to filter out warehouse system queries (e.g. 'SYSTEM\\$', 'CURRENT_SESSION\\(\\)')."
         ),
     )
@@ -132,7 +132,7 @@ class DatabaseConfig(BaseModel, ABC):
     @model_validator(mode="before")
     @classmethod
     def _migrate_accessors_to_templates(cls, data: dict) -> dict:
-        """Accept legacy 'accessors' key as an alias for 'templates', and strip removed values."""
+        """Accept legacy configuration names and map them to current equivalents."""
         if isinstance(data, dict) and "accessors" in data and "templates" not in data:
             warnings.warn(
                 "The 'accessors' config key is deprecated and will be removed in a future version. "
@@ -142,7 +142,16 @@ class DatabaseConfig(BaseModel, ABC):
             )
             data["templates"] = data.pop("accessors")
         if isinstance(data, dict) and "templates" in data:
-            data["templates"] = [t for t in data["templates"] if t != "description"]
+            templates = data["templates"]
+            if "how_to_use" in templates:
+                warnings.warn(
+                    "The 'how_to_use' database template is deprecated and will be removed in a future version. "
+                    "Please rename it to 'query_history' in your nao.yaml.",
+                    FutureWarning,
+                    stacklevel=2,
+                )
+            migrated_templates = ["query_history" if template == "how_to_use" else template for template in templates]
+            data["templates"] = list(dict.fromkeys(migrated_templates))
         return data
 
     profiling: ProfilingConfig = Field(
