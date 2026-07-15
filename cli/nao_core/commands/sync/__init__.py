@@ -1,6 +1,7 @@
 """Sync command for synchronizing repositories and database schemas."""
 
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -23,6 +24,31 @@ from .providers import (
 console = Console()
 
 
+@dataclass
+class PlannedSync:
+    """A selection's resolved items, or the error raised while resolving them."""
+
+    selection: ProviderSelection
+    items: list[Any]
+    error: Exception | None = None
+
+
+def _resolve_planned_syncs(active_providers: list[ProviderSelection], config: NaoConfig) -> list[PlannedSync]:
+    """Resolve each selection's items once, isolating per-selection resolution failures.
+
+    Resolving up front keeps a single source of truth for "which items are being
+    synced" (reused for driver detection and execution), while capturing any
+    failure per selection so one broken provider cannot abort the whole command.
+    """
+    planned: list[PlannedSync] = []
+    for selection in active_providers:
+        try:
+            planned.append(PlannedSync(selection, _filter_items_for_selection(selection, config)))
+        except Exception as error:
+            planned.append(PlannedSync(selection, [], error))
+    return planned
+
+
 def _filter_items_for_selection(selection: ProviderSelection, config: NaoConfig) -> list[Any]:
     """Return the items a selection will sync, applying its connection filter.
 
@@ -35,7 +61,7 @@ def _filter_items_for_selection(selection: ProviderSelection, config: NaoConfig)
     return items
 
 
-def _ensure_database_drivers(planned_syncs: list[tuple[ProviderSelection, list[Any]]]) -> None:
+def _ensure_database_drivers(planned_syncs: list[PlannedSync]) -> None:
     """Auto-install missing database driver extras before connecting, like `nao init`.
 
     Prompts interactively and installs without prompting in non-interactive
@@ -46,9 +72,9 @@ def _ensure_database_drivers(planned_syncs: list[tuple[ProviderSelection, list[A
 
     databases = [
         item
-        for selection, items in planned_syncs
-        if isinstance(selection.provider, DatabaseSyncProvider)
-        for item in items
+        for planned in planned_syncs
+        if planned.error is None and isinstance(planned.selection.provider, DatabaseSyncProvider)
+        for item in planned.items
     ]
     missing = get_missing_extras_for_databases(databases)
     if not missing:
@@ -136,7 +162,7 @@ def sync(
 
     # Resolve the items each selection will sync once, then reuse for both
     # driver-extra detection and provider execution.
-    planned_syncs = [(selection, _filter_items_for_selection(selection, config)) for selection in active_providers]
+    planned_syncs = _resolve_planned_syncs(active_providers, config)
 
     _ensure_database_drivers(planned_syncs)
 
@@ -144,7 +170,9 @@ def sync(
 
     # Run each provider
     results: list[SyncResult] = []
-    for selection, items in planned_syncs:
+    for planned in planned_syncs:
+        selection = planned.selection
+        items = planned.items
         sync_provider = selection.provider
         connection_filter = selection.connection_name
 
@@ -153,6 +181,9 @@ def sync(
         output_path = Path(output_dir)
 
         try:
+            if planned.error is not None:
+                raise planned.error
+
             sync_provider.pre_sync(config, output_path)
 
             if not sync_provider.should_sync(config):

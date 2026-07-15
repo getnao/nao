@@ -243,6 +243,31 @@ class TestSyncCommand:
 
         mock_install.assert_not_called()
 
+    def test_sync_isolates_provider_item_resolution_failure(self, create_config):
+        """A provider whose item resolution raises is recorded as a failure without
+        aborting the command; other providers still sync and the summary prints."""
+        create_config()
+        failing = MagicMock(spec=SyncProvider)
+        failing.name = "FailingResolution"
+        failing.emoji = "❌"
+        failing.default_output_dir = "failing-output"
+        failing.get_items.side_effect = Exception("cannot resolve items")
+        failing_selection = ProviderSelection(failing)
+
+        working = _make_provider(
+            name="WorkingProvider", emoji="✅", output_dir="working-output", items=["item1"], items_synced=1
+        )
+
+        with patch("nao_core.commands.sync.console") as mock_console:
+            with pytest.raises(SystemExit) as exc_info:
+                sync(_providers=[failing_selection, working], render_templates=False)
+
+        assert exc_info.value.code == 1
+        working.provider.sync.assert_called_once()
+        calls = [str(call) for call in mock_console.print.call_args_list]
+        assert any("cannot resolve items" in call for call in calls)
+        assert any("Sync Completed with Errors" in call for call in calls)
+
     def test_sync_shows_failure_when_all_providers_fail(self, create_config):
         """Test that sync shows failure status when all providers fail."""
         create_config()
