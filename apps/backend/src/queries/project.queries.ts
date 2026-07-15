@@ -1,5 +1,5 @@
 import { DEFAULT_DATE_FORMAT_SETTINGS, type DisplaySettings } from '@nao/shared/date';
-import type { UpdatedAtFilter, UserRole } from '@nao/shared/types';
+import type { LlmSettings, UpdatedAtFilter, UserRole } from '@nao/shared/types';
 import { and, asc, desc, eq, gt, gte, lte, or, type SQL, sql } from 'drizzle-orm';
 
 import type { AgentSettings, DBProject, DBProjectMember, NewProject, NewProjectMember } from '../db/abstractSchema';
@@ -264,6 +264,23 @@ export const updateDisplaySettings = async (projectId: string, settings: Display
 		dateFormat: settings.dateFormat ?? current.dateFormat,
 	};
 	await db.update(s.project).set({ displaySettings: next }).where(eq(s.project.id, projectId)).execute();
+	return next;
+};
+
+export const getLlmSettings = async (projectId: string): Promise<LlmSettings> => {
+	const project = await getProjectById(projectId);
+	return project?.llmSettings ?? { disabledProviders: [] };
+};
+
+export const updateLlmSettings = async (projectId: string, settings: LlmSettings): Promise<LlmSettings> => {
+	const current = await getLlmSettings(projectId);
+	const next: LlmSettings = {
+		...current,
+		...settings,
+		disabledProviders: settings.disabledProviders ?? current.disabledProviders,
+		defaultModel: settings.defaultModel !== undefined ? settings.defaultModel : current.defaultModel,
+	};
+	await db.update(s.project).set({ llmSettings: next }).where(eq(s.project.id, projectId)).execute();
 	return next;
 };
 

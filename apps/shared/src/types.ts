@@ -56,6 +56,11 @@ export type LlmSelectedModel = {
 	modelId: string;
 };
 
+export interface LlmSettings {
+	disabledProviders: LlmProvider[];
+	defaultModel?: LlmSelectedModel;
+}
+
 export type SummarySegment =
 	| { type: 'text'; content: string }
 	| { type: 'chart'; chartType: string; title: string; kpiCount?: number }

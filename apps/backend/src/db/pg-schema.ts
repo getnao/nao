@@ -4,6 +4,7 @@ import type {
 	AnalyticsEventMetadata,
 	CitationData,
 	LlmProvider,
+	LlmSettings,
 	RepoProvider,
 	UserPreferences,
 } from '@nao/shared/types';
@@ -201,6 +202,7 @@ export const project = pgTable(
 		whatsappSettings: jsonb('whatsapp_settings').$type<WhatsappSettings>(),
 		mcpEndpointSettings: jsonb('mcp_endpoint_settings').$type<McpEndpointSettings>(),
 		displaySettings: jsonb('display_settings').$type<DisplaySettings>(),
+		llmSettings: jsonb('llm_settings').$type<LlmSettings>().notNull().default({ disabledProviders: [] }),
 
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')

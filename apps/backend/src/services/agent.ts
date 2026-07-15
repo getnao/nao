@@ -1,5 +1,5 @@
 import { story } from '@nao/shared/tools';
-import type { LlmProvider, LlmSelectedModel } from '@nao/shared/types';
+import type { LlmProvider, LlmSelectedModel, LlmSettings } from '@nao/shared/types';
 import {
 	convertToModelMessages,
 	createUIMessageStream,
@@ -57,7 +57,10 @@ import { assertBudgetNotExceeded } from '../utils/budget';
 import { HandlerError } from '../utils/error';
 import {
 	getDefaultModelId,
+	getEffectiveDefaultModel,
+	getEffectiveDisabledProviders,
 	getEnvModelSelections,
+	getProjectAvailableModels,
 	resolveAnnotationModelId,
 	resolveProviderModel,
 	resolveProviderSettings,
@@ -273,6 +276,20 @@ export class AgentService {
 			return modelSelection;
 		}
 
+		const llmSettings: LlmSettings = await projectQueries.getLlmSettings(projectId);
+
+		// Check for admin-configured default model
+		const adminDefault = getEffectiveDefaultModel(llmSettings);
+		if (adminDefault) {
+			const availableModels = await getProjectAvailableModels(projectId, llmSettings);
+			const match = availableModels.find(
+				(m) => m.provider === adminDefault.provider && m.modelId === adminDefault.modelId,
+			);
+			if (match) {
+				return { provider: match.provider, modelId: match.modelId };
+			}
+		}
+
 		// Get the first available provider config
 		const configs = await llmConfigQueries.getProjectLlmConfigs(projectId);
 		const config = configs.at(0);
@@ -283,8 +300,9 @@ export class AgentService {
 			};
 		}
 
-		// Fallback to env-based provider
-		const envSelection = getEnvModelSelections().at(0);
+		// Fallback to env-based provider (respecting disabled providers)
+		const disabledProviders = getEffectiveDisabledProviders(llmSettings);
+		const envSelection = getEnvModelSelections(disabledProviders).at(0);
 		if (envSelection) {
 			return envSelection;
 		}

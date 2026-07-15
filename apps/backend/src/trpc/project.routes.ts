@@ -1,5 +1,5 @@
 import { DATE_FORMAT_PRESETS } from '@nao/shared/date';
-import type { LlmProvider } from '@nao/shared/types';
+import type { LlmProvider, LlmSettings } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
@@ -22,7 +22,14 @@ import { listAvailableTranscribeModels as getAvailableTranscribeModels } from '.
 import { AgentSettings } from '../types/agent-settings';
 import { customModelMetadataSchema, llmConfigSchema, llmProviderSchema } from '../types/llm';
 import { isValidIsoDateString } from '../utils/date';
-import { getEnvApiKey, getEnvBaseUrls, getEnvProviders, getProjectAvailableModels } from '../utils/llm';
+import {
+	getEffectiveDefaultModel,
+	getEffectiveDisabledProviders,
+	getEnvApiKey,
+	getEnvBaseUrls,
+	getEnvProviders,
+	getProjectAvailableModels,
+} from '../utils/llm';
 import { extractRequiredEnvVars } from '../utils/nao-config';
 import { buildCredentialPreviews } from '../utils/utils';
 import {
@@ -128,7 +135,8 @@ export const projectRoutes = {
 			if (!ctx.project) {
 				return [];
 			}
-			return getProjectAvailableModels(ctx.project.id);
+			const llmSettings = await projectQueries.getLlmSettings(ctx.project.id);
+			return getProjectAvailableModels(ctx.project.id, llmSettings);
 		}),
 
 	upsertLlmConfig: adminProtectedProcedure
@@ -197,6 +205,49 @@ export const projectRoutes = {
 		.output(z.object({ success: z.boolean() }))
 		.mutation(async ({ ctx, input }) => {
 			await llmConfigQueries.deleteProjectLlmConfig(ctx.project.id, input.provider);
+			return { success: true };
+		}),
+
+	getLlmSettings: projectProtectedProcedure
+		.output(
+			z.object({
+				disabledProviders: z.array(llmProviderSchema),
+				defaultModel: z
+					.object({
+						provider: llmProviderSchema,
+						modelId: z.string(),
+					})
+					.optional(),
+			}),
+		)
+		.query(async ({ ctx }) => {
+			if (!ctx.project) {
+				return { disabledProviders: [] };
+			}
+			const dbSettings = await projectQueries.getLlmSettings(ctx.project.id);
+			return {
+				disabledProviders: getEffectiveDisabledProviders(dbSettings),
+				defaultModel: getEffectiveDefaultModel(dbSettings),
+			};
+		}),
+
+	updateLlmSettings: adminProtectedProcedure
+		.input(
+			z.object({
+				disabledProviders: z.array(llmProviderSchema),
+				defaultModel: z
+					.object({
+						provider: llmProviderSchema,
+						modelId: z.string(),
+					})
+					.optional(),
+			}),
+		)
+		.mutation(async ({ ctx, input }) => {
+			await projectQueries.updateLlmSettings(ctx.project.id, {
+				disabledProviders: input.disabledProviders,
+				...(input.defaultModel && { defaultModel: input.defaultModel }),
+			});
 			return { success: true };
 		}),
 

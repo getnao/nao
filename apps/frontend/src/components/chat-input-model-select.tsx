@@ -10,6 +10,7 @@ import { trpc } from '@/main';
 export function ChatInputModelSelect() {
 	const { selectedModel, setSelectedModel } = useAgentContext();
 	const { data: availableModels, isPending } = useQuery(trpc.project.listAvailableTranscribeModels.queryOptions());
+	const { data: llmSettings, isPending: isLlmSettingsPending } = useQuery(trpc.project.getLlmSettings.queryOptions());
 	const hasMultipleModels = Boolean(availableModels && availableModels.length > 1);
 
 	// Set default model when available models load, or reset if current selection is no longer available
@@ -18,14 +19,34 @@ export function ChatInputModelSelect() {
 			return;
 		}
 
-		const isCurrentSelectionValid =
-			selectedModel &&
-			availableModels.some((m) => m.provider === selectedModel.provider && m.modelId === selectedModel.modelId);
+		// Wait for admin settings to resolve before auto-selecting
+		if (isLlmSettingsPending) return;
+
+		// User has never selected a model — apply admin default if set
+		if (!selectedModel) {
+			const adminDefault = llmSettings?.defaultModel;
+			if (adminDefault) {
+				const match = availableModels.find(
+					(m) => m.provider === adminDefault.provider && m.modelId === adminDefault.modelId,
+				);
+				if (match) {
+					setSelectedModel(match);
+					return;
+				}
+			}
+			setSelectedModel(availableModels[0]);
+			return;
+		}
+
+		// User has an existing selection — reset if it's no longer available
+		const isCurrentSelectionValid = availableModels.some(
+			(m) => m.provider === selectedModel.provider && m.modelId === selectedModel.modelId,
+		);
 
 		if (!isCurrentSelectionValid) {
 			setSelectedModel(availableModels[0]);
 		}
-	}, [availableModels, selectedModel, setSelectedModel]);
+	}, [availableModels, selectedModel, setSelectedModel, llmSettings, isLlmSettingsPending]);
 
 	const handleModelValueChange = useCallback(
 		(value: string) => {
