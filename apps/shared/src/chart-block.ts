@@ -12,7 +12,14 @@ export function escapeSingleQuotedStoryAttr(value: string): string {
 
 export type StoryChartBlockInput = Pick<
 	displayChart.Input,
-	'query_id' | 'chart_type' | 'x_axis_key' | 'x_axis_type' | 'series' | 'y_axis_min' | 'y_axis_max' | 'show_data_labels'
+	| 'query_id'
+	| 'chart_type'
+	| 'x_axis_key'
+	| 'x_axis_type'
+	| 'series'
+	| 'y_axis_min'
+	| 'y_axis_max'
+	| 'show_data_labels'
 > & {
 	title?: displayChart.Input['title'];
 };
