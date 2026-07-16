@@ -1,5 +1,7 @@
-import { formatCellValue, isNumericColumn } from '@nao/shared/story-table-utils';
+import { computeColumnRange, isConditionalFormatRule, resolveCellBackground } from '@nao/shared/conditional-formatting';
+import { formatCellValue, formatColumnLabel, isNumericColumn } from '@nao/shared/story-table-utils';
 import { useEffect, useMemo, useState } from 'react';
+import type { ColumnConditionalFormats, ColumnRange, ConditionalFormatRule } from '@nao/shared/conditional-formatting';
 import { TablePagination } from '@/components/ui/table-pagination';
 import { useDateFormat } from '@/hooks/use-date-format';
 import { TablePaginationCompact } from '@/components/ui/table-pagination-compact';
@@ -17,6 +19,8 @@ interface TableDisplayProps {
 	showRowCount?: boolean;
 	maxRowsBeforePagination?: number;
 	compactFooter?: boolean;
+	conditionalFormats?: ColumnConditionalFormats;
+	humanizeColumnLabels?: boolean;
 }
 
 export function TableDisplay({
@@ -29,12 +33,19 @@ export function TableDisplay({
 	showRowCount = true,
 	maxRowsBeforePagination = 100,
 	compactFooter = false,
+	conditionalFormats,
+	humanizeColumnLabels = false,
 }: TableDisplayProps) {
 	const dateFormat = useDateFormat();
 	const resolvedColumns = columns && columns.length > 0 ? columns : inferColumns(data);
 	const numericColumns = new Set(resolvedColumns.filter((column) => isNumericColumn(data, column)));
 	const hasRows = data.length > 0;
 	const showPagination = hasRows && data.length > maxRowsBeforePagination;
+
+	const columnRanges = useMemo(
+		() => computeFormattedColumnRanges(data, conditionalFormats),
+		[data, conditionalFormats],
+	);
 
 	const [pageIndex, setPageIndex] = useState(0);
 	const [pageSize, setPageSize] = useState(maxRowsBeforePagination);
@@ -55,9 +66,7 @@ export function TableDisplay({
 				<table className='w-full min-w-max border-collapse text-xs'>
 					<thead className='sticky top-0 z-10 border-b bg-panel'>
 						<tr>
-							<th className='shadow-[inset_-1px_0_0_0_var(--border)] last:shadow-none px-3 py-2 text-center font-medium whitespace-nowrap text-foreground w-4'>
-								1
-							</th>
+							<th className='shadow-[inset_-1px_0_0_0_var(--border)] last:shadow-none px-3 py-2 text-center font-medium whitespace-nowrap text-foreground w-4' />
 							{resolvedColumns.map((column) => (
 								<th
 									key={column}
@@ -66,7 +75,7 @@ export function TableDisplay({
 										numericColumns.has(column) && 'text-right tabular-nums',
 									)}
 								>
-									{column}
+									{humanizeColumnLabels ? formatColumnLabel(column) : column}
 								</th>
 							))}
 						</tr>
@@ -81,15 +90,21 @@ export function TableDisplay({
 								>
 									<td className='shadow-[inset_-1px_0_0_0_var(--border)] last:shadow-none px-3 py-1 align-top font-mono text-[11px] leading-5 whitespace-nowrap text-center w-4 bg-panel'>
 										<span className='px-1 py-2 font-[Geist] font-medium text-foreground'>
-											{pageIndex * pageSize + rowIndex + 2}
+											{pageIndex * pageSize + rowIndex + 1}
 										</span>
 									</td>
 									{resolvedColumns.map((column) => {
 										const value = row[column];
 										const isNull = value === null || value === undefined;
+										const background = resolveColumnCellBackground(
+											conditionalFormats?.[column],
+											value,
+											columnRanges[column] ?? null,
+										);
 										return (
 											<td
 												key={`${rowIndex}-${column}`}
+												style={background ? { backgroundColor: background } : undefined}
 												className={cn(
 													'shadow-[inset_-1px_0_0_0_var(--border)] last:shadow-none px-3 py-1 align-top font-mono text-[11px] leading-5 whitespace-nowrap',
 													numericColumns.has(column) && 'text-right tabular-nums',
@@ -154,6 +169,31 @@ export function TableDisplay({
 			) : null}
 		</div>
 	);
+}
+
+function computeFormattedColumnRanges(
+	data: TableRow[],
+	conditionalFormats?: ColumnConditionalFormats,
+): Record<string, ColumnRange | null> {
+	if (!conditionalFormats) {
+		return {};
+	}
+
+	const ranges: Record<string, ColumnRange | null> = {};
+	for (const [column, rule] of Object.entries(conditionalFormats)) {
+		if (isConditionalFormatRule(rule) && rule.type === 'color-scale') {
+			ranges[column] = computeColumnRange(data, column);
+		}
+	}
+	return ranges;
+}
+
+function resolveColumnCellBackground(
+	rule: ConditionalFormatRule | undefined,
+	value: unknown,
+	range: ColumnRange | null,
+): string | undefined {
+	return isConditionalFormatRule(rule) ? resolveCellBackground(rule, value, range) : undefined;
 }
 
 function inferColumns(data: TableRow[]): string[] {

@@ -11,10 +11,10 @@ export function escapeSingleQuotedStoryAttr(value: string): string {
 }
 
 export type StoryChartBlockInput = Pick<
-	displayChart.Input,
-	'query_id' | 'chart_type' | 'x_axis_key' | 'x_axis_type' | 'series'
+	displayChart.ChartInput,
+	'query_id' | 'chart_type' | 'x_axis_key' | 'x_axis_type' | 'series' | 'show_data_labels'
 > & {
-	title?: displayChart.Input['title'];
+	title?: displayChart.ChartInput['title'];
 };
 
 export function buildStoryChartBlock(input: StoryChartBlockInput): string {
@@ -23,5 +23,18 @@ export function buildStoryChartBlock(input: StoryChartBlockInput): string {
 	const seriesJson = escapeSingleQuotedStoryAttr(JSON.stringify(input.series));
 	const titleAttr =
 		input.title != null && input.title !== '' ? ` title="${escapeDoubleQuotedStoryAttr(input.title)}"` : '';
-	return `<chart query_id="${escapeDoubleQuotedStoryAttr(input.query_id)}" chart_type="${escapeDoubleQuotedStoryAttr(input.chart_type)}" x_axis_key="${escapeDoubleQuotedStoryAttr(input.x_axis_key)}"${xAxisTypeAttr} series='${seriesJson}'${titleAttr} />`;
+	const dataLabelsAttr = input.show_data_labels ? ' show_data_labels="true"' : '';
+	return `<chart query_id="${escapeDoubleQuotedStoryAttr(input.query_id)}" chart_type="${escapeDoubleQuotedStoryAttr(input.chart_type)}" x_axis_key="${escapeDoubleQuotedStoryAttr(input.x_axis_key)}"${xAxisTypeAttr} series='${seriesJson}'${titleAttr}${dataLabelsAttr} />`;
+}
+
+export type StoryTableBlockInput = Pick<displayChart.TableInput, 'query_id' | 'title' | 'conditional_formats'>;
+
+export function buildStoryTableBlock(input: StoryTableBlockInput): string {
+	const titleAttr =
+		input.title != null && input.title !== '' ? ` title="${escapeDoubleQuotedStoryAttr(input.title)}"` : '';
+	const formattingAttr =
+		input.conditional_formats && Object.keys(input.conditional_formats).length > 0
+			? ` formatting='${escapeSingleQuotedStoryAttr(JSON.stringify(input.conditional_formats))}'`
+			: '';
+	return `<table query_id="${escapeDoubleQuotedStoryAttr(input.query_id)}"${titleAttr}${formattingAttr} />`;
 }

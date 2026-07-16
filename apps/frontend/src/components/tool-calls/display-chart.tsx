@@ -1,29 +1,39 @@
-import { memo, useCallback, useMemo, useState } from 'react';
-import { buildChart, buildStoryChartBlock, labelize } from '@nao/shared';
-import { Code, Download, FilePlus, Pencil } from 'lucide-react';
+import { buildChart, bucketPieData, buildStoryChartBlock, labelize } from '@nao/shared';
+import { displayChart } from '@nao/shared/tools';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { Code, Download, FilePlus, Pencil } from 'lucide-react';
+import { memo, useCallback, useMemo, useState } from 'react';
+
 import { useOptionalAgentContext } from '../../contexts/agent.provider';
 import GraphLoaderAnimated from '../icons/graph-loader-animated';
-import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from '../ui/chart';
-import { TextShimmer } from '../ui/text-shimmer';
-import { Skeleton } from '../ui/skeleton';
 import { Button } from '../ui/button';
-import { ToolCallWrapper } from './tool-call-wrapper';
-import { ChartRangeSelector } from './display-chart-range-selector';
+import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent } from '../ui/chart';
+import { Skeleton } from '../ui/skeleton';
+import { TextShimmer } from '../ui/text-shimmer';
 import { DisplayChartEditDialog } from './display-chart-edit-dialog';
+import { DisplayChartTable } from './display-chart-table';
+import { ChartRangeSelector } from './display-chart-range-selector';
+import { ToolCallWrapper } from './tool-call-wrapper';
 import type { ToolCallComponentProps } from '.';
 import type { ChartConfig } from '../ui/chart';
-import type { displayChart, executeSql } from '@nao/shared/tools';
+import type { executeSql } from '@nao/shared/tools';
 import type { UIMessage } from '@nao/backend/chat';
 import type { DateRange } from '@/lib/charts.utils';
-import { filterByDateRange, sortByDateKey, DATE_RANGE_OPTIONS, toKey, resolveDataKey } from '@/lib/charts.utils';
+import { trpc } from '@/main';
 import { findStoryIds } from '@/lib/story.utils';
-import { useChatId } from '@/hooks/use-chat-id';
+import {
+	DATE_RANGE_OPTIONS,
+	filterByDateRange,
+	resolveDataKey,
+	resolvePieTooltipLabel,
+	sortByDateKey,
+	toKey,
+} from '@/lib/charts.utils';
 import { useDateFormat } from '@/hooks/use-date-format';
+import { useChatId } from '@/hooks/use-chat-id';
 import { useSidePanel } from '@/contexts/side-panel';
 import { StoryViewer } from '@/components/side-panel/story-viewer';
 import { SidePanelContent } from '@/components/side-panel/sql-editor';
-import { trpc } from '@/main';
 
 const Colors = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)', 'var(--chart-5)'];
 const EMPTY_MESSAGES: UIMessage[] = [];
@@ -37,6 +47,9 @@ export const DisplayChartToolCall = ({
 	const queryClient = useQueryClient();
 	const { open: openSidePanel, currentStorySlug, isVisible } = useSidePanel();
 	const config = state !== 'input-streaming' ? input : undefined;
+	const chartConfig = config?.chart_type === 'table' ? undefined : config;
+	const tableConfig = config?.chart_type === 'table' ? config : undefined;
+	const isTableVariant = input?.chart_type === 'table' || config?.chart_type === 'table';
 	const [dataRange, setDataRange] = useState<DateRange>('all');
 	const storyIds = useMemo(() => findStoryIds(messages), [messages]);
 	const normalSize = useMemo(() => (document.querySelector('[data-selection-container]') ? true : false), []);
@@ -60,14 +73,14 @@ export const DisplayChartToolCall = ({
 	const isEditable = Boolean(agent && !agent.isReadonly && !agent.isRunning);
 
 	const handleDownload = async () => {
-		if (!config) {
+		if (!chartConfig) {
 			return;
 		}
 		setIsDownloading(true);
 		try {
 			const image = await queryClient.fetchQuery(trpc.chart.download.queryOptions({ toolCallId }));
 			const link = document.createElement('a');
-			link.download = `${config.title || 'chart'}.png`;
+			link.download = `${chartConfig.title || 'chart'}.png`;
 			link.href = `data:image/png;base64,${image}`;
 			link.click();
 		} catch (err) {
@@ -78,19 +91,19 @@ export const DisplayChartToolCall = ({
 	};
 
 	const sourceQuery = useMemo<{ input?: executeSql.Input; output: executeSql.Output } | null>(() => {
-		if (!config?.query_id) {
+		if (!chartConfig?.query_id) {
 			return null;
 		}
 
 		for (const message of messages) {
 			for (const part of message.parts) {
-				if (part.type === 'tool-execute_sql' && part.output && part.output.id === config.query_id) {
+				if (part.type === 'tool-execute_sql' && part.output && part.output.id === chartConfig.query_id) {
 					return { input: part.input, output: part.output };
 				}
 			}
 		}
 		return null;
-	}, [messages, config?.query_id]);
+	}, [messages, chartConfig?.query_id]);
 
 	const sourceData = sourceQuery?.output ?? null;
 
@@ -102,16 +115,20 @@ export const DisplayChartToolCall = ({
 	}, [openSidePanel, sourceQuery]);
 
 	const filteredData = useMemo(() => {
-		if (!sourceData?.data || !config) {
+		if (!sourceData?.data || !chartConfig) {
 			return [];
 		}
-		if (config.x_axis_type !== 'date') {
+		if (chartConfig.x_axis_type !== 'date') {
 			return sourceData.data;
 		}
-		const xAxisKey = resolveDataKey(sourceData.data, config.x_axis_key);
+		const xAxisKey = resolveDataKey(sourceData.data, chartConfig.x_axis_key);
 		const sorted = sortByDateKey(sourceData.data, xAxisKey);
 		return filterByDateRange(sorted, xAxisKey, dataRange);
-	}, [sourceData?.data, config, dataRange]);
+	}, [sourceData?.data, chartConfig, dataRange]);
+
+	if (isTableVariant) {
+		return <DisplayChartTable config={tableConfig} outputError={output?.error} toolCallId={toolCallId} />;
+	}
 
 	if (output && output.error) {
 		return (
@@ -121,7 +138,7 @@ export const DisplayChartToolCall = ({
 		);
 	}
 
-	if (!config) {
+	if (!chartConfig) {
 		return (
 			<div className='my-4 flex flex-col gap-2 items-center aspect-3/2'>
 				<Skeleton className='w-1/2 h-4' />
@@ -133,7 +150,7 @@ export const DisplayChartToolCall = ({
 		);
 	}
 
-	if (config.series.length === 0) {
+	if (chartConfig.series.length === 0) {
 		return (
 			<div className='my-2 text-foreground/50 text-sm'>
 				Could not display the chart because no series are configured.
@@ -166,7 +183,7 @@ export const DisplayChartToolCall = ({
 		// story.
 		const targetId =
 			isVisible && currentStorySlug && storyIds.includes(currentStorySlug) ? currentStorySlug : latestStoryId;
-		if (!targetId || !config || !chatId) {
+		if (!targetId || !chartConfig || !chatId) {
 			return;
 		}
 
@@ -179,7 +196,7 @@ export const DisplayChartToolCall = ({
 			return;
 		}
 
-		const chartBlock = buildStoryChartBlock(config);
+		const chartBlock = buildStoryChartBlock(chartConfig);
 		const newCode = latest.code.trimEnd() + '\n\n' + chartBlock;
 
 		addToStoryMutation.mutate({
@@ -197,11 +214,11 @@ export const DisplayChartToolCall = ({
 
 	return (
 		<div
-			className={`flex flex-col items-stretch w-full my-4 gap-4 ${config.chart_type !== 'kpi_card' && !normalSize ? 'aspect-3/2' : ''}`}
+			className={`flex flex-col items-stretch w-full my-4 gap-4 ${chartConfig.chart_type !== 'kpi_card' && !normalSize ? 'aspect-3/2' : ''}`}
 		>
 			<div className='flex w-full items-center justify-between gap-2'>
-				{config.chart_type != 'kpi_card' ? (
-					<span className='text-sm font-medium text-foreground flex-1'>{config.title}</span>
+				{chartConfig.chart_type != 'kpi_card' ? (
+					<span className='text-sm font-medium text-foreground flex-1'>{chartConfig.title}</span>
 				) : (
 					<div></div>
 				)}
@@ -217,7 +234,7 @@ export const DisplayChartToolCall = ({
 							<span className='text-xs'>Add to story</span>
 						</Button>
 					)}
-					{config.chart_type !== 'pie' && config.x_axis_type === 'date' && (
+					{!displayChart.isPieChart(chartConfig.chart_type) && chartConfig.x_axis_type === 'date' && (
 						<ChartRangeSelector
 							options={DATE_RANGE_OPTIONS}
 							selectedRange={dataRange}
@@ -235,7 +252,7 @@ export const DisplayChartToolCall = ({
 							<Code className='size-4' />
 						</Button>
 					)}
-					{config.chart_type != 'kpi_card' && (
+					{chartConfig.chart_type != 'kpi_card' && (
 						<Button
 							variant='ghost'
 							size='icon-xs'
@@ -266,18 +283,19 @@ export const DisplayChartToolCall = ({
 					open={isEditOpen}
 					onOpenChange={setIsEditOpen}
 					toolCallId={toolCallId}
-					config={config}
+					config={chartConfig}
 					availableColumns={sourceData.columns ?? []}
 				/>
 			)}
 
 			<ChartDisplay
 				data={filteredData}
-				chartType={config.chart_type}
-				xAxisKey={config.x_axis_key}
-				series={config.series}
-				xAxisType={config.x_axis_type === 'number' ? 'number' : 'category'}
-				title={config.title}
+				chartType={chartConfig.chart_type}
+				xAxisKey={chartConfig.x_axis_key}
+				series={chartConfig.series}
+				xAxisType={chartConfig.x_axis_type === 'number' ? 'number' : 'category'}
+				title={chartConfig.title}
+				showDataLabels={chartConfig.show_data_labels}
 			/>
 		</div>
 	);
@@ -292,6 +310,7 @@ export interface ChartDisplayProps {
 	series: displayChart.SeriesConfig[];
 	title?: string;
 	showGrid?: boolean;
+	showDataLabels?: boolean;
 }
 
 export const ChartDisplay = memo(function ChartDisplay({
@@ -303,6 +322,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 	series: seriesProp,
 	title,
 	showGrid = true,
+	showDataLabels,
 }: ChartDisplayProps) {
 	const dateFormat = useDateFormat();
 
@@ -313,14 +333,22 @@ export const ChartDisplay = memo(function ChartDisplay({
 	);
 
 	const { visibleSeries, hiddenSeriesKeys, handleToggleSeriesVisibility } = useSeriesVisibility(series);
+	const isPercentStacked = displayChart.isPercentStackedChartType(chartType);
+
+	const isPie = displayChart.isPieChart(chartType);
+	const pieValueKey = series[0]?.data_key ?? '';
+	const pieData = useMemo(
+		() => (isPie ? bucketPieData(data, xAxisKey, pieValueKey) : data),
+		[isPie, data, xAxisKey, pieValueKey],
+	);
 
 	const chartConfig = useMemo((): ChartConfig => {
-		if (chartType === 'pie') {
-			const values = new Set(data.map((item) => String(item[xAxisKey])));
-			return [...values].reduce(
-				(acc, v, index) => {
-					acc[toKey(v)] = {
-						label: labelize(v, dateFormat),
+		if (isPie) {
+			return pieData.reduce<ChartConfig>(
+				(acc, item, index) => {
+					const category = String(item[xAxisKey]);
+					acc[toKey(category)] = {
+						label: labelize(category, dateFormat),
 						color: Colors[index % Colors.length],
 					};
 					return acc;
@@ -329,7 +357,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 					[xAxisKey]: {
 						label: labelize(xAxisKey, dateFormat),
 					},
-				} as ChartConfig,
+				},
 			);
 		}
 
@@ -341,36 +369,53 @@ export const ChartDisplay = memo(function ChartDisplay({
 			};
 			return acc;
 		}, {} as ChartConfig);
-	}, [series, xAxisKey, data, chartType, dateFormat]);
+	}, [series, xAxisKey, pieData, isPie, dateFormat]);
 
 	const colorFor = useMemo(
 		() =>
-			chartType === 'pie'
+			isPie
 				? (value: string, _i: number) => `var(--color-${toKey(value)})`
 				: (dataKey: string, _i: number) => `var(--color-${dataKey})`,
-		[chartType],
+		[isPie],
 	);
 
-	const legendPayload = useMemo(
-		() =>
-			series.map((s, idx) => ({
-				value: s.label || labelize(s.data_key, dateFormat),
-				dataKey: s.data_key,
-				color: s.color || Colors[idx % Colors.length],
-				isHidden: hiddenSeriesKeys.has(s.data_key),
-			})),
-		[series, hiddenSeriesKeys, dateFormat],
-	);
+	const legendPayload = useMemo(() => {
+		if (isPie) {
+			return pieData.map((item, index) => {
+				const category = String(item[xAxisKey]);
+				return {
+					value: category,
+					dataKey: toKey(category),
+					color: Colors[index % Colors.length],
+					isHidden: false,
+				};
+			});
+		}
+		return series.map((s, idx) => ({
+			value: s.label || labelize(s.data_key, dateFormat),
+			dataKey: s.data_key,
+			color: s.color || Colors[idx % Colors.length],
+			isHidden: hiddenSeriesKeys.has(s.data_key),
+		}));
+	}, [isPie, pieData, xAxisKey, series, hiddenSeriesKeys, dateFormat]);
 
 	const labelFormatter = useMemo(
 		() => xAxisLabelFormatter ?? ((value: string) => labelize(value, dateFormat)),
 		[xAxisLabelFormatter, dateFormat],
 	);
 
+	const tooltipLabelFormatter = useMemo(
+		() => (value: unknown, items: unknown) =>
+			isPie
+				? labelize(resolvePieTooltipLabel(items as { name?: unknown }[]), dateFormat)
+				: labelize(value as string, dateFormat),
+		[isPie, dateFormat],
+	);
+
 	const chartElement = useMemo(
 		() =>
 			buildChart({
-				data,
+				data: pieData,
 				chartType,
 				xAxisKey,
 				xAxisType,
@@ -378,6 +423,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 				colorFor,
 				labelFormatter,
 				showGrid,
+				showDataLabels,
 				margin: { top: 0, right: 0, bottom: 0, left: 0 },
 				children: [
 					<ChartTooltip
@@ -385,13 +431,23 @@ export const ChartDisplay = memo(function ChartDisplay({
 						animationDuration={150}
 						animationEasing='linear'
 						allowEscapeViewBox={{ y: true, x: false }}
-						content={<ChartTooltipContent labelFormatter={(value) => labelize(value, dateFormat)} />}
+						content={
+							<ChartTooltipContent percent={isPercentStacked} labelFormatter={tooltipLabelFormatter} />
+						}
 					/>,
-					chartType !== 'pie' && (
+					chartType !== 'kpi_card' && (
 						<ChartLegend
 							key='legend'
 							payload={legendPayload}
-							content={<ChartLegendContent onItemClick={handleToggleSeriesVisibility} />}
+							layout={isPie ? 'vertical' : 'horizontal'}
+							align={isPie ? 'right' : 'center'}
+							verticalAlign={isPie ? 'middle' : 'bottom'}
+							content={
+								<ChartLegendContent
+									layout={isPie ? 'vertical' : 'horizontal'}
+									onItemClick={isPie ? undefined : handleToggleSeriesVisibility}
+								/>
+							}
 						/>
 					),
 				],
@@ -399,18 +455,21 @@ export const ChartDisplay = memo(function ChartDisplay({
 				renderTitle: false,
 			}),
 		[
-			data,
+			pieData,
 			chartType,
+			isPie,
 			xAxisKey,
 			xAxisType,
 			visibleSeries,
 			colorFor,
 			labelFormatter,
+			tooltipLabelFormatter,
 			showGrid,
+			showDataLabels,
 			legendPayload,
 			handleToggleSeriesVisibility,
 			title,
-			dateFormat,
+			isPercentStacked,
 		],
 	);
 

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { llmProviderSchema } from '@nao/backend/llm';
-import type { CustomModelMetadata } from '@nao/backend/llm';
+import type { CustomModelMetadata, ModelSettingsMap } from '@nao/backend/llm';
 import type { LlmProvider } from '@nao/shared/types';
 import { trpc } from '@/main';
 
@@ -12,6 +12,7 @@ export interface EditingState {
 	initialValues?: {
 		enabledModels: string[];
 		customModels: CustomModelMetadata[];
+		modelSettings: ModelSettingsMap;
 		baseUrl: string;
 	};
 }
@@ -60,6 +61,7 @@ export function useLlmProviders() {
 		credentials?: Record<string, string>;
 		enabledModels: string[];
 		customModels: CustomModelMetadata[];
+		modelSettings: ModelSettingsMap;
 		baseUrl?: string;
 	}) => {
 		if (!editingState?.provider) {
@@ -72,6 +74,7 @@ export function useLlmProviders() {
 			credentials: values.credentials,
 			enabledModels: values.enabledModels,
 			customModels: values.customModels,
+			modelSettings: values.modelSettings,
 			baseUrl: values.baseUrl,
 		});
 		await invalidateQueries();
@@ -92,6 +95,7 @@ export function useLlmProviders() {
 			initialValues: {
 				enabledModels: config.enabledModels ?? [],
 				customModels: config.customModels ?? [],
+				modelSettings: config.modelSettings ?? {},
 				baseUrl: config.baseUrl ?? '',
 			},
 		});

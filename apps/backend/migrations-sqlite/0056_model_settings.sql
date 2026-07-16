@@ -1,0 +1,1 @@
+ALTER TABLE `project_llm_config` ADD `model_settings` text DEFAULT '{}' NOT NULL;

@@ -367,7 +367,7 @@ function appendInlineChartImages(html: string, attachments: GeneratedArtifactAtt
 	return `${html}${chartSection}`;
 }
 
-function uniqueCharts(charts: displayChart.Input[]): displayChart.Input[] {
+function uniqueCharts(charts: displayChart.ChartInput[]): displayChart.ChartInput[] {
 	const seen = new Set<string>();
 	return charts.filter((chart) => {
 		const key = JSON.stringify(chart);

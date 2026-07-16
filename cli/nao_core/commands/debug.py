@@ -24,17 +24,25 @@ def _check_available_models(llm_config) -> Tuple[bool, str]:
     provider = llm_config.provider.value
     api_key = llm_config.api_key
 
+    base_url = llm_config.base_url
+
     if provider == "openai":
         require_dependency("openai", "openai", "for OpenAI LLM provider")
         from openai import OpenAI
 
-        client = OpenAI(api_key=api_key)
+        kwargs = {"api_key": api_key}
+        if base_url:
+            kwargs["base_url"] = base_url
+        client = OpenAI(**kwargs)
         models = client.models.list()
     elif provider == "anthropic":
         require_dependency("anthropic", "anthropic", "for Anthropic LLM provider")
         from anthropic import Anthropic
 
-        client = Anthropic(api_key=api_key)
+        kwargs = {"api_key": api_key}
+        if base_url:
+            kwargs["base_url"] = base_url
+        client = Anthropic(**kwargs)
         models = client.models.list()
     elif provider == "gemini":
         require_dependency("google.genai", "gemini", "for Google Gemini LLM provider")
@@ -52,7 +60,7 @@ def _check_available_models(llm_config) -> Tuple[bool, str]:
         require_dependency("openai", "openai", "for OpenRouter LLM provider")
         from openai import OpenAI
 
-        client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=api_key)
+        client = OpenAI(base_url=base_url or "https://openrouter.ai/api/v1", api_key=api_key)
         models = client.models.list()
     elif provider == "ollama":
         require_dependency("ollama", "ollama", "for Ollama LLM provider")

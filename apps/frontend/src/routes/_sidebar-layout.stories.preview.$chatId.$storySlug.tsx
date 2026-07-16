@@ -21,6 +21,7 @@ import { StoryPageBody } from '@/components/story-page-body';
 import { StoryPageHeader } from '@/components/story-page-header';
 import { SelectionProvider } from '@/contexts/text-selection';
 import { StoryChartEditProvider } from '@/contexts/story-chart-edit';
+import { StoryTableEditProvider } from '@/contexts/story-table-edit';
 import { chatPendingCitationStore } from '@/stores/chat-pending-citation';
 import { useChatActivity } from '@/hooks/use-chat-activity';
 import { useStoryPageEditor } from '@/hooks/use-story-page-editor';
@@ -149,7 +150,7 @@ function StoryPreviewPage() {
 					<SelectionProvider key={storySlug}>
 						<HighlightBubble onAsk={handleSelectionAsk} disabled={isChatRunning} />
 						{renderWithChartEditProvider(
-							canEditCharts && editor.versionNav.isViewingLatest,
+							canEditCharts && editor.versionNav.isViewingLatest && !isChatRunning,
 							{ chatId, storySlug, storyTitle: story.title, storyCode: editor.code },
 							<PreviewContent
 								code={editor.code}
@@ -207,7 +208,14 @@ function renderWithChartEditProvider(
 			storyTitle={params.storyTitle}
 			storyCode={params.storyCode}
 		>
-			{children}
+			<StoryTableEditProvider
+				chatId={params.chatId}
+				storySlug={params.storySlug}
+				storyTitle={params.storyTitle}
+				storyCode={params.storyCode}
+			>
+				{children}
+			</StoryTableEditProvider>
 		</StoryChartEditProvider>
 	);
 }

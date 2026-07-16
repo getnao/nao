@@ -130,3 +130,34 @@ TODO
 ### 8. Provide context
 
 - Explain what the numbers mean for the business; highlight trends, anomalies, notable patterns.
+
+## Chart & Visualization Guidelines
+
+> How every chart should look, so the whole project stays on-brand and consistent.
+
+### Color palette (brand)
+
+**Always use the brand colors below for every chart.** Never fall back to the charting library's default palette — pick from these colors or close tints/shades of them.
+
+TODO: fill in the brand series colors from the company's design system / brand guidelines (add or remove rows as needed).
+
+| Hex       | Role                                  |
+| --------- | ------------------------------------- |
+| `#RRGGBB` | Primary — default single-series color |
+| `#RRGGBB` | Secondary                             |
+| `#RRGGBB` | ... (extend to ~6 shades)             |
+
+- **Single-series charts**: use the primary brand color.
+- **Multi-series charts**: assign colors across the palette above; beyond ~6 series, use additional tints/shades of the brand colors rather than introducing off-brand hues.
+
+### Semantic colors (good vs. bad)
+
+When a chart encodes whether numbers are good or bad (deltas, variances, positive/negative KPIs), use fixed semantic colors — not the brand palette:
+
+| Hex       | Meaning                 |
+| --------- | ----------------------- |
+| `#RRGGBB` | positive / good numbers |
+| `#RRGGBB` | negative / bad numbers  |
+
+- Use tints of these two colors for gradients or multiple good/bad levels.
+- Use the brand (neutral) colors for purely categorical series that don't carry a good/bad meaning.
