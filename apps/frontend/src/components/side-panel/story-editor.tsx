@@ -12,14 +12,16 @@ import { Markdown } from '@tiptap/markdown';
 import { EditorContent, NodeViewWrapper, ReactNodeViewRenderer, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { GripVertical } from 'lucide-react';
-import { memo, useEffect, useMemo, useRef } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
 import { Streamdown } from 'streamdown';
 
 import { StoryChartEmbed } from './story-chart-embed';
 import { StoryTableEmbed } from './story-table-embed';
-import type { Segment } from '@nao/shared/story-segments';
-import type { Editor as CoreEditor } from '@tiptap/core';
 import type { Editor, ReactNodeViewProps } from '@tiptap/react';
+import type { Editor as CoreEditor } from '@tiptap/core';
+import type { Segment } from '@nao/shared/story-segments';
+import { replaceUniqueChartTag } from '@/contexts/story-chart-edit-utils';
+import { EditorStoryChartEditProvider } from '@/contexts/story-chart-edit';
 
 // ---------------------------------------------------------------------------
 // Encoding helpers for data-raw attributes
@@ -60,7 +62,7 @@ export function preprocessForEditor(code: string): string {
 // ChartBlock extension – atom node rendered as an interactive chart
 // ---------------------------------------------------------------------------
 
-function ChartBlockView({ node }: ReactNodeViewProps) {
+function ChartBlockView({ node, updateAttributes }: ReactNodeViewProps) {
 	const rawTag = node.attrs.rawTag as string;
 
 	const chart = useMemo(() => {
@@ -71,6 +73,11 @@ function ChartBlockView({ node }: ReactNodeViewProps) {
 		const parsed = parseChartBlock(attrMatch[1]);
 		return parsed ? { ...parsed, rawTag } : null;
 	}, [rawTag]);
+
+	const handleReplaceTag = useCallback(
+		(_rawTag: string, nextTag: string) => updateAttributes({ rawTag: nextTag }),
+		[updateAttributes],
+	);
 
 	if (!chart) {
 		return (
@@ -85,7 +92,9 @@ function ChartBlockView({ node }: ReactNodeViewProps) {
 	return (
 		<NodeViewWrapper draggable data-type='chart-block'>
 			<div className='my-2'>
-				<StoryChartEmbed chart={chart} />
+				<EditorStoryChartEditProvider onReplaceTag={handleReplaceTag}>
+					<StoryChartEmbed chart={chart} />
+				</EditorStoryChartEditProvider>
 			</div>
 		</NodeViewWrapper>
 	);
@@ -213,7 +222,7 @@ const TableBlock = Node.create({
 // GridBlock extension – atom node rendered as a grid of charts/markdown
 // ---------------------------------------------------------------------------
 
-function GridBlockView({ node }: ReactNodeViewProps) {
+function GridBlockView({ node, updateAttributes }: ReactNodeViewProps) {
 	const rawContent = node.attrs.rawContent as string;
 
 	const { cols, segments } = useMemo(() => {
@@ -228,6 +237,16 @@ function GridBlockView({ node }: ReactNodeViewProps) {
 		};
 	}, [rawContent]);
 
+	const handleReplaceTag = useCallback(
+		(rawTag: string, nextTag: string) => {
+			const nextContent = replaceUniqueChartTag(rawContent, rawTag, nextTag);
+			if (nextContent !== rawContent) {
+				updateAttributes({ rawContent: nextContent });
+			}
+		},
+		[rawContent, updateAttributes],
+	);
+
 	const gridClass = getGridClass(cols);
 
 	return (
@@ -239,7 +258,9 @@ function GridBlockView({ node }: ReactNodeViewProps) {
 							{segment.type === 'markdown' ? (
 								<Streamdown mode='static'>{segment.content}</Streamdown>
 							) : segment.type === 'chart' ? (
-								<StoryChartEmbed chart={segment.chart} />
+								<EditorStoryChartEditProvider onReplaceTag={handleReplaceTag}>
+									<StoryChartEmbed chart={segment.chart} />
+								</EditorStoryChartEditProvider>
 							) : segment.type === 'table' ? (
 								<StoryTableEmbed table={segment.table} />
 							) : null}

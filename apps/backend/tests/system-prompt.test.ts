@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { formatDate, resolveTimezone, SystemPrompt } from '../src/components/ai/system-prompt';
+import { SystemPrompt } from '../src/components/ai/system-prompt';
 import { renderToMarkdown } from '../src/lib/markdown';
+import { formatCurrentDate, resolveTimezone } from '../src/utils/date';
 
 describe('resolveTimezone', () => {
 	it('returns UTC when no timezone is provided', () => {
@@ -23,7 +24,7 @@ describe('resolveTimezone', () => {
 	});
 });
 
-describe('formatDate', () => {
+describe('formatCurrentDate', () => {
 	beforeEach(() => {
 		vi.useFakeTimers();
 		vi.setSystemTime(new Date('2026-03-10T15:00:00Z'));
@@ -34,23 +35,23 @@ describe('formatDate', () => {
 	});
 
 	it('formats date in UTC and appends (UTC) when no timezone is given', () => {
-		const result = formatDate();
+		const result = formatCurrentDate();
 		expect(result).toBe('Tuesday, March 10, 2026 (UTC)');
 	});
 
 	it('formats date in the given timezone and appends the timezone name', () => {
-		const result = formatDate('America/New_York');
+		const result = formatCurrentDate('America/New_York');
 		expect(result).toBe('Tuesday, March 10, 2026 (America/New_York)');
 	});
 
 	it('handles timezone where the date differs from UTC', () => {
 		vi.setSystemTime(new Date('2026-03-11T01:00:00Z'));
-		expect(formatDate('America/Los_Angeles')).toBe('Tuesday, March 10, 2026 (America/Los_Angeles)');
-		expect(formatDate('UTC')).toBe('Wednesday, March 11, 2026 (UTC)');
+		expect(formatCurrentDate('America/Los_Angeles')).toBe('Tuesday, March 10, 2026 (America/Los_Angeles)');
+		expect(formatCurrentDate('UTC')).toBe('Wednesday, March 11, 2026 (UTC)');
 	});
 
 	it('falls back to UTC for invalid timezone', () => {
-		const result = formatDate('Invalid/Zone');
+		const result = formatCurrentDate('Invalid/Zone');
 		expect(result).toBe('Tuesday, March 10, 2026 (UTC)');
 	});
 });

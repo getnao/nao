@@ -5,6 +5,7 @@ export interface ParsedChartBlock {
 	xAxisType: string | null;
 	series: Array<{ data_key: string; color: string; label?: string; is_total?: boolean }>;
 	title: string;
+	showDataLabels?: boolean;
 	/** The original `<chart ... />` tag this block was parsed from, when available. */
 	rawTag?: string;
 }
@@ -61,6 +62,7 @@ export function parseChartBlock(attrString: string): ParsedChartBlock | null {
 		xAxisType: attrs.x_axis_type || null,
 		series,
 		title: attrs.title || '',
+		showDataLabels: attrs.show_data_labels === 'true',
 	};
 }
 

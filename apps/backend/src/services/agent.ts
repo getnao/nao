@@ -19,8 +19,9 @@ import {
 } from 'ai';
 import { z } from 'zod';
 
-import { LLM_PROVIDERS, ProviderModelResult } from '../agents/providers';
+import { fitThinkingBudget, LLM_PROVIDERS, ProviderModelResult } from '../agents/providers';
 import { getSystemPromptOverride, hasNaoPromptPlaceholder, injectNaoPrompt } from '../agents/system-prompts';
+import { llmTelemetry } from '../agents/telemetry';
 import { getTools } from '../agents/tools';
 import { createWebSearchTools } from '../agents/tools/web-search';
 import { getConnections, getTableColumnsContent, getUserRules } from '../agents/user-rules';
@@ -356,15 +357,39 @@ class AgentManager {
 		stopWhen: StopCondition<AgentTools>[] = [hasToolCall('suggest_follow_ups'), hasToolCall('clarification')],
 		private readonly _systemPromptOverride?: string,
 	) {
+		const callSettings = this._modelConfig.callSettings ?? {};
+		const provider = this._modelSelection.provider;
+		const providerOptions = fitThinkingBudget(this._modelConfig.providerOptions, this._maxOutputTokens);
+		const providerParams = Object.values(providerOptions)[0];
 		this._agent = new ToolLoopAgent({
 			model: this._modelConfig.model,
-			providerOptions: this._modelConfig.providerOptions,
+			providerOptions,
 			tools: this._agentTools,
-			maxOutputTokens: MAX_OUTPUT_TOKENS,
+			maxOutputTokens: this._maxOutputTokens,
+			...(callSettings.temperature !== undefined && { temperature: callSettings.temperature }),
+			...(callSettings.topP !== undefined && { topP: callSettings.topP }),
+			...(callSettings.topK !== undefined && { topK: callSettings.topK }),
 			prepareStep: async ({ messages }) => this._prepareStep(messages),
 			stopWhen,
 			experimental_context: this._toolContext,
+			experimental_telemetry: llmTelemetry('nao-agent', {
+				sessionId: this.chat.id,
+				userId: this.chat.userId,
+				tags: [provider],
+				projectId: this.chat.projectId,
+				model: this._modelSelection.modelId,
+				...(callSettings.temperature !== undefined && { temperature: callSettings.temperature }),
+				...(callSettings.topP !== undefined && { topP: callSettings.topP }),
+				...(callSettings.topK !== undefined && { topK: callSettings.topK }),
+				...(callSettings.maxOutputTokens !== undefined && { maxOutputTokens: callSettings.maxOutputTokens }),
+				...(providerParams &&
+					Object.keys(providerParams).length > 0 && { providerOptions: JSON.stringify(providerParams) }),
+			}),
 		});
+	}
+
+	private get _maxOutputTokens(): number {
+		return this._modelConfig.callSettings?.maxOutputTokens ?? MAX_OUTPUT_TOKENS;
 	}
 
 	private async _prepareStep(messages: ModelMessage[]): Promise<{ messages: ModelMessage[] }> {
@@ -373,7 +398,7 @@ class AgentManager {
 			provider: this._modelSelection.provider,
 			messages,
 			tools: this._agentTools,
-			maxOutputTokens: MAX_OUTPUT_TOKENS,
+			maxOutputTokens: this._maxOutputTokens,
 			contextWindow: this._modelConfig.contextWindow,
 			onCompactionStarted: () => {
 				this._streamWriter?.write({
@@ -691,6 +716,11 @@ class AgentManager {
 				}),
 			}),
 			maxOutputTokens: 60,
+			experimental_telemetry: llmTelemetry('nao-generate-title', {
+				sessionId: this.chat.id,
+				userId: this.chat.userId,
+				tags: [provider],
+			}),
 		});
 
 		const title = output?.title.trim();

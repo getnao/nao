@@ -13,7 +13,10 @@ import {
 } from '../utils/generate-chart';
 
 export interface RenderChartInput {
-	config: Pick<displayChart.Input, 'chart_type' | 'x_axis_key' | 'x_axis_type' | 'series' | 'title'>;
+	config: Pick<
+		displayChart.Input,
+		'chart_type' | 'x_axis_key' | 'x_axis_type' | 'series' | 'title' | 'show_data_labels'
+	>;
 	data: Record<string, unknown>[];
 	width?: number;
 	height?: number;
@@ -71,6 +74,7 @@ export function renderChartToSvg(input: RenderChartInput): string {
 		colorFor,
 		labelFormatter,
 		showGrid: true,
+		showDataLabels: config.show_data_labels,
 		margin,
 		title: config.title,
 		maxXAxisTicks: Math.floor(chartWidth / maxLabelWidth),

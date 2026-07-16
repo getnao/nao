@@ -68,6 +68,26 @@ export const DIALECT_GUIDANCE: DialectGuidance[] = [
 			<>
 				Use <Code>SAFE_DIVIDE</Code> for division to avoid division-by-zero errors.
 			</>,
+			<>
+				In a <Code>GROUP BY</Code> query, every column referenced inside a window <Code>ORDER BY</Code>/
+				<Code>PARTITION BY</Code> must be in the <Code>GROUP BY</Code> or wrapped in an aggregate. Wrong:{' '}
+				<Code>SUM(SUM(x)) OVER (ORDER BY DATE_TRUNC(DATE(created_at), MONTH))</Code>. Right: group by the month
+				first, e.g. <Code>SUM(SUM(x)) OVER (ORDER BY month)</Code>.
+			</>,
+			<>
+				Do not use the inline <Code>VALUES</Code> table constructor (<Code>FROM (VALUES (...)) AS t(...)</Code>)
+				— it is not supported. Build literal rows with <Code>SELECT ... UNION ALL SELECT ...</Code> or{' '}
+				<Code>UNNEST([STRUCT(...), STRUCT(...)])</Code>.
+			</>,
+			<>
+				Do not use <Code>IGNORE NULLS</Code>/<Code>RESPECT NULLS</Code> with <Code>STRING_AGG</Code> — they are
+				not supported on that function.
+			</>,
+			<>
+				Use <Code>LOGICAL_OR()</Code>/<Code>LOGICAL_AND()</Code> instead of the Postgres/DuckDB{' '}
+				<Code>BOOL_OR()</Code>/<Code>BOOL_AND()</Code>. An <Code>ORDER BY</Code> that references a column not in
+				the <Code>GROUP BY</Code> and not aggregated raises a 400 error.
+			</>,
 		],
 	},
 	{
