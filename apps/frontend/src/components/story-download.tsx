@@ -18,6 +18,7 @@ interface StoryDownloadOptions {
 	shareId?: string;
 	shareType?: 'chat' | 'story';
 	isOwner?: boolean;
+	isPublicShare?: boolean;
 	versionNumber?: number;
 }
 
@@ -28,6 +29,7 @@ function useStoryDownload({
 	shareId,
 	shareType = 'story',
 	isOwner = true,
+	isPublicShare = false,
 	versionNumber,
 }: StoryDownloadOptions) {
 	const [isDownloading, setIsDownloading] = useState(false);
@@ -58,6 +60,8 @@ function useStoryDownload({
 					format,
 					versionNumber,
 				});
+			} else if (isPublicShare) {
+				result = await trpcClient.storyShare.downloadPublic.query({ shareId: shareId!, format, versionNumber });
 			} else {
 				result = await trpcClient.storyShare.download.query({ shareId: shareId!, format, versionNumber });
 			}

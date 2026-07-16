@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as SignupRouteImport } from './routes/signup'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
+import { Route as PublicRouteImport } from './routes/public'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
 import { Route as EmbedRouteImport } from './routes/embed'
@@ -22,6 +23,7 @@ import { Route as SidebarLayoutStoriesIndexRouteImport } from './routes/_sidebar
 import { Route as SidebarLayoutSettingsIndexRouteImport } from './routes/_sidebar-layout.settings.index'
 import { Route as SidebarLayoutFeedIndexRouteImport } from './routes/_sidebar-layout.feed.index'
 import { Route as SidebarLayoutChatLayoutIndexRouteImport } from './routes/_sidebar-layout._chat-layout.index'
+import { Route as PublicStoriesShareIdRouteImport } from './routes/public.stories.$shareId'
 import { Route as EmbedStoryStoryIdRouteImport } from './routes/embed.story.$storyId'
 import { Route as EmbedChartChartEmbedIdRouteImport } from './routes/embed.chart.$chartEmbedId'
 import { Route as SidebarLayoutSharedChatShareIdRouteImport } from './routes/_sidebar-layout.shared-chat.$shareId'
@@ -62,6 +64,11 @@ const SignupRoute = SignupRouteImport.update({
 const ResetPasswordRoute = ResetPasswordRouteImport.update({
   id: '/reset-password',
   path: '/reset-password',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PublicRoute = PublicRouteImport.update({
+  id: '/public',
+  path: '/public',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginRoute = LoginRouteImport.update({
@@ -120,6 +127,11 @@ const SidebarLayoutChatLayoutIndexRoute =
     path: '/',
     getParentRoute: () => SidebarLayoutChatLayoutRoute,
   } as any)
+const PublicStoriesShareIdRoute = PublicStoriesShareIdRouteImport.update({
+  id: '/stories/$shareId',
+  path: '/stories/$shareId',
+  getParentRoute: () => PublicRoute,
+} as any)
 const EmbedStoryStoryIdRoute = EmbedStoryStoryIdRouteImport.update({
   id: '/story/$storyId',
   path: '/story/$storyId',
@@ -311,6 +323,7 @@ export interface FileRoutesByFullPath {
   '/embed': typeof EmbedRouteWithChildren
   '/forgot-password': typeof ForgotPasswordRoute
   '/login': typeof LoginRoute
+  '/public': typeof PublicRouteWithChildren
   '/reset-password': typeof ResetPasswordRoute
   '/signup': typeof SignupRoute
   '/settings': typeof SidebarLayoutSettingsRouteWithChildren
@@ -331,6 +344,7 @@ export interface FileRoutesByFullPath {
   '/shared-chat/$shareId': typeof SidebarLayoutSharedChatShareIdRoute
   '/embed/chart/$chartEmbedId': typeof EmbedChartChartEmbedIdRoute
   '/embed/story/$storyId': typeof EmbedStoryStoryIdRoute
+  '/public/stories/$shareId': typeof PublicStoriesShareIdRoute
   '/feed/': typeof SidebarLayoutFeedIndexRoute
   '/settings/': typeof SidebarLayoutSettingsIndexRoute
   '/stories/': typeof SidebarLayoutStoriesIndexRoute
@@ -355,6 +369,7 @@ export interface FileRoutesByTo {
   '/embed': typeof EmbedRouteWithChildren
   '/forgot-password': typeof ForgotPasswordRoute
   '/login': typeof LoginRoute
+  '/public': typeof PublicRouteWithChildren
   '/reset-password': typeof ResetPasswordRoute
   '/signup': typeof SignupRoute
   '/$chatId': typeof SidebarLayoutChatLayoutChatIdRoute
@@ -373,6 +388,7 @@ export interface FileRoutesByTo {
   '/shared-chat/$shareId': typeof SidebarLayoutSharedChatShareIdRoute
   '/embed/chart/$chartEmbedId': typeof EmbedChartChartEmbedIdRoute
   '/embed/story/$storyId': typeof EmbedStoryStoryIdRoute
+  '/public/stories/$shareId': typeof PublicStoriesShareIdRoute
   '/feed': typeof SidebarLayoutFeedIndexRoute
   '/settings': typeof SidebarLayoutSettingsIndexRoute
   '/stories': typeof SidebarLayoutStoriesIndexRoute
@@ -398,6 +414,7 @@ export interface FileRoutesById {
   '/embed': typeof EmbedRouteWithChildren
   '/forgot-password': typeof ForgotPasswordRoute
   '/login': typeof LoginRoute
+  '/public': typeof PublicRouteWithChildren
   '/reset-password': typeof ResetPasswordRoute
   '/signup': typeof SignupRoute
   '/_sidebar-layout/_chat-layout': typeof SidebarLayoutChatLayoutRouteWithChildren
@@ -419,6 +436,7 @@ export interface FileRoutesById {
   '/_sidebar-layout/shared-chat/$shareId': typeof SidebarLayoutSharedChatShareIdRoute
   '/embed/chart/$chartEmbedId': typeof EmbedChartChartEmbedIdRoute
   '/embed/story/$storyId': typeof EmbedStoryStoryIdRoute
+  '/public/stories/$shareId': typeof PublicStoriesShareIdRoute
   '/_sidebar-layout/_chat-layout/': typeof SidebarLayoutChatLayoutIndexRoute
   '/_sidebar-layout/feed/': typeof SidebarLayoutFeedIndexRoute
   '/_sidebar-layout/settings/': typeof SidebarLayoutSettingsIndexRoute
@@ -446,6 +464,7 @@ export interface FileRouteTypes {
     | '/embed'
     | '/forgot-password'
     | '/login'
+    | '/public'
     | '/reset-password'
     | '/signup'
     | '/settings'
@@ -466,6 +485,7 @@ export interface FileRouteTypes {
     | '/shared-chat/$shareId'
     | '/embed/chart/$chartEmbedId'
     | '/embed/story/$storyId'
+    | '/public/stories/$shareId'
     | '/feed/'
     | '/settings/'
     | '/stories/'
@@ -490,6 +510,7 @@ export interface FileRouteTypes {
     | '/embed'
     | '/forgot-password'
     | '/login'
+    | '/public'
     | '/reset-password'
     | '/signup'
     | '/$chatId'
@@ -508,6 +529,7 @@ export interface FileRouteTypes {
     | '/shared-chat/$shareId'
     | '/embed/chart/$chartEmbedId'
     | '/embed/story/$storyId'
+    | '/public/stories/$shareId'
     | '/feed'
     | '/settings'
     | '/stories'
@@ -532,6 +554,7 @@ export interface FileRouteTypes {
     | '/embed'
     | '/forgot-password'
     | '/login'
+    | '/public'
     | '/reset-password'
     | '/signup'
     | '/_sidebar-layout/_chat-layout'
@@ -553,6 +576,7 @@ export interface FileRouteTypes {
     | '/_sidebar-layout/shared-chat/$shareId'
     | '/embed/chart/$chartEmbedId'
     | '/embed/story/$storyId'
+    | '/public/stories/$shareId'
     | '/_sidebar-layout/_chat-layout/'
     | '/_sidebar-layout/feed/'
     | '/_sidebar-layout/settings/'
@@ -579,6 +603,7 @@ export interface RootRouteChildren {
   EmbedRoute: typeof EmbedRouteWithChildren
   ForgotPasswordRoute: typeof ForgotPasswordRoute
   LoginRoute: typeof LoginRoute
+  PublicRoute: typeof PublicRouteWithChildren
   ResetPasswordRoute: typeof ResetPasswordRoute
   SignupRoute: typeof SignupRoute
 }
@@ -597,6 +622,13 @@ declare module '@tanstack/react-router' {
       path: '/reset-password'
       fullPath: '/reset-password'
       preLoaderRoute: typeof ResetPasswordRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/public': {
+      id: '/public'
+      path: '/public'
+      fullPath: '/public'
+      preLoaderRoute: typeof PublicRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/login': {
@@ -675,6 +707,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/'
       preLoaderRoute: typeof SidebarLayoutChatLayoutIndexRouteImport
       parentRoute: typeof SidebarLayoutChatLayoutRoute
+    }
+    '/public/stories/$shareId': {
+      id: '/public/stories/$shareId'
+      path: '/stories/$shareId'
+      fullPath: '/public/stories/$shareId'
+      preLoaderRoute: typeof PublicStoriesShareIdRouteImport
+      parentRoute: typeof PublicRoute
     }
     '/embed/story/$storyId': {
       id: '/embed/story/$storyId'
@@ -1042,12 +1081,24 @@ const EmbedRouteChildren: EmbedRouteChildren = {
 
 const EmbedRouteWithChildren = EmbedRoute._addFileChildren(EmbedRouteChildren)
 
+interface PublicRouteChildren {
+  PublicStoriesShareIdRoute: typeof PublicStoriesShareIdRoute
+}
+
+const PublicRouteChildren: PublicRouteChildren = {
+  PublicStoriesShareIdRoute: PublicStoriesShareIdRoute,
+}
+
+const PublicRouteWithChildren =
+  PublicRoute._addFileChildren(PublicRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   SidebarLayoutRoute: SidebarLayoutRouteWithChildren,
   ConsentRoute: ConsentRoute,
   EmbedRoute: EmbedRouteWithChildren,
   ForgotPasswordRoute: ForgotPasswordRoute,
   LoginRoute: LoginRoute,
+  PublicRoute: PublicRouteWithChildren,
   ResetPasswordRoute: ResetPasswordRoute,
   SignupRoute: SignupRoute,
 }

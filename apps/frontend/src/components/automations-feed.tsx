@@ -13,6 +13,7 @@ import {
 	X,
 } from 'lucide-react';
 import { Fragment, useLayoutEffect, useRef, useState } from 'react';
+import type { Visibility } from '@nao/shared/types';
 import { Streamdown } from 'streamdown';
 import type { displayChart } from '@nao/shared/tools';
 import type { ReactNode } from 'react';
@@ -69,8 +70,6 @@ export type AutomationFeedAutomationItem = {
 
 export type ActivityTrigger = 'schedule' | 'manual' | 'system';
 
-export type ShareVisibility = 'project' | 'specific';
-
 type ActivityBaseFields = {
 	id: string;
 	status: AutomationFeedRunStatus;
@@ -109,7 +108,7 @@ export type ActivityFeedStorySharedItem = {
 		title: string;
 		chatId: string | null;
 	};
-	share: { id: string; visibility: ShareVisibility };
+	share: { id: string; visibility: Visibility };
 	actorName: string | null;
 };
 
@@ -119,7 +118,7 @@ export type ActivityFeedChatSharedItem = {
 	startedAt: string | Date;
 	activity: ActivityBaseFields & { type: 'chat.shared' };
 	chat: { id: string; title: string };
-	share: { id: string; visibility: ShareVisibility };
+	share: { id: string; visibility: Visibility };
 	actorName: string | null;
 };
 
@@ -555,10 +554,11 @@ function ShareSentence({
 }: {
 	subjectLabel: 'story' | 'chat';
 	actorName: string | null;
-	visibility: ShareVisibility;
+	visibility: Visibility;
 }) {
 	const actor = actorName ?? 'Someone';
-	const target = visibility === 'project' ? 'the project' : 'you';
+	const target =
+		visibility === 'public' ? 'the public internet' : visibility === 'project' ? 'the project' : 'you';
 	return (
 		<p>
 			<span className='font-medium'>{actor}</span> shared this {subjectLabel} with{' '}
@@ -567,10 +567,11 @@ function ShareSentence({
 	);
 }
 
-function ShareScopeBadge({ visibility }: { visibility: ShareVisibility }) {
+function ShareScopeBadge({ visibility }: { visibility: Visibility }) {
+	const label = visibility === 'project' ? 'Project' : visibility === 'public' ? 'Public' : 'Direct';
 	return (
 		<Badge variant='secondary' className='shrink-0'>
-			{visibility === 'project' ? 'Project' : 'Direct'}
+			{label}
 		</Badge>
 	);
 }

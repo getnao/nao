@@ -1,3 +1,4 @@
+import { isPublicAppRoute } from '@nao/shared/story-share';
 import { useEffect } from 'react';
 import { useNavigate, useRouter, useRouterState } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
@@ -25,7 +26,9 @@ export const useSessionOrNavigateToIndexPage = () => {
 		}
 
 		const canStayUnauthenticated =
-			AUTH_ROUTES.includes(pathname) || (pathname === '/signup' && isUserSignupEnabled);
+			AUTH_ROUTES.includes(pathname) ||
+			isPublicAppRoute(pathname) ||
+			(pathname === '/signup' && isUserSignupEnabled);
 
 		if (!session.data && !canStayUnauthenticated) {
 			const redirect = getSafeRedirectPath(`${pathname}${searchStr ?? ''}`) ?? undefined;

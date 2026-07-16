@@ -1,4 +1,5 @@
 import { FOLDER_SYSTEM_TYPE } from '@nao/shared/types';
+import { isPublicShareVisibility } from '@nao/shared/story-share';
 import type { inferRouterOutputs } from '@trpc/server';
 
 import type { TrpcRouter } from '@nao/backend/trpc';
@@ -55,6 +56,7 @@ export type StoryItem = {
 	link:
 		| { to: '/stories/preview/$chatId/$storySlug'; params: { chatId: string; storySlug: string } }
 		| { to: '/stories/shared/$shareId'; params: { shareId: string } }
+		| { to: '/public/stories/$shareId'; params: { shareId: string } }
 		| { to: '/stories/standalone/$storyId'; params: { storyId: string } };
 };
 
@@ -153,7 +155,9 @@ export function buildStoryItems({
 			folderId,
 			isInPrivateContext: isPrivateContext(folderId, folders),
 			link: shareId
-				? { to: '/stories/shared/$shareId', params: { shareId } }
+				? isPublicShareVisibility(sharedEntry?.visibility ?? 'project')
+					? { to: '/public/stories/$shareId', params: { shareId } }
+					: { to: '/stories/shared/$shareId', params: { shareId } }
 				: {
 						to: '/stories/preview/$chatId/$storySlug',
 						params: { chatId, storySlug: story.storySlug },
@@ -205,7 +209,9 @@ export function buildStoryItems({
 				sharedStoryId: story.id,
 				folderId,
 				isInPrivateContext: false,
-				link: { to: '/stories/shared/$shareId', params: { shareId: story.id } },
+				link: isPublicShareVisibility(story.visibility)
+					? { to: '/public/stories/$shareId', params: { shareId: story.id } }
+					: { to: '/stories/shared/$shareId', params: { shareId: story.id } },
 			};
 		});
 

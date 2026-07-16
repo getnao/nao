@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Link as LinkIcon, Loader2 } from 'lucide-react';
-import type { Visibility } from '@nao/shared/types';
+import type { MemberShareVisibility, Visibility } from '@nao/shared/types';
 import {
 	hasAccessChanges,
 	ManageShareFooter,
@@ -57,7 +57,7 @@ export function ShareChatDialog({ open, onOpenChange, chatId }: ShareChatDialogP
 			onOpenChange={onOpenChange}
 			chatId={chatId}
 			shareId={shareData.shareId}
-			visibility={shareData.visibility as Visibility}
+			visibility={shareData.visibility as MemberShareVisibility}
 			allowedUserIds={shareData.allowedUserIds}
 		/>
 	);
@@ -73,7 +73,7 @@ function useInvalidateShareQueries(chatId: string) {
 
 function CreateShareDialog({ open, onOpenChange, chatId }: ShareChatDialogProps) {
 	const { data: session } = useSession();
-	const [visibility, setVisibility] = useState<Visibility>('project');
+	const [visibility, setVisibility] = useState<MemberShareVisibility>('project');
 	const [notify, setNotify] = useState(false);
 	const [isCopied, setIsCopied] = useState(false);
 	const timeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);

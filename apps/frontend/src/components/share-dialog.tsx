@@ -1,6 +1,6 @@
-import { Check, Globe, Link as LinkIcon, Loader2, SearchIcon, Unlink, Users } from 'lucide-react';
+import { Check, Globe, Link as LinkIcon, Loader2, SearchIcon, TriangleAlert, Unlink, Users } from 'lucide-react';
 
-import type { Visibility } from '@nao/shared/types';
+import type { MemberShareVisibility, Visibility } from '@nao/shared/types';
 
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -74,26 +74,93 @@ export function ShareErrorDialog({
 export function VisibilityPicker({
 	visibility,
 	onChange,
+	inactive = false,
 }: {
-	visibility: Visibility;
-	onChange: (v: Visibility) => void;
+	visibility: Exclude<Visibility, 'public'>;
+	onChange: (v: MemberShareVisibility) => void;
+	inactive?: boolean;
 }) {
 	return (
 		<div className='flex gap-3'>
 			<VisibilityOption
-				active={visibility === 'project'}
+				active={!inactive && visibility === 'project'}
 				icon={<Globe className='size-5' />}
 				label='Entire project'
 				description='All project members'
 				onClick={() => onChange('project')}
 			/>
 			<VisibilityOption
-				active={visibility === 'specific'}
+				active={!inactive && visibility === 'specific'}
 				icon={<Users className='size-5' />}
 				label='Specific people'
 				description='Choose who can view'
 				onClick={() => onChange('specific')}
 			/>
+		</div>
+	);
+}
+
+export function PublicShareSection({
+	selected,
+	onSelect,
+	confirmed,
+	onConfirmedChange,
+}: {
+	selected: boolean;
+	onSelect: () => void;
+	confirmed: boolean;
+	onConfirmedChange: (confirmed: boolean) => void;
+}) {
+	return (
+		<div className='flex flex-col gap-3'>
+			<div className='relative flex items-center py-1'>
+				<div className='flex-grow border-t border-border' />
+				<span className='mx-3 shrink-0 text-xs text-muted-foreground'>or publish publicly</span>
+				<div className='flex-grow border-t border-border' />
+			</div>
+			<VisibilityOption
+				active={selected}
+				icon={<LinkIcon className='size-5' />}
+				label='Anyone with the link'
+				description='No nao account required'
+				onClick={onSelect}
+				className={selected ? 'border-destructive/60 bg-destructive/5' : undefined}
+			/>
+			{selected ? (
+				<PublicShareWarning confirmed={confirmed} onConfirmedChange={onConfirmedChange} />
+			) : null}
+		</div>
+	);
+}
+
+export function PublicShareWarning({
+	confirmed,
+	onConfirmedChange,
+}: {
+	confirmed: boolean;
+	onConfirmedChange: (confirmed: boolean) => void;
+}) {
+	return (
+		<div className='flex flex-col gap-3 rounded-lg border border-destructive/40 bg-destructive/5 p-3'>
+			<div className='flex gap-2 text-destructive'>
+				<TriangleAlert className='mt-0.5 size-4 shrink-0' />
+				<div className='space-y-1 text-sm'>
+					<p className='font-medium text-foreground'>This story will be on the public internet</p>
+					<p className='text-xs text-muted-foreground'>
+						Anyone with the link can view the data in this story without signing in. Only publish if you are
+						comfortable exposing this information publicly.
+					</p>
+				</div>
+			</div>
+			<label className='flex cursor-pointer items-start gap-2 text-sm'>
+				<input
+					type='checkbox'
+					checked={confirmed}
+					onChange={(event) => onConfirmedChange(event.target.checked)}
+					className='mt-0.5 size-4 rounded border-border'
+				/>
+				<span>I understand this story will be publicly accessible</span>
+			</label>
 		</div>
 	);
 }
@@ -131,7 +198,19 @@ export function VisibilitySummary({
 }) {
 	return (
 		<div className='flex items-center gap-3 rounded-lg border p-3'>
-			{visibility === 'project' ? (
+			{visibility === 'public' ? (
+				<>
+					<div className='flex size-8 items-center justify-center rounded-full'>
+						<LinkIcon className='size-4' />
+					</div>
+					<div className='flex-1 min-w-0'>
+						<p className='text-md font-medium'>Published publicly</p>
+						<p className='text-xs text-muted-foreground'>
+							Anyone with the link can view this {itemLabel} without a nao account
+						</p>
+					</div>
+				</>
+			) : visibility === 'project' ? (
 				<>
 					<div className='flex size-8 items-center justify-center rounded-full'>
 						<Globe className='size-4' />
@@ -216,12 +295,14 @@ export function VisibilityOption({
 	label,
 	description,
 	onClick,
+	className,
 }: {
 	active: boolean;
 	icon: React.ReactNode;
 	label: string;
 	description: string;
 	onClick: () => void;
+	className?: string;
 }) {
 	return (
 		<button
@@ -230,6 +311,7 @@ export function VisibilityOption({
 			className={cn(
 				'flex-1 flex flex-col items-center gap-1.5 rounded-lg border pt-3 pb-3 shadow-xs transition-colors cursor-pointer',
 				active ? 'border-primary' : 'border-border hover:border-muted-foreground/30 hover:bg-muted/50',
+				className,
 			)}
 		>
 			<div className='text-foreground'>{icon}</div>

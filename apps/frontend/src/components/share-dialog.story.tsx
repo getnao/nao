@@ -2,11 +2,13 @@ import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Link as LinkIcon, Loader2, Pin } from 'lucide-react';
 import type { Visibility } from '@nao/shared/types';
+import { buildStoryShareUrl } from '@nao/shared/story-share';
 import {
 	hasAccessChanges,
 	ManageShareFooter,
 	MemberPicker,
 	NotifyPeopleToggle,
+	PublicShareSection,
 	ShareLoadingDialog,
 	VisibilityPicker,
 	VisibilitySummary,
@@ -78,11 +80,13 @@ function useInvalidateShareQueries(chatId: string, storySlug: string) {
 function CreateShareDialog({ open, onOpenChange, chatId, storySlug, intent = 'share' }: ShareStoryDialogProps) {
 	const { data: session } = useSession();
 	const [visibility, setVisibility] = useState<Visibility>('project');
+	const [publicConfirmed, setPublicConfirmed] = useState(false);
 	const [notify, setNotify] = useState(false);
 	const [isConfirmed, setIsConfirmed] = useState(false);
 	const timeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 	const invalidateShareQueries = useInvalidateShareQueries(chatId, storySlug);
 	const isPinIntent = intent === 'pin';
+	const isPublicShare = visibility === 'public';
 	const smtpQuery = useQuery(trpc.authConfig.smtp.isSetup.queryOptions());
 	const isSmtpEnabled = smtpQuery.data === true;
 
@@ -98,6 +102,7 @@ function CreateShareDialog({ open, onOpenChange, chatId, storySlug, intent = 'sh
 	useEffect(() => {
 		if (open) {
 			setVisibility('project');
+			setPublicConfirmed(false);
 			setNotify(false);
 			reset();
 			setIsConfirmed(false);
@@ -114,7 +119,7 @@ function CreateShareDialog({ open, onOpenChange, chatId, storySlug, intent = 'sh
 				visibility,
 				allowedUserIds: visibility === 'specific' ? [...selectedUserIds] : undefined,
 				pinAfterCreate: isPinIntent,
-				notify: isSmtpEnabled && notify,
+				notify: isSmtpEnabled && notify && !isPublicShare,
 			})
 			.then((data) => {
 				invalidateShareQueries();
@@ -129,7 +134,10 @@ function CreateShareDialog({ open, onOpenChange, chatId, storySlug, intent = 'sh
 
 		if (!isPinIntent) {
 			const blobPromise = promise.then(
-				(data) => new Blob([`${window.location.origin}/stories/shared/${data.id}`], { type: 'text/plain' }),
+				(data) =>
+					new Blob([buildStoryShareUrl(data.id, data.visibility, window.location.origin)], {
+						type: 'text/plain',
+					}),
 			);
 			blobPromise.catch(() => {});
 			navigator.clipboard.write([new ClipboardItem({ 'text/plain': blobPromise })]).catch(() => {});
@@ -143,13 +151,15 @@ function CreateShareDialog({ open, onOpenChange, chatId, storySlug, intent = 'sh
 		selectedUserIds,
 		notify,
 		isSmtpEnabled,
+		isPublicShare,
 		shareMutation,
 		invalidateShareQueries,
 		onOpenChange,
 		isPinIntent,
 	]);
 
-	const canConfirm = visibility === 'project' || selectedUserIds.size > 0;
+	const canConfirm =
+		visibility === 'public' ? publicConfirmed : visibility === 'project' || selectedUserIds.size > 0;
 
 	const title = isPinIntent ? 'Pin Story' : 'Share Story';
 	const description = isPinIntent
@@ -173,11 +183,26 @@ function CreateShareDialog({ open, onOpenChange, chatId, storySlug, intent = 'sh
 							Once shared, this story will be pinned for the selected audience.
 						</div>
 					)}
-					<VisibilityPicker visibility={visibility} onChange={setVisibility} />
-					{isSmtpEnabled && (
+					<VisibilityPicker
+						visibility={isPublicShare ? 'project' : visibility}
+						inactive={isPublicShare}
+						onChange={(nextVisibility) => {
+							setVisibility(nextVisibility);
+							setPublicConfirmed(false);
+						}}
+					/>
+					{!isPinIntent ? (
+						<PublicShareSection
+							selected={isPublicShare}
+							onSelect={() => setVisibility('public')}
+							confirmed={publicConfirmed}
+							onConfirmedChange={setPublicConfirmed}
+						/>
+					) : null}
+					{isSmtpEnabled && !isPublicShare ? (
 						<NotifyPeopleToggle checked={notify} onCheckedChange={setNotify} itemLabel='story' />
-					)}
-					{visibility === 'specific' && (
+					) : null}
+					{visibility === 'specific' ? (
 						<MemberPicker
 							members={filteredMembers}
 							selectedUserIds={selectedUserIds}
@@ -186,7 +211,7 @@ function CreateShareDialog({ open, onOpenChange, chatId, storySlug, intent = 'sh
 							onSearchChange={setSearch}
 							onToggleUser={toggleUser}
 						/>
-					)}
+					) : null}
 				</div>
 
 				<div className='flex justify-end gap-2'>
@@ -278,8 +303,8 @@ function ManageShareDialog({
 	);
 
 	const handleCopyLink = useCallback(() => {
-		copyLink(`${window.location.origin}/stories/shared/${shareId}`);
-	}, [copyLink, shareId]);
+		copyLink(buildStoryShareUrl(shareId, visibility, window.location.origin));
+	}, [copyLink, shareId, visibility]);
 
 	const handleUnshare = useCallback(() => {
 		deleteMutation.mutate({ shareId });
@@ -303,7 +328,13 @@ function ManageShareDialog({
 
 				<div className='flex flex-col gap-4'>
 					<VisibilitySummary visibility={visibility} selectedUserIds={selectedUserIds} itemLabel='story' />
-					{visibility === 'specific' && (
+					{visibility === 'public' ? (
+						<div className='rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-muted-foreground'>
+							This story is published on the public internet. Anyone with the link can view it without signing
+							in.
+						</div>
+					) : null}
+					{visibility === 'specific' ? (
 						<MemberPicker
 							members={filteredMembers}
 							selectedUserIds={selectedUserIds}
@@ -312,7 +343,7 @@ function ManageShareDialog({
 							onSearchChange={setSearch}
 							onToggleUser={toggleUser}
 						/>
-					)}
+					) : null}
 				</div>
 
 				<ManageShareFooter

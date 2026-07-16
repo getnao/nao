@@ -1,4 +1,5 @@
 import { createRootRoute, Outlet, useRouterState } from '@tanstack/react-router';
+import { isPublicAppRoute } from '@nao/shared/story-share';
 import { BrandColor } from '../components/brand-color';
 import { BrandingHead } from '../components/branding-head';
 import { ModifyPassword } from '../components/modify-password';
@@ -15,7 +16,7 @@ export const Route = createRootRoute({
 function RootComponent() {
 	const pathname = useRouterState({ select: (s) => s.location.pathname });
 
-	if (pathname.startsWith('/embed')) {
+	if (pathname.startsWith('/embed') || isPublicAppRoute(pathname)) {
 		return <Outlet />;
 	}
 
