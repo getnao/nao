@@ -6,6 +6,8 @@ from typing import Annotated
 
 from cyclopts import Parameter
 
+from nao_core import __version__
+from nao_core.branding import should_show_banner
 from nao_core.config import NaoConfig, NaoConfigError
 from nao_core.config.exceptions import InitError
 from nao_core.tracking import track_command
@@ -269,7 +271,10 @@ def init(
         config and without `--name`, the current directory name is used and the
         project is initialized in place.
     """
-    UI.info("\n🚀 nao project initialization\n")
+    if should_show_banner():
+        UI.banner(__version__)
+    else:
+        UI.info("\n🚀 nao project initialization\n")
 
     project_path: Path | None = None
     cleanup_on_abort = False
