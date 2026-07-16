@@ -4,7 +4,7 @@ import { Block } from '../../lib/markdown';
 
 export function DisplayChartOutput({ output }: { output: displayChart.Output }) {
 	if (output.error) {
-		return <Block>Could not display the chart: {output.error}</Block>;
+		return <Block>Could not display the visualization: {output.error}</Block>;
 	}
-	return <Block>Chart displayed successfully.</Block>;
+	return <Block>Visualization displayed successfully.</Block>;
 }

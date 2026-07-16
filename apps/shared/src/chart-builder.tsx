@@ -286,7 +286,9 @@ function getMaxStackTotal(data: Record<string, unknown>[], series: displayChart.
 	for (const row of data) {
 		let positive = 0;
 		for (const item of series) {
-			if (item.is_total) continue;
+			if (item.is_total) {
+				continue;
+			}
 			const value = toFiniteNumber(row[item.data_key]);
 			if (value != null && value > 0) {
 				positive += value;

@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Copy, Download, Maximize2 } from 'lucide-react';
+import type { ReactNode } from 'react';
+import type { ColumnConditionalFormats } from '@nao/shared/conditional-formatting';
 import { TableDisplay } from '@/components/tool-calls/display-table';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
@@ -16,6 +18,9 @@ interface DataTableCardProps {
 	tableContainerClassName?: string;
 	maxRowsBeforePagination?: number;
 	chatId?: string;
+	conditionalFormats?: ColumnConditionalFormats;
+	/** Extra toolbar controls rendered before the copy/download/fullscreen actions. */
+	headerActions?: ReactNode;
 }
 
 export function DataTableCard({
@@ -26,6 +31,8 @@ export function DataTableCard({
 	tableContainerClassName,
 	maxRowsBeforePagination = 10,
 	chatId,
+	conditionalFormats,
+	headerActions,
 }: DataTableCardProps) {
 	const [isFullscreen, setIsFullscreen] = useState(false);
 	const logDownload = useMutation(trpc.analyticsEvent.logChatDownload.mutationOptions());
@@ -49,6 +56,7 @@ export function DataTableCard({
 			<div className={cn('flex items-center gap-1 px-3', title ? 'justify-between' : 'justify-end')}>
 				{title ? <span className='text-sm font-medium truncate'>{title}</span> : null}
 				<div className='flex items-center gap-1'>
+					{headerActions}
 					<Button
 						variant='ghost-muted'
 						size='icon-xs'
@@ -85,6 +93,7 @@ export function DataTableCard({
 				tableContainerClassName={tableContainerClassName}
 				maxRowsBeforePagination={maxRowsBeforePagination}
 				compactFooter={true}
+				conditionalFormats={conditionalFormats}
 				humanizeColumnLabels={true}
 			/>
 
@@ -118,6 +127,7 @@ export function DataTableCard({
 						tableContainerClassName='max-h-[75vh] border-t-0'
 						maxRowsBeforePagination={maxRowsBeforePagination}
 						compactFooter={true}
+						conditionalFormats={conditionalFormats}
 						humanizeColumnLabels={true}
 					/>
 				</DialogContent>

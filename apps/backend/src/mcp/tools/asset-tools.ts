@@ -54,7 +54,7 @@ const STORY_ID_INPUT = z
 	.string()
 	.describe('Story UUID (from `list_stories.id` or `ask_nao.stories[].id`). Not the slug.');
 
-type DisplayChartMcpInput = displayChart.Input & { chat_id?: string };
+type DisplayChartMcpInput = displayChart.ChartInput & { chat_id?: string };
 
 export function registerAssetTools(server: McpServer, ctx: McpContext): void {
 	registerDisplayChart(server, ctx);
@@ -67,7 +67,7 @@ function registerDisplayChart(server: McpServer, ctx: McpContext): void {
 		agentTool: displayChartTool,
 		title: 'Display Chart',
 		description: DISPLAY_CHART_DESCRIPTION,
-		inputSchema: displayChart.InputSchema.and(
+		inputSchema: displayChart.ChartInputSchema.and(
 			zodV3.object({
 				chat_id: zodV3
 					.string()

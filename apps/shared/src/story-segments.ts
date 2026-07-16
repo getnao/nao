@@ -1,3 +1,14 @@
+import { buildStoryTableBlock } from './chart-block';
+import { type ColumnConditionalFormats, sanitizeConditionalFormats } from './conditional-formatting';
+
+/**
+ * Matches a tag's attribute list while treating single/double-quoted values as
+ * opaque, so `>` and `/` inside a quoted attribute (e.g. a threshold rule's
+ * `">="` operator inside `formatting='{...}'`) do not prematurely terminate the
+ * tag. Kept as a shared constant so every block-tag regex stays consistent.
+ */
+export const TAG_ATTRS = `(?:[^>"']|"(?:[^"\\\\]|\\\\.)*"|'(?:[^'\\\\]|\\\\.)*')*?`;
+
 export interface ParsedChartBlock {
 	queryId: string;
 	chartType: string;
@@ -15,6 +26,9 @@ export interface ParsedChartBlock {
 export interface ParsedTableBlock {
 	queryId: string;
 	title: string;
+	conditionalFormats?: ColumnConditionalFormats;
+	/** The original `<table ... />` tag this block was parsed from, when available. */
+	rawTag?: string;
 }
 
 export type Segment =
@@ -82,7 +96,54 @@ export function parseTableBlock(attrString: string): ParsedTableBlock | null {
 	return {
 		queryId: attrs.query_id,
 		title: attrs.title || '',
+		conditionalFormats: parseConditionalFormats(attrs.formatting),
 	};
+}
+
+function parseConditionalFormats(value: string | undefined): ColumnConditionalFormats | undefined {
+	if (!value) {
+		return undefined;
+	}
+	try {
+		return sanitizeConditionalFormats(JSON.parse(value));
+	} catch {
+		return undefined;
+	}
+}
+
+/**
+ * Injects `formatting='…'` into every `<table query_id="…" />` block that lacks
+ * an explicit `formatting` attribute, using `formatsByQueryId`. Tables that
+ * already declare formatting are left untouched, so agent-authored formatting
+ * always wins over the carried-over defaults.
+ */
+export function injectTableFormatting(
+	code: string,
+	formatsByQueryId: Record<string, ColumnConditionalFormats>,
+): string {
+	if (Object.keys(formatsByQueryId).length === 0) {
+		return code;
+	}
+
+	const tableRegex = new RegExp(`<table\\s+${TAG_ATTRS}\\/?>`, 'g');
+	return code.replace(tableRegex, (fullTag) => {
+		const attrString = fullTag.replace(/^<table\s+/, '').replace(/\/?>$/, '');
+		const attrs = parseChartAttributes(attrString);
+		if (!attrs.query_id || attrs.formatting) {
+			return fullTag;
+		}
+
+		const conditionalFormats = formatsByQueryId[attrs.query_id];
+		if (!conditionalFormats || Object.keys(conditionalFormats).length === 0) {
+			return fullTag;
+		}
+
+		return buildStoryTableBlock({
+			query_id: attrs.query_id,
+			title: attrs.title || undefined,
+			conditional_formats: conditionalFormats,
+		});
+	});
 }
 
 export const GRID_CLASSES: Record<number, string> = {
@@ -136,7 +197,10 @@ function extractSeriesFromRawAttrs(attrString: string): ParsedChartBlock['series
 
 export function splitCodeIntoSegments(code: string): Segment[] {
 	const segments: Segment[] = [];
-	const blockRegex = /<grid\s+([^>]*)>([\s\S]*?)<\/grid>|<chart\s+([^/>]*)\/?>|<table\s+([^/>]*)\/?>/g;
+	const blockRegex = new RegExp(
+		`<grid\\s+([^>]*)>([\\s\\S]*?)<\\/grid>|<chart\\s+(${TAG_ATTRS})\\/?>|<table\\s+(${TAG_ATTRS})\\/?>`,
+		'g',
+	);
 	let match;
 	let lastIndex = 0;
 
@@ -161,7 +225,7 @@ export function splitCodeIntoSegments(code: string): Segment[] {
 		} else if (match[4] !== undefined) {
 			const table = parseTableBlock(match[4]);
 			if (table) {
-				segments.push({ type: 'table', table });
+				segments.push({ type: 'table', table: { ...table, rawTag: match[0] } });
 			}
 		}
 

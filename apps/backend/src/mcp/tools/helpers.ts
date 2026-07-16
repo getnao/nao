@@ -125,7 +125,7 @@ async function findQueryResultAcrossChats(args: {
 }
 
 export async function buildChartEmbedFromArtifact(
-	artifact: displayChart.Input,
+	artifact: displayChart.ChartInput,
 	ctx: McpContext,
 	opts: { chatId: string | null; callLogId: string },
 ): Promise<{ payload: ChartToolPayload; sandboxChartHtml: string | null } | { keyError: ChartKeyError } | null> {

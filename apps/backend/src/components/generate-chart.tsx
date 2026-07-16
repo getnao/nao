@@ -14,7 +14,7 @@ import {
 
 export interface RenderChartInput {
 	config: Pick<
-		displayChart.Input,
+		displayChart.ChartInput,
 		| 'chart_type'
 		| 'x_axis_key'
 		| 'x_axis_type'
