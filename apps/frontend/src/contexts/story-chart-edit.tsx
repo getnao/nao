@@ -36,12 +36,6 @@ interface EditorStoryChartEditProviderProps {
 	children: React.ReactNode;
 }
 
-/**
- * Provides a `saveChart` handler for charts rendered inside the story EDIT-mode
- * editor. Unlike {@link StoryChartEditProvider}, it does not create a new story
- * version; it mutates the editor buffer in place so the change is persisted with
- * the rest of the user's edits when they save the story.
- */
 export function EditorStoryChartEditProvider({ onReplaceTag, children }: EditorStoryChartEditProviderProps) {
 	const value = useMemo<StoryChartEditHandlers>(
 		() => ({
@@ -65,10 +59,6 @@ interface StoryChartEditProviderProps {
 	children: React.ReactNode;
 }
 
-/**
- * Provides a `saveChart` handler that chart embeds inside a story can call to persist
- * edits (title/type/series/etc) back to the story via `story.createVersion`.
- */
 export function StoryChartEditProvider({
 	chatId,
 	storySlug,
