@@ -1,13 +1,14 @@
-import { memo, useMemo, useState } from 'react';
 import { Pencil } from 'lucide-react';
+import { memo, useMemo, useState } from 'react';
 import type { UIMessage } from '@nao/backend/chat';
 import type { displayChart } from '@nao/shared/tools';
-import { Button } from '@/components/ui/button';
-import { useOptionalAgentContext } from '@/contexts/agent.provider';
-import { useStoryEmbedData } from '@/contexts/story-embed-data';
-import { useStoryChartEdit } from '@/contexts/story-chart-edit';
+
 import { ChartDisplay } from '@/components/tool-calls/display-chart';
 import { ChartConfigEditDialog } from '@/components/tool-calls/display-chart-edit-dialog';
+import { Button } from '@/components/ui/button';
+import { useOptionalAgentContext } from '@/contexts/agent.provider';
+import { useStoryChartEdit } from '@/contexts/story-chart-edit';
+import { useStoryEmbedData } from '@/contexts/story-embed-data';
 import { sortByDateKey } from '@/lib/charts.utils';
 
 interface ChartBlock {
@@ -16,7 +17,10 @@ interface ChartBlock {
 	xAxisKey: string;
 	xAxisType: string | null;
 	series: Array<{ data_key: string; color: string; label?: string; is_total?: boolean }>;
+	yAxisMin?: number;
+	yAxisMax?: number;
 	title: string;
+	showDataLabels?: boolean;
 	rawTag?: string;
 }
 
@@ -79,6 +83,9 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({ chart }: { chart:
 				xAxisType={xAxisType}
 				series={chart.series}
 				title={chart.title}
+				yAxisMin={chart.yAxisMin}
+				yAxisMax={chart.yAxisMax}
+				showDataLabels={chart.showDataLabels}
 			/>
 		</StoryChartEmbedShell>
 	);
@@ -99,7 +106,7 @@ export function StoryChartEmbedShell({ chart, availableColumns, children }: Stor
 	const [isEditOpen, setIsEditOpen] = useState(false);
 	const canEdit = Boolean(edit && chart.rawTag);
 
-	const config = useMemo<displayChart.Input>(
+	const config = useMemo<displayChart.ChartInput>(
 		() => ({
 			query_id: chart.queryId,
 			chart_type: chart.chartType as displayChart.ChartType,
@@ -111,7 +118,10 @@ export function StoryChartEmbedShell({ chart, availableColumns, children }: Stor
 				label: s.label,
 				is_total: s.is_total,
 			})),
+			y_axis_min: chart.yAxisMin,
+			y_axis_max: chart.yAxisMax,
 			title: chart.title,
+			show_data_labels: chart.showDataLabels,
 		}),
 		[chart],
 	);
@@ -138,7 +148,7 @@ export function StoryChartEmbedShell({ chart, availableColumns, children }: Stor
 					availableColumns={availableColumns}
 					isSaving={edit.isSaving}
 					onSave={(next) => edit.saveChart(chart.rawTag!, next)}
-					description='Tweak the chart parameters. Changes are saved to the story as a new version.'
+					description={edit.saveDescription}
 				/>
 			)}
 		</div>

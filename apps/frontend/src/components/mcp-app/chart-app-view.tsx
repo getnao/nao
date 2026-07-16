@@ -56,6 +56,8 @@ export const ChartAppView = memo(function ChartAppView({ config, data, naoUrl }:
 					xAxisType={xAxisType}
 					series={series}
 					title={config.title}
+					yAxisMin={config.yAxisMin}
+					yAxisMax={config.yAxisMax}
 				/>
 			</div>
 		);

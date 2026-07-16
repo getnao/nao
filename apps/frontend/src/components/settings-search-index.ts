@@ -187,6 +187,27 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/project/models',
 		pageLabel: 'Models',
+		title: 'Model parameters',
+		description:
+			'Fine-tune per-model inference parameters like temperature, top_p, top_k, max tokens and thinking effort.',
+		keywords: [
+			'temperature',
+			'top_p',
+			'top p',
+			'top_k',
+			'top k',
+			'max tokens',
+			'thinking',
+			'reasoning',
+			'inference',
+			'sampling',
+			'claude',
+		],
+		adminOnly: true,
+	},
+	{
+		page: '/settings/project/models',
+		pageLabel: 'Models',
 		title: 'Transcription',
 		description: 'Configure speech-to-text transcription provider and model.',
 		keywords: ['voice', 'speech', 'microphone', 'whisper', 'stt'],

@@ -90,6 +90,17 @@ export const toKey = (value: string) => {
 	return hashValue(value);
 };
 
+/**
+ * Resolves the tooltip header label for a pie slice from its Recharts payload.
+ *
+ * Pie tooltips have no axis label, so the header must come from the hovered
+ * slice's category name (the `nameKey` value) rather than the value data key.
+ */
+export function resolvePieTooltipLabel(payload?: readonly { name?: unknown }[]): string {
+	const name = payload?.[0]?.name;
+	return name == null ? '' : String(name);
+}
+
 /** Resolves a config key to the matching key in the data, ignoring case. Falls back to the original key. */
 export function resolveDataKey(data: Record<string, unknown>[], key: string): string {
 	const row = data[0];

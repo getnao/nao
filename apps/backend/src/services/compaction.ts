@@ -171,7 +171,7 @@ export class CompactionService {
 
 	private async _resolveCompactionLLM(projectId: string, provider: LlmProvider) {
 		const modelId = await resolveAnnotationModelId(projectId, provider, LLM_PROVIDERS[provider].extractorModelId);
-		const model = await resolveProviderModel(projectId, provider, modelId);
+		const model = await resolveProviderModel(projectId, provider, modelId, false);
 		if (!model) {
 			return undefined;
 		}
