@@ -103,6 +103,9 @@ export function SystemPrompt({
 						categories on a spider/web chart. Use "area" for time-series trends where filled area emphasis
 						is desired (similar to "line"). Use "stacked_area" to show how multiple series compose a total
 						over time (e.g. revenue by payment method, users by plan) — requires 2+ series and pivoted data.
+						Use "pie" or "donut" to show how a single measure splits across categories (part-to-whole); both
+						take exactly one series, and slices beyond the top 10 are grouped into an "Other" slice
+						automatically.
 					</ListItem>,
 					<ListItem>
 						For display_chart y_axis_min/y_axis_max: use them to fix the Y-axis scale when needed; by

@@ -7,6 +7,7 @@ export const ChartTypeEnum = z.enum([
 	'area',
 	'stacked_area',
 	'pie',
+	'donut',
 	'kpi_card',
 	'scatter',
 	'radar',
@@ -45,6 +46,12 @@ export const InputSchema = z
 			)
 			.optional(),
 		y_axis_max: z.number().describe('Fixes the Y-axis upper bound. Leave unset to auto-scale.').optional(),
+		show_data_labels: z
+			.boolean()
+			.describe(
+				'Show the numeric value of each data point directly on the chart. Set to true when the user asks to display values/data labels on the chart.',
+			)
+			.optional(),
 		title: z
 			.string()
 			.describe(
@@ -70,3 +77,8 @@ export type XAxisType = z.infer<typeof XAxisTypeEnum>;
 export type SeriesConfig = z.infer<typeof SeriesConfigSchema>;
 export type Input = z.infer<typeof InputSchema>;
 export type Output = z.infer<typeof OutputSchema>;
+
+/** Pie and donut charts share the same slice-based rendering (separators, legend, Other-bucketing). */
+export function isPieChart(chartType: ChartType): boolean {
+	return chartType === 'pie' || chartType === 'donut';
+}

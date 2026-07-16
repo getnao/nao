@@ -17,6 +17,7 @@ const VALID_CHART_TYPES = new Set([
 	'area',
 	'stacked_area',
 	'pie',
+	'donut',
 	'kpi_card',
 	'scatter',
 	'radar',

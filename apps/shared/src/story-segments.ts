@@ -7,6 +7,7 @@ export interface ParsedChartBlock {
 	yAxisMin?: number;
 	yAxisMax?: number;
 	title: string;
+	showDataLabels?: boolean;
 	/** The original `<chart ... />` tag this block was parsed from, when available. */
 	rawTag?: string;
 }
@@ -68,6 +69,7 @@ export function parseChartBlock(attrString: string): ParsedChartBlock | null {
 		yAxisMin,
 		yAxisMax,
 		title: attrs.title || '',
+		showDataLabels: attrs.show_data_labels === 'true',
 	};
 }
 

@@ -1,5 +1,6 @@
 import { memo, useCallback, useMemo, useState } from 'react';
-import { buildChart, buildStoryChartBlock, labelize } from '@nao/shared';
+import { buildChart, bucketPieData, buildStoryChartBlock, labelize } from '@nao/shared';
+import { displayChart } from '@nao/shared/tools';
 import { Code, Download, FilePlus, Pencil } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useOptionalAgentContext } from '../../contexts/agent.provider';
@@ -13,10 +14,17 @@ import { ChartRangeSelector } from './display-chart-range-selector';
 import { DisplayChartEditDialog } from './display-chart-edit-dialog';
 import type { ToolCallComponentProps } from '.';
 import type { ChartConfig } from '../ui/chart';
-import type { displayChart, executeSql } from '@nao/shared/tools';
+import type { executeSql } from '@nao/shared/tools';
 import type { UIMessage } from '@nao/backend/chat';
 import type { DateRange } from '@/lib/charts.utils';
-import { filterByDateRange, sortByDateKey, DATE_RANGE_OPTIONS, toKey } from '@/lib/charts.utils';
+import {
+	filterByDateRange,
+	sortByDateKey,
+	DATE_RANGE_OPTIONS,
+	toKey,
+	resolveDataKey,
+	resolvePieTooltipLabel,
+} from '@/lib/charts.utils';
 import { findStoryIds } from '@/lib/story.utils';
 import { useChatId } from '@/hooks/use-chat-id';
 import { useDateFormat } from '@/hooks/use-date-format';
@@ -108,8 +116,9 @@ export const DisplayChartToolCall = ({
 		if (config.x_axis_type !== 'date') {
 			return sourceData.data;
 		}
-		const sorted = sortByDateKey(sourceData.data, config.x_axis_key);
-		return filterByDateRange(sorted, config.x_axis_key, dataRange);
+		const xAxisKey = resolveDataKey(sourceData.data, config.x_axis_key);
+		const sorted = sortByDateKey(sourceData.data, xAxisKey);
+		return filterByDateRange(sorted, xAxisKey, dataRange);
 	}, [sourceData?.data, config, dataRange]);
 
 	if (output && output.error) {
@@ -216,7 +225,7 @@ export const DisplayChartToolCall = ({
 							<span className='text-xs'>Add to story</span>
 						</Button>
 					)}
-					{config.chart_type !== 'pie' && config.x_axis_type === 'date' && (
+					{!displayChart.isPieChart(config.chart_type) && config.x_axis_type === 'date' && (
 						<ChartRangeSelector
 							options={DATE_RANGE_OPTIONS}
 							selectedRange={dataRange}
@@ -279,6 +288,7 @@ export const DisplayChartToolCall = ({
 				title={config.title}
 				yAxisMin={config.y_axis_min}
 				yAxisMax={config.y_axis_max}
+				showDataLabels={config.show_data_labels}
 			/>
 		</div>
 	);
@@ -295,30 +305,46 @@ export interface ChartDisplayProps {
 	showGrid?: boolean;
 	yAxisMin?: number;
 	yAxisMax?: number;
+	showDataLabels?: boolean;
 }
 
 export const ChartDisplay = memo(function ChartDisplay({
 	data,
 	chartType,
-	xAxisKey,
+	xAxisKey: xAxisKeyProp,
 	xAxisType,
 	xAxisLabelFormatter,
-	series,
+	series: seriesProp,
 	title,
 	showGrid = true,
 	yAxisMin,
 	yAxisMax,
+	showDataLabels,
 }: ChartDisplayProps) {
-	const { visibleSeries, hiddenSeriesKeys, handleToggleSeriesVisibility } = useSeriesVisibility(series);
 	const dateFormat = useDateFormat();
 
+	const xAxisKey = useMemo(() => resolveDataKey(data, xAxisKeyProp), [data, xAxisKeyProp]);
+	const series = useMemo(
+		() => seriesProp.map((s) => ({ ...s, data_key: resolveDataKey(data, s.data_key) })),
+		[data, seriesProp],
+	);
+
+	const { visibleSeries, hiddenSeriesKeys, handleToggleSeriesVisibility } = useSeriesVisibility(series);
+
+	const isPie = displayChart.isPieChart(chartType);
+	const pieValueKey = series[0]?.data_key ?? '';
+	const pieData = useMemo(
+		() => (isPie ? bucketPieData(data, xAxisKey, pieValueKey) : data),
+		[isPie, data, xAxisKey, pieValueKey],
+	);
+
 	const chartConfig = useMemo((): ChartConfig => {
-		if (chartType === 'pie') {
-			const values = new Set(data.map((item) => String(item[xAxisKey])));
-			return [...values].reduce(
-				(acc, v, index) => {
-					acc[toKey(v)] = {
-						label: labelize(v, dateFormat),
+		if (isPie) {
+			return pieData.reduce<ChartConfig>(
+				(acc, item, index) => {
+					const category = String(item[xAxisKey]);
+					acc[toKey(category)] = {
+						label: labelize(category, dateFormat),
 						color: Colors[index % Colors.length],
 					};
 					return acc;
@@ -327,7 +353,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 					[xAxisKey]: {
 						label: labelize(xAxisKey, dateFormat),
 					},
-				} as ChartConfig,
+				},
 			);
 		}
 
@@ -339,36 +365,53 @@ export const ChartDisplay = memo(function ChartDisplay({
 			};
 			return acc;
 		}, {} as ChartConfig);
-	}, [series, xAxisKey, data, chartType, dateFormat]);
+	}, [series, xAxisKey, pieData, isPie, dateFormat]);
 
 	const colorFor = useMemo(
 		() =>
-			chartType === 'pie'
+			isPie
 				? (value: string, _i: number) => `var(--color-${toKey(value)})`
 				: (dataKey: string, _i: number) => `var(--color-${dataKey})`,
-		[chartType],
+		[isPie],
 	);
 
-	const legendPayload = useMemo(
-		() =>
-			series.map((s, idx) => ({
-				value: s.label || labelize(s.data_key, dateFormat),
-				dataKey: s.data_key,
-				color: s.color || Colors[idx % Colors.length],
-				isHidden: hiddenSeriesKeys.has(s.data_key),
-			})),
-		[series, hiddenSeriesKeys, dateFormat],
-	);
+	const legendPayload = useMemo(() => {
+		if (isPie) {
+			return pieData.map((item, index) => {
+				const category = String(item[xAxisKey]);
+				return {
+					value: category,
+					dataKey: toKey(category),
+					color: Colors[index % Colors.length],
+					isHidden: false,
+				};
+			});
+		}
+		return series.map((s, idx) => ({
+			value: s.label || labelize(s.data_key, dateFormat),
+			dataKey: s.data_key,
+			color: s.color || Colors[idx % Colors.length],
+			isHidden: hiddenSeriesKeys.has(s.data_key),
+		}));
+	}, [isPie, pieData, xAxisKey, series, hiddenSeriesKeys, dateFormat]);
 
 	const labelFormatter = useMemo(
 		() => xAxisLabelFormatter ?? ((value: string) => labelize(value, dateFormat)),
 		[xAxisLabelFormatter, dateFormat],
 	);
 
+	const tooltipLabelFormatter = useMemo(
+		() => (value: unknown, items: unknown) =>
+			isPie
+				? labelize(resolvePieTooltipLabel(items as { name?: unknown }[]), dateFormat)
+				: labelize(value as string, dateFormat),
+		[isPie, dateFormat],
+	);
+
 	const chartElement = useMemo(
 		() =>
 			buildChart({
-				data,
+				data: pieData,
 				chartType,
 				xAxisKey,
 				xAxisType,
@@ -376,6 +419,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 				colorFor,
 				labelFormatter,
 				showGrid,
+				showDataLabels,
 				margin: { top: 0, right: 0, bottom: 0, left: 0 },
 				yAxisMin,
 				yAxisMax,
@@ -385,33 +429,43 @@ export const ChartDisplay = memo(function ChartDisplay({
 						animationDuration={150}
 						animationEasing='linear'
 						allowEscapeViewBox={{ y: true, x: false }}
-						content={<ChartTooltipContent labelFormatter={(value) => labelize(value, dateFormat)} />}
+						content={<ChartTooltipContent labelFormatter={tooltipLabelFormatter} />}
 					/>,
-					chartType !== 'pie' && (
+					chartType !== 'kpi_card' && (
 						<ChartLegend
 							key='legend'
 							payload={legendPayload}
-							content={<ChartLegendContent onItemClick={handleToggleSeriesVisibility} />}
+							layout={isPie ? 'vertical' : 'horizontal'}
+							align={isPie ? 'right' : 'center'}
+							verticalAlign={isPie ? 'middle' : 'bottom'}
+							content={
+								<ChartLegendContent
+									layout={isPie ? 'vertical' : 'horizontal'}
+									onItemClick={isPie ? undefined : handleToggleSeriesVisibility}
+								/>
+							}
 						/>
 					),
 				],
 				title,
 			}),
 		[
-			data,
+			pieData,
 			chartType,
+			isPie,
 			xAxisKey,
 			xAxisType,
 			visibleSeries,
 			colorFor,
 			labelFormatter,
+			tooltipLabelFormatter,
 			showGrid,
 			yAxisMin,
 			yAxisMax,
+			showDataLabels,
 			legendPayload,
 			handleToggleSeriesVisibility,
 			title,
-			dateFormat,
 		],
 	);
 

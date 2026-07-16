@@ -7,10 +7,19 @@ import { adminProtectedProcedure, projectProtectedProcedure, router } from './tr
 export const mcpRoutes = router({
 	getServers: projectProtectedProcedure.query(({ ctx }) => mcpService.getServersStatus(ctx.project.id, ctx.user.id)),
 
+	getConfigError: projectProtectedProcedure.query(({ ctx }) => mcpService.getConfigError(ctx.project.id)),
+
 	discover: adminProtectedProcedure.mutation(async ({ ctx }) => {
 		await mcpService.discover(ctx.project.id);
 		return mcpService.getServersStatus(ctx.project.id, ctx.user.id);
 	}),
+
+	discoverServer: adminProtectedProcedure
+		.input(z.object({ serverName: z.string() }))
+		.mutation(async ({ ctx, input }) => {
+			await mcpService.discoverServer(ctx.project.id, input.serverName);
+			return mcpService.getServersStatus(ctx.project.id, ctx.user.id);
+		}),
 
 	setServerEnabled: adminProtectedProcedure
 		.input(z.object({ serverName: z.string(), enabled: z.boolean() }))

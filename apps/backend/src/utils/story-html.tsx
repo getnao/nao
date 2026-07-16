@@ -1,4 +1,4 @@
-import { DEFAULT_COLORS, defaultColorFor, formatCompactNumber, labelize } from '@nao/shared';
+import { bucketPieData, DEFAULT_COLORS, defaultColorFor, formatCompactNumber, labelize } from '@nao/shared';
 import {
 	type DateFormatSettings,
 	DEFAULT_DATE_FORMAT_SETTINGS,
@@ -140,18 +140,24 @@ function ChartBlock({ chart, queryData }: { chart: ParsedChartBlock; queryData: 
 		return <KpiCards chart={chart} rows={rows} />;
 	}
 
+	const isPie = chart.chartType === 'pie' || chart.chartType === 'donut';
+	const valueKey = chart.series[0]?.data_key ?? '';
+	const chartRows = isPie ? bucketPieData(rows, chart.xAxisKey, valueKey) : rows;
+
 	try {
+		// Pie/donut render their legend to the right, baked into the SVG; other
+		// chart types keep the HTML legend rendered below.
 		const svg = renderChartToSvg({
 			config: toChartConfig(chart),
 			data: rows,
 			width: CHART_WIDTH,
 			height: CHART_HEIGHT,
 			margin: { top: 0, right: 0, bottom: 0, left: 0 },
-			includeLegend: false,
+			includeLegend: isPie,
 			dateFormat,
 		});
 		const chartData = JSON.stringify({
-			data: rows,
+			data: chartRows,
 			xAxisKey: chart.xAxisKey,
 			series: chart.series,
 			chartType: chart.chartType,
@@ -166,7 +172,7 @@ function ChartBlock({ chart, queryData }: { chart: ParsedChartBlock; queryData: 
 					data-chart={chartData}
 					dangerouslySetInnerHTML={{ __html: svg }}
 				/>
-				{chart.chartType !== 'pie' && <ChartLegend series={chart.series} />}
+				{!isPie && <ChartLegend series={chart.series} />}
 			</div>
 		);
 	} catch {
@@ -334,6 +340,7 @@ function toChartConfig(chart: ParsedChartBlock) {
 		y_axis_min: chart.yAxisMin,
 		y_axis_max: chart.yAxisMax,
 		title: chart.title,
+		show_data_labels: chart.showDataLabels,
 	};
 }
 
@@ -427,7 +434,7 @@ const TOOLTIP_SCRIPT_TEMPLATE = `
 		var cfg;try{cfg=JSON.parse(raw.replace(/&#39;/g,"'").replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&amp;/g,'&'))}catch(e){return}
 
 		var pieColorMap=null;
-		if(cfg.chartType==='pie'){
+		if(cfg.chartType==='pie'||cfg.chartType==='donut'){
 			pieColorMap={};var ci=0;var seen={};
 			cfg.data.forEach(function(d){
 				var v=String(d[cfg.xAxisKey]!=null?d[cfg.xAxisKey]:'');
@@ -446,7 +453,7 @@ const TOOLTIP_SCRIPT_TEMPLATE = `
 		var areas=svg.querySelectorAll('.recharts-active-dot, .recharts-dot');
 		var shapes=bars.length?bars:areas;
 
-		if(cfg.chartType==='pie'){
+		if(cfg.chartType==='pie'||cfg.chartType==='donut'){
 			var slices=svg.querySelectorAll('.recharts-pie-sector');
 			slices.forEach(function(el,i){
 				var row=cfg.data[i];
@@ -485,7 +492,7 @@ const TOOLTIP_SCRIPT_TEMPLATE = `
 		function showTip(e,row){
 			var label=row[cfg.xAxisKey];
 			var isPie=!!pieColorMap;
-			var html='<div class="nao-tooltip-label">'+(isPie?labelize(cfg.series[0]&&(cfg.series[0].label||cfg.series[0].data_key)||''):labelize(label!=null?label:''))+'</div>';
+			var html='<div class="nao-tooltip-label">'+labelize(label!=null?label:'')+'</div>';
 			html+='<div class="nao-tooltip-rows">';
 			var numericValues=[];
 			var hasTotalSeries=false;

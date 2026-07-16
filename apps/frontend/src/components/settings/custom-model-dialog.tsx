@@ -1,5 +1,8 @@
-import { useEffect, useState } from 'react';
-import type { CustomModelMetadata } from '@nao/backend/llm';
+import { useEffect, useRef, useState } from 'react';
+import { ModelParametersFields } from './model-parameters-fields';
+import { useModelParameters } from './use-model-parameters';
+import type { CustomModelMetadata, ModelInferenceSettings } from '@nao/backend/llm';
+import type { LlmProvider } from '@nao/shared/types';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -7,9 +10,12 @@ import { Input } from '@/components/ui/input';
 interface CustomModelDialogProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
+	provider: LlmProvider;
 	modelId: string;
 	value: CustomModelMetadata | undefined;
 	onSave: (metadata: CustomModelMetadata) => void;
+	parametersValue?: ModelInferenceSettings;
+	onSaveParameters?: (settings: ModelInferenceSettings) => void;
 }
 
 type CostKey = 'inputNoCache' | 'inputCacheRead' | 'inputCacheWrite' | 'output';
@@ -21,7 +27,18 @@ const COST_FIELDS: { key: CostKey; label: string; hint: string }[] = [
 	{ key: 'inputCacheWrite', label: 'Cache write', hint: 'Cached input tokens written' },
 ];
 
-export function CustomModelDialog({ open, onOpenChange, modelId, value, onSave }: CustomModelDialogProps) {
+export function CustomModelDialog({
+	open,
+	onOpenChange,
+	provider,
+	modelId,
+	value,
+	onSave,
+	parametersValue,
+	onSaveParameters,
+}: CustomModelDialogProps) {
+	const parameters = useModelParameters({ provider, modelId, open, value: parametersValue });
+	const supportsModelParameters = parameters.controls.length > 0;
 	const [displayName, setDisplayName] = useState('');
 	const [costs, setCosts] = useState<Record<CostKey, string>>({
 		inputNoCache: '',
@@ -29,9 +46,12 @@ export function CustomModelDialog({ open, onOpenChange, modelId, value, onSave }
 		inputCacheWrite: '',
 		output: '',
 	});
+	const wasOpenRef = useRef(false);
 
 	useEffect(() => {
-		if (!open) {
+		const justOpened = open && !wasOpenRef.current;
+		wasOpenRef.current = open;
+		if (!justOpened) {
 			return;
 		}
 		setDisplayName(value?.displayName ?? '');
@@ -44,6 +64,9 @@ export function CustomModelDialog({ open, onOpenChange, modelId, value, onSave }
 	}, [open, value]);
 
 	const handleSave = () => {
+		if (parameters.hasErrors) {
+			return;
+		}
 		const costPerM = buildCostPerM(costs);
 		const trimmedName = displayName.trim();
 		onSave({
@@ -51,6 +74,9 @@ export function CustomModelDialog({ open, onOpenChange, modelId, value, onSave }
 			displayName: trimmedName || undefined,
 			costPerM,
 		});
+		if (supportsModelParameters) {
+			onSaveParameters?.(parameters.buildSettings());
+		}
 		onOpenChange(false);
 	};
 
@@ -115,13 +141,25 @@ export function CustomModelDialog({ open, onOpenChange, modelId, value, onSave }
 							Leave a field empty to skip cost tracking for that token type.
 						</p>
 					</div>
+
+					{supportsModelParameters && (
+						<div className='grid gap-2 border-t border-border pt-4'>
+							<span className='text-sm font-medium text-foreground'>Model parameters</span>
+							<ModelParametersFields
+								controls={parameters.controls}
+								values={parameters.values}
+								errors={parameters.errors}
+								onValueChange={parameters.setValue}
+							/>
+						</div>
+					)}
 				</div>
 
 				<div className='flex justify-end gap-2 pt-2'>
 					<Button variant='ghost' size='sm' onClick={() => onOpenChange(false)} type='button'>
 						Cancel
 					</Button>
-					<Button size='sm' onClick={handleSave} type='button'>
+					<Button size='sm' onClick={handleSave} type='button' disabled={parameters.hasErrors}>
 						Save
 					</Button>
 				</div>

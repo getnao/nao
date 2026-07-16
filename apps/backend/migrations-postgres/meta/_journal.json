@@ -393,6 +393,13 @@
       "when": 1783321434784,
       "tag": "0055_add_gitlab_token",
       "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1783697856052,
+      "tag": "0056_model_settings",
+      "breakpoints": true
     }
   ]
 }

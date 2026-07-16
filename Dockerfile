@@ -4,11 +4,7 @@
 FROM node:24-slim AS base
 WORKDIR /app
 
-# Pin npm to a version that records every platform-specific optional dependency
-# in package-lock.json and enforces them in `npm ci` (requires >= 11.11.0).
-# Bun is pinned too (kept as the backend runtime) so the base toolchain stays
-# reproducible across Docker/CI/local. npm is used only to install dependencies.
-RUN npm install -g npm@11.11.0 bun@1.3.11
+RUN npm install -g bun
 
 # =============================================================================
 # STAGE 2: JS dependency installer (shared across frontend and backend)
@@ -16,7 +12,7 @@ RUN npm install -g npm@11.11.0 bun@1.3.11
 FROM base AS deps
 WORKDIR /app
 
-COPY package.json package-lock.json ./
+COPY package.json package-lock.json bun.lock ./
 COPY apps/frontend/package.json ./apps/frontend/
 COPY apps/backend/package.json ./apps/backend/
 COPY apps/shared/package.json ./apps/shared/
@@ -24,11 +20,12 @@ COPY apps/shared/package.json ./apps/shared/
 # Single install for all workspaces. --ignore-scripts skips prepare (husky);
 # @vscode/ripgrep needs its postinstall to download the platform binary.
 # GITHUB_TOKEN is injected via BuildKit secret to avoid baking it into layers.
-RUN --mount=type=cache,target=/root/.npm \
+RUN --mount=type=cache,target=/root/.bun/install/cache \
     --mount=type=secret,id=GITHUB_TOKEN \
-    npm ci --ignore-scripts \
-    && cd node_modules/@vscode/ripgrep \
-    && GITHUB_TOKEN="$(cat /run/secrets/GITHUB_TOKEN 2>/dev/null || true)" npm run postinstall
+    GITHUB_TOKEN="$(cat /run/secrets/GITHUB_TOKEN 2>/dev/null || true)" \
+    bun install --ignore-scripts \
+    && GITHUB_TOKEN="$(cat /run/secrets/GITHUB_TOKEN 2>/dev/null || true)" \
+    cd node_modules/@vscode/ripgrep && npm run postinstall
 
 # =============================================================================
 # STAGE 3: Frontend builder

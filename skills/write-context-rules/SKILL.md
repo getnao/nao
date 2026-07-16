@@ -33,6 +33,7 @@ Anything else (per-table schema, full metric semantics, domain-specific rules) b
 5. `## Key Metrics Reference` — **only if no semantic layer / metric docs exist elsewhere** (see Step 5). Otherwise a one-line routing pointer to it.
 6. `## Date filtering` — three example formulas (last X weeks / last X days / current month). Don't enumerate every period.
 7. `## Analysis Process` — adaptive: read semantic layer → read docs → select table → check `profiling.md` before filtering values → query → validate → context.
+8. `## Chart & Visualization Guidelines` — **only if the project produces charts/stories and the company has a brand palette.** The brand color palette for chart series + semantic good/bad colors, sourced from the company's design system / brand guidelines. Keeps every chart on-brand and consistent.
 
 ## Flow
 
@@ -144,6 +145,17 @@ WHERE date >= DATE_TRUNC(CURRENT_DATE - INTERVAL (X * 7) DAY, ISOWEEK)
   AND date <  DATE_TRUNC(CURRENT_DATE, ISOWEEK)
 ```
 
+### Step 10 — `## Chart & Visualization Guidelines`
+
+When the agent produces charts or stories, give it a fixed palette so output stays on-brand instead of using the charting library's defaults.
+
+Ask the user for (or point to) their **design system / brand guidelines**:
+
+1. **Brand series colors** — the ordered palette used for chart series (primary first, then ~5 more shades/variants). Fill the palette table with the exact hex values.
+2. **Semantic colors** — the fixed good/bad colors (e.g. green for positive, orange/red for negative), used only when a chart encodes good-vs-bad.
+
+Keep the two rules from the template: single-series → primary; multi-series → spread across the palette, then tints/shades beyond ~6; brand colors for neutral categorical series, semantic colors only for good/bad. If the user has no brand palette, don't add section in the rules.
+
 ## Audit-and-fill flow (when `RULES.md` is not empty)
 
 1. Run Step 0 (inventory) first — then read the existing `RULES.md`.
@@ -162,6 +174,7 @@ For deeper diagnostics (MECE, schema drift, test failure root causes), route to 
 - **`### Tables detail` only if no richer table docs exist elsewhere.**
 - **`## Key Metrics Reference` only if no semantic layer / metric docs exist elsewhere.** Otherwise route.
 - **Don't invent metric sources.** Unclear → list for user validation in Step 8.
+- **`## Chart & Visualization Guidelines` only if the project renders charts/stories and the user has a real brand palette** — use their exact hex values, never invent them; if there's no brand palette, omit the section entirely.
 - **Always check `profiling.md` before filtering on a column value** — bake this into the Analysis Process.
 - **`## Date filtering` keeps three examples max.**
 

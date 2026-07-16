@@ -20,7 +20,7 @@ import { posthog, PostHogEvent } from '../services/posthog';
 import { slackService } from '../services/slack';
 import { listAvailableTranscribeModels as getAvailableTranscribeModels } from '../services/transcribe.service';
 import { AgentSettings } from '../types/agent-settings';
-import { customModelMetadataSchema, llmConfigSchema, llmProviderSchema } from '../types/llm';
+import { customModelMetadataSchema, llmConfigSchema, llmProviderSchema, modelSettingsMapSchema } from '../types/llm';
 import { isValidIsoDateString } from '../utils/date';
 import { getEnvApiKey, getEnvBaseUrls, getEnvProviders, getProjectAvailableModels } from '../utils/llm';
 import { extractRequiredEnvVars } from '../utils/nao-config';
@@ -102,6 +102,7 @@ export const projectRoutes = {
 				credentialPreviews: buildCredentialPreviews(c.credentials),
 				enabledModels: c.enabledModels ?? [],
 				customModels: c.customModels ?? [],
+				modelSettings: c.modelSettings ?? {},
 				baseUrl: c.baseUrl ?? null,
 				createdAt: c.createdAt,
 				updatedAt: c.updatedAt,
@@ -139,6 +140,7 @@ export const projectRoutes = {
 				credentials: z.record(z.string(), z.string()).optional(),
 				enabledModels: z.array(z.string()).optional(),
 				customModels: z.array(customModelMetadataSchema).optional(),
+				modelSettings: modelSettingsMapSchema.optional(),
 				baseUrl: z.string().url().optional().or(z.literal('')),
 			}),
 		)
@@ -170,6 +172,11 @@ export const projectRoutes = {
 
 			const enabledModels = input.enabledModels ?? [];
 			const customModels = (input.customModels ?? []).filter((m) => enabledModels.includes(m.id));
+			const modelSettings = input.modelSettings
+				? Object.fromEntries(
+						Object.entries(input.modelSettings).filter(([modelId]) => enabledModels.includes(modelId)),
+					)
+				: undefined;
 
 			const config = await llmConfigQueries.upsertProjectLlmConfig({
 				projectId: ctx.project.id,
@@ -178,6 +185,7 @@ export const projectRoutes = {
 				credentials: hasNewCredentials ? input.credentials! : undefined,
 				enabledModels,
 				customModels,
+				modelSettings,
 				baseUrl: input.baseUrl || null,
 			} as Parameters<typeof llmConfigQueries.upsertProjectLlmConfig>[0]);
 
@@ -188,6 +196,7 @@ export const projectRoutes = {
 				credentialPreviews: buildCredentialPreviews(config.credentials),
 				enabledModels: config.enabledModels ?? [],
 				customModels: config.customModels ?? [],
+				modelSettings: config.modelSettings ?? {},
 				baseUrl: config.baseUrl ?? null,
 			};
 		}),

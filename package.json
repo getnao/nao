@@ -4,10 +4,6 @@
 	"workspaces": [
 		"apps/*"
 	],
-	"engines": {
-		"node": ">=24.18.0",
-		"npm": ">=11.11.0"
-	},
 	"scripts": {
 		"dev": "npm-run-all -lp dev:backend dev:frontend dev:fastapi",
 		"dev:backend": "npm run dev -w @nao/backend",
@@ -42,7 +38,7 @@
 		"typescript-eslint": "^8.51.0"
 	},
 	"dependencies": {
-		"@boxlite-ai/boxlite": "^0.9.7",
+		"@boxlite-ai/boxlite": "^0.3.0",
 		"@emnapi/core": "^1.9.2",
 		"@emnapi/runtime": "^1.9.2",
 		"@pydantic/monty": "^0.0.7",

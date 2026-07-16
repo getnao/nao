@@ -51,6 +51,7 @@ class TestRunDetails:
     expected_data: list[dict] | None = None
     comparison: str | None = None
     tool_calls: list[dict] | None = None
+    reference_sql: str | None = None
 
 
 @dataclass
@@ -225,6 +226,7 @@ def run_test(
                     expected_data=result.verification.expectedData,
                     comparison=comparison,
                     tool_calls=result.tool_calls,
+                    reference_sql=test_case.sql,
                 ),
             )
 
@@ -241,6 +243,7 @@ def run_test(
             details=TestRunDetails(
                 response_text=result.text,
                 tool_calls=result.tool_calls,
+                reference_sql=test_case.sql,
             ),
         )
 
@@ -252,7 +255,7 @@ def run_test(
             passed=False,
             message="error",
             error=str(e),
-            details=None,
+            details=TestRunDetails(reference_sql=test_case.sql),
         )
 
 

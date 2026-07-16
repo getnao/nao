@@ -22,6 +22,7 @@ import { TextShimmer } from '@/components/ui/text-shimmer';
 type CommandConfig = {
 	id: string;
 	label: string;
+	keywords?: string[];
 	icon: LucideIcon;
 	action: () => void;
 	shortcut?: string;
@@ -53,6 +54,7 @@ export function CommandMenu() {
 			{
 				id: 'new-chat',
 				label: 'New Chat',
+				keywords: ['start chat', 'new conversation'],
 				icon: MessageSquarePlusIcon,
 				action: () => navigate({ to: '/' }),
 				shortcut: '⇧⌘O',
@@ -62,6 +64,7 @@ export function CommandMenu() {
 			{
 				id: 'open-settings',
 				label: 'Open Account Settings',
+				keywords: ['account', 'settings', 'preferences'],
 				icon: UserIcon,
 				action: () => navigate({ to: '/settings/account' }),
 				group: 'Jump to',
@@ -69,6 +72,7 @@ export function CommandMenu() {
 			{
 				id: 'switch-mode',
 				label: `Switch ${theme === 'light' ? 'Dark' : 'Light'} Mode`,
+				keywords: ['switch light mode', 'switch dark mode', 'light mode', 'dark mode', 'theme', 'appearance'],
 				icon: theme === 'light' ? MoonIcon : SunIcon,
 				action: () => {
 					setTheme(theme === 'light' ? 'dark' : 'light');
@@ -79,11 +83,14 @@ export function CommandMenu() {
 		[navigate, theme, setTheme, canStartNewChat],
 	);
 
-	const jumpToCommands = useMemo(
-		() => commands.filter((cmd) => cmd.group === 'Jump to' && (cmd.visible ?? true)),
-		[commands],
+	const visibleCommands = useMemo(() => commands.filter((cmd) => cmd.visible ?? true), [commands]);
+	const filteredCommands = useMemo(
+		() => visibleCommands.filter((cmd) => matchesCommand(cmd, searchValue)),
+		[visibleCommands, searchValue],
 	);
-	const actionCommands = useMemo(() => commands.filter((cmd) => cmd.group === 'Actions'), [commands]);
+	const displayedCommands = isSearchMode ? filteredCommands : visibleCommands;
+	const jumpToCommands = displayedCommands.filter((cmd) => cmd.group === 'Jump to');
+	const actionCommands = displayedCommands.filter((cmd) => cmd.group === 'Actions');
 
 	useEffect(() => {
 		const handleKeyDown = (e: KeyboardEvent) => {
@@ -117,8 +124,12 @@ export function CommandMenu() {
 		[navigate],
 	);
 
-	const visibleActions = actionCommands.filter((cmd) => cmd.visible ?? true);
-	const showNoResults = !hasSearchResults && !isPendingSearch && isSearchMode;
+	const showNoResults =
+		!hasSearchResults &&
+		actionCommands.length === 0 &&
+		jumpToCommands.length === 0 &&
+		!isPendingSearch &&
+		isSearchMode;
 
 	return (
 		<CommandDialog open={open} onOpenChange={handleOpenChange} shouldFilter={false} loop>
@@ -139,12 +150,7 @@ export function CommandMenu() {
 								onSelect={() => runCommand(command.action)}
 							>
 								<command.icon />
-								<span>
-									{command.label}
-									{isSearchMode && (
-										<span className='text-muted-foreground'> &ldquo;{searchValue}&rdquo;</span>
-									)}
-								</span>
+								<span>{command.label}</span>
 								{command.shortcut && <CommandShortcut>{command.shortcut}</CommandShortcut>}
 							</CommandItem>
 						))}
@@ -182,9 +188,9 @@ export function CommandMenu() {
 					</div>
 				) : null}
 
-				{!isSearchMode && visibleActions.length > 0 && (
+				{actionCommands.length > 0 && (
 					<CommandGroup heading='Actions'>
-						{visibleActions.map((command) => (
+						{actionCommands.map((command) => (
 							<CommandItem
 								key={command.id}
 								value={command.id}
@@ -200,6 +206,15 @@ export function CommandMenu() {
 			</CommandList>
 		</CommandDialog>
 	);
+}
+
+function matchesCommand(command: CommandConfig, query: string): boolean {
+	const normalizedQuery = query.trim().toLowerCase();
+	if (!normalizedQuery) {
+		return true;
+	}
+	const searchableText = [command.label, command.id, ...(command.keywords ?? [])].join(' ').toLowerCase();
+	return searchableText.includes(normalizedQuery);
 }
 
 function highlightMatch(text: string, query: string) {

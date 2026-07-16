@@ -90,6 +90,28 @@ export const toKey = (value: string) => {
 	return hashValue(value);
 };
 
+/**
+ * Resolves the tooltip header label for a pie slice from its Recharts payload.
+ *
+ * Pie tooltips have no axis label, so the header must come from the hovered
+ * slice's category name (the `nameKey` value) rather than the value data key.
+ */
+export function resolvePieTooltipLabel(payload?: readonly { name?: unknown }[]): string {
+	const name = payload?.[0]?.name;
+	return name == null ? '' : String(name);
+}
+
+/** Resolves a config key to the matching key in the data, ignoring case. Falls back to the original key. */
+export function resolveDataKey(data: Record<string, unknown>[], key: string): string {
+	const row = data[0];
+	if (!row || key in row) {
+		return key;
+	}
+	const lower = key.toLowerCase();
+	const match = Object.keys(row).find((dataKey) => dataKey.toLowerCase() === lower);
+	return match ?? key;
+}
+
 /** Counts the successfully rendered `display_chart` tool calls across a conversation. */
 export function countDisplayCharts(messages: UIMessage[]): number {
 	let count = 0;
