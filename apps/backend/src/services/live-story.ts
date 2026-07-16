@@ -2,6 +2,7 @@ import { generateText, Output } from 'ai';
 import { CronExpressionParser } from 'cron-parser';
 import { z } from 'zod';
 
+import { llmTelemetry } from '../agents/telemetry';
 import { LiveStoryRefreshPrompt } from '../components/ai/live-story-refresh-prompt';
 import { env } from '../env';
 import { renderToMarkdown } from '../lib/markdown';
@@ -190,6 +191,7 @@ async function generateDynamicStoryCode(
 				}),
 			}),
 			maxOutputTokens: MAX_OUTPUT_TOKENS,
+			experimental_telemetry: llmTelemetry('nao-live-story', { projectId, tags: [provider] }),
 		});
 
 		const candidate = stripCodeFence(output.code.trim());

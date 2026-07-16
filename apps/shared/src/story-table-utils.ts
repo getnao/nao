@@ -26,6 +26,16 @@ export function formatCellValue(value: unknown, dateFormat?: DateFormatSettings 
 	return String(value);
 }
 
+export function formatColumnLabel(column: string): string {
+	return column
+		.replace(/_/g, ' ')
+		.trim()
+		.split(/\s+/)
+		.filter(Boolean)
+		.map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+		.join(' ');
+}
+
 export function isNumericColumn(rows: Record<string, unknown>[], column: string): boolean {
 	return rows
 		.filter((row) => row[column] !== null && row[column] !== undefined)

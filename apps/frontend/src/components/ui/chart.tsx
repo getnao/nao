@@ -264,10 +264,11 @@ function ChartLegendContent({
 	hideIcon = false,
 	payload,
 	verticalAlign = 'bottom',
+	layout = 'horizontal',
 	nameKey,
 	onItemClick,
 }: React.ComponentProps<'div'> &
-	Pick<RechartsPrimitive.LegendProps, 'verticalAlign'> & {
+	Pick<RechartsPrimitive.LegendProps, 'verticalAlign' | 'layout'> & {
 		hideIcon?: boolean;
 		nameKey?: string;
 		onItemClick?: (dataKey: string) => void;
@@ -279,11 +280,15 @@ function ChartLegendContent({
 		return null;
 	}
 
+	const isVertical = layout === 'vertical';
+
 	return (
 		<div
 			className={cn(
-				'flex items-center justify-center gap-4',
-				verticalAlign === 'top' ? 'pb-3' : 'pt-3',
+				'flex gap-4',
+				isVertical
+					? 'flex-col items-start justify-center gap-2 pl-4'
+					: cn('items-center justify-center', verticalAlign === 'top' ? 'pb-3' : 'pt-3'),
 				className,
 			)}
 		>

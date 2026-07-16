@@ -187,7 +187,7 @@ code.dollar:before {
 	--font-borna:
 		'Borna', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans',
 		'Droid Sans', 'Helvetica Neue', sans-serif;
-	--font-mono: source-code-pro, Menlo, Monaco, Consolas, 'Courier New', monospace;
+	--font-mono: 'Geist Mono', source-code-pro, Menlo, Monaco, Consolas, 'Courier New', monospace;
 }
 
 :root {

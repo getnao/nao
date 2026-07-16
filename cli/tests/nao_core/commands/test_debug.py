@@ -27,6 +27,24 @@ class TestLLMConnection:
             assert "3 models available" in message
             mock_openai_class.assert_called_once_with(api_key="sk-test-api-key")
 
+    def test_openai_connection_uses_configured_base_url(self):
+        """A custom base_url (e.g. a LiteLLM proxy) must reach the client, not the provider default."""
+        config = LLMConfig(
+            provider=LLMProvider.OPENAI,
+            api_key="sk-test-api-key",
+            base_url="https://proxy.internal/v1",
+        )
+
+        with patch("openai.OpenAI") as mock_openai_class:
+            mock_client = MagicMock()
+            mock_client.models.list.return_value = [MagicMock()]
+            mock_openai_class.return_value = mock_client
+
+            success, _ = check_llm_connection(config)
+
+            assert success is True
+            mock_openai_class.assert_called_once_with(api_key="sk-test-api-key", base_url="https://proxy.internal/v1")
+
     def test_openai_exception_returns_failure(self):
         """API exception should return False with error message."""
         config = LLMConfig(provider=LLMProvider.OPENAI, api_key="invalid")
@@ -53,6 +71,25 @@ class TestLLMConnection:
             assert "Connected successfully" in message
             assert "3 models available" in message
             mock_anthropic_class.assert_called_once_with(api_key="sk-test-api-key")
+
+    def test_anthropic_connection_uses_configured_base_url(self):
+        config = LLMConfig(
+            provider=LLMProvider.ANTHROPIC,
+            api_key="sk-test-api-key",
+            base_url="https://proxy.internal/anthropic",
+        )
+
+        with patch("anthropic.Anthropic") as mock_anthropic_class:
+            mock_client = MagicMock()
+            mock_client.models.list.return_value = [MagicMock()]
+            mock_anthropic_class.return_value = mock_client
+
+            success, _ = check_llm_connection(config)
+
+            assert success is True
+            mock_anthropic_class.assert_called_once_with(
+                api_key="sk-test-api-key", base_url="https://proxy.internal/anthropic"
+            )
 
     def test_anthropic_exception_returns_failure(self):
         """API exception should return False with error message."""
@@ -135,6 +172,23 @@ class TestLLMConnection:
             mock_openai_class.assert_called_once_with(
                 base_url="https://openrouter.ai/api/v1", api_key="sk-test-api-key"
             )
+
+    def test_openrouter_connection_uses_configured_base_url(self):
+        """A configured base_url overrides the OpenRouter default endpoint."""
+        config = LLMConfig(
+            provider=LLMProvider.OPENROUTER,
+            api_key="sk-test-api-key",
+            base_url="https://proxy.internal/v1",
+        )
+        with patch("openai.OpenAI") as mock_openai_class:
+            mock_client = MagicMock()
+            mock_client.models.list.return_value = [MagicMock()]
+            mock_openai_class.return_value = mock_client
+
+            success, _ = check_llm_connection(config)
+
+            assert success is True
+            mock_openai_class.assert_called_once_with(base_url="https://proxy.internal/v1", api_key="sk-test-api-key")
 
     def test_openrouter_exception_returns_failure(self):
         """API exception should return False with error message."""

@@ -6,13 +6,14 @@ import pytest
 
 from nao_core.commands.test.case import TestCase as NaoTestCase
 from nao_core.commands.test.client import (
-    TestResult as AgentTestResult,
-)
-from nao_core.commands.test.client import (
+    AgentClientError,
     TokenCost,
     TokenUsage,
     VerificationResult,
     serialize_model_costs,
+)
+from nao_core.commands.test.client import (
+    TestResult as AgentTestResult,
 )
 from nao_core.commands.test.runner import ModelConfig, check_dataframe, filter_test_cases, run_test
 from nao_core.config.llm import ModelCosts
@@ -165,3 +166,64 @@ def test_run_test_passes_configured_costs_to_client(monkeypatch):
 
     assert result.passed is True
     client.run_test.assert_called_once_with(test_case, provider="openai", model_id="custom-model", costs=costs)
+
+
+def test_run_test_records_reference_sql_with_verification(monkeypatch):
+    test_case = NaoTestCase(name="orders", prompt="p1", file_path=Path("tests/orders.yml"), sql="select 1")
+    model = ModelConfig(provider="openai", model_id="custom-model")
+    client = Mock()
+    client.run_test.return_value = AgentTestResult(
+        text="",
+        tool_calls=[],
+        usage=TokenUsage(totalTokens=0),
+        cost=TokenCost(totalCost=0),
+        finish_reason="stop",
+        duration_ms=1,
+        verification=VerificationResult(
+            data=[{"total": 1}],
+            expectedData=[{"total": 1}],
+            expectedColumns=["total"],
+        ),
+    )
+    monkeypatch.setattr(test_runner_module, "get_client", lambda **_: client)
+
+    result = run_test(test_case, model)
+
+    assert result.passed is True
+    assert result.details is not None
+    assert result.details.reference_sql == "select 1"
+
+
+def test_run_test_records_reference_sql_without_verification(monkeypatch):
+    test_case = NaoTestCase(name="orders", prompt="p1", file_path=Path("tests/orders.yml"), sql="select 1")
+    model = ModelConfig(provider="openai", model_id="custom-model")
+    client = Mock()
+    client.run_test.return_value = AgentTestResult(
+        text="",
+        tool_calls=[],
+        usage=TokenUsage(totalTokens=0),
+        cost=TokenCost(totalCost=0),
+        finish_reason="stop",
+        duration_ms=1,
+    )
+    monkeypatch.setattr(test_runner_module, "get_client", lambda **_: client)
+
+    result = run_test(test_case, model)
+
+    assert result.details is not None
+    assert result.details.reference_sql == "select 1"
+
+
+def test_run_test_records_reference_sql_on_client_error(monkeypatch):
+    test_case = NaoTestCase(name="orders", prompt="p1", file_path=Path("tests/orders.yml"), sql="select 1")
+    model = ModelConfig(provider="openai", model_id="custom-model")
+    client = Mock()
+    client.run_test.side_effect = AgentClientError("backend unreachable")
+    monkeypatch.setattr(test_runner_module, "get_client", lambda **_: client)
+
+    result = run_test(test_case, model)
+
+    assert result.passed is False
+    assert result.error == "backend unreachable"
+    assert result.details is not None
+    assert result.details.reference_sql == "select 1"

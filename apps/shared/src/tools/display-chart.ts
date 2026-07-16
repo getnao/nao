@@ -9,6 +9,7 @@ export const ChartTypeEnum = z.enum([
 	'stacked_area',
 	'stacked_area_100',
 	'pie',
+	'donut',
 	'kpi_card',
 	'scatter',
 	'radar',
@@ -44,6 +45,12 @@ export const InputSchema = z.object({
 		.describe(
 			'A concise and descriptive title of what the chart shows. Do not include the type of chart in the title or other chart configurations.',
 		),
+	show_data_labels: z
+		.boolean()
+		.describe(
+			'Show the numeric value of each data point directly on the chart. Set to true when the user asks to display values/data labels on the chart.',
+		)
+		.optional(),
 });
 
 export const OutputSchema = z.object({
@@ -71,17 +78,18 @@ const X_AXIS_REQUIRED_CHART_TYPES = new Set<ChartType>([
 	'radar',
 ]);
 
-/** Whether a chart type stacks its series (absolute or normalized). */
 export function isStackedChartType(type: ChartType): boolean {
 	return STACKED_CHART_TYPES.has(type);
 }
 
-/** Whether a chart type is a 100% (normalized) stacked chart. */
 export function isPercentStackedChartType(type: ChartType): boolean {
 	return PERCENT_STACKED_CHART_TYPES.has(type);
 }
 
-/** Whether a chart type requires an x-axis key (cartesian and polar charts). */
 export function chartTypeRequiresXAxisKey(type: ChartType): boolean {
 	return X_AXIS_REQUIRED_CHART_TYPES.has(type);
+}
+
+export function isPieChart(chartType: ChartType): boolean {
+	return chartType === 'pie' || chartType === 'donut';
 }

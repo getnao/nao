@@ -19,6 +19,7 @@ const CHART_TYPE_OPTIONS: { value: displayChart.ChartType; label: string }[] = [
 	{ value: 'area', label: 'Area' },
 	{ value: 'stacked_area', label: 'Stacked area' },
 	{ value: 'pie', label: 'Pie' },
+	{ value: 'donut', label: 'Donut' },
 	{ value: 'kpi_card', label: 'KPI card' },
 	{ value: 'scatter', label: 'Scatter' },
 	{ value: 'radar', label: 'Radar' },
@@ -300,6 +301,20 @@ export function ChartConfigEditDialog({
 									</Button>
 								</div>
 							))}
+						</div>
+					</div>
+
+					<div className='grid gap-2'>
+						<span className='text-sm font-semibold text-foreground'>Options</span>
+						<div className='flex h-8 items-center justify-between'>
+							<label htmlFor='show-data-labels' className='text-sm text-foreground'>
+								Show data labels
+							</label>
+							<Switch
+								id='show-data-labels'
+								checked={Boolean(draft.show_data_labels)}
+								onCheckedChange={(v) => setDraft((prev) => ({ ...prev, show_data_labels: v }))}
+							/>
 						</div>
 					</div>
 
