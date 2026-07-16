@@ -274,6 +274,13 @@ def get_html_template() -> str:
                                 </div>
                             )}
 
+                            {details.reference_sql && (
+                                <div className="detail-section">
+                                    <h3>Reference SQL</h3>
+                                    <pre>{details.reference_sql}</pre>
+                                </div>
+                            )}
+
                             {(details.actual_data || details.expected_data) && (
                                 <div className="detail-section">
                                     <h3>Data Comparison</h3>
@@ -337,10 +344,7 @@ def get_html_template() -> str:
                             </div>
                             {expanded[i] && (
                                 <div className="tool-call-details">
-                                    <div className="tool-call-section">
-                                        <div className="tool-call-label">Arguments</div>
-                                        <pre>{JSON.stringify(tc.args, null, 2)}</pre>
-                                    </div>
+                                    <ToolCallArgs toolCall={tc} />
                                     {tc.result !== undefined && (
                                         <div className="tool-call-section">
                                             <div className="tool-call-label">Result</div>
@@ -351,6 +355,35 @@ def get_html_template() -> str:
                             )}
                         </div>
                     ))}
+                </div>
+            );
+        }
+
+        function ToolCallArgs({ toolCall }) {
+            const { toolName, args } = toolCall;
+
+            if (toolName === 'execute_sql' && args && typeof args.sql_query === 'string') {
+                const { sql_query, ...otherArgs } = args;
+                return (
+                    <>
+                        <div className="tool-call-section">
+                            <div className="tool-call-label">SQL Query</div>
+                            <pre>{sql_query}</pre>
+                        </div>
+                        {Object.keys(otherArgs).length > 0 && (
+                            <div className="tool-call-section">
+                                <div className="tool-call-label">Other Arguments</div>
+                                <pre>{JSON.stringify(otherArgs, null, 2)}</pre>
+                            </div>
+                        )}
+                    </>
+                );
+            }
+
+            return (
+                <div className="tool-call-section">
+                    <div className="tool-call-label">Arguments</div>
+                    <pre>{JSON.stringify(args, null, 2)}</pre>
                 </div>
             );
         }

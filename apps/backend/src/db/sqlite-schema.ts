@@ -45,7 +45,7 @@ import {
 	RecommendationImpact,
 	RecommendationInsight,
 } from '../types/context-recommendation';
-import { LLM_INFERENCE_TYPES } from '../types/llm';
+import { LLM_INFERENCE_TYPES, type ModelSettingsMap } from '../types/llm';
 import { LOG_LEVELS, LOG_SOURCES } from '../types/log';
 import { McpEndpointSettings } from '../types/mcp-endpoint';
 import { MEMORY_CATEGORIES } from '../types/memory';
@@ -451,6 +451,7 @@ export const projectLlmConfig = sqliteTable(
 			>()
 			.default([])
 			.notNull(),
+		modelSettings: text('model_settings', { mode: 'json' }).$type<ModelSettingsMap>().default({}).notNull(),
 		baseUrl: text('base_url'),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)

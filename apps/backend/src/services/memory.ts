@@ -101,7 +101,7 @@ class MemoryService {
 		provider: LlmProvider,
 		modelId: string,
 	): Promise<ProviderModelResult | null> {
-		return resolveProviderModel(projectId, provider, modelId);
+		return resolveProviderModel(projectId, provider, modelId, false);
 	}
 
 	private async _getExtractorModelId(projectId: string, provider: LlmProvider): Promise<string> {

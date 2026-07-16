@@ -1,14 +1,16 @@
-import { useEffect, useMemo, useState } from 'react';
+import { displayChart } from '@nao/shared/tools';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2 } from 'lucide-react';
-import { displayChart } from '@nao/shared/tools';
+import { useEffect, useMemo, useState } from 'react';
+
 import { Button } from '../ui/button';
-import { Input } from '../ui/input';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
+import { Input } from '../ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import { Switch } from '../ui/switch';
 import type { UIMessage, UIToolPart } from '@nao/backend/chat';
-import { useAgentContext } from '@/contexts/agent.provider';
 import { trpc } from '@/main';
+import { useAgentContext } from '@/contexts/agent.provider';
 
 const CHART_TYPE_OPTIONS: { value: displayChart.ChartType; label: string }[] = [
 	{ value: 'bar', label: 'Bar' },
@@ -17,6 +19,7 @@ const CHART_TYPE_OPTIONS: { value: displayChart.ChartType; label: string }[] = [
 	{ value: 'area', label: 'Area' },
 	{ value: 'stacked_area', label: 'Stacked area' },
 	{ value: 'pie', label: 'Pie' },
+	{ value: 'donut', label: 'Donut' },
 	{ value: 'kpi_card', label: 'KPI card' },
 	{ value: 'scatter', label: 'Scatter' },
 	{ value: 'radar', label: 'Radar' },
@@ -28,6 +31,28 @@ const X_AXIS_TYPE_OPTIONS: { value: NonNullable<displayChart.XAxisType> | 'auto'
 	{ value: 'date', label: 'Date' },
 	{ value: 'number', label: 'Number' },
 ];
+
+/** Maps a 100% stacked type back to its absolute-stacked counterpart, so the type dropdown stays clean. */
+function baseChartType(type: displayChart.ChartType): displayChart.ChartType {
+	if (type === 'stacked_bar_100') {
+		return 'stacked_bar';
+	}
+	if (type === 'stacked_area_100') {
+		return 'stacked_area';
+	}
+	return type;
+}
+
+/** Maps a stacked type to its 100% (normalized) counterpart. */
+function percentChartType(type: displayChart.ChartType): displayChart.ChartType {
+	if (type === 'stacked_bar' || type === 'stacked_bar_100') {
+		return 'stacked_bar_100';
+	}
+	if (type === 'stacked_area' || type === 'stacked_area_100') {
+		return 'stacked_area_100';
+	}
+	return type;
+}
 
 interface ChartConfigEditDialogProps {
 	open: boolean;
@@ -140,9 +165,18 @@ export function ChartConfigEditDialog({
 						<div className='grid gap-2'>
 							<span className='text-sm font-semibold text-foreground'>Chart type</span>
 							<Select
-								value={draft.chart_type}
+								value={baseChartType(draft.chart_type)}
 								onValueChange={(value) =>
-									setDraft((prev) => ({ ...prev, chart_type: value as displayChart.ChartType }))
+									setDraft((prev) => {
+										const nextBase = value as displayChart.ChartType;
+										const keepPercent =
+											displayChart.isPercentStackedChartType(prev.chart_type) &&
+											displayChart.isStackedChartType(nextBase);
+										return {
+											...prev,
+											chart_type: keepPercent ? percentChartType(nextBase) : nextBase,
+										};
+									})
 								}
 							>
 								<SelectTrigger className='w-full bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
@@ -182,6 +216,31 @@ export function ChartConfigEditDialog({
 							</Select>
 						</div>
 					</div>
+
+					{displayChart.isStackedChartType(draft.chart_type) && (
+						<div className='flex items-center justify-between gap-3'>
+							<div className='grid gap-0.5'>
+								<label htmlFor='chart-normalize' className='text-sm font-semibold text-foreground'>
+									Normalize to 100%
+								</label>
+								<span className='text-xs text-muted-foreground'>
+									Show each series as a share of the category total.
+								</span>
+							</div>
+							<Switch
+								id='chart-normalize'
+								checked={displayChart.isPercentStackedChartType(draft.chart_type)}
+								onCheckedChange={(checked) =>
+									setDraft((prev) => ({
+										...prev,
+										chart_type: checked
+											? percentChartType(prev.chart_type)
+											: baseChartType(prev.chart_type),
+									}))
+								}
+							/>
+						</div>
+					)}
 
 					<div className='grid gap-2'>
 						<span className='text-sm font-semibold text-foreground'>X-axis column</span>
@@ -242,6 +301,20 @@ export function ChartConfigEditDialog({
 									</Button>
 								</div>
 							))}
+						</div>
+					</div>
+
+					<div className='grid gap-2'>
+						<span className='text-sm font-semibold text-foreground'>Options</span>
+						<div className='flex h-8 items-center justify-between'>
+							<label htmlFor='show-data-labels' className='text-sm text-foreground'>
+								Show data labels
+							</label>
+							<Switch
+								id='show-data-labels'
+								checked={Boolean(draft.show_data_labels)}
+								onCheckedChange={(v) => setDraft((prev) => ({ ...prev, show_data_labels: v }))}
+							/>
 						</div>
 					</div>
 

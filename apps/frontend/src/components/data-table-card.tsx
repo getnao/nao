@@ -94,6 +94,7 @@ export function DataTableCard({
 				maxRowsBeforePagination={maxRowsBeforePagination}
 				compactFooter={true}
 				conditionalFormats={conditionalFormats}
+				humanizeColumnLabels={true}
 			/>
 
 			<Dialog open={isFullscreen} onOpenChange={setIsFullscreen}>
@@ -127,6 +128,7 @@ export function DataTableCard({
 						maxRowsBeforePagination={maxRowsBeforePagination}
 						compactFooter={true}
 						conditionalFormats={conditionalFormats}
+						humanizeColumnLabels={true}
 					/>
 				</DialogContent>
 			</Dialog>

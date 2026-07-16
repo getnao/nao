@@ -1,9 +1,11 @@
 import { useState } from 'react';
 import { useForm } from '@tanstack/react-form';
 import { Check, ChevronDown, MoreHorizontal, Plus, X } from 'lucide-react';
-import { getDefaultModelId, getProviderAuth } from '@nao/backend/provider-meta';
+import { getDefaultModelId, getModelParameterSpec, getProviderAuth } from '@nao/backend/provider-meta';
 import { CustomModelDialog } from './custom-model-dialog';
-import type { CustomModelMetadata } from '@nao/backend/llm';
+import { ModelParametersDialog } from './model-parameters-dialog';
+import { applySavedModelSettings } from './model-settings-overrides';
+import type { CustomModelMetadata, ModelSettingsMap } from '@nao/backend/llm';
 import type { LlmProvider } from '@nao/shared/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,6 +19,7 @@ export interface LlmProviderFormProps {
 	initialValues?: {
 		enabledModels: string[];
 		customModels: CustomModelMetadata[];
+		modelSettings: ModelSettingsMap;
 		baseUrl: string;
 	};
 	currentModels: readonly { id: string; name: string; default?: boolean }[];
@@ -25,6 +28,7 @@ export interface LlmProviderFormProps {
 		credentials?: Record<string, string>;
 		enabledModels: string[];
 		customModels: CustomModelMetadata[];
+		modelSettings: ModelSettingsMap;
 		baseUrl?: string;
 	}) => Promise<void>;
 	onCancel: () => void;
@@ -52,6 +56,8 @@ export function LlmProviderForm({
 	const [showAdvanced, setShowAdvanced] = useState(!!initialValues?.baseUrl);
 	const [customModelInput, setCustomModelInput] = useState('');
 	const [editingCustomModelId, setEditingCustomModelId] = useState<string | null>(null);
+	const [editingModelParamsId, setEditingModelParamsId] = useState<string | null>(null);
+	const supportsModelParameters = (modelId: string) => getModelParameterSpec(provider, modelId).length > 0;
 	const providerAuth = getProviderAuth(provider);
 	const showApiKey = providerAuth.apiKey !== 'none';
 	const extraFields = providerAuth.extraFields ?? [];
@@ -64,6 +70,7 @@ export function LlmProviderForm({
 			credentials: defaultCredentials,
 			enabledModels: initialValues?.enabledModels ?? [],
 			customModels: initialValues?.customModels ?? ([] as CustomModelMetadata[]),
+			modelSettings: initialValues?.modelSettings ?? ({} as ModelSettingsMap),
 			baseUrl: initialValues?.baseUrl ?? '',
 		},
 		onSubmit: async ({ value }) => {
@@ -74,6 +81,7 @@ export function LlmProviderForm({
 				credentials: Object.keys(filledCredentials).length > 0 ? filledCredentials : undefined,
 				enabledModels: value.enabledModels,
 				customModels: value.customModels,
+				modelSettings: value.modelSettings,
 				baseUrl: value.baseUrl || undefined,
 			});
 		},
@@ -197,6 +205,33 @@ export function LlmProviderForm({
 									const isExplicitlyEnabled = enabledModels.includes(model.id);
 									const isDefaultSelected = enabledModels.length === 0 && model.default;
 									const isEnabled = isExplicitlyEnabled || isDefaultSelected;
+
+									if (isEnabled && supportsModelParameters(model.id)) {
+										return (
+											<div
+												key={model.id}
+												className='flex items-center gap-1.5 pl-3 pr-1 py-1 rounded-md text-sm bg-primary text-primary-foreground'
+											>
+												<button
+													type='button'
+													onClick={() => toggleModel(model.id)}
+													className='flex items-center gap-1.5 cursor-pointer hover:opacity-80 transition-opacity'
+												>
+													<Check className='size-3' />
+													{model.name}
+												</button>
+												<button
+													type='button'
+													onClick={() => setEditingModelParamsId(model.id)}
+													className='ml-1 p-0.5 rounded hover:bg-primary-foreground/20 transition-colors cursor-pointer'
+													aria-label={`Edit ${model.name} parameters`}
+												>
+													<MoreHorizontal className='size-3.5' />
+												</button>
+											</div>
+										);
+									}
+
 									return (
 										<button
 											key={model.id}
@@ -343,14 +378,72 @@ export function LlmProviderForm({
 							setEditingCustomModelId(null);
 						}
 					}}
+					provider={provider}
 					modelId={editingCustomModelId ?? ''}
 					value={field.state.value.find((m) => m.id === editingCustomModelId)}
 					onSave={(metadata) => {
 						const next = field.state.value.filter((m) => m.id !== metadata.id);
 						field.handleChange([...next, metadata]);
 					}}
+					parametersValue={
+						editingCustomModelId ? form.getFieldValue('modelSettings')[editingCustomModelId] : undefined
+					}
+					onSaveParameters={(settings) => {
+						if (!editingCustomModelId) {
+							return;
+						}
+						const next = applySavedModelSettings({
+							provider,
+							enabledModels: form.getFieldValue('enabledModels'),
+							modelSettings: form.getFieldValue('modelSettings'),
+							modelId: editingCustomModelId,
+							settings,
+						});
+						form.setFieldValue('modelSettings', next.modelSettings);
+					}}
 				/>
 			)}
+		</form.Field>
+	);
+
+	const modelParametersDialog = (
+		<form.Field name='modelSettings'>
+			{(field) => {
+				const model = currentModels.find((m) => m.id === editingModelParamsId);
+				return (
+					<ModelParametersDialog
+						open={editingModelParamsId !== null}
+						onOpenChange={(open) => {
+							if (!open) {
+								setEditingModelParamsId(null);
+							}
+						}}
+						provider={provider}
+						model={{
+							id: editingModelParamsId ?? '',
+							name: model?.name ?? editingModelParamsId ?? '',
+						}}
+						value={editingModelParamsId ? field.state.value[editingModelParamsId] : undefined}
+						onSave={(settings) => {
+							if (!editingModelParamsId) {
+								return;
+							}
+							const enabledModels = form.getFieldValue('enabledModels');
+							const next = applySavedModelSettings({
+								provider,
+								enabledModels,
+								modelSettings: field.state.value,
+								modelId: editingModelParamsId,
+								settings,
+							});
+							if (next.enabledModels !== enabledModels) {
+								form.setFieldValue('enabledModels', next.enabledModels);
+							}
+							field.handleChange(next.modelSettings);
+						}}
+					/>
+				);
+			}}
 		</form.Field>
 	);
 
@@ -359,6 +452,7 @@ export function LlmProviderForm({
 			<>
 				{content}
 				{customModelDialog}
+				{modelParametersDialog}
 			</>
 		);
 	}
@@ -367,6 +461,7 @@ export function LlmProviderForm({
 		<>
 			<div className='flex flex-col gap-3 p-4 rounded-lg border border-primary/50 bg-muted/30'>{content}</div>
 			{customModelDialog}
+			{modelParametersDialog}
 		</>
 	);
 }
