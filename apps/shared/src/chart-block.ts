@@ -1,5 +1,4 @@
 import type * as displayChart from './tools/display-chart';
-import type * as displayTable from './tools/display-table';
 
 export type { McpChartEmbedStoredConfig } from './mcp-embed';
 
@@ -12,10 +11,10 @@ export function escapeSingleQuotedStoryAttr(value: string): string {
 }
 
 export type StoryChartBlockInput = Pick<
-	displayChart.Input,
+	displayChart.ChartInput,
 	'query_id' | 'chart_type' | 'x_axis_key' | 'x_axis_type' | 'series'
 > & {
-	title?: displayChart.Input['title'];
+	title?: displayChart.ChartInput['title'];
 };
 
 export function buildStoryChartBlock(input: StoryChartBlockInput): string {
@@ -27,7 +26,7 @@ export function buildStoryChartBlock(input: StoryChartBlockInput): string {
 	return `<chart query_id="${escapeDoubleQuotedStoryAttr(input.query_id)}" chart_type="${escapeDoubleQuotedStoryAttr(input.chart_type)}" x_axis_key="${escapeDoubleQuotedStoryAttr(input.x_axis_key)}"${xAxisTypeAttr} series='${seriesJson}'${titleAttr} />`;
 }
 
-export type StoryTableBlockInput = Pick<displayTable.Input, 'query_id' | 'title' | 'conditional_formats'>;
+export type StoryTableBlockInput = Pick<displayChart.TableInput, 'query_id' | 'title' | 'conditional_formats'>;
 
 export function buildStoryTableBlock(input: StoryTableBlockInput): string {
 	const titleAttr =

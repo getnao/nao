@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { buildStoryTableBlock } from '../src/chart-block';
 import type { ColumnConditionalFormats } from '../src/conditional-formatting';
 import { injectTableFormatting, parseTableBlock, splitCodeIntoSegments } from '../src/story-segments';
-import { displayTable } from '../src/tools';
+import { displayChart } from '../src/tools';
 
 describe('buildStoryTableBlock', () => {
 	it('round-trips a table with conditional formatting through the story parser', () => {
@@ -137,10 +137,31 @@ describe('injectTableFormatting', () => {
 	});
 });
 
-describe('displayTable.InputSchema', () => {
-	it('accepts a valid table config with conditional formats', () => {
-		const result = displayTable.InputSchema.safeParse({
+describe('displayChart.InputSchema table variant', () => {
+	it('accepts a valid chart config', () => {
+		const result = displayChart.InputSchema.safeParse({
 			query_id: 'query_1',
+			chart_type: 'bar',
+			x_axis_key: 'month',
+			x_axis_type: 'category',
+			series: [{ data_key: 'sales' }],
+			title: 'Monthly sales',
+		});
+		expect(result.success).toBe(true);
+	});
+
+	it('rejects a chart config missing chart fields', () => {
+		const result = displayChart.InputSchema.safeParse({
+			query_id: 'query_1',
+			chart_type: 'bar',
+		});
+		expect(result.success).toBe(false);
+	});
+
+	it('accepts a valid table config with conditional formats', () => {
+		const result = displayChart.InputSchema.safeParse({
+			query_id: 'query_1',
+			chart_type: 'table',
 			title: 'Sales',
 			conditional_formats: {
 				sales: { type: 'threshold', operator: '<', value: 10, color: '#ef4444' },
@@ -150,8 +171,9 @@ describe('displayTable.InputSchema', () => {
 	});
 
 	it('rejects an unknown rule type', () => {
-		const result = displayTable.InputSchema.safeParse({
+		const result = displayChart.InputSchema.safeParse({
 			query_id: 'query_1',
+			chart_type: 'table',
 			conditional_formats: { sales: { type: 'formula', expr: 'x > 1' } },
 		});
 		expect(result.success).toBe(false);

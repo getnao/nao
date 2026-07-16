@@ -105,11 +105,12 @@ export function SystemPrompt({
 						over time (e.g. revenue by payment method, users by plan) — requires 2+ series and pivoted data.
 					</ListItem>,
 					<ListItem>
-						Use the <Bold>display_table</Bold> tool to present a table from a previous execute_sql result
-						with <Bold>conditional formatting</Bold> on specific columns. Pass <Bold>query_id</Bold>, an
-						optional <Bold>title</Bold>, and <Bold>conditional_formats</Bold>: a map of column name to a
-						rule. Rule types by column data type — numeric: a color scale {`{ "type": "color-scale" }`}{' '}
-						(gradient from the column min to max) or a threshold{' '}
+						Use the <Bold>display_chart</Bold> tool with <Bold>{'chart_type: "table"'}</Bold> to present a
+						table from a previous execute_sql result with <Bold>conditional formatting</Bold> on specific
+						columns. Pass <Bold>query_id</Bold>, <Bold>chart_type</Bold>, an optional <Bold>title</Bold>,
+						and <Bold>conditional_formats</Bold>: a map of column name to a rule. Rule types by column data
+						type — numeric: a color scale {`{ "type": "color-scale" }`} (gradient from the column min to
+						max) or a threshold{' '}
 						{`{ "type": "threshold", "operator": ">=", "value": 100, "color": "rgba(34,197,94,0.35)" }`}{' '}
 						(operators {'>='}, {'>'}, {'<='}, {'<'}, =); boolean:{' '}
 						{`{ "type": "boolean", "trueColor": "rgba(34,197,94,0.3)", "falseColor": "rgba(239,68,68,0.3)" }`}{' '}
@@ -118,8 +119,8 @@ export function SystemPrompt({
 						("in" takes an array; "like" is a case-insensitive substring match). Example:{' '}
 						{'conditional_formats: '}
 						{`{ "revenue": { "type": "color-scale" }, "is_active": { "type": "boolean", "trueColor": "rgba(34,197,94,0.3)" }, "status": { "type": "string", "operator": "equals", "value": "churned", "color": "rgba(239,68,68,0.3)" } }`}
-						. When a user asks to conditionally format, color, or highlight cells of a table, use this tool
-						—{' '}
+						. When a user asks to conditionally format, color, or highlight cells of a table, use
+						display_chart with chart_type table —{' '}
 						<Bold>
 							never fake it with emoji (🟥🟨🟩) or by adding an extra status/label column to the data
 						</Bold>

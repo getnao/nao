@@ -518,6 +518,9 @@ class WhatsappService {
 		if (part.state !== 'output-available' || state.renderedChartIds.has(part.toolCallId)) {
 			return null;
 		}
+		if (part.input.chart_type === 'table') {
+			return null;
+		}
 		const sqlOutput = state.sqlOutputs.get(part.input.query_id);
 		if (!sqlOutput) {
 			return null;

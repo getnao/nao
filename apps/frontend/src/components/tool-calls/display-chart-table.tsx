@@ -7,9 +7,8 @@ import { DataTableCard } from '../data-table-card';
 import { Button } from '../ui/button';
 import { ToolCallWrapper } from './tool-call-wrapper';
 import { TableFormatEditDialog } from './display-table-edit-dialog';
-import type { ToolCallComponentProps } from '.';
 import type { ColumnConditionalFormats } from '@nao/shared/conditional-formatting';
-import type { displayTable, executeSql } from '@nao/shared/tools';
+import type { displayChart, executeSql } from '@nao/shared/tools';
 import type { UIMessage, UIToolPart } from '@nao/backend/chat';
 import { useOptionalAgentContext } from '@/contexts/agent.provider';
 import { useChatId } from '@/hooks/use-chat-id';
@@ -20,15 +19,18 @@ import { trpc } from '@/main';
 
 const EMPTY_MESSAGES: UIMessage[] = [];
 
-export const DisplayTableToolCall = ({
-	toolPart: { state, input, output, toolCallId },
-}: ToolCallComponentProps<'display_table'>) => {
+interface DisplayChartTableProps {
+	config?: displayChart.TableInput;
+	outputError?: string;
+	toolCallId: string;
+}
+
+export function DisplayChartTable({ config, outputError, toolCallId }: DisplayChartTableProps) {
 	const agent = useOptionalAgentContext();
 	const messages = agent?.messages ?? EMPTY_MESSAGES;
 	const chatId = useChatId();
 	const queryClient = useQueryClient();
 	const { open: openSidePanel, currentStorySlug, isVisible } = useSidePanel();
-	const config = state !== 'input-streaming' ? input : undefined;
 	const [isEditOpen, setIsEditOpen] = useState(false);
 
 	const storyIds = useMemo(() => findStoryIds(messages), [messages]);
@@ -50,7 +52,7 @@ export const DisplayTableToolCall = ({
 	}, [messages, config?.query_id]);
 
 	const updateMutation = useMutation(
-		trpc.table.updateConfig.mutationOptions({
+		trpc.chart.updateConfig.mutationOptions({
 			onSuccess: () => queryClient.invalidateQueries({ queryKey: [['chat', 'get']] }),
 		}),
 	);
@@ -75,24 +77,22 @@ export const DisplayTableToolCall = ({
 		}
 		isPersistingRef.current = true;
 		const previousMessages = messages;
-		const previousConfig = config;
-		const nextConfig: displayTable.Input = { ...config, conditional_formats: nextFormats };
+		const nextConfig: displayChart.TableInput = { ...config, conditional_formats: nextFormats };
 		agent?.setMessages(applyTableConfigToMessages(previousMessages, toolCallId, nextConfig));
 		try {
 			await updateMutation.mutateAsync({ toolCallId, config: nextConfig });
 		} catch (err) {
-			// Serialized via isPersistingRef, so restoring this edit's prior config cannot clobber a newer one.
-			agent?.setMessages(applyTableConfigToMessages(previousMessages, toolCallId, previousConfig));
+			agent?.setMessages(previousMessages);
 			throw err;
 		} finally {
 			isPersistingRef.current = false;
 		}
 	};
 
-	if (output?.error) {
+	if (outputError) {
 		return (
 			<ToolCallWrapper defaultExpanded title='Could not display the table'>
-				<div className='p-4 text-red-400 text-sm'>{output.error}</div>
+				<div className='p-4 text-red-400 text-sm'>{outputError}</div>
 			</ToolCallWrapper>
 		);
 	}
@@ -198,20 +198,20 @@ export const DisplayTableToolCall = ({
 			)}
 		</div>
 	);
-};
+}
 
 function applyTableConfigToMessages(
 	messages: UIMessage[],
 	toolCallId: string,
-	config: displayTable.Input,
+	config: displayChart.TableInput,
 ): UIMessage[] {
 	return messages.map((message) => {
 		let changed = false;
 		const parts = message.parts.map((part) => {
-			if (part.type !== 'tool-display_table') {
+			if (part.type !== 'tool-display_chart') {
 				return part;
 			}
-			const toolPart = part as UIToolPart<'display_table'>;
+			const toolPart = part as UIToolPart<'display_chart'>;
 			if (toolPart.toolCallId !== toolCallId) {
 				return part;
 			}

@@ -9,7 +9,7 @@ export interface StoryChartEditHandlers {
 	 * in the story's markdown and saving a new version.
 	 * Returns a promise that rejects if the save fails.
 	 */
-	saveChart: (rawTag: string, config: displayChart.Input) => Promise<void>;
+	saveChart: (rawTag: string, config: displayChart.ChartInput) => Promise<void>;
 	/** Whether a save is currently in flight. */
 	isSaving: boolean;
 }
@@ -40,7 +40,7 @@ export function StoryChartEditProvider({
 	const { replaceBlock, isSaving } = useStoryBlockEdit({ chatId, storySlug, storyTitle, storyCode });
 
 	const saveChart = useCallback(
-		(rawTag: string, config: displayChart.Input) => replaceBlock(rawTag, buildStoryChartBlock(config)),
+		(rawTag: string, config: displayChart.ChartInput) => replaceBlock(rawTag, buildStoryChartBlock(config)),
 		[replaceBlock],
 	);
 

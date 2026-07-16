@@ -3,7 +3,6 @@ import { StoryToolCall } from './story';
 import { ClarificationToolCall } from './clarification';
 import { DefaultToolCall } from './default';
 import { DisplayChartToolCall } from './display-chart';
-import { DisplayTableToolCall } from './display-table-tool';
 import { ExecutePythonToolCall } from './execute-python';
 import { ExecuteSandboxedCodeToolCall } from './execute-sandboxed-code';
 import { ExecuteSqlToolCall } from './execute-sql';
@@ -32,7 +31,6 @@ const toolComponents: Partial<{
 	story: StoryToolCall,
 	clarification: ClarificationToolCall,
 	display_chart: DisplayChartToolCall,
-	display_table: DisplayTableToolCall,
 	execute_python: ExecutePythonToolCall,
 	execute_sandboxed_code: ExecuteSandboxedCodeToolCall,
 	execute_sql: ExecuteSqlToolCall,

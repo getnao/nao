@@ -37,7 +37,7 @@ export type AutomationFeedIntegrationResult = {
 
 export type AutomationFeedChart = {
 	toolCallId: string;
-	config: displayChart.Input;
+	config: displayChart.ChartInput;
 	data: unknown[];
 };
 

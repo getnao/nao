@@ -7,7 +7,6 @@ import { mcpService } from '../../services/mcp';
 import { AgentSettings } from '../../types/agent-settings';
 import clarification from './clarification';
 import displayChart from './display-chart';
-import displayTable from './display-table';
 import executePython from './execute-python';
 import executeSandboxedCode from './execute-sandboxed-code';
 import executeSql from './execute-sql';
@@ -24,7 +23,6 @@ export const tools = {
 	story,
 	clarification,
 	display_chart: displayChart,
-	display_table: displayTable,
 	...(executePython && { execute_python: executePython }),
 	...(executeSandboxedCode && { execute_sandboxed_code: executeSandboxedCode }),
 	execute_sql: executeSql,

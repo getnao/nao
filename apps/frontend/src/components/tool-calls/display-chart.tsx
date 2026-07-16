@@ -11,6 +11,7 @@ import { Button } from '../ui/button';
 import { ToolCallWrapper } from './tool-call-wrapper';
 import { ChartRangeSelector } from './display-chart-range-selector';
 import { DisplayChartEditDialog } from './display-chart-edit-dialog';
+import { DisplayChartTable } from './display-chart-table';
 import type { ToolCallComponentProps } from '.';
 import type { ChartConfig } from '../ui/chart';
 import type { displayChart, executeSql } from '@nao/shared/tools';
@@ -37,6 +38,9 @@ export const DisplayChartToolCall = ({
 	const queryClient = useQueryClient();
 	const { open: openSidePanel, currentStorySlug, isVisible } = useSidePanel();
 	const config = state !== 'input-streaming' ? input : undefined;
+	const chartConfig = config?.chart_type === 'table' ? undefined : config;
+	const tableConfig = config?.chart_type === 'table' ? config : undefined;
+	const isTableVariant = input?.chart_type === 'table' || config?.chart_type === 'table';
 	const [dataRange, setDataRange] = useState<DateRange>('all');
 	const storyIds = useMemo(() => findStoryIds(messages), [messages]);
 	const normalSize = useMemo(() => (document.querySelector('[data-selection-container]') ? true : false), []);
@@ -60,14 +64,14 @@ export const DisplayChartToolCall = ({
 	const isEditable = Boolean(agent && !agent.isReadonly && !agent.isRunning);
 
 	const handleDownload = async () => {
-		if (!config) {
+		if (!chartConfig) {
 			return;
 		}
 		setIsDownloading(true);
 		try {
 			const image = await queryClient.fetchQuery(trpc.chart.download.queryOptions({ toolCallId }));
 			const link = document.createElement('a');
-			link.download = `${config.title || 'chart'}.png`;
+			link.download = `${chartConfig.title || 'chart'}.png`;
 			link.href = `data:image/png;base64,${image}`;
 			link.click();
 		} catch (err) {
@@ -78,19 +82,19 @@ export const DisplayChartToolCall = ({
 	};
 
 	const sourceQuery = useMemo<{ input?: executeSql.Input; output: executeSql.Output } | null>(() => {
-		if (!config?.query_id) {
+		if (!chartConfig?.query_id) {
 			return null;
 		}
 
 		for (const message of messages) {
 			for (const part of message.parts) {
-				if (part.type === 'tool-execute_sql' && part.output && part.output.id === config.query_id) {
+				if (part.type === 'tool-execute_sql' && part.output && part.output.id === chartConfig.query_id) {
 					return { input: part.input, output: part.output };
 				}
 			}
 		}
 		return null;
-	}, [messages, config?.query_id]);
+	}, [messages, chartConfig?.query_id]);
 
 	const sourceData = sourceQuery?.output ?? null;
 
@@ -102,16 +106,20 @@ export const DisplayChartToolCall = ({
 	}, [openSidePanel, sourceQuery]);
 
 	const filteredData = useMemo(() => {
-		if (!sourceData?.data || !config) {
+		if (!sourceData?.data || !chartConfig) {
 			return [];
 		}
-		if (config.x_axis_type !== 'date') {
+		if (chartConfig.x_axis_type !== 'date') {
 			return sourceData.data;
 		}
-		const xAxisKey = resolveDataKey(sourceData.data, config.x_axis_key);
+		const xAxisKey = resolveDataKey(sourceData.data, chartConfig.x_axis_key);
 		const sorted = sortByDateKey(sourceData.data, xAxisKey);
 		return filterByDateRange(sorted, xAxisKey, dataRange);
-	}, [sourceData?.data, config, dataRange]);
+	}, [sourceData?.data, chartConfig, dataRange]);
+
+	if (isTableVariant) {
+		return <DisplayChartTable config={tableConfig} outputError={output?.error} toolCallId={toolCallId} />;
+	}
 
 	if (output && output.error) {
 		return (
@@ -121,7 +129,7 @@ export const DisplayChartToolCall = ({
 		);
 	}
 
-	if (!config) {
+	if (!chartConfig) {
 		return (
 			<div className='my-4 flex flex-col gap-2 items-center aspect-3/2'>
 				<Skeleton className='w-1/2 h-4' />
@@ -133,7 +141,7 @@ export const DisplayChartToolCall = ({
 		);
 	}
 
-	if (config.series.length === 0) {
+	if (chartConfig.series.length === 0) {
 		return (
 			<div className='my-2 text-foreground/50 text-sm'>
 				Could not display the chart because no series are configured.
@@ -166,7 +174,7 @@ export const DisplayChartToolCall = ({
 		// story.
 		const targetId =
 			isVisible && currentStorySlug && storyIds.includes(currentStorySlug) ? currentStorySlug : latestStoryId;
-		if (!targetId || !config || !chatId) {
+		if (!targetId || !chartConfig || !chatId) {
 			return;
 		}
 
@@ -179,7 +187,7 @@ export const DisplayChartToolCall = ({
 			return;
 		}
 
-		const chartBlock = buildStoryChartBlock(config);
+		const chartBlock = buildStoryChartBlock(chartConfig);
 		const newCode = latest.code.trimEnd() + '\n\n' + chartBlock;
 
 		addToStoryMutation.mutate({
@@ -197,11 +205,11 @@ export const DisplayChartToolCall = ({
 
 	return (
 		<div
-			className={`flex flex-col items-center my-4 gap-2 ${config.chart_type !== 'kpi_card' && !normalSize ? 'aspect-3/2' : ''}`}
+			className={`flex flex-col items-center my-4 gap-2 ${chartConfig.chart_type !== 'kpi_card' && !normalSize ? 'aspect-3/2' : ''}`}
 		>
 			<div className='flex w-full items-center justify-between gap-2'>
-				{config.chart_type != 'kpi_card' ? (
-					<span className='text-sm font-medium text-foreground flex-1'>{config.title}</span>
+				{chartConfig.chart_type != 'kpi_card' ? (
+					<span className='text-sm font-medium text-foreground flex-1'>{chartConfig.title}</span>
 				) : (
 					<div></div>
 				)}
@@ -217,7 +225,7 @@ export const DisplayChartToolCall = ({
 							<span className='text-xs'>Add to story</span>
 						</Button>
 					)}
-					{config.chart_type !== 'pie' && config.x_axis_type === 'date' && (
+					{chartConfig.chart_type !== 'pie' && chartConfig.x_axis_type === 'date' && (
 						<ChartRangeSelector
 							options={DATE_RANGE_OPTIONS}
 							selectedRange={dataRange}
@@ -235,7 +243,7 @@ export const DisplayChartToolCall = ({
 							<Code className='size-4' />
 						</Button>
 					)}
-					{config.chart_type != 'kpi_card' && (
+					{chartConfig.chart_type != 'kpi_card' && (
 						<Button
 							variant='ghost'
 							size='icon-xs'
@@ -266,18 +274,18 @@ export const DisplayChartToolCall = ({
 					open={isEditOpen}
 					onOpenChange={setIsEditOpen}
 					toolCallId={toolCallId}
-					config={config}
+					config={chartConfig}
 					availableColumns={sourceData.columns ?? []}
 				/>
 			)}
 
 			<ChartDisplay
 				data={filteredData}
-				chartType={config.chart_type}
-				xAxisKey={config.x_axis_key}
-				series={config.series}
-				xAxisType={config.x_axis_type === 'number' ? 'number' : 'category'}
-				title={config.title}
+				chartType={chartConfig.chart_type}
+				xAxisKey={chartConfig.x_axis_key}
+				series={chartConfig.series}
+				xAxisType={chartConfig.x_axis_type === 'number' ? 'number' : 'category'}
+				title={chartConfig.title}
 			/>
 		</div>
 	);

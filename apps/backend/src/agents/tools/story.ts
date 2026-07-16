@@ -3,7 +3,7 @@ import { story } from '@nao/shared/tools';
 
 import { renderToModelOutput, StoryOutput } from '../../components/tool-outputs';
 import { db } from '../../db/db';
-import { getDisplayTableFormatsForChat } from '../../queries/table-config';
+import { getDisplayChartTableFormatsForChat } from '../../queries/chart-image';
 import * as storyQueries from '../../queries/story.queries';
 import * as storyFolderQueries from '../../queries/story-folder.queries';
 import type { ToolContext } from '../../types/tools';
@@ -143,13 +143,8 @@ export default createTool<story.Input, story.Output>({
 	toModelOutput: ({ output }) => renderToModelOutput(StoryOutput({ output }), output),
 });
 
-/**
- * Deterministically carries a `display_table`'s conditional formatting into any
- * `<table query_id="…" />` block the agent writes, so formatting follows the
- * table into stories without relying on the model to repeat it.
- */
 async function carryOverTableFormatting(code: string, chatId: string): Promise<string> {
-	const formatsByQueryId = await getDisplayTableFormatsForChat(chatId);
+	const formatsByQueryId = await getDisplayChartTableFormatsForChat(chatId);
 	return injectTableFormatting(code, formatsByQueryId);
 }
 

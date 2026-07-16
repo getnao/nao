@@ -1,14 +1,29 @@
 import { displayChart } from '@nao/shared/tools';
 
 import { DisplayChartOutput, renderToModelOutput } from '../../components/tool-outputs';
+import { getQueryResult } from '../../services/query-result.service';
 import { createTool } from '../../utils/tools';
 
 export default createTool<displayChart.Input, displayChart.Output>({
-	description: 'Display a chart visualization of the data from a previous `execute_sql` tool call.',
+	description:
+		'Display a chart visualization or formatted table of the data from a previous `execute_sql` tool call.',
 	inputSchema: displayChart.InputSchema,
 	outputSchema: displayChart.OutputSchema,
 
 	execute: async (input, context) => {
+		if (input.chart_type === 'table') {
+			const queryResult = await getQueryResult(context, input.query_id);
+			if (!queryResult) {
+				return {
+					_version: '1',
+					success: false,
+					error: `No query result found for query_id "${input.query_id}". Run execute_sql first and reference its Query ID.`,
+				};
+			}
+
+			return { _version: '1', success: true };
+		}
+
 		const { chart_type: chartType, x_axis_key: xAxisKey, series } = input;
 
 		// Validate xAxisKey is provided for cartesian and polar charts
