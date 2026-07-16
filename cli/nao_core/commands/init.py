@@ -146,9 +146,6 @@ def setup_project_name(
         # Initialize in the current directory when no explicit name is given
         return project_name, current_dir, None, False
 
-    if not no_tty and name is None and project_name == current_dir.name:
-        return project_name, current_dir, None, False
-
     project_path = Path(project_name)
     folder_existed_before = project_path.exists()
 

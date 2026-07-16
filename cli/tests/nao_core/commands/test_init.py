@@ -180,7 +180,7 @@ class TestSetupProjectName:
 
     @pytest.mark.parametrize("submitted_name", [None, ""])
     @patch("nao_core.commands.init.ask_text")
-    def test_empty_project_name_uses_current_directory(
+    def test_empty_project_name_creates_default_subfolder(
         self,
         mock_ask_text,
         tmp_path: Path,
@@ -193,9 +193,11 @@ class TestSetupProjectName:
         name, path, existing, created = setup_project_name()
 
         assert name == tmp_path.name
-        assert path == tmp_path
+        assert path == Path(tmp_path.name)
+        assert path.resolve() == tmp_path / tmp_path.name
+        assert path.exists()
         assert existing is None
-        assert created is False
+        assert created is True
         mock_ask_text.assert_called_once_with(
             "Enter your project name:",
             placeholder=tmp_path.name,
