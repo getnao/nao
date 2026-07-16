@@ -197,7 +197,7 @@ class TestAskText:
         )
 
     @patch("nao_core.ui.questionary.text")
-    def test_uses_submit_default_key_binding(self, mock_text):
+    def test_submit_default_fills_empty_buffer_on_enter(self, mock_text):
         mock_text.return_value.ask.return_value = "project-name"
 
         result = ask_text("Enter value:", submit_default="project-name")
@@ -205,7 +205,30 @@ class TestAskText:
         assert result == "project-name"
         assert mock_text.call_args.args == ("Enter value:",)
         assert mock_text.call_args.kwargs["default"] == ""
-        assert isinstance(mock_text.call_args.kwargs["key_bindings"], KeyBindings)
+        key_bindings = mock_text.call_args.kwargs["key_bindings"]
+        assert isinstance(key_bindings, KeyBindings)
+
+        event = MagicMock()
+        event.current_buffer.text = ""
+        key_bindings.bindings[0].call(event)
+
+        assert event.current_buffer.text == "project-name"
+        assert event.current_buffer.cursor_position == len("project-name")
+        event.current_buffer.validate_and_handle.assert_called_once_with()
+
+    @patch("nao_core.ui.questionary.text")
+    def test_submit_default_keeps_typed_value_on_enter(self, mock_text):
+        mock_text.return_value.ask.return_value = "typed-value"
+
+        ask_text("Enter value:", submit_default="project-name")
+
+        key_bindings = mock_text.call_args.kwargs["key_bindings"]
+        event = MagicMock()
+        event.current_buffer.text = "typed-value"
+        key_bindings.bindings[0].call(event)
+
+        assert event.current_buffer.text == "typed-value"
+        event.current_buffer.validate_and_handle.assert_called_once_with()
 
     @patch("nao_core.ui.questionary.text")
     def test_returns_none_for_empty_non_required(self, mock_text):
