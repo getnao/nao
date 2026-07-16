@@ -3,6 +3,8 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
+from prompt_toolkit.formatted_text import FormattedText
+from prompt_toolkit.key_binding import KeyBindings
 
 from nao_core.ui import UI, ask_confirm, ask_select, ask_text
 
@@ -181,6 +183,29 @@ class TestAskText:
         ask_text("Enter value:", default="default_value")
 
         mock_text.assert_called_once_with("Enter value:", default="default_value")
+
+    @patch("nao_core.ui.questionary.text")
+    def test_uses_grayed_placeholder(self, mock_text):
+        mock_text.return_value.ask.return_value = ""
+
+        ask_text("Enter value:", placeholder="project-name")
+
+        mock_text.assert_called_once_with(
+            "Enter value:",
+            default="",
+            placeholder=FormattedText([("fg:ansibrightblack", "project-name")]),
+        )
+
+    @patch("nao_core.ui.questionary.text")
+    def test_uses_submit_default_key_binding(self, mock_text):
+        mock_text.return_value.ask.return_value = "project-name"
+
+        result = ask_text("Enter value:", submit_default="project-name")
+
+        assert result == "project-name"
+        assert mock_text.call_args.args == ("Enter value:",)
+        assert mock_text.call_args.kwargs["default"] == ""
+        assert isinstance(mock_text.call_args.kwargs["key_bindings"], KeyBindings)
 
     @patch("nao_core.ui.questionary.text")
     def test_returns_none_for_empty_non_required(self, mock_text):

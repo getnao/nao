@@ -5,6 +5,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import questionary
+from prompt_toolkit.formatted_text import FormattedText
+from prompt_toolkit.key_binding import KeyBindings
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -107,12 +109,32 @@ def ask_text(
     default: str = "",
     password: bool = False,
     required_field: bool = False,
+    placeholder: str | None = None,
+    submit_default: str | None = None,
 ) -> str | None:
     """Ask for text input. Loops until filled if required_field=True."""
     prompt_fn = questionary.password if password else questionary.text
+    prompt_kwargs = {}
+
+    if placeholder is not None:
+        prompt_kwargs["placeholder"] = FormattedText([("fg:ansibrightblack", placeholder)])
+
+    if submit_default is not None:
+        bindings = KeyBindings()
+
+        @bindings.add("enter")
+        def _(event):
+            buffer = event.current_buffer
+            if not buffer.text and submit_default:
+                buffer.text = submit_default
+                buffer.cursor_position = len(buffer.text)
+            buffer.validate_and_handle()
+
+        prompt_kwargs["key_bindings"] = bindings
 
     while True:
-        result = prompt_fn(message, default=default).ask()
+        prompt = prompt_fn(message, default=default, **prompt_kwargs)
+        result = prompt.ask()
         if result is None:  # User cancelled (Ctrl+C)
             raise KeyboardInterrupt
 

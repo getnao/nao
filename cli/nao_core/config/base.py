@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -64,20 +65,14 @@ class NaoConfig(BaseModel):
             return cls._prompt_extend(existing)
 
         databases = cls._prompt_databases()
-        enable_profiling = cls._prompt_enable_profiling(databases)
-        databases = cls._configure_profiling_templates(databases, enable_profiling)
-        llm, enable_ai_summary = cls._prompt_llm(databases=databases)
-        databases = cls._configure_ai_summary_templates(databases, llm, enable_ai_summary)
+        llm = cls._prompt_llm()
+        cls._apply_default_templates(databases, llm)
 
         return cls(
             project_name=project_name,
             databases=databases,
             repos=cls._prompt_repos(),
             llm=llm,
-            slack=cls._prompt_slack(),
-            notion=cls._prompt_notion(),
-            mcp=cls._prompt_mcp(project_name),
-            skills=cls._prompt_skills(project_name),
         )
 
     @classmethod
@@ -86,12 +81,7 @@ class NaoConfig(BaseModel):
         databases = list(existing.databases)
         repos = list(existing.repos)
         llm = existing.llm
-        slack = existing.slack
-        notion = existing.notion
-        mcp = existing.mcp
-        skills = existing.skills
 
-        # Show current config summary
         UI.title("Current Configuration")
         if databases:
             UI.print(f"  Databases: {', '.join(db.name for db in databases)}")
@@ -99,53 +89,26 @@ class NaoConfig(BaseModel):
             UI.print(f"  Repos: {', '.join(r.name for r in repos)}")
         if llm:
             UI.print(f"  LLM: {llm.provider}")
-        if slack:
+        if existing.slack:
             UI.print("  Slack: configured")
-        if notion:
+        if existing.notion:
             UI.print("  Notion: configured")
-        if mcp:
+        if existing.mcp:
             UI.print("  MCP: configured")
-        if skills:
+        if existing.skills:
             UI.print("  Skills: configured")
         UI.print()
 
-        # Prompt for additions
         new_databases = cls._prompt_databases(has_existing=bool(existing.databases))
-        if new_databases:
-            enable_profiling = cls._prompt_enable_profiling(new_databases)
-            new_databases = cls._configure_profiling_templates(new_databases, enable_profiling)
-        databases.extend(new_databases)
         repos.extend(cls._prompt_repos(has_existing=bool(existing.repos)))
 
-        if llm:
-            enable_ai_summary = cls._prompt_enable_ai_summary_templates(databases)
-        else:
-            llm, enable_ai_summary = cls._prompt_llm(databases=databases)
+        if not llm:
+            llm = cls._prompt_llm()
 
-        if not slack:
-            slack = cls._prompt_slack()
+        cls._apply_default_templates(new_databases, llm)
+        databases.extend(new_databases)
 
-        if not notion:
-            notion = cls._prompt_notion()
-
-        if not mcp:
-            mcp = cls._prompt_mcp(existing.project_name)
-
-        if not skills:
-            skills = cls._prompt_skills(existing.project_name)
-
-        databases = cls._configure_ai_summary_templates(databases, llm, enable_ai_summary)
-
-        return cls(
-            project_name=existing.project_name,
-            databases=databases,
-            repos=repos,
-            llm=llm,
-            slack=slack,
-            notion=notion,
-            mcp=mcp,
-            skills=skills,
-        )
+        return existing.model_copy(update={"databases": databases, "repos": repos, "llm": llm})
 
     @staticmethod
     def _prompt_databases(has_existing: bool = False) -> list[AnyDatabaseConfig]:
@@ -156,19 +119,14 @@ class NaoConfig(BaseModel):
         if not ask_confirm(prompt, default=not has_existing):
             return databases
 
-        while True:
-            UI.title("Database Configuration")
+        UI.title("Database Configuration")
 
-            db_type = ask_select("Select database type:", choices=DatabaseType.choices())
+        db_type = ask_select("Select database type:", choices=DatabaseType.choices())
 
-            config_class = cast(Any, DATABASE_CONFIG_CLASSES[DatabaseType(db_type)])
-            db_config = cast(AnyDatabaseConfig, config_class.promptConfig())
-            databases.append(db_config)
-
-            UI.success(f"Added database: {db_config.name}")
-
-            if not ask_confirm("Add another database?", default=False):
-                break
+        config_class = cast(Any, DATABASE_CONFIG_CLASSES[DatabaseType(db_type)])
+        db_config = cast(AnyDatabaseConfig, config_class.promptConfig())
+        databases.append(db_config)
+        UI.success(f"Added database: {db_config.name}")
 
         return databases
 
@@ -181,101 +139,26 @@ class NaoConfig(BaseModel):
         if not ask_confirm(prompt, default=not has_existing):
             return repos
 
-        while True:
-            repo_config = RepoConfig.promptConfig()
-            repos.append(repo_config)
-            UI.success(f"Added repository: {repo_config.name}")
-
-            if not ask_confirm("Add another repository?", default=False):
-                break
+        repo_config = RepoConfig.promptConfig()
+        repos.append(repo_config)
+        UI.success(f"Added repository: {repo_config.name}")
 
         return repos
 
     @staticmethod
-    def _prompt_llm(databases: list[AnyDatabaseConfig] | None = None) -> tuple[LLMConfig | None, bool]:
-        """Prompt for LLM configuration and optional ai_summary settings."""
+    def _prompt_llm() -> LLMConfig | None:
+        """Prompt for LLM configuration."""
         if ask_confirm("Set up LLM configuration?", default=True):
-            enable_ai_summary = NaoConfig._prompt_enable_ai_summary_templates(databases or [])
-            return LLMConfig.promptConfig(prompt_annotation_model=enable_ai_summary), enable_ai_summary
-        return None, False
+            return LLMConfig.promptConfig(prompt_annotation_model=False)
+        return None
 
     @staticmethod
-    def _prompt_enable_ai_summary_templates(databases: list[AnyDatabaseConfig]) -> bool:
-        """Prompt whether ai_summary should be enabled for configured databases."""
-        if not databases:
-            return False
-
-        return ask_confirm("Enable `ai_summary` template for all configured databases?", default=True)
-
-    @staticmethod
-    def _configure_ai_summary_templates(
-        databases: list[AnyDatabaseConfig],
-        llm: LLMConfig | None,
-        enable_ai_summary: bool,
-    ) -> list[AnyDatabaseConfig]:
-        """Enable ai_summary template for configured databases when requested."""
-        if not databases or llm is None or not enable_ai_summary:
-            return databases
-
+    def _apply_default_templates(databases: list[AnyDatabaseConfig], llm: LLMConfig | None) -> None:
+        """Apply the templates selected by interactive initialization."""
         for db in databases:
-            if DatabaseTemplate.AI_SUMMARY not in db.templates:
+            db.templates = [DatabaseTemplate.COLUMNS, DatabaseTemplate.PREVIEW]
+            if llm is not None:
                 db.templates.append(DatabaseTemplate.AI_SUMMARY)
-
-        return databases
-
-    @staticmethod
-    def _prompt_enable_profiling(databases: list[AnyDatabaseConfig]) -> bool:
-        """Prompt whether column profiling should be enabled for configured databases."""
-        if not databases:
-            return False
-
-        return ask_confirm(
-            "Enable `profiling` template for all configured databases? (can be costly on large datasets)",
-            default=False,
-        )
-
-    @staticmethod
-    def _configure_profiling_templates(
-        databases: list[AnyDatabaseConfig],
-        enable_profiling: bool,
-    ) -> list[AnyDatabaseConfig]:
-        """Enable profiling template for configured databases when requested."""
-        if not databases or not enable_profiling:
-            return databases
-
-        for db in databases:
-            if DatabaseTemplate.PROFILING not in db.templates:
-                db.templates.append(DatabaseTemplate.PROFILING)
-
-        return databases
-
-    @staticmethod
-    def _prompt_slack() -> SlackConfig | None:
-        """Prompt for Slack configuration using questionary."""
-        if ask_confirm("Set up Slack integration?", default=False):
-            return SlackConfig.promptConfig()
-        return None
-
-    @staticmethod
-    def _prompt_notion() -> NotionConfig | None:
-        """Prompt for Notion configuration using questionary."""
-        if ask_confirm("Set up Notion integration?", default=False):
-            return NotionConfig.promptConfig()
-        return None
-
-    @staticmethod
-    def _prompt_mcp(project_name: str) -> McpConfig | None:
-        """Prompt for MCP configuration using questionary."""
-        if ask_confirm("Set up MCP servers?", default=False):
-            McpConfig.promptConfig(project_name)
-        return None
-
-    @staticmethod
-    def _prompt_skills(project_name: str) -> SkillsConfig | None:
-        """Prompt for Skills configuration using questionary."""
-        if ask_confirm("Set up Skills folder?", default=False):
-            SkillsConfig.promptConfig(project_name)
-        return None
 
     def save(self, path: Path) -> None:
         """Save the configuration to a YAML file."""
@@ -380,6 +263,52 @@ class NaoConfig(BaseModel):
     def json_schema(cls) -> dict:
         """Generate JSON schema for the configuration."""
         return cls.model_json_schema()
+
+
+def annotate_optional_templates(config_path: Path) -> None:
+    """Add commented optional templates to each saved database configuration."""
+    content = config_path.read_text()
+    lines = content.splitlines()
+    index = 0
+    changed = False
+
+    while index < len(lines):
+        templates_match = re.match(r"^(\s*)templates:\s*$", lines[index])
+        if not templates_match:
+            index += 1
+            continue
+
+        templates_indent = len(templates_match.group(1))
+        item_index = index + 1
+        selected_templates: set[str] = set()
+        item_prefix: str | None = None
+
+        while item_index < len(lines):
+            item_match = re.match(r"^(\s*)- (\S+)", lines[item_index])
+            if not item_match or len(item_match.group(1)) < templates_indent:
+                break
+            item_prefix = item_match.group(1)
+            selected_templates.add(item_match.group(2))
+            item_index += 1
+
+        if item_prefix is None:
+            index += 1
+            continue
+
+        optional_templates = [
+            ("profiling", "# - profiling  -- Adds profiling of your data in agent context"),
+            ("query_history", "# - query_history  -- Pulls most frequent queries / joins on each table"),
+        ]
+        comments = [
+            f"{item_prefix}{comment}" for template, comment in optional_templates if template not in selected_templates
+        ]
+        lines[item_index:item_index] = comments
+        changed = changed or bool(comments)
+        index = item_index + len(comments)
+
+    if changed:
+        trailing_newline = "\n" if content.endswith("\n") else ""
+        config_path.write_text("\n".join(lines) + trailing_newline)
 
 
 def resolve_project_path() -> Path:

@@ -5,7 +5,8 @@ from unittest.mock import patch
 import pytest
 from pydantic import ValidationError
 
-from nao_core.config.base import NaoConfig
+from nao_core.config.base import NaoConfig, annotate_optional_templates
+from nao_core.config.databases.base import DatabaseTemplate
 from nao_core.config.databases.duckdb import DuckDBConfig
 from nao_core.config.llm import LLMConfig, LLMProvider
 from nao_core.config.secrets import process_secrets
@@ -75,64 +76,147 @@ def test_threads_must_be_positive():
 
 @patch("nao_core.config.base.ask_confirm")
 @patch("nao_core.config.llm.LLMConfig.promptConfig")
-def test_prompt_llm_skips_annotation_model_when_ai_summary_is_disabled(mock_prompt_config, mock_confirm):
-    """Model prompt should be disabled when ai_summary is declined."""
-    db = DuckDBConfig(name="test-db", path=":memory:")
+def test_prompt_llm_skips_annotation_model_prompt(mock_prompt_config, mock_confirm):
     mock_llm = LLMConfig(provider=LLMProvider.OPENAI, api_key="sk-test")
     mock_prompt_config.return_value = mock_llm
-    mock_confirm.side_effect = [True, False]
+    mock_confirm.return_value = True
 
-    llm, enable_ai_summary = NaoConfig._prompt_llm(databases=[db])
+    llm = NaoConfig._prompt_llm()
 
     assert llm == mock_llm
-    assert enable_ai_summary is False
     mock_prompt_config.assert_called_once_with(prompt_annotation_model=False)
 
 
 @patch("nao_core.config.base.ask_confirm")
 @patch("nao_core.config.llm.LLMConfig.promptConfig")
-def test_prompt_llm_prompts_annotation_model_when_ai_summary_is_enabled(mock_prompt_config, mock_confirm):
-    """Model prompt should be enabled when ai_summary is accepted."""
-    db = DuckDBConfig(name="test-db", path=":memory:")
-    mock_llm = LLMConfig(provider=LLMProvider.OPENAI, api_key="sk-test")
-    mock_prompt_config.return_value = mock_llm
-    mock_confirm.side_effect = [True, True]
-
-    llm, enable_ai_summary = NaoConfig._prompt_llm(databases=[db])
-
-    assert llm == mock_llm
-    assert enable_ai_summary is True
-    mock_prompt_config.assert_called_once_with(prompt_annotation_model=True)
-
-
-@patch("nao_core.config.base.ask_confirm")
-@patch("nao_core.config.llm.LLMConfig.promptConfig")
 def test_prompt_llm_returns_none_when_skipped(mock_prompt_config, mock_confirm):
-    """LLM should remain unset when user skips LLM setup."""
     mock_confirm.return_value = False
 
-    llm, enable_ai_summary = NaoConfig._prompt_llm(databases=[])
+    llm = NaoConfig._prompt_llm()
 
     assert llm is None
-    assert enable_ai_summary is False
     mock_prompt_config.assert_not_called()
 
 
-def test_configure_ai_summary_templates_does_not_duplicate_existing_template():
-    """ai_summary template should only appear once."""
-    from nao_core.config.databases.base import DatabaseTemplate
-
+def test_apply_default_templates_without_llm():
     db = DuckDBConfig(name="test-db", path=":memory:")
-    db.templates = [DatabaseTemplate.COLUMNS, DatabaseTemplate.AI_SUMMARY]
+
+    NaoConfig._apply_default_templates([db], llm=None)
+
+    assert db.templates == [DatabaseTemplate.COLUMNS, DatabaseTemplate.PREVIEW]
+
+
+def test_apply_default_templates_with_llm():
+    db = DuckDBConfig(name="test-db", path=":memory:")
     llm = LLMConfig(provider=LLMProvider.OPENAI, api_key="sk-test")
 
-    result = NaoConfig._configure_ai_summary_templates(
-        databases=[db],
-        llm=llm,
-        enable_ai_summary=True,
+    NaoConfig._apply_default_templates([db], llm=llm)
+
+    assert db.templates == [
+        DatabaseTemplate.COLUMNS,
+        DatabaseTemplate.PREVIEW,
+        DatabaseTemplate.AI_SUMMARY,
+    ]
+
+
+def test_fresh_prompt_flow_only_collects_database_llm_and_repos():
+    db = DuckDBConfig(name="test-db", path=":memory:")
+    llm = LLMConfig(provider=LLMProvider.OPENAI, api_key="sk-test")
+    prompt_order = []
+
+    with (
+        patch.object(NaoConfig, "_prompt_databases", side_effect=lambda: prompt_order.append("database") or [db]),
+        patch.object(NaoConfig, "_prompt_llm", side_effect=lambda: prompt_order.append("llm") or llm),
+        patch.object(NaoConfig, "_prompt_repos", side_effect=lambda: prompt_order.append("repos") or []),
+    ):
+        config = NaoConfig.promptConfig("test-project")
+
+    assert prompt_order == ["database", "llm", "repos"]
+    assert config.databases[0].templates == [
+        DatabaseTemplate.COLUMNS,
+        DatabaseTemplate.PREVIEW,
+        DatabaseTemplate.AI_SUMMARY,
+    ]
+    assert config.slack is None
+    assert config.notion is None
+    assert config.mcp is None
+    assert config.skills is None
+
+
+def test_extend_handles_no_databases_and_no_llm():
+    existing = NaoConfig(project_name="test-project")
+
+    with (
+        patch.object(NaoConfig, "_prompt_databases", return_value=[]),
+        patch.object(NaoConfig, "_prompt_repos", return_value=[]),
+        patch.object(NaoConfig, "_prompt_llm", return_value=None),
+        patch("nao_core.config.base.UI"),
+    ):
+        config = NaoConfig.promptConfig("ignored", existing=existing)
+
+    assert config.databases == []
+    assert config.llm is None
+
+
+def test_annotate_optional_templates_adds_both_comments(tmp_path):
+    config_path = tmp_path / "nao_config.yaml"
+    config_path.write_text(
+        "databases:\n  - type: duckdb\n    templates:\n      - columns\n      - preview\n      - ai_summary\n"
     )
 
-    assert result[0].templates.count(DatabaseTemplate.AI_SUMMARY) == 1
+    annotate_optional_templates(config_path)
+
+    assert config_path.read_text() == (
+        "databases:\n"
+        "  - type: duckdb\n"
+        "    templates:\n"
+        "      - columns\n"
+        "      - preview\n"
+        "      - ai_summary\n"
+        "      # - profiling  -- Adds profiling of your data in agent context\n"
+        "      # - query_history  -- Pulls most frequent queries / joins on each table\n"
+    )
+
+
+def test_annotate_optional_templates_skips_selected_template(tmp_path):
+    config_path = tmp_path / "nao_config.yaml"
+    config_path.write_text("databases:\n- type: duckdb\n  templates:\n  - columns\n  - profiling\n")
+
+    annotate_optional_templates(config_path)
+
+    content = config_path.read_text()
+    assert "# - profiling" not in content
+    assert "  # - query_history  -- Pulls most frequent queries / joins on each table\n" in content
+
+
+def test_annotate_optional_templates_handles_multiple_databases(tmp_path):
+    config_path = tmp_path / "nao_config.yaml"
+    config_path.write_text(
+        "databases:\n"
+        "- type: duckdb\n"
+        "  templates:\n"
+        "  - columns\n"
+        "- type: postgres\n"
+        "  templates:\n"
+        "  - columns\n"
+        "  - query_history\n"
+    )
+
+    annotate_optional_templates(config_path)
+
+    content = config_path.read_text()
+    assert content.count("# - profiling") == 2
+    assert content.count("# - query_history") == 1
+
+
+def test_annotate_optional_templates_is_noop_without_templates_block(tmp_path):
+    config_path = tmp_path / "nao_config.yaml"
+    original = "project_name: test-project\ndatabases: []\n"
+    config_path.write_text(original)
+
+    annotate_optional_templates(config_path)
+
+    assert config_path.read_text() == original
 
 
 def test_legacy_accessors_key_migrated_to_templates_with_warning():
@@ -217,55 +301,6 @@ def test_default_templates_exclude_profiling():
 
     db = DuckDBConfig(name="test-db", path=":memory:")
     assert DatabaseTemplate.PROFILING not in db.templates
-
-
-def test_configure_profiling_templates_adds_profiling_when_enabled():
-    """Profiling template should be added when user opts in."""
-    from nao_core.config.databases.base import DatabaseTemplate
-
-    db = DuckDBConfig(name="test-db", path=":memory:")
-    result = NaoConfig._configure_profiling_templates(databases=[db], enable_profiling=True)
-    assert DatabaseTemplate.PROFILING in result[0].templates
-
-
-def test_configure_profiling_templates_skips_when_disabled():
-    """Profiling template should not be added when user opts out."""
-    from nao_core.config.databases.base import DatabaseTemplate
-
-    db = DuckDBConfig(name="test-db", path=":memory:")
-    result = NaoConfig._configure_profiling_templates(databases=[db], enable_profiling=False)
-    assert DatabaseTemplate.PROFILING not in result[0].templates
-
-
-def test_configure_profiling_templates_does_not_duplicate():
-    """Profiling template should only appear once."""
-    from nao_core.config.databases.base import DatabaseTemplate
-
-    db = DuckDBConfig(name="test-db", path=":memory:")
-    db.templates.append(DatabaseTemplate.PROFILING)
-    result = NaoConfig._configure_profiling_templates(databases=[db], enable_profiling=True)
-    assert result[0].templates.count(DatabaseTemplate.PROFILING) == 1
-
-
-@patch("nao_core.config.base.ask_confirm")
-def test_prompt_enable_profiling_returns_true_when_accepted(mock_confirm):
-    """Profiling prompt should return True when user accepts."""
-    mock_confirm.return_value = True
-    db = DuckDBConfig(name="test-db", path=":memory:")
-    assert NaoConfig._prompt_enable_profiling([db]) is True
-
-
-@patch("nao_core.config.base.ask_confirm")
-def test_prompt_enable_profiling_returns_false_when_declined(mock_confirm):
-    """Profiling prompt should return False when user declines."""
-    mock_confirm.return_value = False
-    db = DuckDBConfig(name="test-db", path=":memory:")
-    assert NaoConfig._prompt_enable_profiling([db]) is False
-
-
-def test_prompt_enable_profiling_returns_false_without_databases():
-    """Profiling prompt should return False when no databases are configured."""
-    assert NaoConfig._prompt_enable_profiling([]) is False
 
 
 def test_query_history_exclude_patterns_default_is_empty():
