@@ -1,4 +1,4 @@
-import { buildChart, bucketPieData, defaultColorFor, labelize } from '@nao/shared';
+import { bucketPieData, buildChart, defaultColorFor, labelize } from '@nao/shared';
 import type { DateFormatSettings } from '@nao/shared/date';
 import type { displayChart } from '@nao/shared/tools';
 import React from 'react';
@@ -54,7 +54,6 @@ export function renderChartToSvg(input: RenderChartInput): string {
 
 	const isPie = config.chart_type === 'pie' || config.chart_type === 'donut';
 
-	// Bucket pie/donut once so the slices and the legend share the same set.
 	const chartData = isPie ? bucketPieData(data, config.x_axis_key, config.series[0]?.data_key ?? '') : data;
 
 	let legend: LegendEntry[] = [];

@@ -1,37 +1,38 @@
-import { memo, useCallback, useMemo, useState } from 'react';
 import { buildChart, bucketPieData, buildStoryChartBlock, labelize } from '@nao/shared';
 import { displayChart } from '@nao/shared/tools';
-import { Code, Download, FilePlus, Pencil } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { Code, Download, FilePlus, Pencil } from 'lucide-react';
+import { memo, useCallback, useMemo, useState } from 'react';
+
 import { useOptionalAgentContext } from '../../contexts/agent.provider';
 import GraphLoaderAnimated from '../icons/graph-loader-animated';
-import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from '../ui/chart';
-import { TextShimmer } from '../ui/text-shimmer';
-import { Skeleton } from '../ui/skeleton';
 import { Button } from '../ui/button';
-import { ToolCallWrapper } from './tool-call-wrapper';
-import { ChartRangeSelector } from './display-chart-range-selector';
+import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent } from '../ui/chart';
+import { Skeleton } from '../ui/skeleton';
+import { TextShimmer } from '../ui/text-shimmer';
 import { DisplayChartEditDialog } from './display-chart-edit-dialog';
+import { ChartRangeSelector } from './display-chart-range-selector';
+import { ToolCallWrapper } from './tool-call-wrapper';
 import type { ToolCallComponentProps } from '.';
 import type { ChartConfig } from '../ui/chart';
 import type { executeSql } from '@nao/shared/tools';
 import type { UIMessage } from '@nao/backend/chat';
 import type { DateRange } from '@/lib/charts.utils';
+import { trpc } from '@/main';
+import { findStoryIds } from '@/lib/story.utils';
 import {
-	filterByDateRange,
-	sortByDateKey,
 	DATE_RANGE_OPTIONS,
-	toKey,
+	filterByDateRange,
 	resolveDataKey,
 	resolvePieTooltipLabel,
+	sortByDateKey,
+	toKey,
 } from '@/lib/charts.utils';
-import { findStoryIds } from '@/lib/story.utils';
-import { useChatId } from '@/hooks/use-chat-id';
 import { useDateFormat } from '@/hooks/use-date-format';
+import { useChatId } from '@/hooks/use-chat-id';
 import { useSidePanel } from '@/contexts/side-panel';
 import { StoryViewer } from '@/components/side-panel/story-viewer';
 import { SidePanelContent } from '@/components/side-panel/sql-editor';
-import { trpc } from '@/main';
 
 const Colors = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)', 'var(--chart-5)'];
 const EMPTY_MESSAGES: UIMessage[] = [];
@@ -330,6 +331,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 	);
 
 	const { visibleSeries, hiddenSeriesKeys, handleToggleSeriesVisibility } = useSeriesVisibility(series);
+	const isPercentStacked = displayChart.isPercentStackedChartType(chartType);
 
 	const isPie = displayChart.isPieChart(chartType);
 	const pieValueKey = series[0]?.data_key ?? '';
@@ -429,7 +431,9 @@ export const ChartDisplay = memo(function ChartDisplay({
 						animationDuration={150}
 						animationEasing='linear'
 						allowEscapeViewBox={{ y: true, x: false }}
-						content={<ChartTooltipContent labelFormatter={tooltipLabelFormatter} />}
+						content={
+							<ChartTooltipContent percent={isPercentStacked} labelFormatter={tooltipLabelFormatter} />
+						}
 					/>,
 					chartType !== 'kpi_card' && (
 						<ChartLegend
@@ -466,6 +470,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 			legendPayload,
 			handleToggleSeriesVisibility,
 			title,
+			isPercentStacked,
 		],
 	);
 

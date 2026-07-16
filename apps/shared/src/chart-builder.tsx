@@ -14,6 +14,7 @@ import {
 	PolarRadiusAxis,
 	Radar,
 	RadarChart,
+	Rectangle,
 	Scatter,
 	ScatterChart,
 	XAxis,
@@ -44,6 +45,16 @@ const MAX_PIE_SLICES = 10;
 
 const DONUT_INNER_RADIUS = '45%';
 
+const STACK_SEPARATOR_WIDTH = 1;
+/**
+ * Thin separator drawn between stacked segments. Using the chart background color makes the
+ * outer edges blend into the background while the boundary between two segments reads as a gap,
+ * so it stays theme-correct (white in light, dark surface in dark mode). The `var()` resolves
+ * in the browser; the concrete fallback covers the backend PNG/HTML export where the backend
+ * passes an explicit `backgroundColor` and CSS vars do not resolve.
+ */
+const DEFAULT_BACKGROUND_COLOR = 'var(--background, #ffffff)';
+
 export function labelize(key: unknown, dateFormat?: DateFormatSettings | null): string {
 	const str = String(key);
 	if (isIsoDateLike(str)) {
@@ -70,6 +81,29 @@ export function formatYAxisTick(value: number): string {
 	return formatCompactNumber(value);
 }
 
+/** Formats a 0–1 stack ratio (from Recharts `stackOffset="expand"`) as a whole-number percentage. */
+export function formatPercentAxisTick(value: number): string {
+	return `${Math.round(value * 100)}%`;
+}
+
+/**
+ * Denominator for 100% stacked shares: the sum of the stacked (non-total) series values.
+ * Already-aggregated total series are excluded so the parts sum to exactly 100%.
+ */
+export function sumPercentStackBase(entries: { value: number; isTotal?: boolean }[]): number {
+	return entries.reduce((sum, entry) => (entry.isTotal ? sum : sum + entry.value), 0);
+}
+
+/** Formats a single value as its share of `total`, e.g. `42.5%`. Used for 100% stacked tooltips. */
+export function formatPercentShare(value: number, total: number): string {
+	if (!total) {
+		return '0%';
+	}
+	const share = (value / total) * 100;
+	const rounded = Math.round(share * 10) / 10;
+	return `${Number.isInteger(rounded) ? rounded : rounded.toFixed(1)}%`;
+}
+
 export function formatDataLabel(value: unknown): string {
 	const number = toFiniteNumber(value);
 	return number == null ? '' : formatCompactNumber(number);
@@ -94,6 +128,7 @@ export interface BuildChartProps {
 	maxXAxisTicks?: number;
 	yAxisMin?: number;
 	yAxisMax?: number;
+	/** Chart background color, used as the separator between stacked segments. Pass a concrete color on surfaces where CSS vars do not resolve (backend PNG/HTML export). */
 	backgroundColor?: string;
 	showDataLabels?: boolean;
 }
@@ -113,7 +148,12 @@ export function buildChart(props: BuildChartProps) {
 	if (displayChart.isPieChart(resolved.chartType)) {
 		return buildPieChart(resolved);
 	}
-	if (resolved.chartType === 'line' || resolved.chartType === 'area' || resolved.chartType === 'stacked_area') {
+	if (
+		resolved.chartType === 'line' ||
+		resolved.chartType === 'area' ||
+		resolved.chartType === 'stacked_area' ||
+		resolved.chartType === 'stacked_area_100'
+	) {
 		return buildAreaChart(resolved);
 	}
 	if (resolved.chartType === 'scatter') {
@@ -136,8 +176,16 @@ function buildResolved(props: BuildChartProps) {
 			? Math.ceil(props.data.length / props.maxXAxisTicks) - 1
 			: undefined;
 
+	const isPercent = displayChart.isPercentStackedChartType(props.chartType);
+	// A total series is meaningless in a 100% stack (it would be its own 100%), so drop it
+	// from both rendering and normalization to keep the drawn bars and tooltip shares in sync.
+	const series = isPercent ? percentStackSeries(props.series) : props.series;
+	const data = isPercent ? clampNegativeSeriesValues(props.data, series) : props.data;
+
 	const resolved: ResolvedProps = {
 		...props,
+		series,
+		data,
 		colorFor,
 		labelFormatter,
 		backgroundColor: props.backgroundColor ?? DEFAULT_BACKGROUND,
@@ -146,6 +194,40 @@ function buildResolved(props: BuildChartProps) {
 		children: titleChild ? [titleChild, ...(props.children ?? [])] : props.children,
 	};
 	return resolved;
+}
+
+/** Series that participate in a 100% stack — already-aggregated total series are excluded. */
+export function percentStackSeries(series: displayChart.SeriesConfig[]): displayChart.SeriesConfig[] {
+	return series.filter((s) => !s.is_total);
+}
+
+/**
+ * Recharts `stackOffset="expand"` can produce ratios outside 0–1 when a stack mixes
+ * positive and negative values, which breaks the fixed 0–100% axis. 100% stacked charts
+ * describe part-of-whole compositions, so we treat negative shares as 0 rather than
+ * attempting a signed normalization. Only the series `data_key`s are clamped, so a
+ * numeric x-axis or other non-series column is never modified.
+ */
+export function clampNegativeSeriesValues(
+	data: Record<string, unknown>[],
+	series: displayChart.SeriesConfig[],
+): Record<string, unknown>[] {
+	const keys = series.map((s) => s.data_key);
+	const hasNegative = data.some((row) =>
+		keys.some((key) => typeof row[key] === 'number' && (row[key] as number) < 0),
+	);
+	if (!hasNegative) {
+		return data;
+	}
+	return data.map((row) => {
+		const next = { ...row };
+		for (const key of keys) {
+			if (typeof next[key] === 'number' && (next[key] as number) < 0) {
+				next[key] = 0;
+			}
+		}
+		return next;
+	});
 }
 
 type ResolvedProps = BuildChartProps &
@@ -263,6 +345,19 @@ function KpiCard({ value, displayName }: { value: unknown; displayName: string }
 	);
 }
 
+function renderValueYAxis(isPercent = false) {
+	return (
+		<YAxis
+			tick={AXIS_TICK}
+			tickLine={false}
+			axisLine={false}
+			minTickGap={12}
+			domain={isPercent ? [0, 1] : undefined}
+			tickFormatter={isPercent ? formatPercentAxisTick : formatYAxisTick}
+		/>
+	);
+}
+
 function renderCategoryXAxis({
 	xAxisKey,
 	xAxisType,
@@ -307,23 +402,30 @@ function buildBarChart(props: ResolvedProps) {
 		yAxisMax,
 		showDataLabels,
 	} = props;
-	const isStacked = chartType === 'stacked_bar';
+	const isStacked = displayChart.isStackedChartType(chartType);
+	const isPercent = displayChart.isPercentStackedChartType(chartType);
 	const dataKeys = series.map((s) => s.data_key);
 	const axisValues = isStacked ? collectStackedAxisValues(data, dataKeys) : collectAxisValues(data, dataKeys);
 	const { renderedSeries, stackTotalLabel, stackTotalLabelIndex } = getDataLabelSetup(props, isStacked);
+	const seriesKeys = renderedSeries.map((s) => s.data_key);
+	const separatorColor = props.backgroundColor ?? DEFAULT_BACKGROUND_COLOR;
 
 	return (
-		<BarChart data={data} accessibilityLayer margin={margin}>
+		<BarChart data={data} accessibilityLayer margin={margin} stackOffset={isPercent ? 'expand' : undefined}>
 			{showGrid && <CartesianGrid horizontal vertical={false} strokeDasharray='3 3' />}
-			<YAxis
-				tick={AXIS_TICK}
-				tickLine={false}
-				axisLine={false}
-				minTickGap={12}
-				tickFormatter={formatYAxisTick}
-				domain={resolveYAxisDomain(yAxisMin, yAxisMax, axisValues, true)}
-				allowDataOverflow={yAxisMin !== undefined || yAxisMax !== undefined}
-			/>
+			{isPercent ? (
+				renderValueYAxis(true)
+			) : (
+				<YAxis
+					tick={AXIS_TICK}
+					tickLine={false}
+					axisLine={false}
+					minTickGap={12}
+					tickFormatter={formatYAxisTick}
+					domain={resolveYAxisDomain(yAxisMin, yAxisMax, axisValues, true)}
+					allowDataOverflow={yAxisMin !== undefined || yAxisMax !== undefined}
+				/>
+			)}
 			{renderCategoryXAxis({ xAxisKey, xAxisType, xAxisInterval, labelFormatter })}
 			{children}
 			{renderedSeries.map((s, i) => (
@@ -332,7 +434,8 @@ function buildBarChart(props: ResolvedProps) {
 					dataKey={s.data_key}
 					fill={colorFor(s.data_key, i)}
 					stackId={isStacked ? 'stack' : undefined}
-					radius={getBarRadius(isStacked, i, renderedSeries.length)}
+					radius={isStacked ? undefined : [4, 4, 4, 4]}
+					shape={isStacked ? renderStackedBarShape(seriesKeys, s.data_key, separatorColor) : undefined}
 					isAnimationActive={false}
 				>
 					{showDataLabels && !isStacked && (
@@ -343,6 +446,45 @@ function buildBarChart(props: ResolvedProps) {
 			))}
 		</BarChart>
 	);
+}
+
+/**
+ * Whether `currentKey` is the topmost drawn segment of a stacked bar for a given row —
+ * i.e. the last series (in stack order) with a non-zero value. Used to round only the
+ * visible top of each bar, independent of series order or zero-valued segments.
+ */
+export function isTopmostStackSegment(row: Record<string, unknown>, seriesKeys: string[], currentKey: string): boolean {
+	let topKey: string | null = null;
+	for (const key of seriesKeys) {
+		const value = row[key];
+		if (typeof value === 'number' && value !== 0) {
+			topKey = key;
+		}
+	}
+	return topKey === currentKey;
+}
+
+type RectangleProps = React.ComponentProps<typeof Rectangle>;
+
+/**
+ * Custom `<Bar>` shape that rounds the top corners of only the topmost non-zero segment of
+ * each stacked bar, matching the rounded-top convention of non-stacked bars, and strokes each
+ * segment in the background color so adjacent segments read as separated by a thin gap.
+ * Recharts applies a single radius per `<Bar>` across all rows, so per-datum rounding needs a shape.
+ */
+function renderStackedBarShape(seriesKeys: string[], currentKey: string, separatorColor: string) {
+	return function StackedBarSegment(shapeProps: unknown) {
+		const rectProps = shapeProps as RectangleProps & { payload?: Record<string, unknown> };
+		const rounded = isTopmostStackSegment(rectProps.payload ?? {}, seriesKeys, currentKey);
+		return (
+			<Rectangle
+				{...rectProps}
+				radius={rounded ? [4, 4, 0, 0] : [0, 0, 0, 0]}
+				stroke={separatorColor}
+				strokeWidth={STACK_SEPARATOR_WIDTH}
+			/>
+		);
+	};
 }
 
 function buildAreaChart(props: ResolvedProps) {
@@ -362,7 +504,8 @@ function buildAreaChart(props: ResolvedProps) {
 		yAxisMax,
 		showDataLabels,
 	} = props;
-	const isStacked = chartType === 'stacked_area';
+	const isStacked = displayChart.isStackedChartType(chartType);
+	const isPercent = displayChart.isPercentStackedChartType(chartType);
 	const zeroBaseline = chartType !== 'line';
 	const dataKeys = series.map((s) => s.data_key);
 	const axisValues = isStacked ? collectStackedAxisValues(data, dataKeys) : collectAxisValues(data, dataKeys);
@@ -370,7 +513,7 @@ function buildAreaChart(props: ResolvedProps) {
 	const pointLabelContent = showDataLabels && !isStacked ? buildPointLabelContentBySeries(data, series) : new Map();
 
 	return (
-		<AreaChart data={data} accessibilityLayer margin={margin}>
+		<AreaChart data={data} accessibilityLayer margin={margin} stackOffset={isPercent ? 'expand' : undefined}>
 			<defs>
 				{renderedSeries.map((s, i) => {
 					const color = colorFor(s.data_key, i);
@@ -384,15 +527,19 @@ function buildAreaChart(props: ResolvedProps) {
 				})}
 			</defs>
 			{showGrid && <CartesianGrid horizontal vertical={false} strokeDasharray='3 3' />}
-			<YAxis
-				tick={AXIS_TICK}
-				tickLine={false}
-				axisLine={false}
-				minTickGap={12}
-				tickFormatter={formatYAxisTick}
-				domain={resolveYAxisDomain(yAxisMin, yAxisMax, axisValues, zeroBaseline)}
-				allowDataOverflow={yAxisMin !== undefined || yAxisMax !== undefined}
-			/>
+			{isPercent ? (
+				renderValueYAxis(true)
+			) : (
+				<YAxis
+					tick={AXIS_TICK}
+					tickLine={false}
+					axisLine={false}
+					minTickGap={12}
+					tickFormatter={formatYAxisTick}
+					domain={resolveYAxisDomain(yAxisMin, yAxisMax, axisValues, zeroBaseline)}
+					allowDataOverflow={yAxisMin !== undefined || yAxisMax !== undefined}
+				/>
+			)}
 			{renderCategoryXAxis({ xAxisKey, xAxisType, xAxisInterval, labelFormatter })}
 			{children}
 			{renderedSeries.map((s, i) => (
@@ -699,13 +846,6 @@ function getDataLabelSetup(props: ResolvedProps, isStacked: boolean) {
 
 function getRenderedSeries(isStacked: boolean, series: displayChart.SeriesConfig[]): displayChart.SeriesConfig[] {
 	return isStacked ? series.filter((item) => !item.is_total) : series;
-}
-
-function getBarRadius(isStacked: boolean, index: number, seriesLength: number): [number, number, number, number] {
-	if (!isStacked) {
-		return [4, 4, 4, 4];
-	}
-	return index === seriesLength - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0];
 }
 
 function sumStackValue(row: Record<string, unknown> | undefined, series: displayChart.SeriesConfig[]): number | null {

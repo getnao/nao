@@ -3,9 +3,11 @@ import z from 'zod/v3';
 export const ChartTypeEnum = z.enum([
 	'bar',
 	'stacked_bar',
+	'stacked_bar_100',
 	'line',
 	'area',
 	'stacked_area',
+	'stacked_area_100',
 	'pie',
 	'donut',
 	'kpi_card',
@@ -78,7 +80,31 @@ export type SeriesConfig = z.infer<typeof SeriesConfigSchema>;
 export type Input = z.infer<typeof InputSchema>;
 export type Output = z.infer<typeof OutputSchema>;
 
-/** Pie and donut charts share the same slice-based rendering (separators, legend, Other-bucketing). */
+const STACKED_CHART_TYPES = new Set<ChartType>(['stacked_bar', 'stacked_bar_100', 'stacked_area', 'stacked_area_100']);
+const PERCENT_STACKED_CHART_TYPES = new Set<ChartType>(['stacked_bar_100', 'stacked_area_100']);
+const X_AXIS_REQUIRED_CHART_TYPES = new Set<ChartType>([
+	'bar',
+	'line',
+	'area',
+	'stacked_area',
+	'stacked_area_100',
+	'stacked_bar_100',
+	'scatter',
+	'radar',
+]);
+
+export function isStackedChartType(type: ChartType): boolean {
+	return STACKED_CHART_TYPES.has(type);
+}
+
+export function isPercentStackedChartType(type: ChartType): boolean {
+	return PERCENT_STACKED_CHART_TYPES.has(type);
+}
+
+export function chartTypeRequiresXAxisKey(type: ChartType): boolean {
+	return X_AXIS_REQUIRED_CHART_TYPES.has(type);
+}
+
 export function isPieChart(chartType: ChartType): boolean {
 	return chartType === 'pie' || chartType === 'donut';
 }

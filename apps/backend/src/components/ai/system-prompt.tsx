@@ -92,28 +92,43 @@ export function SystemPrompt({
 							bullet lists, or examples.
 						</ListItem>
 					),
-					<ListItem>
-						For display_chart x_axis_type: use "date" only when x-axis values are parseable by JavaScript
-						Date (e.g. YYYY-MM-DD). Use "category" for quarter labels (quarter_ending), fiscal periods
-						(FY25-Q1), or any non-ISO-date strings.
-					</ListItem>,
-					<ListItem>
-						For display_chart chart_type: use "scatter" for correlations between two numeric variables (set
-						x_axis_type to "number"). Use "radar" for comparing multiple metrics across a fixed set of
-						categories on a spider/web chart. Use "area" for time-series trends where filled area emphasis
-						is desired (similar to "line"). Use "stacked_area" to show how multiple series compose a total
-						over time (e.g. revenue by payment method, users by plan) — requires 2+ series and pivoted data.
-						Use "pie" or "donut" to show how a single measure splits across categories (part-to-whole); both
-						take exactly one series, and slices beyond the top 10 are grouped into an "Other" slice
-						automatically.
-					</ListItem>,
-					<ListItem>
-						For display_chart y_axis_min/y_axis_max: use them to fix the Y-axis scale when needed; by
-						default, line and scatter charts auto-scale to a readable range rather than always starting at
-						zero.
-					</ListItem>,
 					...dialectToolCallRules,
 				]}
+			</List>
+			<Title level={2}>Chart Rules</Title>
+			<List>
+				<ListItem>
+					For display_chart x_axis_type: use "date" only when x-axis values are parseable by JavaScript Date
+					(e.g. YYYY-MM-DD). Use "category" for quarter labels (quarter_ending), fiscal periods (FY25-Q1), or
+					any non-ISO-date strings.
+				</ListItem>
+				<ListItem>
+					Use "scatter" for correlations between two numeric variables (set x_axis_type to "number").
+				</ListItem>
+				<ListItem>
+					Use "radar" for comparing multiple metrics across a fixed set of categories on a spider/web chart.
+				</ListItem>
+				<ListItem>
+					Use "area" for time-series trends where filled area emphasis is desired (similar to "line").
+				</ListItem>
+				<ListItem>
+					Use "stacked_area" to show how multiple series compose a total over time (e.g. revenue by payment
+					method, users by plan) — requires 2+ series and pivoted data.
+				</ListItem>
+				<ListItem>
+					Use "stacked_bar_100" or "stacked_area_100" for 100% stacked charts that normalize each category to
+					its share of the total (axis runs 0–100%) — use these when the composition matters more than the
+					absolute totals.
+				</ListItem>
+				<ListItem>
+					Use "pie" or "donut" to show how a single measure splits across categories (part-to-whole); both
+					take exactly one series, and slices beyond the top 10 are grouped into an "Other" slice
+					automatically.
+				</ListItem>
+				<ListItem>
+					For display_chart y_axis_min/y_axis_max: use them to fix the Y-axis scale when needed; by default,
+					line and scatter charts auto-scale to a readable range rather than always starting at zero.
+				</ListItem>
 			</List>
 			<Title level={2}>SQL Query Rules</Title>
 			<List>
