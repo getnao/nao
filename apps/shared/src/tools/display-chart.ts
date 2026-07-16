@@ -86,29 +86,44 @@ export const ColumnConditionalFormatsSchema = z
 	.record(z.string(), ConditionalFormatRuleSchema)
 	.describe('Map of column name to the conditional-formatting rule applied to that column.');
 
-export const ChartInputSchema = z.object({
-	query_id: z.string().describe("The id of a previous `execute_sql` tool call's output to get data from."),
-	chart_type: ChartTypeEnum.describe('Type of chart to display.'),
-	x_axis_key: z.string().describe('Column name for X-axis/category labels.'),
-	x_axis_type: XAxisTypeEnum.nullable().describe(
-		'Use "date" only when x-axis values parse as JS Date (YYYY-MM-DD). Use "category" for quarter_ending, fiscal periods, or labels. Use "number" for numeric x-axis.',
-	),
-	series: z
-		.array(SeriesConfigSchema)
-		.min(1)
-		.describe('Columns to plot as data series (at least one series required).'),
-	title: z
-		.string()
-		.describe(
-			'A concise and descriptive title of what the chart shows. Do not include the type of chart in the title or other chart configurations.',
+export const ChartInputSchema = z
+	.object({
+		query_id: z.string().describe("The id of a previous `execute_sql` tool call's output to get data from."),
+		chart_type: ChartTypeEnum.describe('Type of chart to display.'),
+		x_axis_key: z.string().describe('Column name for X-axis/category labels.'),
+		x_axis_type: XAxisTypeEnum.nullable().describe(
+			'Use "date" only when x-axis values parse as JS Date (YYYY-MM-DD). Use "category" for quarter_ending, fiscal periods, or labels. Use "number" for numeric x-axis.',
 		),
-	show_data_labels: z
-		.boolean()
-		.describe(
-			'Show the numeric value of each data point directly on the chart. Set to true when the user asks to display values/data labels on the chart.',
-		)
-		.optional(),
-});
+		series: z
+			.array(SeriesConfigSchema)
+			.min(1)
+			.describe('Columns to plot as data series (at least one series required).'),
+		y_axis_min: z
+			.number()
+			.describe(
+				'Fixes the Y-axis lower bound. Leave unset to auto-scale for readability (line and scatter charts do not force a zero baseline).',
+			)
+			.optional(),
+		y_axis_max: z.number().describe('Fixes the Y-axis upper bound. Leave unset to auto-scale.').optional(),
+		show_data_labels: z
+			.boolean()
+			.describe(
+				'Show the numeric value of each data point directly on the chart. Set to true when the user asks to display values/data labels on the chart.',
+			)
+			.optional(),
+		title: z
+			.string()
+			.describe(
+				'A concise and descriptive title of what the chart shows. Do not include the type of chart in the title or other chart configurations.',
+			),
+	})
+	.refine(
+		(input) =>
+			input.y_axis_min === undefined || input.y_axis_max === undefined || input.y_axis_min < input.y_axis_max,
+		{
+			message: 'The Y-axis minimum must be less than the maximum.',
+		},
+	);
 
 export const TableInputSchema = z.object({
 	query_id: z.string().describe("The id of a previous `execute_sql` tool call's output to get data from."),

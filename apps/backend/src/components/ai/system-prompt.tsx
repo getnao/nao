@@ -126,6 +126,10 @@ export function SystemPrompt({
 					automatically.
 				</ListItem>
 				<ListItem>
+					For display_chart y_axis_min/y_axis_max: use them to fix the Y-axis scale when needed; by default,
+					line and scatter charts auto-scale to a readable range rather than always starting at zero.
+				</ListItem>
+				<ListItem>
 					Use the <Bold>display_chart</Bold> tool with <Bold>{'chart_type: "table"'}</Bold> to present a table
 					from a previous execute_sql result with <Bold>conditional formatting</Bold> on specific columns.
 					When a user asks to conditionally format, color, or highlight cells of a table, use display_chart

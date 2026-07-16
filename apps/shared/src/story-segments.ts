@@ -15,6 +15,8 @@ export interface ParsedChartBlock {
 	xAxisKey: string;
 	xAxisType: string | null;
 	series: Array<{ data_key: string; color: string; label?: string; is_total?: boolean }>;
+	yAxisMin?: number;
+	yAxisMax?: number;
 	title: string;
 	showDataLabels?: boolean;
 	/** The original `<chart ... />` tag this block was parsed from, when available. */
@@ -69,12 +71,17 @@ export function parseChartBlock(attrString: string): ParsedChartBlock | null {
 		});
 	}
 
+	const yAxisMin = parseOptionalNumberAttr(attrs.y_axis_min);
+	const yAxisMax = parseOptionalNumberAttr(attrs.y_axis_max);
+
 	return {
 		queryId: attrs.query_id,
 		chartType: attrs.chart_type,
 		xAxisKey: attrs.x_axis_key,
 		xAxisType: attrs.x_axis_type || null,
 		series,
+		yAxisMin,
+		yAxisMax,
 		title: attrs.title || '',
 		showDataLabels: attrs.show_data_labels === 'true',
 	};
@@ -157,6 +164,10 @@ function tryParseSeriesJson(value: string): ParsedChartBlock['series'] | null {
 	} catch {
 		return null;
 	}
+}
+
+function parseOptionalNumberAttr(value: string | undefined): number | undefined {
+	return value !== undefined && value !== '' && Number.isFinite(Number(value)) ? Number(value) : undefined;
 }
 
 function extractSeriesFromRawAttrs(attrString: string): ParsedChartBlock['series'] | null {

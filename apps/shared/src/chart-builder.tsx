@@ -21,6 +21,7 @@ import {
 	YAxis,
 } from 'recharts';
 
+import { collectAxisValues, collectStackedAxisValues, resolveYAxisDomain } from './chart-domain';
 import { type DateFormatSettings, formatDateValue, isIsoDateLike } from './date';
 import * as displayChart from './tools/display-chart';
 
@@ -159,6 +160,8 @@ export interface BuildChartProps {
 	title?: string;
 	renderTitle?: boolean;
 	maxXAxisTicks?: number;
+	yAxisMin?: number;
+	yAxisMax?: number;
 	/** Chart background color, used as the separator between stacked segments. Pass a concrete color on surfaces where CSS vars do not resolve (backend PNG/HTML export). */
 	backgroundColor?: string;
 	showDataLabels?: boolean;
@@ -319,7 +322,9 @@ function getMaxStackTotal(data: Record<string, unknown>[], series: displayChart.
 	for (const row of data) {
 		let positive = 0;
 		for (const item of series) {
-			if (item.is_total) continue;
+			if (item.is_total) {
+				continue;
+			}
 			const value = toFiniteNumber(row[item.data_key]);
 			if (value != null && value > 0) {
 				positive += value;
@@ -431,10 +436,15 @@ function buildBarChart(props: ResolvedProps) {
 		children,
 		margin,
 		xAxisInterval,
+		series,
+		yAxisMin,
+		yAxisMax,
 		showDataLabels,
 	} = props;
 	const isStacked = displayChart.isStackedChartType(chartType);
 	const isPercent = displayChart.isPercentStackedChartType(chartType);
+	const dataKeys = series.map((s) => s.data_key);
+	const axisValues = isStacked ? collectStackedAxisValues(data, dataKeys) : collectAxisValues(data, dataKeys);
 	const { renderedSeries, stackTotalLabel, stackTotalLabelIndex } = getDataLabelSetup(props, isStacked);
 	const seriesKeys = renderedSeries.map((s) => s.data_key);
 	const separatorColor = props.backgroundColor ?? DEFAULT_BACKGROUND_COLOR;
@@ -442,7 +452,19 @@ function buildBarChart(props: ResolvedProps) {
 	return (
 		<BarChart data={data} accessibilityLayer margin={margin} stackOffset={isPercent ? 'expand' : undefined}>
 			{showGrid && <CartesianGrid horizontal vertical={false} strokeDasharray='3 3' />}
-			{renderValueYAxis(isPercent)}
+			{isPercent ? (
+				renderValueYAxis(true)
+			) : (
+				<YAxis
+					tick={AXIS_TICK}
+					tickLine={false}
+					axisLine={false}
+					minTickGap={12}
+					tickFormatter={formatYAxisTick}
+					domain={resolveYAxisDomain(yAxisMin, yAxisMax, axisValues, true)}
+					allowDataOverflow={yAxisMin !== undefined || yAxisMax !== undefined}
+				/>
+			)}
 			{renderCategoryXAxis({ xAxisKey, xAxisType, xAxisInterval, labelFormatter })}
 			{children}
 			{renderedSeries.map((s, i) => (
@@ -517,10 +539,15 @@ function buildAreaChart(props: ResolvedProps) {
 		children,
 		margin,
 		xAxisInterval,
+		yAxisMin,
+		yAxisMax,
 		showDataLabels,
 	} = props;
 	const isStacked = displayChart.isStackedChartType(chartType);
 	const isPercent = displayChart.isPercentStackedChartType(chartType);
+	const zeroBaseline = chartType !== 'line';
+	const dataKeys = series.map((s) => s.data_key);
+	const axisValues = isStacked ? collectStackedAxisValues(data, dataKeys) : collectAxisValues(data, dataKeys);
 	const { renderedSeries, stackTotalLabel, stackTotalLabelIndex } = getDataLabelSetup(props, isStacked);
 	const pointLabelContent = showDataLabels && !isStacked ? buildPointLabelContentBySeries(data, series) : new Map();
 
@@ -539,7 +566,19 @@ function buildAreaChart(props: ResolvedProps) {
 				})}
 			</defs>
 			{showGrid && <CartesianGrid horizontal vertical={false} strokeDasharray='3 3' />}
-			{renderValueYAxis(isPercent)}
+			{isPercent ? (
+				renderValueYAxis(true)
+			) : (
+				<YAxis
+					tick={AXIS_TICK}
+					tickLine={false}
+					axisLine={false}
+					minTickGap={12}
+					tickFormatter={formatYAxisTick}
+					domain={resolveYAxisDomain(yAxisMin, yAxisMax, axisValues, zeroBaseline)}
+					allowDataOverflow={yAxisMin !== undefined || yAxisMax !== undefined}
+				/>
+			)}
 			{renderCategoryXAxis({ xAxisKey, xAxisType, xAxisInterval, labelFormatter })}
 			{children}
 			{renderedSeries.map((s, i) => (
@@ -561,7 +600,11 @@ function buildAreaChart(props: ResolvedProps) {
 }
 
 function buildScatterChart(props: ResolvedProps) {
-	const { data, xAxisKey, xAxisType, series, colorFor, showGrid, children, margin } = props;
+	const { data, xAxisKey, xAxisType, series, colorFor, showGrid, children, margin, yAxisMin, yAxisMax } = props;
+	const axisValues = collectAxisValues(
+		data,
+		series.map((s) => s.data_key),
+	);
 
 	return (
 		<ScatterChart data={data} accessibilityLayer margin={margin}>
@@ -574,7 +617,15 @@ function buildScatterChart(props: ResolvedProps) {
 				axisLine={false}
 				minTickGap={12}
 			/>
-			{renderValueYAxis()}
+			<YAxis
+				tick={AXIS_TICK}
+				tickLine={false}
+				axisLine={false}
+				minTickGap={12}
+				tickFormatter={formatYAxisTick}
+				domain={resolveYAxisDomain(yAxisMin, yAxisMax, axisValues, false)}
+				allowDataOverflow={yAxisMin !== undefined || yAxisMax !== undefined}
+			/>
 			{children}
 			{series.map((s, i) => (
 				<Scatter

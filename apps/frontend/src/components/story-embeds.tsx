@@ -83,6 +83,8 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({
 				xAxisType={chart.xAxisType === 'number' ? 'number' : 'category'}
 				series={chart.series}
 				title={chart.title}
+				yAxisMin={chart.yAxisMin}
+				yAxisMax={chart.yAxisMax}
 				showDataLabels={chart.showDataLabels}
 			/>
 		</StoryChartEmbedShell>

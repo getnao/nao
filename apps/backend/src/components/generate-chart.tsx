@@ -15,7 +15,14 @@ import {
 export interface RenderChartInput {
 	config: Pick<
 		displayChart.ChartInput,
-		'chart_type' | 'x_axis_key' | 'x_axis_type' | 'series' | 'title' | 'show_data_labels'
+		| 'chart_type'
+		| 'x_axis_key'
+		| 'x_axis_type'
+		| 'series'
+		| 'y_axis_min'
+		| 'y_axis_max'
+		| 'title'
+		| 'show_data_labels'
 	>;
 	data: Record<string, unknown>[];
 	width?: number;
@@ -78,6 +85,8 @@ export function renderChartToSvg(input: RenderChartInput): string {
 		title: config.title,
 		maxXAxisTicks: Math.floor(chartWidth / maxLabelWidth),
 		backgroundColor: '#ffffff',
+		yAxisMin: config.y_axis_min,
+		yAxisMax: config.y_axis_max,
 	});
 
 	const html = renderToString(React.cloneElement(chart, { width: chartWidth, height }));

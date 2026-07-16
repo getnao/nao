@@ -32,6 +32,8 @@ const X_AXIS_TYPE_OPTIONS: { value: NonNullable<displayChart.XAxisType> | 'auto'
 	{ value: 'number', label: 'Number' },
 ];
 
+const Y_AXIS_RANGE_UNSUPPORTED_CHART_TYPES = new Set<displayChart.ChartType>(['pie', 'kpi_card', 'radar']);
+
 /** Maps a 100% stacked type back to its absolute-stacked counterpart, so the type dropdown stays clean. */
 function baseChartType(type: displayChart.ChartType): displayChart.ChartType {
 	if (type === 'stacked_bar_100') {
@@ -75,11 +77,16 @@ export function ChartConfigEditDialog({
 	description = 'Tweak the chart parameters.',
 }: ChartConfigEditDialogProps) {
 	const [draft, setDraft] = useState<displayChart.ChartInput>(config);
+	const [yAxisMinText, setYAxisMinText] = useState(toRangeString(config.y_axis_min));
+	const [yAxisMaxText, setYAxisMaxText] = useState(toRangeString(config.y_axis_max));
 	const [error, setError] = useState<string | null>(null);
+	const supportsYAxisRange = !Y_AXIS_RANGE_UNSUPPORTED_CHART_TYPES.has(draft.chart_type);
 
 	useEffect(() => {
 		if (open) {
 			setDraft(config);
+			setYAxisMinText(toRangeString(config.y_axis_min));
+			setYAxisMaxText(toRangeString(config.y_axis_max));
 			setError(null);
 		}
 	}, [open, config]);
@@ -135,6 +142,18 @@ export function ChartConfigEditDialog({
 			...prev,
 			series: [...prev.series, { data_key: fallback }],
 		}));
+	};
+
+	const updateYAxisMin = (value: string) => {
+		setYAxisMinText(value);
+		const parsed = parseRangeInput(value);
+		setDraft((prev) => ({ ...prev, y_axis_min: parsed }));
+	};
+
+	const updateYAxisMax = (value: string) => {
+		setYAxisMaxText(value);
+		const parsed = parseRangeInput(value);
+		setDraft((prev) => ({ ...prev, y_axis_max: parsed }));
 	};
 
 	return (
@@ -304,6 +323,41 @@ export function ChartConfigEditDialog({
 						</div>
 					</div>
 
+					{supportsYAxisRange && (
+						<div className='grid gap-2'>
+							<span className='text-sm font-semibold text-foreground'>Y-axis range</span>
+							<div className='grid grid-cols-1 sm:grid-cols-2 gap-3'>
+								<div className='grid gap-2'>
+									<label htmlFor='chart-y-axis-min' className='text-sm font-semibold text-foreground'>
+										Min
+									</label>
+									<Input
+										id='chart-y-axis-min'
+										className='h-8 bg-panel'
+										type='text'
+										inputMode='decimal'
+										placeholder='Auto'
+										value={yAxisMinText}
+										onChange={(e) => updateYAxisMin(e.target.value)}
+									/>
+								</div>
+								<div className='grid gap-2'>
+									<label htmlFor='chart-y-axis-max' className='text-sm font-semibold text-foreground'>
+										Max
+									</label>
+									<Input
+										id='chart-y-axis-max'
+										className='h-8 bg-panel'
+										type='text'
+										inputMode='decimal'
+										placeholder='Auto'
+										value={yAxisMaxText}
+										onChange={(e) => updateYAxisMax(e.target.value)}
+									/>
+								</div>
+							</div>
+						</div>
+					)}
 					<div className='grid gap-2'>
 						<span className='text-sm font-semibold text-foreground'>Options</span>
 						<div className='flex h-8 items-center justify-between'>
@@ -423,6 +477,18 @@ function ColumnSelect({ value, columns, onChange }: ColumnSelectProps) {
 
 function getSelectableColumns(columns: string[]): string[] {
 	return Array.from(new Set(columns.filter((column) => column.length > 0)));
+}
+
+function toRangeString(n: number | undefined): string {
+	return n === undefined ? '' : String(n);
+}
+
+function parseRangeInput(value: string): number | undefined {
+	if (value.trim() === '') {
+		return undefined;
+	}
+	const n = Number(value);
+	return Number.isFinite(n) ? n : undefined;
 }
 
 const HEX_RE = /^#[0-9a-fA-F]{6}$/;
