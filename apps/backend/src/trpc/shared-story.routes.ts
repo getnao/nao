@@ -1,3 +1,4 @@
+import { canAccessAuthenticatedSharedStory } from '@nao/shared/story-share';
 import { DOWNLOAD_FORMATS, SHARE_VISIBILITY } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
@@ -19,6 +20,7 @@ import {
 	canSendProcedure,
 	projectProtectedProcedure,
 	protectedProcedure,
+	publicSharedStoryProcedure,
 	resourceProjectProcedure,
 } from './trpc';
 
@@ -29,10 +31,14 @@ const shareAccessProcedure = resourceProjectProcedure(
 	sharedStoryQueries.getSharedStory,
 	'Shared story',
 	async (item, userId) =>
-		item.visibility !== 'specific' ||
-		item.userId === userId ||
-		sharedStoryQueries.canUserAccessSharedStory(item.id, userId),
+		canAccessAuthenticatedSharedStory({
+			visibility: item.visibility,
+			ownerUserId: item.userId,
+			viewerUserId: userId,
+			hasSpecificAccess: await sharedStoryQueries.canUserAccessSharedStory(item.id, userId),
+		}),
 );
+const publicShareProcedure = publicSharedStoryProcedure();
 
 export const sharedStoryRoutes = {
 	list: protectedProcedure.input(z.object({ projectId: z.string() })).query(async ({ input, ctx }) => {
@@ -65,6 +71,10 @@ export const sharedStoryRoutes = {
 		.mutation(async ({ input, ctx }) => {
 			if (input.pinAfterCreate && ctx.userRole !== 'admin') {
 				throw new TRPCError({ code: 'FORBIDDEN', message: 'Only admins can pin stories.' });
+			}
+
+			if (input.visibility === 'public' && input.pinAfterCreate) {
+				throw new TRPCError({ code: 'BAD_REQUEST', message: 'Public stories cannot be pinned.' });
 			}
 
 			const story = await storyQueries.getStoryByChatAndSlug(input.chatId, input.storySlug);
@@ -119,43 +129,16 @@ export const sharedStoryRoutes = {
 			return created;
 		}),
 
+	getPublic: publicShareProcedure.input(z.object({ shareId: z.string() })).query(async ({ ctx }) => {
+		return loadSharedStoryPayload(ctx.resource, { actorUserId: null });
+	}),
+
 	get: shareAccessProcedure.input(z.object({ shareId: z.string() })).query(async ({ ctx }) => {
 		const shared = ctx.resource;
-		const storyRow = await storyQueries.getStoryByChatAndSlug(shared.chatId!, shared.slug);
-		const isLive = storyRow?.isLive ?? false;
-		const isLiveTextDynamic = storyRow?.isLiveTextDynamic ?? false;
-		const cacheSchedule = storyRow?.cacheSchedule ?? null;
-		const cacheScheduleDescription = storyRow?.cacheScheduleDescription ?? null;
-
-		const { queryData, cachedAt } = await getStoryQueryData(
-			shared.chatId!,
-			shared.slug,
-			shared.code,
-			isLive,
-			cacheSchedule,
-		);
-
-		if (ctx.user.id !== shared.userId) {
-			logAnalyticsEvent({
-				projectId: shared.projectId,
-				type: 'page_view',
-				assetType: 'story',
-				actorUserId: ctx.user.id,
-				storyId: shared.storyId,
-				chatId: shared.chatId,
-				sharedStoryId: shared.id,
-			});
-		}
+		const payload = await loadSharedStoryPayload(shared, { actorUserId: ctx.user.id });
 
 		return {
-			...shared,
-			storyId: shared.storyId,
-			queryData,
-			isLive,
-			isLiveTextDynamic,
-			cacheSchedule,
-			cacheScheduleDescription,
-			cachedAt,
+			...payload,
 			userRole: ctx.userRole,
 		};
 	}),
@@ -232,6 +215,13 @@ export const sharedStoryRoutes = {
 		.mutation(async ({ input, ctx }) => {
 			const shared = ctx.resource;
 
+			if (shared.visibility === 'public') {
+				throw new TRPCError({
+					code: 'BAD_REQUEST',
+					message: 'Public stories cannot have member access updated. Unshare first to change visibility.',
+				});
+			}
+
 			if (shared.userId !== ctx.user.id && ctx.userRole !== 'admin') {
 				throw new TRPCError({ code: 'FORBIDDEN', message: 'Only the creator or an admin can update this.' });
 			}
@@ -287,47 +277,103 @@ export const sharedStoryRoutes = {
 			}),
 		)
 		.query(async ({ input, ctx }) => {
-			const shared = ctx.resource;
+			return downloadSharedStory(ctx.resource, input.format, input.versionNumber, ctx.user.id);
+		}),
 
-			const version = input.versionNumber
-				? await storyQueries.getVersionByNumber(shared.chatId!, shared.slug, input.versionNumber)
-				: await storyQueries.getLatestVersionByChatAndSlug(shared.chatId!, shared.slug);
-			if (!version) {
-				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story version not found.' });
-			}
-
-			const { queryData } = await getStoryQueryData(
-				shared.chatId!,
-				shared.slug,
-				version.code,
-				version.isLive,
-				version.cacheSchedule,
-			);
-
-			logAnalyticsEvent({
-				projectId: shared.projectId,
-				type: 'download',
-				assetType: 'story',
-				actorUserId: ctx.user.id,
-				storyId: shared.storyId,
-				chatId: shared.chatId,
-				sharedStoryId: shared.id,
-				metadata: {
-					type: 'download',
-					format: input.format,
-					versionNumber: version.version,
-					title: version.title,
-				},
-			});
-
-			const displaySettings = shared.projectId ? await projectQueries.getDisplaySettings(shared.projectId) : null;
-
-			return buildDownloadResponse(
-				input.format,
-				version.title,
-				version.code,
-				queryData,
-				displaySettings?.dateFormat,
-			);
+	downloadPublic: publicShareProcedure
+		.input(
+			z.object({
+				shareId: z.string(),
+				format: z.enum(DOWNLOAD_FORMATS),
+				versionNumber: z.number().int().positive().optional(),
+			}),
+		)
+		.query(async ({ input, ctx }) => {
+			return downloadSharedStory(ctx.resource, input.format, input.versionNumber, null);
 		}),
 };
+
+async function loadSharedStoryPayload(
+	shared: sharedStoryQueries.SharedStoryWithLatest,
+	options: { actorUserId: string | null },
+) {
+	const storyRow = await storyQueries.getStoryByChatAndSlug(shared.chatId!, shared.slug);
+	const isLive = storyRow?.isLive ?? false;
+	const isLiveTextDynamic = storyRow?.isLiveTextDynamic ?? false;
+	const cacheSchedule = storyRow?.cacheSchedule ?? null;
+	const cacheScheduleDescription = storyRow?.cacheScheduleDescription ?? null;
+
+	const { queryData, cachedAt } = await getStoryQueryData(
+		shared.chatId!,
+		shared.slug,
+		shared.code,
+		isLive,
+		cacheSchedule,
+	);
+
+	const shouldLogView = !options.actorUserId || options.actorUserId !== shared.userId;
+	if (shouldLogView) {
+		logAnalyticsEvent({
+			projectId: shared.projectId,
+			type: 'page_view',
+			assetType: 'story',
+			actorUserId: options.actorUserId,
+			storyId: shared.storyId,
+			chatId: shared.chatId,
+			sharedStoryId: shared.id,
+		});
+	}
+
+	return {
+		...shared,
+		storyId: shared.storyId,
+		queryData,
+		isLive,
+		isLiveTextDynamic,
+		cacheSchedule,
+		cacheScheduleDescription,
+		cachedAt,
+	};
+}
+
+async function downloadSharedStory(
+	shared: sharedStoryQueries.SharedStoryWithLatest,
+	format: (typeof DOWNLOAD_FORMATS)[number],
+	versionNumber: number | undefined,
+	actorUserId: string | null,
+) {
+	const version = versionNumber
+		? await storyQueries.getVersionByNumber(shared.chatId!, shared.slug, versionNumber)
+		: await storyQueries.getLatestVersionByChatAndSlug(shared.chatId!, shared.slug);
+	if (!version) {
+		throw new TRPCError({ code: 'NOT_FOUND', message: 'Story version not found.' });
+	}
+
+	const { queryData } = await getStoryQueryData(
+		shared.chatId!,
+		shared.slug,
+		version.code,
+		version.isLive,
+		version.cacheSchedule,
+	);
+
+	logAnalyticsEvent({
+		projectId: shared.projectId,
+		type: 'download',
+		assetType: 'story',
+		actorUserId,
+		storyId: shared.storyId,
+		chatId: shared.chatId,
+		sharedStoryId: shared.id,
+		metadata: {
+			type: 'download',
+			format,
+			versionNumber: version.version,
+			title: version.title,
+		},
+	});
+
+	const displaySettings = shared.projectId ? await projectQueries.getDisplaySettings(shared.projectId) : null;
+
+	return buildDownloadResponse(format, version.title, version.code, queryData, displaySettings?.dateFormat);
+}

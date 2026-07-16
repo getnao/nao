@@ -67,6 +67,26 @@ export async function getSharedStory(id: string): Promise<SharedStoryWithLatest 
 	return row ?? null;
 }
 
+export async function getPublicSharedStory(id: string): Promise<SharedStoryWithLatest | null> {
+	const shared = await getSharedStory(id);
+	if (!shared || shared.visibility !== 'public') {
+		return null;
+	}
+
+	const [storyRow] = await db
+		.select({ archivedAt: s.story.archivedAt })
+		.from(s.story)
+		.where(eq(s.story.id, shared.storyId))
+		.limit(1)
+		.execute();
+
+	if (!storyRow || storyRow.archivedAt) {
+		return null;
+	}
+
+	return shared;
+}
+
 export async function canUserAccessSharedStory(sharedStoryId: string, userId: string): Promise<boolean> {
 	const [row] = await db
 		.select({ sharedStoryId: s.sharedStoryAccess.sharedStoryId })
@@ -95,7 +115,12 @@ export async function listUserSharedStories(
 		and(
 			eq(s.sharedStory.projectId, projectId),
 			isNull(s.story.archivedAt),
-			or(eq(s.sharedStory.visibility, 'project'), eq(s.sharedStory.userId, userId), hasUserAccess),
+			or(
+				eq(s.sharedStory.visibility, 'project'),
+				eq(s.sharedStory.visibility, 'public'),
+				eq(s.sharedStory.userId, userId),
+				hasUserAccess,
+			),
 		)!,
 	);
 }

@@ -87,8 +87,9 @@ export const MAX_BUDGET_LIMIT_USD = 200_000;
 export const BUDGET_PERIODS = ['day', 'week', 'month'] as const;
 export type BudgetPeriod = (typeof BUDGET_PERIODS)[number];
 
-export const SHARE_VISIBILITY = ['project', 'specific'] as const;
+export const SHARE_VISIBILITY = ['project', 'specific', 'public'] as const;
 export type Visibility = (typeof SHARE_VISIBILITY)[number];
+export type MemberShareVisibility = Exclude<Visibility, 'public'>;
 
 export type StorySharingInfo = {
 	visibility: Visibility;

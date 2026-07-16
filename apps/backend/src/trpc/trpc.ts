@@ -5,6 +5,7 @@ import superjson from 'superjson';
 
 import { getAuth } from '../auth';
 import * as projectQueries from '../queries/project.queries';
+import * as sharedStoryQueries from '../queries/shared-story.queries';
 import { HandlerError } from '../utils/error';
 import { convertHeaders } from '../utils/utils';
 
@@ -117,6 +118,23 @@ export function resourceProjectProcedure<T extends { projectId: string }>(
 		}
 
 		return next({ ctx: { resource, userRole } });
+	});
+}
+
+export function publicSharedStoryProcedure(label = 'Shared story') {
+	return publicProcedure.use(async ({ getRawInput, next }) => {
+		const rawInput = (await getRawInput()) as Record<string, unknown>;
+		const shareId = rawInput.shareId;
+		if (typeof shareId !== 'string') {
+			throw new TRPCError({ code: 'BAD_REQUEST', message: 'shareId is required.' });
+		}
+
+		const resource = await sharedStoryQueries.getPublicSharedStory(shareId);
+		if (!resource) {
+			throw new TRPCError({ code: 'NOT_FOUND', message: `${label} not found.` });
+		}
+
+		return next({ ctx: { resource } });
 	});
 }
 
