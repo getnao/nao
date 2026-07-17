@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-import re
 from enum import Enum
 from pathlib import Path
+
+import yaml
 
 
 class ContextFileKind(str, Enum):
@@ -19,20 +20,27 @@ _MESSAGES: dict[ContextFileKind, str] = {
     ContextFileKind.MANUAL: "These are manual notes you want the agent to keep in mind, safe to edit.",
 }
 
-_MARKER_PATTERN = re.compile(r"<!--\s*nao:(generated|manual)\b")
-
 
 def marker_for(kind: ContextFileKind) -> str:
-    """Build the single-line HTML marker carrying the stable token and human message."""
-    return f"<!-- nao:{kind.value} | {_MESSAGES[kind]} -->"
+    """Build the YAML frontmatter header carrying the file kind and human message."""
+    return f"---\ntype: {kind.value}\ncomment: {_MESSAGES[kind]}\n---"
 
 
 def kind_of(content: str) -> ContextFileKind | None:
-    """Classify a file from its content, or return None when no known marker is present."""
-    match = _MARKER_PATTERN.search(content)
-    if match is None:
+    """Classify a file from its frontmatter `type`, or None when absent/unknown."""
+    if not content.startswith("---"):
         return None
-    return ContextFileKind(match.group(1))
+    parts = content.split("---", 2)
+    if len(parts) < 3:
+        return None
+    try:
+        meta = yaml.safe_load(parts[1]) or {}
+    except yaml.YAMLError:
+        return None
+    try:
+        return ContextFileKind(meta.get("type"))
+    except ValueError:
+        return None
 
 
 def with_generated_marker(content: str) -> str:

@@ -17,13 +17,13 @@ MANUAL_MESSAGE = "These are manual notes you want the agent to keep in mind, saf
 def test_marker_for_generated_has_token_and_message():
     marker = marker_for(ContextFileKind.GENERATED)
 
-    assert marker == f"<!-- nao:generated | {GENERATED_MESSAGE} -->"
+    assert marker == f"---\ntype: generated\ncomment: {GENERATED_MESSAGE}\n---"
 
 
 def test_marker_for_manual_has_token_and_message():
     marker = marker_for(ContextFileKind.MANUAL)
 
-    assert marker == f"<!-- nao:manual | {MANUAL_MESSAGE} -->"
+    assert marker == f"---\ntype: manual\ncomment: {MANUAL_MESSAGE}\n---"
 
 
 def test_with_generated_marker_prepends_marker_and_preserves_content():
