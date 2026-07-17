@@ -147,7 +147,7 @@ class DatabaseConfig(BaseModel, ABC):
                 warnings.warn(
                     "The 'description' database template is deprecated and will be removed in a future version. "
                     "The table description now lives in 'columns.md'. Please remove 'description' from "
-                    "'templates' in your nao.yaml.",
+                    "'templates' in your nao_config.yaml.",
                     FutureWarning,
                     stacklevel=2,
                 )
