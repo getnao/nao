@@ -1,5 +1,9 @@
 import { DATE_FORMAT_PRESETS } from '@nao/shared/date';
-import type { LlmProvider } from '@nao/shared/types';
+import {
+	type LlmProvider,
+	MAX_PYTHON_EXECUTION_DURATION_SECS,
+	MIN_PYTHON_EXECUTION_DURATION_SECS,
+} from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
@@ -752,6 +756,16 @@ export const projectRoutes = {
 					})
 					.optional(),
 				sql: z.object({ dangerouslyWritePermEnabled: z.boolean().optional() }).optional(),
+				pythonExecution: z
+					.object({
+						maxDurationSecs: z
+							.number()
+							.int()
+							.min(MIN_PYTHON_EXECUTION_DURATION_SECS)
+							.max(MAX_PYTHON_EXECUTION_DURATION_SECS)
+							.optional(),
+					})
+					.optional(),
 				memoryEnabled: z.boolean().optional(),
 				webSearch: z
 					.object({
@@ -768,6 +782,7 @@ export const projectRoutes = {
 				experimental: { ...existing.experimental, ...input.experimental },
 				transcribe: { ...existing.transcribe, ...input.transcribe },
 				sql: { ...existing.sql, ...input.sql },
+				pythonExecution: { ...existing.pythonExecution, ...input.pythonExecution },
 				webSearch: { ...existing.webSearch, ...input.webSearch },
 			};
 			posthog.capture(ctx.user.id, PostHogEvent.ProjectAgentSettingsUpdated, {
@@ -776,6 +791,7 @@ export const projectRoutes = {
 				transcribe_provider: merged.transcribe?.provider,
 				transcribe_model_id: merged.transcribe?.modelId,
 				sql_dangerously_write_perm_enabled: merged.sql?.dangerouslyWritePermEnabled,
+				python_execution_max_duration_secs: merged.pythonExecution?.maxDurationSecs,
 				python_sandboxing_enabled: merged.experimental?.pythonSandboxing,
 				memory_enabled: merged.memoryEnabled,
 				web_search_enabled: merged.webSearch?.enabled,
