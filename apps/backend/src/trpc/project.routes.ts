@@ -641,7 +641,7 @@ export const projectRoutes = {
 			if (!role) {
 				throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this project.' });
 			}
-			return projectQueries.listAllUsersWithRoles(projectId);
+			return projectQueries.listProjectAccessibleUsersWithRoles(projectId);
 		}),
 
 	getKnownModels: publicProcedure.query(() => {

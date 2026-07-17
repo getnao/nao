@@ -1,6 +1,6 @@
 import { DEFAULT_DATE_FORMAT_SETTINGS, type DisplaySettings } from '@nao/shared/date';
 import type { UpdatedAtFilter, UserRole } from '@nao/shared/types';
-import { and, asc, desc, eq, gt, gte, lte, or, type SQL, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, gte, isNotNull, lte, or, type SQL, sql } from 'drizzle-orm';
 
 import type { AgentSettings, DBProject, DBProjectMember, NewProject, NewProjectMember } from '../db/abstractSchema';
 import s from '../db/abstractSchema';
@@ -138,6 +138,25 @@ export const listAllUsersWithRoles = async (projectId: string): Promise<UserWith
 		.from(s.user)
 		.innerJoin(s.projectMember, eq(s.projectMember.userId, s.user.id))
 		.where(eq(s.projectMember.projectId, projectId))
+		.execute();
+
+	return results;
+};
+
+export const listProjectAccessibleUsersWithRoles = async (projectId: string): Promise<UserWithRole[]> => {
+	const project = await getProjectById(projectId);
+	const results = await db
+		.select({
+			id: s.user.id,
+			name: s.user.name,
+			email: s.user.email,
+			role: sql<UserRole>`coalesce(${s.projectMember.role}, ${s.orgMember.role})`,
+			messagingProviderCode: s.user.messagingProviderCode,
+		})
+		.from(s.user)
+		.leftJoin(s.projectMember, and(eq(s.projectMember.userId, s.user.id), eq(s.projectMember.projectId, projectId)))
+		.leftJoin(s.orgMember, and(eq(s.orgMember.userId, s.user.id), eq(s.orgMember.orgId, project?.orgId ?? '')))
+		.where(or(isNotNull(s.projectMember.userId), isNotNull(s.orgMember.userId)))
 		.execute();
 
 	return results;
