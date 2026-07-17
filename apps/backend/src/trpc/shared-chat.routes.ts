@@ -134,11 +134,11 @@ export const sharedChatRoutes = {
 				throw new TRPCError({ code: 'FORBIDDEN', message: 'Only the creator or an admin can update this.' });
 			}
 
-			const projectMembers = await projectQueries.listProjectAccessibleUsersWithRoles(ctx.resource.projectId);
-			const memberIds = new Set(projectMembers.map((m) => m.id));
-			const validUserIds = input.allowedUserIds.filter((id) => memberIds.has(id));
+			const accessibleUsers = await projectQueries.listProjectAccessibleUsersWithRoles(ctx.resource.projectId);
+			const accessibleUserIds = new Set(accessibleUsers.map((m) => m.id));
+			const validUserIds = input.allowedUserIds.filter((id) => accessibleUserIds.has(id));
 			if (input.allowedUserIds.length > 0 && validUserIds.length === 0) {
-				throw new TRPCError({ code: 'BAD_REQUEST', message: 'No valid project members in the provided list.' });
+				throw new TRPCError({ code: 'BAD_REQUEST', message: 'No valid users in the provided list.' });
 			}
 
 			await sharedChatQueries.updateSharedChatAllowedUsers(input.shareId, validUserIds);
