@@ -31,6 +31,7 @@ export const agentRoutes = async (app: App) => {
 			projectId,
 			...body,
 			adminMode: body.adminMode && isProjectAdmin,
+			isProjectAdmin,
 		});
 
 		posthog.capture(user.id, PostHogEvent.MessageSent, {

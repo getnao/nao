@@ -15,6 +15,7 @@ import { buildImageUrl } from '../utils/image';
 interface HandleAgentMessageInput extends AgentRequest {
 	userId: string;
 	projectId: string | undefined;
+	isProjectAdmin: boolean;
 }
 
 interface HandleAgentMessageResult {
@@ -25,13 +26,18 @@ interface HandleAgentMessageResult {
 }
 
 export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<HandleAgentMessageResult> => {
-	const { userId, message, messageToEditId, model, mentions, projectId, adminMode } = opts;
+	const { userId, message, messageToEditId, model, mentions, projectId, isProjectAdmin } = opts;
 
 	if (!projectId) {
 		throw new HandlerError('BAD_REQUEST', noProjectMessage());
 	}
 
 	await agentService.assertBudget(projectId, model);
+
+	let adminMode = opts.adminMode ?? false;
+	if (opts.adminMode === undefined && isProjectAdmin && opts.chatId) {
+		adminMode = await chatQueries.wasLastUserMessageAdmin(opts.chatId);
+	}
 
 	const source: MessageSource = adminMode ? 'admin' : 'web';
 	let chatId = opts.chatId;

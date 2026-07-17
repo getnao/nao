@@ -187,7 +187,7 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 							model: activeSelectedModelRef.current ?? undefined,
 							mentions: mentions.length > 0 ? mentions : undefined,
 							timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-							adminMode: adminModeAtSend || undefined,
+							adminMode: adminModeAtSend,
 						},
 					};
 				},
@@ -257,9 +257,9 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 		}
 	}, [error]); // eslint-disable-line react-hooks/exhaustive-deps
 
-	// Carry admin mode across an admin conversation: enable it for chats whose first or
-	// last user message was sent from admin mode, and disable it for normal chats. A
-	// freshly created chat keeps its current mode so follow-ups stay in admin mode.
+	// Carry admin mode across an admin conversation: on load, start in the mode of the latest
+	// user turn (derived from server data, which carries `source`). Once loaded, a manual toggle
+	// always wins — this effect syncs a chat only once, so it never overrides a later user toggle.
 	const syncedAdminChatRef = useRef<string | undefined>(undefined);
 	useEffect(() => {
 		if (!chatId) {
@@ -271,14 +271,14 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 			syncedAdminChatRef.current = chatId;
 			return;
 		}
-		if (chat.isLoading || messages.length === 0 || syncedAdminChatRef.current === chatId) {
+		const serverMessages = chat.data?.messages;
+		if (chat.isLoading || !serverMessages || serverMessages.length === 0 || syncedAdminChatRef.current === chatId) {
 			return;
 		}
 		syncedAdminChatRef.current = chatId;
-		const userMessages = messages.filter((m) => m.role === 'user');
-		const conversationIsAdmin = userMessages.at(0)?.source === 'admin' || userMessages.at(-1)?.source === 'admin';
-		setAdminMode(conversationIsAdmin);
-	}, [chatId, chat.isLoading, messages, setAdminMode]);
+		const lastUserMessage = serverMessages.filter((m) => m.role === 'user').at(-1);
+		setAdminMode(lastUserMessage?.source === 'admin');
+	}, [chatId, chat.isLoading, chat.data?.messages, setAdminMode]);
 
 	const stopAgent = useCallback(async () => {
 		if (!chatId) {

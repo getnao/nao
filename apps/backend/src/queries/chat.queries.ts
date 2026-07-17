@@ -305,6 +305,18 @@ export const getChatOwnerId = async (chatId: string): Promise<string | undefined
 	return result?.userId;
 };
 
+export const wasLastUserMessageAdmin = async (chatId: string): Promise<boolean> => {
+	const [row] = await db
+		.select({ source: s.chatMessage.source })
+		.from(s.chatMessage)
+		.where(
+			and(eq(s.chatMessage.chatId, chatId), eq(s.chatMessage.role, 'user'), isNull(s.chatMessage.supersededAt)),
+		)
+		.orderBy(desc(s.chatMessage.createdAt))
+		.limit(1);
+	return row?.source === 'admin';
+};
+
 /** Marks all messages from a given message id onwards as superseeded (won't be used in the conversation anymore). */
 export const supersedeMessagesFrom = async (chatId: string, fromMessageId: string): Promise<void> => {
 	await db.transaction(async (t) => {
