@@ -1,5 +1,5 @@
 import { getGridClass } from '@nao/shared/story-segments';
-import { Fragment, memo, useMemo, useState } from 'react';
+import { Fragment, memo, useMemo } from 'react';
 import { Streamdown } from 'streamdown';
 import type { ParsedChartBlock, ParsedTableBlock, Segment } from '@nao/shared/story-segments';
 
@@ -53,16 +53,6 @@ export const SegmentList = memo(function SegmentList({
 								renderTable={renderTable}
 							/>
 						);
-					case 'tabs':
-						return (
-							<StoryTabs
-								key={key}
-								tabs={segment.tabs}
-								versionKey={versionKey}
-								renderChart={renderChart}
-								renderTable={renderTable}
-							/>
-						);
 				}
 			})}
 		</>
@@ -106,48 +96,6 @@ const StoryGrid = memo(function StoryGrid({
 					</div>
 				))}
 			</div>
-		</div>
-	);
-});
-
-const StoryTabs = memo(function StoryTabs({
-	tabs,
-	versionKey,
-	renderChart,
-	renderTable,
-}: {
-	tabs: Array<{ title: string; children: Segment[] }>;
-	versionKey?: string | number;
-	renderChart: (chart: ParsedChartBlock, key: number) => React.ReactNode;
-	renderTable: (table: ParsedTableBlock, key: number) => React.ReactNode;
-}) {
-	const [active, setActive] = useState(0);
-	const activeSafe = Math.min(active, tabs.length - 1);
-
-	return (
-		<div>
-			<div className='flex gap-4 border-b'>
-				{tabs.map((tab, index) => (
-					<button
-						key={index}
-						type='button'
-						className={`border-b-2 px-1 py-2 text-sm ${
-							index === activeSafe
-								? 'border-foreground text-foreground'
-								: 'border-transparent text-muted-foreground'
-						}`}
-						onClick={() => setActive(index)}
-					>
-						{tab.title}
-					</button>
-				))}
-			</div>
-			<SegmentList
-				segments={tabs[activeSafe]?.children ?? []}
-				versionKey={versionKey}
-				renderChart={renderChart}
-				renderTable={renderTable}
-			/>
 		</div>
 	);
 });

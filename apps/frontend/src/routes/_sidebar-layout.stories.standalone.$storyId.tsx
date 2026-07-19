@@ -213,10 +213,7 @@ function StandaloneEditableStory({
 				preview={
 					<SelectionProvider key={storySlug}>
 						<HighlightBubble onAsk={handleSelectionAsk} disabled={false} />
-						<StandaloneStoryContent
-							code={editor.code}
-							queryData={queryData}
-						/>
+						<StandaloneStoryContent code={editor.code} queryData={queryData} />
 					</SelectionProvider>
 				}
 			/>
@@ -249,13 +246,7 @@ function StandaloneEditableStory({
 	);
 }
 
-function StandaloneStoryContent({
-	code,
-	queryData,
-}: {
-	code: string;
-	queryData: QueryDataMap | null;
-}) {
+function StandaloneStoryContent({ code, queryData }: { code: string; queryData: QueryDataMap | null }) {
 	const renderChart = useCallback(
 		(chart: ParsedChartBlock) => <StoryChartEmbed chart={chart} queryData={queryData} />,
 		[queryData],

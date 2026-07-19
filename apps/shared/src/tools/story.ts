@@ -19,7 +19,17 @@ export const InputSchema = z.object({
 		.string()
 		.optional()
 		.describe(
-			'The markdown content. Required for "create" (initial content) and "replace" (new content). Can include charts via <chart query_id="..." /> blocks and SQL tables via <table query_id="..." /> blocks. Use <grid cols="2">...</grid> to lay out charts side by side in a responsive grid.',
+			`The markdown content. Required for "create" (initial content) and "replace" (new content). Can include charts via <chart query_id="..." /> blocks and SQL tables via <table query_id="..." /> blocks. Use <grid cols="2">...</grid> to lay out charts side by side in a responsive grid. Default to a single flowing story. Use <tabs> only when the user asks for tabs, or when the content splits into clearly distinct sections that are better separated than stacked (e.g. overview vs. detail, one topic/department/metric per tab). Avoid tabs for a short or single-topic story. Always follow the user's explicit request (e.g. "a tab per chart" → one chart per tab). When using tabs, the story must start with <tabs> and contain only <tab title="…">…</tab> blocks — no text outside a tab.
+
+<tabs>
+<tab title="Overview">
+## Summary
+Key takeaways...
+</tab>
+<tab title="Revenue">
+<chart query_id="..." chart_type="bar" x_axis_key="..." series='[...]' title="Revenue" />
+</tab>
+</tabs>`,
 		),
 	search: z.string().optional().describe('The exact text to find in the current story code. Required for "update".'),
 	replace: z.string().optional().describe('The replacement text. Required for "update".'),

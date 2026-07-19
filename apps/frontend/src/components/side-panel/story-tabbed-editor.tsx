@@ -61,9 +61,7 @@ export function StoryTabbedEditor({
 	const handleSelect = useCallback(
 		(nextIndex: number) => {
 			const editor = editorRef.current;
-			const spliced = editor
-				? replaceStoryTabInner(bufferCode, active, getEditorMarkdown(editor))
-				: bufferCode;
+			const spliced = editor ? replaceStoryTabInner(bufferCode, active, getEditorMarkdown(editor)) : bufferCode;
 			setBufferCode(spliced);
 			setActiveIndex(nextIndex);
 		},

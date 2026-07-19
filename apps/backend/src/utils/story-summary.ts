@@ -1,8 +1,11 @@
 import { TAG_ATTRS } from '@nao/shared/story-segments';
+import { parseStoryTabs } from '@nao/shared/story-tabs';
 import type { StorySummary, SummarySegment } from '@nao/shared/types';
 
 export function extractStorySummary(code: string): StorySummary {
-	return { segments: extractSegments(code) };
+	const tabs = parseStoryTabs(code);
+	const flattened = tabs ? tabs.map((tab) => `${tab.title}\n\n${tab.innerCode}`).join('\n\n') : code;
+	return { segments: extractSegments(flattened) };
 }
 
 function extractSegments(code: string): SummarySegment[] {

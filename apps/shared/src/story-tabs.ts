@@ -87,23 +87,12 @@ export function moveStoryTab(code: string, fromIndex: number, toIndex: number): 
 }
 
 export function addStoryTab(code: string, title = 'New tab'): string {
-	const region = findStoryTabsRegion(code);
-	if (!region) {
+	const lastBlock = findStoryTabsRegion(code)?.blocks.at(-1);
+	if (!lastBlock) {
 		return code;
 	}
-
 	const newBlock = `<tab title="${escapeAttribute(title)}">\n\n</tab>`;
-	const lastBlock = region.blocks.at(-1);
-	if (lastBlock) {
-		return code.slice(0, lastBlock.end) + `\n\n${newBlock}` + code.slice(lastBlock.end);
-	}
-
-	const regionContent = code.slice(region.start, region.end);
-	if (regionContent.trim()) {
-		return code.slice(0, region.end) + `\n\n${newBlock}` + code.slice(region.end);
-	}
-	const closingSeparator = region.hasClosingTag ? '\n' : '';
-	return code.slice(0, region.start) + `\n${newBlock}${closingSeparator}` + code.slice(region.end);
+	return code.slice(0, lastBlock.end) + `\n\n${newBlock}` + code.slice(lastBlock.end);
 }
 
 function findStoryTabsRegion(code: string): StoryTabsRegion | null {

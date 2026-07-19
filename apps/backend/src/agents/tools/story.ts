@@ -17,6 +17,8 @@ export default createTool<story.Input, story.Output>({
 		'Charts are embedded via <chart query_id="..." chart_type="..." x_axis_key="..." series=\'[...]\' title="..." />.',
 		'SQL result tables are embedded via <table query_id="..." title="..." />.',
 		'Use <grid cols="2">...</grid> to display charts side by side in a responsive grid.',
+		'Use <tabs> with <tab title="...">...</tab> blocks to organize a story into top-level tabs.',
+		'Default to a single flowing story. Use <tabs> only when the user asks for tabs, or when the content splits into clearly distinct sections that are better separated than stacked (e.g. overview vs. detail, one topic/department/metric per tab). Avoid tabs for a short or single-topic story. Always follow the user\'s explicit request (e.g. "a tab per chart" means one chart per tab). When using tabs, the story must start with <tabs> and contain only <tab title="...">...</tab> blocks — no text outside a tab.',
 		'A story can also be refered as a "canva", an "artifact" or a "report".',
 		'Users may edit stories directly; the tool result always reflects the latest version, including user edits.',
 		'Unless explicitly stated, dont use the stories to display a chart, but the display_chart tool.',
