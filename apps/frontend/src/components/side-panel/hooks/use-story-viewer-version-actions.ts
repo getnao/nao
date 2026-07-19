@@ -15,6 +15,7 @@ interface UseStoryViewerVersionActionsParams {
 	isViewingLatest: boolean;
 	tiptapEditorRef: MutableRefObject<TiptapEditor | null>;
 	codeViewRef: MutableRefObject<StoryCodeViewHandle | null>;
+	getEditModeCode?: () => string | null;
 	viewMode: StoryViewMode;
 	setViewMode: (mode: StoryViewMode) => void;
 }
@@ -27,6 +28,7 @@ export const useStoryViewerVersionActions = ({
 	isViewingLatest,
 	tiptapEditorRef,
 	codeViewRef,
+	getEditModeCode,
 	viewMode,
 	setViewMode,
 }: UseStoryViewerVersionActionsParams) => {
@@ -70,11 +72,16 @@ export const useStoryViewerVersionActions = ({
 
 		let newCode: string | null = null;
 		if (viewMode === 'edit') {
-			const editor = tiptapEditorRef.current;
-			if (!editor) {
-				return;
+			const override = getEditModeCode?.();
+			if (override != null) {
+				newCode = override;
+			} else {
+				const editor = tiptapEditorRef.current;
+				if (!editor) {
+					return;
+				}
+				newCode = getEditorMarkdown(editor);
 			}
-			newCode = getEditorMarkdown(editor);
 		} else if (viewMode === 'code') {
 			const codeView = codeViewRef.current;
 			if (!codeView) {
@@ -111,6 +118,7 @@ export const useStoryViewerVersionActions = ({
 		currentVersionCode,
 		tiptapEditorRef,
 		codeViewRef,
+		getEditModeCode,
 		viewMode,
 		createVersionMutation,
 		setViewMode,

@@ -1,0 +1,96 @@
+import { describe, expect, it } from 'vitest';
+
+import {
+	addStoryTab,
+	deleteStoryTab,
+	moveStoryTab,
+	parseStoryTabs,
+	renameStoryTab,
+	replaceStoryTabInner,
+} from '../src/story-tabs';
+import { validateStoryCode } from '../src/story-validation';
+
+const storyCode = [
+	'<tabs>',
+	'<tab title="Overview">',
+	'# Overview',
+	'</tab>',
+	'',
+	'<tab title="Details">',
+	'<table query_id="details" title="Details" />',
+	'</tab>',
+	'',
+	'<tab title="Notes">',
+	'Some notes.',
+	'</tab>',
+	'</tabs>',
+].join('\n');
+
+describe('story tabs', () => {
+	it('returns null for non-tabbed code', () => {
+		expect(parseStoryTabs('# Story\n\nContent')).toBeNull();
+	});
+
+	it('parses titles and inner code', () => {
+		expect(parseStoryTabs(storyCode)).toEqual([
+			{ title: 'Overview', innerCode: '\n# Overview\n' },
+			{ title: 'Details', innerCode: '\n<table query_id="details" title="Details" />\n' },
+			{ title: 'Notes', innerCode: '\nSome notes.\n' },
+		]);
+	});
+
+	it('renames only the target tab and round-trips escaped attributes', () => {
+		const renamed = renameStoryTab(storyCode, 1, 'Revenue "North" \\ FY26');
+
+		expect(parseStoryTabs(renamed)?.map((tab) => tab.title)).toEqual([
+			'Overview',
+			'Revenue "North" \\ FY26',
+			'Notes',
+		]);
+		expect(parseStoryTabs(renamed)?.[1].innerCode).toBe(parseStoryTabs(storyCode)?.[1].innerCode);
+		expect(validateStoryCode(renamed)).toEqual([]);
+	});
+
+	it('replaces only the target tab inner content', () => {
+		const replacement = '## Updated details\n\n<chart query_id="updated" title="Updated" />';
+		const replaced = replaceStoryTabInner(storyCode, 1, replacement);
+		const tabs = parseStoryTabs(replaced);
+
+		expect(tabs?.map((tab) => tab.title)).toEqual(['Overview', 'Details', 'Notes']);
+		expect(tabs?.[0].innerCode).toBe(parseStoryTabs(storyCode)?.[0].innerCode);
+		expect(tabs?.[1].innerCode.trim()).toBe(replacement.trim());
+		expect(tabs?.[2].innerCode).toBe(parseStoryTabs(storyCode)?.[2].innerCode);
+		expect(replaced).toContain('<tab title="Details">');
+		expect(replaced).toContain('</tabs>');
+	});
+
+	it('deletes the selected tab', () => {
+		const deleted = deleteStoryTab(storyCode, 1);
+
+		expect(parseStoryTabs(deleted)?.map((tab) => tab.title)).toEqual(['Overview', 'Notes']);
+		expect(deleted).not.toContain('query_id="details"');
+		expect(validateStoryCode(deleted)).toEqual([]);
+	});
+
+	it('moves tabs using array order', () => {
+		const moved = moveStoryTab(storyCode, 0, 2);
+
+		expect(parseStoryTabs(moved)?.map((tab) => tab.title)).toEqual(['Details', 'Notes', 'Overview']);
+		expect(validateStoryCode(moved)).toEqual([]);
+	});
+
+	it('appends a titled empty tab', () => {
+		const added = addStoryTab(storyCode);
+		const tabs = parseStoryTabs(added);
+
+		expect(tabs?.at(-1)).toEqual({ title: 'New tab', innerCode: '\n\n' });
+		expect(validateStoryCode(added)).toEqual([]);
+	});
+
+	it('leaves code unchanged for out-of-range indices', () => {
+		expect(renameStoryTab(storyCode, 9, 'Missing')).toBe(storyCode);
+		expect(deleteStoryTab(storyCode, -1)).toBe(storyCode);
+		expect(moveStoryTab(storyCode, 9, 0)).toBe(storyCode);
+		expect(replaceStoryTabInner(storyCode, 9, 'Missing')).toBe(storyCode);
+	});
+});

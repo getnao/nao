@@ -40,9 +40,140 @@ export function validateStoryCode(code: string): StoryValidationError[] {
 	errors.push(...validateGridBlocks(code));
 	errors.push(...validateChartBlocks(code));
 	errors.push(...validateTableBlocks(code));
+	errors.push(...validateTabsBlocks(code));
 	errors.push(...validateUnterminatedTags(code));
 
 	return errors.sort((a, b) => a.line - b.line || a.column - b.column);
+}
+
+function validateTabsBlocks(code: string): StoryValidationError[] {
+	const errors: StoryValidationError[] = [];
+	const tabsOpenRegex = /<tabs\b[^>]*>/g;
+	const tabsOpeners = [...code.matchAll(tabsOpenRegex)];
+	const firstTabsOpener = tabsOpeners[0];
+
+	if (!firstTabsOpener) {
+		const tabOpenRegex = /<tab\b[^>]*>/g;
+		let tabMatch: RegExpExecArray | null;
+		while ((tabMatch = tabOpenRegex.exec(code)) !== null) {
+			const position = getPosition(code, tabMatch.index);
+			errors.push({
+				message: '<tab> can only be used inside a <tabs> block.',
+				line: position.line,
+				column: position.column,
+				length: tabMatch[0].length,
+			});
+		}
+		return errors;
+	}
+
+	const tabsStart = firstTabsOpener.index;
+	const tabsContentStart = tabsStart + firstTabsOpener[0].length;
+	const contentBeforeOffset = code.slice(0, tabsStart).search(/\S/);
+	if (contentBeforeOffset !== -1) {
+		const position = getPosition(code, contentBeforeOffset);
+		errors.push({
+			message: 'Content is not allowed before <tabs> — a tabbed story must start with <tabs>.',
+			line: position.line,
+			column: position.column,
+			length: getLineContentLength(code, contentBeforeOffset),
+		});
+	}
+
+	for (const extraTabsOpener of tabsOpeners.slice(1)) {
+		const position = getPosition(code, extraTabsOpener.index);
+		errors.push({
+			message: 'Only one <tabs> block is allowed per story.',
+			line: position.line,
+			column: position.column,
+			length: extraTabsOpener[0].length,
+		});
+	}
+
+	const tabsCloseIndex = code.indexOf('</tabs>', tabsContentStart);
+	const tabsContentEnd = tabsCloseIndex === -1 ? code.length : tabsCloseIndex;
+	if (tabsCloseIndex !== -1) {
+		const afterTabsStart = tabsCloseIndex + '</tabs>'.length;
+		const contentAfterRelativeOffset = code.slice(afterTabsStart).search(/\S/);
+		if (contentAfterRelativeOffset !== -1) {
+			const contentAfterOffset = afterTabsStart + contentAfterRelativeOffset;
+			const position = getPosition(code, contentAfterOffset);
+			errors.push({
+				message: 'Content is not allowed after </tabs>.',
+				line: position.line,
+				column: position.column,
+				length: getLineContentLength(code, contentAfterOffset),
+			});
+		}
+	}
+
+	const tabsContent = code.slice(tabsContentStart, tabsContentEnd);
+	const tabRegex = new RegExp(`<tab\\b(${TAG_ATTRS})?>([\\s\\S]*?)<\\/tab>`, 'g');
+	const tabBlocks: Array<{ start: number; end: number }> = [];
+	let tabMatch: RegExpExecArray | null;
+	while ((tabMatch = tabRegex.exec(tabsContent)) !== null) {
+		const tabOffset = tabsContentStart + tabMatch.index;
+		tabBlocks.push({ start: tabMatch.index, end: tabRegex.lastIndex });
+		const attrs = parseChartAttributes(tabMatch[1] ?? '');
+		if (!attrs.title?.trim()) {
+			const position = getPosition(code, tabOffset);
+			errors.push({
+				message: 'Tab is missing a required `title` attribute.',
+				line: position.line,
+				column: position.column,
+				length: tabMatch[0].indexOf('>') + 1,
+			});
+		}
+	}
+
+	const tabOpenRegex = /<tab\b[^>]*>/g;
+	const tabOpeners = [...tabsContent.matchAll(tabOpenRegex)];
+	for (let index = 0; index < tabOpeners.length; index++) {
+		const opener = tabOpeners[index];
+		const openerEnd = opener.index + opener[0].length;
+		const closeIndex = tabsContent.indexOf('</tab>', openerEnd);
+		const nextOpenerIndex = tabOpeners[index + 1]?.index ?? tabsContent.length;
+		if (closeIndex === -1 || nextOpenerIndex < closeIndex) {
+			const position = getPosition(code, tabsContentStart + opener.index);
+			errors.push({
+				message: '<tab> tag is missing a matching </tab> closing tag.',
+				line: position.line,
+				column: position.column,
+				length: opener[0].length,
+			});
+		}
+	}
+
+	let contentCursor = 0;
+	for (const tabBlock of tabBlocks) {
+		const outsideOffset = tabsContent.slice(contentCursor, tabBlock.start).search(/\S/);
+		if (outsideOffset !== -1) {
+			const codeOffset = tabsContentStart + contentCursor + outsideOffset;
+			const position = getPosition(code, codeOffset);
+			errors.push({
+				message: 'Content is not allowed outside <tab> inside a <tabs> block.',
+				line: position.line,
+				column: position.column,
+				length: getLineContentLength(code, codeOffset),
+			});
+			return errors;
+		}
+		contentCursor = tabBlock.end;
+	}
+
+	const outsideOffset = tabsContent.slice(contentCursor).search(/\S/);
+	if (outsideOffset !== -1) {
+		const codeOffset = tabsContentStart + contentCursor + outsideOffset;
+		const position = getPosition(code, codeOffset);
+		errors.push({
+			message: 'Content is not allowed outside <tab> inside a <tabs> block.',
+			line: position.line,
+			column: position.column,
+			length: getLineContentLength(code, codeOffset),
+		});
+	}
+
+	return errors;
 }
 
 function validateChartBlocks(code: string): StoryValidationError[] {
@@ -323,4 +454,9 @@ function getPosition(code: string, offset: number): { line: number; column: numb
 		}
 	}
 	return { line, column };
+}
+
+function getLineContentLength(code: string, offset: number): number {
+	const lineEnd = code.indexOf('\n', offset);
+	return Math.max(1, (lineEnd === -1 ? code.length : lineEnd) - offset);
 }
