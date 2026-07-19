@@ -48,9 +48,11 @@ export function StoryTabbedEditor({
 			const currentCode = bufferRef.current;
 			const currentActive = activeRef.current;
 			const editor = editorRef.current;
-			const inner = editor
-				? getEditorMarkdown(editor)
-				: (parseStoryTabs(currentCode)?.[currentActive]?.innerCode ?? '');
+			const parsed = parseStoryTabs(currentCode);
+			const inner = editor ? getEditorMarkdown(editor) : (parsed?.[currentActive]?.innerCode ?? '');
+			if (!parsed?.length) {
+				return inner;
+			}
 			return replaceStoryTabInner(currentCode, currentActive, inner);
 		};
 		return () => {
@@ -74,7 +76,8 @@ export function StoryTabbedEditor({
 	};
 
 	if (tabs.length === 0) {
-		return <StoryEditor code={bufferCode} editorRef={editorRef} onSave={onSave} />;
+		const plainCode = bufferCode.replace(/<\/?tabs\b[^>]*>/g, '').trim();
+		return <StoryEditor code={plainCode} editorRef={editorRef} onSave={onSave} />;
 	}
 
 	return (
@@ -97,7 +100,16 @@ export function StoryTabbedEditor({
 						onMove: (fromIndex, toIndex) => {
 							const spliced = spliceCurrent();
 							setBufferCode(moveStoryTab(spliced, fromIndex, toIndex));
-							setActiveIndex(toIndex);
+							setActiveIndex((current) => {
+								if (current === fromIndex) {
+									return toIndex;
+								}
+								let next = current > fromIndex ? current - 1 : current;
+								if (toIndex <= next) {
+									next += 1;
+								}
+								return next;
+							});
 						},
 						onAdd: () => {
 							const spliced = spliceCurrent();

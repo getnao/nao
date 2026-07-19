@@ -27,7 +27,7 @@ export const InputSchema = z.object({
 Key takeaways...
 </tab>
 <tab title="Revenue">
-<chart query_id="..." chart_type="bar" x_axis_key="..." series='[...]' title="Revenue" />
+<chart query_id="..." chart_type="bar" x_axis_key="..." series='[{"data_key": "revenue"}]' title="Revenue" />
 </tab>
 </tabs>`,
 		),

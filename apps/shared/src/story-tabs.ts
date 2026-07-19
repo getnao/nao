@@ -41,7 +41,8 @@ export function replaceStoryTabInner(code: string, index: number, innerCode: str
 		return code;
 	}
 	const innerEnd = block.openingEnd + block.innerCode.length;
-	const normalizedInner = `\n${innerCode.trim()}\n`;
+	const trimmedInner = innerCode.replace(/^(?:[ \t]*\r?\n)+/, '').replace(/(?:\r?\n[ \t]*)+$/, '');
+	const normalizedInner = `\n${trimmedInner}\n`;
 	return code.slice(0, block.openingEnd) + normalizedInner + code.slice(innerEnd);
 }
 
