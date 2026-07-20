@@ -253,11 +253,16 @@ export const StoryHeader = memo(function StoryHeader({
 			)}
 			<Tooltip>
 				<TooltipTrigger asChild>
-					<div className='flex items-center gap-2'>
+					<button
+						type='button'
+						onClick={onOpenLiveSettings}
+						disabled={isAgentRunning}
+						className='flex items-center gap-2 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 border hover:bg-secondary rounded-full px-2 py-0.75'
+					>
 						<Activity className='size-3.5 text-foreground' strokeWidth={2.25} />
 						<span className='text-xs font-medium'>Live story</span>
-						<Switch checked={isLive} onCheckedChange={onOpenLiveSettings} disabled={isAgentRunning} />
-					</div>
+						<Switch checked={isLive} disabled={isAgentRunning} className='pointer-events-none' />
+					</button>
 				</TooltipTrigger>
 				<TooltipContent>{isLive ? 'Live story settings' : 'Enable live mode'}</TooltipContent>
 			</Tooltip>
