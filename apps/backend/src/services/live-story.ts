@@ -140,7 +140,7 @@ export async function backfillQueryDataFromChat(
 		return cached;
 	}
 
-	const fromChat = await getQueryDataFromCode(chatId, code);
+	const fromChat = await getQueryDataFromCode(chatId, code).catch(() => null);
 	if (!fromChat) {
 		return cached;
 	}
