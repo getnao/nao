@@ -48,7 +48,7 @@ export function validateStoryCode(code: string): StoryValidationError[] {
 
 function validateTabsBlocks(code: string): StoryValidationError[] {
 	const errors: StoryValidationError[] = [];
-	const tabOpeners = [...code.matchAll(/<tab\b[^>]*>/g)];
+	const tabOpeners = [...code.matchAll(new RegExp(`<tab\\b(${TAG_ATTRS})?>`, 'g'))];
 	if (tabOpeners.length === 0) {
 		return errors;
 	}

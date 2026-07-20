@@ -161,6 +161,11 @@ describe('validateStoryCode', () => {
 			expect(validateStoryCode(code)).toEqual([]);
 		});
 
+		it('accepts a tab title containing >', () => {
+			const code = ['<tab title="Revenue > 1000">', '# Revenue', '</tab>'].join('\n');
+			expect(validateStoryCode(code)).toEqual([]);
+		});
+
 		it('does not treat table blocks as tabs', () => {
 			expect(validateStoryCode('<table query_id="q1" title="Details" />')).toEqual([]);
 		});
