@@ -289,7 +289,14 @@ class _ClickHouseSyncMixin(BaseSyncIntegrationTests):
 
         assert base.is_dir()
 
-        expected_files = ["ai_summary.md", "columns.md", "preview.md", "profiling.md", "query_history.md"]
+        expected_files = [
+            "ai_summary.md",
+            "annotations.md",
+            "columns.md",
+            "preview.md",
+            "profiling.md",
+            "query_history.md",
+        ]
 
         for table in (spec.users_table, spec.orders_table):
             table_dir = base / f"table={table}"
@@ -438,7 +445,7 @@ class _ClickHouseSyncMixin(BaseSyncIntegrationTests):
         assert (primary_base / f"table={spec.users_table}").is_dir()
         assert (primary_base / f"table={spec.orders_table}").is_dir()
 
-        expected_files = ["ai_summary.md", "columns.md", "preview.md", "query_history.md"]
+        expected_files = ["ai_summary.md", "annotations.md", "columns.md", "preview.md", "query_history.md"]
 
         for table in (spec.users_table, spec.orders_table):
             files = sorted(f.name for f in (primary_base / f"table={table}").iterdir())

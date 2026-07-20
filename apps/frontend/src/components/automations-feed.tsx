@@ -37,7 +37,7 @@ export type AutomationFeedIntegrationResult = {
 
 export type AutomationFeedChart = {
 	toolCallId: string;
-	config: displayChart.Input;
+	config: displayChart.ChartInput;
 	data: unknown[];
 };
 
@@ -771,6 +771,8 @@ function ChartSlide({ chart }: { chart: AutomationFeedChart }) {
 				xAxisType={xAxisType}
 				series={chart.config.series}
 				title={chart.config.title}
+				yAxisMin={chart.config.y_axis_min}
+				yAxisMax={chart.config.y_axis_max}
 			/>
 		</div>
 	);

@@ -8,6 +8,7 @@
 		"./types": "./src/types.ts",
 		"./posthog": "./src/posthog.ts",
 		"./tools": "./src/tools/index.ts",
+		"./conditional-formatting": "./src/conditional-formatting.ts",
 		"./story-segments": "./src/story-segments.ts",
 		"./story-table-utils": "./src/story-table-utils.ts",
 		"./story-validation": "./src/story-validation.ts"

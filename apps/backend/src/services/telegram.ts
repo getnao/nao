@@ -370,6 +370,9 @@ class TelegramService {
 		if (part.state !== 'output-available' || state.renderedChartIds.has(part.toolCallId)) {
 			return;
 		}
+		if (part.input.chart_type === 'table') {
+			return;
+		}
 		const sqlOutput = state.sqlOutputs.get(part.input.query_id);
 		if (!sqlOutput) {
 			return;

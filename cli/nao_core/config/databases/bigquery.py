@@ -108,12 +108,17 @@ class BigQueryDatabaseContext(DatabaseContext):
     def columns(self) -> list[dict[str, Any]]:
         cols = super().columns()
         try:
-            col_descs = self._fetch_column_descriptions()
+            native_types, descriptions = self._fetch_column_metadata()
             for col in cols:
-                if desc := col_descs.get(col["name"]):
+                if native_type := native_types.get(col["name"]):
+                    suffix = " NOT NULL" if col["type"].endswith(" NOT NULL") else ""
+                    col["type"] = f"{native_type}{suffix}"
+                if desc := descriptions.get(col["name"]):
                     col["description"] = desc
         except Exception:
-            pass
+            logger.debug(
+                "Failed to fetch column metadata for %s.%s — keeping ibis types", self._schema, self._table_name
+            )
         return cols
 
     def preview(self, limit: int = 10) -> list[dict[str, Any]]:
@@ -272,15 +277,31 @@ class BigQueryDatabaseContext(DatabaseContext):
             logger.debug("_fetch_safe_partition_filter failed for %s.%s", self._schema, self._table_name)
             return None
 
-    def _fetch_column_descriptions(self) -> dict[str, str]:
+    def _fetch_column_metadata(self) -> tuple[dict[str, str], dict[str, str]]:
+        """Return native BigQuery types and descriptions per column from INFORMATION_SCHEMA.
+
+        Only top-level rows (``field_path = column_name``) are read; ibis normalises
+        BigQuery DATETIME/TIMESTAMP into a single timestamp type, so the native ``data_type``
+        is what the generated docs must show for the agent to write valid SQL.
+        """
         table_name_literal = _bq_string_literal(self._table_name)
         column_paths = _bq_path(self._project_id, self._schema, "INFORMATION_SCHEMA", "COLUMN_FIELD_PATHS")
         query = f"""
-            SELECT column_name, description
+            SELECT column_name, field_path, data_type, description
             FROM {column_paths}
-            WHERE table_name = {table_name_literal} AND description IS NOT NULL AND description != ''
+            WHERE table_name = {table_name_literal} AND field_path = column_name
         """
-        return {row[0]: str(row[1]) for row in self._conn.raw_sql(query) if row[1]}  # type: ignore[union-attr]
+        native_types: dict[str, str] = {}
+        descriptions: dict[str, str] = {}
+        for row in self._conn.raw_sql(query):  # type: ignore[union-attr]
+            column_name, field_path, data_type, description = row[0], row[1], row[2], row[3]
+            if field_path != column_name:
+                continue
+            if data_type:
+                native_types[column_name] = str(data_type)
+            if description:
+                descriptions[column_name] = str(description)
+        return native_types, descriptions
 
     def _quote(self, name: str) -> str:
         return f"`{name}`"

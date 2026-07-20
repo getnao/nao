@@ -1,15 +1,16 @@
-import { useEffect, useMemo, useState } from 'react';
+import { displayChart } from '@nao/shared/tools';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2 } from 'lucide-react';
-import { displayChart } from '@nao/shared/tools';
+import { useEffect, useMemo, useState } from 'react';
+
 import { Button } from '../ui/button';
-import { Input } from '../ui/input';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
+import { Input } from '../ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Switch } from '../ui/switch';
 import type { UIMessage, UIToolPart } from '@nao/backend/chat';
-import { useAgentContext } from '@/contexts/agent.provider';
 import { trpc } from '@/main';
+import { useAgentContext } from '@/contexts/agent.provider';
 
 const CHART_TYPE_OPTIONS: { value: displayChart.ChartType; label: string }[] = [
 	{ value: 'bar', label: 'Bar' },
@@ -18,6 +19,7 @@ const CHART_TYPE_OPTIONS: { value: displayChart.ChartType; label: string }[] = [
 	{ value: 'area', label: 'Area' },
 	{ value: 'stacked_area', label: 'Stacked area' },
 	{ value: 'pie', label: 'Pie' },
+	{ value: 'donut', label: 'Donut' },
 	{ value: 'kpi_card', label: 'KPI card' },
 	{ value: 'scatter', label: 'Scatter' },
 	{ value: 'radar', label: 'Radar' },
@@ -30,12 +32,36 @@ const X_AXIS_TYPE_OPTIONS: { value: NonNullable<displayChart.XAxisType> | 'auto'
 	{ value: 'number', label: 'Number' },
 ];
 
+const Y_AXIS_RANGE_UNSUPPORTED_CHART_TYPES = new Set<displayChart.ChartType>(['pie', 'kpi_card', 'radar']);
+
+/** Maps a 100% stacked type back to its absolute-stacked counterpart, so the type dropdown stays clean. */
+function baseChartType(type: displayChart.ChartType): displayChart.ChartType {
+	if (type === 'stacked_bar_100') {
+		return 'stacked_bar';
+	}
+	if (type === 'stacked_area_100') {
+		return 'stacked_area';
+	}
+	return type;
+}
+
+/** Maps a stacked type to its 100% (normalized) counterpart. */
+function percentChartType(type: displayChart.ChartType): displayChart.ChartType {
+	if (type === 'stacked_bar' || type === 'stacked_bar_100') {
+		return 'stacked_bar_100';
+	}
+	if (type === 'stacked_area' || type === 'stacked_area_100') {
+		return 'stacked_area_100';
+	}
+	return type;
+}
+
 interface ChartConfigEditDialogProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
-	config: displayChart.Input;
+	config: displayChart.ChartInput;
 	availableColumns: string[];
-	onSave: (next: displayChart.Input) => Promise<void>;
+	onSave: (next: displayChart.ChartInput) => Promise<void>;
 	isSaving?: boolean;
 	description?: string;
 }
@@ -50,12 +76,17 @@ export function ChartConfigEditDialog({
 	isSaving = false,
 	description = 'Tweak the chart parameters.',
 }: ChartConfigEditDialogProps) {
-	const [draft, setDraft] = useState<displayChart.Input>(config);
+	const [draft, setDraft] = useState<displayChart.ChartInput>(config);
+	const [yAxisMinText, setYAxisMinText] = useState(toRangeString(config.y_axis_min));
+	const [yAxisMaxText, setYAxisMaxText] = useState(toRangeString(config.y_axis_max));
 	const [error, setError] = useState<string | null>(null);
+	const supportsYAxisRange = !Y_AXIS_RANGE_UNSUPPORTED_CHART_TYPES.has(draft.chart_type);
 
 	useEffect(() => {
 		if (open) {
 			setDraft(config);
+			setYAxisMinText(toRangeString(config.y_axis_min));
+			setYAxisMaxText(toRangeString(config.y_axis_max));
 			setError(null);
 		}
 	}, [open, config]);
@@ -69,7 +100,7 @@ export function ChartConfigEditDialog({
 
 	const handleSubmit = async (event: React.FormEvent) => {
 		event.preventDefault();
-		const parsed = displayChart.InputSchema.safeParse(draft);
+		const parsed = displayChart.ChartInputSchema.safeParse(draft);
 		if (!parsed.success) {
 			setError(parsed.error.issues[0]?.message ?? 'Invalid chart configuration.');
 			return;
@@ -113,6 +144,18 @@ export function ChartConfigEditDialog({
 		}));
 	};
 
+	const updateYAxisMin = (value: string) => {
+		setYAxisMinText(value);
+		const parsed = parseRangeInput(value);
+		setDraft((prev) => ({ ...prev, y_axis_min: parsed }));
+	};
+
+	const updateYAxisMax = (value: string) => {
+		setYAxisMaxText(value);
+		const parsed = parseRangeInput(value);
+		setDraft((prev) => ({ ...prev, y_axis_max: parsed }));
+	};
+
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
 			<DialogContent className='sm:max-w-xl max-h-[90vh] overflow-y-auto'>
@@ -141,9 +184,18 @@ export function ChartConfigEditDialog({
 						<div className='grid gap-2'>
 							<span className='text-sm font-semibold text-foreground'>Chart type</span>
 							<Select
-								value={draft.chart_type}
+								value={baseChartType(draft.chart_type)}
 								onValueChange={(value) =>
-									setDraft((prev) => ({ ...prev, chart_type: value as displayChart.ChartType }))
+									setDraft((prev) => {
+										const nextBase = value as displayChart.ChartType;
+										const keepPercent =
+											displayChart.isPercentStackedChartType(prev.chart_type) &&
+											displayChart.isStackedChartType(nextBase);
+										return {
+											...prev,
+											chart_type: keepPercent ? percentChartType(nextBase) : nextBase,
+										};
+									})
 								}
 							>
 								<SelectTrigger className='w-full bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
@@ -183,6 +235,31 @@ export function ChartConfigEditDialog({
 							</Select>
 						</div>
 					</div>
+
+					{displayChart.isStackedChartType(draft.chart_type) && (
+						<div className='flex items-center justify-between gap-3'>
+							<div className='grid gap-0.5'>
+								<label htmlFor='chart-normalize' className='text-sm font-semibold text-foreground'>
+									Normalize to 100%
+								</label>
+								<span className='text-xs text-muted-foreground'>
+									Show each series as a share of the category total.
+								</span>
+							</div>
+							<Switch
+								id='chart-normalize'
+								checked={displayChart.isPercentStackedChartType(draft.chart_type)}
+								onCheckedChange={(checked) =>
+									setDraft((prev) => ({
+										...prev,
+										chart_type: checked
+											? percentChartType(prev.chart_type)
+											: baseChartType(prev.chart_type),
+									}))
+								}
+							/>
+						</div>
+					)}
 
 					<div className='grid gap-2'>
 						<span className='text-sm font-semibold text-foreground'>X-axis column</span>
@@ -246,6 +323,41 @@ export function ChartConfigEditDialog({
 						</div>
 					</div>
 
+					{supportsYAxisRange && (
+						<div className='grid gap-2'>
+							<span className='text-sm font-semibold text-foreground'>Y-axis range</span>
+							<div className='grid grid-cols-1 sm:grid-cols-2 gap-3'>
+								<div className='grid gap-2'>
+									<label htmlFor='chart-y-axis-min' className='text-sm font-semibold text-foreground'>
+										Min
+									</label>
+									<Input
+										id='chart-y-axis-min'
+										className='h-8 bg-panel'
+										type='text'
+										inputMode='decimal'
+										placeholder='Auto'
+										value={yAxisMinText}
+										onChange={(e) => updateYAxisMin(e.target.value)}
+									/>
+								</div>
+								<div className='grid gap-2'>
+									<label htmlFor='chart-y-axis-max' className='text-sm font-semibold text-foreground'>
+										Max
+									</label>
+									<Input
+										id='chart-y-axis-max'
+										className='h-8 bg-panel'
+										type='text'
+										inputMode='decimal'
+										placeholder='Auto'
+										value={yAxisMaxText}
+										onChange={(e) => updateYAxisMax(e.target.value)}
+									/>
+								</div>
+							</div>
+						</div>
+					)}
 					<div className='grid gap-2'>
 						<span className='text-sm font-semibold text-foreground'>Options</span>
 						<div className='flex h-8 items-center justify-between'>
@@ -291,7 +403,7 @@ interface DisplayChartEditDialogProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	toolCallId: string;
-	config: displayChart.Input;
+	config: displayChart.ChartInput;
 	availableColumns: string[];
 }
 
@@ -314,7 +426,7 @@ export function DisplayChartEditDialog({
 		}),
 	);
 
-	const handleSave = async (next: displayChart.Input) => {
+	const handleSave = async (next: displayChart.ChartInput) => {
 		const previousMessages = messages;
 		setMessages(applyChartConfigToMessages(previousMessages, toolCallId, next));
 		try {
@@ -367,6 +479,18 @@ function getSelectableColumns(columns: string[]): string[] {
 	return Array.from(new Set(columns.filter((column) => column.length > 0)));
 }
 
+function toRangeString(n: number | undefined): string {
+	return n === undefined ? '' : String(n);
+}
+
+function parseRangeInput(value: string): number | undefined {
+	if (value.trim() === '') {
+		return undefined;
+	}
+	const n = Number(value);
+	return Number.isFinite(n) ? n : undefined;
+}
+
 const HEX_RE = /^#[0-9a-fA-F]{6}$/;
 function normalizeHexColor(color?: string): string {
 	if (color && HEX_RE.test(color)) {
@@ -378,7 +502,7 @@ function normalizeHexColor(color?: string): string {
 function applyChartConfigToMessages(
 	messages: UIMessage[],
 	toolCallId: string,
-	config: displayChart.Input,
+	config: displayChart.ChartInput,
 ): UIMessage[] {
 	return messages.map((message) => {
 		let changed = false;

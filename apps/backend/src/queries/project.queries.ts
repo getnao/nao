@@ -201,6 +201,10 @@ export const updateAgentSettings = async (projectId: string, settings: AgentSett
 			...current.webSearch,
 			...settings.webSearch,
 		},
+		pythonExecution: {
+			...current.pythonExecution,
+			...settings.pythonExecution,
+		},
 	};
 	await db.update(s.project).set({ agentSettings: next }).where(eq(s.project.id, projectId)).execute();
 	return next;

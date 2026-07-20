@@ -14,6 +14,9 @@ export interface AgentSettings {
 	sql?: {
 		dangerouslyWritePermEnabled?: boolean;
 	};
+	pythonExecution?: {
+		maxDurationSecs?: number;
+	};
 	webSearch?: {
 		enabled?: boolean;
 		mode?: WebSearchMode;

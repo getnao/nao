@@ -8,7 +8,7 @@ export interface QueryResult {
 }
 
 export interface GeneratedArtifacts {
-	charts: displayChart.Input[];
+	charts: displayChart.ChartInput[];
 	stories: { id: string; title: string }[];
 }
 

@@ -8,15 +8,14 @@ from time import sleep
 from typing import Annotated, Optional
 
 from cyclopts import Parameter
-from rich.console import Console
 
 from nao_core import __version__
+from nao_core.branding import should_show_banner
 from nao_core.config import NaoConfig, resolve_project_path
 from nao_core.config.llm import PROVIDER_AUTH, LLMProvider
 from nao_core.mode import MODE
 from nao_core.tracking import track_command
-
-console = Console()
+from nao_core.ui import UI, console
 
 DEFAULT_SERVER_PORT = 5005
 FASTAPI_PORT = 8005
@@ -175,6 +174,8 @@ def chat(
         Start an ngrok tunnel to expose the chat server publicly. Useful for
         Slack integration workflows. Requires an ngrok account and authtoken.
     """
+    if should_show_banner():
+        UI.banner(__version__)
     console.print("\n[bold cyan]💬 Starting nao chat...[/bold cyan]\n")
 
     config = NaoConfig.try_load(resolve_project_path(), exit_on_error=True)

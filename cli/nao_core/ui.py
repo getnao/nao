@@ -58,6 +58,13 @@ class UI:
         cls._console.print(msg)
 
     @classmethod
+    def banner(cls, version: str) -> None:
+        """Print the nao terminal banner."""
+        from nao_core.branding import banner
+
+        banner(cls._console, version)
+
+    @classmethod
     def table(
         cls,
         df: pd.DataFrame,
