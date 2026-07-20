@@ -15,6 +15,7 @@ from .databases import (
 )
 from .exceptions import InitError
 from .llm import PROVIDER_AUTH, LLMConfig, LLMProvider, ProviderAuthConfig
+from .obsidian import ObsidianConfig
 from .slack import SlackConfig
 
 __all__ = [
@@ -37,6 +38,7 @@ __all__ = [
     "PROVIDER_AUTH",
     "ProviderAuthConfig",
     "SlackConfig",
+    "ObsidianConfig",
     "InitError",
     "resolve_project_path",
 ]

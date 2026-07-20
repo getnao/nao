@@ -5,11 +5,13 @@ from dataclasses import dataclass
 from .base import SyncProvider, SyncResult
 from .databases.provider import DatabaseSyncProvider
 from .notion.provider import NotionSyncProvider
+from .obsidian.provider import ObsidianSyncProvider
 from .repositories.provider import RepositorySyncProvider
 
 # Provider registry mapping CLI-friendly names to provider instances
 PROVIDER_REGISTRY: dict[str, SyncProvider] = {
     "notion": NotionSyncProvider(),
+    "obsidian": ObsidianSyncProvider(),
     "repositories": RepositorySyncProvider(),
     "databases": DatabaseSyncProvider(),
 }

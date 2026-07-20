@@ -19,6 +19,7 @@ from .error_handler import format_all_validation_errors
 from .llm import LLMConfig
 from .mcp import McpConfig
 from .notion import NotionConfig
+from .obsidian import ObsidianConfig
 from .repos import RepoConfig
 from .secrets import process_secrets
 from .skills import SkillsConfig
@@ -39,6 +40,7 @@ class NaoConfig(BaseModel):
     databases: list[AnyDatabaseConfig] = Field(default_factory=list, description="The databases to use")
     repos: list[RepoConfig] = Field(default_factory=list, description="The repositories to use")
     notion: NotionConfig | None = Field(default=None, description="The Notion configurations")
+    obsidian: ObsidianConfig | None = Field(default=None, description="The Obsidian configuration")
     llm: LLMConfig | None = Field(default=None, description="The LLM configuration")
     slack: SlackConfig | None = Field(default=None, description="The Slack configuration")
     mcp: McpConfig | None = Field(default=None, description="The MCP configuration")
@@ -76,6 +78,7 @@ class NaoConfig(BaseModel):
             llm=llm,
             slack=cls._prompt_slack(),
             notion=cls._prompt_notion(),
+            obsidian=cls._prompt_obsidian(),
             mcp=cls._prompt_mcp(project_name),
             skills=cls._prompt_skills(project_name),
         )
@@ -88,6 +91,7 @@ class NaoConfig(BaseModel):
         llm = existing.llm
         slack = existing.slack
         notion = existing.notion
+        obsidian = existing.obsidian
         mcp = existing.mcp
         skills = existing.skills
 
@@ -103,6 +107,8 @@ class NaoConfig(BaseModel):
             UI.print("  Slack: configured")
         if notion:
             UI.print("  Notion: configured")
+        if obsidian:
+            UI.print("  Obsidian: configured")
         if mcp:
             UI.print("  MCP: configured")
         if skills:
@@ -128,6 +134,9 @@ class NaoConfig(BaseModel):
         if not notion:
             notion = cls._prompt_notion()
 
+        if not obsidian:
+            obsidian = cls._prompt_obsidian()
+
         if not mcp:
             mcp = cls._prompt_mcp(existing.project_name)
 
@@ -143,6 +152,7 @@ class NaoConfig(BaseModel):
             llm=llm,
             slack=slack,
             notion=notion,
+            obsidian=obsidian,
             mcp=mcp,
             skills=skills,
         )
@@ -261,6 +271,13 @@ class NaoConfig(BaseModel):
         """Prompt for Notion configuration using questionary."""
         if ask_confirm("Set up Notion integration?", default=False):
             return NotionConfig.promptConfig()
+        return None
+
+    @staticmethod
+    def _prompt_obsidian() -> ObsidianConfig | None:
+        """Prompt for Obsidian configuration using questionary."""
+        if ask_confirm("Set up Obsidian integration?", default=False):
+            return ObsidianConfig.promptConfig()
         return None
 
     @staticmethod

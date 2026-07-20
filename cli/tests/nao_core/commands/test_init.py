@@ -891,6 +891,7 @@ class TestBuildNoTtyConfig:
         assert result.llm is None
         assert result.slack is None
         assert result.notion is None
+        assert result.obsidian is None
         assert result.mcp is None
         assert result.skills is None
 

@@ -39,6 +39,8 @@ pip install 'nao-core[ollama]'
 pip install 'nao-core[notion]'
 ```
 
+Obsidian support is included in the core package and does not require an extra.
+
 Combine multiple extras in a single install:
 
 ```bash
@@ -90,6 +92,7 @@ This will create a new nao project in the current directory. It will prompt you 
 - **`ai_summary` template + model** (prompted only when you enable `ai_summary` for databases)
 - **Slack integration**
 - **Notion integration**
+- **Obsidian integration**
 
 The resulting project structure looks like:
 
@@ -166,6 +169,7 @@ Syncs configured resources to local files:
 - **Databases** - generates markdown docs (`columns.md` with table schema, description, row count, and partition/clustering/index metadata, `query_history.md`, and `preview.md`) for each table into `databases/`
 - **Git repositories** — clones or pulls repos into `repos/`
 - **Notion pages** — exports pages as markdown into `docs/notion/`
+- **Obsidian notes** — copies markdown notes from a local vault into `docs/obsidian/`
 
 After syncing, any Jinja templates (`*.j2` files) in the project directory are rendered with the nao context.
 
