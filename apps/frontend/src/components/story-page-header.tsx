@@ -27,7 +27,7 @@ import {
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Switch } from '@/components/ui/switch';
+import { SwitchIndicator } from '@/components/ui/switch';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useToggleFavorite } from '@/hooks/use-toggle-favorite';
 import { cn } from '@/lib/utils';
@@ -320,7 +320,7 @@ function LiveStoryControls({ live }: { live: LiveControls }) {
 						<div className='flex items-center gap-2 border rounded-full px-2 py-0.75'>
 							<Activity className='size-3.5 text-foreground' strokeWidth={2.25} />
 							<span className='text-xs font-medium'>Live story</span>
-							<Switch checked={isLive} onCheckedChange={() => {}} disabled />
+							<SwitchIndicator checked={isLive} />
 						</div>
 					</TooltipTrigger>
 					<TooltipContent>Live story</TooltipContent>
@@ -341,7 +341,7 @@ function LiveStoryControls({ live }: { live: LiveControls }) {
 					>
 						<Activity className='size-3.5 text-foreground' strokeWidth={2.25} />
 						<span className='text-xs font-medium'>Live story</span>
-						<Switch checked={isLive} className='pointer-events-none' />
+						<SwitchIndicator checked={isLive} />
 					</button>
 				</TooltipTrigger>
 				<TooltipContent>{isLive ? 'Live story settings' : 'Enable live mode'}</TooltipContent>
