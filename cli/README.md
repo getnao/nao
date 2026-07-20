@@ -172,8 +172,23 @@ After syncing, any Jinja templates (`*.j2` files) in the project directory are r
 Optional `ai_summary` generation:
 
 - Add `ai_summary` to a database connection `templates` list to render `ai_summary.md`.
+- AI summaries use profiling statistics for data-quality and distribution observations. The row preview is a tiny, non-representative shape sample.
 - Use `prompt("...")` inside Jinja templates to generate `ai_summary` content.
 - `prompt(...)` requires `llm.provider`, `llm.annotation_model`, and `llm.api_key` (except for ollama).
+- Configure `profiling` and `ai_summary` refreshes independently with `refresh_policy: always`, `once`, or `interval`. Interval policies also accept `interval_days` (default: `7`):
+
+```yaml
+databases:
+  - type: duckdb
+    name: analytics
+    path: analytics.duckdb
+    templates: [columns, preview, profiling, ai_summary]
+    profiling:
+      refresh_policy: once
+    ai_summary:
+      refresh_policy: interval
+      interval_days: 7
+```
 
 ### Run tests
 

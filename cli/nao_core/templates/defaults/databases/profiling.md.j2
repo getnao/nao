@@ -7,11 +7,12 @@
     - dataset (str): Schema/dataset name
     - db (DatabaseContext): Database context with helper methods
 #}
-{% set result = db.profiling() %}
+{% set result = profiling if (profiling is defined and profiling is not none) else db.profiling() %}
 # {{ table_name }} - Profiling
 
 **Dataset:** `{{ dataset }}`
 
+{% if result %}
 **Computed at:** `{{ result.computed_at }}`
 
 **Columns:** {{ result.columns | length }}
@@ -26,3 +27,8 @@
 {% for col in result.columns %}
 - {{ col | to_json }}
 {% endfor %}
+{% else %}
+**Computed at:** ``
+
+Profiling data is unavailable.
+{% endif %}
