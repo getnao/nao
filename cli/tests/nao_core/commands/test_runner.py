@@ -227,3 +227,37 @@ def test_run_test_records_reference_sql_on_client_error(monkeypatch):
     assert result.error == "backend unreachable"
     assert result.details is not None
     assert result.details.reference_sql == "select 1"
+
+
+def test_filter_test_cases_by_folder(tmp_path):
+    tests_dir = tmp_path / "tests"
+    tc_orders = NaoTestCase(name="orders", prompt="p1", file_path=tests_dir / "revenue" / "orders.yml", sql="select 1")
+    tc_mrr = NaoTestCase(name="mrr", prompt="p2", file_path=tests_dir / "revenue" / "mrr.yml", sql="select 1")
+    tc_users = NaoTestCase(name="users", prompt="p3", file_path=tests_dir / "ops" / "users.yml", sql="select 1")
+
+    filtered = filter_test_cases([tc_orders, tc_mrr, tc_users], "revenue", tests_dir)
+
+    assert {tc.name for tc in filtered} == {"orders", "mrr"}
+
+
+def test_filter_test_cases_folder_and_name_combined(tmp_path):
+    tests_dir = tmp_path / "tests"
+    tc_orders = NaoTestCase(name="orders", prompt="p1", file_path=tests_dir / "revenue" / "orders.yml", sql="select 1")
+    tc_users = NaoTestCase(name="users", prompt="p2", file_path=tests_dir / "ops" / "users.yml", sql="select 1")
+
+    filtered = filter_test_cases([tc_orders, tc_users], "revenue,users", tests_dir)
+
+    assert {tc.name for tc in filtered} == {"orders", "users"}
+
+
+def test_filter_test_cases_by_name_without_tests_dir_unchanged():
+    # Backward-compat: two-arg call still filters by name/stem.
+    test_cases = [
+        NaoTestCase(name="orders", prompt="p1", file_path=Path("tests/orders.yml"), sql="select 1"),
+        NaoTestCase(name="users", prompt="p2", file_path=Path("tests/users.yml"), sql="select 1"),
+    ]
+
+    filtered = filter_test_cases(test_cases, "users")
+
+    assert len(filtered) == 1
+    assert filtered[0].name == "users"
