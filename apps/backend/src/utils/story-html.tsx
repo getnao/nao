@@ -8,6 +8,7 @@ import {
 import type { ParsedChartBlock, ParsedTableBlock, Segment } from '@nao/shared/story-segments';
 import { splitCodeIntoSegments } from '@nao/shared/story-segments';
 import { formatCellValue, isNumericColumn } from '@nao/shared/story-table-utils';
+import { flattenStoryTabs } from '@nao/shared/story-tabs';
 import type { displayChart } from '@nao/shared/tools';
 import { marked, Renderer } from 'marked';
 import React, { createContext, useContext } from 'react';
@@ -31,7 +32,8 @@ export function generateStoryHtml(
 	dateFormat?: DateFormatSettings | null,
 ): string {
 	const resolvedDateFormat = dateFormat ?? { ...DEFAULT_DATE_FORMAT_SETTINGS };
-	const segments = splitCodeIntoSegments(story.code);
+	const flattened = flattenStoryTabs(story.code);
+	const segments = splitCodeIntoSegments(flattened);
 	const markup = renderToStaticMarkup(
 		<DateFormatContext.Provider value={resolvedDateFormat}>
 			<StoryDocument title={story.title}>
@@ -88,8 +90,6 @@ function StorySegment({ segment, queryData }: { segment: Segment; queryData: Que
 			return <TableBlock table={segment.table} queryData={queryData} />;
 		case 'grid':
 			return <GridBlock cols={segment.cols} segments={segment.children} queryData={queryData} />;
-		case 'tabs':
-			return <TabsBlock segment={segment} queryData={queryData} />;
 	}
 }
 
@@ -126,27 +126,6 @@ function GridBlock({
 		<>
 			{segments.map((seg, i) => (
 				<StorySegment key={i} segment={seg} queryData={queryData} />
-			))}
-		</>
-	);
-}
-
-function TabsBlock({
-	segment,
-	queryData,
-}: {
-	segment: Extract<Segment, { type: 'tabs' }>;
-	queryData: QueryDataMap | null;
-}) {
-	return (
-		<>
-			{segment.tabs.map((tab, tabIndex) => (
-				<section key={tabIndex} className='nao-tab-section'>
-					<h2>{tab.title}</h2>
-					{tab.children.map((child, childIndex) => (
-						<StorySegment key={childIndex} segment={child} queryData={queryData} />
-					))}
-				</section>
 			))}
 		</>
 	);
@@ -378,8 +357,6 @@ li{margin:4px 0}
 code{background:#f3f4f6;padding:2px 6px;border-radius:4px;font-size:12px;font-family:source-code-pro,Menlo,Monaco,Consolas,monospace}
 pre{background:#f3f4f6;padding:16px;border-radius:8px;overflow-x:auto;font-size:12px;font-family:source-code-pro,Menlo,Monaco,Consolas,monospace}
 blockquote{border-left:3px solid #d1d5db;padding-left:16px;margin:12px 0;color:#6b7280}
-.nao-tab-section{margin:32px 0}
-.nao-tab-section>h2{margin:0 0 12px;padding-bottom:6px;border-bottom:1px solid #e5e7eb}
 .nao-md table{width:100%;border-collapse:separate;border-spacing:0;margin:8px 0;font-size:12px;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;background:rgba(255,255,255,0.5)}
 .nao-md thead{background:#fafafa}
 .nao-md th{padding:8px 12px;text-align:left;font-weight:500;white-space:nowrap;color:rgba(0,0,0,0.5);border-bottom:1px solid #e5e7eb}

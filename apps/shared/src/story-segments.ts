@@ -35,8 +35,7 @@ export type Segment =
 	| { type: 'markdown'; content: string }
 	| { type: 'chart'; chart: ParsedChartBlock }
 	| { type: 'table'; table: ParsedTableBlock }
-	| { type: 'grid'; cols: number; children: Segment[] }
-	| { type: 'tabs'; tabs: Array<{ title: string; children: Segment[] }> };
+	| { type: 'grid'; cols: number; children: Segment[] };
 
 function unescapeAttributeValue(value: string): string {
 	return value.replace(/\\(["'\\])/g, '$1');
@@ -199,7 +198,7 @@ function extractSeriesFromRawAttrs(attrString: string): ParsedChartBlock['series
 export function splitCodeIntoSegments(code: string): Segment[] {
 	const segments: Segment[] = [];
 	const blockRegex = new RegExp(
-		`<grid\\s+([^>]*)>([\\s\\S]*?)<\\/grid>|<chart\\s+(${TAG_ATTRS})\\/?>|<table\\s+(${TAG_ATTRS})\\/?>|<tabs\\b[^>]*>([\\s\\S]*?)(?:<\\/tabs>|$)`,
+		`<grid\\s+([^>]*)>([\\s\\S]*?)<\\/grid>|<chart\\s+(${TAG_ATTRS})\\/?>|<table\\s+(${TAG_ATTRS})\\/?>`,
 		'g',
 	);
 	let match;
@@ -227,17 +226,6 @@ export function splitCodeIntoSegments(code: string): Segment[] {
 			const table = parseTableBlock(match[4]);
 			if (table) {
 				segments.push({ type: 'table', table: { ...table, rawTag: match[0] } });
-			}
-		} else if (match[5] !== undefined) {
-			const tabRegex = new RegExp(`<tab\\s+(${TAG_ATTRS})>([\\s\\S]*?)<\\/tab>`, 'g');
-			const tabs: Array<{ title: string; children: Segment[] }> = [];
-			let tabMatch: RegExpExecArray | null;
-			while ((tabMatch = tabRegex.exec(match[5])) !== null) {
-				const tabAttrs = parseChartAttributes(tabMatch[1]);
-				tabs.push({ title: tabAttrs.title || '', children: splitCodeIntoSegments(tabMatch[2]) });
-			}
-			if (tabs.length > 0) {
-				segments.push({ type: 'tabs', tabs });
 			}
 		}
 

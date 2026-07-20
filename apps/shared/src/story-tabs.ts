@@ -5,13 +5,6 @@ export interface StoryTab {
 	innerCode: string;
 }
 
-interface StoryTabsRegion {
-	start: number;
-	end: number;
-	hasClosingTag: boolean;
-	blocks: StoryTabBlock[];
-}
-
 interface StoryTabBlock extends StoryTab {
 	start: number;
 	end: number;
@@ -19,11 +12,18 @@ interface StoryTabBlock extends StoryTab {
 }
 
 export function parseStoryTabs(code: string): StoryTab[] | null {
-	const region = findStoryTabsRegion(code);
-	if (!region) {
+	if (!/<tab\b[^>]*>/.test(code)) {
 		return null;
 	}
-	return region.blocks.map(({ title, innerCode }) => ({ title, innerCode }));
+	return findStoryTabBlocks(code).map(({ title, innerCode }) => ({ title, innerCode }));
+}
+
+export function flattenStoryTabs(code: string): string {
+	const tabs = parseStoryTabs(code);
+	if (!tabs?.length) {
+		return code;
+	}
+	return tabs.map((tab) => `## ${tab.title}\n\n${tab.innerCode.trim()}`).join('\n\n');
 }
 
 export function stripStoryTabsMarkup(code: string): string {
@@ -35,7 +35,7 @@ export function stripStoryTabsMarkup(code: string): string {
 }
 
 export function renameStoryTab(code: string, index: number, title: string): string {
-	const block = findStoryTabsRegion(code)?.blocks[index];
+	const block = findStoryTabBlocks(code)[index];
 	if (!block) {
 		return code;
 	}
@@ -44,7 +44,7 @@ export function renameStoryTab(code: string, index: number, title: string): stri
 }
 
 export function replaceStoryTabInner(code: string, index: number, innerCode: string): string {
-	const block = findStoryTabsRegion(code)?.blocks[index];
+	const block = findStoryTabBlocks(code)[index];
 	if (!block) {
 		return code;
 	}
@@ -55,19 +55,21 @@ export function replaceStoryTabInner(code: string, index: number, innerCode: str
 }
 
 export function deleteStoryTab(code: string, index: number): string {
-	const region = findStoryTabsRegion(code);
-	const block = region?.blocks[index];
-	if (!region || !block) {
+	const blocks = findStoryTabBlocks(code);
+	const block = blocks[index];
+	if (!block) {
 		return code;
 	}
 
 	let start = block.start;
 	let end = block.end;
-	const followingSeparator = code.slice(end, region.end).match(/^[ \t]*\r?\n[ \t]*\r?\n/);
+	const firstBlock = blocks[0];
+	const lastBlock = blocks[blocks.length - 1];
+	const followingSeparator = code.slice(end, lastBlock.end).match(/^[ \t]*\r?\n[ \t]*\r?\n/);
 	if (followingSeparator) {
 		end += followingSeparator[0].length;
 	} else {
-		const precedingSeparator = code.slice(region.start, start).match(/[ \t]*\r?\n[ \t]*\r?\n$/);
+		const precedingSeparator = code.slice(firstBlock.start, start).match(/[ \t]*\r?\n[ \t]*\r?\n$/);
 		if (precedingSeparator) {
 			start -= precedingSeparator[0].length;
 		}
@@ -77,26 +79,26 @@ export function deleteStoryTab(code: string, index: number): string {
 }
 
 export function moveStoryTab(code: string, fromIndex: number, toIndex: number): string {
-	const region = findStoryTabsRegion(code);
-	if (!region || fromIndex < 0 || fromIndex >= region.blocks.length || region.blocks.length < 2) {
+	const tabBlocks = findStoryTabBlocks(code);
+	if (fromIndex < 0 || fromIndex >= tabBlocks.length || tabBlocks.length < 2) {
 		return code;
 	}
-	const clampedToIndex = Math.max(0, Math.min(toIndex, region.blocks.length - 1));
+	const clampedToIndex = Math.max(0, Math.min(toIndex, tabBlocks.length - 1));
 	if (fromIndex === clampedToIndex) {
 		return code;
 	}
 
-	const blocks = region.blocks.map((block) => code.slice(block.start, block.end));
+	const blocks = tabBlocks.map((block) => code.slice(block.start, block.end));
 	const [movedBlock] = blocks.splice(fromIndex, 1);
 	blocks.splice(clampedToIndex, 0, movedBlock);
 
-	const firstBlock = region.blocks[0];
-	const lastBlock = region.blocks[region.blocks.length - 1];
+	const firstBlock = tabBlocks[0];
+	const lastBlock = tabBlocks[tabBlocks.length - 1];
 	return code.slice(0, firstBlock.start) + blocks.join('\n\n') + code.slice(lastBlock.end);
 }
 
 export function addStoryTab(code: string, title = 'New tab'): string {
-	const lastBlock = findStoryTabsRegion(code)?.blocks.at(-1);
+	const lastBlock = findStoryTabBlocks(code).at(-1);
 	if (!lastBlock) {
 		return code;
 	}
@@ -104,23 +106,13 @@ export function addStoryTab(code: string, title = 'New tab'): string {
 	return code.slice(0, lastBlock.end) + `\n\n${newBlock}` + code.slice(lastBlock.end);
 }
 
-function findStoryTabsRegion(code: string): StoryTabsRegion | null {
-	const openerMatch = /<tabs\b[^>]*>/.exec(code);
-	if (!openerMatch) {
-		return null;
-	}
-
-	const start = openerMatch.index + openerMatch[0].length;
-	const closingIndex = code.indexOf('</tabs>', start);
-	const hasClosingTag = closingIndex !== -1;
-	const end = hasClosingTag ? closingIndex : code.length;
-	const regionCode = code.slice(start, end);
+function findStoryTabBlocks(code: string): StoryTabBlock[] {
 	const tabRegex = new RegExp(`<tab\\b(${TAG_ATTRS})?>([\\s\\S]*?)<\\/tab>`, 'g');
 	const blocks: StoryTabBlock[] = [];
 	let match: RegExpExecArray | null;
 
-	while ((match = tabRegex.exec(regionCode)) !== null) {
-		const blockStart = start + match.index;
+	while ((match = tabRegex.exec(code)) !== null) {
+		const blockStart = match.index;
 		const innerCode = match[2];
 		blocks.push({
 			title: parseChartAttributes(match[1] ?? '').title ?? '',
@@ -131,7 +123,7 @@ function findStoryTabsRegion(code: string): StoryTabsRegion | null {
 		});
 	}
 
-	return { start, end, hasClosingTag, blocks };
+	return blocks;
 }
 
 function escapeAttribute(value: string): string {

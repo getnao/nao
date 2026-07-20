@@ -7,15 +7,13 @@ describe('generateStoryHtml tabs', () => {
 		const html = generateStoryHtml(
 			{
 				title: 'Tabbed story',
-				code: `<tabs>
-<tab title="Overview">
+				code: `<tab title="Overview">
 ## Summary
 Hello overview
 </tab>
 <tab title="Details">
 Some details text
-</tab>
-</tabs>`,
+</tab>`,
 			},
 			null,
 		);

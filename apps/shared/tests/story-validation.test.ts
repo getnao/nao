@@ -148,45 +148,40 @@ describe('validateStoryCode', () => {
 	});
 
 	describe('tabs validation', () => {
-		it('accepts a well-formed tabbed story with an optional closing tag', () => {
+		it('accepts a well-formed tabbed story', () => {
 			const code = [
-				'<tabs>',
 				'<tab title="Overview">',
 				'# Overview',
 				'</tab>',
 				'<tab title="Details">',
 				'<table query_id="q1" title="Details" />',
 				'</tab>',
-				'</tabs>',
 			].join('\n');
 
 			expect(validateStoryCode(code)).toEqual([]);
-			expect(validateStoryCode(code.replace('\n</tabs>', ''))).toEqual([]);
 		});
 
-		it('flags a tab without a tabs block', () => {
-			const errors = validateStoryCode('<tab title="Overview">Content</tab>');
-			expect(errors.some((e) => /can only be used inside a <tabs> block/.test(e.message))).toBe(true);
+		it('does not treat table blocks as tabs', () => {
+			expect(validateStoryCode('<table query_id="q1" title="Details" />')).toEqual([]);
 		});
 
-		it('flags content before tabs', () => {
-			const errors = validateStoryCode('Intro\n<tabs>\n<tab title="Overview">Content</tab>');
-			expect(errors.some((e) => /not allowed before <tabs>/.test(e.message))).toBe(true);
+		it('flags content before the first tab', () => {
+			const errors = validateStoryCode('Intro\n<tab title="Overview">Content</tab>');
+			expect(errors.some((e) => /not allowed outside <tab> blocks/.test(e.message))).toBe(true);
 		});
 
 		it('flags a tab missing a title', () => {
-			const errors = validateStoryCode('<tabs>\n<tab>Content</tab>');
+			const errors = validateStoryCode('<tab>Content</tab>');
 			expect(errors.some((e) => /missing a required `title`/.test(e.message))).toBe(true);
 		});
 
 		it('flags an unterminated tab', () => {
-			const errors = validateStoryCode('<tabs>\n<tab title="Overview">Content');
+			const errors = validateStoryCode('<tab title="Overview">Content');
 			expect(errors.some((e) => /missing a matching <\/tab>/.test(e.message))).toBe(true);
 		});
 
-		it('flags content outside tabs', () => {
+		it('flags content between tabs', () => {
 			const code = [
-				'<tabs>',
 				'<tab title="Overview">Overview</tab>',
 				'Stray paragraph',
 				'<tab title="Details">Details</tab>',
@@ -195,23 +190,10 @@ describe('validateStoryCode', () => {
 			expect(errors.some((e) => /not allowed outside <tab>/.test(e.message))).toBe(true);
 		});
 
-		it('flags content after the tabs closing tag', () => {
-			const code = '<tabs>\n<tab title="Overview">Content</tab>\n</tabs>\nAfter';
+		it('flags content after the last tab', () => {
+			const code = '<tab title="Overview">Content</tab>\nAfter';
 			const errors = validateStoryCode(code);
-			expect(errors.some((e) => /not allowed after <\/tabs>/.test(e.message))).toBe(true);
-		});
-
-		it('flags multiple tabs blocks', () => {
-			const code = [
-				'<tabs>',
-				'<tab title="First">First</tab>',
-				'</tabs>',
-				'<tabs>',
-				'<tab title="Second">Second</tab>',
-				'</tabs>',
-			].join('\n');
-			const errors = validateStoryCode(code);
-			expect(errors.some((e) => /Only one <tabs> block is allowed/.test(e.message))).toBe(true);
+			expect(errors.some((e) => /not allowed outside <tab> blocks/.test(e.message))).toBe(true);
 		});
 	});
 

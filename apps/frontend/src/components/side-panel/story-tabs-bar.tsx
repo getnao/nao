@@ -132,9 +132,9 @@ export function StoryTabsBar({ tabs, activeIndex, onSelect, editable, contentCla
 							onDragEnd={clearDragState}
 							onDragOver={(event) => handleDragOver(event, index)}
 							className={cn(
-								'group/tab flex h-9 shrink-0 items-center rounded-t-md border border-transparent transition-[color,background-color,transform,opacity]',
+								'group/tab flex h-9 shrink-0 cursor-pointer items-center rounded-t-md border border-transparent transition-[color,background-color,transform,opacity]',
 								index === activeIndex
-									? 'border-border border-b-0 bg-background text-foreground'
+									? 'relative z-10 border-border border-b-0 bg-background text-foreground'
 									: 'text-muted-foreground hover:bg-background/50 hover:text-foreground',
 								draggingIndex === index && 'scale-95 opacity-40',
 							)}
@@ -153,7 +153,10 @@ export function StoryTabsBar({ tabs, activeIndex, onSelect, editable, contentCla
 									type='button'
 									onClick={() => onSelect(index)}
 									onDoubleClick={() => editable && startRenaming(index)}
-									className='h-full max-w-48 truncate px-3 text-sm font-medium outline-none'
+									className={cn(
+										'h-full max-w-48 cursor-pointer truncate pl-3 text-sm font-medium outline-none',
+										editable ? 'pr-1' : 'pr-3',
+									)}
 								>
 									{tab.title || 'Untitled'}
 								</button>
@@ -172,7 +175,7 @@ export function StoryTabsBar({ tabs, activeIndex, onSelect, editable, contentCla
 												<X />
 											</Button>
 										</AlertDialogTrigger>
-										<AlertDialogContent size='sm'>
+										<AlertDialogContent className='sm:max-w-md'>
 											<AlertDialogHeader>
 												<AlertDialogTitle>Delete this tab?</AlertDialogTitle>
 												<AlertDialogDescription>
@@ -207,7 +210,7 @@ export function StoryTabsBar({ tabs, activeIndex, onSelect, editable, contentCla
 						size='icon-xs'
 						aria-label='Add tab'
 						onClick={editable.onAdd}
-						className='shrink-0'
+						className='shrink-0 self-center'
 					>
 						<Plus />
 					</Button>

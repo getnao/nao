@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
 	addStoryTab,
 	deleteStoryTab,
+	flattenStoryTabs,
 	moveStoryTab,
 	parseStoryTabs,
 	renameStoryTab,
@@ -12,7 +13,6 @@ import {
 import { validateStoryCode } from '../src/story-validation';
 
 const storyCode = [
-	'<tabs>',
 	'<tab title="Overview">',
 	'# Overview',
 	'</tab>',
@@ -24,12 +24,16 @@ const storyCode = [
 	'<tab title="Notes">',
 	'Some notes.',
 	'</tab>',
-	'</tabs>',
 ].join('\n');
 
 describe('story tabs', () => {
 	it('returns null for non-tabbed code', () => {
 		expect(parseStoryTabs('# Story\n\nContent')).toBeNull();
+		expect(parseStoryTabs('<table query_id="details" />')).toBeNull();
+	});
+
+	it('returns an empty array while the first tab is streaming', () => {
+		expect(parseStoryTabs('<tab title="Overview">\n# Overview')).toEqual([]);
 	});
 
 	it('parses titles and inner code', () => {
@@ -41,24 +45,9 @@ describe('story tabs', () => {
 	});
 
 	it('strips complete and partial tab markup', () => {
-		expect(stripStoryTabsMarkup(storyCode)).toBe(
-			[
-				'',
-				'',
-				'# Overview',
-				'',
-				'',
-				'',
-				'<table query_id="details" title="Details" />',
-				'',
-				'',
-				'',
-				'Some notes.',
-				'',
-				'',
-			].join('\n'),
-		);
-		expect(stripStoryTabsMarkup('<tabs><tab title="Overview">\n## Overview\nhi')).toBe('\n## Overview\nhi');
+		expect(stripStoryTabsMarkup(storyCode)).not.toMatch(/<\/?tab\b/);
+		expect(stripStoryTabsMarkup(storyCode)).toContain('<table query_id="details" title="Details" />');
+		expect(stripStoryTabsMarkup('<tab title="Overview">\n## Overview\nhi')).toBe('\n## Overview\nhi');
 		expect(stripStoryTabsMarkup('# Story\n\nContent')).toBe('# Story\n\nContent');
 	});
 
@@ -84,7 +73,6 @@ describe('story tabs', () => {
 		expect(tabs?.[1].innerCode.trim()).toBe(replacement.trim());
 		expect(tabs?.[2].innerCode).toBe(parseStoryTabs(storyCode)?.[2].innerCode);
 		expect(replaced).toContain('<tab title="Details">');
-		expect(replaced).toContain('</tabs>');
 	});
 
 	it('deletes the selected tab', () => {
@@ -108,6 +96,26 @@ describe('story tabs', () => {
 
 		expect(tabs?.at(-1)).toEqual({ title: 'New tab', innerCode: '\n\n' });
 		expect(validateStoryCode(added)).toEqual([]);
+	});
+
+	it('flattens tabs into titled markdown sections', () => {
+		expect(flattenStoryTabs(storyCode)).toBe(
+			[
+				'## Overview',
+				'',
+				'# Overview',
+				'',
+				'## Details',
+				'',
+				'<table query_id="details" title="Details" />',
+				'',
+				'## Notes',
+				'',
+				'Some notes.',
+			].join('\n'),
+		);
+		expect(flattenStoryTabs('# Story\n\nContent')).toBe('# Story\n\nContent');
+		expect(flattenStoryTabs('<tab title="Overview">\nStreaming')).toBe('<tab title="Overview">\nStreaming');
 	});
 
 	it('leaves code unchanged for out-of-range indices', () => {

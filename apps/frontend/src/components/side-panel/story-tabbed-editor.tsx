@@ -5,6 +5,7 @@ import {
 	parseStoryTabs,
 	renameStoryTab,
 	replaceStoryTabInner,
+	stripStoryTabsMarkup,
 } from '@nao/shared/story-tabs';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getEditorMarkdown, StoryEditor } from './story-editor';
@@ -76,7 +77,7 @@ export function StoryTabbedEditor({
 	};
 
 	if (tabs.length === 0) {
-		const plainCode = bufferCode.replace(/<\/?tabs\b[^>]*>/g, '').trim();
+		const plainCode = stripStoryTabsMarkup(bufferCode).trim();
 		return <StoryEditor code={plainCode} editorRef={editorRef} onSave={onSave} />;
 	}
 
