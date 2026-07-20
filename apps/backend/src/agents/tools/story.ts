@@ -1,7 +1,9 @@
+import { injectTableFormatting } from '@nao/shared/story-segments';
 import { story } from '@nao/shared/tools';
 
 import { renderToModelOutput, StoryOutput } from '../../components/tool-outputs';
 import { db } from '../../db/db';
+import { getDisplayChartTableFormatsForChat } from '../../queries/chart-image';
 import * as storyQueries from '../../queries/story.queries';
 import * as storyFolderQueries from '../../queries/story-folder.queries';
 import type { ToolContext } from '../../types/tools';
@@ -40,12 +42,13 @@ export default createTool<story.Input, story.Output>({
 			if (!input.code || !input.title) {
 				return fail('"code" and "title" are required for the "create" action.');
 			}
-			const { code, title } = input;
+			const { title } = input;
 			const existingStory = await storyQueries.getStoryByChatAndSlug(chatId, input.id);
 			if (existingStory) {
 				return fail(`Story "${input.id}" already exists. Use "update" or "replace" instead.`);
 			}
 
+			const code = await carryOverTableFormatting(input.code, chatId);
 			const version = await db.transaction(async (tx) => {
 				const created = await storyQueries.createStoryVersion(
 					{
@@ -87,9 +90,10 @@ export default createTool<story.Input, story.Output>({
 				return fail(`Search string not found in story "${input.id}".`, existing);
 			}
 
-			const newCode = `${existing.code.slice(0, searchIndex)}${input.replace}${existing.code.slice(
+			const splicedCode = `${existing.code.slice(0, searchIndex)}${input.replace}${existing.code.slice(
 				searchIndex + input.search.length,
 			)}`;
+			const newCode = await carryOverTableFormatting(splicedCode, chatId);
 			const version = await storyQueries.createStoryVersion({
 				chatId,
 				slug: input.id,
@@ -115,11 +119,12 @@ export default createTool<story.Input, story.Output>({
 			return fail('"code" is required for the "replace" action.', existing);
 		}
 
+		const replacedCode = await carryOverTableFormatting(input.code, chatId);
 		const version = await storyQueries.createStoryVersion({
 			chatId,
 			slug: input.id,
 			title: existing.title,
-			code: input.code,
+			code: replacedCode,
 			action: 'replace',
 			source: 'assistant',
 		});
@@ -137,6 +142,11 @@ export default createTool<story.Input, story.Output>({
 
 	toModelOutput: ({ output }) => renderToModelOutput(StoryOutput({ output }), output),
 });
+
+async function carryOverTableFormatting(code: string, chatId: string): Promise<string> {
+	const formatsByQueryId = await getDisplayChartTableFormatsForChat(chatId);
+	return injectTableFormatting(code, formatsByQueryId);
+}
 
 function rememberStoryArtifact(context: ToolContext, id: string, title: string): void {
 	const existing = context.generatedArtifacts.stories.find((story) => story.id === id);

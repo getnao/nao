@@ -322,7 +322,7 @@ function mapAutomationWithSchedule(
 
 export type AutomationFeedChart = {
 	toolCallId: string;
-	config: displayChart.Input;
+	config: displayChart.ChartInput;
 	data: unknown[];
 };
 
@@ -688,7 +688,7 @@ function parseChartPart(
 	if (part.type !== 'tool-display_chart' || part.toolState !== 'output-available' || !part.toolCallId) {
 		return null;
 	}
-	const config = displayChart.InputSchema.safeParse(part.toolInput);
+	const config = displayChart.ChartInputSchema.safeParse(part.toolInput);
 	if (!config.success) {
 		return null;
 	}

@@ -36,10 +36,16 @@ describe('validateStoryCode', () => {
 		});
 
 		it('flags invalid chart_type', () => {
-			const code = '<chart query_id="q1" chart_type="donut" x_axis_key="month" data_key="revenue" title="x" />';
+			const code = '<chart query_id="q1" chart_type="bubble" x_axis_key="month" data_key="revenue" title="x" />';
 			const errors = validateStoryCode(code);
 			expect(errors).toHaveLength(1);
-			expect(errors[0].message).toMatch(/Invalid chart_type "donut"/);
+			expect(errors[0].message).toMatch(/Invalid chart_type "bubble"/);
+		});
+
+		it('accepts the donut chart_type', () => {
+			const code = '<chart query_id="q1" chart_type="donut" x_axis_key="month" data_key="revenue" title="x" />';
+			const errors = validateStoryCode(code);
+			expect(errors).toHaveLength(0);
 		});
 
 		it('flags invalid x_axis_type', () => {

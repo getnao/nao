@@ -54,7 +54,7 @@ const STORY_ID_INPUT = z
 	.string()
 	.describe('Story UUID (from `list_stories.id` or `ask_nao.stories[].id`). Not the slug.');
 
-type DisplayChartMcpInput = displayChart.Input & { chat_id?: string };
+type DisplayChartMcpInput = displayChart.ChartInput & { chat_id?: string };
 
 export function registerAssetTools(server: McpServer, ctx: McpContext): void {
 	registerDisplayChart(server, ctx);
@@ -67,16 +67,18 @@ function registerDisplayChart(server: McpServer, ctx: McpContext): void {
 		agentTool: displayChartTool,
 		title: 'Display Chart',
 		description: DISPLAY_CHART_DESCRIPTION,
-		inputSchema: displayChart.InputSchema.extend({
-			chat_id: zodV3
-				.string()
-				.optional()
-				.describe(
-					'Optional chat UUID (e.g. `chatId` from `ask_nao`) to anchor the embed to a chat. ' +
-						"Used for the embed's `Open in nao` link and to track the source chat; " +
-						'nao resolves the rows automatically across the project even without it.',
-				),
-		}),
+		inputSchema: displayChart.ChartInputSchema.and(
+			zodV3.object({
+				chat_id: zodV3
+					.string()
+					.optional()
+					.describe(
+						'Optional chat UUID (e.g. `chatId` from `ask_nao`) to anchor the embed to a chat. ' +
+							"Used for the embed's `Open in nao` link and to track the source chat; " +
+							'nao resolves the rows automatically across the project even without it.',
+					),
+			}),
+		),
 		outputSchema: {
 			queryId: z
 				.string()
@@ -103,7 +105,8 @@ function registerDisplayChart(server: McpServer, ctx: McpContext): void {
 		mapInput: ({ chat_id: _chatId, ...input }) => input,
 		resolveChatId: (input) => input.chat_id ?? null,
 		formatResult: async ({ input, output, callLogId }) => {
-			const { query_id, chart_type, x_axis_key, x_axis_type, series, title, chat_id } = input;
+			const { query_id, chart_type, x_axis_key, x_axis_type, series, y_axis_min, y_axis_max, title, chat_id } =
+				input;
 			if (!output.success) {
 				return {
 					content: [{ type: 'text' as const, text: output.error ?? 'Chart config is invalid.' }],
@@ -113,7 +116,7 @@ function registerDisplayChart(server: McpServer, ctx: McpContext): void {
 
 			const validatedChatId = await resolveChartChatId(chat_id, ctx);
 			const result = await buildChartEmbedFromArtifact(
-				{ query_id, chart_type, x_axis_key, x_axis_type, series, title },
+				{ query_id, chart_type, x_axis_key, x_axis_type, series, y_axis_min, y_axis_max, title },
 				ctx,
 				{ chatId: validatedChatId ?? null, callLogId },
 			);

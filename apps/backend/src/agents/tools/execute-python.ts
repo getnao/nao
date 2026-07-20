@@ -1,7 +1,13 @@
 import { executePython as schemas } from '@nao/shared/tools';
+import {
+	DEFAULT_PYTHON_EXECUTION_DURATION_SECS,
+	MAX_PYTHON_EXECUTION_DURATION_SECS,
+	MIN_PYTHON_EXECUTION_DURATION_SECS,
+} from '@nao/shared/types';
 import fs from 'fs';
 import path from 'path';
 
+import type { AgentSettings } from '../../types/agent-settings';
 import { isWithinProjectFolder, toVirtualPath } from '../../utils/tools';
 import { createTool } from '../../utils/tools';
 
@@ -15,7 +21,7 @@ try {
 }
 
 const RESOURCE_LIMITS = {
-	maxDurationSecs: 30,
+	maxDurationSecs: DEFAULT_PYTHON_EXECUTION_DURATION_SECS,
 	maxMemory: 64 * 1024 * 1024, // 64 MB
 	maxAllocations: 1_000_000,
 	maxRecursionDepth: 500,
@@ -23,7 +29,7 @@ const RESOURCE_LIMITS = {
 
 async function executePython(
 	{ code, inputs }: schemas.Input,
-	{ projectFolder }: { projectFolder: string },
+	{ projectFolder, agentSettings }: { projectFolder: string; agentSettings: AgentSettings | null },
 ): Promise<schemas.Output> {
 	if (!montyModule) {
 		throw new Error('Python execution is not available on this platform');
@@ -56,7 +62,7 @@ async function executePython(
 	try {
 		state = monty.start({
 			...(inputNames.length > 0 && { inputs }),
-			limits: RESOURCE_LIMITS,
+			limits: getResourceLimits(agentSettings),
 		});
 
 		while (state instanceof MontySnapshot) {
@@ -92,6 +98,21 @@ async function executePython(
 	return {
 		output: state.output,
 	};
+}
+
+function getResourceLimits(agentSettings: AgentSettings | null): typeof RESOURCE_LIMITS {
+	return {
+		...RESOURCE_LIMITS,
+		maxDurationSecs: resolveMaxDurationSecs(agentSettings),
+	};
+}
+
+function resolveMaxDurationSecs(agentSettings: AgentSettings | null): number {
+	const value = agentSettings?.pythonExecution?.maxDurationSecs;
+	if (value === undefined || !Number.isInteger(value)) {
+		return DEFAULT_PYTHON_EXECUTION_DURATION_SECS;
+	}
+	return Math.min(MAX_PYTHON_EXECUTION_DURATION_SECS, Math.max(MIN_PYTHON_EXECUTION_DURATION_SECS, value));
 }
 
 function findAllFiles(dir: string, projectFolder: string): schemas.VirtualFile[] {
@@ -148,7 +169,10 @@ export default montyModule
 			inputSchema: schemas.inputSchema,
 			outputSchema: schemas.outputSchema,
 			execute: async (input, context) => {
-				return executePython(input, { projectFolder: context.projectFolder });
+				return executePython(input, {
+					projectFolder: context.projectFolder,
+					agentSettings: context.agentSettings,
+				});
 			},
 		})
 	: null;

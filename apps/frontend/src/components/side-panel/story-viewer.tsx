@@ -25,6 +25,7 @@ import { useSidePanel } from '@/contexts/side-panel';
 import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
 import { ReadonlyAgentMessagesProvider, useOptionalAgentContext } from '@/contexts/agent.provider';
 import { StoryChartEditProvider } from '@/contexts/story-chart-edit';
+import { StoryTableEditProvider } from '@/contexts/story-table-edit';
 import { StoryEmbedDataProvider } from '@/contexts/story-embed-data';
 import { Spinner } from '@/components/ui/spinner';
 import { chatActivityStore } from '@/stores/chat-activity';
@@ -296,7 +297,14 @@ function renderWithEditProvider(
 			storyTitle={params.storyTitle}
 			storyCode={params.storyCode}
 		>
-			{children}
+			<StoryTableEditProvider
+				chatId={params.chatId}
+				storySlug={params.storySlug}
+				storyTitle={params.storyTitle}
+				storyCode={params.storyCode}
+			>
+				{children}
+			</StoryTableEditProvider>
 		</StoryChartEditProvider>
 	);
 }

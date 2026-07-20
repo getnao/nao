@@ -125,12 +125,21 @@ async function findQueryResultAcrossChats(args: {
 }
 
 export async function buildChartEmbedFromArtifact(
-	artifact: displayChart.Input,
+	artifact: displayChart.ChartInput,
 	ctx: McpContext,
 	opts: { chatId: string | null; callLogId: string },
 ): Promise<{ payload: ChartToolPayload; sandboxChartHtml: string | null } | { keyError: ChartKeyError } | null> {
-	const { query_id, chart_type, x_axis_key, x_axis_type, series, title } = artifact;
-	const block = buildStoryChartBlock({ query_id, chart_type, x_axis_key, x_axis_type, series, title });
+	const { query_id, chart_type, x_axis_key, x_axis_type, series, y_axis_min, y_axis_max, title } = artifact;
+	const block = buildStoryChartBlock({
+		query_id,
+		chart_type,
+		x_axis_key,
+		x_axis_type,
+		series,
+		y_axis_min,
+		y_axis_max,
+		title,
+	});
 
 	const queryData = await resolveChartQueryData({
 		queryId: query_id,
@@ -159,7 +168,15 @@ export async function buildChartEmbedFromArtifact(
 			chartEmbedId: id,
 			queryId: query_id,
 			projectId: ctx.projectId,
-			chartConfig: { chartType: chart_type, xAxisKey: x_axis_key, xAxisType: x_axis_type, series, title },
+			chartConfig: {
+				chartType: chart_type,
+				xAxisKey: x_axis_key,
+				xAxisType: x_axis_type,
+				series,
+				yAxisMin: y_axis_min,
+				yAxisMax: y_axis_max,
+				title,
+			},
 			sourceChatId: effectiveChatId,
 		});
 		if (inserted) {
