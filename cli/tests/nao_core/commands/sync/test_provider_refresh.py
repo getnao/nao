@@ -1,6 +1,7 @@
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+from nao_core.commands.sync.markers import with_generated_marker
 from nao_core.commands.sync.providers.databases.provider import sync_database
 from nao_core.config.databases.base import (
     DatabaseTemplate,
@@ -90,7 +91,7 @@ def test_ai_summary_refresh_does_not_rewrite_frozen_profiling(tmp_path):
 
     context.profiling.assert_called_once_with()
     assert profiling_file.read_text() == "frozen profiling"
-    assert (output_path / "ai_summary.md").read_text() == "rendered ai_summary.md"
+    assert (output_path / "ai_summary.md").read_text() == with_generated_marker("rendered ai_summary.md")
     engine.render.assert_called_once()
     assert engine.render.call_args.kwargs["profiling"] is profiling_data
 
