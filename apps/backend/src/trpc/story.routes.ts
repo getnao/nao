@@ -13,7 +13,12 @@ import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
 import { naturalLanguageToCron } from '../services/cron-nlp';
-import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../services/live-story';
+import {
+	backfillQueryDataFromChat,
+	executeLiveQuery,
+	getStoryQueryData,
+	refreshStoryData,
+} from '../services/live-story';
 import { nextCronTick } from '../services/scheduler.service';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import { buildDownloadResponse } from '../utils/story-download';
@@ -121,7 +126,11 @@ export const storyRoutes = {
 			});
 		}
 
-		return { ...story, queryData: cache?.queryData ?? null };
+		const queryData = story.chatId
+			? await backfillQueryDataFromChat(story.chatId, story.code, cache?.queryData ?? null)
+			: (cache?.queryData ?? null);
+
+		return { ...story, queryData };
 	}),
 
 	getLatest: chatOwnerProcedure

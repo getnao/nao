@@ -105,7 +105,8 @@ export async function getStoryQueryData(
 	const cache = await storyQueries.getStoryDataCacheByChatAndSlug(chatId, slug);
 
 	if (cache && !isCacheExpired(cache.cachedAt, cacheSchedule)) {
-		return { queryData: cache.queryData, cachedAt: cache.cachedAt };
+		const queryData = await backfillQueryDataFromChat(chatId, code, cache.queryData);
+		return { queryData, cachedAt: cache.cachedAt };
 	}
 
 	try {
@@ -116,10 +117,52 @@ export async function getStoryQueryData(
 		};
 	} catch {
 		if (cache) {
-			return { queryData: cache.queryData, cachedAt: cache.cachedAt };
+			const queryData = await backfillQueryDataFromChat(chatId, code, cache.queryData);
+			return { queryData, cachedAt: cache.cachedAt };
 		}
 		return { queryData: await getQueryDataFromCode(chatId, code), cachedAt: null };
 	}
+}
+
+export async function backfillQueryDataFromChat(
+	chatId: string,
+	code: string,
+	cached: Record<string, { data: unknown[]; columns: string[] }> | null,
+): Promise<Record<string, { data: unknown[]; columns: string[] }> | null> {
+	const referencedIds = extractStoryQueryIds(code);
+	if (referencedIds.size === 0) {
+		return cached;
+	}
+
+	const base = cached ?? {};
+	const missingIds = [...referencedIds].filter((id) => !base[id]);
+	if (missingIds.length === 0) {
+		return cached;
+	}
+
+	const fromChat = await getQueryDataFromCode(chatId, code);
+	if (!fromChat) {
+		return cached;
+	}
+
+	const merged = { ...base };
+	for (const id of missingIds) {
+		if (fromChat[id]) {
+			merged[id] = fromChat[id];
+		}
+	}
+
+	return Object.keys(merged).length > 0 ? merged : cached;
+}
+
+function extractStoryQueryIds(code: string): Set<string> {
+	const ids = new Set<string>();
+	const regex = /<(?:chart|table)\s+[^>]*?\bquery_id\s*=\s*"([^"]+)"/g;
+	let match: RegExpExecArray | null;
+	while ((match = regex.exec(code)) !== null) {
+		ids.add(match[1]);
+	}
+	return ids;
 }
 
 async function executeRawSql(
