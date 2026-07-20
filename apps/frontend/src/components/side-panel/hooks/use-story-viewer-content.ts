@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { StoryDraft } from '@/lib/story.utils';
 import type { QueryDataMap } from '@/components/story-embeds';
@@ -11,6 +11,7 @@ interface UseStoryViewerContentParams {
 	draftStory: StoryDraft | null;
 	currentVersion: { code: string } | undefined;
 	storedTitle: string | undefined;
+	isAgentRunning: boolean;
 	isReadonlyMode?: boolean;
 }
 
@@ -21,9 +22,32 @@ export const useStoryViewerContent = ({
 	draftStory,
 	currentVersion,
 	storedTitle,
+	isAgentRunning,
 	isReadonlyMode,
 }: UseStoryViewerContentParams) => {
-	const shouldUseDraftStory = Boolean(draftStory && (draftStory.isStreaming || !currentVersion));
+	const [isBridgingDraft, setIsBridgingDraft] = useState(false);
+	const wasAgentRunningRef = useRef(isAgentRunning);
+
+	useEffect(() => {
+		if (wasAgentRunningRef.current && !isAgentRunning) {
+			setIsBridgingDraft(true);
+		}
+		wasAgentRunningRef.current = isAgentRunning;
+	}, [isAgentRunning]);
+
+	useEffect(() => {
+		if (!isBridgingDraft) {
+			return;
+		}
+		const committedCaughtUp = Boolean(currentVersion && draftStory && currentVersion.code === draftStory.code);
+		if (!draftStory || committedCaughtUp) {
+			setIsBridgingDraft(false);
+		}
+	}, [isBridgingDraft, draftStory, currentVersion]);
+
+	const shouldUseDraftStory = Boolean(
+		draftStory && (draftStory.isStreaming || isAgentRunning || isBridgingDraft || !currentVersion),
+	);
 
 	const storyTitle = useMemo(
 		() =>

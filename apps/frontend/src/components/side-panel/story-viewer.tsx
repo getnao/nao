@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { parseStoryTabs } from '@nao/shared/story-tabs';
+import { parseStoryTabs, stripStoryTabsMarkup } from '@nao/shared/story-tabs';
 import { ShareStoryDialog } from '../share-dialog.story';
 import { StoryEditor } from './story-editor';
 import { LiveStorySettingsDialog } from './live-story-settings-dialog';
@@ -97,6 +97,7 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp }:
 		draftStory,
 		currentVersion,
 		storedTitle,
+		isAgentRunning,
 		isReadonlyMode,
 	});
 	const tabs = useMemo(() => parseStoryTabs(storyCode ?? ''), [storyCode]);
@@ -246,7 +247,9 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp }:
 							<StoryContentLoading />
 						) : (
 							<StoryPreview
-								code={isTabbedStory && tabs ? tabs[activeTab].innerCode : storyCode}
+								code={
+									isTabbedStory && tabs ? tabs[activeTab].innerCode : stripStoryTabsMarkup(storyCode)
+								}
 								cacheSchedule={cacheSchedule}
 								queryData={queryData ?? null}
 								chatId={chatId}

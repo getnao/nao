@@ -7,6 +7,7 @@ import {
 	parseStoryTabs,
 	renameStoryTab,
 	replaceStoryTabInner,
+	stripStoryTabsMarkup,
 } from '../src/story-tabs';
 import { validateStoryCode } from '../src/story-validation';
 
@@ -37,6 +38,28 @@ describe('story tabs', () => {
 			{ title: 'Details', innerCode: '\n<table query_id="details" title="Details" />\n' },
 			{ title: 'Notes', innerCode: '\nSome notes.\n' },
 		]);
+	});
+
+	it('strips complete and partial tab markup', () => {
+		expect(stripStoryTabsMarkup(storyCode)).toBe(
+			[
+				'',
+				'',
+				'# Overview',
+				'',
+				'',
+				'',
+				'<table query_id="details" title="Details" />',
+				'',
+				'',
+				'',
+				'Some notes.',
+				'',
+				'',
+			].join('\n'),
+		);
+		expect(stripStoryTabsMarkup('<tabs><tab title="Overview">\n## Overview\nhi')).toBe('\n## Overview\nhi');
+		expect(stripStoryTabsMarkup('# Story\n\nContent')).toBe('# Story\n\nContent');
 	});
 
 	it('renames only the target tab and round-trips escaped attributes', () => {

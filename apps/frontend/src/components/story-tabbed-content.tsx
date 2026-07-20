@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { parseStoryTabs } from '@nao/shared/story-tabs';
+import { parseStoryTabs, stripStoryTabsMarkup } from '@nao/shared/story-tabs';
 import { splitCodeIntoSegments } from '@nao/shared/story-segments';
 import type { ParsedChartBlock, ParsedTableBlock } from '@nao/shared/story-segments';
 
@@ -23,7 +23,7 @@ export function StoryTabbedContent({
 	const [activeIndex, setActiveIndex] = useState(0);
 	const isTabbed = Boolean(tabs?.length);
 	const activeTabIndex = tabs?.length ? Math.min(activeIndex, tabs.length - 1) : 0;
-	const activeCode = isTabbed && tabs ? tabs[activeTabIndex].innerCode : code;
+	const activeCode = isTabbed && tabs ? tabs[activeTabIndex].innerCode : stripStoryTabsMarkup(code);
 	const segments = useMemo(() => splitCodeIntoSegments(activeCode), [activeCode]);
 
 	return (

@@ -26,6 +26,14 @@ export function parseStoryTabs(code: string): StoryTab[] | null {
 	return region.blocks.map(({ title, innerCode }) => ({ title, innerCode }));
 }
 
+export function stripStoryTabsMarkup(code: string): string {
+	return code
+		.replace(/<tabs\b[^>]*>/g, '')
+		.replace(/<\/tabs>/g, '')
+		.replace(/<tab\b[^>]*>/g, '')
+		.replace(/<\/tab>/g, '');
+}
+
 export function renameStoryTab(code: string, index: number, title: string): string {
 	const block = findStoryTabsRegion(code)?.blocks[index];
 	if (!block) {
