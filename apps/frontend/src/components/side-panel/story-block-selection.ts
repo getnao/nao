@@ -141,6 +141,42 @@ function buildBlockSelectionPlugin(): Plugin<BlockSelectionState> {
 				return true;
 			},
 		},
+		view(editorView) {
+			const clearSelection = () => {
+				const current = blockSelectionPluginKey.getState(editorView.state);
+				if (!current?.blocks.length) {
+					return;
+				}
+				editorView.dispatch(editorView.state.tr.setMeta(blockSelectionPluginKey, { blocks: [], anchor: null }));
+			};
+
+			const onMouseDown = (event: MouseEvent) => {
+				const target = event.target;
+				if (target instanceof Node && editorView.dom.contains(target)) {
+					return;
+				}
+				if (target instanceof HTMLElement && target.closest('.drag-handle')) {
+					return;
+				}
+				clearSelection();
+			};
+
+			const onKeyDown = (event: KeyboardEvent) => {
+				if (event.key === 'Escape') {
+					clearSelection();
+				}
+			};
+
+			document.addEventListener('mousedown', onMouseDown, true);
+			document.addEventListener('keydown', onKeyDown, true);
+
+			return {
+				destroy() {
+					document.removeEventListener('mousedown', onMouseDown, true);
+					document.removeEventListener('keydown', onKeyDown, true);
+				},
+			};
+		},
 	});
 }
 

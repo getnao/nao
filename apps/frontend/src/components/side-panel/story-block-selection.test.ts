@@ -123,4 +123,23 @@ describe('story block selection', () => {
 			expect(buildBlockMoveTransaction(editor.state, [a, b], b)).toBeNull();
 		});
 	});
+
+	describe('clearing from outside the editor', () => {
+		it('clears the selection on Escape', () => {
+			const [first] = topLevelBlockPositions(editor.state.doc);
+			selectBlocks(editor, [first], first);
+			document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+			expect(getSelectedBlockPositions(editor.state)).toEqual([]);
+		});
+
+		it('clears the selection when clicking outside the editor content', () => {
+			const [first] = topLevelBlockPositions(editor.state.doc);
+			selectBlocks(editor, [first], first);
+			const outside = document.createElement('div');
+			document.body.appendChild(outside);
+			outside.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+			expect(getSelectedBlockPositions(editor.state)).toEqual([]);
+			outside.remove();
+		});
+	});
 });
