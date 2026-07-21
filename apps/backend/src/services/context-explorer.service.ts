@@ -9,7 +9,7 @@ export async function getFileTree(projectFolder: string): Promise<FileTreeEntry[
 }
 
 export async function readFileContent(filePath: string, projectFolder: string): Promise<string> {
-	const realPath = resolveAndValidatePath(filePath, projectFolder);
+	const realPath = await resolveAndValidatePath(filePath, projectFolder);
 	const stat = await fs.stat(realPath);
 
 	const MAX_FILE_SIZE = 1024 * 1024; // 1 MB
@@ -59,14 +59,16 @@ async function readDirectoryRecursive(dirPath: string, projectFolder: string): P
 	return entries;
 }
 
-function resolveAndValidatePath(virtualPath: string, projectFolder: string): string {
+async function resolveAndValidatePath(virtualPath: string, projectFolder: string): Promise<string> {
 	const relativePath = virtualPath.startsWith('/') ? virtualPath.slice(1) : virtualPath;
-	const resolvedPath = path.resolve(projectFolder, relativePath);
+	const realProjectFolder = await fs.realpath(projectFolder);
+	const resolvedPath = path.resolve(realProjectFolder, relativePath);
+	const realPath = await fs.realpath(resolvedPath);
 
-	const withinFolder = resolvedPath === projectFolder || resolvedPath.startsWith(projectFolder + path.sep);
+	const withinFolder = realPath === realProjectFolder || realPath.startsWith(realProjectFolder + path.sep);
 	if (!withinFolder) {
 		throw new Error(`Access denied: path is outside the project folder`);
 	}
 
-	return resolvedPath;
+	return realPath;
 }
