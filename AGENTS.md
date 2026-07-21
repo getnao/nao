@@ -2,6 +2,10 @@
 
 ## Cursor Cloud specific instructions
 
+### Testing preferences
+
+- Do not perform manual GUI/visual verification for frontend/UI changes (no browser walkthroughs, screenshots, or screen recordings). The maintainers handle visual verification themselves. Still run relevant lint and automated tests.
+
 ### Services overview
 
 | Service                    | Port | Command                | Notes                                                                                                    |
