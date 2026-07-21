@@ -3,6 +3,7 @@ import {
 	type LlmProvider,
 	MAX_PYTHON_EXECUTION_DURATION_SECS,
 	MIN_PYTHON_EXECUTION_DURATION_SECS,
+	USER_ROLES,
 } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
@@ -28,6 +29,7 @@ import { customModelMetadataSchema, llmConfigSchema, llmProviderSchema, modelSet
 import { isValidIsoDateString } from '../utils/date';
 import { getEnvApiKey, getEnvBaseUrls, getEnvProviders, getProjectAvailableModels } from '../utils/llm';
 import { extractRequiredEnvVars } from '../utils/nao-config';
+import { toCurrentProjectDto } from '../utils/project-dto';
 import { buildCredentialPreviews } from '../utils/utils';
 import {
 	adminProtectedProcedure,
@@ -56,14 +58,25 @@ export const projectRoutes = {
 		}));
 	}),
 
-	getCurrent: protectedProcedure.query(async ({ ctx }) => {
-		const project = await projectQueries.getProjectByUserId(ctx.user.id, ctx.selectedProjectId);
-		if (!project) {
-			return null;
-		}
-		const userRole = await projectQueries.getUserRoleInProject(project.id, ctx.user.id);
-		return { ...project, userRole };
-	}),
+	getCurrent: protectedProcedure
+		.output(
+			z
+				.object({
+					id: z.string(),
+					name: z.string(),
+					path: z.string().nullable(),
+					userRole: z.enum(USER_ROLES).nullable(),
+				})
+				.nullable(),
+		)
+		.query(async ({ ctx }) => {
+			const project = await projectQueries.getProjectByUserId(ctx.user.id, ctx.selectedProjectId);
+			if (!project) {
+				return null;
+			}
+			const userRole = await projectQueries.getUserRoleInProject(project.id, ctx.user.id);
+			return toCurrentProjectDto(project, userRole);
+		}),
 
 	getDatabaseObjects: projectProtectedProcedure
 		.output(
