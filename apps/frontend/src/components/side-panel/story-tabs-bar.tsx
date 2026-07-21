@@ -2,17 +2,7 @@ import { Fragment, useRef, useState } from 'react';
 import { Plus, X } from 'lucide-react';
 import type { DragEvent, KeyboardEvent } from 'react';
 
-import {
-	AlertDialog,
-	AlertDialogAction,
-	AlertDialogCancel,
-	AlertDialogContent,
-	AlertDialogDescription,
-	AlertDialogFooter,
-	AlertDialogHeader,
-	AlertDialogTitle,
-	AlertDialogTrigger,
-} from '@/components/ui/alert-dialog';
+import { Dialog, DialogClose, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
@@ -164,8 +154,8 @@ export function StoryTabsBar({ tabs, activeIndex, onSelect, editable, contentCla
 
 							{editable && editingIndex !== index && (
 								<div className='mr-1 flex items-center opacity-0 transition-opacity group-hover/tab:opacity-100 group-focus-within/tab:opacity-100'>
-									<AlertDialog>
-										<AlertDialogTrigger asChild>
+									<Dialog>
+										<DialogTrigger asChild>
 											<Button
 												type='button'
 												variant='ghost'
@@ -174,25 +164,32 @@ export function StoryTabsBar({ tabs, activeIndex, onSelect, editable, contentCla
 											>
 												<X />
 											</Button>
-										</AlertDialogTrigger>
-										<AlertDialogContent className='sm:max-w-md'>
-											<AlertDialogHeader>
-												<AlertDialogTitle>Delete this tab?</AlertDialogTitle>
-												<AlertDialogDescription>
-													The tab and all of its content will be removed.
-												</AlertDialogDescription>
-											</AlertDialogHeader>
-											<AlertDialogFooter>
-												<AlertDialogCancel>Cancel</AlertDialogCancel>
-												<AlertDialogAction
-													variant='destructive'
-													onClick={() => editable.onDelete(index)}
-												>
-													Delete
-												</AlertDialogAction>
-											</AlertDialogFooter>
-										</AlertDialogContent>
-									</AlertDialog>
+										</DialogTrigger>
+										<DialogContent>
+											<DialogHeader>
+												<DialogTitle>Delete this tab?</DialogTitle>
+											</DialogHeader>
+											<p className='text-sm text-muted-foreground'>
+												The tab and all of its content will be removed.
+											</p>
+											<div className='flex justify-end gap-2'>
+												<DialogClose asChild>
+													<Button variant='outline' className='rounded-full border'>
+														Cancel
+													</Button>
+												</DialogClose>
+												<DialogClose asChild>
+													<Button
+														variant='destructive'
+														className='rounded-full'
+														onClick={() => editable.onDelete(index)}
+													>
+														Delete
+													</Button>
+												</DialogClose>
+											</div>
+										</DialogContent>
+									</Dialog>
 								</div>
 							)}
 						</div>
