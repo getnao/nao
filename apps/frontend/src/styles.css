@@ -496,7 +496,7 @@ code.dollar:before {
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	padding-right: 0.5rem;
+	padding-right: 1rem;
 	cursor: grab;
 }
 

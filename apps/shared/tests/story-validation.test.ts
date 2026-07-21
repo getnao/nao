@@ -134,6 +134,52 @@ describe('validateStoryCode', () => {
 			expect(errors.some((e) => e.message.includes('between 1 and 4'))).toBe(true);
 		});
 
+		it('accepts valid widths', () => {
+			const code = [
+				'<grid widths="3,1">',
+				'<chart query_id="a" chart_type="line" x_axis_key="x" data_key="y" title="t" />',
+				'<chart query_id="b" chart_type="bar" x_axis_key="x" data_key="y" title="t" />',
+				'</grid>',
+			].join('\n');
+			expect(validateStoryCode(code)).toEqual([]);
+		});
+
+		it('flags widths with the wrong count', () => {
+			const code = [
+				'<grid widths="3">',
+				'<chart query_id="a" chart_type="line" x_axis_key="x" data_key="y" title="t" />',
+				'<chart query_id="b" chart_type="bar" x_axis_key="x" data_key="y" title="t" />',
+				'</grid>',
+			].join('\n');
+			const errors = validateStoryCode(code);
+			expect(errors.some((e) => e.message === 'Grid `widths` has 1 values but the grid has 2 columns.')).toBe(
+				true,
+			);
+		});
+
+		it('flags non-integer widths', () => {
+			const code = [
+				'<grid widths="1.5,-1">',
+				'<chart query_id="a" chart_type="line" x_axis_key="x" data_key="y" title="t" />',
+				'<chart query_id="b" chart_type="bar" x_axis_key="x" data_key="y" title="t" />',
+				'</grid>',
+			].join('\n');
+			const errors = validateStoryCode(code);
+			expect(
+				errors.some((e) => e.message === 'Grid `widths` must be a comma-separated list of positive integers.'),
+			).toBe(true);
+		});
+
+		it('accepts a grid without widths', () => {
+			const code = [
+				'<grid cols="2">',
+				'<chart query_id="a" chart_type="line" x_axis_key="x" data_key="y" title="t" />',
+				'<chart query_id="b" chart_type="bar" x_axis_key="x" data_key="y" title="t" />',
+				'</grid>',
+			].join('\n');
+			expect(validateStoryCode(code)).toEqual([]);
+		});
+
 		it('supports nested grids', () => {
 			const code = [
 				'<grid cols="2">',

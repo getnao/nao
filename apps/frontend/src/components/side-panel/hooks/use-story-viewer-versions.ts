@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { trpc } from '@/main';
 
@@ -39,7 +39,7 @@ export const useStoryViewerVersions = ({
 		previousRunningRef.current = isAgentRunning;
 	}, [isAgentRunning, queryClient, refetch, chatId, storySlug]);
 
-	useEffect(() => {
+	useLayoutEffect(() => {
 		setSelectedVersionIndex(versions.length - 1);
 	}, [versions.length]);
 

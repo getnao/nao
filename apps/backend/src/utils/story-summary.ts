@@ -1,4 +1,4 @@
-import { TAG_ATTRS } from '@nao/shared/story-segments';
+import { resolveGridWidths, TAG_ATTRS } from '@nao/shared/story-segments';
 import type { StorySummary, SummarySegment } from '@nao/shared/types';
 
 export function extractStorySummary(code: string): StorySummary {
@@ -8,7 +8,7 @@ export function extractStorySummary(code: string): StorySummary {
 function extractSegments(code: string): SummarySegment[] {
 	const segments: SummarySegment[] = [];
 	const blockRegex = new RegExp(
-		`<grid\\s+([^>]*)>([\\s\\S]*?)<\\/grid>|<chart\\s+(${TAG_ATTRS})\\/?>|<table\\s+(${TAG_ATTRS})\\/?>`,
+		`<grid(?:\\s+([^>]*))?>([\\s\\S]*?)<\\/grid>|<chart\\s+(${TAG_ATTRS})\\/?>|<table\\s+(${TAG_ATTRS})\\/?>`,
 		'g',
 	);
 	let match;
@@ -22,11 +22,12 @@ function extractSegments(code: string): SummarySegment[] {
 			}
 		}
 
-		if (match[1] !== undefined && match[2] !== undefined) {
-			const attrs = parseAttributes(match[1]);
-			const cols = parseInt(attrs.cols || '2', 10);
+		if (match[2] !== undefined) {
+			const attrs = parseAttributes(match[1] ?? '');
 			const children = extractSegments(match[2]);
-			segments.push({ type: 'grid', cols, children });
+			const cols = parseInt(attrs.cols || String(children.length || 1), 10);
+			const widths = resolveGridWidths(attrs.widths, children.length);
+			segments.push({ type: 'grid', cols, widths, children });
 		} else if (match[3] !== undefined) {
 			const attrs = parseAttributes(match[3]);
 			if (attrs.chart_type) {

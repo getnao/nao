@@ -64,7 +64,7 @@ export type SummarySegment =
 	| { type: 'text'; content: string }
 	| { type: 'chart'; chartType: string; title: string; kpiCount?: number }
 	| { type: 'table'; title: string }
-	| { type: 'grid'; cols: number; children: SummarySegment[] };
+	| { type: 'grid'; cols: number; widths: number[] | null; children: SummarySegment[] };
 
 export type StorySummary = {
 	segments: SummarySegment[];

@@ -11,7 +11,13 @@ import { useOptionalAgentContext } from '@/contexts/agent.provider';
 import { useStoryEmbedData } from '@/contexts/story-embed-data';
 import { useStoryTableEdit } from '@/contexts/story-table-edit';
 
-export const StoryTableEmbed = memo(function StoryTableEmbed({ table }: { table: ParsedTableBlock }) {
+export const StoryTableEmbed = memo(function StoryTableEmbed({
+	table,
+	dragHandle,
+}: {
+	table: ParsedTableBlock;
+	dragHandle?: React.ReactNode;
+}) {
 	const agent = useOptionalAgentContext();
 	const embedData = useStoryEmbedData();
 
@@ -52,7 +58,12 @@ export const StoryTableEmbed = memo(function StoryTableEmbed({ table }: { table:
 			columns={columns}
 			title={table.title}
 			conditionalFormats={table.conditionalFormats}
-			headerActions={<StoryTableEditControls table={table} data={rows} columns={columns} />}
+			headerActions={
+				<>
+					{dragHandle}
+					<StoryTableEditControls table={table} data={rows} columns={columns} />
+				</>
+			}
 		/>
 	);
 });

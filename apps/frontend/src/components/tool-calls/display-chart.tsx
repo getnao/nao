@@ -2,7 +2,7 @@ import { buildChart, bucketPieData, buildStoryChartBlock, labelize } from '@nao/
 import { displayChart } from '@nao/shared/tools';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Code, Download, FilePlus, Pencil } from 'lucide-react';
-import { memo, useCallback, useMemo, useState } from 'react';
+import { memo, useCallback, useMemo, useRef, useState } from 'react';
 
 import { useOptionalAgentContext } from '../../contexts/agent.provider';
 import GraphLoaderAnimated from '../icons/graph-loader-animated';
@@ -31,12 +31,19 @@ import {
 } from '@/lib/charts.utils';
 import { useDateFormat } from '@/hooks/use-date-format';
 import { useChatId } from '@/hooks/use-chat-id';
+import { useResizeObserver } from '@/hooks/use-resize-observer';
 import { useSidePanel } from '@/contexts/side-panel';
 import { StoryViewer } from '@/components/side-panel/story-viewer';
 import { SidePanelContent } from '@/components/side-panel/sql-editor';
 
 const Colors = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)', 'var(--chart-5)'];
 const EMPTY_MESSAGES: UIMessage[] = [];
+const PIE_LEGEND_BREAKPOINT = 280;
+const COMPACT_XAXIS_BREAKPOINT = 360;
+const CHAR_WIDTH_RATIO = 0.6;
+const ANGLE_COS = Math.cos((35 * Math.PI) / 180);
+const MIN_TICK_FONT = 9;
+const MAX_TICK_FONT = 12;
 
 export const DisplayChartToolCall = ({
 	toolPart: { state, input, output, toolCallId },
@@ -315,6 +322,7 @@ export interface ChartDisplayProps {
 	yAxisMin?: number;
 	yAxisMax?: number;
 	showDataLabels?: boolean;
+	normalSize?: boolean;
 }
 
 export const ChartDisplay = memo(function ChartDisplay({
@@ -329,8 +337,14 @@ export const ChartDisplay = memo(function ChartDisplay({
 	yAxisMin,
 	yAxisMax,
 	showDataLabels,
+	normalSize = false,
 }: ChartDisplayProps) {
 	const dateFormat = useDateFormat();
+	const containerRef = useRef<HTMLDivElement>(null);
+	const [width, setWidth] = useState(0);
+	useResizeObserver(containerRef, (element) => {
+		setWidth(element.getBoundingClientRect().width);
+	});
 
 	const xAxisKey = useMemo(() => resolveDataKey(data, xAxisKeyProp), [data, xAxisKeyProp]);
 	const series = useMemo(
@@ -342,6 +356,9 @@ export const ChartDisplay = memo(function ChartDisplay({
 	const isPercentStacked = displayChart.isPercentStackedChartType(chartType);
 
 	const isPie = displayChart.isPieChart(chartType);
+	const compactPieLegend = isPie && width > 0 && width < PIE_LEGEND_BREAKPOINT;
+	const pieCenteringClass = isPie && !compactPieLegend ? 'mx-auto max-w-[480px]' : '';
+	const compactXAxis = !isPie && width > 0 && width < COMPACT_XAXIS_BREAKPOINT;
 	const pieValueKey = series[0]?.data_key ?? '';
 	const pieData = useMemo(
 		() => (isPie ? bucketPieData(data, xAxisKey, pieValueKey) : data),
@@ -409,6 +426,21 @@ export const ChartDisplay = memo(function ChartDisplay({
 		() => xAxisLabelFormatter ?? ((value: string) => labelize(value, dateFormat)),
 		[xAxisLabelFormatter, dateFormat],
 	);
+	let xAxisTickFontSize: number | undefined;
+	let xAxisMaxLabelChars: number | undefined;
+	if (compactXAxis) {
+		const perCategoryPx = width / Math.max(data.length, 1);
+		const longestLabelLen = Math.max(1, ...data.map((row) => labelFormatter(String(row[xAxisKey])).length));
+		const neededFont = perCategoryPx / (longestLabelLen * CHAR_WIDTH_RATIO * ANGLE_COS);
+		xAxisTickFontSize = Math.round(Math.max(MIN_TICK_FONT, Math.min(MAX_TICK_FONT, neededFont)));
+		if (neededFont < MIN_TICK_FONT) {
+			xAxisTickFontSize = MIN_TICK_FONT;
+			xAxisMaxLabelChars = Math.max(
+				3,
+				Math.floor(perCategoryPx / (MIN_TICK_FONT * CHAR_WIDTH_RATIO * ANGLE_COS)),
+			);
+		}
+	}
 
 	const tooltipLabelFormatter = useMemo(
 		() => (value: unknown, items: unknown) =>
@@ -428,6 +460,9 @@ export const ChartDisplay = memo(function ChartDisplay({
 				series: visibleSeries,
 				colorFor,
 				labelFormatter,
+				compactXAxis,
+				xAxisTickFontSize,
+				xAxisMaxLabelChars,
 				showGrid,
 				showDataLabels,
 				margin: { top: 0, right: 0, bottom: 0, left: 0 },
@@ -447,12 +482,13 @@ export const ChartDisplay = memo(function ChartDisplay({
 						<ChartLegend
 							key='legend'
 							payload={legendPayload}
-							layout={isPie ? 'vertical' : 'horizontal'}
-							align={isPie ? 'right' : 'center'}
-							verticalAlign={isPie ? 'middle' : 'bottom'}
+							layout={isPie && !compactPieLegend ? 'vertical' : 'horizontal'}
+							align={isPie && !compactPieLegend ? 'right' : 'center'}
+							verticalAlign={isPie && !compactPieLegend ? 'middle' : 'bottom'}
 							content={
 								<ChartLegendContent
-									layout={isPie ? 'vertical' : 'horizontal'}
+									layout={isPie && !compactPieLegend ? 'vertical' : 'horizontal'}
+									className={compactPieLegend ? 'flex-wrap' : undefined}
 									onItemClick={isPie ? undefined : handleToggleSeriesVisibility}
 								/>
 							}
@@ -466,6 +502,10 @@ export const ChartDisplay = memo(function ChartDisplay({
 			pieData,
 			chartType,
 			isPie,
+			compactPieLegend,
+			compactXAxis,
+			xAxisTickFontSize,
+			xAxisMaxLabelChars,
 			xAxisKey,
 			xAxisType,
 			visibleSeries,
@@ -484,11 +524,19 @@ export const ChartDisplay = memo(function ChartDisplay({
 	);
 
 	return (
-		<div className='flex flex-col items-stretch gap-2 w-full'>
+		<div
+			ref={containerRef}
+			className={`flex flex-col items-stretch gap-2 w-full ${
+				chartType !== 'kpi_card' && normalSize ? 'h-full' : ''
+			}`}
+		>
 			{chartType === 'kpi_card' ? (
 				chartElement
 			) : (
-				<ChartContainer config={chartConfig} className='w-full'>
+				<ChartContainer
+					config={chartConfig}
+					className={`${normalSize ? 'h-full w-full aspect-auto' : 'w-full'} ${pieCenteringClass}`.trim()}
+				>
 					{chartElement}
 				</ChartContainer>
 			)}

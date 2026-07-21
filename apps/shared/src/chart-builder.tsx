@@ -28,6 +28,7 @@ import * as displayChart from './tools/display-chart';
 export const DEFAULT_COLORS = ['#104e64', '#f54900', '#009689', '#ffb900', '#fe9a00'];
 
 const AXIS_TICK = { fontSize: 12 };
+const CATEGORY_XAXIS_HEIGHT = 56;
 const DATA_LABEL_PROPS = {
 	fill: 'var(--foreground, #111827)',
 	fontSize: 11,
@@ -160,6 +161,9 @@ export interface BuildChartProps {
 	title?: string;
 	renderTitle?: boolean;
 	maxXAxisTicks?: number;
+	compactXAxis?: boolean;
+	xAxisTickFontSize?: number;
+	xAxisMaxLabelChars?: number;
 	yAxisMin?: number;
 	yAxisMax?: number;
 	/** Chart background color, used as the separator between stacked segments. Pass a concrete color on surfaces where CSS vars do not resolve (backend PNG/HTML export). */
@@ -402,24 +406,43 @@ function renderCategoryXAxis({
 	xAxisType,
 	xAxisInterval,
 	labelFormatter,
+	compact,
+	tickFontSize,
+	maxLabelChars,
 }: {
 	xAxisKey: string;
 	xAxisType?: 'number' | 'category';
 	xAxisInterval?: number;
 	labelFormatter: (value: string) => string;
+	compact?: boolean;
+	tickFontSize?: number;
+	maxLabelChars?: number;
 }) {
+	const tickFormatter = compact
+		? (value: string) => {
+				const label = labelFormatter(value);
+				if (maxLabelChars == null) {
+					return label;
+				}
+				const cap = Math.max(3, maxLabelChars);
+				return label.length > cap ? `${label.slice(0, cap - 1)}…` : label;
+			}
+		: labelFormatter;
+
 	return (
 		<XAxis
 			dataKey={xAxisKey}
 			type={xAxisType}
 			domain={['dataMin', 'dataMax']}
-			tick={AXIS_TICK}
+			tick={compact ? { ...AXIS_TICK, fontSize: tickFontSize ?? AXIS_TICK.fontSize } : AXIS_TICK}
 			tickLine
 			tickMargin={10}
 			axisLine={false}
 			minTickGap={12}
-			interval={xAxisInterval}
-			tickFormatter={labelFormatter}
+			interval={compact ? 0 : xAxisInterval}
+			tickFormatter={tickFormatter}
+			height={CATEGORY_XAXIS_HEIGHT}
+			{...(compact ? { angle: -35, textAnchor: 'end' as const } : {})}
 		/>
 	);
 }
@@ -436,6 +459,9 @@ function buildBarChart(props: ResolvedProps) {
 		children,
 		margin,
 		xAxisInterval,
+		compactXAxis,
+		xAxisTickFontSize,
+		xAxisMaxLabelChars,
 		series,
 		yAxisMin,
 		yAxisMax,
@@ -465,7 +491,15 @@ function buildBarChart(props: ResolvedProps) {
 					allowDataOverflow={yAxisMin !== undefined || yAxisMax !== undefined}
 				/>
 			)}
-			{renderCategoryXAxis({ xAxisKey, xAxisType, xAxisInterval, labelFormatter })}
+			{renderCategoryXAxis({
+				xAxisKey,
+				xAxisType,
+				xAxisInterval,
+				labelFormatter,
+				compact: compactXAxis,
+				tickFontSize: xAxisTickFontSize,
+				maxLabelChars: xAxisMaxLabelChars,
+			})}
 			{children}
 			{renderedSeries.map((s, i) => (
 				<Bar
@@ -539,6 +573,9 @@ function buildAreaChart(props: ResolvedProps) {
 		children,
 		margin,
 		xAxisInterval,
+		compactXAxis,
+		xAxisTickFontSize,
+		xAxisMaxLabelChars,
 		yAxisMin,
 		yAxisMax,
 		showDataLabels,
@@ -579,7 +616,15 @@ function buildAreaChart(props: ResolvedProps) {
 					allowDataOverflow={yAxisMin !== undefined || yAxisMax !== undefined}
 				/>
 			)}
-			{renderCategoryXAxis({ xAxisKey, xAxisType, xAxisInterval, labelFormatter })}
+			{renderCategoryXAxis({
+				xAxisKey,
+				xAxisType,
+				xAxisInterval,
+				labelFormatter,
+				compact: compactXAxis,
+				tickFontSize: xAxisTickFontSize,
+				maxLabelChars: xAxisMaxLabelChars,
+			})}
 			{children}
 			{renderedSeries.map((s, i) => (
 				<Area
@@ -616,6 +661,7 @@ function buildScatterChart(props: ResolvedProps) {
 				tickLine={false}
 				axisLine={false}
 				minTickGap={12}
+				height={CATEGORY_XAXIS_HEIGHT}
 			/>
 			<YAxis
 				tick={AXIS_TICK}

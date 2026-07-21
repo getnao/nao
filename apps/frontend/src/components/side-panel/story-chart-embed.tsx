@@ -11,6 +11,8 @@ import { useStoryChartEdit } from '@/contexts/story-chart-edit';
 import { useStoryEmbedData } from '@/contexts/story-embed-data';
 import { sortByDateKey } from '@/lib/charts.utils';
 
+const STORY_CHART_HEIGHT_CLASS = 'h-72';
+
 interface ChartBlock {
 	queryId: string;
 	chartType: string;
@@ -24,7 +26,13 @@ interface ChartBlock {
 	rawTag?: string;
 }
 
-export const StoryChartEmbed = memo(function StoryChartEmbed({ chart }: { chart: ChartBlock }) {
+export const StoryChartEmbed = memo(function StoryChartEmbed({
+	chart,
+	dragHandle,
+}: {
+	chart: ChartBlock;
+	dragHandle?: React.ReactNode;
+}) {
 	const agent = useOptionalAgentContext();
 	const embedData = useStoryEmbedData();
 
@@ -75,7 +83,7 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({ chart }: { chart:
 	const xAxisType = chart.xAxisType === 'number' ? 'number' : ('category' as const);
 
 	return (
-		<StoryChartEmbedShell chart={chart} availableColumns={sourceData.columns ?? []}>
+		<StoryChartEmbedShell chart={chart} availableColumns={sourceData.columns ?? []} dragHandle={dragHandle}>
 			<ChartDisplay
 				data={data}
 				chartType={chart.chartType as displayChart.ChartType}
@@ -86,6 +94,7 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({ chart }: { chart:
 				yAxisMin={chart.yAxisMin}
 				yAxisMax={chart.yAxisMax}
 				showDataLabels={chart.showDataLabels}
+				normalSize
 			/>
 		</StoryChartEmbedShell>
 	);
@@ -94,6 +103,7 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({ chart }: { chart:
 interface StoryChartEmbedShellProps {
 	chart: ChartBlock;
 	availableColumns: string[];
+	dragHandle?: React.ReactNode;
 	children: React.ReactNode;
 }
 
@@ -101,7 +111,7 @@ interface StoryChartEmbedShellProps {
  * Wraps a rendered chart with an "Edit chart" button when the surrounding story
  * context provides a save handler.
  */
-export function StoryChartEmbedShell({ chart, availableColumns, children }: StoryChartEmbedShellProps) {
+export function StoryChartEmbedShell({ chart, availableColumns, dragHandle, children }: StoryChartEmbedShellProps) {
 	const edit = useStoryChartEdit();
 	const [isEditOpen, setIsEditOpen] = useState(false);
 	const canEdit = Boolean(edit && chart.rawTag);
@@ -128,7 +138,7 @@ export function StoryChartEmbedShell({ chart, availableColumns, children }: Stor
 
 	return (
 		<div className='my-2 flex flex-col gap-4'>
-			{(canEdit || (chart.chartType != 'kpi_card' && chart.title)) && (
+			{(canEdit || dragHandle != null || (chart.chartType != 'kpi_card' && chart.title)) && (
 				<div className='flex w-full items-center justify-between gap-2'>
 					{chart.chartType != 'kpi_card' && chart.title ? (
 						<span className='text-sm font-medium text-foreground flex-1 min-w-0 truncate'>
@@ -137,20 +147,25 @@ export function StoryChartEmbedShell({ chart, availableColumns, children }: Stor
 					) : (
 						<div className='flex-1' />
 					)}
-					{canEdit && (
-						<Button
-							variant='ghost-muted'
-							size='icon-xs'
-							onClick={() => setIsEditOpen(true)}
-							title='Edit chart'
-							className='shrink-0 hover:bg-accent hover:rounded-full'
-						>
-							<Pencil className='size-3.5' />
-						</Button>
-					)}
+					<div className='flex shrink-0 items-center gap-1'>
+						{dragHandle}
+						{canEdit && (
+							<Button
+								variant='ghost-muted'
+								size='icon-xs'
+								onClick={() => setIsEditOpen(true)}
+								title='Edit chart'
+								className='shrink-0 hover:bg-accent hover:rounded-full'
+							>
+								<Pencil className='size-3.5' />
+							</Button>
+						)}
+					</div>
 				</div>
 			)}
-			<div className={`relative ${chart.chartType != 'kpi_card' ? 'aspect-3/2' : ''}`}>{children}</div>
+			<div className={`relative ${chart.chartType != 'kpi_card' ? STORY_CHART_HEIGHT_CLASS : ''}`}>
+				{children}
+			</div>
 			{canEdit && edit && chart.rawTag && (
 				<ChartConfigEditDialog
 					open={isEditOpen}
