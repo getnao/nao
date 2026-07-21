@@ -25,6 +25,15 @@ export const useStoryViewerContent = ({
 }: UseStoryViewerContentParams) => {
 	const [isBridgingDraft, setIsBridgingDraft] = useState(false);
 	const wasStoryStreamingRef = useRef(Boolean(draftStory?.isStreaming));
+	const viewedStorySlugRef = useRef(storySlug);
+
+	if (viewedStorySlugRef.current !== storySlug) {
+		viewedStorySlugRef.current = storySlug;
+		wasStoryStreamingRef.current = Boolean(draftStory?.isStreaming);
+		if (isBridgingDraft) {
+			setIsBridgingDraft(false);
+		}
+	}
 
 	useEffect(() => {
 		const isStoryStreaming = Boolean(draftStory?.isStreaming);
