@@ -190,9 +190,11 @@ function OrganizationPage() {
 							isAdmin={isOrgAdmin}
 							onEdit={setEditMember}
 							onRemove={setRemoveMember}
-							extraActions={(member) => (
-								<ResetPasswordAction onClick={() => setResetPasswordMember(member)} />
-							)}
+							extraActions={
+								isCloud
+									? undefined
+									: (member) => <ResetPasswordAction onClick={() => setResetPasswordMember(member)} />
+							}
 						/>
 					)}
 				</SettingsCard>

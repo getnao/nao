@@ -10,6 +10,7 @@ import { emailService } from '../services/email';
 import { addTeamMember } from '../services/team-member';
 import { ORG_ROLES } from '../types/organization';
 import { buildResetPasswordEmail, buildUserAddedEmail } from '../utils/email-builders';
+import { assertAdminPasswordResetAllowed } from '../utils/password-reset';
 import { isPublicEmailDomain, normalizeEmailDomains } from '../utils/utils';
 import { protectedProcedure } from './trpc';
 
@@ -138,6 +139,8 @@ export const organizationRoutes = {
 	resetMemberPassword: orgAdminOnlyProcedure
 		.input(z.object({ userId: z.string() }))
 		.mutation(async ({ input, ctx }) => {
+			assertAdminPasswordResetAllowed(isCloud);
+
 			const memberRole = await orgQueries.getUserRoleInOrg(ctx.org.id, input.userId);
 			if (!memberRole) {
 				throw new TRPCError({ code: 'FORBIDDEN', message: 'User is not a member of this organization.' });

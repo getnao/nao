@@ -29,7 +29,9 @@ function ProjectTeamTabPage() {
 	const { data: session } = useSession();
 	const queryClient = useQueryClient();
 	const usersWithRoles = useQuery(trpc.project.listAllUsersWithRoles.queryOptions());
+	const systemConfig = useQuery(trpc.system.getPublicConfig.queryOptions());
 	const { isAdmin } = usePermissions();
+	const isCloud = systemConfig.data?.naoMode === 'cloud';
 
 	const [isAddOpen, setIsAddOpen] = useState(false);
 	const [editMember, setEditMember] = useState<TeamMember | null>(null);
@@ -122,9 +124,11 @@ function ProjectTeamTabPage() {
 						isAdmin={isAdmin}
 						onEdit={setEditMember}
 						onRemove={setRemoveMember}
-						extraActions={(member) => (
-							<ResetPasswordAction onClick={() => setResetPasswordMember(member)} />
-						)}
+						extraActions={
+							isCloud
+								? undefined
+								: (member) => <ResetPasswordAction onClick={() => setResetPasswordMember(member)} />
+						}
 					/>
 				)}
 			</SettingsCard>

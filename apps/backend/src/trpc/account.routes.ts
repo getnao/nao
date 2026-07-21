@@ -2,11 +2,13 @@ import { TRPCError } from '@trpc/server';
 import { hashPassword } from 'better-auth/crypto';
 import { z } from 'zod/v4';
 
+import { isCloud } from '../env';
 import * as accountQueries from '../queries/account.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as userQueries from '../queries/user.queries';
 import { emailService } from '../services/email';
 import { buildResetPasswordEmail } from '../utils/email-builders';
+import { assertAdminPasswordResetAllowed } from '../utils/password-reset';
 import { regexPassword } from '../utils/utils';
 import { adminProtectedProcedure, protectedProcedure } from './trpc';
 
@@ -18,6 +20,8 @@ export const accountRoutes = {
 			}),
 		)
 		.mutation(async ({ input, ctx }) => {
+			assertAdminPasswordResetAllowed(isCloud);
+
 			const account = await accountQueries.getAccountById(input.userId);
 			if (!account || !account.password) {
 				throw new TRPCError({
