@@ -97,7 +97,6 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp }:
 		draftStory,
 		currentVersion,
 		storedTitle,
-		isAgentRunning,
 		isReadonlyMode,
 	});
 	const tabs = useMemo(() => parseStoryTabs(storyCode ?? ''), [storyCode]);

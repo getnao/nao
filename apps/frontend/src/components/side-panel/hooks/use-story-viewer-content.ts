@@ -11,7 +11,6 @@ interface UseStoryViewerContentParams {
 	draftStory: StoryDraft | null;
 	currentVersion: { code: string } | undefined;
 	storedTitle: string | undefined;
-	isAgentRunning: boolean;
 	isReadonlyMode?: boolean;
 }
 
@@ -22,18 +21,18 @@ export const useStoryViewerContent = ({
 	draftStory,
 	currentVersion,
 	storedTitle,
-	isAgentRunning,
 	isReadonlyMode,
 }: UseStoryViewerContentParams) => {
 	const [isBridgingDraft, setIsBridgingDraft] = useState(false);
-	const wasAgentRunningRef = useRef(isAgentRunning);
+	const wasStoryStreamingRef = useRef(Boolean(draftStory?.isStreaming));
 
 	useEffect(() => {
-		if (wasAgentRunningRef.current && !isAgentRunning) {
+		const isStoryStreaming = Boolean(draftStory?.isStreaming);
+		if (wasStoryStreamingRef.current && !isStoryStreaming) {
 			setIsBridgingDraft(true);
 		}
-		wasAgentRunningRef.current = isAgentRunning;
-	}, [isAgentRunning]);
+		wasStoryStreamingRef.current = isStoryStreaming;
+	}, [draftStory?.isStreaming]);
 
 	useEffect(() => {
 		if (!isBridgingDraft) {
@@ -45,9 +44,7 @@ export const useStoryViewerContent = ({
 		}
 	}, [isBridgingDraft, draftStory, currentVersion]);
 
-	const shouldUseDraftStory = Boolean(
-		draftStory && (draftStory.isStreaming || isAgentRunning || isBridgingDraft || !currentVersion),
-	);
+	const shouldUseDraftStory = Boolean(draftStory && (draftStory.isStreaming || isBridgingDraft || !currentVersion));
 
 	const storyTitle = useMemo(
 		() =>
