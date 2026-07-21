@@ -28,9 +28,15 @@ from nao_core.commands.sync.cleanup import (
     cleanup_stale_paths,
     get_database_folder_names,
 )
+from nao_core.commands.sync.markers import ensure_annotations_file, with_generated_marker
 from nao_core.commands.sync.providers.databases.query_history import TableUsageStats, compute_table_usage
 from nao_core.config import AnyDatabaseConfig, NaoConfig
-from nao_core.config.databases.base import DatabaseConfig, DatabaseTemplate, ProfilingRefreshPolicy
+from nao_core.config.databases.base import (
+    DatabaseConfig,
+    DatabaseTemplate,
+    ProfilingRefreshPolicy,
+    RefreshConfig,
+)
 from nao_core.config.llm import LLMConfig
 from nao_core.templates.context import NaoContext, create_nao_context
 from nao_core.templates.engine import get_template_engine
@@ -148,13 +154,13 @@ def _pick_query_texts(columns: list[str], rows: Any) -> list[str]:
     return [str(row[idx]) for row in rows if row[idx] is not None]
 
 
-def _should_refresh_profiling(
+def _should_refresh(
     output_file: Path,
-    profiling_config,
+    refresh_config: RefreshConfig,
 ) -> bool:
-    """Decide whether profiling should be recomputed based on refresh policy."""
+    """Decide whether a template should be refreshed based on its policy."""
 
-    policy = profiling_config.refresh_policy
+    policy = refresh_config.refresh_policy
     if not output_file.exists() or policy == ProfilingRefreshPolicy.ALWAYS:
         return True
     if policy == ProfilingRefreshPolicy.ONCE:
@@ -169,7 +175,7 @@ def _should_refresh_profiling(
                 if computed_at.tzinfo is None:
                     computed_at = computed_at.replace(tzinfo=timezone.utc)
                 age = datetime.now(timezone.utc) - computed_at
-                return age > timedelta(days=profiling_config.interval_days)
+                return age > timedelta(days=refresh_config.interval_days)
         except Exception:
             return True
 
@@ -194,7 +200,7 @@ def sync_database(
     engine = get_template_engine(project_path, llm_config=llm_config)
     templates = _filter_templates_by_config(engine.list_templates(TEMPLATE_PREFIX), db_config)
 
-    has_how_to_use = DatabaseTemplate.HOW_TO_USE in db_config.templates
+    has_query_history = DatabaseTemplate.QUERY_HISTORY in db_config.templates
 
     t_connect = time.monotonic()
     conn = db_config.connect()
@@ -205,7 +211,7 @@ def sync_database(
         )
 
         raw_queries: list[str] = []
-        if has_how_to_use:
+        if has_query_history:
             raw_queries = _fetch_query_history(db_config, conn)
 
         if db_folder is None:
@@ -255,7 +261,7 @@ def sync_database(
         selected_tables = [(schema, t) for schema, tables in schema_tables.items() for t in tables]
 
         usage_stats: dict[str, TableUsageStats] = {}
-        if has_how_to_use and raw_queries and selected_tables:
+        if has_query_history and raw_queries and selected_tables:
             dialect = db_config.type if db_config.type != "duckdb" else None
             usage_stats = compute_table_usage(raw_queries, selected_tables, dialect=dialect)
 
@@ -287,6 +293,7 @@ def sync_database(
             for table in tables:
                 table_path = schema_path / f"table={table}"
                 table_path.mkdir(parents=True, exist_ok=True)
+                ensure_annotations_file(table_path)
 
                 progress.update(
                     table_task,
@@ -296,23 +303,44 @@ def sync_database(
                 ctx = db_config.create_context(conn, schema, table)
                 ctx.set_exclude_columns(db_config.exclude_columns)
                 table_usage = usage_stats.get(f"{schema}.{table}", TableUsageStats())
+                has_profiling = DatabaseTemplate.PROFILING in db_config.templates
+                has_ai_summary = DatabaseTemplate.AI_SUMMARY in db_config.templates
+                profiling_due = has_profiling and _should_refresh(
+                    table_path / "profiling.md",
+                    db_config.profiling,
+                )
+                summary_due = has_ai_summary and _should_refresh(
+                    table_path / "ai_summary.md",
+                    db_config.ai_summary,
+                )
+                profiling_data = ctx.profiling() if profiling_due or summary_due else None
 
                 for template_name in templates:
                     output_filename = Path(template_name).stem
                     tpl_name = output_filename.replace(".md", "")
-
-                    extra_ctx: dict[str, Any] = {}
-                    if tpl_name == "how_to_use":
-                        extra_ctx["usage_stats"] = table_usage
                     output_file = table_path / output_filename
 
-                    if tpl_name == "profiling" and hasattr(db_config, "profiling"):
-                        if not _should_refresh_profiling(output_file, db_config.profiling):
+                    extra_ctx: dict[str, Any] = {}
+                    if tpl_name == "query_history":
+                        extra_ctx["usage_stats"] = table_usage
+
+                    if tpl_name == "profiling":
+                        if not profiling_due:
                             console.print(
                                 f"    [dim]⏭ {schema}.{table} profiling skipped "
                                 f"(policy: {db_config.profiling.refresh_policy.value})[/dim]"
                             )
                             continue
+                        extra_ctx["profiling"] = profiling_data
+                    if tpl_name == "ai_summary":
+                        if not summary_due:
+                            console.print(
+                                f"    [dim]⏭ {schema}.{table} ai_summary skipped "
+                                f"(policy: {db_config.ai_summary.refresh_policy.value})[/dim]"
+                            )
+                            continue
+                        extra_ctx["profiling"] = profiling_data
+                        extra_ctx["computed_at"] = datetime.now(timezone.utc).isoformat()
 
                     t_render = time.monotonic()
                     try:
@@ -342,7 +370,7 @@ def sync_database(
                         content = f"# {table}\n\nError generating content: {e}"
 
                     output_file = table_path / output_filename
-                    output_file.write_text(content)
+                    output_file.write_text(with_generated_marker(content))
 
                 state.add_table(schema, table)
                 progress.update(table_task, advance=1)
@@ -371,7 +399,7 @@ def sync_database(
                     if sv.get("definition"):
                         content_parts.append("## Definition\n")
                         content_parts.append(f"```sql\n{sv['definition']}\n```\n")
-                    (sv_path / "definition.md").write_text("\n".join(content_parts))
+                    (sv_path / "definition.md").write_text(with_generated_marker("\n".join(content_parts)))
                     state.add_table(schema, sv["name"])
                 console.print(f"  [green]✓ {schema}[/green] [dim]— {len(semantic_views)} semantic views synced[/dim]")
 

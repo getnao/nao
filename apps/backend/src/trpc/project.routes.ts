@@ -1,5 +1,9 @@
 import { DATE_FORMAT_PRESETS } from '@nao/shared/date';
-import type { LlmProvider } from '@nao/shared/types';
+import {
+	type LlmProvider,
+	MAX_PYTHON_EXECUTION_DURATION_SECS,
+	MIN_PYTHON_EXECUTION_DURATION_SECS,
+} from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
@@ -20,7 +24,7 @@ import { posthog, PostHogEvent } from '../services/posthog';
 import { slackService } from '../services/slack';
 import { listAvailableTranscribeModels as getAvailableTranscribeModels } from '../services/transcribe.service';
 import { AgentSettings } from '../types/agent-settings';
-import { customModelMetadataSchema, llmConfigSchema, llmProviderSchema } from '../types/llm';
+import { customModelMetadataSchema, llmConfigSchema, llmProviderSchema, modelSettingsMapSchema } from '../types/llm';
 import { isValidIsoDateString } from '../utils/date';
 import { getEnvApiKey, getEnvBaseUrls, getEnvProviders, getProjectAvailableModels } from '../utils/llm';
 import { extractRequiredEnvVars } from '../utils/nao-config';
@@ -102,6 +106,7 @@ export const projectRoutes = {
 				credentialPreviews: buildCredentialPreviews(c.credentials),
 				enabledModels: c.enabledModels ?? [],
 				customModels: c.customModels ?? [],
+				modelSettings: c.modelSettings ?? {},
 				baseUrl: c.baseUrl ?? null,
 				createdAt: c.createdAt,
 				updatedAt: c.updatedAt,
@@ -139,6 +144,7 @@ export const projectRoutes = {
 				credentials: z.record(z.string(), z.string()).optional(),
 				enabledModels: z.array(z.string()).optional(),
 				customModels: z.array(customModelMetadataSchema).optional(),
+				modelSettings: modelSettingsMapSchema.optional(),
 				baseUrl: z.string().url().optional().or(z.literal('')),
 			}),
 		)
@@ -170,6 +176,11 @@ export const projectRoutes = {
 
 			const enabledModels = input.enabledModels ?? [];
 			const customModels = (input.customModels ?? []).filter((m) => enabledModels.includes(m.id));
+			const modelSettings = input.modelSettings
+				? Object.fromEntries(
+						Object.entries(input.modelSettings).filter(([modelId]) => enabledModels.includes(modelId)),
+					)
+				: undefined;
 
 			const config = await llmConfigQueries.upsertProjectLlmConfig({
 				projectId: ctx.project.id,
@@ -178,6 +189,7 @@ export const projectRoutes = {
 				credentials: hasNewCredentials ? input.credentials! : undefined,
 				enabledModels,
 				customModels,
+				modelSettings,
 				baseUrl: input.baseUrl || null,
 			} as Parameters<typeof llmConfigQueries.upsertProjectLlmConfig>[0]);
 
@@ -188,6 +200,7 @@ export const projectRoutes = {
 				credentialPreviews: buildCredentialPreviews(config.credentials),
 				enabledModels: config.enabledModels ?? [],
 				customModels: config.customModels ?? [],
+				modelSettings: config.modelSettings ?? {},
 				baseUrl: config.baseUrl ?? null,
 			};
 		}),
@@ -489,7 +502,7 @@ export const projectRoutes = {
 	regenerateMessagingProviderCode: adminProtectedProcedure
 		.input(z.object({ userId: z.string() }))
 		.mutation(async ({ ctx, input }) => {
-			const members = await projectQueries.listAllUsersWithRoles(ctx.project.id);
+			const members = await projectQueries.listProjectMembersWithRoles(ctx.project.id);
 			const isMember = members.some((m) => m.id === input.userId);
 			if (!isMember) {
 				throw new TRPCError({ code: 'FORBIDDEN', message: 'User is not a member of this project' });
@@ -614,7 +627,7 @@ export const projectRoutes = {
 		if (!ctx.project) {
 			return [];
 		}
-		return projectQueries.listAllUsersWithRoles(ctx.project.id);
+		return projectQueries.listProjectMembersWithRoles(ctx.project.id);
 	}),
 
 	getProjectMembersByChatId: protectedProcedure
@@ -628,7 +641,7 @@ export const projectRoutes = {
 			if (!role) {
 				throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this project.' });
 			}
-			return projectQueries.listAllUsersWithRoles(projectId);
+			return projectQueries.listUsersWithProjectAccess(projectId);
 		}),
 
 	getKnownModels: publicProcedure.query(() => {
@@ -743,6 +756,16 @@ export const projectRoutes = {
 					})
 					.optional(),
 				sql: z.object({ dangerouslyWritePermEnabled: z.boolean().optional() }).optional(),
+				pythonExecution: z
+					.object({
+						maxDurationSecs: z
+							.number()
+							.int()
+							.min(MIN_PYTHON_EXECUTION_DURATION_SECS)
+							.max(MAX_PYTHON_EXECUTION_DURATION_SECS)
+							.optional(),
+					})
+					.optional(),
 				memoryEnabled: z.boolean().optional(),
 				webSearch: z
 					.object({
@@ -759,6 +782,7 @@ export const projectRoutes = {
 				experimental: { ...existing.experimental, ...input.experimental },
 				transcribe: { ...existing.transcribe, ...input.transcribe },
 				sql: { ...existing.sql, ...input.sql },
+				pythonExecution: { ...existing.pythonExecution, ...input.pythonExecution },
 				webSearch: { ...existing.webSearch, ...input.webSearch },
 			};
 			posthog.capture(ctx.user.id, PostHogEvent.ProjectAgentSettingsUpdated, {
@@ -767,6 +791,7 @@ export const projectRoutes = {
 				transcribe_provider: merged.transcribe?.provider,
 				transcribe_model_id: merged.transcribe?.modelId,
 				sql_dangerously_write_perm_enabled: merged.sql?.dangerouslyWritePermEnabled,
+				python_execution_max_duration_secs: merged.pythonExecution?.maxDurationSecs,
 				python_sandboxing_enabled: merged.experimental?.pythonSandboxing,
 				memory_enabled: merged.memoryEnabled,
 				web_search_enabled: merged.webSearch?.enabled,

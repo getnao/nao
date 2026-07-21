@@ -39,7 +39,11 @@ def discover_tests(project_path: Path) -> list[TestCase]:
         UI.warn(f"Tests folder not found: {tests_dir}")
         return []
 
-    test_files = list(tests_dir.glob("*.yml")) + list(tests_dir.glob("*.yaml"))
+    test_files = [
+        p
+        for p in (*tests_dir.rglob("*.yml"), *tests_dir.rglob("*.yaml"))
+        if "outputs" not in p.relative_to(tests_dir).parts
+    ]
 
     if not test_files:
         UI.warn(f"No test files found in {tests_dir}")

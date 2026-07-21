@@ -1,3 +1,5 @@
+import sys
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -5,6 +7,7 @@ load_dotenv()
 from cyclopts import App  # noqa: E402
 
 from nao_core import __version__  # noqa: E402
+from nao_core.branding import banner, should_show_banner  # noqa: E402
 from nao_core.commands import (  # noqa: E402
     chat,
     debug,
@@ -17,6 +20,7 @@ from nao_core.commands import (  # noqa: E402
     test,
     upgrade,
 )
+from nao_core.ui import console  # noqa: E402
 from nao_core.version import check_for_updates  # noqa: E402
 
 app = App(version=__version__)
@@ -34,6 +38,8 @@ app.command(upgrade)
 
 
 def main():
+    if len(sys.argv) == 1 and should_show_banner():
+        banner(console, __version__)
     check_for_updates()
     app()
 

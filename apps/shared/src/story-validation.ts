@@ -13,10 +13,13 @@ const REQUIRED_TABLE_ATTRS = ['query_id'] as const;
 const VALID_CHART_TYPES = new Set([
 	'bar',
 	'stacked_bar',
+	'stacked_bar_100',
 	'line',
 	'area',
 	'stacked_area',
+	'stacked_area_100',
 	'pie',
+	'donut',
 	'kpi_card',
 	'scatter',
 	'radar',
@@ -37,9 +40,79 @@ export function validateStoryCode(code: string): StoryValidationError[] {
 	errors.push(...validateGridBlocks(code));
 	errors.push(...validateChartBlocks(code));
 	errors.push(...validateTableBlocks(code));
+	errors.push(...validateTabsBlocks(code));
 	errors.push(...validateUnterminatedTags(code));
 
 	return errors.sort((a, b) => a.line - b.line || a.column - b.column);
+}
+
+function validateTabsBlocks(code: string): StoryValidationError[] {
+	const errors: StoryValidationError[] = [];
+	const tabOpeners = [...code.matchAll(new RegExp(`<tab\\b(${TAG_ATTRS})?>`, 'g'))];
+	if (tabOpeners.length === 0) {
+		return errors;
+	}
+
+	const tabBlocks: Array<{ start: number; end: number }> = [];
+	for (let index = 0; index < tabOpeners.length; index++) {
+		const opener = tabOpeners[index];
+		const openerEnd = opener.index + opener[0].length;
+		const closeIndex = code.indexOf('</tab>', openerEnd);
+		const nextOpenerIndex = tabOpeners[index + 1]?.index ?? code.length;
+		if (closeIndex === -1 || nextOpenerIndex < closeIndex) {
+			const position = getPosition(code, opener.index);
+			errors.push({
+				message: '<tab> tag is missing a matching </tab> closing tag.',
+				line: position.line,
+				column: position.column,
+				length: opener[0].length,
+			});
+			continue;
+		}
+
+		tabBlocks.push({ start: opener.index, end: closeIndex + '</tab>'.length });
+		const attrs = parseChartAttributes(opener[0]);
+		if (!attrs.title?.trim()) {
+			const position = getPosition(code, opener.index);
+			errors.push({
+				message: 'Tab is missing a required `title` attribute.',
+				line: position.line,
+				column: position.column,
+				length: opener[0].length,
+			});
+		}
+	}
+
+	let contentCursor = 0;
+	for (const tabBlock of tabBlocks) {
+		const outsideOffset = code.slice(contentCursor, tabBlock.start).search(/\S/);
+		if (outsideOffset !== -1) {
+			const codeOffset = contentCursor + outsideOffset;
+			const position = getPosition(code, codeOffset);
+			errors.push({
+				message: 'Content is not allowed outside <tab> blocks — a tabbed story must contain only <tab> blocks.',
+				line: position.line,
+				column: position.column,
+				length: getLineContentLength(code, codeOffset),
+			});
+			return errors;
+		}
+		contentCursor = tabBlock.end;
+	}
+
+	const outsideOffset = code.slice(contentCursor).search(/\S/);
+	if (outsideOffset !== -1) {
+		const codeOffset = contentCursor + outsideOffset;
+		const position = getPosition(code, codeOffset);
+		errors.push({
+			message: 'Content is not allowed outside <tab> blocks — a tabbed story must contain only <tab> blocks.',
+			line: position.line,
+			column: position.column,
+			length: getLineContentLength(code, codeOffset),
+		});
+	}
+
+	return errors;
 }
 
 function validateChartBlocks(code: string): StoryValidationError[] {
@@ -292,4 +365,9 @@ function getPosition(code: string, offset: number): { line: number; column: numb
 		}
 	}
 	return { line, column };
+}
+
+function getLineContentLength(code: string, offset: number): number {
+	const lineEnd = code.indexOf('\n', offset);
+	return Math.max(1, (lineEnd === -1 ? code.length : lineEnd) - offset);
 }

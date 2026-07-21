@@ -1,5 +1,6 @@
 export * from './chart-block';
 export * from './chart-builder';
+export * from './chart-domain';
 export * from './citation';
 export * from './date';
 export * from './mcp';

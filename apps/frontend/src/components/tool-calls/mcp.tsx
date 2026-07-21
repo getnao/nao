@@ -63,15 +63,22 @@ const McpChartOutput = ({ chartBlock }: { chartBlock: string }) => {
 	}
 
 	return (
-		<div className={`my-4 w-full ${chart.chartType !== 'kpi_card' ? 'aspect-3/2' : ''}`}>
-			<ChartDisplay
-				data={data}
-				chartType={chart.chartType as displayChart.ChartType}
-				xAxisKey={chart.xAxisKey}
-				xAxisType={chart.xAxisType === 'number' ? 'number' : 'category'}
-				series={chart.series}
-				title={chart.title}
-			/>
+		<div className='my-4 flex w-full flex-col gap-1.5'>
+			{chart.chartType !== 'kpi_card' && chart.title && (
+				<span className='text-sm font-medium text-foreground'>{chart.title}</span>
+			)}
+			<div className={`w-full ${chart.chartType !== 'kpi_card' ? 'aspect-3/2' : ''}`}>
+				<ChartDisplay
+					data={data}
+					chartType={chart.chartType as displayChart.ChartType}
+					xAxisKey={chart.xAxisKey}
+					xAxisType={chart.xAxisType === 'number' ? 'number' : 'category'}
+					series={chart.series}
+					title={chart.title}
+					yAxisMin={chart.yAxisMin}
+					yAxisMax={chart.yAxisMax}
+				/>
+			</div>
 		</div>
 	);
 };

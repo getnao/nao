@@ -1,4 +1,3 @@
-import { splitCodeIntoSegments } from '@nao/shared/story-segments';
 import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useCallback, useMemo, useRef, useState } from 'react';
@@ -16,7 +15,7 @@ import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
 import { StoryPageBody } from '@/components/story-page-body';
 import { StoryPageHeader } from '@/components/story-page-header';
 import { StoryChartEmbed, StoryTableEmbed } from '@/components/story-embeds';
-import { SegmentList } from '@/components/story-rendering';
+import { StoryTabbedContent } from '@/components/story-tabbed-content';
 import { Spinner } from '@/components/ui/spinner';
 import { SidePanelProvider } from '@/contexts/side-panel';
 import { SelectionProvider } from '@/contexts/text-selection';
@@ -289,7 +288,6 @@ function SharedStoryContent({
 	chatId: string;
 	cacheSchedule?: string | null;
 }) {
-	const segments = useMemo(() => splitCodeIntoSegments(code), [code]);
 	const isNoCacheMode = cacheSchedule === 'no-cache';
 
 	const noCacheQuery = useMemo(
@@ -312,10 +310,8 @@ function SharedStoryContent({
 	);
 
 	return (
-		<div className='flex-1 overflow-auto'>
-			<div className='max-w-5xl mx-auto p-4 md:p-8 flex flex-col gap-4' data-selection-container>
-				<SegmentList segments={segments} renderChart={renderChart} renderTable={renderTable} />
-			</div>
+		<div className='flex flex-1 min-h-0 flex-col' data-selection-container>
+			<StoryTabbedContent code={code} renderChart={renderChart} renderTable={renderTable} />
 		</div>
 	);
 }

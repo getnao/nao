@@ -10,12 +10,14 @@ import { convertToTokenUsage, findLastUserMessage, getLastUserMessageText, joinA
 import { debugMemory } from '../../utils/debug';
 import { truncateMiddle } from '../../utils/utils';
 import { type ProviderModelResult } from '../providers';
+import { llmTelemetry } from '../telemetry';
 
 interface MemoryExtractorResult {
 	output: ExtractorLLMOutput;
 	usage: TokenUsage;
 }
 
+const MAX_OUTPUT_TOKENS = 4000;
 const CONVERSATION_MESSAGE_LIMIT = 17;
 const MESSAGE_CHAR_LIMIT = 1_250;
 const LAST_USER_MESSAGE_CHAR_LIMIT = 2_000;
@@ -41,7 +43,8 @@ export class MemoryExtractorLLM {
 			...this.model,
 			output: Output.object({ schema: ExtractorOutputSchema }),
 			messages: modelMessages,
-			maxOutputTokens: 4000,
+			maxOutputTokens: MAX_OUTPUT_TOKENS,
+			experimental_telemetry: llmTelemetry('nao-memory-extraction'),
 		});
 
 		debugMemory('output', output);

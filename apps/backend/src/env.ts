@@ -117,6 +117,10 @@ const envSchema = z.object({
 		.optional()
 		.transform((val) => val === 'true'),
 
+	LANGFUSE_PUBLIC_KEY: z.string().optional(),
+	LANGFUSE_SECRET_KEY: z.string().optional(),
+	LANGFUSE_BASE_URL: z.url({ message: 'LANGFUSE_BASE_URL must be a valid URL' }).optional(),
+
 	BETA_AUTOMATIONS_ENABLED: z
 		.enum(['true', 'false'])
 		.optional()

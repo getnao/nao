@@ -102,7 +102,7 @@ class BaseSyncIntegrationTests:
             table_dir = base / f"table={table}"
             assert table_dir.is_dir()
             files = sorted(f.name for f in table_dir.iterdir())
-            expected_files = ["columns.md", "how_to_use.md", "preview.md", "profiling.md"]
+            expected_files = ["annotations.md", "columns.md", "preview.md", "profiling.md", "query_history.md"]
             assert files == sorted(expected_files)
 
         # "another" schema was NOT synced (only when provider has one)
@@ -124,6 +124,15 @@ class BaseSyncIntegrationTests:
         for expected in spec.users_column_assertions:
             assert expected in content
 
+        assert "## Table Metadata" in content
+        assert "| **Row Count** | 3 |" in content
+        assert "## Columns (" in content
+
+        if spec.users_table_description:
+            assert spec.users_table_description in content
+        else:
+            assert "_No description available._" in content
+
     def test_columns_md_orders(self, synced, spec):
         _, output, config = synced
         content = self._read_table_file(output, config, spec, spec.orders_table, "columns.md")
@@ -131,32 +140,28 @@ class BaseSyncIntegrationTests:
         for expected in spec.orders_column_assertions:
             assert expected in content
 
-    # ── how_to_use.md ──────────────────────────────────────────────
-
-    def test_how_to_use_md_users(self, synced, spec):
-        _, output, config = synced
-        content = self._read_table_file(output, config, spec, spec.users_table, "how_to_use.md")
-
         assert "## Table Metadata" in content
-        assert "| **Row Count** | 3 |" in content
-        assert "| **Column Count** | 4 |" in content
-
-        if spec.users_table_description:
-            assert spec.users_table_description in content
-        else:
-            assert "_No description available._" in content
-
-    def test_how_to_use_md_orders(self, synced, spec):
-        _, output, config = synced
-        content = self._read_table_file(output, config, spec, spec.orders_table, "how_to_use.md")
-
         assert "| **Row Count** | 2 |" in content
-        assert "| **Column Count** | 3 |" in content
+        assert "## Columns (" in content
 
         if spec.orders_table_description:
             assert spec.orders_table_description in content
         else:
             assert "_No description available._" in content
+
+    # ── query_history.md ────────────────────────────────────────────
+
+    def test_query_history_md_users(self, synced, spec):
+        _, output, config = synced
+        content = self._read_table_file(output, config, spec, spec.users_table, "query_history.md")
+
+        assert "_No query history found for this table._" in content
+
+    def test_query_history_md_orders(self, synced, spec):
+        _, output, config = synced
+        content = self._read_table_file(output, config, spec, spec.orders_table, "query_history.md")
+
+        assert "_No query history found for this table._" in content
 
     # ── preview.md ───────────────────────────────────────────────────
 
@@ -360,7 +365,7 @@ class BaseSyncIntegrationTests:
         assert (primary_base / f"table={spec.users_table}").is_dir()
         assert (primary_base / f"table={spec.orders_table}").is_dir()
 
-        expected_files = ["columns.md", "how_to_use.md", "preview.md", "profiling.md"]
+        expected_files = ["annotations.md", "columns.md", "preview.md", "profiling.md", "query_history.md"]
 
         for table in (spec.users_table, spec.orders_table):
             files = sorted(f.name for f in (primary_base / f"table={table}").iterdir())

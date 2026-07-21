@@ -58,6 +58,8 @@ def clone_or_pull_repo(repo: RepoConfig, base_path: Path) -> bool:
         if git_dir.exists():
             shutil.rmtree(git_dir)
 
+        _filter_repo_files(tmp_path, repo.include, repo.exclude)
+
         # Atomic swap: only replace existing repo after successful clone
         if repo_path.exists():
             shutil.rmtree(repo_path)
@@ -125,6 +127,38 @@ def _matches_patterns(relative_path: str, include: list[str], exclude: list[str]
             return False
 
     return True
+
+
+def _filter_repo_files(repo_dir: Path, include: list[str], exclude: list[str]) -> None:
+    """Remove files under repo_dir that do not match the include/exclude globs.
+
+    No-op when no filters are set. Empty directories left behind are pruned so
+    the synced tree mirrors the local-path filtering semantics.
+    """
+    if not include and not exclude:
+        return
+
+    for entry in repo_dir.rglob("*"):
+        # Match symlinks against the link itself; never follow them.
+        if not entry.is_symlink() and not entry.is_file():
+            continue
+
+        relative = PurePosixPath(entry.relative_to(repo_dir)).as_posix()
+        if not _matches_patterns(relative, include, exclude):
+            entry.unlink()
+
+    _prune_empty_dirs(repo_dir)
+
+
+def _prune_empty_dirs(root: Path) -> None:
+    """Remove empty directories under root, deepest first, keeping root itself."""
+    for dir_path in sorted(
+        (p for p in root.rglob("*") if p.is_dir() and not p.is_symlink()),
+        key=lambda p: len(p.parts),
+        reverse=True,
+    ):
+        if not any(dir_path.iterdir()):
+            dir_path.rmdir()
 
 
 def sync_local_repo(repo: RepoConfig, base_path: Path) -> bool:

@@ -19,7 +19,7 @@ export const InputSchema = z.object({
 		.string()
 		.optional()
 		.describe(
-			'The markdown content. Required for "create" (initial content) and "replace" (new content). Can include charts via <chart query_id="..." /> blocks and SQL tables via <table query_id="..." /> blocks. Use <grid cols="2">...</grid> to lay out charts side by side in a responsive grid.',
+			'The markdown content. Required for "create" (initial content) and "replace" (new content). Can include charts via <chart query_id="..." /> blocks and SQL tables via <table query_id="..." /> blocks. Use <grid cols="2">...</grid> to lay out charts side by side in a responsive grid. Use <tab title="...">...</tab> blocks for a tabbed layout.',
 		),
 	search: z.string().optional().describe('The exact text to find in the current story code. Required for "update".'),
 	replace: z.string().optional().describe('The replacement text. Required for "update".'),

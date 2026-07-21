@@ -63,7 +63,6 @@ class TestCreateEmptyStructure:
 
         expected_folders = [
             "databases",
-            "queries",
             "docs",
             "semantics",
             "repos",
@@ -173,15 +172,37 @@ class TestSetupProjectName:
         assert path.exists()
         assert existing is None
         assert created is True
+        mock_ask_text.assert_called_once_with(
+            "Enter your project name:",
+            placeholder=tmp_path.name,
+            submit_default=tmp_path.name,
+        )
 
+    @pytest.mark.parametrize("submitted_name", [None, ""])
     @patch("nao_core.commands.init.ask_text")
-    def test_raises_on_empty_project_name(self, mock_ask_text, tmp_path: Path, monkeypatch):
-        """Raises EmptyProjectNameError when name is empty."""
+    def test_empty_project_name_creates_default_subfolder(
+        self,
+        mock_ask_text,
+        tmp_path: Path,
+        monkeypatch,
+        submitted_name,
+    ):
         monkeypatch.chdir(tmp_path)
-        mock_ask_text.return_value = ""
+        mock_ask_text.return_value = submitted_name
 
-        with pytest.raises(EmptyProjectNameError):
-            setup_project_name()
+        name, path, existing, created = setup_project_name()
+
+        assert name == tmp_path.name
+        assert path == Path(tmp_path.name)
+        assert path.resolve() == tmp_path / tmp_path.name
+        assert path.exists()
+        assert existing is None
+        assert created is True
+        mock_ask_text.assert_called_once_with(
+            "Enter your project name:",
+            placeholder=tmp_path.name,
+            submit_default=tmp_path.name,
+        )
 
     @patch("nao_core.commands.init.ask_text")
     def test_raises_on_existing_folder_without_force(self, mock_ask_text, tmp_path: Path, monkeypatch):
@@ -291,8 +312,7 @@ class TestNaoConfigPromptDatabases:
         mock_config.name = "test-db"
         mock_prompt_config.return_value = mock_config
 
-        # First confirm: yes to setup, second confirm: no to add another
-        mock_confirm.side_effect = [True, False]
+        mock_confirm.return_value = True
         mock_select.return_value = "duckdb"
 
         result = NaoConfig._prompt_databases()
@@ -300,6 +320,7 @@ class TestNaoConfigPromptDatabases:
         assert len(result) == 1
         assert result[0] == mock_config
         mock_prompt_config.assert_called_once()
+        mock_confirm.assert_called_once_with("Set up database connections?", default=True)
 
 
 class TestNaoConfigPromptRepos:
@@ -326,14 +347,15 @@ class TestNaoConfigPromptRepos:
         mock_repo = RepoConfig(name="my-repo", url="https://github.com/org/repo.git")
         mock_prompt_config.return_value = mock_repo
 
-        # First confirm: yes to setup, second confirm: no to add another
-        mock_confirm.side_effect = [True, False]
+        mock_confirm.return_value = True
 
         result = NaoConfig._prompt_repos()
 
         assert len(result) == 1
         assert result[0].name == "my-repo"
         assert result[0].url == "https://github.com/org/repo.git"
+        mock_prompt_config.assert_called_once()
+        mock_confirm.assert_called_once_with("Set up git repositories?", default=True)
 
 
 class TestNaoConfigPromptLLM:
@@ -346,10 +368,9 @@ class TestNaoConfigPromptLLM:
 
         mock_confirm.return_value = False
 
-        llm, enable_ai_summary = NaoConfig._prompt_llm()
+        llm = NaoConfig._prompt_llm()
 
         assert llm is None
-        assert enable_ai_summary is False
 
     @patch("nao_core.config.base.ask_confirm")
     @patch("nao_core.config.llm.LLMConfig.promptConfig")
@@ -361,11 +382,10 @@ class TestNaoConfigPromptLLM:
         mock_prompt_config.return_value = mock_llm
         mock_confirm.return_value = True
 
-        result_llm, enable_ai_summary = NaoConfig._prompt_llm()
+        result_llm = NaoConfig._prompt_llm()
 
         assert result_llm is not None
         assert result_llm.api_key == "sk-test-key"
-        assert enable_ai_summary is False
         mock_prompt_config.assert_called_once_with(prompt_annotation_model=False)
 
     @patch("nao_core.config.llm.ask_text")
@@ -384,77 +404,7 @@ class TestNaoConfigPromptLLM:
             LLMConfig.promptConfig()
 
 
-class TestNaoConfigAiSummaryTemplates:
-    """Tests for NaoConfig._configure_ai_summary_templates."""
-
-    def test_skips_when_llm_not_configured(self):
-        """Does not modify templates when llm is not configured."""
-        from nao_core.config import NaoConfig
-        from nao_core.config.databases.base import DatabaseTemplate
-        from nao_core.config.databases.duckdb import DuckDBConfig
-
-        db = DuckDBConfig(name="test-db", path=":memory:")
-        result = NaoConfig._configure_ai_summary_templates([db], llm=None, enable_ai_summary=True)
-
-        assert DatabaseTemplate.AI_SUMMARY not in result[0].templates
-
-    def test_adds_ai_summary_template_when_enabled(self):
-        """Adds ai_summary template when enabled."""
-        from nao_core.config import LLMConfig, LLMProvider, NaoConfig
-        from nao_core.config.databases.base import DatabaseTemplate
-        from nao_core.config.databases.duckdb import DuckDBConfig
-
-        db = DuckDBConfig(name="test-db", path=":memory:")
-        llm = LLMConfig(provider=LLMProvider.OPENAI, api_key="sk-test")
-
-        result = NaoConfig._configure_ai_summary_templates([db], llm=llm, enable_ai_summary=True)
-
-        assert DatabaseTemplate.AI_SUMMARY in result[0].templates
-
-    def test_does_not_add_ai_summary_template_when_disabled(self):
-        """Keeps templates unchanged when ai_summary is disabled."""
-        from nao_core.config import LLMConfig, LLMProvider, NaoConfig
-        from nao_core.config.databases.base import DatabaseTemplate
-        from nao_core.config.databases.duckdb import DuckDBConfig
-
-        db = DuckDBConfig(name="test-db", path=":memory:")
-        llm = LLMConfig(provider=LLMProvider.OPENAI, api_key="sk-test")
-
-        result = NaoConfig._configure_ai_summary_templates([db], llm=llm, enable_ai_summary=False)
-
-        assert DatabaseTemplate.AI_SUMMARY not in result[0].templates
-
-
-class TestNaoConfigPromptSlack:
-    """Tests for NaoConfig._prompt_slack method."""
-
-    @patch("nao_core.config.base.ask_confirm")
-    def test_returns_none_when_user_skips(self, mock_confirm):
-        """Returns None when user chooses not to set up Slack."""
-        from nao_core.config import NaoConfig
-
-        mock_confirm.return_value = False
-
-        result = NaoConfig._prompt_slack()
-
-        assert result is None
-
-    @patch("nao_core.config.base.ask_confirm")
-    @patch("nao_core.config.slack.SlackConfig.promptConfig")
-    def test_creates_slack_config(self, mock_prompt_config, mock_confirm):
-        """Creates Slack config when configured."""
-        from nao_core.config import NaoConfig, SlackConfig
-
-        mock_slack = SlackConfig(bot_token="xoxb-bot-token", signing_secret="signing-secret")
-        mock_prompt_config.return_value = mock_slack
-        mock_confirm.return_value = True
-
-        result = NaoConfig._prompt_slack()
-
-        assert result is not None
-        assert result.bot_token == "xoxb-bot-token"
-        assert result.signing_secret == "signing-secret"
-
+class TestSlackConfig:
     @patch("nao_core.config.slack.ask_text")
     def test_raises_on_cancelled_bot_token(self, mock_text):
         """Raises KeyboardInterrupt when user cancels bot token input."""
@@ -572,9 +522,41 @@ class TestInitCommand:
             slack=None,
         )
 
-        init()
+        with patch("nao_core.deps.get_missing_extras", return_value=[]):
+            init()
 
         mock_debug.assert_called_once()
+
+    @patch("nao_core.commands.init._install_with_progress")
+    @patch("nao_core.deps.get_missing_extras")
+    @patch("nao_core.commands.init.ask_confirm")
+    @patch("nao_core.commands.init.NaoConfig.promptConfig")
+    @patch("nao_core.commands.init.setup_project_name")
+    @patch("nao_core.commands.init.UI")
+    def test_init_always_installs_missing_dependencies(
+        self,
+        mock_ui,
+        mock_setup_project_name,
+        mock_prompt_config,
+        mock_confirm,
+        mock_get_missing_extras,
+        mock_install,
+        tmp_path: Path,
+    ):
+        from nao_core.commands.init import init
+        from nao_core.config import NaoConfig
+
+        project_path = tmp_path / "test-project"
+        project_path.mkdir()
+        mock_setup_project_name.return_value = ("test-project", project_path, None, True)
+        mock_prompt_config.return_value = NaoConfig(project_name="test-project")
+        mock_get_missing_extras.return_value = ["openai"]
+        mock_install.return_value = True
+
+        init()
+
+        mock_install.assert_called_once_with(["openai"])
+        mock_confirm.assert_not_called()
 
     @patch("nao_core.commands.debug.debug")
     @patch("nao_core.commands.init.NaoConfig.promptConfig")
@@ -604,7 +586,8 @@ class TestInitCommand:
             slack=None,
         )
 
-        init()
+        with patch("nao_core.deps.get_missing_extras", return_value=[]):
+            init()
 
         mock_debug.assert_called_once()
 
@@ -637,7 +620,7 @@ class TestInitCommand:
         init()
 
         assert (project_path / "databases").exists()
-        assert (project_path / "queries").exists()
+        assert not (project_path / "queries").exists()
         assert (project_path / "RULES.md").exists()
 
     @patch("nao_core.commands.init.setup_project_name")

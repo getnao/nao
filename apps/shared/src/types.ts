@@ -17,6 +17,10 @@ export const TOOL_CALL_DENSITIES = ['compact', 'detailed'] as const;
 /** How much detail to show for tool calls in the chat. */
 export type ToolCallDensity = (typeof TOOL_CALL_DENSITIES)[number];
 
+export const DEFAULT_PYTHON_EXECUTION_DURATION_SECS = 30;
+export const MIN_PYTHON_EXECUTION_DURATION_SECS = 1;
+export const MAX_PYTHON_EXECUTION_DURATION_SECS = 600;
+
 export interface UserPreferences {
 	toolCallDensity?: ToolCallDensity;
 }

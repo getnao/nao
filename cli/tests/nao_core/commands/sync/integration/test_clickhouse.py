@@ -160,7 +160,7 @@ def spec(temp_database):
             "- user_id",
             "- amount",
         ),
-        # how_to_use.md: users has a table comment (see COMMENT in dml/clickhouse.sql), orders has none
+        # columns.md: users has a table comment (see COMMENT in dml/clickhouse.sql), orders has none
         users_table_description="User accounts and profile data",
         orders_table_description=None,
         users_preview_rows=[
@@ -289,7 +289,14 @@ class _ClickHouseSyncMixin(BaseSyncIntegrationTests):
 
         assert base.is_dir()
 
-        expected_files = ["ai_summary.md", "columns.md", "how_to_use.md", "preview.md", "profiling.md"]
+        expected_files = [
+            "ai_summary.md",
+            "annotations.md",
+            "columns.md",
+            "preview.md",
+            "profiling.md",
+            "query_history.md",
+        ]
 
         for table in (spec.users_table, spec.orders_table):
             table_dir = base / f"table={table}"
@@ -345,41 +352,39 @@ class _ClickHouseSyncMixin(BaseSyncIntegrationTests):
         # One schema synced; excluding orders still leaves users + engine tables (e.g. orders_summing, events_replacing)
         assert state.tables_synced >= 2
 
-    def test_dictionary_sync_generates_how_to_use_with_index_metadata(self, synced, spec):
-        """Sync must generate how_to_use.md containing dictionary index metadata."""
+    def test_dictionary_sync_generates_columns_with_index_metadata(self, synced, spec):
+        """Sync must generate columns.md containing dictionary index metadata."""
         _, output, config = synced
         base = self._base_path(output, config, spec)
         table_dir = base / "table=users_dict"
         assert table_dir.is_dir(), "users_dict table dir should exist after sync"
-        how_to_use_md = table_dir / "how_to_use.md"
-        assert how_to_use_md.exists(), "how_to_use.md must be generated for dictionary"
-        idx_content = how_to_use_md.read_text()
+        columns_md = table_dir / "columns.md"
+        assert columns_md.exists(), "columns.md must be generated for dictionary"
+        idx_content = columns_md.read_text()
 
         lower_content = idx_content.lower()
-        assert "create dictionary" in lower_content, "how_to_use.md should contain CREATE DICTIONARY DDL"
+        assert "create dictionary" in lower_content, "columns.md should contain CREATE DICTIONARY DDL"
         assert "source(" in lower_content and "layout(" in lower_content, (
-            "how_to_use.md should contain dictionary SOURCE and LAYOUT"
+            "columns.md should contain dictionary SOURCE and LAYOUT"
         )
         # We intentionally render a concise summary, not full dictionary column DDL.
         assert "`email` nullable(string)" not in lower_content
 
-    def test_projections_appear_in_how_to_use_indexes(self, synced, spec):
+    def test_projections_appear_in_columns_indexes(self, synced, spec):
         """Indexes section should include projection and key storage metadata."""
         _, output, config = synced
         base = self._base_path(output, config, spec)
         table_dir = base / f"table={spec.orders_table}"
-        how_to_use_md = table_dir / "how_to_use.md"
-        assert how_to_use_md.exists(), "how_to_use.md must exist for orders table"
-        content = how_to_use_md.read_text().lower()
+        columns_md = table_dir / "columns.md"
+        assert columns_md.exists(), "columns.md must exist for orders table"
+        content = columns_md.read_text().lower()
 
         assert "engine = mergetree" in content
         assert "order by id" in content
         assert "projection orders_by_user_proj" in content, (
-            "how_to_use.md indexes section should include the projection name for orders"
+            "columns.md indexes section should include the projection name for orders"
         )
-        assert "order by user_id" in content, (
-            "how_to_use.md indexes section should include projection sort key for orders"
-        )
+        assert "order by user_id" in content, "columns.md indexes section should include projection sort key for orders"
         # We intentionally render a concise summary, not full column DDL.
         assert "`amount` float64" not in content
 
@@ -412,9 +417,9 @@ class _ClickHouseSyncMixin(BaseSyncIntegrationTests):
         _, output, config = synced
         base = self._base_path(output, config, spec)
         table_dir = base / "table=orders_by_user_mv_target"
-        how_to_use_md = table_dir / "how_to_use.md"
-        assert how_to_use_md.exists(), "how_to_use.md must exist for orders_by_user_mv_target"
-        content = how_to_use_md.read_text().lower()
+        columns_md = table_dir / "columns.md"
+        assert columns_md.exists(), "columns.md must exist for orders_by_user_mv_target"
+        content = columns_md.read_text().lower()
 
         # Projections are defined on orders in the fixture; the MV target still needs clear key metadata.
         assert "engine = summingmergetree" in content
@@ -440,7 +445,7 @@ class _ClickHouseSyncMixin(BaseSyncIntegrationTests):
         assert (primary_base / f"table={spec.users_table}").is_dir()
         assert (primary_base / f"table={spec.orders_table}").is_dir()
 
-        expected_files = ["ai_summary.md", "columns.md", "how_to_use.md", "preview.md"]
+        expected_files = ["ai_summary.md", "annotations.md", "columns.md", "preview.md", "query_history.md"]
 
         for table in (spec.users_table, spec.orders_table):
             files = sorted(f.name for f in (primary_base / f"table={table}").iterdir())

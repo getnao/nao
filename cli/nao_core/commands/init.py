@@ -6,7 +6,10 @@ from typing import Annotated
 
 from cyclopts import Parameter
 
+from nao_core import __version__
+from nao_core.branding import should_show_banner
 from nao_core.config import NaoConfig, NaoConfigError
+from nao_core.config.base import annotate_optional_templates
 from nao_core.config.exceptions import InitError
 from nao_core.tracking import track_command
 from nao_core.ui import UI, ask_confirm, ask_text
@@ -129,7 +132,14 @@ def setup_project_name(
     elif name:
         project_name = name
     else:
-        project_name = ask_text("Enter your project name:", required_field=True)
+        project_name = (
+            ask_text(
+                "Enter your project name:",
+                placeholder=current_dir.name,
+                submit_default=current_dir.name,
+            )
+            or current_dir.name
+        )
 
     if not project_name:
         raise EmptyProjectNameError()
@@ -157,7 +167,6 @@ def create_empty_structure(project_path: Path) -> tuple[list[str], list[CreatedF
     """
     FOLDERS = [
         "databases",
-        "queries",
         "docs",
         "semantics",
         "repos",
@@ -269,7 +278,10 @@ def init(
         config and without `--name`, the current directory name is used and the
         project is initialized in place.
     """
-    UI.info("\n🚀 nao project initialization\n")
+    if should_show_banner():
+        UI.banner(__version__)
+    else:
+        UI.info("\n🚀 nao project initialization\n")
 
     project_path: Path | None = None
     cleanup_on_abort = False
@@ -286,6 +298,7 @@ def init(
             config = NaoConfig.promptConfig(project_name, existing=existing_config)
 
         config.save(project_path)
+        annotate_optional_templates(project_path / "nao_config.yaml")
 
         created_folders, created_files = create_empty_structure(project_path)
 
@@ -309,17 +322,8 @@ def init(
             UI.title("Installing provider dependencies")
             UI.print(f"[dim]Extras: {extras_label}[/dim]\n")
 
-            should_install = yes or ask_confirm("Install the required provider dependencies now?", default=True)
-            if should_install:
-                UI.print()
-                deps_ready = _install_with_progress(missing)
-            else:
-                extras_str = ",".join(missing)
-                UI.print()
-                UI.warn("Skipped dependency installation.")
-                UI.print(
-                    f"You can install them later with: [bold cyan]pip install 'nao-core[{extras_str}]'[/bold cyan]"
-                )
+            UI.print()
+            deps_ready = _install_with_progress(missing)
 
         UI.print()
         UI.print("[bold green]Done![/bold green] Your nao project is ready. 🎉")

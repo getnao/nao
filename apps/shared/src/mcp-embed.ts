@@ -6,10 +6,12 @@ export const MCP_EMBED_TOKEN_TTL_MS = WEEK_MS;
 export const MCP_QUERY_DATA_RETENTION_MS = WEEK_MS;
 
 export type McpChartEmbedStoredConfig = {
-	chartType: displayChart.Input['chart_type'];
-	xAxisKey: displayChart.Input['x_axis_key'];
-	xAxisType: displayChart.Input['x_axis_type'];
-	series: displayChart.Input['series'];
+	chartType: displayChart.ChartInput['chart_type'];
+	xAxisKey: displayChart.ChartInput['x_axis_key'];
+	xAxisType: displayChart.ChartInput['x_axis_type'];
+	series: displayChart.ChartInput['series'];
+	yAxisMin?: displayChart.ChartInput['y_axis_min'];
+	yAxisMax?: displayChart.ChartInput['y_axis_max'];
 	title: string;
 };
 

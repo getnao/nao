@@ -1,8 +1,21 @@
 import { storyBlockRegex } from '@nao/shared/story-segments';
+import { parseStoryTabs } from '@nao/shared/story-tabs';
 import type { StorySummary, SummarySegment } from '@nao/shared/types';
 
 export function extractStorySummary(code: string): StorySummary {
-	return { segments: extractSegments(code) };
+	const tabs = parseStoryTabs(code);
+	if (!tabs?.length) {
+		return { segments: extractSegments(code) };
+	}
+	const segments: SummarySegment[] = [];
+	for (const tab of tabs) {
+		const title = truncateText(tab.title);
+		if (title) {
+			segments.push({ type: 'text', content: title });
+		}
+		segments.push(...extractSegments(tab.innerCode));
+	}
+	return { segments };
 }
 
 function extractSegments(code: string): SummarySegment[] {
