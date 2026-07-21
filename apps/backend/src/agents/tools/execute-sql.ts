@@ -30,10 +30,12 @@ export async function executeQuery(
 		method: 'POST',
 		headers: {
 			'Content-Type': 'application/json',
+			'X-Nao-Internal-Secret': env.BETTER_AUTH_SECRET,
 		},
 		body: JSON.stringify({
 			sql: sql_query,
 			nao_project_folder: naoProjectFolder,
+			dangerously_write_permission_enabled: writePermEnabled,
 			...(database_id && { database_id }),
 			...(Object.keys(envVars).length > 0 && { env_vars: envVars }),
 			...(context.azureAccessToken && { azure_access_token: context.azureAccessToken }),

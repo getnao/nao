@@ -1,16 +1,21 @@
 import math
 import os
+import secrets
 import sys
 from contextlib import asynccontextmanager
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
+from typing import Annotated
 
 import numpy as np
 import pandas as pd
+import sqlglot
+from sqlglot import exp
+from sqlglot.errors import ParseError
 import uvicorn
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -23,6 +28,8 @@ from nao_core.config import NaoConfig, NaoConfigError
 from nao_core.context import get_context_provider
 
 port = int(os.environ.get("PORT", 8005))
+INTERNAL_AUTH_HEADER = "X-Nao-Internal-Secret"
+MIN_INTERNAL_SECRET_LENGTH = 20
 
 # Global scheduler instance
 scheduler = None
@@ -97,6 +104,7 @@ class ExecuteSQLRequest(BaseModel):
     database_id: str | None = None
     env_vars: dict[str, str] | None = None
     azure_access_token: str | None = None
+    dangerously_write_permission_enabled: bool = False
 
 
 class ExecuteSQLResponse(BaseModel):
@@ -161,6 +169,45 @@ def _convert_value(v: object):
     return v
 
 
+def _require_internal_auth(
+    provided_secret: Annotated[
+        str | None,
+        Header(alias=INTERNAL_AUTH_HEADER),
+    ] = None,
+):
+    expected_secret = os.environ.get("BETTER_AUTH_SECRET")
+    if not expected_secret or len(expected_secret) < MIN_INTERNAL_SECRET_LENGTH:
+        raise HTTPException(
+            status_code=503,
+            detail="Internal API authentication is not configured",
+        )
+
+    provided_bytes = provided_secret.encode() if provided_secret is not None else b""
+    if not secrets.compare_digest(provided_bytes, expected_secret.encode()):
+        raise HTTPException(status_code=401, detail="Invalid internal API credentials")
+
+
+def _is_read_only_sql(sql: str) -> bool:
+    try:
+        statements = sqlglot.parse(sql, error_level=sqlglot.ErrorLevel.RAISE)
+    except (ParseError, ValueError):
+        return False
+
+    if not statements:
+        return False
+
+    forbidden_expression_types = (exp.DDL, exp.DML, exp.Into, exp.Lock)
+    return all(
+        statement is not None
+        and isinstance(statement, exp.Query)
+        and not any(
+            isinstance(expression, forbidden_expression_types)
+            for expression in statement.walk()
+        )
+        for statement in statements
+    )
+
+
 # =============================================================================
 # API Endpoints
 # =============================================================================
@@ -187,7 +234,11 @@ async def health_check():
         )
 
 
-@app.post("/api/refresh", response_model=RefreshResponse)
+@app.post(
+    "/api/refresh",
+    response_model=RefreshResponse,
+    dependencies=[Depends(_require_internal_auth)],
+)
 async def refresh_context():
     """Trigger a context refresh (git pull if using git source).
 
@@ -219,9 +270,21 @@ async def refresh_context():
         )
 
 
-@app.post("/execute_sql", response_model=ExecuteSQLResponse)
+@app.post(
+    "/execute_sql",
+    response_model=ExecuteSQLResponse,
+    dependencies=[Depends(_require_internal_auth)],
+)
 async def execute_sql(request: ExecuteSQLRequest):
     try:
+        if not request.dangerously_write_permission_enabled and not _is_read_only_sql(
+            request.sql
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail="Write SQL operations are disabled",
+            )
+
         project_path = Path(request.nao_project_folder)
         config = NaoConfig.try_load(
             project_path,
@@ -300,4 +363,4 @@ async def execute_sql(request: ExecuteSQLRequest):
 
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)
+    uvicorn.run("main:app", host="127.0.0.1", port=port, reload=True)

@@ -130,7 +130,10 @@ async function executeRawSql(
 ): Promise<{ data: unknown[]; columns: string[] }> {
 	const response = await fetch(`http://localhost:${env.FASTAPI_PORT}/execute_sql`, {
 		method: 'POST',
-		headers: { 'Content-Type': 'application/json' },
+		headers: {
+			'Content-Type': 'application/json',
+			'X-Nao-Internal-Secret': env.BETTER_AUTH_SECRET,
+		},
 		body: JSON.stringify({
 			sql: sqlQuery,
 			nao_project_folder: projectFolder,
