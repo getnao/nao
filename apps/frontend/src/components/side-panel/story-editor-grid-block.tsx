@@ -7,8 +7,52 @@ import { StoryChartEmbed } from './story-chart-embed';
 import { StoryTableEmbed } from './story-table-embed';
 import { decodeFromAttr } from './story-editor-utils';
 import { useStoryEditorGridBlock } from './hooks/use-story-editor-grid-block';
+import type { Segment } from '@nao/shared/story-segments';
 import type { ReactNodeViewProps } from '@tiptap/react';
+import type { ReactNode } from 'react';
+import { MarkdownTable } from '@/components/chat-messages/markdown-table';
 import { EditorStoryChartEditProvider } from '@/contexts/story-chart-edit';
+import { markdownPlugins } from '@/lib/markdown';
+
+const markdownComponents = { table: ({ node, className }: any) => <MarkdownTable node={node} className={className} /> };
+
+/**
+ * Renders a single grid column's content in the editor. Charts/tables receive
+ * the column drag handle; nested grids render recursively so their content
+ * stays visible while editing.
+ */
+function renderColumnContent(
+	segment: Segment,
+	dragHandle: ReactNode,
+	onReplaceTag: (rawTag: string, nextTag: string) => void,
+): ReactNode {
+	switch (segment.type) {
+		case 'markdown':
+			return (
+				<Streamdown mode='static' plugins={markdownPlugins} components={markdownComponents}>
+					{segment.content}
+				</Streamdown>
+			);
+		case 'chart':
+			return (
+				<EditorStoryChartEditProvider onReplaceTag={onReplaceTag}>
+					<StoryChartEmbed chart={segment.chart} dragHandle={dragHandle} />
+				</EditorStoryChartEditProvider>
+			);
+		case 'table':
+			return <StoryTableEmbed table={segment.table} dragHandle={dragHandle} />;
+		case 'grid':
+			return (
+				<div className='flex flex-col gap-4'>
+					{segment.children.map((child, index) => (
+						<div key={index} className='min-w-0'>
+							{renderColumnContent(child, null, onReplaceTag)}
+						</div>
+					))}
+				</div>
+			);
+	}
+}
 
 function GridBlockView(props: ReactNodeViewProps) {
 	const {
@@ -57,8 +101,11 @@ function GridBlockView(props: ReactNodeViewProps) {
 						: {})}
 				>
 					{segments.map((segment, i) => {
+						// Markdown columns cannot be dragged out (createBlockNode would
+						// turn their markdown into literal text), so only chart/table
+						// columns get a move handle.
 						const columnGrip =
-							segments.length >= 2 ? (
+							segments.length >= 2 && segment.type !== 'markdown' ? (
 								<button
 									type='button'
 									aria-label={`Move column ${i + 1}`}
@@ -85,22 +132,7 @@ function GridBlockView(props: ReactNodeViewProps) {
 
 						return (
 							<div key={i} className='group relative min-w-0'>
-								{segment.type === 'markdown' ? (
-									<>
-										{columnGrip !== null && (
-											<div className='absolute right-1 top-1 z-20 opacity-0 transition-opacity group-hover:opacity-100'>
-												{columnGrip}
-											</div>
-										)}
-										<Streamdown mode='static'>{segment.content}</Streamdown>
-									</>
-								) : segment.type === 'chart' ? (
-									<EditorStoryChartEditProvider onReplaceTag={handleReplaceTag}>
-										<StoryChartEmbed chart={segment.chart} dragHandle={columnGrip} />
-									</EditorStoryChartEditProvider>
-								) : segment.type === 'table' ? (
-									<StoryTableEmbed table={segment.table} dragHandle={columnGrip} />
-								) : null}
+								{renderColumnContent(segment, columnGrip, handleReplaceTag)}
 							</div>
 						);
 					})}

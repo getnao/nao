@@ -42,6 +42,24 @@ function getResizeTargetFraction(drag: GridResizeDrag, clientX: number): number 
 }
 
 /**
+ * Reading-order (top-to-bottom, left-to-right) insertion index so drops land
+ * correctly whether columns are laid out in a single row or stacked/wrapped
+ * across rows.
+ */
+function findColumnInsertionIndex(grid: HTMLElement, clientX: number, clientY: number): number {
+	const columnElements = Array.from(grid.children);
+	for (let index = 0; index < columnElements.length; index++) {
+		const bounds = columnElements[index].getBoundingClientRect();
+		const isLaterRow = clientY < bounds.top;
+		const isSameRow = clientY >= bounds.top && clientY <= bounds.bottom;
+		if (isLaterRow || (isSameRow && clientX < bounds.left + bounds.width / 2)) {
+			return index;
+		}
+	}
+	return columnElements.length;
+}
+
+/**
  * Encapsulates all interaction state for the grid block editor node: column
  * drag/drop reordering, external block insertion, and column resizing.
  */
@@ -156,12 +174,7 @@ export function useStoryEditorGridBlock({ node, updateAttributes, getPos, editor
 					return;
 				}
 
-				const columnElements = Array.from(grid.children);
-				const insertionIndex = columnElements.findIndex((element) => {
-					const columnBounds = element.getBoundingClientRect();
-					return event.clientX < columnBounds.left + columnBounds.width / 2;
-				});
-				setDropColumnIndex(insertionIndex === -1 ? columnElements.length : insertionIndex);
+				setDropColumnIndex(findColumnInsertionIndex(grid, event.clientX, event.clientY));
 				return;
 			}
 
@@ -179,15 +192,10 @@ export function useStoryEditorGridBlock({ node, updateAttributes, getPos, editor
 				return;
 			}
 
-			const columnElements = Array.from(grid.children);
-			const insertionIndex = columnElements.findIndex((element) => {
-				const columnBounds = element.getBoundingClientRect();
-				return event.clientX < columnBounds.left + columnBounds.width / 2;
-			});
 			setDropColumnIndex(null);
-			setBlockDropIndex(insertionIndex === -1 ? segments.length : insertionIndex);
+			setBlockDropIndex(findColumnInsertionIndex(grid, event.clientX, event.clientY));
 		},
-		[dragColumnIndex, segments.length, storyBlockDrag],
+		[dragColumnIndex, storyBlockDrag],
 	);
 
 	const insertExternalStoryBlock = useCallback(
@@ -365,6 +373,13 @@ export function useStoryEditorGridBlock({ node, updateAttributes, getPos, editor
 	);
 
 	const resizeHandlePositions = useMemo(() => {
+		// Handles assume a single row. Explicit widths always render as one row at
+		// @lg; default grids only stay single-row with <= 2 columns (3+ wrap), so
+		// hide handles there to avoid resizing against a mismatched layout.
+		const isSingleRow = visualWidths !== null || segments.length <= 2;
+		if (!isSingleRow) {
+			return [];
+		}
 		const positionedWidths = visualWidths ?? segments.map(() => 1);
 		const total = positionedWidths.reduce((sum, width) => sum + width, 0);
 		let cumulativeWidth = 0;
@@ -386,7 +401,7 @@ export function useStoryEditorGridBlock({ node, updateAttributes, getPos, editor
 				? '0%'
 				: indicatorIndex === segments.length
 					? '100%'
-					: resizeHandlePositions[indicatorIndex - 1]?.left;
+					: (resizeHandlePositions[indicatorIndex - 1]?.left ?? null);
 	const externalBlockSource = storyBlockDrag?.sourceRef.current;
 	const gridPos = getPos();
 	const externalBlockActive =

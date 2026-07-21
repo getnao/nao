@@ -116,14 +116,21 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 						const gridFrom = source.gridPos;
 						const gridTo = source.gridPos + gridNode.nodeSize;
 						const slice = new Slice(Fragment.from(poppedNode), 0, 0);
-						let insertPos = dropPoint(state.doc, coords.pos, slice) ?? coords.pos;
+						const dropTarget = dropPoint(state.doc, coords.pos, slice);
+						if (dropTarget === null) {
+							return true;
+						}
+						let insertPos = dropTarget;
 						if (insertPos > gridFrom && insertPos < gridTo) {
 							insertPos = gridTo;
 						}
 
 						const transaction = state.tr;
 						transaction.replaceWith(gridFrom, gridTo, remainingNode);
-						transaction.insert(transaction.mapping.map(insertPos, -1), poppedNode);
+						// Bias mapping to the right for drops at/after the grid so the popped
+						// column lands after the remaining grid, left otherwise.
+						const insertAssoc = insertPos >= gridTo ? 1 : -1;
+						transaction.insert(transaction.mapping.map(insertPos, insertAssoc), poppedNode);
 						view.dispatch(transaction);
 						event.preventDefault();
 						return true;
@@ -150,7 +157,10 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 						}
 
 						const slice = new Slice(Fragment.from(node), 0, 0);
-						const insertPos = dropPoint(view.state.doc, coords.pos, slice) ?? coords.pos;
+						const insertPos = dropPoint(view.state.doc, coords.pos, slice);
+						if (insertPos === null) {
+							return true;
+						}
 						if (source.origin.kind === 'block') {
 							const originNode = view.state.doc.nodeAt(source.origin.pos);
 							const originTo = originNode ? source.origin.pos + originNode.nodeSize : source.origin.pos;

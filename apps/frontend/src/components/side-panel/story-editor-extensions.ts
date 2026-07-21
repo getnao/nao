@@ -6,6 +6,7 @@ import { ChartBlock } from './story-editor-chart-block';
 import { GridBlock } from './story-editor-grid-block';
 import { TableBlock } from './story-editor-table-block';
 import type { Editor as CoreEditor } from '@tiptap/core';
+import type { Node as PMNode } from '@tiptap/pm/model';
 
 // ProseMirror's table plugin intercepts Backspace/Delete to handle cell
 // operations, which prevents deletion of the table node itself. This
@@ -28,9 +29,33 @@ const TableDeleteShortcuts = Extension.create({
 			return null;
 		};
 
+		// A table is "empty" only if it has no meaningful content — text counts,
+		// as do embedded atom/leaf nodes (charts, tables, images). Empty paragraph
+		// placeholders that cells always contain are ignored.
+		const isTableEmpty = (table: PMNode): boolean => {
+			let hasContent = false;
+			table.descendants((descendant) => {
+				if (hasContent) {
+					return false;
+				}
+				if (descendant.isText) {
+					if (descendant.text?.trim()) {
+						hasContent = true;
+					}
+					return false;
+				}
+				if (descendant.isAtom || descendant.isLeaf) {
+					hasContent = true;
+					return false;
+				}
+				return true;
+			});
+			return !hasContent;
+		};
+
 		const deleteIfEmpty = ({ editor }: { editor: CoreEditor }): boolean => {
 			const table = findEnclosingTable(editor);
-			if (table && !table.textContent) {
+			if (table && isTableEmpty(table)) {
 				return editor.commands.deleteTable();
 			}
 			return false;
