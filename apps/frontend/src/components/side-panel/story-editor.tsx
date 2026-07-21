@@ -21,6 +21,7 @@ import { DragHandle } from '@tiptap/extension-drag-handle-react';
 import { TableKit } from '@tiptap/extension-table';
 import { Markdown } from '@tiptap/markdown';
 import { Fragment, Slice } from '@tiptap/pm/model';
+import { Selection } from '@tiptap/pm/state';
 import { dropPoint } from '@tiptap/pm/transform';
 import { EditorContent, NodeViewWrapper, ReactNodeViewRenderer, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
@@ -28,12 +29,19 @@ import { GripVertical } from 'lucide-react';
 import { createContext, memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Streamdown } from 'streamdown';
 
+import {
+	blockSelectionPluginKey,
+	BlockSelection,
+	buildBlockMoveTransaction,
+	getSelectedBlockPositions,
+} from './story-block-selection';
 import { StoryChartEmbed } from './story-chart-embed';
 import { StoryTableEmbed } from './story-table-embed';
 import type { Editor, ReactNodeViewProps } from '@tiptap/react';
 import type { Editor as CoreEditor } from '@tiptap/core';
 import type { Node as PMNode, Schema } from '@tiptap/pm/model';
 import type { EditorState, Transaction } from '@tiptap/pm/state';
+import type { EditorView } from '@tiptap/pm/view';
 import type { Segment } from '@nao/shared/story-segments';
 import type {
 	DragEvent as ReactDragEvent,
@@ -53,6 +61,37 @@ function encodeForAttr(str: string): string {
 
 function decodeFromAttr(encoded: string): string {
 	return decodeURIComponent(atob(encoded));
+}
+
+function cloneElementWithStyles(node: HTMLElement): HTMLElement {
+	const clone = node.cloneNode(true) as HTMLElement;
+	const sources = [node, ...Array.from(node.getElementsByTagName('*'))];
+	const targets = [clone, ...Array.from(clone.getElementsByTagName('*'))];
+	sources.forEach((source, index) => {
+		const target = targets[index];
+		if (!(target instanceof HTMLElement || target instanceof SVGElement)) {
+			return;
+		}
+		const computed = window.getComputedStyle(source as Element);
+		let cssText = '';
+		for (const property of computed) {
+			cssText += `${property}:${computed.getPropertyValue(property)};`;
+		}
+		target.style.cssText = cssText;
+	});
+	return clone;
+}
+
+function dispatchDropWithScroll(view: EditorView, transaction: Transaction, pos: number): void {
+	const target = Math.max(0, Math.min(pos, transaction.doc.content.size));
+	transaction.setSelection(Selection.near(transaction.doc.resolve(target)));
+	view.dispatch(transaction);
+	requestAnimationFrame(() => {
+		const clamped = Math.max(0, Math.min(pos, view.state.doc.content.size));
+		const dom = view.nodeDOM(clamped);
+		const element = dom instanceof HTMLElement ? dom : (dom?.parentElement ?? null);
+		element?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+	});
 }
 
 /**
@@ -1086,7 +1125,7 @@ const TableDeleteShortcuts = Extension.create({
 
 const EDITOR_EXTENSIONS = [
 	StarterKit.configure({
-		dropcursor: { width: 3, class: 'drop-cursor' },
+		dropcursor: { width: 3, class: 'drop-cursor', color: false },
 	}),
 	TableKit,
 	TableDeleteShortcuts,
@@ -1098,6 +1137,7 @@ const EDITOR_EXTENSIONS = [
 	ChartBlock,
 	TableBlock,
 	GridBlock,
+	BlockSelection,
 ];
 
 interface StoryEditorProps {
@@ -1111,6 +1151,10 @@ export const StoryEditor = memo(function StoryEditor({ code, editorRef, onSave }
 	const onSaveRef = useRef(onSave);
 	const gridDragSourceRef = useRef<GridDragSource | null>(null);
 	const storyBlockSourceRef = useRef<StoryBlockDragSource | null>(null);
+	const multiBlockDragRef = useRef<number[] | null>(null);
+	const handleNodePosRef = useRef<number | null>(null);
+	const dragPreviewPositionsRef = useRef<number[] | null>(null);
+	const storyEditorRef = useRef<HTMLDivElement>(null);
 	const [isBlockDragging, setIsBlockDragging] = useState(false);
 	const [handleNodeType, setHandleNodeType] = useState<string | null>(null);
 	const storyBlockDragContext = useMemo(
@@ -1124,10 +1168,12 @@ export const StoryEditor = memo(function StoryEditor({ code, editorRef, onSave }
 	const resetDragContexts = useCallback(() => {
 		gridDragSourceRef.current = null;
 		storyBlockSourceRef.current = null;
+		multiBlockDragRef.current = null;
 		setIsBlockDragging(false);
 	}, []);
-	const handleDragHandleNodeChange = useCallback(({ node }: { node: PMNode | null }) => {
+	const handleDragHandleNodeChange = useCallback(({ node, pos }: { node: PMNode | null; pos: number }) => {
 		setHandleNodeType(node?.type.name ?? null);
+		handleNodePosRef.current = node ? pos : null;
 	}, []);
 	onSaveRef.current = onSave;
 
@@ -1167,6 +1213,37 @@ export const StoryEditor = memo(function StoryEditor({ code, editorRef, onSave }
 			},
 			handleDrop(view, event) {
 				const dataTransfer = event.dataTransfer;
+				if (multiBlockDragRef.current && multiBlockDragRef.current.length > 1) {
+					try {
+						const positions = multiBlockDragRef.current;
+						const { state } = view;
+						const nodes = positions
+							.map((position) => state.doc.nodeAt(position))
+							.filter((node): node is PMNode => node != null);
+						if (nodes.length === 0) {
+							return true;
+						}
+
+						const coords = view.posAtCoords({ left: event.clientX, top: event.clientY });
+						if (!coords) {
+							return true;
+						}
+
+						const slice = new Slice(Fragment.fromArray(nodes), 0, 0);
+						const insertPos = dropPoint(state.doc, coords.pos, slice) ?? coords.pos;
+						const move = buildBlockMoveTransaction(state, positions, insertPos);
+						if (!move) {
+							return true;
+						}
+
+						dispatchDropWithScroll(view, move.transaction, move.insertPos);
+						event.preventDefault();
+						return true;
+					} finally {
+						resetDragContexts();
+					}
+				}
+
 				if (dataTransfer?.types.includes(GRID_COLUMN_DRAG_TYPE)) {
 					try {
 						const source = gridDragSourceRef.current;
@@ -1206,8 +1283,9 @@ export const StoryEditor = memo(function StoryEditor({ code, editorRef, onSave }
 
 						const transaction = state.tr;
 						transaction.replaceWith(gridFrom, gridTo, remainingNode);
-						transaction.insert(transaction.mapping.map(insertPos, -1), poppedNode);
-						view.dispatch(transaction);
+						const poppedPos = transaction.mapping.map(insertPos, -1);
+						transaction.insert(poppedPos, poppedNode);
+						dispatchDropWithScroll(view, transaction, poppedPos);
 						event.preventDefault();
 						return true;
 					} finally {
@@ -1245,7 +1323,7 @@ export const StoryEditor = memo(function StoryEditor({ code, editorRef, onSave }
 						const transaction = view.state.tr;
 						transaction.insert(insertPos, node);
 						removeCardFromOrigin(transaction, view.state, source.origin);
-						view.dispatch(transaction);
+						dispatchDropWithScroll(view, transaction, transaction.mapping.map(insertPos, -1));
 						event.preventDefault();
 						return true;
 					} finally {
@@ -1257,6 +1335,61 @@ export const StoryEditor = memo(function StoryEditor({ code, editorRef, onSave }
 			},
 		},
 	});
+
+	useEffect(() => {
+		const container = storyEditorRef.current;
+		if (!container || !editor) {
+			return;
+		}
+
+		const onDragStart = (event: DragEvent) => {
+			const positions = dragPreviewPositionsRef.current;
+			if (!positions || positions.length === 0 || !event.dataTransfer) {
+				return;
+			}
+
+			const nodes = positions
+				.map((position) => editor.view.nodeDOM(position))
+				.filter((dom): dom is HTMLElement => dom instanceof HTMLElement);
+			if (nodes.length === 0) {
+				return;
+			}
+
+			const preview = document.createElement('div');
+			preview.style.position = 'absolute';
+			preview.style.top = '-10000px';
+			preview.style.left = '-10000px';
+
+			for (const dom of nodes) {
+				preview.appendChild(cloneElementWithStyles(dom));
+			}
+
+			document.body.appendChild(preview);
+			event.dataTransfer.setDragImage(preview, 16, 16);
+
+			const cleanup = () => {
+				preview.remove();
+				document.removeEventListener('dragend', cleanup);
+				document.removeEventListener('drop', cleanup);
+			};
+			document.addEventListener('dragend', cleanup);
+			document.addEventListener('drop', cleanup);
+		};
+
+		const clearDropCursor = () => {
+			dragPreviewPositionsRef.current = null;
+			editor.view.dom.dispatchEvent(new DragEvent('dragleave'));
+		};
+
+		container.addEventListener('dragstart', onDragStart);
+		document.addEventListener('dragend', clearDropCursor, true);
+		document.addEventListener('drop', clearDropCursor, true);
+		return () => {
+			container.removeEventListener('dragstart', onDragStart);
+			document.removeEventListener('dragend', clearDropCursor, true);
+			document.removeEventListener('drop', clearDropCursor, true);
+		};
+	}, [editor]);
 
 	useEffect(() => {
 		editorRef.current = editor;
@@ -1278,9 +1411,45 @@ export const StoryEditor = memo(function StoryEditor({ code, editorRef, onSave }
 	return (
 		<GridDragContext.Provider value={gridDragSourceRef}>
 			<StoryBlockDragContext.Provider value={storyBlockDragContext}>
-				<div className='story-editor relative'>
+				<div ref={storyEditorRef} className='story-editor relative'>
 					{editor && (
-						<DragHandle editor={editor} className='drag-handle' onNodeChange={handleDragHandleNodeChange}>
+						<DragHandle
+							editor={editor}
+							className='drag-handle'
+							onNodeChange={handleDragHandleNodeChange}
+							onElementDragStart={(event) => {
+								const selected = getSelectedBlockPositions(editor.state);
+								const hoveredPosition = handleNodePosRef.current;
+								const isMulti =
+									selected.length > 1 &&
+									hoveredPosition != null &&
+									selected.includes(hoveredPosition);
+								if (isMulti) {
+									const sorted = [...selected].sort((first, second) => first - second);
+									multiBlockDragRef.current = sorted;
+									dragPreviewPositionsRef.current = sorted;
+									if (event.dataTransfer) {
+										event.dataTransfer.effectAllowed = 'move';
+									}
+								} else {
+									multiBlockDragRef.current = null;
+									dragPreviewPositionsRef.current =
+										hoveredPosition != null ? [hoveredPosition] : null;
+									if (selected.length > 0) {
+										editor.view.dispatch(
+											editor.state.tr.setMeta(blockSelectionPluginKey, {
+												blocks: [],
+												anchor: null,
+											}),
+										);
+									}
+								}
+							}}
+							onElementDragEnd={() => {
+								multiBlockDragRef.current = null;
+								dragPreviewPositionsRef.current = null;
+							}}
+						>
 							{handleNodeType === 'chartBlock' || handleNodeType === 'tableBlock' ? null : (
 								<div className='drag-handle-button'>
 									<GripVertical className='size-4' />
