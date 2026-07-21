@@ -26,6 +26,48 @@ export function formatCellValue(value: unknown, dateFormat?: DateFormatSettings 
 	return String(value);
 }
 
+export type SortDirection = 'asc' | 'desc';
+
+export function sortTableRows<Row extends Record<string, unknown>>(
+	rows: Row[],
+	column: string,
+	direction: SortDirection,
+): Row[] {
+	const factor = direction === 'asc' ? 1 : -1;
+	return [...rows].sort((a, b) => {
+		const left = a[column];
+		const right = b[column];
+		const leftIsNull = left === null || left === undefined;
+		const rightIsNull = right === null || right === undefined;
+		if (leftIsNull && rightIsNull) {
+			return 0;
+		}
+		if (leftIsNull) {
+			return 1;
+		}
+		if (rightIsNull) {
+			return -1;
+		}
+		return factor * compareCellValues(left, right);
+	});
+}
+
+function compareCellValues(left: unknown, right: unknown): number {
+	if (typeof left === 'number' && typeof right === 'number') {
+		return left - right;
+	}
+	if (typeof left === 'boolean' && typeof right === 'boolean') {
+		return left === right ? 0 : left ? 1 : -1;
+	}
+	if (typeof left === 'string' && typeof right === 'string') {
+		if (isIsoDateLike(left) && isIsoDateLike(right)) {
+			return new Date(left).getTime() - new Date(right).getTime();
+		}
+		return left.localeCompare(right, undefined, { numeric: true, sensitivity: 'base' });
+	}
+	return String(left).localeCompare(String(right), undefined, { numeric: true, sensitivity: 'base' });
+}
+
 export function formatColumnLabel(column: string): string {
 	return column
 		.replace(/_/g, ' ')
