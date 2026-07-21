@@ -52,20 +52,42 @@ export function sortTableRows<Row extends Record<string, unknown>>(
 	});
 }
 
+const enum ValueRank {
+	Number = 0,
+	Boolean = 1,
+	Date = 2,
+	Text = 3,
+}
+
 function compareCellValues(left: unknown, right: unknown): number {
-	if (typeof left === 'number' && typeof right === 'number') {
-		return left - right;
+	const leftRank = valueRank(left);
+	const rightRank = valueRank(right);
+	if (leftRank !== rightRank) {
+		return leftRank - rightRank;
 	}
-	if (typeof left === 'boolean' && typeof right === 'boolean') {
-		return left === right ? 0 : left ? 1 : -1;
+	switch (leftRank) {
+		case ValueRank.Number:
+			return (left as number) - (right as number);
+		case ValueRank.Boolean:
+			return left === right ? 0 : left ? 1 : -1;
+		case ValueRank.Date:
+			return new Date(left as string).getTime() - new Date(right as string).getTime();
+		default:
+			return String(left).localeCompare(String(right), undefined, { numeric: true, sensitivity: 'base' });
 	}
-	if (typeof left === 'string' && typeof right === 'string') {
-		if (isIsoDateLike(left) && isIsoDateLike(right)) {
-			return new Date(left).getTime() - new Date(right).getTime();
-		}
-		return left.localeCompare(right, undefined, { numeric: true, sensitivity: 'base' });
+}
+
+function valueRank(value: unknown): ValueRank {
+	if (typeof value === 'number') {
+		return ValueRank.Number;
 	}
-	return String(left).localeCompare(String(right), undefined, { numeric: true, sensitivity: 'base' });
+	if (typeof value === 'boolean') {
+		return ValueRank.Boolean;
+	}
+	if (typeof value === 'string' && isIsoDateLike(value)) {
+		return ValueRank.Date;
+	}
+	return ValueRank.Text;
 }
 
 export function formatColumnLabel(column: string): string {
