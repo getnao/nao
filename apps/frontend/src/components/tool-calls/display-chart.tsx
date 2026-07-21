@@ -315,6 +315,7 @@ export interface ChartDisplayProps {
 	title?: string;
 	titleStyle?: 'default' | 'left';
 	titleAccessory?: React.ReactNode;
+	showLegend?: boolean;
 	showGrid?: boolean;
 	yAxisMin?: number;
 	yAxisMax?: number;
@@ -335,6 +336,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 	title,
 	titleStyle = 'default',
 	titleAccessory,
+	showLegend = true,
 	showGrid = true,
 	yAxisMin,
 	yAxisMax,
@@ -463,7 +465,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 							/>
 						}
 					/>,
-					chartType !== 'kpi_card' && !useInlineHeader && (
+					showLegend && chartType !== 'kpi_card' && !useInlineHeader && (
 						<ChartLegend
 							key='legend'
 							payload={legendPayload}
@@ -501,17 +503,18 @@ export const ChartDisplay = memo(function ChartDisplay({
 			handleToggleSeriesVisibility,
 			title,
 			isPercentStacked,
+			showLegend,
 			useInlineHeader,
 		],
 	);
 
 	const inlineHeader = useInlineHeader ? (
 		<div className='mb-6 flex w-full min-w-0 items-center gap-3'>
-			<div className='min-h-11 shrink-0'>
+			<div className={showLegend ? 'min-h-11 shrink-0' : 'shrink-0'}>
 				<span className='block text-[15px] font-semibold'>{title}</span>
 				{titleAccessory}
 			</div>
-			{canScrollLeft && (
+			{showLegend && canScrollLeft && (
 				<Button
 					variant='ghost-muted'
 					size='icon-xs'
@@ -522,18 +525,20 @@ export const ChartDisplay = memo(function ChartDisplay({
 					<ChevronLeft className='size-3.5' />
 				</Button>
 			)}
-			<div
-				ref={scrollRef}
-				className='min-w-0 flex-1 overflow-x-auto pl-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden'
-			>
-				<ChartLegendContent
-					payload={legendPayload}
-					align='right'
-					onItemClick={handleToggleSeriesVisibility}
-					className='w-max min-w-full gap-3 p-0 text-[10px] [&>*]:shrink-0'
-				/>
-			</div>
-			{canScrollRight && (
+			{showLegend && (
+				<div
+					ref={scrollRef}
+					className='min-w-0 flex-1 overflow-x-auto pl-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden'
+				>
+					<ChartLegendContent
+						payload={legendPayload}
+						align='right'
+						onItemClick={handleToggleSeriesVisibility}
+						className='w-max min-w-full gap-3 p-0 text-[10px] [&>*]:shrink-0'
+					/>
+				</div>
+			)}
+			{showLegend && canScrollRight && (
 				<Button
 					variant='ghost-muted'
 					size='icon-xs'

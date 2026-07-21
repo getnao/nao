@@ -86,8 +86,8 @@ export function ChatsReplayPage({
 	});
 
 	return (
-		<div className='flex flex-1 w-full min-h-0'>
-			<div className='w-full flex-1 min-w-0 min-h-0 flex flex-col transition-all duration-200 gap-3'>
+		<div className='flex h-full flex-1 w-full min-h-0 overflow-hidden'>
+			<div className='w-full h-full flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden'>
 				<ChatsReplayTable table={table} onRowClick={(chat) => onOpenChat(chat.id)} />
 			</div>
 		</div>

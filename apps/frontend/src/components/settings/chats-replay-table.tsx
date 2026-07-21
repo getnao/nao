@@ -17,10 +17,10 @@ export function ChatsReplayTable({ table, onRowClick }: ChatsReplayTableProps) {
 	const edgeCellClassName = 'first:pl-4 first:md:pl-8 last:pr-4 last:md:pr-8';
 
 	return (
-		<div className='flex flex-col flex-1 min-h-0'>
-			<div className='flex-1 min-h-0 overflow-auto'>
+		<div className='flex h-full flex-col flex-1 min-h-0 overflow-hidden'>
+			<div className='flex-1 min-h-0 overflow-auto overscroll-contain'>
 				<table className='w-full min-w-[900px] caption-bottom text-sm'>
-					<TableHeader className='sticky top-0 z-10 border-t border-border'>
+					<TableHeader className='sticky top-0 z-10 bg-panel shadow-[inset_0_1px_0_var(--border),inset_0_-1px_0_var(--border)] [&_tr]:border-b-0'>
 						{table.getHeaderGroups().map((headerGroup) => (
 							<TableRow key={headerGroup.id}>
 								{headerGroup.headers.map((header) => (

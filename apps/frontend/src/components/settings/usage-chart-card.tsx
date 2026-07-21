@@ -13,6 +13,7 @@ export interface UsageChartCardProps {
 	xAxisLabelFormatter?: (value: string) => string;
 	valueFormatter?: (value: number) => string;
 	titleAccessory?: ReactNode;
+	showLegend?: boolean;
 }
 
 export function UsageChartCard({
@@ -26,9 +27,10 @@ export function UsageChartCard({
 	xAxisLabelFormatter,
 	valueFormatter,
 	titleAccessory,
+	showLegend,
 }: UsageChartCardProps) {
 	return (
-		<>
+		<div className='h-full min-w-0 rounded-xl p-4'>
 			{isError ? (
 				<div className='flex items-center justify-center py-12'>
 					<p className='text-muted-foreground'>Error loading usage data.</p>
@@ -54,6 +56,7 @@ export function UsageChartCard({
 						valueFormatter={valueFormatter}
 						series={series}
 						titleAccessory={titleAccessory}
+						showLegend={showLegend}
 						showGrid={true}
 						chartContainerClassName={
 							chartType === 'kpi_card'
@@ -66,6 +69,6 @@ export function UsageChartCard({
 					/>
 				</div>
 			)}
-		</>
+		</div>
 	);
 }

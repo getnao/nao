@@ -36,6 +36,14 @@ const costSeries = [
 	{ data_key: 'outputCost', color: 'var(--chart-4)', label: 'Output' },
 ];
 
+const messageSeries = [
+	{ data_key: 'webMessageCount', color: 'var(--chart-1)', label: 'Web' },
+	{ data_key: 'slackMessageCount', color: 'var(--chart-2)', label: 'Slack' },
+	{ data_key: 'teamsMessageCount', color: 'var(--chart-3)', label: 'Teams' },
+	{ data_key: 'telegramMessageCount', color: 'var(--chart-4)', label: 'Telegram' },
+	{ data_key: 'whatsappMessageCount', color: 'var(--chart-5)', label: 'WhatsApp' },
+] as const;
+
 function UsagePage() {
 	const usageSearch = Route.useSearch();
 	const navigate = useNavigate();
@@ -107,6 +115,10 @@ function UsageOverview({
 	const chartData = messagesUsage.data ?? [];
 	const totalUsageChartData = totalUsage.data ? [totalUsage.data] : [];
 	const showCost = tokenView === 'dollars';
+	const activeMessageSeries = messageSeries.filter(({ data_key }) =>
+		chartData.some((record) => record[data_key] > 0),
+	);
+	const showMessageLegend = activeMessageSeries.some(({ data_key }) => data_key !== 'webMessageCount');
 
 	const filtersComponent = (
 		<UsageFilters
@@ -126,9 +138,9 @@ function UsageOverview({
 	);
 
 	return (
-		<div className='overflow-auto flex-1 min-h-0'>
-			<div className='flex flex-col w-full min-h-full gap-12'>
-				<div className='flex flex-col w-full gap-12 px-4 md:p-8'>
+		<div className='flex flex-1 min-h-0 overflow-auto xl:overflow-hidden'>
+			<div className='flex min-h-0 w-full flex-col xl:h-full'>
+				<div className='flex flex-col w-full gap-2 px-4 md:p-8 xl:shrink-0'>
 					{filtersComponent}
 
 					<div className='grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-[1fr_3fr_3fr] gap-2'>
@@ -158,13 +170,8 @@ function UsageOverview({
 							titleAccessory={
 								<span className='text-xs text-muted-foreground'>Number of messages by source</span>
 							}
-							series={[
-								{ data_key: 'webMessageCount', color: 'var(--chart-1)', label: 'Web' },
-								{ data_key: 'slackMessageCount', color: 'var(--chart-2)', label: 'Slack' },
-								{ data_key: 'teamsMessageCount', color: 'var(--chart-3)', label: 'Teams' },
-								{ data_key: 'telegramMessageCount', color: 'var(--chart-4)', label: 'Telegram' },
-								{ data_key: 'whatsappMessageCount', color: 'var(--chart-5)', label: 'WhatsApp' },
-							]}
+							series={activeMessageSeries}
+							showLegend={showMessageLegend}
 						/>
 
 						<UsageChartCard
@@ -200,7 +207,7 @@ function UsageOverview({
 					</div>
 				</div>
 
-				<section className='flex flex-1 flex-col w-full min-h-0'>
+				<section className='flex min-h-[400px] flex-1 flex-col w-full overflow-hidden xl:min-h-0'>
 					<ChatsReplayPage
 						selectedUserNames={users}
 						selectedFeedbackStates={feedback}
