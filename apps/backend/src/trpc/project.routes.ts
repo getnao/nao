@@ -502,7 +502,7 @@ export const projectRoutes = {
 	regenerateMessagingProviderCode: adminProtectedProcedure
 		.input(z.object({ userId: z.string() }))
 		.mutation(async ({ ctx, input }) => {
-			const members = await projectQueries.listAllUsersWithRoles(ctx.project.id);
+			const members = await projectQueries.listProjectMembersWithRoles(ctx.project.id);
 			const isMember = members.some((m) => m.id === input.userId);
 			if (!isMember) {
 				throw new TRPCError({ code: 'FORBIDDEN', message: 'User is not a member of this project' });
@@ -627,7 +627,7 @@ export const projectRoutes = {
 		if (!ctx.project) {
 			return [];
 		}
-		return projectQueries.listAllUsersWithRoles(ctx.project.id);
+		return projectQueries.listProjectMembersWithRoles(ctx.project.id);
 	}),
 
 	getProjectMembersByChatId: protectedProcedure
@@ -641,7 +641,7 @@ export const projectRoutes = {
 			if (!role) {
 				throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this project.' });
 			}
-			return projectQueries.listProjectAccessibleUsersWithRoles(projectId);
+			return projectQueries.listUsersWithProjectAccess(projectId);
 		}),
 
 	getKnownModels: publicProcedure.query(() => {

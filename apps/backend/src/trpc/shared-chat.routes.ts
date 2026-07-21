@@ -134,7 +134,7 @@ export const sharedChatRoutes = {
 				throw new TRPCError({ code: 'FORBIDDEN', message: 'Only the creator or an admin can update this.' });
 			}
 
-			const accessibleUsers = await projectQueries.listProjectAccessibleUsersWithRoles(ctx.resource.projectId);
+			const accessibleUsers = await projectQueries.listUsersWithProjectAccess(ctx.resource.projectId);
 			const accessibleUserIds = new Set(accessibleUsers.map((m) => m.id));
 			const validUserIds = input.allowedUserIds.filter((id) => accessibleUserIds.has(id));
 			if (input.allowedUserIds.length > 0 && validUserIds.length === 0) {

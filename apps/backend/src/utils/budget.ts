@@ -70,7 +70,7 @@ async function notifyAdminsOnBudgetLimitReached(
 		return;
 	}
 
-	const allMembers = await projectQueries.listAllUsersWithRoles(projectId);
+	const allMembers = await projectQueries.listProjectMembersWithRoles(projectId);
 	const admins = allMembers.filter((m) => m.role === 'admin');
 	if (admins.length === 0) {
 		return;

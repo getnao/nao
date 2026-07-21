@@ -6,8 +6,8 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vites
 
 import { db as appDb } from '../src/db/db';
 import * as sqliteSchema from '../src/db/sqlite-schema';
-import { orgMember, organization, project, projectMember, user } from '../src/db/sqlite-schema';
-import { listAllUsersWithRoles, listProjectAccessibleUsersWithRoles } from '../src/queries/project.queries';
+import { organization, orgMember, project, projectMember, user } from '../src/db/sqlite-schema';
+import { listProjectMembersWithRoles, listUsersWithProjectAccess } from '../src/queries/project.queries';
 
 vi.mock('../src/db/db', async () => {
 	const { drizzle } = await import('drizzle-orm/better-sqlite3');
@@ -70,7 +70,7 @@ describe('project accessible users', () => {
 	});
 
 	it('includes org members alongside direct project members, project role wins', async () => {
-		const users = await listProjectAccessibleUsersWithRoles('pau-proj');
+		const users = await listUsersWithProjectAccess('pau-proj');
 		const rolesById = new Map(users.map(({ id, role }) => [id, role]));
 
 		expect([...rolesById.keys()].sort()).toEqual(['pau-both', 'pau-ctx', 'pau-direct', 'pau-org-only']);
@@ -81,13 +81,13 @@ describe('project accessible users', () => {
 	});
 
 	it('team listing still excludes org-only members', async () => {
-		const teamUsers = await listAllUsersWithRoles('pau-proj');
+		const teamUsers = await listProjectMembersWithRoles('pau-proj');
 
 		expect(teamUsers.map(({ id }) => id).sort()).toEqual(['pau-both', 'pau-ctx', 'pau-direct']);
 	});
 
 	it('self-hosted project without org returns only direct members', async () => {
-		const soloUsers = await listProjectAccessibleUsersWithRoles('pau-solo');
+		const soloUsers = await listUsersWithProjectAccess('pau-solo');
 
 		expect(soloUsers.map(({ id }) => id).sort()).toEqual(['pau-direct']);
 	});
