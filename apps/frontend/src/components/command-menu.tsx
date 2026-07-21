@@ -1,6 +1,14 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { MessageSquareIcon, MessageSquarePlusIcon, MoonIcon, SunIcon, UserIcon } from 'lucide-react';
+import {
+	BookOpenIcon,
+	KeyboardIcon,
+	MessageSquareIcon,
+	MessageSquarePlusIcon,
+	MoonIcon,
+	SunIcon,
+	UserIcon,
+} from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
 import {
@@ -18,6 +26,7 @@ import { useSearchChatsQuery } from '@/queries/use-search-chats-query';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { usePermissions } from '@/hooks/use-permissions';
 import { TextShimmer } from '@/components/ui/text-shimmer';
+import { getShortcutLabel } from '@/lib/keyboard-shortcuts';
 
 type CommandConfig = {
 	id: string;
@@ -30,7 +39,7 @@ type CommandConfig = {
 	visible?: boolean;
 };
 
-export function CommandMenu() {
+export function CommandMenu({ onOpenKeyboardShortcuts }: { onOpenKeyboardShortcuts: () => void }) {
 	const [open, setOpen] = useState(false);
 	const [searchValue, setSearchValue] = useState('');
 	const debouncedSearch = useDebouncedValue(searchValue, 300);
@@ -57,9 +66,18 @@ export function CommandMenu() {
 				keywords: ['start chat', 'new conversation'],
 				icon: MessageSquarePlusIcon,
 				action: () => navigate({ to: '/' }),
-				shortcut: '⇧⌘O',
+				shortcut: getShortcutLabel('new-chat'),
 				group: 'Jump to',
 				visible: canStartNewChat,
+			},
+			{
+				id: 'go-to-stories',
+				label: 'Go to Stories',
+				keywords: ['stories'],
+				icon: BookOpenIcon,
+				action: () => navigate({ to: '/stories', search: { folderId: null } }),
+				shortcut: getShortcutLabel('go-to-stories'),
+				group: 'Jump to',
 			},
 			{
 				id: 'open-settings',
@@ -79,8 +97,17 @@ export function CommandMenu() {
 				},
 				group: 'Actions',
 			},
+			{
+				id: 'keyboard-help',
+				label: 'Keyboard shortcuts',
+				keywords: ['hotkeys', 'key bindings'],
+				icon: KeyboardIcon,
+				action: onOpenKeyboardShortcuts,
+				shortcut: getShortcutLabel('keyboard-help'),
+				group: 'Actions',
+			},
 		],
-		[navigate, theme, setTheme, canStartNewChat],
+		[navigate, theme, setTheme, canStartNewChat, onOpenKeyboardShortcuts],
 	);
 
 	const visibleCommands = useMemo(() => commands.filter((cmd) => cmd.visible ?? true), [commands]);
@@ -91,18 +118,6 @@ export function CommandMenu() {
 	const displayedCommands = isSearchMode ? filteredCommands : visibleCommands;
 	const jumpToCommands = displayedCommands.filter((cmd) => cmd.group === 'Jump to');
 	const actionCommands = displayedCommands.filter((cmd) => cmd.group === 'Actions');
-
-	useEffect(() => {
-		const handleKeyDown = (e: KeyboardEvent) => {
-			if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
-				e.preventDefault();
-				setOpen((prev) => !prev);
-			}
-		};
-
-		document.addEventListener('keydown', handleKeyDown);
-		return () => document.removeEventListener('keydown', handleKeyDown);
-	}, []);
 
 	const handleOpenChange = useCallback((isOpen: boolean) => {
 		setOpen(isOpen);

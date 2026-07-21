@@ -30,6 +30,7 @@ import { useChatViewPreferences } from '@/hooks/use-chat-view-preferences';
 import { useSidebarSectionOpen } from '@/hooks/use-sidebar-section-open';
 import { useTimeAgo } from '@/hooks/use-time-ago';
 import { getActiveProjectId, setActiveProjectId } from '@/lib/active-project';
+import { getShortcutLabel } from '@/lib/keyboard-shortcuts';
 import { cn, hideIf } from '@/lib/utils';
 import { trpc } from '@/main';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -96,21 +97,6 @@ export function Sidebar() {
 			closeMobile();
 		}
 	}, [openCommandMenu, isMobile, closeMobile]);
-
-	useEffect(() => {
-		const handleKeyDown = (e: KeyboardEvent) => {
-			if (isViewer) {
-				return;
-			}
-			if (e.shiftKey && e.metaKey && e.key.toLowerCase() === 'o') {
-				e.preventDefault();
-				handleNavigateHome();
-			}
-		};
-
-		window.addEventListener('keydown', handleKeyDown);
-		return () => window.removeEventListener('keydown', handleKeyDown);
-	}, [handleNavigateHome, isViewer]);
 
 	useEffect(() => {
 		if (!project.data?.id) {
@@ -203,7 +189,7 @@ export function Sidebar() {
 								<SidebarMenuButton
 									icon={PlusIcon}
 									label='New chat'
-									shortcut='⇧⌘O'
+									shortcut={getShortcutLabel('new-chat')}
 									isCollapsed={effectiveIsCollapsed}
 									onClick={handleNavigateHome}
 								/>
@@ -211,14 +197,14 @@ export function Sidebar() {
 							<SidebarMenuButton
 								icon={SearchIcon}
 								label='Search chats'
-								shortcut='⌘K'
+								shortcut={getShortcutLabel('command-menu')}
 								isCollapsed={effectiveIsCollapsed}
 								onClick={handleSearchChats}
 							/>
 							<SidebarMenuButton
 								icon={StoryIcon as unknown as LucideIcon}
 								label='Stories'
-								shortcut=''
+								shortcut={getShortcutLabel('go-to-stories')}
 								isCollapsed={effectiveIsCollapsed}
 								onClick={handleNavigateStories}
 							/>

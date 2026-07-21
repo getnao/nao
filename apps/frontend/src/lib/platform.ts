@@ -1,0 +1,67 @@
+export type Shortcut = {
+	mod?: boolean;
+	shift?: boolean;
+	alt?: boolean;
+	key: string;
+};
+
+export const isMac =
+	typeof navigator !== 'undefined' &&
+	(navigator.platform.includes('Mac') || /Mac|iPhone|iPad|iPod/i.test(navigator.userAgent));
+
+export function formatShortcut(shortcut: Shortcut): string[] {
+	const tokens: string[] = [];
+
+	if (isMac) {
+		if (shortcut.alt) {
+			tokens.push('⌥');
+		}
+		if (shortcut.shift) {
+			tokens.push('⇧');
+		}
+		if (shortcut.mod) {
+			tokens.push('⌘');
+		}
+	} else {
+		if (shortcut.mod) {
+			tokens.push('Ctrl');
+		}
+		if (shortcut.alt) {
+			tokens.push('Alt');
+		}
+		if (shortcut.shift) {
+			tokens.push('Shift');
+		}
+	}
+
+	tokens.push(formatKey(shortcut.key));
+	return tokens;
+}
+
+export function formatShortcutLabel(shortcut: Shortcut): string {
+	return formatShortcut(shortcut).join(isMac ? '' : '+');
+}
+
+export function matchesShortcut(event: KeyboardEvent, shortcut: Shortcut): boolean {
+	const modPressed = event.metaKey || event.ctrlKey;
+
+	if (modPressed !== Boolean(shortcut.mod)) {
+		return false;
+	}
+	if (event.shiftKey !== Boolean(shortcut.shift) || event.altKey !== Boolean(shortcut.alt)) {
+		return false;
+	}
+
+	if (shortcut.key === '/') {
+		return event.code === 'Slash' || event.key === '/';
+	}
+
+	return event.key.toLowerCase() === shortcut.key.toLowerCase();
+}
+
+function formatKey(key: string): string {
+	if (key.toLowerCase() === 'escape') {
+		return 'Esc';
+	}
+	return key.length === 1 ? key.toUpperCase() : key;
+}
