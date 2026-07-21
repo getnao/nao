@@ -509,7 +509,7 @@ function GridBlockView({ node, updateAttributes, getPos, editor }: ReactNodeView
 		const { children, spans } = parseGridColumns(gridMatch[2]);
 		return {
 			segments: children,
-			cols: parseInt(attrs.cols || '2', 10),
+			cols: parseInt(attrs.cols || String(children.length || 1), 10),
 			widths:
 				attrs.widths !== undefined
 					? resolveGridWidths(attrs.widths, children.length)

@@ -66,17 +66,15 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({
 
 	if (!sourceData?.data || sourceData.data.length === 0) {
 		return (
-			<div className='my-2 rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground'>
+			<StoryChartEmbedFallback dragHandle={dragHandle}>
 				Chart data unavailable (query: {chart.queryId})
-			</div>
+			</StoryChartEmbedFallback>
 		);
 	}
 
 	if (chart.series.length === 0) {
 		return (
-			<div className='my-2 rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground'>
-				No series configured for chart
-			</div>
+			<StoryChartEmbedFallback dragHandle={dragHandle}>No series configured for chart</StoryChartEmbedFallback>
 		);
 	}
 
@@ -99,6 +97,23 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({
 		</StoryChartEmbedShell>
 	);
 });
+
+function StoryChartEmbedFallback({
+	dragHandle,
+	children,
+}: {
+	dragHandle?: React.ReactNode;
+	children: React.ReactNode;
+}) {
+	return (
+		<div className='my-2 flex flex-col gap-1'>
+			{dragHandle != null && <div className='flex justify-end'>{dragHandle}</div>}
+			<div className='rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground'>
+				{children}
+			</div>
+		</div>
+	);
+}
 
 interface StoryChartEmbedShellProps {
 	chart: ChartBlock;

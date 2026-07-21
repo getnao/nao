@@ -150,5 +150,6 @@ export const useStoryViewerVersionActions = ({
 	return {
 		handleSave,
 		handleRestore,
+		isSaving: createVersionMutation.isPending,
 	};
 };

@@ -61,6 +61,7 @@ export interface StoryHeaderProps {
 	onEnlarge: () => void;
 	isShared: boolean;
 	isAgentRunning: boolean;
+	isSaving?: boolean;
 	isReadonlyMode: boolean;
 	isLive: boolean;
 	isRefreshing: boolean;
@@ -95,6 +96,7 @@ export const StoryHeader = memo(function StoryHeader({
 	onEnlarge,
 	isShared,
 	isAgentRunning,
+	isSaving = false,
 	isReadonlyMode,
 	isLive,
 	isRefreshing,
@@ -203,6 +205,7 @@ export const StoryHeader = memo(function StoryHeader({
 			shareType={shareType ?? undefined}
 			isOwner={!isReadonlyMode}
 			isAgentRunning={isAgentRunning}
+			isSaving={isSaving}
 			versionNumber={versionNumber}
 		/>
 	);
