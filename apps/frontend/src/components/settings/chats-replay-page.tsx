@@ -4,6 +4,7 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { getCoreRowModel, useReactTable } from '@tanstack/react-table';
 import type { PaginationState, SortingState } from '@tanstack/react-table';
 
+import type { UsageSource } from '@nao/backend/usage';
 import type { ChatReplayFeedbackState, ChatReplayToolState } from '@nao/shared/types';
 import { getChatsReplayColumns } from '@/components/settings/chats-replay-columns';
 import { ChatsReplayTable } from '@/components/settings/chats-replay-table';
@@ -13,11 +14,12 @@ type ChatsReplayPageProps = {
 	selectedUserNames: string[] | undefined;
 	selectedFeedbackStates: ChatReplayFeedbackState[] | undefined;
 	selectedToolStates: ChatReplayToolState[] | undefined;
+	selectedSources: UsageSource[] | undefined;
 	onOpenChat: (chatId: string) => void;
 };
 
 type ProjectChatsFilter = {
-	id: 'userName' | 'feedback' | 'toolState';
+	id: 'userName' | 'feedback' | 'toolState' | 'source';
 	values: string[];
 };
 
@@ -25,6 +27,7 @@ export function ChatsReplayPage({
 	selectedUserNames,
 	selectedFeedbackStates,
 	selectedToolStates,
+	selectedSources,
 	onOpenChat,
 }: ChatsReplayPageProps) {
 	const [sorting, setSorting] = useState<SortingState>([]);
@@ -36,7 +39,7 @@ export function ChatsReplayPage({
 
 	useEffect(() => {
 		setPagination((current) => ({ ...current, pageIndex: 0 }));
-	}, [selectedFeedbackStates, selectedToolStates, selectedUserNames]);
+	}, [selectedFeedbackStates, selectedSources, selectedToolStates, selectedUserNames]);
 
 	const queryInput = useMemo(() => {
 		const filters: ProjectChatsFilter[] = [];
@@ -49,6 +52,9 @@ export function ChatsReplayPage({
 		if (selectedToolStates?.length) {
 			filters.push({ id: 'toolState', values: selectedToolStates });
 		}
+		if (selectedSources?.length) {
+			filters.push({ id: 'source', values: selectedSources });
+		}
 
 		return {
 			page: pagination.pageIndex,
@@ -60,6 +66,7 @@ export function ChatsReplayPage({
 		pagination.pageIndex,
 		pagination.pageSize,
 		selectedFeedbackStates,
+		selectedSources,
 		selectedToolStates,
 		selectedUserNames,
 		sorting,

@@ -1,6 +1,7 @@
-import { ThumbsUp, Users, Wrench } from 'lucide-react';
+import { Radio, ThumbsUp, Users, Wrench } from 'lucide-react';
 import { CHAT_REPLAY_FEEDBACK_STATES, CHAT_REPLAY_TOOL_STATES, providerLabels } from '@nao/shared/types';
-import type { Granularity } from '@nao/backend/usage';
+import { USAGE_SOURCES } from '@nao/backend/usage';
+import type { Granularity, UsageSource } from '@nao/backend/usage';
 import type {
 	ChatReplayFeedbackState,
 	ChatReplayToolState,
@@ -53,6 +54,8 @@ interface UsageFiltersProps {
 	onSelectedFeedbackStatesChange: (value: ChatReplayFeedbackState[] | undefined) => void;
 	selectedToolStates: ChatReplayToolState[] | undefined;
 	onSelectedToolStatesChange: (value: ChatReplayToolState[] | undefined) => void;
+	selectedSources: UsageSource[] | undefined;
+	onSelectedSourcesChange: (value: UsageSource[] | undefined) => void;
 }
 
 export function UsageFilters({
@@ -68,6 +71,8 @@ export function UsageFilters({
 	onSelectedFeedbackStatesChange,
 	selectedToolStates,
 	onSelectedToolStatesChange,
+	selectedSources,
+	onSelectedSourcesChange,
 }: UsageFiltersProps) {
 	const period = periodByGranularity[granularity];
 	const userOptions = (chatFacets?.userNames ?? []).map((name) => ({
@@ -83,6 +88,10 @@ export function UsageFilters({
 	const feedbackOptions = CHAT_REPLAY_FEEDBACK_STATES.map((value) => ({
 		value,
 		label: feedbackStateLabels[value],
+	}));
+	const sourceOptions = USAGE_SOURCES.map((value) => ({
+		value,
+		label: sourceLabels[value],
 	}));
 
 	return (
@@ -121,6 +130,13 @@ export function UsageFilters({
 				</SelectContent>
 			</Select>
 
+			<MultiSelectFilter
+				label='Source'
+				icon={Radio}
+				options={sourceOptions}
+				selectedValues={selectedSources}
+				onChange={onSelectedSourcesChange}
+			/>
 			<MultiSelectFilter
 				label='Users'
 				icon={Users}
@@ -170,6 +186,16 @@ const feedbackStateLabels: Record<ChatReplayFeedbackState, string> = {
 	noVotes: 'No votes',
 	upvotes: 'Upvotes',
 	downvotes: 'Downvotes',
+};
+
+const sourceLabels: Record<UsageSource, string> = {
+	web: 'Web',
+	slack: 'Slack',
+	teams: 'Teams',
+	telegram: 'Telegram',
+	whatsapp: 'WhatsApp',
+	admin: 'Admin mode',
+	mcp: 'MCP',
 };
 
 function MultiSelectFilter<T extends string>({

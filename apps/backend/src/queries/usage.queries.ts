@@ -5,7 +5,7 @@ import { LLM_PROVIDERS } from '../agents/providers';
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
-import type { Granularity, TotalUsageRecord, UsageFilter, UsageRecord } from '../types/usage';
+import type { Granularity, TotalUsageRecord, UsageFilter, UsageRecord, UsageSource } from '../types/usage';
 import { fillMissingDates, getLookbackTimestamp } from '../utils/date';
 import * as projectLlmConfigQueries from './project-llm-config.queries';
 
@@ -76,6 +76,19 @@ const MESSAGE_USAGE_PROVIDER_EXPR = sql<LlmProvider | null>`case
 	else ${s.chatMessage.llmProvider}
 end`;
 
+const MESSAGE_USAGE_SOURCE_EXPR = sql<UsageSource | null>`case
+	when ${s.chatMessage.role} = 'assistant' then (
+		select source_message.source
+		from chat_message as source_message
+		where source_message.chat_id = ${s.chatMessage.chatId}
+			and source_message.role = 'user'
+			and source_message.created_at <= ${s.chatMessage.createdAt}
+		order by source_message.created_at desc
+		limit 1
+	)
+	else ${s.chatMessage.source}
+end`;
+
 export const getMessagesUsage = async (projectId: string, filter: UsageFilter): Promise<UsageRecord[]> => {
 	const { granularity, provider } = filter;
 	const dateExpr = getDateExpr(s.chatMessage.createdAt, granularity);
@@ -90,6 +103,7 @@ export const getMessagesUsage = async (projectId: string, filter: UsageFilter): 
 		whereConditions.push(sql`${MESSAGE_USAGE_PROVIDER_EXPR} = ${provider}`);
 	}
 	addUserNameFilter(whereConditions, filter.userNames);
+	addSourceFilter(whereConditions, filter.sources);
 
 	const costLookup = await createCostLookup(projectId);
 
@@ -102,6 +116,8 @@ export const getMessagesUsage = async (projectId: string, filter: UsageFilter): 
 			teamsMessageCount: sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' and ${s.chatMessage.source} = 'teams' then ${s.chatMessage.id} end)`,
 			telegramMessageCount: sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' and ${s.chatMessage.source} = 'telegram' then ${s.chatMessage.id} end)`,
 			whatsappMessageCount: sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' and ${s.chatMessage.source} = 'whatsapp' then ${s.chatMessage.id} end)`,
+			adminMessageCount: sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' and ${s.chatMessage.source} = 'admin' then ${s.chatMessage.id} end)`,
+			mcpMessageCount: sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' and ${s.chatMessage.source} = 'mcp' then ${s.chatMessage.id} end)`,
 			inputNoCacheTokens: sum(s.chatMessage.inputNoCacheTokens),
 			inputCacheReadTokens: sum(s.chatMessage.inputCacheReadTokens),
 			inputCacheWriteTokens: sum(s.chatMessage.inputCacheWriteTokens),
@@ -128,6 +144,8 @@ export const getMessagesUsage = async (projectId: string, filter: UsageFilter): 
 			teamsMessageCount: row.teamsMessageCount,
 			telegramMessageCount: row.telegramMessageCount,
 			whatsappMessageCount: row.whatsappMessageCount,
+			adminMessageCount: row.adminMessageCount,
+			mcpMessageCount: row.mcpMessageCount,
 			inputNoCacheTokens: Number(row.inputNoCacheTokens ?? 0),
 			inputCacheReadTokens: Number(row.inputCacheReadTokens ?? 0),
 			inputCacheWriteTokens: Number(row.inputCacheWriteTokens ?? 0),
@@ -160,6 +178,7 @@ export const getTotalUsage = async (projectId: string, filter: UsageFilter): Pro
 		whereConditions.push(sql`${MESSAGE_USAGE_PROVIDER_EXPR} = ${provider}`);
 	}
 	addUserNameFilter(whereConditions, filter.userNames);
+	addSourceFilter(whereConditions, filter.sources);
 
 	const rows = await db
 		.select({
@@ -195,6 +214,17 @@ function addUserNameFilter(whereConditions: SQL<unknown>[], userNames: string[] 
 	}
 
 	const expr = or(...names.map((name) => eq(s.user.name, name)));
+	if (expr) {
+		whereConditions.push(expr);
+	}
+}
+
+function addSourceFilter(whereConditions: SQL<unknown>[], sources: UsageSource[] | undefined) {
+	if (!sources?.length) {
+		return;
+	}
+
+	const expr = or(...sources.map((source) => eq(MESSAGE_USAGE_SOURCE_EXPR, source)));
 	if (expr) {
 		whereConditions.push(expr);
 	}

@@ -837,7 +837,7 @@ export const projectRoutes = {
 				filters: z
 					.array(
 						z.object({
-							id: z.enum(['userName', 'userRole', 'toolState', 'feedback']),
+							id: z.enum(['userName', 'userRole', 'toolState', 'feedback', 'source']),
 							values: z.array(z.string()).default([]),
 						}),
 					)

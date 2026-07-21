@@ -131,6 +131,7 @@ export type ProjectChatListItem = {
 	userName: string;
 	userRole: UserRole | null;
 	title: string;
+	source: string | null;
 	numberOfMessages: number;
 	totalTokens: number;
 	feedbackText: string;

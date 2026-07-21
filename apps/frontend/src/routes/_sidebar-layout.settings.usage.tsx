@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { createFileRoute, Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { format } from 'date-fns';
@@ -5,7 +6,7 @@ import type { TokenChartDisplayMode, UsageRouteSearch } from '@/components/setti
 import { ChatsReplayPage } from '@/components/settings/chats-replay-page';
 import { UsageChartCard } from '@/components/settings/usage-chart-card';
 import { UsageFilters, dateFormats } from '@/components/settings/usage-filters';
-import { validateUsageSearch } from '@/components/settings/usage-route-search';
+import { saveUsageFilters, validateUsageSearchWithStoredFilters } from '@/components/settings/usage-route-search';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { trpc } from '@/main';
 import { requireAdmin, requireContextAdminOrAdmin } from '@/lib/require-admin';
@@ -13,7 +14,7 @@ import { requireAdmin, requireContextAdminOrAdmin } from '@/lib/require-admin';
 export const Route = createFileRoute('/_sidebar-layout/settings/usage')({
 	beforeLoad: ({ location }) =>
 		location.pathname.startsWith('/settings/usage/replay/') ? requireContextAdminOrAdmin() : requireAdmin(),
-	validateSearch: validateUsageSearch,
+	validateSearch: validateUsageSearchWithStoredFilters,
 	component: UsagePage,
 });
 
@@ -42,6 +43,8 @@ const messageSeries = [
 	{ data_key: 'teamsMessageCount', color: 'var(--chart-3)', label: 'Teams' },
 	{ data_key: 'telegramMessageCount', color: 'var(--chart-4)', label: 'Telegram' },
 	{ data_key: 'whatsappMessageCount', color: 'var(--chart-5)', label: 'WhatsApp' },
+	{ data_key: 'adminMessageCount', color: 'var(--violet)', label: 'Admin mode' },
+	{ data_key: 'mcpMessageCount', color: 'var(--destructive)', label: 'MCP' },
 ] as const;
 
 function UsagePage() {
@@ -50,6 +53,10 @@ function UsagePage() {
 	const isReplayRoute = useRouterState({
 		select: (state) => state.location.pathname.startsWith('/settings/usage/replay/'),
 	});
+
+	useEffect(() => {
+		saveUsageFilters(usageSearch);
+	}, [usageSearch]);
 
 	if (isReplayRoute) {
 		return <Outlet />;
@@ -85,7 +92,7 @@ function UsageOverview({
 	onUpdateSearch: (next: Partial<UsageRouteSearch>) => void;
 	onOpenChatReplay: (chatId: string) => void;
 }) {
-	const { granularity, provider, users, feedback, tools, tokenView } = usageSearch;
+	const { granularity, provider, users, feedback, tools, sources, tokenView } = usageSearch;
 
 	const usedProviders = useQuery(trpc.usage.getUsedProviders.queryOptions());
 	const chatFacets = useQuery({
@@ -100,6 +107,7 @@ function UsageOverview({
 			granularity,
 			provider: provider === 'all' ? undefined : provider,
 			userNames: users,
+			sources,
 		}),
 		placeholderData: keepPreviousData,
 	});
@@ -108,6 +116,7 @@ function UsageOverview({
 			granularity,
 			provider: provider === 'all' ? undefined : provider,
 			userNames: users,
+			sources,
 		}),
 		placeholderData: keepPreviousData,
 	});
@@ -134,6 +143,8 @@ function UsageOverview({
 			onSelectedFeedbackStatesChange={(value) => onUpdateSearch({ feedback: value })}
 			selectedToolStates={tools}
 			onSelectedToolStatesChange={(value) => onUpdateSearch({ tools: value })}
+			selectedSources={sources}
+			onSelectedSourcesChange={(value) => onUpdateSearch({ sources: value })}
 		/>
 	);
 
@@ -212,6 +223,7 @@ function UsageOverview({
 						selectedUserNames={users}
 						selectedFeedbackStates={feedback}
 						selectedToolStates={tools}
+						selectedSources={sources}
 						onOpenChat={onOpenChatReplay}
 					/>
 				</section>

@@ -2,6 +2,7 @@ import { useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft } from 'lucide-react';
 import { formatDate } from 'date-fns';
+import type { ReactNode } from 'react';
 
 import { SidePanelProvider } from '@/contexts/side-panel';
 import { SidePanel } from '@/components/side-panel/side-panel';
@@ -20,9 +21,10 @@ import { useSession } from '@/lib/auth-client';
 type ChatsReplayPanelProps = {
 	chatId: string;
 	onBack: () => void;
+	metadataAction?: ReactNode;
 };
 
-export function ChatsReplayPanel({ chatId, onBack }: ChatsReplayPanelProps) {
+export function ChatsReplayPanel({ chatId, onBack, metadataAction }: ChatsReplayPanelProps) {
 	const scrollContainerRef = useRef<HTMLDivElement>(null);
 	const chatReplayQuery = useQuery(
 		trpc.project.getChatReplay.queryOptions(
@@ -69,9 +71,12 @@ export function ChatsReplayPanel({ chatId, onBack }: ChatsReplayPanelProps) {
 					</Button>
 					<div className='flex min-w-0 flex-col'>
 						<h2 className='truncate text-foreground font-semibold text-xl'>{title}</h2>
-						<span className='text-muted-foreground text-xs font-semibold'>
-							{updatedAt != null ? formatDate(new Date(updatedAt), 'yyyy-MM-dd') : '—'}
-						</span>
+						<div className='flex items-center gap-2'>
+							<span className='text-muted-foreground text-xs font-semibold'>
+								{updatedAt != null ? formatDate(new Date(updatedAt), 'yyyy-MM-dd') : '—'}
+							</span>
+							{metadataAction}
+						</div>
 					</div>
 				</div>
 				<div className='flex items-center gap-2'>

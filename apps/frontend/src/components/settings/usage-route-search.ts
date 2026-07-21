@@ -1,6 +1,8 @@
 import { CHAT_REPLAY_FEEDBACK_STATES, CHAT_REPLAY_TOOL_STATES, providerLabels } from '@nao/shared/types';
-import type { Granularity } from '@nao/backend/usage';
+import { USAGE_SOURCES } from '@nao/backend/usage';
+import type { Granularity, UsageSource } from '@nao/backend/usage';
 import type { ChatReplayFeedbackState, ChatReplayToolState, LlmProvider } from '@nao/shared/types';
+import { getActiveProjectId } from '@/lib/active-project';
 
 export type TokenChartDisplayMode = 'tokens' | 'dollars';
 
@@ -10,6 +12,7 @@ export type UsageRouteSearch = {
 	users: string[] | undefined;
 	feedback: ChatReplayFeedbackState[] | undefined;
 	tools: ChatReplayToolState[] | undefined;
+	sources: UsageSource[] | undefined;
 	tokenView: TokenChartDisplayMode;
 };
 
@@ -19,11 +22,35 @@ export const DEFAULT_USAGE_SEARCH: UsageRouteSearch = {
 	users: undefined,
 	feedback: undefined,
 	tools: undefined,
+	sources: undefined,
 	tokenView: 'tokens',
 };
 
 const granularities = ['hour', 'day', 'month'] as const satisfies readonly Granularity[];
 const tokenViews = ['tokens', 'dollars'] as const satisfies readonly TokenChartDisplayMode[];
+const filterSearchKeys = ['provider', 'granularity', 'users', 'feedback', 'tools', 'sources'] as const;
+const usageFiltersStorageKey = 'nao.usage-filters';
+
+export function validateUsageSearchWithStoredFilters(search: Record<string, unknown>): UsageRouteSearch {
+	const hasSearchFilters = filterSearchKeys.some((key) => search[key] !== undefined);
+	const storedFilters = hasSearchFilters ? {} : readStoredUsageFilters();
+
+	return validateUsageSearch({ ...storedFilters, ...search });
+}
+
+export function saveUsageFilters(search: UsageRouteSearch): void {
+	if (typeof window === 'undefined') {
+		return;
+	}
+
+	const filters = Object.fromEntries(filterSearchKeys.map((key) => [key, search[key]]));
+
+	try {
+		localStorage.setItem(getUsageFiltersStorageKey(), JSON.stringify(filters));
+	} catch {
+		return;
+	}
+}
 
 export function validateUsageSearch(search: Record<string, unknown>): UsageRouteSearch {
 	return {
@@ -32,8 +59,29 @@ export function validateUsageSearch(search: Record<string, unknown>): UsageRoute
 		users: parseStringArray(search.users),
 		feedback: parseArrayOf(search.feedback, CHAT_REPLAY_FEEDBACK_STATES),
 		tools: parseArrayOf(search.tools, CHAT_REPLAY_TOOL_STATES),
+		sources: parseArrayOf(search.sources, USAGE_SOURCES),
 		tokenView: parseOneOf(search.tokenView, tokenViews) ?? 'tokens',
 	};
+}
+
+function readStoredUsageFilters(): Record<string, unknown> {
+	if (typeof window === 'undefined') {
+		return {};
+	}
+
+	try {
+		const stored = localStorage.getItem(getUsageFiltersStorageKey());
+		const parsed = stored ? JSON.parse(stored) : null;
+		return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+			? (parsed as Record<string, unknown>)
+			: {};
+	} catch {
+		return {};
+	}
+}
+
+function getUsageFiltersStorageKey(): string {
+	return `${usageFiltersStorageKey}.${getActiveProjectId() ?? 'default'}`;
 }
 
 function parseProvider(value: unknown): LlmProvider | 'all' {

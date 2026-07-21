@@ -1,9 +1,24 @@
-import { CircleAlert, ThumbsDown, ThumbsUp } from 'lucide-react';
+import { CircleAlert, CircleHelp, Globe2, Shield, ThumbsDown, ThumbsUp } from 'lucide-react';
 import { differenceInDays, format, isToday, isYesterday } from 'date-fns';
 import type { ColumnDef } from '@tanstack/react-table';
 
 import type { ProjectChatListItem } from '@nao/shared/types';
 import { Badge } from '@/components/ui/badge';
+import McpIcon from '@/components/icons/model-context-protocol.svg';
+import TeamsIcon from '@/components/icons/microsoft-teams.svg';
+import SlackIcon from '@/components/icons/slack.svg';
+import TelegramIcon from '@/components/icons/telegram.svg';
+import WhatsAppIcon from '@/components/icons/whatsapp.svg';
+
+const sourceConfig = {
+	web: { label: 'Web', icon: <Globe2 className='size-3.5' /> },
+	slack: { label: 'Slack', icon: <SlackIcon className='size-3.5' /> },
+	teams: { label: 'Teams', icon: <TeamsIcon className='size-3.5' /> },
+	telegram: { label: 'Telegram', icon: <TelegramIcon className='size-3.5' /> },
+	whatsapp: { label: 'WhatsApp', icon: <WhatsAppIcon className='size-3.5' /> },
+	admin: { label: 'Admin mode', icon: <Shield className='size-3.5' /> },
+	mcp: { label: 'MCP', icon: <McpIcon className='size-3.5' /> },
+} as const;
 
 export function getChatsReplayColumns(): ColumnDef<ProjectChatListItem>[] {
 	return [
@@ -31,6 +46,25 @@ export function getChatsReplayColumns(): ColumnDef<ProjectChatListItem>[] {
 		{
 			accessorKey: 'userName',
 			header: 'User',
+		},
+		{
+			accessorKey: 'source',
+			header: 'Source',
+			enableSorting: false,
+			cell: ({ getValue }) => {
+				const source = getValue<string | null>();
+				if (!source) {
+					return <span className='text-muted-foreground'>—</span>;
+				}
+
+				const config = sourceConfig[source as keyof typeof sourceConfig];
+				return (
+					<span className='flex items-center gap-1.5 text-xs text-muted-foreground'>
+						<span className='opacity-60'>{config?.icon ?? <CircleHelp className='size-3.5' />}</span>
+						{config?.label ?? source}
+					</span>
+				);
+			},
 		},
 		{ accessorKey: 'numberOfMessages', header: 'Messages' },
 		{ accessorKey: 'totalTokens', header: 'Tokens' },
