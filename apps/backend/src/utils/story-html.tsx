@@ -165,6 +165,7 @@ function ChartBlock({ chart, queryData }: { chart: ParsedChartBlock; queryData: 
 			chartType: chart.chartType,
 			yAxisMin: chart.yAxisMin,
 			yAxisMax: chart.yAxisMax,
+			hideTotal: chart.hideTotal,
 		});
 		return (
 			<div style={{ margin: '16px 0' }}>
@@ -523,7 +524,7 @@ const TOOLTIP_SCRIPT_TEMPLATE = `
 					+'<span class="nao-tooltip-value">'+(isPercent?pctShare(val):formatVal(val))+'</span>'
 					+'</div>';
 			});
-			if(numericValues.length>1 && (isPercent || !hasTotalSeries)){
+			if(numericValues.length>1 && (isPercent || (!hasTotalSeries && !cfg.hideTotal))){
 				var total=numericValues.reduce(function(a,b){return a+b},0);
 				html+='<div class="nao-tooltip-total">'
 					+'<span class="nao-tooltip-name">Total</span>'

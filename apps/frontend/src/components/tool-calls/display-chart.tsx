@@ -362,6 +362,7 @@ export const DisplayChartToolCall = ({
 					yAxisMin={chartConfig.y_axis_min}
 					yAxisMax={chartConfig.y_axis_max}
 					showDataLabels={chartConfig.show_data_labels}
+					hideTotal={chartConfig.hide_total}
 				/>
 			)}
 		</div>
@@ -380,6 +381,7 @@ export interface ChartDisplayProps {
 	yAxisMin?: number;
 	yAxisMax?: number;
 	showDataLabels?: boolean;
+	hideTotal?: boolean;
 }
 
 export const ChartDisplay = memo(function ChartDisplay({
@@ -394,6 +396,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 	yAxisMin,
 	yAxisMax,
 	showDataLabels,
+	hideTotal,
 }: ChartDisplayProps) {
 	const dateFormat = useDateFormat();
 
@@ -505,7 +508,11 @@ export const ChartDisplay = memo(function ChartDisplay({
 						animationEasing='linear'
 						allowEscapeViewBox={{ y: true, x: false }}
 						content={
-							<ChartTooltipContent percent={isPercentStacked} labelFormatter={tooltipLabelFormatter} />
+							<ChartTooltipContent
+								percent={isPercentStacked}
+								hideTotal={hideTotal}
+								labelFormatter={tooltipLabelFormatter}
+							/>
 						}
 					/>,
 					chartType !== 'kpi_card' && (
@@ -541,6 +548,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 			yAxisMin,
 			yAxisMax,
 			showDataLabels,
+			hideTotal,
 			legendPayload,
 			handleToggleSeriesVisibility,
 			title,

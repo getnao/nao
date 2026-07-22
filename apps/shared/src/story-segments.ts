@@ -11,6 +11,7 @@ export interface ParsedChartBlock {
 	yAxisMax?: number;
 	title: string;
 	showDataLabels?: boolean;
+	hideTotal?: boolean;
 	/** The original `<chart ... />` tag this block was parsed from, when available. */
 	rawTag?: string;
 }
@@ -93,6 +94,7 @@ export function parseChartBlock(attrString: string): ParsedChartBlock | null {
 		yAxisMax,
 		title: attrs.title || '',
 		showDataLabels: attrs.show_data_labels === 'true',
+		hideTotal: attrs.hide_total === 'true',
 	};
 }
 
