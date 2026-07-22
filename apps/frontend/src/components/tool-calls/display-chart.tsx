@@ -21,6 +21,7 @@ import type { ChartConfig } from '../ui/chart';
 import type { executeSql } from '@nao/shared/tools';
 import type { UIMessage } from '@nao/backend/chat';
 import type { DateRange } from '@/lib/charts.utils';
+import type { DataExportFormat } from '@/components/export-data-menu';
 import { trpc } from '@/main';
 import { findStoryIds } from '@/lib/story.utils';
 import {
@@ -36,7 +37,7 @@ import { useChatId } from '@/hooks/use-chat-id';
 import { useSidePanel } from '@/contexts/side-panel';
 import { StoryViewer } from '@/components/side-panel/story-viewer';
 import { cn } from '@/lib/utils';
-import { downloadCsv, tableToCsv } from '@/lib/table-export';
+import { ExportDataMenu } from '@/components/export-data-menu';
 
 const Colors = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)', 'var(--chart-5)'];
 const EMPTY_MESSAGES: UIMessage[] = [];
@@ -97,23 +98,8 @@ export const DisplayChartToolCall = ({
 	const sourceData = sourceQuery?.output ?? null;
 	const sqlQuery = sourceQuery?.input?.sql_query;
 
-	const handleDownload = async () => {
-		if (!chartConfig || !sourceData) {
-			return;
-		}
-		if (viewMode !== 'chart') {
-			downloadCsv(
-				`${chartConfig.title || 'chart'}.csv`,
-				tableToCsv(sourceData.columns, sourceData.data as Record<string, unknown>[]),
-			);
-			if (chatId) {
-				logDownload.mutate({
-					chatId,
-					format: 'csv',
-					queryId: chartConfig.query_id,
-					title: chartConfig.title,
-				});
-			}
+	const handleDownloadPng = async () => {
+		if (!chartConfig) {
 			return;
 		}
 
@@ -128,6 +114,12 @@ export const DisplayChartToolCall = ({
 			console.error('Error downloading chart image:', err);
 		} finally {
 			setIsDownloading(false);
+		}
+	};
+
+	const handleExportData = (format: DataExportFormat) => {
+		if (chatId) {
+			logDownload.mutate({ chatId, format, queryId: chartConfig?.query_id, title: chartConfig?.title });
 		}
 	};
 
@@ -310,17 +302,35 @@ export const DisplayChartToolCall = ({
 							</Button>
 						)}
 
-						{(viewMode !== 'chart' || chartConfig.chart_type != 'kpi_card') && (
-							<Button
-								variant='ghost-muted'
-								size='icon-xs'
-								className='rounded-full hover:bg-accent/70'
-								onClick={handleDownload}
-								disabled={isDownloading}
-								title={viewMode === 'chart' ? 'Download as PNG' : 'Download data as CSV'}
+						{viewMode === 'chart' ? (
+							chartConfig.chart_type != 'kpi_card' && (
+								<Button
+									variant='ghost-muted'
+									size='icon-xs'
+									className='rounded-full hover:bg-accent/70'
+									onClick={handleDownloadPng}
+									disabled={isDownloading}
+									title='Download as PNG'
+								>
+									<Download className='size-3 text-muted-foreground/70' strokeWidth={2.25} />
+								</Button>
+							)
+						) : (
+							<ExportDataMenu
+								columns={sourceData.columns}
+								data={sourceData.data as Record<string, unknown>[]}
+								filename={chartConfig.title || 'chart'}
+								onExport={handleExportData}
 							>
-								<Download className='size-3 text-muted-foreground/70' strokeWidth={2.25} />
-							</Button>
+								<Button
+									variant='ghost-muted'
+									size='icon-xs'
+									className='rounded-full hover:bg-accent/70'
+									title='Export data'
+								>
+									<Download className='size-3 text-muted-foreground/70' strokeWidth={2.25} />
+								</Button>
+							</ExportDataMenu>
 						)}
 					</div>
 					{isEditable && (
