@@ -17,6 +17,10 @@ export const ChartTypeEnum = z.enum([
 
 export const XAxisTypeEnum = z.enum(['date', 'number', 'category']);
 
+export const SeriesTypeEnum = z.enum(['bar', 'line', 'area']);
+
+export const YAxisSideEnum = z.enum(['left', 'right']);
+
 export const SeriesConfigSchema = z.object({
 	data_key: z.string().describe('Column name from SQL result to plot.'),
 	color: z.string().describe('CSS color (defaults to theme colors).').optional(),
@@ -27,6 +31,12 @@ export const SeriesConfigSchema = z.object({
 			'Set to true when this series is an already-aggregated total of the other series (e.g. a grand total, rollup, subtotal, or sum-of-parts column), so the tooltip must not sum it again. Decide this from the meaning of the column, not its name — it applies in any language.',
 		)
 		.optional(),
+	series_type: SeriesTypeEnum.describe(
+		'How this series is drawn ("bar", "line" or "area"), overriding the chart_type. Use it to mix types in one chart, e.g. bars for revenue and a line for a rate. Defaults to the chart_type.',
+	).optional(),
+	y_axis: YAxisSideEnum.describe(
+		'Which Y-axis this series is plotted against ("left" or "right"). Defaults to "left". A right axis is drawn whenever any series uses "right" — use it to compare metrics with very different scales/units.',
+	).optional(),
 });
 
 export const ColorScaleRuleSchema = z.object({
@@ -101,10 +111,20 @@ export const ChartInputSchema = z
 		y_axis_min: z
 			.number()
 			.describe(
-				'Fixes the Y-axis lower bound. Leave unset to auto-scale for readability (line and scatter charts do not force a zero baseline).',
+				'Fixes the left Y-axis lower bound. Leave unset to auto-scale for readability (line and scatter charts do not force a zero baseline).',
 			)
 			.optional(),
-		y_axis_max: z.number().describe('Fixes the Y-axis upper bound. Leave unset to auto-scale.').optional(),
+		y_axis_max: z.number().describe('Fixes the left Y-axis upper bound. Leave unset to auto-scale.').optional(),
+		y_axis_label: z.string().describe('Label displayed alongside the left Y-axis.').optional(),
+		y_axis_right_min: z
+			.number()
+			.describe('Fixes the right Y-axis lower bound. Leave unset to auto-scale.')
+			.optional(),
+		y_axis_right_max: z
+			.number()
+			.describe('Fixes the right Y-axis upper bound. Leave unset to auto-scale.')
+			.optional(),
+		y_axis_right_label: z.string().describe('Label displayed alongside the right Y-axis.').optional(),
 		show_data_labels: z
 			.boolean()
 			.describe(
@@ -127,7 +147,16 @@ export const ChartInputSchema = z
 		(input) =>
 			input.y_axis_min === undefined || input.y_axis_max === undefined || input.y_axis_min < input.y_axis_max,
 		{
-			message: 'The Y-axis minimum must be less than the maximum.',
+			message: 'The left Y-axis minimum must be less than the maximum.',
+		},
+	)
+	.refine(
+		(input) =>
+			input.y_axis_right_min === undefined ||
+			input.y_axis_right_max === undefined ||
+			input.y_axis_right_min < input.y_axis_right_max,
+		{
+			message: 'The right Y-axis minimum must be less than the maximum.',
 		},
 	);
 
@@ -188,6 +217,8 @@ export const OutputSchema = z.object({
 
 export type ChartType = z.infer<typeof ChartTypeEnum>;
 export type XAxisType = z.infer<typeof XAxisTypeEnum>;
+export type SeriesType = z.infer<typeof SeriesTypeEnum>;
+export type YAxisSide = z.infer<typeof YAxisSideEnum>;
 export type SeriesConfig = z.infer<typeof SeriesConfigSchema>;
 export type ColorScaleRule = z.infer<typeof ColorScaleRuleSchema>;
 export type ThresholdRule = z.infer<typeof ThresholdRuleSchema>;
@@ -224,4 +255,21 @@ export function chartTypeRequiresXAxisKey(type: ChartType): boolean {
 
 export function isPieChart(chartType: ChartType): boolean {
 	return chartType === 'pie' || chartType === 'donut';
+}
+
+const COMBO_SERIES_CHART_TYPES = new Set<ChartType>(['bar', 'line', 'area']);
+
+export function chartTypeSupportsComboSeries(type: ChartType): boolean {
+	return COMBO_SERIES_CHART_TYPES.has(type);
+}
+
+export function hasRightAxisSeries(series: Pick<SeriesConfig, 'y_axis'>[]): boolean {
+	return series.some((s) => s.y_axis === 'right');
+}
+
+export function isComboChart(type: ChartType, series: Pick<SeriesConfig, 'y_axis' | 'series_type'>[]): boolean {
+	if (!chartTypeSupportsComboSeries(type)) {
+		return false;
+	}
+	return hasRightAxisSeries(series) || series.some((s) => s.series_type != null);
 }

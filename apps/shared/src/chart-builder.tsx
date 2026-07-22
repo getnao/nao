@@ -166,6 +166,10 @@ export interface BuildChartProps {
 	xAxisMaxLabelChars?: number;
 	yAxisMin?: number;
 	yAxisMax?: number;
+	yAxisLabel?: string;
+	yAxisRightMin?: number;
+	yAxisRightMax?: number;
+	yAxisRightLabel?: string;
 	/** Chart background color, used as the separator between stacked segments. Pass a concrete color on surfaces where CSS vars do not resolve (backend PNG/HTML export). */
 	backgroundColor?: string;
 	/** Prefix for SVG gradient ids so multiple charts on one page (and drag clones) don't collide. */

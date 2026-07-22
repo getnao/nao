@@ -2,6 +2,7 @@ import { Pencil } from 'lucide-react';
 import { memo, useMemo, useState } from 'react';
 import { StoryEmbedFallback } from './story-embed-fallback';
 import type { UIMessage } from '@nao/backend/chat';
+import type { ParsedChartBlock } from '@nao/shared/story-segments';
 import type { displayChart } from '@nao/shared/tools';
 
 import { ChartDisplay } from '@/components/tool-calls/display-chart';
@@ -14,19 +15,7 @@ import { sortByDateKey } from '@/lib/charts.utils';
 
 const STORY_CHART_HEIGHT_CLASS = 'h-72';
 
-interface ChartBlock {
-	queryId: string;
-	chartType: string;
-	xAxisKey: string;
-	xAxisType: string | null;
-	series: Array<{ data_key: string; color: string; label?: string; is_total?: boolean }>;
-	yAxisMin?: number;
-	yAxisMax?: number;
-	title: string;
-	showDataLabels?: boolean;
-	hideTotal?: boolean;
-	rawTag?: string;
-}
+type ChartBlock = ParsedChartBlock;
 
 export const StoryChartEmbed = memo(function StoryChartEmbed({
 	chart,
@@ -91,6 +80,10 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({
 				title={chart.title}
 				yAxisMin={chart.yAxisMin}
 				yAxisMax={chart.yAxisMax}
+				yAxisLabel={chart.yAxisLabel}
+				yAxisRightMin={chart.yAxisRightMin}
+				yAxisRightMax={chart.yAxisRightMax}
+				yAxisRightLabel={chart.yAxisRightLabel}
 				showDataLabels={chart.showDataLabels}
 				normalSize
 				hideTotal={chart.hideTotal}
@@ -126,9 +119,15 @@ export function StoryChartEmbedShell({ chart, availableColumns, dragHandle, chil
 				color: s.color || undefined,
 				label: s.label,
 				is_total: s.is_total,
+				series_type: s.series_type,
+				y_axis: s.y_axis,
 			})),
 			y_axis_min: chart.yAxisMin,
 			y_axis_max: chart.yAxisMax,
+			y_axis_label: chart.yAxisLabel,
+			y_axis_right_min: chart.yAxisRightMin,
+			y_axis_right_max: chart.yAxisRightMax,
+			y_axis_right_label: chart.yAxisRightLabel,
 			title: chart.title,
 			show_data_labels: chart.showDataLabels,
 			hide_total: chart.hideTotal,

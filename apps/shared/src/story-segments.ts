@@ -1,5 +1,15 @@
 import { buildStoryTableBlock } from './chart-block';
 import { type ColumnConditionalFormats, sanitizeConditionalFormats } from './conditional-formatting';
+import type { SeriesType, YAxisSide } from './tools/display-chart';
+
+export interface ParsedChartSeries {
+	data_key: string;
+	color?: string;
+	label?: string;
+	is_total?: boolean;
+	series_type?: SeriesType;
+	y_axis?: YAxisSide;
+}
 
 const GRID_SPAN_DIV_PATTERN =
 	'<div\\b[^>]*style\\s*=\\s*"[^"]*grid-column\\s*:\\s*span\\s+(\\d+)[^"]*"[^>]*>([\\s\\S]*?)<\\/div>';
@@ -9,9 +19,13 @@ export interface ParsedChartBlock {
 	chartType: string;
 	xAxisKey: string;
 	xAxisType: string | null;
-	series: Array<{ data_key: string; color: string; label?: string; is_total?: boolean }>;
+	series: ParsedChartSeries[];
 	yAxisMin?: number;
 	yAxisMax?: number;
+	yAxisLabel?: string;
+	yAxisRightMin?: number;
+	yAxisRightMax?: number;
+	yAxisRightLabel?: string;
 	title: string;
 	showDataLabels?: boolean;
 	hideTotal?: boolean;
@@ -86,6 +100,8 @@ export function parseChartBlock(attrString: string): ParsedChartBlock | null {
 
 	const yAxisMin = parseOptionalNumberAttr(attrs.y_axis_min);
 	const yAxisMax = parseOptionalNumberAttr(attrs.y_axis_max);
+	const yAxisRightMin = parseOptionalNumberAttr(attrs.y_axis_right_min);
+	const yAxisRightMax = parseOptionalNumberAttr(attrs.y_axis_right_max);
 
 	return {
 		queryId: attrs.query_id,
@@ -95,6 +111,10 @@ export function parseChartBlock(attrString: string): ParsedChartBlock | null {
 		series,
 		yAxisMin,
 		yAxisMax,
+		yAxisLabel: attrs.y_axis_label || undefined,
+		yAxisRightMin,
+		yAxisRightMax,
+		yAxisRightLabel: attrs.y_axis_right_label || undefined,
 		title: attrs.title || '',
 		showDataLabels: attrs.show_data_labels === 'true',
 		hideTotal: attrs.hide_total === 'true',

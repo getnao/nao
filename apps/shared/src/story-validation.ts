@@ -1,4 +1,5 @@
 import { parseChartAttributes, parseGridColumns, parseSeriesJsonArray, TAG_ATTRS } from './story-segments';
+import { ChartTypeEnum, SeriesTypeEnum, XAxisTypeEnum, YAxisSideEnum } from './tools/display-chart';
 
 export interface StoryValidationError {
 	message: string;
@@ -10,22 +11,13 @@ export interface StoryValidationError {
 const REQUIRED_CHART_ATTRS = ['query_id', 'chart_type', 'x_axis_key'] as const;
 const REQUIRED_TABLE_ATTRS = ['query_id'] as const;
 
-const VALID_CHART_TYPES = new Set([
-	'bar',
-	'stacked_bar',
-	'stacked_bar_100',
-	'line',
-	'area',
-	'stacked_area',
-	'stacked_area_100',
-	'pie',
-	'donut',
-	'kpi_card',
-	'scatter',
-	'radar',
-]);
+const VALID_CHART_TYPES = new Set<string>(ChartTypeEnum.options);
 
-const VALID_X_AXIS_TYPES = new Set(['date', 'number', 'category']);
+const VALID_X_AXIS_TYPES = new Set<string>(XAxisTypeEnum.options);
+
+const VALID_SERIES_TYPES = new Set<string>(SeriesTypeEnum.options);
+
+const VALID_Y_AXIS_SIDES = new Set<string>(YAxisSideEnum.options);
 
 /**
  * Validates the structure of a story's markdown code, looking for common
@@ -213,6 +205,24 @@ function validateChartSeries(
 		if (!item || typeof item !== 'object' || typeof (item as { data_key?: unknown }).data_key !== 'string') {
 			return {
 				message: 'Each chart series entry must be an object with a string `data_key` property.',
+				line: position.line,
+				column: position.column,
+				length,
+			};
+		}
+
+		const { series_type: seriesType, y_axis: yAxis } = item as { series_type?: unknown; y_axis?: unknown };
+		if (seriesType !== undefined && !VALID_SERIES_TYPES.has(seriesType as string)) {
+			return {
+				message: `Invalid series \`series_type\` "${String(seriesType)}". Valid values: ${[...VALID_SERIES_TYPES].join(', ')}.`,
+				line: position.line,
+				column: position.column,
+				length,
+			};
+		}
+		if (yAxis !== undefined && !VALID_Y_AXIS_SIDES.has(yAxis as string)) {
+			return {
+				message: `Invalid series \`y_axis\` "${String(yAxis)}". Valid values: ${[...VALID_Y_AXIS_SIDES].join(', ')}.`,
 				line: position.line,
 				column: position.column,
 				length,
