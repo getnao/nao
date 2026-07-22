@@ -59,9 +59,9 @@ function percentChartType(type: displayChart.ChartType): displayChart.ChartType 
 interface ChartConfigEditDialogProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
-	config: displayChart.ChartInput;
+	config: displayChart.BuiltinChartInput;
 	availableColumns: string[];
-	onSave: (next: displayChart.ChartInput) => Promise<void>;
+	onSave: (next: displayChart.BuiltinChartInput) => Promise<void>;
 	isSaving?: boolean;
 	description?: string;
 }
@@ -76,7 +76,7 @@ export function ChartConfigEditDialog({
 	isSaving = false,
 	description = 'Tweak the chart parameters.',
 }: ChartConfigEditDialogProps) {
-	const [draft, setDraft] = useState<displayChart.ChartInput>(config);
+	const [draft, setDraft] = useState<displayChart.BuiltinChartInput>(config);
 	const [yAxisMinText, setYAxisMinText] = useState(toRangeString(config.y_axis_min));
 	const [yAxisMaxText, setYAxisMaxText] = useState(toRangeString(config.y_axis_max));
 	const [error, setError] = useState<string | null>(null);
@@ -105,9 +105,13 @@ export function ChartConfigEditDialog({
 			setError(parsed.error.issues[0]?.message ?? 'Invalid chart configuration.');
 			return;
 		}
+		if (!displayChart.isBuiltinChartType(parsed.data.chart_type)) {
+			setError('Custom charts cannot be edited here.');
+			return;
+		}
 
 		try {
-			await onSave(parsed.data);
+			await onSave({ ...parsed.data, chart_type: parsed.data.chart_type });
 			onOpenChange(false);
 		} catch (err) {
 			setError(err instanceof Error ? err.message : 'Failed to update chart.');
@@ -403,7 +407,7 @@ interface DisplayChartEditDialogProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	toolCallId: string;
-	config: displayChart.ChartInput;
+	config: displayChart.BuiltinChartInput;
 	availableColumns: string[];
 }
 
@@ -426,7 +430,7 @@ export function DisplayChartEditDialog({
 		}),
 	);
 
-	const handleSave = async (next: displayChart.ChartInput) => {
+	const handleSave = async (next: displayChart.BuiltinChartInput) => {
 		const previousMessages = messages;
 		setMessages(applyChartConfigToMessages(previousMessages, toolCallId, next));
 		try {
@@ -502,7 +506,7 @@ function normalizeHexColor(color?: string): string {
 function applyChartConfigToMessages(
 	messages: UIMessage[],
 	toolCallId: string,
-	config: displayChart.ChartInput,
+	config: displayChart.BuiltinChartInput,
 ): UIMessage[] {
 	return messages.map((message) => {
 		let changed = false;

@@ -5,6 +5,7 @@ import { authConfigRoutes } from './auth-config.routes';
 import { automationRoutes } from './automation.routes';
 import { brandingRoutes } from './branding.routes';
 import { budgetRoutes } from './budget.routes';
+import { chartPluginRoutes } from './chart-plugin.routes';
 import { chartRoutes } from './chart.routes';
 import { chatRoutes } from './chat.routes';
 import { chatForkRoutes } from './chat-fork.routes';
@@ -41,6 +42,7 @@ export const trpcRouter = router({
 	budget: budgetRoutes,
 	embed: embedRoutes,
 	chart: chartRoutes,
+	chartPlugin: chartPluginRoutes,
 	chat: chatRoutes,
 	sharedChat: sharedChatRoutes,
 	automation: automationRoutes,

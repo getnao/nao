@@ -1,6 +1,7 @@
 import { displayChart } from '@nao/shared/tools';
 
 import { DisplayChartOutput, renderToModelOutput } from '../../components/tool-outputs';
+import { hasChartPlugin } from '../../services/chart-plugin';
 import { getQueryResult } from '../../services/query-result.service';
 import { createTool } from '../../utils/tools';
 
@@ -25,6 +26,23 @@ export default createTool<displayChart.Input, displayChart.Output>({
 		}
 
 		const { chart_type: chartType, x_axis_key: xAxisKey, series } = input;
+		if (!displayChart.isBuiltinChartType(chartType)) {
+			if (!context.supportsCustomCharts) {
+				return {
+					_version: '1',
+					success: false,
+					error: 'Custom charts are only available in interactive web chats.',
+				};
+			}
+			if (!hasChartPlugin(context.projectFolder, chartType)) {
+				return {
+					_version: '1',
+					success: false,
+					error: `Custom chart "${chartType}" is not available in this project.`,
+				};
+			}
+			return { _version: '1', success: true };
+		}
 
 		// Validate xAxisKey is provided for cartesian and polar charts
 		if (displayChart.chartTypeRequiresXAxisKey(chartType) && !xAxisKey) {
@@ -56,7 +74,7 @@ export default createTool<displayChart.Input, displayChart.Output>({
 
 		// TODO: check that the chart is displayable and that the data is valid
 
-		context.generatedArtifacts.charts.push(input);
+		context.generatedArtifacts.charts.push({ ...input, chart_type: chartType });
 		return { _version: '1', success: true };
 	},
 

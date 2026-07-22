@@ -1,6 +1,6 @@
 import z from 'zod/v3';
 
-export const ChartTypeEnum = z.enum([
+export const BUILTIN_CHART_TYPES = [
 	'bar',
 	'stacked_bar',
 	'stacked_bar_100',
@@ -13,7 +13,13 @@ export const ChartTypeEnum = z.enum([
 	'kpi_card',
 	'scatter',
 	'radar',
-]);
+] as const;
+
+export const ChartTypeEnum = z.enum(BUILTIN_CHART_TYPES);
+
+const ChartTypeNameSchema = z
+	.string()
+	.regex(/^[a-z][a-z0-9_-]*$/, 'Chart type must use lowercase letters, numbers, underscores, or hyphens.');
 
 export const XAxisTypeEnum = z.enum(['date', 'number', 'category']);
 
@@ -89,7 +95,7 @@ export const ColumnConditionalFormatsSchema = z
 export const ChartInputSchema = z
 	.object({
 		query_id: z.string().describe("The id of a previous `execute_sql` tool call's output to get data from."),
-		chart_type: ChartTypeEnum.describe('Type of chart to display.'),
+		chart_type: ChartTypeNameSchema.describe('Built-in chart type or an available project custom chart type.'),
 		x_axis_key: z.string().describe('Column name for X-axis/category labels.'),
 		x_axis_type: XAxisTypeEnum.nullable().describe(
 			'Use "date" only when x-axis values parse as JS Date (YYYY-MM-DD). Use "category" for quarter_ending, fiscal periods, or labels. Use "number" for numeric x-axis.',
@@ -136,11 +142,13 @@ export type ChartInput = z.infer<typeof ChartInputSchema>;
 export type TableInput = z.infer<typeof TableInputSchema>;
 export type Input = ChartInput | TableInput;
 
-const DisplayTypeEnum = z.enum([...ChartTypeEnum.options, 'table']);
+const DisplayTypeSchema = z.union([ChartTypeNameSchema, z.literal('table')]);
 
 const BaseInputSchema = z.object({
 	query_id: z.string().describe("The id of a previous `execute_sql` tool call's output to get data from."),
-	chart_type: DisplayTypeEnum.describe('Type of visualization to display. Use "table" for tabular results.'),
+	chart_type: DisplayTypeSchema.describe(
+		'Type of visualization to display. Use "table" for tabular results or an available custom chart type.',
+	),
 	x_axis_key: z.string().describe('Column name for X-axis/category labels. Required for charts.').optional(),
 	x_axis_type: XAxisTypeEnum.nullable()
 		.describe(
@@ -198,18 +206,24 @@ const X_AXIS_REQUIRED_CHART_TYPES = new Set<ChartType>([
 	'radar',
 ]);
 
-export function isStackedChartType(type: ChartType): boolean {
-	return STACKED_CHART_TYPES.has(type);
+export type BuiltinChartInput = Omit<ChartInput, 'chart_type'> & { chart_type: ChartType };
+
+export function isBuiltinChartType(type: string): type is ChartType {
+	return (BUILTIN_CHART_TYPES as readonly string[]).includes(type);
 }
 
-export function isPercentStackedChartType(type: ChartType): boolean {
-	return PERCENT_STACKED_CHART_TYPES.has(type);
+export function isStackedChartType(type: string): boolean {
+	return isBuiltinChartType(type) && STACKED_CHART_TYPES.has(type);
 }
 
-export function chartTypeRequiresXAxisKey(type: ChartType): boolean {
-	return X_AXIS_REQUIRED_CHART_TYPES.has(type);
+export function isPercentStackedChartType(type: string): boolean {
+	return isBuiltinChartType(type) && PERCENT_STACKED_CHART_TYPES.has(type);
 }
 
-export function isPieChart(chartType: ChartType): boolean {
+export function chartTypeRequiresXAxisKey(type: string): boolean {
+	return !isBuiltinChartType(type) || X_AXIS_REQUIRED_CHART_TYPES.has(type);
+}
+
+export function isPieChart(chartType: string): boolean {
 	return chartType === 'pie' || chartType === 'donut';
 }

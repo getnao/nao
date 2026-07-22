@@ -106,7 +106,7 @@ export function StoryChartEmbedShell({ chart, availableColumns, children }: Stor
 	const [isEditOpen, setIsEditOpen] = useState(false);
 	const canEdit = Boolean(edit && chart.rawTag);
 
-	const config = useMemo<displayChart.ChartInput>(
+	const config = useMemo<displayChart.BuiltinChartInput>(
 		() => ({
 			query_id: chart.queryId,
 			chart_type: chart.chartType as displayChart.ChartType,

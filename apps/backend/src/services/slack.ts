@@ -655,6 +655,7 @@ class ProjectSlackBot {
 		const agent = await agentService.create(
 			{ ...chat, userId: ctx.user!.id, projectId: this.projectId },
 			this._modelSelection,
+			{ supportsCustomCharts: false },
 		);
 		ctx.modelId = agent.getModelId();
 		return agent.stream(chat.messages, { provider: 'slack', timezone: ctx.timezone });

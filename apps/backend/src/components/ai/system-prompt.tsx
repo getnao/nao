@@ -1,4 +1,5 @@
 import { Block, Bold, Br, Link, List, ListItem, Location, Span, Title } from '../../lib/markdown';
+import type { ChartPluginManifestEntry } from '@nao/shared';
 import type { Skill } from '../../services/skill';
 import { tokenCounter } from '../../services/token-counter';
 import type { UserMemory } from '../../types/memory';
@@ -18,6 +19,7 @@ type SystemPromptProps = {
 	userRules?: string;
 	connections?: Connection[];
 	skills?: Skill[];
+	customCharts?: ChartPluginManifestEntry[];
 	/** Names of MCP servers the agent is allowed to call (tools discovered as on-disk specs). */
 	mcpServers?: string[];
 	timezone?: string;
@@ -31,6 +33,7 @@ export function SystemPrompt({
 	userRules,
 	connections = [],
 	skills = [],
+	customCharts = [],
 	mcpServers = [],
 	timezone,
 	testMode,
@@ -224,10 +227,33 @@ export function SystemPrompt({
 					</Block>
 				)}
 
+				{customCharts.length > 0 && <CustomChartsBlock charts={customCharts} />}
+
 				{mcpServers.length > 0 && <McpServersBlock servers={mcpServers} />}
 
 				{visibleMemories.length > 0 && <MemoryBlock memories={visibleMemories} />}
 			</Block>
+		</Block>
+	);
+}
+
+function CustomChartsBlock({ charts }: { charts: ChartPluginManifestEntry[] }) {
+	return (
+		<Block>
+			<Title level={2}>Custom charts</Title>
+			<Span>
+				The project provides the custom chart types below. Use them through display_chart only when their
+				description fits the request. They render in interactive web chats only, so do not use them in stories
+				or exports.
+			</Span>
+			<List>
+				{charts.map((chart) => (
+					<ListItem key={chart.type}>
+						<Bold>{chart.type}</Bold>
+						{chart.description ? `: ${chart.description}` : ''}
+					</ListItem>
+				))}
+			</List>
 		</Block>
 	);
 }

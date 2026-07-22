@@ -75,4 +75,22 @@ describe('SystemPrompt timezone rendering', () => {
 		const markdown = renderToMarkdown(SystemPrompt({}));
 		expect(markdown).toContain('Tuesday, March 10, 2026 (UTC)');
 	});
+
+	it('describes available custom charts and their web-only scope', () => {
+		const markdown = renderToMarkdown(
+			SystemPrompt({
+				customCharts: [
+					{
+						type: 'bubble',
+						name: 'Bubble chart',
+						description: 'Shows three numeric dimensions.',
+						version: 'abc123',
+					},
+				],
+			}),
+		);
+
+		expect(markdown).toContain('**bubble**: Shows three numeric dimensions.');
+		expect(markdown).toContain('interactive web chats only');
+	});
 });
