@@ -1156,7 +1156,6 @@ export const StoryEditor = memo(function StoryEditor({ code, editorRef, onSave }
 	const dragPreviewPositionsRef = useRef<number[] | null>(null);
 	const storyEditorRef = useRef<HTMLDivElement>(null);
 	const [isBlockDragging, setIsBlockDragging] = useState(false);
-	const [handleNodeType, setHandleNodeType] = useState<string | null>(null);
 	const storyBlockDragContext = useMemo(
 		() => ({
 			sourceRef: storyBlockSourceRef,
@@ -1172,7 +1171,6 @@ export const StoryEditor = memo(function StoryEditor({ code, editorRef, onSave }
 		setIsBlockDragging(false);
 	}, []);
 	const handleDragHandleNodeChange = useCallback(({ node, pos }: { node: PMNode | null; pos: number }) => {
-		setHandleNodeType(node?.type.name ?? null);
 		handleNodePosRef.current = node ? pos : null;
 	}, []);
 	onSaveRef.current = onSave;
@@ -1450,11 +1448,9 @@ export const StoryEditor = memo(function StoryEditor({ code, editorRef, onSave }
 								dragPreviewPositionsRef.current = null;
 							}}
 						>
-							{handleNodeType === 'chartBlock' || handleNodeType === 'tableBlock' ? null : (
-								<div className='drag-handle-button'>
-									<GripVertical className='size-4' />
-								</div>
-							)}
+							<div className='drag-handle-button'>
+								<GripVertical className='size-4' />
+							</div>
 						</DragHandle>
 					)}
 					<EditorContent editor={editor} />
