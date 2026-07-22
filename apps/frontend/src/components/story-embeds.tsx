@@ -75,7 +75,7 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({
 	}
 
 	return (
-		<StoryChartEmbedShell chart={chart} availableColumns={resolvedColumns}>
+		<StoryChartEmbedShell chart={chart} availableColumns={resolvedColumns} dataRowCount={resolvedData.length}>
 			<ChartDisplay
 				data={resolvedData}
 				chartType={chart.chartType as displayChart.ChartType}
@@ -86,6 +86,7 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({
 				yAxisMin={chart.yAxisMin}
 				yAxisMax={chart.yAxisMax}
 				showDataLabels={chart.showDataLabels}
+				comparisonMode={chart.comparisonMode}
 			/>
 		</StoryChartEmbedShell>
 	);

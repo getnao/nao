@@ -21,6 +21,7 @@ interface ChartBlock {
 	yAxisMax?: number;
 	title: string;
 	showDataLabels?: boolean;
+	comparisonMode?: 'percentage' | 'variation' | 'absolute' | 'none';
 	rawTag?: string;
 }
 
@@ -75,7 +76,11 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({ chart }: { chart:
 	const xAxisType = chart.xAxisType === 'number' ? 'number' : ('category' as const);
 
 	return (
-		<StoryChartEmbedShell chart={chart} availableColumns={sourceData.columns ?? []}>
+		<StoryChartEmbedShell
+			chart={chart}
+			availableColumns={sourceData.columns ?? []}
+			dataRowCount={sourceData.data?.length ?? 0}
+		>
 			<ChartDisplay
 				data={data}
 				chartType={chart.chartType as displayChart.ChartType}
@@ -86,6 +91,7 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({ chart }: { chart:
 				yAxisMin={chart.yAxisMin}
 				yAxisMax={chart.yAxisMax}
 				showDataLabels={chart.showDataLabels}
+				comparisonMode={chart.comparisonMode}
 			/>
 		</StoryChartEmbedShell>
 	);
@@ -94,6 +100,7 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({ chart }: { chart:
 interface StoryChartEmbedShellProps {
 	chart: ChartBlock;
 	availableColumns: string[];
+	dataRowCount?: number;
 	children: React.ReactNode;
 }
 
@@ -101,7 +108,7 @@ interface StoryChartEmbedShellProps {
  * Wraps a rendered chart with an "Edit chart" button when the surrounding story
  * context provides a save handler.
  */
-export function StoryChartEmbedShell({ chart, availableColumns, children }: StoryChartEmbedShellProps) {
+export function StoryChartEmbedShell({ chart, availableColumns, dataRowCount, children }: StoryChartEmbedShellProps) {
 	const edit = useStoryChartEdit();
 	const [isEditOpen, setIsEditOpen] = useState(false);
 	const canEdit = Boolean(edit && chart.rawTag);
@@ -122,41 +129,49 @@ export function StoryChartEmbedShell({ chart, availableColumns, children }: Stor
 			y_axis_max: chart.yAxisMax,
 			title: chart.title,
 			show_data_labels: chart.showDataLabels,
+			comparison_mode: chart.comparisonMode,
 		}),
 		[chart],
 	);
 
+	const isKpi = chart.chartType == 'kpi_card';
+	const editButton = canEdit ? (
+		<Button
+			variant='ghost-muted'
+			size='icon-xs'
+			onClick={() => setIsEditOpen(true)}
+			title='Edit chart'
+			className='shrink-0 hover:bg-accent hover:rounded-full'
+		>
+			<Pencil className='size-3.5' />
+		</Button>
+	) : null;
+
 	return (
 		<div className='my-2 flex flex-col gap-4'>
-			{(canEdit || (chart.chartType != 'kpi_card' && chart.title)) && (
+			{!isKpi && (canEdit || chart.title) && (
 				<div className='flex w-full items-center justify-between gap-2'>
-					{chart.chartType != 'kpi_card' && chart.title ? (
+					{chart.title ? (
 						<span className='text-sm font-medium text-foreground flex-1 min-w-0 truncate'>
 							{chart.title}
 						</span>
 					) : (
 						<div className='flex-1' />
 					)}
-					{canEdit && (
-						<Button
-							variant='ghost-muted'
-							size='icon-xs'
-							onClick={() => setIsEditOpen(true)}
-							title='Edit chart'
-							className='shrink-0 hover:bg-accent hover:rounded-full'
-						>
-							<Pencil className='size-3.5' />
-						</Button>
-					)}
+					{editButton}
 				</div>
 			)}
-			<div className={`relative ${chart.chartType != 'kpi_card' ? 'aspect-3/2' : ''}`}>{children}</div>
+			<div className={`relative ${!isKpi ? 'aspect-3/2' : ''}`}>
+				{children}
+				{isKpi && editButton && <div className='absolute top-0 right-0'>{editButton}</div>}
+			</div>
 			{canEdit && edit && chart.rawTag && (
 				<ChartConfigEditDialog
 					open={isEditOpen}
 					onOpenChange={setIsEditOpen}
 					config={config}
 					availableColumns={availableColumns}
+					dataRowCount={dataRowCount}
 					isSaving={edit.isSaving}
 					onSave={(next) => edit.saveChart(chart.rawTag!, next)}
 					description={edit.saveDescription}

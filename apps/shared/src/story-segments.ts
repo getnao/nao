@@ -11,6 +11,7 @@ export interface ParsedChartBlock {
 	yAxisMax?: number;
 	title: string;
 	showDataLabels?: boolean;
+	comparisonMode?: 'percentage' | 'variation' | 'absolute' | 'none';
 	/** The original `<chart ... />` tag this block was parsed from, when available. */
 	rawTag?: string;
 }
@@ -62,7 +63,8 @@ export function parseChartAttributes(attrString: string): Record<string, string>
 
 export function parseChartBlock(attrString: string): ParsedChartBlock | null {
 	const attrs = parseChartAttributes(attrString);
-	if (!attrs.query_id || !attrs.chart_type || !attrs.x_axis_key) {
+	const requiresXAxisKey = attrs.chart_type !== 'kpi_card';
+	if (!attrs.query_id || !attrs.chart_type || (requiresXAxisKey && !attrs.x_axis_key)) {
 		return null;
 	}
 
@@ -86,13 +88,14 @@ export function parseChartBlock(attrString: string): ParsedChartBlock | null {
 	return {
 		queryId: attrs.query_id,
 		chartType: attrs.chart_type,
-		xAxisKey: attrs.x_axis_key,
+		xAxisKey: attrs.x_axis_key ?? '',
 		xAxisType: attrs.x_axis_type || null,
 		series,
 		yAxisMin,
 		yAxisMax,
 		title: attrs.title || '',
 		showDataLabels: attrs.show_data_labels === 'true',
+		comparisonMode: (attrs.comparison_mode as ParsedChartBlock['comparisonMode']) || undefined,
 	};
 }
 

@@ -32,6 +32,13 @@ const X_AXIS_TYPE_OPTIONS: { value: NonNullable<displayChart.XAxisType> | 'auto'
 	{ value: 'number', label: 'Number' },
 ];
 
+const COMPARISON_MODE_OPTIONS: { value: displayChart.ComparisonMode; label: string }[] = [
+	{ value: 'none', label: 'None' },
+	{ value: 'percentage', label: 'Percentage' },
+	{ value: 'variation', label: 'Variation' },
+	{ value: 'absolute', label: 'Absolute' },
+];
+
 const Y_AXIS_RANGE_UNSUPPORTED_CHART_TYPES = new Set<displayChart.ChartType>(['pie', 'kpi_card', 'radar']);
 
 /** Maps a 100% stacked type back to its absolute-stacked counterpart, so the type dropdown stays clean. */
@@ -64,6 +71,7 @@ interface ChartConfigEditDialogProps {
 	onSave: (next: displayChart.ChartInput) => Promise<void>;
 	isSaving?: boolean;
 	description?: string;
+	dataRowCount?: number;
 }
 
 /** Presentational edit dialog for `display_chart` configuration. */
@@ -75,6 +83,7 @@ export function ChartConfigEditDialog({
 	onSave,
 	isSaving = false,
 	description = 'Tweak the chart parameters.',
+	dataRowCount,
 }: ChartConfigEditDialogProps) {
 	const [draft, setDraft] = useState<displayChart.ChartInput>(config);
 	const [yAxisMinText, setYAxisMinText] = useState(toRangeString(config.y_axis_min));
@@ -360,6 +369,31 @@ export function ChartConfigEditDialog({
 					)}
 					<div className='grid gap-2'>
 						<span className='text-sm font-semibold text-foreground'>Options</span>
+						{draft.chart_type === 'kpi_card' && (dataRowCount ?? 0) >= 2 && (
+							<div className='grid gap-2'>
+								<span className='text-sm font-semibold text-foreground'>Comparison pill</span>
+								<Select
+									value={draft.comparison_mode ?? 'none'}
+									onValueChange={(value) =>
+										setDraft((prev) => ({
+											...prev,
+											comparison_mode: value as displayChart.ComparisonMode,
+										}))
+									}
+								>
+									<SelectTrigger className='w-full bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
+										<SelectValue />
+									</SelectTrigger>
+									<SelectContent className='border-none bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
+										{COMPARISON_MODE_OPTIONS.map((option) => (
+											<SelectItem key={option.value} value={option.value}>
+												{option.label}
+											</SelectItem>
+										))}
+									</SelectContent>
+								</Select>
+							</div>
+						)}
 						<div className='flex h-8 items-center justify-between'>
 							<label htmlFor='show-data-labels' className='text-sm text-foreground'>
 								Show data labels
@@ -405,6 +439,7 @@ interface DisplayChartEditDialogProps {
 	toolCallId: string;
 	config: displayChart.ChartInput;
 	availableColumns: string[];
+	dataRowCount?: number;
 }
 
 /** Edit dialog bound to a `tool-display_chart` message part: persists through `chart.updateConfig`. */
@@ -414,6 +449,7 @@ export function DisplayChartEditDialog({
 	toolCallId,
 	config,
 	availableColumns,
+	dataRowCount,
 }: DisplayChartEditDialogProps) {
 	const queryClient = useQueryClient();
 	const { messages, setMessages } = useAgentContext();
@@ -443,6 +479,7 @@ export function DisplayChartEditDialog({
 			onOpenChange={onOpenChange}
 			config={config}
 			availableColumns={availableColumns}
+			dataRowCount={dataRowCount}
 			onSave={handleSave}
 			isSaving={updateMutation.isPending}
 			description='Tweak the chart parameters. Changes are saved to the chat.'

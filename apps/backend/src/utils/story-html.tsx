@@ -1,4 +1,11 @@
-import { bucketPieData, DEFAULT_COLORS, defaultColorFor, formatCompactNumber, labelize } from '@nao/shared';
+import {
+	bucketPieData,
+	computeKpiComparison,
+	DEFAULT_COLORS,
+	defaultColorFor,
+	formatCompactNumber,
+	labelize,
+} from '@nao/shared';
 import {
 	type DateFormatSettings,
 	DEFAULT_DATE_FORMAT_SETTINGS,
@@ -203,7 +210,15 @@ function ChartLegend({ series }: { series: ParsedChartBlock['series'] }) {
 }
 
 function KpiCards({ chart, rows }: { chart: ParsedChartBlock; rows: Record<string, unknown>[] }) {
-	const firstRow = rows[0] ?? {};
+	const sortedRows = [...rows].sort((a, b) => {
+		const av = a[chart.xAxisKey];
+		const bv = b[chart.xAxisKey];
+		if (chart.xAxisType === 'date') {
+			return new Date(String(av)).getTime() - new Date(String(bv)).getTime();
+		}
+		return 0;
+	});
+	const lastRow = sortedRows[sortedRows.length - 1] ?? {};
 	return (
 		<div
 			style={{
@@ -216,13 +231,70 @@ function KpiCards({ chart, rows }: { chart: ParsedChartBlock; rows: Record<strin
 			}}
 		>
 			{chart.series.map((s) => {
-				const raw = firstRow[s.data_key];
+				const raw = lastRow[s.data_key];
 				const value = typeof raw === 'number' ? formatCompactNumber(raw) : String(raw ?? '');
 				const label = s.label ?? s.data_key;
+				const comparison = computeKpiComparison(sortedRows, chart.xAxisKey, s.data_key, chart.comparisonMode);
 				return (
 					<div key={s.data_key} style={{ minWidth: 160 }}>
 						<div style={{ fontSize: 18, letterSpacing: '0.025em', color: '#1f2937' }}>{label}</div>
-						<div style={{ fontSize: 30, fontWeight: 500, color: '#111827' }}>{value}</div>
+						<div
+							style={{
+								fontSize: 30,
+								fontWeight: 500,
+								color: '#111827',
+								fontVariantNumeric: 'tabular-nums',
+							}}
+						>
+							{value}
+						</div>
+						{comparison &&
+							(() => {
+								const showArrow = comparison.colored && comparison.direction !== 'flat';
+								const color = showArrow
+									? comparison.direction === 'up'
+										? '#16a34a'
+										: '#dc2626'
+									: '#6b7280';
+								return (
+									<div
+										style={{
+											marginTop: 6,
+											display: 'flex',
+											alignItems: 'center',
+											gap: 6,
+											fontSize: 14,
+											color,
+											whiteSpace: 'nowrap',
+										}}
+									>
+										{showArrow && (
+											<svg
+												width='10'
+												height='10'
+												viewBox='0 0 14 12'
+												fill='currentColor'
+												stroke='currentColor'
+												strokeWidth='1.6'
+												strokeLinejoin='round'
+												style={{ flexShrink: 0 }}
+											>
+												<path
+													d={
+														comparison.direction === 'up'
+															? 'M7 2.5 12 10 2 10Z'
+															: 'M2 2.5 12 2.5 7 10Z'
+													}
+												/>
+											</svg>
+										)}
+										<span style={{ fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>
+											{comparison.valueText}
+										</span>
+										<span style={{ fontWeight: 400 }}>vs. {comparison.periodLabel}</span>
+									</div>
+								);
+							})()}
 					</div>
 				);
 			})}

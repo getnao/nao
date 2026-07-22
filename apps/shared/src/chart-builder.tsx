@@ -137,6 +137,108 @@ export function formatPercentShare(value: number, total: number): string {
 	return `${Number.isInteger(rounded) ? rounded : rounded.toFixed(1)}%`;
 }
 
+export type KpiComparisonDirection = 'up' | 'down' | 'flat';
+
+export interface KpiComparison {
+	valueText: string;
+	direction: KpiComparisonDirection;
+	colored: boolean;
+	periodLabel: string;
+}
+
+export function computeKpiComparison(
+	data: Record<string, unknown>[],
+	xAxisKey: string,
+	dataKey: string,
+	mode: displayChart.ComparisonMode | undefined,
+): KpiComparison | null {
+	if (!mode || mode === 'none' || data.length < 2) {
+		return null;
+	}
+	const currentRow = data[data.length - 1];
+	const previousRow = data[data.length - 2];
+	const current = toFiniteNumber(currentRow?.[dataKey]);
+	const previous = toFiniteNumber(previousRow?.[dataKey]);
+	if (current == null || previous == null) {
+		return null;
+	}
+	const delta = current - previous;
+	const direction: KpiComparisonDirection = delta > 0 ? 'up' : delta < 0 ? 'down' : 'flat';
+	const dateKey = resolveDateKey(currentRow, xAxisKey, dataKey);
+	const periodLabel =
+		dateKey == null ? 'previous period' : describePreviousPeriod(previousRow?.[dateKey], currentRow?.[dateKey]);
+
+	if (mode === 'percentage') {
+		if (previous === 0) {
+			return null;
+		}
+		const pct = (delta / Math.abs(previous)) * 100;
+		return { valueText: formatPercentMagnitude(Math.abs(pct)), direction, colored: true, periodLabel };
+	}
+	if (mode === 'variation') {
+		return { valueText: formatCompactNumber(Math.abs(delta)), direction, colored: true, periodLabel };
+	}
+	return { valueText: formatCompactNumber(Math.abs(delta)), direction, colored: false, periodLabel };
+}
+
+function formatPercentMagnitude(value: number): string {
+	const rounded = Math.round(value * 10) / 10;
+	return `${Number.isInteger(rounded) ? rounded : rounded.toFixed(1)}%`;
+}
+
+export function describePreviousPeriod(previousX: unknown, currentX: unknown): string {
+	const prev = parseDateMs(previousX);
+	const curr = parseDateMs(currentX);
+	if (prev == null || curr == null) {
+		return 'previous period';
+	}
+	const gapDays = Math.round((curr - prev) / 86_400_000);
+	if (gapDays === 1) {
+		return 'yesterday';
+	}
+	if (gapDays >= 6 && gapDays <= 8) {
+		return 'last week';
+	}
+	if (gapDays >= 26 && gapDays <= 33) {
+		return 'last month';
+	}
+	if (gapDays >= 80 && gapDays <= 100) {
+		return 'last quarter';
+	}
+	if (gapDays >= 330 && gapDays <= 400) {
+		return 'last year';
+	}
+	return 'previous period';
+}
+
+function resolveDateKey(row: Record<string, unknown> | undefined, xAxisKey: string, dataKey: string): string | null {
+	if (xAxisKey && parseDateMs(row?.[xAxisKey]) != null) {
+		return xAxisKey;
+	}
+	if (!row) {
+		return null;
+	}
+	for (const key of Object.keys(row)) {
+		if (key !== dataKey && parseDateMs(row[key]) != null) {
+			return key;
+		}
+	}
+	return null;
+}
+
+function parseDateMs(value: unknown): number | null {
+	if (typeof value !== 'string') {
+		return null;
+	}
+	const trimmed = value.trim();
+	if (!/^\d{4}-\d{2}(?:-\d{2})?(?:[ T].*)?$/.test(trimmed)) {
+		return null;
+	}
+	const normalized = trimmed.length === 7 ? `${trimmed}-01` : trimmed.replace(' ', 'T');
+	const ms = new Date(normalized).getTime();
+	return Number.isNaN(ms) ? null : ms;
+}
+
 export function formatDataLabel(value: unknown): string {
 	const number = toFiniteNumber(value);
 	return number == null ? '' : formatCompactNumber(number);
@@ -165,6 +267,7 @@ export interface BuildChartProps {
 	/** Chart background color, used as the separator between stacked segments. Pass a concrete color on surfaces where CSS vars do not resolve (backend PNG/HTML export). */
 	backgroundColor?: string;
 	showDataLabels?: boolean;
+	comparisonMode?: displayChart.ComparisonMode;
 }
 
 /**
@@ -356,7 +459,12 @@ function buildKpiCard(props: ResolvedProps) {
 	return (
 		<KpiCardContainer>
 			{series.map((s) => (
-				<KpiCard key={s.data_key} value={data[0]?.[s.data_key]} displayName={s.label ?? s.data_key} />
+				<KpiCard
+					key={s.data_key}
+					value={data[data.length - 1]?.[s.data_key]}
+					displayName={s.label ?? s.data_key}
+					comparison={computeKpiComparison(data, props.xAxisKey, s.data_key, props.comparisonMode)}
+				/>
 			))}
 		</KpiCardContainer>
 	);
@@ -366,7 +474,15 @@ function KpiCardContainer({ children }: { children: React.ReactNode }) {
 	return <div className='flex flex-wrap gap-4 w-full justify-start'>{children}</div>;
 }
 
-function KpiCard({ value, displayName }: { value: unknown; displayName: string }) {
+function KpiCard({
+	value,
+	displayName,
+	comparison,
+}: {
+	value: unknown;
+	displayName: string;
+	comparison: KpiComparison | null;
+}) {
 	let formattedValue = '';
 
 	if (typeof value === 'number') {
@@ -375,11 +491,43 @@ function KpiCard({ value, displayName }: { value: unknown; displayName: string }
 		formattedValue = value;
 	}
 
+	const showArrowAndColor = comparison != null && comparison.colored && comparison.direction !== 'flat';
+	const pillColorClass = showArrowAndColor
+		? comparison.direction === 'up'
+			? 'text-green-600'
+			: 'text-red-600'
+		: 'text-muted-foreground';
+
 	return (
 		<div className='min-w-[160px]'>
 			<div className='text-lg tracking-wide'>{displayName}</div>
-			<div className='text-3xl font-medium'>{formattedValue}</div>
+			<div className='text-3xl font-medium tabular-nums'>{formattedValue}</div>
+			{comparison && (
+				<div className={`mt-1.5 flex items-center gap-1.5 whitespace-nowrap text-sm ${pillColorClass}`}>
+					{showArrowAndColor && <KpiTrendArrow direction={comparison.direction} />}
+					<span className='font-medium tabular-nums'>{comparison.valueText}</span>
+					<span className='font-normal'>vs. {comparison.periodLabel}</span>
+				</div>
+			)}
 		</div>
+	);
+}
+
+function KpiTrendArrow({ direction }: { direction: KpiComparisonDirection }) {
+	return (
+		<svg
+			width='10'
+			height='10'
+			viewBox='0 0 14 12'
+			fill='currentColor'
+			stroke='currentColor'
+			strokeWidth='1.6'
+			strokeLinejoin='round'
+			aria-hidden='true'
+			className='shrink-0'
+		>
+			<path d={direction === 'up' ? 'M7 2.5 12 10 2 10Z' : 'M2 2.5 12 2.5 7 10Z'} />
+		</svg>
 	);
 }
 

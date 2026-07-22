@@ -150,6 +150,27 @@ describe('displayChart.InputSchema table variant', () => {
 		expect(result.success).toBe(true);
 	});
 
+	it('retains KPI comparison mode in chart schemas', () => {
+		const input = {
+			query_id: 'query_1',
+			chart_type: 'kpi_card' as const,
+			x_axis_key: 'year',
+			x_axis_type: 'date' as const,
+			series: [{ data_key: 'sales' }],
+			title: 'Annual sales',
+			comparison_mode: 'percentage' as const,
+		};
+
+		expect(displayChart.ChartInputSchema.safeParse(input)).toMatchObject({
+			success: true,
+			data: { comparison_mode: 'percentage' },
+		});
+		expect(displayChart.InputSchema.safeParse(input)).toMatchObject({
+			success: true,
+			data: { comparison_mode: 'percentage' },
+		});
+	});
+
 	it('rejects a chart config missing chart fields', () => {
 		const result = displayChart.InputSchema.safeParse({
 			query_id: 'query_1',

@@ -344,6 +344,7 @@ export const DisplayChartToolCall = ({
 					toolCallId={toolCallId}
 					config={chartConfig}
 					availableColumns={sourceData.columns ?? []}
+					dataRowCount={sourceData.data?.length ?? 0}
 				/>
 			)}
 
@@ -362,6 +363,7 @@ export const DisplayChartToolCall = ({
 					yAxisMin={chartConfig.y_axis_min}
 					yAxisMax={chartConfig.y_axis_max}
 					showDataLabels={chartConfig.show_data_labels}
+					comparisonMode={chartConfig.comparison_mode}
 				/>
 			)}
 		</div>
@@ -380,6 +382,7 @@ export interface ChartDisplayProps {
 	yAxisMin?: number;
 	yAxisMax?: number;
 	showDataLabels?: boolean;
+	comparisonMode?: displayChart.ComparisonMode;
 }
 
 export const ChartDisplay = memo(function ChartDisplay({
@@ -394,6 +397,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 	yAxisMin,
 	yAxisMax,
 	showDataLabels,
+	comparisonMode,
 }: ChartDisplayProps) {
 	const dateFormat = useDateFormat();
 
@@ -495,6 +499,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 				labelFormatter,
 				showGrid,
 				showDataLabels,
+				comparisonMode,
 				margin: { top: 0, right: 0, bottom: 0, left: 0 },
 				yAxisMin,
 				yAxisMax,
@@ -541,6 +546,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 			yAxisMin,
 			yAxisMax,
 			showDataLabels,
+			comparisonMode,
 			legendPayload,
 			handleToggleSeriesVisibility,
 			title,
