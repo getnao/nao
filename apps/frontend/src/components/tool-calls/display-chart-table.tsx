@@ -116,13 +116,8 @@ export function DisplayChartTable({ config, outputError, toolCallId }: DisplayCh
 
 	const handleAddToStory = async () => {
 		const latestStoryId = storyIds[storyIds.length - 1];
-		const visibleStoryId =
-			isVisible && currentStorySlug
-				? (storyIds.find((storyId) => storyId === currentStorySlug) ??
-					storyIds.find((storyId) => storyId.startsWith(currentStorySlug)))
-				: undefined;
-		const usingVisibleStory = Boolean(visibleStoryId);
-		const targetId = visibleStoryId ?? latestStoryId;
+		const usingVisibleStory = Boolean(isVisible && currentStorySlug && storyIds.includes(currentStorySlug));
+		const targetId = usingVisibleStory ? currentStorySlug! : latestStoryId;
 		if (!targetId || !chatId) {
 			return;
 		}

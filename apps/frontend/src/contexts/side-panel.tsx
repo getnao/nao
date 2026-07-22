@@ -5,6 +5,7 @@ type ShareType = 'chat' | 'story';
 interface SidePanelContext {
 	isVisible: boolean;
 	currentStorySlug: string | null;
+	setCurrentStorySlug: (slug: string | null) => void;
 	currentStoryTabIndex: number;
 	setCurrentStoryTabIndex: (index: number) => void;
 	chatId: string | null;
@@ -20,6 +21,7 @@ const SidePanelContext = createContext<SidePanelContext | null>(null);
 const noopSidePanel: SidePanelContext = {
 	isVisible: false,
 	currentStorySlug: null,
+	setCurrentStorySlug: () => {},
 	currentStoryTabIndex: 0,
 	setCurrentStoryTabIndex: () => {},
 	chatId: null,
@@ -38,6 +40,7 @@ export const SidePanelProvider = ({
 	children,
 	isVisible,
 	currentStorySlug,
+	setCurrentStorySlug,
 	currentStoryTabIndex,
 	setCurrentStoryTabIndex,
 	chatId,
@@ -50,6 +53,7 @@ export const SidePanelProvider = ({
 	children: React.ReactNode;
 	isVisible: boolean;
 	currentStorySlug: string | null;
+	setCurrentStorySlug: (slug: string | null) => void;
 	currentStoryTabIndex: number;
 	setCurrentStoryTabIndex: (index: number) => void;
 	chatId: string | null;
@@ -63,6 +67,7 @@ export const SidePanelProvider = ({
 		() => ({
 			isVisible,
 			currentStorySlug,
+			setCurrentStorySlug,
 			currentStoryTabIndex,
 			setCurrentStoryTabIndex,
 			chatId,
@@ -75,6 +80,7 @@ export const SidePanelProvider = ({
 		[
 			isVisible,
 			currentStorySlug,
+			setCurrentStorySlug,
 			currentStoryTabIndex,
 			setCurrentStoryTabIndex,
 			chatId,

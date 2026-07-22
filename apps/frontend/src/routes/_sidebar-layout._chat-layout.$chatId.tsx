@@ -133,6 +133,7 @@ function ChatPage() {
 		<SidePanelProvider
 			isVisible={sidePanel.isVisible}
 			currentStorySlug={sidePanel.currentStorySlug}
+			setCurrentStorySlug={sidePanel.setCurrentStorySlug}
 			currentStoryTabIndex={sidePanel.currentStoryTabIndex}
 			setCurrentStoryTabIndex={sidePanel.setCurrentStoryTabIndex}
 			chatId={chatId}

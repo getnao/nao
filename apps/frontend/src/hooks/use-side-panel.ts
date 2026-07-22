@@ -161,6 +161,7 @@ export const useSidePanel = ({
 		isAnimating,
 		content,
 		currentStorySlug,
+		setCurrentStorySlug,
 		currentStoryTabIndex,
 		setCurrentStoryTabIndex,
 		open,

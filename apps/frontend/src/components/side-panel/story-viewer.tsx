@@ -55,6 +55,7 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 		isReadonlyMode: contextReadonlyMode,
 		shareId,
 		shareType,
+		setCurrentStorySlug,
 		setCurrentStoryTabIndex,
 	} = useSidePanel();
 	const isReadonlyMode = readonlyProp ?? contextReadonlyMode;
@@ -173,6 +174,10 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 			setActiveTabIndex(0);
 		}
 	}, [resolvedStorySlug]);
+
+	useEffect(() => {
+		setCurrentStorySlug(resolvedStorySlug);
+	}, [resolvedStorySlug, setCurrentStorySlug]);
 
 	useEffect(() => {
 		setCurrentStoryTabIndex(activeTab);
