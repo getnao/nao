@@ -114,6 +114,7 @@ function ChartTooltipContent({
 	labelKey,
 	percent = false,
 	valueFormatter = formatCompactNumber,
+	hideTotal = false,
 }: React.ComponentProps<typeof RechartsPrimitive.Tooltip> &
 	React.ComponentProps<'div'> & {
 		hideLabel?: boolean;
@@ -123,6 +124,7 @@ function ChartTooltipContent({
 		labelKey?: string;
 		percent?: boolean;
 		valueFormatter?: (value: number) => string;
+		hideTotal?: boolean;
 	}) {
 	const { config } = useChart();
 
@@ -169,7 +171,7 @@ function ChartTooltipContent({
 			.map((item) => ({ value: item.value as number, isTotal: isTotalItem(item) })),
 	);
 	// In 100% stacked mode every category totals 100%, so ignore already-aggregated total series.
-	const showTotal = numericValues.length > 1 && (percent || !hasTotalSeries);
+	const showTotal = numericValues.length > 1 && (percent || (!hasTotalSeries && !hideTotal));
 	const formatValue = (value: number) => (percent ? formatPercentShare(value, shareBase) : valueFormatter(value));
 
 	return (

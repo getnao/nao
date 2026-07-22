@@ -66,6 +66,31 @@ describe('splitCodeIntoSegments chart series', () => {
 	});
 });
 
+describe('splitCodeIntoSegments chart total visibility', () => {
+	it('parses hide_total and defaults it to false when omitted', () => {
+		const hidden =
+			'<chart query_id="q1" chart_type="bar" x_axis_key="month" series=\'[{"data_key":"rev"}]\' hide_total="true" />';
+		const visible = '<chart query_id="q1" chart_type="bar" x_axis_key="month" series=\'[{"data_key":"rev"}]\' />';
+
+		expect(chartOf(hidden)?.hideTotal).toBe(true);
+		expect(chartOf(visible)?.hideTotal).toBe(false);
+	});
+
+	it('round-trips hide_total through buildStoryChartBlock', () => {
+		const code = buildStoryChartBlock({
+			query_id: 'q1',
+			chart_type: 'bar',
+			x_axis_key: 'month',
+			series: [{ data_key: 'rev' }],
+			title: 'Revenue',
+			hide_total: true,
+		});
+
+		expect(code).toContain('hide_total="true"');
+		expect(chartOf(code)?.hideTotal).toBe(true);
+	});
+});
+
 describe('splitCodeIntoSegments slash-in-attribute handling', () => {
 	it('parses a chart whose title contains a slash', () => {
 		const code =

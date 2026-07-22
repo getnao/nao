@@ -1,4 +1,5 @@
 import { buildChart, bucketPieData, buildStoryChartBlock, labelize } from '@nao/shared';
+import { appendBlockToStoryCode } from '@nao/shared/story-tabs';
 import { displayChart } from '@nao/shared/tools';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -60,7 +61,7 @@ export const DisplayChartToolCall = ({
 	const messages = agent?.messages ?? EMPTY_MESSAGES;
 	const chatId = useChatId();
 	const queryClient = useQueryClient();
-	const { open: openSidePanel, currentStorySlug, isVisible } = useSidePanel();
+	const { open: openSidePanel, currentStorySlug, currentStoryTabIndex, isVisible } = useSidePanel();
 	const config = state !== 'input-streaming' ? input : undefined;
 	const chartConfig = config?.chart_type === 'table' ? undefined : config;
 	const tableConfig = config?.chart_type === 'table' ? config : undefined;
@@ -203,13 +204,8 @@ export const DisplayChartToolCall = ({
 
 	const handleAddToStory = async () => {
 		const latestStoryId = storyIds[storyIds.length - 1];
-		// Prefer the currently-visible story slug, but only if it's a real story
-		// from this chat — the side panel's currentStorySlug can lag behind (e.g.
-		// it was set from a partial streamed slug during the story tool's
-		// input-streaming phase) and would otherwise point to a non-existent
-		// story.
-		const targetId =
-			isVisible && currentStorySlug && storyIds.includes(currentStorySlug) ? currentStorySlug : latestStoryId;
+		const usingVisibleStory = Boolean(isVisible && currentStorySlug && storyIds.includes(currentStorySlug));
+		const targetId = usingVisibleStory ? currentStorySlug! : latestStoryId;
 		if (!targetId || !chartConfig || !chatId) {
 			return;
 		}
@@ -224,7 +220,10 @@ export const DisplayChartToolCall = ({
 		}
 
 		const chartBlock = buildStoryChartBlock(chartConfig);
-		const newCode = latest.code.trimEnd() + '\n\n' + chartBlock;
+		const { code: newCode, tabIndex: openTabIndex } = appendBlockToStoryCode(latest.code, chartBlock, {
+			usingVisibleStory,
+			activeTabIndex: currentStoryTabIndex,
+		});
 
 		addToStoryMutation.mutate({
 			chatId,
@@ -234,8 +233,11 @@ export const DisplayChartToolCall = ({
 			action: 'update',
 		});
 
-		if (!isVisible) {
-			openSidePanel(<StoryViewer chatId={chatId} storySlug={targetId} />, targetId);
+		if (!usingVisibleStory) {
+			openSidePanel(
+				<StoryViewer chatId={chatId} storySlug={targetId} initialTabIndex={openTabIndex} />,
+				targetId,
+			);
 		}
 	};
 
@@ -372,6 +374,7 @@ export const DisplayChartToolCall = ({
 					yAxisMin={chartConfig.y_axis_min}
 					yAxisMax={chartConfig.y_axis_max}
 					showDataLabels={chartConfig.show_data_labels}
+					hideTotal={chartConfig.hide_total}
 				/>
 			)}
 		</div>
@@ -397,6 +400,7 @@ export interface ChartDisplayProps {
 	className?: string;
 	chartContainerClassName?: string;
 	chartContentClassName?: string;
+	hideTotal?: boolean;
 }
 
 export const ChartDisplay = memo(function ChartDisplay({
@@ -418,6 +422,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 	className,
 	chartContainerClassName,
 	chartContentClassName,
+	hideTotal,
 }: ChartDisplayProps) {
 	const dateFormat = useDateFormat();
 
@@ -535,6 +540,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 						content={
 							<ChartTooltipContent
 								percent={isPercentStacked}
+								hideTotal={hideTotal}
 								labelFormatter={tooltipLabelFormatter}
 								valueFormatter={valueFormatter}
 							/>
@@ -574,6 +580,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 			yAxisMin,
 			yAxisMax,
 			showDataLabels,
+			hideTotal,
 			legendPayload,
 			handleToggleSeriesVisibility,
 			title,
