@@ -20,7 +20,9 @@ export function useKeyboardShortcuts(handlers: ShortcutHandlers) {
 				const handler = handlersRef.current[entry.id];
 				if (handler && matchesShortcut(event, entry.shortcut)) {
 					event.preventDefault();
-					handler();
+					if (!event.repeat) {
+						handler();
+					}
 					return;
 				}
 			}

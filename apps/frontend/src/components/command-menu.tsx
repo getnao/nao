@@ -1,4 +1,5 @@
 import { useState, useCallback, useMemo } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import {
 	BookOpenIcon,
@@ -27,6 +28,7 @@ import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { usePermissions } from '@/hooks/use-permissions';
 import { TextShimmer } from '@/components/ui/text-shimmer';
 import { getShortcutLabel } from '@/lib/keyboard-shortcuts';
+import { invalidateStoriesCaches } from '@/lib/stories-cache';
 
 type CommandConfig = {
 	id: string;
@@ -44,6 +46,7 @@ export function CommandMenu({ onOpenKeyboardShortcuts }: { onOpenKeyboardShortcu
 	const [searchValue, setSearchValue] = useState('');
 	const debouncedSearch = useDebouncedValue(searchValue, 300);
 	const navigate = useNavigate();
+	const queryClient = useQueryClient();
 	const { theme, setTheme } = useTheme();
 	const { canStartNewChat } = usePermissions();
 
@@ -75,7 +78,10 @@ export function CommandMenu({ onOpenKeyboardShortcuts }: { onOpenKeyboardShortcu
 				label: 'Go to Stories',
 				keywords: ['stories'],
 				icon: BookOpenIcon,
-				action: () => navigate({ to: '/stories', search: { folderId: null } }),
+				action: () => {
+					invalidateStoriesCaches(queryClient);
+					navigate({ to: '/stories', search: { folderId: null } });
+				},
 				shortcut: getShortcutLabel('go-to-stories'),
 				group: 'Jump to',
 			},
@@ -107,7 +113,7 @@ export function CommandMenu({ onOpenKeyboardShortcuts }: { onOpenKeyboardShortcu
 				group: 'Actions',
 			},
 		],
-		[navigate, theme, setTheme, canStartNewChat, onOpenKeyboardShortcuts],
+		[navigate, queryClient, theme, setTheme, canStartNewChat, onOpenKeyboardShortcuts],
 	);
 
 	const visibleCommands = useMemo(() => commands.filter((cmd) => cmd.visible ?? true), [commands]);

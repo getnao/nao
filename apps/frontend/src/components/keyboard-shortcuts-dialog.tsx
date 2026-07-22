@@ -1,4 +1,4 @@
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Kbd } from '@/components/ui/kbd';
 import { SHORTCUTS } from '@/lib/keyboard-shortcuts';
 
@@ -15,6 +15,9 @@ export function KeyboardShortcutsDialog({ open, onOpenChange }: KeyboardShortcut
 			<DialogContent className='sm:max-w-md'>
 				<DialogHeader>
 					<DialogTitle>Keyboard shortcuts</DialogTitle>
+					<DialogDescription className='sr-only'>
+						List of available keyboard shortcuts and their key combinations.
+					</DialogDescription>
 				</DialogHeader>
 				<div className='space-y-5'>
 					{groups.map((group) => (

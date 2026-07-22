@@ -43,9 +43,10 @@ export function formatShortcutLabel(shortcut: Shortcut): string {
 }
 
 export function matchesShortcut(event: KeyboardEvent, shortcut: Shortcut): boolean {
-	const modPressed = event.metaKey || event.ctrlKey;
+	const modPressed = isMac ? event.metaKey : event.ctrlKey;
+	const otherModPressed = isMac ? event.ctrlKey : event.metaKey;
 
-	if (modPressed !== Boolean(shortcut.mod)) {
+	if (modPressed !== Boolean(shortcut.mod) || otherModPressed) {
 		return false;
 	}
 	if (event.shiftKey !== Boolean(shortcut.shift) || event.altKey !== Boolean(shortcut.alt)) {
