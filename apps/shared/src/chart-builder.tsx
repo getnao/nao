@@ -5,8 +5,10 @@ import {
 	Bar,
 	BarChart,
 	CartesianGrid,
+	ComposedChart,
 	Customized,
 	LabelList,
+	Line,
 	Pie,
 	PieChart,
 	PolarAngleAxis,
@@ -280,7 +282,10 @@ export function clampNegativeSeriesValues(
 }
 
 type ResolvedProps = BuildChartProps &
-	Required<Pick<BuildChartProps, 'colorFor' | 'labelFormatter' | 'backgroundColor'>> & { xAxisInterval?: number };
+	Required<Pick<BuildChartProps, 'colorFor' | 'labelFormatter' | 'backgroundColor'>> & {
+		xAxisInterval?: number;
+		idPrefix?: string;
+	};
 
 function buildChartMargin(props: BuildChartProps, showTitle: boolean) {
 	const titleTop = showTitle ? 30 : 0;
@@ -686,7 +691,7 @@ function buildComboChart(props: ResolvedProps) {
 		yAxisRightMax,
 		yAxisRightLabel,
 		showDataLabels,
-		idPrefix,
+		idPrefix = '',
 	} = props;
 
 	const leftSeries = series.filter((s) => comboAxisSide(s) === 'left');
