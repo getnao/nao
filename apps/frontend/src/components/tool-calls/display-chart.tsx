@@ -53,9 +53,9 @@ export const DisplayChartToolCall = ({
 	const queryClient = useQueryClient();
 	const { open: openSidePanel, currentStorySlug, isVisible } = useSidePanel();
 	const config = state !== 'input-streaming' ? input : undefined;
-	const chartConfig = config?.chart_type === 'table' ? undefined : config;
-	const tableConfig = config?.chart_type === 'table' ? config : undefined;
-	const isTableVariant = input?.chart_type === 'table' || config?.chart_type === 'table';
+	const chartConfig = config && displayChart.isChartInput(config) ? config : undefined;
+	const tableConfig = config && displayChart.isTableInput(config) ? config : undefined;
+	const isTableVariant = input?.chart_type === 'table';
 	const isBuiltinChart = chartConfig ? displayChart.isBuiltinChartType(chartConfig.chart_type) : false;
 	const [dataRange, setDataRange] = useState<DateRange>('all');
 	const [viewMode, setViewMode] = useState<ViewMode>('chart');

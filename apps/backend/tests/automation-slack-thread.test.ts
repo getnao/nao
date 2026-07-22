@@ -43,6 +43,7 @@ function emptyContext(): ToolContext {
 		chatId: 'chat-1',
 		userId: 'user-1',
 		projectId: 'project-1',
+		supportsCustomCharts: false,
 		agentSettings: null,
 		envVars: {},
 		azureAccessToken: null,

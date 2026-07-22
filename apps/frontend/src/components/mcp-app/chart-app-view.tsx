@@ -1,10 +1,10 @@
+import { displayChart } from '@nao/shared/tools';
 import { memo, useMemo } from 'react';
+
 import { McpAppHeader } from './mcp-app-header';
 import { OpenInNaoButton } from './open-in-nao-button';
 import type { McpChartEmbedStoredConfig } from '@nao/shared';
-import type { displayChart } from '@nao/shared/tools';
 import type { ReactNode } from 'react';
-
 import { ChartDisplay } from '@/components/tool-calls/display-chart';
 import { sortByDateKey } from '@/lib/charts.utils';
 
@@ -44,6 +44,12 @@ export const ChartAppView = memo(function ChartAppView({ config, data, naoUrl }:
 		body = (
 			<div className='flex min-h-[10rem] items-center justify-center px-4 py-10 text-center text-sm text-muted-foreground'>
 				No series configured for this chart.
+			</div>
+		);
+	} else if (!displayChart.isBuiltinChartType(config.chartType)) {
+		body = (
+			<div className='flex min-h-[10rem] items-center justify-center px-4 py-10 text-center text-sm text-muted-foreground'>
+				Custom charts are available in web chats only.
 			</div>
 		);
 	} else {

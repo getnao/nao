@@ -20,6 +20,10 @@ export const ChartTypeEnum = z.enum(BUILTIN_CHART_TYPES);
 const ChartTypeNameSchema = z
 	.string()
 	.regex(/^[a-z][a-z0-9_-]*$/, 'Chart type must use lowercase letters, numbers, underscores, or hyphens.');
+const CustomChartTypeSchema = ChartTypeNameSchema.refine(
+	(type) => type !== 'table' && !(BUILTIN_CHART_TYPES as readonly string[]).includes(type),
+).brand<'CustomChartType'>();
+const ChartTypeSchema = z.union([ChartTypeEnum, CustomChartTypeSchema]);
 
 export const XAxisTypeEnum = z.enum(['date', 'number', 'category']);
 
@@ -95,7 +99,7 @@ export const ColumnConditionalFormatsSchema = z
 export const ChartInputSchema = z
 	.object({
 		query_id: z.string().describe("The id of a previous `execute_sql` tool call's output to get data from."),
-		chart_type: ChartTypeNameSchema.describe('Built-in chart type or an available project custom chart type.'),
+		chart_type: ChartTypeSchema.describe('Built-in chart type or an available project custom chart type.'),
 		x_axis_key: z.string().describe('Column name for X-axis/category labels.'),
 		x_axis_type: XAxisTypeEnum.nullable().describe(
 			'Use "date" only when x-axis values parse as JS Date (YYYY-MM-DD). Use "category" for quarter_ending, fiscal periods, or labels. Use "number" for numeric x-axis.',
@@ -142,7 +146,7 @@ export type ChartInput = z.infer<typeof ChartInputSchema>;
 export type TableInput = z.infer<typeof TableInputSchema>;
 export type Input = ChartInput | TableInput;
 
-const DisplayTypeSchema = z.union([ChartTypeNameSchema, z.literal('table')]);
+const DisplayTypeSchema = z.union([ChartTypeSchema, z.literal('table')]);
 
 const BaseInputSchema = z.object({
 	query_id: z.string().describe("The id of a previous `execute_sql` tool call's output to get data from."),
@@ -210,6 +214,14 @@ export type BuiltinChartInput = Omit<ChartInput, 'chart_type'> & { chart_type: C
 
 export function isBuiltinChartType(type: string): type is ChartType {
 	return (BUILTIN_CHART_TYPES as readonly string[]).includes(type);
+}
+
+export function isTableInput(input: Input): input is TableInput {
+	return input.chart_type === 'table';
+}
+
+export function isChartInput(input: Input): input is ChartInput {
+	return !isTableInput(input);
 }
 
 export function isStackedChartType(type: string): boolean {

@@ -77,7 +77,7 @@ export const chartRoutes = {
 
 async function readDownloadableChartConfig(toolCallId: string): Promise<displayChart.BuiltinChartInput> {
 	const config = await getDisplayConfigByToolCallId(toolCallId);
-	if (config.chart_type === 'table') {
+	if (displayChart.isTableInput(config)) {
 		throw new TRPCError({
 			code: 'BAD_REQUEST',
 			message: 'Chart download is only available for chart visualizations.',

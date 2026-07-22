@@ -1,8 +1,9 @@
+import { createHash } from 'node:crypto';
+import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
+import { isAbsolute, join, relative } from 'node:path';
+
 import type { ChartPluginManifestEntry } from '@nao/shared';
 import { displayChart } from '@nao/shared/tools';
-import { createHash } from 'node:crypto';
-import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
-import { isAbsolute, join, relative } from 'node:path';
 import { z } from 'zod';
 
 const PLUGIN_FILE_PATTERN = /^([a-z][a-z0-9_-]*)\.(js|mjs)$/;

@@ -1,10 +1,10 @@
 import { DEFAULT_COLORS } from '@nao/shared';
-import type { ChartPluginCleanup, ChartPluginModule, ChartPluginRenderContext } from '@nao/shared';
-import type { displayChart } from '@nao/shared/tools';
 import { useQuery } from '@tanstack/react-query';
 import * as React from 'react';
 import * as ReactDOM from 'react-dom/client';
 import * as Recharts from 'recharts';
+import type { ChartPluginCleanup, ChartPluginModule, ChartPluginRenderContext } from '@nao/shared';
+import type { displayChart } from '@nao/shared/tools';
 
 import { useTheme } from '@/contexts/theme.provider';
 import { trpc } from '@/main';

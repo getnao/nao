@@ -12,7 +12,7 @@ export default createTool<displayChart.Input, displayChart.Output>({
 	outputSchema: displayChart.OutputSchema,
 
 	execute: async (input, context) => {
-		if (input.chart_type === 'table') {
+		if (displayChart.isTableInput(input)) {
 			const queryResult = await getQueryResult(context, input.query_id);
 			if (!queryResult) {
 				return {
