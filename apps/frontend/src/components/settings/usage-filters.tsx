@@ -42,6 +42,7 @@ export const dateFormats: Record<Granularity, string> = {
 };
 
 interface UsageFiltersProps {
+	showUsageControls?: boolean;
 	provider: LlmProvider | 'all';
 	onProviderChange: (value: LlmProvider | 'all') => void;
 	granularity: Granularity;
@@ -50,15 +51,12 @@ interface UsageFiltersProps {
 	chatFacets: ProjectChatReplayFacets | undefined;
 	selectedUserNames: string[] | undefined;
 	onSelectedUserNamesChange: (value: string[] | undefined) => void;
-	selectedFeedbackStates: ChatReplayFeedbackState[] | undefined;
-	onSelectedFeedbackStatesChange: (value: ChatReplayFeedbackState[] | undefined) => void;
-	selectedToolStates: ChatReplayToolState[] | undefined;
-	onSelectedToolStatesChange: (value: ChatReplayToolState[] | undefined) => void;
 	selectedSources: UsageSource[] | undefined;
 	onSelectedSourcesChange: (value: UsageSource[] | undefined) => void;
 }
 
 export function UsageFilters({
+	showUsageControls = true,
 	provider,
 	onProviderChange,
 	granularity,
@@ -67,10 +65,6 @@ export function UsageFilters({
 	chatFacets,
 	selectedUserNames,
 	onSelectedUserNamesChange,
-	selectedFeedbackStates,
-	onSelectedFeedbackStatesChange,
-	selectedToolStates,
-	onSelectedToolStatesChange,
 	selectedSources,
 	onSelectedSourcesChange,
 }: UsageFiltersProps) {
@@ -80,15 +74,6 @@ export function UsageFilters({
 		label: name,
 		count: chatFacets?.userNameCounts[name],
 	}));
-	const toolStateOptions = CHAT_REPLAY_TOOL_STATES.map((value) => ({
-		value,
-		label: toolStateLabels[value],
-		count: chatFacets?.toolState[value] ?? 0,
-	})).filter((option) => option.count > 0);
-	const feedbackOptions = CHAT_REPLAY_FEEDBACK_STATES.map((value) => ({
-		value,
-		label: feedbackStateLabels[value],
-	}));
 	const sourceOptions = USAGE_SOURCES.map((value) => ({
 		value,
 		label: sourceLabels[value],
@@ -96,39 +81,43 @@ export function UsageFilters({
 
 	return (
 		<div className='flex flex-wrap items-center gap-2'>
-			<Select value={provider} onValueChange={(v) => onProviderChange(v as LlmProvider | 'all')}>
-				<SelectTrigger className='w-36'>
-					<SelectValue />
-				</SelectTrigger>
-				<SelectContent>
-					<SelectItem value='all'>All providers</SelectItem>
-					{availableProviders?.map((p) => (
-						<SelectItem key={p} value={p}>
-							{providerLabels[p]}
-						</SelectItem>
-					))}
-				</SelectContent>
-			</Select>
-			<Select
-				value={period}
-				onValueChange={(value) => {
-					const option = periodOptions.find((o) => o.value === value);
-					if (option) {
-						onGranularityChange(option.granularity);
-					}
-				}}
-			>
-				<SelectTrigger className='w-40'>
-					<SelectValue />
-				</SelectTrigger>
-				<SelectContent>
-					{periodOptions.map((option) => (
-						<SelectItem key={option.value} value={option.value}>
-							{option.label}
-						</SelectItem>
-					))}
-				</SelectContent>
-			</Select>
+			{showUsageControls && (
+				<>
+					<Select value={provider} onValueChange={(v) => onProviderChange(v as LlmProvider | 'all')}>
+						<SelectTrigger className='w-36'>
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							<SelectItem value='all'>All providers</SelectItem>
+							{availableProviders?.map((p) => (
+								<SelectItem key={p} value={p}>
+									{providerLabels[p]}
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
+					<Select
+						value={period}
+						onValueChange={(value) => {
+							const option = periodOptions.find((o) => o.value === value);
+							if (option) {
+								onGranularityChange(option.granularity);
+							}
+						}}
+					>
+						<SelectTrigger className='w-40'>
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							{periodOptions.map((option) => (
+								<SelectItem key={option.value} value={option.value}>
+									{option.label}
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
+				</>
+			)}
 
 			<MultiSelectFilter
 				label='Source'
@@ -144,6 +133,37 @@ export function UsageFilters({
 				selectedValues={selectedUserNames}
 				onChange={onSelectedUserNamesChange}
 			/>
+		</div>
+	);
+}
+
+type ReplayFiltersProps = {
+	chatFacets: ProjectChatReplayFacets | undefined;
+	selectedFeedbackStates: ChatReplayFeedbackState[] | undefined;
+	onSelectedFeedbackStatesChange: (value: ChatReplayFeedbackState[] | undefined) => void;
+	selectedToolStates: ChatReplayToolState[] | undefined;
+	onSelectedToolStatesChange: (value: ChatReplayToolState[] | undefined) => void;
+};
+
+export function ReplayFilters({
+	chatFacets,
+	selectedFeedbackStates,
+	onSelectedFeedbackStatesChange,
+	selectedToolStates,
+	onSelectedToolStatesChange,
+}: ReplayFiltersProps) {
+	const toolStateOptions = CHAT_REPLAY_TOOL_STATES.map((value) => ({
+		value,
+		label: toolStateLabels[value],
+		count: chatFacets?.toolState[value] ?? 0,
+	})).filter((option) => option.count > 0);
+	const feedbackOptions = CHAT_REPLAY_FEEDBACK_STATES.map((value) => ({
+		value,
+		label: feedbackStateLabels[value],
+	}));
+
+	return (
+		<div className='flex flex-wrap items-center gap-2'>
 			<MultiSelectFilter
 				label='Votes'
 				icon={ThumbsUp}
@@ -196,6 +216,7 @@ const sourceLabels: Record<UsageSource, string> = {
 	whatsapp: 'WhatsApp',
 	admin: 'Admin mode',
 	mcp: 'MCP',
+	contextRecommendations: 'Context recommendations',
 };
 
 function MultiSelectFilter<T extends string>({

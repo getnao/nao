@@ -118,6 +118,7 @@ export const getMessagesUsage = async (projectId: string, filter: UsageFilter): 
 			whatsappMessageCount: sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' and ${s.chatMessage.source} = 'whatsapp' then ${s.chatMessage.id} end)`,
 			adminMessageCount: sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' and ${s.chatMessage.source} = 'admin' then ${s.chatMessage.id} end)`,
 			mcpMessageCount: sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' and ${s.chatMessage.source} = 'mcp' then ${s.chatMessage.id} end)`,
+			contextRecommendationsMessageCount: sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' and ${s.chatMessage.source} = 'contextRecommendations' then ${s.chatMessage.id} end)`,
 			inputNoCacheTokens: sum(s.chatMessage.inputNoCacheTokens),
 			inputCacheReadTokens: sum(s.chatMessage.inputCacheReadTokens),
 			inputCacheWriteTokens: sum(s.chatMessage.inputCacheWriteTokens),
@@ -138,14 +139,15 @@ export const getMessagesUsage = async (projectId: string, filter: UsageFilter): 
 	return fillMissingDates(
 		rows.map((row) => ({
 			date: row.date,
-			messageCount: row.messageCount,
-			webMessageCount: row.webMessageCount,
-			slackMessageCount: row.slackMessageCount,
-			teamsMessageCount: row.teamsMessageCount,
-			telegramMessageCount: row.telegramMessageCount,
-			whatsappMessageCount: row.whatsappMessageCount,
-			adminMessageCount: row.adminMessageCount,
-			mcpMessageCount: row.mcpMessageCount,
+			messageCount: Number(row.messageCount ?? 0),
+			webMessageCount: Number(row.webMessageCount ?? 0),
+			slackMessageCount: Number(row.slackMessageCount ?? 0),
+			teamsMessageCount: Number(row.teamsMessageCount ?? 0),
+			telegramMessageCount: Number(row.telegramMessageCount ?? 0),
+			whatsappMessageCount: Number(row.whatsappMessageCount ?? 0),
+			adminMessageCount: Number(row.adminMessageCount ?? 0),
+			mcpMessageCount: Number(row.mcpMessageCount ?? 0),
+			contextRecommendationsMessageCount: Number(row.contextRecommendationsMessageCount ?? 0),
 			inputNoCacheTokens: Number(row.inputNoCacheTokens ?? 0),
 			inputCacheReadTokens: Number(row.inputCacheReadTokens ?? 0),
 			inputCacheWriteTokens: Number(row.inputCacheWriteTokens ?? 0),
@@ -191,8 +193,8 @@ export const getTotalUsage = async (projectId: string, filter: UsageFilter): Pro
 		.where(and(...whereConditions));
 
 	return {
-		totalMessages: rows[0].totalMessages,
-		uniqueUsers: rows[0].uniqueUsers,
+		totalMessages: Number(rows[0]?.totalMessages ?? 0),
+		uniqueUsers: Number(rows[0]?.uniqueUsers ?? 0),
 	};
 };
 

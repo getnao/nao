@@ -61,7 +61,7 @@ export function UsageChartCard({
 						chartContainerClassName={
 							chartType === 'kpi_card'
 								? undefined
-								: 'max-lg:h-[200px] max-lg:max-h-[200px] h-[320px] :max-h-[320px]'
+								: 'max-lg:h-[200px] max-lg:max-h-[200px] h-[320px] max-h-[320px]'
 						}
 						chartContentClassName={
 							chartType === 'kpi_card' ? undefined : 'max-lg:min-h-0 max-lg:flex-1 max-lg:aspect-auto'

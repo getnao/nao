@@ -363,6 +363,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 		[isPie, data, xAxisKey, pieValueKey],
 	);
 	const useInlineHeader = titleStyle === 'left' && Boolean(title) && !isPie;
+	const showInlineLegend = showLegend && chartType !== 'kpi_card';
 	const { scrollRef, canScrollLeft, canScrollRight, scrollLegend } = useHorizontalScrollControls();
 
 	const chartConfig = useMemo((): ChartConfig => {
@@ -510,11 +511,11 @@ export const ChartDisplay = memo(function ChartDisplay({
 
 	const inlineHeader = useInlineHeader ? (
 		<div className='mb-6 flex w-full min-w-0 items-center gap-3'>
-			<div className={showLegend ? 'min-h-11 shrink-0' : 'shrink-0'}>
+			<div className={showInlineLegend ? 'min-h-11 shrink-0' : 'shrink-0'}>
 				<span className='block text-[15px] font-semibold'>{title}</span>
 				{titleAccessory}
 			</div>
-			{showLegend && canScrollLeft && (
+			{showInlineLegend && canScrollLeft && (
 				<Button
 					variant='ghost-muted'
 					size='icon-xs'
@@ -525,7 +526,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 					<ChevronLeft className='size-3.5' />
 				</Button>
 			)}
-			{showLegend && (
+			{showInlineLegend && (
 				<div
 					ref={scrollRef}
 					className='min-w-0 flex-1 overflow-x-auto pl-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden'
@@ -538,7 +539,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 					/>
 				</div>
 			)}
-			{showLegend && canScrollRight && (
+			{showInlineLegend && canScrollRight && (
 				<Button
 					variant='ghost-muted'
 					size='icon-xs'
@@ -555,7 +556,10 @@ export const ChartDisplay = memo(function ChartDisplay({
 	return (
 		<div className={`flex flex-col items-stretch gap-2 w-full ${className ?? ''}`}>
 			{chartType === 'kpi_card' ? (
-				chartElement
+				<>
+					{inlineHeader}
+					{chartElement}
+				</>
 			) : (
 				<ChartContainer
 					config={chartConfig}

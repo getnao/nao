@@ -73,6 +73,11 @@ const settingsNavItems: NavItem[] = [
 		visible: ({ isAdmin }) => isAdmin,
 	},
 	{
+		label: 'Chats replay',
+		to: '/settings/usage',
+		visible: ({ isAdmin, isContextAdmin }) => !isAdmin && isContextAdmin,
+	},
+	{
 		label: 'Server logs',
 		to: '/settings/logs',
 		visible: ({ isAdmin, isCloud }) => isAdmin && !isCloud,

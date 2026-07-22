@@ -1,11 +1,12 @@
 import { z } from 'zod/v4';
 
+import { MESSAGE_SOURCES } from './chat';
 import { llmProviderSchema } from './llm';
 
 export const granularitySchema = z.enum(['hour', 'day', 'month']);
 export type Granularity = z.infer<typeof granularitySchema>;
 
-export const USAGE_SOURCES = ['web', 'slack', 'teams', 'telegram', 'whatsapp', 'admin', 'mcp'] as const;
+export const USAGE_SOURCES = MESSAGE_SOURCES;
 export type UsageSource = (typeof USAGE_SOURCES)[number];
 
 export const usageFilterSchema = z.object({
@@ -26,6 +27,7 @@ export interface UsageRecord {
 	whatsappMessageCount: number;
 	adminMessageCount: number;
 	mcpMessageCount: number;
+	contextRecommendationsMessageCount: number;
 	inputNoCacheTokens: number;
 	inputCacheReadTokens: number;
 	inputCacheWriteTokens: number;

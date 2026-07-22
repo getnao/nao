@@ -1,4 +1,4 @@
-import { CircleAlert, CircleHelp, Globe2, Shield, ThumbsDown, ThumbsUp } from 'lucide-react';
+import { CircleAlert, CircleHelp, Globe2, Lightbulb, Shield, ThumbsDown, ThumbsUp } from 'lucide-react';
 import { differenceInDays, format, isToday, isYesterday } from 'date-fns';
 import type { ColumnDef } from '@tanstack/react-table';
 
@@ -18,6 +18,10 @@ const sourceConfig = {
 	whatsapp: { label: 'WhatsApp', icon: <WhatsAppIcon className='size-3.5' /> },
 	admin: { label: 'Admin mode', icon: <Shield className='size-3.5' /> },
 	mcp: { label: 'MCP', icon: <McpIcon className='size-3.5' /> },
+	contextRecommendations: {
+		label: 'Context recommendations',
+		icon: <Lightbulb className='size-3.5' />,
+	},
 } as const;
 
 export function getChatsReplayColumns(): ColumnDef<ProjectChatListItem>[] {

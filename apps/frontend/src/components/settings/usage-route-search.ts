@@ -85,7 +85,7 @@ function getUsageFiltersStorageKey(): string {
 }
 
 function parseProvider(value: unknown): LlmProvider | 'all' {
-	if (value === 'all' || (typeof value === 'string' && value in providerLabels)) {
+	if (value === 'all' || (typeof value === 'string' && Object.hasOwn(providerLabels, value))) {
 		return value as LlmProvider | 'all';
 	}
 	return 'all';

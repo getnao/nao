@@ -5,15 +5,15 @@ import { format } from 'date-fns';
 import type { TokenChartDisplayMode, UsageRouteSearch } from '@/components/settings/usage-route-search';
 import { ChatsReplayPage } from '@/components/settings/chats-replay-page';
 import { UsageChartCard } from '@/components/settings/usage-chart-card';
-import { UsageFilters, dateFormats } from '@/components/settings/usage-filters';
+import { ReplayFilters, UsageFilters, dateFormats } from '@/components/settings/usage-filters';
 import { saveUsageFilters, validateUsageSearchWithStoredFilters } from '@/components/settings/usage-route-search';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { usePermissions } from '@/hooks/use-permissions';
 import { trpc } from '@/main';
-import { requireAdmin, requireContextAdminOrAdmin } from '@/lib/require-admin';
+import { requireContextAdminOrAdmin } from '@/lib/require-admin';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/usage')({
-	beforeLoad: ({ location }) =>
-		location.pathname.startsWith('/settings/usage/replay/') ? requireContextAdminOrAdmin() : requireAdmin(),
+	beforeLoad: requireContextAdminOrAdmin,
 	validateSearch: validateUsageSearchWithStoredFilters,
 	component: UsagePage,
 });
@@ -45,6 +45,11 @@ const messageSeries = [
 	{ data_key: 'whatsappMessageCount', color: 'var(--chart-5)', label: 'WhatsApp' },
 	{ data_key: 'adminMessageCount', color: 'var(--violet)', label: 'Admin mode' },
 	{ data_key: 'mcpMessageCount', color: 'var(--destructive)', label: 'MCP' },
+	{
+		data_key: 'contextRecommendationsMessageCount',
+		color: 'var(--chart-6)',
+		label: 'Context recommendations',
+	},
 ] as const;
 
 function UsagePage() {
@@ -93,8 +98,12 @@ function UsageOverview({
 	onOpenChatReplay: (chatId: string) => void;
 }) {
 	const { granularity, provider, users, feedback, tools, sources, tokenView } = usageSearch;
+	const { canViewUsage } = usePermissions();
 
-	const usedProviders = useQuery(trpc.usage.getUsedProviders.queryOptions());
+	const usedProviders = useQuery({
+		...trpc.usage.getUsedProviders.queryOptions(),
+		enabled: canViewUsage,
+	});
 	const chatFacets = useQuery({
 		...trpc.project.getProjectChats.queryOptions({
 			page: 0,
@@ -110,6 +119,7 @@ function UsageOverview({
 			sources,
 		}),
 		placeholderData: keepPreviousData,
+		enabled: canViewUsage,
 	});
 	const totalUsage = useQuery({
 		...trpc.usage.getTotalUsage.queryOptions({
@@ -119,6 +129,7 @@ function UsageOverview({
 			sources,
 		}),
 		placeholderData: keepPreviousData,
+		enabled: canViewUsage,
 	});
 
 	const chartData = messagesUsage.data ?? [];
@@ -127,10 +138,12 @@ function UsageOverview({
 	const activeMessageSeries = messageSeries.filter(({ data_key }) =>
 		chartData.some((record) => record[data_key] > 0),
 	);
-	const showMessageLegend = activeMessageSeries.some(({ data_key }) => data_key !== 'webMessageCount');
+	const displayedMessageSeries = activeMessageSeries.length > 0 ? activeMessageSeries : messageSeries;
+	const showMessageLegend = displayedMessageSeries.some(({ data_key }) => data_key !== 'webMessageCount');
 
 	const filtersComponent = (
 		<UsageFilters
+			showUsageControls={canViewUsage}
 			provider={provider}
 			onProviderChange={(value) => onUpdateSearch({ provider: value })}
 			granularity={granularity}
@@ -139,10 +152,6 @@ function UsageOverview({
 			chatFacets={chatFacets.data?.facets}
 			selectedUserNames={users}
 			onSelectedUserNamesChange={(value) => onUpdateSearch({ users: value })}
-			selectedFeedbackStates={feedback}
-			onSelectedFeedbackStatesChange={(value) => onUpdateSearch({ feedback: value })}
-			selectedToolStates={tools}
-			onSelectedToolStatesChange={(value) => onUpdateSearch({ tools: value })}
 			selectedSources={sources}
 			onSelectedSourcesChange={(value) => onUpdateSearch({ sources: value })}
 		/>
@@ -154,71 +163,91 @@ function UsageOverview({
 				<div className='flex flex-col w-full gap-2 px-4 md:p-8 xl:shrink-0'>
 					{filtersComponent}
 
-					<div className='grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-[1fr_3fr_3fr] gap-2'>
-						<div className='lg:col-span-2 xl:col-span-1'>
+					{canViewUsage && (
+						<div className='grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-[1fr_3fr_3fr] gap-2'>
+							<div className='lg:col-span-2 xl:col-span-1'>
+								<UsageChartCard
+									title='Messages'
+									isLoading={totalUsage.isLoading}
+									isFetching={totalUsage.isFetching}
+									isError={totalUsage.isError}
+									data={totalUsageChartData}
+									chartType='kpi_card'
+									series={[
+										{
+											data_key: 'totalMessages',
+											label: 'Total messages',
+											color: 'var(--chart-1)',
+										},
+										{
+											data_key: 'uniqueUsers',
+											label: 'Unique users',
+											color: 'var(--chart-2)',
+										},
+									]}
+								/>
+							</div>
+
 							<UsageChartCard
 								title='Messages'
-								isLoading={totalUsage.isLoading}
-								isFetching={totalUsage.isFetching}
-								isError={totalUsage.isError}
-								data={totalUsageChartData}
-								chartType='kpi_card'
-								series={[
-									{ data_key: 'totalMessages', label: 'Total messages', color: 'var(--chart-1)' },
-									{ data_key: 'uniqueUsers', label: 'Unique users', color: 'var(--chart-2)' },
-								]}
+								isLoading={messagesUsage.isLoading}
+								isFetching={messagesUsage.isFetching}
+								isError={messagesUsage.isError}
+								data={chartData}
+								chartType='stacked_bar'
+								xAxisLabelFormatter={(value) => format(new Date(value), dateFormats[granularity])}
+								titleAccessory={
+									<span className='text-xs text-muted-foreground'>Number of messages by source</span>
+								}
+								series={displayedMessageSeries}
+								showLegend={showMessageLegend}
+							/>
+
+							<UsageChartCard
+								title={showCost ? 'Cost' : 'Tokens'}
+								isLoading={messagesUsage.isLoading}
+								isFetching={messagesUsage.isFetching}
+								isError={messagesUsage.isError}
+								data={chartData}
+								chartType='stacked_bar'
+								xAxisLabelFormatter={(value) => format(new Date(value), dateFormats[granularity])}
+								valueFormatter={showCost ? formatUsd : undefined}
+								series={showCost ? costSeries : tokenSeries}
+								titleAccessory={
+									<Select
+										value={tokenView}
+										onValueChange={(value) =>
+											onUpdateSearch({ tokenView: value as TokenChartDisplayMode })
+										}
+									>
+										<SelectTrigger size='sm' variant='ghost' className='mt-0 h-4 px-0 text-xs'>
+											<SelectValue />
+										</SelectTrigger>
+										<SelectContent>
+											{tokenChartDisplayOptions.map((option) => (
+												<SelectItem key={option.value} value={option.value}>
+													{option.label}
+												</SelectItem>
+											))}
+										</SelectContent>
+									</Select>
+								}
 							/>
 						</div>
-
-						<UsageChartCard
-							title='Messages'
-							isLoading={messagesUsage.isLoading}
-							isFetching={messagesUsage.isFetching}
-							isError={messagesUsage.isError}
-							data={chartData}
-							chartType='stacked_bar'
-							xAxisLabelFormatter={(value) => format(new Date(value), dateFormats[granularity])}
-							titleAccessory={
-								<span className='text-xs text-muted-foreground'>Number of messages by source</span>
-							}
-							series={activeMessageSeries}
-							showLegend={showMessageLegend}
-						/>
-
-						<UsageChartCard
-							title={showCost ? 'Cost' : 'Tokens'}
-							isLoading={messagesUsage.isLoading}
-							isFetching={messagesUsage.isFetching}
-							isError={messagesUsage.isError}
-							data={chartData}
-							chartType='stacked_bar'
-							xAxisLabelFormatter={(value) => format(new Date(value), dateFormats[granularity])}
-							valueFormatter={showCost ? formatUsd : undefined}
-							series={showCost ? costSeries : tokenSeries}
-							titleAccessory={
-								<Select
-									value={tokenView}
-									onValueChange={(value) =>
-										onUpdateSearch({ tokenView: value as TokenChartDisplayMode })
-									}
-								>
-									<SelectTrigger size='sm' variant='ghost' className='mt-0 h-4 px-0 text-xs'>
-										<SelectValue />
-									</SelectTrigger>
-									<SelectContent>
-										{tokenChartDisplayOptions.map((option) => (
-											<SelectItem key={option.value} value={option.value}>
-												{option.label}
-											</SelectItem>
-										))}
-									</SelectContent>
-								</Select>
-							}
-						/>
-					</div>
+					)}
 				</div>
 
 				<section className='flex min-h-[400px] flex-1 flex-col w-full overflow-hidden xl:min-h-0'>
+					<div className='flex shrink-0 flex-wrap items-center justify-between gap-2 px-4 pb-2 md:px-8'>
+						<h2 className='text-sm font-semibold'>Chats replay</h2>
+						<ReplayFilters
+							chatFacets={chatFacets.data?.facets}
+							selectedFeedbackStates={feedback}
+							onSelectedFeedbackStatesChange={(value) => onUpdateSearch({ feedback: value })}
+							selectedToolStates={tools}
+							onSelectedToolStatesChange={(value) => onUpdateSearch({ tools: value })}
+						/>
+					</div>
 					<ChatsReplayPage
 						selectedUserNames={users}
 						selectedFeedbackStates={feedback}

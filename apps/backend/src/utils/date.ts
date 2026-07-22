@@ -113,6 +113,7 @@ export function fillMissingDates(records: UsageRecord[], granularity: Granularit
 				whatsappMessageCount: 0,
 				adminMessageCount: 0,
 				mcpMessageCount: 0,
+				contextRecommendationsMessageCount: 0,
 				inputNoCacheTokens: 0,
 				inputCacheReadTokens: 0,
 				inputCacheWriteTokens: 0,

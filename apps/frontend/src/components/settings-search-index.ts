@@ -465,7 +465,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		title: 'Chats Replay',
 		description: 'Replay and review past chat conversations.',
 		keywords: ['history', 'conversation', 'replay', 'review'],
-		adminOnly: true,
+		adminOrContextAdmin: true,
 	},
 
 	// ── Context Recommendations ──────────────────────────────

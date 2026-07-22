@@ -454,18 +454,7 @@ export const listProjectChats = async (
 				filterWhereClauses.push(expr);
 			}
 		} else if (filter.id === 'source') {
-			const expr = or(
-				...filter.values.map(
-					(source) => sql`exists (
-						select 1
-						from ${s.chatMessage} as source_message
-						where source_message.chat_id = ${s.chat.id}
-							and source_message.role = 'user'
-							and source_message.source = ${source}
-							and source_message.superseded_at is null
-					)`,
-				),
-			);
+			const expr = or(...filter.values.map((source) => eq(sourceExpr, source)));
 			if (expr) {
 				filterWhereClauses.push(expr);
 			}

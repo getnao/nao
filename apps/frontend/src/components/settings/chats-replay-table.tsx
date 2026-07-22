@@ -1,6 +1,7 @@
 import { ChevronDown } from 'lucide-react';
 import { flexRender } from '@tanstack/react-table';
 import type { Table } from '@tanstack/react-table';
+import type { KeyboardEvent } from 'react';
 
 import type { ProjectChatListItem } from '@nao/shared/types';
 import { TablePagination } from '@/components/ui/table-pagination';
@@ -68,7 +69,10 @@ export function ChatsReplayTable({ table, onRowClick }: ChatsReplayTableProps) {
 								<TableRow
 									key={row.id}
 									onClick={() => onRowClick(row.original)}
-									className='!border-0 cursor-pointer hover:bg-muted/50'
+									onKeyDown={(event) => handleRowKeyDown(event, row.original, onRowClick)}
+									tabIndex={0}
+									aria-label={`Open chat: ${row.original.title || 'Untitled'}`}
+									className='!border-0 cursor-pointer hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
 								>
 									{row.getVisibleCells().map((cell) => (
 										<TableCell key={cell.id} className={edgeCellClassName}>
@@ -94,4 +98,17 @@ export function ChatsReplayTable({ table, onRowClick }: ChatsReplayTableProps) {
 			</div>
 		</div>
 	);
+}
+
+function handleRowKeyDown(
+	event: KeyboardEvent<HTMLTableRowElement>,
+	chat: ProjectChatListItem,
+	onRowClick: (chat: ProjectChatListItem) => void,
+) {
+	if (event.key !== 'Enter' && event.key !== ' ') {
+		return;
+	}
+
+	event.preventDefault();
+	onRowClick(chat);
 }
