@@ -116,8 +116,13 @@ export function DisplayChartTable({ config, outputError, toolCallId }: DisplayCh
 
 	const handleAddToStory = async () => {
 		const latestStoryId = storyIds[storyIds.length - 1];
-		const usingVisibleStory = Boolean(isVisible && currentStorySlug && storyIds.includes(currentStorySlug));
-		const targetId = usingVisibleStory ? currentStorySlug! : latestStoryId;
+		const visibleStoryId =
+			isVisible && currentStorySlug
+				? (storyIds.find((storyId) => storyId === currentStorySlug) ??
+					storyIds.find((storyId) => storyId.startsWith(currentStorySlug)))
+				: undefined;
+		const usingVisibleStory = Boolean(visibleStoryId);
+		const targetId = visibleStoryId ?? latestStoryId;
 		if (!targetId || !chatId) {
 			return;
 		}
@@ -145,7 +150,7 @@ export function DisplayChartTable({ config, outputError, toolCallId }: DisplayCh
 			action: 'update',
 		});
 
-		if (!isVisible) {
+		if (!usingVisibleStory) {
 			openSidePanel(
 				<StoryViewer chatId={chatId} storySlug={targetId} initialTabIndex={openTabIndex} />,
 				targetId,
