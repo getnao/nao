@@ -8,7 +8,7 @@ export type StoryQueryDataMap = Record<string, { data: unknown[]; columns: strin
 
 export type StoryQueryDataSource = { chatId: string } | { projectId: string; userId?: string };
 
-export async function resolveStoryQueryDataForSandbox(
+export async function backfillMissingQueryDataForSandbox(
 	code: string,
 	opts: { storyId?: string; chatId?: string | null; projectId: string; userId?: string },
 ): Promise<StoryQueryDataMap | null> {
@@ -27,15 +27,19 @@ export async function resolveStoryQueryDataForSandbox(
 		}
 	}
 	const seeded = Object.keys(seed).length > 0 ? seed : null;
-	return resolveStoryQueryData(code, seeded, { projectId: opts.projectId, userId: opts.userId });
+	return backfillMissingQueryData(code, seeded, { projectId: opts.projectId, userId: opts.userId });
 }
 
-export async function resolveStoryQueryData(
+export function findMissingQueryIds(code: string, cachedQueryData: StoryQueryDataMap | null): string[] {
+	return [...extractQueryIds(code)].filter((id) => !cachedQueryData?.[id]);
+}
+
+export async function backfillMissingQueryData(
 	code: string,
 	cachedQueryData: StoryQueryDataMap | null,
 	source: StoryQueryDataSource,
 ): Promise<StoryQueryDataMap | null> {
-	const missing = [...extractQueryIds(code)].filter((id) => !cachedQueryData?.[id]);
+	const missing = findMissingQueryIds(code, cachedQueryData);
 	if (missing.length === 0) {
 		return cachedQueryData;
 	}

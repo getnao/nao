@@ -17,7 +17,7 @@ import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../servic
 import { nextCronTick } from '../services/scheduler.service';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import { buildDownloadResponse } from '../utils/story-download';
-import { resolveStoryQueryData } from '../utils/story-query-data';
+import { backfillMissingQueryData } from '../utils/story-query-data';
 import { extractStorySummary } from '../utils/story-summary';
 import { canSendProcedure, ownedResourceProcedure, projectProtectedProcedure, protectedProcedure } from './trpc';
 
@@ -123,7 +123,7 @@ export const storyRoutes = {
 		}
 
 		const queryData = story.chatId
-			? await resolveStoryQueryData(story.code, cache?.queryData ?? null, { chatId: story.chatId })
+			? await backfillMissingQueryData(story.code, cache?.queryData ?? null, { chatId: story.chatId })
 			: (cache?.queryData ?? null);
 
 		return { ...story, queryData };

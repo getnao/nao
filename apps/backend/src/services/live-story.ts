@@ -5,6 +5,7 @@ import { z } from 'zod';
 
 import { llmTelemetry } from '../agents/telemetry';
 import { LiveStoryRefreshPrompt } from '../components/ai/live-story-refresh-prompt';
+import type { DBStoryDataCache } from '../db/abstractSchema';
 import { env } from '../env';
 import { renderToMarkdown } from '../lib/markdown';
 import * as chatQueries from '../queries/chat.queries';
@@ -13,7 +14,7 @@ import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import { getQueryDataFromCode } from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
 import { getDefaultModelId, resolveProviderModel } from '../utils/llm';
-import { resolveStoryQueryData } from '../utils/story-query-data';
+import { backfillMissingQueryData, findMissingQueryIds } from '../utils/story-query-data';
 import { MAX_OUTPUT_TOKENS } from './agent';
 const MAX_RENDERED_ROWS = 60;
 
@@ -106,8 +107,7 @@ export async function getStoryQueryData(
 	const cache = await storyQueries.getStoryDataCacheByChatAndSlug(chatId, slug);
 
 	if (cache && !isCacheExpired(cache.cachedAt, cacheSchedule)) {
-		const queryData = await resolveStoryQueryData(code, cache.queryData, { chatId });
-		return { queryData, cachedAt: cache.cachedAt };
+		return resolveFromCache(chatId, code, cache);
 	}
 
 	try {
@@ -118,11 +118,17 @@ export async function getStoryQueryData(
 		};
 	} catch {
 		if (cache) {
-			const queryData = await resolveStoryQueryData(code, cache.queryData, { chatId });
-			return { queryData, cachedAt: cache.cachedAt };
+			return resolveFromCache(chatId, code, cache);
 		}
 		return { queryData: await getQueryDataFromCode(chatId, code), cachedAt: null };
 	}
+}
+
+async function resolveFromCache(chatId: string, code: string, cache: DBStoryDataCache): Promise<StoryQueryDataResult> {
+	const missing = findMissingQueryIds(code, cache.queryData);
+	const queryData =
+		missing.length > 0 ? await backfillMissingQueryData(code, cache.queryData, { chatId }) : cache.queryData;
+	return { queryData, cachedAt: cache.cachedAt };
 }
 
 async function executeRawSql(
