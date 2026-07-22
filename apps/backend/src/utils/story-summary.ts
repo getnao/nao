@@ -1,4 +1,4 @@
-import { TAG_ATTRS } from '@nao/shared/story-segments';
+import { storyBlockRegex } from '@nao/shared/story-segments';
 import { parseStoryTabs } from '@nao/shared/story-tabs';
 import type { StorySummary, SummarySegment } from '@nao/shared/types';
 
@@ -20,10 +20,7 @@ export function extractStorySummary(code: string): StorySummary {
 
 function extractSegments(code: string): SummarySegment[] {
 	const segments: SummarySegment[] = [];
-	const blockRegex = new RegExp(
-		`<grid\\s+([^>]*)>([\\s\\S]*?)<\\/grid>|<chart\\s+(${TAG_ATTRS})\\/?>|<table\\s+(${TAG_ATTRS})\\/?>`,
-		'g',
-	);
+	const blockRegex = storyBlockRegex();
 	let match;
 	let lastIndex = 0;
 

@@ -73,6 +73,24 @@ describe('validateStoryCode', () => {
 			expect(errors.some((e) => e.message.includes('non-empty JSON array'))).toBe(true);
 		});
 
+		it('accepts a series label containing a backslash', () => {
+			const code =
+				'<chart query_id="q1" chart_type="line" x_axis_key="month" series=\'[{"data_key":"rev","label":"Disc\\Rebate"}]\' title="x" />';
+			expect(validateStoryCode(code)).toEqual([]);
+		});
+
+		it('accepts a series label containing a bracket', () => {
+			const code =
+				'<chart query_id="q1" chart_type="line" x_axis_key="month" series=\'[{"data_key":"rev","label":"a]b"}]\' title="x" />';
+			expect(validateStoryCode(code)).toEqual([]);
+		});
+
+		it('accepts a self-closing chart whose title contains a slash', () => {
+			const code =
+				'<chart query_id="q1" chart_type="line" x_axis_key="week" series=\'[{"data_key":"orders"}]\' title="13/07 update" />';
+			expect(validateStoryCode(code)).toEqual([]);
+		});
+
 		it('flags series entries without data_key', () => {
 			const code =
 				'<chart query_id="q1" chart_type="line" x_axis_key="month" series=\'[{"color":"red"}]\' title="x" />';

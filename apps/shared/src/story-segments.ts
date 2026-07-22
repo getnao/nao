@@ -1,14 +1,6 @@
 import { buildStoryTableBlock } from './chart-block';
 import { type ColumnConditionalFormats, sanitizeConditionalFormats } from './conditional-formatting';
 
-/**
- * Matches a tag's attribute list while treating single/double-quoted values as
- * opaque, so `>` and `/` inside a quoted attribute (e.g. a threshold rule's
- * `">="` operator inside `formatting='{...}'`) do not prematurely terminate the
- * tag. Kept as a shared constant so every block-tag regex stays consistent.
- */
-export const TAG_ATTRS = `(?:[^>"']|"(?:[^"\\\\]|\\\\.)*"|'(?:[^'\\\\]|\\\\.)*')*?`;
-
 export interface ParsedChartBlock {
 	queryId: string;
 	chartType: string;
@@ -36,6 +28,23 @@ export type Segment =
 	| { type: 'chart'; chart: ParsedChartBlock }
 	| { type: 'table'; table: ParsedTableBlock }
 	| { type: 'grid'; cols: number; children: Segment[] };
+
+export const TAG_ATTRS = String.raw`(?:[^>"']|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')*?`;
+
+export function chartTagRegex(flags = ''): RegExp {
+	return new RegExp(String.raw`<chart\s+(${TAG_ATTRS})\/?>`, flags);
+}
+
+export function tableTagRegex(flags = ''): RegExp {
+	return new RegExp(String.raw`<table\s+(${TAG_ATTRS})\/?>`, flags);
+}
+
+export function storyBlockRegex(): RegExp {
+	return new RegExp(
+		String.raw`<grid\s+(${TAG_ATTRS})>([\s\S]*?)<\/grid>|<chart\s+(${TAG_ATTRS})\/?>|<table\s+(${TAG_ATTRS})\/?>`,
+		'g',
+	);
+}
 
 function unescapeAttributeValue(value: string): string {
 	return value.replace(/\\(["'\\])/g, '$1');
@@ -157,13 +166,25 @@ export function getGridClass(cols: number): string {
 	return GRID_CLASSES[Math.min(cols, 4)] ?? GRID_CLASSES[2];
 }
 
-function tryParseSeriesJson(value: string): ParsedChartBlock['series'] | null {
+export function parseSeriesJsonArray(value: string): unknown[] | null {
+	const parsed = tryJsonParse(value) ?? tryJsonParse(escapeStrayBackslashes(value));
+	return Array.isArray(parsed) ? parsed : null;
+}
+
+function tryJsonParse(value: string): unknown {
 	try {
-		const parsed = JSON.parse(value);
-		return Array.isArray(parsed) ? parsed : null;
+		return JSON.parse(value);
 	} catch {
 		return null;
 	}
+}
+
+function escapeStrayBackslashes(value: string): string {
+	return value.replace(/\\(?!(?:["\\/bfnrt]|u[0-9a-fA-F]{4}))/g, '\\\\');
+}
+
+function tryParseSeriesJson(value: string): ParsedChartBlock['series'] | null {
+	return parseSeriesJsonArray(value) as ParsedChartBlock['series'] | null;
 }
 
 function parseOptionalNumberAttr(value: string | undefined): number | undefined {
@@ -197,10 +218,7 @@ function extractSeriesFromRawAttrs(attrString: string): ParsedChartBlock['series
 
 export function splitCodeIntoSegments(code: string): Segment[] {
 	const segments: Segment[] = [];
-	const blockRegex = new RegExp(
-		`<grid\\s+([^>]*)>([\\s\\S]*?)<\\/grid>|<chart\\s+(${TAG_ATTRS})\\/?>|<table\\s+(${TAG_ATTRS})\\/?>`,
-		'g',
-	);
+	const blockRegex = storyBlockRegex();
 	let match;
 	let lastIndex = 0;
 
