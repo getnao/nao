@@ -76,11 +76,7 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({ chart }: { chart:
 	const xAxisType = chart.xAxisType === 'number' ? 'number' : ('category' as const);
 
 	return (
-		<StoryChartEmbedShell
-			chart={chart}
-			availableColumns={sourceData.columns ?? []}
-			dataRowCount={sourceData.data?.length ?? 0}
-		>
+		<StoryChartEmbedShell chart={chart} availableColumns={sourceData.columns ?? []} data={sourceData.data ?? []}>
 			<ChartDisplay
 				data={data}
 				chartType={chart.chartType as displayChart.ChartType}
@@ -100,7 +96,7 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({ chart }: { chart:
 interface StoryChartEmbedShellProps {
 	chart: ChartBlock;
 	availableColumns: string[];
-	dataRowCount?: number;
+	data?: Record<string, unknown>[];
 	children: React.ReactNode;
 }
 
@@ -108,7 +104,7 @@ interface StoryChartEmbedShellProps {
  * Wraps a rendered chart with an "Edit chart" button when the surrounding story
  * context provides a save handler.
  */
-export function StoryChartEmbedShell({ chart, availableColumns, dataRowCount, children }: StoryChartEmbedShellProps) {
+export function StoryChartEmbedShell({ chart, availableColumns, data, children }: StoryChartEmbedShellProps) {
 	const edit = useStoryChartEdit();
 	const [isEditOpen, setIsEditOpen] = useState(false);
 	const canEdit = Boolean(edit && chart.rawTag);
@@ -171,7 +167,7 @@ export function StoryChartEmbedShell({ chart, availableColumns, dataRowCount, ch
 					onOpenChange={setIsEditOpen}
 					config={config}
 					availableColumns={availableColumns}
-					dataRowCount={dataRowCount}
+					data={data}
 					isSaving={edit.isSaving}
 					onSave={(next) => edit.saveChart(chart.rawTag!, next)}
 					description={edit.saveDescription}

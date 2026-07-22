@@ -23,6 +23,7 @@ export interface RenderChartInput {
 		| 'y_axis_max'
 		| 'title'
 		| 'show_data_labels'
+		| 'comparison_mode'
 	>;
 	data: Record<string, unknown>[];
 	width?: number;
@@ -87,6 +88,7 @@ export function renderChartToSvg(input: RenderChartInput): string {
 		backgroundColor: '#ffffff',
 		yAxisMin: config.y_axis_min,
 		yAxisMax: config.y_axis_max,
+		comparisonMode: config.comparison_mode,
 	});
 
 	const html = renderToString(React.cloneElement(chart, { width: chartWidth, height }));

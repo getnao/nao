@@ -1,3 +1,4 @@
+import { computeKpiComparison } from '@nao/shared';
 import { displayChart } from '@nao/shared/tools';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2 } from 'lucide-react';
@@ -71,7 +72,7 @@ interface ChartConfigEditDialogProps {
 	onSave: (next: displayChart.ChartInput) => Promise<void>;
 	isSaving?: boolean;
 	description?: string;
-	dataRowCount?: number;
+	data?: Record<string, unknown>[];
 }
 
 /** Presentational edit dialog for `display_chart` configuration. */
@@ -83,13 +84,17 @@ export function ChartConfigEditDialog({
 	onSave,
 	isSaving = false,
 	description = 'Tweak the chart parameters.',
-	dataRowCount,
+	data,
 }: ChartConfigEditDialogProps) {
 	const [draft, setDraft] = useState<displayChart.ChartInput>(config);
 	const [yAxisMinText, setYAxisMinText] = useState(toRangeString(config.y_axis_min));
 	const [yAxisMaxText, setYAxisMaxText] = useState(toRangeString(config.y_axis_max));
 	const [error, setError] = useState<string | null>(null);
 	const supportsYAxisRange = !Y_AXIS_RANGE_UNSUPPORTED_CHART_TYPES.has(draft.chart_type);
+	const canShowComparisonPill = useMemo(
+		() => draft.chart_type === 'kpi_card' && hasRenderableKpiComparison(data, draft.x_axis_key, draft.series),
+		[draft.chart_type, draft.x_axis_key, draft.series, data],
+	);
 
 	useEffect(() => {
 		if (open) {
@@ -377,7 +382,7 @@ export function ChartConfigEditDialog({
 					)}
 					<div className='grid gap-2'>
 						<span className='text-sm font-semibold text-foreground'>Options</span>
-						{draft.chart_type === 'kpi_card' && (dataRowCount ?? 0) >= 2 && (
+						{canShowComparisonPill && (
 							<div className='grid gap-2'>
 								<span className='text-sm font-semibold text-foreground'>Comparison pill</span>
 								<Select
@@ -447,7 +452,7 @@ interface DisplayChartEditDialogProps {
 	toolCallId: string;
 	config: displayChart.ChartInput;
 	availableColumns: string[];
-	dataRowCount?: number;
+	data?: Record<string, unknown>[];
 }
 
 /** Edit dialog bound to a `tool-display_chart` message part: persists through `chart.updateConfig`. */
@@ -457,7 +462,7 @@ export function DisplayChartEditDialog({
 	toolCallId,
 	config,
 	availableColumns,
-	dataRowCount,
+	data,
 }: DisplayChartEditDialogProps) {
 	const queryClient = useQueryClient();
 	const { messages, setMessages } = useAgentContext();
@@ -487,7 +492,7 @@ export function DisplayChartEditDialog({
 			onOpenChange={onOpenChange}
 			config={config}
 			availableColumns={availableColumns}
-			dataRowCount={dataRowCount}
+			data={data}
 			onSave={handleSave}
 			isSaving={updateMutation.isPending}
 			description='Tweak the chart parameters. Changes are saved to the chat.'
@@ -522,6 +527,22 @@ function ColumnSelect({ value, columns, onChange }: ColumnSelectProps) {
 
 function getSelectableColumns(columns: string[]): string[] {
 	return Array.from(new Set(columns.filter((column) => column.length > 0)));
+}
+
+/**
+ * Whether a comparison pill can actually render for the current data: the last two rows must
+ * yield two valid numeric values for at least one series. Checked in 'absolute' mode so the gate
+ * stays mode-agnostic (the user still picks percentage/variation/absolute in the selector).
+ */
+function hasRenderableKpiComparison(
+	data: Record<string, unknown>[] | undefined,
+	xAxisKey: string | undefined,
+	series: displayChart.ChartInput['series'],
+): boolean {
+	if (!data || data.length < 2 || !series) {
+		return false;
+	}
+	return series.some((s) => computeKpiComparison(data, xAxisKey ?? '', s.data_key, 'absolute') != null);
 }
 
 function toRangeString(n: number | undefined): string {
