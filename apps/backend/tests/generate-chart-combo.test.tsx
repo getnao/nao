@@ -13,7 +13,7 @@ function render(
 ) {
 	return renderChartToSvg({
 		config: {
-			chart_type: 'bar',
+			chart_type: 'mixed',
 			x_axis_key: 'month',
 			x_axis_type: 'category',
 			title: 'Test',

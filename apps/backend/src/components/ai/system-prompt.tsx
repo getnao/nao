@@ -130,11 +130,10 @@ export function SystemPrompt({
 					line and scatter charts auto-scale to a readable range rather than always starting at zero.
 				</ListItem>
 				<ListItem>
-					To compare metrics on different scales, set per-series "series_type" ("bar", "line" or "area") to
-					mix chart types and "y_axis" ("left" or "right") to add a second Y-axis (drawn automatically when
-					any series uses {'"y_axis": "right"'}) — e.g. revenue as bars on the left, conversion rate as a line
-					on the right. Label axes with y_axis_label / y_axis_right_label and fix scales with
-					y_axis_min/y_axis_max and y_axis_right_min/y_axis_right_max.
+					Use "mixed" to show multiple metrics on different scales in one chart: give each series its own
+					"series_type" ("bar", "line" or "area", defaults to "bar") and "y_axis" ("left" or "right", defaults
+					to "left"). A second Y-axis is drawn whenever any series uses {'"y_axis": "right"'}. These
+					per-series settings only apply to "mixed" charts.
 				</ListItem>
 				<ListItem>
 					Use the <Bold>display_chart</Bold> tool with <Bold>{'chart_type: "table"'}</Bold> to present a table

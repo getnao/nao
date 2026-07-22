@@ -425,12 +425,12 @@ export const ChartDisplay = memo(function ChartDisplay({
 	hideTotal,
 }: ChartDisplayProps) {
 	const dateFormat = useDateFormat();
-	const gradientIdPrefix = `${useId().replace(/:/g, '')}-`;
 	const containerRef = useRef<HTMLDivElement>(null);
 	const [width, setWidth] = useState(0);
 	useResizeObserver(containerRef, (element) => {
 		setWidth(element.getBoundingClientRect().width);
 	});
+	const gradientIdPrefix = `${useId().replace(/[^a-zA-Z0-9]/g, '')}-`;
 
 	const xAxisKey = useMemo(() => resolveDataKey(data, xAxisKeyProp), [data, xAxisKeyProp]);
 	const series = useMemo(
@@ -537,8 +537,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 		[isPie, dateFormat],
 	);
 
-	const isDualAxis =
-		displayChart.isComboChart(chartType, visibleSeries) && displayChart.hasRightAxisSeries(visibleSeries);
+	const isDualAxis = displayChart.isComboChart(chartType) && displayChart.hasRightAxisSeries(visibleSeries);
 
 	const chartElement = useMemo(
 		() =>

@@ -9,7 +9,7 @@ describe('combo chart input schema', () => {
 	it('accepts a mixed-series dual-axis chart', () => {
 		const result = ChartInputSchema.safeParse({
 			query_id: 'q1',
-			chart_type: 'bar',
+			chart_type: 'mixed',
 			x_axis_key: 'month',
 			x_axis_type: 'category',
 			series: [
@@ -44,7 +44,7 @@ describe('combo chart block round-trip', () => {
 	it('preserves series_type, y_axis and per-axis configuration', () => {
 		const block = buildStoryChartBlock({
 			query_id: 'q1',
-			chart_type: 'bar',
+			chart_type: 'mixed',
 			x_axis_key: 'month',
 			x_axis_type: 'category',
 			series: [
@@ -77,7 +77,7 @@ describe('combo chart story validation', () => {
 	it('passes validation for a valid combo chart', () => {
 		const block = buildStoryChartBlock({
 			query_id: 'q1',
-			chart_type: 'bar',
+			chart_type: 'mixed',
 			x_axis_key: 'month',
 			x_axis_type: 'category',
 			series: [

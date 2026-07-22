@@ -8,6 +8,7 @@ export const ChartTypeEnum = z.enum([
 	'area',
 	'stacked_area',
 	'stacked_area_100',
+	'mixed',
 	'pie',
 	'donut',
 	'kpi_card',
@@ -32,10 +33,10 @@ export const SeriesConfigSchema = z.object({
 		)
 		.optional(),
 	series_type: SeriesTypeEnum.describe(
-		'How this series is drawn ("bar", "line" or "area"), overriding the chart_type. Use it to mix types in one chart, e.g. bars for revenue and a line for a rate. Defaults to the chart_type.',
+		'How this series is drawn ("bar", "line" or "area"). Only used when chart_type is "mixed"; defaults to "bar". Use it to combine types in one chart, e.g. bars for revenue and a line for a rate.',
 	).optional(),
 	y_axis: YAxisSideEnum.describe(
-		'Which Y-axis this series is plotted against ("left" or "right"). Defaults to "left". A right axis is drawn whenever any series uses "right" — use it to compare metrics with very different scales/units.',
+		'Which Y-axis this series is plotted against ("left" or "right"). Only used when chart_type is "mixed"; defaults to "left". A right axis is drawn whenever any series uses "right" — use it to compare metrics with very different scales/units.',
 	).optional(),
 });
 
@@ -115,16 +116,26 @@ export const ChartInputSchema = z
 			)
 			.optional(),
 		y_axis_max: z.number().describe('Fixes the left Y-axis upper bound. Leave unset to auto-scale.').optional(),
-		y_axis_label: z.string().describe('Label displayed alongside the left Y-axis.').optional(),
+		y_axis_label: z
+			.string()
+			.describe('Label displayed alongside the left Y-axis. Only used when chart_type is "mixed".')
+			.optional(),
 		y_axis_right_min: z
 			.number()
-			.describe('Fixes the right Y-axis lower bound. Leave unset to auto-scale.')
+			.describe(
+				'Fixes the right Y-axis lower bound. Only used when chart_type is "mixed"; leave unset to auto-scale.',
+			)
 			.optional(),
 		y_axis_right_max: z
 			.number()
-			.describe('Fixes the right Y-axis upper bound. Leave unset to auto-scale.')
+			.describe(
+				'Fixes the right Y-axis upper bound. Only used when chart_type is "mixed"; leave unset to auto-scale.',
+			)
 			.optional(),
-		y_axis_right_label: z.string().describe('Label displayed alongside the right Y-axis.').optional(),
+		y_axis_right_label: z
+			.string()
+			.describe('Label displayed alongside the right Y-axis. Only used when chart_type is "mixed".')
+			.optional(),
 		show_data_labels: z
 			.boolean()
 			.describe(
@@ -237,6 +248,7 @@ const X_AXIS_REQUIRED_CHART_TYPES = new Set<ChartType>([
 	'stacked_area',
 	'stacked_area_100',
 	'stacked_bar_100',
+	'mixed',
 	'scatter',
 	'radar',
 ]);
@@ -257,19 +269,14 @@ export function isPieChart(chartType: ChartType): boolean {
 	return chartType === 'pie' || chartType === 'donut';
 }
 
-const COMBO_SERIES_CHART_TYPES = new Set<ChartType>(['bar', 'line', 'area']);
-
 export function chartTypeSupportsComboSeries(type: ChartType): boolean {
-	return COMBO_SERIES_CHART_TYPES.has(type);
+	return type === 'mixed';
 }
 
 export function hasRightAxisSeries(series: Pick<SeriesConfig, 'y_axis'>[]): boolean {
 	return series.some((s) => s.y_axis === 'right');
 }
 
-export function isComboChart(type: ChartType, series: Pick<SeriesConfig, 'y_axis' | 'series_type'>[]): boolean {
-	if (!chartTypeSupportsComboSeries(type)) {
-		return false;
-	}
-	return hasRightAxisSeries(series) || series.some((s) => s.series_type != null);
+export function isComboChart(type: ChartType): boolean {
+	return chartTypeSupportsComboSeries(type);
 }

@@ -12,7 +12,7 @@ const data = [
 function combo(series: SeriesConfig[], overrides: Record<string, unknown> = {}) {
 	return buildChart({
 		data,
-		chartType: 'bar',
+		chartType: 'mixed',
 		xAxisKey: 'month',
 		xAxisType: 'category',
 		series,

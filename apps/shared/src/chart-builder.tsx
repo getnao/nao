@@ -177,6 +177,7 @@ export interface BuildChartProps {
 	/** Prefix for SVG gradient ids so multiple charts on one page (and drag clones) don't collide. */
 	gradientIdPrefix?: string;
 	showDataLabels?: boolean;
+	idPrefix?: string;
 }
 
 /**
@@ -194,7 +195,7 @@ export function buildChart(props: BuildChartProps) {
 	if (displayChart.isPieChart(resolved.chartType)) {
 		return buildPieChart(resolved);
 	}
-	if (displayChart.isComboChart(resolved.chartType, resolved.series)) {
+	if (displayChart.isComboChart(resolved.chartType)) {
 		return buildComboChart(resolved);
 	}
 	if (
@@ -284,7 +285,6 @@ export function clampNegativeSeriesValues(
 type ResolvedProps = BuildChartProps &
 	Required<Pick<BuildChartProps, 'colorFor' | 'labelFormatter' | 'backgroundColor'>> & {
 		xAxisInterval?: number;
-		idPrefix?: string;
 	};
 
 function buildChartMargin(props: BuildChartProps, showTitle: boolean) {
@@ -466,7 +466,6 @@ function buildBarChart(props: ResolvedProps) {
 		data,
 		chartType,
 		xAxisKey,
-		xAxisType,
 		colorFor,
 		labelFormatter,
 		showGrid,
@@ -507,7 +506,7 @@ function buildBarChart(props: ResolvedProps) {
 			)}
 			{renderCategoryXAxis({
 				xAxisKey,
-				xAxisType,
+				xAxisType: 'category',
 				xAxisInterval,
 				labelFormatter,
 				compact: compactXAxis,
@@ -699,6 +698,8 @@ function buildComboChart(props: ResolvedProps) {
 	const leftDomain = resolveComboAxisDomain(data, leftSeries, yAxisMin, yAxisMax);
 	const rightDomain = resolveComboAxisDomain(data, rightSeries, yAxisRightMin, yAxisRightMax);
 	const areaSeries = series.filter((s) => comboSeriesType(s, chartType) === 'area');
+	const hasBarSeries = series.some((s) => comboSeriesType(s, chartType) === 'bar');
+	const pointLabelContent = showDataLabels ? buildPointLabelContentBySeries(data, series) : new Map();
 
 	return (
 		<ComposedChart data={data} accessibilityLayer margin={margin}>
@@ -749,9 +750,24 @@ function buildComboChart(props: ResolvedProps) {
 					label={axisLabel(yAxisRightLabel, 'right')}
 				/>
 			)}
-			{renderCategoryXAxis({ xAxisKey, xAxisType, xAxisInterval, labelFormatter })}
+			{renderCategoryXAxis({
+				xAxisKey,
+				xAxisType: hasBarSeries ? 'category' : xAxisType,
+				xAxisInterval,
+				labelFormatter,
+			})}
 			{children}
-			{series.map((s, i) => renderComboSeries(s, i, chartType, colorFor, showDataLabels, idPrefix))}
+			{series.map((s, i) =>
+				renderComboSeries(
+					s,
+					i,
+					chartType,
+					colorFor,
+					showDataLabels,
+					idPrefix,
+					pointLabelContent.get(s.data_key),
+				),
+			)}
 		</ComposedChart>
 	);
 }
@@ -776,6 +792,7 @@ function renderComboSeries(
 	colorFor: (key: string, index: number) => string,
 	showDataLabels: boolean | undefined,
 	idPrefix: string,
+	pointLabelContent: ReturnType<typeof renderPointLabel> | undefined,
 ) {
 	const color = colorFor(series.data_key, index);
 	const yAxisId = comboAxisSide(series);
@@ -792,7 +809,9 @@ function renderComboSeries(
 				strokeWidth={2}
 				dot={false}
 				isAnimationActive={false}
-			/>
+			>
+				{showDataLabels && <LabelList content={pointLabelContent} />}
+			</Line>
 		);
 	}
 	if (type === 'area') {
@@ -805,7 +824,9 @@ function renderComboSeries(
 				stroke={color}
 				fill={`url(#${idPrefix}grad-combo-${index})`}
 				isAnimationActive={false}
-			/>
+			>
+				{showDataLabels && <LabelList content={pointLabelContent} />}
+			</Area>
 		);
 	}
 	return (
