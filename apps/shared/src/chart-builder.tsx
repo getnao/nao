@@ -168,6 +168,8 @@ export interface BuildChartProps {
 	yAxisMax?: number;
 	/** Chart background color, used as the separator between stacked segments. Pass a concrete color on surfaces where CSS vars do not resolve (backend PNG/HTML export). */
 	backgroundColor?: string;
+	/** Prefix for SVG gradient ids so multiple charts on one page (and drag clones) don't collide. */
+	gradientIdPrefix?: string;
 	showDataLabels?: boolean;
 }
 
@@ -580,6 +582,8 @@ function buildAreaChart(props: ResolvedProps) {
 		yAxisMax,
 		showDataLabels,
 	} = props;
+	const gradientIdPrefix = props.gradientIdPrefix ?? '';
+	const gradientIdFor = (index: number) => `${gradientIdPrefix}grad-${index}`;
 	const isStacked = displayChart.isStackedChartType(chartType);
 	const isPercent = displayChart.isPercentStackedChartType(chartType);
 	const zeroBaseline = chartType !== 'line';
@@ -593,7 +597,7 @@ function buildAreaChart(props: ResolvedProps) {
 			<defs>
 				{renderedSeries.map((s, i) => {
 					const color = colorFor(s.data_key, i);
-					const gradientId = `grad-${i}`;
+					const gradientId = gradientIdFor(i);
 					return (
 						<linearGradient key={s.data_key} id={gradientId} x1='0' y1='0' x2='0' y2='1'>
 							<stop offset='0%' stopColor={color} stopOpacity={0.25} />
@@ -632,7 +636,7 @@ function buildAreaChart(props: ResolvedProps) {
 					dataKey={s.data_key}
 					type='monotone'
 					stroke={colorFor(s.data_key, i)}
-					fill={`url(#grad-${i})`}
+					fill={`url(#${gradientIdFor(i)})`}
 					stackId={isStacked ? 'stack' : undefined}
 					isAnimationActive={false}
 				>

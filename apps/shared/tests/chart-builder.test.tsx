@@ -64,6 +64,30 @@ describe('buildChart', () => {
 		expect(yAxis?.props.domain).toEqual([0, 60]);
 	});
 
+	it('uses the chart-specific prefix for area gradient ids and fills', () => {
+		const firstChart = buildChart({
+			data: [{ name: 'A', value: 10 }],
+			chartType: 'area',
+			xAxisKey: 'name',
+			xAxisType: 'category',
+			series: [{ data_key: 'value' }],
+			gradientIdPrefix: 'a-',
+		});
+		const secondChart = buildChart({
+			data: [{ name: 'A', value: 10 }],
+			chartType: 'area',
+			xAxisKey: 'name',
+			xAxisType: 'category',
+			series: [{ data_key: 'value' }],
+			gradientIdPrefix: 'b-',
+		});
+
+		expect(getGradient(firstChart)?.props.id).toBe('a-grad-0');
+		expect(getArea(firstChart)?.props.fill).toBe('url(#a-grad-0)');
+		expect(getGradient(secondChart)?.props.id).toBe('b-grad-0');
+		expect(getGradient(firstChart)?.props.id).not.toBe(getGradient(secondChart)?.props.id);
+	});
+
 	it('shows and angles every compact category label with a custom tick font size', () => {
 		const xAxis = getXAxis(
 			buildChart({
@@ -141,6 +165,15 @@ function getYAxis(chart: ReactElement): ReactElement | undefined {
 
 function getXAxis(chart: ReactElement): ReactElement | undefined {
 	return flattenChildren(chart.props.children).find((child) => child.type.displayName === 'XAxis');
+}
+
+function getGradient(chart: ReactElement): ReactElement | undefined {
+	const definitions = flattenChildren(chart.props.children).find((child) => child.type === 'defs');
+	return flattenChildren(definitions?.props.children).find((child) => child.type === 'linearGradient');
+}
+
+function getArea(chart: ReactElement): ReactElement | undefined {
+	return flattenChildren(chart.props.children).find((child) => child.type.displayName === 'Area');
 }
 
 function flattenChildren(children: unknown): ReactElement[] {

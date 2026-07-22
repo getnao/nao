@@ -22,6 +22,7 @@ import type { Editor as TiptapEditor } from '@tiptap/react';
 import type { StoryCodeViewHandle } from './story-code-view';
 import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
 import { useSidePanel } from '@/contexts/side-panel';
+import { useDragAutoScroll } from '@/hooks/use-drag-auto-scroll';
 import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
 import { ReadonlyAgentMessagesProvider, useOptionalAgentContext } from '@/contexts/agent.provider';
 import { StoryChartEditProvider } from '@/contexts/story-chart-edit';
@@ -155,6 +156,7 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp }:
 		code: storyCode,
 		viewMode,
 	});
+	useDragAutoScroll(scrollContainerRef);
 
 	if (!storyCode) {
 		if (chatQuery.isLoading) {
