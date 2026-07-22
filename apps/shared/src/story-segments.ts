@@ -195,6 +195,16 @@ function extractSeriesFromRawAttrs(attrString: string): ParsedChartBlock['series
 	return null;
 }
 
+export function extractQueryIds(code: string): Set<string> {
+	const ids = new Set<string>();
+	const regex = /<(?:chart|table)\s+[^>]*?\bquery_id\s*=\s*"([^"]+)"/g;
+	let match: RegExpExecArray | null;
+	while ((match = regex.exec(code)) !== null) {
+		ids.add(match[1]);
+	}
+	return ids;
+}
+
 export function splitCodeIntoSegments(code: string): Segment[] {
 	const segments: Segment[] = [];
 	const blockRegex = new RegExp(

@@ -13,15 +13,11 @@ import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
 import { naturalLanguageToCron } from '../services/cron-nlp';
-import {
-	backfillQueryDataFromChat,
-	executeLiveQuery,
-	getStoryQueryData,
-	refreshStoryData,
-} from '../services/live-story';
+import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../services/live-story';
 import { nextCronTick } from '../services/scheduler.service';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import { buildDownloadResponse } from '../utils/story-download';
+import { resolveStoryQueryData } from '../utils/story-query-data';
 import { extractStorySummary } from '../utils/story-summary';
 import { canSendProcedure, ownedResourceProcedure, projectProtectedProcedure, protectedProcedure } from './trpc';
 
@@ -127,7 +123,7 @@ export const storyRoutes = {
 		}
 
 		const queryData = story.chatId
-			? await backfillQueryDataFromChat(story.chatId, story.code, cache?.queryData ?? null)
+			? await resolveStoryQueryData(story.code, cache?.queryData ?? null, { chatId: story.chatId })
 			: (cache?.queryData ?? null);
 
 		return { ...story, queryData };

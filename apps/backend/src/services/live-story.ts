@@ -13,6 +13,7 @@ import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import { getQueryDataFromCode } from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
 import { getDefaultModelId, resolveProviderModel } from '../utils/llm';
+import { resolveStoryQueryData } from '../utils/story-query-data';
 import { MAX_OUTPUT_TOKENS } from './agent';
 const MAX_RENDERED_ROWS = 60;
 
@@ -105,7 +106,7 @@ export async function getStoryQueryData(
 	const cache = await storyQueries.getStoryDataCacheByChatAndSlug(chatId, slug);
 
 	if (cache && !isCacheExpired(cache.cachedAt, cacheSchedule)) {
-		const queryData = await backfillQueryDataFromChat(chatId, code, cache.queryData);
+		const queryData = await resolveStoryQueryData(code, cache.queryData, { chatId });
 		return { queryData, cachedAt: cache.cachedAt };
 	}
 
@@ -117,52 +118,11 @@ export async function getStoryQueryData(
 		};
 	} catch {
 		if (cache) {
-			const queryData = await backfillQueryDataFromChat(chatId, code, cache.queryData);
+			const queryData = await resolveStoryQueryData(code, cache.queryData, { chatId });
 			return { queryData, cachedAt: cache.cachedAt };
 		}
 		return { queryData: await getQueryDataFromCode(chatId, code), cachedAt: null };
 	}
-}
-
-export async function backfillQueryDataFromChat(
-	chatId: string,
-	code: string,
-	cached: Record<string, { data: unknown[]; columns: string[] }> | null,
-): Promise<Record<string, { data: unknown[]; columns: string[] }> | null> {
-	const referencedIds = extractStoryQueryIds(code);
-	if (referencedIds.size === 0) {
-		return cached;
-	}
-
-	const base = cached ?? {};
-	const missingIds = [...referencedIds].filter((id) => !base[id]);
-	if (missingIds.length === 0) {
-		return cached;
-	}
-
-	const fromChat = await getQueryDataFromCode(chatId, code).catch(() => null);
-	if (!fromChat) {
-		return cached;
-	}
-
-	const merged = { ...base };
-	for (const id of missingIds) {
-		if (fromChat[id]) {
-			merged[id] = fromChat[id];
-		}
-	}
-
-	return Object.keys(merged).length > 0 ? merged : cached;
-}
-
-function extractStoryQueryIds(code: string): Set<string> {
-	const ids = new Set<string>();
-	const regex = /<(?:chart|table)\s+[^>]*?\bquery_id\s*=\s*"([^"]+)"/g;
-	let match: RegExpExecArray | null;
-	while ((match = regex.exec(code)) !== null) {
-		ids.add(match[1]);
-	}
-	return ids;
 }
 
 async function executeRawSql(

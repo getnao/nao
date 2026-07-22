@@ -276,8 +276,7 @@ async function cacheStoryQueryData(
 	const resolvedQueryData = await resolveStoryQueryData(
 		code,
 		Object.keys(seededQueryData).length > 0 ? seededQueryData : null,
-		ctx.projectId,
-		ctx.userId,
+		{ projectId: ctx.projectId, userId: ctx.userId },
 	);
 	if (!resolvedQueryData) {
 		return;
