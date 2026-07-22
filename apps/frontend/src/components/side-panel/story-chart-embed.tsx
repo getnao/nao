@@ -16,7 +16,13 @@ interface ChartBlock {
 	chartType: string;
 	xAxisKey: string;
 	xAxisType: string | null;
-	series: Array<{ data_key: string; color: string; label?: string; is_total?: boolean }>;
+	series: Array<{
+		data_key: string;
+		color: string;
+		label?: string;
+		is_total?: boolean;
+		value_format?: displayChart.ValueFormat;
+	}>;
 	yAxisMin?: number;
 	yAxisMax?: number;
 	title: string;
@@ -119,6 +125,7 @@ export function StoryChartEmbedShell({ chart, availableColumns, children }: Stor
 				color: s.color || undefined,
 				label: s.label,
 				is_total: s.is_total,
+				value_format: s.value_format,
 			})),
 			y_axis_min: chart.yAxisMin,
 			y_axis_max: chart.yAxisMax,

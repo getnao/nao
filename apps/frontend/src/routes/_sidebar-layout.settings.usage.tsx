@@ -5,6 +5,7 @@ import { format, formatDistanceToNow } from 'date-fns';
 import { ThumbsDown, ThumbsUp } from 'lucide-react';
 import type { Granularity } from '@nao/backend/usage';
 import type { LlmProvider } from '@nao/shared/types';
+import type { displayChart } from '@nao/shared/tools';
 import type { ChartView } from '@/components/settings/usage-filters';
 import { UsageChartCard } from '@/components/settings/usage-chart-card';
 import { UsageFilters, dateFormats } from '@/components/settings/usage-filters';
@@ -18,6 +19,12 @@ export const Route = createFileRoute('/_sidebar-layout/settings/usage')({
 	beforeLoad: requireAdmin,
 	component: UsagePage,
 });
+
+const USD_VALUE_FORMAT = {
+	d3_format: ',.2f',
+	prefix: '$',
+	compact: 'financial',
+} satisfies displayChart.ValueFormat;
 
 function UsagePage() {
 	const [granularity, setGranularity] = useState<Granularity>('day');
@@ -102,10 +109,30 @@ function UsagePage() {
 					chartType='stacked_bar'
 					xAxisLabelFormatter={(value) => format(new Date(value), dateFormats[granularity])}
 					series={[
-						{ data_key: 'inputNoCacheCost', color: 'var(--chart-1)', label: 'Input' },
-						{ data_key: 'inputCacheReadCost', color: 'var(--chart-2)', label: 'Input (cache read)' },
-						{ data_key: 'inputCacheWriteCost', color: 'var(--chart-3)', label: 'Input (cache write)' },
-						{ data_key: 'outputCost', color: 'var(--chart-4)', label: 'Output' },
+						{
+							data_key: 'inputNoCacheCost',
+							color: 'var(--chart-1)',
+							label: 'Input',
+							value_format: USD_VALUE_FORMAT,
+						},
+						{
+							data_key: 'inputCacheReadCost',
+							color: 'var(--chart-2)',
+							label: 'Input (cache read)',
+							value_format: USD_VALUE_FORMAT,
+						},
+						{
+							data_key: 'inputCacheWriteCost',
+							color: 'var(--chart-3)',
+							label: 'Input (cache write)',
+							value_format: USD_VALUE_FORMAT,
+						},
+						{
+							data_key: 'outputCost',
+							color: 'var(--chart-4)',
+							label: 'Output',
+							value_format: USD_VALUE_FORMAT,
+						},
 					]}
 					filters={filtersComponent}
 				/>

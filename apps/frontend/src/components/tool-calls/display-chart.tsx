@@ -426,6 +426,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 					acc[toKey(category)] = {
 						label: labelize(category, dateFormat),
 						color: Colors[index % Colors.length],
+						valueFormat: series[0]?.value_format,
 					};
 					return acc;
 				},
@@ -442,6 +443,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 				label: s.label || labelize(s.data_key, dateFormat),
 				color: s.color || Colors[idx % Colors.length],
 				isTotal: s.is_total,
+				valueFormat: s.value_format,
 			};
 			return acc;
 		}, {} as ChartConfig);

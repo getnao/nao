@@ -1,12 +1,19 @@
 import { buildStoryTableBlock } from './chart-block';
 import { type ColumnConditionalFormats, sanitizeConditionalFormats } from './conditional-formatting';
+import type { ValueFormat } from './tools/display-chart';
 
 export interface ParsedChartBlock {
 	queryId: string;
 	chartType: string;
 	xAxisKey: string;
 	xAxisType: string | null;
-	series: Array<{ data_key: string; color: string; label?: string; is_total?: boolean }>;
+	series: Array<{
+		data_key: string;
+		color: string;
+		label?: string;
+		is_total?: boolean;
+		value_format?: ValueFormat;
+	}>;
 	yAxisMin?: number;
 	yAxisMax?: number;
 	title: string;

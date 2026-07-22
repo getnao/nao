@@ -1,4 +1,5 @@
 import type { UsageRecord } from '@nao/backend/usage';
+import type { displayChart } from '@nao/shared/tools';
 import { ChartDisplay } from '@/components/tool-calls/display-chart';
 import { SettingsCard } from '@/components/ui/settings-card';
 
@@ -10,7 +11,7 @@ export interface UsageChartCardProps {
 	isError: boolean;
 	data: UsageRecord[];
 	chartType: 'bar' | 'stacked_bar';
-	series: { data_key: string; color: string; label: string }[];
+	series: displayChart.SeriesConfig[];
 	xAxisLabelFormatter: (value: string) => string;
 	filters: React.ReactNode;
 }

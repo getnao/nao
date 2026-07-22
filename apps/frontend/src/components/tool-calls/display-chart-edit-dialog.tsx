@@ -1,6 +1,6 @@
 import { displayChart } from '@nao/shared/tools';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus, Trash2, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
 import { Button } from '../ui/button';
@@ -11,6 +11,7 @@ import { Switch } from '../ui/switch';
 import type { UIMessage, UIToolPart } from '@nao/backend/chat';
 import { trpc } from '@/main';
 import { useAgentContext } from '@/contexts/agent.provider';
+import { cn } from '@/lib/utils';
 
 const CHART_TYPE_OPTIONS: { value: displayChart.ChartType; label: string }[] = [
 	{ value: 'bar', label: 'Bar' },
@@ -33,6 +34,8 @@ const X_AXIS_TYPE_OPTIONS: { value: NonNullable<displayChart.XAxisType> | 'auto'
 ];
 
 const Y_AXIS_RANGE_UNSUPPORTED_CHART_TYPES = new Set<displayChart.ChartType>(['pie', 'kpi_card', 'radar']);
+
+type UnitPlacement = 'prefix' | 'suffix';
 
 /** Maps a 100% stacked type back to its absolute-stacked counterpart, so the type dropdown stays clean. */
 function baseChartType(type: displayChart.ChartType): displayChart.ChartType {
@@ -119,6 +122,22 @@ export function ChartConfigEditDialog({
 			...prev,
 			series: prev.series.map((s, i) => (i === index ? { ...s, ...patch } : s)),
 		}));
+	};
+
+	const updateSeriesValueFormatAt = (index: number, field: 'd3_format' | 'prefix' | 'suffix', value: string) => {
+		const series = draft.series[index];
+		const nextValueFormat = { ...series.value_format, [field]: value || undefined };
+		updateSeriesAt(index, { value_format: cleanValueFormat(nextValueFormat) });
+	};
+
+	const setSeriesUnit = (index: number, { unit, placement }: { unit: string; placement: UnitPlacement }) => {
+		const series = draft.series[index];
+		const nextValueFormat = {
+			...series.value_format,
+			prefix: placement === 'prefix' ? unit || undefined : undefined,
+			suffix: placement === 'suffix' ? unit || undefined : undefined,
+		};
+		updateSeriesAt(index, { value_format: cleanValueFormat(nextValueFormat) });
 	};
 
 	const removeSeriesAt = (index: number) => {
@@ -284,42 +303,115 @@ export function ChartConfigEditDialog({
 							</Button>
 						</div>
 						<div className='flex flex-col gap-3'>
-							{draft.series.map((series, index) => (
-								<div
-									key={index}
-									className='grid grid-cols-[1fr_1fr_auto_auto] gap-2 items-center rounded-md'
-								>
-									<ColumnSelect
-										value={series.data_key}
-										columns={availableColumns.length > 0 ? availableColumns : [series.data_key]}
-										onChange={(value) => updateSeriesAt(index, { data_key: value })}
-									/>
-									<Input
-										value={series.label ?? ''}
-										onChange={(e) => updateSeriesAt(index, { label: e.target.value || undefined })}
-										placeholder='Label (optional)'
-										className='h-8 rounded-lg text-sm bg-panel'
-									/>
-									<input
-										type='color'
-										aria-label='Series color'
-										value={normalizeHexColor(series.color)}
-										onChange={(e) => updateSeriesAt(index, { color: e.target.value })}
-										className='h-8 w-8 cursor-pointer overflow-hidden rounded-lg border-none bg-transparent p-0 [&::-moz-color-swatch]:rounded-lg [&::-moz-color-swatch]:border-none [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded-lg [&::-webkit-color-swatch]:border-none'
-									/>
-									<Button
-										type='button'
-										size='icon-sm'
-										variant='ghost-muted'
-										className='size-8'
-										onClick={() => removeSeriesAt(index)}
-										disabled={draft.series.length <= 1}
-										title='Remove series'
-									>
-										<Trash2 className='size-4' />
-									</Button>
-								</div>
-							))}
+							{draft.series.map((series, index) => {
+								const placement: UnitPlacement = series.value_format?.prefix ? 'prefix' : 'suffix';
+								const unit =
+									placement === 'prefix'
+										? (series.value_format?.prefix ?? '')
+										: (series.value_format?.suffix ?? '');
+
+								return (
+									<div key={index} className='flex flex-col gap-2 rounded-md'>
+										<div className='grid grid-cols-[1fr_1fr_auto_auto] gap-2 items-center'>
+											<ColumnSelect
+												value={series.data_key}
+												columns={
+													availableColumns.length > 0 ? availableColumns : [series.data_key]
+												}
+												onChange={(value) => updateSeriesAt(index, { data_key: value })}
+											/>
+											<Input
+												value={series.label ?? ''}
+												onChange={(e) =>
+													updateSeriesAt(index, { label: e.target.value || undefined })
+												}
+												placeholder='Label (optional)'
+												className='h-8 rounded-lg text-sm bg-panel'
+											/>
+											<input
+												type='color'
+												aria-label='Series color'
+												value={normalizeHexColor(series.color)}
+												onChange={(e) => updateSeriesAt(index, { color: e.target.value })}
+												className='h-8 w-8 cursor-pointer overflow-hidden rounded-lg border-none bg-transparent p-0 [&::-moz-color-swatch]:rounded-lg [&::-moz-color-swatch]:border-none [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded-lg [&::-webkit-color-swatch]:border-none'
+											/>
+											<Button
+												type='button'
+												size='icon-sm'
+												variant='ghost-muted'
+												className='size-8'
+												onClick={() => removeSeriesAt(index)}
+												disabled={draft.series.length <= 1}
+												title='Remove series'
+											>
+												<Trash2 className='size-4' />
+											</Button>
+										</div>
+										<div className='grid grid-cols-[1fr_1fr_8rem] gap-2'>
+											<div className='grid gap-1'>
+												<div className='flex items-center gap-2'>
+													<span className='text-xs text-muted-foreground'>Number format</span>
+													<a
+														href='https://d3js.org/d3-format'
+														target='_blank'
+														rel='noreferrer'
+														className='text-xs text-blue-500 hover:text-blue-400 hover:underline'
+													>
+														How to format
+													</a>
+												</div>
+												<ClearableInput
+													value={series.value_format?.d3_format ?? ''}
+													onChange={(value) =>
+														updateSeriesValueFormatAt(index, 'd3_format', value)
+													}
+													onClear={() => updateSeriesValueFormatAt(index, 'd3_format', '')}
+													placeholder='e.g. ,.2f'
+													ariaLabel='d3-format specifier'
+													className='h-8 rounded-lg text-sm bg-panel'
+												/>
+											</div>
+											<div className='grid gap-1'>
+												<span className='text-xs text-muted-foreground'>Unit</span>
+												<ClearableInput
+													value={unit}
+													onChange={(value) =>
+														setSeriesUnit(index, { unit: value, placement })
+													}
+													onClear={() => setSeriesUnit(index, { unit: '', placement })}
+													placeholder='$ or %'
+													ariaLabel='Value unit'
+													className='h-8 rounded-lg text-sm bg-panel'
+												/>
+											</div>
+											<div className='grid gap-1'>
+												<span className='text-xs text-muted-foreground'>Placement</span>
+												<Select
+													value={placement}
+													disabled={!unit}
+													onValueChange={(value) =>
+														setSeriesUnit(index, {
+															unit,
+															placement: value as UnitPlacement,
+														})
+													}
+												>
+													<SelectTrigger
+														aria-label='Unit placement'
+														className='h-8 w-full bg-panel text-sm disabled:cursor-not-allowed disabled:opacity-50 [&_svg]:text-foreground! [&_svg]:opacity-100!'
+													>
+														<SelectValue />
+													</SelectTrigger>
+													<SelectContent className='bg-panel'>
+														<SelectItem value='prefix'>Prefix</SelectItem>
+														<SelectItem value='suffix'>Suffix</SelectItem>
+													</SelectContent>
+												</Select>
+											</div>
+										</div>
+									</div>
+								);
+							})}
 						</div>
 					</div>
 
@@ -475,6 +567,40 @@ function ColumnSelect({ value, columns, onChange }: ColumnSelectProps) {
 	);
 }
 
+interface ClearableInputProps {
+	value: string;
+	onChange: (value: string) => void;
+	onClear: () => void;
+	placeholder: string;
+	ariaLabel: string;
+	className?: string;
+}
+
+function ClearableInput({ value, onChange, onClear, placeholder, ariaLabel, className }: ClearableInputProps) {
+	return (
+		<div className='relative'>
+			<Input
+				value={value}
+				onChange={(event) => onChange(event.target.value)}
+				placeholder={placeholder}
+				aria-label={ariaLabel}
+				className={cn(className, 'pr-7')}
+			/>
+			{value && (
+				<button
+					type='button'
+					tabIndex={-1}
+					aria-label='Clear'
+					onClick={onClear}
+					className='absolute inset-y-0 right-1.5 flex items-center text-muted-foreground hover:text-foreground'
+				>
+					<X className='size-3.5' />
+				</button>
+			)}
+		</div>
+	);
+}
+
 function getSelectableColumns(columns: string[]): string[] {
 	return Array.from(new Set(columns.filter((column) => column.length > 0)));
 }
@@ -489,6 +615,12 @@ function parseRangeInput(value: string): number | undefined {
 	}
 	const n = Number(value);
 	return Number.isFinite(n) ? n : undefined;
+}
+
+function cleanValueFormat(
+	valueFormat: NonNullable<displayChart.SeriesConfig['value_format']>,
+): displayChart.SeriesConfig['value_format'] {
+	return valueFormat.d3_format || valueFormat.prefix || valueFormat.suffix ? valueFormat : undefined;
 }
 
 const HEX_RE = /^#[0-9a-fA-F]{6}$/;
