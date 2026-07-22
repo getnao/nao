@@ -23,6 +23,7 @@ import type { LucideIcon } from 'lucide-react';
 
 import NaoLogo from '@/components/icons/nao-logo.svg';
 import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useCommandMenuCallback } from '@/contexts/command-menu-callback';
 import { useSidebar } from '@/contexts/sidebar';
 import { brandingAssetUrl, useBranding } from '@/hooks/use-branding';
@@ -40,6 +41,7 @@ export function Sidebar() {
 	const queryClient = useQueryClient();
 	const matchRoute = useMatchRoute();
 	const { isCollapsed, isMobile, isMobileOpen, closeMobile, toggle: toggleSidebar } = useSidebar();
+	const [toggleHintOpen, setToggleHintOpen] = useState(false);
 	const { fire: openCommandMenu } = useCommandMenuCallback();
 	const project = useQuery(trpc.project.getCurrent.queryOptions());
 	const projects = useQuery(trpc.project.listForCurrentUser.queryOptions());
@@ -55,6 +57,10 @@ export function Sidebar() {
 	const locationPath = useRouterState({ select: (s) => s.location.pathname });
 	const isInSettings = matchRoute({ to: '/settings', fuzzy: true });
 	const effectiveIsCollapsed = isMobile ? false : isCollapsed;
+
+	useEffect(() => {
+		setToggleHintOpen(false);
+	}, [effectiveIsCollapsed]);
 
 	useEffect(() => {
 		if (isMobile && isMobileOpen) {
@@ -168,18 +174,31 @@ export function Sidebar() {
 							<X className='size-4' />
 						</Button>
 					) : (
-						<Button
-							variant='ghost'
-							size='icon-md'
-							onClick={() => toggleSidebar()}
-							className='text-muted-foreground ml-auto z-10'
-						>
-							{effectiveIsCollapsed ? (
-								<ArrowRightToLine className='size-4' />
-							) : (
-								<ArrowLeftFromLine className='size-4' />
-							)}
-						</Button>
+						<Tooltip open={toggleHintOpen} onOpenChange={setToggleHintOpen}>
+							<TooltipTrigger asChild>
+								<Button
+									variant='ghost'
+									size='icon-md'
+									onClick={() => toggleSidebar()}
+									className='text-muted-foreground ml-auto z-10'
+									aria-label='Toggle sidebar'
+								>
+									{effectiveIsCollapsed ? (
+										<ArrowRightToLine className='size-4' />
+									) : (
+										<ArrowLeftFromLine className='size-4' />
+									)}
+								</Button>
+							</TooltipTrigger>
+							<TooltipContent side='right'>
+								<span className='flex items-center gap-2'>
+									Toggle sidebar
+									<kbd className='text-[10px] opacity-60 font-sans'>
+										{getShortcutLabel('toggle-sidebar')}
+									</kbd>
+								</span>
+							</TooltipContent>
+						</Tooltip>
 					)}
 				</div>
 				{!isInSettings && (
