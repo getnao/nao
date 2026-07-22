@@ -1,4 +1,5 @@
 import { buildChart, bucketPieData, buildStoryChartBlock, labelize } from '@nao/shared';
+import { appendBlockToStoryCode } from '@nao/shared/story-tabs';
 import { displayChart } from '@nao/shared/tools';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ChartNoAxesColumn, Code, Download, FilePlus, Pencil, Table as TableIcon } from 'lucide-react';
@@ -50,7 +51,7 @@ export const DisplayChartToolCall = ({
 	const messages = agent?.messages ?? EMPTY_MESSAGES;
 	const chatId = useChatId();
 	const queryClient = useQueryClient();
-	const { open: openSidePanel, currentStorySlug, isVisible } = useSidePanel();
+	const { open: openSidePanel, currentStorySlug, currentStoryTabIndex, isVisible } = useSidePanel();
 	const config = state !== 'input-streaming' ? input : undefined;
 	const chartConfig = config?.chart_type === 'table' ? undefined : config;
 	const tableConfig = config?.chart_type === 'table' ? config : undefined;
@@ -193,13 +194,8 @@ export const DisplayChartToolCall = ({
 
 	const handleAddToStory = async () => {
 		const latestStoryId = storyIds[storyIds.length - 1];
-		// Prefer the currently-visible story slug, but only if it's a real story
-		// from this chat — the side panel's currentStorySlug can lag behind (e.g.
-		// it was set from a partial streamed slug during the story tool's
-		// input-streaming phase) and would otherwise point to a non-existent
-		// story.
-		const targetId =
-			isVisible && currentStorySlug && storyIds.includes(currentStorySlug) ? currentStorySlug : latestStoryId;
+		const usingVisibleStory = Boolean(isVisible && currentStorySlug && storyIds.includes(currentStorySlug));
+		const targetId = usingVisibleStory ? currentStorySlug! : latestStoryId;
 		if (!targetId || !chartConfig || !chatId) {
 			return;
 		}
@@ -214,7 +210,10 @@ export const DisplayChartToolCall = ({
 		}
 
 		const chartBlock = buildStoryChartBlock(chartConfig);
-		const newCode = latest.code.trimEnd() + '\n\n' + chartBlock;
+		const { code: newCode, tabIndex: openTabIndex } = appendBlockToStoryCode(latest.code, chartBlock, {
+			usingVisibleStory,
+			activeTabIndex: currentStoryTabIndex,
+		});
 
 		addToStoryMutation.mutate({
 			chatId,
@@ -225,7 +224,10 @@ export const DisplayChartToolCall = ({
 		});
 
 		if (!isVisible) {
-			openSidePanel(<StoryViewer chatId={chatId} storySlug={targetId} />, targetId);
+			openSidePanel(
+				<StoryViewer chatId={chatId} storySlug={targetId} initialTabIndex={openTabIndex} />,
+				targetId,
+			);
 		}
 	};
 

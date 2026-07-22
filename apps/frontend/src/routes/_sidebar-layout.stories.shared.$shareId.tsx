@@ -144,6 +144,8 @@ function SharedStoryPage() {
 		<SidePanelProvider
 			isVisible={sidePanel.isVisible}
 			currentStorySlug={sidePanel.currentStorySlug}
+			currentStoryTabIndex={sidePanel.currentStoryTabIndex}
+			setCurrentStoryTabIndex={sidePanel.setCurrentStoryTabIndex}
 			chatId={story.chatId}
 			shareId={shareId}
 			shareType='story'

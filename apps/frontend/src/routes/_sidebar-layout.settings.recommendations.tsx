@@ -241,6 +241,8 @@ function RecommendationsPage() {
 		<SidePanelProvider
 			isVisible={sidePanel.isVisible}
 			currentStorySlug={sidePanel.currentStorySlug}
+			currentStoryTabIndex={sidePanel.currentStoryTabIndex}
+			setCurrentStoryTabIndex={sidePanel.setCurrentStoryTabIndex}
 			chatId={null}
 			open={sidePanel.open}
 			close={sidePanel.close}

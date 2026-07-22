@@ -69,6 +69,8 @@ function SharedChatPage() {
 			<SidePanelProvider
 				isVisible={sidePanel.isVisible}
 				currentStorySlug={sidePanel.currentStorySlug}
+				currentStoryTabIndex={sidePanel.currentStoryTabIndex}
+				setCurrentStoryTabIndex={sidePanel.setCurrentStoryTabIndex}
 				chatId={share.chatId}
 				shareId={shareId}
 				shareType='chat'

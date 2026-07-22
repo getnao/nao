@@ -38,18 +38,25 @@ interface StoryViewerProps {
 	chatId: string;
 	storySlug: string;
 	isReadonlyMode?: boolean;
+	initialTabIndex?: number;
 }
 
-export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp }: StoryViewerProps) {
+export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, initialTabIndex }: StoryViewerProps) {
 	const tiptapEditorRef = useRef<TiptapEditor | null>(null);
 	const codeViewRef = useRef<StoryCodeViewHandle | null>(null);
 	const tabbedEditCodeRef = useRef<(() => string) | null>(null);
 	const getEditModeCode = useCallback(() => tabbedEditCodeRef.current?.() ?? null, []);
 	const [isCodeDirty, setIsCodeDirty] = useState(false);
 	const [isCodeValid, setIsCodeValid] = useState(true);
-	const [activeTabIndex, setActiveTabIndex] = useState(0);
+	const [activeTabIndex, setActiveTabIndex] = useState(initialTabIndex ?? 0);
 	const scrollContainerRef = useRef<HTMLDivElement | null>(null);
-	const { close: closeSidePanel, isReadonlyMode: contextReadonlyMode, shareId, shareType } = useSidePanel();
+	const {
+		close: closeSidePanel,
+		isReadonlyMode: contextReadonlyMode,
+		shareId,
+		shareType,
+		setCurrentStoryTabIndex,
+	} = useSidePanel();
 	const isReadonlyMode = readonlyProp ?? contextReadonlyMode;
 	const { viewMode, setViewMode } = useStoryViewerViewMode();
 
@@ -73,6 +80,7 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp }:
 		isChatAgentRunning,
 	);
 	const resolvedStorySlug = draftStory?.id ?? storySlug;
+	const prevSlugRef = useRef(resolvedStorySlug);
 	const {
 		versions,
 		storyId,
@@ -160,8 +168,15 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp }:
 	}, [viewMode]);
 
 	useEffect(() => {
-		setActiveTabIndex(0);
+		if (prevSlugRef.current !== resolvedStorySlug) {
+			prevSlugRef.current = resolvedStorySlug;
+			setActiveTabIndex(0);
+		}
 	}, [resolvedStorySlug]);
+
+	useEffect(() => {
+		setCurrentStoryTabIndex(activeTab);
+	}, [activeTab, setCurrentStoryTabIndex]);
 
 	useStoryViewerStreamScroll({
 		scrollContainerRef,
