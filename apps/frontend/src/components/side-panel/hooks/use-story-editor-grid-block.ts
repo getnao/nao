@@ -9,7 +9,7 @@ import {
 	setGridColumnsMarkup,
 	splitGridColumnsRaw,
 } from '@nao/shared/story-segments';
-import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { removeCardFromOrigin } from '../story-editor-utils';
 import {
 	GRID_COLUMN_DRAG_TYPE,
@@ -74,6 +74,7 @@ export function useStoryEditorGridBlock({ node, updateAttributes, getPos, editor
 	const [dragColumnIndex, setDragColumnIndex] = useState<number | null>(null);
 	const [dropColumnIndex, setDropColumnIndex] = useState<number | null>(null);
 	const [blockDropIndex, setBlockDropIndex] = useState<number | null>(null);
+	const [isSingleRow, setIsSingleRow] = useState(false);
 
 	const { segments, cols, widths } = useMemo(() => {
 		const gridMatch = rawContent.match(/<grid(?:\s+([^>]*))?>([\s\S]*?)<\/grid>/);
@@ -105,6 +106,37 @@ export function useStoryEditorGridBlock({ node, updateAttributes, getPos, editor
 			setDragColumnIndex(null);
 		}
 	}, [storyBlockDrag?.isDragging]);
+
+	/**
+	 * Resize handles are absolutely positioned as fractions of the full grid
+	 * width, which only lines up when every column shares a single row. The
+	 * responsive `@lg`/`@xl`/`@2xl` breakpoints in `getGridClass` mean a default
+	 * grid can wrap or unwrap purely from container width, so measure the actual
+	 * rendered layout instead of inferring it from the column count.
+	 */
+	useLayoutEffect(() => {
+		const grid = gridRef.current;
+		if (!grid) {
+			return;
+		}
+
+		const measureSingleRow = () => {
+			const columns = Array.from(grid.children) as HTMLElement[];
+			if (columns.length <= 1) {
+				setIsSingleRow(true);
+				return;
+			}
+			const firstTop = columns[0].getBoundingClientRect().top;
+			setIsSingleRow(columns.every((column) => Math.abs(column.getBoundingClientRect().top - firstTop) < 1));
+		};
+
+		measureSingleRow();
+		const observer = new ResizeObserver(measureSingleRow);
+		observer.observe(grid);
+		return () => {
+			observer.disconnect();
+		};
+	}, [segments.length]);
 
 	const handleReplaceTag = useCallback(
 		(rawTag: string, nextTag: string) => {
@@ -373,10 +405,6 @@ export function useStoryEditorGridBlock({ node, updateAttributes, getPos, editor
 	);
 
 	const resizeHandlePositions = useMemo(() => {
-		// Handles assume a single row. Explicit widths always render as one row at
-		// @lg; default grids only stay single-row with <= 2 columns (3+ wrap), so
-		// hide handles there to avoid resizing against a mismatched layout.
-		const isSingleRow = visualWidths !== null || segments.length <= 2;
 		if (!isSingleRow) {
 			return [];
 		}
@@ -391,7 +419,7 @@ export function useStoryEditorGridBlock({ node, updateAttributes, getPos, editor
 				left: `calc(${fraction * 100}% - ${fraction * 16 * (positionedWidths.length - 1)}px + ${(index + 0.5) * 16}px)`,
 			};
 		});
-	}, [segments, visualWidths]);
+	}, [isSingleRow, segments, visualWidths]);
 
 	const indicatorIndex = blockDropIndex ?? dropColumnIndex;
 	const dropIndicatorLeft =
