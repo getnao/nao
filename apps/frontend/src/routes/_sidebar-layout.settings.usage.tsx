@@ -138,7 +138,7 @@ function UsageOverview({
 	const activeMessageSeries = messageSeries.filter(({ data_key }) =>
 		chartData.some((record) => record[data_key] > 0),
 	);
-	const displayedMessageSeries = activeMessageSeries.length > 0 ? activeMessageSeries : messageSeries;
+	const displayedMessageSeries = activeMessageSeries.length > 0 ? activeMessageSeries : [...messageSeries];
 	const showMessageLegend = displayedMessageSeries.some(({ data_key }) => data_key !== 'webMessageCount');
 
 	const filtersComponent = (

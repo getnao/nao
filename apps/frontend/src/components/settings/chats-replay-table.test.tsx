@@ -3,10 +3,10 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { getCoreRowModel, useReactTable } from '@tanstack/react-table';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { ChatsReplayTable } from './chats-replay-table';
 
 import type { ColumnDef } from '@tanstack/react-table';
 import type { ProjectChatListItem } from '@nao/shared/types';
-import { ChatsReplayTable } from './chats-replay-table';
 
 const chat: ProjectChatListItem = {
 	id: 'chat-1',

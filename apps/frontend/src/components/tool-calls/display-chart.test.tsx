@@ -9,6 +9,10 @@ vi.mock('@/hooks/use-date-format', () => ({
 	useDateFormat: () => ({ preset: 'european' }),
 }));
 
+vi.mock('@/main', () => ({
+	trpc: {},
+}));
+
 describe('ChartDisplay', () => {
 	afterEach(cleanup);
 
