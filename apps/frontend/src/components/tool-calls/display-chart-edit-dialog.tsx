@@ -109,7 +109,11 @@ export function ChartConfigEditDialog({
 
 	const handleSubmit = async (event: React.FormEvent) => {
 		event.preventDefault();
-		const parsed = displayChart.ChartInputSchema.safeParse(draft);
+		const normalized: displayChart.ChartInput =
+			draft.chart_type === 'kpi_card'
+				? { ...draft, x_axis_key: draft.x_axis_key || '', x_axis_type: draft.x_axis_type ?? null }
+				: draft;
+		const parsed = displayChart.ChartInputSchema.safeParse(normalized);
 		if (!parsed.success) {
 			setError(parsed.error.issues[0]?.message ?? 'Invalid chart configuration.');
 			return;
@@ -220,29 +224,31 @@ export function ChartConfigEditDialog({
 							</Select>
 						</div>
 
-						<div className='grid gap-2'>
-							<span className='text-sm font-semibold text-foreground'>X-axis type</span>
-							<Select
-								value={draft.x_axis_type ?? 'auto'}
-								onValueChange={(value) =>
-									setDraft((prev) => ({
-										...prev,
-										x_axis_type: value === 'auto' ? null : (value as displayChart.XAxisType),
-									}))
-								}
-							>
-								<SelectTrigger className='w-full bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
-									<SelectValue />
-								</SelectTrigger>
-								<SelectContent className='border-none bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
-									{X_AXIS_TYPE_OPTIONS.map((option) => (
-										<SelectItem key={option.value} value={option.value}>
-											{option.label}
-										</SelectItem>
-									))}
-								</SelectContent>
-							</Select>
-						</div>
+						{draft.chart_type !== 'kpi_card' && (
+							<div className='grid gap-2'>
+								<span className='text-sm font-semibold text-foreground'>X-axis type</span>
+								<Select
+									value={draft.x_axis_type ?? 'auto'}
+									onValueChange={(value) =>
+										setDraft((prev) => ({
+											...prev,
+											x_axis_type: value === 'auto' ? null : (value as displayChart.XAxisType),
+										}))
+									}
+								>
+									<SelectTrigger className='w-full bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
+										<SelectValue />
+									</SelectTrigger>
+									<SelectContent className='border-none bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
+										{X_AXIS_TYPE_OPTIONS.map((option) => (
+											<SelectItem key={option.value} value={option.value}>
+												{option.label}
+											</SelectItem>
+										))}
+									</SelectContent>
+								</Select>
+							</div>
+						)}
 					</div>
 
 					{displayChart.isStackedChartType(draft.chart_type) && (
@@ -270,14 +276,16 @@ export function ChartConfigEditDialog({
 						</div>
 					)}
 
-					<div className='grid gap-2'>
-						<span className='text-sm font-semibold text-foreground'>X-axis column</span>
-						<ColumnSelect
-							value={draft.x_axis_key}
-							columns={xAxisOptions}
-							onChange={(value) => setDraft((prev) => ({ ...prev, x_axis_key: value }))}
-						/>
-					</div>
+					{draft.chart_type !== 'kpi_card' && (
+						<div className='grid gap-2'>
+							<span className='text-sm font-semibold text-foreground'>X-axis column</span>
+							<ColumnSelect
+								value={draft.x_axis_key}
+								columns={xAxisOptions}
+								onChange={(value) => setDraft((prev) => ({ ...prev, x_axis_key: value }))}
+							/>
+						</div>
+					)}
 
 					<div className='grid gap-2'>
 						<div className='flex items-center justify-between py-2'>

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildStoryTableBlock } from '../src/chart-block';
+import { buildStoryChartBlock, buildStoryTableBlock } from '../src/chart-block';
 import type { ColumnConditionalFormats } from '../src/conditional-formatting';
 import { injectTableFormatting, parseTableBlock, splitCodeIntoSegments } from '../src/story-segments';
 import { displayChart } from '../src/tools';
@@ -148,6 +148,38 @@ describe('displayChart.InputSchema table variant', () => {
 			title: 'Monthly sales',
 		});
 		expect(result.success).toBe(true);
+	});
+
+	it('accepts a kpi_card input without x-axis fields', () => {
+		const result = displayChart.InputSchema.safeParse({
+			query_id: 'q1',
+			chart_type: 'kpi_card',
+			series: [{ data_key: 'revenue' }],
+			title: 'Revenue',
+		});
+		expect(result.success).toBe(true);
+	});
+
+	it('still requires x_axis_key for line charts', () => {
+		const result = displayChart.InputSchema.safeParse({
+			query_id: 'q1',
+			chart_type: 'line',
+			series: [{ data_key: 'revenue' }],
+			title: 'Revenue',
+		});
+		expect(result.success).toBe(false);
+	});
+
+	it('omits the x_axis_key attribute for kpi cards without an axis', () => {
+		const block = buildStoryChartBlock({
+			query_id: 'q1',
+			chart_type: 'kpi_card',
+			x_axis_type: null,
+			series: [{ data_key: 'revenue' }],
+			title: 'Revenue',
+		});
+		expect(block).not.toContain('x_axis_key=');
+		expect(block).toContain('chart_type="kpi_card"');
 	});
 
 	it('retains KPI comparison mode in chart schemas', () => {

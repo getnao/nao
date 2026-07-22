@@ -14,7 +14,6 @@ export type StoryChartBlockInput = Pick<
 	displayChart.ChartInput,
 	| 'query_id'
 	| 'chart_type'
-	| 'x_axis_key'
 	| 'x_axis_type'
 	| 'series'
 	| 'y_axis_min'
@@ -23,9 +22,11 @@ export type StoryChartBlockInput = Pick<
 	| 'comparison_mode'
 > & {
 	title?: displayChart.ChartInput['title'];
+	x_axis_key?: displayChart.ChartInput['x_axis_key'];
 };
 
 export function buildStoryChartBlock(input: StoryChartBlockInput): string {
+	const xAxisKeyAttr = input.x_axis_key ? ` x_axis_key="${escapeDoubleQuotedStoryAttr(input.x_axis_key)}"` : '';
 	const xAxisTypeAttr =
 		input.x_axis_type != null ? ` x_axis_type="${escapeDoubleQuotedStoryAttr(input.x_axis_type)}"` : '';
 	const yMinAttr = input.y_axis_min !== undefined ? ` y_axis_min="${input.y_axis_min}"` : '';
@@ -38,7 +39,7 @@ export function buildStoryChartBlock(input: StoryChartBlockInput): string {
 		input.comparison_mode && input.comparison_mode !== 'none'
 			? ` comparison_mode="${escapeDoubleQuotedStoryAttr(input.comparison_mode)}"`
 			: '';
-	return `<chart query_id="${escapeDoubleQuotedStoryAttr(input.query_id)}" chart_type="${escapeDoubleQuotedStoryAttr(input.chart_type)}" x_axis_key="${escapeDoubleQuotedStoryAttr(input.x_axis_key)}"${xAxisTypeAttr}${yMinAttr}${yMaxAttr} series='${seriesJson}'${titleAttr}${dataLabelsAttr}${comparisonModeAttr} />`;
+	return `<chart query_id="${escapeDoubleQuotedStoryAttr(input.query_id)}" chart_type="${escapeDoubleQuotedStoryAttr(input.chart_type)}"${xAxisKeyAttr}${xAxisTypeAttr}${yMinAttr}${yMaxAttr} series='${seriesJson}'${titleAttr}${dataLabelsAttr}${comparisonModeAttr} />`;
 }
 
 export type StoryTableBlockInput = Pick<displayChart.TableInput, 'query_id' | 'title' | 'conditional_formats'>;

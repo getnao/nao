@@ -102,7 +102,10 @@ export function resolvePieTooltipLabel(payload?: readonly { name?: unknown }[]):
 }
 
 /** Resolves a config key to the matching key in the data, ignoring case. Falls back to the original key. */
-export function resolveDataKey(data: Record<string, unknown>[], key: string): string {
+export function resolveDataKey(data: Record<string, unknown>[], key: string | undefined): string {
+	if (key === undefined) {
+		return '';
+	}
 	const row = data[0];
 	if (!row || key in row) {
 		return key;

@@ -89,47 +89,56 @@ export const ColumnConditionalFormatsSchema = z
 	.record(z.string(), ConditionalFormatRuleSchema)
 	.describe('Map of column name to the conditional-formatting rule applied to that column.');
 
-export const ChartInputSchema = z
-	.object({
-		query_id: z.string().describe("The id of a previous `execute_sql` tool call's output to get data from."),
-		chart_type: ChartTypeEnum.describe('Type of chart to display.'),
-		x_axis_key: z.string().describe('Column name for X-axis/category labels.'),
-		x_axis_type: XAxisTypeEnum.nullable().describe(
-			'Use "date" only when x-axis values parse as JS Date (YYYY-MM-DD). Use "category" for quarter_ending, fiscal periods, or labels. Use "number" for numeric x-axis.',
+const ChartInputObjectSchema = z.object({
+	query_id: z.string().describe("The id of a previous `execute_sql` tool call's output to get data from."),
+	chart_type: ChartTypeEnum.describe('Type of chart to display.'),
+	x_axis_key: z.string().describe('Column name for X-axis/category labels.'),
+	x_axis_type: XAxisTypeEnum.nullable().describe(
+		'Use "date" only when x-axis values parse as JS Date (YYYY-MM-DD). Use "category" for quarter_ending, fiscal periods, or labels. Use "number" for numeric x-axis.',
+	),
+	series: z
+		.array(SeriesConfigSchema)
+		.min(1)
+		.describe('Columns to plot as data series (at least one series required).'),
+	y_axis_min: z
+		.number()
+		.describe(
+			'Fixes the Y-axis lower bound. Leave unset to auto-scale for readability (line and scatter charts do not force a zero baseline).',
+		)
+		.optional(),
+	y_axis_max: z.number().describe('Fixes the Y-axis upper bound. Leave unset to auto-scale.').optional(),
+	show_data_labels: z
+		.boolean()
+		.describe(
+			'Show the numeric value of each data point directly on the chart. Set to true when the user asks to display values/data labels on the chart.',
+		)
+		.optional(),
+	comparison_mode: ComparisonModeEnum.describe(
+		'KPI cards only. Shows a small pill under the number with the change vs the previous period — the latest row compared to the row immediately before it. Modes: "percentage" = percent change (arrow + color); "variation" = absolute change (arrow + color); "absolute" = magnitude only (no arrow/color); "none" = no pill. When a KPI metric is worth tracking over time (revenue, orders, active users, conversion, etc.), write the SQL to return that metric across at least two consecutive, time-ordered periods (one row per period, ordered oldest→newest) and set this to "percentage" so the card shows the latest period and its change vs the prior one; use "variation"/"absolute" when a raw change reads better than a percent. Omit or use "none" for all-time totals, static rates, or metrics with no meaningful previous period. A pill only renders when the query returns 2+ rows; a single-row (single number) query shows no pill.',
+	).optional(),
+	title: z
+		.string()
+		.describe(
+			'A concise and descriptive title of what the chart shows. Do not include the type of chart in the title or other chart configurations.',
 		),
-		series: z
-			.array(SeriesConfigSchema)
-			.min(1)
-			.describe('Columns to plot as data series (at least one series required).'),
-		y_axis_min: z
-			.number()
-			.describe(
-				'Fixes the Y-axis lower bound. Leave unset to auto-scale for readability (line and scatter charts do not force a zero baseline).',
-			)
-			.optional(),
-		y_axis_max: z.number().describe('Fixes the Y-axis upper bound. Leave unset to auto-scale.').optional(),
-		show_data_labels: z
-			.boolean()
-			.describe(
-				'Show the numeric value of each data point directly on the chart. Set to true when the user asks to display values/data labels on the chart.',
-			)
-			.optional(),
-		comparison_mode: ComparisonModeEnum.describe(
-			'KPI cards only. Shows a small pill under the number with the change vs the previous period — the latest row compared to the row immediately before it. Modes: "percentage" = percent change (arrow + color); "variation" = absolute change (arrow + color); "absolute" = magnitude only (no arrow/color); "none" = no pill. When a KPI metric is worth tracking over time (revenue, orders, active users, conversion, etc.), write the SQL to return that metric across at least two consecutive, time-ordered periods (one row per period, ordered oldest→newest) and set this to "percentage" so the card shows the latest period and its change vs the prior one; use "variation"/"absolute" when a raw change reads better than a percent. Omit or use "none" for all-time totals, static rates, or metrics with no meaningful previous period. A pill only renders when the query returns 2+ rows; a single-row (single number) query shows no pill.',
-		).optional(),
-		title: z
-			.string()
-			.describe(
-				'A concise and descriptive title of what the chart shows. Do not include the type of chart in the title or other chart configurations.',
-			),
-	})
-	.refine(
-		(input) =>
-			input.y_axis_min === undefined || input.y_axis_max === undefined || input.y_axis_min < input.y_axis_max,
-		{
-			message: 'The Y-axis minimum must be less than the maximum.',
-		},
-	);
+});
+
+const yAxisBoundsValid = (input: { y_axis_min?: number; y_axis_max?: number }) =>
+	input.y_axis_min === undefined || input.y_axis_max === undefined || input.y_axis_min < input.y_axis_max;
+
+const Y_AXIS_BOUNDS_MESSAGE = { message: 'The Y-axis minimum must be less than the maximum.' };
+
+export const ChartInputSchema = ChartInputObjectSchema.refine(yAxisBoundsValid, Y_AXIS_BOUNDS_MESSAGE);
+
+/** KPI cards render a single headline number and have no axes, so they may omit the x-axis fields. */
+const KpiCardInputSchema = ChartInputObjectSchema.extend({
+	x_axis_key: z.string().describe('Column name for X-axis/category labels.').optional(),
+	x_axis_type: XAxisTypeEnum.nullable()
+		.describe(
+			'Use "date" only when x-axis values parse as JS Date (YYYY-MM-DD). Use "category" for quarter_ending, fiscal periods, or labels. Use "number" for numeric x-axis.',
+		)
+		.optional(),
+}).refine(yAxisBoundsValid, Y_AXIS_BOUNDS_MESSAGE);
 
 export const TableInputSchema = z.object({
 	query_id: z.string().describe("The id of a previous `execute_sql` tool call's output to get data from."),
@@ -168,7 +177,12 @@ const BaseInputSchema = z.object({
 });
 
 export const InputSchema = BaseInputSchema.superRefine((input, context) => {
-	const result = input.chart_type === 'table' ? TableInputSchema.safeParse(input) : ChartInputSchema.safeParse(input);
+	const result =
+		input.chart_type === 'table'
+			? TableInputSchema.safeParse(input)
+			: input.chart_type === 'kpi_card'
+				? KpiCardInputSchema.safeParse(input)
+				: ChartInputSchema.safeParse(input);
 	if (result.success) {
 		return;
 	}

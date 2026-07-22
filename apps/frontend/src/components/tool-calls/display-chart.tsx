@@ -34,6 +34,7 @@ import {
 import { useDateFormat } from '@/hooks/use-date-format';
 import { useChatId } from '@/hooks/use-chat-id';
 import { useSidePanel } from '@/contexts/side-panel';
+import { useToolCallContext } from '@/contexts/tool-call';
 import { StoryViewer } from '@/components/side-panel/story-viewer';
 import { cn } from '@/lib/utils';
 import { downloadCsv, tableToCsv } from '@/lib/table-export';
@@ -51,6 +52,7 @@ export const DisplayChartToolCall = ({
 	const chatId = useChatId();
 	const queryClient = useQueryClient();
 	const { open: openSidePanel, currentStorySlug, isVisible } = useSidePanel();
+	const { isSettled } = useToolCallContext();
 	const config = state !== 'input-streaming' ? input : undefined;
 	const chartConfig = config?.chart_type === 'table' ? undefined : config;
 	const tableConfig = config?.chart_type === 'table' ? config : undefined;
@@ -156,6 +158,12 @@ export const DisplayChartToolCall = ({
 	}
 
 	if (!chartConfig) {
+		// Only show the loader while the input is genuinely still streaming. An
+		// orphaned partial tool call stuck in `input-streaming` after the message
+		// settled would otherwise render an endless loader.
+		if (state !== 'input-streaming' || isSettled) {
+			return null;
+		}
 		return (
 			<div className='my-4 flex flex-col gap-2 items-center aspect-3/2'>
 				<Skeleton className='w-1/2 h-4' />
@@ -229,20 +237,24 @@ export const DisplayChartToolCall = ({
 		}
 	};
 
+	const isKpiChartView = viewMode === 'chart' && chartConfig.chart_type === 'kpi_card';
+
 	return (
 		<div
 			className={cn(
-				'group/chart flex flex-col items-stretch my-4 -mx-3',
+				'group/chart relative flex flex-col items-stretch my-4 -mx-3',
 				'border transition-colors duration-150 rounded-lg overflow-hidden bg-backgroundSecondary/30',
 				viewMode === 'chart' ? 'border-transparent hover:border-border' : 'border-border',
 				viewMode === 'chart' ? 'gap-2 px-3' : 'gap-0',
+				isKpiChartView ? 'py-3' : '',
 				viewMode === 'chart' && chartConfig.chart_type !== 'kpi_card' && !normalSize ? 'aspect-3/2' : '',
 			)}
 		>
 			<div
 				className={cn(
-					'flex w-full items-center justify-between py-2',
-					viewMode === 'chart' ? 'gap-2' : 'gap-0 px-3 border-b border-border',
+					'flex items-center py-2',
+					isKpiChartView ? 'absolute top-0 right-0 z-10 gap-1 px-3' : 'w-full justify-between',
+					!isKpiChartView && (viewMode === 'chart' ? 'gap-2' : 'gap-0 px-3 border-b border-border'),
 				)}
 			>
 				{chartConfig.chart_type != 'kpi_card' ? (
