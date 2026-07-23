@@ -9,6 +9,9 @@ export const InputSchema = z.object({
 		.optional()
 		.describe('The database name/id to use. Required if multiple databases are configured.'),
 	name: z.string().optional().describe('A descriptive name for the query that will be used to show in the UI.'),
+	query_id: QueryIdSchema.optional().describe(
+		'When set, replace the SQL of this existing query in-place (same query_id) instead of creating a new one. Prefer this when adding story filter templates so chart/table tags keep working.',
+	),
 });
 
 export const OutputSchema = z.object({

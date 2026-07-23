@@ -155,6 +155,7 @@ function StoryPreviewPage() {
 								code={editor.code}
 								queryData={story.queryData as QueryDataMap | null}
 								chatId={chatId}
+								storySlug={storySlug}
 								cacheSchedule={story.cacheSchedule}
 							/>,
 						)}
@@ -223,14 +224,17 @@ function PreviewContent({
 	code,
 	queryData,
 	chatId,
+	storySlug,
 	cacheSchedule,
 }: {
 	code: string;
 	queryData: QueryDataMap | null;
 	chatId: string;
+	storySlug: string;
 	cacheSchedule?: string | null;
 }) {
 	const isNoCacheMode = cacheSchedule === 'no-cache';
+	const filterApi = useMemo(() => ({ kind: 'owned' as const, chatId, storySlug }), [chatId, storySlug]);
 
 	const noCacheQuery = useMemo(
 		() => (isNoCacheMode ? { queryOptions: trpc.story.getLiveQueryData.queryOptions, chatId } : undefined),
@@ -238,18 +242,59 @@ function PreviewContent({
 	);
 
 	const renderChart = useCallback(
-		(chart: ParsedChartBlock) => (
-			<StoryChartEmbed chart={chart} queryData={isNoCacheMode ? undefined : queryData} liveQuery={noCacheQuery} />
+		(
+			chart: ParsedChartBlock,
+			{
+				queryData: data,
+				baselineQueryData,
+				hasActiveFilters,
+				isRefreshing,
+			}: {
+				queryData: QueryDataMap | null;
+				baselineQueryData: QueryDataMap | null;
+				hasActiveFilters: boolean;
+				isRefreshing: boolean;
+			},
+		) => (
+			<StoryChartEmbed
+				chart={chart}
+				queryData={isNoCacheMode && !hasActiveFilters ? undefined : data}
+				baselineQueryData={baselineQueryData}
+				liveQuery={isNoCacheMode && !hasActiveFilters ? noCacheQuery : undefined}
+				hasActiveFilters={hasActiveFilters}
+				isRefreshing={isRefreshing}
+			/>
 		),
-		[isNoCacheMode, queryData, noCacheQuery],
+		[isNoCacheMode, noCacheQuery],
 	);
 
 	const renderTable = useCallback(
-		(table: ParsedTableBlock) => (
-			<StoryTableEmbed table={table} queryData={isNoCacheMode ? undefined : queryData} liveQuery={noCacheQuery} />
+		(
+			table: ParsedTableBlock,
+			{
+				queryData: data,
+				hasActiveFilters,
+				isRefreshing,
+			}: { queryData: QueryDataMap | null; hasActiveFilters: boolean; isRefreshing: boolean },
+		) => (
+			<StoryTableEmbed
+				table={table}
+				queryData={isNoCacheMode && !hasActiveFilters ? undefined : data}
+				liveQuery={isNoCacheMode && !hasActiveFilters ? noCacheQuery : undefined}
+				hasActiveFilters={hasActiveFilters}
+				isRefreshing={isRefreshing}
+			/>
 		),
-		[isNoCacheMode, queryData, noCacheQuery],
+		[isNoCacheMode, noCacheQuery],
 	);
 
-	return <StoryTabbedContent code={code} renderChart={renderChart} renderTable={renderTable} />;
+	return (
+		<StoryTabbedContent
+			code={code}
+			baselineQueryData={queryData}
+			filterApi={filterApi}
+			renderChart={renderChart}
+			renderTable={renderTable}
+		/>
+	);
 }

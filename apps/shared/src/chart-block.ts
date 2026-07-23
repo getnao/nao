@@ -1,3 +1,4 @@
+import type { StoryFilterType } from './sql-template';
 import type * as displayChart from './tools/display-chart';
 
 export type { McpChartEmbedStoredConfig } from './mcp-embed';
@@ -46,4 +47,23 @@ export function buildStoryTableBlock(input: StoryTableBlockInput): string {
 			? ` formatting='${escapeSingleQuotedStoryAttr(JSON.stringify(input.conditional_formats))}'`
 			: '';
 	return `<table query_id="${escapeDoubleQuotedStoryAttr(input.query_id)}"${titleAttr}${formattingAttr} />`;
+}
+
+export interface StoryFilterBlockInput {
+	id: string;
+	column?: string;
+	label?: string;
+	type: StoryFilterType;
+	table?: string;
+	database_id?: string;
+	options?: string[];
+}
+
+export function buildStoryFilterBlock(input: StoryFilterBlockInput): string {
+	const labelAttr = input.label ? ` label="${escapeDoubleQuotedStoryAttr(input.label)}"` : '';
+	const columnAttr = input.column ? ` column="${escapeDoubleQuotedStoryAttr(input.column)}"` : '';
+	const tableAttr = input.table ? ` table="${escapeDoubleQuotedStoryAttr(input.table)}"` : '';
+	const databaseIdAttr = input.database_id ? ` database_id="${escapeDoubleQuotedStoryAttr(input.database_id)}"` : '';
+	const optionsAttr = input.options ? ` options='${escapeSingleQuotedStoryAttr(JSON.stringify(input.options))}'` : '';
+	return `<filter id="${escapeDoubleQuotedStoryAttr(input.id)}"${columnAttr}${labelAttr} type="${input.type}"${tableAttr}${databaseIdAttr}${optionsAttr} />`;
 }

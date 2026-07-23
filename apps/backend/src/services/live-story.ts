@@ -1,3 +1,4 @@
+import { stripSqlFilterBlocks } from '@nao/shared/sql-template';
 import { TAG_ATTRS } from '@nao/shared/story-segments';
 import { generateText, Output } from 'ai';
 import { CronExpressionParser } from 'cron-parser';
@@ -36,7 +37,7 @@ export async function executeLiveQuery(
 	}
 
 	const envVars = await projectQueries.getEnvVars(projectId);
-	return executeRawSql(query.sqlQuery, project.path, query.databaseId, envVars);
+	return executeRawSql(stripSqlFilterBlocks(query.sqlQuery), project.path, query.databaseId, envVars);
 }
 
 export interface RefreshResult {
@@ -69,7 +70,12 @@ export async function refreshStoryData(chatId: string, slug: string): Promise<Re
 	await Promise.all(
 		Object.entries(sqlQueries).map(async ([queryId, { sqlQuery, databaseId }]) => {
 			const projectEnvVars = await projectQueries.getEnvVars(projectId);
-			const result = await executeRawSql(sqlQuery, project.path!, databaseId, projectEnvVars);
+			const result = await executeRawSql(
+				stripSqlFilterBlocks(sqlQuery),
+				project.path!,
+				databaseId,
+				projectEnvVars,
+			);
 			queryData[queryId] = result;
 		}),
 	);
@@ -122,7 +128,7 @@ export async function getStoryQueryData(
 	}
 }
 
-async function executeRawSql(
+export async function executeRawSql(
 	sqlQuery: string,
 	projectFolder: string,
 	databaseId?: string,
@@ -297,7 +303,7 @@ function preservesStoryStructure(originalCode: string, candidateCode: string): b
 
 function extractStructureTokens(code: string): string[] {
 	const tokenRegex = new RegExp(
-		String.raw`<grid\s+${TAG_ATTRS}>|<\/grid>|<chart\s+${TAG_ATTRS}\/?>|<table\s+${TAG_ATTRS}\/?>`,
+		String.raw`<grid\s+${TAG_ATTRS}>|<\/grid>|<chart\s+${TAG_ATTRS}\/?>|<table\s+${TAG_ATTRS}\/?>|<filter\s+${TAG_ATTRS}\/?>`,
 		'g',
 	);
 	return code.match(tokenRegex) ?? [];

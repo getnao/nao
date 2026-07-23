@@ -7,5 +7,6 @@ export * from './mcp';
 export * from './mcp-embed';
 export * from './mentions';
 export * from './pluralize';
+export * from './sql-template';
 export * from './types';
 export * from './utils';

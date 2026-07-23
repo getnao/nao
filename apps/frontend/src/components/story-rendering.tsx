@@ -43,6 +43,8 @@ export const SegmentList = memo(function SegmentList({
 						return <Fragment key={key}>{renderChart(segment.chart, i)}</Fragment>;
 					case 'table':
 						return <Fragment key={key}>{renderTable(segment.table, i)}</Fragment>;
+					case 'filter':
+						return null;
 					case 'grid':
 						return (
 							<StoryGrid

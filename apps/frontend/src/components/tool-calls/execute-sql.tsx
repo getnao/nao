@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { ArrowUpRight, Code, Copy, Download, Palette, Table as TableIcon } from 'lucide-react';
+import { ArrowUpRight, Code, Copy, Download, Palette, Pencil, Table as TableIcon } from 'lucide-react';
 import { ToolCallWrapper } from './tool-call-wrapper';
 import { TableFormatEditDialog } from './display-table-edit-dialog';
 import { SqlQueryDisplay } from './sql-query-display';
@@ -24,8 +24,19 @@ export const ExecuteSqlToolCall = ({
 	const [isFormatOpen, setIsFormatOpen] = useState(false);
 	const { isSettled } = useToolCallContext();
 	const { open: openSidePanel } = useSidePanel();
-	const chatId = useOptionalAgentContext()?.chatId;
+	const agent = useOptionalAgentContext();
+	const chatId = agent?.chatId;
+	const isEditable = Boolean(agent && !agent.isReadonly && !agent.isRunning && output?.id && input?.sql_query);
 	const logDownload = useMutation(trpc.analyticsEvent.logChatDownload.mutationOptions());
+
+	const openEditor = (editable: boolean) => {
+		if (state === 'input-streaming' || !output || !input) {
+			return;
+		}
+		openSidePanel(
+			<SidePanelContent key={output.id ?? toolCallId} input={input} output={output} editable={editable} />,
+		);
+	};
 
 	const actions = [
 		{
@@ -82,15 +93,10 @@ export const ExecuteSqlToolCall = ({
 			title: 'Download results as CSV',
 		},
 		{
-			id: 'expand',
-			label: <ArrowUpRight className='size-3 text-muted-foreground/70' strokeWidth={2.25} />,
-			onClick: () => {
-				if (state === 'input-streaming' || !output || !input) {
-					return;
-				}
-				openSidePanel(<SidePanelContent input={input} output={output} />);
-			},
-			title: 'Open in side panel',
+			id: 'edit',
+			label: <Pencil className='size-3 text-muted-foreground/70' strokeWidth={2.25} />,
+			onClick: () => openEditor(isEditable),
+			title: isEditable ? 'Edit in side panel' : 'Open in side panel',
 		},
 	];
 

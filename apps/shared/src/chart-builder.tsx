@@ -165,7 +165,11 @@ export interface BuildChartProps {
 	/** Chart background color, used as the separator between stacked segments. Pass a concrete color on surfaces where CSS vars do not resolve (backend PNG/HTML export). */
 	backgroundColor?: string;
 	showDataLabels?: boolean;
+	/** When true, Recharts animates series as data changes (e.g. story filters). */
+	animate?: boolean;
 }
+
+const CHART_ANIMATION_DURATION_MS = 400;
 
 /**
  * Builds a Recharts element tree from a display_chart tool config.
@@ -475,7 +479,8 @@ function buildBarChart(props: ResolvedProps) {
 					stackId={isStacked ? 'stack' : undefined}
 					radius={isStacked ? undefined : [4, 4, 4, 4]}
 					shape={isStacked ? renderStackedBarShape(seriesKeys, s.data_key, separatorColor) : undefined}
-					isAnimationActive={false}
+					isAnimationActive={Boolean(props.animate)}
+					animationDuration={CHART_ANIMATION_DURATION_MS}
 				>
 					{showDataLabels && !isStacked && (
 						<LabelList position='top' formatter={formatDataLabel} {...DATA_LABEL_PROPS} />
@@ -589,7 +594,8 @@ function buildAreaChart(props: ResolvedProps) {
 					stroke={colorFor(s.data_key, i)}
 					fill={`url(#grad-${i})`}
 					stackId={isStacked ? 'stack' : undefined}
-					isAnimationActive={false}
+					isAnimationActive={Boolean(props.animate)}
+					animationDuration={CHART_ANIMATION_DURATION_MS}
 				>
 					{showDataLabels && !isStacked && <LabelList content={pointLabelContent.get(s.data_key)} />}
 					{stackTotalLabel && i === stackTotalLabelIndex && <LabelList content={stackTotalLabel} />}
@@ -632,7 +638,8 @@ function buildScatterChart(props: ResolvedProps) {
 					key={s.data_key}
 					dataKey={s.data_key}
 					fill={colorFor(s.data_key, i)}
-					isAnimationActive={false}
+					isAnimationActive={Boolean(props.animate)}
+					animationDuration={CHART_ANIMATION_DURATION_MS}
 				/>
 			))}
 		</ScatterChart>
@@ -655,7 +662,8 @@ function buildRadarChart(props: ResolvedProps) {
 					stroke={colorFor(s.data_key, i)}
 					fill={colorFor(s.data_key, i)}
 					fillOpacity={0.3}
-					isAnimationActive={false}
+					isAnimationActive={Boolean(props.animate)}
+					animationDuration={CHART_ANIMATION_DURATION_MS}
 				/>
 			))}
 		</RadarChart>
@@ -687,7 +695,8 @@ function buildPieChart(props: ResolvedProps) {
 				labelLine={false}
 				stroke={backgroundColor}
 				strokeWidth={1}
-				isAnimationActive={false}
+				isAnimationActive={Boolean(props.animate)}
+				animationDuration={CHART_ANIMATION_DURATION_MS}
 			/>
 			{children}
 		</PieChart>

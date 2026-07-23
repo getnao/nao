@@ -3,26 +3,41 @@ import { story } from '@nao/shared/tools';
 
 import { renderToModelOutput, StoryOutput } from '../../components/tool-outputs';
 import { db } from '../../db/db';
+import { env } from '../../env';
 import { getDisplayChartTableFormatsForChat } from '../../queries/chart-image';
 import * as storyQueries from '../../queries/story.queries';
 import * as storyFolderQueries from '../../queries/story-folder.queries';
 import type { ToolContext } from '../../types/tools';
 import { createTool } from '../../utils/tools';
 
-export default createTool<story.Input, story.Output>({
-	description: [
+const STORY_FILTER_DESCRIPTION = [
+	'Story-level filters are declared via <filter id="..." label="..." type="select|multi_select|search|date_range" ... />.',
+	'For select/multi_select, provide either table+column (options from SELECT DISTINCT) or options=\'["a","b"]\' (hardcoded values).',
+	'When using table+column and multiple databases are configured, set database_id on the filter so option loading targets the correct database.',
+	'Matching SQL must use template blocks that reference the same filter id, e.g. WHERE 1 = 1 {% filter country %} AND country IN ({{ filters.country.sql }}) {% endfilter %}.',
+	'Chat and live refresh strip unset filter blocks so the query still runs; active story filter selections re-render and re-execute SQL.',
+	'When adding filters to existing charts, prefer execute_sql with query_id set to the existing query so chart/table tags keep the same query_id.',
+].join(' ');
+
+function buildStoryToolDescription() {
+	return [
 		'Create or modify a nao Story — an interactive document combining markdown text and chart visualizations.',
 		'Use "create" to initialize a new story, "update" to search-and-replace within it (producing a new version),',
 		'or "replace" to overwrite the entire content (producing a new version).',
 		'Charts are embedded via <chart query_id="..." chart_type="..." x_axis_key="..." series=\'[...]\' title="..." />.',
 		'SQL result tables are embedded via <table query_id="..." title="..." />.',
+		...(env.BETA_STORY_FILTERS_ENABLED ? [STORY_FILTER_DESCRIPTION] : []),
 		'Use <grid cols="2">...</grid> to display charts side by side in a responsive grid.',
 		'Use consecutive <tab title="...">...</tab> blocks to organize a story into top-level tabs.',
 		'Default to a single flowing story. Use tabs only when the user asks for tabs, or when the content splits into clearly distinct sections that are better separated than stacked (e.g. overview vs. detail, one topic/department/metric per tab). Avoid tabs for a short or single-topic story. Always follow the user\'s explicit request (e.g. "a tab per chart" means one chart per tab). When using tabs, the entire story must consist of <tab title="...">...</tab> blocks — no content outside a tab.',
 		'A story can also be refered as a "canva", an "artifact" or a "report".',
 		'Users may edit stories directly; the tool result always reflects the latest version, including user edits.',
 		'Unless explicitly stated, dont use the stories to display a chart, but the display_chart tool.',
-	].join(' '),
+	].join(' ');
+}
+
+export default createTool<story.Input, story.Output>({
+	description: buildStoryToolDescription(),
 	inputSchema: story.InputSchema,
 	outputSchema: story.OutputSchema,
 

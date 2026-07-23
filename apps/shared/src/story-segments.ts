@@ -1,5 +1,6 @@
 import { buildStoryTableBlock } from './chart-block';
 import { type ColumnConditionalFormats, sanitizeConditionalFormats } from './conditional-formatting';
+import { STORY_FILTER_TYPES, type StoryFilterType } from './sql-template';
 
 export interface ParsedChartBlock {
 	queryId: string;
@@ -23,10 +24,25 @@ export interface ParsedTableBlock {
 	rawTag?: string;
 }
 
+export interface ParsedFilterBlock {
+	id: string;
+	column?: string;
+	label: string;
+	filterType: StoryFilterType;
+	table?: string;
+	/** Database to use when loading options via SELECT DISTINCT on `table.column`. */
+	databaseId?: string;
+	/** Hardcoded dropdown values; when set, options are not loaded from `table.column`. */
+	options?: string[];
+	/** The original `<filter ... />` tag this block was parsed from, when available. */
+	rawTag?: string;
+}
+
 export type Segment =
 	| { type: 'markdown'; content: string }
 	| { type: 'chart'; chart: ParsedChartBlock }
 	| { type: 'table'; table: ParsedTableBlock }
+	| { type: 'filter'; filter: ParsedFilterBlock }
 	| { type: 'grid'; cols: number; children: Segment[] };
 
 export const TAG_ATTRS = String.raw`(?:[^>"']|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')*?`;
@@ -41,7 +57,7 @@ export function tableTagRegex(flags = ''): RegExp {
 
 export function storyBlockRegex(): RegExp {
 	return new RegExp(
-		String.raw`<grid\s+(${TAG_ATTRS})>([\s\S]*?)<\/grid>|<chart\s+(${TAG_ATTRS})\/?>|<table\s+(${TAG_ATTRS})\/?>`,
+		String.raw`<grid\s+(${TAG_ATTRS})>([\s\S]*?)<\/grid>|<chart\s+(${TAG_ATTRS})\/?>|<table\s+(${TAG_ATTRS})\/?>|<filter\s+(${TAG_ATTRS})\/?>`,
 		'g',
 	);
 }
@@ -107,6 +123,59 @@ export function parseTableBlock(attrString: string): ParsedTableBlock | null {
 		title: attrs.title || '',
 		conditionalFormats: parseConditionalFormats(attrs.formatting),
 	};
+}
+
+export function parseFilterBlock(attrString: string): ParsedFilterBlock | null {
+	const attrs = parseChartAttributes(attrString);
+	if (!attrs.id || !STORY_FILTER_TYPES.includes(attrs.type as StoryFilterType)) {
+		return null;
+	}
+
+	const filterType = attrs.type as StoryFilterType;
+	const options = parseStringArrayAttr(attrs.options);
+	const needsOptionsSource = filterType === 'select' || filterType === 'multi_select';
+	const hasHardcodedOptions = Boolean(options?.length);
+	const hasTableSource = Boolean(attrs.table && attrs.column);
+	if (needsOptionsSource && !hasHardcodedOptions && !hasTableSource) {
+		return null;
+	}
+
+	return {
+		id: attrs.id,
+		...(attrs.column && { column: attrs.column }),
+		label: attrs.label || attrs.column || attrs.id,
+		filterType,
+		...(attrs.table && { table: attrs.table }),
+		...(attrs.database_id && { databaseId: attrs.database_id }),
+		...(hasHardcodedOptions && { options }),
+	};
+}
+
+function parseStringArrayAttr(value: string | undefined): string[] | undefined {
+	if (!value) {
+		return undefined;
+	}
+	try {
+		const parsed = JSON.parse(value);
+		return Array.isArray(parsed) && parsed.every((item) => typeof item === 'string') ? parsed : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+export function getStoryFiltersFromCode(code: string): ParsedFilterBlock[] {
+	const filters: ParsedFilterBlock[] = [];
+	const filterRegex = new RegExp(String.raw`<filter\s+(${TAG_ATTRS})\/?>`, 'g');
+	let match: RegExpExecArray | null;
+
+	while ((match = filterRegex.exec(code)) !== null) {
+		const filter = parseFilterBlock(match[1]);
+		if (filter) {
+			filters.push({ ...filter, rawTag: match[0] });
+		}
+	}
+
+	return filters;
 }
 
 function parseConditionalFormats(value: string | undefined): ColumnConditionalFormats | undefined {
@@ -244,6 +313,11 @@ export function splitCodeIntoSegments(code: string): Segment[] {
 			const table = parseTableBlock(match[4]);
 			if (table) {
 				segments.push({ type: 'table', table: { ...table, rawTag: match[0] } });
+			}
+		} else if (match[5] !== undefined) {
+			const filter = parseFilterBlock(match[5]);
+			if (filter) {
+				segments.push({ type: 'filter', filter: { ...filter, rawTag: match[0] } });
 			}
 		}
 

@@ -88,6 +88,8 @@ function StorySegment({ segment, queryData }: { segment: Segment; queryData: Que
 			return <ChartBlock chart={segment.chart} queryData={queryData} />;
 		case 'table':
 			return <TableBlock table={segment.table} queryData={queryData} />;
+		case 'filter':
+			return null;
 		case 'grid':
 			return <GridBlock cols={segment.cols} segments={segment.children} queryData={queryData} />;
 	}

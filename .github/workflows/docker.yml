@@ -218,6 +218,7 @@ jobs:
                         -e "ENABLE_USER_SIGNUP=false" \
                         -e "BETA_AUTOMATIONS_ENABLED=true" \
                         -e "BETA_CONTEXT_RECOMMENDATIONS_ENABLED=true" \
+                        -e "BETA_STORY_FILTERS_ENABLED=true" \
                         -e "SMTP_PASSWORD=${{ secrets.SMTP_PASSWORD }}" \
                         -e "SMTP_HOST=${{ secrets.SMTP_HOST }}" \
                         -e "SMTP_PORT=${{ secrets.SMTP_PORT }}" \

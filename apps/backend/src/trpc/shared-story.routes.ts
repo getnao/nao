@@ -2,6 +2,7 @@ import { DOWNLOAD_FORMATS, SHARE_VISIBILITY } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
+import { env } from '../env';
 import * as activityQueries from '../queries/activity.queries';
 import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
@@ -10,6 +11,7 @@ import * as storyQueries from '../queries/story.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
 import { logActivity } from '../services/activity';
 import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../services/live-story';
+import { getFilteredStoryQueryData, getStoryFilterOptions } from '../services/story-filters';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import { notifySharedItemRecipients } from '../utils/email';
 import { buildDownloadResponse } from '../utils/story-download';
@@ -33,6 +35,12 @@ const shareAccessProcedure = resourceProjectProcedure(
 		item.userId === userId ||
 		sharedStoryQueries.canUserAccessSharedStory(item.id, userId),
 );
+
+function assertStoryFiltersEnabled() {
+	if (!env.BETA_STORY_FILTERS_ENABLED) {
+		throw new TRPCError({ code: 'FORBIDDEN', message: 'Story filters are disabled on this instance.' });
+	}
+}
 
 export const sharedStoryRoutes = {
 	list: protectedProcedure.input(z.object({ projectId: z.string() })).query(async ({ input, ctx }) => {
@@ -164,6 +172,33 @@ export const sharedStoryRoutes = {
 		.input(z.object({ chatId: z.string(), queryId: z.string() }))
 		.query(async ({ input }) => {
 			return executeLiveQuery(input.chatId, input.queryId);
+		}),
+
+	getFilterOptions: shareAccessProcedure
+		.input(z.object({ shareId: z.string(), filterId: z.string() }))
+		.query(async ({ input, ctx }) => {
+			assertStoryFiltersEnabled();
+			const shared = ctx.resource;
+			if (!shared.chatId) {
+				throw new TRPCError({ code: 'BAD_REQUEST', message: 'Shared story has no chat.' });
+			}
+			return getStoryFilterOptions(shared.chatId, shared.slug, input.filterId);
+		}),
+
+	getFilteredQueryData: shareAccessProcedure
+		.input(
+			z.object({
+				shareId: z.string(),
+				selections: z.record(z.string(), z.union([z.string(), z.array(z.string())])),
+			}),
+		)
+		.query(async ({ input, ctx }) => {
+			assertStoryFiltersEnabled();
+			const shared = ctx.resource;
+			if (!shared.chatId) {
+				throw new TRPCError({ code: 'BAD_REQUEST', message: 'Shared story has no chat.' });
+			}
+			return getFilteredStoryQueryData(shared.chatId, shared.slug, input.selections);
 		}),
 
 	refreshData: shareAccessProcedure.input(z.object({ shareId: z.string() })).mutation(async ({ ctx }) => {

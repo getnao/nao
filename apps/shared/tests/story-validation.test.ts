@@ -220,6 +220,39 @@ describe('validateStoryCode', () => {
 		});
 	});
 
+	describe('filter validation', () => {
+		it('accepts a well-formed filter tag with table source', () => {
+			const code = '<filter id="country" column="country" label="Country" type="multi_select" table="orders" />';
+			expect(validateStoryCode(code)).toEqual([]);
+		});
+
+		it('accepts a filter with hardcoded options', () => {
+			const code = `<filter id="country" label="Country" type="select" options='["US","FR"]' />`;
+			expect(validateStoryCode(code)).toEqual([]);
+		});
+
+		it('flags select filters missing both options and table/column', () => {
+			expect(
+				validateStoryCode('<filter id="country" type="select" />').some((e) =>
+					/require either `options=/.test(e.message),
+				),
+			).toBe(true);
+			expect(
+				validateStoryCode('<filter id="country" column="country" type="number_range" table="orders" />').some(
+					(e) => /Invalid filter type/.test(e.message),
+				),
+			).toBe(true);
+		});
+
+		it('flags duplicate filter ids', () => {
+			const code = [
+				'<filter id="country" column="country" type="select" table="orders" />',
+				'<filter id="country" column="region" type="select" table="orders" />',
+			].join('\n');
+			expect(validateStoryCode(code).some((e) => /must be unique/.test(e.message))).toBe(true);
+		});
+	});
+
 	it('reports line and column for errors', () => {
 		const code = ['# intro', '', 'some text', '', '<chart query_id="q" />'].join('\n');
 		const errors = validateStoryCode(code);

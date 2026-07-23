@@ -1,3 +1,4 @@
+import { STORY_FILTER_TYPES } from './sql-template';
 import { parseChartAttributes, parseSeriesJsonArray, TAG_ATTRS } from './story-segments';
 
 export interface StoryValidationError {
@@ -9,6 +10,7 @@ export interface StoryValidationError {
 
 const REQUIRED_CHART_ATTRS = ['query_id', 'chart_type', 'x_axis_key'] as const;
 const REQUIRED_TABLE_ATTRS = ['query_id'] as const;
+const REQUIRED_FILTER_ATTRS = ['id', 'type'] as const;
 
 const VALID_CHART_TYPES = new Set([
 	'bar',
@@ -40,6 +42,7 @@ export function validateStoryCode(code: string): StoryValidationError[] {
 	errors.push(...validateGridBlocks(code));
 	errors.push(...validateChartBlocks(code));
 	errors.push(...validateTableBlocks(code));
+	errors.push(...validateFilterBlocks(code));
 	errors.push(...validateTabsBlocks(code));
 	errors.push(...validateUnterminatedTags(code));
 
@@ -259,6 +262,98 @@ function validateTableBlocks(code: string): StoryValidationError[] {
 	return errors;
 }
 
+function validateFilterBlocks(code: string): StoryValidationError[] {
+	const errors: StoryValidationError[] = [];
+	const filterRegex = new RegExp(String.raw`<filter\b(${TAG_ATTRS})(\/?)>`, 'g');
+	const filterIds = new Set<string>();
+	let match: RegExpExecArray | null;
+
+	while ((match = filterRegex.exec(code)) !== null) {
+		const [fullMatch, attrString, slash] = match;
+		const position = getPosition(code, match.index);
+		const attrs = parseChartAttributes(attrString ?? '');
+
+		if (slash !== '/') {
+			errors.push({
+				message: '<filter> tag must be self-closing — use "/>" instead of ">".',
+				line: position.line,
+				column: position.column,
+				length: fullMatch.length,
+			});
+		}
+
+		const missing = REQUIRED_FILTER_ATTRS.filter((attr) => !attrs[attr]);
+		if (missing.length > 0) {
+			errors.push({
+				message: `Filter is missing required attribute${missing.length === 1 ? '' : 's'}: ${missing.join(', ')}.`,
+				line: position.line,
+				column: position.column,
+				length: fullMatch.length,
+			});
+		}
+
+		if (attrs.type && !STORY_FILTER_TYPES.includes(attrs.type as (typeof STORY_FILTER_TYPES)[number])) {
+			errors.push({
+				message: `Invalid filter type "${attrs.type}". Valid types: ${STORY_FILTER_TYPES.join(', ')}.`,
+				line: position.line,
+				column: position.column,
+				length: fullMatch.length,
+			});
+		}
+
+		const options = parseFilterOptionsAttr(attrs.options);
+		if (attrs.options !== undefined && options === undefined) {
+			errors.push({
+				message: 'Filter `options` attribute must be a valid JSON array of strings.',
+				line: position.line,
+				column: position.column,
+				length: fullMatch.length,
+			});
+		}
+
+		const needsOptionsSource = attrs.type === 'select' || attrs.type === 'multi_select';
+		if (needsOptionsSource) {
+			const hasHardcodedOptions = Boolean(options?.length);
+			const hasTableSource = Boolean(attrs.table && attrs.column);
+			if (!hasHardcodedOptions && !hasTableSource) {
+				errors.push({
+					message:
+						'Select filters require either `options=\'["a","b"]\'` or both `table` and `column` attributes.',
+					line: position.line,
+					column: position.column,
+					length: fullMatch.length,
+				});
+			}
+		}
+
+		if (attrs.id && filterIds.has(attrs.id)) {
+			errors.push({
+				message: `Filter id "${attrs.id}" must be unique within the story.`,
+				line: position.line,
+				column: position.column,
+				length: fullMatch.length,
+			});
+		}
+		if (attrs.id) {
+			filterIds.add(attrs.id);
+		}
+	}
+
+	return errors;
+}
+
+function parseFilterOptionsAttr(value: string | undefined): string[] | undefined {
+	if (!value) {
+		return undefined;
+	}
+	try {
+		const parsed = JSON.parse(value);
+		return Array.isArray(parsed) && parsed.every((item) => typeof item === 'string') ? parsed : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
 function isMarkdownTable(code: string, index: number): boolean {
 	const lineStart = code.lastIndexOf('\n', index - 1) + 1;
 	const linePrefix = code.slice(lineStart, index);
@@ -334,7 +429,7 @@ function findMatchingClose(code: string, startIndex: number): number {
 
 function validateUnterminatedTags(code: string): StoryValidationError[] {
 	const errors: StoryValidationError[] = [];
-	const tagRegex = /<(chart|table)\b[^>]*$/gm;
+	const tagRegex = /<(chart|table|filter)\b[^>]*$/gm;
 	let match: RegExpExecArray | null;
 
 	while ((match = tagRegex.exec(code)) !== null) {

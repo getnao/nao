@@ -249,9 +249,11 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp }:
 								code={
 									isTabbedStory && tabs ? tabs[activeTab].innerCode : stripStoryTabsMarkup(storyCode)
 								}
+								fullCode={storyCode}
 								cacheSchedule={cacheSchedule}
 								queryData={queryData ?? null}
 								chatId={chatId}
+								storySlug={resolvedStorySlug}
 								versionKey={`${currentVersionNumber}-${cachedAt ?? ''}`}
 							/>
 						)

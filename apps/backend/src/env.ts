@@ -132,6 +132,12 @@ const envSchema = z.object({
 		.optional()
 		.default('false')
 		.transform((val) => val === 'true'),
+
+	BETA_STORY_FILTERS_ENABLED: z
+		.enum(['true', 'false'])
+		.optional()
+		.default('false')
+		.transform((val) => val === 'true'),
 });
 
 const result = envSchema.safeParse(process.env);

@@ -27,6 +27,7 @@ import { projectRoutes } from './project.routes';
 import { sharedChatRoutes } from './shared-chat.routes';
 import { sharedStoryRoutes } from './shared-story.routes';
 import { skillRoutes } from './skill.routes';
+import { sqlRoutes } from './sql.routes';
 import { storyRoutes } from './story.routes';
 import { storyFolderRoutes } from './story-folder.routes';
 import { systemRoutes } from './system.routes';
@@ -42,6 +43,7 @@ export const trpcRouter = router({
 	embed: embedRoutes,
 	chart: chartRoutes,
 	chat: chatRoutes,
+	sql: sqlRoutes,
 	sharedChat: sharedChatRoutes,
 	automation: automationRoutes,
 	chatFork: chatForkRoutes,

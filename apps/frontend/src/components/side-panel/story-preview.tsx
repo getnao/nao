@@ -5,68 +5,104 @@ import type { ParsedChartBlock, ParsedTableBlock } from '@nao/shared/story-segme
 
 import type { QueryDataMap } from '@/components/story-embeds';
 import { StoryChartEmbed as LiveChartEmbed, StoryTableEmbed as LiveTableEmbed } from '@/components/story-embeds';
+import { StoryFilterBar } from '@/components/story-filter-bar';
 import { SegmentList } from '@/components/story-rendering';
 import { StoryChartEmbed as StaticChartEmbed } from '@/components/side-panel/story-chart-embed';
 import { StoryTableEmbed as StaticTableEmbed } from '@/components/side-panel/story-table-embed';
+import { useStoryFilters } from '@/hooks/use-story-filters';
 import { trpc } from '@/main';
 
 interface StoryPreviewProps {
 	code: string;
+	fullCode?: string;
 	cacheSchedule: string | null;
 	queryData: QueryDataMap | null;
 	chatId: string;
+	storySlug: string;
 	versionKey?: string | number;
 }
 
 export const StoryPreview = memo(function StoryPreview({
 	code,
+	fullCode,
 	cacheSchedule,
 	queryData,
 	chatId,
+	storySlug,
 	versionKey,
 }: StoryPreviewProps) {
 	const segments = useMemo(() => splitCodeIntoSegments(code), [code]);
 	const isNoCacheMode = cacheSchedule === NO_CACHE_SCHEDULE;
+	const filterApi = useMemo(() => ({ kind: 'owned' as const, chatId, storySlug }), [chatId, storySlug]);
+	const storyFilters = useStoryFilters({
+		code: fullCode ?? code,
+		baselineQueryData: queryData,
+		api: filterApi,
+	});
 
 	const noCacheQuery = useMemo(
 		() => (isNoCacheMode ? { queryOptions: trpc.story.getLiveQueryData.queryOptions, chatId } : undefined),
 		[isNoCacheMode, chatId],
 	);
 
+	const effectiveQueryData = storyFilters.queryData;
+
+	const useLiveUnfiltered = isNoCacheMode && !storyFilters.hasActiveFilters;
+
 	const renderChart = useCallback(
 		(chart: ParsedChartBlock) => {
-			if (!queryData && !isNoCacheMode) {
+			if (!effectiveQueryData && !useLiveUnfiltered) {
 				return <StaticChartEmbed chart={chart} />;
 			}
 			return (
 				<LiveChartEmbed
 					chart={chart}
-					queryData={isNoCacheMode ? undefined : queryData}
-					liveQuery={noCacheQuery}
+					queryData={useLiveUnfiltered ? undefined : effectiveQueryData}
+					baselineQueryData={queryData}
+					liveQuery={useLiveUnfiltered ? noCacheQuery : undefined}
+					hasActiveFilters={storyFilters.hasActiveFilters}
+					isRefreshing={storyFilters.isFiltering}
 				/>
 			);
 		},
-		[queryData, isNoCacheMode, noCacheQuery],
+		[
+			effectiveQueryData,
+			useLiveUnfiltered,
+			noCacheQuery,
+			storyFilters.hasActiveFilters,
+			storyFilters.isFiltering,
+			queryData,
+		],
 	);
 
 	const renderTable = useCallback(
 		(table: ParsedTableBlock) => {
-			if (!queryData && !isNoCacheMode) {
+			if (!effectiveQueryData && !useLiveUnfiltered) {
 				return <StaticTableEmbed table={table} />;
 			}
 			return (
 				<LiveTableEmbed
 					table={table}
-					queryData={isNoCacheMode ? undefined : queryData}
-					liveQuery={noCacheQuery}
+					queryData={useLiveUnfiltered ? undefined : effectiveQueryData}
+					liveQuery={useLiveUnfiltered ? noCacheQuery : undefined}
+					hasActiveFilters={storyFilters.hasActiveFilters}
+					isRefreshing={storyFilters.isFiltering}
 				/>
 			);
 		},
-		[queryData, isNoCacheMode, noCacheQuery],
+		[effectiveQueryData, useLiveUnfiltered, noCacheQuery, storyFilters.hasActiveFilters, storyFilters.isFiltering],
 	);
 
 	return (
 		<div data-story-content className='p-6 flex flex-col gap-4'>
+			<StoryFilterBar
+				filters={storyFilters.filters}
+				selections={storyFilters.selections}
+				onSelectionChange={storyFilters.setSelection}
+				onClear={storyFilters.clearSelections}
+				api={filterApi}
+				isFiltering={storyFilters.isFiltering}
+			/>
 			<SegmentList
 				segments={segments}
 				versionKey={versionKey}

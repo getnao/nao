@@ -380,6 +380,7 @@ export interface ChartDisplayProps {
 	yAxisMin?: number;
 	yAxisMax?: number;
 	showDataLabels?: boolean;
+	animate?: boolean;
 }
 
 export const ChartDisplay = memo(function ChartDisplay({
@@ -394,6 +395,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 	yAxisMin,
 	yAxisMax,
 	showDataLabels,
+	animate = false,
 }: ChartDisplayProps) {
 	const dateFormat = useDateFormat();
 
@@ -495,6 +497,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 				labelFormatter,
 				showGrid,
 				showDataLabels,
+				animate,
 				margin: { top: 0, right: 0, bottom: 0, left: 0 },
 				yAxisMin,
 				yAxisMax,
@@ -541,6 +544,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 			yAxisMin,
 			yAxisMax,
 			showDataLabels,
+			animate,
 			legendPayload,
 			handleToggleSeriesVisibility,
 			title,

@@ -108,7 +108,12 @@ function StandaloneStoryPage() {
 			/>
 			<SelectionProvider key={storyId}>
 				<HighlightBubble onAsk={handleSelectionAsk} disabled />
-				<StandaloneStoryContent code={story.code} queryData={story.queryData as QueryDataMap | null} />
+				<StandaloneStoryContent
+					code={story.code}
+					queryData={story.queryData as QueryDataMap | null}
+					chatId={story.chatId}
+					storySlug={story.slug}
+				/>
 			</SelectionProvider>
 
 			<AssetAnalyticsDialog
@@ -213,7 +218,12 @@ function StandaloneEditableStory({
 				preview={
 					<SelectionProvider key={storySlug}>
 						<HighlightBubble onAsk={handleSelectionAsk} disabled={false} />
-						<StandaloneStoryContent code={editor.code} queryData={queryData} />
+						<StandaloneStoryContent
+							code={editor.code}
+							queryData={queryData}
+							chatId={chatId}
+							storySlug={storySlug}
+						/>
 					</SelectionProvider>
 				}
 			/>
@@ -246,16 +256,71 @@ function StandaloneEditableStory({
 	);
 }
 
-function StandaloneStoryContent({ code, queryData }: { code: string; queryData: QueryDataMap | null }) {
+function StandaloneStoryContent({
+	code,
+	queryData,
+	chatId,
+	storySlug,
+}: {
+	code: string;
+	queryData: QueryDataMap | null;
+	chatId?: string | null;
+	storySlug?: string;
+}) {
+	const filterApi = chatId && storySlug ? { kind: 'owned' as const, chatId, storySlug } : null;
+
 	const renderChart = useCallback(
-		(chart: ParsedChartBlock) => <StoryChartEmbed chart={chart} queryData={queryData} />,
-		[queryData],
+		(
+			chart: ParsedChartBlock,
+			{
+				queryData: data,
+				baselineQueryData,
+				hasActiveFilters,
+				isRefreshing,
+			}: {
+				queryData: QueryDataMap | null;
+				baselineQueryData: QueryDataMap | null;
+				hasActiveFilters: boolean;
+				isRefreshing: boolean;
+			},
+		) => (
+			<StoryChartEmbed
+				chart={chart}
+				queryData={data}
+				baselineQueryData={baselineQueryData}
+				hasActiveFilters={hasActiveFilters}
+				isRefreshing={isRefreshing}
+			/>
+		),
+		[],
 	);
 
 	const renderTable = useCallback(
-		(table: ParsedTableBlock) => <StoryTableEmbed table={table} queryData={queryData} />,
-		[queryData],
+		(
+			table: ParsedTableBlock,
+			{
+				queryData: data,
+				hasActiveFilters,
+				isRefreshing,
+			}: { queryData: QueryDataMap | null; hasActiveFilters: boolean; isRefreshing: boolean },
+		) => (
+			<StoryTableEmbed
+				table={table}
+				queryData={data}
+				hasActiveFilters={hasActiveFilters}
+				isRefreshing={isRefreshing}
+			/>
+		),
+		[],
 	);
 
-	return <StoryTabbedContent code={code} renderChart={renderChart} renderTable={renderTable} />;
+	return (
+		<StoryTabbedContent
+			code={code}
+			baselineQueryData={queryData}
+			filterApi={filterApi}
+			renderChart={renderChart}
+			renderTable={renderTable}
+		/>
+	);
 }
