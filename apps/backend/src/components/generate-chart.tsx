@@ -21,6 +21,10 @@ export interface RenderChartInput {
 		| 'series'
 		| 'y_axis_min'
 		| 'y_axis_max'
+		| 'y_axis_label'
+		| 'y_axis_right_min'
+		| 'y_axis_right_max'
+		| 'y_axis_right_label'
 		| 'title'
 		| 'show_data_labels'
 	>;
@@ -87,6 +91,10 @@ export function renderChartToSvg(input: RenderChartInput): string {
 		backgroundColor: '#ffffff',
 		yAxisMin: config.y_axis_min,
 		yAxisMax: config.y_axis_max,
+		yAxisLabel: config.y_axis_label,
+		yAxisRightMin: config.y_axis_right_min,
+		yAxisRightMax: config.y_axis_right_max,
+		yAxisRightLabel: config.y_axis_right_label,
 	});
 
 	const html = renderToString(React.cloneElement(chart, { width: chartWidth, height }));

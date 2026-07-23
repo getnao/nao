@@ -1,4 +1,5 @@
 import { useId } from 'react';
+import { getGridTemplateColumns } from '@nao/shared/story-segments';
 import type { ReactNode } from 'react';
 import type { StorySummary, SummarySegment } from '@nao/shared/types';
 import { cn } from '@/lib/utils';
@@ -151,7 +152,7 @@ function SegmentSilhouette({ segment }: { segment: SummarySegment }) {
 		case 'table':
 			return <TableSilhouette />;
 		case 'grid':
-			return <GridSilhouette cols={segment.cols} children={segment.children} />;
+			return <GridSilhouette cols={segment.cols} widths={segment.widths} children={segment.children} />;
 	}
 }
 
@@ -313,11 +314,22 @@ function TableSilhouette() {
 	);
 }
 
-function GridSilhouette({ cols, children }: { cols: number; children: SummarySegment[] }) {
+function GridSilhouette({
+	cols,
+	widths,
+	children,
+}: {
+	cols: number;
+	widths: number[] | null;
+	children: SummarySegment[];
+}) {
 	const gridCols = Math.min(cols, 3);
+	const gridTemplateColumns = widths !== null ? getGridTemplateColumns(widths) : `repeat(${gridCols}, 1fr)`;
+	const visibleChildren = widths !== null ? children.slice(0, widths.length * 2) : children.slice(0, gridCols * 2);
+
 	return (
-		<div className='grid gap-[5px]' style={{ gridTemplateColumns: `repeat(${gridCols}, 1fr)` }}>
-			{children.slice(0, gridCols * 2).map((child, i) => (
+		<div className='grid gap-[5px]' style={{ gridTemplateColumns }}>
+			{visibleChildren.map((child, i) => (
 				<SegmentSilhouette key={i} segment={child} />
 			))}
 		</div>

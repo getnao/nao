@@ -1,5 +1,7 @@
 import { Code, Pencil } from 'lucide-react';
 import { memo, useMemo, useState } from 'react';
+import { StoryEmbedFallback } from './story-embed-fallback';
+import type { ParsedChartBlock } from '@nao/shared/story-segments';
 import type { displayChart } from '@nao/shared/tools';
 
 import { StoryChartQueryView } from '@/components/side-panel/story-chart-query';
@@ -14,20 +16,17 @@ import { sortByDateKey } from '@/lib/charts.utils';
 import { findLatestExecuteSqlInMessages } from '@/lib/execute-sql-messages';
 import { cn } from '@/lib/utils';
 
-interface ChartBlock {
-	queryId: string;
-	chartType: string;
-	xAxisKey: string;
-	xAxisType: string | null;
-	series: Array<{ data_key: string; color: string; label?: string; is_total?: boolean }>;
-	yAxisMin?: number;
-	yAxisMax?: number;
-	title: string;
-	showDataLabels?: boolean;
-	rawTag?: string;
-}
+const STORY_CHART_HEIGHT_CLASS = 'h-72';
 
-export const StoryChartEmbed = memo(function StoryChartEmbed({ chart }: { chart: ChartBlock }) {
+type ChartBlock = ParsedChartBlock;
+
+export const StoryChartEmbed = memo(function StoryChartEmbed({
+	chart,
+	dragHandle,
+}: {
+	chart: ChartBlock;
+	dragHandle?: React.ReactNode;
+}) {
 	const agent = useOptionalAgentContext();
 	const embedData = useStoryEmbedData();
 
@@ -50,24 +49,20 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({ chart }: { chart:
 
 	if (!sourceData?.data || sourceData.data.length === 0) {
 		return (
-			<div className='my-2 rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground'>
+			<StoryEmbedFallback dragHandle={dragHandle}>
 				Chart data unavailable (query: {chart.queryId})
-			</div>
+			</StoryEmbedFallback>
 		);
 	}
 
 	if (chart.series.length === 0) {
-		return (
-			<div className='my-2 rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground'>
-				No series configured for chart
-			</div>
-		);
+		return <StoryEmbedFallback dragHandle={dragHandle}>No series configured for chart</StoryEmbedFallback>;
 	}
 
 	const xAxisType = chart.xAxisType === 'number' ? 'number' : ('category' as const);
 
 	return (
-		<StoryChartEmbedShell chart={chart} availableColumns={sourceData.columns ?? []}>
+		<StoryChartEmbedShell chart={chart} availableColumns={sourceData.columns ?? []} dragHandle={dragHandle}>
 			<ChartDisplay
 				data={data}
 				chartType={chart.chartType as displayChart.ChartType}
@@ -77,7 +72,13 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({ chart }: { chart:
 				title={chart.title}
 				yAxisMin={chart.yAxisMin}
 				yAxisMax={chart.yAxisMax}
+				yAxisLabel={chart.yAxisLabel}
+				yAxisRightMin={chart.yAxisRightMin}
+				yAxisRightMax={chart.yAxisRightMax}
+				yAxisRightLabel={chart.yAxisRightLabel}
 				showDataLabels={chart.showDataLabels}
+				normalSize
+				hideTotal={chart.hideTotal}
 			/>
 		</StoryChartEmbedShell>
 	);
@@ -86,6 +87,7 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({ chart }: { chart:
 interface StoryChartEmbedShellProps {
 	chart: ChartBlock;
 	availableColumns: string[];
+	dragHandle?: React.ReactNode;
 	children: React.ReactNode;
 }
 
@@ -93,14 +95,14 @@ interface StoryChartEmbedShellProps {
  * Wraps a rendered chart with an "Edit chart" button when the surrounding story
  * context provides a save handler.
  */
-export function StoryChartEmbedShell({ chart, availableColumns, children }: StoryChartEmbedShellProps) {
+export function StoryChartEmbedShell({ chart, availableColumns, dragHandle, children }: StoryChartEmbedShellProps) {
 	const edit = useStoryChartEdit();
 	const querySqlSource = useStoryQuerySql();
 	const [isEditOpen, setIsEditOpen] = useState(false);
 	const [showQuery, setShowQuery] = useState(false);
 	const canEdit = Boolean(edit && chart.rawTag);
 	const canViewQuery = Boolean(querySqlSource);
-	const showHeader = canEdit || canViewQuery || (chart.chartType != 'kpi_card' && chart.title);
+	const showHeader = canEdit || canViewQuery || dragHandle != null || (chart.chartType != 'kpi_card' && chart.title);
 
 	const config = useMemo<displayChart.ChartInput>(
 		() => ({
@@ -113,11 +115,18 @@ export function StoryChartEmbedShell({ chart, availableColumns, children }: Stor
 				color: s.color || undefined,
 				label: s.label,
 				is_total: s.is_total,
+				series_type: s.series_type,
+				y_axis: s.y_axis,
 			})),
 			y_axis_min: chart.yAxisMin,
 			y_axis_max: chart.yAxisMax,
+			y_axis_label: chart.yAxisLabel,
+			y_axis_right_min: chart.yAxisRightMin,
+			y_axis_right_max: chart.yAxisRightMax,
+			y_axis_right_label: chart.yAxisRightLabel,
 			title: chart.title,
 			show_data_labels: chart.showDataLabels,
+			hide_total: chart.hideTotal,
 		}),
 		[chart],
 	);
@@ -134,6 +143,7 @@ export function StoryChartEmbedShell({ chart, availableColumns, children }: Stor
 						<div className='flex-1' />
 					)}
 					<div className='flex shrink-0 items-center gap-1'>
+						{dragHandle}
 						{canViewQuery && (
 							<Button
 								variant='ghost-muted'
@@ -165,7 +175,9 @@ export function StoryChartEmbedShell({ chart, availableColumns, children }: Stor
 			{showQuery && querySqlSource ? (
 				<StoryChartQueryView queryId={chart.queryId} source={querySqlSource} />
 			) : (
-				<div className={`relative ${chart.chartType != 'kpi_card' ? 'aspect-3/2' : ''}`}>{children}</div>
+				<div className={`relative ${chart.chartType != 'kpi_card' ? STORY_CHART_HEIGHT_CLASS : ''}`}>
+					{children}
+				</div>
 			)}
 			{canEdit && edit && chart.rawTag && (
 				<ChartConfigEditDialog

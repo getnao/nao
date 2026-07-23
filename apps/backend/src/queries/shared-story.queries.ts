@@ -1,3 +1,4 @@
+import { extractQueryIds } from '@nao/shared/story-segments';
 import { and, count, desc, eq, isNull, max, or, type SQL, sql } from 'drizzle-orm';
 
 import s, { type DBSharedStory } from '../db/abstractSchema';
@@ -131,13 +132,7 @@ export async function getQueryDataFromCode(
 	chatId: string,
 	code: string,
 ): Promise<Record<string, { data: unknown[]; columns: string[] }> | null> {
-	const chartRegex = /<(?:chart|table)\s+[^>]*query_id="([^"]*)"[^>]*\/?>/g;
-	const queryIds = new Set<string>();
-	let match;
-	while ((match = chartRegex.exec(code)) !== null) {
-		queryIds.add(match[1]);
-	}
-
+	const queryIds = extractQueryIds(code);
 	if (queryIds.size === 0) {
 		return null;
 	}

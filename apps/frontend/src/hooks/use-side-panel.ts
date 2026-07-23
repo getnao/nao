@@ -26,6 +26,8 @@ export const useSidePanel = ({
 
 	const [content, setContent] = useState<React.ReactNode>(null);
 	const [currentStorySlug, setCurrentStorySlug] = useState<string | null>(null);
+	const [currentStoryTabIndex, setCurrentStoryTabIndex] = useState(0);
+
 	const contentEpochRef = useRef(0);
 
 	const [isVisible, setIsVisible] = useState(false);
@@ -116,6 +118,7 @@ export const useSidePanel = ({
 			setIsVisible(true);
 			setContent(createElement(Fragment, { key: contentEpochRef.current }, newContent));
 			setCurrentStorySlug(storySlug ?? null);
+			setCurrentStoryTabIndex(0);
 			if (!isMobile && shouldCollapseSidebar) {
 				didCollapseSidebarRef.current = !isSidebarCollapsed;
 				collapseSidebar({ persist: false });
@@ -134,6 +137,7 @@ export const useSidePanel = ({
 	const close = useCallback(() => {
 		setIsVisible(false);
 		setCurrentStorySlug(null);
+		setCurrentStoryTabIndex(0);
 		if (isMobile) {
 			setContent(null);
 		} else {
@@ -151,6 +155,7 @@ export const useSidePanel = ({
 		setIsVisible(false);
 		setContent(null);
 		setCurrentStorySlug(null);
+		setCurrentStoryTabIndex(0);
 	}, [routeKey, expandSidebarIfWasCollapsed]);
 
 	return {
@@ -159,6 +164,9 @@ export const useSidePanel = ({
 		isAnimating,
 		content,
 		currentStorySlug,
+		setCurrentStorySlug,
+		currentStoryTabIndex,
+		setCurrentStoryTabIndex,
 		open,
 		close,
 	};

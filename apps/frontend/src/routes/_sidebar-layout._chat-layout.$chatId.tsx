@@ -7,6 +7,7 @@ import type { SelectionData } from '@/components/highlight-bubble';
 import { NEW_CHAT_ID } from '@/lib/ai';
 import { StoryOpenButton } from '@/components/story-open-button';
 import { StoryViewer } from '@/components/side-panel/story-viewer';
+import { DEFAULT_USAGE_SEARCH } from '@/components/settings/usage-route-search';
 import { ChatInput } from '@/components/chat-input';
 import { ChatMessages } from '@/components/chat-messages/chat-messages';
 import { HighlightBubble } from '@/components/highlight-bubble';
@@ -66,7 +67,12 @@ function ChatPage() {
 
 	useEffect(() => {
 		if (shouldRedirectToReplay) {
-			router.navigate({ to: '/settings/chats-replay', search: { chatId }, replace: true });
+			router.navigate({
+				to: '/settings/usage/replay/$chatId',
+				params: { chatId },
+				search: DEFAULT_USAGE_SEARCH,
+				replace: true,
+			});
 		}
 	}, [shouldRedirectToReplay, chatId, router]);
 
@@ -133,6 +139,9 @@ function ChatPage() {
 		<SidePanelProvider
 			isVisible={sidePanel.isVisible}
 			currentStorySlug={sidePanel.currentStorySlug}
+			setCurrentStorySlug={sidePanel.setCurrentStorySlug}
+			currentStoryTabIndex={sidePanel.currentStoryTabIndex}
+			setCurrentStoryTabIndex={sidePanel.setCurrentStoryTabIndex}
 			chatId={chatId}
 			open={sidePanel.open}
 			close={sidePanel.close}

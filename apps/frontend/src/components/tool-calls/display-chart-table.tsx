@@ -1,5 +1,6 @@
 import { sanitizeConditionalFormats } from '@nao/shared/conditional-formatting';
 import { buildStoryTableBlock } from '@nao/shared';
+import { appendBlockToStoryCode } from '@nao/shared/story-tabs';
 import { useMemo, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { FilePlus, Pencil } from 'lucide-react';
@@ -31,7 +32,7 @@ export function DisplayChartTable({ config, outputError, toolCallId }: DisplayCh
 	const messages = agent?.messages ?? EMPTY_MESSAGES;
 	const chatId = useChatId();
 	const queryClient = useQueryClient();
-	const { open: openSidePanel, currentStorySlug, isVisible } = useSidePanel();
+	const { open: openSidePanel, currentStorySlug, currentStoryTabIndex, isVisible } = useSidePanel();
 	const [isEditOpen, setIsEditOpen] = useState(false);
 
 	const storyIds = useMemo(() => findStoryIds(messages), [messages]);
@@ -109,8 +110,8 @@ export function DisplayChartTable({ config, outputError, toolCallId }: DisplayCh
 
 	const handleAddToStory = async () => {
 		const latestStoryId = storyIds[storyIds.length - 1];
-		const targetId =
-			isVisible && currentStorySlug && storyIds.includes(currentStorySlug) ? currentStorySlug : latestStoryId;
+		const usingVisibleStory = Boolean(isVisible && currentStorySlug && storyIds.includes(currentStorySlug));
+		const targetId = usingVisibleStory ? currentStorySlug! : latestStoryId;
 		if (!targetId || !chatId) {
 			return;
 		}
@@ -125,7 +126,10 @@ export function DisplayChartTable({ config, outputError, toolCallId }: DisplayCh
 		}
 
 		const tableBlock = buildStoryTableBlock(config);
-		const newCode = latest.code.trimEnd() + '\n\n' + tableBlock;
+		const { code: newCode, tabIndex: openTabIndex } = appendBlockToStoryCode(latest.code, tableBlock, {
+			usingVisibleStory,
+			activeTabIndex: currentStoryTabIndex,
+		});
 
 		await addToStoryMutation.mutateAsync({
 			chatId,
@@ -135,8 +139,11 @@ export function DisplayChartTable({ config, outputError, toolCallId }: DisplayCh
 			action: 'update',
 		});
 
-		if (!isVisible) {
-			openSidePanel(<StoryViewer chatId={chatId} storySlug={targetId} />, targetId);
+		if (!usingVisibleStory) {
+			openSidePanel(
+				<StoryViewer chatId={chatId} storySlug={targetId} initialTabIndex={openTabIndex} />,
+				targetId,
+			);
 		}
 	};
 

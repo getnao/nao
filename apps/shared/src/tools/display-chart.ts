@@ -8,6 +8,7 @@ export const ChartTypeEnum = z.enum([
 	'area',
 	'stacked_area',
 	'stacked_area_100',
+	'mixed',
 	'pie',
 	'donut',
 	'kpi_card',
@@ -16,6 +17,10 @@ export const ChartTypeEnum = z.enum([
 ]);
 
 export const XAxisTypeEnum = z.enum(['date', 'number', 'category']);
+
+export const SeriesTypeEnum = z.enum(['bar', 'line', 'area']);
+
+export const YAxisSideEnum = z.enum(['left', 'right']);
 
 export const SeriesConfigSchema = z.object({
 	data_key: z.string().describe('Column name from SQL result to plot.'),
@@ -27,6 +32,12 @@ export const SeriesConfigSchema = z.object({
 			'Set to true when this series is an already-aggregated total of the other series (e.g. a grand total, rollup, subtotal, or sum-of-parts column), so the tooltip must not sum it again. Decide this from the meaning of the column, not its name — it applies in any language.',
 		)
 		.optional(),
+	series_type: SeriesTypeEnum.describe(
+		'How this series is drawn ("bar", "line" or "area"). Only used when chart_type is "mixed"; defaults to "bar". Use it to combine types in one chart, e.g. bars for revenue and a line for a rate.',
+	).optional(),
+	y_axis: YAxisSideEnum.describe(
+		'Which Y-axis this series is plotted against ("left" or "right"). Only used when chart_type is "mixed"; defaults to "left". A right axis is drawn whenever any series uses "right" — use it to compare metrics with very different scales/units.',
+	).optional(),
 });
 
 export const ColorScaleRuleSchema = z.object({
@@ -101,14 +112,40 @@ export const ChartInputSchema = z
 		y_axis_min: z
 			.number()
 			.describe(
-				'Fixes the Y-axis lower bound. Leave unset to auto-scale for readability (line and scatter charts do not force a zero baseline).',
+				'Fixes the left Y-axis lower bound. Leave unset to auto-scale for readability (line and scatter charts do not force a zero baseline).',
 			)
 			.optional(),
-		y_axis_max: z.number().describe('Fixes the Y-axis upper bound. Leave unset to auto-scale.').optional(),
+		y_axis_max: z.number().describe('Fixes the left Y-axis upper bound. Leave unset to auto-scale.').optional(),
+		y_axis_label: z
+			.string()
+			.describe('Label displayed alongside the left Y-axis. Only used when chart_type is "mixed".')
+			.optional(),
+		y_axis_right_min: z
+			.number()
+			.describe(
+				'Fixes the right Y-axis lower bound. Only used when chart_type is "mixed"; leave unset to auto-scale.',
+			)
+			.optional(),
+		y_axis_right_max: z
+			.number()
+			.describe(
+				'Fixes the right Y-axis upper bound. Only used when chart_type is "mixed"; leave unset to auto-scale.',
+			)
+			.optional(),
+		y_axis_right_label: z
+			.string()
+			.describe('Label displayed alongside the right Y-axis. Only used when chart_type is "mixed".')
+			.optional(),
 		show_data_labels: z
 			.boolean()
 			.describe(
 				'Show the numeric value of each data point directly on the chart. Set to true when the user asks to display values/data labels on the chart.',
+			)
+			.optional(),
+		hide_total: z
+			.boolean()
+			.describe(
+				'Set to true when the chart\'s series must NOT be added together into a single grand total — e.g. they are unrelated metrics, in different units, or different currencies, so a combined total would be meaningless. When true, the hover tooltip omits the "Total" row. Leave unset when the series are additive parts of the same measure (a total then makes sense). This is a chart-wide setting; for a single series that is itself an aggregated total of the others, use the per-series is_total flag instead.',
 			)
 			.optional(),
 		title: z
@@ -121,7 +158,16 @@ export const ChartInputSchema = z
 		(input) =>
 			input.y_axis_min === undefined || input.y_axis_max === undefined || input.y_axis_min < input.y_axis_max,
 		{
-			message: 'The Y-axis minimum must be less than the maximum.',
+			message: 'The left Y-axis minimum must be less than the maximum.',
+		},
+	)
+	.refine(
+		(input) =>
+			input.y_axis_right_min === undefined ||
+			input.y_axis_right_max === undefined ||
+			input.y_axis_right_min < input.y_axis_right_max,
+		{
+			message: 'The right Y-axis minimum must be less than the maximum.',
 		},
 	);
 
@@ -152,6 +198,12 @@ const BaseInputSchema = z.object({
 		.min(1)
 		.describe('Columns to plot as data series. Required for charts and omitted for tables.')
 		.optional(),
+	hide_total: z
+		.boolean()
+		.describe(
+			'Set to true when the chart\'s series must NOT be added together into a single grand total — e.g. they are unrelated metrics, in different units, or different currencies, so a combined total would be meaningless. When true, the hover tooltip omits the "Total" row. Leave unset when the series are additive parts of the same measure (a total then makes sense). This is a chart-wide setting; for a single series that is itself an aggregated total of the others, use the per-series is_total flag instead.',
+		)
+		.optional(),
 	title: z.string().describe('A concise, descriptive title for the visualization. Required for charts.').optional(),
 	conditional_formats: ColumnConditionalFormatsSchema.describe(
 		'Conditional formatting rules for table columns. Only used when chart_type is "table".',
@@ -176,6 +228,8 @@ export const OutputSchema = z.object({
 
 export type ChartType = z.infer<typeof ChartTypeEnum>;
 export type XAxisType = z.infer<typeof XAxisTypeEnum>;
+export type SeriesType = z.infer<typeof SeriesTypeEnum>;
+export type YAxisSide = z.infer<typeof YAxisSideEnum>;
 export type SeriesConfig = z.infer<typeof SeriesConfigSchema>;
 export type ColorScaleRule = z.infer<typeof ColorScaleRuleSchema>;
 export type ThresholdRule = z.infer<typeof ThresholdRuleSchema>;
@@ -194,6 +248,7 @@ const X_AXIS_REQUIRED_CHART_TYPES = new Set<ChartType>([
 	'stacked_area',
 	'stacked_area_100',
 	'stacked_bar_100',
+	'mixed',
 	'scatter',
 	'radar',
 ]);
@@ -212,4 +267,16 @@ export function chartTypeRequiresXAxisKey(type: ChartType): boolean {
 
 export function isPieChart(chartType: ChartType): boolean {
 	return chartType === 'pie' || chartType === 'donut';
+}
+
+export function chartTypeSupportsComboSeries(type: ChartType): boolean {
+	return type === 'mixed';
+}
+
+export function hasRightAxisSeries(series: Pick<SeriesConfig, 'y_axis'>[]): boolean {
+	return series.some((s) => s.y_axis === 'right');
+}
+
+export function isComboChart(type: ChartType): boolean {
+	return chartTypeSupportsComboSeries(type);
 }

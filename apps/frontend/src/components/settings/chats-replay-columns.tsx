@@ -1,22 +1,30 @@
-import { CircleAlert, Eye, ThumbsDown, ThumbsUp } from 'lucide-react';
+import { CircleAlert, CircleHelp, Globe2, Lightbulb, Shield, ThumbsDown, ThumbsUp } from 'lucide-react';
 import { differenceInDays, format, isToday, isYesterday } from 'date-fns';
-import { USER_ROLE_LABELS } from '@nao/shared/types';
 import type { ColumnDef } from '@tanstack/react-table';
 
-import type { ProjectChatListItem, UserRole } from '@nao/shared/types';
+import type { ProjectChatListItem } from '@nao/shared/types';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import McpIcon from '@/components/icons/model-context-protocol.svg';
+import TeamsIcon from '@/components/icons/microsoft-teams.svg';
+import SlackIcon from '@/components/icons/slack.svg';
+import TelegramIcon from '@/components/icons/telegram.svg';
+import WhatsAppIcon from '@/components/icons/whatsapp.svg';
 
-/** Render a project member role for display, leaving non-role values (e.g. "Former member") untouched. */
-export function formatUserRole(value: string): string {
-	return USER_ROLE_LABELS[value as UserRole] ?? value;
-}
+const sourceConfig = {
+	web: { label: 'Web', icon: <Globe2 className='size-3.5' /> },
+	slack: { label: 'Slack', icon: <SlackIcon className='size-3.5' /> },
+	teams: { label: 'Teams', icon: <TeamsIcon className='size-3.5' /> },
+	telegram: { label: 'Telegram', icon: <TelegramIcon className='size-3.5' /> },
+	whatsapp: { label: 'WhatsApp', icon: <WhatsAppIcon className='size-3.5' /> },
+	admin: { label: 'Admin mode', icon: <Shield className='size-3.5' /> },
+	mcp: { label: 'MCP', icon: <McpIcon className='size-3.5' /> },
+	contextRecommendations: {
+		label: 'Context recommendations',
+		icon: <Lightbulb className='size-3.5' />,
+	},
+} as const;
 
-export function getChatsReplayColumns(args: {
-	onOpenChat: (chat: ProjectChatListItem) => void;
-}): ColumnDef<ProjectChatListItem>[] {
-	const { onOpenChat } = args;
-
+export function getChatsReplayColumns(): ColumnDef<ProjectChatListItem>[] {
 	return [
 		{
 			accessorKey: 'updatedAt',
@@ -28,25 +36,36 @@ export function getChatsReplayColumns(args: {
 			},
 		},
 		{
-			accessorKey: 'userName',
-			header: 'User',
-		},
-		{
-			accessorKey: 'userRole',
-			header: 'Role',
-			cell: ({ getValue }) => {
-				const value = getValue<string>();
-				return value ? formatUserRole(value) : '—';
-			},
-		},
-		{
 			accessorKey: 'title',
 			header: 'Title',
 			cell: ({ getValue }) => {
 				const value = getValue<string>() ?? '';
 				return (
-					<span className='block truncate max-w-[200px]' title={value}>
+					<span className='block truncate max-w-[280px]' title={value}>
 						{value}
+					</span>
+				);
+			},
+		},
+		{
+			accessorKey: 'userName',
+			header: 'User',
+		},
+		{
+			accessorKey: 'source',
+			header: 'Source',
+			enableSorting: false,
+			cell: ({ getValue }) => {
+				const source = getValue<string | null>();
+				if (!source) {
+					return <span className='text-muted-foreground'>—</span>;
+				}
+
+				const config = sourceConfig[source as keyof typeof sourceConfig];
+				return (
+					<span className='flex items-center gap-1.5 text-xs text-muted-foreground'>
+						<span className='opacity-60'>{config?.icon ?? <CircleHelp className='size-3.5' />}</span>
+						{config?.label ?? source}
 					</span>
 				);
 			},
@@ -104,19 +123,6 @@ export function getChatsReplayColumns(args: {
 							{errors}/{errors + available}
 						</Badge>
 					</div>
-				);
-			},
-		},
-		{
-			id: 'actions',
-			header: '',
-			enableHiding: false,
-			cell: ({ row }) => {
-				const chat = row.original;
-				return (
-					<Button size='sm' variant='outline' onClick={() => onOpenChat(chat)}>
-						<Eye className='size-4' />
-					</Button>
 				);
 			},
 		},

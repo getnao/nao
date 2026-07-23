@@ -1,6 +1,6 @@
 import type { QueryDataMap } from '../../utils/story-download';
 import { generateStoryHtml } from '../../utils/story-html';
-import { resolveStoryQueryDataForSandbox } from '../../utils/story-query-data';
+import { backfillMissingQueryDataForSandbox } from '../../utils/story-query-data';
 import { storyEmbedUrls } from '../urls';
 import { MAX_SANDBOX_HTML_CHARS } from './embed-payload';
 import { SANDBOX_EMBED_ROOT_STYLES, SANDBOX_ICON_DOWNLOAD, SANDBOX_ICON_EXTERNAL_LINK } from './header';
@@ -28,7 +28,7 @@ export async function buildStorySandboxHtml(params: {
 	chatId?: string | null;
 	userId?: string;
 }): Promise<string | null> {
-	const queryData = await resolveStoryQueryDataForSandbox(params.code, {
+	const queryData = await backfillMissingQueryDataForSandbox(params.code, {
 		storyId: params.storyId,
 		chatId: params.chatId,
 		projectId: params.projectId,

@@ -5,13 +5,14 @@ import { ToolCallWrapper } from './tool-call-wrapper';
 import { TableFormatEditDialog } from './display-table-edit-dialog';
 import { SqlQueryDisplay } from './sql-query-display';
 import { SqlResultDisplay } from './sql-result-display';
+import type { ActionButton } from './tool-call-wrapper';
 import type { ToolCallComponentProps } from '.';
 import type { ColumnConditionalFormats } from '@nao/shared/conditional-formatting';
+import type { DataExportFormat } from '@/components/export-data-menu';
 import { useOptionalAgentContext } from '@/contexts/agent.provider';
 import { useSidePanel } from '@/contexts/side-panel';
 import { useToolCallContext } from '@/contexts/tool-call';
 import { SidePanelContent } from '@/components/side-panel/sql-editor';
-import { downloadCsv, tableToCsv } from '@/lib/table-export';
 import { trpc } from '@/main';
 
 type ViewMode = 'results' | 'query';
@@ -36,7 +37,13 @@ export const ExecuteSqlToolCall = ({
 		openSidePanel(<SidePanelContent input={input} output={output} editable={editable} />);
 	};
 
-	const actions = [
+	const handleExport = (format: DataExportFormat) => {
+		if (chatId) {
+			logDownload.mutate({ chatId, format, queryId: toolCallId, title: input?.name });
+		}
+	};
+
+	const actions: ActionButton[] = [
 		{
 			id: 'results',
 			label: <TableIcon className='size-3 text-muted-foreground/70' strokeWidth={2.25} />,
@@ -73,23 +80,21 @@ export const ExecuteSqlToolCall = ({
 			},
 			title: 'Copy query',
 		},
-		{
-			id: 'download',
-			label: <Download className='size-3 text-muted-foreground/70' strokeWidth={2.25} />,
-			onClick: () => {
-				if (!output) {
-					return;
-				}
-				downloadCsv(
-					`${input?.name || 'query'}.csv`,
-					tableToCsv(output.columns, output.data as Record<string, unknown>[]),
-				);
-				if (chatId) {
-					logDownload.mutate({ chatId, format: 'csv', queryId: toolCallId, title: input?.name });
-				}
-			},
-			title: 'Download results as CSV',
-		},
+		...(output
+			? [
+					{
+						id: 'download',
+						label: <Download className='size-3 text-muted-foreground/70' strokeWidth={2.25} />,
+						title: 'Export results',
+						export: {
+							columns: output.columns,
+							data: output.data as Record<string, unknown>[],
+							filename: input?.name || 'query',
+							onExport: handleExport,
+						},
+					},
+				]
+			: []),
 		{
 			id: 'edit',
 			label: <Pencil className='size-3 text-muted-foreground/70' strokeWidth={2.25} />,
