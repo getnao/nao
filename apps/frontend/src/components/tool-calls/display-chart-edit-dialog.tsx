@@ -35,6 +35,8 @@ const X_AXIS_TYPE_OPTIONS: { value: NonNullable<displayChart.XAxisType> | 'auto'
 
 const Y_AXIS_RANGE_UNSUPPORTED_CHART_TYPES = new Set<displayChart.ChartType>(['pie', 'kpi_card', 'radar']);
 
+type UnitPlacement = 'prefix' | 'suffix';
+
 /** Maps a 100% stacked type back to its absolute-stacked counterpart, so the type dropdown stays clean. */
 function baseChartType(type: displayChart.ChartType): displayChart.ChartType {
 	if (type === 'stacked_bar_100') {
@@ -137,6 +139,16 @@ export function ChartConfigEditDialog({
 	const updateSeriesValueFormatAt = (index: number, field: 'd3_format' | 'prefix' | 'suffix', value: string) => {
 		const series = draft.series[index];
 		const nextValueFormat = { ...series.value_format, [field]: value || undefined };
+		updateSeriesAt(index, { value_format: cleanValueFormat(nextValueFormat) });
+	};
+
+	const setSeriesUnit = (index: number, { unit, placement }: { unit: string; placement: UnitPlacement }) => {
+		const series = draft.series[index];
+		const nextValueFormat = {
+			...series.value_format,
+			prefix: placement === 'prefix' ? unit || undefined : undefined,
+			suffix: placement === 'suffix' ? unit || undefined : undefined,
+		};
 		updateSeriesAt(index, { value_format: cleanValueFormat(nextValueFormat) });
 	};
 
@@ -304,6 +316,12 @@ export function ChartConfigEditDialog({
 						</div>
 						<div className='flex flex-col gap-3'>
 							{draft.series.map((series, index) => {
+								const placement: UnitPlacement = series.value_format?.prefix ? 'prefix' : 'suffix';
+								const unit =
+									placement === 'prefix'
+										? (series.value_format?.prefix ?? '')
+										: (series.value_format?.suffix ?? '');
+
 								return (
 									<div key={index} className='flex flex-col gap-2 rounded-md'>
 										<div className='grid grid-cols-[1fr_1fr_auto_auto] gap-2 items-center'>
@@ -341,7 +359,7 @@ export function ChartConfigEditDialog({
 												<Trash2 className='size-4' />
 											</Button>
 										</div>
-										<div className='grid grid-cols-[1fr_1fr_1fr] gap-2'>
+										<div className='grid grid-cols-[1fr_1fr_8rem] gap-2'>
 											<div className='grid gap-1'>
 												<div className='flex items-center gap-2'>
 													<span className='text-xs text-muted-foreground'>Number format</span>
@@ -361,35 +379,46 @@ export function ChartConfigEditDialog({
 													}
 													onClear={() => updateSeriesValueFormatAt(index, 'd3_format', '')}
 													placeholder='e.g. ,.2f'
-													ariaLabel='number format'
+													ariaLabel='d3-format specifier'
 													className='h-8 rounded-lg text-sm bg-panel'
 												/>
 											</div>
 											<div className='grid gap-1'>
-												<span className='text-xs text-muted-foreground'>Prefix</span>
+												<span className='text-xs text-muted-foreground'>Unit</span>
 												<ClearableInput
-													value={series.value_format?.prefix ?? ''}
+													value={unit}
 													onChange={(value) =>
-														updateSeriesValueFormatAt(index, 'prefix', value)
+														setSeriesUnit(index, { unit: value, placement })
 													}
-													onClear={() => updateSeriesValueFormatAt(index, 'prefix', '')}
-													placeholder='e.g. $'
-													ariaLabel='value prefix'
+													onClear={() => setSeriesUnit(index, { unit: '', placement })}
+													placeholder='$ or %'
+													ariaLabel='Value unit'
 													className='h-8 rounded-lg text-sm bg-panel'
 												/>
 											</div>
 											<div className='grid gap-1'>
-												<span className='text-xs text-muted-foreground'>Suffix</span>
-												<ClearableInput
-													value={series.value_format?.suffix ?? ''}
-													onChange={(value) =>
-														updateSeriesValueFormatAt(index, 'suffix', value)
+												<span className='text-xs text-muted-foreground'>Placement</span>
+												<Select
+													value={placement}
+													disabled={!unit}
+													onValueChange={(value) =>
+														setSeriesUnit(index, {
+															unit,
+															placement: value as UnitPlacement,
+														})
 													}
-													onClear={() => updateSeriesValueFormatAt(index, 'suffix', '')}
-													placeholder='e.g. %'
-													ariaLabel='value suffix'
-													className='h-8 rounded-lg text-sm bg-panel'
-												/>
+												>
+													<SelectTrigger
+														aria-label='Unit placement'
+														className='h-8 w-full bg-panel text-sm disabled:cursor-not-allowed disabled:opacity-50 [&_svg]:text-foreground! [&_svg]:opacity-100!'
+													>
+														<SelectValue />
+													</SelectTrigger>
+													<SelectContent className='bg-panel'>
+														<SelectItem value='prefix'>Prefix</SelectItem>
+														<SelectItem value='suffix'>Suffix</SelectItem>
+													</SelectContent>
+												</Select>
 											</div>
 										</div>
 									</div>
