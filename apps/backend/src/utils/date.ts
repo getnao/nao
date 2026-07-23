@@ -11,8 +11,8 @@ export function isValidIsoDateString(s: string): boolean {
 
 export const lookbackPeriods = {
 	hour: 24,
-	day: 30,
-	month: 12,
+	day: 15,
+	month: 6,
 };
 
 export function getLookbackTimestamp(granularity: Granularity): number {
@@ -111,6 +111,9 @@ export function fillMissingDates(records: UsageRecord[], granularity: Granularit
 				teamsMessageCount: 0,
 				telegramMessageCount: 0,
 				whatsappMessageCount: 0,
+				adminMessageCount: 0,
+				mcpMessageCount: 0,
+				contextRecommendationsMessageCount: 0,
 				inputNoCacheTokens: 0,
 				inputCacheReadTokens: 0,
 				inputCacheWriteTokens: 0,

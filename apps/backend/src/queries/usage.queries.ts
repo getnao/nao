@@ -1,11 +1,11 @@
 import type { LlmProvider } from '@nao/shared/types';
-import { and, eq, isNotNull, SQL, sql, SQLWrapper, sum } from 'drizzle-orm';
+import { and, eq, isNotNull, or, SQL, sql, SQLWrapper, sum } from 'drizzle-orm';
 
 import { LLM_PROVIDERS } from '../agents/providers';
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
-import type { Granularity, UsageFilter, UsageRecord } from '../types/usage';
+import type { Granularity, TotalUsageRecord, UsageFilter, UsageRecord, UsageSource } from '../types/usage';
 import { fillMissingDates, getLookbackTimestamp } from '../utils/date';
 import * as projectLlmConfigQueries from './project-llm-config.queries';
 
@@ -54,6 +54,41 @@ export async function createCostLookup(projectId: string) {
 	return { table, joinCondition };
 }
 
+const MESSAGE_USAGE_PROVIDER_EXPR = sql<LlmProvider | null>`case
+	when ${s.chatMessage.role} = 'user' then (
+		select next_message.llm_provider
+		from chat_message as next_message
+		where next_message.chat_id = ${s.chatMessage.chatId}
+			and next_message.role = 'assistant'
+			and next_message.llm_provider is not null
+			and next_message.created_at > ${s.chatMessage.createdAt}
+			and not exists (
+				select 1
+				from chat_message as next_user_message
+				where next_user_message.chat_id = ${s.chatMessage.chatId}
+					and next_user_message.role = 'user'
+					and next_user_message.created_at > ${s.chatMessage.createdAt}
+					and next_user_message.created_at < next_message.created_at
+			)
+		order by next_message.created_at asc
+		limit 1
+	)
+	else ${s.chatMessage.llmProvider}
+end`;
+
+const MESSAGE_USAGE_SOURCE_EXPR = sql<UsageSource | null>`case
+	when ${s.chatMessage.role} = 'assistant' then (
+		select source_message.source
+		from chat_message as source_message
+		where source_message.chat_id = ${s.chatMessage.chatId}
+			and source_message.role = 'user'
+			and source_message.created_at <= ${s.chatMessage.createdAt}
+		order by source_message.created_at desc
+		limit 1
+	)
+	else ${s.chatMessage.source}
+end`;
+
 export const getMessagesUsage = async (projectId: string, filter: UsageFilter): Promise<UsageRecord[]> => {
 	const { granularity, provider } = filter;
 	const dateExpr = getDateExpr(s.chatMessage.createdAt, granularity);
@@ -65,8 +100,10 @@ export const getMessagesUsage = async (projectId: string, filter: UsageFilter): 
 
 	const whereConditions = [eq(s.chat.projectId, projectId), lookbackFilter];
 	if (provider) {
-		whereConditions.push(eq(s.chatMessage.llmProvider, provider));
+		whereConditions.push(sql`${MESSAGE_USAGE_PROVIDER_EXPR} = ${provider}`);
 	}
+	addUserNameFilter(whereConditions, filter.userNames);
+	addSourceFilter(whereConditions, filter.sources);
 
 	const costLookup = await createCostLookup(projectId);
 
@@ -79,6 +116,9 @@ export const getMessagesUsage = async (projectId: string, filter: UsageFilter): 
 			teamsMessageCount: sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' and ${s.chatMessage.source} = 'teams' then ${s.chatMessage.id} end)`,
 			telegramMessageCount: sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' and ${s.chatMessage.source} = 'telegram' then ${s.chatMessage.id} end)`,
 			whatsappMessageCount: sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' and ${s.chatMessage.source} = 'whatsapp' then ${s.chatMessage.id} end)`,
+			adminMessageCount: sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' and ${s.chatMessage.source} = 'admin' then ${s.chatMessage.id} end)`,
+			mcpMessageCount: sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' and ${s.chatMessage.source} = 'mcp' then ${s.chatMessage.id} end)`,
+			contextRecommendationsMessageCount: sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' and ${s.chatMessage.source} = 'contextRecommendations' then ${s.chatMessage.id} end)`,
 			inputNoCacheTokens: sum(s.chatMessage.inputNoCacheTokens),
 			inputCacheReadTokens: sum(s.chatMessage.inputCacheReadTokens),
 			inputCacheWriteTokens: sum(s.chatMessage.inputCacheWriteTokens),
@@ -91,6 +131,7 @@ export const getMessagesUsage = async (projectId: string, filter: UsageFilter): 
 		})
 		.from(s.chatMessage)
 		.innerJoin(s.chat, eq(s.chatMessage.chatId, s.chat.id))
+		.innerJoin(s.user, eq(s.chat.userId, s.user.id))
 		.leftJoin(costLookup.table, costLookup.joinCondition)
 		.where(and(...whereConditions))
 		.groupBy(dateExpr);
@@ -98,12 +139,15 @@ export const getMessagesUsage = async (projectId: string, filter: UsageFilter): 
 	return fillMissingDates(
 		rows.map((row) => ({
 			date: row.date,
-			messageCount: row.messageCount,
-			webMessageCount: row.webMessageCount,
-			slackMessageCount: row.slackMessageCount,
-			teamsMessageCount: row.teamsMessageCount,
-			telegramMessageCount: row.telegramMessageCount,
-			whatsappMessageCount: row.whatsappMessageCount,
+			messageCount: Number(row.messageCount ?? 0),
+			webMessageCount: Number(row.webMessageCount ?? 0),
+			slackMessageCount: Number(row.slackMessageCount ?? 0),
+			teamsMessageCount: Number(row.teamsMessageCount ?? 0),
+			telegramMessageCount: Number(row.telegramMessageCount ?? 0),
+			whatsappMessageCount: Number(row.whatsappMessageCount ?? 0),
+			adminMessageCount: Number(row.adminMessageCount ?? 0),
+			mcpMessageCount: Number(row.mcpMessageCount ?? 0),
+			contextRecommendationsMessageCount: Number(row.contextRecommendationsMessageCount ?? 0),
 			inputNoCacheTokens: Number(row.inputNoCacheTokens ?? 0),
 			inputCacheReadTokens: Number(row.inputCacheReadTokens ?? 0),
 			inputCacheWriteTokens: Number(row.inputCacheWriteTokens ?? 0),
@@ -123,6 +167,37 @@ export const getMessagesUsage = async (projectId: string, filter: UsageFilter): 
 	);
 };
 
+export const getTotalUsage = async (projectId: string, filter: UsageFilter): Promise<TotalUsageRecord> => {
+	const { granularity, provider } = filter;
+	const lookbackTs = getLookbackTimestamp(granularity);
+	const lookbackFilter =
+		dbConfig.dialect === Dialect.Postgres
+			? sql`${s.chatMessage.createdAt} >= ${new Date(lookbackTs).toISOString()}`
+			: sql`${s.chatMessage.createdAt} >= ${lookbackTs}`;
+
+	const whereConditions = [eq(s.chat.projectId, projectId), lookbackFilter];
+	if (provider) {
+		whereConditions.push(sql`${MESSAGE_USAGE_PROVIDER_EXPR} = ${provider}`);
+	}
+	addUserNameFilter(whereConditions, filter.userNames);
+	addSourceFilter(whereConditions, filter.sources);
+
+	const rows = await db
+		.select({
+			totalMessages: sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' then ${s.chatMessage.id} end)`,
+			uniqueUsers: sql<number>`count(distinct ${s.chat.userId})`,
+		})
+		.from(s.chatMessage)
+		.innerJoin(s.chat, eq(s.chatMessage.chatId, s.chat.id))
+		.innerJoin(s.user, eq(s.chat.userId, s.user.id))
+		.where(and(...whereConditions));
+
+	return {
+		totalMessages: Number(rows[0]?.totalMessages ?? 0),
+		uniqueUsers: Number(rows[0]?.uniqueUsers ?? 0),
+	};
+};
+
 export const getUsedProviders = async (projectId: string): Promise<LlmProvider[]> => {
 	const rows = await db
 		.selectDistinct({ provider: s.chatMessage.llmProvider })
@@ -133,6 +208,29 @@ export const getUsedProviders = async (projectId: string): Promise<LlmProvider[]
 
 	return rows.map((row) => row.provider).filter((p): p is LlmProvider => p !== null);
 };
+
+function addUserNameFilter(whereConditions: SQL<unknown>[], userNames: string[] | undefined) {
+	const names = userNames?.filter(Boolean) ?? [];
+	if (names.length === 0) {
+		return;
+	}
+
+	const expr = or(...names.map((name) => eq(s.user.name, name)));
+	if (expr) {
+		whereConditions.push(expr);
+	}
+}
+
+function addSourceFilter(whereConditions: SQL<unknown>[], sources: UsageSource[] | undefined) {
+	if (!sources?.length) {
+		return;
+	}
+
+	const expr = or(...sources.map((source) => eq(MESSAGE_USAGE_SOURCE_EXPR, source)));
+	if (expr) {
+		whereConditions.push(expr);
+	}
+}
 
 function getDateExpr(field: SQLWrapper, granularity: Granularity): SQL<string> {
 	if (dbConfig.dialect === Dialect.Postgres) {

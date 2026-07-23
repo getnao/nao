@@ -2,8 +2,17 @@ import { buildChart, bucketPieData, buildStoryChartBlock, labelize } from '@nao/
 import { appendBlockToStoryCode } from '@nao/shared/story-tabs';
 import { displayChart } from '@nao/shared/tools';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { ChartNoAxesColumn, Code, Download, FilePlus, Pencil, Table as TableIcon } from 'lucide-react';
-import { memo, useCallback, useId, useMemo, useRef, useState } from 'react';
+import {
+	ChartNoAxesColumn,
+	ChevronLeft,
+	ChevronRight,
+	Code,
+	Download,
+	FilePlus,
+	Pencil,
+	Table as TableIcon,
+} from 'lucide-react';
+import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 
 import { useOptionalAgentContext } from '../../contexts/agent.provider';
 import GraphLoaderAnimated from '../icons/graph-loader-animated';
@@ -44,6 +53,7 @@ import { ExportDataMenu } from '@/components/export-data-menu';
 
 const Colors = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)', 'var(--chart-5)'];
 const EMPTY_MESSAGES: UIMessage[] = [];
+const LEGEND_SCROLL_OFFSET = 120;
 const PIE_LEGEND_BREAKPOINT = 280;
 const COMPACT_XAXIS_BREAKPOINT = 360;
 const CHAR_WIDTH_RATIO = 0.6;
@@ -415,8 +425,12 @@ export interface ChartDisplayProps {
 	xAxisKey: string;
 	xAxisType: 'number' | 'category';
 	xAxisLabelFormatter?: (value: string) => string;
+	valueFormatter?: (value: number) => string;
 	series: displayChart.SeriesConfig[];
 	title?: string;
+	titleStyle?: 'default' | 'left';
+	titleAccessory?: React.ReactNode;
+	showLegend?: boolean;
 	showGrid?: boolean;
 	yAxisMin?: number;
 	yAxisMax?: number;
@@ -426,6 +440,9 @@ export interface ChartDisplayProps {
 	yAxisRightLabel?: string;
 	showDataLabels?: boolean;
 	comparisonMode?: displayChart.ComparisonMode;
+	className?: string;
+	chartContainerClassName?: string;
+	chartContentClassName?: string;
 	normalSize?: boolean;
 	hideTotal?: boolean;
 }
@@ -436,8 +453,12 @@ export const ChartDisplay = memo(function ChartDisplay({
 	xAxisKey: xAxisKeyProp,
 	xAxisType,
 	xAxisLabelFormatter,
+	valueFormatter,
 	series: seriesProp,
 	title,
+	titleStyle = 'default',
+	titleAccessory,
+	showLegend = true,
 	showGrid = true,
 	yAxisMin,
 	yAxisMax,
@@ -447,6 +468,9 @@ export const ChartDisplay = memo(function ChartDisplay({
 	yAxisRightLabel,
 	showDataLabels,
 	comparisonMode,
+	className,
+	chartContainerClassName,
+	chartContentClassName,
 	normalSize = false,
 	hideTotal,
 }: ChartDisplayProps) {
@@ -476,6 +500,9 @@ export const ChartDisplay = memo(function ChartDisplay({
 		() => (isPie ? bucketPieData(data, xAxisKey, pieValueKey) : data),
 		[isPie, data, xAxisKey, pieValueKey],
 	);
+	const useInlineHeader = titleStyle === 'left' && Boolean(title) && !isPie;
+	const showInlineLegend = showLegend && chartType !== 'kpi_card';
+	const { scrollRef, canScrollLeft, canScrollRight, scrollLegend } = useHorizontalScrollControls();
 
 	const chartConfig = useMemo((): ChartConfig => {
 		if (isPie) {
@@ -575,6 +602,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 				series: visibleSeries,
 				colorFor,
 				labelFormatter,
+				valueFormatter,
 				compactXAxis,
 				xAxisTickFontSize,
 				xAxisMaxLabelChars,
@@ -601,10 +629,11 @@ export const ChartDisplay = memo(function ChartDisplay({
 								isDualAxis={isDualAxis}
 								hideTotal={hideTotal}
 								labelFormatter={tooltipLabelFormatter}
+								valueFormatter={valueFormatter}
 							/>
 						}
 					/>,
-					chartType !== 'kpi_card' && (
+					showLegend && chartType !== 'kpi_card' && !useInlineHeader && (
 						<ChartLegend
 							key='legend'
 							payload={legendPayload}
@@ -620,8 +649,8 @@ export const ChartDisplay = memo(function ChartDisplay({
 							}
 						/>
 					),
-				],
-				title,
+				].filter(Boolean),
+				title: useInlineHeader ? undefined : title,
 				renderTitle: false,
 			}),
 		[
@@ -638,6 +667,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 			colorFor,
 			labelFormatter,
 			tooltipLabelFormatter,
+			valueFormatter,
 			showGrid,
 			yAxisMin,
 			yAxisMax,
@@ -654,22 +684,79 @@ export const ChartDisplay = memo(function ChartDisplay({
 			handleToggleSeriesVisibility,
 			title,
 			isPercentStacked,
+			showLegend,
+			useInlineHeader,
 		],
 	);
+
+	const inlineHeader = useInlineHeader ? (
+		<div className='mb-6 flex w-full min-w-0 items-center gap-3'>
+			<div className={showInlineLegend ? 'min-h-11 shrink-0' : 'shrink-0'}>
+				<span className='block text-[15px] font-semibold'>{title}</span>
+				{titleAccessory}
+			</div>
+			{showInlineLegend && canScrollLeft && (
+				<Button
+					variant='ghost-muted'
+					size='icon-xs'
+					onClick={() => scrollLegend('left')}
+					aria-label='Scroll legend left'
+					className='shrink-0'
+				>
+					<ChevronLeft className='size-3.5' />
+				</Button>
+			)}
+			{showInlineLegend && (
+				<div
+					ref={scrollRef}
+					className='min-w-0 flex-1 overflow-x-auto pl-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden'
+				>
+					<ChartLegendContent
+						payload={legendPayload}
+						align='right'
+						onItemClick={handleToggleSeriesVisibility}
+						className='w-max min-w-full gap-3 p-0 text-[10px] [&>*]:shrink-0'
+					/>
+				</div>
+			)}
+			{showInlineLegend && canScrollRight && (
+				<Button
+					variant='ghost-muted'
+					size='icon-xs'
+					onClick={() => scrollLegend('right')}
+					aria-label='Scroll legend right'
+					className='shrink-0'
+				>
+					<ChevronRight className='size-3.5' />
+				</Button>
+			)}
+		</div>
+	) : undefined;
 
 	return (
 		<div
 			ref={containerRef}
-			className={`flex flex-col items-stretch gap-2 w-full ${
-				chartType !== 'kpi_card' && normalSize ? 'h-full' : ''
-			}`}
+			className={cn(
+				'flex flex-col items-stretch gap-2 w-full',
+				chartType !== 'kpi_card' && normalSize ? 'h-full' : '',
+				className,
+			)}
 		>
 			{chartType === 'kpi_card' ? (
-				chartElement
+				<>
+					{inlineHeader}
+					{chartElement}
+				</>
 			) : (
 				<ChartContainer
 					config={chartConfig}
-					className={`${normalSize ? 'h-full w-full aspect-auto' : 'w-full'} ${pieCenteringClass}`.trim()}
+					className={cn(
+						normalSize ? 'h-full w-full aspect-auto' : 'w-full',
+						pieCenteringClass,
+						chartContainerClassName,
+					)}
+					contentClassName={chartContentClassName}
+					header={inlineHeader}
 				>
 					{chartElement}
 				</ChartContainer>
@@ -677,6 +764,66 @@ export const ChartDisplay = memo(function ChartDisplay({
 		</div>
 	);
 });
+
+const useHorizontalScrollControls = () => {
+	const scrollRef = useRef<HTMLDivElement>(null);
+	const [scrollState, setScrollState] = useState({
+		canScrollLeft: false,
+		canScrollRight: false,
+	});
+
+	const updateScrollState = useCallback(() => {
+		const element = scrollRef.current;
+		if (!element) {
+			return;
+		}
+
+		const maxScrollLeft = element.scrollWidth - element.clientWidth;
+		setScrollState({
+			canScrollLeft: element.scrollLeft > 1,
+			canScrollRight: element.scrollLeft < maxScrollLeft - 1,
+		});
+	}, []);
+
+	useEffect(() => {
+		const element = scrollRef.current;
+		if (!element) {
+			return;
+		}
+
+		updateScrollState();
+		element.addEventListener('scroll', updateScrollState, { passive: true });
+
+		if (typeof ResizeObserver === 'undefined') {
+			return () => element.removeEventListener('scroll', updateScrollState);
+		}
+
+		const resizeObserver = new ResizeObserver(updateScrollState);
+		resizeObserver.observe(element);
+
+		if (element.firstElementChild) {
+			resizeObserver.observe(element.firstElementChild);
+		}
+
+		return () => {
+			element.removeEventListener('scroll', updateScrollState);
+			resizeObserver.disconnect();
+		};
+	}, [updateScrollState]);
+
+	const scrollLegend = useCallback((direction: 'left' | 'right') => {
+		scrollRef.current?.scrollBy({
+			left: direction === 'left' ? -LEGEND_SCROLL_OFFSET : LEGEND_SCROLL_OFFSET,
+			behavior: 'smooth',
+		});
+	}, []);
+
+	return {
+		...scrollState,
+		scrollRef,
+		scrollLegend,
+	};
+};
 
 /** Manages which series are visible and hidden */
 const useSeriesVisibility = (series: displayChart.SeriesConfig[]) => {

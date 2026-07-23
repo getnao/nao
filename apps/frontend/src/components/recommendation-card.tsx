@@ -19,6 +19,7 @@ import type { inferRouterOutputs } from '@trpc/server';
 import type { TrpcRouter } from '@nao/backend/trpc';
 import { RecommendationDiffPanel } from '@/components/side-panel/recommendation-diff-panel';
 import { RecommendationManualFixPanel } from '@/components/side-panel/recommendation-manual-fix-panel';
+import { DEFAULT_USAGE_SEARCH } from '@/components/settings/usage-route-search';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -226,8 +227,9 @@ export function RecommendationCard({
 									{chatIds.slice(0, 5).map((chatId) => (
 										<Link
 											key={chatId}
-											to='/settings/chats-replay'
-											search={{ chatId }}
+											to='/settings/usage/replay/$chatId'
+											params={{ chatId }}
+											search={DEFAULT_USAGE_SEARCH}
 											className='text-primary underline-offset-4 hover:underline'
 										>
 											{chatId.slice(0, 8)}
