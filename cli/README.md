@@ -211,6 +211,33 @@ nao test -m openai:gpt-4.1 -m anthropic:claude-sonnet-4-20250514
 nao test --threads 4
 ```
 
+### Measuring reliability with `--k`
+
+A single test run gives a binary pass/fail, which hides two things data teams
+care about when evaluating an analytics agent: variance across attempts and
+consistency on a given question. The standard eval metrics for this are
+`pass@k` (probability of at least one success in k attempts) and `pass^k`
+(probability that all k attempts succeed) — see
+[Demystifying evals for AI agents](https://www.anthropic.com/engineering/demystifying-evals-for-ai-agents).
+
+`nao test` accepts a `--k` flag (default `1`, which preserves the original
+single-run behavior) to run each (test, model) pair k times and report
+`pass@k` / `pass^k` alongside the existing accuracy score:
+
+```bash
+# Run each test 5 times per model
+nao test --k 5
+
+# Combine with model selection
+nao test -k 3 -m openai:gpt-4.1 -m anthropic:claude-sonnet-4-20250514
+```
+
+The summary table grows a `k`, `Pass`, `Pass@k`, and `Pass^k` column. The
+JSON output adds a `metrics[]` array (one entry per test/model pair) and a
+top-level `k` field; the per-attempt `results[]` array is preserved so
+existing consumers keep working. The `nao test server` web UI surfaces the
+same metrics in its summary cards and per-pair table.
+
 ### Explore test results
 
 ```bash
