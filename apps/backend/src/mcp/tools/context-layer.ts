@@ -48,8 +48,9 @@ const READ_DESCRIPTION =
 	'SKIP WHEN: matching lines are enough → use `grep`. You want to browse a folder → use `ls`.';
 
 const CREATE_STORY_DESCRIPTION =
-	'Create a new analytics story — a markdown document with embedded `<chart>` / `<table>` / `<grid>` ' +
+	'Create a new analytics story — a markdown document with embedded `<chart>` / `<table>` / `<grid>` / `<tab>` ' +
 	'blocks rendered by nao (think dashboard or report).\n\n' +
+	'Default to a single flowing story. Use consecutive `<tab title="...">...</tab>` blocks only when requested or when clearly distinct sections are better separated than stacked; avoid tabs for short or single-topic stories. A tabbed story must contain only `<tab>` blocks, with no content outside a tab.\n\n' +
 	'Typical flow: `execute_sql` → `display_chart` → paste the returned `<chart>` block into `content`. ' +
 	'Pass `chat_id` to attach the story to a chat (e.g. from `ask_nao`); omit it for a standalone ' +
 	'project-level story. The chat must belong to the calling user.\n\n' +
@@ -60,6 +61,7 @@ const CREATE_STORY_DESCRIPTION =
 const UPDATE_STORY_DESCRIPTION =
 	"Update a story's title and/or full content. Creates a new version; omit a field to keep its " +
 	'current value.\n\n' +
+	'Preserve existing `<tab>` blocks unless the requested change makes tabs relevant or unnecessary; when using tabs, keep all content inside `<tab title="...">...</tab>` blocks.\n\n' +
 	'When swapping charts, regenerate the `<chart>` block via `display_chart` first so the embed ' +
 	'stays valid.';
 
@@ -154,7 +156,7 @@ function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
 				.string()
 				.optional()
 				.describe(
-					'Full nao story markdown (with `<chart>`, `<table>`, `<grid>` blocks). Omit to start from a title-only stub.',
+					'Full nao story markdown (with `<chart>`, `<table>`, `<grid>`, `<tab>` blocks). Omit to start from a title-only stub.',
 				),
 			query_data: z
 				.record(
@@ -217,7 +219,7 @@ function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
 				.string()
 				.optional()
 				.describe(
-					'Full markdown replacement (with `<chart>`, `<table>`, `<grid>` blocks). ' +
+					'Full markdown replacement (with `<chart>`, `<table>`, `<grid>`, `<tab>` blocks). ' +
 						'Omit to keep the current content — partial diffs are not supported.',
 				),
 			query_data: z

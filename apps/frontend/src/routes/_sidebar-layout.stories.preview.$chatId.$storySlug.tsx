@@ -3,13 +3,12 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { ArchiveRestoreIcon } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
 
-import { splitCodeIntoSegments } from '@nao/shared/story-segments';
 import type { ParsedChartBlock, ParsedTableBlock } from '@nao/shared/story-segments';
 import type { QueryDataMap } from '@/components/story-embeds';
 import type { SelectionData } from '@/components/highlight-bubble';
 import { StoryChartEmbed, StoryTableEmbed } from '@/components/story-embeds';
 import { HighlightBubble } from '@/components/highlight-bubble';
-import { SegmentList } from '@/components/story-rendering';
+import { StoryTabbedContent } from '@/components/story-tabbed-content';
 import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
 import { Button } from '@/components/ui/button';
 import { trpc } from '@/main';
@@ -231,7 +230,6 @@ function PreviewContent({
 	chatId: string;
 	cacheSchedule?: string | null;
 }) {
-	const segments = useMemo(() => splitCodeIntoSegments(code), [code]);
 	const isNoCacheMode = cacheSchedule === 'no-cache';
 
 	const noCacheQuery = useMemo(
@@ -253,11 +251,5 @@ function PreviewContent({
 		[isNoCacheMode, queryData, noCacheQuery],
 	);
 
-	return (
-		<div className='flex-1 overflow-auto'>
-			<div className='max-w-5xl mx-auto p-4 md:p-8 flex flex-col gap-4'>
-				<SegmentList segments={segments} renderChart={renderChart} renderTable={renderTable} />
-			</div>
-		</div>
-	);
+	return <StoryTabbedContent code={code} renderChart={renderChart} renderTable={renderTable} />;
 }

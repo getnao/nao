@@ -1,5 +1,6 @@
 import { Pencil } from 'lucide-react';
 import { memo, useMemo, useState } from 'react';
+import { StoryEmbedFallback } from './story-embed-fallback';
 import type { UIMessage } from '@nao/backend/chat';
 import type { displayChart } from '@nao/shared/tools';
 
@@ -23,6 +24,7 @@ interface ChartBlock {
 	yAxisMax?: number;
 	title: string;
 	showDataLabels?: boolean;
+	hideTotal?: boolean;
 	rawTag?: string;
 }
 
@@ -66,18 +68,14 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({
 
 	if (!sourceData?.data || sourceData.data.length === 0) {
 		return (
-			<div className='my-2 rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground'>
+			<StoryEmbedFallback dragHandle={dragHandle}>
 				Chart data unavailable (query: {chart.queryId})
-			</div>
+			</StoryEmbedFallback>
 		);
 	}
 
 	if (chart.series.length === 0) {
-		return (
-			<div className='my-2 rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground'>
-				No series configured for chart
-			</div>
-		);
+		return <StoryEmbedFallback dragHandle={dragHandle}>No series configured for chart</StoryEmbedFallback>;
 	}
 
 	const xAxisType = chart.xAxisType === 'number' ? 'number' : ('category' as const);
@@ -95,6 +93,7 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({
 				yAxisMax={chart.yAxisMax}
 				showDataLabels={chart.showDataLabels}
 				normalSize
+				hideTotal={chart.hideTotal}
 			/>
 		</StoryChartEmbedShell>
 	);
@@ -132,6 +131,7 @@ export function StoryChartEmbedShell({ chart, availableColumns, dragHandle, chil
 			y_axis_max: chart.yAxisMax,
 			title: chart.title,
 			show_data_labels: chart.showDataLabels,
+			hide_total: chart.hideTotal,
 		}),
 		[chart],
 	);

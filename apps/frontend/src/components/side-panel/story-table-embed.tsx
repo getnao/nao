@@ -1,6 +1,7 @@
 import { sanitizeConditionalFormats } from '@nao/shared/conditional-formatting';
 import { Pencil } from 'lucide-react';
 import { memo, useMemo, useState } from 'react';
+import { StoryEmbedFallback } from './story-embed-fallback';
 import type { UIMessage } from '@nao/backend/chat';
 import type { ParsedTableBlock } from '@nao/shared/story-segments';
 
@@ -43,9 +44,9 @@ export const StoryTableEmbed = memo(function StoryTableEmbed({
 
 	if (!sourceData?.data || !Array.isArray(sourceData.data)) {
 		return (
-			<div className='my-2 rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground'>
+			<StoryEmbedFallback dragHandle={dragHandle}>
 				Table data unavailable (query: {table.queryId})
-			</div>
+			</StoryEmbedFallback>
 		);
 	}
 

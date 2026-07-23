@@ -5,6 +5,9 @@ type ShareType = 'chat' | 'story';
 interface SidePanelContext {
 	isVisible: boolean;
 	currentStorySlug: string | null;
+	setCurrentStorySlug: (slug: string | null) => void;
+	currentStoryTabIndex: number;
+	setCurrentStoryTabIndex: (index: number) => void;
 	chatId: string | null;
 	shareId: string | null;
 	shareType: ShareType | null;
@@ -18,6 +21,9 @@ const SidePanelContext = createContext<SidePanelContext | null>(null);
 const noopSidePanel: SidePanelContext = {
 	isVisible: false,
 	currentStorySlug: null,
+	setCurrentStorySlug: () => {},
+	currentStoryTabIndex: 0,
+	setCurrentStoryTabIndex: () => {},
 	chatId: null,
 	shareId: null,
 	shareType: null,
@@ -34,6 +40,9 @@ export const SidePanelProvider = ({
 	children,
 	isVisible,
 	currentStorySlug,
+	setCurrentStorySlug,
+	currentStoryTabIndex,
+	setCurrentStoryTabIndex,
 	chatId,
 	shareId = null,
 	shareType = null,
@@ -44,6 +53,9 @@ export const SidePanelProvider = ({
 	children: React.ReactNode;
 	isVisible: boolean;
 	currentStorySlug: string | null;
+	setCurrentStorySlug: (slug: string | null) => void;
+	currentStoryTabIndex: number;
+	setCurrentStoryTabIndex: (index: number) => void;
 	chatId: string | null;
 	shareId?: string | null;
 	shareType?: ShareType | null;
@@ -52,8 +64,32 @@ export const SidePanelProvider = ({
 	close: () => void;
 }) => {
 	const value = useMemo(
-		() => ({ isVisible, currentStorySlug, chatId, shareId, shareType, isReadonlyMode, open, close }),
-		[isVisible, currentStorySlug, chatId, shareId, shareType, isReadonlyMode, open, close],
+		() => ({
+			isVisible,
+			currentStorySlug,
+			setCurrentStorySlug,
+			currentStoryTabIndex,
+			setCurrentStoryTabIndex,
+			chatId,
+			shareId,
+			shareType,
+			isReadonlyMode,
+			open,
+			close,
+		}),
+		[
+			isVisible,
+			currentStorySlug,
+			setCurrentStorySlug,
+			currentStoryTabIndex,
+			setCurrentStoryTabIndex,
+			chatId,
+			shareId,
+			shareType,
+			isReadonlyMode,
+			open,
+			close,
+		],
 	);
 	return <SidePanelContext.Provider value={value}>{children}</SidePanelContext.Provider>;
 };

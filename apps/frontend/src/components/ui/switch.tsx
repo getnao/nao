@@ -1,29 +1,12 @@
 import * as React from 'react';
 import { cn } from '@/lib/utils';
 
-interface SwitchProps {
-	checked: boolean;
-	onCheckedChange: (checked: boolean) => void;
-	disabled?: boolean;
-	id?: string;
-}
+const trackClassName =
+	'relative inline-flex h-5 w-8 shrink-0 items-center rounded-full px-0.5 bg-muted shadow-[inset_0_0_0_1px_rgba(0,0,0,0.06)] dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.07)]';
 
-export function Switch({ checked, onCheckedChange, disabled, id }: SwitchProps) {
+function SwitchThumb({ checked }: { checked: boolean }) {
 	return (
-		<button
-			id={id}
-			type='button'
-			role='switch'
-			aria-checked={checked}
-			disabled={disabled}
-			onClick={() => onCheckedChange(!checked)}
-			className={cn(
-				'relative inline-flex h-5 w-8 shrink-0 cursor-pointer items-center rounded-full px-0.5 bg-muted',
-				'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
-				'shadow-[inset_0_0_0_1px_rgba(0,0,0,0.06)] dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.07)]',
-				'disabled:cursor-not-allowed disabled:opacity-50',
-			)}
-		>
+		<>
 			<span
 				aria-hidden='true'
 				className={cn(
@@ -37,6 +20,44 @@ export function Switch({ checked, onCheckedChange, disabled, id }: SwitchProps) 
 					checked ? 'translate-x-3' : 'translate-x-0',
 				)}
 			/>
+		</>
+	);
+}
+
+interface SwitchProps {
+	checked: boolean;
+	onCheckedChange?: (checked: boolean) => void;
+	disabled?: boolean;
+	id?: string;
+	className?: string;
+}
+
+export function Switch({ checked, onCheckedChange, disabled, id, className }: SwitchProps) {
+	return (
+		<button
+			id={id}
+			type='button'
+			role='switch'
+			aria-checked={checked}
+			disabled={disabled}
+			onClick={() => onCheckedChange?.(!checked)}
+			className={cn(
+				trackClassName,
+				'cursor-pointer',
+				'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+				'disabled:cursor-not-allowed disabled:opacity-50',
+				className,
+			)}
+		>
+			<SwitchThumb checked={checked} />
 		</button>
+	);
+}
+
+export function SwitchIndicator({ checked, className }: { checked: boolean; className?: string }) {
+	return (
+		<span aria-hidden='true' className={cn(trackClassName, className)}>
+			<SwitchThumb checked={checked} />
+		</span>
 	);
 }

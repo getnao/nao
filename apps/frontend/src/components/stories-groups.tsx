@@ -1,7 +1,7 @@
 import { useDraggable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Link } from '@tanstack/react-router';
+import { Link, useRouterState } from '@tanstack/react-router';
 import { ArchiveIcon, ArchiveRestoreIcon, Circle, CircleCheck, FolderInput, Pin, Star } from 'lucide-react';
 import { useState } from 'react';
 import type { MouseEvent, ReactNode } from 'react';
@@ -72,6 +72,7 @@ export function StoryCard({
 }) {
 	const { isAdmin, isViewer } = usePermissions();
 	const [pinShareDialogOpen, setPinShareDialogOpen] = useState(false);
+	const isHomePage = useRouterState({ select: (s) => s.location.pathname === '/' });
 
 	const draggableId = `drag-story-${dragIdPrefix ? `${dragIdPrefix}-` : ''}${item.storyId}`;
 	const isOwnedByUser = item.kind === 'own' || item.kind === 'own-standalone';
@@ -89,6 +90,7 @@ export function StoryCard({
 
 	const canSelect =
 		!isViewer &&
+		!isHomePage &&
 		((item.kind === 'own' && !!item.chatId && !!item.storySlug) ||
 			item.kind === 'own-standalone' ||
 			item.kind === 'shared-project');

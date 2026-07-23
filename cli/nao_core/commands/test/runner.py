@@ -289,8 +289,17 @@ def save_results(results: list[TestRunResult], output_dir: Path) -> Path:
     return output_file
 
 
-def filter_test_cases(test_cases: list[TestCase], selected_tests: str | None) -> list[TestCase]:
-    """Filter test cases to the selected tests, if provided."""
+def filter_test_cases(
+    test_cases: list[TestCase],
+    selected_tests: str | None,
+    tests_dir: Path | None = None,
+) -> list[TestCase]:
+    """Filter test cases to the selected tests, if provided.
+
+    Each comma-separated selection matches either a single test (by ``name`` or
+    file stem) or, when ``tests_dir`` is given, every test under a subfolder of
+    tests/ (e.g. ``contracts`` selects all tests in tests/contracts/).
+    """
     if not selected_tests:
         return test_cases
 
@@ -302,18 +311,28 @@ def filter_test_cases(test_cases: list[TestCase], selected_tests: str | None) ->
     selected: list[TestCase] = []
     seen: set[Path] = set()
     for selection in selections:
-        matches = [tc for tc in test_cases if tc.name == selection or tc.file_path.stem == selection]
+        folder_matches: list[TestCase] = []
+        if tests_dir is not None:
+            for tc in test_cases:
+                try:
+                    parts = tc.file_path.relative_to(tests_dir).parent.parts
+                except ValueError:
+                    continue
+                if selection in parts:
+                    folder_matches.append(tc)
+        name_matches = [tc for tc in test_cases if tc.name == selection or tc.file_path.stem == selection]
+        matches = folder_matches or name_matches
         if not matches:
             available = ", ".join(tc.name for tc in test_cases)
             raise ValueError(f"Test not found: {selection}. Available tests: {available}")
-        if len(matches) > 1:
+        if not folder_matches and len(matches) > 1:
             names = ", ".join(f"{tc.name} ({tc.file_path.name})" for tc in matches)
             raise ValueError(f"Multiple tests match '{selection}': {names}")
-        match = matches[0]
-        if match.file_path in seen:
-            continue
-        seen.add(match.file_path)
-        selected.append(match)
+        for match in matches:
+            if match.file_path in seen:
+                continue
+            seen.add(match.file_path)
+            selected.append(match)
 
     return selected
 
@@ -337,7 +356,7 @@ def test(
         str | None,
         Parameter(
             name=["-s", "--select"],
-            help="Run only the selected tests by name or yaml filename stem. Comma-separated (e.g. '12,13,14').",
+            help="Run only selected tests by name, yaml stem, or subfolder. Comma-separated (e.g. 'contracts' or '12,13,14').",
         ),
     ] = None,
     username: Annotated[
@@ -384,8 +403,9 @@ def test(
 
     project_path = Path.cwd()
     model_costs = config.llm.meta.costs if config.llm and config.llm.meta else None
+    tests_dir = project_path / TESTS_FOLDER
     UI.print(f"[dim]Project: {config.project_name}[/dim]")
-    UI.print(f"[dim]Tests folder: {project_path / TESTS_FOLDER}[/dim]")
+    UI.print(f"[dim]Tests folder: {tests_dir}[/dim]")
     UI.print(f"[dim]Models: {', '.join(str(m) for m in model_configs)}[/dim]\n")
 
     test_cases = discover_tests(project_path)
@@ -395,7 +415,7 @@ def test(
         return
 
     try:
-        test_cases = filter_test_cases(test_cases, select)
+        test_cases = filter_test_cases(test_cases, select, tests_dir)
     except ValueError as e:
         UI.error(str(e))
         return

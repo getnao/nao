@@ -20,6 +20,7 @@ export type StoryChartBlockInput = Pick<
 	| 'y_axis_min'
 	| 'y_axis_max'
 	| 'show_data_labels'
+	| 'hide_total'
 > & {
 	title?: displayChart.ChartInput['title'];
 };
@@ -33,7 +34,8 @@ export function buildStoryChartBlock(input: StoryChartBlockInput): string {
 	const titleAttr =
 		input.title != null && input.title !== '' ? ` title="${escapeDoubleQuotedStoryAttr(input.title)}"` : '';
 	const dataLabelsAttr = input.show_data_labels ? ' show_data_labels="true"' : '';
-	return `<chart query_id="${escapeDoubleQuotedStoryAttr(input.query_id)}" chart_type="${escapeDoubleQuotedStoryAttr(input.chart_type)}" x_axis_key="${escapeDoubleQuotedStoryAttr(input.x_axis_key)}"${xAxisTypeAttr}${yMinAttr}${yMaxAttr} series='${seriesJson}'${titleAttr}${dataLabelsAttr} />`;
+	const hideTotalAttr = input.hide_total ? ' hide_total="true"' : '';
+	return `<chart query_id="${escapeDoubleQuotedStoryAttr(input.query_id)}" chart_type="${escapeDoubleQuotedStoryAttr(input.chart_type)}" x_axis_key="${escapeDoubleQuotedStoryAttr(input.x_axis_key)}"${xAxisTypeAttr}${yMinAttr}${yMaxAttr} series='${seriesJson}'${titleAttr}${dataLabelsAttr}${hideTotalAttr} />`;
 }
 
 export type StoryTableBlockInput = Pick<displayChart.TableInput, 'query_id' | 'title' | 'conditional_formats'>;
