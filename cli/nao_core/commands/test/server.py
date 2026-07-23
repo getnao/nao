@@ -54,6 +54,7 @@ def get_html_template() -> str:
         .status { display: inline-flex; align-items: center; gap: 0.375rem; padding: 0.25rem 0.625rem; border-radius: 4px; font-size: 0.75rem; font-weight: 500; }
         .status.pass { background: rgba(34, 197, 94, 0.15); color: #22c55e; }
         .status.fail { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
+        .status.partial { background: rgba(234, 179, 8, 0.15); color: #eab308; }
         .model-badge { display: inline-block; padding: 0.125rem 0.5rem; background: #333; border-radius: 4px; font-size: 0.75rem; color: #aaa; font-family: monospace; }
         .mono { font-family: monospace; font-size: 0.875rem; }
         .text-muted { color: #888; }
@@ -162,8 +163,18 @@ def get_html_template() -> str:
         }
 
         function Results({ data, onSelect }) {
-            const { summary, results, timestamp } = data;
+            const { summary, results, timestamp, metrics, k } = data;
             const passRate = summary.total > 0 ? Math.round((summary.passed / summary.total) * 100) : 0;
+            const hasMetrics = Array.isArray(metrics) && metrics.length > 0;
+
+            // Aggregate pass@k / pass^k across the suite for the top cards.
+            let aggregatePassAtK = null;
+            let aggregatePassPowK = null;
+            if (hasMetrics) {
+                aggregatePassAtK = metrics.reduce((acc, m) => acc + (m.pass_at_k || 0), 0) / metrics.length;
+                aggregatePassPowK = metrics.reduce((acc, m) => acc + (m.pass_pow_k || 0), 0) / metrics.length;
+            }
+            const fmtPct = (v) => (v == null ? '-' : Math.round(v * 100) + '%');
 
             return (
                 <>
@@ -171,7 +182,15 @@ def get_html_template() -> str:
                         <Card label="Pass Rate" value={passRate + '%'} className={passRate === 100 ? 'success' : passRate < 50 ? 'error' : ''} />
                         <Card label="Passed" value={summary.passed} className="success" />
                         <Card label="Failed" value={summary.failed} className={summary.failed > 0 ? 'error' : ''} />
-                        <Card label="Total Tests" value={summary.total} />
+                        {hasMetrics ? (
+                            <>
+                                <Card label="Pass@k" value={fmtPct(aggregatePassAtK)} className={aggregatePassAtK === 1 ? 'success' : ''} />
+                                <Card label="Pass^k" value={fmtPct(aggregatePassPowK)} className={aggregatePassPowK === 1 ? 'success' : ''} />
+                                <Card label="k" value={k} />
+                            </>
+                        ) : (
+                            <Card label="Total Tests" value={summary.total} />
+                        )}
                         <Card label="Total Tokens" value={summary.total_tokens.toLocaleString()} />
                         <Card label="Total Cost" value={'$' + summary.total_cost.toFixed(4)} />
                         <Card label="Duration" value={summary.total_duration_s + 's'} />
@@ -182,34 +201,76 @@ def get_html_template() -> str:
                         Run at: {new Date(timestamp).toLocaleString()} &bull; Avg duration: {summary.avg_duration_ms}ms &bull; Avg tool calls: {summary.avg_tool_calls}
                     </p>
 
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Status</th>
-                                <th>Test Name</th>
-                                <th>Model</th>
-                                <th>Message</th>
-                                <th>Tokens</th>
-                                <th>Cost</th>
-                                <th>Duration</th>
-                                <th>Tools</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {results.map((r, i) => (
-                                <tr key={i} className="clickable" onClick={() => onSelect(r)}>
-                                    <td><span className={'status ' + (r.passed ? 'pass' : 'fail')}>{r.passed ? '✓ Pass' : '✗ Fail'}</span></td>
-                                    <td><strong>{r.name}</strong></td>
-                                    <td><span className="model-badge">{r.model}</span></td>
-                                    <td className="text-muted">{r.message}</td>
-                                    <td className="mono">{(r.tokens || 0).toLocaleString()}</td>
-                                    <td className="mono">${(r.cost || 0).toFixed(4)}</td>
-                                    <td className="mono">{((r.duration_ms || 0) / 1000).toFixed(1)}s</td>
-                                    <td className="mono">{r.tool_call_count || 0}</td>
+                    {hasMetrics ? (
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Status</th>
+                                    <th>Test Name</th>
+                                    <th>Model</th>
+                                    <th>Pass</th>
+                                    <th>Pass@k</th>
+                                    <th>Pass^k</th>
+                                    <th>Tokens</th>
+                                    <th>Cost</th>
+                                    <th>Duration</th>
+                                    <th>Tools</th>
                                 </tr>
-                            ))}
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody>
+                                {metrics.map((m, i) => {
+                                    const statusClass = m.pass_pow_k >= 1 ? 'pass' : m.successes > 0 ? 'partial' : 'fail';
+                                    const statusLabel = m.pass_pow_k >= 1 ? '✓ all' : m.successes > 0 ? '~ partial' : '✗ fail';
+                                    // Hand off to the per-attempt detail modal: the
+                                    // first attempt is enough for a quick view.
+                                    const firstAttempt = (results.find(r => r.name === m.name && r.model === m.model) || {});
+                                    return (
+                                        <tr key={i} className="clickable" onClick={() => onSelect(firstAttempt)}>
+                                            <td><span className={'status ' + statusClass}>{statusLabel}</span></td>
+                                            <td><strong>{m.name}</strong></td>
+                                            <td><span className="model-badge">{m.model}</span></td>
+                                            <td className="mono">{m.successes}/{m.attempts}</td>
+                                            <td className="mono">{fmtPct(m.pass_at_k)}</td>
+                                            <td className="mono">{fmtPct(m.pass_pow_k)}</td>
+                                            <td className="mono">{(m.tokens || 0).toLocaleString()}</td>
+                                            <td className="mono">${(m.cost || 0).toFixed(4)}</td>
+                                            <td className="mono">{((m.duration_ms || 0) / 1000).toFixed(1)}s</td>
+                                            <td className="mono">{m.tool_call_count || 0}</td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    ) : (
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Status</th>
+                                    <th>Test Name</th>
+                                    <th>Model</th>
+                                    <th>Message</th>
+                                    <th>Tokens</th>
+                                    <th>Cost</th>
+                                    <th>Duration</th>
+                                    <th>Tools</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {results.map((r, i) => (
+                                    <tr key={i} className="clickable" onClick={() => onSelect(r)}>
+                                        <td><span className={'status ' + (r.passed ? 'pass' : 'fail')}>{r.passed ? '✓ Pass' : '✗ Fail'}</span></td>
+                                        <td><strong>{r.name}</strong></td>
+                                        <td><span className="model-badge">{r.model}</span></td>
+                                        <td className="text-muted">{r.message}</td>
+                                        <td className="mono">{(r.tokens || 0).toLocaleString()}</td>
+                                        <td className="mono">${(r.cost || 0).toFixed(4)}</td>
+                                        <td className="mono">{((r.duration_ms || 0) / 1000).toFixed(1)}s</td>
+                                        <td className="mono">{r.tool_call_count || 0}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    )}
                 </>
             );
         }
