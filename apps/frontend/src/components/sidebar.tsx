@@ -32,6 +32,7 @@ import { useSidebarSectionOpen } from '@/hooks/use-sidebar-section-open';
 import { useTimeAgo } from '@/hooks/use-time-ago';
 import { getActiveProjectId, setActiveProjectId } from '@/lib/active-project';
 import { getShortcutLabel } from '@/lib/keyboard-shortcuts';
+import { invalidateStoriesCaches } from '@/lib/stories-cache';
 import { cn, hideIf } from '@/lib/utils';
 import { trpc } from '@/main';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -76,14 +77,7 @@ export function Sidebar() {
 	}, [navigate, isMobile, closeMobile]);
 
 	const handleNavigateStories = useCallback(() => {
-		void queryClient.invalidateQueries({ queryKey: trpc.storyFolder.listTree.queryKey() });
-		void queryClient.invalidateQueries({ queryKey: trpc.storyFolder.listItems.queryKey() });
-		void queryClient.invalidateQueries({ queryKey: trpc.story.listAll.queryKey() });
-		void queryClient.invalidateQueries({ queryKey: trpc.story.listStandalone.queryKey() });
-		void queryClient.invalidateQueries({ queryKey: trpc.story.listArchived.queryKey() });
-		void queryClient.invalidateQueries({ queryKey: trpc.story.listStandaloneArchived.queryKey() });
-		void queryClient.invalidateQueries({ queryKey: trpc.storyShare.list.queryKey() });
-		void queryClient.invalidateQueries({ queryKey: trpc.favorite.list.queryKey() });
+		invalidateStoriesCaches(queryClient);
 		navigate({ to: '/stories', search: { folderId: null } });
 		if (isMobile) {
 			closeMobile();

@@ -22,7 +22,9 @@ export function useKeyboardShortcuts(handlers: ShortcutHandlers) {
 				}
 				if (matchesShortcut(event, entry.shortcut)) {
 					event.preventDefault();
-					handler();
+					if (!event.repeat) {
+						handler();
+					}
 					return;
 				}
 			}
