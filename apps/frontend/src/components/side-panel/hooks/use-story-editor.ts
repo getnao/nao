@@ -321,7 +321,9 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 				multiBlockDragRef.current = null;
 				dragPreviewPositionsRef.current = hoveredPosition != null ? [hoveredPosition] : null;
 				if (selected.length > 0) {
-					editor.view.dispatch(editor.state.tr.setMeta(blockSelectionPluginKey, { blocks: [], anchor: null }));
+					editor.view.dispatch(
+						editor.state.tr.setMeta(blockSelectionPluginKey, { blocks: [], anchor: null }),
+					);
 				}
 			}
 		},
