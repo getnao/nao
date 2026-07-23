@@ -352,7 +352,7 @@ export function ChartConfigEditDialog({
 												<div className='flex items-center gap-2'>
 													<span className='text-xs text-muted-foreground'>Number format</span>
 													<a
-														href='https://d3js.org/d3-format'
+														href='https://docs.getnao.io/nao-agent/chat/capabilities/visualizations#d3-format-number-cheat-sheet'
 														target='_blank'
 														rel='noreferrer'
 														className='text-xs text-blue-500 hover:text-blue-400 hover:underline'
