@@ -35,8 +35,6 @@ const X_AXIS_TYPE_OPTIONS: { value: NonNullable<displayChart.XAxisType> | 'auto'
 
 const Y_AXIS_RANGE_UNSUPPORTED_CHART_TYPES = new Set<displayChart.ChartType>(['pie', 'kpi_card', 'radar']);
 
-type UnitPlacement = 'prefix' | 'suffix';
-
 /** Maps a 100% stacked type back to its absolute-stacked counterpart, so the type dropdown stays clean. */
 function baseChartType(type: displayChart.ChartType): displayChart.ChartType {
 	if (type === 'stacked_bar_100') {
@@ -84,6 +82,13 @@ export function ChartConfigEditDialog({
 	const [yAxisMaxText, setYAxisMaxText] = useState(toRangeString(config.y_axis_max));
 	const [error, setError] = useState<string | null>(null);
 	const supportsYAxisRange = !Y_AXIS_RANGE_UNSUPPORTED_CHART_TYPES.has(draft.chart_type);
+	const unsupportedNumberFormat = useMemo(
+		() =>
+			draft.series
+				.map((series) => series.value_format?.d3_format)
+				.find((format) => Boolean(format) && !isExportSafeNumberFormat(format as string)),
+		[draft.series],
+	);
 
 	useEffect(() => {
 		if (open) {
@@ -103,6 +108,11 @@ export function ChartConfigEditDialog({
 
 	const handleSubmit = async (event: React.FormEvent) => {
 		event.preventDefault();
+		if (unsupportedNumberFormat) {
+			setError(UNSUPPORTED_NUMBER_FORMAT_MESSAGE);
+			return;
+		}
+
 		const parsed = displayChart.ChartInputSchema.safeParse(draft);
 		if (!parsed.success) {
 			setError(parsed.error.issues[0]?.message ?? 'Invalid chart configuration.');
@@ -127,16 +137,6 @@ export function ChartConfigEditDialog({
 	const updateSeriesValueFormatAt = (index: number, field: 'd3_format' | 'prefix' | 'suffix', value: string) => {
 		const series = draft.series[index];
 		const nextValueFormat = { ...series.value_format, [field]: value || undefined };
-		updateSeriesAt(index, { value_format: cleanValueFormat(nextValueFormat) });
-	};
-
-	const setSeriesUnit = (index: number, { unit, placement }: { unit: string; placement: UnitPlacement }) => {
-		const series = draft.series[index];
-		const nextValueFormat = {
-			...series.value_format,
-			prefix: placement === 'prefix' ? unit || undefined : undefined,
-			suffix: placement === 'suffix' ? unit || undefined : undefined,
-		};
 		updateSeriesAt(index, { value_format: cleanValueFormat(nextValueFormat) });
 	};
 
@@ -304,12 +304,6 @@ export function ChartConfigEditDialog({
 						</div>
 						<div className='flex flex-col gap-3'>
 							{draft.series.map((series, index) => {
-								const placement: UnitPlacement = series.value_format?.prefix ? 'prefix' : 'suffix';
-								const unit =
-									placement === 'prefix'
-										? (series.value_format?.prefix ?? '')
-										: (series.value_format?.suffix ?? '');
-
 								return (
 									<div key={index} className='flex flex-col gap-2 rounded-md'>
 										<div className='grid grid-cols-[1fr_1fr_auto_auto] gap-2 items-center'>
@@ -347,7 +341,7 @@ export function ChartConfigEditDialog({
 												<Trash2 className='size-4' />
 											</Button>
 										</div>
-										<div className='grid grid-cols-[1fr_1fr_8rem] gap-2'>
+										<div className='grid grid-cols-[1fr_1fr_1fr] gap-2'>
 											<div className='grid gap-1'>
 												<div className='flex items-center gap-2'>
 													<span className='text-xs text-muted-foreground'>Number format</span>
@@ -367,46 +361,35 @@ export function ChartConfigEditDialog({
 													}
 													onClear={() => updateSeriesValueFormatAt(index, 'd3_format', '')}
 													placeholder='e.g. ,.2f'
-													ariaLabel='d3-format specifier'
+													ariaLabel='number format'
 													className='h-8 rounded-lg text-sm bg-panel'
 												/>
 											</div>
 											<div className='grid gap-1'>
-												<span className='text-xs text-muted-foreground'>Unit</span>
+												<span className='text-xs text-muted-foreground'>Prefix</span>
 												<ClearableInput
-													value={unit}
+													value={series.value_format?.prefix ?? ''}
 													onChange={(value) =>
-														setSeriesUnit(index, { unit: value, placement })
+														updateSeriesValueFormatAt(index, 'prefix', value)
 													}
-													onClear={() => setSeriesUnit(index, { unit: '', placement })}
-													placeholder='$ or %'
-													ariaLabel='Value unit'
+													onClear={() => updateSeriesValueFormatAt(index, 'prefix', '')}
+													placeholder='e.g. $'
+													ariaLabel='value prefix'
 													className='h-8 rounded-lg text-sm bg-panel'
 												/>
 											</div>
 											<div className='grid gap-1'>
-												<span className='text-xs text-muted-foreground'>Placement</span>
-												<Select
-													value={placement}
-													disabled={!unit}
-													onValueChange={(value) =>
-														setSeriesUnit(index, {
-															unit,
-															placement: value as UnitPlacement,
-														})
+												<span className='text-xs text-muted-foreground'>Suffix</span>
+												<ClearableInput
+													value={series.value_format?.suffix ?? ''}
+													onChange={(value) =>
+														updateSeriesValueFormatAt(index, 'suffix', value)
 													}
-												>
-													<SelectTrigger
-														aria-label='Unit placement'
-														className='h-8 w-full bg-panel text-sm disabled:cursor-not-allowed disabled:opacity-50 [&_svg]:text-foreground! [&_svg]:opacity-100!'
-													>
-														<SelectValue />
-													</SelectTrigger>
-													<SelectContent className='bg-panel'>
-														<SelectItem value='prefix'>Prefix</SelectItem>
-														<SelectItem value='suffix'>Suffix</SelectItem>
-													</SelectContent>
-												</Select>
+													onClear={() => updateSeriesValueFormatAt(index, 'suffix', '')}
+													placeholder='e.g. %'
+													ariaLabel='value suffix'
+													className='h-8 rounded-lg text-sm bg-panel'
+												/>
 											</div>
 										</div>
 									</div>
@@ -464,7 +447,9 @@ export function ChartConfigEditDialog({
 						</div>
 					</div>
 
-					{error && <p className='text-xs text-destructive'>{error}</p>}
+					{(error || unsupportedNumberFormat) && (
+						<p className='text-xs text-destructive'>{error ?? UNSUPPORTED_NUMBER_FORMAT_MESSAGE}</p>
+					)}
 
 					<DialogFooter>
 						<Button
@@ -480,7 +465,7 @@ export function ChartConfigEditDialog({
 							type='submit'
 							className='rounded-full'
 							isLoading={isSaving}
-							disabled={isSaving}
+							disabled={isSaving || Boolean(unsupportedNumberFormat)}
 						>
 							Save
 						</Button>
@@ -589,8 +574,7 @@ function ClearableInput({ value, onChange, onClear, placeholder, ariaLabel, clas
 			{value && (
 				<button
 					type='button'
-					tabIndex={-1}
-					aria-label='Clear'
+					aria-label={`Clear ${ariaLabel}`}
 					onClick={onClear}
 					className='absolute inset-y-0 right-1.5 flex items-center text-muted-foreground hover:text-foreground'
 				>
@@ -621,6 +605,19 @@ function cleanValueFormat(
 	valueFormat: NonNullable<displayChart.SeriesConfig['value_format']>,
 ): displayChart.SeriesConfig['value_format'] {
 	return valueFormat.d3_format || valueFormat.prefix || valueFormat.suffix ? valueFormat : undefined;
+}
+
+const UNSUPPORTED_NUMBER_FORMAT_MESSAGE =
+	'This number format renders differently in story exports. Use formats like ,.2f, .2f, , or .2~s.';
+
+/**
+ * Number formats that render identically in the interactive chart (d3-format) and in the
+ * static story export formatter. Exposing only these in the editor keeps both paths consistent.
+ */
+const EXPORT_SAFE_NUMBER_FORMATS = [/^(,)?(?:\.\d+)?f$/, /^,$/, /^(?:\.\d+)?~s$/];
+
+function isExportSafeNumberFormat(format: string): boolean {
+	return format === '' || EXPORT_SAFE_NUMBER_FORMATS.some((pattern) => pattern.test(format));
 }
 
 const HEX_RE = /^#[0-9a-fA-F]{6}$/;
