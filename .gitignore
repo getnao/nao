@@ -22,4 +22,3 @@ apps/backend/projects/
 *.code-workspace
 
 .cursor/
-*.bun-build

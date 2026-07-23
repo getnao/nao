@@ -6,7 +6,6 @@ import type { LlmSelectedModel } from '@nao/shared/types';
 import { InferUIMessageChunk, readUIMessageStream } from 'ai';
 import { Attachment, Chat, Message, Thread } from 'chat';
 
-import { WEB_CHAT_ONLY_TOOLS } from '../agents/tools';
 import { generateChartImage } from '../components/generate-chart';
 import { env } from '../env';
 import * as chartImageQueries from '../queries/chart-image';
@@ -21,8 +20,8 @@ import { ConversationContext, StreamState, ToolCallEntry } from '../types/messag
 import { createChatTitle } from '../utils/ai';
 import { buildImageUrl } from '../utils/image';
 import { logger } from '../utils/logger';
-import { EXCLUDED_TOOLS, formatMessagingError } from '../utils/messaging-provider';
-import { agentService, defaultAgentToolsExcluding } from './agent';
+import { createWhatsappMapLink, EXCLUDED_TOOLS, formatMessagingError } from '../utils/messaging-provider';
+import { agentService } from './agent';
 import { posthog, PostHogEvent } from './posthog';
 import * as transcribeService from './transcribe.service';
 
@@ -436,7 +435,7 @@ class WhatsappService {
 		const chatUrl = new URL(ctx.chatId, this._redirectUrl).toString();
 		const stream = await this._createAgentStream(chat, ctx, chatUrl);
 
-		const { finalText, chartUrls } = await this._readStreamAndUpdateMessage(stream, ctx);
+		const { finalText, chartUrls, mapLinks } = await this._readStreamAndUpdateMessage(stream, ctx);
 
 		if (finalText) {
 			await ctx.thread.post(finalText);
@@ -444,6 +443,10 @@ class WhatsappService {
 
 		for (const url of chartUrls) {
 			await this._sendWhatsAppImage(ctx.thread.id, url);
+		}
+
+		for (const link of mapLinks) {
+			await ctx.thread.post(link);
 		}
 
 		posthog.capture(ctx.user!.id, PostHogEvent.MessageSent, {
@@ -464,7 +467,6 @@ class WhatsappService {
 		const agent = await agentService.create(
 			{ ...chat, userId: ctx.user!.id, projectId: this._projectId },
 			this._modelSelection,
-			{ tools: defaultAgentToolsExcluding(WEB_CHAT_ONLY_TOOLS) },
 		);
 		ctx.modelId = agent.getModelId();
 		return agent.stream(chat.messages, { provider: 'whatsapp', timezone: ctx.timezone, chatUrl });
@@ -473,7 +475,7 @@ class WhatsappService {
 	private async _readStreamAndUpdateMessage(
 		stream: ReadableStream<InferUIMessageChunk<UIMessage>>,
 		ctx: ConversationContext,
-	): Promise<{ finalText: string; chartUrls: string[] }> {
+	): Promise<{ finalText: string; chartUrls: string[]; mapLinks: string[] }> {
 		const state: StreamState = {
 			renderedToolCallIds: new Set(),
 			sqlOutputs: new Map(),
@@ -483,6 +485,7 @@ class WhatsappService {
 		};
 
 		const chartUrls: string[] = [];
+		const mapLinks: string[] = [];
 		let lastMessage: UIMessage | null = null;
 
 		for await (const uiMessage of readUIMessageStream<UIMessage>({ stream })) {
@@ -501,6 +504,11 @@ class WhatsappService {
 				if (url) {
 					chartUrls.push(url);
 				}
+			} else if (part.type === 'tool-display_map') {
+				const link = this._handleMapPart(part, state, ctx);
+				if (link) {
+					mapLinks.push(link);
+				}
 			}
 		}
 
@@ -509,7 +517,24 @@ class WhatsappService {
 			.map((p) => p.text.replace(CITATION_TAG_REGEX, ''))
 			.join('\n\n');
 
-		return { finalText, chartUrls };
+		return { finalText, chartUrls, mapLinks };
+	}
+
+	private _handleMapPart(
+		part: Extract<UIMessagePart, { type: 'tool-display_map' }>,
+		state: StreamState,
+		ctx: ConversationContext,
+	): string | null {
+		if (
+			part.state !== 'output-available' ||
+			!part.output.success ||
+			state.renderedToolCallIds.has(part.toolCallId)
+		) {
+			return null;
+		}
+		state.renderedToolCallIds.add(part.toolCallId);
+		const chatUrl = new URL(ctx.chatId, this._redirectUrl).toString();
+		return createWhatsappMapLink(part.input.title, chatUrl);
 	}
 
 	private async _handleChartPart(

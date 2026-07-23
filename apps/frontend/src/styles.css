@@ -734,6 +734,71 @@ code.dollar:before {
 	opacity: 0.9;
 }
 
+/* MapLibre hover tooltip: strip default popup chrome so the inner box matches the chart tooltip */
+.maplibregl-popup.map-tooltip {
+	pointer-events: none;
+}
+
+.maplibregl-popup.map-tooltip .maplibregl-popup-content {
+	padding: 0;
+	background: transparent;
+	box-shadow: none;
+	border-radius: 0;
+}
+
+.maplibregl-popup.map-tooltip .maplibregl-popup-tip {
+	display: none;
+}
+
+/* Round the zoom buttons to match the control group so hover/active fills stay inside the corners */
+.maplibregl-ctrl-group button:first-child {
+	border-radius: 4px 4px 0 0;
+}
+
+.maplibregl-ctrl-group button:last-child {
+	border-radius: 0 0 4px 4px;
+}
+
+.maplibregl-ctrl-group button:only-child {
+	border-radius: inherit;
+}
+
+/* MapLibre controls (zoom +/- and attribution) follow the app light/dark theme */
+.dark .maplibregl-ctrl-group {
+	background: var(--background);
+}
+
+.dark .maplibregl-ctrl-group button + button {
+	border-top-color: var(--border);
+}
+
+.dark .maplibregl-ctrl-group button:not(:disabled):hover,
+.dark .maplibregl-ctrl-group button:not(:disabled):active {
+	background-color: var(--accent);
+}
+
+.dark .maplibregl-ctrl button .maplibregl-ctrl-icon,
+.dark .maplibregl-ctrl-attrib.maplibregl-compact:after {
+	filter: invert(1);
+}
+
+.dark .maplibregl-ctrl.maplibregl-ctrl-attrib {
+	background-color: color-mix(in srgb, var(--background) 50%, transparent);
+}
+
+.dark .maplibregl-ctrl-attrib.maplibregl-compact {
+	background-color: var(--background);
+	color: var(--foreground);
+}
+
+.dark .maplibregl-ctrl-attrib.maplibregl-compact-show .maplibregl-ctrl-attrib-button {
+	background-color: var(--accent);
+}
+
+.dark .maplibregl-ctrl-attrib a {
+	color: var(--foreground);
+}
+
 @keyframes chat-input-border-draw {
 	from {
 		stroke-dashoffset: 100;

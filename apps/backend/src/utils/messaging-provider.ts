@@ -155,6 +155,10 @@ export const createTelegramMapLinkCard = (title: string, chatUrl: string): CardC
 	Actions([LinkButton({ url: chatUrl, label: 'View interactive map in nao' })]),
 ];
 
+/** WhatsApp has no interactive card UI, so a map degrades to a plain-text link to the nao chat. */
+export const createWhatsappMapLink = (title: string, chatUrl: string): string =>
+	`🗺️ ${title}\nView interactive map in nao: ${chatUrl}`;
+
 export const createPlainTextBlock = (text: string): CardChild => {
 	return CardText(stripMarkdown(text));
 };

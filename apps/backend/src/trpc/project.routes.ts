@@ -746,6 +746,7 @@ export const projectRoutes = {
 					.object({
 						pythonSandboxing: z.boolean().optional(),
 						sandboxes: z.boolean().optional(),
+						displayMap: z.boolean().optional(),
 					})
 					.optional(),
 				transcribe: z
@@ -793,6 +794,7 @@ export const projectRoutes = {
 				sql_dangerously_write_perm_enabled: merged.sql?.dangerouslyWritePermEnabled,
 				python_execution_max_duration_secs: merged.pythonExecution?.maxDurationSecs,
 				python_sandboxing_enabled: merged.experimental?.pythonSandboxing,
+				display_map_enabled: merged.experimental?.displayMap,
 				memory_enabled: merged.memoryEnabled,
 				web_search_enabled: merged.webSearch?.enabled,
 				web_search_mode: merged.webSearch?.mode,

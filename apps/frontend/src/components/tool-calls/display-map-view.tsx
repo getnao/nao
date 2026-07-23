@@ -5,7 +5,8 @@ import type { MapPoint } from '@nao/shared';
 import type { displayMap } from '@nao/shared/tools';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
-const MAP_STYLE_URL = import.meta.env.VITE_MAP_STYLE_URL || 'https://tiles.openfreemap.org/styles/positron';
+const MAP_STYLE_LIGHT = import.meta.env.VITE_MAP_STYLE_URL || 'https://tiles.openfreemap.org/styles/positron';
+const MAP_STYLE_DARK = import.meta.env.VITE_MAP_STYLE_URL_DARK || 'https://tiles.openfreemap.org/styles/dark';
 const POINTS_SOURCE_ID = 'query-points';
 const POINTS_LAYER_ID = 'query-points-circles';
 
@@ -19,7 +20,10 @@ export default function MapView({ points, config }: MapViewProps) {
 	const mapRef = useRef<maplibregl.Map | null>(null);
 	const pointsRef = useRef(points);
 	const configRef = useRef(config);
+	const markerColorRef = useRef('#522bff');
+	const styleUrlRef = useRef('');
 	const [initFailed, setInitFailed] = useState(false);
+	const isDark = useIsDark();
 	pointsRef.current = points;
 	configRef.current = config;
 
@@ -28,11 +32,14 @@ export default function MapView({ points, config }: MapViewProps) {
 			return;
 		}
 
+		const styleUrl = resolveStyleUrl(document.documentElement.classList.contains('dark'));
+		styleUrlRef.current = styleUrl;
+
 		let map: maplibregl.Map;
 		try {
 			map = new maplibregl.Map({
 				container: containerRef.current,
-				style: MAP_STYLE_URL,
+				style: styleUrl,
 				cooperativeGestures: true,
 				attributionControl: { compact: true },
 			});
@@ -43,7 +50,8 @@ export default function MapView({ points, config }: MapViewProps) {
 		mapRef.current = map;
 		map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
 
-		map.on('load', () => {
+		map.on('style.load', () => {
+			markerColorRef.current = resolveCssColor('--primary', '#522bff');
 			map.addSource(POINTS_SOURCE_ID, { type: 'geojson', data: toGeoJsonPoints(pointsRef.current) });
 			map.addLayer({
 				id: POINTS_LAYER_ID,
@@ -51,7 +59,7 @@ export default function MapView({ points, config }: MapViewProps) {
 				source: POINTS_SOURCE_ID,
 				paint: {
 					'circle-radius': 5,
-					'circle-color': resolveCssColor('--chart-1', '#2f6f8f'),
+					'circle-color': markerColorRef.current,
 					'circle-opacity': 0.9,
 					'circle-stroke-width': 2,
 					'circle-stroke-color': resolveCssColor('--background', '#ffffff'),
@@ -60,26 +68,29 @@ export default function MapView({ points, config }: MapViewProps) {
 			fitToPoints(map, pointsRef.current);
 		});
 
-		map.on('click', POINTS_LAYER_ID, (event) => {
+		const tooltip = new maplibregl.Popup({
+			closeButton: false,
+			closeOnClick: false,
+			className: 'map-tooltip',
+			maxWidth: '280px',
+			offset: 12,
+		});
+
+		map.on('mousemove', POINTS_LAYER_ID, (event) => {
 			const index = event.features?.[0]?.properties?.index;
 			const point = typeof index === 'number' ? pointsRef.current[index] : undefined;
-			if (!point) {
+			const content = point ? buildTooltipContent(point, configRef.current, markerColorRef.current) : null;
+			if (!point || !content) {
+				tooltip.remove();
+				map.getCanvas().style.cursor = '';
 				return;
 			}
-			const content = buildPopupContent(point, configRef.current);
-			if (!content) {
-				return;
-			}
-			new maplibregl.Popup({ closeButton: false, maxWidth: '280px' })
-				.setLngLat([point.longitude, point.latitude])
-				.setDOMContent(content)
-				.addTo(map);
-		});
-		map.on('mouseenter', POINTS_LAYER_ID, () => {
 			map.getCanvas().style.cursor = 'pointer';
+			tooltip.setLngLat([point.longitude, point.latitude]).setDOMContent(content).addTo(map);
 		});
 		map.on('mouseleave', POINTS_LAYER_ID, () => {
 			map.getCanvas().style.cursor = '';
+			tooltip.remove();
 		});
 
 		return () => {
@@ -87,6 +98,16 @@ export default function MapView({ points, config }: MapViewProps) {
 			map.remove();
 		};
 	}, []);
+
+	useEffect(() => {
+		const map = mapRef.current;
+		const styleUrl = resolveStyleUrl(isDark);
+		if (!map || styleUrl === styleUrlRef.current) {
+			return;
+		}
+		styleUrlRef.current = styleUrl;
+		map.setStyle(styleUrl);
+	}, [isDark]);
 
 	useEffect(() => {
 		const map = mapRef.current;
@@ -106,7 +127,24 @@ export default function MapView({ points, config }: MapViewProps) {
 		);
 	}
 
-	return <div ref={containerRef} className='w-full aspect-3/2 rounded-md border overflow-hidden' />;
+	return <div ref={containerRef} className='w-full aspect-3/2 rounded-lg overflow-hidden' />;
+}
+
+function useIsDark() {
+	const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'));
+
+	useEffect(() => {
+		const root = document.documentElement;
+		const observer = new MutationObserver(() => setIsDark(root.classList.contains('dark')));
+		observer.observe(root, { attributes: true, attributeFilter: ['class'] });
+		return () => observer.disconnect();
+	}, []);
+
+	return isDark;
+}
+
+function resolveStyleUrl(isDark: boolean): string {
+	return isDark ? MAP_STYLE_DARK : MAP_STYLE_LIGHT;
 }
 
 function toGeoJsonPoints(points: MapPoint[]) {
@@ -134,14 +172,18 @@ function fitToPoints(map: maplibregl.Map, points: MapPoint[]) {
 	);
 }
 
-/** Builds popup DOM with `textContent` only, so untrusted query values can never inject HTML. */
-function buildPopupContent(point: MapPoint, config: displayMap.Input): HTMLElement | null {
+function buildTooltipContent(point: MapPoint, config: displayMap.Input, markerColor: string): HTMLElement | null {
 	const rows: HTMLElement[] = [];
 
 	if (config.label_key && point.row[config.label_key] != null) {
 		const title = document.createElement('div');
-		title.className = 'text-sm font-medium text-neutral-900';
-		title.textContent = String(point.row[config.label_key]);
+		title.className = 'flex items-center gap-2 font-medium text-foreground';
+		const dot = document.createElement('span');
+		dot.className = 'h-2.5 w-2.5 shrink-0 rounded-[2px]';
+		dot.style.backgroundColor = markerColor;
+		const text = document.createElement('span');
+		text.textContent = String(point.row[config.label_key]);
+		title.append(dot, text);
 		rows.push(title);
 	}
 
@@ -150,12 +192,12 @@ function buildPopupContent(point: MapPoint, config: displayMap.Input): HTMLEleme
 			continue;
 		}
 		const row = document.createElement('div');
-		row.className = 'flex justify-between gap-3 text-xs';
+		row.className = 'flex items-center justify-between gap-4 leading-none';
 		const label = document.createElement('span');
-		label.className = 'text-neutral-500';
+		label.className = 'text-muted-foreground';
 		label.textContent = labelize(key);
 		const value = document.createElement('span');
-		value.className = 'text-neutral-900 font-medium';
+		value.className = 'text-foreground font-mono font-medium tabular-nums';
 		value.textContent = String(point.row[key]);
 		row.append(label, value);
 		rows.push(row);
@@ -166,16 +208,12 @@ function buildPopupContent(point: MapPoint, config: displayMap.Input): HTMLEleme
 	}
 
 	const container = document.createElement('div');
-	container.className = 'flex flex-col gap-1 font-sans';
+	container.className =
+		'border-border/50 bg-background grid min-w-32 items-start gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs shadow-xl font-sans';
 	container.append(...rows);
 	return container;
 }
 
-/**
- * Resolves a CSS variable to a color MapLibre can parse (oklch tokens are not supported natively).
- * TODO: colors and the basemap style are snapshotted on mount — a light/dark toggle does not
- * restyle the map until remount.
- */
 function resolveCssColor(variableName: string, fallback: string): string {
 	const value = getComputedStyle(document.documentElement).getPropertyValue(variableName).trim();
 	const context = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
