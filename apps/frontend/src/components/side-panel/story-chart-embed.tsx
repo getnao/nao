@@ -1,6 +1,8 @@
 import { Pencil } from 'lucide-react';
 import { memo, useMemo, useState } from 'react';
+import { StoryEmbedFallback } from './story-embed-fallback';
 import type { UIMessage } from '@nao/backend/chat';
+import type { ParsedChartBlock } from '@nao/shared/story-segments';
 import type { displayChart } from '@nao/shared/tools';
 
 import { ChartDisplay } from '@/components/tool-calls/display-chart';
@@ -11,21 +13,17 @@ import { useStoryChartEdit } from '@/contexts/story-chart-edit';
 import { useStoryEmbedData } from '@/contexts/story-embed-data';
 import { sortByDateKey } from '@/lib/charts.utils';
 
-interface ChartBlock {
-	queryId: string;
-	chartType: string;
-	xAxisKey: string;
-	xAxisType: string | null;
-	series: Array<{ data_key: string; color: string; label?: string; is_total?: boolean }>;
-	yAxisMin?: number;
-	yAxisMax?: number;
-	title: string;
-	showDataLabels?: boolean;
-	comparisonMode?: 'percentage' | 'variation' | 'absolute' | 'none';
-	rawTag?: string;
-}
+const STORY_CHART_HEIGHT_CLASS = 'h-72';
 
-export const StoryChartEmbed = memo(function StoryChartEmbed({ chart }: { chart: ChartBlock }) {
+type ChartBlock = ParsedChartBlock;
+
+export const StoryChartEmbed = memo(function StoryChartEmbed({
+	chart,
+	dragHandle,
+}: {
+	chart: ChartBlock;
+	dragHandle?: React.ReactNode;
+}) {
 	const agent = useOptionalAgentContext();
 	const embedData = useStoryEmbedData();
 
@@ -59,24 +57,25 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({ chart }: { chart:
 
 	if (!sourceData?.data || sourceData.data.length === 0) {
 		return (
-			<div className='my-2 rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground'>
+			<StoryEmbedFallback dragHandle={dragHandle}>
 				Chart data unavailable (query: {chart.queryId})
-			</div>
+			</StoryEmbedFallback>
 		);
 	}
 
 	if (chart.series.length === 0) {
-		return (
-			<div className='my-2 rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground'>
-				No series configured for chart
-			</div>
-		);
+		return <StoryEmbedFallback dragHandle={dragHandle}>No series configured for chart</StoryEmbedFallback>;
 	}
 
 	const xAxisType = chart.xAxisType === 'number' ? 'number' : ('category' as const);
 
 	return (
-		<StoryChartEmbedShell chart={chart} availableColumns={sourceData.columns ?? []} data={sourceData.data ?? []}>
+		<StoryChartEmbedShell
+			chart={chart}
+			availableColumns={sourceData.columns ?? []}
+			data={sourceData.data ?? []}
+			dragHandle={dragHandle}
+		>
 			<ChartDisplay
 				data={data}
 				chartType={chart.chartType as displayChart.ChartType}
@@ -86,8 +85,14 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({ chart }: { chart:
 				title={chart.title}
 				yAxisMin={chart.yAxisMin}
 				yAxisMax={chart.yAxisMax}
+				yAxisLabel={chart.yAxisLabel}
+				yAxisRightMin={chart.yAxisRightMin}
+				yAxisRightMax={chart.yAxisRightMax}
+				yAxisRightLabel={chart.yAxisRightLabel}
 				showDataLabels={chart.showDataLabels}
 				comparisonMode={chart.comparisonMode}
+				normalSize
+				hideTotal={chart.hideTotal}
 			/>
 		</StoryChartEmbedShell>
 	);
@@ -97,6 +102,7 @@ interface StoryChartEmbedShellProps {
 	chart: ChartBlock;
 	availableColumns: string[];
 	data?: Record<string, unknown>[];
+	dragHandle?: React.ReactNode;
 	children: React.ReactNode;
 }
 
@@ -104,7 +110,13 @@ interface StoryChartEmbedShellProps {
  * Wraps a rendered chart with an "Edit chart" button when the surrounding story
  * context provides a save handler.
  */
-export function StoryChartEmbedShell({ chart, availableColumns, data, children }: StoryChartEmbedShellProps) {
+export function StoryChartEmbedShell({
+	chart,
+	availableColumns,
+	data,
+	dragHandle,
+	children,
+}: StoryChartEmbedShellProps) {
 	const edit = useStoryChartEdit();
 	const [isEditOpen, setIsEditOpen] = useState(false);
 	const canEdit = Boolean(edit && chart.rawTag);
@@ -120,17 +132,24 @@ export function StoryChartEmbedShell({ chart, availableColumns, data, children }
 				color: s.color || undefined,
 				label: s.label,
 				is_total: s.is_total,
+				series_type: s.series_type,
+				y_axis: s.y_axis,
 			})),
 			y_axis_min: chart.yAxisMin,
 			y_axis_max: chart.yAxisMax,
+			y_axis_label: chart.yAxisLabel,
+			y_axis_right_min: chart.yAxisRightMin,
+			y_axis_right_max: chart.yAxisRightMax,
+			y_axis_right_label: chart.yAxisRightLabel,
 			title: chart.title,
 			show_data_labels: chart.showDataLabels,
 			comparison_mode: chart.comparisonMode,
+			hide_total: chart.hideTotal,
 		}),
 		[chart],
 	);
 
-	const isKpi = chart.chartType == 'kpi_card';
+	const isKpi = chart.chartType === 'kpi_card';
 	const editButton = canEdit ? (
 		<Button
 			variant='ghost-muted'
@@ -145,7 +164,7 @@ export function StoryChartEmbedShell({ chart, availableColumns, data, children }
 
 	return (
 		<div className='my-2 flex flex-col gap-4'>
-			{!isKpi && (canEdit || chart.title) && (
+			{!isKpi && (canEdit || dragHandle != null || chart.title) && (
 				<div className='flex w-full items-center justify-between gap-2'>
 					{chart.title ? (
 						<span className='text-sm font-medium text-foreground flex-1 min-w-0 truncate'>
@@ -154,12 +173,20 @@ export function StoryChartEmbedShell({ chart, availableColumns, data, children }
 					) : (
 						<div className='flex-1' />
 					)}
-					{editButton}
+					<div className='flex shrink-0 items-center gap-1'>
+						{dragHandle}
+						{editButton}
+					</div>
 				</div>
 			)}
-			<div className={`relative ${!isKpi ? 'aspect-3/2' : ''}`}>
+			<div className={`relative ${!isKpi ? STORY_CHART_HEIGHT_CLASS : ''}`}>
 				{children}
-				{isKpi && editButton && <div className='absolute top-0 right-0'>{editButton}</div>}
+				{isKpi && (dragHandle != null || editButton) && (
+					<div className='absolute top-0 right-0 flex items-center gap-1'>
+						{dragHandle}
+						{editButton}
+					</div>
+				)}
 			</div>
 			{canEdit && edit && chart.rawTag && (
 				<ChartConfigEditDialog

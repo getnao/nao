@@ -96,7 +96,7 @@ function StorySegment({ segment, queryData }: { segment: Segment; queryData: Que
 		case 'table':
 			return <TableBlock table={segment.table} queryData={queryData} />;
 		case 'grid':
-			return <GridBlock cols={segment.cols} segments={segment.children} queryData={queryData} />;
+			return <GridBlock segment={segment} queryData={queryData} />;
 	}
 }
 
@@ -109,30 +109,31 @@ function MarkdownBlock({ content }: { content: string }) {
 }
 
 function GridBlock({
-	cols: _cols,
-	segments,
+	segment,
 	queryData,
 }: {
-	cols: number;
-	segments: Segment[];
+	segment: Extract<Segment, { type: 'grid' }>;
 	queryData: QueryDataMap | null;
 }) {
-	const allKpi = segments.every((s) => s.type === 'chart' && s.chart.chartType === 'kpi_card');
+	const allKpi =
+		segment.children.length > 0 &&
+		segment.children.every((child) => child.type === 'chart' && child.chart.chartType === 'kpi_card');
 	if (allKpi) {
 		return (
 			<div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, margin: '16px 0' }}>
-				{segments.map((seg, i) => (
-					<div key={i} style={{ flex: '1 1 0%', minWidth: 160 }}>
-						<StorySegment segment={seg} queryData={queryData} />
+				{segment.children.map((child, i) => (
+					<div key={i} style={{ flex: `${segment.widths?.[i] ?? 1} 1 0%`, minWidth: 160 }}>
+						<StorySegment segment={child} queryData={queryData} />
 					</div>
 				))}
 			</div>
 		);
 	}
+
 	return (
 		<>
-			{segments.map((seg, i) => (
-				<StorySegment key={i} segment={seg} queryData={queryData} />
+			{segment.children.map((child, i) => (
+				<StorySegment key={i} segment={child} queryData={queryData} />
 			))}
 		</>
 	);
@@ -172,6 +173,7 @@ function ChartBlock({ chart, queryData }: { chart: ParsedChartBlock; queryData: 
 			chartType: chart.chartType,
 			yAxisMin: chart.yAxisMin,
 			yAxisMax: chart.yAxisMax,
+			hideTotal: chart.hideTotal,
 		});
 		return (
 			<div style={{ margin: '16px 0' }}>
@@ -413,6 +415,10 @@ function toChartConfig(chart: ParsedChartBlock) {
 		series: chart.series,
 		y_axis_min: chart.yAxisMin,
 		y_axis_max: chart.yAxisMax,
+		y_axis_label: chart.yAxisLabel,
+		y_axis_right_min: chart.yAxisRightMin,
+		y_axis_right_max: chart.yAxisRightMax,
+		y_axis_right_label: chart.yAxisRightLabel,
 		title: chart.title,
 		show_data_labels: chart.showDataLabels,
 	};
@@ -569,6 +575,7 @@ const TOOLTIP_SCRIPT_TEMPLATE = `
 			var html='<div class="nao-tooltip-label">'+labelize(label!=null?label:'')+'</div>';
 			html+='<div class="nao-tooltip-rows">';
 			var isPercent=cfg.chartType==='stacked_bar_100'||cfg.chartType==='stacked_area_100';
+			var isDualAxis=(cfg.series||[]).some(function(s){return s.y_axis==='right'});
 			var seriesTotal=0;
 			cfg.series.forEach(function(s){var sv=row[s.data_key];if(typeof sv==='number'&&!s.is_total)seriesTotal+=sv;});
 			function pctShare(v){if(typeof v!=='number'||!seriesTotal)return '0%';var sh=Math.round(v/seriesTotal*1000)/10;return (sh%1===0?sh:sh.toFixed(1))+'%';}
@@ -595,7 +602,7 @@ const TOOLTIP_SCRIPT_TEMPLATE = `
 					+'<span class="nao-tooltip-value">'+(isPercent?pctShare(val):formatVal(val))+'</span>'
 					+'</div>';
 			});
-			if(numericValues.length>1 && (isPercent || !hasTotalSeries)){
+			if(numericValues.length>1 && !isDualAxis && (isPercent || (!hasTotalSeries && !cfg.hideTotal))){
 				var total=numericValues.reduce(function(a,b){return a+b},0);
 				html+='<div class="nao-tooltip-total">'
 					+'<span class="nao-tooltip-name">Total</span>'

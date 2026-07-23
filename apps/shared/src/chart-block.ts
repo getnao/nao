@@ -18,8 +18,13 @@ export type StoryChartBlockInput = Pick<
 	| 'series'
 	| 'y_axis_min'
 	| 'y_axis_max'
+	| 'y_axis_label'
+	| 'y_axis_right_min'
+	| 'y_axis_right_max'
+	| 'y_axis_right_label'
 	| 'show_data_labels'
 	| 'comparison_mode'
+	| 'hide_total'
 > & {
 	title?: displayChart.KpiCardInput['title'];
 	x_axis_key?: displayChart.KpiCardInput['x_axis_key'];
@@ -31,6 +36,12 @@ export function buildStoryChartBlock(input: StoryChartBlockInput): string {
 		input.x_axis_type != null ? ` x_axis_type="${escapeDoubleQuotedStoryAttr(input.x_axis_type)}"` : '';
 	const yMinAttr = input.y_axis_min !== undefined ? ` y_axis_min="${input.y_axis_min}"` : '';
 	const yMaxAttr = input.y_axis_max !== undefined ? ` y_axis_max="${input.y_axis_max}"` : '';
+	const yLabelAttr = input.y_axis_label ? ` y_axis_label="${escapeDoubleQuotedStoryAttr(input.y_axis_label)}"` : '';
+	const yRightMinAttr = input.y_axis_right_min !== undefined ? ` y_axis_right_min="${input.y_axis_right_min}"` : '';
+	const yRightMaxAttr = input.y_axis_right_max !== undefined ? ` y_axis_right_max="${input.y_axis_right_max}"` : '';
+	const yRightLabelAttr = input.y_axis_right_label
+		? ` y_axis_right_label="${escapeDoubleQuotedStoryAttr(input.y_axis_right_label)}"`
+		: '';
 	const seriesJson = escapeSingleQuotedStoryAttr(JSON.stringify(input.series));
 	const titleAttr =
 		input.title != null && input.title !== '' ? ` title="${escapeDoubleQuotedStoryAttr(input.title)}"` : '';
@@ -39,7 +50,8 @@ export function buildStoryChartBlock(input: StoryChartBlockInput): string {
 		input.comparison_mode && input.comparison_mode !== 'none'
 			? ` comparison_mode="${escapeDoubleQuotedStoryAttr(input.comparison_mode)}"`
 			: '';
-	return `<chart query_id="${escapeDoubleQuotedStoryAttr(input.query_id)}" chart_type="${escapeDoubleQuotedStoryAttr(input.chart_type)}"${xAxisKeyAttr}${xAxisTypeAttr}${yMinAttr}${yMaxAttr} series='${seriesJson}'${titleAttr}${dataLabelsAttr}${comparisonModeAttr} />`;
+	const hideTotalAttr = input.hide_total ? ' hide_total="true"' : '';
+	return `<chart query_id="${escapeDoubleQuotedStoryAttr(input.query_id)}" chart_type="${escapeDoubleQuotedStoryAttr(input.chart_type)}"${xAxisKeyAttr}${xAxisTypeAttr}${yMinAttr}${yMaxAttr}${yLabelAttr}${yRightMinAttr}${yRightMaxAttr}${yRightLabelAttr} series='${seriesJson}'${titleAttr}${dataLabelsAttr}${comparisonModeAttr}${hideTotalAttr} />`;
 }
 
 export type StoryTableBlockInput = Pick<displayChart.TableInput, 'query_id' | 'title' | 'conditional_formats'>;

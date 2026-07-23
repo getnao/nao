@@ -1,6 +1,7 @@
 import { sanitizeConditionalFormats } from '@nao/shared/conditional-formatting';
 import { Pencil } from 'lucide-react';
 import { memo, useMemo, useState } from 'react';
+import { StoryEmbedFallback } from './story-embed-fallback';
 import type { UIMessage } from '@nao/backend/chat';
 import type { ParsedTableBlock } from '@nao/shared/story-segments';
 
@@ -11,7 +12,13 @@ import { useOptionalAgentContext } from '@/contexts/agent.provider';
 import { useStoryEmbedData } from '@/contexts/story-embed-data';
 import { useStoryTableEdit } from '@/contexts/story-table-edit';
 
-export const StoryTableEmbed = memo(function StoryTableEmbed({ table }: { table: ParsedTableBlock }) {
+export const StoryTableEmbed = memo(function StoryTableEmbed({
+	table,
+	dragHandle,
+}: {
+	table: ParsedTableBlock;
+	dragHandle?: React.ReactNode;
+}) {
 	const agent = useOptionalAgentContext();
 	const embedData = useStoryEmbedData();
 
@@ -37,9 +44,9 @@ export const StoryTableEmbed = memo(function StoryTableEmbed({ table }: { table:
 
 	if (!sourceData?.data || !Array.isArray(sourceData.data)) {
 		return (
-			<div className='my-2 rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground'>
+			<StoryEmbedFallback dragHandle={dragHandle}>
 				Table data unavailable (query: {table.queryId})
-			</div>
+			</StoryEmbedFallback>
 		);
 	}
 
@@ -52,7 +59,12 @@ export const StoryTableEmbed = memo(function StoryTableEmbed({ table }: { table:
 			columns={columns}
 			title={table.title}
 			conditionalFormats={table.conditionalFormats}
-			headerActions={<StoryTableEditControls table={table} data={rows} columns={columns} />}
+			headerActions={
+				<>
+					{dragHandle}
+					<StoryTableEditControls table={table} data={rows} columns={columns} />
+				</>
+			}
 		/>
 	);
 });

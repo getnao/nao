@@ -1,4 +1,5 @@
-import { parseChartAttributes, parseSeriesJsonArray, TAG_ATTRS } from './story-segments';
+import { parseChartAttributes, parseGridColumns, parseSeriesJsonArray, TAG_ATTRS } from './story-segments';
+import { ChartTypeEnum, SeriesTypeEnum, XAxisTypeEnum, YAxisSideEnum } from './tools/display-chart';
 
 export interface StoryValidationError {
 	message: string;
@@ -11,22 +12,13 @@ const REQUIRED_CHART_ATTRS = ['query_id', 'chart_type', 'x_axis_key'] as const;
 const CHART_TYPES_WITHOUT_X_AXIS_KEY = new Set(['kpi_card']);
 const REQUIRED_TABLE_ATTRS = ['query_id'] as const;
 
-const VALID_CHART_TYPES = new Set([
-	'bar',
-	'stacked_bar',
-	'stacked_bar_100',
-	'line',
-	'area',
-	'stacked_area',
-	'stacked_area_100',
-	'pie',
-	'donut',
-	'kpi_card',
-	'scatter',
-	'radar',
-]);
+const VALID_CHART_TYPES = new Set<string>(ChartTypeEnum.options);
 
-const VALID_X_AXIS_TYPES = new Set(['date', 'number', 'category']);
+const VALID_X_AXIS_TYPES = new Set<string>(XAxisTypeEnum.options);
+
+const VALID_SERIES_TYPES = new Set<string>(SeriesTypeEnum.options);
+
+const VALID_Y_AXIS_SIDES = new Set<string>(YAxisSideEnum.options);
 
 /**
  * Validates the structure of a story's markdown code, looking for common
@@ -221,6 +213,24 @@ function validateChartSeries(
 				length,
 			};
 		}
+
+		const { series_type: seriesType, y_axis: yAxis } = item as { series_type?: unknown; y_axis?: unknown };
+		if (seriesType !== undefined && !VALID_SERIES_TYPES.has(seriesType as string)) {
+			return {
+				message: `Invalid series \`series_type\` "${String(seriesType)}". Valid values: ${[...VALID_SERIES_TYPES].join(', ')}.`,
+				line: position.line,
+				column: position.column,
+				length,
+			};
+		}
+		if (yAxis !== undefined && !VALID_Y_AXIS_SIDES.has(yAxis as string)) {
+			return {
+				message: `Invalid series \`y_axis\` "${String(yAxis)}". Valid values: ${[...VALID_Y_AXIS_SIDES].join(', ')}.`,
+				line: position.line,
+				column: position.column,
+				length,
+			};
+		}
 	}
 
 	return null;
@@ -294,6 +304,33 @@ function validateGridBlocks(code: string): StoryValidationError[] {
 			if (!Number.isInteger(cols) || cols < 1 || cols > 4) {
 				errors.push({
 					message: `Grid \`cols\` must be an integer between 1 and 4 (got "${attrs.cols}").`,
+					line: position.line,
+					column: position.column,
+					length: match[0].length,
+				});
+			}
+		}
+
+		if (attrs.widths !== undefined) {
+			const widthValues = attrs.widths.split(',');
+			const hasInvalidWidth = widthValues.some((value) => {
+				const width = Number(value.trim());
+				return !Number.isInteger(width) || width <= 0;
+			});
+			if (hasInvalidWidth) {
+				errors.push({
+					message: 'Grid `widths` must be a comma-separated list of positive integers.',
+					line: position.line,
+					column: position.column,
+					length: match[0].length,
+				});
+			}
+
+			const innerContent = code.slice(openTagRegex.lastIndex, closeIdx);
+			const childCount = parseGridColumns(innerContent).children.length;
+			if (widthValues.length !== childCount) {
+				errors.push({
+					message: `Grid \`widths\` has ${widthValues.length} values but the grid has ${childCount} columns.`,
 					line: position.line,
 					column: position.column,
 					length: match[0].length,

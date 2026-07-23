@@ -1,4 +1,5 @@
 import type { DateFormatSettings } from '@nao/shared/date';
+import { extractQueryIds } from '@nao/shared/story-segments';
 import type { displayChart } from '@nao/shared/tools';
 import { z } from 'zod/v4';
 
@@ -316,8 +317,8 @@ async function buildStoryPdfAttachments(
 }
 
 async function getStoryQueryData(context: ToolContext, code: string): Promise<QueryDataMap | null> {
-	const queryIds = extractStoryQueryIds(code);
-	if (queryIds.length === 0) {
+	const queryIds = extractQueryIds(code);
+	if (queryIds.size === 0) {
 		return null;
 	}
 
@@ -330,16 +331,6 @@ async function getStoryQueryData(context: ToolContext, code: string): Promise<Qu
 	}
 
 	return Object.keys(queryData).length > 0 ? queryData : null;
-}
-
-function extractStoryQueryIds(code: string): string[] {
-	const queryIds = new Set<string>();
-	const chartRegex = /<(?:chart|table)\s+[^>]*query_id="([^"]*)"[^>]*\/?>/g;
-	let match: RegExpExecArray | null;
-	while ((match = chartRegex.exec(code)) !== null) {
-		queryIds.add(match[1]);
-	}
-	return [...queryIds];
 }
 
 function appendInlineChartImages(html: string, attachments: GeneratedArtifactAttachment[]): string {

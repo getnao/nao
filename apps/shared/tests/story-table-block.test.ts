@@ -204,6 +204,20 @@ describe('displayChart.InputSchema table variant', () => {
 		});
 	});
 
+	it('retains hide_total in a valid chart config', () => {
+		const result = displayChart.InputSchema.safeParse({
+			query_id: 'q',
+			chart_type: 'line',
+			x_axis_key: 'month',
+			x_axis_type: 'date',
+			series: [{ data_key: 'a' }, { data_key: 'b' }],
+			title: 't',
+			hide_total: true,
+		});
+		expect(result.success).toBe(true);
+		expect(result.success && result.data.chart_type !== 'table' && result.data.hide_total).toBe(true);
+	});
+
 	it('rejects a chart config missing chart fields', () => {
 		const result = displayChart.InputSchema.safeParse({
 			query_id: 'query_1',

@@ -1,4 +1,6 @@
+import writeXlsxFile from 'write-excel-file/universal';
 import { formatCellValue } from '@nao/shared/story-table-utils';
+import type { Cell, Row } from 'write-excel-file/universal';
 
 type TableRow = Record<string, unknown>;
 
@@ -24,8 +26,34 @@ export function tableToTsv(columns: string[], rows: TableRow[]): string {
 	].join('\n');
 }
 
+function tableToXlsxBlob(columns: string[], rows: TableRow[]): Promise<Blob> {
+	const header: Row = columns.map((column) => ({ value: column, fontWeight: 'bold' }));
+	const body: Row[] = rows.map((row) => columns.map((column) => toXlsxCell(row[column])));
+	return writeXlsxFile([header, ...body]).toBlob();
+}
+
+function toXlsxCell(value: unknown): Cell {
+	if (value === null || value === undefined) {
+		return null;
+	}
+	if (typeof value === 'number') {
+		return Number.isFinite(value) ? { type: Number, value } : null;
+	}
+	if (typeof value === 'boolean') {
+		return { type: Boolean, value };
+	}
+	return { type: String, value: formatCellValue(value) };
+}
+
 export function downloadCsv(filename: string, csv: string): void {
-	const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+	triggerDownload(filename, new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
+}
+
+export async function downloadXlsx(filename: string, columns: string[], rows: TableRow[]): Promise<void> {
+	triggerDownload(filename, await tableToXlsxBlob(columns, rows));
+}
+
+function triggerDownload(filename: string, blob: Blob): void {
 	const url = URL.createObjectURL(blob);
 	const link = document.createElement('a');
 	link.href = url;
