@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Editor } from '@monaco-editor/react';
+import { Editor, useMonaco } from '@monaco-editor/react';
 import { validateSqlFilterTemplate } from '@nao/shared/sql-template';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, Loader2, Play, Save } from 'lucide-react';
@@ -11,12 +11,14 @@ import type { executeSql } from '@nao/shared/tools';
 import type { editor } from 'monaco-editor';
 
 import { useOptionalAgentContext } from '@/contexts/agent.provider';
+import { useEditorTheme } from '@/hooks/use-editor-theme';
 import { FixInChatButton } from '@/components/fix-in-chat-button';
 import { SidePanelHeader } from '@/components/side-panel/side-panel-header';
 import { TableDisplay } from '@/components/tool-calls/display-table';
 import { Button } from '@/components/ui/button';
 import { applyExecuteSqlResultToMessages } from '@/lib/execute-sql-messages';
 import { formatSQL } from '@/lib/sql-formatter';
+import { SQL_SHIKI_THEME, setupSqlHighlighting } from '@/lib/sql-shiki-theme';
 import { trpc } from '@/main';
 
 const RESULTS_MIN_HEIGHT = 240;
@@ -34,6 +36,9 @@ export const SidePanelContent = ({
 	editable?: boolean;
 }) => {
 	const queryClient = useQueryClient();
+	const monaco = useMonaco();
+	const editorTheme = useEditorTheme();
+	const [shikiReady, setShikiReady] = useState(false);
 	const agent = useOptionalAgentContext();
 	const agentRef = useRef(agent);
 	agentRef.current = agent;
@@ -48,6 +53,27 @@ export const SidePanelContent = ({
 	const groupElementRef = useRef<HTMLDivElement>(null);
 	const sqlQueryRef = useRef(sqlQuery);
 	sqlQueryRef.current = sqlQuery;
+
+	useEffect(() => {
+		if (!monaco) {
+			return;
+		}
+		let active = true;
+		setupSqlHighlighting(monaco).then(() => {
+			if (active) {
+				setShikiReady(true);
+			}
+		});
+		return () => {
+			active = false;
+		};
+	}, [monaco]);
+
+	const themeName = shikiReady
+		? editorTheme === 'vs-dark'
+			? SQL_SHIKI_THEME.dark
+			: SQL_SHIKI_THEME.light
+		: editorTheme;
 
 	useEffect(() => {
 		setSqlQuery(input.sql_query);
@@ -263,7 +289,7 @@ export const SidePanelContent = ({
 							onChange={canEdit ? (value) => setSqlQuery(value ?? '') : undefined}
 							onMount={handleEditorMount}
 							language='sql'
-							theme='light'
+							theme={themeName}
 							options={{
 								readOnly: !canEdit,
 								minimap: {
