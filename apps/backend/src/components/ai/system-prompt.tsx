@@ -1,3 +1,5 @@
+import type { ChartPluginManifestEntry } from '@nao/shared';
+
 import { Block, Bold, Br, Link, List, ListItem, Location, Span, Title } from '../../lib/markdown';
 import type { Skill } from '../../services/skill';
 import { tokenCounter } from '../../services/token-counter';
@@ -18,6 +20,7 @@ type SystemPromptProps = {
 	userRules?: string;
 	connections?: Connection[];
 	skills?: Skill[];
+	customCharts?: ChartPluginManifestEntry[];
 	/** Names of MCP servers the agent is allowed to call (tools discovered as on-disk specs). */
 	mcpServers?: string[];
 	timezone?: string;
@@ -31,6 +34,7 @@ export function SystemPrompt({
 	userRules,
 	connections = [],
 	skills = [],
+	customCharts = [],
 	mcpServers = [],
 	timezone,
 	testMode,
@@ -230,12 +234,52 @@ export function SystemPrompt({
 					</Block>
 				)}
 
+				{customCharts.length > 0 && <CustomChartsBlock charts={customCharts} />}
+
 				{mcpServers.length > 0 && <McpServersBlock servers={mcpServers} />}
 
 				{visibleMemories.length > 0 && <MemoryBlock memories={visibleMemories} />}
 			</Block>
 		</Block>
 	);
+}
+
+const MAX_PROMPT_CUSTOM_CHARTS = 50;
+const MAX_CHART_DESCRIPTION_LENGTH = 200;
+
+function CustomChartsBlock({ charts }: { charts: ChartPluginManifestEntry[] }) {
+	const visibleCharts = charts.slice(0, MAX_PROMPT_CUSTOM_CHARTS);
+	const hiddenCount = charts.length - visibleCharts.length;
+	return (
+		<Block>
+			<Title level={2}>Custom charts</Title>
+			<Span>
+				The project provides the custom chart types below. Use them through display_chart only when their
+				description fits the request. They render in interactive web chats only, so do not use them in stories
+				or exports.
+			</Span>
+			<List>
+				{visibleCharts.map((chart) => (
+					<ListItem key={chart.type}>
+						<Bold>{chart.type}</Bold>
+						{chart.description ? `: ${truncateChartDescription(chart.description)}` : ''}
+					</ListItem>
+				))}
+			</List>
+			{hiddenCount > 0 && (
+				<Span>
+					And {hiddenCount} more custom chart type{hiddenCount === 1 ? '' : 's'} in agent/charts — list that
+					folder to discover the rest.
+				</Span>
+			)}
+		</Block>
+	);
+}
+
+function truncateChartDescription(description: string): string {
+	return description.length <= MAX_CHART_DESCRIPTION_LENGTH
+		? description
+		: `${description.slice(0, MAX_CHART_DESCRIPTION_LENGTH - 1).trimEnd()}…`;
 }
 
 function McpServersBlock({ servers }: { servers: string[] }) {

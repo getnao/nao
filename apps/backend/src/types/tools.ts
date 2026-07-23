@@ -8,7 +8,7 @@ export interface QueryResult {
 }
 
 export interface GeneratedArtifacts {
-	charts: (displayChart.ChartInput | displayChart.KpiCardInput)[];
+	charts: (displayChart.BuiltinChartInput | displayChart.KpiCardInput)[];
 	stories: { id: string; title: string }[];
 }
 
@@ -17,6 +17,7 @@ export interface ToolContext {
 	chatId: string;
 	userId: string;
 	projectId: string;
+	supportsCustomCharts: boolean;
 	agentSettings: AgentSettings | null;
 	envVars: Record<string, string>;
 	/**

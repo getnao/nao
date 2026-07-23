@@ -23,6 +23,7 @@ import { TextShimmer } from '../ui/text-shimmer';
 import { DisplayChartEditDialog } from './display-chart-edit-dialog';
 import { DisplayChartTable } from './display-chart-table';
 import { ChartRangeSelector } from './display-chart-range-selector';
+import { CustomChart } from './custom-chart';
 import { SqlQueryDisplay } from './sql-query-display';
 import { SqlResultDisplay } from './sql-result-display';
 import { ToolCallWrapper } from './tool-call-wrapper';
@@ -77,9 +78,10 @@ export const DisplayChartToolCall = ({
 	const { open: openSidePanel, currentStorySlug, currentStoryTabIndex, isVisible } = useSidePanel();
 	const { isSettled } = useToolCallContext();
 	const config = state !== 'input-streaming' ? input : undefined;
-	const chartConfig = config?.chart_type === 'table' ? undefined : config;
-	const tableConfig = config?.chart_type === 'table' ? config : undefined;
-	const isTableVariant = input?.chart_type === 'table' || config?.chart_type === 'table';
+	const chartConfig = config && displayChart.isChartInput(config) ? config : undefined;
+	const tableConfig = config && displayChart.isTableInput(config) ? config : undefined;
+	const isTableVariant = input?.chart_type === 'table';
+	const isBuiltinChart = chartConfig ? displayChart.isBuiltinChartType(chartConfig.chart_type) : false;
 	const [dataRange, setDataRange] = useState<DateRange>('all');
 	const [viewMode, setViewMode] = useState<ViewMode>('chart');
 	const storyIds = useMemo(() => findStoryIds(messages), [messages]);
@@ -102,7 +104,7 @@ export const DisplayChartToolCall = ({
 
 	const [isDownloading, setIsDownloading] = useState(false);
 	const [isEditOpen, setIsEditOpen] = useState(false);
-	const isEditable = Boolean(agent && !agent.isReadonly && !agent.isRunning);
+	const isEditable = Boolean(agent && !agent.isReadonly && !agent.isRunning && isBuiltinChart);
 
 	const sourceQuery = useMemo<{ input?: executeSql.Input; output: executeSql.Output } | null>(() => {
 		if (!chartConfig?.query_id) {
@@ -317,7 +319,7 @@ export const DisplayChartToolCall = ({
 								<Code className='size-3 text-muted-foreground/70' strokeWidth={2.25} />
 							</Button>
 						)}
-						{storyIds.length > 0 && (
+						{storyIds.length > 0 && isBuiltinChart && (
 							<Button
 								variant='ghost-muted'
 								size='icon-xs'
@@ -330,6 +332,7 @@ export const DisplayChartToolCall = ({
 						)}
 
 						{viewMode === 'chart' ? (
+							isBuiltinChart &&
 							chartConfig.chart_type != 'kpi_card' && (
 								<Button
 									variant='ghost-muted'
@@ -374,12 +377,12 @@ export const DisplayChartToolCall = ({
 				</div>
 			</div>
 
-			{isEditable && (
+			{isEditable && displayChart.isBuiltinChartType(chartConfig.chart_type) && (
 				<DisplayChartEditDialog
 					open={isEditOpen}
 					onOpenChange={setIsEditOpen}
 					toolCallId={toolCallId}
-					config={chartConfig}
+					config={{ ...chartConfig, chart_type: chartConfig.chart_type }}
 					availableColumns={sourceData.columns ?? []}
 					data={sourceData.data ?? []}
 				/>
@@ -389,6 +392,15 @@ export const DisplayChartToolCall = ({
 				<SqlResultDisplay output={sourceData} />
 			) : viewMode === 'query' && sqlQuery ? (
 				<SqlQueryDisplay query={sqlQuery} />
+			) : !displayChart.isBuiltinChartType(chartConfig.chart_type) ? (
+				<CustomChart
+					config={{
+						...chartConfig,
+						x_axis_key: chartConfig.x_axis_key ?? '',
+						x_axis_type: chartConfig.x_axis_type ?? null,
+					}}
+					data={filteredData}
+				/>
 			) : (
 				<ChartDisplay
 					data={filteredData}

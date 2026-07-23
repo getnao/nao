@@ -1,6 +1,6 @@
 import { bucketPieData, buildChart, defaultColorFor, labelize } from '@nao/shared';
 import type { DateFormatSettings } from '@nao/shared/date';
-import type { displayChart } from '@nao/shared/tools';
+import { displayChart } from '@nao/shared/tools';
 import React from 'react';
 import { renderToString } from 'react-dom/server';
 
@@ -44,6 +44,10 @@ export function generateChartImage(input: RenderChartInput): Buffer {
 
 export function renderChartToSvg(input: RenderChartInput): string {
 	const { config, data, dateFormat } = input;
+	if (!displayChart.isBuiltinChartType(config.chart_type)) {
+		throw new Error(`Custom chart "${config.chart_type}" cannot be rendered on the server.`);
+	}
+	const chartType = config.chart_type;
 	const width = input.width ?? 800;
 	const height = input.height ?? 500;
 	const margin = input.margin ?? { top: 10, right: 20, bottom: 5, left: 0 };
@@ -58,7 +62,7 @@ export function renderChartToSvg(input: RenderChartInput): string {
 	const labelFormatter = (value: string) => labelize(value, dateFormat);
 	const maxLabelWidth = estimateMaxLabelWidth(data, xAxisKey, dateFormat);
 
-	const isPie = config.chart_type === 'pie' || config.chart_type === 'donut';
+	const isPie = chartType === 'pie' || chartType === 'donut';
 
 	const chartData = isPie ? bucketPieData(data, xAxisKey, config.series[0]?.data_key ?? '') : data;
 
@@ -79,7 +83,7 @@ export function renderChartToSvg(input: RenderChartInput): string {
 
 	const chart = buildChart({
 		data: chartData,
-		chartType: config.chart_type,
+		chartType,
 		xAxisKey,
 		xAxisType: config.x_axis_type === 'number' ? 'number' : 'category',
 		series: config.series,

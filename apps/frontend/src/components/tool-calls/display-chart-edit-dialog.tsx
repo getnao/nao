@@ -51,7 +51,7 @@ const SERIES_TYPE_OPTIONS: { value: displayChart.SeriesType; label: string; icon
 
 const Y_AXIS_RANGE_UNSUPPORTED_CHART_TYPES = new Set<displayChart.ChartType>(['pie', 'kpi_card', 'radar']);
 
-type EditableChartInput = displayChart.ChartInput | displayChart.KpiCardInput;
+type EditableChartInput = Omit<displayChart.KpiCardInput, 'chart_type'> & { chart_type: displayChart.ChartType };
 
 /** Maps a 100% stacked type back to its absolute-stacked counterpart, so the type dropdown stays clean. */
 function baseChartType(type: displayChart.ChartType): displayChart.ChartType {
@@ -145,13 +145,17 @@ export function ChartConfigEditDialog({
 			setError(parsed.error.issues[0]?.message ?? 'Invalid chart configuration.');
 			return;
 		}
-		if (parsed.data.chart_type === 'table') {
+		if (displayChart.isTableInput(parsed.data)) {
 			setError('Invalid chart configuration.');
+			return;
+		}
+		if (!displayChart.isBuiltinChartType(parsed.data.chart_type)) {
+			setError('Custom charts cannot be edited here.');
 			return;
 		}
 
 		try {
-			await onSave(parsed.data);
+			await onSave({ ...parsed.data, chart_type: parsed.data.chart_type });
 			onOpenChange(false);
 		} catch (err) {
 			setError(err instanceof Error ? err.message : 'Failed to update chart.');

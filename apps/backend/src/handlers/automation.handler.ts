@@ -123,6 +123,7 @@ async function finishAutomationRun(automation: AutomationWithSchedule, run: DBAu
 				: undefined,
 			{
 				excludeFollowUps: true,
+				supportsCustomCharts: false,
 				tools: ({ chat: agentChat, agentSettings, webTools }) =>
 					getTools(
 						agentSettings,

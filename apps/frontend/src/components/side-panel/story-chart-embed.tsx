@@ -116,7 +116,7 @@ export function StoryChartEmbedShell({
 	const canEdit = Boolean(edit && chart.rawTag);
 	const canViewQuery = Boolean(querySqlSource);
 
-	const config = useMemo<displayChart.KpiCardInput>(
+	const config = useMemo(
 		() => ({
 			query_id: chart.queryId,
 			chart_type: chart.chartType as displayChart.ChartType,

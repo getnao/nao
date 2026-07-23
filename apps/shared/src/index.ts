@@ -1,6 +1,7 @@
 export * from './chart-block';
 export * from './chart-builder';
 export * from './chart-domain';
+export * from './chart-plugin';
 export * from './citation';
 export * from './date';
 export * from './execute-sql-parts';

@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { createSlackAdapter } from '@chat-adapter/slack';
 import { createMemoryState } from '@chat-adapter/state-memory';
 import { CITATION_TAG_REGEX } from '@nao/shared';
+import { displayChart } from '@nao/shared/tools';
 import type { LlmSelectedModel } from '@nao/shared/types';
 import { type ChatPostMessageArguments, WebClient } from '@slack/web-api';
 import { InferUIMessageChunk, readUIMessageStream } from 'ai';
@@ -655,6 +656,7 @@ class ProjectSlackBot {
 		const agent = await agentService.create(
 			{ ...chat, userId: ctx.user!.id, projectId: this.projectId },
 			this._modelSelection,
+			{ supportsCustomCharts: false },
 		);
 		ctx.modelId = agent.getModelId();
 		return agent.stream(chat.messages, { provider: 'slack', timezone: ctx.timezone });
@@ -728,7 +730,10 @@ class ProjectSlackBot {
 		if (part.state !== 'output-available' || state.renderedChartIds.has(part.toolCallId)) {
 			return;
 		}
-		if (part.input.chart_type === 'table') {
+		if (!part.output?.success) {
+			return;
+		}
+		if (displayChart.isTableInput(part.input)) {
 			return;
 		}
 		const sqlOutput = state.sqlOutputs.get(part.input.query_id);

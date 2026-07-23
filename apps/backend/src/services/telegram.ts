@@ -1,6 +1,7 @@
 import { createMemoryState } from '@chat-adapter/state-memory';
 import { createTelegramAdapter } from '@chat-adapter/telegram';
 import { CITATION_TAG_REGEX } from '@nao/shared';
+import { displayChart } from '@nao/shared/tools';
 import type { LlmSelectedModel } from '@nao/shared/types';
 import { InferUIMessageChunk, readUIMessageStream } from 'ai';
 import { Card, CardElement, Chat, Message, SentMessage, Thread } from 'chat';
@@ -278,6 +279,7 @@ class TelegramService {
 		const agent = await agentService.create(
 			{ ...chat, userId: ctx.user!.id, projectId: this._projectId },
 			this._modelSelection,
+			{ supportsCustomCharts: false },
 		);
 		ctx.modelId = agent.getModelId();
 		return agent.stream(chat.messages, { provider: 'telegram', timezone: ctx.timezone });
@@ -370,7 +372,10 @@ class TelegramService {
 		if (part.state !== 'output-available' || state.renderedChartIds.has(part.toolCallId)) {
 			return;
 		}
-		if (part.input.chart_type === 'table') {
+		if (!part.output?.success) {
+			return;
+		}
+		if (displayChart.isTableInput(part.input)) {
 			return;
 		}
 		const sqlOutput = state.sqlOutputs.get(part.input.query_id);

@@ -6,7 +6,7 @@ export function selectLatestDisplayChartTableFormats(
 	const formatsByQueryId: Record<string, displayChart.ColumnConditionalFormats> = {};
 	for (const row of rows) {
 		const parsed = displayChart.InputSchema.safeParse(row.toolInput);
-		if (!parsed.success || parsed.data.chart_type !== 'table') {
+		if (!parsed.success || !displayChart.isTableInput(parsed.data)) {
 			continue;
 		}
 		const { query_id: queryId, conditional_formats: conditionalFormats } = parsed.data;

@@ -57,6 +57,7 @@ export const testRoutes = async (app: App) => {
 							chatId: '',
 							userId,
 							projectId: projectId,
+							supportsCustomCharts: false,
 							agentSettings: null,
 							envVars: {},
 							azureAccessToken: null,

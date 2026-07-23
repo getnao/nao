@@ -2,6 +2,7 @@ import { createMemoryState } from '@chat-adapter/state-memory';
 import { createRedisState } from '@chat-adapter/state-redis';
 import { createWhatsAppAdapter } from '@chat-adapter/whatsapp';
 import { CITATION_TAG_REGEX } from '@nao/shared';
+import { displayChart } from '@nao/shared/tools';
 import type { LlmSelectedModel } from '@nao/shared/types';
 import { InferUIMessageChunk, readUIMessageStream } from 'ai';
 import { Attachment, Chat, Message, Thread } from 'chat';
@@ -463,6 +464,7 @@ class WhatsappService {
 		const agent = await agentService.create(
 			{ ...chat, userId: ctx.user!.id, projectId: this._projectId },
 			this._modelSelection,
+			{ supportsCustomCharts: false },
 		);
 		ctx.modelId = agent.getModelId();
 		return agent.stream(chat.messages, { provider: 'whatsapp', timezone: ctx.timezone, chatUrl });
@@ -518,7 +520,10 @@ class WhatsappService {
 		if (part.state !== 'output-available' || state.renderedChartIds.has(part.toolCallId)) {
 			return null;
 		}
-		if (part.input.chart_type === 'table') {
+		if (!part.output?.success) {
+			return null;
+		}
+		if (displayChart.isTableInput(part.input)) {
 			return null;
 		}
 		const sqlOutput = state.sqlOutputs.get(part.input.query_id);

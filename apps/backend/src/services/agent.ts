@@ -67,6 +67,7 @@ import {
 import { logger } from '../utils/logger';
 import { addPromptCache } from '../utils/prompt-cache';
 import { truncateMiddle } from '../utils/utils';
+import { listChartPlugins } from './chart-plugin';
 import { compactionService } from './compaction';
 import { hasFeature, LICENSE_FEATURES } from './license.service';
 import { mcpService } from './mcp';
@@ -142,6 +143,7 @@ export async function buildToolContext(opts: {
 	chatId: string;
 	agentSettings?: AgentSettings | null;
 	adminMode?: boolean;
+	supportsCustomCharts?: boolean;
 }): Promise<ToolContext> {
 	const base = await _buildContextBase(opts);
 	return { ...base, chatId: opts.chatId, adminMode: opts.adminMode ?? false };
@@ -152,7 +154,7 @@ export async function buildMcpToolContext(opts: {
 	userId: string;
 	agentSettings?: AgentSettings | null;
 }): Promise<McpToolContext> {
-	const base = await _buildContextBase(opts);
+	const base = await _buildContextBase({ ...opts, supportsCustomCharts: false });
 	return { ...base, chatId: null };
 }
 
@@ -160,6 +162,7 @@ async function _buildContextBase(opts: {
 	projectId: string;
 	userId: string;
 	agentSettings?: AgentSettings | null;
+	supportsCustomCharts?: boolean;
 }): Promise<Omit<ToolContext, 'chatId'>> {
 	const project = await projectQueries.retrieveProjectById(opts.projectId);
 	if (!project.path) {
@@ -175,6 +178,7 @@ async function _buildContextBase(opts: {
 		projectFolder: project.path,
 		userId: opts.userId,
 		projectId: opts.projectId,
+		supportsCustomCharts: opts.supportsCustomCharts !== false,
 		agentSettings,
 		envVars,
 		azureAccessToken,
@@ -231,6 +235,8 @@ export class AgentService {
 			 * of the user's warehouse (see `ToolContext.adminMode`).
 			 */
 			adminMode?: boolean;
+			/** Enables project-defined charts that render only in the web client. */
+			supportsCustomCharts?: boolean;
 		} = {},
 	): Promise<AgentManager> {
 		this._disposeAgent(chat.id);
@@ -244,6 +250,7 @@ export class AgentService {
 			chat.userId,
 			agentSettings,
 			options.adminMode,
+			options.supportsCustomCharts,
 		);
 		const webTools = await this._resolveWebTools(chat.projectId, resolvedLlmSelectedModel.provider, agentSettings);
 		const resolveTools = options.tools ?? defaultAgentTools;
@@ -301,8 +308,9 @@ export class AgentService {
 		userId: string,
 		agentSettings: AgentSettings | null,
 		adminMode?: boolean,
+		supportsCustomCharts?: boolean,
 	): Promise<ToolContext> {
-		return buildToolContext({ projectId, userId, chatId, agentSettings, adminMode });
+		return buildToolContext({ projectId, userId, chatId, agentSettings, adminMode, supportsCustomCharts });
 	}
 
 	private _disposeAgent(chatId: string): void {
@@ -579,6 +587,9 @@ class AgentManager {
 		const userRules = getUserRules(this._toolContext.projectFolder);
 		const connections = getConnections(this._toolContext.projectFolder);
 		const skills = skillService.getSkills(this.chat.projectId);
+		const customCharts = this._toolContext.supportsCustomCharts
+			? listChartPlugins(this._toolContext.projectFolder)
+			: [];
 		const mcpServers = await mcpService.getEnabledServers(this.chat.projectId);
 		const basePrompt = renderToMarkdown(
 			SystemPrompt({
@@ -586,6 +597,7 @@ class AgentManager {
 				userRules,
 				connections,
 				skills,
+				customCharts,
 				mcpServers,
 				timezone,
 				testMode: this.chat.testMode,
