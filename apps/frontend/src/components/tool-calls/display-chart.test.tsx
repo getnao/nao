@@ -9,6 +9,10 @@ vi.mock('@/hooks/use-date-format', () => ({
 	useDateFormat: () => ({ preset: 'european' }),
 }));
 
+vi.mock('@/hooks/use-resize-observer', () => ({
+	useResizeObserver: () => undefined,
+}));
+
 vi.mock('@/main', () => ({
 	trpc: {},
 }));
