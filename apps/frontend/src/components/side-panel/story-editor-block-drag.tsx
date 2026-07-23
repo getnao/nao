@@ -1,13 +1,14 @@
 import { groupBlocksIntoGrid } from '@nao/shared/story-segments';
 import { GripVertical } from 'lucide-react';
 import { useCallback, useContext, useEffect, useState } from 'react';
+import { blockSelectionPluginKey, resolveDragBlocks } from './story-block-selection';
 import { createBlockNode, removeCardFromOrigin } from './story-editor-utils';
 import { GridDragContext, STORY_BLOCK_DRAG_TYPE, StoryBlockDragContext } from './story-editor-drag-context';
 import type { ReactNodeViewProps } from '@tiptap/react';
 import type { DragEvent as ReactDragEvent } from 'react';
 import type { StoryBlockDropSide } from './story-editor-drag-context';
 
-export function StoryBlockDragGrip({ node, getPos }: Pick<ReactNodeViewProps, 'node' | 'editor' | 'getPos'>) {
+export function StoryBlockDragGrip({ node, editor, getPos }: Pick<ReactNodeViewProps, 'node' | 'editor' | 'getPos'>) {
 	const dragContext = useContext(StoryBlockDragContext);
 
 	const handleDragStart = useCallback(
@@ -17,15 +18,31 @@ export function StoryBlockDragGrip({ node, getPos }: Pick<ReactNodeViewProps, 'n
 			if (typeof pos !== 'number' || !dragContext) {
 				return;
 			}
-			event.dataTransfer.effectAllowed = 'move';
 			event.dataTransfer.setData(STORY_BLOCK_DRAG_TYPE, '1');
+			const { positions, isMulti } = resolveDragBlocks(editor.state, pos);
+			if (isMulti) {
+				dragContext.beginMultiBlockDrag(positions, event.nativeEvent);
+				return;
+			}
+
+			const selection = blockSelectionPluginKey.getState(editor.state);
+			if (selection?.blocks.length) {
+				editor.view.dispatch(
+					editor.state.tr.setMeta(blockSelectionPluginKey, {
+						blocks: [],
+						anchor: null,
+					}),
+				);
+			}
+
+			event.dataTransfer.effectAllowed = 'move';
 			dragContext.sourceRef.current = {
 				markup: node.attrs.rawTag as string,
 				origin: { kind: 'block', pos },
 			};
 			dragContext.setDragging(true);
 		},
-		[dragContext, getPos, node.attrs.rawTag],
+		[dragContext, editor, getPos, node.attrs.rawTag],
 	);
 
 	const handleDragEnd = useCallback(
@@ -34,6 +51,7 @@ export function StoryBlockDragGrip({ node, getPos }: Pick<ReactNodeViewProps, 'n
 			if (dragContext) {
 				dragContext.setDragging(false);
 				dragContext.sourceRef.current = null;
+				dragContext.endMultiBlockDrag();
 			}
 		},
 		[dragContext],
@@ -50,6 +68,9 @@ export function StoryBlockDragGrip({ node, getPos }: Pick<ReactNodeViewProps, 'n
 				event.stopPropagation();
 			}}
 			onPointerDown={(event) => {
+				event.stopPropagation();
+			}}
+			onMouseDown={(event) => {
 				event.stopPropagation();
 			}}
 			onDragStart={handleDragStart}

@@ -4,11 +4,7 @@ import { Fragment, Slice } from '@tiptap/pm/model';
 import { dropPoint } from '@tiptap/pm/transform';
 import { useEditor } from '@tiptap/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-	blockSelectionPluginKey,
-	buildBlockMoveTransaction,
-	getSelectedBlockPositions,
-} from '../story-block-selection';
+import { blockSelectionPluginKey, buildBlockMoveTransaction, resolveDragBlocks } from '../story-block-selection';
 import { EDITOR_EXTENSIONS } from '../story-editor-extensions';
 import { GRID_COLUMN_DRAG_TYPE, STORY_BLOCK_DRAG_TYPE } from '../story-editor-drag-context';
 import {
@@ -45,18 +41,11 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 	const storyEditorRef = useRef<HTMLDivElement>(null);
 	const [isBlockDragging, setIsBlockDragging] = useState(false);
 	const [handleNodeType, setHandleNodeType] = useState<string | null>(null);
-	const storyBlockDragContext = useMemo(
-		() => ({
-			sourceRef: storyBlockSourceRef,
-			isDragging: isBlockDragging,
-			setDragging: setIsBlockDragging,
-		}),
-		[isBlockDragging],
-	);
 	const resetDragContexts = useCallback(() => {
 		gridDragSourceRef.current = null;
 		storyBlockSourceRef.current = null;
 		multiBlockDragRef.current = null;
+		dragPreviewPositionsRef.current = null;
 		setIsBlockDragging(false);
 	}, []);
 	const handleDragHandleNodeChange = useCallback(({ node, pos }: { node: PMNode | null; pos: number }) => {
@@ -238,36 +227,10 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 
 		const onDragStart = (event: DragEvent) => {
 			const positions = dragPreviewPositionsRef.current;
-			if (!positions || positions.length === 0 || !event.dataTransfer) {
+			if (!positions || positions.length === 0) {
 				return;
 			}
-
-			const nodes = positions
-				.map((position) => editor.view.nodeDOM(position))
-				.filter((dom): dom is HTMLElement => dom instanceof HTMLElement);
-			if (nodes.length === 0) {
-				return;
-			}
-
-			const preview = document.createElement('div');
-			preview.style.position = 'absolute';
-			preview.style.top = '-10000px';
-			preview.style.left = '-10000px';
-
-			for (const dom of nodes) {
-				preview.appendChild(cloneElementWithStyles(dom));
-			}
-
-			document.body.appendChild(preview);
-			event.dataTransfer.setDragImage(preview, 16, 16);
-
-			const cleanup = () => {
-				preview.remove();
-				document.removeEventListener('dragend', cleanup);
-				document.removeEventListener('drop', cleanup);
-			};
-			document.addEventListener('dragend', cleanup);
-			document.addEventListener('drop', cleanup);
+			setDragPreviewImage(editor, positions, event);
 		};
 
 		const clearDropCursor = () => {
@@ -307,20 +270,19 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 			if (!editor) {
 				return;
 			}
-			const selected = getSelectedBlockPositions(editor.state);
 			const hoveredPosition = handleNodePosRef.current;
-			const isMulti = selected.length > 1 && hoveredPosition != null && selected.includes(hoveredPosition);
-			if (isMulti) {
-				const sorted = [...selected].sort((first, second) => first - second);
-				multiBlockDragRef.current = sorted;
-				dragPreviewPositionsRef.current = sorted;
+			const selection = blockSelectionPluginKey.getState(editor.state);
+			const dragBlocks = hoveredPosition == null ? null : resolveDragBlocks(editor.state, hoveredPosition);
+			if (dragBlocks?.isMulti) {
+				multiBlockDragRef.current = dragBlocks.positions;
+				dragPreviewPositionsRef.current = dragBlocks.positions;
 				if (event.dataTransfer) {
 					event.dataTransfer.effectAllowed = 'move';
 				}
 			} else {
 				multiBlockDragRef.current = null;
-				dragPreviewPositionsRef.current = hoveredPosition != null ? [hoveredPosition] : null;
-				if (selected.length > 0) {
+				dragPreviewPositionsRef.current = dragBlocks?.positions ?? null;
+				if (selection?.blocks.length) {
 					editor.view.dispatch(
 						editor.state.tr.setMeta(blockSelectionPluginKey, { blocks: [], anchor: null }),
 					);
@@ -329,10 +291,33 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 		},
 		[editor],
 	);
-	const onElementDragEnd = useCallback(() => {
+	const endMultiBlockDrag = useCallback(() => {
 		multiBlockDragRef.current = null;
 		dragPreviewPositionsRef.current = null;
 	}, []);
+	const beginMultiBlockDrag = useCallback(
+		(positions: number[], event: DragEvent) => {
+			multiBlockDragRef.current = positions;
+			dragPreviewPositionsRef.current = positions;
+			if (!editor || !event.dataTransfer) {
+				return;
+			}
+			event.dataTransfer.effectAllowed = 'move';
+			setDragPreviewImage(editor, positions, event);
+		},
+		[editor],
+	);
+	const storyBlockDragContext = useMemo(
+		() => ({
+			sourceRef: storyBlockSourceRef,
+			isDragging: isBlockDragging,
+			setDragging: setIsBlockDragging,
+			beginMultiBlockDrag,
+			endMultiBlockDrag,
+		}),
+		[beginMultiBlockDrag, endMultiBlockDrag, isBlockDragging],
+	);
+	const onElementDragEnd = endMultiBlockDrag;
 
 	return {
 		editor,
@@ -344,4 +329,37 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 		onElementDragStart,
 		onElementDragEnd,
 	};
+}
+
+function setDragPreviewImage(editor: Editor, positions: number[], event: DragEvent): void {
+	if (!event.dataTransfer) {
+		return;
+	}
+
+	const nodes = positions
+		.map((position) => editor.view.nodeDOM(position))
+		.filter((dom): dom is HTMLElement => dom instanceof HTMLElement);
+	if (nodes.length === 0) {
+		return;
+	}
+
+	const preview = document.createElement('div');
+	preview.style.position = 'absolute';
+	preview.style.top = '-10000px';
+	preview.style.left = '-10000px';
+
+	for (const dom of nodes) {
+		preview.appendChild(cloneElementWithStyles(dom));
+	}
+
+	document.body.appendChild(preview);
+	event.dataTransfer.setDragImage(preview, 16, 16);
+
+	const cleanup = () => {
+		preview.remove();
+		document.removeEventListener('dragend', cleanup);
+		document.removeEventListener('drop', cleanup);
+	};
+	document.addEventListener('dragend', cleanup);
+	document.addEventListener('drop', cleanup);
 }

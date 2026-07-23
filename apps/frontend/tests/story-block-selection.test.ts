@@ -11,6 +11,7 @@ import {
 	getSelectedBlockPositions,
 	isDropInsideSelection,
 	rangeBetween,
+	resolveDragBlocks,
 	topLevelBlockPositions,
 } from '@/components/side-panel/story-block-selection';
 
@@ -58,6 +59,43 @@ describe('story block selection', () => {
 
 		selectBlocks(editor, [], null);
 		expect(getSelectedBlockPositions(editor.state)).toEqual([]);
+	});
+
+	describe('resolveDragBlocks', () => {
+		it('resolves an unselected block as a single drag', () => {
+			const [first] = topLevelBlockPositions(editor.state.doc);
+			expect(resolveDragBlocks(editor.state, first)).toEqual({
+				positions: [first],
+				isMulti: false,
+			});
+		});
+
+		it('resolves a single selected block as a single drag', () => {
+			const [first] = topLevelBlockPositions(editor.state.doc);
+			selectBlocks(editor, [first], first);
+			expect(resolveDragBlocks(editor.state, first)).toEqual({
+				positions: [first],
+				isMulti: false,
+			});
+		});
+
+		it('resolves and sorts a multi-selection containing the dragged block', () => {
+			const [first, second, third] = topLevelBlockPositions(editor.state.doc);
+			selectBlocks(editor, [third, first, second], third);
+			expect(resolveDragBlocks(editor.state, second)).toEqual({
+				positions: [first, second, third],
+				isMulti: true,
+			});
+		});
+
+		it('resolves a block outside a multi-selection as a single drag', () => {
+			const [first, second, third] = topLevelBlockPositions(editor.state.doc);
+			selectBlocks(editor, [first, third], first);
+			expect(resolveDragBlocks(editor.state, second)).toEqual({
+				positions: [second],
+				isMulti: false,
+			});
+		});
 	});
 
 	it('keeps the selection when an unrelated block is edited', () => {

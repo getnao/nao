@@ -22,6 +22,8 @@ export const StoryBlockDragContext = createContext<{
 	sourceRef: MutableRefObject<StoryBlockDragSource | null>;
 	isDragging: boolean;
 	setDragging: (value: boolean) => void;
+	beginMultiBlockDrag: (positions: number[], event: DragEvent) => void;
+	endMultiBlockDrag: () => void;
 } | null>(null);
 
 export const GridDragContext = createContext<MutableRefObject<GridDragSource | null> | null>(null);

@@ -26,6 +26,17 @@ export function getSelectedBlockPositions(state: EditorState): number[] {
 	return blockSelectionPluginKey.getState(state)?.blocks ?? [];
 }
 
+export function resolveDragBlocks(state: EditorState, pos: number): { positions: number[]; isMulti: boolean } {
+	const selected = getSelectedBlockPositions(state);
+	if (selected.length > 1 && selected.includes(pos)) {
+		return {
+			positions: [...selected].sort((first, second) => first - second),
+			isMulti: true,
+		};
+	}
+	return { positions: [pos], isMulti: false };
+}
+
 function buildBlockSelectionPlugin(): Plugin<BlockSelectionState> {
 	return new Plugin<BlockSelectionState>({
 		key: blockSelectionPluginKey,
