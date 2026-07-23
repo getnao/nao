@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { ArrowUpRight, Code, Copy, Download, Palette, Pencil, Table as TableIcon } from 'lucide-react';
+import { Code, Copy, Download, Palette, Pencil, Table as TableIcon } from 'lucide-react';
 import { ToolCallWrapper } from './tool-call-wrapper';
 import { TableFormatEditDialog } from './display-table-edit-dialog';
 import { SqlQueryDisplay } from './sql-query-display';
@@ -33,9 +33,7 @@ export const ExecuteSqlToolCall = ({
 		if (state === 'input-streaming' || !output || !input) {
 			return;
 		}
-		openSidePanel(
-			<SidePanelContent key={output.id ?? toolCallId} input={input} output={output} editable={editable} />,
-		);
+		openSidePanel(<SidePanelContent input={input} output={output} editable={editable} />);
 	};
 
 	const actions = [

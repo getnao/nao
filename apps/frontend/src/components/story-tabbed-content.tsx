@@ -8,6 +8,7 @@ import type { StoryFilterApi } from '@/hooks/use-story-filters';
 import { StoryFilterBar } from '@/components/story-filter-bar';
 import { StoryTabsBar } from '@/components/side-panel/story-tabs-bar';
 import { SegmentList } from '@/components/story-rendering';
+import { StoryQuerySqlProvider } from '@/contexts/story-query-sql';
 import { useStoryFilters } from '@/hooks/use-story-filters';
 
 export interface StoryEmbedRenderOptions {
@@ -47,50 +48,55 @@ export function StoryTabbedContent({
 		api: filterApi,
 		enabled: Boolean(filterApi),
 	});
+	const querySqlSource = useMemo(
+		() => (filterApi ? { api: filterApi, selections: storyFilters.activeSelections } : null),
+		[filterApi, storyFilters.activeSelections],
+	);
 
 	return (
-		<div className='flex flex-1 min-h-0 flex-col'>
-			{isTabbed && tabs && (
-				<StoryTabsBar
-					tabs={tabs.map((tab) => ({ title: tab.title }))}
-					activeIndex={activeTabIndex}
-					onSelect={setActiveIndex}
-					contentClassName='mx-auto w-full max-w-5xl px-4 md:px-8'
-				/>
-			)}
-			<div className='flex-1 overflow-auto'>
-				<div className={contentClassName}>
-					<StoryFilterBar
-						filters={storyFilters.filters}
-						selections={storyFilters.selections}
-						onSelectionChange={storyFilters.setSelection}
-						onClear={storyFilters.clearSelections}
-						api={filterApi}
-						isFiltering={storyFilters.isFiltering}
+		<StoryQuerySqlProvider value={querySqlSource}>
+			<div className='flex flex-1 min-h-0 flex-col'>
+				{isTabbed && tabs && (
+					<StoryTabsBar
+						tabs={tabs.map((tab) => ({ title: tab.title }))}
+						activeIndex={activeTabIndex}
+						onSelect={setActiveIndex}
+						contentClassName='mx-auto w-full max-w-5xl px-4 md:px-8'
 					/>
-					<SegmentList
-						segments={segments}
-						renderChart={(chart, key) =>
-							renderChart(chart, {
-								queryData: storyFilters.queryData,
-								baselineQueryData: baselineQueryData ?? null,
-								hasActiveFilters: storyFilters.hasActiveFilters,
-								isRefreshing: storyFilters.isFiltering,
-								key,
-							})
-						}
-						renderTable={(table, key) =>
-							renderTable(table, {
-								queryData: storyFilters.queryData,
-								baselineQueryData: baselineQueryData ?? null,
-								hasActiveFilters: storyFilters.hasActiveFilters,
-								isRefreshing: storyFilters.isFiltering,
-								key,
-							})
-						}
-					/>
+				)}
+				<div className='flex-1 overflow-auto'>
+					<div className={contentClassName}>
+						<StoryFilterBar
+							filters={storyFilters.filters}
+							selections={storyFilters.selections}
+							onSelectionChange={storyFilters.setSelection}
+							onClear={storyFilters.clearSelections}
+							api={filterApi}
+						/>
+						<SegmentList
+							segments={segments}
+							renderChart={(chart, key) =>
+								renderChart(chart, {
+									queryData: storyFilters.queryData,
+									baselineQueryData: baselineQueryData ?? null,
+									hasActiveFilters: storyFilters.hasActiveFilters,
+									isRefreshing: storyFilters.isFiltering,
+									key,
+								})
+							}
+							renderTable={(table, key) =>
+								renderTable(table, {
+									queryData: storyFilters.queryData,
+									baselineQueryData: baselineQueryData ?? null,
+									hasActiveFilters: storyFilters.hasActiveFilters,
+									isRefreshing: storyFilters.isFiltering,
+									key,
+								})
+							}
+						/>
+					</div>
 				</div>
 			</div>
-		</div>
+		</StoryQuerySqlProvider>
 	);
 }

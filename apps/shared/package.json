@@ -13,7 +13,8 @@
 		"./story-table-utils": "./src/story-table-utils.ts",
 		"./story-tabs": "./src/story-tabs.ts",
 		"./story-validation": "./src/story-validation.ts",
-		"./sql-template": "./src/sql-template.ts"
+		"./sql-template": "./src/sql-template.ts",
+		"./execute-sql-parts": "./src/execute-sql-parts.ts"
 	},
 	"scripts": {
 		"test": "vitest run",

@@ -28,6 +28,16 @@ export const OutputSchema = z.object({
 	 * represent the total number of matching rows.
 	 */
 	applied_limit: z.number().optional(),
+	/**
+	 * Story-filter SQL template syntax issues. The stripped query may still execute,
+	 * but filters will not apply correctly until these are fixed via execute_sql with query_id.
+	 */
+	template_warnings: z.array(z.string()).optional(),
+	/**
+	 * Set in-memory (never persisted) when a later execute_sql part in the chat re-ran
+	 * the same query id. The model then sees a short stub instead of repeated rows.
+	 */
+	superseded: z.boolean().optional(),
 });
 
 export type Input = z.infer<typeof InputSchema>;

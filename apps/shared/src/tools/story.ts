@@ -33,6 +33,7 @@ export const OutputSchema = z.object({
 	code: z.string().describe('The full story code after the operation.'),
 	title: z.string(),
 	error: z.string().optional(),
+	template_warnings: z.array(z.string()).optional(),
 });
 
 export type Input = z.infer<typeof InputSchema>;

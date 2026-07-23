@@ -98,6 +98,7 @@ export function useStoryFilters({
 	return {
 		filters,
 		selections,
+		activeSelections,
 		setSelection,
 		clearSelections,
 		hasActiveFilters,

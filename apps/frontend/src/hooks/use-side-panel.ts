@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { createElement, Fragment, useCallback, useEffect, useRef, useState } from 'react';
 
 import { useParams } from '@tanstack/react-router';
 import { useIsMobile } from '@/hooks/use-is-mobile';
@@ -26,6 +26,7 @@ export const useSidePanel = ({
 
 	const [content, setContent] = useState<React.ReactNode>(null);
 	const [currentStorySlug, setCurrentStorySlug] = useState<string | null>(null);
+	const contentEpochRef = useRef(0);
 
 	const [isVisible, setIsVisible] = useState(false);
 	const [isAnimating, setIsAnimating] = useState(false);
@@ -111,8 +112,9 @@ export const useSidePanel = ({
 
 	const open = useCallback(
 		(newContent: React.ReactNode, storySlug?: string) => {
+			contentEpochRef.current += 1;
 			setIsVisible(true);
-			setContent(newContent);
+			setContent(createElement(Fragment, { key: contentEpochRef.current }, newContent));
 			setCurrentStorySlug(storySlug ?? null);
 			if (!isMobile && shouldCollapseSidebar) {
 				didCollapseSidebarRef.current = !isSidebarCollapsed;

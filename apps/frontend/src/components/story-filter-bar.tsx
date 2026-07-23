@@ -1,12 +1,16 @@
-import { AlertTriangle, FilterX, ListFilter, Loader2 } from 'lucide-react';
+import { AlertTriangle, CalendarIcon, FilterX, Loader2, X } from 'lucide-react';
+import { format } from 'date-fns';
 import { useCallback, useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { isFilterSelectionActive } from '@nao/shared/sql-template';
 import type { StoryFilterSelection } from '@nao/shared/sql-template';
+import type { DateRange } from 'react-day-picker';
 import type { ParsedFilterBlock } from '@nao/shared/story-segments';
 
 import type { StoryFilterApi } from '@/hooks/use-story-filters';
 import { FixInChatButton } from '@/components/fix-in-chat-button';
 import { Button } from '@/components/ui/button';
+import { Calendar } from '@/components/ui/calendar';
 import {
 	DropdownMenu,
 	DropdownMenuCheckboxItem,
@@ -14,7 +18,9 @@ import {
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
 export function StoryFilterBar({
@@ -23,14 +29,12 @@ export function StoryFilterBar({
 	onSelectionChange,
 	onClear,
 	api,
-	isFiltering,
 }: {
 	filters: ParsedFilterBlock[];
 	selections: Record<string, StoryFilterSelection>;
 	onSelectionChange: (filterId: string, selection: StoryFilterSelection) => void;
 	onClear: () => void;
 	api?: StoryFilterApi | null;
-	isFiltering?: boolean;
 }) {
 	const [optionErrors, setOptionErrors] = useState<Record<string, string>>({});
 
@@ -111,9 +115,23 @@ function StoryFilterControl({
 		onOptionError(filter.id, error);
 	}, [filter.id, error, onOptionError]);
 
+	const isActive = isFilterSelectionActive(filter.filterType, selection);
+
 	return (
-		<label className='flex min-w-36 flex-col gap-1'>
-			<span className='text-xs font-medium text-muted-foreground'>{filter.label}</span>
+		<div className='flex min-w-36 flex-col gap-1'>
+			<div className='flex items-center justify-between gap-1'>
+				<span className='text-xs font-medium text-muted-foreground'>{filter.label}</span>
+				{isActive && (
+					<button
+						type='button'
+						className='rounded-sm p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground'
+						aria-label={`Clear ${filter.label}`}
+						onClick={() => onChange(emptySelection(filter.filterType))}
+					>
+						<X className='size-3' />
+					</button>
+				)}
+			</div>
 			{filter.filterType === 'select' ? (
 				isLoading ? (
 					<FilterOptionsLoading />
@@ -156,8 +174,12 @@ function StoryFilterControl({
 					onChange={(event) => onChange(event.target.value)}
 				/>
 			)}
-		</label>
+		</div>
 	);
+}
+
+function emptySelection(filterType: ParsedFilterBlock['filterType']): StoryFilterSelection {
+	return filterType === 'select' || filterType === 'search' ? '' : [];
 }
 
 function FilterOptionsLoading() {
@@ -204,25 +226,73 @@ function MultiSelectFilter({
 }
 
 function RangeFilter({ value, onChange }: { value: string[]; onChange: (value: string[]) => void }) {
+	const selected = toDateRange(value);
+	const currentYear = new Date().getFullYear();
+
 	return (
-		<div className='flex items-center gap-1'>
-			<Input
-				type='date'
-				className='h-8 w-36 bg-background'
-				value={value[0] ?? ''}
-				onChange={(event) => onChange([event.target.value, value[1] ?? ''])}
-				aria-label='From'
-			/>
-			<span className='text-xs text-muted-foreground'>to</span>
-			<Input
-				type='date'
-				className='h-8 w-36 bg-background'
-				value={value[1] ?? ''}
-				onChange={(event) => onChange([value[0] ?? '', event.target.value])}
-				aria-label='To'
-			/>
-		</div>
+		<Popover>
+			<PopoverTrigger asChild>
+				<Button
+					variant='outline'
+					size='sm'
+					className={cn(
+						'h-8 min-w-56 justify-start bg-background font-normal',
+						!selected?.from && 'text-muted-foreground',
+					)}
+				>
+					<CalendarIcon className='size-3.5' />
+					{formatDateRangeLabel(selected)}
+				</Button>
+			</PopoverTrigger>
+			<PopoverContent className='w-auto overflow-hidden p-0' align='start'>
+				<Calendar
+					mode='range'
+					selected={selected}
+					onSelect={(range) => onChange(fromDateRange(range))}
+					defaultMonth={selected?.from}
+					captionLayout='dropdown'
+					navLayout='after'
+					startMonth={new Date(currentYear - 20, 0)}
+					endMonth={new Date(currentYear + 2, 11)}
+					numberOfMonths={1}
+				/>
+			</PopoverContent>
+		</Popover>
 	);
+}
+
+function toDateRange(value: string[]): DateRange | undefined {
+	const from = parseDateString(value[0]);
+	const to = parseDateString(value[1]);
+	if (!from && !to) {
+		return undefined;
+	}
+	return { from, to };
+}
+
+function fromDateRange(range: DateRange | undefined): string[] {
+	return [range?.from ? format(range.from, 'yyyy-MM-dd') : '', range?.to ? format(range.to, 'yyyy-MM-dd') : ''];
+}
+
+function parseDateString(value: string | undefined): Date | undefined {
+	if (!value) {
+		return undefined;
+	}
+	const [year, month, day] = value.split('-').map(Number);
+	if (!year || !month || !day) {
+		return undefined;
+	}
+	return new Date(year, month - 1, day);
+}
+
+function formatDateRangeLabel(range: DateRange | undefined): string {
+	if (!range?.from) {
+		return 'Pick a date range';
+	}
+	if (!range.to) {
+		return format(range.from, 'LLL dd, y');
+	}
+	return `${format(range.from, 'LLL dd, y')} – ${format(range.to, 'LLL dd, y')}`;
 }
 
 function FilterOptionsErrorBanner({

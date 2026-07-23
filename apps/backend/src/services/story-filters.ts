@@ -60,22 +60,46 @@ export async function getFilteredStoryQueryData(
 	selections: StoryFilterSelections,
 ): Promise<Record<string, { data: unknown[]; columns: string[] }>> {
 	const { code, projectPath, envVars } = await loadStoryExecutionContext(chatId, storySlug);
-	const filters = getStoryFiltersFromCode(code);
-	const types: StoryFilterTypeById = Object.fromEntries(filters.map((filter) => [filter.id, filter.filterType]));
+	const types = filterTypesFromCode(code);
 	const sqlQueries = await storyQueries.getSqlQueriesFromCode(chatId, code);
 	const queryData: Record<string, { data: unknown[]; columns: string[] }> = {};
 
 	await Promise.all(
 		Object.entries(sqlQueries).map(async ([queryId, { sqlQuery, databaseId }]) => {
-			const renderedSql =
-				Object.keys(selections).length === 0
-					? stripSqlFilterBlocks(sqlQuery)
-					: renderSqlTemplate(sqlQuery, selections, types);
+			const renderedSql = renderStorySql(sqlQuery, selections, types);
 			queryData[queryId] = await executeRawSql(renderedSql, projectPath, databaseId, envVars);
 		}),
 	);
 
 	return queryData;
+}
+
+export async function getStoryQuerySql(
+	chatId: string,
+	storySlug: string,
+	queryId: string,
+	selections: StoryFilterSelections = {},
+): Promise<{ sqlQuery: string; renderedSql: string }> {
+	const { code } = await loadStoryExecutionContext(chatId, storySlug);
+	const query = await storyQueries.getSqlQueryById(chatId, queryId);
+	if (!query) {
+		throw new TRPCError({ code: 'NOT_FOUND', message: `Query "${queryId}" not found.` });
+	}
+
+	return {
+		sqlQuery: query.sqlQuery,
+		renderedSql: renderStorySql(query.sqlQuery, selections, filterTypesFromCode(code)),
+	};
+}
+
+function filterTypesFromCode(code: string): StoryFilterTypeById {
+	return Object.fromEntries(getStoryFiltersFromCode(code).map((filter) => [filter.id, filter.filterType]));
+}
+
+function renderStorySql(sqlQuery: string, selections: StoryFilterSelections, types: StoryFilterTypeById): string {
+	return Object.keys(selections).length === 0
+		? stripSqlFilterBlocks(sqlQuery)
+		: renderSqlTemplate(sqlQuery, selections, types);
 }
 
 async function loadStoryExecutionContext(chatId: string, storySlug: string) {

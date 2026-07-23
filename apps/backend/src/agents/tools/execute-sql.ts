@@ -1,4 +1,4 @@
-import { stripSqlFilterBlocks } from '@nao/shared/sql-template';
+import { stripSqlFilterBlocks, validateSqlFilterTemplate } from '@nao/shared/sql-template';
 import type { executeSql } from '@nao/shared/tools';
 import { executeSql as schemas } from '@nao/shared/tools';
 
@@ -14,6 +14,7 @@ export async function executeQuery(
 	{ sql_query, database_id, query_id }: executeSql.Input,
 	context: ToolContext,
 ): Promise<executeSql.Output> {
+	const templateWarnings = env.BETA_STORY_FILTERS_ENABLED ? validateSqlFilterTemplate(sql_query) : [];
 	const effectiveSql = stripSqlFilterBlocks(sql_query);
 	const writePermEnabled = context.agentSettings?.sql?.dangerouslyWritePermEnabled ?? false;
 	if (!writePermEnabled && !(await isReadOnlySqlQuery(effectiveSql))) {
@@ -24,7 +25,7 @@ export async function executeQuery(
 	}
 
 	if (context.adminMode) {
-		return executeAppDbQuery(effectiveSql, context, query_id);
+		return withTemplateWarnings(await executeAppDbQuery(effectiveSql, context, query_id), templateWarnings);
 	}
 
 	const naoProjectFolder = context.projectFolder;
@@ -55,12 +56,15 @@ export async function executeQuery(
 
 	const appliedLimit = detectQueryRowLimit(effectiveSql);
 
-	return {
-		_version: '1',
-		...data,
-		id,
-		...(appliedLimit !== null && { applied_limit: appliedLimit }),
-	};
+	return withTemplateWarnings(
+		{
+			_version: '1',
+			...data,
+			id,
+			...(appliedLimit !== null && { applied_limit: appliedLimit }),
+		},
+		templateWarnings,
+	);
 }
 
 async function executeAppDbQuery(
@@ -80,6 +84,13 @@ async function executeAppDbQuery(
 		id,
 		...(appliedLimit !== null && { applied_limit: appliedLimit }),
 	};
+}
+
+function withTemplateWarnings(output: executeSql.Output, templateWarnings: string[]): executeSql.Output {
+	if (templateWarnings.length === 0) {
+		return output;
+	}
+	return { ...output, template_warnings: templateWarnings };
 }
 
 async function updateExistingQuery(
@@ -109,8 +120,10 @@ function buildExecuteSqlToolDescription() {
 		'Execute a SQL query against the connected database and return the results. If multiple databases are configured, specify the database_id.',
 		...(env.BETA_STORY_FILTERS_ENABLED
 			? [
-					'Story filters may be embedded as SQL template blocks that are stripped when this tool runs in chat:',
-					'WHERE 1 = 1 {% filter country %} AND country IN ({{ filters.country.sql }}) {% endfilter %}.',
+					'Story filters may be embedded as SQL template blocks that are stripped when this tool runs in chat.',
+					'Correct syntax: WHERE 1 = 1 {% filter country %} AND country IN ({{ filters.country.sql }}) {% endfilter %}.',
+					"For date_range filters, {{ filters.<id>.sql }} already expands to 'start' AND 'end', so write: {% filter period %} AND order_date BETWEEN {{ filters.period.sql }} {% endfilter %}.",
+					'Never use filters.<id>.start, .end, .value, or placeholders outside {% filter %} blocks — invalid templates return template_warnings.',
 					'Prefer query_id when adding story filter templates so existing <chart>/<table> tags keep working.',
 				]
 			: []),

@@ -9,6 +9,7 @@ import { StoryFilterBar } from '@/components/story-filter-bar';
 import { SegmentList } from '@/components/story-rendering';
 import { StoryChartEmbed as StaticChartEmbed } from '@/components/side-panel/story-chart-embed';
 import { StoryTableEmbed as StaticTableEmbed } from '@/components/side-panel/story-table-embed';
+import { StoryQuerySqlProvider } from '@/contexts/story-query-sql';
 import { useStoryFilters } from '@/hooks/use-story-filters';
 import { trpc } from '@/main';
 
@@ -48,6 +49,10 @@ export const StoryPreview = memo(function StoryPreview({
 	const effectiveQueryData = storyFilters.queryData;
 
 	const useLiveUnfiltered = isNoCacheMode && !storyFilters.hasActiveFilters;
+	const querySqlSource = useMemo(
+		() => ({ api: filterApi, selections: storyFilters.activeSelections }),
+		[filterApi, storyFilters.activeSelections],
+	);
 
 	const renderChart = useCallback(
 		(chart: ParsedChartBlock) => {
@@ -94,21 +99,22 @@ export const StoryPreview = memo(function StoryPreview({
 	);
 
 	return (
-		<div data-story-content className='p-6 flex flex-col gap-4'>
-			<StoryFilterBar
-				filters={storyFilters.filters}
-				selections={storyFilters.selections}
-				onSelectionChange={storyFilters.setSelection}
-				onClear={storyFilters.clearSelections}
-				api={filterApi}
-				isFiltering={storyFilters.isFiltering}
-			/>
-			<SegmentList
-				segments={segments}
-				versionKey={versionKey}
-				renderChart={renderChart}
-				renderTable={renderTable}
-			/>
-		</div>
+		<StoryQuerySqlProvider value={querySqlSource}>
+			<div data-story-content className='p-6 flex flex-col gap-4'>
+				<StoryFilterBar
+					filters={storyFilters.filters}
+					selections={storyFilters.selections}
+					onSelectionChange={storyFilters.setSelection}
+					onClear={storyFilters.clearSelections}
+					api={filterApi}
+				/>
+				<SegmentList
+					segments={segments}
+					versionKey={versionKey}
+					renderChart={renderChart}
+					renderTable={renderTable}
+				/>
+			</div>
+		</StoryQuerySqlProvider>
 	);
 });

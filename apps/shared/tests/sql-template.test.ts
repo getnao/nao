@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 
 import {
 	extractSqlFilterIds,
+	findUnreferencedStoryFilters,
 	renderFilterSqlValue,
 	renderSqlTemplate,
 	stripSqlFilterBlocks,
+	validateSqlFilterTemplate,
 } from '../src/sql-template';
 
 const SAMPLE_SQL = `
@@ -84,5 +86,50 @@ describe('renderSqlTemplate', () => {
 		expect(() =>
 			renderSqlTemplate('SELECT 1 WHERE x = {{ filters.country.sql }}', { country: 'US' }, { country: 'select' }),
 		).toThrow(/must appear inside/);
+	});
+});
+
+describe('validateSqlFilterTemplate', () => {
+	it('accepts correct templates', () => {
+		expect(validateSqlFilterTemplate(SAMPLE_SQL)).toEqual([]);
+		expect(validateSqlFilterTemplate(SAMPLE_SQL, { knownFilterIds: ['country', 'q', 'period'] })).toEqual([]);
+	});
+
+	it('flags date_range start/end/value placeholders', () => {
+		const sql = `
+SELECT 1 FROM orders WHERE 1 = 1
+{% filter period %} AND order_date BETWEEN {{ filters.period.start }} AND {{ filters.period.end }} {% endfilter %}
+`.trim();
+		const issues = validateSqlFilterTemplate(sql);
+		expect(issues.some((issue) => /filters\.period\.start/.test(issue))).toBe(true);
+		expect(issues.some((issue) => /BETWEEN \{\{ filters\.period\.sql \}\}/.test(issue))).toBe(true);
+	});
+
+	it('flags placeholders outside filter blocks', () => {
+		const issues = validateSqlFilterTemplate('SELECT 1 WHERE country = {{ filters.country.sql }}');
+		expect(issues.some((issue) => /must appear inside/.test(issue))).toBe(true);
+	});
+
+	it('flags undeclared filter ids when known filters are provided', () => {
+		const sql = '{% filter country %} AND country = {{ filters.country.sql }} {% endfilter %}';
+		const issues = validateSqlFilterTemplate(sql, { knownFilterIds: ['period'] });
+		expect(issues.some((issue) => /undeclared filter "country"/.test(issue))).toBe(true);
+	});
+
+	it('flags filter blocks missing .sql placeholders', () => {
+		const sql = "{% filter country %} AND country = 'US' {% endfilter %}";
+		const issues = validateSqlFilterTemplate(sql);
+		expect(issues.some((issue) => /missing \{\{ filters\.country\.sql \}\}/.test(issue))).toBe(true);
+	});
+});
+
+describe('findUnreferencedStoryFilters', () => {
+	it('returns declared filters unused by any SQL template', () => {
+		expect(
+			findUnreferencedStoryFilters(
+				['country', 'period'],
+				['{% filter country %} AND country = {{ filters.country.sql }} {% endfilter %}'],
+			),
+		).toEqual(['period']);
 	});
 });

@@ -16,7 +16,7 @@ import * as storyFolderQueries from '../queries/story-folder.queries';
 import { naturalLanguageToCron } from '../services/cron-nlp';
 import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../services/live-story';
 import { nextCronTick } from '../services/scheduler.service';
-import { getFilteredStoryQueryData, getStoryFilterOptions } from '../services/story-filters';
+import { getFilteredStoryQueryData, getStoryFilterOptions, getStoryQuerySql } from '../services/story-filters';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import { buildDownloadResponse } from '../utils/story-download';
 import { extractStorySummary } from '../utils/story-summary';
@@ -314,6 +314,19 @@ export const storyRoutes = {
 		.query(async ({ input }) => {
 			assertStoryFiltersEnabled();
 			return getFilteredStoryQueryData(input.chatId, input.storySlug, input.selections);
+		}),
+
+	getQuerySql: chatOwnerProcedure
+		.input(
+			z.object({
+				chatId: z.string(),
+				storySlug: z.string(),
+				queryId: z.string(),
+				selections: z.record(z.string(), z.union([z.string(), z.array(z.string())])).default({}),
+			}),
+		)
+		.query(async ({ input }) => {
+			return getStoryQuerySql(input.chatId, input.storySlug, input.queryId, input.selections);
 		}),
 
 	parseCronFromText: projectProtectedProcedure

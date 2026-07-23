@@ -3,6 +3,7 @@ export * from './chart-builder';
 export * from './chart-domain';
 export * from './citation';
 export * from './date';
+export * from './execute-sql-parts';
 export * from './mcp';
 export * from './mcp-embed';
 export * from './mentions';

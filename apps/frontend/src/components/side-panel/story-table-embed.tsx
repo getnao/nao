@@ -1,7 +1,6 @@
 import { sanitizeConditionalFormats } from '@nao/shared/conditional-formatting';
 import { Pencil } from 'lucide-react';
 import { memo, useMemo, useState } from 'react';
-import type { UIMessage } from '@nao/backend/chat';
 import type { ParsedTableBlock } from '@nao/shared/story-segments';
 
 import { DataTableCard } from '@/components/data-table-card';
@@ -10,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { useOptionalAgentContext } from '@/contexts/agent.provider';
 import { useStoryEmbedData } from '@/contexts/story-embed-data';
 import { useStoryTableEdit } from '@/contexts/story-table-edit';
+import { findLatestExecuteSqlInMessages } from '@/lib/execute-sql-messages';
 
 export const StoryTableEmbed = memo(function StoryTableEmbed({ table }: { table: ParsedTableBlock }) {
 	const agent = useOptionalAgentContext();
@@ -21,18 +21,7 @@ export const StoryTableEmbed = memo(function StoryTableEmbed({ table }: { table:
 			return fromEmbedData;
 		}
 
-		const findInMessages = (messages: UIMessage[]) => {
-			for (const message of messages) {
-				for (const part of message.parts) {
-					if (part.type === 'tool-execute_sql' && part.output?.id === table.queryId) {
-						return part.output;
-					}
-				}
-			}
-			return null;
-		};
-
-		return findInMessages(agent?.messages ?? []);
+		return findLatestExecuteSqlInMessages(agent?.messages ?? [], table.queryId)?.output ?? null;
 	}, [embedData, agent?.messages, table.queryId]);
 
 	if (!sourceData?.data || !Array.isArray(sourceData.data)) {

@@ -7,6 +7,7 @@ import { env } from '../../env';
 import { getDisplayChartTableFormatsForChat } from '../../queries/chart-image';
 import * as storyQueries from '../../queries/story.queries';
 import * as storyFolderQueries from '../../queries/story-folder.queries';
+import { getStoryTemplateWarnings } from '../../services/story-template-validation';
 import type { ToolContext } from '../../types/tools';
 import { createTool } from '../../utils/tools';
 
@@ -15,7 +16,9 @@ const STORY_FILTER_DESCRIPTION = [
 	'For select/multi_select, provide either table+column (options from SELECT DISTINCT) or options=\'["a","b"]\' (hardcoded values).',
 	'When using table+column and multiple databases are configured, set database_id on the filter so option loading targets the correct database.',
 	'Matching SQL must use template blocks that reference the same filter id, e.g. WHERE 1 = 1 {% filter country %} AND country IN ({{ filters.country.sql }}) {% endfilter %}.',
+	"For date_range, {{ filters.<id>.sql }} already expands to 'start' AND 'end' — write {% filter period %} AND order_date BETWEEN {{ filters.period.sql }} {% endfilter %}. Never use .start/.end/.value.",
 	'Chat and live refresh strip unset filter blocks so the query still runs; active story filter selections re-render and re-execute SQL.',
+	'Invalid filter templates are reported as template_warnings in the tool result — fix them before finishing.',
 	'When adding filters to existing charts, prefer execute_sql with query_id set to the existing query so chart/table tags keep the same query_id.',
 ].join(' ');
 
@@ -90,6 +93,7 @@ export default createTool<story.Input, story.Output>({
 				version: version.version,
 				code: version.code,
 				title: version.title,
+				...(await storyTemplateWarnings(chatId, version.code)),
 			};
 		}
 
@@ -128,6 +132,7 @@ export default createTool<story.Input, story.Output>({
 				version: version.version,
 				code: version.code,
 				title: version.title,
+				...(await storyTemplateWarnings(chatId, version.code)),
 			};
 		}
 
@@ -154,6 +159,7 @@ export default createTool<story.Input, story.Output>({
 			version: version.version,
 			code: version.code,
 			title: version.title,
+			...(await storyTemplateWarnings(chatId, version.code)),
 		};
 	},
 
@@ -163,6 +169,11 @@ export default createTool<story.Input, story.Output>({
 async function carryOverTableFormatting(code: string, chatId: string): Promise<string> {
 	const formatsByQueryId = await getDisplayChartTableFormatsForChat(chatId);
 	return injectTableFormatting(code, formatsByQueryId);
+}
+
+async function storyTemplateWarnings(chatId: string, code: string): Promise<{ template_warnings?: string[] }> {
+	const warnings = await getStoryTemplateWarnings(chatId, code);
+	return warnings.length > 0 ? { template_warnings: warnings } : {};
 }
 
 function rememberStoryArtifact(context: ToolContext, id: string, title: string): void {

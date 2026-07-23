@@ -11,7 +11,7 @@ import * as storyQueries from '../queries/story.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
 import { logActivity } from '../services/activity';
 import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../services/live-story';
-import { getFilteredStoryQueryData, getStoryFilterOptions } from '../services/story-filters';
+import { getFilteredStoryQueryData, getStoryFilterOptions, getStoryQuerySql } from '../services/story-filters';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import { notifySharedItemRecipients } from '../utils/email';
 import { buildDownloadResponse } from '../utils/story-download';
@@ -199,6 +199,22 @@ export const sharedStoryRoutes = {
 				throw new TRPCError({ code: 'BAD_REQUEST', message: 'Shared story has no chat.' });
 			}
 			return getFilteredStoryQueryData(shared.chatId, shared.slug, input.selections);
+		}),
+
+	getQuerySql: shareAccessProcedure
+		.input(
+			z.object({
+				shareId: z.string(),
+				queryId: z.string(),
+				selections: z.record(z.string(), z.union([z.string(), z.array(z.string())])).default({}),
+			}),
+		)
+		.query(async ({ input, ctx }) => {
+			const shared = ctx.resource;
+			if (!shared.chatId) {
+				throw new TRPCError({ code: 'BAD_REQUEST', message: 'Shared story has no chat.' });
+			}
+			return getStoryQuerySql(shared.chatId, shared.slug, input.queryId, input.selections);
 		}),
 
 	refreshData: shareAccessProcedure.input(z.object({ shareId: z.string() })).mutation(async ({ ctx }) => {

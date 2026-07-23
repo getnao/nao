@@ -36,6 +36,7 @@ import { useChatId } from '@/hooks/use-chat-id';
 import { useSidePanel } from '@/contexts/side-panel';
 import { StoryViewer } from '@/components/side-panel/story-viewer';
 import { cn } from '@/lib/utils';
+import { findLatestExecuteSqlInMessages } from '@/lib/execute-sql-messages';
 import { downloadCsv, tableToCsv } from '@/lib/table-export';
 
 const Colors = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)', 'var(--chart-5)'];
@@ -83,15 +84,7 @@ export const DisplayChartToolCall = ({
 		if (!chartConfig?.query_id) {
 			return null;
 		}
-
-		for (const message of messages) {
-			for (const part of message.parts) {
-				if (part.type === 'tool-execute_sql' && part.output && part.output.id === chartConfig.query_id) {
-					return { input: part.input, output: part.output };
-				}
-			}
-		}
-		return null;
+		return findLatestExecuteSqlInMessages(messages, chartConfig.query_id);
 	}, [messages, chartConfig?.query_id]);
 
 	const sourceData = sourceQuery?.output ?? null;

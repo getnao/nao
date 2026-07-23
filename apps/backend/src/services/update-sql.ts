@@ -3,13 +3,8 @@ import type { executeSql } from '@nao/shared/tools';
 import { TRPCError } from '@trpc/server';
 
 import { executeQuery } from '../agents/tools/execute-sql';
-import {
-	getExecuteSqlOwnerByQueryId,
-	getExecuteSqlPartByQueryIdInChat,
-	updateExecuteSqlPart,
-} from '../queries/execute-sql.queries';
-import * as projectQueries from '../queries/project.queries';
-import type { ToolContext } from '../types/tools';
+import { getLatestExecuteSqlByQueryId, updateExecuteSqlPart } from '../queries/execute-sql.queries';
+import { buildToolContext } from './agent';
 
 export async function updateSqlQueryInChat(opts: {
 	queryId: string;
@@ -18,11 +13,11 @@ export async function updateSqlQueryInChat(opts: {
 	name?: string;
 	userId: string;
 }): Promise<{ input: executeSql.Input; output: executeSql.Output; toolCallId: string; chatId: string }> {
-	const { existing, owner, context, input } = await prepareSqlEditContext(opts);
+	const { existing, context, input } = await prepareSqlEditContext(opts);
 	const output = await executeQuery({ ...input, query_id: opts.queryId as `query_${string}` }, context);
 	await updateExecuteSqlPart(existing.toolCallId, input, output);
 
-	return { input, output, toolCallId: existing.toolCallId, chatId: owner.chatId };
+	return { input, output, toolCallId: existing.toolCallId, chatId: existing.chatId };
 }
 
 export async function previewSqlQueryInChat(opts: {
@@ -41,53 +36,30 @@ async function prepareSqlEditContext(opts: {
 	databaseId?: string;
 	name?: string;
 	userId: string;
-}): Promise<{
-	existing: NonNullable<Awaited<ReturnType<typeof getExecuteSqlPartByQueryIdInChat>>>;
-	owner: NonNullable<Awaited<ReturnType<typeof getExecuteSqlOwnerByQueryId>>>;
-	context: ToolContext;
-	input: executeSql.Input;
-}> {
+}) {
 	assertSqlQueryEditable(opts.sqlQuery);
 
-	const owner = await getExecuteSqlOwnerByQueryId(opts.queryId);
-	if (!owner) {
-		throw new TRPCError({ code: 'NOT_FOUND', message: `Query ${opts.queryId} not found.` });
-	}
-	if (owner.userId !== opts.userId) {
-		throw new TRPCError({ code: 'FORBIDDEN', message: 'You are not authorized to edit this query.' });
-	}
-
-	const existing = await getExecuteSqlPartByQueryIdInChat(owner.chatId, opts.queryId);
+	const existing = await getLatestExecuteSqlByQueryId(opts.queryId);
 	if (!existing) {
 		throw new TRPCError({ code: 'NOT_FOUND', message: `Query ${opts.queryId} not found.` });
 	}
-
-	const project = await projectQueries.retrieveProjectById(owner.projectId);
-	if (!project.path) {
-		throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Project path not configured.' });
+	if (existing.userId !== opts.userId) {
+		throw new TRPCError({ code: 'FORBIDDEN', message: 'You are not authorized to edit this query.' });
 	}
 
-	const agentSettings = await projectQueries.getAgentSettings(owner.projectId);
-	const envVars = await projectQueries.getEnvVars(owner.projectId);
-	const context: ToolContext = {
-		projectFolder: project.path,
-		chatId: owner.chatId,
+	const context = await buildToolContext({
+		projectId: existing.projectId,
 		userId: opts.userId,
-		projectId: owner.projectId,
-		agentSettings,
-		envVars,
-		azureAccessToken: null,
-		queryResults: new Map(),
-		generatedArtifacts: { charts: [], stories: [] },
-	};
+		chatId: existing.chatId,
+	});
 
 	const input: executeSql.Input = {
 		sql_query: opts.sqlQuery,
-		database_id: opts.databaseId ?? existing.toolInput.database_id,
-		name: opts.name ?? existing.toolInput.name,
+		database_id: opts.databaseId ?? existing.toolInput.database_id ?? undefined,
+		name: opts.name ?? existing.toolInput.name ?? undefined,
 	};
 
-	return { existing, owner, context, input };
+	return { existing, context, input };
 }
 
 export function assertSqlQueryEditable(sqlQuery: string): void {

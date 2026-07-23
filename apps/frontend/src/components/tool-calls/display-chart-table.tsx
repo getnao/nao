@@ -14,6 +14,7 @@ import { useOptionalAgentContext } from '@/contexts/agent.provider';
 import { useChatId } from '@/hooks/use-chat-id';
 import { useSidePanel } from '@/contexts/side-panel';
 import { StoryViewer } from '@/components/side-panel/story-viewer';
+import { findLatestExecuteSqlInMessages } from '@/lib/execute-sql-messages';
 import { findStoryIds } from '@/lib/story.utils';
 import { trpc } from '@/main';
 
@@ -41,14 +42,7 @@ export function DisplayChartTable({ config, outputError, toolCallId }: DisplayCh
 		if (!config?.query_id) {
 			return null;
 		}
-		for (const message of messages) {
-			for (const part of message.parts) {
-				if (part.type === 'tool-execute_sql' && part.output && part.output.id === config.query_id) {
-					return part.output;
-				}
-			}
-		}
-		return null;
+		return findLatestExecuteSqlInMessages(messages, config.query_id)?.output ?? null;
 	}, [messages, config?.query_id]);
 
 	const updateMutation = useMutation(

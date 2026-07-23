@@ -167,4 +167,4 @@ function AuthSocialButton({
 	);
 }
 
-export { Button, ButtonConnection, ChatSendButton as ChatButton, MicButton, AuthSocialButton };
+export { Button, ButtonConnection, ChatSendButton as ChatButton, MicButton, AuthSocialButton, buttonVariants };

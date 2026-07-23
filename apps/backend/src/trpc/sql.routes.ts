@@ -6,8 +6,8 @@ import { protectedProcedure } from './trpc';
 const sqlEditInput = z.object({
 	queryId: z.string().regex(/^query_.+$/),
 	sql_query: z.string().min(1),
-	database_id: z.string().optional(),
-	name: z.string().optional(),
+	database_id: z.string().nullish(),
+	name: z.string().nullish(),
 });
 
 export const sqlRoutes = {
@@ -15,7 +15,7 @@ export const sqlRoutes = {
 		return previewSqlQueryInChat({
 			queryId: input.queryId,
 			sqlQuery: input.sql_query,
-			databaseId: input.database_id,
+			databaseId: input.database_id ?? undefined,
 			userId: ctx.user.id,
 		});
 	}),
@@ -24,8 +24,8 @@ export const sqlRoutes = {
 		return updateSqlQueryInChat({
 			queryId: input.queryId,
 			sqlQuery: input.sql_query,
-			databaseId: input.database_id,
-			name: input.name,
+			databaseId: input.database_id ?? undefined,
+			name: input.name ?? undefined,
 			userId: ctx.user.id,
 		});
 	}),

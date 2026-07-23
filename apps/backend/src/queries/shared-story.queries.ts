@@ -2,6 +2,7 @@ import { and, count, desc, eq, isNull, max, or, type SQL, sql } from 'drizzle-or
 
 import s, { type DBSharedStory } from '../db/abstractSchema';
 import { db } from '../db/db';
+import * as executeSqlQueries from './execute-sql.queries';
 
 export type SharedStoryWithLatest = DBSharedStory & {
 	updatedAt: Date;
@@ -141,24 +142,7 @@ export async function getQueryDataFromCode(
 		return null;
 	}
 
-	const parts = await db
-		.select({ toolOutput: s.messagePart.toolOutput })
-		.from(s.messagePart)
-		.innerJoin(s.chatMessage, eq(s.messagePart.messageId, s.chatMessage.id))
-		.where(and(eq(s.chatMessage.chatId, chatId), eq(s.messagePart.toolName, 'execute_sql')))
-		.execute();
-
-	const data: Record<string, { data: unknown[]; columns: string[] }> = {};
-	for (const part of parts) {
-		const output = part.toolOutput as { id?: string; data?: unknown[]; columns?: string[] } | null;
-		if (output?.id && queryIds.has(output.id)) {
-			data[output.id] = {
-				data: output.data ?? [],
-				columns: output.columns ?? [],
-			};
-		}
-	}
-
+	const data = await executeSqlQueries.getLatestSqlQueryDataByIds(chatId, queryIds);
 	return Object.keys(data).length > 0 ? data : null;
 }
 
