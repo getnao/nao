@@ -711,7 +711,7 @@ function YAxisSideToggle({ value, onChange }: YAxisSideToggleProps) {
 					<Icon className={`size-4 transition-transform ${isRight ? '-rotate-90' : ''}`} />
 				</Button>
 			</TooltipTrigger>
-			<TooltipContent side='bottom'>{isRight ? 'Right Y-axis' : 'Left Y-axis'}</TooltipContent>
+			<TooltipContent side='top'>{isRight ? 'Right Y-axis' : 'Left Y-axis'}</TooltipContent>
 		</Tooltip>
 	);
 }

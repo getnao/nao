@@ -594,7 +594,6 @@ function buildAreaChart(props: ResolvedProps) {
 		yAxisMin,
 		yAxisMax,
 		showDataLabels,
-		idPrefix = '',
 	} = props;
 	const gradientIdPrefix = props.gradientIdPrefix ?? '';
 	const gradientIdFor = (index: number) => `${gradientIdPrefix}grad-${index}`;
