@@ -343,6 +343,10 @@ function toChartConfig(chart: ParsedChartBlock) {
 		series: chart.series,
 		y_axis_min: chart.yAxisMin,
 		y_axis_max: chart.yAxisMax,
+		y_axis_label: chart.yAxisLabel,
+		y_axis_right_min: chart.yAxisRightMin,
+		y_axis_right_max: chart.yAxisRightMax,
+		y_axis_right_label: chart.yAxisRightLabel,
 		title: chart.title,
 		show_data_labels: chart.showDataLabels,
 	};
@@ -499,6 +503,7 @@ const TOOLTIP_SCRIPT_TEMPLATE = `
 			var html='<div class="nao-tooltip-label">'+labelize(label!=null?label:'')+'</div>';
 			html+='<div class="nao-tooltip-rows">';
 			var isPercent=cfg.chartType==='stacked_bar_100'||cfg.chartType==='stacked_area_100';
+			var isDualAxis=(cfg.series||[]).some(function(s){return s.y_axis==='right'});
 			var seriesTotal=0;
 			cfg.series.forEach(function(s){var sv=row[s.data_key];if(typeof sv==='number'&&!s.is_total)seriesTotal+=sv;});
 			function pctShare(v){if(typeof v!=='number'||!seriesTotal)return '0%';var sh=Math.round(v/seriesTotal*1000)/10;return (sh%1===0?sh:sh.toFixed(1))+'%';}
@@ -525,7 +530,7 @@ const TOOLTIP_SCRIPT_TEMPLATE = `
 					+'<span class="nao-tooltip-value">'+(isPercent?pctShare(val):formatVal(val))+'</span>'
 					+'</div>';
 			});
-			if(numericValues.length>1 && (isPercent || (!hasTotalSeries && !cfg.hideTotal))){
+			if(numericValues.length>1 && !isDualAxis && (isPercent || (!hasTotalSeries && !cfg.hideTotal))){
 				var total=numericValues.reduce(function(a,b){return a+b},0);
 				html+='<div class="nao-tooltip-total">'
 					+'<span class="nao-tooltip-name">Total</span>'

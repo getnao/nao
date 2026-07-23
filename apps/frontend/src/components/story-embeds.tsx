@@ -85,6 +85,10 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({
 				title={chart.title}
 				yAxisMin={chart.yAxisMin}
 				yAxisMax={chart.yAxisMax}
+				yAxisLabel={chart.yAxisLabel}
+				yAxisRightMin={chart.yAxisRightMin}
+				yAxisRightMax={chart.yAxisRightMax}
+				yAxisRightLabel={chart.yAxisRightLabel}
 				showDataLabels={chart.showDataLabels}
 				normalSize
 				hideTotal={chart.hideTotal}

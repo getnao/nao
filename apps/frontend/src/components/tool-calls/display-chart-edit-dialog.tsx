@@ -1,6 +1,7 @@
+import { DEFAULT_COLORS } from '@nao/shared';
 import { displayChart } from '@nao/shared/tools';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Trash2 } from 'lucide-react';
+import { ChartArea, ChartBar, ChartColumn, ChartColumnIncreasing, ChartLine, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
 import { Button } from '../ui/button';
@@ -8,6 +9,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '../ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Switch } from '../ui/switch';
+import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
+import type { LucideIcon } from 'lucide-react';
 import type { UIMessage, UIToolPart } from '@nao/backend/chat';
 import { trpc } from '@/main';
 import { useAgentContext } from '@/contexts/agent.provider';
@@ -18,6 +21,7 @@ const CHART_TYPE_OPTIONS: { value: displayChart.ChartType; label: string }[] = [
 	{ value: 'line', label: 'Line' },
 	{ value: 'area', label: 'Area' },
 	{ value: 'stacked_area', label: 'Stacked area' },
+	{ value: 'mixed', label: 'Mixed' },
 	{ value: 'pie', label: 'Pie' },
 	{ value: 'donut', label: 'Donut' },
 	{ value: 'kpi_card', label: 'KPI card' },
@@ -30,6 +34,12 @@ const X_AXIS_TYPE_OPTIONS: { value: NonNullable<displayChart.XAxisType> | 'auto'
 	{ value: 'category', label: 'Category' },
 	{ value: 'date', label: 'Date' },
 	{ value: 'number', label: 'Number' },
+];
+
+const SERIES_TYPE_OPTIONS: { value: displayChart.SeriesType; label: string; icon: LucideIcon }[] = [
+	{ value: 'bar', label: 'Bar', icon: ChartColumnIncreasing },
+	{ value: 'line', label: 'Line', icon: ChartLine },
+	{ value: 'area', label: 'Area', icon: ChartArea },
 ];
 
 const Y_AXIS_RANGE_UNSUPPORTED_CHART_TYPES = new Set<displayChart.ChartType>(['pie', 'kpi_card', 'radar']);
@@ -79,14 +89,25 @@ export function ChartConfigEditDialog({
 	const [draft, setDraft] = useState<displayChart.ChartInput>(config);
 	const [yAxisMinText, setYAxisMinText] = useState(toRangeString(config.y_axis_min));
 	const [yAxisMaxText, setYAxisMaxText] = useState(toRangeString(config.y_axis_max));
+	const [yAxisRightMinText, setYAxisRightMinText] = useState(toRangeString(config.y_axis_right_min));
+	const [yAxisRightMaxText, setYAxisRightMaxText] = useState(toRangeString(config.y_axis_right_max));
 	const [error, setError] = useState<string | null>(null);
+	// Chart palette resolved to hex so a series without an explicit color shows
+	// the same swatch the chart draws for it. Refreshed on open for the theme.
+	const [paletteHexes, setPaletteHexes] = useState<string[]>(DEFAULT_COLORS);
 	const supportsYAxisRange = !Y_AXIS_RANGE_UNSUPPORTED_CHART_TYPES.has(draft.chart_type);
+	const isCombo = displayChart.chartTypeSupportsComboSeries(draft.chart_type);
+	const hasRightAxis = isCombo && displayChart.hasRightAxisSeries(draft.series);
+	const hasLeftAxis = !isCombo || draft.series.some((s) => s.y_axis !== 'right');
 
 	useEffect(() => {
 		if (open) {
 			setDraft(config);
 			setYAxisMinText(toRangeString(config.y_axis_min));
 			setYAxisMaxText(toRangeString(config.y_axis_max));
+			setYAxisRightMinText(toRangeString(config.y_axis_right_min));
+			setYAxisRightMaxText(toRangeString(config.y_axis_right_max));
+			setPaletteHexes(resolveChartPaletteHexes());
 			setError(null);
 		}
 	}, [open, config]);
@@ -154,6 +175,18 @@ export function ChartConfigEditDialog({
 		setYAxisMaxText(value);
 		const parsed = parseRangeInput(value);
 		setDraft((prev) => ({ ...prev, y_axis_max: parsed }));
+	};
+
+	const updateYAxisRightMin = (value: string) => {
+		setYAxisRightMinText(value);
+		const parsed = parseRangeInput(value);
+		setDraft((prev) => ({ ...prev, y_axis_right_min: parsed }));
+	};
+
+	const updateYAxisRightMax = (value: string) => {
+		setYAxisRightMaxText(value);
+		const parsed = parseRangeInput(value);
+		setDraft((prev) => ({ ...prev, y_axis_right_max: parsed }));
 	};
 
 	return (
@@ -284,80 +317,137 @@ export function ChartConfigEditDialog({
 							</Button>
 						</div>
 						<div className='flex flex-col gap-3'>
-							{draft.series.map((series, index) => (
-								<div
-									key={index}
-									className='grid grid-cols-[1fr_1fr_auto_auto] gap-2 items-center rounded-md'
-								>
-									<ColumnSelect
-										value={series.data_key}
-										columns={availableColumns.length > 0 ? availableColumns : [series.data_key]}
-										onChange={(value) => updateSeriesAt(index, { data_key: value })}
-									/>
-									<Input
-										value={series.label ?? ''}
-										onChange={(e) => updateSeriesAt(index, { label: e.target.value || undefined })}
-										placeholder='Label (optional)'
-										className='h-8 rounded-lg text-sm bg-panel'
-									/>
-									<input
-										type='color'
-										aria-label='Series color'
-										value={normalizeHexColor(series.color)}
-										onChange={(e) => updateSeriesAt(index, { color: e.target.value })}
-										className='h-8 w-8 cursor-pointer overflow-hidden rounded-lg border-none bg-transparent p-0 [&::-moz-color-swatch]:rounded-lg [&::-moz-color-swatch]:border-none [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded-lg [&::-webkit-color-swatch]:border-none'
-									/>
-									<Button
-										type='button'
-										size='icon-sm'
-										variant='ghost-muted'
-										className='size-8'
-										onClick={() => removeSeriesAt(index)}
-										disabled={draft.series.length <= 1}
-										title='Remove series'
+							{draft.series.map((series, index) => {
+								const row = (
+									<div
+										className={`grid ${isCombo ? 'grid-cols-[1fr_1fr_auto_auto_auto]' : 'grid-cols-[1fr_1fr_auto_auto]'} gap-2 items-center`}
 									>
-										<Trash2 className='size-4' />
-									</Button>
-								</div>
-							))}
+										<ColumnSelect
+											value={series.data_key}
+											columns={availableColumns.length > 0 ? availableColumns : [series.data_key]}
+											onChange={(value) => updateSeriesAt(index, { data_key: value })}
+										/>
+										<Input
+											value={series.label ?? ''}
+											onChange={(e) =>
+												updateSeriesAt(index, { label: e.target.value || undefined })
+											}
+											placeholder='Label (optional)'
+											className='h-8 rounded-lg text-sm bg-panel'
+										/>
+										{isCombo && (
+											<YAxisSideToggle
+												value={series.y_axis ?? 'left'}
+												onChange={(value) => updateSeriesAt(index, { y_axis: value })}
+											/>
+										)}
+										<input
+											type='color'
+											aria-label='Series color'
+											value={normalizeHexColor(
+												series.color,
+												paletteHexes[index % paletteHexes.length],
+											)}
+											onChange={(e) => updateSeriesAt(index, { color: e.target.value })}
+											className='h-8 w-8 cursor-pointer overflow-hidden rounded-lg border-none bg-transparent p-0 [&::-moz-color-swatch]:rounded-lg [&::-moz-color-swatch]:border-none [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded-lg [&::-webkit-color-swatch]:border-none'
+										/>
+										<Button
+											type='button'
+											size='icon-sm'
+											variant='ghost-muted'
+											className='size-8'
+											onClick={() => removeSeriesAt(index)}
+											disabled={draft.series.length <= 1}
+											title='Remove series'
+										>
+											<Trash2 className='size-4' />
+										</Button>
+									</div>
+								);
+
+								if (!isCombo) {
+									return (
+										<div key={index} className='flex flex-col gap-2 rounded-md'>
+											{row}
+										</div>
+									);
+								}
+
+								return (
+									<div
+										key={index}
+										className='flex flex-col gap-2 rounded-md border border-border px-3 pt-2 pb-3'
+									>
+										<SeriesTypeSelect
+											value={series.series_type ?? 'bar'}
+											onChange={(value) => updateSeriesAt(index, { series_type: value })}
+										/>
+										{row}
+									</div>
+								);
+							})}
 						</div>
 					</div>
 
-					{supportsYAxisRange && (
-						<div className='grid gap-2'>
-							<span className='text-sm font-semibold text-foreground'>Y-axis range</span>
-							<div className='grid grid-cols-1 sm:grid-cols-2 gap-3'>
-								<div className='grid gap-2'>
-									<label htmlFor='chart-y-axis-min' className='text-sm font-semibold text-foreground'>
-										Min
-									</label>
-									<Input
-										id='chart-y-axis-min'
-										className='h-8 bg-panel'
-										type='text'
-										inputMode='decimal'
-										placeholder='Auto'
-										value={yAxisMinText}
-										onChange={(e) => updateYAxisMin(e.target.value)}
-									/>
+					{isCombo
+						? (hasLeftAxis || hasRightAxis) && (
+								<div className='grid gap-3 py-2'>
+									<span className='text-sm font-semibold text-foreground'>Y-axis range</span>
+									{hasLeftAxis && (
+										<AxisFields
+											name='Left'
+											showRange={supportsYAxisRange}
+											labelPlaceholder='Label (optional)'
+											labelValue={draft.y_axis_label ?? ''}
+											onLabelChange={(value) =>
+												setDraft((prev) => ({ ...prev, y_axis_label: value || undefined }))
+											}
+											minId='chart-y-axis-min'
+											maxId='chart-y-axis-max'
+											minValue={yAxisMinText}
+											maxValue={yAxisMaxText}
+											onMinChange={updateYAxisMin}
+											onMaxChange={updateYAxisMax}
+										/>
+									)}
+									{hasRightAxis && (
+										<AxisFields
+											name='Right'
+											showRange={supportsYAxisRange}
+											labelPlaceholder='Label (optional)'
+											labelValue={draft.y_axis_right_label ?? ''}
+											onLabelChange={(value) =>
+												setDraft((prev) => ({
+													...prev,
+													y_axis_right_label: value || undefined,
+												}))
+											}
+											minId='chart-y-axis-right-min'
+											maxId='chart-y-axis-right-max'
+											minValue={yAxisRightMinText}
+											maxValue={yAxisRightMaxText}
+											onMinChange={updateYAxisRightMin}
+											onMaxChange={updateYAxisRightMax}
+										/>
+									)}
 								</div>
-								<div className='grid gap-2'>
-									<label htmlFor='chart-y-axis-max' className='text-sm font-semibold text-foreground'>
-										Max
-									</label>
-									<Input
-										id='chart-y-axis-max'
-										className='h-8 bg-panel'
-										type='text'
-										inputMode='decimal'
-										placeholder='Auto'
-										value={yAxisMaxText}
-										onChange={(e) => updateYAxisMax(e.target.value)}
-									/>
+							)
+						: supportsYAxisRange && (
+								<div className='grid gap-2 py-2'>
+									<span className='text-sm font-semibold text-foreground'>Y-axis range</span>
+									<div className='grid grid-cols-[1fr_1fr] gap-3 items-end'>
+										<MinMaxFields
+											minId='chart-y-axis-min'
+											maxId='chart-y-axis-max'
+											minValue={yAxisMinText}
+											maxValue={yAxisMaxText}
+											onMinChange={updateYAxisMin}
+											onMaxChange={updateYAxisMax}
+										/>
+									</div>
 								</div>
-							</div>
-						</div>
-					)}
+							)}
+
 					<div className='grid gap-2'>
 						<span className='text-sm font-semibold text-foreground'>Options</span>
 						<div className='flex h-8 items-center justify-between'>
@@ -475,6 +565,157 @@ function ColumnSelect({ value, columns, onChange }: ColumnSelectProps) {
 	);
 }
 
+interface AxisFieldsProps {
+	name: string;
+	showRange: boolean;
+	labelPlaceholder: string;
+	labelValue: string;
+	onLabelChange: (value: string) => void;
+	minId: string;
+	maxId: string;
+	minValue: string;
+	maxValue: string;
+	onMinChange: (value: string) => void;
+	onMaxChange: (value: string) => void;
+}
+
+/** One axis on a single row: label field with its min/max fields underneath their headers. */
+function AxisFields({
+	name,
+	showRange,
+	labelPlaceholder,
+	labelValue,
+	onLabelChange,
+	minId,
+	maxId,
+	minValue,
+	maxValue,
+	onMinChange,
+	onMaxChange,
+}: AxisFieldsProps) {
+	return (
+		<div className={`grid gap-3 items-end ${showRange ? 'grid-cols-[2fr_1fr_1fr]' : 'grid-cols-1'}`}>
+			<div className='grid gap-1'>
+				<span className='text-xs text-muted-foreground'>{name} axis</span>
+				<Input
+					className='h-8 bg-panel'
+					placeholder={labelPlaceholder}
+					value={labelValue}
+					onChange={(e) => onLabelChange(e.target.value)}
+				/>
+			</div>
+			{showRange && (
+				<MinMaxFields
+					minId={minId}
+					maxId={maxId}
+					minValue={minValue}
+					maxValue={maxValue}
+					onMinChange={onMinChange}
+					onMaxChange={onMaxChange}
+				/>
+			)}
+		</div>
+	);
+}
+
+interface MinMaxFieldsProps {
+	minId: string;
+	maxId: string;
+	minValue: string;
+	maxValue: string;
+	onMinChange: (value: string) => void;
+	onMaxChange: (value: string) => void;
+}
+
+function MinMaxFields({ minId, maxId, minValue, maxValue, onMinChange, onMaxChange }: MinMaxFieldsProps) {
+	return (
+		<>
+			<div className='grid gap-1'>
+				<label htmlFor={minId} className='text-xs text-muted-foreground'>
+					Min
+				</label>
+				<Input
+					id={minId}
+					className='h-8 bg-panel'
+					type='text'
+					inputMode='decimal'
+					placeholder='Auto'
+					value={minValue}
+					onChange={(e) => onMinChange(e.target.value)}
+				/>
+			</div>
+			<div className='grid gap-1'>
+				<label htmlFor={maxId} className='text-xs text-muted-foreground'>
+					Max
+				</label>
+				<Input
+					id={maxId}
+					className='h-8 bg-panel'
+					type='text'
+					inputMode='decimal'
+					placeholder='Auto'
+					value={maxValue}
+					onChange={(e) => onMaxChange(e.target.value)}
+				/>
+			</div>
+		</>
+	);
+}
+
+interface SeriesTypeSelectProps {
+	value: displayChart.SeriesType;
+	onChange: (value: displayChart.SeriesType) => void;
+}
+
+function SeriesTypeSelect({ value, onChange }: SeriesTypeSelectProps) {
+	return (
+		<Select value={value} onValueChange={(next) => onChange(next as displayChart.SeriesType)}>
+			<SelectTrigger variant='ghost' size='sm' className='h-auto gap-1 px-1 py-0 text-xs [&_svg]:size-3.5'>
+				<SelectValue />
+			</SelectTrigger>
+			<SelectContent className='bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
+				{SERIES_TYPE_OPTIONS.map(({ value: optionValue, label, icon: Icon }) => (
+					<SelectItem key={optionValue} value={optionValue}>
+						<Icon strokeWidth={1.5} />
+						{label}
+					</SelectItem>
+				))}
+			</SelectContent>
+		</Select>
+	);
+}
+
+interface YAxisSideToggleProps {
+	value: displayChart.YAxisSide;
+	onChange: (value: displayChart.YAxisSide) => void;
+}
+
+function YAxisSideToggle({ value, onChange }: YAxisSideToggleProps) {
+	const isRight = value === 'right';
+	const Icon = isRight ? ChartBar : ChartColumn;
+	const [open, setOpen] = useState(false);
+	return (
+		<Tooltip open={open} onOpenChange={setOpen} delayDuration={0}>
+			<TooltipTrigger asChild>
+				<Button
+					type='button'
+					variant='outline'
+					size='icon-sm'
+					className='size-8 bg-panel'
+					aria-label={isRight ? 'Right Y-axis' : 'Left Y-axis'}
+					onClick={() => {
+						onChange(isRight ? 'left' : 'right');
+						setOpen(true);
+					}}
+				>
+					<Icon className={`size-4 transition-transform ${isRight ? '-rotate-90' : ''}`} />
+				</Button>
+			</TooltipTrigger>
+			<TooltipContent side='top'>{isRight ? 'Right Y-axis' : 'Left Y-axis'}</TooltipContent>
+		</Tooltip>
+	);
+}
+
 function getSelectableColumns(columns: string[]): string[] {
 	return Array.from(new Set(columns.filter((column) => column.length > 0)));
 }
@@ -492,11 +733,38 @@ function parseRangeInput(value: string): number | undefined {
 }
 
 const HEX_RE = /^#[0-9a-fA-F]{6}$/;
-function normalizeHexColor(color?: string): string {
+function normalizeHexColor(color: string | undefined, fallback: string): string {
 	if (color && HEX_RE.test(color)) {
 		return color;
 	}
-	return '#104e64';
+	return HEX_RE.test(fallback) ? fallback : DEFAULT_COLORS[0];
+}
+
+function resolveChartPaletteHexes(): string[] {
+	if (typeof document === 'undefined') {
+		return DEFAULT_COLORS;
+	}
+	const context = document.createElement('canvas').getContext('2d');
+	const rootStyle = getComputedStyle(document.documentElement);
+	return DEFAULT_COLORS.map((fallback, index) => {
+		const value = rootStyle.getPropertyValue(`--chart-${index + 1}`).trim();
+		if (!value || !context) {
+			return fallback;
+		}
+		return cssColorToHex(context, value) ?? fallback;
+	});
+}
+
+function cssColorToHex(context: CanvasRenderingContext2D, color: string): string | null {
+	const sentinel = '#010203';
+	context.fillStyle = sentinel;
+	context.fillStyle = color;
+	if (context.fillStyle === sentinel && color.toLowerCase() !== sentinel) {
+		return null;
+	}
+	context.fillRect(0, 0, 1, 1);
+	const [r, g, b] = context.getImageData(0, 0, 1, 1).data;
+	return `#${[r, g, b].map((channel) => channel.toString(16).padStart(2, '0')).join('')}`;
 }
 
 function applyChartConfigToMessages(
