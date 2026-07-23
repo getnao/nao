@@ -356,7 +356,7 @@ export const DisplayChartToolCall = ({
 					toolCallId={toolCallId}
 					config={chartConfig}
 					availableColumns={sourceData.columns ?? []}
-					dataRowCount={sourceData.data?.length ?? 0}
+					data={sourceData.data ?? []}
 				/>
 			)}
 

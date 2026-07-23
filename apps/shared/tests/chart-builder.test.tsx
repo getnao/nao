@@ -183,6 +183,10 @@ describe('describePreviousPeriod', () => {
 		expect(describePreviousPeriod('2024-01-01', '2024-01-08')).toBe('last week');
 	});
 
+	it('describes a one-day gap as yesterday', () => {
+		expect(describePreviousPeriod('2024-01-01', '2024-01-02')).toBe('yesterday');
+	});
+
 	it('falls back for non-date categories', () => {
 		expect(describePreviousPeriod('Q1', 'Q2')).toBe('previous period');
 	});
