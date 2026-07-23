@@ -1,4 +1,4 @@
-import { asc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { pgTable, QueryBuilder as PgQueryBuilder, text as pgText } from 'drizzle-orm/pg-core';
 import { QueryBuilder as SqliteQueryBuilder, sqliteTable, text as sqliteText } from 'drizzle-orm/sqlite-core';
 
@@ -15,6 +15,18 @@ export interface ScopedView {
 	columns: string[];
 }
 
+export interface ScopedViewOptions {
+	/**
+	 * Exclude "Chat with nao data" admin-mode chats (messages sourced from `admin`)
+	 * from `v_messages`. They are internal/meta conversations, not genuine end-user
+	 * analytics questions, so the context recommendations engine leaves them out.
+	 */
+	excludeAdminChats?: boolean;
+}
+
+/** Message source used by the admin-mode "Chat with nao data" feature. */
+const ADMIN_MESSAGE_SOURCE = 'admin';
+
 type ViewSchema = typeof sqliteSchema;
 type ScopeTable = typeof sqliteScope;
 
@@ -30,15 +42,16 @@ const pgScope = pgTable('_scope', { projectId: pgText('project_id').notNull() })
  * Each view filters to the single project id held in the `_scope` temp table
  * (bound via a parameter at runtime, never interpolated into SQL).
  */
-export function getScopedViews(): ScopedView[] {
+export function getScopedViews(options: ScopedViewOptions = {}): ScopedView[] {
 	if (dbConfig.dialect === Dialect.Postgres) {
 		return buildScopedViews(
 			pgSchema as unknown as ViewSchema,
 			pgScope as unknown as ScopeTable,
 			new PgQueryBuilder() as unknown as SqliteQueryBuilder,
+			options,
 		);
 	}
-	return buildScopedViews(sqliteSchema, sqliteScope, new SqliteQueryBuilder());
+	return buildScopedViews(sqliteSchema, sqliteScope, new SqliteQueryBuilder(), options);
 }
 
 /** View name -> exposed columns. Dialect-independent; safe to use in prompts and allowlists. */
@@ -46,7 +59,12 @@ export const APP_DB_VIEW_COLUMNS: Record<string, string[]> = Object.fromEntries(
 	getScopedViews().map((view) => [view.name, view.columns]),
 );
 
-function buildScopedViews(schema: ViewSchema, scope: ScopeTable, qb: SqliteQueryBuilder): ScopedView[] {
+function buildScopedViews(
+	schema: ViewSchema,
+	scope: ScopeTable,
+	qb: SqliteQueryBuilder,
+	options: ScopedViewOptions = {},
+): ScopedView[] {
 	const {
 		chat,
 		chatMessage,
@@ -109,6 +127,15 @@ function buildScopedViews(schema: ViewSchema, scope: ScopeTable, qb: SqliteQuery
 		called_at: mcpCallLog.calledAt,
 	};
 
+	const scopedToProject = inArray(chat.projectId, scopedProjectIds());
+	// The literal is inlined (not a bound parameter) because SQLite rejects
+	// parameters inside a CREATE VIEW body.
+	const notAdminSource = or(
+		isNull(chatMessage.source),
+		sql`${chatMessage.source} <> '${sql.raw(ADMIN_MESSAGE_SOURCE)}'`,
+	);
+	const messagesWhere = options.excludeAdminChats ? and(scopedToProject, notAdminSource) : scopedToProject;
+
 	const projectSelection = { id: project.id, name: project.name };
 
 	const analyticsEventSelection = {
@@ -136,7 +163,7 @@ function buildScopedViews(schema: ViewSchema, scope: ScopeTable, qb: SqliteQuery
 				.leftJoin(chatMessage, eq(messagePart.messageId, chatMessage.id))
 				.leftJoin(chat, eq(chat.id, chatMessage.chatId))
 				.leftJoin(user, eq(user.id, chat.userId))
-				.where(inArray(chat.projectId, scopedProjectIds()))
+				.where(messagesWhere)
 				.orderBy(chatMessage.chatId, asc(messagePart.createdAt)),
 		),
 		toView(

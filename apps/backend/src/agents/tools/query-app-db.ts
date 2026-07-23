@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { ScopedViewOptions } from '../../db/app-db-views';
 import { runScopedAppDbQuery } from '../../db/readonly-app-db';
 import { ALLOWED_APP_DB_VIEWS, validateAppDbQuery } from '../../utils/app-db-allowlist';
 import { createTool } from '../../utils/tools';
@@ -16,19 +17,23 @@ export interface QueryAppDbOutput {
 	rowCount: number;
 }
 
-export async function queryAppDb(projectId: string, sql: string): Promise<QueryAppDbOutput> {
+export async function queryAppDb(
+	projectId: string,
+	sql: string,
+	options: ScopedViewOptions = {},
+): Promise<QueryAppDbOutput> {
 	const verdict = await validateAppDbQuery(sql);
 	if (!verdict.ok) {
 		throw new Error(verdict.reason ?? 'Query rejected.');
 	}
-	const { columns, rows } = await runScopedAppDbQuery(projectId, sql);
+	const { columns, rows } = await runScopedAppDbQuery(projectId, sql, options);
 	return { _version: '1', columns, rows, rowCount: rows.length };
 }
 
-export function createQueryAppDbTool(projectId: string) {
+export function createQueryAppDbTool(projectId: string, options: ScopedViewOptions = {}) {
 	return createTool<Input, QueryAppDbOutput>({
 		description: `Run a read-only SQL query over the nao app database to mine usage signal. Only SELECT/WITH over these project-scoped views is allowed: ${ALLOWED_APP_DB_VIEWS.join(', ')}.`,
 		inputSchema: InputSchema,
-		execute: async ({ sql }) => queryAppDb(projectId, sql),
+		execute: async ({ sql }) => queryAppDb(projectId, sql, options),
 	});
 }

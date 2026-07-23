@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, inArray, isNotNull, lt, lte, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, lte, ne, or, sql } from 'drizzle-orm';
 
 import s, {
 	DBContextRecommendation,
@@ -272,6 +272,9 @@ export async function setRecommendationStatus(input: {
 
 /** Total friction signals (errors, downvotes, regenerations) for a project over a window. */
 export async function getWindowTotals(projectId: string, start: Date, end: Date): Promise<WindowTotals> {
+	// "Chat with nao data" admin-mode conversations are internal/meta chats, not
+	// genuine end-user analytics questions, so they are excluded from the signal.
+	const notAdminChat = or(isNull(s.chatMessage.source), ne(s.chatMessage.source, 'admin'));
 	const [[errors], [downvotes], [regenerations]] = await Promise.all([
 		db
 			.select({ n: sql<number>`count(*)` })
@@ -284,6 +287,7 @@ export async function getWindowTotals(projectId: string, start: Date, end: Date)
 					eq(s.messagePart.toolState, 'output-error'),
 					gte(s.messagePart.createdAt, start),
 					lt(s.messagePart.createdAt, end),
+					notAdminChat,
 				),
 			)
 			.execute(),
@@ -298,6 +302,7 @@ export async function getWindowTotals(projectId: string, start: Date, end: Date)
 					eq(s.messageFeedback.vote, 'down'),
 					gte(s.messageFeedback.createdAt, start),
 					lt(s.messageFeedback.createdAt, end),
+					notAdminChat,
 				),
 			)
 			.execute(),
@@ -311,6 +316,7 @@ export async function getWindowTotals(projectId: string, start: Date, end: Date)
 					isNotNull(s.chatMessage.supersededAt),
 					gte(s.chatMessage.createdAt, start),
 					lt(s.chatMessage.createdAt, end),
+					notAdminChat,
 				),
 			)
 			.execute(),

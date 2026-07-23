@@ -1,7 +1,7 @@
 import postgres from 'postgres';
 
 import { env } from '../env';
-import { getScopedViews } from './app-db-views';
+import { getScopedViews, ScopedViewOptions } from './app-db-views';
 import dbConfig, { Dialect } from './dbConfig';
 
 export interface AppDbQueryResult {
@@ -9,14 +9,18 @@ export interface AppDbQueryResult {
 	rows: Record<string, unknown>[];
 }
 
-export async function runScopedAppDbQuery(projectId: string, sql: string): Promise<AppDbQueryResult> {
+export async function runScopedAppDbQuery(
+	projectId: string,
+	sql: string,
+	options: ScopedViewOptions = {},
+): Promise<AppDbQueryResult> {
 	if (dbConfig.dialect === Dialect.Postgres) {
-		return runPostgres(projectId, sql);
+		return runPostgres(projectId, sql, options);
 	}
-	return runSqlite(projectId, sql);
+	return runSqlite(projectId, sql, options);
 }
 
-async function runSqlite(projectId: string, sql: string): Promise<AppDbQueryResult> {
+async function runSqlite(projectId: string, sql: string, options: ScopedViewOptions): Promise<AppDbQueryResult> {
 	// Production runs under Bun (bun:sqlite); tests run under Node (better-sqlite3).
 	// better-sqlite3's native binding does not load under Bun, so the driver is chosen by runtime.
 	if (typeof Bun !== 'undefined') {
@@ -25,7 +29,7 @@ async function runSqlite(projectId: string, sql: string): Promise<AppDbQueryResu
 		try {
 			conn.run('CREATE TEMP TABLE _scope (project_id TEXT NOT NULL)');
 			conn.query('INSERT INTO _scope (project_id) VALUES (?)').run(projectId);
-			for (const view of getScopedViews()) {
+			for (const view of getScopedViews(options)) {
 				conn.run(`CREATE TEMP VIEW ${view.name} AS ${view.body}`);
 			}
 			conn.run('PRAGMA query_only = ON');
@@ -41,7 +45,7 @@ async function runSqlite(projectId: string, sql: string): Promise<AppDbQueryResu
 	try {
 		conn.exec('CREATE TEMP TABLE _scope (project_id TEXT NOT NULL)');
 		conn.prepare('INSERT INTO _scope (project_id) VALUES (?)').run(projectId);
-		for (const view of getScopedViews()) {
+		for (const view of getScopedViews(options)) {
 			conn.exec(`CREATE TEMP VIEW ${view.name} AS ${view.body}`);
 		}
 		// Belt-and-suspenders: block any write that slipped past the validator.
@@ -53,7 +57,7 @@ async function runSqlite(projectId: string, sql: string): Promise<AppDbQueryResu
 	}
 }
 
-async function runPostgres(projectId: string, sql: string): Promise<AppDbQueryResult> {
+async function runPostgres(projectId: string, sql: string, options: ScopedViewOptions): Promise<AppDbQueryResult> {
 	const ssl = env.DB_SSL ? 'require' : undefined;
 	const client = postgres(dbConfig.dbUrl, { ssl, max: 1 });
 	try {
@@ -63,7 +67,7 @@ async function runPostgres(projectId: string, sql: string): Promise<AppDbQueryRe
 		await client.begin(async (tx) => {
 			await tx`CREATE TEMP TABLE _scope (project_id text NOT NULL)`;
 			await tx`INSERT INTO _scope (project_id) VALUES (${projectId})`;
-			for (const view of getScopedViews()) {
+			for (const view of getScopedViews(options)) {
 				await tx.unsafe(`CREATE TEMP VIEW ${view.name} AS ${view.body}`);
 			}
 		});

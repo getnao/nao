@@ -14,9 +14,9 @@ const ORG_ID = 'ro-test-org';
 const USER_ID = 'ro-test-user';
 const PROJECT_A = 'ro-test-project-a';
 const PROJECT_B = 'ro-test-project-b';
-const CHAT_IDS = ['ro-chat-a', 'ro-chat-b'];
-const MESSAGE_IDS = ['ro-msg-a', 'ro-msg-b'];
-const PART_IDS = ['ro-part-a', 'ro-part-b'];
+const CHAT_IDS = ['ro-chat-a', 'ro-chat-b', 'ro-chat-admin'];
+const MESSAGE_IDS = ['ro-msg-a', 'ro-msg-b', 'ro-msg-admin'];
+const PART_IDS = ['ro-part-a', 'ro-part-b', 'ro-part-admin'];
 
 async function cleanup() {
 	// Child -> parent so the cleanup works even without cascading FKs.
@@ -75,5 +75,31 @@ describe('runScopedAppDbQuery', () => {
 		await expect(runScopedAppDbQuery(PROJECT_A, "UPDATE chat SET title = 'hacked'")).rejects.toThrow();
 		const rows = await db.select().from(chat).where(eq(chat.id, 'ro-chat-a'));
 		expect(rows[0].title).toBe('A chat');
+	});
+
+	describe('with an admin-mode "Chat with nao data" chat', () => {
+		beforeEach(async () => {
+			await db
+				.insert(chat)
+				.values({ id: 'ro-chat-admin', userId: USER_ID, projectId: PROJECT_A, title: 'Admin analytics' });
+			await db
+				.insert(chatMessage)
+				.values({ id: 'ro-msg-admin', chatId: 'ro-chat-admin', role: 'user', source: 'admin' });
+			await db
+				.insert(messagePart)
+				.values({ id: 'ro-part-admin', messageId: 'ro-msg-admin', order: 0, type: 'text', text: 'admin' });
+		});
+
+		it('includes admin chats by default', async () => {
+			const { rows } = await runScopedAppDbQuery(PROJECT_A, 'SELECT chat_id FROM v_messages');
+			expect(new Set(rows.map((r) => r.chat_id))).toEqual(new Set(['ro-chat-a', 'ro-chat-admin']));
+		});
+
+		it('excludes admin chats when excludeAdminChats is set', async () => {
+			const { rows } = await runScopedAppDbQuery(PROJECT_A, 'SELECT chat_id FROM v_messages', {
+				excludeAdminChats: true,
+			});
+			expect(rows.map((r) => r.chat_id)).toEqual(['ro-chat-a']);
+		});
 	});
 });

@@ -102,7 +102,7 @@ export async function runContextRecommendations(
 				getTools(
 					agentSettings,
 					{
-						query_app_db: createQueryAppDbTool(projectId),
+						query_app_db: createQueryAppDbTool(projectId, { excludeAdminChats: true }),
 						record_recommendation: collector.recordTool,
 						resolve_recommendation: collector.resolveTool,
 						...(fixCollector && {
