@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button } from '../ui/button';
 import type { ReactNode } from 'react';
 import type { DataExportFormat } from '@/components/export-data-menu';
@@ -7,11 +7,8 @@ import { Spinner } from '@/components/ui/spinner';
 import { Expandable } from '@/components/ui/expandable';
 import { useToolCallContext } from '@/contexts/tool-call';
 import { useIsInToolGroup } from '@/contexts/tool-group';
+import { ToolCallActionsProvider } from '@/contexts/tool-call-actions';
 import { ExportDataMenu } from '@/components/export-data-menu';
-
-const ToolCallActionsContext = createContext<{ setMenuOpen: (open: boolean) => void } | null>(null);
-
-export const useToolCallActions = () => useContext(ToolCallActionsContext);
 
 interface ExportAction {
 	columns: string[];
@@ -138,7 +135,7 @@ export const ToolCallWrapper = ({
 	const contentToShow = toolPart.errorText && !overrideError ? errorContent : children;
 
 	return (
-		<ToolCallActionsContext.Provider value={{ setMenuOpen: setIsMenuOpen }}>
+		<ToolCallActionsProvider value={{ setMenuOpen: setIsMenuOpen }}>
 			<div
 				onMouseEnter={() => setIsHovering(true)}
 				onMouseLeave={() => setIsHovering(false)}
@@ -162,6 +159,6 @@ export const ToolCallWrapper = ({
 					{contentToShow}
 				</Expandable>
 			</div>
-		</ToolCallActionsContext.Provider>
+		</ToolCallActionsProvider>
 	);
 };

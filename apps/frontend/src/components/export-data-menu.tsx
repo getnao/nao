@@ -1,13 +1,13 @@
 import { FileSpreadsheet } from 'lucide-react';
 import { useState } from 'react';
-import type { ReactNode } from 'react';
+import type { ReactElement } from 'react';
 import {
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { useToolCallActions } from '@/components/tool-calls/tool-call-wrapper';
+import { useToolCallActions } from '@/contexts/tool-call-actions';
 import { downloadCsv, downloadXlsx, tableToCsv } from '@/lib/table-export';
 
 export type DataExportFormat = 'csv' | 'xlsx';
@@ -18,7 +18,7 @@ interface ExportDataMenuProps {
 	filename: string;
 	onExport?: (format: DataExportFormat) => void;
 	align?: 'start' | 'end';
-	children: ReactNode;
+	children: ReactElement;
 }
 
 export function ExportDataMenu({ columns, data, filename, onExport, align = 'end', children }: ExportDataMenuProps) {
