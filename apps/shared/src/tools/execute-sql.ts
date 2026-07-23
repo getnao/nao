@@ -9,6 +9,9 @@ export const InputSchema = z.object({
 		.optional()
 		.describe('The database name/id to use. Required if multiple databases are configured.'),
 	name: z.string().optional().describe('A descriptive name for the query that will be used to show in the UI.'),
+	query_id: QueryIdSchema.optional().describe(
+		'When set, replace the SQL of this existing query in-place (same query_id) instead of creating a new one. Prefer this when adding story filter templates so chart/table tags keep working.',
+	),
 });
 
 export const OutputSchema = z.object({
@@ -25,6 +28,16 @@ export const OutputSchema = z.object({
 	 * represent the total number of matching rows.
 	 */
 	applied_limit: z.number().optional(),
+	/**
+	 * Story-filter SQL template syntax issues. The stripped query may still execute,
+	 * but filters will not apply correctly until these are fixed via execute_sql with query_id.
+	 */
+	template_warnings: z.array(z.string()).optional(),
+	/**
+	 * Set in-memory (never persisted) when a later execute_sql part in the chat re-ran
+	 * the same query id. The model then sees a short stub instead of repeated rows.
+	 */
+	superseded: z.boolean().optional(),
 });
 
 export type Input = z.infer<typeof InputSchema>;

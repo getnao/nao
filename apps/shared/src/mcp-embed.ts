@@ -12,6 +12,10 @@ export type McpChartEmbedStoredConfig = {
 	series: displayChart.ChartInput['series'];
 	yAxisMin?: displayChart.ChartInput['y_axis_min'];
 	yAxisMax?: displayChart.ChartInput['y_axis_max'];
+	yAxisLabel?: displayChart.ChartInput['y_axis_label'];
+	yAxisRightMin?: displayChart.ChartInput['y_axis_right_min'];
+	yAxisRightMax?: displayChart.ChartInput['y_axis_right_max'];
+	yAxisRightLabel?: displayChart.ChartInput['y_axis_right_label'];
 	title: string;
 };
 

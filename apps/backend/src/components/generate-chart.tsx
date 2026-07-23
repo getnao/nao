@@ -14,15 +14,20 @@ import {
 
 export interface RenderChartInput {
 	config: Pick<
-		displayChart.ChartInput,
+		displayChart.KpiCardInput,
 		| 'chart_type'
 		| 'x_axis_key'
 		| 'x_axis_type'
 		| 'series'
 		| 'y_axis_min'
 		| 'y_axis_max'
+		| 'y_axis_label'
+		| 'y_axis_right_min'
+		| 'y_axis_right_max'
+		| 'y_axis_right_label'
 		| 'title'
 		| 'show_data_labels'
+		| 'comparison_mode'
 	>;
 	data: Record<string, unknown>[];
 	width?: number;
@@ -47,6 +52,7 @@ export function renderChartToSvg(input: RenderChartInput): string {
 	const height = input.height ?? 500;
 	const margin = input.margin ?? { top: 10, right: 20, bottom: 5, left: 0 };
 	const includeLegend = input.includeLegend !== false;
+	const xAxisKey = config.x_axis_key ?? '';
 
 	const colorFor = (key: string, index: number) => {
 		const series = config.series.find((s) => s.data_key === key);
@@ -54,16 +60,16 @@ export function renderChartToSvg(input: RenderChartInput): string {
 	};
 
 	const labelFormatter = (value: string) => labelize(value, dateFormat);
-	const maxLabelWidth = estimateMaxLabelWidth(data, config.x_axis_key, dateFormat);
+	const maxLabelWidth = estimateMaxLabelWidth(data, xAxisKey, dateFormat);
 
 	const isPie = chartType === 'pie' || chartType === 'donut';
 
-	const chartData = isPie ? bucketPieData(data, config.x_axis_key, config.series[0]?.data_key ?? '') : data;
+	const chartData = isPie ? bucketPieData(data, xAxisKey, config.series[0]?.data_key ?? '') : data;
 
 	let legend: LegendEntry[] = [];
 	if (includeLegend) {
 		legend = isPie
-			? buildPieLegendEntries(chartData, config.x_axis_key, dateFormat)
+			? buildPieLegendEntries(chartData, xAxisKey, dateFormat)
 			: config.series.map((s, i) => ({
 					label: s.label || labelize(s.data_key, dateFormat),
 					color: colorFor(s.data_key, i),
@@ -78,7 +84,7 @@ export function renderChartToSvg(input: RenderChartInput): string {
 	const chart = buildChart({
 		data: chartData,
 		chartType,
-		xAxisKey: config.x_axis_key,
+		xAxisKey,
 		xAxisType: config.x_axis_type === 'number' ? 'number' : 'category',
 		series: config.series,
 		colorFor,
@@ -91,6 +97,11 @@ export function renderChartToSvg(input: RenderChartInput): string {
 		backgroundColor: '#ffffff',
 		yAxisMin: config.y_axis_min,
 		yAxisMax: config.y_axis_max,
+		comparisonMode: config.comparison_mode,
+		yAxisLabel: config.y_axis_label,
+		yAxisRightMin: config.y_axis_right_min,
+		yAxisRightMax: config.y_axis_right_max,
+		yAxisRightLabel: config.y_axis_right_label,
 	});
 
 	const html = renderToString(React.cloneElement(chart, { width: chartWidth, height }));

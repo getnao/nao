@@ -83,15 +83,18 @@ function useStoryDownload({
 
 interface StoryDownloadProps extends StoryDownloadOptions {
 	isAgentRunning?: boolean;
+	isSaving?: boolean;
 	iconOnly?: boolean;
 }
 
-export function StoryDownload({ isAgentRunning, iconOnly = false, ...downloadOptions }: StoryDownloadProps) {
+export function StoryDownload({ isAgentRunning, isSaving, iconOnly = false, ...downloadOptions }: StoryDownloadProps) {
 	const { isDownloading, error, canDownload, handleDownload } = useStoryDownload(downloadOptions);
 
 	if (!canDownload) {
 		return null;
 	}
+
+	const isDisabled = isAgentRunning || isDownloading || isSaving;
 
 	return (
 		<>
@@ -102,7 +105,7 @@ export function StoryDownload({ isAgentRunning, iconOnly = false, ...downloadOpt
 							variant='ghost'
 							size='icon-sm'
 							className='hover:rounded-full'
-							disabled={isAgentRunning || isDownloading}
+							disabled={isDisabled}
 							aria-label='Download story'
 							title='Download story'
 						>
@@ -116,7 +119,7 @@ export function StoryDownload({ isAgentRunning, iconOnly = false, ...downloadOpt
 						<Button
 							variant='outline'
 							size='sm'
-							disabled={isAgentRunning || isDownloading}
+							disabled={isDisabled}
 							aria-label='Download story'
 							title='Download story'
 						>

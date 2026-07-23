@@ -18,6 +18,23 @@ export function parseStoryTabs(code: string): StoryTab[] | null {
 	return findStoryTabBlocks(code).map(({ title, innerCode }) => ({ title, innerCode }));
 }
 
+export function appendBlockToStoryCode(
+	code: string,
+	block: string,
+	options: { usingVisibleStory: boolean; activeTabIndex: number },
+): { code: string; tabIndex: number } {
+	const tabs = parseStoryTabs(code);
+	if (!tabs || tabs.length === 0) {
+		return { code: code.trimEnd() + '\n\n' + block, tabIndex: 0 };
+	}
+	const tabIndex = options.usingVisibleStory
+		? Math.min(Math.max(options.activeTabIndex, 0), tabs.length - 1)
+		: tabs.length - 1;
+	const existingInner = tabs[tabIndex].innerCode.trimEnd();
+	const newInner = existingInner ? existingInner + '\n\n' + block : block;
+	return { code: replaceStoryTabInner(code, tabIndex, newInner), tabIndex };
+}
+
 export function flattenStoryTabs(code: string): string {
 	const tabs = parseStoryTabs(code);
 	if (!tabs?.length) {

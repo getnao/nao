@@ -8,6 +8,7 @@ export const BUILTIN_CHART_TYPES = [
 	'area',
 	'stacked_area',
 	'stacked_area_100',
+	'mixed',
 	'pie',
 	'donut',
 	'kpi_card',
@@ -27,6 +28,15 @@ const ChartTypeSchema = z.union([ChartTypeEnum, CustomChartTypeSchema]);
 
 export const XAxisTypeEnum = z.enum(['date', 'number', 'category']);
 
+export const ComparisonModeEnum = z.enum(['percentage', 'variation', 'absolute', 'none']);
+export type ComparisonMode = z.infer<typeof ComparisonModeEnum>;
+
+const COMPARISON_MODE_DESCRIPTION =
+	'KPI cards only: shows a change pill comparing the latest value to the previous period ("percentage", "variation", "absolute", or "none" to hide). Requires the query to return 2+ time-ordered rows (oldest → newest).';
+export const SeriesTypeEnum = z.enum(['bar', 'line', 'area']);
+
+export const YAxisSideEnum = z.enum(['left', 'right']);
+
 export const SeriesConfigSchema = z.object({
 	data_key: z.string().describe('Column name from SQL result to plot.'),
 	color: z.string().describe('CSS color (defaults to theme colors).').optional(),
@@ -37,6 +47,12 @@ export const SeriesConfigSchema = z.object({
 			'Set to true when this series is an already-aggregated total of the other series (e.g. a grand total, rollup, subtotal, or sum-of-parts column), so the tooltip must not sum it again. Decide this from the meaning of the column, not its name — it applies in any language.',
 		)
 		.optional(),
+	series_type: SeriesTypeEnum.describe(
+		'How this series is drawn ("bar", "line" or "area"). Only used when chart_type is "mixed"; defaults to "bar". Use it to combine types in one chart, e.g. bars for revenue and a line for a rate.',
+	).optional(),
+	y_axis: YAxisSideEnum.describe(
+		'Which Y-axis this series is plotted against ("left" or "right"). Only used when chart_type is "mixed"; defaults to "left". A right axis is drawn whenever any series uses "right" — use it to compare metrics with very different scales/units.',
+	).optional(),
 });
 
 export const ColorScaleRuleSchema = z.object({
@@ -96,44 +112,89 @@ export const ColumnConditionalFormatsSchema = z
 	.record(z.string(), ConditionalFormatRuleSchema)
 	.describe('Map of column name to the conditional-formatting rule applied to that column.');
 
-export const ChartInputSchema = z
-	.object({
-		query_id: z.string().describe("The id of a previous `execute_sql` tool call's output to get data from."),
-		chart_type: ChartTypeSchema.describe('Built-in chart type or an available project custom chart type.'),
-		x_axis_key: z.string().describe('Column name for X-axis/category labels.'),
-		x_axis_type: XAxisTypeEnum.nullable().describe(
-			'Use "date" only when x-axis values parse as JS Date (YYYY-MM-DD). Use "category" for quarter_ending, fiscal periods, or labels. Use "number" for numeric x-axis.',
+const ChartInputObjectSchema = z.object({
+	query_id: z.string().describe("The id of a previous `execute_sql` tool call's output to get data from."),
+	chart_type: ChartTypeSchema.describe('Built-in chart type or an available project custom chart type.'),
+	x_axis_key: z.string().describe('Column name for X-axis/category labels.'),
+	x_axis_type: XAxisTypeEnum.nullable().describe(
+		'Use "date" only when x-axis values parse as JS Date (YYYY-MM-DD). Use "category" for quarter_ending, fiscal periods, or labels. Use "number" for numeric x-axis.',
+	),
+	series: z
+		.array(SeriesConfigSchema)
+		.min(1)
+		.describe('Columns to plot as data series (at least one series required).'),
+	y_axis_min: z
+		.number()
+		.describe(
+			'Fixes the left Y-axis lower bound. Leave unset to auto-scale for readability (line and scatter charts do not force a zero baseline).',
+		)
+		.optional(),
+	y_axis_max: z.number().describe('Fixes the left Y-axis upper bound. Leave unset to auto-scale.').optional(),
+	y_axis_label: z
+		.string()
+		.describe('Label displayed alongside the left Y-axis. Only used when chart_type is "mixed".')
+		.optional(),
+	y_axis_right_min: z
+		.number()
+		.describe(
+			'Fixes the right Y-axis lower bound. Only used when chart_type is "mixed"; leave unset to auto-scale.',
+		)
+		.optional(),
+	y_axis_right_max: z
+		.number()
+		.describe(
+			'Fixes the right Y-axis upper bound. Only used when chart_type is "mixed"; leave unset to auto-scale.',
+		)
+		.optional(),
+	y_axis_right_label: z
+		.string()
+		.describe('Label displayed alongside the right Y-axis. Only used when chart_type is "mixed".')
+		.optional(),
+	show_data_labels: z
+		.boolean()
+		.describe(
+			'Show the numeric value of each data point directly on the chart. Set to true when the user asks to display values/data labels on the chart.',
+		)
+		.optional(),
+	hide_total: z
+		.boolean()
+		.describe(
+			'Set to true when the chart\'s series must NOT be added together into a single grand total — e.g. they are unrelated metrics, in different units, or different currencies, so a combined total would be meaningless. When true, the hover tooltip omits the "Total" row. Leave unset when the series are additive parts of the same measure (a total then makes sense). This is a chart-wide setting; for a single series that is itself an aggregated total of the others, use the per-series is_total flag instead.',
+		)
+		.optional(),
+	title: z
+		.string()
+		.describe(
+			'A concise and descriptive title of what the chart shows. Do not include the type of chart in the title or other chart configurations.',
 		),
-		series: z
-			.array(SeriesConfigSchema)
-			.min(1)
-			.describe('Columns to plot as data series (at least one series required).'),
-		y_axis_min: z
-			.number()
-			.describe(
-				'Fixes the Y-axis lower bound. Leave unset to auto-scale for readability (line and scatter charts do not force a zero baseline).',
-			)
-			.optional(),
-		y_axis_max: z.number().describe('Fixes the Y-axis upper bound. Leave unset to auto-scale.').optional(),
-		show_data_labels: z
-			.boolean()
-			.describe(
-				'Show the numeric value of each data point directly on the chart. Set to true when the user asks to display values/data labels on the chart.',
-			)
-			.optional(),
-		title: z
-			.string()
-			.describe(
-				'A concise and descriptive title of what the chart shows. Do not include the type of chart in the title or other chart configurations.',
-			),
-	})
-	.refine(
-		(input) =>
-			input.y_axis_min === undefined || input.y_axis_max === undefined || input.y_axis_min < input.y_axis_max,
-		{
-			message: 'The Y-axis minimum must be less than the maximum.',
-		},
-	);
+});
+
+const leftYAxisBoundsValid = (input: { y_axis_min?: number; y_axis_max?: number }) =>
+	input.y_axis_min === undefined || input.y_axis_max === undefined || input.y_axis_min < input.y_axis_max;
+const rightYAxisBoundsValid = (input: { y_axis_right_min?: number; y_axis_right_max?: number }) =>
+	input.y_axis_right_min === undefined ||
+	input.y_axis_right_max === undefined ||
+	input.y_axis_right_min < input.y_axis_right_max;
+const LEFT_Y_AXIS_BOUNDS_MESSAGE = { message: 'The left Y-axis minimum must be less than the maximum.' };
+const RIGHT_Y_AXIS_BOUNDS_MESSAGE = { message: 'The right Y-axis minimum must be less than the maximum.' };
+
+export const ChartInputSchema = ChartInputObjectSchema.refine(leftYAxisBoundsValid, LEFT_Y_AXIS_BOUNDS_MESSAGE).refine(
+	rightYAxisBoundsValid,
+	RIGHT_Y_AXIS_BOUNDS_MESSAGE,
+);
+
+/** KPI cards render a single headline number and have no axes, so they may omit the x-axis fields. */
+const KpiCardInputSchema = ChartInputObjectSchema.extend({
+	x_axis_key: z.string().describe('Column name for X-axis/category labels.').optional(),
+	x_axis_type: XAxisTypeEnum.nullable()
+		.describe(
+			'Use "date" only when x-axis values parse as JS Date (YYYY-MM-DD). Use "category" for quarter_ending, fiscal periods, or labels. Use "number" for numeric x-axis.',
+		)
+		.optional(),
+	comparison_mode: ComparisonModeEnum.describe(COMPARISON_MODE_DESCRIPTION).optional(),
+})
+	.refine(leftYAxisBoundsValid, LEFT_Y_AXIS_BOUNDS_MESSAGE)
+	.refine(rightYAxisBoundsValid, RIGHT_Y_AXIS_BOUNDS_MESSAGE);
 
 export const TableInputSchema = z.object({
 	query_id: z.string().describe("The id of a previous `execute_sql` tool call's output to get data from."),
@@ -143,8 +204,9 @@ export const TableInputSchema = z.object({
 });
 
 export type ChartInput = z.infer<typeof ChartInputSchema>;
+export type KpiCardInput = z.infer<typeof KpiCardInputSchema>;
 export type TableInput = z.infer<typeof TableInputSchema>;
-export type Input = ChartInput | TableInput;
+export type Input = ChartInput | KpiCardInput | TableInput;
 
 const DisplayTypeSchema = z.union([ChartTypeSchema, z.literal('table')]);
 
@@ -164,6 +226,13 @@ const BaseInputSchema = z.object({
 		.min(1)
 		.describe('Columns to plot as data series. Required for charts and omitted for tables.')
 		.optional(),
+	comparison_mode: ComparisonModeEnum.describe(COMPARISON_MODE_DESCRIPTION).optional(),
+	hide_total: z
+		.boolean()
+		.describe(
+			'Set to true when the chart\'s series must NOT be added together into a single grand total — e.g. they are unrelated metrics, in different units, or different currencies, so a combined total would be meaningless. When true, the hover tooltip omits the "Total" row. Leave unset when the series are additive parts of the same measure (a total then makes sense). This is a chart-wide setting; for a single series that is itself an aggregated total of the others, use the per-series is_total flag instead.',
+		)
+		.optional(),
 	title: z.string().describe('A concise, descriptive title for the visualization. Required for charts.').optional(),
 	conditional_formats: ColumnConditionalFormatsSchema.describe(
 		'Conditional formatting rules for table columns. Only used when chart_type is "table".',
@@ -171,7 +240,12 @@ const BaseInputSchema = z.object({
 });
 
 export const InputSchema = BaseInputSchema.superRefine((input, context) => {
-	const result = input.chart_type === 'table' ? TableInputSchema.safeParse(input) : ChartInputSchema.safeParse(input);
+	const result =
+		input.chart_type === 'table'
+			? TableInputSchema.safeParse(input)
+			: input.chart_type === 'kpi_card'
+				? KpiCardInputSchema.safeParse(input)
+				: ChartInputSchema.safeParse(input);
 	if (result.success) {
 		return;
 	}
@@ -188,6 +262,8 @@ export const OutputSchema = z.object({
 
 export type ChartType = z.infer<typeof ChartTypeEnum>;
 export type XAxisType = z.infer<typeof XAxisTypeEnum>;
+export type SeriesType = z.infer<typeof SeriesTypeEnum>;
+export type YAxisSide = z.infer<typeof YAxisSideEnum>;
 export type SeriesConfig = z.infer<typeof SeriesConfigSchema>;
 export type ColorScaleRule = z.infer<typeof ColorScaleRuleSchema>;
 export type ThresholdRule = z.infer<typeof ThresholdRuleSchema>;
@@ -206,6 +282,7 @@ const X_AXIS_REQUIRED_CHART_TYPES = new Set<ChartType>([
 	'stacked_area',
 	'stacked_area_100',
 	'stacked_bar_100',
+	'mixed',
 	'scatter',
 	'radar',
 ]);
@@ -220,7 +297,7 @@ export function isTableInput(input: Input): input is TableInput {
 	return input.chart_type === 'table';
 }
 
-export function isChartInput(input: Input): input is ChartInput {
+export function isChartInput(input: Input): input is ChartInput | KpiCardInput {
 	return !isTableInput(input);
 }
 
@@ -238,4 +315,16 @@ export function chartTypeRequiresXAxisKey(type: string): boolean {
 
 export function isPieChart(chartType: string): boolean {
 	return chartType === 'pie' || chartType === 'donut';
+}
+
+export function chartTypeSupportsComboSeries(type: ChartType): boolean {
+	return type === 'mixed';
+}
+
+export function hasRightAxisSeries(series: Pick<SeriesConfig, 'y_axis'>[]): boolean {
+	return series.some((s) => s.y_axis === 'right');
+}
+
+export function isComboChart(type: ChartType): boolean {
+	return chartTypeSupportsComboSeries(type);
 }

@@ -1,7 +1,9 @@
 import { computeColumnRange, isConditionalFormatRule, resolveCellBackground } from '@nao/shared/conditional-formatting';
-import { formatCellValue, formatColumnLabel, isNumericColumn } from '@nao/shared/story-table-utils';
+import { formatCellValue, formatColumnLabel, isNumericColumn, sortTableRows } from '@nao/shared/story-table-utils';
+import { ChevronDown, ChevronUp } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import type { ColumnConditionalFormats, ColumnRange, ConditionalFormatRule } from '@nao/shared/conditional-formatting';
+import type { SortDirection } from '@nao/shared/story-table-utils';
 import { TablePagination } from '@/components/ui/table-pagination';
 import { useDateFormat } from '@/hooks/use-date-format';
 import { TablePaginationCompact } from '@/components/ui/table-pagination-compact';
@@ -49,14 +51,30 @@ export function TableDisplay({
 
 	const [pageIndex, setPageIndex] = useState(0);
 	const [pageSize, setPageSize] = useState(maxRowsBeforePagination);
+	const [sort, setSort] = useState<{ column: string; direction: SortDirection } | null>(null);
 
 	useEffect(() => setPageIndex(0), [data]);
 
-	const pageCount = Math.ceil(data.length / pageSize);
+	const sortedData = useMemo(() => (sort ? sortTableRows(data, sort.column, sort.direction) : data), [data, sort]);
+
+	const pageCount = Math.ceil(sortedData.length / pageSize);
 	const pageData = useMemo(
-		() => (showPagination ? data.slice(pageIndex * pageSize, (pageIndex + 1) * pageSize) : data),
-		[data, pageIndex, pageSize, showPagination],
+		() => (showPagination ? sortedData.slice(pageIndex * pageSize, (pageIndex + 1) * pageSize) : sortedData),
+		[sortedData, pageIndex, pageSize, showPagination],
 	);
+
+	function toggleSort(column: string) {
+		setPageIndex(0);
+		setSort((current) => {
+			if (!current || current.column !== column) {
+				return { column, direction: 'asc' };
+			}
+			if (current.direction === 'asc') {
+				return { column, direction: 'desc' };
+			}
+			return null;
+		});
+	}
 
 	return (
 		<div className={cn('flex min-h-0 flex-col', className)}>
@@ -67,17 +85,37 @@ export function TableDisplay({
 					<thead className='sticky top-0 z-10 border-b bg-panel'>
 						<tr>
 							<th className='shadow-[inset_-1px_0_0_0_var(--border)] last:shadow-none px-3 py-2 text-center font-medium whitespace-nowrap text-foreground w-4' />
-							{resolvedColumns.map((column) => (
-								<th
-									key={column}
-									className={cn(
-										'shadow-[inset_-1px_0_0_0_var(--border)] last:shadow-none px-3 py-2 text-left font-medium whitespace-nowrap text-foreground',
-										numericColumns.has(column) && 'text-right tabular-nums',
-									)}
-								>
-									{humanizeColumnLabels ? formatColumnLabel(column) : column}
-								</th>
-							))}
+							{resolvedColumns.map((column) => {
+								const alignRight = numericColumns.has(column);
+								const sortDirection = sort?.column === column ? sort.direction : null;
+								return (
+									<th
+										key={column}
+										aria-sort={
+											sortDirection
+												? sortDirection === 'asc'
+													? 'ascending'
+													: 'descending'
+												: 'none'
+										}
+										className={cn(
+											'shadow-[inset_-1px_0_0_0_var(--border)] last:shadow-none px-3 py-2 font-medium whitespace-nowrap text-foreground',
+											alignRight && 'text-right tabular-nums',
+										)}
+									>
+										<button
+											type='button'
+											onClick={() => toggleSort(column)}
+											className='group flex w-full cursor-pointer items-center justify-between gap-3'
+										>
+											<span className={cn(alignRight && 'ml-auto')}>
+												{humanizeColumnLabels ? formatColumnLabel(column) : column}
+											</span>
+											<SortIndicator direction={sortDirection} />
+										</button>
+									</th>
+								);
+							})}
 						</tr>
 					</thead>
 
@@ -168,6 +206,17 @@ export function TableDisplay({
 				</div>
 			) : null}
 		</div>
+	);
+}
+
+function SortIndicator({ direction }: { direction: SortDirection | null }) {
+	return (
+		<span className='inline-flex shrink-0 flex-col -space-y-1'>
+			<ChevronUp className={cn('size-3', direction === 'asc' ? 'text-foreground' : 'text-muted-foreground/50')} />
+			<ChevronDown
+				className={cn('size-3', direction === 'desc' ? 'text-foreground' : 'text-muted-foreground/50')}
+			/>
+		</span>
 	);
 }
 

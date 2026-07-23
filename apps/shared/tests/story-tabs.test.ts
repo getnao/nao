@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
 	addStoryTab,
+	appendBlockToStoryCode,
 	deleteStoryTab,
 	flattenStoryTabs,
 	moveStoryTab,
@@ -73,6 +74,74 @@ describe('story tabs', () => {
 		expect(tabs?.[1].innerCode.trim()).toBe(replacement.trim());
 		expect(tabs?.[2].innerCode).toBe(parseStoryTabs(storyCode)?.[2].innerCode);
 		expect(replaced).toContain('<tab title="Details">');
+	});
+
+	describe('appendBlockToStoryCode', () => {
+		const block = '<table query_id="appended" />';
+
+		it('appends to non-tabbed code', () => {
+			const result = appendBlockToStoryCode('# Story\n\nContent', '<chart query_id="q" />', {
+				usingVisibleStory: true,
+				activeTabIndex: 0,
+			});
+
+			expect(result).toEqual({
+				code: '# Story\n\nContent\n\n<chart query_id="q" />',
+				tabIndex: 0,
+			});
+		});
+
+		it('appends to the active visible tab only', () => {
+			const originalTabs = parseStoryTabs(storyCode);
+			const result = appendBlockToStoryCode(storyCode, block, {
+				usingVisibleStory: true,
+				activeTabIndex: 1,
+			});
+			const tabs = parseStoryTabs(result.code);
+
+			expect(result.tabIndex).toBe(1);
+			expect(tabs?.[0].innerCode).toBe(originalTabs?.[0].innerCode);
+			expect(tabs?.[1].innerCode.trim()).toBe(`${originalTabs?.[1].innerCode.trim()}\n\n${block}`);
+			expect(tabs?.[2].innerCode).toBe(originalTabs?.[2].innerCode);
+			expect(validateStoryCode(result.code)).toEqual([]);
+		});
+
+		it('clamps an out-of-range visible tab index to the last tab', () => {
+			const result = appendBlockToStoryCode(storyCode, block, {
+				usingVisibleStory: true,
+				activeTabIndex: 99,
+			});
+			const tabs = parseStoryTabs(result.code);
+
+			expect(result.tabIndex).toBe(2);
+			expect(tabs?.[2].innerCode).toContain(block);
+			expect(validateStoryCode(result.code)).toEqual([]);
+		});
+
+		it('targets the last tab when the story is not visible', () => {
+			const result = appendBlockToStoryCode(storyCode, block, {
+				usingVisibleStory: false,
+				activeTabIndex: 0,
+			});
+			const tabs = parseStoryTabs(result.code);
+
+			expect(result.tabIndex).toBe(2);
+			expect(tabs?.[2].innerCode).toContain(block);
+			expect(validateStoryCode(result.code)).toEqual([]);
+		});
+
+		it('appends to an empty tab without a leading blank line', () => {
+			const emptyTabCode = '<tab title="A">\n\n</tab>';
+			const result = appendBlockToStoryCode(emptyTabCode, block, {
+				usingVisibleStory: true,
+				activeTabIndex: 0,
+			});
+			const tabs = parseStoryTabs(result.code);
+
+			expect(result.tabIndex).toBe(0);
+			expect(tabs?.[0].innerCode.trim()).toBe(block);
+			expect(validateStoryCode(result.code)).toEqual([]);
+		});
 	});
 
 	it('deletes the selected tab', () => {

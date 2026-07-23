@@ -458,10 +458,10 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		adminOnly: true,
 	},
 
-	// ── Chats Replay ─────────────────────────────────────────
+	// ── Usage & Costs > Chats Replay ─────────────────────────
 	{
-		page: '/settings/chats-replay',
-		pageLabel: 'Chats Replay',
+		page: '/settings/usage',
+		pageLabel: 'Usage & Costs',
 		title: 'Chats Replay',
 		description: 'Replay and review past chat conversations.',
 		keywords: ['history', 'conversation', 'replay', 'review'],

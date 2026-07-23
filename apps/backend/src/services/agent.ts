@@ -1,3 +1,4 @@
+import { markSupersededExecuteSqlParts } from '@nao/shared/execute-sql-parts';
 import { story } from '@nao/shared/tools';
 import type { LlmProvider, LlmSelectedModel } from '@nao/shared/types';
 import {
@@ -73,6 +74,7 @@ import { mcpService } from './mcp';
 import { memoryService } from './memory';
 import { getAzureAccessTokenForUser } from './microsoft-auth.service';
 import { skillService } from './skill';
+import { getStoryTemplateWarnings } from './story-template-validation';
 
 export interface AgentRunResult {
 	text: string;
@@ -519,6 +521,7 @@ class AgentManager {
 					await chatQueries.upsertMessage({
 						...settledMessage,
 						chatId: this.chat.id,
+						source: this._toolContext.adminMode ? 'admin' : settledMessage.source,
 						stopReason,
 						error,
 						tokenUsage,
@@ -543,7 +546,8 @@ class AgentManager {
 		chatUrl?: string,
 	): Promise<ModelMessage[]> {
 		const settledUiMessages = settleInterruptedToolParts(uiMessages);
-		const uiMessagesWithStories = await this._syncStoryToolOutputs(settledUiMessages);
+		const uiMessagesWithoutStaleQueries = markSupersededExecuteSqlParts(settledUiMessages);
+		const uiMessagesWithStories = await this._syncStoryToolOutputs(uiMessagesWithoutStaleQueries);
 		const uiMessagesWithStoryMode = this._addStoryMode(uiMessagesWithStories, mentions);
 		const uiMessagesWithSkills = this._addSkills(uiMessagesWithStoryMode, mentions);
 		const uiMessagesWithCitation = this._addCitationContext(uiMessagesWithSkills);
@@ -633,16 +637,23 @@ class AgentManager {
 		}
 
 		try {
-			const latestVersions = new Map<
+			const latestStories = new Map<
 				string,
-				Awaited<ReturnType<typeof storyQueries.getLatestVersionByChatAndSlug>>
+				{
+					version: NonNullable<Awaited<ReturnType<typeof storyQueries.getLatestVersionByChatAndSlug>>>;
+					templateWarnings: string[];
+				}
 			>();
 			await Promise.all(
 				[...lastToolCallByStory.keys()].map(async (storyId) => {
-					latestVersions.set(
-						storyId,
-						await storyQueries.getLatestVersionByChatAndSlug(this.chat.id, storyId),
-					);
+					const version = await storyQueries.getLatestVersionByChatAndSlug(this.chat.id, storyId);
+					if (!version) {
+						return;
+					}
+					latestStories.set(storyId, {
+						version,
+						templateWarnings: await getStoryTemplateWarnings(this.chat.id, version.code),
+					});
 				}),
 			);
 
@@ -659,10 +670,11 @@ class AgentManager {
 						return { ...part, output: { ...part.output, _stale: true, code: '' } };
 					}
 
-					const latest = latestVersions.get(storyId);
-					if (!latest) {
+					const latestStory = latestStories.get(storyId);
+					if (!latestStory) {
 						return part;
 					}
+					const { version: latest, templateWarnings } = latestStory;
 
 					return {
 						...part,
@@ -672,6 +684,7 @@ class AgentManager {
 							code: latest.code,
 							title: latest.title,
 							_editedByUser: latest.source === 'user',
+							template_warnings: templateWarnings.length > 0 ? templateWarnings : undefined,
 						},
 					};
 				}),

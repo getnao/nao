@@ -25,6 +25,7 @@
 		"@radix-ui/react-dialog": "^1.1.15",
 		"@radix-ui/react-dropdown-menu": "^2.1.16",
 		"@radix-ui/react-menubar": "^1.1.16",
+		"@radix-ui/react-popover": "^1.1.21",
 		"@radix-ui/react-select": "^2.2.6",
 		"@radix-ui/react-slot": "^1.2.4",
 		"@radix-ui/react-tooltip": "^1.2.8",
@@ -60,6 +61,7 @@
 		"radix-ui": "^1.4.3",
 		"react": "^19.2.0",
 		"react-datepicker": "^9.1.0",
+		"react-day-picker": "^10.0.1",
 		"react-dom": "^19.2.0",
 		"react-resizable-panels": "^4",
 		"react-syntax-highlighter": "^16.1.0",
@@ -69,7 +71,8 @@
 		"superjson": "^2.2.6",
 		"tailwind-merge": "^3.4.0",
 		"tailwindcss": "^4.0.6",
-		"use-stick-to-bottom": "^1.1.1"
+		"use-stick-to-bottom": "^1.1.1",
+		"write-excel-file": "^4.1.1"
 	},
 	"devDependencies": {
 		"@tanstack/devtools-vite": "^0.3.11",

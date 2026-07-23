@@ -12,7 +12,7 @@ import { upsertMcpQueryData } from '../../queries/mcp-query-data.queries';
 import * as storyQueries from '../../queries/story.queries';
 import * as storyFolderQueries from '../../queries/story-folder.queries';
 import { pinQueryDataToChat, pinStoryMessageToChat } from '../../utils/chat-message-story';
-import { resolveStoryQueryData, type StoryQueryDataMap } from '../../utils/story-query-data';
+import { backfillMissingQueryData, type StoryQueryDataMap } from '../../utils/story-query-data';
 import { STORY_OUTPUT_SCHEMA, type StoryMcpToolPayload } from '../embed/embed-tool-result';
 import { STORY_APP_URI, uiToolMeta } from '../embed/ui-resources';
 import type { McpContext } from '../logging';
@@ -275,11 +275,10 @@ async function cacheStoryQueryData(
 		...((existingCache?.queryData as StoryQueryDataMap | null) ?? {}),
 		...(queryData ?? {}),
 	};
-	const resolvedQueryData = await resolveStoryQueryData(
+	const resolvedQueryData = await backfillMissingQueryData(
 		code,
 		Object.keys(seededQueryData).length > 0 ? seededQueryData : null,
-		ctx.projectId,
-		ctx.userId,
+		{ projectId: ctx.projectId, userId: ctx.userId },
 	);
 	if (!resolvedQueryData) {
 		return;

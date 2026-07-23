@@ -1,387 +1,13 @@
-import {
-	chartTagRegex,
-	getGridClass,
-	parseChartAttributes,
-	parseChartBlock,
-	parseTableBlock,
-	splitCodeIntoSegments,
-	tableTagRegex,
-} from '@nao/shared/story-segments';
-import { Extension, mergeAttributes, Node } from '@tiptap/core';
 import { DragHandle } from '@tiptap/extension-drag-handle-react';
-import { TableKit } from '@tiptap/extension-table';
-import { Markdown } from '@tiptap/markdown';
-import { EditorContent, NodeViewWrapper, ReactNodeViewRenderer, useEditor } from '@tiptap/react';
-import StarterKit from '@tiptap/starter-kit';
+import { EditorContent } from '@tiptap/react';
 import { GripVertical } from 'lucide-react';
-import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
-import { Streamdown } from 'streamdown';
+import { memo } from 'react';
+import { useStoryEditor } from './hooks/use-story-editor';
+import { GridDragContext, StoryBlockDragContext } from './story-editor-drag-context';
+import type { Editor } from '@tiptap/react';
 
-import { StoryChartEmbed } from './story-chart-embed';
-import { StoryTableEmbed } from './story-table-embed';
-import type { Editor, ReactNodeViewProps } from '@tiptap/react';
-import type { Editor as CoreEditor } from '@tiptap/core';
-import type { Segment } from '@nao/shared/story-segments';
-import { replaceUniqueStoryBlockTag } from '@/contexts/story-chart-edit-utils';
-import { EditorStoryChartEditProvider } from '@/contexts/story-chart-edit';
-
-// ---------------------------------------------------------------------------
-// Encoding helpers for data-raw attributes
-// ---------------------------------------------------------------------------
-
-function encodeForAttr(str: string): string {
-	return btoa(encodeURIComponent(str));
-}
-
-function decodeFromAttr(encoded: string): string {
-	return decodeURIComponent(atob(encoded));
-}
-
-/**
- * Replaces custom <chart />, <table /> and <grid> tags with HTML-safe elements that
- * Tiptap's DOMParser can match against custom node extensions.
- */
-export function preprocessForEditor(code: string): string {
-	// Each embed is wrapped in a <div> so that `marked` emits an "html" token
-	// instead of folding the custom element into a paragraph token (marked only
-	// recognises standard HTML block elements like <div>).
-	let result = code.replace(/<grid\s+[^>]*>[\s\S]*?<\/grid>/g, (match) => {
-		return `<div><grid-embed data-raw="${encodeForAttr(match)}"></grid-embed></div>\n\n`;
-	});
-
-	result = result.replace(chartTagRegex('g'), (match) => {
-		return `<div><chart-embed data-raw="${encodeForAttr(match)}"></chart-embed></div>\n\n`;
-	});
-
-	result = result.replace(tableTagRegex('g'), (match) => {
-		return `<div><table-embed data-raw="${encodeForAttr(match)}"></table-embed></div>\n\n`;
-	});
-
-	return result;
-}
-
-// ---------------------------------------------------------------------------
-// ChartBlock extension – atom node rendered as an interactive chart
-// ---------------------------------------------------------------------------
-
-function ChartBlockView({ node, updateAttributes }: ReactNodeViewProps) {
-	const rawTag = node.attrs.rawTag as string;
-
-	const chart = useMemo(() => {
-		const attrMatch = rawTag.match(chartTagRegex());
-		if (!attrMatch) {
-			return null;
-		}
-		const parsed = parseChartBlock(attrMatch[1]);
-		return parsed ? { ...parsed, rawTag } : null;
-	}, [rawTag]);
-
-	const handleReplaceTag = useCallback(
-		(_rawTag: string, nextTag: string) => updateAttributes({ rawTag: nextTag }),
-		[updateAttributes],
-	);
-
-	if (!chart) {
-		return (
-			<NodeViewWrapper draggable data-type='chart-block'>
-				<div className='my-2 rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground'>
-					Invalid chart block
-				</div>
-			</NodeViewWrapper>
-		);
-	}
-
-	return (
-		<NodeViewWrapper draggable data-type='chart-block'>
-			<div className='my-2'>
-				<EditorStoryChartEditProvider onReplaceTag={handleReplaceTag}>
-					<StoryChartEmbed chart={chart} />
-				</EditorStoryChartEditProvider>
-			</div>
-		</NodeViewWrapper>
-	);
-}
-
-const ChartBlock = Node.create({
-	name: 'chartBlock',
-	group: 'block',
-	atom: true,
-	selectable: true,
-	draggable: true,
-
-	addAttributes() {
-		return {
-			rawTag: { default: '' },
-		};
-	},
-
-	parseHTML() {
-		return [
-			{
-				tag: 'chart-embed',
-				getAttrs(element) {
-					if (typeof element === 'string') {
-						return false;
-					}
-					const encoded = element.getAttribute('data-raw') || '';
-					return { rawTag: decodeFromAttr(encoded) };
-				},
-			},
-		];
-	},
-
-	renderHTML({ HTMLAttributes }) {
-		return ['chart-embed', mergeAttributes(HTMLAttributes)];
-	},
-
-	addNodeView() {
-		return ReactNodeViewRenderer(ChartBlockView);
-	},
-
-	renderMarkdown(node) {
-		const rawTag = typeof node.attrs?.rawTag === 'string' ? node.attrs.rawTag : '';
-		return `${rawTag}\n\n`;
-	},
-});
-
-// ---------------------------------------------------------------------------
-// TableBlock extension – atom node rendered as a SQL table
-// ---------------------------------------------------------------------------
-
-function TableBlockView({ node }: ReactNodeViewProps) {
-	const rawTag = node.attrs.rawTag as string;
-
-	const table = useMemo(() => {
-		const attrMatch = rawTag.match(tableTagRegex());
-		if (!attrMatch) {
-			return null;
-		}
-		const parsed = parseTableBlock(attrMatch[1]);
-		return parsed ? { ...parsed, rawTag } : null;
-	}, [rawTag]);
-
-	if (!table) {
-		return (
-			<NodeViewWrapper draggable data-type='table-block'>
-				<div className='my-2 rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground'>
-					Invalid table block
-				</div>
-			</NodeViewWrapper>
-		);
-	}
-
-	return (
-		<NodeViewWrapper draggable data-type='table-block'>
-			<div className='my-2'>
-				<StoryTableEmbed table={table} />
-			</div>
-		</NodeViewWrapper>
-	);
-}
-
-const TableBlock = Node.create({
-	name: 'tableBlock',
-	group: 'block',
-	atom: true,
-	selectable: true,
-	draggable: true,
-
-	addAttributes() {
-		return {
-			rawTag: { default: '' },
-		};
-	},
-
-	parseHTML() {
-		return [
-			{
-				tag: 'table-embed',
-				getAttrs(element) {
-					if (typeof element === 'string') {
-						return false;
-					}
-					const encoded = element.getAttribute('data-raw') || '';
-					return { rawTag: decodeFromAttr(encoded) };
-				},
-			},
-		];
-	},
-
-	renderHTML({ HTMLAttributes }) {
-		return ['table-embed', mergeAttributes(HTMLAttributes)];
-	},
-
-	addNodeView() {
-		return ReactNodeViewRenderer(TableBlockView);
-	},
-
-	renderMarkdown(node) {
-		const rawTag = typeof node.attrs?.rawTag === 'string' ? node.attrs.rawTag : '';
-		return `${rawTag}\n\n`;
-	},
-});
-
-// ---------------------------------------------------------------------------
-// GridBlock extension – atom node rendered as a grid of charts/markdown
-// ---------------------------------------------------------------------------
-
-function GridBlockView({ node, updateAttributes }: ReactNodeViewProps) {
-	const rawContent = node.attrs.rawContent as string;
-
-	const { cols, segments } = useMemo(() => {
-		const gridMatch = rawContent.match(/<grid\s+([^>]*)>([\s\S]*?)<\/grid>/);
-		if (!gridMatch) {
-			return { cols: 2, segments: [] as Segment[] };
-		}
-		const attrs = parseChartAttributes(gridMatch[1]);
-		return {
-			cols: parseInt(attrs.cols || '2', 10),
-			segments: splitCodeIntoSegments(gridMatch[2]),
-		};
-	}, [rawContent]);
-
-	const handleReplaceTag = useCallback(
-		(rawTag: string, nextTag: string) => {
-			const nextContent = replaceUniqueStoryBlockTag(rawContent, rawTag, nextTag);
-			if (nextContent !== rawContent) {
-				updateAttributes({ rawContent: nextContent });
-			}
-		},
-		[rawContent, updateAttributes],
-	);
-
-	const gridClass = getGridClass(cols);
-
-	return (
-		<NodeViewWrapper draggable data-type='grid-block'>
-			<div className='@container my-2'>
-				<div className={`grid ${gridClass} gap-4`}>
-					{segments.map((segment, i) => (
-						<div key={i} className='min-w-0'>
-							{segment.type === 'markdown' ? (
-								<Streamdown mode='static'>{segment.content}</Streamdown>
-							) : segment.type === 'chart' ? (
-								<EditorStoryChartEditProvider onReplaceTag={handleReplaceTag}>
-									<StoryChartEmbed chart={segment.chart} />
-								</EditorStoryChartEditProvider>
-							) : segment.type === 'table' ? (
-								<StoryTableEmbed table={segment.table} />
-							) : null}
-						</div>
-					))}
-				</div>
-			</div>
-		</NodeViewWrapper>
-	);
-}
-
-const GridBlock = Node.create({
-	name: 'gridBlock',
-	group: 'block',
-	atom: true,
-	selectable: true,
-	draggable: true,
-
-	addAttributes() {
-		return {
-			rawContent: { default: '' },
-		};
-	},
-
-	parseHTML() {
-		return [
-			{
-				tag: 'grid-embed',
-				getAttrs(element) {
-					if (typeof element === 'string') {
-						return false;
-					}
-					const encoded = element.getAttribute('data-raw') || '';
-					return { rawContent: decodeFromAttr(encoded) };
-				},
-			},
-		];
-	},
-
-	renderHTML({ HTMLAttributes }) {
-		return ['grid-embed', mergeAttributes(HTMLAttributes)];
-	},
-
-	addNodeView() {
-		return ReactNodeViewRenderer(GridBlockView);
-	},
-
-	renderMarkdown(node) {
-		const rawContent = typeof node.attrs?.rawContent === 'string' ? node.attrs.rawContent : '';
-		return `${rawContent}\n\n`;
-	},
-});
-
-// ---------------------------------------------------------------------------
-// TableDeleteShortcuts – lets users delete markdown tables via keyboard
-// ---------------------------------------------------------------------------
-// ProseMirror's table plugin intercepts Backspace/Delete to handle cell
-// operations, which prevents deletion of the table node itself. This
-// extension runs at higher priority so its shortcuts fire first:
-//   - Backspace/Delete in an empty table → remove the table
-//   - Mod-Shift-Backspace in any table   → force-remove the table
-
-const TableDeleteShortcuts = Extension.create({
-	name: 'tableDeleteShortcuts',
-	priority: 150,
-
-	addKeyboardShortcuts() {
-		const findEnclosingTable = (editor: CoreEditor) => {
-			const { $anchor } = editor.state.selection;
-			for (let depth = $anchor.depth; depth > 0; depth--) {
-				const node = $anchor.node(depth);
-				if (node.type.name === 'table') {
-					return node;
-				}
-			}
-			return null;
-		};
-
-		const deleteIfEmpty = ({ editor }: { editor: CoreEditor }): boolean => {
-			const table = findEnclosingTable(editor);
-			if (table && !table.textContent) {
-				return editor.commands.deleteTable();
-			}
-			return false;
-		};
-
-		return {
-			Backspace: deleteIfEmpty,
-			Delete: deleteIfEmpty,
-			'Mod-Shift-Backspace': ({ editor }) => {
-				if (findEnclosingTable(editor)) {
-					return editor.commands.deleteTable();
-				}
-				return false;
-			},
-		};
-	},
-});
-
-// ---------------------------------------------------------------------------
-// Editor component
-// ---------------------------------------------------------------------------
-
-const EDITOR_EXTENSIONS = [
-	StarterKit.configure({
-		dropcursor: { width: 3, class: 'drop-cursor' },
-	}),
-	TableKit,
-	TableDeleteShortcuts,
-	Markdown.configure({
-		markedOptions: {
-			gfm: true,
-		},
-	}),
-	ChartBlock,
-	TableBlock,
-	GridBlock,
-];
+export { preprocessForEditor } from './story-editor-utils';
+export { StoryBlockDragGrip, StoryBlockDropZones } from './story-editor-block-drag';
 
 interface StoryEditorProps {
 	code: string;
@@ -390,62 +16,37 @@ interface StoryEditorProps {
 }
 
 export const StoryEditor = memo(function StoryEditor({ code, editorRef, onSave }: StoryEditorProps) {
-	const processedContent = useMemo(() => preprocessForEditor(code), [code]);
-	const onSaveRef = useRef(onSave);
-	onSaveRef.current = onSave;
-
-	const extensions = useMemo(
-		() => [
-			...EDITOR_EXTENSIONS,
-			Extension.create({
-				name: 'saveShortcut',
-				addKeyboardShortcuts() {
-					return {
-						'Mod-s': () => {
-							onSaveRef.current?.();
-							return true;
-						},
-					};
-				},
-			}),
-		],
-		[],
-	);
-
-	const editor = useEditor({
-		extensions,
-		content: processedContent,
-		contentType: 'markdown',
-	});
-
-	useEffect(() => {
-		editorRef.current = editor;
-		return () => {
-			editorRef.current = null;
-		};
-	}, [editor, editorRef]);
-
-	useEffect(() => {
-		if (!editor) {
-			return;
-		}
-		if (getEditorMarkdown(editor) === code) {
-			return;
-		}
-		editor.commands.setContent(processedContent, { emitUpdate: false, contentType: 'markdown' });
-	}, [editor, code, processedContent]);
+	const {
+		editor,
+		gridDragSourceRef,
+		storyBlockDragContext,
+		handleDragHandleNodeChange,
+		storyEditorRef,
+		onElementDragStart,
+		onElementDragEnd,
+	} = useStoryEditor({ code, editorRef, onSave });
 
 	return (
-		<div className='story-editor relative'>
-			{editor && (
-				<DragHandle editor={editor} className='drag-handle'>
-					<div className='drag-handle-button'>
-						<GripVertical className='size-4' />
-					</div>
-				</DragHandle>
-			)}
-			<EditorContent editor={editor} />
-		</div>
+		<GridDragContext.Provider value={gridDragSourceRef}>
+			<StoryBlockDragContext.Provider value={storyBlockDragContext}>
+				<div ref={storyEditorRef} className='story-editor relative'>
+					{editor && (
+						<DragHandle
+							editor={editor}
+							className='drag-handle'
+							onNodeChange={handleDragHandleNodeChange}
+							onElementDragStart={onElementDragStart}
+							onElementDragEnd={onElementDragEnd}
+						>
+							<div className='drag-handle-button'>
+								<GripVertical className='size-4' />
+							</div>
+						</DragHandle>
+					)}
+					<EditorContent editor={editor} />
+				</div>
+			</StoryBlockDragContext.Provider>
+		</GridDragContext.Provider>
 	);
 });
 

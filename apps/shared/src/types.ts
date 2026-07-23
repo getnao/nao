@@ -27,6 +27,12 @@ export interface UserPreferences {
 
 export type UpdatedAtFilter = { mode: 'single'; value: string } | { mode: 'range'; start: string; end: string };
 
+export const CHAT_REPLAY_TOOL_STATES = ['noToolsUsed', 'toolsNoErrors', 'toolsWithErrors'] as const;
+export type ChatReplayToolState = (typeof CHAT_REPLAY_TOOL_STATES)[number];
+
+export const CHAT_REPLAY_FEEDBACK_STATES = ['noVotes', 'upvotes', 'downvotes'] as const;
+export type ChatReplayFeedbackState = (typeof CHAT_REPLAY_FEEDBACK_STATES)[number];
+
 export const NO_CACHE_SCHEDULE = 'no-cache';
 
 export const LLM_PROVIDERS = [
@@ -64,7 +70,7 @@ export type SummarySegment =
 	| { type: 'text'; content: string }
 	| { type: 'chart'; chartType: string; title: string; kpiCount?: number }
 	| { type: 'table'; title: string }
-	| { type: 'grid'; cols: number; children: SummarySegment[] };
+	| { type: 'grid'; cols: number; widths: number[] | null; children: SummarySegment[] };
 
 export type StorySummary = {
 	segments: SummarySegment[];
@@ -125,6 +131,7 @@ export type ProjectChatListItem = {
 	userName: string;
 	userRole: UserRole | null;
 	title: string;
+	source: string | null;
 	numberOfMessages: number;
 	totalTokens: number;
 	feedbackText: string;
@@ -137,8 +144,8 @@ export type ProjectChatListItem = {
 export type DownloadFormat = 'pdf' | 'html';
 export const DOWNLOAD_FORMATS = ['pdf', 'html'] as const satisfies readonly DownloadFormat[];
 
-export type ChatDownloadFormat = 'png' | 'csv';
-export const CHAT_DOWNLOAD_FORMATS = ['png', 'csv'] as const satisfies readonly ChatDownloadFormat[];
+export type ChatDownloadFormat = 'png' | 'csv' | 'xlsx';
+export const CHAT_DOWNLOAD_FORMATS = ['png', 'csv', 'xlsx'] as const satisfies readonly ChatDownloadFormat[];
 
 export type AnalyticsDownloadFormat = DownloadFormat | ChatDownloadFormat;
 

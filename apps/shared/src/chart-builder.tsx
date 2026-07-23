@@ -5,8 +5,10 @@ import {
 	Bar,
 	BarChart,
 	CartesianGrid,
+	ComposedChart,
 	Customized,
 	LabelList,
+	Line,
 	Pie,
 	PieChart,
 	PolarAngleAxis,
@@ -28,6 +30,7 @@ import * as displayChart from './tools/display-chart';
 export const DEFAULT_COLORS = ['#104e64', '#f54900', '#009689', '#ffb900', '#fe9a00'];
 
 const AXIS_TICK = { fontSize: 12 };
+const CATEGORY_XAXIS_HEIGHT = 56;
 const DATA_LABEL_PROPS = {
 	fill: 'var(--foreground, #111827)',
 	fontSize: 11,
@@ -137,6 +140,108 @@ export function formatPercentShare(value: number, total: number): string {
 	return `${Number.isInteger(rounded) ? rounded : rounded.toFixed(1)}%`;
 }
 
+export type KpiComparisonDirection = 'up' | 'down' | 'flat';
+
+export interface KpiComparison {
+	valueText: string;
+	direction: KpiComparisonDirection;
+	colored: boolean;
+	periodLabel: string;
+}
+
+export function computeKpiComparison(
+	data: Record<string, unknown>[],
+	xAxisKey: string,
+	dataKey: string,
+	mode: displayChart.ComparisonMode | undefined,
+): KpiComparison | null {
+	if (!mode || mode === 'none' || data.length < 2) {
+		return null;
+	}
+	const currentRow = data[data.length - 1];
+	const previousRow = data[data.length - 2];
+	const current = toFiniteNumber(currentRow?.[dataKey]);
+	const previous = toFiniteNumber(previousRow?.[dataKey]);
+	if (current == null || previous == null) {
+		return null;
+	}
+	const delta = current - previous;
+	const direction: KpiComparisonDirection = delta > 0 ? 'up' : delta < 0 ? 'down' : 'flat';
+	const dateKey = resolveDateKey(currentRow, xAxisKey, dataKey);
+	const periodLabel =
+		dateKey == null ? 'previous period' : describePreviousPeriod(previousRow?.[dateKey], currentRow?.[dateKey]);
+
+	if (mode === 'percentage') {
+		if (previous === 0) {
+			return null;
+		}
+		const pct = (delta / Math.abs(previous)) * 100;
+		return { valueText: formatPercentMagnitude(Math.abs(pct)), direction, colored: true, periodLabel };
+	}
+	if (mode === 'variation') {
+		return { valueText: formatCompactNumber(Math.abs(delta)), direction, colored: true, periodLabel };
+	}
+	return { valueText: formatCompactNumber(Math.abs(delta)), direction, colored: false, periodLabel };
+}
+
+function formatPercentMagnitude(value: number): string {
+	const rounded = Math.round(value * 10) / 10;
+	return `${Number.isInteger(rounded) ? rounded : rounded.toFixed(1)}%`;
+}
+
+export function describePreviousPeriod(previousX: unknown, currentX: unknown): string {
+	const prev = parseDateMs(previousX);
+	const curr = parseDateMs(currentX);
+	if (prev == null || curr == null) {
+		return 'previous period';
+	}
+	const gapDays = Math.round((curr - prev) / 86_400_000);
+	if (gapDays === 1) {
+		return 'yesterday';
+	}
+	if (gapDays >= 6 && gapDays <= 8) {
+		return 'last week';
+	}
+	if (gapDays >= 26 && gapDays <= 33) {
+		return 'last month';
+	}
+	if (gapDays >= 80 && gapDays <= 100) {
+		return 'last quarter';
+	}
+	if (gapDays >= 330 && gapDays <= 400) {
+		return 'last year';
+	}
+	return 'previous period';
+}
+
+function resolveDateKey(row: Record<string, unknown> | undefined, xAxisKey: string, dataKey: string): string | null {
+	if (xAxisKey && parseDateMs(row?.[xAxisKey]) != null) {
+		return xAxisKey;
+	}
+	if (!row) {
+		return null;
+	}
+	for (const key of Object.keys(row)) {
+		if (key !== dataKey && parseDateMs(row[key]) != null) {
+			return key;
+		}
+	}
+	return null;
+}
+
+function parseDateMs(value: unknown): number | null {
+	if (typeof value !== 'string') {
+		return null;
+	}
+	const trimmed = value.trim();
+	if (!/^\d{4}-\d{2}(?:-\d{2})?(?:[ T].*)?$/.test(trimmed)) {
+		return null;
+	}
+	const normalized = trimmed.length === 7 ? `${trimmed}-01` : trimmed.replace(' ', 'T');
+	const ms = new Date(normalized).getTime();
+	return Number.isNaN(ms) ? null : ms;
+}
+
 export function formatDataLabel(value: unknown): string {
 	const number = toFiniteNumber(value);
 	return number == null ? '' : formatCompactNumber(number);
@@ -154,18 +259,34 @@ export interface BuildChartProps {
 	series: displayChart.SeriesConfig[];
 	colorFor?: (key: string, index: number) => string;
 	labelFormatter?: (value: string) => string;
+	valueFormatter?: (value: number) => string;
 	showGrid?: boolean;
 	children?: React.ReactNode[];
 	margin?: { top?: number; right?: number; bottom?: number; left?: number };
 	title?: string;
 	renderTitle?: boolean;
 	maxXAxisTicks?: number;
+	compactXAxis?: boolean;
+	xAxisTickFontSize?: number;
+	xAxisMaxLabelChars?: number;
 	yAxisMin?: number;
 	yAxisMax?: number;
+	yAxisLabel?: string;
+	yAxisRightMin?: number;
+	yAxisRightMax?: number;
+	yAxisRightLabel?: string;
 	/** Chart background color, used as the separator between stacked segments. Pass a concrete color on surfaces where CSS vars do not resolve (backend PNG/HTML export). */
 	backgroundColor?: string;
+	/** Prefix for SVG gradient ids so multiple charts on one page (and drag clones) don't collide. */
+	gradientIdPrefix?: string;
 	showDataLabels?: boolean;
+	/** When true, Recharts animates series as data changes (e.g. story filters). */
+	animate?: boolean;
+	comparisonMode?: displayChart.ComparisonMode;
+	idPrefix?: string;
 }
+
+const CHART_ANIMATION_DURATION_MS = 400;
 
 /**
  * Builds a Recharts element tree from a display_chart tool config.
@@ -181,6 +302,9 @@ export function buildChart(props: BuildChartProps) {
 	}
 	if (displayChart.isPieChart(resolved.chartType)) {
 		return buildPieChart(resolved);
+	}
+	if (displayChart.isComboChart(resolved.chartType)) {
+		return buildComboChart(resolved);
 	}
 	if (
 		resolved.chartType === 'line' ||
@@ -267,7 +391,9 @@ export function clampNegativeSeriesValues(
 }
 
 type ResolvedProps = BuildChartProps &
-	Required<Pick<BuildChartProps, 'colorFor' | 'labelFormatter' | 'backgroundColor'>> & { xAxisInterval?: number };
+	Required<Pick<BuildChartProps, 'colorFor' | 'labelFormatter' | 'backgroundColor'>> & {
+		xAxisInterval?: number;
+	};
 
 function buildChartMargin(props: BuildChartProps, showTitle: boolean) {
 	const titleTop = showTitle ? 30 : 0;
@@ -295,7 +421,8 @@ function isCartesianLabelChart(chartType: displayChart.ChartType): boolean {
 		chartType === 'stacked_bar' ||
 		chartType === 'line' ||
 		chartType === 'area' ||
-		chartType === 'stacked_area'
+		chartType === 'stacked_area' ||
+		chartType === 'mixed'
 	);
 }
 
@@ -351,12 +478,18 @@ export function niceAxisMax(dataMax: number, tickCount = 5): number {
 }
 
 function buildKpiCard(props: ResolvedProps) {
-	const { data, series } = props;
+	const { data, series, valueFormatter } = props;
 
 	return (
 		<KpiCardContainer>
 			{series.map((s) => (
-				<KpiCard key={s.data_key} value={data[0]?.[s.data_key]} displayName={s.label ?? s.data_key} />
+				<KpiCard
+					key={s.data_key}
+					value={data[data.length - 1]?.[s.data_key]}
+					displayName={s.label ?? s.data_key}
+					comparison={computeKpiComparison(data, props.xAxisKey, s.data_key, props.comparisonMode)}
+					valueFormatter={valueFormatter}
+				/>
 			))}
 		</KpiCardContainer>
 	);
@@ -366,24 +499,66 @@ function KpiCardContainer({ children }: { children: React.ReactNode }) {
 	return <div className='flex flex-wrap gap-4 w-full justify-start'>{children}</div>;
 }
 
-function KpiCard({ value, displayName }: { value: unknown; displayName: string }) {
+function KpiCard({
+	value,
+	displayName,
+	comparison,
+	valueFormatter = formatCompactNumber,
+}: {
+	value: unknown;
+	displayName: string;
+	comparison: KpiComparison | null;
+	valueFormatter?: (value: number) => string;
+}) {
 	let formattedValue = '';
 
 	if (typeof value === 'number') {
-		formattedValue = formatCompactNumber(value);
+		formattedValue = valueFormatter(value);
 	} else if (typeof value === 'string') {
 		formattedValue = value;
 	}
 
+	const showArrowAndColor = comparison != null && comparison.colored && comparison.direction !== 'flat';
+	const pillColorClass = showArrowAndColor
+		? comparison.direction === 'up'
+			? 'text-green-600'
+			: 'text-red-600'
+		: 'text-muted-foreground';
+
 	return (
 		<div className='min-w-[160px]'>
 			<div className='text-lg tracking-wide'>{displayName}</div>
-			<div className='text-3xl font-medium'>{formattedValue}</div>
+			<div className='text-3xl font-medium tabular-nums'>{formattedValue}</div>
+			{comparison && (
+				<div className={`mt-1.5 flex items-center gap-1.5 whitespace-nowrap text-sm ${pillColorClass}`}>
+					{showArrowAndColor && <KpiTrendArrow direction={comparison.direction} />}
+					<span className='font-medium tabular-nums'>{comparison.valueText}</span>
+					<span className='font-normal'>vs. {comparison.periodLabel}</span>
+				</div>
+			)}
 		</div>
 	);
 }
 
-function renderValueYAxis(isPercent = false) {
+function KpiTrendArrow({ direction }: { direction: KpiComparisonDirection }) {
+	return (
+		<svg
+			width='10'
+			height='10'
+			viewBox='0 0 14 12'
+			fill='currentColor'
+			stroke='currentColor'
+			strokeWidth='1.6'
+			strokeLinejoin='round'
+			aria-hidden='true'
+			className='shrink-0'
+		>
+			<path d={direction === 'up' ? 'M7 2.5 12 10 2 10Z' : 'M2 2.5 12 2.5 7 10Z'} />
+		</svg>
+	);
+}
+
+function renderValueYAxis(isPercent = false, valueFormatter = formatYAxisTick) {
 	return (
 		<YAxis
 			width={Y_AXIS_WIDTH}
@@ -392,7 +567,7 @@ function renderValueYAxis(isPercent = false) {
 			axisLine={false}
 			minTickGap={12}
 			domain={isPercent ? [0, 1] : undefined}
-			tickFormatter={isPercent ? formatPercentAxisTick : formatYAxisTick}
+			tickFormatter={isPercent ? formatPercentAxisTick : valueFormatter}
 		/>
 	);
 }
@@ -402,24 +577,43 @@ function renderCategoryXAxis({
 	xAxisType,
 	xAxisInterval,
 	labelFormatter,
+	compact,
+	tickFontSize,
+	maxLabelChars,
 }: {
 	xAxisKey: string;
 	xAxisType?: 'number' | 'category';
 	xAxisInterval?: number;
 	labelFormatter: (value: string) => string;
+	compact?: boolean;
+	tickFontSize?: number;
+	maxLabelChars?: number;
 }) {
+	const tickFormatter = compact
+		? (value: string) => {
+				const label = labelFormatter(value);
+				if (maxLabelChars == null) {
+					return label;
+				}
+				const cap = Math.max(3, maxLabelChars);
+				return label.length > cap ? `${label.slice(0, cap - 1)}…` : label;
+			}
+		: labelFormatter;
+
 	return (
 		<XAxis
 			dataKey={xAxisKey}
 			type={xAxisType}
 			domain={['dataMin', 'dataMax']}
-			tick={AXIS_TICK}
+			tick={compact ? { ...AXIS_TICK, fontSize: tickFontSize ?? AXIS_TICK.fontSize } : AXIS_TICK}
 			tickLine
 			tickMargin={10}
 			axisLine={false}
 			minTickGap={12}
-			interval={xAxisInterval}
-			tickFormatter={labelFormatter}
+			interval={compact ? 0 : xAxisInterval}
+			tickFormatter={tickFormatter}
+			height={CATEGORY_XAXIS_HEIGHT}
+			{...(compact ? { angle: -35, textAnchor: 'end' as const } : {})}
 		/>
 	);
 }
@@ -436,10 +630,14 @@ function buildBarChart(props: ResolvedProps) {
 		children,
 		margin,
 		xAxisInterval,
+		compactXAxis,
+		xAxisTickFontSize,
+		xAxisMaxLabelChars,
 		series,
 		yAxisMin,
 		yAxisMax,
 		showDataLabels,
+		valueFormatter,
 	} = props;
 	const isStacked = displayChart.isStackedChartType(chartType);
 	const isPercent = displayChart.isPercentStackedChartType(chartType);
@@ -460,12 +658,20 @@ function buildBarChart(props: ResolvedProps) {
 					tickLine={false}
 					axisLine={false}
 					minTickGap={12}
-					tickFormatter={formatYAxisTick}
+					tickFormatter={valueFormatter ?? formatYAxisTick}
 					domain={resolveYAxisDomain(yAxisMin, yAxisMax, axisValues, true)}
 					allowDataOverflow={yAxisMin !== undefined || yAxisMax !== undefined}
 				/>
 			)}
-			{renderCategoryXAxis({ xAxisKey, xAxisType, xAxisInterval, labelFormatter })}
+			{renderCategoryXAxis({
+				xAxisKey,
+				xAxisType: xAxisType ?? 'category',
+				xAxisInterval,
+				labelFormatter,
+				compact: compactXAxis,
+				tickFontSize: xAxisTickFontSize,
+				maxLabelChars: xAxisMaxLabelChars,
+			})}
 			{children}
 			{renderedSeries.map((s, i) => (
 				<Bar
@@ -475,7 +681,8 @@ function buildBarChart(props: ResolvedProps) {
 					stackId={isStacked ? 'stack' : undefined}
 					radius={isStacked ? undefined : [4, 4, 4, 4]}
 					shape={isStacked ? renderStackedBarShape(seriesKeys, s.data_key, separatorColor) : undefined}
-					isAnimationActive={false}
+					isAnimationActive={Boolean(props.animate)}
+					animationDuration={CHART_ANIMATION_DURATION_MS}
 				>
 					{showDataLabels && !isStacked && (
 						<LabelList position='top' formatter={formatDataLabel} {...DATA_LABEL_PROPS} />
@@ -539,10 +746,16 @@ function buildAreaChart(props: ResolvedProps) {
 		children,
 		margin,
 		xAxisInterval,
+		compactXAxis,
+		xAxisTickFontSize,
+		xAxisMaxLabelChars,
 		yAxisMin,
 		yAxisMax,
 		showDataLabels,
+		valueFormatter,
 	} = props;
+	const gradientIdPrefix = props.gradientIdPrefix ?? '';
+	const gradientIdFor = (index: number) => `${gradientIdPrefix}grad-${index}`;
 	const isStacked = displayChart.isStackedChartType(chartType);
 	const isPercent = displayChart.isPercentStackedChartType(chartType);
 	const zeroBaseline = chartType !== 'line';
@@ -556,7 +769,7 @@ function buildAreaChart(props: ResolvedProps) {
 			<defs>
 				{renderedSeries.map((s, i) => {
 					const color = colorFor(s.data_key, i);
-					const gradientId = `grad-${i}`;
+					const gradientId = gradientIdFor(i);
 					return (
 						<linearGradient key={s.data_key} id={gradientId} x1='0' y1='0' x2='0' y2='1'>
 							<stop offset='0%' stopColor={color} stopOpacity={0.25} />
@@ -574,12 +787,20 @@ function buildAreaChart(props: ResolvedProps) {
 					tickLine={false}
 					axisLine={false}
 					minTickGap={12}
-					tickFormatter={formatYAxisTick}
+					tickFormatter={valueFormatter ?? formatYAxisTick}
 					domain={resolveYAxisDomain(yAxisMin, yAxisMax, axisValues, zeroBaseline)}
 					allowDataOverflow={yAxisMin !== undefined || yAxisMax !== undefined}
 				/>
 			)}
-			{renderCategoryXAxis({ xAxisKey, xAxisType, xAxisInterval, labelFormatter })}
+			{renderCategoryXAxis({
+				xAxisKey,
+				xAxisType,
+				xAxisInterval,
+				labelFormatter,
+				compact: compactXAxis,
+				tickFontSize: xAxisTickFontSize,
+				maxLabelChars: xAxisMaxLabelChars,
+			})}
 			{children}
 			{renderedSeries.map((s, i) => (
 				<Area
@@ -587,9 +808,10 @@ function buildAreaChart(props: ResolvedProps) {
 					dataKey={s.data_key}
 					type='monotone'
 					stroke={colorFor(s.data_key, i)}
-					fill={`url(#grad-${i})`}
+					fill={`url(#${gradientIdFor(i)})`}
 					stackId={isStacked ? 'stack' : undefined}
-					isAnimationActive={false}
+					isAnimationActive={Boolean(props.animate)}
+					animationDuration={CHART_ANIMATION_DURATION_MS}
 				>
 					{showDataLabels && !isStacked && <LabelList content={pointLabelContent.get(s.data_key)} />}
 					{stackTotalLabel && i === stackTotalLabelIndex && <LabelList content={stackTotalLabel} />}
@@ -599,8 +821,215 @@ function buildAreaChart(props: ResolvedProps) {
 	);
 }
 
+function comboSeriesType(series: displayChart.SeriesConfig, baseType: displayChart.ChartType): displayChart.SeriesType {
+	if (series.series_type) {
+		return series.series_type;
+	}
+	return baseType === 'line' || baseType === 'area' ? baseType : 'bar';
+}
+
+function comboAxisSide(series: displayChart.SeriesConfig): displayChart.YAxisSide {
+	return series.y_axis === 'right' ? 'right' : 'left';
+}
+
+function buildComboChart(props: ResolvedProps) {
+	const {
+		data,
+		chartType,
+		xAxisKey,
+		xAxisType,
+		series,
+		colorFor,
+		labelFormatter,
+		showGrid,
+		children,
+		margin,
+		xAxisInterval,
+		yAxisMin,
+		yAxisMax,
+		yAxisLabel,
+		yAxisRightMin,
+		yAxisRightMax,
+		yAxisRightLabel,
+		showDataLabels,
+		idPrefix = '',
+	} = props;
+
+	const leftSeries = series.filter((s) => comboAxisSide(s) === 'left');
+	const rightSeries = series.filter((s) => comboAxisSide(s) === 'right');
+	const leftDomain = resolveComboAxisDomain(data, leftSeries, yAxisMin, yAxisMax);
+	const rightDomain = resolveComboAxisDomain(data, rightSeries, yAxisRightMin, yAxisRightMax);
+	const areaSeries = series.filter((s) => comboSeriesType(s, chartType) === 'area');
+	const pointLabelContent = showDataLabels ? buildPointLabelContentBySeries(data, series) : new Map();
+
+	return (
+		<ComposedChart data={data} accessibilityLayer margin={margin}>
+			{areaSeries.length > 0 && (
+				<defs>
+					{series.map((s, i) =>
+						comboSeriesType(s, chartType) === 'area' ? (
+							<linearGradient
+								key={s.data_key}
+								id={`${idPrefix}grad-combo-${i}`}
+								x1='0'
+								y1='0'
+								x2='0'
+								y2='1'
+							>
+								<stop offset='0%' stopColor={colorFor(s.data_key, i)} stopOpacity={0.25} />
+								<stop offset='100%' stopColor={colorFor(s.data_key, i)} stopOpacity={0} />
+							</linearGradient>
+						) : null,
+					)}
+				</defs>
+			)}
+			{showGrid && <CartesianGrid horizontal vertical={false} strokeDasharray='3 3' />}
+			{leftSeries.length > 0 && (
+				<YAxis
+					yAxisId='left'
+					tick={AXIS_TICK}
+					tickLine={false}
+					axisLine={false}
+					minTickGap={12}
+					tickFormatter={formatYAxisTick}
+					domain={leftDomain}
+					allowDataOverflow={yAxisMin !== undefined || yAxisMax !== undefined}
+					label={axisLabel(yAxisLabel, 'left')}
+				/>
+			)}
+			{rightSeries.length > 0 && (
+				<YAxis
+					yAxisId='right'
+					orientation='right'
+					tick={AXIS_TICK}
+					tickLine={false}
+					axisLine={false}
+					minTickGap={12}
+					tickFormatter={formatYAxisTick}
+					domain={rightDomain}
+					allowDataOverflow={yAxisRightMin !== undefined || yAxisRightMax !== undefined}
+					label={axisLabel(yAxisRightLabel, 'right')}
+				/>
+			)}
+			{renderCategoryXAxis({
+				xAxisKey,
+				xAxisType: xAxisType ?? 'category',
+				xAxisInterval,
+				labelFormatter,
+			})}
+			{children}
+			{series.map((s, i) =>
+				renderComboSeries(
+					s,
+					i,
+					chartType,
+					colorFor,
+					showDataLabels,
+					idPrefix,
+					pointLabelContent.get(s.data_key),
+				),
+			)}
+		</ComposedChart>
+	);
+}
+
+function resolveComboAxisDomain(
+	data: Record<string, unknown>[],
+	axisSeries: displayChart.SeriesConfig[],
+	explicitMin: number | undefined,
+	explicitMax: number | undefined,
+) {
+	const values = collectAxisValues(
+		data,
+		axisSeries.map((s) => s.data_key),
+	);
+	return resolveYAxisDomain(explicitMin, explicitMax, values, true);
+}
+
+function renderComboSeries(
+	series: displayChart.SeriesConfig,
+	index: number,
+	baseType: displayChart.ChartType,
+	colorFor: (key: string, index: number) => string,
+	showDataLabels: boolean | undefined,
+	idPrefix: string,
+	pointLabelContent: ReturnType<typeof renderPointLabel> | undefined,
+) {
+	const color = colorFor(series.data_key, index);
+	const yAxisId = comboAxisSide(series);
+	const type = comboSeriesType(series, baseType);
+
+	if (type === 'line') {
+		return (
+			<Line
+				key={series.data_key}
+				yAxisId={yAxisId}
+				dataKey={series.data_key}
+				type='monotone'
+				stroke={color}
+				strokeWidth={2}
+				dot={false}
+				isAnimationActive={false}
+			>
+				{showDataLabels && <LabelList content={pointLabelContent} />}
+			</Line>
+		);
+	}
+	if (type === 'area') {
+		return (
+			<Area
+				key={series.data_key}
+				yAxisId={yAxisId}
+				dataKey={series.data_key}
+				type='monotone'
+				stroke={color}
+				fill={`url(#${idPrefix}grad-combo-${index})`}
+				isAnimationActive={false}
+			>
+				{showDataLabels && <LabelList content={pointLabelContent} />}
+			</Area>
+		);
+	}
+	return (
+		<Bar
+			key={series.data_key}
+			yAxisId={yAxisId}
+			dataKey={series.data_key}
+			fill={color}
+			radius={[4, 4, 4, 4]}
+			isAnimationActive={false}
+		>
+			{showDataLabels && <LabelList position='top' formatter={formatDataLabel} {...DATA_LABEL_PROPS} />}
+		</Bar>
+	);
+}
+
+function axisLabel(label: string | undefined, side: displayChart.YAxisSide) {
+	if (!label) {
+		return undefined;
+	}
+	return {
+		value: label,
+		angle: -90,
+		position: side === 'left' ? ('insideLeft' as const) : ('insideRight' as const),
+		style: { textAnchor: 'middle' as const, fontSize: 12, fill: 'var(--muted-foreground, #6b7280)' },
+	};
+}
+
 function buildScatterChart(props: ResolvedProps) {
-	const { data, xAxisKey, xAxisType, series, colorFor, showGrid, children, margin, yAxisMin, yAxisMax } = props;
+	const {
+		data,
+		xAxisKey,
+		xAxisType,
+		series,
+		colorFor,
+		showGrid,
+		children,
+		margin,
+		yAxisMin,
+		yAxisMax,
+		valueFormatter,
+	} = props;
 	const axisValues = collectAxisValues(
 		data,
 		series.map((s) => s.data_key),
@@ -616,13 +1045,14 @@ function buildScatterChart(props: ResolvedProps) {
 				tickLine={false}
 				axisLine={false}
 				minTickGap={12}
+				height={CATEGORY_XAXIS_HEIGHT}
 			/>
 			<YAxis
 				tick={AXIS_TICK}
 				tickLine={false}
 				axisLine={false}
 				minTickGap={12}
-				tickFormatter={formatYAxisTick}
+				tickFormatter={valueFormatter ?? formatYAxisTick}
 				domain={resolveYAxisDomain(yAxisMin, yAxisMax, axisValues, false)}
 				allowDataOverflow={yAxisMin !== undefined || yAxisMax !== undefined}
 			/>
@@ -632,7 +1062,8 @@ function buildScatterChart(props: ResolvedProps) {
 					key={s.data_key}
 					dataKey={s.data_key}
 					fill={colorFor(s.data_key, i)}
-					isAnimationActive={false}
+					isAnimationActive={Boolean(props.animate)}
+					animationDuration={CHART_ANIMATION_DURATION_MS}
 				/>
 			))}
 		</ScatterChart>
@@ -640,13 +1071,13 @@ function buildScatterChart(props: ResolvedProps) {
 }
 
 function buildRadarChart(props: ResolvedProps) {
-	const { data, xAxisKey, series, colorFor, children, margin } = props;
+	const { data, xAxisKey, series, colorFor, children, margin, valueFormatter } = props;
 
 	return (
 		<RadarChart data={data} accessibilityLayer margin={margin}>
 			<PolarGrid />
 			<PolarAngleAxis dataKey={xAxisKey} tick={AXIS_TICK} />
-			<PolarRadiusAxis tick={AXIS_TICK} tickFormatter={formatYAxisTick} />
+			<PolarRadiusAxis tick={AXIS_TICK} tickFormatter={valueFormatter ?? formatYAxisTick} />
 			{children}
 			{series.map((s, i) => (
 				<Radar
@@ -655,7 +1086,8 @@ function buildRadarChart(props: ResolvedProps) {
 					stroke={colorFor(s.data_key, i)}
 					fill={colorFor(s.data_key, i)}
 					fillOpacity={0.3}
-					isAnimationActive={false}
+					isAnimationActive={Boolean(props.animate)}
+					animationDuration={CHART_ANIMATION_DURATION_MS}
 				/>
 			))}
 		</RadarChart>
@@ -687,7 +1119,8 @@ function buildPieChart(props: ResolvedProps) {
 				labelLine={false}
 				stroke={backgroundColor}
 				strokeWidth={1}
-				isAnimationActive={false}
+				isAnimationActive={Boolean(props.animate)}
+				animationDuration={CHART_ANIMATION_DURATION_MS}
 			/>
 			{children}
 		</PieChart>

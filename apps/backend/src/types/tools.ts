@@ -8,7 +8,7 @@ export interface QueryResult {
 }
 
 export interface GeneratedArtifacts {
-	charts: displayChart.BuiltinChartInput[];
+	charts: (displayChart.BuiltinChartInput | displayChart.KpiCardInput)[];
 	stories: { id: string; title: string }[];
 }
 

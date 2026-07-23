@@ -492,12 +492,20 @@ code.dollar:before {
 	@apply outline-2 outline-primary/40 outline-offset-2 rounded-lg;
 }
 
+.story-editor .tiptap .nao-block-selected {
+	@apply bg-primary/10 rounded-md;
+}
+
+.dark .story-editor .tiptap .nao-block-selected {
+	@apply bg-blue-500/25;
+}
+
 .story-editor .drag-handle {
 	position: fixed;
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	padding-right: 0.5rem;
+	padding-right: 1rem;
 	cursor: grab;
 }
 

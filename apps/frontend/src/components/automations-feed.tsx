@@ -776,6 +776,10 @@ function ChartSlide({ chart }: { chart: AutomationFeedChart }) {
 				title={chart.config.title}
 				yAxisMin={chart.config.y_axis_min}
 				yAxisMax={chart.config.y_axis_max}
+				yAxisLabel={chart.config.y_axis_label}
+				yAxisRightMin={chart.config.y_axis_right_min}
+				yAxisRightMax={chart.config.y_axis_right_max}
+				yAxisRightLabel={chart.config.y_axis_right_label}
 			/>
 		</div>
 	);
