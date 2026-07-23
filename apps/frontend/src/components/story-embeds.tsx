@@ -123,7 +123,7 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({
 	}
 
 	return (
-		<StoryChartEmbedShell chart={chart} availableColumns={resolvedColumns}>
+		<StoryChartEmbedShell chart={chart} availableColumns={resolvedColumns} data={displayData}>
 			<EmbedRefreshing isRefreshing={showRefreshing}>
 				<ChartDisplay
 					data={displayData}
@@ -139,6 +139,7 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({
 					yAxisRightMax={chart.yAxisRightMax}
 					yAxisRightLabel={chart.yAxisRightLabel}
 					showDataLabels={chart.showDataLabels}
+					comparisonMode={chart.comparisonMode}
 					animate
 					normalSize
 					hideTotal={chart.hideTotal}

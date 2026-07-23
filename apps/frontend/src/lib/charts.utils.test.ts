@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { alignChartDataToBaselineX, resolvePieTooltipLabel } from './charts.utils';
+import { alignChartDataToBaselineX, resolveDataKey, resolvePieTooltipLabel } from './charts.utils';
+
+describe('resolveDataKey', () => {
+	it('returns an empty string when the key is undefined (kpi cards have no x-axis)', () => {
+		expect(resolveDataKey([{ revenue: 100 }], undefined)).toBe('');
+	});
+});
 
 describe('resolvePieTooltipLabel', () => {
 	it('returns the slice category name from the payload', () => {

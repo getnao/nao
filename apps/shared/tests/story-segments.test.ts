@@ -6,6 +6,7 @@ import {
 	getStoryFiltersFromCode,
 	groupBlocksIntoGrid,
 	insertGridColumn,
+	parseChartBlock,
 	popGridColumn,
 	previewGridColumns,
 	reorderGridColumns,
@@ -451,6 +452,52 @@ describe('splitCodeIntoSegments chart series', () => {
 		});
 
 		expect(seriesOf(code)).toEqual([{ data_key: 'rev', color: 'var(--chart-1)', label: 'a "quoted" label' }]);
+	});
+});
+
+describe('parseChartBlock x-axis requirements', () => {
+	it('allows KPI cards without an x-axis key but rejects other chart types', () => {
+		const kpiCard = parseChartBlock(
+			'query_id="query_bd642c80" chart_type="kpi_card" title="Total Revenue ($)" series=\'[{"data_key":"total_revenue"}]\'',
+		);
+
+		expect(kpiCard).not.toBeNull();
+		expect(kpiCard?.xAxisKey).toBe('');
+		expect(kpiCard?.series).toEqual([{ data_key: 'total_revenue' }]);
+		expect(
+			parseChartBlock('query_id="query_bd642c80" chart_type="bar" series=\'[{"data_key":"total_revenue"}]\''),
+		).toBeNull();
+	});
+});
+
+describe('KPI comparison mode story blocks', () => {
+	it('round-trips a comparison mode', () => {
+		const code = buildStoryChartBlock({
+			query_id: 'q1',
+			chart_type: 'kpi_card',
+			x_axis_key: 'year',
+			x_axis_type: 'date',
+			series: [{ data_key: 'revenue' }],
+			title: 'Revenue',
+			comparison_mode: 'percentage',
+		});
+
+		expect(code).toContain('comparison_mode="percentage"');
+		expect(chartOf(code)?.comparisonMode).toBe('percentage');
+	});
+
+	it('does not emit the none comparison mode', () => {
+		const code = buildStoryChartBlock({
+			query_id: 'q1',
+			chart_type: 'kpi_card',
+			x_axis_key: 'year',
+			x_axis_type: 'date',
+			series: [{ data_key: 'revenue' }],
+			title: 'Revenue',
+			comparison_mode: 'none',
+		});
+
+		expect(code).not.toContain('comparison_mode=');
 	});
 });
 

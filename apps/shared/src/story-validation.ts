@@ -16,6 +16,7 @@ export interface StoryValidationError {
 }
 
 const REQUIRED_CHART_ATTRS = ['query_id', 'chart_type', 'x_axis_key'] as const;
+const CHART_TYPES_WITHOUT_X_AXIS_KEY = new Set(['kpi_card']);
 const REQUIRED_TABLE_ATTRS = ['query_id'] as const;
 const REQUIRED_FILTER_ATTRS = ['id', 'type'] as const;
 
@@ -135,7 +136,9 @@ function validateChartBlocks(code: string): StoryValidationError[] {
 			});
 		}
 
-		const missing = REQUIRED_CHART_ATTRS.filter((attr) => !attrs[attr]);
+		const missing = REQUIRED_CHART_ATTRS.filter(
+			(attr) => !attrs[attr] && !(attr === 'x_axis_key' && CHART_TYPES_WITHOUT_X_AXIS_KEY.has(attrs.chart_type)),
+		);
 		if (missing.length > 0) {
 			errors.push({
 				message: `Chart is missing required attribute${missing.length === 1 ? '' : 's'}: ${missing.join(', ')}.`,

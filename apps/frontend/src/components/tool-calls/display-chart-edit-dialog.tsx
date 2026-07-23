@@ -1,4 +1,4 @@
-import { DEFAULT_COLORS } from '@nao/shared';
+import { computeKpiComparison, DEFAULT_COLORS } from '@nao/shared';
 import { displayChart } from '@nao/shared/tools';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ChartArea, ChartBar, ChartColumn, ChartColumnIncreasing, ChartLine, Plus, Trash2 } from 'lucide-react';
@@ -36,6 +36,13 @@ const X_AXIS_TYPE_OPTIONS: { value: NonNullable<displayChart.XAxisType> | 'auto'
 	{ value: 'number', label: 'Number' },
 ];
 
+const COMPARISON_MODE_OPTIONS: { value: displayChart.ComparisonMode; label: string }[] = [
+	{ value: 'none', label: 'None' },
+	{ value: 'percentage', label: 'Percentage' },
+	{ value: 'variation', label: 'Variation' },
+	{ value: 'absolute', label: 'Absolute' },
+];
+
 const SERIES_TYPE_OPTIONS: { value: displayChart.SeriesType; label: string; icon: LucideIcon }[] = [
 	{ value: 'bar', label: 'Bar', icon: ChartColumnIncreasing },
 	{ value: 'line', label: 'Line', icon: ChartLine },
@@ -43,6 +50,8 @@ const SERIES_TYPE_OPTIONS: { value: displayChart.SeriesType; label: string; icon
 ];
 
 const Y_AXIS_RANGE_UNSUPPORTED_CHART_TYPES = new Set<displayChart.ChartType>(['pie', 'kpi_card', 'radar']);
+
+type EditableChartInput = displayChart.ChartInput | displayChart.KpiCardInput;
 
 /** Maps a 100% stacked type back to its absolute-stacked counterpart, so the type dropdown stays clean. */
 function baseChartType(type: displayChart.ChartType): displayChart.ChartType {
@@ -69,11 +78,12 @@ function percentChartType(type: displayChart.ChartType): displayChart.ChartType 
 interface ChartConfigEditDialogProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
-	config: displayChart.ChartInput;
+	config: EditableChartInput;
 	availableColumns: string[];
-	onSave: (next: displayChart.ChartInput) => Promise<void>;
+	onSave: (next: EditableChartInput) => Promise<void>;
 	isSaving?: boolean;
 	description?: string;
+	data?: Record<string, unknown>[];
 }
 
 /** Presentational edit dialog for `display_chart` configuration. */
@@ -85,8 +95,9 @@ export function ChartConfigEditDialog({
 	onSave,
 	isSaving = false,
 	description = 'Tweak the chart parameters.',
+	data,
 }: ChartConfigEditDialogProps) {
-	const [draft, setDraft] = useState<displayChart.ChartInput>(config);
+	const [draft, setDraft] = useState<EditableChartInput>(config);
 	const [yAxisMinText, setYAxisMinText] = useState(toRangeString(config.y_axis_min));
 	const [yAxisMaxText, setYAxisMaxText] = useState(toRangeString(config.y_axis_max));
 	const [yAxisRightMinText, setYAxisRightMinText] = useState(toRangeString(config.y_axis_right_min));
@@ -96,6 +107,10 @@ export function ChartConfigEditDialog({
 	// the same swatch the chart draws for it. Refreshed on open for the theme.
 	const [paletteHexes, setPaletteHexes] = useState<string[]>(DEFAULT_COLORS);
 	const supportsYAxisRange = !Y_AXIS_RANGE_UNSUPPORTED_CHART_TYPES.has(draft.chart_type);
+	const canShowComparisonPill = useMemo(
+		() => draft.chart_type === 'kpi_card' && hasRenderableKpiComparison(data, draft.x_axis_key, draft.series),
+		[draft.chart_type, draft.x_axis_key, draft.series, data],
+	);
 	const isCombo = displayChart.chartTypeSupportsComboSeries(draft.chart_type);
 	const hasRightAxis = isCombo && displayChart.hasRightAxisSeries(draft.series);
 	const hasLeftAxis = !isCombo || draft.series.some((s) => s.y_axis !== 'right');
@@ -114,16 +129,24 @@ export function ChartConfigEditDialog({
 
 	const xAxisOptions = useMemo(() => {
 		if (availableColumns.length === 0) {
-			return [config.x_axis_key];
+			return [config.x_axis_key ?? ''];
 		}
 		return availableColumns;
 	}, [availableColumns, config.x_axis_key]);
 
 	const handleSubmit = async (event: React.FormEvent) => {
 		event.preventDefault();
-		const parsed = displayChart.ChartInputSchema.safeParse(draft);
+		const normalized: EditableChartInput =
+			draft.chart_type === 'kpi_card'
+				? { ...draft, x_axis_key: draft.x_axis_key || '', x_axis_type: draft.x_axis_type ?? null }
+				: draft;
+		const parsed = displayChart.InputSchema.safeParse(normalized);
 		if (!parsed.success) {
 			setError(parsed.error.issues[0]?.message ?? 'Invalid chart configuration.');
+			return;
+		}
+		if (parsed.data.chart_type === 'table') {
+			setError('Invalid chart configuration.');
 			return;
 		}
 
@@ -244,29 +267,31 @@ export function ChartConfigEditDialog({
 							</Select>
 						</div>
 
-						<div className='grid gap-2'>
-							<span className='text-sm font-semibold text-foreground'>X-axis type</span>
-							<Select
-								value={draft.x_axis_type ?? 'auto'}
-								onValueChange={(value) =>
-									setDraft((prev) => ({
-										...prev,
-										x_axis_type: value === 'auto' ? null : (value as displayChart.XAxisType),
-									}))
-								}
-							>
-								<SelectTrigger className='w-full bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
-									<SelectValue />
-								</SelectTrigger>
-								<SelectContent className='border-none bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
-									{X_AXIS_TYPE_OPTIONS.map((option) => (
-										<SelectItem key={option.value} value={option.value}>
-											{option.label}
-										</SelectItem>
-									))}
-								</SelectContent>
-							</Select>
-						</div>
+						{draft.chart_type !== 'kpi_card' && (
+							<div className='grid gap-2'>
+								<span className='text-sm font-semibold text-foreground'>X-axis type</span>
+								<Select
+									value={draft.x_axis_type ?? 'auto'}
+									onValueChange={(value) =>
+										setDraft((prev) => ({
+											...prev,
+											x_axis_type: value === 'auto' ? null : (value as displayChart.XAxisType),
+										}))
+									}
+								>
+									<SelectTrigger className='w-full bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
+										<SelectValue />
+									</SelectTrigger>
+									<SelectContent className='border-none bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
+										{X_AXIS_TYPE_OPTIONS.map((option) => (
+											<SelectItem key={option.value} value={option.value}>
+												{option.label}
+											</SelectItem>
+										))}
+									</SelectContent>
+								</Select>
+							</div>
+						)}
 					</div>
 
 					{displayChart.isStackedChartType(draft.chart_type) && (
@@ -294,14 +319,16 @@ export function ChartConfigEditDialog({
 						</div>
 					)}
 
-					<div className='grid gap-2'>
-						<span className='text-sm font-semibold text-foreground'>X-axis column</span>
-						<ColumnSelect
-							value={draft.x_axis_key}
-							columns={xAxisOptions}
-							onChange={(value) => setDraft((prev) => ({ ...prev, x_axis_key: value }))}
-						/>
-					</div>
+					{draft.chart_type !== 'kpi_card' && (
+						<div className='grid gap-2'>
+							<span className='text-sm font-semibold text-foreground'>X-axis column</span>
+							<ColumnSelect
+								value={draft.x_axis_key ?? ''}
+								columns={xAxisOptions}
+								onChange={(value) => setDraft((prev) => ({ ...prev, x_axis_key: value }))}
+							/>
+						</div>
+					)}
 
 					<div className='grid gap-2'>
 						<div className='flex items-center justify-between py-2'>
@@ -450,6 +477,31 @@ export function ChartConfigEditDialog({
 
 					<div className='grid gap-2'>
 						<span className='text-sm font-semibold text-foreground'>Options</span>
+						{canShowComparisonPill && (
+							<div className='grid gap-2'>
+								<span className='text-sm font-semibold text-foreground'>Comparison pill</span>
+								<Select
+									value={'comparison_mode' in draft ? (draft.comparison_mode ?? 'none') : 'none'}
+									onValueChange={(value) =>
+										setDraft((prev) => ({
+											...prev,
+											comparison_mode: value as displayChart.ComparisonMode,
+										}))
+									}
+								>
+									<SelectTrigger className='w-full bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
+										<SelectValue />
+									</SelectTrigger>
+									<SelectContent className='border-none bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
+										{COMPARISON_MODE_OPTIONS.map((option) => (
+											<SelectItem key={option.value} value={option.value}>
+												{option.label}
+											</SelectItem>
+										))}
+									</SelectContent>
+								</Select>
+							</div>
+						)}
 						<div className='flex h-8 items-center justify-between'>
 							<label htmlFor='show-data-labels' className='text-sm text-foreground'>
 								Show data labels
@@ -493,8 +545,9 @@ interface DisplayChartEditDialogProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	toolCallId: string;
-	config: displayChart.ChartInput;
+	config: EditableChartInput;
 	availableColumns: string[];
+	data?: Record<string, unknown>[];
 }
 
 /** Edit dialog bound to a `tool-display_chart` message part: persists through `chart.updateConfig`. */
@@ -504,6 +557,7 @@ export function DisplayChartEditDialog({
 	toolCallId,
 	config,
 	availableColumns,
+	data,
 }: DisplayChartEditDialogProps) {
 	const queryClient = useQueryClient();
 	const { messages, setMessages } = useAgentContext();
@@ -516,7 +570,7 @@ export function DisplayChartEditDialog({
 		}),
 	);
 
-	const handleSave = async (next: displayChart.ChartInput) => {
+	const handleSave = async (next: EditableChartInput) => {
 		const previousMessages = messages;
 		setMessages(applyChartConfigToMessages(previousMessages, toolCallId, next));
 		try {
@@ -533,6 +587,7 @@ export function DisplayChartEditDialog({
 			onOpenChange={onOpenChange}
 			config={config}
 			availableColumns={availableColumns}
+			data={data}
 			onSave={handleSave}
 			isSaving={updateMutation.isPending}
 			description='Tweak the chart parameters. Changes are saved to the chat.'
@@ -720,6 +775,22 @@ function getSelectableColumns(columns: string[]): string[] {
 	return Array.from(new Set(columns.filter((column) => column.length > 0)));
 }
 
+/**
+ * Whether a comparison pill can actually render for the current data: the last two rows must
+ * yield two valid numeric values for at least one series. Checked in 'absolute' mode so the gate
+ * stays mode-agnostic (the user still picks percentage/variation/absolute in the selector).
+ */
+function hasRenderableKpiComparison(
+	data: Record<string, unknown>[] | undefined,
+	xAxisKey: string | undefined,
+	series: displayChart.ChartInput['series'],
+): boolean {
+	if (!data || data.length < 2 || !series) {
+		return false;
+	}
+	return series.some((s) => computeKpiComparison(data, xAxisKey ?? '', s.data_key, 'absolute') != null);
+}
+
 function toRangeString(n: number | undefined): string {
 	return n === undefined ? '' : String(n);
 }
@@ -770,7 +841,7 @@ function cssColorToHex(context: CanvasRenderingContext2D, color: string): string
 function applyChartConfigToMessages(
 	messages: UIMessage[],
 	toolCallId: string,
-	config: displayChart.ChartInput,
+	config: EditableChartInput,
 ): UIMessage[] {
 	return messages.map((message) => {
 		let changed = false;

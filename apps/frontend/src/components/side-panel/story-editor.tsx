@@ -21,7 +21,6 @@ export const StoryEditor = memo(function StoryEditor({ code, editorRef, onSave }
 		gridDragSourceRef,
 		storyBlockDragContext,
 		handleDragHandleNodeChange,
-		handleNodeType,
 		storyEditorRef,
 		onElementDragStart,
 		onElementDragEnd,
@@ -39,11 +38,9 @@ export const StoryEditor = memo(function StoryEditor({ code, editorRef, onSave }
 							onElementDragStart={onElementDragStart}
 							onElementDragEnd={onElementDragEnd}
 						>
-							{handleNodeType === 'chartBlock' || handleNodeType === 'tableBlock' ? null : (
-								<div className='drag-handle-button'>
-									<GripVertical className='size-4' />
-								</div>
-							)}
+							<div className='drag-handle-button'>
+								<GripVertical className='size-4' />
+							</div>
 						</DragHandle>
 					)}
 					<EditorContent editor={editor} />

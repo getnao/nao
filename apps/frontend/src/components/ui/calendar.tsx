@@ -98,24 +98,24 @@ function Calendar({
 				...classNames,
 			}}
 			components={{
-				Root: ({ className, rootRef, ...props }) => {
-					return <div data-slot='calendar' ref={rootRef} className={cn(className)} {...props} />;
+				Root: ({ className: rootClassName, rootRef, ...rootProps }) => {
+					return <div data-slot='calendar' ref={rootRef} className={cn(rootClassName)} {...rootProps} />;
 				},
-				Chevron: ({ className, orientation, ...props }) => {
+				Chevron: ({ className: chevronClassName, orientation, ...chevronProps }) => {
 					if (orientation === 'left') {
-						return <ChevronLeftIcon className={cn('size-4', className)} {...props} />;
+						return <ChevronLeftIcon className={cn('size-4', chevronClassName)} {...chevronProps} />;
 					}
 
 					if (orientation === 'right') {
-						return <ChevronRightIcon className={cn('size-4', className)} {...props} />;
+						return <ChevronRightIcon className={cn('size-4', chevronClassName)} {...chevronProps} />;
 					}
 
-					return <ChevronDownIcon className={cn('size-4', className)} {...props} />;
+					return <ChevronDownIcon className={cn('size-4', chevronClassName)} {...chevronProps} />;
 				},
 				DayButton: CalendarDayButton,
-				WeekNumber: ({ children, ...props }) => {
+				WeekNumber: ({ children, ...weekNumberProps }) => {
 					return (
-						<td {...props}>
+						<td {...weekNumberProps}>
 							<div className='flex size-(--cell-size) items-center justify-center text-center'>
 								{children}
 							</div>
@@ -134,7 +134,9 @@ function CalendarDayButton({ className, day, modifiers, ...props }: React.Compon
 
 	const ref = React.useRef<HTMLButtonElement>(null);
 	React.useEffect(() => {
-		if (modifiers.focused) ref.current?.focus();
+		if (modifiers.focused) {
+			ref.current?.focus();
+		}
 	}, [modifiers.focused]);
 
 	return (
