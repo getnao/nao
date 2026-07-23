@@ -135,7 +135,6 @@ export const adminAgentTools: AgentToolsResolver = ({ chat, agentSettings }) =>
 				'execute_sql',
 				'read_query_result',
 				'display_chart',
-				'display_map',
 				'suggest_follow_ups',
 				'story',
 				'clarification',

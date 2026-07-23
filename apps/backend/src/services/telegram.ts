@@ -415,12 +415,16 @@ class TelegramService {
 		) {
 			return;
 		}
-		state.renderedToolCallIds.add(part.toolCallId);
-		const chatUrl = new URL(ctx.chatId, this._redirectUrl).toString();
-		ctx.textBlockIndex = -1;
-		ctx.blocks.push(...createTelegramMapLinkCard(part.input.title, chatUrl));
-		if (ctx.convMessage) {
-			await this._safeEdit(ctx.convMessage, Card({ children: ctx.blocks }));
+		try {
+			state.renderedToolCallIds.add(part.toolCallId);
+			const chatUrl = new URL(ctx.chatId, this._redirectUrl).toString();
+			ctx.textBlockIndex = -1;
+			ctx.blocks.push(...createTelegramMapLinkCard(part.input.title, chatUrl));
+			if (ctx.convMessage) {
+				await this._safeEdit(ctx.convMessage, Card({ children: ctx.blocks }));
+			}
+		} catch (error) {
+			console.error('Error rendering map link card:', error);
 		}
 	}
 
