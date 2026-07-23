@@ -126,7 +126,7 @@ function buildExecuteSqlToolDescription() {
 					'Story filters may be embedded as SQL template blocks that are stripped when this tool runs in chat.',
 					'Correct syntax: WHERE 1 = 1 {% filter country %} AND country IN ({{ filters.country.sql }}) {% endfilter %}.',
 					"For date_range filters, {{ filters.<id>.sql }} already expands to 'start' AND 'end', so write: {% filter period %} AND order_date BETWEEN {{ filters.period.sql }} {% endfilter %}.",
-					'Never use filters.<id>.start, .end, .value, or placeholders outside {% filter %} blocks — invalid templates return template_warnings.',
+					'Never use filters.<id>.start, .end, .value, or placeholders outside {% filter %} blocks — placeholders outside blocks are rejected; other invalid templates return template_warnings.',
 					'Prefer query_id when adding story filter templates so existing <chart>/<table> tags keep working.',
 				]
 			: []),

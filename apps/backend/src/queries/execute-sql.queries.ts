@@ -1,5 +1,5 @@
 import { executeSql } from '@nao/shared/tools';
-import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull, or, sql } from 'drizzle-orm';
 
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
@@ -12,6 +12,10 @@ export function messagePartToolOutputIdEquals(queryId: string) {
 	return dbConfig.dialect === Dialect.Postgres
 		? sql`${s.messagePart.toolOutput}->>'id' = ${queryId}`
 		: sql`json_extract(${s.messagePart.toolOutput}, '$.id') = ${queryId}`;
+}
+
+function messagePartToolOutputIdIn(queryIds: Set<string>) {
+	return or(...[...queryIds].map(messagePartToolOutputIdEquals));
 }
 
 export type LatestExecuteSqlRow = {
@@ -46,7 +50,7 @@ export async function getLatestExecuteSqlByQueryId(queryId: string): Promise<Lat
 				messagePartToolOutputIdEquals(queryId),
 			),
 		)
-		.orderBy(desc(s.chatMessage.createdAt), desc(s.messagePart.order))
+		.orderBy(desc(s.chatMessage.createdAt), desc(s.messagePart.createdAt), desc(s.messagePart.order))
 		.limit(1)
 		.execute();
 
@@ -101,7 +105,7 @@ export async function getExecuteSqlPartByQueryIdInChat(
 				messagePartToolOutputIdEquals(queryId),
 			),
 		)
-		.orderBy(desc(s.chatMessage.createdAt), desc(s.messagePart.order))
+		.orderBy(desc(s.chatMessage.createdAt), desc(s.messagePart.createdAt), desc(s.messagePart.order))
 		.limit(1)
 		.execute();
 
@@ -131,7 +135,7 @@ export async function updateExecuteSqlPart(
 	);
 }
 
-async function loadLatestExecuteSqlParts(chatId: string) {
+async function loadLatestExecuteSqlParts(chatId: string, queryIds: Set<string>) {
 	return db
 		.select({
 			toolInput: s.messagePart.toolInput,
@@ -144,9 +148,10 @@ async function loadLatestExecuteSqlParts(chatId: string) {
 				eq(s.chatMessage.chatId, chatId),
 				isNull(s.chatMessage.supersededAt),
 				eq(s.messagePart.toolName, EXECUTE_SQL_TOOL_NAME),
+				messagePartToolOutputIdIn(queryIds),
 			),
 		)
-		.orderBy(asc(s.chatMessage.createdAt), asc(s.messagePart.order))
+		.orderBy(asc(s.chatMessage.createdAt), asc(s.messagePart.createdAt), asc(s.messagePart.order))
 		.execute();
 }
 
@@ -162,7 +167,7 @@ export async function getLatestSqlQueriesByIds(
 		return {};
 	}
 
-	const parts = await loadLatestExecuteSqlParts(chatId);
+	const parts = await loadLatestExecuteSqlParts(chatId, queryIds);
 	const queries: Record<string, { sqlQuery: string; databaseId?: string }> = {};
 	for (const part of parts) {
 		const output = part.toolOutput as { id?: string } | null;
@@ -189,7 +194,7 @@ export async function getLatestSqlQueryDataByIds(
 		return {};
 	}
 
-	const parts = await loadLatestExecuteSqlParts(chatId);
+	const parts = await loadLatestExecuteSqlParts(chatId, queryIds);
 	const data: Record<string, { data: unknown[]; columns: string[] }> = {};
 	for (const part of parts) {
 		const output = part.toolOutput as { id?: string; data?: unknown[]; columns?: string[] } | null;

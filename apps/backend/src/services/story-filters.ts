@@ -7,6 +7,7 @@ import {
 import { getStoryFiltersFromCode } from '@nao/shared/story-segments';
 import { TRPCError } from '@trpc/server';
 
+import { env } from '../env';
 import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as storyQueries from '../queries/story.queries';
@@ -14,6 +15,12 @@ import { assertSafeSqlIdentifier } from '../utils/sql-identifiers';
 import { executeRawSql } from './live-story';
 
 const FILTER_OPTIONS_LIMIT = 100;
+
+export function assertStoryFiltersEnabled() {
+	if (!env.BETA_STORY_FILTERS_ENABLED) {
+		throw new TRPCError({ code: 'FORBIDDEN', message: 'Story filters are disabled on this instance.' });
+	}
+}
 
 export async function getStoryFilterOptions(
 	chatId: string,

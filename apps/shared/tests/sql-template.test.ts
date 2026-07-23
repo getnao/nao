@@ -152,6 +152,11 @@ SELECT 1 FROM orders WHERE 1 = 1
 		);
 		expect(delimiterIssues.some((issue) => /Unexpected "\{% endfilter %\}"/.test(issue))).toBe(true);
 	});
+
+	it('flags placeholders with a trailing dot and no property', () => {
+		const issues = validateSqlFilterTemplate('SELECT 1 WHERE country = {{ filters.country. }}');
+		expect(issues.some((issue) => /property "\.sql" is required/.test(issue))).toBe(true);
+	});
 });
 
 describe('findUnreferencedStoryFilters', () => {

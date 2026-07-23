@@ -4,7 +4,6 @@ import { DOWNLOAD_FORMATS } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
-import { env } from '../env';
 import { STORY_REFRESH_JOB_NAME } from '../handlers/story-refresh.handler';
 import * as activityQueries from '../queries/activity.queries';
 import * as chatQueries from '../queries/chat.queries';
@@ -16,7 +15,12 @@ import * as storyFolderQueries from '../queries/story-folder.queries';
 import { naturalLanguageToCron } from '../services/cron-nlp';
 import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../services/live-story';
 import { nextCronTick } from '../services/scheduler.service';
-import { getFilteredStoryQueryData, getStoryFilterOptions, getStoryQuerySql } from '../services/story-filters';
+import {
+	assertStoryFiltersEnabled,
+	getFilteredStoryQueryData,
+	getStoryFilterOptions,
+	getStoryQuerySql,
+} from '../services/story-filters';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import { buildDownloadResponse } from '../utils/story-download';
 import { extractStorySummary } from '../utils/story-summary';
@@ -24,12 +28,6 @@ import { canSendProcedure, ownedResourceProcedure, projectProtectedProcedure, pr
 
 const chatOwnerProcedure = ownedResourceProcedure(chatQueries.getChatOwnerId, 'chat');
 const storyOwnerProcedure = ownedResourceProcedure(storyQueries.getStoryOwnerId, 'story');
-
-function assertStoryFiltersEnabled() {
-	if (!env.BETA_STORY_FILTERS_ENABLED) {
-		throw new TRPCError({ code: 'FORBIDDEN', message: 'Story filters are disabled on this instance.' });
-	}
-}
 
 const bulkStoryItemsInput = z.object({
 	items: z
@@ -326,6 +324,7 @@ export const storyRoutes = {
 			}),
 		)
 		.query(async ({ input }) => {
+			assertStoryFiltersEnabled();
 			return getStoryQuerySql(input.chatId, input.storySlug, input.queryId, input.selections);
 		}),
 

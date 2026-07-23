@@ -12,7 +12,7 @@ export const STORY_FILTER_ID_REGEX = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 const FILTER_BLOCK_REGEX = /\{%\s*filter\s+([A-Za-z_][A-Za-z0-9_]*)\s*%\}([\s\S]*?)\{%\s*endfilter\s*%\}/g;
 const FILTER_PLACEHOLDER_REGEX = /\{\{\s*filters\.([A-Za-z_][A-Za-z0-9_]*)\.sql\s*\}\}/g;
-const ANY_FILTER_PLACEHOLDER_REGEX = /\{\{\s*filters\.([^\s.{}]+)(?:\.([^\s{}]+))?\s*\}\}/g;
+const ANY_FILTER_PLACEHOLDER_REGEX = /\{\{\s*filters\.([^\s.{}]+)(?:\.([^\s{}]*))?\s*\}\}/g;
 const FILTER_OPEN_REGEX = /\{%\s*filter\b[^%}]*%\}/g;
 const FILTER_CLOSE_REGEX = /\{%\s*endfilter\s*%\}/g;
 const FILTER_DELIMITER_REGEX = /\{%\s*(?:filter\b([^%}]*)|(endfilter))\s*%\}/g;

@@ -171,9 +171,15 @@ async function carryOverTableFormatting(code: string, chatId: string): Promise<s
 	return injectTableFormatting(code, formatsByQueryId);
 }
 
+/** The story version is already committed at this point, so a warning failure must not fail the tool. */
 async function storyTemplateWarnings(chatId: string, code: string): Promise<{ template_warnings?: string[] }> {
-	const warnings = await getStoryTemplateWarnings(chatId, code);
-	return warnings.length > 0 ? { template_warnings: warnings } : {};
+	try {
+		const warnings = await getStoryTemplateWarnings(chatId, code);
+		return warnings.length > 0 ? { template_warnings: warnings } : {};
+	} catch (error) {
+		console.error('Failed to compute story template warnings', error);
+		return {};
+	}
 }
 
 function rememberStoryArtifact(context: ToolContext, id: string, title: string): void {

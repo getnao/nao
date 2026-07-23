@@ -287,7 +287,9 @@ function parseDateString(value: string | undefined): Date | undefined {
 	if (!year || !month || !day) {
 		return undefined;
 	}
-	return new Date(year, month - 1, day);
+	const date = new Date(year, month - 1, day);
+	const isSameCalendarDate = date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
+	return isSameCalendarDate ? date : undefined;
 }
 
 function formatDateRangeLabel(range: DateRange | undefined): string {

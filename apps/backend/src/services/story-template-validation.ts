@@ -14,6 +14,12 @@ export async function getStoryTemplateWarnings(chatId: string, code: string): Pr
 	const sqlQueries = await storyQueries.getSqlQueriesFromCode(chatId, code);
 	const warnings: string[] = [];
 
+	for (const duplicateId of findDuplicateFilterIds(knownFilterIds)) {
+		warnings.push(
+			`Story declares multiple <filter> tags with id "${duplicateId}". Filter ids must be unique — rename or remove the duplicates so selections and SQL rendering use the same definition.`,
+		);
+	}
+
 	for (const [queryId, { sqlQuery }] of Object.entries(sqlQueries)) {
 		for (const issue of validateSqlFilterTemplate(sqlQuery, { knownFilterIds })) {
 			warnings.push(`[${queryId}] ${issue}`);
@@ -30,4 +36,16 @@ export async function getStoryTemplateWarnings(chatId: string, code: string): Pr
 	}
 
 	return warnings;
+}
+
+function findDuplicateFilterIds(filterIds: string[]): string[] {
+	const seen = new Set<string>();
+	const duplicates = new Set<string>();
+	for (const filterId of filterIds) {
+		if (seen.has(filterId)) {
+			duplicates.add(filterId);
+		}
+		seen.add(filterId);
+	}
+	return [...duplicates];
 }

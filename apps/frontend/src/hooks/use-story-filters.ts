@@ -108,9 +108,11 @@ export function useStoryFilters({
 	const isFiltering = isSelectionsPending || isFetching;
 
 	return {
+		filtersEnabled,
 		filters,
 		selections,
 		activeSelections,
+		debouncedSelections,
 		setSelection,
 		clearSelections,
 		hasActiveFilters,
