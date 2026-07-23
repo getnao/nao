@@ -238,7 +238,12 @@ export function SystemPrompt({
 	);
 }
 
+const MAX_PROMPT_CUSTOM_CHARTS = 50;
+const MAX_CHART_DESCRIPTION_LENGTH = 200;
+
 function CustomChartsBlock({ charts }: { charts: ChartPluginManifestEntry[] }) {
+	const visibleCharts = charts.slice(0, MAX_PROMPT_CUSTOM_CHARTS);
+	const hiddenCount = charts.length - visibleCharts.length;
 	return (
 		<Block>
 			<Title level={2}>Custom charts</Title>
@@ -248,15 +253,27 @@ function CustomChartsBlock({ charts }: { charts: ChartPluginManifestEntry[] }) {
 				or exports.
 			</Span>
 			<List>
-				{charts.map((chart) => (
+				{visibleCharts.map((chart) => (
 					<ListItem key={chart.type}>
 						<Bold>{chart.type}</Bold>
-						{chart.description ? `: ${chart.description}` : ''}
+						{chart.description ? `: ${truncateChartDescription(chart.description)}` : ''}
 					</ListItem>
 				))}
 			</List>
+			{hiddenCount > 0 && (
+				<Span>
+					And {hiddenCount} more custom chart type{hiddenCount === 1 ? '' : 's'} in agent/charts — list that
+					folder to discover the rest.
+				</Span>
+			)}
 		</Block>
 	);
+}
+
+function truncateChartDescription(description: string): string {
+	return description.length <= MAX_CHART_DESCRIPTION_LENGTH
+		? description
+		: `${description.slice(0, MAX_CHART_DESCRIPTION_LENGTH - 1).trimEnd()}…`;
 }
 
 function McpServersBlock({ servers }: { servers: string[] }) {

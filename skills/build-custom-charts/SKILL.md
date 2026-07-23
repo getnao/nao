@@ -9,7 +9,7 @@ Use this skill when a project needs a visualization beyond nao's built-in chart 
 
 ## Create a chart
 
-Add `agent/charts/<type>.js`, where `<type>` uses lowercase letters, numbers, hyphens, or underscores. The file must export a `render` function:
+Add `agent/charts/<type>.js`, where `<type>` starts with a lowercase letter and may then contain lowercase letters, numbers, hyphens, or underscores. It must not collide with a built-in chart type (such as `bar`, `line`, `pie`) or `table`. Names that break these rules are silently ignored. The file must export a `render` function:
 
 ```js
 export function render(element, context) {

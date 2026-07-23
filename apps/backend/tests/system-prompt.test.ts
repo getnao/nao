@@ -93,4 +93,22 @@ describe('SystemPrompt timezone rendering', () => {
 		expect(markdown).toContain('**bubble**: Shows three numeric dimensions.');
 		expect(markdown).toContain('interactive web chats only');
 	});
+
+	it('bounds the custom chart list and truncates long descriptions', () => {
+		const customCharts = Array.from({ length: 60 }, (_, index) => ({
+			type: `chart-${index}`,
+			name: `Chart ${index}`,
+			description: index === 0 ? 'x'.repeat(400) : `Description ${index}`,
+			version: `v${index}`,
+		}));
+
+		const markdown = renderToMarkdown(SystemPrompt({ customCharts }));
+
+		expect(markdown).toContain('**chart-0**');
+		expect(markdown).toContain('**chart-49**');
+		expect(markdown).not.toContain('**chart-50**');
+		expect(markdown).toContain('And 10 more custom chart types in agent/charts');
+		expect(markdown).not.toContain('x'.repeat(400));
+		expect(markdown).toContain(`${'x'.repeat(199)}…`);
+	});
 });

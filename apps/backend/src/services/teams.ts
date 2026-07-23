@@ -359,6 +359,9 @@ class TeamsService {
 		if (part.state !== 'output-available' || state.renderedChartIds.has(part.toolCallId)) {
 			return;
 		}
+		if (!part.output?.success) {
+			return;
+		}
 		if (displayChart.isTableInput(part.input)) {
 			return;
 		}
