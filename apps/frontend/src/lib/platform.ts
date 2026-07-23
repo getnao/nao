@@ -1,5 +1,6 @@
 export type Shortcut = {
 	mod?: boolean;
+	ctrl?: boolean;
 	shift?: boolean;
 	alt?: boolean;
 	key: string;
@@ -13,6 +14,9 @@ export function formatShortcut(shortcut: Shortcut): string[] {
 	const tokens: string[] = [];
 
 	if (isMac) {
+		if (shortcut.ctrl) {
+			tokens.push('⌃');
+		}
 		if (shortcut.alt) {
 			tokens.push('⌥');
 		}
@@ -23,6 +27,9 @@ export function formatShortcut(shortcut: Shortcut): string[] {
 			tokens.push('⌘');
 		}
 	} else {
+		if (shortcut.ctrl) {
+			tokens.push('Ctrl');
+		}
 		if (shortcut.mod) {
 			tokens.push('Ctrl');
 		}
@@ -43,6 +50,16 @@ export function formatShortcutLabel(shortcut: Shortcut): string {
 }
 
 export function matchesShortcut(event: KeyboardEvent, shortcut: Shortcut): boolean {
+	if (shortcut.ctrl) {
+		return (
+			event.ctrlKey &&
+			!event.metaKey &&
+			event.shiftKey === Boolean(shortcut.shift) &&
+			event.altKey === Boolean(shortcut.alt) &&
+			event.key.toLowerCase() === shortcut.key.toLowerCase()
+		);
+	}
+
 	const modPressed = event.metaKey || event.ctrlKey;
 
 	if (modPressed !== Boolean(shortcut.mod)) {

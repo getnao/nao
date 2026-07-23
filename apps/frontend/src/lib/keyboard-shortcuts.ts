@@ -1,14 +1,21 @@
 import type { Shortcut } from '@/lib/platform';
 import { formatShortcut, formatShortcutLabel } from '@/lib/platform';
 
-export type ShortcutId = 'toggle-sidebar' | 'command-menu' | 'new-chat' | 'go-to-stories' | 'keyboard-help';
-export type ShortcutGroup = 'General' | 'Navigation';
+export type ShortcutId =
+	| 'toggle-sidebar'
+	| 'command-menu'
+	| 'new-chat'
+	| 'go-to-stories'
+	| 'keyboard-help'
+	| 'stop-generation';
+export type ShortcutGroup = 'General' | 'Navigation' | 'Chat';
 
 export type ShortcutDefinition = {
 	id: ShortcutId;
 	label: string;
 	group: ShortcutGroup;
 	shortcut: Shortcut;
+	allowInInput?: boolean;
 };
 
 export const SHORTCUTS: readonly ShortcutDefinition[] = [
@@ -41,6 +48,12 @@ export const SHORTCUTS: readonly ShortcutDefinition[] = [
 		label: 'Go to Stories',
 		group: 'Navigation',
 		shortcut: { mod: true, shift: true, key: 's' },
+	},
+	{
+		id: 'stop-generation',
+		label: 'Cancel prompt',
+		group: 'Chat',
+		shortcut: { ctrl: true, key: 'c' },
 	},
 ];
 

@@ -5,7 +5,7 @@ import type {
 	GroupedChatListResponse,
 	LlmProvider,
 } from '@nao/shared/types';
-import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, like, ne, or, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gte, inArray, isNotNull, isNull, like, ne, or, sql } from 'drizzle-orm';
 
 import s, {
 	DBChat,
@@ -262,17 +262,11 @@ const aggregateChatMessagParts = (
 			if (acc[row.chat_message.id]) {
 				acc[row.chat_message.id].parts.push(uiPart);
 			} else {
-				acc[row.chat_message.id] = {
-					id: row.chat_message.id,
-					role: row.chat_message.role,
-					parts: [uiPart],
-					feedback: row.message_feedback ?? undefined,
-					source: row.chat_message.source ?? undefined,
-					isForked: row.chat_message.isForked ?? undefined,
-					citation: row.chat_message.citation ?? undefined,
-					stopReason: row.chat_message.stopReason ?? undefined,
-					createdAt: row.chat_message.createdAt?.getTime(),
-				};
+				acc[row.chat_message.id] = convertDBMessageToUIMessage(
+					row.chat_message,
+					[uiPart],
+					row.message_feedback,
+				);
 			}
 			return acc;
 		},
@@ -281,6 +275,22 @@ const aggregateChatMessagParts = (
 
 	return Object.values(messagesMap);
 };
+
+const convertDBMessageToUIMessage = (
+	message: DBChatMessage,
+	parts: UIMessagePart[],
+	feedback?: MessageFeedback | null,
+): UIMessage => ({
+	id: message.id,
+	role: message.role,
+	parts,
+	feedback: feedback ?? undefined,
+	source: message.source ?? undefined,
+	isForked: message.isForked ?? undefined,
+	citation: message.citation ?? undefined,
+	stopReason: message.stopReason ?? undefined,
+	createdAt: message.createdAt?.getTime(),
+});
 
 export const getChatMessages = async (chatId: string): Promise<UIMessage[]> => {
 	const result = await db
@@ -292,6 +302,87 @@ export const getChatMessages = async (chatId: string): Promise<UIMessage[]> => {
 		.execute();
 
 	return aggregateChatMessagParts(result);
+};
+
+export const getLastTurn = async (
+	chatId: string,
+): Promise<
+	| {
+			userMessageId: string;
+			versionGroupId: string | null;
+			versionGroupSize: number;
+			assistantMessage?: UIMessage;
+	  }
+	| undefined
+> => {
+	const activeMessages = await db
+		.select()
+		.from(s.chatMessage)
+		.where(and(eq(s.chatMessage.chatId, chatId), isNull(s.chatMessage.supersededAt)))
+		.orderBy(desc(s.chatMessage.createdAt))
+		.execute();
+	const lastMessage = activeMessages.at(0);
+	if (!lastMessage || lastMessage.role === 'system') {
+		return undefined;
+	}
+
+	const userMessage =
+		lastMessage.role === 'user' ? lastMessage : activeMessages.find((message) => message.role === 'user');
+	if (!userMessage) {
+		return undefined;
+	}
+
+	const versionGroupSize = userMessage.versionGroupId
+		? await countMessagesInVersionGroup(chatId, userMessage.versionGroupId)
+		: 1;
+	const assistantMessage =
+		lastMessage.role === 'assistant' ? await getMessageWithParts(chatId, lastMessage) : undefined;
+
+	return {
+		userMessageId: userMessage.id,
+		versionGroupId: userMessage.versionGroupId,
+		versionGroupSize,
+		assistantMessage,
+	};
+};
+
+const countMessagesInVersionGroup = async (chatId: string, versionGroupId: string): Promise<number> => {
+	const [result] = await db
+		.select({ value: count() })
+		.from(s.chatMessage)
+		.where(and(eq(s.chatMessage.chatId, chatId), eq(s.chatMessage.versionGroupId, versionGroupId)))
+		.execute();
+	return result?.value ?? 0;
+};
+
+const getMessageWithParts = async (chatId: string, message: DBChatMessage): Promise<UIMessage> => {
+	const result = await db
+		.select()
+		.from(s.chatMessage)
+		.innerJoin(s.messagePart, eq(s.messagePart.messageId, s.chatMessage.id))
+		.where(and(eq(s.chatMessage.chatId, chatId), eq(s.chatMessage.id, message.id)))
+		.orderBy(asc(s.messagePart.order))
+		.execute();
+	return aggregateChatMessagParts(result).at(0) ?? convertDBMessageToUIMessage(message, []);
+};
+
+export const deleteMessagesByIds = async (chatId: string, ids: string[]): Promise<void> => {
+	if (ids.length === 0) {
+		return;
+	}
+	await db
+		.delete(s.chatMessage)
+		.where(and(eq(s.chatMessage.chatId, chatId), inArray(s.chatMessage.id, ids)))
+		.execute();
+};
+
+export const countActiveMessages = async (chatId: string): Promise<number> => {
+	const [result] = await db
+		.select({ value: count() })
+		.from(s.chatMessage)
+		.where(and(eq(s.chatMessage.chatId, chatId), isNull(s.chatMessage.supersededAt)))
+		.execute();
+	return result?.value ?? 0;
 };
 
 export const getChatOwnerId = async (chatId: string): Promise<string | undefined> => {

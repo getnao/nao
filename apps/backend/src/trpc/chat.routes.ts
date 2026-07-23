@@ -80,6 +80,45 @@ export const chatRoutes = {
 		posthog.capture(ctx.user.id, PostHogEvent.AgentStopped, { project_id: projectId, chat_id: input.chatId });
 	}),
 
+	cancel: chatOwnerProcedure.input(z.object({ chatId: z.string(), hadContent: z.boolean() })).mutation(
+		async ({
+			input,
+			ctx,
+		}): Promise<{
+			outcome: 'deleted' | 'kept';
+			chatDeleted: boolean;
+		}> => {
+			const agent = agentService.get(input.chatId);
+			if (agent) {
+				agent.stop();
+				posthog.capture(ctx.user.id, PostHogEvent.AgentStopped, {
+					project_id: agent.chat.projectId,
+					chat_id: input.chatId,
+				});
+				await Promise.race([agent.waitUntilFinished(), delay(10_000)]);
+			}
+
+			const turn = await chatQueries.getLastTurn(input.chatId);
+			if (!turn) {
+				return { outcome: 'kept', chatDeleted: false };
+			}
+
+			if (input.hadContent || turn.versionGroupSize > 1) {
+				return { outcome: 'kept', chatDeleted: false };
+			}
+
+			const idsToDelete = [turn.userMessageId, ...(turn.assistantMessage ? [turn.assistantMessage.id] : [])];
+			await chatQueries.deleteMessagesByIds(input.chatId, idsToDelete);
+
+			const remaining = await chatQueries.countActiveMessages(input.chatId);
+			if (remaining === 0) {
+				await chatQueries.deleteChat(input.chatId);
+				return { outcome: 'deleted', chatDeleted: true };
+			}
+			return { outcome: 'deleted', chatDeleted: false };
+		},
+	),
+
 	rename: chatOwnerProcedure
 		.input(z.object({ chatId: z.string(), title: z.string().min(1).max(255) }))
 		.mutation(async ({ input, ctx }): Promise<void> => {
@@ -135,3 +174,8 @@ export const chatRoutes = {
 			return usage;
 		}),
 };
+
+const delay = (milliseconds: number): Promise<void> =>
+	new Promise((resolve) => {
+		setTimeout(resolve, milliseconds);
+	});

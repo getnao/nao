@@ -33,6 +33,7 @@ import { cn } from '@/lib/utils';
 import { useChatId } from '@/hooks/use-chat-id';
 import { usePermissions } from '@/hooks/use-permissions';
 import { messageQueueStore } from '@/stores/chat-message-queue';
+import { chatInputRestoreStore, useChatInputRestore } from '@/stores/chat-input-restore';
 import { chatPendingCitationStore } from '@/stores/chat-pending-citation';
 import { useChatPendingCitation } from '@/hooks/use-chat-pending-citation';
 import { SelectionCitationBanner } from '@/components/selection-citation-banner';
@@ -96,7 +97,7 @@ function ChatInputBase({
 	const [inputText, setInputText] = useState('');
 	const {
 		isRunning,
-		stopAgent,
+		cancelAgent,
 		isLoadingMessages,
 		adminMode,
 		setAdminMode,
@@ -110,6 +111,7 @@ function ChatInputBase({
 
 	const isAdminMode = isAdmin && adminMode;
 	const imageUpload = useImageUpload();
+	const chatInputRestore = useChatInputRestore(!!allowQueueing);
 	const effectivePlaceholder = isRunning && allowQueueing ? 'Add a follow-up...' : placeholder;
 
 	const agentSettings = useQuery(trpc.project.getAgentSettings.queryOptions());
@@ -131,6 +133,33 @@ function ChatInputBase({
 	const [isDragging, setIsDragging] = useState(false);
 
 	useEffect(() => promptRef.current?.focus(), [chatId, promptRef]);
+
+	useEffect(() => {
+		if (!allowQueueing || !chatInputRestore) {
+			return;
+		}
+
+		chatInputRestoreStore.clear();
+		promptRef.current?.clear();
+		promptRef.current?.insertText(chatInputRestore.text);
+		setInputText(chatInputRestore.text);
+		imageUpload.clearImages();
+
+		if (chatInputRestore.citation && chatId) {
+			chatPendingCitationStore.set({ ...chatInputRestore.citation, chatId });
+		}
+
+		const restoreImages = async () => {
+			const files = await Promise.all(
+				chatInputRestore.images.map(({ url, mediaType }, index) =>
+					dataUrlToFile(url, mediaType, `image-${index + 1}`),
+				),
+			);
+			await imageUpload.addFiles(files);
+			requestAnimationFrame(() => promptRef.current?.focus());
+		};
+		restoreImages();
+	}, [allowQueueing, chatInputRestore]); // eslint-disable-line react-hooks/exhaustive-deps
 
 	useEffect(() => {
 		const el = dropZoneRef.current;
@@ -382,14 +411,14 @@ function ChatInputBase({
 								<ChatButton
 									showStop={isInputEmpty}
 									disabled={!isInputEmpty && isBudgetExceeded}
-									onClick={isInputEmpty ? stopAgent : handleSubmitMessage}
+									onClick={isInputEmpty ? cancelAgent : handleSubmitMessage}
 									type='button'
 								/>
 							) : (
 								<ChatButton
 									showStop={isRunning}
 									disabled={isLoadingMessages || isInputEmpty || (!isRunning && isBudgetExceeded)}
-									onClick={isRunning ? stopAgent : handleSubmitMessage}
+									onClick={isRunning ? cancelAgent : handleSubmitMessage}
 									type='button'
 								/>
 							)}
@@ -399,6 +428,12 @@ function ChatInputBase({
 			</form>
 		</div>
 	);
+}
+
+async function dataUrlToFile(url: string, mediaType: string, name: string): Promise<File> {
+	const response = await fetch(url);
+	const blob = await response.blob();
+	return new File([blob], name, { type: mediaType });
 }
 
 const CHAT_INPUT_BORDER_RADIUS = 18;

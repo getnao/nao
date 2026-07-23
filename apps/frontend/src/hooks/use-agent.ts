@@ -15,9 +15,11 @@ import type { MentionOption } from 'prompt-mentions';
 
 import { getActiveProjectId } from '@/lib/active-project';
 import {
+	checkAssistantMessageHasContent,
 	checkIsAgentRunning,
 	extractImagesFromMessage,
 	getLastUserMessageIdx,
+	getMessageImages,
 	getMessageText,
 	getTextFromUserMessageOrThrow,
 	NEW_CHAT_ID,
@@ -28,6 +30,9 @@ import { trpc } from '@/main';
 import { useChatQuery, useSetChat } from '@/queries/use-chat-query';
 import { agentService } from '@/services/agents';
 import { chatActivityStore } from '@/stores/chat-activity';
+import { cancellingMessageIdStore } from '@/stores/chat-cancelling-message';
+import { editedMessageIdStore } from '@/stores/chat-edited-message';
+import { chatInputRestoreStore } from '@/stores/chat-input-restore';
 import { messageQueueStore } from '@/stores/chat-message-queue';
 
 export interface AgentHelpers {
@@ -43,6 +48,7 @@ export interface AgentHelpers {
 	isRunning: boolean;
 	isLoadingMessages: boolean;
 	stopAgent: () => Promise<void>;
+	cancelAgent: () => Promise<void>;
 	error: Error | undefined;
 	clearError: UseChatHelpers<UIMessage>['clearError'];
 	selectedModel: LlmSelectedModel | null;
@@ -228,6 +234,7 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 	const { status, error, clearError, sendMessage, setMessages, messages } = useChat({ chat: agentInstance });
 
 	const stopAgentMutation = useMutation(trpc.chat.stop.mutationOptions());
+	const cancelAgentMutation = useMutation(trpc.chat.cancel.mutationOptions());
 	const switchMessageVersionMutation = useMutation(trpc.chat.switchMessageVersion.mutationOptions());
 	const isRunning = checkIsAgentRunning({ status });
 
@@ -288,6 +295,57 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 		agentInstance.stop(); // Stop the agent instance to instantly stop reading the stream
 		await stopAgentMutation.mutateAsync({ chatId });
 	}, [chatId, agentInstance, stopAgentMutation.mutateAsync]); // eslint-disable-line
+
+	const cancelAgent = useCallback(async () => {
+		if (!chatId) {
+			return;
+		}
+
+		const lastUserMessageIndex = getLastUserMessageIdx(messages);
+		const lastUserMessage = lastUserMessageIndex !== undefined ? messages[lastUserMessageIndex] : undefined;
+		const lastMessage = messages.at(-1);
+		const lastAssistantMessage = lastMessage?.role === 'assistant' ? lastMessage : undefined;
+		const hadContent = lastAssistantMessage ? checkAssistantMessageHasContent(lastAssistantMessage) : false;
+
+		if (lastAssistantMessage) {
+			cancellingMessageIdStore.setCancelling(lastAssistantMessage.id);
+		}
+		agentInstance.stop();
+
+		try {
+			const result = await cancelAgentMutation.mutateAsync({ chatId, hadContent });
+
+			if (result.outcome === 'kept') {
+				if (lastUserMessage) {
+					editedMessageIdStore.setEditingId(lastUserMessage.id);
+				}
+				return;
+			}
+
+			if (lastUserMessageIndex !== undefined) {
+				setMessages(messages.slice(0, lastUserMessageIndex));
+			}
+			const restorePayload = lastUserMessage
+				? {
+						text: getMessageText(lastUserMessage),
+						images: getMessageImages(lastUserMessage),
+						citation: lastUserMessage.citation,
+					}
+				: undefined;
+
+			if (result.chatDeleted) {
+				queryClient.invalidateQueries({ queryKey: [['chat', 'listGrouped']] });
+				await navigate({ to: '/' });
+				if (restorePayload) {
+					chatInputRestoreStore.set(restorePayload);
+				}
+			} else if (restorePayload) {
+				chatInputRestoreStore.set(restorePayload);
+			}
+		} finally {
+			cancellingMessageIdStore.setCancelling(undefined);
+		}
+	}, [chatId, messages, agentInstance, cancelAgentMutation, setMessages, navigate, queryClient]);
 
 	const handleSendMessage = useCallback<UseChatHelpers<UIMessage>['sendMessage']>(
 		async (...args) => {
@@ -405,6 +463,7 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 		isRunning,
 		isLoadingMessages: chat.isLoading,
 		stopAgent,
+		cancelAgent,
 		error,
 		clearError,
 		selectedModel,

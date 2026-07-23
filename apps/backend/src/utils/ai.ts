@@ -97,6 +97,16 @@ export const createChatTitle = ({ text }: { text: string }) => {
 	return text.slice(0, 64);
 };
 
+export const checkAssistantMessageHasContent = (message: UIMessage): boolean =>
+	message.parts.some(
+		(part) =>
+			part.type !== 'step-start' &&
+			part.type !== 'tool-suggest_follow_ups' &&
+			part.type !== 'reasoning' &&
+			part.type !== 'data-newChat' &&
+			part.type !== 'data-newUserMessage',
+	);
+
 export const joinAllTextParts = (message: UIMessage, separator: string = '\n'): string => {
 	return message.parts
 		.filter((part) => part.type === 'text')

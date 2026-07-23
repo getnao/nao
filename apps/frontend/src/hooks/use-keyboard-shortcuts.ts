@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 
-import type { ShortcutId } from '@/lib/keyboard-shortcuts';
+import type { ShortcutDefinition, ShortcutId } from '@/lib/keyboard-shortcuts';
 import { isTypingTarget, SHORTCUTS } from '@/lib/keyboard-shortcuts';
 import { matchesShortcut } from '@/lib/platform';
 
@@ -12,13 +12,15 @@ export function useKeyboardShortcuts(handlers: ShortcutHandlers) {
 
 	useEffect(() => {
 		const handleKeyDown = (event: KeyboardEvent) => {
-			if (isTypingTarget(event)) {
-				return;
-			}
-
 			for (const entry of SHORTCUTS) {
 				const handler = handlersRef.current[entry.id];
-				if (handler && matchesShortcut(event, entry.shortcut)) {
+				if (!handler) {
+					continue;
+				}
+				if (isTypingTarget(event) && !isAllowedWhileTyping(entry)) {
+					continue;
+				}
+				if (matchesShortcut(event, entry.shortcut)) {
 					event.preventDefault();
 					handler();
 					return;
@@ -29,4 +31,8 @@ export function useKeyboardShortcuts(handlers: ShortcutHandlers) {
 		document.addEventListener('keydown', handleKeyDown);
 		return () => document.removeEventListener('keydown', handleKeyDown);
 	}, []);
+}
+
+function isAllowedWhileTyping(entry: ShortcutDefinition): boolean {
+	return Boolean(entry.allowInInput || entry.shortcut.mod || entry.shortcut.ctrl || entry.shortcut.alt);
 }
