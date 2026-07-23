@@ -1005,7 +1005,16 @@ function toFiniteNumber(value: unknown): number | null {
 }
 
 function getChartLevelValueFormat(series: displayChart.SeriesConfig[]): displayChart.ValueFormat | undefined {
-	return series.find((item) => !item.is_total)?.value_format;
+	const formats = series.filter((item) => !item.is_total).map((item) => item.value_format);
+	const firstFormat = formats[0];
+	const allShareFormat = formats.every(
+		(format) =>
+			format?.d3_format === firstFormat?.d3_format &&
+			format?.compact === firstFormat?.compact &&
+			format?.prefix === firstFormat?.prefix &&
+			format?.suffix === firstFormat?.suffix,
+	);
+	return allShareFormat ? firstFormat : undefined;
 }
 
 function formatWithD3(value: number, valueFormat?: displayChart.ValueFormat): string | null {

@@ -84,6 +84,13 @@ export function ChartConfigEditDialog({
 	const [yAxisMaxText, setYAxisMaxText] = useState(toRangeString(config.y_axis_max));
 	const [error, setError] = useState<string | null>(null);
 	const supportsYAxisRange = !Y_AXIS_RANGE_UNSUPPORTED_CHART_TYPES.has(draft.chart_type);
+	const unsupportedNumberFormat = useMemo(
+		() =>
+			draft.series
+				.map((series) => series.value_format?.d3_format)
+				.find((format) => Boolean(format) && !isExportSafeNumberFormat(format as string)),
+		[draft.series],
+	);
 
 	useEffect(() => {
 		if (open) {
@@ -103,6 +110,11 @@ export function ChartConfigEditDialog({
 
 	const handleSubmit = async (event: React.FormEvent) => {
 		event.preventDefault();
+		if (unsupportedNumberFormat) {
+			setError(UNSUPPORTED_NUMBER_FORMAT_MESSAGE);
+			return;
+		}
+
 		const parsed = displayChart.ChartInputSchema.safeParse(draft);
 		if (!parsed.success) {
 			setError(parsed.error.issues[0]?.message ?? 'Invalid chart configuration.');
@@ -464,7 +476,9 @@ export function ChartConfigEditDialog({
 						</div>
 					</div>
 
-					{error && <p className='text-xs text-destructive'>{error}</p>}
+					{(error || unsupportedNumberFormat) && (
+						<p className='text-xs text-destructive'>{error ?? UNSUPPORTED_NUMBER_FORMAT_MESSAGE}</p>
+					)}
 
 					<DialogFooter>
 						<Button
@@ -480,7 +494,7 @@ export function ChartConfigEditDialog({
 							type='submit'
 							className='rounded-full'
 							isLoading={isSaving}
-							disabled={isSaving}
+							disabled={isSaving || Boolean(unsupportedNumberFormat)}
 						>
 							Save
 						</Button>
@@ -589,8 +603,7 @@ function ClearableInput({ value, onChange, onClear, placeholder, ariaLabel, clas
 			{value && (
 				<button
 					type='button'
-					tabIndex={-1}
-					aria-label='Clear'
+					aria-label={`Clear ${ariaLabel}`}
 					onClick={onClear}
 					className='absolute inset-y-0 right-1.5 flex items-center text-muted-foreground hover:text-foreground'
 				>
@@ -621,6 +634,19 @@ function cleanValueFormat(
 	valueFormat: NonNullable<displayChart.SeriesConfig['value_format']>,
 ): displayChart.SeriesConfig['value_format'] {
 	return valueFormat.d3_format || valueFormat.prefix || valueFormat.suffix ? valueFormat : undefined;
+}
+
+const UNSUPPORTED_NUMBER_FORMAT_MESSAGE =
+	'This number format renders differently in story exports. Use formats like ,.2f, .2f, , or .2s.';
+
+/**
+ * Number formats that render identically in the interactive chart (d3-format) and in the
+ * static story export formatter. Exposing only these in the editor keeps both paths consistent.
+ */
+const EXPORT_SAFE_NUMBER_FORMATS = [/^(,)?(?:\.\d+)?f$/, /^,$/, /^(?:\.\d+)?~?s$/];
+
+function isExportSafeNumberFormat(format: string): boolean {
+	return format === '' || EXPORT_SAFE_NUMBER_FORMATS.some((pattern) => pattern.test(format));
 }
 
 const HEX_RE = /^#[0-9a-fA-F]{6}$/;

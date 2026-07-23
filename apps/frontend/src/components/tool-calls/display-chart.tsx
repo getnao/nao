@@ -426,13 +426,15 @@ export const ChartDisplay = memo(function ChartDisplay({
 					acc[toKey(category)] = {
 						label: labelize(category, dateFormat),
 						color: Colors[index % Colors.length],
-						valueFormat: series[0]?.value_format,
 					};
 					return acc;
 				},
 				{
 					[xAxisKey]: {
 						label: labelize(xAxisKey, dateFormat),
+					},
+					[pieValueKey]: {
+						valueFormat: series[0]?.value_format,
 					},
 				},
 			);
@@ -447,7 +449,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 			};
 			return acc;
 		}, {} as ChartConfig);
-	}, [series, xAxisKey, pieData, isPie, dateFormat]);
+	}, [series, xAxisKey, pieValueKey, pieData, isPie, dateFormat]);
 
 	const colorFor = useMemo(
 		() =>
@@ -516,6 +518,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 								percent={isPercentStacked}
 								hideTotal={hideTotal}
 								labelFormatter={tooltipLabelFormatter}
+								nameKey={isPie ? pieValueKey : undefined}
 							/>
 						}
 					/>,
@@ -543,6 +546,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 			chartType,
 			isPie,
 			xAxisKey,
+			pieValueKey,
 			xAxisType,
 			visibleSeries,
 			colorFor,
