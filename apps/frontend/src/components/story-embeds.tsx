@@ -87,6 +87,7 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({
 				yAxisMax={chart.yAxisMax}
 				showDataLabels={chart.showDataLabels}
 				normalSize
+				hideTotal={chart.hideTotal}
 			/>
 		</StoryChartEmbedShell>
 	);

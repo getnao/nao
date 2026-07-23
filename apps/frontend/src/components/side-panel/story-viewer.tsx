@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { parseStoryTabs, stripStoryTabsMarkup } from '@nao/shared/story-tabs';
 import { ShareStoryDialog } from '../share-dialog.story';
 import { StoryEditor } from './story-editor';
 import { LiveStorySettingsDialog } from './live-story-settings-dialog';
@@ -8,6 +9,8 @@ import { StoryContentLoading } from './story-content-loading';
 import { StoryHeader } from './story-header';
 import { StoryPreview } from './story-preview';
 import { StoryCodeView } from './story-code-view';
+import { StoryTabsBar } from './story-tabs-bar';
+import { StoryTabbedEditor } from './story-tabbed-editor';
 import { useStoryViewerAgentState } from './hooks/use-story-viewer-agent-state';
 import { useStoryViewerContent } from './hooks/use-story-viewer-content';
 import { useStoryViewerEnlarge } from './hooks/use-story-viewer-enlarge';
@@ -35,15 +38,26 @@ interface StoryViewerProps {
 	chatId: string;
 	storySlug: string;
 	isReadonlyMode?: boolean;
+	initialTabIndex?: number;
 }
 
-export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp }: StoryViewerProps) {
+export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, initialTabIndex }: StoryViewerProps) {
 	const tiptapEditorRef = useRef<TiptapEditor | null>(null);
 	const codeViewRef = useRef<StoryCodeViewHandle | null>(null);
+	const tabbedEditCodeRef = useRef<(() => string) | null>(null);
+	const getEditModeCode = useCallback(() => tabbedEditCodeRef.current?.() ?? null, []);
 	const [isCodeDirty, setIsCodeDirty] = useState(false);
 	const [isCodeValid, setIsCodeValid] = useState(true);
+	const [activeTabIndex, setActiveTabIndex] = useState(initialTabIndex ?? 0);
 	const scrollContainerRef = useRef<HTMLDivElement | null>(null);
-	const { close: closeSidePanel, isReadonlyMode: contextReadonlyMode, shareId, shareType } = useSidePanel();
+	const {
+		close: closeSidePanel,
+		isReadonlyMode: contextReadonlyMode,
+		shareId,
+		shareType,
+		setCurrentStorySlug,
+		setCurrentStoryTabIndex,
+	} = useSidePanel();
 	const isReadonlyMode = readonlyProp ?? contextReadonlyMode;
 	const { viewMode, setViewMode } = useStoryViewerViewMode();
 
@@ -67,6 +81,7 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp }:
 		isChatAgentRunning,
 	);
 	const resolvedStorySlug = draftStory?.id ?? storySlug;
+	const prevSlugRef = useRef(resolvedStorySlug);
 	const {
 		versions,
 		storyId,
@@ -93,6 +108,9 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp }:
 		storedTitle,
 		isReadonlyMode,
 	});
+	const tabs = useMemo(() => parseStoryTabs(storyCode ?? ''), [storyCode]);
+	const isTabbedStory = Boolean(tabs?.length);
+	const activeTab = tabs?.length ? Math.min(activeTabIndex, tabs.length - 1) : 0;
 	useTrackViewDuration({
 		assetType: 'story',
 		chatId,
@@ -109,6 +127,7 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp }:
 		isViewingLatest,
 		tiptapEditorRef,
 		codeViewRef,
+		getEditModeCode,
 		viewMode,
 		setViewMode,
 	});
@@ -148,6 +167,21 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp }:
 			setIsCodeValid(true);
 		}
 	}, [viewMode]);
+
+	useEffect(() => {
+		if (prevSlugRef.current !== resolvedStorySlug) {
+			prevSlugRef.current = resolvedStorySlug;
+			setActiveTabIndex(0);
+		}
+	}, [resolvedStorySlug]);
+
+	useEffect(() => {
+		setCurrentStorySlug(resolvedStorySlug);
+	}, [resolvedStorySlug, setCurrentStorySlug]);
+
+	useEffect(() => {
+		setCurrentStoryTabIndex(activeTab);
+	}, [activeTab, setCurrentStoryTabIndex]);
 
 	useStoryViewerStreamScroll({
 		scrollContainerRef,
@@ -210,6 +244,15 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp }:
 
 			{Boolean(archivedAt) && <ArchivedBanner chatId={chatId} storySlug={resolvedStorySlug} />}
 
+			{viewMode === 'preview' && isTabbedStory && tabs && (
+				<StoryTabsBar
+					tabs={tabs.map((tab) => ({ title: tab.title }))}
+					activeIndex={activeTab}
+					onSelect={setActiveTabIndex}
+					contentClassName='px-6'
+				/>
+			)}
+
 			<div ref={scrollContainerRef} className='flex-1 min-h-0 overflow-auto'>
 				{renderWithEditProvider(
 					!isReadonlyMode && isViewingLatest && !archivedAt && !isAgentRunning && viewMode !== 'edit',
@@ -224,7 +267,9 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp }:
 							<StoryContentLoading />
 						) : (
 							<StoryPreview
-								code={storyCode}
+								code={
+									isTabbedStory && tabs ? tabs[activeTab].innerCode : stripStoryTabsMarkup(storyCode)
+								}
 								cacheSchedule={cacheSchedule}
 								queryData={queryData ?? null}
 								chatId={chatId}
@@ -233,7 +278,18 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp }:
 						)
 					) : viewMode === 'edit' ? (
 						<StoryEmbedDataProvider value={queryData ?? null}>
-							<StoryEditor code={storyCode} editorRef={tiptapEditorRef} onSave={handleSave} />
+							{isTabbedStory ? (
+								<StoryTabbedEditor
+									code={storyCode}
+									editorRef={tiptapEditorRef}
+									onSave={handleSave}
+									getCodeRef={tabbedEditCodeRef}
+									barContentClassName='px-6'
+									contentClassName='p-6'
+								/>
+							) : (
+								<StoryEditor code={storyCode} editorRef={tiptapEditorRef} onSave={handleSave} />
+							)}
 						</StoryEmbedDataProvider>
 					) : (
 						<StoryCodeView

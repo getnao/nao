@@ -8,6 +8,7 @@ import {
 import type { ParsedChartBlock, ParsedTableBlock, Segment } from '@nao/shared/story-segments';
 import { splitCodeIntoSegments } from '@nao/shared/story-segments';
 import { formatCellValue, isNumericColumn } from '@nao/shared/story-table-utils';
+import { flattenStoryTabs } from '@nao/shared/story-tabs';
 import type { displayChart } from '@nao/shared/tools';
 import { marked, Renderer } from 'marked';
 import React, { createContext, useContext } from 'react';
@@ -31,7 +32,8 @@ export function generateStoryHtml(
 	dateFormat?: DateFormatSettings | null,
 ): string {
 	const resolvedDateFormat = dateFormat ?? { ...DEFAULT_DATE_FORMAT_SETTINGS };
-	const segments = splitCodeIntoSegments(story.code);
+	const flattened = flattenStoryTabs(story.code);
+	const segments = splitCodeIntoSegments(flattened);
 	const markup = renderToStaticMarkup(
 		<DateFormatContext.Provider value={resolvedDateFormat}>
 			<StoryDocument title={story.title}>
@@ -164,6 +166,7 @@ function ChartBlock({ chart, queryData }: { chart: ParsedChartBlock; queryData: 
 			chartType: chart.chartType,
 			yAxisMin: chart.yAxisMin,
 			yAxisMax: chart.yAxisMax,
+			hideTotal: chart.hideTotal,
 		});
 		return (
 			<div style={{ margin: '16px 0' }}>
@@ -522,7 +525,7 @@ const TOOLTIP_SCRIPT_TEMPLATE = `
 					+'<span class="nao-tooltip-value">'+(isPercent?pctShare(val):formatVal(val))+'</span>'
 					+'</div>';
 			});
-			if(numericValues.length>1 && (isPercent || !hasTotalSeries)){
+			if(numericValues.length>1 && (isPercent || (!hasTotalSeries && !cfg.hideTotal))){
 				var total=numericValues.reduce(function(a,b){return a+b},0);
 				html+='<div class="nao-tooltip-total">'
 					+'<span class="nao-tooltip-name">Total</span>'

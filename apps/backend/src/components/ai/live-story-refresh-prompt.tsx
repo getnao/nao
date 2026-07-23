@@ -32,8 +32,8 @@ export function LiveStoryRefreshPrompt({
 			<List>
 				<ListItem>Preserve every heading exactly as written.</ListItem>
 				<ListItem>
-					Preserve every {'<chart ... />'}, {'<table ... />'}, {'<grid ...>'}, and {'</grid>'} tag exactly as
-					written and in the same order.
+					Preserve every {'<chart ... />'}, {'<table ... />'}, {'<grid ...>'}, {'</grid>'}, {'<tab ...>'}, and{' '}
+					{'</tab>'} tag exactly as written and in the same order.
 				</ListItem>
 				<ListItem>
 					Do not add, remove, or reorder structural blocks. Try to keep the formatting as close as possible to

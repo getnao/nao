@@ -296,11 +296,11 @@ function preservesStoryStructure(originalCode: string, candidateCode: string): b
 }
 
 function extractStructureTokens(code: string): string[] {
-	const structureRegex = new RegExp(
-		`<grid\\s+[^>]*>|<\\/grid>|<chart\\s+${TAG_ATTRS}\\/?>|<table\\s+${TAG_ATTRS}\\/?>`,
+	const tokenRegex = new RegExp(
+		String.raw`<grid\s+${TAG_ATTRS}>|<\/grid>|<chart\s+${TAG_ATTRS}\/?>|<table\s+${TAG_ATTRS}\/?>`,
 		'g',
 	);
-	return code.match(structureRegex) ?? [];
+	return code.match(tokenRegex) ?? [];
 }
 
 function extractHeadingTokens(code: string): string[] {

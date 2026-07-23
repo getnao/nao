@@ -24,6 +24,7 @@ interface ChartBlock {
 	yAxisMax?: number;
 	title: string;
 	showDataLabels?: boolean;
+	hideTotal?: boolean;
 	rawTag?: string;
 }
 
@@ -92,6 +93,7 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({
 				yAxisMax={chart.yAxisMax}
 				showDataLabels={chart.showDataLabels}
 				normalSize
+				hideTotal={chart.hideTotal}
 			/>
 		</StoryChartEmbedShell>
 	);
@@ -129,6 +131,7 @@ export function StoryChartEmbedShell({ chart, availableColumns, dragHandle, chil
 			y_axis_max: chart.yAxisMax,
 			title: chart.title,
 			show_data_labels: chart.showDataLabels,
+			hide_total: chart.hideTotal,
 		}),
 		[chart],
 	);

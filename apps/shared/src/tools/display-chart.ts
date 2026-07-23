@@ -111,6 +111,12 @@ export const ChartInputSchema = z
 				'Show the numeric value of each data point directly on the chart. Set to true when the user asks to display values/data labels on the chart.',
 			)
 			.optional(),
+		hide_total: z
+			.boolean()
+			.describe(
+				'Set to true when the chart\'s series must NOT be added together into a single grand total — e.g. they are unrelated metrics, in different units, or different currencies, so a combined total would be meaningless. When true, the hover tooltip omits the "Total" row. Leave unset when the series are additive parts of the same measure (a total then makes sense). This is a chart-wide setting; for a single series that is itself an aggregated total of the others, use the per-series is_total flag instead.',
+			)
+			.optional(),
 		title: z
 			.string()
 			.describe(
@@ -151,6 +157,12 @@ const BaseInputSchema = z.object({
 		.array(SeriesConfigSchema)
 		.min(1)
 		.describe('Columns to plot as data series. Required for charts and omitted for tables.')
+		.optional(),
+	hide_total: z
+		.boolean()
+		.describe(
+			'Set to true when the chart\'s series must NOT be added together into a single grand total — e.g. they are unrelated metrics, in different units, or different currencies, so a combined total would be meaningless. When true, the hover tooltip omits the "Total" row. Leave unset when the series are additive parts of the same measure (a total then makes sense). This is a chart-wide setting; for a single series that is itself an aggregated total of the others, use the per-series is_total flag instead.',
+		)
 		.optional(),
 	title: z.string().describe('A concise, descriptive title for the visualization. Required for charts.').optional(),
 	conditional_formats: ColumnConditionalFormatsSchema.describe(

@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { Streamdown } from 'streamdown';
 import { ArrowUpRight, Code, Copy, Download, Palette, Table as TableIcon } from 'lucide-react';
 import { ToolCallWrapper } from './tool-call-wrapper';
-import { TableDisplay } from './display-table';
 import { TableFormatEditDialog } from './display-table-edit-dialog';
+import { SqlQueryDisplay } from './sql-query-display';
+import { SqlResultDisplay } from './sql-result-display';
 import type { ToolCallComponentProps } from '.';
 import type { ColumnConditionalFormats } from '@nao/shared/conditional-formatting';
 import { useOptionalAgentContext } from '@/contexts/agent.provider';
@@ -108,21 +108,10 @@ export const ExecuteSqlToolCall = ({
 			actions={isSettled ? actions : []}
 		>
 			{viewMode === 'query' && input?.sql_query ? (
-				<div className='overflow-auto max-h-80 hide-code-header'>
-					<Streamdown mode='static' controls={{ code: false }}>
-						{`\`\`\`sql\n${input.sql_query}\n\`\`\``}
-					</Streamdown>
-				</div>
+				<SqlQueryDisplay query={input.sql_query} />
 			) : output ? (
 				<>
-					<TableDisplay
-						data={output.data as Record<string, unknown>[]}
-						columns={output.columns}
-						tableContainerClassName='max-h-80 rounded-none border-0 bg-transparent'
-						maxRowsBeforePagination={10}
-						compactFooter
-						conditionalFormats={conditionalFormats}
-					/>
+					<SqlResultDisplay output={output} conditionalFormats={conditionalFormats} />
 					<TableFormatEditDialog
 						open={isFormatOpen}
 						onOpenChange={setIsFormatOpen}

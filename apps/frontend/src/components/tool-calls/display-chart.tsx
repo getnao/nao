@@ -1,7 +1,8 @@
 import { buildChart, bucketPieData, buildStoryChartBlock, labelize } from '@nao/shared';
+import { appendBlockToStoryCode } from '@nao/shared/story-tabs';
 import { displayChart } from '@nao/shared/tools';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Code, Download, FilePlus, Pencil } from 'lucide-react';
+import { ChartNoAxesColumn, Code, Download, FilePlus, Pencil, Table as TableIcon } from 'lucide-react';
 import { memo, useCallback, useMemo, useRef, useState } from 'react';
 
 import { useOptionalAgentContext } from '../../contexts/agent.provider';
@@ -13,6 +14,8 @@ import { TextShimmer } from '../ui/text-shimmer';
 import { DisplayChartEditDialog } from './display-chart-edit-dialog';
 import { DisplayChartTable } from './display-chart-table';
 import { ChartRangeSelector } from './display-chart-range-selector';
+import { SqlQueryDisplay } from './sql-query-display';
+import { SqlResultDisplay } from './sql-result-display';
 import { ToolCallWrapper } from './tool-call-wrapper';
 import type { ToolCallComponentProps } from '.';
 import type { ChartConfig } from '../ui/chart';
@@ -34,7 +37,8 @@ import { useChatId } from '@/hooks/use-chat-id';
 import { useResizeObserver } from '@/hooks/use-resize-observer';
 import { useSidePanel } from '@/contexts/side-panel';
 import { StoryViewer } from '@/components/side-panel/story-viewer';
-import { SidePanelContent } from '@/components/side-panel/sql-editor';
+import { cn } from '@/lib/utils';
+import { downloadCsv, tableToCsv } from '@/lib/table-export';
 
 const Colors = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)', 'var(--chart-5)'];
 const EMPTY_MESSAGES: UIMessage[] = [];
@@ -48,6 +52,8 @@ const MAX_TICK_FONT = 12;
 const MIN_TICK_LABEL_CHARS = 3;
 const MAX_TICK_LABEL_HEIGHT = 44;
 
+type ViewMode = 'chart' | 'data' | 'query';
+
 export const DisplayChartToolCall = ({
 	toolPart: { state, input, output, toolCallId },
 }: ToolCallComponentProps<'display_chart'>) => {
@@ -55,14 +61,16 @@ export const DisplayChartToolCall = ({
 	const messages = agent?.messages ?? EMPTY_MESSAGES;
 	const chatId = useChatId();
 	const queryClient = useQueryClient();
-	const { open: openSidePanel, currentStorySlug, isVisible } = useSidePanel();
+	const { open: openSidePanel, currentStorySlug, currentStoryTabIndex, isVisible } = useSidePanel();
 	const config = state !== 'input-streaming' ? input : undefined;
 	const chartConfig = config?.chart_type === 'table' ? undefined : config;
 	const tableConfig = config?.chart_type === 'table' ? config : undefined;
 	const isTableVariant = input?.chart_type === 'table' || config?.chart_type === 'table';
 	const [dataRange, setDataRange] = useState<DateRange>('all');
+	const [viewMode, setViewMode] = useState<ViewMode>('chart');
 	const storyIds = useMemo(() => findStoryIds(messages), [messages]);
 	const normalSize = useMemo(() => (document.querySelector('[data-selection-container]') ? true : false), []);
+	const logDownload = useMutation(trpc.analyticsEvent.logChatDownload.mutationOptions());
 
 	const addToStoryMutation = useMutation(
 		trpc.story.createVersion.mutationOptions({
@@ -82,24 +90,6 @@ export const DisplayChartToolCall = ({
 	const [isEditOpen, setIsEditOpen] = useState(false);
 	const isEditable = Boolean(agent && !agent.isReadonly && !agent.isRunning);
 
-	const handleDownload = async () => {
-		if (!chartConfig) {
-			return;
-		}
-		setIsDownloading(true);
-		try {
-			const image = await queryClient.fetchQuery(trpc.chart.download.queryOptions({ toolCallId }));
-			const link = document.createElement('a');
-			link.download = `${chartConfig.title || 'chart'}.png`;
-			link.href = `data:image/png;base64,${image}`;
-			link.click();
-		} catch (err) {
-			console.error('Error downloading chart image:', err);
-		} finally {
-			setIsDownloading(false);
-		}
-	};
-
 	const sourceQuery = useMemo<{ input?: executeSql.Input; output: executeSql.Output } | null>(() => {
 		if (!chartConfig?.query_id) {
 			return null;
@@ -116,13 +106,41 @@ export const DisplayChartToolCall = ({
 	}, [messages, chartConfig?.query_id]);
 
 	const sourceData = sourceQuery?.output ?? null;
+	const sqlQuery = sourceQuery?.input?.sql_query;
 
-	const handleViewQuery = useCallback(() => {
-		if (!sourceQuery?.input || !sourceQuery.output) {
+	const handleDownload = async () => {
+		if (!chartConfig || !sourceData) {
 			return;
 		}
-		openSidePanel(<SidePanelContent input={sourceQuery.input} output={sourceQuery.output} />);
-	}, [openSidePanel, sourceQuery]);
+		if (viewMode !== 'chart') {
+			downloadCsv(
+				`${chartConfig.title || 'chart'}.csv`,
+				tableToCsv(sourceData.columns, sourceData.data as Record<string, unknown>[]),
+			);
+			if (chatId) {
+				logDownload.mutate({
+					chatId,
+					format: 'csv',
+					queryId: chartConfig.query_id,
+					title: chartConfig.title,
+				});
+			}
+			return;
+		}
+
+		setIsDownloading(true);
+		try {
+			const image = await queryClient.fetchQuery(trpc.chart.download.queryOptions({ toolCallId }));
+			const link = document.createElement('a');
+			link.download = `${chartConfig.title || 'chart'}.png`;
+			link.href = `data:image/png;base64,${image}`;
+			link.click();
+		} catch (err) {
+			console.error('Error downloading chart image:', err);
+		} finally {
+			setIsDownloading(false);
+		}
+	};
 
 	const filteredData = useMemo(() => {
 		if (!sourceData?.data || !chartConfig) {
@@ -186,13 +204,8 @@ export const DisplayChartToolCall = ({
 
 	const handleAddToStory = async () => {
 		const latestStoryId = storyIds[storyIds.length - 1];
-		// Prefer the currently-visible story slug, but only if it's a real story
-		// from this chat — the side panel's currentStorySlug can lag behind (e.g.
-		// it was set from a partial streamed slug during the story tool's
-		// input-streaming phase) and would otherwise point to a non-existent
-		// story.
-		const targetId =
-			isVisible && currentStorySlug && storyIds.includes(currentStorySlug) ? currentStorySlug : latestStoryId;
+		const usingVisibleStory = Boolean(isVisible && currentStorySlug && storyIds.includes(currentStorySlug));
+		const targetId = usingVisibleStory ? currentStorySlug! : latestStoryId;
 		if (!targetId || !chartConfig || !chatId) {
 			return;
 		}
@@ -207,7 +220,10 @@ export const DisplayChartToolCall = ({
 		}
 
 		const chartBlock = buildStoryChartBlock(chartConfig);
-		const newCode = latest.code.trimEnd() + '\n\n' + chartBlock;
+		const { code: newCode, tabIndex: openTabIndex } = appendBlockToStoryCode(latest.code, chartBlock, {
+			usingVisibleStory,
+			activeTabIndex: currentStoryTabIndex,
+		});
 
 		addToStoryMutation.mutate({
 			chatId,
@@ -217,72 +233,117 @@ export const DisplayChartToolCall = ({
 			action: 'update',
 		});
 
-		if (!isVisible) {
-			openSidePanel(<StoryViewer chatId={chatId} storySlug={targetId} />, targetId);
+		if (!usingVisibleStory) {
+			openSidePanel(
+				<StoryViewer chatId={chatId} storySlug={targetId} initialTabIndex={openTabIndex} />,
+				targetId,
+			);
 		}
 	};
 
 	return (
 		<div
-			className={`flex flex-col items-stretch w-full my-4 gap-4 ${chartConfig.chart_type !== 'kpi_card' && !normalSize ? 'aspect-3/2' : ''}`}
+			className={cn(
+				'group/chart flex flex-col items-stretch my-4 -mx-3',
+				'border transition-colors duration-150 rounded-lg overflow-hidden bg-backgroundSecondary/30',
+				viewMode === 'chart' ? 'border-transparent hover:border-border' : 'border-border',
+				viewMode === 'chart' ? 'gap-2 px-3' : 'gap-0',
+				viewMode === 'chart' && chartConfig.chart_type !== 'kpi_card' && !normalSize ? 'aspect-3/2' : '',
+			)}
 		>
-			<div className='flex w-full items-center justify-between gap-2'>
+			<div
+				className={cn(
+					'flex w-full items-center justify-between py-2',
+					viewMode === 'chart' ? 'gap-2' : 'gap-0 px-3 border-b border-border',
+				)}
+			>
 				{chartConfig.chart_type != 'kpi_card' ? (
-					<span className='text-sm font-medium text-foreground flex-1'>{chartConfig.title}</span>
+					<div className='flex items-center gap-1'>
+						<span className='text-sm font-medium text-foreground flex-1'>{chartConfig.title}</span>
+						{viewMode === 'chart' &&
+							!displayChart.isPieChart(chartConfig.chart_type) &&
+							chartConfig.x_axis_type === 'date' && (
+								<ChartRangeSelector
+									options={DATE_RANGE_OPTIONS}
+									selectedRange={dataRange}
+									onRangeSelected={(range) => setDataRange(range)}
+								/>
+							)}
+					</div>
 				) : (
 					<div></div>
 				)}
-				<div className='flex items-center gap-1'>
-					{storyIds.length > 0 && (
+				<div className='flex items-center gap-1 shrink-0'>
+					<div className='flex items-center gap-1 opacity-0 transition-opacity duration-150 group-hover/chart:opacity-100 focus-within:opacity-100'>
 						<Button
-							variant='outline'
-							className='rounded-full border gap-2 dark:bg-transparent'
-							size='sm'
-							onClick={handleAddToStory}
-						>
-							<FilePlus className='size-3' />
-							<span className='text-xs'>Add to story</span>
-						</Button>
-					)}
-					{!displayChart.isPieChart(chartConfig.chart_type) && chartConfig.x_axis_type === 'date' && (
-						<ChartRangeSelector
-							options={DATE_RANGE_OPTIONS}
-							selectedRange={dataRange}
-							onRangeSelected={(range) => setDataRange(range)}
-						/>
-					)}
-					{sourceQuery?.input && (
-						<Button
-							variant='ghost'
+							variant='ghost-muted'
 							size='icon-xs'
-							className='hover:rounded-full'
-							onClick={handleViewQuery}
-							title='View SQL query and data'
+							className={cn(
+								'rounded-full hover:bg-accent/70',
+								viewMode === 'chart' ? 'bg-accent/70' : '',
+							)}
+							onClick={() => setViewMode('chart')}
+							title='View chart'
 						>
-							<Code className='size-4' />
+							<ChartNoAxesColumn className='size-3 text-muted-foreground/70' strokeWidth={2.25} />
 						</Button>
-					)}
-					{chartConfig.chart_type != 'kpi_card' && (
 						<Button
-							variant='ghost'
+							variant='ghost-muted'
 							size='icon-xs'
-							className='hover:rounded-full'
-							onClick={handleDownload}
-							disabled={isDownloading}
-							title='Download as PNG'
+							className={cn('rounded-full hover:bg-accent/70', viewMode === 'data' ? 'bg-accent/70' : '')}
+							onClick={() => setViewMode('data')}
+							title='View data'
 						>
-							<Download className='size-4' />
+							<TableIcon className='size-3 text-muted-foreground/70' strokeWidth={2.25} />
 						</Button>
-					)}
+						{sqlQuery && (
+							<Button
+								variant='ghost-muted'
+								size='icon-xs'
+								className={cn(
+									'rounded-full hover:bg-accent/70',
+									viewMode === 'query' ? 'bg-accent/70' : '',
+								)}
+								onClick={() => setViewMode('query')}
+								title='View SQL query'
+							>
+								<Code className='size-3 text-muted-foreground/70' strokeWidth={2.25} />
+							</Button>
+						)}
+						{storyIds.length > 0 && (
+							<Button
+								variant='ghost-muted'
+								size='icon-xs'
+								className='rounded-full hover:bg-accent/70'
+								onClick={handleAddToStory}
+								title='Add to story'
+							>
+								<FilePlus className='size-3 text-muted-foreground/70' strokeWidth={2.25} />
+							</Button>
+						)}
+
+						{(viewMode !== 'chart' || chartConfig.chart_type != 'kpi_card') && (
+							<Button
+								variant='ghost-muted'
+								size='icon-xs'
+								className='rounded-full hover:bg-accent/70'
+								onClick={handleDownload}
+								disabled={isDownloading}
+								title={viewMode === 'chart' ? 'Download as PNG' : 'Download data as CSV'}
+							>
+								<Download className='size-3 text-muted-foreground/70' strokeWidth={2.25} />
+							</Button>
+						)}
+					</div>
 					{isEditable && (
 						<Button
-							variant='ghost'
+							variant='ghost-muted'
 							size='icon-xs'
-							className='hover:rounded-full'
+							className='rounded-full hover:bg-accent/70'
 							onClick={() => setIsEditOpen(true)}
 							title='Edit chart'
 						>
-							<Pencil className='size-4' />
+							<Pencil className='size-3 text-muted-foreground/70' strokeWidth={2.25} />
 						</Button>
 					)}
 				</div>
@@ -298,17 +359,24 @@ export const DisplayChartToolCall = ({
 				/>
 			)}
 
-			<ChartDisplay
-				data={filteredData}
-				chartType={chartConfig.chart_type}
-				xAxisKey={chartConfig.x_axis_key}
-				series={chartConfig.series}
-				xAxisType={chartConfig.x_axis_type === 'number' ? 'number' : 'category'}
-				title={chartConfig.title}
-				yAxisMin={chartConfig.y_axis_min}
-				yAxisMax={chartConfig.y_axis_max}
-				showDataLabels={chartConfig.show_data_labels}
-			/>
+			{viewMode === 'data' ? (
+				<SqlResultDisplay output={sourceData} />
+			) : viewMode === 'query' && sqlQuery ? (
+				<SqlQueryDisplay query={sqlQuery} />
+			) : (
+				<ChartDisplay
+					data={filteredData}
+					chartType={chartConfig.chart_type}
+					xAxisKey={chartConfig.x_axis_key}
+					series={chartConfig.series}
+					xAxisType={chartConfig.x_axis_type === 'number' ? 'number' : 'category'}
+					title={chartConfig.title}
+					yAxisMin={chartConfig.y_axis_min}
+					yAxisMax={chartConfig.y_axis_max}
+					showDataLabels={chartConfig.show_data_labels}
+					hideTotal={chartConfig.hide_total}
+				/>
+			)}
 		</div>
 	);
 };
@@ -326,6 +394,7 @@ export interface ChartDisplayProps {
 	yAxisMax?: number;
 	showDataLabels?: boolean;
 	normalSize?: boolean;
+	hideTotal?: boolean;
 }
 
 export const ChartDisplay = memo(function ChartDisplay({
@@ -341,6 +410,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 	yAxisMax,
 	showDataLabels,
 	normalSize = false,
+	hideTotal,
 }: ChartDisplayProps) {
 	const dateFormat = useDateFormat();
 	const containerRef = useRef<HTMLDivElement>(null);
@@ -479,7 +549,11 @@ export const ChartDisplay = memo(function ChartDisplay({
 						animationEasing='linear'
 						allowEscapeViewBox={{ y: true, x: false }}
 						content={
-							<ChartTooltipContent percent={isPercentStacked} labelFormatter={tooltipLabelFormatter} />
+							<ChartTooltipContent
+								percent={isPercentStacked}
+								hideTotal={hideTotal}
+								labelFormatter={tooltipLabelFormatter}
+							/>
 						}
 					/>,
 					chartType !== 'kpi_card' && (
@@ -520,6 +594,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 			yAxisMin,
 			yAxisMax,
 			showDataLabels,
+			hideTotal,
 			legendPayload,
 			handleToggleSeriesVisibility,
 			title,

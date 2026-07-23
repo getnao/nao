@@ -301,6 +301,17 @@ class TestCleanupStaleDatabases:
             "database=analytics",
         ]
 
+    def test_no_cleanup_when_base_path_does_not_exist(self, tmp_path: Path):
+        missing = tmp_path / "databases"
+
+        active_dbs = [
+            DBConfig(type="duckdb", path="/tmp/test.duckdb"),
+        ]
+
+        cleanup_stale_databases(active_dbs, missing)
+
+        assert not missing.exists()
+
 
 class TestCleanupStaleRespositories:
     def test_remove_unused_repos(self, tmp_path: Path):

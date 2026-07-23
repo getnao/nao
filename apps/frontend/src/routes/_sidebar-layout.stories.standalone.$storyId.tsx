@@ -1,7 +1,6 @@
-import { splitCodeIntoSegments } from '@nao/shared/story-segments';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useState } from 'react';
 import type { ParsedChartBlock, ParsedTableBlock } from '@nao/shared/story-segments';
 
 import type { SelectionData } from '@/components/highlight-bubble';
@@ -9,7 +8,7 @@ import type { QueryDataMap } from '@/components/story-embeds';
 import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
 import { HighlightBubble } from '@/components/highlight-bubble';
 import { StoryChartEmbed, StoryTableEmbed } from '@/components/story-embeds';
-import { SegmentList } from '@/components/story-rendering';
+import { StoryTabbedContent } from '@/components/story-tabbed-content';
 import { StoryPageHeader } from '@/components/story-page-header';
 import { LiveStorySettingsDialog } from '@/components/side-panel/live-story-settings-dialog';
 import { useStoryViewerLiveSettings } from '@/components/side-panel/hooks/use-story-viewer-live-settings';
@@ -248,8 +247,6 @@ function StandaloneEditableStory({
 }
 
 function StandaloneStoryContent({ code, queryData }: { code: string; queryData: QueryDataMap | null }) {
-	const segments = useMemo(() => splitCodeIntoSegments(code), [code]);
-
 	const renderChart = useCallback(
 		(chart: ParsedChartBlock) => <StoryChartEmbed chart={chart} queryData={queryData} />,
 		[queryData],
@@ -260,11 +257,5 @@ function StandaloneStoryContent({ code, queryData }: { code: string; queryData: 
 		[queryData],
 	);
 
-	return (
-		<div className='flex-1 overflow-auto'>
-			<div className='max-w-5xl mx-auto p-4 md:p-8 flex flex-col gap-4'>
-				<SegmentList segments={segments} renderChart={renderChart} renderTable={renderTable} />
-			</div>
-		</div>
-	);
+	return <StoryTabbedContent code={code} renderChart={renderChart} renderTable={renderTable} />;
 }

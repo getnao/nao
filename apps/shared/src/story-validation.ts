@@ -1,4 +1,4 @@
-import { parseChartAttributes, parseGridColumns, TAG_ATTRS } from './story-segments';
+import { parseChartAttributes, parseGridColumns, parseSeriesJsonArray, TAG_ATTRS } from './story-segments';
 
 export interface StoryValidationError {
 	message: string;
@@ -40,14 +40,84 @@ export function validateStoryCode(code: string): StoryValidationError[] {
 	errors.push(...validateGridBlocks(code));
 	errors.push(...validateChartBlocks(code));
 	errors.push(...validateTableBlocks(code));
+	errors.push(...validateTabsBlocks(code));
 	errors.push(...validateUnterminatedTags(code));
 
 	return errors.sort((a, b) => a.line - b.line || a.column - b.column);
 }
 
+function validateTabsBlocks(code: string): StoryValidationError[] {
+	const errors: StoryValidationError[] = [];
+	const tabOpeners = [...code.matchAll(new RegExp(`<tab\\b(${TAG_ATTRS})?>`, 'g'))];
+	if (tabOpeners.length === 0) {
+		return errors;
+	}
+
+	const tabBlocks: Array<{ start: number; end: number }> = [];
+	for (let index = 0; index < tabOpeners.length; index++) {
+		const opener = tabOpeners[index];
+		const openerEnd = opener.index + opener[0].length;
+		const closeIndex = code.indexOf('</tab>', openerEnd);
+		const nextOpenerIndex = tabOpeners[index + 1]?.index ?? code.length;
+		if (closeIndex === -1 || nextOpenerIndex < closeIndex) {
+			const position = getPosition(code, opener.index);
+			errors.push({
+				message: '<tab> tag is missing a matching </tab> closing tag.',
+				line: position.line,
+				column: position.column,
+				length: opener[0].length,
+			});
+			continue;
+		}
+
+		tabBlocks.push({ start: opener.index, end: closeIndex + '</tab>'.length });
+		const attrs = parseChartAttributes(opener[0]);
+		if (!attrs.title?.trim()) {
+			const position = getPosition(code, opener.index);
+			errors.push({
+				message: 'Tab is missing a required `title` attribute.',
+				line: position.line,
+				column: position.column,
+				length: opener[0].length,
+			});
+		}
+	}
+
+	let contentCursor = 0;
+	for (const tabBlock of tabBlocks) {
+		const outsideOffset = code.slice(contentCursor, tabBlock.start).search(/\S/);
+		if (outsideOffset !== -1) {
+			const codeOffset = contentCursor + outsideOffset;
+			const position = getPosition(code, codeOffset);
+			errors.push({
+				message: 'Content is not allowed outside <tab> blocks — a tabbed story must contain only <tab> blocks.',
+				line: position.line,
+				column: position.column,
+				length: getLineContentLength(code, codeOffset),
+			});
+			return errors;
+		}
+		contentCursor = tabBlock.end;
+	}
+
+	const outsideOffset = code.slice(contentCursor).search(/\S/);
+	if (outsideOffset !== -1) {
+		const codeOffset = contentCursor + outsideOffset;
+		const position = getPosition(code, codeOffset);
+		errors.push({
+			message: 'Content is not allowed outside <tab> blocks — a tabbed story must contain only <tab> blocks.',
+			line: position.line,
+			column: position.column,
+			length: getLineContentLength(code, codeOffset),
+		});
+	}
+
+	return errors;
+}
+
 function validateChartBlocks(code: string): StoryValidationError[] {
 	const errors: StoryValidationError[] = [];
-	const chartRegex = new RegExp(`<chart\\b(${TAG_ATTRS})(\\/?)>`, 'g');
+	const chartRegex = new RegExp(String.raw`<chart\b(${TAG_ATTRS})(\/?)>`, 'g');
 	let match: RegExpExecArray | null;
 
 	while ((match = chartRegex.exec(code)) !== null) {
@@ -92,7 +162,7 @@ function validateChartBlocks(code: string): StoryValidationError[] {
 			});
 		}
 
-		const seriesError = validateChartSeries(attrs, attrString ?? '', position, fullMatch.length);
+		const seriesError = validateChartSeries(attrs, position, fullMatch.length);
 		if (seriesError) {
 			errors.push(seriesError);
 		}
@@ -103,7 +173,6 @@ function validateChartBlocks(code: string): StoryValidationError[] {
 
 function validateChartSeries(
 	attrs: Record<string, string>,
-	attrString: string,
 	position: { line: number; column: number },
 	length: number,
 ): StoryValidationError | null {
@@ -120,13 +189,9 @@ function validateChartSeries(
 		return null;
 	}
 
-	const rawSeries = extractRawSeriesBracket(attrString);
-	const jsonSource = rawSeries ?? attrs.series;
+	const parsed = parseSeriesJsonArray(attrs.series);
 
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(jsonSource);
-	} catch {
+	if (parsed === null) {
 		return {
 			message: 'Chart `series` attribute must be a valid JSON array.',
 			line: position.line,
@@ -135,7 +200,7 @@ function validateChartSeries(
 		};
 	}
 
-	if (!Array.isArray(parsed) || parsed.length === 0) {
+	if (parsed.length === 0) {
 		return {
 			message: 'Chart `series` attribute must be a non-empty JSON array.',
 			line: position.line,
@@ -158,32 +223,9 @@ function validateChartSeries(
 	return null;
 }
 
-function extractRawSeriesBracket(attrString: string): string | null {
-	const seriesIdx = attrString.search(/\bseries\s*=/);
-	if (seriesIdx === -1) {
-		return null;
-	}
-	const bracketStart = attrString.indexOf('[', seriesIdx);
-	if (bracketStart === -1) {
-		return null;
-	}
-	let depth = 0;
-	for (let i = bracketStart; i < attrString.length; i++) {
-		if (attrString[i] === '[') {
-			depth++;
-		} else if (attrString[i] === ']') {
-			depth--;
-			if (depth === 0) {
-				return attrString.slice(bracketStart, i + 1);
-			}
-		}
-	}
-	return null;
-}
-
 function validateTableBlocks(code: string): StoryValidationError[] {
 	const errors: StoryValidationError[] = [];
-	const tableRegex = new RegExp(`<table\\b(${TAG_ATTRS})(\\/?)>`, 'g');
+	const tableRegex = new RegExp(String.raw`<table\b(${TAG_ATTRS})(\/?)>`, 'g');
 	let match: RegExpExecArray | null;
 
 	while ((match = tableRegex.exec(code)) !== null) {
@@ -350,4 +392,9 @@ function getPosition(code: string, offset: number): { line: number; column: numb
 		}
 	}
 	return { line, column };
+}
+
+function getLineContentLength(code: string, offset: number): number {
+	const lineEnd = code.indexOf('\n', offset);
+	return Math.max(1, (lineEnd === -1 ? code.length : lineEnd) - offset);
 }

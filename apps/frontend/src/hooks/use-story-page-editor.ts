@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Editor as TiptapEditor } from '@tiptap/react';
 
 import type { StoryCodeViewHandle } from '@/components/side-panel/story-code-view';
@@ -38,6 +38,8 @@ export function useStoryPageEditor({
 
 	const tiptapEditorRef = useRef<TiptapEditor | null>(null);
 	const codeViewRef = useRef<StoryCodeViewHandle | null>(null);
+	const tabbedEditCodeRef = useRef<(() => string) | null>(null);
+	const getEditModeCode = useCallback(() => tabbedEditCodeRef.current?.() ?? null, []);
 	const [isCodeDirty, setIsCodeDirty] = useState(false);
 	const [isCodeValid, setIsCodeValid] = useState(true);
 
@@ -49,6 +51,7 @@ export function useStoryPageEditor({
 		isViewingLatest,
 		tiptapEditorRef,
 		codeViewRef,
+		getEditModeCode,
 		viewMode,
 		setViewMode,
 	});
@@ -67,6 +70,7 @@ export function useStoryPageEditor({
 		storyId,
 		tiptapEditorRef,
 		codeViewRef,
+		tabbedEditCodeRef,
 		isCodeDirty,
 		setIsCodeDirty,
 		isCodeValid,
