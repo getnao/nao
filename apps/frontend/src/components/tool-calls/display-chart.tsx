@@ -42,8 +42,11 @@ const PIE_LEGEND_BREAKPOINT = 280;
 const COMPACT_XAXIS_BREAKPOINT = 360;
 const CHAR_WIDTH_RATIO = 0.6;
 const ANGLE_COS = Math.cos((35 * Math.PI) / 180);
+const ANGLE_SIN = Math.sin((35 * Math.PI) / 180);
 const MIN_TICK_FONT = 9;
 const MAX_TICK_FONT = 12;
+const MIN_TICK_LABEL_CHARS = 3;
+const MAX_TICK_LABEL_HEIGHT = 44;
 
 export const DisplayChartToolCall = ({
 	toolPart: { state, input, output, toolCallId },
@@ -433,12 +436,13 @@ export const ChartDisplay = memo(function ChartDisplay({
 		const longestLabelLen = Math.max(1, ...data.map((row) => labelFormatter(String(row[xAxisKey])).length));
 		const neededFont = perCategoryPx / (longestLabelLen * CHAR_WIDTH_RATIO * ANGLE_COS);
 		xAxisTickFontSize = Math.round(Math.max(MIN_TICK_FONT, Math.min(MAX_TICK_FONT, neededFont)));
-		if (neededFont < MIN_TICK_FONT) {
-			xAxisTickFontSize = MIN_TICK_FONT;
-			xAxisMaxLabelChars = Math.max(
-				3,
-				Math.floor(perCategoryPx / (MIN_TICK_FONT * CHAR_WIDTH_RATIO * ANGLE_COS)),
-			);
+
+		const charPx = xAxisTickFontSize * CHAR_WIDTH_RATIO;
+		const horizontalCharCap = Math.floor(perCategoryPx / (charPx * ANGLE_COS));
+		const verticalCharCap = Math.floor(MAX_TICK_LABEL_HEIGHT / (charPx * ANGLE_SIN));
+		const charCap = Math.max(MIN_TICK_LABEL_CHARS, Math.min(horizontalCharCap, verticalCharCap));
+		if (longestLabelLen > charCap) {
+			xAxisMaxLabelChars = charCap;
 		}
 	}
 

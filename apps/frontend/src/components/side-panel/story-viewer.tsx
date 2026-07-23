@@ -101,7 +101,7 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp }:
 		versionNumber: currentVersionNumber > 0 ? currentVersionNumber : undefined,
 	});
 
-	const { handleSave, handleRestore } = useStoryViewerVersionActions({
+	const { handleSave, handleRestore, isSaving } = useStoryViewerVersionActions({
 		chatId,
 		storySlug: resolvedStorySlug,
 		storyTitle: storedTitle,
@@ -197,6 +197,7 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp }:
 				onEnlarge={handleEnlarge}
 				isShared={isShared}
 				isAgentRunning={isAgentRunning}
+				isSaving={isSaving}
 				isReadonlyMode={isReadonlyMode}
 				isLive={isLive}
 				isRefreshing={isRefreshing}

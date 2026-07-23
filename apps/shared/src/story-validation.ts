@@ -1,4 +1,4 @@
-import { parseChartAttributes, splitCodeIntoSegments, TAG_ATTRS } from './story-segments';
+import { parseChartAttributes, parseGridColumns, TAG_ATTRS } from './story-segments';
 
 export interface StoryValidationError {
 	message: string;
@@ -272,7 +272,7 @@ function validateGridBlocks(code: string): StoryValidationError[] {
 			}
 
 			const innerContent = code.slice(openTagRegex.lastIndex, closeIdx);
-			const childCount = splitCodeIntoSegments(innerContent).length;
+			const childCount = parseGridColumns(innerContent).children.length;
 			if (widthValues.length !== childCount) {
 				errors.push({
 					message: `Grid \`widths\` has ${widthValues.length} values but the grid has ${childCount} columns.`,

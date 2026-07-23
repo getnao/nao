@@ -1,0 +1,156 @@
+import { groupBlocksIntoGrid } from '@nao/shared/story-segments';
+import { GripVertical } from 'lucide-react';
+import { useCallback, useContext, useEffect, useState } from 'react';
+import { createBlockNode, removeCardFromOrigin } from './story-editor-utils';
+import { GridDragContext, STORY_BLOCK_DRAG_TYPE, StoryBlockDragContext } from './story-editor-drag-context';
+import type { ReactNodeViewProps } from '@tiptap/react';
+import type { DragEvent as ReactDragEvent } from 'react';
+import type { StoryBlockDropSide } from './story-editor-drag-context';
+
+export function StoryBlockDragGrip({ node, getPos }: Pick<ReactNodeViewProps, 'node' | 'editor' | 'getPos'>) {
+	const dragContext = useContext(StoryBlockDragContext);
+
+	const handleDragStart = useCallback(
+		(event: ReactDragEvent<HTMLButtonElement>) => {
+			event.stopPropagation();
+			const pos = getPos();
+			if (typeof pos !== 'number' || !dragContext) {
+				return;
+			}
+			event.dataTransfer.effectAllowed = 'move';
+			event.dataTransfer.setData(STORY_BLOCK_DRAG_TYPE, '1');
+			dragContext.sourceRef.current = {
+				markup: node.attrs.rawTag as string,
+				origin: { kind: 'block', pos },
+			};
+			dragContext.setDragging(true);
+		},
+		[dragContext, getPos, node.attrs.rawTag],
+	);
+
+	const handleDragEnd = useCallback(
+		(event: ReactDragEvent<HTMLButtonElement>) => {
+			event.stopPropagation();
+			if (dragContext) {
+				dragContext.setDragging(false);
+				dragContext.sourceRef.current = null;
+			}
+		},
+		[dragContext],
+	);
+
+	return (
+		<button
+			type='button'
+			aria-label='Move story block'
+			contentEditable={false}
+			className='cursor-grab rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground active:cursor-grabbing'
+			draggable
+			onClick={(event) => {
+				event.stopPropagation();
+			}}
+			onPointerDown={(event) => {
+				event.stopPropagation();
+			}}
+			onDragStart={handleDragStart}
+			onDragEnd={handleDragEnd}
+		>
+			<GripVertical className='size-3.5' />
+		</button>
+	);
+}
+
+export function StoryBlockDropZones({ node, editor, getPos }: Pick<ReactNodeViewProps, 'node' | 'editor' | 'getPos'>) {
+	const dragContext = useContext(StoryBlockDragContext);
+	const gridDragSourceRef = useContext(GridDragContext);
+	const [hoverSide, setHoverSide] = useState<StoryBlockDropSide | null>(null);
+	const currentPos = getPos();
+	const sourceOrigin = dragContext?.sourceRef.current?.origin;
+	const isDropTarget =
+		typeof currentPos === 'number' &&
+		dragContext?.isDragging === true &&
+		dragContext.sourceRef.current !== null &&
+		!(sourceOrigin?.kind === 'block' && sourceOrigin.pos === currentPos);
+
+	useEffect(() => {
+		if (!dragContext?.isDragging) {
+			setHoverSide(null);
+		}
+	}, [dragContext?.isDragging]);
+
+	const resetDrag = useCallback(() => {
+		setHoverSide(null);
+		if (dragContext) {
+			dragContext.setDragging(false);
+			dragContext.sourceRef.current = null;
+		}
+		if (gridDragSourceRef) {
+			gridDragSourceRef.current = null;
+		}
+	}, [dragContext, gridDragSourceRef]);
+
+	const handleDrop = useCallback(
+		(side: StoryBlockDropSide, event: ReactDragEvent<HTMLDivElement>) => {
+			event.preventDefault();
+			event.stopPropagation();
+			const source = dragContext?.sourceRef.current;
+			const targetPos = getPos();
+			if (
+				!source ||
+				typeof targetPos !== 'number' ||
+				(source.origin.kind === 'block' && source.origin.pos === targetPos)
+			) {
+				resetDrag();
+				return;
+			}
+
+			const state = editor.state;
+			const targetMarkup = node.attrs.rawTag as string;
+			const leftMarkup = side === 'left' ? source.markup : targetMarkup;
+			const rightMarkup = side === 'left' ? targetMarkup : source.markup;
+			const gridNode = createBlockNode(state.schema, groupBlocksIntoGrid(leftMarkup, rightMarkup));
+			if (!gridNode) {
+				resetDrag();
+				return;
+			}
+
+			const transaction = state.tr;
+			transaction.replaceWith(targetPos, targetPos + node.nodeSize, gridNode);
+			removeCardFromOrigin(transaction, state, source.origin);
+			editor.view.dispatch(transaction);
+			resetDrag();
+		},
+		[dragContext, editor, getPos, node, resetDrag],
+	);
+
+	return (
+		isDropTarget &&
+		(['left', 'right'] as const).map((side) => (
+			<div
+				key={side}
+				contentEditable={false}
+				className={`absolute inset-y-0 z-30 w-1/2 ${side === 'left' ? 'left-0' : 'right-0'}`}
+				onDragOver={(event) => {
+					event.preventDefault();
+					event.stopPropagation();
+					event.dataTransfer.dropEffect = 'move';
+					setHoverSide(side);
+				}}
+				onDragLeave={() => {
+					setHoverSide(null);
+				}}
+				onDrop={(event) => {
+					handleDrop(side, event);
+				}}
+			>
+				{hoverSide === side && (
+					<div
+						className={`pointer-events-none absolute inset-y-0 w-0.5 bg-primary ${
+							side === 'left' ? 'left-0' : 'right-0'
+						}`}
+					/>
+				)}
+			</div>
+		))
+	);
+}

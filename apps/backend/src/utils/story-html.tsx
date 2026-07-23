@@ -106,6 +106,21 @@ function GridBlock({
 	segment: Extract<Segment, { type: 'grid' }>;
 	queryData: QueryDataMap | null;
 }) {
+	const allKpi =
+		segment.children.length > 0 &&
+		segment.children.every((child) => child.type === 'chart' && child.chart.chartType === 'kpi_card');
+	if (allKpi) {
+		return (
+			<div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, margin: '16px 0' }}>
+				{segment.children.map((child, i) => (
+					<div key={i} style={{ flex: `${segment.widths?.[i] ?? 1} 1 0%`, minWidth: 160 }}>
+						<StorySegment segment={child} queryData={queryData} />
+					</div>
+				))}
+			</div>
+		);
+	}
+
 	return (
 		<>
 			{segment.children.map((child, i) => (
