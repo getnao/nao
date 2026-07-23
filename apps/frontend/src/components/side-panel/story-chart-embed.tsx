@@ -113,7 +113,7 @@ export function StoryChartEmbedShell({ chart, availableColumns, dataRowCount, ch
 	const [isEditOpen, setIsEditOpen] = useState(false);
 	const canEdit = Boolean(edit && chart.rawTag);
 
-	const config = useMemo<displayChart.ChartInput>(
+	const config = useMemo<displayChart.KpiCardInput>(
 		() => ({
 			query_id: chart.queryId,
 			chart_type: chart.chartType as displayChart.ChartType,

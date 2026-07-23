@@ -11,7 +11,7 @@ export function escapeSingleQuotedStoryAttr(value: string): string {
 }
 
 export type StoryChartBlockInput = Pick<
-	displayChart.ChartInput,
+	displayChart.KpiCardInput,
 	| 'query_id'
 	| 'chart_type'
 	| 'x_axis_type'
@@ -21,8 +21,8 @@ export type StoryChartBlockInput = Pick<
 	| 'show_data_labels'
 	| 'comparison_mode'
 > & {
-	title?: displayChart.ChartInput['title'];
-	x_axis_key?: displayChart.ChartInput['x_axis_key'];
+	title?: displayChart.KpiCardInput['title'];
+	x_axis_key?: displayChart.KpiCardInput['x_axis_key'];
 };
 
 export function buildStoryChartBlock(input: StoryChartBlockInput): string {

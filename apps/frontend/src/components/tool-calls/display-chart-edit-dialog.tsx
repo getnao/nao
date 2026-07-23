@@ -41,6 +41,8 @@ const COMPARISON_MODE_OPTIONS: { value: displayChart.ComparisonMode; label: stri
 
 const Y_AXIS_RANGE_UNSUPPORTED_CHART_TYPES = new Set<displayChart.ChartType>(['pie', 'kpi_card', 'radar']);
 
+type EditableChartInput = displayChart.ChartInput | displayChart.KpiCardInput;
+
 /** Maps a 100% stacked type back to its absolute-stacked counterpart, so the type dropdown stays clean. */
 function baseChartType(type: displayChart.ChartType): displayChart.ChartType {
 	if (type === 'stacked_bar_100') {
@@ -66,9 +68,9 @@ function percentChartType(type: displayChart.ChartType): displayChart.ChartType 
 interface ChartConfigEditDialogProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
-	config: displayChart.ChartInput;
+	config: EditableChartInput;
 	availableColumns: string[];
-	onSave: (next: displayChart.ChartInput) => Promise<void>;
+	onSave: (next: EditableChartInput) => Promise<void>;
 	isSaving?: boolean;
 	description?: string;
 	dataRowCount?: number;
@@ -85,7 +87,7 @@ export function ChartConfigEditDialog({
 	description = 'Tweak the chart parameters.',
 	dataRowCount,
 }: ChartConfigEditDialogProps) {
-	const [draft, setDraft] = useState<displayChart.ChartInput>(config);
+	const [draft, setDraft] = useState<EditableChartInput>(config);
 	const [yAxisMinText, setYAxisMinText] = useState(toRangeString(config.y_axis_min));
 	const [yAxisMaxText, setYAxisMaxText] = useState(toRangeString(config.y_axis_max));
 	const [error, setError] = useState<string | null>(null);
@@ -102,20 +104,24 @@ export function ChartConfigEditDialog({
 
 	const xAxisOptions = useMemo(() => {
 		if (availableColumns.length === 0) {
-			return [config.x_axis_key];
+			return [config.x_axis_key ?? ''];
 		}
 		return availableColumns;
 	}, [availableColumns, config.x_axis_key]);
 
 	const handleSubmit = async (event: React.FormEvent) => {
 		event.preventDefault();
-		const normalized: displayChart.ChartInput =
+		const normalized: EditableChartInput =
 			draft.chart_type === 'kpi_card'
 				? { ...draft, x_axis_key: draft.x_axis_key || '', x_axis_type: draft.x_axis_type ?? null }
 				: draft;
-		const parsed = displayChart.ChartInputSchema.safeParse(normalized);
+		const parsed = displayChart.InputSchema.safeParse(normalized);
 		if (!parsed.success) {
 			setError(parsed.error.issues[0]?.message ?? 'Invalid chart configuration.');
+			return;
+		}
+		if (parsed.data.chart_type === 'table') {
+			setError('Invalid chart configuration.');
 			return;
 		}
 
@@ -280,7 +286,7 @@ export function ChartConfigEditDialog({
 						<div className='grid gap-2'>
 							<span className='text-sm font-semibold text-foreground'>X-axis column</span>
 							<ColumnSelect
-								value={draft.x_axis_key}
+								value={draft.x_axis_key ?? ''}
 								columns={xAxisOptions}
 								onChange={(value) => setDraft((prev) => ({ ...prev, x_axis_key: value }))}
 							/>
@@ -381,7 +387,7 @@ export function ChartConfigEditDialog({
 							<div className='grid gap-2'>
 								<span className='text-sm font-semibold text-foreground'>Comparison pill</span>
 								<Select
-									value={draft.comparison_mode ?? 'none'}
+									value={'comparison_mode' in draft ? (draft.comparison_mode ?? 'none') : 'none'}
 									onValueChange={(value) =>
 										setDraft((prev) => ({
 											...prev,
@@ -445,7 +451,7 @@ interface DisplayChartEditDialogProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	toolCallId: string;
-	config: displayChart.ChartInput;
+	config: EditableChartInput;
 	availableColumns: string[];
 	dataRowCount?: number;
 }
@@ -470,7 +476,7 @@ export function DisplayChartEditDialog({
 		}),
 	);
 
-	const handleSave = async (next: displayChart.ChartInput) => {
+	const handleSave = async (next: EditableChartInput) => {
 		const previousMessages = messages;
 		setMessages(applyChartConfigToMessages(previousMessages, toolCallId, next));
 		try {
@@ -547,7 +553,7 @@ function normalizeHexColor(color?: string): string {
 function applyChartConfigToMessages(
 	messages: UIMessage[],
 	toolCallId: string,
-	config: displayChart.ChartInput,
+	config: EditableChartInput,
 ): UIMessage[] {
 	return messages.map((message) => {
 		let changed = false;

@@ -368,14 +368,14 @@ export const DisplayChartToolCall = ({
 				<ChartDisplay
 					data={filteredData}
 					chartType={chartConfig.chart_type}
-					xAxisKey={chartConfig.x_axis_key}
+					xAxisKey={chartConfig.x_axis_key ?? ''}
 					series={chartConfig.series}
 					xAxisType={chartConfig.x_axis_type === 'number' ? 'number' : 'category'}
 					title={chartConfig.title}
 					yAxisMin={chartConfig.y_axis_min}
 					yAxisMax={chartConfig.y_axis_max}
 					showDataLabels={chartConfig.show_data_labels}
-					comparisonMode={chartConfig.comparison_mode}
+					comparisonMode={'comparison_mode' in chartConfig ? chartConfig.comparison_mode : undefined}
 				/>
 			)}
 		</div>

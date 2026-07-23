@@ -182,7 +182,7 @@ describe('displayChart.InputSchema table variant', () => {
 		expect(block).toContain('chart_type="kpi_card"');
 	});
 
-	it('retains KPI comparison mode in chart schemas', () => {
+	it('retains KPI comparison mode only in the dispatched KPI schema', () => {
 		const input = {
 			query_id: 'query_1',
 			chart_type: 'kpi_card' as const,
@@ -193,10 +193,11 @@ describe('displayChart.InputSchema table variant', () => {
 			comparison_mode: 'percentage' as const,
 		};
 
-		expect(displayChart.ChartInputSchema.safeParse(input)).toMatchObject({
-			success: true,
-			data: { comparison_mode: 'percentage' },
-		});
+		const chartResult = displayChart.ChartInputSchema.safeParse(input);
+		expect(chartResult.success).toBe(true);
+		if (chartResult.success) {
+			expect(chartResult.data).not.toHaveProperty('comparison_mode');
+		}
 		expect(displayChart.InputSchema.safeParse(input)).toMatchObject({
 			success: true,
 			data: { comparison_mode: 'percentage' },

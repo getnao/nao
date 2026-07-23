@@ -20,6 +20,9 @@ export const XAxisTypeEnum = z.enum(['date', 'number', 'category']);
 export const ComparisonModeEnum = z.enum(['percentage', 'variation', 'absolute', 'none']);
 export type ComparisonMode = z.infer<typeof ComparisonModeEnum>;
 
+const COMPARISON_MODE_DESCRIPTION =
+	'KPI cards only: shows a change pill comparing the latest value to the previous period ("percentage", "variation", "absolute", or "none" to hide). Requires the query to return 2+ time-ordered rows (oldest → newest).';
+
 export const SeriesConfigSchema = z.object({
 	data_key: z.string().describe('Column name from SQL result to plot.'),
 	color: z.string().describe('CSS color (defaults to theme colors).').optional(),
@@ -113,9 +116,6 @@ const ChartInputObjectSchema = z.object({
 			'Show the numeric value of each data point directly on the chart. Set to true when the user asks to display values/data labels on the chart.',
 		)
 		.optional(),
-	comparison_mode: ComparisonModeEnum.describe(
-		'KPI cards only. Shows a small pill under the number with the change vs the previous period — the latest row compared to the row immediately before it. Modes: "percentage" = percent change (arrow + color); "variation" = absolute change (arrow + color); "absolute" = magnitude only (no arrow/color); "none" = no pill. When a KPI metric is worth tracking over time (revenue, orders, active users, conversion, etc.), write the SQL to return that metric across at least two consecutive, time-ordered periods (one row per period, ordered oldest→newest) and set this to "percentage" so the card shows the latest period and its change vs the prior one; use "variation"/"absolute" when a raw change reads better than a percent. Omit or use "none" for all-time totals, static rates, or metrics with no meaningful previous period. A pill only renders when the query returns 2+ rows; a single-row (single number) query shows no pill.',
-	).optional(),
 	title: z
 		.string()
 		.describe(
@@ -138,6 +138,7 @@ const KpiCardInputSchema = ChartInputObjectSchema.extend({
 			'Use "date" only when x-axis values parse as JS Date (YYYY-MM-DD). Use "category" for quarter_ending, fiscal periods, or labels. Use "number" for numeric x-axis.',
 		)
 		.optional(),
+	comparison_mode: ComparisonModeEnum.describe(COMPARISON_MODE_DESCRIPTION).optional(),
 }).refine(yAxisBoundsValid, Y_AXIS_BOUNDS_MESSAGE);
 
 export const TableInputSchema = z.object({
@@ -148,8 +149,9 @@ export const TableInputSchema = z.object({
 });
 
 export type ChartInput = z.infer<typeof ChartInputSchema>;
+export type KpiCardInput = z.infer<typeof KpiCardInputSchema>;
 export type TableInput = z.infer<typeof TableInputSchema>;
-export type Input = ChartInput | TableInput;
+export type Input = ChartInput | KpiCardInput | TableInput;
 
 const DisplayTypeEnum = z.enum([...ChartTypeEnum.options, 'table']);
 
@@ -167,9 +169,7 @@ const BaseInputSchema = z.object({
 		.min(1)
 		.describe('Columns to plot as data series. Required for charts and omitted for tables.')
 		.optional(),
-	comparison_mode: ComparisonModeEnum.describe(
-		'KPI cards only. Shows a small pill under the number with the change vs the previous period — the latest row compared to the row immediately before it. Modes: "percentage" = percent change (arrow + color); "variation" = absolute change (arrow + color); "absolute" = magnitude only (no arrow/color); "none" = no pill. When a KPI metric is worth tracking over time (revenue, orders, active users, conversion, etc.), write the SQL to return that metric across at least two consecutive, time-ordered periods (one row per period, ordered oldest→newest) and set this to "percentage" so the card shows the latest period and its change vs the prior one; use "variation"/"absolute" when a raw change reads better than a percent. Omit or use "none" for all-time totals, static rates, or metrics with no meaningful previous period. A pill only renders when the query returns 2+ rows; a single-row (single number) query shows no pill.',
-	).optional(),
+	comparison_mode: ComparisonModeEnum.describe(COMPARISON_MODE_DESCRIPTION).optional(),
 	title: z.string().describe('A concise, descriptive title for the visualization. Required for charts.').optional(),
 	conditional_formats: ColumnConditionalFormatsSchema.describe(
 		'Conditional formatting rules for table columns. Only used when chart_type is "table".',

@@ -14,7 +14,7 @@ import {
 
 export interface RenderChartInput {
 	config: Pick<
-		displayChart.ChartInput,
+		displayChart.KpiCardInput,
 		| 'chart_type'
 		| 'x_axis_key'
 		| 'x_axis_type'
@@ -43,6 +43,7 @@ export function renderChartToSvg(input: RenderChartInput): string {
 	const height = input.height ?? 500;
 	const margin = input.margin ?? { top: 10, right: 20, bottom: 5, left: 0 };
 	const includeLegend = input.includeLegend !== false;
+	const xAxisKey = config.x_axis_key ?? '';
 
 	const colorFor = (key: string, index: number) => {
 		const series = config.series.find((s) => s.data_key === key);
@@ -50,16 +51,16 @@ export function renderChartToSvg(input: RenderChartInput): string {
 	};
 
 	const labelFormatter = (value: string) => labelize(value, dateFormat);
-	const maxLabelWidth = estimateMaxLabelWidth(data, config.x_axis_key, dateFormat);
+	const maxLabelWidth = estimateMaxLabelWidth(data, xAxisKey, dateFormat);
 
 	const isPie = config.chart_type === 'pie' || config.chart_type === 'donut';
 
-	const chartData = isPie ? bucketPieData(data, config.x_axis_key, config.series[0]?.data_key ?? '') : data;
+	const chartData = isPie ? bucketPieData(data, xAxisKey, config.series[0]?.data_key ?? '') : data;
 
 	let legend: LegendEntry[] = [];
 	if (includeLegend) {
 		legend = isPie
-			? buildPieLegendEntries(chartData, config.x_axis_key, dateFormat)
+			? buildPieLegendEntries(chartData, xAxisKey, dateFormat)
 			: config.series.map((s, i) => ({
 					label: s.label || labelize(s.data_key, dateFormat),
 					color: colorFor(s.data_key, i),
@@ -74,7 +75,7 @@ export function renderChartToSvg(input: RenderChartInput): string {
 	const chart = buildChart({
 		data: chartData,
 		chartType: config.chart_type,
-		xAxisKey: config.x_axis_key,
+		xAxisKey,
 		xAxisType: config.x_axis_type === 'number' ? 'number' : 'category',
 		series: config.series,
 		colorFor,

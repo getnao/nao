@@ -75,7 +75,9 @@ export const chartRoutes = {
 		}),
 };
 
-async function readDownloadableChartConfig(toolCallId: string): Promise<displayChart.ChartInput> {
+async function readDownloadableChartConfig(
+	toolCallId: string,
+): Promise<displayChart.ChartInput | displayChart.KpiCardInput> {
 	const config = await getDisplayConfigByToolCallId(toolCallId);
 	if (config.chart_type === 'table') {
 		throw new TRPCError({
