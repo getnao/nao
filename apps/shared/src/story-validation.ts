@@ -1,5 +1,5 @@
-import { STORY_FILTER_TYPES } from './sql-template';
-import { parseChartAttributes, parseSeriesJsonArray, TAG_ATTRS } from './story-segments';
+import { STORY_FILTER_ID_REGEX, STORY_FILTER_TYPES } from './sql-template';
+import { parseChartAttributes, parseSeriesJsonArray, parseStringArrayAttribute, TAG_ATTRS } from './story-segments';
 
 export interface StoryValidationError {
 	message: string;
@@ -301,7 +301,16 @@ function validateFilterBlocks(code: string): StoryValidationError[] {
 			});
 		}
 
-		const options = parseFilterOptionsAttr(attrs.options);
+		if (attrs.id && !STORY_FILTER_ID_REGEX.test(attrs.id)) {
+			errors.push({
+				message: `Invalid filter id "${attrs.id}". Use letters, numbers, and underscores, starting with a letter or underscore.`,
+				line: position.line,
+				column: position.column,
+				length: fullMatch.length,
+			});
+		}
+
+		const options = parseStringArrayAttribute(attrs.options);
 		if (attrs.options !== undefined && options === undefined) {
 			errors.push({
 				message: 'Filter `options` attribute must be a valid JSON array of strings.',
@@ -340,18 +349,6 @@ function validateFilterBlocks(code: string): StoryValidationError[] {
 	}
 
 	return errors;
-}
-
-function parseFilterOptionsAttr(value: string | undefined): string[] | undefined {
-	if (!value) {
-		return undefined;
-	}
-	try {
-		const parsed = JSON.parse(value);
-		return Array.isArray(parsed) && parsed.every((item) => typeof item === 'string') ? parsed : undefined;
-	} catch {
-		return undefined;
-	}
 }
 
 function isMarkdownTable(code: string, index: number): boolean {

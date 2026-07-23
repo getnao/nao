@@ -255,6 +255,7 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp }:
 								chatId={chatId}
 								storySlug={resolvedStorySlug}
 								versionKey={`${currentVersionNumber}-${cachedAt ?? ''}`}
+								filtersEnabled={isViewingLatest && !isAgentRunning}
 							/>
 						)
 					) : viewMode === 'edit' ? (

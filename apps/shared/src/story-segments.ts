@@ -1,6 +1,6 @@
 import { buildStoryTableBlock } from './chart-block';
 import { type ColumnConditionalFormats, sanitizeConditionalFormats } from './conditional-formatting';
-import { STORY_FILTER_TYPES, type StoryFilterType } from './sql-template';
+import { STORY_FILTER_ID_REGEX, STORY_FILTER_TYPES, type StoryFilterType } from './sql-template';
 
 export interface ParsedChartBlock {
 	queryId: string;
@@ -127,12 +127,16 @@ export function parseTableBlock(attrString: string): ParsedTableBlock | null {
 
 export function parseFilterBlock(attrString: string): ParsedFilterBlock | null {
 	const attrs = parseChartAttributes(attrString);
-	if (!attrs.id || !STORY_FILTER_TYPES.includes(attrs.type as StoryFilterType)) {
+	if (
+		!attrs.id ||
+		!STORY_FILTER_ID_REGEX.test(attrs.id) ||
+		!STORY_FILTER_TYPES.includes(attrs.type as StoryFilterType)
+	) {
 		return null;
 	}
 
 	const filterType = attrs.type as StoryFilterType;
-	const options = parseStringArrayAttr(attrs.options);
+	const options = parseStringArrayAttribute(attrs.options);
 	const needsOptionsSource = filterType === 'select' || filterType === 'multi_select';
 	const hasHardcodedOptions = Boolean(options?.length);
 	const hasTableSource = Boolean(attrs.table && attrs.column);
@@ -151,7 +155,7 @@ export function parseFilterBlock(attrString: string): ParsedFilterBlock | null {
 	};
 }
 
-function parseStringArrayAttr(value: string | undefined): string[] | undefined {
+export function parseStringArrayAttribute(value: string | undefined): string[] | undefined {
 	if (!value) {
 		return undefined;
 	}

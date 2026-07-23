@@ -22,7 +22,12 @@ export const ExecuteSqlOutput = ({ output, maxRows = MAX_ROWS }: { output: execu
 		return (
 			<Block>
 				The query was successfully executed and returned no rows.
-				{templateWarnings.length > 0 && <TemplateWarnings warnings={templateWarnings} />}
+				{templateWarnings.length > 0 && (
+					<>
+						<Span>Query ID: {output.id}</Span>
+						<TemplateWarnings warnings={templateWarnings} />
+					</>
+				)}
 			</Block>
 		);
 	}
@@ -39,8 +44,8 @@ export const ExecuteSqlOutput = ({ output, maxRows = MAX_ROWS }: { output: execu
 			<Span>Query ID: {output.id}</Span>
 
 			<TitledList title={`${pluralize('Column', output.columns.length)} (${output.columns.length})`}>
-				{output.columns.map((column) => (
-					<ListItem>{column}</ListItem>
+				{output.columns.map((column, index) => (
+					<ListItem key={`${column}-${index}`}>{column}</ListItem>
 				))}
 			</TitledList>
 
@@ -80,7 +85,7 @@ function TemplateWarnings({ warnings }: { warnings: string[] }) {
 			</Span>
 			<List>
 				{warnings.map((warning) => (
-					<ListItem>{warning}</ListItem>
+					<ListItem key={warning}>{warning}</ListItem>
 				))}
 			</List>
 		</Block>

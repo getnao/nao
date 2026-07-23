@@ -39,7 +39,7 @@ export async function getStoryFilterOptions(
 
 	const table = assertSafeSqlIdentifier(filter.table, 'table');
 	const column = assertSafeSqlIdentifier(filter.column, 'column');
-	const sql = `SELECT DISTINCT ${column} AS value FROM ${table} WHERE ${column} IS NOT NULL LIMIT ${FILTER_OPTIONS_LIMIT}`;
+	const sql = `SELECT DISTINCT ${column} AS value FROM ${table} WHERE ${column} IS NOT NULL ORDER BY ${column} LIMIT ${FILTER_OPTIONS_LIMIT}`;
 	const result = await executeRawSql(sql, projectPath, filter.databaseId ?? databaseId, envVars);
 	const options = result.data
 		.map((row) => {
@@ -49,7 +49,7 @@ export async function getStoryFilterOptions(
 			const value = (row as Record<string, unknown>).value;
 			return value === null || value === undefined ? null : String(value);
 		})
-		.filter((value): value is string => value !== null);
+		.filter((value): value is string => value !== null && value.trim() !== '');
 
 	return { options: [...new Set(options)].sort((a, b) => a.localeCompare(b)) };
 }
@@ -59,9 +59,8 @@ export async function getFilteredStoryQueryData(
 	storySlug: string,
 	selections: StoryFilterSelections,
 ): Promise<Record<string, { data: unknown[]; columns: string[] }>> {
-	const { code, projectPath, envVars } = await loadStoryExecutionContext(chatId, storySlug);
+	const { code, projectPath, envVars, sqlQueries } = await loadStoryExecutionContext(chatId, storySlug);
 	const types = filterTypesFromCode(code);
-	const sqlQueries = await storyQueries.getSqlQueriesFromCode(chatId, code);
 	const queryData: Record<string, { data: unknown[]; columns: string[] }> = {};
 
 	await Promise.all(
@@ -80,8 +79,8 @@ export async function getStoryQuerySql(
 	queryId: string,
 	selections: StoryFilterSelections = {},
 ): Promise<{ sqlQuery: string; renderedSql: string }> {
-	const { code } = await loadStoryExecutionContext(chatId, storySlug);
-	const query = await storyQueries.getSqlQueryById(chatId, queryId);
+	const { code, sqlQueries } = await loadStoryExecutionContext(chatId, storySlug);
+	const query = sqlQueries[queryId];
 	if (!query) {
 		throw new TRPCError({ code: 'NOT_FOUND', message: `Query "${queryId}" not found.` });
 	}
@@ -127,5 +126,6 @@ async function loadStoryExecutionContext(chatId: string, storySlug: string) {
 		projectPath: project.path,
 		envVars,
 		databaseId,
+		sqlQueries,
 	};
 }

@@ -8,11 +8,14 @@ export type StoryFilterSelections = Record<string, StoryFilterSelection>;
 
 export type StoryFilterTypeById = Record<string, StoryFilterType>;
 
+export const STORY_FILTER_ID_REGEX = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
 const FILTER_BLOCK_REGEX = /\{%\s*filter\s+([A-Za-z_][A-Za-z0-9_]*)\s*%\}([\s\S]*?)\{%\s*endfilter\s*%\}/g;
 const FILTER_PLACEHOLDER_REGEX = /\{\{\s*filters\.([A-Za-z_][A-Za-z0-9_]*)\.sql\s*\}\}/g;
-const ANY_FILTER_PLACEHOLDER_REGEX = /\{\{\s*filters\.([A-Za-z_][A-Za-z0-9_]*)(?:\.([A-Za-z_][A-Za-z0-9_]*))?\s*\}\}/g;
-const FILTER_OPEN_REGEX = /\{%\s*filter\s+([A-Za-z_][A-Za-z0-9_]*)\s*%\}/g;
+const ANY_FILTER_PLACEHOLDER_REGEX = /\{\{\s*filters\.([^\s.{}]+)(?:\.([^\s{}]+))?\s*\}\}/g;
+const FILTER_OPEN_REGEX = /\{%\s*filter\b[^%}]*%\}/g;
 const FILTER_CLOSE_REGEX = /\{%\s*endfilter\s*%\}/g;
+const FILTER_DELIMITER_REGEX = /\{%\s*(?:filter\b([^%}]*)|(endfilter))\s*%\}/g;
 
 const INVALID_PLACEHOLDER_HINTS: Record<string, string> = {
 	start: "date_range exposes a single {{ filters.<id>.sql }} value that already expands to 'start' AND 'end' — use AND col BETWEEN {{ filters.<id>.sql }}",
@@ -23,10 +26,30 @@ const INVALID_PLACEHOLDER_HINTS: Record<string, string> = {
 };
 
 export function stripSqlFilterBlocks(sql: string): string {
-	return sql
-		.replace(FILTER_BLOCK_REGEX, '')
-		.replace(/[ \t]+\n/g, '\n')
-		.replace(/\n{2,}/g, '\n');
+	const ranges: Array<{ start: number; end: number }> = [];
+	const openers: Array<{ start: number }> = [];
+
+	for (const delimiter of getFilterDelimiters(sql)) {
+		if (delimiter.kind === 'open') {
+			openers.push(delimiter);
+			continue;
+		}
+
+		const opener = openers.pop();
+		if (!opener) {
+			ranges.push({ start: delimiter.start, end: delimiter.end });
+			continue;
+		}
+		if (openers.length === 0) {
+			ranges.push({ start: opener.start, end: delimiter.end });
+		}
+	}
+
+	for (const opener of openers) {
+		ranges.push({ start: opener.start, end: sql.length });
+	}
+
+	return removeRanges(sql, ranges);
 }
 
 export function extractSqlFilterIds(sql: string): string[] {
@@ -63,6 +86,7 @@ export function validateSqlFilterTemplate(sql: string, options?: { knownFilterId
 			`Mismatched filter blocks: found ${openCount} "{% filter %}" opener(s) and ${closeCount} "{% endfilter %}" closer(s).`,
 		);
 	}
+	issues.push(...validateFilterDelimiterOrder(sql));
 
 	const blockRegex = new RegExp(FILTER_BLOCK_REGEX.source, 'g');
 	const coveredRanges: Array<{ start: number; end: number }> = [];
@@ -182,6 +206,11 @@ function uniqueIssues(issues: string[]): string[] {
 }
 
 export function renderSqlTemplate(sql: string, selections: StoryFilterSelections, types: StoryFilterTypeById): string {
+	const templateIssues = validateSqlFilterTemplate(sql, { knownFilterIds: Object.keys(types) });
+	if (templateIssues.length > 0) {
+		throw new Error(templateIssues.join(' '));
+	}
+
 	const rendered = sql.replace(FILTER_BLOCK_REGEX, (_full, filterId: string, inner: string) => {
 		const filterType = types[filterId];
 		if (!filterType) {
@@ -211,7 +240,7 @@ export function renderSqlTemplate(sql: string, selections: StoryFilterSelections
 		);
 	}
 
-	return rendered.replace(/[ \t]+\n/g, '\n').replace(/\n{2,}/g, '\n');
+	return rendered;
 }
 
 export function renderFilterSqlValue(
@@ -226,7 +255,10 @@ export function renderFilterSqlValue(
 		case 'select':
 			return quoteSqlString(selection as string);
 		case 'multi_select':
-			return (selection as string[]).filter(Boolean).map(quoteSqlString).join(', ');
+			return (selection as string[])
+				.filter((value) => value.trim() !== '')
+				.map(quoteSqlString)
+				.join(', ');
 		case 'search':
 			return quoteSqlString(`%${escapeLikePattern(selection as string)}%`);
 		case 'date_range': {
@@ -266,4 +298,68 @@ function quoteSqlString(value: string): string {
 
 function escapeLikePattern(value: string): string {
 	return value.replace(/([%_\\])/g, '\\$1');
+}
+
+function validateFilterDelimiterOrder(sql: string): string[] {
+	const issues: string[] = [];
+	const openers: Array<{ id: string }> = [];
+
+	for (const delimiter of getFilterDelimiters(sql)) {
+		if (delimiter.kind === 'open') {
+			if (!STORY_FILTER_ID_REGEX.test(delimiter.id)) {
+				issues.push(
+					`Invalid filter id "${delimiter.id}" in SQL template. Use letters, numbers, and underscores, starting with a letter or underscore.`,
+				);
+			}
+			if (openers.length > 0) {
+				issues.push('Nested story filter blocks are not supported.');
+			}
+			openers.push(delimiter);
+			continue;
+		}
+
+		if (!openers.pop()) {
+			issues.push('Unexpected "{% endfilter %}" without a preceding "{% filter <id> %}" opener.');
+		}
+	}
+
+	return issues;
+}
+
+function getFilterDelimiters(
+	sql: string,
+): Array<{ kind: 'open'; id: string; start: number; end: number } | { kind: 'close'; start: number; end: number }> {
+	const delimiters: Array<
+		{ kind: 'open'; id: string; start: number; end: number } | { kind: 'close'; start: number; end: number }
+	> = [];
+	const regex = new RegExp(FILTER_DELIMITER_REGEX.source, 'g');
+	let match: RegExpExecArray | null;
+
+	while ((match = regex.exec(sql)) !== null) {
+		delimiters.push(
+			match[2] !== 'endfilter'
+				? { kind: 'open', id: match[1].trim(), start: match.index, end: regex.lastIndex }
+				: { kind: 'close', start: match.index, end: regex.lastIndex },
+		);
+	}
+
+	return delimiters;
+}
+
+function removeRanges(sql: string, ranges: Array<{ start: number; end: number }>): string {
+	const sortedRanges = ranges.sort((a, b) => a.start - b.start);
+	let result = '';
+	let cursor = 0;
+
+	for (const range of sortedRanges) {
+		if (range.end <= cursor) {
+			continue;
+		}
+		if (range.start > cursor) {
+			result += sql.slice(cursor, range.start);
+		}
+		cursor = range.end;
+	}
+
+	return result + sql.slice(cursor);
 }

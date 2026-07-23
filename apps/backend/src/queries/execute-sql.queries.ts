@@ -21,6 +21,7 @@ export type LatestExecuteSqlRow = {
 	toolCallId: string;
 	toolInput: executeSql.Input;
 	toolOutput: executeSql.Output;
+	adminMode: boolean;
 };
 
 /** Latest non-superseded execute_sql part for a query id (global). */
@@ -33,6 +34,7 @@ export async function getLatestExecuteSqlByQueryId(queryId: string): Promise<Lat
 			toolCallId: s.messagePart.toolCallId,
 			toolInput: s.messagePart.toolInput,
 			toolOutput: s.messagePart.toolOutput,
+			messageSource: s.chatMessage.source,
 		})
 		.from(s.messagePart)
 		.innerJoin(s.chatMessage, eq(s.messagePart.messageId, s.chatMessage.id))
@@ -59,6 +61,7 @@ export async function getLatestExecuteSqlByQueryId(queryId: string): Promise<Lat
 		toolCallId: row.toolCallId,
 		toolInput: executeSql.InputSchema.parse(row.toolInput),
 		toolOutput: executeSql.OutputSchema.parse(row.toolOutput),
+		adminMode: row.messageSource === 'admin',
 	};
 }
 

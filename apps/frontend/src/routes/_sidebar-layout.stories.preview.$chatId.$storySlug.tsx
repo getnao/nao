@@ -157,6 +157,7 @@ function StoryPreviewPage() {
 								chatId={chatId}
 								storySlug={storySlug}
 								cacheSchedule={story.cacheSchedule}
+								filtersEnabled={editor.versionNav.isViewingLatest && !editor.isCodeDirty}
 							/>,
 						)}
 					</SelectionProvider>
@@ -226,15 +227,20 @@ function PreviewContent({
 	chatId,
 	storySlug,
 	cacheSchedule,
+	filtersEnabled,
 }: {
 	code: string;
 	queryData: QueryDataMap | null;
 	chatId: string;
 	storySlug: string;
 	cacheSchedule?: string | null;
+	filtersEnabled: boolean;
 }) {
 	const isNoCacheMode = cacheSchedule === 'no-cache';
-	const filterApi = useMemo(() => ({ kind: 'owned' as const, chatId, storySlug }), [chatId, storySlug]);
+	const filterApi = useMemo(
+		() => (filtersEnabled ? { kind: 'owned' as const, chatId, storySlug } : null),
+		[chatId, filtersEnabled, storySlug],
+	);
 
 	const noCacheQuery = useMemo(
 		() => (isNoCacheMode ? { queryOptions: trpc.story.getLiveQueryData.queryOptions, chatId } : undefined),

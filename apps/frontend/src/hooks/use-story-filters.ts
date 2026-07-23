@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { isFilterSelectionActive } from '@nao/shared/sql-template';
 import { getStoryFiltersFromCode } from '@nao/shared/story-segments';
@@ -33,14 +33,26 @@ export function useStoryFilters({
 		[code, filtersEnabled],
 	);
 	const [selections, setSelections] = useState<StoryFilterSelections>(() => readSelectionsFromUrl(filters));
+	const skipNextUrlWrite = useRef(true);
 
 	useEffect(() => {
+		skipNextUrlWrite.current = true;
+		if (!filtersEnabled) {
+			return;
+		}
 		setSelections(readSelectionsFromUrl(filters));
-	}, [filters]);
+	}, [filters, filtersEnabled]);
 
 	useEffect(() => {
+		if (!filtersEnabled) {
+			return;
+		}
+		if (skipNextUrlWrite.current) {
+			skipNextUrlWrite.current = false;
+			return;
+		}
 		writeSelectionsToUrl(selections, filters);
-	}, [selections, filters]);
+	}, [selections, filters, filtersEnabled]);
 
 	const setSelection = useCallback((filterId: string, selection: StoryFilterSelection) => {
 		setSelections((current) => {

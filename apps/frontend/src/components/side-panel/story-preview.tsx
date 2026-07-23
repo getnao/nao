@@ -21,6 +21,7 @@ interface StoryPreviewProps {
 	chatId: string;
 	storySlug: string;
 	versionKey?: string | number;
+	filtersEnabled?: boolean;
 }
 
 export const StoryPreview = memo(function StoryPreview({
@@ -31,6 +32,7 @@ export const StoryPreview = memo(function StoryPreview({
 	chatId,
 	storySlug,
 	versionKey,
+	filtersEnabled = true,
 }: StoryPreviewProps) {
 	const segments = useMemo(() => splitCodeIntoSegments(code), [code]);
 	const isNoCacheMode = cacheSchedule === NO_CACHE_SCHEDULE;
@@ -39,6 +41,7 @@ export const StoryPreview = memo(function StoryPreview({
 		code: fullCode ?? code,
 		baselineQueryData: queryData,
 		api: filterApi,
+		enabled: filtersEnabled,
 	});
 
 	const noCacheQuery = useMemo(
@@ -50,8 +53,8 @@ export const StoryPreview = memo(function StoryPreview({
 
 	const useLiveUnfiltered = isNoCacheMode && !storyFilters.hasActiveFilters;
 	const querySqlSource = useMemo(
-		() => ({ api: filterApi, selections: storyFilters.activeSelections }),
-		[filterApi, storyFilters.activeSelections],
+		() => (filtersEnabled ? { api: filterApi, selections: storyFilters.activeSelections } : null),
+		[filterApi, filtersEnabled, storyFilters.activeSelections],
 	);
 
 	const renderChart = useCallback(

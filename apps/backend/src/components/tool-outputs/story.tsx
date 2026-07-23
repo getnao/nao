@@ -40,7 +40,7 @@ export function StoryOutput({ output }: { output: StoryModelOutput }) {
 					</Span>
 					<List>
 						{templateWarnings.map((warning) => (
-							<ListItem>{warning}</ListItem>
+							<ListItem key={warning}>{warning}</ListItem>
 						))}
 					</List>
 				</Block>

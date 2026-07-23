@@ -26,9 +26,17 @@ describe('stripSqlFilterBlocks', () => {
 SELECT SUM(revenue) AS revenue, country
 FROM orders
 WHERE 1 = 1
+
+
+
 GROUP BY country
 `.trim(),
 		);
+	});
+
+	it('preserves untouched whitespace and strips malformed blocks safely', () => {
+		const sql = "SELECT 'line 1\n\nline 2  '\n{% endfilter %}\n{% filter country %} AND country = 'US'";
+		expect(stripSqlFilterBlocks(sql)).toBe("SELECT 'line 1\n\nline 2  '\n\n");
 	});
 });
 
@@ -50,6 +58,10 @@ describe('renderFilterSqlValue', () => {
 		expect(renderFilterSqlValue('select', '')).toBeNull();
 		expect(renderFilterSqlValue('multi_select', [])).toBeNull();
 		expect(renderFilterSqlValue('date_range', ['2024-01-01', ''])).toBeNull();
+	});
+
+	it('omits whitespace-only multi-select values', () => {
+		expect(renderFilterSqlValue('multi_select', ['US', '  '])).toBe("'US'");
 	});
 });
 
@@ -82,10 +94,17 @@ describe('renderSqlTemplate', () => {
 	});
 
 	it('rejects unknown filter ids and misplaced placeholders', () => {
-		expect(() => renderSqlTemplate(SAMPLE_SQL, { country: ['US'] }, {})).toThrow(/Unknown story filter/);
+		expect(() => renderSqlTemplate(SAMPLE_SQL, { country: ['US'] }, {})).toThrow(/undeclared filter/);
 		expect(() =>
 			renderSqlTemplate('SELECT 1 WHERE x = {{ filters.country.sql }}', { country: 'US' }, { country: 'select' }),
 		).toThrow(/must appear inside/);
+		expect(() =>
+			renderSqlTemplate(
+				'{% filter country %} AND country = {{ filters.country.sql.extra }} {% endfilter %}',
+				{ country: 'US' },
+				{ country: 'select' },
+			),
+		).toThrow(/Only \{\{ filters\.country\.sql \}\} is supported/);
 	});
 });
 
@@ -120,6 +139,18 @@ SELECT 1 FROM orders WHERE 1 = 1
 		const sql = "{% filter country %} AND country = 'US' {% endfilter %}";
 		const issues = validateSqlFilterTemplate(sql);
 		expect(issues.some((issue) => /missing \{\{ filters\.country\.sql \}\}/.test(issue))).toBe(true);
+	});
+
+	it('flags malformed placeholders and misordered delimiters', () => {
+		const placeholderIssues = validateSqlFilterTemplate('SELECT 1 WHERE country = {{ filters.country.sql.extra }}');
+		expect(placeholderIssues.some((issue) => /Only \{\{ filters\.country\.sql \}\} is supported/.test(issue))).toBe(
+			true,
+		);
+
+		const delimiterIssues = validateSqlFilterTemplate(
+			'{% endfilter %} SELECT 1 {% filter country %} AND country = {{ filters.country.sql }}',
+		);
+		expect(delimiterIssues.some((issue) => /Unexpected "\{% endfilter %\}"/.test(issue))).toBe(true);
 	});
 });
 

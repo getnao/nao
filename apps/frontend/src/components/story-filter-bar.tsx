@@ -23,6 +23,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
+const CLEAR_SELECT_VALUE = '__nao_clear_filter__';
+const SELECT_VALUE_PREFIX = '__nao_filter_value__:';
+
 export function StoryFilterBar({
 	filters,
 	selections,
@@ -137,16 +140,22 @@ function StoryFilterControl({
 					<FilterOptionsLoading />
 				) : (
 					<Select
-						value={typeof selection === 'string' && selection ? selection : '__all__'}
-						onValueChange={(value) => onChange(value === '__all__' ? '' : value)}
+						value={
+							typeof selection === 'string' && selection
+								? `${SELECT_VALUE_PREFIX}${selection}`
+								: CLEAR_SELECT_VALUE
+						}
+						onValueChange={(value) =>
+							onChange(value === CLEAR_SELECT_VALUE ? '' : value.slice(SELECT_VALUE_PREFIX.length))
+						}
 					>
 						<SelectTrigger className='h-8 min-w-36 bg-background'>
 							<SelectValue placeholder='All' />
 						</SelectTrigger>
 						<SelectContent>
-							<SelectItem value='__all__'>All</SelectItem>
+							<SelectItem value={CLEAR_SELECT_VALUE}>All</SelectItem>
 							{options.map((option) => (
-								<SelectItem key={option} value={option}>
+								<SelectItem key={option} value={`${SELECT_VALUE_PREFIX}${option}`}>
 									{option}
 								</SelectItem>
 							))}
@@ -227,7 +236,6 @@ function MultiSelectFilter({
 
 function RangeFilter({ value, onChange }: { value: string[]; onChange: (value: string[]) => void }) {
 	const selected = toDateRange(value);
-	const currentYear = new Date().getFullYear();
 
 	return (
 		<Popover>
@@ -250,10 +258,7 @@ function RangeFilter({ value, onChange }: { value: string[]; onChange: (value: s
 					selected={selected}
 					onSelect={(range) => onChange(fromDateRange(range))}
 					defaultMonth={selected?.from}
-					captionLayout='dropdown'
 					navLayout='after'
-					startMonth={new Date(currentYear - 20, 0)}
-					endMonth={new Date(currentYear + 2, 11)}
 					numberOfMonths={1}
 				/>
 			</PopoverContent>

@@ -237,11 +237,19 @@ describe('validateStoryCode', () => {
 					/require either `options=/.test(e.message),
 				),
 			).toBe(true);
+		});
+
+		it('flags invalid filter types', () => {
 			expect(
 				validateStoryCode('<filter id="country" column="country" type="number_range" table="orders" />').some(
 					(e) => /Invalid filter type/.test(e.message),
 				),
 			).toBe(true);
+		});
+
+		it('flags filter ids that cannot be used in SQL templates', () => {
+			const errors = validateStoryCode('<filter id="order-status" type="search" />');
+			expect(errors.some((error) => error.message.includes('Invalid filter id "order-status"'))).toBe(true);
 		});
 
 		it('flags duplicate filter ids', () => {

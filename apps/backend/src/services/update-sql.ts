@@ -51,6 +51,7 @@ async function prepareSqlEditContext(opts: {
 		projectId: existing.projectId,
 		userId: opts.userId,
 		chatId: existing.chatId,
+		adminMode: existing.adminMode,
 	});
 
 	const input: executeSql.Input = {

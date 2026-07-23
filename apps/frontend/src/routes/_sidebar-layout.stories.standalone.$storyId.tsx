@@ -223,6 +223,7 @@ function StandaloneEditableStory({
 							queryData={queryData}
 							chatId={chatId}
 							storySlug={storySlug}
+							filtersEnabled={editor.versionNav.isViewingLatest && !editor.isCodeDirty}
 						/>
 					</SelectionProvider>
 				}
@@ -261,13 +262,15 @@ function StandaloneStoryContent({
 	queryData,
 	chatId,
 	storySlug,
+	filtersEnabled = true,
 }: {
 	code: string;
 	queryData: QueryDataMap | null;
 	chatId?: string | null;
 	storySlug?: string;
+	filtersEnabled?: boolean;
 }) {
-	const filterApi = chatId && storySlug ? { kind: 'owned' as const, chatId, storySlug } : null;
+	const filterApi = filtersEnabled && chatId && storySlug ? { kind: 'owned' as const, chatId, storySlug } : null;
 
 	const renderChart = useCallback(
 		(

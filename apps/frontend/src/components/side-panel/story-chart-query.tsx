@@ -59,7 +59,7 @@ export function StoryChartQueryView({ queryId, source }: { queryId: string; sour
 					</section>
 					<section className='flex flex-col gap-1'>
 						<h4 className='text-xs font-medium uppercase tracking-wide text-muted-foreground'>
-							Executed query
+							Rendered query
 						</h4>
 						<SqlQueryDisplay query={data.renderedSql} />
 					</section>

@@ -170,6 +170,9 @@ function SharedStoryPage() {
 										chatId={story.chatId!}
 										shareId={shareId}
 										cacheSchedule={story.cacheSchedule}
+										filtersEnabled={
+											!isOwner || (editor.versionNav.isViewingLatest && !editor.isCodeDirty)
+										}
 									/>
 								}
 							/>
@@ -284,15 +287,20 @@ function SharedStoryContent({
 	chatId,
 	shareId,
 	cacheSchedule,
+	filtersEnabled,
 }: {
 	code: string;
 	queryData: QueryDataMap | null;
 	chatId: string;
 	shareId: string;
 	cacheSchedule?: string | null;
+	filtersEnabled: boolean;
 }) {
 	const isNoCacheMode = cacheSchedule === 'no-cache';
-	const filterApi = useMemo(() => ({ kind: 'shared' as const, shareId }), [shareId]);
+	const filterApi = useMemo(
+		() => (filtersEnabled ? { kind: 'shared' as const, shareId } : null),
+		[filtersEnabled, shareId],
+	);
 
 	const noCacheQuery = useMemo(
 		() => (isNoCacheMode ? { queryOptions: trpc.storyShare.getLiveQueryData.queryOptions, chatId } : undefined),

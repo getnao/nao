@@ -1,4 +1,4 @@
-import { stripSqlFilterBlocks, validateSqlFilterTemplate } from '@nao/shared/sql-template';
+import { sqlIncludesFilterTemplate, stripSqlFilterBlocks, validateSqlFilterTemplate } from '@nao/shared/sql-template';
 import type { executeSql } from '@nao/shared/tools';
 import { executeSql as schemas } from '@nao/shared/tools';
 
@@ -16,6 +16,9 @@ export async function executeQuery(
 ): Promise<executeSql.Output> {
 	const templateWarnings = env.BETA_STORY_FILTERS_ENABLED ? validateSqlFilterTemplate(sql_query) : [];
 	const effectiveSql = stripSqlFilterBlocks(sql_query);
+	if (templateWarnings.length > 0 && sqlIncludesFilterTemplate(effectiveSql)) {
+		throw new Error(`Invalid story filter SQL template: ${templateWarnings.join(' ')}`);
+	}
 	const writePermEnabled = context.agentSettings?.sql?.dangerouslyWritePermEnabled ?? false;
 	if (!writePermEnabled && !(await isReadOnlySqlQuery(effectiveSql))) {
 		throw new Error(
