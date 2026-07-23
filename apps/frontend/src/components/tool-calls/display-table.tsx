@@ -106,7 +106,7 @@ export function TableDisplay({
 										<button
 											type='button'
 											onClick={() => toggleSort(column)}
-											className='group flex w-full items-center justify-between gap-3'
+											className='group flex w-full cursor-pointer items-center justify-between gap-3'
 										>
 											<span className={cn(alignRight && 'ml-auto')}>
 												{humanizeColumnLabels ? formatColumnLabel(column) : column}

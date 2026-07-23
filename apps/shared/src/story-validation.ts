@@ -1,4 +1,4 @@
-import { parseChartAttributes, parseSeriesJsonArray, TAG_ATTRS } from './story-segments';
+import { parseChartAttributes, parseGridColumns, parseSeriesJsonArray, TAG_ATTRS } from './story-segments';
 
 export interface StoryValidationError {
 	message: string;
@@ -291,6 +291,33 @@ function validateGridBlocks(code: string): StoryValidationError[] {
 			if (!Number.isInteger(cols) || cols < 1 || cols > 4) {
 				errors.push({
 					message: `Grid \`cols\` must be an integer between 1 and 4 (got "${attrs.cols}").`,
+					line: position.line,
+					column: position.column,
+					length: match[0].length,
+				});
+			}
+		}
+
+		if (attrs.widths !== undefined) {
+			const widthValues = attrs.widths.split(',');
+			const hasInvalidWidth = widthValues.some((value) => {
+				const width = Number(value.trim());
+				return !Number.isInteger(width) || width <= 0;
+			});
+			if (hasInvalidWidth) {
+				errors.push({
+					message: 'Grid `widths` must be a comma-separated list of positive integers.',
+					line: position.line,
+					column: position.column,
+					length: match[0].length,
+				});
+			}
+
+			const innerContent = code.slice(openTagRegex.lastIndex, closeIdx);
+			const childCount = parseGridColumns(innerContent).children.length;
+			if (widthValues.length !== childCount) {
+				errors.push({
+					message: `Grid \`widths\` has ${widthValues.length} values but the grid has ${childCount} columns.`,
 					line: position.line,
 					column: position.column,
 					length: match[0].length,

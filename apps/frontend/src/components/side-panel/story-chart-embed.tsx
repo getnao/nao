@@ -1,5 +1,6 @@
 import { Pencil } from 'lucide-react';
 import { memo, useMemo, useState } from 'react';
+import { StoryEmbedFallback } from './story-embed-fallback';
 import type { UIMessage } from '@nao/backend/chat';
 import type { displayChart } from '@nao/shared/tools';
 
@@ -10,6 +11,8 @@ import { useOptionalAgentContext } from '@/contexts/agent.provider';
 import { useStoryChartEdit } from '@/contexts/story-chart-edit';
 import { useStoryEmbedData } from '@/contexts/story-embed-data';
 import { sortByDateKey } from '@/lib/charts.utils';
+
+const STORY_CHART_HEIGHT_CLASS = 'h-72';
 
 interface ChartBlock {
 	queryId: string;
@@ -25,7 +28,13 @@ interface ChartBlock {
 	rawTag?: string;
 }
 
-export const StoryChartEmbed = memo(function StoryChartEmbed({ chart }: { chart: ChartBlock }) {
+export const StoryChartEmbed = memo(function StoryChartEmbed({
+	chart,
+	dragHandle,
+}: {
+	chart: ChartBlock;
+	dragHandle?: React.ReactNode;
+}) {
 	const agent = useOptionalAgentContext();
 	const embedData = useStoryEmbedData();
 
@@ -59,24 +68,20 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({ chart }: { chart:
 
 	if (!sourceData?.data || sourceData.data.length === 0) {
 		return (
-			<div className='my-2 rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground'>
+			<StoryEmbedFallback dragHandle={dragHandle}>
 				Chart data unavailable (query: {chart.queryId})
-			</div>
+			</StoryEmbedFallback>
 		);
 	}
 
 	if (chart.series.length === 0) {
-		return (
-			<div className='my-2 rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground'>
-				No series configured for chart
-			</div>
-		);
+		return <StoryEmbedFallback dragHandle={dragHandle}>No series configured for chart</StoryEmbedFallback>;
 	}
 
 	const xAxisType = chart.xAxisType === 'number' ? 'number' : ('category' as const);
 
 	return (
-		<StoryChartEmbedShell chart={chart} availableColumns={sourceData.columns ?? []}>
+		<StoryChartEmbedShell chart={chart} availableColumns={sourceData.columns ?? []} dragHandle={dragHandle}>
 			<ChartDisplay
 				data={data}
 				chartType={chart.chartType as displayChart.ChartType}
@@ -87,6 +92,7 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({ chart }: { chart:
 				yAxisMin={chart.yAxisMin}
 				yAxisMax={chart.yAxisMax}
 				showDataLabels={chart.showDataLabels}
+				normalSize
 				hideTotal={chart.hideTotal}
 			/>
 		</StoryChartEmbedShell>
@@ -96,6 +102,7 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({ chart }: { chart:
 interface StoryChartEmbedShellProps {
 	chart: ChartBlock;
 	availableColumns: string[];
+	dragHandle?: React.ReactNode;
 	children: React.ReactNode;
 }
 
@@ -103,7 +110,7 @@ interface StoryChartEmbedShellProps {
  * Wraps a rendered chart with an "Edit chart" button when the surrounding story
  * context provides a save handler.
  */
-export function StoryChartEmbedShell({ chart, availableColumns, children }: StoryChartEmbedShellProps) {
+export function StoryChartEmbedShell({ chart, availableColumns, dragHandle, children }: StoryChartEmbedShellProps) {
 	const edit = useStoryChartEdit();
 	const [isEditOpen, setIsEditOpen] = useState(false);
 	const canEdit = Boolean(edit && chart.rawTag);
@@ -131,7 +138,7 @@ export function StoryChartEmbedShell({ chart, availableColumns, children }: Stor
 
 	return (
 		<div className='my-2 flex flex-col gap-4'>
-			{(canEdit || (chart.chartType != 'kpi_card' && chart.title)) && (
+			{(canEdit || dragHandle != null || (chart.chartType != 'kpi_card' && chart.title)) && (
 				<div className='flex w-full items-center justify-between gap-2'>
 					{chart.chartType != 'kpi_card' && chart.title ? (
 						<span className='text-sm font-medium text-foreground flex-1 min-w-0 truncate'>
@@ -140,20 +147,25 @@ export function StoryChartEmbedShell({ chart, availableColumns, children }: Stor
 					) : (
 						<div className='flex-1' />
 					)}
-					{canEdit && (
-						<Button
-							variant='ghost-muted'
-							size='icon-xs'
-							onClick={() => setIsEditOpen(true)}
-							title='Edit chart'
-							className='shrink-0 hover:bg-accent hover:rounded-full'
-						>
-							<Pencil className='size-3.5' />
-						</Button>
-					)}
+					<div className='flex shrink-0 items-center gap-1'>
+						{dragHandle}
+						{canEdit && (
+							<Button
+								variant='ghost-muted'
+								size='icon-xs'
+								onClick={() => setIsEditOpen(true)}
+								title='Edit chart'
+								className='shrink-0 hover:bg-accent hover:rounded-full'
+							>
+								<Pencil className='size-3.5' />
+							</Button>
+						)}
+					</div>
 				</div>
 			)}
-			<div className={`relative ${chart.chartType != 'kpi_card' ? 'aspect-3/2' : ''}`}>{children}</div>
+			<div className={`relative ${chart.chartType != 'kpi_card' ? STORY_CHART_HEIGHT_CLASS : ''}`}>
+				{children}
+			</div>
 			{canEdit && edit && chart.rawTag && (
 				<ChartConfigEditDialog
 					open={isEditOpen}

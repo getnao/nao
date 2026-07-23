@@ -89,7 +89,7 @@ function StorySegment({ segment, queryData }: { segment: Segment; queryData: Que
 		case 'table':
 			return <TableBlock table={segment.table} queryData={queryData} />;
 		case 'grid':
-			return <GridBlock cols={segment.cols} segments={segment.children} queryData={queryData} />;
+			return <GridBlock segment={segment} queryData={queryData} />;
 	}
 }
 
@@ -102,30 +102,31 @@ function MarkdownBlock({ content }: { content: string }) {
 }
 
 function GridBlock({
-	cols: _cols,
-	segments,
+	segment,
 	queryData,
 }: {
-	cols: number;
-	segments: Segment[];
+	segment: Extract<Segment, { type: 'grid' }>;
 	queryData: QueryDataMap | null;
 }) {
-	const allKpi = segments.every((s) => s.type === 'chart' && s.chart.chartType === 'kpi_card');
+	const allKpi =
+		segment.children.length > 0 &&
+		segment.children.every((child) => child.type === 'chart' && child.chart.chartType === 'kpi_card');
 	if (allKpi) {
 		return (
 			<div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, margin: '16px 0' }}>
-				{segments.map((seg, i) => (
-					<div key={i} style={{ flex: '1 1 0%', minWidth: 160 }}>
-						<StorySegment segment={seg} queryData={queryData} />
+				{segment.children.map((child, i) => (
+					<div key={i} style={{ flex: `${segment.widths?.[i] ?? 1} 1 0%`, minWidth: 160 }}>
+						<StorySegment segment={child} queryData={queryData} />
 					</div>
 				))}
 			</div>
 		);
 	}
+
 	return (
 		<>
-			{segments.map((seg, i) => (
-				<StorySegment key={i} segment={seg} queryData={queryData} />
+			{segment.children.map((child, i) => (
+				<StorySegment key={i} segment={child} queryData={queryData} />
 			))}
 		</>
 	);

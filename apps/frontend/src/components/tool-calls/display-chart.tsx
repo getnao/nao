@@ -12,7 +12,7 @@ import {
 	Pencil,
 	Table as TableIcon,
 } from 'lucide-react';
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 
 import { useOptionalAgentContext } from '../../contexts/agent.provider';
 import GraphLoaderAnimated from '../icons/graph-loader-animated';
@@ -31,6 +31,7 @@ import type { ChartConfig } from '../ui/chart';
 import type { executeSql } from '@nao/shared/tools';
 import type { UIMessage } from '@nao/backend/chat';
 import type { DateRange } from '@/lib/charts.utils';
+import type { DataExportFormat } from '@/components/export-data-menu';
 import { trpc } from '@/main';
 import { findStoryIds } from '@/lib/story.utils';
 import {
@@ -43,14 +44,24 @@ import {
 } from '@/lib/charts.utils';
 import { useDateFormat } from '@/hooks/use-date-format';
 import { useChatId } from '@/hooks/use-chat-id';
+import { useResizeObserver } from '@/hooks/use-resize-observer';
 import { useSidePanel } from '@/contexts/side-panel';
 import { StoryViewer } from '@/components/side-panel/story-viewer';
 import { cn } from '@/lib/utils';
-import { downloadCsv, tableToCsv } from '@/lib/table-export';
+import { ExportDataMenu } from '@/components/export-data-menu';
 
 const Colors = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)', 'var(--chart-5)'];
 const EMPTY_MESSAGES: UIMessage[] = [];
 const LEGEND_SCROLL_OFFSET = 120;
+const PIE_LEGEND_BREAKPOINT = 280;
+const COMPACT_XAXIS_BREAKPOINT = 360;
+const CHAR_WIDTH_RATIO = 0.6;
+const ANGLE_COS = Math.cos((35 * Math.PI) / 180);
+const ANGLE_SIN = Math.sin((35 * Math.PI) / 180);
+const MIN_TICK_FONT = 9;
+const MAX_TICK_FONT = 12;
+const MIN_TICK_LABEL_CHARS = 3;
+const MAX_TICK_LABEL_HEIGHT = 44;
 
 type ViewMode = 'chart' | 'data' | 'query';
 
@@ -108,23 +119,8 @@ export const DisplayChartToolCall = ({
 	const sourceData = sourceQuery?.output ?? null;
 	const sqlQuery = sourceQuery?.input?.sql_query;
 
-	const handleDownload = async () => {
-		if (!chartConfig || !sourceData) {
-			return;
-		}
-		if (viewMode !== 'chart') {
-			downloadCsv(
-				`${chartConfig.title || 'chart'}.csv`,
-				tableToCsv(sourceData.columns, sourceData.data as Record<string, unknown>[]),
-			);
-			if (chatId) {
-				logDownload.mutate({
-					chatId,
-					format: 'csv',
-					queryId: chartConfig.query_id,
-					title: chartConfig.title,
-				});
-			}
+	const handleDownloadPng = async () => {
+		if (!chartConfig) {
 			return;
 		}
 
@@ -139,6 +135,12 @@ export const DisplayChartToolCall = ({
 			console.error('Error downloading chart image:', err);
 		} finally {
 			setIsDownloading(false);
+		}
+	};
+
+	const handleExportData = (format: DataExportFormat) => {
+		if (chatId) {
+			logDownload.mutate({ chatId, format, queryId: chartConfig?.query_id, title: chartConfig?.title });
 		}
 	};
 
@@ -322,17 +324,35 @@ export const DisplayChartToolCall = ({
 							</Button>
 						)}
 
-						{(viewMode !== 'chart' || chartConfig.chart_type != 'kpi_card') && (
-							<Button
-								variant='ghost-muted'
-								size='icon-xs'
-								className='rounded-full hover:bg-accent/70'
-								onClick={handleDownload}
-								disabled={isDownloading}
-								title={viewMode === 'chart' ? 'Download as PNG' : 'Download data as CSV'}
+						{viewMode === 'chart' ? (
+							chartConfig.chart_type != 'kpi_card' && (
+								<Button
+									variant='ghost-muted'
+									size='icon-xs'
+									className='rounded-full hover:bg-accent/70'
+									onClick={handleDownloadPng}
+									disabled={isDownloading}
+									title='Download as PNG'
+								>
+									<Download className='size-3 text-muted-foreground/70' strokeWidth={2.25} />
+								</Button>
+							)
+						) : (
+							<ExportDataMenu
+								columns={sourceData.columns}
+								data={sourceData.data as Record<string, unknown>[]}
+								filename={chartConfig.title || 'chart'}
+								onExport={handleExportData}
 							>
-								<Download className='size-3 text-muted-foreground/70' strokeWidth={2.25} />
-							</Button>
+								<Button
+									variant='ghost-muted'
+									size='icon-xs'
+									className='rounded-full hover:bg-accent/70'
+									title='Export data'
+								>
+									<Download className='size-3 text-muted-foreground/70' strokeWidth={2.25} />
+								</Button>
+							</ExportDataMenu>
 						)}
 					</div>
 					{isEditable && (
@@ -400,6 +420,7 @@ export interface ChartDisplayProps {
 	className?: string;
 	chartContainerClassName?: string;
 	chartContentClassName?: string;
+	normalSize?: boolean;
 	hideTotal?: boolean;
 }
 
@@ -422,9 +443,16 @@ export const ChartDisplay = memo(function ChartDisplay({
 	className,
 	chartContainerClassName,
 	chartContentClassName,
+	normalSize = false,
 	hideTotal,
 }: ChartDisplayProps) {
 	const dateFormat = useDateFormat();
+	const gradientIdPrefix = `${useId().replace(/:/g, '')}-`;
+	const containerRef = useRef<HTMLDivElement>(null);
+	const [width, setWidth] = useState(0);
+	useResizeObserver(containerRef, (element) => {
+		setWidth(element.getBoundingClientRect().width);
+	});
 
 	const xAxisKey = useMemo(() => resolveDataKey(data, xAxisKeyProp), [data, xAxisKeyProp]);
 	const series = useMemo(
@@ -436,6 +464,9 @@ export const ChartDisplay = memo(function ChartDisplay({
 	const isPercentStacked = displayChart.isPercentStackedChartType(chartType);
 
 	const isPie = displayChart.isPieChart(chartType);
+	const compactPieLegend = isPie && width > 0 && width < PIE_LEGEND_BREAKPOINT;
+	const pieCenteringClass = isPie && !compactPieLegend ? 'mx-auto max-w-[480px]' : '';
+	const compactXAxis = !isPie && width > 0 && width < COMPACT_XAXIS_BREAKPOINT;
 	const pieValueKey = series[0]?.data_key ?? '';
 	const pieData = useMemo(
 		() => (isPie ? bucketPieData(data, xAxisKey, pieValueKey) : data),
@@ -506,6 +537,22 @@ export const ChartDisplay = memo(function ChartDisplay({
 		() => xAxisLabelFormatter ?? ((value: string) => labelize(value, dateFormat)),
 		[xAxisLabelFormatter, dateFormat],
 	);
+	let xAxisTickFontSize: number | undefined;
+	let xAxisMaxLabelChars: number | undefined;
+	if (compactXAxis) {
+		const perCategoryPx = width / Math.max(data.length, 1);
+		const longestLabelLen = Math.max(1, ...data.map((row) => labelFormatter(String(row[xAxisKey])).length));
+		const neededFont = perCategoryPx / (longestLabelLen * CHAR_WIDTH_RATIO * ANGLE_COS);
+		xAxisTickFontSize = Math.round(Math.max(MIN_TICK_FONT, Math.min(MAX_TICK_FONT, neededFont)));
+
+		const charPx = xAxisTickFontSize * CHAR_WIDTH_RATIO;
+		const horizontalCharCap = Math.floor(perCategoryPx / (charPx * ANGLE_COS));
+		const verticalCharCap = Math.floor(MAX_TICK_LABEL_HEIGHT / (charPx * ANGLE_SIN));
+		const charCap = Math.max(MIN_TICK_LABEL_CHARS, Math.min(horizontalCharCap, verticalCharCap));
+		if (longestLabelLen > charCap) {
+			xAxisMaxLabelChars = charCap;
+		}
+	}
 
 	const tooltipLabelFormatter = useMemo(
 		() => (value: unknown, items: unknown) =>
@@ -526,8 +573,12 @@ export const ChartDisplay = memo(function ChartDisplay({
 				colorFor,
 				labelFormatter,
 				valueFormatter,
+				compactXAxis,
+				xAxisTickFontSize,
+				xAxisMaxLabelChars,
 				showGrid,
 				showDataLabels,
+				gradientIdPrefix,
 				margin: { top: 0, right: 0, bottom: 0, left: 0 },
 				yAxisMin,
 				yAxisMax,
@@ -550,12 +601,13 @@ export const ChartDisplay = memo(function ChartDisplay({
 						<ChartLegend
 							key='legend'
 							payload={legendPayload}
-							layout={isPie ? 'vertical' : 'horizontal'}
-							align={isPie ? 'right' : 'center'}
-							verticalAlign={isPie ? 'middle' : 'bottom'}
+							layout={isPie && !compactPieLegend ? 'vertical' : 'horizontal'}
+							align={isPie && !compactPieLegend ? 'right' : 'center'}
+							verticalAlign={isPie && !compactPieLegend ? 'middle' : 'bottom'}
 							content={
 								<ChartLegendContent
-									layout={isPie ? 'vertical' : 'horizontal'}
+									layout={isPie && !compactPieLegend ? 'vertical' : 'horizontal'}
+									className={compactPieLegend ? 'flex-wrap' : undefined}
 									onItemClick={isPie ? undefined : handleToggleSeriesVisibility}
 								/>
 							}
@@ -569,6 +621,10 @@ export const ChartDisplay = memo(function ChartDisplay({
 			pieData,
 			chartType,
 			isPie,
+			compactPieLegend,
+			compactXAxis,
+			xAxisTickFontSize,
+			xAxisMaxLabelChars,
 			xAxisKey,
 			xAxisType,
 			visibleSeries,
@@ -580,6 +636,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 			yAxisMin,
 			yAxisMax,
 			showDataLabels,
+			gradientIdPrefix,
 			hideTotal,
 			legendPayload,
 			handleToggleSeriesVisibility,
@@ -635,7 +692,14 @@ export const ChartDisplay = memo(function ChartDisplay({
 	) : undefined;
 
 	return (
-		<div className={`flex flex-col items-stretch gap-2 w-full ${className ?? ''}`}>
+		<div
+			ref={containerRef}
+			className={cn(
+				'flex flex-col items-stretch gap-2 w-full',
+				chartType !== 'kpi_card' && normalSize ? 'h-full' : '',
+				className,
+			)}
+		>
 			{chartType === 'kpi_card' ? (
 				<>
 					{inlineHeader}
@@ -644,7 +708,11 @@ export const ChartDisplay = memo(function ChartDisplay({
 			) : (
 				<ChartContainer
 					config={chartConfig}
-					className={`w-full ${chartContainerClassName ?? ''}`}
+					className={cn(
+						normalSize ? 'h-full w-full aspect-auto' : 'w-full',
+						pieCenteringClass,
+						chartContainerClassName,
+					)}
 					contentClassName={chartContentClassName}
 					header={inlineHeader}
 				>

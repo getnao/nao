@@ -3,10 +3,12 @@ import { useMutation } from '@tanstack/react-query';
 import { Copy, Download, Maximize2 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import type { ColumnConditionalFormats } from '@nao/shared/conditional-formatting';
+import type { DataExportFormat } from '@/components/export-data-menu';
+import { ExportDataMenu } from '@/components/export-data-menu';
 import { TableDisplay } from '@/components/tool-calls/display-table';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
-import { downloadCsv, tableToCsv, tableToTsv } from '@/lib/table-export';
+import { tableToTsv } from '@/lib/table-export';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
@@ -44,10 +46,9 @@ export function DataTableCard({
 	}
 
 	const handleCopy = () => navigator.clipboard.writeText(tableToTsv(resolvedColumns, data));
-	const handleDownload = () => {
-		downloadCsv('table.csv', tableToCsv(resolvedColumns, data));
+	const handleExport = (format: DataExportFormat) => {
 		if (chatId) {
-			logDownload.mutate({ chatId, format: 'csv', title });
+			logDownload.mutate({ chatId, format, title });
 		}
 	};
 
@@ -66,15 +67,21 @@ export function DataTableCard({
 					>
 						<Copy className='size-3 text-muted-foreground/70' />
 					</Button>
-					<Button
-						variant='ghost-muted'
-						size='icon-xs'
-						className='hover:rounded-full hover:bg-accent/70'
-						onClick={handleDownload}
-						title='Download as CSV'
+					<ExportDataMenu
+						columns={resolvedColumns}
+						data={data}
+						filename={title || 'table'}
+						onExport={handleExport}
 					>
-						<Download className='size-3 text-muted-foreground/70' />
-					</Button>
+						<Button
+							variant='ghost-muted'
+							size='icon-xs'
+							className='hover:rounded-full hover:bg-accent/70'
+							title='Export data'
+						>
+							<Download className='size-3 text-muted-foreground/70' />
+						</Button>
+					</ExportDataMenu>
 					<Button
 						variant='ghost-muted'
 						size='icon-xs'
@@ -110,15 +117,21 @@ export function DataTableCard({
 						>
 							<Copy className='size-3.5' />
 						</Button>
-						<Button
-							variant='ghost-muted'
-							size='icon-xs'
-							className='hover:rounded-full'
-							onClick={handleDownload}
-							title='Download as CSV'
+						<ExportDataMenu
+							columns={resolvedColumns}
+							data={data}
+							filename={title || 'table'}
+							onExport={handleExport}
 						>
-							<Download className='size-3.5' />
-						</Button>
+							<Button
+								variant='ghost-muted'
+								size='icon-xs'
+								className='hover:rounded-full'
+								title='Export data'
+							>
+								<Download className='size-3.5' />
+							</Button>
+						</ExportDataMenu>
 					</div>
 					<TableDisplay
 						data={data}
