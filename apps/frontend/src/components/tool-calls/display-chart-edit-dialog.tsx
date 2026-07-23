@@ -374,59 +374,79 @@ export function ChartConfigEditDialog({
 								}
 
 								return (
-									<fieldset key={index} className='rounded-md border border-border px-3 pt-1 pb-3'>
-										<legend className='ml-1'>
-											<SeriesTypeSelect
-												value={series.series_type ?? 'bar'}
-												onChange={(value) => updateSeriesAt(index, { series_type: value })}
-											/>
-										</legend>
+									<div
+										key={index}
+										className='flex flex-col gap-2 rounded-md border border-border px-3 pt-2 pb-3'
+									>
+										<SeriesTypeSelect
+											value={series.series_type ?? 'bar'}
+											onChange={(value) => updateSeriesAt(index, { series_type: value })}
+										/>
 										{row}
-									</fieldset>
+									</div>
 								);
 							})}
 						</div>
 					</div>
 
-					{isCombo && (hasLeftAxis || hasRightAxis) && (
-						<div className='grid gap-3 py-2'>
-							<span className='text-sm font-semibold text-foreground'>Axis</span>
-							{hasLeftAxis && (
-								<AxisFields
-									name='Left'
-									showRange={supportsYAxisRange}
-									labelPlaceholder='Label (optional)'
-									labelValue={draft.y_axis_label ?? ''}
-									onLabelChange={(value) =>
-										setDraft((prev) => ({ ...prev, y_axis_label: value || undefined }))
-									}
-									minId='chart-y-axis-min'
-									maxId='chart-y-axis-max'
-									minValue={yAxisMinText}
-									maxValue={yAxisMaxText}
-									onMinChange={updateYAxisMin}
-									onMaxChange={updateYAxisMax}
-								/>
+					{isCombo
+						? (hasLeftAxis || hasRightAxis) && (
+								<div className='grid gap-3 py-2'>
+									<span className='text-sm font-semibold text-foreground'>Y-axis range</span>
+									{hasLeftAxis && (
+										<AxisFields
+											name='Left'
+											showRange={supportsYAxisRange}
+											labelPlaceholder='Label (optional)'
+											labelValue={draft.y_axis_label ?? ''}
+											onLabelChange={(value) =>
+												setDraft((prev) => ({ ...prev, y_axis_label: value || undefined }))
+											}
+											minId='chart-y-axis-min'
+											maxId='chart-y-axis-max'
+											minValue={yAxisMinText}
+											maxValue={yAxisMaxText}
+											onMinChange={updateYAxisMin}
+											onMaxChange={updateYAxisMax}
+										/>
+									)}
+									{hasRightAxis && (
+										<AxisFields
+											name='Right'
+											showRange={supportsYAxisRange}
+											labelPlaceholder='Label (optional)'
+											labelValue={draft.y_axis_right_label ?? ''}
+											onLabelChange={(value) =>
+												setDraft((prev) => ({
+													...prev,
+													y_axis_right_label: value || undefined,
+												}))
+											}
+											minId='chart-y-axis-right-min'
+											maxId='chart-y-axis-right-max'
+											minValue={yAxisRightMinText}
+											maxValue={yAxisRightMaxText}
+											onMinChange={updateYAxisRightMin}
+											onMaxChange={updateYAxisRightMax}
+										/>
+									)}
+								</div>
+							)
+						: supportsYAxisRange && (
+								<div className='grid gap-2 py-2'>
+									<span className='text-sm font-semibold text-foreground'>Y-axis range</span>
+									<div className='grid grid-cols-[1fr_1fr] gap-3 items-end'>
+										<MinMaxFields
+											minId='chart-y-axis-min'
+											maxId='chart-y-axis-max'
+											minValue={yAxisMinText}
+											maxValue={yAxisMaxText}
+											onMinChange={updateYAxisMin}
+											onMaxChange={updateYAxisMax}
+										/>
+									</div>
+								</div>
 							)}
-							{hasRightAxis && (
-								<AxisFields
-									name='Right'
-									showRange={supportsYAxisRange}
-									labelPlaceholder='Label (optional)'
-									labelValue={draft.y_axis_right_label ?? ''}
-									onLabelChange={(value) =>
-										setDraft((prev) => ({ ...prev, y_axis_right_label: value || undefined }))
-									}
-									minId='chart-y-axis-right-min'
-									maxId='chart-y-axis-right-max'
-									minValue={yAxisRightMinText}
-									maxValue={yAxisRightMaxText}
-									onMinChange={updateYAxisRightMin}
-									onMaxChange={updateYAxisRightMax}
-								/>
-							)}
-						</div>
-					)}
 
 					<div className='grid gap-2'>
 						<span className='text-sm font-semibold text-foreground'>Options</span>
@@ -585,38 +605,60 @@ function AxisFields({
 				/>
 			</div>
 			{showRange && (
-				<>
-					<div className='grid gap-1'>
-						<label htmlFor={minId} className='text-xs text-muted-foreground'>
-							Min
-						</label>
-						<Input
-							id={minId}
-							className='h-8 bg-panel'
-							type='text'
-							inputMode='decimal'
-							placeholder='Auto'
-							value={minValue}
-							onChange={(e) => onMinChange(e.target.value)}
-						/>
-					</div>
-					<div className='grid gap-1'>
-						<label htmlFor={maxId} className='text-xs text-muted-foreground'>
-							Max
-						</label>
-						<Input
-							id={maxId}
-							className='h-8 bg-panel'
-							type='text'
-							inputMode='decimal'
-							placeholder='Auto'
-							value={maxValue}
-							onChange={(e) => onMaxChange(e.target.value)}
-						/>
-					</div>
-				</>
+				<MinMaxFields
+					minId={minId}
+					maxId={maxId}
+					minValue={minValue}
+					maxValue={maxValue}
+					onMinChange={onMinChange}
+					onMaxChange={onMaxChange}
+				/>
 			)}
 		</div>
+	);
+}
+
+interface MinMaxFieldsProps {
+	minId: string;
+	maxId: string;
+	minValue: string;
+	maxValue: string;
+	onMinChange: (value: string) => void;
+	onMaxChange: (value: string) => void;
+}
+
+function MinMaxFields({ minId, maxId, minValue, maxValue, onMinChange, onMaxChange }: MinMaxFieldsProps) {
+	return (
+		<>
+			<div className='grid gap-1'>
+				<label htmlFor={minId} className='text-xs text-muted-foreground'>
+					Min
+				</label>
+				<Input
+					id={minId}
+					className='h-8 bg-panel'
+					type='text'
+					inputMode='decimal'
+					placeholder='Auto'
+					value={minValue}
+					onChange={(e) => onMinChange(e.target.value)}
+				/>
+			</div>
+			<div className='grid gap-1'>
+				<label htmlFor={maxId} className='text-xs text-muted-foreground'>
+					Max
+				</label>
+				<Input
+					id={maxId}
+					className='h-8 bg-panel'
+					type='text'
+					inputMode='decimal'
+					placeholder='Auto'
+					value={maxValue}
+					onChange={(e) => onMaxChange(e.target.value)}
+				/>
+			</div>
+		</>
 	);
 }
 
@@ -660,6 +702,7 @@ function YAxisSideToggle({ value, onChange }: YAxisSideToggleProps) {
 					variant='outline'
 					size='icon-sm'
 					className='size-8 bg-panel'
+					aria-label={isRight ? 'Right Y-axis' : 'Left Y-axis'}
 					onClick={() => {
 						onChange(isRight ? 'left' : 'right');
 						setOpen(true);
@@ -708,12 +751,20 @@ function resolveChartPaletteHexes(): string[] {
 		if (!value || !context) {
 			return fallback;
 		}
-		const sentinel = '#010203';
-		context.fillStyle = sentinel;
-		context.fillStyle = value;
-		const resolved = context.fillStyle;
-		return resolved !== sentinel && HEX_RE.test(resolved) ? resolved : fallback;
+		return cssColorToHex(context, value) ?? fallback;
 	});
+}
+
+function cssColorToHex(context: CanvasRenderingContext2D, color: string): string | null {
+	const sentinel = '#010203';
+	context.fillStyle = sentinel;
+	context.fillStyle = color;
+	if (context.fillStyle === sentinel && color.toLowerCase() !== sentinel) {
+		return null;
+	}
+	context.fillRect(0, 0, 1, 1);
+	const [r, g, b] = context.getImageData(0, 0, 1, 1).data;
+	return `#${[r, g, b].map((channel) => channel.toString(16).padStart(2, '0')).join('')}`;
 }
 
 function applyChartConfigToMessages(

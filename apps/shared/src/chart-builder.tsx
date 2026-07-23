@@ -313,7 +313,8 @@ function isCartesianLabelChart(chartType: displayChart.ChartType): boolean {
 		chartType === 'stacked_bar' ||
 		chartType === 'line' ||
 		chartType === 'area' ||
-		chartType === 'stacked_area'
+		chartType === 'stacked_area' ||
+		chartType === 'mixed'
 	);
 }
 
@@ -466,6 +467,7 @@ function buildBarChart(props: ResolvedProps) {
 		data,
 		chartType,
 		xAxisKey,
+		xAxisType,
 		colorFor,
 		labelFormatter,
 		showGrid,
@@ -506,7 +508,7 @@ function buildBarChart(props: ResolvedProps) {
 			)}
 			{renderCategoryXAxis({
 				xAxisKey,
-				xAxisType: 'category',
+				xAxisType: xAxisType ?? 'category',
 				xAxisInterval,
 				labelFormatter,
 				compact: compactXAxis,
@@ -592,6 +594,7 @@ function buildAreaChart(props: ResolvedProps) {
 		yAxisMin,
 		yAxisMax,
 		showDataLabels,
+		idPrefix = '',
 	} = props;
 	const gradientIdPrefix = props.gradientIdPrefix ?? '';
 	const gradientIdFor = (index: number) => `${gradientIdPrefix}grad-${index}`;
@@ -698,7 +701,6 @@ function buildComboChart(props: ResolvedProps) {
 	const leftDomain = resolveComboAxisDomain(data, leftSeries, yAxisMin, yAxisMax);
 	const rightDomain = resolveComboAxisDomain(data, rightSeries, yAxisRightMin, yAxisRightMax);
 	const areaSeries = series.filter((s) => comboSeriesType(s, chartType) === 'area');
-	const hasBarSeries = series.some((s) => comboSeriesType(s, chartType) === 'bar');
 	const pointLabelContent = showDataLabels ? buildPointLabelContentBySeries(data, series) : new Map();
 
 	return (
@@ -752,7 +754,7 @@ function buildComboChart(props: ResolvedProps) {
 			)}
 			{renderCategoryXAxis({
 				xAxisKey,
-				xAxisType: hasBarSeries ? 'category' : xAxisType,
+				xAxisType: xAxisType ?? 'category',
 				xAxisInterval,
 				labelFormatter,
 			})}

@@ -1,15 +1,8 @@
 import { buildStoryTableBlock } from './chart-block';
 import { type ColumnConditionalFormats, sanitizeConditionalFormats } from './conditional-formatting';
-import type { SeriesType, YAxisSide } from './tools/display-chart';
+import type { SeriesConfig } from './tools/display-chart';
 
-export interface ParsedChartSeries {
-	data_key: string;
-	color?: string;
-	label?: string;
-	is_total?: boolean;
-	series_type?: SeriesType;
-	y_axis?: YAxisSide;
-}
+export type ParsedChartSeries = SeriesConfig;
 
 const GRID_SPAN_DIV_PATTERN =
 	'<div\\b[^>]*style\\s*=\\s*"[^"]*grid-column\\s*:\\s*span\\s+(\\d+)[^"]*"[^>]*>([\\s\\S]*?)<\\/div>';
