@@ -608,13 +608,13 @@ function cleanValueFormat(
 }
 
 const UNSUPPORTED_NUMBER_FORMAT_MESSAGE =
-	'This number format renders differently in story exports. Use formats like ,.2f, .2f, , or .2~s.';
+	'This number format renders differently in story exports. Use formats like ,.2f, .2f, , or .2s.';
 
 /**
  * Number formats that render identically in the interactive chart (d3-format) and in the
  * static story export formatter. Exposing only these in the editor keeps both paths consistent.
  */
-const EXPORT_SAFE_NUMBER_FORMATS = [/^(,)?(?:\.\d+)?f$/, /^,$/, /^(?:\.\d+)?~s$/];
+const EXPORT_SAFE_NUMBER_FORMATS = [/^(,)?(?:\.\d+)?f$/, /^,$/, /^(?:\.\d+)?~?s$/];
 
 function isExportSafeNumberFormat(format: string): boolean {
 	return format === '' || EXPORT_SAFE_NUMBER_FORMATS.some((pattern) => pattern.test(format));
