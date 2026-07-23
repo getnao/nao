@@ -218,6 +218,39 @@ describe('displayChart.InputSchema table variant', () => {
 		expect(result.success && result.data.chart_type !== 'table' && result.data.hide_total).toBe(true);
 	});
 
+	it('retains Y-axis settings and data labels in a valid chart config', () => {
+		const result = displayChart.InputSchema.safeParse({
+			query_id: 'q',
+			chart_type: 'mixed',
+			x_axis_key: 'month',
+			x_axis_type: 'date',
+			series: [
+				{ data_key: 'revenue', y_axis: 'left' },
+				{ data_key: 'margin', y_axis: 'right' },
+			],
+			title: 'Revenue and margin',
+			y_axis_min: 0,
+			y_axis_max: 1000,
+			y_axis_label: 'Revenue',
+			y_axis_right_min: -10,
+			y_axis_right_max: 100,
+			y_axis_right_label: 'Margin',
+			show_data_labels: true,
+		});
+		expect(result).toMatchObject({
+			success: true,
+			data: {
+				y_axis_min: 0,
+				y_axis_max: 1000,
+				y_axis_label: 'Revenue',
+				y_axis_right_min: -10,
+				y_axis_right_max: 100,
+				y_axis_right_label: 'Margin',
+				show_data_labels: true,
+			},
+		});
+	});
+
 	it('rejects a chart config missing chart fields', () => {
 		const result = displayChart.InputSchema.safeParse({
 			query_id: 'query_1',

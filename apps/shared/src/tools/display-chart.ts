@@ -215,6 +215,13 @@ const BaseInputSchema = z.object({
 		.describe('Columns to plot as data series. Required for charts and omitted for tables.')
 		.optional(),
 	comparison_mode: ComparisonModeEnum.describe(COMPARISON_MODE_DESCRIPTION).optional(),
+	y_axis_min: ChartInputObjectSchema.shape.y_axis_min,
+	y_axis_max: ChartInputObjectSchema.shape.y_axis_max,
+	y_axis_label: ChartInputObjectSchema.shape.y_axis_label,
+	y_axis_right_min: ChartInputObjectSchema.shape.y_axis_right_min,
+	y_axis_right_max: ChartInputObjectSchema.shape.y_axis_right_max,
+	y_axis_right_label: ChartInputObjectSchema.shape.y_axis_right_label,
+	show_data_labels: ChartInputObjectSchema.shape.show_data_labels,
 	hide_total: z
 		.boolean()
 		.describe(

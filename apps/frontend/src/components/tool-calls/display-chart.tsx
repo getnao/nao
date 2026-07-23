@@ -750,12 +750,8 @@ export const ChartDisplay = memo(function ChartDisplay({
 			) : (
 				<ChartContainer
 					config={chartConfig}
-					className={cn(
-						normalSize ? 'h-full w-full aspect-auto' : 'w-full',
-						pieCenteringClass,
-						chartContainerClassName,
-					)}
-					contentClassName={chartContentClassName}
+					className={cn(normalSize ? 'h-full w-full' : 'w-full', pieCenteringClass, chartContainerClassName)}
+					contentClassName={cn(normalSize ? 'aspect-auto flex-1 min-h-0' : undefined, chartContentClassName)}
 					header={inlineHeader}
 				>
 					{chartElement}
