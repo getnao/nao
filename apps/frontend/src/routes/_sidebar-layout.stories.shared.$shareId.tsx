@@ -1,5 +1,5 @@
-import { useMutation, useQueryClient, useQueryErrorResetBoundary, useSuspenseQuery } from '@tanstack/react-query';
-import { createFileRoute, useNavigate, useRouter } from '@tanstack/react-router';
+import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
+import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import type { ParsedChartBlock, ParsedTableBlock } from '@nao/shared/story-segments';
 
@@ -14,7 +14,7 @@ import { ShareStoryDialog } from '@/components/share-dialog.story';
 import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
 import { StoryPageBody } from '@/components/story-page-body';
 import { StoryPageHeader } from '@/components/story-page-header';
-import { StoryAccessError } from '@/components/story-access-error';
+import { StoryRouteError } from '@/components/story-access-error';
 import { StoryChartEmbed, StoryTableEmbed } from '@/components/story-embeds';
 import { StoryTabbedContent } from '@/components/story-tabbed-content';
 import { Spinner } from '@/components/ui/spinner';
@@ -28,22 +28,8 @@ import { trpc } from '@/main';
 
 export const Route = createFileRoute('/_sidebar-layout/stories/shared/$shareId')({
 	component: SharedStoryPage,
-	errorComponent: SharedStoryError,
+	errorComponent: StoryRouteError,
 });
-
-function SharedStoryError({ error }: { error: unknown }) {
-	const router = useRouter();
-	const { reset } = useQueryErrorResetBoundary();
-	return (
-		<StoryAccessError
-			error={error}
-			onRetry={() => {
-				reset();
-				router.invalidate();
-			}}
-		/>
-	);
-}
 
 function SharedStoryPage() {
 	const { shareId } = Route.useParams();

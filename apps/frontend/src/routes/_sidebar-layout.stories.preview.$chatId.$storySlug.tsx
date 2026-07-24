@@ -1,11 +1,5 @@
-import {
-	useMutation,
-	useQuery,
-	useQueryClient,
-	useQueryErrorResetBoundary,
-	useSuspenseQuery,
-} from '@tanstack/react-query';
-import { createFileRoute, useNavigate, useRouter } from '@tanstack/react-router';
+import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
+import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { ArchiveRestoreIcon } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
 
@@ -19,7 +13,7 @@ import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
 import { Button } from '@/components/ui/button';
 import { trpc } from '@/main';
 import { StoryContentLoading } from '@/components/side-panel/story-content-loading';
-import { StoryAccessError } from '@/components/story-access-error';
+import { StoryRouteError } from '@/components/story-access-error';
 import { LiveStorySettingsDialog } from '@/components/side-panel/live-story-settings-dialog';
 import { useStoryViewerLiveSettings } from '@/components/side-panel/hooks/use-story-viewer-live-settings';
 import { ShareStoryDialog } from '@/components/share-dialog.story';
@@ -36,22 +30,8 @@ import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
 export const Route = createFileRoute('/_sidebar-layout/stories/preview/$chatId/$storySlug')({
 	component: StoryPreviewPage,
 	pendingComponent: StoryContentLoading,
-	errorComponent: StoryPreviewError,
+	errorComponent: StoryRouteError,
 });
-
-function StoryPreviewError({ error }: { error: unknown }) {
-	const router = useRouter();
-	const { reset } = useQueryErrorResetBoundary();
-	return (
-		<StoryAccessError
-			error={error}
-			onRetry={() => {
-				reset();
-				router.invalidate();
-			}}
-		/>
-	);
-}
 
 function StoryPreviewPage() {
 	const { chatId, storySlug } = Route.useParams();

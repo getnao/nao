@@ -1,8 +1,23 @@
-import { Link } from '@tanstack/react-router';
+import { useQueryErrorResetBoundary } from '@tanstack/react-query';
+import { Link, useRouter } from '@tanstack/react-router';
 import { Lock, SearchX, TriangleAlert } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { isForbiddenError, isNotFoundError } from '@/lib/trpc-error';
+
+export function StoryRouteError({ error }: { error?: unknown }) {
+	const router = useRouter();
+	const { reset } = useQueryErrorResetBoundary();
+	return (
+		<StoryAccessError
+			error={error}
+			onRetry={() => {
+				reset();
+				router.invalidate();
+			}}
+		/>
+	);
+}
 
 export function StoryAccessError({ error, onRetry }: { error?: unknown; onRetry?: () => void }) {
 	const forbidden = isForbiddenError(error);
