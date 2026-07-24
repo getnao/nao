@@ -2742,7 +2742,7 @@ requires-dist = [
     { name = "glom", marker = "extra == 'aws-secrets'", specifier = ">=23.0.0" },
     { name = "google-cloud", marker = "extra == 'bigquery'", specifier = ">=0.34.0" },
     { name = "google-genai", marker = "extra == 'gemini'", specifier = ">=1.61.0" },
-    { name = "httpx", specifier = ">=0.27.0" },
+    { name = "httpx", specifier = ">=0.28.1" },
     { name = "ibis-framework", specifier = ">=9.0.0" },
     { name = "ibis-framework", extras = ["athena"], marker = "extra == 'athena'", specifier = ">=9.0.0" },
     { name = "ibis-framework", extras = ["bigquery"], marker = "extra == 'bigquery'", specifier = ">=9.0.0" },
