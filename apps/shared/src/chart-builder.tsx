@@ -518,7 +518,7 @@ export function niceAxisMax(dataMax: number, tickCount = 5): number {
 }
 
 function buildKpiCard(props: ResolvedProps) {
-	const { data, series, valueFormatter } = props;
+	const { data, series } = props;
 
 	return (
 		<KpiCardContainer>
@@ -687,7 +687,6 @@ function buildBarChart(props: ResolvedProps) {
 		yAxisMin,
 		yAxisMax,
 		showDataLabels,
-		valueFormatter,
 	} = props;
 	const isStacked = displayChart.isStackedChartType(chartType);
 	const isPercent = displayChart.isPercentStackedChartType(chartType);
@@ -809,7 +808,6 @@ function buildAreaChart(props: ResolvedProps) {
 		yAxisMin,
 		yAxisMax,
 		showDataLabels,
-		valueFormatter,
 	} = props;
 	const gradientIdPrefix = props.gradientIdPrefix ?? '';
 	const gradientIdFor = (index: number) => `${gradientIdPrefix}grad-${index}`;
@@ -917,6 +915,8 @@ function buildComboChart(props: ResolvedProps) {
 
 	const leftSeries = series.filter((s) => comboAxisSide(s) === 'left');
 	const rightSeries = series.filter((s) => comboAxisSide(s) === 'right');
+	const leftFormat = getChartLevelValueFormat(leftSeries);
+	const rightFormat = getChartLevelValueFormat(rightSeries);
 	const leftDomain = resolveComboAxisDomain(data, leftSeries, yAxisMin, yAxisMax);
 	const rightDomain = resolveComboAxisDomain(data, rightSeries, yAxisRightMin, yAxisRightMax);
 	const areaSeries = series.filter((s) => comboSeriesType(s, chartType) === 'area');
@@ -951,7 +951,7 @@ function buildComboChart(props: ResolvedProps) {
 					tickLine={false}
 					axisLine={false}
 					minTickGap={12}
-					tickFormatter={formatYAxisTick}
+					tickFormatter={(value: number) => formatValueYAxisTick(value, leftFormat)}
 					domain={leftDomain}
 					allowDataOverflow={yAxisMin !== undefined || yAxisMax !== undefined}
 					label={axisLabel(yAxisLabel, 'left')}
@@ -965,7 +965,7 @@ function buildComboChart(props: ResolvedProps) {
 					tickLine={false}
 					axisLine={false}
 					minTickGap={12}
-					tickFormatter={formatYAxisTick}
+					tickFormatter={(value: number) => formatValueYAxisTick(value, rightFormat)}
 					domain={rightDomain}
 					allowDataOverflow={yAxisRightMin !== undefined || yAxisRightMax !== undefined}
 					label={axisLabel(yAxisRightLabel, 'right')}

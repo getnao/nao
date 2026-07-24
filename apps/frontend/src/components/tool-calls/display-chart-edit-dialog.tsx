@@ -106,6 +106,7 @@ export function ChartConfigEditDialog({
 	const [yAxisRightMinText, setYAxisRightMinText] = useState(toRangeString(config.y_axis_right_min));
 	const [yAxisRightMaxText, setYAxisRightMaxText] = useState(toRangeString(config.y_axis_right_max));
 	const [error, setError] = useState<string | null>(null);
+	const [openValueFormatIndexes, setOpenValueFormatIndexes] = useState<Set<number>>(new Set());
 	// Chart palette resolved to hex so a series without an explicit color shows
 	// the same swatch the chart draws for it. Refreshed on open for the theme.
 	const [paletteHexes, setPaletteHexes] = useState<string[]>(DEFAULT_COLORS);
@@ -134,6 +135,7 @@ export function ChartConfigEditDialog({
 			setYAxisRightMaxText(toRangeString(config.y_axis_right_max));
 			setPaletteHexes(resolveChartPaletteHexes());
 			setError(null);
+			setOpenValueFormatIndexes(new Set());
 		}
 	}, [open, config]);
 
@@ -198,6 +200,18 @@ export function ChartConfigEditDialog({
 			suffix: placement === 'suffix' ? unit || undefined : undefined,
 		};
 		updateSeriesAt(index, { value_format: cleanValueFormat(nextValueFormat) });
+	};
+
+	const toggleValueFormat = (index: number) => {
+		setOpenValueFormatIndexes((previous) => {
+			const next = new Set(previous);
+			if (next.has(index)) {
+				next.delete(index);
+			} else {
+				next.add(index);
+			}
+			return next;
+		});
 	};
 
 	const removeSeriesAt = (index: number) => {
@@ -385,9 +399,10 @@ export function ChartConfigEditDialog({
 									placement === 'prefix'
 										? (series.value_format?.prefix ?? '')
 										: (series.value_format?.suffix ?? '');
+								const isOpen = openValueFormatIndexes.has(index);
 								const row = (
 									<div
-										className={`grid ${isCombo ? 'grid-cols-[1fr_1fr_auto_auto_auto]' : 'grid-cols-[1fr_1fr_auto_auto]'} gap-2 items-center`}
+										className={`grid ${isCombo ? 'grid-cols-[1fr_1fr_auto_auto_auto_auto]' : 'grid-cols-[1fr_1fr_auto_auto_auto]'} gap-2 items-center`}
 									>
 										<ColumnSelect
 											value={series.data_key}
@@ -408,6 +423,11 @@ export function ChartConfigEditDialog({
 												onChange={(value) => updateSeriesAt(index, { y_axis: value })}
 											/>
 										)}
+										<ValueFormatToggle
+											unit={unit}
+											open={isOpen}
+											onClick={() => toggleValueFormat(index)}
+										/>
 										<input
 											type='color'
 											aria-label='Series color'
@@ -436,6 +456,22 @@ export function ChartConfigEditDialog({
 									return (
 										<div key={index} className='flex flex-col gap-2 rounded-md'>
 											{row}
+											{isOpen && (
+												<SeriesValueFormatFields
+													d3Format={series.value_format?.d3_format ?? ''}
+													unit={unit}
+													placement={placement}
+													onD3FormatChange={(value) =>
+														updateSeriesValueFormatAt(index, 'd3_format', value)
+													}
+													onUnitChange={(nextUnit, nextPlacement) =>
+														setSeriesUnit(index, {
+															unit: nextUnit,
+															placement: nextPlacement,
+														})
+													}
+												/>
+											)}
 										</div>
 									);
 								}
@@ -450,68 +486,22 @@ export function ChartConfigEditDialog({
 											onChange={(value) => updateSeriesAt(index, { series_type: value })}
 										/>
 										{row}
-										<div className='grid grid-cols-[1fr_1fr_8rem] gap-2'>
-											<div className='grid gap-1'>
-												<div className='flex items-center gap-2'>
-													<span className='text-xs text-muted-foreground'>Number format</span>
-													<a
-														href='https://docs.getnao.io/nao-agent/chat/capabilities/visualizations#d3-format-number-cheat-sheet'
-														target='_blank'
-														rel='noreferrer'
-														className='text-xs text-blue-500 hover:text-blue-400 hover:underline'
-													>
-														How to format
-													</a>
-												</div>
-												<ClearableInput
-													value={series.value_format?.d3_format ?? ''}
-													onChange={(value) =>
-														updateSeriesValueFormatAt(index, 'd3_format', value)
-													}
-													onClear={() => updateSeriesValueFormatAt(index, 'd3_format', '')}
-													placeholder='e.g. ,.2f'
-													ariaLabel='d3-format specifier'
-													className='h-8 rounded-lg text-sm bg-panel'
-												/>
-											</div>
-											<div className='grid gap-1'>
-												<span className='text-xs text-muted-foreground'>Unit</span>
-												<ClearableInput
-													value={unit}
-													onChange={(value) =>
-														setSeriesUnit(index, { unit: value, placement })
-													}
-													onClear={() => setSeriesUnit(index, { unit: '', placement })}
-													placeholder='$ or %'
-													ariaLabel='Value unit'
-													className='h-8 rounded-lg text-sm bg-panel'
-												/>
-											</div>
-											<div className='grid gap-1'>
-												<span className='text-xs text-muted-foreground'>Placement</span>
-												<Select
-													value={placement}
-													disabled={!unit}
-													onValueChange={(value) =>
-														setSeriesUnit(index, {
-															unit,
-															placement: value as UnitPlacement,
-														})
-													}
-												>
-													<SelectTrigger
-														aria-label='Unit placement'
-														className='h-8 w-full bg-panel text-sm disabled:cursor-not-allowed disabled:opacity-50 [&_svg]:text-foreground! [&_svg]:opacity-100!'
-													>
-														<SelectValue />
-													</SelectTrigger>
-													<SelectContent className='bg-panel'>
-														<SelectItem value='prefix'>Prefix</SelectItem>
-														<SelectItem value='suffix'>Suffix</SelectItem>
-													</SelectContent>
-												</Select>
-											</div>
-										</div>
+										{isOpen && (
+											<SeriesValueFormatFields
+												d3Format={series.value_format?.d3_format ?? ''}
+												unit={unit}
+												placement={placement}
+												onD3FormatChange={(value) =>
+													updateSeriesValueFormatAt(index, 'd3_format', value)
+												}
+												onUnitChange={(nextUnit, nextPlacement) =>
+													setSeriesUnit(index, {
+														unit: nextUnit,
+														placement: nextPlacement,
+													})
+												}
+											/>
+										)}
 									</div>
 								);
 							})}
@@ -874,6 +864,105 @@ function SeriesTypeSelect({ value, onChange }: SeriesTypeSelectProps) {
 				))}
 			</SelectContent>
 		</Select>
+	);
+}
+
+interface SeriesValueFormatFieldsProps {
+	d3Format: string;
+	unit: string;
+	placement: UnitPlacement;
+	onD3FormatChange: (value: string) => void;
+	onUnitChange: (unit: string, placement: UnitPlacement) => void;
+}
+
+function SeriesValueFormatFields({
+	d3Format,
+	unit,
+	placement,
+	onD3FormatChange,
+	onUnitChange,
+}: SeriesValueFormatFieldsProps) {
+	return (
+		<div className='grid grid-cols-[1fr_1fr_8rem] gap-2'>
+			<div className='grid gap-1'>
+				<div className='flex items-center gap-2'>
+					<span className='text-xs text-muted-foreground'>Number format</span>
+					<a
+						href='https://docs.getnao.io/nao-agent/chat/capabilities/visualizations#d3-format-number-cheat-sheet'
+						target='_blank'
+						rel='noreferrer'
+						className='text-xs text-blue-500 hover:text-blue-400 hover:underline'
+					>
+						How to format
+					</a>
+				</div>
+				<ClearableInput
+					value={d3Format}
+					onChange={onD3FormatChange}
+					onClear={() => onD3FormatChange('')}
+					placeholder='e.g. ,.2f'
+					ariaLabel='d3-format specifier'
+					className='h-8 rounded-lg text-sm bg-panel'
+				/>
+			</div>
+			<div className='grid gap-1'>
+				<span className='text-xs text-muted-foreground'>Unit</span>
+				<ClearableInput
+					value={unit}
+					onChange={(value) => onUnitChange(value, placement)}
+					onClear={() => onUnitChange('', placement)}
+					placeholder='$ or %'
+					ariaLabel='Value unit'
+					className='h-8 rounded-lg text-sm bg-panel'
+				/>
+			</div>
+			<div className='grid gap-1'>
+				<span className='text-xs text-muted-foreground'>Placement</span>
+				<Select
+					value={placement}
+					disabled={!unit}
+					onValueChange={(value) => onUnitChange(unit, value as UnitPlacement)}
+				>
+					<SelectTrigger
+						aria-label='Unit placement'
+						className='h-8 w-full bg-panel text-sm disabled:cursor-not-allowed disabled:opacity-50 [&_svg]:text-foreground! [&_svg]:opacity-100!'
+					>
+						<SelectValue />
+					</SelectTrigger>
+					<SelectContent className='bg-panel'>
+						<SelectItem value='prefix'>Prefix</SelectItem>
+						<SelectItem value='suffix'>Suffix</SelectItem>
+					</SelectContent>
+				</Select>
+			</div>
+		</div>
+	);
+}
+
+interface ValueFormatToggleProps {
+	unit: string;
+	open: boolean;
+	onClick: () => void;
+}
+
+function ValueFormatToggle({ unit, open, onClick }: ValueFormatToggleProps) {
+	return (
+		<Button
+			type='button'
+			variant='outline'
+			size='icon-sm'
+			className='size-8 overflow-hidden bg-panel'
+			aria-label='Value formatting'
+			aria-expanded={open}
+			title={unit || 'Value formatting'}
+			onClick={onClick}
+		>
+			{unit ? (
+				<span className='max-w-full truncate px-0.5 text-xs font-semibold'>{unit}</span>
+			) : (
+				<span className='max-w-full truncate px-0.5 text-xs font-semibold text-muted-foreground'>$</span>
+			)}
+		</Button>
 	);
 }
 
