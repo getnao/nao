@@ -24,8 +24,9 @@ export async function validateAppDbQuery(sql: string): Promise<SqlValidationResu
 	let referenced: string[];
 	try {
 		referenced = referencedBaseTables(sql);
-	} catch {
-		return { ok: false, reason: 'Could not parse the query; rejected for safety.' };
+	} catch (error) {
+		const detail = error instanceof Error ? error.message : String(error);
+		return { ok: false, reason: `Could not parse the query; rejected for safety. ${detail}` };
 	}
 
 	const allowed = new Set<string>(ALLOWED_APP_DB_VIEWS);
