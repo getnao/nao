@@ -1,6 +1,11 @@
-import { asc, eq, inArray, sql } from 'drizzle-orm';
-import { pgTable, QueryBuilder as PgQueryBuilder, text as pgText } from 'drizzle-orm/pg-core';
-import { QueryBuilder as SqliteQueryBuilder, sqliteTable, text as sqliteText } from 'drizzle-orm/sqlite-core';
+import { and, asc, eq, inArray, sql } from 'drizzle-orm';
+import { alias as pgAlias, pgTable, QueryBuilder as PgQueryBuilder, text as pgText } from 'drizzle-orm/pg-core';
+import {
+	alias as sqliteAlias,
+	QueryBuilder as SqliteQueryBuilder,
+	sqliteTable,
+	text as sqliteText,
+} from 'drizzle-orm/sqlite-core';
 
 import dbConfig, { Dialect } from './dbConfig';
 import * as pgSchema from './pg-schema';
@@ -17,6 +22,7 @@ export interface ScopedView {
 
 type ViewSchema = typeof sqliteSchema;
 type ScopeTable = typeof sqliteScope;
+type AliasFn = typeof sqliteAlias;
 
 const sqliteScope = sqliteTable('_scope', { projectId: sqliteText('project_id').notNull() });
 const pgScope = pgTable('_scope', { projectId: pgText('project_id').notNull() });
@@ -36,9 +42,10 @@ export function getScopedViews(): ScopedView[] {
 			pgSchema as unknown as ViewSchema,
 			pgScope as unknown as ScopeTable,
 			new PgQueryBuilder() as unknown as SqliteQueryBuilder,
+			pgAlias as unknown as AliasFn,
 		);
 	}
-	return buildScopedViews(sqliteSchema, sqliteScope, new SqliteQueryBuilder());
+	return buildScopedViews(sqliteSchema, sqliteScope, new SqliteQueryBuilder(), sqliteAlias);
 }
 
 /** View name -> exposed columns. Dialect-independent; safe to use in prompts and allowlists. */
@@ -46,7 +53,7 @@ export const APP_DB_VIEW_COLUMNS: Record<string, string[]> = Object.fromEntries(
 	getScopedViews().map((view) => [view.name, view.columns]),
 );
 
-function buildScopedViews(schema: ViewSchema, scope: ScopeTable, qb: SqliteQueryBuilder): ScopedView[] {
+function buildScopedViews(schema: ViewSchema, scope: ScopeTable, qb: SqliteQueryBuilder, alias: AliasFn): ScopedView[] {
 	const {
 		chat,
 		chatMessage,
@@ -59,6 +66,17 @@ function buildScopedViews(schema: ViewSchema, scope: ScopeTable, qb: SqliteQuery
 		analyticsEvent,
 	} = schema;
 	const scopedProjectIds = () => qb.select({ projectId: scope.projectId }).from(scope);
+
+	// Feedback is per message, but v_messages is at the part grain. Attach it only to a
+	// message's first part so the vote/explanation is not repeated across every part.
+	const siblingPart = alias(messagePart, 'sibling_part');
+	const firstPartOfMessage = eq(
+		messagePart.order,
+		sql`(${qb
+			.select({ minOrder: sql`min(${siblingPart.order})` })
+			.from(siblingPart)
+			.where(eq(siblingPart.messageId, messagePart.messageId))})`,
+	);
 
 	const messages = {
 		chat_id: chatMessage.chatId,
@@ -132,7 +150,10 @@ function buildScopedViews(schema: ViewSchema, scope: ScopeTable, qb: SqliteQuery
 			qb
 				.select(messages)
 				.from(messagePart)
-				.leftJoin(messageFeedback, eq(messagePart.messageId, messageFeedback.messageId))
+				.leftJoin(
+					messageFeedback,
+					and(eq(messagePart.messageId, messageFeedback.messageId), firstPartOfMessage),
+				)
 				.leftJoin(chatMessage, eq(messagePart.messageId, chatMessage.id))
 				.leftJoin(chat, eq(chat.id, chatMessage.chatId))
 				.leftJoin(user, eq(user.id, chat.userId))

@@ -32,6 +32,15 @@ describe('validateAppDbQuery', () => {
 	});
 
 	it('rejects unparseable SQL', async () => {
-		expect((await validateAppDbQuery('SELECT FROM WHERE )(')).ok).toBe(false);
+		const res = await validateAppDbQuery('SELECT FROM WHERE )(');
+		expect(res.ok).toBe(false);
+		expect(res.reason).toContain('Could not parse the query');
+		expect(res.reason).not.toBe('Could not parse the query; rejected for safety.');
+	});
+
+	it('includes the parser error when an alias is a reserved word', async () => {
+		const res = await validateAppDbQuery('SELECT COUNT(*) as count FROM v_messages');
+		expect(res.ok).toBe(false);
+		expect(res.reason).toMatch(/count.*reserved word/i);
 	});
 });
