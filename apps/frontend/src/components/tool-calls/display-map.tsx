@@ -1,5 +1,5 @@
-import { lazy, Suspense, useMemo, useState } from 'react';
-import { Code, Map as MapIcon, Table as TableIcon } from 'lucide-react';
+import { lazy, Suspense, useMemo, useRef, useState } from 'react';
+import { Code, Download, Map as MapIcon, Table as TableIcon } from 'lucide-react';
 import { buildMapPoints, MAX_MAP_POINTS, resolveMapConfig } from '@nao/shared';
 import { Skeleton } from '../ui/skeleton';
 import { TextShimmer } from '../ui/text-shimmer';
@@ -12,6 +12,7 @@ import type { ToolCallComponentProps } from '.';
 import type { ReactNode } from 'react';
 import type { displayMap } from '@nao/shared/tools';
 import type { MapPoint } from '@nao/shared';
+import type { MapViewHandle } from './display-map-view';
 import { cn } from '@/lib/utils';
 import { useSourceQuery } from '@/hooks/use-source-query';
 
@@ -23,6 +24,18 @@ export const DisplayMapToolCall = ({ toolPart: { state, input, output } }: ToolC
 	const config = state !== 'input-streaming' ? input : undefined;
 	const { sourceQuery, sourceData } = useSourceQuery(config?.query_id);
 	const [viewMode, setViewMode] = useState<MapViewMode>('map');
+	const mapViewRef = useRef<MapViewHandle>(null);
+
+	const handleDownloadPng = () => {
+		const dataUrl = mapViewRef.current?.captureImage('image/png');
+		if (!dataUrl) {
+			return;
+		}
+		const link = document.createElement('a');
+		link.href = dataUrl;
+		link.download = `${config?.title || 'map'}.png`;
+		link.click();
+	};
 
 	const resolvedConfig = useMemo<displayMap.Input | undefined>(() => {
 		if (!config || !sourceData?.data) {
@@ -119,13 +132,21 @@ export const DisplayMapToolCall = ({ toolPart: { state, input, output } }: ToolC
 								onClick={() => setViewMode('query')}
 							/>
 						)}
+						{viewMode === 'map' && (
+							<ViewToggleButton
+								icon={<Download className='size-3 text-muted-foreground/70' strokeWidth={2.25} />}
+								title='Download as PNG'
+								isActive={false}
+								onClick={handleDownloadPng}
+							/>
+						)}
 					</div>
 				</div>
 
 				{viewMode === 'map' && (
 					<div className='px-3 pb-3'>
 						<Suspense fallback={<Skeleton className='w-full aspect-3/2 rounded-lg' />}>
-							<MapView points={visiblePoints} config={mapConfig} />
+							<MapView ref={mapViewRef} points={visiblePoints} config={mapConfig} />
 						</Suspense>
 					</div>
 				)}

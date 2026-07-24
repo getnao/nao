@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useImperativeHandle, useRef, useState } from 'react';
 import maplibregl from 'maplibre-gl';
 import { computeMapBounds, labelize } from '@nao/shared';
 import type { MapPoint } from '@nao/shared';
 import type { displayMap } from '@nao/shared/tools';
+import type { Ref } from 'react';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
 const MAP_STYLE_LIGHT = import.meta.env.VITE_MAP_STYLE_URL || 'https://tiles.openfreemap.org/styles/positron';
@@ -10,12 +11,17 @@ const MAP_STYLE_DARK = import.meta.env.VITE_MAP_STYLE_URL_DARK || 'https://tiles
 const POINTS_SOURCE_ID = 'query-points';
 const POINTS_LAYER_ID = 'query-points-circles';
 
+export interface MapViewHandle {
+	captureImage: (type?: string) => string | null;
+}
+
 interface MapViewProps {
 	points: MapPoint[];
 	config: displayMap.Input;
+	ref?: Ref<MapViewHandle>;
 }
 
-export default function MapView({ points, config }: MapViewProps) {
+export default function MapView({ points, config, ref }: MapViewProps) {
 	const containerRef = useRef<HTMLDivElement>(null);
 	const mapRef = useRef<maplibregl.Map | null>(null);
 	const pointsRef = useRef(points);
@@ -26,6 +32,21 @@ export default function MapView({ points, config }: MapViewProps) {
 	const isDark = useIsDark();
 	pointsRef.current = points;
 	configRef.current = config;
+
+	useImperativeHandle(
+		ref,
+		() => ({
+			captureImage: (type = 'image/png') => {
+				const map = mapRef.current;
+				if (!map) {
+					return null;
+				}
+				map.redraw();
+				return map.getCanvas().toDataURL(type);
+			},
+		}),
+		[],
+	);
 
 	useEffect(() => {
 		if (!containerRef.current) {
@@ -42,6 +63,7 @@ export default function MapView({ points, config }: MapViewProps) {
 				style: styleUrl,
 				cooperativeGestures: true,
 				attributionControl: { compact: true },
+				canvasContextAttributes: { preserveDrawingBuffer: true },
 			});
 		} catch {
 			setInitFailed(true);
