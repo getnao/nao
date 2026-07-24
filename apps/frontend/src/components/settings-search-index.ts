@@ -271,6 +271,16 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		page: '/settings/project/agent',
 		pageLabel: 'Agent',
 		section: 'Experimental',
+		title: 'Display map',
+		description:
+			'Allow the agent to render query results with latitude and longitude columns on an interactive map.',
+		keywords: ['map', 'geo', 'location', 'latitude', 'longitude', 'coordinates', 'spatial'],
+		adminOnly: true,
+	},
+	{
+		page: '/settings/project/agent',
+		pageLabel: 'Agent',
+		section: 'Experimental',
 		title: 'Dangerous write permissions',
 		description: 'Allow the agent to execute INSERT, UPDATE, DELETE and DDL SQL queries.',
 		keywords: ['write', 'insert', 'update', 'delete', 'ddl', 'sql', 'permissions'],
@@ -458,10 +468,10 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		adminOnly: true,
 	},
 
-	// ── Chats Replay ─────────────────────────────────────────
+	// ── Usage & Costs > Chats Replay ─────────────────────────
 	{
-		page: '/settings/chats-replay',
-		pageLabel: 'Chats Replay',
+		page: '/settings/usage',
+		pageLabel: 'Usage & Costs',
 		title: 'Chats Replay',
 		description: 'Replay and review past chat conversations.',
 		keywords: ['history', 'conversation', 'replay', 'review'],

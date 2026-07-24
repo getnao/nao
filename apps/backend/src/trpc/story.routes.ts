@@ -15,8 +15,15 @@ import * as storyFolderQueries from '../queries/story-folder.queries';
 import { naturalLanguageToCron } from '../services/cron-nlp';
 import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../services/live-story';
 import { nextCronTick } from '../services/scheduler.service';
+import {
+	assertStoryFiltersEnabled,
+	getFilteredStoryQueryData,
+	getStoryFilterOptions,
+	getStoryQuerySql,
+} from '../services/story-filters';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import { buildDownloadResponse } from '../utils/story-download';
+import { backfillMissingQueryData } from '../utils/story-query-data';
 import { extractStorySummary } from '../utils/story-summary';
 import { canSendProcedure, ownedResourceProcedure, projectProtectedProcedure, protectedProcedure } from './trpc';
 
@@ -121,7 +128,11 @@ export const storyRoutes = {
 			});
 		}
 
-		return { ...story, queryData: cache?.queryData ?? null };
+		const queryData = story.chatId
+			? await backfillMissingQueryData(story.code, cache?.queryData ?? null, { chatId: story.chatId })
+			: (cache?.queryData ?? null);
+
+		return { ...story, queryData };
 	}),
 
 	getLatest: chatOwnerProcedure
@@ -286,6 +297,40 @@ export const storyRoutes = {
 		.input(z.object({ chatId: z.string(), queryId: z.string() }))
 		.query(async ({ input }) => {
 			return executeLiveQuery(input.chatId, input.queryId);
+		}),
+
+	getFilterOptions: chatOwnerProcedure
+		.input(z.object({ chatId: z.string(), storySlug: z.string(), filterId: z.string() }))
+		.query(async ({ input }) => {
+			assertStoryFiltersEnabled();
+			return getStoryFilterOptions(input.chatId, input.storySlug, input.filterId);
+		}),
+
+	getFilteredQueryData: chatOwnerProcedure
+		.input(
+			z.object({
+				chatId: z.string(),
+				storySlug: z.string(),
+				selections: z.record(z.string(), z.union([z.string(), z.array(z.string())])),
+			}),
+		)
+		.query(async ({ input }) => {
+			assertStoryFiltersEnabled();
+			return getFilteredStoryQueryData(input.chatId, input.storySlug, input.selections);
+		}),
+
+	getQuerySql: chatOwnerProcedure
+		.input(
+			z.object({
+				chatId: z.string(),
+				storySlug: z.string(),
+				queryId: z.string(),
+				selections: z.record(z.string(), z.union([z.string(), z.array(z.string())])).default({}),
+			}),
+		)
+		.query(async ({ input }) => {
+			assertStoryFiltersEnabled();
+			return getStoryQuerySql(input.chatId, input.storySlug, input.queryId, input.selections);
 		}),
 
 	parseCronFromText: projectProtectedProcedure

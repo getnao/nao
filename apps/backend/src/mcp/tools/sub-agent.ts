@@ -2,9 +2,10 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { type InferUIMessageChunk, readUIMessageStream } from 'ai';
 import { z } from 'zod';
 
+import { WEB_CHAT_ONLY_TOOLS } from '../../agents/tools';
 import * as chatQueries from '../../queries/chat.queries';
 import * as storyQueries from '../../queries/story.queries';
-import { agentService } from '../../services/agent';
+import { agentService, defaultAgentToolsExcluding } from '../../services/agent';
 import { mcpService } from '../../services/mcp';
 import { skillService } from '../../services/skill';
 import type { UIMessage, UIMessagePart } from '../../types/chat';
@@ -129,7 +130,9 @@ export function registerSubAgentTools(server: McpServer, ctx: McpContext): void 
 			const { chat, uiMessages } = await buildChatContext(ctx.projectId, ctx.userId, question, chatId);
 			const naoChatUrl = chatUrl(chat.id);
 
-			const agent = await agentService.create(chat);
+			const agent = await agentService.create(chat, undefined, {
+				tools: defaultAgentToolsExcluding(WEB_CHAT_ONLY_TOOLS),
+			});
 			askNaoRuns.start(chat.id);
 			const runPromise = runAskNaoInBackground(agent, uiMessages, chat.id, naoChatUrl);
 

@@ -1,5 +1,5 @@
-import { getGridClass } from '@nao/shared/story-segments';
-import { Fragment, memo, useMemo } from 'react';
+import { getGridClass, getGridTemplateColumns } from '@nao/shared/story-segments';
+import { Fragment, memo } from 'react';
 import { Streamdown } from 'streamdown';
 import type { ParsedChartBlock, ParsedTableBlock, Segment } from '@nao/shared/story-segments';
 
@@ -43,11 +43,14 @@ export const SegmentList = memo(function SegmentList({
 						return <Fragment key={key}>{renderChart(segment.chart, i)}</Fragment>;
 					case 'table':
 						return <Fragment key={key}>{renderTable(segment.table, i)}</Fragment>;
+					case 'filter':
+						return null;
 					case 'grid':
 						return (
 							<StoryGrid
 								key={key}
 								cols={segment.cols}
+								widths={segment.widths}
 								children={segment.children}
 								renderChart={renderChart}
 								renderTable={renderTable}
@@ -61,20 +64,29 @@ export const SegmentList = memo(function SegmentList({
 
 const StoryGrid = memo(function StoryGrid({
 	cols,
+	widths,
 	children,
 	renderChart,
 	renderTable,
 }: {
 	cols: number;
+	widths: number[] | null;
 	children: Segment[];
 	renderChart: (chart: ParsedChartBlock, key: number) => React.ReactNode;
 	renderTable: (table: ParsedTableBlock, key: number) => React.ReactNode;
 }) {
-	const gridClass = useMemo(() => getGridClass(cols), [cols]);
-
 	return (
 		<div className='@container'>
-			<div className={`grid ${gridClass} gap-4`}>
+			<div
+				className={
+					widths !== null
+						? 'grid grid-cols-1 gap-4 @lg:[grid-template-columns:var(--nao-grid-cols)]'
+						: `grid ${getGridClass(cols)} gap-4`
+				}
+				{...(widths !== null
+					? { style: { ['--nao-grid-cols' as string]: getGridTemplateColumns(widths) } }
+					: {})}
+			>
 				{children.map((segment, i) => (
 					<div key={i} className='min-w-0'>
 						{segment.type === 'markdown' ? (
@@ -88,6 +100,7 @@ const StoryGrid = memo(function StoryGrid({
 						) : segment.type === 'grid' ? (
 							<StoryGrid
 								cols={segment.cols}
+								widths={segment.widths}
 								children={segment.children}
 								renderChart={renderChart}
 								renderTable={renderTable}

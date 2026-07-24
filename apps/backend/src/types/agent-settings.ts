@@ -5,6 +5,7 @@ export interface AgentSettings {
 	experimental?: {
 		pythonSandboxing?: boolean;
 		sandboxes?: boolean;
+		displayMap?: boolean;
 	};
 	transcribe?: {
 		enabled?: boolean;

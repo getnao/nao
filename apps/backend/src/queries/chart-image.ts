@@ -1,11 +1,12 @@
 import { displayChart, executeSql } from '@nao/shared/tools';
-import { and, asc, eq, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, isNull } from 'drizzle-orm';
 
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
-import dbConfig, { Dialect } from '../db/dbConfig';
+import { HandlerError } from '../utils/error';
 import { takeFirstOrThrow } from '../utils/queries';
 import { selectLatestDisplayChartTableFormats } from './chart-image.utils';
+import { getLatestExecuteSqlByQueryId } from './execute-sql.queries';
 
 const DISPLAY_CHART_TOOL_TYPE = 'tool-display_chart';
 
@@ -34,22 +35,13 @@ export const getDisplayConfigByToolCallId = async (toolCallId: string): Promise<
 export const getExecuteSqlPartByQueryId = async (
 	queryId: string,
 ): Promise<{ toolInput: executeSql.Input; toolOutput: executeSql.Output }> => {
-	const jsonIdFilter =
-		dbConfig.dialect === Dialect.Postgres
-			? sql`${s.messagePart.toolOutput}->>'id' = ${queryId}`
-			: sql`json_extract(${s.messagePart.toolOutput}, '$.id') = ${queryId}`;
-
-	const result = await takeFirstOrThrow(
-		db
-			.select({ toolInput: s.messagePart.toolInput, toolOutput: s.messagePart.toolOutput })
-			.from(s.messagePart)
-			.where(jsonIdFilter)
-			.execute(),
-	);
-
+	const result = await getLatestExecuteSqlByQueryId(queryId);
+	if (!result) {
+		throw new HandlerError('NOT_FOUND', `Query ${queryId} not found.`);
+	}
 	return {
-		toolInput: executeSql.InputSchema.parse(result.toolInput),
-		toolOutput: executeSql.OutputSchema.parse(result.toolOutput),
+		toolInput: result.toolInput,
+		toolOutput: result.toolOutput,
 	};
 };
 

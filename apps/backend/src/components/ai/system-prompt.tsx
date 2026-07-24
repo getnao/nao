@@ -1,3 +1,5 @@
+import type { ChartPluginManifestEntry } from '@nao/shared';
+
 import { Block, Bold, Br, Link, List, ListItem, Location, Span, Title } from '../../lib/markdown';
 import type { Skill } from '../../services/skill';
 import { tokenCounter } from '../../services/token-counter';
@@ -18,10 +20,13 @@ type SystemPromptProps = {
 	userRules?: string;
 	connections?: Connection[];
 	skills?: Skill[];
+	customCharts?: ChartPluginManifestEntry[];
 	/** Names of MCP servers the agent is allowed to call (tools discovered as on-disk specs). */
 	mcpServers?: string[];
 	timezone?: string;
 	testMode?: boolean;
+	/** Names of the tools in the run's tool set — rules for surface-dependent tools (e.g. display_map) are only emitted when the tool is present. Omit to include every rule. */
+	toolNames?: string[];
 };
 
 export const MEMORY_TOKEN_LIMIT = 1000;
@@ -31,10 +36,13 @@ export function SystemPrompt({
 	userRules,
 	connections = [],
 	skills = [],
+	customCharts = [],
 	mcpServers = [],
 	timezone,
 	testMode,
+	toolNames,
 }: SystemPromptProps) {
+	const hasTool = (name: string) => !toolNames || toolNames.includes(name);
 	const visibleMemories = getMemoriesInTokenRange(memories, MEMORY_TOKEN_LIMIT);
 	const dialectToolCallRules = getDialectToolCallRules(connections);
 	const dialectSqlQueryRules = getDialectSqlQueryRules(connections);
@@ -97,6 +105,13 @@ export function SystemPrompt({
 			</List>
 			<Title level={2}>Chart Rules</Title>
 			<List>
+				{hasTool('display_map') && (
+					<ListItem>
+						Use display_map instead of display_chart for spatial point data: query results with latitude and
+						longitude columns (store locations, delivery points, events). Coordinates must be in decimal
+						degrees — select or convert them in SQL if needed.
+					</ListItem>
+				)}
 				<ListItem>
 					For display_chart x_axis_type: use "date" only when x-axis values are parseable by JavaScript Date
 					(e.g. YYYY-MM-DD). Use "category" for quarter labels (quarter_ending), fiscal periods (FY25-Q1), or
@@ -128,6 +143,12 @@ export function SystemPrompt({
 				<ListItem>
 					For display_chart y_axis_min/y_axis_max: use them to fix the Y-axis scale when needed; by default,
 					line and scatter charts auto-scale to a readable range rather than always starting at zero.
+				</ListItem>
+				<ListItem>
+					Use "mixed" to show multiple metrics on different scales in one chart: give each series its own
+					"series_type" ("bar", "line" or "area", defaults to "bar") and "y_axis" ("left" or "right", defaults
+					to "left"). A second Y-axis is drawn whenever any series uses {'"y_axis": "right"'}. These
+					per-series settings only apply to "mixed" charts.
 				</ListItem>
 				<ListItem>
 					Use the <Bold>display_chart</Bold> tool with <Bold>{'chart_type: "table"'}</Bold> to present a table
@@ -224,12 +245,52 @@ export function SystemPrompt({
 					</Block>
 				)}
 
+				{customCharts.length > 0 && <CustomChartsBlock charts={customCharts} />}
+
 				{mcpServers.length > 0 && <McpServersBlock servers={mcpServers} />}
 
 				{visibleMemories.length > 0 && <MemoryBlock memories={visibleMemories} />}
 			</Block>
 		</Block>
 	);
+}
+
+const MAX_PROMPT_CUSTOM_CHARTS = 50;
+const MAX_CHART_DESCRIPTION_LENGTH = 200;
+
+function CustomChartsBlock({ charts }: { charts: ChartPluginManifestEntry[] }) {
+	const visibleCharts = charts.slice(0, MAX_PROMPT_CUSTOM_CHARTS);
+	const hiddenCount = charts.length - visibleCharts.length;
+	return (
+		<Block>
+			<Title level={2}>Custom charts</Title>
+			<Span>
+				The project provides the custom chart types below. Use them through display_chart only when their
+				description fits the request. They render in interactive web chats only, so do not use them in stories
+				or exports.
+			</Span>
+			<List>
+				{visibleCharts.map((chart) => (
+					<ListItem key={chart.type}>
+						<Bold>{chart.type}</Bold>
+						{chart.description ? `: ${truncateChartDescription(chart.description)}` : ''}
+					</ListItem>
+				))}
+			</List>
+			{hiddenCount > 0 && (
+				<Span>
+					And {hiddenCount} more custom chart type{hiddenCount === 1 ? '' : 's'} in agent/charts — list that
+					folder to discover the rest.
+				</Span>
+			)}
+		</Block>
+	);
+}
+
+function truncateChartDescription(description: string): string {
+	return description.length <= MAX_CHART_DESCRIPTION_LENGTH
+		? description
+		: `${description.slice(0, MAX_CHART_DESCRIPTION_LENGTH - 1).trimEnd()}…`;
 }
 
 function McpServersBlock({ servers }: { servers: string[] }) {

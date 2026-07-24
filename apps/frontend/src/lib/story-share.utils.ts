@@ -1,3 +1,5 @@
+import { extractQueryIds } from '@nao/shared/story-segments';
+
 import type { UIMessage } from '@nao/backend/chat';
 
 /**
@@ -9,13 +11,7 @@ export function getQueryDataFromCodeFromMessages(
 	messages: UIMessage[],
 	code: string,
 ): Record<string, unknown[]> | null {
-	const chartRegex = /<(?:chart|table)\s+[^>]*query_id="([^"]*)"[^>]*\/?>/g;
-	const queryIds = new Set<string>();
-	let match;
-	while ((match = chartRegex.exec(code)) !== null) {
-		queryIds.add(match[1]);
-	}
-
+	const queryIds = extractQueryIds(code);
 	if (queryIds.size === 0) {
 		return null;
 	}

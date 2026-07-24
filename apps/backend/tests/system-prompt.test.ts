@@ -75,4 +75,52 @@ describe('SystemPrompt timezone rendering', () => {
 		const markdown = renderToMarkdown(SystemPrompt({}));
 		expect(markdown).toContain('Tuesday, March 10, 2026 (UTC)');
 	});
+
+	it('describes available custom charts and their web-only scope', () => {
+		const markdown = renderToMarkdown(
+			SystemPrompt({
+				customCharts: [
+					{
+						type: 'bubble',
+						name: 'Bubble chart',
+						description: 'Shows three numeric dimensions.',
+						version: 'abc123',
+					},
+				],
+			}),
+		);
+
+		expect(markdown).toContain('**bubble**: Shows three numeric dimensions.');
+		expect(markdown).toContain('interactive web chats only');
+	});
+
+	it('bounds the custom chart list and truncates long descriptions', () => {
+		const customCharts = Array.from({ length: 60 }, (_, index) => ({
+			type: `chart-${index}`,
+			name: `Chart ${index}`,
+			description: index === 0 ? 'x'.repeat(400) : `Description ${index}`,
+			version: `v${index}`,
+		}));
+
+		const markdown = renderToMarkdown(SystemPrompt({ customCharts }));
+
+		expect(markdown).toContain('**chart-0**');
+		expect(markdown).toContain('**chart-49**');
+		expect(markdown).not.toContain('**chart-50**');
+		expect(markdown).toContain('And 10 more custom chart types in agent/charts');
+		expect(markdown).not.toContain('x'.repeat(400));
+		expect(markdown).toContain(`${'x'.repeat(199)}…`);
+	});
+});
+
+describe('SystemPrompt display_map rules', () => {
+	it('includes the display_map rule by default', () => {
+		expect(renderToMarkdown(SystemPrompt({}))).toContain('display_map');
+	});
+
+	it('omits the display_map rule when the run excludes the tool', () => {
+		expect(renderToMarkdown(SystemPrompt({ toolNames: ['execute_sql', 'display_chart'] }))).not.toContain(
+			'display_map',
+		);
+	});
 });

@@ -38,16 +38,55 @@ export function StoryAppView({ title, code, queryData, naoUrl, onDownload }: Sto
 
 function StoryBody({ code, queryData }: { code: string; queryData: QueryDataMap | null }) {
 	const renderChart = useCallback(
-		(chart: ParsedChartBlock) => <StoryChartEmbed chart={chart} queryData={queryData} />,
-		[queryData],
+		(
+			chart: ParsedChartBlock,
+			{
+				queryData: data,
+				hasActiveFilters,
+				isRefreshing,
+			}: {
+				queryData: QueryDataMap | null;
+				hasActiveFilters: boolean;
+				isRefreshing: boolean;
+			},
+		) => (
+			<StoryChartEmbed
+				chart={chart}
+				queryData={data}
+				hasActiveFilters={hasActiveFilters}
+				isRefreshing={isRefreshing}
+			/>
+		),
+		[],
 	);
 
 	const renderTable = useCallback(
-		(table: ParsedTableBlock) => <StoryTableEmbed table={table} queryData={queryData} />,
-		[queryData],
+		(
+			table: ParsedTableBlock,
+			{
+				queryData: data,
+				hasActiveFilters,
+				isRefreshing,
+			}: { queryData: QueryDataMap | null; hasActiveFilters: boolean; isRefreshing: boolean },
+		) => (
+			<StoryTableEmbed
+				table={table}
+				queryData={data}
+				hasActiveFilters={hasActiveFilters}
+				isRefreshing={isRefreshing}
+			/>
+		),
+		[],
 	);
 
-	return <StoryTabbedContent code={code} renderChart={renderChart} renderTable={renderTable} />;
+	return (
+		<StoryTabbedContent
+			code={code}
+			baselineQueryData={queryData}
+			renderChart={renderChart}
+			renderTable={renderTable}
+		/>
+	);
 }
 
 function StoryDownloadButton({ onDownload }: { onDownload: (format: DownloadFormat) => Promise<void> }) {

@@ -1,5 +1,6 @@
 import { memo, useMemo } from 'react';
 import { ThumbsDown, ThumbsUp } from 'lucide-react';
+import { filterSupersededExecuteSqlParts } from '@nao/shared/execute-sql-parts';
 import { UserMessageBubble } from './user-message';
 import type { ForkMetadata, UIMessage } from '@nao/backend/chat';
 import { SelectionCitationExcerpt } from '@/components/selection-citation-excerpt';
@@ -25,7 +26,7 @@ export function ChatMessagesReadonly({
 	className?: string;
 	forkMetadata?: ForkMetadata;
 }) {
-	const messageGroups = useMemo(() => groupMessages(messages), [messages]);
+	const messageGroups = useMemo(() => groupMessages(filterSupersededExecuteSqlParts(messages)), [messages]);
 
 	const citation = useMemo(() => {
 		if (!forkMetadata?.selectionText || forkMetadata.selectionStart == null || forkMetadata.selectionEnd == null) {

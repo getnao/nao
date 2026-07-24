@@ -1,10 +1,10 @@
+import { displayChart } from '@nao/shared/tools';
 import { memo, useMemo } from 'react';
+
 import { McpAppHeader } from './mcp-app-header';
 import { OpenInNaoButton } from './open-in-nao-button';
 import type { McpChartEmbedStoredConfig } from '@nao/shared';
-import type { displayChart } from '@nao/shared/tools';
 import type { ReactNode } from 'react';
-
 import { ChartDisplay } from '@/components/tool-calls/display-chart';
 import { sortByDateKey } from '@/lib/charts.utils';
 
@@ -27,6 +27,8 @@ export const ChartAppView = memo(function ChartAppView({ config, data, naoUrl }:
 				color: s.color ?? `var(--chart-${(i % 5) + 1})`,
 				label: s.label,
 				is_total: s.is_total,
+				series_type: s.series_type,
+				y_axis: s.y_axis,
 			})),
 		[config.series],
 	);
@@ -46,6 +48,12 @@ export const ChartAppView = memo(function ChartAppView({ config, data, naoUrl }:
 				No series configured for this chart.
 			</div>
 		);
+	} else if (!displayChart.isBuiltinChartType(config.chartType)) {
+		body = (
+			<div className='flex min-h-[10rem] items-center justify-center px-4 py-10 text-center text-sm text-muted-foreground'>
+				Custom charts are available in web chats only.
+			</div>
+		);
 	} else {
 		body = (
 			<div className={`min-h-[14rem] w-full ${config.chartType !== 'kpi_card' ? 'aspect-3/2' : ''}`}>
@@ -58,6 +66,10 @@ export const ChartAppView = memo(function ChartAppView({ config, data, naoUrl }:
 					title={config.title}
 					yAxisMin={config.yAxisMin}
 					yAxisMax={config.yAxisMax}
+					yAxisLabel={config.yAxisLabel}
+					yAxisRightMin={config.yAxisRightMin}
+					yAxisRightMax={config.yAxisRightMax}
+					yAxisRightLabel={config.yAxisRightLabel}
 				/>
 			</div>
 		);

@@ -3,13 +3,15 @@ import { buildStoryChartBlock } from '@nao/shared';
 import { useStoryBlockEdit } from './use-story-block-edit';
 import type { displayChart } from '@nao/shared/tools';
 
+type EditableChartInput = displayChart.ChartInput | displayChart.KpiCardInput;
+
 export interface StoryChartEditHandlers {
 	/**
 	 * Persists a new chart config by replacing `rawTag` (the original `<chart ... />` tag)
 	 * in the story's markdown and saving a new version.
 	 * Returns a promise that rejects if the save fails.
 	 */
-	saveChart: (rawTag: string, config: displayChart.ChartInput) => Promise<void>;
+	saveChart: (rawTag: string, config: EditableChartInput) => Promise<void>;
 	/** Whether a save is currently in flight. */
 	isSaving: boolean;
 	/** Human-readable hint describing how the edit is persisted, shown in the edit dialog. */
@@ -66,7 +68,7 @@ export function StoryChartEditProvider({
 	const { replaceBlock, isSaving } = useStoryBlockEdit({ chatId, storySlug, storyTitle, storyCode });
 
 	const saveChart = useCallback(
-		(rawTag: string, config: displayChart.ChartInput) => replaceBlock(rawTag, buildStoryChartBlock(config)),
+		(rawTag: string, config: EditableChartInput) => replaceBlock(rawTag, buildStoryChartBlock(config)),
 		[replaceBlock],
 	);
 

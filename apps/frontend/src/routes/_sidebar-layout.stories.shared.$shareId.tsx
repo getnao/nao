@@ -171,7 +171,11 @@ function SharedStoryPage() {
 										code={editor.code}
 										queryData={story.queryData as QueryDataMap | null}
 										chatId={story.chatId!}
+										shareId={shareId}
 										cacheSchedule={story.cacheSchedule}
+										filtersEnabled={
+											!isOwner || (editor.versionNav.isViewingLatest && !editor.isCodeDirty)
+										}
 									/>
 								}
 							/>
@@ -284,14 +288,22 @@ function SharedStoryContent({
 	code,
 	queryData,
 	chatId,
+	shareId,
 	cacheSchedule,
+	filtersEnabled,
 }: {
 	code: string;
 	queryData: QueryDataMap | null;
 	chatId: string;
+	shareId: string;
 	cacheSchedule?: string | null;
+	filtersEnabled: boolean;
 }) {
 	const isNoCacheMode = cacheSchedule === 'no-cache';
+	const filterApi = useMemo(
+		() => (filtersEnabled ? { kind: 'shared' as const, shareId } : null),
+		[filtersEnabled, shareId],
+	);
 
 	const noCacheQuery = useMemo(
 		() => (isNoCacheMode ? { queryOptions: trpc.storyShare.getLiveQueryData.queryOptions, chatId } : undefined),
@@ -299,22 +311,58 @@ function SharedStoryContent({
 	);
 
 	const renderChart = useCallback(
-		(chart: ParsedChartBlock) => (
-			<StoryChartEmbed chart={chart} queryData={isNoCacheMode ? undefined : queryData} liveQuery={noCacheQuery} />
+		(
+			chart: ParsedChartBlock,
+			{
+				queryData: data,
+				hasActiveFilters,
+				isRefreshing,
+			}: {
+				queryData: QueryDataMap | null;
+				hasActiveFilters: boolean;
+				isRefreshing: boolean;
+			},
+		) => (
+			<StoryChartEmbed
+				chart={chart}
+				queryData={isNoCacheMode && !hasActiveFilters ? undefined : data}
+				liveQuery={isNoCacheMode && !hasActiveFilters ? noCacheQuery : undefined}
+				hasActiveFilters={hasActiveFilters}
+				isRefreshing={isRefreshing}
+			/>
 		),
-		[isNoCacheMode, queryData, noCacheQuery],
+		[isNoCacheMode, noCacheQuery],
 	);
 
 	const renderTable = useCallback(
-		(table: ParsedTableBlock) => (
-			<StoryTableEmbed table={table} queryData={isNoCacheMode ? undefined : queryData} liveQuery={noCacheQuery} />
+		(
+			table: ParsedTableBlock,
+			{
+				queryData: data,
+				hasActiveFilters,
+				isRefreshing,
+			}: { queryData: QueryDataMap | null; hasActiveFilters: boolean; isRefreshing: boolean },
+		) => (
+			<StoryTableEmbed
+				table={table}
+				queryData={isNoCacheMode && !hasActiveFilters ? undefined : data}
+				liveQuery={isNoCacheMode && !hasActiveFilters ? noCacheQuery : undefined}
+				hasActiveFilters={hasActiveFilters}
+				isRefreshing={isRefreshing}
+			/>
 		),
-		[isNoCacheMode, queryData, noCacheQuery],
+		[isNoCacheMode, noCacheQuery],
 	);
 
 	return (
 		<div className='flex flex-1 min-h-0 flex-col' data-selection-container>
-			<StoryTabbedContent code={code} renderChart={renderChart} renderTable={renderTable} />
+			<StoryTabbedContent
+				code={code}
+				baselineQueryData={queryData}
+				filterApi={filterApi}
+				renderChart={renderChart}
+				renderTable={renderTable}
+			/>
 		</div>
 	);
 }
