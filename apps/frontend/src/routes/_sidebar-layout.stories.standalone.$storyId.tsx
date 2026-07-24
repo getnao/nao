@@ -7,6 +7,7 @@ import type { SelectionData } from '@/components/highlight-bubble';
 import type { QueryDataMap } from '@/components/story-embeds';
 import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
 import { HighlightBubble } from '@/components/highlight-bubble';
+import { StoryAccessError } from '@/components/story-access-error';
 import { StoryChartEmbed, StoryTableEmbed } from '@/components/story-embeds';
 import { StoryTabbedContent } from '@/components/story-tabbed-content';
 import { StoryPageHeader } from '@/components/story-page-header';
@@ -76,8 +77,8 @@ function StandaloneStoryPage() {
 		);
 	}
 
-	if (!story) {
-		return <div>Not Found</div>;
+	if (storyQuery.isError || !story) {
+		return <StoryAccessError error={storyQuery.error} />;
 	}
 
 	if (story.chatId) {
