@@ -1,5 +1,5 @@
-import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
-import { createFileRoute, useNavigate } from '@tanstack/react-router';
+import { useMutation, useQueryClient, useQueryErrorResetBoundary, useSuspenseQuery } from '@tanstack/react-query';
+import { createFileRoute, useNavigate, useRouter } from '@tanstack/react-router';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import type { ParsedChartBlock, ParsedTableBlock } from '@nao/shared/story-segments';
 
@@ -28,8 +28,22 @@ import { trpc } from '@/main';
 
 export const Route = createFileRoute('/_sidebar-layout/stories/shared/$shareId')({
 	component: SharedStoryPage,
-	errorComponent: ({ error }) => <StoryAccessError error={error} />,
+	errorComponent: SharedStoryError,
 });
+
+function SharedStoryError({ error }: { error: unknown }) {
+	const router = useRouter();
+	const { reset } = useQueryErrorResetBoundary();
+	return (
+		<StoryAccessError
+			error={error}
+			onRetry={() => {
+				reset();
+				router.invalidate();
+			}}
+		/>
+	);
+}
 
 function SharedStoryPage() {
 	const { shareId } = Route.useParams();

@@ -78,7 +78,7 @@ function StandaloneStoryPage() {
 	}
 
 	if (storyQuery.isError || !story) {
-		return <StoryAccessError error={storyQuery.error} />;
+		return <StoryAccessError error={storyQuery.error} onRetry={() => storyQuery.refetch()} />;
 	}
 
 	if (story.chatId) {

@@ -9,3 +9,7 @@ function getTrpcErrorCode(error: unknown): string | undefined {
 export function isForbiddenError(error: unknown): boolean {
 	return getTrpcErrorCode(error) === 'FORBIDDEN';
 }
+
+export function isNotFoundError(error: unknown): boolean {
+	return getTrpcErrorCode(error) === 'NOT_FOUND';
+}

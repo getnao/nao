@@ -1,5 +1,11 @@
-import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
-import { createFileRoute, useNavigate } from '@tanstack/react-router';
+import {
+	useMutation,
+	useQuery,
+	useQueryClient,
+	useQueryErrorResetBoundary,
+	useSuspenseQuery,
+} from '@tanstack/react-query';
+import { createFileRoute, useNavigate, useRouter } from '@tanstack/react-router';
 import { ArchiveRestoreIcon } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
 
@@ -30,8 +36,22 @@ import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
 export const Route = createFileRoute('/_sidebar-layout/stories/preview/$chatId/$storySlug')({
 	component: StoryPreviewPage,
 	pendingComponent: StoryContentLoading,
-	errorComponent: ({ error }) => <StoryAccessError error={error} />,
+	errorComponent: StoryPreviewError,
 });
+
+function StoryPreviewError({ error }: { error: unknown }) {
+	const router = useRouter();
+	const { reset } = useQueryErrorResetBoundary();
+	return (
+		<StoryAccessError
+			error={error}
+			onRetry={() => {
+				reset();
+				router.invalidate();
+			}}
+		/>
+	);
+}
 
 function StoryPreviewPage() {
 	const { chatId, storySlug } = Route.useParams();
