@@ -10,6 +10,8 @@ const MAP_STYLE_LIGHT = import.meta.env.VITE_MAP_STYLE_URL || 'https://tiles.ope
 const MAP_STYLE_DARK = import.meta.env.VITE_MAP_STYLE_URL_DARK || 'https://tiles.openfreemap.org/styles/dark';
 const POINTS_SOURCE_ID = 'query-points';
 const POINTS_LAYER_ID = 'query-points-circles';
+const DEFAULT_MARKER_COLOR = '#522bff';
+const DEFAULT_MARKER_RADIUS = 5;
 
 export interface MapViewHandle {
 	captureImage: (type?: string) => string | null;
@@ -73,14 +75,14 @@ export default function MapView({ points, config, ref }: MapViewProps) {
 		map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
 
 		map.on('style.load', () => {
-			markerColorRef.current = resolveCssColor('--primary', '#522bff');
+			markerColorRef.current = resolveMarkerColor(configRef.current.marker_color);
 			map.addSource(POINTS_SOURCE_ID, { type: 'geojson', data: toGeoJsonPoints(pointsRef.current) });
 			map.addLayer({
 				id: POINTS_LAYER_ID,
 				type: 'circle',
 				source: POINTS_SOURCE_ID,
 				paint: {
-					'circle-radius': 5,
+					'circle-radius': configRef.current.marker_radius ?? DEFAULT_MARKER_RADIUS,
 					'circle-color': markerColorRef.current,
 					'circle-opacity': 0.9,
 					'circle-stroke-width': 2,
@@ -140,6 +142,17 @@ export default function MapView({ points, config, ref }: MapViewProps) {
 		source.setData(toGeoJsonPoints(points));
 		fitToPoints(map, points);
 	}, [points]);
+
+	const { marker_color: markerColor, marker_radius: markerRadius } = config;
+	useEffect(() => {
+		const map = mapRef.current;
+		if (!map || !map.getLayer(POINTS_LAYER_ID)) {
+			return;
+		}
+		markerColorRef.current = resolveMarkerColor(markerColor);
+		map.setPaintProperty(POINTS_LAYER_ID, 'circle-color', markerColorRef.current);
+		map.setPaintProperty(POINTS_LAYER_ID, 'circle-radius', markerRadius ?? DEFAULT_MARKER_RADIUS);
+	}, [markerColor, markerRadius]);
 
 	if (initFailed) {
 		return (
@@ -234,6 +247,10 @@ function buildTooltipContent(point: MapPoint, config: displayMap.Input, markerCo
 		'border-border/50 bg-background grid min-w-32 items-start gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs shadow-xl font-sans';
 	container.append(...rows);
 	return container;
+}
+
+function resolveMarkerColor(markerColor: string | undefined): string {
+	return markerColor?.trim() || resolveCssColor('--primary', DEFAULT_MARKER_COLOR);
 }
 
 function resolveCssColor(variableName: string, fallback: string): string {

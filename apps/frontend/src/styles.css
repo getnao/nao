@@ -85,6 +85,10 @@ html.nao-embed {
 	background-color: var(--panel);
 }
 
+html.nao-embed.dark {
+	color-scheme: dark;
+}
+
 html.nao-embed,
 html.nao-embed body {
 	overflow: hidden;
@@ -192,6 +196,7 @@ code.dollar:before {
 }
 
 :root {
+	color-scheme: light;
 	--radius: 0.625rem;
 	--background: oklch(1 0 0);
 	--panel: oklch(0.98 0 0);
@@ -238,6 +243,7 @@ code.dollar:before {
 }
 
 .dark {
+	color-scheme: dark;
 	--background: oklch(0.145 0.005 270);
 	--panel: oklch(0.21 0.008 270);
 	--foreground: oklch(0.984 0.003 247.858);

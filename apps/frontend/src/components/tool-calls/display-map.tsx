@@ -1,11 +1,12 @@
 import { lazy, Suspense, useMemo, useRef, useState } from 'react';
-import { Code, Download, Map as MapIcon, Table as TableIcon } from 'lucide-react';
+import { Code, Download, Map as MapIcon, Pencil, Table as TableIcon } from 'lucide-react';
 import { buildMapPoints, MAX_MAP_POINTS, resolveMapConfig } from '@nao/shared';
 import { Skeleton } from '../ui/skeleton';
 import { TextShimmer } from '../ui/text-shimmer';
 import { Button } from '../ui/button';
 import GraphLoaderAnimated from '../icons/graph-loader-animated';
 import { TableDisplay } from './display-table';
+import { DisplayMapEditDialog } from './display-map-edit-dialog';
 import { SqlQueryDisplay } from './sql-query-display';
 import { ToolCallWrapper } from './tool-call-wrapper';
 import type { ToolCallComponentProps } from '.';
@@ -15,16 +16,22 @@ import type { MapPoint } from '@nao/shared';
 import type { MapViewHandle } from './display-map-view';
 import { cn } from '@/lib/utils';
 import { useSourceQuery } from '@/hooks/use-source-query';
+import { useOptionalAgentContext } from '@/contexts/agent.provider';
 
 const MapView = lazy(() => import('./display-map-view'));
 
 type MapViewMode = 'map' | 'table' | 'query';
 
-export const DisplayMapToolCall = ({ toolPart: { state, input, output } }: ToolCallComponentProps<'display_map'>) => {
+export const DisplayMapToolCall = ({
+	toolPart: { state, input, output, toolCallId },
+}: ToolCallComponentProps<'display_map'>) => {
+	const agent = useOptionalAgentContext();
 	const config = state !== 'input-streaming' ? input : undefined;
 	const { sourceQuery, sourceData } = useSourceQuery(config?.query_id);
 	const [viewMode, setViewMode] = useState<MapViewMode>('map');
+	const [isEditOpen, setIsEditOpen] = useState(false);
 	const mapViewRef = useRef<MapViewHandle>(null);
+	const isEditable = Boolean(agent && !agent.isReadonly && !agent.isRunning);
 
 	const handleDownloadPng = async () => {
 		const dataUrl = mapViewRef.current?.captureImage('image/png');
@@ -141,8 +148,25 @@ export const DisplayMapToolCall = ({ toolPart: { state, input, output } }: ToolC
 								onClick={handleDownloadPng}
 							/>
 						)}
+						{isEditable && (
+							<ViewToggleButton
+								icon={<Pencil className='size-3 text-muted-foreground/70' strokeWidth={2.25} />}
+								title='Edit map'
+								isActive={false}
+								onClick={() => setIsEditOpen(true)}
+							/>
+						)}
 					</div>
 				</div>
+
+				{isEditable && (
+					<DisplayMapEditDialog
+						open={isEditOpen}
+						onOpenChange={setIsEditOpen}
+						toolCallId={toolCallId}
+						config={config}
+					/>
+				)}
 
 				{viewMode === 'map' && (
 					<div className='px-3 pb-3'>

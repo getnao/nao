@@ -15,6 +15,16 @@ export const InputSchema = z.object({
 		.array(z.string())
 		.optional()
 		.describe('Additional column names to display as label/value rows in the point popup.'),
+	marker_color: z
+		.string()
+		.optional()
+		.describe('CSS color for the point markers. Defaults to the theme primary color when unset.'),
+	marker_radius: z
+		.number()
+		.min(1)
+		.max(30)
+		.optional()
+		.describe('Radius of the point markers in pixels (defaults to 5).'),
 	title: z
 		.string()
 		.describe(
