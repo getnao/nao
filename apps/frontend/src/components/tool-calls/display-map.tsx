@@ -1,4 +1,5 @@
 import { lazy, Suspense, useMemo, useRef, useState } from 'react';
+import { useMutation } from '@tanstack/react-query';
 import { Code, Download, Map as MapIcon, Pencil, Table as TableIcon } from 'lucide-react';
 import { buildMapPoints, MAX_MAP_POINTS, resolveMapConfig } from '@nao/shared';
 import { Skeleton } from '../ui/skeleton';
@@ -15,6 +16,8 @@ import type { displayMap } from '@nao/shared/tools';
 import type { MapPoint } from '@nao/shared';
 import type { MapViewHandle } from './display-map-view';
 import { cn } from '@/lib/utils';
+import { trpc } from '@/main';
+import { useChatId } from '@/hooks/use-chat-id';
 import { useSourceQuery } from '@/hooks/use-source-query';
 import { useOptionalAgentContext } from '@/contexts/agent.provider';
 
@@ -26,12 +29,14 @@ export const DisplayMapToolCall = ({
 	toolPart: { state, input, output, toolCallId },
 }: ToolCallComponentProps<'display_map'>) => {
 	const agent = useOptionalAgentContext();
+	const chatId = useChatId();
 	const config = state !== 'input-streaming' ? input : undefined;
 	const { sourceQuery, sourceData } = useSourceQuery(config?.query_id);
 	const [viewMode, setViewMode] = useState<MapViewMode>('map');
 	const [isEditOpen, setIsEditOpen] = useState(false);
 	const mapViewRef = useRef<MapViewHandle>(null);
 	const isEditable = Boolean(agent && !agent.isReadonly && !agent.isRunning);
+	const logDownload = useMutation(trpc.analyticsEvent.logChatDownload.mutationOptions());
 
 	const handleDownloadPng = async () => {
 		const dataUrl = mapViewRef.current?.captureImage('image/png');
@@ -43,6 +48,9 @@ export const DisplayMapToolCall = ({
 		link.href = await addTitleToPng(dataUrl, title);
 		link.download = `${title || 'map'}.png`;
 		link.click();
+		if (chatId) {
+			logDownload.mutate({ chatId, format: 'png', queryId: config?.query_id, title: config?.title });
+		}
 	};
 
 	const resolvedConfig = useMemo<displayMap.Input | undefined>(() => {
