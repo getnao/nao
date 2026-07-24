@@ -39,11 +39,11 @@ function ChartBlockView({ node, editor, getPos, updateAttributes }: ReactNodeVie
 		<NodeViewWrapper draggable data-type='chart-block'>
 			<div className='group relative my-2'>
 				<StoryBlockDropZones node={node} editor={editor} getPos={getPos} />
+				<div contentEditable={false} className='absolute -left-10 top-2 z-20'>
+					<StoryBlockDragGrip node={node} editor={editor} getPos={getPos} />
+				</div>
 				<EditorStoryChartEditProvider onReplaceTag={handleReplaceTag}>
-					<StoryChartEmbed
-						chart={chart}
-						dragHandle={<StoryBlockDragGrip node={node} editor={editor} getPos={getPos} />}
-					/>
+					<StoryChartEmbed chart={chart} />
 				</EditorStoryChartEditProvider>
 			</div>
 		</NodeViewWrapper>

@@ -1,7 +1,12 @@
 import { groupBlocksIntoGrid } from '@nao/shared/story-segments';
 import { GripVertical } from 'lucide-react';
 import { useCallback, useContext, useEffect, useState } from 'react';
-import { blockSelectionPluginKey, resolveDragBlocks } from './story-block-selection';
+import {
+	blockSelectionPluginKey,
+	emptySelection,
+	resolveDragBlocks,
+	selectBlockFromHandle,
+} from './story-block-selection';
 import { createBlockNode, removeCardFromOrigin } from './story-editor-utils';
 import { GridDragContext, STORY_BLOCK_DRAG_TYPE, StoryBlockDragContext } from './story-editor-drag-context';
 import type { ReactNodeViewProps } from '@tiptap/react';
@@ -26,13 +31,8 @@ export function StoryBlockDragGrip({ node, editor, getPos }: Pick<ReactNodeViewP
 			}
 
 			const selection = blockSelectionPluginKey.getState(editor.state);
-			if (selection?.blocks.length) {
-				editor.view.dispatch(
-					editor.state.tr.setMeta(blockSelectionPluginKey, {
-						blocks: [],
-						anchor: null,
-					}),
-				);
+			if (selection?.blocks.length || selection?.gridColumns.length) {
+				editor.view.dispatch(editor.state.tr.setMeta(blockSelectionPluginKey, emptySelection()));
 			}
 
 			event.dataTransfer.effectAllowed = 'move';
@@ -67,6 +67,15 @@ export function StoryBlockDragGrip({ node, editor, getPos }: Pick<ReactNodeViewP
 			draggable
 			onClick={(event) => {
 				event.stopPropagation();
+				const pos = getPos();
+				if (typeof pos !== 'number') {
+					return;
+				}
+				const next = selectBlockFromHandle(editor.state, pos);
+				if (!next) {
+					return;
+				}
+				editor.view.dispatch(editor.state.tr.setMeta(blockSelectionPluginKey, next));
 			}}
 			onPointerDown={(event) => {
 				event.stopPropagation();

@@ -8,11 +8,14 @@ import {
 	BlockSelection,
 	blockSelectionPluginKey,
 	buildBlockMoveTransaction,
+	emptySelection,
 	getSelectedBlockPositions,
+	getSelectedGridColumns,
 	isDropInsideSelection,
 	rangeBetween,
 	resolveDragBlocks,
 	selectBlockFromHandle,
+	selectColumnFromHandle,
 	topLevelBlockPositions,
 } from '@/components/side-panel/story-block-selection';
 
@@ -24,17 +27,23 @@ function createEditor(): Editor {
 }
 
 function selectBlocks(editor: Editor, blocks: number[], anchor: number | null): void {
-	editor.view.dispatch(editor.state.tr.setMeta(blockSelectionPluginKey, { blocks, anchor }));
+	editor.view.dispatch(
+		editor.state.tr.setMeta(blockSelectionPluginKey, {
+			...emptySelection(),
+			blocks,
+			anchor,
+		}),
+	);
 }
 
-function dispatchEditorMouseDown(target: Element): void {
+function dispatchEditorMouseDown(target: Element, init?: MouseEventInit): void {
 	const elementFromPoint = document.elementFromPoint;
 	Object.defineProperty(document, 'elementFromPoint', {
 		configurable: true,
 		value: () => null,
 	});
 	try {
-		target.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: 100, clientY: 100 }));
+		target.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: 100, clientY: 100, ...init }));
 	} finally {
 		Object.defineProperty(document, 'elementFromPoint', {
 			configurable: true,
@@ -136,6 +145,41 @@ describe('story block selection', () => {
 
 			expect(getSelectedBlockPositions(editor.state)).toEqual([]);
 		});
+
+		it('toggles grid columns with the modifier key', () => {
+			const column = document.createElement('div');
+			column.setAttribute('data-grid-column', '');
+			column.setAttribute('data-grid-pos', '4');
+			column.setAttribute('data-col-index', '1');
+			editor.view.dom.appendChild(column);
+
+			dispatchEditorMouseDown(column, { ctrlKey: true });
+			expect(getSelectedGridColumns(editor.state)).toEqual([{ gridPos: 4, index: 1 }]);
+
+			dispatchEditorMouseDown(column, { ctrlKey: true });
+			expect(getSelectedGridColumns(editor.state)).toEqual([]);
+		});
+
+		it('selects a grid-column range from the column anchor', () => {
+			const first = document.createElement('div');
+			first.setAttribute('data-grid-column', '');
+			first.setAttribute('data-grid-pos', '4');
+			first.setAttribute('data-col-index', '0');
+			const third = document.createElement('div');
+			third.setAttribute('data-grid-column', '');
+			third.setAttribute('data-grid-pos', '4');
+			third.setAttribute('data-col-index', '2');
+			editor.view.dom.append(first, third);
+
+			dispatchEditorMouseDown(first, { ctrlKey: true });
+			dispatchEditorMouseDown(third, { shiftKey: true });
+
+			expect(getSelectedGridColumns(editor.state)).toEqual([
+				{ gridPos: 4, index: 0 },
+				{ gridPos: 4, index: 1 },
+				{ gridPos: 4, index: 2 },
+			]);
+		});
 	});
 
 	describe('resolveDragBlocks', () => {
@@ -178,7 +222,12 @@ describe('story block selection', () => {
 	describe('selectBlockFromHandle', () => {
 		it('selects an unselected block', () => {
 			const [first] = topLevelBlockPositions(editor.state.doc);
-			expect(selectBlockFromHandle(editor.state, first)).toEqual({ blocks: [first], anchor: first });
+			expect(selectBlockFromHandle(editor.state, first)).toEqual({
+				blocks: [first],
+				gridColumns: [],
+				anchor: first,
+				columnAnchor: null,
+			});
 		});
 
 		it('no-ops when the block is already the sole selection', () => {
@@ -196,7 +245,32 @@ describe('story block selection', () => {
 		it('switches selection from a different block', () => {
 			const [first, second] = topLevelBlockPositions(editor.state.doc);
 			selectBlocks(editor, [first], first);
-			expect(selectBlockFromHandle(editor.state, second)).toEqual({ blocks: [second], anchor: second });
+			expect(selectBlockFromHandle(editor.state, second)).toEqual({
+				blocks: [second],
+				gridColumns: [],
+				anchor: second,
+				columnAnchor: null,
+			});
+		});
+	});
+
+	describe('selectColumnFromHandle', () => {
+		it('selects only the requested column', () => {
+			expect(selectColumnFromHandle(editor.state, 4, 1)).toEqual({
+				blocks: [],
+				gridColumns: [{ gridPos: 4, index: 1 }],
+				anchor: null,
+				columnAnchor: { gridPos: 4, index: 1 },
+			});
+		});
+
+		it('no-ops when the requested column is the sole selection', () => {
+			const selection = selectColumnFromHandle(editor.state, 4, 1);
+			expect(selection).not.toBeNull();
+			if (selection) {
+				editor.view.dispatch(editor.state.tr.setMeta(blockSelectionPluginKey, selection));
+			}
+			expect(selectColumnFromHandle(editor.state, 4, 1)).toBeNull();
 		});
 	});
 

@@ -3,8 +3,11 @@ import { mergeAttributes, Node } from '@tiptap/core';
 import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react';
 import { GripVertical } from 'lucide-react';
 import { Streamdown } from 'streamdown';
+import { useContext } from 'react';
 import { StoryChartEmbed } from './story-chart-embed';
 import { StoryTableEmbed } from './story-table-embed';
+import { blockSelectionPluginKey, selectColumnFromHandle } from './story-block-selection';
+import { BlockSelectionContext } from './story-block-selection-context';
 import { decodeFromAttr } from './story-editor-utils';
 import { useStoryEditorGridBlock } from './hooks/use-story-editor-grid-block';
 import type { Segment } from '@nao/shared/story-segments';
@@ -13,6 +16,7 @@ import type { ReactNode } from 'react';
 import { MarkdownTable } from '@/components/chat-messages/markdown-table';
 import { EditorStoryChartEditProvider } from '@/contexts/story-chart-edit';
 import { markdownPlugins } from '@/lib/markdown';
+import { cn } from '@/lib/utils';
 
 const markdownComponents = { table: ({ node, className }: any) => <MarkdownTable node={node} className={className} /> };
 
@@ -25,6 +29,7 @@ function renderColumnContent(
 	segment: Segment,
 	dragHandle: ReactNode,
 	onReplaceTag: (rawTag: string, nextTag: string) => void,
+	dragHandlePlacement: 'leading' | 'trailing' = 'trailing',
 ): ReactNode {
 	switch (segment.type) {
 		case 'markdown':
@@ -36,11 +41,21 @@ function renderColumnContent(
 		case 'chart':
 			return (
 				<EditorStoryChartEditProvider onReplaceTag={onReplaceTag}>
-					<StoryChartEmbed chart={segment.chart} dragHandle={dragHandle} />
+					<StoryChartEmbed
+						chart={segment.chart}
+						dragHandle={dragHandle}
+						dragHandlePlacement={dragHandlePlacement}
+					/>
 				</EditorStoryChartEditProvider>
 			);
 		case 'table':
-			return <StoryTableEmbed table={segment.table} dragHandle={dragHandle} />;
+			return (
+				<StoryTableEmbed
+					table={segment.table}
+					dragHandle={dragHandle}
+					dragHandlePlacement={dragHandlePlacement}
+				/>
+			);
 		case 'grid':
 			return (
 				<div className='flex flex-col gap-4'>
@@ -55,6 +70,7 @@ function renderColumnContent(
 }
 
 function GridBlockView(props: ReactNodeViewProps) {
+	const selectedGridColumns = useContext(BlockSelectionContext);
 	const {
 		gridRef,
 		segments,
@@ -76,6 +92,8 @@ function GridBlockView(props: ReactNodeViewProps) {
 		handleResizeKeyDown,
 		setBlockDropIndex,
 	} = useStoryEditorGridBlock(props);
+	const resolvedGridPos = props.getPos();
+	const gridPos = typeof resolvedGridPos === 'number' ? resolvedGridPos : null;
 
 	return (
 		<NodeViewWrapper draggable data-type='grid-block'>
@@ -105,15 +123,26 @@ function GridBlockView(props: ReactNodeViewProps) {
 						// turn their markdown into literal text), so only chart/table
 						// columns get a move handle.
 						const columnGrip =
-							segments.length >= 2 && segment.type !== 'markdown' ? (
+							segments.length >= 2 && (segment.type === 'chart' || segment.type === 'table') ? (
 								<button
 									type='button'
 									aria-label={`Move column ${i + 1}`}
+									data-block-drag-grip=''
 									contentEditable={false}
 									draggable
 									className='cursor-grab rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground active:cursor-grabbing'
 									onClick={(event) => {
 										event.stopPropagation();
+										if (gridPos === null) {
+											return;
+										}
+										const next = selectColumnFromHandle(props.editor.state, gridPos, i);
+										if (!next) {
+											return;
+										}
+										props.editor.view.dispatch(
+											props.editor.state.tr.setMeta(blockSelectionPluginKey, next),
+										);
 									}}
 									onPointerDown={(event) => {
 										event.stopPropagation();
@@ -129,10 +158,39 @@ function GridBlockView(props: ReactNodeViewProps) {
 									<GripVertical className='size-3.5' />
 								</button>
 							) : null;
+						const isLeftmostColumn = i === 0;
 
 						return (
-							<div key={i} className='group relative min-w-0'>
-								{renderColumnContent(segment, columnGrip, handleReplaceTag)}
+							<div
+								key={i}
+								className={cn(
+									'group relative min-w-0',
+									gridPos !== null &&
+										selectedGridColumns.some(
+											(column) => column.gridPos === gridPos && column.index === i,
+										) &&
+										'nao-block-selected',
+								)}
+								{...(gridPos === null
+									? {}
+									: {
+											'data-grid-column': '',
+											'data-col-index': i,
+											'data-grid-pos': gridPos,
+											'data-col-type': segment.type,
+										})}
+							>
+								{isLeftmostColumn && columnGrip ? (
+									<div contentEditable={false} className='absolute -left-10 top-2 z-20'>
+										{columnGrip}
+									</div>
+								) : null}
+								{renderColumnContent(
+									segment,
+									isLeftmostColumn ? null : columnGrip,
+									handleReplaceTag,
+									'leading',
+								)}
 							</div>
 						);
 					})}

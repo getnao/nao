@@ -33,10 +33,10 @@ function TableBlockView({ node, editor, getPos }: ReactNodeViewProps) {
 		<NodeViewWrapper draggable data-type='table-block'>
 			<div className='group relative my-2'>
 				<StoryBlockDropZones node={node} editor={editor} getPos={getPos} />
-				<StoryTableEmbed
-					table={table}
-					dragHandle={<StoryBlockDragGrip node={node} editor={editor} getPos={getPos} />}
-				/>
+				<div contentEditable={false} className='absolute -left-10 top-2 z-20'>
+					<StoryBlockDragGrip node={node} editor={editor} getPos={getPos} />
+				</div>
+				<StoryTableEmbed table={table} />
 			</div>
 		</NodeViewWrapper>
 	);

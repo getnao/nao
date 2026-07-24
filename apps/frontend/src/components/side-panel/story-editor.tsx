@@ -3,8 +3,10 @@ import { EditorContent } from '@tiptap/react';
 import { GripVertical } from 'lucide-react';
 import { memo } from 'react';
 import { useStoryEditor } from './hooks/use-story-editor';
+import { BlockSelectionContext } from './story-block-selection-context';
 import { GridDragContext, StoryBlockDragContext } from './story-editor-drag-context';
 import type { Editor } from '@tiptap/react';
+import { cn } from '@/lib/utils';
 
 export { preprocessForEditor } from './story-editor-utils';
 export { StoryBlockDragGrip, StoryBlockDropZones } from './story-editor-block-drag';
@@ -20,12 +22,17 @@ export const StoryEditor = memo(function StoryEditor({ code, editorRef, onSave }
 		editor,
 		gridDragSourceRef,
 		storyBlockDragContext,
+		selectedGridColumns,
 		handleDragHandleNodeChange,
+		handleNodeType,
 		storyEditorRef,
 		onElementDragStart,
 		onElementDragEnd,
 		onDragHandleClick,
 	} = useStoryEditor({ code, editorRef, onSave });
+
+	const hideFloatingHandle =
+		handleNodeType === 'gridBlock' || handleNodeType === 'chartBlock' || handleNodeType === 'tableBlock';
 
 	return (
 		<GridDragContext.Provider value={gridDragSourceRef}>
@@ -34,17 +41,19 @@ export const StoryEditor = memo(function StoryEditor({ code, editorRef, onSave }
 					{editor && (
 						<DragHandle
 							editor={editor}
-							className='drag-handle'
+							className={cn('drag-handle', hideFloatingHandle && 'pointer-events-none!')}
 							onNodeChange={handleDragHandleNodeChange}
 							onElementDragStart={onElementDragStart}
 							onElementDragEnd={onElementDragEnd}
 						>
 							<div className='drag-handle-button' onClick={onDragHandleClick}>
-								<GripVertical className='size-4' />
+								{hideFloatingHandle ? null : <GripVertical className='size-4' />}
 							</div>
 						</DragHandle>
 					)}
-					<EditorContent editor={editor} />
+					<BlockSelectionContext.Provider value={selectedGridColumns}>
+						<EditorContent editor={editor} />
+					</BlockSelectionContext.Provider>
 				</div>
 			</StoryBlockDragContext.Provider>
 		</GridDragContext.Provider>

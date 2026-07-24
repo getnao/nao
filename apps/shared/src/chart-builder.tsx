@@ -285,6 +285,8 @@ export interface BuildChartProps {
 	animate?: boolean;
 	comparisonMode?: displayChart.ComparisonMode;
 	idPrefix?: string;
+	/** Optional node rendered inline to the left of the first KPI card's title (used for a per-column drag handle in the story editor). */
+	kpiLeadingSlot?: React.ReactNode;
 }
 
 const CHART_ANIMATION_DURATION_MS = 400;
@@ -299,7 +301,7 @@ export function buildChart(props: BuildChartProps) {
 	const resolved = buildResolved(props);
 
 	if (resolved.chartType === 'kpi_card') {
-		return buildKpiCard(resolved);
+		return buildKpiCard(resolved, props.kpiLeadingSlot);
 	}
 	if (displayChart.isPieChart(resolved.chartType)) {
 		return buildPieChart(resolved);
@@ -478,18 +480,19 @@ export function niceAxisMax(dataMax: number, tickCount = 5): number {
 	return niceStep * Math.ceil(dataMax / niceStep);
 }
 
-function buildKpiCard(props: ResolvedProps) {
+function buildKpiCard(props: ResolvedProps, leadingSlot?: React.ReactNode) {
 	const { data, series, valueFormatter } = props;
 
 	return (
 		<KpiCardContainer>
-			{series.map((s) => (
+			{series.map((s, index) => (
 				<KpiCard
 					key={s.data_key}
 					value={data[data.length - 1]?.[s.data_key]}
 					displayName={s.label ?? s.data_key}
 					comparison={computeKpiComparison(data, props.xAxisKey, s.data_key, props.comparisonMode)}
 					valueFormatter={valueFormatter}
+					leadingSlot={index === 0 ? leadingSlot : undefined}
 				/>
 			))}
 		</KpiCardContainer>
@@ -505,11 +508,13 @@ function KpiCard({
 	displayName,
 	comparison,
 	valueFormatter = formatCompactNumber,
+	leadingSlot,
 }: {
 	value: unknown;
 	displayName: string;
 	comparison: KpiComparison | null;
 	valueFormatter?: (value: number) => string;
+	leadingSlot?: React.ReactNode;
 }) {
 	let formattedValue = '';
 
@@ -528,7 +533,10 @@ function KpiCard({
 
 	return (
 		<div className='min-w-[160px]'>
-			<div className='text-lg tracking-wide'>{displayName}</div>
+			<div className='flex items-center gap-1'>
+				{leadingSlot}
+				<div className='text-lg tracking-wide'>{displayName}</div>
+			</div>
 			<div className='text-3xl font-medium tabular-nums'>{formattedValue}</div>
 			{comparison && (
 				<div className={`mt-1.5 flex items-center gap-1.5 whitespace-nowrap text-sm ${pillColorClass}`}>

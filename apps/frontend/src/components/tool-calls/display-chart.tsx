@@ -442,6 +442,7 @@ export interface ChartDisplayProps {
 	chartContentClassName?: string;
 	normalSize?: boolean;
 	hideTotal?: boolean;
+	kpiLeadingSlot?: React.ReactNode;
 }
 
 export const ChartDisplay = memo(function ChartDisplay({
@@ -471,6 +472,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 	chartContentClassName,
 	normalSize = false,
 	hideTotal,
+	kpiLeadingSlot,
 }: ChartDisplayProps) {
 	const dateFormat = useDateFormat();
 	const containerRef = useRef<HTMLDivElement>(null);
@@ -624,6 +626,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 				animate,
 				comparisonMode,
 				gradientIdPrefix,
+				kpiLeadingSlot,
 				margin: { top: 0, right: 0, bottom: 0, left: 0 },
 				yAxisMin,
 				yAxisMax,
@@ -695,6 +698,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 			animate,
 			comparisonMode,
 			gradientIdPrefix,
+			kpiLeadingSlot,
 			hideTotal,
 			legendPayload,
 			handleToggleSeriesVisibility,

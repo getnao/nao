@@ -15,9 +15,11 @@ import { findLatestExecuteSqlInMessages } from '@/lib/execute-sql-messages';
 export const StoryTableEmbed = memo(function StoryTableEmbed({
 	table,
 	dragHandle,
+	dragHandlePlacement = 'trailing',
 }: {
 	table: ParsedTableBlock;
 	dragHandle?: React.ReactNode;
+	dragHandlePlacement?: 'leading' | 'trailing';
 }) {
 	const agent = useOptionalAgentContext();
 	const embedData = useStoryEmbedData();
@@ -48,9 +50,10 @@ export const StoryTableEmbed = memo(function StoryTableEmbed({
 			columns={columns}
 			title={table.title}
 			conditionalFormats={table.conditionalFormats}
+			leadingHeader={dragHandlePlacement === 'leading' ? dragHandle : undefined}
 			headerActions={
 				<>
-					{dragHandle}
+					{dragHandlePlacement === 'leading' ? null : dragHandle}
 					<StoryTableEditControls table={table} data={rows} columns={columns} />
 				</>
 			}

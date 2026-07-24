@@ -23,6 +23,7 @@ export const StoryBlockDragContext = createContext<{
 	isDragging: boolean;
 	setDragging: (value: boolean) => void;
 	beginMultiBlockDrag: (positions: number[], event: DragEvent) => void;
+	beginMultiColumnDrag: (gridPos: number, indices: number[], event: DragEvent) => void;
 	endMultiBlockDrag: () => void;
 } | null>(null);
 

@@ -1,4 +1,4 @@
-import { popGridColumn } from '@nao/shared/story-segments';
+import { popGridColumn, popGridColumns } from '@nao/shared/story-segments';
 import { Extension } from '@tiptap/core';
 import { Fragment, Slice } from '@tiptap/pm/model';
 import { dropPoint } from '@tiptap/pm/transform';
@@ -7,6 +7,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
 	blockSelectionPluginKey,
 	buildBlockMoveTransaction,
+	emptySelection,
+	getSelectedGridColumns,
 	resolveDragBlocks,
 	selectBlockFromHandle,
 } from '../story-block-selection';
@@ -20,6 +22,7 @@ import {
 	removeCardFromOrigin,
 } from '../story-editor-utils';
 import type { GridDragSource, StoryBlockDragSource } from '../story-editor-drag-context';
+import type { GridColumnRef } from '../story-block-selection';
 import type { Node as PMNode } from '@tiptap/pm/model';
 import type { Editor } from '@tiptap/react';
 import type { MutableRefObject } from 'react';
@@ -41,15 +44,18 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 	const gridDragSourceRef = useRef<GridDragSource | null>(null);
 	const storyBlockSourceRef = useRef<StoryBlockDragSource | null>(null);
 	const multiBlockDragRef = useRef<number[] | null>(null);
+	const multiColumnDragRef = useRef<{ gridPos: number; indices: number[] } | null>(null);
 	const handleNodePosRef = useRef<number | null>(null);
 	const dragPreviewPositionsRef = useRef<number[] | null>(null);
 	const storyEditorRef = useRef<HTMLDivElement>(null);
 	const [isBlockDragging, setIsBlockDragging] = useState(false);
 	const [handleNodeType, setHandleNodeType] = useState<string | null>(null);
+	const [selectedGridColumns, setSelectedGridColumns] = useState<GridColumnRef[]>([]);
 	const resetDragContexts = useCallback(() => {
 		gridDragSourceRef.current = null;
 		storyBlockSourceRef.current = null;
 		multiBlockDragRef.current = null;
+		multiColumnDragRef.current = null;
 		dragPreviewPositionsRef.current = null;
 		setIsBlockDragging(false);
 	}, []);
@@ -95,6 +101,58 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 			},
 			handleDrop(view, event) {
 				const dataTransfer = event.dataTransfer;
+				if (multiColumnDragRef.current) {
+					try {
+						const { gridPos, indices } = multiColumnDragRef.current;
+						const { state } = view;
+						const gridNode = state.doc.nodeAt(gridPos);
+						if (!gridNode || gridNode.type.name !== 'gridBlock') {
+							return true;
+						}
+						const result = popGridColumns(gridNode.attrs.rawContent as string, indices);
+						if (!result) {
+							return true;
+						}
+						const droppedNode = createBlockNode(state.schema, result.popped);
+						if (!droppedNode) {
+							return true;
+						}
+						const coords = view.posAtCoords({ left: event.clientX, top: event.clientY });
+						if (!coords) {
+							return true;
+						}
+						const gridFrom = gridPos;
+						const gridTo = gridPos + gridNode.nodeSize;
+						const slice = new Slice(Fragment.from(droppedNode), 0, 0);
+						const dropTarget = dropPoint(state.doc, coords.pos, slice);
+						if (dropTarget === null) {
+							return true;
+						}
+						let insertPos = dropTarget;
+						if (insertPos > gridFrom && insertPos < gridTo) {
+							insertPos = gridTo;
+						}
+						const transaction = state.tr;
+						if (result.remaining === null) {
+							transaction.delete(gridFrom, gridTo);
+						} else {
+							const remainingNode = createBlockNode(state.schema, result.remaining);
+							if (!remainingNode) {
+								return true;
+							}
+							transaction.replaceWith(gridFrom, gridTo, remainingNode);
+						}
+						const insertAssoc = insertPos >= gridTo ? 1 : -1;
+						transaction.insert(transaction.mapping.map(insertPos, insertAssoc), droppedNode);
+						transaction.setMeta(blockSelectionPluginKey, emptySelection());
+						view.dispatch(transaction);
+						event.preventDefault();
+						return true;
+					} finally {
+						resetDragContexts();
+					}
+				}
+
 				if (multiBlockDragRef.current && multiBlockDragRef.current.length > 1) {
 					try {
 						const positions = multiBlockDragRef.current;
@@ -254,6 +312,23 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 	}, [editor]);
 
 	useEffect(() => {
+		if (!editor) {
+			setSelectedGridColumns([]);
+			return;
+		}
+
+		const syncGridColumns = () => {
+			const next = getSelectedGridColumns(editor.state);
+			setSelectedGridColumns((current) => (sameGridColumns(current, next) ? current : next));
+		};
+		syncGridColumns();
+		editor.on('transaction', syncGridColumns);
+		return () => {
+			editor.off('transaction', syncGridColumns);
+		};
+	}, [editor]);
+
+	useEffect(() => {
 		editorRef.current = editor;
 		return () => {
 			editorRef.current = null;
@@ -276,6 +351,16 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 				return;
 			}
 			const hoveredPosition = handleNodePosRef.current;
+			const hoveredNode = hoveredPosition == null ? null : editor.state.doc.nodeAt(hoveredPosition);
+			if (
+				hoveredNode != null &&
+				(hoveredNode.type.name === 'gridBlock' ||
+					hoveredNode.type.name === 'chartBlock' ||
+					hoveredNode.type.name === 'tableBlock')
+			) {
+				event.preventDefault();
+				return;
+			}
 			const selection = blockSelectionPluginKey.getState(editor.state);
 			const dragBlocks = hoveredPosition == null ? null : resolveDragBlocks(editor.state, hoveredPosition);
 			if (dragBlocks?.isMulti) {
@@ -287,10 +372,8 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 			} else {
 				multiBlockDragRef.current = null;
 				dragPreviewPositionsRef.current = dragBlocks?.positions ?? null;
-				if (selection?.blocks.length) {
-					editor.view.dispatch(
-						editor.state.tr.setMeta(blockSelectionPluginKey, { blocks: [], anchor: null }),
-					);
+				if (selection?.blocks.length || selection?.gridColumns.length) {
+					editor.view.dispatch(editor.state.tr.setMeta(blockSelectionPluginKey, emptySelection()));
 				}
 			}
 		},
@@ -312,15 +395,23 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 		},
 		[editor],
 	);
+	const beginMultiColumnDrag = useCallback((gridPos: number, indices: number[], event: DragEvent) => {
+		multiColumnDragRef.current = { gridPos, indices };
+		if (event.dataTransfer) {
+			event.dataTransfer.effectAllowed = 'move';
+			event.dataTransfer.setData(STORY_BLOCK_DRAG_TYPE, '1');
+		}
+	}, []);
 	const storyBlockDragContext = useMemo(
 		() => ({
 			sourceRef: storyBlockSourceRef,
 			isDragging: isBlockDragging,
 			setDragging: setIsBlockDragging,
 			beginMultiBlockDrag,
+			beginMultiColumnDrag,
 			endMultiBlockDrag,
 		}),
-		[beginMultiBlockDrag, endMultiBlockDrag, isBlockDragging],
+		[beginMultiBlockDrag, beginMultiColumnDrag, endMultiBlockDrag, isBlockDragging],
 	);
 	const onElementDragEnd = endMultiBlockDrag;
 	const onDragHandleClick = useCallback(() => {
@@ -329,6 +420,13 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 		}
 		const pos = handleNodePosRef.current;
 		if (pos == null) {
+			return;
+		}
+		const node = editor.state.doc.nodeAt(pos);
+		if (
+			node != null &&
+			(node.type.name === 'gridBlock' || node.type.name === 'chartBlock' || node.type.name === 'tableBlock')
+		) {
 			return;
 		}
 		const next = selectBlockFromHandle(editor.state, pos);
@@ -342,6 +440,7 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 		editor,
 		gridDragSourceRef,
 		storyBlockDragContext,
+		selectedGridColumns,
 		handleDragHandleNodeChange,
 		handleNodeType,
 		storyEditorRef,
@@ -349,6 +448,13 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 		onElementDragEnd,
 		onDragHandleClick,
 	};
+}
+
+function sameGridColumns(first: GridColumnRef[], second: GridColumnRef[]): boolean {
+	return (
+		first.length === second.length &&
+		first.every((column, index) => column.gridPos === second[index].gridPos && column.index === second[index].index)
+	);
 }
 
 function setDragPreviewImage(editor: Editor, positions: number[], event: DragEvent): void {

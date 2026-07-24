@@ -1,3 +1,4 @@
+import { splitGridColumnsRaw } from '@nao/shared/story-segments';
 import { Extension } from '@tiptap/core';
 import { Fragment } from '@tiptap/pm/model';
 import { Plugin, PluginKey } from '@tiptap/pm/state';
@@ -7,9 +8,16 @@ import type { Node as PMNode } from '@tiptap/pm/model';
 import type { EditorState, Transaction } from '@tiptap/pm/state';
 import type { EditorView } from '@tiptap/pm/view';
 
-interface BlockSelectionState {
+export interface GridColumnRef {
+	gridPos: number;
+	index: number;
+}
+
+export interface BlockSelectionState {
 	blocks: number[];
+	gridColumns: GridColumnRef[];
 	anchor: number | null;
+	columnAnchor: GridColumnRef | null;
 }
 
 export const blockSelectionPluginKey = new PluginKey<BlockSelectionState>('blockSelection');
@@ -24,6 +32,14 @@ export const BlockSelection = Extension.create({
 
 export function getSelectedBlockPositions(state: EditorState): number[] {
 	return blockSelectionPluginKey.getState(state)?.blocks ?? [];
+}
+
+export function getSelectedGridColumns(state: EditorState): GridColumnRef[] {
+	return blockSelectionPluginKey.getState(state)?.gridColumns ?? [];
+}
+
+export function emptySelection(): BlockSelectionState {
+	return { blocks: [], gridColumns: [], anchor: null, columnAnchor: null };
 }
 
 export function resolveDragBlocks(state: EditorState, pos: number): { positions: number[]; isMulti: boolean } {
@@ -41,19 +57,36 @@ export function resolveDragBlocks(state: EditorState, pos: number): { positions:
  * Selection to apply when a block's drag handle is clicked: select just that block,
  * or `null` (no-op) when it is already part of the current selection.
  */
-export function selectBlockFromHandle(state: EditorState, pos: number): { blocks: number[]; anchor: number } | null {
+export function selectBlockFromHandle(state: EditorState, pos: number): BlockSelectionState | null {
 	const current = blockSelectionPluginKey.getState(state);
 	if (current?.blocks.includes(pos)) {
 		return null;
 	}
-	return { blocks: [pos], anchor: pos };
+	return { blocks: [pos], gridColumns: [], anchor: pos, columnAnchor: null };
+}
+
+export function selectColumnFromHandle(state: EditorState, gridPos: number, index: number): BlockSelectionState | null {
+	const current = blockSelectionPluginKey.getState(state);
+	const already =
+		current?.gridColumns.length === 1 &&
+		current.gridColumns[0].gridPos === gridPos &&
+		current.gridColumns[0].index === index;
+	if (already) {
+		return null;
+	}
+	return {
+		blocks: [],
+		gridColumns: [{ gridPos, index }],
+		anchor: null,
+		columnAnchor: { gridPos, index },
+	};
 }
 
 function buildBlockSelectionPlugin(): Plugin<BlockSelectionState> {
 	return new Plugin<BlockSelectionState>({
 		key: blockSelectionPluginKey,
 		state: {
-			init: () => ({ blocks: [], anchor: null }),
+			init: emptySelection,
 			apply(tr, value) {
 				const meta = tr.getMeta(blockSelectionPluginKey) as BlockSelectionState | undefined;
 				if (meta !== undefined) {
@@ -69,7 +102,21 @@ function buildBlockSelectionPlugin(): Plugin<BlockSelectionState> {
 					.filter((position) => valid.has(position));
 				const mappedAnchor = value.anchor == null ? null : tr.mapping.map(value.anchor, -1);
 				const anchor = mappedAnchor != null && valid.has(mappedAnchor) ? mappedAnchor : null;
-				return { blocks, anchor };
+				const gridColumns = value.gridColumns
+					.map(({ gridPos, index }) => ({ gridPos: tr.mapping.map(gridPos, -1), index }))
+					.filter((column) => isValidGridColumn(tr.doc, column));
+				const mappedColumnAnchor =
+					value.columnAnchor == null
+						? null
+						: {
+								gridPos: tr.mapping.map(value.columnAnchor.gridPos, -1),
+								index: value.columnAnchor.index,
+							};
+				const columnAnchor =
+					mappedColumnAnchor != null && isValidGridColumn(tr.doc, mappedColumnAnchor)
+						? mappedColumnAnchor
+						: null;
+				return { blocks, gridColumns, anchor, columnAnchor };
 			},
 		},
 		props: {
@@ -98,19 +145,106 @@ function buildBlockSelectionPlugin(): Plugin<BlockSelectionState> {
 					if (target instanceof Element && target.closest('[data-block-drag-grip]')) {
 						return false;
 					}
+					if (target instanceof Element && target.closest('button, a, input, textarea, select')) {
+						return false;
+					}
 
 					const toggle = event.metaKey || event.ctrlKey;
 					const range = event.shiftKey;
-					const current = blockSelectionPluginKey.getState(view.state) ?? { blocks: [], anchor: null };
+					const current = blockSelectionPluginKey.getState(view.state) ?? emptySelection();
+					const columnElement = target instanceof Element ? target.closest('[data-grid-column]') : null;
+					if (columnElement) {
+						const gridPosAttribute = columnElement.getAttribute('data-grid-pos');
+						const indexAttribute = columnElement.getAttribute('data-col-index');
+						const columnType = columnElement.getAttribute('data-col-type');
+						const gridPos = Number(gridPosAttribute);
+						const index = Number(indexAttribute);
+						if (
+							gridPosAttribute !== null &&
+							indexAttribute !== null &&
+							Number.isInteger(gridPos) &&
+							Number.isInteger(index)
+						) {
+							if (!toggle && !range) {
+								if (columnType !== 'chart' && columnType !== 'table') {
+									if (current.blocks.length || current.gridColumns.length) {
+										view.dispatch(view.state.tr.setMeta(blockSelectionPluginKey, emptySelection()));
+									}
+									return false;
+								}
+								event.preventDefault();
+								const next = selectColumnFromHandle(view.state, gridPos, index);
+								if (next) {
+									view.dispatch(view.state.tr.setMeta(blockSelectionPluginKey, next));
+								}
+								return true;
+							}
 
-					if (!toggle && !range) {
-						if (current.blocks.length) {
+							event.preventDefault();
+							const column = { gridPos, index };
+							if (toggle) {
+								const hasColumn = current.gridColumns.some(
+									(selected) => selected.gridPos === gridPos && selected.index === index,
+								);
+								const gridColumns = hasColumn
+									? current.gridColumns.filter(
+											(selected) => selected.gridPos !== gridPos || selected.index !== index,
+										)
+									: [...current.gridColumns, column];
+								view.dispatch(
+									view.state.tr.setMeta(blockSelectionPluginKey, {
+										...emptySelection(),
+										gridColumns,
+										columnAnchor: column,
+									}),
+								);
+								return true;
+							}
+
+							const columnAnchor = current.columnAnchor;
+							const gridColumns =
+								columnAnchor?.gridPos === gridPos
+									? columnRange(gridPos, columnAnchor.index, index)
+									: [column];
 							view.dispatch(
 								view.state.tr.setMeta(blockSelectionPluginKey, {
-									blocks: [],
-									anchor: null,
+									...emptySelection(),
+									gridColumns,
+									columnAnchor: columnAnchor?.gridPos === gridPos ? columnAnchor : column,
 								}),
 							);
+							return true;
+						}
+					}
+
+					if (!toggle && !range) {
+						const clickCoordinates = view.posAtCoords({ left: event.clientX, top: event.clientY });
+						const clickedBlockPos =
+							clickCoordinates != null
+								? topLevelBlockPosAt(view, clickCoordinates.pos, event.clientX, event.clientY)
+								: null;
+						const clickedNode = clickedBlockPos == null ? null : view.state.doc.nodeAt(clickedBlockPos);
+						if (
+							clickedNode != null &&
+							clickedBlockPos != null &&
+							(clickedNode.type.name === 'chartBlock' || clickedNode.type.name === 'tableBlock')
+						) {
+							event.preventDefault();
+							const next = selectBlockFromHandle(view.state, clickedBlockPos);
+							if (next) {
+								view.dispatch(view.state.tr.setMeta(blockSelectionPluginKey, next));
+							}
+							return true;
+						}
+						if (clickedNode != null && clickedNode.type.name === 'gridBlock') {
+							event.preventDefault();
+							if (current.blocks.length || current.gridColumns.length) {
+								view.dispatch(view.state.tr.setMeta(blockSelectionPluginKey, emptySelection()));
+							}
+							return true;
+						}
+						if (current.blocks.length || current.gridColumns.length) {
+							view.dispatch(view.state.tr.setMeta(blockSelectionPluginKey, emptySelection()));
 						}
 						return false;
 					}
@@ -137,6 +271,7 @@ function buildBlockSelectionPlugin(): Plugin<BlockSelectionState> {
 							: [...current.blocks, blockPosition].sort((first, second) => first - second);
 						view.dispatch(
 							view.state.tr.setMeta(blockSelectionPluginKey, {
+								...emptySelection(),
 								blocks,
 								anchor: blockPosition,
 							}),
@@ -147,6 +282,7 @@ function buildBlockSelectionPlugin(): Plugin<BlockSelectionState> {
 					const anchor = current.anchor ?? blockPosition;
 					view.dispatch(
 						view.state.tr.setMeta(blockSelectionPluginKey, {
+							...emptySelection(),
 							blocks: rangeBetween(view.state.doc, anchor, blockPosition),
 							anchor,
 						}),
@@ -156,26 +292,21 @@ function buildBlockSelectionPlugin(): Plugin<BlockSelectionState> {
 			},
 			handleKeyDown(view, event) {
 				const selection = blockSelectionPluginKey.getState(view.state);
-				if (event.key !== 'Escape' || !selection?.blocks.length) {
+				if (event.key !== 'Escape' || (!selection?.blocks.length && !selection?.gridColumns.length)) {
 					return false;
 				}
 
-				view.dispatch(
-					view.state.tr.setMeta(blockSelectionPluginKey, {
-						blocks: [],
-						anchor: null,
-					}),
-				);
+				view.dispatch(view.state.tr.setMeta(blockSelectionPluginKey, emptySelection()));
 				return true;
 			},
 		},
 		view(editorView) {
 			const clearSelection = () => {
 				const current = blockSelectionPluginKey.getState(editorView.state);
-				if (!current?.blocks.length) {
+				if (!current?.blocks.length && !current?.gridColumns.length) {
 					return;
 				}
-				editorView.dispatch(editorView.state.tr.setMeta(blockSelectionPluginKey, { blocks: [], anchor: null }));
+				editorView.dispatch(editorView.state.tr.setMeta(blockSelectionPluginKey, emptySelection()));
 			};
 
 			const onMouseDown = (event: MouseEvent) => {
@@ -252,7 +383,7 @@ export function buildBlockMoveTransaction(
 
 	const mappedInsert = transaction.mapping.map(insertPos);
 	transaction.insert(mappedInsert, Fragment.fromArray(nodes));
-	transaction.setMeta(blockSelectionPluginKey, { blocks: [], anchor: null });
+	transaction.setMeta(blockSelectionPluginKey, emptySelection());
 	return { transaction, insertPos: mappedInsert };
 }
 
@@ -288,4 +419,22 @@ export function rangeBetween(doc: PMNode, first: number, second: number): number
 	const start = Math.min(first, second);
 	const end = Math.max(first, second);
 	return topLevelBlockPositions(doc).filter((position) => position >= start && position <= end);
+}
+
+function isValidGridColumn(doc: PMNode, column: GridColumnRef): boolean {
+	const node = doc.nodeAt(column.gridPos);
+	if (!node || node.type.name !== 'gridBlock') {
+		return false;
+	}
+	const columnCount = splitGridColumnsRaw(node.attrs.rawContent as string).columns.length;
+	return column.index >= 0 && column.index < columnCount;
+}
+
+function columnRange(gridPos: number, first: number, second: number): GridColumnRef[] {
+	const start = Math.min(first, second);
+	const end = Math.max(first, second);
+	return Array.from({ length: end - start + 1 }, (_, offset) => ({
+		gridPos,
+		index: start + offset,
+	}));
 }

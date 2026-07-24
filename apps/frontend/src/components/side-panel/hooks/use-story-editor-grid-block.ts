@@ -17,6 +17,7 @@ import {
 	STORY_BLOCK_DRAG_TYPE,
 	StoryBlockDragContext,
 } from '../story-editor-drag-context';
+import { getSelectedGridColumns } from '../story-block-selection';
 import type { Segment } from '@nao/shared/story-segments';
 import type { ReactNodeViewProps } from '@tiptap/react';
 import type {
@@ -171,11 +172,29 @@ export function useStoryEditorGridBlock({ node, updateAttributes, getPos, editor
 
 	const handleColumnDragStart = useCallback(
 		(columnIndex: number, event: ReactDragEvent<HTMLButtonElement>) => {
+			const gridPos = getPos();
+			const selectedColumns = getSelectedGridColumns(editor.state);
+			const isMultiColumnDrag =
+				typeof gridPos === 'number' &&
+				selectedColumns.length > 1 &&
+				selectedColumns.every((column) => column.gridPos === gridPos) &&
+				selectedColumns.some((column) => column.index === columnIndex);
+			if (isMultiColumnDrag && storyBlockDrag) {
+				event.stopPropagation();
+				event.dataTransfer.setData(STORY_BLOCK_DRAG_TYPE, '1');
+				const indices = selectedColumns.map((column) => column.index).sort((first, second) => first - second);
+				storyBlockDrag.beginMultiColumnDrag(gridPos, indices, event.nativeEvent);
+				storyBlockDrag.setDragging(true);
+				setDragColumnIndex(columnIndex);
+				setDropColumnIndex(null);
+				setBlockDropIndex(null);
+				return;
+			}
+
 			event.stopPropagation();
 			event.dataTransfer.effectAllowed = 'move';
 			event.dataTransfer.setData(GRID_COLUMN_DRAG_TYPE, String(columnIndex));
 			event.dataTransfer.setData(STORY_BLOCK_DRAG_TYPE, '1');
-			const gridPos = getPos();
 			if (typeof gridPos === 'number' && gridDragSourceRef) {
 				gridDragSourceRef.current = { gridPos, columnIndex };
 			}
@@ -191,7 +210,7 @@ export function useStoryEditorGridBlock({ node, updateAttributes, getPos, editor
 			setDropColumnIndex(null);
 			setBlockDropIndex(null);
 		},
-		[getPos, gridDragSourceRef, rawContent, storyBlockDrag],
+		[editor.state, getPos, gridDragSourceRef, rawContent, storyBlockDrag],
 	);
 
 	const handleGridDragOver = useCallback(

@@ -487,11 +487,6 @@ code.dollar:before {
 	@apply my-3;
 }
 
-.story-editor .tiptap .ProseMirror-selectednode [data-type='chart-block'],
-.story-editor .tiptap .ProseMirror-selectednode [data-type='grid-block'] {
-	@apply outline-2 outline-primary/40 outline-offset-2 rounded-lg;
-}
-
 .story-editor .tiptap .nao-block-selected {
 	@apply bg-primary/10 rounded-md;
 }
