@@ -919,6 +919,8 @@ function buildComboChart(props: ResolvedProps) {
 	const rightFormat = getChartLevelValueFormat(rightSeries);
 	const leftDomain = resolveComboAxisDomain(data, leftSeries, yAxisMin, yAxisMax);
 	const rightDomain = resolveComboAxisDomain(data, rightSeries, yAxisRightMin, yAxisRightMax);
+	const leftAxisWidth = computeComboAxisWidth(data, leftSeries, leftFormat);
+	const rightAxisWidth = computeComboAxisWidth(data, rightSeries, rightFormat);
 	const areaSeries = series.filter((s) => comboSeriesType(s, chartType) === 'area');
 	const pointLabelContent = showDataLabels ? buildPointLabelContentBySeries(data, series) : new Map();
 
@@ -947,6 +949,7 @@ function buildComboChart(props: ResolvedProps) {
 			{leftSeries.length > 0 && (
 				<YAxis
 					yAxisId='left'
+					width={leftAxisWidth}
 					tick={AXIS_TICK}
 					tickLine={false}
 					axisLine={false}
@@ -960,6 +963,7 @@ function buildComboChart(props: ResolvedProps) {
 			{rightSeries.length > 0 && (
 				<YAxis
 					yAxisId='right'
+					width={rightAxisWidth}
 					orientation='right'
 					tick={AXIS_TICK}
 					tickLine={false}
@@ -1004,6 +1008,18 @@ function resolveComboAxisDomain(
 		axisSeries.map((s) => s.data_key),
 	);
 	return resolveYAxisDomain(explicitMin, explicitMax, values, true);
+}
+
+function computeComboAxisWidth(
+	data: Record<string, unknown>[],
+	axisSeries: displayChart.SeriesConfig[],
+	valueFormat?: displayChart.ValueFormat,
+) {
+	const values = collectAxisValues(
+		data,
+		axisSeries.map((s) => s.data_key),
+	);
+	return computeValueAxisWidth(values, valueFormat);
 }
 
 function renderComboSeries(

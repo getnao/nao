@@ -78,6 +78,18 @@ function percentChartType(type: displayChart.ChartType): displayChart.ChartType 
 	return type;
 }
 
+/** Shifts open Format-panel indexes to stay aligned after the series at `removedIndex` is removed. */
+function remapOpenIndexesAfterRemoval(openIndexes: Set<number>, removedIndex: number): Set<number> {
+	const next = new Set<number>();
+	for (const openIndex of openIndexes) {
+		if (openIndex === removedIndex) {
+			continue;
+		}
+		next.add(openIndex > removedIndex ? openIndex - 1 : openIndex);
+	}
+	return next;
+}
+
 interface ChartConfigEditDialogProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
@@ -215,10 +227,13 @@ export function ChartConfigEditDialog({
 	};
 
 	const removeSeriesAt = (index: number) => {
-		setDraft((prev) => ({
-			...prev,
-			series: prev.series.length <= 1 ? prev.series : prev.series.filter((_, i) => i !== index),
-		}));
+		setDraft((prev) => {
+			if (prev.series.length <= 1) {
+				return prev;
+			}
+			return { ...prev, series: prev.series.filter((_, i) => i !== index) };
+		});
+		setOpenValueFormatIndexes((previous) => remapOpenIndexesAfterRemoval(previous, index));
 	};
 
 	const addSeries = () => {
