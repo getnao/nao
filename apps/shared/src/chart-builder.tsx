@@ -1095,7 +1095,7 @@ function buildRadarChart(props: ResolvedProps) {
 }
 
 function buildPieChart(props: ResolvedProps) {
-	const { data, chartType, xAxisKey, series, colorFor, children, margin, backgroundColor } = props;
+	const { data, chartType, xAxisKey, series, colorFor, children, margin, backgroundColor, showDataLabels } = props;
 	const dataKey = series[0].data_key;
 
 	// Callers are expected to bucket the data (see `bucketPieData`) so the legend
@@ -1115,7 +1115,7 @@ function buildPieChart(props: ResolvedProps) {
 				dataKey={dataKey}
 				nameKey={xAxisKey}
 				innerRadius={chartType === 'donut' ? DONUT_INNER_RADIUS : 0}
-				label={false}
+				label={showDataLabels ? renderPieDataLabel : false}
 				labelLine={false}
 				stroke={backgroundColor}
 				strokeWidth={1}
@@ -1124,6 +1124,24 @@ function buildPieChart(props: ResolvedProps) {
 			/>
 			{children}
 		</PieChart>
+	);
+}
+
+function renderPieDataLabel(props: {
+	x?: number;
+	y?: number;
+	textAnchor?: 'start' | 'middle' | 'end';
+	value?: unknown;
+}) {
+	const { x, y, textAnchor, value } = props;
+	const label = formatDataLabel(value);
+	if (x == null || y == null || !label) {
+		return null;
+	}
+	return (
+		<text x={x} y={y} textAnchor={textAnchor} dominantBaseline='central' {...DATA_LABEL_PROPS}>
+			{label}
+		</text>
 	);
 }
 

@@ -152,6 +152,41 @@ describe('buildChart data labels', () => {
 		expect(html).toContain('>999</text>');
 	});
 
+	it('renders on-slice value labels for pie charts when enabled', () => {
+		const html = renderChart(
+			buildChart({
+				data: [
+					{ browser: 'Chrome', total: 275 },
+					{ browser: 'Safari', total: 200 },
+				],
+				chartType: 'pie',
+				xAxisKey: 'browser',
+				series: [{ data_key: 'total' }],
+				showDataLabels: true,
+			}),
+		);
+
+		expect(html).toContain('>275</text>');
+		expect(html).toContain('>200</text>');
+	});
+
+	it('does not render pie data labels when disabled', () => {
+		const html = renderChart(
+			buildChart({
+				data: [
+					{ browser: 'Chrome', total: 275 },
+					{ browser: 'Safari', total: 200 },
+				],
+				chartType: 'pie',
+				xAxisKey: 'browser',
+				series: [{ data_key: 'total' }],
+			}),
+		);
+
+		expect(html).not.toContain('>275</text>');
+		expect(html).not.toContain('>200</text>');
+	});
+
 	it('labels peaks instead of baseline points for dense spiky line charts', () => {
 		const values = Array.from({ length: 36 }, () => 1);
 		values[4] = 3;
