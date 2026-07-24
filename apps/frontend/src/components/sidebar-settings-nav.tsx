@@ -65,7 +65,7 @@ const settingsNavItems: NavItem[] = [
 		label: 'Chat with nao data',
 		to: '/',
 		search: { admin: true },
-		visible: ({ isAdmin }) => isAdmin,
+		visible: ({ isAdmin, isContextAdmin }) => isAdmin || isContextAdmin,
 	},
 	{
 		label: 'Usage, costs & replay',

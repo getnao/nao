@@ -41,17 +41,17 @@ function HomePage() {
 	const { data: session } = useSession();
 	const username = session?.user?.name;
 	const { messages, setAdminMode } = useAgentContext();
-	const { isAdmin } = usePermissions();
+	const { canChatWithNaoData } = usePermissions();
 	const { admin: adminSearch } = Route.useSearch();
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
 
 	useEffect(() => {
-		if (!isAdmin) {
+		if (!canChatWithNaoData) {
 			return;
 		}
 		setAdminMode(adminSearch === true);
-	}, [isAdmin, adminSearch, setAdminMode]);
+	}, [canChatWithNaoData, adminSearch, setAdminMode]);
 
 	const project = useQuery(trpc.project.getCurrent.queryOptions());
 	const projects = useQuery(trpc.project.listForCurrentUser.queryOptions());

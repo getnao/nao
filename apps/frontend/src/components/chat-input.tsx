@@ -107,10 +107,10 @@ function ChatInputBase({
 		messages,
 	} = useAgentContext();
 	const navigate = useNavigate();
-	const { isAdmin } = usePermissions();
+	const { canChatWithNaoData } = usePermissions();
 	const chatId = useChatId();
 
-	const isAdminMode = isAdmin && adminMode;
+	const isAdminMode = canChatWithNaoData && adminMode;
 	const adminModeLocked = messages.some((message) => message.role === 'user');
 	const handleSelectAdminMode = useCallback(() => {
 		if (!adminModeLocked) {
@@ -360,7 +360,7 @@ function ChatInputBase({
 							<ChatInputPlusMenu
 								hasDatabases={hasDatabases}
 								hasSkills={hasSkills}
-								isAdmin={isAdmin}
+								canChatWithNaoData={canChatWithNaoData}
 								isAdminMode={isAdminMode}
 								adminModeLocked={adminModeLocked}
 								onSelectAdminMode={handleSelectAdminMode}
@@ -563,7 +563,7 @@ function BudgetBanner() {
 function ChatInputPlusMenu({
 	hasDatabases,
 	hasSkills,
-	isAdmin,
+	canChatWithNaoData,
 	isAdminMode,
 	adminModeLocked,
 	onSelectAdminMode,
@@ -575,7 +575,7 @@ function ChatInputPlusMenu({
 }: {
 	hasDatabases: boolean;
 	hasSkills: boolean;
-	isAdmin: boolean;
+	canChatWithNaoData: boolean;
 	isAdminMode: boolean;
 	adminModeLocked: boolean;
 	onSelectAdminMode: () => void;
@@ -626,7 +626,7 @@ function ChatInputPlusMenu({
 						<span>Skills</span>
 					</DropdownMenuItem>
 				)}
-				{isAdmin && (
+				{canChatWithNaoData && (
 					<>
 						<DropdownMenuSeparator />
 						<DropdownMenuItem
