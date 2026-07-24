@@ -24,6 +24,7 @@ export const StoryEditor = memo(function StoryEditor({ code, editorRef, onSave }
 		storyEditorRef,
 		onElementDragStart,
 		onElementDragEnd,
+		onDragHandleClick,
 	} = useStoryEditor({ code, editorRef, onSave });
 
 	return (
@@ -38,7 +39,7 @@ export const StoryEditor = memo(function StoryEditor({ code, editorRef, onSave }
 							onElementDragStart={onElementDragStart}
 							onElementDragEnd={onElementDragEnd}
 						>
-							<div className='drag-handle-button'>
+							<div className='drag-handle-button' onClick={onDragHandleClick}>
 								<GripVertical className='size-4' />
 							</div>
 						</DragHandle>

@@ -4,7 +4,12 @@ import { Fragment, Slice } from '@tiptap/pm/model';
 import { dropPoint } from '@tiptap/pm/transform';
 import { useEditor } from '@tiptap/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { blockSelectionPluginKey, buildBlockMoveTransaction, resolveDragBlocks } from '../story-block-selection';
+import {
+	blockSelectionPluginKey,
+	buildBlockMoveTransaction,
+	resolveDragBlocks,
+	selectBlockFromHandle,
+} from '../story-block-selection';
 import { EDITOR_EXTENSIONS } from '../story-editor-extensions';
 import { GRID_COLUMN_DRAG_TYPE, STORY_BLOCK_DRAG_TYPE } from '../story-editor-drag-context';
 import {
@@ -318,6 +323,20 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 		[beginMultiBlockDrag, endMultiBlockDrag, isBlockDragging],
 	);
 	const onElementDragEnd = endMultiBlockDrag;
+	const onDragHandleClick = useCallback(() => {
+		if (!editor) {
+			return;
+		}
+		const pos = handleNodePosRef.current;
+		if (pos == null) {
+			return;
+		}
+		const next = selectBlockFromHandle(editor.state, pos);
+		if (!next) {
+			return;
+		}
+		editor.view.dispatch(editor.state.tr.setMeta(blockSelectionPluginKey, next));
+	}, [editor]);
 
 	return {
 		editor,
@@ -328,6 +347,7 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 		storyEditorRef,
 		onElementDragStart,
 		onElementDragEnd,
+		onDragHandleClick,
 	};
 }
 
