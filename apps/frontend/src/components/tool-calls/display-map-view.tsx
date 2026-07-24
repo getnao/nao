@@ -75,7 +75,7 @@ export default function MapView({ points, config, ref }: MapViewProps) {
 		map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
 
 		map.on('style.load', () => {
-			markerColorRef.current = resolveMarkerColor(configRef.current.marker_color);
+			markerColorRef.current = resolveMarkerColor(configRef.current.marker_color, containerRef.current);
 			map.addSource(POINTS_SOURCE_ID, { type: 'geojson', data: toGeoJsonPoints(pointsRef.current) });
 			map.addLayer({
 				id: POINTS_LAYER_ID,
@@ -86,7 +86,7 @@ export default function MapView({ points, config, ref }: MapViewProps) {
 					'circle-color': markerColorRef.current,
 					'circle-opacity': 0.9,
 					'circle-stroke-width': 2,
-					'circle-stroke-color': resolveCssColor('--background', '#ffffff'),
+					'circle-stroke-color': resolveCssColor('--background', '#ffffff', containerRef.current),
 				},
 			});
 			fitToPoints(map, pointsRef.current);
@@ -149,10 +149,15 @@ export default function MapView({ points, config, ref }: MapViewProps) {
 		if (!map || !map.getLayer(POINTS_LAYER_ID)) {
 			return;
 		}
-		markerColorRef.current = resolveMarkerColor(markerColor);
+		markerColorRef.current = resolveMarkerColor(markerColor, containerRef.current);
 		map.setPaintProperty(POINTS_LAYER_ID, 'circle-color', markerColorRef.current);
 		map.setPaintProperty(POINTS_LAYER_ID, 'circle-radius', markerRadius ?? DEFAULT_MARKER_RADIUS);
-	}, [markerColor, markerRadius]);
+		map.setPaintProperty(
+			POINTS_LAYER_ID,
+			'circle-stroke-color',
+			resolveCssColor('--background', '#ffffff', containerRef.current),
+		);
+	}, [markerColor, markerRadius, isDark]);
 
 	if (initFailed) {
 		return (
@@ -249,12 +254,13 @@ function buildTooltipContent(point: MapPoint, config: displayMap.Input, markerCo
 	return container;
 }
 
-function resolveMarkerColor(markerColor: string | undefined): string {
-	return markerColor?.trim() || resolveCssColor('--primary', DEFAULT_MARKER_COLOR);
+function resolveMarkerColor(markerColor: string | undefined, element?: HTMLElement | null): string {
+	return markerColor?.trim() || resolveCssColor('--primary', DEFAULT_MARKER_COLOR, element);
 }
 
-function resolveCssColor(variableName: string, fallback: string): string {
-	const value = getComputedStyle(document.documentElement).getPropertyValue(variableName).trim();
+function resolveCssColor(variableName: string, fallback: string, element?: HTMLElement | null): string {
+	const target = element ?? document.documentElement;
+	const value = getComputedStyle(target).getPropertyValue(variableName).trim();
 	const context = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
 	if (!value || !context) {
 		return fallback;

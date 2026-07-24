@@ -1,10 +1,14 @@
 import {
 	bucketPieData,
+	buildMapPoints,
 	computeKpiComparison,
 	DEFAULT_COLORS,
 	defaultColorFor,
 	formatChartValue,
 	labelize,
+	type MapPoint,
+	MAX_MAP_POINTS,
+	resolveMapConfig,
 } from '@nao/shared';
 import {
 	type DateFormatSettings,
@@ -12,11 +16,11 @@ import {
 	formatDateValue,
 	resolveDateFormatPattern,
 } from '@nao/shared/date';
-import type { ParsedChartBlock, ParsedTableBlock, Segment } from '@nao/shared/story-segments';
+import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock, Segment } from '@nao/shared/story-segments';
 import { splitCodeIntoSegments } from '@nao/shared/story-segments';
 import { formatCellValue, isNumericColumn } from '@nao/shared/story-table-utils';
 import { flattenStoryTabs } from '@nao/shared/story-tabs';
-import type { displayChart } from '@nao/shared/tools';
+import type { displayChart, displayMap } from '@nao/shared/tools';
 import { marked, Renderer } from 'marked';
 import React, { createContext, useContext } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -31,6 +35,14 @@ const DOC_HORIZ_PADDING = 24;
 const CHART_WIDTH = DOC_MAX_WIDTH - DOC_HORIZ_PADDING * 2;
 const CHART_HEIGHT = Math.round((CHART_WIDTH * 9) / 16);
 
+const MAPLIBRE_VERSION = '5.24.0';
+const MAPLIBRE_JS_URL = `https://unpkg.com/maplibre-gl@${MAPLIBRE_VERSION}/dist/maplibre-gl.js`;
+const MAPLIBRE_CSS_URL = `https://unpkg.com/maplibre-gl@${MAPLIBRE_VERSION}/dist/maplibre-gl.css`;
+const MAP_STYLE_URL = process.env.NAO_STORY_MAP_STYLE_URL || 'https://tiles.openfreemap.org/styles/positron';
+const MAP_HEIGHT = 360;
+const DEFAULT_MAP_MARKER_COLOR = '#522bff';
+const DEFAULT_MAP_MARKER_RADIUS = 5;
+
 const DateFormatContext = createContext<DateFormatSettings>({ ...DEFAULT_DATE_FORMAT_SETTINGS });
 
 export function generateStoryHtml(
@@ -41,9 +53,10 @@ export function generateStoryHtml(
 	const resolvedDateFormat = dateFormat ?? { ...DEFAULT_DATE_FORMAT_SETTINGS };
 	const flattened = flattenStoryTabs(story.code);
 	const segments = splitCodeIntoSegments(flattened);
+	const hasMap = segmentsIncludeMap(segments);
 	const markup = renderToStaticMarkup(
 		<DateFormatContext.Provider value={resolvedDateFormat}>
-			<StoryDocument title={story.title}>
+			<StoryDocument title={story.title} hasMap={hasMap}>
 				{segments.map((seg, i) => (
 					<StorySegment key={i} segment={seg} queryData={queryData} />
 				))}
@@ -54,7 +67,11 @@ export function generateStoryHtml(
 	return `<!DOCTYPE html>\n${markup}`;
 }
 
-function StoryDocument({ title, children }: { title: string; children: React.ReactNode }) {
+function segmentsIncludeMap(segments: Segment[]): boolean {
+	return segments.some((seg) => seg.type === 'map' || (seg.type === 'grid' && segmentsIncludeMap(seg.children)));
+}
+
+function StoryDocument({ title, hasMap, children }: { title: string; hasMap: boolean; children: React.ReactNode }) {
 	const dateFormat = useContext(DateFormatContext);
 	const pattern = resolveDateFormatPattern(dateFormat);
 	const tooltipScript = renderTooltipScript(pattern);
@@ -64,11 +81,14 @@ function StoryDocument({ title, children }: { title: string; children: React.Rea
 				<meta charSet='utf-8' />
 				<meta name='viewport' content='width=device-width,initial-scale=1' />
 				<title>{title}</title>
+				{hasMap && <link rel='stylesheet' href={MAPLIBRE_CSS_URL} />}
 				<style dangerouslySetInnerHTML={{ __html: DOCUMENT_STYLES }} />
 			</head>
 			<body>
 				{children}
 				<script dangerouslySetInnerHTML={{ __html: tooltipScript }} />
+				{hasMap && <script src={MAPLIBRE_JS_URL} />}
+				{hasMap && <script dangerouslySetInnerHTML={{ __html: renderMapScript() }} />}
 			</body>
 		</html>
 	);
@@ -95,6 +115,8 @@ function StorySegment({ segment, queryData }: { segment: Segment; queryData: Que
 			return <ChartBlock chart={segment.chart} queryData={queryData} />;
 		case 'table':
 			return <TableBlock table={segment.table} queryData={queryData} />;
+		case 'map':
+			return <MapBlock map={segment.map} queryData={queryData} />;
 		case 'filter':
 			return null;
 		case 'grid':
@@ -382,6 +404,83 @@ function TableBlock({ table, queryData }: { table: ParsedTableBlock; queryData: 
 	);
 }
 
+function MapBlock({ map, queryData }: { map: ParsedMapBlock; queryData: QueryDataMap | null }) {
+	const dateFormat = useContext(DateFormatContext);
+	const rows = queryData?.[map.queryId]?.data as Record<string, unknown>[] | undefined;
+	if (!rows?.length) {
+		return <Placeholder label={map.title || 'Map'} message='Data unavailable' />;
+	}
+
+	const config = resolveMapConfig(rows, mapBlockToInput(map));
+	if (config.latitude_key === config.longitude_key) {
+		return <Placeholder label={map.title || 'Map'} message='Could not render map' />;
+	}
+
+	const points = buildMapPoints(rows, config).slice(0, MAX_MAP_POINTS);
+	if (points.length === 0) {
+		return <Placeholder label={map.title || 'Map'} message='No valid coordinates' />;
+	}
+
+	const payload = buildMapPayload(points, config, dateFormat);
+	return (
+		<div style={{ margin: '16px 0' }}>
+			{map.title && <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 8 }}>{map.title}</div>}
+			<div
+				className='nao-map'
+				data-map={JSON.stringify(payload)}
+				style={{
+					width: '100%',
+					height: MAP_HEIGHT,
+					borderRadius: 8,
+					overflow: 'hidden',
+					border: '1px solid #e5e7eb',
+					background: '#eef1f5',
+				}}
+			/>
+		</div>
+	);
+}
+
+function mapBlockToInput(map: ParsedMapBlock): displayMap.Input {
+	return {
+		query_id: map.queryId,
+		map_type: (map.mapType || 'points') as displayMap.Input['map_type'],
+		latitude_key: map.latitudeKey,
+		longitude_key: map.longitudeKey,
+		label_key: map.labelKey,
+		tooltip_keys: map.tooltipKeys,
+		marker_color: map.markerColor,
+		marker_radius: map.markerRadius,
+		title: map.title,
+	};
+}
+
+interface MapPayload {
+	markerColor: string;
+	markerRadius: number;
+	points: { lng: number; lat: number; label?: string; rows?: [string, string][] }[];
+}
+
+function buildMapPayload(points: MapPoint[], config: displayMap.Input, dateFormat: DateFormatSettings): MapPayload {
+	const labelKey = config.label_key;
+	const tooltipKeys = (config.tooltip_keys ?? []).filter((key) => key && key !== labelKey);
+	return {
+		markerColor: config.marker_color?.trim() || DEFAULT_MAP_MARKER_COLOR,
+		markerRadius: config.marker_radius ?? DEFAULT_MAP_MARKER_RADIUS,
+		points: points.map((point) => {
+			const label =
+				labelKey && point.row[labelKey] != null ? formatCellValue(point.row[labelKey], dateFormat) : undefined;
+			const rows = tooltipKeys
+				.filter((key) => point.row[key] != null)
+				.map((key): [string, string] => [
+					labelize(key, dateFormat),
+					formatCellValue(point.row[key], dateFormat),
+				]);
+			return { lng: point.longitude, lat: point.latitude, label, rows: rows.length ? rows : undefined };
+		}),
+	};
+}
+
 function CellValue({ value }: { value: unknown }) {
 	const dateFormat = useContext(DateFormatContext);
 	if (value === null || value === undefined) {
@@ -445,6 +544,16 @@ blockquote{border-left:3px solid #d1d5db;padding-left:16px;margin:12px 0;color:#
 .nao-md tr:last-child td{border-bottom:none}
 svg{max-width:100%;height:auto}
 img{max-width:100%;height:auto;border-radius:4px;margin:8px 0}
+.nao-map{position:relative}
+.maplibregl-popup.map-tooltip{pointer-events:none}
+.maplibregl-popup.map-tooltip .maplibregl-popup-content{padding:0;background:transparent;box-shadow:none;border-radius:0}
+.maplibregl-popup.map-tooltip .maplibregl-popup-tip{display:none}
+.nao-map-pop{display:grid;align-items:start;gap:6px;min-width:128px;background:#fff;border:1px solid rgba(0,0,0,0.08);border-radius:8px;padding:6px 10px;font-size:12px;box-shadow:0 4px 16px rgba(0,0,0,.15);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
+.nao-map-pop-title{display:flex;align-items:center;gap:8px;font-weight:500;color:#111827}
+.nao-map-pop-dot{width:10px;height:10px;border-radius:2px;flex-shrink:0}
+.nao-map-pop-row{display:flex;align-items:center;justify-content:space-between;gap:16px;line-height:1}
+.nao-map-pop-name{color:rgba(0,0,0,0.5)}
+.nao-map-pop-val{color:#111827;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-weight:500;font-variant-numeric:tabular-nums}
 .nao-tooltip{position:absolute;pointer-events:none;background:#fff;border:1px solid rgba(0,0,0,0.08);border-radius:8px;padding:6px 10px;font-size:12px;box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:10;opacity:0;transition:opacity .15s;min-width:128px;display:grid;gap:6px}
 .nao-tooltip.visible{opacity:1}
 .nao-tooltip-label{font-weight:500;color:#111827;text-align:left}
@@ -456,7 +565,7 @@ img{max-width:100%;height:auto;border-radius:4px;margin:8px 0}
 .nao-tooltip-total{display:flex;align-items:center;gap:8px;width:100%;border-top:1px solid rgba(0,0,0,0.08);padding-top:6px;margin-top:2px}
 .nao-tooltip-total .nao-tooltip-name{font-weight:500}
 .nao-tooltip-total .nao-tooltip-value{font-weight:500}
-@media print{body{padding:0;max-width:none}.nao-tooltip{display:none}.nao-chart{break-inside:avoid}table{break-inside:avoid}div[style*="display:flex"]{break-inside:avoid}h1,h2,h3{break-after:avoid}svg{max-width:100%!important;height:auto!important}footer{break-inside:avoid}}
+@media print{body{padding:0;max-width:none}.nao-tooltip{display:none}.nao-chart{break-inside:avoid}.nao-map{break-inside:avoid}.maplibregl-ctrl{display:none!important}table{break-inside:avoid}div[style*="display:flex"]{break-inside:avoid}h1,h2,h3{break-after:avoid}svg{max-width:100%!important;height:auto!important}footer{break-inside:avoid}}
 `;
 
 function renderTooltipScript(datePattern: string): string {
@@ -471,6 +580,10 @@ function renderTooltipScript(datePattern: string): string {
 		.replace(/\u2028/g, '\\u2028')
 		.replace(/\u2029/g, '\\u2029');
 	return TOOLTIP_SCRIPT_TEMPLATE.replace('__DATE_PATTERN__', escapedPattern);
+}
+
+function renderMapScript(): string {
+	return MAP_INIT_SCRIPT_TEMPLATE.replace('__MAP_STYLE_URL__', JSON.stringify(MAP_STYLE_URL));
 }
 
 const TOOLTIP_SCRIPT_TEMPLATE = `
@@ -687,5 +800,58 @@ const TOOLTIP_SCRIPT_TEMPLATE = `
 
 		function hideTip(){tip.classList.remove('visible')}
 	});
+})();
+`;
+
+const MAP_INIT_SCRIPT_TEMPLATE = `
+(function(){
+	var STYLE_URL=__MAP_STYLE_URL__;
+	var containers=document.querySelectorAll('.nao-map');
+	if(!containers.length||typeof maplibregl==='undefined'){window.__naoMapsReady=true;return;}
+	var pending=containers.length;
+	function done(){pending--;if(pending<=0){window.__naoMapsReady=true;}}
+	function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+	function buildPopup(point,color){
+		var parts=[];
+		if(point.label!=null&&point.label!==''){
+			parts.push('<div class="nao-map-pop-title"><span class="nao-map-pop-dot" style="background:'+esc(color)+'"></span>'+esc(point.label)+'</div>');
+		}
+		(point.rows||[]).forEach(function(row){
+			parts.push('<div class="nao-map-pop-row"><span class="nao-map-pop-name">'+esc(row[0])+'</span><span class="nao-map-pop-val">'+esc(row[1])+'</span></div>');
+		});
+		return parts.length?'<div class="nao-map-pop">'+parts.join('')+'</div>':'';
+	}
+	containers.forEach(function(container){
+		var raw=container.getAttribute('data-map');
+		var cfg;try{cfg=JSON.parse(raw);}catch(e){done();return;}
+		var map;
+		try{
+			map=new maplibregl.Map({container:container,style:STYLE_URL,attributionControl:{compact:true},canvasContextAttributes:{preserveDrawingBuffer:true}});
+		}catch(e){done();return;}
+		map.addControl(new maplibregl.NavigationControl({showCompass:false}),'top-right');
+		map.once('idle',done);
+		map.on('error',function(){done();});
+		map.on('load',function(){
+			var features=cfg.points.map(function(point,i){
+				return {type:'Feature',geometry:{type:'Point',coordinates:[point.lng,point.lat]},properties:{i:i}};
+			});
+			map.addSource('nao-points',{type:'geojson',data:{type:'FeatureCollection',features:features}});
+			map.addLayer({id:'nao-points-layer',type:'circle',source:'nao-points',paint:{'circle-radius':cfg.markerRadius,'circle-color':cfg.markerColor,'circle-opacity':0.9,'circle-stroke-width':2,'circle-stroke-color':'#ffffff'}});
+			var bounds=new maplibregl.LngLatBounds();
+			cfg.points.forEach(function(point){bounds.extend([point.lng,point.lat]);});
+			try{map.fitBounds(bounds,{padding:40,maxZoom:14,duration:0});}catch(e){}
+			var popup=new maplibregl.Popup({closeButton:false,closeOnClick:false,className:'map-tooltip',offset:12,maxWidth:'280px'});
+			map.on('mousemove','nao-points-layer',function(e){
+				var feature=e.features&&e.features[0];if(!feature)return;
+				var point=cfg.points[feature.properties.i];if(!point)return;
+				var html=buildPopup(point,cfg.markerColor);
+				if(!html){popup.remove();return;}
+				map.getCanvas().style.cursor='pointer';
+				popup.setLngLat([point.lng,point.lat]).setHTML(html).addTo(map);
+			});
+			map.on('mouseleave','nao-points-layer',function(){map.getCanvas().style.cursor='';popup.remove();});
+		});
+	});
+	setTimeout(function(){window.__naoMapsReady=true;},8000);
 })();
 `;

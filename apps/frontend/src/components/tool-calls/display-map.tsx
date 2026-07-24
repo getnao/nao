@@ -1,25 +1,32 @@
 import { lazy, Suspense, useMemo, useRef, useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
-import { Code, Download, Map as MapIcon, Pencil, Table as TableIcon } from 'lucide-react';
-import { buildMapPoints, MAX_MAP_POINTS, resolveMapConfig } from '@nao/shared';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { Code, Download, FilePlus, Map as MapIcon, Pencil, Table as TableIcon } from 'lucide-react';
+import { buildMapPoints, buildStoryMapBlock, MAX_MAP_POINTS, resolveMapConfig } from '@nao/shared';
+import { appendBlockToStoryCode } from '@nao/shared/story-tabs';
 import { Skeleton } from '../ui/skeleton';
 import { TextShimmer } from '../ui/text-shimmer';
 import { Button } from '../ui/button';
 import GraphLoaderAnimated from '../icons/graph-loader-animated';
 import { TableDisplay } from './display-table';
-import { DisplayMapEditDialog } from './display-map-edit-dialog';
+import { MapConfigEditDialog } from './display-map-edit-dialog';
 import { SqlQueryDisplay } from './sql-query-display';
 import { ToolCallWrapper } from './tool-call-wrapper';
 import type { ToolCallComponentProps } from '.';
 import type { ReactNode } from 'react';
+import type { UIMessage, UIToolPart } from '@nao/backend/chat';
 import type { displayMap } from '@nao/shared/tools';
 import type { MapPoint } from '@nao/shared';
 import type { MapViewHandle } from './display-map-view';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
+import { findStoryIds } from '@/lib/story.utils';
 import { useChatId } from '@/hooks/use-chat-id';
 import { useSourceQuery } from '@/hooks/use-source-query';
 import { useOptionalAgentContext } from '@/contexts/agent.provider';
+import { useSidePanel } from '@/contexts/side-panel';
+import { StoryViewer } from '@/components/side-panel/story-viewer';
+
+const EMPTY_MESSAGES: UIMessage[] = [];
 
 const MapView = lazy(() => import('./display-map-view'));
 
@@ -29,14 +36,90 @@ export const DisplayMapToolCall = ({
 	toolPart: { state, input, output, toolCallId },
 }: ToolCallComponentProps<'display_map'>) => {
 	const agent = useOptionalAgentContext();
+	const messages = agent?.messages ?? EMPTY_MESSAGES;
 	const chatId = useChatId();
+	const queryClient = useQueryClient();
+	const { open: openSidePanel, currentStorySlug, currentStoryTabIndex, isVisible } = useSidePanel();
 	const config = state !== 'input-streaming' ? input : undefined;
 	const { sourceQuery, sourceData } = useSourceQuery(config?.query_id);
 	const [viewMode, setViewMode] = useState<MapViewMode>('map');
 	const [isEditOpen, setIsEditOpen] = useState(false);
 	const mapViewRef = useRef<MapViewHandle>(null);
 	const isEditable = Boolean(agent && !agent.isReadonly && !agent.isRunning);
+	const storyIds = useMemo(() => findStoryIds(messages), [messages]);
 	const logDownload = useMutation(trpc.analyticsEvent.logChatDownload.mutationOptions());
+
+	const addToStoryMutation = useMutation(
+		trpc.story.createVersion.mutationOptions({
+			onSuccess: (_data, variables) => {
+				queryClient.invalidateQueries({
+					queryKey: trpc.story.listVersions.queryKey({
+						chatId: variables.chatId,
+						storySlug: variables.storySlug,
+					}),
+				});
+				queryClient.invalidateQueries({ queryKey: trpc.story.listAll.queryKey() });
+			},
+		}),
+	);
+
+	const updateMapMutation = useMutation(
+		trpc.map.updateConfig.mutationOptions({
+			onSuccess: () => {
+				queryClient.invalidateQueries({ queryKey: [['chat', 'get']] });
+			},
+		}),
+	);
+
+	const handleSaveConfig = async (next: displayMap.Input) => {
+		const previousMessages = messages;
+		agent?.setMessages(applyMapConfigToMessages(previousMessages, toolCallId, next));
+		try {
+			await updateMapMutation.mutateAsync({ mapId: toolCallId, config: next });
+		} catch (error) {
+			agent?.setMessages(previousMessages);
+			throw error;
+		}
+	};
+
+	const handleAddToStory = async () => {
+		const latestStoryId = storyIds[storyIds.length - 1];
+		const usingVisibleStory = Boolean(isVisible && currentStorySlug && storyIds.includes(currentStorySlug));
+		const targetId = usingVisibleStory ? currentStorySlug! : latestStoryId;
+		if (!targetId || !config || !chatId) {
+			return;
+		}
+
+		const data = await queryClient.fetchQuery({
+			...trpc.story.listVersions.queryOptions({ chatId, storySlug: targetId }),
+			staleTime: 0,
+		});
+		const latest = data.versions.at(-1);
+		if (!latest) {
+			return;
+		}
+
+		const mapBlock = buildStoryMapBlock(config);
+		const { code: newCode, tabIndex: openTabIndex } = appendBlockToStoryCode(latest.code, mapBlock, {
+			usingVisibleStory,
+			activeTabIndex: currentStoryTabIndex,
+		});
+
+		addToStoryMutation.mutate({
+			chatId,
+			storySlug: targetId,
+			title: data.title,
+			code: newCode,
+			action: 'update',
+		});
+
+		if (!usingVisibleStory) {
+			openSidePanel(
+				<StoryViewer chatId={chatId} storySlug={targetId} initialTabIndex={openTabIndex} />,
+				targetId,
+			);
+		}
+	};
 
 	const handleDownloadPng = async () => {
 		const dataUrl = mapViewRef.current?.captureImage('image/png');
@@ -148,6 +231,14 @@ export const DisplayMapToolCall = ({
 								onClick={() => setViewMode('query')}
 							/>
 						)}
+						{storyIds.length > 0 && (
+							<ViewToggleButton
+								icon={<FilePlus className='size-3 text-muted-foreground/70' strokeWidth={2.25} />}
+								title='Add to story'
+								isActive={false}
+								onClick={handleAddToStory}
+							/>
+						)}
 						{viewMode === 'map' && (
 							<ViewToggleButton
 								icon={<Download className='size-3 text-muted-foreground/70' strokeWidth={2.25} />}
@@ -168,11 +259,13 @@ export const DisplayMapToolCall = ({
 				</div>
 
 				{isEditable && (
-					<DisplayMapEditDialog
+					<MapConfigEditDialog
 						open={isEditOpen}
 						onOpenChange={setIsEditOpen}
-						toolCallId={toolCallId}
 						config={config}
+						isSaving={updateMapMutation.isPending}
+						onSave={handleSaveConfig}
+						description='Tweak the map parameters. Changes are saved to the chat.'
 					/>
 				)}
 
@@ -210,6 +303,24 @@ export const DisplayMapToolCall = ({
 		</div>
 	);
 };
+
+function applyMapConfigToMessages(messages: UIMessage[], toolCallId: string, config: displayMap.Input): UIMessage[] {
+	return messages.map((message) => {
+		let changed = false;
+		const parts = message.parts.map((part) => {
+			if (part.type !== 'tool-display_map') {
+				return part;
+			}
+			const toolPart = part as UIToolPart<'display_map'>;
+			if (toolPart.toolCallId !== toolCallId) {
+				return part;
+			}
+			changed = true;
+			return { ...toolPart, input: config } as typeof part;
+		});
+		return changed ? { ...message, parts } : message;
+	});
+}
 
 interface ViewToggleButtonProps {
 	icon: ReactNode;

@@ -2,11 +2,11 @@ import { Download, Loader2 } from 'lucide-react';
 import { useCallback, useState } from 'react';
 import { McpAppHeader } from './mcp-app-header';
 import { OpenInNaoButton } from './open-in-nao-button';
-import type { ParsedChartBlock, ParsedTableBlock } from '@nao/shared/story-segments';
+import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock } from '@nao/shared/story-segments';
 import type { DownloadFormat } from '@nao/shared/types';
 
 import type { QueryDataMap } from '@/components/story-embeds';
-import { StoryChartEmbed, StoryTableEmbed } from '@/components/story-embeds';
+import { StoryChartEmbed, StoryMapEmbed, StoryTableEmbed } from '@/components/story-embeds';
 import { StoryTabbedContent } from '@/components/story-tabbed-content';
 import { Button } from '@/components/ui/button';
 import {
@@ -79,12 +79,27 @@ function StoryBody({ code, queryData }: { code: string; queryData: QueryDataMap 
 		[],
 	);
 
+	const renderMap = useCallback(
+		(
+			map: ParsedMapBlock,
+			{
+				queryData: data,
+				hasActiveFilters,
+				isRefreshing,
+			}: { queryData: QueryDataMap | null; hasActiveFilters: boolean; isRefreshing: boolean },
+		) => (
+			<StoryMapEmbed map={map} queryData={data} hasActiveFilters={hasActiveFilters} isRefreshing={isRefreshing} />
+		),
+		[],
+	);
+
 	return (
 		<StoryTabbedContent
 			code={code}
 			baselineQueryData={queryData}
 			renderChart={renderChart}
 			renderTable={renderTable}
+			renderMap={renderMap}
 		/>
 	);
 }

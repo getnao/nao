@@ -3,10 +3,10 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { ArchiveRestoreIcon } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
 
-import type { ParsedChartBlock, ParsedTableBlock } from '@nao/shared/story-segments';
+import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock } from '@nao/shared/story-segments';
 import type { QueryDataMap } from '@/components/story-embeds';
 import type { SelectionData } from '@/components/highlight-bubble';
-import { StoryChartEmbed, StoryTableEmbed } from '@/components/story-embeds';
+import { StoryChartEmbed, StoryMapEmbed, StoryTableEmbed } from '@/components/story-embeds';
 import { HighlightBubble } from '@/components/highlight-bubble';
 import { StoryTabbedContent } from '@/components/story-tabbed-content';
 import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
@@ -21,6 +21,7 @@ import { StoryPageBody } from '@/components/story-page-body';
 import { StoryPageHeader } from '@/components/story-page-header';
 import { SelectionProvider } from '@/contexts/text-selection';
 import { StoryChartEditProvider } from '@/contexts/story-chart-edit';
+import { StoryMapEditProvider } from '@/contexts/story-map-edit';
 import { StoryTableEditProvider } from '@/contexts/story-table-edit';
 import { chatPendingCitationStore } from '@/stores/chat-pending-citation';
 import { useChatActivity } from '@/hooks/use-chat-activity';
@@ -218,7 +219,14 @@ function renderWithChartEditProvider(
 				storyTitle={params.storyTitle}
 				storyCode={params.storyCode}
 			>
-				{children}
+				<StoryMapEditProvider
+					chatId={params.chatId}
+					storySlug={params.storySlug}
+					storyTitle={params.storyTitle}
+					storyCode={params.storyCode}
+				>
+					{children}
+				</StoryMapEditProvider>
 			</StoryTableEditProvider>
 		</StoryChartEditProvider>
 	);
@@ -294,6 +302,26 @@ function PreviewContent({
 		[isNoCacheMode, noCacheQuery],
 	);
 
+	const renderMap = useCallback(
+		(
+			map: ParsedMapBlock,
+			{
+				queryData: data,
+				hasActiveFilters,
+				isRefreshing,
+			}: { queryData: QueryDataMap | null; hasActiveFilters: boolean; isRefreshing: boolean },
+		) => (
+			<StoryMapEmbed
+				map={map}
+				queryData={isNoCacheMode && !hasActiveFilters ? undefined : data}
+				liveQuery={isNoCacheMode && !hasActiveFilters ? noCacheQuery : undefined}
+				hasActiveFilters={hasActiveFilters}
+				isRefreshing={isRefreshing}
+			/>
+		),
+		[isNoCacheMode, noCacheQuery],
+	);
+
 	return (
 		<StoryTabbedContent
 			code={code}
@@ -301,6 +329,7 @@ function PreviewContent({
 			filterApi={filterApi}
 			renderChart={renderChart}
 			renderTable={renderTable}
+			renderMap={renderMap}
 		/>
 	);
 }

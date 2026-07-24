@@ -1,5 +1,6 @@
 import type { StoryFilterType } from './sql-template';
 import type * as displayChart from './tools/display-chart';
+import type * as displayMap from './tools/display-map';
 
 export type { McpChartEmbedStoredConfig } from './mcp-embed';
 
@@ -67,6 +68,34 @@ export function buildStoryTableBlock(input: StoryTableBlockInput): string {
 			? ` formatting='${escapeSingleQuotedStoryAttr(JSON.stringify(input.conditional_formats))}'`
 			: '';
 	return `<table query_id="${escapeDoubleQuotedStoryAttr(input.query_id)}"${titleAttr}${formattingAttr} />`;
+}
+
+export type StoryMapBlockInput = Pick<
+	displayMap.Input,
+	| 'query_id'
+	| 'map_type'
+	| 'latitude_key'
+	| 'longitude_key'
+	| 'label_key'
+	| 'tooltip_keys'
+	| 'marker_color'
+	| 'marker_radius'
+	| 'title'
+>;
+
+export function buildStoryMapBlock(input: StoryMapBlockInput): string {
+	const labelAttr = input.label_key ? ` label_key="${escapeDoubleQuotedStoryAttr(input.label_key)}"` : '';
+	const tooltipAttr =
+		input.tooltip_keys && input.tooltip_keys.length > 0
+			? ` tooltip_keys='${escapeSingleQuotedStoryAttr(JSON.stringify(input.tooltip_keys))}'`
+			: '';
+	const markerColorAttr = input.marker_color
+		? ` marker_color="${escapeDoubleQuotedStoryAttr(input.marker_color)}"`
+		: '';
+	const markerRadiusAttr = input.marker_radius !== undefined ? ` marker_radius="${input.marker_radius}"` : '';
+	const titleAttr =
+		input.title != null && input.title !== '' ? ` title="${escapeDoubleQuotedStoryAttr(input.title)}"` : '';
+	return `<map query_id="${escapeDoubleQuotedStoryAttr(input.query_id)}" map_type="${escapeDoubleQuotedStoryAttr(input.map_type)}" latitude_key="${escapeDoubleQuotedStoryAttr(input.latitude_key)}" longitude_key="${escapeDoubleQuotedStoryAttr(input.longitude_key)}"${labelAttr}${tooltipAttr}${markerColorAttr}${markerRadiusAttr}${titleAttr} />`;
 }
 
 export interface StoryFilterBlockInput {

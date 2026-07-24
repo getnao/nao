@@ -33,6 +33,10 @@ export function preprocessForEditor(code: string): string {
 		return `<div><table-embed data-raw="${encodeForAttr(match)}"></table-embed></div>\n\n`;
 	});
 
+	result = result.replace(new RegExp(`<map\\s+${TAG_ATTRS}\\/?>`, 'g'), (match) => {
+		return `<div><map-embed data-raw="${encodeForAttr(match)}"></map-embed></div>\n\n`;
+	});
+
 	return result;
 }
 
@@ -43,6 +47,9 @@ export function createBlockNode(schema: Schema, markup: string): PMNode | null {
 	}
 	if (trimmedMarkup.startsWith('<table')) {
 		return schema.nodes.tableBlock?.create({ rawTag: trimmedMarkup }) ?? null;
+	}
+	if (trimmedMarkup.startsWith('<map')) {
+		return schema.nodes.mapBlock?.create({ rawTag: trimmedMarkup }) ?? null;
 	}
 	if (trimmedMarkup.startsWith('<grid')) {
 		return schema.nodes.gridBlock?.create({ rawContent: trimmedMarkup }) ?? null;

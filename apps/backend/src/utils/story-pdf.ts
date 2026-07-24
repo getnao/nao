@@ -8,6 +8,9 @@ import { generateStoryHtml } from './story-html';
 
 let browserPromise: Promise<Browser> | null = null;
 
+const A4_PRINTABLE_WIDTH_PX = 714;
+const A4_PRINTABLE_HEIGHT_PX = 1043;
+
 async function loadPuppeteer() {
 	try {
 		return await import('puppeteer-core');
@@ -24,11 +27,25 @@ export async function generateStoryPdf(
 	dateFormat?: DateFormatSettings | null,
 ): Promise<Buffer> {
 	const html = generateStoryHtml(story, queryData, dateFormat);
+	const hasMaps = html.includes('class="nao-map"');
 	const browser = await getBrowser();
 	const page = await browser.newPage();
 
 	try {
-		await page.setContent(html, { waitUntil: 'domcontentloaded' });
+		if (hasMaps) {
+			await page.emulateMediaType('print');
+			await page.setViewport({
+				width: A4_PRINTABLE_WIDTH_PX,
+				height: A4_PRINTABLE_HEIGHT_PX,
+				deviceScaleFactor: 2,
+			});
+		}
+		await page
+			.setContent(html, { waitUntil: hasMaps ? 'load' : 'domcontentloaded', timeout: 30000 })
+			.catch(() => {});
+		if (hasMaps) {
+			await page.waitForFunction('window.__naoMapsReady === true', { timeout: 15000 }).catch(() => {});
+		}
 		const pdfBuffer = await page.pdf({
 			format: 'A4',
 			printBackground: true,
@@ -53,7 +70,13 @@ async function getBrowser(): Promise<Browser> {
 		.launch({
 			headless: true,
 			executablePath: findChromePath(),
-			args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu', '--disable-dev-shm-usage'],
+			args: [
+				'--no-sandbox',
+				'--disable-setuid-sandbox',
+				'--disable-gpu',
+				'--disable-dev-shm-usage',
+				'--enable-unsafe-swiftshader',
+			],
 		})
 		.catch((error) => {
 			browserPromise = null;

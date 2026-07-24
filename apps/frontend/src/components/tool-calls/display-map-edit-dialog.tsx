@@ -1,39 +1,34 @@
 import { displayMap } from '@nao/shared/tools';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ArrowRight } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 import { Button } from '../ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Input } from '../ui/input';
-import type { UIMessage, UIToolPart } from '@nao/backend/chat';
-import { trpc } from '@/main';
-import { useAgentContext } from '@/contexts/agent.provider';
 
 const DEFAULT_MARKER_COLOR = '#522bff';
 const DEFAULT_MARKER_RADIUS = 5;
 
-interface DisplayMapEditDialogProps {
+interface MapConfigEditDialogProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
-	toolCallId: string;
 	config: displayMap.Input;
+	isSaving: boolean;
+	onSave: (config: displayMap.Input) => Promise<void>;
+	description: string;
 }
 
-export function DisplayMapEditDialog({ open, onOpenChange, toolCallId, config }: DisplayMapEditDialogProps) {
-	const queryClient = useQueryClient();
-	const { messages, setMessages } = useAgentContext();
+export function MapConfigEditDialog({
+	open,
+	onOpenChange,
+	config,
+	isSaving,
+	onSave,
+	description,
+}: MapConfigEditDialogProps) {
 	const [draft, setDraft] = useState<displayMap.Input>(config);
 	const [primaryHex, setPrimaryHex] = useState(DEFAULT_MARKER_COLOR);
 	const [error, setError] = useState<string | null>(null);
-
-	const updateMutation = useMutation(
-		trpc.map.updateConfig.mutationOptions({
-			onSuccess: () => {
-				queryClient.invalidateQueries({ queryKey: [['chat', 'get']] });
-			},
-		}),
-	);
 
 	useEffect(() => {
 		if (open) {
@@ -51,14 +46,10 @@ export function DisplayMapEditDialog({ open, onOpenChange, toolCallId, config }:
 			return;
 		}
 
-		const next = parsed.data;
-		const previousMessages = messages;
-		setMessages(applyMapConfigToMessages(previousMessages, toolCallId, next));
 		try {
-			await updateMutation.mutateAsync({ mapId: toolCallId, config: next });
+			await onSave(parsed.data);
 			onOpenChange(false);
 		} catch (err) {
-			setMessages(previousMessages);
 			setError(err instanceof Error ? err.message : 'Failed to update map.');
 		}
 	};
@@ -74,7 +65,7 @@ export function DisplayMapEditDialog({ open, onOpenChange, toolCallId, config }:
 				<DialogHeader>
 					<DialogTitle>Edit map</DialogTitle>
 					<DialogDescription className='text-sm text-muted-foreground font-medium'>
-						Tweak the map parameters. Changes are saved to the chat.
+						{description}
 					</DialogDescription>
 				</DialogHeader>
 
@@ -150,8 +141,8 @@ export function DisplayMapEditDialog({ open, onOpenChange, toolCallId, config }:
 							variant='primary-gradient'
 							type='submit'
 							className='rounded-full'
-							isLoading={updateMutation.isPending}
-							disabled={updateMutation.isPending}
+							isLoading={isSaving}
+							disabled={isSaving}
 						>
 							Save
 						</Button>
@@ -181,24 +172,6 @@ function MarkerPreview({ color, radius }: { color: string; radius: number }) {
 			/>
 		</div>
 	);
-}
-
-function applyMapConfigToMessages(messages: UIMessage[], toolCallId: string, config: displayMap.Input): UIMessage[] {
-	return messages.map((message) => {
-		let changed = false;
-		const parts = message.parts.map((part) => {
-			if (part.type !== 'tool-display_map') {
-				return part;
-			}
-			const toolPart = part as UIToolPart<'display_map'>;
-			if (toolPart.toolCallId !== toolCallId) {
-				return part;
-			}
-			changed = true;
-			return { ...toolPart, input: config } as typeof part;
-		});
-		return changed ? { ...message, parts } : message;
-	});
 }
 
 const HEX_RE = /^#[0-9a-fA-F]{6}$/;

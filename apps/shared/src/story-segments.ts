@@ -37,6 +37,20 @@ export interface ParsedTableBlock {
 	rawTag?: string;
 }
 
+export interface ParsedMapBlock {
+	queryId: string;
+	mapType: string;
+	latitudeKey: string;
+	longitudeKey: string;
+	labelKey?: string;
+	tooltipKeys?: string[];
+	markerColor?: string;
+	markerRadius?: number;
+	title: string;
+	/** The original `<map ... />` tag this block was parsed from, when available. */
+	rawTag?: string;
+}
+
 export interface ParsedFilterBlock {
 	id: string;
 	column?: string;
@@ -55,6 +69,7 @@ export type Segment =
 	| { type: 'markdown'; content: string }
 	| { type: 'chart'; chart: ParsedChartBlock }
 	| { type: 'table'; table: ParsedTableBlock }
+	| { type: 'map'; map: ParsedMapBlock }
 	| { type: 'filter'; filter: ParsedFilterBlock }
 	| { type: 'grid'; cols: number; widths: number[] | null; children: Segment[] };
 
@@ -68,9 +83,13 @@ export function tableTagRegex(flags = ''): RegExp {
 	return new RegExp(String.raw`<table\s+(${TAG_ATTRS})\/?>`, flags);
 }
 
+export function mapTagRegex(flags = ''): RegExp {
+	return new RegExp(String.raw`<map\s+(${TAG_ATTRS})\/?>`, flags);
+}
+
 export function storyBlockRegex(): RegExp {
 	return new RegExp(
-		String.raw`<grid(?:\s+(${TAG_ATTRS}))?>([\s\S]*?)<\/grid>|<chart\s+(${TAG_ATTRS})\/?>|<table\s+(${TAG_ATTRS})\/?>|<filter\s+(${TAG_ATTRS})\/?>`,
+		String.raw`<grid(?:\s+(${TAG_ATTRS}))?>([\s\S]*?)<\/grid>|<chart\s+(${TAG_ATTRS})\/?>|<table\s+(${TAG_ATTRS})\/?>|<filter\s+(${TAG_ATTRS})\/?>|<map\s+(${TAG_ATTRS})\/?>`,
 		'g',
 	);
 }
@@ -145,6 +164,25 @@ export function parseTableBlock(attrString: string): ParsedTableBlock | null {
 		queryId: attrs.query_id,
 		title: attrs.title || '',
 		conditionalFormats: parseConditionalFormats(attrs.formatting),
+	};
+}
+
+export function parseMapBlock(attrString: string): ParsedMapBlock | null {
+	const attrs = parseChartAttributes(attrString);
+	if (!attrs.query_id || !attrs.latitude_key || !attrs.longitude_key) {
+		return null;
+	}
+
+	return {
+		queryId: attrs.query_id,
+		mapType: attrs.map_type || 'points',
+		latitudeKey: attrs.latitude_key,
+		longitudeKey: attrs.longitude_key,
+		labelKey: attrs.label_key || undefined,
+		tooltipKeys: parseStringArrayAttribute(attrs.tooltip_keys),
+		markerColor: attrs.marker_color || undefined,
+		markerRadius: parseOptionalNumberAttr(attrs.marker_radius),
+		title: attrs.title || '',
 	};
 }
 
@@ -602,7 +640,7 @@ function extractSeriesFromRawAttrs(attrString: string): ParsedChartBlock['series
 
 export function extractQueryIds(code: string): Set<string> {
 	const ids = new Set<string>();
-	const regex = /<(?:chart|table)\s+[^>]*?\bquery_id\s*=\s*"([^"]+)"/g;
+	const regex = /<(?:chart|table|map)\s+[^>]*?\bquery_id\s*=\s*"([^"]+)"/g;
 	let match: RegExpExecArray | null;
 	while ((match = regex.exec(code)) !== null) {
 		ids.add(match[1]);
@@ -649,6 +687,11 @@ export function splitCodeIntoSegments(code: string): Segment[] {
 			const filter = parseFilterBlock(match[5]);
 			if (filter) {
 				segments.push({ type: 'filter', filter: { ...filter, rawTag: match[0] } });
+			}
+		} else if (match[6] !== undefined) {
+			const map = parseMapBlock(match[6]);
+			if (map) {
+				segments.push({ type: 'map', map: { ...map, rawTag: match[0] } });
 			}
 		}
 

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { parseStoryTabs, stripStoryTabsMarkup } from '@nao/shared/story-tabs';
 import { splitCodeIntoSegments } from '@nao/shared/story-segments';
-import type { ParsedChartBlock, ParsedTableBlock } from '@nao/shared/story-segments';
+import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock } from '@nao/shared/story-segments';
 
 import type { QueryDataMap } from '@/components/story-embeds';
 import type { StoryFilterApi } from '@/hooks/use-story-filters';
@@ -22,6 +22,7 @@ interface StoryTabbedContentProps {
 	code: string;
 	renderChart: (chart: ParsedChartBlock, options: StoryEmbedRenderOptions) => React.ReactNode;
 	renderTable: (table: ParsedTableBlock, options: StoryEmbedRenderOptions) => React.ReactNode;
+	renderMap: (map: ParsedMapBlock, options: StoryEmbedRenderOptions) => React.ReactNode;
 	contentClassName?: string;
 	baselineQueryData?: QueryDataMap | null;
 	filterApi?: StoryFilterApi | null;
@@ -31,6 +32,7 @@ export function StoryTabbedContent({
 	code,
 	renderChart,
 	renderTable,
+	renderMap,
 	contentClassName = 'max-w-5xl mx-auto p-4 md:p-8 flex flex-col gap-4',
 	baselineQueryData,
 	filterApi,
@@ -87,6 +89,14 @@ export function StoryTabbedContent({
 							}
 							renderTable={(table, key) =>
 								renderTable(table, {
+									queryData: storyFilters.queryData,
+									hasActiveFilters: storyFilters.hasActiveFilters,
+									isRefreshing: storyFilters.isFiltering,
+									key,
+								})
+							}
+							renderMap={(map, key) =>
+								renderMap(map, {
 									queryData: storyFilters.queryData,
 									hasActiveFilters: storyFilters.hasActiveFilters,
 									isRefreshing: storyFilters.isFiltering,

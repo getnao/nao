@@ -1,7 +1,7 @@
 import { getGridClass, getGridTemplateColumns } from '@nao/shared/story-segments';
 import { Fragment, memo } from 'react';
 import { Streamdown } from 'streamdown';
-import type { ParsedChartBlock, ParsedTableBlock, Segment } from '@nao/shared/story-segments';
+import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock, Segment } from '@nao/shared/story-segments';
 
 import { MarkdownTable } from '@/components/chat-messages/markdown-table';
 import { markdownPlugins } from '@/lib/markdown';
@@ -15,6 +15,7 @@ interface SegmentRendererProps {
 	versionKey?: string | number;
 	renderChart: (chart: ParsedChartBlock, key: number) => React.ReactNode;
 	renderTable: (table: ParsedTableBlock, key: number) => React.ReactNode;
+	renderMap: (map: ParsedMapBlock, key: number) => React.ReactNode;
 }
 
 export const SegmentList = memo(function SegmentList({
@@ -22,6 +23,7 @@ export const SegmentList = memo(function SegmentList({
 	versionKey,
 	renderChart,
 	renderTable,
+	renderMap,
 }: SegmentRendererProps) {
 	return (
 		<>
@@ -43,6 +45,8 @@ export const SegmentList = memo(function SegmentList({
 						return <Fragment key={key}>{renderChart(segment.chart, i)}</Fragment>;
 					case 'table':
 						return <Fragment key={key}>{renderTable(segment.table, i)}</Fragment>;
+					case 'map':
+						return <Fragment key={key}>{renderMap(segment.map, i)}</Fragment>;
 					case 'filter':
 						return null;
 					case 'grid':
@@ -54,6 +58,7 @@ export const SegmentList = memo(function SegmentList({
 								children={segment.children}
 								renderChart={renderChart}
 								renderTable={renderTable}
+								renderMap={renderMap}
 							/>
 						);
 				}
@@ -68,12 +73,14 @@ const StoryGrid = memo(function StoryGrid({
 	children,
 	renderChart,
 	renderTable,
+	renderMap,
 }: {
 	cols: number;
 	widths: number[] | null;
 	children: Segment[];
 	renderChart: (chart: ParsedChartBlock, key: number) => React.ReactNode;
 	renderTable: (table: ParsedTableBlock, key: number) => React.ReactNode;
+	renderMap: (map: ParsedMapBlock, key: number) => React.ReactNode;
 }) {
 	return (
 		<div className='@container'>
@@ -97,6 +104,8 @@ const StoryGrid = memo(function StoryGrid({
 							renderChart(segment.chart, i)
 						) : segment.type === 'table' ? (
 							renderTable(segment.table, i)
+						) : segment.type === 'map' ? (
+							renderMap(segment.map, i)
 						) : segment.type === 'grid' ? (
 							<StoryGrid
 								cols={segment.cols}
@@ -104,6 +113,7 @@ const StoryGrid = memo(function StoryGrid({
 								children={segment.children}
 								renderChart={renderChart}
 								renderTable={renderTable}
+								renderMap={renderMap}
 							/>
 						) : null}
 					</div>

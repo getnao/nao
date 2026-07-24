@@ -1,14 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useCallback, useState } from 'react';
-import type { ParsedChartBlock, ParsedTableBlock } from '@nao/shared/story-segments';
+import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock } from '@nao/shared/story-segments';
 
 import type { SelectionData } from '@/components/highlight-bubble';
 import type { QueryDataMap } from '@/components/story-embeds';
 import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
 import { HighlightBubble } from '@/components/highlight-bubble';
 import { StoryAccessError } from '@/components/story-access-error';
-import { StoryChartEmbed, StoryTableEmbed } from '@/components/story-embeds';
+import { StoryChartEmbed, StoryMapEmbed, StoryTableEmbed } from '@/components/story-embeds';
 import { StoryTabbedContent } from '@/components/story-tabbed-content';
 import { StoryPageHeader } from '@/components/story-page-header';
 import { LiveStorySettingsDialog } from '@/components/side-panel/live-story-settings-dialog';
@@ -319,6 +319,20 @@ function StandaloneStoryContent({
 		[],
 	);
 
+	const renderMap = useCallback(
+		(
+			map: ParsedMapBlock,
+			{
+				queryData: data,
+				hasActiveFilters,
+				isRefreshing,
+			}: { queryData: QueryDataMap | null; hasActiveFilters: boolean; isRefreshing: boolean },
+		) => (
+			<StoryMapEmbed map={map} queryData={data} hasActiveFilters={hasActiveFilters} isRefreshing={isRefreshing} />
+		),
+		[],
+	);
+
 	return (
 		<StoryTabbedContent
 			code={code}
@@ -326,6 +340,7 @@ function StandaloneStoryContent({
 			filterApi={filterApi}
 			renderChart={renderChart}
 			renderTable={renderTable}
+			renderMap={renderMap}
 		/>
 	);
 }
