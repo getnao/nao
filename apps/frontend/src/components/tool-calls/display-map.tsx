@@ -26,14 +26,15 @@ export const DisplayMapToolCall = ({ toolPart: { state, input, output } }: ToolC
 	const [viewMode, setViewMode] = useState<MapViewMode>('map');
 	const mapViewRef = useRef<MapViewHandle>(null);
 
-	const handleDownloadPng = () => {
+	const handleDownloadPng = async () => {
 		const dataUrl = mapViewRef.current?.captureImage('image/png');
 		if (!dataUrl) {
 			return;
 		}
+		const title = config?.title ?? '';
 		const link = document.createElement('a');
-		link.href = dataUrl;
-		link.download = `${config?.title || 'map'}.png`;
+		link.href = await addTitleToPng(dataUrl, title);
+		link.download = `${title || 'map'}.png`;
 		link.click();
 	};
 
@@ -197,4 +198,61 @@ function ViewToggleButton({ icon, title, isActive, onClick }: ViewToggleButtonPr
 			{icon}
 		</Button>
 	);
+}
+
+const EXPORT_FONT = '300 15px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+const EXPORT_TITLE_COLOR = '#0a0a0a';
+const EXPORT_BACKGROUND_COLOR = '#ffffff';
+const EXPORT_PADDING = 5;
+const EXPORT_TITLE_HEIGHT = 24;
+const EXPORT_MAP_RADIUS = 12;
+
+async function addTitleToPng(mapDataUrl: string, title: string): Promise<string> {
+	const image = await loadImage(mapDataUrl);
+	const scale = window.devicePixelRatio || 1;
+	const padding = EXPORT_PADDING * scale;
+	const titleHeight = title ? EXPORT_TITLE_HEIGHT * scale : 0;
+	const radius = EXPORT_MAP_RADIUS * scale;
+
+	const canvas = document.createElement('canvas');
+	canvas.width = image.width + padding * 2;
+	canvas.height = image.height + titleHeight + padding * 2;
+	const context = canvas.getContext('2d');
+	if (!context) {
+		return mapDataUrl;
+	}
+
+	context.fillStyle = EXPORT_BACKGROUND_COLOR;
+	context.fillRect(0, 0, canvas.width, canvas.height);
+
+	if (title) {
+		context.fillStyle = EXPORT_TITLE_COLOR;
+		context.font = scaleFont(EXPORT_FONT, scale);
+		context.textAlign = 'center';
+		context.textBaseline = 'middle';
+		context.fillText(title, canvas.width / 2, padding + titleHeight / 2, image.width);
+	}
+
+	const mapTop = padding + titleHeight;
+	context.save();
+	context.beginPath();
+	context.roundRect(padding, mapTop, image.width, image.height, radius);
+	context.clip();
+	context.drawImage(image, padding, mapTop + padding);
+	context.restore();
+
+	return canvas.toDataURL('image/png');
+}
+
+function scaleFont(font: string, scale: number): string {
+	return font.replace(/(\d+)px/, (_, size) => `${Number(size) * scale}px`);
+}
+
+function loadImage(src: string): Promise<HTMLImageElement> {
+	return new Promise((resolve, reject) => {
+		const image = new Image();
+		image.onload = () => resolve(image);
+		image.onerror = reject;
+		image.src = src;
+	});
 }
