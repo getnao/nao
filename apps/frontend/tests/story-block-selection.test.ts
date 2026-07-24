@@ -26,6 +26,22 @@ function selectBlocks(editor: Editor, blocks: number[], anchor: number | null): 
 	editor.view.dispatch(editor.state.tr.setMeta(blockSelectionPluginKey, { blocks, anchor }));
 }
 
+function dispatchEditorMouseDown(target: Element): void {
+	const elementFromPoint = document.elementFromPoint;
+	Object.defineProperty(document, 'elementFromPoint', {
+		configurable: true,
+		value: () => null,
+	});
+	try {
+		target.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: 100, clientY: 100 }));
+	} finally {
+		Object.defineProperty(document, 'elementFromPoint', {
+			configurable: true,
+			value: elementFromPoint,
+		});
+	}
+}
+
 describe('story block selection', () => {
 	let editor: Editor;
 
@@ -59,6 +75,66 @@ describe('story block selection', () => {
 
 		selectBlocks(editor, [], null);
 		expect(getSelectedBlockPositions(editor.state)).toEqual([]);
+	});
+
+	describe('mousedown handling', () => {
+		it('keeps the selection when pressing an embed drag grip', () => {
+			const [first, second] = topLevelBlockPositions(editor.state.doc);
+			selectBlocks(editor, [first, second], first);
+			const grip = document.createElement('button');
+			grip.setAttribute('data-block-drag-grip', '');
+			editor.view.dom.appendChild(grip);
+
+			dispatchEditorMouseDown(grip);
+
+			expect(getSelectedBlockPositions(editor.state)).toEqual([first, second]);
+		});
+
+		it('keeps the selection when pressing an SVG inside an embed drag grip', () => {
+			const [first, second] = topLevelBlockPositions(editor.state.doc);
+			selectBlocks(editor, [first, second], first);
+			const grip = document.createElement('button');
+			grip.setAttribute('data-block-drag-grip', '');
+			const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+			const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+			svg.appendChild(path);
+			grip.appendChild(svg);
+			editor.view.dom.appendChild(grip);
+
+			dispatchEditorMouseDown(path);
+
+			expect(getSelectedBlockPositions(editor.state)).toEqual([first, second]);
+		});
+
+		it('keeps the selection when pressing an SVG inside a gutter drag handle', () => {
+			const [first, second] = topLevelBlockPositions(editor.state.doc);
+			selectBlocks(editor, [first, second], first);
+			const handle = document.createElement('div');
+			handle.className = 'drag-handle';
+			const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+			const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+			svg.appendChild(path);
+			handle.appendChild(svg);
+			document.body.appendChild(handle);
+
+			dispatchEditorMouseDown(path);
+
+			expect(getSelectedBlockPositions(editor.state)).toEqual([first, second]);
+			handle.remove();
+		});
+
+		it('clears the selection on a plain editor mousedown', () => {
+			const [first, second] = topLevelBlockPositions(editor.state.doc);
+			selectBlocks(editor, [first, second], first);
+			const target = editor.view.dom.firstElementChild;
+			expect(target).not.toBeNull();
+
+			if (target) {
+				dispatchEditorMouseDown(target);
+			}
+
+			expect(getSelectedBlockPositions(editor.state)).toEqual([]);
+		});
 	});
 
 	describe('resolveDragBlocks', () => {

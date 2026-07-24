@@ -82,6 +82,11 @@ function buildBlockSelectionPlugin(): Plugin<BlockSelectionState> {
 			},
 			handleDOMEvents: {
 				mousedown(view, event) {
+					const target = event.target;
+					if (target instanceof Element && target.closest('[data-block-drag-grip]')) {
+						return false;
+					}
+
 					const toggle = event.metaKey || event.ctrlKey;
 					const range = event.shiftKey;
 					const current = blockSelectionPluginKey.getState(view.state) ?? { blocks: [], anchor: null };
@@ -166,7 +171,7 @@ function buildBlockSelectionPlugin(): Plugin<BlockSelectionState> {
 				if (target instanceof Node && editorView.dom.contains(target)) {
 					return;
 				}
-				if (target instanceof HTMLElement && target.closest('.drag-handle')) {
+				if (target instanceof Element && target.closest('.drag-handle')) {
 					return;
 				}
 				clearSelection();

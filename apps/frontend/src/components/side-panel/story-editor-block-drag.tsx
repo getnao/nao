@@ -61,6 +61,7 @@ export function StoryBlockDragGrip({ node, editor, getPos }: Pick<ReactNodeViewP
 		<button
 			type='button'
 			aria-label='Move story block'
+			data-block-drag-grip=''
 			contentEditable={false}
 			className='cursor-grab rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground active:cursor-grabbing'
 			draggable
