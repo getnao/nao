@@ -37,6 +37,18 @@ export function resolveDragBlocks(state: EditorState, pos: number): { positions:
 	return { positions: [pos], isMulti: false };
 }
 
+/**
+ * Selection to apply when a block's drag handle is clicked: select just that block,
+ * or `null` (no-op) when it is already part of the current selection.
+ */
+export function selectBlockFromHandle(state: EditorState, pos: number): { blocks: number[]; anchor: number } | null {
+	const current = blockSelectionPluginKey.getState(state);
+	if (current?.blocks.includes(pos)) {
+		return null;
+	}
+	return { blocks: [pos], anchor: pos };
+}
+
 function buildBlockSelectionPlugin(): Plugin<BlockSelectionState> {
 	return new Plugin<BlockSelectionState>({
 		key: blockSelectionPluginKey,

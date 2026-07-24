@@ -12,6 +12,7 @@ import {
 	isDropInsideSelection,
 	rangeBetween,
 	resolveDragBlocks,
+	selectBlockFromHandle,
 	topLevelBlockPositions,
 } from '@/components/side-panel/story-block-selection';
 
@@ -171,6 +172,31 @@ describe('story block selection', () => {
 				positions: [second],
 				isMulti: false,
 			});
+		});
+	});
+
+	describe('selectBlockFromHandle', () => {
+		it('selects an unselected block', () => {
+			const [first] = topLevelBlockPositions(editor.state.doc);
+			expect(selectBlockFromHandle(editor.state, first)).toEqual({ blocks: [first], anchor: first });
+		});
+
+		it('no-ops when the block is already the sole selection', () => {
+			const [first] = topLevelBlockPositions(editor.state.doc);
+			selectBlocks(editor, [first], first);
+			expect(selectBlockFromHandle(editor.state, first)).toBeNull();
+		});
+
+		it('no-ops when the block is part of a multi-selection', () => {
+			const [first, , third] = topLevelBlockPositions(editor.state.doc);
+			selectBlocks(editor, [first, third], first);
+			expect(selectBlockFromHandle(editor.state, third)).toBeNull();
+		});
+
+		it('switches selection from a different block', () => {
+			const [first, second] = topLevelBlockPositions(editor.state.doc);
+			selectBlocks(editor, [first], first);
+			expect(selectBlockFromHandle(editor.state, second)).toEqual({ blocks: [second], anchor: second });
 		});
 	});
 
