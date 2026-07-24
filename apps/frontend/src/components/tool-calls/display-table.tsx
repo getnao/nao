@@ -25,6 +25,8 @@ interface TableDisplayProps {
 	humanizeColumnLabels?: boolean;
 }
 
+type Sort = { column: string; direction: SortDirection };
+
 export function TableDisplay({
 	data,
 	columns,
@@ -49,13 +51,22 @@ export function TableDisplay({
 		[data, conditionalFormats],
 	);
 
+	const columnMinWidths = useMemo(
+		() => computeColumnMinWidths(data, resolvedColumns, dateFormat),
+		[data, resolvedColumns, dateFormat],
+	);
+
 	const [pageIndex, setPageIndex] = useState(0);
 	const [pageSize, setPageSize] = useState(maxRowsBeforePagination);
-	const [sort, setSort] = useState<{ column: string; direction: SortDirection } | null>(null);
+	const [sort, setSort] = useState<Sort | null>(null);
 
 	useEffect(() => setPageIndex(0), [data]);
 
-	const sortedData = useMemo(() => (sort ? sortTableRows(data, sort.column, sort.direction) : data), [data, sort]);
+	const activeSort = sort && resolvedColumns.includes(sort.column) ? sort : null;
+	const sortedData = useMemo(
+		() => (activeSort ? sortTableRows(data, activeSort.column, activeSort.direction) : data),
+		[data, activeSort],
+	);
 
 	const pageCount = Math.ceil(sortedData.length / pageSize);
 	const pageData = useMemo(
@@ -65,15 +76,7 @@ export function TableDisplay({
 
 	function toggleSort(column: string) {
 		setPageIndex(0);
-		setSort((current) => {
-			if (!current || current.column !== column) {
-				return { column, direction: 'asc' };
-			}
-			if (current.direction === 'asc') {
-				return { column, direction: 'desc' };
-			}
-			return null;
-		});
+		setSort(nextSort(activeSort, column));
 	}
 
 	return (
@@ -87,7 +90,7 @@ export function TableDisplay({
 							<th className='shadow-[inset_-1px_0_0_0_var(--border)] last:shadow-none px-3 py-2 text-center font-medium whitespace-nowrap text-foreground w-4' />
 							{resolvedColumns.map((column) => {
 								const alignRight = numericColumns.has(column);
-								const sortDirection = sort?.column === column ? sort.direction : null;
+								const sortDirection = activeSort?.column === column ? activeSort.direction : null;
 								return (
 									<th
 										key={column}
@@ -142,7 +145,10 @@ export function TableDisplay({
 										return (
 											<td
 												key={`${rowIndex}-${column}`}
-												style={background ? { backgroundColor: background } : undefined}
+												style={{
+													minWidth: columnMinWidths[column],
+													...(background ? { backgroundColor: background } : {}),
+												}}
 												className={cn(
 													'shadow-[inset_-1px_0_0_0_var(--border)] last:shadow-none px-3 py-1 align-top font-mono text-[11px] leading-5 whitespace-nowrap',
 													numericColumns.has(column) && 'text-right tabular-nums',
@@ -218,6 +224,35 @@ function SortIndicator({ direction }: { direction: SortDirection | null }) {
 			/>
 		</span>
 	);
+}
+
+function nextSort(current: Sort | null, column: string): Sort | null {
+	if (!current || current.column !== column) {
+		return { column, direction: 'asc' };
+	}
+	if (current.direction === 'asc') {
+		return { column, direction: 'desc' };
+	}
+	return null;
+}
+
+function computeColumnMinWidths(
+	data: TableRow[],
+	columns: string[],
+	dateFormat: ReturnType<typeof useDateFormat>,
+): Record<string, string> {
+	const widths: Record<string, string> = {};
+	for (const column of columns) {
+		let maxChars = 0;
+		for (const row of data) {
+			const chars = formatCellValue(row[column], dateFormat).length;
+			if (chars > maxChars) {
+				maxChars = chars;
+			}
+		}
+		widths[column] = `calc(${maxChars}ch + 1.5rem)`;
+	}
+	return widths;
 }
 
 function computeFormattedColumnRanges(
