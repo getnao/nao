@@ -1,10 +1,13 @@
 import { APP_DB_VIEW_COLUMNS } from '../../db/app-db-views';
+import dbConfig, { Dialect } from '../../db/dbConfig';
 import { Block, Bold, Br, Code, List, ListItem, renderToMarkdown, Span, Title } from '../../lib/markdown';
 import { ALLOWED_APP_DB_VIEWS } from '../../utils/app-db-allowlist';
 import { formatCurrentDate } from '../../utils/date';
 
-export function renderAdminSystemPrompt(options?: { timezone?: string }): string {
-	return renderToMarkdown(<AdminSystemPrompt timezone={options?.timezone} />);
+export function renderAdminSystemPrompt(options?: { timezone?: string; dialect?: Dialect }): string {
+	return renderToMarkdown(
+		<AdminSystemPrompt timezone={options?.timezone} dialect={options?.dialect ?? dbConfig.dialect} />,
+	);
 }
 
 const VIEW_DESCRIPTIONS: Record<string, string> = {
@@ -18,7 +21,8 @@ const VIEW_DESCRIPTIONS: Record<string, string> = {
 		'One row per asset engagement event. type is one of page_view, download, fork, favorite, refresh, view_duration; asset_type is chat or story; actor_user_id is who triggered it; chat_id/story_id/shared_chat_id/shared_story_id point to the asset; metadata holds event-specific JSON (e.g. download format, view duration). This is the view for adoption, engagement and sharing analytics.',
 };
 
-function AdminSystemPrompt({ timezone }: { timezone?: string }) {
+function AdminSystemPrompt({ timezone, dialect }: { timezone?: string; dialect: Dialect }) {
+	const dialectName = dialect === Dialect.Postgres ? 'PostgreSQL' : 'SQLite';
 	return (
 		<Block>
 			<Title>Instructions</Title>
@@ -81,8 +85,12 @@ function AdminSystemPrompt({ timezone }: { timezone?: string }) {
 					Reference only the allowlisted views above. Any other object name will be rejected by the validator.
 				</ListItem>
 				<ListItem>
-					Write standard SQL that works on both SQLite and PostgreSQL; avoid dialect-specific functions when a
-					portable expression exists.
+					The connected database is <Bold>{dialectName}</Bold>. Write SQL for {dialectName} and use its
+					dialect-specific functions where helpful (e.g.{' '}
+					{dialect === Dialect.Postgres
+						? 'to_timestamp() / date_trunc() for Unix-timestamp handling'
+						: "datetime(col, 'unixepoch') / strftime() for Unix-timestamp handling"}
+					).
 				</ListItem>
 				<ListItem>
 					A LIMIT clause caps how many rows are returned, not how many exist. To count rows, run a separate
