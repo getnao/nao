@@ -301,13 +301,23 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 			editor.view.dom.dispatchEvent(new DragEvent('dragleave'));
 		};
 
+		const resetBlockDragState = () => {
+			setIsBlockDragging(false);
+			storyBlockSourceRef.current = null;
+			multiBlockDragRef.current = null;
+			multiColumnDragRef.current = null;
+			dragPreviewPositionsRef.current = null;
+		};
+
 		container.addEventListener('dragstart', onDragStart);
 		document.addEventListener('dragend', clearDropCursor, true);
 		document.addEventListener('drop', clearDropCursor, true);
+		document.addEventListener('dragend', resetBlockDragState);
 		return () => {
 			container.removeEventListener('dragstart', onDragStart);
 			document.removeEventListener('dragend', clearDropCursor, true);
 			document.removeEventListener('drop', clearDropCursor, true);
+			document.removeEventListener('dragend', resetBlockDragState);
 		};
 	}, [editor]);
 

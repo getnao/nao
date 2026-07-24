@@ -176,7 +176,7 @@ export function StoryBlockDropZones({ node, editor, getPos }: Pick<ReactNodeView
 			>
 				{hoverSide === side && (
 					<div
-						className={`pointer-events-none absolute inset-y-0 w-0.5 bg-primary ${
+						className={`pointer-events-none absolute inset-y-0 w-0.5 rounded-full bg-primary-muted ${
 							side === 'left' ? 'left-0' : 'right-0'
 						}`}
 					/>

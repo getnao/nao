@@ -526,7 +526,7 @@ code.dollar:before {
 }
 
 .story-editor .drop-cursor {
-	@apply bg-primary;
+	@apply bg-primary-muted;
 	border-radius: 9999px;
 	transition: opacity 0.1s ease;
 }

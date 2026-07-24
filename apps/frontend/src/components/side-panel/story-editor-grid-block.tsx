@@ -232,7 +232,7 @@ function GridBlockView(props: ReactNodeViewProps) {
 				{dropIndicatorLeft !== null && (
 					<div
 						contentEditable={false}
-						className='pointer-events-none absolute inset-y-0 z-20 w-0.5 -translate-x-1/2 bg-primary'
+						className='pointer-events-none absolute inset-y-0 z-20 w-0.5 -translate-x-1/2 rounded-full bg-primary-muted'
 						style={{ left: dropIndicatorLeft }}
 					/>
 				)}
