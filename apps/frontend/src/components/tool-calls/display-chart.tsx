@@ -55,13 +55,13 @@ const Colors = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--cha
 const EMPTY_MESSAGES: UIMessage[] = [];
 const LEGEND_SCROLL_OFFSET = 120;
 const PIE_LEGEND_BREAKPOINT = 280;
-const COMPACT_XAXIS_BREAKPOINT = 360;
+const HORIZONTAL_LABEL_GAP = 12;
+const DIAGONAL_LABEL_GAP = 8;
 const CHAR_WIDTH_RATIO = 0.6;
 const ANGLE_COS = Math.cos((35 * Math.PI) / 180);
 const ANGLE_SIN = Math.sin((35 * Math.PI) / 180);
 const MIN_TICK_FONT = 9;
 const MAX_TICK_FONT = 12;
-const MIN_TICK_LABEL_CHARS = 3;
 const MAX_TICK_LABEL_HEIGHT = 44;
 
 type ViewMode = 'chart' | 'data' | 'query';
@@ -492,7 +492,6 @@ export const ChartDisplay = memo(function ChartDisplay({
 	const isPie = displayChart.isPieChart(chartType);
 	const compactPieLegend = isPie && width > 0 && width < PIE_LEGEND_BREAKPOINT;
 	const pieCenteringClass = isPie && !compactPieLegend ? 'mx-auto max-w-[480px]' : '';
-	const compactXAxis = !isPie && width > 0 && width < COMPACT_XAXIS_BREAKPOINT;
 	const pieValueKey = series[0]?.data_key ?? '';
 	const pieData = useMemo(
 		() => (isPie ? bucketPieData(data, xAxisKey, pieValueKey) : data),
@@ -563,20 +562,35 @@ export const ChartDisplay = memo(function ChartDisplay({
 		() => xAxisLabelFormatter ?? ((value: string) => labelize(value, dateFormat)),
 		[xAxisLabelFormatter, dateFormat],
 	);
+	const perCategoryPx = width > 0 ? width / Math.max(data.length, 1) : 0;
+	const longestLabelLen = Math.max(1, ...data.map((row) => labelFormatter(String(row[xAxisKey])).length));
+	// Keep labels horizontal while they fit side by side (label width plus a small gap);
+	// only once they would actually collide do we shrink + rotate, and then discard.
+	const horizontalLabelPx = longestLabelLen * MAX_TICK_FONT * CHAR_WIDTH_RATIO + HORIZONTAL_LABEL_GAP;
+	const compactXAxis = !isPie && width > 0 && perCategoryPx < horizontalLabelPx;
+
 	let xAxisTickFontSize: number | undefined;
 	let xAxisMaxLabelChars: number | undefined;
+	let compactXAxisInterval: number | undefined;
 	if (compactXAxis) {
-		const perCategoryPx = width / Math.max(data.length, 1);
-		const longestLabelLen = Math.max(1, ...data.map((row) => labelFormatter(String(row[xAxisKey])).length));
 		const neededFont = perCategoryPx / (longestLabelLen * CHAR_WIDTH_RATIO * ANGLE_COS);
 		xAxisTickFontSize = Math.round(Math.max(MIN_TICK_FONT, Math.min(MAX_TICK_FONT, neededFont)));
 
 		const charPx = xAxisTickFontSize * CHAR_WIDTH_RATIO;
-		const horizontalCharCap = Math.floor(perCategoryPx / (charPx * ANGLE_COS));
+		// A rotated label can't be taller than the axis band, so cap its length first, then
+		// reserve slots from the length we actually draw (not the full label) — otherwise we
+		// discard more labels than the space truly needs.
 		const verticalCharCap = Math.floor(MAX_TICK_LABEL_HEIGHT / (charPx * ANGLE_SIN));
-		const charCap = Math.max(MIN_TICK_LABEL_CHARS, Math.min(horizontalCharCap, verticalCharCap));
-		if (longestLabelLen > charCap) {
-			xAxisMaxLabelChars = charCap;
+		if (longestLabelLen > verticalCharCap) {
+			xAxisMaxLabelChars = verticalCharCap;
+		}
+		const drawnLabelLen = Math.min(longestLabelLen, verticalCharCap);
+		const labelSlotPx = drawnLabelLen * charPx * ANGLE_COS + DIAGONAL_LABEL_GAP;
+		if (perCategoryPx < labelSlotPx) {
+			// N labels need only N-1 gaps between them, so credit one gap back before dividing;
+			// otherwise a label is discarded a full slot early, before the labels actually touch.
+			const maxVisible = Math.max(1, Math.floor((width + DIAGONAL_LABEL_GAP) / labelSlotPx));
+			compactXAxisInterval = Math.max(0, Math.ceil(data.length / maxVisible) - 1);
 		}
 	}
 
@@ -602,6 +616,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 				labelFormatter,
 				valueFormatter,
 				compactXAxis,
+				compactXAxisInterval,
 				xAxisTickFontSize,
 				xAxisMaxLabelChars,
 				showGrid,
@@ -658,6 +673,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 			isPie,
 			compactPieLegend,
 			compactXAxis,
+			compactXAxisInterval,
 			xAxisTickFontSize,
 			xAxisMaxLabelChars,
 			xAxisKey,

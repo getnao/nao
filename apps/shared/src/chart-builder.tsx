@@ -267,6 +267,7 @@ export interface BuildChartProps {
 	renderTitle?: boolean;
 	maxXAxisTicks?: number;
 	compactXAxis?: boolean;
+	compactXAxisInterval?: number;
 	xAxisTickFontSize?: number;
 	xAxisMaxLabelChars?: number;
 	yAxisMin?: number;
@@ -578,6 +579,7 @@ function renderCategoryXAxis({
 	xAxisInterval,
 	labelFormatter,
 	compact,
+	compactInterval,
 	tickFontSize,
 	maxLabelChars,
 }: {
@@ -586,6 +588,7 @@ function renderCategoryXAxis({
 	xAxisInterval?: number;
 	labelFormatter: (value: string) => string;
 	compact?: boolean;
+	compactInterval?: number;
 	tickFontSize?: number;
 	maxLabelChars?: number;
 }) {
@@ -610,7 +613,7 @@ function renderCategoryXAxis({
 			tickMargin={10}
 			axisLine={false}
 			minTickGap={12}
-			interval={compact ? 0 : xAxisInterval}
+			interval={compact ? (compactInterval ?? 0) : (xAxisInterval ?? 0)}
 			tickFormatter={tickFormatter}
 			height={CATEGORY_XAXIS_HEIGHT}
 			{...(compact ? { angle: -35, textAnchor: 'end' as const } : {})}
@@ -631,6 +634,7 @@ function buildBarChart(props: ResolvedProps) {
 		margin,
 		xAxisInterval,
 		compactXAxis,
+		compactXAxisInterval,
 		xAxisTickFontSize,
 		xAxisMaxLabelChars,
 		series,
@@ -669,6 +673,7 @@ function buildBarChart(props: ResolvedProps) {
 				xAxisInterval,
 				labelFormatter,
 				compact: compactXAxis,
+				compactInterval: compactXAxisInterval,
 				tickFontSize: xAxisTickFontSize,
 				maxLabelChars: xAxisMaxLabelChars,
 			})}
@@ -747,6 +752,7 @@ function buildAreaChart(props: ResolvedProps) {
 		margin,
 		xAxisInterval,
 		compactXAxis,
+		compactXAxisInterval,
 		xAxisTickFontSize,
 		xAxisMaxLabelChars,
 		yAxisMin,
@@ -798,6 +804,7 @@ function buildAreaChart(props: ResolvedProps) {
 				xAxisInterval,
 				labelFormatter,
 				compact: compactXAxis,
+				compactInterval: compactXAxisInterval,
 				tickFontSize: xAxisTickFontSize,
 				maxLabelChars: xAxisMaxLabelChars,
 			})}
@@ -845,6 +852,10 @@ function buildComboChart(props: ResolvedProps) {
 		children,
 		margin,
 		xAxisInterval,
+		compactXAxis,
+		compactXAxisInterval,
+		xAxisTickFontSize,
+		xAxisMaxLabelChars,
 		yAxisMin,
 		yAxisMax,
 		yAxisLabel,
@@ -916,6 +927,10 @@ function buildComboChart(props: ResolvedProps) {
 				xAxisType: xAxisType ?? 'category',
 				xAxisInterval,
 				labelFormatter,
+				compact: compactXAxis,
+				compactInterval: compactXAxisInterval,
+				tickFontSize: xAxisTickFontSize,
+				maxLabelChars: xAxisMaxLabelChars,
 			})}
 			{children}
 			{series.map((s, i) =>

@@ -317,7 +317,7 @@ function ChartLegendContent({
 						<div
 							key={item.value}
 							className={cn(
-								'[&>svg]:text-muted-foreground flex items-center gap-1.5 [&>svg]:h-3 [&>svg]:w-3 text-muted-foreground select-none',
+								'[&>svg]:text-muted-foreground flex shrink-0 items-center gap-1.5 whitespace-nowrap [&>svg]:h-3 [&>svg]:w-3 text-muted-foreground select-none',
 								onItemClick && 'cursor-pointer hover:text-foreground',
 								item.isHidden && 'opacity-40',
 							)}
