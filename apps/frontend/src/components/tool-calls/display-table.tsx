@@ -41,7 +41,10 @@ export function TableDisplay({
 	humanizeColumnLabels = false,
 }: TableDisplayProps) {
 	const dateFormat = useDateFormat();
-	const resolvedColumns = columns && columns.length > 0 ? columns : inferColumns(data);
+	const resolvedColumns = useMemo(
+		() => (columns && columns.length > 0 ? columns : inferColumns(data)),
+		[columns, data],
+	);
 	const numericColumns = new Set(resolvedColumns.filter((column) => isNumericColumn(data, column)));
 	const hasRows = data.length > 0;
 	const showPagination = hasRows && data.length > maxRowsBeforePagination;
