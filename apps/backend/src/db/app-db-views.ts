@@ -157,7 +157,12 @@ function buildScopedViews(schema: ViewSchema, scope: ScopeTable, qb: SqliteQuery
 				.leftJoin(chatMessage, eq(messagePart.messageId, chatMessage.id))
 				.leftJoin(chat, eq(chat.id, chatMessage.chatId))
 				.leftJoin(user, eq(user.id, chat.userId))
-				.where(inArray(chat.projectId, scopedProjectIds()))
+				.where(
+					and(
+						inArray(chat.projectId, scopedProjectIds()),
+						sql`(${chatMessage.source} is null or ${chatMessage.source} <> 'admin')`,
+					),
+				)
 				.orderBy(chatMessage.chatId, asc(messagePart.createdAt)),
 		),
 		toView(
