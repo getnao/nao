@@ -436,6 +436,18 @@ def test_matching_data_sources_compares_ids_in_the_same_form():
     assert matching_data_sources(sources, "b" * 32) == sources
 
 
+def test_fetch_view_rows_stops_at_the_render_budget_without_an_extra_page():
+    client = MagicMock()
+    full_page = {"results": [{"id": f"row-{index}"} for index in range(PAGE_SIZE)], "has_more": True}
+    stub_view(client, {"type": "table"}, {**full_page, "id": "q", "next_cursor": "c", "total_count": 5000})
+    client.views.queries.results.return_value = {**full_page, "next_cursor": "c"}
+
+    view = fetch_view_rows(client, "view-1")
+
+    assert len(view.row_ids) == MAX_RENDERED_ROWS
+    assert client.views.queries.results.call_count == MAX_RENDERED_ROWS // PAGE_SIZE - 1
+
+
 def test_fetch_view_rows_keeps_an_incomplete_status_from_an_earlier_page():
     client = MagicMock()
     stub_view(

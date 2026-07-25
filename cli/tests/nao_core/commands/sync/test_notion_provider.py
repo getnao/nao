@@ -198,6 +198,45 @@ def test_markdown_filename_always_carries_the_item_id():
     assert markdown_filename("", reference) == "aaaaaaaa.md"
 
 
+def test_markdown_filename_separates_two_views_of_one_database():
+    database = "https://notion.so/ws/" + "a" * 32
+    first = markdown_filename("Columns", f"{database}?v=" + "b" * 32)
+    second = markdown_filename("Columns", f"{database}?v=" + "c" * 32)
+
+    assert first == "columns-aaaaaaaa-bbbbbbbb.md"
+    assert second == "columns-aaaaaaaa-cccccccc.md"
+    assert markdown_filename("Columns", database) == "columns-aaaaaaaa.md"
+
+
+def test_write_documents_writes_utf8_whatever_the_platform_encoding(tmp_path: Path):
+    body = "co2e_saved → gains — ⚠️ accentué"
+
+    written, _, failed = write_documents([("https://notion.so/ws/" + "a" * 32, "Notes", body)], tmp_path)
+
+    assert failed == 0
+    assert (tmp_path / written.pop()).read_text(encoding="utf-8") == body
+
+
+def test_write_documents_contains_an_encoding_failure(tmp_path: Path):
+    documents = [
+        ("https://notion.so/ws/" + "a" * 32, "Broken", "→"),
+        ("https://notion.so/ws/" + "b" * 32, "Fine", "ok"),
+    ]
+    real_write = Path.write_text
+
+    def write(self, data, *args, **kwargs):
+        if "broken" in self.name:
+            raise UnicodeEncodeError("cp1252", data, 0, 1, "unmappable character")
+        return real_write(self, data, *args, **kwargs)
+
+    with patch.object(Path, "write_text", write):
+        written, titles, failed = write_documents(documents, tmp_path)
+
+    assert failed == 1
+    assert titles == ["Fine"]
+    assert written == {"fine-bbbbbbbb.md"}
+
+
 def test_markdown_filename_truncates_a_very_long_title():
     filename = markdown_filename("A" * 300, "https://notion.so/ws/" + "a" * 32)
 

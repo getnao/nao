@@ -170,7 +170,12 @@ def fetch_documents(page_urls: list[str], api_key: str, threads: int) -> tuple[l
 
 
 def write_documents(documents: list[tuple[str, str, str]], output_path: Path) -> tuple[set[str], list[str], int]:
-    """Write fetched documents, keeping a write failure to the item it belongs to."""
+    """Write fetched documents, keeping a write failure to the item it belongs to.
+
+    Notion content is written as UTF-8 rather than in the platform encoding, which would fail
+    on the arrows, dashes and emoji it routinely contains. An encoding failure is not an
+    OSError, so it is caught explicitly rather than escaping the whole write phase.
+    """
     written: set[str] = set()
     titles: list[str] = []
     failed = 0
@@ -178,8 +183,8 @@ def write_documents(documents: list[tuple[str, str, str]], output_path: Path) ->
     for reference, title, markdown in documents:
         filename = markdown_filename(title, reference)
         try:
-            (output_path / filename).write_text(markdown)
-        except OSError as error:
+            (output_path / filename).write_text(markdown, encoding="utf-8")
+        except (OSError, UnicodeError) as error:
             failed += 1
             console.print(f"[bold red]✗[/bold red] Failed to write {escape(filename)}: {escape(str(error))}")
             continue
@@ -191,11 +196,22 @@ def write_documents(documents: list[tuple[str, str, str]], output_path: Path) ->
 
 
 def short_reference(reference: str) -> str:
-    """A stable, filename-safe fragment identifying an item."""
+    """A stable, filename-safe fragment identifying an item.
+
+    The view is part of that identity. Two URLs can point at one database through different
+    views, and the database id alone would name both exports the same file.
+    """
     try:
-        return extract_notion_id(reference)[:8]
+        identifier = extract_notion_id(reference)[:8]
     except ValueError:
         return re.sub(r"[^\w-]", "", reference).lower()[:8] or "item"
+
+    try:
+        view_id = extract_view_id(reference)
+    except ValueError:
+        view_id = None
+
+    return f"{identifier}-{view_id[:8]}" if view_id else identifier
 
 
 def markdown_filename(title: str, reference: str) -> str:

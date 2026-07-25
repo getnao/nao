@@ -363,7 +363,7 @@ def query_view(client: Any, view_id: str) -> ViewRows:
     # Only MAX_RENDERED_ROWS reach the table and total_count already carries the true count,
     # so paging every id would spend requests on rows nothing will show
     for _ in range(MAX_PAGES):
-        if not response.get("has_more") or len(row_ids) > MAX_RENDERED_ROWS:
+        if not response.get("has_more") or len(row_ids) >= MAX_RENDERED_ROWS:
             break
         cursor = response.get("next_cursor")
         if not query_id or not cursor:
