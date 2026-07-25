@@ -211,6 +211,29 @@ nao test -m openai:gpt-4.1 -m anthropic:claude-sonnet-4-20250514
 nao test --threads 4
 ```
 
+### Upgrade nao-core
+
+```bash
+nao upgrade
+```
+
+Checks PyPI for a newer version of `nao-core` and, with your confirmation, runs
+`uv pip install --upgrade <spec>` (or `pip install --upgrade <spec>` if `uv`
+isn't on PATH). The package spec auto-detects the extras you originally
+installed with (`nao-core[postgres,openai]`, `nao-core[all]`, etc.) so the
+upgrade preserves them instead of silently downgrading you to the base
+package.
+
+Use `--extras` to override detection:
+
+```bash
+# Force a specific set of extras
+nao upgrade --extras postgres,openai
+
+# Upgrade the base package only (skip extras entirely)
+nao upgrade --extras ""
+```
+
 ### Explore test results
 
 ```bash
