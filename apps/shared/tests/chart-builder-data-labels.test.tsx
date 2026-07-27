@@ -64,6 +64,13 @@ function parsePlotRect(html: string): { left: number; top: number; right: number
 	return { left: x, top: y, right: x + width, bottom: y + height };
 }
 
+function parseXAxisTickY(html: string): number {
+	const match = html.match(
+		/<g class="recharts-layer recharts-cartesian-axis recharts-xAxis xAxis">.*?<text[^>]*\by="([\d.]+)"/s,
+	);
+	return Number(match?.[1] ?? 0);
+}
+
 function expectLabelsInsideSvg(labels: RenderedLabel[], width: number, height: number) {
 	for (const label of labels) {
 		expect(label.left).toBeGreaterThanOrEqual(0);
@@ -446,6 +453,7 @@ describe('buildChart data labels', () => {
 			expect(negative).toBeDefined();
 			expect(positive!.y).toBeLessThan(plot.top);
 			expect(negative!.y).toBeGreaterThan(plot.bottom);
+			expect(negative!.bottom).toBeLessThan(parseXAxisTickY(html));
 		},
 	);
 

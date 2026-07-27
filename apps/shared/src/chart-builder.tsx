@@ -36,7 +36,7 @@ const DATA_LABEL_PROPS = {
 	fontFamily: 'system-ui, sans-serif',
 };
 const DATA_LABEL_MARGIN_TOP = 24;
-const DATA_LABEL_MARGIN_BOTTOM = 24;
+const DATA_LABEL_X_AXIS_FOOTROOM = 24;
 const DATA_LABEL_HEADROOM_RATIO = 0.9;
 
 const DATA_LABEL_FONT_SIZE = 11;
@@ -407,15 +407,10 @@ type ResolvedProps = BuildChartProps &
 function buildChartMargin(props: BuildChartProps, showTitle: boolean) {
 	const titleTop = showTitle ? 30 : 0;
 	const labelsTop = shouldReserveDataLabelHeadroom(props) ? DATA_LABEL_MARGIN_TOP : 0;
-	const labelsBottom = shouldReserveStackTotalFootroom(props) ? DATA_LABEL_MARGIN_BOTTOM : 0;
-	if (titleTop === 0 && labelsTop === 0 && labelsBottom === 0) {
+	if (titleTop === 0 && labelsTop === 0) {
 		return props.margin;
 	}
-	return {
-		...props.margin,
-		top: (props.margin?.top ?? 0) + titleTop + labelsTop,
-		bottom: (props.margin?.bottom ?? 0) + labelsBottom,
-	};
+	return { ...props.margin, top: (props.margin?.top ?? 0) + titleTop + labelsTop };
 }
 
 export function shouldReserveDataLabelHeadroom(props: BuildChartProps): boolean {
@@ -611,6 +606,7 @@ function renderCategoryXAxis({
 	compact,
 	tickFontSize,
 	maxLabelChars,
+	labelFootroom = 0,
 }: {
 	xAxisKey: string;
 	xAxisType?: 'number' | 'category';
@@ -619,6 +615,7 @@ function renderCategoryXAxis({
 	compact?: boolean;
 	tickFontSize?: number;
 	maxLabelChars?: number;
+	labelFootroom?: number;
 }) {
 	const tickFormatter = compact
 		? (value: string) => {
@@ -638,12 +635,12 @@ function renderCategoryXAxis({
 			domain={['dataMin', 'dataMax']}
 			tick={compact ? { ...AXIS_TICK, fontSize: tickFontSize ?? AXIS_TICK.fontSize } : AXIS_TICK}
 			tickLine
-			tickMargin={10}
+			tickMargin={10 + labelFootroom}
 			axisLine={false}
 			minTickGap={12}
 			interval={compact ? 0 : xAxisInterval}
 			tickFormatter={tickFormatter}
-			height={CATEGORY_XAXIS_HEIGHT}
+			height={CATEGORY_XAXIS_HEIGHT + labelFootroom}
 			{...(compact ? { angle: -35, textAnchor: 'end' as const } : {})}
 		/>
 	);
@@ -677,6 +674,7 @@ function buildBarChart(props: ResolvedProps) {
 	const { renderedSeries, stackTotalLayer } = getDataLabelSetup(props, isStacked);
 	const seriesKeys = renderedSeries.map((s) => s.data_key);
 	const separatorColor = props.backgroundColor ?? DEFAULT_BACKGROUND_COLOR;
+	const labelFootroom = shouldReserveStackTotalFootroom(props) ? DATA_LABEL_X_AXIS_FOOTROOM : 0;
 
 	return (
 		<BarChart data={data} accessibilityLayer margin={margin} stackOffset={isPercent ? 'expand' : undefined}>
@@ -702,6 +700,7 @@ function buildBarChart(props: ResolvedProps) {
 				compact: compactXAxis,
 				tickFontSize: xAxisTickFontSize,
 				maxLabelChars: xAxisMaxLabelChars,
+				labelFootroom,
 			})}
 			{children}
 			{renderedSeries.map((s, i) => (
@@ -790,6 +789,7 @@ function buildAreaChart(props: ResolvedProps) {
 	const dataKeys = series.map((s) => s.data_key);
 	const axisValues = isStacked ? collectStackedAxisValues(data, dataKeys) : collectAxisValues(data, dataKeys);
 	const { renderedSeries, stackTotalLayer } = getDataLabelSetup(props, isStacked);
+	const labelFootroom = shouldReserveStackTotalFootroom(props) ? DATA_LABEL_X_AXIS_FOOTROOM : 0;
 
 	return (
 		<AreaChart data={data} accessibilityLayer margin={margin} stackOffset={isPercent ? 'expand' : undefined}>
@@ -827,6 +827,7 @@ function buildAreaChart(props: ResolvedProps) {
 				compact: compactXAxis,
 				tickFontSize: xAxisTickFontSize,
 				maxLabelChars: xAxisMaxLabelChars,
+				labelFootroom,
 			})}
 			{children}
 			{renderedSeries.map((s, i) => (
@@ -1384,7 +1385,7 @@ function stackTotalCandidates(
 			0,
 			isLocalExtremum(totals, dataIndex),
 			plot,
-			isPositive ? 0 : DATA_LABEL_MARGIN_BOTTOM,
+			isPositive ? 0 : DATA_LABEL_X_AXIS_FOOTROOM,
 		);
 		return candidate ? [candidate] : [];
 	});
