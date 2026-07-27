@@ -621,7 +621,7 @@ function renderCategoryXAxis({
 			tickMargin={10}
 			axisLine={false}
 			minTickGap={12}
-			interval={compact ? (compactInterval ?? 0) : (xAxisInterval ?? 0)}
+			interval={compact ? (compactInterval ?? 0) : xAxisInterval}
 			tickFormatter={tickFormatter}
 			height={CATEGORY_XAXIS_HEIGHT}
 			{...(compact ? { angle: -35, textAnchor: 'end' as const } : {})}
