@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { createSlackAdapter } from '@chat-adapter/slack';
 import { createMemoryState } from '@chat-adapter/state-memory';
 import { CITATION_TAG_REGEX } from '@nao/shared';
+import { displayChart } from '@nao/shared/tools';
 import type { LlmSelectedModel } from '@nao/shared/types';
 import { type ChatPostMessageArguments, WebClient } from '@slack/web-api';
 import { InferUIMessageChunk, readUIMessageStream } from 'ai';
@@ -30,6 +31,7 @@ import {
 	createFeedbackModal,
 	createImageBlock,
 	createLiveToolCall,
+	createMapLinkCard,
 	createStopButtonCard,
 	createSummaryToolCalls,
 	createTextBlock,
@@ -655,6 +657,7 @@ class ProjectSlackBot {
 		const agent = await agentService.create(
 			{ ...chat, userId: ctx.user!.id, projectId: this.projectId },
 			this._modelSelection,
+			{ supportsCustomCharts: false },
 		);
 		ctx.modelId = agent.getModelId();
 		return agent.stream(chat.messages, { provider: 'slack', timezone: ctx.timezone });
@@ -665,7 +668,7 @@ class ProjectSlackBot {
 		ctx: ConversationContext,
 	): Promise<StreamState> {
 		const state: StreamState = {
-			renderedChartIds: new Set(),
+			renderedToolCallIds: new Set(),
 			sqlOutputs: new Map(),
 			lastUpdateAt: Date.now(),
 			toolGroup: new Map(),
@@ -691,6 +694,8 @@ class ProjectSlackBot {
 				this._handleSqlPart(part, state);
 			} else if (part.type === 'tool-display_chart') {
 				await this._handleChartPart(part, state, ctx);
+			} else if (part.type === 'tool-display_map') {
+				await this._handleMapPart(part, state, ctx);
 			}
 		}
 
@@ -725,10 +730,13 @@ class ProjectSlackBot {
 		state: StreamState,
 		ctx: ConversationContext,
 	): Promise<void> {
-		if (part.state !== 'output-available' || state.renderedChartIds.has(part.toolCallId)) {
+		if (part.state !== 'output-available' || state.renderedToolCallIds.has(part.toolCallId)) {
 			return;
 		}
-		if (part.input.chart_type === 'table') {
+		if (!part.output?.success) {
+			return;
+		}
+		if (displayChart.isTableInput(part.input)) {
 			return;
 		}
 		const sqlOutput = state.sqlOutputs.get(part.input.query_id);
@@ -743,7 +751,7 @@ class ProjectSlackBot {
 				dateFormat: displaySettings.dateFormat,
 			});
 			const chartId = await chartImageQueries.saveChart(part.toolCallId, png.toString('base64'));
-			state.renderedChartIds.add(part.toolCallId);
+			state.renderedToolCallIds.add(part.toolCallId);
 
 			if (this._config.transportMode === 'socket') {
 				await this._uploadChartImageFile(png, sqlOutput.name, ctx);
@@ -757,6 +765,33 @@ class ProjectSlackBot {
 			await ctx.convMessage?.edit(Card({ children: ctx.blocks }));
 		} catch (error) {
 			logger.error(`Chart image generation failed: ${String(error)}`, {
+				source: 'system',
+				context: { chatId: ctx.chatId, toolCallId: part.toolCallId },
+			});
+		}
+	}
+
+	private async _handleMapPart(
+		part: Extract<UIMessagePart, { type: 'tool-display_map' }>,
+		state: StreamState,
+		ctx: ConversationContext,
+	): Promise<void> {
+		if (
+			part.state !== 'output-available' ||
+			!part.output.success ||
+			state.renderedToolCallIds.has(part.toolCallId)
+		) {
+			return;
+		}
+		state.renderedToolCallIds.add(part.toolCallId);
+		try {
+			const chatUrl = new URL(ctx.chatId, this._redirectUrl).toString();
+			ctx.textBlockIndex = -1;
+			ctx.textBlockCount = 0;
+			ctx.blocks.push(...createMapLinkCard(part.input.title, chatUrl));
+			await ctx.convMessage?.edit(Card({ children: ctx.blocks }));
+		} catch (error) {
+			logger.error(`Map link card failed: ${String(error)}`, {
 				source: 'system',
 				context: { chatId: ctx.chatId, toolCallId: part.toolCallId },
 			});

@@ -6,6 +6,7 @@ import { automationRoutes } from './automation.routes';
 import { brandingRoutes } from './branding.routes';
 import { budgetRoutes } from './budget.routes';
 import { chartRoutes } from './chart.routes';
+import { chartPluginRoutes } from './chart-plugin.routes';
 import { chatRoutes } from './chat.routes';
 import { chatForkRoutes } from './chat-fork.routes';
 import { citationRoutes } from './citation.routes';
@@ -27,6 +28,7 @@ import { projectRoutes } from './project.routes';
 import { sharedChatRoutes } from './shared-chat.routes';
 import { sharedStoryRoutes } from './shared-story.routes';
 import { skillRoutes } from './skill.routes';
+import { sqlRoutes } from './sql.routes';
 import { storyRoutes } from './story.routes';
 import { storyFolderRoutes } from './story-folder.routes';
 import { systemRoutes } from './system.routes';
@@ -41,7 +43,9 @@ export const trpcRouter = router({
 	budget: budgetRoutes,
 	embed: embedRoutes,
 	chart: chartRoutes,
+	chartPlugin: chartPluginRoutes,
 	chat: chatRoutes,
+	sql: sqlRoutes,
 	sharedChat: sharedChatRoutes,
 	automation: automationRoutes,
 	chatFork: chatForkRoutes,

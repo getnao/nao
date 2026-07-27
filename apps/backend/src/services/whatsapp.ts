@@ -2,6 +2,7 @@ import { createMemoryState } from '@chat-adapter/state-memory';
 import { createRedisState } from '@chat-adapter/state-redis';
 import { createWhatsAppAdapter } from '@chat-adapter/whatsapp';
 import { CITATION_TAG_REGEX } from '@nao/shared';
+import { displayChart } from '@nao/shared/tools';
 import type { LlmSelectedModel } from '@nao/shared/types';
 import { InferUIMessageChunk, readUIMessageStream } from 'ai';
 import { Attachment, Chat, Message, Thread } from 'chat';
@@ -20,7 +21,7 @@ import { ConversationContext, StreamState, ToolCallEntry } from '../types/messag
 import { createChatTitle } from '../utils/ai';
 import { buildImageUrl } from '../utils/image';
 import { logger } from '../utils/logger';
-import { EXCLUDED_TOOLS, formatMessagingError } from '../utils/messaging-provider';
+import { createWhatsappMapLink, EXCLUDED_TOOLS, formatMessagingError } from '../utils/messaging-provider';
 import { agentService } from './agent';
 import { posthog, PostHogEvent } from './posthog';
 import * as transcribeService from './transcribe.service';
@@ -435,7 +436,7 @@ class WhatsappService {
 		const chatUrl = new URL(ctx.chatId, this._redirectUrl).toString();
 		const stream = await this._createAgentStream(chat, ctx, chatUrl);
 
-		const { finalText, chartUrls } = await this._readStreamAndUpdateMessage(stream, ctx);
+		const { finalText, chartUrls, mapLinks } = await this._readStreamAndUpdateMessage(stream, ctx);
 
 		if (finalText) {
 			await ctx.thread.post(finalText);
@@ -443,6 +444,10 @@ class WhatsappService {
 
 		for (const url of chartUrls) {
 			await this._sendWhatsAppImage(ctx.thread.id, url);
+		}
+
+		for (const link of mapLinks) {
+			await ctx.thread.post(link);
 		}
 
 		posthog.capture(ctx.user!.id, PostHogEvent.MessageSent, {
@@ -463,6 +468,7 @@ class WhatsappService {
 		const agent = await agentService.create(
 			{ ...chat, userId: ctx.user!.id, projectId: this._projectId },
 			this._modelSelection,
+			{ supportsCustomCharts: false },
 		);
 		ctx.modelId = agent.getModelId();
 		return agent.stream(chat.messages, { provider: 'whatsapp', timezone: ctx.timezone, chatUrl });
@@ -471,9 +477,9 @@ class WhatsappService {
 	private async _readStreamAndUpdateMessage(
 		stream: ReadableStream<InferUIMessageChunk<UIMessage>>,
 		ctx: ConversationContext,
-	): Promise<{ finalText: string; chartUrls: string[] }> {
+	): Promise<{ finalText: string; chartUrls: string[]; mapLinks: string[] }> {
 		const state: StreamState = {
-			renderedChartIds: new Set(),
+			renderedToolCallIds: new Set(),
 			sqlOutputs: new Map(),
 			lastUpdateAt: Date.now(),
 			toolGroup: new Map(),
@@ -481,6 +487,7 @@ class WhatsappService {
 		};
 
 		const chartUrls: string[] = [];
+		const mapLinks: string[] = [];
 		let lastMessage: UIMessage | null = null;
 
 		for await (const uiMessage of readUIMessageStream<UIMessage>({ stream })) {
@@ -499,6 +506,11 @@ class WhatsappService {
 				if (url) {
 					chartUrls.push(url);
 				}
+			} else if (part.type === 'tool-display_map') {
+				const link = this._handleMapPart(part, state, ctx);
+				if (link) {
+					mapLinks.push(link);
+				}
 			}
 		}
 
@@ -507,7 +519,24 @@ class WhatsappService {
 			.map((p) => p.text.replace(CITATION_TAG_REGEX, ''))
 			.join('\n\n');
 
-		return { finalText, chartUrls };
+		return { finalText, chartUrls, mapLinks };
+	}
+
+	private _handleMapPart(
+		part: Extract<UIMessagePart, { type: 'tool-display_map' }>,
+		state: StreamState,
+		ctx: ConversationContext,
+	): string | null {
+		if (
+			part.state !== 'output-available' ||
+			!part.output.success ||
+			state.renderedToolCallIds.has(part.toolCallId)
+		) {
+			return null;
+		}
+		state.renderedToolCallIds.add(part.toolCallId);
+		const chatUrl = new URL(ctx.chatId, this._redirectUrl).toString();
+		return createWhatsappMapLink(part.input.title, chatUrl);
 	}
 
 	private async _handleChartPart(
@@ -515,10 +544,13 @@ class WhatsappService {
 		state: StreamState,
 		ctx: ConversationContext,
 	): Promise<string | null> {
-		if (part.state !== 'output-available' || state.renderedChartIds.has(part.toolCallId)) {
+		if (part.state !== 'output-available' || state.renderedToolCallIds.has(part.toolCallId)) {
 			return null;
 		}
-		if (part.input.chart_type === 'table') {
+		if (!part.output?.success) {
+			return null;
+		}
+		if (displayChart.isTableInput(part.input)) {
 			return null;
 		}
 		const sqlOutput = state.sqlOutputs.get(part.input.query_id);
@@ -533,7 +565,7 @@ class WhatsappService {
 				dateFormat: displaySettings.dateFormat,
 			});
 			const chartId = await chartImageQueries.saveChart(part.toolCallId, png.toString('base64'));
-			state.renderedChartIds.add(part.toolCallId);
+			state.renderedToolCallIds.add(part.toolCallId);
 			return new URL(`c/${ctx.chatId}/${chartId}.png`, this._redirectUrl).toString();
 		} catch (error) {
 			logger.error(`Chart image generation failed: ${String(error)}`, {

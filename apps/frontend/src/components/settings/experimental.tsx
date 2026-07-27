@@ -39,6 +39,7 @@ export function SettingsExperimental({ isAdmin }: SettingsExperimentalProps) {
 	const [pythonExecutionDurationInput, setPythonExecutionDurationInput] = useState(
 		String(pythonExecutionDurationSecs),
 	);
+	const displayMapEnabled = agentSettings.data?.experimental?.displayMap ?? false;
 
 	useEffect(() => {
 		setPythonExecutionDurationInput(String(pythonExecutionDurationSecs));
@@ -81,6 +82,14 @@ export function SettingsExperimental({ isAdmin }: SettingsExperimentalProps) {
 	};
 
 	const pythonExecutionDurationError = getPythonExecutionDurationError(pythonExecutionDurationInput);
+
+	const handleDisplayMapChange = (enabled: boolean) => {
+		updateAgentSettings.mutate({
+			experimental: {
+				displayMap: enabled,
+			},
+		});
+	};
 
 	return (
 		<SettingsCard
@@ -158,6 +167,19 @@ export function SettingsExperimental({ isAdmin }: SettingsExperimentalProps) {
 						checked={sandboxesEnabled}
 						onCheckedChange={handleSandboxesChange}
 						disabled={!isAdmin || !sandboxAvailable || updateAgentSettings.isPending}
+					/>
+				}
+			/>
+			<SettingsControlRow
+				id='display-map'
+				label='Display map'
+				description='Allow the agent to render query results with latitude and longitude columns on an interactive map (web chat only).'
+				control={
+					<Switch
+						id='display-map'
+						checked={displayMapEnabled}
+						onCheckedChange={handleDisplayMapChange}
+						disabled={!isAdmin || updateAgentSettings.isPending}
 					/>
 				}
 			/>

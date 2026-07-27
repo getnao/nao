@@ -1,7 +1,8 @@
-import { formatCompactNumber, formatPercentShare, sumPercentStackBase } from '@nao/shared';
+import { formatChartValue, formatCompactNumber, formatPercentShare, sumPercentStackBase } from '@nao/shared';
 import * as React from 'react';
 import * as RechartsPrimitive from 'recharts';
 import type { Payload } from 'recharts/types/component/DefaultLegendContent';
+import type { displayChart } from '@nao/shared/tools';
 
 import { cn } from '@/lib/utils';
 
@@ -13,6 +14,7 @@ export type ChartConfig = {
 		label?: React.ReactNode;
 		icon?: React.ComponentType;
 		isTotal?: boolean;
+		valueFormat?: displayChart.ValueFormat;
 	} & ({ color?: string; theme?: never } | { color?: never; theme: Record<keyof typeof THEMES, string> });
 };
 
@@ -35,11 +37,15 @@ function useChart() {
 function ChartContainer({
 	id,
 	className,
+	contentClassName,
+	header,
 	children,
 	config,
 	...props
 }: React.ComponentProps<'div'> & {
 	config: ChartConfig;
+	contentClassName?: string;
+	header?: React.ReactNode;
 	children: React.ComponentProps<typeof RechartsPrimitive.ResponsiveContainer>['children'];
 }) {
 	const uniqueId = React.useId();
@@ -47,17 +53,17 @@ function ChartContainer({
 
 	return (
 		<ChartContext.Provider value={{ config }}>
-			<div
-				data-slot='chart'
-				data-chart={chartId}
-				className={cn(
-					"[&_.recharts-cartesian-axis-tick_text]:fill-muted-foreground [&_.recharts-cartesian-grid_line[stroke='#ccc']]:stroke-border/50 [&_.recharts-curve.recharts-tooltip-cursor]:stroke-border [&_.recharts-polar-grid_[stroke='#ccc']]:stroke-border [&_.recharts-radial-bar-background-sector]:fill-muted [&_.recharts-rectangle.recharts-tooltip-cursor]:fill-muted [&_.recharts-reference-line_[stroke='#ccc']]:stroke-border flex aspect-video justify-center text-xs [&_.recharts-dot[stroke='#fff']]:stroke-transparent [&_.recharts-layer]:outline-hidden [&_.recharts-sector]:outline-hidden [&_.recharts-sector[stroke='#fff']]:stroke-transparent [&_.recharts-surface]:outline-hidden",
-					className,
-				)}
-				{...props}
-			>
-				<ChartStyle id={chartId} config={config} />
-				<RechartsPrimitive.ResponsiveContainer>{children}</RechartsPrimitive.ResponsiveContainer>
+			<div data-slot='chart' data-chart={chartId} className={cn('flex w-full flex-col', className)} {...props}>
+				{header}
+				<div
+					className={cn(
+						"[&_.recharts-cartesian-axis-tick_text]:fill-muted-foreground [&_.recharts-cartesian-grid_line[stroke='#ccc']]:stroke-border/50 [&_.recharts-curve.recharts-tooltip-cursor]:stroke-border [&_.recharts-polar-grid_[stroke='#ccc']]:stroke-border [&_.recharts-radial-bar-background-sector]:fill-muted [&_.recharts-rectangle.recharts-tooltip-cursor]:fill-muted [&_.recharts-reference-line_[stroke='#ccc']]:stroke-border flex aspect-video min-h-0 justify-center text-xs [&_.recharts-dot[stroke='#fff']]:stroke-transparent [&_.recharts-layer]:outline-hidden [&_.recharts-sector]:outline-hidden [&_.recharts-sector[stroke='#fff']]:stroke-transparent [&_.recharts-surface]:outline-hidden",
+						contentClassName,
+					)}
+				>
+					<ChartStyle id={chartId} config={config} />
+					<RechartsPrimitive.ResponsiveContainer>{children}</RechartsPrimitive.ResponsiveContainer>
+				</div>
 			</div>
 		</ChartContext.Provider>
 	);
@@ -109,6 +115,9 @@ function ChartTooltipContent({
 	nameKey,
 	labelKey,
 	percent = false,
+	valueFormatter = formatCompactNumber,
+	isDualAxis = false,
+	hideTotal = false,
 }: React.ComponentProps<typeof RechartsPrimitive.Tooltip> &
 	React.ComponentProps<'div'> & {
 		hideLabel?: boolean;
@@ -117,6 +126,9 @@ function ChartTooltipContent({
 		nameKey?: string;
 		labelKey?: string;
 		percent?: boolean;
+		valueFormatter?: (value: number) => string;
+		isDualAxis?: boolean;
+		hideTotal?: boolean;
 	}) {
 	const { config } = useChart();
 
@@ -163,9 +175,11 @@ function ChartTooltipContent({
 			.map((item) => ({ value: item.value as number, isTotal: isTotalItem(item) })),
 	);
 	// In 100% stacked mode every category totals 100%, so ignore already-aggregated total series.
-	const showTotal = numericValues.length > 1 && (percent || !hasTotalSeries);
-	const formatValue = (value: number) =>
-		percent ? formatPercentShare(value, shareBase) : formatCompactNumber(value);
+	const showTotal = !isDualAxis && numericValues.length > 1 && (percent || (!hasTotalSeries && !hideTotal));
+	const formatValue = (value: number) => (percent ? formatPercentShare(value, shareBase) : valueFormatter(value));
+	const firstItem = visiblePayload[0];
+	const firstItemKey = `${nameKey || firstItem?.name || firstItem?.dataKey || 'value'}`;
+	const firstItemFormat = getPayloadConfigFromPayload(config, firstItem, firstItemKey)?.valueFormat;
 
 	return (
 		<div
@@ -229,10 +243,14 @@ function ChartTooltipContent({
 												{itemConfig?.label || item.name}
 											</span>
 										</div>
-										{item.value && (
+										{item.value !== undefined && item.value !== null && (
 											<span className='text-foreground font-mono font-medium tabular-nums'>
 												{typeof item.value === 'number'
-													? formatValue(item.value)
+													? percent
+														? formatPercentShare(item.value, shareBase)
+														: formatChartValue(item.value, itemConfig?.valueFormat, {
+																compact: true,
+															})
 													: item.value.toLocaleString()}
 											</span>
 										)}
@@ -247,7 +265,7 @@ function ChartTooltipContent({
 						<div className='flex flex-1 justify-between leading-none gap-2 items-center'>
 							<span className='text-muted-foreground font-medium'>Total</span>
 							<span className='text-foreground font-mono font-medium tabular-nums'>
-								{percent ? '100%' : formatCompactNumber(seriesTotal)}
+								{percent ? '100%' : formatChartValue(seriesTotal, firstItemFormat, { compact: true })}
 							</span>
 						</div>
 					</div>
@@ -265,10 +283,11 @@ function ChartLegendContent({
 	payload,
 	verticalAlign = 'bottom',
 	layout = 'horizontal',
+	align = 'center',
 	nameKey,
 	onItemClick,
 }: React.ComponentProps<'div'> &
-	Pick<RechartsPrimitive.LegendProps, 'verticalAlign' | 'layout'> & {
+	Pick<RechartsPrimitive.LegendProps, 'verticalAlign' | 'layout' | 'align'> & {
 		hideIcon?: boolean;
 		nameKey?: string;
 		onItemClick?: (dataKey: string) => void;
@@ -288,7 +307,11 @@ function ChartLegendContent({
 				'flex gap-4',
 				isVertical
 					? 'flex-col items-start justify-center gap-2 pl-4'
-					: cn('items-center justify-center', verticalAlign === 'top' ? 'pb-3' : 'pt-3'),
+					: cn(
+							'w-full items-center',
+							align === 'right' ? 'justify-end' : align === 'left' ? 'justify-start' : 'justify-center',
+							verticalAlign === 'top' ? 'pb-3' : 'pt-3',
+						),
 				className,
 			)}
 		>

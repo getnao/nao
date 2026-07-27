@@ -1,7 +1,9 @@
+import { extractQueryIds } from '@nao/shared/story-segments';
 import { and, count, desc, eq, isNull, max, or, type SQL, sql } from 'drizzle-orm';
 
 import s, { type DBSharedStory } from '../db/abstractSchema';
 import { db } from '../db/db';
+import * as executeSqlQueries from './execute-sql.queries';
 
 export type SharedStoryWithLatest = DBSharedStory & {
 	updatedAt: Date;
@@ -130,35 +132,12 @@ export async function getQueryDataFromCode(
 	chatId: string,
 	code: string,
 ): Promise<Record<string, { data: unknown[]; columns: string[] }> | null> {
-	const chartRegex = /<(?:chart|table)\s+[^>]*query_id="([^"]*)"[^>]*\/?>/g;
-	const queryIds = new Set<string>();
-	let match;
-	while ((match = chartRegex.exec(code)) !== null) {
-		queryIds.add(match[1]);
-	}
-
+	const queryIds = extractQueryIds(code);
 	if (queryIds.size === 0) {
 		return null;
 	}
 
-	const parts = await db
-		.select({ toolOutput: s.messagePart.toolOutput })
-		.from(s.messagePart)
-		.innerJoin(s.chatMessage, eq(s.messagePart.messageId, s.chatMessage.id))
-		.where(and(eq(s.chatMessage.chatId, chatId), eq(s.messagePart.toolName, 'execute_sql')))
-		.execute();
-
-	const data: Record<string, { data: unknown[]; columns: string[] }> = {};
-	for (const part of parts) {
-		const output = part.toolOutput as { id?: string; data?: unknown[]; columns?: string[] } | null;
-		if (output?.id && queryIds.has(output.id)) {
-			data[output.id] = {
-				data: output.data ?? [],
-				columns: output.columns ?? [],
-			};
-		}
-	}
-
+	const data = await executeSqlQueries.getLatestSqlQueryDataByIds(chatId, queryIds);
 	return Object.keys(data).length > 0 ? data : null;
 }
 

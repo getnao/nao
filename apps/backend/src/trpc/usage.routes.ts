@@ -7,6 +7,10 @@ export const usageRoutes = {
 		return usageQueries.getMessagesUsage(ctx.project.id, input);
 	}),
 
+	getTotalUsage: adminProtectedProcedure.input(usageFilterSchema).query(async ({ ctx, input }) => {
+		return usageQueries.getTotalUsage(ctx.project.id, input);
+	}),
+
 	getUsedProviders: adminProtectedProcedure.query(async ({ ctx }) => {
 		return usageQueries.getUsedProviders(ctx.project.id);
 	}),

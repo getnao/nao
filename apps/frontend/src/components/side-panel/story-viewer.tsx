@@ -25,6 +25,7 @@ import type { Editor as TiptapEditor } from '@tiptap/react';
 import type { StoryCodeViewHandle } from './story-code-view';
 import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
 import { useSidePanel } from '@/contexts/side-panel';
+import { useDragAutoScroll } from '@/hooks/use-drag-auto-scroll';
 import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
 import { ReadonlyAgentMessagesProvider, useOptionalAgentContext } from '@/contexts/agent.provider';
 import { StoryChartEditProvider } from '@/contexts/story-chart-edit';
@@ -38,18 +39,26 @@ interface StoryViewerProps {
 	chatId: string;
 	storySlug: string;
 	isReadonlyMode?: boolean;
+	initialTabIndex?: number;
 }
 
-export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp }: StoryViewerProps) {
+export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, initialTabIndex }: StoryViewerProps) {
 	const tiptapEditorRef = useRef<TiptapEditor | null>(null);
 	const codeViewRef = useRef<StoryCodeViewHandle | null>(null);
 	const tabbedEditCodeRef = useRef<(() => string) | null>(null);
 	const getEditModeCode = useCallback(() => tabbedEditCodeRef.current?.() ?? null, []);
 	const [isCodeDirty, setIsCodeDirty] = useState(false);
 	const [isCodeValid, setIsCodeValid] = useState(true);
-	const [activeTabIndex, setActiveTabIndex] = useState(0);
+	const [activeTabIndex, setActiveTabIndex] = useState(initialTabIndex ?? 0);
 	const scrollContainerRef = useRef<HTMLDivElement | null>(null);
-	const { close: closeSidePanel, isReadonlyMode: contextReadonlyMode, shareId, shareType } = useSidePanel();
+	const {
+		close: closeSidePanel,
+		isReadonlyMode: contextReadonlyMode,
+		shareId,
+		shareType,
+		setCurrentStorySlug,
+		setCurrentStoryTabIndex,
+	} = useSidePanel();
 	const isReadonlyMode = readonlyProp ?? contextReadonlyMode;
 	const { viewMode, setViewMode } = useStoryViewerViewMode();
 
@@ -73,6 +82,7 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp }:
 		isChatAgentRunning,
 	);
 	const resolvedStorySlug = draftStory?.id ?? storySlug;
+	const prevSlugRef = useRef(resolvedStorySlug);
 	const {
 		versions,
 		storyId,
@@ -110,7 +120,7 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp }:
 		versionNumber: currentVersionNumber > 0 ? currentVersionNumber : undefined,
 	});
 
-	const { handleSave, handleRestore } = useStoryViewerVersionActions({
+	const { handleSave, handleRestore, isSaving } = useStoryViewerVersionActions({
 		chatId,
 		storySlug: resolvedStorySlug,
 		storyTitle: storedTitle,
@@ -160,8 +170,19 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp }:
 	}, [viewMode]);
 
 	useEffect(() => {
-		setActiveTabIndex(0);
+		if (prevSlugRef.current !== resolvedStorySlug) {
+			prevSlugRef.current = resolvedStorySlug;
+			setActiveTabIndex(0);
+		}
 	}, [resolvedStorySlug]);
+
+	useEffect(() => {
+		setCurrentStorySlug(resolvedStorySlug);
+	}, [resolvedStorySlug, setCurrentStorySlug]);
+
+	useEffect(() => {
+		setCurrentStoryTabIndex(activeTab);
+	}, [activeTab, setCurrentStoryTabIndex]);
 
 	useStoryViewerStreamScroll({
 		scrollContainerRef,
@@ -169,6 +190,7 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp }:
 		code: storyCode,
 		viewMode,
 	});
+	useDragAutoScroll(scrollContainerRef);
 
 	if (!storyCode) {
 		if (chatQuery.isLoading) {
@@ -211,6 +233,7 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp }:
 				onEnlarge={handleEnlarge}
 				isShared={isShared}
 				isAgentRunning={isAgentRunning}
+				isSaving={isSaving}
 				isReadonlyMode={isReadonlyMode}
 				isLive={isLive}
 				isRefreshing={isRefreshing}
@@ -249,10 +272,13 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp }:
 								code={
 									isTabbedStory && tabs ? tabs[activeTab].innerCode : stripStoryTabsMarkup(storyCode)
 								}
+								fullCode={storyCode}
 								cacheSchedule={cacheSchedule}
 								queryData={queryData ?? null}
 								chatId={chatId}
+								storySlug={resolvedStorySlug}
 								versionKey={`${currentVersionNumber}-${cachedAt ?? ''}`}
+								filtersEnabled={isViewingLatest && !isAgentRunning}
 							/>
 						)
 					) : viewMode === 'edit' ? (

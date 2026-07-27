@@ -136,6 +136,8 @@ def cleanup_stale_paths(state: DatabaseSyncState, verbose: bool = False) -> int:
 
 def cleanup_stale_databases(active_databases: List, base_path: Path, verbose: bool = False):
     """Remove databases that are not present in the config file."""
+    if not base_path.exists():
+        return
 
     valid_db_folders_by_type: Dict[str, set] = defaultdict(set)
     db_folders = get_database_folder_names(active_databases)

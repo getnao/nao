@@ -1,6 +1,7 @@
 import { memo, useMemo, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useParams, useRouterState } from '@tanstack/react-router';
+import { filterSupersededExecuteSqlParts } from '@nao/shared/execute-sql-parts';
 import { TextShimmer } from '../ui/text-shimmer';
 import { ChatError } from './chat-error';
 import { FollowUpSuggestions } from './follow-up-suggestions';
@@ -74,7 +75,10 @@ export const ChatMessagesContent = memo(() => {
 	const followUpSuggestionsToolCall = useMemo(() => getLastFollowUpSuggestionsToolCall(messages), [messages]);
 	const extraComponentsRef = useRef<HTMLDivElement>(null);
 	const extraComponentsHeight = useHeight(extraComponentsRef);
-	const visibleMessages = useMemo(() => messages.filter((m) => !m.isForked), [messages]);
+	const visibleMessages = useMemo(
+		() => filterSupersededExecuteSqlParts(messages.filter((m) => !m.isForked)),
+		[messages],
+	);
 	const messageGroups = useMemo(() => groupMessages(visibleMessages), [visibleMessages]);
 
 	const forkMetadata = useQuery({

@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import { Fragment, useLayoutEffect, useRef, useState } from 'react';
 import { Streamdown } from 'streamdown';
-import type { displayChart } from '@nao/shared/tools';
+import { displayChart } from '@nao/shared/tools';
 import type { ReactNode } from 'react';
 
 import SlackIcon from '@/components/icons/slack.svg';
@@ -758,6 +758,9 @@ function ChartSlideshow({ charts }: { charts: AutomationFeedChart[] }) {
 function ChartSlide({ chart }: { chart: AutomationFeedChart }) {
 	const xAxisType = chart.config.x_axis_type === 'number' ? 'number' : 'category';
 	const data = chart.data as Record<string, unknown>[];
+	if (!displayChart.isBuiltinChartType(chart.config.chart_type)) {
+		return <div className='text-sm text-muted-foreground'>Custom charts are available in web chats only.</div>;
+	}
 
 	return (
 		<div className='flex w-full flex-col gap-1.5'>
@@ -773,6 +776,10 @@ function ChartSlide({ chart }: { chart: AutomationFeedChart }) {
 				title={chart.config.title}
 				yAxisMin={chart.config.y_axis_min}
 				yAxisMax={chart.config.y_axis_max}
+				yAxisLabel={chart.config.y_axis_label}
+				yAxisRightMin={chart.config.y_axis_right_min}
+				yAxisRightMax={chart.config.y_axis_right_max}
+				yAxisRightLabel={chart.config.y_axis_right_label}
 			/>
 		</div>
 	);

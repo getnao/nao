@@ -1,5 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useId } from 'react';
-import { Link } from '@tanstack/react-router';
+import { Link, useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { Plus, PencilRuler, Database, Image as ImageIcon, AlertTriangle, Shield, Check } from 'lucide-react';
 import { Button, ChatButton, MicButton } from './ui/button';
@@ -105,11 +105,24 @@ function ChatInputBase({
 		submitQueuedMessageNow,
 		error,
 		selectedModel,
+		messages,
 	} = useAgentContext();
+	const navigate = useNavigate();
 	const { isAdmin } = usePermissions();
 	const chatId = useChatId();
 
 	const isAdminMode = isAdmin && adminMode;
+	const adminModeLocked = messages.some((message) => message.role === 'user');
+	const handleSelectAdminMode = useCallback(() => {
+		if (!adminModeLocked) {
+			setAdminMode(!isAdminMode);
+			return;
+		}
+		if (isAdminMode) {
+			return;
+		}
+		navigate({ to: '/', search: { admin: true } });
+	}, [adminModeLocked, isAdminMode, setAdminMode, navigate]);
 	const imageUpload = useImageUpload();
 	const chatInputRestore = useChatInputRestore(!!allowQueueing);
 	const effectivePlaceholder = isRunning && allowQueueing ? 'Add a follow-up...' : placeholder;
@@ -378,7 +391,8 @@ function ChatInputBase({
 								hasSkills={hasSkills}
 								isAdmin={isAdmin}
 								isAdminMode={isAdminMode}
-								onToggleAdminMode={() => setAdminMode(!isAdminMode)}
+								adminModeLocked={adminModeLocked}
+								onSelectAdminMode={handleSelectAdminMode}
 								onAddImage={imageUpload.openFilePicker}
 								onAddStory={() => {
 									promptRef.current?.appendMention(
@@ -586,7 +600,8 @@ function ChatInputPlusMenu({
 	hasSkills,
 	isAdmin,
 	isAdminMode,
-	onToggleAdminMode,
+	adminModeLocked,
+	onSelectAdminMode,
 	onAddImage,
 	onAddStory,
 	onOpenSkills,
@@ -597,7 +612,8 @@ function ChatInputPlusMenu({
 	hasSkills: boolean;
 	isAdmin: boolean;
 	isAdminMode: boolean;
-	onToggleAdminMode: () => void;
+	adminModeLocked: boolean;
+	onSelectAdminMode: () => void;
 	onAddImage: () => void;
 	onAddStory: () => void;
 	onOpenSkills: () => void;
@@ -648,7 +664,11 @@ function ChatInputPlusMenu({
 				{isAdmin && (
 					<>
 						<DropdownMenuSeparator />
-						<DropdownMenuItem onSelect={onToggleAdminMode}>
+						<DropdownMenuItem
+							onSelect={onSelectAdminMode}
+							disabled={adminModeLocked && isAdminMode}
+							title={adminModeLocked && !isAdminMode ? 'Start a new chat in admin mode' : undefined}
+						>
 							<Shield className='size-4' />
 							<span>Admin mode</span>
 							{isAdminMode && <Check className='size-4 ml-auto' />}

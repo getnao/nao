@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildStoryTableBlock } from '../src/chart-block';
+import { buildStoryChartBlock, buildStoryTableBlock } from '../src/chart-block';
 import type { ColumnConditionalFormats } from '../src/conditional-formatting';
 import { injectTableFormatting, parseTableBlock, splitCodeIntoSegments } from '../src/story-segments';
 import { displayChart } from '../src/tools';
@@ -148,6 +148,107 @@ describe('displayChart.InputSchema table variant', () => {
 			title: 'Monthly sales',
 		});
 		expect(result.success).toBe(true);
+	});
+
+	it('accepts a kpi_card input without x-axis fields', () => {
+		const result = displayChart.InputSchema.safeParse({
+			query_id: 'q1',
+			chart_type: 'kpi_card',
+			series: [{ data_key: 'revenue' }],
+			title: 'Revenue',
+		});
+		expect(result.success).toBe(true);
+	});
+
+	it('still requires x_axis_key for line charts', () => {
+		const result = displayChart.InputSchema.safeParse({
+			query_id: 'q1',
+			chart_type: 'line',
+			series: [{ data_key: 'revenue' }],
+			title: 'Revenue',
+		});
+		expect(result.success).toBe(false);
+	});
+
+	it('omits the x_axis_key attribute for kpi cards without an axis', () => {
+		const block = buildStoryChartBlock({
+			query_id: 'q1',
+			chart_type: 'kpi_card',
+			x_axis_type: null,
+			series: [{ data_key: 'revenue' }],
+			title: 'Revenue',
+		});
+		expect(block).not.toContain('x_axis_key=');
+		expect(block).toContain('chart_type="kpi_card"');
+	});
+
+	it('retains KPI comparison mode only in the dispatched KPI schema', () => {
+		const input = {
+			query_id: 'query_1',
+			chart_type: 'kpi_card' as const,
+			x_axis_key: 'year',
+			x_axis_type: 'date' as const,
+			series: [{ data_key: 'sales' }],
+			title: 'Annual sales',
+			comparison_mode: 'percentage' as const,
+		};
+
+		const chartResult = displayChart.ChartInputSchema.safeParse(input);
+		expect(chartResult.success).toBe(true);
+		if (chartResult.success) {
+			expect(chartResult.data).not.toHaveProperty('comparison_mode');
+		}
+		expect(displayChart.InputSchema.safeParse(input)).toMatchObject({
+			success: true,
+			data: { comparison_mode: 'percentage' },
+		});
+	});
+
+	it('retains hide_total in a valid chart config', () => {
+		const result = displayChart.InputSchema.safeParse({
+			query_id: 'q',
+			chart_type: 'line',
+			x_axis_key: 'month',
+			x_axis_type: 'date',
+			series: [{ data_key: 'a' }, { data_key: 'b' }],
+			title: 't',
+			hide_total: true,
+		});
+		expect(result.success).toBe(true);
+		expect(result.success && result.data.chart_type !== 'table' && result.data.hide_total).toBe(true);
+	});
+
+	it('retains Y-axis settings and data labels in a valid chart config', () => {
+		const result = displayChart.InputSchema.safeParse({
+			query_id: 'q',
+			chart_type: 'mixed',
+			x_axis_key: 'month',
+			x_axis_type: 'date',
+			series: [
+				{ data_key: 'revenue', y_axis: 'left' },
+				{ data_key: 'margin', y_axis: 'right' },
+			],
+			title: 'Revenue and margin',
+			y_axis_min: 0,
+			y_axis_max: 1000,
+			y_axis_label: 'Revenue',
+			y_axis_right_min: -10,
+			y_axis_right_max: 100,
+			y_axis_right_label: 'Margin',
+			show_data_labels: true,
+		});
+		expect(result).toMatchObject({
+			success: true,
+			data: {
+				y_axis_min: 0,
+				y_axis_max: 1000,
+				y_axis_label: 'Revenue',
+				y_axis_right_min: -10,
+				y_axis_right_max: 100,
+				y_axis_right_label: 'Margin',
+				show_data_labels: true,
+			},
+		});
 	});
 
 	it('rejects a chart config missing chart fields', () => {

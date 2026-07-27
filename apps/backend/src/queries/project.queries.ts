@@ -392,6 +392,15 @@ export const listProjectChats = async (
 
 	const toolErrorCountExpr = countToolState('output-error');
 	const toolAvailableCountExpr = countToolState('output-available');
+	const sourceExpr = sql<string | null>`(
+		select source_message.source
+		from ${s.chatMessage} as source_message
+		where source_message.chat_id = ${s.chat.id}
+			and source_message.role = 'user'
+			and source_message.superseded_at is null
+		order by source_message.created_at desc
+		limit 1
+	)`;
 
 	const baseWhereClauses = [eq(s.chat.projectId, projectId)];
 
@@ -444,6 +453,11 @@ export const listProjectChats = async (
 			if (expr) {
 				filterWhereClauses.push(expr);
 			}
+		} else if (filter.id === 'source') {
+			const expr = or(...filter.values.map((source) => eq(sourceExpr, source)));
+			if (expr) {
+				filterWhereClauses.push(expr);
+			}
 		} else if (filter.id === 'toolState') {
 			const exprs: SQL<unknown>[] = [];
 			for (const v of filter.values) {
@@ -459,6 +473,24 @@ export const listProjectChats = async (
 					}
 				} else if (v === 'toolsWithErrors') {
 					exprs.push(gt(toolErrorCountExpr, 0));
+				}
+			}
+			const expr = or(...exprs);
+			if (expr) {
+				filterWhereClauses.push(expr);
+			}
+		} else if (filter.id === 'feedback') {
+			const exprs: SQL<unknown>[] = [];
+			for (const v of filter.values) {
+				if (v === 'noVotes') {
+					const e = and(eq(upvotesExpr, 0), eq(downvotesExpr, 0));
+					if (e) {
+						exprs.push(e);
+					}
+				} else if (v === 'upvotes') {
+					exprs.push(gt(upvotesExpr, 0));
+				} else if (v === 'downvotes') {
+					exprs.push(gt(downvotesExpr, 0));
 				}
 			}
 			const expr = or(...exprs);
@@ -490,6 +522,7 @@ export const listProjectChats = async (
 			userName: s.user.name,
 			userRole: sql<UserRole | null>`coalesce(${s.projectMember.role}, 'Former member')`.as('userRole'),
 			title: s.chat.title,
+			source: sourceExpr.as('source'),
 			numberOfMessages: numberOfMessagesExpr.as('numberOfMessages'),
 			totalTokens: totalTokensExpr.as('totalTokens'),
 			feedbackText: feedbackTextExpr.as('feedbackText'),
@@ -530,6 +563,7 @@ export const listProjectChats = async (
 			userName: row.userName,
 			userRole: row.userRole,
 			title: row.title,
+			source: row.source,
 			numberOfMessages: Number(row.numberOfMessages ?? 0),
 			totalTokens: Number(row.totalTokens ?? 0),
 			feedbackText: row.feedbackText ?? '',

@@ -12,7 +12,9 @@
 		"./story-segments": "./src/story-segments.ts",
 		"./story-table-utils": "./src/story-table-utils.ts",
 		"./story-tabs": "./src/story-tabs.ts",
-		"./story-validation": "./src/story-validation.ts"
+		"./story-validation": "./src/story-validation.ts",
+		"./sql-template": "./src/sql-template.ts",
+		"./execute-sql-parts": "./src/execute-sql-parts.ts"
 	},
 	"scripts": {
 		"test": "vitest run",
@@ -21,9 +23,11 @@
 		"format": "prettier --write ."
 	},
 	"dependencies": {
+		"d3-format": "^3.1.0",
 		"zod": "^4.2.1"
 	},
 	"devDependencies": {
+		"@types/d3-format": "^3.0.4",
 		"vitest": "^4.0.18"
 	}
 }

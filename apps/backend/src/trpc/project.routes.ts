@@ -746,6 +746,7 @@ export const projectRoutes = {
 					.object({
 						pythonSandboxing: z.boolean().optional(),
 						sandboxes: z.boolean().optional(),
+						displayMap: z.boolean().optional(),
 					})
 					.optional(),
 				transcribe: z
@@ -793,6 +794,7 @@ export const projectRoutes = {
 				sql_dangerously_write_perm_enabled: merged.sql?.dangerouslyWritePermEnabled,
 				python_execution_max_duration_secs: merged.pythonExecution?.maxDurationSecs,
 				python_sandboxing_enabled: merged.experimental?.pythonSandboxing,
+				display_map_enabled: merged.experimental?.displayMap,
 				memory_enabled: merged.memoryEnabled,
 				web_search_enabled: merged.webSearch?.enabled,
 				web_search_mode: merged.webSearch?.mode,
@@ -837,7 +839,7 @@ export const projectRoutes = {
 				filters: z
 					.array(
 						z.object({
-							id: z.enum(['userName', 'userRole', 'toolState']),
+							id: z.enum(['userName', 'userRole', 'toolState', 'feedback', 'source']),
 							values: z.array(z.string()).default([]),
 						}),
 					)
@@ -876,7 +878,12 @@ export const projectRoutes = {
 			}
 
 			const ownerName = ownerId ? await userQueries.getUserName(ownerId) : null;
-			return { ...chat, ownerId: ownerId ?? null, ownerName };
+			return {
+				...chat,
+				ownerId: ownerId ?? null,
+				ownerName,
+				chatOwnerId: ownerId ?? null,
+			};
 		}),
 
 	getEnvVars: adminProtectedProcedure.query(async ({ ctx }) => {

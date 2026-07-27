@@ -8,7 +8,7 @@ export interface UserWithRole {
 	messagingProviderCode: string | null;
 }
 
-export type ProjectChatsFacetKey = 'userName' | 'userRole' | 'toolState';
+export type ProjectChatsFacetKey = 'userName' | 'userRole' | 'toolState' | 'feedback' | 'source';
 
 export interface ListProjectChatsResponse {
 	chats: ProjectChatListItem[];

@@ -1,3 +1,4 @@
+import { markSupersededExecuteSqlParts } from '@nao/shared/execute-sql-parts';
 import type { LlmProvider } from '@nao/shared/types';
 import { convertToModelMessages, type ModelMessage, type Tool } from 'ai';
 
@@ -35,7 +36,7 @@ export async function getChatAsModelMessages(opts: {
 	projectId: string;
 	tools: Record<string, Tool>;
 }): Promise<ModelMessage[]> {
-	const uiMessages = await chatQueries.getChatMessages(opts.chatId);
+	const uiMessages = markSupersededExecuteSqlParts(await chatQueries.getChatMessages(opts.chatId));
 	const uiMessagesWithCompaction = compactionService.useLastCompaction(uiMessages);
 	const memories = await memoryService.safeGetUserMemories(opts.userId, opts.projectId, opts.chatId);
 	const systemPrompt = renderToMarkdown(SystemPrompt({ memories }));

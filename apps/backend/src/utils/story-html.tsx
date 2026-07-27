@@ -1,4 +1,11 @@
-import { bucketPieData, DEFAULT_COLORS, defaultColorFor, formatCompactNumber, labelize } from '@nao/shared';
+import {
+	bucketPieData,
+	computeKpiComparison,
+	DEFAULT_COLORS,
+	defaultColorFor,
+	formatChartValue,
+	labelize,
+} from '@nao/shared';
 import {
 	type DateFormatSettings,
 	DEFAULT_DATE_FORMAT_SETTINGS,
@@ -88,8 +95,10 @@ function StorySegment({ segment, queryData }: { segment: Segment; queryData: Que
 			return <ChartBlock chart={segment.chart} queryData={queryData} />;
 		case 'table':
 			return <TableBlock table={segment.table} queryData={queryData} />;
+		case 'filter':
+			return null;
 		case 'grid':
-			return <GridBlock cols={segment.cols} segments={segment.children} queryData={queryData} />;
+			return <GridBlock segment={segment} queryData={queryData} />;
 	}
 }
 
@@ -102,30 +111,31 @@ function MarkdownBlock({ content }: { content: string }) {
 }
 
 function GridBlock({
-	cols: _cols,
-	segments,
+	segment,
 	queryData,
 }: {
-	cols: number;
-	segments: Segment[];
+	segment: Extract<Segment, { type: 'grid' }>;
 	queryData: QueryDataMap | null;
 }) {
-	const allKpi = segments.every((s) => s.type === 'chart' && s.chart.chartType === 'kpi_card');
+	const allKpi =
+		segment.children.length > 0 &&
+		segment.children.every((child) => child.type === 'chart' && child.chart.chartType === 'kpi_card');
 	if (allKpi) {
 		return (
 			<div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, margin: '16px 0' }}>
-				{segments.map((seg, i) => (
-					<div key={i} style={{ flex: '1 1 0%', minWidth: 160 }}>
-						<StorySegment segment={seg} queryData={queryData} />
+				{segment.children.map((child, i) => (
+					<div key={i} style={{ flex: `${segment.widths?.[i] ?? 1} 1 0%`, minWidth: 160 }}>
+						<StorySegment segment={child} queryData={queryData} />
 					</div>
 				))}
 			</div>
 		);
 	}
+
 	return (
 		<>
-			{segments.map((seg, i) => (
-				<StorySegment key={i} segment={seg} queryData={queryData} />
+			{segment.children.map((child, i) => (
+				<StorySegment key={i} segment={child} queryData={queryData} />
 			))}
 		</>
 	);
@@ -165,6 +175,7 @@ function ChartBlock({ chart, queryData }: { chart: ParsedChartBlock; queryData: 
 			chartType: chart.chartType,
 			yAxisMin: chart.yAxisMin,
 			yAxisMax: chart.yAxisMax,
+			hideTotal: chart.hideTotal,
 		});
 		return (
 			<div style={{ margin: '16px 0' }}>
@@ -203,7 +214,15 @@ function ChartLegend({ series }: { series: ParsedChartBlock['series'] }) {
 }
 
 function KpiCards({ chart, rows }: { chart: ParsedChartBlock; rows: Record<string, unknown>[] }) {
-	const firstRow = rows[0] ?? {};
+	const sortedRows = [...rows].sort((a, b) => {
+		const av = a[chart.xAxisKey];
+		const bv = b[chart.xAxisKey];
+		if (chart.xAxisType === 'date') {
+			return new Date(String(av)).getTime() - new Date(String(bv)).getTime();
+		}
+		return 0;
+	});
+	const lastRow = sortedRows[sortedRows.length - 1] ?? {};
 	return (
 		<div
 			style={{
@@ -216,13 +235,70 @@ function KpiCards({ chart, rows }: { chart: ParsedChartBlock; rows: Record<strin
 			}}
 		>
 			{chart.series.map((s) => {
-				const raw = firstRow[s.data_key];
-				const value = typeof raw === 'number' ? formatCompactNumber(raw) : String(raw ?? '');
+				const raw = lastRow[s.data_key];
+				const value = typeof raw === 'number' ? formatChartValue(raw, s.value_format) : String(raw ?? '');
 				const label = s.label ?? s.data_key;
+				const comparison = computeKpiComparison(sortedRows, chart.xAxisKey, s.data_key, chart.comparisonMode);
 				return (
 					<div key={s.data_key} style={{ minWidth: 160 }}>
 						<div style={{ fontSize: 18, letterSpacing: '0.025em', color: '#1f2937' }}>{label}</div>
-						<div style={{ fontSize: 30, fontWeight: 500, color: '#111827' }}>{value}</div>
+						<div
+							style={{
+								fontSize: 30,
+								fontWeight: 500,
+								color: '#111827',
+								fontVariantNumeric: 'tabular-nums',
+							}}
+						>
+							{value}
+						</div>
+						{comparison &&
+							(() => {
+								const showArrow = comparison.colored && comparison.direction !== 'flat';
+								const color = showArrow
+									? comparison.direction === 'up'
+										? '#16a34a'
+										: '#dc2626'
+									: '#6b7280';
+								return (
+									<div
+										style={{
+											marginTop: 6,
+											display: 'flex',
+											alignItems: 'center',
+											gap: 6,
+											fontSize: 14,
+											color,
+											whiteSpace: 'nowrap',
+										}}
+									>
+										{showArrow && (
+											<svg
+												width='10'
+												height='10'
+												viewBox='0 0 14 12'
+												fill='currentColor'
+												stroke='currentColor'
+												strokeWidth='1.6'
+												strokeLinejoin='round'
+												style={{ flexShrink: 0 }}
+											>
+												<path
+													d={
+														comparison.direction === 'up'
+															? 'M7 2.5 12 10 2 10Z'
+															: 'M2 2.5 12 2.5 7 10Z'
+													}
+												/>
+											</svg>
+										)}
+										<span style={{ fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>
+											{comparison.valueText}
+										</span>
+										<span style={{ fontWeight: 400 }}>vs. {comparison.periodLabel}</span>
+									</div>
+								);
+							})()}
 					</div>
 				);
 			})}
@@ -341,6 +417,10 @@ function toChartConfig(chart: ParsedChartBlock) {
 		series: chart.series,
 		y_axis_min: chart.yAxisMin,
 		y_axis_max: chart.yAxisMax,
+		y_axis_label: chart.yAxisLabel,
+		y_axis_right_min: chart.yAxisRightMin,
+		y_axis_right_max: chart.yAxisRightMax,
+		y_axis_right_label: chart.yAxisRightLabel,
 		title: chart.title,
 		show_data_labels: chart.showDataLabels,
 	};
@@ -428,7 +508,64 @@ const TOOLTIP_SCRIPT_TEMPLATE = `
 		return escHtml(str.replace(/_/g,' ').replace(/\\b\\w/g,function(c){return c.toUpperCase()}))
 	}
 	function formatCompact(v){var a=Math.abs(v);if(a>=1e9)return (v/1e9).toFixed(1).replace(/[.]0$/,'')+'B';if(a>=1e6)return (v/1e6).toFixed(1).replace(/[.]0$/,'')+'M';if(a>=1e4)return (v/1e3).toFixed(1).replace(/[.]0$/,'')+'K';return v.toLocaleString()}
-	function formatVal(v){return escHtml(typeof v==='number'?formatCompact(v):String(v!=null?v:''))}
+	// Faithful port of d3-format's SI-prefix formatting so exported values match the chart.
+	var SI_PREFIXES=['y','z','a','f','p','n','µ','m','','k','M','G','T','P','E','Z','Y'];
+	var siPrefixExponent=0;
+	function formatDecimalParts(x,p){
+		var e=p?x.toExponential(p-1):x.toExponential();
+		var i=e.indexOf('e');
+		if(i<0)return null;
+		var coefficient=e.slice(0,i);
+		return [coefficient.length>1?coefficient[0]+coefficient.slice(2):coefficient,+e.slice(i+1)];
+	}
+	function formatPrefixAuto(x,p){
+		var d=formatDecimalParts(x,p);
+		if(!d)return x+'';
+		var coefficient=d[0],exponent=d[1];
+		siPrefixExponent=Math.max(-8,Math.min(8,Math.floor(exponent/3)))*3;
+		var i=exponent-siPrefixExponent+1,n=coefficient.length;
+		return i===n?coefficient:i>n?coefficient+new Array(i-n+1).join('0'):i>0?coefficient.slice(0,i)+'.'+coefficient.slice(i):'0.'+new Array(1-i).join('0')+formatDecimalParts(x,Math.max(0,p+i-1))[0];
+	}
+	function formatTrim(s){
+		out:for(var n=s.length,i=1,i0=-1,i1;i<n;++i){
+			switch(s[i]){
+				case '.':i0=i1=i;break;
+				case '0':if(i0===0)i0=i;i1=i;break;
+				default:if(!+s[i])break out;if(i0>0)i0=0;break;
+			}
+		}
+		return i0>0?s.slice(0,i0)+s.slice(i1+1):s;
+	}
+	function formatSi(v,precision,trim,compact){
+		var p=precision===undefined?6:precision;
+		p=Math.max(1,Math.min(21,p));
+		var negative=v<0;
+		var value=formatPrefixAuto(Math.abs(v),p);
+		if(trim)value=formatTrim(value);
+		var unit=SI_PREFIXES[8+siPrefixExponent/3];
+		if(compact!=='si'){if(unit==='k')unit='K';if(unit==='G')unit='B'}
+		return (negative?'-':'')+value+unit;
+	}
+	function formatD3Common(v,spec,compact){
+		var fixed=/^(,)?(?:\\.([0-9]+))?f$/.exec(spec);
+		if(fixed){
+			var decimals=fixed[2]===undefined?6:Number(fixed[2]);
+			return fixed[1]?v.toLocaleString(undefined,{minimumFractionDigits:decimals,maximumFractionDigits:decimals}):v.toFixed(decimals);
+		}
+		if(spec===',')return v.toLocaleString();
+		var si=/^\\.?([0-9]+)?(~)?s$/.exec(spec);
+		if(si)return formatSi(v,si[1]===undefined?undefined:Number(si[1]),si[2]==='~',compact);
+		return formatCompact(v);
+	}
+	function formatSeriesVal(v,fmt){
+		if(typeof v!=='number')return String(v!=null?v:'');
+		var number=fmt&&fmt.d3_format?formatD3Common(v,fmt.d3_format,fmt.compact):formatCompact(v);
+		var prefix=fmt&&fmt.prefix?String(fmt.prefix):'';
+		var suffix=fmt&&fmt.suffix?String(fmt.suffix):'';
+		if(prefix&&number.charAt(0)==='-')number='-'+prefix+number.slice(1);
+		else number=prefix+number;
+		return number+suffix;
+	}
 
 	document.querySelectorAll('.nao-chart').forEach(function(container){
 		var raw=container.getAttribute('data-chart');
@@ -497,11 +634,13 @@ const TOOLTIP_SCRIPT_TEMPLATE = `
 			var html='<div class="nao-tooltip-label">'+labelize(label!=null?label:'')+'</div>';
 			html+='<div class="nao-tooltip-rows">';
 			var isPercent=cfg.chartType==='stacked_bar_100'||cfg.chartType==='stacked_area_100';
+			var isDualAxis=(cfg.series||[]).some(function(s){return s.y_axis==='right'});
 			var seriesTotal=0;
 			cfg.series.forEach(function(s){var sv=row[s.data_key];if(typeof sv==='number'&&!s.is_total)seriesTotal+=sv;});
 			function pctShare(v){if(typeof v!=='number'||!seriesTotal)return '0%';var sh=Math.round(v/seriesTotal*1000)/10;return (sh%1===0?sh:sh.toFixed(1))+'%';}
 			var numericValues=[];
 			var hasTotalSeries=false;
+			var firstNonTotalSeries=cfg.series.find(function(s){return !s.is_total})||cfg.series[0];
 			cfg.series.forEach(function(s, si){
 				// A total series is dropped from 100% stacked rendering, so hide its tooltip row too.
 				if(isPercent&&s.is_total)return;
@@ -520,14 +659,14 @@ const TOOLTIP_SCRIPT_TEMPLATE = `
 				html+='<div class="nao-tooltip-row">'
 					+'<span class="nao-tooltip-swatch" style="background:'+escHtml(color)+'"></span>'
 					+'<span class="nao-tooltip-name">'+rowName+'</span>'
-					+'<span class="nao-tooltip-value">'+(isPercent?pctShare(val):formatVal(val))+'</span>'
+					+'<span class="nao-tooltip-value">'+escHtml(isPercent?pctShare(val):formatSeriesVal(val,s.value_format))+'</span>'
 					+'</div>';
 			});
-			if(numericValues.length>1 && (isPercent || !hasTotalSeries)){
+			if(numericValues.length>1 && !isDualAxis && (isPercent || (!hasTotalSeries && !cfg.hideTotal))){
 				var total=numericValues.reduce(function(a,b){return a+b},0);
 				html+='<div class="nao-tooltip-total">'
 					+'<span class="nao-tooltip-name">Total</span>'
-					+'<span class="nao-tooltip-value">'+(isPercent?'100%':escHtml(formatCompact(total)))+'</span>'
+					+'<span class="nao-tooltip-value">'+escHtml(isPercent?'100%':formatSeriesVal(total,firstNonTotalSeries&&firstNonTotalSeries.value_format))+'</span>'
 					+'</div>';
 			}
 			html+='</div>';

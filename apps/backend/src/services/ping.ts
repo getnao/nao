@@ -43,6 +43,7 @@ interface StartupAdditionalInfo {
 	userCount: number | null;
 	betaAutomationsEnabled: boolean;
 	betaContextRecommendationsEnabled: boolean;
+	betaStoryFiltersEnabled: boolean;
 	smtpConfigured: boolean;
 	loginModesConfigured: {
 		google: boolean;
@@ -64,6 +65,7 @@ async function startupAdditionalInfo(): Promise<StartupAdditionalInfo> {
 		userCount,
 		betaAutomationsEnabled: env.BETA_AUTOMATIONS_ENABLED,
 		betaContextRecommendationsEnabled: env.BETA_CONTEXT_RECOMMENDATIONS_ENABLED,
+		betaStoryFiltersEnabled: env.BETA_STORY_FILTERS_ENABLED,
 		smtpConfigured: isSmtpConfigured(),
 		loginModesConfigured: {
 			google: googleConfigured,

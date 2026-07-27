@@ -68,14 +68,24 @@ const settingsNavItems: NavItem[] = [
 		visible: ({ isAdmin }) => isAdmin,
 	},
 	{
-		label: 'Usage & costs',
+		label: 'Usage, costs & replay',
 		to: '/settings/usage',
 		visible: ({ isAdmin }) => isAdmin,
 	},
 	{
-		label: 'Chats Replay',
-		to: '/settings/chats-replay',
-		visible: ({ isAdmin, isContextAdmin }) => isAdmin || isContextAdmin,
+		label: 'Chats replay',
+		to: '/settings/usage',
+		visible: ({ isAdmin, isContextAdmin }) => !isAdmin && isContextAdmin,
+	},
+	{
+		label: 'Server logs',
+		to: '/settings/logs',
+		visible: ({ isAdmin, isCloud }) => isAdmin && !isCloud,
+	},
+	{
+		label: 'Context',
+		type: 'divider',
+		visible: ({ isViewer }) => !isViewer,
 	},
 	{
 		label: 'Recommendations',
@@ -85,9 +95,14 @@ const settingsNavItems: NavItem[] = [
 		badgeVariant: 'new',
 	},
 	{
-		label: 'Logs',
-		to: '/settings/logs',
-		visible: ({ isAdmin, isCloud }) => isAdmin && !isCloud,
+		label: 'File Explorer',
+		to: '/settings/context-explorer',
+		visible: ({ isAdmin }) => isAdmin,
+	},
+	{
+		label: 'Memory',
+		to: '/settings/memory',
+		visible: ({ isViewer }) => !isViewer,
 	},
 	{
 		label: 'Enterprise',
@@ -103,21 +118,6 @@ const settingsNavItems: NavItem[] = [
 		label: 'White-label',
 		to: '/settings/white-label',
 		visible: ({ isAdmin, isCloud }) => isAdmin && !isCloud,
-	},
-	{
-		label: 'Context',
-		type: 'divider',
-		visible: ({ isViewer }) => !isViewer,
-	},
-	{
-		label: 'Memory',
-		to: '/settings/memory',
-		visible: ({ isViewer }) => !isViewer,
-	},
-	{
-		label: 'File Explorer',
-		to: '/settings/context-explorer',
-		visible: ({ isAdmin }) => isAdmin,
 	},
 ];
 
